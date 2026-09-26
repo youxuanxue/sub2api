@@ -26,7 +26,7 @@ func TestRateLimitService_HandleUpstreamError_AntigravityValidation403UsesTempor
 	require.Equal(t, 1, repo.tempCalls)
 	require.Contains(t, repo.lastTempReason, "Validation required (403)")
 	require.Contains(t, repo.lastTempReason, "validation_url: https://accounts.google.com/verify")
-	require.WithinDuration(t, started.Add(30*time.Minute), time.Now().Add(30*time.Minute), 2*time.Second)
+	require.WithinDuration(t, started.Add(30*time.Minute), repo.lastTempUntil, 5*time.Second)
 }
 
 func TestRateLimitService_HandleUpstreamError_AntigravityViolation403RemainsPermanent(t *testing.T) {

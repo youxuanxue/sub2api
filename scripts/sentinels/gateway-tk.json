@@ -3058,6 +3058,38 @@
       "rationale": "TK prod P0 2026-06-25 (routing_capacity_rejection spike on gpt-5.5): a single `POST /v1/embeddings` with model=gpt-5.5 returned OpenAI 403 'You are not allowed to generate embeddings from this model'. handleOpenAI403 treated that client-induced model/endpoint capability 403 as account-level and wrote a 10-min temp_unschedulable on OAuth Codex accounts #9/#73 — the very accounts serving the bulk of gpt-5.5 chat traffic — emptying the openai compat pool and producing 628 'no available accounts' 429s until the cooldown lapsed. This companion holds the keyword predicate that handleOpenAI403 consults (anchored via the ratelimit_service.go sentinel) to SKIP the 403 counter + cooldown for deterministic per-request capability 403s, the OpenAI sibling of the Anthropic client-induced-400 skip (#2608). Dropping this file or its keywords silently restores OAuth-pool poisoning where one wrong-endpoint request cools a healthy shared account for all other models."
     },
     {
+      "path": "backend/internal/service/ratelimit_service_tk_antigravity_validation.go",
+      "must_contain": [
+        "func (s *RateLimitService) applyAntigravityValidationPenalty(",
+        "if s.antigravityValidationCounter == nil {",
+        "IncrementAntigravityValidationCount(",
+        "if count >= int64(antigravityValidationDisableThreshold) {",
+        "s.handleAuthError(ctx, account, disableMsg)",
+        "consecutive_validation_403=%d/%d",
+        ") ResetAntigravityValidationCounter(",
+        "AcquireAntigravityValidationEscalationSlot(",
+        "} else if !won {",
+        "SetAntigravityValidationEscalationSlotTTL(",
+        "ResetAntigravityValidationEscalationSlot("
+      ],
+      "rationale": "Antigravity VALIDATION_REQUIRED (403) 渐进惩罚 owner。Google 的账号验证挑战可恢复，但真正需要人工验证的账号不会自愈：修复前 handleAntigravity403 写死 30 分钟固定冷却且无轮数计数，账号每 30 分钟被放回调度池、烧掉一次真实上游请求、再被打下去，无限循环。本 companion 持有阶梯（30min → 2h → 第 3 轮 SetError 永久禁用），语义与同平台 antigravity_internal500_penalty.go 及 OpenAI 403 阶梯一致。两个 must_contain 是刻意的 fail-open 边界：`if s.antigravityValidationCounter == nil` 与计数失败分支必须退回单档冷却，绝不因为缺少可选依赖（未接线 / Redis 不可用）就把可恢复的验证挑战升级成永久禁用；删掉它们会让一次 Redis 抖动永久禁用整批健康账号。`ResetAntigravityValidationCounter` 必须存在并被成功路径与人工恢复路径调用，否则已解除验证的账号会带着陈旧轮数直接跳到永久禁用档。上游合并若把 validation 分支重新内联回固定冷却，可以编译通过且无测试红灯（旧用例不带计数器、命中 fallback），因此由 sentinel 捕获。 升级槽位（escalation slot，对齐 Anthropic 阶梯 issue #623）同样是不变量：账号 concurrency 默认 3，一次 VALIDATION_REQUIRED 会让多个 in-flight 请求同时拿到 403，没有槽位时计数在毫秒内冲到 3，30min/2h 两档冷却被整体跳过、一次本可自动恢复的验证挑战直接把账号永久禁用（已用并发用例复现）。Acquire 必须在 Increment 之前、输家必须 return 而不递增、赢家必须把槽位 TTL 收缩到本轮冷却长度（否则下一轮真实事件被误判成同一轮而静默跳过升级），恢复路径必须释放槽位。槽位获取失败保持 fail open 照常升级，不让守卫故障放过真正需要人工验证的账号。"
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_antigravity_validation_test.go",
+      "must_contain": [
+        "TestAntigravityValidation403_第3轮永久禁用",
+        "TestAntigravityValidation403_计数器缺失时退回单档冷却",
+        "TestAntigravityValidation403_计数失败时退回单档冷却",
+        "TestAntigravityValidation403_违规403仍然永久禁用且不计入验证阶梯",
+        "TestAntigravityValidation403_并发同一事件只推进一轮",
+        "TestAntigravityValidation403_槽位输家不推进阶梯",
+        "TestAntigravityValidation403_槽位收缩到本轮冷却长度",
+        "TestAntigravityValidation403_槽位故障时照常升级",
+        "TestResetAntigravityValidationCounter_同时释放槽位"
+      ],
+      "rationale": "锁定验证阶梯的四条不变量：阶梯确实会在第 3 轮收敛为人工处理（否则无限重放照旧）；计数器缺失与计数失败两条 fail-open 路径都退回单档冷却而非永久禁用；violation 403 一次都不碰计数器，不消耗验证阶梯预算（否则违规封号会污染验证轮数）。删掉任一用例都会让对应回归静默通过。 并发用例用真实 INCR/SETNX 语义复刻同一验证事件下的 3 个 in-flight 请求，锁定「一次事件只推进一轮」——删掉它，去掉槽位守卫的回归会完全静默（单请求用例全绿）。另外三条锁定槽位输家不推进阶梯、赢家把 TTL 收缩到本轮冷却、槽位故障时 fail open 照常升级。"
+    },
+    {
       "path": "backend/internal/service/gateway_service_tk_sticky_saturation.go",
       "must_contain": [
         "func (s *GatewayService) tkShouldClearStickyForSaturation(",
@@ -3410,9 +3442,10 @@
         "s.notifyAccountRecovered(accountID)",
         "s.tkTryHandleUpstreamErrorPrelude(",
         "s.tkHandleNonOpenAI403(",
-        "s.tkOpenAI403PrePenaltyGates("
+        "s.tkOpenAI403PrePenaltyGates(",
+        "antigravityValidationEscalationSlotMaxSeconds"
       ],
-      "rationale": "Anthropic model-not-found 404s are CLIENT errors (a model name no account serves — Anthropic's catalog is global, not per-account) and must SKIP the account penalty (slog `anthropic_model_not_found_skip_penalty`, return false → shouldDisable=false, no UpstreamFailoverError wrap) so one bad-model client cannot cool accounts and drain a thin edge pool into 'No available accounts' 429s; the gateway then surfaces a 400 'Unsupported model' to the client (path B, prod P0 2026-06-06 edge us5). An upstream merge that re-adds SetModelRateLimit on this 404 path reintroduces the amplifier. Anthropic 429s without reset metadata must use the configurable short cooldown unless the body is the known third-party/extra-usage rejection, otherwise production can repeatedly hit the same account with no local backoff. Anthropic upstream errors must feed the TK short-window counter (anchored by `anthropicUpstreamErrorWindowMinutes` — intentionally short at 1 minute so transient bursts clear quickly) and mark the account temporarily unschedulable after three hits so a single bad Edge/OAuth account cannot produce repeated upstream 400/403/5xx responses before the scheduler removes it. **Pool-mode policy (2026-05-21 revision of PR #333, anchored by `anthropicCooldownTierLadder`)**: the prior PR #333 carve-out (which let pool_mode accounts early-return before the counter via `anthropic_upstream_error_pool_mode_skipped`) is removed. PR #333's blanket immunity left ops with no mechanical signal that a stub was failing, leaving cc-edges (single-member exclusive group) vulnerable to silently routing all traffic to a dead upstream pool. The replacement is **tiered exponential cooldown**: first cooldown in a 30-min window is 30s (transient jitter shrugged off without the 10-min outage that motivated PR #248's reversal), second is 2 min, third+ is 10 min. The two carve-outs on `HandleUpstreamError` entry (`account.Platform != PlatformAnthropic` on both the pool-mode early-return AND the custom-error-codes allowlist guard) MUST stay so Anthropic 4xx/5xx still enter the dispatch — without them an upstream merge that 'simplifies' the early-returns would silently restore PR #333's broken immunity. `IncrementAnthropicCooldownTier` and `ResetAnthropicCooldownTier` are anchored separately because they are the load-bearing seams for tier escalation; a Redis client refactor that drops them would silently collapse the ladder back to a fixed 30s cooldown. The `ResetAnthropicUpstreamErrorCounter` call MUST be invoked from recovery hotpaths (ClearRateLimit, RecoverAccountState, ClearTempUnschedulable, UpdateSessionWindow allowed status) so a healed account does not carry stale strikes OR stale tier escalation. OpenAI burst 429s (Codex headers present but neither 5h nor 7d window at 100% used+with-reset) must call the TK companion TkRecordOpenAI429BurstFallthrough and return nil so handle429 falls back to the short cooldown, otherwise transient throttle surges turn into multi-day 503 windows (upstream #2258). Upstream merges in this large service file can compile cleanly while dropping any of these protections, so the sentinel anchors all policies in the hotspot file. **G1 (413 / request_too_large)**: `case 413:` short-circuits an upstream request_too_large for Anthropic (slog `anthropic_request_too_large_skip_penalty`) so an oversized request that cleared TokenKey's local body-limit but exceeded Anthropic's own cap fails back to the client without advancing the 3/3 ladder — a client looping 300KB+ sessions must not be able to cool a shared OAuth account. Dropping the case lets request_too_large fall into the default 4xx-5xx branch and silently re-arm the amplifier. **G2 (narrow — downstream failover-exhausted)**: `tkSkipDownstreamFailoverExhaustedPenalty` (slog `anthropic_downstream_failover_exhausted_skip_penalty`) extends the no-available skip to TokenKey's own 'all available accounts exhausted' downstream capacity envelope; it matches ONLY that TokenKey-generated phrase, so raw edge-infra 5xx and genuine provider errors still count and keep the PR #333 route-away cooldown. Removing either hook silently regresses the corresponding non-account amplification exemption. **Recovery notify**: `notifyAccountSchedulingBlockCleared`(ClearRateLimit/RecoverAccountState 的账号真实清除汇聚点)末尾调 `s.notifyAccountRecovered(accountID)` 发飞书恢复绿卡(事件驱动)。删掉该行 → 账号恢复无任何飞书通知,恢复链路断裂。 **G3 (non-authoritative 429)**: 无 anthropic-ratelimit-* 头的 429 是 edge 的 header-less capacity/failover 信封('Upstream rate limit exceeded, please retry later' 等),不是真窗口限流(真窗口限流一定带头);case-429 调 `tkIsAnthropicNonAuthoritative429`(无条件,无开关)不冷却不喂阶梯(slog `anthropic_non_authoritative_429_skip_penalty`),泛化 no-available / failover-exhausted 两个 needle 跳过 —— 删掉它会重新点燃把健康镜像(cc-us7,2026-06-13 23:11 tier-0 30s)冷却的放大器。详见 ratelimit_service_tk_nonauthoritative_429.go。 Kiro invalid-bearer 403 handling must stay wired into handle403 before the generic SetError fallback; the companion helper alone is insufficient if this call site is dropped."
+      "rationale": "Anthropic model-not-found 404s are CLIENT errors (a model name no account serves — Anthropic's catalog is global, not per-account) and must SKIP the account penalty (slog `anthropic_model_not_found_skip_penalty`, return false → shouldDisable=false, no UpstreamFailoverError wrap) so one bad-model client cannot cool accounts and drain a thin edge pool into 'No available accounts' 429s; the gateway then surfaces a 400 'Unsupported model' to the client (path B, prod P0 2026-06-06 edge us5). An upstream merge that re-adds SetModelRateLimit on this 404 path reintroduces the amplifier. Anthropic 429s without reset metadata must use the configurable short cooldown unless the body is the known third-party/extra-usage rejection, otherwise production can repeatedly hit the same account with no local backoff. Anthropic upstream errors must feed the TK short-window counter (anchored by `anthropicUpstreamErrorWindowMinutes` — intentionally short at 1 minute so transient bursts clear quickly) and mark the account temporarily unschedulable after three hits so a single bad Edge/OAuth account cannot produce repeated upstream 400/403/5xx responses before the scheduler removes it. **Pool-mode policy (2026-05-21 revision of PR #333, anchored by `anthropicCooldownTierLadder`)**: the prior PR #333 carve-out (which let pool_mode accounts early-return before the counter via `anthropic_upstream_error_pool_mode_skipped`) is removed. PR #333's blanket immunity left ops with no mechanical signal that a stub was failing, leaving cc-edges (single-member exclusive group) vulnerable to silently routing all traffic to a dead upstream pool. The replacement is **tiered exponential cooldown**: first cooldown in a 30-min window is 30s (transient jitter shrugged off without the 10-min outage that motivated PR #248's reversal), second is 2 min, third+ is 10 min. The two carve-outs on `HandleUpstreamError` entry (`account.Platform != PlatformAnthropic` on both the pool-mode early-return AND the custom-error-codes allowlist guard) MUST stay so Anthropic 4xx/5xx still enter the dispatch — without them an upstream merge that 'simplifies' the early-returns would silently restore PR #333's broken immunity. `IncrementAnthropicCooldownTier` and `ResetAnthropicCooldownTier` are anchored separately because they are the load-bearing seams for tier escalation; a Redis client refactor that drops them would silently collapse the ladder back to a fixed 30s cooldown. The `ResetAnthropicUpstreamErrorCounter` call MUST be invoked from recovery hotpaths (ClearRateLimit, RecoverAccountState, ClearTempUnschedulable, UpdateSessionWindow allowed status) so a healed account does not carry stale strikes OR stale tier escalation. OpenAI burst 429s (Codex headers present but neither 5h nor 7d window at 100% used+with-reset) must call the TK companion TkRecordOpenAI429BurstFallthrough and return nil so handle429 falls back to the short cooldown, otherwise transient throttle surges turn into multi-day 503 windows (upstream #2258). Upstream merges in this large service file can compile cleanly while dropping any of these protections, so the sentinel anchors all policies in the hotspot file. **G1 (413 / request_too_large)**: `case 413:` short-circuits an upstream request_too_large for Anthropic (slog `anthropic_request_too_large_skip_penalty`) so an oversized request that cleared TokenKey's local body-limit but exceeded Anthropic's own cap fails back to the client without advancing the 3/3 ladder — a client looping 300KB+ sessions must not be able to cool a shared OAuth account. Dropping the case lets request_too_large fall into the default 4xx-5xx branch and silently re-arm the amplifier. **G2 (narrow — downstream failover-exhausted)**: `tkSkipDownstreamFailoverExhaustedPenalty` (slog `anthropic_downstream_failover_exhausted_skip_penalty`) extends the no-available skip to TokenKey's own 'all available accounts exhausted' downstream capacity envelope; it matches ONLY that TokenKey-generated phrase, so raw edge-infra 5xx and genuine provider errors still count and keep the PR #333 route-away cooldown. Removing either hook silently regresses the corresponding non-account amplification exemption. **Recovery notify**: `notifyAccountSchedulingBlockCleared`(ClearRateLimit/RecoverAccountState 的账号真实清除汇聚点)末尾调 `s.notifyAccountRecovered(accountID)` 发飞书恢复绿卡(事件驱动)。删掉该行 → 账号恢复无任何飞书通知,恢复链路断裂。 **G3 (non-authoritative 429)**: 无 anthropic-ratelimit-* 头的 429 是 edge 的 header-less capacity/failover 信封('Upstream rate limit exceeded, please retry later' 等),不是真窗口限流(真窗口限流一定带头);case-429 调 `tkIsAnthropicNonAuthoritative429`(无条件,无开关)不冷却不喂阶梯(slog `anthropic_non_authoritative_429_skip_penalty`),泛化 no-available / failover-exhausted 两个 needle 跳过 —— 删掉它会重新点燃把健康镜像(cc-us7,2026-06-13 23:11 tier-0 30s)冷却的放大器。详见 ratelimit_service_tk_nonauthoritative_429.go。 Kiro invalid-bearer 403 handling must stay wired into handle403 before the generic SetError fallback; the companion helper alone is insufficient if this call site is dropped. 槽位占位 TTL 常量一并锚定：它取阶梯最长一档，保证「抢到槽位但收缩失败」时宁可多抑制一轮升级，也不把一次验证事件拆成多轮推向永久禁用。"
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_403_gate.go",
@@ -3659,9 +3692,10 @@
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "s.tkHandleNonOpenAI403("
+        "s.tkHandleNonOpenAI403(",
+        "antigravityValidationEscalationSlotMaxSeconds"
       ],
-      "rationale": "G5/G6 Kiro mirror downstream-failure injection points (call-site anchors). 401/403/502 skip bodies live in ratelimit_service_tk_auth401.go / ratelimit_service_tk_handle403.go / ratelimit_service_tk_handle429_extras.go; these thin call sites in the upstream-shaped file must remain so an upstream merge cannot drop the wiring. Detailed needles are anchored on the companions."
+      "rationale": "G5/G6 Kiro mirror downstream-failure injection points (call-site anchors). 401/403/502 skip bodies live in ratelimit_service_tk_auth401.go / ratelimit_service_tk_handle403.go / ratelimit_service_tk_handle429_extras.go; these thin call sites in the upstream-shaped file must remain so an upstream merge cannot drop the wiring. Detailed needles are anchored on the companions. 槽位占位 TTL 常量一并锚定：它取阶梯最长一档，保证「抢到槽位但收缩失败」时宁可多抑制一轮升级，也不把一次验证事件拆成多轮推向永久禁用。"
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_downstream_no_available_test.go",
@@ -5330,9 +5364,10 @@
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "s.tkClampOpenAIRateLimitReset(ctx, account.ID",
-        "s.tkClampAnthropicWindowReset(ctx, account.ID"
+        "s.tkClampAnthropicWindowReset(ctx, account.ID",
+        "antigravityValidationEscalationSlotMaxSeconds"
       ],
-      "rationale": "TK#2608: client-induced Anthropic 400 invalid_request_error must not advance the per-account cooldown counter (else an external caller can pause a shared OAuth subscription account). TK#1981: opt-in clamp of long OpenAI 429 resets so released accounts are re-probed by traffic instead of idling. Prod incident 2026-05-31 / 2026-06: a downstream 503 or 429 whose body is our own 'no available accounts' pool-exhaustion signal must fail over WITHOUT handle429 cooldown — that skip body now lives in ratelimit_service_tk_handle429_extras.go; this entry anchors the remaining main-file injections plus the thin s.tkTryHandle429Extras call site."
+      "rationale": "TK#2608: client-induced Anthropic 400 invalid_request_error must not advance the per-account cooldown counter (else an external caller can pause a shared OAuth subscription account). TK#1981: opt-in clamp of long OpenAI 429 resets so released accounts are re-probed by traffic instead of idling. Prod incident 2026-05-31 / 2026-06: a downstream 503 or 429 whose body is our own 'no available accounts' pool-exhaustion signal must fail over WITHOUT handle429 cooldown — that skip body now lives in ratelimit_service_tk_handle429_extras.go; this entry anchors the remaining main-file injections plus the thin s.tkTryHandle429Extras call site. 槽位占位 TTL 常量一并锚定：它取阶梯最长一档，保证「抢到槽位但收缩失败」时宁可多抑制一轮升级，也不把一次验证事件拆成多轮推向永久禁用。"
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_implicit_throttle.go",
@@ -6309,9 +6344,10 @@
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "s.notifyAccountIncident(account, until, reason, IncidentKindUnknown, detail...)",
-        "isWholeAccountRuntimeBlockReason(reason)"
+        "isWholeAccountRuntimeBlockReason(reason)",
+        "antigravityValidationEscalationSlotMaxSeconds"
       ],
-      "rationale": "账号失效 → 飞书告警的唯一挂钩点。notifyAccountSchedulingBlocked 是所有 13 个账号失效/冷却场景（auth_error / oauth_401 / 429 / 529 / 403temp / temp / custom / stream_timeout）的汇聚点；这一行把失效事件上报给 AccountIncidentNotifier（永久失效即时 P0 红头卡片、临时冷却聚合低频橙头摘要）。末尾的 detail... 透传上游限流维度提示（Anthropic 5h/7d 用量窗口、被限流的模型类）进飞书摘要，变参故非 enriched 挂钩点不受影响。isWholeAccountRuntimeBlockReason gates in-memory BlockAccountScheduling so model-scoped cooldown reasons (429_codex_metered / 429_model_class) do not whole-account runtime-block — SSOT with notifyAccountSchedulingBlocked for OAuth 429 (prod GPT-pro3/4 2026-07-28).上游合并若重写 notifyAccountSchedulingBlocked 并丢掉此行，会让账号失效告警静默失效——运营再也收不到『某账号该重新 OAuth / 查 bug』，且无编译错误、极难发现。本 sentinel 捕获该 revert。"
+      "rationale": "账号失效 → 飞书告警的唯一挂钩点。notifyAccountSchedulingBlocked 是所有 13 个账号失效/冷却场景（auth_error / oauth_401 / 429 / 529 / 403temp / temp / custom / stream_timeout）的汇聚点；这一行把失效事件上报给 AccountIncidentNotifier（永久失效即时 P0 红头卡片、临时冷却聚合低频橙头摘要）。末尾的 detail... 透传上游限流维度提示（Anthropic 5h/7d 用量窗口、被限流的模型类）进飞书摘要，变参故非 enriched 挂钩点不受影响。isWholeAccountRuntimeBlockReason gates in-memory BlockAccountScheduling so model-scoped cooldown reasons (429_codex_metered / 429_model_class) do not whole-account runtime-block — SSOT with notifyAccountSchedulingBlocked for OAuth 429 (prod GPT-pro3/4 2026-07-28).上游合并若重写 notifyAccountSchedulingBlocked 并丢掉此行，会让账号失效告警静默失效——运营再也收不到『某账号该重新 OAuth / 查 bug』，且无编译错误、极难发现。本 sentinel 捕获该 revert。 槽位占位 TTL 常量一并锚定：它取阶梯最长一档，保证「抢到槽位但收缩失败」时宁可多抑制一轮升级，也不把一次验证事件拆成多轮推向永久禁用。"
     },
     {
       "path": "backend/internal/service/account_incident_notifier_tk.go",
@@ -7118,9 +7154,10 @@
       "must_contain": [
         "s.tkTryHandleUpstreamErrorPrelude(",
         "if len(requestedModel) > 0 && s.tkTryAnthropicModelScopedCooldown(ctx, account, requestedModel[0], result) {",
-        "if len(requestedModel) > 0 && s.tkTryOpenAICodexModelScopedCooldown(ctx, account, requestedModel[0], resetTime) {"
+        "if len(requestedModel) > 0 && s.tkTryOpenAICodexModelScopedCooldown(ctx, account, requestedModel[0], resetTime) {",
+        "antigravityValidationEscalationSlotMaxSeconds"
       ],
-      "rationale": "G4 injection point in the upstream-shaped error dispatch. CloudWise model-balance 402 must try the exact-model cooldown before pool/custom early exits, while a failed write or missing model bypasses those exits and reaches the conservative account-level 402 fallback. CloudWise Provider error 424 must likewise enter its bounded model/account breaker before those configurable exits. The Anthropic per-window (5h/7d) branch must try the (account x model class) cooldown BEFORE the account-level SetRateLimited fallback, and the dispatch must thread requestedModel into handle429. The OpenAI/Codex body path (usage_limit_reached) must likewise try tkTryOpenAICodexModelScopedCooldown BEFORE the whole-account SetRateLimited so a spark per-model sub-limit 429 (account-wide window healthy) is narrowed to the model. An upstream merge that rewrites these paths or drops the requestedModel passthrough would silently restore whole-account amplification or fail-open CloudWise scheduling; this sentinel anchors the calls, fallbacks, and threading."
+      "rationale": "G4 injection point in the upstream-shaped error dispatch. CloudWise model-balance 402 must try the exact-model cooldown before pool/custom early exits, while a failed write or missing model bypasses those exits and reaches the conservative account-level 402 fallback. CloudWise Provider error 424 must likewise enter its bounded model/account breaker before those configurable exits. The Anthropic per-window (5h/7d) branch must try the (account x model class) cooldown BEFORE the account-level SetRateLimited fallback, and the dispatch must thread requestedModel into handle429. The OpenAI/Codex body path (usage_limit_reached) must likewise try tkTryOpenAICodexModelScopedCooldown BEFORE the whole-account SetRateLimited so a spark per-model sub-limit 429 (account-wide window healthy) is narrowed to the model. An upstream merge that rewrites these paths or drops the requestedModel passthrough would silently restore whole-account amplification or fail-open CloudWise scheduling; this sentinel anchors the calls, fallbacks, and threading. 槽位占位 TTL 常量一并锚定：它取阶梯最长一档，保证「抢到槽位但收缩失败」时宁可多抑制一轮升级，也不把一次验证事件拆成多轮推向永久禁用。"
     },
     {
       "path": "backend/internal/service/model_rate_limit.go",
@@ -8000,9 +8037,10 @@
       "must_contain": [
         "tkCheckPlatformPoolExhausted",
         "func (s *RateLimitService) handle529(ctx context.Context, account *Account, headers http.Header) bool",
-        "cooldown = anthropicCooldownTierLadder[0]"
+        "cooldown = anthropicCooldownTierLadder[0]",
+        "antigravityValidationEscalationSlotMaxSeconds"
       ],
-      "rationale": "Three incident-2026-06-11 guards inside upstream-owned ratelimit_service.go: (a) defense-in-depth skip in case 429 so a request-owned policy 429 never advances the anthropic ladder regardless of which caller reached HandleUpstreamError; (b) the pool-exhausted check hook on the notifyAccountSchedulingBlocked funnel — the only place that can observe the 'last schedulable account just got cooled' transition for the platform-pool P0 Feishu card; (c) handle529 amplifier removal (16:50 UTC全edge全宕): handle529 takes 'headers' to honor upstream Retry-After and writes only the 30s tier-0 floor ('cooldown = anthropicCooldownTierLadder[0]') instead of the legacy flat 10-min SetOverloaded, and case 529 feeds its return as skipCooldownWrite ('retryAfterOwned := s.handle529(...)') so a no-Retry-After 529 does NOT suppress the 3/3 ladder — sustained 529 still escalates while a single provider-wide blip costs only 30s. A future upstream merge reverting any anchor (dropping headers, reinstating a flat-minutes cooldown, or suppressing the ladder unconditionally) re-arms the single-account-edge 10-min lockout PR#730 fixed."
+      "rationale": "Three incident-2026-06-11 guards inside upstream-owned ratelimit_service.go: (a) defense-in-depth skip in case 429 so a request-owned policy 429 never advances the anthropic ladder regardless of which caller reached HandleUpstreamError; (b) the pool-exhausted check hook on the notifyAccountSchedulingBlocked funnel — the only place that can observe the 'last schedulable account just got cooled' transition for the platform-pool P0 Feishu card; (c) handle529 amplifier removal (16:50 UTC全edge全宕): handle529 takes 'headers' to honor upstream Retry-After and writes only the 30s tier-0 floor ('cooldown = anthropicCooldownTierLadder[0]') instead of the legacy flat 10-min SetOverloaded, and case 529 feeds its return as skipCooldownWrite ('retryAfterOwned := s.handle529(...)') so a no-Retry-After 529 does NOT suppress the 3/3 ladder — sustained 529 still escalates while a single provider-wide blip costs only 30s. A future upstream merge reverting any anchor (dropping headers, reinstating a flat-minutes cooldown, or suppressing the ladder unconditionally) re-arms the single-account-edge 10-min lockout PR#730 fixed. 槽位占位 TTL 常量一并锚定：它取阶梯最长一档，保证「抢到槽位但收缩失败」时宁可多抑制一轮升级，也不把一次验证事件拆成多轮推向永久禁用。"
     },
     {
       "path": "backend/internal/service/account_incident_notifier_tk_pool.go",
@@ -8543,12 +8581,13 @@
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "5h 窗口重置时只清除 5h 自己的陈旧 utilization"
+        "5h 窗口重置时只清除 5h 自己的陈旧 utilization",
+        "antigravityValidationEscalationSlotMaxSeconds"
       ],
       "must_not_contain": [
         "\"passive_usage_7d_utilization\": nil"
       ],
-      "rationale": "TK fix (PR #782): on a 5h session-window roll (needInitWindow) UpdateSessionWindow must clear ONLY session_window_utilization, never the independent 7d family (passive_usage_7d_* / passive_usage_7d_sonnet_*). The pre-fix code cleared the 7d keys as nil on every 5h roll (4-5x/day), blanking the admin 7d / 7d-S windows until new traffic re-sampled the header. must_contain pins the fixed comment; must_not_contain catches an upstream merge that re-introduces the 7d nil-clear — the bare key still legitimately appears in the header-sampling block as an index assignment (extraUpdates[...] = ts), so the map-literal `: nil` form is the revert-specific signal."
+      "rationale": "TK fix (PR #782): on a 5h session-window roll (needInitWindow) UpdateSessionWindow must clear ONLY session_window_utilization, never the independent 7d family (passive_usage_7d_* / passive_usage_7d_sonnet_*). The pre-fix code cleared the 7d keys as nil on every 5h roll (4-5x/day), blanking the admin 7d / 7d-S windows until new traffic re-sampled the header. must_contain pins the fixed comment; must_not_contain catches an upstream merge that re-introduces the 7d nil-clear — the bare key still legitimately appears in the header-sampling block as an index assignment (extraUpdates[...] = ts), so the map-literal `: nil` form is the revert-specific signal. 槽位占位 TTL 常量一并锚定：它取阶梯最长一档，保证「抢到槽位但收缩失败」时宁可多抑制一轮升级，也不把一次验证事件拆成多轮推向永久禁用。"
     },
     {
       "path": "backend/internal/service/gateway_service_tk_unsupported_model.go",
@@ -8636,9 +8675,21 @@
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "s.anthropicUpstreamErrorCounterCache.ResetAnthropicBodyless403Count(ctx, accountID)"
+        "s.anthropicUpstreamErrorCounterCache.ResetAnthropicBodyless403Count(ctx, accountID)",
+        "antigravityValidationEscalationSlotMaxSeconds"
       ],
-      "rationale": "Recovery hotpath must reset the bodyless-403 counter when clearing Anthropic upstream-error state so a healed account does not carry a stale permanent-disable strike. Companion handle403 owns the escalate call site; this anchors the Reset in the upstream-shaped recovery path."
+      "rationale": "Recovery hotpath must reset the bodyless-403 counter when clearing Anthropic upstream-error state so a healed account does not carry a stale permanent-disable strike. Companion handle403 owns the escalate call site; this anchors the Reset in the upstream-shaped recovery path. 槽位占位 TTL 常量一并锚定：它取阶梯最长一档，保证「抢到槽位但收缩失败」时宁可多抑制一轮升级，也不把一次验证事件拆成多轮推向永久禁用。"
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "return s.applyAntigravityValidationPenalty(ctx, account, msg)",
+        "s.ResetAntigravityValidationCounter(ctx, accountID)",
+        "antigravityValidationCooldownLadder",
+        "antigravityValidationDisableThreshold",
+        "antigravityValidationEscalationSlotMaxSeconds"
+      ],
+      "rationale": "Antigravity validation-403 阶梯在 upstream-shaped 文件里的注入点与恢复挂钩。handleAntigravity403 的 validation 分支必须委托给 companion（ratelimit_service_tk_antigravity_validation.go），且两条人工恢复路径（ClearRateLimit / RecoverAccountState）必须调 ResetAntigravityValidationCounter —— 与相邻的 ResetOpenAI403Counter / ResetAnthropicUpstreamErrorCounter 并列。上游合并若把 validation 分支重新内联成写死的固定冷却，或在重写 recovery 汇聚点时丢掉 Reset 调用，都能编译通过且不触发红灯（旧 403 用例不带计数器、走 fallback 分支），结果是已验证账号带着陈旧轮数直跳永久禁用，或者需要人工验证的账号回到每 30 分钟无限重放。阶梯常量一并锚定，防止有人把 2h 档或第 3 轮阈值悄悄改回单档。 槽位占位 TTL 常量一并锚定：它取阶梯最长一档，保证「抢到槽位但收缩失败」时宁可多抑制一轮升级，也不把一次验证事件拆成多轮推向永久禁用。"
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_anthropic_tls_fingerprint_403.go",
@@ -12597,9 +12648,10 @@
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "s.accountRepo.ClearAntigravityQuotaScopes(ctx, accountID)"
+        "s.accountRepo.ClearAntigravityQuotaScopes(ctx, accountID)",
+        "antigravityValidationEscalationSlotMaxSeconds"
       ],
-      "rationale": "P3: rate-limit clear path must keep ClearAntigravityQuotaScopes after the method moved to account_repo_tk_antigravity.go. Dropping this call site leaves antigravity quota scopes sticky after error clear."
+      "rationale": "P3: rate-limit clear path must keep ClearAntigravityQuotaScopes after the method moved to account_repo_tk_antigravity.go. Dropping this call site leaves antigravity quota scopes sticky after error clear. 槽位占位 TTL 常量一并锚定：它取阶梯最长一档，保证「抢到槽位但收缩失败」时宁可多抑制一轮升级，也不把一次验证事件拆成多轮推向永久禁用。"
     },
     {
       "path": "backend/internal/service/gateway_usage_billing.go",
@@ -12805,9 +12857,10 @@
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "s.tkDispatchHandleUpstreamError(",
-        "s.tkTryHandleUpstreamErrorPrelude("
+        "s.tkTryHandleUpstreamErrorPrelude(",
+        "antigravityValidationEscalationSlotMaxSeconds"
       ],
-      "rationale": "HandleUpstreamError thin prelude must keep calling tkTryHandleUpstreamErrorPrelude then tkDispatchHandleUpstreamError companion; dropping either re-inlines TK dispatch into the upstream-shaped hotspot."
+      "rationale": "HandleUpstreamError thin prelude must keep calling tkTryHandleUpstreamErrorPrelude then tkDispatchHandleUpstreamError companion; dropping either re-inlines TK dispatch into the upstream-shaped hotspot. 槽位占位 TTL 常量一并锚定：它取阶梯最长一档，保证「抢到槽位但收缩失败」时宁可多抑制一轮升级，也不把一次验证事件拆成多轮推向永久禁用。"
     },
     {
       "path": "backend/internal/service/gateway_scheduling_tk_window_recovery.go",
@@ -13850,9 +13903,10 @@
         "ClearObservedUsageWindows bool",
         "if options.ClearObservedUsageWindows {",
         "func (s *RateLimitService) ClearObservedUsageWindows(ctx context.Context, accountID int64) error {",
-        "s.accountRepo.ClearObservedUsageWindows(ctx, accountID)"
+        "s.accountRepo.ClearObservedUsageWindows(ctx, accountID)",
+        "antigravityValidationEscalationSlotMaxSeconds"
       ],
-      "rationale": "RecoverAccountState / ClearObservedUsageWindows injection in upstream-shaped ratelimit_service.go. Without these hooks, admin recover clears locks but leaves stale observed percent that soft-scheduling immediately re-applies."
+      "rationale": "RecoverAccountState / ClearObservedUsageWindows injection in upstream-shaped ratelimit_service.go. Without these hooks, admin recover clears locks but leaves stale observed percent that soft-scheduling immediately re-applies. 槽位占位 TTL 常量一并锚定：它取阶梯最长一档，保证「抢到槽位但收缩失败」时宁可多抑制一轮升级，也不把一次验证事件拆成多轮推向永久禁用。"
     },
     {
       "path": "backend/internal/service/admin_account.go",
