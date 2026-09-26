@@ -215,11 +215,7 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
         ORDER BY e.created_at DESC))[1], 200) AS root_cause_sample,
   max(e.created_at) AT TIME ZONE 'UTC' AS last_at_utc
   FROM ops_error_logs e
-  -- ops-allow-soft-deleted: past failures of a deleted account still happened,
-  -- so keep the row and surface the ghost via account_soft_deleted. Soft delete
-  -- does NOT reset status, so a deleted account still reads status=active and
-  -- would otherwise look live.
-  LEFT JOIN accounts a ON a.id = e.account_id
+  LEFT JOIN accounts a ON a.id = e.account_id -- ops-allow-soft-deleted: past failures of a deleted account still happened; account_soft_deleted surfaces the ghost (soft delete does NOT reset status).
   LEFT JOIN groups g   ON g.id = e.group_id AND g.deleted_at IS NULL
   LEFT JOIN api_keys ak ON ak.id = e.api_key_id AND ak.deleted_at IS NULL
   WHERE e.user_id IN (${IDS}) AND e.created_at >= now() - ${W}

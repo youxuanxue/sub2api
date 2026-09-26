@@ -26,10 +26,10 @@
 
 每条一行，来自 `errors: user-facing failures by model/account`，必须带齐这五项：
 
-> 影响用户 + 次数 → **模型** → **承接账号**（名称/平台/状态；`account_id=null` 写"未进池"） → 根因（`root_cause_sample` 摘一句人话，别贴原始 JSON） → 判断（客户端 / 容量 / 系统异常，一句理由，对上 24h 基线的 max/avg）
+> 影响用户 + 次数 → **模型** → **承接账号**（名称/平台/状态；`account_id=null` 写"未进池"，`account_soft_deleted=true` 写"账号已删"且不要引用其 `status`） → 根因（`root_cause_sample` 摘一句人话，别贴原始 JSON） → 判断（客户端 / 容量 / 系统异常，一句理由，对上 24h 基线的 max/avg）
 
 例：
 
-> user16 · 23 次 502 · `claude-sonnet-4.5` · 承接账号 `cc-pool-07`（claude / rate_limited）· 上游 `Overloaded`，重试 3 次后仍失败 · 系统异常：基线 max 2 次/窗，本窗 23 次，已推送。
+> user16 · 23 次 502 · `claude-sonnet-4.5` · 承接账号 `cc-pool-07`（claude / rate_limited）· 上游 `Overloaded` · 系统异常：基线 max 2 次/窗，本窗 23 次，已推送。
 
-末尾一句**判断**：推送 or 不推送 + 一句理由。
+推送与否已在每条的第五项给出，末尾不再单列一句，避免同一判断写两遍。

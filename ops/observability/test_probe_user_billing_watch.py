@@ -2,6 +2,7 @@
 """Behavior tests for probe-user-billing-watch.sh user discovery."""
 from __future__ import annotations
 
+import importlib.util
 import os
 import pathlib
 import stat
@@ -157,7 +158,32 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
         # soft-deleted accounts keep status=active, so the ghost must be visible
         # rather than silently read as a live account
         self.assertIn("AS account_soft_deleted", q)
-        self.assertIn("ops-allow-soft-deleted", q)
+
+    def test_accounts_join_carries_soft_delete_marker_where_the_gate_reads_it(self) -> None:
+        """The soft-delete gate scans FORWARD from the FROM/JOIN line to the first
+        ';', so a marker on the preceding line is invisible to it and the join
+        reads as an unfiltered `accounts` query. Assert placement the way the gate
+        actually parses it, not mere presence of the marker string anywhere."""
+        gate_path = ROOT / "scripts" / "checks" / "ops-sql-soft-delete.py"
+        spec = importlib.util.spec_from_file_location("ops_sql_soft_delete", gate_path)
+        gate = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(gate)
+
+        lines = SCRIPT.read_text(encoding="utf-8").splitlines()
+        seen = 0
+        for idx, line in enumerate(lines):
+            for match in gate.FROM_RE.finditer(line):
+                if match.group(1) != "accounts":
+                    continue
+                seen += 1
+                window = gate._statement_window(lines, idx)
+                self.assertIn(
+                    gate.MARKER, window,
+                    f"accounts join at line {idx + 1} has no soft-delete marker in the "
+                    f"statement window the gate reads",
+                )
+        self.assertEqual(seen, 1, "expected exactly one accounts join in this probe")
 
     def test_user_facing_failures_omit_never_written_columns(self) -> None:
         """provider_error_code / network_error_type exist in migration 033 but have
