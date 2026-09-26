@@ -37,10 +37,16 @@ BUDGET_BYTES = 6 * 1024**3
 # then deletes. Raise it only with fresh measurements.
 SAVE_COMPRESSION_DIVISOR = 3.0
 # A managed family whose latest snapshot is older than this is treated as a
-# failure by --audit-staleness. The warm workflow runs on every main push that
-# touches backend Go sources, so a healthy family refreshes many times a day;
-# 48h is loose enough for a quiet weekend and still catches a stuck writer.
+# failure by --audit-staleness. The four build families key on
+# hashFiles('backend/**/*.go', ...), so any Go commit changes the key and a
+# healthy writer produces a fresh snapshot the same day; 48h is loose enough
+# for a quiet weekend and still catches a stuck writer.
 MAX_SNAPSHOT_AGE_HOURS = 48
+# gomod is the exception: its key omits backend/**/*.go and covers only
+# go.mod / go.sum / .new-api-ref, so a correctly cached module tree legitimately
+# ages for weeks (cache-hit=true, save step correctly skipped). Age-limiting it
+# would be a permanent false positive, so only its presence is asserted.
+AGE_EXEMPT_FAMILIES = frozenset({"gomod"})
 DEFAULT_REF = "refs/heads/main"
 FAMILIES = ("gomod", "test", "integration", "analysis", "release")
 # Drop first when latest generations overflow the budget.
@@ -294,6 +300,12 @@ def audit_staleness(
             lines.append(f"{family}: MISSING no snapshot on {DEFAULT_REF}")
             continue
         age_hours = (now - created).total_seconds() / 3600
+        if family in AGE_EXEMPT_FAMILIES:
+            lines.append(
+                f"{family}: age={age_hours:.1f}h present (age not limited: "
+                "key omits Go sources)"
+            )
+            continue
         stale = age_hours > max_age_hours
         ok = ok and not stale
         lines.append(

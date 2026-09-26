@@ -388,7 +388,9 @@ class GoCachePruneTest(unittest.TestCase):
         ]
         ok, lines = go_cache_prune.audit_staleness(fresh, now=now)
         self.assertTrue(ok)
-        self.assertTrue(all("ok" in line for line in lines))
+        self.assertEqual(len(lines), len(go_cache_prune.FAMILIES))
+        # Age-limited families report "ok"; gomod reports "present" (exempt).
+        self.assertFalse(any("STALE" in line or "MISSING" in line for line in lines))
 
         # One frozen family fails the audit and is named.
         frozen = list(fresh)
@@ -420,6 +422,57 @@ class GoCachePruneTest(unittest.TestCase):
         ]
         ok, _ = go_cache_prune.audit_staleness(tag_scoped, now=now)
         self.assertFalse(ok)
+
+    def test_audit_staleness_exempts_gomod_from_the_age_limit(self) -> None:
+        # gomod's key covers only go.mod / go.sum / .new-api-ref, so a correctly
+        # cached module tree hits and is legitimately never re-saved; it ages for
+        # weeks while perfectly healthy. Age-limiting it would make the audit a
+        # permanent false positive. Presence is still asserted.
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime(2026, 9, 25, 15, 0, tzinfo=timezone.utc)
+
+        def at(hours_ago: float) -> str:
+            return (now - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        self.assertIn("gomod", go_cache_prune.AGE_EXEMPT_FAMILIES)
+        caches = [
+            _cache(
+                f"{go_cache_prune.PREFIXES[family]}main",
+                1024,
+                cache_id=index,
+                # Ancient gomod, fresh everything else.
+                created_at=at(900 if family == "gomod" else 1),
+            )
+            for index, family in enumerate(go_cache_prune.FAMILIES, start=1)
+        ]
+        ok, lines = go_cache_prune.audit_staleness(caches, now=now)
+        self.assertTrue(ok, f"gomod age must not fail the audit: {lines}")
+        self.assertTrue(any("gomod" in line and "STALE" not in line for line in lines))
+
+        # But a missing gomod snapshot is still a failure.
+        without_gomod = [
+            cache
+            for cache in caches
+            if not str(cache["key"]).startswith(go_cache_prune.PREFIXES["gomod"])
+        ]
+        ok, _ = go_cache_prune.audit_staleness(without_gomod, now=now)
+        self.assertFalse(ok)
+
+        # The four source-fingerprinted families are NOT exempt.
+        for family in set(go_cache_prune.FAMILIES) - go_cache_prune.AGE_EXEMPT_FAMILIES:
+            with self.subTest(family=family):
+                aged = [
+                    _cache(
+                        f"{go_cache_prune.PREFIXES[name]}main",
+                        1024,
+                        cache_id=index,
+                        created_at=at(900 if name == family else 1),
+                    )
+                    for index, name in enumerate(go_cache_prune.FAMILIES, start=1)
+                ]
+                ok, lines = go_cache_prune.audit_staleness(aged, now=now)
+                self.assertFalse(ok, f"{family} must be age-limited: {lines}")
 
     def test_audit_staleness_exits_nonzero_from_cli(self) -> None:
         stale = [
