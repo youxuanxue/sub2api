@@ -2852,14 +2852,17 @@
         "isNewAPINVIDIABuildAccount(account)",
         "normalizeGrokReasoningEffortValue(value.String(), resolvedModel)",
         "content.supported(*request, resolvedModel)",
-        "cursor.ValidateMessagesContent(body)",
+        "cursor.ValidateMessagesContent(filterWebSearchHistoryBlocks(wire, stripAll))",
         "apicompat.ChatCompletionsToAnthropicRequest",
         "apicompat.ResponsesToAnthropicRequest",
-        "normalizeCursorMessagesContent(body, resolvedModel)",
+        "return StripEmptyTextBlocks(body), true",
         "type cursorRequestContentCache struct",
-        "digest: request.Digest(), model: model"
+        "digest: digest, stripAll: stripAll",
+        "func cursorExecutionWire(request protocolrouter.CanonicalRequest) ([]byte, bool)",
+        "func cursorWireContentSupported(wire []byte, stripAll bool) bool",
+        "wires    map[protocolrouter.RequestDigest]cursorExecutionWireResult"
       ],
-      "rationale": "Known provider/model parameter rejections exclude request paths without weakening explicit client intent."
+      "rationale": "Known provider/model parameter rejections exclude request paths without weakening explicit client intent. The Cursor content decision stays split: cursorExecutionWire reads only body and inbound protocol, the model reaches the answer solely as stripAll, and the cache keys on stripAll so accounts mapping to models that agree on it share one projection."
     },
     {
       "path": "backend/internal/service/protocol_request_parameters_tk_test.go",
@@ -14610,6 +14613,34 @@
         "req.policyFacts = anthropicpolicy.InspectValidated(req.body, req.inboundProtocol == ProtocolMessages)"
       ],
       "rationale": "The canonical request derives policy facts once, and only for a proven body; deriving them unconditionally would let gjson's reading of a malformed document drive a rewrite, and dropping them restores a per-route body walk."
+    },
+    {
+      "path": "backend/internal/service/gateway_websearch_block_filter.go",
+      "must_contain": [
+        "func WebSearchHistoryStripsAllBlocks(mappedModel string) bool",
+        "return ResolveThinkingProtocol(mappedModel) == ThinkingProtocolPassbackRequired",
+        "func filterWebSearchHistoryBlocks(body []byte, stripAll bool) []byte"
+      ],
+      "rationale": "WebSearchHistoryStripsAllBlocks is the only channel through which a model reaches web-search block filtering. Callers that judge one body against many models depend on it staying the whole model influence."
+    },
+    {
+      "path": "backend/internal/service/cursor_content_split_equivalence_tk_test.go",
+      "must_contain": [
+        "func cursorContentSupportedPerModel(",
+        "TestCursorContentSplitMatchesPerModelPath",
+        "TestCursorContentCacheSeparatesRequestsAndStripDecisions",
+        "TestCursorContentCacheSharesProjectionAcrossAgreeingModels"
+      ],
+      "rationale": "Pins that the split content decision answers identically to the pre-split per-model path, that differing strip decisions and differing requests stay separated, and that agreeing models share one projection."
+    },
+    {
+      "path": "backend/internal/service/cursor_content_fanout_cost_bench_tk_test.go",
+      "must_contain": [
+        "BenchmarkCursorContentByModelFanout",
+        "BenchmarkCursorContentByBodyBytes",
+        "ns/eval"
+      ],
+      "rationale": "Keeps a repeatable per-evaluation cost measure for Cursor content admission across model fan-out and production-bracketed body sizes."
     }
   ]
 }

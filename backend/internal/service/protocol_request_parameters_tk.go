@@ -60,6 +60,19 @@ func protocolRequestParametersSupported(account *Account, resolvedModel string, 
 // Project through the execution converters so image/thinking history is judged
 // on the Messages wire that will actually reach that parser.
 func cursorProtocolContentSupported(request protocolrouter.CanonicalRequest, resolvedModel string) bool {
+	wire, ok := cursorExecutionWire(request)
+	if !ok {
+		return false
+	}
+	return cursorWireContentSupported(wire, WebSearchHistoryStripsAllBlocks(resolvedModel))
+}
+
+// cursorExecutionWire projects the request onto the Messages wire that reaches
+// Cursor's parser. It reads only the request body and its inbound protocol, both
+// immutable within one request, so a caller evaluating many routes over one body
+// derives the wire once. Returns false when the projection itself fails, which
+// is the existing unsupported answer for every model.
+func cursorExecutionWire(request protocolrouter.CanonicalRequest) ([]byte, bool) {
 	body := request.Body()
 	var converted *apicompat.AnthropicRequest
 	var err error
@@ -69,57 +82,89 @@ func cursorProtocolContentSupported(request protocolrouter.CanonicalRequest, res
 	case protocolrouter.ProtocolChatCompletions:
 		var input apicompat.ChatCompletionsRequest
 		if json.Unmarshal(body, &input) != nil {
-			return false
+			return nil, false
 		}
 		converted, err = apicompat.ChatCompletionsToAnthropicRequest(&input)
 	case protocolrouter.ProtocolResponses:
 		body, _, err = adaptResponsesClientToolsForAnthropic(body)
 		if err != nil {
-			return false
+			return nil, false
 		}
 		var input apicompat.ResponsesRequest
 		if json.Unmarshal(body, &input) != nil {
-			return false
+			return nil, false
 		}
 		converted, err = apicompat.ResponsesToAnthropicRequest(&input)
 	default:
-		return false
+		return nil, false
 	}
 	if err != nil {
-		return false
+		return nil, false
 	}
 	if converted != nil {
 		body, err = json.Marshal(converted)
 		if err != nil {
-			return false
+			return nil, false
 		}
 	}
-	body = normalizeCursorMessagesContent(body, resolvedModel)
-	return cursor.ValidateMessagesContent(body) == nil
+	// StripEmptyTextBlocks does not read the model, so it belongs to the
+	// body-derived half; only the web-search strip depends on it.
+	return StripEmptyTextBlocks(body), true
+}
+
+// cursorWireContentSupported is the model-dependent half. stripAll must come
+// from WebSearchHistoryStripsAllBlocks, the sole channel through which a model
+// reaches this decision.
+func cursorWireContentSupported(wire []byte, stripAll bool) bool {
+	return cursor.ValidateMessagesContent(filterWebSearchHistoryBlocks(wire, stripAll)) == nil
 }
 
 // Cache only immutable content validation, shared across candidate accounts and
 // conversion permissions. Account and endpoint snapshots still refresh normally.
 type cursorRequestContentCache struct {
-	mu       sync.Mutex
+	mu sync.Mutex
+	// wires memoizes the body-derived projection per request. Distinct resolved
+	// models share one entry because the projection never reads the model.
+	wires    map[protocolrouter.RequestDigest]cursorExecutionWireResult
 	outcomes map[cursorRequestContentKey]bool
 }
+
+type cursorExecutionWireResult struct {
+	wire []byte
+	ok   bool
+}
+
+// cursorRequestContentKey keys the outcome on stripAll rather than on the model
+// string: models that agree on it cannot disagree on the answer, so keying by
+// model would re-run the conversion once per account mapping.
 type cursorRequestContentKey struct {
-	digest protocolrouter.RequestDigest
-	model  string
+	digest   protocolrouter.RequestDigest
+	stripAll bool
 }
 
 func (c *cursorRequestContentCache) supported(request protocolrouter.CanonicalRequest, model string) bool {
 	if c == nil {
+		// No cache to share a projection through, so this is exactly the
+		// uncached decision; keep one owner for it rather than inlining it.
 		return cursorProtocolContentSupported(request, model)
 	}
+	stripAll := WebSearchHistoryStripsAllBlocks(model)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	key := cursorRequestContentKey{digest: request.Digest(), model: model}
+	digest := request.Digest()
+	key := cursorRequestContentKey{digest: digest, stripAll: stripAll}
 	if supported, ok := c.outcomes[key]; ok {
 		return supported
 	}
-	supported := cursorProtocolContentSupported(request, model)
+	projection, cached := c.wires[digest]
+	if !cached {
+		projection.wire, projection.ok = cursorExecutionWire(request)
+		if c.wires == nil {
+			c.wires = make(map[protocolrouter.RequestDigest]cursorExecutionWireResult)
+		}
+		c.wires[digest] = projection
+	}
+	supported := projection.ok && cursorWireContentSupported(projection.wire, stripAll)
 	if c.outcomes == nil {
 		c.outcomes = make(map[cursorRequestContentKey]bool)
 	}
