@@ -19,6 +19,10 @@
 #   - window-over-window 环比 rows with delta_*_pct already calculated
 #   - trailing-24h per-bucket baseline (avg/max), so "is this a spike"
 #     compares against a real distribution, not two raw points.
+#   - user-facing failures (excluding recovered-200 and 499 client-cancel)
+#     already joined to model, serving account, group/key and a root-cause
+#     sample, so the terminal-impact basics never need a second round-trip
+#     or a manual cross-join.
 set -u
 
 USER_IDS_OVERRIDE="${USER_IDS:-}"
@@ -182,85 +186,58 @@ SELECT row_to_json(t) FROM (SELECT
   FROM win GROUP BY user_id ORDER BY user_id) t;" 2>&1
 
 echo
-echo "=== errors: key/group breakdown for error types over 10 (window) ==="
-$PSQL -c "WITH base AS (
-  SELECT
-    user_id,
-    CASE WHEN ${VID_E} THEN 'video' WHEN ${IMG_E} THEN 'image' ELSE 'general' END AS surface,
-    status_code,
-    upstream_status_code,
-    error_phase,
-    error_type,
-    error_owner,
-    model,
-    api_key_id,
-    api_key_prefix,
-    deleted_key_name,
-    group_id,
-    created_at
-  FROM ops_error_logs
-  WHERE user_id IN (${IDS}) AND created_at >= now() - ${W}
-), frequent AS (
-  SELECT
-    user_id,
-    surface,
-    status_code,
-    upstream_status_code,
-    error_phase,
-    error_type,
-    error_owner,
-    count(*) AS error_type_n
-  FROM base
-  GROUP BY 1,2,3,4,5,6,7
-  HAVING count(*) > 10
-)
-SELECT row_to_json(t) FROM (SELECT
-  f.user_id,
-  f.surface,
-  f.status_code,
-  f.upstream_status_code,
-  f.error_phase,
-  f.error_type,
-  f.error_owner,
-  COALESCE(b.model, '') AS error_model,
-  f.error_type_n,
-  b.api_key_id,
-  COALESCE(ak.name, b.deleted_key_name, '') AS api_key_name,
-  COALESCE(b.api_key_prefix, '') AS api_key_prefix,
-  b.group_id,
-  COALESCE(g.name, '') AS group_name,
-  (COALESCE(ak.routing_mode, 'direct') = 'universal') AS is_universal_key,
-  count(*) AS key_group_n,
-  max(b.created_at) AT TIME ZONE 'UTC' AS last_at_utc
-  FROM frequent f
-  JOIN base b
-    ON b.user_id = f.user_id
-   AND b.surface = f.surface
-   AND b.status_code IS NOT DISTINCT FROM f.status_code
-   AND b.upstream_status_code IS NOT DISTINCT FROM f.upstream_status_code
-   AND b.error_phase IS NOT DISTINCT FROM f.error_phase
-   AND b.error_type IS NOT DISTINCT FROM f.error_type
-   AND b.error_owner IS NOT DISTINCT FROM f.error_owner
-  LEFT JOIN api_keys ak ON ak.id = b.api_key_id AND ak.deleted_at IS NULL
-  LEFT JOIN groups g ON g.id = b.group_id AND g.deleted_at IS NULL
-  GROUP BY
-    f.user_id,
-    f.surface,
-    f.status_code,
-    f.upstream_status_code,
-    f.error_phase,
-    f.error_type,
-    f.error_owner,
-    COALESCE(b.model, ''),
-    f.error_type_n,
-    b.api_key_id,
-    COALESCE(ak.name, b.deleted_key_name, ''),
-    COALESCE(b.api_key_prefix, ''),
-    b.group_id,
-    COALESCE(g.name, ''),
-    (COALESCE(ak.routing_mode, 'direct') = 'universal')
-  ORDER BY f.error_type_n DESC, key_group_n DESC, f.user_id, b.api_key_id NULLS LAST, b.group_id NULLS LAST
-  LIMIT 80) t;" 2>&1
+echo "=== errors: user-facing failures by model/account (window) ==="
+# Failures the client actually received. The predicate deliberately mirrors the
+# registered owner of "user-visible failure",
+# backend/internal/repository/ops_repo_user_visible_failure_tk.go
+# (buildUserVisibleFailureWhere), so this probe and the alert/SLA numerator cannot
+# disagree about what counts as hitting a user. Do NOT invent a third variant here;
+# change the owner and follow it:
+#   - status_code >= 400 (excludes recovered-200: retry succeeded, user felt nothing)
+#   - status_code <> 499 AND no "context cancel" text — the caller hanging up is the
+#     user's own cancel, not a gateway failure (docs/approved/client-closed-499-ssot.md);
+#     499 is only the labelled form, the text form is the same event.
+#   - user attribution falls back to deleted_key_owner_user_id, so a failure on a
+#     since-deleted key still lands on its owner instead of vanishing.
+# Each row carries the terminal-experience basics in one place: model, serving
+# account, group/key used, and a root cause sample — so the report never has to
+# guess or cross-join by hand.
+# account_id IS NULL here means the request never reached a pool (routing phase).
+# account_status_now is the account's status RIGHT NOW, not at failure time:
+# ops_error_logs.account_status has no writer (verified 0 non-null rows in 7d), so
+# there is no historical status to read. Do not narrate it as the cause of a past
+# failure — an account rate-limited or recovered since then reads differently.
+$PSQL -c "SELECT row_to_json(t) FROM (SELECT
+  COALESCE(e.user_id, e.deleted_key_owner_user_id) AS user_id,
+  CASE WHEN ${VID_E} THEN 'video' WHEN ${IMG_E} THEN 'image' ELSE 'general' END AS surface,
+  COALESCE(e.model,'') AS model,
+  e.status_code, e.upstream_status_code,
+  e.error_phase, e.error_type, e.error_owner,
+  e.account_id,
+  COALESCE(a.name,'')                     AS account_name,
+  COALESCE(a.platform, e.platform, '')    AS account_platform,
+  COALESCE(a.status,'')                    AS account_status_now,
+  (a.deleted_at IS NOT NULL)               AS account_soft_deleted,
+  COALESCE(g.name,'')                                     AS group_name,
+  COALESCE(ak.name, e.deleted_key_name,'')                AS api_key_name,
+  COALESCE(e.api_key_prefix,'')                           AS api_key_prefix,
+  (COALESCE(ak.routing_mode,'direct') = 'universal')       AS is_universal_key,
+  count(*) AS n,
+  left((array_agg(COALESCE(e.upstream_error_message, e.error_message, '')
+        ORDER BY e.created_at DESC))[1], 200) AS root_cause_sample,
+  max(e.created_at) AT TIME ZONE 'UTC' AS last_at_utc
+  FROM ops_error_logs e
+  LEFT JOIN accounts a ON a.id = e.account_id -- ops-allow-soft-deleted: past failures of a deleted account still happened; account_soft_deleted surfaces the ghost (soft delete does NOT reset status).
+  LEFT JOIN groups g   ON g.id = e.group_id AND g.deleted_at IS NULL
+  LEFT JOIN api_keys ak ON ak.id = e.api_key_id AND ak.deleted_at IS NULL
+  WHERE COALESCE(e.user_id, e.deleted_key_owner_user_id) IN (${IDS})
+    AND e.created_at >= now() - ${W}
+    AND COALESCE(e.status_code,0) >= 400
+    AND COALESCE(e.status_code,0) <> 499
+    AND LOWER(CONCAT_WS(' ', e.error_message, e.upstream_error_message)) NOT LIKE '%context cancel%'
+  GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+  ORDER BY count(*) DESC, COALESCE(e.user_id, e.deleted_key_owner_user_id)
+  LIMIT 40) t;" 2>&1
 
 echo
 echo "=== baseline: per-user request/cost trailing 24h (excl. current window) ==="

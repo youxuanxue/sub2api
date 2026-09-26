@@ -2,6 +2,7 @@
 """Behavior tests for probe-user-billing-watch.sh user discovery."""
 from __future__ import annotations
 
+import importlib.util
 import os
 import pathlib
 import stat
@@ -134,6 +135,113 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
         error_wow = [q for q in logged.split(";\n") if "AS delta_n_pct" in q]
         self.assertEqual(len(error_wow), 1, logged)
         self.assertNotIn("ORDER BY n DESC LIMIT 40", error_wow[0])
+
+    def test_user_facing_failures_carry_model_account_and_root_cause(self) -> None:
+        proc, logged = self.run_probe(USER_IDS="1,16")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        # Split on the logged-query boundary, not on ";\n" — SQL comments inside a
+        # statement may themselves contain ";\n" and would truncate the match.
+        failures = [q for q in logged.split("\nSELECT row_to_json") if "AS root_cause_sample" in q]
+        self.assertEqual(len(failures), 1, logged)
+        q = failures[0]
+        # recovered-200 must not show up as a user-facing failure
+        self.assertIn("COALESCE(e.status_code,0) >= 400", q)
+        # 499 is the caller hanging up, not a gateway failure — see
+        # docs/approved/client-closed-499-ssot.md
+        self.assertIn("COALESCE(e.status_code,0) <> 499", q)
+        # terminal-impact basics resolved in-query, not left to a manual join
+        self.assertIn("LEFT JOIN accounts a ON a.id = e.account_id", q)
+        self.assertIn("AS account_name", q)
+        self.assertIn("AS account_platform", q)
+        self.assertIn("AS group_name", q)
+        self.assertIn("e.model", q)
+        # soft-deleted accounts keep status=active, so the ghost must be visible
+        # rather than silently read as a live account
+        self.assertIn("AS account_soft_deleted", q)
+
+    def test_accounts_join_carries_soft_delete_marker_where_the_gate_reads_it(self) -> None:
+        """The soft-delete gate scans FORWARD from the FROM/JOIN line to the first
+        ';', so a marker on the preceding line is invisible to it and the join
+        reads as an unfiltered `accounts` query. Assert placement the way the gate
+        actually parses it, not mere presence of the marker string anywhere."""
+        gate_path = ROOT / "scripts" / "checks" / "ops-sql-soft-delete.py"
+        spec = importlib.util.spec_from_file_location("ops_sql_soft_delete", gate_path)
+        gate = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(gate)
+
+        lines = SCRIPT.read_text(encoding="utf-8").splitlines()
+        seen = 0
+        for idx, line in enumerate(lines):
+            for match in gate.FROM_RE.finditer(line):
+                if match.group(1) != "accounts":
+                    continue
+                seen += 1
+                window = gate._statement_window(lines, idx)
+                self.assertIn(
+                    gate.MARKER, window,
+                    f"accounts join at line {idx + 1} has no soft-delete marker in the "
+                    f"statement window the gate reads",
+                )
+        self.assertEqual(seen, 1, "expected exactly one accounts join in this probe")
+
+    def test_user_facing_failures_omit_never_written_columns(self) -> None:
+        """These ops_error_logs columns exist in migration 033 but have no writer in
+        backend/internal, so reading them only advertises empty values as if they
+        were signal. account_status is verified empty in prod (0 non-null of 1.07M
+        rows over 7d), so the account's status must come from accounts.status and be
+        named for what it is — current state, not state at failure time."""
+        proc, logged = self.run_probe(USER_IDS="1,16")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertNotIn("provider_error_code", logged)
+        self.assertNotIn("network_error_type", logged)
+        self.assertNotIn("e.account_status", logged)
+
+    def test_user_facing_failure_predicate_tracks_its_registered_owner(self) -> None:
+        """"User-visible failure" already has an owner:
+        backend/internal/repository/ops_repo_user_visible_failure_tk.go, whose
+        predicate feeds the alert/SLA numerator. This probe must not drift into a
+        second definition, so assert the owner still spells each clause the way this
+        probe copies it — if the owner changes, this fails and the probe follows
+        rather than silently disagreeing about what counts as hitting a user."""
+        owner = (
+            ROOT / "backend" / "internal" / "repository"
+            / "ops_repo_user_visible_failure_tk.go"
+        )
+        self.assertTrue(owner.exists(), f"owner moved: {owner}")
+        owner_src = owner.read_text(encoding="utf-8")
+        for clause in (
+            'COALESCE(status_code, 0) >= 400',
+            'COALESCE(status_code, 0) <> 499',
+            'context canceled',
+            'COALESCE(user_id, deleted_key_owner_user_id)',
+        ):
+            self.assertIn(clause, owner_src, f"owner no longer defines: {clause}")
+
+        proc, logged = self.run_probe(USER_IDS="1,16")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        failures = [q for q in logged.split("\nSELECT row_to_json") if "AS root_cause_sample" in q]
+        self.assertEqual(len(failures), 1, logged)
+        q = failures[0]
+        self.assertIn("COALESCE(e.status_code,0) >= 400", q)
+        self.assertIn("COALESCE(e.status_code,0) <> 499", q)
+        # the text form of a caller disconnect is the same event as a labelled 499
+        self.assertIn("NOT LIKE '%context cancel%'", q)
+        # a failure on a since-deleted key still belongs to its owner
+        self.assertIn("COALESCE(e.user_id, e.deleted_key_owner_user_id)", q)
+
+    def test_account_status_is_named_as_current_not_historical(self) -> None:
+        """The joined account status is the account's state right now, not its state
+        when the failure happened. The alias must say so, or a report will narrate a
+        live status as the cause of a past failure."""
+        proc, logged = self.run_probe(USER_IDS="1,16")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        failures = [q for q in logged.split("\nSELECT row_to_json") if "AS root_cause_sample" in q]
+        self.assertEqual(len(failures), 1, logged)
+        q = failures[0]
+        self.assertIn("AS account_status_now", q)
+        # a bare `AS account_status` alias would read as status-at-failure-time
+        self.assertNotRegex(q, r"AS account_status\b")
 
     def test_trailing_24h_baseline_excludes_current_window(self) -> None:
         proc, logged = self.run_probe(USER_IDS="1,16", WINDOW_MINUTES="15")
