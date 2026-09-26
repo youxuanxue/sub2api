@@ -130,6 +130,7 @@ type AntigravityGatewayService struct {
 	cache             GatewayCache // 用于模型级限流时清除粘性会话绑定
 	schedulerSnapshot *SchedulerSnapshotService
 	internal500Cache  Internal500CounterCache // INTERNAL 500 渐进惩罚计数器
+	escalationSlots   EscalationSlotCache     // 阶梯按故障事件推进的共享守卫
 	retryBackoff      func(context.Context, int) bool
 	retryWait         func(context.Context, time.Duration) bool
 	// TK priced-serving gate deps (docs/approved/priced-or-it-doesnt-ship.md).
@@ -181,6 +182,7 @@ func NewAntigravityGatewayService(
 	httpUpstream HTTPUpstream,
 	settingService *SettingService,
 	internal500Cache Internal500CounterCache,
+	escalationSlots EscalationSlotCache,
 	tlsFPProfileService *TLSFingerprintProfileService,
 ) *AntigravityGatewayService {
 	return &AntigravityGatewayService{
@@ -192,6 +194,7 @@ func NewAntigravityGatewayService(
 		cache:               cache,
 		schedulerSnapshot:   schedulerSnapshot,
 		internal500Cache:    internal500Cache,
+		escalationSlots:     escalationSlots,
 		tlsFPProfileService: tlsFPProfileService,
 	}
 }

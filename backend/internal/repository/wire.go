@@ -121,6 +121,7 @@ var ProviderSet = wire.NewSet(
 	NewOpenAI403CounterCache,
 	NewAnthropicUpstreamErrorCounterCache,
 	NewAntigravityValidationCounterCache,
+	NewEscalationSlotCache,
 	NewAnthropicSignaturePreemptCache,
 	NewAnthropicSaturationCounterCache,
 	NewOpenAISaturationCounterCache,
