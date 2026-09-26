@@ -31,7 +31,7 @@ bash ops/observability/run-probe.sh \
 - 环比：读 `delta_reqs_pct` / `delta_cost_pct` / `delta_n_pct`；上一窗为 0 时字段为 `null`，写"新出现"。
 - 突升/飙升：拿当前窗对 `baseline: ...trailing 24h` 的 `avg`/`max` 比，不拿两个点瞪着猜。
 - 倍率：`actual_cost / total_cost`，内部口径，默认不进表。
-- **用户侧失败**：只看 `errors: user-facing failures by model/account`。已排除 recovered-200 与 499（499 是调用方自己挂断，不是网关故障）。每行自带模型、承接账号（`account_name`/`account_platform`；`account_status_now` 是账号**此刻**状态而非失败当时，不要当成失败原因叙述；`account_soft_deleted=true` 表示账号已软删、状态更不可信）、分组与 key、`root_cause_sample`。`account_id=null` 表示请求没进池（routing 阶段）。这一节是"用户终端到底遇到了什么"的唯一取数口径，**必须报出模型 + 承接账号 + 根因**，不要只报个错误码。
+- **用户侧失败**：只看 `errors: user-facing failures by model/account`。判据与告警/SLA 的同一 owner（`backend/internal/repository/ops_repo_user_visible_failure_tk.go`）对齐：`>=400`、排除 499 与 `context cancel` 文本（调用方挂断的两种形态）、用户归属回退 `deleted_key_owner_user_id`。**不要在报告侧另立一套口径**。每行自带模型、承接账号（`account_name`/`account_platform`；`account_status_now` 是账号**此刻**状态而非失败当时，不要当成失败原因叙述；`account_soft_deleted=true` 表示账号已软删、状态更不可信）、分组与 key、`root_cause_sample`。`account_id=null` 表示请求没进池（routing 阶段）。这一节是"用户终端到底遇到了什么"的唯一取数口径，**必须报出模型 + 承接账号 + 根因**，不要只报个错误码。
 
 报告格式与示例：[references/report.md](references/report.md)。
 
@@ -52,7 +52,7 @@ bash ops/observability/run-probe.sh \
 |---|---|---|
 | `status_code=200` + `upstream_status_code∈{429,5xx}` | recovered-200，重试兜住，用户无感 | 不推送（但要报出） |
 | `status_code=200` + msg 仅 `cc_environment_stripped`/`cc_geo_stego_normalized`/`request_normalized` | Anthropic CC prompt normalize 预期改写 | 不推送 |
-| `status_code=499` | 调用方自己挂断（`client-closed-499-ssot.md`），非网关故障 | 不推送；已在 probe 侧过滤，不进用户侧失败节 |
+| `status_code=499`，或 msg 含 `context cancel` | 调用方自己挂断（`client-closed-499-ssot.md`）的两种形态，非网关故障 | 不推送；已在 probe 侧按 owner 判据过滤 |
 | `error_phase=routing` + `account_id=null` + `error_owner=client` | 错组 key 误投等客户端路由过错 | 客户端侧，不推送 |
 | `error_phase=routing` + `error_owner=platform` | 空池 / 镜像 edge 容量拒绝 | 容量侧；少量不推，**突升**按系统异常推 |
 | `error_phase∈{request,upstream}` 4xx（内容审核 / 退役模型 / prompt 超长 / 参数错） | 客户端输入或用法问题 | 不推送 |

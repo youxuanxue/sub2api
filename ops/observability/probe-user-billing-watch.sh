@@ -187,20 +187,28 @@ SELECT row_to_json(t) FROM (SELECT
 
 echo
 echo "=== errors: user-facing failures by model/account (window) ==="
-# Failures the client actually received: status_code <> 200 excludes recovered-200
-# (retry succeeded, user felt nothing), and 499 is excluded because that is the
-# caller hanging up — the user's own cancel, not a gateway failure
-# (docs/approved/client-closed-499-ssot.md). Each row carries the
-# terminal-experience basics in one place: model, serving account
-# (+platform/status), group/key used, and a root cause sample — so the report
-# never has to guess or cross-join by hand.
+# Failures the client actually received. The predicate deliberately mirrors the
+# registered owner of "user-visible failure",
+# backend/internal/repository/ops_repo_user_visible_failure_tk.go
+# (buildUserVisibleFailureWhere), so this probe and the alert/SLA numerator cannot
+# disagree about what counts as hitting a user. Do NOT invent a third variant here;
+# change the owner and follow it:
+#   - status_code >= 400 (excludes recovered-200: retry succeeded, user felt nothing)
+#   - status_code <> 499 AND no "context cancel" text — the caller hanging up is the
+#     user's own cancel, not a gateway failure (docs/approved/client-closed-499-ssot.md);
+#     499 is only the labelled form, the text form is the same event.
+#   - user attribution falls back to deleted_key_owner_user_id, so a failure on a
+#     since-deleted key still lands on its owner instead of vanishing.
+# Each row carries the terminal-experience basics in one place: model, serving
+# account, group/key used, and a root cause sample — so the report never has to
+# guess or cross-join by hand.
 # account_id IS NULL here means the request never reached a pool (routing phase).
 # account_status_now is the account's status RIGHT NOW, not at failure time:
 # ops_error_logs.account_status has no writer (verified 0 non-null rows in 7d), so
 # there is no historical status to read. Do not narrate it as the cause of a past
 # failure — an account rate-limited or recovered since then reads differently.
 $PSQL -c "SELECT row_to_json(t) FROM (SELECT
-  e.user_id,
+  COALESCE(e.user_id, e.deleted_key_owner_user_id) AS user_id,
   CASE WHEN ${VID_E} THEN 'video' WHEN ${IMG_E} THEN 'image' ELSE 'general' END AS surface,
   COALESCE(e.model,'') AS model,
   e.status_code, e.upstream_status_code,
@@ -222,11 +230,13 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   LEFT JOIN accounts a ON a.id = e.account_id -- ops-allow-soft-deleted: past failures of a deleted account still happened; account_soft_deleted surfaces the ghost (soft delete does NOT reset status).
   LEFT JOIN groups g   ON g.id = e.group_id AND g.deleted_at IS NULL
   LEFT JOIN api_keys ak ON ak.id = e.api_key_id AND ak.deleted_at IS NULL
-  WHERE e.user_id IN (${IDS}) AND e.created_at >= now() - ${W}
-    AND e.status_code IS DISTINCT FROM 200
-    AND e.status_code IS DISTINCT FROM 499
+  WHERE COALESCE(e.user_id, e.deleted_key_owner_user_id) IN (${IDS})
+    AND e.created_at >= now() - ${W}
+    AND COALESCE(e.status_code,0) >= 400
+    AND COALESCE(e.status_code,0) <> 499
+    AND LOWER(CONCAT_WS(' ', e.error_message, e.upstream_error_message)) NOT LIKE '%context cancel%'
   GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
-  ORDER BY count(*) DESC, e.user_id
+  ORDER BY count(*) DESC, COALESCE(e.user_id, e.deleted_key_owner_user_id)
   LIMIT 40) t;" 2>&1
 
 echo

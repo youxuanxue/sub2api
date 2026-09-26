@@ -145,10 +145,10 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
         self.assertEqual(len(failures), 1, logged)
         q = failures[0]
         # recovered-200 must not show up as a user-facing failure
-        self.assertIn("status_code IS DISTINCT FROM 200", q)
+        self.assertIn("COALESCE(e.status_code,0) >= 400", q)
         # 499 is the caller hanging up, not a gateway failure — see
         # docs/approved/client-closed-499-ssot.md
-        self.assertIn("status_code IS DISTINCT FROM 499", q)
+        self.assertIn("COALESCE(e.status_code,0) <> 499", q)
         # terminal-impact basics resolved in-query, not left to a manual join
         self.assertIn("LEFT JOIN accounts a ON a.id = e.account_id", q)
         self.assertIn("AS account_name", q)
@@ -196,6 +196,39 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
         self.assertNotIn("provider_error_code", logged)
         self.assertNotIn("network_error_type", logged)
         self.assertNotIn("e.account_status", logged)
+
+    def test_user_facing_failure_predicate_tracks_its_registered_owner(self) -> None:
+        """"User-visible failure" already has an owner:
+        backend/internal/repository/ops_repo_user_visible_failure_tk.go, whose
+        predicate feeds the alert/SLA numerator. This probe must not drift into a
+        second definition, so assert the owner still spells each clause the way this
+        probe copies it — if the owner changes, this fails and the probe follows
+        rather than silently disagreeing about what counts as hitting a user."""
+        owner = (
+            ROOT / "backend" / "internal" / "repository"
+            / "ops_repo_user_visible_failure_tk.go"
+        )
+        self.assertTrue(owner.exists(), f"owner moved: {owner}")
+        owner_src = owner.read_text(encoding="utf-8")
+        for clause in (
+            'COALESCE(status_code, 0) >= 400',
+            'COALESCE(status_code, 0) <> 499',
+            'context canceled',
+            'COALESCE(user_id, deleted_key_owner_user_id)',
+        ):
+            self.assertIn(clause, owner_src, f"owner no longer defines: {clause}")
+
+        proc, logged = self.run_probe(USER_IDS="1,16")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        failures = [q for q in logged.split("\nSELECT row_to_json") if "AS root_cause_sample" in q]
+        self.assertEqual(len(failures), 1, logged)
+        q = failures[0]
+        self.assertIn("COALESCE(e.status_code,0) >= 400", q)
+        self.assertIn("COALESCE(e.status_code,0) <> 499", q)
+        # the text form of a caller disconnect is the same event as a labelled 499
+        self.assertIn("NOT LIKE '%context cancel%'", q)
+        # a failure on a since-deleted key still belongs to its owner
+        self.assertIn("COALESCE(e.user_id, e.deleted_key_owner_user_id)", q)
 
     def test_account_status_is_named_as_current_not_historical(self) -> None:
         """The joined account status is the account's state right now, not its state
