@@ -53,45 +53,26 @@ func TestNormalizeFableThinkingModes(t *testing.T) {
 	}
 }
 
-// NormalizeValidated skips the JSON scan its caller already performed. It must
-// therefore agree with Normalize on every well-formed body: a divergence would
-// make the per-route fast path apply a different thinking/tool policy than the
-// audited one.
-func TestNormalizeValidatedMatchesNormalizeOnValidBodies(t *testing.T) {
-	for _, tc := range []struct {
-		name, body   string
-		capabilities Capabilities
-	}{
-		{"adaptive forced", `{"thinking":{"type":"adaptive"},"tool_choice":{"type":"tool","name":"lookup","disable_parallel_tool_use":true}}`, Capabilities{}},
-		{"optional off", `{"thinking":{"type":"disabled"},"tool_choice":{"type":"any"}}`, Capabilities{}},
-		{"implicit always on", `{"tool_choice":{"type":"tool","name":"lookup"}}`, Capabilities{AlwaysThinking: true}},
-		{"adaptive only", `{"thinking":{"type":"enabled","budget_tokens":2048},"tool_choice":{"type":"any"}}`, Capabilities{AdaptiveOnlyThinking: true}},
-		{"none stays", `{"thinking":{"type":"adaptive"},"tool_choice":{"type":"none"}}`, Capabilities{AlwaysThinking: true}},
-		{"exact endpoint", `{"thinking":{"type":"adaptive"},"tool_choice":{"type":"any"}}`, Capabilities{ForcedToolsWithThinking: true}},
-		{"reasoning effort chat", `{"reasoning_effort":"high","tool_choice":"required"}`, Capabilities{}},
-	} {
-		for _, messages := range []bool{true, false} {
-			t.Run(tc.name, func(t *testing.T) {
-				want, wantChanged := Normalize([]byte(tc.body), messages, tc.capabilities)
-				got, gotChanged := NormalizeValidated([]byte(tc.body), messages, tc.capabilities)
-				require.Equal(t, wantChanged, gotChanged)
-				require.Equal(t, string(want), string(got))
-			})
-		}
-	}
-}
-
 // Facts is the body-derived half of the decision, so deriving it once up front
 // and deciding later must match reading the body inside the decision. This is
 // what lets a caller hold one Facts across many per-route capability sets.
+//
+// The body shapes below include the ones an earlier NormalizeValidated parity
+// test covered; that wrapper is gone, but each of its bodies is still checked
+// here against every capability set rather than the single one it used.
 func TestNormalizeWithFactsMatchesNormalizeAcrossCapabilities(t *testing.T) {
 	bodies := []string{
 		`{"thinking":{"type":"adaptive"},"tool_choice":{"type":"tool","name":"lookup","disable_parallel_tool_use":true}}`,
 		`{"thinking":{"type":"adaptive"},"tool_choice":{"type":"tool","name":"lookup","disable_parallel_tool_use":false}}`,
 		`{"thinking":{"type":"adaptive"},"tool_choice":{"type":"any"}}`,
+		`{"thinking":{"type":"disabled"},"tool_choice":{"type":"any"}}`,
 		`{"thinking":{"type":"disabled"},"tool_choice":"required"}`,
+		`{"tool_choice":{"type":"tool","name":"lookup"}}`,
+		`{"thinking":{"type":"enabled","budget_tokens":2048},"tool_choice":{"type":"any"}}`,
 		`{"thinking":{"type":"enabled","budget_tokens":2048},"tool_choice":{"type":"function"}}`,
+		`{"thinking":{"type":"adaptive"},"tool_choice":{"type":"none"}}`,
 		`{"reasoning":{"effort":"medium"},"tool_choice":"required"}`,
+		`{"reasoning_effort":"high","tool_choice":"required"}`,
 		`{"reasoning_effort":"xhigh","tool_choice":{"type":"function"}}`,
 		`{"tool_choice":{"type":"none"}}`,
 		`{"model":"claude-fable-5"}`,

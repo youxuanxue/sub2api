@@ -14564,7 +14564,6 @@
       "must_contain": [
         "func Normalize(body []byte, messages bool, capabilities Capabilities) ([]byte, bool) {",
         "if !gjson.ValidBytes(body) {",
-        "func NormalizeValidated(",
         "func normalizeValidated("
       ],
       "rationale": "Normalize keeps its own JSON guard for unproven callers; the validated variant only skips that scan and must share one rewrite body."

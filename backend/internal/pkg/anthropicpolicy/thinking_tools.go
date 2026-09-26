@@ -33,15 +33,6 @@ func Normalize(body []byte, messages bool, capabilities Capabilities) ([]byte, b
 	return normalizeValidated(body, messages, capabilities)
 }
 
-// NormalizeValidated is Normalize for a body whose JSON validity the caller has
-// already established, such as one carried by a parsed canonical request. The
-// scan that ValidBytes performs is linear in body size and its outcome depends
-// only on the bytes, so repeating it for every candidate route re-reads an
-// immutable body. Callers that cannot prove validity must use Normalize.
-func NormalizeValidated(body []byte, messages bool, capabilities Capabilities) ([]byte, bool) {
-	return normalizeValidated(body, messages, capabilities)
-}
-
 // Facts is the body-derived half of a Normalize decision. Every field is read
 // from the request bytes and the inbound protocol alone, both of which are
 // immutable within one request, while Capabilities supplies the per-route half.
