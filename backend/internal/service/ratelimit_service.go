@@ -30,6 +30,8 @@ type RateLimitService struct {
 	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache
 	antigravitySaturationCounter       AntigravitySaturationCounterCache
 	antigravityValidationCounter       AntigravityValidationCounterCache
+	internal500Counter                 Internal500CounterCache
+	escalationSlots                    EscalationSlotCache
 	anthropicSaturationCounter         AnthropicSaturationCounterCache
 	openaiSaturationCounter            OpenAISaturationCounterCache
 	incidentNotifier                   AccountIncidentNotifier
@@ -124,9 +126,10 @@ var antigravityValidationCooldownLadder = []time.Duration{
 // 升级槽位的占位 TTL：取阶梯最长一档，抢到槽位后立刻收缩到实际冷却长度。
 // 占位值只在「抢到槽位但收缩失败」时生效，取最长档保证宁可多抑制一轮升级，
 // 也不要让一次验证事件被拆成多轮把账号推向永久禁用。
-var antigravityValidationEscalationSlotMaxSeconds = int(
-	antigravityValidationCooldownLadder[len(antigravityValidationCooldownLadder)-1].Seconds(),
-)
+var antigravityValidationEscalationSlotPlaceholder = antigravityValidationCooldownLadder[len(antigravityValidationCooldownLadder)-1]
+
+// OpenAI 累计 403 阶梯只有单档固定冷却，占位 TTL 即该冷却长度。
+var openAI403EscalationSlotPlaceholder = time.Duration(openAI403CooldownMinutesDefault) * time.Minute
 
 // anthropicCooldownTierLadder picks an exponentially longer cooldown when
 // the same account repeatedly trips the 3/3 short-window threshold inside
@@ -191,6 +194,20 @@ func (s *RateLimitService) SetOpenAIAPIKeyHealthCache(cache OpenAIAPIKeyHealthCa
 // SetOpenAI403CounterCache 设置 OpenAI 403 连续失败计数器（可选依赖）
 func (s *RateLimitService) SetOpenAI403CounterCache(cache OpenAI403CounterCache) {
 	s.openAI403CounterCache = cache
+}
+
+// SetEscalationSlotCache 设置渐进惩罚阶梯的共享升级槽位（可选依赖）。
+// 未接线时所有阶梯 fail open，按加守卫之前的语义照常升级。
+func (s *RateLimitService) SetEscalationSlotCache(cache EscalationSlotCache) {
+	s.escalationSlots = cache
+}
+
+// SetInternal500CounterCache 设置 Antigravity INTERNAL 500 计数器（可选依赖）。
+// 递增侧的 owner 是 AntigravityGatewayService；这里只为了让管理员清理路径
+// （ClearRateLimit / 清除错误状态）能把这条阶梯也清干净——依赖方向是
+// AntigravityGatewayService → RateLimitService，反向调用不可行。
+func (s *RateLimitService) SetInternal500CounterCache(cache Internal500CounterCache) {
+	s.internal500Counter = cache
 }
 
 func (s *RateLimitService) SetAnthropicUpstreamErrorCounterCache(cache AnthropicUpstreamErrorCounterCache) {
@@ -932,6 +949,19 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		return true
 	}
 
+	// 同一故障事件只推进一轮：账号 concurrency 默认 3，一层坏代理或一次权限抖动
+	// 会让多个 in-flight 请求同时拿到 403。没有守卫时计数在毫秒内冲到
+	// openAI403DisableThreshold，单档 10 分钟冷却被整体跳过、账号直接 SetError
+	// ——正是上方注释要防的「一个坏请求/一层坏代理连环永久禁用整组账号」。
+	// 守卫由共享的 EscalationSlotCache 持有（escalation_slot.go）。
+	episode, proceed := BeginEscalationEpisode(
+		ctx, s.escalationSlots, EscalationSlotPrefixOpenAI403,
+		account.ID, openAI403EscalationSlotPlaceholder,
+	)
+	if !proceed {
+		return true
+	}
+
 	count, err := s.openAI403CounterCache.IncrementOpenAI403Count(ctx, account.ID, openAI403CounterWindowMinutes)
 	if err != nil {
 		slog.Warn("openai_403_increment_failed", "account_id", account.ID, "error", err)
@@ -953,6 +983,10 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		s.handleAuthError(ctx, account, msg)
 		return true
 	}
+
+	// 槽位收缩到本轮冷却长度：账号重新可调度的那一刻槽位过期，届时再次命中
+	// 403 才算新一轮，阶梯继续升级。
+	episode.CommitCooldown(ctx, time.Duration(openAI403CooldownMinutesDefault)*time.Minute)
 
 	slog.Warn(
 		"openai_403_temp_unschedulable",
@@ -2070,17 +2104,44 @@ func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) 
 	s.ResetOpenAI403Counter(ctx, accountID)
 	s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
 	s.ResetAntigravityValidationCounter(ctx, accountID)
+	s.ResetInternal500Counter(ctx, accountID)
 	s.notifyAccountSchedulingBlockCleared(accountID)
 	return nil
 }
 
 func (s *RateLimitService) ResetOpenAI403Counter(ctx context.Context, accountID int64) {
-	if s == nil || s.openAI403CounterCache == nil || accountID <= 0 {
+	// s == nil 守卫必须留在最前：本文件按「service 可能被 nil 持有」的假设写了
+	// 十余处同形状防御，读取 s.escalationSlots 前先过这道门，别在这里开例外。
+	if s == nil || accountID <= 0 {
 		return
 	}
-	if err := s.openAI403CounterCache.ResetOpenAI403Count(ctx, accountID); err != nil {
-		slog.Warn("openai_403_reset_failed", "account_id", accountID, "error", err)
+	if s.openAI403CounterCache != nil {
+		if err := s.openAI403CounterCache.ResetOpenAI403Count(ctx, accountID); err != nil {
+			slog.Warn("openai_403_reset_failed", "account_id", accountID, "error", err)
+		}
 	}
+	// 账号恢复后必须一并释放升级槽位：残留槽位会把下一次真实故障事件误判成
+	// 同一轮，静默跳过该落的冷却。计数器缓存未接线时也要释放，两者是独立依赖。
+	ReleaseEscalationSlot(ctx, s.escalationSlots, EscalationSlotPrefixOpenAI403, accountID)
+}
+
+// ResetInternal500Counter 清零 Antigravity INTERNAL 500 阶梯并释放其升级槽位。
+//
+// 递增与成功清零的 owner 都在 AntigravityGatewayService。这里补的是管理员清理
+// 路径：ClearRateLimit / 清除错误状态原本只清 OpenAI 403、Anthropic 上游错误与
+// Antigravity validation 三条阶梯，漏掉 INTERNAL 500——计数器靠 24h 兜底 TTL
+// 自然过期，槽位靠 2h 占位 TTL 过期，于是管理员刚清完的账号在接下来最长 2h 内
+// 碰到第一次真实故障时，会被残留槽位误判成同一轮而少落一档冷却。
+func (s *RateLimitService) ResetInternal500Counter(ctx context.Context, accountID int64) {
+	if s == nil || accountID <= 0 {
+		return
+	}
+	if s.internal500Counter != nil {
+		if err := s.internal500Counter.ResetInternal500Count(ctx, accountID); err != nil {
+			slog.Warn("internal500_reset_failed", "account_id", accountID, "error", err)
+		}
+	}
+	ReleaseEscalationSlot(ctx, s.escalationSlots, EscalationSlotPrefixAntigravityInternal500, accountID)
 }
 
 func (s *RateLimitService) ResetAnthropicUpstreamErrorCounter(ctx context.Context, accountID int64) {
@@ -2140,6 +2201,7 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 		s.ResetOpenAI403Counter(ctx, accountID)
 		s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
 		s.ResetAntigravityValidationCounter(ctx, accountID)
+		s.ResetInternal500Counter(ctx, accountID)
 		if result.ClearedError && !result.ClearedRateLimit {
 			s.notifyAccountSchedulingBlockCleared(accountID)
 		}

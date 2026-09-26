@@ -4,28 +4,44 @@
   "sentinels": [
     {
       "path": "backend/internal/server/routes/admin.go",
-      "must_contain": ["accounts.POST(\"/:id/gemini-web-session\", h.Admin.Account.ImportGeminiWebSession)"],
+      "must_contain": [
+        "accounts.POST(\"/:id/gemini-web-session\", h.Admin.Account.ImportGeminiWebSession)"
+      ],
       "rationale": "Keep the dedicated admin import route connected to the scoped runtime CAS instead of full-account edits."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_gemini_web_import.go",
-      "must_contain": ["service.CanImportGeminiWebSession(account)", "importer.ImportGeminiWebSession(c.Request.Context(), accountID, expectedVersion, runtime)"],
+      "must_contain": [
+        "service.CanImportGeminiWebSession(account)",
+        "importer.ImportGeminiWebSession(c.Request.Context(), accountID, expectedVersion, runtime)"
+      ],
       "rationale": "Protect the local Worker boundary and explicit import call from upstream refactors."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_gemini_web_import_test.go",
-      "must_contain": ["func TestGeminiWebCookieScopeMatchesPythonOwner", "func TestGeminiWebImportHandlerSuccessAndConflict", "func TestGeminiWebImportHandlerRejectsInvalidInputAndNonWorker", "func TestGeminiWebImportHandlerInitializesCopiedWorker"],
+      "must_contain": [
+        "func TestGeminiWebCookieScopeMatchesPythonOwner",
+        "func TestGeminiWebImportHandlerSuccessAndConflict",
+        "func TestGeminiWebImportHandlerRejectsInvalidInputAndNonWorker",
+        "func TestGeminiWebImportHandlerInitializesCopiedWorker"
+      ],
       "rationale": "Retain executable scope parity, no-success-on-conflict, and credential redaction regressions."
     },
     {
       "path": "backend/internal/handler/wire.go",
-      "must_contain": ["GeminiWebSession: geminiWebSessionHandler"],
+      "must_contain": [
+        "GeminiWebSession: geminiWebSessionHandler"
+      ],
       "rationale": "Retain the session handler assignment; dropping it silently disables the Gemini Web control surface."
     },
     {
       "path": "backend/cmd/server/wire_gen.go",
-      "must_contain": ["geminiWebSessionHandler := handler.NewGeminiWebSessionHandler(accountRepository)"],
-      "rationale": "Retain the Gemini Web handler in the generated production graph."
+      "must_contain": [
+        "geminiWebSessionHandler := handler.NewGeminiWebSessionHandler(accountRepository)",
+        "escalationSlotCache := repository.NewEscalationSlotCache(redisClient)",
+        "internal500CounterCache, escalationSlotCache, tlsFingerprintProfileService"
+      ],
+      "rationale": "Retain the Gemini Web handler in the generated production graph. escalationSlotCache 是三条渐进惩罚阶梯共用的升级槽位（service.EscalationSlotCache）：必须是同一个实例同时注入 RateLimitService 与 AntigravityGatewayService，否则阶梯各自守卫失效，一次故障事件的并发请求会把冷却档整体跳过、账号直接永久禁用。丢掉这行会让所有阶梯 fail open 退回无守卫语义且编译通过。"
     },
     {
       "path": "backend/internal/server/routes/edge_tk_routes.go",
@@ -42,37 +58,61 @@
     },
     {
       "path": "backend/internal/handler/gemini_web_session_handler.go",
-      "must_contain": ["func (h *GeminiWebSessionHandler) WarmAccounts", "ListDueGeminiWebAccounts(c.Request.Context())", "middleware.EdgeCallerAPIKeyCtxKey", "geminiWebLeaseOwner.MatchString(owner)"],
+      "must_contain": [
+        "func (h *GeminiWebSessionHandler) WarmAccounts",
+        "ListDueGeminiWebAccounts(c.Request.Context())",
+        "middleware.EdgeCallerAPIKeyCtxKey",
+        "geminiWebLeaseOwner.MatchString(owner)"
+      ],
       "rationale": "Anchor the control implementation together with its injection points."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
-      "must_contain": ["setGeminiWebAccountHeader(upstreamReq, account)"],
+      "must_contain": [
+        "setGeminiWebAccountHeader(upstreamReq, account)"
+      ],
       "rationale": "Gateway-selected account identity must reach the worker. Both call paths are verified by the focused regression."
     },
     {
       "path": "backend/internal/service/gemini_web_tk_test.go",
-      "must_contain": ["func TestGeminiWebSelectedAccountHeaderBothEntryPoints"],
+      "must_contain": [
+        "func TestGeminiWebSelectedAccountHeaderBothEntryPoints"
+      ],
       "rationale": "Keep the native and Messages account-header behavior regression."
     },
     {
       "path": "backend/internal/repository/account_repo.go",
-      "must_contain": ["mergeGeminiWebCredentialsLocked(ctx, client, account.ID, account.Credentials)", "mergeGeminiWebCredentialsLocked(ctx, client, id, credentials)"],
+      "must_contain": [
+        "mergeGeminiWebCredentialsLocked(ctx, client, account.ID, account.Credentials)",
+        "mergeGeminiWebCredentialsLocked(ctx, client, id, credentials)"
+      ],
       "rationale": "Both ordinary account edits and credentials updates must preserve current runtime and cannot revoke a live worker lease."
     },
     {
       "path": "backend/internal/service/account_credentials_redact.go",
-      "must_contain": ["\"gemini_web\""],
+      "must_contain": [
+        "\"gemini_web\""
+      ],
       "rationale": "The shared DTO/audit/merge credential owner must include browser sessions."
     },
     {
       "path": "ops/gemini-web/test_worker.py",
-      "must_contain": ["def test_control_maintenance_refreshes_compact_account_list", "def test_drain_finishes_inflight_request_and_releases_lease", "def test_large_image_decode_and_buffer_fit_container_budget", "def test_image_mode_applies_captured_aspect_ratio_fields"],
+      "must_contain": [
+        "def test_control_maintenance_refreshes_compact_account_list",
+        "def test_drain_finishes_inflight_request_and_releases_lease",
+        "def test_large_image_decode_and_buffer_fit_container_budget",
+        "def test_image_mode_applies_captured_aspect_ratio_fields"
+      ],
       "rationale": "Preserve the regression proving compact warm-account references drive maintenance and the captured image-ratio RPC mapping."
     },
     {
       "path": "backend/internal/repository/account_gemini_web_tk_integration_test.go",
-      "must_contain": ["TestGeminiWebMaintenanceOnlyReturnsDueAccounts", "TestGeminiWebImportSurvivesPreBindingEditor", "TestGeminiWebConcurrentInitializationsHaveOneWinner", "TestGeminiWebInitializationGuardsAndPreservesAccount"],
+      "must_contain": [
+        "TestGeminiWebMaintenanceOnlyReturnsDueAccounts",
+        "TestGeminiWebImportSurvivesPreBindingEditor",
+        "TestGeminiWebConcurrentInitializationsHaveOneWinner",
+        "TestGeminiWebInitializationGuardsAndPreservesAccount"
+      ],
       "rationale": "Protect read-only maintenance polling and imported sessions against stale editors."
     },
     {
@@ -136,9 +176,11 @@
       "path": "backend/cmd/server/wire_gen.go",
       "must_contain": [
         "universalCapabilityService := service.NewUniversalCapabilityService(",
-        "handler.ProvideTKGatewayHandlerModelList(gatewayHandler, openAIGatewayHandler, modelListFilter, universalCapabilityService)"
+        "handler.ProvideTKGatewayHandlerModelList(gatewayHandler, openAIGatewayHandler, modelListFilter, universalCapabilityService)",
+        "escalationSlotCache := repository.NewEscalationSlotCache(redisClient)",
+        "internal500CounterCache, escalationSlotCache, tlsFingerprintProfileService"
       ],
-      "rationale": "Generated production DI evidence for the UniversalCapabilityService and both gateway projections. Source providers alone do not prove the real server graph retained the post-construction injection."
+      "rationale": "Generated production DI evidence for the UniversalCapabilityService and both gateway projections. Source providers alone do not prove the real server graph retained the post-construction injection. escalationSlotCache 是三条渐进惩罚阶梯共用的升级槽位（service.EscalationSlotCache）：必须是同一个实例同时注入 RateLimitService 与 AntigravityGatewayService，否则阶梯各自守卫失效，一次故障事件的并发请求会把冷却档整体跳过、账号直接永久禁用。丢掉这行会让所有阶梯 fail open 退回无守卫语义且编译通过。"
     },
     {
       "path": "backend/internal/handler/handler.go",
@@ -177,17 +219,21 @@
         "supplierManagedAccountCommands := service.ProvideSupplierManagedAccountCommands(adminService)",
         "supplierSourceAccountStore := service.NewSupplierSourceAccountStore(accountRepository, supplierManagedAccountCommands, supplierCredentialFingerprinter)",
         "supplierSourceService := service.NewSupplierSourceService(supplierSourceRepository, supplierSourceAccountStore, accountTestService, secretEncryptor, supplierCredentialFingerprinter)",
-        "supplierSourceHandler := admin.NewSupplierSourceHandler(supplierSourceService)"
+        "supplierSourceHandler := admin.NewSupplierSourceHandler(supplierSourceService)",
+        "escalationSlotCache := repository.NewEscalationSlotCache(redisClient)",
+        "internal500CounterCache, escalationSlotCache, tlsFingerprintProfileService"
       ],
-      "rationale": "Generated production graph for the final supplier-source chain: one repository, account-domain commands, an account store with no group dependency, the real in-memory probe adapter, existing secret encryption, and the admin handler. Provider declarations alone do not prove the deployed server retained this isolated graph after Wire regeneration or an upstream merge."
+      "rationale": "Generated production graph for the final supplier-source chain: one repository, account-domain commands, an account store with no group dependency, the real in-memory probe adapter, existing secret encryption, and the admin handler. Provider declarations alone do not prove the deployed server retained this isolated graph after Wire regeneration or an upstream merge. escalationSlotCache 是三条渐进惩罚阶梯共用的升级槽位（service.EscalationSlotCache）：必须是同一个实例同时注入 RateLimitService 与 AntigravityGatewayService，否则阶梯各自守卫失效，一次故障事件的并发请求会把冷却档整体跳过、账号直接永久禁用。丢掉这行会让所有阶梯 fail open 退回无守卫语义且编译通过。"
     },
     {
       "path": "backend/cmd/server/wire_gen.go",
       "must_contain": [
         "antigravityValidationCounterCache := repository.NewAntigravityValidationCounterCache(redisClient)",
-        "antigravityValidationCounterCache, settingService"
+        "antigravityValidationCounterCache, internal500CounterCache, escalationSlotCache, settingService",
+        "escalationSlotCache := repository.NewEscalationSlotCache(redisClient)",
+        "internal500CounterCache, escalationSlotCache, tlsFingerprintProfileService"
       ],
-      "rationale": "Generated production DI evidence that the Antigravity VALIDATION_REQUIRED counter reaches RateLimitService. The penalty ladder degrades fail-open by design: with a nil counter it silently falls back to the pre-fix single 30-minute cooldown, so a Wire regeneration that drops this argument compiles, passes every unit test (the ladder tests inject their own stub), and leaves production back on the infinite-replay behaviour with no visible signal. Provider declarations in service/wire.go alone do not prove the deployed graph wired it."
+      "rationale": "Generated production DI evidence that the Antigravity VALIDATION_REQUIRED counter reaches RateLimitService. The penalty ladder degrades fail-open by design: with a nil counter it silently falls back to the pre-fix single 30-minute cooldown, so a Wire regeneration that drops this argument compiles, passes every unit test (the ladder tests inject their own stub), and leaves production back on the infinite-replay behaviour with no visible signal. Provider declarations in service/wire.go alone do not prove the deployed graph wired it. escalationSlotCache 是三条渐进惩罚阶梯共用的升级槽位（service.EscalationSlotCache）：必须是同一个实例同时注入 RateLimitService 与 AntigravityGatewayService，否则阶梯各自守卫失效，一次故障事件的并发请求会把冷却档整体跳过、账号直接永久禁用。丢掉这行会让所有阶梯 fail open 退回无守卫语义且编译通过。 internal500CounterCache 也必须到达 RateLimitService：管理员清理路径要清 INTERNAL 500 阶梯，而递增侧的 owner 在 AntigravityGatewayService，依赖方向不可反向调用。同一个实例同时注入两处（见下方 NewAntigravityGatewayService 锚点），否则清理清的是另一份计数器。"
     }
   ]
 }

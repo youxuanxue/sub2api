@@ -647,6 +647,8 @@ func ProvideRateLimitService(
 	openAI403CounterCache OpenAI403CounterCache,
 	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache,
 	antigravityValidationCounterCache AntigravityValidationCounterCache,
+	internal500CounterCache Internal500CounterCache,
+	escalationSlotCache EscalationSlotCache,
 	settingService *SettingService,
 	tokenCacheInvalidator TokenCacheInvalidator,
 	refreshAPI *OAuthRefreshAPI,
@@ -660,6 +662,8 @@ func ProvideRateLimitService(
 	svc.SetOpenAI403CounterCache(openAI403CounterCache)
 	svc.SetAnthropicUpstreamErrorCounterCache(anthropicUpstreamErrorCounterCache)
 	svc.SetAntigravityValidationCounterCache(antigravityValidationCounterCache)
+	svc.SetInternal500CounterCache(internal500CounterCache)
+	svc.SetEscalationSlotCache(escalationSlotCache)
 	svc.SetSettingService(settingService)
 	svc.SetTokenCacheInvalidator(tokenCacheInvalidator)
 	svc.SetOAuthRefreshAPI(refreshAPI)

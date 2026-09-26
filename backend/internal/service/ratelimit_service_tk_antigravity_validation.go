@@ -27,23 +27,16 @@ func (s *RateLimitService) applyAntigravityValidationPenalty(
 		return true
 	}
 
-	// 升级槽位（对齐 Anthropic 阶梯 issue #623）：一次验证事件只推进一轮。
-	// 账号 concurrency 默认 3，同一次 VALIDATION_REQUIRED 会让多个 in-flight
-	// 请求同时拿到 403；没有槽位时计数在毫秒内冲到 3，两档冷却被跳过、账号被
-	// 直接永久禁用。抢到槽位的请求负责递增与落冷却，输家直接 failover。
-	// best-effort：Redis 出错时照常升级，不让守卫故障放过真正持续失败的账号。
-	acquiredSlot := false
-	if won, slotErr := s.antigravityValidationCounter.AcquireAntigravityValidationEscalationSlot(
-		ctx, account.ID, antigravityValidationEscalationSlotMaxSeconds,
-	); slotErr != nil {
-		slog.Warn("antigravity_validation_403_slot_acquire_failed",
-			"account_id", account.ID, "error", slotErr)
-	} else if !won {
-		slog.Info("antigravity_validation_403_escalation_suppressed_same_episode",
-			"account_id", account.ID, "account_name", account.Name)
+	// 同一故障事件只推进一轮：账号 concurrency 默认 3，一次 VALIDATION_REQUIRED
+	// 会让多个 in-flight 请求同时拿到 403。没有守卫时计数在毫秒内冲到阈值，
+	// 30min / 2h 两档冷却被整体跳过、账号被直接永久禁用。守卫由共享的
+	// EscalationSlotCache 持有（escalation_slot.go），fail open 语义见其文档。
+	episode, proceed := BeginEscalationEpisode(
+		ctx, s.escalationSlots, EscalationSlotPrefixAntigravityValidation,
+		account.ID, antigravityValidationEscalationSlotPlaceholder,
+	)
+	if !proceed {
 		return true
-	} else {
-		acquiredSlot = true
 	}
 
 	count, err := s.antigravityValidationCounter.IncrementAntigravityValidationCount(
@@ -53,7 +46,7 @@ func (s *RateLimitService) applyAntigravityValidationPenalty(
 		// 计数失败不改变可恢复语义，只退回首档冷却。
 		slog.Warn("antigravity_validation_403_increment_failed", "account_id", account.ID, "error", err)
 		s.cooldownAntigravityValidation(ctx, account, msg, antigravityValidationCooldownLadder[0], 0)
-		s.shrinkAntigravityValidationSlot(ctx, account, acquiredSlot, antigravityValidationCooldownLadder[0])
+		episode.CommitCooldown(ctx, antigravityValidationCooldownLadder[0])
 		return true
 	}
 
@@ -81,26 +74,8 @@ func (s *RateLimitService) applyAntigravityValidationPenalty(
 	s.cooldownAntigravityValidation(ctx, account, msg, cooldown, count)
 	// 槽位收缩到本轮冷却长度：账号重新可调度的那一刻槽位过期，届时再次命中
 	// 403 才算新一轮，阶梯继续升级。
-	s.shrinkAntigravityValidationSlot(ctx, account, acquiredSlot, cooldown)
+	episode.CommitCooldown(ctx, cooldown)
 	return true
-}
-
-// shrinkAntigravityValidationSlot 把升级槽位的 TTL 收缩到实际落下的冷却长度。
-// 只有抢到槽位的调用方才需要收缩；失败仅损失一次升级精度，不影响请求处理。
-func (s *RateLimitService) shrinkAntigravityValidationSlot(
-	ctx context.Context, account *Account, acquiredSlot bool, cooldown time.Duration,
-) {
-	if !acquiredSlot || s.antigravityValidationCounter == nil {
-		return
-	}
-	if err := s.antigravityValidationCounter.SetAntigravityValidationEscalationSlotTTL(
-		ctx, account.ID, int(cooldown.Seconds()),
-	); err != nil {
-		slog.Warn("antigravity_validation_403_slot_ttl_failed",
-			"account_id", account.ID,
-			"cooldown_seconds", int(cooldown.Seconds()),
-			"error", err)
-	}
 }
 
 // cooldownAntigravityValidation 落一次临时停调。持久化失败时 fail closed，
@@ -135,15 +110,15 @@ func (s *RateLimitService) cooldownAntigravityValidation(
 // 由成功响应与人工恢复路径调用：验证挑战一旦真正解除，账号不应带着旧轮数
 // 进入下一次冷却阶梯。
 func (s *RateLimitService) ResetAntigravityValidationCounter(ctx context.Context, accountID int64) {
-	if s == nil || s.antigravityValidationCounter == nil || accountID <= 0 {
+	if s == nil || accountID <= 0 {
 		return
 	}
-	if err := s.antigravityValidationCounter.ResetAntigravityValidationCount(ctx, accountID); err != nil {
-		slog.Warn("antigravity_validation_403_reset_failed", "account_id", accountID, "error", err)
+	if s.antigravityValidationCounter != nil {
+		if err := s.antigravityValidationCounter.ResetAntigravityValidationCount(ctx, accountID); err != nil {
+			slog.Warn("antigravity_validation_403_reset_failed", "account_id", accountID, "error", err)
+		}
 	}
 	// 一并释放升级槽位：账号已经恢复，残留的槽位会把下一次真实验证事件误判成
 	// 同一轮，导致该落的冷却被静默跳过。
-	if err := s.antigravityValidationCounter.ResetAntigravityValidationEscalationSlot(ctx, accountID); err != nil {
-		slog.Warn("antigravity_validation_403_slot_reset_failed", "account_id", accountID, "error", err)
-	}
+	ReleaseEscalationSlot(ctx, s.escalationSlots, EscalationSlotPrefixAntigravityValidation, accountID)
 }

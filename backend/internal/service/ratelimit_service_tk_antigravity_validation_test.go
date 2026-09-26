@@ -22,49 +22,6 @@ type stubAntigravityValidationCounter struct {
 	incrementCalls []int64
 	resetCalls     []int64
 	lastWindow     int
-
-	// 升级槽位：默认每次都抢到（单请求用例的行为与未加槽位时一致）。
-	slotAcquireErr  error
-	slotTaken       bool
-	slotTTLSeconds  []int
-	slotResetCalls  []int64
-	slotAcquireCall int
-}
-
-func (c *stubAntigravityValidationCounter) AcquireAntigravityValidationEscalationSlot(
-	_ context.Context, _ int64, ttlSeconds int,
-) (bool, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.slotAcquireCall++
-	if c.slotAcquireErr != nil {
-		return false, c.slotAcquireErr
-	}
-	if c.slotTaken {
-		return false, nil
-	}
-	c.slotTaken = true
-	_ = ttlSeconds
-	return true, nil
-}
-
-func (c *stubAntigravityValidationCounter) SetAntigravityValidationEscalationSlotTTL(
-	_ context.Context, _ int64, ttlSeconds int,
-) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.slotTTLSeconds = append(c.slotTTLSeconds, ttlSeconds)
-	return nil
-}
-
-func (c *stubAntigravityValidationCounter) ResetAntigravityValidationEscalationSlot(
-	_ context.Context, accountID int64,
-) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.slotResetCalls = append(c.slotResetCalls, accountID)
-	c.slotTaken = false
-	return nil
 }
 
 func (c *stubAntigravityValidationCounter) IncrementAntigravityValidationCount(
@@ -96,8 +53,15 @@ func antigravityValidationBody() []byte {
 func newAntigravityValidationService(
 	repo *rateLimitAccountRepoStub, counter AntigravityValidationCounterCache,
 ) *RateLimitService {
+	return newAntigravityValidationServiceWithSlots(repo, counter, newStubEscalationSlots())
+}
+
+func newAntigravityValidationServiceWithSlots(
+	repo *rateLimitAccountRepoStub, counter AntigravityValidationCounterCache, slots EscalationSlotCache,
+) *RateLimitService {
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 	service.SetAntigravityValidationCounterCache(counter)
+	service.SetEscalationSlotCache(slots)
 	return service
 }
 
@@ -252,7 +216,7 @@ func TestResetAntigravityValidationCounter_清零轮数(t *testing.T) {
 func TestAntigravityValidation403_并发同一事件只推进一轮(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &realishAntigravityValidationCounter{}
-	service := newAntigravityValidationService(repo, counter)
+	service := newAntigravityValidationServiceWithSlots(repo, counter, newStubEscalationSlots())
 	account := antigravityOAuthAccount(901)
 
 	var wg sync.WaitGroup
@@ -275,8 +239,14 @@ func TestAntigravityValidation403_并发同一事件只推进一轮(t *testing.T
 
 func TestAntigravityValidation403_槽位输家不推进阶梯(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
-	counter := &stubAntigravityValidationCounter{count: 1, slotTaken: true}
-	service := newAntigravityValidationService(repo, counter)
+	counter := &stubAntigravityValidationCounter{count: 1}
+	slots := newStubEscalationSlots()
+	service := newAntigravityValidationServiceWithSlots(repo, counter, slots)
+
+	// 先让同一事件的另一个请求占住槽位。
+	_, proceed := BeginEscalationEpisode(
+		context.Background(), slots, EscalationSlotPrefixAntigravityValidation, 902, time.Hour)
+	require.True(t, proceed)
 
 	shouldDisable := service.HandleUpstreamError(
 		context.Background(), antigravityOAuthAccount(902),
@@ -292,7 +262,8 @@ func TestAntigravityValidation403_槽位输家不推进阶梯(t *testing.T) {
 func TestAntigravityValidation403_槽位收缩到本轮冷却长度(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &stubAntigravityValidationCounter{count: 2}
-	service := newAntigravityValidationService(repo, counter)
+	slots := newStubEscalationSlots()
+	service := newAntigravityValidationServiceWithSlots(repo, counter, slots)
 
 	service.HandleUpstreamError(
 		context.Background(), antigravityOAuthAccount(903),
@@ -300,18 +271,18 @@ func TestAntigravityValidation403_槽位收缩到本轮冷却长度(t *testing.T
 	)
 
 	// 第 2 轮落 2 小时冷却，槽位必须收缩到同一长度，使账号重新可调度时槽位恰好过期。
-	require.Equal(t, []int{int((2 * time.Hour).Seconds())}, counter.slotTTLSeconds)
+	require.Equal(t, []int{int((2 * time.Hour).Seconds())},
+		slots.shrunkTo(EscalationSlotPrefixAntigravityValidation, 903))
 }
 
 // 槽位不可用（Redis 故障）时必须 fail open 照常升级，不能让守卫故障放过
 // 真正需要人工验证的账号。
 func TestAntigravityValidation403_槽位故障时照常升级(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
-	counter := &stubAntigravityValidationCounter{
-		count:          1,
-		slotAcquireErr: errors.New("redis down"),
-	}
-	service := newAntigravityValidationService(repo, counter)
+	counter := &stubAntigravityValidationCounter{count: 1}
+	slots := newStubEscalationSlots()
+	slots.acquireErr = errors.New("redis down")
+	service := newAntigravityValidationServiceWithSlots(repo, counter, slots)
 
 	service.HandleUpstreamError(
 		context.Background(), antigravityOAuthAccount(904),
@@ -320,27 +291,28 @@ func TestAntigravityValidation403_槽位故障时照常升级(t *testing.T) {
 
 	require.Len(t, counter.incrementCalls, 1, "槽位故障不得吞掉升级")
 	require.Equal(t, 1, repo.tempCalls)
-	require.Empty(t, counter.slotTTLSeconds, "没抢到槽位就不该收缩 TTL")
+	require.Empty(t, slots.shrunkTo(EscalationSlotPrefixAntigravityValidation, 904),
+		"没抢到槽位就不该收缩 TTL")
 }
 
 func TestResetAntigravityValidationCounter_同时释放槽位(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
-	counter := &stubAntigravityValidationCounter{count: 1, slotTaken: true}
-	service := newAntigravityValidationService(repo, counter)
+	counter := &stubAntigravityValidationCounter{count: 1}
+	slots := newStubEscalationSlots()
+	service := newAntigravityValidationServiceWithSlots(repo, counter, slots)
 
 	service.ResetAntigravityValidationCounter(context.Background(), 905)
 
 	require.Equal(t, []int64{905}, counter.resetCalls)
-	require.Equal(t, []int64{905}, counter.slotResetCalls,
+	require.Equal(t, 1, slots.released(EscalationSlotPrefixAntigravityValidation, 905),
 		"账号恢复后残留槽位会把下一次真实验证事件误判成同一轮")
 }
 
 // realishAntigravityValidationCounter 复刻 Redis INCR + SETNX 的原子语义，
 // 用于并发用例。
 type realishAntigravityValidationCounter struct {
-	mu   sync.Mutex
-	n    int64
-	slot bool
+	mu sync.Mutex
+	n  int64
 }
 
 func (c *realishAntigravityValidationCounter) value() int64 {
@@ -364,32 +336,5 @@ func (c *realishAntigravityValidationCounter) ResetAntigravityValidationCount(
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.n = 0
-	return nil
-}
-
-func (c *realishAntigravityValidationCounter) AcquireAntigravityValidationEscalationSlot(
-	_ context.Context, _ int64, _ int,
-) (bool, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.slot {
-		return false, nil
-	}
-	c.slot = true
-	return true, nil
-}
-
-func (c *realishAntigravityValidationCounter) SetAntigravityValidationEscalationSlotTTL(
-	_ context.Context, _ int64, _ int,
-) error {
-	return nil
-}
-
-func (c *realishAntigravityValidationCounter) ResetAntigravityValidationEscalationSlot(
-	_ context.Context, _ int64,
-) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.slot = false
 	return nil
 }
