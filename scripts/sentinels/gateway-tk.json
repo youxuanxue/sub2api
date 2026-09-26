@@ -7864,23 +7864,23 @@
         "func tkStripFableDisabledThinking(body []byte) []byte",
         "sjson.DeleteBytes(body, \"thinking\")",
         "func isTokenseaRelayUpstream(account *Account) bool",
-        "func tkStripTokenseaFableContextManagement(account *Account, body []byte) []byte",
+        "func tkStripTokenseaContextManagement(account *Account, body []byte) []byte",
         "sjson.DeleteBytes(body, \"context_management\")",
         "isTokenseaRelayBaseURL(account.GetCredential(\"base_url\"))"
       ],
-      "rationale": "Two Fable-tier pre-send strips. (1) Explicit thinking:{type:\"disabled\"}: upstream rejects that shape on fable with a 400 ('\"thinking.type.disabled\" is not supported for this model …', prod 2026-06-10 user 16) while Opus 4.7+ still accepts it — gate is isFableModel, NOT requiresAdaptiveOnlyThinking; omitting the field is the documented equivalent (same rule bedrock sanitizeBedrockThinking already applies). (2) tokensea+fable context_management: prod 2026-09-20 user 16 (ops_error 4222978) Claude CLI → Cursor Connect 429 → failover to newapi tokensea account 136 returned HTTP 400 'context_management: Extra inputs are not permitted' for claude-fable-5; Cursor accepts the same payload and 7d prod only saw this 400 on account 136 × fable. isTokenseaRelayUpstream must cover openai/anthropic typed relays AND platform=newapi base_url agent.tokensea.ai (account 136). Dropping either strip silently re-surfaces raw upstream 400s on the matching path."
+      "rationale": "Two pre-send strips. (1) Explicit thinking:{type:\"disabled\"}: upstream rejects that shape on fable with a 400 ('\"thinking.type.disabled\" is not supported for this model …', prod 2026-06-10 user 16) while Opus 4.7+ still accepts it — gate is isFableModel, NOT requiresAdaptiveOnlyThinking; omitting the field is the documented equivalent (same rule bedrock sanitizeBedrockThinking already applies). (2) tokensea context_management: agent.tokensea.ai returns HTTP 400 'context_management: Extra inputs are not permitted' for EVERY Claude model seen in prod (fable-5 2026-09-20 user16; opus-4-8 same day; opus-5 2026-09-26 user1). The earlier fable-only gate let Opus variants keep recurring. isTokenseaRelayUpstream must cover openai/anthropic typed relays AND platform=newapi base_url agent.tokensea.ai (account 136). Dropping the strip or re-adding a model gate silently re-surfaces raw upstream 400s on failover."
     },
     {
       "path": "backend/internal/service/gateway_request_tk_fable_test.go",
       "must_contain": [
-        "TestTkStripTokenseaFableContextManagement_StripsOnTokenseaFable",
-        "TestTkStripTokenseaFableContextManagement_NoTouch",
-        "TestTkStripTokenseaFableContextManagement_OpenAIAndAnthropicTypedRelays",
+        "TestTkStripTokenseaContextManagement_StripsOnTokenseaModels",
+        "TestTkStripTokenseaContextManagement_NoTouch",
+        "TestTkStripTokenseaContextManagement_OpenAIAndAnthropicTypedRelays",
         "TestIsTokenseaRelayUpstream_NewAPIChannel",
         "cursor+fable keeps CM",
-        "tokensea+opus keeps CM"
+        "claude-opus-5"
       ],
-      "rationale": "Focused regressions for tokensea+fable context_management strip: positive strip on newapi tokensea×fable, negative no-touch for Cursor×fable / tokensea×opus / nil account, and typed openai/anthropic tokensea relays. Dropping these lets the helper regress without CI catching the prod failover shape."
+      "rationale": "Focused regressions for tokensea context_management strip: positive strip on newapi tokensea for fable/opus-4-8/opus-5/sonnet, negative no-touch for Cursor / nil account / body without CM, and typed openai/anthropic tokensea relays. Must NOT reintroduce a 'tokensea+opus keeps CM' expectation — that false assumption caused the 2026-09-26 user1 recurrence."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_anthropic_native_tk.go",
@@ -7888,7 +7888,7 @@
         "NormalizeGLM53AnthropicThinking",
         "tkPrepareAnthropicMessagesWireBody("
       ],
-      "rationale": "Native Anthropic Messages egress via buildNativeAnthropicUpstreamRequest (CN/Anthropic-protocol accounts) must call tkStripTokenseaFableContextManagement after beta-body sanitize, and must soft-remap always-thinking GLM-5.3 family thinking-disable via NormalizeGLM53AnthropicThinking before upstream. CM strip now owned by tkPrepareAnthropicMessagesWireBody SSOT."
+      "rationale": "Native Anthropic Messages egress via buildNativeAnthropicUpstreamRequest (CN/Anthropic-protocol accounts) must call tkPrepareAnthropicMessagesWireBody (which owns tokensea CM strip) after beta-body sanitize, and must soft-remap always-thinking GLM-5.3 family thinking-disable via NormalizeGLM53AnthropicThinking before upstream."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_native.go",
@@ -7896,29 +7896,29 @@
         "tkPrepareAnthropicMessagesWireBody(",
         "func (s *OpenAIGatewayService) sendNativeAnthropicMessagesRequest("
       ],
-      "rationale": "Prod user16 Cursor→tokensea failover uses ForwardAsAnthropic → forwardAnthropicViaNativeMessages → sendNativeAnthropicMessagesRequest (platform=newapi agent.tokensea.ai). This path builds http.NewRequest directly and does NOT call buildNativeAnthropicUpstreamRequest; the strip must live here or claude-fable-5 still 400s with context_management Extra inputs."
+      "rationale": "Prod Cursor→tokensea failover uses ForwardAsAnthropic → forwardAnthropicViaNativeMessages → sendNativeAnthropicMessagesRequest (platform=newapi agent.tokensea.ai). This path builds http.NewRequest directly and does NOT call buildNativeAnthropicUpstreamRequest; the strip must live here or tokensea still 400s with context_management Extra inputs (fable-5, opus-4-8, opus-5)."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_native_test.go",
       "must_contain": [
-        "TestForwardAsAnthropic_NativeMessages_TokenseaFableStripsContextManagement",
-        "native messages egress must strip context_management for tokensea+fable"
+        "TestForwardAsAnthropic_NativeMessages_TokenseaStripsContextManagement",
+        "native messages egress must strip context_management for tokensea (all models)"
       ],
-      "rationale": "End-to-end regression for the real newapi tokensea native-messages egress path: ForwardAsAnthropic must strip context_management from the upstream body for claude-fable-5."
+      "rationale": "End-to-end regression for the real newapi tokensea native-messages egress path: ForwardAsAnthropic must strip context_management from the upstream body for both claude-fable-5 and claude-opus-5."
     },
     {
       "path": "backend/internal/service/gateway_upstream_request.go",
       "must_contain": [
         "tkPrepareAnthropicMessagesWireBody("
       ],
-      "rationale": "Main Anthropic buildUpstreamRequest egress must call tkStripTokenseaFableContextManagement after beta-body sanitize so anthropic-platform tokensea relays get the same fable CM strip as the OpenAI-gateway native path. CM strip now owned by tkPrepareAnthropicMessagesWireBody SSOT."
+      "rationale": "Main Anthropic buildUpstreamRequest egress must call tkPrepareAnthropicMessagesWireBody after beta-body sanitize so anthropic-platform tokensea relays get the same CM strip as the OpenAI-gateway native path."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
       "must_contain": [
         "tkPrepareAnthropicMessagesWireBody("
       ],
-      "rationale": "API-key Anthropic passthrough egress must call tkStripTokenseaFableContextManagement after beta-body sanitize so tokensea+fable CM strip is not limited to the OAuth/mimic Forward path. CM strip now owned by tkPrepareAnthropicMessagesWireBody SSOT."
+      "rationale": "API-key Anthropic passthrough egress must call tkPrepareAnthropicMessagesWireBody after beta-body sanitize so tokensea CM strip is not limited to the OAuth/mimic Forward path."
     },
     {
       "path": "backend/internal/service/gateway_request_tk_deprecated_sampling.go",

@@ -110,22 +110,25 @@ func tokenseaNewAPIAccount(id int64) *Account {
 	}
 }
 
-// TestTkStripTokenseaFableContextManagement_StripsOnTokenseaFable pins the
-// prod 2026-09-20 user16 failover path: newapi tokensea + claude-fable-5 must
-// lose context_management before upstream forward.
-func TestTkStripTokenseaFableContextManagement_StripsOnTokenseaFable(t *testing.T) {
+// TestTkStripTokenseaContextManagement_StripsOnTokenseaModels pins that
+// tokensea rejects context_management for every Claude model we have seen in
+// prod (fable-5, opus-4-8, opus-5) — not only Fable.
+func TestTkStripTokenseaContextManagement_StripsOnTokenseaModels(t *testing.T) {
 	account := tokenseaNewAPIAccount(136)
-	body := []byte(`{"model":"claude-fable-5","thinking":{"type":"adaptive"},"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"messages":[{"role":"user","content":"hi"}],"max_tokens":100}`)
-
-	got := tkStripTokenseaFableContextManagement(account, body)
-
-	require.False(t, gjson.GetBytes(got, "context_management").Exists())
-	require.Equal(t, "adaptive", gjson.GetBytes(got, "thinking.type").String())
-	require.Equal(t, "claude-fable-5", gjson.GetBytes(got, "model").String())
-	require.True(t, gjson.GetBytes(got, "messages").Exists())
+	models := []string{"claude-fable-5", "claude-opus-4-8", "claude-opus-5", "claude-sonnet-4-6"}
+	for _, model := range models {
+		t.Run(model, func(t *testing.T) {
+			body := []byte(`{"model":"` + model + `","thinking":{"type":"adaptive"},"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"messages":[{"role":"user","content":"hi"}],"max_tokens":100}`)
+			got := tkStripTokenseaContextManagement(account, body)
+			require.False(t, gjson.GetBytes(got, "context_management").Exists())
+			require.Equal(t, "adaptive", gjson.GetBytes(got, "thinking.type").String())
+			require.Equal(t, model, gjson.GetBytes(got, "model").String())
+			require.True(t, gjson.GetBytes(got, "messages").Exists())
+		})
+	}
 }
 
-func TestTkStripTokenseaFableContextManagement_NoTouch(t *testing.T) {
+func TestTkStripTokenseaContextManagement_NoTouch(t *testing.T) {
 	tokensea := tokenseaNewAPIAccount(136)
 	cursor := &Account{
 		ID:       150,
@@ -138,29 +141,29 @@ func TestTkStripTokenseaFableContextManagement_NoTouch(t *testing.T) {
 		Extra: map[string]any{"upstream_provider": "cursor"},
 	}
 	cmBody := `{"model":"claude-fable-5","context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"max_tokens":100}`
-	opusBody := `{"model":"claude-opus-4-8","context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"max_tokens":100}`
+	opusCM := `{"model":"claude-opus-5","context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"max_tokens":100}`
 	noCM := `{"model":"claude-fable-5","thinking":{"type":"adaptive"},"max_tokens":100}`
 
-	cases := []struct {
-		name    string
-		account *Account
-		body    string
-	}{
-		{"cursor+fable keeps CM", cursor, cmBody},
-		{"tokensea+opus keeps CM", tokensea, opusBody},
-		{"tokensea+fable without CM is no-op", tokensea, noCM},
-		{"nil account keeps CM", nil, cmBody},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := tkStripTokenseaFableContextManagement(tc.account, []byte(tc.body))
-			require.Equal(t, tc.body, string(got))
-		})
-	}
+	t.Run("cursor+fable keeps CM", func(t *testing.T) {
+		got := tkStripTokenseaContextManagement(cursor, []byte(cmBody))
+		require.Equal(t, cmBody, string(got))
+	})
+	t.Run("cursor+opus keeps CM", func(t *testing.T) {
+		got := tkStripTokenseaContextManagement(cursor, []byte(opusCM))
+		require.Equal(t, opusCM, string(got))
+	})
+	t.Run("tokensea without CM is no-op", func(t *testing.T) {
+		got := tkStripTokenseaContextManagement(tokensea, []byte(noCM))
+		require.Equal(t, noCM, string(got))
+	})
+	t.Run("nil account keeps CM", func(t *testing.T) {
+		got := tkStripTokenseaContextManagement(nil, []byte(cmBody))
+		require.Equal(t, cmBody, string(got))
+	})
 }
 
-func TestTkStripTokenseaFableContextManagement_OpenAIAndAnthropicTypedRelays(t *testing.T) {
-	cmBody := []byte(`{"model":"claude-fable-5","context_management":{"edits":[{"type":"clear_thinking_20251015"}]},"max_tokens":32}`)
+func TestTkStripTokenseaContextManagement_OpenAIAndAnthropicTypedRelays(t *testing.T) {
+	cmBody := []byte(`{"model":"claude-opus-5","context_management":{"edits":[{"type":"clear_thinking_20251015"}]},"max_tokens":32}`)
 	openaiRelay := &Account{
 		Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{"base_url": "https://agent.tokensea.ai/v1"},
@@ -170,7 +173,7 @@ func TestTkStripTokenseaFableContextManagement_OpenAIAndAnthropicTypedRelays(t *
 		Credentials: map[string]any{"base_url": "https://agent.tokensea.ai"},
 	}
 	for _, account := range []*Account{openaiRelay, anthropicRelay} {
-		got := tkStripTokenseaFableContextManagement(account, cmBody)
+		got := tkStripTokenseaContextManagement(account, cmBody)
 		require.False(t, gjson.GetBytes(got, "context_management").Exists())
 	}
 }
