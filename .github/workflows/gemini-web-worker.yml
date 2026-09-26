@@ -91,6 +91,12 @@ jobs:
       # digest exists to eliminate (a tag naming a build nobody can reproduce).
       # It happened: a build whose image reported `unknown` was pushed, the verify
       # step failed the job, and the tag stayed in GHCR permanently.
+      #
+      # `load: true` only works for a single-platform build, which this is by
+      # design (see the job comment above: every deployable edge is x86_64). Adding
+      # a second platform here would silently break the load, so a Worker that ever
+      # needs arm64 must verify by digest from the registry instead of reordering
+      # these steps back to push-then-verify.
       - name: Build worker image (no push)
         uses: docker/build-push-action@v6
         with:
