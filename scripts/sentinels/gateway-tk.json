@@ -298,11 +298,11 @@
         "captureRequestedModel(metadataBody)",
         "captureToolCallsPresent(metadataBody)",
         "captureMultimodalPresent(metadataBody)",
-        "logredact.RedactSSE(string(chunk.Bytes))",
-        "return logredact.RedactSSE(string(trimmed))",
-        "return logredact.RedactSSE(trimmed)"
+        "redactionValueString(s.sanitizeQABodyMemo(chunk.Bytes, preserveThinking, redactionMemo))",
+        "result := logredact.RedactOnePass(payload, logredact.RedactOptions{})",
+        "case logredact.FormatSSE:"
       ],
-      "rationale": "Bounded content capture must preserve metadata from the already-read request and retain only thinking-block signatures after redaction."
+      "rationale": "Bounded content capture must preserve metadata from the already-read request and retain only thinking-block signatures after redaction. The capture-local one-pass classifier and memo must remain the sole QA body/chunk redaction path; the legacy SSE fallback literal remains for compatibility tests and unknown legacy callers."
     },
     {
       "path": "backend/internal/observability/qa/internal_thinking_capture_test.go",

@@ -23,6 +23,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -146,7 +147,8 @@ func TestQARequestCaptureBytes_DecodesCompressedJSONBeforeRedaction(t *testing.T
 	captured := qaRequestCaptureBytes(req, buf.Bytes())
 	require.JSONEq(t, `{"model":"gpt-5","api_key":"sk-secret-value"}`, string(captured))
 
-	sanitized, err := json.Marshal(sanitizeQABytes(captured, 1<<20))
+	redacted := logredact.RedactOnePass(captured, logredact.RedactOptions{})
+	sanitized, err := json.Marshal(redacted.Value)
 	require.NoError(t, err)
 	require.NotContains(t, string(sanitized), "sk-secret-value")
 	require.Contains(t, string(sanitized), "gpt-5")

@@ -1,0 +1,366 @@
+---
+title: Candidate routing runtime snapshot and one-pass request path
+status: approved
+approved_by: "user (conversation approval: 同意。请乔布斯，拆解方案计划，编排 Agent 军团实现目标。开 pr)"
+created: 2026-09-25
+authors: [codex]
+risk: high
+related_docs:
+  - candidate-eligibility-ssot.md
+  - protocol-routing-ssot.md
+  - universal-key-routing.md
+  - qa-redaction-identified-formats-only.md
+---
+
+# Candidate routing runtime snapshot and one-pass request path
+
+## 1. Decision
+
+The gateway currently recomputes static account and request facts on every
+request. Candidate selection reloads account membership and capability data,
+request parsing is repeated across ingress and handlers, and QA capture scans
+the same body through several redaction paths. The CPU cost is therefore a
+shared data-flow problem rather than a collection of independent slow
+functions.
+
+The target design separates three data planes:
+
+1. an immutable candidate read snapshot for authorization and static routing
+   facts;
+2. a runtime readiness view for capacity, quota, cooldown and health;
+3. one immutable `protocolrouter.CanonicalRequest` for the whole attempt.
+
+The snapshot is a materialized read model. It is not a new eligibility,
+protocol, billing or security owner. Existing SSOT owners continue to decide
+the outcome.
+
+## 2. SSOT and ownership boundaries
+
+| Fact or decision | Owner | Snapshot/request role |
+| --- | --- | --- |
+| Native endpoint capability | `protocol_endpoint_capabilities` | Read-only materialized copy keyed by capability identity |
+| Model and converter legality | `protocolrouter.Router.Plan` | Must be evaluated for every final candidate; may use a bounded pure-result cache |
+| Canonical request semantics | `protocolrouter.CanonicalRequest` | Constructed once at ingress and reused by candidate, handler and execution |
+| Candidate static-fact read model | proposed `candidate_read_snapshot_tk.go` under the candidate owner, using scheduler outbox/cache delivery only | Materializes complete account, group and membership facts; never decides readiness, Plan legality or billing |
+| Authorization paths and account selection | `candidate_request_tk.go`, `candidate_selection_tk.go` | Consumes authorized memberships and static account facts |
+| Current readiness | scheduler, quota, cooldown, concurrency and health owners | Read at selection and rechecked before execution |
+| Billing source and reservations | `candidate_billing_tk.go`, `CandidateRequest.bind` and existing billing owners | Never decided by the snapshot |
+| Sticky identity and continuation | existing candidate identity owners | Snapshot data cannot bypass revalidation |
+| QA record and session export | existing QA Bundle and trajectory owners | Redaction optimization cannot change blob/export ownership |
+
+No second protocol graph, universal alias table, global billing cache or
+parallel candidate eligibility service is introduced.
+
+## 3. Candidate read snapshot
+
+The read model is rebuilt from existing database and outbox facts by the
+scheduler snapshot infrastructure and published atomically. It may be stored
+in the existing scheduler cache and held behind an in-process immutable
+pointer. The materializer must not store credentials or other secrets.
+
+Conceptually:
+
+```go
+type CandidateReadSnapshot struct {
+    ReadRevision   uint64 // read-model publication revision only
+    SourceWatermark uint64
+    PublishedAt    time.Time
+    Complete       bool
+    Accounts       map[int64]CandidateAccountFacts
+    Capabilities   map[string]CandidateCapabilityFacts
+    Groups         map[int64]CandidateGroupFacts
+    Memberships    map[int64][]CandidateMembership
+    Indexes        CandidateIndexes
+}
+
+type CandidateAccountFacts struct {
+    ID               int64
+    Platform         string
+    CapabilityKey    string
+    ModelMapping     ModelMappingProjection
+    AccountGroupIDs  []int64
+}
+
+// CandidateCapabilityFacts is shared by all accounts with the same canonical
+// capability identity. It is a complete non-secret projection of the endpoint
+// inputs that protocolrouter.Plan needs; the snapshot does not define a second
+// protocol representation or a second write path for these fields.
+type CandidateCapabilityFacts struct {
+    CapabilityKey        string
+    NativeProtocols      []protocolrouter.Protocol
+    EndpointIdentity     EndpointIdentityProjection
+    EndpointPolicyDigest string
+}
+
+type CandidateGroupFacts struct {
+    ID             int64
+    Active         bool
+    ModelAllowlist ModelAllowlist
+    EndpointPolicy GroupEndpointPolicy
+    DirectPolicy   DirectCandidatePolicyProjection
+}
+```
+
+`CandidateAccountFacts` and `CandidateCapabilityFacts` together contain the
+complete non-secret facts needed for safe prefiltering and Plan input
+construction. Capability facts are shared by canonical capability key so the
+snapshot does not copy endpoint data once per account. Both projections are
+derived from the existing capability, endpoint and account-mapping owners; they
+are not new protocol facts. Current credentials, proxy credentials, capacity,
+quota, cooldown, transient health and billing state are loaded from their
+authoritative owners when needed. Billing origins are never materialized in
+this snapshot.
+
+Indexes may narrow the candidate set by group, account membership, platform,
+native protocol or other facts whose semantics already belong to an existing
+owner. An index can never grant a route, grant authorization, select a billing
+origin or replace `Plan`.
+
+The read revision, source watermark and publication time are used for
+observability and shadow comparison. They are not new stale-plan rules.
+Protocol routing continues to follow the existing contract: execution reloads
+the authoritative account and accepts the plan only when the fresh route facts
+are equivalent.
+
+This is a candidate read model, not a scheduler readiness snapshot. It must
+retain authorized accounts whose current state is disabled, errored or
+temporarily unschedulable so support and readiness remain separate. It may
+reuse the scheduler cache transport and outbox delivery, but it has its own
+materializer and bucket semantics; a scheduler bucket containing only
+currently schedulable accounts cannot substitute for it.
+
+The materializer publishes a complete generation only. If an outbox gap,
+capability lookup failure or membership hydration error is detected, it keeps
+the previous complete generation, marks the new generation unavailable and
+emits a lag/degraded signal. It never publishes a partially populated account
+or group map.
+
+The single read owner exposes the following boundary:
+
+```go
+type CandidateReadSnapshotProvider interface {
+    Snapshot(context.Context, []int64) (CandidateReadSnapshot, error)
+}
+```
+
+The provider first reads a complete published snapshot. On a miss it may use
+one bounded batch repository fallback for that request, subject to the existing
+fallback limiter; it does not rebuild or publish a snapshot from the request
+goroutine and it does not issue one query per group. An incomplete or invalid
+snapshot is an error, never an authorization grant. The provider owns the
+fallback metric and error classification; candidate selection does not invent a
+second fallback path.
+
+## 4. Request and selection flow
+
+```text
+HTTP / WS ingress
+  -> PrepareCandidateIngress
+  -> one CanonicalRequest + request digest
+  -> authorized group span
+  -> snapshot index prefilter
+  -> Plan every final candidate
+  -> independent runtime readiness checks
+  -> candidate-owned ordering and billing bind
+  -> slot acquisition / wait recheck
+  -> reload selected account and revalidate group membership/authorization
+  -> compare fresh route facts
+  -> Execute(selected Plan)
+```
+
+The request state follows these transitions:
+
+```text
+Unprepared
+  -> Prepared(request, authorized scope, snapshot handle)
+  -> Planned(legal candidate paths)
+  -> Bound(account, billing origin, reservation)
+  -> Rechecked(fresh account, equivalent Plan, current slot)
+  -> Executing
+```
+
+Every retry or wait consumer reuses the same immutable request digest and
+original body. A changed authorization path, missing account, inactive group,
+missing membership, non-equivalent route or failed billing rebind releases
+acquired resources before reselection. The final check uses the authoritative
+user/key scope, group and account repositories; the read snapshot cannot bypass
+that check. “Authoritative” means the existing owner and its cache-backed
+fresh-read path; it does not require a direct Postgres round trip on every
+request. A direct repository fallback is reserved for cache misses or detected
+drift and remains bounded.
+
+The snapshot provider must expose bounded fallback behavior:
+
+- a missing or incomplete snapshot cannot silently authorize a new path;
+- a bounded repository/scheduler fallback may rebuild the read model or serve
+  one request, with explicit metrics and rate limiting;
+- outbox lag, fallback use and snapshot publication failures are observable;
+- final execution always reloads the selected account.
+
+## 5. Plan result reuse
+
+The existing request-local plan cache remains the only plan cache in this
+change and the correctness boundary. It already prevents repeated planning
+within one candidate selection. A cross-request Plan cache is deliberately
+out of scope: it would add a second invalidation problem before the snapshot
+and route-equivalence work is measured in production.
+
+If a later profile proves Plan construction is still a material hotspot, it
+requires a separate design and approval. Its key would need every immutable
+input that affects planning:
+
+```text
+canonical request digest
++ account model-mapping facts
++ capability identity
++ endpoint policy
++ native-only/conversion permission
+```
+
+Such a future cache may store success and failure, but never credentials,
+runtime readiness or billing state. Capability `revision` may partition or
+retire entries, but a revision change alone does not define route invalidity.
+Regardless of cache shape, before network construction the authoritative
+account is reloaded and the fresh plan is compared by capability key, resolved
+model, endpoint, adapter and transport, as required by the protocol-routing
+SSOT.
+
+## 6. One canonical request parse
+
+Ingress creates the existing `protocolrouter.CanonicalRequest` once. The typed
+request profile contains stream, tool, thinking, continuation, reasoning,
+content and Responses-path semantics. Handlers and converters consume that
+object and the immutable body instead of independently rebuilding routing
+metadata. Protocol-specific decoding that is required to execute a route may
+remain at the handler or adapter boundary; `CanonicalRequest` is not a second
+cross-protocol intermediate representation.
+
+`WithRequestProfile` becomes an adapter to this canonical request owner. It must
+not become a second routing parser or a cross-protocol intermediate
+representation. Plan remains pure and network-free; Execute consumes the
+selected immutable Plan and request.
+
+The implementation must preserve Direct and Universal differences:
+
+- Direct keeps its bound-group mapping behavior.
+- Universal does not read group model aliases.
+- `DirectPolicy` is a read-only projection for Direct path preparation only;
+  Universal candidate evaluation ignores it.
+- group platform labels do not select the execution platform.
+- account mappings and protocol legality still flow through their existing
+  owners.
+
+## 7. QA redaction path
+
+QA capture keeps the current Bundle, blob, session and export contracts. The
+internal optimization is a one-pass result:
+
+```text
+bounded bytes
+  -> format classifier
+  -> one JSON/SSE/assignment/known-token pass
+  -> RedactionResult
+  -> existing blob writer
+```
+
+The result may be reused by request/response/upstream fields with the same
+digest and the same redaction options within one capture. No process-wide cache
+of redacted user content is introduced.
+
+The implementation must preserve:
+
+- `logredact-v4` metadata and existing blob shape;
+- SSE framing and thinking-signature restoration;
+- upstream divergence markers;
+- known key-name and known-token coverage;
+- the approved behavior that unknown formats are retained without the old
+  regular-expression fallback.
+
+Asynchronous writing can reduce contention, but it is not counted as a CPU
+optimization unless the number of scans and parsed representations decreases.
+
+## 8. Online impact and long-term constraints
+
+This design is intended to reduce steady-state CPU and database pressure, but
+its long-term risks are stale authorization, duplicated routing facts, memory
+growth, cache drift and permanent fallback complexity. The following
+constraints are part of the design, not operational advice:
+
+| Long-term risk | Required design constraint | Residual online effect |
+| --- | --- | --- |
+| Revoked membership remains in a read model | Final authorization and membership fresh-read before bind/execute; invalidation events advance a monotonic watermark | A revoked path can remain in the prefilter briefly, but cannot execute |
+| New authorization is missing from a lagging model | Complete generations only; bounded fallback on miss; lag alert and a hard freshness budget | A new grant may become usable slightly later |
+| Capability or mapping facts drift | Source-owned projections, outbox gap detection, periodic full rebuild, route-fact equivalence before transport | A changed route may be rejected and fail over while the model catches up |
+| A second protocol truth emerges | Shared capability projection keyed by canonical identity; no manual writes or policy logic in the snapshot | Snapshot rebuild remains tied to existing owners |
+| Memory grows with memberships and duplicated endpoint data | Store IDs and shared capability facts; indexes contain references, not copied account objects; publish immutable generations and retire old ones promptly | Rebuilds may briefly use extra memory; steady-state size is bounded by account and membership cardinality |
+| Snapshot outage becomes a database storm | One provider owns fallback, batch loads, singleflight and a rate budget; no caller-specific fallback | Some requests may receive the existing capacity/error response during degraded mode |
+| Blue/green or rollback reads an incompatible cache | Versioned cache schema and generation keys; old binaries ignore unknown generations | Rollback may temporarily use the old database path |
+| Degraded reads change customer-facing error semantics | Preserve the existing distinction between authorization, unsupported model, capacity and infrastructure errors; never turn a read failure into an empty entitlement set | Degraded mode may fail a request, but must not misclassify it as a client error |
+| QA unknown-format passthrough becomes invisible privacy debt | Count unknown format bytes and records asynchronously, alert on drift, retain redaction version in every Bundle and keep lifecycle controls unchanged | Unknown formats remain an explicitly documented residual exposure |
+
+The snapshot is not an authorization cache with an independent TTL. Its
+freshness is governed by source watermarks and invalidation coverage. A periodic
+full rebuild is required even when the outbox is healthy; an outbox gap or
+failed rebuild prevents publication of a new generation. The previous complete
+generation may remain available only for prefiltering, never as proof of final
+authorization.
+
+The emergency repository fallback is not a second production path. It is one
+bounded owner used for cache misses, degraded snapshots and rollback. Once the
+snapshot has passed shadow acceptance, the old candidate query path must be
+removed from normal traffic and retained only behind that owner. This prevents
+two independently evolving eligibility implementations from becoming a
+permanent maintenance burden.
+
+Long-lived in-process snapshots must use immutable structural sharing and
+prompt generation retirement. They must not retain request bodies, credentials,
+redacted content or user-specific authorization results. Redis/cache entries
+must use the existing internal access controls and a bounded retention policy.
+
+## 9. Rollout and validation
+
+Implementation is staged behind read-only shadow comparison:
+
+1. build the snapshot and compare candidate facts and Plan outcomes with the
+   current database path;
+2. switch candidate reads to the snapshot with bounded fallback;
+3. make `CanonicalRequest` the only routing parser;
+4. measure Plan construction after the first two stages; propose a separate
+   cache design only if it remains a material hotspot;
+5. replace QA repeated scans with the one-pass internal result;
+6. remove steady-state database fallback only after lag and drift metrics remain
+   within the agreed budget.
+
+Shadow comparison has an explicit exit condition. It is disabled after the
+candidate, Plan, authorization and billing projections meet the acceptance
+matrix; it is not a permanent duplicate production evaluator.
+
+Required behavior checks include:
+
+- group order and topology invariance;
+- duplicate account membership does not multiply selection probability;
+- Direct/Universal mapping parity and separation;
+- payment-tier and billing-origin preservation;
+- stale sticky and continuation authorization;
+- slot races, retry rebinding and final route equivalence;
+- missing, lagging and invalid snapshots fail safely;
+- Plan remains the sole model/converter decision owner;
+- unknown QA formats remain passthrough while identified formats retain
+  differential redaction coverage.
+
+Required performance observations include snapshot hit/fallback/lag, candidate
+database reads, account materialization, routing-profile parse count, protocol
+decode cost, Plan construction cost, QA scan count and bytes scanned. The pprof
+acceptance target is removal of repeated account materialization and repeated
+routing metadata parsing from the steady-state candidate path, rather than a
+single synthetic percentage.
+
+## 10. Approval boundary
+
+This document is the approved high-risk design baseline. The candidate SSOT
+owner table now registers the materialized read-model owner, and this PR adds
+the shadow/fallback contract and its focused tests. The current implementation
+keeps the snapshot read-only and shadow-only; it does not authorize a schema
+migration, public API change, production switch or deletion of the existing
+database path. Those rollout steps require their own acceptance evidence and
+release approval.

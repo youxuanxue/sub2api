@@ -853,6 +853,12 @@ func redactValueWithDepth(value any, keys map[string]struct{}, patterns *textRed
 		}
 		return out
 	case string:
+		// Most JSON leaves are ordinary content. The credential scanner already
+		// has a cheap literal/prefix classifier; avoid entering the eight-rule
+		// regexp/scanner chain when that classifier proves the leaf cannot match.
+		if !mayNeedTextRedaction(v, patterns) {
+			return v
+		}
 		return redactUnstructuredText(v, patterns)
 	default:
 		return value
