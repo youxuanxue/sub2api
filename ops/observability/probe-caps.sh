@@ -80,7 +80,7 @@ $PSQL -c "
 SELECT row_to_json(t) FROM (
   SELECT to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') AS ts_utc,
          severity, error_phase, error_type, status_code, upstream_status_code,
-         account_id, model, provider_error_code,
+         account_id, model, error_owner,
          left(error_message,200) AS error_message
   FROM ops_error_logs
   WHERE created_at >= now()-interval '$ERR_HOURS hour'

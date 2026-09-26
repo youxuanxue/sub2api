@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -62,4 +63,23 @@ func TestOpsRepositoryListRequestDetails_LatencySort(t *testing.T) {
 			require.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
+}
+
+// TestOpsRequestDetailsErrorSideDurationHasAWriter pins where the error side of the
+// UNION gets its duration. ops_error_logs.duration_ms was declared but never written
+// (always NULL) and was dropped in tk_100, so this side must read the written
+// response_latency_ms instead — otherwise duration is blank for every error row and a
+// MinDurationMs filter silently excludes all of them. Asserted against the source so
+// the query need not be refactored into a constant just to be testable.
+func TestOpsRequestDetailsErrorSideDurationHasAWriter(t *testing.T) {
+	src, err := os.ReadFile("ops_repo_request_details.go")
+	require.NoError(t, err)
+	sql := string(src)
+
+	require.Contains(t, sql, "o.response_latency_ms AS duration_ms",
+		"error side must project a written latency column as duration_ms")
+	require.NotContains(t, sql, "o.duration_ms AS duration_ms",
+		"ops_error_logs.duration_ms had no writer and was dropped in tk_100")
+	require.Contains(t, sql, "ul.duration_ms AS duration_ms",
+		"the usage side keeps its own real column")
 }

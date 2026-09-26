@@ -78,6 +78,12 @@ WRITER_GLOB_DIR = os.path.join(ROOT, "backend", "internal")
 # Columns the DB itself fills; absence from the INSERT is correct, not a bug.
 DB_MANAGED = frozenset({"id", "created_at"})
 
+# Columns deliberately allowed to have no writer, each with the reason. Empty on
+# purpose: tk_100 dropped the six columns that used to sit here, so the contract is
+# currently exact. An entry here is a standing exception — prefer wiring up a writer or
+# dropping the column, and say why if neither is possible.
+ALLOWED_UNWRITTEN = {}
+
 _STMT_END = re.compile(r";")
 
 
@@ -157,6 +163,29 @@ def dead_columns(declared=None, writers=None):
     return declared - writers - DB_MANAGED
 
 
+def contract_violations(declared=None, writers=None):
+    """Three-way column contract: declared == written ∪ db-managed.
+
+    This is the structural check, and it does not depend on finding a *read* anywhere.
+    ops_error_logs has no Ent schema, so nothing otherwise ties the DDL to the single
+    hand-written INSERT — a column can be added by a migration and never wired up, and
+    the only symptom is a silently empty field somewhere downstream months later.
+
+    It closes the read-detection blind spots rather than widening the regexes: an
+    unqualified read, a read assembled from Go string fragments, a read in a dashboard
+    or a notebook this gate never scans — none of them can slip through, because the
+    column cannot exist unwritten in the first place. Reported as:
+      - unwritten: declared, no writer  -> wire up a writer, or DROP it in a migration
+      - undeclared: written, no DDL     -> the INSERT will fail at runtime
+    """
+    declared = declared_columns() if declared is None else declared
+    writers = writer_columns() if writers is None else writers
+    return {
+        "unwritten": sorted(declared - writers - DB_MANAGED),
+        "undeclared": sorted(writers - declared),
+    }
+
+
 # --- read detection ----------------------------------------------------------
 
 
@@ -205,8 +234,16 @@ def _table_aliases(stmt):
     return aliases
 
 
-def scan_text(text, dead):
-    """Return [(lineno, column, alias, snippet)] for reads of dead columns."""
+def scan_text(text, dead, bare=False):
+    """Return [(lineno, column, alias, snippet)] for reads of dead columns.
+
+    `bare=True` additionally reports unqualified reads (`MAX(deleted_key_name)` with no
+    alias prefix) in statements that select from ops_error_logs directly. That form is
+    how Go builds SQL fragments, and it is a real dead read — but it is only safe to
+    flag when the statement has no *other* table in its FROM/JOIN list, otherwise an
+    unqualified name could belong to the other table. Alias-qualified reads are always
+    checked; `bare` only widens the unqualified case.
+    """
     findings = []
     if not dead:
         return findings
@@ -220,22 +257,45 @@ def scan_text(text, dead):
             for c in m.group(1).split(",")
         }
         aliases = _table_aliases(stmt)
-        if not aliases:
-            continue
         # Strip SQL line comments so a column named inside prose does not count as a read.
         probe = re.sub(r"--[^\n]*", "", stmt)
+
+        seen = set()
+
+        def _report(col, alias, at):
+            if col in exempt or (col, alias) in seen:
+                return
+            seen.add((col, alias))
+            line_off = probe[:at].count("\n")
+            body = stmt.splitlines()
+            snippet = body[line_off].strip() if line_off < len(body) else ""
+            findings.append((lineno + line_off, col, alias, snippet))
+
         for alias in sorted(aliases):
             pat = re.compile(r"\b" + re.escape(alias) + r"\.(" + dead_alt + r")\b", re.I)
-            seen = set()
             for m in pat.finditer(probe):
-                col = m.group(1).lower()
-                if col in seen or col in exempt:
-                    continue
-                seen.add(col)
-                line_off = probe[: m.start()].count("\n")
-                snippet = stmt.splitlines()[line_off].strip() if stmt.splitlines() else ""
-                findings.append((lineno + line_off, col, alias, snippet))
+                _report(m.group(1).lower(), alias, m.start())
+
+        if bare and _selects_only_this_table(probe):
+            # `\b(?<!\.)col\b` — an unqualified occurrence, i.e. not `x.col`.
+            pat = re.compile(r"(?<![\w.])(" + dead_alt + r")\b", re.I)
+            for m in pat.finditer(probe):
+                _report(m.group(1).lower(), "-", m.start())
     return findings
+
+
+def _selects_only_this_table(stmt):
+    """True when every FROM/JOIN target in the statement is ops_error_logs.
+
+    Guards the unqualified-read check: if another real table is in scope, a bare column
+    name may belong to it, so only alias-qualified reads can be judged. Derived table
+    openers (`FROM (`) and CTE references are ignored — a bare name there resolves to a
+    projection, not to this table's columns.
+    """
+    targets = re.findall(r"\b(?:FROM|JOIN)\s+\"?([a-z_][a-z0-9_]*)\"?", stmt, re.I)
+    if not targets:
+        return False
+    return all(t.lower() == TABLE for t in targets)
 
 
 def _iter_target_files():
@@ -253,6 +313,100 @@ def _iter_target_files():
                 yield os.path.join(dirpath, fn)
 
 
+def _iter_backend_files():
+    """Non-test Go under backend/internal that mentions the table.
+
+    Go is in scope because that is where the SLA numerator lives: the owner repo reads
+    deleted_key_owner_user_id, and a dead read there un-attributes failures instead of
+    merely printing an empty probe column. Go SQL is assembled from fragments
+    (`q + whereB + ...`), so the whole file is treated as one text body rather than
+    trying to reconstruct statements across concatenation.
+    """
+    base = os.path.join(ROOT, "backend", "internal")
+    if not os.path.isdir(base):
+        return
+    for dirpath, dirnames, filenames in os.walk(base):
+        dirnames[:] = [d for d in dirnames if d != "testdata"]
+        for fn in sorted(filenames):
+            if not fn.endswith(".go") or fn.endswith("_test.go"):
+                continue
+            path = os.path.join(dirpath, fn)
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                if TABLE in fh.read():
+                    yield path
+
+
+def scan_go_text(text, dead):
+    """Reads of dead columns in Go-embedded SQL.
+
+    Go fragments often lack a FROM (a bare `where +=` clause), so statement/alias
+    scoping does not apply. Instead every backtick string literal that mentions a dead
+    column is inspected: Go comments (`//`) are stripped first so documentation naming a
+    column is not a read, and the per-column marker still applies.
+    """
+    findings = []
+    if not dead:
+        return findings
+    dead_alt = "|".join(sorted(dead, key=len, reverse=True))
+    # Blank comment bodies but keep the lines, so reported line numbers stay true.
+    # Both comment styles matter: `//` for Go, `--` for the SQL inside its string
+    # literals (a `--` comment explaining a column must not read as a use of it).
+    stripped = re.sub(r"(?m)^(\s*)//.*$", r"\1", text)
+    stripped = re.sub(r"--[^\n]*", "", stripped)
+
+    # Aliases bound to OTHER tables anywhere in this file. A qualified read through one
+    # of them (`ul.duration_ms` = usage_logs) is that table's column, not ours —
+    # duration_ms exists on several ops tables, so ignoring alias ownership turns every
+    # usage_logs latency query into a false positive.
+    foreign = {
+        m.group(2).lower()
+        for m in re.finditer(
+            r"\b(?:FROM|JOIN)\s+\"?([a-z_][a-z0-9_]*)\"?\s+(?:AS\s+)?([a-z][a-z0-9_]*)\b",
+            stripped,
+            re.I,
+        )
+        if m.group(1).lower() != TABLE
+    }
+    ours = {
+        m.group(1).lower()
+        for m in re.finditer(
+            r"\b(?:FROM|JOIN)\s+\"?" + TABLE + r"\"?\s+(?:AS\s+)?([a-z][a-z0-9_]*)\b",
+            stripped,
+            re.I,
+        )
+    }
+    foreign -= ours
+
+    # Only alias-qualified reads (`l.deleted_key_name`) are judged in Go. An unqualified
+    # name cannot be attributed here: Go assembles SQL from fragments, so the governing
+    # `FROM usage_logs ul` may sit in a different function or a different string than the
+    # column reference. duration_ms exists on ops_error_logs AND on usage_logs, and every
+    # unqualified duration_ms in this tree turned out to be a usage_logs read. Judging
+    # those would make the gate cry wolf, which is how gates get switched off — so the
+    # unqualified case is covered by the column-contract check instead, which needs no
+    # table attribution.
+    pat = re.compile(r"\b([a-z][a-z0-9_]*)\.(" + dead_alt + r")\b", re.I)
+    lines = stripped.splitlines()
+    for i, line in enumerate(lines):
+        if MARKER in line:
+            continue
+        exempt = {
+            c.strip().lower()
+            for m in MARKER_RE.finditer(line)
+            for c in m.group(1).split(",")
+        }
+        seen = set()
+        for m in pat.finditer(line):
+            alias, col = m.group(1).lower(), m.group(2).lower()
+            if col in exempt or col in seen:
+                continue
+            if alias in foreign:
+                continue  # qualified through another table's alias
+            seen.add(col)
+            findings.append((i + 1, col, alias, line.strip()))
+    return findings
+
+
 def run(quiet):
     declared = declared_columns()
     writers = writer_columns()
@@ -263,11 +417,35 @@ def run(quiet):
         return 1
     dead = dead_columns(declared, writers)
 
+    contract = contract_violations(declared, writers)
+    unwritten = [c for c in contract["unwritten"] if c not in ALLOWED_UNWRITTEN]
+    if unwritten or contract["undeclared"]:
+        print("ops_error_logs column-writer gate: FAIL")
+        print("  ops_error_logs has no Ent schema, so the column contract is enforced here:")
+        print("  every declared column needs a writer, and every written column needs DDL.")
+        if unwritten:
+            print(f"  declared but never written ({len(unwritten)}):")
+            for col in unwritten:
+                print(f"    - {col}")
+            print("    Fix: write it in ops_repo.go's INSERT/UPDATE, or DROP it in a migration.")
+            print(f"    If it must stay empty for now, add it to ALLOWED_UNWRITTEN with a reason.")
+        if contract["undeclared"]:
+            print(f"  written but not declared ({len(contract['undeclared'])}):")
+            for col in contract["undeclared"]:
+                print(f"    - {col}")
+            print("    Fix: add the column in a migration — the INSERT fails at runtime without it.")
+        return 1
+
     findings = []
     for path in _iter_target_files():
         with open(path, encoding="utf-8", errors="replace") as fh:
             text = fh.read()
-        for lineno, col, alias, snippet in scan_text(text, dead):
+        for lineno, col, alias, snippet in scan_text(text, dead, bare=True):
+            findings.append((os.path.relpath(path, ROOT), lineno, col, alias, snippet))
+    for path in _iter_backend_files():
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+        for lineno, col, alias, snippet in scan_go_text(text, dead):
             findings.append((os.path.relpath(path, ROOT), lineno, col, alias, snippet))
 
     if findings:
@@ -283,11 +461,13 @@ def run(quiet):
         return 1
 
     if not quiet:
-        scanned = " + ".join(SCAN_DIRS)
+        scanned = " + ".join(SCAN_DIRS) + " + backend"
+        allowed = f", {len(ALLOWED_UNWRITTEN)} allowed-unwritten" if ALLOWED_UNWRITTEN else ""
         print(
             f"ops_error_logs column-writer gate: PASS "
-            f"({len(declared)} declared, {len(writers)} written, {len(dead)} unwritten; "
-            f"no unwritten column read in {scanned})"
+            f"({len(declared)} declared, {len(writers)} written, "
+            f"{len(dead)} unwritten{allowed}; contract exact; no unwritten column read "
+            f"in {scanned})"
         )
     return 0
 
@@ -430,6 +610,76 @@ WHERE id = $1`
 """
 
 
+_GO_SELFTEST = [
+    (
+        "alias bound to ops_error_logs -> flag",
+        "q := `SELECT l.account_status FROM ops_error_logs l WHERE l.id=$1`",
+        1,
+    ),
+    (
+        "alias bound to another table -> ok (duration_ms also lives on usage_logs)",
+        "q := `SELECT SUM(ul.duration_ms) FROM usage_logs ul JOIN ops_error_logs o ON o.id=ul.id`",
+        0,
+    ),
+    (
+        "Go // comment naming a column is not a read -> ok",
+        "// account_status has no writer; see docs/preflight-debt.md\nq := `SELECT l.model FROM ops_error_logs l`",
+        0,
+    ),
+    (
+        "SQL -- comment naming a column is not a read -> ok",
+        "q := `SELECT o.model -- o.account_status would be empty\n FROM ops_error_logs o`",
+        0,
+    ),
+    (
+        "unqualified read is NOT judged in Go (table cannot be attributed) -> ok",
+        "q := `SELECT MAX(duration_ms) FROM ops_error_logs`",
+        0,
+    ),
+    (
+        "per-column marker on the line -> ok",
+        "q := `SELECT l.account_status FROM ops_error_logs l` // ops-allow-unwritten-column: account_status",
+        0,
+    ),
+]
+
+_GO_DEAD = {"account_status", "duration_ms"}
+
+
+def _selftest_go():
+    failures = 0
+    for name, text, want in _GO_SELFTEST:
+        got = len(scan_go_text(text, _GO_DEAD))
+        ok = got == want
+        print(f"  {'PASS' if ok else 'FAIL'} {name} (flagged={got} want={want})")
+        if not ok:
+            failures += 1
+    return failures, len(_GO_SELFTEST)
+
+
+def _selftest_contract():
+    """The contract check must fire on both directions of drift."""
+    checks = []
+
+    v = contract_violations({"id", "created_at", "model", "ghost"}, {"model"})
+    checks.append(("declared-but-unwritten is reported", v["unwritten"], ["ghost"]))
+    checks.append(("db-managed columns are not reported", v["undeclared"], []))
+
+    v = contract_violations({"id", "created_at", "model"}, {"model", "typo_col"})
+    checks.append(("written-but-undeclared is reported", v["undeclared"], ["typo_col"]))
+
+    v = contract_violations({"id", "created_at", "model"}, {"model"})
+    checks.append(("exact contract reports nothing", v["unwritten"] + v["undeclared"], []))
+
+    failures = 0
+    for name, got, want in checks:
+        ok = got == want
+        print(f"  {'PASS' if ok else 'FAIL'} {name} (got={got} want={want})")
+        if not ok:
+            failures += 1
+    return failures, len(checks)
+
+
 def _selftest_truth(tmpdir):
     """DDL parsing must honour DROP COLUMN; writer parsing must union INSERT+UPDATE."""
     mig = os.path.join(tmpdir, "migrations")
@@ -474,6 +724,16 @@ def selftest():
         total += 1
         if not ok:
             failures += 1
+
+    print("go read-detection fixtures:")
+    gf, gt = _selftest_go()
+    failures += gf
+    total += gt
+
+    print("column-contract fixtures:")
+    cf, ct = _selftest_contract()
+    failures += cf
+    total += ct
 
     print("truth-extraction fixtures:")
     with tempfile.TemporaryDirectory() as tmp:
