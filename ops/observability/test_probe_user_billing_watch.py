@@ -197,6 +197,33 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
         self.assertNotIn("network_error_type", logged)
         self.assertNotIn("e.account_status", logged)
 
+    def test_unwritten_column_reads_are_marked_where_the_gate_reads_them(self) -> None:
+        """This probe reads deleted_key_owner_user_id / deleted_key_name because it
+        mirrors the registered owner of "user-visible failure" verbatim — but those
+        columns currently have no writer (see docs/preflight-debt.md), so the
+        column-writer gate flags them unless each read is marked per column. Drive the
+        gate itself rather than grepping for the marker string: the marker only works
+        if it names that column inside the statement the gate parses, and a
+        statement-wide or misplaced marker must not count."""
+        gate_path = ROOT / "scripts" / "checks" / "ops-error-log-column-writers.py"
+        spec = importlib.util.spec_from_file_location("ops_error_log_col", gate_path)
+        gate = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(gate)
+
+        dead = gate.dead_columns()
+        self.assertIn(
+            "deleted_key_owner_user_id", dead,
+            "deleted_key_owner_user_id gained a writer — drop the probe's opt-out "
+            "marker and close the entry in docs/preflight-debt.md",
+        )
+        findings = gate.scan_text(SCRIPT.read_text(encoding="utf-8"), dead)
+        self.assertEqual(
+            findings, [],
+            "unmarked read of an unwritten ops_error_logs column in this probe: "
+            f"{findings}",
+        )
+
     def test_user_facing_failure_predicate_tracks_its_registered_owner(self) -> None:
         """"User-visible failure" already has an owner:
         backend/internal/repository/ops_repo_user_visible_failure_tk.go, whose

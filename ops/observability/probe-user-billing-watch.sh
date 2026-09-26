@@ -198,7 +198,13 @@ echo "=== errors: user-facing failures by model/account (window) ==="
 #     user's own cancel, not a gateway failure (docs/approved/client-closed-499-ssot.md);
 #     499 is only the labelled form, the text form is the same event.
 #   - user attribution falls back to deleted_key_owner_user_id, so a failure on a
-#     since-deleted key still lands on its owner instead of vanishing.
+#     since-deleted key still lands on its owner instead of vanishing. That fallback is
+#     currently inert: the producer half of migration 145 (handler-side attempted-key
+#     extraction + LookupDeletedKeyAudit) was lost, so deleted_key_owner_user_id and
+#     deleted_key_name have no writer and read 0 non-null rows in prod. The reads stay
+#     because they mirror the registered owner verbatim — when the producer is restored
+#     the fallback starts working with no probe change. See docs/preflight-debt.md; the
+#     in-statement opt-out marker below is what keeps the column-writer gate green.
 # Each row carries the terminal-experience basics in one place: model, serving
 # account, group/key used, and a root cause sample — so the report never has to
 # guess or cross-join by hand.
@@ -208,7 +214,7 @@ echo "=== errors: user-facing failures by model/account (window) ==="
 # there is no historical status to read. Do not narrate it as the cause of a past
 # failure — an account rate-limited or recovered since then reads differently.
 $PSQL -c "SELECT row_to_json(t) FROM (SELECT
-  COALESCE(e.user_id, e.deleted_key_owner_user_id) AS user_id,
+  COALESCE(e.user_id, e.deleted_key_owner_user_id) AS user_id, -- ops-allow-unwritten-column: deleted_key_owner_user_id mirrors the registered owner; producer lost, read inert until restored.
   CASE WHEN ${VID_E} THEN 'video' WHEN ${IMG_E} THEN 'image' ELSE 'general' END AS surface,
   COALESCE(e.model,'') AS model,
   e.status_code, e.upstream_status_code,
@@ -219,7 +225,7 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   COALESCE(a.status,'')                    AS account_status_now,
   (a.deleted_at IS NOT NULL)               AS account_soft_deleted,
   COALESCE(g.name,'')                                     AS group_name,
-  COALESCE(ak.name, e.deleted_key_name,'')                AS api_key_name,
+  COALESCE(ak.name, e.deleted_key_name,'')                AS api_key_name, -- ops-allow-unwritten-column: deleted_key_name, same inert fallback as above.
   COALESCE(e.api_key_prefix,'')                           AS api_key_prefix,
   (COALESCE(ak.routing_mode,'direct') = 'universal')       AS is_universal_key,
   count(*) AS n,
