@@ -37,11 +37,16 @@ statement-wide marker, re-introducing the original `provider_error_code` /
 `network_error_type` / `account_status` regressions into the marked query went
 undetected.)
 
-Scope: SCAN_DIRS (ops/ + deploy/) x SCAN_EXTS (.sh/.py/.sql) — hand-written SQL that
-runs against a live prod/edge DB and has no Go type-checking behind it. Deliberately
-excluded: backend/ (its reads are Go-compiled and belong to owner packages, which
-this gate reports on separately via --report-backend rather than failing), and
-scripts/ (CI helpers plus this gate's own fixtures).
+Scope, all of it hard-failing:
+  - SCAN_DIRS (ops/ + deploy/) x SCAN_EXTS (.sh/.py/.sql) — hand-written SQL that runs
+    against a live prod/edge DB with no Go type-checking behind it. Both
+    alias-qualified and unqualified reads are judged here (see `bare`).
+  - backend/internal non-test .go — the SLA numerator lives there, so a dead read
+    un-attributes failures rather than merely printing an empty probe column. Only
+    alias-qualified reads are judged: Go assembles SQL from fragments, so an
+    unqualified name cannot be attributed to a table. Those are covered instead by
+    the column contract below, which needs no table attribution.
+Excluded: scripts/ (CI helpers plus this gate's own fixtures).
 
 Alias handling is per-statement, not per-file: `e` and `l` are reused as CTE aliases
 in the same probes that alias `ops_error_logs`, so a file-level alias map would
@@ -428,7 +433,7 @@ def run(quiet):
             for col in unwritten:
                 print(f"    - {col}")
             print("    Fix: write it in ops_repo.go's INSERT/UPDATE, or DROP it in a migration.")
-            print(f"    If it must stay empty for now, add it to ALLOWED_UNWRITTEN with a reason.")
+            print("    If it must stay empty for now, add it to ALLOWED_UNWRITTEN with a reason.")
         if contract["undeclared"]:
             print(f"  written but not declared ({len(contract['undeclared'])}):")
             for col in contract["undeclared"]:

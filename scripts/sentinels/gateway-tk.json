@@ -3058,6 +3058,15 @@
       "rationale": "Deleted-key attribution producer. This is a restoration, not a new guard: migration 145 declared attempted_key_prefix / deleted_key_owner_user_id / deleted_key_name, but an upstream merge silently dropped this enqueue-site block (and its 118-line attribution test) while the READ side survived in ops_repo_user_visible_failure_tk.go — the registered owner of the alert/SLA numerator. Losing it is compile-clean and invisible in tests, and the consequence is that failures on since-deleted keys are attributed to nobody and drop out of the SLA numerator. The column-writer gate catches a lost writer only while the column is still declared, so pin the call site itself."
     },
     {
+      "path": "backend/internal/handler/ops_error_logger_attribution_test.go",
+      "must_contain": [
+        "func TestOpsErrorLoggerMiddlewareWritesDeletedKeyAttribution",
+        "entry.DeletedKeyOwnerUserID",
+        "func TestOpsErrorLoggerMiddlewareSkipsAuditLookupForNonSystemKey"
+      ],
+      "rationale": "Behavioural regression test for the deleted-key attribution writer, pinned next to the writer itself. The upstream merge that dropped the writer also dropped this file's 118-line predecessor, and the surviving helper-level tests (looksLikeSystemKey / keyPrefix / extractAttemptedKey) all still passed — which is why the loss was invisible. These cases drive OpsErrorLoggerMiddleware end to end and assert the three columns on the queued entry, so deleting the writer fails the suite instead of only tripping a literal-matching sentinel. Verified by removing the writer block: the suite fails. Keep the middleware-level cases, not just the helper unit tests."
+    },
+    {
       "path": "backend/internal/repository/ops_repo_request_details.go",
       "must_contain": [
         "o.response_latency_ms AS duration_ms"

@@ -36,6 +36,7 @@ NULL,而外面一层 `COALESCE` 会安静地退到 fallback,让空列看起来�
 | 列声明 | `backend/migrations/*.sql`(`ops_error_logs` 相关) |
 | 落库写入 | `backend/internal/repository/ops_repo.go`(`insertOpsErrorLogSQL` + `opsInsertErrorLogArgs`) |
 | 已删除 key 归因写入 | `backend/internal/handler/ops_error_logger.go` 的 `INVALID_API_KEY` 分支 |
+| 归因写入的回归测试 | `backend/internal/handler/ops_error_logger_attribution_test.go` 的中间件级用例(`…WritesDeletedKeyAttribution` 等)——helper 单测通过不代表写入方还在 |
 | user-visible failure 判据 | `backend/internal/repository/ops_repo_user_visible_failure_tk.go` |
 | 契约门禁 | `scripts/checks/ops-error-log-column-writers.py` |
 
