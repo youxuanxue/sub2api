@@ -78,7 +78,9 @@ func compatibleRequest(request CanonicalRequest, capabilities anthropicpolicy.Ca
 	var body []byte
 	var changed bool
 	if request.bodyJSONValidated {
-		body, changed = anthropicpolicy.NormalizeValidated(request.body, messages, capabilities)
+		// The facts were derived from these exact bytes and this same messages flag
+		// by the constructor, so only the capability half is left to decide here.
+		body, changed = anthropicpolicy.NormalizeWithFacts(request.body, messages, request.policyFacts, capabilities)
 	} else {
 		body, changed = anthropicpolicy.Normalize(request.body, messages, capabilities)
 	}

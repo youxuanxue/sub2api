@@ -14573,7 +14573,7 @@
       "path": "backend/internal/engine/protocolrouter/request_capabilities.go",
       "must_contain": [
         "if request.bodyJSONValidated {",
-        "anthropicpolicy.NormalizeValidated(",
+        "anthropicpolicy.NormalizeWithFacts(request.body, messages, request.policyFacts, capabilities)",
         "anthropicpolicy.Normalize("
       ],
       "rationale": "Per-route compatibility skips body revalidation only when the canonical request proves its body was decoded; an unproven body must still fail closed."
@@ -14593,6 +14593,24 @@
         "request, err = protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{"
       ],
       "rationale": "The candidate fast path builds the canonical request from an already-parsed profile, so dropping the provenance flag silently restores a per-route full-body JSON scan."
+    },
+    {
+      "path": "backend/internal/pkg/anthropicpolicy/thinking_tools.go",
+      "must_contain": [
+        "func InspectValidated(body []byte, messages bool) Facts {",
+        "func NormalizeWithFacts(body []byte, messages bool, facts Facts, capabilities Capabilities) ([]byte, bool) {",
+        "return NormalizeWithFacts(body, messages, InspectValidated(body, messages), capabilities)"
+      ],
+      "rationale": "Facts splits the body-derived reads from the per-route capability decision. normalizeValidated must stay defined as the composition of the two, or the single-derivation callers and the validating callers can drift apart."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/request.go",
+      "must_contain": [
+        "policyFacts anthropicpolicy.Facts",
+        "if req.bodyJSONValidated {",
+        "req.policyFacts = anthropicpolicy.InspectValidated(req.body, req.inboundProtocol == ProtocolMessages)"
+      ],
+      "rationale": "The canonical request derives policy facts once, and only for a proven body; deriving them unconditionally would let gjson's reading of a malformed document drive a rewrite, and dropping them restores a per-route body walk."
     }
   ]
 }

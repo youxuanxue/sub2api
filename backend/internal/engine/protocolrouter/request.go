@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/anthropicpolicy"
 )
 
 type RequestDigest [sha256.Size]byte
@@ -32,6 +34,10 @@ type CanonicalRequest struct {
 	body              []byte
 	digest            RequestDigest
 	bodyJSONValidated bool
+	// policyFacts holds the body-derived half of the per-route compatibility
+	// decision. It is derived here, once, and only when bodyJSONValidated proves
+	// the bytes decode, so an unproven body still reaches the validating path.
+	policyFacts anthropicpolicy.Facts
 }
 
 func NewCanonicalRequest(input CanonicalRequestInput) (CanonicalRequest, error) {
@@ -66,6 +72,9 @@ func NewCanonicalRequest(input CanonicalRequestInput) (CanonicalRequest, error) 
 		bodyJSONValidated: input.BodyJSONValidated,
 	}
 	req.digest = digestRequest(req)
+	if req.bodyJSONValidated {
+		req.policyFacts = anthropicpolicy.InspectValidated(req.body, req.inboundProtocol == ProtocolMessages)
+	}
 	return req, nil
 }
 

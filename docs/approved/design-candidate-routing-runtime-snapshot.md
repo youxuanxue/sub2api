@@ -371,6 +371,35 @@ The snapshot's approval boundary in section 10 is unchanged: it stays read-only
 and shadow-only, and a production read-source switch still needs its own
 acceptance evidence and release approval.
 
+### 9.2 What step 2 turned out to be (2026-09-26)
+
+Step 2 above was written as "make `CanonicalRequest` the only routing parser",
+on the assumption that the duplicated parse sites were the remaining cost. The
+post-step-1 profile disagreed. `pathContext` is already memoized per group by
+`candidatePathContextPreparer`, so the repeated parse is bounded by group count,
+not by fan-out; what dominated instead was `anthropicpolicy` walking the body
+again on every route, which after step 1 was 43.6% of the benchmark and entirely
+`gjson.parseSquash`.
+
+Those reads depend only on the request bytes and the inbound protocol, both
+immutable within one request, while `Capabilities` supplies the per-route half.
+Splitting them (`anthropicpolicy.Facts` / `InspectValidated` /
+`NormalizeWithFacts`, derived once in the canonical request constructor and only
+for a body whose validity is proven) measured, against the step-1 baseline at
+`n=6`:
+
+- geomean `sec/op` -42.8%; 64KiB -69.6%, 256KiB -77.1%, 32x4 fan-out -42.4%,
+  all `p=0.002`;
+- `accounts_1/groups_1` *regressed* 6.5% (`p=0.000, n=10`), because a single
+  evaluation pays the up-front derivation without amortizing it. This is the
+  accepted trade: the fan-out the gateway actually serves is many accounts per
+  group, and the 1x1 case is the cheapest absolute case anyway.
+
+After this change `gjson` does not appear in the admission profile at all; the
+remaining samples are GC and scheduler. The parser-convergence work named in
+section 6 therefore stands on its own correctness argument (one owner for routing
+metadata), not on a CPU argument, and is no longer a performance step.
+
 Required behavior checks include:
 
 - group order and topology invariance;

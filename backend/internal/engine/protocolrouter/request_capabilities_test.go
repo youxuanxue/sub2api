@@ -145,6 +145,11 @@ func TestCanonicalRequestBodyValidationProvenance(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, unproven.bodyJSONValidated, "callers must opt in explicitly")
 
+	// Proven bodies carry the pre-derived policy facts; unproven ones must not,
+	// so they keep taking the validating path rather than trusting a zero value.
+	require.Equal(t, anthropicpolicy.InspectValidated(body, true), parsed.policyFacts)
+	require.Equal(t, anthropicpolicy.Facts{}, unproven.policyFacts)
+
 	// Both provenances must reach the same compatibility outcome.
 	capabilities := anthropicpolicy.Capabilities{}
 	fromParsed, adjustParsed := compatibleRequest(parsed, capabilities)
