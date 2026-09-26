@@ -79,7 +79,9 @@
         "newAPIWeeklyUtilExtraKey",
         "newAPIMonthlyUtilExtraKey",
         "newAPIQianfanMonthlyQuotaMessage",
-        "tkQianfanMonthlyResetAt",
+        "newAPIMonthlyQuotaMarkers",
+        "tkIsNewAPIMonthlyQuotaMessage",
+        "tkMonthlyQuotaCalendarResetAt",
         "SetModelRateLimit(ctx, account.ID, model, reset, reason)",
         "account.ActiveModelRateLimits(now)",
         "tkParseNewAPIUsageWindowResponse",
@@ -90,7 +92,7 @@
         "newapi_account_window_lock",
         "AccountWideRateLimitResetAt(account, now)"
       ],
-      "rationale": "NewAPI usage windows cool the executed model and project scoped quota dimensions; observations without a model atomically persist an explicit account marker with the snapshot. Monthly quota never overwrites local 5h/7d statistics. accountWideRateLimitBlocks must delegate to AccountWideRateLimitResetAt so the >3 model cascade remains the shared account-wide admission SSOT."
+      "rationale": "NewAPI usage windows cool the executed model and project scoped quota dimensions; observations without a model atomically persist an explicit account marker with the snapshot. Monthly quota never overwrites local 5h/7d statistics. newAPIMonthlyQuotaMarkers must stay the single owner of monthly wording for both the recoverable gate and the calendar reset fallback: splitting them lets a monthly phrasing be recoverable yet uncoolable, churning on the seconds-level 429 fallback. accountWideRateLimitBlocks must delegate to AccountWideRateLimitResetAt so the >3 model cascade remains the shared account-wide admission SSOT."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",

@@ -28,6 +28,11 @@ import (
 // dimension and never overwrites local 5h/7d statistics. Named-model hits use
 // model_rate_limits for every NewAPI channel; observations without a model
 // retain an explicitly marked account-wide window.
+//
+// newAPIMonthlyQuotaMarkers owns the monthly wording for both the recoverable
+// gate and the calendar reset fallback: a monthly phrasing that is recoverable
+// but has no parseable reset must still cool until next month, never land on the
+// seconds-level 429 fallback.
 
 const (
 	tkNewAPIModelWindowReason        = "429_newapi_model_window"
@@ -55,6 +60,39 @@ const (
 var newAPIUsageWindowResetAtRE = regexp.MustCompile(`(?i)it will reset at\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+[+-]\d{4}(?:\s+\S+)?)`)
 var newAPIUsageWindowShortResetAtRE = regexp.MustCompile(`(?i)(?:it|the quota) will reset at\s+(\d{2}-\d{2} \d{2}:\d{2}:\d{2}) UTC\b`)
 
+// newAPIMonthlyQuotaMarkers is the single owner of NewAPI monthly-quota wording.
+// It gates both the recoverable-window negative SSOT
+// (tkIsRecoverableUsageWindowMessage) and the calendar reset fallback, so a
+// monthly phrasing can never be recoverable-but-uncoolable — that split is what
+// left variants churning on the seconds-level 429 fallback.
+//
+// Qianfan's Token Plan string is the prod-observed shape, kept first as the
+// evidence anchor even though "monthly quota" now subsumes it; "monthly quota"
+// covers upstreams that omit the Token Plan prefix ("monthly quota limit
+// exceeded", "exhausted your monthly quota"). Deliberately NOT bare "monthly" or
+// "monthly limit": "Monthly requests rate limit exceeded" is an RPM throttle,
+// not an exhausted quota window, and must keep falling through to the short
+// cooldown instead of parking the account until next month.
+var newAPIMonthlyQuotaMarkers = []string{
+	newAPIQianfanMonthlyQuotaMessage,
+	"monthly quota",
+	"monthly usage quota",
+	"exceeded the monthly",
+	"1-month quota",
+	"30-day quota",
+}
+
+// tkIsNewAPIMonthlyQuotaMessage reports whether the (lowercased) upstream text
+// describes an exhausted monthly quota window.
+func tkIsNewAPIMonthlyQuotaMessage(haystack string) bool {
+	for _, marker := range newAPIMonthlyQuotaMarkers {
+		if strings.Contains(haystack, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 type newAPIUsageWindowHit struct {
 	Window  string // "monthly" | "weekly" | "5h" | "7d"
 	ResetAt time.Time
@@ -72,7 +110,10 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 	}
 	window := "weekly"
 	switch {
-	case strings.Contains(haystack, "month") || strings.Contains(haystack, "30-day") || strings.Contains(haystack, newAPIQianfanMonthlyQuotaMessage):
+	// Broader than newAPIMonthlyQuotaMarkers on purpose: classification only runs
+	// after the recoverable gate, so any surviving "month"/"30-day" text is an
+	// exhausted monthly window.
+	case strings.Contains(haystack, "month") || strings.Contains(haystack, "30-day"):
 		window = "monthly"
 	case strings.Contains(haystack, "5-hour") || strings.Contains(haystack, "5 hour"):
 		window = "5h"
@@ -108,10 +149,17 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 			}
 		}
 	}
-	// Qianfan omits its reset timestamp. Apply the operational monthly rule:
-	// next month's first day at 01:00 Beijing time, ahead of short Retry-After.
-	if !ok && strings.Contains(haystack, newAPIQianfanMonthlyQuotaMessage) {
-		resetAt, ok = tkQianfanMonthlyResetAt(now), true
+	// Qianfan and other monthly upstreams state exhaustion with no reset text at
+	// all. Apply the operational monthly rule: next month's first day at 01:00
+	// Beijing time, ahead of short Retry-After, so monthly wording cools until
+	// reset instead of churning on the seconds-level fallback.
+	//
+	// Only when the upstream offered no reset text. A message that DOES carry
+	// "will reset at" but whose timestamp is expired or out of window stays a
+	// miss: inventing a calendar cooldown from garbled upstream data is how an
+	// expired September reset would become a month-long lock.
+	if !ok && !strings.Contains(haystack, "will reset at") && tkIsNewAPIMonthlyQuotaMessage(haystack) {
+		resetAt, ok = tkMonthlyQuotaCalendarResetAt(now), true
 	}
 	// A monthly quota reset is authoritative even if Retry-After only describes
 	// a short request throttle. Preserve existing header precedence for other windows.
@@ -124,7 +172,10 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 	return &newAPIUsageWindowHit{Window: window, ResetAt: resetAt}
 }
 
-func tkQianfanMonthlyResetAt(now time.Time) time.Time {
+// tkMonthlyQuotaCalendarResetAt is the operational monthly reset for upstreams
+// that report exhaustion without a timestamp: next natural month's first day at
+// 01:00 Beijing time.
+func tkMonthlyQuotaCalendarResetAt(now time.Time) time.Time {
 	beijing := now.In(time.FixedZone("CST", 8*60*60))
 	return time.Date(beijing.Year(), beijing.Month()+1, 1, 1, 0, 0, 0, beijing.Location())
 }

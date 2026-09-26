@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -245,8 +246,15 @@ func TestNewAPIMonthlyQuotaResponse(t *testing.T) {
 	hit := tkParseNewAPIUsageWindowResponse("You have exceeded the monthly usage quota. It will reset at 10-01 23:59:59 UTC", http.Header{"Retry-After": {"5"}}, now)
 	require.NotNil(t, hit)
 	require.Equal(t, time.Date(2026, 10, 1, 23, 59, 59, 0, time.UTC), hit.ResetAt)
+	// Reset text present but unusable (expired / out of window) stays a miss: a
+	// calendar cooldown must never be invented from garbled upstream data.
 	require.Nil(t, tkParseNewAPIUsageWindowResponse("You have exceeded the monthly usage quota. It will reset at 09-01 23:59:59 UTC", nil, now))
-	require.Nil(t, tkParseNewAPIUsageWindowResponse("You have exceeded the monthly usage quota.", nil, now))
+	// No reset text at all falls back to the calendar reset instead of the
+	// seconds-level 429 fallback that used to churn.
+	noResetText := tkParseNewAPIUsageWindowResponse("You have exceeded the monthly usage quota.", nil, now)
+	require.NotNil(t, noResetText)
+	require.Equal(t, "monthly", noResetText.Window)
+	require.True(t, tkMonthlyQuotaCalendarResetAt(now).Equal(noResetText.ResetAt))
 	require.Nil(t, tkParseNewAPIUsageWindowResponse("Monthly requests rate limit exceeded, please retry later", http.Header{"Retry-After": {"5"}}, now))
 }
 
@@ -322,7 +330,7 @@ func TestNewAPIQianfanMonthlyQuotaLifecycle(t *testing.T) {
 		account := &Account{ID: 130, Platform: PlatformNewAPI, ChannelType: 46, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: schedulable}
 		repo := &rateLimitAccountRepoStub{accountOnGet: account}
 		svc := NewRateLimitService(repo, nil, nil, nil, nil)
-		reset := tkQianfanMonthlyResetAt(time.Now())
+		reset := tkMonthlyQuotaCalendarResetAt(time.Now())
 		svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{"Retry-After": {"5"}}, []byte(qianfanMonthlyQuotaBody))
 		require.Equal(t, 1, repo.setRateLimitedCalls)
 		require.True(t, reset.Equal(repo.lastRateLimitedResetAt))
@@ -361,6 +369,65 @@ func TestNewAPIQianfanMonthlyQuotaBoundaries(t *testing.T) {
 	require.NotNil(t, hit)
 	require.Equal(t, "monthly", hit.Window)
 	require.Equal(t, now.Add(48*time.Hour), hit.ResetAt.UTC())
+}
+
+// Monthly wording without the Token Plan prefix and without any reset timestamp
+// must still cool until the calendar reset instead of the seconds-level 429
+// fallback, and must never be read as standing billing death.
+func TestNewAPIMonthlyQuotaVariantsUseCalendarResetAndStayRecoverable(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	reset := tkMonthlyQuotaCalendarResetAt(now)
+	for _, message := range []string{
+		"monthly quota limit exceeded",
+		"You have exhausted your monthly quota",
+		"You have exceeded the monthly usage quota",
+		"monthly quota exhausted",
+		"Your 1-month quota is exhausted",
+		"You have exceeded the 30-day quota",
+	} {
+		t.Run(message, func(t *testing.T) {
+			for _, retry := range []string{"", "5", "7200"} {
+				hit := tkParseNewAPIUsageWindowResponse(message, http.Header{"Retry-After": {retry}}, now)
+				require.NotNil(t, hit, "monthly wording must not fall through to the short fallback")
+				require.Equal(t, "monthly", hit.Window)
+				require.True(t, reset.Equal(hit.ResetAt), "want %s got %s", reset, hit.ResetAt)
+			}
+			require.True(t, tkIsNewAPIMonthlyQuotaMessage(strings.ToLower(message)))
+			require.False(t, tkIsAccountStandingBillingFailure(message, nil))
+			require.False(t, tkIsAccountStandingBillingFailure("", []byte(message)))
+		})
+	}
+}
+
+// The calendar fallback applies only when the upstream gave no reset text.
+// Unusable reset text must stay a miss rather than become a month-long lock.
+func TestNewAPIMonthlyQuotaUnusableResetTextDoesNotUseCalendarFallback(t *testing.T) {
+	now := time.Date(2026, 9, 18, 23, 33, 0, 0, time.UTC)
+	for _, message := range []string{
+		"monthly quota limit exceeded. It will reset at 09-01 23:59:59 UTC",
+		"You have exhausted your monthly quota. It will reset at 01-01 00:00:00 UTC",
+	} {
+		t.Run(message, func(t *testing.T) {
+			require.Nil(t, tkParseNewAPIUsageWindowResponse(message, nil, now))
+		})
+	}
+}
+
+// RPM throttles that merely mention a month must keep falling through to the
+// short cooldown: parking a healthy account until next month is far worse than
+// a few seconds of backoff.
+func TestNewAPIMonthlyRateLimitWordingIsNotAQuotaWindow(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, message := range []string{
+		"Monthly requests rate limit exceeded",
+		"monthly rate limit exceeded, please retry later",
+		"Requests rate limit exceeded this month",
+	} {
+		t.Run(message, func(t *testing.T) {
+			require.False(t, tkIsNewAPIMonthlyQuotaMessage(strings.ToLower(message)))
+			require.Nil(t, tkParseNewAPIUsageWindowResponse(message, nil, now))
+		})
+	}
 }
 
 func TestNewAPIVolcMonthlyQuotaKeepsSiblingModelsAvailable(t *testing.T) {
@@ -586,7 +653,7 @@ func TestNewAPIQianfanMonthlyQuotaWithModel(t *testing.T) {
 	require.Zero(t, repo.setRateLimitedCalls)
 	require.Zero(t, repo.updateExtraCalls)
 	require.Len(t, repo.modelRateLimitCalls, 1)
-	require.True(t, tkQianfanMonthlyResetAt(time.Now()).Equal(repo.modelRateLimitCalls[0].resetAt))
+	require.True(t, tkMonthlyQuotaCalendarResetAt(time.Now()).Equal(repo.modelRateLimitCalls[0].resetAt))
 	require.False(t, account.IsSchedulableForModelWithContext(context.Background(), "deepseek-v4-pro"))
 	require.True(t, account.IsSchedulableForModelWithContext(context.Background(), "other-model"))
 	usage := &UsageInfo{}
