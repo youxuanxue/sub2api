@@ -395,6 +395,16 @@ for a body whose validity is proven) measured, against the step-1 baseline at
   accepted trade: the fan-out the gateway actually serves is many accounts per
   group, and the 1x1 case is the cheapest absolute case anyway.
 
+Re-measured after rebasing onto a later `main`, at `n=12`, the same comparison
+gives geomean -37.9%, with 64KiB -66.8%, 256KiB -74.9% and 32x4 fan-out -36.0%
+(`p=0.000`), and `bytes_1024` no longer separable from its baseline. Two runs of
+the *identical* binary differed by geomean 7.3% on that host, individual cases up
+to 13%, so any single-run figure below roughly 13% is not distinguishable there.
+Read these numbers as: the large-body and high-fan-out gains are far outside the
+noise and reproduce; the smallest cases are within it and should not be quoted as
+either a gain or a loss. A regression check on this benchmark therefore needs
+repeated runs, not one `count=6` pair.
+
 After this change `gjson` does not appear in the admission profile at all; the
 remaining samples are GC and scheduler. The parser-convergence work named in
 section 6 therefore stands on its own correctness argument (one owner for routing
