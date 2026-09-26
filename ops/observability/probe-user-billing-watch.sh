@@ -195,6 +195,10 @@ echo "=== errors: user-facing failures by model/account (window) ==="
 # (+platform/status), group/key used, and a root cause sample — so the report
 # never has to guess or cross-join by hand.
 # account_id IS NULL here means the request never reached a pool (routing phase).
+# account_status_now is the account's status RIGHT NOW, not at failure time:
+# ops_error_logs.account_status has no writer (verified 0 non-null rows in 7d), so
+# there is no historical status to read. Do not narrate it as the cause of a past
+# failure — an account rate-limited or recovered since then reads differently.
 $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   e.user_id,
   CASE WHEN ${VID_E} THEN 'video' WHEN ${IMG_E} THEN 'image' ELSE 'general' END AS surface,
@@ -204,7 +208,7 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   e.account_id,
   COALESCE(a.name,'')                     AS account_name,
   COALESCE(a.platform, e.platform, '')    AS account_platform,
-  COALESCE(e.account_status, a.status,'')  AS account_status,
+  COALESCE(a.status,'')                    AS account_status_now,
   (a.deleted_at IS NOT NULL)               AS account_soft_deleted,
   COALESCE(g.name,'')                                     AS group_name,
   COALESCE(ak.name, e.deleted_key_name,'')                AS api_key_name,

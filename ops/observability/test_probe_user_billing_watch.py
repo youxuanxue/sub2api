@@ -186,13 +186,29 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
         self.assertEqual(seen, 1, "expected exactly one accounts join in this probe")
 
     def test_user_facing_failures_omit_never_written_columns(self) -> None:
-        """provider_error_code / network_error_type exist in migration 033 but have
-        no writer in backend/internal, so selecting them only advertises empty
-        strings as if they were root-cause signal."""
+        """These ops_error_logs columns exist in migration 033 but have no writer in
+        backend/internal, so reading them only advertises empty values as if they
+        were signal. account_status is verified empty in prod (0 non-null of 1.07M
+        rows over 7d), so the account's status must come from accounts.status and be
+        named for what it is — current state, not state at failure time."""
         proc, logged = self.run_probe(USER_IDS="1,16")
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
         self.assertNotIn("provider_error_code", logged)
         self.assertNotIn("network_error_type", logged)
+        self.assertNotIn("e.account_status", logged)
+
+    def test_account_status_is_named_as_current_not_historical(self) -> None:
+        """The joined account status is the account's state right now, not its state
+        when the failure happened. The alias must say so, or a report will narrate a
+        live status as the cause of a past failure."""
+        proc, logged = self.run_probe(USER_IDS="1,16")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        failures = [q for q in logged.split("\nSELECT row_to_json") if "AS root_cause_sample" in q]
+        self.assertEqual(len(failures), 1, logged)
+        q = failures[0]
+        self.assertIn("AS account_status_now", q)
+        # a bare `AS account_status` alias would read as status-at-failure-time
+        self.assertNotRegex(q, r"AS account_status\b")
 
     def test_trailing_24h_baseline_excludes_current_window(self) -> None:
         proc, logged = self.run_probe(USER_IDS="1,16", WINDOW_MINUTES="15")
