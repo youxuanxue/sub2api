@@ -176,6 +176,30 @@ jobs:
           print(f'gemini web worker on edge confirmed at {expected}')
           PY
 
+      - name: Prune superseded Worker containers and images
+        # This deploy renames the previous container instead of deleting it, so
+        # pets accumulate by design; retention runs here rather than depending on
+        # someone remembering. Only after identity is confirmed above, so a failed
+        # deploy's evidence is never pruned. The script keeps the newest superseded
+        # container as the rollback/diagnosis target and refuses to act on a host
+        # with no running Worker.
+        #
+        # Housekeeping is not the deploy's success criterion: the Worker was already
+        # confirmed serving the expected digest above, and failing the job here would
+        # tell an operator the deploy failed and invite a needless re-run. So the step
+        # is allowed to fail visibly without failing the run.
+        continue-on-error: true
+        env:
+          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+        run: |
+          set -euo pipefail
+          bash ops/observability/run-probe.sh \
+            --target "edge:$INPUT_EDGE_ID" \
+            --script ops/gemini-web/prune-worker-pets.sh \
+            --env TK_WORKER_PRUNE_APPLY=1 \
+            --comment "gemini-web worker retention edge=$INPUT_EDGE_ID" ||
+            { echo "::warning::worker retention failed on $INPUT_EDGE_ID; the deploy itself is verified. Re-run: bash ops/observability/run-probe.sh --target edge:$INPUT_EDGE_ID --script ops/gemini-web/prune-worker-pets.sh --env TK_WORKER_PRUNE_APPLY=1"; exit 1; }
+
       - name: Job summary
         if: always()
         run: |

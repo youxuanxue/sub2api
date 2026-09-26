@@ -519,9 +519,11 @@
         "python3 ops/gemini-web/build_digest.py",
         "platforms: linux/amd64",
         "refusing to publish an unidentified build",
-        "but is tagged"
+        "but is tagged",
+        "bash ops/gemini-web/test_deploy_worker_on_host.sh",
+        "bash ops/gemini-web/test_prune_worker_pets.sh"
       ],
-      "rationale": "Worker images come from CI only; per-host docker build is what produced the lying 1.8.253-147512b9d tag. amd64-only is deliberate: deployable edges are x86_64 and prod runs no Worker, so CLAUDE.md §9 arm64 applies to the gateway image, not this one. The publish step must keep refusing an unidentified digest and must keep verifying the pushed image reports the tag it carries."
+      "rationale": "Worker images come from CI only; per-host docker build is what produced the lying 1.8.253-147512b9d tag. amd64-only is deliberate: deployable edges are x86_64 and prod runs no Worker, so CLAUDE.md §9 arm64 applies to the gateway image, not this one. The publish step must keep refusing an unidentified digest and must keep verifying the pushed image reports the tag it carries. The deploy and retention fixtures run here because those scripts decide whether a host keeps a serving Worker; leaving them to an operator is how the untested path ships."
     },
     {
       "path": "ops/observability/check-gemini-web-worker-fleet.sh",
@@ -13328,22 +13330,28 @@
       "must_contain": [
         "PAYLOAD_SRC=\"${SCRIPT_DIR}/../gemini-web/deploy-worker-on-host.sh\"",
         "base64 <\"${PAYLOAD_SRC}\" | tr -d '\\n'",
-        "tk_gemini_web_worker_deploy: OK"
+        "tk_gemini_web_worker_deploy: OK",
+        "PAYLOAD_WORST_CASE=$(( STOP_TIMEOUT + READY_TRIES * READY_SLEEP ))",
+        "sudo env READY_TRIES="
       ],
-      "rationale": "Sole SSM transport for Worker deploys. The host logic must stay in deploy-worker-on-host.sh and travel as base64: an earlier draft inlined multi-line Python into SSM JSON command strings and repaired newlines with sed, which is unreviewable. Success is decided by the host marker, not by SSM command status, because SSM reports Success for a script whose last command happened to exit 0."
+      "rationale": "Sole SSM transport for Worker deploys. The host logic must stay in deploy-worker-on-host.sh and travel as base64: an earlier draft inlined multi-line Python into SSM JSON command strings and repaired newlines with sed, which is unreviewable. Success is decided by the host marker, not by SSM command status, because SSM reports Success for a script whose last command happened to exit 0. The SSM budget is derived from the host worst case (full stop timeout, then the whole readiness wait) and the timings travel to the payload, so the asserted budget is the budget actually spent; a hardcoded budget reported a still-running deploy as TimedOut."
     },
     {
       "path": "ops/gemini-web/deploy-worker-on-host.sh",
       "must_contain": [
-        "ENV_FILE=/etc/tokenkey/gemini-web.env",
+        "ENV_FILE=\"${ENV_FILE:-/etc/tokenkey/gemini-web.env}\"",
         "--entrypoint python \"$IMAGE\" build_digest.py",
         "docker rename",
         "*\"\\\"build_digest\\\": \\\"${DIGEST}\\\"\"*) ;;",
         "--read-only",
         "--cap-drop ALL",
-        "--security-opt no-new-privileges"
+        "--security-opt no-new-privileges",
+        "restore_previous() {",
+        "restore_previous || true",
+        "tk_gemini_web_worker_deploy: RESTORED",
+        "tk_gemini_web_worker_deploy: RESTORE-FAILED"
       ],
-      "rationale": "Host-side Worker recreate. Two identity gates are load-bearing and must both stay: the pulled image is asked for its own digest before anything is stopped, and the running container must report that digest at /readyz before the deploy is called done. The previous container is renamed, never removed, so a bad deploy leaves evidence. The isolation flags are the Worker's security contract (it drives a browser session with real cookies), not tuning."
+      "rationale": "Host-side Worker recreate. Two identity gates are load-bearing and must both stay: the pulled image is asked for its own digest before anything is stopped, and the running container must report that digest at /readyz before the deploy is called done. The previous container is renamed, never removed, so a bad deploy leaves evidence, and both failure paths must call restore_previous: a not-ready container left under the canonical name is still in the serving path, because health status alone does not remove accounts from gateway scheduling. The RESTORED/RESTORE-FAILED markers are how an operator learns whether the host still has a running Worker. The isolation flags are the Worker's security contract (it drives a browser session with real cookies), not tuning."
     },
     {
       "path": "ops/gemini-web/prune-worker-pets.sh",
@@ -13364,9 +13372,10 @@
         "environment: edge-${{ inputs.edge_id }}",
         "ops/stage0/deploy-gemini-web-worker-via-ssm.sh",
         "ops/observability/probe-gemini-web-worker-build.sh",
-        "::error::worker verdict="
+        "::error::worker verdict=",
+        "ops/gemini-web/prune-worker-pets.sh"
       ],
-      "rationale": "Sole Worker deploy entry point; cadence is decoupled from the gateway release by design and there is no prod target because prod runs no Worker. cancel-in-progress must stay false: a cancelled run can leave a host between old-container-stopped and new-container-ready. The post-deploy probe re-asks identity through the standard checker transport so the recorded evidence is the same fact the fleet convergence check reads."
+      "rationale": "Sole Worker deploy entry point; cadence is decoupled from the gateway release by design and there is no prod target because prod runs no Worker. cancel-in-progress must stay false: a cancelled run can leave a host between old-container-stopped and new-container-ready. The post-deploy probe re-asks identity through the standard checker transport so the recorded evidence is the same fact the fleet convergence check reads. Retention runs in this workflow, after identity is confirmed, so superseded pets cannot accumulate the way us4 accumulated five and a failed deploy is never pruned of its evidence."
     },
     {
       "path": "backend/internal/service/openai_gateway_qwen_token_plan_tk_test.go",

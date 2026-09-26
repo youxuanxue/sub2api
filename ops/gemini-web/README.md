@@ -86,12 +86,24 @@ confirm_instance  instance_name from deploy/aws/lightsail/edge-targets-lightsail
 The run fails unless the container it started answers `/readyz` reporting that
 exact digest, checked twice: once on the host, once afterwards through
 `run-probe.sh` so the evidence comes from the same checker the fleet view reads.
-The previous container is renamed `tokenkey-gemini-web-prev-<UTC>` rather than
-removed, so a bad deploy leaves its logs behind. After the last edge, confirm
+
+A failed deploy restores itself. The previous container is renamed
+`tokenkey-gemini-web-prev-<UTC>-<digest>` rather than removed, and if the new one
+never reports the expected digest the host stops it, keeps it as
+`tokenkey-gemini-web-failed-<UTC>-<digest>` for diagnosis, and starts the previous
+one back under the canonical name. This matters because health status alone does
+not remove accounts from gateway scheduling (see below): a not-ready Worker left
+under the canonical name would still be in the serving path. The host prints
+`RESTORED`, `RESTORE-FAILED` or `NO-PREVIOUS` so the SSM log says which happened —
+the last two mean the host has no running Worker and needs an operator.
+Both paths are covered by `bash ops/gemini-web/test_deploy_worker_on_host.sh`,
+which runs in CI against a fake `docker`. After the last edge, confirm
 convergence with `bash ops/observability/check-gemini-web-worker-fleet.sh`.
 
-Retention is the other half of that rename: pets accumulate by design, so
-`prune-worker-pets.sh` removes the superseded ones on a schedule of your choosing.
+Retention is the other half of that rename: pets accumulate by design, so the
+deploy workflow runs `prune-worker-pets.sh` itself after identity is confirmed —
+never before, so a failed deploy's evidence survives. Run it by hand only when
+inspecting a host or cleaning up after a manual deploy.
 
 ```bash
 # dry-run (default): prints the plan, mutates nothing

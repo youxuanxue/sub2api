@@ -4,12 +4,14 @@ on:
     paths:
       - 'ops/gemini-web/**'
       - 'ops/stage0/*probe_account_model*'
+      - 'ops/stage0/deploy-gemini-web-worker-via-ssm.sh'
       - '.github/workflows/gemini-web-worker.yml'
   push:
     branches: [main]
     paths:
       - 'ops/gemini-web/**'
       - 'ops/stage0/*probe_account_model*'
+      - 'ops/stage0/deploy-gemini-web-worker-via-ssm.sh'
       - '.github/workflows/gemini-web-worker.yml'
 permissions:
   contents: read
@@ -24,6 +26,22 @@ jobs:
       - run: pip install -r ops/gemini-web/requirements.txt
       - run: python -m unittest discover -s ops/gemini-web -v
       - run: python -m unittest discover -s ops/stage0 -p 'test_probe_account_model*.py'
+
+      # The deploy and retention scripts decide whether a host keeps a serving
+      # Worker, so their fixtures are a gate here rather than something an operator
+      # remembers to run. Both use fake sudo/docker; neither touches a real host.
+      - name: Deploy and retention shell fixtures
+        run: |
+          set -euo pipefail
+          bash ops/gemini-web/test_deploy_worker_on_host.sh
+          bash ops/gemini-web/test_prune_worker_pets.sh
+
+      - name: Shell syntax of host-side ops scripts
+        run: |
+          set -euo pipefail
+          bash -n ops/gemini-web/deploy-worker-on-host.sh
+          bash -n ops/gemini-web/prune-worker-pets.sh
+          bash -n ops/stage0/deploy-gemini-web-worker-via-ssm.sh
 
   # One CI-built image per content change, replacing per-host `docker build`.
   # The tag is the build digest the Worker reports at runtime, so "which build is
