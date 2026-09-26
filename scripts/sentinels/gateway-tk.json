@@ -3051,6 +3051,40 @@
       "rationale": "Ops error and system writes are the other two raw telemetry producers. Provider wiring can remain compile-clean while an upstream merge drops these post-commit enqueue call sites, silently making the archive incomplete. The ops-error snapshot must also discard the non-persisted raw upstream graph before the long-lived S3 write, retaining only the sanitized JSON stored in PostgreSQL."
     },
     {
+      "path": "backend/internal/handler/ops_error_logger.go",
+      "must_contain": [
+        "if attemptedKey := extractAttemptedKey(c); attemptedKey != \"\"",
+        "ops.LookupDeletedKeyAudit(c.Request.Context(), attemptedKey)",
+        "entry.AttemptedKeyPrefix = keyPrefix(attemptedKey, 8)",
+        "entry.DeletedKeyOwnerUserID = &owner"
+      ],
+      "rationale": "Deleted-key attribution producer. This is a restoration, not a new guard: migration 145 declared attempted_key_prefix / deleted_key_owner_user_id / deleted_key_name, but an upstream merge silently dropped this enqueue-site block (and its 118-line attribution test) while the READ side survived in ops_repo_user_visible_failure_tk.go — the registered owner of the alert/SLA numerator. Losing it is compile-clean and invisible in tests, and the consequence is that failures on since-deleted keys are attributed to nobody and drop out of the SLA numerator. The column-writer gate catches a lost writer only while the column is still declared, so pin the call site itself."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_attribution_test.go",
+      "must_contain": [
+        "func TestOpsErrorLoggerMiddlewareWritesDeletedKeyAttribution",
+        "entry.DeletedKeyOwnerUserID",
+        "func TestOpsErrorLoggerMiddlewareSkipsAuditLookupForNonSystemKey",
+        "func TestOpsErrorLoggerMiddlewareStillLogsWhenAuditLookupFails"
+      ],
+      "rationale": "Behavioural regression test for the deleted-key attribution writer, pinned next to the writer itself. The upstream merge that dropped the writer also dropped this file's 118-line predecessor, and the surviving helper-level tests (looksLikeSystemKey / keyPrefix / extractAttemptedKey) all still passed — which is why the loss was invisible. These cases drive OpsErrorLoggerMiddleware end to end and assert the three columns on the queued entry, so deleting the writer fails the suite instead of only tripping a literal-matching sentinel. Verified by removing the writer block: the suite fails. Keep the middleware-level cases, not just the helper unit tests. The audit-lookup failure case is pinned with them: on a lookup error the middleware logs and falls through, so the error row is still persisted with its key prefix and no invented owner. Turning that log into an early return would silently drop a batch of gateway error rows whenever deleted_api_key_audits is slow or unavailable — the same compile-clean, test-green failure shape as the lost writer. Verified by injecting the early return: the case fails."
+    },
+    {
+      "path": "backend/internal/repository/ops_repo_request_details.go",
+      "must_contain": [
+        "o.response_latency_ms AS duration_ms"
+      ],
+      "rationale": "The error side of the request-details UNION must project a column that has a writer. It previously read o.duration_ms, which tk_100 dropped as never-written: the ops request-details error rows showed a blank duration and every duration filter silently excluded them (>= on NULL). After the DROP, duration_ms no longer exists on ops_error_logs, so an upstream merge resolving this SELECT back to o.duration_ms fails at RUNTIME (42703) rather than in the column-writer gate — which only judges declared columns. Pin the replacement literal so the revert is caught in CI instead of in prod."
+    },
+    {
+      "path": "backend/internal/repository/ops_repo_args_test.go",
+      "must_contain": [
+        "TestOpsInsertErrorLogSQLColumnsArgsAndPlaceholdersAgree"
+      ],
+      "rationale": "The INSERT column list, its $N placeholders and the Go args slice must be proven equal by derivation from insertOpsErrorLogSQL, not by a hardcoded count. The previous require.Len(args, 38) had no mechanical tie to the SQL: it only failed after a mismatch was already written, and it is exactly the kind of assertion an upstream merge rewrites to the new number instead of investigating."
+    },
+    {
       "path": "backend/internal/repository/telemetry_archive_hooks_test.go",
       "must_contain": [
         "TestUS042UsageBestEffortLateCompletionStillEnqueuesTelemetry",

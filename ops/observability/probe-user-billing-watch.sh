@@ -198,14 +198,16 @@ echo "=== errors: user-facing failures by model/account (window) ==="
 #     user's own cancel, not a gateway failure (docs/approved/client-closed-499-ssot.md);
 #     499 is only the labelled form, the text form is the same event.
 #   - user attribution falls back to deleted_key_owner_user_id, so a failure on a
-#     since-deleted key still lands on its owner instead of vanishing.
+#     since-deleted key still lands on its owner instead of vanishing. Its writer is
+#     ops_error_logger.go's INVALID_API_KEY branch; scripts/checks/
+#     ops-error-log-column-writers.py fails preflight if that writer is lost again.
 # Each row carries the terminal-experience basics in one place: model, serving
 # account, group/key used, and a root cause sample — so the report never has to
 # guess or cross-join by hand.
 # account_id IS NULL here means the request never reached a pool (routing phase).
-# account_status_now is the account's status RIGHT NOW, not at failure time:
-# ops_error_logs.account_status has no writer (verified 0 non-null rows in 7d), so
-# there is no historical status to read. Do not narrate it as the cause of a past
+# account_status_now is the account's status RIGHT NOW, not at failure time: there is
+# no historical status to read (ops_error_logs never had a written account_status; the
+# empty column was dropped in tk_100). Do not narrate it as the cause of a past
 # failure — an account rate-limited or recovered since then reads differently.
 $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   COALESCE(e.user_id, e.deleted_key_owner_user_id) AS user_id,
