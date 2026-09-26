@@ -253,3 +253,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/go_cache_prune.py --heal
+
+      # Acceleration, not a required gate — but a silent writer is worse than a
+      # slow one. When every save gate evaluates false this job still exits 0,
+      # so required CI keeps restoring a frozen snapshot with no signal at all
+      # (observed: five families stuck for days while warm ran green each push).
+      # Snapshot age is the only symptom that survives, so assert it here.
+      - name: Audit managed Go cache snapshot freshness
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/go_cache_prune.py --audit-staleness

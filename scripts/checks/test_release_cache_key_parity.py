@@ -92,7 +92,9 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
         release_warm = next(
             step for step in steps if step.get("name") == "Warm cross-arch Go build cache"
         )
-        self.assertEqual(release_warm["env"]["GOFLAGS"], "-trimpath")
+        # Warm-side GOFLAGS is only half the contract; the release side must
+        # agree. test_release_build_flags_match_warm_goflags owns that parity.
+        self.assertIn("-trimpath", release_warm["env"]["GOFLAGS"].split())
         self.assertIn("-tags=embed", release_warm["run"])
         self.assertIn("./cmd/server", release_warm["run"])
         self.assertIn("./cmd/qa-archive", release_warm["run"])
@@ -160,6 +162,38 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
             lint_warm["with"].get("skip-cache"),
             lint_step["with"].get("skip-cache"),
         )
+
+    def test_release_build_flags_match_warm_goflags(self) -> None:
+        # Go's build cache action ID includes -trimpath. When the warm writer
+        # compiles the release family with it but GoReleaser does not (or vice
+        # versa), the two produce disjoint cache entries: the main-warmed
+        # snapshot restores, is unusable, and every release cold-compiles both
+        # arches (~4m45s measured on v1.8.257). GoReleaser does not add
+        # -trimpath by default, so each build stanza must carry it explicitly.
+        steps = load_workflow(WARM_WORKFLOW)["jobs"]["warm-release-cache"]["steps"]
+        release_warm = next(
+            step for step in steps if step.get("name") == "Warm cross-arch Go build cache"
+        )
+        warm_flags = set(release_warm["env"]["GOFLAGS"].split())
+        self.assertIn(
+            "-trimpath",
+            warm_flags,
+            "release warm step must compile with -trimpath",
+        )
+
+        configs = sorted(REPO_ROOT.glob(".goreleaser*.yaml"))
+        self.assertTrue(configs, "no .goreleaser*.yaml configs found")
+        for config in configs:
+            builds = load_workflow(config).get("builds") or []
+            self.assertTrue(builds, f"{config.name} declares no builds")
+            for build in builds:
+                flags = set(build.get("flags") or [])
+                self.assertIn(
+                    "-trimpath",
+                    flags,
+                    f"{config.name} build {build.get('id')!r} must pass -trimpath "
+                    "to share the warm release build cache",
+                )
 
 
 if __name__ == "__main__":

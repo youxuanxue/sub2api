@@ -8,8 +8,11 @@ builds:
     dir: backend
     main: ./cmd/server
     binary: sub2api
+    # -trimpath MUST match warm-release-cache-main.yml's release-family GOFLAGS
+    # and the other .goreleaser*.yaml configs — see .goreleaser.yaml for why.
     flags:
       - -tags=embed
+      - -trimpath
     env:
       - CGO_ENABLED=0
     goos:
@@ -25,6 +28,9 @@ builds:
     dir: backend
     main: ./cmd/qa-archive
     binary: qa-archive
+    # -trimpath: same cache-parity reason as the sub2api build above.
+    flags:
+      - -trimpath
     env:
       - CGO_ENABLED=0
     goos:
