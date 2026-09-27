@@ -10,7 +10,7 @@ add new root-level design notes unless no existing bucket fits.
 | Operator / support action | [`operator/README.md`](operator/README.md) | Human-facing "how to do it" runbooks. |
 | Engineering ops / CI baseline / incident facts | [`ops/README.md`](ops/README.md) | Machine-bound baselines, troubleshooting records, infra snapshots, backlog. |
 | High-risk approved design | [`approved/README.md`](approved/README.md) | Approval baseline. Keep stable paths; mark status instead of moving casually. |
-| Small implementation deltas | [`spec-delta/README.md`](spec-delta/README.md) | Intent records for non-approval changes. |
+| Small implementation deltas | [`spec-delta/README.md`](spec-delta/README.md) | Intent records for non-approval changes. Two valid locations: root `docs/spec-delta-<slug>.md` per PR, `docs/spec-delta/<topic>.md` for living topics — see that index before adding either. |
 | Raw evidence and captured upstream pricing | [`evidence/README.md`](evidence/README.md) | Evidence only; not an operator runbook. |
 | Account/fingerprint references | [`accounts/README.md`](accounts/README.md) | Account onboarding and upstream-account baselines. |
 | Public in-product pages | `docs/public/` (gitignored; sync via `sync-docs-to-pages` workflow) | Only this subtree may be synced to production Pages. |
@@ -25,5 +25,8 @@ add new root-level design notes unless no existing bucket fits.
   until code, sentinel, and migration references are updated.
 - Point-in-time vendor captures belong under `docs/evidence/`, not under
   account/operator docs.
+- Root-level `docs/spec-delta-*.md` files are a sanctioned form, not stray notes
+  that the "no new root-level design notes" rule above invites you to clean up.
+  Several carry Owners tables referenced from `scripts/sentinels/frontend-tk.json`.
 - Public customer docs live under `docs/public/` only. Internal docs must never
   be synced to Pages.
