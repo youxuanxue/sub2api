@@ -294,7 +294,7 @@ if request_ids:
             "SELECT created_at, request_id, client_request_id, user_id, group_id, "
             "account_id, model, status_code, upstream_status_code, "
             "left(error_message, 160) AS error_message, "
-            "inbound_endpoint, upstream_endpoint, stream, duration_ms "
+            "inbound_endpoint, upstream_endpoint, stream, response_latency_ms AS duration_ms "
             "FROM ops_error_logs "
             f"WHERE request_id IN ({id_list}) OR client_request_id IN ({id_list}) "
             "ORDER BY created_at"

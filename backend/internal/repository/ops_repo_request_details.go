@@ -127,7 +127,10 @@ WITH combined AS (
     COALESCE(NULLIF(o.request_id,''), NULLIF(o.client_request_id,''), '') AS request_id,
     COALESCE(NULLIF(o.platform, ''), NULLIF(g.platform, ''), NULLIF(a.platform, ''), '') AS platform,
     o.model AS model,
-    o.duration_ms AS duration_ms,
+    -- ops_error_logs.duration_ms has no writer (always NULL); response_latency_ms is
+    -- the written end-to-end latency for an error row, so the error side of this UNION
+    -- reports a real duration instead of a blank column.
+    o.response_latency_ms AS duration_ms,
     o.time_to_first_token_ms AS first_token_ms,
     o.status_code AS status_code,
     o.id AS error_id,

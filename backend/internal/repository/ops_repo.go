@@ -57,9 +57,12 @@ INSERT INTO ops_error_logs (
   response_latency_ms,
   time_to_first_token_ms,
   created_at,
-  api_key_prefix
+  api_key_prefix,
+  attempted_key_prefix,
+  deleted_key_owner_user_id,
+  deleted_key_name
 ) VALUES (
-  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41
 )`
 
 func NewOpsRepository(db *sql.DB) service.OpsRepository {
@@ -163,6 +166,13 @@ func (r *opsRepository) enqueueOpsError(input *service.OpsInsertErrorLogInput) {
 	// fields out of the long-lived S3 replay payload.
 	snapshot.UpstreamErrors = nil
 	snapshot.IsBusinessLimited = false
+	// attempted_key_prefix / deleted_key_owner_user_id / deleted_key_name ARE real
+	// columns and are persisted by the INSERT above — but they are deliberately kept
+	// out of the long-lived S3 replay payload (deleted-key names and submitted-key
+	// prefixes are user-identifying and outlive the row). So the DB row carries them
+	// and the archive payload does not; telemetry_archive_hooks_test.go pins that.
+	// Do not read this zeroing as "these columns have no writer" — the writer is
+	// ops_error_logger.go's INVALID_API_KEY branch.
 	snapshot.AttemptedKeyPrefix = ""
 	snapshot.DeletedKeyOwnerUserID = nil
 	snapshot.DeletedKeyName = ""
@@ -209,6 +219,9 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 		opsNullInt64(input.TimeToFirstTokenMs),
 		input.CreatedAt,
 		opsNullString(input.APIKeyPrefix),
+		opsNullString(input.AttemptedKeyPrefix),
+		opsNullInt64(input.DeletedKeyOwnerUserID),
+		opsNullString(input.DeletedKeyName),
 	}
 }
 

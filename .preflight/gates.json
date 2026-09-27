@@ -156,6 +156,7 @@
     "ops SQL generator coverage": "sql-generators",
     "newapi live mapping mutation contract": "newapi",
     "ops/deploy SQL soft-delete filter": "base",
+    "ops_error_logs read-vs-write columns": "base",
     "local aws/pyexpat helper selftest": "build",
     "ops tool orphan check": "base",
     "workflow edge coverage": "deploy",

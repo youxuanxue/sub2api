@@ -160,8 +160,10 @@ SELECT row_to_json(t) FROM (
     error_owner,
     error_source,
     upstream_status_code,
-    network_error_type,
-    duration_ms,
+    -- network_error_type and duration_ms are declared on ops_error_logs but have no
+    -- writer (always NULL). error_type carries the classification and
+    -- response_latency_ms the written end-to-end latency.
+    response_latency_ms,
     left(error_message, 120) AS error_message,
     left(upstream_error_message, 160) AS upstream_error_message,
     CASE WHEN jsonb_typeof(upstream_errors) = 'array'

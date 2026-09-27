@@ -186,16 +186,48 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
         self.assertEqual(seen, 1, "expected exactly one accounts join in this probe")
 
     def test_user_facing_failures_omit_never_written_columns(self) -> None:
-        """These ops_error_logs columns exist in migration 033 but have no writer in
-        backend/internal, so reading them only advertises empty values as if they
-        were signal. account_status is verified empty in prod (0 non-null of 1.07M
-        rows over 7d), so the account's status must come from accounts.status and be
-        named for what it is — current state, not state at failure time."""
+        """These columns were declared by migration 033, never written by anyone, and
+        dropped in tk_100 — reading one only advertised an empty value as if it were
+        signal. The account's status must come from accounts.status and be named for
+        what it is (current state, not state at failure time), so assert the probe does
+        not reach for the dropped columns again under any spelling."""
         proc, logged = self.run_probe(USER_IDS="1,16")
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
-        self.assertNotIn("provider_error_code", logged)
-        self.assertNotIn("network_error_type", logged)
-        self.assertNotIn("e.account_status", logged)
+        for dropped in (
+            "provider_error_code", "network_error_type", "provider_error_type",
+            "e.account_status", "e.duration_ms", "retry_after_seconds",
+        ):
+            self.assertNotIn(dropped, logged, f"{dropped} was dropped in tk_100")
+
+    def test_probe_reads_no_column_that_lacks_a_writer(self) -> None:
+        """Every ops_error_logs column this probe reads must have a backend writer.
+        Drive the gate module itself rather than keeping a second hand-maintained list:
+        it derives writers from ops_repo.go, so if a writer is ever removed (which is
+        exactly how the deleted-key attribution broke) this fails instead of the probe
+        silently reporting an empty field."""
+        gate_path = ROOT / "scripts" / "checks" / "ops-error-log-column-writers.py"
+        spec = importlib.util.spec_from_file_location("ops_error_log_col", gate_path)
+        gate = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(gate)
+
+        # The deleted-key fallback this probe copies from the owner only works if the
+        # columns are actually written; that writer was lost once already.
+        writers = gate.writer_columns()
+        for required in ("deleted_key_owner_user_id", "deleted_key_name"):
+            self.assertIn(
+                required, writers,
+                f"{required} lost its writer — the probe's user attribution and the "
+                "SLA numerator both silently stop attributing deleted-key failures",
+            )
+
+        findings = gate.scan_text(
+            SCRIPT.read_text(encoding="utf-8"), gate.dead_columns(), bare=True
+        )
+        self.assertEqual(
+            findings, [],
+            f"probe reads ops_error_logs column(s) with no writer: {findings}",
+        )
 
     def test_user_facing_failure_predicate_tracks_its_registered_owner(self) -> None:
         """"User-visible failure" already has an owner:

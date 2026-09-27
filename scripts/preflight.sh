@@ -3483,6 +3483,38 @@ else
     echo "  ok: ops/ + deploy/ soft-delete-table queries all filter deleted_at (or marked intentional)"
 fi
 
+# ---- sub2api: ops_error_logs read-vs-write columns ---------------------------
+# ops_error_logs has no Ent schema: raw DDL in backend/migrations plus one
+# hand-written INSERT/UPDATE in ops_repo.go, with nothing tying them together. So a
+# column can be declared by a migration, read by a probe, and written by nobody —
+# always NULL, and a COALESCE around it serves a fallback that makes the field look
+# populated. That shipped three times on one PR (provider_error_code,
+# network_error_type, account_status) because it is invisible to review. This gate
+# derives both truth sets at runtime (declared = CREATE + ADD - DROP COLUMN;
+# written = INSERT column list + UPDATE SET) and flags reads of unwritten columns in
+# ops/ + deploy/ SQL. Deliberate reads opt out per column with
+# `ops-allow-unwritten-column: <col>` — named, not statement-wide, so a marker cannot
+# blanket-bless later additions to the same query.
+# Source: scripts/checks/ops-error-log-column-writers.py (+ --selftest, --list).
+echo ""
+
+fi # preflight gate
+if _preflight_selected 'ops_error_logs read-vs-write columns'; then
+echo "=== sub2api: ops_error_logs read-vs-write columns ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for ops_error_logs column-writer check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/ops-error-log-column-writers.py --selftest >/dev/null; then
+    echo "  FAIL: ops-error-log-column-writers selftest failed (gate logic regression)"
+    python3 ./scripts/checks/ops-error-log-column-writers.py --selftest
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/ops-error-log-column-writers.py --quiet; then
+    # ops-error-log-column-writers.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: ops/ + deploy/ SQL reads no unwritten ops_error_logs column (or marked per column)"
+fi
+
 # ---- sub2api: local aws/pyexpat helper selftest -----------------------------
 # Guards the local macOS/Homebrew aws bootstrap helper that diagnoses the
 # pyexpat/libexpat mismatch before ops probes ever hit prod. Only the helper's
