@@ -87,31 +87,12 @@ DB_MANAGED = frozenset({"id", "created_at"})
 # a standing exception — prefer wiring up a writer or dropping the column, and say why if
 # neither is possible.
 #
-# The entries below are phase 1 of a two-phase removal: the writer and every reader are
-# gone as of this change, but the columns stay declared so the previous release (which
-# still SELECTs them) survives the blue/green window and an image rollback. Phase 2 drops
-# them physically once that window closes, and these entries go away with it.
+# Empty since phase 2 (tk_101) physically dropped the nine columns that had no writer.
+# The deleted-key attribution trio was the only standing exception; it existed to keep the
+# columns declared through one blue/green window after their writer and readers were
+# removed, and tk_101 retired both the columns and the exception together.
 # Anchor: docs/approved/ops-error-logs-column-contract.md
-_DELETED_KEY_ATTRIBUTION_REASON = (
-    "deleted-key attribution removed (writer + readers); column dropped in phase 2 "
-    "after the rollback window closes"
-)
-ALLOWED_UNWRITTEN = {
-    "attempted_key_prefix": _DELETED_KEY_ATTRIBUTION_REASON,
-    "deleted_key_owner_user_id": _DELETED_KEY_ATTRIBUTION_REASON,
-    "deleted_key_name": _DELETED_KEY_ATTRIBUTION_REASON,
-}
-
-# tk_100's six columns are NOT listed above on purpose. This gate derives `declared` from
-# the migration files, and tk_100 declares the DROP, so they are already outside the
-# declared set and there is nothing to exempt — an entry here would never be evaluated and
-# would only read as coverage that does not exist. They are, however, still PHYSICALLY
-# present in prod, because tk_100 is recorded without executing its SQL
-# (migrations.RetainedOpsErrorColumnsMigration). Consequence to know about: a new read of
-# one of them is invisible to this gate (not in `dead`) and will not fail at runtime
-# either, until phase 2 performs the real DROP and turns it into a 42703. The known live
-# site is pinned by a sentinel on ops_repo_request_details.go.
-# Anchor: docs/approved/ops-error-logs-column-contract.md, docs/preflight-debt.md
+ALLOWED_UNWRITTEN = {}
 
 _STMT_END = re.compile(r";")
 
@@ -141,7 +122,13 @@ def declared_columns(migrations_dir=MIGRATIONS_DIR):
                 if cm and cm.group(1).upper() not in ("PRIMARY", "UNIQUE", "CONSTRAINT", "FOREIGN", "CHECK"):
                     cols.add(cm.group(1))
 
-        for stmt in re.finditer(r"ALTER TABLE\s+" + TABLE + r"\b(.*?);", txt, re.S | re.I):
+        # `ALTER TABLE IF EXISTS` is as valid as the bare form, and a finalizer that
+        # drops columns idempotently is exactly where it gets used. Without the
+        # optional clause the whole statement is skipped and its DROPs are invisible,
+        # so the gate would keep reporting dropped columns as declared.
+        for stmt in re.finditer(
+            r"ALTER TABLE(?:\s+IF EXISTS)?\s+" + TABLE + r"\b(.*?);", txt, re.S | re.I
+        ):
             body = stmt.group(1)
             for am in re.finditer(r"ADD COLUMN(?:\s+IF NOT EXISTS)?\s+([a-z_][a-z0-9_]*)", body, re.I):
                 cols.add(am.group(1))
