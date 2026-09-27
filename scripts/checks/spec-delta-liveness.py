@@ -8,10 +8,13 @@ practice nothing was ever deleted and the directory accumulated both kinds.
 
 The cost of that gap is not untidiness. An agent auditing the tree for stale
 files sees a spec delta that no grep hit mentions and concludes it is dead — the
-exact inference that nearly deleted nine load-bearing documents, four of which
-carry Owners tables that sentinels cite as the registered owner of a behavior.
-What saved them was one reviewer deciding to open the files. That is the class of
-"relied on remembering" this gate exists to remove (CLAUDE.md §5).
+exact inference that nearly deleted load-bearing documents, including ones whose
+Owners tables sentinels cite as the registered owner of a behavior. What saved
+them was one reviewer deciding to open the files. That is the class of "relied on
+remembering" this gate exists to remove (CLAUDE.md §5).
+
+Run the checker for the current live/stub split; deliberately not restated here,
+so this docstring cannot drift out of agreement with what the code computes.
 
 So liveness is computed, never asserted in prose:
 
