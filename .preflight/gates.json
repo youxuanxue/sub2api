@@ -43,6 +43,7 @@
     "upstream SSOT impact report": "build",
     "model owner manifest": "pricing",
     "approved-doc index and anchors": "build",
+    "spec-delta liveness": "build",
     "merge conflict markers": "base",
     "engine dispatch / capability sentinels": "build",
     "OpenAI upstream capability truth": "build",
