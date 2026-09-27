@@ -33,9 +33,12 @@ exists — it only becomes a 42703 when phase 2 performs the real `DROP`. The on
 live site is pinned by a sentinel on `ops_repo_request_details.go`.
 
 **Exit condition for both entries (phase 2):** once the rollback window for the release
-carrying phase 1 has closed, one migration drops all nine columns plus
-`DROP TABLE deleted_api_key_audits`, and both entries, the three `ALLOWED_UNWRITTEN`
-entries and the tk_100 record-only branch go away together. Anchor:
+carrying phase 1 has closed, run upstream's existing finalizer
+`backend/scripts/finalize-ingress-reject-cleanup.sql` — it drops the three attribution
+columns and `deleted_api_key_audits`, and `backend/cmd/cleanup-ingress-reject-logs`
+prunes the historical rows. It does NOT cover tk_100's six columns, which are TK's own
+and need their own DDL. Both entries, the three `ALLOWED_UNWRITTEN` entries and the
+tk_100 record-only branch go away with that change. Anchor:
 [`docs/approved/ops-error-logs-column-contract.md`](approved/ops-error-logs-column-contract.md).
 
 ## Known limits of the column-writer gate

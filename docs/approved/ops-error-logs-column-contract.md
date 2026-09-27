@@ -81,7 +81,14 @@ migration 145 声明了 `attempted_key_prefix` / `deleted_key_owner_user_id` /
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | 阶段 1(本次) | 摘掉写入方、所有读取方、明文审计写入、相关测试;三列仍保持声明 | 本 PR |
-| 阶段 2(回滚窗口关闭后的下个版本) | 新迁移 `DROP` 三列 + tk_100 的六列,并 `DROP TABLE deleted_api_key_audits`;同时删掉 `ALLOWED_UNWRITTEN` 的 3 条、tk_100 只记录分支与 `docs/preflight-debt.md` 的两条 | 待办 |
+| 阶段 2(回滚窗口关闭后的下个版本) | 跑上游已有的 `backend/scripts/finalize-ingress-reject-cleanup.sql`(DROP 三列 + `DROP TABLE deleted_api_key_audits`);tk_100 的六列它**不覆盖**,需另写 DDL。同时删掉 `ALLOWED_UNWRITTEN` 的 3 条、tk_100 只记录分支与 `docs/preflight-debt.md` 的两条 | 待办 |
+
+**阶段 2 不需要新写 SQL**:上游的 finalizer 已经在树内
+(`backend/scripts/finalize-ingress-reject-cleanup.sql`),删的正是这三列加明文审计表,
+并带 `lock_timeout = 5s`;配套的历史行清理工具是 `backend/cmd/cleanup-ingress-reject-logs`
+(默认 dry-run,`--execute` 才真删)。它的前置条件与本 PR 的阶段划分一致:所有实例都升到
+「不再读写这些列」的版本之后才能跑。唯一它没覆盖的是 tk_100 那六列 —— 那是 TK 自己的,
+要单独一条 DDL。
 
 阶段 1 不删列的理由与 tk_100 相同:迁移在新 color 启动时执行,旧 color 还在读同一个库,
 上一版本的 SQL 仍然会点名这三列;列一删,blue/green 窗口和镜像回滚同时被打断。列没有写入

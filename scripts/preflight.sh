@@ -4274,6 +4274,10 @@ echo "=== sub2api: upstream deletion ledger ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by upstream-deletion-ledger.py)"
     errors=$((errors + 1))
+elif ! python3 ./scripts/checks/test_upstream_deletion_ledger.py >/dev/null 2>&1; then
+    echo "  FAIL: upstream-deletion-ledger self-test failed"
+    echo "        — run: python3 scripts/checks/test_upstream_deletion_ledger.py"
+    errors=$((errors + 1))
 elif ! python3 ./scripts/checks/upstream-deletion-ledger.py --quiet; then
     errors=$((errors + 1))
 else

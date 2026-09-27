@@ -20,6 +20,16 @@ last-merged upstream commit, so upstream files *added after* the merge-base
 deletions — unlike the two-dot tree diff quoted in CLAUDE.md §5.x, which
 flags them (see the redeem_service_redeem_test.go entry in the ledger).
 
+Paths still present in the **index** are then dropped from that list. The gate
+runs as a pre-commit hook, where the index — not HEAD — is what the commit will
+contain: a deletion in HEAD whose restoration is staged is no longer a deletion.
+Without this, restoring a file (§5.x's own preferred remediation, "restore the
+file … instead of deleting") could never be committed once the deleting commit
+was pushed: the gate would keep reporting the HEAD deletion, amending is barred
+by §5.y (`main`/pushed history immutable), and `--no-verify` is forbidden. Where
+the index matches HEAD (CI, manual runs, post-commit) the filter is a no-op, so
+the gate's strictness is unchanged.
+
 Every reported path must occur as an exact substring of the ledger file.
 Paths are unambiguous (repo-relative, unique), so verbatim substring match is
 deterministic and needs no markup convention in the ledger.
@@ -66,8 +76,21 @@ def upstream_ref_exists(root: Path, ref: str) -> bool:
     return git(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").returncode == 0
 
 
+def staged_paths(root: Path) -> set[str]:
+    """Paths present in the index (any state), i.e. what a commit would contain."""
+    proc = git(root, "ls-files", "--cached", "--", *DIFF_SCOPE)
+    if proc.returncode != 0:
+        msg = proc.stderr.strip() or "git ls-files --cached failed"
+        raise RuntimeError(msg)
+    return {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+
+
 def deleted_upstream_paths(root: Path, ref: str) -> list[str]:
-    """Upstream files deleted in HEAD relative to merge-base(ref, HEAD)."""
+    """Upstream files deleted relative to merge-base(ref, HEAD) and still absent.
+
+    A path deleted in HEAD but staged again is not a deletion of the commit
+    being built, so it is filtered out (see module docstring).
+    """
     proc = git(
         root,
         "diff", "--diff-filter=D", "--name-only", f"{ref}...HEAD", "--", *DIFF_SCOPE,
@@ -75,7 +98,11 @@ def deleted_upstream_paths(root: Path, ref: str) -> list[str]:
     if proc.returncode != 0:
         msg = proc.stderr.strip() or f"git diff {ref}...HEAD failed"
         raise RuntimeError(msg)
-    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    deleted = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    if not deleted:
+        return []
+    restored = staged_paths(root)
+    return [p for p in deleted if p not in restored]
 
 
 def main() -> int:

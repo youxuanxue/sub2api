@@ -388,18 +388,16 @@ func (r *apiKeyRepository) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// DeleteWithAudit 软删除该 key(tombstone 覆盖 key 列以释放唯一约束)。
+// DeleteWithAudit keeps the legacy method name for rolling-upgrade compatibility.
+// It atomically tombstones and soft-deletes the key without retaining credential
+// material. Tombstoning releases the unique key value for safe reuse.
 //
-// 名字保留了 upstream 的原样以缩小 diff,但 deleted_api_key_audits 的明文 key 写入
-// 已移除:唯一的读取方(已删除 key 归因)连同它一起删了,见
-// docs/approved/ops-error-logs-column-contract.md。继续写入等于为一个没有读取方的
-// 表长期保存明文 key。表本身在回滚窗口关闭后由后续迁移 DROP。
 // 事务模式与 group_repo.DeleteCascade 一致。
 func (r *apiKeyRepository) DeleteWithAudit(ctx context.Context, id int64) error {
 	tombstoneKey := fmt.Sprintf("__deleted__%d__%d", id, time.Now().UnixNano())
 
 	if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
-		return r.deleteWithAudit(ctx, existingTx.Client(), id, tombstoneKey)
+		return r.deleteWithTombstone(ctx, existingTx.Client(), id, tombstoneKey)
 	}
 
 	tx, err := r.client.Tx(ctx)
@@ -412,7 +410,7 @@ func (r *apiKeyRepository) DeleteWithAudit(ctx context.Context, id int64) error 
 		exec = tx.Client()
 	}
 
-	if err := r.deleteWithAudit(ctx, exec, id, tombstoneKey); err != nil {
+	if err := r.deleteWithTombstone(ctx, exec, id, tombstoneKey); err != nil {
 		return err
 	}
 
@@ -422,8 +420,7 @@ func (r *apiKeyRepository) DeleteWithAudit(ctx context.Context, id int64) error 
 	return nil
 }
 
-func (r *apiKeyRepository) deleteWithAudit(ctx context.Context, exec *dbent.Client, id int64, tombstoneKey string) error {
-	// 软删除(tombstone 覆盖 key)。明文 key 审计写入已移除(见函数注释)。
+func (r *apiKeyRepository) deleteWithTombstone(ctx context.Context, exec *dbent.Client, id int64, tombstoneKey string) error {
 	res, err := exec.ExecContext(ctx, `
 		UPDATE api_keys
 		SET key = $1, deleted_at = NOW(), updated_at = NOW()
