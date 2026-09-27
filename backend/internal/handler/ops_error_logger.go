@@ -89,50 +89,6 @@ func keyPrefix(key string, n int) string {
 	return key[:n]
 }
 
-// extractAttemptedKey 按认证中间件同样的顺序从请求头提取提交的 key 明文。
-func extractAttemptedKey(c *gin.Context) string {
-	googleAuth := false
-	if c != nil && c.Request != nil && c.Request.URL != nil {
-		path := c.Request.URL.Path
-		googleAuth = path == "/v1beta" || strings.HasPrefix(path, "/v1beta/") ||
-			path == "/antigravity/v1beta" || strings.HasPrefix(path, "/antigravity/v1beta/")
-	}
-	if googleAuth {
-		if k := c.GetHeader("x-goog-api-key"); k != "" {
-			return strings.TrimSpace(k)
-		}
-	}
-	if h := c.GetHeader("Authorization"); h != "" {
-		parts := strings.SplitN(h, " ", 2)
-		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-			return strings.TrimSpace(parts[1])
-		}
-		// 非 Bearer:与中间件一致,忽略 Authorization,继续尝试其它 header(不在此 return)。
-	}
-	if k := c.GetHeader("x-api-key"); k != "" {
-		return strings.TrimSpace(k)
-	}
-	if k := c.GetHeader("x-goog-api-key"); k != "" {
-		return strings.TrimSpace(k)
-	}
-	return ""
-}
-
-// looksLikeSystemKey 粗筛「看起来像本系统 key」的明文,避免拿任意请求头去查审计表。
-func looksLikeSystemKey(key string) bool {
-	if len(key) < 16 || len(key) > 128 {
-		return false
-	}
-	for _, c := range key {
-		allowed := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '_' || c == '-'
-		if !allowed {
-			return false
-		}
-	}
-	return true
-}
-
 type opsErrorLogJob struct {
 	ops         *service.OpsService
 	entry       *service.OpsInsertErrorLogInput
@@ -1358,27 +1314,13 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			entry.ClientIP = &clientIP
 		}
 
-		// 已删除 key 归因:仅 INVALID_API_KEY 才尝试。响应已写出,此处不阻塞客户端。
-		// 这三个字段是 ops_error_logs 上 attempted_key_prefix /
-		// deleted_key_owner_user_id / deleted_key_name 的唯一写入方 —— 一旦这里再次丢
-		// 失,读取侧(ops_repo_user_visible_failure_tk.go 的 SLA 分子、盯盘探针)会静默
-		// 退回"归因不到任何用户",所以 scripts/checks/ops-error-log-column-writers.py
-		// 把它登记为写入方契约,删掉会 fail preflight。
-		if parsed.Code == opsCodeInvalidAPIKey {
-			if attemptedKey := extractAttemptedKey(c); attemptedKey != "" {
-				entry.AttemptedKeyPrefix = keyPrefix(attemptedKey, 8)
-				if looksLikeSystemKey(attemptedKey) {
-					if res, lookupErr := ops.LookupDeletedKeyAudit(c.Request.Context(), attemptedKey); lookupErr != nil {
-						log.Printf("[OpsErrorLogger] LookupDeletedKeyAudit failed: %v", lookupErr)
-					} else if res != nil {
-						owner := res.UserID
-						entry.DeletedKeyOwnerUserID = &owner
-						entry.DeletedKeyName = res.KeyName
-					}
-				}
-			}
-		}
-
+		// 已删除 key 归因已移除,不再写 attempted_key_prefix /
+		// deleted_key_owner_user_id / deleted_key_name。原因见
+		// docs/approved/ops-error-logs-column-contract.md §已移除的已删除 key 归因:
+		// INVALID_API_KEY 走 ingress-reject 早退(本函数上方),归因块物理上到不了;
+		// 且 prod 实测可归因分母为 0。上游 cleanup-ingress-reject-logs +
+		// finalize-ingress-reject-cleanup.sql 的既定方向也是删掉这三列和明文 key
+		// 审计表,所以这里跟随上游,不再为它维护分叉。
 		enqueueOpsErrorLog(ops, entry)
 	}
 }

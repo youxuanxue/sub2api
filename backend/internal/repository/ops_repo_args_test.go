@@ -37,13 +37,17 @@ func TestOpsInsertErrorLogSQLColumnsArgsAndPlaceholdersAgree(t *testing.T) {
 	require.Len(t, args, len(columns),
 		"opsInsertErrorLogArgs must supply exactly one value per INSERT column")
 
-	// The deleted-key attribution columns must stay in the INSERT: they are read by
-	// ops_repo_user_visible_failure_tk.go (the SLA numerator) and by the billing-watch
-	// probe, and dropping them silently un-attributes failures on deleted keys.
-	for _, required := range []string{
+	// The deleted-key attribution columns must stay OUT of the INSERT. The feature was
+	// removed (writer + every reader) because the writer is unreachable behind the
+	// ingress-reject early return and prod measured 0 attributable rows over 2.2M; the
+	// columns are still declared only so the previous color survives the blue/green
+	// window, and phase 2 drops them. Re-adding them here would put a submitted key
+	// prefix and a user-chosen key name back into the long-lived S3 payload.
+	// See docs/approved/ops-error-logs-column-contract.md.
+	for _, removed := range []string{
 		"attempted_key_prefix", "deleted_key_owner_user_id", "deleted_key_name",
 	} {
-		require.Contains(t, columns, required)
+		require.NotContains(t, columns, removed)
 	}
 }
 

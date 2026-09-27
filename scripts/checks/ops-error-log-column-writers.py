@@ -83,11 +83,35 @@ WRITER_GLOB_DIR = os.path.join(ROOT, "backend", "internal")
 # Columns the DB itself fills; absence from the INSERT is correct, not a bug.
 DB_MANAGED = frozenset({"id", "created_at"})
 
-# Columns deliberately allowed to have no writer, each with the reason. Empty on
-# purpose: tk_100 dropped the six columns that used to sit here, so the contract is
-# currently exact. An entry here is a standing exception — prefer wiring up a writer or
-# dropping the column, and say why if neither is possible.
-ALLOWED_UNWRITTEN = {}
+# Columns deliberately allowed to have no writer, each with the reason. An entry here is
+# a standing exception — prefer wiring up a writer or dropping the column, and say why if
+# neither is possible.
+#
+# The entries below are phase 1 of a two-phase removal: the writer and every reader are
+# gone as of this change, but the columns stay declared so the previous release (which
+# still SELECTs them) survives the blue/green window and an image rollback. Phase 2 drops
+# them physically once that window closes, and these entries go away with it.
+# Anchor: docs/approved/ops-error-logs-column-contract.md
+_DELETED_KEY_ATTRIBUTION_REASON = (
+    "deleted-key attribution removed (writer + readers); column dropped in phase 2 "
+    "after the rollback window closes"
+)
+ALLOWED_UNWRITTEN = {
+    "attempted_key_prefix": _DELETED_KEY_ATTRIBUTION_REASON,
+    "deleted_key_owner_user_id": _DELETED_KEY_ATTRIBUTION_REASON,
+    "deleted_key_name": _DELETED_KEY_ATTRIBUTION_REASON,
+}
+
+# tk_100's six columns are NOT listed above on purpose. This gate derives `declared` from
+# the migration files, and tk_100 declares the DROP, so they are already outside the
+# declared set and there is nothing to exempt — an entry here would never be evaluated and
+# would only read as coverage that does not exist. They are, however, still PHYSICALLY
+# present in prod, because tk_100 is recorded without executing its SQL
+# (migrations.RetainedOpsErrorColumnsMigration). Consequence to know about: a new read of
+# one of them is invisible to this gate (not in `dead`) and will not fail at runtime
+# either, until phase 2 performs the real DROP and turns it into a 42703. The known live
+# site is pinned by a sentinel on ops_repo_request_details.go.
+# Anchor: docs/approved/ops-error-logs-column-contract.md, docs/preflight-debt.md
 
 _STMT_END = re.compile(r";")
 
@@ -467,11 +491,20 @@ def run(quiet):
 
     if not quiet:
         scanned = " + ".join(SCAN_DIRS) + " + backend"
-        allowed = f", {len(ALLOWED_UNWRITTEN)} allowed-unwritten" if ALLOWED_UNWRITTEN else ""
+        # Say "exact" only when nothing is exempted: with standing exceptions the
+        # contract holds *modulo* ALLOWED_UNWRITTEN, and claiming exactness would hide
+        # the debt the exemptions represent (docs/preflight-debt.md).
+        if ALLOWED_UNWRITTEN:
+            allowed = (
+                f", {len(ALLOWED_UNWRITTEN)} allowed-unwritten; contract exact modulo "
+                f"those exceptions (see docs/preflight-debt.md)"
+            )
+        else:
+            allowed = "; contract exact"
         print(
             f"ops_error_logs column-writer gate: PASS "
             f"({len(declared)} declared, {len(writers)} written, "
-            f"{len(dead)} unwritten{allowed}; contract exact; no unwritten column read "
+            f"{len(dead)} unwritten{allowed}; no unwritten column read "
             f"in {scanned})"
         )
     return 0

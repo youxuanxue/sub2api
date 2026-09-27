@@ -556,7 +556,9 @@ func TestIncrementQuotaUsed_Concurrent(t *testing.T) {
 		"并发递增后总和应为 %v，实际为 %v", float64(goroutines)*increment, got.QuotaUsed)
 }
 
-func (s *APIKeyRepoSuite) TestDeleteWithAudit_WritesAuditAndSoftDeletes() {
+// DeleteWithAudit 只做 tombstone 软删除,不再写明文 key 审计行。
+// 归因读取方已随写入方一并移除,见 docs/approved/ops-error-logs-column-contract.md。
+func (s *APIKeyRepoSuite) TestDeleteWithAudit_SoftDeletesWithoutPlaintextAudit() {
 	user := s.mustCreateUser("delwithaudit@test.com")
 	key := &service.APIKey{
 		UserID: user.ID,
@@ -571,18 +573,24 @@ func (s *APIKeyRepoSuite) TestDeleteWithAudit_WritesAuditAndSoftDeletes() {
 	_, err := s.repo.GetByID(s.ctx, key.ID)
 	s.Require().Error(err)
 
-	rows, qErr := s.client.QueryContext(s.ctx,
-		`SELECT key, key_name, user_id, api_key_id FROM deleted_api_key_audits WHERE api_key_id = $1`, key.ID)
-	s.Require().NoError(qErr)
-	defer rows.Close()
-	s.Require().True(rows.Next(), "expected one audit row")
-	var auditKey, auditName string
-	var auditUserID, auditAPIKeyID int64
-	s.Require().NoError(rows.Scan(&auditKey, &auditName, &auditUserID, &auditAPIKeyID))
-	s.Require().Equal("sk-del-audit-1", auditKey)
-	s.Require().Equal("Audit Me", auditName)
-	s.Require().Equal(user.ID, auditUserID)
-	s.Require().Equal(key.ID, auditAPIKeyID)
+	scanOne := func(query string, dest any) {
+		rows, qErr := s.client.QueryContext(s.ctx, query, key.ID)
+		s.Require().NoError(qErr)
+		defer func() { _ = rows.Close() }()
+		s.Require().True(rows.Next(), "expected one row: %s", query)
+		s.Require().NoError(rows.Scan(dest))
+	}
+
+	// key 列被 tombstone 覆盖,唯一约束释放,明文 key 不再留在行里。
+	var storedKey string
+	scanOne(`SELECT key FROM api_keys WHERE id = $1`, &storedKey)
+	s.Require().NotEqual("sk-del-audit-1", storedKey)
+	s.Require().Contains(storedKey, "__deleted__")
+
+	// 审计表不再有写入方:删除后不应出现明文 key 行。
+	var auditCount int
+	scanOne(`SELECT COUNT(*) FROM deleted_api_key_audits WHERE api_key_id = $1`, &auditCount)
+	s.Require().Zero(auditCount, "deleted_api_key_audits 不应再有写入方")
 }
 
 func (s *APIKeyRepoSuite) TestDeleteWithAudit_RepeatIsIdempotent() {
