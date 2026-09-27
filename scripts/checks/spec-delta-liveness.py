@@ -20,6 +20,9 @@ So liveness is computed, never asserted in prose:
      Every such path must exist. A dangling owner path means the doc now
      registers an owner that is gone — the doc is stale in a way that matters,
      because a sentinel or a future reader will still treat it as authoritative.
+     Only the table rows are read. Prose that names a path is not a registration:
+     under the §5.x deletion discipline a doc legitimately says "upstream moved
+     this out of X", and X must not be mistaken for a declared owner.
 
   2. INBOUND REFERENCES. Sentinel rationales, Go comments, skills and workflows
      cite deltas by path. A cited delta is load-bearing regardless of its shape:
@@ -61,10 +64,16 @@ CITATION_BLIND = ("docs/spec-delta/README.md", "docs/README.md")
 # Directories with no bearing on whether a doc is cited by the system.
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".cache", "dist", "vendor"}
 
-# Owners tables are markdown tables whose cells carry inline-code paths. Accept
-# both the Chinese and English header spellings actually in use.
-OWNERS_HEADING = re.compile(r"^#+\s*(?:Owners|Implementation\s*/\s*Owners|实现\s*/\s*Owners)", re.I)
-OWNERS_HINT = re.compile(r"唯一\s*owner|single owner|^\|\s*行为\s*\|", re.I | re.M)
+# An Owners table is introduced either by a heading or by the table header row
+# itself. Both spellings in actual use are accepted. re.M is required: the marker
+# is never on line 1, so without it these only ever matched the file start.
+OWNERS_MARKER = re.compile(
+    r"^#+\s*(?:Owners|Implementation\s*/\s*Owners|实现\s*/\s*Owners)\b"
+    r"|^\|\s*(?:行为|Behavior|Behaviour)\s*\|"
+    r"|^\|[^|\n]*\|\s*(?:唯一\s*owner|single owner|owner)\s*\|"
+    r"|唯一\s*owner|single owner",
+    re.I | re.M,
+)
 
 # A path-looking inline-code span: has a slash and a file-ish suffix.
 CODE_PATH = re.compile(r"`([^`\n]*?/[^`\n]*?\.(?:go|ts|tsx|vue|py|sh|sql|json|ya?ml|md))`")
@@ -89,17 +98,40 @@ def discover(root: Path) -> list[Path]:
     return deltas
 
 
-def owner_paths(text: str) -> list[str]:
-    """Owner paths declared by a delta's Owners table, if it has one."""
-    if not (OWNERS_HEADING.search(text) or OWNERS_HINT.search(text)):
+def owners_table_rows(text: str) -> list[str]:
+    """The rows of a delta's Owners table, or [] if it has none.
+
+    Only the table counts as a registration. Prose that merely names a path is
+    not a contract, and under the §5.x deletion discipline prose routinely names
+    files that upstream removed ("the logic moved out of X, we no longer carry
+    it") — reading those as registered owners would fail the gate on documents
+    that are telling the truth.
+    """
+    marker = OWNERS_MARKER.search(text)
+    if not marker:
         return []
+    lines = text[marker.start():].splitlines()
+    rows: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("|"):
+            rows.append(stripped)
+        elif rows:
+            # The table ended; a later unrelated table is not this one.
+            break
+    return rows
+
+
+def owner_paths(text: str) -> list[str]:
+    """Paths cited by a delta's Owners table, if it has one."""
     found: list[str] = []
-    for raw in CODE_PATH.findall(text):
-        candidate = raw.strip()
-        # Table cells sometimes carry a `path.go` plus a `func()` suffix.
-        candidate = candidate.split("::")[0].split("#")[0].strip()
-        if candidate and candidate not in found:
-            found.append(candidate)
+    for row in owners_table_rows(text):
+        for raw in CODE_PATH.findall(row):
+            candidate = raw.strip()
+            # Cells sometimes carry a `path.go` plus a member suffix.
+            candidate = candidate.split("::")[0].split("#")[0].strip()
+            if candidate and candidate not in found:
+                found.append(candidate)
     return found
 
 
@@ -190,6 +222,24 @@ def selftest() -> int:
             "| x | `backend/gone.go` |\n",
             encoding="utf-8",
         )
+        # English mid-document heading + English table header, dangling owner.
+        # Nothing here matches on line 1 and no "single owner" prose rescues it,
+        # so this fixture is what holds OWNERS_MARKER's re.M and English
+        # spellings honest -- the docstring claims both, and a regex that only
+        # matched the file start silently classified this as a stub.
+        (root / "docs" / "spec-delta-english.md").write_text(
+            "# Edge model rejection\n\n## Owners\n\n| Behavior | Owner | Consumer |\n"
+            "| --- | --- | --- |\n| verdict | `backend/also-gone.go` | gateway |\n",
+            encoding="utf-8",
+        )
+        # Prose naming a path upstream deleted must NOT count as a registration:
+        # the Owners table below registers an existing owner, so this doc is
+        # clean even though the narrative mentions a file that is gone.
+        (root / "docs" / "spec-delta-narrates.md").write_text(
+            "# n\n\n## 背景\n\n上游把逻辑从 `backend/removed-upstream.go` 挪走了,我们不再持有它。\n\n"
+            "## Owners\n\n| 行为 | 唯一 owner |\n| --- | --- |\n| x | `backend/svc.go` |\n",
+            encoding="utf-8",
+        )
         # true stub: no owners, no citation
         (root / "docs" / "spec-delta-stub.md").write_text("# s\n\nBackground only.\n", encoding="utf-8")
         # live by citation from a sentinel
@@ -206,12 +256,31 @@ def selftest() -> int:
             failures.append("dangling owner path name missing from message")
         if "spec-delta-ok.md" in joined:
             failures.append("existing owner path wrongly reported")
-        if len(errors) != 1:
-            failures.append(f"expected exactly 1 error, got {len(errors)}: {errors}")
+        if "backend/also-gone.go" not in joined:
+            failures.append("English mid-document Owners heading not recognized")
+        if "backend/removed-upstream.go" in joined:
+            failures.append("prose path outside the Owners table wrongly treated as a registration")
+        if "spec-delta-narrates.md" in joined:
+            failures.append("doc narrating an upstream deletion wrongly failed")
+        if len(errors) != 2:
+            failures.append(f"expected exactly 2 errors, got {len(errors)}: {errors}")
+
+        # the narrating doc must still be live via its real Owners table
+        narrates = owner_paths((root / "docs" / "spec-delta-narrates.md").read_text(encoding="utf-8"))
+        if narrates != ["backend/svc.go"]:
+            failures.append(f"owners table of narrating doc parsed wrong: {narrates}")
 
         # classification checks
         deltas = {p.name for p in discover(root)}
-        if deltas != {"spec-delta-ok.md", "spec-delta-dangling.md", "spec-delta-stub.md", "cited.md"}:
+        expected = {
+            "spec-delta-ok.md",
+            "spec-delta-dangling.md",
+            "spec-delta-english.md",
+            "spec-delta-narrates.md",
+            "spec-delta-stub.md",
+            "cited.md",
+        }
+        if deltas != expected:
             failures.append(f"discovery wrong: {sorted(deltas)}")
 
         corpus = {p: p.read_text(encoding="utf-8", errors="ignore") for p in _iter_text_files(root)}
