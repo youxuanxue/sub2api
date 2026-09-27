@@ -12,23 +12,30 @@ appear **verbatim** in the ledger `docs/DEPRECATIONS.md`.
 How it decides
 --------------
 
-    git diff --diff-filter=D --name-only <upstream-ref>...HEAD -- backend/ frontend/
+    git diff --cached --diff-filter=D --name-only $(git merge-base <upstream-ref> HEAD) \
+        -- backend/ frontend/
 
-Three-dot (merge-base) semantics on purpose: it compares HEAD against the
-last-merged upstream commit, so upstream files *added after* the merge-base
-(pending, not-yet-merged upstream content) do NOT false-positive as TK
-deletions — unlike the two-dot tree diff quoted in CLAUDE.md §5.x, which
-flags them (see the redeem_service_redeem_test.go entry in the ledger).
+Two decisions, both load-bearing:
 
-Paths still present in the **index** are then dropped from that list. The gate
-runs as a pre-commit hook, where the index — not HEAD — is what the commit will
-contain: a deletion in HEAD whose restoration is staged is no longer a deletion.
-Without this, restoring a file (§5.x's own preferred remediation, "restore the
-file … instead of deleting") could never be committed once the deleting commit
-was pushed: the gate would keep reporting the HEAD deletion, amending is barred
-by §5.y (`main`/pushed history immutable), and `--no-verify` is forbidden. Where
-the index matches HEAD (CI, manual runs, post-commit) the filter is a no-op, so
-the gate's strictness is unchanged.
+**Merge-base, not the ref itself.** Comparing against merge-base(ref, HEAD)
+means upstream files *added after* that base (pending, not-yet-merged upstream
+content) do NOT false-positive as TK deletions — unlike the two-dot tree diff
+quoted in CLAUDE.md §5.x, which flags them (see the redeem_service_redeem_test.go
+entry in the ledger).
+
+**The index, not HEAD.** The gate runs as a pre-commit hook, and the index is
+what the commit will contain. Diffing HEAD instead made the gate report every
+deletion exactly one commit late: the commit that removed a file passed (its
+deletion was only staged), and the NEXT unrelated commit failed. That is how
+the deletion of ops_error_logger_attribution_test.go — which held upstream's
+only test for the retained keyPrefix desensitizer — shipped unledgered in
+5729fda5f and only surfaced during review of the following commit. The late
+report was also unfixable: once the deleting commit was pushed, §5.x's own
+remedy ("restore the file … instead of deleting") could not be committed,
+because the gate kept reporting the HEAD deletion while §5.y bars amending
+pushed history and `--no-verify` is forbidden. Diffing the index fixes both:
+a deletion is reported when it is staged, and a staged restoration clears it.
+Where the index matches HEAD (CI, manual runs, post-commit) both diffs agree.
 
 Every reported path must occur as an exact substring of the ledger file.
 Paths are unambiguous (repo-relative, unique), so verbatim substring match is
@@ -76,33 +83,33 @@ def upstream_ref_exists(root: Path, ref: str) -> bool:
     return git(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").returncode == 0
 
 
-def staged_paths(root: Path) -> set[str]:
-    """Paths present in the index (any state), i.e. what a commit would contain."""
-    proc = git(root, "ls-files", "--cached", "--", *DIFF_SCOPE)
+def merge_base(root: Path, ref: str) -> str:
+    proc = git(root, "merge-base", ref, "HEAD")
     if proc.returncode != 0:
-        msg = proc.stderr.strip() or "git ls-files --cached failed"
+        msg = proc.stderr.strip() or f"git merge-base {ref} HEAD failed"
         raise RuntimeError(msg)
-    return {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+    base = proc.stdout.strip()
+    if not base:
+        raise RuntimeError(f"no merge base between {ref} and HEAD")
+    return base
 
 
 def deleted_upstream_paths(root: Path, ref: str) -> list[str]:
-    """Upstream files deleted relative to merge-base(ref, HEAD) and still absent.
+    """Upstream files the INDEX deletes relative to merge-base(ref, HEAD).
 
-    A path deleted in HEAD but staged again is not a deletion of the commit
-    being built, so it is filtered out (see module docstring).
+    The index, not HEAD, is what a commit will contain, so it is the only
+    comparison that reports a deletion at the moment it is made (see module
+    docstring).
     """
     proc = git(
         root,
-        "diff", "--diff-filter=D", "--name-only", f"{ref}...HEAD", "--", *DIFF_SCOPE,
+        "diff", "--cached", "--diff-filter=D", "--name-only",
+        merge_base(root, ref), "--", *DIFF_SCOPE,
     )
     if proc.returncode != 0:
-        msg = proc.stderr.strip() or f"git diff {ref}...HEAD failed"
+        msg = proc.stderr.strip() or f"git diff --cached {ref} failed"
         raise RuntimeError(msg)
-    deleted = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
-    if not deleted:
-        return []
-    restored = staged_paths(root)
-    return [p for p in deleted if p not in restored]
+    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
 
 
 def main() -> int:
