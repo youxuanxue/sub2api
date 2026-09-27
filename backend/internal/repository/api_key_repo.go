@@ -388,11 +388,13 @@ func (r *apiKeyRepository) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// DeleteWithAudit 在同一事务内:
-//  1. 把(明文 key、所有者、key 名称)写入 deleted_api_key_audits;
-//  2. 软删除该 key(tombstone 覆盖 key 列以释放唯一约束)。
+// DeleteWithAudit 软删除该 key(tombstone 覆盖 key 列以释放唯一约束)。
 //
-// 保证"被删除的 key 一定能反查到所有者"。事务模式与 group_repo.DeleteCascade 一致。
+// 名字保留了 upstream 的原样以缩小 diff,但 deleted_api_key_audits 的明文 key 写入
+// 已移除:唯一的读取方(已删除 key 归因)连同它一起删了,见
+// docs/approved/ops-error-logs-column-contract.md。继续写入等于为一个没有读取方的
+// 表长期保存明文 key。表本身在回滚窗口关闭后由后续迁移 DROP。
+// 事务模式与 group_repo.DeleteCascade 一致。
 func (r *apiKeyRepository) DeleteWithAudit(ctx context.Context, id int64) error {
 	tombstoneKey := fmt.Sprintf("__deleted__%d__%d", id, time.Now().UnixNano())
 
@@ -421,16 +423,7 @@ func (r *apiKeyRepository) DeleteWithAudit(ctx context.Context, id int64) error 
 }
 
 func (r *apiKeyRepository) deleteWithAudit(ctx context.Context, exec *dbent.Client, id int64, tombstoneKey string) error {
-	// 1. 审计:数据源即 api_keys 当前行;WHERE deleted_at IS NULL 保证只对未删除行写一次。
-	if _, err := exec.ExecContext(ctx, `
-		INSERT INTO deleted_api_key_audits (key, api_key_id, user_id, key_name, deleted_at)
-		SELECT key, id, user_id, name, NOW()
-		FROM api_keys
-		WHERE id = $1 AND deleted_at IS NULL`, id); err != nil {
-		return err
-	}
-
-	// 2. 软删除(tombstone 覆盖 key)。
+	// 软删除(tombstone 覆盖 key)。明文 key 审计写入已移除(见函数注释)。
 	res, err := exec.ExecContext(ctx, `
 		UPDATE api_keys
 		SET key = $1, deleted_at = NOW(), updated_at = NOW()

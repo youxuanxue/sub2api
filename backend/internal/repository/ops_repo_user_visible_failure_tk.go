@@ -74,7 +74,11 @@ func (r *opsRepository) GetUserVisibleFailureBreakdown(ctx context.Context, filt
 func buildUserVisibleFailureWhere(filter *service.OpsDashboardFilter, ownerScope string, startIndex int) (string, []any, int) {
 	where, args, next := buildErrorWhere(filter, filter.StartTime.UTC(), filter.EndTime.UTC(), startIndex)
 	where += " AND COALESCE(status_code, 0) >= 400"
-	where += " AND COALESCE(user_id, deleted_key_owner_user_id) IS NOT NULL"
+	// Attribution is direct only. The deleted_key_owner_user_id fallback was
+	// removed with its writer (see docs/approved/ops-error-logs-column-contract.md):
+	// prod measured 0 attributable rows, so the fallback only widened the SLA
+	// numerator's schema surface without ever adding a row to it.
+	where += " AND user_id IS NOT NULL"
 	switch strings.TrimSpace(ownerScope) {
 	case "client":
 		where += " AND COALESCE(error_owner, '') = 'client'"
@@ -97,14 +101,14 @@ func (r *opsRepository) topUserVisibleFailureUsers(ctx context.Context, filter *
   SELECT * FROM ops_error_logs ` + where + `
 )
 SELECT
-  COALESCE(l.user_id, l.deleted_key_owner_user_id, 0) AS user_id,
+  COALESCE(l.user_id, 0) AS user_id,
   COALESCE(u.email, '') AS user_email,
-  COALESCE(ak.name, l.deleted_key_name, '') AS api_key_name,
+  COALESCE(ak.name, '') AS api_key_name,
   COALESCE(ak.routing_mode, '') AS api_key_routing_mode,
   COALESCE(g.name, '') AS group_name,
   COUNT(*) AS n
 FROM base l
-LEFT JOIN users u ON u.id = COALESCE(l.user_id, l.deleted_key_owner_user_id)
+LEFT JOIN users u ON u.id = l.user_id
 LEFT JOIN api_keys ak ON ak.id = l.api_key_id AND ak.deleted_at IS NULL
 LEFT JOIN groups g ON g.id = l.group_id AND g.deleted_at IS NULL
 GROUP BY 1, 2, 3, 4, 5

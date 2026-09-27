@@ -40,3 +40,10 @@ import "embed"
 //
 //go:embed *.sql
 var FS embed.FS
+
+// RetainedOpsErrorColumnsMigration is recorded without executing its DROP SQL.
+// The file and its checksum stay immutable, but the old color keeps the schema its
+// queries were compiled against, and an image rollback stays usable. Physical
+// cleanup belongs to a later migration, after the rollback window closes.
+// Anchor: docs/approved/ops-error-logs-column-contract.md
+const RetainedOpsErrorColumnsMigration = "tk_100_ops_error_logs_drop_unwritten_columns.sql"

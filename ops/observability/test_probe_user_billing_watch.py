@@ -211,14 +211,28 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
         assert spec.loader is not None
         spec.loader.exec_module(gate)
 
-        # The deleted-key fallback this probe copies from the owner only works if the
-        # columns are actually written; that writer was lost once already.
+        # Deleted-key attribution is gone: writer, readers and this probe's fallback
+        # were removed together (docs/approved/ops-error-logs-column-contract.md).
+        # The columns are still declared through phase 1, so assert the probe never
+        # reads them again — the phase-2 DROP would otherwise turn a restored read
+        # into a runtime 42703 instead of a gate failure.
         writers = gate.writer_columns()
-        for required in ("deleted_key_owner_user_id", "deleted_key_name"):
-            self.assertIn(
-                required, writers,
-                f"{required} lost its writer — the probe's user attribution and the "
-                "SLA numerator both silently stop attributing deleted-key failures",
+        # Strip `#` comment lines: the probe explains WHY the fallback is gone, and
+        # that prose must not read as a live column reference.
+        probe_src = "\n".join(
+            line for line in SCRIPT.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        for removed in ("deleted_key_owner_user_id", "deleted_key_name", "attempted_key_prefix"):
+            self.assertNotIn(
+                removed, writers,
+                f"{removed} has a writer again — deleted-key attribution was removed "
+                "in favour of upstream's cleanup direction; re-adding the writer puts a "
+                "submitted key prefix and a user-chosen key name back into telemetry",
+            )
+            self.assertNotIn(
+                removed, probe_src,
+                f"probe reads {removed}, which has no writer and is dropped in phase 2",
             )
 
         findings = gate.scan_text(
@@ -246,7 +260,7 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
             'COALESCE(status_code, 0) >= 400',
             'COALESCE(status_code, 0) <> 499',
             'context canceled',
-            'COALESCE(user_id, deleted_key_owner_user_id)',
+            'AND user_id IS NOT NULL',
         ):
             self.assertIn(clause, owner_src, f"owner no longer defines: {clause}")
 
@@ -259,8 +273,9 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
         self.assertIn("COALESCE(e.status_code,0) <> 499", q)
         # the text form of a caller disconnect is the same event as a labelled 499
         self.assertIn("NOT LIKE '%context cancel%'", q)
-        # a failure on a since-deleted key still belongs to its owner
-        self.assertIn("COALESCE(e.user_id, e.deleted_key_owner_user_id)", q)
+        # attribution is direct user_id only, same as the owner: a row with no
+        # user_id belongs to nobody rather than being guessed from a deleted key
+        self.assertIn("e.user_id AS user_id", q)
 
     def test_account_status_is_named_as_current_not_historical(self) -> None:
         """The joined account status is the account's state right now, not its state

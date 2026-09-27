@@ -160,7 +160,7 @@ func TestGetUserErrorRequestDetail_InvalidID(t *testing.T) {
 	}
 }
 
-func TestListUserErrorRequests_EnablesMatchDeletedKeyOwner(t *testing.T) {
+func TestListUserErrorRequests_ScopesToDirectUserID(t *testing.T) {
 	stub := &stubOpsRepoForUserErr{}
 	svc := &OpsService{opsRepo: stub}
 	uid := int64(42)
@@ -168,37 +168,70 @@ func TestListUserErrorRequests_EnablesMatchDeletedKeyOwner(t *testing.T) {
 	if _, err := svc.ListUserErrorRequests(context.Background(), uid, &OpsErrorLogFilter{}); err != nil {
 		t.Fatal(err)
 	}
-	if stub.gotFilter == nil || !stub.gotFilter.MatchDeletedKeyOwner {
-		t.Fatal("ListUserErrorRequests should enable MatchDeletedKeyOwner for the user scope")
+	if stub.gotFilter == nil || stub.gotFilter.UserID == nil || *stub.gotFilter.UserID != uid {
+		t.Fatalf("user scope must pin UserID to the caller, got %+v", stub.gotFilter)
 	}
 }
 
-func TestGetUserErrorRequestDetail_DeletedKeyOwnerAccess(t *testing.T) {
-	ownerUID := int64(777)
+// 归属只认 user_id。已删除 key 归因移除后,一条 user_id=NULL 的认证失败行对任何调用者
+// 都是 NotFound——包括那个曾经靠 deleted_key_owner_user_id 能看到它的原所有者。这里同时
+// 锁住不泄露存在性:两种调用者拿到的都是 NotFound,而不是一方 403 一方 404。
+func TestGetUserErrorRequestDetail_UnattributedRowIsNotFoundForEveryone(t *testing.T) {
+	formerOwnerUID := int64(777)
 	otherUID := int64(2)
 
-	// 情况2:user_id=NULL,靠 deleted_key_owner_user_id 归因到 ownerUID
 	mk := func() *OpsErrorLogDetail {
 		return &OpsErrorLogDetail{
 			OpsErrorLog: OpsErrorLog{
-				ID:                    55,
-				Phase:                 "auth",
-				Type:                  "api_error",
-				StatusCode:            401,
-				Message:               "Invalid API key",
-				UserID:                nil,
-				APIKeyName:            "my-old-key",
-				APIKeyDeleted:         true,
-				DeletedKeyOwnerUserID: &ownerUID,
+				ID:            55,
+				Phase:         "auth",
+				Type:          "api_error",
+				StatusCode:    401,
+				Message:       "Invalid API key",
+				UserID:        nil,
+				APIKeyName:    "my-old-key",
+				APIKeyDeleted: true,
 			},
 		}
 	}
 
-	// 原所有者(经 deleted_key 归因)→ 放行
+	for _, uid := range []int64{formerOwnerUID, otherUID} {
+		svc := &OpsService{opsRepo: &stubOpsRepoForUserErr{detailToReturn: mk()}}
+		got, err := svc.GetUserErrorRequestDetail(context.Background(), uid, 55)
+		if err == nil || got != nil {
+			t.Fatalf("uid=%d: unattributed row must be (nil, NotFound), got detail=%+v err=%v", uid, got, err)
+		}
+		if !infraerrors.IsNotFound(err) {
+			t.Fatalf("uid=%d: expected NotFound, got %v", uid, err)
+		}
+	}
+}
+
+// 直接归属仍然放行,且非所有者仍然 NotFound——移除归因回退不得放宽或收紧这条主路径。
+func TestGetUserErrorRequestDetail_DirectOwnerAccess(t *testing.T) {
+	ownerUID := int64(777)
+	otherUID := int64(2)
+
+	mk := func() *OpsErrorLogDetail {
+		uid := ownerUID
+		return &OpsErrorLogDetail{
+			OpsErrorLog: OpsErrorLog{
+				ID:            55,
+				Phase:         "auth",
+				Type:          "api_error",
+				StatusCode:    401,
+				Message:       "Invalid API key",
+				UserID:        &uid,
+				APIKeyName:    "my-old-key",
+				APIKeyDeleted: true,
+			},
+		}
+	}
+
 	svcOwner := &OpsService{opsRepo: &stubOpsRepoForUserErr{detailToReturn: mk()}}
 	got, err := svcOwner.GetUserErrorRequestDetail(context.Background(), ownerUID, 55)
 	if err != nil {
-		t.Fatalf("owner via deleted_key should be allowed, got err: %v", err)
+		t.Fatalf("direct owner should be allowed, got err: %v", err)
 	}
 	if got == nil || got.ID != 55 {
 		t.Fatalf("expected detail ID=55, got %+v", got)
@@ -207,7 +240,6 @@ func TestGetUserErrorRequestDetail_DeletedKeyOwnerAccess(t *testing.T) {
 		t.Fatalf("expected KeyDeleted=true KeyName=my-old-key, got %+v", got)
 	}
 
-	// 他人 → NotFound,不泄露存在性
 	svcOther := &OpsService{opsRepo: &stubOpsRepoForUserErr{detailToReturn: mk()}}
 	got2, err2 := svcOther.GetUserErrorRequestDetail(context.Background(), otherUID, 55)
 	if err2 == nil || got2 != nil {

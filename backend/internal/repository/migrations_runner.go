@@ -376,6 +376,14 @@ func applyMigrationsSession(ctx context.Context, db migrationDB, fsys fs.FS) (re
 }
 
 func shouldRecordMigrationWithoutExecution(ctx context.Context, db migrationDB, name string) (bool, error) {
+	// high-risk-anchor: docs/approved/ops-error-logs-column-contract.md
+	// tk_100's DROP COLUMN would recurse over the live partition tree (93 ACCESS
+	// EXCLUSIVE locks) and remove columns the old color's SQL still names, breaking
+	// both the blue/green window and an image rollback. The columns have no writer,
+	// so deferring the physical drop costs nothing.
+	if name == migrations.RetainedOpsErrorColumnsMigration {
+		return true, nil
+	}
 	// Upstream 239 removes the legacy group max price while the old color still
 	// reads it. tk_099 expands both representations without a destructive window.
 	if name == supersededReasoningPricingMigration {

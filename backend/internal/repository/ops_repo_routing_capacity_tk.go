@@ -68,8 +68,10 @@ FROM ops_error_logs
 //     the metric, so rows with no attributable user_id are still counted;
 //   - per-platform users: COUNT(*) per (platform, user_id, api_key_id) over routing
 //     rows with user_id IS NOT NULL, window-ranked within each platform, with the
-//     operator-assigned api-key NAME resolved by a LEFT JOIN to api_keys (or the
-//     deleted-key snapshot for a hard-deleted key). The key SECRET is never read.
+//     operator-assigned api-key NAME resolved by a LEFT JOIN to api_keys. A
+//     hard-deleted key resolves to an empty name: the deleted_key_name snapshot
+//     fallback was removed with its writer (see
+//     docs/approved/ops-error-logs-column-contract.md). The key SECRET is never read.
 //
 // Best-effort: the caller drops the 主因 line on any error rather than blocking the
 // alert.
@@ -128,8 +130,8 @@ LIMIT $` + strconv.Itoa(nextA)
 	// Query B — top contributing users per platform (user_id IS NOT NULL),
 	// window-ranked within each platform. Bucketed by (platform, user_id, api_key_id)
 	// so a user's distinct keys surface separately (each with its own name); the
-	// api-key NAME is resolved by a LEFT JOIN to api_keys, with the deleted-key
-	// snapshot as fallback. Platforms outside Query A's top set are dropped in Go,
+	// api-key NAME is resolved by a LEFT JOIN to api_keys and is empty for a
+	// hard-deleted key. Platforms outside Query A's top set are dropped in Go,
 	// so no platform-id array param is needed.
 	whereB, argsB, nextB := buildErrorWhere(filter, filter.StartTime.UTC(), filter.EndTime.UTC(), 1)
 	qB := `SELECT platform, user_id, key_name, cnt
@@ -139,13 +141,12 @@ FROM (
   FROM (
     SELECT g.platform,
            g.user_id,
-           COALESCE(NULLIF(TRIM(ak.name), ''), NULLIF(TRIM(g.deleted_key_name), ''), '') AS key_name,
+           COALESCE(NULLIF(TRIM(ak.name), ''), '') AS key_name,
            g.cnt
     FROM (
       SELECT COALESCE(NULLIF(TRIM(platform), ''), '(unknown)') AS platform,
              user_id,
              api_key_id,
-             MAX(deleted_key_name) AS deleted_key_name,
              COUNT(*) AS cnt
       FROM ops_error_logs
       ` + whereB + `

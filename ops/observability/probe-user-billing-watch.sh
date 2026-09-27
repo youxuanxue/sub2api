@@ -197,20 +197,20 @@ echo "=== errors: user-facing failures by model/account (window) ==="
 #   - status_code <> 499 AND no "context cancel" text — the caller hanging up is the
 #     user's own cancel, not a gateway failure (docs/approved/client-closed-499-ssot.md);
 #     499 is only the labelled form, the text form is the same event.
-#   - user attribution falls back to deleted_key_owner_user_id, so a failure on a
-#     since-deleted key still lands on its owner instead of vanishing. Its writer is
-#     ops_error_logger.go's INVALID_API_KEY branch; scripts/checks/
-#     ops-error-log-column-writers.py fails preflight if that writer is lost again.
+#   - user attribution is direct (user_id) only. The deleted_key_owner_user_id fallback
+#     was removed with its writer: INVALID_API_KEY never reaches the error logger
+#     (ingress-reject early return), and prod measured 0 attributable rows over 2.2M.
+#     Mirrors the registered owner, ops_repo_user_visible_failure_tk.go.
 # Each row carries the terminal-experience basics in one place: model, serving
 # account, group/key used, and a root cause sample — so the report never has to
 # guess or cross-join by hand.
 # account_id IS NULL here means the request never reached a pool (routing phase).
 # account_status_now is the account's status RIGHT NOW, not at failure time: there is
 # no historical status to read (ops_error_logs never had a written account_status; the
-# empty column was dropped in tk_100). Do not narrate it as the cause of a past
+# empty column is dropped by tk_100, whose physical DROP is deferred). Do not narrate it as the cause of a past
 # failure — an account rate-limited or recovered since then reads differently.
 $PSQL -c "SELECT row_to_json(t) FROM (SELECT
-  COALESCE(e.user_id, e.deleted_key_owner_user_id) AS user_id,
+  e.user_id AS user_id,
   CASE WHEN ${VID_E} THEN 'video' WHEN ${IMG_E} THEN 'image' ELSE 'general' END AS surface,
   COALESCE(e.model,'') AS model,
   e.status_code, e.upstream_status_code,
@@ -221,7 +221,7 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   COALESCE(a.status,'')                    AS account_status_now,
   (a.deleted_at IS NOT NULL)               AS account_soft_deleted,
   COALESCE(g.name,'')                                     AS group_name,
-  COALESCE(ak.name, e.deleted_key_name,'')                AS api_key_name,
+  COALESCE(ak.name,'')                                    AS api_key_name,
   COALESCE(e.api_key_prefix,'')                           AS api_key_prefix,
   (COALESCE(ak.routing_mode,'direct') = 'universal')       AS is_universal_key,
   count(*) AS n,
@@ -232,13 +232,13 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   LEFT JOIN accounts a ON a.id = e.account_id -- ops-allow-soft-deleted: past failures of a deleted account still happened; account_soft_deleted surfaces the ghost (soft delete does NOT reset status).
   LEFT JOIN groups g   ON g.id = e.group_id AND g.deleted_at IS NULL
   LEFT JOIN api_keys ak ON ak.id = e.api_key_id AND ak.deleted_at IS NULL
-  WHERE COALESCE(e.user_id, e.deleted_key_owner_user_id) IN (${IDS})
+  WHERE e.user_id IN (${IDS})
     AND e.created_at >= now() - ${W}
     AND COALESCE(e.status_code,0) >= 400
     AND COALESCE(e.status_code,0) <> 499
     AND LOWER(CONCAT_WS(' ', e.error_message, e.upstream_error_message)) NOT LIKE '%context cancel%'
   GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
-  ORDER BY count(*) DESC, COALESCE(e.user_id, e.deleted_key_owner_user_id)
+  ORDER BY count(*) DESC, e.user_id
   LIMIT 40) t;" 2>&1
 
 echo

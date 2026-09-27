@@ -250,18 +250,14 @@ func TestUS042OpsErrorTelemetryExcludesNonPersistedDiagnostics(t *testing.T) {
 	mock.ExpectCommit()
 
 	sanitized := `[{"message":"[REDACTED]"}]`
-	deletedOwner := int64(42)
 	input := &service.OpsInsertErrorLogInput{
 		ErrorPhase: "upstream",
 		ErrorType:  "upstream_error",
 		UpstreamErrors: []*service.OpsUpstreamErrorEvent{{
 			Message: "Bearer raw-secret",
 		}},
-		UpstreamErrorsJSON:    &sanitized,
-		IsBusinessLimited:     true,
-		AttemptedKeyPrefix:    "sk-secret",
-		DeletedKeyOwnerUserID: &deletedOwner,
-		DeletedKeyName:        "private-key-name",
+		UpstreamErrorsJSON: &sanitized,
+		IsBusinessLimited:  true,
 	}
 
 	inserted, err := repo.BatchInsertErrorLogs(
@@ -276,13 +272,9 @@ func TestUS042OpsErrorTelemetryExcludesNonPersistedDiagnostics(t *testing.T) {
 	require.Nil(t, shadowed.UpstreamErrors)
 	require.Equal(t, sanitized, *shadowed.UpstreamErrorsJSON)
 	require.False(t, shadowed.IsBusinessLimited)
-	require.Empty(t, shadowed.AttemptedKeyPrefix)
-	require.Nil(t, shadowed.DeletedKeyOwnerUserID)
-	require.Empty(t, shadowed.DeletedKeyName)
 	payload, err := json.Marshal(shadowed)
 	require.NoError(t, err)
 	require.NotContains(t, string(payload), "raw-secret")
-	require.NotContains(t, string(payload), "private-key-name")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

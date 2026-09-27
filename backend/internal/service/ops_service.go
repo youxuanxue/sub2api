@@ -748,8 +748,6 @@ func (s *OpsService) ListUserErrorRequests(ctx context.Context, userID int64, fi
 	filter = &f
 	uid := userID
 	filter.UserID = &uid
-	// 用户侧放宽归属:纳入「删 key 后认证失败」(user_id=NULL,靠 deleted_key_owner 归因)的记录。
-	filter.MatchDeletedKeyOwner = true
 	// APIKeyID 透传：保留 handler 传入的值。安全由 buildOpsErrorLogsWhere 的
 	// "user_id = 自己 AND api_key_id = X" 双重约束保证——传入他人 key 只会得到空集，无泄露。
 	filter.View = "all"
@@ -822,21 +820,12 @@ func (s *OpsService) GetUserErrorRequestDetail(ctx context.Context, userID, id i
 		}
 		return nil, infraerrors.InternalServer("OPS_ERROR_LOAD_FAILED", "Failed to load ops error log").WithCause(err)
 	}
-	// 归属:直接归属(user_id)或经「已删除 key 归因」(deleted_key_owner_user_id)二者之一即可。
-	ownedDirectly := detail.UserID != nil && *detail.UserID == userID
-	ownedViaDeletedKey := detail.DeletedKeyOwnerUserID != nil && *detail.DeletedKeyOwnerUserID == userID
-	if !ownedDirectly && !ownedViaDeletedKey {
+	// 归属只看 user_id。已删除 key 归因连同其写入方一并移除,见
+	// docs/approved/ops-error-logs-column-contract.md。
+	if detail.UserID == nil || *detail.UserID != userID {
 		return nil, infraerrors.NotFound("OPS_ERROR_NOT_FOUND", "ops error log not found")
 	}
 	return ToUserErrorRequestDetail(detail), nil
-}
-
-// LookupDeletedKeyAudit 按明文 key 反查已删除 key 的原所有者;未命中或未启用返回 (nil, nil)。
-func (s *OpsService) LookupDeletedKeyAudit(ctx context.Context, key string) (*DeletedKeyAuditResult, error) {
-	if s.opsRepo == nil {
-		return nil, nil
-	}
-	return s.opsRepo.LookupDeletedKeyAudit(ctx, key)
 }
 
 func (s *OpsService) UpdateErrorResolution(ctx context.Context, errorID int64, resolved bool, resolvedByUserID *int64) error {
