@@ -407,6 +407,10 @@ func accountModelMappingForbiddenKeysByScope() map[string][]string {
 func accountModelMappingForbiddenPrefixesByScope() map[string][]string {
 	return map[string][]string{
 		PlatformAntigravity: {"gpt-oss-"},
+		// Google image surface converged to gemini-*-image; Vertex ch41 floors
+		// no longer list imagen-*. Forbid the prefix so leftover keys cannot
+		// survive as compatible extras and reappear in Studio entitlement pools.
+		PlatformNewAPI: {"imagen-"},
 		"account_override:" + normalizeAccountModelMappingOverrideScope(
 			PlatformNewAPI, newapiconstant.ChannelTypeAnthropic, cursor.AgentBaseURL,
 		): append([]string(nil), cursorForbiddenModelMappingPrefixes...),
