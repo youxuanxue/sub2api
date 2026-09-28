@@ -2686,6 +2686,70 @@
       "rationale": "Anchor behavior regressions for authorized fallback, native generation preservation, action admission, Worker contract parity, uninitialized copy admission and post-wait capability revalidation."
     },
     {
+      "path": "backend/internal/integration/geminiweb/estimate.go",
+      "must_contain": [
+        "EstimatedBillingTier = \"gemini-web-estimated\"",
+        "func EstimateUsage(",
+        "func EstimateInputTokens(",
+        "func EstimateOutputTokens(",
+        "tokenestimate.Count"
+      ],
+      "rationale": "Gemini Web Worker omits usageMetadata on text turns. Without the shared cl100k EstimateUsage stack and gemini-web-estimated billing_tier, flash/pro settle at $0 after wire aliases land. Losing these owners silently restores free text while image ImageCount billing still looks healthy."
+    },
+    {
+      "path": "backend/internal/service/gemini_web_usage_estimate_tk.go",
+      "must_contain": [
+        "func applyGeminiWebTextUsageEstimate(",
+        "isGeminiWebAccount(account)",
+        "result.ImageCount > 0",
+        "geminiUsageHasBillableTokens(result.Usage)",
+        "geminiweb.EstimatedBillingTier"
+      ],
+      "rationale": "Settlement adapter: only gemini-web accounts, skip ImageCount and reported usageMetadata, stamp EstimatedBillingTier. Upstream merges that drop this helper leave ForwardResult empty and text traffic free."
+    },
+    {
+      "path": "backend/internal/service/gemini_web_usage_estimate_tk_test.go",
+      "must_contain": [
+        "func TestApplyGeminiWebTextUsageEstimateFillsEmptyUsage(",
+        "func TestApplyGeminiWebTextUsageEstimateKeepsReportedUsage(",
+        "func TestApplyGeminiWebTextUsageEstimateSkipsImageBilling(",
+        "func TestApplyGeminiWebTextUsageEstimateIgnoresNonWebAccounts("
+      ],
+      "rationale": "Pin positive estimate, reported-usage precedence, image non-interference, and non-web no-op regressions for gemini-web text settlement."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "applyGeminiWebTextUsageEstimate(c, account, result, geminiReq)",
+        "applyGeminiWebTextUsageEstimate(c, account, result, body)",
+        "stashGeminiWebEstimateResponseBody(c, collectedBytes)",
+        "stashGeminiWebEstimateResponseBody(c, unwrappedBody)",
+        "stashGeminiWebEstimateResponseBody(c, respBody)",
+        "stashGeminiWebEstimateOutputText(c, seenText)"
+      ],
+      "rationale": "Messages Forward and ForwardNative must invoke applyGeminiWebTextUsageEstimate and stash response materials. Unit tests call the helper directly, so deleting these shared-upstream call sites stays green while gemini-web text returns to $0."
+    },
+    {
+      "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
+      "must_contain": [
+        "applyGeminiWebTextUsageEstimate(c, account, result, geminiReq)",
+        "stashGeminiWebEstimateResponseBody(c, collectedBytes)",
+        "stashGeminiWebEstimateResponseBody(c, respBody)",
+        "stashGeminiWebEstimateOutputText(c, seenText)"
+      ],
+      "rationale": "Chat Completions exit must keep gemini-web estimate apply + stash; otherwise Chat text over Worker bills $0 with green helper-only tests."
+    },
+    {
+      "path": "backend/internal/service/gemini_responses_compat_service.go",
+      "must_contain": [
+        "applyGeminiWebTextUsageEstimate(c, account, result, geminiReq)",
+        "stashGeminiWebEstimateResponseBody(c, collectedBytes)",
+        "stashGeminiWebEstimateResponseBody(c, respBody)",
+        "stashGeminiWebEstimateOutputText(c, seenText)"
+      ],
+      "rationale": "Responses exit must keep gemini-web estimate apply + stash; otherwise Responses text over Worker bills $0 with green helper-only tests."
+    },
+    {
       "path": "backend/internal/service/admin_account.go",
       "must_contain": [
         "credentials[\"gemini_web\"] = map[string]any{}",

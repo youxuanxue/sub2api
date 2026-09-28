@@ -1,7 +1,6 @@
 package geminiweb
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tokenestimate"
@@ -134,20 +133,4 @@ func EstimateOutputTokens(responseBody []byte) int {
 		return true
 	})
 	return tokenestimate.Count(strings.Join(parts, "\n"))
-}
-
-// CompactJSON is exported for tests that need stable serialization of tool args.
-func CompactJSON(v any) string {
-	if v == nil {
-		return ""
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return ""
-	}
-	s := string(b)
-	if s == "null" || s == "{}" || s == "[]" {
-		return ""
-	}
-	return s
 }
