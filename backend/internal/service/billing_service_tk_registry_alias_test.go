@@ -52,7 +52,7 @@ func TestGPT56PublicAliasesBillSolOwner(t *testing.T) {
 	}
 }
 
-func TestGPT6AstraPublicAliasBillsAstraOwner(t *testing.T) {
+func TestGPT6PublicAliasBillsAstraOwner(t *testing.T) {
 	resetPricingRegistrySnapshot(t)
 	pricingService := NewPricingService(&config.Config{}, nil)
 	billing := NewBillingService(&config.Config{}, pricingService)
@@ -74,10 +74,13 @@ func TestGPT6AstraPublicAliasBillsAstraOwner(t *testing.T) {
 		"declared public alias must not raise served_at_fallback")
 
 	require.Equal(t, "gpt-6-astra", normalizeOpenAIBillingModel("gpt-6"))
+	require.Equal(t, "gpt-6-sol", normalizeOpenAIBillingModel("gpt-6-sol"))
 	require.Equal(t, "gpt-6-astra", normalizeOpenAIBillingModel("gpt-6-astra"))
 	require.Equal(t, "gpt-6-astra", CanonicalizeOpenAICompatRoutingModel("gpt-6"))
+	require.Equal(t, "gpt-6-sol", CanonicalizeOpenAICompatRoutingModel("gpt-6-sol"))
 	require.Equal(t, "gpt-6-astra", CanonicalizeOpenAICompatRoutingModel("gpt-6-astra"))
 	require.True(t, isOpenAIGPT6AstraModel("gpt-6-astra-20260901"))
+	require.True(t, isOpenAIGPT6AstraModel("gpt-6"))
 	require.False(t, isOpenAIGPT6AstraModel("gpt-6-other"))
 }
 

@@ -68,8 +68,10 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	"gpt-5.6-luna":  {},
 	"gpt-5.6-sol":   {},
 	"gpt-5.6-terra": {},
-	"gpt-6":         {},
-	"gpt-6-astra":   {},
+	// Bare gpt-6 is a public floor/billing alias → gpt-6-astra (not a catalog row).
+	"gpt-6-astra": {},
+	"gpt-6-luna":  {},
+	"gpt-6-sol":   {},
 	// GPT Image 2.5: edge OpenAI OAuth Codex image_generation verified
 	// servable_image_generated 2026-09-17 (us4 gpt-34) for flare + sunburst.
 	"gpt-image-2.5-flare":    {},

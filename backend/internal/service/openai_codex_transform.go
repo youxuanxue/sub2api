@@ -17,7 +17,7 @@ var codexModelMap = map[string]string{
 	"gpt-5.6-terra":       "gpt-5.6-terra",
 	"gpt-5.6-luna":        "gpt-5.6-luna",
 	"gpt-5.6-chat-latest": "gpt-5.6-sol",
-	// GPT-6 public alias and Astra wire id (Codex entitlement, 2026-09 probe).
+	// GPT-6 public alias → Astra; Sol/Luna remain explicit wire ids.
 	"gpt-6":             "gpt-6-astra",
 	"gpt-6-astra":       "gpt-6-astra",
 	"gpt-5.5":           "gpt-5.5",
@@ -92,7 +92,7 @@ var codexVersionModelPrefixes = []struct {
 	{prefix: "gpt-5.6-luna", target: "gpt-5.6-luna"},
 	{prefix: "gpt-5.6-chat-latest", target: "gpt-5.6-sol"},
 	{prefix: "gpt-5.6", target: "gpt-5.6-sol"},
-	// Longer Astra prefix before bare gpt-6.
+	// Longer Sol/Luna/Astra prefixes before bare gpt-6 → Astra.
 	{prefix: "gpt-6-astra", target: "gpt-6-astra"},
 	{prefix: "gpt-6", target: "gpt-6-astra"},
 	{prefix: "gpt-5.3-codex-spark", target: "gpt-5.3-codex-spark"},
