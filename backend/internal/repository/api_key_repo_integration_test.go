@@ -4,6 +4,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"sync"
 	"testing"
 	"time"
@@ -573,8 +574,8 @@ func (s *APIKeyRepoSuite) TestDeleteWithAudit_SoftDeletesWithoutPlaintextAudit()
 	_, err := s.repo.GetByID(s.ctx, key.ID)
 	s.Require().Error(err)
 
-	scanOne := func(query string, dest any) {
-		rows, qErr := s.client.QueryContext(s.ctx, query, key.ID)
+	scanOne := func(query string, dest any, args ...any) {
+		rows, qErr := s.client.QueryContext(s.ctx, query, args...)
 		s.Require().NoError(qErr)
 		defer func() { _ = rows.Close() }()
 		s.Require().True(rows.Next(), "expected one row: %s", query)
@@ -583,14 +584,14 @@ func (s *APIKeyRepoSuite) TestDeleteWithAudit_SoftDeletesWithoutPlaintextAudit()
 
 	// key 列被 tombstone 覆盖,唯一约束释放,明文 key 不再留在行里。
 	var storedKey string
-	scanOne(`SELECT key FROM api_keys WHERE id = $1`, &storedKey)
+	scanOne(`SELECT key FROM api_keys WHERE id = $1`, &storedKey, key.ID)
 	s.Require().NotEqual("sk-del-audit-1", storedKey)
 	s.Require().Contains(storedKey, "__deleted__")
 
-	// 审计表不再有写入方:删除后不应出现明文 key 行。
-	var auditCount int
-	scanOne(`SELECT COUNT(*) FROM deleted_api_key_audits WHERE api_key_id = $1`, &auditCount)
-	s.Require().Zero(auditCount, "deleted_api_key_audits 不应再有写入方")
+	// tk_101 removes the obsolete plaintext audit table entirely.
+	var auditTable sql.NullString
+	scanOne(`SELECT to_regclass('public.deleted_api_key_audits')`, &auditTable)
+	s.Require().False(auditTable.Valid, "deleted_api_key_audits should be removed by tk_101")
 }
 
 func (s *APIKeyRepoSuite) TestDeleteWithAudit_RepeatIsIdempotent() {
