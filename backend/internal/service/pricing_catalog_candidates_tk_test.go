@@ -38,10 +38,13 @@ func TestServableClientFacingIDs_InvariantAndAdvertisedDead(t *testing.T) {
 	allowSet := boolSetForTest(allow)
 	// Boundary samples: priced OpenAI media rows that must remain hidden from
 	// the chat/model-list allowlist unless the SSOT owner promotes them.
-	dead := []string{"gpt-image-1", "gpt-image-1.5", "gpt-image-2"}
+	// gpt-image-2 (+ 2.5 flare/sunburst) are intentionally allowlisted for
+	// floor identity / public Images SKUs; legacy gpt-image-1* stay dead.
+	dead := []string{"gpt-image-1", "gpt-image-1.5"}
 	for _, d := range dead {
 		require.False(t, allowSet[d], "precondition: %s must be advertised_dead (priced but NOT in allowlist)", d)
 	}
+	require.True(t, allowSet["gpt-image-2"], "precondition: gpt-image-2 is the promoted Images floor identity")
 	anyAllowID := firstStringForTest(t, allow)
 	require.True(t, allowSet[anyAllowID], "precondition: sampled OpenAI SSOT id must be allowlisted")
 	require.True(t, allowSet["codex-auto-review"], "codex-auto-review is empirically servable and allowlisted")
@@ -62,6 +65,7 @@ func TestServableClientFacingIDs_InvariantAndAdvertisedDead(t *testing.T) {
 		require.False(t, gotSet[d], "advertised_dead %s must not reach the /v1/models fallback", d)
 	}
 	require.True(t, gotSet["codex-auto-review"], "codex-auto-review must be visible when priced and allowlisted")
+	require.True(t, gotSet["gpt-image-2"], "promoted Images floor identity must be visible when priced and allowlisted")
 }
 
 // TestServableClientFacingIDs_DropsVisibleButUnpriced pins the other half of the

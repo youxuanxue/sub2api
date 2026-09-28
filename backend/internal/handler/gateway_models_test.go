@@ -1123,7 +1123,9 @@ func TestGatewayModels_CustomModelsListFiltersDefaultFallbackModels(t *testing.T
 
 	groupID := int64(25)
 	openAIModels := firstNSSOTIDsForGatewayModelsTest(t, service.PlatformOpenAI, 3)
-	requestedModels := append(append([]string{}, openAIModels...), "codex-auto-review", "gpt-image-2", "legacy-gpt-2024", "gpt-not-a-real-id-zzz")
+	// gpt-image-1 stays advertised_dead; gpt-image-2 is allowlisted and would
+	// survive if listed — use the dead legacy id as the junk sample.
+	requestedModels := append(append([]string{}, openAIModels...), "codex-auto-review", "gpt-image-1", "legacy-gpt-2024", "gpt-not-a-real-id-zzz")
 	h := newGatewayModelsHandlerForTest(
 		&gatewayModelsAccountRepoStub{
 			byGroup: map[int64][]service.Account{
@@ -1160,7 +1162,7 @@ func TestGatewayModels_CustomModelsListFiltersDefaultFallbackModels(t *testing.T
 	expected := filterModelsByCustomList(nil, fallback, requestedModels)
 	require.Equal(t, expected, modelIDsForTest(got.Data))
 	require.Contains(t, expected, "codex-auto-review", "explicitly listed servable id must survive custom-list filtering")
-	for _, junk := range []string{"gpt-image-2", "legacy-gpt-2024", "gpt-not-a-real-id-zzz"} {
+	for _, junk := range []string{"gpt-image-1", "legacy-gpt-2024", "gpt-not-a-real-id-zzz"} {
 		require.NotContains(t, expected, junk)
 	}
 }
