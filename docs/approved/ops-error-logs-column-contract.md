@@ -130,6 +130,10 @@ tk_101 补上。
 `schema_migrations` + catalog。默认参数覆盖 tk_100/tk_101;换 `MIGRATION_FILENAMES` /
 `DROPPED_COLUMNS` / `PARENT_TABLE` 可复用于同类 finalize。
 
+**删列后的 VACUUM**:`ops/observability/vacuum-ops-error-logs.sh`(`EXECUTE_VACUUM=1`)
+跑 `VACUUM (ANALYZE) ops_error_logs`。刷新统计、清普通死元组;不强制重写表(缩盘要
+`VACUUM FULL` / `pg_repack`,另排窗口)。2026-09-28 已在 prod + us3/us4/us5/us6 执行完毕。
+
 文件声明删除的六列:
 
 | 列 | 声明来源 | 等价的、有写入方的替代 |
