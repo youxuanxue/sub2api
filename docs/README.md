@@ -25,5 +25,9 @@ add new root-level design notes unless no existing bucket fits.
   until code, sentinel, and migration references are updated.
 - Point-in-time vendor captures belong under `docs/evidence/`, not under
   account/operator docs.
+- Whether a `spec-delta` is still load-bearing is answered by
+  `scripts/checks/spec-delta-liveness.py`, not by grepping for its filename. An
+  Owners table or a sentinel rationale is what keeps one alive, and neither shows
+  up in a filename search.
 - Public customer docs live under `docs/public/` only. Internal docs must never
   be synced to Pages.

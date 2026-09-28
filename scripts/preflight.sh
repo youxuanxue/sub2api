@@ -693,6 +693,24 @@ fi
 echo ""
 
 fi # preflight gate
+if _preflight_selected 'spec-delta liveness'; then
+echo "=== sub2api: spec-delta liveness ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by spec-delta liveness check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/spec-delta-liveness.py --selftest >/dev/null; then
+    echo "  FAIL: spec-delta liveness checker self-tests"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/spec-delta-liveness.py --quiet; then
+    echo "  FAIL: a spec-delta Owners table registers an owner path that does not exist"
+    errors=$((errors + 1))
+else
+    echo "  ok: every spec-delta Owners path resolves"
+fi
+
+echo ""
+
+fi # preflight gate
 if _preflight_selected 'merge conflict markers'; then
 echo "=== sub2api: merge conflict markers ==="
 if ! command -v python3 >/dev/null 2>&1; then

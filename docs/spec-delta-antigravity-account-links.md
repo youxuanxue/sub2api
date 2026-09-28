@@ -21,7 +21,7 @@ Google 403 的验证链接已由网关写进账号临时冷却原因，旧版本
 | 从账号错误提取链接、校验 Google 目标 | `frontend/src/utils/antigravityRecovery.ts` | 共享状态组件、验证链接组件 |
 | 验证链接打开与复制 | `frontend/src/components/account/GoogleVerificationLink.vue` | `AccountStatusIndicator`、`AntigravityUsageCell`（普通与 Edge 账号页面复用） |
 | OAuth 生成、过期、关闭后响应隔离 | `frontend/src/composables/useAntigravityOAuth.ts` | 创建与重新授权弹窗 |
-| state / PKCE / session 有效期 | `backend/internal/service/antigravity_oauth_service.go` + `internal/pkg/antigravity/oauth.go` | 现有 OAuth API |
+| state / PKCE / session 有效期 | `backend/internal/service/antigravity_oauth_service.go` + `backend/internal/pkg/antigravity/oauth.go` | 现有 OAuth API |
 
 展示与行为 owner 注册在 `scripts/sentinels/frontend-tk.json`。
 
