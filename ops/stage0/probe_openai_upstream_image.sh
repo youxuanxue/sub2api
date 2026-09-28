@@ -164,6 +164,33 @@ image_data = None
 revised_prompt = ""
 error_msg = ""
 raw_lines = []
+call_meta = {}
+tool_meta = {}
+usage = {}
+tool_usage = {}
+
+def absorb_call_meta(src):
+    if not isinstance(src, dict):
+        return
+    for key in (
+        "size",
+        "quality",
+        "output_format",
+        "background",
+        "model",
+        "action",
+        "status",
+        "revised_prompt",
+    ):
+        val = src.get(key)
+        if val is not None and val != "":
+            call_meta[key] = val
+    if src.get("result"):
+        global image_data
+        image_data = src.get("result")
+    if src.get("revised_prompt"):
+        global revised_prompt
+        revised_prompt = src.get("revised_prompt")
 
 try:
     with open(body_file, "r", encoding="utf-8", errors="replace") as f:
@@ -182,14 +209,22 @@ try:
                     # Check for image_generation_call in output_item
                     item = obj.get("item", {})
                     if item.get("type") == "image_generation_call":
-                        image_data = item.get("result")
-                        revised_prompt = item.get("revised_prompt", "")
+                        absorb_call_meta(item)
                     # Also check output list in completed event
                     resp = obj.get("response", {})
+                    if resp.get("usage"):
+                        usage = resp.get("usage") or usage
+                    if resp.get("tool_usage"):
+                        tool_usage = resp.get("tool_usage") or tool_usage
+                    for tool in resp.get("tools") or []:
+                        if isinstance(tool, dict) and tool.get("type") == "image_generation":
+                            for key in ("size", "quality", "output_format", "background", "model"):
+                                val = tool.get(key)
+                                if val is not None and val != "":
+                                    tool_meta[key] = val
                     for out in resp.get("output", []):
-                        if out.get("type") == "image_generation_call" and out.get("result"):
-                            image_data = out.get("result")
-                            revised_prompt = out.get("revised_prompt", "")
+                        if out.get("type") == "image_generation_call":
+                            absorb_call_meta(out)
                 except Exception:
                     pass
 except Exception as e:
@@ -245,8 +280,14 @@ result = {
         "is_valid_png": image_valid_png,
         "size_bytes": image_bytes_len,
         "dimensions": f"{img_w}x{img_h}" if image_valid_png else "",
+        "width": img_w if image_valid_png else 0,
+        "height": img_h if image_valid_png else 0,
         "sha256": image_sha256,
         "revised_prompt": revised_prompt,
+        "call_meta": call_meta,
+        "tool_meta": tool_meta,
+        "usage": usage,
+        "tool_usage": tool_usage,
     },
     "events_streamed": events[:15],
 }
