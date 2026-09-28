@@ -94,9 +94,12 @@ func geminiCompatGenerationOptions(req map[string]any) (map[string]any, error) {
 	return config, nil
 }
 
-// geminiCompatExtraBodyAspectRatio reads the OpenAI Studio image-config spelling.
-// Unknown extra_body keys are rejected so they cannot silently drop through the
-// typed CC→Anthropic→Gemini bridge the way an unmodeled field would.
+// geminiCompatExtraBodyAspectRatio reads the OpenAI Studio image-config spelling
+// the same way Antigravity's tkInject does: only the known path is lifted.
+// Unrelated extra_body keys stay ignored so non-Web Gemini clients that stuff
+// SDK baggage into extra_body keep working. Web admission remains strict via
+// geminiWebNormalizeChatExtraBody. Error only when aspect_ratio is present but
+// not a string — that is a client type error, not an unknown-key policy.
 func geminiCompatExtraBodyAspectRatio(req map[string]any) (string, bool, error) {
 	raw, exists := req["extra_body"]
 	if !exists {
@@ -104,32 +107,21 @@ func geminiCompatExtraBodyAspectRatio(req map[string]any) (string, bool, error) 
 	}
 	extra, ok := raw.(map[string]any)
 	if !ok {
-		return "", false, fmt.Errorf("extra_body must be an object")
+		return "", false, nil
 	}
-	for key := range extra {
-		if key != "google" {
-			return "", false, fmt.Errorf("unsupported extra_body field %q", key)
-		}
+	google, _ := extra["google"].(map[string]any)
+	if google == nil {
+		return "", false, nil
 	}
-	google, ok := extra["google"].(map[string]any)
-	if !ok {
-		return "", false, fmt.Errorf("extra_body.google must be an object")
+	imageConfig, _ := google["image_config"].(map[string]any)
+	if imageConfig == nil {
+		return "", false, nil
 	}
-	for key := range google {
-		if key != "image_config" {
-			return "", false, fmt.Errorf("unsupported extra_body.google field %q", key)
-		}
+	ratioRaw, exists := imageConfig["aspect_ratio"]
+	if !exists {
+		return "", false, nil
 	}
-	imageConfig, ok := google["image_config"].(map[string]any)
-	if !ok {
-		return "", false, fmt.Errorf("extra_body.google.image_config must be an object")
-	}
-	for key := range imageConfig {
-		if key != "aspect_ratio" {
-			return "", false, fmt.Errorf("unsupported extra_body.google.image_config field %q", key)
-		}
-	}
-	ratio, ok := imageConfig["aspect_ratio"].(string)
+	ratio, ok := ratioRaw.(string)
 	if !ok {
 		return "", false, fmt.Errorf("extra_body.google.image_config.aspect_ratio must be a string")
 	}
