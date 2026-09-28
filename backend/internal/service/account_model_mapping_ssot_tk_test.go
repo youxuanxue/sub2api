@@ -394,7 +394,9 @@ func requireOpenAIImageCompatibilityAliases(t *testing.T, mapping map[string]str
 		require.Equal(t, to, mapping[from], "OpenAI image alias %s must map to %s", from, to)
 	}
 	require.Equal(t, "gpt-image-2", mapping["gpt-image-2"])
-	// plus/pro/vip are identity floor rows — OAuth serves the requested name.
+	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5-flare"])
+	require.Equal(t, "gpt-image-2.5-sunburst", mapping["gpt-image-2.5-sunburst"])
+	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5"])
 	for _, id := range []string{
 		"gpt-image-2-plus",
 		"gpt-image-2-pro",
@@ -403,9 +405,9 @@ func requireOpenAIImageCompatibilityAliases(t *testing.T, mapping map[string]str
 		"gpt-image-2.5-flare-vip",
 		"gpt-image-2.5-sunburst-vip",
 	} {
-		require.Equal(t, id, mapping[id], "OpenAI image SKU %s must stay identity", id)
+		_, ok := mapping[id]
+		require.False(t, ok, "marketing SKU %s must not be on the OpenAI floor", id)
 	}
-	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5"])
 	_, hasImage25 := mapping["image-2.5"]
 	require.False(t, hasImage25, "image-2.5 is not a client-facing images alias")
 }
@@ -439,8 +441,6 @@ func requireTokenseaImageCompatibilityAliases(t *testing.T, mapping map[string]s
 	require.Equal(t, "gemini-3.1-flash-image", mapping["nano-2"])
 	require.Equal(t, "gemini-3-pro-image", mapping["nano-pro"])
 	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5"])
-	// plus/pro/vip stay identity when CatalogPolicy keeps them on the floor;
-	// unpriced marketing SKUs may be filtered from the public Tokensea projection.
 	for _, id := range []string{
 		"gpt-image-2-plus",
 		"gpt-image-2-pro",
@@ -449,9 +449,8 @@ func requireTokenseaImageCompatibilityAliases(t *testing.T, mapping map[string]s
 		"gpt-image-2.5-flare-vip",
 		"gpt-image-2.5-sunburst-vip",
 	} {
-		if got, ok := mapping[id]; ok {
-			require.Equal(t, id, got, "Tokensea image SKU %s must stay identity when present", id)
-		}
+		_, ok := mapping[id]
+		require.False(t, ok, "marketing SKU %s must not be on the Tokensea floor", id)
 	}
 	_, hasImage25 := mapping["image-2.5"]
 	require.False(t, hasImage25, "image-2.5 is not a client-facing images alias")

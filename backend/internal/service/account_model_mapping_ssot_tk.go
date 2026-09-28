@@ -495,9 +495,9 @@ func openAICanonicalAccountModelMappingFloor(ctx context.Context, pricing *Prici
 	return out
 }
 
-// Marketing / shorthand aliases for GPT Image. plus/pro/vip SKUs are identity
-// floor rows (OAuth serves them under their own names). Only bare gpt-image-2.5
-// folds onto flare; clients must not use image-2.5 (ingress is gpt-image-* only).
+// Marketing / shorthand aliases for GPT Image 2.5. Canonical Studio ids are
+// flare/sunburst; clients should request gpt-image-2.5 (not image-2.5 — the
+// /v1/images ingress only accepts gpt-image-* names).
 var tkOpenAIImageCompatibilityAliases = map[string]string{
 	"gpt-image-2.5": "gpt-image-2.5-flare",
 }

@@ -80,14 +80,6 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	// servable_image_generated 2026-09-17 (us4 gpt-34) for flare + sunburst.
 	"gpt-image-2.5-flare":    {},
 	"gpt-image-2.5-sunburst": {},
-	// Marketing SKUs edge OAuth serves under their own wire names (2026-09-28
-	// us3 #19). Keep identity in the floor; do not fold onto flare/sunburst.
-	"gpt-image-2-plus":           {},
-	"gpt-image-2-pro":            {},
-	"gpt-image-2-vip":            {},
-	"gpt-image-2.5-vip":          {},
-	"gpt-image-2.5-flare-vip":    {},
-	"gpt-image-2.5-sunburst-vip": {},
 	// servable-allowlist:end openai
 }
 
@@ -137,14 +129,8 @@ var supportedOpenAITokenseaRelayCatalogModels = map[string]struct{}{
 	"gpt-5.6-sol":                    {},
 	"gpt-5.6-terra":                  {},
 	"gpt-image-2":                    {},
-	"gpt-image-2-plus":               {},
-	"gpt-image-2-pro":                {},
-	"gpt-image-2-vip":                {},
 	"gpt-image-2.5-flare":            {},
 	"gpt-image-2.5-sunburst":         {},
-	"gpt-image-2.5-vip":              {},
-	"gpt-image-2.5-flare-vip":        {},
-	"gpt-image-2.5-sunburst-vip":     {},
 	"kimi-k2.5":                      {},
 	"kimi-k2.6":                      {},
 	"kimi-k2.7-code":                 {},

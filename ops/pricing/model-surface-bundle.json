@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "c3bc9399b16987a138fcad9088a81d95e2ec4fc400f6aeb69c419621408033e3",
+  "floor_sha256": "2e339ccff369d2517834e73fbe4e8b5238f7c9ecd7ae71a203e1638ef02fb851",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -213,15 +213,9 @@
         "gpt-6-luna": "gpt-6-luna",
         "gpt-6-sol": "gpt-6-sol",
         "gpt-image-2": "gpt-image-2",
-        "gpt-image-2-plus": "gpt-image-2-plus",
-        "gpt-image-2-pro": "gpt-image-2-pro",
-        "gpt-image-2-vip": "gpt-image-2-vip",
         "gpt-image-2.5": "gpt-image-2.5-flare",
         "gpt-image-2.5-flare": "gpt-image-2.5-flare",
-        "gpt-image-2.5-flare-vip": "gpt-image-2.5-flare-vip",
-        "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst",
-        "gpt-image-2.5-sunburst-vip": "gpt-image-2.5-sunburst-vip",
-        "gpt-image-2.5-vip": "gpt-image-2.5-vip"
+        "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst"
       },
       "openai_ainzy_relay": {
         "gpt-5.5": "gpt-5.5",
@@ -593,12 +587,6 @@
         "glm-5.1",
         "glm-5.2",
         "gpt-4o-2024-05-13",
-        "gpt-image-2-plus",
-        "gpt-image-2-pro",
-        "gpt-image-2-vip",
-        "gpt-image-2.5-flare-vip",
-        "gpt-image-2.5-sunburst-vip",
-        "gpt-image-2.5-vip",
         "kimi-k2.5",
         "kimi-k2.6",
         "kimi-k2.7-code",
