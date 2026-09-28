@@ -50,10 +50,10 @@ CONSTRAINT_CHECK = re.compile(
 SQL_LITERAL = re.compile(r"'((?:''|[^'])*)'")
 
 
-def git(*args: str) -> subprocess.CompletedProcess[str]:
+def git(*args: str, root: Path | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", *args],
-        cwd=ROOT,
+        cwd=root or ROOT,
         text=True,
         capture_output=True,
         check=False,
@@ -82,8 +82,44 @@ def resolve_range(
     return None, None
 
 
-def changed_migrations(base: str, head: str) -> list[Path]:
-    res = git("diff", "--name-status", f"{base}..{head}", "--", "backend/migrations")
+def changed_migrations(
+    base: str,
+    head: str,
+    *,
+    root: Path | None = None,
+) -> list[Path]:
+    """Migrations added/changed between base and the commit being built.
+
+    When head is HEAD, diff the **index** against base (`git diff --cached`).
+    Pre-commit stages a brand-new migration before this gate runs; the old
+    commit-to-commit range (`base..HEAD`) could not see it, so the gate
+    reported `0 changed` and passed — including when the ack comment was
+    deliberately removed. Same defect class as upstream-deletion-ledger (#2354).
+
+    Release-tag / explicit non-HEAD heads keep `base..head` (deploy checkouts
+    compare two tags; the index is not the object under review).
+    Where the index matches HEAD (CI, clean tree, post-commit) both diffs agree.
+    """
+    repo = root or ROOT
+    if head == "HEAD":
+        res = git(
+            "diff",
+            "--name-status",
+            "--cached",
+            base,
+            "--",
+            "backend/migrations",
+            root=repo,
+        )
+    else:
+        res = git(
+            "diff",
+            "--name-status",
+            f"{base}..{head}",
+            "--",
+            "backend/migrations",
+            root=repo,
+        )
     if res.returncode != 0:
         raise RuntimeError(res.stderr.strip() or "git diff failed")
     out: list[Path] = []
@@ -96,7 +132,7 @@ def changed_migrations(base: str, head: str) -> list[Path]:
             continue
         path = parts[-1]
         if path.endswith(".sql"):
-            out.append(ROOT / path)
+            out.append(repo / path)
     return sorted(set(out))
 
 
