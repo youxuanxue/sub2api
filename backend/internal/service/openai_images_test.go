@@ -97,9 +97,13 @@ func TestOpenAIImagesContractExact(t *testing.T) {
 			wantErr: "quality must be auto, low, medium, high, xhigh, or max",
 		},
 		{
+			name: "exact accepts png and jpeg output formats",
+			body: `{"model":"gpt-image-2","prompt":"draw","output_format":"jpeg","tk_image_contract":"exact"}`,
+		},
+		{
 			name:    "exact rejects format normalized by upstream",
 			body:    `{"model":"gpt-image-2","prompt":"draw","output_format":"webp","tk_image_contract":"exact"}`,
-			wantErr: "output_format must be png or auto",
+			wantErr: "output_format must be png, jpeg, or auto",
 		},
 		{
 			name:    "exact rejects transparent background normalized by upstream",

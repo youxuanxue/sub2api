@@ -140,7 +140,7 @@ func ValidateOpenAIImagesContract(req *OpenAIImagesRequest) error {
 		return fmt.Errorf("tk_image_contract_violation: quality must be auto, low, medium, high, xhigh, or max")
 	}
 	if req.ExplicitOutputFormat && !openAIImagesExactOutputFormatSupported(req.OutputFormat) {
-		return fmt.Errorf("tk_image_contract_violation: output_format must be png or auto; other formats are normalized by the upstream")
+		return fmt.Errorf("tk_image_contract_violation: output_format must be png, jpeg, or auto; other formats are normalized by the upstream")
 	}
 	if req.ExplicitBackground {
 		switch strings.ToLower(strings.TrimSpace(req.Background)) {
@@ -190,7 +190,7 @@ func openAIImagesExactQualitySupported(value string) bool {
 
 func openAIImagesExactOutputFormatSupported(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "png", "auto":
+	case "png", "jpeg", "auto":
 		return true
 	default:
 		return false

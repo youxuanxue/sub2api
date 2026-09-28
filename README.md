@@ -741,7 +741,7 @@ OpenAI image requests keep the historical passthrough behavior by default. Clien
 that require returned image parameters to match the observed upstream behavior can
 add `"tk_image_contract":"exact"`. In this mode, only values with response
 evidence are admitted (`size=auto|1254x1254`,
-`quality=auto|low|medium|high|xhigh|max`, `output_format=png|auto`, and
+`quality=auto|low|medium|high|xhigh|max`, `output_format=png|jpeg|auto`, and
 `background=auto|opaque`); unsupported dimensions, formats, and option values,
 transparent background, compression, and native fields without response metadata
 return `400` before upstream. The TokenKey-only field is stripped before
