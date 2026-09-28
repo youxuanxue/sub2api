@@ -125,6 +125,15 @@ tk_101 补上。
 `ops_repo_routing_capacity_tk.go` 仍在 SQL 里点名归因三列。这是明确接受的取舍,前提是
 1.8.261 两阶段 post-check 双 green。迁移由各库自己的启动 runner 驱动,五个库无需手工逐库操作。
 
+**库内核对**(门禁只读 DDL,读不到五个独立 Postgres):用
+`ops/observability/probe-migration-applied-verify.sh` 经 `run-probe.sh` 逐 host 查
+`schema_migrations` + catalog。默认参数覆盖 tk_100/tk_101;换 `MIGRATION_FILENAMES` /
+`DROPPED_COLUMNS` / `PARENT_TABLE` 可复用于同类 finalize。
+
+**删列后的 VACUUM**:`ops/observability/vacuum-ops-error-logs.sh`(`EXECUTE_VACUUM=1`)
+跑 `VACUUM (ANALYZE) ops_error_logs`。刷新统计、清普通死元组;不强制重写表(缩盘要
+`VACUUM FULL` / `pg_repack`,另排窗口)。2026-09-28 已在 prod + us3/us4/us5/us6 执行完毕。
+
 文件声明删除的六列:
 
 | 列 | 声明来源 | 等价的、有写入方的替代 |

@@ -4,27 +4,7 @@ Gaps a gate has *detected* but that are not fixed yet, plus interception a gate 
 currently express. One entry per gap. Close the entry in the PR that fixes the
 underlying problem — this file is not a changelog.
 
-## `bluegreen-migration-safety.py` cannot see a migration until it is committed
-
-`changed_migrations()` diffs `base..head` — commit to commit. A migration that is only
-staged, including every brand-new one, is absent from that diff, so the gate reports
-`0 changed SQL migration(s) are blue/green-safe` and passes. Verified against
-`tk_101_ops_error_logs_finalize_unwritten_columns.sql`: with the file staged *and* its
-`bluegreen-safe-destructive-ok` acknowledgement deleted, the gate still exited 0.
-
-This is the same defect class as the upstream-deletion ledger fixed in #2354 (that one
-reported deletions one commit late for the same reason). The pattern-matching half is
-sound — `scan_file()` correctly flags `DROP TABLE` / `DROP COLUMN` and correctly honours
-the acknowledgement — so the fix is the range, not the scanner.
-
-**Interception this leaves open:** the pre-commit run of this gate is decorative for a
-new migration. It does judge the file on the *next* commit, and CI's release-range
-invocation (`--release-tag`) sees it, so a destructive migration cannot reach prod
-unexamined — it just is not examined at the moment it is written, which is when the
-author is still there to fix it. Until this is fixed, verify a new destructive migration
-by calling `scan_file()` on it directly.
-
-## `cleanup-ingress-reject-logs` has no delivery path
+## `cleanup-ingress-reject-logs` — decided: drop on next upstream merge
 
 `backend/cmd/cleanup-ingress-reject-logs` is upstream's row-pruning tool for historical
 ingress-reject rows. It is absent from `.goreleaser.*.yaml` and from the released image
@@ -32,8 +12,11 @@ ingress-reject rows. It is absent from `.goreleaser.*.yaml` and from the release
 prod without building it ad hoc. It prunes rows, not columns, so it never blocked the
 tk_101 column drop — but the pruning it was meant to do has never been possible in TK.
 
-**Decide before relying on it:** either add it to goreleaser/the image, or drop it on the
-next upstream merge and let the 30-day expiry handle those rows.
+**Decision (2026-09-28):** do **not** add a TK delivery path. On the next
+`merge/upstream-*`, delete the cmd (and any companion upstream finalizer scripts that
+only exist to feed it) under CLAUDE.md §5.x with a `docs/DEPRECATIONS.md` ledger entry.
+Until then leave the tree as-is; `ops_error_logs` 30-day expiry already covers the rows
+this tool would have pruned. Do not schedule ad-hoc `go run` cleanups against prod.
 
 ## Known limits of the column-writer gate
 
