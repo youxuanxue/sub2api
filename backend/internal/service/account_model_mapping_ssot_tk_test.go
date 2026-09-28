@@ -393,13 +393,18 @@ func requireOpenAIImageCompatibilityAliases(t *testing.T, mapping map[string]str
 		}
 		require.Equal(t, to, mapping[from], "OpenAI image alias %s must map to %s", from, to)
 	}
-	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2-plus"])
-	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2-pro"])
-	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2-vip"])
+	// plus/pro/vip are identity floor rows — OAuth serves the requested name.
+	for _, id := range []string{
+		"gpt-image-2-plus",
+		"gpt-image-2-pro",
+		"gpt-image-2-vip",
+		"gpt-image-2.5-vip",
+		"gpt-image-2.5-flare-vip",
+		"gpt-image-2.5-sunburst-vip",
+	} {
+		require.Equal(t, id, mapping[id], "OpenAI image SKU %s must stay identity", id)
+	}
 	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5"])
-	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5-vip"])
-	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5-flare-vip"])
-	require.Equal(t, "gpt-image-2.5-sunburst", mapping["gpt-image-2.5-sunburst-vip"])
 	_, hasImage25 := mapping["image-2.5"]
 	require.False(t, hasImage25, "image-2.5 is not a client-facing images alias")
 }
@@ -432,13 +437,21 @@ func requireTokenseaImageCompatibilityAliases(t *testing.T, mapping map[string]s
 	}
 	require.Equal(t, "gemini-3.1-flash-image", mapping["nano-2"])
 	require.Equal(t, "gemini-3-pro-image", mapping["nano-pro"])
-	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2-plus"])
-	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2-pro"])
-	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2-vip"])
 	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5"])
-	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5-vip"])
-	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5-flare-vip"])
-	require.Equal(t, "gpt-image-2.5-sunburst", mapping["gpt-image-2.5-sunburst-vip"])
+	// plus/pro/vip stay identity when CatalogPolicy keeps them on the floor;
+	// unpriced marketing SKUs may be filtered from the public Tokensea projection.
+	for _, id := range []string{
+		"gpt-image-2-plus",
+		"gpt-image-2-pro",
+		"gpt-image-2-vip",
+		"gpt-image-2.5-vip",
+		"gpt-image-2.5-flare-vip",
+		"gpt-image-2.5-sunburst-vip",
+	} {
+		if got, ok := mapping[id]; ok {
+			require.Equal(t, id, got, "Tokensea image SKU %s must stay identity when present", id)
+		}
+	}
 	_, hasImage25 := mapping["image-2.5"]
 	require.False(t, hasImage25, "image-2.5 is not a client-facing images alias")
 }
