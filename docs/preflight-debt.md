@@ -4,48 +4,47 @@ Gaps a gate has *detected* but that are not fixed yet, plus interception a gate 
 currently express. One entry per gap. Close the entry in the PR that fixes the
 underlying problem — this file is not a changelog.
 
-## 3 declared `ops_error_logs` columns with no writer (phase 1 of a two-phase removal)
+## `bluegreen-migration-safety.py` cannot see a migration until it is committed
 
-`attempted_key_prefix`, `deleted_key_owner_user_id`, `deleted_key_name` are exempted via
-`ALLOWED_UNWRITTEN` in `scripts/checks/ops-error-log-column-writers.py`, so the contract
-is *not* exact right now. Deleted-key attribution was removed (the writer is unreachable
-behind the ingress-reject early return, and prod measured 0 non-null across 2.2M rows),
-but the columns stay declared on purpose.
+`changed_migrations()` diffs `base..head` — commit to commit. A migration that is only
+staged, including every brand-new one, is absent from that diff, so the gate reports
+`0 changed SQL migration(s) are blue/green-safe` and passes. Verified against
+`tk_101_ops_error_logs_finalize_unwritten_columns.sql`: with the file staged *and* its
+`bluegreen-safe-destructive-ok` acknowledgement deleted, the gate still exited 0.
 
-**Why not fixed now:** migrations run on new-color startup while the old color serves the
-same DB, and `DROP COLUMN` on this partitioned table takes 93 `ACCESS EXCLUSIVE` locks
-and removes columns the previous release's SQL still names. Dropping them in phase 1
-would break both the blue/green window and an image rollback.
+This is the same defect class as the upstream-deletion ledger fixed in #2354 (that one
+reported deletions one commit late for the same reason). The pattern-matching half is
+sound — `scan_file()` correctly flags `DROP TABLE` / `DROP COLUMN` and correctly honours
+the acknowledgement — so the fix is the range, not the scanner.
 
-## 6 columns that exist in prod but not in the gate's declared set (tk_100)
+**Interception this leaves open:** the pre-commit run of this gate is decorative for a
+new migration. It does judge the file on the *next* commit, and CI's release-range
+invocation (`--release-tag`) sees it, so a destructive migration cannot reach prod
+unexamined — it just is not examined at the moment it is written, which is when the
+author is still there to fix it. Until this is fixed, verify a new destructive migration
+by calling `scan_file()` on it directly.
 
-`tk_100` is recorded without executing its `DROP`
-(`migrations.RetainedOpsErrorColumnsMigration`), so `duration_ms`,
-`network_error_type`, `provider_error_code`, `provider_error_type`, `account_status`
-and `retry_after_seconds` are physically present in prod while the migration file says
-they are gone. The gate derives `declared` from the migration files, so these six are
-outside its declared set and outside `ALLOWED_UNWRITTEN` — there is nothing for it to
-exempt.
+## `cleanup-ingress-reject-logs` has no delivery path
 
-**Interception this leaves open:** a new read of one of these six is invisible to the
-gate (it is not in `dead`) and will not fail at runtime either, because the column still
-exists — it only becomes a 42703 when phase 2 performs the real `DROP`. The one known
-live site is pinned by a sentinel on `ops_repo_request_details.go`.
+`backend/cmd/cleanup-ingress-reject-logs` is upstream's row-pruning tool for historical
+ingress-reject rows. It is absent from `.goreleaser.*.yaml` and from the released image
+(`/app/` holds only `sub2api` and `qa-archive`), so there is no way to run it against
+prod without building it ad hoc. It prunes rows, not columns, so it never blocked the
+tk_101 column drop — but the pruning it was meant to do has never been possible in TK.
 
-**Exit condition for both entries (phase 2):** once the rollback window for the release
-carrying phase 1 has closed, run upstream's existing finalizer
-`backend/scripts/finalize-ingress-reject-cleanup.sql` — it drops the three attribution
-columns and `deleted_api_key_audits`, and `backend/cmd/cleanup-ingress-reject-logs`
-prunes the historical rows. It does NOT cover tk_100's six columns, which are TK's own
-and need their own DDL. Both entries, the three `ALLOWED_UNWRITTEN` entries and the
-tk_100 record-only branch go away with that change. Anchor:
-[`docs/approved/ops-error-logs-column-contract.md`](approved/ops-error-logs-column-contract.md).
+**Decide before relying on it:** either add it to goreleaser/the image, or drop it on the
+next upstream merge and let the 30-day expiry handle those rows.
 
 ## Known limits of the column-writer gate
 
 Not debt to pay down, but the boundaries of what that gate can decide. Recorded so the
 next person does not assume coverage it does not have:
 
+- **`ALTER TABLE` variants have to be spelled out.** `declared_columns()` matched only the
+  bare `ALTER TABLE <table>`, so `ALTER TABLE IF EXISTS` skipped the whole statement and
+  its `DROP COLUMN`s were invisible — the gate went on reporting dropped columns as
+  declared. Fixed for `IF EXISTS`; any further syntax variant needs the same treatment,
+  since a missed statement fails open.
 - **Unqualified reads in Go are not attributed to a table.** Go assembles SQL from
   fragments, so the governing `FROM` may live in another function than the column
   reference, and `duration_ms` existed on both `ops_error_logs` and `usage_logs`.

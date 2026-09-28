@@ -27,13 +27,13 @@ NULL,而外面一层 `COALESCE` 会安静地退到 fallback,让空列看起来�
 - `written` = INSERT 列清单 ∪ `UPDATE ... SET` 赋值列(非测试 Go)
 
 双向拦截:声明未写入(接写入方或 DROP)、写入未声明(运行时会炸)。例外走
-`ALLOWED_UNWRITTEN`,每条必须写原因;当前 3 条,全部是「列还声明着、写入方已摘」的两阶段
-删除中间态(见下节),没有一条是「以后有空再补写入方」。
+`ALLOWED_UNWRITTEN`,每条必须写原因;**阶段 2(tk_101)之后该表为空**,门禁报
+`contract exact`。三条归因例外的唯一用途是让列在写入方摘除后多活一个 blue/green 窗口,
+tk_101 把列和例外一起收了。
 
-tk_100 的六列**不在**例外表里:门禁的 `declared` 来自迁移文件,而 tk_100 声明了 DROP,这六
-列本就不在声明集内,写进例外表只会读成一层不存在的覆盖。它们在 prod 仍然物理存在(tk_100
-只记录不执行),留下的拦截缺口记在
-[`docs/preflight-debt.md`](../preflight-debt.md)。
+阶段 2 之后 prod 物理列 = 迁移声明列,不再有「声明集外仍然存在」的列。tk_101 生效前
+tk_100 那六列属于这一类,相应的拦截缺口已从
+[`docs/preflight-debt.md`](../preflight-debt.md) 关闭。
 
 ## Owners
 
@@ -43,7 +43,8 @@ tk_100 的六列**不在**例外表里:门禁的 `declared` 来自迁移文件,�
 | 落库写入 | `backend/internal/repository/ops_repo.go`(`insertOpsErrorLogSQL` + `opsInsertErrorLogArgs`) |
 | user-visible failure 判据 / SLA 分子 | `backend/internal/repository/ops_repo_user_visible_failure_tk.go` |
 | 契约门禁 | `scripts/checks/ops-error-log-column-writers.py` |
-| 「归因已移除」的反向哨兵 | `scripts/sentinels/gateway-tk.json`:`ops_error_logger.go` / `ops_repo_user_visible_failure_tk.go` 的 `must_not_contain`,`migrations_runner.go` 的 tk_100 只记录分支 |
+| 「归因已移除」的反向哨兵 | `scripts/sentinels/gateway-tk.json`:`ops_error_logger.go` / `ops_repo_user_visible_failure_tk.go` 的 `must_not_contain` |
+| 「finalizer 必须真执行」 | `migrations_runner_ops_error_columns_finalizer_test.go`:tk_101 不得被加进 `shouldRecordMigrationWithoutExecution` |
 
 归因相关的两个 owner 已随功能一起删除(`ops_error_logger.go` 的 `INVALID_API_KEY` 分支、
 `ops_error_logger_attribution_test.go`),原因见下节。
@@ -80,39 +81,49 @@ migration 145 声明了 `attempted_key_prefix` / `deleted_key_owner_user_id` /
 
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
-| 阶段 1(本次) | 摘掉写入方、所有读取方、明文审计写入、相关测试;三列仍保持声明 | 本 PR |
-| 阶段 2(回滚窗口关闭后的下个版本) | 跑上游已有的 `backend/scripts/finalize-ingress-reject-cleanup.sql`(DROP 三列 + `DROP TABLE deleted_api_key_audits`);tk_100 的六列它**不覆盖**,需另写 DDL。同时删掉 `ALLOWED_UNWRITTEN` 的 3 条、tk_100 只记录分支与 `docs/preflight-debt.md` 的两条 | 待办 |
+| 阶段 1(#2353,v1.8.261) | 摘掉写入方、所有读取方、明文审计写入、相关测试;三列仍保持声明 | 已完成 |
+| 阶段 2(tk_101) | `backend/migrations/tk_101_ops_error_logs_finalize_unwritten_columns.sql`:一次 DROP 九列(tk_100 六列 + 归因三列)+ `DROP TABLE deleted_api_key_audits`;同时清掉 `ALLOWED_UNWRITTEN` 三条、tk_100 只记录分支及其哨兵、`docs/preflight-debt.md` 两条 | 已完成 |
 
-**阶段 2 不需要新写 SQL**:上游的 finalizer 已经在树内
-(`backend/scripts/finalize-ingress-reject-cleanup.sql`),删的正是这三列加明文审计表,
-并带 `lock_timeout = 5s`;配套的历史行清理工具是 `backend/cmd/cleanup-ingress-reject-logs`
-(默认 dry-run,`--execute` 才真删)。它的前置条件与本 PR 的阶段划分一致:所有实例都升到
-「不再读写这些列」的版本之后才能跑。唯一它没覆盖的是 tk_100 那六列 —— 那是 TK 自己的,
-要单独一条 DDL。
+**阶段 2 为什么自己写 SQL 而不是直接跑上游 finalizer**:上游的
+`backend/scripts/finalize-ingress-reject-cleanup.sql` 只删归因三列加明文审计表,不覆盖
+tk_100 那六列;而两组列的前置条件、风险面完全相同,分两次执行只会把 92 个分区的
+`ACCESS EXCLUSIVE` 锁获取做两遍。tk_101 合并两组,内容是两者的并集,`lock_timeout = 5s`
+沿用上游。上游那份脚本作为参照留在树内,不再是执行路径。配套的历史行清理工具
+`backend/cmd/cleanup-ingress-reject-logs` 清的是行不是列,不阻塞删列;它在 TK 没有交付路径
+(不在镜像、不在 goreleaser),记在 `docs/preflight-debt.md`。
 
 阶段 1 不删列的理由与 tk_100 相同:迁移在新 color 启动时执行,旧 color 还在读同一个库,
 上一版本的 SQL 仍然会点名这三列;列一删,blue/green 窗口和镜像回滚同时被打断。列没有写入
 方,推迟物理删除不产生任何数据代价。
 
-`DeleteWithAudit` 的函数名保留上游原样(缩小 diff),但内部只做 tombstone 软删除,不再写
-`deleted_api_key_audits`;表在阶段 2 一起 DROP。
+`DeleteWithTombstone` 内部只做 tombstone 软删除,不写 `deleted_api_key_audits`;对外方法名
+`DeleteWithAudit` 保留上游原样(滚动升级兼容 + 缩小 diff)。表已随 tk_101 DROP。
 
-## 已批准的删列(tk_100,当前「只记录不执行」)
+## 已批准的删列(tk_100 声明,tk_101 执行)
 
 `backend/migrations/tk_100_ops_error_logs_drop_unwritten_columns.sql` 声明删除 6 个从未有
 写入方的列。
 
-**当前状态(2026-09-27 用户选择)**:tk_100 **只记录不执行** ——
-`migrations_runner.go` 的 `shouldRecordMigrationWithoutExecution` 对
-`migrations.RetainedOpsErrorColumnsMigration` 返回 true,只往 `schema_migrations` 插一行,
-不跑 SQL。迁移文件保持不变(文件不可变 / checksum 契约),所以下面这张表描述的是**文件声明**
-的意图,六列在 prod 仍然物理存在。物理删除与三列归因一起推到阶段 2;这期间门禁看不见这六
-列(既不在声明集、也不会在运行时炸),缺口记在 `docs/preflight-debt.md`。
+**tk_100 始终没有执行过**:`migrations_runner.go` 曾对它返回 record-only,只往
+`schema_migrations` 插一行。它在每个库都已登记、checksum 已冻结、文件不可变,所以**永远不会
+再执行** —— 六列的物理删除只能由 tk_101 接手,record-only 分支和常量随之删除(留在原处反而
+会在全新库上把 DDL 重新武装起来)。tk_100 末尾那条 `COMMENT ON TABLE` 同样从未生效,也由
+tk_101 补上。
 
-理由与上面同构:`DROP COLUMN` 在活跃分区树上递归加 93 把 `ACCESS EXCLUSIVE`,并删掉旧
-color 的 SQL 仍然点名的列,blue/green 窗口与镜像回滚同时被打断;而这六列没有写入方,推迟
-物理删除零代价、执行却不可逆。下面「blue/green 窗口」一节记录的是**如果执行**的风险面,
-保留它是为了阶段 2 直接复用这份核账,而不是重新分析一遍。
+反向不变式已钉住:tk_101 若被加进 `shouldRecordMigrationWithoutExecution`,列会永久留在库
+里而门禁照样 PASS(门禁读 DDL,不读数据库),所以
+`migrations_runner_ops_error_columns_finalizer_test.go` 断言它必须执行。
+
+当初推迟的理由:`DROP COLUMN` 在活跃分区树上递归加 93 把 `ACCESS EXCLUSIVE`(父表 + 92 个
+分区),并删掉旧 color 的 SQL 仍然点名的列,blue/green 窗口与镜像回滚同时被打断;而这六列
+没有写入方,推迟物理删除零代价、执行却不可逆。下面「blue/green 窗口」一节的核账在 tk_101
+直接复用,没有重新分析。
+
+**tk_101 执行时接受的代价**:全 fleet(prod + us3/us4/us5/us6,每个 Edge 各有独立 Postgres)
+已在 2026-09-27 全部升到 v1.8.261,该版本对九列既不读也不写;但删列之后**回滚到 1.8.260 会
+42703**,因为 1.8.260 的 `ops_repo_user_visible_failure_tk.go` 与
+`ops_repo_routing_capacity_tk.go` 仍在 SQL 里点名归因三列。这是明确接受的取舍,前提是
+1.8.261 两阶段 post-check 双 green。迁移由各库自己的启动 runner 驱动,五个库无需手工逐库操作。
 
 文件声明删除的六列:
 

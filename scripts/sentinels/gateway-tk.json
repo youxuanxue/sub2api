@@ -3061,13 +3061,6 @@
       "rationale": "Deleted-key attribution must stay removed. It was briefly restored here (migration 145 declares attempted_key_prefix / deleted_key_owner_user_id / deleted_key_name, and the read side lived in ops_repo_user_visible_failure_tk.go), but prod measurement showed the block is unreachable and the columns worthless: INVALID_API_KEY is marked ingress-rejected by the auth middleware, OpsErrorLoggerMiddleware returns early on that mark ABOVE this point, so no request can reach the attribution block — confirmed by 0 non-null values across 2.2M rows, and by 30d aggregates where invalid_api_key is 5889 anonymous scanner hits and 0 known users. Upstream's own direction (cleanup-ingress-reject-logs + finalize-ingress-reject-cleanup.sql) is to delete these three columns and the plaintext-key audit table, so TK follows upstream instead of maintaining the fork. Reintroducing the writer would also put a submitted key prefix and a user-chosen key name back into the long-lived S3 ops-error payload. Anchor: docs/approved/ops-error-logs-column-contract.md."
     },
     {
-      "path": "backend/internal/repository/migrations_runner.go",
-      "must_contain": [
-        "if name == migrations.RetainedOpsErrorColumnsMigration {"
-      ],
-      "rationale": "tk_100 must stay record-only. Its DROP COLUMN recurses over the live ops_error_logs partition tree (93 ACCESS EXCLUSIVE locks) and removes columns the previously-deployed color's SQL still names, which breaks both the blue/green window (migrations run on new-color startup while the old color serves the same DB) and an image rollback. The columns have no writer, so deferring the physical drop costs nothing but executing it is irreversible under load. Dropping this branch silently re-arms the DDL on the next deploy. Paired with ALLOWED_UNWRITTEN in scripts/checks/ops-error-log-column-writers.py, which is the only other place recording that these columns are still physically present."
-    },
-    {
       "path": "backend/internal/repository/ops_repo_user_visible_failure_tk.go",
       "must_contain": [
         "AND user_id IS NOT NULL"
