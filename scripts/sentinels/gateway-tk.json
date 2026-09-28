@@ -7900,6 +7900,34 @@
       "must_contain": [
         "func tkStripFableDisabledThinking(body []byte) []byte",
         "sjson.DeleteBytes(body, \"thinking\")",
+        "func isFableModel(modelID string) bool",
+        "func requiresAdaptiveOnlyThinking(modelID string) bool"
+      ],
+      "must_not_contain": [
+        "func isTokenseaRelayUpstream",
+        "func tkStripTokenseaContextManagement",
+        "func tkStripTokenseaCacheControlScope"
+      ],
+      "rationale": "Fable thinking predicates only. Explicit thinking:{type:\"disabled\"}: upstream rejects that shape on fable with a 400 ('\"thinking.type.disabled\" is not supported for this model …', prod 2026-06-10 user 16) while Opus 4.7+ still accepts it — gate is isFableModel, NOT requiresAdaptiveOnlyThinking; omitting the field is the documented equivalent (same rule bedrock sanitizeBedrockThinking already applies). Tokensea pre-send strips live in gateway_request_tk_tokensea.go — do not put account-gated tokensea compatibility back in this file."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_tk_fable_test.go",
+      "must_contain": [
+        "TestTkStripFableDisabledThinking_StripIsSurgical",
+        "TestTkStripFableDisabledThinking_NoTouch",
+        "opus 4.7 disabled (still accepted upstream)",
+        "TestTkStripFableDisabledThinking_ModelVariants"
+      ],
+      "must_not_contain": [
+        "func tokenseaNewAPIAccount",
+        "TestTkStripTokenseaContextManagement",
+        "TestTkStripTokenseaCacheControlScope"
+      ],
+      "rationale": "Fable disabled-thinking regressions stay in the fable test file. Tokensea account-gated strips have their own owner and tests — do not re-merge them here."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_tk_tokensea.go",
+      "must_contain": [
         "func isTokenseaRelayUpstream(account *Account) bool",
         "func tkStripTokenseaContextManagement(account *Account, body []byte) []byte",
         "sjson.DeleteBytes(body, \"context_management\")",
@@ -7907,10 +7935,10 @@
         "path+\".scope\"",
         "isTokenseaRelayBaseURL(account.GetCredential(\"base_url\"))"
       ],
-      "rationale": "Three pre-send strips. (1) Explicit thinking:{type:\"disabled\"}: upstream rejects that shape on fable with a 400 ('\"thinking.type.disabled\" is not supported for this model …', prod 2026-06-10 user 16) while Opus 4.7+ still accepts it — gate is isFableModel, NOT requiresAdaptiveOnlyThinking; omitting the field is the documented equivalent (same rule bedrock sanitizeBedrockThinking already applies). (2) tokensea context_management: agent.tokensea.ai returns HTTP 400 'context_management: Extra inputs are not permitted' for EVERY Claude model seen in prod (fable-5 2026-09-20 user16; opus-4-8 same day; opus-5 2026-09-26 user1). (3) tokensea cache_control.scope: Claude Code 2.1.92 sends prompt-caching-scope; official Anthropic accepts it, tokensea 400s 'system.N.cache_control.***.scope: Extra inputs are not permitted' (prod 2026-09-28 user16 account 136 × opus-5). isTokenseaRelayUpstream must cover openai/anthropic typed relays AND platform=newapi base_url agent.tokensea.ai (account 136). Dropping either tokensea strip or re-adding a model gate silently re-surfaces raw upstream 400s on failover."
+      "rationale": "Tokensea pre-send strips, account-gated not model-gated. (1) context_management: agent.tokensea.ai returns HTTP 400 'context_management: Extra inputs are not permitted' for EVERY Claude model seen in prod (fable-5 2026-09-20 user16; opus-4-8 same day; opus-5 2026-09-26 user1). (2) cache_control.scope: Claude Code 2.1.92 sends prompt-caching-scope; official Anthropic accepts it, tokensea 400s 'system.N.cache_control.***.scope: Extra inputs are not permitted' (prod 2026-09-28 user16 account 136 × opus-5). isTokenseaRelayUpstream must cover openai/anthropic typed relays AND platform=newapi base_url agent.tokensea.ai (account 136). Dropping either strip or re-adding a model gate silently re-surfaces raw upstream 400s on failover."
     },
     {
-      "path": "backend/internal/service/gateway_request_tk_fable_test.go",
+      "path": "backend/internal/service/gateway_request_tk_tokensea_test.go",
       "must_contain": [
         "TestTkStripTokenseaContextManagement_StripsOnTokenseaModels",
         "TestTkStripTokenseaContextManagement_NoTouch",
