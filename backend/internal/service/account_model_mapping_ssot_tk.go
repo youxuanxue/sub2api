@@ -482,9 +482,14 @@ func openAICanonicalAccountModelMappingFloor(ctx context.Context, pricing *Prici
 	}
 	out := identityModelMapping(ids)
 	displaySet := stringSet(ids)
-	for from, to := range tkOpenAIImageCompatibilityAliases {
-		if _, ok := displaySet[to]; ok {
-			out[from] = to
+	for _, aliases := range []map[string]string{
+		tkOpenAIImageCompatibilityAliases,
+		tkOpenAITextCompatibilityAliases,
+	} {
+		for from, to := range aliases {
+			if _, ok := displaySet[to]; ok {
+				out[from] = to
+			}
 		}
 	}
 	return out
@@ -495,6 +500,12 @@ func openAICanonicalAccountModelMappingFloor(ctx context.Context, pricing *Prici
 // /v1/images ingress only accepts gpt-image-* names).
 var tkOpenAIImageCompatibilityAliases = map[string]string{
 	"gpt-image-2.5": "gpt-image-2.5-flare",
+}
+
+// Public text aliases on the native OpenAI floor (not shared with relay image
+// aliases). gpt-6 folds onto Astra; keep in sync with codexModelMap + overlay.
+var tkOpenAITextCompatibilityAliases = map[string]string{
+	"gpt-6": "gpt-6-astra",
 }
 
 func openAIAinzyRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {

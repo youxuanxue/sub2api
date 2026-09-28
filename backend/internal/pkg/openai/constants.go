@@ -167,6 +167,7 @@ func CanonicalizeOpenAIModelAliasSpelling(model string) string {
 
 // CodexBaseInstructionsForModel 按模型返回最匹配的真实 Codex base instructions：
 //   - gpt-6 / gpt-6-astra（含供应商前缀与日期变体）→ GPT-6 Astra prompt
+//   - gpt-6-sol / gpt-6-luna → 最新 Codex prompt（当前 GPT-5.5；尚无独立 Sol/Luna prompt）
 //   - 含 "codex" 的模型（gpt-5-codex / gpt-5.x-codex / codex-max / spark 等）→ GPT-5-Codex prompt
 //   - gpt-5.5 系非 codex 模型 → GPT-5.5 prompt
 //   - gpt-5.2 系非 codex 模型 → GPT-5.2 prompt
@@ -181,6 +182,8 @@ func CodexBaseInstructionsForModel(model string) string {
 		if v := strings.TrimSpace(instructionsGPT6Astra); v != "" {
 			return instructionsGPT6Astra
 		}
+	case IsGPT6SolOrLunaModelSpelling(model):
+		return latestCodexInstructions()
 	case strings.Contains(canonical, "codex"):
 		return DefaultInstructions
 	case strings.HasPrefix(canonical, "gpt-5.6"):

@@ -150,6 +150,7 @@ func TestOpenAICanonicalFloorUsesServableOpenAIAllowlist(t *testing.T) {
 	mapping := openAICanonicalAccountModelMappingFloor(context.Background(), nil, nil)
 	requireIdentityMappingForIDs(t, mapping, supportedCatalogModelIDsForPlatform(PlatformOpenAI))
 	requireOpenAIImageCompatibilityAliases(t, mapping)
+	requireOpenAITextCompatibilityAliases(t, mapping)
 }
 
 func TestOpenAICanonicalFloorAcceptsKnownRoutingAliases(t *testing.T) {
@@ -178,6 +179,9 @@ func TestOpenAICanonicalFloorAcceptsKnownRoutingAliases(t *testing.T) {
 	require.True(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("gpt-5.3-codex")), "legacy codex id should alias to spark without display")
 	require.True(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("gpt-5-codex")), "legacy GPT-5 Codex id should alias to spark without display")
 	require.True(t, account.IsModelSupported("gpt-6-astra"), "gpt-6-astra must be on the OpenAI floor")
+	require.True(t, account.IsModelSupported("gpt-6-sol"), "gpt-6-sol must be on the OpenAI floor")
+	require.True(t, account.IsModelSupported("gpt-6-luna"), "gpt-6-luna must be on the OpenAI floor")
+	require.Equal(t, "gpt-6-astra", mapping["gpt-6"], "public gpt-6 must be a floor alias onto Astra")
 	require.True(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("gpt-6")), "public gpt-6 alias must route onto the floor")
 	require.False(t, account.IsModelSupported("gpt-not-a-real-id-zzz"), "unknown OpenAI ids must stay out of the floor")
 }
@@ -389,6 +393,20 @@ func requireOpenAIImageCompatibilityAliases(t *testing.T, mapping map[string]str
 		}
 		require.Equal(t, to, mapping[from], "OpenAI image alias %s must map to %s", from, to)
 	}
+}
+
+func requireOpenAITextCompatibilityAliases(t *testing.T, mapping map[string]string) {
+	t.Helper()
+	displaySet := stringSet(supportedCatalogModelIDsForPlatform(PlatformOpenAI))
+	for from, to := range tkOpenAITextCompatibilityAliases {
+		if _, ok := displaySet[to]; !ok {
+			continue
+		}
+		require.Equal(t, to, mapping[from], "OpenAI text alias %s must map to %s", from, to)
+	}
+	require.Equal(t, "gpt-6-astra", mapping["gpt-6"])
+	_, hasBareGPT6Catalog := displaySet["gpt-6"]
+	require.False(t, hasBareGPT6Catalog, "bare gpt-6 stays alias-only; Sol/Luna/Astra are the catalog rows")
 }
 
 func requireTokenseaImageCompatibilityAliases(t *testing.T, mapping map[string]string) {
