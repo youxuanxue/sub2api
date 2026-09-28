@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "6fe5d256057a6e59e11dc3333c3026163767216f764b23d9cbba74b2cfdf34e7",
+  "floor_sha256": "839c55fae125c565243af6cd7440c3f22d74c0dd58f327d7eb04d8d7d98e3101",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -194,6 +194,7 @@
         "claude-opus-4-7": "claude-opus-4-7",
         "claude-opus-4-8": "claude-opus-4-8",
         "claude-opus-5": "claude-opus-5",
+        "claude-opus-5-5": "claude-opus-5-5",
         "claude-sonnet-4-5": "claude-sonnet-4-5",
         "claude-sonnet-4-6": "claude-sonnet-4-6",
         "claude-sonnet-5": "claude-sonnet-5"
@@ -553,7 +554,8 @@
         "composer-2"
       ],
       "anthropic": [
-        "claude-opus-5"
+        "claude-opus-5",
+        "claude-opus-5-5"
       ],
       "anthropic_tokensea_relay": [],
       "antigravity": [
