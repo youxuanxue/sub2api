@@ -1049,10 +1049,12 @@ func rewriteOpenAIImagesModel(body []byte, contentType string, model string) ([]
 }
 
 // rewriteOpenAIImagesAspectRatioMarker injects "marker AR=..." into the outbound
-// prompt for gpt-image-* when aspect_ratio (or a known official size) is set.
-// aspect_ratio itself is never forwarded as a JSON field.
+// prompt for gpt-image-* when an explicit aspect_ratio is set. Official size is
+// not used here: API-key Images already honors size, and size-derived markers
+// belong on OAuth/Responses soft-control builders. aspect_ratio itself is never
+// forwarded as a JSON field.
 func rewriteOpenAIImagesAspectRatioMarker(body []byte, contentType string, parsed *OpenAIImagesRequest) ([]byte, string, error) {
-	aspectRatio := resolveOpenAIImagesAspectRatioForMarker(parsed)
+	aspectRatio := resolveOpenAIImagesAspectRatioForMarker(parsed, false)
 	if aspectRatio == "" {
 		return body, contentType, nil
 	}

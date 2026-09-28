@@ -142,6 +142,23 @@ func TestRewriteOpenAIImagesAspectRatioMarkerStripsField(t *testing.T) {
 	require.False(t, gjson.GetBytes(marked, "aspect_ratio").Exists())
 }
 
+func TestRewriteOpenAIImagesAspectRatioMarkerDoesNotDeriveFromSize(t *testing.T) {
+	t.Parallel()
+	// API-key Images already honors size; do not pollute the prompt with a
+	// size-derived soft marker on that path.
+	parsed := &OpenAIImagesRequest{
+		Model:        "gpt-image-2",
+		Prompt:       "a tiny gray cube",
+		Size:         "1536x1024",
+		ExplicitSize: true,
+	}
+	body := []byte(`{"model":"gpt-image-2","prompt":"a tiny gray cube","size":"1536x1024"}`)
+	marked, _, err := rewriteOpenAIImagesAspectRatioMarker(body, "application/json", parsed)
+	require.NoError(t, err)
+	require.Equal(t, "a tiny gray cube", gjson.GetBytes(marked, "prompt").String())
+	require.Equal(t, "1536x1024", gjson.GetBytes(marked, "size").String())
+}
+
 func TestRewriteOpenAIImagesMultipartAspectRatioMarker(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
