@@ -2,6 +2,7 @@ package protocolrouter
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/anthropicpolicy"
 	"github.com/tidwall/gjson"
@@ -18,11 +19,31 @@ func compatibleProviderRequest(request CanonicalRequest, account AccountSnapshot
 	if account.providerCapability != ProviderCapabilityGeminiWeb {
 		return request, "", true
 	}
+	body := request.body
+	changed := false
+	adjustment := ""
+
+	// Studio / OpenAI-compat clients carry aspect ratio as
+	// extra_body.google.image_config.aspect_ratio. Web admission only knows the
+	// native generationConfig.imageConfig.aspectRatio spelling, so rewrite before
+	// permitsProviderRequest. This is intent-preserving translation, not a
+	// capability downgrade — leave adjustment empty unless budgets are also stripped.
+	if request.inboundProtocol == ProtocolChatCompletions {
+		next, normalized, ok := geminiWebNormalizeChatExtraBody(body)
+		if !ok {
+			return request, "", false
+		}
+		if normalized {
+			body = next
+			changed = true
+		}
+	}
+
 	var fields []string
 	switch request.inboundProtocol {
 	case ProtocolMessages:
 		fields = []string{"max_tokens"}
-		if !gjson.GetBytes(request.body, "max_tokens").Exists() {
+		if !gjson.GetBytes(body, "max_tokens").Exists() {
 			return request, "", false
 		}
 	case ProtocolChatCompletions:
@@ -32,8 +53,6 @@ func compatibleProviderRequest(request CanonicalRequest, account AccountSnapshot
 	case ProtocolGeminiGenerateContent:
 		fields = []string{"generationConfig.maxOutputTokens"}
 	}
-	body := request.body
-	changed := false
 	for _, field := range fields {
 		value := gjson.GetBytes(body, field)
 		if !value.Exists() {
@@ -49,6 +68,7 @@ func compatibleProviderRequest(request CanonicalRequest, account AccountSnapshot
 			return request, "", false
 		}
 		changed = true
+		adjustment = GeminiWebBestEffortTokenLimit
 	}
 	if !changed {
 		return request, "", true
@@ -57,7 +77,57 @@ func compatibleProviderRequest(request CanonicalRequest, account AccountSnapshot
 	if err != nil {
 		return request, "", false
 	}
-	return effective, GeminiWebBestEffortTokenLimit, true
+	return effective, adjustment, true
+}
+
+// geminiWebNormalizeChatExtraBody rewrites the OpenAI Studio image-config spelling
+// into generationConfig and removes extra_body. Malformed extra_body rejects the
+// Web candidate; empty aspect_ratio is treated as unspecified (strip only).
+func geminiWebNormalizeChatExtraBody(body []byte) ([]byte, bool, bool) {
+	if !gjson.GetBytes(body, "extra_body").Exists() {
+		return body, false, true
+	}
+	var root map[string]any
+	if json.Unmarshal(body, &root) != nil {
+		return body, false, false
+	}
+	extra, ok := root["extra_body"].(map[string]any)
+	if !ok || !geminiWebOnlyKeys(extra, "google") {
+		return body, false, false
+	}
+	google, ok := extra["google"].(map[string]any)
+	if !ok || !geminiWebOnlyKeys(google, "image_config") {
+		return body, false, false
+	}
+	imageConfig, ok := google["image_config"].(map[string]any)
+	if !ok || !geminiWebOnlyKeys(imageConfig, "aspect_ratio") {
+		return body, false, false
+	}
+	ratio, ok := imageConfig["aspect_ratio"].(string)
+	if !ok {
+		return body, false, false
+	}
+	ratio = strings.TrimSpace(ratio)
+
+	out, err := sjson.DeleteBytes(body, "extra_body")
+	if err != nil {
+		return body, false, false
+	}
+	if ratio == "" {
+		return out, true, true
+	}
+	if !geminiWebImageAspectRatioSupported(ratio) {
+		return body, false, false
+	}
+	existing := strings.TrimSpace(gjson.GetBytes(out, "generationConfig.imageConfig.aspectRatio").String())
+	if existing != "" {
+		return out, true, true
+	}
+	out, err = sjson.SetBytes(out, "generationConfig.imageConfig.aspectRatio", ratio)
+	if err != nil {
+		return body, false, false
+	}
+	return out, true, true
 }
 
 func (a AccountSnapshot) requestCapabilities(target Protocol) anthropicpolicy.Capabilities {

@@ -34,6 +34,10 @@ func TestGeminiWebPlanSingleTurnAndGeneralProviderRegression(t *testing.T) {
 		{"native_tools", ProtocolGeminiGenerateContent, `{"tools":[],"contents":[{"parts":[{"text":"hello"}]}]}`, false},
 		{"native_cache", ProtocolGeminiGenerateContent, `{"cachedContent":"cached/1","contents":[{"parts":[{"text":"hello"}]}]}`, false},
 		{"chat_image_config", ProtocolChatCompletions, `{"messages":[{"role":"user","content":"Draw a cube"}],"generationConfig":{"imageConfig":{"aspectRatio":"4:3"},"responseModalities":["TEXT","IMAGE"]}}`, true},
+		// Studio / OpenAI-compat spelling — rewritten to generationConfig before Web admission.
+		{"chat_extra_body_aspect", ProtocolChatCompletions, `{"model":"gemini-3.1-flash-image","messages":[{"role":"user","content":"Draw a cube"}],"extra_body":{"google":{"image_config":{"aspect_ratio":"1:1"}}}}`, true},
+		{"chat_extra_body_bad_ratio", ProtocolChatCompletions, `{"messages":[{"role":"user","content":"Draw a cube"}],"extra_body":{"google":{"image_config":{"aspect_ratio":"2:1"}}}}`, false},
+		{"chat_extra_body_unknown", ProtocolChatCompletions, `{"messages":[{"role":"user","content":"Draw a cube"}],"extra_body":{"google":{"image_config":{"aspect_ratio":"1:1","image_size":"2K"}}}}`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request, err := ParseCanonicalRequest(tc.protocol, ResponsesPathRoot, "nano-2", false, []byte(tc.body))
@@ -118,6 +122,28 @@ func TestGeminiWebBestEffortBudgetsUseImmutableAuditedPlan(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGeminiWebNormalizesChatExtraBodyAspectRatio(t *testing.T) {
+	body := []byte(`{"model":"gemini-3.1-flash-image","messages":[{"role":"user","content":"Draw a cube"}],"extra_body":{"google":{"image_config":{"aspect_ratio":"16:9"}}}}`)
+	request, err := ParseCanonicalRequest(ProtocolChatCompletions, ResponsesPathNone, "gemini-3.1-flash-image", false, body)
+	require.NoError(t, err)
+	account := testAccount(t, ProtocolGeminiGenerateContent)
+	account.providerCapability = ProviderCapabilityGeminiWeb
+	account.imageOutput = true
+	adapter := &recordingAdapter{}
+	router := New(AdapterCatalog{AdapterChatToGemini: adapter, AdapterGeminiIdentity: adapter})
+	plan, err := router.Plan(request, account)
+	require.NoError(t, err)
+	require.Empty(t, plan.Adjustment())
+	require.Equal(t, request.Digest(), plan.RequestDigest())
+	require.NotEqual(t, request.Digest(), plan.EffectiveRequestDigest())
+	effective := plan.effectiveRequest.Body()
+	require.False(t, gjson.GetBytes(effective, "extra_body").Exists())
+	require.Equal(t, "16:9", gjson.GetBytes(effective, "generationConfig.imageConfig.aspectRatio").String())
+	_, err = router.Execute(WithExecutionAccountState(context.Background(), ExecutionAccountState{AccountID: account.accountID, CapabilityKey: account.capabilityKey, CredentialPresent: true}), plan, request)
+	require.NoError(t, err)
+	require.Equal(t, "16:9", gjson.GetBytes(adapter.execution.Request().Body(), "generationConfig.imageConfig.aspectRatio").String())
 }
 
 func TestGeminiWebBestEffortDoesNotAdmitInvalidBudgetsOrOtherControls(t *testing.T) {

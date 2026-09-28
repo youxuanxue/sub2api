@@ -37,40 +37,95 @@ func preserveGeminiCompatOptions(original, converted []byte) ([]byte, error) {
 	return json.Marshal(target)
 }
 
-// generationConfig is the sole native extension spelling for compatibility
-// clients. Explicit null imageConfig must survive as null, not disappear.
+// generationConfig is the native extension spelling for compatibility clients.
+// Studio / OpenAI-compat also send extra_body.google.image_config.aspect_ratio;
+// that spelling is lifted here so the Anthropic bridge and Gemini converter see
+// one generationConfig. Explicit null imageConfig must survive as null unless a
+// concrete aspect_ratio is being merged in.
 func geminiCompatGenerationOptions(req map[string]any) (map[string]any, error) {
-	value, exists := req["generationConfig"]
-	if !exists {
-		return nil, nil
-	}
-	config, ok := value.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("generationConfig must be an object")
-	}
-	for key, value := range config {
-		switch key {
-		case "responseModalities":
-			modalities, ok := value.([]any)
-			if !ok || len(modalities) == 0 {
-				return nil, fmt.Errorf("generationConfig.responseModalities must be a nonempty array")
-			}
-			for _, modality := range modalities {
-				if modality != "TEXT" && modality != "IMAGE" {
-					return nil, fmt.Errorf("generationConfig.responseModalities supports TEXT and IMAGE")
+	var config map[string]any
+	if value, exists := req["generationConfig"]; exists {
+		var ok bool
+		config, ok = value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("generationConfig must be an object")
+		}
+		for key, value := range config {
+			switch key {
+			case "responseModalities":
+				modalities, ok := value.([]any)
+				if !ok || len(modalities) == 0 {
+					return nil, fmt.Errorf("generationConfig.responseModalities must be a nonempty array")
 				}
-			}
-		case "imageConfig":
-			if value != nil {
-				if _, ok := value.(map[string]any); !ok {
-					return nil, fmt.Errorf("generationConfig.imageConfig must be an object or null")
+				for _, modality := range modalities {
+					if modality != "TEXT" && modality != "IMAGE" {
+						return nil, fmt.Errorf("generationConfig.responseModalities supports TEXT and IMAGE")
+					}
 				}
+			case "imageConfig":
+				if value != nil {
+					if _, ok := value.(map[string]any); !ok {
+						return nil, fmt.Errorf("generationConfig.imageConfig must be an object or null")
+					}
+				}
+			default:
+				return nil, fmt.Errorf("unsupported compatibility generationConfig field %q", key)
 			}
-		default:
-			return nil, fmt.Errorf("unsupported compatibility generationConfig field %q", key)
 		}
 	}
+	ratio, present, err := geminiCompatExtraBodyAspectRatio(req)
+	if err != nil {
+		return nil, err
+	}
+	if !present || ratio == "" {
+		return config, nil
+	}
+	if config == nil {
+		config = make(map[string]any)
+	}
+	imageConfig, _ := config["imageConfig"].(map[string]any)
+	if imageConfig == nil {
+		imageConfig = make(map[string]any)
+	}
+	if _, has := imageConfig["aspectRatio"]; !has {
+		imageConfig["aspectRatio"] = ratio
+		config["imageConfig"] = imageConfig
+	}
 	return config, nil
+}
+
+// geminiCompatExtraBodyAspectRatio reads the OpenAI Studio image-config spelling
+// the same way Antigravity's tkInject does: only the known path is lifted.
+// Unrelated extra_body keys stay ignored so non-Web Gemini clients that stuff
+// SDK baggage into extra_body keep working. Web admission remains strict via
+// geminiWebNormalizeChatExtraBody. Error only when aspect_ratio is present but
+// not a string — that is a client type error, not an unknown-key policy.
+func geminiCompatExtraBodyAspectRatio(req map[string]any) (string, bool, error) {
+	raw, exists := req["extra_body"]
+	if !exists {
+		return "", false, nil
+	}
+	extra, ok := raw.(map[string]any)
+	if !ok {
+		return "", false, nil
+	}
+	google, _ := extra["google"].(map[string]any)
+	if google == nil {
+		return "", false, nil
+	}
+	imageConfig, _ := google["image_config"].(map[string]any)
+	if imageConfig == nil {
+		return "", false, nil
+	}
+	ratioRaw, exists := imageConfig["aspect_ratio"]
+	if !exists {
+		return "", false, nil
+	}
+	ratio, ok := ratioRaw.(string)
+	if !ok {
+		return "", false, fmt.Errorf("extra_body.google.image_config.aspect_ratio must be a string")
+	}
+	return strings.TrimSpace(ratio), true, nil
 }
 
 // geminiInlineImageMarkdown is shared by all client response encoders and the

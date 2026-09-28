@@ -32,6 +32,42 @@ func TestGeminiCompatImageOptionsPreserveNativeConfiguration(t *testing.T) {
 	}
 }
 
+func TestGeminiCompatImageOptionsLiftStudioExtraBodyAspectRatio(t *testing.T) {
+	original := []byte(`{"model":"gemini-3.1-flash-image","messages":[{"role":"user","content":"draw an apple"}],"extra_body":{"google":{"image_config":{"aspect_ratio":"1:1"}}}}`)
+	converted, err := preserveGeminiCompatOptions(original, []byte(`{"model":"gemini-3.1-flash-image","max_tokens":8192,"messages":[{"role":"user","content":"draw an apple"}]}`))
+	require.NoError(t, err)
+	native, err := convertClaudeMessagesToGeminiGenerateContent(converted)
+	require.NoError(t, err)
+	require.Equal(t, "1:1", gjson.GetBytes(native, "generationConfig.imageConfig.aspectRatio").String())
+}
+
+func TestGeminiCompatImageOptionsIgnoresUnrelatedExtraBody(t *testing.T) {
+	// Conversion must not 400 on SDK baggage; Web admission owns the strict whitelist.
+	for _, body := range []string{
+		`{"extra_body":{"foo":1}}`,
+		`{"extra_body":{"google":{"thinking_config":{"include_thoughts":true}}}}`,
+	} {
+		converted, err := preserveGeminiCompatOptions([]byte(body), []byte(`{"model":"gemini-test","messages":[{"role":"user","content":"draw"}]}`))
+		require.NoError(t, err, body)
+		require.False(t, gjson.GetBytes(converted, "generationConfig").Exists(), body)
+	}
+	// Sibling image_size is ignored; known aspect_ratio is still lifted.
+	converted, err := preserveGeminiCompatOptions(
+		[]byte(`{"extra_body":{"google":{"image_config":{"aspect_ratio":"4:3","image_size":"2K"}}}}`),
+		[]byte(`{"model":"gemini-test","messages":[{"role":"user","content":"draw"}]}`),
+	)
+	require.NoError(t, err)
+	require.Equal(t, "4:3", gjson.GetBytes(converted, "generationConfig.imageConfig.aspectRatio").String())
+}
+
+func TestGeminiCompatImageOptionsRejectNonStringAspectRatio(t *testing.T) {
+	_, err := preserveGeminiCompatOptions(
+		[]byte(`{"extra_body":{"google":{"image_config":{"aspect_ratio":1}}}}`),
+		[]byte(`{"model":"gemini-test","messages":[{"role":"user","content":"draw"}]}`),
+	)
+	require.Error(t, err)
+}
+
 func TestGeminiCompatOptionsPreserveExplicitTokenLimits(t *testing.T) {
 	for _, limit := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens"} {
 		converted, err := preserveGeminiCompatOptions([]byte(`{"`+limit+`":71}`), []byte(`{"max_tokens":71}`))

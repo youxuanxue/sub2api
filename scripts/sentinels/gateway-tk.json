@@ -3058,7 +3058,8 @@
         "entry.DeletedKeyOwnerUserID",
         "entry.DeletedKeyName"
       ],
-      "rationale": "Deleted-key attribution must stay removed. It was briefly restored here (migration 145 declares attempted_key_prefix / deleted_key_owner_user_id / deleted_key_name, and the read side lived in ops_repo_user_visible_failure_tk.go), but prod measurement showed the block is unreachable and the columns worthless: INVALID_API_KEY is marked ingress-rejected by the auth middleware, OpsErrorLoggerMiddleware returns early on that mark ABOVE this point, so no request can reach the attribution block — confirmed by 0 non-null values across 2.2M rows, and by 30d aggregates where invalid_api_key is 5889 anonymous scanner hits and 0 known users. Upstream's own direction (cleanup-ingress-reject-logs + finalize-ingress-reject-cleanup.sql) is to delete these three columns and the plaintext-key audit table, so TK follows upstream instead of maintaining the fork. Reintroducing the writer would also put a submitted key prefix and a user-chosen key name back into the long-lived S3 ops-error payload. Anchor: docs/approved/ops-error-logs-column-contract.md."
+      "rationale": "Deleted-key attribution must stay removed. It was briefly restored here (migration 145 declares attempted_key_prefix / deleted_key_owner_user_id / deleted_key_name, and the read side lived in ops_repo_user_visible_failure_tk.go), but prod measurement showed the block is unreachable and the columns worthless: INVALID_API_KEY is marked ingress-rejected by the auth middleware, OpsErrorLoggerMiddleware returns early on that mark ABOVE this point, so no request can reach the attribution block — confirmed by 0 non-null values across 2.2M rows, and by 30d aggregates where invalid_api_key is 5889 anonymous scanner hits and 0 known users. Upstream's own direction (cleanup-ingress-reject-logs + finalize-ingress-reject-cleanup.sql) is to delete these three columns and the plaintext-key audit table, so TK follows upstream instead of maintaining the fork. Reintroducing the writer would also put a submitted key prefix and a user-chosen key name back into the long-lived S3 ops-error payload. Anchor: docs/approved/ops-error-logs-column-contract.md.",
+      "must_contain": []
     },
     {
       "path": "backend/internal/repository/ops_repo_user_visible_failure_tk.go",
@@ -4152,7 +4153,8 @@
       "must_not_contain": [
         "x-stainless-helper-method"
       ],
-      "rationale": "Header wire casing/order must not re-add x-stainless-helper-method after upstream merges. That header is not part of the current Claude Code mimicry surface TokenKey wants to emit, and keeping it out of the raw-header utilities prevents accidental forwarding or debug-order resurrection."
+      "rationale": "Header wire casing/order must not re-add x-stainless-helper-method after upstream merges. That header is not part of the current Claude Code mimicry surface TokenKey wants to emit, and keeping it out of the raw-header utilities prevents accidental forwarding or debug-order resurrection.",
+      "must_contain": []
     },
     {
       "path": "backend/internal/handler/gateway_helper.go",
@@ -5955,7 +5957,8 @@
         "ProvideAccountModelMappingReconciler",
         "accountModelMappingReconciler"
       ],
-      "rationale": "Account model_mapping writes must not be wired into server startup/tick/settings fan-out. If an upstream merge reintroduces a provider or cleanup dependency here, deploys can overwrite admin UI/manual ops/runtime hotfix mappings without an operator-reviewed diff. The only live write path is ops/pricing/manage-account-model-mapping-runtime.py apply-accounts."
+      "rationale": "Account model_mapping writes must not be wired into server startup/tick/settings fan-out. If an upstream merge reintroduces a provider or cleanup dependency here, deploys can overwrite admin UI/manual ops/runtime hotfix mappings without an operator-reviewed diff. The only live write path is ops/pricing/manage-account-model-mapping-runtime.py apply-accounts.",
+      "must_contain": []
     },
     {
       "path": ".github/workflows/deploy-stage0.yml",
@@ -14481,9 +14484,11 @@
       "path": "backend/internal/service/gemini_compat_image_options.go",
       "must_contain": [
         "func preserveGeminiCompatOptions(",
-        "func geminiInlineImageMarkdown("
+        "func geminiInlineImageMarkdown(",
+        "func geminiCompatExtraBodyAspectRatio(",
+        "extra_body.google.image_config.aspect_ratio"
       ],
-      "rationale": "Compatible Gemini ingress shares image generation extension preservation and validated output projection rather than maintaining separate per-protocol image semantics."
+      "rationale": "Compatible Gemini ingress shares image generation extension preservation and validated output projection rather than maintaining separate per-protocol image semantics. Conversion lifts only the known Studio aspect path and ignores unrelated extra_body baggage."
     },
     {
       "path": "backend/internal/service/gemini_compat_image_options_test.go",
@@ -14526,17 +14531,21 @@
       "must_contain": [
         "func compatibleProviderRequest(",
         "GeminiWebBestEffortTokenLimit",
-        "sjson.DeleteBytes(body, field)"
+        "sjson.DeleteBytes(body, field)",
+        "func geminiWebNormalizeChatExtraBody(",
+        "extra_body.google.image_config.aspect_ratio"
       ],
-      "rationale": "Only the explicit Web provider uses immutable, audited best-effort budget adaptation; general Gemini retains strict limits."
+      "rationale": "Only the explicit Web provider uses immutable, audited best-effort budget adaptation; general Gemini retains strict limits. Studio chat aspect_ratio must be rewritten to generationConfig before Web admission so candidates are not silently exhausted as Unsupported model."
     },
     {
       "path": "backend/internal/engine/protocolrouter/gemini_web_test.go",
       "must_contain": [
         "func TestGeminiWebBestEffortBudgetsUseImmutableAuditedPlan(",
-        "func TestGeminiWebBestEffortDoesNotAdmitInvalidBudgetsOrOtherControls("
+        "func TestGeminiWebBestEffortDoesNotAdmitInvalidBudgetsOrOtherControls(",
+        "func TestGeminiWebNormalizesChatExtraBodyAspectRatio(",
+        "chat_extra_body_aspect"
       ],
-      "rationale": "Protect original request identity and validated Web budget adaptation without admitting other unsupported controls."
+      "rationale": "Protect original request identity and validated Web budget adaptation without admitting other unsupported controls. Also pin Studio extra_body aspect admission and negative unknown-field rejection."
     },
     {
       "path": "backend/internal/handler/us057_gemini_middleware_ingress_test.go",
@@ -14788,6 +14797,15 @@
         "{\"unpublished upstream models stay hidden\", []string{\"gpt-6-terra\"}, false, []string{}}"
       ],
       "rationale": "Gateway /v1/models discovery must list published GPT-6 Sol/Luna when allowlisted, keep unpublished gpt-6-terra hidden, and still honor group/account mapping restrictions. Pins the publication boundary against silent catalog/allowlist regressions."
+    },
+    {
+      "path": "backend/internal/service/gemini_compat_image_options_test.go",
+      "must_contain": [
+        "func TestGeminiCompatImageOptionsLiftStudioExtraBodyAspectRatio(",
+        "func TestGeminiCompatImageOptionsIgnoresUnrelatedExtraBody(",
+        "func TestGeminiCompatImageOptionsRejectNonStringAspectRatio("
+      ],
+      "rationale": "Studio chat aspect_ratio is lifted into generationConfig; unrelated extra_body must not hard-400 non-Web Gemini clients; non-string aspect_ratio remains a type error."
     }
   ]
 }
