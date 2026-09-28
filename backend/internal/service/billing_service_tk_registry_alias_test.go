@@ -119,12 +119,15 @@ func TestGeminiWebWireModelsAliasToPublicOwners(t *testing.T) {
 	pricingService := NewPricingService(&config.Config{}, nil)
 	billing := NewBillingService(&config.Config{}, pricingService)
 
+	// Live edge gemini-web account model_mapping (us3/us4/us5/us6) maps request
+	// models onto exactly these three Worker wire ids as billing keys.
 	cases := []struct {
 		alias string
 		owner string
 	}{
-		{"gemini-web-pro-image", "gemini-3.1-flash-image"},
 		{"gemini-web-flash", "gemini-3.8-flash"},
+		{"gemini-web-pro", "gemini-3.1-pro"},
+		{"gemini-web-pro-image", "gemini-3.1-flash-image"},
 	}
 	for _, tc := range cases {
 		owner, declared := tkPricingRegistryAliasOwner(tc.alias)
