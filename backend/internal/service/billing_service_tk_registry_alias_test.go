@@ -114,6 +114,42 @@ func TestUS043_RegistryBackedLegacyMatcherKeepsExplicitOwner(t *testing.T) {
 	require.InDelta(t, owner.OutputCostPerToken, pricing.OutputPricePerToken, 1e-15)
 }
 
+func TestGeminiWebWireModelsAliasToPublicOwners(t *testing.T) {
+	resetPricingRegistrySnapshot(t)
+	pricingService := NewPricingService(&config.Config{}, nil)
+	billing := NewBillingService(&config.Config{}, pricingService)
+
+	cases := []struct {
+		alias string
+		owner string
+	}{
+		{"gemini-web-pro-image", "gemini-3.1-flash-image"},
+		{"gemini-web-flash", "gemini-3.8-flash"},
+	}
+	for _, tc := range cases {
+		owner, declared := tkPricingRegistryAliasOwner(tc.alias)
+		require.Truef(t, declared, "%s must be overlay _aliases → %s", tc.alias, tc.owner)
+		require.Equal(t, tc.owner, owner)
+
+		want := pricingService.GetModelPricing(tc.owner)
+		require.NotNil(t, want, tc.owner)
+		got := pricingService.GetModelPricing(tc.alias)
+		require.NotNil(t, got, tc.alias)
+		require.InDelta(t, want.InputCostPerToken, got.InputCostPerToken, 1e-15, tc.alias)
+		require.InDelta(t, want.OutputCostPerToken, got.OutputCostPerToken, 1e-15, tc.alias)
+		require.InDelta(t, want.OutputCostPerImage, got.OutputCostPerImage, 1e-15, tc.alias)
+		require.False(t, billing.IsServedViaFamilyFloor(tc.alias),
+			"declared public alias %s must not raise served_at_fallback", tc.alias)
+	}
+
+	// gemini-web image traffic bills ImageCount with no invented usage tokens.
+	cost := billing.CalculateImageCost("gemini-web-pro-image", "1K", 1, nil, 1)
+	require.NotNil(t, cost)
+	require.Positive(t, cost.TotalCost)
+	require.InDelta(t, pricingService.GetModelPricing("gemini-3.1-flash-image").OutputCostPerImage, cost.TotalCost, 1e-12)
+	require.Equal(t, string(BillingModeImage), cost.BillingMode)
+}
+
 func TestUS043_RegistryAliasPriceAndPolicyUseOneSnapshot(t *testing.T) {
 	resetPricingRegistrySnapshot(t)
 	envelope := registryEnvelopeForTest(t, func(registry map[string]any) {
