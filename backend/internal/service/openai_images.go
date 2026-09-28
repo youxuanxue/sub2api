@@ -84,6 +84,8 @@ type OpenAIImagesRequest struct {
 	N                     int
 	Size                  string
 	ExplicitSize          bool
+	AspectRatio           string
+	ExplicitAspectRatio   bool
 	SizeTier              string
 	ResponseFormat        string
 	Quality               string
@@ -334,6 +336,9 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 	if err := ValidateOpenAIImagesContract(req); err != nil {
 		return nil, err
 	}
+	if err := validateOpenAIImagesAspectRatio(req); err != nil {
+		return nil, err
+	}
 	req.SizeTier = normalizeOpenAIImageSizeTier(req.Size)
 	req.RequiredCapability = classifyOpenAIImagesCapability(req)
 	return req, nil
@@ -366,6 +371,13 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 	if sizeResult := gjson.GetBytes(body, "size"); sizeResult.Exists() {
 		req.Size = strings.TrimSpace(sizeResult.String())
 		req.ExplicitSize = req.Size != ""
+	}
+	if aspectResult := gjson.GetBytes(body, "aspect_ratio"); aspectResult.Exists() {
+		if aspectResult.Type != gjson.String && aspectResult.Type != gjson.Null {
+			return fmt.Errorf("aspect_ratio must be a string")
+		}
+		req.AspectRatio = strings.TrimSpace(aspectResult.String())
+		req.ExplicitAspectRatio = req.AspectRatio != ""
 	}
 	req.ResponseFormat = strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "response_format").String()))
 	if value := gjson.GetBytes(body, "quality"); value.Exists() {
@@ -518,6 +530,9 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 		case "size":
 			req.Size = value
 			req.ExplicitSize = value != ""
+		case "aspect_ratio":
+			req.AspectRatio = value
+			req.ExplicitAspectRatio = value != ""
 		case "response_format":
 			req.ResponseFormat = strings.ToLower(value)
 		case "stream":
@@ -779,6 +794,10 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	if err != nil {
 		return nil, err
 	}
+	forwardBody, forwardContentType, err = rewriteOpenAIImagesAspectRatioMarker(forwardBody, forwardContentType, parsed)
+	if err != nil {
+		return nil, err
+	}
 	// 生图是长耗时、上游侧已产生实际成本的操作：客户端中途断开不应连带取消上游请求。
 	// detachStreamUpstreamContext 在非流式时原样返回请求 context，于是客户端一断开
 	// 就把已经在出图的上游调用打断成 context canceled，网关记 502、不扣费，而上游那边
@@ -1020,7 +1039,105 @@ func rewriteOpenAIImagesModel(body []byte, contentType string, model string) ([]
 	if err != nil {
 		return nil, "", fmt.Errorf("strip image contract: %w", err)
 	}
+	// aspect_ratio is TokenKey-only soft-control input for gpt-image-*; official
+	// OpenAI Images rejects unknown parameters, so strip before API-key upstream.
+	rewritten, err = sjson.DeleteBytes(rewritten, "aspect_ratio")
+	if err != nil {
+		return nil, "", fmt.Errorf("strip aspect_ratio: %w", err)
+	}
 	return rewritten, contentType, nil
+}
+
+// rewriteOpenAIImagesAspectRatioMarker injects "marker AR=..." into the outbound
+// prompt for gpt-image-* when aspect_ratio (or a known official size) is set.
+// aspect_ratio itself is never forwarded as a JSON field.
+func rewriteOpenAIImagesAspectRatioMarker(body []byte, contentType string, parsed *OpenAIImagesRequest) ([]byte, string, error) {
+	aspectRatio := resolveOpenAIImagesAspectRatioForMarker(parsed)
+	if aspectRatio == "" {
+		return body, contentType, nil
+	}
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err == nil && strings.EqualFold(mediaType, "multipart/form-data") {
+		return rewriteOpenAIImagesMultipartPromptMarker(body, contentType, aspectRatio)
+	}
+	prompt := strings.TrimSpace(gjson.GetBytes(body, "prompt").String())
+	marked := applyOpenAIImagesAspectRatioMarker(prompt, aspectRatio)
+	if marked == prompt {
+		return body, contentType, nil
+	}
+	rewritten, err := sjson.SetBytes(body, "prompt", marked)
+	if err != nil {
+		return nil, "", fmt.Errorf("inject aspect_ratio marker: %w", err)
+	}
+	return rewritten, contentType, nil
+}
+
+func rewriteOpenAIImagesMultipartPromptMarker(body []byte, contentType string, aspectRatio string) ([]byte, string, error) {
+	_, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return nil, "", fmt.Errorf("parse multipart content-type: %w", err)
+	}
+	boundary := strings.TrimSpace(params["boundary"])
+	if boundary == "" {
+		return nil, "", fmt.Errorf("multipart boundary is required")
+	}
+
+	reader := multipart.NewReader(bytes.NewReader(body), boundary)
+	var buffer bytes.Buffer
+	writer := multipart.NewWriter(&buffer)
+	promptWritten := false
+
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, "", fmt.Errorf("read multipart body: %w", err)
+		}
+
+		formName := strings.TrimSpace(part.FormName())
+		if formName == "aspect_ratio" && part.FileName() == "" {
+			_ = part.Close()
+			continue
+		}
+		partHeader := cloneMultipartHeader(part.Header)
+		target, err := writer.CreatePart(partHeader)
+		if err != nil {
+			_ = part.Close()
+			return nil, "", fmt.Errorf("create multipart part: %w", err)
+		}
+
+		if formName == "prompt" && part.FileName() == "" {
+			raw, readErr := io.ReadAll(part)
+			_ = part.Close()
+			if readErr != nil {
+				return nil, "", fmt.Errorf("read multipart prompt: %w", readErr)
+			}
+			marked := applyOpenAIImagesAspectRatioMarker(string(raw), aspectRatio)
+			if _, err := target.Write([]byte(marked)); err != nil {
+				return nil, "", fmt.Errorf("rewrite multipart prompt: %w", err)
+			}
+			promptWritten = true
+			continue
+		}
+		if _, err := io.Copy(target, part); err != nil {
+			_ = part.Close()
+			return nil, "", fmt.Errorf("copy multipart part: %w", err)
+		}
+		_ = part.Close()
+	}
+
+	if !promptWritten {
+		marked := applyOpenAIImagesAspectRatioMarker("", aspectRatio)
+		if err := writer.WriteField("prompt", marked); err != nil {
+			return nil, "", fmt.Errorf("write multipart prompt marker: %w", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, "", fmt.Errorf("close multipart writer: %w", err)
+	}
+	return buffer.Bytes(), writer.FormDataContentType(), nil
 }
 
 func rewriteOpenAIImagesMultipartModel(body []byte, contentType string, model string) ([]byte, string, error) {
@@ -1048,7 +1165,7 @@ func rewriteOpenAIImagesMultipartModel(body []byte, contentType string, model st
 		}
 
 		formName := strings.TrimSpace(part.FormName())
-		if formName == "tk_image_contract" && part.FileName() == "" {
+		if (formName == "tk_image_contract" || formName == "aspect_ratio") && part.FileName() == "" {
 			_ = part.Close()
 			continue
 		}

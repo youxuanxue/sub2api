@@ -60,6 +60,7 @@ func buildOpenAIImagesOAuthPayload(parsed *OpenAIImagesRequest, model string) ([
 			prompt = rawPrompt
 		}
 	}
+	prompt = applyOpenAIImagesAspectRatioMarker(prompt, resolveOpenAIImagesAspectRatioForMarker(parsed))
 	payload["prompt"] = prompt
 	for _, field := range []struct {
 		key   string

@@ -393,6 +393,15 @@ func requireOpenAIImageCompatibilityAliases(t *testing.T, mapping map[string]str
 		}
 		require.Equal(t, to, mapping[from], "OpenAI image alias %s must map to %s", from, to)
 	}
+	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2-plus"])
+	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2-pro"])
+	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2-vip"])
+	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5"])
+	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5-vip"])
+	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5-flare-vip"])
+	require.Equal(t, "gpt-image-2.5-sunburst", mapping["gpt-image-2.5-sunburst-vip"])
+	_, hasImage25 := mapping["image-2.5"]
+	require.False(t, hasImage25, "image-2.5 is not a client-facing images alias")
 }
 
 func requireOpenAITextCompatibilityAliases(t *testing.T, mapping map[string]string) {
@@ -423,7 +432,13 @@ func requireTokenseaImageCompatibilityAliases(t *testing.T, mapping map[string]s
 	}
 	require.Equal(t, "gemini-3.1-flash-image", mapping["nano-2"])
 	require.Equal(t, "gemini-3-pro-image", mapping["nano-pro"])
+	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2-plus"])
+	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2-pro"])
+	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2-vip"])
 	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5"])
+	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5-vip"])
+	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5-flare-vip"])
+	require.Equal(t, "gpt-image-2.5-sunburst", mapping["gpt-image-2.5-sunburst-vip"])
 	_, hasImage25 := mapping["image-2.5"]
 	require.False(t, hasImage25, "image-2.5 is not a client-facing images alias")
 }

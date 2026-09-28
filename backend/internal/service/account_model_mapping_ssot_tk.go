@@ -495,11 +495,20 @@ func openAICanonicalAccountModelMappingFloor(ctx context.Context, pricing *Prici
 	return out
 }
 
-// Marketing / shorthand aliases for GPT Image 2.5. Canonical Studio ids are
-// flare/sunburst; clients should request gpt-image-2.5 (not image-2.5 — the
-// /v1/images ingress only accepts gpt-image-* names).
+// Marketing / shorthand aliases for GPT Image. Canonical Studio / Codex Direct
+// ids on the native OpenAI floor are flare/sunburst (gpt-image-2 is tokensea-
+// listed and still empty-mapping fail-open on OAuth). Clients may request
+// plus/pro/vip / gpt-image-2.5 (not image-2.5 — the /v1/images ingress only
+// accepts gpt-image-* names). OAuth soft-control (marker AR=) does not give
+// these aliases distinct 1K/2K/4K or hard size semantics.
 var tkOpenAIImageCompatibilityAliases = map[string]string{
-	"gpt-image-2.5": "gpt-image-2.5-flare",
+	"gpt-image-2-plus":           "gpt-image-2.5-flare",
+	"gpt-image-2-pro":            "gpt-image-2.5-flare",
+	"gpt-image-2-vip":            "gpt-image-2.5-flare",
+	"gpt-image-2.5":              "gpt-image-2.5-flare",
+	"gpt-image-2.5-vip":          "gpt-image-2.5-flare",
+	"gpt-image-2.5-flare-vip":    "gpt-image-2.5-flare",
+	"gpt-image-2.5-sunburst-vip": "gpt-image-2.5-sunburst",
 }
 
 // Public text aliases on the native OpenAI floor (not shared with relay image
@@ -573,9 +582,15 @@ func applyTokenseaImageCompatibilityAliases(out map[string]string) map[string]st
 }
 
 var tkTokenseaImageCompatibilityAliases = map[string]string{
-	"nano-2":        "gemini-3.1-flash-image",
-	"nano-pro":      "gemini-3-pro-image",
-	"gpt-image-2.5": "gpt-image-2.5-flare",
+	"nano-2":                     "gemini-3.1-flash-image",
+	"nano-pro":                   "gemini-3-pro-image",
+	"gpt-image-2-plus":           "gpt-image-2.5-flare",
+	"gpt-image-2-pro":            "gpt-image-2.5-flare",
+	"gpt-image-2-vip":            "gpt-image-2.5-flare",
+	"gpt-image-2.5":              "gpt-image-2.5-flare",
+	"gpt-image-2.5-vip":          "gpt-image-2.5-flare",
+	"gpt-image-2.5-flare-vip":    "gpt-image-2.5-flare",
+	"gpt-image-2.5-sunburst-vip": "gpt-image-2.5-sunburst",
 }
 
 // tokenseaRelaySharedExtraSSOTIDs are public CatalogPolicy models already
