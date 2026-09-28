@@ -393,6 +393,7 @@ func requireOpenAIImageCompatibilityAliases(t *testing.T, mapping map[string]str
 		}
 		require.Equal(t, to, mapping[from], "OpenAI image alias %s must map to %s", from, to)
 	}
+	require.Equal(t, "gpt-image-2", mapping["gpt-image-2"])
 	// plus/pro/vip are identity floor rows — OAuth serves the requested name.
 	for _, id := range []string{
 		"gpt-image-2-plus",
