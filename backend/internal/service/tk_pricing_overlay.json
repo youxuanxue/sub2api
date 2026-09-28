@@ -21,7 +21,10 @@
     "nano-pro": "gemini-3-pro-image",
     "gemini-3-flash": "gemini-3.8-flash",
     "gemini-3-flash-preview": "gemini-3.8-flash",
-    "gemini-3.5-flash-lite": "gemini-3.6-flash"
+    "gemini-3.5-flash-lite": "gemini-3.6-flash",
+    "gemini-web-flash": "gemini-3.8-flash",
+    "gemini-web-pro": "gemini-3.1-pro",
+    "gemini-web-pro-image": "gemini-3.1-flash-image"
   },
   "_config": {
     "official_list_base_tax": {

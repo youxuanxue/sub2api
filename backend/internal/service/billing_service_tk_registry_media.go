@@ -10,8 +10,11 @@ func (s *BillingService) tkRegistryMediaPricing(model string) *LiteLLMModelPrici
 	if snapshot == nil {
 		return nil
 	}
-	owner := snapshot.Models[strings.ToLower(strings.TrimSpace(model))]
-	return tkPresentLiteLLMModelPricingFromSnapshot(owner, snapshot)
+	key := strings.ToLower(strings.TrimSpace(model))
+	if owner, ok := snapshot.Aliases[key]; ok {
+		key = owner
+	}
+	return tkPresentLiteLLMModelPricingFromSnapshot(snapshot.Models[key], snapshot)
 }
 
 // tkRegistryImageTierPrice resolves explicit size-tier prices from the active
