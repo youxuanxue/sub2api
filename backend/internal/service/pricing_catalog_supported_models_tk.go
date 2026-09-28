@@ -72,6 +72,10 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	"gpt-6-astra": {},
 	"gpt-6-luna":  {},
 	"gpt-6-sol":   {},
+	// GPT Image 2 remains the default Images model id and an official OpenAI
+	// SKU; keep identity so floor-applied OAuth accounts do not lose it when
+	// empty-mapping fail-open is replaced by the compiled floor.
+	"gpt-image-2": {},
 	// GPT Image 2.5: edge OpenAI OAuth Codex image_generation verified
 	// servable_image_generated 2026-09-17 (us4 gpt-34) for flare + sunburst.
 	"gpt-image-2.5-flare":    {},

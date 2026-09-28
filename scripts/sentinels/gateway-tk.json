@@ -6433,6 +6433,51 @@
       "rationale": "Image S3 offload INJECTION point in the APIKey non-streaming path (handleOpenAIImagesNonStreamingResponse). Billing facts are read from the ORIGINAL body first, then the body is rewritten to a presigned URL before c.Data — but ONLY when image offload is opted in (MediaStorage.ImageOffloadEnabled); the default is pass-through. The call site must stay even though it early-returns by default, so a future re-enable has its seam. Compile-clean if dropped; this anchor catches an upstream merge silently removing the seam. See the companion sentinel openai_images_s3_tk.go."
     },
     {
+      "path": "backend/internal/service/openai_images_aspect_ratio_tk.go",
+      "must_contain": [
+        "openAIImagesAllowedAspectRatios",
+        "func resolveOpenAIImagesAspectRatioForMarker(parsed *OpenAIImagesRequest, deriveFromSize bool) string",
+        "func applyOpenAIImagesAspectRatioMarker(prompt, aspectRatio string) string",
+        "marker AR="
+      ],
+      "rationale": "TK companion for gpt-image-* soft aspect-ratio control. Official Images has no aspect_ratio JSON field; TokenKey admits the reduced ratio set and injects prompt text marker AR=... . deriveFromSize must stay false on API-key Images (size is already a hard control) and true on OAuth/Responses builders. Losing this companion compiles clean only if call sites are also deleted — keep both."
+    },
+    {
+      "path": "backend/internal/service/openai_images.go",
+      "must_contain": [
+        "forwardBody, forwardContentType, err = rewriteOpenAIImagesAspectRatioMarker(forwardBody, forwardContentType, parsed)",
+        "sjson.DeleteBytes(rewritten, \"aspect_ratio\")",
+        "case \"png\", \"jpeg\", \"auto\":"
+      ],
+      "rationale": "API-key Images injection: admit/strip aspect_ratio (never forward as JSON), inject marker AR only for explicit aspect_ratio (not size-derived), and exact-contract output_format allowlist includes jpeg. Upstream merge that drops the rewrite call or reverts jpeg admission silently breaks Studio ratio control / exact jpeg."
+    },
+    {
+      "path": "backend/internal/service/openai_images_direct.go",
+      "must_contain": [
+        "prompt = applyOpenAIImagesAspectRatioMarker(prompt, resolveOpenAIImagesAspectRatioForMarker(parsed, true))"
+      ],
+      "rationale": "Direct/OAuth soft-control builder must derive marker AR from explicit aspect_ratio or known official size (deriveFromSize=true)."
+    },
+    {
+      "path": "backend/internal/service/openai_images_responses.go",
+      "must_contain": [
+        "prompt = applyOpenAIImagesAspectRatioMarker(prompt, resolveOpenAIImagesAspectRatioForMarker(parsed, true))"
+      ],
+      "rationale": "Codex Responses OAuth image_generation builder must inject marker AR with size-derived fallback; dropping this call leaves aspect_ratio admitted but never applied upstream."
+    },
+    {
+      "path": "backend/internal/service/openai_images_aspect_ratio_tk_test.go",
+      "must_contain": [
+        "TestNormalizeOpenAIImagesAspectRatioAllowlist",
+        "TestApplyOpenAIImagesAspectRatioMarkerIdempotent",
+        "TestOpenAIImagesAspectRatioFromSize",
+        "TestBuildOpenAIImagesOAuthPayloadInjectsAspectRatioMarker",
+        "TestRewriteOpenAIImagesAspectRatioMarkerDoesNotDeriveFromSize",
+        "TestRewriteOpenAIImagesAspectRatioMarkerSkipsWhenAPIKeySizeExplicit"
+      ],
+      "rationale": "Regression coverage for gpt-image aspect_ratio admit/reject, marker idempotency, size→ratio derivation, OAuth payload injection, API-key size-not-derived marker rewrite, and API-key ExplicitSize suppressing soft AR."
+    },
+    {
       "path": "backend/internal/service/openai_images_responses.go",
       "must_contain": [
         "s.tkMaybeOffloadImagesToS3(c.Request.Context(), responseBody,"

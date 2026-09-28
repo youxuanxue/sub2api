@@ -97,9 +97,13 @@ func TestOpenAIImagesContractExact(t *testing.T) {
 			wantErr: "quality must be auto, low, medium, high, xhigh, or max",
 		},
 		{
+			name: "exact accepts png and jpeg output formats",
+			body: `{"model":"gpt-image-2","prompt":"draw","output_format":"jpeg","tk_image_contract":"exact"}`,
+		},
+		{
 			name:    "exact rejects format normalized by upstream",
 			body:    `{"model":"gpt-image-2","prompt":"draw","output_format":"webp","tk_image_contract":"exact"}`,
-			wantErr: "output_format must be png or auto",
+			wantErr: "output_format must be png, jpeg, or auto",
 		},
 		{
 			name:    "exact rejects transparent background normalized by upstream",
@@ -984,7 +988,8 @@ func TestOpenAIGatewayServiceForwardImages_OAuthPassesNAndReturnsAllImages(t *te
 	require.Equal(t, "1024x1024", gjson.GetBytes(upstream.lastBody, "tools.0.size").String())
 	require.Equal(t, "high", gjson.GetBytes(upstream.lastBody, "tools.0.quality").String())
 	require.Equal(t, int64(3), gjson.GetBytes(upstream.lastBody, "tools.0.n").Int())
-	require.Equal(t, "draw a cat", gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String())
+	// OAuth Responses soft-control derives marker AR from official size.
+	require.Equal(t, "draw a cat, marker AR=1:1", gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String())
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "gpt-image-1", gjson.Get(rec.Body.String(), "model").String())
