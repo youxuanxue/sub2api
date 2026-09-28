@@ -1098,6 +1098,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			s.markGeminiCompatPolicySignal(c, collectedBytes, false)
 			upstreamResponseModelObserverFromContext(c).ObserveGemini(collectedBytes)
 			observeGeminiImageOutputs(c, collectedBytes)
+			stashGeminiWebEstimateResponseBody(c, collectedBytes)
 			if err := validateGeminiCompatImageResponse(collected); err != nil {
 				return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", err.Error())
 			}
@@ -1124,7 +1125,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	imageSize := normalizeOpenAIImageSizeTier(imageInputSize)
 	imageCount := resolveGeminiImageCount(c, originalModel, mappedModel)
 
-	return &ForwardResult{
+	result := &ForwardResult{
 		RequestID:                     requestID,
 		UpstreamHeaders:               resp.Header,
 		Usage:                         *usage,
@@ -1138,7 +1139,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		ImageCount:                    imageCount,
 		ImageSize:                     imageSize,
 		ImageInputSize:                imageInputSize,
-	}, responseErr
+	}
+	applyGeminiWebTextUsageEstimate(c, account, result, geminiReq)
+	return result, responseErr
 }
 
 func isGeminiSignatureRelatedError(respBody []byte) bool {
@@ -1600,6 +1603,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			b, _ := json.Marshal(collected)
 			upstreamResponseModelObserverFromContext(c).ObserveGemini(b)
 			observeGeminiImageOutputs(c, b)
+			stashGeminiWebEstimateResponseBody(c, b)
 			c.Data(http.StatusOK, "application/json", b)
 			usage = usageObj
 		} else {
@@ -1620,7 +1624,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	imageSize := normalizeOpenAIImageSizeTier(imageInputSize)
 	imageCount := resolveGeminiImageCount(c, originalModel, mappedModel)
 
-	return &ForwardResult{
+	result := &ForwardResult{
 		RequestID:                     requestID,
 		UpstreamHeaders:               resp.Header,
 		Usage:                         *usage,
@@ -1635,7 +1639,12 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		ImageCount:                    imageCount,
 		ImageSize:                     imageSize,
 		ImageInputSize:                imageInputSize,
-	}, nil
+	}
+	// countTokens is a local/probe path — never invent chat settlement usage.
+	if action != "countTokens" {
+		applyGeminiWebTextUsageEstimate(c, account, result, body)
+	}
+	return result, nil
 }
 
 func (s *GeminiMessagesCompatService) shouldRetryGeminiUpstreamError(account *Account, statusCode int) bool {
@@ -2049,6 +2058,7 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 	}
 	claudeResp, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, unwrappedBody)
 	c.JSON(http.StatusOK, claudeResp)
+	stashGeminiWebEstimateResponseBody(c, unwrappedBody)
 
 	return usage, nil
 }
@@ -2102,6 +2112,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	openToolName := ""
 	seenToolJSON := ""
 	var internalThinkingBlocks []string
+	defer func() { stashGeminiWebEstimateOutputText(c, seenText) }()
 
 	reader := bufio.NewReader(resp.Body)
 	for {
@@ -2744,6 +2755,7 @@ func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(c *gin.Co
 	}
 	c.Data(resp.StatusCode, contentType, respBody)
 
+	stashGeminiWebEstimateResponseBody(c, respBody)
 	if u := extractGeminiUsage(respBody); u != nil {
 		return u, nil
 	}
@@ -2793,6 +2805,8 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 	sawDataEvent := false
 	lastWroteDataEvent := false
 	fallback := &geminiSSEFallbackBody{}
+	estimateSeenText := ""
+	defer func() { stashGeminiWebEstimateOutputText(c, estimateSeenText) }()
 
 	for {
 		line, err := reader.ReadString('\n')
@@ -2833,6 +2847,17 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 					}
 					observer.ObserveGemini(rawBytes)
 					observeGeminiImageOutputs(c, rawBytes)
+					if len(rawBytes) > 0 {
+						stashGeminiWebEstimateResponseBody(c, rawBytes)
+						var geminiResp map[string]any
+						if json.Unmarshal(rawBytes, &geminiResp) == nil {
+							for _, part := range extractGeminiParts(geminiResp) {
+								if text, ok := part["text"].(string); ok && text != "" && part["gemini_inline_image"] != true {
+									_, estimateSeenText = computeGeminiTextDelta(estimateSeenText, text)
+								}
+							}
+						}
+					}
 
 					if firstTokenMs == nil {
 						ms := int(time.Since(startTime).Milliseconds())

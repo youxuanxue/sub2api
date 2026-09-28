@@ -251,6 +251,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 		collectedBytes, _ := json.Marshal(collected)
 		s.markGeminiCompatPolicySignal(c, collectedBytes, false)
 		observeGeminiImageOutputs(c, collectedBytes)
+		stashGeminiWebEstimateResponseBody(c, collectedBytes)
 		responsesResp, usageObj2, err := geminiResponseToResponses(collected, originalModel, collectedBytes, usageObj)
 		if err != nil {
 			return nil, s.writeResponsesCompatError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
@@ -277,7 +278,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 	imageInputSize := s.extractImageInputSize(claudeBody)
 	imageSize := normalizeOpenAIImageSizeTier(imageInputSize)
 
-	return &ForwardResult{
+	result := &ForwardResult{
 		RequestID:        requestID,
 		Usage:            *usage,
 		Model:            originalModel,
@@ -290,7 +291,9 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 		ImageSize:        imageSize,
 		ImageInputSize:   imageInputSize,
 		ClientDisconnect: false,
-	}, responseErr
+	}
+	applyGeminiWebTextUsageEstimate(c, account, result, geminiReq)
+	return result, responseErr
 }
 
 func (s *GeminiMessagesCompatService) handleResponsesNonStreamingResponseFromGemini(
@@ -326,6 +329,7 @@ func (s *GeminiMessagesCompatService) handleResponsesNonStreamingResponseFromGem
 	}
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	c.JSON(http.StatusOK, responsesResp)
+	stashGeminiWebEstimateResponseBody(c, respBody)
 	return usage, nil
 }
 
@@ -438,6 +442,7 @@ func (s *GeminiMessagesCompatService) handleResponsesStreamingResponseFromGemini
 	openToolIndex := -1
 	openToolName := ""
 	seenToolJSON := ""
+	defer func() { stashGeminiWebEstimateOutputText(c, seenText) }()
 
 	closeOpenBlock := func() bool {
 		if openBlockIndex < 0 {
