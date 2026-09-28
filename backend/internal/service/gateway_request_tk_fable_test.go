@@ -185,3 +185,69 @@ func TestIsTokenseaRelayUpstream_NewAPIChannel(t *testing.T) {
 		Credentials: map[string]any{"base_url": "https://agentn.global.api5.cursor.sh"},
 	}))
 }
+
+// Prod 2026-09-28 user 16: claude-opus-5 → account 136 (tokensea) 400
+// "system.3.cache_control.***.scope: Extra inputs are not permitted".
+func TestTkStripTokenseaCacheControlScope_StripsSystemMessagesTools(t *testing.T) {
+	account := tokenseaNewAPIAccount(136)
+	body := []byte(`{"model":"claude-opus-5","system":[{"type":"text","text":"billing"},{"type":"text","text":"identity"},{"type":"text","text":"expansion","cache_control":{"type":"ephemeral","ttl":"5m"}},{"type":"text","text":"project","cache_control":{"type":"ephemeral","ttl":"1h","scope":"org"}}],"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","scope":"org"}}]}],"tools":[{"name":"lookup","input_schema":{},"cache_control":{"type":"ephemeral","scope":"org"}}],"max_tokens":32}`)
+
+	got := tkStripTokenseaCacheControlScope(account, body)
+	require.False(t, gjson.GetBytes(got, "system.3.cache_control.scope").Exists())
+	require.Equal(t, "ephemeral", gjson.GetBytes(got, "system.3.cache_control.type").String())
+	require.Equal(t, "1h", gjson.GetBytes(got, "system.3.cache_control.ttl").String())
+	require.False(t, gjson.GetBytes(got, "system.2.cache_control.scope").Exists())
+	require.Equal(t, "5m", gjson.GetBytes(got, "system.2.cache_control.ttl").String())
+	require.False(t, gjson.GetBytes(got, "messages.0.content.0.cache_control.scope").Exists())
+	require.Equal(t, "ephemeral", gjson.GetBytes(got, "messages.0.content.0.cache_control.type").String())
+	require.False(t, gjson.GetBytes(got, "tools.0.cache_control.scope").Exists())
+	require.Equal(t, "ephemeral", gjson.GetBytes(got, "tools.0.cache_control.type").String())
+	require.Equal(t, "claude-opus-5", gjson.GetBytes(got, "model").String())
+	require.Equal(t, "project", gjson.GetBytes(got, "system.3.text").String())
+}
+
+func TestTkStripTokenseaCacheControlScope_NoTouch(t *testing.T) {
+	tokensea := tokenseaNewAPIAccount(136)
+	cursor := &Account{
+		ID:       150,
+		Platform: PlatformNewAPI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agentn.global.api5.cursor.sh",
+			"api_key":  "sk-test",
+		},
+		Extra: map[string]any{"upstream_provider": "cursor"},
+	}
+	scoped := `{"model":"claude-opus-5","system":[{"type":"text","text":"project","cache_control":{"type":"ephemeral","scope":"org"}}],"max_tokens":32}`
+	noScope := `{"model":"claude-opus-5","system":[{"type":"text","text":"project","cache_control":{"type":"ephemeral","ttl":"1h"}}],"max_tokens":32}`
+
+	t.Run("cursor keeps scope", func(t *testing.T) {
+		got := tkStripTokenseaCacheControlScope(cursor, []byte(scoped))
+		require.Equal(t, scoped, string(got))
+	})
+	t.Run("nil account keeps scope", func(t *testing.T) {
+		got := tkStripTokenseaCacheControlScope(nil, []byte(scoped))
+		require.Equal(t, scoped, string(got))
+	})
+	t.Run("tokensea without scope is no-op", func(t *testing.T) {
+		got := tkStripTokenseaCacheControlScope(tokensea, []byte(noScope))
+		require.Equal(t, noScope, string(got))
+	})
+}
+
+func TestTkStripTokenseaCacheControlScope_OpenAIAndAnthropicTypedRelays(t *testing.T) {
+	scoped := []byte(`{"model":"claude-opus-5","system":[{"type":"text","text":"project","cache_control":{"type":"ephemeral","scope":"org"}}],"max_tokens":32}`)
+	openaiRelay := &Account{
+		Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"base_url": "https://agent.tokensea.ai/v1"},
+	}
+	anthropicRelay := &Account{
+		Platform: PlatformAnthropic, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"base_url": "https://agent.tokensea.ai"},
+	}
+	for _, account := range []*Account{openaiRelay, anthropicRelay} {
+		got := tkStripTokenseaCacheControlScope(account, scoped)
+		require.False(t, gjson.GetBytes(got, "system.0.cache_control.scope").Exists())
+		require.Equal(t, "ephemeral", gjson.GetBytes(got, "system.0.cache_control.type").String())
+	}
+}

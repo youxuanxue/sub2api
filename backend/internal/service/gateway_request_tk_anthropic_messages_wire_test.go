@@ -169,6 +169,18 @@ func TestTkPrepareAnthropicMessagesWireBody_StripsTokenseaContextManagement(t *t
 	require.Equal(t, "adaptive", gjson.GetBytes(out, "thinking.type").String())
 }
 
+// Prod 2026-09-28 user 16: same wire SSOT must also drop cache_control.scope
+// on tokensea (account 136 × claude-opus-5).
+func TestTkPrepareAnthropicMessagesWireBody_StripsTokenseaCacheControlScope(t *testing.T) {
+	account := tokenseaNewAPIAccount(136)
+	input := []byte(`{"model":"claude-opus-5","thinking":{"type":"adaptive"},"system":[{"type":"text","text":"a"},{"type":"text","text":"b"},{"type":"text","text":"c"},{"type":"text","text":"project","cache_control":{"type":"ephemeral","ttl":"1h","scope":"org"}}],"messages":[{"role":"user","content":"hi"}]}`)
+	out := tkPrepareAnthropicMessagesWireBody(account, input, "claude-opus-5")
+	require.False(t, gjson.GetBytes(out, "system.3.cache_control.scope").Exists())
+	require.Equal(t, "ephemeral", gjson.GetBytes(out, "system.3.cache_control.type").String())
+	require.Equal(t, "1h", gjson.GetBytes(out, "system.3.cache_control.ttl").String())
+	require.Equal(t, "adaptive", gjson.GetBytes(out, "thinking.type").String())
+}
+
 func TestTkRectifyAnthropicThinkingContract400_FinalBlockThinking(t *testing.T) {
 	body := []byte(`{
 		"model":"claude-fable-5",
