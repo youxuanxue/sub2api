@@ -28,14 +28,16 @@ import (
 //  2. TkPrefilterToolSearchHistoricalThinking (claude-code #63792 / #10199)
 //  3. tkRepairHistoricalAssistantTrailingThinking (final-block-cannot-be-thinking)
 //  4. tkStripTokenseaContextManagement (tokensea rejects CM on all models)
+//  5. tkStripTokenseaCacheControlScope (tokensea rejects cache_control.scope)
 //
-// Callers that already applied (1)/(4) may call this anyway — all steps are
+// Callers that already applied (1)/(4)/(5) may call this anyway — all steps are
 // idempotent on a clean body.
 func tkPrepareAnthropicMessagesWireBody(account *Account, body []byte, mappedModel string) []byte {
 	body = FilterThinkingBlocks(body, mappedModel)
 	body = TkPrefilterToolSearchHistoricalThinking(body, mappedModel)
 	body = tkRepairHistoricalAssistantTrailingThinking(body, mappedModel)
 	body = tkStripTokenseaContextManagement(account, body)
+	body = tkStripTokenseaCacheControlScope(account, body)
 	return body
 }
 
