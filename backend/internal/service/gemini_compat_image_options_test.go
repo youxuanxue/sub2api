@@ -32,6 +32,26 @@ func TestGeminiCompatImageOptionsPreserveNativeConfiguration(t *testing.T) {
 	}
 }
 
+func TestGeminiCompatImageOptionsLiftStudioExtraBodyAspectRatio(t *testing.T) {
+	original := []byte(`{"model":"gemini-3.1-flash-image","messages":[{"role":"user","content":"draw an apple"}],"extra_body":{"google":{"image_config":{"aspect_ratio":"1:1"}}}}`)
+	converted, err := preserveGeminiCompatOptions(original, []byte(`{"model":"gemini-3.1-flash-image","max_tokens":8192,"messages":[{"role":"user","content":"draw an apple"}]}`))
+	require.NoError(t, err)
+	native, err := convertClaudeMessagesToGeminiGenerateContent(converted)
+	require.NoError(t, err)
+	require.Equal(t, "1:1", gjson.GetBytes(native, "generationConfig.imageConfig.aspectRatio").String())
+}
+
+func TestGeminiCompatImageOptionsRejectMalformedExtraBody(t *testing.T) {
+	for _, body := range []string{
+		`{"extra_body":{"foo":1}}`,
+		`{"extra_body":{"google":{"image_config":{"aspect_ratio":"1:1","image_size":"2K"}}}}`,
+		`{"extra_body":{"google":{"image_config":{"aspect_ratio":1}}}}`,
+	} {
+		_, err := preserveGeminiCompatOptions([]byte(body), []byte(`{"model":"gemini-test","messages":[{"role":"user","content":"draw"}]}`))
+		require.Error(t, err, body)
+	}
+}
+
 func TestGeminiCompatOptionsPreserveExplicitTokenLimits(t *testing.T) {
 	for _, limit := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens"} {
 		converted, err := preserveGeminiCompatOptions([]byte(`{"`+limit+`":71}`), []byte(`{"max_tokens":71}`))
