@@ -159,6 +159,23 @@ func TestRewriteOpenAIImagesAspectRatioMarkerDoesNotDeriveFromSize(t *testing.T)
 	require.Equal(t, "1536x1024", gjson.GetBytes(marked, "size").String())
 }
 
+func TestRewriteOpenAIImagesAspectRatioMarkerSkipsWhenAPIKeySizeExplicit(t *testing.T) {
+	t.Parallel()
+	// Hard size already sets canvas; do not also inject soft AR that can fight WxH.
+	parsed := &OpenAIImagesRequest{
+		Model:               "gpt-image-2",
+		Prompt:              "a tiny gray cube",
+		Size:                "1024x1024",
+		ExplicitSize:        true,
+		AspectRatio:         "16:9",
+		ExplicitAspectRatio: true,
+	}
+	body := []byte(`{"model":"gpt-image-2","prompt":"a tiny gray cube","size":"1024x1024","aspect_ratio":"16:9"}`)
+	marked, _, err := rewriteOpenAIImagesAspectRatioMarker(body, "application/json", parsed)
+	require.NoError(t, err)
+	require.Equal(t, "a tiny gray cube", gjson.GetBytes(marked, "prompt").String())
+}
+
 func TestRewriteOpenAIImagesMultipartAspectRatioMarker(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer

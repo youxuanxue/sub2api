@@ -6472,9 +6472,10 @@
         "TestApplyOpenAIImagesAspectRatioMarkerIdempotent",
         "TestOpenAIImagesAspectRatioFromSize",
         "TestBuildOpenAIImagesOAuthPayloadInjectsAspectRatioMarker",
-        "TestRewriteOpenAIImagesAspectRatioMarkerDoesNotDeriveFromSize"
+        "TestRewriteOpenAIImagesAspectRatioMarkerDoesNotDeriveFromSize",
+        "TestRewriteOpenAIImagesAspectRatioMarkerSkipsWhenAPIKeySizeExplicit"
       ],
-      "rationale": "Regression coverage for gpt-image aspect_ratio admit/reject, marker idempotency, size→ratio derivation, OAuth payload injection, and API-key size-not-derived marker rewrite."
+      "rationale": "Regression coverage for gpt-image aspect_ratio admit/reject, marker idempotency, size→ratio derivation, OAuth payload injection, API-key size-not-derived marker rewrite, and API-key ExplicitSize suppressing soft AR."
     },
     {
       "path": "backend/internal/service/openai_images_responses.go",

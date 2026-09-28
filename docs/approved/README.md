@@ -87,6 +87,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`client-closed-499-ssot.md`](client-closed-499-ssot.md) | Client-closed 499 classification owners (ingress predicate, constant, ops phase) |
 | [`upstream-model-retirement.md`](upstream-model-retirement.md) | Upstream model retirement evidence, failover and SLA attribution |
 | [`openai-compat-first-selection-failure.md`](openai-compat-first-selection-failure.md) | OpenAI-compatible first-selection failure contract |
+| [`gpt-image-aspect-ratio-soft-control.md`](gpt-image-aspect-ratio-soft-control.md) | GPT Image `aspect_ratio` soft marker, exact jpeg, floor identity |
 | [`universal-key-routing.md`](universal-key-routing.md) | Universal key routing |
 | [`candidate-eligibility-ssot.md`](candidate-eligibility-ssot.md) | Candidate scheduling policy and implementation boundary |
 | [`design-candidate-routing-runtime-snapshot.md`](design-candidate-routing-runtime-snapshot.md) | Candidate read snapshot, canonical request and QA redaction performance plan |

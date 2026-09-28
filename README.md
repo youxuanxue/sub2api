@@ -748,6 +748,17 @@ return `400` before upstream. The TokenKey-only field is stripped before
 forwarding. Quality values are admitted from successful upstream probes; the
 Images response does not echo a quality field.
 
+For `gpt-image-*` only, TokenKey also admits an optional TokenKey-only
+`aspect_ratio` (`1:1` / `3:2` / `2:3` / `16:9` / `9:16`; other values return
+`400`). Official OpenAI Images has no such JSON field: the gateway strips it
+before upstream and soft-controls canvas ratio by injecting `marker AR=...`
+into the outbound prompt (OAuth / Responses may also derive the marker from a
+known official `size`). On the API-key Images path, an explicit hard `size`
+wins — the gateway does not also inject an AR marker that could fight WxH.
+Prompt-only marketing size tags such as `size=1k|2k|4k` are not a TokenKey
+contract. Full owner table:
+[`docs/approved/gpt-image-aspect-ratio-soft-control.md`](docs/approved/gpt-image-aspect-ratio-soft-control.md).
+
 ---
 
 ## Grok / xAI Support

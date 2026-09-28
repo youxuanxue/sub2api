@@ -86,12 +86,16 @@ func openAIImagesAspectRatioFromSize(size string) string {
 // aspect_ratio. When deriveFromSize is true (OAuth / Responses soft-control
 // paths), a known official size may also derive the marker. API-key Images
 // already honors size as a hard control, so that path must pass false to avoid
-// polluting the prompt with "marker AR=...".
+// size-derived markers — and must also skip explicit AR markers when size is
+// already set, so soft AR text cannot fight the official WxH size.
 func resolveOpenAIImagesAspectRatioForMarker(parsed *OpenAIImagesRequest, deriveFromSize bool) string {
 	if parsed == nil || !IsGPTImageGenerationModel(parsed.Model) {
 		return ""
 	}
 	if parsed.ExplicitAspectRatio {
+		if !deriveFromSize && parsed.ExplicitSize {
+			return ""
+		}
 		return strings.TrimSpace(parsed.AspectRatio)
 	}
 	if deriveFromSize && parsed.ExplicitSize {
