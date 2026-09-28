@@ -151,6 +151,20 @@ def count_citations(root: Path, delta: Path, corpus: dict[Path, str]) -> list[st
     return sorted(citers)
 
 
+def owner_path_exists(root: Path, owner: str) -> bool:
+    """Return whether an owner resolves to a file inside the repository."""
+    raw = Path(owner)
+    if raw.is_absolute():
+        return False
+    try:
+        root_resolved = root.resolve()
+        candidate = (root_resolved / raw).resolve()
+        candidate.relative_to(root_resolved)
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return candidate.is_file()
+
+
 def check(root: Path, quiet: bool = False) -> list[str]:
     deltas = discover(root)
     if not deltas:
@@ -174,9 +188,9 @@ def check(root: Path, quiet: bool = False) -> list[str]:
         citers = count_citations(root, delta, corpus)
 
         for owner in owners:
-            if not (root / owner).exists():
+            if not owner_path_exists(root, owner):
                 errors.append(
-                    f"{rel}: Owners table registers '{owner}', which does not exist. "
+                    f"{rel}: Owners table registers '{owner}', which is not a file inside the repository. "
                     "A registered owner that is gone is a broken contract: update the "
                     "table to the current owner, or remove the row if the behavior is gone."
                 )
@@ -206,8 +220,10 @@ def selftest() -> int:
     import tempfile
 
     failures: list[str] = []
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside_tmp:
         root = Path(tmp)
+        outside = Path(outside_tmp) / "outside.go"
+        outside.write_text("package outside\n", encoding="utf-8")
         (root / "docs" / "spec-delta").mkdir(parents=True)
         (root / "backend").mkdir()
         (root / "scripts").mkdir()
@@ -223,6 +239,17 @@ def selftest() -> int:
         (root / "docs" / "spec-delta-dangling.md").write_text(
             "# d\n\n## Owners\n\n| 行为 | 唯一 owner |\n| --- | --- |\n"
             "| x | `backend/gone.go` |\n",
+            encoding="utf-8",
+        )
+        # Absolute and traversal owner paths must not escape the repository root.
+        (root / "docs" / "spec-delta-absolute.md").write_text(
+            "# absolute\n\n## Owners\n\n| 行为 | 唯一 owner |\n| --- | --- |\n"
+            f"| x | `{outside}` |\n",
+            encoding="utf-8",
+        )
+        (root / "docs" / "spec-delta-traversal.md").write_text(
+            "# traversal\n\n## Owners\n\n| 行为 | 唯一 owner |\n| --- | --- |\n"
+            f"| x | `../{outside.parent.name}/outside.go` |\n",
             encoding="utf-8",
         )
         # English mid-document heading + English table header, dangling owner.
@@ -257,6 +284,10 @@ def selftest() -> int:
             failures.append("dangling owner path not reported")
         if "backend/gone.go" not in joined:
             failures.append("dangling owner path name missing from message")
+        if "spec-delta-absolute.md" not in joined:
+            failures.append("absolute owner path escaping the repository was accepted")
+        if "spec-delta-traversal.md" not in joined:
+            failures.append("traversal owner path escaping the repository was accepted")
         if "spec-delta-ok.md" in joined:
             failures.append("existing owner path wrongly reported")
         if "backend/also-gone.go" not in joined:
@@ -265,8 +296,8 @@ def selftest() -> int:
             failures.append("prose path outside the Owners table wrongly treated as a registration")
         if "spec-delta-narrates.md" in joined:
             failures.append("doc narrating an upstream deletion wrongly failed")
-        if len(errors) != 2:
-            failures.append(f"expected exactly 2 errors, got {len(errors)}: {errors}")
+        if len(errors) != 4:
+            failures.append(f"expected exactly 4 errors, got {len(errors)}: {errors}")
 
         # the narrating doc must still be live via its real Owners table
         narrates = owner_paths((root / "docs" / "spec-delta-narrates.md").read_text(encoding="utf-8"))
@@ -278,9 +309,11 @@ def selftest() -> int:
         expected = {
             "spec-delta-ok.md",
             "spec-delta-dangling.md",
+            "spec-delta-absolute.md",
             "spec-delta-english.md",
             "spec-delta-narrates.md",
             "spec-delta-stub.md",
+            "spec-delta-traversal.md",
             "cited.md",
         }
         if deltas != expected:
@@ -294,6 +327,19 @@ def selftest() -> int:
             failures.append("stub wrongly reported as cited")
         if owner_paths((root / "docs" / "spec-delta-stub.md").read_text(encoding="utf-8")):
             failures.append("stub wrongly parsed as having owners")
+
+        (root / "backend" / "escape.go").symlink_to(outside)
+        (root / "backend" / "local.go").symlink_to("svc.go")
+        (root / "backend" / "directory.go").mkdir()
+        for owner, expected_valid in (
+            (str(root / "backend" / "svc.go"), False),
+            ("backend/escape.go", False),
+            ("backend/directory.go", False),
+            ("backend/local.go", True),
+            ("backend/../backend/svc.go", True),
+        ):
+            if owner_path_exists(root, owner) != expected_valid:
+                failures.append(f"owner path boundary wrong for {owner}: expected {expected_valid}")
 
     if failures:
         for failure in failures:
