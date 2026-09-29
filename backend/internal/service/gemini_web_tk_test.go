@@ -108,3 +108,65 @@ func TestRateLimitService_HandleUpstreamError_GeminiWebMissingAccountReference40
 	require.True(t, shouldDisable)
 	require.Equal(t, 1, repo.setErrorCalls)
 }
+
+func TestGeminiForward_MissingAccountReferenceReturnsClient400(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	errBody := `{"error":{"code":401,"status":"UNAUTHENTICATED","message":"Missing Gemini Web account reference"}}`
+	account := &Account{
+		ID:       28,
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":    "worker-key",
+			"gemini_web": map[string]any{"runtime": map[string]any{"version": 1}},
+		},
+	}
+	repo := &rateLimitAccountRepoStub{}
+	rateLimit := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+
+	type entry struct {
+		name string
+		run  func(svc *GeminiMessagesCompatService, c *gin.Context) error
+	}
+	entries := []entry{
+		{"chat", func(svc *GeminiMessagesCompatService, c *gin.Context) error {
+			_, err := svc.ForwardAsChatCompletions(context.Background(), c, account,
+				[]byte(`{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"hello"}],"max_tokens":16}`))
+			return err
+		}},
+		{"messages", func(svc *GeminiMessagesCompatService, c *gin.Context) error {
+			_, err := svc.Forward(context.Background(), c, account,
+				[]byte(`{"model":"gemini-2.5-flash","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`))
+			return err
+		}},
+		{"native", func(svc *GeminiMessagesCompatService, c *gin.Context) error {
+			_, err := svc.ForwardNative(context.Background(), c, account, "gemini-2.5-flash", "generateContent", false,
+				[]byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`))
+			return err
+		}},
+	}
+	for _, ep := range entries {
+		t.Run(ep.name, func(t *testing.T) {
+			repo.setErrorCalls = 0
+			repo.tempCalls = 0
+			upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+				StatusCode: http.StatusUnauthorized,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(errBody)),
+			}}
+			svc := &GeminiMessagesCompatService{
+				httpUpstream:     upstream,
+				cfg:              &config.Config{},
+				rateLimitService: rateLimit,
+			}
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+			require.Error(t, ep.run(svc, c))
+			require.Equal(t, http.StatusBadRequest, w.Code, "client must see 400, not upstream 401")
+			require.Contains(t, w.Body.String(), "Missing Gemini Web account reference")
+			require.Equal(t, 0, repo.setErrorCalls, "request-shape fault must not SetError")
+			require.Equal(t, 0, repo.tempCalls)
+		})
+	}
+}

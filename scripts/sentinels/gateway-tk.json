@@ -2731,9 +2731,10 @@
         "stashGeminiWebEstimateResponseBody(c, collectedBytes)",
         "stashGeminiWebEstimateResponseBody(c, unwrappedBody)",
         "stashGeminiWebEstimateResponseBody(c, respBody)",
-        "stashGeminiWebEstimateOutputText(c, seenText)"
+        "stashGeminiWebEstimateOutputText(c, seenText)",
+        "geminiWebMissingAccountReferenceClientFault(account, resp.StatusCode, respBody)"
       ],
-      "rationale": "Messages Forward and ForwardNative must invoke applyGeminiWebTextUsageEstimate and stash response materials. Unit tests call the helper directly, so deleting these shared-upstream call sites stays green while gemini-web text returns to $0."
+      "rationale": "Messages Forward and ForwardNative must invoke applyGeminiWebTextUsageEstimate and stash response materials. Unit tests call the helper directly, so deleting these shared-upstream call sites stays green while gemini-web text returns to $0. Missing Worker account-binding must short-circuit to client 400 before handleGeminiUpstreamError / failover — otherwise Chat-compat omission SetErrors healthy sessions."
     },
     {
       "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
@@ -2742,9 +2743,10 @@
         "stashGeminiWebEstimateResponseBody(c, collectedBytes)",
         "stashGeminiWebEstimateResponseBody(c, respBody)",
         "stashGeminiWebEstimateOutputText(c, seenText)",
-        "setGeminiWebAccountHeader(upstreamReq, account)"
+        "setGeminiWebAccountHeader(upstreamReq, account)",
+        "geminiWebMissingAccountReferenceClientFault(account, resp.StatusCode, respBody)"
       ],
-      "rationale": "Chat Completions exit must keep gemini-web estimate apply + stash; otherwise Chat text over Worker bills $0 with green helper-only tests. Chat/Responses share buildGeminiChatCompletionsUpstreamRequestFunc — omitting setGeminiWebAccountHeader made Worker return Missing account reference and SetError healthy sessions."
+      "rationale": "Chat Completions exit must keep gemini-web estimate apply + stash; otherwise Chat text over Worker bills $0 with green helper-only tests. Chat/Responses share buildGeminiChatCompletionsUpstreamRequestFunc — omitting setGeminiWebAccountHeader made Worker return Missing account reference and SetError healthy sessions. Client-fault early-return must stay so legacy Worker 401 still surfaces as 400 without account penalty."
     },
     {
       "path": "backend/internal/service/gemini_responses_compat_service.go",
@@ -2752,9 +2754,20 @@
         "applyGeminiWebTextUsageEstimate(c, account, result, geminiReq, responseErr)",
         "stashGeminiWebEstimateResponseBody(c, collectedBytes)",
         "stashGeminiWebEstimateResponseBody(c, respBody)",
-        "stashGeminiWebEstimateOutputText(c, seenText)"
+        "stashGeminiWebEstimateOutputText(c, seenText)",
+        "geminiWebMissingAccountReferenceClientFault(account, resp.StatusCode, respBody)"
       ],
-      "rationale": "Responses exit must keep gemini-web estimate apply + stash; otherwise Responses text over Worker bills $0 with green helper-only tests."
+      "rationale": "Responses exit must keep gemini-web estimate apply + stash; otherwise Responses text over Worker bills $0 with green helper-only tests. Missing account-binding client-fault early-return must stay aligned with Chat/Messages."
+    },
+    {
+      "path": "backend/internal/service/gemini_web_tk_test.go",
+      "must_contain": [
+        "TestGeminiWebSelectedAccountHeaderBothEntryPoints",
+        "TestTkIsGeminiWebMissingAccountReference401",
+        "TestRateLimitService_HandleUpstreamError_GeminiWebMissingAccountReference401_DoesNotSetError",
+        "TestGeminiForward_MissingAccountReferenceReturnsClient400"
+      ],
+      "rationale": "Header parity across native/messages/chat, predicate/HandleUpstreamError skip, and Forward-level client 400 regressions must stay. Dropping the Forward test lets early-return deletions ship with green helper-only coverage."
     },
     {
       "path": "backend/internal/service/admin_account.go",
