@@ -4700,6 +4700,7 @@
       "path": "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",
       "must_contain": [
         "func tkApplyChannelFlatOverridesAsFallback(chPricing *ChannelModelPricing, resolved *ResolvedPricing)",
+        "applyChannelImagePriceOverrides(chPricing, resolved.BasePricing)",
         "resolved.BasePricing.InputPricePerToken = *chPricing.InputPrice",
         "resolved.BasePricing.OutputPricePerToken = *chPricing.OutputPrice",
         "resolved.BasePricing.CacheReadPricePerToken = *chPricing.CacheReadPrice",

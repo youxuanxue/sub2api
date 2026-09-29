@@ -20,6 +20,8 @@ const (
 	BetaTokenCounting            = "token-counting-2024-11-01"
 	BetaContext1M                = "context-1m-2025-08-07"
 	BetaFastMode                 = "fast-mode-2026-02-01"
+	// Legacy structured output compatibility; forwarded only when explicitly requested.
+	BetaStructuredOutputsLegacy = "structured-outputs-2025-11-13"
 
 	BetaPromptCachingScope          = "prompt-caching-scope-2026-01-05"
 	BetaEffort                      = "effort-2025-11-24"
