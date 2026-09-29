@@ -493,8 +493,6 @@ const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions
 const { generateAudio } = useStudioVideoSubmitOptions()
 
 const MAX_PANELS = 6
-/** Fallback only for models that do not curate imageSizes. Undefined means omit `size`. */
-/** Gemini-native image: aspect_ratio via /v1/chat/completions extra_body.google.image_config. */
 
 const modality = ref<StudioModality>('video')
 const models = computed(() => resolveAvailableModels(modality.value, props.availableIds, props.priceMap))

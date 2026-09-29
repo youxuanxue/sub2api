@@ -361,6 +361,40 @@ describe('MediaStudioView bootstrap', () => {
     expect(videoStudio.props('catalogLoading')).toBe(false)
   })
 
+  it.each(['success', 'failure'])('ignores a stale price catalog %s after switching keys', async (outcome) => {
+    const model = 'doubao-seedance-1-0-pro-250528'
+    listKeys.mockResolvedValue({ items: [
+      { id: 1, name: 'trial', key: 'sk-current', status: 'active', group: { id: 10 } },
+      { id: 2, name: 'slow', key: 'sk-slow', status: 'active', group: { id: 20 } },
+    ] })
+    gatewayListModels.mockResolvedValue({ data: [{ id: model }] })
+    const catalog = (price: number) => ({ models: [{ model_id: model, billing_mode: 'video', your_price: { currency: 'USD', per_second: price } }] })
+    let resolveSlow!: (value: ReturnType<typeof catalog>) => void
+    let rejectSlow!: (error: Error) => void
+    getMePricingCatalog.mockImplementation(({ apiKeyId }: { apiKeyId: number }) => apiKeyId === 1
+      ? Promise.resolve(catalog(0.1))
+      : new Promise((resolve, reject) => { resolveSlow = resolve; rejectSlow = reject }))
+    const wrapper = mount(MediaStudioView, { global: { plugins: [i18n], stubs: { 'router-link': true } } })
+    await flushPromises()
+    await wrapper.find('[data-testid="studio-mode-video"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('#studio-key').setValue('2')
+    await flushPromises()
+    await wrapper.find('#studio-key').setValue('1')
+    await flushPromises()
+    const panel = wrapper.findComponent({ name: 'VideoStudio' })
+    const currentPrices = panel.props('priceMap')
+    expect(currentPrices.size).toBe(1)
+    expect(panel.props('catalogLoading')).toBe(false)
+    if (outcome === 'success') resolveSlow(catalog(9))
+    else rejectSlow(new Error('old key request failed'))
+    await flushPromises()
+    expect(panel.props('apiKey')).toBe('sk-current')
+    expect(panel.props('priceMap')).toEqual(currentPrices)
+    expect(panel.props('catalogLoading')).toBe(false)
+    wrapper.unmount()
+  })
+
   it('switches BakeOff to an image-serving key when the child image mode is selected', async () => {
     listKeys.mockResolvedValue({
       items: [

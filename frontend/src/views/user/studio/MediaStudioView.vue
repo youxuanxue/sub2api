@@ -174,6 +174,7 @@ import {
   type PickerModality,
   type StudioModality,
   type MediaPrice,
+  type MediaPriceMap,
 } from '@/constants/studioMediaPresentations.tk'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
@@ -318,7 +319,7 @@ async function refreshBalance(): Promise<void> {
   }
 }
 
-/** One representative key per distinct group — shared by staged / full probes. */
+/** Key-scoped entries shared by staged and full probes. */
 function groupRepresentatives(keyList: ApiKey[]): Map<string, ApiKey> {
   const reps = new Map<string, ApiKey>()
   for (const k of keyList) {
@@ -443,30 +444,29 @@ async function finishBackgroundProbe(
 // rateMultiplier=1. A model with no per_image/per_second price is simply omitted
 // (omit models without a live catalog price). Failure → empty map (models hide)
 // rather than stale prices.
-async function loadPriceMap(keyId: number): Promise<void> {
+async function loadPriceMap(keyId: number): Promise<MediaPriceMap> {
   const k = keys.value.find((x) => x.id === keyId)
   if (k && isUniversalKey(k)) {
-    priceMap.value = new Map(
-      priceMapFromPublicCatalog(publicCatalogModels.value, availableIdsOf(k))
-    )
-    return
+    return priceMapFromPublicCatalog(publicCatalogModels.value, availableIdsOf(k))
   }
   try {
     const catalog = await getMePricingCatalog({ apiKeyId: keyId })
-    priceMap.value = new Map(priceMapFromMeCatalog(catalog.models || []))
+    return priceMapFromMeCatalog(catalog.models || [])
   } catch {
-    priceMap.value = new Map()
+    return new Map()
   }
 }
 
 let priceCatalogGen = 0
 
-/** Serialize price-catalog loads; media tabs must not show the empty state while this is in flight. */
+/** Only the latest selected-key request may publish prices or loading state. */
 async function ensurePriceCatalog(keyId: number): Promise<void> {
   const gen = ++priceCatalogGen
   priceCatalogReady.value = false
-  await loadPriceMap(keyId)
-  if (gen === priceCatalogGen) priceCatalogReady.value = true
+  const prices = await loadPriceMap(keyId)
+  if (gen !== priceCatalogGen || selectedKeyId.value !== keyId) return
+  priceMap.value = new Map(prices)
+  priceCatalogReady.value = true
 }
 
 // Re-pick when the modality tab changes: if the current key already serves the

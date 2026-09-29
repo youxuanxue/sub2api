@@ -408,9 +408,10 @@
         "data-testid=\"studio-mode-chat\"",
         "data-testid=\"studio-mode-image\"",
         "data-testid=\"studio-mode-video\"",
-        "data-testid=\"studio-mode-bakeoff\""
+        "data-testid=\"studio-mode-bakeoff\"",
+        "gen !== priceCatalogGen || selectedKeyId.value !== keyId"
       ],
-      "rationale": "The Studio's EXPLICIT chat|image|video|bake-off modality tabs are the source of truth for which gateway endpoint a request hits — replacing the old modalityForModel() id-prefix guess that silently misrouted non-{seedance,veo,gpt-image,imagen,seedream} media model ids to /v1/chat/completions. Chat is the folded-in /playground surface (default landing); the bake-off tab opens the cross-model compare view (BakeOff.vue). Losing these tabs regresses to implicit-modality misrouting or hides a generation surface."
+      "rationale": "The Studio's EXPLICIT chat|image|video|bake-off modality tabs are the source of truth for which gateway endpoint a request hits — replacing the old modalityForModel() id-prefix guess that silently misrouted non-{seedance,veo,gpt-image,imagen,seedream} media model ids to /v1/chat/completions. Chat is the folded-in /playground surface (default landing); the bake-off tab opens the cross-model compare view (BakeOff.vue). Losing these tabs regresses to implicit-modality misrouting or hides a generation surface. Price results are published only for the latest selected-key request; late success or failure must not replace current prices."
     },
     {
       "path": "frontend/src/router/index.ts",
@@ -2699,6 +2700,13 @@
         "public image preview stays anonymous"
       ],
       "rationale": "Preserve shared image capability and request owners across Studio and Quickstart."
+    },
+    {
+      "path": "frontend/src/views/user/studio/__tests__/MediaStudioView.spec.ts",
+      "must_contain": [
+        "ignores a stale price catalog %s after switching keys"
+      ],
+      "rationale": "Preserve the behavioral regression for late success and failure after switching Direct keys."
     }
   ]
 }
