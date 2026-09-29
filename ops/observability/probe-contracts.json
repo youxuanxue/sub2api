@@ -28,7 +28,10 @@
     ]
   },
   "probe_openai_upstream_image.sh": {
-    "companions": [],
+    "companions": [
+      "ops/stage0/probe_openai_image_fidelity_matrix.sh",
+      "ops/stage0/probe_openai_image_ar_07_09.sh"
+    ],
     "verdicts": [
       "servable_image_generated",
       "servable_image_returned",

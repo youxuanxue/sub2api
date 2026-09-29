@@ -47,9 +47,11 @@ TokenKey 对外承认可选 `aspect_ratio`，在出站 prompt 注入该 marker�
 - `size=1k|2k|4k` / `marker size=1k|2k|4k`：**不能**拉出稳定 1K/2K/4K 分辨率阶梯。
 - tools JSON `size=` 在 OAuth Codex 路径上仍常落 `auto`；硬控分辨率以官方 API-key `size` 为准。
 
-### 4. `tk_image_contract=exact`
+### 4. Legacy `tk_image_contract` (removed)
 
-- `output_format` 放行：`png` \| `jpeg` \| `auto`（edge OAuth 实测 jpeg/png 魔数匹配）。
+`tk_image_contract=exact` is no longer an admission gate. Local canvas/format
+post-process is the default for all clients; the field is ignored if present
+and stripped before upstream.
 
 ### 5. Floor / allowlist
 

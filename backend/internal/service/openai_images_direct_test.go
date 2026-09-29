@@ -17,22 +17,40 @@ func directImagesTestAccount() *Account {
 		Credentials: map[string]any{"access_token": "test-token", "chatgpt_account_id": "test-account"}}
 }
 
-func TestCodexDirectImagesDropsTokenKeyContract(t *testing.T) {
+// openAIImagesFixturePNG1x1 is a minimal valid 1×1 PNG (base64).
+const openAIImagesFixturePNG1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+
+func openAIImagesResponsesSSEFixture() *http.Response {
+	body := "" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"created_at\":1710000000,\"usage\":{\"input_tokens\":5,\"output_tokens\":20,\"output_tokens_details\":{\"image_tokens\":20}},\"tool_usage\":{\"image_gen\":{\"images\":1,\"output_tokens\":20,\"output_tokens_details\":{\"image_tokens\":20}}},\"output\":[{\"type\":\"image_generation_call\",\"result\":\"" + openAIImagesFixturePNG1x1 + "\",\"output_format\":\"png\",\"size\":\"1024x1024\"}]}}\n\n" +
+		"data: [DONE]\n\n"
+	return &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{"Content-Type": {"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func TestCodexDirectImagesDropsLegacyTkImageContract(t *testing.T) {
 	body := []byte(`{"model":"gpt-image-2","prompt":"draw","size":"auto","output_format":"png","tk_image_contract":"exact"}`)
 	c, _ := newOpenAIImagesTestContext(t, body)
 	parsed, err := (&OpenAIGatewayService{}).ParseOpenAIImagesRequest(c, body)
 	require.NoError(t, err)
-	upstreamBody, _, err := buildOpenAIImagesOAuthPayload(parsed, parsed.Model)
+	upstreamBody, target, err := buildOpenAIImagesOAuthPayload(parsed, parsed.Model)
 	require.NoError(t, err)
+	require.Equal(t, chatgptCodexURL, target)
 	require.False(t, gjson.GetBytes(upstreamBody, "tk_image_contract").Exists())
+	require.Equal(t, "image_generation", gjson.GetBytes(upstreamBody, "tools.0.type").String())
 }
 
-func TestCodexDirectImagesRouting(t *testing.T) {
+func TestCodexOAuthImagesResponsesRouting(t *testing.T) {
 	for _, model := range []string{"gpt-image-1.5", "gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare-2026-09-08", "gpt-image-2.5-sunburst-2026-09-08"} {
 		t.Run(model, func(t *testing.T) {
+			require.True(t, codexDirectImagesModelFamilies(model))
+			require.False(t, usesCodexDirectImages(model))
 			body := []byte(fmt.Sprintf(`{"model":%q,"prompt":"  原样保留 prompt  ","quality":"max","size":"auto","response_format":"url","extra":{"preserve":true}}`, model))
 			c, rec := newOpenAIImagesTestContext(t, body)
-			upstream := &httpUpstreamRecorder{resp: openAIImagesJSONResponse()}
+			upstream := &httpUpstreamRecorder{resp: openAIImagesResponsesSSEFixture()}
 			svc := newOpenAIImagesTestService(upstream)
 			parsed, err := svc.ParseOpenAIImagesRequest(c, body)
 			require.NoError(t, err)
@@ -43,31 +61,35 @@ func TestCodexDirectImagesRouting(t *testing.T) {
 			require.Equal(t, 1, result.ImageCount)
 			require.Equal(t, 20, result.Usage.ImageOutputTokens)
 			require.Equal(t, model, result.UpstreamModel)
-			require.Equal(t, "/backend-api/codex/images/generations", result.UpstreamEndpoint)
-			require.Equal(t, "https://chatgpt.com/backend-api/codex/images/generations", upstream.lastReq.URL.String())
+			require.Equal(t, "/backend-api/codex/responses", result.UpstreamEndpoint)
+			require.Equal(t, chatgptCodexURL, upstream.lastReq.URL.String())
 			require.NoError(t, upstream.lastReq.Context().Err())
 			require.Equal(t, "Bearer test-token", upstream.lastReq.Header.Get("Authorization"))
-			require.Equal(t, "application/json", upstream.lastReq.Header.Get("Accept"))
+			require.Equal(t, "text/event-stream", upstream.lastReq.Header.Get("Accept"))
 			require.Empty(t, upstream.lastReq.Header.Get("OpenAI-Beta"))
 			require.NotEmpty(t, upstream.lastReq.Header.Get("Originator"))
 			require.NotEmpty(t, upstream.lastReq.Header.Get("User-Agent"))
-			require.Equal(t, model, gjson.GetBytes(upstream.lastBody, "model").String())
-			require.Equal(t, "  原样保留 prompt  ", gjson.GetBytes(upstream.lastBody, "prompt").String())
+			require.Equal(t, openAIImagesResponsesMainModel, gjson.GetBytes(upstream.lastBody, "model").String())
+			require.Equal(t, model, gjson.GetBytes(upstream.lastBody, "tools.0.model").String())
+			require.Equal(t, "image_generation", gjson.GetBytes(upstream.lastBody, "tools.0.type").String())
+			require.Equal(t, "generate", gjson.GetBytes(upstream.lastBody, "tools.0.action").String())
+			require.Equal(t, "max", gjson.GetBytes(upstream.lastBody, "tools.0.quality").String())
+			require.Equal(t, "  原样保留 prompt  ", gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String())
 			require.False(t, gjson.GetBytes(upstream.lastBody, "extra").Exists())
-			for _, key := range []string{"tools", "reasoning", "instructions", "response_format", "stream"} {
-				require.False(t, gjson.GetBytes(upstream.lastBody, key).Exists(), key)
-			}
-			require.Equal(t, "data:image/png;base64,aGVsbG8=", gjson.GetBytes(rec.Body.Bytes(), "data.0.url").String())
+			require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
+			url := gjson.GetBytes(rec.Body.Bytes(), "data.0.url").String()
+			require.True(t, strings.HasPrefix(url, "data:image/png;base64,"))
+			require.Greater(t, len(url), len("data:image/png;base64,"))
 		})
 	}
 }
 
-func TestCodexDirectImagesMappingBeforeRouting(t *testing.T) {
+func TestCodexOAuthImagesMappingBeforeRouting(t *testing.T) {
 	for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken} {
 		t.Run(accountType, func(t *testing.T) {
 			body := []byte(`{"model":"gpt-image-1","prompt":"draw"}`)
 			c, _ := newOpenAIImagesTestContext(t, body)
-			upstream := &httpUpstreamRecorder{resp: openAIImagesJSONResponse()}
+			upstream := &httpUpstreamRecorder{resp: openAIImagesResponsesSSEFixture()}
 			svc := newOpenAIImagesTestService(upstream)
 			parsed, err := svc.ParseOpenAIImagesRequest(c, body)
 			require.NoError(t, err)
@@ -78,7 +100,8 @@ func TestCodexDirectImagesMappingBeforeRouting(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "gpt-image-2.5-flare", result.UpstreamModel)
 			require.Equal(t, "gpt-image-2", result.Model)
-			require.Equal(t, "gpt-image-2.5-flare", gjson.GetBytes(upstream.lastBody, "model").String())
+			require.Equal(t, openAIImagesResponsesMainModel, gjson.GetBytes(upstream.lastBody, "model").String())
+			require.Equal(t, "gpt-image-2.5-flare", gjson.GetBytes(upstream.lastBody, "tools.0.model").String())
 		})
 	}
 	for _, model := range []string{"gpt-image-1", "gpt-image-future"} {
@@ -90,205 +113,9 @@ func TestCodexDirectImagesMappingBeforeRouting(t *testing.T) {
 	}
 }
 
-func TestCodexDirectImagesHTTPErrorFallbacksOnlyWhenEndpointUnavailable(t *testing.T) {
-	for _, status := range []int{400, 401, 403, 429, 500, 502, 503, 404, 405} {
-		t.Run(fmt.Sprint(status), func(t *testing.T) {
-			calls := 0
-			upstream := &codexModelsHTTPUpstreamStub{do: func(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
-				calls++
-				if calls == 1 {
-					require.Equal(t, "/backend-api/codex/images/generations", req.URL.Path)
-					return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"type":"server_error","message":"image request rejected"}}`))}, nil
-				}
-				require.Contains(t, req.URL.Path, "/backend-api/codex/responses")
-				return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader("data: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"image_generation_call\",\"result\":\"aGVsbG8=\"}]}}\n\n"))}, nil
-			}}
-			body := []byte(`{"model":"gpt-image-2.5-sunburst","prompt":"draw"}`)
-			c, _ := newOpenAIImagesTestContext(t, body)
-			svc := newOpenAIImagesTestService(upstream)
-			parsed, err := svc.ParseOpenAIImagesRequest(c, body)
-			require.NoError(t, err)
-			result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
-			if status == http.StatusNotFound || status == http.StatusMethodNotAllowed {
-				require.NoError(t, err)
-				require.NotNil(t, result)
-				require.Equal(t, 2, calls)
-			} else {
-				require.Error(t, err)
-				require.Equal(t, 1, calls)
-			}
-		})
-	}
-}
-
-func TestCodexDirectImagesStreamRejectsPlainJSON(t *testing.T) {
-	body := []byte(`{"model":"gpt-image-2","prompt":"draw","stream":true}`)
-	c, _ := newOpenAIImagesTestContext(t, body)
-	svc := newOpenAIImagesTestService(&httpUpstreamRecorder{resp: openAIImagesJSONResponse()})
-	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
-	require.NoError(t, err)
-	result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
-	require.Error(t, err, "未收到 SSE 完成事件，不能把未转发的 JSON 当作成功")
-	require.Nil(t, result)
-}
-
-func TestCodexDirectImagesMultipleOutputs(t *testing.T) {
-	t.Run("non_stream", func(t *testing.T) {
-		body := []byte(`{"model":"gpt-image-2.5-flare","prompt":"draw","n":2,"stream":false}`)
-		c, _ := newOpenAIImagesTestContext(t, body)
-		response := `{"data":[{"b64_json":"AA=="},{"b64_json":"AQ=="}],"usage":{"input_tokens":10,"output_tokens":40}}`
-		upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(response))}}
-		svc := newOpenAIImagesTestService(upstream)
-		parsed, err := svc.ParseOpenAIImagesRequest(c, body)
-		require.NoError(t, err)
-		result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
-		require.NoError(t, err)
-		require.Equal(t, 2, result.ImageCount)
-		require.Equal(t, 40, result.Usage.ImageOutputTokens)
-	})
-	t.Run("stream_n_gt_1_rejected", func(t *testing.T) {
-		body := []byte(`{"model":"gpt-image-2.5-flare","prompt":"draw","n":2,"stream":true}`)
-		c, rec := newOpenAIImagesTestContext(t, body)
-		upstream := &httpUpstreamRecorder{resp: openAIImagesJSONResponse()}
-		svc := newOpenAIImagesTestService(upstream)
-		parsed, err := svc.ParseOpenAIImagesRequest(c, body)
-		require.NoError(t, err)
-		_, err = svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
-		var upstreamErr *OpenAIImagesUpstreamError
-		require.ErrorAs(t, err, &upstreamErr)
-		require.Equal(t, http.StatusBadRequest, upstreamErr.StatusCode)
-		require.Contains(t, upstreamErr.Message, "stream=true with n>1")
-		require.Equal(t, http.StatusBadRequest, rec.Code, "handler-visible response must be written, not empty 200")
-		require.Equal(t, "unsupported_parameter", gjson.GetBytes(rec.Body.Bytes(), "error.code").String())
-		require.Equal(t, 0, len(upstream.requests), "must reject before upstream call")
-	})
-}
-
-// Prod ChatGPT Images OAuth returns a single image even when n>1 is on the wire.
-// TokenKey must issue one upstream call per requested image and merge data[].
-func TestCodexDirectImagesMultiFetchWhenUpstreamReturnsOne(t *testing.T) {
-	body := []byte(`{"model":"gpt-image-2.5-flare","prompt":"draw","n":2}`)
-	c, rec := newOpenAIImagesTestContext(t, body)
-	upstream := &httpUpstreamRecorder{responses: []*http.Response{
-		{
-			StatusCode: 200,
-			Header:     http.Header{"Content-Type": {"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"created":1710000001,"data":[{"b64_json":"AA=="}],"usage":{"input_tokens":3,"output_tokens":11}}`)),
-		},
-		{
-			StatusCode: 200,
-			Header:     http.Header{"Content-Type": {"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"created":1710000002,"data":[{"b64_json":"AQ=="}],"usage":{"input_tokens":4,"output_tokens":13}}`)),
-		},
-	}}
-	svc := newOpenAIImagesTestService(upstream)
-	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
-	require.NoError(t, err)
-	result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
-	require.NoError(t, err)
-	require.Equal(t, 2, len(upstream.requests), "must multi-fetch when each upstream reply has only one image")
-	require.Equal(t, 2, result.ImageCount)
-	require.Equal(t, 7, result.Usage.InputTokens)
-	require.Equal(t, 24, result.Usage.OutputTokens)
-	require.Equal(t, 24, result.Usage.ImageOutputTokens)
-	data := gjson.GetBytes(rec.Body.Bytes(), "data").Array()
-	require.Len(t, data, 2)
-	require.Equal(t, "AA==", data[0].Get("b64_json").String())
-	require.Equal(t, "AQ==", data[1].Get("b64_json").String())
-	require.Equal(t, int64(7), gjson.GetBytes(rec.Body.Bytes(), "usage.input_tokens").Int())
-	require.Equal(t, int64(24), gjson.GetBytes(rec.Body.Bytes(), "usage.output_tokens").Int())
-}
-
-func TestCodexDirectImagesStreaming(t *testing.T) {
-	for _, test := range []struct {
-		name, events          string
-		wantCount             int
-		wantError, disconnect bool
-	}{
-		{"completed", "complete", 1, false, false},
-		{"duplicate", "complete,complete", 1, false, false},
-		{"disconnect", "partial,complete", 1, false, true},
-		{"truncated", "partial", 0, true, false},
-		{"partial_requested_multiple", "complete", 0, true, false},
-		{"error", "error", 0, true, false},
-		{"partial_success", "complete,error", 1, true, false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			body := []byte(`{"model":"gpt-image-2","prompt":"edit","images":[{"image_url":"data:image/png;base64,AA=="}],"stream":true,"response_format":"url"}`)
-			if test.name == "partial_requested_multiple" {
-				body = []byte(`{"model":"gpt-image-2","prompt":"edit","n":2,"images":[{"image_url":"data:image/png;base64,AA=="}],"stream":true,"response_format":"url"}`)
-			}
-			c, rec := newOpenAIImagesTestContext(t, body)
-			c.Request.URL.Path = "/v1/images/edits"
-			if test.disconnect {
-				c.Writer = &failingOpenAIImageWriter{ResponseWriter: c.Writer, failAfter: 1}
-			}
-			frames := map[string]string{
-				"partial":  `{"type":"image_generation.partial_image","b64_json":"AA==","partial_image_index":0}`,
-				"complete": `{"type":"image_generation.completed","model":"gpt-image-2-codex","size":"1024x1024","b64_json":"aGVsbG8=","output_format":"webp","usage":{"input_tokens":10,"output_tokens":20}}`,
-				"error":    `{"type":"error","error":{"type":"server_error","message":"overloaded"}}`,
-			}
-			var stream strings.Builder
-			for _, event := range strings.Split(test.events, ",") {
-				fmt.Fprintf(&stream, "data: %s\n\n", frames[event])
-			}
-			upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(stream.String()))}}
-			svc := newOpenAIImagesTestService(upstream)
-			parsed, err := svc.ParseOpenAIImagesRequest(c, body)
-			require.NoError(t, err)
-			result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
-			if test.wantError {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-			if test.wantCount > 0 {
-				require.NotNil(t, result)
-				require.Equal(t, test.wantCount, result.ImageCount)
-				require.Equal(t, 20, result.Usage.ImageOutputTokens)
-				if !test.wantError {
-					require.Equal(t, "gpt-image-2-codex", result.UpstreamResponseModel)
-				}
-			}
-			if test.name == "partial_requested_multiple" {
-				var upstreamErr *OpenAIImagesUpstreamError
-				require.ErrorAs(t, err, &upstreamErr)
-				require.Equal(t, http.StatusBadRequest, upstreamErr.StatusCode)
-				require.Equal(t, 0, len(upstream.requests))
-				return
-			}
-			require.Equal(t, "/backend-api/codex/images/edits", upstream.lastReq.URL.Path)
-			require.Equal(t, "text/event-stream", upstream.lastReq.Header.Get("Accept"))
-			if !test.disconnect && test.wantCount > 0 {
-				require.Contains(t, rec.Body.String(), "event: image_edit.completed")
-				require.Contains(t, rec.Body.String(), "data:image/webp;base64,aGVsbG8=")
-			}
-		})
-	}
-}
-
-func TestCodexDirectImagesEmptyResponseFails(t *testing.T) {
-	for _, body := range []string{`{"data":[]}`, `{"data":[{"b64_json":""}]}`, `{}`, `{"error":{"message":"overloaded","type":"server_error"}}`, `not json`} {
-		_, err := parseCodexDirectImagesResponse([]byte(body))
-		require.Error(t, err)
-	}
-}
-
-func TestCodexDirectImagesAccountTestAndWhitelist(t *testing.T) {
-	body := []byte(`{"model":"gpt-image-2.5-sunburst","prompt":"draw"}`)
-	c, rec := newOpenAIImagesTestContext(t, body)
-	upstream := &httpUpstreamRecorder{resp: openAIImagesJSONResponse()}
-	svc := &AccountTestService{httpUpstream: upstream}
-	require.NoError(t, svc.testOpenAIImageOAuth(c, context.Background(), directImagesTestAccount(), "gpt-image-2.5-sunburst", "draw"))
-	require.Equal(t, "/backend-api/codex/images/generations", upstream.lastReq.URL.Path)
-	require.Contains(t, rec.Body.String(), `"success":true`)
-	newCodexModelsOAuthCacheServer(t, `{"models":[{"slug":"gpt-5.6-luna"}]}`)
-	svc.openaiGatewayService = &OpenAIGatewayService{}
-	account := newCodexModelsTestAccount()
-	account.Credentials["model_mapping"] = map[string]any{"gpt-image-2.5-flare": "gpt-image-2.5-flare"}
-	models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
-	require.NoError(t, err)
-	for _, model := range models {
-		require.NotEqual(t, "gpt-image-2.5-sunburst", model.ID)
+func TestUsesCodexDirectImagesDisabledForCodex2APIParity(t *testing.T) {
+	for _, model := range []string{"gpt-image-1.5", "gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"} {
+		require.False(t, usesCodexDirectImages(model), model)
+		require.True(t, codexDirectImagesModelFamilies(model), model)
 	}
 }

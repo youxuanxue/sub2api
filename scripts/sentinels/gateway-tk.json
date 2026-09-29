@@ -6536,9 +6536,9 @@
       "must_contain": [
         "forwardBody, forwardContentType, err = rewriteOpenAIImagesAspectRatioMarker(forwardBody, forwardContentType, parsed)",
         "sjson.DeleteBytes(rewritten, \"aspect_ratio\")",
-        "case \"png\", \"jpeg\", \"auto\":"
+        "sjson.DeleteBytes(rewritten, \"tk_image_contract\")"
       ],
-      "rationale": "API-key Images injection: admit/strip aspect_ratio (never forward as JSON), inject marker AR only for explicit aspect_ratio (not size-derived), and exact-contract output_format allowlist includes jpeg. Upstream merge that drops the rewrite call or reverts jpeg admission silently breaks Studio ratio control / exact jpeg."
+      "rationale": "API-key Images injection: admit/strip aspect_ratio (never forward as JSON), inject marker AR only for explicit aspect_ratio (not size-derived), and strip legacy tk_image_contract before upstream. Upstream merge that drops the rewrite/strip calls silently breaks Studio ratio control or forwards TokenKey-only fields."
     },
     {
       "path": "backend/internal/service/openai_images_direct.go",
@@ -6568,29 +6568,29 @@
     {
       "path": "backend/internal/service/openai_images_output_format_tk.go",
       "must_contain": [
-        "func coerceOpenAIImageB64ToOutputFormat(",
-        "func applyOpenAIImagesOutputFormatCoercion(",
+        "func coerceOpenAIImageB64ToOutputFormatWithQuality(",
+        "func applyOpenAIImagesClientFidelityPostprocess(",
         "jpeg.Encode(",
         "unrecognized image container for output_format="
       ],
-      "rationale": "Codex Direct frequently ignores tools.output_format and emits PNG while acknowledging jpeg. Gateway-side coerce is the only honest path for output_format=jpeg / tk_image_contract=exact; unrecognized containers must fail closed rather than stamp jpeg on foreign bytes."
+      "rationale": "Codex Direct frequently ignores tools.output_format and emits PNG while acknowledging jpeg. Gateway-side coerce plus local canvas/format fidelity is the honest path for explicit output_format; unrecognized containers must fail closed rather than stamp jpeg on foreign bytes."
     },
     {
       "path": "backend/internal/service/openai_images_responses.go",
       "must_contain": [
         "s.handleCodexDirectImagesNonStreamingMulti(",
-        "applyOpenAIImagesOutputFormatCoercion(results, parsed.OutputFormat)",
+        "applyOpenAIImagesClientFidelityPostprocess(results, parsed)",
         "stream=true with n>1 is not supported for Codex Direct images",
         "writeOpenAIImagesUpstreamErrorResponse(c, err)"
       ],
-      "rationale": "Call-site wiring for Codex Direct multi-n, OAuth jpeg coerce, and honest reject of stream+n>1 that MUST write the OpenAIImagesUpstreamError body (handler assumes already-written)."
+      "rationale": "Call-site wiring for Codex Direct multi-n, OAuth local fidelity post-process, and honest reject of stream+n>1 that MUST write the OpenAIImagesUpstreamError body (handler assumes already-written)."
     },
     {
       "path": "backend/internal/service/openai_images_direct.go",
       "must_contain": [
-        "applyOpenAIImagesOutputFormatCoercion(results, wantFormat)"
+        "applyOpenAIImagesClientFidelityPostprocess(results, parsed)"
       ],
-      "rationale": "Codex Direct single-image non-stream path must also coerce ExplicitOutputFormat; multi path coerces inside handleCodexDirectImagesNonStreamingMulti."
+      "rationale": "Codex Direct single-image non-stream path must also apply local canvas/format fidelity; multi path does the same inside handleCodexDirectImagesNonStreamingMulti."
     },
     {
       "path": "backend/internal/service/openai_images_responses.go",
@@ -15027,7 +15027,7 @@
       "path": "backend/internal/service/candidate_image_capabilities_tk.go",
       "must_contain": [
         "evaluatePathWithPreparation",
-        "ValidateOpenAIImagesContract",
+        "validateOpenAIImagesExplicitSize",
         "appendImageProfile"
       ],
       "rationale": "Preserve shared image capability and request owners across Studio and Quickstart."

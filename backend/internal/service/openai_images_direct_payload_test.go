@@ -41,15 +41,17 @@ func TestCodexDirectImagesMultipartEdit(t *testing.T) {
 	require.NoError(t, err)
 	upstreamBody, target, err := buildOpenAIImagesOAuthPayload(parsed, parsed.Model)
 	require.NoError(t, err)
-	require.Equal(t, "https://chatgpt.com/backend-api/codex/images/edits", target)
-	require.Len(t, gjson.GetBytes(upstreamBody, "images").Array(), 2)
-	require.Equal(t, "data:image/png;base64,cG5nLWNvbnRlbnQ=", gjson.GetBytes(upstreamBody, "mask.image_url").String())
-	require.Equal(t, "xhigh", gjson.GetBytes(upstreamBody, "quality").String())
-	require.Equal(t, "high", gjson.GetBytes(upstreamBody, "input_fidelity").String())
-	require.EqualValues(t, 2, gjson.GetBytes(upstreamBody, "n").Int())
-	require.EqualValues(t, 75, gjson.GetBytes(upstreamBody, "output_compression").Int())
-	require.EqualValues(t, 2, gjson.GetBytes(upstreamBody, "partial_images").Int())
-	require.False(t, gjson.GetBytes(upstreamBody, "tools").Exists())
+	require.Equal(t, chatgptCodexURL, target)
+	require.Equal(t, "edit", gjson.GetBytes(upstreamBody, "tools.0.action").String())
+	require.Equal(t, "gpt-image-2.5-sunburst", gjson.GetBytes(upstreamBody, "tools.0.model").String())
+	require.Equal(t, "xhigh", gjson.GetBytes(upstreamBody, "tools.0.quality").String())
+	require.Equal(t, "high", gjson.GetBytes(upstreamBody, "tools.0.input_fidelity").String())
+	require.Equal(t, "webp", gjson.GetBytes(upstreamBody, "tools.0.output_format").String())
+	require.EqualValues(t, 2, gjson.GetBytes(upstreamBody, "tools.0.n").Int())
+	require.EqualValues(t, 75, gjson.GetBytes(upstreamBody, "tools.0.output_compression").Int())
+	require.EqualValues(t, 2, gjson.GetBytes(upstreamBody, "tools.0.partial_images").Int())
+	require.Len(t, gjson.GetBytes(upstreamBody, "input.0.content").Array(), 3) // text + 2 images
+	require.Equal(t, "data:image/png;base64,cG5nLWNvbnRlbnQ=", gjson.GetBytes(upstreamBody, "tools.0.input_image_mask.image_url").String())
 }
 
 func TestCodexDirectImagesPricingAndUsage(t *testing.T) {
@@ -110,7 +112,7 @@ func TestCodexDirectImagesShadowCredentials(t *testing.T) {
 	shadow := &Account{ID: 99, ParentAccountID: &parent.ID, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 	body := []byte(`{"model":"gpt-image-2","prompt":"draw"}`)
 	c, _ := newOpenAIImagesTestContext(t, body)
-	upstream := &httpUpstreamRecorder{resp: openAIImagesJSONResponse()}
+	upstream := &httpUpstreamRecorder{resp: openAIImagesResponsesSSEFixture()}
 	svc := newOpenAIImagesTestService(upstream)
 	svc.accountRepo = newStubCredRepo(parent)
 	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
@@ -119,5 +121,6 @@ func TestCodexDirectImagesShadowCredentials(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Bearer test-token", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, "test-account", upstream.lastReq.Header.Get("Chatgpt-Account-Id"))
-	require.Equal(t, "/backend-api/codex/images/generations", upstream.lastReq.URL.Path)
+	require.Equal(t, "/backend-api/codex/responses", upstream.lastReq.URL.Path)
+	require.Equal(t, "image_generation", gjson.GetBytes(upstream.lastBody, "tools.0.type").String())
 }

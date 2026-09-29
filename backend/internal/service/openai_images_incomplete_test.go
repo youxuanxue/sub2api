@@ -204,7 +204,7 @@ func TestImagesOAuthStreaming_TextFallbackReturnsCapabilityError(t *testing.T) {
 	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(upstreamSSE))}
 
 	svc := &OpenAIGatewayService{}
-	_, _, _, _, err := svc.handleOpenAIImagesOAuthStreamingResponse(resp, c, time.Now(), "b64_json", "image_generation", "gpt-image-2")
+	_, _, _, _, err := svc.handleOpenAIImagesOAuthStreamingResponse(resp, c, time.Now(), nil, "b64_json", "image_generation", "gpt-image-2")
 
 	var imgErr *OpenAIImagesUpstreamError
 	if !errors.As(err, &imgErr) {
@@ -235,7 +235,7 @@ func TestImagesOAuthStreaming_SplitSafetyRefusalReturns400(t *testing.T) {
 	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(upstreamSSE))}
 
 	svc := &OpenAIGatewayService{}
-	_, _, _, _, err := svc.handleOpenAIImagesOAuthStreamingResponse(resp, c, time.Now(), "b64_json", "image_generation", "gpt-image-2")
+	_, _, _, _, err := svc.handleOpenAIImagesOAuthStreamingResponse(resp, c, time.Now(), nil, "b64_json", "image_generation", "gpt-image-2")
 
 	var imgErr *OpenAIImagesUpstreamError
 	if !errors.As(err, &imgErr) {

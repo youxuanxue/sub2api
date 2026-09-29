@@ -737,16 +737,11 @@ Simple Mode is designed for individual developers or internal teams who want qui
 
 Long-running OpenAI/Grok image generation and editing can be submitted through `/v1/images/generations/async` or `/v1/images/edits/async`, then polled at `/v1/images/tasks/{task_id}` without holding a CDN connection open. See [Asynchronous Image Tasks](docs/operator/async-image-tasks.md) for request and response examples.
 
-OpenAI image requests keep the historical passthrough behavior by default. Clients
-that require returned image parameters to match the observed upstream behavior can
-add `"tk_image_contract":"exact"`. In this mode, only values with response
-evidence are admitted (`size=auto|1254x1254`,
-`quality=auto|low|medium|high|xhigh|max`, `output_format=png|jpeg|auto`, and
-`background=auto|opaque`); unsupported dimensions, formats, and option values,
-transparent background, compression, and native fields without response metadata
-return `400` before upstream. The TokenKey-only field is stripped before
-forwarding. Quality values are admitted from successful upstream probes; the
-Images response does not echo a quality field.
+OpenAI image requests use local canvas/format fidelity by default for OAuth /
+Codex paths: explicit `size=WxH` is padded to the requested canvas, and
+explicit `output_format` / `quality` / `output_compression` are coerced when
+upstream softens them. The legacy TokenKey-only field `tk_image_contract` is
+ignored if present and stripped before upstream; clients no longer need it.
 
 For `gpt-image-*` only, TokenKey also admits an optional TokenKey-only
 `aspect_ratio` (`1:1` / `3:2` / `2:3` / `16:9` / `9:16`; other values return

@@ -78,11 +78,7 @@ func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingMulti(
 		results = results[:want]
 	}
 
-	wantFormat := ""
-	if parsed.ExplicitOutputFormat {
-		wantFormat = parsed.OutputFormat
-	}
-	if err := applyOpenAIImagesOutputFormatCoercion(results, wantFormat); err != nil {
+	if err := applyOpenAIImagesClientFidelityPostprocess(results, parsed); err != nil {
 		return OpenAIUsage{}, 0, nil, err
 	}
 	reconcileOpenAIResponsesImageResultSizes(results, nil)
