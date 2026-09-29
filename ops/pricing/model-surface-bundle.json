@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "2e339ccff369d2517834e73fbe4e8b5238f7c9ecd7ae71a203e1638ef02fb851",
+  "floor_sha256": "89d66d7b509eaf78735263c19a5c88544d3be9ae57417470bc30bed92b0a3028",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -612,6 +612,9 @@
       ],
       "antigravity": [
         "gpt-oss-"
+      ],
+      "newapi": [
+        "imagen-"
       ]
     }
   }
