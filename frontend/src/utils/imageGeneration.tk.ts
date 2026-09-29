@@ -1,6 +1,6 @@
 import type { ImageGenerationCapability } from '@/api/api-key-capabilities'
 import { isGeminiNativeImageModel, extractImageItems, extractChatImageItems } from '@/constants/playgroundMedia.tk'
-import { resolveAvailableModels, type ImageSizeOption } from '@/constants/studioMediaPresentations.tk'
+import { GPT_IMAGE_SIZES, resolveAvailableModels, type ImageSizeOption } from '@/constants/studioMediaPresentations.tk'
 
 export interface ImageGenerationPlan {
   endpoint: string
@@ -8,9 +8,17 @@ export interface ImageGenerationPlan {
   counts: number[]
   inputImage: boolean
   softAspectRatio: boolean
+  /** True when Studio/Quickstart send size=WxH and gateway returns that exact canvas. */
+  exactCanvas: boolean
   ratioField: boolean
 }
 export interface ImageGenerationOptions { ratio: string; n: number; inputImage: string }
+
+function gptImageExactSizes(admitted: string[]): ImageSizeOption[] {
+  if (!admitted.length) return [...GPT_IMAGE_SIZES]
+  const filtered = GPT_IMAGE_SIZES.filter(option => admitted.includes(option.ratio))
+  return filtered.length ? filtered : [...GPT_IMAGE_SIZES]
+}
 
 /** One complete profile, never a union of incompatible account options. */
 export function imageGenerationPlan(model: string, profiles?: ImageGenerationCapability[], native = false): ImageGenerationPlan {
@@ -22,14 +30,28 @@ export function imageGenerationPlan(model: string, profiles?: ImageGenerationCap
   const candidates = preferred.length ? preferred : supported
   const profile = [...candidates].sort((a, b) => b.aspect_ratios.length - a.aspect_ratios.length || Number(b.input_image) - Number(a.input_image) || b.counts.length - a.counts.length)[0]
   const endpoint = profile?.endpoint ?? preferredEndpoint
-  const ratioField = endpoint !== '/v1/images/generations' || !!profile?.soft_aspect_ratio || /^gpt-image-/i.test(model)
+  const gptImage = /^gpt-image-/i.test(model)
+  // GPT Image: Studio/Quickstart send official size=WxH; gateway local pad is SSOT for exact canvas.
+  // Soft aspect_ratio remains an API option, but UI/examples prefer exact size chips.
+  const exactCanvas = gptImage && endpoint === '/v1/images/generations'
+  const softAspectRatio = !exactCanvas && !!profile?.soft_aspect_ratio
+  const ratioField = endpoint !== '/v1/images/generations' || (!exactCanvas && !!profile?.soft_aspect_ratio)
   const presentation = resolveAvailableModels('image', new Set([model]), new Map())[0]?.presentation
+  let sizes: ImageSizeOption[] = []
+  if (profile) {
+    if (exactCanvas) sizes = gptImageExactSizes(profile.aspect_ratios)
+    else if (ratioField) sizes = profile.aspect_ratios.map(ratio => ({ ratio, value: ratio }))
+    else sizes = presentation?.imageSizes ?? []
+  } else if (exactCanvas) {
+    // Anonymous Quickstart preview has no capability projection; still expose GPT size chips.
+    sizes = gptImageExactSizes([])
+  }
   return {
-    endpoint, ratioField,
-    sizes: profile ? ratioField ? profile.aspect_ratios.map(ratio => ({ ratio, value: ratio })) : presentation?.imageSizes ?? [] : [],
+    endpoint, ratioField, exactCanvas,
+    sizes,
     counts: profile?.counts.length ? profile.counts : [1],
     inputImage: !!profile?.input_image && endpoint === '/v1/chat/completions',
-    softAspectRatio: !!profile?.soft_aspect_ratio || /^gpt-image-/i.test(model),
+    softAspectRatio,
   }
 }
 

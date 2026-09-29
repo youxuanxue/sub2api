@@ -286,7 +286,7 @@ export async function gatewayImageGenerations(
   // Compatibility transport wrapper; request serialization has one owner.
   return gatewayGenerateImage(apiKey, gatewayBaseUrl, body.model, body.prompt, {
     endpoint: '/v1/images/generations', sizes: body.size ? [{ ratio: body.size, value: body.size }] : [],
-    counts: [body.n || 1], inputImage: false, softAspectRatio: false, ratioField: false,
+    counts: [body.n || 1], inputImage: false, softAspectRatio: false, exactCanvas: false, ratioField: false,
   }, { ratio: body.size, n: body.n }, trace, signal)
 }
 
@@ -372,7 +372,7 @@ export async function gatewayGeminiImageViaChat(
 ): Promise<unknown> {
   return gatewayGenerateImage(apiKey, gatewayBaseUrl, body.model, body.prompt, {
     endpoint: '/v1/chat/completions', sizes: body.aspectRatio ? [{ ratio: body.aspectRatio, value: body.aspectRatio }] : [],
-    counts: [1], inputImage: true, softAspectRatio: false, ratioField: true,
+    counts: [1], inputImage: true, softAspectRatio: false, exactCanvas: false, ratioField: true,
   }, { ratio: body.aspectRatio, inputImage: body.inputImage }, trace, signal)
 }
 

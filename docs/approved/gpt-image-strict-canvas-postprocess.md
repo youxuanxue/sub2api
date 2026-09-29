@@ -45,6 +45,7 @@ quality/compression 仍需本地体积可区分后处理。`3840x2176` 继续本
 3. 显式 `output_format` / `quality` / `output_compression`：本地 coerce 兜底（Responses 上 jpeg/webp 多数已原生兑现）。
 4. 非目标：不把字面 size 押在上游 Responses 行为上；不引入 `-2k/-4k` 超分别名（可后续独立 PR）。
 5. 废弃 `tk_image_contract`：本地精确画布/format 后处理为默认行为；字段若传入则忽略并在转发前剥离。
+6. Studio/Quickstart：GPT Image 芯片发送 `size=WxH`（`GPT_IMAGE_SIZES`），与本契约共用尺寸表。
 
 ## 契约（审批后生效）
 
@@ -97,6 +98,7 @@ OAuth / Setup-Token 生图**一律**走：
 | 尺寸校验 / ceil-16 / pad-cover | `openai_images_strict_canvas_tk.go` |
 | format + compression coerce | `openai_images_output_format_tk.go` |
 | Direct / multi / Responses 接线 | `openai_images_direct.go`（`usesCodexDirectImages=false`）/ `*_codex_direct_multi_tk.go` / `openai_images_responses.go` |
+| Studio/Quickstart GPT size 芯片 | `frontend/src/constants/studioMediaPresentations.tk.ts`（`GPT_IMAGE_SIZES`）+ `imageGeneration.tk.ts` |
 | 回归 | `openai_images_strict_canvas_tk_test.go` 等 |
 
 ## Validation

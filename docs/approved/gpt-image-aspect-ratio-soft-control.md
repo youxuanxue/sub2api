@@ -53,6 +53,10 @@ TokenKey 对外承认可选 `aspect_ratio`，在出站 prompt 注入该 marker�
 post-process is the default for all clients; the field is ignored if present
 and stripped before upstream.
 
+Studio/Quickstart GPT Image chips send `size=WxH` from `GPT_IMAGE_SIZES`
+(aligned with this allowlist); see
+[image-generation-quickstart-studio.md](image-generation-quickstart-studio.md).
+
 ### 5. Floor / allowlist
 
 原生 OpenAI catalog / floor 保留：
@@ -78,4 +82,6 @@ and stripped before upstream.
 ## 非目标
 
 - 不把 `1k/2k/4k` 当作网关契约。
-- 本 PR 不改 Studio Web UI：`GPT_IMAGE_SIZES` 仍可仅暴露官方 WxH；`no-web-impact`。
+- Studio/Quickstart GPT 画布芯片与本契约共用 `GPT_IMAGE_SIZES` /
+  `openAIImagesAspectRatioFromSize` 尺寸表（见
+  [image-generation-quickstart-studio.md](image-generation-quickstart-studio.md)）。

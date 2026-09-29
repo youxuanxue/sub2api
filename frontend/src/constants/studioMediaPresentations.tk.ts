@@ -196,8 +196,22 @@ export const WAN27_IMAGE_SIZES: ImageSizeOption[] = [
   { ratio: '16:9', value: '2688x1536' },
 ]
 
-// Gemini/GPT aspect controls are key-specific capability projections. Keep no
-// parallel static ratio table here; imageGeneration.tk owns their consumption.
+/**
+ * GPT Image Studio/Quickstart sizes — must stay aligned with backend
+ * `openAIImagesAspectRatioFromSize` / gpt-image aspect_ratio allowlist.
+ * Wire field is `size=WxH`; gateway local pad returns this exact canvas.
+ * Prefer 1K/2K official sizes (not 4K) for Studio cost defaults.
+ */
+export const GPT_IMAGE_SIZES: ImageSizeOption[] = [
+  { ratio: '1:1', value: '1024x1024' },
+  { ratio: '3:2', value: '1536x1024' },
+  { ratio: '2:3', value: '1024x1536' },
+  { ratio: '16:9', value: '2048x1152' },
+  { ratio: '9:16', value: '1152x2048' },
+]
+
+// Non-GPT aspect controls (Gemini chat etc.) stay capability-projected.
+// GPT sizes are the static table above, filtered by admitted aspect_ratios.
 
 /** Video aspect ratios — passthrough hint to the task adaptor (TK does not interpret). */
 export interface VideoAspectPreset {
