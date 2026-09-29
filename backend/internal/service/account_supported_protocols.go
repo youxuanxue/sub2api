@@ -162,10 +162,15 @@ func SeedOfficialSupportedProtocols(account *Account) bool {
 // Kiro mirror stubs expose only their native Messages hop; public ingress
 // compatibility is handled by protocol conversion before prod calls edge.
 // OpenAI mirror stubs similarly hide their compatibility-only Messages ingress.
-// Antigravity mirrors with a verified native Gemini hop likewise convert at
-// prod; an edge key may prohibit the compatibility ingress entirely.
+// Antigravity edge relays stay Gemini-only for Messages/Gemini ingress so Claude
+// converts at prod; Chat/Responses ingress also keeps verified chat hops so
+// OpenAI-compat traffic that cannot Chat→Gemini still admits native chat.
 // Restrictions may only remove protocols from the persisted capability owner.
 func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {
+	return routingSupportedProtocolsForInbound(account, "")
+}
+
+func routingSupportedProtocolsForInbound(account *Account, inbound protocolrouter.Protocol) []protocolrouter.Protocol {
 	protocols := account.SupportedProtocols()
 	if protocolGeminiEndpointProfile(account) == protocolrouter.GeminiEndpointNativeAPIKey {
 		for _, protocol := range protocols {
@@ -184,9 +189,28 @@ func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {
 		return nil
 	}
 	if tkIsAntigravityEdgeRelayStub(account) {
+		hasGemini := false
 		for _, protocol := range protocols {
 			if protocol == protocolrouter.ProtocolGeminiGenerateContent {
-				return []protocolrouter.Protocol{protocol}
+				hasGemini = true
+				break
+			}
+		}
+		if hasGemini {
+			switch inbound {
+			case protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses:
+				kept := make([]protocolrouter.Protocol, 0, 3)
+				for _, protocol := range protocols {
+					switch protocol {
+					case protocolrouter.ProtocolGeminiGenerateContent,
+						protocolrouter.ProtocolChatCompletions,
+						protocolrouter.ProtocolResponses:
+						kept = append(kept, protocol)
+					}
+				}
+				return kept
+			default:
+				return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
 			}
 		}
 	}
@@ -250,7 +274,11 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	if !governed || identity.Key() != capability.CapabilityKey {
 		return protocolrouter.AccountSnapshot{}, fmt.Errorf("%w: %w: account endpoint identity does not match linked capability", ErrProtocolCapabilityUnknown, protocolrouter.ErrNoLegalRoute)
 	}
-	protocols := routingSupportedProtocols(account)
+	var inbound protocolrouter.Protocol
+	if request != nil {
+		inbound = request.InboundProtocol()
+	}
+	protocols := routingSupportedProtocolsForInbound(account, inbound)
 	resolvedModel := protocolResolvedUpstreamModel(account, requestedModel, requireCompact)
 	customBaseURL, customBaseURLs, officialProfile := protocolAccountEndpoints(account)
 	geminiProfile := protocolGeminiEndpointProfile(account)

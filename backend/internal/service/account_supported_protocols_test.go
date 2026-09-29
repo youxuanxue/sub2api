@@ -1060,6 +1060,58 @@ func TestAntigravityMirrorConvertsBeforeNativeOnlyEdge(t *testing.T) {
 	}
 }
 
+func TestAntigravityEdgeRelayKeepsChatWhenGeminiConversionCannotPreserve(t *testing.T) {
+	account := &Account{ID: 62, Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"base_url": "https://api-us4.tokenkey.dev",
+		"api_key":  "test",
+		"model_mapping": map[string]any{
+			"gemini-3.7-flash": "gemini-3.7-flash-high",
+		},
+	}}
+	stored := []protocolrouter.Protocol{
+		protocolrouter.ProtocolMessages,
+		protocolrouter.ProtocolChatCompletions,
+		protocolrouter.ProtocolGeminiGenerateContent,
+	}
+	attachTestProtocolCapability(account, stored...)
+
+	got := routingSupportedProtocolsForInbound(account, protocolrouter.ProtocolChatCompletions)
+	want := []protocolrouter.Protocol{
+		protocolrouter.ProtocolChatCompletions,
+		protocolrouter.ProtocolGeminiGenerateContent,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("routingSupportedProtocolsForInbound(chat) = %v, want %v", got, want)
+	}
+	if got := routingSupportedProtocolsForInbound(account, protocolrouter.ProtocolMessages); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}) {
+		t.Fatalf("messages ingress must stay gemini-only: %v", got)
+	}
+	if !reflect.DeepEqual(account.SupportedProtocols(), stored) {
+		t.Fatalf("capability owner list was rewritten: %v", account.SupportedProtocols())
+	}
+
+	// Prompt-cache chat cannot Chat→Gemini; native chat hop must still plan.
+	body := `{"model":"gemini-3.7-flash","messages":[{"role":"user","content":"hi"}],"prompt_cache_key":"session-1","max_tokens":16}`
+	request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathNone, "gemini-3.7-flash", false, []byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Profile().PromptCache == protocolrouter.PromptCacheNone {
+		t.Fatal("fixture must exercise prompt-cache so Chat→Gemini is illegal")
+	}
+	snapshot, err := protocolAccountSnapshotForRequest(account, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := NewProtocolRouter().Plan(request, snapshot)
+	if err != nil {
+		t.Fatalf("edge chat with prompt cache must admit native chat hop: %v", err)
+	}
+	if plan.TargetProtocol() != protocolrouter.ProtocolChatCompletions || plan.AdapterID() != protocolrouter.AdapterChatIdentity {
+		t.Fatalf("plan target=%s adapter=%s, want chat identity", plan.TargetProtocol(), plan.AdapterID())
+	}
+}
+
 func applySupportedProtocolsUpdate(account *Account, update map[string]any) {
 	if account.Extra == nil {
 		account.Extra = make(map[string]any)
