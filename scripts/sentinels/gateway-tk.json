@@ -1769,18 +1769,20 @@
     {
       "path": "backend/internal/engine/protocolrouter/registry.go",
       "must_contain": [
-        "adapterID: AdapterMessagesToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesMessagesToGemini"
+        "adapterID: AdapterMessagesToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesMessagesToGemini",
+        "func preservesToGemini(req CanonicalRequest) bool {",
+        "PromptCache must not refuse Chat/Responses/Messages→Gemini"
       ],
-      "rationale": "Messages function tools must reach the existing Gemini converter instead of the generic text-only gate."
+      "rationale": "Messages function tools must reach the existing Gemini converter instead of the generic text-only gate. OpenAI prompt_cache is sticky metadata and must not block Gemini conversion for Gemini-only edge pools."
     },
     {
       "path": "backend/internal/engine/protocolrouter/gemini_messages_tools.go",
       "must_contain": [
         "func preservesMessagesToGemini(",
         "req.profile.Continuation != ContinuationNone",
-        "req.profile.PromptCache != PromptCacheNone"
+        "req.profile.Reasoning != ReasoningNone"
       ],
-      "rationale": "Gemini tool admission stays bounded by the converter's supported semantics."
+      "rationale": "Gemini tool admission stays bounded by the converter's supported semantics. OpenAI prompt_cache is sticky metadata dropped at conversion and must not refuse Messages→Gemini."
     },
     {
       "path": "backend/internal/service/protocol_gemini_tools_tk_test.go",
@@ -14020,9 +14022,11 @@
         "TestAntigravityMirrorConvertsBeforeNativeOnlyEdge",
         "TestAntigravityEdgeRelayKeepsChatWhenGeminiConversionCannotPreserve",
         "convertible chat must stay gemini-only for conversion-first",
-        "edge chat with prompt cache must admit native chat hop"
+        "prompt-cache chat must stay gemini-only for Chat→Gemini",
+        "prompt-cache chat must plan Chat→Gemini",
+        "non-convertible chat must admit native chat hop"
       ],
-      "rationale": "Prevent compatibility ingress claims from bypassing native Gemini converter admission for convertible traffic, while still admitting native chat when Chat→Gemini cannot preserve (prompt cache / complex tools)."
+      "rationale": "Conversion-first for prompt_cache (edge OAuth is Gemini-only); widen to verified chat only when Chat→Gemini truly cannot preserve (e.g. forced tool_choice)."
     },
     {
       "path": "backend/internal/handler/gemini_messages_conversion_tk_test.go",

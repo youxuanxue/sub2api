@@ -185,13 +185,17 @@ func TestPlanGeminiConversionRejectsUnsupportedSemantics(t *testing.T) {
 	for _, profile := range []RequestProfile{
 		{Tools: true, ContentKinds: ContentText},
 		{Reasoning: ReasoningEffort, ContentKinds: ContentText},
-		{PromptCache: PromptCacheKey, ContentKinds: ContentText},
 		{Continuation: ContinuationPreviousResponse, ContentKinds: ContentText},
 		{ContentKinds: ContentText | ContentImage},
 	} {
 		if _, err := New(allTestAdapters()).Plan(testRequest(t, ProtocolMessages, profile), account); !errors.Is(err, ErrNoLegalRoute) {
 			t.Fatalf("Plan profile=%+v error = %v, want ErrNoLegalRoute", profile, err)
 		}
+	}
+	// OpenAI prompt_cache is sticky metadata dropped at Gemini conversion.
+	plan, err := New(allTestAdapters()).Plan(testRequest(t, ProtocolMessages, RequestProfile{PromptCache: PromptCacheKey, ContentKinds: ContentText}), account)
+	if err != nil || plan.AdapterID() != AdapterMessagesToGemini {
+		t.Fatalf("prompt_cache Messages→Gemini plan=%+v err=%v", plan, err)
 	}
 }
 

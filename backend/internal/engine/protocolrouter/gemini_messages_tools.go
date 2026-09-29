@@ -8,8 +8,7 @@ func preservesMessagesToGemini(req CanonicalRequest) bool {
 	}
 	if req.profile.ContentKinds == 0 || req.profile.ContentKinds & ^(ContentText|ContentUnknown) != 0 ||
 		req.profile.Continuation != ContinuationNone ||
-		req.profile.Reasoning != ReasoningNone ||
-		req.profile.PromptCache != PromptCacheNone {
+		req.profile.Reasoning != ReasoningNone {
 		return false
 	}
 	// The Messages converter carries standard function declarations, but does
