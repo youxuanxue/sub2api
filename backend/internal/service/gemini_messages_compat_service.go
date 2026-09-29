@@ -1102,6 +1102,14 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			if err := validateGeminiCompatImageResponse(collected); err != nil {
 				return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", err.Error())
 			}
+			if err := requireGeminiImageModelOutput(originalModel, collected); err != nil {
+				setOpsUpstreamError(c, http.StatusBadGateway, err.Error(), summarizeGeminiEmptyImageBody(collectedBytes))
+				return nil, &UpstreamFailoverError{
+					StatusCode:             http.StatusBadGateway,
+					ResponseBody:           collectedBytes,
+					RetryableOnSameAccount: true,
+				}
+			}
 			claudeResp, usageObj2 := convertGeminiToClaudeMessage(collected, originalModel, collectedBytes)
 			c.JSON(http.StatusOK, claudeResp)
 			usage = usageObj2
@@ -2055,6 +2063,14 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 	}
 	if err := validateGeminiCompatImageResponse(geminiResp); err != nil {
 		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", err.Error())
+	}
+	if err := requireGeminiImageModelOutput(originalModel, geminiResp); err != nil {
+		setOpsUpstreamError(c, http.StatusBadGateway, err.Error(), summarizeGeminiEmptyImageBody(unwrappedBody))
+		return nil, &UpstreamFailoverError{
+			StatusCode:             http.StatusBadGateway,
+			ResponseBody:           unwrappedBody,
+			RetryableOnSameAccount: true,
+		}
 	}
 	claudeResp, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, unwrappedBody)
 	c.JSON(http.StatusOK, claudeResp)

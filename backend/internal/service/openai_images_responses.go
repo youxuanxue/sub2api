@@ -1347,6 +1347,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 	c *gin.Context,
 	responseFormat string,
 	fallbackModel string,
+	parsed *OpenAIImagesRequest,
 ) (OpenAIUsage, int, []string, error) {
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
@@ -1393,8 +1394,15 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 			RetryableOnSameAccount: true,
 		}
 	}
+	if parsed != nil && parsed.ExplicitOutputFormat {
+		applyOpenAIImagesOutputFormatCoercion(results, parsed.OutputFormat)
+		reconcileOpenAIResponsesImageResultSizes(results, &firstMeta)
+	}
 	if strings.TrimSpace(firstMeta.Model) == "" {
 		firstMeta.Model = strings.TrimSpace(fallbackModel)
+	}
+	if len(results) > 0 && results[0].OutputFormat != "" {
+		firstMeta.OutputFormat = results[0].OutputFormat
 	}
 
 	responseBody, err := buildOpenAIImagesAPIResponse(results, createdAt, usageRaw, firstMeta, responseFormat)
@@ -1993,9 +2001,15 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		}
 	} else {
 		if direct {
-			usage, imageCount, imageOutputSizes, err = s.handleCodexDirectImagesNonStreamingResponse(resp, c, parsed)
+			if !parsed.Stream && parsed.N > 1 {
+				usage, imageCount, imageOutputSizes, err = s.handleCodexDirectImagesNonStreamingMulti(
+					upstreamCtx, c, account, parsed, token, proxyURL, resp, upstreamModel, targetURL,
+				)
+			} else {
+				usage, imageCount, imageOutputSizes, err = s.handleCodexDirectImagesNonStreamingResponse(resp, c, parsed)
+			}
 		} else {
-			usage, imageCount, imageOutputSizes, err = s.handleOpenAIImagesOAuthNonStreamingResponse(resp, c, parsed.ResponseFormat, requestModel)
+			usage, imageCount, imageOutputSizes, err = s.handleOpenAIImagesOAuthNonStreamingResponse(resp, c, parsed.ResponseFormat, requestModel, parsed)
 		}
 		if err != nil {
 			return nil, s.handleOpenAIImagesOAuthResponseError(

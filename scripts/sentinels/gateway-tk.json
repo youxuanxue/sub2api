@@ -9197,10 +9197,13 @@
       "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_image.go",
       "must_contain": [
         "func tkInjectGeminiImageAspectRatio(",
+        "func tkInjectGeminiImageConfig(",
         "extra_body.google.image_config.aspect_ratio",
-        "sjson.SetBytes(anthropicBody, \"image_config.aspect_ratio\", ar)"
+        "extra_body.google.image_config.image_size",
+        "sjson.SetBytes(out, \"image_config.aspect_ratio\", ar)",
+        "sjson.SetBytes(out, \"image_config.image_size\", size)"
       ],
-      "rationale": "Gemini-native image aspect-ratio passthrough, prod side. The Studio rides extra_body.google.image_config.aspect_ratio on /v1/chat/completions; apicompat.ChatCompletionsRequest does not model extra_body, so the OpenAI-compat path (ForwardAsChatCompletions) would silently drop it (exactly how it was lost pre-fix — PR #807 R-001). This helper re-reads the ratio off the raw CC body (parity with extractCCReasoningEffortFromBody) and stamps it onto the relayed Anthropic /v1/messages body as image_config.aspect_ratio, where the edge antigravity transform turns it into generationConfig.imageConfig.aspectRatio. A prod canary (2026-06-17) confirmed cloudcode-pa honors all 10 ratios. The call site lives in gateway_forward_as_chat_completions.go (anchored there); the antigravity request_transformer.go emit is anchored in antigravity.json. If any is dropped by an upstream merge the ratio silently reverts to upstream default and the regression is invisible."
+      "rationale": "Gemini-native image config passthrough, prod side. Studio rides extra_body.google.image_config.{aspect_ratio,image_size} on /v1/chat/completions; apicompat.ChatCompletionsRequest does not model extra_body, so ForwardAsChatCompletions would silently drop both fields. This helper re-reads them off the raw CC body and stamps image_config.* onto the relayed Anthropic body for the edge antigravity transform. Dropping image_size reintroduces the Chat-path resolution no-op found in prod universal-key probes (2026-09-29)."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_streaming.go",
@@ -14607,10 +14610,12 @@
       "must_contain": [
         "func preserveGeminiCompatOptions(",
         "func geminiInlineImageMarkdown(",
-        "func geminiCompatExtraBodyAspectRatio(",
-        "extra_body.google.image_config.aspect_ratio"
+        "func geminiCompatExtraBodyImageConfig(",
+        "extra_body.google.image_config.aspect_ratio",
+        "extra_body.google.image_config.image_size",
+        "errGeminiImageModelEmpty"
       ],
-      "rationale": "Compatible Gemini ingress shares image generation extension preservation and validated output projection rather than maintaining separate per-protocol image semantics. Conversion lifts only the known Studio aspect path and ignores unrelated extra_body baggage."
+      "rationale": "Compatible Gemini ingress shares image generation extension preservation and validated output projection. Conversion lifts Studio aspect_ratio and image_size from extra_body; image models that return no inline image must fail closed (errGeminiImageModelEmpty) instead of a successful empty Chat package."
     },
     {
       "path": "backend/internal/service/gemini_compat_image_options_test.go",

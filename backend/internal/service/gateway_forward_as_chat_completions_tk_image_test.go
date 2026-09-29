@@ -37,11 +37,22 @@ func TestTkInjectGeminiImageAspectRatio(t *testing.T) {
 		}
 	})
 
-	t.Run("no-op when empty string", func(t *testing.T) {
-		cc := []byte(`{"extra_body":{"google":{"image_config":{"aspect_ratio":""}}}}`)
+	t.Run("injects image_size with aspect_ratio", func(t *testing.T) {
+		cc := []byte(`{"model":"gemini-3.1-flash-image","messages":[],"extra_body":{"google":{"image_config":{"aspect_ratio":"16:9","image_size":"2K"}}}}`)
 		out := tkInjectGeminiImageAspectRatio(cc, anthropic)
-		if gjson.GetBytes(out, "image_config").Exists() {
-			t.Errorf("image_config injected for empty ratio: %s", out)
+		if got := gjson.GetBytes(out, "image_config.aspect_ratio").String(); got != "16:9" {
+			t.Errorf("image_config.aspect_ratio=%q, want 16:9", got)
+		}
+		if got := gjson.GetBytes(out, "image_config.image_size").String(); got != "2K" {
+			t.Errorf("image_config.image_size=%q, want 2K", got)
+		}
+	})
+
+	t.Run("injects image_size alone", func(t *testing.T) {
+		cc := []byte(`{"extra_body":{"google":{"image_config":{"image_size":"4K"}}}}`)
+		out := tkInjectGeminiImageAspectRatio(cc, anthropic)
+		if got := gjson.GetBytes(out, "image_config.image_size").String(); got != "4K" {
+			t.Errorf("image_config.image_size=%q, want 4K", got)
 		}
 	})
 }
@@ -55,8 +66,9 @@ func TestTkInjectGeminiImageAspectRatio(t *testing.T) {
 // transform, and assert the ratio reaches generationConfig.imageConfig.aspectRatio.
 func TestGeminiAspectRatio_ProdToEdgeWireContract(t *testing.T) {
 	const ratio = "16:9"
+	const size = "2K"
 	const model = "gemini-3.1-flash-image"
-	cc := []byte(`{"model":"` + model + `","messages":[],"extra_body":{"google":{"image_config":{"aspect_ratio":"` + ratio + `"}}}}`)
+	cc := []byte(`{"model":"` + model + `","messages":[],"extra_body":{"google":{"image_config":{"aspect_ratio":"` + ratio + `","image_size":"` + size + `"}}}}`)
 	anthropic := []byte(`{"model":"` + model + `","messages":[{"role":"user","content":"a red apple"}],"max_tokens":1024}`)
 
 	relayed := tkInjectGeminiImageAspectRatio(cc, anthropic)
@@ -66,8 +78,8 @@ func TestGeminiAspectRatio_ProdToEdgeWireContract(t *testing.T) {
 	if err := json.Unmarshal(relayed, &claudeReq); err != nil {
 		t.Fatalf("unmarshal relayed body into ClaudeRequest: %v", err)
 	}
-	if claudeReq.ImageConfig == nil || claudeReq.ImageConfig.AspectRatio != ratio {
-		t.Fatalf("ClaudeRequest.ImageConfig did not carry the ratio: %+v (json key drift between inject and ClaudeRequest tags?)", claudeReq.ImageConfig)
+	if claudeReq.ImageConfig == nil || claudeReq.ImageConfig.AspectRatio != ratio || claudeReq.ImageConfig.ImageSize != size {
+		t.Fatalf("ClaudeRequest.ImageConfig did not carry config: %+v", claudeReq.ImageConfig)
 	}
 
 	// Edge: transform emits it onto the cloudcode-pa wire.
@@ -77,5 +89,8 @@ func TestGeminiAspectRatio_ProdToEdgeWireContract(t *testing.T) {
 	}
 	if got := gjson.GetBytes(body, "request.generationConfig.imageConfig.aspectRatio").String(); got != ratio {
 		t.Fatalf("upstream wire aspectRatio=%q, want %q", got, ratio)
+	}
+	if got := gjson.GetBytes(body, "request.generationConfig.imageConfig.imageSize").String(); got != size {
+		t.Fatalf("upstream wire imageSize=%q, want %q", got, size)
 	}
 }
