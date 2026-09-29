@@ -1140,7 +1140,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		ImageSize:                     imageSize,
 		ImageInputSize:                imageInputSize,
 	}
-	applyGeminiWebTextUsageEstimate(c, account, result, geminiReq)
+	applyGeminiWebTextUsageEstimate(c, account, result, geminiReq, responseErr)
 	return result, responseErr
 }
 
@@ -1642,7 +1642,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	}
 	// countTokens is a local/probe path — never invent chat settlement usage.
 	if action != "countTokens" {
-		applyGeminiWebTextUsageEstimate(c, account, result, body)
+		applyGeminiWebTextUsageEstimate(c, account, result, body, nil)
 	}
 	return result, nil
 }

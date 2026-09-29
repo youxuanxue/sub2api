@@ -70,9 +70,10 @@ func geminiUsageHasBillableTokens(u ClaudeUsage) bool {
 // applyGeminiWebTextUsageEstimate fills empty text usage for Gemini Web Worker
 // accounts from the shared tokenestimate stack (Cursor/Kiro). Reported
 // usageMetadata always wins; image settlements (ImageCount > 0) are untouched;
-// countTokens is skipped by callers.
-func applyGeminiWebTextUsageEstimate(c *gin.Context, account *Account, result *ForwardResult, requestBody []byte) {
-	if result == nil || !isGeminiWebAccount(account) {
+// failed/incomplete forwards (forwardErr != nil) keep a zero-usage audit record
+// and must not invent billable tokens; countTokens is skipped by callers.
+func applyGeminiWebTextUsageEstimate(c *gin.Context, account *Account, result *ForwardResult, requestBody []byte, forwardErr error) {
+	if result == nil || forwardErr != nil || !isGeminiWebAccount(account) {
 		return
 	}
 	if result.ImageCount > 0 {

@@ -2700,12 +2700,12 @@
       "path": "backend/internal/service/gemini_web_usage_estimate_tk.go",
       "must_contain": [
         "func applyGeminiWebTextUsageEstimate(",
-        "isGeminiWebAccount(account)",
+        "forwardErr != nil || !isGeminiWebAccount(account)",
         "result.ImageCount > 0",
         "geminiUsageHasBillableTokens(result.Usage)",
         "geminiweb.EstimatedBillingTier"
       ],
-      "rationale": "Settlement adapter: only gemini-web accounts, skip ImageCount and reported usageMetadata, stamp EstimatedBillingTier. Upstream merges that drop this helper leave ForwardResult empty and text traffic free."
+      "rationale": "Settlement adapter: only successful gemini-web forwards, skip ImageCount and reported usageMetadata, stamp EstimatedBillingTier. Dropping the forwardErr guard invents tokens on failed image/incomplete streams (US057 zero-usage audit)."
     },
     {
       "path": "backend/internal/service/gemini_web_usage_estimate_tk_test.go",
@@ -2713,15 +2713,16 @@
         "func TestApplyGeminiWebTextUsageEstimateFillsEmptyUsage(",
         "func TestApplyGeminiWebTextUsageEstimateKeepsReportedUsage(",
         "func TestApplyGeminiWebTextUsageEstimateSkipsImageBilling(",
+        "func TestApplyGeminiWebTextUsageEstimateSkipsForwardError(",
         "func TestApplyGeminiWebTextUsageEstimateIgnoresNonWebAccounts("
       ],
-      "rationale": "Pin positive estimate, reported-usage precedence, image non-interference, and non-web no-op regressions for gemini-web text settlement."
+      "rationale": "Pin positive estimate, reported-usage precedence, image non-interference, forward-error zero-usage, and non-web no-op regressions for gemini-web text settlement."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
-        "applyGeminiWebTextUsageEstimate(c, account, result, geminiReq)",
-        "applyGeminiWebTextUsageEstimate(c, account, result, body)",
+        "applyGeminiWebTextUsageEstimate(c, account, result, geminiReq, responseErr)",
+        "applyGeminiWebTextUsageEstimate(c, account, result, body, nil)",
         "stashGeminiWebEstimateResponseBody(c, collectedBytes)",
         "stashGeminiWebEstimateResponseBody(c, unwrappedBody)",
         "stashGeminiWebEstimateResponseBody(c, respBody)",
@@ -2732,7 +2733,7 @@
     {
       "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
       "must_contain": [
-        "applyGeminiWebTextUsageEstimate(c, account, result, geminiReq)",
+        "applyGeminiWebTextUsageEstimate(c, account, result, geminiReq, responseErr)",
         "stashGeminiWebEstimateResponseBody(c, collectedBytes)",
         "stashGeminiWebEstimateResponseBody(c, respBody)",
         "stashGeminiWebEstimateOutputText(c, seenText)"
@@ -2742,7 +2743,7 @@
     {
       "path": "backend/internal/service/gemini_responses_compat_service.go",
       "must_contain": [
-        "applyGeminiWebTextUsageEstimate(c, account, result, geminiReq)",
+        "applyGeminiWebTextUsageEstimate(c, account, result, geminiReq, responseErr)",
         "stashGeminiWebEstimateResponseBody(c, collectedBytes)",
         "stashGeminiWebEstimateResponseBody(c, respBody)",
         "stashGeminiWebEstimateOutputText(c, seenText)"

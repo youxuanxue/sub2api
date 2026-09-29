@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/integration/geminiweb"
@@ -30,7 +31,7 @@ func TestApplyGeminiWebTextUsageEstimateFillsEmptyUsage(t *testing.T) {
 	stashGeminiWebEstimateResponseBody(c, resp)
 
 	result := &ForwardResult{Model: "gemini-3.8-flash", UpstreamModel: "gemini-web-flash"}
-	applyGeminiWebTextUsageEstimate(c, geminiWebTestAccount(), result, req)
+	applyGeminiWebTextUsageEstimate(c, geminiWebTestAccount(), result, req, nil)
 
 	require.Equal(t, geminiweb.EstimatedBillingTier, result.BillingTier)
 	require.Equal(t, tokenestimate.Count("bill me please"), result.Usage.InputTokens)
@@ -47,7 +48,7 @@ func TestApplyGeminiWebTextUsageEstimateKeepsReportedUsage(t *testing.T) {
 	result := &ForwardResult{
 		Usage: ClaudeUsage{InputTokens: 11, OutputTokens: 7},
 	}
-	applyGeminiWebTextUsageEstimate(c, geminiWebTestAccount(), result, []byte(`{"contents":[{"parts":[{"text":"x"}]}]}`))
+	applyGeminiWebTextUsageEstimate(c, geminiWebTestAccount(), result, []byte(`{"contents":[{"parts":[{"text":"x"}]}]}`), nil)
 
 	require.Empty(t, result.BillingTier)
 	require.Equal(t, 11, result.Usage.InputTokens)
@@ -64,7 +65,20 @@ func TestApplyGeminiWebTextUsageEstimateSkipsImageBilling(t *testing.T) {
 		ImageSize:  "1K",
 		Usage:      ClaudeUsage{},
 	}
-	applyGeminiWebTextUsageEstimate(c, geminiWebTestAccount(), result, []byte(`{"contents":[{"parts":[{"text":"draw"}]}]}`))
+	applyGeminiWebTextUsageEstimate(c, geminiWebTestAccount(), result, []byte(`{"contents":[{"parts":[{"text":"draw"}]}]}`), nil)
+
+	require.Empty(t, result.BillingTier)
+	require.Equal(t, 0, result.Usage.InputTokens)
+	require.Equal(t, 0, result.Usage.OutputTokens)
+}
+
+func TestApplyGeminiWebTextUsageEstimateSkipsForwardError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(nil)
+	stashGeminiWebEstimateResponseBody(c, []byte(`{"candidates":[{"content":{"parts":[{"text":"partial"}]}}]}`))
+
+	result := &ForwardResult{}
+	applyGeminiWebTextUsageEstimate(c, geminiWebTestAccount(), result, []byte(`{"contents":[{"parts":[{"text":"Draw an apple"}]}]}`), errors.New("incomplete Gemini stream"))
 
 	require.Empty(t, result.BillingTier)
 	require.Equal(t, 0, result.Usage.InputTokens)
@@ -78,7 +92,7 @@ func TestApplyGeminiWebTextUsageEstimateIgnoresNonWebAccounts(t *testing.T) {
 
 	plain := &Account{ID: 1, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "k"}}
 	result := &ForwardResult{}
-	applyGeminiWebTextUsageEstimate(c, plain, result, []byte(`{"contents":[{"parts":[{"text":"x"}]}]}`))
+	applyGeminiWebTextUsageEstimate(c, plain, result, []byte(`{"contents":[{"parts":[{"text":"x"}]}]}`), nil)
 	require.Empty(t, result.BillingTier)
 	require.Equal(t, 0, result.Usage.InputTokens)
 }

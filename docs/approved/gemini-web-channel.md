@@ -229,10 +229,11 @@ prod 中继补入声明；映射、Cookie、并发和调度开关不随代码修
 不因下载失败重新生成。探测同样要求完整解码和正确账号用量归属。
 解码前拒绝超过 1600 万像素的图片；图片准入锁覆盖下载、解码及响应缓冲。
 不虚构 usageMetadata、modelVersion 或返回内部 thoughts。
-客户端可见响应仍不伪造 usageMetadata；文本成功且上游无正 token 时，网关用与
+客户端可见响应仍不伪造 usageMetadata；文本**成功**且上游无正 token 时，网关用与
 Cursor/Kiro 同源的 `tokenestimate`（cl100k）估算 input/output，写入结算
-`billing_tier=gemini-web-estimated`。已上报的 usageMetadata 优先；`ImageCount>0`
-的生图路径仍按次计费，不走文本估算。Gemini Web 仅单轮，不发明 prompt-cache 命中。
+`billing_tier=gemini-web-estimated`。失败/不完整转发保留零 usage 审计记录，不发明
+计费 token。已上报的 usageMetadata 优先；`ImageCount>0` 的生图路径仍按次计费，
+不走文本估算。Gemini Web 仅单轮，不发明 prompt-cache 命中。
 
 2026-09-24 在已登录的 11 号 AdsPower Gemini 页面逐项选择五种比例并抓取真实
 `StreamGenerate` 请求：比例字符串位于 `inner[0][9][6][1][1]`，枚举值位于

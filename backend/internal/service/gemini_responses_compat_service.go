@@ -292,7 +292,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 		ImageInputSize:   imageInputSize,
 		ClientDisconnect: false,
 	}
-	applyGeminiWebTextUsageEstimate(c, account, result, geminiReq)
+	applyGeminiWebTextUsageEstimate(c, account, result, geminiReq, responseErr)
 	return result, responseErr
 }
 
