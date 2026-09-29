@@ -395,15 +395,18 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		line = s.replaceModelInSSELine(line, upstreamModel, originalModel)
 		if payload, ok := extractOpenAISSEDataLine(line); ok {
 			trimmedPayload := strings.TrimSpace(payload)
-			if trimmedPayload != "[DONE]" && gjson.Get(trimmedPayload, "usage").Exists() {
+			if trimmedPayload != "[DONE]" && isOpenAIChatUsageOnlyStreamChunk(trimmedPayload) {
 				preview := &OpenAIForwardResult{
-					Usage:           usage,
-					Model:           originalModel,
-					BillingModel:    billingModel,
-					UpstreamModel:   upstreamModel,
-					Stream:          true,
-					ServiceTier:     resolvedOpenAIUpstreamServiceTier(c, serviceTier),
-					ReasoningEffort: reasoningEffort,
+					Usage:                         usage,
+					Model:                         originalModel,
+					BillingModel:                  billingModel,
+					UpstreamModel:                 upstreamModel,
+					UpstreamResponseModel:         observedUpstreamResponseModel(c),
+					UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+					UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
+					Stream:                        true,
+					ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+					ReasoningEffort:               reasoningEffort,
 				}
 				if cost := s.previewOpenAIClientUsageCost(c.Request.Context(), c, account, preview); cost != nil {
 					line = InjectUsageCostSSEDataLine(line, cost.ActualCost)

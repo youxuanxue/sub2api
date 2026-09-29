@@ -28,6 +28,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -224,7 +225,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 	pricingCtx, pricingAt := service.WithGatewayTokenRequestPricing(c.Request.Context())
 	c.Request = c.Request.WithContext(pricingCtx)
-	service.BindResponseUsageCostBilling(c, pricingAt, clientRequestedUsageFields(c, channelMapping, reqModel, ""))
+	tier := ""
+	if speed := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "speed").String())); speed == "fast" {
+		tier = "fast"
+	}
+	service.BindResponseUsageCostBillingWithTier(c, pricingAt, clientRequestedUsageFields(c, channelMapping, reqModel, ""), tier)
 
 	// 验证 model 必填
 	if reqModel == "" {

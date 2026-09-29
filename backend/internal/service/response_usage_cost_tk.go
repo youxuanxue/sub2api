@@ -19,17 +19,27 @@ const responseUsageCostPrecomputedKey = "tk_response_usage_cost_precomputed"
 type responseUsageCostBilling struct {
 	PricingAt time.Time
 	ChannelUsageFields
+	// ServiceTier is the client-requested billable tier (OpenAI service_tier /
+	// Anthropic speed=fast normalized). Empty when not declared.
+	ServiceTier string
 }
 
 // BindResponseUsageCostBilling stores channel + pricing snapshot for client-visible
 // usage.cost injection. Safe to call once after channel mapping is resolved.
 func BindResponseUsageCostBilling(c *gin.Context, pricingAt time.Time, fields ChannelUsageFields) {
+	BindResponseUsageCostBillingWithTier(c, pricingAt, fields, "")
+}
+
+// BindResponseUsageCostBillingWithTier also freezes the client-requested service tier
+// so response-side cost preview matches RecordUsage service-tier settlement.
+func BindResponseUsageCostBillingWithTier(c *gin.Context, pricingAt time.Time, fields ChannelUsageFields, serviceTier string) {
 	if c == nil {
 		return
 	}
 	c.Set(responseUsageCostBillingKey, responseUsageCostBilling{
 		PricingAt:          pricingAt,
 		ChannelUsageFields: fields,
+		ServiceTier:        strings.TrimSpace(serviceTier),
 	})
 }
 
@@ -172,6 +182,11 @@ func (s *GatewayService) previewClaudeClientUsageCost(
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
 	}
+	if snap.ServiceTier != "" {
+		tier := snap.ServiceTier
+		result.ServiceTier = &tier
+	}
+	ApplyForwardServiceTierBillingResolution(result)
 	if overrideTarget, ok := s.resolveCacheTTLUsageOverrideTarget(ctx, account); ok {
 		applyCacheTTLOverride(&result.Usage, overrideTarget)
 	}
@@ -226,6 +241,8 @@ func (s *GatewayService) previewClaudeClientUsageCost(
 }
 
 // previewOpenAIClientUsageCost computes ActualCost for OpenAI-shaped token responses.
+// It must mirror RecordUsage's customer-facing ActualCost path (service-tier
+// settlement, response_model adoption, Free Fast → Standard ActualCost).
 func (s *OpenAIGatewayService) previewOpenAIClientUsageCost(
 	ctx context.Context,
 	c *gin.Context,
@@ -249,19 +266,33 @@ func (s *OpenAIGatewayService) previewOpenAIClientUsageCost(
 		pricingAt = timezone.Now()
 	}
 
-	actualInputTokens := result.Usage.InputTokens - result.Usage.CacheReadInputTokens - result.Usage.CacheCreationInputTokens
+	billingAccount := account
+	if account.IsShadow() && s.accountRepo != nil {
+		if resolved, err := resolveCredentialAccount(ctx, s.accountRepo, account); err == nil && resolved != nil {
+			billingAccount = resolved
+		}
+	}
+
+	preview := *result
+	if snap.ServiceTier != "" && preview.ServiceTier == nil {
+		tier := snap.ServiceTier
+		preview.ServiceTier = &tier
+	}
+	ApplyOpenAIServiceTierBillingResolution(billingAccount, &preview)
+
+	actualInputTokens := preview.Usage.InputTokens - preview.Usage.CacheReadInputTokens - preview.Usage.CacheCreationInputTokens
 	if actualInputTokens < 0 {
 		actualInputTokens = 0
 	}
 	tokens := UsageTokens{
 		InputTokens:           actualInputTokens,
-		ImageInputTokens:      result.Usage.ImageInputTokens,
-		OutputTokens:          result.Usage.OutputTokens,
-		CacheCreationTokens:   result.Usage.CacheCreationInputTokens,
-		CacheCreation5mTokens: result.Usage.CacheCreation5mTokens,
-		CacheCreation1hTokens: result.Usage.CacheCreation1hTokens,
-		CacheReadTokens:       result.Usage.CacheReadInputTokens,
-		ImageOutputTokens:     result.Usage.ImageOutputTokens,
+		ImageInputTokens:      preview.Usage.ImageInputTokens,
+		OutputTokens:          preview.Usage.OutputTokens,
+		CacheCreationTokens:   preview.Usage.CacheCreationInputTokens,
+		CacheCreation5mTokens: preview.Usage.CacheCreation5mTokens,
+		CacheCreation1hTokens: preview.Usage.CacheCreation1hTokens,
+		CacheReadTokens:       preview.Usage.CacheReadInputTokens,
+		ImageOutputTokens:     preview.Usage.ImageOutputTokens,
 	}
 
 	multiplier := 1.0
@@ -279,9 +310,9 @@ func (s *OpenAIGatewayService) previewOpenAIClientUsageCost(
 	multiplier, imageMultiplier := computePeakAwareMultipliers(apiKey, baseMultiplier, pricingAt)
 	videoMultiplier := resolveVideoRateMultiplier(apiKey, baseMultiplier)
 
-	billingModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
-	if result.BillingModel != "" {
-		billingModel = strings.TrimSpace(result.BillingModel)
+	billingModel := forwardResultBillingModel(preview.Model, preview.UpstreamModel)
+	if preview.BillingModel != "" {
+		billingModel = strings.TrimSpace(preview.BillingModel)
 	}
 	if snap.BillingModelSource == BillingModelSourceChannelMapped && snap.ChannelMappedModel != "" && snap.ChannelMappedModel != snap.OriginalModel {
 		billingModel = snap.ChannelMappedModel
@@ -289,26 +320,62 @@ func (s *OpenAIGatewayService) previewOpenAIClientUsageCost(
 	if snap.BillingModelSource == BillingModelSourceRequested && snap.OriginalModel != "" {
 		billingModel = snap.OriginalModel
 	}
+	requestedForBilling := snap.OriginalModel
+	if requestedForBilling == "" {
+		requestedForBilling = preview.Model
+	}
+	billingModel = settleBillingOnAccountServedModel(billingAccount, requestedForBilling, billingModel)
 	billingModels := usageBillingModelCandidates(
 		billingModel,
-		result.BillingModel,
+		preview.BillingModel,
 		snap.ChannelMappedModel,
 		snap.OriginalModel,
-		result.UpstreamModel,
-		result.Model,
+		preview.UpstreamModel,
+		preview.Model,
 	)
 	billingModels = s.filterCNProviderBillingModelCandidates(ctx, account, apiKey, billingModels)
 	serviceTier := ""
-	if result.ServiceTier != nil {
-		serviceTier = strings.TrimSpace(*result.ServiceTier)
+	if preview.ServiceTier != nil {
+		serviceTier = strings.TrimSpace(*preview.ServiceTier)
 	}
-	longContextBillingGate := openAILongContextBillingGate(account)
+	longContextBillingGate := openAILongContextBillingGate(billingAccount)
 	cost, err := s.calculateOpenAIRecordUsageCost(
-		ctx, result, apiKey, billingModels, multiplier, imageMultiplier, videoMultiplier, baseMultiplier,
+		ctx, &preview, apiKey, billingModels, multiplier, imageMultiplier, videoMultiplier, baseMultiplier,
 		tokens, serviceTier, longContextBillingGate, pricingAt,
 	)
 	if err != nil || cost == nil {
 		return nil
+	}
+
+	baselineBillingModel := firstUsageBillingModel(billingModels)
+	if responseModel := responseModelBillingDeclaration(
+		snap.BillingModelSource,
+		preview.UpstreamResponseModel,
+		preview.UpstreamResponseModelConflict,
+		false,
+	); responseModel != "" && !strings.EqualFold(responseModel, baselineBillingModel) {
+		if identified, responseChannelPriced := s.hasIdentifiedOpenAIResponsePricing(ctx, responseModel, apiKey); identified {
+			responseModels := s.filterCNProviderBillingModelCandidates(ctx, account, apiKey, usageBillingModelCandidates(responseModel))
+			responseCost, responseErr := s.calculateOpenAIRecordUsageCost(
+				ctx, &preview, apiKey, responseModels, multiplier, imageMultiplier,
+				videoMultiplier, baseMultiplier, tokens, serviceTier, longContextBillingGate, pricingAt,
+			)
+			baselineChannelPriced := s.resolveOpenAIChannelPricing(ctx, baselineBillingModel, apiKey) != nil
+			if responseErr == nil && responseModelBillingAdoptable(cost, responseCost, baselineChannelPriced, responseChannelPriced) {
+				billingModels = responseModels
+				cost = responseCost
+			}
+		}
+	}
+
+	if groupBillsOpenAIFastAtStandard(apiKey, billingAccount, serviceTier) {
+		standardCost, standardErr := s.calculateOpenAIRecordUsageCost(
+			ctx, &preview, apiKey, billingModels, multiplier, imageMultiplier, videoMultiplier, baseMultiplier,
+			tokens, "", longContextBillingGate, pricingAt,
+		)
+		if standardErr == nil && cost != nil && standardCost != nil {
+			cost.ActualCost = standardCost.ActualCost
+		}
 	}
 	return cost
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -81,11 +82,9 @@ func TestHandleNonStreamingResponse_InjectsUsageCost(t *testing.T) {
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
-	svc := newGatewayRecordUsageServiceForTest(
-		&openAIRecordUsageLogRepoStub{inserted: true},
-		&openAIRecordUsageUserRepoStub{},
-		&openAIRecordUsageSubRepoStub{},
-	)
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
 	svc.rateLimitService = &RateLimitService{}
 
 	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, "claude-sonnet-4", "claude-sonnet-4")
@@ -99,6 +98,24 @@ func TestHandleNonStreamingResponse_InjectsUsageCost(t *testing.T) {
 	stashed := TakePrecomputedResponseUsageCost(c)
 	require.NotNil(t, stashed)
 	require.InDelta(t, cost.Float(), stashed.ActualCost, 1e-12)
+
+	// Validation: response cost must match RecordUsage actual_cost when reused.
+	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID:       "resp_usage_cost_reuse",
+			Usage:           *usage,
+			Model:           "claude-sonnet-4",
+			UpstreamModel:   "claude-sonnet-4",
+			PrecomputedCost: stashed,
+			Duration:        time.Second,
+		},
+		APIKey:  apiKey,
+		User:    apiKey.User,
+		Account: &Account{ID: 1},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, cost.Float(), usageRepo.lastLog.ActualCost, 1e-12)
 }
 
 func stringsHasPrefixData(s string) bool {

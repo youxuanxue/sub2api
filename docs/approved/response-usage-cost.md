@@ -24,7 +24,6 @@ Universal Key / 直连 Key 的推理响应在已有 `usage` token 字段上，�
   - OpenAI Chat Completions：含 `usage` 的 chunk（通常为末帧）写入 `usage.cost`。
   - Anthropic Messages：在 `message_delta` 的 `usage` 上写入（此时已具备完整用量）；
     `message_start` 不写（输入未齐）。
-  - OpenAI Responses：终态事件里 `response.usage.cost`（若该路径已产出 usage）。
 - **缺省**：无 `usage`、无法算定（缺鉴权快照 / 非 token 计价媒体等）时 **不新增**
   `cost` 字段，不发明 0。
 - **一致性**：响应里的 `cost` 与随后落库的 `usage_logs.actual_cost` 同源计算；响应侧
@@ -32,11 +31,12 @@ Universal Key / 直连 Key 的推理响应在已有 `usage` token 字段上，�
 
 ## Out of scope（v1 不做）
 
+- OpenAI Responses / 非 raw Chat Completions 写出路径（后续追加）。
 - 新响应头、HTTP trailer、新查询 endpoint。
 - `cost_details` / upstream 成本拆分。
 - 改写客户端可见的 token 数字。
-- 强制媒体 / 按次计费路径在响应里返回 cost（可后续追加；v1 以 chat/messages/responses
-  token 路径为主）。
+- 强制媒体 / 按次计费路径在响应里返回 cost。
+- v1 覆盖面：**Claude Messages** + **OpenAI Chat Completions raw** 的 token 路径。
 
 ## Owners
 
