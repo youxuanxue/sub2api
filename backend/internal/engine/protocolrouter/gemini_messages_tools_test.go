@@ -20,7 +20,7 @@ func TestPlanMessagesToGeminiFunctionTools(t *testing.T) {
 		{"parallel_constraint", `,"tool_choice":{"type":"auto","disable_parallel_tool_use":true}`, false},
 		{"reasoning", `,"thinking":{"type":"enabled","budget_tokens":1024}`, false},
 		{"continuation", `,"previous_response_id":"resp_1"`, false},
-		{"cache", `,"prompt_cache_key":"session"`, false},
+		{"cache", `,"prompt_cache_key":"session"`, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request, err := ParseCanonicalRequest(ProtocolMessages, ResponsesPathNone, "gemini-3.8-flash", false, []byte("{"+base+tc.extra+"}"))

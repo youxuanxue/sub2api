@@ -12,7 +12,7 @@ func preservesChatToGemini(req CanonicalRequest) bool {
 		return preservesToGemini(req)
 	}
 	if req.profile.ContentKinds == 0 || req.profile.ContentKinds&^(ContentText|ContentUnknown) != 0 ||
-		req.profile.Continuation != ContinuationNone || req.profile.Reasoning != ReasoningNone || req.profile.PromptCache != PromptCacheNone {
+		req.profile.Continuation != ContinuationNone || req.profile.Reasoning != ReasoningNone {
 		return false
 	}
 	var root struct {

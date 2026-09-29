@@ -1090,14 +1090,39 @@ func TestAntigravityEdgeRelayKeepsChatWhenGeminiConversionCannotPreserve(t *test
 		t.Fatalf("capability owner list was rewritten: %v", account.SupportedProtocols())
 	}
 
-	// Prompt-cache chat cannot Chat→Gemini; native chat hop must still plan.
-	body := `{"model":"gemini-3.7-flash","messages":[{"role":"user","content":"hi"}],"prompt_cache_key":"session-1","max_tokens":16}`
+	// prompt_cache_key is OpenAI sticky metadata; Gemini conversion drops it and
+	// must stay conversion-first so Gemini-only edge OAuth pools remain eligible.
+	cacheBody := `{"model":"gemini-3.7-flash","messages":[{"role":"user","content":"hi"}],"prompt_cache_key":"session-1","max_tokens":16}`
+	cacheReq, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathNone, "gemini-3.7-flash", false, []byte(cacheBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cacheReq.Profile().PromptCache == protocolrouter.PromptCacheNone {
+		t.Fatal("fixture must exercise prompt-cache")
+	}
+	if got := routingSupportedProtocolsForInbound(account, protocolrouter.ProtocolChatCompletions, &cacheReq); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}) {
+		t.Fatalf("prompt-cache chat must stay gemini-only for Chat→Gemini: %v", got)
+	}
+	cacheSnapshot, err := protocolAccountSnapshotForRequest(account, cacheReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cachePlan, err := NewProtocolRouter().Plan(cacheReq, cacheSnapshot)
+	if err != nil {
+		t.Fatalf("prompt-cache chat must plan Chat→Gemini: %v", err)
+	}
+	if cachePlan.TargetProtocol() != protocolrouter.ProtocolGeminiGenerateContent || cachePlan.AdapterID() != protocolrouter.AdapterChatToGemini {
+		t.Fatalf("prompt-cache plan target=%s adapter=%s, want chat→gemini", cachePlan.TargetProtocol(), cachePlan.AdapterID())
+	}
+
+	// Forced tool_choice cannot Chat→Gemini; admit verified chat hop so identity remains eligible.
+	body := `{"model":"gemini-3.7-flash","messages":[{"role":"user","content":"hi"}],"max_tokens":16,"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"tool_choice":"required"}`
 	request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathNone, "gemini-3.7-flash", false, []byte(body))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if request.Profile().PromptCache == protocolrouter.PromptCacheNone {
-		t.Fatal("fixture must exercise prompt-cache so Chat→Gemini is illegal")
+	if protocolrouter.OpenAIToGeminiConversionPreserves(protocolrouter.ProtocolChatCompletions, request) {
+		t.Fatal("fixture must exercise a Chat→Gemini-illegal tool_choice")
 	}
 	got := routingSupportedProtocolsForInbound(account, protocolrouter.ProtocolChatCompletions, &request)
 	want := []protocolrouter.Protocol{
@@ -1113,7 +1138,7 @@ func TestAntigravityEdgeRelayKeepsChatWhenGeminiConversionCannotPreserve(t *test
 	}
 	plan, err := NewProtocolRouter().Plan(request, snapshot)
 	if err != nil {
-		t.Fatalf("edge chat with prompt cache must admit native chat hop: %v", err)
+		t.Fatalf("non-convertible chat must admit native chat hop: %v", err)
 	}
 	if plan.TargetProtocol() != protocolrouter.ProtocolChatCompletions || plan.AdapterID() != protocolrouter.AdapterChatIdentity {
 		t.Fatalf("plan target=%s adapter=%s, want chat identity", plan.TargetProtocol(), plan.AdapterID())

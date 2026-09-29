@@ -1747,9 +1747,11 @@
     {
       "path": "backend/internal/engine/protocolrouter/router_test.go",
       "must_contain": [
-        "TestPlanDistinguishesModelPolicyFromRouteAndInternalErrors"
+        "TestPlanDistinguishesModelPolicyFromRouteAndInternalErrors",
+        "TestPlanGeminiConversionRejectsUnsupportedSemantics",
+        "prompt_cache Messages→Gemini plan="
       ],
-      "rationale": "The Plan owner must distinguish explicit model denial, target route rejection and internal router failure; Universal consumes these facts without re-evaluating model policy."
+      "rationale": "The Plan owner must distinguish explicit model denial, target route rejection and internal router failure; Universal consumes these facts without re-evaluating model policy. OpenAI prompt_cache is sticky metadata and must remain convertible to Gemini (Gemini-only edge OAuth cannot fall back to Chat identity)."
     },
     {
       "path": "backend/internal/integration/newapi/discover_filter_tk.go",

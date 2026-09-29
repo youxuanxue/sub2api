@@ -23,7 +23,7 @@ func TestPlanChatToGeminiFunctionTools(t *testing.T) {
 		{"built_in", `{"tools":[{"type":"web_search"}]}`, false},
 		{"reasoning", `{"reasoning_effort":"high"}`, false},
 		{"continuation", `{"previous_response_id":"resp_old"}`, false},
-		{"cache", `{"prompt_cache_key":"session"}`, false},
+		{"cache", `{"prompt_cache_key":"session"}`, true},
 		{"format", `{"response_format":{"type":"json_schema"}}`, false},
 		{"image", `{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.test/a.png"}}]}]}`, false},
 		{"tool_history", `{"messages":[{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_1","content":"sunny"}]}`, true},
