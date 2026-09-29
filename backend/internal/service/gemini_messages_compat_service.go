@@ -2324,6 +2324,9 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	if finishReason == "" && !sawDone && !sawPolicyBlock {
 		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, fmt.Errorf("incomplete Gemini stream: missing terminal event")
 	}
+	if err := requireGeminiImageModelStreamOutput(originalModel, c); err != nil {
+		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, err
+	}
 
 	if openBlockIndex >= 0 {
 		writeSSE(c.Writer, "content_block_stop", map[string]any{

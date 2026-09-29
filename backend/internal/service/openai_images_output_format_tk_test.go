@@ -59,9 +59,15 @@ func TestApplyOpenAIImagesOutputFormatCoercion(t *testing.T) {
 		Result:       base64.StdEncoding.EncodeToString(pngBuf.Bytes()),
 		OutputFormat: "png",
 	}}
-	applyOpenAIImagesOutputFormatCoercion(results, "jpeg")
+	require.NoError(t, applyOpenAIImagesOutputFormatCoercion(results, "jpeg"))
 	require.Equal(t, "jpeg", results[0].OutputFormat)
 	raw, err := base64.StdEncoding.DecodeString(results[0].Result)
 	require.NoError(t, err)
 	require.Equal(t, "jpeg", sniffOpenAIImageFormat(raw))
+}
+
+func TestCoerceOpenAIImageB64RejectsUnrecognizedContainer(t *testing.T) {
+	_, _, err := coerceOpenAIImageB64ToOutputFormat(base64.StdEncoding.EncodeToString([]byte("not-an-image")), "jpeg")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unrecognized image container")
 }

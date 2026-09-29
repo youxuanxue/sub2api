@@ -1395,7 +1395,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 		}
 	}
 	if parsed != nil && parsed.ExplicitOutputFormat {
-		applyOpenAIImagesOutputFormatCoercion(results, parsed.OutputFormat)
+		if err := applyOpenAIImagesOutputFormatCoercion(results, parsed.OutputFormat); err != nil {
+			return OpenAIUsage{}, 0, nil, err
+		}
 		reconcileOpenAIResponsesImageResultSizes(results, &firstMeta)
 	}
 	if strings.TrimSpace(firstMeta.Model) == "" {
@@ -1831,6 +1833,14 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		return nil, err
 	}
 	direct := usesCodexDirectImages(upstreamModel) && !isOpenAIImagesForceResponses(ctx)
+	if direct && parsed.Stream && parsed.N > 1 {
+		return nil, &OpenAIImagesUpstreamError{
+			StatusCode: http.StatusBadRequest,
+			ErrorType:  "invalid_request_error",
+			Code:       "unsupported_parameter",
+			Message:    "stream=true with n>1 is not supported for Codex Direct images; use n=1 or omit stream so TokenKey can multi-fetch",
+		}
+	}
 	beginUpstreamResponseModelObservation(c)
 	SetOpsUpstreamModel(c, upstreamModel)
 	logger.LegacyPrintf(
@@ -2025,7 +2035,11 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		}
 	}
 	if imageCount <= 0 {
-		imageCount = parsed.N
+		return nil, &UpstreamFailoverError{
+			StatusCode:             http.StatusBadGateway,
+			ClientMessage:          "no_image_output",
+			RetryableOnSameAccount: true,
+		}
 	}
 	return &OpenAIForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),

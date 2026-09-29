@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
 
@@ -255,6 +256,20 @@ func requireGeminiImageModelOutput(model string, response map[string]any) error 
 		return nil
 	}
 	if geminiResponseInlineImageCount(response) == 0 {
+		return errGeminiImageModelEmpty
+	}
+	return nil
+}
+
+// requireGeminiImageModelStreamOutput fails closed when an image model stream
+// finished without any validated inline image. Callers must return this before
+// writing terminal success events ([DONE] / message_stop); after headers are
+// committed failover is unsafe, but billing must still see a non-nil error.
+func requireGeminiImageModelStreamOutput(model string, c *gin.Context) error {
+	if !antigravity.IsImageModel(model) {
+		return nil
+	}
+	if observedGeminiImageOutputs(c) == 0 {
 		return errGeminiImageModelEmpty
 	}
 	return nil

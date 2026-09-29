@@ -254,6 +254,14 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 		stashGeminiWebEstimateResponseBody(c, collectedBytes)
 		responsesResp, usageObj2, err := geminiResponseToResponses(collected, originalModel, collectedBytes, usageObj)
 		if err != nil {
+			if errors.Is(err, errGeminiImageModelEmpty) {
+				setOpsUpstreamError(c, http.StatusBadGateway, err.Error(), summarizeGeminiEmptyImageBody(collectedBytes))
+				return nil, &UpstreamFailoverError{
+					StatusCode:             http.StatusBadGateway,
+					ResponseBody:           collectedBytes,
+					RetryableOnSameAccount: true,
+				}
+			}
 			return nil, s.writeResponsesCompatError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 		}
 		if s.responseHeaderFilter != nil {
@@ -321,6 +329,14 @@ func (s *GeminiMessagesCompatService) handleResponsesNonStreamingResponseFromGem
 
 	responsesResp, usage, err := geminiResponseToResponses(geminiResp, originalModel, respBody, nil)
 	if err != nil {
+		if errors.Is(err, errGeminiImageModelEmpty) {
+			setOpsUpstreamError(c, http.StatusBadGateway, err.Error(), summarizeGeminiEmptyImageBody(respBody))
+			return nil, &UpstreamFailoverError{
+				StatusCode:             http.StatusBadGateway,
+				ResponseBody:           respBody,
+				RetryableOnSameAccount: true,
+			}
+		}
 		return nil, s.writeResponsesCompatError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 	}
 
@@ -340,6 +356,9 @@ func geminiResponseToResponses(
 	usageOverride *ClaudeUsage,
 ) (*apicompat.ResponsesResponse, *ClaudeUsage, error) {
 	if err := validateGeminiCompatImageResponse(geminiResp); err != nil {
+		return nil, nil, err
+	}
+	if err := requireGeminiImageModelOutput(originalModel, geminiResp); err != nil {
 		return nil, nil, err
 	}
 	claudeRespMap, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, rawData)
@@ -626,6 +645,9 @@ func (s *GeminiMessagesCompatService) handleResponsesStreamingResponseFromGemini
 
 	if finishReason == "" && !sawDone && !sawPolicyBlock {
 		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, fmt.Errorf("incomplete Gemini stream: missing terminal event")
+	}
+	if err := requireGeminiImageModelStreamOutput(originalModel, c); err != nil {
+		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, err
 	}
 
 	if closeOpenBlock() {

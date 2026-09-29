@@ -157,7 +157,7 @@ func TestGeminiCompatNonStreamingMalformedImageFails(t *testing.T) {
 // failover — never a successful empty Chat/Messages package (prod 2026-09-29).
 func TestGeminiCompatEmptyImageModelFailsOver(t *testing.T) {
 	emptyBody := geminiImageResponse(`{"text":"no image"}`)
-	for _, protocol := range []string{"messages", "chat"} {
+	for _, protocol := range []string{"messages", "chat", "responses"} {
 		t.Run(protocol, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(recorder)
@@ -174,6 +174,8 @@ func TestGeminiCompatEmptyImageModelFailsOver(t *testing.T) {
 				_, err = svc.handleNonStreamingResponse(c, resp, "gemini-3.1-flash-image")
 			case "chat":
 				_, err = svc.handleChatCompletionsNonStreamingResponseFromGemini(c, resp, "gemini-3.1-flash-image", false)
+			case "responses":
+				_, err = svc.handleResponsesNonStreamingResponseFromGemini(c, resp, "gemini-3.1-flash-image", false)
 			}
 			var failover *UpstreamFailoverError
 			require.ErrorAs(t, err, &failover)
@@ -181,6 +183,7 @@ func TestGeminiCompatEmptyImageModelFailsOver(t *testing.T) {
 			require.Equal(t, http.StatusBadGateway, failover.StatusCode)
 			require.NotContains(t, recorder.Body.String(), `"object":"chat.completion"`)
 			require.NotContains(t, recorder.Body.String(), `"type":"message"`)
+			require.NotContains(t, recorder.Body.String(), `"object":"response"`)
 			require.Equal(t, 0, observedGeminiImageOutputs(c))
 		})
 	}

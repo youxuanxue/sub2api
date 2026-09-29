@@ -8,6 +8,8 @@ import (
 	"image/jpeg"
 	"image/png"
 	"strings"
+
+	_ "golang.org/x/image/webp"
 )
 
 // coerceOpenAIImageB64ToOutputFormat re-encodes image bytes when the client explicitly
@@ -15,6 +17,9 @@ import (
 // Upstream ChatGPT Images frequently ignores tools.output_format and emits PNG while
 // still acknowledging the request; without this step tk_image_contract=exact and plain
 // output_format=jpeg both lie to the client.
+//
+// Fail-closed: unrecognized containers, decode failures, and re-encode failures return
+// an error so callers never stamp output_format=jpeg on bytes that are still PNG/webp.
 func coerceOpenAIImageB64ToOutputFormat(encoded, wantFormat string) (string, string, error) {
 	want := strings.ToLower(strings.TrimSpace(wantFormat))
 	switch want {
@@ -32,16 +37,16 @@ func coerceOpenAIImageB64ToOutputFormat(encoded, wantFormat string) (string, str
 		return "", "", err
 	}
 	actual := sniffOpenAIImageFormat(raw)
-	if actual == want || actual == "" {
-		if actual == "" {
-			actual = want
-		}
+	if actual == "" {
+		return "", "", fmt.Errorf("unrecognized image container for output_format=%s coerce", want)
+	}
+	if actual == want {
 		return encoded, actual, nil
 	}
 
 	img, _, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {
-		return "", "", fmt.Errorf("decode image for output_format coerce: %w", err)
+		return "", "", fmt.Errorf("decode %s image for output_format=%s coerce: %w", actual, want, err)
 	}
 	var out bytes.Buffer
 	switch want {
@@ -89,19 +94,23 @@ func sniffOpenAIImageFormat(raw []byte) string {
 	}
 }
 
-func applyOpenAIImagesOutputFormatCoercion(results []openAIResponsesImageResult, wantFormat string) {
+func applyOpenAIImagesOutputFormatCoercion(results []openAIResponsesImageResult, wantFormat string) error {
 	want := strings.ToLower(strings.TrimSpace(wantFormat))
 	if want == "" || want == "auto" {
-		return
+		return nil
 	}
 	for i := range results {
 		coerced, actual, err := coerceOpenAIImageB64ToOutputFormat(results[i].Result, want)
-		if err != nil || coerced == "" {
-			continue
+		if err != nil {
+			return err
+		}
+		if coerced == "" {
+			return fmt.Errorf("output_format coerce produced empty image")
 		}
 		results[i].Result = coerced
 		if actual != "" {
 			results[i].OutputFormat = actual
 		}
 	}
+	return nil
 }
