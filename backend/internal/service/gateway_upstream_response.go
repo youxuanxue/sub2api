@@ -1114,7 +1114,28 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 					return nil, err
 				}
 
+				if data != "" {
+					if firstTokenMs == nil && data != "[DONE]" {
+						ms := int(time.Since(startTime).Milliseconds())
+						firstTokenMs = &ms
+					}
+					if usagePatch != nil {
+						mergeSSEUsagePatch(usage, usagePatch)
+					}
+				}
+				eventType := gjson.Get(data, "type").String()
+				injectCost := eventType == "message_delta" && usage.hasObservedTokens()
+				var deltaCost *CostBreakdown
+				if injectCost {
+					deltaCost = s.previewClaudeClientUsageCost(ctx, c, account, *usage, originalModel, mappedModel)
+					if deltaCost != nil {
+						stashPrecomputedResponseUsageCost(c, deltaCost)
+					}
+				}
 				for _, block := range outputBlocks {
+					if deltaCost != nil {
+						block = InjectUsageCostSSEBlock(block, deltaCost.ActualCost)
+					}
 					if !clientDisconnected {
 						restored := reverseToolNamesIfPresent(c, []byte(block))
 						if _, werr := fmt.Fprint(w, string(restored)); werr != nil {
@@ -1127,15 +1148,6 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 							flusher.Flush()
 							lastDataAt = time.Now()
 							resetKeepaliveTimer()
-						}
-					}
-					if data != "" {
-						if firstTokenMs == nil && data != "[DONE]" {
-							ms := int(time.Since(startTime).Milliseconds())
-							firstTokenMs = &ms
-						}
-						if usagePatch != nil {
-							mergeSSEUsagePatch(usage, usagePatch)
 						}
 					}
 				}
@@ -1492,6 +1504,11 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 	}
 
 	body = reverseToolNamesIfPresent(c, body)
+
+	if cost := s.previewClaudeClientUsageCost(ctx, c, account, response.Usage, originalModel, mappedModel); cost != nil {
+		body = InjectUsageCostJSON(body, cost.ActualCost)
+		stashPrecomputedResponseUsageCost(c, cost)
+	}
 
 	// 写入响应
 	c.Data(resp.StatusCode, contentType, body)

@@ -393,6 +393,24 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		line = applyGrokRawChatCompletionsUsageSSELine(account, line)
 
 		line = s.replaceModelInSSELine(line, upstreamModel, originalModel)
+		if payload, ok := extractOpenAISSEDataLine(line); ok {
+			trimmedPayload := strings.TrimSpace(payload)
+			if trimmedPayload != "[DONE]" && gjson.Get(trimmedPayload, "usage").Exists() {
+				preview := &OpenAIForwardResult{
+					Usage:           usage,
+					Model:           originalModel,
+					BillingModel:    billingModel,
+					UpstreamModel:   upstreamModel,
+					Stream:          true,
+					ServiceTier:     resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+					ReasoningEffort: reasoningEffort,
+				}
+				if cost := s.previewOpenAIClientUsageCost(c.Request.Context(), c, account, preview); cost != nil {
+					line = InjectUsageCostSSEDataLine(line, cost.ActualCost)
+					stashPrecomputedResponseUsageCost(c, cost)
+				}
+			}
+		}
 		writeLine(line)
 		if line == "" {
 			if !clientDisconnected && clientOutputStarted {
@@ -421,6 +439,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			Stream:                        true,
 			Duration:                      time.Since(startTime),
 			FirstTokenMs:                  firstTokenMs,
+			PrecomputedCost:               TakePrecomputedResponseUsageCost(c),
 		}
 	}
 
@@ -509,6 +528,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		Stream:                        true,
 		Duration:                      time.Since(startTime),
 		FirstTokenMs:                  firstTokenMs,
+		PrecomputedCost:               TakePrecomputedResponseUsageCost(c),
 	}, nil
 }
 
@@ -598,18 +618,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	respBody = applyGrokRawChatCompletionsUsage(account, respBody)
 	respBody = s.replaceModelInResponseBody(respBody, upstreamModel, originalModel)
 
-	if s.responseHeaderFilter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-	}
-	if ct := resp.Header.Get("Content-Type"); ct != "" {
-		c.Writer.Header().Set("Content-Type", ct)
-	} else {
-		c.Writer.Header().Set("Content-Type", "application/json")
-	}
-	c.Writer.WriteHeader(http.StatusOK)
-	_, _ = c.Writer.Write(respBody)
-
-	return &OpenAIForwardResult{
+	result := &OpenAIForwardResult{
 		RequestID:                     requestID,
 		UpstreamHeaders:               resp.Header,
 		Usage:                         usage,
@@ -623,7 +632,24 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier),
 		Stream:                        false,
 		Duration:                      time.Since(startTime),
-	}, nil
+	}
+	if cost := s.previewOpenAIClientUsageCost(c.Request.Context(), c, account, result); cost != nil {
+		respBody = InjectUsageCostJSON(respBody, cost.ActualCost)
+		result.PrecomputedCost = cost
+	}
+
+	if s.responseHeaderFilter != nil {
+		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		c.Writer.Header().Set("Content-Type", ct)
+	} else {
+		c.Writer.Header().Set("Content-Type", "application/json")
+	}
+	c.Writer.WriteHeader(http.StatusOK)
+	_, _ = c.Writer.Write(respBody)
+
+	return result, nil
 }
 
 // buildOpenAIChatCompletionsURL 拼接上游 Chat Completions 端点 URL。

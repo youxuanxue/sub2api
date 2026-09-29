@@ -186,6 +186,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 	ccPricingCtx = service.WithProtocolRouting(ccPricingCtx, h.protocolRouter, canonicalRequest)
 	c.Request = c.Request.WithContext(ccPricingCtx)
+	service.BindResponseUsageCostBilling(c, pricingAt, clientRequestedUsageFields(c, channelMapping, reqModel, ""))
 
 	for {
 		// Per-attempt routing clock: a loop-level start would include prior

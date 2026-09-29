@@ -963,6 +963,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		Duration:                      time.Since(startTime),
 		FirstTokenMs:                  firstTokenMs,
 		ClientDisconnect:              clientDisconnect,
+		PrecomputedCost:               TakePrecomputedResponseUsageCost(c),
 	}, nil
 }
 

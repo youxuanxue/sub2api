@@ -224,6 +224,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 	pricingCtx, pricingAt := service.WithGatewayTokenRequestPricing(c.Request.Context())
 	c.Request = c.Request.WithContext(pricingCtx)
+	service.BindResponseUsageCostBilling(c, pricingAt, clientRequestedUsageFields(c, channelMapping, reqModel, ""))
 
 	// 验证 model 必填
 	if reqModel == "" {
