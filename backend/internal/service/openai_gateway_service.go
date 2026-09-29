@@ -171,7 +171,10 @@ type OpenAIForwardResult struct {
 	ContentTextLen           int
 	CompactCandidate         bool
 	Stream                   bool
-	OpenAIWSMode             bool
+	// PrecomputedCost is the client-visible ActualCost already injected into the
+	// response usage.cost field. RecordUsage reuses it to avoid drift.
+	PrecomputedCost *CostBreakdown
+	OpenAIWSMode    bool
 	// UpstreamTerminalEvent is the normalized terminal event observed on an
 	// upstream Responses WebSocket turn. Empty preserves legacy/non-WS success.
 	UpstreamTerminalEvent string

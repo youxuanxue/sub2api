@@ -665,6 +665,9 @@ type ForwardResult struct {
 	SearchCount        int
 	AudioUsage         *AudioUsage
 	protocolRouteFacts RouteFacts
+	// PrecomputedCost is the client-visible ActualCost already injected into the
+	// response usage.cost field. RecordUsage reuses it to avoid drift.
+	PrecomputedCost *CostBreakdown
 }
 
 func (r *ForwardResult) ProtocolRouteFacts() (RouteFacts, bool) {
