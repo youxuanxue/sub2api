@@ -12,7 +12,8 @@ import (
 )
 
 // responseUsageCostBillingKey holds per-request channel/pricing snapshot so
-// response writers can compute the same ActualCost RecordUsage will bill.
+// response writers can settle CostBreakdown once (response exposes TotalCost;
+// RecordUsage reuses the stashed breakdown for ActualCost billing).
 const responseUsageCostBillingKey = "tk_response_usage_cost_billing"
 const responseUsageCostPrecomputedKey = "tk_response_usage_cost_precomputed"
 

@@ -6,7 +6,7 @@ approved_at: 2026-09-30
 created: 2026-09-29
 authors: [agent]
 risk: high
-related_prs: ["#2384"]
+related_prs: ["#2384", "#2388"]
 ---
 
 # Response usage.cost（推理响应带回标准官方价）
