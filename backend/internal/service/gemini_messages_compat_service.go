@@ -988,6 +988,20 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
+		if geminiWebMissingAccountReferenceClientFault(account, resp.StatusCode, respBody) {
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				ProxyID:            opsUpstreamProxyID(account),
+				ProxyName:          opsUpstreamProxyName(account),
+				Platform:           account.Platform,
+				AccountID:          account.ID,
+				AccountName:        account.Name,
+				UpstreamStatusCode: resp.StatusCode,
+				UpstreamRequestID:  resp.Header.Get(requestIDHeader),
+				Kind:               "http_error",
+				Message:            "Missing Gemini Web account reference",
+			})
+			return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", "Missing Gemini Web account reference")
+		}
 		// 统一错误策略：自定义错误码 + 临时不可调度。内部 Antigravity
 		// relay 空池已在重试循环内分类并计数，不能再落入 pool_mode skipped。
 		// TK: ErrorPolicy switch — see gemini_messages_compat_service_tk_error_policy.go
@@ -1488,6 +1502,20 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
+		if geminiWebMissingAccountReferenceClientFault(account, resp.StatusCode, respBody) {
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				ProxyID:            opsUpstreamProxyID(account),
+				ProxyName:          opsUpstreamProxyName(account),
+				Platform:           account.Platform,
+				AccountID:          account.ID,
+				AccountName:        account.Name,
+				UpstreamStatusCode: resp.StatusCode,
+				UpstreamRequestID:  requestID,
+				Kind:               "http_error",
+				Message:            "Missing Gemini Web account reference",
+			})
+			return nil, s.writeGoogleError(c, http.StatusBadRequest, "Missing Gemini Web account reference")
+		}
 		// Best-effort fallback for OAuth tokens missing AI Studio scopes when calling countTokens.
 		// This avoids Gemini SDKs failing hard during preflight token counting.
 		// Checked before error policy so it always works regardless of custom error codes.

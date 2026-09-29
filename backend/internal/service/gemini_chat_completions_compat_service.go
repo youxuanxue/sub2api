@@ -201,6 +201,20 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
+		if geminiWebMissingAccountReferenceClientFault(account, resp.StatusCode, respBody) {
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				ProxyID:            opsUpstreamProxyID(account),
+				ProxyName:          opsUpstreamProxyName(account),
+				Platform:           account.Platform,
+				AccountID:          account.ID,
+				AccountName:        account.Name,
+				UpstreamStatusCode: resp.StatusCode,
+				UpstreamRequestID:  requestID,
+				Kind:               "http_error",
+				Message:            "Missing Gemini Web account reference",
+			})
+			return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "Missing Gemini Web account reference")
+		}
 		policy := ErrorPolicyNone
 		if s.rateLimitService != nil && !tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
 			policy = s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel)
@@ -354,6 +368,7 @@ func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestF
 			}
 			upstreamReq.Header.Set("Content-Type", "application/json")
 			upstreamReq.Header.Set("x-goog-api-key", apiKey)
+			setGeminiWebAccountHeader(upstreamReq, account)
 			return upstreamReq, "x-request-id", nil
 		}, "x-request-id"
 
