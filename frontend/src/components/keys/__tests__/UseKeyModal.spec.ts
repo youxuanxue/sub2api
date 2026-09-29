@@ -994,7 +994,10 @@ describe('Gemini image alias instructions', () => {
       await nextTick()
       const snippet = wrapper.findAll('pre code').map((code) => code.text()).join('\n')
       expect(snippet).toContain(`${model}:generateContent`)
-      expect(snippet).toContain('"responseModalities": ["TEXT", "IMAGE"]')
+      const payload = tab === 'curl'
+        ? JSON.parse(snippet.split("--data-binary '")[1].split("' \\")[0])
+        : JSON.parse(JSON.parse(snippet.match(/payload = json.loads\((.*)\)/)![1]))
+      expect(payload.generationConfig.responseModalities).toEqual(['TEXT', 'IMAGE'])
     }
   })
 })

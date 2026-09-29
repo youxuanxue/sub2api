@@ -209,6 +209,7 @@ func (s *UniversalCapabilityService) discoverCandidates(ctx context.Context, key
 						continue
 					}
 					accountSet[accounts[i].ID] = accounts[i]
+					capability.ImageGeneration = appendImageProfile(capability.ImageGeneration, s.candidateImageProfile(ctx, request, &accounts[i], origin))
 					if originsByModel != nil {
 						if originsByModel[model] == nil {
 							originsByModel[model] = make(map[int64]Group)
@@ -248,6 +249,9 @@ func (s *UniversalCapabilityService) discoverCandidates(ctx context.Context, key
 			}
 		}
 		if len(capability.Routes) > 0 {
+			if len(capability.ImageGeneration) > 0 && !seenModality[UniversalModalityImage] {
+				capability.Modalities = append(capability.Modalities, UniversalModalityImage)
+			}
 			capability.SelectedGroup = capability.Routes[0].Group
 			out = append(out, capability)
 		} else if supportFailure != nil && catalogSupportFailure == nil {

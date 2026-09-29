@@ -12,6 +12,8 @@ topology, Studio SSOT, model-delivery nav, or PR gate navigation.
 [Public Quickstart 与注册承诺](../approved/public-quickstart-registration-offer.md)。
 本导航不复制组件名、金额来源或页面行为规则。
 
+生图请求、参数与 Quickstart 示例的 owner 见 [`image-generation-quickstart-studio.md`](../approved/image-generation-quickstart-studio.md)。
+
 ## Studio SSOT (`/studio` Image / Video / BakeOff)
 
 `/studio` 三页（`ImageStudio` / `VideoStudio` / `BakeOff`）共享的历史、预览、下载、重载行为**禁止**在页面内各写一套。Owner 如下（#1092 视频 SSOT + 图片 SSOT 扩展）：

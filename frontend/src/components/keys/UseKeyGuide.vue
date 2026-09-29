@@ -35,7 +35,7 @@
           </div>
 
           <!-- Model picker (single-model tabs only) -->
-          <div v-if="activeFlavor && !preview" class="flex items-center gap-3 flex-wrap">
+          <div v-if="activeFlavor && (!preview || isRawExample)" class="flex items-center gap-3 flex-wrap">
             <label class="w-14 text-sm font-medium text-gray-700 dark:text-gray-300 shrink-0">{{ t('keys.useKeyModal.modelLabel') }}</label>
             <select
               data-tk="use-key-model-select"
@@ -74,6 +74,15 @@
             data-tk="use-key-models-empty"
             class="text-xs text-amber-600 dark:text-amber-400 pl-[4.25rem]"
           >{{ t('keys.useKeyModal.modelsEmpty') }}</p>
+
+          <div v-if="isImageExample" class="space-y-3" data-testid="quickstart-image-example">
+            <label class="block text-sm font-medium">{{ t('imageGeneration.prompt') }}
+              <textarea v-model="imagePrompt" rows="3" class="mt-1 w-full rounded-lg border border-gray-300 bg-white p-2 dark:border-dark-600 dark:bg-dark-900" data-testid="quickstart-image-prompt" />
+            </label>
+            <ImageGenerationParameters v-model="imageOptions" :plan="imagePlan" />
+            <p class="text-xs text-gray-500">{{ t('imageGeneration.verifyHint') }}</p>
+            <router-link :to="studioLink" class="text-sm font-medium text-primary-600 underline" data-testid="quickstart-open-studio">{{ t('imageGeneration.openStudio') }}</router-link>
+          </div>
 
           <!-- Base URL (locked, read-only) -->
           <div class="flex items-center gap-3">
@@ -121,6 +130,7 @@
               <span>
                 {{ tkTestState.status === 'running'
                   ? t('keys.useKeyModal.testing')
+                  : isImageExample ? t('imageGeneration.verifyKey')
                   : isDifyClient
                     ? t('quickstart.testToolCall')
                     : isWorkbuddyClient || isCodebuddyClient
@@ -264,7 +274,10 @@
 </template>
 
 <script setup lang="ts">
-import { isGeminiNativeImageModel } from '@/constants/playgroundMedia.tk'
+import ImageGenerationParameters from '@/components/keys/ImageGenerationParameters.vue'
+import { imageGenerationPlan, normalizeImageOptions, imageStudioPath, type ImageGenerationOptions } from '@/utils/imageGeneration.tk'
+import { imageGenerationExample } from '@/utils/imageGenerationExamples.tk'
+import { modalityForModel } from '@/constants/playgroundMedia.tk'
 import { ref, computed, h, watch, toRef, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
@@ -299,6 +312,8 @@ interface Props {
   apiKeyId?: number | null
   /** Deep-link model id (e.g. from /pricing authorized-groups quick start). */
   initialModel?: string | null
+  initialRatio?: string | null
+  initialCount?: number
   /** anthropic group gated to claude-cli / /v1/messages only (group.claude_code_only). */
   claudeCodeOnly?: boolean
   allowMessagesDispatch?: boolean
@@ -345,6 +360,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 const emit = defineEmits<{
   modelChange: [model: string]
+  imageOptionsChange: [options: ImageGenerationOptions]
   testStateChange: [state: TestState]
 }>()
 const showClientTabs = computed(() => props.showClientTabs)
@@ -499,12 +515,15 @@ watch(tkTestState, (state) => {
 const tkIsCCOnly = tk.isClaudeCodeOnly
 
 // Models offered in the picker for the current flavor.
-const pickerModels = computed(() => (
+const previewModel = ref(props.initialModel || 'YOUR_MODEL_ID')
+const isRawExample = computed(() => ['curl', 'python'].includes(activeClientTab.value))
+const pickerModels = computed<UseKeyServableModel[]>(() => props.preview ?
+  [...new Set(['YOUR_MODEL_ID', 'gemini-3.1-flash-image', 'gpt-image-1', previewModel.value])].map(id => ({ id, capabilities: [] })) : (
   activeFlavor.value && activeDiscoveryProtocol.value
     ? tk.modelsForFlavor(activeFlavor.value, activeDiscoveryProtocol.value)
     : []
 ))
-const selectedModel = computed(() => props.preview ? 'YOUR_MODEL_ID' : (
+const selectedModel = computed(() => props.preview ? previewModel.value : (
   activeFlavor.value && activeDiscoveryProtocol.value
     ? tk.effectiveModel(activeFlavor.value, activeDiscoveryProtocol.value)
     : ''
@@ -520,6 +539,17 @@ const showModelsCatalogEmpty = computed(() =>
 const currentModelMeta = computed(() =>
   pickerModels.value.find((m) => m.id === selectedModel.value),
 )
+const isImageExample = computed(() => isRawExample.value && (modalityForModel(selectedModel.value) === 'image' || !!currentModelMeta.value?.image_generation?.length))
+const imagePlan = computed(() => imageGenerationPlan(selectedModel.value, currentModelMeta.value?.image_generation, activeFlavor.value === 'gemini'))
+const imageOptions = ref(normalizeImageOptions(imagePlan.value))
+const imagePrompt = ref(t('studio.image.samplePrompt'))
+let initialRatioApplied = false
+watch(imagePlan, plan => {
+  imageOptions.value = normalizeImageOptions(plan, { ...imageOptions.value, ratio: !initialRatioApplied && props.initialRatio ? props.initialRatio : imageOptions.value.ratio, n: !initialRatioApplied ? props.initialCount ?? 1 : imageOptions.value.n })
+  if (plan.sizes.length) initialRatioApplied = true
+}, { immediate: true })
+watch(imageOptions, options => emit('imageOptionsChange', options))
+const studioLink = computed(() => imageStudioPath(selectedModel.value, imageOptions.value, props.preview ? null : props.apiKeyId))
 const isDifyClient = computed(() => activeClientTab.value === 'dify')
 const isWorkbuddyClient = computed(() => selectedClientEntry.value?.id === 'workbuddy')
 const isCodebuddyClient = computed(() => selectedClientEntry.value?.id === 'codebuddy')
@@ -533,6 +563,7 @@ const probeLatencyDetail = computed(() =>
 )
 function onPickModel(e: Event): void {
   const id = (e.target as HTMLSelectElement).value
+  if (props.preview) { previewModel.value = id; return }
   if (activeFlavor.value) {
     tk.setModel(activeFlavor.value, id)
     emit('modelChange', id)
@@ -848,6 +879,7 @@ const platformDescription = computed(() => {
 })
 
 const platformNote = computed(() => {
+  if (isImageExample.value) return t('imageGeneration.verifyHint')
   if (selectedClientEntry.value?.guideMode === 'codebuddy-models') {
     return t('quickstart.codebuddyModelsConfigNote')
   }
@@ -997,6 +1029,7 @@ const currentFiles = computed((): FileConfig[] => {
   if (selectedClientEntry.value?.guideMode === 'raw'
     || activeClientTab.value === 'curl'
     || activeClientTab.value === 'python') {
+    if (isImageExample.value) return [imageGenerationExample(activeClientTab.value === 'curl' ? 'curl' : 'python', baseRoot, apiKey, model, imagePrompt.value, imagePlan.value, imageOptions.value)]
     const flavor = activeFlavor.value ?? 'anthropic'
     const isAntigravity = platformForFiles() === PLATFORM_ANTIGRAVITY
     return activeClientTab.value === 'curl'
@@ -1399,15 +1432,7 @@ function generateCurl(
     }
   }
   if (flavor === PLATFORM_GEMINI) {
-    const geminiBody = isGeminiNativeImageModel(model)
-      ? `{
-    "contents": [{"role": "user", "parts": [{"text": "Generate a simple solid red square image. No text."}]}],
-    "generationConfig": {
-      "responseModalities": ["TEXT", "IMAGE"],
-      "imageConfig": {"aspectRatio": "1:1"}
-    }
-  }`
-      : `{
+    const geminiBody = `{
     "contents": [{"role": "user", "parts": [{"text": "Hello"}]}]
   }`
     return {
@@ -1455,15 +1480,7 @@ print(msg.content[0].text)`,
     }
   }
   if (flavor === PLATFORM_GEMINI) {
-    const geminiJson = isGeminiNativeImageModel(model)
-      ? `{
-        "contents": [{"role": "user", "parts": [{"text": "Generate a simple solid red square image. No text."}]}],
-        "generationConfig": {
-            "responseModalities": ["TEXT", "IMAGE"],
-            "imageConfig": {"aspectRatio": "1:1"},
-        },
-    }`
-      : `{"contents": [{"role": "user", "parts": [{"text": "Hello"}]}]}`
+    const geminiJson = `{"contents": [{"role": "user", "parts": [{"text": "Hello"}]}]}`
     return {
       path: 'Python (requests)',
       content: `import requests

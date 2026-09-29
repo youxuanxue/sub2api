@@ -47,6 +47,8 @@ not an inferred entitlement. Secrets are never placed in return paths or docs st
 | Shared configuration rendering/generation | existing `frontend/src/components/keys/UseKeyGuide.vue` |
 | Page orchestration | existing `frontend/src/views/user/QuickstartView.vue` |
 
+生图示例与参数遵循 [image-generation-quickstart-studio.md](image-generation-quickstart-studio.md) 的共享 owner。
+
 ## Validation
 
 Backend tests cover offer states, malformed settings and API/injection parity.

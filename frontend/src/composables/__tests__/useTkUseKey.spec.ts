@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 
 const { getMePricingCatalogMock, getPublicPricingMock, getAPIKeyCapabilitiesMock } = vi.hoisted(() => ({
@@ -31,6 +31,8 @@ function createUseKey(apiKeyId = ref<number | null>(42), routingMode = ref<'dire
     baseRoot: ref('https://api.tokenkey.test'),
   })
 }
+
+beforeEach(() => { getAPIKeyCapabilitiesMock.mockResolvedValue({ models: [] }) })
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -318,5 +320,20 @@ describe('useTkUseKey tool-call probe', () => {
       authLatencyMs: expect.any(Number),
       modelLatencyMs: expect.any(Number),
     })
+  })
+})
+
+describe('image key verification', () => {
+  it.each(['gpt-image-1', 'nano-2'])('never performs paid generation for %s', async model => {
+    getAPIKeyCapabilitiesMock.mockResolvedValue({ models: [{ id: model, protocols: ['openai'], modalities: ['image'], routes: [] }] })
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ id: model }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const tk = createUseKey(ref(42), ref('universal'))
+    await tk.loadModels()
+    await tk.runTest('openai')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/models')
+    expect(tk.testState.value).toMatchObject({ status: 'ok', keyOnly: true, imageUnverified: true })
+    expect(tk.testState.value.modelLatencyMs).toBeUndefined()
   })
 })

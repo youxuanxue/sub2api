@@ -135,6 +135,7 @@
             </details>
 
             <QuickstartConnectionHealth
+              :image-model="modalityForModel(selectedModel) === 'image'"
               v-if="selectedClientDisabledReason"
               layout="banner"
               :test-state="connectionTestState"
@@ -212,6 +213,7 @@
                   <p class="text-sm text-gray-500" role="status">{{ keysError || t('onboarding.noKey') }}</p>
                 </div>
                 <QuickstartConnectionHealth
+                  :image-model="modalityForModel(selectedModel) === 'image'"
                   v-else
                   layout="inline"
                   :test-state="connectionTestState"
@@ -231,6 +233,8 @@
                 :platform="selectedKey?.group?.platform ?? null"
                 :routing-mode="selectedKey?.routing_mode ?? 'universal'"
                 :initial-model="initialModelFromQuery"
+                :initial-ratio="selectedRatio"
+                :initial-count="selectedCount"
                 :claude-code-only="selectedKey?.group?.claude_code_only || false"
                 :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
                 :supported-model-scopes="selectedKey?.group?.supported_model_scopes"
@@ -243,7 +247,8 @@
                 :selected-transport="selectedTransport"
                 :show-client-tabs="false"
                 hide-inline-test
-                @model-change="!preview && (selectedModel = $event)"
+                @model-change="selectedModel = $event"
+                @image-options-change="selectedRatio = $event.ratio; selectedCount = $event.n"
                 @test-state-change="connectionTestState = $event"
               />
             </template>
@@ -260,6 +265,7 @@
 </template>
 
 <script setup lang="ts">
+import { modalityForModel } from '@/constants/playgroundMedia.tk'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -301,7 +307,7 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 const preview = computed(() => !selectedKey.value)
 const creatingKey = ref(false)
-const returnPath = computed(() => quickstartReturnPath(selectedClientId.value, selectedProtocol.value, selectedTransport.value))
+const returnPath = computed(() => quickstartReturnPath(selectedClientId.value, selectedProtocol.value, selectedTransport.value, selectedModel.value, selectedRatio.value, selectedCount.value))
 const { importToCcSwitch } = useCcSwitchImport()
 
 const keys = ref<ApiKey[]>([])
@@ -312,6 +318,8 @@ const selectedClientId = ref(pickDefaultClientId())
 const selectedProtocol = ref<'anthropic' | 'openai'>(parseStringQuery('protocol') === 'openai' ? 'openai' : 'anthropic')
 const selectedTransport = ref<'http' | 'websocket'>(parseStringQuery('transport') === 'websocket' ? 'websocket' : 'http')
 const selectedModel = ref(parseModelFromQuery() ?? '')
+const selectedRatio = ref(parseStringQuery('ratio') ?? '')
+const selectedCount = ref(Number(parseStringQuery('n')) || 1)
 const requestedModel = parseModelFromQuery()
 const keyManuallySelected = ref(false)
 const advancedOptionsOpen = ref(false)
@@ -577,7 +585,7 @@ watch([selectedKey, baseUrl], ([key, url]) => {
   void gatewayWarmupConnection(key.key, url)
 })
 
-watch([selectedKeyId, selectedClientId, selectedProtocol, selectedTransport, selectedModel], ([keyId, clientId]) => {
+watch([selectedKeyId, selectedClientId, selectedProtocol, selectedTransport, selectedModel, selectedRatio, selectedCount], ([keyId, clientId]) => {
   if (!clientId) return
   const query: Record<string, string | null | (string | null)[]> = {
     ...route.query,
@@ -589,7 +597,11 @@ watch([selectedKeyId, selectedClientId, selectedProtocol, selectedTransport, sel
   if (clientId === 'codex-cli') query.transport = selectedTransport.value
   else delete query.transport
   if (preview.value) delete query.keyId
-  if (!preview.value && selectedModel.value) query.model = selectedModel.value
+  if (selectedCount.value > 1) query.n = String(selectedCount.value)
+  else delete query.n
+  if (selectedRatio.value) query.ratio = selectedRatio.value
+  else delete query.ratio
+  if (selectedModel.value) query.model = selectedModel.value
   else if (!requestedModel) delete query.model
   const unchanged = Object.entries(query).every(([key, value]) => route.query[key] === value)
     && Object.keys(route.query).every((key) => key in query)

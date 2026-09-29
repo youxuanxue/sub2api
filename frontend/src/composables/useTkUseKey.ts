@@ -22,7 +22,7 @@
  * (TokenKey upstream-isolation pattern, CLAUDE.md §5).
  */
 
-import { isGeminiNativeImageModel } from '@/constants/playgroundMedia.tk'
+import { isGeminiNativeImageModel, modalityForModel } from '@/constants/playgroundMedia.tk'
 import { computed, ref, type Ref } from 'vue'
 import { resolveBrowserGatewayFetchBaseUrl, gatewayWarmupConnection } from '@/api/playground'
 import { getMePricingCatalog, type MePricingModel } from '@/api/me-pricing'
@@ -46,6 +46,7 @@ export type UseKeyDiscoveryProtocol = Extract<
 >
 
 export interface UseKeyServableModel {
+  image_generation?: APIKeyCapabilityModel['image_generation']
   id: string
   capabilities: string[]
   protocols?: APIKeyCapabilityProtocol[]
@@ -70,6 +71,7 @@ export interface TestState {
   reason?: 'missing_tool_call'
   /** true when the check was key-validity only (CC-only groups) */
   keyOnly?: boolean
+  imageUnverified?: boolean
   /** true when the response completed a forced, side-effect-free tool call probe */
   toolCall?: boolean
 }
@@ -98,6 +100,7 @@ export function formatProbeLatencyDetail(
     parts.push(`${state.latencyMs}ms`)
   }
   if (state.toolCall) parts.push(t('quickstart.toolCallOk'))
+  else if (state.imageUnverified) parts.push(t('imageGeneration.keyVerified'))
   else if (state.keyOnly) parts.push(t('keys.useKeyModal.testKeyValid'))
   else if (state.modelLatencyMs != null || state.keyOnly) parts.push(t('keys.useKeyModal.testModelOk'))
   return parts.filter(Boolean).join(' · ')
@@ -236,6 +239,7 @@ function mapCapabilityModels(models: APIKeyCapabilityModel[]): UseKeyServableMod
     id: model.id,
     capabilities: [],
     protocols: model.protocols,
+    image_generation: model.image_generation,
     modalities: model.modalities,
   }))
 }
@@ -274,7 +278,9 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
         nextModels = mapCapabilityModels(capabilities.models ?? [])
       } else {
         const res = await getMePricingCatalog({ apiKeyId: id })
-        nextModels = mapMePricingModels(res.models ?? [])
+        const capabilities = await getAPIKeyCapabilities(id).catch(() => null)
+        const profiles = new Map((capabilities?.models ?? []).map(m => [m.id, m.image_generation]))
+        nextModels = mapMePricingModels(res.models ?? []).map(m => ({ ...m, image_generation: profiles.get(m.id) }))
       }
       if (epoch !== modelLoadEpoch || id !== args.apiKeyId.value) return
       servableModels.value = nextModels
@@ -371,7 +377,8 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     testState.value = { status: 'running' }
     const totalT0 = perfNow()
 
-    const keyOnly = isClaudeCodeOnly.value
+    const imageUnverified = modalityForModel(model) === 'image' || !!servableModels.value.find(m => m.id === model)?.image_generation?.length
+    const keyOnly = isClaudeCodeOnly.value || imageUnverified
 
     try {
       const auth = await probeGatewayAuth(root, key, ctrl.signal)
@@ -393,6 +400,7 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
           authLatencyMs: auth.latencyMs,
           latencyMs: auth.latencyMs,
           keyOnly: true,
+          imageUnverified,
         }
         return
       }

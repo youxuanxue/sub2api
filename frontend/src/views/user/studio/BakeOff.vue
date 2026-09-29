@@ -416,14 +416,14 @@
 </template>
 
 <script setup lang="ts">
+import type { APIKeyCapabilityModel } from '@/api/api-key-capabilities'
+import { imageGenerationPlan, normalizeImageOptions, extractGeneratedImages } from '@/utils/imageGeneration.tk'
+import { gatewayGenerateImage } from '@/api/playground'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { gatewayGeminiImageViaChat, gatewayImageGenerations, gatewayTraceRunId, gatewayVideoSubmit } from '@/api/playground'
+import { gatewayTraceRunId, gatewayVideoSubmit } from '@/api/playground'
 import {
-  extractChatImageItems,
-  extractImageItems,
   extractVideoTaskId,
-  isGeminiNativeImageModel,
   videoStateFromFetch,
   extractVideoUrl,
 } from '@/constants/playgroundMedia.tk'
@@ -469,6 +469,7 @@ import { mountStudioVideoLibrary } from '@/composables/useStudioVideoLibrary'
 import type { ApiKey } from '@/types'
 
 const props = defineProps<{
+  capabilityModels?: APIKeyCapabilityModel[]
   apiKey: string
   gatewayBase: string
   availableIds: Set<string>
@@ -492,10 +493,6 @@ const { copiedUrl, copyCardLink, downloadCardVideo } = useStudioVideoCardActions
 const { generateAudio } = useStudioVideoSubmitOptions()
 
 const MAX_PANELS = 6
-/** Fallback only for models that do not curate imageSizes. Undefined means omit `size`. */
-const DEFAULT_BAKEOFF_IMAGE_SIZE: string | undefined = undefined
-/** Gemini-native image: aspect_ratio via /v1/chat/completions extra_body.google.image_config. */
-const DEFAULT_GEMINI_ASPECT = '1:1'
 
 const modality = ref<StudioModality>('video')
 const models = computed(() => resolveAvailableModels(modality.value, props.availableIds, props.priceMap))
@@ -874,8 +871,12 @@ async function run(): Promise<void> {
 }
 
 /** Route like ImageStudio: gemini-native via chat; imagen/seedream via /v1/images/generations. */
+function bakeoffImagePlan(model: string) {
+  return imageGenerationPlan(model, props.capabilityModels?.find(m => m.id === model)?.image_generation)
+}
+
 function bakeoffImageSize(r: ResolvedMediaModel): string | undefined {
-  return r.presentation.imageSizes?.[0]?.value ?? DEFAULT_BAKEOFF_IMAGE_SIZE
+  return bakeoffImagePlan(r.servedId).sizes[0]?.value
 }
 
 function bakeoffImagePricesFlat(r: ResolvedMediaModel): boolean {
@@ -897,22 +898,9 @@ async function generateBakeoffImage(modelId: string, prompt: string, imageSize?:
     studioRunId,
     studioPanelId: modelId,
   }
-  if (isGeminiNativeImageModel(modelId)) {
-    const raw = await gatewayGeminiImageViaChat(props.apiKey, props.gatewayBase, {
-      model: modelId,
-      prompt,
-      aspectRatio: imageSize || DEFAULT_GEMINI_ASPECT,
-    }, undefined, trace)
-    return extractChatImageItems(raw)
-  }
-  const payload: Parameters<typeof gatewayImageGenerations>[2] = {
-    model: modelId,
-    prompt,
-    n: 1,
-  }
-  if (imageSize) payload.size = imageSize
-  const raw = await gatewayImageGenerations(props.apiKey, props.gatewayBase, payload, undefined, trace)
-  return extractImageItems(raw)
+  const plan = bakeoffImagePlan(modelId)
+  const raw = await gatewayGenerateImage(props.apiKey, props.gatewayBase, modelId, prompt, plan, normalizeImageOptions(plan, { ratio: imageSize }), trace)
+  return extractGeneratedImages(raw, plan)
 }
 
 function panelErrorText(e: unknown): string {

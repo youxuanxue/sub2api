@@ -2286,7 +2286,8 @@
         "selectCandidateBillingOrigin(requestCtx",
         "candidateDiscoveryRequest(model, spec)",
         "if len(out) == 0 && catalogSupportFailure != nil",
-        "IsLiveForDiscovery()"
+        "IsLiveForDiscovery()",
+        "s.candidateImageProfile(ctx, request, &accounts[i], origin)"
       ],
       "rationale": "Metadata projects representative complete support paths and rejects conflicting origins using the same billing owner as inference. Discovery menus require Account.IsLiveForDiscovery (active+Schedulable) so permanently unschedulable holders cannot advertise empty-pool models (docs/approved/discovery-require-live-account.md)."
     },
@@ -14927,6 +14928,15 @@
         "func TestGeminiCompatImageOptionsRejectNonStringAspectRatio("
       ],
       "rationale": "Studio chat aspect_ratio is lifted into generationConfig; unrelated extra_body must not hard-400 non-Web Gemini clients; non-string aspect_ratio remains a type error."
+    },
+    {
+      "path": "backend/internal/service/candidate_image_capabilities_tk.go",
+      "must_contain": [
+        "evaluatePathWithPreparation",
+        "ValidateOpenAIImagesContract",
+        "appendImageProfile"
+      ],
+      "rationale": "Preserve shared image capability and request owners across Studio and Quickstart."
     }
   ]
 }

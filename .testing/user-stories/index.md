@@ -60,3 +60,5 @@
 | US-056 | Gemini Web Cookie HTTP gateway | InTest | `.testing/user-stories/stories/US-056-gemini-web-http.md` |
 
 | US-057 | Gemini Web 兼容入口复用原生协议 | InTest | `.testing/user-stories/stories/US-057-gemini-web-protocol-ssot.md` |
+
+| US-058 | Studio 与 Quickstart 生图请求一致性 | Done | `.testing/user-stories/stories/US-058-image-generation-contract.md` |

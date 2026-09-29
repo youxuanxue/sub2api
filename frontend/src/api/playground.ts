@@ -1,3 +1,4 @@
+import { buildImageRequest, type ImageGenerationPlan, type ImageGenerationOptions } from '@/utils/imageGeneration.tk'
 /**
  * Browser-side calls to the API gateway (/v1/*) using the user's API key.
  * Playground uses fetch (not apiClient) so JWT from axios does not leak into gateway.
@@ -270,6 +271,11 @@ export interface ImageGenerationRequest {
 /** Image generation can run well past a minute upstream. */
 export const PLAYGROUND_IMAGE_TIMEOUT_MS = 180_000
 
+export async function gatewayGenerateImage(apiKey: string, gatewayBaseUrl: string, model: string, prompt: string, plan: ImageGenerationPlan, options: Partial<ImageGenerationOptions> = {}, trace?: GatewayRequestTrace, signal?: AbortSignal): Promise<unknown> {
+  const request = buildImageRequest(model, prompt, plan, options)
+  return gatewayRequestJSON(apiKey, `${browserGatewayFetchRoot(gatewayBaseUrl)}${request.endpoint}`, { method: 'POST', body: request.body, timeoutMs: PLAYGROUND_IMAGE_TIMEOUT_MS, trace }, signal)
+}
+
 export async function gatewayImageGenerations(
   apiKey: string,
   gatewayBaseUrl: string,
@@ -277,16 +283,11 @@ export async function gatewayImageGenerations(
   signal?: AbortSignal,
   trace?: GatewayRequestTrace
 ): Promise<unknown> {
-  const url = `${browserGatewayFetchRoot(gatewayBaseUrl)}/v1/images/generations`
-  const payload: Record<string, unknown> = { model: body.model, prompt: body.prompt }
-  if (body.size) payload.size = body.size
-  if (body.n && body.n > 0) payload.n = body.n
-  return gatewayRequestJSON(
-    apiKey,
-    url,
-    { method: 'POST', body: payload, timeoutMs: PLAYGROUND_IMAGE_TIMEOUT_MS, trace },
-    signal
-  )
+  // Compatibility transport wrapper; request serialization has one owner.
+  return gatewayGenerateImage(apiKey, gatewayBaseUrl, body.model, body.prompt, {
+    endpoint: '/v1/images/generations', sizes: body.size ? [{ ratio: body.size, value: body.size }] : [],
+    counts: [body.n || 1], inputImage: false, softAspectRatio: false, ratioField: false,
+  }, { ratio: body.size, n: body.n }, trace, signal)
 }
 
 /**
@@ -369,21 +370,10 @@ export async function gatewayGeminiImageViaChat(
   signal?: AbortSignal,
   trace?: GatewayRequestTrace
 ): Promise<unknown> {
-  const url = `${browserGatewayFetchRoot(gatewayBaseUrl)}/v1/chat/completions`
-  const payload: Record<string, unknown> = {
-    model: body.model,
-    messages: [userMessage(body.prompt, body.inputImage)],
-    stream: false
-  }
-  if (body.aspectRatio) {
-    payload.extra_body = { google: { image_config: { aspect_ratio: body.aspectRatio } } }
-  }
-  return gatewayRequestJSON(
-    apiKey,
-    url,
-    { method: 'POST', body: payload, timeoutMs: PLAYGROUND_IMAGE_TIMEOUT_MS, trace },
-    signal
-  )
+  return gatewayGenerateImage(apiKey, gatewayBaseUrl, body.model, body.prompt, {
+    endpoint: '/v1/chat/completions', sizes: body.aspectRatio ? [{ ratio: body.aspectRatio, value: body.aspectRatio }] : [],
+    counts: [1], inputImage: true, softAspectRatio: false, ratioField: true,
+  }, { ratio: body.aspectRatio, inputImage: body.inputImage }, trace, signal)
 }
 
 export interface ImageToPromptRequest {

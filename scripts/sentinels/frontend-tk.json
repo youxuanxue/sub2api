@@ -408,9 +408,10 @@
         "data-testid=\"studio-mode-chat\"",
         "data-testid=\"studio-mode-image\"",
         "data-testid=\"studio-mode-video\"",
-        "data-testid=\"studio-mode-bakeoff\""
+        "data-testid=\"studio-mode-bakeoff\"",
+        "gen !== priceCatalogGen || selectedKeyId.value !== keyId"
       ],
-      "rationale": "The Studio's EXPLICIT chat|image|video|bake-off modality tabs are the source of truth for which gateway endpoint a request hits — replacing the old modalityForModel() id-prefix guess that silently misrouted non-{seedance,veo,gpt-image,imagen,seedream} media model ids to /v1/chat/completions. Chat is the folded-in /playground surface (default landing); the bake-off tab opens the cross-model compare view (BakeOff.vue). Losing these tabs regresses to implicit-modality misrouting or hides a generation surface."
+      "rationale": "The Studio's EXPLICIT chat|image|video|bake-off modality tabs are the source of truth for which gateway endpoint a request hits — replacing the old modalityForModel() id-prefix guess that silently misrouted non-{seedance,veo,gpt-image,imagen,seedream} media model ids to /v1/chat/completions. Chat is the folded-in /playground surface (default landing); the bake-off tab opens the cross-model compare view (BakeOff.vue). Losing these tabs regresses to implicit-modality misrouting or hides a generation surface. Price results are published only for the latest selected-key request; late success or failure must not replace current prices."
     },
     {
       "path": "frontend/src/router/index.ts",
@@ -478,8 +479,8 @@
         "StudioLocalSaveBanner",
         "test-id=\"studio-bakeoff-save-reminder\"",
         "data-testid=\"bakeoff-history\"",
-        "gatewayGeminiImageViaChat",
-        "isGeminiNativeImageModel",
+        "gatewayGenerateImage",
+        "imageGenerationPlan",
         "StudioVideoPreviewLightbox",
         "useStudioVideoPreview",
         "useStudioVideoCardActions",
@@ -1731,7 +1732,7 @@
       "path": "frontend/src/views/user/studio/ImageStudio.vue",
       "must_contain": [
         "data-testid=\"studio-image-model\"",
-        "data-testid=\"studio-image-aspect\"",
+        "aspect-test-id=\"studio-image-aspect\"",
         "data-testid=\"studio-image-generate\"",
         "StudioLocalSaveBanner",
         "test-id=\"studio-image-save-reminder\"",
@@ -1740,9 +1741,12 @@
         "useStudioImagePreview",
         "StudioImagePreviewLightbox",
         "pricesFlat",
-        "useStudioImageCardActions"
+        "useStudioImageCardActions",
+        "ImageGenerationParameters",
+        "gatewayGenerateImage",
+        "normalizeImageOptions"
       ],
-      "rationale": "TK-only Studio image-generation surface (mounted by MediaStudioView when mode==='image'). The model card picker, the per-model aspect-ratio chips, and the generate button are the contract the studio e2e drives. The aspect chips are MODEL-SPECIFIC by design: each model's imageSizes (studioMediaPresentations.tk.ts) decides the exact `size` string sent — Imagen ratio codes, Seedream pixels — so an upstream merge that drops the aspect picker or reverts it to a fixed pixel preset reintroduces the Imagen 'Invalid aspect ratio, 3:2' hard-400 on landscape/portrait. mountStudioImageLibrary (SSOT with BakeOff) anchors onMounted IndexedDB hydrate + s3Key re-presign (POST /v1/images/presign) so reloaded sessions don't show dead thumbnails; useStudioImagePreview + StudioImagePreviewLightbox mirror the video SSOT lightbox (#1092). pricesFlat is the FE mirror of the backend Imagen flat-billing exemption (billing_service_tk_flat_image.go): it ORs flatImageBilling (gemini-native) with the model's flatPricePerImage (imagen) and drives the estimate/hold/formula/billed note to drop the 1K/2K/4K size multiplier for imagen WITHOUT touching imagen's /v1/images routing, multi-image n, or no-image-input behaviors — dropping it desyncs the quoted price from settlement (UI over-quotes imagen ×1.5 while the gateway now bills flat). useStudioImageCardActions is the shared image download owner (SSOT sibling of the video path's useStudioVideoCardActions) — dropping the wiring reverts the view to a private downloadMedia bypass. Anchoring the test-ids keeps the surface from compiling green with the feature silently gone."
+      "rationale": "TK-only Studio image-generation surface (mounted by MediaStudioView when mode==='image'). The model card picker, the per-model aspect-ratio chips, and the generate button are the contract the studio e2e drives. The aspect chips are MODEL-SPECIFIC by design: each model's imageSizes (studioMediaPresentations.tk.ts) decides the exact `size` string sent — Imagen ratio codes, Seedream pixels — so an upstream merge that drops the aspect picker or reverts it to a fixed pixel preset reintroduces the Imagen 'Invalid aspect ratio, 3:2' hard-400 on landscape/portrait. mountStudioImageLibrary (SSOT with BakeOff) anchors onMounted IndexedDB hydrate + s3Key re-presign (POST /v1/images/presign) so reloaded sessions don't show dead thumbnails; useStudioImagePreview + StudioImagePreviewLightbox mirror the video SSOT lightbox (#1092). pricesFlat is the FE mirror of the backend Imagen flat-billing exemption (billing_service_tk_flat_image.go): it ORs flatImageBilling (gemini-native) with the model's flatPricePerImage (imagen) and drives the estimate/hold/formula/billed note to drop the 1K/2K/4K size multiplier for imagen WITHOUT touching imagen's /v1/images routing, multi-image n, or no-image-input behaviors — dropping it desyncs the quoted price from settlement (UI over-quotes imagen ×1.5 while the gateway now bills flat). useStudioImageCardActions is the shared image download owner (SSOT sibling of the video path's useStudioVideoCardActions) — dropping the wiring reverts the view to a private downloadMedia bypass. Anchoring the test-ids keeps the surface from compiling green with the feature silently gone. Image controls now use the shared capability-backed ImageGenerationParameters and request builder; billing flags never select routes."
     },
     {
       "path": "frontend/src/views/user/studio/VideoStudio.vue",
@@ -1969,17 +1973,16 @@
         "export const IMAGEN_IMAGE_SIZES",
         "export const SEEDREAM_IMAGE_SIZES",
         "export const WAN27_IMAGE_SIZES",
-        "export const GEMINI_IMAGE_SIZES",
-        "export const GPT_IMAGE_SIZES",
         "wan2.7-image",
         "wan2.7-image-pro",
         "gemini-3-pro-image",
         "gemini-3.1-flash-image",
         "veo-3.1-generate-001",
         "nano-2",
-        "nano-pro"
+        "nano-pro",
+        "imageParameters: 'capabilities'"
       ],
-      "rationale": "TK-only Studio presentation overlay. Membership SSOT is the key/group entitlement pool (account model_mapping via /v1/models or capabilities) + modalityForModel — NOT public /pricing allowlists. MEDIA_MODEL_PRESENTATIONS holds UI metadata only; resolveAvailableModels lists pool ids for the modality and treats priceMap as optional cost enrichment (missing live price must not hide a mapping-backed model such as gpt-image-2). Dropping these silently regresses the transparent model picker. Video anchors keep presentation aligned with Seedance doubao-* routing ids. supportedParams gates the Advanced panel to adaptor-honored params. IMAGEN/SEEDREAM/WAN27/GEMINI/GPT_IMAGE_SIZES are per-family aspect option sets (Imagen ratio codes, Seedream/Wan/gpt-image pixel WxH, Gemini aspect codes). 2026-09-18 converge: Studio Google image surface is gemini-3-pro-image + gemini-3.1-flash-image; Imagen rows removed."
+      "rationale": "TK-only Studio presentation overlay. Membership SSOT is the key/group entitlement pool (account model_mapping via /v1/models or capabilities) + modalityForModel — NOT public /pricing allowlists. MEDIA_MODEL_PRESENTATIONS holds UI metadata only; resolveAvailableModels lists pool ids for the modality and treats priceMap as optional cost enrichment (missing live price must not hide a mapping-backed model such as gpt-image-2). Dropping these silently regresses the transparent model picker. Video anchors keep presentation aligned with Seedance doubao-* routing ids. supportedParams gates the Advanced panel to adaptor-honored params. IMAGEN/SEEDREAM/WAN27/GEMINI/GPT_IMAGE_SIZES are per-family aspect option sets (Imagen ratio codes, Seedream/Wan/gpt-image pixel WxH, Gemini aspect codes). 2026-09-18 converge: Studio Google image surface is gemini-3-pro-image + gemini-3.1-flash-image; Imagen rows removed. Gemini/GPT static ratio tables removed: authorized key capability profiles own their controls."
     },
     {
       "path": "frontend/src/api/qaBundle.ts",
@@ -2663,6 +2666,47 @@
         "? { ...row, status: updated.status, updated_at: updated.updated_at }"
       ],
       "rationale": "Status updates must replace the shallowRef array so the visible user row updates while preserving list-only concurrency and subscription fields."
+    },
+    {
+      "path": "frontend/src/utils/imageGeneration.tk.ts",
+      "must_contain": [
+        "imageGenerationPlan",
+        "normalizeImageOptions",
+        "buildImageRequest"
+      ],
+      "rationale": "Preserve shared image capability and request owners across Studio and Quickstart."
+    },
+    {
+      "path": "frontend/src/components/keys/ImageGenerationParameters.vue",
+      "must_contain": [
+        "normalizeImageOptions",
+        "plan.sizes",
+        "plan.counts"
+      ],
+      "rationale": "Preserve shared image capability and request owners across Studio and Quickstart."
+    },
+    {
+      "path": "frontend/src/utils/imageGenerationExamples.tk.ts",
+      "must_contain": [
+        "buildImageRequest",
+        "filename.write_bytes(data)"
+      ],
+      "rationale": "Preserve shared image capability and request owners across Studio and Quickstart."
+    },
+    {
+      "path": "frontend/e2e/image-generation-contract.e2e.ts",
+      "must_contain": [
+        "Studio model and key switches",
+        "public image preview stays anonymous"
+      ],
+      "rationale": "Preserve shared image capability and request owners across Studio and Quickstart."
+    },
+    {
+      "path": "frontend/src/views/user/studio/__tests__/MediaStudioView.spec.ts",
+      "must_contain": [
+        "ignores a stale price catalog %s after switching keys"
+      ],
+      "rationale": "Preserve the behavioral regression for late success and failure after switching Direct keys."
     }
   ]
 }
