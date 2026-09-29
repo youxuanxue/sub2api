@@ -1,6 +1,6 @@
 # 客户测试：Prod Universal Key 生图（OpenAI + Gemini）
 
-> **以 prod 实测为准**（证据时间：2026-09-29，`https://api.tokenkey.dev` + 测试用 universal key）。
+> **以 prod 实测为准**（证据：2026-09-29 修复前基线 + **1.8.265 发版后复测**，`https://api.tokenkey.dev` + universal fulltest key；prod 运行镜像 `ghcr.io/youxuanxue/sub2api:1.8.265`）。
 > 下列比例、像素、错误码均来自当次实跑；与代码 allowlist / Quickstart 示例不一致处，以本表「实测」列为准。
 >
 > 对齐产品契约（入口与字段拼写）：
@@ -230,3 +230,19 @@ curl -sS "$TK_BASE/v1beta/models/gemini-3.1-flash-image:generateContent" \
 ## 7. UI 对照
 
 登录 prod → 选 universal Key → **接入指南 / Studio·图片**：比例芯片与请求字段应与上表一致（GPT 顶层 `aspect_ratio`；Gemini `extra_body.google.image_config.aspect_ratio`）。「验证密钥」只验鉴权，不代替生图。
+
+
+## 7. 1.8.265 发版后复测（2026-09-29 UTC）
+
+线上：`tokenkey-blue` = `ghcr.io/youxuanxue/sub2api:1.8.265`（healthy）。Stage0 Deploy workflow 在 join 步骤曾报 Failed，但主机镜像已切到 1.8.265。
+
+| 契约项 | 请求 | 结果 | 判定 |
+| --- | --- | --- | --- |
+| GPT `n=2` | `/v1/images/generations` gpt-image-2 | HTTP 200，`data` 长度 **2**，两张均为 1254×1254 PNG；usage 合并 input=46 output=4116 | **PASS**（修复前为 1） |
+| GPT `output_format=jpeg` | 同上 n=1 | HTTP 200，声明 `output_format=jpeg`，魔数 **JPEG** 1254×1254 | **PASS**（修复前落盘仍 PNG） |
+| Gemini `image_size` | Chat `gemini-3.1-flash-image` 1:1 | `1K`→**1024×1024**；`2K`→**2048×2048** | **PASS**（修复前 Chat 透传失效，两侧都约 1024） |
+| Gemini 空包 | Chat 16:9 连发 3 次 | 3/3 出图（1376×768 / 1376×768 / 2752×1536），**未**再现 200+content=null | **样本 PASS**（真空 fail-closed 未在窗口内触发，不构成反证） |
+| Codex Direct `stream+n>1` | n=2 stream=true | HTTP **200 + content-length:0**（应 400 JSON） | **FAIL**（service 已返回 `OpenAIImagesUpstreamError`，但未 `writeOpenAIImagesUpstreamErrorResponse`，handler 直接 return 留下空 200） |
+
+原始摘要：`/tmp/tk-img-265-probe/summary.json`。
+
