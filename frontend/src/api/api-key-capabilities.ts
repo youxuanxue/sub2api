@@ -15,7 +15,16 @@ export interface APIKeyCapabilityRoute {
   selected_group: APIKeyCapabilityGroup
 }
 
+export interface ImageGenerationCapability {
+  endpoint: string
+  aspect_ratios: string[]
+  counts: number[]
+  input_image: boolean
+  soft_aspect_ratio: boolean
+}
+
 export interface APIKeyCapabilityModel {
+  image_generation?: ImageGenerationCapability[]
   id: string
   protocols: APIKeyCapabilityProtocol[]
   modalities: APIKeyCapabilityModality[]

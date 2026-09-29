@@ -151,6 +151,23 @@ describe('MediaStudioView bootstrap', () => {
     expect(gatewayListModels).toHaveBeenCalledWith('sk-b', 'https://api.example')
   })
 
+  it('keeps a working key usable when an unrelated direct key probe fails', async () => {
+    listKeys.mockResolvedValue({ items: [
+      { id: 1, name: 'trial', key: 'sk-good', status: 'active', group: { id: 10, name: 'working' } },
+      { id: 2, name: 'other', key: 'sk-expired', status: 'active', group: { id: 20, name: 'expired' } },
+    ] })
+    gatewayListModels.mockImplementation(async (key: string) => {
+      if (key === 'sk-expired') throw new Error('unrelated key expired')
+      return { data: [{ id: 'gpt-4o' }] }
+    })
+    getMePricingCatalog.mockResolvedValue({ models: [] })
+    const wrapper = mount(MediaStudioView, { global: { plugins: [i18n], stubs: { 'router-link': true } } })
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'ChatStudio' }).props()).toMatchObject({ apiKey: 'sk-good', availableIds: new Set(['gpt-4o']) })
+    expect(wrapper.text()).not.toContain('unrelated key expired')
+    wrapper.unmount()
+  })
+
   it('mounts ChatStudio after model probe without waiting for the per-key price catalog', async () => {
     let resolveCatalog!: (value: { models: [] }) => void
     getMePricingCatalog.mockImplementation((opts?: { apiKeyId?: number }) => {

@@ -11,8 +11,6 @@ import {
   IMAGEN_IMAGE_SIZES,
   SEEDREAM_IMAGE_SIZES,
   WAN27_IMAGE_SIZES,
-  GEMINI_IMAGE_SIZES,
-  GPT_IMAGE_SIZES,
   type ModalityKeyOption,
   type StudioParam,
   type MediaPriceMap,
@@ -146,7 +144,7 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     expect(out).toHaveLength(1)
     expect(out[0].servedId).toBe('gpt-image-2')
     expect(out[0].baseImagePrice).toBeUndefined()
-    expect(out[0].presentation.imageSizes).toEqual(GPT_IMAGE_SIZES)
+    expect(out[0].presentation.imageParameters).toBe('capabilities')
     expect(out[0].presentation.vendorLabel).toBe('OpenAI')
   })
 
@@ -407,12 +405,10 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
   const IMAGEN_VALID = new Set(['1:1', '3:4', '4:3', '9:16', '16:9'])
 
   it('image models carry imageSizes or explicit flat-image presentation; video carry none', () => {
-    // Gemini-native image regained its aspect picker: a prod canary (2026-06-17) confirmed
-    // cloudcode-pa honors imageConfig.aspectRatio for all 10 documented ratios, lifting the
-    // #807 R-001 "no picker" deferral. So every image model now carries imageSizes; only
-    // video models (passthrough hint, separate VIDEO_ASPECT_PRESETS) carry none.
+    // Known pixel mappings stay here; key-specific controls and their requests
+    // are verified in imageGeneration.tk.spec.ts.
     for (const m of MEDIA_MODEL_PRESENTATIONS.filter((m) => m.modality === 'image')) {
-      expect(Boolean(m.imageSizes?.length) || Boolean(m.flatPricePerImage)).toBe(true)
+      expect(Boolean(m.imageSizes?.length) || Boolean(m.flatPricePerImage) || m.imageParameters === 'capabilities').toBe(true)
     }
     for (const m of MEDIA_MODEL_PRESENTATIONS.filter((m) => m.modality === 'video')) {
       expect(m.imageSizes).toBeUndefined()
@@ -454,7 +450,7 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
     for (const m of gemini) {
       // flat billing (no 1K/2K/4K size tier) is orthogonal to aspect ratio: the picker
       // now drives aspect_ratio only, billing stays flat per image.
-      expect(m.imageSizes).toBe(GEMINI_IMAGE_SIZES)
+      expect(m.imageParameters).toBe('capabilities')
     }
     // Imagen bills Google's flat official $/image → flatPricePerImage, but NOT
     // flatImageBilling (it keeps /v1/images routing, multi-image n, no image-input).
@@ -474,16 +470,6 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
       expect(m.flatPricePerImage).toBeFalsy()
       expect(m.flatImageBilling).toBeFalsy()
     }
-  })
-
-  it('GEMINI_IMAGE_SIZES sends the ratio code verbatim and is exactly the 10 prod-verified ratios', () => {
-    // Mirrors the prod canary (2026-06-17): each of these returned dims matching the
-    // requested ratio. value === ratio because gemini bills flat (no pixel size).
-    const PROD_VERIFIED = new Set(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'])
-    for (const opt of GEMINI_IMAGE_SIZES) {
-      expect(opt.value).toBe(opt.ratio)
-    }
-    expect(new Set(GEMINI_IMAGE_SIZES.map((o) => o.ratio))).toEqual(PROD_VERIFIED)
   })
 
   it('Seedream sends pixel WxH within ARK range [1024², 4096²], ratio range [1/16,16]', () => {

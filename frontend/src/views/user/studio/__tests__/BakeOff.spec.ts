@@ -3,6 +3,8 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import en from '@/i18n/locales/en'
 import BakeOff from '../BakeOff.vue'
+import { buildImageRequest } from '@/utils/imageGeneration.tk'
+import type { APIKeyCapabilityModel } from '@/api/api-key-capabilities'
 import * as playground from '@/api/playground'
 import type { ImageHistoryItem, VideoTaskItem } from '@/composables/useMediaLibrary'
 
@@ -38,8 +40,7 @@ vi.mock('@/stores/app', () => ({
 }))
 
 vi.mock('@/api/playground', () => ({
-  gatewayImageGenerations: vi.fn(),
-  gatewayGeminiImageViaChat: vi.fn(),
+  gatewayGenerateImage: vi.fn(),
   gatewayTraceRunId: vi.fn((prefix: string) => `${prefix}-test-run`),
   gatewayVideoSubmit: vi.fn(),
   gatewayImagePresign: vi.fn(),
@@ -105,6 +106,10 @@ const baseProps = {
   keyId: 1,
   keys: [{ id: 1, key: 'sk-test' }],
   rateMultiplier: 1,
+  capabilityModels: ['gemini-3-pro-image', 'gemini-3.1-flash-image', 'seedream-4-0-250828'].map(id => ({
+    id, protocols: ['openai'], modalities: ['image'], routes: [], selected_group: { id: 1, name: 'fixture', platform: 'openai' },
+    image_generation: [{ endpoint: id.startsWith('gemini') ? '/v1/chat/completions' : '/v1/images/generations', aspect_ratios: id.startsWith('gemini') ? ['1:1'] : [], counts: [1], input_image: false, soft_aspect_ratio: false }],
+  })) as APIKeyCapabilityModel[],
 }
 
 const videoProps = {
@@ -233,14 +238,10 @@ describe('BakeOff image routing', () => {
     libraryMock.addImages.mockImplementation((items: ImageHistoryItem[]) => {
       libraryMock.images.value = [...items, ...libraryMock.images.value]
     })
-    vi.mocked(playground.gatewayImageGenerations).mockReset()
-    vi.mocked(playground.gatewayGeminiImageViaChat).mockReset()
-    vi.mocked(playground.gatewayImageGenerations).mockResolvedValue({
-      data: [{ url: 'https://cdn.example/imagen.png' }],
-    })
-    vi.mocked(playground.gatewayGeminiImageViaChat).mockResolvedValue({
-      choices: [{ message: { content: '![image](data:image/png;base64,abc)' } }],
-    })
+    vi.mocked(playground.gatewayGenerateImage).mockReset()
+    vi.mocked(playground.gatewayGenerateImage).mockImplementation(async (_key, _base, _model, _prompt, plan) => plan.endpoint === '/v1/chat/completions'
+      ? { choices: [{ message: { content: '![image](data:image/png;base64,abc)' } }] }
+      : { data: [{ url: 'https://cdn.example/imagen.png' }] })
   })
 
   it('routes gemini-native image models via chat completions', async () => {
@@ -258,27 +259,12 @@ describe('BakeOff image routing', () => {
     await wrapper.get('[data-testid="studio-bakeoff-run"]').trigger('click')
     await flushPromises()
 
-    expect(playground.gatewayGeminiImageViaChat).toHaveBeenCalledWith(
-      'sk-test',
-      'https://api.example.com',
-      expect.objectContaining({ model: 'gemini-3.1-flash-image', aspectRatio: '1:1' }),
-      undefined,
-      expect.objectContaining({ studioSource: 'studio.bakeoff.image', studioPanelId: 'gemini-3.1-flash-image' })
-    )
-    expect(playground.gatewayGeminiImageViaChat).toHaveBeenCalledWith(
-      'sk-test',
-      'https://api.example.com',
-      expect.objectContaining({ model: 'gemini-3-pro-image', aspectRatio: '1:1' }),
-      undefined,
-      expect.objectContaining({ studioSource: 'studio.bakeoff.image', studioPanelId: 'gemini-3-pro-image' })
-    )
-    expect(playground.gatewayImageGenerations).toHaveBeenCalledWith(
-      'sk-test',
-      'https://api.example.com',
-      expect.objectContaining({ model: 'seedream-4-0-250828', size: '2048x2048' }),
-      undefined,
-      expect.objectContaining({ studioSource: 'studio.bakeoff.image', studioPanelId: 'seedream-4-0-250828' })
-    )
+    const requests = vi.mocked(playground.gatewayGenerateImage).mock.calls.map(([, , model, prompt, plan, options]) => buildImageRequest(model, prompt, plan, options))
+    for (const model of ['gemini-3.1-flash-image', 'gemini-3-pro-image']) {
+      expect(requests).toContainEqual({ endpoint: '/v1/chat/completions', body: { model, messages: [{ role: 'user', content: 'a red apple' }], stream: false, extra_body: { google: { image_config: { aspect_ratio: '1:1' } } } } })
+    }
+    expect(requests).toContainEqual({ endpoint: '/v1/images/generations', body: { model: 'seedream-4-0-250828', prompt: 'a red apple', size: '2048x2048' } })
+    expect(vi.mocked(playground.gatewayGenerateImage).mock.calls[0][6]).toMatchObject({ studioSource: 'studio.bakeoff.image' })
     expect(libraryMock.addImages).toHaveBeenCalled()
   })
 
@@ -302,14 +288,8 @@ describe('BakeOff image routing', () => {
     await wrapper.get('[data-testid="studio-bakeoff-run"]').trigger('click')
     await flushPromises()
 
-    const grokCall = vi.mocked(playground.gatewayImageGenerations).mock.calls.find((call) => {
-      return call[2].model === 'grok-imagine-image'
-    })
-    expect(grokCall?.[2]).toEqual({
-      model: 'grok-imagine-image',
-      prompt: 'a red apple',
-      n: 1,
-    })
+    const call = vi.mocked(playground.gatewayGenerateImage).mock.calls.find(call => call[2] === 'grok-imagine-image')!
+    expect(buildImageRequest(call[2], call[3], call[4], call[5])).toEqual({ endpoint: '/v1/images/generations', body: { model: 'grok-imagine-image', prompt: 'a red apple' } })
   })
 
   it('allows selecting three image models for bake-off', async () => {
@@ -525,7 +505,7 @@ describe('BakeOff image routing', () => {
   })
 
   it('shows friendly panel error for codex unsupported gemini image', async () => {
-    vi.mocked(playground.gatewayGeminiImageViaChat).mockRejectedValueOnce(
+    vi.mocked(playground.gatewayGenerateImage).mockRejectedValueOnce(
       new Error(
         '{"message":"The \'gemini-3.1-flash-image\' model is not supported when using Codex with a ChatGPT account.","type":"invalid_request_error"}'
       )

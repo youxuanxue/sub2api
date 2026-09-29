@@ -3,7 +3,7 @@ import base from './playwright.config'
 
 export default defineConfig({
   ...base,
-  testMatch: '**/studio-model-surface.e2e.ts',
+  testMatch: ['**/studio-model-surface.e2e.ts', '**/image-generation-contract.e2e.ts'],
   timeout: 30_000,
   use: { ...base.use, baseURL: 'http://127.0.0.1:4196' },
   webServer: {

@@ -196,38 +196,8 @@ export const WAN27_IMAGE_SIZES: ImageSizeOption[] = [
   { ratio: '16:9', value: '2688x1536' },
 ]
 
-/**
- * Gemini-native image: send the ratio code verbatim — it rides extra_body.google.
- * image_config.aspect_ratio and the antigravity transform emits it as generationConfig.
- * imageConfig.aspectRatio to cloudcode-pa. A prod canary (2026-06-17) confirmed upstream
- * honors all 10 documented ratios (returned dims match each requested ratio within ~1%),
- * which is why R-001's "no picker" deferral is now lifted. Value === ratio (no pixel size:
- * gemini bills flat per image, so sentSize feeds aspect_ratio only). (ref: Google Gemini-3
- * image docs — supported aspectRatio set.)
- */
-export const GEMINI_IMAGE_SIZES: ImageSizeOption[] = [
-  { ratio: '1:1', value: '1:1' },
-  { ratio: '2:3', value: '2:3' },
-  { ratio: '3:2', value: '3:2' },
-  { ratio: '3:4', value: '3:4' },
-  { ratio: '4:3', value: '4:3' },
-  { ratio: '4:5', value: '4:5' },
-  { ratio: '5:4', value: '5:4' },
-  { ratio: '9:16', value: '9:16' },
-  { ratio: '16:9', value: '16:9' },
-  { ratio: '21:9', value: '21:9' },
-]
-
-/**
- * OpenAI gpt-image-* via /v1/images/generations: pixel sizes the Images API
- * accepts for the family (square + landscape/portrait). Used when a mapping-
- * backed gpt-image id has no curated presentation row.
- */
-export const GPT_IMAGE_SIZES: ImageSizeOption[] = [
-  { ratio: '1:1', value: '1024x1024' },
-  { ratio: '3:2', value: '1536x1024' },
-  { ratio: '2:3', value: '1024x1536' },
-]
+// Gemini/GPT aspect controls are key-specific capability projections. Keep no
+// parallel static ratio table here; imageGeneration.tk owns their consumption.
 
 /** Video aspect ratios — passthrough hint to the task adaptor (TK does not interpret). */
 export interface VideoAspectPreset {
@@ -307,19 +277,14 @@ export interface MediaModelPresentation {
    * ⇒ pixel WxH, Gemini-native ⇒ ratio codes (see ImageSizeOption). Absent for video.
    */
   imageSizes?: ImageSizeOption[]
-  /**
-   * True ⇒ this model is served via /v1/chat/completions (gemini-native image), not
-   * /v1/images/generations, and bills a FLAT output_cost_per_image (no 1K/2K/4K size
-   * tier). The Studio routes it through chat and skips the size-tier cost multiplier.
-   */
+  imageParameters?: 'capabilities'
+  /** Flat per-image billing. Does not imply protocol, count or image input support. */
   flatImageBilling?: boolean
   /**
    * True ⇒ this model bills a FLAT official per-image price with NO 1K/2K/4K
    * size-tier multiplier (mirrors backend tkIsFlatPerImageModel: imagen is billed
    * at Google's flat official price; the 2K→×1.5 / 4K→×2 multiplier is dropped for
-   * imagen). DECOUPLED from `flatImageBilling`, which additionally implies the
-   * chat-routing / n=1 / image-input behaviors imagen must NOT inherit. The
-   * computed `pricesFlat` ORs the two, so gemini-native need not also set this.
+   * imagen). The computed `pricesFlat` ORs the two billing flags.
    */
   flatPricePerImage?: boolean
   /**
@@ -435,7 +400,7 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     modality: 'image',
     supportedParams: [],
     flatImageBilling: true,
-    imageSizes: GEMINI_IMAGE_SIZES,
+    imageParameters: 'capabilities',
   },
   {
     modelId: 'gemini-3-pro-image',
@@ -450,12 +415,11 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     modality: 'image',
     supportedParams: [],
     flatImageBilling: true,
-    imageSizes: GEMINI_IMAGE_SIZES,
+    imageParameters: 'capabilities',
   },
   // gpt-image-* membership comes from account model_mapping /v1/models — no
   // curated presentation required. buildMediaPresentationForCatalogRow supplies
-  // GPT_IMAGE_SIZES defaults when a gpt-image id is served. Edge OpenAI OAuth
-  // verified gpt-image-2.5-flare/sunburst servable_image_generated (2026-09-17).
+  // capability-owned parameters when a gpt-image id is served.
 
   // ── video ──
   {
@@ -591,7 +555,7 @@ function buildMediaPresentationForCatalogRow(
     videoDurations: modality === 'video' ? [VIDEO_DURATION_DEFAULT] : undefined,
   }
   if (modality === 'image' && servedId.startsWith('gpt-image-')) {
-    synthesized.imageSizes = GPT_IMAGE_SIZES
+    synthesized.imageParameters = 'capabilities'
   }
   return synthesized
 }

@@ -98,6 +98,7 @@ import { formatProbeLatencyDetail } from '@/composables/useTkUseKey'
 
 const props = withDefaults(defineProps<{
   testState: TestState | null
+  imageModel?: boolean
   setupBlocked?: boolean
   setupBlockedReason?: string
   /** inline: same row as transport/protocol picker; banner: standalone panel */
@@ -124,7 +125,7 @@ const statusTitle = computed(() => {
     case 'running':
       return t('quickstart.connectionTesting')
     case 'ok':
-      return t('quickstart.connectionConnected')
+      return t(props.testState?.imageUnverified ? 'imageGeneration.keyValid' : 'quickstart.connectionConnected')
     case 'error':
       return t('quickstart.connectionFailed')
     default:
@@ -141,7 +142,7 @@ const statusDetail = computed(() => {
     if (props.testState?.reason === 'missing_tool_call') return t('quickstart.toolCallMissing')
     return props.testState?.message ?? ''
   }
-  if (effectiveStatus.value === 'idle') return t('quickstart.connectionWaitingHint')
+  if (effectiveStatus.value === 'idle') return t(props.imageModel ? 'imageGeneration.verifyHint' : 'quickstart.connectionWaitingHint')
   return ''
 })
 
@@ -212,6 +213,7 @@ const testDisabled = computed(() => effectiveStatus.value === 'running')
 const showChangeKey = computed(() => props.setupBlocked || effectiveStatus.value === 'error')
 
 const testButtonLabel = computed(() => {
+  if (props.imageModel && effectiveStatus.value !== 'running') return t('imageGeneration.verifyKey')
   if (effectiveStatus.value === 'running') return t('quickstart.connectionTesting')
   if (effectiveStatus.value === 'error') return t('quickstart.retryTest')
   return t('quickstart.sendTest')

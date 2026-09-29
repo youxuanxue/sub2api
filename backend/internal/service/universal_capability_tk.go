@@ -43,11 +43,12 @@ type UniversalCapabilityRoute struct {
 }
 
 type UniversalCapability struct {
-	ID            string                     `json:"id"`
-	Protocols     []UniversalProtocol        `json:"protocols"`
-	Modalities    []UniversalModality        `json:"modalities"`
-	Routes        []UniversalCapabilityRoute `json:"routes"`
-	SelectedGroup UniversalSelectedGroup     `json:"selected_group"`
+	ImageGeneration []ImageGenerationCapability `json:"image_generation,omitempty"`
+	ID              string                      `json:"id"`
+	Protocols       []UniversalProtocol         `json:"protocols"`
+	Modalities      []UniversalModality         `json:"modalities"`
+	Routes          []UniversalCapabilityRoute  `json:"routes"`
+	SelectedGroup   UniversalSelectedGroup      `json:"selected_group"`
 }
 
 var ErrUniversalCapabilityUnavailable = errors.New("api key capability discovery unavailable")

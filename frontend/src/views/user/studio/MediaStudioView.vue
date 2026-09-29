@@ -97,6 +97,7 @@
         :available-ids="availableIds"
       />
       <ImageStudio
+        :capability-models="selectedCapabilities"
         v-else-if="userReady && !loadError && probed && view === 'image'"
         :api-key="apiKey"
         :gateway-base="gatewayBase"
@@ -124,6 +125,7 @@
         @spent="refreshBalance"
       />
       <BakeOff
+        :capability-models="selectedCapabilities"
         v-else-if="userReady && !loadError && probed && view === 'bakeoff'"
         :api-key="apiKey"
         :gateway-base="gatewayBase"
@@ -154,6 +156,7 @@ import BakeOff from '@/views/user/studio/BakeOff.vue'
 import { keysAPI } from '@/api/keys'
 import {
   getAPIKeyCapabilities,
+  type APIKeyCapabilityModel,
   type APIKeyCapabilityModality,
 } from '@/api/api-key-capabilities'
 import { gatewayListModels, resolveGatewayBaseUrl } from '@/api/playground'
@@ -198,9 +201,10 @@ const bakeoffModality = ref<StudioModality>('video')
 const keys = ref<ApiKey[]>([])
 const selectedKeyId = ref<number | null>(null)
 const gatewayBase = ref('')
-// Per-group model pools, keyed by groupKeyOf(). Probed once for every distinct
-// group up front so the picker (and the dropdown annotations) can reason about
-// EVERY key's modality, not just the one currently selected.
+// Key-scoped model and parameter projections; Universal keys must not share
+// capability state merely because they happen to have the same group.
+const keyCapabilities = ref(new Map<string, APIKeyCapabilityModel[]>())
+const selectedCapabilities = computed(() => selectedKey.value ? keyCapabilities.value.get(groupKeyOf(selectedKey.value)) : undefined)
 const groupModelSets = ref<Map<string, Set<string>>>(new Map())
 const groupCapabilityModalities = ref<Map<string, Map<string, Set<APIKeyCapabilityModality>>>>(new Map())
 const groupProbeReps = ref<Map<string, ApiKey>>(new Map())
@@ -225,10 +229,9 @@ const balance = computed(() => authStore.user?.balance ?? 0)
 const userReady = computed(() => authStore.user?.id != null)
 const userId = computed(() => authStore.user?.id ?? 'anon')
 
-// Keys in the same group share one /v1/models pool — dedup the probe by group,
-// falling back to the key id for the (rare) ungrouped key.
+// Capabilities belong to the key, including its current authorization scope.
 function groupKeyOf(k: ApiKey): string {
-  return k.group?.id != null ? `g${k.group.id}` : `k${k.id}`
+  return `k${k.id}`
 }
 function availableIdsOf(k: ApiKey): Set<string> {
   return groupModelSets.value.get(groupKeyOf(k)) ?? new Set<string>()
@@ -347,12 +350,16 @@ async function probeGroupEntries(entries: readonly [string, ApiKey][]): Promise<
       if (isUniversalKey(k)) {
         const capabilities = await getAPIKeyCapabilities(k.id)
         return {
-          ids: capabilities.models.map((model) => model.id),
-          modalities: new Map(capabilities.models.map((model) => [model.id, new Set(model.modalities)])),
+          models: capabilities.models,
+          ids: capabilities.models.map(model => model.id),
+          modalities: new Map(capabilities.models.map(model => [model.id, new Set(model.modalities)])),
         }
       }
-      const response = await gatewayListModels(k.key, gatewayBase.value)
-		return { ids: (response.data || []).map((model) => model.id) }
+      const [response, capabilities] = await Promise.all([
+        gatewayListModels(k.key, gatewayBase.value),
+        getAPIKeyCapabilities(k.id).catch(() => null),
+      ])
+      return { ids: (response.data || []).map(model => model.id), models: capabilities?.models ?? [], modalities: undefined }
     })
   )
   let anyOk = false
@@ -362,8 +369,10 @@ async function probeGroupEntries(entries: readonly [string, ApiKey][]): Promise<
     if (r.status === 'fulfilled') {
       anyOk = true
 		mergeGroupProbe(gk, r.value.ids, r.value.modalities)
+      keyCapabilities.value.set(gk, r.value.models)
     } else {
       mergeGroupProbe(gk, [])
+      keyCapabilities.value.delete(gk)
       if (isUniversalKey(key) && capabilityError == null) capabilityError = r.reason
     }
   })
@@ -477,8 +486,23 @@ watch(view, async (v) => {
 
 // Refetch the price catalog whenever the selected key changes (prices are
 // per-group). Bootstrap awaits the first load before mounting media studios.
-watch(selectedKeyId, (id) => {
-  if (probed.value && id != null) void ensurePriceCatalog(id)
+watch(selectedKeyId, async (id) => {
+  if (!probed.value || id == null) return
+  loadError.value = ''
+  try {
+    await ensurePickerGroupProbes()
+    if (selectedKeyId.value === id) await ensurePriceCatalog(id)
+  } catch (error) {
+    if (selectedKeyId.value === id) loadError.value = error instanceof Error ? error.message : t('studio.loadFailed')
+  }
+})
+
+// A cached Studio must consume an explicit Quickstart journey on re-entry too.
+watch(() => route.fullPath, () => {
+  if (route.path !== '/studio' || !probed.value) return
+  if (route.query.mode) view.value = initialView()
+  const key = keys.value.find(k => String(k.id) === route.query.key)
+  if (key) selectedKeyId.value = key.id
 })
 
 async function bootstrap(): Promise<void> {
@@ -489,7 +513,7 @@ async function bootstrap(): Promise<void> {
     const page = await keysAPI.list(1, 50, { status: 'active' })
     keys.value = filterUserSelectableApiKeys((page.items || []).filter((k) => !!k.key))
     const trial = keys.value.find((k) => k.name?.toLowerCase() === 'trial')
-    const seed = (trial || keys.value[0])?.id ?? null
+    const seed = (keys.value.find(k => k.id === selectedKeyId.value) || keys.value.find(k => String(k.id) === route.query.key) || trial || keys.value[0])?.id ?? null
     if (seed == null) {
       loadError.value = t('studio.noApiKey')
       return

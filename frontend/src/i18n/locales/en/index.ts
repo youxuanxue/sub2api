@@ -7,6 +7,15 @@ import admin from './admin'
 import misc from './misc'
 
 export default {
+  imageGeneration: {
+    "softRatio": "Aspect ratio is a composition preference; the model determines the actual output dimensions.",
+    "prompt": "Image prompt",
+    "verifyKey": "Verify key",
+    "verifyHint": "This checks the key only. Image generation is unverified. Generate in Studio; usage is billed.",
+    "keyValid": "Key valid",
+    "keyVerified": "Key valid · Image generation unverified",
+    "openStudio": "Open in Studio"
+},
   ...landing,
   ...common,
   ...dashboard,

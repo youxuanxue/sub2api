@@ -219,6 +219,7 @@ def frontend_media_presentations(ts_text: str) -> dict[str, dict[str, object]]:
             "aliases": aliases,
             "durations": durations,
             "has_image_sizes": _has_explicit_image_sizes(obj),
+            "capability_parameters": bool(re.search(r"imageParameters:\s*'capabilities'", obj)),
             "flat_price_per_image": bool(re.search(r"\bflatPricePerImage\s*:\s*true\b", obj)),
         }
         out[model_id] = rec
@@ -260,18 +261,17 @@ def coverage_errors(catalog_text: str, overlay_text: str, go_text: str, manifest
             rec = presentations_by_modality[modality].get(model_id)
             if not rec:
                 # #2204: gpt-image-* Studio rows are synthesized at runtime from
-                # GPT_IMAGE_SIZES when membership comes from model_mapping. Treat
-                # the shared size table as the explicit size contract for those ids.
+                # key-specific capabilities when membership comes from model_mapping.
                 if (
                     modality == "image"
                     and model_id.startswith("gpt-image-")
-                    and re.search(r"\bexport const GPT_IMAGE_SIZES\b", ts_text)
+                    and "synthesized.imageParameters = 'capabilities'" in ts_text
                 ):
                     continue
                 errors.append(f"{model_id}: public servable {modality} lacks explicit Studio presentation")
                 continue
             if modality == "image":
-                if not rec.get("has_image_sizes") and not rec.get("flat_price_per_image"):
+                if not rec.get("has_image_sizes") and not rec.get("flat_price_per_image") and not rec.get("capability_parameters"):
                     errors.append(
                         f"{model_id}: Studio image presentation lacks imageSizes or explicit flatPricePerImage"
                     )
@@ -383,7 +383,7 @@ def selftest() -> int:
 export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   { modelId: 'base-catalog-image', modality: 'image', imageSizes: IMAGEN_IMAGE_SIZES },
   { modelId: 'imagen-4.0-generate-001', modality: 'image', imageSizes: IMAGEN_IMAGE_SIZES },
-  { modelId: 'gemini-3-pro-image-preview', aliasIds: ['gemini-3-pro-image'], modality: 'image', flatImageBilling: true, imageSizes: GEMINI_IMAGE_SIZES },
+  { modelId: 'gemini-3-pro-image-preview', aliasIds: ['gemini-3-pro-image'], modality: 'image', flatImageBilling: true, imageParameters: 'capabilities' },
   { modelId: 'grok-imagine-image', modality: 'image', flatPricePerImage: true },
   { modelId: 'doubao-seedream-5-0-260128', modality: 'image', imageSizes: SEEDREAM_IMAGE_SIZES },
   { modelId: 'veo-3.1-generate-001', modality: 'video', videoDurations: [4, 6, 8] },

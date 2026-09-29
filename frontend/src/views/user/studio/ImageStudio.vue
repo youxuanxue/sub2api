@@ -82,45 +82,12 @@
           </button>
         </div>
         <div class="mt-3">
-          <!-- Aspect picker is shown only when the selected model has supported ratios
-               (Imagen ratio codes / Seedream pixel sizes). Gemini-native image has no
-               picker: the ratio control is not honored on its serving path (see #807
-               R-001), so we omit it rather than ship a cosmetic control. -->
-          <template v-if="sizeOptions.length">
-            <div class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">{{ t('studio.image.aspectLabel') }}</div>
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="opt in sizeOptions"
-                :key="opt.ratio"
-                type="button"
-                class="rounded-lg border px-3 py-1.5 text-left transition"
-                :class="selectedRatio === opt.ratio
-                  ? 'border-primary-600 bg-primary-600 text-white'
-                  : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-dark-300'"
-                data-testid="studio-image-aspect"
-                @click="selectedRatio = opt.ratio"
-              >
-                <div class="text-sm font-medium tabular-nums">{{ opt.ratio }}</div>
-                <div v-if="sizeSubtext(opt.value, opt.ratio)" class="text-[10px] tabular-nums opacity-70">{{ sizeSubtext(opt.value, opt.ratio) }}</div>
-              </button>
-            </div>
-          </template>
+          <ImageGenerationParameters v-model="imageOptions" :plan="generationPlan" :disabled="sending" aspect-test-id="studio-image-aspect" />
           <p class="mt-1.5 text-[11px] text-gray-400 dark:text-dark-500">
             <template v-if="pricesFlat">{{ t('studio.image.billedFlat') }}</template>
             <template v-else>{{ t('studio.image.billedAs', { tier: classifiedTier, mult: sizeMultiplier }) }}</template>
           </p>
         </div>
-        <!-- Count stepper hidden for gemini-native image: the chat surface returns one image per request. -->
-        <div v-if="!isFlatImage" class="mt-3 flex items-center justify-between">
-          <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('studio.image.count') }}</span>
-          <div class="flex items-center gap-2">
-            <button type="button" class="h-7 w-7 rounded-lg border border-gray-200 text-gray-600 hover:border-primary-300 disabled:opacity-40 dark:border-dark-600 dark:text-dark-300" :disabled="n <= IMAGE_N_MIN" @click="n = Math.max(IMAGE_N_MIN, n - 1)">−</button>
-            <span class="w-6 text-center text-sm font-semibold tabular-nums">{{ n }}</span>
-            <button type="button" class="h-7 w-7 rounded-lg border border-gray-200 text-gray-600 hover:border-primary-300 disabled:opacity-40 dark:border-dark-600 dark:text-dark-300" :disabled="n >= IMAGE_N_MAX" @click="n = Math.min(IMAGE_N_MAX, n + 1)">+</button>
-          </div>
-        </div>
-        <!-- No Advanced panel for image: imagen / seedream adaptors honor no
-             tunable params beyond size + count (verified against new-api). -->
       </div>
 
       <!-- Cost + primary CTA. Moved out of a dedicated right column into the
@@ -245,13 +212,15 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import type { APIKeyCapabilityModel } from '@/api/api-key-capabilities'
+import ImageGenerationParameters from '@/components/keys/ImageGenerationParameters.vue'
+import { imageGenerationPlan, normalizeImageOptions, extractGeneratedImages } from '@/utils/imageGeneration.tk'
 import { useI18n } from 'vue-i18n'
-import { gatewayImageGenerations, gatewayGeminiImageViaChat, gatewayImageToPrompt, gatewayTraceRunId } from '@/api/playground'
-import { extractImageItems, extractChatImageItems, pickVisionChatModel } from '@/constants/playgroundMedia.tk'
+import { gatewayGenerateImage, gatewayImageToPrompt, gatewayTraceRunId } from '@/api/playground'
+import { pickVisionChatModel } from '@/constants/playgroundMedia.tk'
 import ImageUpload from '@/components/common/ImageUpload.vue'
 import {
-  IMAGE_N_MIN,
-  IMAGE_N_MAX,
   resolveAvailableModels,
   defaultModelId,
   type MediaPriceMap,
@@ -287,6 +256,7 @@ const props = defineProps<{
   userId: number | string
   rateMultiplier: number
   catalogLoading?: boolean
+  capabilityModels?: APIKeyCapabilityModel[]
 }>()
 const emit = defineEmits<{ (e: 'spent'): void }>()
 
@@ -298,37 +268,20 @@ const models = computed(() => resolveAvailableModels('image', props.availableIds
 const selectedModelId = ref<string>('')
 const selected = computed(() => models.value.find((r) => r.presentation.modelId === selectedModelId.value) ?? null)
 
-// Aspect options are MODEL-SPECIFIC: each model declares the ratios its upstream
-// accepts (Imagen ⇒ ratio codes; Seedream ⇒ pixel WxH). We track the chosen RATIO
-// so it survives a model switch (both vendors expose the same ratio labels), and
-// put the option's exact `value` on the wire.
-const sizeOptions = computed(() => selected.value?.presentation.imageSizes ?? [])
-const selectedRatio = ref<string>('')
-const selectedSize = computed(
-  () => sizeOptions.value.find((o) => o.ratio === selectedRatio.value) ?? sizeOptions.value[0] ?? null
-)
-// Exact string sent as the request `size` (ratio code or WxH — never wrapped).
-const sentSize = computed(() => selectedSize.value?.value ?? '')
+const route = useRoute()
+const generationPlan = computed(() => imageGenerationPlan(selected.value?.servedId ?? '', props.capabilityModels?.find(m => m.id === selected.value?.servedId)?.image_generation))
+const imageOptions = ref(normalizeImageOptions(generationPlan.value))
+const sizeOptions = computed(() => generationPlan.value.sizes)
+const sentSize = computed(() => sizeOptions.value.find(o => o.ratio === imageOptions.value.ratio)?.value ?? '')
+const n = computed(() => imageOptions.value.n)
+watch([generationPlan, () => props.catalogLoading], ([plan, loading]) => {
+  if (!loading) imageOptions.value = normalizeImageOptions(plan, imageOptions.value)
+}, { immediate: true })
 const classifiedTier = computed(() => classifyImageBillingTier(sentSize.value))
 const sizeMultiplier = computed(() => IMAGE_SIZE_MULTIPLIER[classifiedTier.value])
-// Gemini-native image is served via /v1/chat/completions and bills a FLAT
-// output_cost_per_image (no 1K/2K/4K size tier, one image per request). Skip the
-// size-tier multiplier and the count stepper for these models.
-const isFlatImage = computed(() => !!selected.value?.presentation.flatImageBilling)
-// Flat-PRICED: no 1K/2K/4K size-tier multiplier (imagen bills Google's flat
-// official price; gemini-native is flat too). DECOUPLED from isFlatImage — which
-// additionally implies chat routing / n=1 / image-input — so imagen keeps n>1,
-// no image-input, /v1/images routing, but escapes the size multiplier. Mirrors
-// backend tkIsFlatPerImageModel.
-const pricesFlat = computed(() => isFlatImage.value || !!selected.value?.presentation.flatPricePerImage)
-const effectiveN = computed(() => (isFlatImage.value ? 1 : n.value))
-// Show the literal pixel size as a subtext when it differs from the ratio label
-// (Seedream); for Imagen the value IS the ratio, so no redundant subtext.
-function sizeSubtext(value: string, ratio: string): string {
-  return value === ratio ? '' : value.replace('x', '×')
-}
-
-const n = ref(1)
+// Billing and request capabilities are independent.
+const pricesFlat = computed(() => !!selected.value?.presentation.flatImageBilling || !!selected.value?.presentation.flatPricePerImage)
+const effectiveN = n
 const prompt = ref('')
 const userEditedPrompt = ref(false)
 const sending = ref(false)
@@ -345,9 +298,9 @@ const INPUT_IMAGE_MAX_BYTES = 4 * 1024 * 1024 // 4 MB — well within gemini inl
 // (gemini inline-image guidance is well under 4 MB), so this cuts request-body bytes
 // by an order of magnitude. The 4 MB cap above still guards the original upload.
 const INPUT_IMAGE_DOWNSCALE_EDGE = 1536
-const inputImage = ref('')
+const inputImage = computed({ get: () => imageOptions.value.inputImage, set: value => { imageOptions.value = normalizeImageOptions(generationPlan.value, { ...imageOptions.value, inputImage: value }) } })
 const reversing = ref(false)
-const supportsImageInput = computed(() => isFlatImage.value)
+const supportsImageInput = computed(() => generationPlan.value.inputImage)
 // A vision-capable gemini chat model from the group, used to describe an image
 // back into a prompt. Independent of the selected image model.
 const visionModelId = computed(() => pickVisionChatModel(props.availableIds))
@@ -383,7 +336,7 @@ const holdEstimate = computed(() => {
 })
 const canAfford = computed(() => holdEstimate.value == null || holdEstimate.value <= props.balance)
 const canGenerate = computed(
-  () => !sending.value && !reversing.value && !!props.apiKey && !!prompt.value.trim() && !!selected.value && canAfford.value
+  () => !props.catalogLoading && !sending.value && !reversing.value && !!props.apiKey && !!prompt.value.trim() && !!selected.value && canAfford.value
 )
 const estimateLabel = computed(() =>
   estimate.value == null ? t('studio.usagePriced') : formatUsd(estimate.value)
@@ -410,6 +363,7 @@ function applySamplePrompt(): void {
 watch(
   models,
   (list) => {
+    if (!list.length && props.catalogLoading) return
     if (!list.some((r) => r.presentation.modelId === selectedModelId.value)) {
       selectedModelId.value = defaultModelId(list) ?? ''
     }
@@ -417,23 +371,24 @@ watch(
   { immediate: true }
 )
 watch(selected, () => applySamplePrompt(), { immediate: true })
-// Keep the chosen ratio valid as the model (and thus its option set) changes:
-// preserve it when the new model also offers it, else fall back to the first.
-watch(
-  sizeOptions,
-  (opts) => {
-    if (!opts.some((o) => o.ratio === selectedRatio.value)) {
-      selectedRatio.value = opts[0]?.ratio ?? ''
-    }
-  },
-  { immediate: true }
-)
+// Navigation never generates; normalize against the selected key's current profile.
+let journeyApplied = ''
+watch([models, () => props.capabilityModels, () => props.catalogLoading, () => route.fullPath], () => {
+  if (route.path !== '/studio') { journeyApplied = ''; return }
+  if (journeyApplied === route.fullPath || props.catalogLoading) return
+  const match = matchImageHistoryModel(models.value, String(route.query.model ?? ''))
+  if (!match) return
+  selectedModelId.value = match.presentation.modelId
+  imageOptions.value = normalizeImageOptions(generationPlan.value, { ratio: String(route.query.ratio ?? ''), n: Number(route.query.n ?? 1) })
+  journeyApplied = route.fullPath
+}, { immediate: true })
 
 function reuse(img: ImageHistoryItem): void {
   prompt.value = img.prompt
   userEditedPrompt.value = true
   const match = matchImageHistoryModel(models.value, img.model)
   if (match) selectedModelId.value = match.presentation.modelId
+  imageOptions.value = normalizeImageOptions(generationPlan.value, { ratio: img.size, n: 1 })
 }
 
 function imagePromptTitle(img: ImageHistoryItem): string {
@@ -443,12 +398,6 @@ function imagePromptTitle(img: ImageHistoryItem): string {
 function onThumbError(img: ImageHistoryItem): void {
   void onStudioImageThumbError(library, img.id)
 }
-
-// Drop a staged input image when switching to a model that can't consume it,
-// so an imagen/seedream request never carries a silently-ignored image.
-watch(supportsImageInput, (ok) => {
-  if (!ok) inputImage.value = ''
-})
 
 // Reuse a generated image as the image-to-image input (its src is a data:/http URI).
 function useAsInput(img: ImageHistoryItem): void {
@@ -509,35 +458,18 @@ async function generate(): Promise<void> {
   errorCode.value = ''
   sending.value = true
   const trace = { studioSource: 'studio.image', studioRunId: gatewayTraceRunId('studio-image') }
+  const submittedSize = sentSize.value
+  const perImage = estimateImageCost({
+    baseImagePrice: resolved.baseImagePrice || 0,
+    size: pricesFlat.value ? '1K' : submittedSize,
+    n: 1,
+    rateMultiplier: props.rateMultiplier,
+  })
   try {
-    // Gemini-native image rides /v1/chat/completions (image returned as markdown in
-    // the chat response — the universal path that works for antigravity + newapi
-    // groups); imagen/seedream ride /v1/images/generations. Route by the model.
-    let items
-    if (isFlatImage.value) {
-      const raw = await gatewayGeminiImageViaChat(props.apiKey, props.gatewayBase, {
-        model: resolved.servedId,
-        prompt: text,
-        aspectRatio: sentSize.value, // ratio code → extra_body.google.image_config.aspect_ratio
-        inputImage: inputImage.value || undefined // image-to-image when an input image is staged
-      }, undefined, trace)
-      items = extractChatImageItems(raw)
-    } else {
-      const raw = await gatewayImageGenerations(props.apiKey, props.gatewayBase, {
-        model: resolved.servedId,
-        prompt: text,
-        size: sentSize.value,
-        n: n.value,
-      }, undefined, trace)
-      items = extractImageItems(raw)
-    }
+    const plan = generationPlan.value
+    const raw = await gatewayGenerateImage(props.apiKey, props.gatewayBase, resolved.servedId, text, plan, imageOptions.value, trace)
+    const items = extractGeneratedImages(raw, plan)
     if (!items.length) throw new Error(t('studio.image.noResult'))
-    const perImage = estimateImageCost({
-      baseImagePrice: resolved.baseImagePrice || 0,
-      size: pricesFlat.value ? '1K' : sentSize.value,
-      n: 1,
-      rateMultiplier: props.rateMultiplier,
-    })
     const ts = Date.now()
     const history: ImageHistoryItem[] = items.map((it) => ({
       id: studioImageHistoryId(),
@@ -547,7 +479,7 @@ async function generate(): Promise<void> {
       revisedPrompt: it.revisedPrompt,
       model: resolved.servedId,
       vendorLabel: resolved.presentation.vendorLabel,
-      size: sentSize.value,
+      size: submittedSize,
       cost: perImage,
       ts,
     }))
