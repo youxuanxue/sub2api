@@ -104,6 +104,24 @@ func TestCodexImagesLunaErrorDoesNotCoolImageAccount(t *testing.T) {
 	}
 }
 
+func TestCodexDirectImagesStreamMultipleWritesBadRequest(t *testing.T) {
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw","stream":true,"n":2}`)
+	c, rec := newOpenAIImagesTestContext(t, body)
+	svc := newOpenAIImagesTestService(nil)
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+
+	result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
+
+	require.Nil(t, result)
+	var upstreamErr *OpenAIImagesUpstreamError
+	require.ErrorAs(t, err, &upstreamErr)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, "invalid_request_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+	require.Equal(t, "unsupported_parameter", gjson.GetBytes(rec.Body.Bytes(), "error.code").String())
+	require.Contains(t, gjson.GetBytes(rec.Body.Bytes(), "error.message").String(), "stream=true with n>1")
+}
+
 func TestCodexDirectImagesShadowCredentials(t *testing.T) {
 	parent := directImagesTestAccount()
 	parent.Status = StatusActive
