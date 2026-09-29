@@ -1228,7 +1228,7 @@ function generateOpenAIFiles(baseUrl: string, apiKey: string, model: string): Fi
 model = "${model}"
 review_model = "${model}"
 ${formatCodexReasoningEffortTomlLine(selectCodexConfigReasoningEffort(findCodexCatalogModel(manifest.content.value, model)))}disable_response_storage = true
-model_catalog_json = ${JSON.stringify(codexCatalogPath.value)}
+model_catalog_json = "~/.codex/codex-models.json"
 network_access = "enabled"
 windows_wsl_setup_acknowledged = true
 
@@ -1268,7 +1268,7 @@ function generateOpenAIWsFiles(baseUrl: string, apiKey: string, model: string): 
 model = "${model}"
 review_model = "${model}"
 ${formatCodexReasoningEffortTomlLine(selectCodexConfigReasoningEffort(findCodexCatalogModel(manifest.content.value, model)))}disable_response_storage = true
-model_catalog_json = ${JSON.stringify(codexCatalogPath.value)}
+model_catalog_json = "~/.codex/codex-models.json"
 network_access = "enabled"
 windows_wsl_setup_acknowledged = true
 

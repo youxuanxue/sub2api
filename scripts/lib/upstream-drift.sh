@@ -45,8 +45,21 @@ load_upstream_drift_snapshot() {
   local head_sha target_sha
   head_sha=$(git rev-parse --verify "$head_ref^{commit}") || return 2
   target_sha=$(git rev-parse --verify "$target_ref^{commit}") || return 2
-  TK_BEHIND=$(git rev-list --count "$head_sha..$target_sha") || return 2
-  TK_AHEAD=$(git rev-list --count "$target_sha..$head_sha") || return 2
+  local merge_head merge_heads_file
+  local -a reviewed_heads=("$head_sha")
+  merge_heads_file=$(git rev-parse --git-path MERGE_HEAD) || return 2
+  if [ "$head_ref" = "HEAD" ] && [ -f "$merge_heads_file" ]; then
+    # Before the merge commit, HEAD is still the fork parent. Validate the
+    # resolved index and count the actual pending parents; never waive drift
+    # against a target that is not part of this merge.
+    git write-tree >/dev/null || return 2
+    while IFS= read -r merge_head; do
+      merge_head=$(git rev-parse --verify "$merge_head^{commit}") || return 2
+      reviewed_heads+=("$merge_head")
+    done < "$merge_heads_file"
+  fi
+  TK_BEHIND=$(git rev-list --count "$target_sha" --not "${reviewed_heads[@]}") || return 2
+  TK_AHEAD=$(git rev-list --count "${reviewed_heads[@]}" --not "$target_sha") || return 2
   UPSTREAM_HEAD=$(git rev-parse --short "$target_sha")
   ORIGIN_HEAD=$(git rev-parse --short "$head_sha")
   export TK_BEHIND TK_AHEAD UPSTREAM_HEAD ORIGIN_HEAD

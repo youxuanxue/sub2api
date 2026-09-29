@@ -147,7 +147,7 @@ func (s *AccountTestService) probeOpenAIAPIKeyResponsesSupport(
 		}
 
 		// 本次响应不足以下结论时保留既有能力事实，与网络层失败、响应体读取失败一致。
-		if !responsesProbeVerdictIsConclusive(resp.StatusCode, bodyBytes) {
+		if !responsesProbeVerdictIsConclusive(resp.StatusCode, bodyBytes) && !isResponsesProbeModelUnavailable(resp.StatusCode, bodyBytes) {
 			logger.LegacyPrintf("service.openai_probe",
 				"probe_inconclusive_preserve_prior: account_id=%d base_url=%s probe_model=%s status=%d response_status=%s reason=%s",
 				accountID, normalizedBaseURL, probeModel, resp.StatusCode,
@@ -166,7 +166,7 @@ func (s *AccountTestService) probeOpenAIAPIKeyResponsesSupport(
 			verdict = capacityVerdict
 		case supported && resp.StatusCode >= 200 && resp.StatusCode < 300 && responsesProbeBodyHasFunctionCall(bodyBytes):
 			verdict = ProtocolProbePositive
-		case protocolProbeModelSpecificHTTPFailure(resp.StatusCode, bodyBytes):
+		case protocolProbeModelSpecificHTTPFailure(resp.StatusCode, bodyBytes) || isResponsesProbeModelUnavailable(resp.StatusCode, bodyBytes):
 			verdict = ProtocolProbeModelSpecific
 		case !endpointSupported || responsesProbeBodyIndicatesNotImplemented(bodyBytes):
 			verdict = ProtocolProbeEndpointNegative
@@ -215,9 +215,13 @@ func (s *AccountTestService) probeOpenAIAPIKeyResponsesSupport(
 // 其余 2xx 一律可下结论——尤其 status=completed 却只回 reasoning 的上游（火山方舟
 // coding/v3 × kimi-k2.6），仍按原逻辑判为不支持。
 //
-// 非 2xx 的结论只看状态码、不依赖响应内容，恒可下结论。
+// 明确指向探测模型不可用的 400/404(model_not_found 等)只说明模型不存在,不说明端点
+// 能力,不下结论;其余非 2xx 的结论只看状态码、不依赖响应内容，恒可下结论。
 // 缺少 status 字段的响应体（含非 JSON）也按可下结论处理，保持既有行为。
 func responsesProbeVerdictIsConclusive(status int, body []byte) bool {
+	if isResponsesProbeModelUnavailable(status, body) {
+		return false
+	}
 	if status < 200 || status >= 300 {
 		return true
 	}
@@ -234,13 +238,17 @@ func responsesProbeVerdictIsConclusive(status int, body []byte) bool {
 // decideResponsesProbeSupport 依据探测响应判定上游 /v1/responses 是否真正可用于
 // 携带工具的请求。
 //
-//   - 404 / 405：端点不存在 → false
+//   - 探测模型不可用的 400/404：与端点能力无关 → true(调用方同时不下结论,不写入)
+//   - 其他 404 / 405：端点不存在 → false
 //   - 其他非 2xx（401/403/422/5xx 等）：端点存在,但本次无法判定工具能力
 //     （鉴权/校验/瞬时故障）→ 保守按 true,保持既有"端点存在即支持"行为
 //   - 2xx：探测以 tool_choice=required 强制工具调用,响应必须含 function_call
 //     输出项才算真正可用;否则(如火山方舟 coding/v3 × kimi-k2.6 仅回 reasoning)
 //     判为 false,使网关改走 /v1/chat/completions 直转路径。
 func decideResponsesProbeSupport(endpointSupported bool, status int, body []byte) bool {
+	if isResponsesProbeModelUnavailable(status, body) {
+		return true
+	}
 	if !endpointSupported {
 		return false
 	}
@@ -263,6 +271,21 @@ func responsesProbeBodyIndicatesNotImplemented(body []byte) bool {
 	}
 	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "error.code").String()))
 	return code == "convert_request_failed"
+}
+
+// isResponsesProbeModelUnavailable 判断 400/404 是否只是在说探测模型不可用
+// (错误码/类型为 model_not_found 等,或错误文案明确说模型不存在/不可用)。
+func isResponsesProbeModelUnavailable(status int, body []byte) bool {
+	if status != http.StatusBadRequest && status != http.StatusNotFound {
+		return false
+	}
+	for _, path := range []string{"error.code", "error.type", "response.error.code", "response.error.type"} {
+		switch strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, path).String())) {
+		case "model_not_found", "model_not_available", "unsupported_model", "invalid_model":
+			return true
+		}
+	}
+	return isExplicitOpenAIModelAvailabilityMessage(extractUpstreamErrorMessage(body))
 }
 
 // responsesProbeBodyHasFunctionCall 判断非流式 Responses 响应体的 output 数组里

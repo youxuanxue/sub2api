@@ -41,7 +41,13 @@ func protocolProbeModelCandidates(account *Account) []string {
 		seen[upstream] = struct{}{}
 		candidates = append(candidates, upstream)
 	}
-	sort.Strings(candidates)
+	sort.SliceStable(candidates, func(i, j int) bool {
+		iGPT, jGPT := strings.HasPrefix(candidates[i], "gpt-"), strings.HasPrefix(candidates[j], "gpt-")
+		if iGPT != jGPT {
+			return iGPT
+		}
+		return candidates[i] < candidates[j]
+	})
 	if account.IsCursor() {
 		for i, model := range candidates {
 			if model == "composer-2.5" {
