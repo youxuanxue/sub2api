@@ -500,9 +500,10 @@
         "'control_protocol_version': CONTROL_PROTOCOL_VERSION,",
         "if (response.get('protocol_version') != CONTROL_PROTOCOL_VERSION",
         "self.last_control_ok = None",
-        "if self.last_control_ok is None or time.monotonic() - self.last_control_ok >= POLL_SECONDS:"
+        "if self.last_control_ok is None or time.monotonic() - self.last_control_ok >= POLL_SECONDS:",
+        "raise Failure(400, 'Missing Gemini Web account reference')"
       ],
-      "rationale": "The Worker deploys on its own cadence (prod does not run it), so its identity surface is the only way a fleet check can prove all edges run one build. Image tags are hand-typed and have lied before (1.8.253-147512b9d names a commit absent from main); the digest is derived from shipped sources instead. Removing it makes ops/observability/check-gemini-web-worker-fleet.sh blind. The protocol anchor pins the declaration, not the number: a paired bump with handler.GeminiWebControlProtocolVersion is legitimate, and scripts/checks/gemini-web-control-protocol.py owns whether the two agree. Readiness must distinguish never-verified from verified-long-ago: time.monotonic() counts from boot, so a 0 sentinel made the freshness window look satisfied for a host's first POLL_SECONDS and ready() reported not-ready without ever calling the control plane."
+      "rationale": "The Worker deploys on its own cadence (prod does not run it), so its identity surface is the only way a fleet check can prove all edges run one build. Image tags are hand-typed and have lied before (1.8.253-147512b9d names a commit absent from main); the digest is derived from shipped sources instead. Removing it makes ops/observability/check-gemini-web-worker-fleet.sh blind. The protocol anchor pins the declaration, not the number: a paired bump with handler.GeminiWebControlProtocolVersion is legitimate, and scripts/checks/gemini-web-control-protocol.py owns whether the two agree. Readiness must distinguish never-verified from verified-long-ago: time.monotonic() counts from boot, so a 0 sentinel made the freshness window look satisfied for a host's first POLL_SECONDS and ready() reported not-ready without ever calling the control plane. Missing X-TokenKey-Gemini-Web-Account-ID must stay HTTP 400 (request-shape), never 401, so gateways do not SetError healthy cookie sessions."
     },
     {
       "path": "ops/gemini-web/build_digest.py",
@@ -2740,9 +2741,10 @@
         "applyGeminiWebTextUsageEstimate(c, account, result, geminiReq, responseErr)",
         "stashGeminiWebEstimateResponseBody(c, collectedBytes)",
         "stashGeminiWebEstimateResponseBody(c, respBody)",
-        "stashGeminiWebEstimateOutputText(c, seenText)"
+        "stashGeminiWebEstimateOutputText(c, seenText)",
+        "setGeminiWebAccountHeader(upstreamReq, account)"
       ],
-      "rationale": "Chat Completions exit must keep gemini-web estimate apply + stash; otherwise Chat text over Worker bills $0 with green helper-only tests."
+      "rationale": "Chat Completions exit must keep gemini-web estimate apply + stash; otherwise Chat text over Worker bills $0 with green helper-only tests. Chat/Responses share buildGeminiChatCompletionsUpstreamRequestFunc — omitting setGeminiWebAccountHeader made Worker return Missing account reference and SetError healthy sessions."
     },
     {
       "path": "backend/internal/service/gemini_responses_compat_service.go",
@@ -3660,13 +3662,15 @@
         "tkIsPermanentOpenAIAuth401(responseBody)",
         "tkIsCapabilityScope401(statusCode, responseBody)",
         "capability_scope_401_skip_penalty",
+        "tkIsGeminiWebMissingAccountReference401(account, statusCode, upstreamMsg, responseBody)",
+        "gemini_web_missing_account_reference_401_skip_penalty",
         "IsOpenAICompatModelNotFound404(responseBody, upstreamMsg)",
         "newapi_model_not_found_401_skip_auth_penalty",
         "tkSkipDownstreamKiroOAuthAuthRejectPenalty(account, statusCode, upstreamMsg, responseBody)",
         "anthropic_downstream_kiro_oauth_401_skip_penalty",
         "s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, \"kiro_oauth_401\")"
       ],
-      "rationale": "HandleUpstreamError case 401 companion. Capability-scope / newapi model-not-found skips, Kiro mirror OAuth 401 skip, Anthropic OAuth immediate disable, permanent OpenAI 401, and valid-token revoke gate must stay ordered before SetError / temp_unschedulable. Thin call site: s.tkHandleAuth401 in ratelimit_service.go."
+      "rationale": "HandleUpstreamError case 401 companion. Capability-scope / newapi model-not-found skips, Gemini Web missing account-reference skip (chat/responses header omission must not SetError), Kiro mirror OAuth 401 skip, Anthropic OAuth immediate disable, permanent OpenAI 401, and valid-token revoke gate must stay ordered before SetError / temp_unschedulable. Thin call site: s.tkHandleAuth401 in ratelimit_service.go."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_handle403.go",

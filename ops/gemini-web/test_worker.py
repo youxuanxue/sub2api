@@ -747,6 +747,12 @@ assert rss_bytes < 384 * 1024 * 1024, rss_bytes
                 response = connection.getresponse()
                 self.assertEqual(response.status, 401)
                 response.read()
+            # Omit account binding: request-shape 400, not credential 401.
+            connection.request('POST', path, request, {'x-goog-api-key': key})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 400)
+            missing = json.loads(response.read().decode())
+            self.assertEqual(missing['error']['message'], 'Missing Gemini Web account reference')
             with patch.object(worker.Account, 'generate', return_value={
                     'candidates': [{'content': {'parts': [{'text': 'answer'}]}}]}):
                 connection.request('POST', path, request, {

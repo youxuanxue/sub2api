@@ -207,6 +207,18 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
+		if geminiWebMissingAccountReferenceClientFault(account, resp.StatusCode, respBody) {
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:           account.Platform,
+				AccountID:          account.ID,
+				AccountName:        account.Name,
+				UpstreamStatusCode: resp.StatusCode,
+				UpstreamRequestID:  requestID,
+				Kind:               "http_error",
+				Message:            "Missing Gemini Web account reference",
+			})
+			return nil, s.writeResponsesCompatError(c, http.StatusBadRequest, "invalid_request_error", "Missing Gemini Web account reference")
+		}
 		if !tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
 			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}

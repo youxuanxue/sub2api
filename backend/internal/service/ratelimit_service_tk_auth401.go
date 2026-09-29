@@ -34,6 +34,16 @@ func (s *RateLimitService) tkHandleAuth401(
 			"account_id", account.ID, "platform", account.Platform, "message", upstreamMsg)
 		return false
 	}
+	// Gemini Web Worker historically returned 401 when the gateway omitted
+	// X-TokenKey-Gemini-Web-Account-ID (chat/responses builder bug). That is a
+	// request-binding fault, not revoked cookies — SetError would empty the
+	// session pool. Skip penalty; client path maps the message to 400 once the
+	// Worker also emits 400 (old Workers still 401 until rolled).
+	if tkIsGeminiWebMissingAccountReference401(account, statusCode, upstreamMsg, responseBody) {
+		slog.Info("gemini_web_missing_account_reference_401_skip_penalty",
+			"account_id", account.ID, "message", upstreamMsg)
+		return false
+	}
 	if account.Platform == PlatformNewAPI && IsOpenAICompatModelNotFound404(responseBody, upstreamMsg) {
 		slog.Info("newapi_model_not_found_401_skip_auth_penalty",
 			"account_id", account.ID,

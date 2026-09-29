@@ -692,8 +692,10 @@ class ControlAdapter:
                 account.close()
 
     def session_owner(self, account_id):
+        # Missing/malformed account binding is a request-shape fault (400), not
+        # credential failure (401): gateways must not SetError healthy sessions.
         if not isinstance(account_id, str) or not re.fullmatch(r'[1-9][0-9]*', account_id):
-            raise Failure(401, 'Missing Gemini Web account reference')
+            raise Failure(400, 'Missing Gemini Web account reference')
         with self.registry_lock:
             if account_id not in self.accounts:
                 self.accounts[account_id] = SessionOwner(account_id, self.control)
@@ -702,8 +704,10 @@ class ControlAdapter:
     def authorize(self, key, account_id=None):
         if not key:
             raise Failure(401, 'Invalid worker API key')
+        # Same 400 contract as session_owner: omit/invalid X-TokenKey-Gemini-Web-
+        # Account-ID is a client/gateway construction error, not revoked cookies.
         if not isinstance(account_id, str) or not re.fullmatch(r'[1-9][0-9]*', account_id):
-            raise Failure(401, 'Missing Gemini Web account reference')
+            raise Failure(400, 'Missing Gemini Web account reference')
         validate_key(key, self.control.load(account_id))
         owner = self.session_owner(account_id)
         return AuthorizedAccount(owner, key)
