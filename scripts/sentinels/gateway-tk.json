@@ -6620,16 +6620,26 @@
       "rationale": "Codex Responses OAuth image_generation builder must inject marker AR with size-derived fallback; dropping this call leaves aspect_ratio admitted but never applied upstream."
     },
     {
+      "path": "backend/internal/service/openai_images_aspect_ratio_tk.go",
+      "must_contain": [
+        "var openAIImagesKnownSizeTable = []openAIImagesKnownSize{",
+        "func ExportGPTImageStudioSizeChips() []GPTImageStudioSizeChip",
+        "func openAIImagesAspectRatioFromSize(size string) string"
+      ],
+      "rationale": "GPT Image WxH↔ratio table is the single owner for marker derivation, aspect_ratio allowlist, and Studio chip generation. Restoring a hand switch/map or deleting ExportGPTImageStudioSizeChips reintroduces dual FE/BE size tables."
+    },
+    {
       "path": "backend/internal/service/openai_images_aspect_ratio_tk_test.go",
       "must_contain": [
         "TestNormalizeOpenAIImagesAspectRatioAllowlist",
         "TestApplyOpenAIImagesAspectRatioMarkerIdempotent",
         "TestOpenAIImagesAspectRatioFromSize",
+        "TestOpenAIImagesKnownSizeTable_SSOTInvariants",
         "TestBuildOpenAIImagesOAuthPayloadInjectsAspectRatioMarker",
         "TestRewriteOpenAIImagesAspectRatioMarkerDoesNotDeriveFromSize",
         "TestRewriteOpenAIImagesAspectRatioMarkerSkipsWhenAPIKeySizeExplicit"
       ],
-      "rationale": "Regression coverage for gpt-image aspect_ratio admit/reject, marker idempotency, size→ratio derivation, OAuth payload injection, API-key size-not-derived marker rewrite, and API-key ExplicitSize suppressing soft AR."
+      "rationale": "Regression coverage for gpt-image aspect_ratio admit/reject, marker idempotency, size→ratio derivation, known-size SSOT invariants, OAuth payload injection, API-key size-not-derived marker rewrite, and API-key ExplicitSize suppressing soft AR."
     },
     {
       "path": "backend/internal/service/openai_images_responses.go",

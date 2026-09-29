@@ -197,21 +197,15 @@ export const WAN27_IMAGE_SIZES: ImageSizeOption[] = [
 ]
 
 /**
- * GPT Image Studio/Quickstart sizes — must stay aligned with backend
- * `openAIImagesAspectRatioFromSize` / gpt-image aspect_ratio allowlist.
+ * GPT Image Studio/Quickstart sizes — GENERATED from Go SSOT
+ * `openAIImagesKnownSizeTable` (backend/internal/service/openai_images_aspect_ratio_tk.go).
+ * Do not hand-edit: run
+ * `cd backend && go run ./cmd/gpt-image-sizes-ssot --output ../frontend/src/constants/gptImageSizes.generated.tk.ts`
  * Wire field is `size=WxH`; gateway local pad returns this exact canvas.
- * Prefer 1K/2K official sizes (not 4K) for Studio cost defaults.
  */
-export const GPT_IMAGE_SIZES: ImageSizeOption[] = [
-  { ratio: '1:1', value: '1024x1024' },
-  { ratio: '3:2', value: '1536x1024' },
-  { ratio: '2:3', value: '1024x1536' },
-  { ratio: '16:9', value: '2048x1152' },
-  { ratio: '9:16', value: '1152x2048' },
-]
+export { GPT_IMAGE_SIZES } from './gptImageSizes.generated.tk'
 
 // Non-GPT aspect controls (Gemini chat etc.) stay capability-projected.
-// GPT sizes are the static table above, filtered by admitted aspect_ratios.
 
 /** Video aspect ratios — passthrough hint to the task adaptor (TK does not interpret). */
 export interface VideoAspectPreset {

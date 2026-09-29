@@ -22,8 +22,9 @@ authors: [codex]
 Gemini Universal 示例走 Chat 的 `extra_body.google.image_config.aspect_ratio`；
 已支持的 Gemini 专用客户端保留 native `generateContent` 示例。
 Gemini Web 的比例限制由原有协议路由裁决。GPT Image Studio/Quickstart 默认发送
-顶层 `size=WxH`（`GPT_IMAGE_SIZES`，与网关
-`openAIImagesAspectRatioFromSize` 对齐）；网关本地精确画布兑现最终像素，
+顶层 `size=WxH`（`GPT_IMAGE_SIZES`，由网关 Go
+`openAIImagesKnownSizeTable` 生成，与
+`openAIImagesAspectRatioFromSize` 同源）；网关本地精确画布兑现最终像素，
 不需要 `tk_image_contract`。仅发 `aspect_ratio` 仍是合法 API 构图偏好。
 硬 `size` 与软 `aspect_ratio` 同传时以 size 为准。Seedream/Wan/Imagen 的既有
 size 映射保留。未知能力只构造最小请求；不以计费字段决定路由、输入图支持、
@@ -45,7 +46,7 @@ Gemini chat/native 返回图片，cURL 保存原始响应。生图提示词不�
 | --- | --- |
 | Authorized image request profile projection | See Candidate Eligibility SSOT Implementation/Owners |
 | Frontend profile selection, normalization, request and Studio link | `frontend/src/utils/imageGeneration.tk.ts` |
-| GPT Image exact-canvas size chips (WxH SSOT with gateway) | `frontend/src/constants/studioMediaPresentations.tk.ts` (`GPT_IMAGE_SIZES`) |
+| GPT Image exact-canvas size chips (WxH; Go SSOT → generated FE) | Go `openAIImagesKnownSizeTable` via `cmd/gpt-image-sizes-ssot` → `frontend/src/constants/gptImageSizes.generated.tk.ts` (re-exported by `studioMediaPresentations.tk.ts`) |
 | Shared parameter controls | `frontend/src/components/keys/ImageGenerationParameters.vue` |
 | cURL/Python serialization and saving results | `frontend/src/utils/imageGenerationExamples.tk.ts` |
 | Gateway transport | existing `frontend/src/api/playground.ts` |

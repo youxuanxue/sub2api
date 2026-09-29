@@ -54,7 +54,7 @@ post-process is the default for all clients; the field is ignored if present
 and stripped before upstream.
 
 Studio/Quickstart GPT Image chips send `size=WxH` from `GPT_IMAGE_SIZES`
-(aligned with this allowlist); see
+(generated from Go `openAIImagesKnownSizeTable`); see
 [image-generation-quickstart-studio.md](image-generation-quickstart-studio.md).
 
 ### 5. Floor / allowlist
@@ -72,7 +72,7 @@ Studio/Quickstart GPT Image chips send `size=WxH` from `GPT_IMAGE_SIZES`
 
 | 关注点 | Owner |
 | --- | --- |
-| 比例 allowlist / marker / resolve | `backend/internal/service/openai_images_aspect_ratio_tk.go` |
+| 比例 allowlist / size↔ratio / Studio chips | `backend/internal/service/openai_images_aspect_ratio_tk.go`（`openAIImagesKnownSizeTable`） |
 | Parse / strip / API-key rewrite | `backend/internal/service/openai_images.go` |
 | OAuth Direct / Responses 注入 | `openai_images_direct.go` / `openai_images_responses.go` |
 | Floor / catalog membership | `pricing_catalog_supported_models_tk.go` + `account_model_mapping_ssot_tk.go` |
@@ -82,6 +82,6 @@ Studio/Quickstart GPT Image chips send `size=WxH` from `GPT_IMAGE_SIZES`
 ## 非目标
 
 - 不把 `1k/2k/4k` 当作网关契约。
-- Studio/Quickstart GPT 画布芯片与本契约共用 `GPT_IMAGE_SIZES` /
-  `openAIImagesAspectRatioFromSize` 尺寸表（见
+- Studio/Quickstart GPT 画布芯片由同一 `openAIImagesKnownSizeTable` 生成
+  `GPT_IMAGE_SIZES`（见
   [image-generation-quickstart-studio.md](image-generation-quickstart-studio.md)）。
