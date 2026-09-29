@@ -71,7 +71,8 @@ func responseUsageCostBillingFromContext(c *gin.Context) (responseUsageCostBilli
 }
 
 // InjectUsageCostJSON sets usage.cost (and nested message/response.usage.cost when
-// present) to the client-visible ActualCost. No-op when cost < 0 or no usage object.
+// present) to the list/standard TotalCost (倍率前标准官方价). No-op when cost < 0
+// or no usage object. Callers must pass CostBreakdown.TotalCost, not ActualCost.
 func InjectUsageCostJSON(body []byte, cost float64) []byte {
 	if len(body) == 0 || cost < 0 {
 		return body
@@ -137,8 +138,9 @@ func InjectUsageCostSSEBlock(block string, cost float64) string {
 	return strings.Join(lines, "\n")
 }
 
-// previewClaudeClientUsageCost computes ActualCost for client-visible usage.cost.
-// Settlement is owned solely by settleClaudeCustomerFacingCost (same path as RecordUsage).
+// previewClaudeClientUsageCost settles the CostBreakdown for response usage.cost.
+// The response field exposes TotalCost (标准官方价); the full breakdown is stashed
+// so RecordUsage can still bill ActualCost without re-settling.
 func (s *GatewayService) previewClaudeClientUsageCost(
 	ctx context.Context,
 	c *gin.Context,
@@ -206,8 +208,9 @@ func (s *GatewayService) previewClaudeClientUsageCost(
 	return settled.Cost
 }
 
-// previewOpenAIClientUsageCost computes ActualCost for OpenAI-shaped token responses.
-// Settlement is owned solely by settleOpenAICustomerFacingCost (same path as RecordUsage).
+// previewOpenAIClientUsageCost settles the CostBreakdown for response usage.cost.
+// The response field exposes TotalCost (标准官方价); RecordUsage reuses the stashed
+// breakdown for ActualCost billing. Settlement owner: settleOpenAICustomerFacingCost.
 func (s *OpenAIGatewayService) previewOpenAIClientUsageCost(
 	ctx context.Context,
 	c *gin.Context,

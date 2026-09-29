@@ -15072,7 +15072,7 @@
         "settleClaudeCustomerFacingCost(",
         "settleOpenAICustomerFacingCost("
       ],
-      "rationale": "Client-visible usage.cost must settle through the shared RecordUsage owners and apply ForceCacheBilling before PrecomputedCost stash."
+      "rationale": "Client-visible usage.cost exposes TotalCost (list/standard price); settle through shared RecordUsage owners and apply ForceCacheBilling before PrecomputedCost stash."
     },
     {
       "path": "backend/internal/service/gateway_usage_billing.go",
@@ -15080,7 +15080,7 @@
         "func (s *GatewayService) settleClaudeCustomerFacingCost(",
         "result.PrecomputedCost != nil"
       ],
-      "rationale": "Claude ActualCost settlement and PrecomputedCost reuse stay the single ledger path for response usage.cost."
+      "rationale": "Claude CostBreakdown settlement and PrecomputedCost reuse stay the single ledger path for response usage.cost."
     },
     {
       "path": "backend/internal/service/openai_gateway_usage.go",
@@ -15088,7 +15088,7 @@
         "func (s *OpenAIGatewayService) settleOpenAICustomerFacingCost(",
         "result.PrecomputedCost != nil"
       ],
-      "rationale": "OpenAI ActualCost settlement (response_model + Free Fast) stays shared by RecordUsage and response usage.cost."
+      "rationale": "OpenAI CostBreakdown settlement (response_model + Free Fast) stays shared by RecordUsage and response usage.cost."
     },
     {
       "path": "backend/internal/service/gateway_upstream_response.go",
@@ -15096,9 +15096,11 @@
         "previewClaudeClientUsageCost(",
         "InjectUsageCostSSEBlock(",
         "InjectUsageCostJSON(",
-        "stashPrecomputedResponseUsageCost("
+        "stashPrecomputedResponseUsageCost(",
+        "deltaCost.TotalCost",
+        "cost.TotalCost"
       ],
-      "rationale": "Claude Messages streaming/non-streaming must keep injecting usage.cost and stashing PrecomputedCost."
+      "rationale": "Claude Messages streaming/non-streaming must inject usage.cost from TotalCost and stash PrecomputedCost."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
@@ -15106,16 +15108,17 @@
         "previewOpenAIClientUsageCost(",
         "InjectUsageCostSSEDataLine(",
         "InjectUsageCostJSON(",
-        "TakePrecomputedResponseUsageCost("
+        "TakePrecomputedResponseUsageCost(",
+        "cost.TotalCost"
       ],
-      "rationale": "OpenAI Chat Completions raw must keep injecting usage.cost on usage-only frames and reuse PrecomputedCost."
+      "rationale": "OpenAI Chat Completions raw must inject usage.cost from TotalCost on usage-only frames and reuse PrecomputedCost."
     },
     {
       "path": "backend/internal/service/openai_gateway_service.go",
       "must_contain": [
         "PrecomputedCost *CostBreakdown"
       ],
-      "rationale": "OpenAIForwardResult must carry the response-injected ActualCost for RecordUsage reuse."
+      "rationale": "OpenAIForwardResult must carry the settled CostBreakdown so RecordUsage can bill ActualCost while the response exposes TotalCost."
     },
     {
       "path": "backend/internal/service/response_usage_cost_tk_test.go",
@@ -15123,9 +15126,10 @@
         "func TestHandleNonStreamingResponse_InjectsUsageCost(",
         "func TestSettleClaudeCustomerFacingCost_SharedByPreviewAndRecordUsage(",
         "func TestSettleOpenAICustomerFacingCost_SharedByPreviewAndRecordUsage(",
-        "func TestPreviewClaudeForceCacheBilling_MatchesRecordUsagePrecomputed("
+        "func TestPreviewClaudeForceCacheBilling_MatchesRecordUsagePrecomputed(",
+        "stashed.TotalCost"
       ],
-      "rationale": "Focused regressions pin usage.cost inject, settle SSOT, and ForceCacheBilling parity against ledger ActualCost."
+      "rationale": "Focused regressions pin usage.cost=TotalCost inject, settle SSOT, and ForceCacheBilling parity against the ledger."
     }
   ]
 }

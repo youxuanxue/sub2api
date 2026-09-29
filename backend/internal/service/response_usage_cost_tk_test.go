@@ -72,7 +72,7 @@ func TestHandleNonStreamingResponse_InjectsUsageCost(t *testing.T) {
 		ID:      1,
 		GroupID: &gid,
 		User:    &User{ID: 9},
-		Group:   &Group{ID: gid, Platform: PlatformAnthropic, RateMultiplier: 1.0},
+		Group:   &Group{ID: gid, Platform: PlatformAnthropic, RateMultiplier: 2.0},
 	}
 	c.Set("api_key", apiKey)
 
@@ -97,9 +97,11 @@ func TestHandleNonStreamingResponse_InjectsUsageCost(t *testing.T) {
 	require.Equal(t, int64(100), gjson.GetBytes(rec.Body.Bytes(), "usage.input_tokens").Int())
 	stashed := TakePrecomputedResponseUsageCost(c)
 	require.NotNil(t, stashed)
-	require.InDelta(t, cost.Float(), stashed.ActualCost, 1e-12)
+	require.InDelta(t, cost.Float(), stashed.TotalCost, 1e-12)
+	require.InDelta(t, stashed.TotalCost*2.0, stashed.ActualCost, 1e-12)
+	require.NotEqual(t, stashed.TotalCost, stashed.ActualCost, "usage.cost must be list TotalCost, not ActualCost")
 
-	// Validation: response cost must match RecordUsage actual_cost when reused.
+	// Validation: response cost matches ledger total_cost; ActualCost still bills via PrecomputedCost.
 	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
 		Result: &ForwardResult{
 			RequestID:       "resp_usage_cost_reuse",
@@ -115,7 +117,8 @@ func TestHandleNonStreamingResponse_InjectsUsageCost(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, usageRepo.lastLog)
-	require.InDelta(t, cost.Float(), usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, cost.Float(), usageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, stashed.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
 }
 
 func TestSettleClaudeCustomerFacingCost_SharedByPreviewAndRecordUsage(t *testing.T) {

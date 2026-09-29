@@ -49,7 +49,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | 授权范围内的候选资格、账号调度与实现 owner | [候选资格 Owners 表](candidate-eligibility-ssot.md#owners) |
 | Studio / Quickstart 生图参数与请求示例 | [生图能力与接入示例](image-generation-quickstart-studio.md)（GPT 精确画布见 [strict canvas](gpt-image-strict-canvas-postprocess.md)，已合并） |
 | Key 授权与计费归属 | [Universal key routing](universal-key-routing.md) |
-| 推理响应 `usage.cost` 实扣出口 | [Response usage.cost](response-usage-cost.md) |
+| 推理响应 `usage.cost` 标准官方价出口 | [Response usage.cost](response-usage-cost.md) |
 | 官方价格注册表与热发布 | [Pricing registry](pricing-registry-hot-reload.md) |
 | 分组／渠道价目优先级与 alias | [价格与 alias](pricing-serving-single-source-of-truth.md#4-价格与-alias) |
 | 可用性观测证据与目录裁剪 | [Availability evidence](pricing-availability-source-of-truth.md#1-本文唯一拥有的事实) |
@@ -149,7 +149,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`user-cold-start.md`](user-cold-start.md) | New-user cold start |
 | [`public-quickstart-registration-offer.md`](public-quickstart-registration-offer.md) | Public Quickstart and shared registration offer |
 | [`usage-balance-fallback.md`](usage-balance-fallback.md) | Usage balance fallback |
-| [`response-usage-cost.md`](response-usage-cost.md) | Inference response `usage.cost` (ActualCost) |
+| [`response-usage-cost.md`](response-usage-cost.md) | Inference response `usage.cost` (TotalCost / list price) |
 | [`design-dual-market-homepage.md`](design-dual-market-homepage.md) | 双市场首页与统一产品矩阵 |
 
 ### Upstream merge anchors
