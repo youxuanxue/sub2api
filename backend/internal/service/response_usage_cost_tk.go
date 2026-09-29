@@ -24,14 +24,8 @@ type responseUsageCostBilling struct {
 	ServiceTier string
 }
 
-// BindResponseUsageCostBilling stores channel + pricing snapshot for client-visible
-// usage.cost injection. Safe to call once after channel mapping is resolved.
-func BindResponseUsageCostBilling(c *gin.Context, pricingAt time.Time, fields ChannelUsageFields) {
-	BindResponseUsageCostBillingWithTier(c, pricingAt, fields, "")
-}
-
-// BindResponseUsageCostBillingWithTier also freezes the client-requested service tier
-// so response-side cost preview matches RecordUsage service-tier settlement.
+// BindResponseUsageCostBillingWithTier freezes channel/pricing snapshot and the
+// client-requested service tier so response-side cost preview matches RecordUsage.
 func BindResponseUsageCostBillingWithTier(c *gin.Context, pricingAt time.Time, fields ChannelUsageFields, serviceTier string) {
 	if c == nil {
 		return
@@ -187,6 +181,12 @@ func (s *GatewayService) previewClaudeClientUsageCost(
 		result.ServiceTier = &tier
 	}
 	ApplyForwardServiceTierBillingResolution(result)
+	// Mirror RecordUsage's ForceCacheBilling mutation before settle so PrecomputedCost
+	// cannot diverge from the ledger on sticky session switches.
+	if IsForceCacheBilling(ctx) && result.Usage.InputTokens > 0 {
+		result.Usage.CacheReadInputTokens += result.Usage.InputTokens
+		result.Usage.InputTokens = 0
+	}
 	if overrideTarget, ok := s.resolveCacheTTLUsageOverrideTarget(ctx, account); ok {
 		applyCacheTTLOverride(&result.Usage, overrideTarget)
 	}

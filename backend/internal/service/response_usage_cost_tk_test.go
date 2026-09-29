@@ -217,6 +217,58 @@ func TestSettleOpenAICustomerFacingCost_SharedByPreviewAndRecordUsage(t *testing
 	require.InDelta(t, settled.Cost.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
 }
 
+func TestPreviewClaudeForceCacheBilling_MatchesRecordUsagePrecomputed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	ctx := WithForceCacheBilling(context.Background())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil).WithContext(ctx)
+
+	gid := int64(42)
+	apiKey := &APIKey{
+		ID:      1,
+		GroupID: &gid,
+		User:    &User{ID: 9},
+		Group:   &Group{ID: gid, Platform: PlatformAnthropic, RateMultiplier: 1.0},
+	}
+	c.Set("api_key", apiKey)
+	BindResponseUsageCostBillingWithTier(c, time.Time{}, ChannelUsageFields{}, "")
+
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+	account := &Account{ID: 1}
+	usage := ClaudeUsage{InputTokens: 100, OutputTokens: 50}
+
+	preview := svc.previewClaudeClientUsageCost(ctx, c, account, usage, "claude-sonnet-4", "claude-sonnet-4")
+	require.NotNil(t, preview)
+	require.Greater(t, preview.ActualCost, 0.0)
+
+	// Without ForceCacheBilling the same tokens would price higher (input vs cache_read).
+	plain := svc.previewClaudeClientUsageCost(context.Background(), c, account, usage, "claude-sonnet-4", "claude-sonnet-4")
+	require.NotNil(t, plain)
+	require.Greater(t, plain.ActualCost, preview.ActualCost)
+
+	err := svc.RecordUsage(ctx, &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID:       "force_cache_cost_ssot",
+			Usage:           usage,
+			Model:           "claude-sonnet-4",
+			UpstreamModel:   "claude-sonnet-4",
+			PrecomputedCost: preview,
+			Duration:        time.Second,
+		},
+		APIKey:            apiKey,
+		User:              apiKey.User,
+		Account:           account,
+		ForceCacheBilling: true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, preview.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+	require.Equal(t, 0, usageRepo.lastLog.InputTokens)
+	require.Equal(t, 100, usageRepo.lastLog.CacheReadTokens)
+}
+
 func stringsHasPrefixData(s string) bool {
 	return len(s) >= 5 && s[:5] == "data:"
 }

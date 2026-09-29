@@ -29,7 +29,8 @@ Universal Key / 直连 Key 的推理响应在已有 `usage` token 字段上，�
 - **缺省**：无 `usage`、无法算定（缺鉴权快照 / 非 token 计价媒体等）时 **不新增**
   `cost` 字段，不发明 0。
 - **一致性**：响应里的 `cost` 与随后落库的 `usage_logs.actual_cost` 同源计算；响应侧
-  预计算的结果挂在 ForwardResult 上供 RecordUsage 复用，避免二次漂移。
+  预计算的结果挂在 ForwardResult 上供 RecordUsage 复用，避免二次漂移。粘性会话
+  `ForceCacheBilling`（input→cache_read）必须在响应预览侧同样应用后再 settle。
 
 ## Out of scope（v1 不做）
 
