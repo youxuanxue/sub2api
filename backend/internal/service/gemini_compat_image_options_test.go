@@ -153,6 +153,39 @@ func TestGeminiCompatNonStreamingMalformedImageFails(t *testing.T) {
 	}
 }
 
+// Image models that finish with no inline image must fail closed into retryable
+// failover — never a successful empty Chat/Messages package (prod 2026-09-29).
+func TestGeminiCompatEmptyImageModelFailsOver(t *testing.T) {
+	emptyBody := geminiImageResponse(`{"text":"no image"}`)
+	for _, protocol := range []string{"messages", "chat"} {
+		t.Run(protocol, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			beginGeminiImageOutputObservation(c)
+			resp := &http.Response{
+				StatusCode: 200,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(emptyBody)),
+			}
+			svc := &GeminiMessagesCompatService{}
+			var err error
+			switch protocol {
+			case "messages":
+				_, err = svc.handleNonStreamingResponse(c, resp, "gemini-3.1-flash-image")
+			case "chat":
+				_, err = svc.handleChatCompletionsNonStreamingResponseFromGemini(c, resp, "gemini-3.1-flash-image", false)
+			}
+			var failover *UpstreamFailoverError
+			require.ErrorAs(t, err, &failover)
+			require.True(t, failover.RetryableOnSameAccount)
+			require.Equal(t, http.StatusBadGateway, failover.StatusCode)
+			require.NotContains(t, recorder.Body.String(), `"object":"chat.completion"`)
+			require.NotContains(t, recorder.Body.String(), `"type":"message"`)
+			require.Equal(t, 0, observedGeminiImageOutputs(c))
+		})
+	}
+}
+
 func TestCollectGeminiSSERetainsEarlierImages(t *testing.T) {
 	first := geminiImageResponse(`{"inlineData":{"mimeType":"image/png","data":"aW1hZ2Ux"}}`)
 	second := geminiImageResponse(`{"text":"done"},{"inlineData":{"mimeType":"image/jpeg","data":"aW1hZ2Uy"}}`)

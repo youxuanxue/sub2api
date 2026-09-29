@@ -153,6 +153,41 @@ func TestCodexDirectImagesMultipleOutputs(t *testing.T) {
 	}
 }
 
+// Prod ChatGPT Images OAuth returns a single image even when n>1 is on the wire.
+// TokenKey must issue one upstream call per requested image and merge data[].
+func TestCodexDirectImagesMultiFetchWhenUpstreamReturnsOne(t *testing.T) {
+	body := []byte(`{"model":"gpt-image-2.5-flare","prompt":"draw","n":2}`)
+	c, rec := newOpenAIImagesTestContext(t, body)
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"created":1710000001,"data":[{"b64_json":"AA=="}],"usage":{"input_tokens":3,"output_tokens":11}}`)),
+		},
+		{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"created":1710000002,"data":[{"b64_json":"AQ=="}],"usage":{"input_tokens":4,"output_tokens":13}}`)),
+		},
+	}}
+	svc := newOpenAIImagesTestService(upstream)
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+	result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
+	require.NoError(t, err)
+	require.Equal(t, 2, len(upstream.requests), "must multi-fetch when each upstream reply has only one image")
+	require.Equal(t, 2, result.ImageCount)
+	require.Equal(t, 7, result.Usage.InputTokens)
+	require.Equal(t, 24, result.Usage.OutputTokens)
+	require.Equal(t, 24, result.Usage.ImageOutputTokens)
+	data := gjson.GetBytes(rec.Body.Bytes(), "data").Array()
+	require.Len(t, data, 2)
+	require.Equal(t, "AA==", data[0].Get("b64_json").String())
+	require.Equal(t, "AQ==", data[1].Get("b64_json").String())
+	require.Equal(t, int64(7), gjson.GetBytes(rec.Body.Bytes(), "usage.input_tokens").Int())
+	require.Equal(t, int64(24), gjson.GetBytes(rec.Body.Bytes(), "usage.output_tokens").Int())
+}
+
 func TestCodexDirectImagesStreaming(t *testing.T) {
 	for _, test := range []struct {
 		name, events          string

@@ -85,7 +85,7 @@ func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingMulti(
 	applyOpenAIImagesOutputFormatCoercion(results, wantFormat)
 	reconcileOpenAIResponsesImageResultSizes(results, nil)
 
-	body, err := buildCodexDirectMergedImagesBody(firstBody, results, parsed)
+	body, err := buildCodexDirectMergedImagesBody(firstBody, results, parsed, usage)
 	if err != nil {
 		return OpenAIUsage{}, 0, nil, err
 	}
@@ -171,7 +171,7 @@ func mergeOpenAIImagesUsage(base, extra OpenAIUsage) OpenAIUsage {
 	return base
 }
 
-func buildCodexDirectMergedImagesBody(template []byte, results []openAIResponsesImageResult, parsed *OpenAIImagesRequest) ([]byte, error) {
+func buildCodexDirectMergedImagesBody(template []byte, results []openAIResponsesImageResult, parsed *OpenAIImagesRequest, usage OpenAIUsage) ([]byte, error) {
 	out := []byte(`{"created":0,"data":[]}`)
 	if created := gjson.GetBytes(template, "created").Int(); created > 0 {
 		out, _ = sjson.SetBytes(out, "created", created)
@@ -234,7 +234,18 @@ func buildCodexDirectMergedImagesBody(template []byte, results []openAIResponses
 			out, _ = sjson.SetBytes(out, "size", first.Size)
 		}
 	}
-	if usageRaw := gjson.GetBytes(template, "usage").Raw; usageRaw != "" && gjson.Valid(usageRaw) {
+	// Prefer merged usage across all per-image fetches so client-visible usage
+	// matches billing; fall back to the first upstream template only when empty.
+	if usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.ImageInputTokens > 0 || usage.ImageOutputTokens > 0 {
+		out, _ = sjson.SetBytes(out, "usage.input_tokens", usage.InputTokens)
+		out, _ = sjson.SetBytes(out, "usage.output_tokens", usage.OutputTokens)
+		if usage.ImageInputTokens > 0 {
+			out, _ = sjson.SetBytes(out, "usage.input_tokens_details.image_tokens", usage.ImageInputTokens)
+		}
+		if usage.ImageOutputTokens > 0 {
+			out, _ = sjson.SetBytes(out, "usage.output_tokens_details.image_tokens", usage.ImageOutputTokens)
+		}
+	} else if usageRaw := gjson.GetBytes(template, "usage").Raw; usageRaw != "" && gjson.Valid(usageRaw) {
 		out, _ = sjson.SetRawBytes(out, "usage", []byte(usageRaw))
 	}
 	return out, nil

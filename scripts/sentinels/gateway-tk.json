@@ -6529,6 +6529,39 @@
       "rationale": "Direct/OAuth soft-control builder must derive marker AR from explicit aspect_ratio or known official size (deriveFromSize=true)."
     },
     {
+      "path": "backend/internal/service/openai_images_codex_direct_multi_tk.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingMulti(",
+        "for len(results) < want {",
+        "func buildCodexDirectMergedImagesBody("
+      ],
+      "rationale": "Codex Direct / ChatGPT Images OAuth silently returns one image for n>1 (prod 2026-09-29). TokenKey must multi-fetch and merge data[] so the public Images contract stays honest. Dropping this owner reverts to single-image lying."
+    },
+    {
+      "path": "backend/internal/service/openai_images_output_format_tk.go",
+      "must_contain": [
+        "func coerceOpenAIImageB64ToOutputFormat(",
+        "func applyOpenAIImagesOutputFormatCoercion(",
+        "jpeg.Encode("
+      ],
+      "rationale": "Codex Direct frequently ignores tools.output_format and emits PNG while acknowledging jpeg. Gateway-side coerce is the only honest path for output_format=jpeg / tk_image_contract=exact."
+    },
+    {
+      "path": "backend/internal/service/openai_images_responses.go",
+      "must_contain": [
+        "s.handleCodexDirectImagesNonStreamingMulti(",
+        "applyOpenAIImagesOutputFormatCoercion(results, parsed.OutputFormat)"
+      ],
+      "rationale": "Call-site wiring for Codex Direct multi-n and OAuth jpeg coerce. Companion owners alone would still compile if these hooks were dropped from forwardOpenAIImagesOAuth / handleOpenAIImagesOAuthNonStreamingResponse."
+    },
+    {
+      "path": "backend/internal/service/openai_images_direct.go",
+      "must_contain": [
+        "applyOpenAIImagesOutputFormatCoercion(results, wantFormat)"
+      ],
+      "rationale": "Codex Direct single-image non-stream path must also coerce ExplicitOutputFormat; multi path coerces inside handleCodexDirectImagesNonStreamingMulti."
+    },
+    {
       "path": "backend/internal/service/openai_images_responses.go",
       "must_contain": [
         "prompt = applyOpenAIImagesAspectRatioMarker(prompt, resolveOpenAIImagesAspectRatioForMarker(parsed, true))"
@@ -14613,9 +14646,26 @@
         "func geminiCompatExtraBodyImageConfig(",
         "extra_body.google.image_config.aspect_ratio",
         "extra_body.google.image_config.image_size",
-        "errGeminiImageModelEmpty"
+        "errGeminiImageModelEmpty",
+        "func requireGeminiImageModelOutput("
       ],
       "rationale": "Compatible Gemini ingress shares image generation extension preservation and validated output projection. Conversion lifts Studio aspect_ratio and image_size from extra_body; image models that return no inline image must fail closed (errGeminiImageModelEmpty) instead of a successful empty Chat package."
+    },
+    {
+      "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
+      "must_contain": [
+        "errors.Is(err, errGeminiImageModelEmpty)",
+        "RetryableOnSameAccount: true"
+      ],
+      "rationale": "Chat Completions image-model empty output must map to UpstreamFailoverError (retryable), not writeChatCompletionsError / empty 200. Companion requireGeminiImageModelOutput alone does not catch a dropped call-site branch."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "requireGeminiImageModelOutput(originalModel,",
+        "RetryableOnSameAccount: true"
+      ],
+      "rationale": "Messages / Claude image-model empty output must fail closed into retryable UpstreamFailoverError; dropping requireGeminiImageModelOutput or the failover branch restores the prod empty-200 class."
     },
     {
       "path": "backend/internal/service/gemini_compat_image_options_test.go",
