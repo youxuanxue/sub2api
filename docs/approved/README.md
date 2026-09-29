@@ -47,7 +47,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | 展示、请求计划与运行时可用性的组合边界 | [模型交付承诺](pricing-serving-single-source-of-truth.md) |
 | endpoint 原生协议与 generation 路由合法性 | [协议路由](protocol-routing-ssot.md) |
 | 授权范围内的候选资格、账号调度与实现 owner | [候选资格 Owners 表](candidate-eligibility-ssot.md#owners) |
-| Studio / Quickstart 生图参数与请求示例 | [生图能力与接入示例](image-generation-quickstart-studio.md) |
+| Studio / Quickstart 生图参数与请求示例 | [生图能力与接入示例](image-generation-quickstart-studio.md)（GPT 精确画布见 [strict canvas](gpt-image-strict-canvas-postprocess.md)，pending） |
 | Key 授权与计费归属 | [Universal key routing](universal-key-routing.md) |
 | 官方价格注册表与热发布 | [Pricing registry](pricing-registry-hot-reload.md) |
 | 分组／渠道价目优先级与 alias | [价格与 alias](pricing-serving-single-source-of-truth.md#4-价格与-alias) |
@@ -88,7 +88,8 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`client-closed-499-ssot.md`](client-closed-499-ssot.md) | Client-closed 499 classification owners (ingress predicate, constant, ops phase) |
 | [`upstream-model-retirement.md`](upstream-model-retirement.md) | Upstream model retirement evidence, failover and SLA attribution |
 | [`openai-compat-first-selection-failure.md`](openai-compat-first-selection-failure.md) | OpenAI-compatible first-selection failure contract |
-| [`gpt-image-aspect-ratio-soft-control.md`](gpt-image-aspect-ratio-soft-control.md) | GPT Image `aspect_ratio` soft marker, exact jpeg, floor identity |
+| [`gpt-image-aspect-ratio-soft-control.md`](gpt-image-aspect-ratio-soft-control.md) | GPT Image `aspect_ratio` soft marker, floor identity |
+| [`gpt-image-strict-canvas-postprocess.md`](gpt-image-strict-canvas-postprocess.md) | GPT Image local exact canvas + format post-process（**pending**） |
 | [`universal-key-routing.md`](universal-key-routing.md) | Universal key routing |
 | [`candidate-eligibility-ssot.md`](candidate-eligibility-ssot.md) | Candidate scheduling policy and implementation boundary |
 | [`design-candidate-routing-runtime-snapshot.md`](design-candidate-routing-runtime-snapshot.md) | Candidate read snapshot, canonical request and QA redaction performance plan |
@@ -157,6 +158,8 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`upstream-merge-20260923.md`](upstream-merge-20260923.md) | TokenKey upstream merge 2026-09-23 |
 
 ## Pending baselines
+
+- [GPT Image strict canvas + format post-process](gpt-image-strict-canvas-postprocess.md) — OAuth Responses + 本地 pad/format；尺寸表 SSOT `openAIImagesKnownSizeTable`；合并前需人工审批（PR #2385）。
 
 - [Gemini Web 新通路](gemini-web-channel.md) — 数据库会话、共享 edge 鉴权、官方响应与单 owner 契约；后台导入 UI 和本次部署验收尚未完成。
 

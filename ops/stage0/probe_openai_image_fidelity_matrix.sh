@@ -423,7 +423,7 @@ passed = sum(1 for r in results if r.get("pass"))
 print(json.dumps({
     "verdict": "matrix_complete",
     "path": "responses_tools_plus_local_fidelity_docker_pillow",
-    "note": "edge gateway still 1.8.265 Direct; this is Responses upstream + local pad/format (pending PR). Not gateway /v1/images.",
+    "note": "Upstream Responses + local pad/format via docker Pillow (parity check). Gateway /v1/images OAuth path is Responses+local fidelity after PR #2385; this probe still hits Responses upstream directly.",
     "probe": {"account_id": ACCOUNT_ID, "account_name": ACCOUNT_NAME, "image_model": IMAGE_MODEL, "gateway_image": "ghcr.io/youxuanxue/sub2api:1.8.265"},
     "summary": {"passed": passed, "total": len(results), "pass_rate": round(passed / max(len(results), 1), 3)},
     "excluded": {"07": "16 ref-image edits not in this probe", "09": "thought-intensity output_tokens out of scope"},
