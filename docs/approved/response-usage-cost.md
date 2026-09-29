@@ -1,10 +1,12 @@
 ---
 title: Response usage.cost（推理响应带回实扣费用）
-status: pending
-approved_by: pending
+status: approved
+approved_by: "user (2026-09-29 conversation: 确认 PR #2384 usage.cost 契约与 push)"
+approved_at: 2026-09-29
 created: 2026-09-29
 authors: [agent]
 risk: high
+related_prs: ["#2384"]
 ---
 
 # Response usage.cost（推理响应带回实扣费用）
