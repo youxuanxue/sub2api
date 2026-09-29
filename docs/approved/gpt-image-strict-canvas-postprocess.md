@@ -1,17 +1,18 @@
 ---
 title: GPT Image strict canvas + format post-process (codex2api parity)
-status: pending
-approved_by: pending
-approved_at: pending
+status: shipped
+approved_by: "user (PR #2385 merge to main)"
+approved_at: 2026-09-29
 created: 2026-09-29
 authors: [cursor]
 risk: high
-related_prs: []
+related_prs: [2385]
+related_commits: [8720b8521]
 ---
 
 # GPT Image strict canvas + format post-process
 
-> 状态：`pending`（待人工审批）。对齐 [codex2api](https://github.com/james-6-23/codex2api)
+> 状态：`shipped`（已随 PR #2385 合入 main）。对齐 [codex2api](https://github.com/james-6-23/codex2api)
 > Image Studio / PR #519：上游 ChatGPT OAuth 不保证字面 `size` / `output_format` /
 > `background=transparent`；网关在显式请求时用本地后处理兑现客户契约。
 
