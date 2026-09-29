@@ -6561,9 +6561,10 @@
       "must_contain": [
         "s.handleCodexDirectImagesNonStreamingMulti(",
         "applyOpenAIImagesOutputFormatCoercion(results, parsed.OutputFormat)",
-        "stream=true with n>1 is not supported for Codex Direct images"
+        "stream=true with n>1 is not supported for Codex Direct images",
+        "writeOpenAIImagesUpstreamErrorResponse(c, err)"
       ],
-      "rationale": "Call-site wiring for Codex Direct multi-n, OAuth jpeg coerce, and honest reject of stream+n>1 (multi-fetch is non-stream only). Companion owners alone would still compile if these hooks were dropped."
+      "rationale": "Call-site wiring for Codex Direct multi-n, OAuth jpeg coerce, and honest reject of stream+n>1 that MUST write the OpenAIImagesUpstreamError body (handler assumes already-written)."
     },
     {
       "path": "backend/internal/service/openai_images_direct.go",
