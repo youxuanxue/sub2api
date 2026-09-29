@@ -33,7 +33,7 @@ edge-us3 OAuth 实测（2026-09-29，account `gpt125` / `gpt-image-2`）：
 | `size=1024x1024` `background=transparent` `output_format=png` | 200 | png | `1024x1536` | background 透传；size 不兑现 |
 | `size=1024x1024` `output_format=jpeg` `quality=high` | 200 | jpeg | `1254x1254` | call_meta.quality=`low`（请求 high）；size 不兑现 |
 
-结论：format/background 在 Responses 路径明显好于 Direct；**字面 size 仍需本地 pad/cover**；
+结论：format/background 在 Responses 路径明显好于 Direct；**字面 size 仍需本地 pad**；
 quality/compression 仍需本地体积可区分后处理。`3840x2176` 继续本地 400（总像素超 `8294400`）。
 
 ## 决策（已确认）
@@ -41,7 +41,7 @@ quality/compression 仍需本地体积可区分后处理。`3840x2176` 继续本
 **继续走本地精确画布**，与 codex2api PR #519 / Image Studio `strict_size` 同路径：
 
 1. tools 参数形状已对齐；上游仍把 `tools[].size` 软化为 `auto` 并返回漂移像素 —— **不是传参错误**。
-2. 显式 `size=WxH`：上游发 ceil-16 合法尺寸；响应经本地 **pad（默认）** 落到请求画布。
+2. 显式 `size=WxH`：上游发 ceil-16 合法尺寸；响应经本地 **pad** 落到请求画布（cover/crop 非目标）。
 3. 显式 `output_format` / `quality` / `output_compression`：本地 coerce 兜底（Responses 上 jpeg/webp 多数已原生兑现）。
 4. 非目标：不把字面 size 押在上游 Responses 行为上；不引入 `-2k/-4k` 超分别名（可后续独立 PR）。
 5. 废弃 `tk_image_contract`：本地精确画布/format 后处理为默认行为；字段若传入则忽略并在转发前剥离。
@@ -66,7 +66,7 @@ OAuth / Setup-Token 生图**一律**走：
 - 宽高为正整数；总像素 ≤ `8294400`；长边/短边 ≤ 3。
 - 否则 **400** `invalid_request_error`（对齐超限用例，不等待上游）。
 - 发往上游的 size：各边 **向上取整到 16 的倍数**（例：`1920x1080` → `1920x1088`）。
-- 返回给客户的画布：本地 **pad（默认）** 或可选 `cover` 精确还原请求的 `WxH`。
+- 返回给客户的画布：本地 **pad** 精确还原请求的 `WxH`（内容等比装入，边距填充；不 crop）。
 - 响应 `data[].size` / 顶层 `size` = **最终画布**；usage 计费档仍按最终像素 reconcile。
 
 ### 2. `output_format` 后处理
@@ -95,7 +95,7 @@ OAuth / Setup-Token 生图**一律**走：
 
 | 关注点 | Owner |
 | --- | --- |
-| 尺寸校验 / ceil-16 / pad-cover | `openai_images_strict_canvas_tk.go` |
+| 尺寸校验 / ceil-16 / pad | `openai_images_strict_canvas_tk.go` |
 | format + compression coerce | `openai_images_output_format_tk.go` |
 | Direct / multi / Responses 接线 | `openai_images_direct.go`（`usesCodexDirectImages=false`）/ `*_codex_direct_multi_tk.go` / `openai_images_responses.go` |
 | Studio/Quickstart GPT size 芯片 | `frontend/src/constants/studioMediaPresentations.tk.ts`（`GPT_IMAGE_SIZES`）+ `imageGeneration.tk.ts` |

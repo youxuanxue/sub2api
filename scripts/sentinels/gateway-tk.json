@@ -6548,6 +6548,26 @@
       "rationale": "Direct/OAuth soft-control builder must derive marker AR from explicit aspect_ratio or known official size (deriveFromSize=true)."
     },
     {
+      "path": "backend/internal/service/openai_images_direct.go",
+      "must_contain": [
+        "func usesCodexDirectImages(model string) bool {",
+        "keep this false so OAuth always matches codex2api",
+        "_ = model"
+      ],
+      "rationale": "OAuth GPT Image must stay on Codex Responses + image_generation tools (codex2api parity). Restoring Direct /codex/images/* as the default silently breaks size/format fidelity matrices even when post-process helpers remain."
+    },
+    {
+      "path": "backend/internal/service/openai_images_strict_canvas_tk.go",
+      "must_contain": [
+        "func validateOpenAIImagesExplicitSize(req *OpenAIImagesRequest) error",
+        "func upstreamOpenAIImagesSize(req *OpenAIImagesRequest) string",
+        "func applyOpenAIImagesStrictCanvas(results []openAIResponsesImageResult, req *OpenAIImagesRequest) error",
+        "openAIImagesSizeQuantum",
+        "openAIImagesMaxGPTImage2Pixels"
+      ],
+      "rationale": "Local exact-canvas owner: admit size bounds, ceil-16 upstream size, and pad response to the client WxH. Upstream merge that drops this companion (or its call from applyOpenAIImagesClientFidelityPostprocess) reverts to soft upstream pixels and wrong billing tiers."
+    },
+    {
       "path": "backend/internal/service/openai_images_codex_direct_multi_tk.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingMulti(",

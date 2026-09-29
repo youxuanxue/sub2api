@@ -117,8 +117,8 @@ func ceilOpenAIImagesQuantum(value, quantum int) int {
 	return ((value + quantum - 1) / quantum) * quantum
 }
 
-// applyOpenAIImagesStrictCanvas resizes each result to the client-requested WxH.
-// Default fit is pad (content-preserving, codex2api strict default).
+// applyOpenAIImagesStrictCanvas resizes each result to the client-requested WxH
+// via content-preserving pad (codex2api strict default; cover is intentionally out of scope).
 func applyOpenAIImagesStrictCanvas(results []openAIResponsesImageResult, req *OpenAIImagesRequest) error {
 	if req == nil || !req.ExplicitSize {
 		return nil
@@ -127,14 +127,13 @@ func applyOpenAIImagesStrictCanvas(results []openAIResponsesImageResult, req *Op
 	if !ok {
 		return nil
 	}
-	fit := openAIImagesStrictFit(req)
 	padOpaque := openAIImagesPadOpaque(req)
 	for i := range results {
 		raw, err := decodeOpenAIImageB64(results[i].Result)
 		if err != nil {
 			return err
 		}
-		out, err := resizeOpenAIImageExact(raw, target.Width, target.Height, fit, padOpaque)
+		out, err := resizeOpenAIImageExact(raw, target.Width, target.Height, padOpaque)
 		if err != nil {
 			return err
 		}
@@ -146,10 +145,6 @@ func applyOpenAIImagesStrictCanvas(results []openAIResponsesImageResult, req *Op
 		}
 	}
 	return nil
-}
-
-func openAIImagesStrictFit(_ *OpenAIImagesRequest) string {
-	return "pad"
 }
 
 func openAIImagesPadOpaque(req *OpenAIImagesRequest) bool {
@@ -167,7 +162,7 @@ func openAIImagesPadOpaque(req *OpenAIImagesRequest) bool {
 	return bg != "transparent"
 }
 
-func resizeOpenAIImageExact(src []byte, targetWidth, targetHeight int, fit string, padOpaque bool) ([]byte, error) {
+func resizeOpenAIImageExact(src []byte, targetWidth, targetHeight int, padOpaque bool) ([]byte, error) {
 	if len(src) == 0 || targetWidth <= 0 || targetHeight <= 0 {
 		return src, nil
 	}
@@ -183,10 +178,6 @@ func resizeOpenAIImageExact(src []byte, targetWidth, targetHeight int, fit strin
 	if sw <= 0 || sh <= 0 {
 		return nil, fmt.Errorf("strict canvas: invalid source dimensions")
 	}
-	fit = strings.ToLower(strings.TrimSpace(fit))
-	if fit != "cover" && fit != "pad" {
-		fit = "pad"
-	}
 	if sw == targetWidth && sh == targetHeight {
 		return src, nil
 	}
@@ -196,26 +187,10 @@ func resizeOpenAIImageExact(src []byte, targetWidth, targetHeight int, fit strin
 		stddraw.Draw(dst, dst.Bounds(), &image.Uniform{C: color.RGBA{R: 255, G: 255, B: 255, A: 255}}, image.Point{}, stddraw.Src)
 	}
 
-	if fit == "cover" {
-		crop := bounds
-		sourceAspect := float64(sw) / float64(sh)
-		targetAspect := float64(targetWidth) / float64(targetHeight)
-		if sourceAspect > targetAspect {
-			cropWidth := max(1, int(float64(sh)*targetAspect+0.5))
-			left := bounds.Min.X + (sw-cropWidth)/2
-			crop = image.Rect(left, bounds.Min.Y, left+cropWidth, bounds.Max.Y)
-		} else if sourceAspect < targetAspect {
-			cropHeight := max(1, int(float64(sw)/targetAspect+0.5))
-			top := bounds.Min.Y + (sh-cropHeight)/2
-			crop = image.Rect(bounds.Min.X, top, bounds.Max.X, top+cropHeight)
-		}
-		xdraw.CatmullRom.Scale(dst, dst.Bounds(), srcImg, crop, xdraw.Src, nil)
-	} else {
-		dw, dh := fitOpenAIImageInside(sw, sh, targetWidth, targetHeight)
-		left := (targetWidth - dw) / 2
-		top := (targetHeight - dh) / 2
-		xdraw.CatmullRom.Scale(dst, image.Rect(left, top, left+dw, top+dh), srcImg, bounds, xdraw.Src, nil)
-	}
+	dw, dh := fitOpenAIImageInside(sw, sh, targetWidth, targetHeight)
+	left := (targetWidth - dw) / 2
+	top := (targetHeight - dh) / 2
+	xdraw.CatmullRom.Scale(dst, image.Rect(left, top, left+dw, top+dh), srcImg, bounds, xdraw.Src, nil)
 
 	var buf bytes.Buffer
 	encoder := png.Encoder{CompressionLevel: png.BestSpeed}
