@@ -217,6 +217,14 @@ func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingResponse(resp 
 	if err != nil {
 		return OpenAIUsage{}, 0, nil, err
 	}
+	wantFormat := ""
+	if parsed.ExplicitOutputFormat {
+		wantFormat = parsed.OutputFormat
+	}
+	if err := applyOpenAIImagesOutputFormatCoercion(results, wantFormat); err != nil {
+		return OpenAIUsage{}, 0, nil, err
+	}
+	reconcileOpenAIResponsesImageResultSizes(results, nil)
 	usage, _ := codexDirectImagesUsage(body)
 	if observer := upstreamResponseModelObserverFromContext(c); observer != nil {
 		observer.Observe(gjson.GetBytes(body, "model").String(), true)
@@ -230,11 +238,18 @@ func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingResponse(resp 
 			body, _ = sjson.SetBytes(body, fmt.Sprintf("data.%d.model", i), clientModel)
 		}
 	}
-	for i, item := range gjson.GetBytes(body, "data").Array() {
-		if actualSize := detectOpenAIImageResultSize(item.Get("b64_json").String()); actualSize != "" {
-			body, _ = sjson.SetBytes(body, fmt.Sprintf("data.%d.size", i), actualSize)
+	for i, result := range results {
+		body, _ = sjson.SetBytes(body, fmt.Sprintf("data.%d.b64_json", i), result.Result)
+		if result.Size != "" {
+			body, _ = sjson.SetBytes(body, fmt.Sprintf("data.%d.size", i), result.Size)
 			if i == 0 {
-				body, _ = sjson.SetBytes(body, "size", actualSize)
+				body, _ = sjson.SetBytes(body, "size", result.Size)
+			}
+		}
+		if result.OutputFormat != "" {
+			body, _ = sjson.SetBytes(body, fmt.Sprintf("data.%d.output_format", i), result.OutputFormat)
+			if i == 0 {
+				body, _ = sjson.SetBytes(body, "output_format", result.OutputFormat)
 			}
 		}
 	}

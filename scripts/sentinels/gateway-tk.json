@@ -6529,6 +6529,50 @@
       "rationale": "Direct/OAuth soft-control builder must derive marker AR from explicit aspect_ratio or known official size (deriveFromSize=true)."
     },
     {
+      "path": "backend/internal/service/openai_images_codex_direct_multi_tk.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingMulti(",
+        "for len(results) < want {",
+        "func buildCodexDirectMergedImagesBody("
+      ],
+      "rationale": "Codex Direct / ChatGPT Images OAuth silently returns one image for n>1 (prod 2026-09-29). TokenKey must multi-fetch and merge data[] so the public Images contract stays honest. Dropping this owner reverts to single-image lying."
+    },
+    {
+      "path": "backend/internal/service/gemini_responses_compat_service.go",
+      "must_contain": [
+        "requireGeminiImageModelOutput(originalModel, geminiResp)",
+        "errors.Is(err, errGeminiImageModelEmpty)",
+        "requireGeminiImageModelStreamOutput(originalModel, c)"
+      ],
+      "rationale": "Responses protocol must fail closed on empty image-model output (non-stream failover + stream end gate) the same way Chat/Messages do; otherwise Studio Responses clients still get successful empty packages."
+    },
+    {
+      "path": "backend/internal/service/openai_images_output_format_tk.go",
+      "must_contain": [
+        "func coerceOpenAIImageB64ToOutputFormat(",
+        "func applyOpenAIImagesOutputFormatCoercion(",
+        "jpeg.Encode(",
+        "unrecognized image container for output_format="
+      ],
+      "rationale": "Codex Direct frequently ignores tools.output_format and emits PNG while acknowledging jpeg. Gateway-side coerce is the only honest path for output_format=jpeg / tk_image_contract=exact; unrecognized containers must fail closed rather than stamp jpeg on foreign bytes."
+    },
+    {
+      "path": "backend/internal/service/openai_images_responses.go",
+      "must_contain": [
+        "s.handleCodexDirectImagesNonStreamingMulti(",
+        "applyOpenAIImagesOutputFormatCoercion(results, parsed.OutputFormat)",
+        "stream=true with n>1 is not supported for Codex Direct images"
+      ],
+      "rationale": "Call-site wiring for Codex Direct multi-n, OAuth jpeg coerce, and honest reject of stream+n>1 (multi-fetch is non-stream only). Companion owners alone would still compile if these hooks were dropped."
+    },
+    {
+      "path": "backend/internal/service/openai_images_direct.go",
+      "must_contain": [
+        "applyOpenAIImagesOutputFormatCoercion(results, wantFormat)"
+      ],
+      "rationale": "Codex Direct single-image non-stream path must also coerce ExplicitOutputFormat; multi path coerces inside handleCodexDirectImagesNonStreamingMulti."
+    },
+    {
       "path": "backend/internal/service/openai_images_responses.go",
       "must_contain": [
         "prompt = applyOpenAIImagesAspectRatioMarker(prompt, resolveOpenAIImagesAspectRatioForMarker(parsed, true))"
@@ -9197,10 +9241,13 @@
       "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_image.go",
       "must_contain": [
         "func tkInjectGeminiImageAspectRatio(",
+        "func tkInjectGeminiImageConfig(",
         "extra_body.google.image_config.aspect_ratio",
-        "sjson.SetBytes(anthropicBody, \"image_config.aspect_ratio\", ar)"
+        "extra_body.google.image_config.image_size",
+        "sjson.SetBytes(out, \"image_config.aspect_ratio\", ar)",
+        "sjson.SetBytes(out, \"image_config.image_size\", size)"
       ],
-      "rationale": "Gemini-native image aspect-ratio passthrough, prod side. The Studio rides extra_body.google.image_config.aspect_ratio on /v1/chat/completions; apicompat.ChatCompletionsRequest does not model extra_body, so the OpenAI-compat path (ForwardAsChatCompletions) would silently drop it (exactly how it was lost pre-fix — PR #807 R-001). This helper re-reads the ratio off the raw CC body (parity with extractCCReasoningEffortFromBody) and stamps it onto the relayed Anthropic /v1/messages body as image_config.aspect_ratio, where the edge antigravity transform turns it into generationConfig.imageConfig.aspectRatio. A prod canary (2026-06-17) confirmed cloudcode-pa honors all 10 ratios. The call site lives in gateway_forward_as_chat_completions.go (anchored there); the antigravity request_transformer.go emit is anchored in antigravity.json. If any is dropped by an upstream merge the ratio silently reverts to upstream default and the regression is invisible."
+      "rationale": "Gemini-native image config passthrough, prod side. Studio rides extra_body.google.image_config.{aspect_ratio,image_size} on /v1/chat/completions; apicompat.ChatCompletionsRequest does not model extra_body, so ForwardAsChatCompletions would silently drop both fields. This helper re-reads them off the raw CC body and stamps image_config.* onto the relayed Anthropic body for the edge antigravity transform. Dropping image_size reintroduces the Chat-path resolution no-op found in prod universal-key probes (2026-09-29)."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_streaming.go",
@@ -14613,10 +14660,29 @@
       "must_contain": [
         "func preserveGeminiCompatOptions(",
         "func geminiInlineImageMarkdown(",
-        "func geminiCompatExtraBodyAspectRatio(",
-        "extra_body.google.image_config.aspect_ratio"
+        "func geminiCompatExtraBodyImageConfig(",
+        "extra_body.google.image_config.aspect_ratio",
+        "extra_body.google.image_config.image_size",
+        "errGeminiImageModelEmpty",
+        "func requireGeminiImageModelOutput("
       ],
-      "rationale": "Compatible Gemini ingress shares image generation extension preservation and validated output projection rather than maintaining separate per-protocol image semantics. Conversion lifts only the known Studio aspect path and ignores unrelated extra_body baggage."
+      "rationale": "Compatible Gemini ingress shares image generation extension preservation and validated output projection. Conversion lifts Studio aspect_ratio and image_size from extra_body; image models that return no inline image must fail closed (errGeminiImageModelEmpty) instead of a successful empty Chat package."
+    },
+    {
+      "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
+      "must_contain": [
+        "errors.Is(err, errGeminiImageModelEmpty)",
+        "RetryableOnSameAccount: true"
+      ],
+      "rationale": "Chat Completions image-model empty output must map to UpstreamFailoverError (retryable), not writeChatCompletionsError / empty 200. Companion requireGeminiImageModelOutput alone does not catch a dropped call-site branch."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "requireGeminiImageModelOutput(originalModel,",
+        "RetryableOnSameAccount: true"
+      ],
+      "rationale": "Messages / Claude image-model empty output must fail closed into retryable UpstreamFailoverError; dropping requireGeminiImageModelOutput or the failover branch restores the prod empty-200 class."
     },
     {
       "path": "backend/internal/service/gemini_compat_image_options_test.go",

@@ -1321,6 +1321,20 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 			return
 		}
 		eventType := gjson.GetBytes(dataBytes, "type").String()
+		if direct != nil && direct.ExplicitOutputFormat && strings.HasSuffix(eventType, ".completed") {
+			b64 := gjson.GetBytes(dataBytes, "b64_json").String()
+			if strings.TrimSpace(b64) != "" {
+				coerced, actual, coerceErr := coerceOpenAIImageB64ToOutputFormat(b64, direct.OutputFormat)
+				if coerceErr != nil {
+					streamErr = coerceErr
+					return
+				}
+				dataBytes, _ = sjson.SetBytes(dataBytes, "b64_json", coerced)
+				if actual != "" {
+					dataBytes, _ = sjson.SetBytes(dataBytes, "output_format", actual)
+				}
+			}
+		}
 		if direct != nil && strings.TrimSpace(direct.Model) != "" {
 			dataBytes, _ = sjson.SetBytes(dataBytes, "model", strings.TrimSpace(direct.Model))
 		}

@@ -7,30 +7,40 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// tkInjectGeminiImageAspectRatio threads a gemini-native image aspect ratio from an
-// OpenAI Chat Completions inbound onto the Anthropic /v1/messages body that the
-// OpenAI-compat path (GatewayService.ForwardAsChatCompletions) relays upstream.
+// tkInjectGeminiImageConfig threads gemini-native image config from an OpenAI Chat
+// Completions inbound onto the Anthropic /v1/messages body that
+// GatewayService.ForwardAsChatCompletions relays upstream.
 //
-// The inbound carries the ratio at extra_body.google.image_config.aspect_ratio — a field
-// apicompat.ChatCompletionsRequest does not model, so it is invisible to the CC→Responses→
-// Anthropic struct chain (same situation as reasoning_effort, which the call site already
-// re-reads from the raw body via gjson). We therefore lift it straight off the raw CC body
-// and stamp it onto the relayed Anthropic body as image_config.aspect_ratio. Downstream the
-// antigravity transform (internal/pkg/antigravity) reads ClaudeRequest.ImageConfig and emits
-// generationConfig.imageConfig.aspectRatio to cloudcode-pa, which honors all 10 documented
-// ratios (prod canary 2026-06-17).
+// The inbound carries fields at extra_body.google.image_config.{aspect_ratio,image_size}
+// — fields apicompat.ChatCompletionsRequest does not model, so they are invisible to the
+// CC→Responses→Anthropic struct chain. We lift them off the raw CC body and stamp them
+// onto the relayed Anthropic body as image_config.*. Downstream the antigravity transform
+// reads ClaudeRequest.ImageConfig and emits generationConfig.imageConfig to cloudcode-pa.
 //
-// No-op unless the inbound carried a non-empty aspect_ratio, so non-image / ratio-less
-// traffic is untouched. Pure over bytes to keep the ForwardAsChatCompletions call site to a
-// single line and the behavior unit-testable.
+// No-op unless the inbound carried at least one non-empty field.
 func tkInjectGeminiImageAspectRatio(ccBody, anthropicBody []byte) []byte {
+	return tkInjectGeminiImageConfig(ccBody, anthropicBody)
+}
+
+func tkInjectGeminiImageConfig(ccBody, anthropicBody []byte) []byte {
 	ar := strings.TrimSpace(gjson.GetBytes(ccBody, "extra_body.google.image_config.aspect_ratio").String())
-	if ar == "" {
+	size := strings.TrimSpace(gjson.GetBytes(ccBody, "extra_body.google.image_config.image_size").String())
+	if ar == "" && size == "" {
 		return anthropicBody
 	}
-	out, err := sjson.SetBytes(anthropicBody, "image_config.aspect_ratio", ar)
-	if err != nil {
-		return anthropicBody
+	out := anthropicBody
+	var err error
+	if ar != "" {
+		out, err = sjson.SetBytes(out, "image_config.aspect_ratio", ar)
+		if err != nil {
+			return anthropicBody
+		}
+	}
+	if size != "" {
+		out, err = sjson.SetBytes(out, "image_config.image_size", size)
+		if err != nil {
+			return anthropicBody
+		}
 	}
 	return out
 }

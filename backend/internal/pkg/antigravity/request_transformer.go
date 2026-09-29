@@ -754,14 +754,15 @@ func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {
 		config.ResponseModalities = []string{"TEXT", "IMAGE"}
 	}
 
-	// TK: gemini-native image aspect-ratio passthrough. Only image models, and only
-	// when the inbound carried a ratio (extra_body.google.image_config.aspect_ratio →
-	// ClaudeRequest.ImageConfig). Emitted as generationConfig.imageConfig.aspectRatio;
-	// cloudcode-pa honors all 10 documented ratios (prod canary 2026-06-17). The wire
-	// struct (GeminiImageConfig) already existed but was never populated.
+	// TK: gemini-native image-config passthrough. Only image models, and only when the
+	// inbound carried aspect_ratio and/or image_size (extra_body.google.image_config.* →
+	// ClaudeRequest.ImageConfig). Emitted as generationConfig.imageConfig; cloudcode-pa
+	// honors the documented ratio set and 1K/2K/4K size tiers.
 	if req.ImageConfig != nil && IsImageModel(req.Model) {
-		if ar := strings.TrimSpace(req.ImageConfig.AspectRatio); ar != "" {
-			config.ImageConfig = &GeminiImageConfig{AspectRatio: ar}
+		ar := strings.TrimSpace(req.ImageConfig.AspectRatio)
+		size := strings.TrimSpace(req.ImageConfig.ImageSize)
+		if ar != "" || size != "" {
+			config.ImageConfig = &GeminiImageConfig{AspectRatio: ar, ImageSize: size}
 		}
 	}
 

@@ -1347,6 +1347,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 	c *gin.Context,
 	responseFormat string,
 	fallbackModel string,
+	parsed *OpenAIImagesRequest,
 ) (OpenAIUsage, int, []string, error) {
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
@@ -1393,8 +1394,17 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 			RetryableOnSameAccount: true,
 		}
 	}
+	if parsed != nil && parsed.ExplicitOutputFormat {
+		if err := applyOpenAIImagesOutputFormatCoercion(results, parsed.OutputFormat); err != nil {
+			return OpenAIUsage{}, 0, nil, err
+		}
+		reconcileOpenAIResponsesImageResultSizes(results, &firstMeta)
+	}
 	if strings.TrimSpace(firstMeta.Model) == "" {
 		firstMeta.Model = strings.TrimSpace(fallbackModel)
+	}
+	if len(results) > 0 && results[0].OutputFormat != "" {
+		firstMeta.OutputFormat = results[0].OutputFormat
 	}
 
 	responseBody, err := buildOpenAIImagesAPIResponse(results, createdAt, usageRaw, firstMeta, responseFormat)
@@ -1823,6 +1833,14 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		return nil, err
 	}
 	direct := usesCodexDirectImages(upstreamModel) && !isOpenAIImagesForceResponses(ctx)
+	if direct && parsed.Stream && parsed.N > 1 {
+		return nil, &OpenAIImagesUpstreamError{
+			StatusCode: http.StatusBadRequest,
+			ErrorType:  "invalid_request_error",
+			Code:       "unsupported_parameter",
+			Message:    "stream=true with n>1 is not supported for Codex Direct images; use n=1 or omit stream so TokenKey can multi-fetch",
+		}
+	}
 	beginUpstreamResponseModelObservation(c)
 	SetOpsUpstreamModel(c, upstreamModel)
 	logger.LegacyPrintf(
@@ -1993,9 +2011,15 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		}
 	} else {
 		if direct {
-			usage, imageCount, imageOutputSizes, err = s.handleCodexDirectImagesNonStreamingResponse(resp, c, parsed)
+			if !parsed.Stream && parsed.N > 1 {
+				usage, imageCount, imageOutputSizes, err = s.handleCodexDirectImagesNonStreamingMulti(
+					upstreamCtx, c, account, parsed, token, proxyURL, resp, upstreamModel, targetURL,
+				)
+			} else {
+				usage, imageCount, imageOutputSizes, err = s.handleCodexDirectImagesNonStreamingResponse(resp, c, parsed)
+			}
 		} else {
-			usage, imageCount, imageOutputSizes, err = s.handleOpenAIImagesOAuthNonStreamingResponse(resp, c, parsed.ResponseFormat, requestModel)
+			usage, imageCount, imageOutputSizes, err = s.handleOpenAIImagesOAuthNonStreamingResponse(resp, c, parsed.ResponseFormat, requestModel, parsed)
 		}
 		if err != nil {
 			return nil, s.handleOpenAIImagesOAuthResponseError(
@@ -2011,7 +2035,11 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		}
 	}
 	if imageCount <= 0 {
-		imageCount = parsed.N
+		return nil, &UpstreamFailoverError{
+			StatusCode:             http.StatusBadGateway,
+			ClientMessage:          "no_image_output",
+			RetryableOnSameAccount: true,
+		}
 	}
 	return &OpenAIForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),

@@ -51,13 +51,14 @@ func TestGeminiCompatImageOptionsIgnoresUnrelatedExtraBody(t *testing.T) {
 		require.NoError(t, err, body)
 		require.False(t, gjson.GetBytes(converted, "generationConfig").Exists(), body)
 	}
-	// Sibling image_size is ignored; known aspect_ratio is still lifted.
+	// Sibling image_size is lifted together with aspect_ratio for Chat Studio clients.
 	converted, err := preserveGeminiCompatOptions(
 		[]byte(`{"extra_body":{"google":{"image_config":{"aspect_ratio":"4:3","image_size":"2K"}}}}`),
 		[]byte(`{"model":"gemini-test","messages":[{"role":"user","content":"draw"}]}`),
 	)
 	require.NoError(t, err)
 	require.Equal(t, "4:3", gjson.GetBytes(converted, "generationConfig.imageConfig.aspectRatio").String())
+	require.Equal(t, "2K", gjson.GetBytes(converted, "generationConfig.imageConfig.imageSize").String())
 }
 
 func TestGeminiCompatImageOptionsRejectNonStringAspectRatio(t *testing.T) {
@@ -147,6 +148,42 @@ func TestGeminiCompatNonStreamingMalformedImageFails(t *testing.T) {
 			}
 			require.Error(t, err)
 			require.Equal(t, http.StatusBadGateway, recorder.Code)
+			require.Equal(t, 0, observedGeminiImageOutputs(c))
+		})
+	}
+}
+
+// Image models that finish with no inline image must fail closed into retryable
+// failover — never a successful empty Chat/Messages package (prod 2026-09-29).
+func TestGeminiCompatEmptyImageModelFailsOver(t *testing.T) {
+	emptyBody := geminiImageResponse(`{"text":"no image"}`)
+	for _, protocol := range []string{"messages", "chat", "responses"} {
+		t.Run(protocol, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			beginGeminiImageOutputObservation(c)
+			resp := &http.Response{
+				StatusCode: 200,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(emptyBody)),
+			}
+			svc := &GeminiMessagesCompatService{}
+			var err error
+			switch protocol {
+			case "messages":
+				_, err = svc.handleNonStreamingResponse(c, resp, "gemini-3.1-flash-image")
+			case "chat":
+				_, err = svc.handleChatCompletionsNonStreamingResponseFromGemini(c, resp, "gemini-3.1-flash-image", false)
+			case "responses":
+				_, err = svc.handleResponsesNonStreamingResponseFromGemini(c, resp, "gemini-3.1-flash-image", false)
+			}
+			var failover *UpstreamFailoverError
+			require.ErrorAs(t, err, &failover)
+			require.True(t, failover.RetryableOnSameAccount)
+			require.Equal(t, http.StatusBadGateway, failover.StatusCode)
+			require.NotContains(t, recorder.Body.String(), `"object":"chat.completion"`)
+			require.NotContains(t, recorder.Body.String(), `"type":"message"`)
+			require.NotContains(t, recorder.Body.String(), `"object":"response"`)
 			require.Equal(t, 0, observedGeminiImageOutputs(c))
 		})
 	}

@@ -1102,6 +1102,14 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			if err := validateGeminiCompatImageResponse(collected); err != nil {
 				return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", err.Error())
 			}
+			if err := requireGeminiImageModelOutput(originalModel, collected); err != nil {
+				setOpsUpstreamError(c, http.StatusBadGateway, err.Error(), summarizeGeminiEmptyImageBody(collectedBytes))
+				return nil, &UpstreamFailoverError{
+					StatusCode:             http.StatusBadGateway,
+					ResponseBody:           collectedBytes,
+					RetryableOnSameAccount: true,
+				}
+			}
 			claudeResp, usageObj2 := convertGeminiToClaudeMessage(collected, originalModel, collectedBytes)
 			c.JSON(http.StatusOK, claudeResp)
 			usage = usageObj2
@@ -2056,6 +2064,14 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 	if err := validateGeminiCompatImageResponse(geminiResp); err != nil {
 		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", err.Error())
 	}
+	if err := requireGeminiImageModelOutput(originalModel, geminiResp); err != nil {
+		setOpsUpstreamError(c, http.StatusBadGateway, err.Error(), summarizeGeminiEmptyImageBody(unwrappedBody))
+		return nil, &UpstreamFailoverError{
+			StatusCode:             http.StatusBadGateway,
+			ResponseBody:           unwrappedBody,
+			RetryableOnSameAccount: true,
+		}
+	}
 	claudeResp, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, unwrappedBody)
 	c.JSON(http.StatusOK, claudeResp)
 	stashGeminiWebEstimateResponseBody(c, unwrappedBody)
@@ -2307,6 +2323,9 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 
 	if finishReason == "" && !sawDone && !sawPolicyBlock {
 		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, fmt.Errorf("incomplete Gemini stream: missing terminal event")
+	}
+	if err := requireGeminiImageModelStreamOutput(originalModel, c); err != nil {
+		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, err
 	}
 
 	if openBlockIndex >= 0 {

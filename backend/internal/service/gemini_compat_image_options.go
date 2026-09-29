@@ -3,8 +3,13 @@ package service
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // preserveGeminiCompatOptions keeps the native image extension across the typed
@@ -38,10 +43,10 @@ func preserveGeminiCompatOptions(original, converted []byte) ([]byte, error) {
 }
 
 // generationConfig is the native extension spelling for compatibility clients.
-// Studio / OpenAI-compat also send extra_body.google.image_config.aspect_ratio;
-// that spelling is lifted here so the Anthropic bridge and Gemini converter see
+// Studio / OpenAI-compat also send extra_body.google.image_config.{aspect_ratio,image_size};
+// those spellings are lifted here so the Anthropic bridge and Gemini converter see
 // one generationConfig. Explicit null imageConfig must survive as null unless a
-// concrete aspect_ratio is being merged in.
+// concrete field is being merged in.
 func geminiCompatGenerationOptions(req map[string]any) (map[string]any, error) {
 	var config map[string]any
 	if value, exists := req["generationConfig"]; exists {
@@ -73,11 +78,11 @@ func geminiCompatGenerationOptions(req map[string]any) (map[string]any, error) {
 			}
 		}
 	}
-	ratio, present, err := geminiCompatExtraBodyAspectRatio(req)
+	ratio, size, present, err := geminiCompatExtraBodyImageConfig(req)
 	if err != nil {
 		return nil, err
 	}
-	if !present || ratio == "" {
+	if !present || (ratio == "" && size == "") {
 		return config, nil
 	}
 	if config == nil {
@@ -87,45 +92,61 @@ func geminiCompatGenerationOptions(req map[string]any) (map[string]any, error) {
 	if imageConfig == nil {
 		imageConfig = make(map[string]any)
 	}
-	if _, has := imageConfig["aspectRatio"]; !has {
-		imageConfig["aspectRatio"] = ratio
+	if ratio != "" {
+		if _, has := imageConfig["aspectRatio"]; !has {
+			imageConfig["aspectRatio"] = ratio
+		}
+	}
+	if size != "" {
+		if _, has := imageConfig["imageSize"]; !has {
+			imageConfig["imageSize"] = size
+		}
+	}
+	if len(imageConfig) > 0 {
 		config["imageConfig"] = imageConfig
 	}
 	return config, nil
 }
 
-// geminiCompatExtraBodyAspectRatio reads the OpenAI Studio image-config spelling
-// the same way Antigravity's tkInject does: only the known path is lifted.
+// geminiCompatExtraBodyImageConfig reads the OpenAI Studio image-config spelling
+// the same way Antigravity's tkInject does: only the known paths are lifted.
 // Unrelated extra_body keys stay ignored so non-Web Gemini clients that stuff
 // SDK baggage into extra_body keep working. Web admission remains strict via
-// geminiWebNormalizeChatExtraBody. Error only when aspect_ratio is present but
-// not a string — that is a client type error, not an unknown-key policy.
-func geminiCompatExtraBodyAspectRatio(req map[string]any) (string, bool, error) {
+// geminiWebNormalizeChatExtraBody (image_size is rejected on Web-only paths).
+func geminiCompatExtraBodyImageConfig(req map[string]any) (ratio, size string, present bool, err error) {
 	raw, exists := req["extra_body"]
 	if !exists {
-		return "", false, nil
+		return "", "", false, nil
 	}
 	extra, ok := raw.(map[string]any)
 	if !ok {
-		return "", false, nil
+		return "", "", false, nil
 	}
 	google, _ := extra["google"].(map[string]any)
 	if google == nil {
-		return "", false, nil
+		return "", "", false, nil
 	}
 	imageConfig, _ := google["image_config"].(map[string]any)
 	if imageConfig == nil {
-		return "", false, nil
+		return "", "", false, nil
 	}
-	ratioRaw, exists := imageConfig["aspect_ratio"]
-	if !exists {
-		return "", false, nil
+	if ratioRaw, exists := imageConfig["aspect_ratio"]; exists {
+		ratioStr, ok := ratioRaw.(string)
+		if !ok {
+			return "", "", false, fmt.Errorf("extra_body.google.image_config.aspect_ratio must be a string")
+		}
+		ratio = strings.TrimSpace(ratioStr)
+		present = true
 	}
-	ratio, ok := ratioRaw.(string)
-	if !ok {
-		return "", false, fmt.Errorf("extra_body.google.image_config.aspect_ratio must be a string")
+	if sizeRaw, exists := imageConfig["image_size"]; exists {
+		sizeStr, ok := sizeRaw.(string)
+		if !ok {
+			return "", "", false, fmt.Errorf("extra_body.google.image_config.image_size must be a string")
+		}
+		size = strings.TrimSpace(sizeStr)
+		present = true
 	}
-	return strings.TrimSpace(ratio), true, nil
+	return ratio, size, present, nil
 }
 
 // geminiInlineImageMarkdown is shared by all client response encoders and the
@@ -223,6 +244,55 @@ func (s *geminiImageStream) parts(parts []map[string]any, asText bool) []map[str
 // compatibility envelope that silently loses its only generated image.
 func validateGeminiCompatImageResponse(response map[string]any) error {
 	return validateGeminiImageResponse(response, false)
+}
+
+// errGeminiImageModelEmpty is returned when an image model completes without any
+// inline image. Callers must treat it as retryable upstream vacuum (same class as
+// OpenAI Images no_image_output) and must not write a successful 200 empty body.
+var errGeminiImageModelEmpty = errors.New("image model returned no image output")
+
+func requireGeminiImageModelOutput(model string, response map[string]any) error {
+	if !antigravity.IsImageModel(model) {
+		return nil
+	}
+	if geminiResponseInlineImageCount(response) == 0 {
+		return errGeminiImageModelEmpty
+	}
+	return nil
+}
+
+// requireGeminiImageModelStreamOutput fails closed when an image model stream
+// finished without any validated inline image. Callers must return this before
+// writing terminal success events ([DONE] / message_stop); after headers are
+// committed failover is unsafe, but billing must still see a non-nil error.
+func requireGeminiImageModelStreamOutput(model string, c *gin.Context) error {
+	if !antigravity.IsImageModel(model) {
+		return nil
+	}
+	if observedGeminiImageOutputs(c) == 0 {
+		return errGeminiImageModelEmpty
+	}
+	return nil
+}
+
+func geminiResponseInlineImageCount(response map[string]any) int {
+	count := 0
+	for _, part := range extractGeminiParts(response) {
+		if _, ok := geminiInlineImageMarkdown(part); ok {
+			count++
+		}
+	}
+	return count
+}
+
+func summarizeGeminiEmptyImageBody(body []byte) string {
+	if len(body) == 0 {
+		return "empty_body"
+	}
+	finish := gjson.GetBytes(body, "candidates.0.finishReason").String()
+	promptBlock := gjson.GetBytes(body, "promptFeedback.blockReason").String()
+	parts := gjson.GetBytes(body, "candidates.0.content.parts").Array()
+	return fmt.Sprintf("finish=%s prompt_block=%s parts=%d body_len=%d", finish, promptBlock, len(parts), len(body))
 }
 
 func validateGeminiImageResponse(response map[string]any, native bool) error {

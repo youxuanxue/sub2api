@@ -133,24 +133,68 @@ func TestCodexDirectImagesStreamRejectsPlainJSON(t *testing.T) {
 }
 
 func TestCodexDirectImagesMultipleOutputs(t *testing.T) {
-	for _, stream := range []bool{false, true} {
-		t.Run(fmt.Sprint(stream), func(t *testing.T) {
-			body := []byte(fmt.Sprintf(`{"model":"gpt-image-2.5-flare","prompt":"draw","n":2,"stream":%t}`, stream))
-			c, _ := newOpenAIImagesTestContext(t, body)
-			response := `{"data":[{"b64_json":"AA=="},{"b64_json":"AQ=="}],"usage":{"input_tokens":10,"output_tokens":40}}`
-			if stream {
-				response = "data: {\"type\":\"image_generation.completed\",\"b64_json\":\"AA==\"}\n\ndata: {\"type\":\"image_generation.completed\",\"b64_json\":\"AQ==\",\"usage\":{\"input_tokens\":10,\"output_tokens\":40}}\n\n"
-			}
-			upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(response))}}
-			svc := newOpenAIImagesTestService(upstream)
-			parsed, err := svc.ParseOpenAIImagesRequest(c, body)
-			require.NoError(t, err)
-			result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
-			require.NoError(t, err)
-			require.Equal(t, 2, result.ImageCount)
-			require.Equal(t, 40, result.Usage.ImageOutputTokens)
-		})
-	}
+	t.Run("non_stream", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-image-2.5-flare","prompt":"draw","n":2,"stream":false}`)
+		c, _ := newOpenAIImagesTestContext(t, body)
+		response := `{"data":[{"b64_json":"AA=="},{"b64_json":"AQ=="}],"usage":{"input_tokens":10,"output_tokens":40}}`
+		upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(response))}}
+		svc := newOpenAIImagesTestService(upstream)
+		parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+		require.NoError(t, err)
+		result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
+		require.NoError(t, err)
+		require.Equal(t, 2, result.ImageCount)
+		require.Equal(t, 40, result.Usage.ImageOutputTokens)
+	})
+	t.Run("stream_n_gt_1_rejected", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-image-2.5-flare","prompt":"draw","n":2,"stream":true}`)
+		c, _ := newOpenAIImagesTestContext(t, body)
+		upstream := &httpUpstreamRecorder{resp: openAIImagesJSONResponse()}
+		svc := newOpenAIImagesTestService(upstream)
+		parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+		require.NoError(t, err)
+		_, err = svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
+		var upstreamErr *OpenAIImagesUpstreamError
+		require.ErrorAs(t, err, &upstreamErr)
+		require.Equal(t, http.StatusBadRequest, upstreamErr.StatusCode)
+		require.Contains(t, upstreamErr.Message, "stream=true with n>1")
+		require.Equal(t, 0, len(upstream.requests), "must reject before upstream call")
+	})
+}
+
+// Prod ChatGPT Images OAuth returns a single image even when n>1 is on the wire.
+// TokenKey must issue one upstream call per requested image and merge data[].
+func TestCodexDirectImagesMultiFetchWhenUpstreamReturnsOne(t *testing.T) {
+	body := []byte(`{"model":"gpt-image-2.5-flare","prompt":"draw","n":2}`)
+	c, rec := newOpenAIImagesTestContext(t, body)
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"created":1710000001,"data":[{"b64_json":"AA=="}],"usage":{"input_tokens":3,"output_tokens":11}}`)),
+		},
+		{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"created":1710000002,"data":[{"b64_json":"AQ=="}],"usage":{"input_tokens":4,"output_tokens":13}}`)),
+		},
+	}}
+	svc := newOpenAIImagesTestService(upstream)
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+	result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
+	require.NoError(t, err)
+	require.Equal(t, 2, len(upstream.requests), "must multi-fetch when each upstream reply has only one image")
+	require.Equal(t, 2, result.ImageCount)
+	require.Equal(t, 7, result.Usage.InputTokens)
+	require.Equal(t, 24, result.Usage.OutputTokens)
+	require.Equal(t, 24, result.Usage.ImageOutputTokens)
+	data := gjson.GetBytes(rec.Body.Bytes(), "data").Array()
+	require.Len(t, data, 2)
+	require.Equal(t, "AA==", data[0].Get("b64_json").String())
+	require.Equal(t, "AQ==", data[1].Get("b64_json").String())
+	require.Equal(t, int64(7), gjson.GetBytes(rec.Body.Bytes(), "usage.input_tokens").Int())
+	require.Equal(t, int64(24), gjson.GetBytes(rec.Body.Bytes(), "usage.output_tokens").Int())
 }
 
 func TestCodexDirectImagesStreaming(t *testing.T) {
@@ -163,7 +207,7 @@ func TestCodexDirectImagesStreaming(t *testing.T) {
 		{"duplicate", "complete,complete", 1, false, false},
 		{"disconnect", "partial,complete", 1, false, true},
 		{"truncated", "partial", 0, true, false},
-		{"partial_requested_multiple", "complete", 1, false, false},
+		{"partial_requested_multiple", "complete", 0, true, false},
 		{"error", "error", 0, true, false},
 		{"partial_success", "complete,error", 1, true, false},
 	} {
@@ -203,6 +247,13 @@ func TestCodexDirectImagesStreaming(t *testing.T) {
 				if !test.wantError {
 					require.Equal(t, "gpt-image-2-codex", result.UpstreamResponseModel)
 				}
+			}
+			if test.name == "partial_requested_multiple" {
+				var upstreamErr *OpenAIImagesUpstreamError
+				require.ErrorAs(t, err, &upstreamErr)
+				require.Equal(t, http.StatusBadRequest, upstreamErr.StatusCode)
+				require.Equal(t, 0, len(upstream.requests))
+				return
 			}
 			require.Equal(t, "/backend-api/codex/images/edits", upstream.lastReq.URL.Path)
 			require.Equal(t, "text/event-stream", upstream.lastReq.Header.Get("Accept"))
