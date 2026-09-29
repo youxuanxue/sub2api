@@ -356,8 +356,8 @@ func resolveOpenAIQuotaUtilization(extra map[string]any, window string, now time
 	if openAIQuotaWindowReset(extra, window, now) {
 		return 0, false
 	}
-	// 快照过于陈旧（账号长期未收到流量刷新）时，不再据此暂停。放行后下一次响应头
-	// 会刷新快照实现自愈，避免账号在错误/过期的 used% 上被永久跳过（issue #2994）。
+	// 已知 reset 仍在未来时保留用量信号；否则陈旧快照不再参与窗口调度，
+	// 让下一次响应头刷新快照，避免账号被错误/过期的 used% 永久跳过（issue #2994）。
 	if openAICodexSnapshotStaleForPause(extra, now) && !openAIQuotaWindowResetPending(extra, window, now) {
 		return 0, false
 	}

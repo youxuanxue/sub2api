@@ -169,7 +169,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			}
 		}
 		// 区分客户端取消和真正的上游失败，返回更准确的错误消息
-		if c.Request.Context().Err() != nil {
+		if IsClientClosedRequest(c, err) {
 			return nil, s.writeGoogleError(c, antigravityStatusClientClosed, "Client disconnected before upstream response")
 		}
 		return nil, candidateTransportFailure(ctx, s.writeGoogleError(c, http.StatusBadGateway, "Upstream request failed after retries"), err)

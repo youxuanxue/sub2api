@@ -8,6 +8,9 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -90,4 +93,58 @@ func TestAntigravityWriteGoogleError_ClientClosedStatus(t *testing.T) {
 
 	require.Equal(t, antigravityStatusClientClosed, rec.Code)
 	require.Equal(t, "CANCELLED", gjson.Get(rec.Body.String(), "error.status").String())
+}
+
+func TestAntigravityTransportError_DeadlineIsNotClientClosed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, canceled := range []bool{false, true} {
+		for _, protocol := range []string{"claude", "gemini", "compat"} {
+			name := protocol + "/deadline"
+			if canceled {
+				name = protocol + "/canceled"
+			}
+			t.Run(name, func(t *testing.T) {
+				ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+				if canceled {
+					cancel()
+					ctx, cancel = context.WithCancel(context.Background())
+					cancel()
+				}
+				defer cancel()
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				c.Request = httptest.NewRequest(http.MethodPost, "/", nil).WithContext(ctx)
+				svc := newAntigravityCompatService(config.GatewayConfig{}, &httpUpstreamStub{err: ctx.Err()})
+				account := newAntigravityCompatAccount(AccountTypeOAuth)
+				var err error
+				switch protocol {
+				case "claude":
+					_, err = svc.Forward(ctx, c, account, []byte(`{"model":"claude-sonnet-4-6","max_tokens":32,"messages":[{"role":"user","content":"hello"}]}`), false)
+				case "gemini":
+					_, err = svc.ForwardGemini(ctx, c, account, "gemini-3.1-pro-high", "generateContent", false, []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`), false)
+				case "compat":
+					err = svc.handleAntigravityCompatTransportError(c, ctx.Err())
+				}
+				require.Error(t, err)
+				wantStatus := http.StatusBadGateway
+				if canceled {
+					wantStatus = StatusClientClosedRequest
+				}
+				require.Equal(t, wantStatus, rec.Code, rec.Body.String())
+				if protocol == "gemini" {
+					want := "UNAVAILABLE"
+					if canceled {
+						want = "CANCELLED"
+					}
+					require.Equal(t, want, gjson.Get(rec.Body.String(), "error.status").String())
+				} else {
+					want := "upstream_error"
+					if canceled {
+						want = "client_disconnected"
+					}
+					require.Equal(t, want, gjson.Get(rec.Body.String(), "error.type").String())
+				}
+			})
+		}
+	}
 }

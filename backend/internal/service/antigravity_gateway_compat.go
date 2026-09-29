@@ -366,7 +366,7 @@ func (s *AntigravityGatewayService) handleAntigravityCompatTransportError(c *gin
 			ForceCacheBilling: switchErr.IsStickySession,
 		}
 	}
-	if c.Request.Context().Err() != nil {
+	if IsClientClosedRequest(c, err) {
 		return s.writeAntigravityCompatError(c, antigravityStatusClientClosed, "client_disconnected", "Client disconnected before upstream response")
 	}
 	return candidateTransportFailure(c.Request.Context(), s.writeAntigravityCompatError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries"), err)
