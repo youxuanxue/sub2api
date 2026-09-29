@@ -123,6 +123,54 @@ class UpstreamDriftGateTest(unittest.TestCase):
             self.assertEqual(snapshot().stdout, "2 0")
             self.assertEqual(snapshot(base, target).stdout, "1 0")
 
+    def test_pending_merge_checks_resolved_index_and_exact_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = pathlib.Path(temp_dir)
+
+            def git(*args: str) -> str:
+                return subprocess.check_output(
+                    ["git", *args], cwd=repo, text=True, env=_clean_git_env()
+                ).strip()
+
+            git("init", "-q")
+            git("config", "user.email", "test@example.invalid")
+            git("config", "user.name", "Drift test")
+            source = repo / "conflict.txt"
+            source.write_text("base\n")
+            git("add", ".")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            git("checkout", "-qb", "upstream")
+            source.write_text("upstream\n")
+            git("commit", "-qam", "reviewed upstream")
+            target = git("rev-parse", "HEAD")
+            git("checkout", "-qb", "merge/upstream-test", base)
+            source.write_text("fork\n")
+            git("commit", "-qam", "fork")
+            merged = subprocess.run(
+                ["git", "merge", "--no-ff", "--no-commit", target],
+                cwd=repo, env=_clean_git_env(), capture_output=True, check=False,
+            )
+            self.assertNotEqual(merged.returncode, 0)
+
+            def snapshot(head: str, reviewed: str) -> subprocess.CompletedProcess[str]:
+                script = f'source "{UPSTREAM_DRIFT_LIB}"; load_upstream_drift_snapshot "$@" || exit $?; printf "%s %s" "$TK_BEHIND" "$TK_AHEAD"'
+                return subprocess.run(
+                    ["bash", "-c", script, "snapshot", head, reviewed],
+                    cwd=repo, env=_clean_git_env(), capture_output=True, text=True, check=False,
+                )
+
+            self.assertEqual(snapshot("HEAD", target).returncode, 2)
+            source.write_text("fork and upstream\n")
+            git("add", "conflict.txt")
+            self.assertEqual(snapshot("HEAD", target).stdout, "0 1")
+            # Historical refs never inherit the pending merge's ancestry.
+            self.assertEqual(snapshot(base, target).stdout, "1 0")
+            newer = git("commit-tree", f"{target}^{{tree}}", "-p", target, "-m", "not reviewed")
+            self.assertEqual(snapshot("HEAD", newer).stdout, "1 1")
+            git("commit", "-qm", "merge reviewed upstream")
+            self.assertEqual(snapshot("HEAD", target).stdout, "0 2")
+
     def test_sync_pr_branch_runs_gate(self) -> None:
         self.assertEqual(_gate_status(head_ref="merge/upstream-2026-08-24"), 0)
 

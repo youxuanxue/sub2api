@@ -60,9 +60,8 @@ func TestGatewayServiceForward_ClientCanceledTransportDoesNotWrite502(t *testing
 			require.ErrorIs(t, err, context.Canceled)
 			require.False(t, c.Writer.Written(), "service must leave client-cancel status finalization to the handler")
 			require.Empty(t, rec.Body.String())
-			events, ok := c.Get(OpsUpstreamErrorsKey)
-			require.True(t, ok)
-			require.NotEmpty(t, events)
+			_, recorded := c.Get(OpsUpstreamErrorsKey)
+			require.False(t, recorded, "client disconnect must not become an upstream fault")
 		})
 	}
 }

@@ -98,8 +98,8 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	// === 计算最终 anthropic-beta header（先于 body sanitize 与 CCH 签名）===
 	//
 	// 顺序约束：
-	//   1) 算 finalBeta（纯函数，不依赖 req.Header；mimicry 路径会忽略客户端 beta，
-	//      与原“OAuth + mimicClaudeCode 跳过白名单透传”行为对齐）
+	//   1) 算 finalBeta（纯函数，不依赖 req.Header；mimicry 路径仅保留明确支持的
+	//      客户端兼容性 beta，其余使用固定列表）
 	//   2) 按 finalBeta 做能力维度 body sanitize（如 context-management beta 缺失 →
 	//      strip body.context_management，与 Bedrock 路径对称）
 	//   3) CCH 签名（必须使用 strip 后的 body，否则 hash 与最终 body 不一致 →
@@ -544,13 +544,15 @@ func (s *GatewayService) computeFinalAnthropicBeta(
 
 	if tokenType == "oauth" {
 		if mimicClaudeCode {
-			// mimic 路径：原代码跳过白名单透传，incomingBeta 总是空字符串。
-			// 这里传空 string 以严格对齐原行为。
 			requiredBetas := []string{claude.BetaOAuth, claude.BetaInterleavedThinking}
 			if !strings.Contains(strings.ToLower(modelID), "haiku") {
 				requiredBetas = claude.FullClaudeCodeMimicryBetas()
 			}
-			return mergeAnthropicBetaDropping(requiredBetas, "", effectiveDropSet), true
+			incomingBeta := ""
+			if containsBetaToken(clientBeta, claude.BetaStructuredOutputsLegacy) {
+				incomingBeta = claude.BetaStructuredOutputsLegacy
+			}
+			return mergeAnthropicBetaDropping(requiredBetas, incomingBeta, effectiveDropSet), true
 		}
 		// 真 Claude Code 客户端透传路径
 		return stripBetaTokensWithSet(s.getBetaHeader(modelID, clientBeta), effectiveDropSet), true
@@ -574,8 +576,8 @@ func (s *GatewayService) computeFinalAnthropicBeta(
 // 计算纯函数。语义与 computeFinalAnthropicBeta 对齐，但备份了 count_tokens 独有的
 // 两条特殊规则：
 //
-//   - OAuth mimic：requiredBetas 为 FullClaudeCodeMimicryBetas + BetaTokenCounting
-//     （与 messages 不同的是：不按 haiku 排除；count_tokens 始终携带 token-counting beta）
+//   - OAuth mimic：requiredBetas 为 FullClaudeCodeMimicryBetas + BetaTokenCounting；
+//     count_tokens 另外保留客户端 beta，而 messages mimic 仅保留明确支持的兼容性 token。
 //   - OAuth 透传 + 客户端未传 anthropic-beta：补齐 CountTokensBetaHeader
 //   - OAuth 透传 + 客户端传了：补齐 BetaTokenCounting（如果未含）
 //

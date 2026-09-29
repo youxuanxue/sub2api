@@ -2009,23 +2009,26 @@
     {
       "path": "backend/internal/service/antigravity_gateway_claude.go",
       "must_contain": [
+        "if IsClientClosedRequest(c, err) {",
         "candidateTransportFailure(ctx,"
       ],
-      "rationale": "Antigravity Messages preserves terminal transport attribution."
+      "rationale": "Antigravity Messages preserves terminal transport attribution. Client-closed classification must use the 499 SSOT so server deadlines stay platform failures; covered by TestAntigravityTransportError_DeadlineIsNotClientClosed."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_gemini.go",
       "must_contain": [
+        "if IsClientClosedRequest(c, err) {",
         "candidateTransportFailure(ctx,"
       ],
-      "rationale": "Antigravity native Gemini preserves terminal transport attribution."
+      "rationale": "Antigravity native Gemini preserves terminal transport attribution. Client-closed classification must use the 499 SSOT so server deadlines stay platform failures; covered by TestAntigravityTransportError_DeadlineIsNotClientClosed."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_compat.go",
       "must_contain": [
+        "if IsClientClosedRequest(c, err) {",
         "candidateTransportFailure(c.Request.Context(),"
       ],
-      "rationale": "Antigravity compatibility transports preserve terminal failure attribution."
+      "rationale": "Antigravity compatibility transports preserve terminal failure attribution. Client-closed classification must use the 499 SSOT so server deadlines stay platform failures; covered by TestAntigravityTransportError_DeadlineIsNotClientClosed."
     },
     {
       "path": "backend/internal/service/candidate_chat_attempt_tk.go",
@@ -4700,6 +4703,7 @@
       "path": "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",
       "must_contain": [
         "func tkApplyChannelFlatOverridesAsFallback(chPricing *ChannelModelPricing, resolved *ResolvedPricing)",
+        "applyChannelImagePriceOverrides(chPricing, resolved.BasePricing)",
         "resolved.BasePricing.InputPricePerToken = *chPricing.InputPrice",
         "resolved.BasePricing.OutputPricePerToken = *chPricing.OutputPrice",
         "resolved.BasePricing.CacheReadPricePerToken = *chPricing.CacheReadPrice",
@@ -7709,6 +7713,13 @@
         "strings.Contains(strings.ToLower(err.Error()), PostgresCanceledByCallerMessage)"
       ],
       "rationale": "client-closed-499-ssot owner: the single caller-disconnect classification predicate and the single 499 status constant for the whole gateway. Precedence (deadline exclusion, wrapped Canceled, request-context cancellation, lib/pq 57014 text) must not be forked — middleware.IsClientClosedRequestError, handler.isClientClosedRequest and terminalRequestCanceled are thin delegates. An upstream merge or refactor reintroducing a parallel predicate here or in any ingress re-creates the bug where the same error classifies 499 on one path and 400/500 on another."
+    },
+    {
+      "path": "backend/internal/service/client_disconnect_status_test.go",
+      "must_contain": [
+        "func TestAntigravityTransportError_DeadlineIsNotClientClosed(t *testing.T)"
+      ],
+      "rationale": "Exercise Claude, Gemini and compatibility transport failure responses: deadlines stay 502 while canceled requests return 499 through the shared owner. Prevent upstream cancellation fixes from hiding platform timeouts as client errors."
     },
     {
       "path": "backend/internal/service/client_closed_request_tk_test.go",
