@@ -1,17 +1,18 @@
 ---
 title: GPT Image strict canvas + format post-process (codex2api parity)
-status: pending
-approved_by: pending
-approved_at: pending
+status: shipped
+approved_by: "youxuanxue (merged PR #2385 on 2026-09-29)"
+approved_at: 2026-09-29
 created: 2026-09-29
 authors: [cursor]
 risk: high
-related_prs: []
+related_prs: ["#2385"]
 ---
 
 # GPT Image strict canvas + format post-process
 
-> 状态：`pending`（待人工审批）。对齐 [codex2api](https://github.com/james-6-23/codex2api)
+> 状态：`shipped`（已由 youxuanxue 合并 [PR #2385](https://github.com/youxuanxue/sub2api/pull/2385)，
+> 合并记录作为审批基线；此状态表示已合并，不表示已部署）。对齐 [codex2api](https://github.com/james-6-23/codex2api)
 > Image Studio / PR #519：上游 ChatGPT OAuth 不保证字面 `size` / `output_format` /
 > `background=transparent`；网关在显式请求时用本地后处理兑现客户契约。
 
@@ -47,7 +48,7 @@ quality/compression 仍需本地体积可区分后处理。`3840x2176` 继续本
 5. 废弃 `tk_image_contract`：本地精确画布/format 后处理为默认行为；字段若传入则忽略并在转发前剥离。
 6. Studio/Quickstart：GPT Image 芯片发送 `size=WxH`（由 Go `openAIImagesKnownSizeTable` 的 `StudioChip` 行生成 `GPT_IMAGE_SIZES`），与本契约共用同一尺寸表。
 
-## 契约（审批后生效）
+## 契约
 
 ### 0. 上游传输（codex2api 对齐）
 
