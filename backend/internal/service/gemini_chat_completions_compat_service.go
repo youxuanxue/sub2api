@@ -261,6 +261,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		collectedBytes, _ := json.Marshal(collected)
 		s.markGeminiCompatPolicySignal(c, collectedBytes, false)
 		observeGeminiImageOutputs(c, collectedBytes)
+		stashGeminiWebEstimateResponseBody(c, collectedBytes)
 		chatResp, usageObj2, err := geminiResponseToChatCompletions(collected, originalModel, collectedBytes, usageObj)
 		if err != nil {
 			return nil, s.writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
@@ -283,7 +284,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	imageInputSize := s.extractImageInputSize(claudeBody)
 	imageSize := normalizeOpenAIImageSizeTier(imageInputSize)
 
-	return &ForwardResult{
+	result := &ForwardResult{
 		RequestID:        requestID,
 		UpstreamHeaders:  resp.Header,
 		Usage:            *usage,
@@ -297,7 +298,9 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		ImageSize:        imageSize,
 		ImageInputSize:   imageInputSize,
 		ClientDisconnect: false,
-	}, responseErr
+	}
+	applyGeminiWebTextUsageEstimate(c, account, result, geminiReq, responseErr)
+	return result, responseErr
 }
 
 func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestFunc(
@@ -485,6 +488,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsNonStreamingResponseF
 	// would see JSON body labeled text/event-stream.
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	c.JSON(http.StatusOK, chatResp)
+	stashGeminiWebEstimateResponseBody(c, respBody)
 	return usage, nil
 }
 
@@ -604,6 +608,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	openToolIndex := -1
 	openToolName := ""
 	seenToolJSON := ""
+	defer func() { stashGeminiWebEstimateOutputText(c, seenText) }()
 
 	closeOpenBlock := func() bool {
 		if openBlockIndex < 0 {
