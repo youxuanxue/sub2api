@@ -148,7 +148,7 @@ func TestCodexDirectImagesMultipleOutputs(t *testing.T) {
 	})
 	t.Run("stream_n_gt_1_rejected", func(t *testing.T) {
 		body := []byte(`{"model":"gpt-image-2.5-flare","prompt":"draw","n":2,"stream":true}`)
-		c, _ := newOpenAIImagesTestContext(t, body)
+		c, rec := newOpenAIImagesTestContext(t, body)
 		upstream := &httpUpstreamRecorder{resp: openAIImagesJSONResponse()}
 		svc := newOpenAIImagesTestService(upstream)
 		parsed, err := svc.ParseOpenAIImagesRequest(c, body)
@@ -158,6 +158,8 @@ func TestCodexDirectImagesMultipleOutputs(t *testing.T) {
 		require.ErrorAs(t, err, &upstreamErr)
 		require.Equal(t, http.StatusBadRequest, upstreamErr.StatusCode)
 		require.Contains(t, upstreamErr.Message, "stream=true with n>1")
+		require.Equal(t, http.StatusBadRequest, rec.Code, "handler-visible response must be written, not empty 200")
+		require.Equal(t, "unsupported_parameter", gjson.GetBytes(rec.Body.Bytes(), "error.code").String())
 		require.Equal(t, 0, len(upstream.requests), "must reject before upstream call")
 	})
 }

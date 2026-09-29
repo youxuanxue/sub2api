@@ -1834,12 +1834,14 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	}
 	direct := usesCodexDirectImages(upstreamModel) && !isOpenAIImagesForceResponses(ctx)
 	if direct && parsed.Stream && parsed.N > 1 {
-		return nil, &OpenAIImagesUpstreamError{
+		err := &OpenAIImagesUpstreamError{
 			StatusCode: http.StatusBadRequest,
 			ErrorType:  "invalid_request_error",
 			Code:       "unsupported_parameter",
 			Message:    "stream=true with n>1 is not supported for Codex Direct images; use n=1 or omit stream so TokenKey can multi-fetch",
 		}
+		writeOpenAIImagesUpstreamErrorResponse(c, err)
+		return nil, err
 	}
 	beginUpstreamResponseModelObservation(c)
 	SetOpsUpstreamModel(c, upstreamModel)
