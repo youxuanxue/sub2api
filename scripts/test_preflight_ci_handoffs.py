@@ -72,7 +72,7 @@ class PreflightCIHandoffTest(unittest.TestCase):
         setup = script.split("_preflight_defer_go_artifact_drift=0", 1)[1].split("errors=0", 1)[0]
         self.assertIn('"${GITHUB_ACTIONS:-}" = "true"', setup)
         self.assertIn("PREFLIGHT_DEFER_GO_ARTIFACT_DRIFT", setup)
-        self.assertEqual(artifact_sections.count("_preflight_defer_go_artifact_drift"), 2)
+        self.assertEqual(artifact_sections.count("_preflight_defer_go_artifact_drift"), 3)
 
     def test_ent_staleness_skips_when_backend_ent_is_unchanged(self) -> None:
         script = PREFLIGHT.read_text(encoding="utf-8")

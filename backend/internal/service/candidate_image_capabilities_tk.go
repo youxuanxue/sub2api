@@ -77,7 +77,7 @@ func (s *UniversalCapabilityService) candidateImageProfile(ctx context.Context, 
 				return false
 			}
 			applyOpenAIImagesDefaults(parsed)
-			if ValidateOpenAIImagesContract(parsed) != nil || validateOpenAIImagesAspectRatio(parsed) != nil {
+			if validateOpenAIImagesExplicitSize(parsed) != nil || validateOpenAIImagesAspectRatio(parsed) != nil {
 				return false
 			}
 			parsed.RequiredCapability = classifyOpenAIImagesCapability(parsed)

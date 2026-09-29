@@ -52,8 +52,33 @@ func TestOpenAIImagesAspectRatioFromSize(t *testing.T) {
 	require.Equal(t, "9:16", openAIImagesAspectRatioFromSize("1152x2048"))
 	require.Equal(t, "16:9", openAIImagesAspectRatioFromSize("3840x2160"))
 	require.Equal(t, "9:16", openAIImagesAspectRatioFromSize("2160x3840"))
+	require.Equal(t, "1:1", openAIImagesAspectRatioFromSize("2048x2048"))
 	require.Empty(t, openAIImagesAspectRatioFromSize("auto"))
 	require.Empty(t, openAIImagesAspectRatioFromSize("1254x1254"))
+}
+
+func TestOpenAIImagesKnownSizeTable_SSOTInvariants(t *testing.T) {
+	t.Parallel()
+	require.NotEmpty(t, openAIImagesKnownSizeTable)
+	studioByRatio := map[string]string{}
+	for _, row := range openAIImagesKnownSizeTable {
+		require.NotEmpty(t, row.Size)
+		require.NotEmpty(t, row.Ratio)
+		require.Equal(t, row.Ratio, openAIImagesAspectRatioFromSize(row.Size), row.Size)
+		if !row.StudioChip {
+			continue
+		}
+		if prev, ok := studioByRatio[row.Ratio]; ok {
+			t.Fatalf("duplicate StudioChip for ratio %s: %s and %s", row.Ratio, prev, row.Size)
+		}
+		studioByRatio[row.Ratio] = row.Size
+	}
+	chips := ExportGPTImageStudioSizeChips()
+	require.Len(t, chips, len(studioByRatio))
+	for _, chip := range chips {
+		require.Equal(t, studioByRatio[chip.Ratio], chip.Value)
+	}
+	require.Equal(t, []string{"1:1", "3:2", "2:3", "16:9", "9:16"}, openAIImagesAllowedAspectRatioList)
 }
 
 func TestParseOpenAIImagesRequestAspectRatioAdmission(t *testing.T) {
@@ -103,9 +128,10 @@ func TestBuildOpenAIImagesOAuthPayloadInjectsAspectRatioMarker(t *testing.T) {
 	}
 	body, target, err := buildOpenAIImagesOAuthPayload(parsed, "gpt-image-2")
 	require.NoError(t, err)
-	require.Contains(t, target, "/images/generations")
-	require.Equal(t, "a tiny gray cube, marker AR=9:16", gjson.GetBytes(body, "prompt").String())
+	require.Equal(t, chatgptCodexURL, target)
+	require.Equal(t, "a tiny gray cube, marker AR=9:16", gjson.GetBytes(body, "input.0.content.0.text").String())
 	require.False(t, gjson.GetBytes(body, "aspect_ratio").Exists())
+	require.Equal(t, "image_generation", gjson.GetBytes(body, "tools.0.type").String())
 }
 
 func TestBuildOpenAIImagesOAuthPayloadInjectsMarkerFromOfficialSize(t *testing.T) {
@@ -119,8 +145,8 @@ func TestBuildOpenAIImagesOAuthPayloadInjectsMarkerFromOfficialSize(t *testing.T
 	}
 	body, _, err := buildOpenAIImagesOAuthPayload(parsed, "gpt-image-2")
 	require.NoError(t, err)
-	require.Equal(t, "a tiny gray cube, marker AR=3:2", gjson.GetBytes(body, "prompt").String())
-	require.Equal(t, "1536x1024", gjson.GetBytes(body, "size").String())
+	require.Equal(t, "a tiny gray cube, marker AR=3:2", gjson.GetBytes(body, "input.0.content.0.text").String())
+	require.Equal(t, "1536x1024", gjson.GetBytes(body, "tools.0.size").String())
 }
 
 func TestRewriteOpenAIImagesAspectRatioMarkerStripsField(t *testing.T) {

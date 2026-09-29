@@ -14,6 +14,7 @@
       </div>
     </div>
     <p v-if="plan.softAspectRatio" class="text-xs text-gray-500" data-testid="image-soft-ratio">{{ t('imageGeneration.softRatio') }}</p>
+    <p v-else-if="plan.exactCanvas" class="text-xs text-gray-500" data-testid="image-exact-canvas">{{ t('imageGeneration.exactCanvas') }}</p>
     <label v-if="plan.counts.length > 1" class="flex items-center gap-3 text-sm">
       {{ t('studio.image.count') }}
       <select :value="modelValue.n" :disabled="disabled" data-testid="image-generation-count" class="rounded border bg-white px-2 py-1 dark:bg-dark-900" @change="update({ n: Number(($event.target as HTMLSelectElement).value) })">

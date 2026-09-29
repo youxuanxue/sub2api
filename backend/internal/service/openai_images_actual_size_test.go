@@ -42,15 +42,17 @@ func TestDetectOpenAIImageResultSize(t *testing.T) {
 func TestOpenAIGatewayServiceForwardImages_OAuthUsesDecodedOutputDimensions(t *testing.T) {
 	run := runOpenAIOAuthImageActualSizeTest(t, false)
 
+	// Upstream still soft-sizes tools[].size to the ceil-16 request canvas; local pad
+	// then returns the client-requested WxH. Billing follows the final canvas.
 	require.Equal(t, "3840x2160", gjson.GetBytes(run.upstream.lastBody, "tools.0.size").String())
 	require.Equal(t, "low", gjson.GetBytes(run.upstream.lastBody, "tools.0.quality").String())
-	require.Equal(t, "1672x941", gjson.Get(run.recorder.Body.String(), "size").String())
+	require.Equal(t, "3840x2160", gjson.Get(run.recorder.Body.String(), "size").String())
 	require.Equal(t, "auto", gjson.Get(run.recorder.Body.String(), "quality").String())
-	require.Equal(t, []string{"1672x941"}, run.result.ImageOutputSizes)
+	require.Equal(t, []string{"3840x2160"}, run.result.ImageOutputSizes)
 
 	ApplyOpenAIImageBillingResolution(run.result)
-	require.Equal(t, ImageBillingSize2K, run.result.ImageSize)
-	require.Equal(t, "1672x941", run.result.ImageOutputSize)
+	require.Equal(t, ImageBillingSize4K, run.result.ImageSize)
+	require.Equal(t, "3840x2160", run.result.ImageOutputSize)
 	require.Equal(t, ImageSizeSourceOutput, run.result.ImageSizeSource)
 }
 
@@ -60,9 +62,9 @@ func TestOpenAIGatewayServiceForwardImages_OAuthStreamingUsesDecodedOutputDimens
 	events := parseOpenAIImageTestSSEEvents(run.recorder.Body.String())
 	completed, ok := findOpenAIImageTestSSEEvent(events, "image_generation.completed")
 	require.True(t, ok)
-	require.Equal(t, "1672x941", gjson.Get(completed.Data, "size").String())
+	require.Equal(t, "3840x2160", gjson.Get(completed.Data, "size").String())
 	require.Equal(t, "auto", gjson.Get(completed.Data, "quality").String())
-	require.Equal(t, []string{"1672x941"}, run.result.ImageOutputSizes)
+	require.Equal(t, []string{"3840x2160"}, run.result.ImageOutputSizes)
 }
 
 type openAIOAuthImageActualSizeTestRun struct {

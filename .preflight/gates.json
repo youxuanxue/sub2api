@@ -69,6 +69,7 @@
     "account group-binding post-release check": "observability",
     "generated model-surface bundle drift": "go-artifacts",
     "model-family alert artifact drift": "go-artifacts",
+    "GPT Image size-chip SSOT drift": "go-artifacts",
     "frontend TK sentinel registry": "base",
     "gateway TK sentinel registry": "base",
     "gateway terminal route policy contract": "build",
@@ -339,7 +340,9 @@
     "go-artifacts": [
       "backend/*",
       "ops/pricing/*",
-      "ops/observability/generated/*"
+      "ops/observability/generated/*",
+      "frontend/src/constants/gptImageSizes.generated.tk.ts",
+      "scripts/checks/check-gpt-image-sizes-ssot.sh"
     ],
     "gemini-web": [
       "ops/gemini-web/*",
@@ -376,6 +379,9 @@
       "QA Phase 1 edge baseline probe"
     ],
     "model-family alert artifact drift": [
+      "generated model-surface bundle drift"
+    ],
+    "GPT Image size-chip SSOT drift": [
       "generated model-surface bundle drift"
     ],
     "observability test suite": [

@@ -50,10 +50,10 @@ func TestOpenAIGatewayHandlerImages_DisabledGroupRejectsBeforeScheduling(t *test
 	require.Contains(t, rec.Body.String(), service.ImageGenerationPermissionMessage())
 }
 
-func TestOpenAIGatewayHandlerImages_ExactContractRejectsBeforeScheduling(t *testing.T) {
+func TestOpenAIGatewayHandlerImages_OverLimitSizeRejectsBeforeScheduling(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	body := []byte(`{"model":"gpt-image-2","prompt":"draw","size":"3840x2160","tk_image_contract":"exact"}`)
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw","size":"3840x2176","tk_image_contract":"exact"}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -82,8 +82,8 @@ func TestOpenAIGatewayHandlerImages_ExactContractRejectsBeforeScheduling(t *test
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Equal(t, "invalid_request_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
-	require.Contains(t, rec.Body.String(), "tk_image_contract_violation")
-	require.Contains(t, rec.Body.String(), "size must be auto or 1254x1254")
+	require.Contains(t, rec.Body.String(), "exceeds max")
+	require.NotContains(t, rec.Body.String(), "tk_image_contract")
 }
 
 func TestOpenAIImageHandlersRejectUnpricedRequestedSize(t *testing.T) {

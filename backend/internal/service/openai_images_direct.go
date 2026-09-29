@@ -27,8 +27,23 @@ func isOpenAIImagesForceResponses(ctx context.Context) bool {
 	return forced
 }
 
-// 显式列出已接入的模型，不把未来模型或未知快照自动送到直调端点。
+// usesCodexDirectImages reports whether OAuth images may call ChatGPT's
+// /backend-api/codex/images/* Direct endpoint.
+//
+// TokenKey previously preferred Direct for gpt-image-2*; customer fidelity
+// matrices and codex2api both require the Codex Responses + image_generation
+// tool path instead (tools[].size/quality/background/output_format). Direct
+// remains available only as an emergency ForceResponses=false override is not
+// exposed — keep this false so OAuth always matches codex2api.
 func usesCodexDirectImages(model string) bool {
+	_ = model
+	return false
+}
+
+// codexDirectImagesModelFamilies lists models that historically used Direct
+// Images. Kept for tests/docs that assert family membership independently of
+// the active upstream transport.
+func codexDirectImagesModelFamilies(model string) bool {
 	switch strings.TrimSpace(model) {
 	case "gpt-image-1.5", "gpt-image-2",
 		"gpt-image-2.5-flare", "gpt-image-2.5-sunburst",
@@ -66,7 +81,7 @@ func buildOpenAIImagesOAuthPayload(parsed *OpenAIImagesRequest, model string) ([
 		key   string
 		value string
 	}{
-		{"size", parsed.Size}, {"quality", parsed.Quality},
+		{"size", upstreamOpenAIImagesSize(parsed)}, {"quality", parsed.Quality},
 		{"background", parsed.Background}, {"output_format", parsed.OutputFormat},
 		{"moderation", parsed.Moderation}, {"input_fidelity", parsed.InputFidelity},
 		{"style", parsed.Style},
@@ -217,11 +232,7 @@ func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingResponse(resp 
 	if err != nil {
 		return OpenAIUsage{}, 0, nil, err
 	}
-	wantFormat := ""
-	if parsed.ExplicitOutputFormat {
-		wantFormat = parsed.OutputFormat
-	}
-	if err := applyOpenAIImagesOutputFormatCoercion(results, wantFormat); err != nil {
+	if err := applyOpenAIImagesClientFidelityPostprocess(results, parsed); err != nil {
 		return OpenAIUsage{}, 0, nil, err
 	}
 	reconcileOpenAIResponsesImageResultSizes(results, nil)

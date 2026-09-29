@@ -7,32 +7,78 @@ import (
 	"strings"
 )
 
-// Official GPT Image docs do not expose an aspect_ratio request field; they document
-// size=WIDTHxHEIGHT. The allowlist below is the reduced aspect-ratio set implied by
-// OpenAI's commonly listed sizes for gpt-image-* (image prompting guide + Images API):
+// openAIImagesKnownSize is one official WxH ↔ aspect_ratio binding for gpt-image-*.
+// openAIImagesKnownSizeTable is the SINGLE source of truth for:
+//   - size → aspect_ratio marker derivation (openAIImagesAspectRatioFromSize)
+//   - admitted aspect_ratio allowlist
+//   - Studio/Quickstart size chips (StudioChip=true), generated into
+//     frontend/src/constants/gptImageSizes.generated.tk.ts via
+//     go run ./cmd/gpt-image-sizes-ssot
 //
-//	1024x1024 / 2048x2048 → 1:1
-//	1536x1024             → 3:2
-//	1024x1536             → 2:3
-//	2048x1152 / 3840x2160 → 16:9
-//	1152x2048 / 2160x3840 → 9:16
-//
-// ChatGPT OAuth / Codex Images soft-controls canvas ratio via prompt text
-// ("marker AR=..."); TokenKey admits aspect_ratio for gpt-image-* and injects
-// that marker on outbound prompts. This is a TokenKey OAuth soft-control, not an
-// official OpenAI Images parameter.
-var openAIImagesAllowedAspectRatios = map[string]struct{}{
-	"1:1":  {},
-	"3:2":  {},
-	"2:3":  {},
-	"16:9": {},
-	"9:16": {},
+// Official GPT Image docs do not expose aspect_ratio; they document size=WxH.
+// ChatGPT OAuth soft-controls canvas via prompt "marker AR=...".
+type openAIImagesKnownSize struct {
+	Size       string
+	Ratio      string
+	StudioChip bool // Studio/Quickstart default chip (prefer 1K/2K, not 4K)
 }
 
-// Canonical listing for error messages (stable order).
-var openAIImagesAllowedAspectRatioList = []string{"1:1", "3:2", "2:3", "16:9", "9:16"}
+// Stable order: studio chips first per ratio, then non-studio aliases.
+var openAIImagesKnownSizeTable = []openAIImagesKnownSize{
+	{Size: "1024x1024", Ratio: "1:1", StudioChip: true},
+	{Size: "2048x2048", Ratio: "1:1", StudioChip: false},
+	{Size: "1536x1024", Ratio: "3:2", StudioChip: true},
+	{Size: "1024x1536", Ratio: "2:3", StudioChip: true},
+	{Size: "2048x1152", Ratio: "16:9", StudioChip: true},
+	{Size: "3840x2160", Ratio: "16:9", StudioChip: false},
+	{Size: "1152x2048", Ratio: "9:16", StudioChip: true},
+	{Size: "2160x3840", Ratio: "9:16", StudioChip: false},
+}
+
+// Canonical listing for error messages (stable order, one entry per ratio).
+var openAIImagesAllowedAspectRatioList = openAIImagesAllowedAspectRatiosFromTable()
+
+var openAIImagesAllowedAspectRatios = func() map[string]struct{} {
+	out := make(map[string]struct{}, len(openAIImagesAllowedAspectRatioList))
+	for _, ratio := range openAIImagesAllowedAspectRatioList {
+		out[ratio] = struct{}{}
+	}
+	return out
+}()
+
+func openAIImagesAllowedAspectRatiosFromTable() []string {
+	seen := make(map[string]struct{}, 8)
+	out := make([]string, 0, 8)
+	for _, row := range openAIImagesKnownSizeTable {
+		if _, ok := seen[row.Ratio]; ok {
+			continue
+		}
+		seen[row.Ratio] = struct{}{}
+		out = append(out, row.Ratio)
+	}
+	return out
+}
 
 var openAIImagesAspectRatioMarkerRE = regexp.MustCompile(`(?i)\bmarker\s+AR\s*=\s*[^\s,;]+`)
+
+// GPTImageStudioSizeChip is the FE/Studio projection of StudioChip rows.
+type GPTImageStudioSizeChip struct {
+	Ratio string `json:"ratio"`
+	Value string `json:"value"`
+}
+
+// ExportGPTImageStudioSizeChips returns Studio/Quickstart chips derived from
+// openAIImagesKnownSizeTable. Used by cmd/gpt-image-sizes-ssot.
+func ExportGPTImageStudioSizeChips() []GPTImageStudioSizeChip {
+	out := make([]GPTImageStudioSizeChip, 0, 8)
+	for _, row := range openAIImagesKnownSizeTable {
+		if !row.StudioChip {
+			continue
+		}
+		out = append(out, GPTImageStudioSizeChip{Ratio: row.Ratio, Value: row.Size})
+	}
+	return out
+}
 
 func normalizeOpenAIImagesAspectRatio(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
@@ -63,23 +109,19 @@ func unsupportedOpenAIImagesAspectRatio(raw string) error {
 	)
 }
 
-// openAIImagesAspectRatioFromSize maps official common sizes onto the admitted
+// openAIImagesAspectRatioFromSize maps known official sizes onto the admitted
 // aspect-ratio set. Unknown / auto sizes return empty (no marker injection).
 func openAIImagesAspectRatioFromSize(size string) string {
-	switch strings.ToLower(strings.TrimSpace(size)) {
-	case "1024x1024", "2048x2048":
-		return "1:1"
-	case "1536x1024":
-		return "3:2"
-	case "1024x1536":
-		return "2:3"
-	case "2048x1152", "3840x2160":
-		return "16:9"
-	case "1152x2048", "2160x3840":
-		return "9:16"
-	default:
+	want := strings.ToLower(strings.TrimSpace(size))
+	if want == "" || want == "auto" {
 		return ""
 	}
+	for _, row := range openAIImagesKnownSizeTable {
+		if row.Size == want {
+			return row.Ratio
+		}
+	}
+	return ""
 }
 
 // resolveOpenAIImagesAspectRatioForMarker prefers an explicit admitted

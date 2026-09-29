@@ -360,8 +360,13 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 	if parsed == nil {
 		return nil, fmt.Errorf("parsed images request is required")
 	}
-	prompt := strings.TrimSpace(parsed.Prompt)
-	if prompt == "" {
+	prompt := parsed.Prompt
+	if !parsed.Multipart && gjson.ValidBytes(parsed.Body) {
+		if rawPrompt := gjson.GetBytes(parsed.Body, "prompt").String(); rawPrompt != "" {
+			prompt = rawPrompt
+		}
+	}
+	if strings.TrimSpace(prompt) == "" {
 		return nil, fmt.Errorf("prompt is required")
 	}
 	prompt = applyOpenAIImagesAspectRatioMarker(prompt, resolveOpenAIImagesAspectRatioForMarker(parsed, true))
@@ -385,7 +390,9 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 
 	req := []byte(`{"instructions":"","stream":true,"reasoning":{"effort":"medium","summary":"auto"},"parallel_tool_calls":true,"include":["reasoning.encrypted_content"],"model":"","store":false,"tool_choice":{"type":"image_generation"}}`)
 	req, _ = sjson.SetBytes(req, "model", openAIImagesResponsesMainModelValue())
-	req, _ = sjson.SetBytes(req, "instructions", openAIImagesVerbatimPromptInstructions)
+	// Match codex2api: leave instructions empty so the driver does not rewrite the
+	// user prompt before invoking image_generation. Verbatim control lives in the
+	// tool fields + local fidelity post-process instead.
 
 	input := []byte(`[{"type":"message","role":"user","content":[{"type":"input_text","text":""}]}]`)
 	input, _ = sjson.SetBytes(input, "0.content.0.text", prompt)
@@ -411,11 +418,12 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 		path  string
 		value string
 	}{
-		{path: "size", value: parsed.Size},
+		{path: "size", value: upstreamOpenAIImagesSize(parsed)},
 		{path: "quality", value: parsed.Quality},
 		{path: "background", value: parsed.Background},
 		{path: "output_format", value: parsed.OutputFormat},
 		{path: "moderation", value: parsed.Moderation},
+		{path: "input_fidelity", value: parsed.InputFidelity},
 		{path: "style", value: parsed.Style},
 	} {
 		if trimmed := strings.TrimSpace(field.value); trimmed != "" {
@@ -1394,12 +1402,10 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 			RetryableOnSameAccount: true,
 		}
 	}
-	if parsed != nil && parsed.ExplicitOutputFormat {
-		if err := applyOpenAIImagesOutputFormatCoercion(results, parsed.OutputFormat); err != nil {
-			return OpenAIUsage{}, 0, nil, err
-		}
-		reconcileOpenAIResponsesImageResultSizes(results, &firstMeta)
+	if err := applyOpenAIImagesClientFidelityPostprocess(results, parsed); err != nil {
+		return OpenAIUsage{}, 0, nil, err
 	}
+	reconcileOpenAIResponsesImageResultSizes(results, &firstMeta)
 	if strings.TrimSpace(firstMeta.Model) == "" {
 		firstMeta.Model = strings.TrimSpace(fallbackModel)
 	}
@@ -1423,6 +1429,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 	resp *http.Response,
 	c *gin.Context,
 	startTime time.Time,
+	parsed *OpenAIImagesRequest,
 	responseFormat string,
 	streamPrefix string,
 	fallbackModel string,
@@ -1553,6 +1560,12 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 				mergeOpenAIResponsesImageMeta(&img, streamMeta)
 				appendOpenAIResponsesImageResultDedup(&finalResults, finalSeen, "", img)
 			}
+			if err := applyOpenAIImagesClientFidelityPostprocess(finalResults, parsed); err != nil {
+				s.tryWriteOpenAIImagesStreamEvent(c, flusher, &clientDisconnected, &lastDownstreamWriteAt, "error", buildOpenAIImagesStreamErrorBody(err.Error()))
+				processDataErr = err
+				processDataDone = true
+				return
+			}
 			reconcileOpenAIResponsesImageResultSizes(finalResults, nil)
 			if len(finalResults) == 0 {
 				textFallbackErr := openAIImagesTextFallbackErrorForText(fallbackText.String())
@@ -1631,6 +1644,10 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 			finalResults := append([]openAIResponsesImageResult(nil), pendingResults...)
 			for i := range finalResults {
 				mergeOpenAIResponsesImageMeta(&finalResults[i], streamMeta)
+			}
+			if err := applyOpenAIImagesClientFidelityPostprocess(finalResults, parsed); err != nil {
+				s.tryWriteOpenAIImagesStreamEvent(c, flusher, &clientDisconnected, &lastDownstreamWriteAt, "error", buildOpenAIImagesStreamErrorBody(err.Error()))
+				return err
 			}
 			reconcileOpenAIResponsesImageResultSizes(finalResults, nil)
 			for _, img := range finalResults {
@@ -1884,13 +1901,13 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	}
 	upstreamReq.Header.Set("Content-Type", "application/json")
 	upstreamReq.Header.Set("Accept", "text/event-stream")
+	// Codex OAuth Responses (codex2api parity): never send the legacy
+	// OpenAI-Beta responses=experimental header on chatgpt.com/backend-api/codex.
+	upstreamReq.Header.Del("OpenAI-Beta")
 	if direct {
-		upstreamReq.Header.Del("OpenAI-Beta")
 		if !parsed.Stream {
 			upstreamReq.Header.Set("Accept", "application/json")
 		}
-	} else {
-		upstreamReq.Header.Set("OpenAI-Beta", "responses=experimental")
 	}
 
 	proxyURL := ""
@@ -1977,7 +1994,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		if direct {
 			usage, imageCount, imageOutputSizes, firstTokenMs, err = s.handleOpenAIImagesStreamingResponse(resp, c, startTime, parsed)
 		} else {
-			usage, imageCount, imageOutputSizes, firstTokenMs, err = s.handleOpenAIImagesOAuthStreamingResponse(resp, c, startTime, parsed.ResponseFormat, openAIImagesStreamPrefix(parsed), upstreamModel)
+			usage, imageCount, imageOutputSizes, firstTokenMs, err = s.handleOpenAIImagesOAuthStreamingResponse(resp, c, startTime, parsed, parsed.ResponseFormat, openAIImagesStreamPrefix(parsed), upstreamModel)
 		}
 		if err != nil {
 			if imageCount > 0 {

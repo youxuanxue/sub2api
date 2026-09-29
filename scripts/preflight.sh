@@ -1366,6 +1366,29 @@ else
     echo "  ok: model-family alert artifact matches the Go owner"
 fi
 
+# ---- sub2api: GPT Image size-chip SSOT drift --------------------------------
+# Studio/Quickstart GPT_IMAGE_SIZES is generated from Go openAIImagesKnownSizeTable.
+# Keep the checked-in TS byte-identical so FE chips cannot drift into a second table.
+echo ""
+
+fi # preflight gate
+if _preflight_selected 'GPT Image size-chip SSOT drift'; then
+echo "=== sub2api: GPT Image size-chip SSOT drift ==="
+if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
+    echo "  skip: unchanged Go preflight surface"
+elif [ "$_preflight_defer_go_artifact_drift" -eq 1 ]; then
+    echo "  ok: GPT Image size-chip SSOT drift delegated to CI test-unit"
+elif ! command -v go >/dev/null 2>&1; then
+    echo "  FAIL: go not on PATH (required for GPT Image size-chip SSOT drift check)"
+    errors=$((errors + 1))
+elif ! bash ./scripts/checks/check-gpt-image-sizes-ssot.sh; then
+    echo "  FAIL: gptImageSizes.generated.tk.ts drifted from the Go owner"
+    echo "        — run: cd backend && go run ./cmd/gpt-image-sizes-ssot --output ../frontend/src/constants/gptImageSizes.generated.tk.ts"
+    errors=$((errors + 1))
+else
+    echo "  ok: GPT Image size chips match the Go owner"
+fi
+
 # ---- sub2api: frontend TK sentinel registry ---------------------------------
 # Source of truth: scripts/sentinels/frontend-tk.json. Verifies that load-bearing
 # TokenKey-only frontend surfaces (sidebar geometry, fluid table mode, sticky

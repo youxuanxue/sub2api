@@ -47,9 +47,15 @@ TokenKey 对外承认可选 `aspect_ratio`，在出站 prompt 注入该 marker�
 - `size=1k|2k|4k` / `marker size=1k|2k|4k`：**不能**拉出稳定 1K/2K/4K 分辨率阶梯。
 - tools JSON `size=` 在 OAuth Codex 路径上仍常落 `auto`；硬控分辨率以官方 API-key `size` 为准。
 
-### 4. `tk_image_contract=exact`
+### 4. Legacy `tk_image_contract` (removed)
 
-- `output_format` 放行：`png` \| `jpeg` \| `auto`（edge OAuth 实测 jpeg/png 魔数匹配）。
+`tk_image_contract=exact` is no longer an admission gate. Local canvas/format
+post-process is the default for all clients; the field is ignored if present
+and stripped before upstream.
+
+Studio/Quickstart GPT Image chips send `size=WxH` from `GPT_IMAGE_SIZES`
+(generated from Go `openAIImagesKnownSizeTable`); see
+[image-generation-quickstart-studio.md](image-generation-quickstart-studio.md).
 
 ### 5. Floor / allowlist
 
@@ -66,7 +72,7 @@ TokenKey 对外承认可选 `aspect_ratio`，在出站 prompt 注入该 marker�
 
 | 关注点 | Owner |
 | --- | --- |
-| 比例 allowlist / marker / resolve | `backend/internal/service/openai_images_aspect_ratio_tk.go` |
+| 比例 allowlist / size↔ratio / Studio chips | `backend/internal/service/openai_images_aspect_ratio_tk.go`（`openAIImagesKnownSizeTable`） |
 | Parse / strip / API-key rewrite | `backend/internal/service/openai_images.go` |
 | OAuth Direct / Responses 注入 | `openai_images_direct.go` / `openai_images_responses.go` |
 | Floor / catalog membership | `pricing_catalog_supported_models_tk.go` + `account_model_mapping_ssot_tk.go` |
@@ -76,4 +82,6 @@ TokenKey 对外承认可选 `aspect_ratio`，在出站 prompt 注入该 marker�
 ## 非目标
 
 - 不把 `1k/2k/4k` 当作网关契约。
-- 本 PR 不改 Studio Web UI：`GPT_IMAGE_SIZES` 仍可仅暴露官方 WxH；`no-web-impact`。
+- Studio/Quickstart GPT 画布芯片由同一 `openAIImagesKnownSizeTable` 生成
+  `GPT_IMAGE_SIZES`（见
+  [image-generation-quickstart-studio.md](image-generation-quickstart-studio.md)）。

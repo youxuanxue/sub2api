@@ -5,6 +5,7 @@ go 1.27.0
 require (
 	entgo.io/ent v0.14.5
 	github.com/DATA-DOG/go-sqlmock v1.5.2
+	github.com/HugoSmits86/nativewebp v1.3.0
 	github.com/QuantumNous/new-api v0.0.0-00010101000000-000000000000
 	github.com/alibabacloud-go/captcha-20230305 v1.1.3
 	github.com/alibabacloud-go/darabonba-openapi/v2 v2.1.13

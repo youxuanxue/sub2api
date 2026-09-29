@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Direct ChatGPT Codex upstream image generation probe for one OpenAI OAuth account.
 # STRICT CONTRACT: Never logs, prints, or exposes credentials or access tokens.
+#
+# Companion matrix probes (same Responses + local fidelity path):
+#   ops/stage0/probe_openai_image_fidelity_matrix.sh
+#   ops/stage0/probe_openai_image_ar_07_09.sh
 set -euo pipefail
 
 ACCOUNT_ID="${ACCOUNT_ID:?ACCOUNT_ID required}"
@@ -9,6 +13,12 @@ MAIN_MODEL="${MAIN_MODEL:-gpt-5.6-luna}"
 PROMPT_TEXT="${PROMPT_TEXT:-A tiny yellow lemon on a clean white table, minimalist illustration}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-120}"
 UPSTREAM_URL="${UPSTREAM_URL:-https://chatgpt.com/backend-api/codex/responses}"
+# Optional image_generation tool fields (codex2api / TK Responses path).
+SIZE="${SIZE:-}"
+OUTPUT_FORMAT="${OUTPUT_FORMAT:-}"
+QUALITY="${QUALITY:-}"
+BACKGROUND="${BACKGROUND:-}"
+OUTPUT_COMPRESSION="${OUTPUT_COMPRESSION:-}"
 DEFAULT_CODEX_UA="codex-tui/0.154.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.154.0)"
 CODEX_USER_AGENT="${CODEX_USER_AGENT:-$DEFAULT_CODEX_UA}"
 CODEX_VERSION="${CODEX_VERSION:-0.154.0}"
@@ -88,25 +98,35 @@ if [[ -n "$CUSTOM_USER_AGENT" ]]; then
   CODEX_USER_AGENT="$CUSTOM_USER_AGENT"
 fi
 
-payload="$(python3 - "$MAIN_MODEL" "$IMAGE_MODEL" "$PROMPT_TEXT" <<'PY'
+payload="$(python3 - "$MAIN_MODEL" "$IMAGE_MODEL" "$PROMPT_TEXT" "$SIZE" "$OUTPUT_FORMAT" "$QUALITY" "$BACKGROUND" "$OUTPUT_COMPRESSION" <<'PY'
 import json, sys
-main_model, image_model, prompt = sys.argv[1:4]
+main_model, image_model, prompt, size, output_format, quality, background, output_compression = sys.argv[1:9]
+tool = {
+    "type": "image_generation",
+    "action": "generate",
+    "model": image_model,
+}
+for key, value in (
+    ("size", size),
+    ("output_format", output_format),
+    ("quality", quality),
+    ("background", background),
+):
+    if value.strip():
+        tool[key] = value.strip()
+if output_compression.strip():
+    tool["output_compression"] = int(output_compression.strip())
+# Match TokenKey / codex2api: empty instructions; fidelity lives in tool fields.
 data = {
     "model": main_model,
-    "instructions": "When invoking the image_generation tool, use the user's image prompt verbatim. Do not rewrite, expand, summarize, embellish, translate, normalize punctuation, or add or remove visual details or constraints. Preserve the original language, wording, capitalization, quotes, and punctuation exactly.",
+    "instructions": "",
     "stream": True,
     "reasoning": {"effort": "medium", "summary": "auto"},
     "parallel_tool_calls": True,
     "include": ["reasoning.encrypted_content"],
     "store": False,
     "tool_choice": {"type": "image_generation"},
-    "tools": [
-        {
-            "type": "image_generation",
-            "action": "generate",
-            "model": image_model,
-        }
-    ],
+    "tools": [tool],
     "input": [
         {
             "type": "message",
@@ -132,7 +152,6 @@ curl_args=(
   -H "Authorization: Bearer ${ACCESS_TOKEN}"
   -H "Content-Type: application/json"
   -H "Accept: text/event-stream"
-  -H "OpenAI-Beta: responses=experimental"
   -H "Originator: codex-tui"
   -H "Version: ${CODEX_VERSION}"
   -H "User-Agent: ${CODEX_USER_AGENT}"
@@ -231,6 +250,7 @@ except Exception as e:
     error_msg = str(e)
 
 image_valid_png = False
+image_container = ""
 image_bytes_len = 0
 image_sha256 = ""
 img_w, img_h = 0, 0
@@ -240,15 +260,48 @@ if image_data:
         decoded = base64.b64decode(image_data)
         image_bytes_len = len(decoded)
         image_sha256 = hashlib.sha256(decoded).hexdigest()
-        # Verify PNG signature (\x89PNG\r\n\x1a\n)
         png_sig = bytes([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
         if decoded.startswith(png_sig) and len(decoded) >= 24:
             image_valid_png = True
+            image_container = "png"
             img_w, img_h = struct.unpack(">II", decoded[16:24])
+        elif len(decoded) >= 3 and decoded[0] == 0xFF and decoded[1] == 0xD8 and decoded[2] == 0xFF:
+            image_container = "jpeg"
+            # Soft parse SOF0/SOF2 for dimensions
+            i = 2
+            while i + 9 < len(decoded):
+                if decoded[i] != 0xFF:
+                    i += 1
+                    continue
+                marker = decoded[i + 1]
+                if marker in (0xC0, 0xC2) and i + 9 < len(decoded):
+                    img_h, img_w = struct.unpack(">HH", decoded[i + 5 : i + 9])
+                    break
+                if marker == 0xD9 or marker == 0xDA:
+                    break
+                if i + 3 >= len(decoded):
+                    break
+                seglen = struct.unpack(">H", decoded[i + 2 : i + 4])[0]
+                i += 2 + seglen
+        elif len(decoded) >= 12 and decoded[:4] == b"RIFF" and decoded[8:12] == b"WEBP":
+            image_container = "webp"
+            # VP8X / VP8 / VP8L dimension parse (best-effort)
+            if decoded[12:16] == b"VP8X" and len(decoded) >= 30:
+                w = 1 + decoded[24] + (decoded[25] << 8) + (decoded[26] << 16)
+                h = 1 + decoded[27] + (decoded[28] << 8) + (decoded[29] << 16)
+                img_w, img_h = w, h
+            elif decoded[12:16] == b"VP8 " and len(decoded) >= 30:
+                img_w = struct.unpack("<H", decoded[26:28])[0] & 0x3FFF
+                img_h = struct.unpack("<H", decoded[28:30])[0] & 0x3FFF
+            elif decoded[12:16] == b"VP8L" and len(decoded) >= 25:
+                bits = struct.unpack("<I", decoded[21:25])[0]
+                img_w = (bits & 0x3FFF) + 1
+                img_h = ((bits >> 14) & 0x3FFF) + 1
     except Exception as e:
         error_msg = f"base64 decode error: {e}"
 
-if str(http_code).startswith("2") and image_valid_png:
+dims = f"{img_w}x{img_h}" if img_w and img_h else ""
+if str(http_code).startswith("2") and (image_valid_png or image_container in {"jpeg", "webp"}):
     verdict = "servable_image_generated"
 elif str(http_code).startswith("2") and image_data:
     verdict = "servable_image_returned"
@@ -278,10 +331,11 @@ result = {
     "image_generation": {
         "image_received": bool(image_data),
         "is_valid_png": image_valid_png,
+        "container": image_container,
         "size_bytes": image_bytes_len,
-        "dimensions": f"{img_w}x{img_h}" if image_valid_png else "",
-        "width": img_w if image_valid_png else 0,
-        "height": img_h if image_valid_png else 0,
+        "dimensions": dims,
+        "width": img_w if img_w else 0,
+        "height": img_h if img_h else 0,
         "sha256": image_sha256,
         "revised_prompt": revised_prompt,
         "call_meta": call_meta,

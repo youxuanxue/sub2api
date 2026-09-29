@@ -9,6 +9,7 @@ import misc from './misc'
 export default {
   imageGeneration: {
     "softRatio": "比例为构图偏好，实际输出尺寸由模型决定。",
+    "exactCanvas": "所选尺寸由网关本地精确画布兑现（上游像素可能先漂移，再 pad/coerce）。",
     "prompt": "生图提示词",
     "verifyKey": "验证密钥",
     "verifyHint": "此处只验证密钥，不验证生图。请在 Studio 中生成图片，生成会产生费用。",
