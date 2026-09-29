@@ -11701,11 +11701,14 @@
       "path": "backend/internal/service/account_supported_protocols.go",
       "must_contain": [
         "func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {",
+        "func routingSupportedProtocolsForInbound(account *Account, inbound protocolrouter.Protocol, request *protocolrouter.CanonicalRequest) []protocolrouter.Protocol {",
         "if account.IsKiroMirrorStub() {",
+        "if tkIsAntigravityEdgeRelayStub(account) {",
+        "OpenAIToGeminiConversionPreserves(inbound, *request)",
         "protocols := account.SupportedProtocols()",
         "if protocol == protocolrouter.ProtocolMessages {"
       ],
-      "rationale": "Kiro mirror restrictions only remove targets from the persisted endpoint capability owner. Messages must be present there before Chat/Responses ingress may convert to the native prod-to-edge hop."
+      "rationale": "Kiro mirror restrictions only remove targets from the persisted endpoint capability owner. Antigravity edge stays Gemini-only unless Chat/Responses→Gemini cannot preserve, in which case verified chat hops stay in the Plan view."
     },
     {
       "path": "backend/internal/service/account_supported_protocols_test.go",
@@ -13967,9 +13970,12 @@
     {
       "path": "backend/internal/service/account_supported_protocols_test.go",
       "must_contain": [
-        "TestAntigravityMirrorConvertsBeforeNativeOnlyEdge"
+        "TestAntigravityMirrorConvertsBeforeNativeOnlyEdge",
+        "TestAntigravityEdgeRelayKeepsChatWhenGeminiConversionCannotPreserve",
+        "convertible chat must stay gemini-only for conversion-first",
+        "edge chat with prompt cache must admit native chat hop"
       ],
-      "rationale": "Prevent compatibility ingress claims from bypassing native Gemini converter admission."
+      "rationale": "Prevent compatibility ingress claims from bypassing native Gemini converter admission for convertible traffic, while still admitting native chat when Chat→Gemini cannot preserve (prompt cache / complex tools)."
     },
     {
       "path": "backend/internal/handler/gemini_messages_conversion_tk_test.go",

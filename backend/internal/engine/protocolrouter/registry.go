@@ -247,6 +247,20 @@ func preservesToGemini(req CanonicalRequest) bool {
 		req.profile.PromptCache == PromptCacheNone
 }
 
+// OpenAIToGeminiConversionPreserves reports whether Chat/Responses→Gemini keeps
+// request semantics. Edge Plan-view clamps use this to admit native chat hops
+// only when conversion cannot preserve (identity must remain eligible).
+func OpenAIToGeminiConversionPreserves(inbound Protocol, req CanonicalRequest) bool {
+	switch inbound {
+	case ProtocolChatCompletions:
+		return preservesChatToGemini(req)
+	case ProtocolResponses:
+		return preservesToGemini(req)
+	default:
+		return true
+	}
+}
+
 func preservesGeminiIdentity(req CanonicalRequest) bool {
 	return req.profile.ContentKinds != 0 && req.profile.ContentKinds&^ContentText == 0
 }

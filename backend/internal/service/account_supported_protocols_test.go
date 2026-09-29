@@ -1075,15 +1075,15 @@ func TestAntigravityEdgeRelayKeepsChatWhenGeminiConversionCannotPreserve(t *test
 	}
 	attachTestProtocolCapability(account, stored...)
 
-	got := routingSupportedProtocolsForInbound(account, protocolrouter.ProtocolChatCompletions)
-	want := []protocolrouter.Protocol{
-		protocolrouter.ProtocolChatCompletions,
-		protocolrouter.ProtocolGeminiGenerateContent,
+	convertibleBody := `{"model":"gemini-3.7-flash","messages":[{"role":"user","content":"hi"}],"max_tokens":16}`
+	convertible, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathNone, "gemini-3.7-flash", false, []byte(convertibleBody))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("routingSupportedProtocolsForInbound(chat) = %v, want %v", got, want)
+	if got := routingSupportedProtocolsForInbound(account, protocolrouter.ProtocolChatCompletions, &convertible); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}) {
+		t.Fatalf("convertible chat must stay gemini-only for conversion-first: %v", got)
 	}
-	if got := routingSupportedProtocolsForInbound(account, protocolrouter.ProtocolMessages); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}) {
+	if got := routingSupportedProtocolsForInbound(account, protocolrouter.ProtocolMessages, nil); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}) {
 		t.Fatalf("messages ingress must stay gemini-only: %v", got)
 	}
 	if !reflect.DeepEqual(account.SupportedProtocols(), stored) {
@@ -1099,6 +1099,14 @@ func TestAntigravityEdgeRelayKeepsChatWhenGeminiConversionCannotPreserve(t *test
 	if request.Profile().PromptCache == protocolrouter.PromptCacheNone {
 		t.Fatal("fixture must exercise prompt-cache so Chat→Gemini is illegal")
 	}
+	got := routingSupportedProtocolsForInbound(account, protocolrouter.ProtocolChatCompletions, &request)
+	want := []protocolrouter.Protocol{
+		protocolrouter.ProtocolChatCompletions,
+		protocolrouter.ProtocolGeminiGenerateContent,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("routingSupportedProtocolsForInbound(non-convertible chat) = %v, want %v", got, want)
+	}
 	snapshot, err := protocolAccountSnapshotForRequest(account, request)
 	if err != nil {
 		t.Fatal(err)
@@ -1109,6 +1117,18 @@ func TestAntigravityEdgeRelayKeepsChatWhenGeminiConversionCannotPreserve(t *test
 	}
 	if plan.TargetProtocol() != protocolrouter.ProtocolChatCompletions || plan.AdapterID() != protocolrouter.AdapterChatIdentity {
 		t.Fatalf("plan target=%s adapter=%s, want chat identity", plan.TargetProtocol(), plan.AdapterID())
+	}
+
+	convertibleSnapshot, err := protocolAccountSnapshotForRequest(account, convertible)
+	if err != nil {
+		t.Fatal(err)
+	}
+	convertiblePlan, err := NewProtocolRouter().Plan(convertible, convertibleSnapshot)
+	if err != nil {
+		t.Fatalf("convertible chat must still plan Chat→Gemini: %v", err)
+	}
+	if convertiblePlan.TargetProtocol() != protocolrouter.ProtocolGeminiGenerateContent || convertiblePlan.AdapterID() != protocolrouter.AdapterChatToGemini {
+		t.Fatalf("convertible plan target=%s adapter=%s, want chat→gemini", convertiblePlan.TargetProtocol(), convertiblePlan.AdapterID())
 	}
 }
 

@@ -162,15 +162,15 @@ func SeedOfficialSupportedProtocols(account *Account) bool {
 // Kiro mirror stubs expose only their native Messages hop; public ingress
 // compatibility is handled by protocol conversion before prod calls edge.
 // OpenAI mirror stubs similarly hide their compatibility-only Messages ingress.
-// Antigravity edge relays stay Gemini-only for Messages/Gemini ingress so Claude
-// converts at prod; Chat/Responses ingress also keeps verified chat hops so
-// OpenAI-compat traffic that cannot Chat→Gemini still admits native chat.
+// Antigravity edge relays stay Gemini-only so Claude/convertible OpenAI ingress
+// converts at prod; Chat/Responses widen to verified chat hops only when
+// Chat→Gemini / Responses→Gemini cannot preserve (identity must stay eligible).
 // Restrictions may only remove protocols from the persisted capability owner.
 func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {
-	return routingSupportedProtocolsForInbound(account, "")
+	return routingSupportedProtocolsForInbound(account, "", nil)
 }
 
-func routingSupportedProtocolsForInbound(account *Account, inbound protocolrouter.Protocol) []protocolrouter.Protocol {
+func routingSupportedProtocolsForInbound(account *Account, inbound protocolrouter.Protocol, request *protocolrouter.CanonicalRequest) []protocolrouter.Protocol {
 	protocols := account.SupportedProtocols()
 	if protocolGeminiEndpointProfile(account) == protocolrouter.GeminiEndpointNativeAPIKey {
 		for _, protocol := range protocols {
@@ -197,8 +197,12 @@ func routingSupportedProtocolsForInbound(account *Account, inbound protocolroute
 			}
 		}
 		if hasGemini {
+			widenNativeChat := false
 			switch inbound {
 			case protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses:
+				widenNativeChat = request != nil && !protocolrouter.OpenAIToGeminiConversionPreserves(inbound, *request)
+			}
+			if widenNativeChat {
 				kept := make([]protocolrouter.Protocol, 0, 3)
 				for _, protocol := range protocols {
 					switch protocol {
@@ -209,9 +213,8 @@ func routingSupportedProtocolsForInbound(account *Account, inbound protocolroute
 					}
 				}
 				return kept
-			default:
-				return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
 			}
+			return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
 		}
 	}
 	if !tkIsOpenAIEdgeMirrorStub(account) {
@@ -278,7 +281,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	if request != nil {
 		inbound = request.InboundProtocol()
 	}
-	protocols := routingSupportedProtocolsForInbound(account, inbound)
+	protocols := routingSupportedProtocolsForInbound(account, inbound, request)
 	resolvedModel := protocolResolvedUpstreamModel(account, requestedModel, requireCompact)
 	customBaseURL, customBaseURLs, officialProfile := protocolAccountEndpoints(account)
 	geminiProfile := protocolGeminiEndpointProfile(account)
