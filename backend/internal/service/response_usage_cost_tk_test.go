@@ -118,6 +118,105 @@ func TestHandleNonStreamingResponse_InjectsUsageCost(t *testing.T) {
 	require.InDelta(t, cost.Float(), usageRepo.lastLog.ActualCost, 1e-12)
 }
 
+func TestSettleClaudeCustomerFacingCost_SharedByPreviewAndRecordUsage(t *testing.T) {
+	gid := int64(7)
+	apiKey := &APIKey{
+		ID:      1,
+		GroupID: &gid,
+		User:    &User{ID: 3},
+		Group:   &Group{ID: gid, Platform: PlatformAnthropic, RateMultiplier: 1.0},
+	}
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+
+	result := &ForwardResult{
+		RequestID:     "settle_ssot_claude",
+		Usage:         ClaudeUsage{InputTokens: 100, OutputTokens: 50},
+		Model:         "claude-sonnet-4",
+		UpstreamModel: "claude-sonnet-4",
+		Duration:      time.Second,
+	}
+	settled, err := svc.settleClaudeCustomerFacingCost(context.Background(), &claudeCustomerFacingCostInput{
+		Result:  result,
+		APIKey:  apiKey,
+		User:    apiKey.User,
+		Account: &Account{ID: 1},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, settled)
+	require.NotNil(t, settled.Cost)
+	require.Greater(t, settled.Cost.ActualCost, 0.0)
+
+	// RecordUsage without PrecomputedCost must bill the same ActualCost as settle.
+	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID:     "settle_ssot_claude_record",
+			Usage:         ClaudeUsage{InputTokens: 100, OutputTokens: 50},
+			Model:         "claude-sonnet-4",
+			UpstreamModel: "claude-sonnet-4",
+			Duration:      time.Second,
+		},
+		APIKey:  apiKey,
+		User:    apiKey.User,
+		Account: &Account{ID: 1},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, settled.Cost.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+}
+
+func TestSettleOpenAICustomerFacingCost_SharedByPreviewAndRecordUsage(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+	apiKey := openAIRecordUsageAPIKeyWithGroup(svc, 11, false)
+	apiKey.User = &User{ID: 9, Balance: 100}
+	apiKey.GroupID = &apiKey.Group.ID
+	apiKey.Group.Platform = PlatformOpenAI
+	apiKey.Group.RateMultiplier = 1.0
+	account := &Account{ID: 2, Platform: PlatformOpenAI}
+
+	result := &OpenAIForwardResult{
+		RequestID:     "settle_ssot_openai",
+		Model:         "gpt-4o",
+		UpstreamModel: "gpt-4o",
+		Usage: OpenAIUsage{
+			InputTokens:  80,
+			OutputTokens: 40,
+		},
+		Duration: time.Second,
+	}
+	settled, err := svc.settleOpenAICustomerFacingCost(context.Background(), &openAICustomerFacingCostInput{
+		Result:         result,
+		APIKey:         apiKey,
+		User:           apiKey.User,
+		Account:        account,
+		BillingAccount: account,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, settled)
+	require.NotNil(t, settled.Cost)
+	require.Greater(t, settled.Cost.ActualCost, 0.0)
+
+	err = svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID:     "settle_ssot_openai_record",
+			Model:         "gpt-4o",
+			UpstreamModel: "gpt-4o",
+			Usage: OpenAIUsage{
+				InputTokens:  80,
+				OutputTokens: 40,
+			},
+			Duration: time.Second,
+		},
+		APIKey:  apiKey,
+		User:    apiKey.User,
+		Account: account,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, settled.Cost.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+}
+
 func stringsHasPrefixData(s string) bool {
 	return len(s) >= 5 && s[:5] == "data:"
 }

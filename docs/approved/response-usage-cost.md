@@ -44,10 +44,15 @@ Universal Key / 直连 Key 的推理响应在已有 `usage` token 字段上，�
 
 | 关注点 | Owner |
 | --- | --- |
-| JSON/SSE 注入 | `backend/internal/service/response_usage_cost_tk.go` |
+| 契约（本文件） | `docs/approved/response-usage-cost.md` |
+| JSON/SSE 注入 | `backend/internal/service/response_usage_cost_tk.go`（`InjectUsageCost*`） |
+| Claude 客户实扣结算 | `settleClaudeCustomerFacingCost`（`gateway_usage_billing.go`）— RecordUsage 与响应预览共用 |
+| OpenAI 客户实扣结算 | `settleOpenAICustomerFacingCost`（`openai_gateway_usage.go`）— 含 response_model / Free Fast；RecordUsage 与响应预览共用 |
 | Claude Messages 写出 | `gateway_upstream_response.go` |
 | OpenAI Chat Completions raw 写出 | `openai_gateway_chat_completions_raw.go` |
-| 计费复用 | `ForwardResult` / `OpenAIForwardResult` 的预计算 cost + RecordUsage |
+| 同请求防漂移 | 响应侧结算结果挂 `PrecomputedCost`，`RecordUsage` 复用，禁止二次编排 |
+
+禁止在 preview 路径再镜像一份 response_model / Free Fast / 倍率编排；新增结算规则只改 `settle*`。
 
 ## Validation
 
