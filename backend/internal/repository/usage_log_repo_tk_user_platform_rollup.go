@@ -550,6 +550,7 @@ func (r *usageLogRepository) getUserUsageTrendRollup(
 	startTime, endTime time.Time,
 	granularity string,
 	limit int,
+	metric string,
 ) ([]UserUsageTrendPoint, error) {
 	if limit <= 0 {
 		limit = 12
@@ -648,7 +649,11 @@ func (r *usageLogRepository) getUserUsageTrendRollup(
 			Tokens:     a.tokens,
 		})
 	}
-	sortUserTrendTopUsers(rankingItems)
+	if metric == "actual_cost" {
+		sortUserSpendingRankingItems(rankingItems)
+	} else {
+		sortUserTrendTopUsers(rankingItems)
+	}
 	if limit > 0 && len(rankingItems) > limit {
 		rankingItems = rankingItems[:limit]
 	}

@@ -99,6 +99,7 @@ export type SettingsForm = {
   hide_ccs_import_button: boolean;
   payment_enabled: boolean;
   risk_control_enabled: boolean;
+  cyber_policy_user_allowlist: string;
   cyber_session_block_enabled: boolean;
   cyber_session_block_ttl_seconds: number;
   payment_min_amount: number;

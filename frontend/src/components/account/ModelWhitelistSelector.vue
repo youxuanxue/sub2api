@@ -172,6 +172,7 @@ const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
   modelValue: unknown[]
+  modelMappings?: { from: string; to: string }[]
   platform?: string
   platforms?: string[]
   accountId?: number
@@ -339,6 +340,11 @@ const addCustom = () => {
   if (!model) return
   if (selectedModels.value.includes(model)) {
     appStore.showInfo(t('admin.accounts.modelExists'))
+    return
+  }
+  const conflict = props.modelMappings?.find(mapping => mapping.from.trim() === model && mapping.to.trim() && mapping.to.trim() !== model)
+  if (conflict) {
+    appStore.showInfo(t('admin.accounts.modelMappingConflict', { from: model, to: conflict.to.trim() }))
     return
   }
   emit('update:modelValue', [...selectedModels.value, model])

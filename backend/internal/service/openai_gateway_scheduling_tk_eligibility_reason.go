@@ -59,6 +59,11 @@ func openAICompatEligibilityReason(
 	if account == nil {
 		return openAICompatIneligibleAccountNil
 	}
+	if source, ok := CompositeRouteSourceFromContext(ctx); ok && source == CompositeRouteSourceAccount {
+		if model, present := RequestedPublicModelFromContext(ctx); present && !explicitModelMappingClaims(*account, model) {
+			return "account_model_not_owned"
+		}
+	}
 	if !account.IsOpenAICompatPoolMember(platform) {
 		return fmt.Sprintf("%s(account_platform=%s requested=%s)",
 			openAICompatIneligibleNotPoolMember, account.Platform, platform)

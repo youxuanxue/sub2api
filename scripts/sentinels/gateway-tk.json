@@ -3,6 +3,21 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/handler/gateway_inflight_reservation.go",
+      "must_contain": ["c.GetBool(tkHoldLifecycleKey)", "service.ReserveCandidateInflight("],
+      "rationale": "Do not double-reserve persisted TokenKey holds or bypass candidate-origin reservation rebinding."
+    },
+    {
+      "path": "backend/internal/service/candidate_inflight_reservation_tk.go",
+      "must_contain": ["SetCandidateBillingHook(ctx, refresh)", "reservation.HandlerDone()", "SetCandidateInflightReservation(ctx, nil)"],
+      "rationale": "Candidate-native reservations follow billing-origin changes and asynchronous settlement lifecycle."
+    },
+    {
+      "path": "backend/internal/service/candidate_inflight_reservation_tk_test.go",
+      "must_contain": ["TestCandidateInflightReservationRebindAndAsyncSettlement", "TestCandidateInflightReservationRejectsUnpricedRebind"],
+      "rationale": "Behavioral coverage must survive upstream reservation changes."
+    },
+    {
       "path": "backend/internal/service/model_retired_error_tk.go",
       "must_contain": [
         "func IsUpstreamModelRetiredError(",
@@ -14608,7 +14623,7 @@
     {
       "path": "backend/internal/service/gateway_forward_as_responses_test.go",
       "must_contain": [
-        "func TestOpus55ResponsesSignedThinkingBufferedAndStreamed(t *testing.T)"
+        "func TestClaude55ResponsesSignedThinkingBufferedAndStreamed(t *testing.T)"
       ],
       "rationale": "Protect the actual buffered and streamed bridge paths against losing Anthropic thinking signatures during upstream merges."
     },

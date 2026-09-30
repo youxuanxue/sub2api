@@ -24,6 +24,8 @@ Generated from live Gin route registrations; do not edit this section.
 - `PUT /api/v1/admin/accounts/:id` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/apply-oauth-credentials` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/apply-tier` from `backend/internal/server/routes/admin_tk_tier_routes.go`
+- `GET /api/v1/admin/accounts/:id/claude/reset-credits` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/accounts/:id/claude/reset-credits/redeem` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/clear-error` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/clear-rate-limit` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/duplicate` from `backend/internal/server/routes/admin.go`

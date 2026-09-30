@@ -51,8 +51,10 @@ func serviceTierCostRank(tier string) (rank int, known bool) {
 		return 0, true
 	case "", "default", "standard", "auto", "scale":
 		return 1, true
-	case "priority", "fast", OpenAIFastTierUltrafast:
+	case "priority", "fast":
 		return 2, true
+	case OpenAIFastTierUltrafast:
+		return 3, true
 	default:
 		return 1, false
 	}

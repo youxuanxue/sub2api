@@ -57,11 +57,16 @@ func (r *dashboardUsageRepoCacheProbe) GetUserUsageTrend(
 	startTime, endTime time.Time,
 	granularity string,
 	limit int,
+	metric string,
 ) ([]usagestats.UserUsageTrendPoint, error) {
 	r.usersTrendCalls.Add(1)
+	userID := int64(1)
+	if metric == "actual_cost" {
+		userID = 2
+	}
 	return []usagestats.UserUsageTrendPoint{{
 		Date:       "2026-03-11",
-		UserID:     1,
+		UserID:     userID,
 		Email:      "cache@test.dev",
 		Requests:   2,
 		Tokens:     20,
@@ -158,6 +163,22 @@ func TestDashboardHandler_GetUserUsageTrend_UsesCache(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 	require.Equal(t, "hit", rec2.Header().Get("X-Snapshot-Cache"))
 	require.Equal(t, int32(1), repo.usersTrendCalls.Load())
+
+	for _, tc := range []struct {
+		metric, cache string
+		calls         int32
+	}{
+		{"actual_cost", "miss", 2},
+		{"actual_cost", "hit", 2},
+		{"tokens", "hit", 2},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/admin/dashboard/users-trend?start_date=2026-03-01&end_date=2026-03-07&granularity=day&limit=8&metric="+tc.metric, nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, tc.cache, rec.Header().Get("X-Snapshot-Cache"))
+		require.Equal(t, tc.calls, repo.usersTrendCalls.Load())
+	}
 }
 
 func TestDashboardHandler_SnapshotV2GroupStatsIncludesCacheTelemetryFields(t *testing.T) {
@@ -220,4 +241,39 @@ func TestDashboardHandler_SnapshotV2IncludesPlatformBreakdown(t *testing.T) {
 		TotalTokens:     80,
 		TotalActualCost: 8,
 	}}, payload.Data.Stats.ByPlatform)
+}
+
+func TestDashboardHandler_SnapshotV2MetricSeparatesCachedResults(t *testing.T) {
+	t.Cleanup(resetDashboardReadCachesForTest)
+	resetDashboardReadCachesForTest()
+	gin.SetMode(gin.TestMode)
+	repo := &dashboardUsageRepoCacheProbe{}
+	handler := NewDashboardHandler(service.NewDashboardService(repo, nil, nil, nil), nil)
+	router := gin.New()
+	router.GET("/admin/dashboard/snapshot-v2", handler.GetSnapshotV2)
+	for _, testCase := range []struct {
+		metric string
+		userID int64
+		cache  string
+	}{
+		{"tokens", 1, "miss"},
+		{"actual_cost", 2, "miss"},
+		{"tokens", 1, "hit"},
+		{"actual_cost", 2, "hit"},
+	} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/admin/dashboard/snapshot-v2?start_date=2026-03-01&end_date=2026-03-07&include_stats=false&include_trend=false&include_model_stats=false&include_group_stats=false&include_users_trend=true&users_trend_metric="+testCase.metric, nil)
+		router.ServeHTTP(recorder, request)
+		require.Equal(t, http.StatusOK, recorder.Code)
+		require.Equal(t, testCase.cache, recorder.Header().Get("X-Snapshot-Cache"))
+		var payload struct {
+			Data struct {
+				Users []usagestats.UserUsageTrendPoint `json:"users_trend"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &payload))
+		require.Len(t, payload.Data.Users, 1)
+		require.Equal(t, testCase.userID, payload.Data.Users[0].UserID)
+	}
+	require.Equal(t, int32(2), repo.usersTrendCalls.Load())
 }

@@ -145,6 +145,7 @@ export interface DashboardSnapshotV2Params extends TrendParams {
   include_group_stats?: boolean
   include_users_trend?: boolean
   users_trend_limit?: number
+  users_trend_metric?: 'tokens' | 'actual_cost'
 }
 
 export interface DashboardSnapshotV2Stats extends DashboardStats {
@@ -246,6 +247,7 @@ export async function getApiKeyUsageTrend(
 
 export interface UserTrendParams extends TrendParams {
   limit?: number
+  metric?: 'tokens' | 'actual_cost'
 }
 
 export interface UserTrendResponse {

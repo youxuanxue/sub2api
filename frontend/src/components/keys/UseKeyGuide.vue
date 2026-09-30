@@ -196,6 +196,11 @@
         </div>
 
         <div v-if="showCodexCatalog && !preview" data-testid="codex-model-catalog" class="flex flex-wrap items-center gap-3 border-b border-gray-200 pb-3 dark:border-dark-700">
+          <select v-model="codexCatalogMode" data-testid="codex-model-catalog-mode" class="input">
+            <option value="remote" :disabled="codexCatalogOversized">{{ t('keys.useKeyModal.codexModelCatalog.remote') }}</option>
+            <option value="file">{{ t('keys.useKeyModal.codexModelCatalog.local') }}</option>
+          </select>
+          <p v-if="codexCatalogOversized" class="w-full text-sm text-amber-600">{{ t('keys.useKeyModal.codexModelCatalog.oversized') }}</p>
           <code class="min-w-0 basis-full break-all text-xs sm:flex-1">{{ codexCatalogPath }}</code>
           <button type="button" data-testid="codex-model-catalog-fetch" class="btn btn-secondary" :disabled="manifestState === 'loading' || !apiKey" @click="loadCodexCatalog">
             <Icon name="refresh" size="sm" :class="{ 'animate-spin': manifestState === 'loading' }" />
@@ -284,6 +289,7 @@ import Icon from '@/components/icons/Icon.vue'
 import { useClipboard } from '@/composables/useClipboard'
 import { useCodexModelManifest } from '@/composables/useCodexModelManifest'
 import { findCodexCatalogModel, formatCodexReasoningEffortTomlLine, selectCodexConfigReasoningEffort } from '@/utils/codexCatalogConfig'
+import { buildCodexModelCatalogUrl } from '@/api/codex'
 import {
   useTkUseKey,
   capabilityLabel,
@@ -377,6 +383,14 @@ const activeTab = ref<string>('unix')
 const activeClientTab = ref<string>('claude')
 const manifest = useCodexModelManifest(toRef(props, 'baseUrl'), toRef(props, 'apiKey'))
 const manifestState = manifest.state
+const codexCatalogMode = manifest.catalogMode
+const codexCatalogOversized = manifest.oversized
+const codexLocalCatalogToml = computed(() => codexCatalogMode.value === 'file'
+  ? 'model_catalog_json = "~/.codex/codex-models.json"\n'
+  : '')
+const codexRemoteCatalogToml = computed(() => codexCatalogMode.value === 'remote'
+  ? `model_catalog_url = "${buildCodexModelCatalogUrl(props.baseUrl)}"\n`
+  : '')
 const codexModels = computed<UseKeyServableModel[] | null>(() => manifest.models.value?.map(model => ({
   id: model.slug, capabilities: [], protocols: ['codex'],
 })) ?? null)
@@ -1228,14 +1242,13 @@ function generateOpenAIFiles(baseUrl: string, apiKey: string, model: string): Fi
 model = "${model}"
 review_model = "${model}"
 ${formatCodexReasoningEffortTomlLine(selectCodexConfigReasoningEffort(findCodexCatalogModel(manifest.content.value, model)))}disable_response_storage = true
-model_catalog_json = "~/.codex/codex-models.json"
-network_access = "enabled"
+${codexLocalCatalogToml.value}network_access = "enabled"
 windows_wsl_setup_acknowledged = true
 
 [model_providers.OpenAI]
 name = "OpenAI"
 base_url = "${baseUrl}"
-wire_api = "responses"
+${codexRemoteCatalogToml.value}wire_api = "responses"
 requires_openai_auth = true
 
 [features]
@@ -1268,14 +1281,13 @@ function generateOpenAIWsFiles(baseUrl: string, apiKey: string, model: string): 
 model = "${model}"
 review_model = "${model}"
 ${formatCodexReasoningEffortTomlLine(selectCodexConfigReasoningEffort(findCodexCatalogModel(manifest.content.value, model)))}disable_response_storage = true
-model_catalog_json = "~/.codex/codex-models.json"
-network_access = "enabled"
+${codexLocalCatalogToml.value}network_access = "enabled"
 windows_wsl_setup_acknowledged = true
 
 [model_providers.OpenAI]
 name = "OpenAI"
 base_url = "${baseUrl}"
-wire_api = "responses"
+${codexRemoteCatalogToml.value}wire_api = "responses"
 supports_websockets = true
 requires_openai_auth = true
 
@@ -1708,6 +1720,7 @@ function generateOpenCodeConfig(
     }
   }
   const claudeModels = {
+	'claude-sonnet-5-5': { name: 'Claude Sonnet 5.5', limit: { context: 1000000, output: 128000 }, modalities: { input: ['text', 'image', 'pdf'], output: ['text'] }, options: { thinking: { type: 'adaptive' }, effort: 'high' }, variants: { low: { effort: 'low' }, medium: { effort: 'medium' }, high: { effort: 'high' }, xhigh: { effort: 'xhigh' }, max: { effort: 'max' } } },
     'claude-opus-5-5': { name: 'Claude Opus 5.5', limit: { context: 1000000, output: 128000 }, modalities: { input: ['text', 'image', 'pdf'], output: ['text'] }, options: { thinking: { type: 'adaptive' }, effort: 'medium' }, variants: { low: { effort: 'low' }, medium: { effort: 'medium' }, high: { effort: 'high' }, xhigh: { effort: 'xhigh' }, max: { effort: 'max' } } },
     'claude-fable-5': {
       name: 'Claude Fable 5',
