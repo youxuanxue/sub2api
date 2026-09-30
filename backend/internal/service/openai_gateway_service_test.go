@@ -4172,3 +4172,24 @@ func TestHandleCompatErrorResponseCyberPolicyEarlyReturn(t *testing.T) {
 	require.NotContains(t, gotMsg, "Upstream request failed")
 	require.NotNil(t, GetOpsCyberPolicy(c))
 }
+
+func TestWriteOpenAINonStreamingProtocolErrorRecordsUpstreamAttribution(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Request-Id": []string{"upstream-req-1"}}}
+	account := &Account{ID: 23, Name: "oauth-23", Platform: PlatformOpenAI}
+
+	err := (&OpenAIGatewayService{}).writeOpenAINonStreamingProtocolError(resp, ctx, account, "invalid response envelope")
+	require.Error(t, err)
+	events, ok := ctx.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	eventList, ok := events.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, eventList, 1)
+	event := eventList[0]
+	require.Equal(t, int64(23), event.AccountID)
+	require.Equal(t, http.StatusBadGateway, event.UpstreamStatusCode)
+	require.Equal(t, "upstream-req-1", event.UpstreamRequestID)
+	require.Equal(t, "protocol_error", event.Kind)
+}
