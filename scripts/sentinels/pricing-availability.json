@@ -919,10 +919,11 @@
       "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
       "must_contain": [
         "var tkOpenAITextCompatibilityAliases = map[string]string{",
-        "\"gpt-6\": \"gpt-6-astra\"",
+        "\"gpt-6\":   \"gpt-6-astra\"",
+        "\"gpt-6.1\": \"gpt-6.1-sol\"",
         "tkOpenAITextCompatibilityAliases,"
       ],
-      "rationale": "OpenAI native floor folds public bare gpt-6 onto gpt-6-astra via tkOpenAITextCompatibilityAliases (alongside image aliases). Losing the map or its merge into openAICanonicalAccountModelMappingFloor would either drop the alias from identity floors or re-introduce bare gpt-6 as a catalog identity after GPT-6 Sol/Luna listing."
+      "rationale": "OpenAI native floor folds public bare gpt-6 onto gpt-6-astra and gpt-6.1 onto gpt-6.1-sol via tkOpenAITextCompatibilityAliases (alongside image aliases). Losing the map or its merge into openAICanonicalAccountModelMappingFloor would either drop the aliases from identity floors or re-introduce bare gpt-6 / gpt-6.1 as catalog identities after Sol/Luna/6.1 listing."
     }
   ]
 }

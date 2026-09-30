@@ -33,6 +33,8 @@ var DefaultModels = []Model{
 	{ID: "gpt-5.6-terra", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Terra"},
 	{ID: "gpt-5.6-luna", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Luna"},
 	{ID: "gpt-6-sol", Object: "model", Created: 1790035200, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Sol"},
+	{ID: "gpt-6.1-sol", Object: "model", Created: 1790640000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.1 Sol"},
+	{ID: "gpt-6.1", Object: "model", Created: 1790640000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.1 (Sol)"},
 	{ID: "gpt-6-luna", Object: "model", Created: 1790035200, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Luna"},
 	{ID: "gpt-6-astra", Object: "model", Created: 1788480000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Astra"},
 	{ID: "gpt-5.5", Object: "model", Created: 1776873600, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.5"},
@@ -167,6 +169,7 @@ func CanonicalizeOpenAIModelAliasSpelling(model string) string {
 
 // CodexBaseInstructionsForModel 按模型返回最匹配的真实 Codex base instructions：
 //   - gpt-6 / gpt-6-astra（含供应商前缀与日期变体）→ GPT-6 Astra prompt
+//   - gpt-6.1-sol → 最新 Codex prompt
 //   - gpt-6-sol / gpt-6-luna → 最新 Codex prompt（当前 GPT-5.5；尚无独立 Sol/Luna prompt）
 //   - 含 "codex" 的模型（gpt-5-codex / gpt-5.x-codex / codex-max / spark 等）→ GPT-5-Codex prompt
 //   - gpt-5.5 系非 codex 模型 → GPT-5.5 prompt
@@ -182,6 +185,8 @@ func CodexBaseInstructionsForModel(model string) string {
 		if v := strings.TrimSpace(instructionsGPT6Astra); v != "" {
 			return instructionsGPT6Astra
 		}
+	case IsGPT61SolModelSpelling(model):
+		return latestCodexInstructions()
 	case IsGPT6SolOrLunaModelSpelling(model):
 		return latestCodexInstructions()
 	case strings.Contains(canonical, "codex"):
@@ -218,4 +223,23 @@ func IsGPT6SolOrLunaModelSpelling(model string) bool {
 		}
 	}
 	return false
+}
+
+// IsGPT61SolModelSpelling recognizes gpt-6.1-sol and its effort/compact suffixes.
+// Official docs reject none/minimal; local effort suffixes still keep the wire id family.
+func IsGPT61SolModelSpelling(model string) bool {
+	canonical := CanonicalizeOpenAIModelAliasSpelling(model)
+	if canonical == "gpt-6.1" || canonical == "gpt-6.1-sol" {
+		return true
+	}
+	suffix, ok := strings.CutPrefix(canonical, "gpt-6.1-sol-")
+	if !ok {
+		return false
+	}
+	switch suffix {
+	case "low", "medium", "high", "xhigh", "max", "ultra", "openai-compact":
+		return true
+	default:
+		return false
+	}
 }

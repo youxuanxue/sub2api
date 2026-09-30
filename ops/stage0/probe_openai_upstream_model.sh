@@ -10,9 +10,9 @@ PROMPT_TEXT="${PROMPT_TEXT:-Reply OK only.}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-90}"
 UPSTREAM_URL="${UPSTREAM_URL:-https://chatgpt.com/backend-api/codex/responses}"
 # Defaults must match DefaultOpenAICodexVersion (setting_gateway_runtime.go).
-DEFAULT_CODEX_UA="codex-tui/0.158.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.158.0)"
+DEFAULT_CODEX_UA="codex-tui/0.159.2 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.159.2)"
 CODEX_USER_AGENT="${CODEX_USER_AGENT:-$DEFAULT_CODEX_UA}"
-CODEX_VERSION="${CODEX_VERSION:-0.158.0}"
+CODEX_VERSION="${CODEX_VERSION:-0.159.2}"
 
 PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
 

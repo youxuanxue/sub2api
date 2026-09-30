@@ -15007,33 +15007,42 @@
         "\"gpt-6\":             \"gpt-6-astra\"",
         "\"gpt-6-sol\":           \"gpt-6-sol\"",
         "\"gpt-6-luna\":          \"gpt-6-luna\"",
+        "\"gpt-6.1-sol\":         \"gpt-6.1-sol\"",
+        "\"gpt-6.1\":             \"gpt-6.1-sol\"",
+        "{prefix: \"gpt-6.1-sol\", target: \"gpt-6.1-sol\"}",
+        "{prefix: \"gpt-6.1\", target: \"gpt-6.1-sol\"}",
         "{prefix: \"gpt-6\", target: \"gpt-6-astra\"}"
       ],
-      "rationale": "Codex wire entitlement: bare gpt-6 remaps to Astra; Sol/Luna keep explicit identity rows and longer prefixes win over bare gpt-6. An upstream rewrite of codexModelMap / codexVersionModelPrefixes could silently drop Sol/Luna listing remaps or restore bare gpt-6 as a first-class wire id."
+      "rationale": "Codex wire entitlement: bare gpt-6 remaps to Astra; Sol/Luna/6.1-Sol keep explicit identity rows and longer prefixes (incl. gpt-6.1*) win over bare gpt-6. An upstream rewrite of codexModelMap / codexVersionModelPrefixes could silently drop Sol/Luna/6.1 listing remaps or restore bare gpt-6 as a first-class wire id."
     },
     {
       "path": "backend/internal/service/billing_service_test.go",
       "must_contain": [
         "{\"gpt-6-sol\", 2e-6, 10e-6, 2.5e-6, 0.2e-6}",
+        "{\"gpt-6.1-sol\", 2e-6, 10e-6, 2.5e-6, 0.1e-6}",
         "{\"gpt-6-luna\", 0.1e-6, 0.5e-6, 0.125e-6, 0.01e-6}"
       ],
-      "rationale": "Focused regression pins official GPT-6 Sol/Luna token rates ($2/$10 and $0.10/$0.50 per MTok) across catalog + legacy fallback billing paths, including long-context multipliers. Dropping these fixtures would allow registry/price drift without a failing unit test."
+      "rationale": "Focused regression pins official GPT-6 Sol/Luna/6.1-Sol token rates ($2/$10 Sol family and $0.10/$0.50 Luna per MTok; 6.1-Sol cache-read $0.10/MTok) across catalog + legacy fallback billing paths, including long-context multipliers. Dropping these fixtures would allow registry/price drift without a failing unit test."
     },
     {
       "path": "backend/internal/service/billing_service_tk_registry_alias_test.go",
       "must_contain": [
         "func TestGPT6PublicAliasBillsAstraOwner(",
-        "gpt-6 must be overlay _aliases → gpt-6-astra (SSOT)"
+        "func TestGPT61PublicAliasBillsSolOwner(",
+        "gpt-6 must be overlay _aliases → gpt-6-astra (SSOT)",
+        "gpt-6.1 must be overlay _aliases → gpt-6.1-sol (SSOT)"
       ],
-      "rationale": "Public gpt-6 must bill the Astra registry owner via overlay _aliases (not a duplicate price row and not family-floor). Losing this test lets bare gpt-6 settlement silently fall through to wrong owners after modelops/catalog churn."
+      "rationale": "Public gpt-6 must bill the Astra registry owner and public gpt-6.1 must bill gpt-6.1-sol via overlay _aliases (not duplicate price rows and not family-floor). Losing these tests lets bare aliases settle on wrong owners after modelops/catalog churn."
     },
     {
       "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
       "must_contain": [
         "var tkOpenAITextCompatibilityAliases = map[string]string{",
-        "\"gpt-6\": \"gpt-6-astra\""
+        "\"gpt-6\":   \"gpt-6-astra\"",
+        "\"gpt-6.1\": \"gpt-6.1-sol\"",
+        "tkOpenAITextCompatibilityAliases,"
       ],
-      "rationale": "Floor SSOT companion for gpt-6→Astra text alias (pairs with pricing-availability sentinel). Prevents upstream-shaped mapping helpers from dropping the alias while Sol/Luna catalog rows remain."
+      "rationale": "Floor SSOT companion for gpt-6→Astra and gpt-6.1→gpt-6.1-sol text aliases (pairs with pricing-availability sentinel). Prevents upstream-shaped mapping helpers from dropping the aliases while Sol/Luna/6.1 catalog rows remain."
     },
     {
       "path": "backend/internal/handler/gateway_models_test.go",

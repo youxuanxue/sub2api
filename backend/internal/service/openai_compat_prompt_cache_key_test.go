@@ -34,13 +34,16 @@ func TestShouldAutoInjectPromptCacheKeyForCompat_GPT6AstraForms(t *testing.T) {
 		"openai/gpt-6-astra",
 		"OPENAI/GPT-6_ASTRA",
 		"provider/gpt-6-astra",
+		"gpt-6.1",
+		"gpt-6.1-sol",
+		"openai/gpt-6.1-sol",
 	} {
 		require.True(t, shouldAutoInjectPromptCacheKeyForCompat(model), model)
 	}
 
 	for _, model := range []string{
 		"gpt-6-terra",
-		"gpt-6.1",
+		"gpt-6.1-preview",
 		"gpt-6-astra-preview",
 		"gpt-6-astra-unrelated-name",
 		"gpt-6-astra-2026-09-01",
