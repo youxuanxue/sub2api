@@ -7,7 +7,8 @@ export function supportsMessagesDispatchPlatform(platform: string): boolean {
     platform === "openai" ||
     platform === "composite" ||
     platform === "grok" ||
-    platform === "newapi"
+    platform === "newapi" ||
+    platform === "antigravity"
   );
 }
 

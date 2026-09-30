@@ -13,7 +13,7 @@ import (
 // 2026-05-06 update: gemini was added to the keep-set so platform=gemini
 // groups can use the same Claude→upstream mapping form as openai/newapi
 // (see openai_messages_dispatch_tk_newapi.go tkGroupKeepsDispatchConfig
-// docstring). Anthropic and antigravity remain in the clear-set.
+// docstring). Antigravity retains permission only; Anthropic still clears both.
 
 func nonzeroDispatchConfig() OpenAIMessagesDispatchModelConfig {
 	return OpenAIMessagesDispatchModelConfig{
@@ -75,7 +75,7 @@ func TestUS009_Sanitize_NewAPIGroup_Preserves(t *testing.T) {
 	assertDispatchPreserved(t, g)
 }
 
-// US-009 AC-002 — anthropic / gemini / antigravity must still be cleared.
+// Anthropic still clears dispatch configuration.
 
 func TestUS009_Sanitize_AnthropicGroup_Cleared(t *testing.T) {
 	g := newGroupWithDispatchConfig(PlatformAnthropic)
@@ -95,10 +95,21 @@ func TestSanitize_GeminiGroup_Preserved(t *testing.T) {
 	assertDispatchPreserved(t, g)
 }
 
-func TestUS009_Sanitize_AntigravityGroup_Cleared(t *testing.T) {
-	g := newGroupWithDispatchConfig(PlatformAntigravity)
-	sanitizeGroupMessagesDispatchFields(g)
-	assertDispatchCleared(t, g)
+func TestSanitize_AntigravityGroup_PermissionOnly(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		g := newGroupWithDispatchConfig(PlatformAntigravity)
+		g.AllowMessagesDispatch = enabled
+		sanitizeGroupMessagesDispatchFields(g)
+		if g.AllowMessagesDispatch != enabled {
+			t.Fatalf("permission changed: want %v, got %v", enabled, g.AllowMessagesDispatch)
+		}
+		if err := validateGroupMessagesDispatchModelConfig(g); err != nil {
+			t.Fatal(err)
+		}
+		// AG accepts the permission without introducing Claude-to-GPT substitutions.
+		g.AllowMessagesDispatch = false
+		assertDispatchCleared(t, g)
+	}
 }
 
 // US-009 AC-003 / US-015 AC-004 — openai group regression baseline.

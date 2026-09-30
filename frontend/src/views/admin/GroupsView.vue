@@ -1630,25 +1630,12 @@
           </p>
         </div>
 
-        <!-- OpenAI Messages 调度配置（OpenAI 与 Composite 平台） -->
+        <!-- Messages 协议转换权限与可选模型映射 -->
         <div
           v-if="supportsMessagesDispatchPlatform(createForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
-          <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-            {{ t("admin.groups.openaiMessages.title") }}
-          </h4>
-
-          <!-- 允许 Messages 调度开关 -->
-          <div class="flex items-center justify-between">
-            <label class="text-sm text-gray-600 dark:text-gray-400">{{
-              t("admin.groups.openaiMessages.allowDispatch")
-            }}</label>
-            <Toggle v-model="createForm.allow_messages_dispatch" />
-          </div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {{ t("admin.groups.openaiMessages.allowDispatchHint") }}
-          </p>
+          <GroupMessagesDispatchToggle v-model="createForm.allow_messages_dispatch" />
 
           <div
             v-if="
@@ -3280,25 +3267,12 @@
           </p>
         </div>
 
-        <!-- OpenAI Messages 调度配置（OpenAI 与 Composite 平台） -->
+        <!-- Messages 协议转换权限与可选模型映射 -->
         <div
           v-if="supportsMessagesDispatchPlatform(editForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
-          <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-            {{ t("admin.groups.openaiMessages.title") }}
-          </h4>
-
-          <!-- 允许 Messages 调度开关 -->
-          <div class="flex items-center justify-between">
-            <label class="text-sm text-gray-600 dark:text-gray-400">{{
-              t("admin.groups.openaiMessages.allowDispatch")
-            }}</label>
-            <Toggle v-model="editForm.allow_messages_dispatch" />
-          </div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {{ t("admin.groups.openaiMessages.allowDispatchHint") }}
-          </p>
+          <GroupMessagesDispatchToggle v-model="editForm.allow_messages_dispatch" />
 
           <div
             v-if="
@@ -4342,6 +4316,7 @@ import { createStableObjectKeyResolver } from "@/utils/stableObjectKey";
 import { extractApiErrorMessage } from "@/utils/apiError";
 import { useKeyedDebouncedSearch } from "@/composables/useKeyedDebouncedSearch";
 import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
+import GroupMessagesDispatchToggle from "@/components/admin/GroupMessagesDispatchToggle.vue";
 import {
   createDefaultMessagesDispatchFormState,
   messagesDispatchConfigToFormState,
