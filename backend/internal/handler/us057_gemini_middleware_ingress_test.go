@@ -178,10 +178,12 @@ func TestUS057_GeminiOpenAICompatMiddlewareIngressUsesAdmittedPlan(t *testing.T)
 						}
 						require.Equal(t, "/v1beta/models/"+model+":"+action, gotPath)
 						require.Equal(t, "web-test-key", gotKey)
-						if scenario == "generic" {
+						if scenario == "generic" && !generateImage {
 							require.Equal(t, int64(128), gjson.GetBytes(gotBody, "generationConfig.maxOutputTokens").Int(), "generic Gemini preserves the requested budget")
 						} else {
-							require.False(t, gjson.GetBytes(gotBody, "generationConfig.maxOutputTokens").Exists(), "Web execution must use the admitted effective request")
+							// Web strips token limits; image models omit maxOutputTokens so a
+							// Chat/Messages budget cannot starve cloudcode-pa image_gen.
+							require.False(t, gjson.GetBytes(gotBody, "generationConfig.maxOutputTokens").Exists(), "Web/image execution must not forward a starving maxOutputTokens budget")
 						}
 						require.Equal(t, "Draw a small red apple", gjson.GetBytes(gotBody, "contents.0.parts.0.text").String())
 						require.Contains(t, rec.Body.String(), "GEMINI_OK")

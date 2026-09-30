@@ -33,6 +33,23 @@ func TestAntigravityGatewayService_WrapNativeImageRequestUsesImageGenEnvelope(t 
 	require.Equal(t, map[string]any{"imageSize": "2K"}, gen["imageConfig"])
 }
 
+func TestAntigravityGatewayService_WrapNativeImageRequestOmitsMaxOutputTokens(t *testing.T) {
+	svc := &AntigravityGatewayService{}
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"draw"}]}],"generationConfig":{"maxOutputTokens":32}}`)
+
+	wrappedBody, err := svc.wrapV1InternalRequest("project-image", "gemini-3.1-flash-image", body)
+	require.NoError(t, err)
+	var wrapped map[string]any
+	require.NoError(t, json.Unmarshal(wrappedBody, &wrapped))
+	request, ok := wrapped["request"].(map[string]any)
+	require.True(t, ok)
+	gen, ok := request["generationConfig"].(map[string]any)
+	require.True(t, ok)
+	_, hasMax := gen["maxOutputTokens"]
+	require.False(t, hasMax, "image models must not carry chat max_tokens as maxOutputTokens")
+	require.Equal(t, []any{"TEXT", "IMAGE"}, gen["responseModalities"])
+}
+
 func TestAntigravityGatewayService_WrapNativeImageRequestPreservesExistingModalities(t *testing.T) {
 	svc := &AntigravityGatewayService{}
 	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"draw a cat"}]}],"generationConfig":{"responseModalities":["IMAGE"],"imageConfig":{"aspectRatio":"16:9"}}}`)

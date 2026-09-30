@@ -92,6 +92,7 @@ func newAntigravityCompatAccount(accountType string) *Account {
 			"project_id":   "project-3757",
 			"model_mapping": map[string]any{
 				"gemini-3.1-pro-high":      "gemini-3.1-pro-high",
+				"gemini-3.1-flash-image":   "gemini-3.1-flash-image",
 				"claude-sonnet-4-5":        "claude-sonnet-4-5",
 				"claude-sonnet-4-6":        "claude-sonnet-4-6",
 				"claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
@@ -937,4 +938,90 @@ func TestAntigravityMessagesClaudeFamilyKeepsTransformWire(t *testing.T) {
 	opsBody, ok := opsRaw.([]byte)
 	require.True(t, ok)
 	require.Equal(t, posted, opsBody)
+}
+
+func antigravityCompatImageSuccessResponse() *http.Response {
+	body := `data: {"response":{"responseId":"resp_img","candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"aGVsbG8="}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":3}}}` + "\n\n"
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+			"X-Request-Id": []string{"request-img"},
+		},
+		Body: io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func TestAntigravityChatImageModelOmitsMaxOutputTokens(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{antigravityCompatImageSuccessResponse()}}
+	svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
+	body := []byte(`{"model":"gemini-3.1-flash-image","max_tokens":32,"messages":[{"role":"user","content":"draw a red square"}]}`)
+	c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/chat/completions", body)
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, newAntigravityCompatAccount(AccountTypeOAuth), body, nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Equal(t, 1, result.ImageCount)
+	require.Contains(t, recorder.Body.String(), "data:image/png;base64,aGVsbG8=")
+	require.Len(t, upstream.requestBodies, 1)
+	posted := upstream.requestBodies[0]
+	require.Equal(t, "image_gen", gjson.GetBytes(posted, "requestType").String())
+	require.False(t, gjson.GetBytes(posted, "request.generationConfig.maxOutputTokens").Exists(),
+		"chat max_tokens must not starve image_gen as maxOutputTokens")
+	mods := gjson.GetBytes(posted, "request.generationConfig.responseModalities")
+	require.True(t, mods.Exists())
+	require.Contains(t, mods.Raw, "IMAGE")
+}
+
+func TestAntigravityChatImageModelEmptyFailsClosedWithoutBilling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	// Text-only upstream vacuum: modalities present but no inlineData.
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{antigravityCompatSuccessResponse()}}
+	svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
+	body := []byte(`{"model":"gemini-3.1-flash-image","max_tokens":32,"messages":[{"role":"user","content":"draw a cat"}]}`)
+	c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/chat/completions", body)
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, newAntigravityCompatAccount(AccountTypeOAuth), body, nil)
+	require.Error(t, err)
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.True(t, failover.RetryableOnSameAccount)
+	if result != nil {
+		require.Equal(t, 0, result.ImageCount)
+	}
+	require.NotContains(t, recorder.Body.String(), `"object":"chat.completion"`)
+}
+
+func TestAntigravityChatImageModelStreamObservesAndBillsImage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{antigravityCompatImageSuccessResponse()}}
+	svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
+	body := []byte(`{"model":"gemini-3.1-flash-image","stream":true,"max_tokens":32,"messages":[{"role":"user","content":"draw a red square"}]}`)
+	c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/chat/completions", body)
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, newAntigravityCompatAccount(AccountTypeOAuth), body, nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+	require.Equal(t, 1, result.ImageCount)
+	require.Contains(t, recorder.Body.String(), "data:image/png;base64,aGVsbG8=")
+	require.Contains(t, recorder.Body.String(), "data: [DONE]")
+}
+
+func TestAntigravityChatImageModelStreamEmptyFailsClosedWithoutBilling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{antigravityCompatSuccessResponse()}}
+	svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
+	body := []byte(`{"model":"gemini-3.1-flash-image","stream":true,"max_tokens":32,"messages":[{"role":"user","content":"draw a cat"}]}`)
+	c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/chat/completions", body)
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, newAntigravityCompatAccount(AccountTypeOAuth), body, nil)
+	require.Error(t, err)
+	require.ErrorIs(t, err, errGeminiImageModelEmpty)
+	require.NotNil(t, result)
+	require.Equal(t, 0, result.ImageCount)
+	// Headers may already be committed; billing must still see ImageCount=0.
+	require.Contains(t, recorder.Body.String(), "data: [DONE]")
 }

@@ -29,7 +29,7 @@ func TestAntigravityGeminiCollectPreservesEarlyToolsAndThinking(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest("POST", "/test", nil)
-	result, err := newAntigravityTestService(&config.Config{}).handleGeminiStreamToNonStreaming(c, &http.Response{Body: io.NopCloser(strings.NewReader(wire.String()))}, time.Now())
+	result, err := newAntigravityTestService(&config.Config{}).handleGeminiStreamToNonStreaming(c, &http.Response{Body: io.NopCloser(strings.NewReader(wire.String()))}, time.Now(), "gemini-3.8-flash")
 	require.NoError(t, err)
 	require.Equal(t, 11, result.usage.InputTokens)
 	require.Equal(t, "STOP", gjson.GetBytes(rec.Body.Bytes(), "candidates.0.finishReason").String())
