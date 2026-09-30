@@ -454,11 +454,14 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 	return req, nil
 }
 
+// shouldPassOpenAIImagesN reports whether tools[].n may be sent on ChatGPT
+// Codex Responses image_generation. Live chatgpt.com (2026-09-30, gpt125 /
+// v1.8.266) rejects tools[0].n with unknown_parameter; n>1 is fulfilled by
+// TokenKey multi-fetch instead (see handleOpenAIImagesOAuthNonStreamingMulti).
 func shouldPassOpenAIImagesN(model string, n int) bool {
-	if n <= 1 {
-		return false
-	}
-	return !strings.EqualFold(strings.TrimSpace(model), "dall-e-3")
+	_ = model
+	_ = n
+	return false
 }
 
 func extractOpenAIImagesFromResponsesCompleted(payload []byte) ([]openAIResponsesImageResult, int64, []byte, openAIResponsesImageResult, error) {
@@ -1850,12 +1853,12 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		return nil, err
 	}
 	direct := usesCodexDirectImages(upstreamModel) && !isOpenAIImagesForceResponses(ctx)
-	if direct && parsed.Stream && parsed.N > 1 {
+	if parsed.Stream && parsed.N > 1 {
 		err := &OpenAIImagesUpstreamError{
 			StatusCode: http.StatusBadRequest,
 			ErrorType:  "invalid_request_error",
 			Code:       "unsupported_parameter",
-			Message:    "stream=true with n>1 is not supported for Codex Direct images; use n=1 or omit stream so TokenKey can multi-fetch",
+			Message:    "stream=true with n>1 is not supported for OAuth images; use n=1 or omit stream so TokenKey can multi-fetch",
 		}
 		writeOpenAIImagesUpstreamErrorResponse(c, err)
 		return nil, err
@@ -2037,6 +2040,10 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 			} else {
 				usage, imageCount, imageOutputSizes, err = s.handleCodexDirectImagesNonStreamingResponse(resp, c, parsed)
 			}
+		} else if parsed.N > 1 {
+			usage, imageCount, imageOutputSizes, err = s.handleOpenAIImagesOAuthNonStreamingMulti(
+				upstreamCtx, c, account, parsed, token, proxyURL, resp, upstreamModel, requestModel,
+			)
 		} else {
 			usage, imageCount, imageOutputSizes, err = s.handleOpenAIImagesOAuthNonStreamingResponse(resp, c, parsed.ResponseFormat, requestModel, parsed)
 		}

@@ -47,7 +47,7 @@ func TestCodexDirectImagesMultipartEdit(t *testing.T) {
 	require.Equal(t, "xhigh", gjson.GetBytes(upstreamBody, "tools.0.quality").String())
 	require.Equal(t, "high", gjson.GetBytes(upstreamBody, "tools.0.input_fidelity").String())
 	require.Equal(t, "webp", gjson.GetBytes(upstreamBody, "tools.0.output_format").String())
-	require.EqualValues(t, 2, gjson.GetBytes(upstreamBody, "tools.0.n").Int())
+	require.False(t, gjson.GetBytes(upstreamBody, "tools.0.n").Exists())
 	require.EqualValues(t, 75, gjson.GetBytes(upstreamBody, "tools.0.output_compression").Int())
 	require.EqualValues(t, 2, gjson.GetBytes(upstreamBody, "tools.0.partial_images").Int())
 	require.Len(t, gjson.GetBytes(upstreamBody, "input.0.content").Array(), 3) // text + 2 images
