@@ -1282,8 +1282,8 @@ func ProvideChannelMonitorV2Aggregator(repo ChannelMonitorV2Repository, db *sql.
 
 // ProvideClaudeResetCreditService wires the Claude reset query and, with the
 // idempotency store and Redis leases, manual redemption.
-func ProvideClaudeResetCreditService(accounts AccountRepository, tokens *ClaudeTokenProvider, proxies ProxyRepository, settings *SettingService, idem *IdempotencyCoordinator, locks LeaderLockCache) *ClaudeResetCreditService {
-	s := NewClaudeResetCreditService(accounts, tokens, proxies, settings)
+func ProvideClaudeResetCreditService(accounts AccountRepository, tokens *ClaudeTokenProvider, proxies ProxyRepository, tlsProfiles *TLSFingerprintProfileService, upstream HTTPUpstream, idem *IdempotencyCoordinator, locks LeaderLockCache) *ClaudeResetCreditService {
+	s := NewClaudeResetCreditService(accounts, tokens, proxies, tlsProfiles, upstream)
 	s.ConfigureRedemption(idem, locks)
 	return s
 }

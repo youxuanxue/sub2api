@@ -142,11 +142,11 @@ func (s *ClaudeResetCreditService) redeemOnce(ctx context.Context, id int64, ope
 		return nil, err
 	}
 	defer release()
-	_, token, proxy, err := s.account(ctx, id)
+	account, token, proxy, err := s.account(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	org, err := s.organization(ctx, token, proxy)
+	org, err := s.organization(ctx, account, token, proxy)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +181,7 @@ func (s *ClaudeResetCreditService) redeemOnce(ctx context.Context, id int64, ope
 
 	// Fresh eligibility check right before the irreversible call; the server alone
 	// picks the grant, and only the upstream next grant can qualify.
-	block, err := s.fetchBlock(ctx, token, proxy)
+	block, err := s.fetchBlock(ctx, account, token, proxy)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +204,7 @@ func (s *ClaudeResetCreditService) redeemOnce(ctx context.Context, id int64, ope
 	if err = s.persistFence(ctx, fence.ID, marker); err != nil {
 		return nil, err
 	}
-	outcome := s.claim(ctx, token, proxy, org, grant.ID, operation)
+	outcome := s.claim(ctx, account, token, proxy, org, grant.ID, operation)
 	marker.Outcome, marker.Reason = outcome.Outcome, outcome.Reason
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	persistErr := s.persistFence(persistCtx, fence.ID, marker)
@@ -213,7 +213,7 @@ func (s *ClaudeResetCreditService) redeemOnce(ctx context.Context, id int64, ope
 		return &ClaudeResetOutcome{Outcome: ClaudeResetOutcomeUnknown, Reason: "result_persistence_failed"}, nil
 	}
 	if outcome.Outcome != ClaudeResetOutcomeUnknown {
-		if fresh, e := s.fetchBlock(ctx, token, proxy); e == nil {
+		if fresh, e := s.fetchBlock(ctx, account, token, proxy); e == nil {
 			outcome.Credits = projectClaudeResetCredits(fresh, s.now())
 		}
 	}
@@ -251,13 +251,15 @@ func (s *ClaudeResetCreditService) persistFence(ctx context.Context, id int64, m
 	return nil
 }
 
-func (s *ClaudeResetCreditService) organization(ctx context.Context, token, proxy string) (string, error) {
+func (s *ClaudeResetCreditService) organization(ctx context.Context, account *Account, token, proxy string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, claudeResetProfileURL, nil)
 	if err != nil {
 		return "", err
 	}
 	s.headers(ctx, req, token)
-	resp, err := s.do(req, proxy)
+	resp, err := s.doForAccount(req, proxy, account)
 	if err != nil {
 		return "", infraerrors.ServiceUnavailable("CLAUDE_RESET_PROFILE_FAILED", "OAuth profile unavailable")
 	}
@@ -279,7 +281,9 @@ func (s *ClaudeResetCreditService) organization(ctx context.Context, token, prox
 
 // claim sends the single irreversible request. Anything but a well-formed, known
 // result is reported as unknown so the fence blocks a blind retry.
-func (s *ClaudeResetCreditService) claim(ctx context.Context, token, proxy, org, grantID, operation string) *ClaudeResetOutcome {
+func (s *ClaudeResetCreditService) claim(ctx context.Context, account *Account, token, proxy, org, grantID, operation string) *ClaudeResetOutcome {
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
 	unknown := &ClaudeResetOutcome{Outcome: ClaudeResetOutcomeUnknown, Reason: "claim_unconfirmed"}
 	// Deterministic per confirmation (64 hex chars, matches ^[A-Za-z0-9_-]{1,64}$).
 	body, err := json.Marshal(map[string]string{"program": "cedar_ember", "grant_id": grantID, "request_id": operation})
@@ -291,7 +295,7 @@ func (s *ClaudeResetCreditService) claim(ctx context.Context, token, proxy, org,
 		return unknown
 	}
 	s.headers(ctx, req, token)
-	resp, err := s.do(req, proxy)
+	resp, err := s.doForAccount(req, proxy, account)
 	if err != nil {
 		return unknown
 	}

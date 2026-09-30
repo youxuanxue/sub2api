@@ -9,6 +9,14 @@ import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatfo
 import { apiBackedPlatforms } from '../useServableModels'
 
 describe('useModelWhitelist', () => {
+  it('exposes one GPT-6.1 Sol mapping action with the TokenKey preset', () => {
+    const presets = getPresetMappingsByPlatform('openai')
+    expect(presets.filter(preset => preset.from === 'gpt-6.1-sol')).toEqual([
+      expect.objectContaining({ label: 'GPT-6.1 Sol', from: 'gpt-6.1-sol', to: 'gpt-6.1-sol', color: expect.stringContaining('bg-rose-100') })
+    ])
+    expect(new Set(presets.map(preset => `${preset.from}:${preset.to}`)).size).toBe(presets.length)
+  })
+
   it('keeps GPT-6 and Astra mapping presets', () => {
     expect(getPresetMappingsByPlatform('openai')).toEqual(expect.arrayContaining([
       expect.objectContaining({ from: 'gpt-6', to: 'gpt-6' }),

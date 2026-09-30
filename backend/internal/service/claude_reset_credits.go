@@ -70,20 +70,21 @@ type claudeResetTokens interface {
 }
 
 type ClaudeResetCreditService struct {
-	accounts claudeResetAccounts
-	tokens   claudeResetTokens
-	proxies  ProxyRepository
-	settings *SettingService
-	do       func(*http.Request, string) (*http.Response, error)
-	now      func() time.Time
+	accounts    claudeResetAccounts
+	tokens      claudeResetTokens
+	proxies     ProxyRepository
+	tlsProfiles *TLSFingerprintProfileService
+	upstream    HTTPUpstream
+	do          func(*http.Request, string) (*http.Response, error)
+	now         func() time.Time
 
 	// Redemption only; both are mandatory and never fail open.
 	idempotency *IdempotencyCoordinator
 	locks       LeaderLockCache
 }
 
-func NewClaudeResetCreditService(accounts AccountRepository, tokens *ClaudeTokenProvider, proxies ProxyRepository, settings *SettingService) *ClaudeResetCreditService {
-	s := &ClaudeResetCreditService{accounts: accounts, tokens: tokens, proxies: proxies, settings: settings, now: time.Now}
+func NewClaudeResetCreditService(accounts AccountRepository, tokens *ClaudeTokenProvider, proxies ProxyRepository, tlsProfiles *TLSFingerprintProfileService, upstream HTTPUpstream) *ClaudeResetCreditService {
+	s := &ClaudeResetCreditService{accounts: accounts, tokens: tokens, proxies: proxies, tlsProfiles: tlsProfiles, upstream: upstream, now: time.Now}
 	s.do = func(req *http.Request, proxy string) (*http.Response, error) {
 		client, err := httpclient.GetClient(httpclient.Options{ProxyURL: proxy, Timeout: 25 * time.Second, ValidateResolvedIP: true})
 		if err != nil {
@@ -95,6 +96,19 @@ func NewClaudeResetCreditService(accounts AccountRepository, tokens *ClaudeToken
 		return isolated.Do(req)
 	}
 	return s
+}
+
+func (s *ClaudeResetCreditService) doForAccount(req *http.Request, proxy string, account *Account) (*http.Response, error) {
+	if s.tlsProfiles != nil {
+		if profile := s.tlsProfiles.ResolveTLSProfile(account); profile != nil {
+			if s.upstream == nil {
+				return nil, infraerrors.ServiceUnavailable("CLAUDE_RESET_TRANSPORT_UNAVAILABLE", "account TLS transport unavailable")
+			}
+			ctx := WithHTTPUpstreamPublicHostsOnly(WithHTTPUpstreamRedirectsDisabled(req.Context()))
+			return s.upstream.DoWithTLS(req.WithContext(ctx), proxy, account.ID, 0, profile)
+		}
+	}
+	return s.do(req, proxy)
 }
 
 func (s *ClaudeResetCreditService) account(ctx context.Context, id int64) (*Account, string, string, error) {
@@ -135,15 +149,15 @@ func (s *ClaudeResetCreditService) headers(ctx context.Context, req *http.Reques
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
 	req.Header.Set("x-app", "cli")
-	req.Header.Set("User-Agent", "claude-cli/"+s.settings.GetClaudeCodeClientVersion(ctx)+" (external, cli)")
+	req.Header.Set("User-Agent", GetCanonicalUserAgentForContext(ctx))
 }
 
 func (s *ClaudeResetCreditService) query(ctx context.Context, id int64) (*ClaudeResetCredits, error) {
-	_, token, proxy, err := s.account(ctx, id)
+	account, token, proxy, err := s.account(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	block, err := s.fetchBlock(ctx, token, proxy)
+	block, err := s.fetchBlock(ctx, account, token, proxy)
 	if err != nil {
 		return nil, err
 	}
@@ -152,13 +166,15 @@ func (s *ClaudeResetCreditService) query(ctx context.Context, id int64) (*Claude
 
 // fetchBlock returns the raw cedar_ember block (nil when absent). It carries grant
 // IDs, so it must never leave the service.
-func (s *ClaudeResetCreditService) fetchBlock(ctx context.Context, token, proxy string) (*claudeResetBlock, error) {
+func (s *ClaudeResetCreditService) fetchBlock(ctx context.Context, account *Account, token, proxy string) (*claudeResetBlock, error) {
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, claudeResetUsageURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	s.headers(ctx, req, token)
-	resp, err := s.do(req, proxy)
+	resp, err := s.doForAccount(req, proxy, account)
 	if err != nil {
 		return nil, infraerrors.ServiceUnavailable("CLAUDE_RESET_QUERY_FAILED", "reset status request failed")
 	}

@@ -3,6 +3,31 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/claude_reset_credits.go",
+      "must_contain": ["req.Header.Set(\"User-Agent\", GetCanonicalUserAgentForContext(ctx))", "s.tlsProfiles.ResolveTLSProfile(account)", "WithHTTPUpstreamPublicHostsOnly(WithHTTPUpstreamRedirectsDisabled(req.Context()))", "s.upstream.DoWithTLS(req.WithContext(ctx), proxy, account.ID, 0, profile)", "s.doForAccount(req, proxy, account)"],
+      "rationale": "Claude reset queries reuse the account TLS and canonical UA owners without leaking credentials to redirects or downgrading failed fingerprint transports."
+    },
+    {
+      "path": "backend/internal/service/claude_reset_redeem.go",
+      "must_contain": ["s.organization(ctx, account, token, proxy)", "s.claim(ctx, account, token, proxy, org, grant.ID, operation)", "s.doForAccount(req, proxy, account)"],
+      "rationale": "Profile reads and irreversible claims retain the same account identity as status queries."
+    },
+    {
+      "path": "backend/internal/service/claude_reset_transport_tk_test.go",
+      "must_contain": ["TestClaudeResetUsesCanonicalUserAgentOwner", "TestClaudeResetAccountTLSTransportAndSafety", "TestClaudeResetTLSFailureDoesNotDowngradeTransport"],
+      "rationale": "Reset transport semantic regressions must survive upstream refactors."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_responses.go",
+      "must_contain": ["defer inflightRelease()\n\trequestCtx = c.Request.Context()"],
+      "rationale": "Responses must retain the reservation-bearing context when attaching protocol routing so asynchronous billing holds survive handler return."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_responses_ingress_test.go",
+      "must_contain": ["TestGatewayResponsesRetainsInflightReservationUntilAsyncUsageCompletes"],
+      "rationale": "Full-handler streaming and buffered regressions protect reservation handoff to queued billing from upstream context reconstruction."
+    },
+    {
       "path": "backend/internal/handler/gateway_inflight_reservation.go",
       "must_contain": ["c.GetBool(tkHoldLifecycleKey)", "service.ReserveCandidateInflight("],
       "rationale": "Do not double-reserve persisted TokenKey holds or bypass candidate-origin reservation rebinding."

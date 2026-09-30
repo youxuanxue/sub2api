@@ -51,3 +51,52 @@ for (const width of [1440, 390]) {
     await page.screenshot({ path: test.info().outputPath('risk-allowlist.png'), fullPage: true })
   })
 }
+
+for (const width of [1440, 390]) {
+  test(`OpenAI editor keeps one TokenKey GPT-6.1 mapping preset at ${width}px`, async ({ page }) => {
+    test.setTimeout(60_000)
+    await page.setViewportSize({ width, height: 900 })
+    const admin = { id: 1, role: 'admin', email: 'merge@tokenkey.test', balance: 10, status: 'active', onboarding_tour_seen_at: '2026-09-30T00:00:00Z' }
+    const account = { id: 62, name: 'Merge OpenAI fixture', platform: 'openai', type: 'apikey', status: 'active', schedulable: true, concurrency: 1, priority: 1, group_ids: [], credentials: { base_url: 'https://provider.example.test', model_mapping: {} }, credentials_status: { has_api_key: true }, extra: {} }
+    let saved: Record<string, unknown> | undefined
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(error.message))
+    await page.addInitScript(user => {
+      localStorage.setItem('auth_token', 'merge-preset-test')
+      localStorage.setItem('auth_user', JSON.stringify(user))
+      localStorage.setItem('tokenkey_locale', 'en')
+      localStorage.setItem('locale', 'en')
+      localStorage.setItem('admin_guide_1_admin_v4_interactive', 'true')
+    }, admin)
+    await page.route('https://**', route => route.abort())
+    await page.route('**/setup/status', route => route.fulfill({ json: { code: 0, data: { needs_setup: false } } }))
+    await page.route('**/api/v1/**', async route => {
+      const request = route.request()
+      const requestPath = new URL(request.url()).pathname
+      let data: unknown = {}
+      if (requestPath === '/api/v1/auth/me') data = admin
+      else if (requestPath === '/api/v1/settings/public') data = { site_name: 'TokenKey', custom_menu_items: [] }
+      else if (requestPath === '/api/v1/admin/accounts') data = { items: [account], total: 1, page: 1, page_size: 20, pages: 1 }
+      else if (requestPath === '/api/v1/admin/accounts/62') {
+        if (request.method() === 'PUT') saved = request.postDataJSON()
+        data = { ...account, ...saved }
+      } else if (requestPath.endsWith('/all') || requestPath.includes('/model-mapping-presets')) data = []
+      else if (requestPath.includes('/announcements')) data = { items: [], total: 0 }
+      await route.fulfill({ json: { code: 0, data } })
+    })
+    await page.goto('/admin/accounts')
+    await page.locator('[data-testid="account-edit-btn"]:visible').click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('button', { name: 'Model Mapping', exact: true }).click()
+    const preset = dialog.getByRole('button', { name: '+ GPT-6.1 Sol', exact: true })
+    await expect(preset).toHaveCount(1)
+    await expect(preset).toHaveClass(/bg-rose-100/)
+    await preset.click()
+    await expect(dialog.getByPlaceholder('Request model')).toHaveValue('gpt-6.1-sol')
+    await expect(dialog.getByPlaceholder('Actual model')).toHaveValue('gpt-6.1-sol')
+    await page.screenshot({ path: test.info().outputPath('gpt61-preset.png'), fullPage: true })
+    await dialog.getByRole('button', { name: 'Update', exact: true }).click()
+    await expect.poll(() => (saved?.credentials as { model_mapping?: unknown } | undefined)?.model_mapping).toEqual({ 'gpt-6.1-sol': 'gpt-6.1-sol' })
+    expect(errors).toEqual([])
+  })
+}

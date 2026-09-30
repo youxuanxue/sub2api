@@ -31,6 +31,10 @@ scope: "Isolated import of Wei-Shaw/sub2api upstream/main; no main merge or depl
   Claude reset credits、风险白名单和 Codex remote/file catalog 迁入共享组件与 composable。
 - 用户趋势 metric 复用 dashboard snapshot loader、序列守卫与 cache key，保留
   TokenKey day-rollup 查询路径。cyber session block 默认开启，设置读取故障仍 fail-open。
+- 复审补强：Responses 重建协议上下文时保留在途预留句柄，异步计费完成前不释放；
+  GPT-6.1 Sol 快捷映射保留 TokenKey 原预设且只显示一次。Claude reset 的查询、
+  profile 与 claim 复用账号 TLS profile 和 canonical UA owner，保留禁止重定向、
+  public-host 校验与 25 秒请求上限；TLS 失败不降级到普通出口。
 
 ## 验证边界
 
