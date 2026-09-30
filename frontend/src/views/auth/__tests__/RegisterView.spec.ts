@@ -46,10 +46,15 @@ vi.mock('vue-i18n', () => ({
     }
   }),
   useI18n: () => ({
-    t: (key: string) =>
-      key === 'auth.emailDomainRegistrationLimit'
-        ? '该邮箱域名无法注册新账户。请使用主流邮箱注册；如需使用企业邮箱，请联系客服添加域名白名单。'
-        : key,
+    t: (key: string, params?: Record<string, string>) => {
+      if (key === 'auth.signUpToStart') {
+        return `Sign up to start using ${params?.siteName ?? ''}`
+      }
+      if (key === 'auth.emailDomainRegistrationLimit') {
+        return '该邮箱域名无法注册新账户。请使用主流邮箱注册；如需使用企业邮箱，请联系客服添加域名白名单。'
+      }
+      return key
+    },
     locale: { value: 'en' }
   })
 }))
@@ -109,6 +114,18 @@ describe('RegisterView', () => {
     verifyActionMock.mockResolvedValue({ token: 'ticket', randstr: 'randstr' })
     getPublicSettingsMock.mockResolvedValue(publicSettings)
     registerMock.mockResolvedValue({})
+  })
+
+  it('forces CallModel brand copy on the CallModel host even when Settings say Sub2API', async () => {
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, hostname: 'callmodel.io' },
+    })
+    const wrapper = mountRegister()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Sign up to start using CallModel')
+    expect(wrapper.text()).not.toContain('Sign up to start using Sub2API')
   })
 
   it.each([

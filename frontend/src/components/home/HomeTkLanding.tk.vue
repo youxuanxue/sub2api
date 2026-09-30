@@ -82,7 +82,7 @@
           <!-- Login / Dashboard Button -->
           <a
             v-if="isChinaExport && isAuthenticated"
-            :href="absoluteProductUrl(dashboardPath)"
+            :href="dashboardPath"
             class="inline-flex items-center gap-1.5 rounded-full bg-gray-900 py-1 pl-1 pr-2.5 transition-colors hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700"
           >
             <span
@@ -95,7 +95,7 @@
           </a>
           <a
             v-else-if="isChinaExport"
-            :href="absoluteProductUrl('/login')"
+            href="/login"
             class="inline-flex items-center rounded-full bg-gray-900 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700"
           >
             {{ t('home.login') }}
@@ -511,7 +511,7 @@
                 <Icon name="arrowRight" size="md" class="ml-2" :stroke-width="2" />
               </a>
               <a
-                :href="absoluteProductUrl('/models')"
+                href="/models"
                 class="btn btn-secondary px-6 py-3 text-base"
               >
                 {{ t('home.chinaExport.browseModels') }}
@@ -720,7 +720,6 @@ import {
 import {
   CHINA_EXPORT_API_ORIGIN,
   CHINA_EXPORT_BRAND,
-  PRODUCT_ORIGIN,
   type HomepageProfile,
 } from '@/features/home/marketProfile.tk'
 import { useHomeShell } from '@/features/home/useHomeShell.tk'
@@ -735,18 +734,12 @@ const { t, locale } = useI18n()
 const isChinaExport = computed(() => props.profile === 'china-export')
 const brandName = computed(() => (isChinaExport.value ? CHINA_EXPORT_BRAND : 'TokenKey'))
 
-const CHINA_EXPORT_QUICKSTART = '/quickstart?model=deepseek-chat&protocol=openai'
-
-function absoluteProductUrl(path: string): string {
-  return new URL(path, PRODUCT_ORIGIN).toString()
-}
+const CHINA_EXPORT_QUICKSTART = '/quickstart?model=deepseek-flash&protocol=openai'
 
 const primaryCtaUrl = computed(() =>
   isAuthenticated.value
-    ? absoluteProductUrl(CHINA_EXPORT_QUICKSTART)
-    : absoluteProductUrl(
-        `/register?redirect=${encodeURIComponent(CHINA_EXPORT_QUICKSTART)}`,
-      ),
+    ? CHINA_EXPORT_QUICKSTART
+    : `/register?redirect=${encodeURIComponent(CHINA_EXPORT_QUICKSTART)}`,
 )
 
 const seedanceProof = {
@@ -768,7 +761,7 @@ const deepseekCurl = `curl ${CHINA_EXPORT_API_ORIGIN}/v1/chat/completions \\
   -H "Authorization: Bearer $CALLMODEL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "deepseek-chat",
+    "model": "deepseek-flash",
     "messages": [
       {
         "role": "user",

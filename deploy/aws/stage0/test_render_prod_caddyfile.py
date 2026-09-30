@@ -111,7 +111,7 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertNotIn("GLOBAL_REDIRECT_STATUS", rendered)
         self.assertNotIn("BEGIN_GLOBAL_VHOST", rendered)
 
-    def test_candidate_global_homepage_is_allowlisted_and_uses_temporary_redirects(self) -> None:
+    def test_candidate_callmodel_facade_proxies_spa_and_kicks_admin_only(self) -> None:
         rendered = _render(
             api_domain="api.tokenkey.dev",
             global_site_domain="callmodel.io",
@@ -123,26 +123,36 @@ class RenderProdCaddyfileTest(unittest.TestCase):
             rendered.index("callmodel.io {") : rendered.index("(tokenkey_api_machine)")
         ]
         self.assertNotIn("X-Robots-Tag", global_block)
-        self.assertIn("path /seedance-2-5-official-showcase-8b37bc3e.mp4", rendered)
-        self.assertIn("path /api/v1/settings/public", rendered)
-        self.assertIn("path /setup/status", rendered)
-        self.assertIn("path /api/v1/auth/refresh", rendered)
-        self.assertIn("path /api/v1/auth/me", rendered)
-        self.assertIn("redir https://tokenkey.dev{uri} 302", rendered)
+        self.assertIn("@callmodel_admin", global_block)
+        self.assertIn("path /admin*", global_block)
+        self.assertIn("redir https://tokenkey.dev{uri} 302", global_block)
+        self.assertIn("handle /privacy", global_block)
+        self.assertIn("handle /terms", global_block)
+        self.assertIn("import tokenkey_reverse_proxy", global_block)
+        # Full facade: no homepage-only allowlist / catch-all kick.
+        self.assertNotIn("@global_home", global_block)
+        self.assertNotIn("@global_setup_status", global_block)
+        self.assertNotIn("@global_runtime", global_block)
+        # Admin kick must precede the SPA reverse proxy.
+        self.assertLess(
+            global_block.index("handle @callmodel_admin"),
+            global_block.index("import tokenkey_reverse_proxy"),
+        )
 
-    def test_candidate_global_homepage_keeps_non_bootstrap_routes_on_the_apex(self) -> None:
+    def test_candidate_callmodel_facade_does_not_redirect_product_paths(self) -> None:
         rendered = _render(
             api_domain="api.tokenkey.dev",
             global_site_domain="callmodel.io",
             global_site_phase="candidate",
         )
+        global_block = rendered[
+            rendered.index("callmodel.io {") : rendered.index("(tokenkey_api_machine)")
+        ]
+        # Only /admin* redirects off-host; product paths stay on the facade SPA.
+        self.assertEqual(global_block.count("redir https://tokenkey.dev{uri}"), 1)
+        self.assertIn("path /admin*", global_block)
 
-        self.assertIn("@global_setup_status", rendered)
-        self.assertRegex(rendered, r"(?ms)@global_setup_status \{.*?method GET.*?path /setup/status")
-        self.assertNotIn("path /register", rendered)
-        self.assertNotIn("path /login", rendered)
-
-    def test_live_global_homepage_uses_permanent_redirect(self) -> None:
+    def test_live_callmodel_facade_uses_permanent_admin_redirect(self) -> None:
         rendered = _render(
             api_domain="api.tokenkey.dev",
             global_site_domain="callmodel.io",
@@ -151,10 +161,13 @@ class RenderProdCaddyfileTest(unittest.TestCase):
 
         self.assertIn("callmodel.io {", rendered)
         self.assertIn("redir https://tokenkey.dev{uri} 301", rendered)
+        self.assertIn("path /admin*", rendered)
 
-    def test_api_alias_reuses_shared_machine_snippet(self) -> None:
+    def test_api_alias_reuses_shared_machine_snippet_and_lands_on_global_face(self) -> None:
         rendered = _render(
             api_domain="api.tokenkey.dev",
+            global_site_domain="callmodel.io",
+            global_site_phase="candidate",
             api_alias_domain="api.callmodel.io",
         )
 
@@ -164,6 +177,11 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         alias_block = rendered[rendered.index("api.callmodel.io {") :]
         self.assertIn("import tokenkey_api_machine", alias_block)
         self.assertNotIn("@machine {", alias_block)
+        self.assertIn("redir https://callmodel.io{uri} permanent", alias_block)
+        api_block = rendered[
+            rendered.index("api.tokenkey.dev {") : rendered.index("api.callmodel.io {")
+        ]
+        self.assertIn("redir https://tokenkey.dev{uri} permanent", api_block)
 
     def test_enabled_global_phase_requires_an_explicit_hostname(self) -> None:
         env = {

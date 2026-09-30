@@ -16,7 +16,7 @@ import { resolveRouteDocumentTitle } from './title'
 import { scrollBehavior } from './scrollBehavior'
 import { adminRoutes } from './admin.tk'
 import { userRoutes } from './user.tk'
-import { resolveGlobalProductRedirect, resolveHomepageProfile } from '@/features/home/marketProfile.tk'
+import { resolveChromeBrand, resolveHomepageProfile } from '@/features/home/marketProfile.tk'
 import { isBackendModePublicRouteAllowed } from './backendModeAccess'
 
 /**
@@ -286,11 +286,7 @@ router.beforeEach(async (to, _from, next) => {
   // 开始导航加载状态
   navigationLoading.startNavigation()
 
-  const globalProductRedirect = resolveGlobalProductRedirect(window.location.hostname, to.fullPath)
-  if (globalProductRedirect) {
-    window.location.assign(globalProductRedirect)
-    return
-  }
+  // Dual-facade: stay on the current host. Cross-domain SPA kick removed.
 
   if (to.path === '/' && resolveHomepageProfile(window.location.hostname) === 'china-export') {
     next('/home')
@@ -312,7 +308,8 @@ router.beforeEach(async (to, _from, next) => {
     ...(appStore.cachedPublicSettings?.custom_menu_items ?? []),
     ...(authStore.isAdmin ? adminSettingsStore.customMenuItems : []),
   ]
-  document.title = resolveRouteDocumentTitle(to, appStore.siteName, customMenuItems)
+  const facadeBrand = resolveChromeBrand(window.location.hostname, appStore.siteName)
+  document.title = resolveRouteDocumentTitle(to, facadeBrand, customMenuItems)
 
   // Check if route requires authentication
   const requiresAuth = to.meta.requiresAuth !== false // Default to true

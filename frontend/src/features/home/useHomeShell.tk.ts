@@ -1,5 +1,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAppStore, useAuthStore } from '@/stores'
+import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
 import { resolveSiteLogo } from '@/utils/branding'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import { sanitizeUrl } from '@/utils/url'
@@ -8,8 +9,11 @@ export function useHomeShell() {
   const appStore = useAppStore()
   const authStore = useAuthStore()
 
-  const siteName = computed(
-    () => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'TokenKey',
+  const siteName = computed(() =>
+    resolveChromeBrand(
+      window.location.hostname,
+      appStore.cachedPublicSettings?.site_name || appStore.siteName,
+    ),
   )
   const siteLogo = computed(() =>
     resolveSiteLogo(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo),

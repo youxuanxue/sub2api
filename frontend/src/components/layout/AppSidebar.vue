@@ -196,6 +196,7 @@ import VersionBadge from '@/components/common/VersionBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { sanitizeSvg } from '@/utils/sanitize'
 import { resolveSiteLogo } from '@/utils/branding'
+import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
 import { TK_SIDEBAR_WIDTH_CLASS } from '@/constants/layout'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
@@ -262,7 +263,7 @@ const homePath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboar
 const groupExpandOverrides = ref<Map<string, boolean>>(new Map())
 
 // Site settings from appStore (cached, no flicker)
-const siteName = computed(() => appStore.siteName)
+const siteName = computed(() => resolveChromeBrand(window.location.hostname, appStore.siteName))
 const siteLogo = computed(() => resolveSiteLogo(appStore.siteLogo))
 const siteVersion = computed(() => appStore.siteVersion)
 const settingsLoaded = computed(() => appStore.publicSettingsLoaded)

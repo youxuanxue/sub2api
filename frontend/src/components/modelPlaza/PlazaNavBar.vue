@@ -43,6 +43,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
 import { resolveSiteLogo } from '@/utils/branding'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
@@ -52,7 +53,9 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 
 const settings = computed(() => appStore.cachedPublicSettings)
-const siteName = computed(() => settings.value?.site_name || 'TokenKey')
+const siteName = computed(() =>
+  resolveChromeBrand(window.location.hostname, settings.value?.site_name),
+)
 const siteLogo = computed(() => resolveSiteLogo(settings.value?.site_logo))
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const backTarget = computed(() => (authStore.isAdmin ? '/admin/dashboard' : '/dashboard'))

@@ -150,7 +150,8 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`public-quickstart-registration-offer.md`](public-quickstart-registration-offer.md) | Public Quickstart and shared registration offer |
 | [`usage-balance-fallback.md`](usage-balance-fallback.md) | Usage balance fallback |
 | [`response-usage-cost.md`](response-usage-cost.md) | Inference response `usage.cost` (TotalCost / list price) |
-| [`design-dual-market-homepage.md`](design-dual-market-homepage.md) | 双市场首页与统一产品矩阵 |
+| [`design-dual-market-homepage.md`](design-dual-market-homepage.md) | 双市场首页与统一产品矩阵（海外 host 全门面条款见 facade 文档） |
+| [`design-callmodel-product-facade.md`](design-callmodel-product-facade.md) | CallModel 产品门面（同壳反代 + 品牌铬；局部 supersede dual-market） |
 
 ### Upstream merge anchors
 

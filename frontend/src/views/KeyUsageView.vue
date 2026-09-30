@@ -423,6 +423,7 @@ import { buildGatewayUrl } from '@/api/client'
 import { STATUS_ACTIVE } from '@/constants/channel'
 import { formatDateLocalInput } from '@/utils/format'
 import { resolveSiteLogo } from '@/utils/branding'
+import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
 import { sanitizeUrl } from '@/utils/url'
 
 const { t, locale } = useI18n()
@@ -431,7 +432,12 @@ const subscriptionFeatureEnabled = computed(() => resolveFeatureFlag(appStore.ca
 
 // ==================== Site Settings (same as HomeView) ====================
 
-const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'TokenKey')
+const siteName = computed(() =>
+  resolveChromeBrand(
+    window.location.hostname,
+    appStore.cachedPublicSettings?.site_name || appStore.siteName,
+  ),
+)
 const siteLogo = computed(() =>
   resolveSiteLogo(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo),
 )

@@ -633,9 +633,11 @@
         "https://qianfan.baidubce.com",
         "https://token-plan.cn-beijing.maas.aliyuncs.com",
         "https://qianfan.baidubce.com/v2/tokenplan/personal",
-        "https://api.xrtoken.net"
+        "https://api.xrtoken.net",
+        "\"claude-fable-5\": {\n      \"display\": true",
+        "\"claude-fable-5-1\": {\n      \"display\": true"
       ],
-      "rationale": "The schema-v3 served-models manifest is the declarative owner for curated newapi model membership, channel/property scopes, optional price-owner aliases, and display intent. Runtime projections and the generated account-mapping bundle consume this file directly."
+      "rationale": "The schema-v3 served-models manifest is the declarative owner for curated newapi model membership, channel/property scopes, optional price-owner aliases, and display intent. Runtime projections and the generated account-mapping bundle consume this file directly. Cursor's live Fable mappings are public display rows, so both scoped Fable entries must retain display=true."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay.go",
@@ -911,9 +913,23 @@
     {
       "path": "backend/internal/service/account_model_mapping_cursor_tk_test.go",
       "must_contain": [
-        "func TestCursorMappingFloorExcludesGPTWithoutChangingOtherProviders("
+        "func TestCursorMappingFloorExcludesGPTWithoutChangingOtherProviders(",
+        "require.Contains(t, ids, \"claude-fable-5\")",
+        "require.Contains(t, ids, \"claude-fable-5-1\")",
+        "require.NotContains(t, ids, \"claude-opus-5-5\")",
+        "require.Contains(t, displayIDs, \"claude-fable-5\")",
+        "require.Contains(t, displayIDs, \"claude-fable-5-1\")"
       ],
-      "rationale": "Pin Cursor preset and generated floor exclusion without suppressing GPT on other providers."
+      "rationale": "Pin Cursor preset and generated floor to the live Fable models, keep both in the user-facing display projection, exclude unavailable Opus, and preserve other-provider GPT mappings."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_ssot_tk_test.go",
+      "must_contain": [
+        "func TestAccountModelMappingFloorForOps_ExportsAccountOverrides(t *testing.T) {",
+        "claude-fable-5-1",
+        "require.NotContains(t, override.ModelMapping, \"claude-opus-5-5\")"
+      ],
+      "rationale": "The exported immutable Cursor account override must match live Fable mappings and exclude unavailable Opus 5.5."
     },
     {
       "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
