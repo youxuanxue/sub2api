@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "1dad8bb8f6d6ce650687bdf554805e20159be327b172c5eb7768dcd4670b5b88",
+  "floor_sha256": "f747d5ff172bd7f4a1b34b69a8c85923d24186f32005238cf59ff5e7fed4f724",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -212,6 +212,8 @@
         "gpt-6-astra": "gpt-6-astra",
         "gpt-6-luna": "gpt-6-luna",
         "gpt-6-sol": "gpt-6-sol",
+        "gpt-6.1": "gpt-6.1-sol",
+        "gpt-6.1-sol": "gpt-6.1-sol",
         "gpt-image-2": "gpt-image-2",
         "gpt-image-2.5": "gpt-image-2.5-flare",
         "gpt-image-2.5-flare": "gpt-image-2.5-flare",

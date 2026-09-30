@@ -513,7 +513,8 @@ var tkOpenAIImageCompatibilityAliases = map[string]string{
 // Public text aliases on the native OpenAI floor (not shared with relay image
 // aliases). gpt-6 folds onto Astra; keep in sync with codexModelMap + overlay.
 var tkOpenAITextCompatibilityAliases = map[string]string{
-	"gpt-6": "gpt-6-astra",
+	"gpt-6":   "gpt-6-astra",
+	"gpt-6.1": "gpt-6.1-sol",
 }
 
 func openAIAinzyRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
