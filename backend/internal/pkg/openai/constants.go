@@ -243,3 +243,10 @@ func IsGPT61SolModelSpelling(model string) bool {
 		return false
 	}
 }
+
+// IsGPT6SolFamilyModelSpelling covers gpt-6-sol / gpt-6-luna / gpt-6.1-sol request
+// compatibility (sampling strip, chat tools+reasoning gate, registry price lookup).
+// Do not use for "none" effort passthrough: gpt-6.1-sol rejects none/minimal upstream.
+func IsGPT6SolFamilyModelSpelling(model string) bool {
+	return IsGPT6SolOrLunaModelSpelling(model) || IsGPT61SolModelSpelling(model)
+}

@@ -49,7 +49,11 @@ func TestGPT61SolModelIdentity(t *testing.T) {
 	require.Contains(t, DefaultModelIDs(), "gpt-6.1")
 	for _, model := range []string{"gpt-6.1", "gpt-6.1-sol", "gpt-6.1-sol-high", "gpt-6.1-sol-max"} {
 		require.True(t, IsGPT61SolModelSpelling(model), model)
+		require.True(t, IsGPT6SolFamilyModelSpelling(model), model)
 	}
 	require.False(t, IsGPT61SolModelSpelling("gpt-6-sol"))
 	require.False(t, IsGPT61SolModelSpelling("gpt-6.1-sol-preview"))
+	require.True(t, IsGPT6SolFamilyModelSpelling("gpt-6-sol"))
+	require.True(t, IsGPT6SolFamilyModelSpelling("gpt-6-luna"))
+	require.False(t, IsGPT6SolFamilyModelSpelling("gpt-6-astra"))
 }
