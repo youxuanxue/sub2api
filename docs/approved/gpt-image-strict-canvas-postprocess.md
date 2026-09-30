@@ -6,13 +6,15 @@ approved_at: 2026-09-29
 created: 2026-09-29
 authors: [cursor]
 risk: high
-related_prs: ["#2385"]
+related_prs: ["#2385", "#2402"]
 ---
 
 # GPT Image strict canvas + format post-process
 
 > 状态：`shipped`（已由 youxuanxue 合并 [PR #2385](https://github.com/youxuanxue/sub2api/pull/2385)，
-> 合并记录作为审批基线；此状态表示已合并，不表示已部署）。对齐 [codex2api](https://github.com/james-6-23/codex2api)
+> 合并记录作为审批基线；此状态表示已合并，不表示已部署）。[PR #2402](https://github.com/youxuanxue/sub2api/pull/2402)
+> 增量：尺寸分隔符/像素下限/单边 3840、style→Style guidance、Responses 主模型 fallback。
+> 对齐 [codex2api](https://github.com/james-6-23/codex2api)
 > Image Studio / PR #519：上游 ChatGPT OAuth 不保证字面 `size` / `output_format` /
 > `background=transparent`；网关在显式请求时用本地后处理兑现客户契约。
 

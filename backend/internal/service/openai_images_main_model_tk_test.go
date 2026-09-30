@@ -114,3 +114,49 @@ func TestCanonicalizeOpenAIImagesSizeField(t *testing.T) {
 	require.Equal(t, "1024x768", canonicalizeOpenAIImagesSizeField("1024X768"))
 	require.Equal(t, "auto", canonicalizeOpenAIImagesSizeField("AUTO"))
 }
+
+func TestIsOpenAIImagesMainModelErrorMatchesAnyCandidateWhenDriverEmpty(t *testing.T) {
+	t.Setenv("SUB2API_IMAGES_MAIN_MODEL", "")
+	t.Setenv("SUB2API_IMAGES_MAIN_MODEL_FALLBACKS", "")
+	body := []byte(`{"detail":"The 'gpt-6-astra' model is not supported when using Codex with a ChatGPT account."}`)
+	require.True(t, isOpenAIImagesMainModelError(http.StatusBadRequest, body, ""))
+	require.True(t, isOpenAIImagesMainModelError(http.StatusBadRequest, body, "gpt-6-astra"))
+	require.False(t, isOpenAIImagesMainModelError(http.StatusBadRequest, body, "gpt-5.6-luna"))
+	require.False(t, isOpenAIImagesMainModelError(http.StatusBadRequest, []byte(`{"detail":"unrelated"}`), ""))
+}
+
+func TestForwardOpenAIImagesOAuth_ExhaustedMainModelFallbackPassthrough(t *testing.T) {
+	t.Setenv("SUB2API_IMAGES_MAIN_MODEL", "gpt-5.6-luna")
+	t.Setenv("SUB2API_IMAGES_MAIN_MODEL_FALLBACKS", "gpt-5.5")
+
+	reject := func(model string) *http.Response {
+		return &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(
+				`{"detail":"The '` + model + `' model is not supported when using Codex with a ChatGPT account."}`,
+			)),
+		}
+	}
+	upstream := &httpUpstreamRecorder{
+		responses: []*http.Response{
+			reject("gpt-5.6-luna"),
+			reject("gpt-5.5"),
+		},
+	}
+	svc := newOpenAIImagesTestService(upstream)
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw","size":"1024x1024","output_format":"png"}`)
+	c, rec := newOpenAIImagesTestContext(t, body)
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+
+	_, err = svc.forwardOpenAIImagesOAuth(context.Background(), c, directImagesTestAccount(), parsed, "")
+	require.Error(t, err)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "gpt-5.5")
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(upstream.bodies[0], "model").String())
+	require.Equal(t, "gpt-5.5", gjson.GetBytes(upstream.bodies[1], "model").String())
+	// Passthrough path must not rewrite into a generic upstream_error / 5xx.
+	require.Equal(t, "invalid_request_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+}

@@ -191,13 +191,27 @@ func isOpenAIImagesMainModelError(status int, body []byte, driver string) bool {
 	if !isOpenAICodexPlanGatedModelError(status, body) {
 		return false
 	}
-	driver = strings.TrimSpace(driver)
-	if driver == "" {
-		driver = openAIImagesResponsesMainModelValue()
-	}
 	message := extractUpstreamErrorMessage(body)
-	return strings.Contains(message, "'"+driver+"'") ||
-		strings.Contains(message, `"`+driver+`"`)
+	mentions := func(model string) bool {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			return false
+		}
+		return strings.Contains(message, "'"+model+"'") ||
+			strings.Contains(message, `"`+model+`"`)
+	}
+	driver = strings.TrimSpace(driver)
+	if driver != "" {
+		return mentions(driver)
+	}
+	// Empty driver: match preferred or any fallback candidate so exhausted
+	// fallback chains still take the no-cool passthrough path.
+	for _, candidate := range openAIImagesMainModelCandidates() {
+		if mentions(candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 // Images 端点只输出图片；未提供输出分类时，output_tokens 全部是图片 token。
