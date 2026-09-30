@@ -4,8 +4,10 @@
 Ground truth = the locally-installed Codex CLI (``codex --version`` + the native
 binary's strings). Alignment target = ``DefaultOpenAICodexVersion``, the sole
 editable TK Go version owner for the forged / fallback Codex fingerprint on the
-OpenAI OAuth path. The UA, gateway version, and probe version are derived aliases;
-admin-UI placeholders are examples, not fingerprint pins.
+OpenAI OAuth path. The UA, gateway version, and Go usage-probe version are
+derived aliases. Stage0 direct-upstream probe scripts mirror the same version
+literal (they cannot import Go constants over SSM). Admin-UI placeholders are
+examples, not fingerprint pins.
 
 Unlike the cc / kiro / antigravity engines this needs NO mitmproxy / pcap: the
 Codex CLI ships its fingerprint locally, so the on-wire identity is read straight
@@ -54,6 +56,13 @@ NON_VERSION_PIN_GO_FILES = (
     REPO_ROOT / "backend/internal/service/openai_gateway_forward.go",
     REPO_ROOT / "backend/internal/service/openai_gateway_passthrough.go",
 )
+# Direct-upstream Codex probes ship literal Version/UA defaults over SSM; keep
+# them equal to DefaultOpenAICodexVersion so "requires a newer version of Codex"
+# false negatives do not reappear after a gateway pin bump.
+STAGE0_PROBE_VERSION_SCRIPTS = (
+    ("upstream_model_probe_version", REPO_ROOT / "ops/stage0/probe_openai_upstream_model.sh"),
+    ("upstream_image_probe_version", REPO_ROOT / "ops/stage0/probe_openai_upstream_image.sh"),
+)
 
 # Non-version pins verified (not bumped) against the installed binary's strings.
 EXPECTED_ORIGINATOR = "codex-tui"
@@ -68,7 +77,7 @@ class Pin:
 
     key: str
     path: Path
-    kind: str  # "bare" (editable owner) | "alias" (must derive from owner)
+    kind: str  # "bare" (editable owner) | "alias" (must derive from owner) | "mirror" (literal copy of owner)
     raw: str = ""  # the owner literal or alias expression as found
     version: str = ""  # the extracted codex version
     derivation_complete: bool = True
@@ -131,6 +140,14 @@ def _find1(text: str, pattern: str) -> str:
     return m.group(1) if m else ""
 
 
+def _shell_probe_version_pin(key: str, path: Path, text: str) -> Pin:
+    """Read ``CODEX_VERSION="${CODEX_VERSION:-X.Y.Z}"`` from a stage0 probe script."""
+    version = _find1(text, r'CODEX_VERSION="\$\{CODEX_VERSION:-(' + _VER + r')\}"')
+    if not version:
+        return Pin(key, path, "mirror", found=False)
+    return Pin(key, path, "mirror", raw=version, version=version, found=True)
+
+
 def _alias_pin(key: str, path: Path, symbol: str, text: str, source_version: str) -> Pin:
     literal = _find1(text, rf'{symbol}\s*=\s*"([^"]+)"')
     if literal:
@@ -182,6 +199,9 @@ def load_baseline() -> Baseline:
 
     bl.pins.append(_alias_pin("gateway_version", SETTING_GO, "codexCLIVersion", service_txt, source_version))
     bl.pins.append(_alias_pin("probe_version", SETTING_GO, "openAICodexProbeVersion", service_txt, source_version))
+
+    for key, path in STAGE0_PROBE_VERSION_SCRIPTS:
+        bl.pins.append(_shell_probe_version_pin(key, path, _read(path)))
 
     # Non-version pins (sanity, not bumped). These live in thin companion files
     # after the upstream merge split the gateway hot path.
@@ -299,6 +319,7 @@ def emit_edits(bl: Baseline, new_version: str) -> list[dict]:
             continue
         if p.kind == "alias":
             continue
+        # bare owner + stage0 probe mirrors: replace the version literal.
         edits.append({"file": p.rel, "old": p.raw, "new": new_version})
     return edits
 

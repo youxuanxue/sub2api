@@ -175,8 +175,8 @@ class LiveRepoTests(unittest.TestCase):
 
     def test_live_baseline_loads_and_is_consistent(self):
         bl = eng.load_baseline()
-        # All service pins must be found...
-        self.assertEqual(len(bl.pins), 4)
+        # Service aliases + stage0 probe mirrors must all be found...
+        self.assertEqual(len(bl.pins), 6)
         for p in bl.pins:
             self.assertTrue(p.found, f"{p.key} not found via regex in {p.rel}")
             self.assertTrue(p.derivation_complete, f"{p.key} no longer derives from the owner")
@@ -186,6 +186,42 @@ class LiveRepoTests(unittest.TestCase):
         # ...and the non-version pins are present.
         self.assertTrue(bl.originator_pinned, "originator pin missing from source")
         self.assertTrue(bl.beta_pinned, "OpenAI-Beta pin missing from source")
+
+    def test_shell_probe_version_pin_parses_default(self):
+        text = 'CODEX_VERSION="${CODEX_VERSION:-0.158.0}"\n'
+        pin = eng._shell_probe_version_pin(
+            "upstream_model_probe_version",
+            eng.REPO_ROOT / "ops/stage0/probe_openai_upstream_model.sh",
+            text,
+        )
+        self.assertTrue(pin.found)
+        self.assertEqual(pin.kind, "mirror")
+        self.assertEqual(pin.version, "0.158.0")
+
+    def test_emit_edits_includes_stage0_probe_mirrors(self):
+        bl = _aligned("0.142.2")
+        probe_path = eng.REPO_ROOT / "ops/stage0/probe_openai_upstream_model.sh"
+        bl.pins.append(eng.Pin(
+            "upstream_model_probe_version",
+            probe_path,
+            "mirror",
+            raw="0.142.2",
+            version="0.142.2",
+            found=True,
+        ))
+        edits = eng.emit_edits(bl, "0.143.0")
+        self.assertEqual(edits, [
+            {
+                "file": "backend/internal/service/setting_gateway_runtime.go",
+                "old": "0.142.2",
+                "new": "0.143.0",
+            },
+            {
+                "file": "ops/stage0/probe_openai_upstream_model.sh",
+                "old": "0.142.2",
+                "new": "0.143.0",
+            },
+        ])
 
     def test_live_check_consistency_passes(self):
         self.assertEqual(eng.main(["check-consistency"]), 0)
