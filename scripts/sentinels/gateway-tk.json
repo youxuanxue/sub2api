@@ -1213,7 +1213,7 @@
     {
       "path": "backend/internal/service/candidate_eligibility.go",
       "must_contain": [
-        "native != (account.Platform == PlatformAntigravity)"
+        "native != usesNativeGeminiImages(account.Platform)"
       ],
       "rationale": "Apply the dispatched Images protocol constraint in shared admission, including retries and account rechecks."
     },
@@ -15310,6 +15310,68 @@
         "stashed.TotalCost"
       ],
       "rationale": "Focused regressions pin usage.cost=TotalCost inject, settle SSOT, and ForceCacheBilling parity against the ledger."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "domain.IsGeminiProImageModel(requestedModel)",
+        "domain.IsGeminiProImageModel(a.GetMappedModel(requestedModel))"
+      ],
+      "rationale": "Pro image identity cannot be downgraded to Flash by stale AG mappings."
+    },
+    {
+      "path": "backend/internal/service/gemini_web_image_canvas_tk.go",
+      "must_contain": [
+        "func prepareGeminiWebImageCanvas(",
+        "resizeImageExactWithinBounds(source, width, height, true, 6400, 20_000_000)"
+      ],
+      "rationale": "Web image resizing delegates to the shared exact canvas owner; no Python resizing implementation."
+    },
+    {
+      "path": "backend/internal/service/gemini_web_pro_image_tk_test.go",
+      "must_contain": [
+        "TestGeminiWebProImageRoutesWithoutAntigravityDowngrade",
+        "TestGeminiWebProReferenceAdmissionAcrossProtocols"
+      ],
+      "rationale": "All public aliases route with the native Plan and skip stale AG peers."
+    },
+    {
+      "path": "backend/internal/service/gemini_web_image_canvas_tk_test.go",
+      "must_contain": [
+        "TestGeminiWebCanvasForwardAllProtocolsAndFailureDoesNotRetry"
+      ],
+      "rationale": "Postprocessing completes before any protocol response or image settlement; failure never re-generates."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "prepareGeminiWebImageCanvas(account, mappedModel,",
+        "imageCanvas.apply(ctx, resp)"
+      ],
+      "rationale": "Preserve shared Web Pro canvas preparation and response processing on each native/compatible forwarding path."
+    },
+    {
+      "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
+      "must_contain": [
+        "prepareGeminiWebImageCanvas(account, mappedModel,",
+        "imageCanvas.apply(ctx, resp)"
+      ],
+      "rationale": "Preserve shared Web Pro canvas preparation and response processing on each native/compatible forwarding path."
+    },
+    {
+      "path": "backend/internal/service/gemini_responses_compat_service.go",
+      "must_contain": [
+        "prepareGeminiWebImageCanvas(account, mappedModel,",
+        "imageCanvas.apply(ctx, resp)"
+      ],
+      "rationale": "Preserve shared Web Pro canvas preparation and response processing on each native/compatible forwarding path."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/router.go",
+      "must_contain": [
+        "account.preservesGeminiWebProReference(providerRequest, route.target)"
+      ],
+      "rationale": "Verified Web Pro inline references use shared provider admission across compatible protocols without widening general Gemini converters."
     }
   ]
 }

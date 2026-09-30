@@ -121,7 +121,7 @@ func (r *Router) plan(request CanonicalRequest, account AccountSnapshot, nativeO
 		if !account.hasTransport(route.transport) || r.adapters[route.adapterID] == nil {
 			continue
 		}
-		if route.preserves == nil || !route.preserves(request) {
+		if route.preserves == nil || (!route.preserves(request) && !account.preservesGeminiWebProReference(providerRequest, route.target)) {
 			continue
 		}
 		responsesPath := ResponsesPathNone

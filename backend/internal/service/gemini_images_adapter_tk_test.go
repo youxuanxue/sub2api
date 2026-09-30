@@ -50,7 +50,7 @@ func TestGeminiImagesCandidateUsesNativePlan(t *testing.T) {
 	}
 }
 func TestGeminiImagesCandidateRejectsUnauthorizedOrLossyRequests(t *testing.T) {
-	for _, kind := range []string{"image_disabled", "wrong_group", "web_only", "multiple", "missing_capability"} {
+	for _, kind := range []string{"image_disabled", "wrong_group", "multiple", "missing_capability"} {
 		t.Run(kind, func(t *testing.T) {
 			group := grp(740, PlatformAntigravity, 1, false)
 			group.AllowImageGeneration = true
@@ -61,8 +61,6 @@ func TestGeminiImagesCandidateRejectsUnauthorizedOrLossyRequests(t *testing.T) {
 				group.AllowImageGeneration = false
 			case "wrong_group":
 				account.GroupIDs = []int64{741}
-			case "web_only":
-				account = webCandidateAccount(true)
 			case "multiple":
 				body = []byte(`{"model":"nano-2","prompt":"cup","n":2}`)
 			case "missing_capability":

@@ -26,7 +26,7 @@ var geminiImageDiscoveryRatios = apicompat.GeminiImageAspectRatios()
 
 func (s *UniversalCapabilityService) candidateImageProfile(ctx context.Context, base *CandidateRequest, account *Account, group *Group) *ImageGenerationCapability {
 	gemini := antigravity.IsImageModel(base.model)
-	if gemini && base.shape == ShapeOpenAIImages && account.Platform != PlatformAntigravity {
+	if gemini && base.shape == ShapeOpenAIImages && !usesNativeGeminiImages(account.Platform) {
 		return nil
 	}
 	if (!gemini || (base.shape != ShapeOpenAIChat && base.shape != ShapeGemini)) && base.shape != ShapeOpenAIImages {

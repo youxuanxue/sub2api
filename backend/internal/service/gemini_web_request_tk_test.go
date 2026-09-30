@@ -137,13 +137,13 @@ func TestGeminiWebAdmissionMatchesWorkerContractFixtures(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &cases))
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
-			require.Equal(t, tc.Accepted, protocolrouter.GeminiWebNativeBodySupported(tc.Body, isImageGenerationModel(tc.Model)))
+			require.Equal(t, tc.Accepted, protocolrouter.GeminiWebNativeBodySupported(tc.Body, isImageGenerationModel(tc.Model), tc.Model == "gemini-web-nano-banana-pro"))
 		})
 	}
 	for _, count := range []int{32000, 32001} {
 		body, err := json.Marshal(map[string]any{"contents": []any{map[string]any{"parts": []any{map[string]any{"text": strings.Repeat("中", count)}}}}})
 		require.NoError(t, err)
-		require.Equal(t, count == 32000, protocolrouter.GeminiWebNativeBodySupported(body, false))
+		require.Equal(t, count == 32000, protocolrouter.GeminiWebNativeBodySupported(body, false, false))
 	}
 }
 
@@ -192,7 +192,7 @@ func TestGeminiWebChatAndResponsesDefaultLimitIsNotWorkerCapability(t *testing.T
 		body, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
 		require.NoError(t, err)
 		require.JSONEq(t, `{"contents":[{"role":"user","parts":[{"text":"hello"}]}],"generationConfig":{"maxOutputTokens":8192}}`, string(body))
-		require.False(t, protocolrouter.GeminiWebNativeBodySupported(body, false))
+		require.False(t, protocolrouter.GeminiWebNativeBodySupported(body, false, false))
 	}
 }
 

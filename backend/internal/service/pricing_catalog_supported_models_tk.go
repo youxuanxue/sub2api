@@ -171,6 +171,7 @@ var supportedAnthropicTokenseaRelayCatalogModels = map[string]struct{}{
 // An empty set preserves the existing passthrough/canonical fallback.
 var supportedGeminiCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin gemini
+	"gemini-3-pro-image":     {}, // Verified Gemini Web direct Pro, not Antigravity.
 	"gemini-3-flash":         {},
 	"gemini-3-flash-preview": {},
 	"gemini-3.5-flash-lite":  {},
@@ -189,15 +190,13 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin antigravity
 	"gemini-3-flash":                 {},
 	"gemini-3-flash-preview":         {},
-	"gemini-3-pro-image":             {},
 	"gemini-3.1-flash-image":         {},
 	"gemini-3.1-flash-image-preview": {},
 	"gemini-3.5-flash-lite":          {},
 	"gemini-3.6-flash":               {},
 	"gemini-3.7-flash":               {},
 	"gemini-3.8-flash":               {},
-	// nano-2 is Flash↔Flash (price matches wire). nano-pro is NOT listed here:
-	// Antigravity remaps it to Flash while overlay aliases price it as Pro.
+	// Nano Banana 2 is Flash; Pro aliases belong to Gemini Web.
 	"nano-2": {},
 	// servable-allowlist:end antigravity
 }

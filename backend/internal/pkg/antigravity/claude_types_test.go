@@ -36,7 +36,6 @@ func TestDefaultModels_StructuralMetadata(t *testing.T) {
 		"gemini-3-flash-preview",
 		"gemini-3.5-flash-lite",
 		"gemini-3.1-flash-image",
-		"gemini-3-pro-image",
 		"nano-2",
 		"gemini-3.1-flash-image-preview",
 	} {
@@ -45,6 +44,8 @@ func TestDefaultModels_StructuralMetadata(t *testing.T) {
 		}
 	}
 	for _, retired := range []string{
+		"gemini-3-pro-image",
+		"nano-pro",
 		"gemini-2.5-flash",
 		"gemini-2.5-pro",
 		"gemini-pro-agent",

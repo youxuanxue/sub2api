@@ -10,7 +10,8 @@ import (
 
 func TestImagesToGeminiGeneration(t *testing.T) {
 	for _, tc := range []struct{ name, extra, size, ratio string }{
-		{"default", "", "2K", "1:1"},
+		{"default", "", "", "1:1"},
+		{"auto", `,"size":"auto"`, "", "1:1"},
 		{"square", `,"size":"1024x1024"`, "1K", "1:1"},
 		{"4K landscape", `,"size":"4K","aspect_ratio":"21:9","n":1,"response_format":"b64_json","stream":false`, "4K", "21:9"},
 	} {

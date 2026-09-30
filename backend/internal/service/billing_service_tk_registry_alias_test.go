@@ -156,6 +156,8 @@ func TestGeminiWebWireModelsAliasToPublicOwners(t *testing.T) {
 		{"gemini-web-flash", "gemini-3.8-flash"},
 		{"gemini-web-pro", "gemini-3.1-pro"},
 		{"gemini-web-pro-image", "gemini-3.1-flash-image"},
+		{"gemini-web-nano-banana-pro", "gemini-3-pro-image"},
+		{"nano-banana-pro", "gemini-3-pro-image"},
 	}
 	for _, tc := range cases {
 		owner, declared := tkPricingRegistryAliasOwner(tc.alias)
@@ -179,6 +181,14 @@ func TestGeminiWebWireModelsAliasToPublicOwners(t *testing.T) {
 	require.Positive(t, cost.TotalCost)
 	require.InDelta(t, pricingService.GetModelPricing("gemini-3.1-flash-image").OutputCostPerImage, cost.TotalCost, 1e-12)
 	require.Equal(t, string(BillingModeImage), cost.BillingMode)
+	for _, size := range []string{"1K", "2K", "4K"} {
+		want := billing.CalculateImageCost("gemini-3-pro-image", size, 1, nil, 1)
+		for _, alias := range []string{"gemini-web-nano-banana-pro", "nano-banana-pro", "nano-pro"} {
+			got := billing.CalculateImageCost(alias, size, 1, nil, 1)
+			require.Equal(t, want.TotalCost, got.TotalCost, alias+size)
+			require.Equal(t, string(BillingModeImage), got.BillingMode)
+		}
+	}
 }
 
 func TestUS043_RegistryAliasPriceAndPolicyUseOneSnapshot(t *testing.T) {

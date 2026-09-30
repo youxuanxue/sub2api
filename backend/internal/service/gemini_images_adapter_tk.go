@@ -16,10 +16,13 @@ func PrepareGeminiImagesRequest(body []byte) (string, []byte, error) {
 	return apicompat.ImagesToGeminiGeneration(body)
 }
 
-// Keep existing Images providers on their original media contract. Only an AG
-// candidate executes the Gemini request constructed by the operation adapter.
+// Keep Images providers on their media contract; Gemini and AG use the native Plan.
+func usesNativeGeminiImages(platform string) bool {
+	return platform == PlatformAntigravity || platform == PlatformGemini
+}
+
 func geminiImagesCandidateContext(ctx context.Context, shape UniversalShape, model string, account *Account) context.Context {
-	if UsesGeminiImagesAdapter(shape, model) && account != nil && account.Platform != PlatformAntigravity {
+	if UsesGeminiImagesAdapter(shape, model) && account != nil && !usesNativeGeminiImages(account.Platform) {
 		return context.WithValue(ctx, protocolRoutingContextKey{}, false)
 	}
 	return ctx
@@ -39,5 +42,5 @@ func WithGeminiImagesExecution(ctx context.Context) context.Context {
 	if !ok {
 		return ctx
 	}
-	return context.WithValue(ctx, geminiImagesExecutionKey{}, platform == PlatformAntigravity)
+	return context.WithValue(ctx, geminiImagesExecutionKey{}, usesNativeGeminiImages(platform))
 }

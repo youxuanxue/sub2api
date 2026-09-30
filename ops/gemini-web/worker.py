@@ -32,7 +32,9 @@ ORIGIN = 'https://gemini.google.com'
 BATCH = ORIGIN + '/_/BardChatUi/data/batchexecute'
 GENERATE = ORIGIN + '/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate'
 IMAGE_HOSTS = frozenset(('lh3.googleusercontent.com', 'lh3.google.com', 'work.fife.usercontent.google.com'))
-MODELS = {'gemini-web-flash': ('Flash', False), 'gemini-web-pro': ('Pro', False),
+PRO_IMAGE_MODEL = 'gemini-web-nano-banana-pro'
+PRO_IMAGE_ASPECT_RATIOS = ('1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9')
+MODELS = {PRO_IMAGE_MODEL: ('Pro', True), 'gemini-web-flash': ('Flash', False), 'gemini-web-pro': ('Pro', False),
           'gemini-web-pro-image': ('Pro', True)}
 IMAGE_ASPECT_ENUM = {'9:16': 59, '3:4': 60, '1:1': 61, '4:3': 62, '16:9': 63}
 MAX_BYTES = 24 * 1024 * 1024
@@ -145,9 +147,10 @@ def frames(raw):
                 yield entry
 
 
-def generation_result(raw):
+def generation_result(raw, expected_image_model=None):
     metadata = None
     candidates = None
+    image_model = None
     for frame in frames(raw):
         error = nested(frame, 5, 2, 0, 1, 0)
         if error:
@@ -162,6 +165,7 @@ def generation_result(raw):
             metadata = value[1]
         if nested(value, 4):
             candidates = value[4]
+            image_model = nested(value, 42)
     candidate = nested(candidates, 0)
     if not candidate or nested(candidate, 8, 0) != 2:
         raise Failure(502, 'Upstream generation incomplete; request was not retried')
@@ -180,6 +184,11 @@ def generation_result(raw):
         raise Failure(502, 'Too many upstream images')
     if not text and not refs:
         raise Failure(502, 'Empty upstream generation')
+    if expected_image_model is not None and image_model != expected_image_model:
+        # A Pro selector alone still produces Nano Banana 2. Require the exact
+        # label on the final candidate frame; unknown/mismatched results stay
+        # paused under the existing pending guard, with no generation retry.
+        raise Failure(502, 'Upstream did not confirm Nano Banana Pro; request was not retried')
     return text, refs
 
 
@@ -198,6 +207,24 @@ def image_url(url):
     return url
 
 
+def input_image(inline):
+    if (not isinstance(inline, dict) or set(inline) != {'mimeType', 'data'}
+            or inline['mimeType'] not in ('image/jpeg', 'image/png', 'image/webp')
+            or not isinstance(inline['data'], str) or len(inline['data']) > 14 * 1024 * 1024):
+        raise Failure(400, 'Invalid reference image')
+    try:
+        data = base64.b64decode(inline['data'], validate=True)
+        if len(data) > 10 * 1024 * 1024:
+            raise ValueError('input image too large')
+        with Image.open(io.BytesIO(data)) as image:
+            if Image.MIME.get(image.format) != inline['mimeType'] or image.width * image.height > MAX_IMAGE_PIXELS:
+                raise ValueError('invalid input image type or dimensions')
+            image.verify()
+        return data, inline['mimeType']
+    except Exception as exc:
+        raise Failure(400, 'Invalid reference image bytes') from exc
+
+
 def request_prompt(body, model):
     if model not in MODELS:
         raise Failure(404, 'Unknown Gemini Web model')
@@ -210,8 +237,13 @@ def request_prompt(body, model):
     if (not isinstance(turn, dict) or set(turn) - {'role', 'parts'}
             or turn.get('role', 'user') != 'user' or not isinstance(turn.get('parts'), list)):
         raise Failure(400, 'Expected user content with text parts')
-    texts = []
+    texts, images = [], []
     for part in turn['parts']:
+        if model == PRO_IMAGE_MODEL and isinstance(part, dict) and set(part) == {'inlineData'}:
+            images.append(input_image(part['inlineData']))
+            if len(images) > 4 or sum(len(data) for data, _ in images) > 10 * 1024 * 1024:
+                raise Failure(400, 'Reference images exceed input budget')
+            continue
         if not isinstance(part, dict) or set(part) != {'text'} or not isinstance(part['text'], str):
             raise Failure(400, 'Only text input parts are supported')
         texts.append(part['text'])
@@ -220,8 +252,12 @@ def request_prompt(body, model):
         raise Failure(400, 'Prompt must contain 1 to 32000 characters')
     config = body.get('generationConfig', {})
     allowed_config = {'responseModalities'} | ({'imageConfig'} if MODELS[model][1] else set())
+    if model == PRO_IMAGE_MODEL:
+        allowed_config.add('candidateCount')
     if not isinstance(config, dict) or set(config) - allowed_config:
         raise Failure(400, 'Unsupported generationConfig field')
+    if 'candidateCount' in config and (type(config['candidateCount']) is not int or config['candidateCount'] != 1):
+        raise Failure(400, 'Only candidateCount=1 is supported')
     modalities = config.get('responseModalities', ['TEXT', 'IMAGE'] if MODELS[model][1] else ['TEXT'])
     if (not isinstance(modalities, list) or not modalities
             or any(x not in ('TEXT', 'IMAGE') for x in modalities)
@@ -233,9 +269,9 @@ def request_prompt(body, model):
         if not MODELS[model][1] or not isinstance(image_config, dict) or set(image_config) != {'aspectRatio'}:
             raise Failure(400, 'imageConfig.aspectRatio is supported only for the Web image model')
         aspect_ratio = image_config.get('aspectRatio')
-        if not isinstance(aspect_ratio, str) or aspect_ratio not in IMAGE_ASPECT_ENUM:
+        if not isinstance(aspect_ratio, str) or aspect_ratio not in (PRO_IMAGE_ASPECT_RATIOS if model == PRO_IMAGE_MODEL else IMAGE_ASPECT_ENUM):
             raise Failure(400, 'Unsupported imageConfig.aspectRatio')
-    return prompt, modalities, aspect_ratio
+    return prompt, modalities, aspect_ratio, images
 
 
 class Account:
@@ -438,8 +474,38 @@ class Account:
                 raise Failure(502, 'Invalid image authorization response') from exc
         raise Failure(502, 'Full-size image authorization did not finish; no preview fallback')
 
+    def upload(self, data, mime):
+        headers = {'Origin': ORIGIN, 'Referer': ORIGIN + '/',
+                   'Push-ID': 'feeds/mcudyrk2a4khkz', 'X-Tenant-ID': 'bard-storage',
+                   'X-Goog-Upload-Command': 'start', 'X-Goog-Upload-Protocol': 'resumable',
+                   'X-Goog-Upload-Header-Content-Length': str(len(data))}
+        name = 'reference.' + {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}[mime]
+        response, _ = self.call('POST', 'https://push.clients6.google.com/upload/?authuser=0',
+                                headers=headers, data='File name: ' + name)
+        url = response.headers.get('x-goog-upload-url', '')
+        parsed = urlsplit(url)
+        try:
+            valid = (parsed.scheme == 'https' and parsed.hostname in ('push.clients6.google.com', 'content-push.googleapis.com')
+                     and parsed.port in (None, 443) and not parsed.username and not parsed.password
+                     and not parsed.fragment and not any(c.isspace() for c in url))
+        except ValueError:
+            valid = False
+        if not valid:
+            raise Failure(502, 'Untrusted reference upload URL')
+        headers = {'Origin': ORIGIN, 'Referer': ORIGIN + '/',
+                   'Push-ID': 'feeds/mcudyrk2a4khkz', 'X-Tenant-ID': 'bard-storage',
+                   'X-Goog-Upload-Command': 'upload, finalize', 'X-Goog-Upload-Offset': '0'}
+        _, result = self.call('POST', url, headers=headers, data=data)
+        try:
+            file_id = result.decode('utf-8').strip()
+        except UnicodeDecodeError as exc:
+            raise Failure(502, 'Invalid reference upload identifier') from exc
+        if not re.fullmatch(r'/contrib_service/[a-zA-Z0-9_/-]{1,512}', file_id):
+            raise Failure(502, 'Invalid reference upload identifier')
+        return [[file_id, 1, None, mime], name]
+
     def generate(self, model, body):
-        prompt, modalities, aspect_ratio = request_prompt(body, model)
+        prompt, modalities, aspect_ratio, images = request_prompt(body, model)
         blocked_at_start = self.blocked
         try:
             if self.blocked or self.generation_pending:
@@ -470,14 +536,21 @@ class Account:
                 for index, value in {49: 14, 54: [], 55: [], 68: 2,
                                      91: 0, 96: 0, 98: 1}.items():
                     inner[index] = value
-                if aspect_ratio is not None:
+                pro_image = model == PRO_IMAGE_MODEL
+                if pro_image or aspect_ratio is not None:
                     # Captured from the real Gemini Images page. The ratio is
                     # represented twice in the browser RPC: the string in the
                     # image request options and the numeric aspect enum.
+                    options = [1 if pro_image else None]
+                    if aspect_ratio is not None:
+                        options.append(aspect_ratio)
                     inner[0] = [prompt, 0, None, None, None, None, 0, None, None,
                                 [None, None, None, None, None, None,
-                                 [None, [None, aspect_ratio]]]]
+                                 [None, options]]]
+                if aspect_ratio in IMAGE_ASPECT_ENUM:
                     inner[55] = [[IMAGE_ASPECT_ENUM[aspect_ratio]]]
+                if pro_image:
+                    inner[32] = 1
             request_id = str(uuid.uuid4()).upper()
             inner[59] = request_id
             headers = {'Origin': ORIGIN, 'Referer': ORIGIN + '/', 'X-Same-Domain': '1',
@@ -485,11 +558,16 @@ class Account:
                     None, 0, [4, 5, 6, 8], None, None, capacity, None, None, number, 1, self.session_id]),
                 'x-goog-ext-525005358-jspb': json.dumps([request_id, 1]),
                 'x-goog-ext-73010989-jspb': '[0]', 'x-goog-ext-73010990-jspb': '[0,0,0]'}
+            if images:
+                inner[0][3] = [self.upload(data, mime) for data, mime in images]
             self.generation_pending = True
             self.persist()
             _, data = self.call('POST', GENERATE, params=self.params(), headers=headers,
                 data={'at': self.fields['SNlM0e'], 'f.req': json.dumps([None, json.dumps(inner)])})
-            text, references = generation_result(data.decode('utf-8'))
+            text, references = generation_result(data.decode('utf-8'),
+                expected_image_model='Nano Banana Pro' if model == PRO_IMAGE_MODEL else None)
+            if model == PRO_IMAGE_MODEL and len(references) != 1:
+                raise Failure(502, 'Expected one Pro image; request was not retried')
             if MODELS[model][1] and not references:
                 raise Failure(502, 'Google returned no generated image; request was not retried')
             if references and 'IMAGE' not in modalities:

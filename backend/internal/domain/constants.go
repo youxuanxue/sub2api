@@ -1,6 +1,9 @@
 package domain
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 // Status constants
 const (
@@ -120,9 +123,8 @@ const AntigravityGemini31ProAgentModel = "gemini-pro-agent"
 // tk_account_model_mapping_runtime.platforms.antigravity）
 // 与前端 useModelWhitelist.ts 中的 antigravityDefaultMappings 保持一致。
 //
-// 2026-09-17 收敛：对外只保留 3.6/3.7/3.8 文本 + 两张图片，以及高流量
-// 兼容别名。Antigravity OAuth 仍不能服务真 gemini-3-pro-image（404），继续
-// 重指 3.1-flash-image；3.6/3.7/3.8 公共 id 仍走已验证的 wire remap。
+// Antigravity image requests serve Flash only. Pro image IDs must never remap
+// to Flash; Gemini Web provides the independently verified Pro path.
 // 2026-09-22：补回 gemini-3-flash→3.8 高流量别名。
 // 2026-09-22：裸名默认 wire 锁 high（非 medium）；-{low,medium,high} 为非公开
 // wire 档位，由 AntigravityThinkingWireFloorEntries 注入 account floor。
@@ -135,11 +137,7 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3.5-flash-lite":          "gemini-3.6-flash-tiered",
 	"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
 	"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
-	// Antigravity OAuth cannot serve true gemini-3-pro-image (404); Flash remap.
-	// nano-2 / nano-pro are public Nano Banana marketing aliases (#2206).
-	"gemini-3-pro-image": "gemini-3.1-flash-image",
-	"nano-2":             "gemini-3.1-flash-image",
-	"nano-pro":           "gemini-3.1-flash-image",
+	"nano-2":                         "gemini-3.1-flash-image",
 }
 
 // antigravityThinkingWireBases lists public Flash families whose AG upstream
@@ -261,4 +259,20 @@ var DefaultBedrockModelMapping = map[string]string{
 	// Claude Haiku
 	"claude-haiku-4-5":          "us.anthropic.claude-haiku-4-5-20251001-v1:0",
 	"claude-haiku-4-5-20251001": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+}
+
+// GeminiProImageModelIDs names Pro image identities, including legacy aliases.
+// Antigravity cannot serve these even through persisted or wildcard remaps.
+func GeminiProImageModelIDs() []string {
+	return []string{"gemini-3-pro-image", "gemini-3-pro-image-preview", "nano-banana-pro", "nano-banana-pro-preview", "nano-pro", "gemini-web-nano-banana-pro"}
+}
+
+func IsGeminiProImageModel(model string) bool {
+	model = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(model)), "models/")
+	for _, id := range GeminiProImageModelIDs() {
+		if model == id {
+			return true
+		}
+	}
+	return false
 }

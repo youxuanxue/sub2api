@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -277,8 +278,9 @@ func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*Ac
 		ForbiddenModelMappingKeys:     accountModelMappingForbiddenKeysByScope(),
 		ForbiddenModelMappingPrefixes: accountModelMappingForbiddenPrefixesByScope(),
 	}
-	for _, keys := range out.ForbiddenModelMappingKeys {
+	for scope, keys := range out.ForbiddenModelMappingKeys {
 		sort.Strings(keys)
+		out.ForbiddenModelMappingKeys[scope] = slices.Compact(keys)
 	}
 	for _, platform := range []string{PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok, PlatformKiro} {
 		mapping, ok := accountModelMappingForAccount(ctx, &Account{Platform: platform}, nil, nil, runtime)
@@ -396,7 +398,7 @@ func accountModelMappingForbiddenKeysByScope() map[string][]string {
 		// Kiro mirror stubs resolve to PlatformKiro before this policy applies.
 		PlatformAnthropic: kiroExclusiveModelIDs(),
 		PlatformAntigravity: append(
-			domain.AntigravityStructuralDeadModelMappingKeys(),
+			append(domain.AntigravityStructuralDeadModelMappingKeys(), domain.GeminiProImageModelIDs()...),
 			domain.AntigravityUnpricedModelMappingKeys()...,
 		),
 		accountModelMappingPlatformOpenAITokenseaRelay: tokenseaRelayForbiddenUpstreamIDs(
@@ -533,7 +535,7 @@ func openAITokenseaRelayAccountModelMappingFloor(ctx context.Context, pricing *P
 	if len(ids) == 0 {
 		return nil
 	}
-	return applyTokenseaImageCompatibilityAliases(identityModelMapping(ids))
+	return applyImageCompatibilityAliases(identityModelMapping(ids))
 }
 
 func openAICloudwiseRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
@@ -559,13 +561,13 @@ func anthropicTokenseaRelayModelMappingFloor() map[string]string {
 		}
 		out[id] = id
 	}
-	return applyTokenseaImageCompatibilityAliases(out)
+	return applyImageCompatibilityAliases(out)
 }
 
-// applyTokenseaImageCompatibilityAliases adds Nano Banana / GPT Image 2.5
-// marketing aliases when the target wire id is already in the floor. Antigravity
-// OAuth still remaps nano-pro → flash; TokenSea can keep true Pro.
-func applyTokenseaImageCompatibilityAliases(out map[string]string) map[string]string {
+// applyImageCompatibilityAliases adds Nano Banana / GPT Image 2.5
+// marketing aliases when the target wire id is already in the floor.
+// Pro aliases must retain Pro identity; Antigravity does not serve them.
+func applyImageCompatibilityAliases(out map[string]string) map[string]string {
 	if out == nil {
 		return nil
 	}
@@ -573,7 +575,7 @@ func applyTokenseaImageCompatibilityAliases(out map[string]string) map[string]st
 	for _, to := range out {
 		targets[to] = struct{}{}
 	}
-	for from, to := range tkTokenseaImageCompatibilityAliases {
+	for from, to := range tkImageCompatibilityAliases {
 		if _, ok := targets[to]; ok {
 			out[from] = to
 		}
@@ -581,10 +583,11 @@ func applyTokenseaImageCompatibilityAliases(out map[string]string) map[string]st
 	return out
 }
 
-var tkTokenseaImageCompatibilityAliases = map[string]string{
-	"nano-2":        "gemini-3.1-flash-image",
-	"nano-pro":      "gemini-3-pro-image",
-	"gpt-image-2.5": "gpt-image-2.5-flare",
+var tkImageCompatibilityAliases = map[string]string{
+	"nano-2":          "gemini-3.1-flash-image",
+	"nano-pro":        "gemini-3-pro-image",
+	"nano-banana-pro": "gemini-3-pro-image",
+	"gpt-image-2.5":   "gpt-image-2.5-flare",
 }
 
 // tokenseaRelaySharedExtraSSOTIDs are public CatalogPolicy models already
@@ -607,7 +610,7 @@ func tokenseaRelaySupportsRequestedModel(requestedModel string) bool {
 	}
 	// Marketing aliases in the floor (nano-2/nano-pro/gpt-image-2.5/…) must pass the
 	// same Anthropic-shaped TokenSea gate as their wire targets.
-	for from, to := range tkTokenseaImageCompatibilityAliases {
+	for from, to := range tkImageCompatibilityAliases {
 		if !strings.EqualFold(from, normalized) {
 			continue
 		}
@@ -760,7 +763,7 @@ func geminiAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalog
 			out[from] = to
 		}
 	}
-	return out
+	return applyImageCompatibilityAliases(out)
 }
 
 func antigravityAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
