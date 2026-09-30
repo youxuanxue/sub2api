@@ -43,6 +43,7 @@ func WithForwardGeminiSession(groupID int64, sessionHash string) ForwardGeminiOp
 
 func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte, isStickySession bool, options ...ForwardGeminiOption) (*ForwardResult, error) {
 	beginUpstreamResponseModelObservation(c)
+	beginGeminiImageOutputObservation(c)
 	startTime := time.Now()
 	forwardOpts := forwardGeminiOptions{}
 	for _, apply := range options {
@@ -434,10 +435,23 @@ handleSuccess:
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
 		clientDisconnect = streamRes.clientDisconnect
+		if requireErr := requireGeminiImageModelStreamOutput(mappedModel, c); requireErr != nil {
+			setOpsUpstreamError(c, http.StatusBadGateway, requireErr.Error(), "empty_image_stream")
+			return &ForwardResult{
+				RequestID:     requestID,
+				Usage:         *usage,
+				Model:         originalModel,
+				UpstreamModel: forwardedModel,
+				Stream:        true,
+				Duration:      time.Since(startTime),
+				FirstTokenMs:  firstTokenMs,
+				ImageCount:    0,
+			}, requireErr
+		}
 	} else {
 		// The upstream is always SSE; collect it before writing the native JSON
 		// response expected by a non-streaming Gemini client.
-		streamRes, err := s.handleGeminiStreamToNonStreaming(c, resp, startTime)
+		streamRes, err := s.handleGeminiStreamToNonStreaming(c, resp, startTime, mappedModel)
 		if err != nil {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_collect_error error=%v", prefix, err)
 			return nil, err
@@ -450,12 +464,9 @@ handleSuccess:
 		usage = &ClaudeUsage{}
 	}
 
-	// 判断是否为图片生成模型
-	imageCount := 0
-	if isImageGenerationModel(mappedModel) {
-		// Gemini 图片生成 API 每次请求只生成一张图片（API 限制）
-		imageCount = 1
-	}
+	// Bill only for images actually observed in the upstream payload. Model
+	// name alone must not invent ImageCount=1 on empty image_gen responses.
+	imageCount := resolveGeminiImageCount(c, originalModel, mappedModel)
 
 	return &ForwardResult{
 		RequestID:                     requestID,

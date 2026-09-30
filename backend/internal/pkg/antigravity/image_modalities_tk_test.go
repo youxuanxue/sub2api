@@ -46,3 +46,41 @@ func TestEnsureImageResponseModalities_NanoAlias(t *testing.T) {
 		t.Fatal("nano-2 is an image model alias")
 	}
 }
+
+func TestOmitImageModelMaxOutputTokens_StripsChatLimit(t *testing.T) {
+	req := map[string]any{
+		"generationConfig": map[string]any{
+			"maxOutputTokens":    32,
+			"responseModalities": []string{"TEXT", "IMAGE"},
+		},
+	}
+	if !OmitImageModelMaxOutputTokens(req, "gemini-3.1-flash-image") {
+		t.Fatal("expected maxOutputTokens removed for image model")
+	}
+	gen, ok := req["generationConfig"].(map[string]any)
+	if !ok {
+		t.Fatal("generationConfig missing")
+	}
+	if _, ok := gen["maxOutputTokens"]; ok {
+		t.Fatal("maxOutputTokens must be absent")
+	}
+	if _, ok := gen["responseModalities"]; !ok {
+		t.Fatal("modalities must stay")
+	}
+}
+
+func TestOmitImageModelMaxOutputTokens_NoopForTextModel(t *testing.T) {
+	req := map[string]any{
+		"generationConfig": map[string]any{"maxOutputTokens": 32},
+	}
+	if OmitImageModelMaxOutputTokens(req, "gemini-3.8-flash") {
+		t.Fatal("text model must keep maxOutputTokens")
+	}
+	gen, ok := req["generationConfig"].(map[string]any)
+	if !ok {
+		t.Fatal("generationConfig missing")
+	}
+	if got := gen["maxOutputTokens"]; got != 32 {
+		t.Fatalf("maxOutputTokens=%v, want 32", got)
+	}
+}

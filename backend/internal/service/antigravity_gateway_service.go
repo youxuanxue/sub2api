@@ -820,6 +820,9 @@ func (s *AntigravityGatewayService) wrapV1InternalRequest(projectID, model strin
 	// send IMAGE are left untouched.
 	_ = antigravity.EnsureImageResponseModalities(request, model)
 	ensureAntigravityDefaultImageSize(request, model)
+	// Chat max_tokens (often 32–128) must not become maxOutputTokens for image
+	// models — that starves inlineData while still billing ImageCount=1.
+	_ = antigravity.OmitImageModelMaxOutputTokens(request, model)
 	requestID := "agent-" + uuid.New().String()
 	switch requestType {
 	case "image_gen":

@@ -1817,6 +1817,15 @@
       "rationale": "ForwardGemini must call the shared prepareForwardGeminiWire owner; duplicating normalize+wrap here drifts from messages/chat/responses. ForwardGemini must resolve explicit Gemini thinkingConfig into AG -low/-medium/-high wire ids before mapping."
     },
     {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": [
+        "beginGeminiImageOutputObservation(c)",
+        "imageCount := resolveGeminiImageCount(c, originalModel, mappedModel)",
+        "ImageCount:                    imageCount,"
+      ],
+      "rationale": "ForwardGemini must bill ImageCount from observed inlineData, not hardcode 1 for image model names. Hardcoding bills empty image_gen responses; dropping observation silently restores token-only-looking success with per-image charges."
+    },
+    {
       "path": "backend/internal/service/antigravity_gateway_claude.go",
       "must_contain": [
         "geminiBody, err := s.buildMessagesForwardUpstreamBody(ctx, body, &claudeReq, projectID, mappedModel, transformOpts)",
@@ -14437,17 +14446,20 @@
     {
       "path": "backend/internal/service/antigravity_gateway_service.go",
       "must_contain": [
-        "_ = antigravity.EnsureImageResponseModalities(request, model)"
+        "_ = antigravity.EnsureImageResponseModalities(request, model)",
+        "_ = antigravity.OmitImageModelMaxOutputTokens(request, model)"
       ],
-      "rationale": "Chat Completions → AG image_gen must inject TEXT+IMAGE responseModalities via EnsureImageResponseModalities. Without it cloudcode-pa returns empty content (~token-only billing). The existing responseModalities sentinel only covers admin TestConnection; this pins the wrapV1InternalRequest chat/native injection call site. Pairs with image_modalities_tk.go and TestAntigravityGatewayService_WrapNativeImageRequestUsesImageGenEnvelope."
+      "rationale": "Chat Completions → AG image_gen must inject TEXT+IMAGE modalities and omit maxOutputTokens via EnsureImageResponseModalities + OmitImageModelMaxOutputTokens. Without modalities cloudcode-pa returns empty content; with a small Chat max_tokens forwarded as maxOutputTokens image_gen is starved while ImageCount still billed. Pairs with image_modalities_tk.go and WrapNativeImageRequest* tests."
     },
     {
       "path": "backend/internal/pkg/antigravity/image_modalities_tk.go",
       "must_contain": [
         "func EnsureImageResponseModalities(request map[string]any, model string) bool {",
-        "gen[\"responseModalities\"] = []string{\"TEXT\", \"IMAGE\"}"
+        "gen[\"responseModalities\"] = []string{\"TEXT\", \"IMAGE\"}",
+        "func OmitImageModelMaxOutputTokens(request map[string]any, model string) bool {",
+        "\"maxOutputTokens\", \"max_output_tokens\""
       ],
-      "rationale": "Owner of chat-path IMAGE modality injection for AG image models. Upstream/refactor deleting this companion would silently restore empty chat image content."
+      "rationale": "Owner of chat-path IMAGE modality injection and maxOutputTokens omission for AG image models. Deleting either companion restores empty chat image content and/or starved image_gen under small Chat max_tokens."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_native_tk_test.go",
@@ -14460,10 +14472,11 @@
     {
       "path": "backend/internal/service/antigravity_gateway_compat.go",
       "must_contain": [
-        "if isImageGenerationModel(call.billingModel) {",
-        "ImageCount:                    imageCount,"
+        "imageCount := resolveGeminiImageCount(c, call.request.originalModel, call.billingModel)",
+        "ImageCount:                    imageCount,",
+        "beginGeminiImageOutputObservation(c)"
       ],
-      "rationale": "Chat/Responses compat must bill ImageCount=1 for image models, matching ForwardGemini. Without this, successful chat image gens settle as token-only."
+      "rationale": "Chat/Responses compat must bill ImageCount from observed inlineData (same as Gemini compat / ForwardGemini after empty-image fail-closed). Hardcoding ImageCount=1 for image models bills empty chat bodies ~$0.10."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_retry.go",
