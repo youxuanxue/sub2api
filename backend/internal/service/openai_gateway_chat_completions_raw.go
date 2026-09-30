@@ -409,7 +409,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 					ReasoningEffort:               reasoningEffort,
 				}
 				if cost := s.previewOpenAIClientUsageCost(c.Request.Context(), c, account, preview); cost != nil {
-					line = InjectUsageCostSSEDataLine(line, cost.ActualCost)
+					line = InjectUsageCostSSEDataLine(line, cost.TotalCost)
 					stashPrecomputedResponseUsageCost(c, cost)
 				}
 			}
@@ -637,7 +637,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		Duration:                      time.Since(startTime),
 	}
 	if cost := s.previewOpenAIClientUsageCost(c.Request.Context(), c, account, result); cost != nil {
-		respBody = InjectUsageCostJSON(respBody, cost.ActualCost)
+		respBody = InjectUsageCostJSON(respBody, cost.TotalCost)
 		result.PrecomputedCost = cost
 	}
 

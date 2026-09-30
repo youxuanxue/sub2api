@@ -171,8 +171,8 @@ type OpenAIForwardResult struct {
 	ContentTextLen           int
 	CompactCandidate         bool
 	Stream                   bool
-	// PrecomputedCost is the client-visible ActualCost already injected into the
-	// response usage.cost field. RecordUsage reuses it to avoid drift.
+	// PrecomputedCost is the CostBreakdown settled while writing usage.cost
+	// (response exposes TotalCost; RecordUsage reuses this for ActualCost billing).
 	PrecomputedCost *CostBreakdown
 	OpenAIWSMode    bool
 	// UpstreamTerminalEvent is the normalized terminal event observed on an
