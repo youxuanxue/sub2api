@@ -410,9 +410,8 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 	tool := []byte(`{"type":"image_generation","action":"","model":""}`)
 	tool, _ = sjson.SetBytes(tool, "action", action)
 	tool, _ = sjson.SetBytes(tool, "model", strings.TrimSpace(toolModel))
-	if shouldPassOpenAIImagesN(toolModel, parsed.N) {
-		tool, _ = sjson.SetBytes(tool, "n", parsed.N)
-	}
+	// Never set tools[].n: live ChatGPT Codex Responses rejects it with
+	// unknown_parameter (2026-09-30). n>1 is fulfilled by TokenKey multi-fetch.
 
 	for _, field := range []struct {
 		path  string
@@ -452,13 +451,6 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 	req, _ = sjson.SetRawBytes(req, "tools", []byte(`[]`))
 	req, _ = sjson.SetRawBytes(req, "tools.-1", tool)
 	return req, nil
-}
-
-func shouldPassOpenAIImagesN(model string, n int) bool {
-	if n <= 1 {
-		return false
-	}
-	return !strings.EqualFold(strings.TrimSpace(model), "dall-e-3")
 }
 
 func extractOpenAIImagesFromResponsesCompleted(payload []byte) ([]openAIResponsesImageResult, int64, []byte, openAIResponsesImageResult, error) {
@@ -1850,12 +1842,12 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		return nil, err
 	}
 	direct := usesCodexDirectImages(upstreamModel) && !isOpenAIImagesForceResponses(ctx)
-	if direct && parsed.Stream && parsed.N > 1 {
+	if parsed.Stream && parsed.N > 1 {
 		err := &OpenAIImagesUpstreamError{
 			StatusCode: http.StatusBadRequest,
 			ErrorType:  "invalid_request_error",
 			Code:       "unsupported_parameter",
-			Message:    "stream=true with n>1 is not supported for Codex Direct images; use n=1 or omit stream so TokenKey can multi-fetch",
+			Message:    "stream=true with n>1 is not supported for OAuth images; use n=1 or omit stream so TokenKey can multi-fetch",
 		}
 		writeOpenAIImagesUpstreamErrorResponse(c, err)
 		return nil, err
@@ -2037,6 +2029,10 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 			} else {
 				usage, imageCount, imageOutputSizes, err = s.handleCodexDirectImagesNonStreamingResponse(resp, c, parsed)
 			}
+		} else if parsed.N > 1 {
+			usage, imageCount, imageOutputSizes, err = s.handleOpenAIImagesOAuthNonStreamingMulti(
+				upstreamCtx, c, account, parsed, token, proxyURL, resp, upstreamModel, requestModel,
+			)
 		} else {
 			usage, imageCount, imageOutputSizes, err = s.handleOpenAIImagesOAuthNonStreamingResponse(resp, c, parsed.ResponseFormat, requestModel, parsed)
 		}
