@@ -137,6 +137,11 @@ var catalogWithdrawnModelIDs = func() map[string]struct{} {
 		"codex-auto-review":   {},
 		"gpt-5.3-codex-spark": {},
 		"gpt-5.5":             {},
+		// Antigravity OAuth accepts this legacy marketing alias by mapping it to
+		// gemini-3.1-flash-image; it does not provide a distinct Gemini 3 Pro
+		// image path. Keep the alias routable for compatibility, but do not sell
+		// or recommend it as a separate public model.
+		"gemini-3-pro-image": {},
 	}
 	for _, withdrawal := range catalogModelWithdrawals {
 		for _, id := range withdrawal.ModelIDs {
