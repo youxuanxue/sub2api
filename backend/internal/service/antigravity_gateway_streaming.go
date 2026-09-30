@@ -546,14 +546,13 @@ returnResponse:
 		}
 	}
 
+	// Complete upstream JSON with no inlineData is a content outcome, not an
+	// account fault. Return a plain error so Images/native ingress fails once
+	// (US059: never replay) instead of same-account failover + temp unscheduling.
 	if err := requireGeminiImageModelOutput(originalModel, finalResponse); err != nil {
 		body, _ := json.Marshal(finalResponse)
 		setOpsUpstreamError(c, http.StatusBadGateway, err.Error(), summarizeGeminiEmptyImageBody(body))
-		return nil, &UpstreamFailoverError{
-			StatusCode:             http.StatusBadGateway,
-			ResponseBody:           body,
-			RetryableOnSameAccount: true,
-		}
+		return nil, err
 	}
 
 	respBody, err := json.Marshal(finalResponse)
@@ -945,6 +944,8 @@ returnResponse:
 
 	// Image models must deliver inlineData; empty success would still bill when
 	// ImageCount was hardcoded to 1. Fail closed before Claude/Chat conversion.
+	// RequestScopedTransient: model content outcome, not account health — allow
+	// account switch without temp-unscheduling the healthy account.
 	if err := requireGeminiImageModelOutput(originalModel, finalResponse); err != nil {
 		body, _ := json.Marshal(finalResponse)
 		setOpsUpstreamError(c, http.StatusBadGateway, err.Error(), summarizeGeminiEmptyImageBody(body))
@@ -952,6 +953,7 @@ returnResponse:
 			StatusCode:             http.StatusBadGateway,
 			ResponseBody:           body,
 			RetryableOnSameAccount: true,
+			RequestScopedTransient: true,
 		}
 	}
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -143,7 +144,9 @@ func TestUS057_GeminiNativeProtocolTransport(t *testing.T) {
 				require.False(t, gjson.GetBytes(wireBody, "systemInstruction").Exists())
 				require.JSONEq(t, `["TEXT","IMAGE"]`, gjson.GetBytes(wireBody, "generationConfig.responseModalities").Raw)
 				require.Equal(t, "4:3", gjson.GetBytes(wireBody, "generationConfig.imageConfig.aspectRatio").String())
-				if web {
+				// Image wire models always omit maxOutputTokens (Chat budget must
+				// not starve image_gen). Web text path also strips the limit.
+				if web || antigravity.IsImageModel(wireModel) {
 					require.False(t, gjson.GetBytes(wireBody, "generationConfig.maxOutputTokens").Exists())
 				} else if hasLimit {
 					require.Equal(t, int64(128), gjson.GetBytes(wireBody, "generationConfig.maxOutputTokens").Int())
