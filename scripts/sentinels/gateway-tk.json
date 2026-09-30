@@ -1174,22 +1174,33 @@
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler.go",
-      "must_contain": ["if images, ok := c.Writer.(*geminiImagesWriter); ok {", "if err := images.prepareSuccess(); err != nil {"],
+      "must_contain": [
+        "if images, ok := c.Writer.(*geminiImagesWriter); ok {",
+        "if err := images.prepareSuccess(); err != nil {"
+      ],
       "rationale": "Buffered Images conversion must be validated before native usage settlement; invalid output cannot be billed or replayed."
     },
     {
       "path": "backend/internal/service/candidate_request_tk.go",
-      "must_contain": ["ok && !UsesGeminiImagesAdapter(r.shape, r.model)"],
+      "must_contain": [
+        "ok && !UsesGeminiImagesAdapter(r.shape, r.model)"
+      ],
       "rationale": "Images candidate rechecks retain the original operation body instead of converting an already-native body a second time."
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",
-      "must_contain": ["pathCtx = geminiImagesCandidateContext(pathCtx, r.shape, model, account)"],
+      "must_contain": [
+        "pathCtx = geminiImagesCandidateContext(pathCtx, r.shape, model, account)"
+      ],
       "rationale": "AG Images protocol adaptation must preserve existing same-model media forwarding on non-AG accounts."
     },
     {
       "path": "backend/internal/service/gemini_images_adapter_tk.go",
-      "must_contain": ["func UsesGeminiImagesAdapter(", "func PrepareGeminiImagesRequest(", "apicompat.ImagesToGeminiGeneration(body)"],
+      "must_contain": [
+        "func UsesGeminiImagesAdapter(",
+        "func PrepareGeminiImagesRequest(",
+        "apicompat.ImagesToGeminiGeneration(body)"
+      ],
       "rationale": "Images admission and native Gemini execution share one parameter conversion owner."
     },
     {
@@ -1222,7 +1233,12 @@
     },
     {
       "path": "backend/internal/handler/gemini_images_tk.go",
-      "must_contain": ["func (h *GatewayHandler) GeminiImageGenerations(", "service.PrepareGeminiImagesRequest(body)", "h.GeminiV1BetaModels(c)", "apicompat.GeminiGenerationToImages(w.body.Bytes())"],
+      "must_contain": [
+        "func (h *GatewayHandler) GeminiImageGenerations(",
+        "service.PrepareGeminiImagesRequest(body)",
+        "h.GeminiV1BetaModels(c)",
+        "apicompat.GeminiGenerationToImages(w.body.Bytes())"
+      ],
       "rationale": "Antigravity Images reuses native authorization, Plan, account execution and billing instead of a parallel generation lifecycle."
     },
     {
@@ -6633,6 +6649,16 @@
         "openAIImagesMaxCanvasSide"
       ],
       "rationale": "Local exact-canvas owner: admit size bounds (separator normalize, side<=3840, pixels in [655360,8294400]), ceil-16 upstream size, and pad response to the client WxH. Upstream merge that drops this companion (or its call from applyOpenAIImagesClientFidelityPostprocess) reverts to soft upstream pixels and wrong billing tiers."
+    },
+    {
+      "path": "backend/internal/service/image_billing_size.go",
+      "must_contain": [
+        "imageBillingLongEdge1K = 1024",
+        "imageBillingLongEdge2K = 2560",
+        "func ClassifyImageBillingTier(size string) (string, bool)",
+        "case maxEdge <= imageBillingLongEdge2K:"
+      ],
+      "rationale": "WxH→1K/2K/4K long-edge SSOT: 2K tops at 2560 so canvases like 2560x1440 bill 2K (industry/号池 semantics). Upstream merge that restores <=2048 silently overbills those canvases as 4K while unit names still look healthy."
     },
     {
       "path": "backend/internal/service/openai_images_main_model_tk.go",
