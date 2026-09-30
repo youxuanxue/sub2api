@@ -317,6 +317,8 @@ test.describe('dual-market homepage', () => {
         url.pathname === '/register' &&
         url.searchParams.get('redirect') === '/quickstart?model=deepseek-flash&protocol=openai',
     )
+    await expect(page.getByRole('heading', { name: 'CallModel' })).toBeVisible()
+    await expect(page.getByText(/sign up to start using CallModel/i)).toBeVisible()
     await page.locator('#email').fill(testUser.email)
     await page.locator('#password').fill('TokenKey-E2E-Password-1973!')
     await page.locator('#confirmPassword').fill('TokenKey-E2E-Password-1973!')
@@ -330,6 +332,16 @@ test.describe('dual-market homepage', () => {
         url.searchParams.get('protocol') === 'openai',
     )
     await expect(page.locator('[data-tk="use-key-model-select"]')).toHaveValue('deepseek-flash')
+  })
+
+  test('keeps CallModel chrome on same-host product paths without leaving the facade', async ({
+    page,
+  }) => {
+    await page.goto(`${scheme}://callmodel.io:${port}/register`)
+    await expect(page).toHaveURL(/callmodel\.io.*\/register/)
+    await expect(page.getByRole('heading', { name: 'CallModel' })).toBeVisible()
+    await expect(page.getByText(/sign up to start using CallModel/i)).toBeVisible()
+    await expect(page.locator('body')).not.toContainText('Sign up to start using Sub2API')
   })
 
   test('keeps terminal chrome and typography identical across both homepages', async ({ page }) => {

@@ -391,7 +391,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 1. `tokenkey.dev` 和未知 host 解析为 current profile；
 2. `callmodel.io` 解析为 china-export profile，品牌为 CallModel；
 3. profile 只影响首页，不能改变模型权限、API Key 或余额；
-4. `callmodel.io /`、`callmodel.io /home` 成功，非首页 document 在灰度期 302、正式期 301，且 path/query 保真；
+4. `callmodel.io /`、`/home` 与产品路径（如 `/register`、`/models`）成功同壳呈现；仅 `/admin*` 在灰度期 302、正式期 301 到 `tokenkey.dev`（见 `design-callmodel-product-facade.md`）；
 5. current 首页 snapshot/关键文案/CTA 不回归；
 6. overseas 首页模型顺序、DeepSeek API 示例和免费试用文案正确，且不展示金额或 token 数量；首页品牌铬为 CallModel，共用产品（目录/收银台/账户）文案仍指向 TokenKey；
 7. crawler 在两个 host 得到不同且正确的 canonical/OG；

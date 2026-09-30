@@ -112,7 +112,7 @@ CallModel 是对外自主注册与收费的主产品 → **事务性人类链接
 4. callmodel 登录后 Cookie host=`callmodel.io`  
 5. `api.callmodel.io/login` → 301 `callmodel.io/login`；`/v1/*` 不回跳  
 6. `tokenkey.dev` 产品与 Admin 无回归  
-7. Playwright：双门面壳品牌 + CallModel 路径不 30x + Admin 踢出  
+7. 自动化分工：Playwright 覆盖双门面壳品牌 + CallModel 同 host 产品旅程；Admin 踢出 / API alias 非 machine 回跳由 Caddy render 单测（及上线 probe）覆盖  
 8. 发一封测试邮件 / 支付回跳 URL host = `callmodel.io`（改 Settings 后）
 
 ## 8. 发布顺序
