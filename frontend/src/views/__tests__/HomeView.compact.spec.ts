@@ -263,13 +263,13 @@ describe('HomeView compact mode', () => {
     expect(terminal.findAll('.terminal-buttons span')).toHaveLength(3)
   })
 
-  it('sends the primary CTA to the shared product quickstart with DeepSeek selected', () => {
+  it('sends anonymous primary CTA through TokenKey register into DeepSeek quickstart', () => {
     profileState.value = 'china-export'
 
     const href = mountHome().get('[data-testid="china-export-primary-cta"]').attributes('href')
 
     expect(href).toBe(
-      'https://tokenkey.dev/quickstart?model=deepseek-chat&protocol=openai',
+      'https://tokenkey.dev/register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-chat%26protocol%3Dopenai',
     )
   })
 })

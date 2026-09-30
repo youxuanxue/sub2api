@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { CHINA_EXPORT_BRAND } from '@/features/home/marketProfile.tk'
 import homeOverlay from '@/i18n/tk/home.tk'
 
 function chinaExportCopy(locale: 'en' | 'zh') {
@@ -13,12 +14,16 @@ describe('China export homepage copy', () => {
     expect(chinaExportCopy('zh')).not.toEqual(chinaExportCopy('en'))
   })
 
-  it.each(['en', 'zh'] as const)('uses CallModel branding on the overseas homepage in %s', (locale) => {
-    const serialized = JSON.stringify(chinaExportCopy(locale))
+  it.each(['en', 'zh'] as const)(
+    'keeps shared-product copy on TokenKey while the overseas face brand is CallModel in %s',
+    (locale) => {
+      const serialized = JSON.stringify(chinaExportCopy(locale))
 
-    expect(serialized).toContain('CallModel')
-    expect(serialized).not.toContain('TokenKey')
-  })
+      expect(CHINA_EXPORT_BRAND).toBe('CallModel')
+      expect(serialized).toContain('TokenKey')
+      expect(serialized).not.toMatch(/CallModel (catalog|checkout)|across CallModel|CallModel 全站|CallModel 完整|CallModel 共用/)
+    },
+  )
 
   it.each(['en', 'zh'] as const)('offers a free trial in %s without public amounts or support promises', (locale) => {
     const serialized = JSON.stringify(chinaExportCopy(locale))

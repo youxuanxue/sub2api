@@ -40,7 +40,7 @@ TTFC（Time to First Call）从用户点击首页主 CTA 开始，到其第一�
 
 | 能力 | 唯一事实来源 |
 | --- | --- |
-| 用户身份 | 同一 user ID、登录态和 Session Cookie |
+| 用户身份 | 同一 user ID 与账户体系；登录态 / Session Cookie 仅在 `tokenkey.dev`（及同站子域）有效。`callmodel.io` 与 `tokenkey.dev` 为不同注册域，**不**共享 Cookie；海外首页保持匿名营销面，CTA 跳到产品域再登录 |
 | 资产 | 同一 USD 余额、账本、订单、退款和使用记录 |
 | 凭证 | 同一组 API Keys；任一市场创建的 Key 全局通用 |
 | API | `https://api.tokenkey.dev`（国内机器入口）；`https://api.callmodel.io`（海外机器入口，同后端） |
@@ -248,7 +248,7 @@ api.callmodel.io {
 1. Seedance、Seedream、Qwen、DeepSeek、GLM、Kimi 均由统一 Key 从海外网络完成真实调用；
 2. Seedance / Seedream 的输入、结果、计费和失败回退完成真实 UI 端到端验收；
 3. 首页 -> 注册 -> 赠金 -> Default Key -> DeepSeek 首调完整路径达到 `TTFC P90 < 3 minutes`；
-4. Session 跨子域、非首页重定向、canonical、OG 和 crawler 行为符合合同；
+4. 海外首页匿名面、非首页重定向、canonical、OG 和 crawler 行为符合合同；
 5. 若开放支付，购买、webhook、余额入账和退款的产品路径全部成功；
 6. 本文档“发布证据”无未决项。
 
@@ -314,7 +314,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 1. 在与生产一致的候选版本上跑完整测试、构建和项目 preflight；
 2. 从海外网络分别实调 Seedance、Seedream、Qwen、DeepSeek、GLM、Kimi，核对结果、错误和实际扣费；
 3. 用真实浏览器走通首页 -> 注册 -> 试用余额 -> `Default Key` -> DeepSeek 首调 -> Seedance / Seedream 生成；
-4. 验证 Session 跨子域有效，非首页 path/query 正确回到 `tokenkey.dev`；
+4. 验证 `.tokenkey.dev` Session 不会带到 `callmodel.io`，非首页 path/query 正确回到 `tokenkey.dev`；
 5. 演练关闭注册、catalog、赠金、支付和海外首页入口的回滚路径；
 6. 汇总未关闭问题；任何影响注册、调用、计费、回滚或当前用户的缺陷均阻断生产候选部署。
 
@@ -341,7 +341,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 
 1. 使用全新测试账户走通首页、注册、试用余额、`Default Key`、DeepSeek 首调和 Seedance / Seedream 生成；
 2. 分别实调六个首页模型，核对模型 ID、协议、结果、错误处理和实际扣费；
-3. 验证跨子域 Session、非首页 path/query 重定向、canonical、OG 和 crawler；
+3. 验证海外首页匿名面、非首页 path/query 重定向、canonical、OG 和 crawler；
 4. 验证 current 首页、现有 Console、模型目录和既有 API 调用无回归；
 5. 若 `payment_enabled=true`，完成真实小额购买、webhook、余额入账和退款产品路径；
 6. 按第 10 节口径完成 TTFC 验收，修复阻断核心路径的问题后重新验证；
@@ -382,11 +382,11 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 1. `tokenkey.dev` 和未知 host 解析为 current profile；
 2. `callmodel.io` 解析为 china-export profile，品牌为 CallModel；
 3. profile 只影响首页，不能改变模型权限、API Key 或余额；
-4. `global /`、`global /home` 成功，非首页 document 在灰度期 302、正式期 301，且 path/query 保真；
+4. `callmodel.io /`、`callmodel.io /home` 成功，非首页 document 在灰度期 302、正式期 301，且 path/query 保真；
 5. current 首页 snapshot/关键文案/CTA 不回归；
-6. overseas 首页模型顺序、DeepSeek API 示例和免费试用文案正确，且不展示金额或 token 数量；
+6. overseas 首页模型顺序、DeepSeek API 示例和免费试用文案正确，且不展示金额或 token 数量；首页品牌铬为 CallModel，共用产品（目录/收银台/账户）文案仍指向 TokenKey；
 7. crawler 在两个 host 得到不同且正确的 canonical/OG；
-8. 已登录 Session 在子域间有效，logout 能清除 parent-domain Cookie；
+8. `.tokenkey.dev` Session Cookie **不会**出现在 `callmodel.io` 请求中；海外首页保持匿名；产品域 logout 仍清除 parent-domain Cookie；
 9. 新用户仅获得一次当前配置的试用赠金和一个 `Default Key`；
 10. 真实浏览器从海外首页 CTA 经注册到 Quickstart，模型预选为 `deepseek-chat`，页面明确这是 Key 验证；
 11. desktop/mobile 下视频非空、主体可见、文本不重叠、reduced-motion 有 poster fallback；
@@ -403,7 +403,7 @@ UI 端到端验收必须由 Playwright 驱动真实浏览器。后端 handler �
 2. 六个首页模型在生产候选验收和正式上线前均通过真实可服务性检查；
 3. 真实新用户只获得一次当前配置的试用赠金和一个 `Default Key`；
 4. 支付开启时，真实小额购买、webhook、余额入账和退款产品路径通过；
-5. 双 host、跨子域 Session、SEO 元数据和非首页重定向在生产环境符合合同；
+5. 双 host、海外匿名面、SEO 元数据和非首页重定向在生产环境符合合同；
 6. 生产候选保持非首页临时跳转，正式上线切换为永久跳转，且回滚均已实测。
 
 ## 13. 明确延期

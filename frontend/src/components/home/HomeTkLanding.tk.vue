@@ -744,7 +744,9 @@ function absoluteProductUrl(path: string): string {
 const primaryCtaUrl = computed(() =>
   isAuthenticated.value
     ? absoluteProductUrl(CHINA_EXPORT_QUICKSTART)
-    : `${PRODUCT_ORIGIN}${CHINA_EXPORT_QUICKSTART}`,
+    : absoluteProductUrl(
+        `/register?redirect=${encodeURIComponent(CHINA_EXPORT_QUICKSTART)}`,
+      ),
 )
 
 const seedanceProof = {

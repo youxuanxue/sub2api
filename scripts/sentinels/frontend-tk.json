@@ -1373,10 +1373,11 @@
       "must_contain": [
         "keeps the current homepage unchanged on the apex host",
         "renders the China model story and real Seedance media on desktop",
+        "keeps the overseas homepage anonymous across the TokenKey cookie domain",
         "fits the China model homepage on mobile without overlapping its primary actions",
         "uses the poster instead of autoplay video for reduced motion"
       ],
-      "rationale": "Real-browser contract for the two hostname profiles: current-home regression, China model order/CTA/media decode, desktop/mobile overflow and overlap, and reduced-motion poster fallback. Unit mounts cannot prove these visual and media behaviors."
+      "rationale": "Real-browser contract for the two hostname profiles: current-home regression, China model order/CTA/media decode, cross-eTLD anonymity (callmodel.io must not inherit .tokenkey.dev cookies), desktop/mobile overflow and overlap, and reduced-motion poster fallback. Unit mounts cannot prove these visual and media behaviors."
     },
     {
       "path": "frontend/src/i18n/index.ts",
