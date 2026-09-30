@@ -33,10 +33,6 @@
       "channel_type": 43,
       "scopes": [
         {
-          "channel_type": 1,
-          "base_url": "https://integrate.api.nvidia.com"
-        },
-        {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
         },
@@ -448,6 +444,10 @@
       "display": true,
       "scopes": [
         {
+          "channel_type": 1,
+          "base_url": "https://integrate.api.nvidia.com"
+        },
+        {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
         },
@@ -594,10 +594,6 @@
     "deepseek-v4-flash-0731": {
       "display": true,
       "scopes": [
-        {
-          "channel_type": 1,
-          "base_url": "https://integrate.api.nvidia.com"
-        },
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com"
@@ -866,6 +862,10 @@
     "glm-5.3-flash": {
       "display": true,
       "scopes": [
+        {
+          "channel_type": 1,
+          "base_url": "https://integrate.api.nvidia.com"
+        },
         {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"

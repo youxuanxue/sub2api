@@ -50,6 +50,28 @@ func isUpstreamModelNotFoundError(statusCode int, body []byte) bool {
 	return containsModelNotFoundKeyword(normalized)
 }
 
+// isUpstreamOpaqueProvider404 reports an HTTP 404 whose envelope is only the
+// relay's bad_response_status_code wrapper (no model-not-found prose). Used to
+// cool the (account, model) pair and failover without treating it as a caller
+// typo.
+func isUpstreamOpaqueProvider404(statusCode int, body []byte) bool {
+	if statusCode != http.StatusNotFound {
+		return false
+	}
+	if isUpstreamModelNotFoundError(statusCode, body) || IsOpenAICompatModelNotFound404(body, "") {
+		return false
+	}
+	normalized := normalizeModelNotFoundBody(body)
+	if normalized == "" {
+		return false
+	}
+	code := strings.ToLower(strings.TrimSpace(extractUpstreamErrorCode(body)))
+	if code == "bad_response_status_code" {
+		return true
+	}
+	return strings.Contains(normalized, "bad response status code 404")
+}
+
 func isModelNotFoundError(statusCode int, body []byte) bool {
 	return isUpstreamModelNotFoundError(statusCode, body) || statusCode == http.StatusNotFound
 }

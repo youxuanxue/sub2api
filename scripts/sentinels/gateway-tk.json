@@ -24,17 +24,23 @@
       "must_contain": [
         "case isUpstreamModelRetiredError(statusCode, responseBody):",
         "upstreamModelRetiredCooldown",
-        "upstreamModelRetiredReason"
+        "upstreamModelRetiredReason",
+        "case isUpstreamOpaqueProvider404(statusCode, responseBody):",
+        "if !isNewAPINVIDIABuildAccount(account)"
       ],
-      "rationale": "Retirement cools only the failed account/model through the existing availability owner."
+      "rationale": "Retirement cools only the failed account/model through the existing availability owner; opaque provider 404 cooling is gated to NVIDIA Build."
     },
     {
       "path": "backend/internal/service/newapi_bridge_failover_tk.go",
       "must_contain": [
         "isUpstreamModelRetiredError(apiErr.StatusCode, tkBridgeUpstreamErrorBody(apiErr)",
-        "rls.HandleUpstreamModelNotFound(stateCtx, account, protocolExecutionResolvedModel(ctx, \"\")"
+        "rls.HandleUpstreamModelNotFound(stateCtx, account, protocolExecutionResolvedModel(ctx, \"\")",
+        "recordNVIDIABuildInstability",
+        "if isNewAPINVIDIABuildAccount(account) {\n\t\treturn true",
+        "isNewAPINVIDIABuildAccount(account) && tkIsBridgeOpaqueBadResponse404(apiErr)",
+        "tkBridgeUpstreamShouldFailoverAfterPenalty(account, apiErr)"
       ],
-      "rationale": "Bridge retirement must both switch accounts and cool the executed model; account-level penalty statuses remain narrow."
+      "rationale": "Bridge retirement must both switch accounts and cool the executed model; opaque bad_response_status_code 404 cool+failover stays NVIDIA-only; account-level penalty statuses remain narrow."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
@@ -61,9 +67,11 @@
       "path": "backend/internal/service/newapi_bridge_failover_tk_test.go",
       "must_contain": [
         "func TestBridgeModelRetirementCoolsExecutedModel(",
-        "func TestBridgeModelRetirementWithoutPlanDoesNotGuessCooldownKey("
+        "func TestBridgeModelRetirementWithoutPlanDoesNotGuessCooldownKey(",
+        "func TestTkBridgeUpstreamShouldFailoverAfterPenalty_OpaqueBadResponse404IsNVIDIAOnly(",
+        "func TestBridgeOpaqueBadResponse404DoesNotCoolOrdinaryNewAPI("
       ],
-      "rationale": "Bridge boundary regression asserts switching plus exact-model cooldown and no guessed key."
+      "rationale": "Bridge boundary regression asserts switching plus exact-model cooldown and no guessed key; opaque 404 failover/cool stays NVIDIA-only."
     },
     {
       "path": "backend/internal/service/account_model_mapping_nvidia_tk_test.go",
@@ -2796,7 +2804,10 @@
         "count >= edgeMirrorStubSaturationThreshold",
         "IsAnthropicSaturatedStubDeprioritizeEnabled",
         "IsOpenAISaturatedStubDeprioritizeEnabled",
-        "eligibleForOpenAICapacitySaturationPreference(account)"
+        "eligibleForOpenAICapacitySaturationPreference(account)",
+        "isNewAPINVIDIABuildAccount(account)",
+        "nvidiaBuildInstabilityWindowSeconds",
+        "candidateSaturatedFor(account, count)"
       ],
       "rationale": "One scoped interpretation of counters feeds account scoring and sticky preference, with Redis-owned expiry. OpenAI reads cover edge-mirror stubs and OAuth/setup-token accounts that write capacity saturation."
     },
@@ -2935,7 +2946,6 @@
         "func protocolRequestParametersSupported(",
         "account.IsCursor()",
         "choice != protocolrouter.ToolChoiceRequired && choice != protocolrouter.ToolChoiceNamed",
-        "isNewAPINVIDIABuildAccount(account)",
         "normalizeGrokReasoningEffortValue(value.String(), resolvedModel)",
         "content.supported(*request, resolvedModel)",
         "cursor.ValidateMessagesContent(filterWebSearchHistoryBlocks(wire, stripAll))",
@@ -2948,7 +2958,7 @@
         "func cursorWireContentSupported(wire []byte, stripAll bool) bool",
         "outcomes map[cursorRequestContentKey]bool"
       ],
-      "rationale": "Known provider/model parameter rejections exclude request paths without weakening explicit client intent. The Cursor content decision stays split: cursorExecutionWire reads only body and inbound protocol, the model reaches the answer solely as stripAll, and the outcome cache keys on stripAll so every account mapping to models that agree on it derives the wire once. Keying on the model string instead would restore the per-model fan-out this split removed."
+      "rationale": "Known provider/model parameter rejections exclude request paths without weakening explicit client intent. Cursor content stays on cursorExecutionWire; NVIDIA deepseek-pro enable_thinking gate was withdrawn with the NVIDIA floor convergence (chat-proven kimi/glm only)."
     },
     {
       "path": "backend/internal/service/protocol_request_parameters_tk_test.go",
@@ -3296,8 +3306,9 @@
       "path": "backend/internal/service/gateway_service_tk_sticky_saturation.go",
       "must_contain": [
         "func (s *GatewayService) tkShouldClearStickyForSaturation(",
-        "!candidateSaturated(count)",
-        "anthropic_sticky_cleared_saturated_stub"
+        "!candidateSaturatedFor(account, count)",
+        "anthropic_sticky_cleared_saturated_stub",
+        "nvidia_build_sticky_cleared_instability"
       ],
       "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
@@ -8554,7 +8565,8 @@
         "func (s *GatewayService) computeAnthropicSaturationPenalties(",
         "func (a accountWithLoad) effectivePriority() int",
         "anthropicSaturationPriorityPenalty",
-        "s.candidateSaturationState().counts"
+        "s.candidateSaturationState().counts",
+        "candidateSaturatedFor(candidates[i].account, count)"
       ],
       "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
@@ -8654,7 +8666,7 @@
       "path": "backend/internal/service/openai_gateway_service_tk_saturation_penalty.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) computeOpenAISaturationPenalties(",
-        "candidateSaturated",
+        "candidateSaturatedFor(candidates[i].account, count)",
         "openAISaturationScorePenalty",
         "s.candidateSaturationState().counts"
       ],
@@ -8664,7 +8676,7 @@
       "path": "backend/internal/service/openai_gateway_service_tk_sticky_saturation.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) tkShouldClearOpenAIStickyForSaturation(",
-        "!candidateSaturated(count)",
+        "!candidateSaturatedFor(account, count)",
         "openai_sticky_cleared_saturated_stub"
       ],
       "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
@@ -14097,6 +14109,32 @@
         "applyNVIDIABuildChatTokenLimit(account, body)"
       ],
       "rationale": "Apply NVIDIA token budget alias before bridge transport."
+    },
+    {
+      "path": "backend/internal/service/nvidia_build_instability_tk.go",
+      "must_contain": [
+        "nvidiaBuildInstabilityWindowSeconds",
+        "nvidiaBuildInstabilityThreshold",
+        "func candidateSaturatedFor(",
+        "func (s *RateLimitService) recordNVIDIABuildInstability("
+      ],
+      "must_not_contain": [
+        "noteNVIDIALocalInstability",
+        "nvidiaLocalInstabilityCount",
+        "\"source\", \"local\""
+      ],
+      "rationale": "NVIDIA Build soft scheduling preference: first upstream error increments a Redis rolling instability counter and candidateSaturatedFor applies threshold-1 deprioritization so siblings absorb traffic. Soft preference only — never SetTempUnschedulable/SetError or a process-local dual path from this owner."
+    },
+    {
+      "path": "backend/internal/service/nvidia_build_instability_tk_test.go",
+      "must_contain": [
+        "TestCandidateSaturatedFor_NVIDIAThresholdOne",
+        "TestBridgeWrapRelayErrorAfterPenalty_NVIDIARecordsInstability",
+        "TestCandidateSaturationState_ReadsNVIDIAWindow",
+        "TestRecordNVIDIABuildInstability_NoOpWhenRedisUnwired",
+        "TestNVIDIABuildSupplyRepresentativesMatchWireTargets"
+      ],
+      "rationale": "Regressions for NVIDIA soft deprioritization: threshold-1 vs ordinary threshold-5, bridge wrap records instability, selection reads the NVIDIA window, Redis-unwired is a no-op (failover still handles the request), and supply representatives stay pinned to nvidiaBuildModelTargets."
     },
     {
       "path": "backend/internal/service/newapi_nvidia_chat_tk.go",
