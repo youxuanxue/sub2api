@@ -88,7 +88,8 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
             "prod",
             {
                 "GLOBAL_SITE_PHASE": "candidate",
-                "GLOBAL_SITE_DOMAIN": "global.tokenkey.dev",
+                "GLOBAL_SITE_DOMAIN": "callmodel.io",
+                "API_ALIAS_DOMAIN": "api.callmodel.io",
             },
         )
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
@@ -101,7 +102,8 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
         self.assertEqual(parsed.returncode, 0, msg=parsed.stderr)
         self.assertIn("APPLY_GLOBAL_PROFILE='true'", joined)
         self.assertIn("TARGET_GLOBAL_SITE_PHASE='candidate'", joined)
-        self.assertIn("TARGET_GLOBAL_SITE_DOMAIN='global.tokenkey.dev'", joined)
+        self.assertIn("TARGET_GLOBAL_SITE_DOMAIN='callmodel.io'", joined)
+        self.assertIn("TARGET_API_ALIAS_DOMAIN='api.callmodel.io'", joined)
         self.assertLess(joined.index("global homepage phase persisted"), joined.index("render context loaded"))
         self.assertIn("restoring previous Caddyfile and environment", joined)
 
@@ -120,7 +122,7 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
         self.assertIn("APPLY_GLOBAL_PROFILE='false'", "\n".join(params["commands"]))
 
     def test_enabled_phase_requires_valid_hostname(self) -> None:
-        for domain in ("", "https://global.tokenkey.dev", "GLOBAL.tokenkey.dev"):
+        for domain in ("", "https://callmodel.io", "CALLMODEL.IO"):
             with self.subTest(domain=domain):
                 proc, params = _run_sync(
                     "prod",

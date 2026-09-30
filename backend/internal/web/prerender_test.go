@@ -157,14 +157,14 @@ func TestPrerenderMiddlewareChinaExportHomepage(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, path, nil)
-			req.Host = "global.tokenkey.dev:443"
+			req.Host = "callmodel.io:443"
 			req.Header.Set("User-Agent", "Googlebot")
 			router.ServeHTTP(w, req)
 
 			require.Equal(t, http.StatusOK, w.Code)
 			assert.Equal(t, "1", w.Header().Get("X-Prerender"))
 			assert.Contains(t, w.Body.String(), "China's leading AI models. One API.")
-			assert.Contains(t, w.Body.String(), `href="https://global.tokenkey.dev/"`)
+			assert.Contains(t, w.Body.String(), `href="https://callmodel.io/"`)
 			assert.Contains(t, w.Body.String(), "Start with a free trial. No credit card required.")
 			assert.NotContains(t, w.Body.String(), "$1")
 			assert.NotContains(t, w.Body.String(), "1M DeepSeek tokens")
@@ -175,8 +175,8 @@ func TestPrerenderMiddlewareChinaExportHomepage(t *testing.T) {
 			require.NoError(t, json.Unmarshal([]byte(structuredData[1]), &website))
 			assert.Equal(t, "https://schema.org", website["@context"])
 			assert.Equal(t, "WebSite", website["@type"])
-			assert.Equal(t, "TokenKey", website["name"])
-			assert.Equal(t, "https://global.tokenkey.dev/", website["url"])
+			assert.Equal(t, "CallModel", website["name"])
+			assert.Equal(t, "https://callmodel.io/", website["url"])
 		})
 	}
 }
@@ -184,7 +184,8 @@ func TestPrerenderMiddlewareChinaExportHomepage(t *testing.T) {
 func TestChinaExportHomepageHostIsExact(t *testing.T) {
 	t.Parallel()
 
-	assert.True(t, isChinaExportHomepageHost("GLOBAL.TOKENKEY.DEV.:443"))
-	assert.False(t, isChinaExportHomepageHost("global.tokenkey.dev.example.com"))
+	assert.True(t, isChinaExportHomepageHost("CALLMODEL.IO.:443"))
+	assert.False(t, isChinaExportHomepageHost("callmodel.io.example.com"))
+	assert.False(t, isChinaExportHomepageHost("global.tokenkey.dev"))
 	assert.False(t, isChinaExportHomepageHost("tokenkey.dev"))
 }

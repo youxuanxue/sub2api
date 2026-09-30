@@ -56,6 +56,8 @@
 #                                     omit to preserve the host's current value
 #   GLOBAL_SITE_DOMAIN                required with candidate/live; omit with
 #                                     disabled, which clears the persisted value
+#   API_ALIAS_DOMAIN                  prod-only optional; set to persist/clear the
+#                                     second machine host (e.g. api.callmodel.io)
 #   EDGE_ID                           Lightsail Hybrid edge id; when set and
 #                                     instance_id is mi-*, targets by tag like
 #                                     deploy_via_ssm.sh.
@@ -98,11 +100,14 @@ fi
 APPLY_GLOBAL_PROFILE=false
 TARGET_GLOBAL_SITE_PHASE=""
 TARGET_GLOBAL_SITE_DOMAIN=""
+APPLY_API_ALIAS=false
+TARGET_API_ALIAS_DOMAIN=""
 global_phase_is_set="${GLOBAL_SITE_PHASE+x}"
 global_domain_is_set="${GLOBAL_SITE_DOMAIN+x}"
+api_alias_is_set="${API_ALIAS_DOMAIN+x}"
 
-if [[ "${KIND}" == edge && ( -n "${global_phase_is_set}" || -n "${global_domain_is_set}" ) ]]; then
-  echo "sync_caddyfile_via_ssm: GLOBAL_SITE_PHASE/DOMAIN are prod-only" >&2
+if [[ "${KIND}" == edge && ( -n "${global_phase_is_set}" || -n "${global_domain_is_set}" || -n "${api_alias_is_set}" ) ]]; then
+  echo "sync_caddyfile_via_ssm: GLOBAL_SITE_*/API_ALIAS are prod-only" >&2
   exit 1
 fi
 if [[ "${KIND}" == prod ]]; then
@@ -136,6 +141,14 @@ if [[ "${KIND}" == prod ]]; then
         exit 1
         ;;
     esac
+  fi
+  if [[ -n "${api_alias_is_set}" ]]; then
+    APPLY_API_ALIAS=true
+    TARGET_API_ALIAS_DOMAIN="${API_ALIAS_DOMAIN}"
+    if [[ -n "${TARGET_API_ALIAS_DOMAIN}" && ! "${TARGET_API_ALIAS_DOMAIN}" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]]; then
+      echo "sync_caddyfile_via_ssm: API_ALIAS_DOMAIN must be empty or a lowercase DNS hostname" >&2
+      exit 1
+    fi
   fi
 fi
 
@@ -179,7 +192,9 @@ jq -n \
   --arg kind "${KIND}" \
   --arg apply_global_profile "${APPLY_GLOBAL_PROFILE}" \
   --arg global_site_phase "${TARGET_GLOBAL_SITE_PHASE}" \
-  --arg global_site_domain "${TARGET_GLOBAL_SITE_DOMAIN}" '{
+  --arg global_site_domain "${TARGET_GLOBAL_SITE_DOMAIN}" \
+  --arg apply_api_alias "${APPLY_API_ALIAS}" \
+  --arg api_alias_domain "${TARGET_API_ALIAS_DOMAIN}" '{
   commands: (
     [
       "set -euo pipefail",
@@ -187,6 +202,8 @@ jq -n \
       ("APPLY_GLOBAL_PROFILE=" + ($apply_global_profile | @sh)),
       ("TARGET_GLOBAL_SITE_PHASE=" + ($global_site_phase | @sh)),
       ("TARGET_GLOBAL_SITE_DOMAIN=" + ($global_site_domain | @sh)),
+      ("APPLY_API_ALIAS=" + ($apply_api_alias | @sh)),
+      ("TARGET_API_ALIAS_DOMAIN=" + ($api_alias_domain | @sh)),
       "CADDY_DIR=/var/lib/tokenkey/caddy",
       "LIVE=$CADDY_DIR/Caddyfile",
       "ENV_FILE=/var/lib/tokenkey/.env",
@@ -201,13 +218,14 @@ jq -n \
       "rollback() { rc=$?; echo \"::warning::sync failed; restoring previous Caddyfile and environment\"; if [ -f \"$ENV_BACKUP\" ]; then sudo cp -a \"$ENV_BACKUP\" \"$ENV_FILE\"; fi; if [ -f \"$BACKUP\" ]; then sudo sh -c \"cat '\''$BACKUP'\'' > '\''$LIVE'\''\"; sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -5 || true; fi; exit $rc; }",
       "trap rollback ERR",
       "echo \"=== derive render vars (same set as boot UserData) ===\"",
-      "if [ \"$APPLY_GLOBAL_PROFILE\" = true ]; then",
+      "if [ \"$APPLY_GLOBAL_PROFILE\" = true ] || [ \"$APPLY_API_ALIAS\" = true ]; then",
       "  ENV_NEW=$ENV_FILE.new-$TS",
-      "  sudo awk -v phase=\"$TARGET_GLOBAL_SITE_PHASE\" -v domain=\"$TARGET_GLOBAL_SITE_DOMAIN\" '\''BEGIN { phase_seen=0; domain_seen=0 } /^GLOBAL_SITE_PHASE=/ { print \"GLOBAL_SITE_PHASE=\" phase; phase_seen=1; next } /^GLOBAL_SITE_DOMAIN=/ { print \"GLOBAL_SITE_DOMAIN=\" domain; domain_seen=1; next } { print } END { if (!phase_seen) print \"GLOBAL_SITE_PHASE=\" phase; if (!domain_seen) print \"GLOBAL_SITE_DOMAIN=\" domain }'\'' \"$ENV_FILE\" | sudo tee \"$ENV_NEW\" >/dev/null",
+      "  sudo awk -v apply_global=\"$APPLY_GLOBAL_PROFILE\" -v phase=\"$TARGET_GLOBAL_SITE_PHASE\" -v domain=\"$TARGET_GLOBAL_SITE_DOMAIN\" -v apply_alias=\"$APPLY_API_ALIAS\" -v alias=\"$TARGET_API_ALIAS_DOMAIN\" '\''BEGIN { phase_seen=0; domain_seen=0; alias_seen=0 } /^GLOBAL_SITE_PHASE=/ { if (apply_global == \"true\") { print \"GLOBAL_SITE_PHASE=\" phase; phase_seen=1; next } } /^GLOBAL_SITE_DOMAIN=/ { if (apply_global == \"true\") { print \"GLOBAL_SITE_DOMAIN=\" domain; domain_seen=1; next } } /^API_ALIAS_DOMAIN=/ { if (apply_alias == \"true\") { print \"API_ALIAS_DOMAIN=\" alias; alias_seen=1; next } } { print } END { if (apply_global == \"true\") { if (!phase_seen) print \"GLOBAL_SITE_PHASE=\" phase; if (!domain_seen) print \"GLOBAL_SITE_DOMAIN=\" domain } if (apply_alias == \"true\" && !alias_seen) print \"API_ALIAS_DOMAIN=\" alias }'\'' \"$ENV_FILE\" | sudo tee \"$ENV_NEW\" >/dev/null",
       "  sudo chown --reference=\"$ENV_FILE\" \"$ENV_NEW\"",
       "  sudo chmod --reference=\"$ENV_FILE\" \"$ENV_NEW\"",
       "  sudo mv \"$ENV_NEW\" \"$ENV_FILE\"",
-      "  echo \"global homepage phase persisted: $TARGET_GLOBAL_SITE_PHASE\"",
+      "  if [ \"$APPLY_GLOBAL_PROFILE\" = true ]; then echo \"global homepage phase persisted: $TARGET_GLOBAL_SITE_PHASE\"; fi",
+      "  if [ \"$APPLY_API_ALIAS\" = true ]; then echo \"api alias persisted: ${TARGET_API_ALIAS_DOMAIN:-<empty>}\"; fi",
       "fi",
       "# API_DOMAIN / ACME_EMAIL are persisted in the host .env at boot.",
       "set -a; . /var/lib/tokenkey/.env; set +a",

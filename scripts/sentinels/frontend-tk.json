@@ -1349,12 +1349,14 @@
     {
       "path": "frontend/src/features/home/marketProfile.tk.ts",
       "must_contain": [
-        "CHINA_EXPORT_HOSTNAME = 'global.tokenkey.dev'",
+        "CHINA_EXPORT_HOSTNAME = 'callmodel.io'",
+        "CHINA_EXPORT_API_ORIGIN = 'https://api.callmodel.io'",
+        "CHINA_EXPORT_BRAND = 'CallModel'",
         "export function resolveHomepageProfile",
         "export function resolveGlobalProductRedirect",
         "return `${PRODUCT_ORIGIN}${path}`"
       ],
-      "rationale": "Single pure owner for hostname-to-homepage profile and global-host SPA escape. The exact hostname keeps unknown/preview hosts on current; string-appending the local path keeps path/query/hash while preventing a network-path reference from becoming an open redirect."
+      "rationale": "Single pure owner for hostname-to-homepage profile, overseas API origin/brand, and CallModel-host SPA escape. The exact hostname keeps unknown/preview hosts on current; string-appending the local path keeps path/query/hash while preventing a network-path reference from becoming an open redirect."
     },
     {
       "path": "frontend/src/features/home/useHomeShell.tk.ts",

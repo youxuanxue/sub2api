@@ -4,7 +4,7 @@ status: approved
 approved_by: feng (对话审批 2026-09-02)
 authors: [agent]
 created: 2026-09-02
-revised_at: 2026-09-03
+revised_at: 2026-09-30
 depends_on:
   - docs/approved/design-apex-domain-phase2.md
   - docs/approved/user-cold-start.md
@@ -14,10 +14,13 @@ depends_on:
 
 ## 0. 一句话目标
 
-TokenKey 仍然只有一个产品、一个账户和一套 API；只由访问首页的 hostname 决定先展示哪组模型：
+TokenKey 仍然只有一个产品、一个账户和一套 API；只由访问首页的 hostname 决定先展示哪组模型与市场品牌面：
 
-- `tokenkey.dev`：保持当前官网，优先展示全球模型；
-- `global.tokenkey.dev`：面向海外用户，优先展示中国模型。
+- `tokenkey.dev`：国内市场入口，TokenKey 品牌，优先展示全球模型；
+- `callmodel.io`：海外市场入口，CallModel 品牌首页，优先展示中国模型；
+- `api.callmodel.io`：与 `api.tokenkey.dev` 同构的海外机器入口（同一后端与 Key）。
+
+退役：`global.tokenkey.dev` 直接下线（删除 DNS / 不签证书），不做迁移 301。
 
 首批客户不是“所有海外开发者”，而是：
 
@@ -40,7 +43,7 @@ TTFC（Time to First Call）从用户点击首页主 CTA 开始，到其第一�
 | 用户身份 | 同一 user ID、登录态和 Session Cookie |
 | 资产 | 同一 USD 余额、账本、订单、退款和使用记录 |
 | 凭证 | 同一组 API Keys；任一市场创建的 Key 全局通用 |
-| API | `https://api.tokenkey.dev` |
+| API | `https://api.tokenkey.dev`（国内机器入口）；`https://api.callmodel.io`（海外机器入口，同后端） |
 | 模型 | 同一 model ID、价格、路由、计费、风控和完整模型目录 |
 | 产品页面 | 同一注册、Console、Models、Quickstart、Studio、支付、文档和法律页面 |
 | 运维 | 同一发布物、后端、数据库、监控、客服与运营后台 |
@@ -53,14 +56,15 @@ TTFC（Time to First Call）从用户点击首页主 CTA 开始，到其第一�
 
 | 请求 | 行为 |
 | --- | --- |
-| `tokenkey.dev/`、`tokenkey.dev/home` | 当前首页，行为和视觉不回归 |
-| `global.tokenkey.dev/`、`global.tokenkey.dev/home` | 海外首页，中国模型优先 |
-| `global.tokenkey.dev/<其他页面>` | 灰度期 `302`、正式期 `301` 到 `tokenkey.dev/<原路径>`，保留 query；浏览器 fragment 不丢失 |
+| `tokenkey.dev/`、`tokenkey.dev/home` | 当前首页（TokenKey），行为和视觉不回归 |
+| `callmodel.io/`、`callmodel.io/home` | 海外首页（CallModel），中国模型优先 |
+| `callmodel.io/<其他页面>` | 灰度期 `302`、正式期 `301` 到 `tokenkey.dev/<原路径>`，保留 query；浏览器 fragment 不丢失 |
 | `api.tokenkey.dev/*` | 保持现有机器 API 契约 |
+| `api.callmodel.io/*` | 与 `api.tokenkey.dev` 同一 `@machine` allowlist；非 machine path `301` → `tokenkey.dev` |
 
-`/` 与 `/home` 是同一个首页入口。现有 SPA 会把匿名用户的 `/` 导向 `/home`，因此二者必须同时允许在 `global` host 上呈现海外首页。
+`/` 与 `/home` 是同一个首页入口。现有 SPA 会把匿名用户的 `/` 导向 `/home`，因此二者必须同时允许在海外首页 host（`callmodel.io`）上呈现 china-export 首页。
 
-`global` host 还需同源提供首页运行所需的明确 allowlist：带 hash 的 `/assets/*`、favicon/logo/首页媒体和 `GET /api/v1/settings/public`。这些是首页依赖，不是第二套产品页面。任何新增依赖都必须显式加入 allowlist，不能把 `global` 放宽成第二个全量 Web 入口。
+海外首页 host 还需同源提供首页运行所需的明确 allowlist：带 hash 的 `/assets/*`、favicon/logo/首页媒体和 `GET /api/v1/settings/public`。这些是首页依赖，不是第二套产品页面。任何新增依赖都必须显式加入 allowlist，不能把海外首页 host 放宽成第二个全量 Web 入口。
 
 明确不做：
 
@@ -70,7 +74,7 @@ TTFC（Time to First Call）从用户点击首页主 CTA 开始，到其第一�
 - `?market=`、语言或浏览器时区作为市场来源；
 - 两套前端工程、两套部署或两套账号系统。
 
-所有面向海外用户的公开入口指向 `global.tokenkey.dev`；现有入口继续指向 `tokenkey.dev`。VPN、旅行或地区误判不会把用户困住。
+所有面向海外用户的公开入口指向 `callmodel.io`；现有入口继续指向 `tokenkey.dev`。VPN、旅行或地区误判不会把用户困住。
 
 ## 3. 海外首页信息架构
 
@@ -90,7 +94,7 @@ Seedance -> Seedream -> Qwen -> DeepSeek -> GLM -> Kimi
 首版英文核心文案：
 
 ```text
-TokenKey
+CallModel
 China's leading AI models. One API.
 
 Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi.
@@ -151,8 +155,8 @@ global 首页主 CTA
 
 ```text
 resolveHomepageProfile(hostname)
-  global.tokenkey.dev -> china-export
-  all other hosts     -> current
+  callmodel.io    -> china-export
+  all other hosts -> current
 ```
 
 只有 `HomeView.vue` 可以消费该 profile 进行页面渲染。Router 可以调用同一 owner 的 global path redirect helper，但不得衍生第二套 profile；其他页面、store、API client 和后端业务逻辑不得读取 market profile。
@@ -197,18 +201,22 @@ Hero 和 Proof 禁止使用假 UI、图库视频或无法追溯来源的样片�
 | 页面 | canonical / OG URL |
 | --- | --- |
 | 当前首页 | `https://tokenkey.dev/` |
-| 海外首页 | `https://global.tokenkey.dev/` |
+| 海外首页 | `https://callmodel.io/` |
 
 Crawler prerender 必须同时根据 request host 和 path 选择 profile；`/` 与 `/home` 输出同一 profile 的 canonical。海外首页提供独立英文 title、description、OG image 和结构化数据。两个不同市场叙事不互相 canonical，暂不使用 hreflang 把它们声明成语言翻译页。
 
 边缘配置目标：
 
 ```text
-global.tokenkey.dev {
+callmodel.io {
   handle homepage paths + explicit runtime assets { reverse_proxy shared app }
   handle all other document paths {
     redir https://tokenkey.dev{uri} temporary_or_permanent_by_release_phase
   }
+}
+api.callmodel.io {
+  import shared @machine allowlist  # same snippet as api.tokenkey.dev
+  handle non-machine { redir https://tokenkey.dev{uri} permanent }
 }
 ```
 
@@ -293,7 +301,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 
 1. 实现唯一的 hostname profile owner，以及 current / china-export 两种首页内容；
 2. 完成官方 Seedance 2.5 首屏、模型展示、DeepSeek Key 验证和 CTA；
-3. 完成 `global.tokenkey.dev` 的 Caddy、证书、静态资源 allowlist、非首页重定向和回滚配置；
+3. 完成 `callmodel.io` / `api.callmodel.io` 的 Caddy、证书、静态资源 allowlist、非首页重定向和回滚配置；
 4. 完成双 host 的 canonical、OG 和 crawler prerender；
 5. 复用现有注册、统一余额、API Key、Quickstart、Studio 和支付页面，不产生市场分支；
 6. 配置并验证试用赠金、`Default Key` 和 Quickstart 的 `deepseek-chat` 预选；
@@ -318,8 +326,8 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 
 ```text
 发布同一应用版本
-  -> 配置 global.tokenkey.dev DNS 与证书
-  -> 启用 global host（非首页临时跳到主站）
+  -> 配置 callmodel.io / api.callmodel.io DNS 与证书
+  -> 启用海外 host（非首页临时跳到主站）
   -> 按发布配置设置 registration / public catalog / trial bonus
   -> 执行双 host、登录、首调、媒体生成冒烟
   -> 核对错误日志、响应与实际扣费
@@ -349,7 +357,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 2. 部署最终官网，非首页路径保持临时跳转；
 3. 完成一次匿名注册、DeepSeek 首调和 Seedance / Seedream 生成；若支付已开启，同时完成真实小额支付冒烟；
 4. 冒烟通过后将非首页重定向由临时跳转切为永久跳转；
-5. 检查 `global.tokenkey.dev` 的首页、公开元数据和所有 CTA 均指向正式产品路径，记录上线版本和时间。
+5. 检查 `callmodel.io` 的首页、CallModel 公开元数据和所有 CTA 均指向正式产品路径，记录上线版本和时间。
 
 任一核心冒烟失败，立即恢复非首页临时跳转，关闭受影响开关并回滚应用版本。产品负责人记录唯一上线结论，不以“部分可用”宣布成功。
 
@@ -372,7 +380,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 实现 PR 至少自动覆盖：
 
 1. `tokenkey.dev` 和未知 host 解析为 current profile；
-2. `global.tokenkey.dev` 解析为 china-export profile；
+2. `callmodel.io` 解析为 china-export profile，品牌为 CallModel；
 3. profile 只影响首页，不能改变模型权限、API Key 或余额；
 4. `global /`、`global /home` 成功，非首页 document 在灰度期 302、正式期 301，且 path/query 保真；
 5. current 首页 snapshot/关键文案/CTA 不回归；

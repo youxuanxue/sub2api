@@ -94,7 +94,7 @@ func requestHostname(hostport string) string {
 }
 
 func isChinaExportHomepageHost(hostport string) bool {
-	return requestHostname(hostport) == "global.tokenkey.dev"
+	return requestHostname(hostport) == "callmodel.io"
 }
 
 func prerenderHomeHTML(host string) string {
@@ -184,7 +184,7 @@ func prerenderChinaExportHomeHTML() string {
 <html lang="en">
 <head>
 %s
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"TokenKey","url":"https://global.tokenkey.dev/","description":"Access Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi through one API."}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"CallModel","url":"https://callmodel.io/","description":"Access Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi through one API."}</script>
 </head>
 <body>
 <h1>China's leading AI models. One API.</h1>

@@ -3,7 +3,7 @@ import { expect, test, type BrowserContext, type Locator, type Page, type Route 
 const port = process.env.E2E_HOMEPAGE_PORT || '3000'
 const scheme = process.env.E2E_HOMEPAGE_SCHEME || 'http'
 const currentHomepage = `${scheme}://tokenkey.dev:${port}/home`
-const chinaExportHomepage = `${scheme}://global.tokenkey.dev:${port}/home`
+const chinaExportHomepage = `${scheme}://callmodel.io:${port}/home`
 
 const publicSettings = {
   api_base_url: 'https://api.tokenkey.dev',
@@ -236,11 +236,12 @@ test.describe('dual-market homepage', () => {
       'href',
       'https://tokenkey.dev/register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-chat%26protocol%3Dopenai',
     )
-    await expect(page.locator('header')).toContainText('TokenKey')
+    await expect(page.locator('header')).toContainText('CallModel')
     await expect(page.locator('header img')).toHaveAttribute('src', '/logo.png')
-    await expect(page.locator('footer')).toContainText('TokenKey')
+    await expect(page.locator('footer')).toContainText('CallModel')
     await expect(page.locator('footer')).not.toContainText('Sub2API')
     await expect(page.locator('[data-testid="china-export-home"]')).toContainText('Free trial')
+    await expect(page.locator('[data-testid="china-export-terminal"]')).toContainText('https://api.callmodel.io')
     await expect(page.locator('[data-testid="china-export-home"]')).not.toContainText('$1')
     await expect(page.locator('[data-testid="china-export-home"]')).not.toContainText('1M')
 

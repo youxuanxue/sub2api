@@ -28,14 +28,14 @@ const chinaExportEn = {
   startFree: 'Start free',
   openQuickstart: 'Open quickstart',
   browseModels: 'Browse all models',
-  noCard: 'No card required. Your account and API key work across TokenKey.',
+  noCard: 'No card required. Your account and API key work across CallModel.',
   proofBadge: 'Seedance 2.5',
   proofAlt: 'Still frame from the official Seedance 2.5 model showcase',
   proofCaption: 'Real model output from the official Seedance showcase.',
   proofSource: 'View source',
   modelsEyebrow: 'China model matrix',
   modelsTitle: 'Start with the models you came for.',
-  modelsSubtitle: 'The order changes what you discover first, not what your account can call. Every TokenKey user keeps access to the full catalog.',
+  modelsSubtitle: 'The order changes what you discover first, not what your account can call. Every CallModel user keeps access to the full catalog.',
   featured: 'Featured',
   models: {
     seedance: 'Video generation for cinematic motion and creative production workflows.',
@@ -57,7 +57,7 @@ const chinaExportEn = {
   faq: {
     models: {
       q: 'Which models can I use now?',
-      a: 'Start with Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi, then browse the full TokenKey catalog. Availability is shown in the shared model catalog and is not restricted by the homepage you used.',
+      a: 'Start with Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi, then browse the full CallModel catalog. Availability is shown in the shared model catalog and is not restricted by the homepage you used.',
     },
     credit: {
       q: 'How does the free trial work?',
@@ -69,7 +69,7 @@ const chinaExportEn = {
     },
     payments: {
       q: 'How do payments and refunds work?',
-      a: 'Available payment methods appear in the shared TokenKey checkout. Completed purchases credit the same USD balance used by every model. Refund eligibility follows the terms shown in the product.',
+      a: 'Available payment methods appear in the shared CallModel checkout. Completed purchases credit the same USD balance used by every model. Refund eligibility follows the terms shown in the product.',
     },
   },
 } as const
@@ -81,14 +81,14 @@ const chinaExportZh = {
   startFree: '免费试用',
   openQuickstart: '打开快速开始',
   browseModels: '浏览全部模型',
-  noCard: '无需信用卡。你的账户和 API Key 可在 TokenKey 全站通用。',
+  noCard: '无需信用卡。你的账户和 API Key 可在 CallModel 全站通用。',
   proofBadge: 'Seedance 2.5',
   proofAlt: '字节跳动官方 Seedance 2.5 模型演示视频画面',
   proofCaption: '字节跳动官方 Seedance 演示中的真实模型输出。',
   proofSource: '查看来源',
   modelsEyebrow: '中国模型矩阵',
   modelsTitle: '先用你正在寻找的模型。',
-  modelsSubtitle: '首页顺序只决定你先看到什么，不限制账户可调用的模型。每个 TokenKey 用户都可访问完整模型目录。',
+  modelsSubtitle: '首页顺序只决定你先看到什么，不限制账户可调用的模型。每个 CallModel 用户都可访问完整模型目录。',
   featured: '主推',
   models: {
     seedance: '面向电影感运动和创意制作工作流的视频生成。',
@@ -110,7 +110,7 @@ const chinaExportZh = {
   faq: {
     models: {
       q: '现在可以使用哪些模型？',
-      a: '可以从 Seedance、Seedream、通义千问、DeepSeek、GLM 和 Kimi 开始，再浏览 TokenKey 完整模型目录。模型可用性以共用目录为准，不受你访问的首页限制。',
+      a: '可以从 Seedance、Seedream、通义千问、DeepSeek、GLM 和 Kimi 开始，再浏览 CallModel 完整模型目录。模型可用性以共用目录为准，不受你访问的首页限制。',
     },
     credit: {
       q: '免费试用如何开通？',
@@ -122,7 +122,7 @@ const chinaExportZh = {
     },
     payments: {
       q: '付款和退款如何处理？',
-      a: '可用的付款方式会显示在 TokenKey 共用收银台中。购买完成后会充入所有模型共用的 USD 余额，退款条件以产品内展示的条款为准。',
+      a: '可用的付款方式会显示在 CallModel 共用收银台中。购买完成后会充入所有模型共用的 USD 余额，退款条件以产品内展示的条款为准。',
     },
   },
 } as const

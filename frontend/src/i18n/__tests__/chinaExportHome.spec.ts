@@ -13,6 +13,13 @@ describe('China export homepage copy', () => {
     expect(chinaExportCopy('zh')).not.toEqual(chinaExportCopy('en'))
   })
 
+  it.each(['en', 'zh'] as const)('uses CallModel branding on the overseas homepage in %s', (locale) => {
+    const serialized = JSON.stringify(chinaExportCopy(locale))
+
+    expect(serialized).toContain('CallModel')
+    expect(serialized).not.toContain('TokenKey')
+  })
+
   it.each(['en', 'zh'] as const)('offers a free trial in %s without public amounts or support promises', (locale) => {
     const serialized = JSON.stringify(chinaExportCopy(locale))
 

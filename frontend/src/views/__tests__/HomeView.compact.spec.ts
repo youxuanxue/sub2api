@@ -238,13 +238,14 @@ describe('HomeView compact mode', () => {
     )
   })
 
-  it('uses the TokenKey brand and current storefront palette for the China export homepage', () => {
+  it('uses the CallModel brand and current storefront palette for the China export homepage', () => {
     profileState.value = 'china-export'
 
     const wrapper = mountHome({ site_name: 'Sub2API' })
 
-    expect(wrapper.get('header').text()).toContain('TokenKey')
-    expect(wrapper.get('footer').text()).toContain('TokenKey')
+    expect(wrapper.get('header').text()).toContain('CallModel')
+    expect(wrapper.get('footer').text()).toContain('CallModel')
+    expect(wrapper.get('header').text()).not.toContain('TokenKey')
     expect(wrapper.get('footer').text()).not.toContain('Sub2API')
     expect(wrapper.get('[data-home-profile]').classes()).toContain('via-primary-50/30')
     expect(wrapper.get('[data-testid="china-export-primary-cta"]').classes()).toContain('btn-primary')
@@ -258,6 +259,7 @@ describe('HomeView compact mode', () => {
     expect(terminal.get('.terminal-window').exists()).toBe(true)
     expect(terminal.get('.terminal-header').exists()).toBe(true)
     expect(terminal.get('.terminal-body').text()).toContain('deepseek-chat')
+    expect(terminal.get('.terminal-body').text()).toContain('https://api.callmodel.io')
     expect(terminal.findAll('.terminal-buttons span')).toHaveLength(3)
   })
 
