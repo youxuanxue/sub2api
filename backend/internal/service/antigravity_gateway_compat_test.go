@@ -993,3 +993,35 @@ func TestAntigravityChatImageModelEmptyFailsClosedWithoutBilling(t *testing.T) {
 	}
 	require.NotContains(t, recorder.Body.String(), `"object":"chat.completion"`)
 }
+
+func TestAntigravityChatImageModelStreamObservesAndBillsImage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{antigravityCompatImageSuccessResponse()}}
+	svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
+	body := []byte(`{"model":"gemini-3.1-flash-image","stream":true,"max_tokens":32,"messages":[{"role":"user","content":"draw a red square"}]}`)
+	c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/chat/completions", body)
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, newAntigravityCompatAccount(AccountTypeOAuth), body, nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+	require.Equal(t, 1, result.ImageCount)
+	require.Contains(t, recorder.Body.String(), "data:image/png;base64,aGVsbG8=")
+	require.Contains(t, recorder.Body.String(), "data: [DONE]")
+}
+
+func TestAntigravityChatImageModelStreamEmptyFailsClosedWithoutBilling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{antigravityCompatSuccessResponse()}}
+	svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
+	body := []byte(`{"model":"gemini-3.1-flash-image","stream":true,"max_tokens":32,"messages":[{"role":"user","content":"draw a cat"}]}`)
+	c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/chat/completions", body)
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, newAntigravityCompatAccount(AccountTypeOAuth), body, nil)
+	require.Error(t, err)
+	require.ErrorIs(t, err, errGeminiImageModelEmpty)
+	require.NotNil(t, result)
+	require.Equal(t, 0, result.ImageCount)
+	// Headers may already be committed; billing must still see ImageCount=0.
+	require.Contains(t, recorder.Body.String(), "data: [DONE]")
+}
