@@ -62,6 +62,8 @@ NON_VERSION_PIN_GO_FILES = (
 STAGE0_PROBE_VERSION_SCRIPTS = (
     ("upstream_model_probe_version", REPO_ROOT / "ops/stage0/probe_openai_upstream_model.sh"),
     ("upstream_image_probe_version", REPO_ROOT / "ops/stage0/probe_openai_upstream_image.sh"),
+    ("image_fidelity_probe_version", REPO_ROOT / "ops/stage0/probe_openai_image_fidelity_matrix.sh"),
+    ("image_ar_probe_version", REPO_ROOT / "ops/stage0/probe_openai_image_ar_07_09.sh"),
 )
 
 # Non-version pins verified (not bumped) against the installed binary's strings.
@@ -141,11 +143,21 @@ def _find1(text: str, pattern: str) -> str:
 
 
 def _shell_probe_version_pin(key: str, path: Path, text: str) -> Pin:
-    """Read ``CODEX_VERSION="${CODEX_VERSION:-X.Y.Z}"`` from a stage0 probe script."""
+    """Read ``CODEX_VERSION`` default and require matching ``codex-tui/<ver>`` UA tokens."""
     version = _find1(text, r'CODEX_VERSION="\$\{CODEX_VERSION:-(' + _VER + r')\}"')
     if not version:
         return Pin(key, path, "mirror", found=False)
-    return Pin(key, path, "mirror", raw=version, version=version, found=True)
+    ua_versions = re.findall(r"codex-tui/(" + _VER + r")", text)
+    ua_ok = bool(ua_versions) and all(v == version for v in ua_versions)
+    return Pin(
+        key,
+        path,
+        "mirror",
+        raw=version,
+        version=version,
+        found=True,
+        derivation_complete=ua_ok,
+    )
 
 
 def _alias_pin(key: str, path: Path, symbol: str, text: str, source_version: str) -> Pin:

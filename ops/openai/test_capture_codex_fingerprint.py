@@ -176,7 +176,7 @@ class LiveRepoTests(unittest.TestCase):
     def test_live_baseline_loads_and_is_consistent(self):
         bl = eng.load_baseline()
         # Service aliases + stage0 probe mirrors must all be found...
-        self.assertEqual(len(bl.pins), 6)
+        self.assertEqual(len(bl.pins), 8)
         for p in bl.pins:
             self.assertTrue(p.found, f"{p.key} not found via regex in {p.rel}")
             self.assertTrue(p.derivation_complete, f"{p.key} no longer derives from the owner")
@@ -188,7 +188,10 @@ class LiveRepoTests(unittest.TestCase):
         self.assertTrue(bl.beta_pinned, "OpenAI-Beta pin missing from source")
 
     def test_shell_probe_version_pin_parses_default(self):
-        text = 'CODEX_VERSION="${CODEX_VERSION:-0.158.0}"\n'
+        text = (
+            'DEFAULT_CODEX_UA="codex-tui/0.158.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.158.0)"\n'
+            'CODEX_VERSION="${CODEX_VERSION:-0.158.0}"\n'
+        )
         pin = eng._shell_probe_version_pin(
             "upstream_model_probe_version",
             eng.REPO_ROOT / "ops/stage0/probe_openai_upstream_model.sh",
@@ -197,6 +200,21 @@ class LiveRepoTests(unittest.TestCase):
         self.assertTrue(pin.found)
         self.assertEqual(pin.kind, "mirror")
         self.assertEqual(pin.version, "0.158.0")
+        self.assertTrue(pin.derivation_complete)
+
+    def test_shell_probe_version_pin_rejects_ua_drift(self):
+        text = (
+            'DEFAULT_CODEX_UA="codex-tui/0.154.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.154.0)"\n'
+            'CODEX_VERSION="${CODEX_VERSION:-0.158.0}"\n'
+        )
+        pin = eng._shell_probe_version_pin(
+            "upstream_model_probe_version",
+            eng.REPO_ROOT / "ops/stage0/probe_openai_upstream_model.sh",
+            text,
+        )
+        self.assertTrue(pin.found)
+        self.assertEqual(pin.version, "0.158.0")
+        self.assertFalse(pin.derivation_complete)
 
     def test_emit_edits_includes_stage0_probe_mirrors(self):
         bl = _aligned("0.142.2")

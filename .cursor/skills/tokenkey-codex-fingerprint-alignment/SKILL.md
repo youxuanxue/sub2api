@@ -10,7 +10,7 @@ description: Align TokenKey OpenAI Codex fingerprint versions with the installed
 ## 修改边界
 
 - 唯一可编辑版本 owner：`backend/internal/service/setting_gateway_runtime.go` 的 `DefaultOpenAICodexVersion`。UA、gateway `version`、usage probe `Version` 都从它派生，不新建 baseline JSON。
-- Stage0 直打上游脚本 `ops/stage0/probe_openai_upstream_{model,image}.sh` 的 `CODEX_VERSION` / UA 默认值必须镜像同一版本（`check-consistency` 守卫）；`emit-edits` 会一并打出这两个 mirror 文件的 bump。
+- Stage0 直打上游脚本 `ops/stage0/probe_openai_upstream_{model,image}.sh`、`probe_openai_image_fidelity_matrix.sh`、`probe_openai_image_ar_07_09.sh` 的 `CODEX_VERSION` 与 UA 内 `codex-tui/<ver>` 必须镜像同一版本（`check-consistency` 守卫）；`emit-edits` 会一并打出这些 mirror 文件的 bump。
 - 版本 bump 保持 UA 的 OS/终端段原样；i18n `openaiCodexUserAgentPlaceholder`、`request.go`/测试里的格式示例不随版本修改。
 - `originator=codex-tui`、`OpenAI-Beta: responses=experimental` 只读确认。binary strings 未找到不是漂移证据（可能运行时拼接）；上游 4xx 或实测明确换值才另行诊断，不自动修改。
 - `/v1/messages` compat 桥接删除 originator/beta 是设计行为，不算 OAuth 出口指纹漂移。不抓网络流量、不挂每日 hook。
