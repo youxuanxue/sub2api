@@ -39,7 +39,15 @@ func (s *AntigravityGatewayService) observeAntigravityGeminiSSELine(c *gin.Conte
 	// wrapper and direct Gemini response shapes. The main stream handler will
 	// unwrap the same line for business processing, so unwrapping here would be
 	// duplicate work on every SSE event.
-	observer.ObserveGemini([]byte(payload))
+	raw := []byte(payload)
+	observer.ObserveGemini(raw)
+	// Image accounting needs the inner Gemini shape (candidates.*.parts); the
+	// v1internal envelope hides them under response.*.
+	if inner, err := s.unwrapV1InternalResponse(raw); err == nil {
+		observeGeminiImageOutputs(c, inner)
+	} else {
+		observeGeminiImageOutputs(c, raw)
+	}
 }
 
 // antigravityClientWriter 封装流式响应的客户端写入，自动检测断开并标记。
@@ -358,7 +366,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 
 // handleGeminiStreamToNonStreaming 读取上游流式响应，合并为非流式响应返回给客户端
 // Gemini 流式响应是增量的，需要累积所有 chunk 的内容
-func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Context, resp *http.Response, startTime time.Time) (*antigravityStreamResult, error) {
+func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Context, resp *http.Response, startTime time.Time, originalModel string) (*antigravityStreamResult, error) {
 	if upstreamResponseModelObserverFromContext(c) == nil {
 		beginUpstreamResponseModelObservation(c)
 	}
@@ -458,6 +466,8 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 			if parseErr != nil {
 				continue
 			}
+			upstreamResponseModelObserverFromContext(c).ObserveGemini(inner)
+			observeGeminiImageOutputs(c, inner)
 
 			var parsed map[string]any
 			if err := json.Unmarshal(inner, &parsed); err != nil {
@@ -533,6 +543,16 @@ returnResponse:
 			if candidate, ok := candidates[0].(map[string]any); ok {
 				candidate["finishReason"] = finishReason
 			}
+		}
+	}
+
+	if err := requireGeminiImageModelOutput(originalModel, finalResponse); err != nil {
+		body, _ := json.Marshal(finalResponse)
+		setOpsUpstreamError(c, http.StatusBadGateway, err.Error(), summarizeGeminiEmptyImageBody(body))
+		return nil, &UpstreamFailoverError{
+			StatusCode:             http.StatusBadGateway,
+			ResponseBody:           body,
+			RetryableOnSameAccount: true,
 		}
 	}
 
@@ -869,6 +889,7 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 				continue
 			}
 			upstreamResponseModelObserverFromContext(c).ObserveGemini(inner)
+			observeGeminiImageOutputs(c, inner)
 
 			var parsed map[string]any
 			if err := json.Unmarshal(inner, &parsed); err != nil {
@@ -920,6 +941,18 @@ returnResponse:
 	// 将收集的所有 parts 合并到最终响应中
 	if len(collectedParts) > 0 {
 		finalResponse = mergeCollectedPartsToResponse(finalResponse, collectedParts)
+	}
+
+	// Image models must deliver inlineData; empty success would still bill when
+	// ImageCount was hardcoded to 1. Fail closed before Claude/Chat conversion.
+	if err := requireGeminiImageModelOutput(originalModel, finalResponse); err != nil {
+		body, _ := json.Marshal(finalResponse)
+		setOpsUpstreamError(c, http.StatusBadGateway, err.Error(), summarizeGeminiEmptyImageBody(body))
+		return nil, nil, &UpstreamFailoverError{
+			StatusCode:             http.StatusBadGateway,
+			ResponseBody:           body,
+			RetryableOnSameAccount: true,
+		}
 	}
 
 	// 序列化为 JSON（Gemini 格式）

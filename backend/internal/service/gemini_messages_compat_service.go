@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
@@ -3513,6 +3514,9 @@ func convertClaudeMessagesToGeminiGenerateContent(body []byte) ([]byte, error) {
 	}
 
 	stripGeminiFunctionIDs(out)
+	model, _ := req["model"].(string)
+	_ = antigravity.EnsureImageResponseModalities(out, model)
+	_ = antigravity.OmitImageModelMaxOutputTokens(out, model)
 	return json.Marshal(out)
 }
 

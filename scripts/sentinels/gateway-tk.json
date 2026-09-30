@@ -14420,10 +14420,11 @@
     {
       "path": "backend/internal/service/antigravity_gateway_compat.go",
       "must_contain": [
-        "if isImageGenerationModel(call.billingModel) {",
-        "ImageCount:                    imageCount,"
+        "imageCount := resolveGeminiImageCount(c, call.request.originalModel, call.billingModel)",
+        "ImageCount:                    imageCount,",
+        "beginGeminiImageOutputObservation(c)"
       ],
-      "rationale": "Chat/Responses compat must bill ImageCount=1 for image models, matching ForwardGemini. Without this, successful chat image gens settle as token-only."
+      "rationale": "Chat/Responses compat must bill ImageCount from observed inlineData (same as Gemini compat / ForwardGemini after empty-image fail-closed). Hardcoding ImageCount=1 for image models bills empty chat bodies ~$0.10."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_retry.go",

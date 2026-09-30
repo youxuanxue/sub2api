@@ -172,6 +172,7 @@ func (s *AntigravityGatewayService) forwardAntigravityCompat(
 	request antigravityCompatRequest,
 ) (*ForwardResult, error) {
 	beginUpstreamResponseModelObservation(c)
+	beginGeminiImageOutputObservation(c)
 	call, err := s.prepareAntigravityCompatCall(ctx, c, account, request)
 	if err != nil {
 		return nil, err
@@ -396,11 +397,23 @@ func (s *AntigravityGatewayService) consumeAntigravityCompatResponse(
 		streamResult.usage = &ClaudeUsage{}
 	}
 
-	imageCount := 0
-	if isImageGenerationModel(call.billingModel) {
-		// Gemini image APIs return one image per request; match ForwardGemini billing.
-		imageCount = 1
+	if call.request.clientStream {
+		if requireErr := requireGeminiImageModelStreamOutput(call.request.originalModel, c); requireErr != nil {
+			setOpsUpstreamError(c, http.StatusBadGateway, requireErr.Error(), "empty_image_stream")
+			return &ForwardResult{
+				RequestID:     requestID,
+				Usage:         *streamResult.usage,
+				Model:         call.request.originalModel,
+				UpstreamModel: call.billingModel,
+				Stream:        true,
+				Duration:      time.Since(call.request.startTime),
+				FirstTokenMs:  streamResult.firstTokenMs,
+				ImageCount:    0,
+			}, requireErr
+		}
 	}
+
+	imageCount := resolveGeminiImageCount(c, call.request.originalModel, call.billingModel)
 
 	return &ForwardResult{
 		RequestID:                     requestID,
