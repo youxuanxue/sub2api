@@ -10,6 +10,8 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // handleOpenAIImagesOAuthNonStreamingMulti fulfills n>1 for OAuth Responses
@@ -113,9 +115,23 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingMulti(
 	if parsed != nil {
 		responseFormat = parsed.ResponseFormat
 	}
-	responseBody, err := buildOpenAIImagesAPIResponse(results, createdAt, usageRaw, firstMeta, responseFormat)
+	responseBody, err := buildOpenAIImagesAPIResponse(results, createdAt, nil, firstMeta, responseFormat)
 	if err != nil {
 		return OpenAIUsage{}, 0, nil, err
+	}
+	// Prefer merged usage across all per-image fetches so client-visible usage
+	// matches billing (parity with buildCodexDirectMergedImagesBody).
+	if usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.ImageInputTokens > 0 || usage.ImageOutputTokens > 0 {
+		responseBody, _ = sjson.SetBytes(responseBody, "usage.input_tokens", usage.InputTokens)
+		responseBody, _ = sjson.SetBytes(responseBody, "usage.output_tokens", usage.OutputTokens)
+		if usage.ImageInputTokens > 0 {
+			responseBody, _ = sjson.SetBytes(responseBody, "usage.input_tokens_details.image_tokens", usage.ImageInputTokens)
+		}
+		if usage.ImageOutputTokens > 0 {
+			responseBody, _ = sjson.SetBytes(responseBody, "usage.output_tokens_details.image_tokens", usage.ImageOutputTokens)
+		}
+	} else if len(usageRaw) > 0 && gjson.ValidBytes(usageRaw) {
+		responseBody, _ = sjson.SetRawBytes(responseBody, "usage", usageRaw)
 	}
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), firstResp.Header, s.responseHeaderFilter)
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")

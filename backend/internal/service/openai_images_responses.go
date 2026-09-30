@@ -410,9 +410,8 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 	tool := []byte(`{"type":"image_generation","action":"","model":""}`)
 	tool, _ = sjson.SetBytes(tool, "action", action)
 	tool, _ = sjson.SetBytes(tool, "model", strings.TrimSpace(toolModel))
-	if shouldPassOpenAIImagesN(toolModel, parsed.N) {
-		tool, _ = sjson.SetBytes(tool, "n", parsed.N)
-	}
+	// Never set tools[].n: live ChatGPT Codex Responses rejects it with
+	// unknown_parameter (2026-09-30). n>1 is fulfilled by TokenKey multi-fetch.
 
 	for _, field := range []struct {
 		path  string
@@ -452,16 +451,6 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 	req, _ = sjson.SetRawBytes(req, "tools", []byte(`[]`))
 	req, _ = sjson.SetRawBytes(req, "tools.-1", tool)
 	return req, nil
-}
-
-// shouldPassOpenAIImagesN reports whether tools[].n may be sent on ChatGPT
-// Codex Responses image_generation. Live chatgpt.com (2026-09-30, gpt125 /
-// v1.8.266) rejects tools[0].n with unknown_parameter; n>1 is fulfilled by
-// TokenKey multi-fetch instead (see handleOpenAIImagesOAuthNonStreamingMulti).
-func shouldPassOpenAIImagesN(model string, n int) bool {
-	_ = model
-	_ = n
-	return false
 }
 
 func extractOpenAIImagesFromResponsesCompleted(payload []byte) ([]openAIResponsesImageResult, int64, []byte, openAIResponsesImageResult, error) {

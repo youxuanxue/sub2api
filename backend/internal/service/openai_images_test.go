@@ -947,6 +947,9 @@ func TestOpenAIGatewayServiceForwardImages_OAuthPassesNAndReturnsAllImages(t *te
 	require.Equal(t, 33, result.Usage.InputTokens)       // 11 * 3 multi-fetch
 	require.Equal(t, 66, result.Usage.OutputTokens)      // 22 * 3
 	require.Equal(t, 21, result.Usage.ImageOutputTokens) // 7 * 3
+	require.Equal(t, int64(33), gjson.Get(rec.Body.String(), "usage.input_tokens").Int())
+	require.Equal(t, int64(66), gjson.Get(rec.Body.String(), "usage.output_tokens").Int())
+	require.Equal(t, int64(21), gjson.Get(rec.Body.String(), "usage.output_tokens_details.image_tokens").Int())
 
 	require.Len(t, upstream.requests, 3)
 	require.NotNil(t, upstream.lastReq)
@@ -983,6 +986,47 @@ func TestOpenAIGatewayServiceForwardImages_OAuthPassesNAndReturnsAllImages(t *te
 	require.Equal(t, "1024x1024", detectOpenAIImageResultSize(gjson.Get(rec.Body.String(), "data.2.b64_json").String()))
 	require.Equal(t, "draw a cat 1", gjson.Get(rec.Body.String(), "data.0.revised_prompt").String())
 	require.Equal(t, "draw a cat 3", gjson.Get(rec.Body.String(), "data.2.revised_prompt").String())
+}
+
+func TestOpenAIGatewayServiceForwardImages_OAuthRejectsStreamWithNGreaterThanOne(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat","size":"1024x1024","n":2,"stream":true}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+	c.Set("api_key", &APIKey{ID: 42})
+
+	svc := &OpenAIGatewayService{}
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(`should-not-be-called`)),
+	}}
+	svc.httpUpstream = upstream
+
+	account := &Account{
+		ID:       1,
+		Name:     "openai-oauth",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token":       "token-123",
+			"chatgpt_account_id": "acct-123",
+		},
+	}
+
+	result, err := svc.ForwardImages(context.Background(), c, account, body, parsed, "")
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Empty(t, upstream.requests)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, "unsupported_parameter", gjson.Get(rec.Body.String(), "error.code").String())
+	require.Contains(t, gjson.Get(rec.Body.String(), "error.message").String(), "stream=true with n>1")
 }
 
 func TestParseOpenAIImagesSSEUsageBytes_ToolUsagePrecedenceAndFallback(t *testing.T) {
