@@ -317,6 +317,11 @@ func TestResolveOpenAIResponsesImageBillingConfigSupportsOfficialAndCustomSizes(
 			wantTier: "2K",
 		},
 		{
+			name:     "2560 landscape bills 2K not 4K",
+			body:     []byte(`{"model":"gpt-5.4","tools":[{"type":"image_generation","model":"gpt-image-2","size":"2560x1440"}]}`),
+			wantTier: "2K",
+		},
+		{
 			name:     "default image tool model supports flexible size",
 			body:     []byte(`{"model":"gpt-5.4","tools":[{"type":"image_generation","size":"2048x1152"}]}`),
 			wantTier: "2K",
