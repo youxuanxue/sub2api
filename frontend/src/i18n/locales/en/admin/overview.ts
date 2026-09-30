@@ -1261,9 +1261,9 @@ export default {
         noFallback: 'No Fallback (Reject)'
       },
       openaiMessages: {
-        title: 'OpenAI Messages Dispatch',
+        title: 'Messages Protocol Conversion',
         allowDispatch: 'Allow /v1/messages dispatch',
-        allowDispatchHint: 'When enabled, API keys in this OpenAI group can dispatch requests through /v1/messages endpoint',
+        allowDispatchHint: 'Allow /v1/messages to use protocol conversion through this group. Native Messages requests do not require this permission. Model support is still checked.',
         familyMappingTitle: 'Family Default Mapping',
         familyMappingHint: 'Requests that match the Opus, Sonnet, or Haiku families will prefer the target model configured here.',
         opusModel: 'Opus Target Model',

@@ -15,7 +15,7 @@ package service
 //	| newapi         | configurable (NEW)    | configurable (NEW)          |
 //	| anthropic      | force false           | force clear                 |
 //	| gemini         | force false           | force clear                 |
-//	| antigravity    | force false           | force clear                 |
+//	| antigravity    | configurable          | force clear                 |
 //
 // Adding a sixth compat platform requires updating BOTH this predicate and
 // OpenAICompatPlatforms(); scripts/preflight.sh "newapi compat-pool drift"

@@ -430,3 +430,28 @@ owns dated release evidence. Its
 own the remaining acceptance work. Keep those facts there; this contract owns
 policy and the implementation owner table. A passing local gate or a successful
 release does not close a live acceptance criterion.
+
+## Antigravity Messages permission administration (2026-09-30)
+
+The user approved fixing the AG permission controls and enabling the existing
+Google-Antigravity group in conversation: “同意。请继续。打开这个权限。”
+This extends administration of the existing conversion opt-in; it does not
+change Plan, account membership, billing or model-mapping policy.
+
+`sanitizeGroupMessagesDispatchFields` must retain an explicitly enabled or disabled
+`allow_messages_dispatch` on Antigravity groups across creation, update and unrelated
+edits. AG's legacy dispatch substitutions remain cleared; no GPT family defaults
+or mandatory Claude family mappings are introduced. New groups remain disabled by
+default. The shared `frontend/src/components/admin/GroupMessagesDispatchToggle.vue`
+control exposes this opt-in in both Groups create/edit forms;
+`frontend/src/views/admin/groupsMessagesDispatch.ts` owns platform visibility.
+
+An enabled group permits legal Messages conversion Plans for both
+Direct and authorized Universal requests. Disabled groups still allow legal native
+Messages. Gemini, Chat, Responses and Images admission stays independent of this
+flag; image permission remains a separate gate. AG count_tokens retains its
+existing non-Plan handler/fallback path. Existing group update cache
+invalidation must run after permission changes. Enable only the specifically
+approved production group through the admin API after the fix is deployed; verify
+readback and real gateway requests. Deployment and live enablement are evidence to
+record separately from this approval.

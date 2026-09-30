@@ -107,7 +107,8 @@ func sanitizeGroupMessagesDispatchFields(g *Group) {
 	if g == nil || tkGroupKeepsDispatchConfig(g) {
 		return
 	}
-	if g.Platform != PlatformComposite {
+	// AG permits protocol conversion without retaining legacy model substitutions.
+	if g.Platform != PlatformComposite && g.Platform != PlatformAntigravity {
 		g.AllowMessagesDispatch = false
 	}
 	g.DefaultMappedModel = ""

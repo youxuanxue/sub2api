@@ -1259,9 +1259,9 @@ export default {
         noFallback: '不降级（直接拒绝）'
       },
       openaiMessages: {
-        title: 'OpenAI Messages 调度配置',
+        title: 'Messages 协议转换',
         allowDispatch: '允许 /v1/messages 调度',
-        allowDispatchHint: '启用后，此 OpenAI 分组的 API Key 可以通过 /v1/messages 端点调度请求',
+        allowDispatchHint: '允许 /v1/messages 通过此分组进行协议转换。原生 Messages 请求不需要此权限，模型支持情况仍会单独检查。',
         familyMappingTitle: '系列默认映射',
         familyMappingHint: '当请求命中 Opus、Sonnet、Haiku 系列时，会优先使用这里配置的目标模型。',
         opusModel: 'Opus 映射模型',
