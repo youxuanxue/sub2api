@@ -4,6 +4,7 @@ import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch } fro
 import Toast from '@/components/common/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
 import { resolveRouteDocumentTitle } from '@/router/title'
+import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
 
 const AdminComplianceDialog = defineAsyncComponent(() => import('@/components/admin/AdminComplianceDialog.vue'))
 const AnnouncementPopup = defineAsyncComponent(() => import('@/components/common/AnnouncementPopup.vue'))
@@ -29,7 +30,8 @@ function updateDocumentTitle() {
     ...(appStore.cachedPublicSettings?.custom_menu_items ?? []),
     ...(authStore.isAdmin ? adminSettingsStore.customMenuItems : []),
   ]
-  document.title = resolveRouteDocumentTitle(route, appStore.siteName, customMenuItems, {
+  const chromeBrand = resolveChromeBrand(window.location.hostname, appStore.siteName)
+  document.title = resolveRouteDocumentTitle(route, chromeBrand, customMenuItems, {
     billingMode: resolveSiteBillingMode(appStore.cachedPublicSettings),
   })
 }

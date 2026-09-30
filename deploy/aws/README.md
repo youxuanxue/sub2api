@@ -62,12 +62,12 @@ EDGE_ID=<edge> bash ops/stage0/sync_caddyfile_via_ssm.sh edge <mi-id>
 `callmodel.io` 的发布阶段也由同一热同步入口确定性切换。脚本先原子备份并更新主机 `.env`，再渲染、校验和 reload；任一步失败会同时恢复 `.env` 与 Caddyfile。不要手改远端配置：
 
 ```bash
-# 生产候选：海外首页开放；其他页面临时跳到主站；打开 api.callmodel.io
+# 生产候选：CallModel 全门面 SPA；仅 /admin* 临时跳到 tokenkey.dev；打开 api.callmodel.io
 GLOBAL_SITE_PHASE=candidate GLOBAL_SITE_DOMAIN=callmodel.io \
 API_ALIAS_DOMAIN=api.callmodel.io \
   AWS_REGION=us-east-1 bash ops/stage0/sync_caddyfile_via_ssm.sh prod <prod-instance-id>
 
-# 正式上线：其他页面永久跳到主站
+# 正式上线：/admin* 永久跳到 tokenkey.dev
 GLOBAL_SITE_PHASE=live GLOBAL_SITE_DOMAIN=callmodel.io \
 API_ALIAS_DOMAIN=api.callmodel.io \
   AWS_REGION=us-east-1 bash ops/stage0/sync_caddyfile_via_ssm.sh prod <prod-instance-id>
@@ -79,7 +79,7 @@ GLOBAL_SITE_PHASE=disabled \
 
 不传 `GLOBAL_SITE_PHASE` / `GLOBAL_SITE_DOMAIN` / `API_ALIAS_DOMAIN` 时保留主机现状，只刷新模板。candidate/live 必须同时给出合法 hostname；disabled 会清空已持久化的 global domain。新实例的持久配置仍由 CloudFormation 参数 `GlobalSiteDomain` / `GlobalSitePhase` / `ApiAliasDomain` 决定，因此完成阶段切换后也要用同值更新 stack，避免后续实例替换恢复旧阶段。`global.tokenkey.dev` 直接退役（删 DNS / 不签证书），不做迁移 301。
 
-这里的 `302` 表示“临时跳转”：访问 `callmodel.io` 的登录、注册、控制台等非首页地址时，浏览器会跳到 `tokenkey.dev` 的同一路径，但不会长期记死这条规则。海外首页本身正常开放，也允许搜索引擎收录。
+这里的 `302`/`301` 仅作用于 `callmodel.io/admin*`（踢回 `tokenkey.dev` 保书签）；注册、控制台、Models 等产品路径留在 CallModel 门面。`api.callmodel.io` 非 machine 路径永久跳到 `callmodel.io`。合同见 `docs/approved/design-callmodel-product-facade.md`。
 
 ### Apex 域名阶段一（tokenkey.dev → api.tokenkey.dev）
 

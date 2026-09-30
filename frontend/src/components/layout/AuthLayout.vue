@@ -65,11 +65,12 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useAppStore } from '@/stores'
+import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
 import { resolveSiteLogo } from '@/utils/branding'
 
 const appStore = useAppStore()
 
-const siteName = computed(() => appStore.siteName || 'TokenKey')
+const siteName = computed(() => resolveChromeBrand(window.location.hostname, appStore.siteName))
 const siteLogo = computed(() => resolveSiteLogo(appStore.siteLogo))
 const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || 'AI API Gateway Platform')
 const settingsLoaded = computed(() => appStore.publicSettingsLoaded)

@@ -1352,11 +1352,13 @@
         "CHINA_EXPORT_HOSTNAME = 'callmodel.io'",
         "CHINA_EXPORT_API_ORIGIN = 'https://api.callmodel.io'",
         "CHINA_EXPORT_BRAND = 'CallModel'",
+        "export function resolveFacade",
+        "export function resolveChromeBrand",
         "export function resolveHomepageProfile",
         "export function resolveGlobalProductRedirect",
-        "return `${PRODUCT_ORIGIN}${path}`"
+        "return null"
       ],
-      "rationale": "Single pure owner for hostname-to-homepage profile, overseas API origin/brand, and CallModel-host SPA escape. The exact hostname keeps unknown/preview hosts on current; string-appending the local path keeps path/query/hash while preventing a network-path reference from becoming an open redirect."
+      "rationale": "Single pure owner for dual-facade brand chrome + homepage narrative. CallModel host forces CallModel chrome and china-export home; resolveGlobalProductRedirect stays a named no-op so cross-facade SPA kicks cannot silently return."
     },
     {
       "path": "frontend/src/features/home/useHomeShell.tk.ts",

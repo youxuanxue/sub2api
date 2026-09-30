@@ -8,9 +8,17 @@ revised_at: 2026-09-30
 depends_on:
   - docs/approved/design-apex-domain-phase2.md
   - docs/approved/user-cold-start.md
+superseded_partial_by:
+  - docs/approved/design-callmodel-product-facade.md
 ---
 
 # TokenKey 双市场首页与统一产品矩阵
+
+> **局部 supersede（2026-09-30）**：海外 host 行为与跨域踢出条款以
+> [`design-callmodel-product-facade.md`](./design-callmodel-product-facade.md) 为准。
+> `callmodel.io` 现为完整产品门面（同壳 SPA）；仅 `/admin*` 踢回 `tokenkey.dev`；
+> 站内 CTA 用相对路径；`api.callmodel.io` 非 machine → `callmodel.io`。
+> 下文 §2 / CTA / 发布顺序中仍写「非首页 30x 到 tokenkey.dev」的段落视为历史合同，已被门面文档覆盖。
 
 ## 0. 一句话目标
 
@@ -32,7 +40,7 @@ TokenKey 仍然只有一个产品、一个账户和一套 API；只由访问首�
 TTFC P90 < 3 minutes
 ```
 
-TTFC（Time to First Call）从用户点击首页主 CTA 开始，到其第一次成功收到 Playground 或 API 调用响应结束。默认用 `deepseek-chat` 快速验证 Key、余额和 API 路径可用；TTFC 只衡量接入摩擦，不替代 Seedance / Seedream 真实生成验收。
+TTFC（Time to First Call）从用户点击首页主 CTA 开始，到其第一次成功收到 Playground 或 API 调用响应结束。默认用 `deepseek-flash` 快速验证 Key、余额和 API 路径可用；TTFC 只衡量接入摩擦，不替代 Seedance / Seedream 真实生成验收。
 
 ## 1. 产品不变量
 
@@ -40,7 +48,7 @@ TTFC（Time to First Call）从用户点击首页主 CTA 开始，到其第一�
 
 | 能力 | 唯一事实来源 |
 | --- | --- |
-| 用户身份 | 同一 user ID 与账户体系；登录态 / Session Cookie 仅在 `tokenkey.dev`（及同站子域）有效。`callmodel.io` 与 `tokenkey.dev` 为不同注册域，**不**共享 Cookie；海外首页保持匿名营销面，CTA 跳到产品域再登录 |
+| 用户身份 | 同一 user ID 与账户体系；登录态 / Session Cookie **按当前门面 host** 设置。`callmodel.io` 与 `tokenkey.dev` 为不同注册域，**不**共享 Cookie（见 `design-callmodel-product-facade.md`） |
 | 资产 | 同一 USD 余额、账本、订单、退款和使用记录 |
 | 凭证 | 同一组 API Keys；任一市场创建的 Key 全局通用 |
 | API | `https://api.tokenkey.dev`（国内机器入口）；`https://api.callmodel.io`（海外机器入口，同后端） |
@@ -58,13 +66,14 @@ TTFC（Time to First Call）从用户点击首页主 CTA 开始，到其第一�
 | --- | --- |
 | `tokenkey.dev/`、`tokenkey.dev/home` | 当前首页（TokenKey），行为和视觉不回归 |
 | `callmodel.io/`、`callmodel.io/home` | 海外首页（CallModel），中国模型优先 |
-| `callmodel.io/<其他页面>` | 灰度期 `302`、正式期 `301` 到 `tokenkey.dev/<原路径>`，保留 query；浏览器 fragment 不丢失 |
+| `callmodel.io/<其他产品路径>` | **同壳 SPA**（见门面文档）；不再 30x 到 `tokenkey.dev` |
+| `callmodel.io/admin*` | 灰度 `302` / 正式 `301` → `tokenkey.dev/admin*` |
 | `api.tokenkey.dev/*` | 保持现有机器 API 契约 |
-| `api.callmodel.io/*` | 与 `api.tokenkey.dev` 同一 `@machine` allowlist；非 machine path `301` → `tokenkey.dev` |
+| `api.callmodel.io/*` | 与 `api.tokenkey.dev` 同一 `@machine` allowlist；非 machine path `301` → `callmodel.io` |
 
 `/` 与 `/home` 是同一个首页入口。现有 SPA 会把匿名用户的 `/` 导向 `/home`，因此二者必须同时允许在海外首页 host（`callmodel.io`）上呈现 china-export 首页。
 
-海外首页 host 还需同源提供首页运行所需的明确 allowlist：带 hash 的 `/assets/*`、favicon/logo/首页媒体和 `GET /api/v1/settings/public`。这些是首页依赖，不是第二套产品页面。任何新增依赖都必须显式加入 allowlist，不能把海外首页 host 放宽成第二个全量 Web 入口。
+海外 host 现为完整产品门面（同壳 SPA + 品牌铬）；细节与 Admin 踢出见 `design-callmodel-product-facade.md`。不再维护「仅首页 allowlist + 非首页 30x」合同。
 
 明确不做：
 
@@ -82,7 +91,7 @@ TTFC（Time to First Call）从用户点击首页主 CTA 开始，到其第一�
 
 1. Hero + Proof：同一首屏展示官方 Seedance 2.5 成片，产品名和价值主张必须可见；
 2. Models：Seedance、Seedream 是主角；Qwen、DeepSeek、GLM、Kimi 作为 `Also available`；
-3. Verify your key：一段短 OpenAI-compatible `deepseek-chat` 示例，明确它用于 30 秒验证 Key；
+3. Verify your key：一段短 OpenAI-compatible `deepseek-flash` 示例，明确它用于 30 秒验证 Key；
 4. CTA + FAQ：一个最终 CTA 和四个真实问题，不增加其他营销 section。
 
 模型顺序固定为：
@@ -128,11 +137,11 @@ FAQ 只回答四个问题；答案必须与真实能力、价格和已发布产�
 ## 4. 核心用户路径
 
 ```text
-global 首页主 CTA
-  -> https://tokenkey.dev/register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-chat%26protocol%3Dopenai
+CallModel 首页主 CTA（相对路径，留在 callmodel.io）
+  -> /register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-flash%26protocol%3Dopenai
   -> 使用现有注册流程
   -> 自动获得当前配置的试用余额和首个 API Key
-  -> 进入现有 Quickstart，URL 预选 deepseek-chat
+  -> 进入现有 Quickstart，URL 预选 deepseek-flash
   -> 复制调用或进入现有 Playground
   -> 第一次成功响应
 ```
@@ -277,7 +286,7 @@ api.callmodel.io {
 - 对象：首次接触 TokenKey、符合首批客户定义的海外目标用户；
 - 起点：点击 `global` 首页主 CTA；
 - 终点：Playground 或用户自己的 API 请求第一次成功返回；
-- 默认任务：使用预选的 `deepseek-chat` 验证 Key、余额和 OpenAI-compatible API 路径；
+- 默认任务：使用预选的 `deepseek-flash` 验证 Key、余额和 OpenAI-compatible API 路径；
 - 3 分钟内未成功：按该次失败记录，不删样本；
 - 成功请求模型、协议、耗时和失败原因从现有日志离线核对；
 - 每周只汇总 P50、P90、成功率和前三个阻塞点，不做实时 dashboard。
@@ -304,7 +313,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 3. 完成 `callmodel.io` / `api.callmodel.io` 的 Caddy、证书、静态资源 allowlist、非首页重定向和回滚配置；
 4. 完成双 host 的 canonical、OG 和 crawler prerender；
 5. 复用现有注册、统一余额、API Key、Quickstart、Studio 和支付页面，不产生市场分支；
-6. 配置并验证试用赠金、`Default Key` 和 Quickstart 的 `deepseek-chat` 预选；
+6. 配置并验证试用赠金、`Default Key` 和 Quickstart 的 `deepseek-flash` 预选；
 7. 补齐本文档“自动化合同”中的单元、集成和 Playwright 测试。
 
 完成标准：实现 PR 绑定本文档，聚焦测试全绿；desktop/mobile 真实 UI 无重叠、空白媒体或当前首页回归；部署物仍然只有一份。
@@ -388,7 +397,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 7. crawler 在两个 host 得到不同且正确的 canonical/OG；
 8. `.tokenkey.dev` Session Cookie **不会**出现在 `callmodel.io` 请求中；海外首页保持匿名；产品域 logout 仍清除 parent-domain Cookie；
 9. 新用户仅获得一次当前配置的试用赠金和一个 `Default Key`；
-10. 真实浏览器从海外首页 CTA 经注册到 Quickstart，模型预选为 `deepseek-chat`，页面明确这是 Key 验证；
+10. 真实浏览器从海外首页 CTA 经注册到 Quickstart，模型预选为 `deepseek-flash`，页面明确这是 Key 验证；
 11. desktop/mobile 下视频非空、主体可见、文本不重叠、reduced-motion 有 poster fallback；
 12. `home_content` 只覆盖 current profile，不能替换 china-export；
 13. Caddy 配置可确定性渲染，并能从 301 恢复为 302 后回退上线前版本；

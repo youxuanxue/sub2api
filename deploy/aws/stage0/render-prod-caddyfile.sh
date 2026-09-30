@@ -6,10 +6,11 @@
 #   ACME_EMAIL   Let's Encrypt contact
 #   SITE_DOMAIN  optional human apex host, e.g. tokenkey.dev
 #                When unset and API_DOMAIN is api.*, derives apex by stripping api.
-#   GLOBAL_SITE_DOMAIN  optional overseas homepage host, e.g. callmodel.io
-#   GLOBAL_SITE_PHASE   disabled (default), candidate (302), or live (301)
+#   GLOBAL_SITE_DOMAIN  optional CallModel (overseas) human facade, e.g. callmodel.io
+#   GLOBAL_SITE_PHASE   disabled (default), candidate (302 admin kick), or live (301)
 #   API_ALIAS_DOMAIN    optional second machine host, e.g. api.callmodel.io
-#                       Reuses the same @machine allowlist; requires SITE_DOMAIN.
+#                       Reuses @machine allowlist; non-machine → GLOBAL_SITE_DOMAIN.
+#                       Requires SITE_DOMAIN and GLOBAL_SITE_DOMAIN.
 #
 # Public status.tokenkey.dev is Better Stack Free (not a Caddy vhost).
 # Public /privacy and /terms are static files under the apex vhost (/data/legal).
@@ -68,6 +69,11 @@ fi
 
 if [[ -n "${api_alias_domain}" && -z "${site_domain}" ]]; then
   echo "SITE_DOMAIN must resolve when API_ALIAS_DOMAIN is set" >&2
+  exit 1
+fi
+
+if [[ -n "${api_alias_domain}" && -z "${global_site_domain}" ]]; then
+  echo "GLOBAL_SITE_DOMAIN must resolve when API_ALIAS_DOMAIN is set (CallModel human face)" >&2
   exit 1
 fi
 

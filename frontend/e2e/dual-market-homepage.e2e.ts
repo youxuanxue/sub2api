@@ -14,6 +14,7 @@ const publicSettings = {
   model_plaza_enabled: false,
   pricing_catalog_public: true,
   registration_enabled: true,
+  registration_offer: { state: 'open', signup_bonus_usd: '1.00' },
   site_logo: '/logo.svg',
   site_name: 'Sub2API',
   site_subtitle: 'One key for every AI model.',
@@ -108,7 +109,7 @@ async function installAuthenticatedProductFixture(page: Page) {
       routing_mode: 'universal',
       models: [
         {
-          id: 'deepseek-chat',
+          id: 'deepseek-flash',
           protocols: ['openai', 'codex'],
           modalities: ['chat'],
           routes: [],
@@ -132,18 +133,8 @@ async function addParentDomainSession(context: BrowserContext) {
   ])
 }
 
-async function proxyProductOriginToLocalApp(page: Page) {
-  await page.route('https://tokenkey.dev/**', async (route) => {
-    const requested = new URL(route.request().url())
-    if (requested.pathname.startsWith('/api/') || requested.pathname === '/setup/status') {
-      await route.fallback()
-      return
-    }
-    const localUrl = `${scheme}://127.0.0.1:${port}${requested.pathname}${requested.search}`
-    const response = await route.fetch({ url: localUrl })
-    await route.fulfill({ response })
-  })
-}
+const chinaExportRegisterHref =
+  '/register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-flash%26protocol%3Dopenai'
 
 async function expectNoViewportOverflow(page: Page) {
   const metrics = await page.evaluate(() => ({
@@ -234,7 +225,7 @@ test.describe('dual-market homepage', () => {
     ])
     await expect(page.locator('[data-testid="china-export-primary-cta"]')).toHaveAttribute(
       'href',
-      'https://tokenkey.dev/register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-chat%26protocol%3Dopenai',
+      chinaExportRegisterHref,
     )
     await expect(page.locator('header')).toContainText('CallModel')
     await expect(page.locator('header img')).toHaveAttribute('src', '/logo.png')
@@ -297,15 +288,16 @@ test.describe('dual-market homepage', () => {
     await expect(page.locator('[data-testid="china-export-home"]')).toBeVisible()
     await expect(page.locator('[data-testid="china-export-primary-cta"]')).toHaveAttribute(
       'href',
-      'https://tokenkey.dev/register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-chat%26protocol%3Dopenai',
+      chinaExportRegisterHref,
     )
     await expect(page.getByRole('link', { name: /dashboard/i })).toHaveCount(0)
     await expect.poll(() => refreshHits).toBeGreaterThan(0)
     expect(refreshCookie).not.toContain('tk_refresh=parent-domain-session')
   })
 
-  test('drives the global CTA through registration into the DeepSeek quickstart', async ({ page }) => {
-    await proxyProductOriginToLocalApp(page)
+  test('drives the global CTA through same-host registration into the DeepSeek quickstart', async ({
+    page,
+  }) => {
     await installAuthenticatedProductFixture(page)
     await page.route('**/api/v1/auth/register', (route) =>
       fulfillOk(route, {
@@ -321,22 +313,23 @@ test.describe('dual-market homepage', () => {
     await page.locator('[data-testid="china-export-primary-cta"]').click()
     await page.waitForURL(
       (url) =>
-        url.origin === 'https://tokenkey.dev' &&
+        url.hostname === 'callmodel.io' &&
         url.pathname === '/register' &&
-        url.searchParams.get('redirect') === '/quickstart?model=deepseek-chat&protocol=openai',
+        url.searchParams.get('redirect') === '/quickstart?model=deepseek-flash&protocol=openai',
     )
     await page.locator('#email').fill(testUser.email)
     await page.locator('#password').fill('TokenKey-E2E-Password-1973!')
+    await page.locator('#confirmPassword').fill('TokenKey-E2E-Password-1973!')
     await page.locator('form button[type="submit"]').click()
 
     await page.waitForURL(
       (url) =>
-        url.hostname === 'tokenkey.dev' &&
+        url.hostname === 'callmodel.io' &&
         url.pathname === '/quickstart' &&
-        url.searchParams.get('model') === 'deepseek-chat' &&
+        url.searchParams.get('model') === 'deepseek-flash' &&
         url.searchParams.get('protocol') === 'openai',
     )
-    await expect(page.locator('[data-tk="use-key-model-select"]')).toHaveValue('deepseek-chat')
+    await expect(page.locator('[data-tk="use-key-model-select"]')).toHaveValue('deepseek-flash')
   })
 
   test('keeps terminal chrome and typography identical across both homepages', async ({ page }) => {
