@@ -923,6 +923,15 @@
       "rationale": "Pin Cursor preset and generated floor to the live Fable models, keep both in the user-facing display projection, exclude unavailable Opus, and preserve other-provider GPT mappings."
     },
     {
+      "path": "backend/internal/service/account_model_mapping_ssot_tk_test.go",
+      "must_contain": [
+        "func TestAccountModelMappingFloorForOps_ExportsAccountOverrides(t *testing.T) {",
+        "claude-fable-5-1",
+        "require.NotContains(t, override.ModelMapping, \"claude-opus-5-5\")"
+      ],
+      "rationale": "The exported immutable Cursor account override must match live Fable mappings and exclude unavailable Opus 5.5."
+    },
+    {
       "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
       "must_contain": [
         "var tkOpenAITextCompatibilityAliases = map[string]string{",

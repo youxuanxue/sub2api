@@ -17,4 +17,5 @@ The live Cursor account mapping serves `claude-fable-5` and `claude-fable-5-1`, 
 ## Validation
 
 - `TestCursorMappingFloorExcludesGPTWithoutChangingOtherProviders` covers mapping and display projections.
+- `TestAccountModelMappingFloorForOps_ExportsAccountOverrides` covers the generated account override.
 - The generated model-surface bundle is checked against its Go owner.
