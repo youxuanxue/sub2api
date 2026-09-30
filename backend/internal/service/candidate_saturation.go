@@ -39,7 +39,7 @@ func (s candidateSaturationState) counts(ctx context.Context, accounts []*Accoun
 			model = request.RequestedModel()
 		}
 	}
-	var anthropicIDs, openaiIDs []int64
+	var anthropicIDs, openaiIDs, nvidiaIDs []int64
 	var scopes []AntigravitySaturationScope
 	for _, account := range accounts {
 		if account == nil {
@@ -48,6 +48,10 @@ func (s candidateSaturationState) counts(ctx context.Context, accounts []*Accoun
 		switch {
 		case account.Platform == PlatformAnthropic:
 			anthropicIDs = append(anthropicIDs, account.ID)
+		case isNewAPINVIDIABuildAccount(account):
+			// Always-on soft preference for unstable secondary capacity; do not
+			// share the OpenAI edge-mirror kill-switch or 600s/threshold-5 window.
+			nvidiaIDs = append(nvidiaIDs, account.ID)
 		case tkIsAntigravityEdgeRelayStub(account) && model != "":
 			scopes = append(scopes, AntigravitySaturationScope{account.ID, resolveFinalAntigravityModelKey(ctx, account, model)})
 		case eligibleForOpenAICapacitySaturationPreference(account):
@@ -70,6 +74,9 @@ func (s candidateSaturationState) counts(ctx context.Context, accounts []*Accoun
 	if len(openaiIDs) > 0 && s.openai != nil && (s.settings == nil || s.settings.IsOpenAISaturatedStubDeprioritizeEnabled(ctx)) {
 		merge(s.openai.GetSaturationBatch(ctx, openaiIDs, edgeMirrorStubSaturationWindowSeconds))
 	}
+	if len(nvidiaIDs) > 0 && s.openai != nil {
+		merge(s.openai.GetSaturationBatch(ctx, nvidiaIDs, nvidiaBuildInstabilityWindowSeconds))
+	}
 	if reader, ok := s.antigravity.(AntigravitySaturationReader); ok && len(scopes) > 0 {
 		counts, err := reader.GetSaturationBatch(ctx, scopes, edgeMirrorStubSaturationWindowSeconds)
 		if err != nil {
@@ -90,7 +97,7 @@ func candidateSaturated(count int64) bool {
 func candidateEffectivePriority(account *Account, counts map[int64]int64) int {
 	priority := account.Priority
 	count := counts[account.ID]
-	if candidateSaturated(count) {
+	if candidateSaturatedFor(account, count) {
 		priority += anthropicSaturationPriorityPenalty + int(count)*100
 	}
 	return priority

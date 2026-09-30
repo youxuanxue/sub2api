@@ -12,6 +12,7 @@ import (
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
@@ -387,6 +388,9 @@ func accountModelMappingForbiddenKeysByScope() map[string][]string {
 		"account_override:" + normalizeAccountModelMappingOverrideScope(
 			PlatformNewAPI, newapiconstant.ChannelTypeAnthropic, cursor.AgentBaseURL,
 		): {cursorRetiredComposerModel},
+		"account_override:" + normalizeAccountModelMappingOverrideScope(
+			PlatformNewAPI, newapiconstant.ChannelTypeOpenAI, newapiintegration.NVIDIABuildBaseURL,
+		): append([]string(nil), nvidiaBuildForbiddenModelMappingKeys...),
 		// Kiro-backed Claude models remain public under the anthropic vendor,
 		// but native Anthropic accounts must not inherit Kiro-only capability.
 		// Kiro mirror stubs resolve to PlatformKiro before this policy applies.

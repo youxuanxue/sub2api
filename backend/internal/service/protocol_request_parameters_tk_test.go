@@ -31,11 +31,10 @@ func TestProtocolPlanPreservesExplicitParameters(t *testing.T) {
 		protocol                         protocolrouter.Protocol
 		blocked                          bool
 	}{
-		{"nvidia-thinking-on", PlatformNewAPI, "deepseek-ai/deepseek-v4-pro-0813", `,"enable_thinking":true`, protocolrouter.ProtocolChatCompletions, true},
-		{"nvidia-thinking-off", PlatformNewAPI, "deepseek-ai/deepseek-v4-pro-0813", `,"enable_thinking":false`, protocolrouter.ProtocolChatCompletions, true},
-		{"nvidia-default", PlatformNewAPI, "deepseek-ai/deepseek-v4-pro-0813", "", protocolrouter.ProtocolChatCompletions, false},
-		{"other-nvidia-model", PlatformNewAPI, "moonshotai/kimi-k3", `,"enable_thinking":true`, protocolrouter.ProtocolChatCompletions, false},
-		{"other-provider", PlatformOpenAI, "deepseek-ai/deepseek-v4-pro-0813", `,"enable_thinking":true`, protocolrouter.ProtocolChatCompletions, false},
+		// NVIDIA Build floor is kimi-k3 / glm-5.3 / glm-5.3-flash only; no
+		// enable_thinking admission gate remains after deepseek-pro withdrawal.
+		{"nvidia-kimi-thinking", PlatformNewAPI, "moonshotai/kimi-k3", `,"enable_thinking":true`, protocolrouter.ProtocolChatCompletions, false},
+		{"nvidia-glm-flash", PlatformNewAPI, "z-ai/glm-5.3-flash", "", protocolrouter.ProtocolChatCompletions, false},
 		{"grok-chat-none", PlatformGrok, "grok-4.6", `,"reasoning_effort":"none"`, protocolrouter.ProtocolChatCompletions, true},
 		{"grok-chat-camel", PlatformGrok, "grok-4.6", `,"reasoningEffort":"none"`, protocolrouter.ProtocolChatCompletions, true},
 		{"grok-latest-none", PlatformGrok, "grok-4.6-latest", `,"reasoning_effort":"none"`, protocolrouter.ProtocolChatCompletions, true},
@@ -71,7 +70,6 @@ func TestProtocolPlanPreservesExplicitParameters(t *testing.T) {
 
 func TestGlobalCandidateSkipsParameterIncompatibleProvider(t *testing.T) {
 	for _, tc := range []struct{ name, platform, upstream, fields string }{
-		{"nvidia-thinking", PlatformNewAPI, "deepseek-ai/deepseek-v4-pro-0813", `,"enable_thinking":true`},
 		{"grok-none", PlatformGrok, "grok-4.6", `,"reasoning_effort":"none"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

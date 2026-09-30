@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "89d66d7b509eaf78735263c19a5c88544d3be9ae57417470bc30bed92b0a3028",
+  "floor_sha256": "1dad8bb8f6d6ce650687bdf554805e20159be327b172c5eb7768dcd4670b5b88",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -361,8 +361,8 @@
         "channel_type": 1,
         "base_url": "https://integrate.api.nvidia.com",
         "model_mapping": {
-          "deepseek-v4-flash": "deepseek-ai/deepseek-v4-flash-0731",
-          "deepseek-v4-flash-0731": "deepseek-ai/deepseek-v4-flash-0731",
+          "glm-5.3": "z-ai/glm-5.3",
+          "glm-5.3-flash": "z-ai/glm-5.3-flash",
           "kimi-k3": "moonshotai/kimi-k3"
         }
       },
@@ -555,6 +555,10 @@
     "forbidden_model_mapping_keys": {
       "account_override:newapi:14:https://agentn.global.api5.cursor.sh": [
         "composer-2"
+      ],
+      "account_override:newapi:1:https://integrate.api.nvidia.com": [
+        "deepseek-v4-flash",
+        "deepseek-v4-flash-0731"
       ],
       "anthropic": [
         "claude-opus-5",

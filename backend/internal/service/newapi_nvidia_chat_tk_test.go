@@ -20,10 +20,10 @@ func TestNVIDIATokenLimitUsesOriginalBudgetOnChatDispatch(t *testing.T) {
 		require.False(t, gjson.GetBytes(body, "max_completion_tokens").Exists())
 		require.EqualValues(t, 2048, gjson.GetBytes(body, "max_tokens").Int())
 		require.Equal(t, "echo", gjson.GetBytes(body, "tool_choice.function.name").String())
-		return &bridge.DispatchOutcome{Model: "deepseek-v4-flash"}, nil
+		return &bridge.DispatchOutcome{Model: "kimi-k3"}, nil
 	}
 	account := &Account{ID: 138, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeOpenAI, Credentials: map[string]any{"base_url": "https://integrate.api.nvidia.com", "api_key": "test"}}
-	original := []byte(`{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"Call echo with value OK."}],"max_tokens":32,"max_completion_tokens":2048,"tool_choice":{"type":"function","function":{"name":"echo"}},"stream":false}`)
+	original := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"Call echo with value OK."}],"max_tokens":32,"max_completion_tokens":2048,"tool_choice":{"type":"function","function":{"name":"echo"}},"stream":false}`)
 	c, _ := gin.CreateTestContext(nil)
 	_, err := (&OpenAIGatewayService{}).ForwardAsChatCompletionsDispatched(context.Background(), c, account, original, "", "")
 	require.NoError(t, err)

@@ -11,6 +11,8 @@ import (
 const upstreamModelNotFoundCooldown = 30 * time.Minute
 const upstreamModelNotFoundReason = "upstream_404_model_not_found"
 const upstreamModelNotFound401Reason = "upstream_401_model_not_found"
+const upstreamOpaqueProvider404Cooldown = 10 * time.Minute
+const upstreamOpaqueProvider404Reason = "upstream_404_opaque_provider"
 const upstreamCodexPlanGatedModelCooldown = 30 * time.Minute
 const upstreamCodexPlanGatedModelReason = "upstream_400_codex_plan_gated_model"
 const upstreamModelRetiredCooldown = 30 * time.Minute
@@ -38,6 +40,10 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 		cooldown, reason = upstreamModelRetiredCooldown, upstreamModelRetiredReason
 	case isUpstreamModelNotFoundError(statusCode, responseBody):
 		cooldown, reason = upstreamModelNotFoundCooldown, upstreamModelNotFoundReason
+	case isUpstreamOpaqueProvider404(statusCode, responseBody):
+		// Opaque relay 404 (e.g. NVIDIA bad_response_status_code) — cool this
+		// account×model briefly so failover prefers healthy siblings.
+		cooldown, reason = upstreamOpaqueProvider404Cooldown, upstreamOpaqueProvider404Reason
 	case statusCode == http.StatusUnauthorized && account.Type == AccountTypeAPIKey && account.IsOpenAICompatible() && isOpenAICompatibleModelNotFoundBody(responseBody):
 		cooldown, reason = upstreamModelNotFoundCooldown, upstreamModelNotFound401Reason
 	case isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody):

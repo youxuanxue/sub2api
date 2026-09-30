@@ -188,17 +188,17 @@
         "openai-chat"
       ],
       "exclusive_endpoints": false,
-      "branch_family": "deepseek",
+      "branch_family": "kimi",
       "representatives": [
         {
-          "family": "deepseek",
-          "model": "deepseek-v4-flash",
-          "upstream_model": "deepseek-ai/deepseek-v4-flash-0731",
+          "family": "glm",
+          "model": "glm-5.3-flash",
+          "upstream_model": "z-ai/glm-5.3-flash",
           "operation": "generation",
           "baseline_protocol": "openai-chat",
           "represented_models": [
-            "deepseek-v4-flash",
-            "deepseek-v4-flash-0731"
+            "glm-5.3",
+            "glm-5.3-flash"
           ]
         },
         {
@@ -215,38 +215,38 @@
       "branches": {
         "anthropic-messages": {
           "status": "unknown",
-          "family": "deepseek",
+          "family": "kimi",
           "evidence": "1.8.225 / 2026-09-13: fallback-only success; request a5e02015-88b7-4645-bb03-8a59c8bb6868"
         },
         "gemini-content": {
           "status": "unknown",
-          "family": "deepseek",
+          "family": "kimi",
           "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 544d68b7-5d63-48ce-90b4-6ab0ab2b8640"
         },
         "openai-responses": {
           "status": "unknown",
-          "family": "deepseek",
+          "family": "kimi",
           "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 4c9fbad6-4bc5-42a3-a42a-84af827a0a6c"
         },
         "plain-stream": {
           "status": "unknown",
-          "family": "deepseek",
+          "family": "kimi",
           "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 858b04e3-6bd0-43c5-b456-967b9b827b4f"
         },
         "tool-roundtrip": {
           "status": "unknown",
-          "family": "deepseek",
+          "family": "kimi",
           "evidence": "1.8.225 / 2026-09-13: transport_error; request ; 2026-09-13: same account 138 direct max_completion_tokens=2048 timed out before headers at 90s; max_tokens=2048 returned echo(OK) in 0.36s. Gateway corrected first turn request 926b4607-3755-4821-bf03-40f1548dc772 passed in 2.57s; result turn timed out at 90s, identical history direct passed in 3.13s. Budget alias fixed in code, complete roundtrip remains unverified."
         },
         "thinking": {
           "status": "unknown",
-          "family": "deepseek",
+          "family": "kimi",
           "evidence": "1.8.225 / 2026-09-13: fallback-only success; request b2506667-3215-488b-bd63-4e1031236a09"
         },
         "vision": {
           "status": "unknown",
-          "family": "deepseek",
-          "evidence": "1.8.225 / 2026-09-13: transport_error; request ; Original timeout used another class; direct deepseek-v4-flash on that supplier stalls while analyzing base64, not proven visual support."
+          "family": "kimi",
+          "evidence": "1.8.225 / 2026-09-13: transport_error; request ; Original timeout used another class; direct deepseek-v4-flash on that supplier stalls while analyzing base64, not proven visual support. 2026-09-30: NVIDIA floor converged to glm-5.3/glm-5.3-flash/kimi-k3 after direct chat evidence; deepseek flash withdrawn (410 EOL)."
         }
       }
     },
