@@ -45,8 +45,10 @@ quality/compression 仍需本地体积可区分后处理。`3840x2176` 继续本
 
 1. tools 参数形状已对齐；上游仍把 `tools[].size` 软化为 `auto` 并返回漂移像素 —— **不是传参错误**。
 2. 显式 `size=WxH`：上游发 ceil-16 合法尺寸；响应经本地 **pad** 落到请求画布（cover/crop 非目标）。
+   内容需要放大时：本地 **渐进 CatmullRom**（每跳 ≤2×），减轻大画布一次拉满发糊。
+   **不**引入 `-2k/-4k` 模型别名；**不**接 Real-ESRGAN 外挂（可后续独立评估）。
 3. 显式 `output_format` / `quality` / `output_compression`：本地 coerce 兜底（Responses 上 jpeg/webp 多数已原生兑现）。
-4. 非目标：不把字面 size 押在上游 Responses 行为上；不引入 `-2k/-4k` 超分别名（可后续独立 PR）。
+4. 非目标：不把字面 size 押在上游 Responses 行为上；不引入 `-2k/-4k` 超分别名。
 5. 废弃 `tk_image_contract`：本地精确画布/format 后处理为默认行为；字段若传入则忽略并在转发前剥离。
 6. Studio/Quickstart：GPT Image 芯片发送 `size=WxH`（由 Go `openAIImagesKnownSizeTable` 的 `StudioChip` 行生成 `GPT_IMAGE_SIZES`），与本契约共用同一尺寸表。
 
@@ -100,7 +102,7 @@ OAuth / Setup-Token 生图**一律**走：
 
 ### 4. 非目标
 
-- 不引入 `-2k/-4k` 模型别名超分（可后续独立 PR）。
+- 不引入 `-2k/-4k` 模型别名超分；大画布清晰度靠显式 `size` + 本地渐进放大（暂不接 Real-ESRGAN）。
 - 不改变 API-key 官方 Images 硬 `size` 语义（仅 OAuth/Codex 路径做 ceil+本地精确画布）。
 - 不把色键去背景当作默认透明实现。
 
@@ -108,7 +110,7 @@ OAuth / Setup-Token 生图**一律**走：
 
 | 关注点 | Owner |
 | --- | --- |
-| 尺寸校验 / ceil-16 / pad | `openai_images_strict_canvas_tk.go` |
+| 尺寸校验 / ceil-16 / pad / 本地渐进放大 | `openai_images_strict_canvas_tk.go` + `openai_images_upscale_tk.go` |
 | style → prompt Style guidance | `openai_images_style_tk.go` |
 | Responses 驱动主模型 fallback | `openai_images_main_model_tk.go` |
 | format + compression coerce | `openai_images_output_format_tk.go` |
