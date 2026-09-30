@@ -75,6 +75,7 @@ func buildOpenAIImagesOAuthPayload(parsed *OpenAIImagesRequest, model string) ([
 			prompt = rawPrompt
 		}
 	}
+	prompt = applyOpenAIImagesStyleGuidance(prompt, parsed.Style)
 	prompt = applyOpenAIImagesAspectRatioMarker(prompt, resolveOpenAIImagesAspectRatioForMarker(parsed, true))
 	payload["prompt"] = prompt
 	for _, field := range []struct {
@@ -84,7 +85,6 @@ func buildOpenAIImagesOAuthPayload(parsed *OpenAIImagesRequest, model string) ([
 		{"size", upstreamOpenAIImagesSize(parsed)}, {"quality", parsed.Quality},
 		{"background", parsed.Background}, {"output_format", parsed.OutputFormat},
 		{"moderation", parsed.Moderation}, {"input_fidelity", parsed.InputFidelity},
-		{"style", parsed.Style},
 	} {
 		if value := strings.TrimSpace(field.value); value != "" {
 			payload[field.key] = value
@@ -187,14 +187,17 @@ func codexDirectImageURL(body []byte, path, outputFormat string) []byte {
 	return body
 }
 
-func isOpenAIImagesMainModelError(status int, body []byte) bool {
+func isOpenAIImagesMainModelError(status int, body []byte, driver string) bool {
 	if !isOpenAICodexPlanGatedModelError(status, body) {
 		return false
 	}
+	driver = strings.TrimSpace(driver)
+	if driver == "" {
+		driver = openAIImagesResponsesMainModelValue()
+	}
 	message := extractUpstreamErrorMessage(body)
-	model := openAIImagesResponsesMainModelValue()
-	return strings.Contains(message, "'"+model+"'") ||
-		strings.Contains(message, `"`+model+`"`)
+	return strings.Contains(message, "'"+driver+"'") ||
+		strings.Contains(message, `"`+driver+`"`)
 }
 
 // Images 端点只输出图片；未提供输出分类时，output_tokens 全部是图片 token。

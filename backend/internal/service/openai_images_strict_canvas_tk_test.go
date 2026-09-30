@@ -126,9 +126,9 @@ func TestApplyOpenAIImagesStrictCanvasSkipsWhenSizeNotExplicit(t *testing.T) {
 }
 
 func TestForwardImagesOAuthPadsUpstreamSoftSizeThroughResponses(t *testing.T) {
-	src := image.NewRGBA(image.Rect(0, 0, 40, 48))
-	for y := 0; y < 48; y++ {
-		for x := 0; x < 40; x++ {
+	src := image.NewRGBA(image.Rect(0, 0, 800, 600))
+	for y := 0; y < 600; y++ {
+		for x := 0; x < 800; x++ {
 			src.Set(x, y, color.RGBA{R: 80, G: 40, B: 200, A: 255})
 		}
 	}
@@ -137,7 +137,7 @@ func TestForwardImagesOAuthPadsUpstreamSoftSizeThroughResponses(t *testing.T) {
 	upstreamB64 := base64.StdEncoding.EncodeToString(pngBuf.Bytes())
 
 	sse := "" +
-		"data: {\"type\":\"response.completed\",\"response\":{\"created_at\":1710000000,\"usage\":{\"input_tokens\":5,\"output_tokens\":20,\"output_tokens_details\":{\"image_tokens\":20}},\"tool_usage\":{\"image_gen\":{\"images\":1,\"output_tokens\":20,\"output_tokens_details\":{\"image_tokens\":20}}},\"tools\":[{\"type\":\"image_generation\",\"size\":\"auto\",\"output_format\":\"png\",\"model\":\"gpt-image-2-codex\"}],\"output\":[{\"type\":\"image_generation_call\",\"result\":\"" + upstreamB64 + "\",\"output_format\":\"png\",\"size\":\"40x48\"}]}}\n\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"created_at\":1710000000,\"usage\":{\"input_tokens\":5,\"output_tokens\":20,\"output_tokens_details\":{\"image_tokens\":20}},\"tool_usage\":{\"image_gen\":{\"images\":1,\"output_tokens\":20,\"output_tokens_details\":{\"image_tokens\":20}}},\"tools\":[{\"type\":\"image_generation\",\"size\":\"auto\",\"output_format\":\"png\",\"model\":\"gpt-image-2-codex\"}],\"output\":[{\"type\":\"image_generation_call\",\"result\":\"" + upstreamB64 + "\",\"output_format\":\"png\",\"size\":\"800x600\"}]}}\n\n" +
 		"data: [DONE]\n\n"
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: 200,
@@ -145,7 +145,8 @@ func TestForwardImagesOAuthPadsUpstreamSoftSizeThroughResponses(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(sse)),
 	}}
 
-	body := []byte(`{"model":"gpt-image-2","prompt":"a small ginger cat","size":"64x64","output_format":"jpeg","background":"opaque","quality":"medium"}`)
+	// 1024x1024 is above GPT Image 2 min pixels and already 16-aligned.
+	body := []byte(`{"model":"gpt-image-2","prompt":"a small ginger cat","size":"1024x1024","output_format":"jpeg","background":"opaque","quality":"medium"}`)
 	c, rec := newOpenAIImagesTestContext(t, body)
 	svc := newOpenAIImagesTestService(upstream)
 	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
@@ -156,9 +157,9 @@ func TestForwardImagesOAuthPadsUpstreamSoftSizeThroughResponses(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, result.ImageCount)
 	require.Equal(t, "/backend-api/codex/responses", result.UpstreamEndpoint)
-	require.Equal(t, "64x64", gjson.GetBytes(upstream.lastBody, "tools.0.size").String(), "upstream tool size is client canvas (already 16-aligned)")
+	require.Equal(t, "1024x1024", gjson.GetBytes(upstream.lastBody, "tools.0.size").String(), "upstream tool size is client canvas (already 16-aligned)")
 	// OpenAI Images JSON puts size on the response object, not each data[] item.
-	require.Equal(t, "64x64", gjson.GetBytes(rec.Body.Bytes(), "size").String())
+	require.Equal(t, "1024x1024", gjson.GetBytes(rec.Body.Bytes(), "size").String())
 	require.Equal(t, "jpeg", gjson.GetBytes(rec.Body.Bytes(), "output_format").String())
 
 	outB64 := gjson.GetBytes(rec.Body.Bytes(), "data.0.b64_json").String()
@@ -172,8 +173,8 @@ func TestForwardImagesOAuthPadsUpstreamSoftSizeThroughResponses(t *testing.T) {
 	require.Equal(t, "jpeg", sniffOpenAIImageFormat(raw))
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
 	require.NoError(t, err)
-	require.Equal(t, 64, cfg.Width)
-	require.Equal(t, 64, cfg.Height)
+	require.Equal(t, 1024, cfg.Width)
+	require.Equal(t, 1024, cfg.Height)
 }
 
 func TestApplyOpenAIImagesClientFidelityWebPAndSize(t *testing.T) {

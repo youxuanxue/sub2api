@@ -357,6 +357,10 @@ func isOpenAIImagesSelfBuiltRequest(ctx context.Context) bool {
 }
 
 func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel string) ([]byte, error) {
+	return buildOpenAIImagesResponsesRequestWithMainModel(parsed, toolModel, openAIImagesResponsesMainModelValue())
+}
+
+func buildOpenAIImagesResponsesRequestWithMainModel(parsed *OpenAIImagesRequest, toolModel, mainModel string) ([]byte, error) {
 	if parsed == nil {
 		return nil, fmt.Errorf("parsed images request is required")
 	}
@@ -369,6 +373,8 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 	if strings.TrimSpace(prompt) == "" {
 		return nil, fmt.Errorf("prompt is required")
 	}
+	// Style before AR marker so marker AR=... stays at the end (idempotent soft control).
+	prompt = applyOpenAIImagesStyleGuidance(prompt, parsed.Style)
 	prompt = applyOpenAIImagesAspectRatioMarker(prompt, resolveOpenAIImagesAspectRatioForMarker(parsed, true))
 
 	inputImages := make([]string, 0, len(parsed.InputImageURLs)+len(parsed.Uploads))
@@ -388,8 +394,13 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 		return nil, fmt.Errorf("image input is required")
 	}
 
+	mainModel = strings.TrimSpace(mainModel)
+	if mainModel == "" {
+		mainModel = openAIImagesResponsesMainModelValue()
+	}
+
 	req := []byte(`{"instructions":"","stream":true,"reasoning":{"effort":"medium","summary":"auto"},"parallel_tool_calls":true,"include":["reasoning.encrypted_content"],"model":"","store":false,"tool_choice":{"type":"image_generation"}}`)
-	req, _ = sjson.SetBytes(req, "model", openAIImagesResponsesMainModelValue())
+	req, _ = sjson.SetBytes(req, "model", mainModel)
 	// Match codex2api: leave instructions empty so the driver does not rewrite the
 	// user prompt before invoking image_generation. Verbatim control lives in the
 	// tool fields + local fidelity post-process instead.
@@ -412,6 +423,7 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 	tool, _ = sjson.SetBytes(tool, "model", strings.TrimSpace(toolModel))
 	// Never set tools[].n: live ChatGPT Codex Responses rejects it with
 	// unknown_parameter (2026-09-30). n>1 is fulfilled by TokenKey multi-fetch.
+	// Never set tools[].style: fold into prompt via applyOpenAIImagesStyleGuidance.
 
 	for _, field := range []struct {
 		path  string
@@ -423,7 +435,6 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 		{path: "output_format", value: parsed.OutputFormat},
 		{path: "moderation", value: parsed.Moderation},
 		{path: "input_fidelity", value: parsed.InputFidelity},
-		{path: "style", value: parsed.Style},
 	} {
 		if trimmed := strings.TrimSpace(field.value); trimmed != "" {
 			tool, _ = sjson.SetBytes(tool, field.path, trimmed)
@@ -981,7 +992,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesErrorResponse(
 	}
 
 	// 主控不可用不代表图片模型配额耗尽，直接透传，避免误冷却整个图片账号池。
-	if account.IsOpenAIOAuthLike() && isOpenAIImagesMainModelError(resp.StatusCode, body) {
+	if account.IsOpenAIOAuthLike() && isOpenAIImagesMainModelError(resp.StatusCode, body, "") {
 		upErr := openAIImagesUpstreamErrorFromHTTP(resp.StatusCode, resp.Header, body)
 		writeOpenAIImagesUpstreamErrorResponse(c, upErr)
 		return nil, upErr
@@ -1872,10 +1883,11 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 
 	var responsesBody []byte
 	var targetURL string
+	mainModel := openAIImagesEffectiveMainModel(ctx)
 	if direct {
 		responsesBody, targetURL, err = buildOpenAIImagesOAuthPayload(parsed, upstreamModel)
 	} else {
-		responsesBody, err = buildOpenAIImagesResponsesRequest(parsed, upstreamModel)
+		responsesBody, err = buildOpenAIImagesResponsesRequestWithMainModel(parsed, upstreamModel, mainModel)
 		targetURL = chatgptCodexURL
 	}
 	if err != nil {
@@ -1940,7 +1952,24 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 			return s.forwardOpenAIImagesOAuth(markAgentIdentityTaskRecoveryTried(ctx), c, account, parsed, channelMappedModel)
 		}
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
-		if !direct && isOpenAIImagesMainModelError(resp.StatusCode, respBody) {
+		if !direct && isOpenAIImagesMainModelError(resp.StatusCode, respBody, mainModel) {
+			triedCtx := withOpenAIImagesTriedMainModel(ctx, mainModel)
+			if next, ok := nextOpenAIImagesMainModelAfterUnsupported(mainModel, openAIImagesTriedMainModels(triedCtx)); ok {
+				logger.LegacyPrintf(
+					"service.openai_gateway",
+					"[OpenAI] Images Responses driver rejected model=%s; retrying with model=%s account_id=%d",
+					mainModel,
+					next,
+					account.ID,
+				)
+				return s.forwardOpenAIImagesOAuth(
+					withOpenAIImagesMainModelOverride(triedCtx, next),
+					c,
+					account,
+					parsed,
+					channelMappedModel,
+				)
+			}
 			return s.handleOpenAIImagesErrorResponse(upstreamCtx, resp, c, account, upstreamModel)
 		}
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
@@ -2176,7 +2205,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthResponseError(
 	if !errors.As(err, &upstreamErr) {
 		return err
 	}
-	if isOpenAIImagesMainModelError(upstreamErr.StatusCode, openAIImagesUpstreamErrorResponseBody(upstreamErr)) {
+	if isOpenAIImagesMainModelError(upstreamErr.StatusCode, openAIImagesUpstreamErrorResponseBody(upstreamErr), "") {
 		if !responseWritten {
 			writeOpenAIImagesUpstreamErrorResponse(c, upstreamErr)
 		}

@@ -281,7 +281,7 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 	}
 
 	if sizeResult := gjson.GetBytes(body, "size"); sizeResult.Exists() {
-		req.Size = strings.TrimSpace(sizeResult.String())
+		req.Size = canonicalizeOpenAIImagesSizeField(sizeResult.String())
 		req.ExplicitSize = req.Size != ""
 	}
 	if aspectResult := gjson.GetBytes(body, "aspect_ratio"); aspectResult.Exists() {
@@ -435,8 +435,8 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 		case "prompt":
 			req.Prompt = value
 		case "size":
-			req.Size = value
-			req.ExplicitSize = value != ""
+			req.Size = canonicalizeOpenAIImagesSizeField(value)
+			req.ExplicitSize = req.Size != ""
 		case "aspect_ratio":
 			req.AspectRatio = value
 			req.ExplicitAspectRatio = value != ""

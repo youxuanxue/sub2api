@@ -14,13 +14,16 @@ import (
 	xdraw "golang.org/x/image/draw"
 )
 
-// GPT Image 2 OAuth size bounds (aligned with codex2api validateGPTImage2Size).
+// GPT Image 2 OAuth size bounds (official Images + 号池指南 / OpenAI cookbook).
 const openAIImagesMaxGPTImage2Pixels int64 = 8294400
+const openAIImagesMinGPTImage2Pixels int64 = 655360
 
 const (
 	openAIImagesMaxGPTImage2Aspect = 3
 	openAIImagesSizeQuantum        = 16
-	openAIImagesMaxCanvasSide      = 8192
+	// Client-facing max edge for gpt-image-* (official / cookbook). Pad safety
+	// uses the same cap so delivered canvases cannot exceed admission.
+	openAIImagesMaxCanvasSide = 3840
 )
 
 type openAIImagesParsedSize struct {
@@ -29,8 +32,37 @@ type openAIImagesParsedSize struct {
 	Raw    string
 }
 
+// normalizeOpenAIImagesSizeSeparator accepts WIDTHxHEIGHT with x/X/*/× separators.
+func normalizeOpenAIImagesSizeSeparator(size string) string {
+	size = strings.TrimSpace(size)
+	if size == "" {
+		return size
+	}
+	size = strings.ReplaceAll(size, "×", "x")
+	size = strings.ReplaceAll(size, "*", "x")
+	return size
+}
+
+// canonicalizeOpenAIImagesSizeField normalizes separators and returns lowercase
+// WIDTHxHEIGHT when parseable; "auto"/empty pass through; unparseable values are
+// left for validateOpenAIImagesExplicitSize to reject.
+func canonicalizeOpenAIImagesSizeField(size string) string {
+	size = strings.TrimSpace(size)
+	if size == "" {
+		return ""
+	}
+	if strings.EqualFold(size, "auto") {
+		return "auto"
+	}
+	size = normalizeOpenAIImagesSizeSeparator(size)
+	if parsed, ok := parseOpenAIImagesWxH(size); ok {
+		return parsed.Raw
+	}
+	return size
+}
+
 func parseOpenAIImagesWxH(size string) (openAIImagesParsedSize, bool) {
-	raw := strings.TrimSpace(size)
+	raw := normalizeOpenAIImagesSizeSeparator(size)
 	if raw == "" || strings.EqualFold(raw, "auto") {
 		return openAIImagesParsedSize{}, false
 	}
@@ -55,6 +87,9 @@ func validateOpenAIImagesExplicitSize(req *OpenAIImagesRequest) error {
 	if !IsGPTImageGenerationModel(req.Model) {
 		return nil
 	}
+	if canonical := canonicalizeOpenAIImagesSizeField(req.Size); canonical != "" {
+		req.Size = canonical
+	}
 	parsed, ok := parseOpenAIImagesWxH(req.Size)
 	if !ok {
 		if strings.EqualFold(strings.TrimSpace(req.Size), "auto") {
@@ -66,6 +101,9 @@ func validateOpenAIImagesExplicitSize(req *OpenAIImagesRequest) error {
 		return fmt.Errorf("image size %q is invalid: each side must be <= %d", parsed.Raw, openAIImagesMaxCanvasSide)
 	}
 	pixels := int64(parsed.Width) * int64(parsed.Height)
+	if pixels < openAIImagesMinGPTImage2Pixels {
+		return fmt.Errorf("image size %q is invalid: total pixels %d below min %d", parsed.Raw, pixels, openAIImagesMinGPTImage2Pixels)
+	}
 	if pixels > openAIImagesMaxGPTImage2Pixels {
 		return fmt.Errorf("image size %q is invalid: total pixels %d exceeds max %d", parsed.Raw, pixels, openAIImagesMaxGPTImage2Pixels)
 	}

@@ -64,11 +64,21 @@ OAuth / Setup-Token 生图**一律**走：
 
 对显式 `size=WIDTHxHEIGHT`（非 `auto`）：
 
-- 宽高为正整数；总像素 ≤ `8294400`；长边/短边 ≤ 3。
+- 分隔符归一：接受 `x` / `X` / `*` / `×`，解析后统一为小写 `WIDTHxHEIGHT`。
+- 宽高为正整数；**单边 ≤ `3840`**；总像素 ∈ `[655360, 8294400]`；长边/短边 ≤ 3。
 - 否则 **400** `invalid_request_error`（对齐超限用例，不等待上游）。
 - 发往上游的 size：各边 **向上取整到 16 的倍数**（例：`1920x1080` → `1920x1088`）。
 - 返回给客户的画布：本地 **pad** 精确还原请求的 `WxH`（内容等比装入，边距填充；不 crop）。
-- 响应 `data[].size` / 顶层 `size` = **最终画布**；usage 计费档仍按最终像素 reconcile。
+- 响应顶层 `size` = **最终画布**；usage 计费档仍按最终像素 reconcile。
+
+### 1b. Responses 驱动主模型（main model）与 style
+
+- 驱动模型默认 `gpt-5.6-luna`（`SUB2API_IMAGES_MAIN_MODEL` 可覆盖）；图像模型仍在 `tools[0].model`。
+- 上游以 plan-gated 400 拒绝当前驱动时，**同账号**按
+  `gpt-5.5` → `gpt-5.6-terra` → `gpt-5.6-sol` → `gpt-6-astra` 重试
+  （`SUB2API_IMAGES_MAIN_MODEL_FALLBACKS` 可覆盖整条链），不冷却生图容量。
+- 客户端 `style` **不写** `tools[].style`；折入 prompt 文本
+  `Style guidance: <style>`（在 `marker AR=...` 之前），与 codex2api 一致。
 
 ### 2. `output_format` 后处理
 
@@ -97,14 +107,16 @@ OAuth / Setup-Token 生图**一律**走：
 | 关注点 | Owner |
 | --- | --- |
 | 尺寸校验 / ceil-16 / pad | `openai_images_strict_canvas_tk.go` |
+| style → prompt Style guidance | `openai_images_style_tk.go` |
+| Responses 驱动主模型 fallback | `openai_images_main_model_tk.go` |
 | format + compression coerce | `openai_images_output_format_tk.go` |
 | Direct / multi / Responses 接线 | `openai_images_direct.go`（`usesCodexDirectImages=false`）/ `*_codex_direct_multi_tk.go` / `openai_images_responses.go` |
 | Studio/Quickstart GPT size 芯片 | 生成自 Go `openAIImagesKnownSizeTable` → `frontend/src/constants/gptImageSizes.generated.tk.ts`（`studioMediaPresentations.tk.ts` re-export）+ `imageGeneration.tk.ts` |
-| 回归 | `openai_images_strict_canvas_tk_test.go` 等 |
+| 回归 | `openai_images_strict_canvas_tk_test.go`、`openai_images_main_model_tk_test.go` 等 |
 
 ## Validation
 
-- 单元：ceil-16、超限 400、pad 精确画布、jpeg/webp 魔数、compression 体积差。
+- 单元：ceil-16、分隔符归一、单边/像素上下限 400、pad 精确画布、jpeg/webp 魔数、compression 体积差、style→Style guidance、main-model fallback 同账号重试。
 - edge-us3 OAuth：复跑客户 01–10 矩阵（`gpt-image-2` / `2.5-sunburst` / `2.5-flare`）。
 - 探针：`ops/stage0/probe_openai_upstream_image.sh`；矩阵
   `ops/stage0/probe_openai_image_fidelity_matrix.sh`；AR/07/09
