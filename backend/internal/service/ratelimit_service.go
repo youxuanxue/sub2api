@@ -47,10 +47,6 @@ type RateLimitService struct {
 	// OpenAI Team 联动熔断的进程内去重：teamID → 去重窗口截止时间
 	openaiTeamLinkedMu     sync.Mutex
 	openaiTeamLinkedRecent map[string]time.Time
-
-	// NVIDIA Build soft-preference fallback when Redis saturation is unwired.
-	nvidiaLocalInstabilityMu    sync.Mutex
-	nvidiaLocalInstabilityUntil map[int64]time.Time
 }
 
 type AccountRuntimeBlocker interface {

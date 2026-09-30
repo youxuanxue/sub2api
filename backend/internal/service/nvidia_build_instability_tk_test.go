@@ -48,8 +48,6 @@ func TestBridgeWrapRelayErrorAfterPenalty_NVIDIARecordsInstability(t *testing.T)
 	require.True(t, failover.ShouldRetryNextAccount())
 	require.Equal(t, []int64{138}, counter.incrementIDs)
 	require.Equal(t, nvidiaBuildInstabilityWindowSeconds, counter.lastWindow)
-	require.Equal(t, nvidiaBuildInstabilityThreshold, rls.nvidiaLocalInstabilityCount(138),
-		"local mirror must stay populated even when Redis succeeds")
 
 	// Non-NVIDIA account must not touch the NVIDIA instability counter path.
 	counter.incrementIDs = nil
@@ -58,21 +56,11 @@ func TestBridgeWrapRelayErrorAfterPenalty_NVIDIARecordsInstability(t *testing.T)
 	require.Empty(t, counter.incrementIDs, "ordinary newapi 500 stays terminal without NVIDIA soft penalty")
 }
 
-func TestRecordNVIDIABuildInstability_LocalFallbackWhenRedisUnwired(t *testing.T) {
+func TestRecordNVIDIABuildInstability_NoOpWhenRedisUnwired(t *testing.T) {
 	t.Parallel()
 	rls := &RateLimitService{} // no openaiSaturationCounter
-	nvidia := &Account{
-		ID: 205, Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
-		ChannelType: newapiconstant.ChannelTypeOpenAI,
-		Credentials: map[string]any{"base_url": newapiintegration.NVIDIABuildBaseURL},
-	}
-	count := rls.recordNVIDIABuildInstability(context.Background(), nvidia.ID, 500)
-	require.Equal(t, nvidiaBuildInstabilityThreshold, count)
-	state := candidateSaturationState{nvidiaLocal: rls}
-	counts := state.counts(context.Background(), []*Account{nvidia}, "glm-5.3-flash")
-	require.Equal(t, nvidiaBuildInstabilityThreshold, counts[205],
-		"selection must still see NVIDIA soft pressure without Redis")
-	require.True(t, candidateSaturatedFor(nvidia, counts[205]))
+	require.Zero(t, rls.recordNVIDIABuildInstability(context.Background(), 205, 500),
+		"without Redis, soft deprioritize is a no-op; failover still handles the request")
 }
 
 func TestCandidateSaturationState_ReadsNVIDIAWindow(t *testing.T) {

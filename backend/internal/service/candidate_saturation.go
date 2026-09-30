@@ -13,7 +13,6 @@ type candidateSaturationState struct {
 	openai      OpenAISaturationCounterCache
 	antigravity AntigravitySaturationCounterCache
 	settings    *SettingService
-	nvidiaLocal nvidiaLocalInstabilitySource
 }
 
 func (s *GatewayService) candidateSaturationState() candidateSaturationState {
@@ -21,7 +20,6 @@ func (s *GatewayService) candidateSaturationState() candidateSaturationState {
 	if s.rateLimitService != nil {
 		state.openai = s.rateLimitService.openaiSaturationCounter
 		state.antigravity = s.rateLimitService.antigravitySaturationCounter
-		state.nvidiaLocal = s.rateLimitService
 	}
 	return state
 }
@@ -31,7 +29,6 @@ func (s *OpenAIGatewayService) candidateSaturationState() candidateSaturationSta
 	if s.rateLimitService != nil {
 		state.anthropic = s.rateLimitService.anthropicSaturationCounter
 		state.antigravity = s.rateLimitService.antigravitySaturationCounter
-		state.nvidiaLocal = s.rateLimitService
 	}
 	return state
 }
@@ -79,13 +76,6 @@ func (s candidateSaturationState) counts(ctx context.Context, accounts []*Accoun
 	}
 	if len(nvidiaIDs) > 0 && s.openai != nil {
 		merge(s.openai.GetSaturationBatch(ctx, nvidiaIDs, nvidiaBuildInstabilityWindowSeconds))
-	}
-	if len(nvidiaIDs) > 0 && s.nvidiaLocal != nil {
-		for _, id := range nvidiaIDs {
-			if count := s.nvidiaLocal.nvidiaLocalInstabilityCount(id); count > result[id] {
-				result[id] = count
-			}
-		}
 	}
 	if reader, ok := s.antigravity.(AntigravitySaturationReader); ok && len(scopes) > 0 {
 		counts, err := reader.GetSaturationBatch(ctx, scopes, edgeMirrorStubSaturationWindowSeconds)
