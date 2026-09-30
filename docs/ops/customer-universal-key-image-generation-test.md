@@ -1,23 +1,39 @@
 # 客户测试：Prod Universal Key 生图（OpenAI + Gemini）
 
-> **以 prod 实测为准**（证据：2026-09-29 修复前基线 + 1.8.265 / **1.8.266 精确画布** / **1.8.267 n>1 修复** 复测，`https://api.tokenkey.dev` + universal fulltest key；prod / edge-us3 运行镜像 `ghcr.io/youxuanxue/sub2api:1.8.267`）。
-> 下列比例、像素、错误码均来自当次实跑；与代码 allowlist / Quickstart 示例不一致处，以本表「实测」列为准。
->
-> **1.8.266+ 契约：** 显式 `size=WxH` 时网关 pad 到字面像素。仅发 `aspect_ratio`、不发 `size` 时仍为软控。**1.8.267：** OAuth `n>1` 由 TokenKey 多取合并；`stream+n>1` 本地 400。
+面向客户 / 对接方的 **prod 验收清单**。以当前线上行为为准；像素与错误码来自
+`https://api.tokenkey.dev` + universal fulltest key 实跑。
 
-> 对齐产品契约（入口与字段拼写）：
-> [`image-generation-quickstart-studio.md`](../approved/image-generation-quickstart-studio.md)、
-> [`gpt-image-aspect-ratio-soft-control.md`](../approved/gpt-image-aspect-ratio-soft-control.md)、
-> [`gpt-image-strict-canvas-postprocess.md`](../approved/gpt-image-strict-canvas-postprocess.md)。
+| 项 | 值 |
+| --- | --- |
+| 基线镜像 | `ghcr.io/youxuanxue/sub2api:1.8.267`（prod / edge-us3，2026-09-30） |
+| 产品契约 | [Studio/Quickstart](../approved/image-generation-quickstart-studio.md)、[GPT soft AR](../approved/gpt-image-aspect-ratio-soft-control.md)、[精确画布](../approved/gpt-image-strict-canvas-postprocess.md) |
+| 不覆盖 | `wan2.7-image*`、非 universal 直连账号调参、思考强度 |
 
 ```bash
 export TK_BASE='https://api.tokenkey.dev'
 export TK_KEY='sk-...'   # 客户的 prod universal key
 ```
 
+先 `GET $TK_BASE/v1/models` 确认本 key 可见模型；下列 ID 以当次清单为准。
+
 ---
 
-## 0. 当次 `/v1/models` 可见的生图相关 ID
+## 1. 当前契约（给对接方的一句话）
+
+| 场景 | 期望 |
+| --- | --- |
+| GPT 显式 `size=WIDTHxHEIGHT` | 返回图 **字面像素**（网关本地 pad）。Studio/Quickstart GPT 芯片默认发这个。 |
+| GPT 只发 `aspect_ratio`、不发 `size` | **软控**：比例大致对，像素可漂移（非字面保证）。 |
+| GPT `size` + `aspect_ratio` 同传 | **以 size 为准**。 |
+| GPT 显式 `output_format=jpeg\|webp\|png` | 字节魔数与声明一致。 |
+| GPT `n=2..4`（非流式） | `data` 长度 = n；usage 为多张合计。 |
+| GPT `stream=true` 且 `n>1` | **400** `unsupported_parameter`（本地拒写）。 |
+| Gemini / `nano-*` | 走 **Chat**；比例在 `extra_body.google.image_config.aspect_ratio`。 |
+| 错入口 | GPT→Chat **400**；Gemini→Images **404**。 |
+
+---
+
+## 2. 模型清单（当次 `/v1/models` 生图相关）
 
 ```text
 gpt-image-2
@@ -25,133 +41,108 @@ gpt-image-2.5
 gpt-image-2.5-flare
 gpt-image-2.5-sunburst
 gemini-3-pro-image
-gemini-3-pro-image-preview
 gemini-3.1-flash-image
 gemini-3.1-flash-image-preview
 nano-2
 nano-pro
 ```
 
-（同 key 还列出 `wan2.7-image*`，本单不覆盖。）
+同 key 还可见 `wan2.7-image` / `wan2.7-image-pro`（本单不测）。
 
-**未出现：** `gpt-image-1`、`imagen-*`。不要按旧矩阵默认测这些。
+**不要默认测：** `gpt-image-1`、`imagen-*`（当前清单未出现）。
 
 ---
 
-## 1. 入口（实测错误码）
+## 3. 入口
 
 | 模型 | 正确入口 | 错误入口（实测） |
 | --- | --- | --- |
-| `gpt-image-*` | `POST /v1/images/generations` | 走 Chat → **400** `This model is not supported on the Chat Completions endpoint` |
-| Gemini 原生生图 / `nano-*` | `POST /v1/chat/completions` | 走 Images → **404** `The images API is only available for OpenAI-compatible platform groups` |
-| 同上（可选） | `POST /v1beta/models/{model}:generateContent` | 实测 `gemini-3.1-flash-image` + `aspectRatio=16:9` → **200**，像素 `1376x768` |
+| `gpt-image-*` | `POST /v1/images/generations` | Chat → **400** `This model is not supported on the Chat Completions endpoint` |
+| Gemini 原生生图 / `nano-*` | `POST /v1/chat/completions`（`stream:false`） | Images → **404** `The images API is only available for OpenAI-compatible platform groups` |
+| 同上（可选） | `POST /v1beta/models/{model}:generateContent` | `gemini-3.1-flash-image` + `aspectRatio=16:9` → **200**，约 `1376x768` |
 
-Universal 客户优先：**GPT → Images**；**Gemini → Chat**（与 Studio/Quickstart 一致）。
+Universal：**GPT → Images**；**Gemini → Chat**。
 
 ---
 
-## 2. Aspect-ratio（重点 · 实测）
+## 4. GPT Images（`/v1/images/generations`）
 
-### 2.1 OpenAI `gpt-image-*`：顶层 `aspect_ratio`（TokenKey 软控）
+### 4.1 精确画布 `size`（默认验收路径）
 
-**网关允许值（非法即 400）：**
+显式 `size` 时网关本地 pad；**不要**再期待「1024→1254」这类旧行为。
 
-`1:1` · `3:2` · `2:3` · `16:9` · `9:16`
-
-| 请求 `aspect_ratio`（**不发** `size`） | HTTP | 响应像素（软控，上游可漂移） |
+| 请求 | HTTP | 出图像素（1.8.267） |
 | --- | --- | --- |
-| `1:1` | 200 | **1254x1254**（常见；非契约保证） |
-| `3:2` | 200 | **1536x1024** |
-| `2:3` | 200 | **1024x1536** |
-| `16:9` | 200 | **1672x941** |
-| `9:16` | 200 | **941x1672** |
-| `4:3` / `21:9` | **400** | `unsupported aspect_ratio "..."; supported values: 1:1, 3:2, 2:3, 16:9, 9:16` |
+| `size=1024x1024` | 200 | **1024×1024** |
+| `size=1536x1024` | 200 | **1536×1024** |
+| `size=1024x1536` | 200 | **1024×1536** |
+| `size=1024x1024` + `aspect_ratio=16:9` | 200 | **1024×1024**（size 优先） |
 
-**硬 `size` 对照（1.8.266+ 显式 size = 本地精确画布）：**
+超限画布（总像素过大等）→ **400**（网关准入，不等待上游）。
 
-| 请求 | 响应像素（1.8.267 实测） | 备注 |
+### 4.2 软控 `aspect_ratio`（不发 `size`）
+
+允许值：`1:1` · `3:2` · `2:3` · `16:9` · `9:16`。非法（如 `4:3` / `21:9`）→ **400**。
+
+| `aspect_ratio` | HTTP | 常见像素（可漂移，非契约） |
 | --- | --- | --- |
-| `"size":"1024x1024"`（不带 aspect_ratio） | **1024×1024** | 不再软改写成 1254 |
-| `"size":"1536x1024"` | **1536×1024** | |
-| `"size":"1024x1536"` | **1024×1536** | |
-| 同时 `"size":"1024x1024"` + `"aspect_ratio":"16:9"` | **1024×1024** | `size` 生效，比例软控不抢 |
+| `1:1` | 200 | ~1254×1254 |
+| `3:2` | 200 | ~1536×1024 |
+| `2:3` | 200 | ~1024×1536 |
+| `16:9` | 200 | ~1672×941 |
+| `9:16` | 200 | ~941×1672 |
 
-**建议客户：** Studio/Quickstart 的 GPT 芯片默认发顶层 **`size=WxH`**（精确画布）。只要构图偏好、可接受上游漂移时，可只发 `aspect_ratio`、不发 `size`。不要指望「只发 AR」得到字面像素。
+### 4.3 其它 GPT 参数
 
-**响应形态（当次）：** `data[]` 项含 `b64_json`、`generation_id`、`model`；显式 size 时顶层 / 画布像素与请求一致；未见到 `url`。
+| 参数 | 行为 |
+| --- | --- |
+| `model` | `gpt-image-2` / `2.5` / `2.5-flare` / `2.5-sunburst` 均可 |
+| `prompt` | 必填 |
+| `quality` | `low` / `high` 等可传；与显式 size 联用时画布仍跟 size |
+| `output_format` | 显式 `jpeg` / `webp` / `png` → 魔数匹配并回写字段 |
+| `n` | 1–4；非流式多取合并 `data[]`；usage 为多张合计 |
+| `stream` | `n=1` 可流式；**`stream`+`n>1` → 400** |
 
-### 2.2 Gemini 原生生图：`extra_body.google.image_config.aspect_ratio`
+响应：`data[].b64_json`（未见 `url`）；可含 `model` / `generation_id`。验像素请解码 b64（`sips` / `identify`），勿只信字段文案。
 
-上游 400 原文给出的 **完整允许集（14 个）**：
+---
+
+## 5. Gemini Chat（`/v1/chat/completions`）
+
+比例字段：`extra_body.google.image_config.aspect_ratio`（字符串）。
+
+上游允许集（14 个）：
 
 ```text
 1:1, 1:4, 1:8, 2:3, 3:2, 3:4, 4:1, 4:3, 4:5, 5:4, 8:1, 9:16, 16:9, 21:9
 ```
 
-非法例（实测 400）：`2:1`、`5:3`、`3:1`。
+非法例：`2:1`、`5:3`、`3:1` → **400**。
 
-**Chat 路径实测像素（默认约 1K 档，`gemini-3.1-flash-image` / 同族）：**
+**约 1K 档实测像素（`gemini-3.1-flash-image` 同族）：**
 
-| aspect_ratio | 实测像素 |
-| --- | --- |
-| `1:1` | 1024×1024 |
-| `2:3` | 848×1264 |
-| `3:2` | 1264×848 |
-| `3:4` | 896×1200 |
-| `4:3` | 1200×896 |
-| `4:5` | 928×1152 |
-| `5:4` | 1152×928 |
-| `9:16` | 768×1376 |
-| `16:9` | 1376×768 |
-| `21:9` | 1584×672 |
-| `1:4` | 512×2064 |
-| `4:1` | 2064×512 |
-| `1:8` | 352×2928 |
-| `8:1` | 2928×352 |
+| aspect_ratio | 像素 | aspect_ratio | 像素 |
+| --- | --- | --- | --- |
+| `1:1` | 1024×1024 | `16:9` | 1376×768 |
+| `2:3` | 848×1264 | `9:16` | 768×1376 |
+| `3:2` | 1264×848 | `21:9` | 1584×672 |
+| `3:4` | 896×1200 | `4:3` | 1200×896 |
+| `4:5` | 928×1152 | `5:4` | 1152×928 |
+| `1:4` | 512×2064 | `4:1` | 2064×512 |
+| `1:8` | 352×2928 | `8:1` | 2928×352 |
 
-`gemini-3-pro-image` 抽样：`1:1` / `16:9` / `9:16` / `21:9` / `4:3` / `3:4` 均 200 且像素与上表同档一致。  
-别名 `nano-2`、`nano-pro`、`gemini-3.1-flash-image-preview` 在 `1:1` 均 200（响应 `model` 回显请求名）。
-
-**Chat 返回：** 图片在 `choices[0].message.content` 的 `![image](data:image/...;base64,...)` markdown 里（不是 Images 的 `data[]`）。
-
-**偶发空响应：** 旧行为会 **HTTP 200 + `content=null`**。修复后图片模型无图会走 **502 / 同账号可重试**，客户端不应再收到成功空包。
-
-**`image_size`（`1K`/`2K`/`4K`）经 Chat `extra_body`：** 网关会透传到上游 `generationConfig.imageConfig.imageSize`（Antigravity/一般 Gemini）。Gemini Web 供给不接受该字段（能力投影不会给出）。验收时以实跑像素为准。
+- 图在 `choices[0].message.content` 的 `data:image/...;base64,...` markdown 中。
+- 无图不应再收到 **200 + `content=null`**（应为可重试错误，常见 502）。
+- `image_size`（`1K`/`2K`/`4K`）经 `extra_body.google.image_config.image_size` 透传（Antigravity/一般 Gemini）；Web 供给可能拒该字段。P0 曾验：`1K`→1024、`2K`→2048（`1:1`）。
+- `nano-2` / `nano-pro` / preview 别名：`1:1` 可 200，响应 `model` 回显请求名。
 
 ---
 
-## 3. 其它参数（实测摘要）
+## 6. 可直接跑的用例
 
-### 3.1 GPT Images
-
-| 参数 | 实测（1.8.267） |
-| --- | --- |
-| `model` | `gpt-image-2` / `gpt-image-2.5` / `gpt-image-2.5-flare` / `gpt-image-2.5-sunburst` 均 200 |
-| `prompt` | 必填 |
-| `aspect_ratio` | 见 §2.1（不发 size 时软控） |
-| `size` | 显式 `WxH` → **字面像素**（本地 pad）；见 §2.1 |
-| `quality` | `low` / `high` 均 200；与显式 size 联用时画布仍为请求像素 |
-| `output_format=jpeg` / `webp` | 显式请求时魔数与声明一致，并回写 `output_format` |
-| `n=2` | OAuth Responses **不传** `tools[].n`；网关按张多取合并，`data` 长度 2（上限 4） |
-| `stream=true` + `n>1` | 本地 **400** `unsupported_parameter`（勿当成功流） |
-
-### 3.2 Gemini Chat
-
-| 参数 | 实测 |
-| --- | --- |
-| `model` | 见 §0；Pro / Flash / nano 别名可用 |
-| `messages` + `stream:false` | 生图应用非流式 |
-| `extra_body.google.image_config.aspect_ratio` | 见 §2.2（字符串） |
-| 张数 | Chat 路径单次通常 1 张图 |
-
----
-
-## 4. 可直接跑的用例
-
-### 4.1 OpenAI
+### 6.1 GPT：精确画布
 
 ```bash
-# 精确画布（Studio 默认形态）
 curl -sS "$TK_BASE/v1/images/generations" \
   -H "Authorization: Bearer $TK_KEY" \
   -H "Content-Type: application/json" \
@@ -160,27 +151,55 @@ curl -sS "$TK_BASE/v1/images/generations" \
     "prompt": "A simple red apple on a white table, product photo",
     "size": "1024x1024",
     "n": 1
-  }' | jq '{size: .data[0].size, model: .data[0].model, has_b64: (.data[0].b64_json != null)}'
-# 期望：出图像素 == 1024x1024（可用 sips/identify 验 b64）
+  }' | jq '{n:(.data|length), model:.data[0].model, has_b64:(.data[0].b64_json!=null)}'
+# 期望：n=1、has_b64=true；解码后像素 1024x1024
+```
 
-# 软比例（不发 size；像素可漂移）
+### 6.2 GPT：`n=2` 与 `stream+n>1`
+
+```bash
+# 多图
 curl -sS "$TK_BASE/v1/images/generations" \
   -H "Authorization: Bearer $TK_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-image-2",
-    "prompt": "A simple red apple on a white table, product photo",
-    "aspect_ratio": "16:9",
-    "n": 1
-  }' | jq '{size: .data[0].size, model: .data[0].model, has_b64: (.data[0].b64_json != null)}'
-# 期望：常见约 1672x941（非字面保证）
+  -d '{"model":"gpt-image-2","prompt":"tiny red apple","size":"1024x1024","n":2}' \
+  | jq '{http_hint:"expect 200", n:(.data|length), in:.usage.input_tokens, out:.usage.output_tokens}'
+# 期望：n=2；两张均为 1024x1024；usage 为合计
+
+# 非法组合
+curl -sS -o /tmp/tk-stream-n2.json -w '%{http_code}\n' "$TK_BASE/v1/images/generations" \
+  -H "Authorization: Bearer $TK_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-image-2","prompt":"tiny red apple","size":"1024x1024","n":2,"stream":true}'
+# 期望：400；error.code=unsupported_parameter；文案含 stream=true with n>1
 ```
 
-负向：`"aspect_ratio":"4:3"` → 400。  
-`n=2` + `size=1024x1024` → 200 且 `data` 长度 2。  
-`stream:true` + `n:2` → 400。
+### 6.3 GPT：软比例 / 负向
 
-### 4.2 Gemini Chat
+```bash
+curl -sS "$TK_BASE/v1/images/generations" \
+  -H "Authorization: Bearer $TK_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-image-2","prompt":"tiny red apple","aspect_ratio":"16:9","n":1}' \
+  | jq '{has_b64:(.data[0].b64_json!=null)}'
+# 期望：200；像素常见约 1672x941（非字面保证）
+
+# 负向
+# "aspect_ratio":"4:3" → 400
+```
+
+### 6.4 GPT：format
+
+```bash
+curl -sS "$TK_BASE/v1/images/generations" \
+  -H "Authorization: Bearer $TK_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-image-2","prompt":"tiny red apple","size":"1024x1024","output_format":"jpeg","n":1}' \
+  | jq -r '.data[0].b64_json' | base64 -d | xxd | head -1
+# 期望：JPEG 魔数 ff d8 ff；像素 1024x1024
+```
+
+### 6.5 Gemini Chat
 
 ```bash
 curl -sS "$TK_BASE/v1/chat/completions" \
@@ -191,13 +210,13 @@ curl -sS "$TK_BASE/v1/chat/completions" \
     "stream": false,
     "messages": [{"role":"user","content":"Draw a simple blue square icon on white background"}],
     "extra_body": {"google": {"image_config": {"aspect_ratio": "16:9"}}}
-  }' | jq '{model, ct: .usage.completion_tokens, has_image: ((.choices[0].message.content // "") | contains("data:image"))}'
-# 期望：has_image=true；若网关已部署空包修复，无图应返回可重试错误而非 200 空包
+  }' | jq '{model, has_image: ((.choices[0].message.content // "") | contains("data:image"))}'
+# 期望：has_image=true；无图应是可重试错误，不是 200 空包
 ```
 
-建议矩阵：§2.2 十四个比例各一发；P0 至少 `1:1`、`16:9`、`9:16`、`4:3`、`3:4`、`21:9`。
+P0 比例抽样：`1:1`、`16:9`、`9:16`、`4:3`、`3:4`、`21:9`。完整 14 个见 §5。
 
-### 4.3（可选）Native
+### 6.6（可选）Gemini native
 
 ```bash
 curl -sS "$TK_BASE/v1beta/models/gemini-3.1-flash-image:generateContent" \
@@ -214,101 +233,45 @@ curl -sS "$TK_BASE/v1beta/models/gemini-3.1-flash-image:generateContent" \
 
 ---
 
-## 5. 验收记录（可直接填）
+## 7. 验收记录（可勾选）
 
-| # | 模型 | 入口 | 比例/size | HTTP | 出图像素 | 备注 |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | gpt-image-2 | images | size=1024x1024 | 200 | **1024×1024** | 精确画布基线 |
-| 2 | gpt-image-2 | images | aspect_ratio=16:9（无 size） | 200 | ~1672×941 | 软控 |
-| 3 | gpt-image-2 | images | aspect_ratio=4:3 | 400 | — | 负向 |
-| 4 | gpt-image-2 | images | size=1024x1024，n=2 | 200 | 两张 1024×1024 | 1.8.267+ |
-| 5 | gpt-image-2 | images | stream+n=2 | 400 | — | 本地拒写 |
-| 6 | gpt-image-2.5-flare | images | size=1024x1024 | 200 | 1024×1024 | |
-| 7 | gemini-3.1-flash-image | chat | 16:9 | 200 | 1376×768 | 空包则重试 |
-| 8 | gemini-3-pro-image | chat | 21:9 | 200 | 1584×672 | |
-| 9 | nano-2 | chat | 1:1 | 200 | 1024×1024 | 别名 |
-| 10 | gemini… | images | — | 404 | — | 错入口 |
-| 11 | gpt-image-2 | chat | — | 400 | — | 错入口 |
+基线：prod `1.8.267`。括号内为当次实跑参考。
+
+| # | 用例 | 期望 | 结果 |
+| --- | --- | --- | --- |
+| 1 | GPT `size=1024x1024` | 200，像素 1024×1024 | ☐（267：PASS） |
+| 2 | GPT `output_format=jpeg` + size | 200，JPEG 魔数，1024×1024 | ☐（267：PASS） |
+| 3 | GPT `output_format=webp` + size | 200，WEBP 魔数，1024×1024 | ☐（267：PASS） |
+| 4 | GPT `n=2` + size | 200，`data` 长度 2，两张 1024×1024 | ☐（267：PASS，usage 曾见 in=125 out=1430） |
+| 5 | GPT `stream`+`n=2` | 400 `unsupported_parameter` | ☐（267：PASS） |
+| 6 | GPT soft `aspect_ratio=16:9`（无 size） | 200，约 1672×941 | ☐（267：PASS） |
+| 7 | GPT 非法 AR `4:3` | 400 | ☐（267：PASS） |
+| 8 | GPT→Chat | 400 | ☐ |
+| 9 | `gpt-image-2.5-flare` + size | 200，1024×1024 | ☐ |
+| 10 | Gemini Chat `16:9` | 200 + 出图，约 1376×768 | ☐ |
+| 11 | Gemini Chat `21:9`（pro） | 200，约 1584×672 | ☐ |
+| 12 | `nano-2` Chat `1:1` | 200，约 1024×1024 | ☐ |
+| 13 | Gemini→Images | 404 | ☐ |
+| 14 | Gemini `image_size=2K`（可选） | `1:1` 约 2048×2048 | ☐ |
 
 ---
 
-## 6. 实测纠偏与网关修复（2026-09-29）
+## 8. UI 对照
 
-| 问题 | 根因 | 修复 |
-| --- | --- | --- |
-| Gemini 偶发 HTTP 200 + `content=null` | 图片模型无图仍写成成功 Chat 包 | 对 `IsImageModel` 强制要求至少一张内联图；否则 **502 + 同账号可重试 failover**（不再 200 空包） |
-| GPT `n=2` 只回 1 张 / 400 `tools[0].n` | Direct 忽略 n；Responses 拒 `tools[].n` | **1.8.267：** 不传 tools n，按张多取合并 `data[]`（上限 4）；`stream+n>1` 本地 400 |
-| `output_format=jpeg` 仍 PNG | 上游常忽略 format，响应魔数仍是 PNG | 客户端显式 `output_format=jpeg/png/webp` 时网关按字节重编码，并回写 `output_format` |
-| Chat `image_size` 不生效 | 只 lift 了 `aspect_ratio` | Chat `extra_body.google.image_config.image_size` 与 native `imageConfig.imageSize` 一并透传到 cloudcode-pa（Web 供给仍拒 `image_size`，属协议收窄） |
-| 显式 `size` 像素漂移 | 上游 Responses 软 size | **1.8.266+：** 本地 pad 到字面 `WxH` |
+登录 prod → 选 universal Key → **接入指南 / Studio·图片**：
 
-其它对照：
-
-1. **仅发 soft `aspect_ratio=1:1`（无 size）** 仍常见 **1254×1254**（上游漂移，非 bug）  
-2. **显式 `size=1024x1024`** → **1024×1024**（1.8.266+ 契约）  
-3. **soft `16:9`/`9:16`（无 size）** → 常见 1672×941 / 941×1672  
-4. **Gemini 比例全集 14 个**（含 `1:4`/`1:8`/`4:1`/`8:1`）  
-5. 模型清单以 **`GET /v1/models`** 为准
+- GPT：芯片发顶层 **`size=WxH`**（与精确画布一致）。
+- Gemini：`extra_body.google.image_config.aspect_ratio`。
+- 「验证密钥」只验鉴权，**不代替**生图。
 
 ---
 
-## 7. UI 对照
+## 9. 变更摘要（为何与旧客户文档不同）
 
-登录 prod → 选 universal Key → **接入指南 / Studio·图片**：GPT 芯片发顶层 `size=WxH`；Gemini 发 `extra_body.google.image_config.aspect_ratio`（与 Quickstart SSOT 一致）。「验证密钥」只验鉴权，不代替生图。
+| 版本 | 客户可见变化 |
+| --- | --- |
+| ≤1.8.265 | 显式 `size=1024x1024` 常落到 ~1254×1254；`n>1` 曾不可靠 / 空 200 等问题已陆续修 |
+| **1.8.266** | 显式 `size` → **字面像素**；format coerce 稳定 |
+| **1.8.267** | OAuth `n>1` 多取合并；`stream+n>1` **本地 400**（不再出现 `tools[0].n` 上游拒） |
 
-
-## 7. 1.8.265 发版后复测（2026-09-29 UTC）
-
-线上：`tokenkey-blue` = `ghcr.io/youxuanxue/sub2api:1.8.265`（healthy）。Stage0 Deploy workflow 在 join 步骤曾报 Failed，但主机镜像已切到 1.8.265。
-
-| 契约项 | 请求 | 结果 | 判定 |
-| --- | --- | --- | --- |
-| GPT `n=2` | `/v1/images/generations` gpt-image-2 | HTTP 200，`data` 长度 **2**，两张均为 1254×1254 PNG；usage 合并 input=46 output=4116 | **PASS**（修复前为 1） |
-| GPT `output_format=jpeg` | 同上 n=1 | HTTP 200，声明 `output_format=jpeg`，魔数 **JPEG** 1254×1254 | **PASS**（修复前落盘仍 PNG） |
-| Gemini `image_size` | Chat `gemini-3.1-flash-image` 1:1 | `1K`→**1024×1024**；`2K`→**2048×2048** | **PASS**（修复前 Chat 透传失效，两侧都约 1024） |
-| Gemini 空包 | Chat 16:9 连发 3 次 | 3/3 出图（1376×768 / 1376×768 / 2752×1536），**未**再现 200+content=null | **样本 PASS**（真空 fail-closed 未在窗口内触发，不构成反证） |
-| Codex Direct `stream+n>1` | n=2 stream=true | HTTP **200 + content-length:0**（应 400 JSON） | **FAIL**（service 已返回 `OpenAIImagesUpstreamError`，但未 `writeOpenAIImagesUpstreamErrorResponse`，handler 直接 return 留下空 200） |
-
-原始摘要：`/tmp/tk-img-265-probe/summary.json`。
-
-## 8. 1.8.266 发版后复测（2026-09-30 UTC）
-
-线上：prod `tokenkey-blue` = `1.8.266`；edge-us3 `tokenkey-blue` = `1.8.266`。Universal fulltest key → `https://api.tokenkey.dev`。
-
-| 契约项 | 请求 | 结果 | 判定 |
-| --- | --- | --- | --- |
-| 精确 `size=1024x1024` | gpt-image-2 | HTTP 200，像素 **1024×1024** PNG | **PASS**（相对 265 的 1254 为契约升级） |
-| 精确 `1536x1024` / `1024x1536` | 同上 | 字面像素 | **PASS** |
-| `output_format=jpeg` + size | 同上 | 魔数 JPEG，1024×1024 | **PASS** |
-| `output_format=webp` + size | 同上 | 魔数 WEBP，1024×1024 | **PASS** |
-| soft `aspect_ratio=16:9`（无 size） | 同上 | 1672×941 | **PASS**（仍软） |
-| soft `aspect_ratio=1:1`（无 size） | 同上 | 1254×1254 | **PASS**（仍软） |
-| 非法 `aspect_ratio=4:3` | 同上 | HTTP **400** | **PASS** |
-| size 优先于 AR | size=1024x1024 + AR=16:9 | 1024×1024 | **PASS** |
-| `gpt-image-2.5-flare/sunburst` + size | jpeg/png | 1024×1024 | **PASS** |
-| Gemini Chat `image_size=2K` | gemini-3.1-flash-image | 200 + 出图 | **PASS** |
-| GPT 错入口 Chat | gpt-image-2 | HTTP **400** | **PASS** |
-| GPT `n=2` | size=1024x1024 | HTTP **400** `Unknown parameter: 'tools[0].n'` | **FAIL**（Responses 误传 `tools[].n`；上游拒） |
-| `stream=true` + `n=2` | 同上 | 同上 400（非 TK 本地拒写） | **FAIL**（应本地 400 JSON；被 tools.n 抢先） |
-| edge-us3 fidelity 01–06/08/10 | gpt125 直打 Responses+本地 PP | **8/8 PASS**（pad/format 与网关契约一致） | **PASS**（上游旁路探针） |
-
-原始摘要：`/tmp/tk-img-266-probe/console.log`、`edge-us3-fidelity.json`。
-
-**跟进（已合入 #2390，1.8.267 验证）：** `n>1` TokenKey 多取；`stream+n>1` 本地拒写。
-
-## 9. 1.8.267 发版后复测（2026-09-30 UTC）
-
-线上：prod = `1.8.267`；edge-us3 `tokenkey-green` = `1.8.267`。Universal fulltest key → `https://api.tokenkey.dev`。
-
-| 契约项 | 请求 | 结果 | 判定 |
-| --- | --- | --- | --- |
-| GPT `n=2` + `size=1024x1024` | gpt-image-2 | HTTP **200**，`data` 长度 **2**，两张均为 **1024×1024** PNG；usage 合并 input=125 output=1430 | **PASS**（相对 266 的 tools[].n 400） |
-| `stream=true` + `n=2` | 同上 | HTTP **400** JSON，`unsupported_parameter`，文案含 `stream=true with n>1` | **PASS**（本地拒写，未打上游） |
-| 精确 `size=1024x1024` | n=1 | 1024×1024 PNG | **PASS**（回归） |
-| `output_format=jpeg` + size | n=1 | 魔数 JPEG，1024×1024 | **PASS** |
-| `output_format=webp` + size | n=1 | 魔数 WEBP，1024×1024 | **PASS** |
-| soft `aspect_ratio=16:9` | 无 size | 1672×941 | **PASS** |
-| 非法 `aspect_ratio=4:3` | — | HTTP **400** | **PASS** |
-
-原始摘要：`/tmp/tk-img-267-probe/console.log`。
-
+历史逐版探针明细若需审计，见 git 历史中本文件 §「发版后复测」旧段；**日常对接只以本文 §1–§8 为准**。
