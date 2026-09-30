@@ -933,10 +933,10 @@ func TestFilterPublicCatalog_ReattributesAntigravityExclusiveVendor(t *testing.T
 	m, ok := byID["gemini-3.1-flash-image"]
 	require.True(t, ok, "antigravity-exclusive gemini-* must survive the public filter")
 	assert.Equal(t, "antigravity", m.Vendor, "re-attributed to antigravity vendor")
-	// antigravity-exclusive, already overlay-injected as antigravity: survives unchanged
-	m, ok = byID["gemini-3-pro-image"]
-	require.True(t, ok)
-	assert.Equal(t, "antigravity", m.Vendor)
+	// The legacy Pro marketing alias is deliberately hidden: Antigravity
+	// maps it to the 3.1 Flash Image path and has no distinct Pro endpoint.
+	_, ok = byID["gemini-3-pro-image"]
+	assert.False(t, ok, "unsupported Pro alias must stay out of public catalog")
 	// dual-listed: survives, vendor NOT changed (genuinely Vertex-served too)
 	m, ok = byID["gemini-3.8-flash"]
 	require.True(t, ok, "dual-listed gemini survives")
