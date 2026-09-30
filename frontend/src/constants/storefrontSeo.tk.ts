@@ -10,15 +10,15 @@ export const STOREFRONT_SEO = {
   ogImagePath: '/og-cover.png',
   ogImageUrl: 'https://tokenkey.dev/og-cover.png',
   chinaExport: {
-    siteTitle: 'TokenKey - China\'s Leading AI Models, One API',
+    siteTitle: 'CallModel - China\'s Leading AI Models, One API',
     metaDescription:
       'Access Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi with one API key. Start with a free trial; no card required.',
     ogDescription:
       'China\'s leading AI models through one API. Build with Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi.',
     twitterDescription:
       'Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi through one API key.',
-    canonicalUrl: 'https://global.tokenkey.dev/',
-    ogImageUrl: 'https://global.tokenkey.dev/seedance-2-5-official-poster-db3ff793.jpg',
+    canonicalUrl: 'https://callmodel.io/',
+    ogImageUrl: 'https://callmodel.io/seedance-2-5-official-poster-db3ff793.jpg',
   },
   zh: {
     metaDescription:

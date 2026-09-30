@@ -7,6 +7,7 @@ exec > >(tee -a /var/log/tokenkey-bootstrap.log) 2>&1
 export TK_API_DOMAIN='${ApiDomain}'
 export TK_GLOBAL_SITE_DOMAIN='${GlobalSiteDomain}'
 export TK_GLOBAL_SITE_PHASE='${GlobalSitePhase}'
+export TK_API_ALIAS_DOMAIN='${ApiAliasDomain}'
 export TK_ACME_EMAIL='${AcmeEmail}'
 export TK_ADMIN_EMAIL='${AdminEmail}'
 export TK_TZ='${Timezone}'

@@ -1,6 +1,8 @@
 export type HomepageProfile = 'current' | 'china-export'
 
-export const CHINA_EXPORT_HOSTNAME = 'global.tokenkey.dev'
+export const CHINA_EXPORT_HOSTNAME = 'callmodel.io'
+export const CHINA_EXPORT_API_ORIGIN = 'https://api.callmodel.io'
+export const CHINA_EXPORT_BRAND = 'CallModel'
 export const PRODUCT_ORIGIN = 'https://tokenkey.dev'
 
 export function resolveHomepageProfile(hostname: string): HomepageProfile {

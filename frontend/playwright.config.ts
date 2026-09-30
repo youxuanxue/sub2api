@@ -26,7 +26,7 @@ export default defineConfig({
       args: [
         '--proxy-server=direct://',
         '--proxy-bypass-list=*',
-        '--host-resolver-rules=MAP tokenkey.dev 127.0.0.1, MAP global.tokenkey.dev 127.0.0.1',
+        '--host-resolver-rules=MAP tokenkey.dev 127.0.0.1, MAP callmodel.io 127.0.0.1',
       ],
     },
   },

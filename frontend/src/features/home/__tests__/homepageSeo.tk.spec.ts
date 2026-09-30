@@ -32,11 +32,11 @@ describe('applyHomepageSeo', () => {
   it('publishes distinct English metadata for the China model profile', () => {
     applyHomepageSeo('china-export')
 
-    expect(document.title).toBe("TokenKey - China's Leading AI Models, One API")
+    expect(document.title).toBe("CallModel - China's Leading AI Models, One API")
     expect(meta('meta[name="description"]')).toContain('Seedance')
-    expect(meta('meta[property="og:url"]')).toBe('https://global.tokenkey.dev/')
+    expect(meta('meta[property="og:url"]')).toBe('https://callmodel.io/')
     expect(document.head.querySelector('link[rel="canonical"]')?.getAttribute('href')).toBe(
-      'https://global.tokenkey.dev/',
+      'https://callmodel.io/',
     )
   })
 })

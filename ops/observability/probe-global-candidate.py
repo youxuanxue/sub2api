@@ -64,7 +64,7 @@ class Probe:
         return (
             status == 200
             and "<h1>China's leading AI models. One API.</h1>" in text
-            and '<link rel="canonical" href="https://global.tokenkey.dev/">' in text
+            and '<link rel="canonical" href="https://callmodel.io/">' in text
             and "noindex" not in headers.get("x-robots-tag", "").lower()
             and "noindex" not in text.lower()
         )
@@ -140,7 +140,7 @@ class Probe:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-url", default="https://global.tokenkey.dev")
+    parser.add_argument("--base-url", default="https://callmodel.io")
     parser.add_argument("--product-url", default="https://tokenkey.dev")
     parser.add_argument("--phase", choices=("candidate", "live"), default="candidate")
     parser.add_argument("--timeout", type=float, default=15)

@@ -717,7 +717,12 @@ import {
   homeProviderModalityLabel,
   homeProviderModalityClass,
 } from '@/constants/homeProviders.tk'
-import { PRODUCT_ORIGIN, type HomepageProfile } from '@/features/home/marketProfile.tk'
+import {
+  CHINA_EXPORT_API_ORIGIN,
+  CHINA_EXPORT_BRAND,
+  PRODUCT_ORIGIN,
+  type HomepageProfile,
+} from '@/features/home/marketProfile.tk'
 import { useHomeShell } from '@/features/home/useHomeShell.tk'
 
 const props = withDefaults(defineProps<{
@@ -728,7 +733,7 @@ const props = withDefaults(defineProps<{
 
 const { t, locale } = useI18n()
 const isChinaExport = computed(() => props.profile === 'china-export')
-const brandName = 'TokenKey'
+const brandName = computed(() => (isChinaExport.value ? CHINA_EXPORT_BRAND : 'TokenKey'))
 
 const CHINA_EXPORT_QUICKSTART = '/quickstart?model=deepseek-chat&protocol=openai'
 
@@ -739,7 +744,9 @@ function absoluteProductUrl(path: string): string {
 const primaryCtaUrl = computed(() =>
   isAuthenticated.value
     ? absoluteProductUrl(CHINA_EXPORT_QUICKSTART)
-    : `${PRODUCT_ORIGIN}${CHINA_EXPORT_QUICKSTART}`,
+    : absoluteProductUrl(
+        `/register?redirect=${encodeURIComponent(CHINA_EXPORT_QUICKSTART)}`,
+      ),
 )
 
 const seedanceProof = {
@@ -757,8 +764,8 @@ const chinaModelCards = [
   { name: 'Kimi', glyph: 'K', color: 'bg-violet-600', descriptionKey: 'home.chinaExport.models.kimi' },
 ] as const
 
-const deepseekCurl = `curl https://api.tokenkey.dev/v1/chat/completions \\
-  -H "Authorization: Bearer $TOKENKEY_API_KEY" \\
+const deepseekCurl = `curl ${CHINA_EXPORT_API_ORIGIN}/v1/chat/completions \\
+  -H "Authorization: Bearer $CALLMODEL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "deepseek-chat",
