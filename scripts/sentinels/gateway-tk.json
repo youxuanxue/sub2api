@@ -24,9 +24,11 @@
       "must_contain": [
         "case isUpstreamModelRetiredError(statusCode, responseBody):",
         "upstreamModelRetiredCooldown",
-        "upstreamModelRetiredReason"
+        "upstreamModelRetiredReason",
+        "case isUpstreamOpaqueProvider404(statusCode, responseBody):",
+        "if !isNewAPINVIDIABuildAccount(account)"
       ],
-      "rationale": "Retirement cools only the failed account/model through the existing availability owner."
+      "rationale": "Retirement cools only the failed account/model through the existing availability owner; opaque provider 404 cooling is gated to NVIDIA Build."
     },
     {
       "path": "backend/internal/service/newapi_bridge_failover_tk.go",
@@ -34,10 +36,11 @@
         "isUpstreamModelRetiredError(apiErr.StatusCode, tkBridgeUpstreamErrorBody(apiErr)",
         "rls.HandleUpstreamModelNotFound(stateCtx, account, protocolExecutionResolvedModel(ctx, \"\")",
         "recordNVIDIABuildInstability",
-        "isNewAPINVIDIABuildAccount(account)",
+        "if isNewAPINVIDIABuildAccount(account) {\n\t\treturn true",
+        "isNewAPINVIDIABuildAccount(account) && tkIsBridgeOpaqueBadResponse404(apiErr)",
         "tkBridgeUpstreamShouldFailoverAfterPenalty(account, apiErr)"
       ],
-      "rationale": "Bridge retirement must both switch accounts and cool the executed model; account-level penalty statuses remain narrow."
+      "rationale": "Bridge retirement must both switch accounts and cool the executed model; opaque bad_response_status_code 404 cool+failover stays NVIDIA-only; account-level penalty statuses remain narrow."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
@@ -64,9 +67,11 @@
       "path": "backend/internal/service/newapi_bridge_failover_tk_test.go",
       "must_contain": [
         "func TestBridgeModelRetirementCoolsExecutedModel(",
-        "func TestBridgeModelRetirementWithoutPlanDoesNotGuessCooldownKey("
+        "func TestBridgeModelRetirementWithoutPlanDoesNotGuessCooldownKey(",
+        "func TestTkBridgeUpstreamShouldFailoverAfterPenalty_OpaqueBadResponse404IsNVIDIAOnly(",
+        "func TestBridgeOpaqueBadResponse404DoesNotCoolOrdinaryNewAPI("
       ],
-      "rationale": "Bridge boundary regression asserts switching plus exact-model cooldown and no guessed key."
+      "rationale": "Bridge boundary regression asserts switching plus exact-model cooldown and no guessed key; opaque 404 failover/cool stays NVIDIA-only."
     },
     {
       "path": "backend/internal/service/account_model_mapping_nvidia_tk_test.go",
@@ -2802,9 +2807,10 @@
         "eligibleForOpenAICapacitySaturationPreference(account)",
         "isNewAPINVIDIABuildAccount(account)",
         "nvidiaBuildInstabilityWindowSeconds",
+        "nvidiaLocal",
         "candidateSaturatedFor(account, count)"
       ],
-      "rationale": "One scoped interpretation of counters feeds account scoring and sticky preference, with Redis-owned expiry. OpenAI reads cover edge-mirror stubs and OAuth/setup-token accounts that write capacity saturation."
+      "rationale": "One scoped interpretation of counters feeds account scoring and sticky preference, with Redis-owned expiry. NVIDIA soft preference also merges process-local instability when Redis is unwired. OpenAI reads cover edge-mirror stubs and OAuth/setup-token accounts that write capacity saturation."
     },
     {
       "path": "backend/internal/service/openai_candidate_eligibility.go",
@@ -14111,18 +14117,23 @@
         "nvidiaBuildInstabilityWindowSeconds",
         "nvidiaBuildInstabilityThreshold",
         "func candidateSaturatedFor(",
-        "func (s *RateLimitService) recordNVIDIABuildInstability("
+        "func (s *RateLimitService) recordNVIDIABuildInstability(",
+        "func (s *RateLimitService) noteNVIDIALocalInstability(",
+        "func (s *RateLimitService) nvidiaLocalInstabilityCount(",
+        "\"source\", \"local\""
       ],
-      "rationale": "NVIDIA Build soft scheduling preference: first upstream error increments a rolling instability counter and candidateSaturatedFor applies threshold-1 deprioritization so siblings absorb traffic. Soft preference only — never SetTempUnschedulable/SetError from this path."
+      "rationale": "NVIDIA Build soft scheduling preference: first upstream error increments a rolling instability counter and candidateSaturatedFor applies threshold-1 deprioritization so siblings absorb traffic. When Redis is unwired or Increment fails, process-local expiry still deprioritizes. Soft preference only — never SetTempUnschedulable/SetError from this path."
     },
     {
       "path": "backend/internal/service/nvidia_build_instability_tk_test.go",
       "must_contain": [
         "TestCandidateSaturatedFor_NVIDIAThresholdOne",
         "TestBridgeWrapRelayErrorAfterPenalty_NVIDIARecordsInstability",
-        "TestCandidateSaturationState_ReadsNVIDIAWindow"
+        "TestCandidateSaturationState_ReadsNVIDIAWindow",
+        "TestRecordNVIDIABuildInstability_LocalFallbackWhenRedisUnwired",
+        "TestNVIDIABuildSupplyRepresentativesMatchWireTargets"
       ],
-      "rationale": "Regressions for NVIDIA soft deprioritization: threshold-1 vs ordinary threshold-5, bridge wrap records instability, selection reads the NVIDIA window."
+      "rationale": "Regressions for NVIDIA soft deprioritization: threshold-1 vs ordinary threshold-5, bridge wrap records instability, selection reads the NVIDIA window, Redis-unwired local fallback still pressures selection, and supply representatives stay pinned to nvidiaBuildModelTargets."
     },
     {
       "path": "backend/internal/service/newapi_nvidia_chat_tk.go",

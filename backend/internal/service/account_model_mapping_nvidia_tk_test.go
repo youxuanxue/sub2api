@@ -88,16 +88,13 @@ func TestNVIDIABuildRetiredModelExcludedFromProvisioning(t *testing.T) {
 		Credentials: map[string]any{"base_url": newapiintegration.NVIDIABuildBaseURL}}
 	mapping, ok := accountModelMappingForAccount(context.Background(), account, nil, nil, nil)
 	require.True(t, ok)
-	for _, retired := range []string{"deepseek-v4-pro", "deepseek-v4-pro-0813", "deepseek-v4-flash", "deepseek-v4-flash-0731"} {
+	for _, retired := range append([]string{"deepseek-v4-pro", "deepseek-v4-pro-0813"}, nvidiaBuildForbiddenModelMappingKeys...) {
 		require.NotContains(t, mapping, retired)
 		require.NotContains(t, NewAPIModelMappingPresetIDsForAccount(account), retired)
 		require.NotContains(t, NewAPIModelDisplayIDsForAccount(account), retired)
 	}
-	require.Equal(t, map[string]string{
-		"kimi-k3":       "moonshotai/kimi-k3",
-		"glm-5.3":       "z-ai/glm-5.3",
-		"glm-5.3-flash": "z-ai/glm-5.3-flash",
-	}, mapping)
+	require.Equal(t, nvidiaBuildModelTargets, mapping,
+		"provisioned mapping must equal the wire-target owner, not a hand-copied third list")
 	floor, err := AccountModelMappingFloorForOps(context.Background(), "")
 	require.NoError(t, err)
 	scope := "account_override:" + normalizeAccountModelMappingOverrideScope(

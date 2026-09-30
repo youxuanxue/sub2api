@@ -41,7 +41,11 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	case isUpstreamModelNotFoundError(statusCode, responseBody):
 		cooldown, reason = upstreamModelNotFoundCooldown, upstreamModelNotFoundReason
 	case isUpstreamOpaqueProvider404(statusCode, responseBody):
-		// Opaque relay 404 (e.g. NVIDIA bad_response_status_code) — cool this
+		// Opaque relay 404 cooling is an NVIDIA Build experiment only.
+		if !isNewAPINVIDIABuildAccount(account) {
+			return false
+		}
+		// Opaque relay 404 (NVIDIA bad_response_status_code) — cool this
 		// account×model briefly so failover prefers healthy siblings.
 		cooldown, reason = upstreamOpaqueProvider404Cooldown, upstreamOpaqueProvider404Reason
 	case statusCode == http.StatusUnauthorized && account.Type == AccountTypeAPIKey && account.IsOpenAICompatible() && isOpenAICompatibleModelNotFoundBody(responseBody):

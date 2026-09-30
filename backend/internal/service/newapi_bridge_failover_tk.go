@@ -14,13 +14,14 @@ import (
 // error should trigger the handler's existing failedAccountIDs failover loop
 // after any account-level penalty has been applied. Account-standing failures
 // qualify, as do gateway outage statuses that are safe to retry on another
-// provider without mutating account state. Client-induced 400 and model-not-found
-// 404 stay terminal on non-NVIDIA accounts to avoid draining the pool (#617).
-// Opaque provider 404s wrapped as bad_response_status_code still failover.
+// provider without mutating account state. Client-induced 400/404 stay terminal
+// on non-NVIDIA accounts to avoid draining the pool (#617).
 //
 // NVIDIA Build is treated as unstable secondary capacity: any upstream error
 // from those accounts fails over so volcengine/qianfan siblings can absorb
-// provider blips (prod 2026-09-29 glm-5.3-flash opaque 404 storm).
+// provider blips (prod 2026-09-29 glm-5.3-flash opaque 404 storm). Opaque
+// bad_response_status_code 404 model-cooling is also NVIDIA-only — do not
+// generalize that experiment to every NewAPI bridge channel.
 func tkBridgeUpstreamShouldFailoverAfterPenalty(account *Account, apiErr *newapitypes.NewAPIError) bool {
 	if apiErr == nil {
 		return false
@@ -41,13 +42,6 @@ func tkBridgeFailureSemantic(apiErr *newapitypes.NewAPIError) gatewayFailureSema
 	}
 	if apiErr != nil && isUpstreamModelRetiredError(apiErr.StatusCode, tkBridgeUpstreamErrorBody(apiErr), tkBridgeUpstreamRelayMessage(apiErr)) {
 		return gatewayFailureSemanticAccountFault
-	}
-	// NVIDIA Build (and similar relays) sometimes surface an opaque
-	// bad_response_status_code 404 with no model-not-found prose. That is a
-	// provider/path blip, not a client model-id fault: fail over to siblings
-	// (volcengine/qianfan) instead of returning final 404 (#glm-flash-404).
-	if tkIsBridgeOpaqueBadResponse404(apiErr) {
-		return gatewayFailureSemanticTransientFault
 	}
 	if apiErr != nil {
 		if upstream, ok := tkBridgeUpstreamOpenAIError(apiErr); ok && tkSupplierThinkingToolPreflight(apiErr.StatusCode, upstream.Message) {
@@ -170,14 +164,18 @@ func bridgeWrapRelayErrorAfterPenalty(
 	account *Account,
 	apiErr *newapitypes.NewAPIError,
 ) error {
-	// Model retirement / opaque provider 404 is scoped to the executed Plan,
-	// not the whole account. The legacy account-penalty allowlist deliberately
-	// excludes these statuses so they do not SetError the credential.
-	if rls != nil && apiErr != nil && (isUpstreamModelRetiredError(apiErr.StatusCode, tkBridgeUpstreamErrorBody(apiErr)) ||
-		tkIsBridgeOpaqueBadResponse404(apiErr)) {
-		stateCtx, cancel := openAIAccountStateContext(ctx)
-		defer cancel()
-		rls.HandleUpstreamModelNotFound(stateCtx, account, protocolExecutionResolvedModel(ctx, ""), apiErr.StatusCode, tkBridgeUpstreamErrorBody(apiErr))
+	// Model retirement is Plan-scoped for every NewAPI bridge. Opaque provider
+	// 404 model-cooling is an NVIDIA Build experiment only — other channels keep
+	// the #617 terminal-404 posture until evidence justifies widening.
+	if rls != nil && apiErr != nil {
+		body := tkBridgeUpstreamErrorBody(apiErr)
+		coolModel := isUpstreamModelRetiredError(apiErr.StatusCode, body) ||
+			(isNewAPINVIDIABuildAccount(account) && tkIsBridgeOpaqueBadResponse404(apiErr))
+		if coolModel {
+			stateCtx, cancel := openAIAccountStateContext(ctx)
+			defer cancel()
+			rls.HandleUpstreamModelNotFound(stateCtx, account, protocolExecutionResolvedModel(ctx, ""), apiErr.StatusCode, body)
+		}
 	}
 	// Soft-deprioritize unstable NVIDIA Build so the next selection prefers
 	// siblings instead of repeating a failover hop. Does not SetError.

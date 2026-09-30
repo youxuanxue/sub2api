@@ -68,14 +68,21 @@ func TestTkBridgeUpstreamShouldFailoverAfterPenalty_ClientAndOtherServerErrorsNe
 	}
 }
 
-func TestTkBridgeUpstreamShouldFailoverAfterPenalty_OpaqueBadResponse404Retries(t *testing.T) {
+func TestTkBridgeUpstreamShouldFailoverAfterPenalty_OpaqueBadResponse404IsNVIDIAOnly(t *testing.T) {
 	t.Parallel()
-	// Prod 2026-09-29: NVIDIA Build returned opaque bad_response_status_code 404
-	// for z-ai/glm-5.3-flash; sibling volcengine accounts were healthy. Must
-	// failover (and not treat as terminal client 404).
 	err := upstreamBridgeError(404, "bad response status code 404")
 	require.True(t, tkIsBridgeOpaqueBadResponse404(err))
-	require.True(t, tkBridgeUpstreamShouldFailoverAfterPenalty(nil, err))
+	require.False(t, tkBridgeUpstreamShouldFailoverAfterPenalty(nil, err),
+		"opaque 404 must stay terminal for non-NVIDIA NewAPI (#617 / no pool-wide experiment)")
+	require.False(t, tkBridgeUpstreamShouldFailoverAfterPenalty(newNewAPIBridgeAccount(), err),
+		"ordinary NewAPI bridge must not inherit the NVIDIA opaque-404 experiment")
+	nvidia := &Account{
+		ID: 138, Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeOpenAI,
+		Credentials: map[string]any{"base_url": newapiintegration.NVIDIABuildBaseURL},
+	}
+	require.True(t, tkBridgeUpstreamShouldFailoverAfterPenalty(nvidia, err),
+		"NVIDIA Build opaque 404 must failover to siblings")
 	require.False(t, tkIsBridgeOpaqueBadResponse404(upstreamBridgeError(404, "model_not_found")),
 		"true model_not_found must stay terminal")
 }
@@ -151,6 +158,20 @@ func TestBridgeOpaqueBadResponse404CoolsExecutedModelAndFailovers(t *testing.T) 
 	require.Equal(t, upstreamOpaqueProvider404Reason, repo.modelRateLimitCalls[0].reason)
 	require.WithinDuration(t, time.Now().Add(upstreamOpaqueProvider404Cooldown), repo.modelRateLimitCalls[0].resetAt, 5*time.Second)
 	require.Zero(t, repo.tempCalls)
+}
+
+func TestBridgeOpaqueBadResponse404DoesNotCoolOrdinaryNewAPI(t *testing.T) {
+	ordinary := newNewAPIBridgeAccount()
+	repo := &modelNotFoundAccountRepoStub{}
+	rls := &RateLimitService{accountRepo: repo}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+
+	wrapErr := bridgeWrapRelayErrorAfterPenalty(context.Background(), rls, c, ordinary, upstreamBridgeError(404, "bad response status code 404"))
+	var relay *NewAPIRelayError
+	require.ErrorAs(t, wrapErr, &relay, "ordinary NewAPI opaque 404 must stay terminal")
+	var failover *UpstreamFailoverError
+	require.False(t, errors.As(wrapErr, &failover))
+	require.Zero(t, repo.modelRateLimitCalls, "opaque model cool must not expand beyond NVIDIA")
 }
 
 func TestBridgeWrapRelayErrorAfterPenalty_GatewayOutageReturnsRequestScopedFailover(t *testing.T) {

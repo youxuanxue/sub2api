@@ -4,8 +4,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
@@ -45,12 +48,31 @@ func TestBridgeWrapRelayErrorAfterPenalty_NVIDIARecordsInstability(t *testing.T)
 	require.True(t, failover.ShouldRetryNextAccount())
 	require.Equal(t, []int64{138}, counter.incrementIDs)
 	require.Equal(t, nvidiaBuildInstabilityWindowSeconds, counter.lastWindow)
+	require.Equal(t, nvidiaBuildInstabilityThreshold, rls.nvidiaLocalInstabilityCount(138),
+		"local mirror must stay populated even when Redis succeeds")
 
 	// Non-NVIDIA account must not touch the NVIDIA instability counter path.
 	counter.incrementIDs = nil
 	ordinary := newNewAPIBridgeAccount()
 	_ = bridgeWrapRelayErrorAfterPenalty(context.Background(), rls, c, ordinary, upstreamBridgeError(http.StatusInternalServerError, "internal error"))
 	require.Empty(t, counter.incrementIDs, "ordinary newapi 500 stays terminal without NVIDIA soft penalty")
+}
+
+func TestRecordNVIDIABuildInstability_LocalFallbackWhenRedisUnwired(t *testing.T) {
+	t.Parallel()
+	rls := &RateLimitService{} // no openaiSaturationCounter
+	nvidia := &Account{
+		ID: 205, Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeOpenAI,
+		Credentials: map[string]any{"base_url": newapiintegration.NVIDIABuildBaseURL},
+	}
+	count := rls.recordNVIDIABuildInstability(context.Background(), nvidia.ID, 500)
+	require.Equal(t, nvidiaBuildInstabilityThreshold, count)
+	state := candidateSaturationState{nvidiaLocal: rls}
+	counts := state.counts(context.Background(), []*Account{nvidia}, "glm-5.3-flash")
+	require.Equal(t, nvidiaBuildInstabilityThreshold, counts[205],
+		"selection must still see NVIDIA soft pressure without Redis")
+	require.True(t, candidateSaturatedFor(nvidia, counts[205]))
 }
 
 func TestCandidateSaturationState_ReadsNVIDIAWindow(t *testing.T) {
@@ -66,4 +88,45 @@ func TestCandidateSaturationState_ReadsNVIDIAWindow(t *testing.T) {
 	require.Equal(t, int64(1), counts[138])
 	require.Equal(t, nvidiaBuildInstabilityWindowSeconds, counter.lastWindow)
 	require.Equal(t, 1000+100, candidateEffectivePriority(nvidia, counts))
+}
+
+func TestNVIDIABuildSupplyRepresentativesMatchWireTargets(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join("..", "..", "..", "ops", "stage0", "gateway-account-supply.json")
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var doc struct {
+		Classes []struct {
+			Dialect         string `json:"dialect"`
+			Representatives []struct {
+				Model             string   `json:"model"`
+				UpstreamModel     string   `json:"upstream_model"`
+				RepresentedModels []string `json:"represented_models"`
+			} `json:"representatives"`
+		} `json:"classes"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &doc))
+	var found bool
+	for _, class := range doc.Classes {
+		if class.Dialect != "nvidia-build" {
+			continue
+		}
+		found = true
+		require.NotEmpty(t, class.Representatives)
+		for _, rep := range class.Representatives {
+			target, ok := nvidiaBuildModelTargets[rep.Model]
+			require.True(t, ok, "supply representative %q must be a nvidiaBuildModelTargets key", rep.Model)
+			require.Equal(t, target, rep.UpstreamModel,
+				"supply upstream_model must equal the wire-target owner for %s", rep.Model)
+			for _, represented := range rep.RepresentedModels {
+				_, ok := nvidiaBuildModelTargets[represented]
+				require.True(t, ok, "represented model %q must stay inside nvidiaBuildModelTargets", represented)
+			}
+		}
+	}
+	require.True(t, found, "nvidia-build supply class missing")
+	manifestIDs := tkServedModelsManifestPresetIDsForSelector(
+		PlatformNewAPI, newapiconstant.ChannelTypeOpenAI, newapiintegration.NVIDIABuildBaseURL)
+	require.ElementsMatch(t, manifestIDs, mapKeysForNVIDIATest(nvidiaBuildModelTargets),
+		"manifest nvidia scopes, wire targets, and supply reps must stay one floor")
 }
