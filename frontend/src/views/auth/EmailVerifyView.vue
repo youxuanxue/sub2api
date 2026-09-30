@@ -186,6 +186,7 @@ import { useI18n } from 'vue-i18n'
 import AuthLayout from '@/components/layout/AuthLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAuthStore, useAppStore } from '@/stores'
+import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
 
 // Lazy-load TurnstileWidget: Cloudflare's challenge script sends continuous
 // heartbeat requests that prevent Playwright's networkidle from resolving.
@@ -380,7 +381,7 @@ onMounted(async () => {
     aliyunCaptchaSceneId.value = settings.aliyun_captcha_scene_id || ''
     aliyunCaptchaPrefix.value = settings.aliyun_captcha_prefix || ''
     aliyunCaptchaRegion.value = settings.aliyun_captcha_region || 'cn'
-    siteName.value = settings.site_name || 'TokenKey'
+    siteName.value = resolveChromeBrand(window.location.hostname, settings.site_name)
     registrationEmailSuffixWhitelist.value = normalizeRegistrationEmailSuffixWhitelist(
       settings.registration_email_suffix_whitelist || []
     )

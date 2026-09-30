@@ -261,6 +261,64 @@ describe('KeyUsageView daily detail', () => {
 
     wrapper.unmount()
   })
+
+  it('forces CallModel chrome on the overseas host even when Settings say Sub2API', () => {
+    appStoreState.cachedPublicSettings = { site_name: 'Sub2API' }
+    const originalHostname = window.location.hostname
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, hostname: 'callmodel.io' },
+    })
+
+    const wrapper = mount(KeyUsageView, {
+      global: {
+        stubs: {
+          RouterLink: { template: '<a><slot /></a>' },
+          LocaleSwitcher: true,
+          Icon: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('CallModel')
+    expect(wrapper.text()).not.toContain('Sub2API')
+
+    wrapper.unmount()
+    appStoreState.cachedPublicSettings = null
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, hostname: originalHostname },
+    })
+  })
+
+  it('keeps Settings site_name chrome on the TokenKey host', () => {
+    appStoreState.cachedPublicSettings = { site_name: 'Acme Gateway' }
+    const originalHostname = window.location.hostname
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, hostname: 'tokenkey.dev' },
+    })
+
+    const wrapper = mount(KeyUsageView, {
+      global: {
+        stubs: {
+          RouterLink: { template: '<a><slot /></a>' },
+          LocaleSwitcher: true,
+          Icon: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('Acme Gateway')
+    expect(wrapper.text()).not.toContain('CallModel')
+
+    wrapper.unmount()
+    appStoreState.cachedPublicSettings = null
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, hostname: originalHostname },
+    })
+  })
 })
 
 describe('KeyUsageView subscription feature flag', () => {

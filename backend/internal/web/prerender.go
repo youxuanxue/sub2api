@@ -204,13 +204,13 @@ func prerenderChinaExportHomeHTML() string {
 
 <section>
 <h2>Verify your key</h2>
-<p>Use deepseek-chat to verify your API key, balance and OpenAI-compatible endpoint.</p>
+<p>Use deepseek-flash to verify your API key, balance and OpenAI-compatible endpoint.</p>
 </section>
 
 <section>
 <h2>Start free</h2>
 <p>Start with a free trial. No credit card required.</p>
-<a href="https://tokenkey.dev/register?redirect=%%2Fquickstart%%3Fmodel%%3Ddeepseek-chat%%26protocol%%3Dopenai">Create your account</a>
+<a href="/register?redirect=%%2Fquickstart%%3Fmodel%%3Ddeepseek-flash%%26protocol%%3Dopenai">Create your account</a>
 </section>
 </body>
 </html>`, head)

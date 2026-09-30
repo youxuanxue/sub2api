@@ -124,70 +124,42 @@ ${SITE_DOMAIN} {
 # END_APEX_VHOST
 
 # BEGIN_GLOBAL_VHOST
+# CallModel (or other GLOBAL_SITE_DOMAIN) full product facade: same SPA upstream as
+# apex. Admin stays on SITE_DOMAIN only. GLOBAL_REDIRECT_STATUS applies to /admin*.
 ${GLOBAL_SITE_DOMAIN} {
 	import tokenkey_tls
 	import tokenkey_encode_static
 
-	@global_home {
-		path /
-		path /home
+	@callmodel_admin {
+		path /admin*
 	}
-	handle @global_home {
-		import tokenkey_reverse_proxy
-	}
-
-	@global_runtime {
-		path /assets/*
-		path /logo.png
-		path /favicon.ico
-		path /og-cover.png
-		path /seedance-2-5-official-showcase-8b37bc3e.mp4
-		path /seedance-2-5-official-poster-db3ff793.jpg
-	}
-	handle @global_runtime {
-		import tokenkey_reverse_proxy
-	}
-
-	@global_public_settings {
-		method GET
-		path /api/v1/settings/public
-	}
-	@global_setup_status {
-		method GET
-		path /setup/status
-	}
-	@global_session_refresh {
-		method POST
-		path /api/v1/auth/refresh
-	}
-	@global_session_user {
-		method GET
-		path /api/v1/auth/me
-	}
-	handle @global_public_settings {
-		import tokenkey_reverse_proxy
-	}
-	handle @global_setup_status {
-		import tokenkey_reverse_proxy
-	}
-	handle @global_session_refresh {
-		import tokenkey_reverse_proxy
-	}
-	handle @global_session_user {
-		import tokenkey_reverse_proxy
-	}
-
-	handle {
+	handle @callmodel_admin {
 		redir https://${SITE_DOMAIN}{uri} ${GLOBAL_REDIRECT_STATUS}
 	}
 
+	handle /privacy {
+		root * /data/legal
+		rewrite * /privacy.html
+		file_server
+	}
+	handle /terms {
+		root * /data/legal
+		rewrite * /terms.html
+		file_server
+	}
+	handle_path /legal-assets/* {
+		root * /data/legal
+		file_server
+	}
+
+	import tokenkey_reverse_proxy
 	import tokenkey_limits_log
 }
 # END_GLOBAL_VHOST
 
 # BEGIN_API_MACHINE_SNIPPET
-# Shared machine allowlist for API_DOMAIN and optional API_ALIAS_DOMAIN.
-# Keep a single path list — do not fork a second copy for the alias host.
+# Shared @machine allowlist for API_DOMAIN and optional API_ALIAS_DOMAIN.
+# Catch-all human redirect stays in each vhost — alias must land on GLOBAL_SITE_DOMAIN.
 (tokenkey_api_machine) {
 	@machine {
 		path /health*
@@ -214,9 +186,6 @@ ${GLOBAL_SITE_DOMAIN} {
 	handle @machine {
 		import tokenkey_reverse_proxy
 	}
-	handle {
-		redir https://${SITE_DOMAIN}{uri} permanent
-	}
 }
 # END_API_MACHINE_SNIPPET
 
@@ -230,6 +199,9 @@ ${API_DOMAIN} {
 
 # BEGIN_API_MACHINE_SPLIT
 	import tokenkey_api_machine
+	handle {
+		redir https://${SITE_DOMAIN}{uri} permanent
+	}
 # END_API_MACHINE_SPLIT
 
 	import tokenkey_limits_log
@@ -240,6 +212,9 @@ ${API_ALIAS_DOMAIN} {
 	import tokenkey_tls
 	import tokenkey_encode_static
 	import tokenkey_api_machine
+	handle {
+		redir https://${GLOBAL_SITE_DOMAIN}{uri} permanent
+	}
 	import tokenkey_limits_log
 }
 # END_API_ALIAS_VHOST

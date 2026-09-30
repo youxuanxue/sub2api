@@ -258,18 +258,18 @@ describe('HomeView compact mode', () => {
 
     expect(terminal.get('.terminal-window').exists()).toBe(true)
     expect(terminal.get('.terminal-header').exists()).toBe(true)
-    expect(terminal.get('.terminal-body').text()).toContain('deepseek-chat')
+    expect(terminal.get('.terminal-body').text()).toContain('deepseek-flash')
     expect(terminal.get('.terminal-body').text()).toContain('https://api.callmodel.io')
     expect(terminal.findAll('.terminal-buttons span')).toHaveLength(3)
   })
 
-  it('sends anonymous primary CTA through TokenKey register into DeepSeek quickstart', () => {
+  it('sends anonymous primary CTA through same-host register into DeepSeek quickstart', () => {
     profileState.value = 'china-export'
 
     const href = mountHome().get('[data-testid="china-export-primary-cta"]').attributes('href')
 
     expect(href).toBe(
-      'https://tokenkey.dev/register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-chat%26protocol%3Dopenai',
+      '/register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-flash%26protocol%3Dopenai',
     )
   })
 })
