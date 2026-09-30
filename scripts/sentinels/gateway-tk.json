@@ -6655,9 +6655,19 @@
         "openAIImagesSizeQuantum",
         "openAIImagesMaxGPTImage2Pixels",
         "openAIImagesMinGPTImage2Pixels",
-        "openAIImagesMaxCanvasSide"
+        "openAIImagesMaxCanvasSide",
+        "scaleOpenAIImageProgressive("
       ],
       "rationale": "Local exact-canvas owner: admit size bounds (separator normalize, side<=3840, pixels in [655360,8294400]), ceil-16 upstream size, and pad response to the client WxH. Upstream merge that drops this companion (or its call from applyOpenAIImagesClientFidelityPostprocess) reverts to soft upstream pixels and wrong billing tiers."
+    },
+    {
+      "path": "backend/internal/service/openai_images_upscale_tk.go",
+      "must_contain": [
+        "func scaleOpenAIImageProgressive(",
+        "openAIImagesUpscaleMaxStep = 2.0",
+        "No Real-ESRGAN / external upscaler in this path"
+      ],
+      "rationale": "Large explicit WxH canvases enlarge via progressive CatmullRom (≤2× hops) only — no Real-ESRGAN sidecar and no -2k/-4k fake SKUs. Upstream merge that drops this companion silently regresses big canvases to a single soft CatmullRom hop."
     },
     {
       "path": "backend/internal/service/image_billing_size.go",
