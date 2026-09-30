@@ -77,7 +77,7 @@ OAuth / Setup-Token 生图**一律**走：
 
 - 驱动模型默认 `gpt-5.6-luna`（`SUB2API_IMAGES_MAIN_MODEL` 可覆盖）；图像模型仍在 `tools[0].model`。
 - 上游以 plan-gated 400 拒绝当前驱动时，**同账号**按
-  `gpt-5.5` → `gpt-5.6-terra` → `gpt-5.6-sol` → `gpt-6-astra` 重试
+  `gpt-6.1-sol` → `gpt-5.6-terra` → `gpt-5.6-sol` → `gpt-6-astra` 重试
   （`SUB2API_IMAGES_MAIN_MODEL_FALLBACKS` 可覆盖整条链），不冷却生图容量。
 - 客户端 `style` **不写** `tools[].style`；折入 prompt 文本
   `Style guidance: <style>`（在 `marker AR=...` 之前），与 codex2api 一致。

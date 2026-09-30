@@ -43,16 +43,16 @@ func TestOpenAIImagesMainModelCandidatesAndFallback(t *testing.T) {
 	t.Setenv("SUB2API_IMAGES_MAIN_MODEL_FALLBACKS", "")
 	candidates := openAIImagesMainModelCandidates()
 	require.Equal(t, openAIImagesResponsesMainModel, candidates[0])
-	require.Contains(t, candidates, "gpt-5.5")
+	require.Contains(t, candidates, "gpt-6.1-sol")
 	require.Contains(t, candidates, "gpt-5.6-terra")
 
 	next, ok := nextOpenAIImagesMainModelAfterUnsupported(openAIImagesResponsesMainModel, nil)
 	require.True(t, ok)
-	require.Equal(t, "gpt-5.5", next)
+	require.Equal(t, "gpt-6.1-sol", next)
 
 	tried := map[string]bool{
 		strings.ToLower(openAIImagesResponsesMainModel): true,
-		"gpt-5.5":       true,
+		"gpt-6.1-sol":   true,
 		"gpt-5.6-terra": true,
 		"gpt-5.6-sol":   true,
 		"gpt-6-astra":   true,
@@ -103,7 +103,7 @@ func TestForwardOpenAIImagesOAuth_RetriesOnMainModelUnsupported(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, upstream.bodies, 2)
 	require.Equal(t, openAIImagesResponsesMainModel, gjson.GetBytes(upstream.bodies[0], "model").String())
-	require.Equal(t, "gpt-5.5", gjson.GetBytes(upstream.bodies[1], "model").String())
+	require.Equal(t, "gpt-6.1-sol", gjson.GetBytes(upstream.bodies[1], "model").String())
 	require.Equal(t, "gpt-image-2", gjson.GetBytes(upstream.bodies[1], "tools.0.model").String())
 	require.Equal(t, "1024x1024", gjson.GetBytes(rec.Body.Bytes(), "size").String())
 }
