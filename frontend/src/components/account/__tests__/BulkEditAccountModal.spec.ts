@@ -166,7 +166,8 @@ describe('BulkEditAccountModal', () => {
     await mappingTab!.trigger('click')
 
     expect(wrapper.text()).toContain('3.1 Flash Image')
-    expect(wrapper.text()).toContain('3-Pro-Image→3.1')
+    expect(wrapper.text()).not.toContain('3-Pro-Image→3.1')
+    expect(wrapper.text()).not.toContain('nano-pro→3.1')
     expect(wrapper.text()).not.toContain('GPT-5.3 Codex Spark')
   })
 
