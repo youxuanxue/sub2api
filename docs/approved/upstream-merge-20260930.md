@@ -35,6 +35,13 @@ scope: "Isolated import of Wei-Shaw/sub2api upstream/main; no main merge or depl
   GPT-6.1 Sol 快捷映射保留 TokenKey 原预设且只显示一次。Claude reset 的查询、
   profile 与 claim 复用账号 TLS profile 和 canonical UA owner，保留禁止重定向、
   public-host 校验与 25 秒请求上限；TLS 失败不降级到普通出口。
+- 上线前降风险：新增 Redis 在途预留默认关闭，显式启用后仍执行完整生命周期；
+  TokenKey 原有持久化 hold 不关闭。AG 首内容前的保活及两分钟首内容截止时间同样
+  默认关闭，复用共享配置 owner 显式启用，默认保留未提交响应的失败切换行为。
+  手机首页只收紧共享 landing 组件的间距，桌面布局与产品文案不变。
+- 生产只读评估与未决业务门禁见
+  [上线前评估](../ops/upstream-pr2409-predeploy-20260930.md)。不因评估而授权生产配置、
+  reset grant 兑换、新模型激活或部署；Astra ultrafast 定价变化须另行业务确认。
 
 ## 验证边界
 

@@ -1004,7 +1004,7 @@ func TestAntigravityCompatHandlerPreContentKeepalive(t *testing.T) {
 		{"signature-only responses", func() antigravityCompatStreamAdapter { return newAntigravityResponsesStreamAdapter("gemini-3.1-pro") }, `data: {"response":{"candidates":[{"content":{"parts":[{"thoughtSignature":"sig","text":""}]}}]}}` + "\n\n", "event: error"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize, StreamDataIntervalTimeout: 30}, nil)
+			svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize, StreamDataIntervalTimeout: 30, AntigravityPreContentKeepaliveEnabled: true}, nil)
 			c, recorder := newAntigravityCompatContext(http.MethodPost, "/", nil)
 			notifier := &antigravityCompatNotifyingWriter{ResponseWriter: c.Writer, wrote: make(chan struct{}, 1)}
 			c.Writer = notifier
@@ -1178,6 +1178,29 @@ func TestAntigravityCompatEmptyAfterKeepaliveReportsStreamError(t *testing.T) {
 			require.True(t, IsResponseCommitted(c))
 			require.Contains(t, recorder.Body.String(), tt.want)
 		})
+	}
+}
+
+func TestAntigravityCompatDefaultPreContentPreservesFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, adapter := range []antigravityCompatStreamAdapter{
+		newAntigravityChatStreamAdapter("gemini-3.1-pro", false),
+		newAntigravityResponsesStreamAdapter("gemini-3.1-pro"),
+	} {
+		svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, nil)
+		requestCtx, recorder := newAntigravityCompatContext(http.MethodPost, "/", nil)
+		reader, writer := io.Pipe()
+		closeTimer := time.AfterFunc(50*time.Millisecond, func() { _ = writer.Close() })
+		resp := &http.Response{StatusCode: http.StatusOK, Body: reader}
+		result, err := svc.handleAntigravityCompatStream(requestCtx, resp, time.Now().Add(-20*time.Second), "gemini-3.1-pro", adapter, "test")
+		closeTimer.Stop()
+		_ = reader.Close()
+		_ = writer.Close()
+		require.Nil(t, result)
+		var failoverErr *UpstreamFailoverError
+		require.ErrorAs(t, err, &failoverErr)
+		require.False(t, IsResponseCommitted(requestCtx))
+		require.Empty(t, recorder.Body.String())
 	}
 }
 

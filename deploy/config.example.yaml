@@ -504,6 +504,7 @@ gateway:
   # Stream keepalive interval (seconds), 0=disable
   # 流式 keepalive 间隔（秒），0=禁用
   stream_keepalive_interval: 10
+  antigravity_pre_content_keepalive_enabled: false
   # Image stream data interval timeout (seconds), 0=disable; independent from ordinary text streams
   # 图片流数据间隔超时（秒），0=禁用；独立于普通文本流式
   image_stream_data_interval_timeout: 900
@@ -1195,7 +1196,7 @@ billing:
   # 余额模式在途预留：准入时估算单请求费用，要求 缓存余额 - 在途预留合计 >= 估算；
   # 用户无在途请求时始终放行（与旧行为一致）；估算失败/Redis 不可用时 fail-open。
   inflight_reservation:
-    enabled: true
+    enabled: false
     # Reservation TTL. Renewed every ttl/3 while the request is running; after the
     # handler returns it is held (not renewed) until the async billing task has
     # deducted the cached balance, so a stuck billing task frees it after at most one TTL.

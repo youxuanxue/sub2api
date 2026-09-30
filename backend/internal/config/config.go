@@ -1208,7 +1208,8 @@ type GatewayConfig struct {
 	// StreamDataIntervalTimeout: 流数据间隔超时（秒），0表示禁用
 	StreamDataIntervalTimeout int `mapstructure:"stream_data_interval_timeout"`
 	// StreamKeepaliveInterval: 流式 keepalive 间隔（秒），0表示禁用
-	StreamKeepaliveInterval int `mapstructure:"stream_keepalive_interval"`
+	StreamKeepaliveInterval               int  `mapstructure:"stream_keepalive_interval"`
+	AntigravityPreContentKeepaliveEnabled bool `mapstructure:"antigravity_pre_content_keepalive_enabled"`
 	// ImageStreamDataIntervalTimeout: 图片流数据间隔超时（秒），0表示禁用
 	ImageStreamDataIntervalTimeout int `mapstructure:"image_stream_data_interval_timeout"`
 	// ImageStreamKeepaliveInterval: 图片流式 keepalive 间隔（秒），0表示禁用
@@ -2353,7 +2354,7 @@ func setDefaults() {
 	viper.SetDefault("billing.minimum_balance_reserve", 0.000001)
 	viper.SetDefault("billing.user_platform_quota_cache_ttl_seconds", 86400)
 	viper.SetDefault("billing.user_platform_quota_sentinel_ttl_seconds", 3600)
-	viper.SetDefault("billing.inflight_reservation.enabled", true)
+	viper.SetDefault("billing.inflight_reservation.enabled", false)
 	viper.SetDefault("billing.inflight_reservation.ttl_seconds", 900)
 	viper.SetDefault("billing.inflight_reservation.default_max_tokens", 8192)
 	viper.SetDefault("billing.inflight_reservation.max_output_tokens", 128000)
@@ -2812,6 +2813,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.concurrency_slot_ttl_minutes", 30) // 并发槽位过期时间（支持超长请求）
 	viper.SetDefault("gateway.stream_data_interval_timeout", 180)
 	viper.SetDefault("gateway.stream_keepalive_interval", 10)
+	viper.SetDefault("gateway.antigravity_pre_content_keepalive_enabled", false)
 	viper.SetDefault("gateway.image_stream_data_interval_timeout", 900)
 	viper.SetDefault("gateway.image_stream_keepalive_interval", 10)
 	viper.SetDefault("gateway.image_nonstream_keepalive_interval", 0)

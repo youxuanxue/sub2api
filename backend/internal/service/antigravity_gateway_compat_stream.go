@@ -156,7 +156,7 @@ func (s *antigravityCompatStreamSession) hasMeaningfulData() bool {
 func (s *antigravityCompatStreamSession) writePreContentKeepalive(now time.Time) {
 	// Intentional tradeoff: this commits HTTP 200 after 15s, so later upstream
 	// failures cannot fail over; report them as SSE errors to the client instead.
-	if s.hasMeaningfulData() || s.writer.Disconnected() || now.Sub(s.startTime) < s.preContentKeepaliveInterval {
+	if s.preContentKeepaliveInterval <= 0 || s.hasMeaningfulData() || s.writer.Disconnected() || now.Sub(s.startTime) < s.preContentKeepaliveInterval {
 		return
 	}
 	if s.writer.Write([]byte(": ping\n\n")) {
@@ -282,7 +282,11 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 	adapter antigravityCompatStreamAdapter,
 	prefix string,
 ) (*antigravityStreamResult, error) {
-	return s.handleAntigravityCompatStreamWithKeepaliveInterval(c, resp, startTime, originalModel, adapter, prefix, antigravityCompatPreContentKeepaliveInterval, antigravityCompatPreContentMaxWait)
+	var interval, maxWait time.Duration
+	if s.settingService != nil && s.settingService.cfg != nil && s.settingService.cfg.Gateway.AntigravityPreContentKeepaliveEnabled {
+		interval, maxWait = antigravityCompatPreContentKeepaliveInterval, antigravityCompatPreContentMaxWait
+	}
+	return s.handleAntigravityCompatStreamWithKeepaliveInterval(c, resp, startTime, originalModel, adapter, prefix, interval, maxWait)
 }
 
 func (s *AntigravityGatewayService) handleAntigravityCompatStreamWithKeepaliveInterval(
@@ -316,19 +320,30 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStreamWithKeepaliveIn
 	if keepaliveTicker != nil {
 		defer keepaliveTicker.Stop()
 	}
-	preContentDelay := time.Until(startTime.Add(interval))
-	if preContentDelay < 0 {
-		preContentDelay = 0
+	var preContentTimer, deadlineTimer *time.Timer
+	var preContentCh, deadlineCh <-chan time.Time
+	if interval > 0 {
+		preContentDelay := time.Until(startTime.Add(interval))
+		if preContentDelay < 0 {
+			preContentDelay = 0
+		}
+		preContentTimer = time.NewTimer(preContentDelay)
+		preContentCh = preContentTimer.C
+		defer preContentTimer.Stop()
 	}
-	preContentTimer := time.NewTimer(preContentDelay)
-	defer preContentTimer.Stop()
 	preContentDeadline := startTime.Add(maxPreContentWait)
-	deadlineDelay := time.Until(preContentDeadline)
-	if deadlineDelay < 0 {
-		deadlineDelay = 0
+	if maxPreContentWait > 0 {
+		deadlineDelay := time.Until(preContentDeadline)
+		if deadlineDelay < 0 {
+			deadlineDelay = 0
+		}
+		deadlineTimer = time.NewTimer(deadlineDelay)
+		deadlineCh = deadlineTimer.C
+		defer deadlineTimer.Stop()
 	}
-	deadlineTimer := time.NewTimer(deadlineDelay)
-	defer deadlineTimer.Stop()
+	preContentExpired := func(now time.Time) bool {
+		return maxPreContentWait > 0 && !now.Before(preContentDeadline)
+	}
 	preContentTimeout := func() (*antigravityStreamResult, error) {
 		if session.preContentKeepaliveSent {
 			writeAntigravityCompatStreamError(c, adapter, writer, "stream_timeout")
@@ -340,7 +355,7 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStreamWithKeepaliveIn
 	for {
 		select {
 		case event, open := <-events:
-			if !session.hasMeaningfulData() && !writer.Disconnected() && !time.Now().Before(preContentDeadline) {
+			if !session.hasMeaningfulData() && !writer.Disconnected() && preContentExpired(time.Now()) {
 				return preContentTimeout()
 			}
 			if !open {
@@ -371,15 +386,15 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStreamWithKeepaliveIn
 			if session.hasMeaningfulData() && !writer.Disconnected() {
 				writer.Write([]byte(": ping\n\n"))
 			}
-		case now := <-preContentTimer.C:
-			if !session.hasMeaningfulData() && !writer.Disconnected() && !now.Before(preContentDeadline) {
+		case now := <-preContentCh:
+			if !session.hasMeaningfulData() && !writer.Disconnected() && preContentExpired(now) {
 				return preContentTimeout()
 			}
 			session.writePreContentKeepalive(now)
 			if !session.hasMeaningfulData() && !writer.Disconnected() {
 				preContentTimer.Reset(interval)
 			}
-		case <-deadlineTimer.C:
+		case <-deadlineCh:
 			if !session.hasMeaningfulData() && !writer.Disconnected() {
 				return preContentTimeout()
 			}
