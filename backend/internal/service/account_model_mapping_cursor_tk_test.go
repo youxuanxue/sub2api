@@ -15,7 +15,12 @@ func TestCursorMappingFloorExcludesGPTWithoutChangingOtherProviders(t *testing.T
 	account := cursorTestAccount()
 	ids := NewAPIModelMappingPresetIDsForAccount(account)
 	require.Contains(t, ids, "composer-2.5")
-	require.Contains(t, ids, "claude-opus-5-5")
+	require.Contains(t, ids, "claude-fable-5")
+	require.Contains(t, ids, "claude-fable-5-1")
+	require.NotContains(t, ids, "claude-opus-5-5")
+	displayIDs := NewAPIModelDisplayIDsForAccount(account)
+	require.Contains(t, displayIDs, "claude-fable-5")
+	require.Contains(t, displayIDs, "claude-fable-5-1")
 	require.NotContains(t, ids, "composer-2")
 	for _, id := range ids {
 		require.True(t, cursorServingModelAllowed(id), "Cursor preset should only serve allowlisted families, got %s", id)

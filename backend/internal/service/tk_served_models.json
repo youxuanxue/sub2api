@@ -930,7 +930,16 @@
         }
       ]
     },
-    "claude-opus-5-5": {
+    "claude-fable-5": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "claude-fable-5-1": {
       "display": true,
       "scopes": [
         {

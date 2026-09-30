@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "f747d5ff172bd7f4a1b34b69a8c85923d24186f32005238cf59ff5e7fed4f724",
+  "floor_sha256": "c494515044393c56949972b1361442d17f30001a1be83e467f9f821c5cd11b1e",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -373,7 +373,8 @@
         "channel_type": 14,
         "base_url": "https://agentn.global.api5.cursor.sh",
         "model_mapping": {
-          "claude-opus-5-5": "claude-opus-5-5",
+          "claude-fable-5": "claude-fable-5",
+          "claude-fable-5-1": "claude-fable-5-1",
           "composer-2.5": "composer-2.5",
           "grok-4.5": "grok-4.5",
           "grok-4.6": "grok-4.6",
