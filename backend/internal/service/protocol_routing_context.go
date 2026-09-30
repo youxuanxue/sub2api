@@ -207,16 +207,15 @@ func protocolRoutingGovernsAccount(account *Account) bool {
 	if account == nil || account.IsBedrock() {
 		return false
 	}
-	if account.Platform == PlatformGemini && account.Type == AccountTypeAPIKey {
+	// Native Gemini also carries image generation; an image-only AG mapping
+	// must retain endpoint capability and immutable Plan validation.
+	if (account.Platform == PlatformGemini && account.Type == AccountTypeAPIKey) || protocolRoutingSupportsAntigravityAccount(account) {
 		return true
 	}
 	if protocolRoutingAccountHasNoTextModels(account) {
 		return false
 	}
 	if account.IsNewAPIVertexServiceAccount() {
-		return true
-	}
-	if protocolRoutingSupportsAntigravityAccount(account) {
 		return true
 	}
 	if account.Type == AccountTypeServiceAccount {

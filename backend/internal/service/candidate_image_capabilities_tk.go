@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 )
 
 // ImageGenerationCapability describes a complete, independently admitted family
@@ -21,18 +22,17 @@ type ImageGenerationCapability struct {
 
 // Gemini's documented image configuration vocabulary; Web's narrower acceptance
 // is owned by protocolrouter and is applied through evaluatePath below.
-var geminiImageDiscoveryRatios = []string{"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"}
+var geminiImageDiscoveryRatios = apicompat.GeminiImageAspectRatios()
 
 func (s *UniversalCapabilityService) candidateImageProfile(ctx context.Context, base *CandidateRequest, account *Account, group *Group) *ImageGenerationCapability {
 	gemini := antigravity.IsImageModel(base.model)
+	if gemini && base.shape == ShapeOpenAIImages && account.Platform != PlatformAntigravity {
+		return nil
+	}
 	if (!gemini || (base.shape != ShapeOpenAIChat && base.shape != ShapeGemini)) && base.shape != ShapeOpenAIImages {
 		return nil
 	}
-	// Gemini uses chat/native, not the unrelated Images adaptor.
-	if gemini && base.shape == ShapeOpenAIImages {
-		return nil
-	}
-	p := &ImageGenerationCapability{Endpoint: base.path, AspectRatios: []string{}, Counts: []int{1}, SoftAspectRatio: IsGPTImageGenerationModel(base.model)}
+	p := &ImageGenerationCapability{Endpoint: base.path, AspectRatios: []string{}, Counts: []int{1}, SoftAspectRatio: IsGPTImageGenerationModel(base.model) || UsesGeminiImagesAdapter(base.shape, base.model)}
 	accepts := func(ratio string, n int, input bool) bool {
 		var body map[string]any
 		_ = json.Unmarshal(base.body, &body)
@@ -63,6 +63,9 @@ func (s *UniversalCapabilityService) candidateImageProfile(ctx context.Context, 
 				body["aspect_ratio"] = ratio
 			}
 			body["n"] = n
+			if input && UsesGeminiImagesAdapter(base.shape, base.model) {
+				return false // This facade exposes generations, not image edits.
+			}
 		}
 		encoded, _ := json.Marshal(body)
 		request := &CandidateRequest{resolver: base.resolver, key: base.key, groups: base.groups, shape: base.shape, path: base.path, model: base.model, body: encoded, forcePlatform: base.forcePlatform}
@@ -70,6 +73,9 @@ func (s *UniversalCapabilityService) candidateImageProfile(ctx context.Context, 
 		path, err := request.evaluatePathWithPreparation(requestCtx, account, group, candidateDiscoveryPathPreparer(request))
 		if err != nil || path == nil {
 			return false
+		}
+		if UsesGeminiImagesAdapter(base.shape, base.model) {
+			return true // The shared adapter and native Plan already validated every option.
 		}
 		if base.shape == ShapeOpenAIImages {
 			parsed := &OpenAIImagesRequest{Endpoint: openAIImagesGenerationsEndpoint, N: 1}

@@ -155,6 +155,14 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 		return false
 	}
 	if err != nil {
+		// Strict AG options must not reject a request that an existing Images
+		// provider can serve. Explain invalid options only when no path bound.
+		if service.UsesGeminiImagesAdapter(shape, model) {
+			if _, _, parameterErr := service.PrepareGeminiImagesRequest(decodedBody); parameterErr != nil {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": parameterErr.Error()}})
+				return true
+			}
+		}
 		// 区分“真没有被授权的组”(403,业务语义) 与跨度加载失败等内部错误(500,可重试):
 		// 后者不该被伪装成“该模型不在你的套餐内”。
 		if IsClientClosedRequestError(c, err) {

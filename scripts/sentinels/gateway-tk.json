@@ -1173,6 +1173,59 @@
       "rationale": "Messages JSON and SSE relay must preserve the source of terminal Cursor usage across Edge and Prod."
     },
     {
+      "path": "backend/internal/handler/gemini_v1beta_handler.go",
+      "must_contain": ["if images, ok := c.Writer.(*geminiImagesWriter); ok {", "if err := images.prepareSuccess(); err != nil {"],
+      "rationale": "Buffered Images conversion must be validated before native usage settlement; invalid output cannot be billed or replayed."
+    },
+    {
+      "path": "backend/internal/service/candidate_request_tk.go",
+      "must_contain": ["ok && !UsesGeminiImagesAdapter(r.shape, r.model)"],
+      "rationale": "Images candidate rechecks retain the original operation body instead of converting an already-native body a second time."
+    },
+    {
+      "path": "backend/internal/service/candidate_selection_tk.go",
+      "must_contain": ["pathCtx = geminiImagesCandidateContext(pathCtx, r.shape, model, account)"],
+      "rationale": "AG Images protocol adaptation must preserve existing same-model media forwarding on non-AG accounts."
+    },
+    {
+      "path": "backend/internal/service/gemini_images_adapter_tk.go",
+      "must_contain": ["func UsesGeminiImagesAdapter(", "func PrepareGeminiImagesRequest(", "apicompat.ImagesToGeminiGeneration(body)"],
+      "rationale": "Images admission and native Gemini execution share one parameter conversion owner."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_tk_openai_compat_handlers.go",
+      "must_contain": [
+        "service.WithGeminiImagesExecution(c.Request.Context())"
+      ],
+      "rationale": "Bind the Images execution protocol before handler dispatch; a later reselection must not switch AG native Gemini and existing Images wire formats."
+    },
+    {
+      "path": "backend/internal/service/candidate_eligibility.go",
+      "must_contain": [
+        "native != (account.Platform == PlatformAntigravity)"
+      ],
+      "rationale": "Apply the dispatched Images protocol constraint in shared admission, including retries and account rechecks."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_streaming.go",
+      "must_contain": [
+        "candidate[\"finishReason\"] = finishReason"
+      ],
+      "rationale": "Retain terminal SSE reasons independently of image parts and later usage-only events; otherwise the Images facade mistakes complete output for partial output."
+    },
+    {
+      "path": "backend/internal/service/gemini_images_adapter_tk_test.go",
+      "must_contain": [
+        "TestGeminiImagesSelectionStaysWithDispatchedProtocol"
+      ],
+      "rationale": "Behavioral regression proves both mixed-provider directions stay on an executable wire format while same-protocol failover remains available."
+    },
+    {
+      "path": "backend/internal/handler/gemini_images_tk.go",
+      "must_contain": ["func (h *GatewayHandler) GeminiImageGenerations(", "service.PrepareGeminiImagesRequest(body)", "h.GeminiV1BetaModels(c)", "apicompat.GeminiGenerationToImages(w.body.Bytes())"],
+      "rationale": "Antigravity Images reuses native authorization, Plan, account execution and billing instead of a parallel generation lifecycle."
+    },
+    {
       "path": "backend/internal/service/candidate_request_tk.go",
       "must_contain": [
         "ctx = withProtocolNativeOnly(ctx,",

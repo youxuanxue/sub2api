@@ -982,3 +982,16 @@ func TestMaybeResolveUniversal_NoEntitledGroupAborts(t *testing.T) {
 		t.Fatalf("expected openai-shaped error, got %s", w.Body.String())
 	}
 }
+
+func TestGeminiImagesInvalidOptionsRejectBeforeCandidateBinding(t *testing.T) {
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"model":"nano-2","prompt":"cup","n":2}`))
+	key := &service.APIKey{ID: 100, UserID: 7, RoutingMode: service.RoutingModeUniversal}
+	// No entitled path is bound; report invalid AG parameters without charging.
+	rejected := MaybeResolveUniversal(c, key, service.NewUniversalRoutingResolver(&stubSpanLister{}))
+	require.True(t, rejected)
+	require.Equal(t, 400, rec.Code)
+	require.Contains(t, rec.Body.String(), "n=1")
+	require.Nil(t, key.GroupID)
+}

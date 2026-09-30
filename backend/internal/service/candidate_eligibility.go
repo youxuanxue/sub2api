@@ -24,6 +24,21 @@ func (s *GatewayService) candidateSupportsRequest(ctx context.Context, account *
 	if account == nil {
 		return false, nil
 	}
+	if native, bound := ctx.Value(geminiImagesExecutionKey{}).(bool); bound && native != (account.Platform == PlatformAntigravity) {
+		return false, nil
+	}
+	if UsesGeminiImagesAdapter(shape, model) {
+		if account.Platform == PlatformGemini {
+			return false, nil
+		}
+		if account.Platform == PlatformAntigravity {
+			if _, governed := ProtocolRoutingRequest(ctx); !governed || !protocolRoutingGovernsAccount(account) {
+				return false, nil
+			}
+		} else {
+			ctx = geminiImagesCandidateContext(ctx, shape, model, account)
+		}
+	}
 	if !geminiWebSupportsRequest(ctx, account, model, shape) {
 		return false, nil
 	}

@@ -39,6 +39,15 @@ func TestGeminiCompatImageOptionsLiftStudioExtraBodyAspectRatio(t *testing.T) {
 	native, err := convertClaudeMessagesToGeminiGenerateContent(converted)
 	require.NoError(t, err)
 	require.Equal(t, "1:1", gjson.GetBytes(native, "generationConfig.imageConfig.aspectRatio").String())
+
+	// Studio omits image_size. Only after selecting Antigravity should its wire
+	// explicitly request the gateway's billed default; the generic converter must
+	// retain the ratio-only request so Gemini Web admission is not changed.
+	svc := &AntigravityGatewayService{}
+	wrapped, err := svc.prepareForwardGeminiWireBody("project-image", "gemini-3.1-flash-image", native)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"aspectRatio":"1:1","imageSize":"2K"}`, gjson.GetBytes(wrapped, "request.generationConfig.imageConfig").Raw)
+	require.JSONEq(t, `{"aspectRatio":"1:1"}`, gjson.GetBytes(native, "generationConfig.imageConfig").Raw)
 }
 
 func TestGeminiCompatImageOptionsIgnoresUnrelatedExtraBody(t *testing.T) {

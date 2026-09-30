@@ -30,6 +30,7 @@ func TestAntigravityGatewayService_WrapNativeImageRequestUsesImageGenEnvelope(t 
 	gen, ok := request["generationConfig"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, []any{"TEXT", "IMAGE"}, gen["responseModalities"])
+	require.Equal(t, map[string]any{"imageSize": "2K"}, gen["imageConfig"])
 }
 
 func TestAntigravityGatewayService_WrapNativeImageRequestPreservesExistingModalities(t *testing.T) {
@@ -48,6 +49,35 @@ func TestAntigravityGatewayService_WrapNativeImageRequestPreservesExistingModali
 	img, ok := gen["imageConfig"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "16:9", img["aspectRatio"])
+	require.Equal(t, "2K", img["imageSize"])
+}
+
+func TestAntigravityNativeImageSizeDefaultPreservesExplicitConfig(t *testing.T) {
+	svc := &AntigravityGatewayService{}
+	for _, tc := range []struct {
+		name, model, config, want string
+	}{
+		{"explicit 1K", "gemini-3.1-flash-image", `{"imageConfig":{"aspectRatio":"21:9","imageSize":"1K"}}`, `{"imageConfig":{"aspectRatio":"21:9","imageSize":"1K"},"responseModalities":["TEXT","IMAGE"]}`},
+		{"explicit 4K", "gemini-3.1-flash-image", `{"imageConfig":{"imageSize":"4K"}}`, `{"imageConfig":{"imageSize":"4K"},"responseModalities":["TEXT","IMAGE"]}`},
+		{"snake size", "gemini-3.1-flash-image", `{"image_config":{"image_size":"1K"}}`, `{"image_config":{"image_size":"1K"},"responseModalities":["TEXT","IMAGE"]}`},
+		{"null config", "gemini-3.1-flash-image", `{"imageConfig":null}`, `{"imageConfig":{"imageSize":"2K"},"responseModalities":["TEXT","IMAGE"]}`},
+		{"malformed config", "gemini-3.1-flash-image", `{"imageConfig":"invalid"}`, `{"imageConfig":"invalid","responseModalities":["TEXT","IMAGE"]}`},
+		{"explicit null size", "gemini-3.1-flash-image", `{"imageConfig":{"imageSize":null}}`, `{"imageConfig":{"imageSize":null},"responseModalities":["TEXT","IMAGE"]}`},
+		{"text model", "gemini-3.8-flash", `{"maxOutputTokens":1024}`, `{"maxOutputTokens":1024}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{"contents":[{"role":"user","parts":[{"text":"test"}]}],"generationConfig":` + tc.config + `}`)
+			wrapped, err := svc.wrapV1InternalRequest("project-image", tc.model, body)
+			require.NoError(t, err)
+			var result struct {
+				Request struct {
+					GenerationConfig json.RawMessage `json:"generationConfig"`
+				} `json:"request"`
+			}
+			require.NoError(t, json.Unmarshal(wrapped, &result))
+			require.JSONEq(t, tc.want, string(result.Request.GenerationConfig))
+		})
+	}
 }
 
 func TestAntigravityGatewayService_ForwardGemini_NonStreamingCollectsStreamingUpstream(t *testing.T) {

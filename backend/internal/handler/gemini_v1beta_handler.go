@@ -753,6 +753,12 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			}
 		}
 
+		if images, ok := c.Writer.(*geminiImagesWriter); ok {
+			if err := images.prepareSuccess(); err != nil {
+				return // Buffered Images output was not deliverable; do not settle or replay.
+			}
+		}
+
 		setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
 		setOpsClaudeUsageContext(c, result.Usage)
 
