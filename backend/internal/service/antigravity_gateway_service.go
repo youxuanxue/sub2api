@@ -819,6 +819,7 @@ func (s *AntigravityGatewayService) wrapV1InternalRequest(projectID, model strin
 	// TEXT+IMAGE, image_gen returns empty content. Native clients that already
 	// send IMAGE are left untouched.
 	_ = antigravity.EnsureImageResponseModalities(request, model)
+	ensureAntigravityDefaultImageSize(request, model)
 	requestID := "agent-" + uuid.New().String()
 	switch requestType {
 	case "image_gen":

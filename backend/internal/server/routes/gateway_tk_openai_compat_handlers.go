@@ -188,6 +188,8 @@ func tkOpenAICompatEmbeddingsHandler(h *handler.Handlers) gin.HandlerFunc {
 // keep the APIKey-oriented ImageGenerations forwarder.
 func tkOpenAIImageGenerationsDispatch(platform string) string {
 	switch platform {
+	case service.PlatformAntigravity:
+		return "gemini_images"
 	case service.PlatformGrok:
 		return "grok_images"
 	case service.PlatformOpenAI:
@@ -204,6 +206,9 @@ func tkOpenAIImageGenerationsDispatch(platform string) string {
 func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		switch tkOpenAIImageGenerationsDispatch(getGroupPlatform(c)) {
+		case "gemini_images":
+			h.Gateway.GeminiImageGenerations(c)
+			return
 		case "grok_images":
 			h.OpenAIGateway.GrokImages(c)
 			return

@@ -166,3 +166,5 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 - [Gateway capability verification](prod-replay-capability-matrix.md) — offline matrix planning and explicit isolated checks, independent of deployment.
 
 - [Stage0 release-check remediation](stage0-release-check-remediation.md) — approved fixes and production impact boundaries.
+
+- [Antigravity OpenAI Images 协议适配](antigravity-images-generations-adapter.md)：复用原生 Gemini Plan、单张 b64_json、参数边界与计费前响应校验。

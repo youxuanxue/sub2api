@@ -62,3 +62,5 @@
 | US-057 | Gemini Web 兼容入口复用原生协议 | InTest | `.testing/user-stories/stories/US-057-gemini-web-protocol-ssot.md` |
 
 | US-058 | Studio 与 Quickstart 生图请求一致性 | Done | `.testing/user-stories/stories/US-058-image-generation-contract.md` |
+
+| US-059 | Antigravity OpenAI Images 协议适配 | InTest | `.testing/user-stories/stories/US-059-antigravity-images-generations.md` |

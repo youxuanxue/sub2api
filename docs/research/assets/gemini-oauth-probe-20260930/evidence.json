@@ -1,0 +1,984 @@
+{
+  "observed_date": "2026-09-30",
+  "authorization": "User requested direct upstream tests using existing edge Antigravity OAuth accounts",
+  "method": "run-probe SSM delivery; credentials read into memory on edge; Python urllib HTTPS with redirects/proxies disabled; no TokenKey public gateway",
+  "probe_sha256": "6223d845b8bd76594181a120a131d9d75ce3b0312d67997c029560b7c6ef450a",
+  "generation_prompt": "Generate one image of a blue ceramic cup on a plain white background, minimalist product photograph, no text.",
+  "records": [
+    {
+      "probe_log": "agy-discover-us3.log",
+      "ssm_command_id": "18fa6d8f-84f5-40a1-9d44-db3bd1787e75",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T01:56:47.405689+00:00",
+          "account_id": 3,
+          "account_name": "antigravity-oh1-ls-b",
+          "stored_plan_type": "Pro",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790735753",
+          "upstream_host": "cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "discover"
+        },
+        {
+          "action": "loadCodeAssist",
+          "http_status": 200,
+          "elapsed_seconds": 0.639,
+          "response_bytes": 3869,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "a1951ef55d0f2aa8b5cbe1c99d0781b8003a267845463721e7ee7dce90e148cb",
+          "currentTier": {
+            "id": "free-tier",
+            "name": "Antigravity"
+          },
+          "paidTier": {
+            "id": "g1-pro-tier",
+            "name": "Google AI Pro"
+          },
+          "allowedTiers": [
+            {
+              "id": "free-tier",
+              "name": "Antigravity",
+              "isDefault": true
+            },
+            {
+              "id": "standard-tier",
+              "name": "Antigravity"
+            }
+          ],
+          "project_matches": true
+        },
+        {
+          "action": "fetchAvailableModels",
+          "http_status": 200,
+          "elapsed_seconds": 0.513,
+          "response_bytes": 205762,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "36d1c3562141ce4bc54b5e07fb2c5b5e858641c459f5c99a6fbcd5249a12e056",
+          "model_count": 33,
+          "image_models": {
+            "gemini-3.1-flash-image": {
+              "displayName": "Gemini 3.1 Flash Image",
+              "quotaInfo": {
+                "remainingFraction": 1,
+                "resetTime": "2026-09-30T06:56:48Z"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-discover-us4-33.log",
+      "ssm_command_id": "e5d6a183-191d-4d67-9b31-b983d45b8429",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T01:57:22.317346+00:00",
+          "account_id": 33,
+          "account_name": "antigravity-or1-ls-b-2",
+          "stored_plan_type": "Ultra",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790736095",
+          "upstream_host": "cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "discover"
+        },
+        {
+          "action": "loadCodeAssist",
+          "http_status": 200,
+          "elapsed_seconds": 0.398,
+          "response_bytes": 3838,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "9af309ecf96ff9485f55b65cc2d4235d69a6583cacbd5a5f047cdc7f9e6f3d10",
+          "currentTier": {
+            "id": "free-tier",
+            "name": "Antigravity"
+          },
+          "paidTier": {
+            "id": "g1-ultra-tier",
+            "name": "Google AI Ultra"
+          },
+          "allowedTiers": [
+            {
+              "id": "free-tier",
+              "name": "Antigravity",
+              "isDefault": true
+            },
+            {
+              "id": "standard-tier",
+              "name": "Antigravity"
+            }
+          ],
+          "project_matches": true
+        },
+        {
+          "action": "fetchAvailableModels",
+          "http_status": 200,
+          "elapsed_seconds": 0.284,
+          "response_bytes": 205732,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "5a37a5672e13c09d1c45714e30f42cdd48e5494073feb12538857b453a9f411e",
+          "model_count": 33,
+          "image_models": {
+            "gemini-3.1-flash-image": {
+              "displayName": "Gemini 3.1 Flash Image",
+              "quotaInfo": {
+                "remainingFraction": 1,
+                "resetTime": "2026-09-30T06:57:23Z"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-discover-us4.log",
+      "ssm_command_id": "bdc00f99-4f07-4a52-bd79-51629770ddf7",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T01:56:47.280889+00:00",
+          "account_id": 5,
+          "account_name": "antigravity-491",
+          "stored_plan_type": "Pro",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790734895",
+          "upstream_host": "cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "discover"
+        },
+        {
+          "action": "loadCodeAssist",
+          "http_status": 200,
+          "elapsed_seconds": 0.403,
+          "response_bytes": 3935,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "2422a3063c2bb416b8ca420fb79be8138a6254fa874bc6a9be83d8e5be9b09a4",
+          "currentTier": {
+            "id": "free-tier",
+            "name": "Antigravity"
+          },
+          "paidTier": {
+            "id": "g1-pro-tier",
+            "name": "Google AI Pro"
+          },
+          "allowedTiers": [
+            {
+              "id": "free-tier",
+              "name": "Antigravity",
+              "isDefault": true
+            },
+            {
+              "id": "standard-tier",
+              "name": "Antigravity"
+            }
+          ],
+          "project_matches": true
+        },
+        {
+          "action": "fetchAvailableModels",
+          "http_status": 200,
+          "elapsed_seconds": 0.215,
+          "response_bytes": 205919,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "5268f48c9487b96069b80cac5c4d6d2d64642ace3882f933e53df0925d95c4f2",
+          "model_count": 33,
+          "image_models": {
+            "gemini-3.1-flash-image": {
+              "displayName": "Gemini 3.1 Flash Image",
+              "quotaInfo": {
+                "remainingFraction": 0.9999774,
+                "resetTime": "2026-09-30T04:05:24Z"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-discover-us5.log",
+      "ssm_command_id": "07806878-ed90-44ec-b9d3-841b3e41a748",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T01:56:47.263043+00:00",
+          "account_id": 21,
+          "account_name": "anti-109",
+          "stored_plan_type": "Pro",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790734441",
+          "upstream_host": "cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "discover"
+        },
+        {
+          "action": "loadCodeAssist",
+          "http_status": 200,
+          "elapsed_seconds": 0.559,
+          "response_bytes": 1506,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "d1035c50e2651fc2f70eb9bd42c79572b76b65fe4b2bf02399efeccc91f21a07",
+          "currentTier": {
+            "id": "standard-tier",
+            "name": "Antigravity"
+          },
+          "paidTier": {
+            "id": "g1-pro-tier",
+            "name": "Google AI Pro"
+          },
+          "allowedTiers": [
+            {
+              "id": "standard-tier",
+              "name": "Antigravity",
+              "isDefault": true
+            }
+          ],
+          "project_matches": true
+        },
+        {
+          "action": "fetchAvailableModels",
+          "http_status": 200,
+          "elapsed_seconds": 0.256,
+          "response_bytes": 205711,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "db7a75c90f305c881db11380a0933736b456e5f3cb81b8f6194a3f5274c8bc34",
+          "model_count": 33,
+          "image_models": {
+            "gemini-3.1-flash-image": {
+              "displayName": "Gemini 3.1 Flash Image",
+              "quotaInfo": {
+                "remainingFraction": 1,
+                "resetTime": "2026-09-30T06:56:48Z"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-discover-us6.log",
+      "ssm_command_id": "d1163354-aeb8-4a36-9e85-bf17682d1422",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T01:56:47.377932+00:00",
+          "account_id": 27,
+          "account_name": "anti-167",
+          "stored_plan_type": "Pro",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790736396",
+          "upstream_host": "cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "discover"
+        },
+        {
+          "action": "loadCodeAssist",
+          "http_status": 200,
+          "elapsed_seconds": 0.433,
+          "response_bytes": 3869,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "a1951ef55d0f2aa8b5cbe1c99d0781b8003a267845463721e7ee7dce90e148cb",
+          "currentTier": {
+            "id": "free-tier",
+            "name": "Antigravity"
+          },
+          "paidTier": {
+            "id": "g1-pro-tier",
+            "name": "Google AI Pro"
+          },
+          "allowedTiers": [
+            {
+              "id": "free-tier",
+              "name": "Antigravity",
+              "isDefault": true
+            },
+            {
+              "id": "standard-tier",
+              "name": "Antigravity"
+            }
+          ],
+          "project_matches": true
+        },
+        {
+          "action": "fetchAvailableModels",
+          "http_status": 200,
+          "elapsed_seconds": 0.225,
+          "response_bytes": 205970,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "0adf829959edd78288b39692a766eecb81a096630d82820d4b5fb6425ab23ad2",
+          "model_count": 33,
+          "image_models": {
+            "gemini-3.1-flash-image": {
+              "displayName": "Gemini 3.1 Flash Image",
+              "quotaInfo": {
+                "remainingFraction": 0.9999688,
+                "resetTime": "2026-09-30T04:04:49Z"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-image-daily-stream-us5-21.log",
+      "ssm_command_id": "18630cac-f34d-461f-8c3f-b2f3c5a097cf",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T01:59:26.350832+00:00",
+          "account_id": 21,
+          "account_name": "anti-109",
+          "stored_plan_type": "Pro",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790736842",
+          "upstream_host": "daily-cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "image"
+        },
+        {
+          "action": "streamGenerateContent",
+          "http_status": 200,
+          "elapsed_seconds": 8.907,
+          "response_bytes": 1508717,
+          "content_type": "text/event-stream",
+          "response_sha256": "1de435cc2f98639030d5a8b77afd87b594e2e5e3aed161bd510aa57e1d0f0721",
+          "model": "gemini-3.1-flash-image",
+          "request_id": "image_gen/1790733566351/ab8731cd-1579-45b5-ad0f-0623ff3ea7ba/12",
+          "generation_config": {
+            "responseModalities": [
+              "TEXT",
+              "IMAGE"
+            ],
+            "imageConfig": {
+              "aspectRatio": "1:1",
+              "imageSize": "1K"
+            }
+          },
+          "sse_events": 2,
+          "images": [
+            {
+              "mime_type": "image/jpeg",
+              "bytes": 467805,
+              "sha256": "b652aadf09859d8d8a00a43f94d9efd37dc84795eca8baef7441b2b2cef49b20",
+              "validation": "base64 + JPEG magic only",
+              "remote_artifact": "/tmp/tk-agy-image-fpr047qu/image.jpg"
+            }
+          ],
+          "text_excerpt": "",
+          "usage_metadata": [
+            {
+              "promptTokenCount": 22,
+              "candidatesTokenCount": 1519,
+              "totalTokenCount": 1541
+            },
+            {
+              "promptTokenCount": 22,
+              "candidatesTokenCount": 1519,
+              "totalTokenCount": 1541
+            }
+          ],
+          "finish_reasons": [
+            "STOP"
+          ],
+          "verdict": "image_bytes_returned"
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-image-daily-us4-33.log",
+      "ssm_command_id": "de5e0a49-23c2-4bf5-a8ca-a813de65e9e5",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T01:58:26.865762+00:00",
+          "account_id": 33,
+          "account_name": "antigravity-or1-ls-b-2",
+          "stored_plan_type": "Ultra",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790736095",
+          "upstream_host": "daily-cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "image"
+        },
+        {
+          "action": "generateContent",
+          "http_status": 200,
+          "elapsed_seconds": 14.402,
+          "response_bytes": 1441074,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "ca8e94337dbd5a98ac09dfc6d631a12f58bfa8b79dfa6ba48c8e045141330330",
+          "model": "gemini-3.1-flash-image",
+          "request_id": "image_gen/1790733506865/ab0cb416-87ed-4716-afa3-0389a5d3c5d5/12",
+          "generation_config": {
+            "responseModalities": [
+              "TEXT",
+              "IMAGE"
+            ],
+            "imageConfig": {
+              "aspectRatio": "1:1",
+              "imageSize": "1K"
+            }
+          },
+          "sse_events": 1,
+          "images": [
+            {
+              "mime_type": "image/jpeg",
+              "bytes": 449232,
+              "sha256": "581748bd4c32736e8843bc95fb8ebc3333f0393c6755ba468b67dc4619fe7702",
+              "validation": "base64 + JPEG magic only",
+              "remote_artifact": "/tmp/tk-agy-image-k1zq0t0e/image.jpg"
+            }
+          ],
+          "text_excerpt": "",
+          "usage_metadata": [
+            {
+              "promptTokenCount": 22,
+              "candidatesTokenCount": 1542,
+              "totalTokenCount": 1564
+            }
+          ],
+          "finish_reasons": [
+            "STOP"
+          ],
+          "verdict": "image_bytes_returned"
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-image-daily-us5-21.log",
+      "ssm_command_id": "a44b229c-fc54-44bc-8874-ff94b1ff1a67",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T01:58:27.014081+00:00",
+          "account_id": 21,
+          "account_name": "anti-109",
+          "stored_plan_type": "Pro",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790734441",
+          "upstream_host": "daily-cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "image"
+        },
+        {
+          "action": "generateContent",
+          "http_status": 200,
+          "elapsed_seconds": 10.443,
+          "response_bytes": 1461346,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "8f0d10d4d875911ee8bbfcfb5051089d3e70588f9a3e64c975f69baa47cd85e9",
+          "model": "gemini-3.1-flash-image",
+          "request_id": "image_gen/1790733507014/7b356e7d-551a-4c45-8060-51f43e2eae55/12",
+          "generation_config": {
+            "responseModalities": [
+              "TEXT",
+              "IMAGE"
+            ],
+            "imageConfig": {
+              "aspectRatio": "1:1",
+              "imageSize": "1K"
+            }
+          },
+          "sse_events": 1,
+          "images": [
+            {
+              "mime_type": "image/jpeg",
+              "bytes": 454888,
+              "sha256": "014308f31f0627c91342cfe63bc28ec3afdafaa61fe92c5a3f3d3ed8ae67a2ed",
+              "validation": "base64 + JPEG magic only",
+              "remote_artifact": "/tmp/tk-agy-image-7843xqus/image.jpg"
+            }
+          ],
+          "text_excerpt": "",
+          "usage_metadata": [
+            {
+              "promptTokenCount": 22,
+              "candidatesTokenCount": 1561,
+              "totalTokenCount": 1583
+            }
+          ],
+          "finish_reasons": [
+            "STOP"
+          ],
+          "verdict": "image_bytes_returned"
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-image-prod-generate-us4-33.log",
+      "ssm_command_id": "2848b09f-6179-4d57-be1b-06c3b3d01666",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T01:59:27.176880+00:00",
+          "account_id": 33,
+          "account_name": "antigravity-or1-ls-b-2",
+          "stored_plan_type": "Ultra",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790736095",
+          "upstream_host": "cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "image"
+        },
+        {
+          "action": "generateContent",
+          "http_status": 429,
+          "elapsed_seconds": 0.153,
+          "response_bytes": 139,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "73cfb6949dc395773288a9a10695a70a6b45901d933cc7ed532bb95845406453",
+          "error": {
+            "code": 429,
+            "status": "RESOURCE_EXHAUSTED",
+            "message": "Resource has been exhausted (e.g. check quota).",
+            "details": "[]"
+          },
+          "model": "gemini-3.1-flash-image",
+          "request_id": "image_gen/1790733567177/e2e9477f-b6a2-4bc8-91d6-c2c0690c1704/12",
+          "generation_config": {
+            "responseModalities": [
+              "TEXT",
+              "IMAGE"
+            ],
+            "imageConfig": {
+              "aspectRatio": "1:1",
+              "imageSize": "1K"
+            }
+          },
+          "verdict": "upstream_rejected"
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-image-us3-3.log",
+      "ssm_command_id": "aff25b6b-f072-4514-9a3e-85d520852b5e",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T01:57:22.376580+00:00",
+          "account_id": 3,
+          "account_name": "antigravity-oh1-ls-b",
+          "stored_plan_type": "Pro",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790735753",
+          "upstream_host": "cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "image"
+        },
+        {
+          "action": "streamGenerateContent",
+          "http_status": 429,
+          "elapsed_seconds": 1.027,
+          "response_bytes": 139,
+          "content_type": "text/event-stream",
+          "response_sha256": "73cfb6949dc395773288a9a10695a70a6b45901d933cc7ed532bb95845406453",
+          "error": {
+            "code": 429,
+            "status": "RESOURCE_EXHAUSTED",
+            "message": "Resource has been exhausted (e.g. check quota).",
+            "details": "[]"
+          },
+          "model": "gemini-3.1-flash-image",
+          "request_id": "image_gen/1790733442376/0700faba-e7ba-4906-a9cd-b4826580a3ba/12",
+          "generation_config": {
+            "responseModalities": [
+              "TEXT",
+              "IMAGE"
+            ],
+            "imageConfig": {
+              "aspectRatio": "1:1",
+              "imageSize": "1K"
+            }
+          },
+          "verdict": "upstream_rejected"
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-image-us5-21.log",
+      "ssm_command_id": "a6fcc28f-fa17-4d7a-886a-9c297c059587",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T01:57:22.281266+00:00",
+          "account_id": 21,
+          "account_name": "anti-109",
+          "stored_plan_type": "Pro",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790734441",
+          "upstream_host": "cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "image"
+        },
+        {
+          "action": "streamGenerateContent",
+          "http_status": 429,
+          "elapsed_seconds": 0.089,
+          "response_bytes": 139,
+          "content_type": "text/event-stream",
+          "response_sha256": "73cfb6949dc395773288a9a10695a70a6b45901d933cc7ed532bb95845406453",
+          "error": {
+            "code": 429,
+            "status": "RESOURCE_EXHAUSTED",
+            "message": "Resource has been exhausted (e.g. check quota).",
+            "details": "[]"
+          },
+          "model": "gemini-3.1-flash-image",
+          "request_id": "image_gen/1790733442281/8596cfc3-86af-4967-a7a7-fd07b15c7aa1/12",
+          "generation_config": {
+            "responseModalities": [
+              "TEXT",
+              "IMAGE"
+            ],
+            "imageConfig": {
+              "aspectRatio": "1:1",
+              "imageSize": "1K"
+            }
+          },
+          "verdict": "upstream_rejected"
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-image-us6-27.log",
+      "ssm_command_id": "3597698c-4513-48a3-a3c1-7599454bf47a",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T01:57:22.360218+00:00",
+          "account_id": 27,
+          "account_name": "anti-167",
+          "stored_plan_type": "Pro",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790736396",
+          "upstream_host": "cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "image"
+        },
+        {
+          "action": "streamGenerateContent",
+          "http_status": 429,
+          "elapsed_seconds": 0.264,
+          "response_bytes": 139,
+          "content_type": "text/event-stream",
+          "response_sha256": "73cfb6949dc395773288a9a10695a70a6b45901d933cc7ed532bb95845406453",
+          "error": {
+            "code": 429,
+            "status": "RESOURCE_EXHAUSTED",
+            "message": "Resource has been exhausted (e.g. check quota).",
+            "details": "[]"
+          },
+          "model": "gemini-3.1-flash-image",
+          "request_id": "image_gen/1790733442360/94cf495d-c2e9-47ad-bf4b-0f065c924de2/12",
+          "generation_config": {
+            "responseModalities": [
+              "TEXT",
+              "IMAGE"
+            ],
+            "imageConfig": {
+              "aspectRatio": "1:1",
+              "imageSize": "1K"
+            }
+          },
+          "verdict": "upstream_rejected"
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-quota-after-us4-33.log",
+      "ssm_command_id": "c86202ff-543a-4142-bcbb-94f9ed8d112b",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T02:02:08.548920+00:00",
+          "account_id": 33,
+          "account_name": "antigravity-or1-ls-b-2",
+          "stored_plan_type": "Ultra",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790736095",
+          "upstream_host": "cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "quota"
+        },
+        {
+          "action": "fetchAvailableModels",
+          "http_status": 200,
+          "elapsed_seconds": 0.259,
+          "response_bytes": 205732,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "8fd645e5cf98ee9487c246539ef447819ab0f97c0d8302c7783cdde0ae669da3",
+          "model_count": 33,
+          "image_models": {
+            "gemini-3.1-flash-image": {
+              "displayName": "Gemini 3.1 Flash Image",
+              "quotaInfo": {
+                "remainingFraction": 1,
+                "resetTime": "2026-09-30T07:02:08Z"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-quota-after-us5-21.log",
+      "ssm_command_id": "dec999aa-a804-4d6f-946d-eda0d994383b",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T02:02:08.534958+00:00",
+          "account_id": 21,
+          "account_name": "anti-109",
+          "stored_plan_type": "Pro",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790736842",
+          "upstream_host": "cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "quota"
+        },
+        {
+          "action": "fetchAvailableModels",
+          "http_status": 200,
+          "elapsed_seconds": 0.319,
+          "response_bytes": 205711,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "ee85d4cb0736d7beac27f89c990ec1c251aae5aa66cf62438f78f921008849c7",
+          "model_count": 33,
+          "image_models": {
+            "gemini-3.1-flash-image": {
+              "displayName": "Gemini 3.1 Flash Image",
+              "quotaInfo": {
+                "remainingFraction": 1,
+                "resetTime": "2026-09-30T07:02:08Z"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-quota-daily-after-us4-33.log",
+      "ssm_command_id": "b5acaf6f-53aa-4678-8f88-4180be857b8d",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T02:02:51.078272+00:00",
+          "account_id": 33,
+          "account_name": "antigravity-or1-ls-b-2",
+          "stored_plan_type": "Ultra",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790736095",
+          "upstream_host": "daily-cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "quota"
+        },
+        {
+          "action": "fetchAvailableModels",
+          "http_status": 200,
+          "elapsed_seconds": 0.303,
+          "response_bytes": 205792,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "0e9737320d066e09f160106d16c1c2301a7db16ebb78fdc032431efca1f1d9eb",
+          "model_count": 33,
+          "image_models": {
+            "gemini-3.1-flash-image": {
+              "displayName": "Gemini 3.1 Flash Image",
+              "quotaInfo": {
+                "remainingFraction": 1,
+                "resetTime": "2026-09-30T07:02:51Z"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-quota-daily-after-us5-21.log",
+      "ssm_command_id": "016330b8-c380-4c0f-b5c9-5f3ac7cc3715",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T02:02:51.072914+00:00",
+          "account_id": 21,
+          "account_name": "anti-109",
+          "stored_plan_type": "Pro",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790736842",
+          "upstream_host": "daily-cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "quota"
+        },
+        {
+          "action": "fetchAvailableModels",
+          "http_status": 200,
+          "elapsed_seconds": 0.423,
+          "response_bytes": 205771,
+          "content_type": "application/json; charset=UTF-8",
+          "response_sha256": "8d8be3ada6f2ed47ef90d2224b82637220208ec16904dadf630f09430fc0e10c",
+          "model_count": 33,
+          "image_models": {
+            "gemini-3.1-flash-image": {
+              "displayName": "Gemini 3.1 Flash Image",
+              "quotaInfo": {
+                "remainingFraction": 1,
+                "resetTime": "2026-09-30T07:02:51Z"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-text-control-us3-3.log",
+      "ssm_command_id": "72f5ad6a-6f6f-40a0-a48f-7b27009c0592",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T01:58:27.127515+00:00",
+          "account_id": 3,
+          "account_name": "antigravity-oh1-ls-b",
+          "stored_plan_type": "Pro",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790735753",
+          "upstream_host": "cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "text"
+        },
+        {
+          "action": "streamGenerateContent",
+          "http_status": 429,
+          "elapsed_seconds": 0.32,
+          "response_bytes": 139,
+          "content_type": "text/event-stream",
+          "response_sha256": "73cfb6949dc395773288a9a10695a70a6b45901d933cc7ed532bb95845406453",
+          "error": {
+            "code": 429,
+            "status": "RESOURCE_EXHAUSTED",
+            "message": "Resource has been exhausted (e.g. check quota).",
+            "details": "[]"
+          },
+          "model": "gemini-3.8-flash-high",
+          "request_id": "agent-7cb9ff11-88a7-4e03-a640-8e9f93855ef9",
+          "generation_config": {
+            "maxOutputTokens": 256
+          },
+          "verdict": "upstream_rejected"
+        }
+      ]
+    },
+    {
+      "probe_log": "agy-text-control-us6-27.log",
+      "ssm_command_id": "30d0e402-69b4-44ed-b537-e983cc2a6aa2",
+      "records": [
+        {
+          "kind": "context",
+          "utc": "2026-09-30T01:58:27.400330+00:00",
+          "account_id": 27,
+          "account_name": "anti-167",
+          "stored_plan_type": "Pro",
+          "project_sha256_prefix": "218f87bcebbc",
+          "token_expires_at": "1790736396",
+          "upstream_host": "cloudcode-pa.googleapis.com",
+          "user_agent": "antigravity/cli/1.2.12 darwin/arm64",
+          "transport": "Python urllib HTTPS, no proxy, no gateway, no redirects",
+          "mode": "text"
+        },
+        {
+          "action": "streamGenerateContent",
+          "http_status": 429,
+          "elapsed_seconds": 0.257,
+          "response_bytes": 139,
+          "content_type": "text/event-stream",
+          "response_sha256": "73cfb6949dc395773288a9a10695a70a6b45901d933cc7ed532bb95845406453",
+          "error": {
+            "code": 429,
+            "status": "RESOURCE_EXHAUSTED",
+            "message": "Resource has been exhausted (e.g. check quota).",
+            "details": "[]"
+          },
+          "model": "gemini-3.8-flash-high",
+          "request_id": "agent-423d34a1-bf28-409f-abc5-6b138c9bca92",
+          "generation_config": {
+            "maxOutputTokens": 256
+          },
+          "verdict": "upstream_rejected"
+        }
+      ]
+    }
+  ],
+  "image_verification": [
+    {
+      "kind": "runtime",
+      "container": "tokenkey-green",
+      "forward_base_url_override": null,
+      "edge": "us4"
+    },
+    {
+      "sha256": "581748bd4c32736e8843bc95fb8ebc3333f0393c6755ba468b67dc4619fe7702",
+      "bytes": 449232,
+      "format": "JPEG",
+      "size": [
+        1024,
+        1024
+      ],
+      "mode": "RGB",
+      "full_decode": true,
+      "remote_artifact": "/tmp/tk-agy-image-k1zq0t0e/image.jpg",
+      "thumbnail_path": "assets/gemini-oauth-probe-20260930/ultra-generate.jpg",
+      "edge": "us4"
+    },
+    {
+      "kind": "runtime",
+      "container": "tokenkey-green",
+      "forward_base_url_override": null,
+      "edge": "us5"
+    },
+    {
+      "sha256": "014308f31f0627c91342cfe63bc28ec3afdafaa61fe92c5a3f3d3ed8ae67a2ed",
+      "bytes": 454888,
+      "format": "JPEG",
+      "size": [
+        1024,
+        1024
+      ],
+      "mode": "RGB",
+      "full_decode": true,
+      "remote_artifact": "/tmp/tk-agy-image-7843xqus/image.jpg",
+      "thumbnail_path": "assets/gemini-oauth-probe-20260930/pro-generate.jpg",
+      "edge": "us5"
+    },
+    {
+      "sha256": "b652aadf09859d8d8a00a43f94d9efd37dc84795eca8baef7441b2b2cef49b20",
+      "bytes": 467805,
+      "format": "JPEG",
+      "size": [
+        1024,
+        1024
+      ],
+      "mode": "RGB",
+      "full_decode": true,
+      "remote_artifact": "/tmp/tk-agy-image-fpr047qu/image.jpg",
+      "thumbnail_path": "assets/gemini-oauth-probe-20260930/pro-stream.jpg",
+      "edge": "us5"
+    }
+  ]
+}

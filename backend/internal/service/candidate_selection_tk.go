@@ -236,6 +236,7 @@ func (r *CandidateRequest) evaluatePathWithPreparation(ctx context.Context, acco
 	if err != nil {
 		return nil, err
 	}
+	pathCtx = geminiImagesCandidateContext(pathCtx, r.shape, model, account)
 	supported, err := r.resolver.candidateGateway.candidateSupportsRequest(pathCtx, account, account.Platform, false, model, r.shape)
 	if err != nil || !supported {
 		return nil, err

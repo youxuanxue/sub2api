@@ -8,6 +8,44 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 )
 
+// Antigravity defaults an omitted imageSize to 1K upstream, while TokenKey's
+// image billing defaults to 2K. Set the same default on the selected OAuth wire
+// so Studio and API requests receive the resolution they are billed for. This
+// runs after candidate selection and never widens the Gemini Web contract.
+func ensureAntigravityDefaultImageSize(request map[string]any, model string) {
+	if !antigravity.IsImageModel(model) {
+		return
+	}
+	gen, ok := request["generationConfig"].(map[string]any)
+	if !ok {
+		gen, ok = request["generation_config"].(map[string]any)
+	}
+	if !ok {
+		return // EnsureImageResponseModalities owns creation of generationConfig.
+	}
+	key := "imageConfig"
+	value, exists := gen[key]
+	if !exists {
+		if snake, found := gen["image_config"]; found {
+			key, value = "image_config", snake
+		}
+	}
+	imageConfig, ok := value.(map[string]any)
+	if !ok {
+		if value != nil {
+			return // Preserve malformed explicit input for upstream validation.
+		}
+		imageConfig = make(map[string]any)
+		gen[key] = imageConfig
+	}
+	for _, sizeKey := range []string{"imageSize", "image_size"} {
+		if _, explicit := imageConfig[sizeKey]; explicit {
+			return
+		}
+	}
+	imageConfig["imageSize"] = NormalizeImageBillingTierOrDefault("")
+}
+
 // normalizeForwardGeminiGenerateContentBody applies the ForwardGemini generateContent
 // prep steps (identity patch, roles, schema clean, mixed-tool reconcile) without
 // wrapping. Callers wrap via prepareForwardGeminiWire / prepareForwardGeminiWireBody.

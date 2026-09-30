@@ -420,6 +420,8 @@ func TestAntigravityGatewayService_ForwardGemini_ImageUsesDefaultMappingAndOAuth
 	generationConfig, ok := request["generationConfig"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, []any{"TEXT", "IMAGE"}, generationConfig["responseModalities"])
+	require.Equal(t, map[string]any{"aspectRatio": "1:1", "imageSize": "2K"}, generationConfig["imageConfig"])
+	require.Equal(t, "2K", result.ImageSize, "wire resolution must agree with billing's default tier")
 }
 
 func TestAntigravityGatewayService_ForwardGemini_StripsBuiltinsWhenClientFunctionsPresent(t *testing.T) {

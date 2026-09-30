@@ -1,0 +1,909 @@
+{
+  "observed_date": "2026-09-30",
+  "edge": "us5",
+  "method": "Sequential direct Google Antigravity calls and local Gemini Web Worker calls; no public gateway or mapping changes",
+  "probe_sha256": "6187efcb89da11a47551c38b94b8844a8d226ead0849182b14e646726d749f06",
+  "prompt": "Generate one image of a blue ceramic cup on a plain white background, minimalist product photograph, no text.",
+  "reference_prompt": "Edit the supplied photo: change only the blue ceramic cup to bright red. Keep the shape, handle, white background and composition.",
+  "records": [
+    {
+      "utc": "2026-09-30T02:23:46.161958+00:00",
+      "channel": "agy",
+      "account_id": 21,
+      "account_name": "anti-109",
+      "case": "count_2",
+      "model": "gemini-3.1-flash-image",
+      "request_id": "image_gen/1790735026143/6f948f69-1f52-4af1-8c08-94e58b83e274/12",
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "1:1",
+          "imageSize": "1K"
+        },
+        "candidateCount": 2
+      },
+      "reference_image": false,
+      "http_status": 400,
+      "elapsed_seconds": 0.387,
+      "response_bytes": 139,
+      "response_sha256": "e21d921bd3bb5b24eb80fbecf0bdb91b2160bb9649919f6ebe597f83bb780099",
+      "verdict": "rejected",
+      "error": "{\"error\": {\"code\": 400, \"message\": \"Multiple candidates is not enabled for this model\", \"status\": \"INVALID_ARGUMENT\"}}",
+      "ssm_command_id": "42be0bb4-3f29-477a-b44d-3629f58fa14c"
+    },
+    {
+      "utc": "2026-09-30T02:16:36.853544+00:00",
+      "channel": "agy",
+      "account_id": 21,
+      "account_name": "anti-109",
+      "case": "ratio_16_9",
+      "model": "gemini-3.1-flash-image",
+      "request_id": "image_gen/1790734596843/a52a7a13-0ed5-465b-a37e-1a15bec87022/12",
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "16:9",
+          "imageSize": "1K"
+        }
+      },
+      "reference_image": false,
+      "http_status": 200,
+      "elapsed_seconds": 9.23,
+      "response_bytes": 1409846,
+      "response_sha256": "d4bc93153b1f501ff08e64560d72f3e1ea8f6749dc26013379c950b9ce333b24",
+      "verdict": "image_decoded",
+      "images": [
+        {
+          "format": "JPEG",
+          "size": [
+            1376,
+            768
+          ],
+          "mode": "RGB",
+          "full_decode": true,
+          "mime_type": "image/jpeg",
+          "bytes": 438130,
+          "sha256": "b67886fb3872cdecce093a13e2a9bea34a6fcafb261f04eee43dffeef0381090",
+          "remote_artifact": "/tmp/tk-image-compare-8_ko1vgm/image.bin",
+          "thumbnail": "agy-ratio_16_9-0.jpg"
+        }
+      ],
+      "text_excerpt": "",
+      "usage_metadata": {
+        "promptTokenCount": 22,
+        "candidatesTokenCount": 1510,
+        "totalTokenCount": 1532
+      },
+      "finish_reasons": [
+        "STOP"
+      ],
+      "ssm_command_id": "998daaa2-0cf8-4240-9a5c-b495c4cd2246"
+    },
+    {
+      "utc": "2026-09-30T02:24:24.522978+00:00",
+      "channel": "agy",
+      "account_id": 21,
+      "account_name": "anti-109",
+      "case": "ratio_3_4",
+      "model": "gemini-3.1-flash-image",
+      "request_id": "image_gen/1790735064512/508d49dd-c43a-4f92-bd93-f7a9937cc0e4/12",
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "3:4",
+          "imageSize": "1K"
+        }
+      },
+      "reference_image": false,
+      "http_status": 200,
+      "elapsed_seconds": 9.284,
+      "response_bytes": 1254754,
+      "response_sha256": "d41d5cc8a53a4df8b887176984795a898690cbec11478cca6309d5df77d8481d",
+      "verdict": "image_decoded",
+      "images": [
+        {
+          "format": "JPEG",
+          "size": [
+            896,
+            1200
+          ],
+          "mode": "RGB",
+          "full_decode": true,
+          "mime_type": "image/jpeg",
+          "bytes": 396632,
+          "sha256": "acc8b13708ac1878f05ea4c67026a7fc5fe02dab55f76947dd961eb11e2fac43",
+          "remote_artifact": "/tmp/tk-image-compare-vpvkhbbl/image.bin",
+          "thumbnail": "agy-ratio_3_4-0.jpg"
+        }
+      ],
+      "text_excerpt": "",
+      "usage_metadata": {
+        "promptTokenCount": 22,
+        "candidatesTokenCount": 1497,
+        "totalTokenCount": 1519
+      },
+      "finish_reasons": [
+        "STOP"
+      ],
+      "ssm_command_id": "1e716cfd-eed2-41e3-88ae-2e7488796039"
+    },
+    {
+      "utc": "2026-09-30T02:24:07.637288+00:00",
+      "channel": "agy",
+      "account_id": 21,
+      "account_name": "anti-109",
+      "case": "ratio_4_3",
+      "model": "gemini-3.1-flash-image",
+      "request_id": "image_gen/1790735047626/44c91aa9-da30-4e80-9ba0-3a5305fef77b/12",
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "4:3",
+          "imageSize": "1K"
+        }
+      },
+      "reference_image": false,
+      "http_status": 200,
+      "elapsed_seconds": 8.455,
+      "response_bytes": 1348862,
+      "response_sha256": "0cdc46d91ca136b5ec5137db996b3185c14b24c675c0ad13c15f008ee635086b",
+      "verdict": "image_decoded",
+      "images": [
+        {
+          "format": "JPEG",
+          "size": [
+            1200,
+            896
+          ],
+          "mode": "RGB",
+          "full_decode": true,
+          "mime_type": "image/jpeg",
+          "bytes": 420820,
+          "sha256": "d58c66671887b603ffef9919dfeedaaf5509fdc90424ddf3137e042254e9b602",
+          "remote_artifact": "/tmp/tk-image-compare-mjig0lol/image.bin",
+          "thumbnail": "agy-ratio_4_3-0.jpg"
+        }
+      ],
+      "text_excerpt": "",
+      "usage_metadata": {
+        "promptTokenCount": 22,
+        "candidatesTokenCount": 1476,
+        "totalTokenCount": 1498
+      },
+      "finish_reasons": [
+        "STOP"
+      ],
+      "ssm_command_id": "133d082d-1431-4df9-b82b-69698007de49"
+    },
+    {
+      "utc": "2026-09-30T02:23:50.350863+00:00",
+      "channel": "agy",
+      "account_id": 21,
+      "account_name": "anti-109",
+      "case": "ratio_9_16",
+      "model": "gemini-3.1-flash-image",
+      "request_id": "image_gen/1790735030339/10ddccf6-bb92-4e8e-b04c-504a95000e2a/12",
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "9:16",
+          "imageSize": "1K"
+        }
+      },
+      "reference_image": false,
+      "http_status": 200,
+      "elapsed_seconds": 12.1,
+      "response_bytes": 1305918,
+      "response_sha256": "7e3ab7a7905d2257a2bea6fc74988acf7951dda79ce8af99e54ad3992bf150de",
+      "verdict": "image_decoded",
+      "images": [
+        {
+          "format": "JPEG",
+          "size": [
+            768,
+            1376
+          ],
+          "mode": "RGB",
+          "full_decode": true,
+          "mime_type": "image/jpeg",
+          "bytes": 407184,
+          "sha256": "5a150d9ca32fbf73aedc89822e85d27ec9c78413ab642601368adc764045052f",
+          "remote_artifact": "/tmp/tk-image-compare-73hmg7nf/image.bin",
+          "thumbnail": "agy-ratio_9_16-0.jpg"
+        }
+      ],
+      "text_excerpt": "",
+      "usage_metadata": {
+        "promptTokenCount": 22,
+        "candidatesTokenCount": 1528,
+        "totalTokenCount": 1550
+      },
+      "finish_reasons": [
+        "STOP"
+      ],
+      "ssm_command_id": "e4d17e0d-2e2f-492c-b294-078e94c779de"
+    },
+    {
+      "utc": "2026-09-30T02:22:39.879053+00:00",
+      "channel": "agy",
+      "account_id": 21,
+      "account_name": "anti-109",
+      "case": "reference",
+      "model": "gemini-3.1-flash-image",
+      "request_id": "image_gen/1790734959867/d0d8431e-d22c-45bf-a4b3-acd53075cf9b/12",
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "1:1",
+          "imageSize": "1K"
+        }
+      },
+      "reference_image": true,
+      "http_status": 200,
+      "elapsed_seconds": 8.495,
+      "response_bytes": 1548055,
+      "response_sha256": "72daf013fd031821ed944df80ace40a2ce553545a2c3e19a6418c9c52a938849",
+      "verdict": "image_decoded",
+      "images": [
+        {
+          "format": "JPEG",
+          "size": [
+            1024,
+            1024
+          ],
+          "mode": "RGB",
+          "full_decode": true,
+          "mime_type": "image/jpeg",
+          "bytes": 301767,
+          "sha256": "dcb6fb2e372605fb09fb8e552870f8ab80e9bf92d89de54fe0167a10e35bec11",
+          "remote_artifact": "/tmp/tk-image-compare-g9q9t9oh/image.bin",
+          "thumbnail": "agy-reference-0.jpg"
+        }
+      ],
+      "text_excerpt": "",
+      "usage_metadata": {
+        "promptTokenCount": 285,
+        "candidatesTokenCount": 1361,
+        "totalTokenCount": 1646
+      },
+      "finish_reasons": [
+        "STOP"
+      ],
+      "ssm_command_id": "76368c7f-5900-4307-a38e-19c5f941ebcb"
+    },
+    {
+      "utc": "2026-09-30T02:19:10.003958+00:00",
+      "channel": "agy",
+      "account_id": 21,
+      "account_name": "anti-109",
+      "case": "size_2K",
+      "model": "gemini-3.1-flash-image",
+      "request_id": "image_gen/1790734749992/480cec2e-3eda-4aad-b39f-babc68e7bb37/12",
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "3:4",
+          "imageSize": "2K"
+        }
+      },
+      "reference_image": false,
+      "http_status": 200,
+      "elapsed_seconds": 22.61,
+      "response_bytes": 5841462,
+      "response_sha256": "24c19596727c2ad3e792cd5e6c87b1203b4474dcaefed5878db52ed0f80f5a55",
+      "verdict": "image_decoded",
+      "images": [
+        {
+          "format": "JPEG",
+          "size": [
+            1792,
+            2400
+          ],
+          "mode": "RGB",
+          "full_decode": true,
+          "mime_type": "image/jpeg",
+          "bytes": 2151744,
+          "sha256": "1fe9bb79bafc58537b84116f867168754ddf8eac6831df3362499cdc968bdb6f",
+          "remote_artifact": "/tmp/tk-image-compare-vzl_5zn2/image.bin",
+          "thumbnail": "agy-size_2K-0.jpg"
+        }
+      ],
+      "text_excerpt": "",
+      "usage_metadata": {
+        "promptTokenCount": 22,
+        "candidatesTokenCount": 2067,
+        "totalTokenCount": 2089
+      },
+      "finish_reasons": [
+        "STOP"
+      ],
+      "ssm_command_id": "3c4cff5e-ea52-4952-b933-09787b80da9d"
+    },
+    {
+      "utc": "2026-09-30T02:20:15.770869+00:00",
+      "channel": "agy",
+      "account_id": 21,
+      "account_name": "anti-109",
+      "case": "size_4K",
+      "model": "gemini-3.1-flash-image",
+      "request_id": "image_gen/1790734815753/0885032c-193e-4ee6-b9df-270a2f844213/12",
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "1:1",
+          "imageSize": "4K"
+        }
+      },
+      "reference_image": false,
+      "http_status": 200,
+      "elapsed_seconds": 32.82,
+      "response_bytes": 18791290,
+      "response_sha256": "307875914c51e63c0a6337920937479f34b8c817d5883f5d8f8e8263c46d4f53",
+      "verdict": "image_decoded",
+      "images": [
+        {
+          "format": "JPEG",
+          "size": [
+            4096,
+            4096
+          ],
+          "mode": "RGB",
+          "full_decode": true,
+          "mime_type": "image/jpeg",
+          "bytes": 7473268,
+          "sha256": "04b7a34d629468fb85a9200ef56f46ecb0c0beac8e8a7f9bebaa3baa03c41205",
+          "remote_artifact": "/tmp/tk-image-compare-jlpgdq8r/image.bin",
+          "thumbnail": "agy-size_4K-0.jpg"
+        }
+      ],
+      "text_excerpt": "",
+      "usage_metadata": {
+        "promptTokenCount": 22,
+        "candidatesTokenCount": 2961,
+        "totalTokenCount": 2983
+      },
+      "finish_reasons": [
+        "STOP"
+      ],
+      "ssm_command_id": "25b145bc-fb98-4e26-8c62-d1f8753865ee"
+    },
+    {
+      "utc": "2026-09-30T02:21:40.503632+00:00",
+      "channel": "agy",
+      "account_id": 21,
+      "account_name": "anti-109",
+      "case": "wide_21_9",
+      "model": "gemini-3.1-flash-image",
+      "request_id": "image_gen/1790734900493/25947571-1eca-4360-bef1-0716a96306e0/12",
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "21:9",
+          "imageSize": "1K"
+        }
+      },
+      "reference_image": false,
+      "http_status": 200,
+      "elapsed_seconds": 10.858,
+      "response_bytes": 1385854,
+      "response_sha256": "5ae3b7cf80fda0ce91a2329e8ad2958c64ddb552353bd6a42bb1f23635fea5f1",
+      "verdict": "image_decoded",
+      "images": [
+        {
+          "format": "JPEG",
+          "size": [
+            1584,
+            672
+          ],
+          "mode": "RGB",
+          "full_decode": true,
+          "mime_type": "image/jpeg",
+          "bytes": 436086,
+          "sha256": "b4a125f2eaff72f8ce56a08602e21334422b50b6f6fc32e441ef8c774c1414a1",
+          "remote_artifact": "/tmp/tk-image-compare-z1sgm5ud/image.bin",
+          "thumbnail": "agy-wide_21_9-0.jpg"
+        }
+      ],
+      "text_excerpt": "",
+      "usage_metadata": {
+        "promptTokenCount": 22,
+        "candidatesTokenCount": 1481,
+        "totalTokenCount": 1503
+      },
+      "finish_reasons": [
+        "STOP"
+      ],
+      "ssm_command_id": "c36e292b-3a0c-4db3-9345-f6f439d0fa41"
+    },
+    {
+      "utc": "2026-09-30T02:24:54.692009+00:00",
+      "channel": "web",
+      "account_id": 28,
+      "account_name": "gemini-web-504",
+      "case": "count_2",
+      "model": "gemini-web-pro-image",
+      "request_id": null,
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "1:1"
+        },
+        "candidateCount": 2
+      },
+      "reference_image": false,
+      "http_status": 400,
+      "elapsed_seconds": 0.02,
+      "response_bytes": 97,
+      "response_sha256": "21049f4fd47dd2761a44755a254c041833726e5bcd07c899fea38cead7d0794a",
+      "verdict": "rejected",
+      "error": "{\"error\": {\"code\": 400, \"status\": \"INVALID_ARGUMENT\", \"message\": \"Unsupported generationConfig field\"}}",
+      "runtime_after": {
+        "version": 1051,
+        "state": {
+          "blocked": false,
+          "last_refresh": 1790734974.8147676,
+          "cooldown_until": 0,
+          "generation_pending": false
+        }
+      },
+      "runtime_version_before": 1051,
+      "ssm_command_id": "4d3b6a51-cc1e-4164-8d76-4b07fdf28231"
+    },
+    {
+      "utc": "2026-09-30T02:17:47.778883+00:00",
+      "channel": "web",
+      "account_id": 28,
+      "account_name": "gemini-web-504",
+      "case": "ratio_16_9",
+      "model": "gemini-web-pro-image",
+      "request_id": null,
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "16:9"
+        }
+      },
+      "reference_image": false,
+      "http_status": 200,
+      "elapsed_seconds": 29.183,
+      "response_bytes": 2820330,
+      "response_sha256": "44335f4a6a0f731cc2e8388fe45dcf7f7827e15d245bd30359d0acd04efbd0ee",
+      "verdict": "image_decoded",
+      "images": [
+        {
+          "format": "JPEG",
+          "size": [
+            2752,
+            1536
+          ],
+          "mode": "RGB",
+          "full_decode": true,
+          "mime_type": "image/jpeg",
+          "bytes": 2115131,
+          "sha256": "3165d905e0be3d9439a81b0674eb6d9c3f1affd8f5cfa24db38454e039a4cb0d",
+          "remote_artifact": "/tmp/tk-image-compare-06kjbn5g/image.bin",
+          "thumbnail": "web-ratio_16_9-0.jpg"
+        }
+      ],
+      "text_excerpt": "_722",
+      "usage_metadata": null,
+      "finish_reasons": [
+        "STOP"
+      ],
+      "runtime_after": {
+        "version": 1025,
+        "state": {
+          "blocked": false,
+          "last_refresh": 1790734373.7485173,
+          "cooldown_until": 0,
+          "generation_pending": false
+        }
+      },
+      "runtime_version_before": 1020,
+      "ssm_command_id": "94acc5ad-48a8-4c8a-a8b4-9e1919ccc4fe"
+    },
+    {
+      "utc": "2026-09-30T02:20:58.138256+00:00",
+      "channel": "web",
+      "account_id": 28,
+      "account_name": "gemini-web-504",
+      "case": "ratio_1_1",
+      "model": "gemini-web-pro-image",
+      "request_id": null,
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "1:1"
+        }
+      },
+      "reference_image": false,
+      "http_status": 200,
+      "elapsed_seconds": 36.206,
+      "response_bytes": 3072570,
+      "response_sha256": "517519c6078ffa654fdd3a6e9a04d36b6790024441ef0f7655cd6c4b890cafff",
+      "verdict": "image_decoded",
+      "images": [
+        {
+          "format": "JPEG",
+          "size": [
+            2048,
+            2048
+          ],
+          "mode": "RGB",
+          "full_decode": true,
+          "mime_type": "image/jpeg",
+          "bytes": 2304311,
+          "sha256": "bbebaaff58ff3db4c2de8edc86ed784d7a105bcd0cd70e5e7f44d64fdbde8c5c",
+          "remote_artifact": "/tmp/tk-image-compare-9dfx_e96/image.bin",
+          "thumbnail": "web-ratio_1_1-0.jpg"
+        }
+      ],
+      "text_excerpt": "_723",
+      "usage_metadata": null,
+      "finish_reasons": [
+        "STOP"
+      ],
+      "runtime_after": {
+        "version": 1037,
+        "state": {
+          "blocked": false,
+          "last_refresh": 1790734373.7485173,
+          "cooldown_until": 0,
+          "generation_pending": false
+        }
+      },
+      "runtime_version_before": 1032,
+      "ssm_command_id": "300fa70e-8932-4be5-9bd6-4c8eef96a251"
+    },
+    {
+      "utc": "2026-09-30T02:19:39.663872+00:00",
+      "channel": "web",
+      "account_id": 28,
+      "account_name": "gemini-web-504",
+      "case": "ratio_3_4",
+      "model": "gemini-web-pro-image",
+      "request_id": null,
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "3:4"
+        }
+      },
+      "reference_image": false,
+      "http_status": 200,
+      "elapsed_seconds": 29.812,
+      "response_bytes": 2781110,
+      "response_sha256": "49bb05a65eff0db8ef4e621150fef394a80f8cc7f37cde52786ff3bdfa45d507",
+      "verdict": "image_decoded",
+      "images": [
+        {
+          "format": "JPEG",
+          "size": [
+            1792,
+            2400
+          ],
+          "mode": "RGB",
+          "full_decode": true,
+          "mime_type": "image/jpeg",
+          "bytes": 2085716,
+          "sha256": "bfafe4cf36106e453d44ee29dc73fdb440c42d9d330013794d3210c5c7f8f0a3",
+          "remote_artifact": "/tmp/tk-image-compare-kq197az9/image.bin",
+          "thumbnail": "web-ratio_3_4-0.jpg"
+        }
+      ],
+      "text_excerpt": "_722",
+      "usage_metadata": null,
+      "finish_reasons": [
+        "STOP"
+      ],
+      "runtime_after": {
+        "version": 1032,
+        "state": {
+          "blocked": false,
+          "last_refresh": 1790734373.7485173,
+          "cooldown_until": 0,
+          "generation_pending": false
+        }
+      },
+      "runtime_version_before": 1025,
+      "ssm_command_id": "ea6f1ba2-05ad-458e-ace0-5fef2bc1686d"
+    },
+    {
+      "utc": "2026-09-30T02:22:56.915182+00:00",
+      "channel": "web",
+      "account_id": 28,
+      "account_name": "gemini-web-504",
+      "case": "ratio_4_3",
+      "model": "gemini-web-pro-image",
+      "request_id": null,
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "4:3"
+        }
+      },
+      "reference_image": false,
+      "http_status": 200,
+      "elapsed_seconds": 44.024,
+      "response_bytes": 2803150,
+      "response_sha256": "04c2f56d387914ffa4169470d77d24cbc0bc0a2488c94208ed6a6d3b98e8bcba",
+      "verdict": "image_decoded",
+      "images": [
+        {
+          "format": "JPEG",
+          "size": [
+            2400,
+            1792
+          ],
+          "mode": "RGB",
+          "full_decode": true,
+          "mime_type": "image/jpeg",
+          "bytes": 2102246,
+          "sha256": "c1cecdbed9b42a93c761ea8042eaccc937a51aba4a100914b2537edcd574670f",
+          "remote_artifact": "/tmp/tk-image-compare-ftngahuu/image.bin",
+          "thumbnail": "web-ratio_4_3-0.jpg"
+        }
+      ],
+      "text_excerpt": "_723",
+      "usage_metadata": null,
+      "finish_reasons": [
+        "STOP"
+      ],
+      "runtime_after": {
+        "version": 1051,
+        "state": {
+          "blocked": false,
+          "last_refresh": 1790734974.8147676,
+          "cooldown_until": 0,
+          "generation_pending": false
+        }
+      },
+      "runtime_version_before": 1046,
+      "ssm_command_id": "48ab8e70-8155-4673-8d50-a7bcc2c596ed"
+    },
+    {
+      "utc": "2026-09-30T02:21:57.513435+00:00",
+      "channel": "web",
+      "account_id": 28,
+      "account_name": "gemini-web-504",
+      "case": "ratio_9_16",
+      "model": "gemini-web-pro-image",
+      "request_id": null,
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "9:16"
+        }
+      },
+      "reference_image": false,
+      "http_status": 200,
+      "elapsed_seconds": 37.075,
+      "response_bytes": 2768414,
+      "response_sha256": "b0a40005d033d56ef793ba18eebb7676af5384a62396bf1971d30911d79d0b09",
+      "verdict": "image_decoded",
+      "images": [
+        {
+          "format": "JPEG",
+          "size": [
+            1536,
+            2752
+          ],
+          "mode": "RGB",
+          "full_decode": true,
+          "mime_type": "image/jpeg",
+          "bytes": 2076194,
+          "sha256": "4a9890424844e4674d1cf5a399895101ba435fdd3687bd00f25d6684525becc4",
+          "remote_artifact": "/tmp/tk-image-compare-gyje6tbv/image.bin",
+          "thumbnail": "web-ratio_9_16-0.jpg"
+        }
+      ],
+      "text_excerpt": "_724",
+      "usage_metadata": null,
+      "finish_reasons": [
+        "STOP"
+      ],
+      "runtime_after": {
+        "version": 1042,
+        "state": {
+          "blocked": false,
+          "last_refresh": 1790734373.7485173,
+          "cooldown_until": 0,
+          "generation_pending": false
+        }
+      },
+      "runtime_version_before": 1037,
+      "ssm_command_id": "d098cc66-2c6d-47e3-84a8-0889294823ae"
+    },
+    {
+      "utc": "2026-09-30T02:24:50.399390+00:00",
+      "channel": "web",
+      "account_id": 28,
+      "account_name": "gemini-web-504",
+      "case": "reference",
+      "model": "gemini-web-pro-image",
+      "request_id": null,
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "1:1"
+        }
+      },
+      "reference_image": true,
+      "http_status": 400,
+      "elapsed_seconds": 0.024,
+      "response_bytes": 98,
+      "response_sha256": "c1fee5663cd4e4633d9bfd5a566d483df39db235f4b8882d1a4758291a6a089b",
+      "verdict": "rejected",
+      "error": "{\"error\": {\"code\": 400, \"status\": \"INVALID_ARGUMENT\", \"message\": \"Only text input parts are supported\"}}",
+      "runtime_after": {
+        "version": 1051,
+        "state": {
+          "blocked": false,
+          "last_refresh": 1790734974.8147676,
+          "cooldown_until": 0,
+          "generation_pending": false
+        }
+      },
+      "runtime_version_before": 1051,
+      "ssm_command_id": "1ef7e1a1-6ad6-4d76-86ad-55ad0c02b7e3"
+    },
+    {
+      "utc": "2026-09-30T02:24:59.115988+00:00",
+      "channel": "web",
+      "account_id": 28,
+      "account_name": "gemini-web-504",
+      "case": "sampling",
+      "model": "gemini-web-pro-image",
+      "request_id": null,
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "1:1"
+        },
+        "temperature": 0.5
+      },
+      "reference_image": false,
+      "http_status": 400,
+      "elapsed_seconds": 0.02,
+      "response_bytes": 97,
+      "response_sha256": "21049f4fd47dd2761a44755a254c041833726e5bcd07c899fea38cead7d0794a",
+      "verdict": "rejected",
+      "error": "{\"error\": {\"code\": 400, \"status\": \"INVALID_ARGUMENT\", \"message\": \"Unsupported generationConfig field\"}}",
+      "runtime_after": {
+        "version": 1051,
+        "state": {
+          "blocked": false,
+          "last_refresh": 1790734974.8147676,
+          "cooldown_until": 0,
+          "generation_pending": false
+        }
+      },
+      "runtime_version_before": 1051,
+      "ssm_command_id": "80455637-174d-4bac-aa62-f9737187adb2"
+    },
+    {
+      "utc": "2026-09-30T02:24:41.502012+00:00",
+      "channel": "web",
+      "account_id": 28,
+      "account_name": "gemini-web-504",
+      "case": "size_2K",
+      "model": "gemini-web-pro-image",
+      "request_id": null,
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "3:4",
+          "imageSize": "2K"
+        }
+      },
+      "reference_image": false,
+      "http_status": 400,
+      "elapsed_seconds": 0.024,
+      "response_bytes": 128,
+      "response_sha256": "677b559f908efc4de365c17156a9f32fa2afc2803ad9f856ffc405e08b6e685a",
+      "verdict": "rejected",
+      "error": "{\"error\": {\"code\": 400, \"status\": \"INVALID_ARGUMENT\", \"message\": \"imageConfig.aspectRatio is supported only for the Web image model\"}}",
+      "runtime_after": {
+        "version": 1051,
+        "state": {
+          "blocked": false,
+          "last_refresh": 1790734974.8147676,
+          "cooldown_until": 0,
+          "generation_pending": false
+        }
+      },
+      "runtime_version_before": 1051,
+      "ssm_command_id": "f4a49ca8-cf6c-4837-a1b5-4c0e8b70e984"
+    },
+    {
+      "utc": "2026-09-30T02:24:45.763814+00:00",
+      "channel": "web",
+      "account_id": 28,
+      "account_name": "gemini-web-504",
+      "case": "wide_21_9",
+      "model": "gemini-web-pro-image",
+      "request_id": null,
+      "generation_config": {
+        "responseModalities": [
+          "TEXT",
+          "IMAGE"
+        ],
+        "imageConfig": {
+          "aspectRatio": "21:9"
+        }
+      },
+      "reference_image": false,
+      "http_status": 400,
+      "elapsed_seconds": 0.02,
+      "response_bytes": 98,
+      "response_sha256": "71d97cb1684a48d77ec8806278744f511e4dfbcc19e7e96645e8455b9093ce9a",
+      "verdict": "rejected",
+      "error": "{\"error\": {\"code\": 400, \"status\": \"INVALID_ARGUMENT\", \"message\": \"Unsupported imageConfig.aspectRatio\"}}",
+      "runtime_after": {
+        "version": 1051,
+        "state": {
+          "blocked": false,
+          "last_refresh": 1790734974.8147676,
+          "cooldown_until": 0,
+          "generation_pending": false
+        }
+      },
+      "runtime_version_before": 1051,
+      "ssm_command_id": "e828a118-d549-43b0-a0dc-a8062602e54b"
+    }
+  ]
+}

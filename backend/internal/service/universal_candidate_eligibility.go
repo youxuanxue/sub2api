@@ -84,6 +84,15 @@ func (r *UniversalRoutingResolver) withRequestProfile(ctx context.Context, shape
 	if router == nil {
 		return ctx
 	}
+	if UsesGeminiImagesAdapter(shape, model) {
+		_, native, err := PrepareGeminiImagesRequest(body)
+		if err != nil {
+			return context.WithValue(ctx, protocolRoutingContextKey{}, false)
+		}
+		// The Images facade is an operation adapter. Its generated request is
+		// admitted and executed by the existing immutable native Gemini Plan.
+		body, shape, path, profile = native, ShapeGemini, "/v1beta/models/"+model+":generateContent", nil
+	}
 	inbound, responsesPath, ok := candidateCanonicalProtocol(shape, path)
 	if !ok {
 		if shape == ShapeAnthropicCountTokens {

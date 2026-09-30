@@ -11,6 +11,11 @@ func TestTkOpenAIImageGenerationsDispatch_PlatformOpenAIUsesImages(t *testing.T)
 	require.Equal(t, "images", tkOpenAIImageGenerationsDispatch(service.PlatformOpenAI))
 }
 
+func TestTkOpenAIImageGenerationsDispatch_AntigravityUsesGeminiImages(t *testing.T) {
+	require.Equal(t, "gemini_images", tkOpenAIImageGenerationsDispatch(service.PlatformAntigravity))
+	require.Equal(t, "not_found", tkOpenAIImageGenerationsDispatch(service.PlatformGemini))
+}
+
 func TestTkOpenAIImageGenerationsDispatch_CompatPoolUsesImageGenerations(t *testing.T) {
 	require.Equal(t, "image_generations", tkOpenAIImageGenerationsDispatch(service.PlatformNewAPI))
 }

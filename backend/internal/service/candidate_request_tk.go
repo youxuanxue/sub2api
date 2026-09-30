@@ -326,7 +326,7 @@ func (r *CandidateRequest) pathContext(ctx context.Context, group *Group) (conte
 		}
 	}
 	body := r.body
-	if request, ok := ProtocolRoutingRequest(ctx); ok {
+	if request, ok := ProtocolRoutingRequest(ctx); ok && !UsesGeminiImagesAdapter(r.shape, r.model) {
 		body = request.Body()
 	}
 	mapping := ChannelMappingResult{MappedModel: model}
