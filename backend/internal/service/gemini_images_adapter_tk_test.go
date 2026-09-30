@@ -120,3 +120,37 @@ func TestGeminiImagesPreservesExistingNewAPIProvider(t *testing.T) {
 		require.JSONEq(t, string(body), string(state.body), "provider-specific options remain intact")
 	}
 }
+
+func TestGeminiImagesSelectionStaysWithDispatchedProtocol(t *testing.T) {
+	for _, native := range []bool{true, false} {
+		t.Run(map[bool]string{true: "antigravity", false: "newapi"}[native], func(t *testing.T) {
+			group := grp(740, PlatformNewAPI, 1, false)
+			group.AllowImageGeneration = true
+			ag := geminiImagesTestAccount()
+			other := globalCandidateAccount(851, 0, group.ID)
+			other.Platform = PlatformNewAPI
+			other.ChannelType = newapiconstant.ChannelTypeOpenAI
+			other.Credentials["model_mapping"] = map[string]any{"nano-2": "gemini-3.1-flash-image"}
+			first, alternate := ag, other
+			if !native {
+				first, alternate = other, ag
+			}
+			first.Priority, alternate.Priority = 0, 1
+			peer := first
+			peer.ID, peer.Priority = 852, 2
+			resolver, _, key := globalCandidateFixture([]Group{group}, []Account{first, alternate, peer})
+			body := []byte(`{"model":"nano-2","prompt":"cup"}`)
+			ctx, state, err := resolver.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIImages, "/v1/images/generations", "nano-2", body, "", "")
+			require.NoError(t, err)
+			require.Equal(t, first.ID, state.current.account.ID)
+			ctx = WithGeminiImagesExecution(ctx)
+			excluded := map[int64]struct{}{first.ID: {}}
+			selection, err := state.selectAccount(ctx, candidateSelectOptions{excluded: excluded})
+			require.NoError(t, err)
+			require.Equal(t, peer.ID, selection.Account.ID, "retry must use the dispatched protocol even when another provider has higher priority")
+			excluded[peer.ID] = struct{}{}
+			_, err = state.selectAccount(ctx, candidateSelectOptions{excluded: excluded})
+			require.Error(t, err, "exhaustion must not forward native Gemini to an Images-only provider or vice versa")
+		})
+	}
+}

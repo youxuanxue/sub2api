@@ -66,8 +66,11 @@ func TestUS059_GeminiImagesIngressGenerationAndSettlement(t *testing.T) {
 	require.NoError(t, png.Encode(&pngBytes, image.NewRGBA(image.Rect(0, 0, 2, 3))))
 	encoded := base64.StdEncoding.EncodeToString(pngBytes.Bytes())
 	for _, transport := range []string{"oauth", "relay"} {
-		for _, scenario := range []string{"default", "explicit", "empty", "partial", "invalid", "multiple"} {
+		for _, scenario := range []string{"default", "explicit", "empty", "partial", "invalid", "multiple", "split_stop", "split_safety"} {
 			t.Run(transport+"/"+scenario, func(t *testing.T) {
+				if transport == "relay" && strings.HasPrefix(scenario, "split_") {
+					t.Skip("relay returns non-streaming native JSON")
+				}
 				data := encoded
 				if scenario == "invalid" {
 					data = "not base64!"
@@ -88,6 +91,15 @@ func TestUS059_GeminiImagesIngressGenerationAndSettlement(t *testing.T) {
 				if transport == "oauth" {
 					upstream.stream = true
 					upstream.body = "data: {\"response\":" + upstreamBody + "}\n\n"
+					if scenario == "split_stop" || scenario == "split_safety" {
+						terminal := "STOP"
+						if scenario == "split_safety" {
+							terminal = "SAFETY"
+						}
+						upstream.body = "data: {\"response\":" + strings.Replace(upstreamBody, finish, "", 1) + "}\n\n" +
+							`data: {"response":{"candidates":[{"finishReason":"` + terminal + `"}]}}` + "\n\n" +
+							`data: {"response":{"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":5}}}` + "\n\n"
+					}
 				}
 				cfg := &config.Config{RunMode: config.RunModeSimple}
 				group := &service.Group{ID: 740, Platform: service.PlatformNewAPI, Status: service.StatusActive, Hydrated: true, RateMultiplier: 1, AllowImageGeneration: true}
@@ -138,7 +150,7 @@ func TestUS059_GeminiImagesIngressGenerationAndSettlement(t *testing.T) {
 				}
 				require.Equal(t, wantSize, gjson.GetBytes(upstream.requests[0], prefix+"generationConfig.imageConfig.imageSize").String())
 				require.Equal(t, wantRatio, gjson.GetBytes(upstream.requests[0], prefix+"generationConfig.imageConfig.aspectRatio").String())
-				if scenario != "default" && scenario != "explicit" {
+				if scenario != "default" && scenario != "explicit" && scenario != "split_stop" {
 					require.Equal(t, 502, rec.Code, rec.Body.String())
 					require.Empty(t, usage.logs, "undeliverable buffered images must not settle")
 					return

@@ -24,6 +24,9 @@ func (s *GatewayService) candidateSupportsRequest(ctx context.Context, account *
 	if account == nil {
 		return false, nil
 	}
+	if native, bound := ctx.Value(geminiImagesExecutionKey{}).(bool); bound && native != (account.Platform == PlatformAntigravity) {
+		return false, nil
+	}
 	if UsesGeminiImagesAdapter(shape, model) {
 		if account.Platform == PlatformGemini {
 			return false, nil

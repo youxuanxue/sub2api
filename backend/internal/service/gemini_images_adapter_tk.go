@@ -24,3 +24,20 @@ func geminiImagesCandidateContext(ctx context.Context, shape UniversalShape, mod
 	}
 	return ctx
 }
+
+type geminiImagesExecutionKey struct{}
+
+// WithGeminiImagesExecution binds reselection to the dispatched Images protocol.
+// Admission still considers all providers; the native and Images handlers cannot
+// execute each other's wire format once dispatch has selected one of them.
+func WithGeminiImagesExecution(ctx context.Context) context.Context {
+	request := CandidateRequestFromContext(ctx)
+	if request == nil || !UsesGeminiImagesAdapter(request.shape, request.model) {
+		return ctx
+	}
+	platform, ok := CandidateExecutionPlatform(ctx)
+	if !ok {
+		return ctx
+	}
+	return context.WithValue(ctx, geminiImagesExecutionKey{}, platform == PlatformAntigravity)
+}

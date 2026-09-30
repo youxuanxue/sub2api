@@ -205,6 +205,7 @@ func tkOpenAIImageGenerationsDispatch(platform string) string {
 // tkOpenAICompatImageGenerationsHandler routes POST /images/generations for OpenAI-compat platform groups only.
 func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		c.Request = c.Request.WithContext(service.WithGeminiImagesExecution(c.Request.Context()))
 		switch tkOpenAIImageGenerationsDispatch(getGroupPlatform(c)) {
 		case "gemini_images":
 			h.Gateway.GeminiImageGenerations(c)

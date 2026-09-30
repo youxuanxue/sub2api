@@ -375,6 +375,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 	var last map[string]any
 	var lastWithParts map[string]any
 	var collectedParts []map[string]any
+	var finishReason string
 
 	type scanEvent struct {
 		line string
@@ -479,6 +480,9 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 			// Check for MALFORMED_FUNCTION_CALL
 			if candidates, ok := parsed["candidates"].([]any); ok && len(candidates) > 0 {
 				if cand, ok := candidates[0].(map[string]any); ok {
+					if fr, ok := cand["finishReason"].(string); ok && fr != "" {
+						finishReason = fr
+					}
 					if fr, ok := cand["finishReason"].(string); ok && fr == "MALFORMED_FUNCTION_CALL" {
 						logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] MALFORMED_FUNCTION_CALL detected in forward non-stream collect")
 						if content, ok := cand["content"]; ok {
@@ -522,6 +526,15 @@ returnResponse:
 
 	// TK: Preserve tools, thought signatures and ordered media via the shared collector.
 	finalResponse = mergeCollectedPartsToResponse(finalResponse, collectedParts)
+	// A terminal event may have no parts, and a usage-only event may follow it.
+	// Keep its finish reason so callers can distinguish complete from partial images.
+	if finishReason != "" {
+		if candidates, ok := finalResponse["candidates"].([]any); ok && len(candidates) > 0 {
+			if candidate, ok := candidates[0].(map[string]any); ok {
+				candidate["finishReason"] = finishReason
+			}
+		}
+	}
 
 	respBody, err := json.Marshal(finalResponse)
 	if err != nil {

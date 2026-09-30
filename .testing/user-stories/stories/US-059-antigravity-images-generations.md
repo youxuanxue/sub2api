@@ -21,10 +21,10 @@
 
 ## Assertions
 
-- AC-001：比较上游 request 中 imageSize/aspectRatio；PNG 解码返回值；核对 usage account、ImageCount、ImageSize 和 InboundEndpoint。
-- AC-002：核对 HTTP 状态、上游调用次数、usage 为空与 key.GroupID 未绑定。
+- AC-001：图片与 STOP 分事件、随后 usage-only 事件仍返回成功并只计量一次；比较上游 request 中 imageSize/aspectRatio；PNG 解码返回值；核对 usage account、ImageCount、ImageSize 和 InboundEndpoint。
+- AC-002：独立 SAFETY 结束事件仍拒绝；核对 HTTP 状态、上游调用次数、usage 为空与 key.GroupID 未绑定。
 - AC-003：核对不可变 request digest、原生 AdapterID、选中账号及拒绝结果。
-- AC-004：运行既有原生/兼容/候选/路由回归，不修改其期望。
+- AC-004：混合 AG/newapi 池分派后仅重选同协议账号，耗尽时不向另一协议供应商错发请求；运行既有原生/兼容/候选/路由回归，不修改其期望。
 - AC-005：实际写入超限字节，断言 ErrShortBuffer、内部/客户端缓冲为空和最终 502。
 
 ## Linked Tests
@@ -36,6 +36,7 @@
 - AC-003: `backend/internal/service/gemini_images_adapter_tk_test.go`::`TestGeminiImagesCandidateRejectsUnauthorizedOrLossyRequests`
 - AC-004: `backend/internal/server/routes/gateway_tk_openai_compat_image_dispatch_test.go`::`TestTkOpenAIImageGenerationsDispatch_CompatPoolUsesImageGenerations`
 - AC-004: `backend/internal/service/gemini_images_adapter_tk_test.go`::`TestGeminiImagesPreservesExistingNewAPIProvider`
+- AC-004: `backend/internal/service/gemini_images_adapter_tk_test.go`::`TestGeminiImagesSelectionStaysWithDispatchedProtocol`
 - AC-005: `backend/internal/handler/gemini_images_tk_test.go`::`TestGeminiImagesWriterEnforcesBufferLimit`
 
 Run command: `cd backend && go test -p 2 -tags=unit ./internal/pkg/apicompat ./internal/engine/protocolrouter ./internal/service ./internal/handler ./internal/server/middleware ./internal/server/routes -run 'Test(ImagesToGemini|GeminiGenerationToImages|Gemini|Antigravity|WrapNativeGeminiRequest|Candidate|GlobalCandidate|Universal|Protocol|TkOpenAI|US057_Gemini|US059|ImageCapability)' -count=1`

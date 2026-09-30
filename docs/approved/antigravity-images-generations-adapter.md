@@ -46,6 +46,7 @@ quality、background、output_format、mask、输入图、其他未知字段返�
    图片权限、组范围、映射、余额与可用性检查。
 4. 实际选择的账号决定 handler。Images facade 将同一 native body 交给既有 Gemini
    handler，保留原始 URL，因此日志/用量入口仍为 `/v1/images/generations`。
+   分派后重新选号仅保留该 handler 可执行的协议路径：AG 原生与既有 Images 供应商之间不跨协议重试，同协议账号仍可切换。
 5. 非流式响应在边界缓冲后转换为 Images envelope；既有 handler 在提交用量前完成转换校验。空图、坏 base64、多图或未完成响应返回 502，不计费、不重放。
 6. 只有图片映射的 AG 账号也必须具有有效的原生 Gemini protocol capability，不能走非治理旁路。
 
@@ -63,7 +64,7 @@ Studio/Quickstart 的 Gemini 默认仍优先既有 Chat/native profile，不增�
 - 请求转换：默认 2K、显式尺寸/比例、prompt 保留、拒绝无法兑现的参数。
 - Direct/Universal：原生 Plan 与执行使用相同 body/digest；不能借用无权组、关闭图片的组、
   Web 账号或不支持原生 Gemini 的账号。
-- 响应：标准 b64_json、错误状态和 Retry-After、空/坏图片、缓冲超限。
+- 响应：标准 b64_json、错误状态和 Retry-After、空/坏图片、缓冲超限；图片与 STOP 分事件返回且随后有 usage 事件时仍成功，SAFETY 结束仍拒绝。
 - 集成：mock 上游捕获 Gemini 请求，返回真实可解码图片，验证只请求一次、图片数/尺寸和
   最终 OpenAI Images envelope；保留已有 OpenAI/Grok/newapi 路由回归。
 - 本地实现/测试不代表线上部署后验收；后续上线需补公开 Key 的实际请求与用量关联。
