@@ -6626,10 +6626,40 @@
         "func validateOpenAIImagesExplicitSize(req *OpenAIImagesRequest) error",
         "func upstreamOpenAIImagesSize(req *OpenAIImagesRequest) string",
         "func applyOpenAIImagesStrictCanvas(results []openAIResponsesImageResult, req *OpenAIImagesRequest) error",
+        "func canonicalizeOpenAIImagesSizeField(size string) string",
         "openAIImagesSizeQuantum",
-        "openAIImagesMaxGPTImage2Pixels"
+        "openAIImagesMaxGPTImage2Pixels",
+        "openAIImagesMinGPTImage2Pixels",
+        "openAIImagesMaxCanvasSide"
       ],
-      "rationale": "Local exact-canvas owner: admit size bounds, ceil-16 upstream size, and pad response to the client WxH. Upstream merge that drops this companion (or its call from applyOpenAIImagesClientFidelityPostprocess) reverts to soft upstream pixels and wrong billing tiers."
+      "rationale": "Local exact-canvas owner: admit size bounds (separator normalize, side<=3840, pixels in [655360,8294400]), ceil-16 upstream size, and pad response to the client WxH. Upstream merge that drops this companion (or its call from applyOpenAIImagesClientFidelityPostprocess) reverts to soft upstream pixels and wrong billing tiers."
+    },
+    {
+      "path": "backend/internal/service/openai_images_main_model_tk.go",
+      "must_contain": [
+        "func openAIImagesMainModelCandidates() []string",
+        "func nextOpenAIImagesMainModelAfterUnsupported(current string, tried map[string]bool) (string, bool)",
+        "SUB2API_IMAGES_MAIN_MODEL_FALLBACKS",
+        "openAIImagesMainModelFallbacks"
+      ],
+      "rationale": "Codex Responses driver fallback chain (codex2api imagesMainModelFallbacks parity). When ChatGPT plan-gates the preferred main model, retry the same account with the next candidate without cooling image capacity. Losing this companion leaves OAuth images stuck on a retired driver."
+    },
+    {
+      "path": "backend/internal/service/openai_images_style_tk.go",
+      "must_contain": [
+        "func applyOpenAIImagesStyleGuidance(prompt, style string) string",
+        "Style guidance:"
+      ],
+      "rationale": "Client style must fold into prompt as Style guidance text (codex2api parity). Writing tools[].style is ignored by ChatGPT OAuth; dropping this owner silently loses style fidelity."
+    },
+    {
+      "path": "backend/internal/service/openai_images_responses.go",
+      "must_contain": [
+        "prompt = applyOpenAIImagesStyleGuidance(prompt, parsed.Style)",
+        "isOpenAIImagesMainModelError(resp.StatusCode, respBody, mainModel)",
+        "nextOpenAIImagesMainModelAfterUnsupported(mainModel, openAIImagesTriedMainModels(triedCtx))"
+      ],
+      "rationale": "Responses OAuth builder must inject Style guidance before AR marker and retry on plan-gated main-model 400 with the next driver. Compile-clean if dropped — style and driver fallback would silently regress."
     },
     {
       "path": "backend/internal/service/openai_images_codex_direct_multi_tk.go",

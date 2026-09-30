@@ -236,20 +236,23 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_NormalizesOfficialAndCusto
 
 	tests := []struct {
 		size     string
+		wantSize string
 		wantTier string
 	}{
-		{size: "1024x1024", wantTier: "1K"},
-		{size: "1536x1024", wantTier: "2K"},
-		{size: "1024x1536", wantTier: "2K"},
-		{size: "2048x2048", wantTier: "2K"},
-		{size: "2048x1152", wantTier: "2K"},
-		{size: "3840x2160", wantTier: "4K"},
-		{size: "2160x3840", wantTier: "4K"},
-		{size: "1024X768", wantTier: "1K"},
-		{size: "1280x768", wantTier: "2K"},
-		{size: "2560x1440", wantTier: "4K"},
-		{size: "2560x1600", wantTier: "4K"},
-		{size: "auto", wantTier: "2K"},
+		{size: "1024x1024", wantSize: "1024x1024", wantTier: "1K"},
+		{size: "1536x1024", wantSize: "1536x1024", wantTier: "2K"},
+		{size: "1024x1536", wantSize: "1024x1536", wantTier: "2K"},
+		{size: "2048x2048", wantSize: "2048x2048", wantTier: "2K"},
+		{size: "2048x1152", wantSize: "2048x1152", wantTier: "2K"},
+		{size: "3840x2160", wantSize: "3840x2160", wantTier: "4K"},
+		{size: "2160x3840", wantSize: "2160x3840", wantTier: "4K"},
+		{size: "1024X768", wantSize: "1024x768", wantTier: "1K"},
+		{size: "1280x768", wantSize: "1280x768", wantTier: "2K"},
+		{size: "2560x1440", wantSize: "2560x1440", wantTier: "4K"},
+		{size: "2560x1600", wantSize: "2560x1600", wantTier: "4K"},
+		{size: "1536×864", wantSize: "1536x864", wantTier: "2K"},
+		{size: "1536*864", wantSize: "1536x864", wantTier: "2K"},
+		{size: "auto", wantSize: "auto", wantTier: "2K"},
 	}
 
 	svc := &OpenAIGatewayService{}
@@ -266,7 +269,7 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_NormalizesOfficialAndCusto
 			parsed, err := svc.ParseOpenAIImagesRequest(c, body)
 			require.NoError(t, err)
 			require.NotNil(t, parsed)
-			require.Equal(t, tt.size, parsed.Size)
+			require.Equal(t, tt.wantSize, parsed.Size)
 			require.Equal(t, tt.wantTier, parsed.SizeTier)
 		})
 	}
@@ -279,11 +282,15 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_GPTImage2SizeBounds(t *tes
 		name     string
 		size     string
 		wantErr  string
+		wantSize string
 		wantTier string
 	}{
-		{name: "odd but in-bounds survives", size: "2048x1153", wantTier: "2K"},
-		{name: "small square survives", size: "512x512", wantTier: "1K"},
-		{name: "aspect over 3:1 rejected", size: "4096x1024", wantErr: "aspect ratio"},
+		{name: "odd but in-bounds survives", size: "2048x1153", wantSize: "2048x1153", wantTier: "2K"},
+		{name: "min pixels boundary survives", size: "1024x640", wantSize: "1024x640", wantTier: "1K"},
+		{name: "below min pixels rejected", size: "512x512", wantErr: "below min"},
+		{name: "below min landscape rejected", size: "1024x576", wantErr: "below min"},
+		{name: "side over 3840 rejected", size: "4096x2048", wantErr: "each side must be"},
+		{name: "aspect over 3:1 rejected", size: "3200x1024", wantErr: "aspect ratio"},
 		{name: "aspect over 3:1 landscape rejected", size: "3840x1024", wantErr: "aspect ratio"},
 		{name: "invalid format rejected", size: "invalid", wantErr: "WIDTHxHEIGHT"},
 		{name: "unparseable huge rejected", size: "999999999999999999999999999x2", wantErr: "WIDTHxHEIGHT"},
@@ -309,7 +316,7 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_GPTImage2SizeBounds(t *tes
 			}
 			require.NoError(t, err)
 			require.NotNil(t, parsed)
-			require.Equal(t, tt.size, parsed.Size)
+			require.Equal(t, tt.wantSize, parsed.Size)
 			require.Equal(t, tt.wantTier, parsed.SizeTier)
 		})
 	}
@@ -2160,7 +2167,7 @@ func TestBuildOpenAIImagesResponsesRequest_DoesNotPassNForDallE3(t *testing.T) {
 	require.Equal(t, "dall-e-3", gjson.GetBytes(body, "tools.0.model").String())
 }
 
-func TestBuildOpenAIImagesResponsesRequest_StripsStyleIntoToolAndPassesInputFidelity(t *testing.T) {
+func TestBuildOpenAIImagesResponsesRequest_FoldsStyleIntoPromptNotTool(t *testing.T) {
 	parsed := &OpenAIImagesRequest{
 		Endpoint:      openAIImagesEditsEndpoint,
 		Model:         "gpt-image-2",
@@ -2176,7 +2183,8 @@ func TestBuildOpenAIImagesResponsesRequest_StripsStyleIntoToolAndPassesInputFide
 	require.NoError(t, err)
 	require.NotNil(t, body)
 	require.Equal(t, "high", gjson.GetBytes(body, "tools.0.input_fidelity").String())
-	require.Equal(t, "vivid", gjson.GetBytes(body, "tools.0.style").String())
+	require.False(t, gjson.GetBytes(body, "tools.0.style").Exists())
+	require.Equal(t, "replace background\n\nStyle guidance: vivid", gjson.GetBytes(body, "input.0.content.0.text").String())
 	require.Equal(t, "edit", gjson.GetBytes(body, "tools.0.action").String())
 }
 
