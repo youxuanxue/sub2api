@@ -112,17 +112,23 @@ class BuildCfnSizeTest(unittest.TestCase):
         )
         self.assertIn("export TK_GLOBAL_SITE_DOMAIN='${GlobalSiteDomain}'", launcher)
         self.assertIn("export TK_GLOBAL_SITE_PHASE='${GlobalSitePhase}'", launcher)
+        self.assertIn("export TK_API_ALIAS_DOMAIN='${ApiAliasDomain}'", launcher)
 
     def test_prod_global_homepage_defaults_to_candidate(self) -> None:
         cfn_text = CFN_MAIN.read_text()
         self.assertRegex(
             cfn_text,
-            r"(?ms)^  GlobalSiteDomain:\n.*?^    Default: global\.tokenkey\.dev$",
+            r"(?ms)^  GlobalSiteDomain:\n.*?^    Default: callmodel\.io$",
         )
         self.assertRegex(
             cfn_text,
             r"(?ms)^  GlobalSitePhase:\n.*?^    Default: candidate$",
         )
+        self.assertRegex(
+            cfn_text,
+            r"(?ms)^  ApiAliasDomain:\n.*?^    Default: api\.callmodel\.io$",
+        )
+        self.assertNotIn("LegacyGlobalSiteDomain", cfn_text)
 
     def test_canonical_caddy_renderer_is_distributed_to_bootstrap(self) -> None:
         cfn_text = CFN_MAIN.read_text()

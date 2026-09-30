@@ -1,9 +1,9 @@
 # 客户测试：Prod Universal Key 生图（OpenAI + Gemini）
 
-> **以 prod 实测为准**（证据：2026-09-29 修复前基线 + 1.8.265 复测 + **1.8.266 精确画布复测**，`https://api.tokenkey.dev` + universal fulltest key；prod / edge-us3 运行镜像 `ghcr.io/youxuanxue/sub2api:1.8.266`）。
+> **以 prod 实测为准**（证据：2026-09-29 修复前基线 + 1.8.265 / **1.8.266 精确画布** / **1.8.267 n>1 修复** 复测，`https://api.tokenkey.dev` + universal fulltest key；prod / edge-us3 运行镜像 `ghcr.io/youxuanxue/sub2api:1.8.267`）。
 > 下列比例、像素、错误码均来自当次实跑；与代码 allowlist / Quickstart 示例不一致处，以本表「实测」列为准。
 >
-> **1.8.266 契约变化（OAuth Responses + 本地精确画布）：** 显式 `size=WxH` 时网关 pad 到字面像素（不再把 `1024x1024` 软改写成 1254×1254）。仅发 `aspect_ratio`、不发 `size` 时仍为软控（上游可漂移）。
+> **1.8.266+ 契约：** 显式 `size=WxH` 时网关 pad 到字面像素。仅发 `aspect_ratio`、不发 `size` 时仍为软控。**1.8.267：** OAuth `n>1` 由 TokenKey 多取合并；`stream+n>1` 本地 400。
 
 > 对齐产品契约（入口与字段拼写）：
 > [`image-generation-quickstart-studio.md`](../approved/image-generation-quickstart-studio.md)、
@@ -272,5 +272,21 @@ curl -sS "$TK_BASE/v1beta/models/gemini-3.1-flash-image:generateContent" \
 
 原始摘要：`/tmp/tk-img-266-probe/console.log`、`edge-us3-fidelity.json`。
 
-**跟进：** `n>1` 改为 TokenKey 多取（不传 `tools[].n`）；`stream+n>1` 本地拒写。见 fix PR。
+**跟进（已合入 #2390，1.8.267 验证）：** `n>1` TokenKey 多取；`stream+n>1` 本地拒写。
+
+## 9. 1.8.267 发版后复测（2026-09-30 UTC）
+
+线上：prod = `1.8.267`；edge-us3 `tokenkey-green` = `1.8.267`。Universal fulltest key → `https://api.tokenkey.dev`。
+
+| 契约项 | 请求 | 结果 | 判定 |
+| --- | --- | --- | --- |
+| GPT `n=2` + `size=1024x1024` | gpt-image-2 | HTTP **200**，`data` 长度 **2**，两张均为 **1024×1024** PNG；usage 合并 input=125 output=1430 | **PASS**（相对 266 的 tools[].n 400） |
+| `stream=true` + `n=2` | 同上 | HTTP **400** JSON，`unsupported_parameter`，文案含 `stream=true with n>1` | **PASS**（本地拒写，未打上游） |
+| 精确 `size=1024x1024` | n=1 | 1024×1024 PNG | **PASS**（回归） |
+| `output_format=jpeg` + size | n=1 | 魔数 JPEG，1024×1024 | **PASS** |
+| `output_format=webp` + size | n=1 | 魔数 WEBP，1024×1024 | **PASS** |
+| soft `aspect_ratio=16:9` | 无 size | 1672×941 | **PASS** |
+| 非法 `aspect_ratio=4:3` | — | HTTP **400** | **PASS** |
+
+原始摘要：`/tmp/tk-img-267-probe/console.log`。
 

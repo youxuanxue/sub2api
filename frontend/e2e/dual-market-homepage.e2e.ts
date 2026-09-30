@@ -3,7 +3,7 @@ import { expect, test, type BrowserContext, type Locator, type Page, type Route 
 const port = process.env.E2E_HOMEPAGE_PORT || '3000'
 const scheme = process.env.E2E_HOMEPAGE_SCHEME || 'http'
 const currentHomepage = `${scheme}://tokenkey.dev:${port}/home`
-const chinaExportHomepage = `${scheme}://global.tokenkey.dev:${port}/home`
+const chinaExportHomepage = `${scheme}://callmodel.io:${port}/home`
 
 const publicSettings = {
   api_base_url: 'https://api.tokenkey.dev',
@@ -236,11 +236,12 @@ test.describe('dual-market homepage', () => {
       'href',
       'https://tokenkey.dev/register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-chat%26protocol%3Dopenai',
     )
-    await expect(page.locator('header')).toContainText('TokenKey')
+    await expect(page.locator('header')).toContainText('CallModel')
     await expect(page.locator('header img')).toHaveAttribute('src', '/logo.png')
-    await expect(page.locator('footer')).toContainText('TokenKey')
+    await expect(page.locator('footer')).toContainText('CallModel')
     await expect(page.locator('footer')).not.toContainText('Sub2API')
-    await expect(page.locator('[data-testid="china-export-home"]')).toContainText('Free trial')
+    await expect(page.locator('[data-testid="china-export-home"]')).toContainText(/free trial/i)
+    await expect(page.locator('[data-testid="china-export-terminal"]')).toContainText('https://api.callmodel.io')
     await expect(page.locator('[data-testid="china-export-home"]')).not.toContainText('$1')
     await expect(page.locator('[data-testid="china-export-home"]')).not.toContainText('1M')
 
@@ -271,28 +272,36 @@ test.describe('dual-market homepage', () => {
     await expect(page.locator('h1')).toHaveText('中国领先 AI 模型，一个 API。')
   })
 
-  test('restores the parent-domain session on the global homepage', async ({ page, context }) => {
+  test('keeps the overseas homepage anonymous across the TokenKey cookie domain', async ({
+    page,
+    context,
+  }) => {
+    // callmodel.io and tokenkey.dev are different eTLD+1 registrable domains.
+    // A .tokenkey.dev session cookie must not authenticate the CallModel face.
     await addParentDomainSession(context)
     await page.unroute('**/api/v1/auth/refresh')
     let refreshCookie = ''
+    let refreshHits = 0
     await page.route('**/api/v1/auth/refresh', async (route) => {
+      refreshHits += 1
       refreshCookie = route.request().headers().cookie ?? ''
-      await fulfillOk(route, {
-        access_token: 'global-home-access',
-        refresh_token: 'global-home-refresh',
-        expires_in: 3600,
-        token_type: 'Bearer',
+      // Match the anonymous fixture status: a 401 refresh currently blanks the SPA.
+      await route.fulfill({
+        status: 500,
+        json: { code: 500, message: 'no cross-site session' },
       })
     })
-    await page.route('**/api/v1/auth/me', (route) => fulfillOk(route, testUser))
 
     await page.goto(chinaExportHomepage)
 
-    await expect.poll(() => refreshCookie).toContain('tk_refresh=parent-domain-session')
-    await expect(page.getByRole('link', { name: /dashboard/i })).toHaveAttribute(
+    await expect(page.locator('[data-testid="china-export-home"]')).toBeVisible()
+    await expect(page.locator('[data-testid="china-export-primary-cta"]')).toHaveAttribute(
       'href',
-      'https://tokenkey.dev/dashboard',
+      'https://tokenkey.dev/register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-chat%26protocol%3Dopenai',
     )
+    await expect(page.getByRole('link', { name: /dashboard/i })).toHaveCount(0)
+    await expect.poll(() => refreshHits).toBeGreaterThan(0)
+    expect(refreshCookie).not.toContain('tk_refresh=parent-domain-session')
   })
 
   test('drives the global CTA through registration into the DeepSeek quickstart', async ({ page }) => {

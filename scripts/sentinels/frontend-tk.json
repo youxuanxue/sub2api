@@ -1349,12 +1349,14 @@
     {
       "path": "frontend/src/features/home/marketProfile.tk.ts",
       "must_contain": [
-        "CHINA_EXPORT_HOSTNAME = 'global.tokenkey.dev'",
+        "CHINA_EXPORT_HOSTNAME = 'callmodel.io'",
+        "CHINA_EXPORT_API_ORIGIN = 'https://api.callmodel.io'",
+        "CHINA_EXPORT_BRAND = 'CallModel'",
         "export function resolveHomepageProfile",
         "export function resolveGlobalProductRedirect",
         "return `${PRODUCT_ORIGIN}${path}`"
       ],
-      "rationale": "Single pure owner for hostname-to-homepage profile and global-host SPA escape. The exact hostname keeps unknown/preview hosts on current; string-appending the local path keeps path/query/hash while preventing a network-path reference from becoming an open redirect."
+      "rationale": "Single pure owner for hostname-to-homepage profile, overseas API origin/brand, and CallModel-host SPA escape. The exact hostname keeps unknown/preview hosts on current; string-appending the local path keeps path/query/hash while preventing a network-path reference from becoming an open redirect."
     },
     {
       "path": "frontend/src/features/home/useHomeShell.tk.ts",
@@ -1371,10 +1373,11 @@
       "must_contain": [
         "keeps the current homepage unchanged on the apex host",
         "renders the China model story and real Seedance media on desktop",
+        "keeps the overseas homepage anonymous across the TokenKey cookie domain",
         "fits the China model homepage on mobile without overlapping its primary actions",
         "uses the poster instead of autoplay video for reduced motion"
       ],
-      "rationale": "Real-browser contract for the two hostname profiles: current-home regression, China model order/CTA/media decode, desktop/mobile overflow and overlap, and reduced-motion poster fallback. Unit mounts cannot prove these visual and media behaviors."
+      "rationale": "Real-browser contract for the two hostname profiles: current-home regression, China model order/CTA/media decode, cross-eTLD anonymity (callmodel.io must not inherit .tokenkey.dev cookies), desktop/mobile overflow and overlap, and reduced-motion poster fallback. Unit mounts cannot prove these visual and media behaviors."
     },
     {
       "path": "frontend/src/i18n/index.ts",

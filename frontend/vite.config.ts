@@ -223,7 +223,7 @@ export default defineConfig(({ mode }) => {
     server: {
       host: '0.0.0.0',
       port: devPort,
-      allowedHosts: ['tokenkey.dev', 'global.tokenkey.dev'],
+      allowedHosts: ['tokenkey.dev', 'callmodel.io'],
       watch: {
         ignored: ['**/e2e/artifacts/**', '**/e2e/report/**'],
       },

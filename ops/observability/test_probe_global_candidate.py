@@ -30,7 +30,7 @@ class CandidateHandler(http.server.BaseHTTPRequestHandler):
                 return
             robots = '<meta name="robots" content="noindex">' if self.meta_noindex else ""
             body = (
-                '<html><head><link rel="canonical" href="https://global.tokenkey.dev/">'
+                '<html><head><link rel="canonical" href="https://callmodel.io/">'
                 f"{robots}</head><body>"
                 "<h1>China's leading AI models. One API.</h1></body></html>"
             ).encode()
