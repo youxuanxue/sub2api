@@ -3302,7 +3302,8 @@
       "must_contain": [
         "func (s *GatewayService) tkShouldClearStickyForSaturation(",
         "!candidateSaturatedFor(account, count)",
-        "sticky_cleared_saturated_stub"
+        "anthropic_sticky_cleared_saturated_stub",
+        "nvidia_build_sticky_cleared_instability"
       ],
       "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },

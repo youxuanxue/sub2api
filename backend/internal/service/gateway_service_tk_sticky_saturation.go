@@ -15,12 +15,17 @@ func (s *GatewayService) tkShouldClearStickyForSaturation(ctx context.Context, a
 	if !candidateSaturatedFor(account, count) {
 		return false
 	}
-	threshold, window := edgeMirrorStubSaturationThreshold, edgeMirrorStubSaturationWindowSeconds
 	if isNewAPINVIDIABuildAccount(account) {
-		threshold, window = nvidiaBuildInstabilityThreshold, nvidiaBuildInstabilityWindowSeconds
+		slog.Info("nvidia_build_sticky_cleared_instability",
+			"account_id", account.ID,
+			"recent_count", count,
+			"threshold", nvidiaBuildInstabilityThreshold,
+			"window_seconds", nvidiaBuildInstabilityWindowSeconds,
+			"session", shortSessionHash(sessionHash))
+		return true
 	}
-	slog.Info("sticky_cleared_saturated_stub", "account_id", account.ID, "recent_count", count,
-		"threshold", threshold, "window_seconds", window,
+	slog.Info("anthropic_sticky_cleared_saturated_stub", "account_id", account.ID, "recent_count", count,
+		"threshold", edgeMirrorStubSaturationThreshold, "window_seconds", edgeMirrorStubSaturationWindowSeconds,
 		"session", shortSessionHash(sessionHash))
 	return true
 }

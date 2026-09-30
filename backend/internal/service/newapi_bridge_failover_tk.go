@@ -73,18 +73,24 @@ func tkBridgeFailureSemantic(apiErr *newapitypes.NewAPIError) gatewayFailureSema
 
 // tkIsBridgeOpaqueBadResponse404 reports a provider-opaque HTTP 404 wrapped as
 // bad_response_status_code without model-not-found / InvalidEndpointOrModel
-// diagnostics. True model-not-found shapes stay terminal (#617).
+// diagnostics. True model-not-found shapes stay terminal (#617). Body parsing
+// delegates to isUpstreamOpaqueProvider404 (shared with model cooldown).
 func tkIsBridgeOpaqueBadResponse404(apiErr *newapitypes.NewAPIError) bool {
 	if apiErr == nil || apiErr.StatusCode != http.StatusNotFound {
 		return false
 	}
 	body := tkBridgeUpstreamErrorBody(apiErr)
 	msg := tkBridgeUpstreamRelayMessage(apiErr)
-	if IsOpenAICompatModelNotFound404(body, msg) || isUpstreamModelNotFoundError(http.StatusNotFound, body) {
+	if IsOpenAICompatModelNotFound404(body, msg) {
 		return false
 	}
+	if isUpstreamOpaqueProvider404(apiErr.StatusCode, body) {
+		return true
+	}
+	// Thin fallback when body synthesis is empty but the NewAPIError code/message
+	// still carries the opaque relay wrapper.
 	code := strings.ToLower(strings.TrimSpace(string(apiErr.GetErrorCode())))
-	combined := strings.ToLower(strings.TrimSpace(msg + "\n" + string(body)))
+	combined := strings.ToLower(strings.TrimSpace(msg))
 	if code == "bad_response_status_code" {
 		return true
 	}
