@@ -382,3 +382,35 @@ The accepted policy keeps lowest eligible equivalent-origin attribution; changes
 to that policy or profit applicability require a business decision. Ordinary
 price changes validate their new input under US-043 and existing monitoring,
 without reopening this Story or updating the example's prices.
+
+## AG Messages permission administration — 2026-09-30
+
+Trace: [approved permission scope](../../../docs/approved/candidate-eligibility-ssot.md#antigravity-messages-permission-administration-2026-09-30).
+
+Acceptance: explicit AG enable/disable persists through unrelated edits and invalidates
+auth caches; fresh forms default off; AG mappings stay empty. Direct and Universal
+Messages conversions require the flag. Gemini, Chat, Responses and Images retain
+their prior admission; image opt-in and native Messages behavior retain their owners.
+Risk coverage: save/reset logic and stale-cache regression, scoped conversion
+permission, unchanged model substitutions, and shared capacity (no capacity policy
+change). Browser API fixtures prove UI interaction, not production persistence.
+
+Linked tests:
+- `backend/internal/service/antigravity_messages_permission_test.go::TestAntigravityMessagesPermissionAdminLifecycle`
+- `backend/internal/service/antigravity_messages_permission_test.go::TestAntigravityMessagesPermissionEndpointIsolation`
+- `backend/internal/service/openai_messages_dispatch_tk_newapi_test.go::TestSanitize_AntigravityGroup_PermissionOnly`
+- `frontend/e2e/groups-messages-permission.e2e.ts` (create; enable/save/reopen/rename/disable).
+
+Commands:
+```bash
+(cd backend && go test -tags=unit ./internal/service -run 'Test(AntigravityMessagesPermission|Sanitize|GeminiImages|ProtocolGemini)' -count=1)
+pnpm --dir frontend test:run src/views/admin/__tests__/groupsMessagesDispatch.spec.ts
+pnpm --dir frontend exec playwright test --config playwright.groups-permission.config.ts
+```
+
+Evidence: pre-fix admin lifecycle test reproduced `expected true, actual false`.
+Playwright create and edit journeys passed; screenshot at
+`frontend/e2e/artifacts/ag-messages-enabled.png` (local artifact).
+Evidence: focused backend permission, native fallback, image admission and converter
+regressions passed; frontend unit tests, typecheck and targeted ESLint passed.
+Status: locally validated; production permission not yet changed.

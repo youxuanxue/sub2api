@@ -7,6 +7,7 @@ import {
   messagesDispatchDefaultsForPlatform,
   messagesDispatchFormStateToConfig,
   resetMessagesDispatchFormState,
+  supportsMessagesDispatchPlatform,
 } from "../groupsMessagesDispatch";
 
 function dispatchFormShell(
@@ -25,6 +26,13 @@ function dispatchFormShell(
 }
 
 describe("groupsMessagesDispatch", () => {
+  it("allows AG permission without GPT mapping defaults", () => {
+    expect(supportsMessagesDispatchPlatform("antigravity")).toBe(true);
+    expect(supportsMessagesDispatchPlatform("anthropic")).toBe(false);
+    expect(createDefaultMessagesDispatchFormState("antigravity", "Google-Antigravity")).toEqual(
+      dispatchFormShell({ opus_mapped_model: "", sonnet_mapped_model: "", haiku_mapped_model: "" }),
+    );
+  });
   it("hydrates gemini vendor defaults from registry for Google-Vertex", () => {
     const vertexDefaults = messagesDispatchTierDefaultsForGroup("Google-Vertex", "newapi");
     expect(vertexDefaults).not.toBeNull();
