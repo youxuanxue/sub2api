@@ -11,6 +11,11 @@ const (
 	ImageBillingSize2K = "2K"
 	ImageBillingSize4K = "4K"
 
+	// Long-edge cutoffs for WxH → 1K/2K/4K. 2K tops at 2560 so common
+	// canvases like 2560x1440 match industry/号池 2K semantics (not 4K).
+	imageBillingLongEdge1K = 1024
+	imageBillingLongEdge2K = 2560
+
 	ImageSizeSourceOutput  = "output"
 	ImageSizeSourceInput   = "input"
 	ImageSizeSourceDefault = "default"
@@ -37,7 +42,7 @@ func ClassifyImageBillingTier(size string) (string, bool) {
 		return ImageBillingSize2K, true
 	case "4k":
 		return ImageBillingSize4K, true
-	case "2048x2048", "2048x1152":
+	case "2048x2048", "2048x1152", "2560x1440", "1440x2560":
 		return ImageBillingSize2K, true
 	case "3840x2160", "2160x3840":
 		return ImageBillingSize4K, true
@@ -52,9 +57,9 @@ func ClassifyImageBillingTier(size string) (string, bool) {
 		maxEdge = height
 	}
 	switch {
-	case maxEdge <= 1024:
+	case maxEdge <= imageBillingLongEdge1K:
 		return ImageBillingSize1K, true
-	case maxEdge <= 2048:
+	case maxEdge <= imageBillingLongEdge2K:
 		return ImageBillingSize2K, true
 	default:
 		return ImageBillingSize4K, true
