@@ -7,11 +7,8 @@ import (
 	"image"
 	"image/color"
 	stddraw "image/draw"
-	"image/png"
 	"strconv"
 	"strings"
-
-	xdraw "golang.org/x/image/draw"
 )
 
 // GPT Image 2 OAuth size bounds (official Images + 号池指南 / OpenAI cookbook).
@@ -157,6 +154,8 @@ func ceilOpenAIImagesQuantum(value, quantum int) int {
 
 // applyOpenAIImagesStrictCanvas resizes each result to the client-requested WxH
 // via content-preserving pad (codex2api strict default; cover is intentionally out of scope).
+// Large enlargements use progressive CatmullRom so big WxH canvases stay sharper
+// than a single huge resample hop (no external Real-ESRGAN in this path).
 func applyOpenAIImagesStrictCanvas(results []openAIResponsesImageResult, req *OpenAIImagesRequest) error {
 	if req == nil || !req.ExplicitSize {
 		return nil
@@ -220,22 +219,22 @@ func resizeOpenAIImageExact(src []byte, targetWidth, targetHeight int, padOpaque
 		return src, nil
 	}
 
+	dw, dh := fitOpenAIImageInside(sw, sh, targetWidth, targetHeight)
+	content := scaleOpenAIImageProgressive(srcImg, bounds, dw, dh)
+
 	dst := image.NewRGBA(image.Rect(0, 0, targetWidth, targetHeight))
 	if padOpaque {
 		stddraw.Draw(dst, dst.Bounds(), &image.Uniform{C: color.RGBA{R: 255, G: 255, B: 255, A: 255}}, image.Point{}, stddraw.Src)
 	}
-
-	dw, dh := fitOpenAIImageInside(sw, sh, targetWidth, targetHeight)
 	left := (targetWidth - dw) / 2
 	top := (targetHeight - dh) / 2
-	xdraw.CatmullRom.Scale(dst, image.Rect(left, top, left+dw, top+dh), srcImg, bounds, xdraw.Src, nil)
+	stddraw.Draw(dst, image.Rect(left, top, left+dw, top+dh), content, image.Point{}, stddraw.Src)
 
-	var buf bytes.Buffer
-	encoder := png.Encoder{CompressionLevel: png.BestSpeed}
-	if err := encoder.Encode(&buf, dst); err != nil {
+	out, err := encodeOpenAIImagePNG(dst)
+	if err != nil {
 		return nil, fmt.Errorf("strict canvas png encode: %w", err)
 	}
-	return buf.Bytes(), nil
+	return out, nil
 }
 
 func fitOpenAIImageInside(sw, sh, boxW, boxH int) (int, int) {
