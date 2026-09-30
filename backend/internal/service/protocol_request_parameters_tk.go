@@ -23,10 +23,6 @@ func protocolRequestParametersSupported(account *Account, resolvedModel string, 
 		return choice != protocolrouter.ToolChoiceRequired && choice != protocolrouter.ToolChoiceNamed &&
 			content.supported(*request, resolvedModel)
 	}
-	if isNewAPINVIDIABuildAccount(account) && resolvedModel == "deepseek-ai/deepseek-v4-pro-0813" &&
-		request.InboundProtocol() == protocolrouter.ProtocolChatCompletions {
-		return !gjson.GetBytes(request.Body(), "enable_thinking").Exists()
-	}
 	if account.Platform != PlatformGrok {
 		return true
 	}

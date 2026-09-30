@@ -139,7 +139,7 @@ func (s *BillingService) tkResolveFallbackOverlayPricing(modelLower string) *Mod
 	// OpenAI（GPT-5 / Codex 族）：仅匹配已知型号，避免未知 OpenAI 型号误计价。
 	if normalized := normalizeOpenAIBillingModel(modelLower); normalized != "" {
 		switch normalized {
-		case "gpt-6-sol", "gpt-6-luna":
+		case "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol":
 			return s.fallbackPrices[normalized]
 		case "gpt-5.6-sol":
 			return s.fallbackPrices["gpt-5.6-sol"]

@@ -84,6 +84,34 @@ func TestGPT6PublicAliasBillsAstraOwner(t *testing.T) {
 	require.False(t, isOpenAIGPT6AstraModel("gpt-6-other"))
 }
 
+func TestGPT61PublicAliasBillsSolOwner(t *testing.T) {
+	resetPricingRegistrySnapshot(t)
+	pricingService := NewPricingService(&config.Config{}, nil)
+	billing := NewBillingService(&config.Config{}, pricingService)
+
+	sol := pricingService.GetModelPricing("gpt-6.1-sol")
+	require.NotNil(t, sol)
+	require.InDelta(t, 2e-6, sol.InputCostPerToken, 1e-15)
+	require.InDelta(t, 10e-6, sol.OutputCostPerToken, 1e-15)
+	require.InDelta(t, 0.1e-6, sol.CacheReadInputTokenCost, 1e-15)
+
+	owner, declared := tkPricingRegistryAliasOwner("gpt-6.1")
+	require.True(t, declared, "gpt-6.1 must be overlay _aliases → gpt-6.1-sol (SSOT)")
+	require.Equal(t, "gpt-6.1-sol", owner)
+
+	pricing, err := billing.GetModelPricing("gpt-6.1")
+	require.NoError(t, err)
+	require.InDelta(t, sol.InputCostPerToken, pricing.InputPricePerToken, 1e-15)
+	require.InDelta(t, sol.OutputCostPerToken, pricing.OutputPricePerToken, 1e-15)
+	require.False(t, billing.IsServedViaFamilyFloor("gpt-6.1"),
+		"declared public alias must not raise served_at_fallback")
+
+	require.Equal(t, "gpt-6.1-sol", normalizeOpenAIBillingModel("gpt-6.1"))
+	require.Equal(t, "gpt-6.1-sol", normalizeOpenAIBillingModel("gpt-6.1-sol"))
+	require.Equal(t, "gpt-6.1-sol", CanonicalizeOpenAICompatRoutingModel("gpt-6.1"))
+	require.Equal(t, "gpt-6.1-sol", CanonicalizeOpenAICompatRoutingModel("gpt-6.1-sol"))
+}
+
 func TestUS043_LegacyFallbackNumbersCannotAffectBilling(t *testing.T) {
 	resetPricingRegistrySnapshot(t)
 	billing := NewBillingService(&config.Config{}, &PricingService{})

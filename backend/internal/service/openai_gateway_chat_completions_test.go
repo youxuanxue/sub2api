@@ -1015,7 +1015,7 @@ func TestBuildChatStreamErrorSSE(t *testing.T) {
 }
 
 func TestGPT6RawChatRejectsReasoningToolCalls(t *testing.T) {
-	for _, model := range []string{"gpt-6-sol", "gpt-6-luna"} {
+	for _, model := range []string{"gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"} {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
 		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
@@ -1048,6 +1048,26 @@ func TestGPT6ReasoningModeAndSamplingCompatibility(t *testing.T) {
 		require.Len(t, d.SupportedReasoningLevels, 5)
 		require.Len(t, d.ServiceTiers, 1)
 	}
+}
+
+func TestGPT61SolReasoningModeAndSamplingCompatibility(t *testing.T) {
+	model := "gpt-6.1-sol"
+	body := []byte(`{"model":"` + model + `","reasoning":{"mode":"pro","effort":"max"},"temperature":0.7,"top_p":0.9,"top_logprobs":2,"include":["reasoning.encrypted_content","message.output_text.logprobs"],"prompt_cache_options":{"ttl":"30m"}}`)
+	out, changed, err := normalizeOpenAIResponsesReasoningMode(body, "")
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "pro", gjson.GetBytes(out, "reasoning.mode").String())
+	require.Equal(t, "max", gjson.GetBytes(out, "reasoning.effort").String())
+	require.False(t, gjson.GetBytes(out, "temperature").Exists())
+	require.False(t, gjson.GetBytes(out, "top_p").Exists())
+	require.False(t, gjson.GetBytes(out, "top_logprobs").Exists())
+	require.Equal(t, "max", normalizeOpenAIReasoningEffortForModel("max", model))
+	d := newConfiguredCodexModelDescriptor(model)
+	require.NotNil(t, d.DefaultReasoningLevel)
+	require.Equal(t, "medium", *d.DefaultReasoningLevel)
+	require.EqualValues(t, 1_050_000, d.ContextWindow)
+	require.EqualValues(t, 1_050_000, d.MaxContextWindow)
+	require.Len(t, d.ServiceTiers, 1)
 }
 
 func TestGPT6RawChatNoneToolsAreForwarded(t *testing.T) {
@@ -1090,7 +1110,7 @@ func TestGPT6ReasoningModeUsesMappedUpstream(t *testing.T) {
 }
 
 func TestGPT6MappedCompatibilityBridgesKeepReasoningAndTools(t *testing.T) {
-	for _, model := range []string{"gpt-6-sol", "gpt-6-luna"} {
+	for _, model := range []string{"gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"} {
 		for _, messages := range []bool{false, true} {
 			body := []byte(`{"model":"public","reasoning_effort":"max","temperature":0.7,"top_p":0.9,"prompt_cache_options":{"ttl":"30m"},"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"messages":[{"role":"user","content":"hello"}]}`)
 			if messages {

@@ -1700,9 +1700,10 @@ fi
 
 # ---- sub2api: codex fingerprint pin consistency -----------------------------
 # The Codex (OpenAI-platform) client version has one service source:
-# DefaultOpenAICodexVersion. The UA default, gateway `version` header, and
-# usage-probe `Version` must derive from it. This gate proves the service pins
-# agree AMONG THEMSELVES — it never compares to a moving upstream codex release,
+# DefaultOpenAICodexVersion. The UA default, gateway `version` header, Go
+# usage-probe `Version`, and stage0 direct-upstream probe script defaults must
+# derive from / mirror it. This gate proves the pins agree AMONG THEMSELVES — it
+# never compares to a moving upstream codex release,
 # so it cannot break CI when codex ships a new version. Real upstream drift is
 # detected on-demand by skill tokenkey-codex-fingerprint-alignment.
 echo ""

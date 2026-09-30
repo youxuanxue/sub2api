@@ -70,15 +70,22 @@ func TestTkSkipOpenAIDownstreamCapacityPenalty_GrokRateLimitEnvelope(t *testing.
 type fakeOpenAISaturationCounterRL struct {
 	incrementIDs []int64
 	count        int64
+	lastWindow   int
+	batch        map[int64]int64
 }
 
-func (f *fakeOpenAISaturationCounterRL) IncrementSaturation(_ context.Context, accountID int64, _ int) (int64, error) {
+func (f *fakeOpenAISaturationCounterRL) IncrementSaturation(_ context.Context, accountID int64, windowSeconds int) (int64, error) {
 	f.incrementIDs = append(f.incrementIDs, accountID)
+	f.lastWindow = windowSeconds
 	f.count++
 	return f.count, nil
 }
 
-func (f *fakeOpenAISaturationCounterRL) GetSaturationBatch(_ context.Context, _ []int64, _ int) (map[int64]int64, error) {
+func (f *fakeOpenAISaturationCounterRL) GetSaturationBatch(_ context.Context, _ []int64, windowSeconds int) (map[int64]int64, error) {
+	f.lastWindow = windowSeconds
+	if f.batch != nil {
+		return f.batch, nil
+	}
 	return nil, nil
 }
 

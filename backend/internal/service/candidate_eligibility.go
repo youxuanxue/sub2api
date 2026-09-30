@@ -170,7 +170,7 @@ func (s *GatewayService) evaluateGroupCandidates(ctx context.Context, openai *Op
 		counts := s.candidateSaturationState().counts(ctx, candidates, model)
 		result.Saturated = true
 		for _, account := range candidates {
-			if !candidateSaturated(counts[account.ID]) {
+			if !candidateSaturatedFor(account, counts[account.ID]) {
 				result.Saturated = false
 				break
 			}

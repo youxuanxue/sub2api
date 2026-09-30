@@ -96,7 +96,7 @@ func TestTkHandleBridgeArrearsPenalty_VstecscloudPrepaidQuotaUsesStandingBilling
 	require.Equal(t, []string{tkStandingBillingIncidentReason}, incidents.reasons)
 	require.Len(t, incidents.details, 1)
 	require.Contains(t, incidents.details[0], "用户剩余额度")
-	require.True(t, tkBridgeUpstreamShouldFailoverAfterPenalty(apiErr))
+	require.True(t, tkBridgeUpstreamShouldFailoverAfterPenalty(account, apiErr))
 }
 
 func TestTkHandleBridgeArrearsPenalty_StandingBillingMarkerOutsideMessageStillFailsOver(t *testing.T) {
@@ -121,7 +121,7 @@ func TestTkHandleBridgeArrearsPenalty_StandingBillingMarkerOutsideMessageStillFa
 	require.Equal(t, 1, repo.setErrorCalls)
 	require.Equal(t, []string{tkStandingBillingIncidentReason}, blocker.reasons)
 	require.Equal(t, []string{tkStandingBillingIncidentReason}, incidents.reasons)
-	require.True(t, tkBridgeUpstreamShouldFailoverAfterPenalty(apiErr),
+	require.True(t, tkBridgeUpstreamShouldFailoverAfterPenalty(account, apiErr),
 		"penalty and failover must classify the same complete upstream envelope")
 }
 

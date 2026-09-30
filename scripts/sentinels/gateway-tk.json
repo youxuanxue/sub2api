@@ -24,17 +24,23 @@
       "must_contain": [
         "case isUpstreamModelRetiredError(statusCode, responseBody):",
         "upstreamModelRetiredCooldown",
-        "upstreamModelRetiredReason"
+        "upstreamModelRetiredReason",
+        "case isUpstreamOpaqueProvider404(statusCode, responseBody):",
+        "if !isNewAPINVIDIABuildAccount(account)"
       ],
-      "rationale": "Retirement cools only the failed account/model through the existing availability owner."
+      "rationale": "Retirement cools only the failed account/model through the existing availability owner; opaque provider 404 cooling is gated to NVIDIA Build."
     },
     {
       "path": "backend/internal/service/newapi_bridge_failover_tk.go",
       "must_contain": [
         "isUpstreamModelRetiredError(apiErr.StatusCode, tkBridgeUpstreamErrorBody(apiErr)",
-        "rls.HandleUpstreamModelNotFound(stateCtx, account, protocolExecutionResolvedModel(ctx, \"\")"
+        "rls.HandleUpstreamModelNotFound(stateCtx, account, protocolExecutionResolvedModel(ctx, \"\")",
+        "recordNVIDIABuildInstability",
+        "if isNewAPINVIDIABuildAccount(account) {\n\t\treturn true",
+        "isNewAPINVIDIABuildAccount(account) && tkIsBridgeOpaqueBadResponse404(apiErr)",
+        "tkBridgeUpstreamShouldFailoverAfterPenalty(account, apiErr)"
       ],
-      "rationale": "Bridge retirement must both switch accounts and cool the executed model; account-level penalty statuses remain narrow."
+      "rationale": "Bridge retirement must both switch accounts and cool the executed model; opaque bad_response_status_code 404 cool+failover stays NVIDIA-only; account-level penalty statuses remain narrow."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
@@ -61,9 +67,11 @@
       "path": "backend/internal/service/newapi_bridge_failover_tk_test.go",
       "must_contain": [
         "func TestBridgeModelRetirementCoolsExecutedModel(",
-        "func TestBridgeModelRetirementWithoutPlanDoesNotGuessCooldownKey("
+        "func TestBridgeModelRetirementWithoutPlanDoesNotGuessCooldownKey(",
+        "func TestTkBridgeUpstreamShouldFailoverAfterPenalty_OpaqueBadResponse404IsNVIDIAOnly(",
+        "func TestBridgeOpaqueBadResponse404DoesNotCoolOrdinaryNewAPI("
       ],
-      "rationale": "Bridge boundary regression asserts switching plus exact-model cooldown and no guessed key."
+      "rationale": "Bridge boundary regression asserts switching plus exact-model cooldown and no guessed key; opaque 404 failover/cool stays NVIDIA-only."
     },
     {
       "path": "backend/internal/service/account_model_mapping_nvidia_tk_test.go",
@@ -2821,7 +2829,10 @@
         "count >= edgeMirrorStubSaturationThreshold",
         "IsAnthropicSaturatedStubDeprioritizeEnabled",
         "IsOpenAISaturatedStubDeprioritizeEnabled",
-        "eligibleForOpenAICapacitySaturationPreference(account)"
+        "eligibleForOpenAICapacitySaturationPreference(account)",
+        "isNewAPINVIDIABuildAccount(account)",
+        "nvidiaBuildInstabilityWindowSeconds",
+        "candidateSaturatedFor(account, count)"
       ],
       "rationale": "One scoped interpretation of counters feeds account scoring and sticky preference, with Redis-owned expiry. OpenAI reads cover edge-mirror stubs and OAuth/setup-token accounts that write capacity saturation."
     },
@@ -2960,7 +2971,6 @@
         "func protocolRequestParametersSupported(",
         "account.IsCursor()",
         "choice != protocolrouter.ToolChoiceRequired && choice != protocolrouter.ToolChoiceNamed",
-        "isNewAPINVIDIABuildAccount(account)",
         "normalizeGrokReasoningEffortValue(value.String(), resolvedModel)",
         "content.supported(*request, resolvedModel)",
         "cursor.ValidateMessagesContent(filterWebSearchHistoryBlocks(wire, stripAll))",
@@ -2973,7 +2983,7 @@
         "func cursorWireContentSupported(wire []byte, stripAll bool) bool",
         "outcomes map[cursorRequestContentKey]bool"
       ],
-      "rationale": "Known provider/model parameter rejections exclude request paths without weakening explicit client intent. The Cursor content decision stays split: cursorExecutionWire reads only body and inbound protocol, the model reaches the answer solely as stripAll, and the outcome cache keys on stripAll so every account mapping to models that agree on it derives the wire once. Keying on the model string instead would restore the per-model fan-out this split removed."
+      "rationale": "Known provider/model parameter rejections exclude request paths without weakening explicit client intent. Cursor content stays on cursorExecutionWire; NVIDIA deepseek-pro enable_thinking gate was withdrawn with the NVIDIA floor convergence (chat-proven kimi/glm only)."
     },
     {
       "path": "backend/internal/service/protocol_request_parameters_tk_test.go",
@@ -3321,8 +3331,9 @@
       "path": "backend/internal/service/gateway_service_tk_sticky_saturation.go",
       "must_contain": [
         "func (s *GatewayService) tkShouldClearStickyForSaturation(",
-        "!candidateSaturated(count)",
-        "anthropic_sticky_cleared_saturated_stub"
+        "!candidateSaturatedFor(account, count)",
+        "anthropic_sticky_cleared_saturated_stub",
+        "nvidia_build_sticky_cleared_instability"
       ],
       "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
@@ -8579,7 +8590,8 @@
         "func (s *GatewayService) computeAnthropicSaturationPenalties(",
         "func (a accountWithLoad) effectivePriority() int",
         "anthropicSaturationPriorityPenalty",
-        "s.candidateSaturationState().counts"
+        "s.candidateSaturationState().counts",
+        "candidateSaturatedFor(candidates[i].account, count)"
       ],
       "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
@@ -8679,7 +8691,7 @@
       "path": "backend/internal/service/openai_gateway_service_tk_saturation_penalty.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) computeOpenAISaturationPenalties(",
-        "candidateSaturated",
+        "candidateSaturatedFor(candidates[i].account, count)",
         "openAISaturationScorePenalty",
         "s.candidateSaturationState().counts"
       ],
@@ -8689,7 +8701,7 @@
       "path": "backend/internal/service/openai_gateway_service_tk_sticky_saturation.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) tkShouldClearOpenAIStickyForSaturation(",
-        "!candidateSaturated(count)",
+        "!candidateSaturatedFor(account, count)",
         "openai_sticky_cleared_saturated_stub"
       ],
       "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
@@ -14124,6 +14136,32 @@
       "rationale": "Apply NVIDIA token budget alias before bridge transport."
     },
     {
+      "path": "backend/internal/service/nvidia_build_instability_tk.go",
+      "must_contain": [
+        "nvidiaBuildInstabilityWindowSeconds",
+        "nvidiaBuildInstabilityThreshold",
+        "func candidateSaturatedFor(",
+        "func (s *RateLimitService) recordNVIDIABuildInstability("
+      ],
+      "must_not_contain": [
+        "noteNVIDIALocalInstability",
+        "nvidiaLocalInstabilityCount",
+        "\"source\", \"local\""
+      ],
+      "rationale": "NVIDIA Build soft scheduling preference: first upstream error increments a Redis rolling instability counter and candidateSaturatedFor applies threshold-1 deprioritization so siblings absorb traffic. Soft preference only — never SetTempUnschedulable/SetError or a process-local dual path from this owner."
+    },
+    {
+      "path": "backend/internal/service/nvidia_build_instability_tk_test.go",
+      "must_contain": [
+        "TestCandidateSaturatedFor_NVIDIAThresholdOne",
+        "TestBridgeWrapRelayErrorAfterPenalty_NVIDIARecordsInstability",
+        "TestCandidateSaturationState_ReadsNVIDIAWindow",
+        "TestRecordNVIDIABuildInstability_NoOpWhenRedisUnwired",
+        "TestNVIDIABuildSupplyRepresentativesMatchWireTargets"
+      ],
+      "rationale": "Regressions for NVIDIA soft deprioritization: threshold-1 vs ordinary threshold-5, bridge wrap records instability, selection reads the NVIDIA window, Redis-unwired is a no-op (failover still handles the request), and supply representatives stay pinned to nvidiaBuildModelTargets."
+    },
+    {
       "path": "backend/internal/service/newapi_nvidia_chat_tk.go",
       "must_contain": [
         "func applyNVIDIABuildChatTokenLimit(",
@@ -15033,33 +15071,42 @@
         "\"gpt-6\":             \"gpt-6-astra\"",
         "\"gpt-6-sol\":           \"gpt-6-sol\"",
         "\"gpt-6-luna\":          \"gpt-6-luna\"",
+        "\"gpt-6.1-sol\":         \"gpt-6.1-sol\"",
+        "\"gpt-6.1\":             \"gpt-6.1-sol\"",
+        "{prefix: \"gpt-6.1-sol\", target: \"gpt-6.1-sol\"}",
+        "{prefix: \"gpt-6.1\", target: \"gpt-6.1-sol\"}",
         "{prefix: \"gpt-6\", target: \"gpt-6-astra\"}"
       ],
-      "rationale": "Codex wire entitlement: bare gpt-6 remaps to Astra; Sol/Luna keep explicit identity rows and longer prefixes win over bare gpt-6. An upstream rewrite of codexModelMap / codexVersionModelPrefixes could silently drop Sol/Luna listing remaps or restore bare gpt-6 as a first-class wire id."
+      "rationale": "Codex wire entitlement: bare gpt-6 remaps to Astra; Sol/Luna/6.1-Sol keep explicit identity rows and longer prefixes (incl. gpt-6.1*) win over bare gpt-6. An upstream rewrite of codexModelMap / codexVersionModelPrefixes could silently drop Sol/Luna/6.1 listing remaps or restore bare gpt-6 as a first-class wire id."
     },
     {
       "path": "backend/internal/service/billing_service_test.go",
       "must_contain": [
         "{\"gpt-6-sol\", 2e-6, 10e-6, 2.5e-6, 0.2e-6}",
+        "{\"gpt-6.1-sol\", 2e-6, 10e-6, 2.5e-6, 0.1e-6}",
         "{\"gpt-6-luna\", 0.1e-6, 0.5e-6, 0.125e-6, 0.01e-6}"
       ],
-      "rationale": "Focused regression pins official GPT-6 Sol/Luna token rates ($2/$10 and $0.10/$0.50 per MTok) across catalog + legacy fallback billing paths, including long-context multipliers. Dropping these fixtures would allow registry/price drift without a failing unit test."
+      "rationale": "Focused regression pins official GPT-6 Sol/Luna/6.1-Sol token rates ($2/$10 Sol family and $0.10/$0.50 Luna per MTok; 6.1-Sol cache-read $0.10/MTok) across catalog + legacy fallback billing paths, including long-context multipliers. Dropping these fixtures would allow registry/price drift without a failing unit test."
     },
     {
       "path": "backend/internal/service/billing_service_tk_registry_alias_test.go",
       "must_contain": [
         "func TestGPT6PublicAliasBillsAstraOwner(",
-        "gpt-6 must be overlay _aliases → gpt-6-astra (SSOT)"
+        "func TestGPT61PublicAliasBillsSolOwner(",
+        "gpt-6 must be overlay _aliases → gpt-6-astra (SSOT)",
+        "gpt-6.1 must be overlay _aliases → gpt-6.1-sol (SSOT)"
       ],
-      "rationale": "Public gpt-6 must bill the Astra registry owner via overlay _aliases (not a duplicate price row and not family-floor). Losing this test lets bare gpt-6 settlement silently fall through to wrong owners after modelops/catalog churn."
+      "rationale": "Public gpt-6 must bill the Astra registry owner and public gpt-6.1 must bill gpt-6.1-sol via overlay _aliases (not duplicate price rows and not family-floor). Losing these tests lets bare aliases settle on wrong owners after modelops/catalog churn."
     },
     {
       "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
       "must_contain": [
         "var tkOpenAITextCompatibilityAliases = map[string]string{",
-        "\"gpt-6\": \"gpt-6-astra\""
+        "\"gpt-6\":   \"gpt-6-astra\"",
+        "\"gpt-6.1\": \"gpt-6.1-sol\"",
+        "tkOpenAITextCompatibilityAliases,"
       ],
-      "rationale": "Floor SSOT companion for gpt-6→Astra text alias (pairs with pricing-availability sentinel). Prevents upstream-shaped mapping helpers from dropping the alias while Sol/Luna catalog rows remain."
+      "rationale": "Floor SSOT companion for gpt-6→Astra and gpt-6.1→gpt-6.1-sol text aliases (pairs with pricing-availability sentinel). Prevents upstream-shaped mapping helpers from dropping the aliases while Sol/Luna/6.1 catalog rows remain."
     },
     {
       "path": "backend/internal/handler/gateway_models_test.go",

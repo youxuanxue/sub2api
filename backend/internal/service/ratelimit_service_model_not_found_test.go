@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/stretchr/testify/require"
 )
 
@@ -424,6 +426,30 @@ func TestModelRetirementDoesNotCoolUnrelatedGone(t *testing.T) {
 	require.False(t, handled)
 	require.Empty(t, repo.modelRateLimitCalls)
 	require.Zero(t, repo.tempCalls)
+}
+
+func TestHandleUpstreamModelNotFound_Opaque404IsNVIDIAOnly(t *testing.T) {
+	t.Parallel()
+	opaque := []byte(`{"error":{"code":"bad_response_status_code","message":"bad response status code 404","type":"bad_response_status_code"}}`)
+	require.True(t, isUpstreamOpaqueProvider404(http.StatusNotFound, opaque))
+
+	ordinaryRepo := &modelNotFoundAccountRepoStub{}
+	ordinary := openAIModelNotFoundTempAccount()
+	require.False(t, (&RateLimitService{accountRepo: ordinaryRepo}).HandleUpstreamModelNotFound(
+		context.Background(), ordinary, "glm-5.3-flash", http.StatusNotFound, opaque),
+		"opaque cool must not apply outside NVIDIA Build")
+	require.Empty(t, ordinaryRepo.modelRateLimitCalls)
+
+	nvidiaRepo := &modelNotFoundAccountRepoStub{}
+	nvidia := &Account{
+		ID: 138, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true,
+		ChannelType: newapiconstant.ChannelTypeOpenAI,
+		Credentials: map[string]any{"base_url": newapiintegration.NVIDIABuildBaseURL},
+	}
+	require.True(t, (&RateLimitService{accountRepo: nvidiaRepo}).HandleUpstreamModelNotFound(
+		context.Background(), nvidia, "glm-5.3-flash", http.StatusNotFound, opaque))
+	require.Len(t, nvidiaRepo.modelRateLimitCalls, 1)
+	require.Equal(t, upstreamOpaqueProvider404Reason, nvidiaRepo.modelRateLimitCalls[0].reason)
 }
 
 func TestRateLimitService_HandleUpstreamError_APIKeyModel401UsesModelRateLimit(t *testing.T) {

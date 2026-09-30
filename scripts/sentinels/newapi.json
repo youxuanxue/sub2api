@@ -455,9 +455,11 @@
         "allowedModels: unknown[]",
         "const model = normalizeModelID(item)",
         "isApiBackedPlatform(platform)",
-        "return servableModelsFor(platform) ?? []"
+        "return servableModelsFor(platform) ?? []",
+        "'gpt-6', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-6.1', 'gpt-6.1-sol'",
+        "{ label: 'GPT-6.1 Sol', from: 'gpt-6.1-sol', to: 'gpt-6.1-sol'"
       ],
-      "rationale": "Two load-bearing contracts. (1) buildModelMappingObject must tolerate stale object entries and emit only string-to-string model_mapping pairs (normalizeModelID), or the submit path hits `includes is not a function` after #128 responses. (2) R-003 self-heal: the per-platform candidate lists are NO LONGER hardcoded here — getModelsByPlatform routes the API-backed platforms (anthropic/openai/gemini/antigravity) to servableModelsFor (the self-healing backend cache from useServableModels), keeping only newapi + the long-tail providers static. An upstream merge that re-hardcodes claude/openai/gemini arrays here would re-introduce retired/access-gated models (e.g. claude-fable-5) and defeat the self-heal; these anchors pin the API derivation. (The retired-model list that used to live here moved to the backend allowlist + pricing-availability sentinels.)"
+      "rationale": "Two load-bearing contracts. (1) buildModelMappingObject must tolerate stale object entries and emit only string-to-string model_mapping pairs (normalizeModelID), or the submit path hits `includes is not a function` after #128 responses. (2) R-003 self-heal: the per-platform candidate lists are NO LONGER hardcoded here — getModelsByPlatform routes the API-backed platforms (anthropic/openai/gemini/antigravity) to servableModelsFor (the self-healing backend cache from useServableModels), keeping only newapi + the long-tail providers static. An upstream merge that re-hardcodes claude/openai/gemini arrays here would re-introduce retired/access-gated models (e.g. claude-fable-5) and defeat the self-heal; these anchors pin the API derivation. (3) newapi static GPT-6.1 Sol whitelist + admin preset mapping must stay aligned with the catalog/pricing floor aliases — dropping gpt-6.1 / gpt-6.1-sol from newapiModels or openaiPresetMappings would hide the public Sol surface from NewAPI account mapping UI after modelops activation."
     },
     {
       "path": "backend/internal/service/pricing_catalog_membership_tk.go",

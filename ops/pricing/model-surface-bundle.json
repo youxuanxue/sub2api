@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "89d66d7b509eaf78735263c19a5c88544d3be9ae57417470bc30bed92b0a3028",
+  "floor_sha256": "f747d5ff172bd7f4a1b34b69a8c85923d24186f32005238cf59ff5e7fed4f724",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -212,6 +212,8 @@
         "gpt-6-astra": "gpt-6-astra",
         "gpt-6-luna": "gpt-6-luna",
         "gpt-6-sol": "gpt-6-sol",
+        "gpt-6.1": "gpt-6.1-sol",
+        "gpt-6.1-sol": "gpt-6.1-sol",
         "gpt-image-2": "gpt-image-2",
         "gpt-image-2.5": "gpt-image-2.5-flare",
         "gpt-image-2.5-flare": "gpt-image-2.5-flare",
@@ -361,8 +363,8 @@
         "channel_type": 1,
         "base_url": "https://integrate.api.nvidia.com",
         "model_mapping": {
-          "deepseek-v4-flash": "deepseek-ai/deepseek-v4-flash-0731",
-          "deepseek-v4-flash-0731": "deepseek-ai/deepseek-v4-flash-0731",
+          "glm-5.3": "z-ai/glm-5.3",
+          "glm-5.3-flash": "z-ai/glm-5.3-flash",
           "kimi-k3": "moonshotai/kimi-k3"
         }
       },
@@ -555,6 +557,10 @@
     "forbidden_model_mapping_keys": {
       "account_override:newapi:14:https://agentn.global.api5.cursor.sh": [
         "composer-2"
+      ],
+      "account_override:newapi:1:https://integrate.api.nvidia.com": [
+        "deepseek-v4-flash",
+        "deepseek-v4-flash-0731"
       ],
       "anthropic": [
         "claude-opus-5",
