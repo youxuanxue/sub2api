@@ -119,6 +119,11 @@ func (s *AuthService) applySignupBonusUSD(ctx context.Context, baseBalance float
 		// because admin-typed values flow through here.
 		bonus = 0
 	}
+	if bonus > 0 {
+		if ip := SignupClientIPFromContext(ctx); s.shouldWithholdSignupBonusForIP(ctx, ip) {
+			return baseBalance, 0
+		}
+	}
 	return baseBalance + bonus, bonus
 }
 

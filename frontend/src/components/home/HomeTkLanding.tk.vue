@@ -507,7 +507,7 @@
                 class="btn btn-primary px-6 py-3 text-base shadow-lg shadow-primary-500/30"
                 data-testid="china-export-primary-cta"
               >
-                {{ t('onboarding.guide') }}
+                {{ t('home.chinaExport.startFree') }}
                 <Icon name="arrowRight" size="md" class="ml-2" :stroke-width="2" />
               </a>
               <a
@@ -646,11 +646,11 @@
               {{ t('home.chinaExport.faqTitle') }}
             </h2>
             <a :href="primaryCtaUrl" class="mt-7 inline-flex items-center font-semibold text-primary-600 hover:underline dark:text-primary-400">
-              {{ t('onboarding.guide') }}
+              {{ t('home.chinaExport.startFree') }}
               <Icon name="arrowRight" size="sm" class="ml-2" />
             </a>
             <p class="mt-3 max-w-sm text-sm leading-6 text-gray-500 dark:text-gray-400">
-              {{ t('onboarding.subtitle') }}
+              {{ t('home.chinaExport.noCard') }}
             </p>
           </div>
 

@@ -191,6 +191,11 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		// before universal routing peeks model and before handler servable checks.
 		MaybeRewriteOpenRouterProviderChatBody(c, apiKey, settingService)
 
+		// TokenKey: unpaid trial media gate (image/video submit) before routing.
+		if MaybeBlockTrialUnpaidMedia(c, apiKey, settingService) {
+			return
+		}
+
 		// Build one authorized candidate state before billing. The request-local
 		// key follows its selected billing origin while execution follows the account.
 		if MaybeResolveUniversal(c, apiKey, universalResolver) {

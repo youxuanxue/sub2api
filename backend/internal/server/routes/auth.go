@@ -30,11 +30,13 @@ func RegisterAuthRoutes(
 	auth.Use(servermiddleware.BackendModeAuthGuard(settingService))
 	// 认证事件（登录/注册/2FA/token 刷新失败）入审计
 	auth.Use(gin.HandlerFunc(auditLog))
+	// TokenKey: stamp security client IP for signup-bonus IP withhold
+	auth.Use(attachSignupClientIP())
 	{
 		// 注册/登录/2FA/验证码发送均属于高风险入口，增加服务端兜底限流（Redis 故障时 fail-close）
 		auth.POST("/register", rateLimiter.LimitWithOptions("auth-register", 5, time.Minute, middleware.RateLimitOptions{
 			FailureMode: middleware.RateLimitFailClose,
-		}), h.Auth.Register)
+		}), tkAuthDailyLimit(rateLimiter, "auth-register-daily"), h.Auth.Register)
 		auth.POST("/login", rateLimiter.LimitWithOptions("auth-login", 20, time.Minute, middleware.RateLimitOptions{
 			FailureMode: middleware.RateLimitFailClose,
 		}), h.Auth.Login)
@@ -85,6 +87,7 @@ func RegisterAuthRoutes(
 			rateLimiter.LimitWithOptions("oauth-github-complete", 10, time.Minute, middleware.RateLimitOptions{
 				FailureMode: middleware.RateLimitFailClose,
 			}),
+			tkAuthDailyLimit(rateLimiter, "oauth-github-complete-daily"),
 			h.Auth.CompleteGitHubOAuthRegistration,
 		)
 		auth.GET("/oauth/google/start", h.Auth.GoogleOAuthStart)
@@ -96,6 +99,7 @@ func RegisterAuthRoutes(
 			rateLimiter.LimitWithOptions("oauth-google-complete", 10, time.Minute, middleware.RateLimitOptions{
 				FailureMode: middleware.RateLimitFailClose,
 			}),
+			tkAuthDailyLimit(rateLimiter, "oauth-google-complete-daily"),
 			h.Auth.CompleteGoogleOAuthRegistration,
 		)
 		auth.GET("/oauth/linuxdo/bind/start", func(c *gin.Context) {
@@ -146,6 +150,7 @@ func RegisterAuthRoutes(
 			rateLimiter.LimitWithOptions("oauth-linuxdo-complete", 10, time.Minute, middleware.RateLimitOptions{
 				FailureMode: middleware.RateLimitFailClose,
 			}),
+			tkAuthDailyLimit(rateLimiter, "oauth-linuxdo-complete-daily"),
 			h.Auth.CompleteLinuxDoOAuthRegistration,
 		)
 		auth.POST("/oauth/linuxdo/bind-login",
@@ -164,6 +169,7 @@ func RegisterAuthRoutes(
 			rateLimiter.LimitWithOptions("oauth-wechat-complete", 10, time.Minute, middleware.RateLimitOptions{
 				FailureMode: middleware.RateLimitFailClose,
 			}),
+			tkAuthDailyLimit(rateLimiter, "oauth-wechat-complete-daily"),
 			h.Auth.CompleteWeChatOAuthRegistration,
 		)
 		auth.POST("/oauth/wechat/bind-login",
@@ -193,6 +199,7 @@ func RegisterAuthRoutes(
 			rateLimiter.LimitWithOptions("oauth-oidc-complete", 10, time.Minute, middleware.RateLimitOptions{
 				FailureMode: middleware.RateLimitFailClose,
 			}),
+			tkAuthDailyLimit(rateLimiter, "oauth-oidc-complete-daily"),
 			h.Auth.CompleteOIDCOAuthRegistration,
 		)
 		auth.POST("/oauth/oidc/bind-login",
@@ -222,6 +229,7 @@ func RegisterAuthRoutes(
 			rateLimiter.LimitWithOptions("oauth-dingtalk-complete", 10, time.Minute, middleware.RateLimitOptions{
 				FailureMode: middleware.RateLimitFailClose,
 			}),
+			tkAuthDailyLimit(rateLimiter, "oauth-dingtalk-complete-daily"),
 			h.Auth.CompleteDingTalkOAuthRegistration,
 		)
 		auth.POST("/oauth/dingtalk/bind-login",

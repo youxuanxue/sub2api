@@ -74,9 +74,11 @@ func ProvideTKAuthServiceColdStart(
 	auth *AuthService,
 	api *APIKeyService,
 	settings *SettingService,
+	signupBonusIPCounter SignupBonusIPCounter,
 ) TKAuthServiceColdStartReady {
 	if auth != nil {
 		auth.SetTrialKeyIssuer(NewTrialKeyIssuer(api, settings))
+		auth.SetSignupBonusIPCounter(signupBonusIPCounter)
 	}
 	return TKAuthServiceColdStartReady{}
 }
