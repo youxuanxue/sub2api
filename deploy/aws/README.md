@@ -81,6 +81,21 @@ GLOBAL_SITE_PHASE=disabled \
 
 这里的 `302`/`301` 仅作用于 `callmodel.io/admin*`（踢回 `tokenkey.dev` 保书签）；注册、控制台、Models 等产品路径留在 CallModel 门面。`api.callmodel.io` 非 machine 路径永久跳到 `callmodel.io`。合同见 `docs/approved/design-callmodel-product-facade.md`。
 
+**Caddy 验收后切 Settings（prod DB）**——邮件 / 支付回执 / Quickstart·Keys 复制板以 CallModel 为商业人类入口（`site_name` 仍可保持 TokenKey，壳品牌由前端 `resolveChromeBrand` 按 hostname 覆盖）：
+
+```bash
+# 只需改两个字段；PUT 为部分更新，未传字段保持原值
+SUB2API_BASE_URL=https://tokenkey.dev SUB2API_ADMIN_API_KEY=... \
+  node .cursor/skills/sub2api-admin/scripts/sub2api-admin.js api PUT /admin/settings \
+  --json '{"frontend_url":"https://callmodel.io","api_base_url":"https://api.callmodel.io"}'
+
+# 门面合同（含 Settings api_base_url + Admin 踢出 + API alias）
+python3 ops/observability/probe-global-candidate.py \
+  --phase live --api-alias-url https://api.callmodel.io
+```
+
+OAuth / 支付 **webhook** 回调仍钉在 `api.tokenkey.dev`（machine allowlist；不随门面裂变）。
+
 ### Apex 域名阶段一（tokenkey.dev → api.tokenkey.dev）
 
 **目标**：占住 apex HTTPS 证书，浏览器访问 `https://tokenkey.dev` 永久 301 到 `https://api.tokenkey.dev`；不改应用 settings、OAuth、支付回调。

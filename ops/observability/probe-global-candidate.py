@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the public contract of the TokenKey global candidate homepage."""
+"""Verify the public contract of the CallModel full-facade host (callmodel.io)."""
 from __future__ import annotations
 
 import argparse
@@ -19,11 +19,22 @@ class Result:
 
 
 class Probe:
-    def __init__(self, base_url: str, product_url: str, phase: str, timeout: float) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        product_url: str,
+        phase: str,
+        timeout: float,
+        *,
+        api_alias_url: str | None,
+        expect_commercial_urls: bool,
+    ) -> None:
         self.base = self._origin(base_url)
         self.product = self._origin(product_url)
         self.phase = phase
         self.timeout = timeout
+        self.api_alias = self._origin(api_alias_url) if api_alias_url else None
+        self.expect_commercial_urls = expect_commercial_urls
         self.results: list[Result] = []
 
     @staticmethod
@@ -35,18 +46,25 @@ class Probe:
             raise ValueError(f"origin must not include path, query, or fragment: {raw!r}")
         return parsed
 
-    def _request(self, path: str, *, crawler: bool = False) -> tuple[int, dict[str, str], bytes]:
-        port = self.base.port or (443 if self.base.scheme == "https" else 80)
-        if self.base.scheme == "https":
+    def _request(
+        self,
+        path: str,
+        *,
+        origin=None,
+        crawler: bool = False,
+    ) -> tuple[int, dict[str, str], bytes]:
+        target = origin or self.base
+        port = target.port or (443 if target.scheme == "https" else 80)
+        if target.scheme == "https":
             connection = http.client.HTTPSConnection(
-                self.base.hostname,
+                target.hostname,
                 port,
                 timeout=self.timeout,
                 context=ssl.create_default_context(),
             )
         else:
-            connection = http.client.HTTPConnection(self.base.hostname, port, timeout=self.timeout)
-        headers = {"User-Agent": "Googlebot" if crawler else "TokenKey-global-candidate-probe/1"}
+            connection = http.client.HTTPConnection(target.hostname, port, timeout=self.timeout)
+        headers = {"User-Agent": "Googlebot" if crawler else "TokenKey-callmodel-facade-probe/1"}
         try:
             connection.request("GET", path, headers=headers)
             response = connection.getresponse()
@@ -65,12 +83,14 @@ class Probe:
             status == 200
             and "<h1>China's leading AI models. One API.</h1>" in text
             and '<link rel="canonical" href="https://callmodel.io/">' in text
+            and 'href="/register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-flash' in text
+            and "https://tokenkey.dev/register" not in text
             and "noindex" not in headers.get("x-robots-tag", "").lower()
             and "noindex" not in text.lower()
         )
 
     def run(self) -> list[Result]:
-        redirect_code = 302 if self.phase == "candidate" else 301
+        admin_redirect_code = 302 if self.phase == "candidate" else 301
         try:
             for check, path in (("homepage", "/"), ("home_alias", "/home")):
                 status, headers, body = self._request(path, crawler=True)
@@ -113,6 +133,10 @@ class Probe:
                 or signup_bonus <= 0
             ):
                 mismatches["signup_bonus_balance_usd"] = signup_bonus
+            if self.expect_commercial_urls:
+                api_base = settings.get("api_base_url")
+                if api_base != "https://api.callmodel.io":
+                    mismatches["api_base_url"] = api_base
             settings_ok = status == 200 and envelope.get("code") == 0 and not mismatches
             self._record(
                 "public_settings",
@@ -121,16 +145,43 @@ class Probe:
                 f"mismatches={json.dumps(mismatches, sort_keys=True)}",
             )
 
+            # Full facade: product paths stay on CallModel (no cross-host kick).
             for check, path in (
-                ("login_redirect", "/login?next=%2Fconsole"),
-                ("register_redirect", "/register"),
+                ("register_stays", "/register"),
+                ("login_stays", "/login?next=%2Fconsole"),
+                ("models_stays", "/models"),
             ):
                 status, headers, _ = self._request(path)
-                expected_location = f"{self.product.scheme}://{self.product.netloc}{path}"
                 location = headers.get("location", "")
+                offhost = self.product.hostname in location if location else False
                 self._record(
                     check,
-                    status == redirect_code and location == expected_location,
+                    status == 200 and not offhost,
+                    f"http={status} location={location!r}",
+                )
+
+            status, headers, _ = self._request("/admin")
+            expected_location = f"{self.product.scheme}://{self.product.netloc}/admin"
+            location = headers.get("location", "")
+            self._record(
+                "admin_kick",
+                status == admin_redirect_code and location == expected_location,
+                f"http={status} location={location!r}",
+            )
+
+            if self.api_alias is not None:
+                status, headers, body = self._request("/health", origin=self.api_alias)
+                self._record(
+                    "api_alias_health",
+                    status == 200 and b"ok" in body,
+                    f"http={status} body={body[:40]!r}",
+                )
+                status, headers, _ = self._request("/login", origin=self.api_alias)
+                expected_alias_location = f"{self.base.scheme}://{self.base.netloc}/login"
+                location = headers.get("location", "")
+                self._record(
+                    "api_alias_human_redirect",
+                    status in (301, 302) and location == expected_alias_location,
                     f"http={status} location={location!r}",
                 )
         except (OSError, ssl.SSLError, http.client.HTTPException, ValueError) as exc:
@@ -142,23 +193,38 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="https://callmodel.io")
     parser.add_argument("--product-url", default="https://tokenkey.dev")
+    parser.add_argument("--api-alias-url", default="", help="Optional api.callmodel.io origin to probe")
     parser.add_argument("--phase", choices=("candidate", "live"), default="candidate")
+    parser.add_argument(
+        "--expect-commercial-urls",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Require public api_base_url=https://api.callmodel.io (Settings cutover).",
+    )
     parser.add_argument("--timeout", type=float, default=15)
     return parser.parse_args(argv)
 
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
+    api_alias = args.api_alias_url.strip() or None
     try:
-        results = Probe(args.base_url, args.product_url, args.phase, args.timeout).run()
+        results = Probe(
+            args.base_url,
+            args.product_url,
+            args.phase,
+            args.timeout,
+            api_alias_url=api_alias,
+            expect_commercial_urls=args.expect_commercial_urls,
+        ).run()
     except ValueError as exc:
-        print(json.dumps({"summary": "global_candidate", "status": "fail", "error": str(exc)}, sort_keys=True))
+        print(json.dumps({"summary": "callmodel_facade", "status": "fail", "error": str(exc)}, sort_keys=True))
         return 2
     for result in results:
         print(json.dumps(asdict(result), sort_keys=True))
     failures = [result.check for result in results if result.status != "ok"]
     print(json.dumps({
-        "summary": "global_candidate",
+        "summary": "callmodel_facade",
         "status": "ok" if not failures else "fail",
         "ok": len(results) - len(failures),
         "total": len(results),
