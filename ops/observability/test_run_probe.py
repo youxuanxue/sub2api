@@ -93,6 +93,53 @@ class RunProbeValidationTest(unittest.TestCase):
                 for companion in contract["companions"]:
                     self.assertTrue((repo / companion).is_file(), companion)
 
+    def test_kiro_upstream_models_contract_ships_cli_identity_and_catalog_verdicts(self) -> None:
+        contract_path = pathlib.Path(__file__).resolve().parent / "probe-contracts.json"
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))["probe_kiro_upstream_models.sh"]
+        self.assertIn("deploy/aws/stage0/tk_canonical_kiro_cli.json", contract["companions"])
+        for verdict in (
+            "catalog_snapshot",
+            "catalog_unavailable",
+            "servable",
+            "inconclusive_transport",
+            "upstream_rejected",
+            "setup_error",
+        ):
+            self.assertIn(verdict, contract["verdicts"])
+
+        probe = pathlib.Path(__file__).resolve().parents[1] / "stage0" / "probe_kiro_upstream_models.sh"
+        proc = _run("--script", str(probe), "--describe-script")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("tk_canonical_kiro_cli.json", proc.stdout)
+        self.assertIn('"catalog_snapshot"', proc.stdout)
+        self.assertIn('"catalog_unavailable"', proc.stdout)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            probe_py = root / "probe_runtime_gateway.py"
+            constants = root / "constants.go"
+            missing_profile = root / "missing-kiro-cli.json"
+            probe_py.write_text("# test companion\n", encoding="utf-8")
+            constants.write_text("package kiro\n", encoding="utf-8")
+            env = {
+                **os.environ,
+                "ACCOUNT_ID": "1",
+                "KIRO_PROBE_PY": str(probe_py),
+                "KIRO_CONSTANTS_GO": str(constants),
+                "TOKENKEY_KIRO_CLI_PROFILE": str(missing_profile),
+            }
+            missing = subprocess.run(
+                ["bash", str(probe)],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+        self.assertEqual(missing.returncode, 0, missing.stderr)
+        payload = json.loads(missing.stdout.strip().splitlines()[-1])
+        self.assertEqual(payload["verdict"], "setup_error")
+        self.assertIn("tk_canonical_kiro_cli.json", payload["error"])
+
     def test_unknown_probe_contract_is_rejected_for_describe(self) -> None:
         existing = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
         proc = _run("--script", str(existing), "--describe-script")

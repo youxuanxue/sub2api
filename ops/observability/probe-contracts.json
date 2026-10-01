@@ -45,9 +45,12 @@
   "probe_kiro_upstream_models.sh": {
     "companions": [
       "ops/kiro/probe_runtime_gateway.py",
-      "backend/internal/pkg/kiro/constants.go"
+      "backend/internal/pkg/kiro/constants.go",
+      "deploy/aws/stage0/tk_canonical_kiro_cli.json"
     ],
     "verdicts": [
+      "catalog_snapshot",
+      "catalog_unavailable",
       "servable",
       "inconclusive_transport",
       "upstream_rejected",

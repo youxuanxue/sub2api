@@ -8,6 +8,8 @@ MODELS="${MODELS:-claude-opus-5}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-60}"
 KIRO_PROBE_PY="${KIRO_PROBE_PY:-/tmp/probe_runtime_gateway.py}"
 KIRO_CONSTANTS_GO="${KIRO_CONSTANTS_GO:-/tmp/constants.go}"
+# run-probe uploads companions to /tmp/<basename>; keep the same contract locally.
+KIRO_CLI_PROFILE="${TOKENKEY_KIRO_CLI_PROFILE:-${KIRO_CLI_PROFILE:-/tmp/tk_canonical_kiro_cli.json}}"
 
 fail_json() {
   python3 - "$1" <<'PY'
@@ -32,7 +34,11 @@ fi
 if [[ ! -f "$KIRO_CONSTANTS_GO" ]]; then
   fail_json "missing Kiro constants.go companion"
 fi
+if [[ ! -f "$KIRO_CLI_PROFILE" ]]; then
+  fail_json "missing tk_canonical_kiro_cli.json companion"
+fi
 export KIRO_CONSTANTS_GO
+export TOKENKEY_KIRO_CLI_PROFILE="$KIRO_CLI_PROFILE"
 
 PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
 META="$("${PSQL[@]}" -c "
@@ -151,6 +157,7 @@ try:
     print(json.dumps({
         "verdict": "catalog_snapshot",
         "account_id": meta["id"],
+        "models": advertised_models,
         "sonnet_models": [model for model in advertised_models if "sonnet" in model.lower()],
     }, ensure_ascii=False))
 except probe.ProbeEnvError as exc:
