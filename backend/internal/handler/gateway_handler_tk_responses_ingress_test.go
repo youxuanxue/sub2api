@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
@@ -54,6 +56,53 @@ func newAntigravityIngressHarness(t *testing.T, groupPlatform string, target pro
 	h := NewGatewayHandler(gateway, openAI, gemini, nil, nil, service.NewConcurrencyService(nil), billingCache, nil, nil, nil, nil, nil, nil, cfg, nil)
 	h.SetProtocolRouter(service.NewProtocolRouter())
 	return h, group, usage, upstream
+}
+
+func TestGatewayResponsesRetainsInflightReservationUntilAsyncUsageCompletes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			cfg := &config.Config{RunMode: config.RunModeSimple}
+			h, group, usage, _ := newAntigravityIngressHarness(t, service.PlatformAntigravity, protocolrouter.ProtocolResponses, cfg)
+			cache := newHandlerInflightCache(10)
+			billingCfg := &config.Config{}
+			billingCfg.Billing.InflightReservation = config.InflightReservationConfig{Enabled: true, TTLSeconds: 60}
+			billing := service.NewBillingCacheService(cache, nil, nil, nil, nil, nil, billingCfg, nil)
+			t.Cleanup(billing.Stop)
+			h.billingCacheService = billing
+			pool := service.NewUsageRecordWorkerPoolWithOptions(service.UsageRecordWorkerPoolOptions{WorkerCount: 1, QueueSize: 8})
+			h.usageRecordWorkerPool = pool
+			started, unblock := make(chan struct{}), make(chan struct{})
+			var unblockOnce sync.Once
+			releaseWorker := func() { unblockOnce.Do(func() { close(unblock) }) }
+			t.Cleanup(func() { releaseWorker(); pool.Stop() })
+			require.Equal(t, service.UsageRecordSubmitModeEnqueued, pool.Submit(func(context.Context) {
+				close(started)
+				<-unblock
+			}))
+			select {
+			case <-started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("usage worker did not start")
+			}
+			rec := httptest.NewRecorder()
+			requestCtx, _ := gin.CreateTestContext(rec)
+			body := fmt.Sprintf(`{"model":"gemini-3.8-flash","input":"Reply OK only.","max_output_tokens":1024,"stream":%t}`, stream)
+			requestCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+			key := &service.APIKey{ID: 219, UserID: 1, GroupID: &group.ID, Group: group, User: &service.User{ID: 1, Balance: 10}}
+			requestCtx.Set(string(middleware2.ContextKeyAPIKey), key)
+			requestCtx.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 1})
+			h.Responses(requestCtx)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			require.Contains(t, rec.Body.String(), "OK")
+			require.Empty(t, usage.logs)
+			require.Equal(t, 1, cache.count(), "queued billing must keep the reservation after the handler returns")
+			releaseWorker()
+			pool.Stop()
+			require.Len(t, usage.logs, 1)
+			require.Equal(t, 0, cache.count(), "completed billing must release the reservation")
+		})
+	}
 }
 
 func TestGatewayResponsesIngressAntigravityGemini(t *testing.T) {

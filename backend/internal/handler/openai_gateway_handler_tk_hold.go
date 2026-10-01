@@ -31,6 +31,8 @@ import (
 // insufficient-balance mapping).
 const tkInsufficientBalanceForHoldMsg = "Insufficient account balance to reserve this request"
 
+const tkHoldLifecycleKey = "tk_balance_hold_lifecycle"
+
 // tkHoldDefaultOutputReserveTokens is the UX-friendly output-token reserve used
 // when a request omits max_tokens / max_completion_tokens / max_output_tokens.
 // Explicit client ceilings are still honored as hard reserve inputs; only the
@@ -121,6 +123,7 @@ func (h *OpenAIGatewayHandler) tkApplyHold(c *gin.Context, apiKey *service.APIKe
 			return nil, true
 		}
 		service.SetCandidateBillingHook(c.Request.Context(), refresh)
+		c.Set(tkHoldLifecycleKey, true)
 		return handle, false
 	}
 	if subscription, _ := middleware2.GetSubscriptionFromContext(c); subscription != nil {
@@ -131,6 +134,7 @@ func (h *OpenAIGatewayHandler) tkApplyHold(c *gin.Context, apiKey *service.APIKe
 		return nil, true
 	}
 	if held {
+		c.Set(tkHoldLifecycleKey, true)
 		return &tkHoldHandle{h: h, ctx: c.Request.Context(), requestID: requestID}, false
 	}
 	return nil, false

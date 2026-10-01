@@ -28,6 +28,7 @@ func ProvideProtocolRoutedOpenAIGatewayHandler(
 	videoTaskCache service.VideoTaskCache,
 	mediaStore service.MediaStore,
 	protocolRoutingReady service.ProtocolRoutingSSOTReady,
+	compositeResolver *service.CompositeRouteResolver,
 ) *OpenAIGatewayHandler {
 	h := ProvideOpenAIGatewayHandler(
 		gatewayService,
@@ -45,6 +46,7 @@ func ProvideProtocolRoutedOpenAIGatewayHandler(
 		videoTaskCache,
 		mediaStore,
 		protocolRoutingReady,
+		compositeResolver,
 	)
 	h.SetGeminiProtocolServices(geminiCompatService, antigravityGatewayService)
 	h.nativeGatewayService = nativeGatewayService

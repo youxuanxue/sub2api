@@ -10,6 +10,10 @@ const { getSnapshotV2, getUserUsageTrend, getUserSpendingRanking, routerPush } =
   routerPush: vi.fn()
 }))
 
+vi.mock('vue-chartjs', () => ({
+  Line: { name: 'Line', props: ['data', 'options'], template: '<div class="line-chart" />' }
+}))
+
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     dashboard: {
@@ -196,6 +200,24 @@ describe('admin DashboardView', () => {
 
     expect(getSnapshotV2).toHaveBeenCalledTimes(1)
     expect(getUserSpendingRanking).toHaveBeenCalledTimes(1)
+  })
+
+  it('switches user metrics through the snapshot owner without a parallel trend request', async () => {
+    const wrapper = mountDashboard()
+    await flushPromises()
+    const spending = wrapper.findAll('button').find(button => button.text() === 'admin.dashboard.actualSpending')!
+    await spending.trigger('click')
+    await flushPromises()
+    expect(getSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({ users_trend_metric: 'actual_cost' }))
+    expect(getUserUsageTrend).not.toHaveBeenCalled()
+    expect(spending.attributes('aria-pressed')).toBe('true')
+    await spending.trigger('click')
+    expect(getSnapshotV2).toHaveBeenCalledTimes(2)
+    const tokens = wrapper.findAll('button').find(button => button.attributes('aria-pressed') === 'false')!
+    await tokens.trigger('click')
+    await flushPromises()
+    expect(getSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({ users_trend_metric: 'tokens' }))
+    wrapper.unmount()
   })
 
   it('shows a canonical Google platform card without source-channel names', async () => {

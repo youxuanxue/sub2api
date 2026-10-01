@@ -38,6 +38,7 @@ type dashboardSnapshotV2Response struct {
 }
 
 type dashboardSnapshotV2Filters struct {
+	UsersTrendMetric      string
 	UserID                int64
 	APIKeyID              int64
 	AccountID             int64
@@ -70,6 +71,7 @@ type dashboardSnapshotV2CacheKey struct {
 	IncludeGroups         bool   `json:"include_groups"`
 	IncludeUsersTrend     bool   `json:"include_users_trend"`
 	UsersTrendLimit       int    `json:"users_trend_limit"`
+	UsersTrendMetric      string `json:"users_trend_metric"`
 }
 
 func (h *DashboardHandler) GetSnapshotV2(c *gin.Context) {
@@ -117,6 +119,7 @@ func (h *DashboardHandler) GetSnapshotV2(c *gin.Context) {
 		IncludeGroups:         includeGroups,
 		IncludeUsersTrend:     includeUsersTrend,
 		UsersTrendLimit:       usersTrendLimit,
+		UsersTrendMetric:      filters.UsersTrendMetric,
 	})
 	cacheKey := string(keyRaw)
 
@@ -269,7 +272,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 
 	if includeUsersTrend {
 		g.Go(func() error {
-			usersTrend, _, err := h.getUserUsageTrendCached(gctx, startTime, endTime, granularity, usersTrendLimit)
+			usersTrend, _, err := h.getUserUsageTrendCached(gctx, startTime, endTime, granularity, usersTrendLimit, filters.UsersTrendMetric)
 			if err != nil {
 				return errors.New("failed to get user usage trend")
 			}
@@ -287,7 +290,11 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 
 func parseDashboardSnapshotV2Filters(c *gin.Context) (*dashboardSnapshotV2Filters, error) {
 	filters := &dashboardSnapshotV2Filters{
-		Model: strings.TrimSpace(c.Query("model")),
+		Model:            strings.TrimSpace(c.Query("model")),
+		UsersTrendMetric: "tokens",
+	}
+	if strings.TrimSpace(c.Query("users_trend_metric")) == "actual_cost" {
+		filters.UsersTrendMetric = "actual_cost"
 	}
 
 	if userIDStr := strings.TrimSpace(c.Query("user_id")); userIDStr != "" {

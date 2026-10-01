@@ -258,6 +258,7 @@ const formatScopeName = (scope: string): string => {
     'claude-sonnet-4-5-thinking': 'CSon45T',
     'claude-haiku-4-5-20251001': 'CHaiku45',
     'claude-haiku-4-6': 'CHaiku46',
+    'claude-sonnet-5-5': 'CSon55',
     'claude-sonnet-5': 'CSon5',
     // Gemini converged public surface
     'gemini-3.6-flash': 'G36F',

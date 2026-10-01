@@ -3,6 +3,66 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/config/config.go",
+      "must_contain": ["viper.SetDefault(\"billing.inflight_reservation.enabled\", false)", "viper.SetDefault(\"gateway.antigravity_pre_content_keepalive_enabled\", false)"],
+      "rationale": "Upstream imports must not silently add Redis admission reservations or commit pre-content SSE responses; both changes require explicit rollout opt-in while TokenKey persisted holds remain active."
+    },
+    {
+      "path": "backend/internal/config/config_test.go",
+      "must_contain": ["TestLoadInflightReservationRequiresExplicitOptIn"],
+      "rationale": "Runtime loader coverage verifies conservative defaults and explicit environment opt-in instead of relying only on example YAML."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat_stream.go",
+      "must_contain": ["s.settingService.cfg.Gateway.AntigravityPreContentKeepaliveEnabled", "s.preContentKeepaliveInterval <= 0", "case now := <-preContentCh:"],
+      "rationale": "Pre-content keepalive and its deadline must remain disabled without explicit opt-in so empty streams retain transparent failover."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat_test.go",
+      "must_contain": ["TestAntigravityCompatDefaultPreContentPreservesFailover"],
+      "rationale": "Chat and Responses regressions protect default uncommitted empty-stream failover while existing opt-in keepalive tests remain intact."
+    },
+    {
+      "path": "backend/internal/service/claude_reset_credits.go",
+      "must_contain": ["req.Header.Set(\"User-Agent\", GetCanonicalUserAgentForContext(ctx))", "s.tlsProfiles.ResolveTLSProfile(account)", "WithHTTPUpstreamPublicHostsOnly(WithHTTPUpstreamRedirectsDisabled(req.Context()))", "s.upstream.DoWithTLS(req.WithContext(ctx), proxy, account.ID, 0, profile)", "s.doForAccount(req, proxy, account)"],
+      "rationale": "Claude reset queries reuse the account TLS and canonical UA owners without leaking credentials to redirects or downgrading failed fingerprint transports."
+    },
+    {
+      "path": "backend/internal/service/claude_reset_redeem.go",
+      "must_contain": ["s.organization(ctx, account, token, proxy)", "s.claim(ctx, account, token, proxy, org, grant.ID, operation)", "s.doForAccount(req, proxy, account)"],
+      "rationale": "Profile reads and irreversible claims retain the same account identity as status queries."
+    },
+    {
+      "path": "backend/internal/service/claude_reset_transport_tk_test.go",
+      "must_contain": ["TestClaudeResetUsesCanonicalUserAgentOwner", "TestClaudeResetAccountTLSTransportAndSafety", "TestClaudeResetTLSFailureDoesNotDowngradeTransport"],
+      "rationale": "Reset transport semantic regressions must survive upstream refactors."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_responses.go",
+      "must_contain": ["defer inflightRelease()\n\trequestCtx = c.Request.Context()"],
+      "rationale": "Responses must retain the reservation-bearing context when attaching protocol routing so asynchronous billing holds survive handler return."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_responses_ingress_test.go",
+      "must_contain": ["TestGatewayResponsesRetainsInflightReservationUntilAsyncUsageCompletes"],
+      "rationale": "Full-handler streaming and buffered regressions protect reservation handoff to queued billing from upstream context reconstruction."
+    },
+    {
+      "path": "backend/internal/handler/gateway_inflight_reservation.go",
+      "must_contain": ["c.GetBool(tkHoldLifecycleKey)", "service.ReserveCandidateInflight("],
+      "rationale": "Do not double-reserve persisted TokenKey holds or bypass candidate-origin reservation rebinding."
+    },
+    {
+      "path": "backend/internal/service/candidate_inflight_reservation_tk.go",
+      "must_contain": ["SetCandidateBillingHook(ctx, refresh)", "reservation.HandlerDone()", "SetCandidateInflightReservation(ctx, nil)"],
+      "rationale": "Candidate-native reservations follow billing-origin changes and asynchronous settlement lifecycle."
+    },
+    {
+      "path": "backend/internal/service/candidate_inflight_reservation_tk_test.go",
+      "must_contain": ["TestCandidateInflightReservationRebindAndAsyncSettlement", "TestCandidateInflightReservationRejectsUnpricedRebind"],
+      "rationale": "Behavioral coverage must survive upstream reservation changes."
+    },
+    {
       "path": "backend/internal/service/model_retired_error_tk.go",
       "must_contain": [
         "func IsUpstreamModelRetiredError(",
@@ -14657,7 +14717,7 @@
     {
       "path": "backend/internal/service/gateway_forward_as_responses_test.go",
       "must_contain": [
-        "func TestOpus55ResponsesSignedThinkingBufferedAndStreamed(t *testing.T)"
+        "func TestClaude55ResponsesSignedThinkingBufferedAndStreamed(t *testing.T)"
       ],
       "rationale": "Protect the actual buffered and streamed bridge paths against losing Anthropic thinking signatures during upstream merges."
     },

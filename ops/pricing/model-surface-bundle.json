@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "816d18c44cf95fccb14af131c217f55743afcde1b3a0c77663f769e011d33e55",
+  "floor_sha256": "c539adebe41fe82f4269138e42d822754141fdc5534f9f5ee503ca97b7b9d2b0",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -85,7 +85,8 @@
         "claude-sonnet-4-5-thinking": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
         "claude-sonnet-4-6": "us.anthropic.claude-sonnet-4-6",
         "claude-sonnet-4-6-thinking": "us.anthropic.claude-sonnet-4-6",
-        "claude-sonnet-5": "us.anthropic.claude-sonnet-5-v1"
+        "claude-sonnet-5": "us.anthropic.claude-sonnet-5-v1",
+        "claude-sonnet-5-5": "global.anthropic.claude-sonnet-5-5"
       },
       "gemini": {
         "gemini-3-flash": "gemini-3.8-flash",

@@ -44,6 +44,21 @@ func TestLoadDefaultModelsListReadMaxBytes(t *testing.T) {
 	require.Equal(t, DefaultModelsListReadMaxBytes, cfg.Gateway.ModelsListReadMaxBytes)
 }
 
+func TestLoadInflightReservationRequiresExplicitOptIn(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.False(t, cfg.Billing.InflightReservation.Enabled)
+	require.False(t, cfg.Gateway.AntigravityPreContentKeepaliveEnabled)
+
+	t.Setenv("BILLING_INFLIGHT_RESERVATION_ENABLED", "true")
+	t.Setenv("GATEWAY_ANTIGRAVITY_PRE_CONTENT_KEEPALIVE_ENABLED", "true")
+	cfg, err = Load()
+	require.NoError(t, err)
+	require.True(t, cfg.Billing.InflightReservation.Enabled)
+	require.True(t, cfg.Gateway.AntigravityPreContentKeepaliveEnabled)
+}
+
 func TestLoadTimezonePrecedence(t *testing.T) {
 	tests := []struct {
 		name         string

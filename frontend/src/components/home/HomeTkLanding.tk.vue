@@ -486,10 +486,10 @@
     </main>
 
     <main v-else class="relative z-10 flex-1" data-testid="china-export-home">
-      <section class="border-b border-gray-200/50 px-5 pb-6 pt-6 dark:border-dark-800/50 sm:px-8 sm:pb-14 sm:pt-8 lg:px-12 lg:pb-20 lg:pt-12">
-        <div class="mx-auto grid max-w-7xl items-center gap-6 sm:gap-10 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] lg:gap-14">
+      <section class="border-b border-gray-200/50 px-5 pb-5 pt-6 dark:border-dark-800/50 sm:px-8 sm:pb-14 sm:pt-8 lg:px-12 lg:pb-20 lg:pt-12">
+        <div class="mx-auto grid max-w-7xl items-center gap-4 sm:gap-10 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] lg:gap-14">
           <div class="max-w-2xl">
-            <p class="mb-5 text-sm font-semibold uppercase text-primary-600 dark:text-primary-400">
+            <p class="mb-3 text-sm font-semibold uppercase text-primary-600 dark:text-primary-400 sm:mb-5">
               {{ t('home.chinaExport.eyebrow') }}
             </p>
             <h1
@@ -498,10 +498,10 @@
             >
               {{ t('home.chinaExport.heroTitle') }}
             </h1>
-            <p class="mt-6 max-w-xl text-lg leading-8 text-gray-600 dark:text-gray-300 sm:text-xl">
+            <p class="mt-4 max-w-xl text-lg leading-8 text-gray-600 dark:text-gray-300 sm:mt-6 sm:text-xl">
               {{ t('home.chinaExport.heroSubtitle') }}
             </p>
-            <div class="mt-8 flex flex-wrap items-center gap-3">
+            <div class="mt-5 flex flex-wrap items-center gap-3 sm:mt-8">
               <a
                 :href="primaryCtaUrl"
                 class="btn btn-primary px-6 py-3 text-base shadow-lg shadow-primary-500/30"
@@ -517,7 +517,7 @@
                 {{ t('home.chinaExport.browseModels') }}
               </a>
             </div>
-            <p class="mt-4 text-sm text-gray-500 dark:text-gray-400">
+            <p class="mt-3 text-sm text-gray-500 dark:text-gray-400 sm:mt-4">
               {{ t('home.chinaExport.noCard') }}
             </p>
           </div>
@@ -547,7 +547,7 @@
                 {{ t('home.chinaExport.proofBadge') }}
               </div>
             </div>
-            <figcaption class="flex flex-col gap-1 px-4 py-3 text-sm text-white/80 sm:flex-row sm:items-center sm:justify-between">
+            <figcaption class="flex flex-col gap-1 px-4 py-2 text-sm text-white/80 sm:flex-row sm:items-center sm:justify-between sm:py-3">
               <span>{{ t('home.chinaExport.proofCaption') }}</span>
               <a
                 :href="seedanceProof.sourceUrl"

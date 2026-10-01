@@ -70,39 +70,41 @@
         :quota="usageInfo.upstream_quota"
         :hidden-dimension-keys="upstreamQuotaWindowDimensionKeys"
       />
-      <div class="flex items-center gap-1.5 mt-0.5">
-        <span
-          v-if="usageInfo.source === 'passive'"
-          class="text-[9px] text-gray-400 dark:text-gray-500 italic"
-        >
-          {{ t('admin.accounts.usageWindow.passiveSampled') }}
-        </span>
-        <button
-          type="button"
-          class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors"
-          :disabled="activeQueryLoading"
-          @click="loadActiveUsage"
-        >
-          <svg
-            class="h-2.5 w-2.5"
-            :class="{ 'animate-spin': activeQueryLoading }"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg>
-          {{ t('admin.accounts.usageWindow.activeQuery') }}
-        </button>
-      </div>
     </div>
 
     <div v-else class="text-xs text-gray-400">-</div>
+      <ClaudeResetCreditsCell :account="account" class="mt-1" @redeemed="loadActiveUsage">
+        <template v-if="usageInfo" #pre-actions>
+          <span
+            v-if="usageInfo.source === 'passive'"
+            class="text-[9px] text-gray-400 dark:text-gray-500 italic"
+          >
+            {{ t('admin.accounts.usageWindow.passiveSampled') }}
+          </span>
+          <button
+            type="button"
+            class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="activeQueryLoading"
+            @click="loadActiveUsage"
+          >
+            <svg
+              class="h-2.5 w-2.5"
+              :class="{ 'animate-spin': activeQueryLoading }"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            {{ t('admin.accounts.usageWindow.activeQuery') }}
+          </button>
+        </template>
+      </ClaudeResetCreditsCell>
   </div>
 </template>
 
@@ -110,6 +112,7 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UsageProgressBar from '../UsageProgressBar.vue'
+import ClaudeResetCreditsCell from '../ClaudeResetCreditsCell.vue'
 import UpstreamQuotaSummary from './UpstreamQuotaSummary.vue'
 import TodayStatsBadges from './TodayStatsBadges.vue'
 import {
