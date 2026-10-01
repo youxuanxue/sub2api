@@ -730,6 +730,9 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 	for frames := 0; frames < 20000; frames++ {
 		var flag byte
 		var data []byte
+		// Idle budget covers waiting for the next frame only — not local
+		// processing of the previous one (which can exceed the idle window).
+		resetIdle()
 		select {
 		case <-ctx.Done():
 			if cause := context.Cause(ctx); cause != nil {
@@ -737,11 +740,19 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 			}
 			return result, ctx.Err()
 		case <-idleC:
-			cause := agentStreamIdleCause()
-			cancel(cause)
-			return result, &agentTransportError{cause: cause}
+			// Prefer a frame already queued so a raced delivery is not cut as idle.
+			select {
+			case fr := <-frameCh:
+				if fr.err != nil {
+					return result, classifyFrameReadErr(fr.err)
+				}
+				flag, data = fr.flag, fr.data
+			default:
+				cause := agentStreamIdleCause()
+				cancel(cause)
+				return result, &agentTransportError{cause: cause}
+			}
 		case fr := <-frameCh:
-			resetIdle()
 			if fr.err != nil {
 				return result, classifyFrameReadErr(fr.err)
 			}

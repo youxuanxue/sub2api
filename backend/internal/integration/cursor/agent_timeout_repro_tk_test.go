@@ -160,6 +160,28 @@ func TestRunAgentFrameIdleTimeout(t *testing.T) {
 			t.Fatal("response body was not closed after raced do completion")
 		}
 	})
+
+	t.Run("processing_time_does_not_consume_idle_budget", func(t *testing.T) {
+		// Idle budget must cover waiting only. A slow emit longer than one idle
+		// window after a live frame must not trip idle when the stream then ends.
+		pr, pw := io.Pipe()
+		go func() {
+			defer func() { _ = pw.Close() }()
+			_ = writeAgentFrame(pw, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "tick"}}})
+		}()
+		started := time.Now()
+		_, err := RunAgent(context.Background(), "test-token", input, func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: pr}, nil
+		}, func(AgentEvent) error {
+			time.Sleep(250 * time.Millisecond)
+			return nil
+		})
+		elapsed := time.Since(started)
+		require.GreaterOrEqual(t, elapsed, 250*time.Millisecond)
+		require.False(t, errors.Is(err, errAgentStreamIdle), "emit/processing longer than idle must not trip idle; got %v", err)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "interrupted")
+	})
 }
 
 type closeNotifyBody struct {
