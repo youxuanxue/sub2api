@@ -568,9 +568,53 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 	if err := send(&pb.AgentClientMessage{RunRequest: run}); err != nil {
 		return result, err
 	}
-	resp, err := do(req)
-	if err != nil {
-		return result, &agentTransportError{cause: err}
+	// Idle covers do() as well as frame reads: a hung duplex transport that never
+	// returns (or never yields frames) must not hold concurrency forever. The old
+	// wall-clock 2m deadline previously unblocked that path; frame-idle alone after
+	// do() would not.
+	idle := agentStreamIdleTimeout()
+	var idleTimer *time.Timer
+	var idleC <-chan time.Time
+	if idle > 0 {
+		idleTimer = time.NewTimer(idle)
+		idleC = idleTimer.C
+		defer idleTimer.Stop()
+	}
+	resetIdle := func() {
+		if idleTimer == nil {
+			return
+		}
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
+		idleTimer.Reset(idle)
+	}
+	type doResult struct {
+		resp *http.Response
+		err  error
+	}
+	doCh := make(chan doResult, 1)
+	go func() { resp, err := do(req); doCh <- doResult{resp: resp, err: err} }()
+	var resp *http.Response
+	select {
+	case <-ctx.Done():
+		if cause := context.Cause(ctx); cause != nil {
+			return result, cause
+		}
+		return result, ctx.Err()
+	case <-idleC:
+		cause := agentStreamIdleCause()
+		cancel(cause)
+		return result, &agentTransportError{cause: cause}
+	case got := <-doCh:
+		resetIdle()
+		if got.err != nil {
+			return result, &agentTransportError{cause: got.err}
+		}
+		resp = got.resp
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
@@ -615,7 +659,6 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 		}
 		return nil
 	}
-	idle := agentStreamIdleTimeout()
 	frameCh := make(chan agentFrameRead, 1)
 	go func() {
 		for {
@@ -630,25 +673,6 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 			}
 		}
 	}()
-	var idleTimer *time.Timer
-	var idleC <-chan time.Time
-	if idle > 0 {
-		idleTimer = time.NewTimer(idle)
-		idleC = idleTimer.C
-		defer idleTimer.Stop()
-	}
-	resetIdle := func() {
-		if idleTimer == nil {
-			return
-		}
-		if !idleTimer.Stop() {
-			select {
-			case <-idleTimer.C:
-			default:
-			}
-		}
-		idleTimer.Reset(idle)
-	}
 	classifyFrameReadErr := func(readErr error) error {
 		if cause := context.Cause(ctx); errors.Is(cause, errAgentStreamIdle) {
 			return &agentTransportError{cause: cause}

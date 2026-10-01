@@ -119,6 +119,24 @@ func TestRunAgentFrameIdleTimeout(t *testing.T) {
 		require.False(t, errors.Is(err, errAgentStreamIdle), "live frames must not trip idle; got %v", err)
 		require.ErrorContains(t, err, "interrupted")
 	})
+
+	t.Run("hanging_do_returns_stream_idle_timeout", func(t *testing.T) {
+		// Regression: idle must cover do() itself. A transport that never returns
+		// (e.g. duplex deadlock waiting on request body EOF) previously held the
+		// goroutine forever once the wall-clock 2m WithTimeout was removed.
+		started := time.Now()
+		_, err := RunAgent(context.Background(), "test-token", input, func(req *http.Request) (*http.Response, error) {
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		}, nil)
+		elapsed := time.Since(started)
+		t.Logf("elapsed=%s err=%v", elapsed.Round(time.Millisecond), err)
+		require.GreaterOrEqual(t, elapsed, 180*time.Millisecond)
+		require.Less(t, elapsed, 2*time.Second)
+		require.ErrorIs(t, err, errAgentStreamIdle)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Contains(t, err.Error(), "stream idle timeout")
+	})
 }
 
 type errBody struct{ err error }
