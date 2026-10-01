@@ -29,6 +29,27 @@ const maxAgentFrame = 4 << 20
 const maxAgentBlobs = 16 << 20
 const maxAgentOutput = 4 << 20
 
+// defaultAgentStreamIdleTimeout bounds silence between Agent frames. It replaces
+// the former wall-clock 2-minute RunAgent deadline: live streams may run longer
+// than 2 minutes when frames keep arriving, while a hung duplex with no frames
+// is reaped. 180s matches gateway.stream_data_interval_timeout's deploy default.
+const defaultAgentStreamIdleTimeout = 180 * time.Second
+
+// agentStreamIdleTimeout is the frame-idle budget for RunAgent. Tests may lower
+// it; <=0 disables the idle watchdog (parent context remains authoritative).
+var agentStreamIdleTimeout = defaultAgentStreamIdleTimeout
+
+// errAgentStreamIdle is returned when no Agent frame arrives within the idle
+// budget. It unwraps to context.DeadlineExceeded so shared gateway owners map
+// it to 504 instead of a provider 502 "closed pipe" interrupt.
+var errAgentStreamIdle = errors.New("cursor stream idle timeout")
+
+type agentFrameRead struct {
+	flag byte
+	data []byte
+	err  error
+}
+
 // AgentMode values from agent.v1 (oh-my-pi / Cursor CLI proto). TokenKey is a
 // Messages↔Agent relay for local CLIs, not a workspace agent runtime.
 const (
@@ -442,12 +463,18 @@ func readAgentFrame(reader io.Reader) (byte, []byte, error) {
 // RunAgent executes one request using only request-local protocol state. do must
 // support HTTP/2 duplex requests and must not retry after sending the request.
 // A tool handoff is explicitly reported without fabricated provider usage.
+//
+// Timing: parent ctx cancellation still aborts the duplex. There is no wall-clock
+// total duration cap inside RunAgent; silence between frames is bounded by
+// agentStreamIdleTimeout (default 180s) so hung upstreams release concurrency
+// without cutting live generations that keep emitting frames.
 func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*http.Request) (*http.Response, error), emit func(AgentEvent) error) (result AgentResult, runErr error) {
 	var textOutput, thinkingOutput strings.Builder
 	defer func() {
 		result.Text = textOutput.String()
 		result.Thinking = thinkingOutput.String()
-		if runErr != nil && (errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded)) {
+		var transport *agentTransportError
+		if runErr != nil && !errors.As(runErr, &transport) && (errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded)) {
 			runErr = &agentTransportError{cause: runErr}
 		}
 	}()
@@ -468,13 +495,20 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 	if token == "" || strings.ContainsAny(token, "\r\n") {
 		return result, errors.New("invalid Cursor access token")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	reader, writer := io.Pipe()
 	queue := make(chan *pb.AgentClientMessage, 32)
 	writerDone := make(chan struct{})
-	stopClosing := context.AfterFunc(ctx, func() { _ = reader.CloseWithError(ctx.Err()); _ = writer.CloseWithError(ctx.Err()) })
-	defer func() { cancel(); stopClosing(); _ = reader.Close(); _ = writer.Close(); <-writerDone }()
+	stopClosing := context.AfterFunc(ctx, func() {
+		cause := context.Cause(ctx)
+		if cause == nil {
+			cause = ctx.Err()
+		}
+		_ = reader.CloseWithError(cause)
+		_ = writer.CloseWithError(cause)
+	})
+	defer func() { cancel(nil); stopClosing(); _ = reader.Close(); _ = writer.Close(); <-writerDone }()
 	go func() {
 		defer close(writerDone)
 		for {
@@ -494,6 +528,9 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 		case queue <- message:
 			return nil
 		case <-ctx.Done():
+			if cause := context.Cause(ctx); cause != nil {
+				return cause
+			}
 			return ctx.Err()
 		}
 	}
@@ -565,13 +602,74 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 		}
 		return nil
 	}
-	for frames := 0; frames < 20000; frames++ {
-		flag, data, err := readAgentFrame(resp.Body)
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return result, err
+	idle := agentStreamIdleTimeout
+	frameCh := make(chan agentFrameRead, 1)
+	go func() {
+		for {
+			flag, data, readErr := readAgentFrame(resp.Body)
+			select {
+			case frameCh <- agentFrameRead{flag: flag, data: data, err: readErr}:
+			case <-ctx.Done():
+				return
 			}
-			return result, fmt.Errorf("cursor stream interrupted: %w", err)
+			if readErr != nil {
+				return
+			}
+		}
+	}()
+	var idleTimer *time.Timer
+	var idleC <-chan time.Time
+	if idle > 0 {
+		idleTimer = time.NewTimer(idle)
+		idleC = idleTimer.C
+		defer idleTimer.Stop()
+	}
+	resetIdle := func() {
+		if idleTimer == nil {
+			return
+		}
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
+		idleTimer.Reset(idle)
+	}
+	classifyFrameReadErr := func(readErr error) error {
+		if cause := context.Cause(ctx); errors.Is(cause, errAgentStreamIdle) {
+			return &agentTransportError{cause: cause}
+		}
+		if errors.Is(readErr, context.Canceled) || errors.Is(readErr, context.DeadlineExceeded) {
+			return readErr
+		}
+		if ctx.Err() != nil && errors.Is(readErr, io.ErrClosedPipe) {
+			if cause := context.Cause(ctx); cause != nil {
+				return cause
+			}
+			return ctx.Err()
+		}
+		return fmt.Errorf("cursor stream interrupted: %w", readErr)
+	}
+	for frames := 0; frames < 20000; frames++ {
+		var flag byte
+		var data []byte
+		select {
+		case <-ctx.Done():
+			if cause := context.Cause(ctx); cause != nil {
+				return result, cause
+			}
+			return result, ctx.Err()
+		case <-idleC:
+			cause := agentStreamIdleCause()
+			cancel(cause)
+			return result, &agentTransportError{cause: cause}
+		case fr := <-frameCh:
+			resetIdle()
+			if fr.err != nil {
+				return result, classifyFrameReadErr(fr.err)
+			}
+			flag, data = fr.flag, fr.data
 		}
 		if flag&2 != 0 {
 			var trailer struct {

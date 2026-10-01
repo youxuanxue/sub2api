@@ -1,0 +1,137 @@
+package cursor
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"testing"
+	"time"
+
+	pb "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
+)
+
+func TestRunAgentFrameIdleTimeout(t *testing.T) {
+	input := AgentRequest{Model: "composer-2.5", Messages: []AgentMessage{{Role: "user", Text: "hang"}}}
+	prev := agentStreamIdleTimeout
+	agentStreamIdleTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { agentStreamIdleTimeout = prev })
+
+	t.Run("immediate_closed_pipe_still_wraps_as_stream_interrupted", func(t *testing.T) {
+		_, err := RunAgent(context.Background(), "test-token", input, func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: io.NopCloser(&errBody{err: io.ErrClosedPipe})}, nil
+		}, nil)
+		require.ErrorContains(t, err, "cursor stream interrupted: io: read/write on closed pipe")
+		require.ErrorIs(t, err, io.ErrClosedPipe)
+		require.False(t, errors.Is(err, errAgentStreamIdle))
+	})
+
+	t.Run("hanging_body_returns_stream_idle_timeout", func(t *testing.T) {
+		started := time.Now()
+		_, err := RunAgent(context.Background(), "test-token", input, func(req *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: io.NopCloser(&ctxWaitBody{ctx: req.Context()})}, nil
+		}, nil)
+		elapsed := time.Since(started)
+		t.Logf("elapsed=%s err=%v", elapsed.Round(time.Millisecond), err)
+		require.GreaterOrEqual(t, elapsed, 180*time.Millisecond)
+		require.Less(t, elapsed, 2*time.Second)
+		require.ErrorIs(t, err, errAgentStreamIdle)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Contains(t, err.Error(), "stream idle timeout")
+		require.NotContains(t, err.Error(), "cursor stream interrupted")
+	})
+
+	t.Run("real_h2_silence_returns_stream_idle_timeout", func(t *testing.T) {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/connect+proto")
+			w.WriteHeader(http.StatusOK)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			<-r.Context().Done()
+		})
+		protocols := new(http.Protocols)
+		protocols.SetUnencryptedHTTP2(true)
+		protocols.SetHTTP1(false)
+		server := &http.Server{Handler: handler, Protocols: protocols}
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		defer func() { _ = ln.Close() }()
+		go func() { _ = server.Serve(ln) }()
+		defer func() { _ = server.Close() }()
+
+		transport := &http.Transport{
+			ForceAttemptHTTP2: true,
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, network, ln.Addr().String())
+			},
+		}
+		transport.Protocols = new(http.Protocols)
+		transport.Protocols.SetUnencryptedHTTP2(true)
+		transport.Protocols.SetHTTP1(false)
+		_, err = http2.ConfigureTransports(transport)
+		require.NoError(t, err)
+		client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		defer transport.CloseIdleConnections()
+
+		started := time.Now()
+		_, runErr := RunAgent(context.Background(), "test-token", input, func(req *http.Request) (*http.Response, error) {
+			local, err := http.NewRequestWithContext(req.Context(), req.Method, "http://127.0.0.1/agent.v1.AgentService/Run", req.Body)
+			if err != nil {
+				return nil, err
+			}
+			local.Header = req.Header.Clone()
+			local.ContentLength = req.ContentLength
+			return client.Do(local)
+		}, nil)
+		elapsed := time.Since(started)
+		t.Logf("elapsed=%s err=%v", elapsed.Round(time.Millisecond), runErr)
+		require.GreaterOrEqual(t, elapsed, 180*time.Millisecond)
+		require.Less(t, elapsed, 2*time.Second)
+		require.ErrorIs(t, runErr, errAgentStreamIdle)
+		require.ErrorIs(t, runErr, context.DeadlineExceeded)
+		require.Contains(t, fmt.Sprint(runErr), "stream idle timeout")
+		require.NotContains(t, fmt.Sprint(runErr), "cursor stream interrupted")
+	})
+
+	t.Run("live_frames_reset_idle_budget", func(t *testing.T) {
+		// Emit a valid incomplete stream of frames spaced under the idle budget
+		// for longer than one idle window, then close — proves wall-clock > idle
+		// is allowed when frames keep arriving (EOF still fails for missing usage).
+		pr, pw := io.Pipe()
+		go func() {
+			defer func() { _ = pw.Close() }()
+			for i := 0; i < 4; i++ {
+				time.Sleep(80 * time.Millisecond)
+				_ = writeAgentFrame(pw, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "tick"}}})
+			}
+		}()
+		started := time.Now()
+		_, err := RunAgent(context.Background(), "test-token", input, func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: pr}, nil
+		}, nil)
+		elapsed := time.Since(started)
+		require.GreaterOrEqual(t, elapsed, 300*time.Millisecond, "must outlive a single idle window via frame resets")
+		require.Error(t, err)
+		require.False(t, errors.Is(err, errAgentStreamIdle), "live frames must not trip idle; got %v", err)
+		require.ErrorContains(t, err, "interrupted")
+	})
+}
+
+type errBody struct{ err error }
+
+func (b *errBody) Read([]byte) (int, error) { return 0, b.err }
+
+type ctxWaitBody struct{ ctx context.Context }
+
+func (b *ctxWaitBody) Read([]byte) (int, error) {
+	<-b.ctx.Done()
+	if cause := context.Cause(b.ctx); cause != nil {
+		return 0, cause
+	}
+	return 0, b.ctx.Err()
+}

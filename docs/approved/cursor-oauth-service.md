@@ -85,6 +85,11 @@ The native adapter follows the MIT protocol subset from can1357/oh-my-pi
 - Inference uses account-aware HTTP transport and proxy settings, requires
   HTTP/2, rejects redirects, and never falls back to HTTP/1 for Cursor.
   Request cancellation and body closure release the producer and connection.
+  RunAgent does not impose a wall-clock total duration cap; silence between
+  Agent frames is bounded by a stream-idle watchdog (default 180s, aligned with
+  `gateway.stream_data_interval_timeout`). Idle timeout unwraps to
+  `context.DeadlineExceeded` for shared 504 / transport owners and must not be
+  reported as a provider 502 `closed pipe` interrupt.
 
 ## Billing
 
