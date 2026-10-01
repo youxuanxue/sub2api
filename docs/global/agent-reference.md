@@ -32,6 +32,7 @@ topology, Studio SSOT, model-delivery nav, or PR gate navigation.
 | 视频 playback 分类 + IDB 镜像 | `utils/studioPlaybackStorage.tk.ts` (`tagStudioVideoPlayback`) | VideoStudio, BakeOff |
 | 视频 tab-local Blob 播放 | `utils/studioMedia.tk.ts` (`videoPlaybackUrl`) | lightbox + BakeOff 面板 |
 | Veo 内联 data:video 解析/normalize | `utils/studioInlineVideo.tk.ts` | extractVideoUrl、videoPlaybackUrl、IDB 缓存、copy/download |
+| Image/Video 紧凑模型卡片 + 高提示词输入 | `components/StudioModelPicker.vue` + `components/StudioPromptTextarea.vue` | ImageStudio, VideoStudio |
 
 新增 Studio 行为时：先查上表能否扩展 owner；若 Image **与** Video **与** BakeOff 任两者都需要，必须进共享 composable/组件并在 `scripts/sentinels/frontend-tk.json` 加锚点。宪法原则见 `dev-rules/global/CLAUDE.md` §5.1。
 

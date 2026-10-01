@@ -1747,10 +1747,12 @@
     {
       "path": "frontend/src/views/user/studio/ImageStudio.vue",
       "must_contain": [
-        "data-testid=\"studio-image-model\"",
+        "test-id=\"studio-image-model\"",
         "aspect-test-id=\"studio-image-aspect\"",
         "data-testid=\"studio-image-generate\"",
         "StudioLocalSaveBanner",
+        "StudioModelPicker",
+        "StudioPromptTextarea",
         "test-id=\"studio-image-save-reminder\"",
         "StudioImageExpired",
         "mountStudioImageLibrary",
@@ -1767,12 +1769,14 @@
     {
       "path": "frontend/src/views/user/studio/VideoStudio.vue",
       "must_contain": [
-        "data-testid=\"studio-video-model\"",
+        "test-id=\"studio-video-model\"",
         "data-testid=\"studio-video-generate\"",
         "data-testid=\"studio-video-play\"",
         "data-testid=\"studio-video-download\"",
         "data-testid=\"studio-video-copy-card-link\"",
         "StudioLocalSaveBanner",
+        "StudioModelPicker",
+        "StudioPromptTextarea",
         "test-id=\"studio-video-save-reminder\"",
         "StudioVideoUnavailable",
         "StudioVideoPreviewLightbox",
@@ -1959,6 +1963,26 @@
         "emit('reuse', preview)"
       ],
       "rationale": "Shared Teleport lightbox UI for Studio image playback. ImageStudio mounts this instead of duplicating inline preview + footer actions."
+    },
+    {
+      "path": "frontend/src/views/user/studio/components/StudioModelPicker.vue",
+      "must_contain": [
+        "StudioModelPickerItem",
+        "px-2.5 py-1.5",
+        "space-y-1.5",
+        "needsApikeyAccount",
+        ":data-testid=\"testId\""
+      ],
+      "rationale": "SSOT compact single-select model cards for ImageStudio + VideoStudio left rails. Pinning the tight padding/spacing prevents either surface from re-inflating card height and starving the shared StudioPromptTextarea. :data-testid binds the per-surface contract ids (studio-image-model / studio-video-model) that e2e still drives."
+    },
+    {
+      "path": "frontend/src/views/user/studio/components/StudioPromptTextarea.vue",
+      "must_contain": [
+        "rows: 8",
+        "min-h-[10.5rem]",
+        "resize-y"
+      ],
+      "rationale": "SSOT tall prompt composer for ImageStudio + VideoStudio. Default rows/min-height/resize must stay here — re-inlining a short rows=3 textarea in either view reintroduces the cramped composer."
     },
     {
       "path": "frontend/src/utils/studioImageHistory.tk.ts",
