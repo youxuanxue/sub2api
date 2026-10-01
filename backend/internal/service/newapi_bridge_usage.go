@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"net/http"
 	"strings"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
@@ -22,6 +23,33 @@ func (e *NewAPIRelayError) Error() string {
 		return "newapi adaptor error"
 	}
 	return e.Err.Error()
+}
+
+func (e *NewAPIRelayError) ResponsesClientError() (newapitypes.OpenAIError, bool) {
+	if e == nil || e.Err == nil || !isOpenAIDeterministicClientError(e.Err.StatusCode) || tkIsBridgeUpstreamArrears(e.Err) || newapitypes.IsChannelError(e.Err) {
+		return newapitypes.OpenAIError{}, false
+	}
+	switch e.Err.GetErrorType() {
+	case newapitypes.ErrorTypeOpenAIError, newapitypes.ErrorTypeUpstreamError:
+	default:
+		return newapitypes.OpenAIError{}, false
+	}
+	payload := e.Err.ToOpenAIError()
+	payload.Message = sanitizeUpstreamErrorMessage(strings.TrimSpace(payload.Message))
+	payload.Type = sanitizeUpstreamErrorMessage(payload.Type)
+	payload.Param = sanitizeUpstreamErrorMessage(payload.Param)
+	if code, ok := payload.Code.(string); ok {
+		payload.Code = sanitizeUpstreamErrorMessage(code)
+	} else if code, ok := payload.Code.(newapitypes.ErrorCode); ok {
+		payload.Code = sanitizeUpstreamErrorMessage(string(code))
+	} else if _, ok := payload.Code.(float64); !ok {
+		payload.Code = nil
+	}
+	payload.Metadata = nil
+	if payload.Message == "" {
+		payload.Message = http.StatusText(http.StatusBadRequest)
+	}
+	return payload, true
 }
 
 func claudeUsageFromNewAPIDTO(u *dto.Usage) ClaudeUsage {
