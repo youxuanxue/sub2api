@@ -91,6 +91,8 @@ type AuthService struct {
 	// to avoid a circular ctor dep with APIKeyService. See
 	// auth_service_tk_trial_key.go and US-030.
 	trialKeyIssuer TrialKeyIssuer
+	// TokenKey: per-IP signup-bonus daily counter (SetSignupBonusIPCounter).
+	signupBonusIPCounter SignupBonusIPCounter
 }
 
 type CaptchaProof struct {

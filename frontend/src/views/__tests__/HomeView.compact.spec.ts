@@ -228,7 +228,7 @@ describe('HomeView compact mode', () => {
     const models = wrapper.get('[data-testid="china-model-list"]').findAll('h3').map((node) => node.text())
 
     expect(models).toEqual(['Seedance', 'Seedream', 'Qwen', 'DeepSeek', 'GLM', 'Kimi'])
-    expect(wrapper.text()).toContain('onboarding.guide')
+    expect(wrapper.text()).toContain('home.chinaExport.startFree')
     expect(wrapper.text()).not.toContain('home.chinaExport.creditDisclaimer')
     expect(wrapper.get('[data-testid="seedance-proof-video"]').attributes('src')).toBe(
       '/seedance-2-5-official-showcase-8b37bc3e.mp4',

@@ -257,6 +257,11 @@ type SystemSettings struct {
 	// 见 SettingKeyPricedServingGateEnabled + IsPricedServingGateEnabled。
 	PricedServingGateEnabled string
 
+	// Signup / trial antifraud (CallModel C-end open)
+	SignupBonusIPDailyLimit    int     // 同 IP 每日赠金次数；0=不限；默认 3
+	TrialUnpaidMediaBlocked    bool    // 零充值试用号禁媒体提交；默认 true
+	TrialUnpaidMediaMaxBalance float64 // 试用媒体门禁余额上限 USD；默认 2.00
+
 	// Gateway forwarding behavior
 	OpenAITTFTMode                         string // Responses first_token_ms 统计口径（默认 semantic）
 	EnableFingerprintUnification           bool   // 是否统一 OAuth 账号的指纹头（默认 true）

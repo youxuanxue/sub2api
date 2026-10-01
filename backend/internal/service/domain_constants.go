@@ -900,6 +900,22 @@ const (
 	// 缺 row / 读失败 / 平台不在集内 → 该平台无闸（serving 照旧），即灰度/回滚旋钮。
 	// 解析见 SettingService.IsPricedServingGateEnabled（沿用 IsSignupBonusEnabled 样板）。
 	SettingKeyPricedServingGateEnabled = "priced_serving_gate_enabled"
+
+	// =========================
+	// Signup / trial antifraud (CallModel C-end open)
+	// =========================
+
+	// SettingKeySignupBonusIPDailyLimit 同一客户端 IP 每日可领取注册赠金的次数。
+	// 0 = 不限制；默认 3。超出后仍可注册，但赠金扣留为 0。
+	SettingKeySignupBonusIPDailyLimit = "signup_bonus_ip_daily_limit"
+
+	// SettingKeyTrialUnpaidMediaBlocked 零充值试用号是否禁止提交 image/video。
+	// 默认 true。管理员大额授信号靠 balance 阈值放行（见 max_balance）。
+	SettingKeyTrialUnpaidMediaBlocked = "trial_unpaid_media_blocked"
+
+	// SettingKeyTrialUnpaidMediaMaxBalance 试用媒体门禁的余额上限（USD）。
+	// TotalRecharged<=0 且 Balance<=该值时拦截媒体提交；默认 2.00。
+	SettingKeyTrialUnpaidMediaMaxBalance = "trial_unpaid_media_max_balance"
 )
 
 // SettingKeyDefaultPlatformQuotas —— 系统全局：每用户 × 平台日/周/月 USD 上限（JSON）。

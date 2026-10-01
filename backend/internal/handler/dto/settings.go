@@ -217,6 +217,11 @@ type SystemSettings struct {
 	// 见 docs/approved/priced-or-it-doesnt-ship.md。
 	PricedServingGateEnabled string `json:"priced_serving_gate_enabled"`
 
+	// Signup / trial antifraud (CallModel C-end open)
+	SignupBonusIPDailyLimit    int     `json:"signup_bonus_ip_daily_limit"`
+	TrialUnpaidMediaBlocked    bool    `json:"trial_unpaid_media_blocked"`
+	TrialUnpaidMediaMaxBalance float64 `json:"trial_unpaid_media_max_balance"`
+
 	// Gateway forwarding behavior
 	OpenAITTFTMode                         string `json:"openai_ttft_mode"`
 	EnableFingerprintUnification           bool   `json:"enable_fingerprint_unification"`
