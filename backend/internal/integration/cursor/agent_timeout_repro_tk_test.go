@@ -17,9 +17,8 @@ import (
 
 func TestRunAgentFrameIdleTimeout(t *testing.T) {
 	input := AgentRequest{Model: "composer-2.5", Messages: []AgentMessage{{Role: "user", Text: "hang"}}}
-	prev := agentStreamIdleTimeout
-	agentStreamIdleTimeout = 200 * time.Millisecond
-	t.Cleanup(func() { agentStreamIdleTimeout = prev })
+	prev := agentStreamIdleTimeoutNS.Swap(int64(200 * time.Millisecond))
+	t.Cleanup(func() { agentStreamIdleTimeoutNS.Store(prev) })
 
 	t.Run("immediate_closed_pipe_still_wraps_as_stream_interrupted", func(t *testing.T) {
 		_, err := RunAgent(context.Background(), "test-token", input, func(*http.Request) (*http.Response, error) {

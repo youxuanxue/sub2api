@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	pb "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb"
@@ -32,17 +33,29 @@ const maxAgentOutput = 4 << 20
 // defaultAgentStreamIdleTimeout bounds silence between Agent frames. It replaces
 // the former wall-clock 2-minute RunAgent deadline: live streams may run longer
 // than 2 minutes when frames keep arriving, while a hung duplex with no frames
-// is reaped. 180s matches gateway.stream_data_interval_timeout's deploy default.
+// is reaped. Cursor-owned constant (not live-coupled to Gateway.StreamDataIntervalTimeout).
 const defaultAgentStreamIdleTimeout = 180 * time.Second
 
-// agentStreamIdleTimeout is the frame-idle budget for RunAgent. Tests may lower
-// it; <=0 disables the idle watchdog (parent context remains authoritative).
-var agentStreamIdleTimeout = defaultAgentStreamIdleTimeout
+// agentStreamIdleTimeoutNS is the frame-idle budget in nanoseconds. Zero means
+// use defaultAgentStreamIdleTimeout; negative disables the idle watchdog (parent
+// context remains authoritative). Atomic so tests can override without races.
+var agentStreamIdleTimeoutNS atomic.Int64
 
 // errAgentStreamIdle is returned when no Agent frame arrives within the idle
 // budget. It unwraps to context.DeadlineExceeded so shared gateway owners map
 // it to 504 instead of a provider 502 "closed pipe" interrupt.
 var errAgentStreamIdle = errors.New("cursor stream idle timeout")
+
+func agentStreamIdleTimeout() time.Duration {
+	switch ns := agentStreamIdleTimeoutNS.Load(); {
+	case ns == 0:
+		return defaultAgentStreamIdleTimeout
+	case ns < 0:
+		return 0
+	default:
+		return time.Duration(ns)
+	}
+}
 
 type agentFrameRead struct {
 	flag byte
@@ -602,7 +615,7 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 		}
 		return nil
 	}
-	idle := agentStreamIdleTimeout
+	idle := agentStreamIdleTimeout()
 	frameCh := make(chan agentFrameRead, 1)
 	go func() {
 		for {
