@@ -15454,6 +15454,40 @@
         "account.preservesGeminiWebProReference(providerRequest, route.target)"
       ],
       "rationale": "Verified Web Pro inline references use shared provider admission across compatible protocols without widening general Gemini converters."
+    },
+    {
+      "path": "backend/internal/server/routes/auth.go",
+      "must_contain": [
+        "auth.Use(attachSignupClientIP())",
+        "tkAuthDailyLimit(rateLimiter, \"auth-register-daily\")",
+        "tkAuthDailyLimit(rateLimiter, \"oauth-github-complete-daily\")",
+        "tkAuthDailyLimit(rateLimiter, \"oauth-google-complete-daily\")"
+      ],
+      "rationale": "CallModel C-end antifraud: stamp signup client IP and wire per-IP daily caps on register / OAuth complete. Upstream auth.go merges drop these injections cleanly and would reopen bulk free-trial signup."
+    },
+    {
+      "path": "backend/internal/server/routes/auth_tk_antifraud.go",
+      "must_contain": [
+        "func attachSignupClientIP()",
+        "func tkAuthDailyLimit(",
+        "tkAuthRegisterDailyLimit = 5"
+      ],
+      "rationale": "TK companion owning the signup IP stamp and daily rate-limit helpers used by auth.go injections."
+    },
+    {
+      "path": "backend/internal/server/middleware/api_key_auth.go",
+      "must_contain": [
+        "if MaybeBlockTrialUnpaidMedia(c, apiKey, settingService)"
+      ],
+      "rationale": "Unpaid trial media gate must run after API-key auth and before universal routing so Direct and Universal keys both block image/video burn on trial wallets."
+    },
+    {
+      "path": "backend/internal/server/middleware/api_key_auth_tk_trial_media.go",
+      "must_contain": [
+        "func MaybeBlockTrialUnpaidMedia(",
+        "service.EvaluateTrialUnpaidMedia("
+      ],
+      "rationale": "TK companion for the unpaid trial media gate invoked from api_key_auth.go."
     }
   ]
 }

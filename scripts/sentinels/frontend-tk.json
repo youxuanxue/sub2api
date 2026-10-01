@@ -130,9 +130,11 @@
     {
       "path": "frontend/src/components/home/HomeTkLanding.tk.vue",
       "must_contain": [
-        "RegistrationActionTk"
+        "RegistrationActionTk",
+        "home.chinaExport.startFree",
+        "home.chinaExport.noCard"
       ],
-      "rationale": "Registration CTAs share one policy and presentation owner."
+      "rationale": "Registration CTAs share one policy and presentation owner. CallModel C-end open uses soft Start free copy (not hard $1 CTA) on the china-export primary CTA and FAQ band."
     },
     {
       "path": "frontend/src/views/HomeView.vue",
