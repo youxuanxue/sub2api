@@ -3,10 +3,18 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { nextTick, ref } from 'vue'
 import type { ApiKey } from '@/types'
 
-const { listKeys, replaceMock, createKeyMock } = vi.hoisted(() => ({
+const { listKeys, replaceMock, createKeyMock, importToCcSwitchMock, appStoreState } = vi.hoisted(() => ({
   listKeys: vi.fn(),
   createKeyMock: vi.fn(),
   replaceMock: vi.fn(),
+  importToCcSwitchMock: vi.fn(),
+  appStoreState: {
+    cachedPublicSettings: {
+      api_base_url: 'https://api.example.com',
+      site_name: 'TokenKey',
+      registration_offer: { state: 'open' },
+    } as Record<string, unknown>,
+  },
 }))
 
 const authenticated = ref(true)
@@ -39,9 +47,16 @@ vi.mock('vue-i18n', async () => {
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    cachedPublicSettings: { api_base_url: 'https://api.example.com', registration_offer: { state: 'open' } },
+    get cachedPublicSettings() {
+      return appStoreState.cachedPublicSettings
+    },
     fetchPublicSettings: vi.fn(),
+    showError: vi.fn(),
   }),
+}))
+
+vi.mock('@/composables/useCcSwitchImport', () => ({
+  useCcSwitchImport: () => ({ importToCcSwitch: importToCcSwitchMock }),
 }))
 
 vi.mock('@/api/keys', () => ({
@@ -139,12 +154,64 @@ describe('QuickstartView', () => {
     listKeys.mockReset()
     createKeyMock.mockReset()
     replaceMock.mockReset()
+    importToCcSwitchMock.mockReset()
+    appStoreState.cachedPublicSettings = {
+      api_base_url: 'https://api.example.com',
+      site_name: 'TokenKey',
+      registration_offer: { state: 'open' },
+    }
     listKeys.mockResolvedValue({
       items: [universalKey()],
       total: 1,
       page: 1,
       page_size: 100,
       pages: 1,
+    })
+  })
+
+  it('forces CallModel as CCS providerName on the overseas host even when Settings say TokenKey', async () => {
+    const originalHostname = window.location.hostname
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, hostname: 'callmodel.io' },
+    })
+
+    const wrapper = await mountView()
+    await wrapper.get('[data-tk="quickstart-client-claude-code"]').trigger('click')
+    await nextTick()
+    await wrapper.get('[data-tk="quickstart-ccs-import"]').trigger('click')
+
+    expect(importToCcSwitchMock).toHaveBeenCalledTimes(1)
+    expect(importToCcSwitchMock.mock.calls[0][0].providerName).toBe('CallModel')
+
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, hostname: originalHostname },
+    })
+  })
+
+  it('keeps Settings site_name as CCS providerName on the TokenKey host', async () => {
+    appStoreState.cachedPublicSettings = {
+      ...appStoreState.cachedPublicSettings,
+      site_name: 'Acme Gateway',
+    }
+    const originalHostname = window.location.hostname
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, hostname: 'tokenkey.dev' },
+    })
+
+    const wrapper = await mountView()
+    await wrapper.get('[data-tk="quickstart-client-claude-code"]').trigger('click')
+    await nextTick()
+    await wrapper.get('[data-tk="quickstart-ccs-import"]').trigger('click')
+
+    expect(importToCcSwitchMock).toHaveBeenCalledTimes(1)
+    expect(importToCcSwitchMock.mock.calls[0][0].providerName).toBe('Acme Gateway')
+
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, hostname: originalHostname },
     })
   })
 
