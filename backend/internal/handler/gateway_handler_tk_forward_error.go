@@ -74,6 +74,9 @@ func (h *GatewayHandler) ensureForwardErrorResponseForError(c *gin.Context, err 
 	if c.Writer.Written() {
 		streamStarted = true
 	}
+	if tkTryWriteResponsesRelayClientError(c, err, streamStarted) {
+		return true
+	}
 	h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed", streamStarted)
 	return true
 }

@@ -3757,6 +3757,9 @@ func (h *OpenAIGatewayHandler) ensureForwardErrorResponseForError(c *gin.Context
 		}
 		streamStarted = true
 	}
+	if tkTryWriteResponsesRelayClientError(c, err, streamStarted) {
+		return true
+	}
 	h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed", streamStarted)
 	return true
 }

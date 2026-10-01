@@ -3,6 +3,31 @@
   "rationale": "Load-bearing files and symbols that anchor TokenKey's fifth platform `newapi`. The fifth-platform integration was silently regressed multiple times by upstream merges before this guard existed. If any sentinel below is missing, the platform either silently disappears from the UI/scheduling pool or fails at runtime. This file is the single source of truth read by both `scripts/preflight.sh` (newapi sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (newapi sentinels check, on `merge/upstream-*` PRs). Adding a new load-bearing surface for newapi MUST add a sentinel here in the same commit.",
   "sentinels": [
     {
+      "path": "backend/internal/handler/tk_responses_relay_client_error_test.go",
+      "must_contain": ["func TestResponsesRelayClientError(", "deepSeekBudgetError", "statusClientClosedRequest"],
+      "rationale": "Responses parameter-error regression must survive upstream refactors together with cancellation and heartbeat boundary coverage."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_usage.go",
+      "must_contain": ["func (e *NewAPIRelayError) ResponsesClientError(", "tkIsBridgeUpstreamArrears(e.Err)", "payload.Metadata = nil"],
+      "rationale": "Responses bridge parameter errors preserve sanitized 400 diagnostics while local configuration and account-standing failures remain operational errors."
+    },
+    {
+      "path": "backend/internal/handler/tk_newapi_relay_error.go",
+      "must_contain": ["func tkTryWriteResponsesRelayClientError(", "relayErr.ResponsesClientError()", "writeResponsesFailedSSE(c, payload.Type, code, payload.Message)"],
+      "rationale": "One shared Responses relay client-error writer preserves JSON 400 and protocol-correct post-heartbeat failures."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_forward_error.go",
+      "must_contain": ["tkTryWriteResponsesRelayClientError(c, err, streamStarted)"],
+      "rationale": "Universal Responses fallback must retain the shared bridge parameter-error hook during upstream merges."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": ["tkTryWriteResponsesRelayClientError(c, err, streamStarted)"],
+      "rationale": "OpenAI Responses fallback must use the same bridge parameter-error hook as universal ingress."
+    },
+    {
       "path": "scripts/upstream/bump-new-api.sh",
       "must_contain": ["go test -tags=unit ./internal/engine -count=1"],
       "rationale": "Pin bump smoke runs the complete small engine suite so renaming capability tests cannot silently remove them from a hand-maintained -run expression."

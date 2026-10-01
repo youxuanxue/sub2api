@@ -48,6 +48,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | --- | --- |
 | 展示、请求计划与运行时可用性的组合边界 | [模型交付承诺](pricing-serving-single-source-of-truth.md) |
 | endpoint 原生协议与 generation 路由合法性 | [协议路由](protocol-routing-ssot.md) |
+| Responses bridge 参数错误、流式终止及运营错误边界 | [Responses bridge 参数错误分类](responses-bridge-client-error.md) |
 | 授权范围内的候选资格、账号调度与实现 owner | [候选资格 Owners 表](candidate-eligibility-ssot.md#owners) |
 | Studio / Quickstart 生图参数与请求示例 | [生图能力与接入示例](image-generation-quickstart-studio.md)（GPT 精确画布见 [strict canvas](gpt-image-strict-canvas-postprocess.md)，已合并） |
 | Key 授权与计费归属 | [Universal key routing](universal-key-routing.md) |
