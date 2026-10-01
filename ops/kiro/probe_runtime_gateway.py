@@ -22,7 +22,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit, urlunsplit
 from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+_SCRIPT_PATH = Path(__file__).resolve()
+REPO_ROOT = next(
+    (parent for parent in _SCRIPT_PATH.parents if (parent / "deploy/aws/stage0/tk_canonical_kiro_cli.json").is_file()),
+    _SCRIPT_PATH.parent,
+)
 DEFAULT_TOKEN_CACHE = Path.home() / ".aws/sso/cache/kiro-auth-token.json"
 DEFAULT_CLI_PROFILE = REPO_ROOT / "deploy/aws/stage0/tk_canonical_kiro_cli.json"
 RUNTIME_ENDPOINT = "https://runtime.us-east-1.kiro.dev"

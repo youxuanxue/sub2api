@@ -8,6 +8,8 @@ MODELS="${MODELS:-claude-opus-5}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-60}"
 KIRO_PROBE_PY="${KIRO_PROBE_PY:-/tmp/probe_runtime_gateway.py}"
 KIRO_CONSTANTS_GO="${KIRO_CONSTANTS_GO:-/tmp/constants.go}"
+# run-probe uploads companions to /tmp/<basename>; keep the same contract locally.
+KIRO_CLI_PROFILE="${TOKENKEY_KIRO_CLI_PROFILE:-${KIRO_CLI_PROFILE:-/tmp/tk_canonical_kiro_cli.json}}"
 
 fail_json() {
   python3 - "$1" <<'PY'
@@ -32,7 +34,11 @@ fi
 if [[ ! -f "$KIRO_CONSTANTS_GO" ]]; then
   fail_json "missing Kiro constants.go companion"
 fi
+if [[ ! -f "$KIRO_CLI_PROFILE" ]]; then
+  fail_json "missing tk_canonical_kiro_cli.json companion"
+fi
 export KIRO_CONSTANTS_GO
+export TOKENKEY_KIRO_CLI_PROFILE="$KIRO_CLI_PROFILE"
 
 PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
 META="$("${PSQL[@]}" -c "
@@ -93,10 +99,12 @@ fi
 
 python3 - "$META" "$MODELS" "$REQUEST_TIMEOUT_SECONDS" "$CREDENTIALS_FILE" "$KIRO_PROBE_PY" <<'PY'
 import importlib.util
+import argparse
 import json
-import re
+import os
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 meta = json.loads(sys.argv[1])
 models = sys.argv[2].split()
@@ -113,39 +121,60 @@ sys.modules[spec.name] = probe
 spec.loader.exec_module(probe)
 
 token = probe.load_local_token(credentials_file)
-if not token.get("profile_arn"):
-    try:
-        profile_arn = probe.resolve_profile_arn_via_api(
-            token,
-            style="tokenkey",
-            machine_id="tokenkey-edge-probe",
-            proxy_url=None,
-            timeout_s=timeout,
-        )
-        token = probe.apply_profile_arn(token, profile_arn)
-    except probe.ProbeEnvError as exc:
-        print(json.dumps({
-            "verdict": "setup_error",
-            "account_id": meta["id"],
-            "error": str(exc),
-        }, ensure_ascii=False))
-        raise SystemExit(0)
+profile_path = Path(os.environ["TOKENKEY_KIRO_CLI_PROFILE"])
+identity = probe.load_cli_identity(profile_path)
+args = argparse.Namespace(
+    token_cache=str(credentials_file),
+    profile_arn=str(token.get("profile_arn") or ""),
+    proxy="",
+    timeout=timeout,
+    model_id="",
+)
+try:
+    token, _ = probe.prepare_token(args, identity, needs_profile=True, needs_model=False)
+except probe.ProbeEnvError as exc:
+    print(json.dumps({
+        "verdict": "setup_error",
+        "account_id": meta["id"],
+        "error": str(exc),
+    }, ensure_ascii=False))
+    raise SystemExit(0)
+
+try:
+    profile_arn = str(token.get("profile_arn") or "")
+    query = "origin=AI_EDITOR&maxResults=100"
+    if profile_arn:
+        query += "&profileArn=" + quote(profile_arn, safe="")
+    catalog = probe.http_json(
+        method="GET",
+        url=f"{probe.MANAGEMENT_ENDPOINT}/List-Available-Models?{query}",
+        token=token,
+        identity=identity,
+        proxy=None,
+        timeout=timeout,
+    )
+    advertised_models = probe.parse_model_ids(catalog)
+    print(json.dumps({
+        "verdict": "catalog_snapshot",
+        "account_id": meta["id"],
+        "models": advertised_models,
+        "sonnet_models": [model for model in advertised_models if "sonnet" in model.lower()],
+    }, ensure_ascii=False))
+except probe.ProbeEnvError as exc:
+    print(json.dumps({
+        "verdict": "catalog_unavailable",
+        "account_id": meta["id"],
+        "error": str(exc),
+    }, ensure_ascii=False))
 
 for model in models:
     request = probe.build_runtime_chat_spec(
         token=token,
-        style="tokenkey",
-        machine_id="tokenkey-edge-probe",
+        identity=identity,
         message="Reply OK only.",
         model_id=model,
     )
-    result = probe.execute_probe(request, timeout_s=timeout, proxy_url=None)
-    content_chunks = re.findall(r'\{"content":"([^"\\]*)"\}', result.body_snippet)
-    if content_chunks:
-        body = "assistant_content=" + "".join(content_chunks)[:200]
-    else:
-        printable = "".join(ch if ch.isprintable() else " " for ch in result.body_snippet)
-        body = re.sub(r"\s+", " ", printable).strip()[:500]
+    result = probe.execute_probe(request, timeout=timeout, proxy=None)
     if result.ok:
         verdict = "servable"
     elif result.status is None:
@@ -160,7 +189,6 @@ for model in models:
         "account_status": meta.get("status"),
         "account_schedulable": meta.get("schedulable"),
         "expires_at": meta.get("expires_at"),
-        "body_excerpt": body,
         "error": result.error,
     }, ensure_ascii=False))
 PY
