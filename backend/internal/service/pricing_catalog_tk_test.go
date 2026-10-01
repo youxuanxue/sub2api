@@ -917,7 +917,7 @@ func TestFilterPublicCatalog_ReattributesAntigravityExclusiveVendor(t *testing.T
 	// class as the gpt-5.6 display gap, on the antigravity surface).
 	in := &PublicCatalogResponse{Object: "list", Data: []PublicCatalogModel{
 		{ModelID: "gemini-3.1-flash-image", Vendor: "vertex_ai-language-models"},         // antigravity-exclusive, mirror-vendored
-		{ModelID: "gemini-3-pro-image", Vendor: "antigravity"},                           // antigravity-exclusive, overlay-injected
+		{ModelID: "gemini-3-pro-image", Vendor: "vertex_ai-language-models"},             // Gemini Web Pro
 		{ModelID: "gemini-3.8-flash", Vendor: "vertex_ai-language-models"},               // DUAL-listed (gemini + antigravity)
 		{ModelID: "imagen-4.0-generate-001", Vendor: "vertex_ai"},                        // empirically served but withdrawn from recommendations
 		{ModelID: "gemini-9-experimental-unlisted", Vendor: "vertex_ai-language-models"}, // in NO allowlist -> dropped
@@ -933,10 +933,10 @@ func TestFilterPublicCatalog_ReattributesAntigravityExclusiveVendor(t *testing.T
 	m, ok := byID["gemini-3.1-flash-image"]
 	require.True(t, ok, "antigravity-exclusive gemini-* must survive the public filter")
 	assert.Equal(t, "antigravity", m.Vendor, "re-attributed to antigravity vendor")
-	// antigravity-exclusive, already overlay-injected as antigravity: survives unchanged
+	// Gemini Web Pro remains in the Gemini catalog, without AG attribution
 	m, ok = byID["gemini-3-pro-image"]
 	require.True(t, ok)
-	assert.Equal(t, "antigravity", m.Vendor)
+	assert.Equal(t, "vertex_ai-language-models", m.Vendor)
 	// dual-listed: survives, vendor NOT changed (genuinely Vertex-served too)
 	m, ok = byID["gemini-3.8-flash"]
 	require.True(t, ok, "dual-listed gemini survives")

@@ -276,3 +276,22 @@ and stops the Worker; it does not alter other gateway accounts.
 Drain the Worker before rolling back the backend control API. Preserve current database
 cookies and paused state; restoring an old file Worker or stale cookie snapshot is not a
 compatible rollback. A backend-only rollback makes this Worker unready.
+
+## Direct Pro images
+
+`gemini-web-pro-image` keeps the existing Flash image behavior. Map public
+`gemini-3-pro-image`, `nano-banana-pro` and `nano-pro` to
+`gemini-web-nano-banana-pro` only after this Worker and the matching gateway are deployed.
+The new path verifies Google's final `Nano Banana Pro` label, without a preceding Flash generation.
+
+Call the gateway's native `generateContent` with `generationConfig.imageConfig`
+(`aspectRatio`, `imageSize`) or `/v1/images/generations` with `aspect_ratio` and
+`size` (`1K`, `2K`, `4K`, or supported square canvas). Web downloads original 2K;
+1K/4K outputs use the existing gateway canvas postprocessor. The internal Python
+Worker intentionally does not accept imageSize itself. Relays preserve it for the edge gateway.
+
+Pro accepts bounded inline reference images in native and compatible message inputs.
+Upload and generation share the existing account lease/session. Only data images are
+accepted; remote input URLs, masks, multi-turn history, tools and sampling controls
+remain unsupported. The complete contract, account activation sequence and owners
+are in the approved channel document above. Do not activate Pro mappings on old Worker builds.

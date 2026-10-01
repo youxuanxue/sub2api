@@ -100,33 +100,36 @@ func geminiWebNormalizeChatExtraBody(body []byte) ([]byte, bool, bool) {
 		return body, false, false
 	}
 	imageConfig, ok := google["image_config"].(map[string]any)
-	if !ok || !geminiWebOnlyKeys(imageConfig, "aspect_ratio") {
+	if !ok || !geminiWebOnlyKeys(imageConfig, "aspect_ratio", "image_size") {
 		return body, false, false
 	}
-	ratio, ok := imageConfig["aspect_ratio"].(string)
-	if !ok {
-		return body, false, false
-	}
-	ratio = strings.TrimSpace(ratio)
-
 	out, err := sjson.DeleteBytes(body, "extra_body")
 	if err != nil {
 		return body, false, false
 	}
-	if ratio == "" {
-		return out, true, true
+	for from, to := range map[string]string{"aspect_ratio": "aspectRatio", "image_size": "imageSize"} {
+		raw, exists := imageConfig[from]
+		if !exists {
+			continue
+		}
+		value, ok := raw.(string)
+		if !ok {
+			return body, false, false
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		path := "generationConfig.imageConfig." + to
+		if gjson.GetBytes(out, path).Exists() {
+			continue
+		}
+		out, err = sjson.SetBytes(out, path, value)
+		if err != nil {
+			return body, false, false
+		}
 	}
-	if !geminiWebImageAspectRatioSupported(ratio) {
-		return body, false, false
-	}
-	existing := strings.TrimSpace(gjson.GetBytes(out, "generationConfig.imageConfig.aspectRatio").String())
-	if existing != "" {
-		return out, true, true
-	}
-	out, err = sjson.SetBytes(out, "generationConfig.imageConfig.aspectRatio", ratio)
-	if err != nil {
-		return body, false, false
-	}
+	// Provider admission validates values after this lossless spelling conversion.
 	return out, true, true
 }
 

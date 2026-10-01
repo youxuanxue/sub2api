@@ -27,11 +27,27 @@
 12. AC-012 UI 生命周期：真实编辑页面可选文件导入并显示提交摘要；成功导入保留未保存的表单输入；畸形/超限文件不发送；读文件中关闭/切换或迟到 HTTP 响应不串号、不更新新弹窗。
 13. AC-013 后台账号测试：本地 Worker 注入真实选中账号引用；prod 中继不注入本地引用；文本及图片测试符合 Worker 请求契约，普通 Gemini 请求保持原样。
 
+14. AC-014 真 Pro：新会话直接生成且最终上游模型精确匹配；Flash/未知标签失败并保持 pending，不重复生成。
+15. AC-015 参数：Pro 比例与参考图在四种协议准入一致；SSOT 画布兑现 1K/2K/4K，prod 中继不重复处理，失败不结算图片。
+16. AC-016 身份：Pro 别名与价格归 canonical Pro；AG 陈旧/通配符映射不得降级到 Flash，现有 Flash 行为保持。
+
 ## Assertions
 
 断言官方候选内容和原图字节一致、拒绝时无上游调用、不同账号 Cookie 不串写、失败不重生图。
 
 ## Linked Tests
+
+- AC-014: `ops/gemini-web/test_worker.py`::`WorkerTests.test_direct_pro_preserves_ratio_and_requires_upstream_identity`
+- AC-014: `ops/gemini-web/test_worker.py`::`WorkerTests.test_direct_pro_never_delivers_flash_or_unknown_identity`
+- AC-015: `ops/gemini-web/test_worker.py`::`WorkerTests.test_direct_pro_uploads_reference_with_same_session_before_generation`
+- AC-015: `ops/gemini-web/test_worker.py`::`WorkerTests.test_reference_upload_rejects_untrusted_destination`
+- AC-015: `backend/internal/service/gemini_web_image_canvas_tk_test.go`::`TestGeminiWebCanvasUsesSharedPostprocessor`
+- AC-015: `backend/internal/service/gemini_web_image_canvas_tk_test.go`::`TestGeminiWebCanvasForwardAllProtocolsAndFailureDoesNotRetry`
+- AC-015: `backend/internal/service/gemini_web_image_canvas_tk_test.go`::`TestGeminiWebCanvasKeepsRelayIntentAndOtherProviders`
+- AC-015: `backend/internal/service/gemini_web_pro_image_tk_test.go`::`TestGeminiWebProReferenceAdmissionAcrossProtocols`
+- AC-016: `backend/internal/service/gemini_web_pro_image_tk_test.go`::`TestGeminiWebProImageRoutesWithoutAntigravityDowngrade`
+- AC-016: `backend/internal/service/antigravity_model_mapping_test.go`::`TestAntigravityRejectsProEvenWithStaleOrWildcardMappings`
+
 
 - AC-013: `backend/internal/service/account_test_service_gemini_test.go`::`TestGeminiWebAdminTestUsesWorkerReferenceAndSupportedPayload`
 - AC-001: `ops/gemini-web/test_worker.py`::`WorkerTests.test_official_response_omits_unobserved_usage_and_thoughts`

@@ -153,13 +153,11 @@ func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, ha
 		if universalModelPlatformHint(model) == PlatformGrok {
 			out = append(out, PlatformGrok)
 		}
-		// Gemini-native image models (gemini-*-image) ride antigravity generateContent,
-		// same as chat completions — without antigravity in candidates, universal keys
-		// on /openrouter/v1/images or /v1/images/generations get universal_no_entitled_group.
+		// Gemini image families (including marketing aliases) use the native facade.
 		if antigravity.IsImageModel(model) {
-			out = append(out, PlatformAntigravity)
+			out = append(out, PlatformAntigravity, PlatformGemini)
 		}
-		if universalModelPlatformHint(model) == PlatformGemini {
+		if !antigravity.IsImageModel(model) && universalModelPlatformHint(model) == PlatformGemini {
 			out = append(out, PlatformGemini)
 		}
 		return out

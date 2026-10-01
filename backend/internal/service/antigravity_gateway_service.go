@@ -312,6 +312,9 @@ func mapAntigravityModel(account *Account, requestedModel string) string {
 		return ""
 	}
 	requestedModel = strings.TrimPrefix(requestedModel, "models/")
+	if !account.IsModelSupported(requestedModel) {
+		return ""
+	}
 
 	// 获取映射表（未配置时自动使用 DefaultAntigravityModelMapping）
 	mapping := account.GetModelMapping()

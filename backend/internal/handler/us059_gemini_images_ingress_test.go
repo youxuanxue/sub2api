@@ -145,10 +145,15 @@ func TestUS059_GeminiImagesIngressGenerationAndSettlement(t *testing.T) {
 				h.GeminiImageGenerations(c)
 				require.Len(t, upstream.requests, 1, "generation must never replay after output")
 				prefix := ""
+				wireSize := wantSize
 				if transport == "oauth" {
 					prefix = "request."
+				} else if scenario != "explicit" {
+					// Relays preserve omitted size; the final AG OAuth hop supplies
+					// its native 2K default. Billing still uses the default 2K tier.
+					wireSize = ""
 				}
-				require.Equal(t, wantSize, gjson.GetBytes(upstream.requests[0], prefix+"generationConfig.imageConfig.imageSize").String())
+				require.Equal(t, wireSize, gjson.GetBytes(upstream.requests[0], prefix+"generationConfig.imageConfig.imageSize").String())
 				require.Equal(t, wantRatio, gjson.GetBytes(upstream.requests[0], prefix+"generationConfig.imageConfig.aspectRatio").String())
 				if scenario != "default" && scenario != "explicit" && scenario != "split_stop" {
 					require.Equal(t, 502, rec.Code, rec.Body.String())

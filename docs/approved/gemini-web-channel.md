@@ -10,6 +10,74 @@ target: edge-us4
 
 # Gemini Web Cookie HTTP 通路
 
+## 2026-09-30：直接 Nano Banana Pro（本次会话批准）
+
+用户在 fresh Web 会话直接 Pro 生图原型通过后回复「同意。继续。」；随后要求对齐
+Antigravity Flash 生图参数，并明确「采用 tokenkey 里已有的精确画布等后处理。保持 ssot 原则」。
+本节是该增量的实施基线，覆盖下文旧版只允许纯文本、五种比例及禁止后处理的限制。
+旧内部模型 `gemini-web-pro-image` 保持 Nano Banana 2 / Flash 的既有行为。
+
+- 公共模型 `gemini-3-pro-image`，别名 `nano-banana-pro`、兼容别名 `nano-pro`。
+  不新增容易与 Nano Banana 2 混淆的 `nano-2-pro`。
+- 独立 Worker 模型 `gemini-web-nano-banana-pro`：新会话一次生成，Pro selector 加
+  `inner[0][9][6][1][0]=1` 和 `inner[32]=1`；比例在同一个 options 中保留。
+  最终候选帧 `[42]` 必须严格等于 `Nano Banana Pro`。缺失、未知或 Nano Banana 2
+  都不得返回 Pro 成功；沿用 pending 暂停，不重复生成，不伪造 Developer API modelVersion。
+- Antigravity 无真 Pro 证据，移除 Pro→Flash 默认/快捷配置；持久化、runtime、通配符
+  映射亦不能让 Pro 被 AG 接纳。普通 Gemini/Vertex 真 Pro 供应源不被全局屏蔽。
+- 分辨率参数统一 `imageConfig.imageSize=1K/2K/4K`。Web 取得原生约 2K，edge
+  复用现有精确画布的渐进 CatmullRom / 等比 pad owner 输出目标尺寸；4K 是本地放大，
+  不是原生 4K。GPT 现有尺寸限制保持原样，Gemini 使用自己的已定义画布上限。
+  不缩放预览图；Google original RPC 和解码校验继续强制。
+- 比例对齐共享 Gemini 图片词汇：`1:1,2:3,3:2,3:4,4:3,4:5,5:4,9:16,16:9,21:9`。
+  `apicompat.GeminiImageCanvas` 为 ratio/分辨率画布 owner；Worker 只负责网页比例字段。
+- 新 Pro 支持单个 user turn 中的文本与 `inlineData` JPEG/PNG/WebP 参考图。
+  参考图合计最多 10 MiB、最多四张、单图最多 1600 万像素；base64/MIME/解码检查在
+  上传前完成。只上传给已验证的 Google upload host；不获取客户提供的远端图片 URL。
+  单参考图改色已实测；多图的数量边界有本地测试，未声称多参考一致性实测。
+- 原生 Gemini、Chat、Responses、Messages 共享 Plan；OpenAI Images generations
+  复用既有 Gemini 操作适配器，`n=1`、base64 返回，不提供 edits/mask。
+  Images 省略 size/auto 不再在通用转换器强塞 2K：AG 已有 wire 默认仍为 2K；Web 默认保留原图。
+  `size=1K/2K/4K` 和方形像素别名继续映射到相同 imageSize。
+  system/tools/采样控制/多轮请求继续拒绝；不以丢参声称和 AG 完全等价。
+- 本地 Worker 账号前的网关消化分辨率并处理原图；prod relay 保留参数送往 edge，
+  不二次放大。输出成功后沿用原结算，按 Pro 价格及交付尺寸档计费；处理失败不结算图片、
+  不自动再次生成。流式依旧缓冲，处理后返回同一 SSE 结果。
+
+### 本轮实测及发布边界
+
+2026-09-30 raw upstream：us3 #24、us4 #28、us5 #28、us6 #39 各自新会话直接
+生成成功，最终字段为 `Nano Banana Pro`，原图完整解码。us3 同账号无 Pro 标记对照为
+`Nano Banana 2`；不以 Web Pro selector 名称替代模型证据。
+us4 `4:3` 返回 2400×1792；us3 `21:9` 返回 3168×1344；其他比例的脱敏记录保留在
+本地调研材料，不提交账号凭据或研究图片。us4 单参考图编辑返回 2400×1792，视觉验证蓝杯变红，
+杯形和构图保留。官方 [Web 图片说明](https://support.google.com/gemini/answer/14286560?hl=en)
+说明付费下载为 2K；这些实测不证明原生 4K。
+
+上线按 Worker → edge backend → prod backend → 网关归因探测 → mappings 激活推进。
+代码合并不等于部署或启用账号。目标 prod relay 是 `gemini-us3/4/5/6`，它们是账号，
+不是路由分组；现有调度关闭状态在本次代码 PR 中不变。先核对 eligible edge Web runtime，
+逐账号直测与网关账号归因通过后，按现有 modelops 激活流程追加下列映射，并保留原映射：
+
+| 公共请求 | prod relay 目标 | edge Worker 目标 |
+| --- | --- | --- |
+| `gemini-3-pro-image` | 同名 | `gemini-web-nano-banana-pro` |
+| `nano-banana-pro` | `gemini-3-pro-image` | `gemini-web-nano-banana-pro` |
+| `nano-pro` | `gemini-3-pro-image` | `gemini-web-nano-banana-pro` |
+
+停用、报错或 pending 账号不随上新被恢复。rollback 先撤回 Pro 映射，再回滚 Worker；
+不能让新映射落到旧 Worker。需要同时发布 pricing registry 的新 alias，不以计费 family fallback 代替。
+
+### 增量 Owners
+
+- 上游身份、引用上传与会话：仍为 `ops/gemini-web/worker.py` 的 Account/SessionOwner。
+- Web 请求准入及本地尺寸投影：`protocolrouter/gemini_web.go`；原请求保留交付意图。
+  Plan 的参考图转换复用这份严格准入，限定为 Web Pro → Gemini，不放宽普通供应源的转换策略。
+- 画布处理：`gemini_web_image_canvas_tk.go` 只编排，复用 `openai_images_strict_canvas_tk.go`
+  的 `resizeImageExactWithinBounds` 与既有渐进缩放/编码；不另实现图片算法。
+- catalog、aliases、account floor 与计费：沿用各自现有 SSOT，bundle 由 Go 生成。
+- 验收补充：US-056 的 AC-014/015/016；候选入口 owner 仍见 candidate-eligibility SSOT。
+
 ## 当前授权与边界
 
 PR #2262 提供 Cookie＋纯 HTTP Worker，沿用 Gemini API-key 账号与官方

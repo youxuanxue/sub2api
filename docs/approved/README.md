@@ -38,6 +38,8 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 
 Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
+2026-09-30 增量：[Gemini Web 直接 Pro 与共享画布契约](gemini-web-channel.md)（已获本次会话实施授权，待发布验证）。
+
 ## TokenKey SSOT 导航
 
 本节只提供契约入口；规则、实现 owner 和验收状态在链接目标维护。

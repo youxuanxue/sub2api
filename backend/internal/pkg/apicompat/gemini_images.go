@@ -9,14 +9,41 @@ import (
 	"time"
 )
 
+var geminiImageCanvases = []struct {
+	ratio         string
+	width, height int
+}{
+	{"1:1", 1024, 1024}, {"2:3", 848, 1264}, {"3:2", 1264, 848}, {"3:4", 896, 1200}, {"4:3", 1200, 896},
+	{"4:5", 928, 1152}, {"5:4", 1152, 928}, {"9:16", 768, 1376}, {"16:9", 1376, 768}, {"21:9", 1584, 672},
+}
+
 // GeminiImageAspectRatios is the shared native generation vocabulary.
 // Return a fresh slice so discovery callers cannot mutate the request contract.
 func GeminiImageAspectRatios() []string {
-	return []string{"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"}
+	ratios := make([]string, 0, len(geminiImageCanvases))
+	for _, canvas := range geminiImageCanvases {
+		ratios = append(ratios, canvas.ratio)
+	}
+	return ratios
+}
+
+// GeminiImageCanvas defines the shared Gemini size/ratio vocabulary. Web Pro
+// fulfills these canvases locally from its original 2K image; AG requests them natively.
+func GeminiImageCanvas(ratio, size string) (int, int, bool) {
+	scale := map[string]int{"1K": 1, "2K": 2, "4K": 4}[size]
+	if scale == 0 {
+		return 0, 0, false
+	}
+	for _, canvas := range geminiImageCanvases {
+		if ratio == canvas.ratio {
+			return canvas.width * scale, canvas.height * scale, true
+		}
+	}
+	return 0, 0, false
 }
 
 // ImagesToGeminiGeneration is the shared request contract for admission and
-// execution of the Antigravity Images facade. It never approximates a canvas
+// execution of the native Gemini Images facade. It never approximates a canvas
 // size or drops provider options that the Gemini request cannot represent.
 func ImagesToGeminiGeneration(body []byte) (string, []byte, error) {
 	var fields map[string]json.RawMessage
@@ -78,7 +105,7 @@ func ImagesToGeminiGeneration(body []byte) (string, []byte, error) {
 	size := values["size"]
 	switch size {
 	case "", "auto":
-		size = "2K"
+		size = ""
 	case "1K", "2K", "4K":
 	case "1024x1024", "2048x2048", "4096x4096":
 		if ratio != "1:1" {
@@ -88,9 +115,13 @@ func ImagesToGeminiGeneration(body []byte) (string, []byte, error) {
 	default:
 		return "", nil, fmt.Errorf("unsupported size; use 1K, 2K, 4K or a supported square canvas; use aspect_ratio for composition")
 	}
+	imageConfig := map[string]any{"aspectRatio": ratio}
+	if size != "" {
+		imageConfig["imageSize"] = size
+	}
 	native, err := json.Marshal(map[string]any{
 		"contents":         []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": values["prompt"]}}}},
-		"generationConfig": map[string]any{"responseModalities": []string{"TEXT", "IMAGE"}, "imageConfig": map[string]any{"aspectRatio": ratio, "imageSize": size}},
+		"generationConfig": map[string]any{"responseModalities": []string{"TEXT", "IMAGE"}, "imageConfig": imageConfig},
 	})
 	return model, native, err
 }

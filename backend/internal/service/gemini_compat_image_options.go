@@ -67,6 +67,11 @@ func geminiCompatGenerationOptions(req map[string]any) (map[string]any, error) {
 						return nil, fmt.Errorf("generationConfig.responseModalities supports TEXT and IMAGE")
 					}
 				}
+			case "candidateCount":
+				count, ok := value.(float64)
+				if !ok || count < 1 || count > 8 || count != float64(int(count)) {
+					return nil, fmt.Errorf("generationConfig.candidateCount must be an integer from 1 to 8")
+				}
 			case "imageConfig":
 				if value != nil {
 					if _, ok := value.(map[string]any); !ok {

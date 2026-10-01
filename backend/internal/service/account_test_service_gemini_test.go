@@ -176,7 +176,7 @@ func TestGeminiWebAdminTestUsesWorkerReferenceAndSupportedPayload(t *testing.T) 
 				var payload map[string]any
 				require.NoError(t, json.Unmarshal(body, &payload))
 				if kind != "ordinary" {
-					require.True(t, protocolrouter.GeminiWebNativeBodySupported(body, image), string(body))
+					require.True(t, protocolrouter.GeminiWebNativeBodySupported(body, image, false), string(body))
 					require.NotContains(t, payload, "systemInstruction")
 					if image {
 						require.Equal(t, map[string]any{"responseModalities": []any{"TEXT", "IMAGE"}}, payload["generationConfig"])

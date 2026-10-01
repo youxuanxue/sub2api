@@ -20,7 +20,7 @@ import worker
 from PIL import Image
 
 
-def wire(text='answer', images=False, completed=True, sparse=False):
+def wire(text='answer', images=False, completed=True, sparse=False, image_model=None):
     candidate = [None] * 38
     candidate[0], candidate[1], candidate[8] = 'rc_one', [text], [2 if completed else 1]
     if images:
@@ -30,6 +30,8 @@ def wire(text='answer', images=False, completed=True, sparse=False):
         candidate[12] = [{'8': [[image]]}] if sparse else rich
     candidate[37] = [['private thoughts must never be returned']]
     value = [None, ['c_one', 'r_one'], None, None, [candidate]]
+    value.extend([None] * (43 - len(value)))
+    value[42] = image_model
     return ")]}'\n\n12\n" + json.dumps([['wrb.fr', None, json.dumps(value), None]]) + '\n'
 
 
@@ -88,7 +90,7 @@ class WorkerTests(unittest.TestCase):
         for case in cases:
             with self.subTest(case=case['name']):
                 if case['accepted']:
-                    prompt, modalities, _ = worker.request_prompt(case['body'], case['model'])
+                    prompt, modalities, _, _ = worker.request_prompt(case['body'], case['model'])
                     self.assertTrue(prompt.strip())
                     self.assertEqual('IMAGE' in modalities, worker.MODELS[case['model']][1])
                 else:
@@ -189,6 +191,84 @@ class WorkerTests(unittest.TestCase):
                 inner = json.loads(json.loads(call.call_args.kwargs['data']['f.req'])[1])
                 self.assertEqual(inner[0][9][6][1][1], ratio)
                 self.assertEqual(inner[55], [[enum]])
+
+    def test_direct_pro_preserves_ratio_and_requires_upstream_identity(self):
+        original = {'inlineData': {'mimeType': 'image/jpeg', 'data': 'b3JpZ2luYWw='}}
+        for ratio in (None, *worker.PRO_IMAGE_ASPECT_RATIOS):
+            with self.subTest(ratio=ratio):
+                config = {'responseModalities': ['IMAGE']}
+                if ratio is not None:
+                    config['imageConfig'] = {'aspectRatio': ratio}
+                with patch.object(self.account, 'call', return_value=(None, wire(images=True, image_model='Nano Banana Pro').encode())) as call, patch.object(self.account, 'download', return_value=original) as download:
+                    result = self.account.generate(worker.PRO_IMAGE_MODEL, {
+                        'contents': [{'parts': [{'text': 'blue cup'}]}], 'generationConfig': config})
+                inner = json.loads(json.loads(call.call_args.kwargs['data']['f.req'])[1])
+                self.assertEqual(inner[32], 1)
+                self.assertEqual(inner[0][9][6][1], [1, ratio] if ratio else [1])
+                self.assertEqual(inner[55], [[worker.IMAGE_ASPECT_ENUM[ratio]]] if ratio in worker.IMAGE_ASPECT_ENUM else [])
+                self.assertFalse(any(inner[2]), 'Direct Pro must start a fresh conversation')
+                self.assertEqual(result['candidates'][0]['content']['parts'], [original])
+                call.assert_called_once()
+                download.assert_called_once()
+                self.assertFalse(self.saved['generation_pending'])
+
+    def test_direct_pro_uploads_reference_with_same_session_before_generation(self):
+        buffer = io.BytesIO()
+        Image.new('RGB', (4, 3), 'blue').save(buffer, format='PNG')
+        encoded = base64.b64encode(buffer.getvalue()).decode()
+        calls = []
+        def call(method, url, **kwargs):
+            calls.append((method, url))
+            if len(calls) == 1:
+                self.assertFalse(self.account.generation_pending)
+                self.assertEqual(url, 'https://push.clients6.google.com/upload/?authuser=0')
+                return SimpleNamespace(headers={'x-goog-upload-url': 'https://push.clients6.google.com/upload/session'}), b''
+            if len(calls) == 2:
+                self.assertEqual(kwargs['data'], buffer.getvalue())
+                self.assertEqual(kwargs['headers']['X-Goog-Upload-Command'], 'upload, finalize')
+                return None, b'/contrib_service/ttl_1d/fixture'
+            self.assertEqual(url, worker.GENERATE)
+            self.assertTrue(self.account.generation_pending)
+            inner = json.loads(json.loads(kwargs['data']['f.req'])[1])
+            self.assertEqual(inner[0][3], [[['/contrib_service/ttl_1d/fixture', 1, None, 'image/png'], 'reference.png']])
+            self.assertEqual(inner[32], 1)
+            return None, wire(images=True, image_model='Nano Banana Pro').encode()
+        with patch.object(self.account, 'call', side_effect=call), patch.object(self.account, 'download', return_value={'inlineData': {'mimeType': 'image/png', 'data': encoded}}):
+            result = self.account.generate(worker.PRO_IMAGE_MODEL, {'contents': [{'parts': [
+                {'text': 'change the blue image to red'}, {'inlineData': {'mimeType': 'image/png', 'data': encoded}}]}]})
+        self.assertEqual(result['candidates'][0]['content']['parts'][1]['inlineData']['data'], encoded)
+        self.assertEqual(len(calls), 3)
+        self.assertFalse(self.saved['generation_pending'])
+
+    def test_reference_upload_rejects_untrusted_destination(self):
+        for url in ('http://push.clients6.google.com/upload', 'https://evil.example/upload', 'https://push.clients6.google.com.evil.example/upload', 'https://user@push.clients6.google.com/upload'):
+            with self.subTest(url=url), patch.object(self.account, 'call', return_value=(SimpleNamespace(headers={'x-goog-upload-url': url}), b'')) as call:
+                with self.assertRaisesRegex(worker.Failure, 'Untrusted reference upload URL'):
+                    self.account.upload(b'fixture', 'image/png')
+                call.assert_called_once()
+
+    def test_direct_pro_never_delivers_flash_or_unknown_identity(self):
+        for label in (None, 'Nano Banana 2', 'Nano Banana', 'Loading Nano Banana Pro', ['Nano Banana Pro']):
+            with self.subTest(label=label):
+                self.account.generation_pending = False
+                with patch.object(self.account, 'call', return_value=(None, wire(images=True, image_model=label).encode())) as call, patch.object(self.account, 'download') as download:
+                    with self.assertRaisesRegex(worker.Failure, 'did not confirm Nano Banana Pro'):
+                        self.account.generate(worker.PRO_IMAGE_MODEL, {'contents': [{'parts': [{'text': 'blue cup'}]}]})
+                call.assert_called_once()
+                download.assert_not_called()
+                self.assertTrue(self.saved['generation_pending'])
+                restored = self.restore()
+                try:
+                    with patch.object(restored, 'call') as retry:
+                        with self.assertRaisesRegex(worker.Failure, 'paused'):
+                            restored.generate(worker.PRO_IMAGE_MODEL, {'contents': [{'parts': [{'text': 'blue cup'}]}]})
+                        retry.assert_not_called()
+                finally:
+                    restored.close()
+        # An earlier progress label is not proof for the final candidate.
+        raw = wire(images=True, image_model='Nano Banana Pro') + wire(images=True, image_model='Nano Banana 2').split("12\n", 1)[1]
+        with self.assertRaisesRegex(worker.Failure, 'did not confirm'):
+            worker.generation_result(raw, expected_image_model='Nano Banana Pro')
 
     def test_null_image_config_uses_default_image_options(self):
         original = {'inlineData': {'mimeType': 'image/jpeg', 'data': 'b3JpZ2luYWw='}}

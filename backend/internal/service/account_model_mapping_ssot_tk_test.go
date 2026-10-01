@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"sort"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -228,10 +230,11 @@ func TestAccountModelMappingFloorForOps_ExportsPolicyMetadata(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, canonicalAntigravityModelScopes, doc.AntigravityScopes)
 	wantForbiddenKeys := append(
-		domain.AntigravityStructuralDeadModelMappingKeys(),
+		append(domain.AntigravityStructuralDeadModelMappingKeys(), domain.GeminiProImageModelIDs()...),
 		domain.AntigravityUnpricedModelMappingKeys()...,
 	)
-	require.ElementsMatch(t, wantForbiddenKeys, doc.ForbiddenModelMappingKeys[PlatformAntigravity])
+	sort.Strings(wantForbiddenKeys)
+	require.ElementsMatch(t, slices.Compact(wantForbiddenKeys), doc.ForbiddenModelMappingKeys[PlatformAntigravity])
 	require.ElementsMatch(t, kiroExclusiveModelIDs(), doc.ForbiddenModelMappingKeys[PlatformAnthropic])
 	require.Contains(t, doc.ForbiddenModelMappingKeys[PlatformAnthropic], "claude-opus-5")
 	require.Contains(t, doc.ForbiddenModelMappingKeys[PlatformAnthropic], "claude-opus-5-5")
@@ -433,7 +436,7 @@ func requireTokenseaImageCompatibilityAliases(t *testing.T, mapping map[string]s
 	for _, to := range mapping {
 		targets[to] = struct{}{}
 	}
-	for from, to := range tkTokenseaImageCompatibilityAliases {
+	for from, to := range tkImageCompatibilityAliases {
 		if _, ok := targets[to]; !ok {
 			continue
 		}

@@ -660,6 +660,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	}
 	geminiReq = ensureGeminiFunctionCallThoughtSignatures(geminiReq)
 	originalClaudeBody := body
+	geminiReq, imageCanvas, err := prepareGeminiWebImageCanvas(account, mappedModel, geminiReq)
+	if err != nil {
+		return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+	}
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -986,6 +990,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		break
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if err := imageCanvas.apply(ctx, resp); err != nil {
+		return nil, s.writeClaudeError(c, http.StatusBadGateway, "api_error", "Gemini Web image processing failed; generation was not retried")
+	}
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
@@ -1214,6 +1221,11 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		return nil, err
 	}
 	ctx = withGeminiCodeAssistMappedModel(ctx, mappedModel)
+	originalNativeBody := body
+	body, imageCanvas, canvasErr := prepareGeminiWebImageCanvas(account, mappedModel, body)
+	if canvasErr != nil {
+		return nil, s.writeGoogleError(c, http.StatusBadRequest, canvasErr.Error())
+	}
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -1490,6 +1502,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		break
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if err := imageCanvas.apply(ctx, resp); err != nil {
+		return nil, s.writeGoogleError(c, http.StatusBadGateway, "Gemini Web image processing failed; generation was not retried")
+	}
 
 	requestID := resp.Header.Get(requestIDHeader)
 	if requestID == "" {
@@ -1657,7 +1672,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	}
 
 	// 图片生成计费
-	imageInputSize := s.extractImageInputSize(body)
+	imageInputSize := s.extractImageInputSize(originalNativeBody)
 	imageSize := normalizeOpenAIImageSizeTier(imageInputSize)
 	imageCount := resolveGeminiImageCount(c, originalModel, mappedModel)
 

@@ -200,11 +200,21 @@ func openAIImagesPadOpaque(req *OpenAIImagesRequest) bool {
 }
 
 func resizeOpenAIImageExact(src []byte, targetWidth, targetHeight int, padOpaque bool) ([]byte, error) {
+	return resizeImageExactWithinBounds(src, targetWidth, targetHeight, padOpaque, openAIImagesMaxCanvasSide, openAIImagesMaxGPTImage2Pixels)
+}
+
+// Shared canvas owner. Provider admission supplies its own bounds; scaling,
+// aspect-preserving pad and encoding remain identical for GPT and Gemini Web.
+func resizeImageExactWithinBounds(src []byte, targetWidth, targetHeight int, padOpaque bool, maxSide int, maxPixels int64) ([]byte, error) {
 	if len(src) == 0 || targetWidth <= 0 || targetHeight <= 0 {
 		return src, nil
 	}
-	if targetWidth > openAIImagesMaxCanvasSide || targetHeight > openAIImagesMaxCanvasSide {
-		return nil, fmt.Errorf("strict canvas %dx%d exceeds max side %d", targetWidth, targetHeight, openAIImagesMaxCanvasSide)
+	if targetWidth > maxSide || targetHeight > maxSide || int64(targetWidth)*int64(targetHeight) > maxPixels {
+		return nil, fmt.Errorf("strict canvas %dx%d exceeds provider bounds", targetWidth, targetHeight)
+	}
+	config, _, err := image.DecodeConfig(bytes.NewReader(src))
+	if err != nil || config.Width <= 0 || config.Height <= 0 || int64(config.Width)*int64(config.Height) > maxPixels {
+		return nil, fmt.Errorf("strict canvas: invalid or oversized source")
 	}
 	srcImg, _, err := image.Decode(bytes.NewReader(src))
 	if err != nil {

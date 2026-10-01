@@ -99,6 +99,10 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
 	geminiReq = ensureGeminiFunctionCallThoughtSignatures(geminiReq)
+	geminiReq, imageCanvas, err := prepareGeminiWebImageCanvas(account, mappedModel, geminiReq)
+	if err != nil {
+		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+	}
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -191,6 +195,9 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		break
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if err := imageCanvas.apply(ctx, resp); err != nil {
+		return nil, s.writeChatCompletionsError(c, http.StatusBadGateway, "api_error", "Gemini Web image processing failed; generation was not retried")
+	}
 
 	requestID := resp.Header.Get(requestIDHeader)
 	if requestID == "" {

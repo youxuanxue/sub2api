@@ -45,11 +45,16 @@ func TestImageCapabilityProfilesRespectKeyAndWebPath(t *testing.T) {
 	// Direct scope must not borrow the other group's broader profile.
 	key.RoutingMode, key.GroupID, key.Group = RoutingModeDirect, &groups[0].ID, &groups[0]
 	profiles = find()
-	require.Len(t, profiles, 1)
-	require.Equal(t, "/v1/chat/completions", profiles[0].Endpoint)
-	require.ElementsMatch(t, []string{"1:1", "3:4", "4:3", "9:16", "16:9"}, profiles[0].AspectRatios)
-	require.Equal(t, []int{1}, profiles[0].Counts)
-	require.False(t, profiles[0].SoftAspectRatio)
+	require.Len(t, profiles, 2)
+	endpoints := []string{}
+	for _, profile := range profiles {
+		endpoints = append(endpoints, profile.Endpoint)
+		require.ElementsMatch(t, []string{"1:1", "3:4", "4:3", "9:16", "16:9"}, profile.AspectRatios)
+		require.Equal(t, []int{1}, profile.Counts)
+		require.False(t, profile.InputImage)
+		require.Equal(t, profile.Endpoint == "/v1/images/generations", profile.SoftAspectRatio)
+	}
+	require.ElementsMatch(t, []string{"/v1/chat/completions", "/v1/images/generations"}, endpoints)
 	data, err := json.Marshal(profiles)
 	require.NoError(t, err)
 	require.NotContains(t, string(data), "test-only")
