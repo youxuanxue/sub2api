@@ -41,7 +41,8 @@ scope: "Isolated import of Wei-Shaw/sub2api upstream/main; no main merge or depl
   手机首页只收紧共享 landing 组件的间距，桌面布局与产品文案不变。
 - 生产只读评估与未决业务门禁见
   [上线前评估](../ops/upstream-pr2409-predeploy-20260930.md)。不因评估而授权生产配置、
-  reset grant 兑换、新模型激活或部署；Astra ultrafast 定价变化须另行业务确认。
+  reset grant 兑换、新模型激活或部署；业务已确认 Astra ultrafast 按 6 倍标准价执行，
+  该确认不等同于部署授权。
 
 ## 验证边界
 
