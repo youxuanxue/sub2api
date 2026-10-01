@@ -372,8 +372,14 @@ jobs:
           TK_SMOKE_OPENAI_OAUTH_MODELS: ${{ vars.TK_SMOKE_OPENAI_OAUTH_MODELS || 'gpt-5.4' }}
         run: bash ops/stage0/post_deploy_smoke.sh
 
-      - name: Post-deploy global candidate contract
-        run: python3 ops/observability/probe-global-candidate.py --phase candidate
+      # Prod host .env is GLOBAL_SITE_PHASE=live (admin kick 301). candidate
+      # expects 302 and would false-fail a healthy live facade — keep in sync
+      # with deploy/aws/README.md CallModel facade probe.
+      - name: Post-deploy CallModel facade contract
+        run: >-
+          python3 ops/observability/probe-global-candidate.py
+          --phase live
+          --api-alias-url https://api.callmodel.io
 
       - name: Post-deploy SSOT display gate (deploy canary)
         env:
