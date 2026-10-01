@@ -12,44 +12,17 @@
         </router-link>
       </div>
 
-      <!-- Transparent MODEL picker: the actual model is the choice, shown humanely
-           (friendly name + price + vendor + raw id subtext + quality badge). -->
-      <div v-else class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-dark-700 dark:bg-dark-900">
-        <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">{{ t('studio.image.modelLabel') }}</div>
-        <div class="space-y-2">
-          <button
-            v-for="r in models"
-            :key="r.presentation.modelId"
-            type="button"
-            class="w-full rounded-xl border p-3 text-left transition"
-            :class="selectedModelId === r.presentation.modelId
-              ? 'border-primary-500 bg-primary-50 ring-2 ring-primary-500/30 dark:border-primary-500 dark:bg-primary-950/40'
-              : 'border-gray-200 hover:border-primary-300 dark:border-dark-600'"
-            data-testid="studio-image-model"
-            @click="selectedModelId = r.presentation.modelId"
-          >
-            <div class="flex items-center justify-between gap-2">
-              <span class="text-[13px] font-semibold text-gray-900 dark:text-white">{{ r.presentation.displayName }}</span>
-              <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-800 dark:text-dark-300">{{ t(r.presentation.qualityBadgeKey) }}</span>
-            </div>
-            <div class="mt-1 flex items-center justify-between gap-2">
-              <span class="text-[12px] font-bold text-primary-700 dark:text-primary-300">
-                <template v-if="r.baseImagePrice != null">{{ formatUsd(r.baseImagePrice) }}{{ t('studio.image.perImageUnit') }}</template>
-                <template v-else>{{ t('studio.usagePriced') }}</template>
-              </span>
-              <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: r.presentation.vendorLabel }) }}</span>
-            </div>
-            <div class="mt-0.5 truncate font-mono text-[10px] text-gray-400 dark:text-dark-500" :title="r.servedId">{{ r.servedId }}</div>
-            <div v-if="r.presentation.needsApikeyAccount" class="mt-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">{{ t('studio.needsApikeyAccount') }}</div>
-          </button>
-        </div>
-      </div>
+      <StudioModelPicker
+        v-else
+        v-model="selectedModelId"
+        :label="t('studio.image.modelLabel')"
+        :models="pickerModels"
+        test-id="studio-image-model"
+      />
 
       <div v-if="models.length" class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-dark-700 dark:bg-dark-900">
-        <textarea
+        <StudioPromptTextarea
           v-model="prompt"
-          rows="3"
-          class="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-600 dark:bg-dark-950 dark:text-white"
           :placeholder="t('studio.image.promptPlaceholder')"
           :disabled="sending"
           @input="userEditedPrompt = true"
@@ -245,6 +218,8 @@ import { useStudioImagePreview } from '@/composables/useStudioImagePreview'
 import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
 import StudioImageExpired from '@/views/user/studio/components/StudioImageExpired.vue'
 import StudioImagePreviewLightbox from '@/views/user/studio/components/StudioImagePreviewLightbox.vue'
+import StudioModelPicker from '@/views/user/studio/components/StudioModelPicker.vue'
+import StudioPromptTextarea from '@/views/user/studio/components/StudioPromptTextarea.vue'
 import { useMediaLibrary, type ImageHistoryItem } from '@/composables/useMediaLibrary'
 
 const props = defineProps<{
@@ -267,6 +242,20 @@ const { preview, openPreview, closePreview } = useStudioImagePreview()
 const models = computed(() => resolveAvailableModels('image', props.availableIds, props.priceMap))
 const selectedModelId = ref<string>('')
 const selected = computed(() => models.value.find((r) => r.presentation.modelId === selectedModelId.value) ?? null)
+const pickerModels = computed(() =>
+  models.value.map((r) => ({
+    modelId: r.presentation.modelId,
+    displayName: r.presentation.displayName,
+    qualityBadgeKey: r.presentation.qualityBadgeKey,
+    priceLabel:
+      r.baseImagePrice != null
+        ? `${formatUsd(r.baseImagePrice)}${t('studio.image.perImageUnit')}`
+        : t('studio.usagePriced'),
+    vendorLabel: r.presentation.vendorLabel,
+    servedId: r.servedId,
+    needsApikeyAccount: r.presentation.needsApikeyAccount,
+  }))
+)
 
 const route = useRoute()
 const generationPlan = computed(() => imageGenerationPlan(selected.value?.servedId ?? '', props.capabilityModels?.find(m => m.id === selected.value?.servedId)?.image_generation))
