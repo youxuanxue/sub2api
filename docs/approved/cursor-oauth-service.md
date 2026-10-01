@@ -1,7 +1,7 @@
 ---
 title: Cursor Stateless OAuth Model Service
 status: approved
-approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push, shared unsupported-output-limit compatibility and automatic credential renewal instruction, 2026-09-09; Messages completion and Chat/Responses converter repair, shared usage/cyber policy no-retry SSOT, 2026-09-14; Cursor serving-family allowlist Claude/Grok/Composer/Muse and Opus 5.5 Cursor scope, 2026-09-24; TurnEnded.input=total → Anthropic disjoint buckets before settlement, Jobs review approval 2026-09-25)"
+approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push, shared unsupported-output-limit compatibility and automatic credential renewal instruction, 2026-09-09; Messages completion and Chat/Responses converter repair, shared usage/cyber policy no-retry SSOT, 2026-09-14; Cursor serving-family allowlist Claude/Grok/Composer/Muse and Opus 5.5 Cursor scope, 2026-09-24; TurnEnded.input=total → Anthropic disjoint buckets before settlement, Jobs review approval 2026-09-25; RunAgent frame-idle timeout replaces 2m wall-clock cap, conversation approval 2026-10-01)"
 created: 2026-09-07
 ---
 
@@ -85,6 +85,13 @@ The native adapter follows the MIT protocol subset from can1357/oh-my-pi
 - Inference uses account-aware HTTP transport and proxy settings, requires
   HTTP/2, rejects redirects, and never falls back to HTTP/1 for Cursor.
   Request cancellation and body closure release the producer and connection.
+  RunAgent does not impose a wall-clock total duration cap; silence between
+  Agent frames is bounded by a Cursor-owned stream-idle watchdog
+  (`defaultAgentStreamIdleTimeout` = 180s in `agent.go`). That constant matches
+  the deploy example for `gateway.stream_data_interval_timeout` but is not wired
+  to live gateway config — changing one does not change the other. Idle timeout
+  unwraps to `context.DeadlineExceeded` for shared 504 / transport owners and
+  must not be reported as a provider 502 `closed pipe` interrupt.
 
 ## Billing
 

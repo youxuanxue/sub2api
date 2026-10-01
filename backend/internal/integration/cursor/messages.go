@@ -475,6 +475,9 @@ func messagesError(status int, message string, code ...string) *http.Response {
 }
 
 func messagesErrorType(err error) string {
+	if errors.Is(err, errAgentStreamIdle) || errors.Is(err, context.DeadlineExceeded) {
+		return "timeout_error"
+	}
 	var upstream *Error
 	if errors.As(err, &upstream) {
 		return messagesStatusErrorType(upstream.Status)

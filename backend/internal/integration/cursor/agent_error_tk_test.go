@@ -128,6 +128,14 @@ func TestAgentPolicyReviewDiagnosticIsRetainedAndRedacted(t *testing.T) {
 	require.Empty(t, agentAnalyticsActionRequired([]byte{0xff}))
 }
 
+func TestAgentTransportErrorIdleTimeoutMessage(t *testing.T) {
+	err := &agentTransportError{cause: agentStreamIdleCause()}
+	require.ErrorIs(t, err, errAgentStreamIdle)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Equal(t, "cursor upstream transport failed: stream idle timeout", err.Error())
+	require.Equal(t, "timeout_error", messagesErrorType(err))
+}
+
 func TestAgentTransportErrorPreservesCauseWithoutExposingCredential(t *testing.T) {
 	for _, cause := range []error{context.Canceled, context.DeadlineExceeded, io.ErrUnexpectedEOF} {
 		t.Run(cause.Error(), func(t *testing.T) {

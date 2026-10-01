@@ -31,6 +31,9 @@ type AgentRejection struct {
 type agentTransportError struct{ cause error }
 
 func (e *agentTransportError) Error() string {
+	if e != nil && errors.Is(e.cause, errAgentStreamIdle) {
+		return "cursor upstream transport failed: stream idle timeout"
+	}
 	if errors.Is(e.cause, context.Canceled) {
 		return "cursor upstream transport failed: context canceled"
 	}
@@ -38,6 +41,10 @@ func (e *agentTransportError) Error() string {
 		return "cursor upstream transport failed: context deadline exceeded"
 	}
 	return "cursor upstream transport failed"
+}
+
+func agentStreamIdleCause() error {
+	return fmt.Errorf("%w: %w", errAgentStreamIdle, context.DeadlineExceeded)
 }
 func (e *agentTransportError) Unwrap() error { return e.cause }
 

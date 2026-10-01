@@ -105,7 +105,13 @@ func (u *cursorAnthropicGroupUpstream) Do(req *http.Request, _ string, _ int64, 
 	if strings.HasSuffix(req.URL.Path, "/v1/messages") {
 		return nil, io.EOF // would surface as the prod HTTP/1.x malformed class if routing regresses
 	}
-	_, _ = io.Copy(io.Discard, req.Body)
+	// HTTP/2 duplex: do not synchronously drain req.Body before returning the
+	// response. The real transport streams the request while reading frames;
+	// Copy-to-EOF here deadlocks against RunAgent's open request pipe.
+	go func() {
+		_, _ = io.Copy(io.Discard, req.Body)
+		_ = req.Body.Close()
+	}()
 	return &http.Response{StatusCode: http.StatusOK, ProtoMajor: 2, Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(u.payload))}, nil
 }
 
