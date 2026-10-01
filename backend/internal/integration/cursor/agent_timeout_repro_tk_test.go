@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -137,6 +138,41 @@ func TestRunAgentFrameIdleTimeout(t *testing.T) {
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		require.Contains(t, err.Error(), "stream idle timeout")
 	})
+
+	t.Run("do_ready_at_idle_deadline_prefers_response_not_idle", func(t *testing.T) {
+		// When do() completes in the same window as the idle timer, prefer the
+		// response over mis-classifying stream idle (and close the body via the
+		// normal defer path rather than abandoning it).
+		bodyClosed := make(chan struct{})
+		_, err := RunAgent(context.Background(), "test-token", input, func(*http.Request) (*http.Response, error) {
+			time.Sleep(200 * time.Millisecond)
+			return &http.Response{
+				StatusCode: 200,
+				ProtoMajor: 2,
+				Body:       &closeNotifyBody{closed: bodyClosed, err: io.EOF},
+			}, nil
+		}, nil)
+		require.False(t, errors.Is(err, errAgentStreamIdle), "raced do success must not become idle; got %v", err)
+		require.Error(t, err)
+		select {
+		case <-bodyClosed:
+		case <-time.After(2 * time.Second):
+			t.Fatal("response body was not closed after raced do completion")
+		}
+	})
+}
+
+type closeNotifyBody struct {
+	closed chan struct{}
+	err    error
+	once   sync.Once
+}
+
+func (b *closeNotifyBody) Read([]byte) (int, error) { return 0, b.err }
+
+func (b *closeNotifyBody) Close() error {
+	b.once.Do(func() { close(b.closed) })
+	return nil
 }
 
 type errBody struct{ err error }

@@ -598,21 +598,60 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 	}
 	doCh := make(chan doResult, 1)
 	go func() { resp, err := do(req); doCh <- doResult{resp: resp, err: err} }()
+	closeAbandonedDo := func(got doResult) {
+		if got.resp != nil && got.resp.Body != nil {
+			_ = got.resp.Body.Close()
+		}
+	}
+	drainAbandonedDo := func() {
+		go func() {
+			got, ok := <-doCh
+			if !ok {
+				return
+			}
+			closeAbandonedDo(got)
+		}()
+	}
 	var resp *http.Response
 	select {
 	case <-ctx.Done():
+		// Parent cancel always wins; still reclaim any raced do() response body.
+		select {
+		case got := <-doCh:
+			closeAbandonedDo(got)
+		default:
+			drainAbandonedDo()
+		}
 		if cause := context.Cause(ctx); cause != nil {
 			return result, cause
 		}
 		return result, ctx.Err()
 	case <-idleC:
-		cause := agentStreamIdleCause()
-		cancel(cause)
-		return result, &agentTransportError{cause: cause}
+		// Prefer a do() that already completed so we do not mis-classify a race
+		// as idle timeout, and never abandon an open Response.Body.
+		select {
+		case got := <-doCh:
+			resetIdle()
+			if got.err != nil {
+				return result, &agentTransportError{cause: got.err}
+			}
+			if got.resp == nil {
+				return result, &agentTransportError{cause: errors.New("cursor upstream returned nil response")}
+			}
+			resp = got.resp
+		default:
+			cause := agentStreamIdleCause()
+			cancel(cause)
+			drainAbandonedDo()
+			return result, &agentTransportError{cause: cause}
+		}
 	case got := <-doCh:
 		resetIdle()
 		if got.err != nil {
 			return result, &agentTransportError{cause: got.err}
+		}
+		if got.resp == nil {
+			return result, &agentTransportError{cause: errors.New("cursor upstream returned nil response")}
 		}
 		resp = got.resp
 	}
