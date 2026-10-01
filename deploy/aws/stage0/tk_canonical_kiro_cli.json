@@ -59,62 +59,62 @@
   ],
   "observed": {
     "source": "real-cli-mitm",
-    "kiro_cli_version": "2.26.0",
+    "kiro_cli_version": "2.26.1",
     "sample_count": 3,
     "samples": [
       {
         "server_name": "codewhisperer.us-east-1.amazonaws.com",
         "extension_order": [
+          13,
+          10,
+          43,
+          5,
+          51,
+          45,
+          23,
+          0,
+          11,
+          35
+        ],
+        "ja3_raw": "771,4866-4865-4867-49196-49195-52393-49200-49199-52392-255,13-10-43-5-51-45-23-0-11-35,29-23-24,0",
+        "ja3_hash": "be9b06f7c5e2fa8121dcda35fa671ebd"
+      },
+      {
+        "server_name": "codewhisperer.us-east-1.amazonaws.com",
+        "extension_order": [
+          0,
           11,
           43,
-          51,
-          35,
           13,
-          45,
-          10,
-          0,
+          51,
+          5,
           23,
+          35,
+          45,
+          10
+        ],
+        "ja3_raw": "771,4866-4865-4867-49196-49195-52393-49200-49199-52392-255,0-11-43-13-51-5-23-35-45-10,29-23-24,0",
+        "ja3_hash": "9ab0c78959f5ba45afc627949f490968"
+      },
+      {
+        "server_name": "codewhisperer.us-east-1.amazonaws.com",
+        "extension_order": [
+          43,
+          35,
+          0,
+          10,
+          51,
+          23,
+          11,
+          45,
+          13,
           5
         ],
-        "ja3_raw": "771,4866-4865-4867-49196-49195-52393-49200-49199-52392-255,11-43-51-35-13-45-10-0-23-5,29-23-24,0",
-        "ja3_hash": "a604fde567283b0af0546fc26c40b5d8"
-      },
-      {
-        "server_name": "codewhisperer.us-east-1.amazonaws.com",
-        "extension_order": [
-          23,
-          5,
-          35,
-          10,
-          0,
-          51,
-          13,
-          45,
-          11,
-          43
-        ],
-        "ja3_raw": "771,4866-4865-4867-49196-49195-52393-49200-49199-52392-255,23-5-35-10-0-51-13-45-11-43,29-23-24,0",
-        "ja3_hash": "911deef7c571b6b68a654fa24e2ffb2d"
-      },
-      {
-        "server_name": "codewhisperer.us-east-1.amazonaws.com",
-        "extension_order": [
-          43,
-          10,
-          23,
-          35,
-          0,
-          5,
-          45,
-          11,
-          51,
-          13
-        ],
-        "ja3_raw": "771,4866-4865-4867-49196-49195-52393-49200-49199-52392-255,43-10-23-35-0-5-45-11-51-13,29-23-24,0",
-        "ja3_hash": "c18086e63ba0bace1667836072c8f933"
+        "ja3_raw": "771,4866-4865-4867-49196-49195-52393-49200-49199-52392-255,43-35-0-10-51-23-11-45-13-5,29-23-24,0",
+        "ja3_hash": "a56dc6f1612fe120c1116862e485a4c0"
       }
     ],
-    "user_agent": "aws-sdk-rust/1.3.10 ua/2.1 api/codewhispererruntime/0.1.10231 os/macos lang/rust/1.92.0 md/appVersion-2.26.0 app/AmazonQ-For-CLI",
+    "user_agent": "aws-sdk-rust/1.3.10 ua/2.1 api/codewhispererruntime/0.1.10231 os/macos lang/rust/1.92.0 md/appVersion-2.26.1 app/AmazonQ-For-CLI",
     "x_amz_user_agent": "aws-sdk-rust/1.3.10 ua/2.1 api/codewhispererruntime/0.1.10231 os/macos lang/rust/1.92.0 m/F app/AmazonQ-For-CLI",
     "protocol": {
       "operations": [
