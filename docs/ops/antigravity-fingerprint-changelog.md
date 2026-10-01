@@ -42,3 +42,4 @@ Drift-fix recipe (see the `tokenkey-antigravity-fingerprint-alignment` skill):
 | 2026-09-25 | **1.2.11** | pure UA | `DefaultUserAgentVersion` 1.2.9 → 1.2.11 | 本机升级后的 `agy --version` 静态验证；UA 格式不变，本次未采集 wire 证据。关联 #2320。 |
 | 2026-09-28 | **1.2.12** | pure UA | `DefaultUserAgentVersion` 1.2.11 → 1.2.12 | 本机升级后的 `agy --version` 静态验证；UA 格式不变，本次未采集 wire 证据。关联 #2359。 |
 | 2026-09-30 | **1.2.13** | pure UA | `DefaultUserAgentVersion` 1.2.12 → 1.2.13 | 本机升级后的 `agy --version` 静态验证；UA 格式不变，本次未采集 wire 证据。关联 #2395。 |
+| 2026-10-01 | **1.2.14** | pure UA | `DefaultUserAgentVersion` 1.2.13 → 1.2.14 | 本机升级后的 `agy --version` 静态验证；UA 格式不变，本次未采集 wire 证据。关联 #2416。 |
