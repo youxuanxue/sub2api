@@ -6,6 +6,9 @@ import { parseCodexCatalogModels } from '@/utils/codexCatalogConfig'
 export function useCodexModelManifest(baseUrl: Ref<string>, apiKey: Ref<string>) {
   const state = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const content = ref('')
+  const responseBytes = ref(0)
+  const catalogMode = ref<'remote' | 'file'>('remote')
+  const oversized = computed(() => responseBytes.value > 1024 * 1024)
   const models = computed(() => state.value === 'ready' ? parseCodexCatalogModels(content.value) : null)
   let controller: AbortController | null = null
   let generation = 0
@@ -15,6 +18,8 @@ export function useCodexModelManifest(baseUrl: Ref<string>, apiKey: Ref<string>)
     controller?.abort()
     controller = null
     content.value = ''
+    responseBytes.value = 0
+    catalogMode.value = 'remote'
     state.value = 'idle'
   }
 
@@ -29,6 +34,8 @@ export function useCodexModelManifest(baseUrl: Ref<string>, apiKey: Ref<string>)
       const result = await fetchCodexModelsManifest(baseUrl.value, apiKey.value, request.signal)
       if (current !== generation) return false
       content.value = result.content
+      responseBytes.value = result.responseBytes
+      if (oversized.value) catalogMode.value = 'file'
       state.value = 'ready'
       return true
     } catch {
@@ -46,5 +53,5 @@ export function useCodexModelManifest(baseUrl: Ref<string>, apiKey: Ref<string>)
 
   watch([baseUrl, apiKey], reset, { flush: 'sync' })
   onBeforeUnmount(reset)
-  return { state, content, models, load, download }
+  return { state, content, models, catalogMode, oversized, load, download }
 }

@@ -34,6 +34,7 @@ type CandidateRequest struct {
 	onBind                func(context.Context, *Group, *UserSubscription)
 	billingHook           func() error
 	balanceReserved       bool
+	inflightReservation   *InflightReservation
 	selectionOptions      candidateSelectOptions
 	rpm                   candidateRPMAdmission
 	chatAttempts          int

@@ -35,11 +35,17 @@ for (const width of [1440, 390]) {
     const manifest = { models: [{ slug: 'gpt-5.6-sol', display_name: 'GPT-5.6', supported_reasoning_levels: [{ effort: 'medium', description: 'Medium' }], default_reasoning_level: 'medium' }] }
     await page.route('**/v1/models?client_version=*', async route => {
       auth.push(route.request().headers().authorization)
-      await route.fulfill({ status: fail ? 503 : 200, json: fail ? { error: 'unavailable' } : manifest })
+      const response = auth.length === 3 ? { ...manifest, padding: 'x'.repeat(1024 * 1024) } : manifest
+      await route.fulfill({ status: fail ? 503 : 200, json: fail ? { error: 'unavailable' } : response })
       fail = false
     })
     await page.goto('/quickstart?client=codex-cli&keyId=1')
     const catalog = page.getByTestId('codex-model-catalog')
+    const mode = page.getByTestId('codex-model-catalog-mode')
+    await expect(mode).toHaveValue('remote')
+    await expect(page.locator('pre').filter({ hasText: 'model_catalog_url' }).first()).toBeVisible()
+    await mode.selectOption('file')
+    await expect(page.locator('pre').filter({ hasText: 'model_catalog_json' }).first()).toBeVisible()
     const fetchButton = page.getByTestId('codex-model-catalog-fetch')
     await fetchButton.click()
     await expect(catalog.getByRole('alert')).toBeVisible()
@@ -54,8 +60,11 @@ for (const width of [1440, 390]) {
     await page.locator('[data-tk="quickstart-advanced-options"] summary').click()
     await page.locator('#quickstart-key').selectOption('2')
     await expect(downloadButton).toHaveCount(0)
+    await expect(mode).toHaveValue('remote')
     await fetchButton.click()
     await expect(downloadButton).toBeVisible()
+    await expect(mode).toHaveValue('file')
+    await expect(mode.locator('option[value="remote"]')).toBeDisabled()
     expect(auth).toEqual(['Bearer sk-manifest-test-1', 'Bearer sk-manifest-test-1', 'Bearer sk-manifest-test-2'])
     expect(pageErrors).toEqual([])
     expect(unexpected).toEqual([])

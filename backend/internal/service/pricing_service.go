@@ -1274,6 +1274,12 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 		}
 		return nil
 	}
+	if claude.IsSonnet55(model) {
+		if pricing, ok := s.pricingData["claude-sonnet-5-5"]; ok {
+			return pricing
+		}
+		return nil
+	}
 	// modelFamily 定义一个模型系列的匹配和定价查找规则。
 	type modelFamily struct {
 		name    string   // 系列名称

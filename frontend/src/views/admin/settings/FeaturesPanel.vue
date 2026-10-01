@@ -144,6 +144,16 @@
           <Toggle v-model="form.risk_control_enabled" />
         </div>
 
+        <div>
+          <label class="input-label">
+            {{ t('admin.settings.features.riskControl.riskControlUserAllowlist') }}
+          </label>
+          <OpenAIFastPolicyUserSelector v-model="riskControlAllowlistedUserIds" />
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.settings.features.riskControl.riskControlUserAllowlistHint') }}
+          </p>
+        </div>
+
         <div class="flex items-center justify-between">
           <div>
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -612,10 +622,23 @@ import {
 import { extractApiErrorMessage } from "@/utils/apiError";
 import { useAppStore } from "@/stores";
 import { useSettingsState } from "@/composables/useSettingsState";
+import OpenAIFastPolicyUserSelector from "./OpenAIFastPolicyUserSelector.vue";
 
 const { t } = useI18n();
 const appStore = useAppStore();
 const { form } = useSettingsState();
+
+const riskControlAllowlistedUserIds = computed<number[]>({
+  get: () => Array.from(new Set(
+    form.cyber_policy_user_allowlist
+      .split(/[,\s]+/)
+      .map(Number)
+      .filter((userId) => Number.isSafeInteger(userId) && userId > 0),
+  )),
+  set: (userIds) => {
+    form.cyber_policy_user_allowlist = userIds.join(",");
+  },
+});
 
 // =========================
 // Affiliate (邀请返利) 专属用户管理

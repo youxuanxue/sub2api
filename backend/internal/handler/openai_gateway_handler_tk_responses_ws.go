@@ -14,6 +14,35 @@ import (
 	"go.uber.org/zap"
 )
 
+func (h *OpenAIGatewayHandler) tkPrepareWSCompositeRoute(c *gin.Context, apiKey *service.APIKey, model string) (string, error) {
+	ctx := c.Request.Context()
+	if service.CandidateRequestFromContext(ctx) != nil || h.compositeResolver == nil || apiKey.Group == nil || apiKey.Group.Platform != service.PlatformComposite {
+		return model, nil
+	}
+	decision, err := h.compositeResolver.Resolve(ctx, apiKey.Group.ID, model, service.CompositeRouteEndpointResponses)
+	if err != nil {
+		return "", err
+	}
+	if !decision.Matched {
+		return model, nil
+	}
+	c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(ctx, decision))
+	return decision.UpstreamModel, nil
+}
+
+func tkWSCompositeTurnModel(ctx context.Context, model, firstModel, firstRouteModel string) (string, error) {
+	if service.CandidateRequestFromContext(ctx) != nil {
+		return model, nil
+	}
+	if _, resolved := service.CompositeRouteSourceFromContext(ctx); !resolved {
+		return model, nil
+	}
+	if model != firstModel {
+		return "", newOpenAIWSUnsupportedModelSwitchError(model)
+	}
+	return firstRouteModel, nil
+}
+
 func (h *OpenAIGatewayHandler) tkRefreshWSAPIKey(ctx context.Context, c *gin.Context, apiKey *service.APIKey, subject *middleware2.AuthSubject) error {
 	fresh, err := h.apiKeyService.GetByID(ctx, apiKey.ID)
 	if err != nil {
@@ -142,7 +171,7 @@ func (h *OpenAIGatewayHandler) tkWSBeforeTurn(
 	ctx context.Context,
 	in tkWSBeforeTurnInput,
 ) error {
-	if in.CyberBlockedThisConn {
+	if in.CyberBlockedThisConn && !h.gatewayService.CyberPolicyLogOnly(ctx, in.APIKey) {
 		return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, cyberSessionBlockedClientMsg, nil)
 	}
 	turnCtx, turnAt := h.gatewayService.WithOpenAITurnPricingContext(ctx, in.APIKey.GroupID)

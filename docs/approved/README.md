@@ -159,6 +159,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | --- | --- |
 | [`upstream-merge-2026-08-15-migrations.md`](upstream-merge-2026-08-15-migrations.md) | Upstream merge 2026-08-15 migrations |
 | [`upstream-merge-20260923.md`](upstream-merge-20260923.md) | TokenKey upstream merge 2026-09-23 |
+| [`upstream-merge-20260930.md`](upstream-merge-20260930.md) | 隔离上游合并与 TokenKey 不变量裁决；不授权主线合并或部署 |
 
 ## Pending baselines
 

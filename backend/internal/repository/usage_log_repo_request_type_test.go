@@ -1163,7 +1163,7 @@ func TestUsageLogRepositoryGetUserUsageTrendRollupSelectsTopUsersByTokens(t *tes
 			AddRow(int64(1), "alpha@example.com", "alpha").
 			AddRow(int64(2), "beta@example.com", "beta"))
 
-	got, err := repo.GetUserUsageTrend(context.Background(), start, end, "day", 2)
+	got, err := repo.GetUserUsageTrend(context.Background(), start, end, "day", 2, "tokens")
 	require.NoError(t, err)
 	require.Equal(t, []UserUsageTrendPoint{
 		{
