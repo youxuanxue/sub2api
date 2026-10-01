@@ -79,7 +79,24 @@ GLOBAL_SITE_PHASE=disabled \
 
 不传 `GLOBAL_SITE_PHASE` / `GLOBAL_SITE_DOMAIN` / `API_ALIAS_DOMAIN` 时保留主机现状，只刷新模板。candidate/live 必须同时给出合法 hostname；disabled 会清空已持久化的 global domain。新实例的持久配置仍由 CloudFormation 参数 `GlobalSiteDomain` / `GlobalSitePhase` / `ApiAliasDomain` 决定，因此完成阶段切换后也要用同值更新 stack，避免后续实例替换恢复旧阶段。`global.tokenkey.dev` 直接退役（删 DNS / 不签证书），不做迁移 301。
 
+**CFN 参数对齐（维护窗口）**：主机 `.env` 热同步不会回写 CloudFormation。若 live 栈模板尚无 `GlobalSite*` 参数，不要用整份 repo `stage0-single-ec2.yaml` 一把梭——`AppSecurityGroup.GroupDescription` 等漂移会牵出 SG/Instance 替换，并可能被 `AWS::EarlyValidation::ResourceExistenceCheck` 拒掉。应基于 **live Original 模板**外科注入三参数 + UserData `TK_GLOBAL_SITE_*` / `TK_API_ALIAS_DOMAIN` export（并保证 shebang 为首行）、`ImageTag` pin 成运行态、其余 `UsePreviousValue`；change set 预期仅 `Instance`/`EIPAssoc` Conditional。执行即实例替换（DataVolume Retain、EIP 重绑、事后重指 OIDC `TargetInstanceId`）。未开维护窗口前保持主机 `.env` 为真相，CFN 参数 drift 可接受。
+
 这里的 `302`/`301` 仅作用于 `callmodel.io/admin*`（踢回 `tokenkey.dev` 保书签）；注册、控制台、Models 等产品路径留在 CallModel 门面。`api.callmodel.io` 非 machine 路径永久跳到 `callmodel.io`。合同见 `docs/approved/design-callmodel-product-facade.md`。
+
+**Caddy 验收后切 Settings（prod DB）**——邮件 / 支付回执 / Quickstart·Keys 复制板以 CallModel 为商业人类入口（`site_name` 仍可保持 TokenKey，壳品牌由前端 `resolveChromeBrand` 按 hostname 覆盖）：
+
+```bash
+# 只需改两个字段；PUT 为部分更新，未传字段保持原值
+SUB2API_BASE_URL=https://tokenkey.dev SUB2API_ADMIN_API_KEY=... \
+  node .cursor/skills/sub2api-admin/scripts/sub2api-admin.js api PUT /admin/settings \
+  --json '{"frontend_url":"https://callmodel.io","api_base_url":"https://api.callmodel.io"}'
+
+# 门面合同（含 Settings api_base_url + Admin 踢出 + API alias）
+python3 ops/observability/probe-global-candidate.py \
+  --phase live --api-alias-url https://api.callmodel.io
+```
+
+OAuth / 支付 **webhook** 回调仍钉在 `api.tokenkey.dev`（machine allowlist；不随门面裂变）。
 
 ### Apex 域名阶段一（tokenkey.dev → api.tokenkey.dev）
 

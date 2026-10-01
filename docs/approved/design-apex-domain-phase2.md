@@ -66,10 +66,16 @@ Apex 块：删除阶段一的 `redir`，改为与 `api.*` 共享的同构 `rever
 
 ## 应用 Settings（prod DB）
 
-| Key | 阶段二值 | 说明 |
+> **商业人类入口已被 supersede**：自
+> [`design-callmodel-product-facade.md`](./design-callmodel-product-facade.md) §4 起，
+> prod 的 `frontend_url` / 面向用户的 `api_base_url` 迁为 CallModel
+> （`https://callmodel.io` / `https://api.callmodel.io`）。下表保留阶段二当时拍板，
+> 仅作历史；**新变更以门面文档为准**。OAuth / 支付 webhook 仍钉 `api.tokenkey.dev`。
+
+| Key | 阶段二值（历史） | 说明 |
 | --- | --- | --- |
-| `frontend_url` | `https://tokenkey.dev` | 邮件重置密码、外部人类链接 |
-| `api_base_url` | `https://api.tokenkey.dev` | **显式填写**（见下「Settings 拍板」）；Quickstart、Keys、OAuth 回调建议 |
+| `frontend_url` | `https://tokenkey.dev` → **现 `https://callmodel.io`** | 邮件重置密码、外部人类链接 |
+| `api_base_url` | `https://api.tokenkey.dev` → **现 `https://api.callmodel.io`** | Quickstart、Keys 复制板 |
 | OAuth `*_redirect_url`（服务端） | 保持 `https://api.tokenkey.dev/api/v1/auth/oauth/.../callback` | 与 Caddy allowlist 一致 |
 | 支付 notify / return | 保持 `api.tokenkey.dev` | 第三方已登记 URL 零迁移 |
 

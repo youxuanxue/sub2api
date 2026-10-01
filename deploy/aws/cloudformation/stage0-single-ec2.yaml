@@ -79,7 +79,10 @@ Parameters:
       - t4g.small
       - t4g.medium
       - t4g.large
-    Description: Graviton/ARM only (matches AL2023 ARM AMI parameter below).
+      - c7g.xlarge
+    Description: >-
+      Graviton/ARM only (matches AL2023 ARM AMI parameter below). Prod currently
+      runs c7g.xlarge; t4g.* remain valid for smaller / lab stacks.
   RootVolumeSizeGiB:
     Type: Number
     Default: 30

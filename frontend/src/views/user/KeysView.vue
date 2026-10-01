@@ -1316,6 +1316,7 @@ import {
   type CcSwitchApp,
 } from '@/utils/ccswitchImport'
 import { useCcSwitchImport } from '@/composables/useCcSwitchImport'
+import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
 import { isUniversalKey } from '@/utils/studioUniversalKey.tk'
 import { STATUS_ACTIVE } from '@/constants/channel'
 import { PLATFORM_ANTIGRAVITY } from '@/constants/gatewayPlatforms'
@@ -2131,7 +2132,7 @@ const importToCcswitch = (row: ApiKey) => {
 
 const executeCcsImport = (row: ApiKey, ccsApp: CcSwitchApp) => {
   const baseUrl = (publicSettings.value?.api_base_url || window.location.origin).replace(/\/+$/, '')
-  const providerName = (publicSettings.value?.site_name || 'TokenKey').trim() || 'TokenKey'
+  const providerName = resolveChromeBrand(window.location.hostname, publicSettings.value?.site_name)
   importToCcSwitch({
     key: row,
     ccsApp,

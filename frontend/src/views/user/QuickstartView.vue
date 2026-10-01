@@ -299,6 +299,7 @@ import { flavorOfModel } from '@/composables/useTkUseKey'
 import { gatewayWarmupConnection } from '@/api/playground'
 import { PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 import { useCcSwitchImport } from '@/composables/useCcSwitchImport'
+import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -499,7 +500,10 @@ function importSelectedClientToCcSwitch(): void {
   const client = selectedClient.value
   const key = selectedKey.value
   if (!client?.ccsApp || !key) return
-  const providerName = (appStore.cachedPublicSettings?.site_name || 'TokenKey').trim() || 'TokenKey'
+  const providerName = resolveChromeBrand(
+    window.location.hostname,
+    appStore.cachedPublicSettings?.site_name,
+  )
   importToCcSwitch({
     key,
     ccsApp: client.ccsApp,
