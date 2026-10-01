@@ -78,3 +78,4 @@ re-document it per patch — note "A/B unchanged" in the row instead.
 | 2.1.270 | 2026-09-13 | pure UA | 2.1.267 → 2.1.270；本机 `claude --version` 静态验证。TLS、beta、Stainless 配置未改，本次未采集 wire / Haiku A/B 证据。关联 #2148。 |
 | 2.1.280 | 2026-09-23 | pure UA | 2.1.278 → 2.1.280；本机 `claude --version` 静态验证与 `check-cc-version-sync.py --write`。TLS、beta、Stainless 配置未改，本次未采集 wire / Haiku A/B 证据。关联 #2280。 |
 | 2.1.285 | 2026-09-30 | pure UA | 2.1.284 → 2.1.285；本机 `claude --version` 静态验证与 `check-cc-version-sync.py --write`。TLS、beta、Stainless 配置未改，本次未采集 wire / Haiku A/B 证据。关联 #2393。 |
+| 2.1.286 | 2026-10-01 | pure UA | 2.1.285 → 2.1.286；本机 `claude --version` 静态验证与 `check-cc-version-sync.py --write`。TLS、beta、Stainless 配置未改，本次未采集 wire / Haiku A/B 证据。关联 #2414。 |
