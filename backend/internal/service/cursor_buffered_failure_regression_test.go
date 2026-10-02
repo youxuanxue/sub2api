@@ -53,7 +53,7 @@ func TestCursorRegressionBufferedPartialBeforeNativeError(t *testing.T) {
 			result, err = svc.ForwardAsChatCompletions(ctx, c, a, r.Body(), "", "")
 			return result, err
 		}))
-	require.ErrorContains(t, err, "Connect invalid_argument, mapped HTTP 400")
+	require.ErrorContains(t, err, "Invalid request.")
 	require.NotContains(t, err.Error(), "DIAGNOSTIC_REASON_MUST_NOT_DISAPPEAR")
 	require.False(t, c.Writer.Written())
 	require.Empty(t, recorder.Body.String())
@@ -96,7 +96,7 @@ func TestCursorRegressionResponsesPartialBeforeNativeError(t *testing.T) {
 			result, err = svc.Forward(ctx, c, a, r.Body())
 			return result, err
 		}))
-	require.ErrorContains(t, err, "Connect invalid_argument, mapped HTTP 400")
+	require.ErrorContains(t, err, "Invalid request.")
 	require.NotContains(t, err.Error(), "DIAGNOSTIC_REASON_MUST_NOT_DISAPPEAR")
 	require.False(t, c.Writer.Written())
 	require.Empty(t, recorder.Body.String())

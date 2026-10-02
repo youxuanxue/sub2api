@@ -20,7 +20,7 @@ import (
 func TestCursorRelayConversionsRetainBillingProvenance(t *testing.T) {
 	for _, protocol := range []string{"chat", "responses"} {
 		for _, stream := range []bool{false, true} {
-			for _, tier := range []string{"cursor-oauth-reported", "cursor-oauth-estimated", "untrusted-tier"} {
+			for _, tier := range []string{"cursor-oauth-reported", "cursor-oauth-estimated", "model-reported", "model-estimated", "untrusted-tier"} {
 				t.Run(fmt.Sprintf("%s/stream=%t/%s", protocol, stream, tier), func(t *testing.T) {
 					usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 					billingRepo := &openAIRecordUsageBillingRepoStub{}
@@ -68,7 +68,7 @@ func TestCursorRelayConversionsRetainBillingProvenance(t *testing.T) {
 					if tier == "untrusted-tier" {
 						require.Nil(t, usageRepo.lastLog.BillingTier)
 					} else {
-						require.Equal(t, tier, *usageRepo.lastLog.BillingTier)
+						require.Equal(t, cursorBillingTier(tier), *usageRepo.lastLog.BillingTier)
 					}
 				})
 			}
