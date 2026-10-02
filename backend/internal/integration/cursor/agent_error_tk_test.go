@@ -132,7 +132,7 @@ func TestAgentTransportErrorIdleTimeoutMessage(t *testing.T) {
 	err := &agentTransportError{cause: agentStreamIdleCause()}
 	require.ErrorIs(t, err, errAgentStreamIdle)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.Equal(t, "cursor upstream transport failed: stream idle timeout", err.Error())
+	require.Equal(t, "upstream model transport failed: stream idle timeout", err.Error())
 	require.Equal(t, "timeout_error", messagesErrorType(err))
 }
 
@@ -143,7 +143,7 @@ func TestAgentTransportErrorPreservesCauseWithoutExposingCredential(t *testing.T
 				return nil, &url.Error{Op: "Post", URL: "https://private-token@example.test", Err: cause}
 			}, nil)
 			require.ErrorIs(t, err, cause)
-			require.Contains(t, err.Error(), "cursor upstream transport failed")
+			require.Contains(t, err.Error(), "upstream model transport failed")
 			if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
 				require.Contains(t, err.Error(), cause.Error(), "shared ops classification must retain the canonical context signal")
 			}

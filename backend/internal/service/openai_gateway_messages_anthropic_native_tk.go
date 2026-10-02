@@ -339,6 +339,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicBufferedResponse(
 	if contentType == "" {
 		contentType = "application/json"
 	}
+	body = s.replaceModelInResponseBody(body, upstreamModel, originalModel)
 	body = reverseToolNamesIfPresent(c, body)
 	c.Data(resp.StatusCode, contentType, body)
 
@@ -561,6 +562,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 			}
 
 			if !clientDisconnected {
+				line = s.replaceModelInSSELine(line, upstreamModel, originalModel)
 				restored := string(reverseToolNamesIfPresent(c, []byte(line)))
 				if _, err := io.WriteString(w, restored); err != nil {
 					clientDisconnected = true

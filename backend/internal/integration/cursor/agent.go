@@ -46,6 +46,10 @@ var agentStreamIdleTimeoutNS atomic.Int64
 // it to 504 instead of a provider 502 "closed pipe" interrupt.
 var errAgentStreamIdle = errors.New("cursor stream idle timeout")
 
+// errAgentToolProtocol is an internal classification sentinel. Its Error
+// string is never sent to callers; Messages maps it to a stable public error.
+var errAgentToolProtocol = errors.New("model returned an unsupported tool call")
+
 func agentStreamIdleTimeout() time.Duration {
 	switch ns := agentStreamIdleTimeoutNS.Load(); {
 	case ns == 0:
@@ -199,6 +203,54 @@ func cursorPromptToolName(model, name string) string {
 		return "mcp_tokenkey_" + name
 	}
 	return cursorWireToolName(name)
+}
+
+// normalizeDeclaredTool resolves the several names used for one caller
+// declared tool on the AgentRun wire.  Resolution is deliberately bounded to
+// the current request's declaration set: an unknown or ambiguous name fails
+// closed and is never handed to a local executor or forwarded as a tool call.
+// Composer has historically emitted mcp_tokenkey_<name>, while other models
+// commonly use mcp__tokenkey__<name>; both are accepted at this boundary.
+func normalizeDeclaredTool(args *pb.McpArgs, model string, declared []AgentTool) (string, bool) {
+	if args == nil || (args.ProviderIdentifier != "" && args.ProviderIdentifier != "tokenkey") {
+		return "", false
+	}
+	aliases := make(map[string]string, len(declared)*4)
+	ambiguous := make(map[string]bool)
+	add := func(alias, canonical string) {
+		if alias == "" {
+			return
+		}
+		if previous, ok := aliases[alias]; ok && previous != canonical {
+			ambiguous[alias] = true
+			return
+		}
+		aliases[alias] = canonical
+	}
+	for _, tool := range declared {
+		if !validAgentToolName(tool.Name) {
+			continue
+		}
+		add(tool.Name, tool.Name)
+		add(cursorWireToolName(tool.Name), tool.Name)
+		add("mcp_tokenkey_"+tool.Name, tool.Name)
+		add(cursorPromptToolName(model, tool.Name), tool.Name)
+	}
+	var resolved string
+	for _, raw := range []string{args.Name, args.ToolName} {
+		if raw == "" {
+			continue
+		}
+		name, ok := aliases[raw]
+		if !ok || ambiguous[raw] {
+			return "", false
+		}
+		if resolved != "" && resolved != name {
+			return "", false
+		}
+		resolved = name
+	}
+	return resolved, resolved != ""
 }
 
 func agentCallArgs(call AgentToolCall) (*pb.McpArgs, error) {
@@ -670,15 +722,25 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 	}
 	seenCalls := make(map[string]bool)
 	toolOutputBytes := 0
-	knownTools := make(map[string]string)
-	for _, tool := range input.Tools {
-		knownTools[cursorWireToolName(tool.Name)] = tool.Name
-	}
 	publishCall := func(args *pb.McpArgs) error {
-		name := knownTools[args.Name]
-		if name == "" || args.ToolCallId == "" {
-			return errors.New("cursor requested an undeclared tool")
+		if args == nil {
+			return errAgentToolProtocol
 		}
+		name, declared := normalizeDeclaredTool(args, input.Model, input.Tools)
+		fields := []zap.Field{
+			zap.String("native_request_id", req.Header.Get("X-Request-Id")),
+			zap.String("raw_name", agentBoundedErrorText(args.GetName(), token)),
+			zap.String("raw_tool_name", agentBoundedErrorText(args.GetToolName(), token)),
+			zap.String("provider_identifier", agentBoundedErrorText(args.GetProviderIdentifier(), token)),
+			zap.Int("declared_tool_count", len(input.Tools)),
+			zap.Bool("declared", declared),
+			zap.String("normalized_name", agentBoundedErrorText(name, token)),
+		}
+		if !declared || args.ToolCallId == "" {
+			logger.FromContext(ctx).Warn("cursor_agentrun_tool_rejected", fields...)
+			return errAgentToolProtocol
+		}
+		logger.FromContext(ctx).Debug("cursor_agentrun_tool_normalized", fields...)
 		if seenCalls[args.ToolCallId] {
 			return nil
 		}
@@ -816,7 +878,7 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 			// Egress: only Messages-expressible interaction surfaces.
 			if args := mcpArgsFromInteractionToolCall(update.ToolCallStarted); args != nil {
 				if args.SmartModeApprovalOnly {
-					return result, errors.New("cursor tool approval requires an external policy decision")
+					return result, errAgentToolProtocol
 				}
 				if err := publishCall(args); err != nil {
 					return result, err
@@ -882,7 +944,7 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 				}
 			case messagesExecToolUse:
 				if exec.McpArgs.SmartModeApprovalOnly {
-					return result, errors.New("cursor tool approval requires an external policy decision")
+					return result, errAgentToolProtocol
 				}
 				if err := publishCall(exec.McpArgs); err != nil {
 					return result, err
@@ -895,18 +957,17 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 				}
 			default:
 				fields := protobufFieldNumbers(exec)
-				errText, errCode := outsideExecThrowMessage(fields)
+				errText, errCode := outsideExecThrowMessage()
 				logger.FromContext(ctx).Warn("cursor_agentrun_outside_exec_throw",
 					zap.String("surface", "exec"),
 					zap.Ints("fields", fields),
-					zap.String("exec_id", exec.GetExecId()),
+					zap.String("exec_id", agentBoundedErrorText(exec.GetExecId(), token)),
+					zap.String("native_request_id", req.Header.Get("X-Request-Id")),
 					zap.Uint32("exec_frame_id", exec.GetId()),
-					zap.String("error_code", errCode),
+					zap.String("error_code", "exec_variant_unsupported"),
+					zap.String("public_error_code", errCode),
 				)
 				replies := execClientThrowAndClose(exec, errText, errCode)
-				if testOutsideExecThrowHook != nil {
-					testOutsideExecThrowHook(fields, len(replies))
-				}
 				for _, reply := range replies {
 					if err := send(reply); err != nil {
 						return result, err

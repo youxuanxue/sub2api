@@ -13,7 +13,7 @@ import (
 )
 
 // AgentRejection retains bounded diagnostics for operators. Error() deliberately
-// exposes only the protocol code; supplier messages may contain request content.
+// exposes only the mapped status; supplier messages may contain request content.
 type AgentRejection struct {
 	Cause           *Error
 	Code            string
@@ -32,15 +32,15 @@ type agentTransportError struct{ cause error }
 
 func (e *agentTransportError) Error() string {
 	if e != nil && errors.Is(e.cause, errAgentStreamIdle) {
-		return "cursor upstream transport failed: stream idle timeout"
+		return "upstream model transport failed: stream idle timeout"
 	}
 	if errors.Is(e.cause, context.Canceled) {
-		return "cursor upstream transport failed: context canceled"
+		return "upstream model transport failed: context canceled"
 	}
 	if errors.Is(e.cause, context.DeadlineExceeded) {
-		return "cursor upstream transport failed: context deadline exceeded"
+		return "upstream model transport failed: context deadline exceeded"
 	}
-	return "cursor upstream transport failed"
+	return "upstream model transport failed"
 }
 
 func agentStreamIdleCause() error {
@@ -87,7 +87,7 @@ func newAgentRejection(status int, code, message, token, requestID string, detai
 	if len(message) > 2048 {
 		message = strings.ToValidUTF8(message[:2048], "") + "…"
 	}
-	return &AgentRejection{Cause: &Error{Status: status, Message: fmt.Sprintf("cursor upstream rejected request (Connect %s, mapped HTTP %d)", code, status)}, Code: code, Diagnostic: message, RequestID: requestID, DetailInventory: agentDetailInventory(details, token), ProviderMessage: facts.ProviderMessage, ActionRequired: facts.ActionRequired}
+	return &AgentRejection{Cause: &Error{Status: status, Message: fmt.Sprintf("upstream model request rejected (HTTP %d)", status)}, Code: code, Diagnostic: message, RequestID: requestID, DetailInventory: agentDetailInventory(details, token), ProviderMessage: facts.ProviderMessage, ActionRequired: facts.ActionRequired}
 }
 
 // Only decode the diagnostic fields from the pinned CLI's ErrorDetails schema.
