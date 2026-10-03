@@ -121,6 +121,76 @@ func TestAgentRunOutsideExecThrowsAndContinuesText(t *testing.T) {
 	}
 }
 
+func TestAgentRunUndeclaredMcpExecThrowsAndContinuesText(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	core, logs := observer.New(zap.DebugLevel)
+	ctx = logger.IntoContext(ctx, zap.New(core))
+	reader, writer := io.Pipe()
+	defer func() { _ = reader.Close() }()
+	wireErr := make(chan error, 1)
+	result, err := RunAgent(ctx, "test-credential", AgentRequest{
+		Model: "claude-fable-5-1", Messages: []AgentMessage{{Role: "user", Text: "hello"}},
+	}, func(req *http.Request) (*http.Response, error) {
+		go func() {
+			defer func() { _ = writer.Close() }()
+			read := func() (*pb.AgentClientMessage, error) {
+				_, raw, err := readAgentFrame(req.Body)
+				if err != nil {
+					return nil, err
+				}
+				message := &pb.AgentClientMessage{}
+				return message, proto.Unmarshal(raw, message)
+			}
+			if _, err := read(); err != nil {
+				wireErr <- err
+				return
+			}
+			if err := writeAgentFrame(writer, &pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{
+				Id: 11, ExecId: "workspace-shell", McpArgs: &pb.McpArgs{Name: "shell", ToolCallId: "native-call"},
+			}}); err != nil {
+				wireErr <- err
+				return
+			}
+			throw, err := read()
+			if err != nil {
+				wireErr <- err
+				return
+			}
+			feedback := throw.GetExecClientControlMessage().GetThrow()
+			if feedback.GetId() != 11 || feedback.GetErrorCode() != "gateway_tool_unavailable" || feedback.GetError() != "Workspace tools are unavailable through this gateway. Continue without local execution." {
+				wireErr <- fmt.Errorf("unexpected undeclared-tool throw: %v", throw)
+				return
+			}
+			closeMsg, err := read()
+			if err != nil {
+				wireErr <- err
+				return
+			}
+			if closeMsg.GetExecClientControlMessage().GetStreamClose().GetId() != 11 {
+				wireErr <- fmt.Errorf("unexpected undeclared-tool close: %v", closeMsg)
+				return
+			}
+			if err := writeAgentFrame(writer, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "continued"}}}); err != nil {
+				wireErr <- err
+				return
+			}
+			wireErr <- writeAgentFrame(writer, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: &pb.TurnEndedUpdate{
+				InputTokens: proto.Int64(3), OutputTokens: proto.Int64(2), CacheReadTokens: proto.Int64(0), CacheWriteTokens: proto.Int64(0),
+			}}})
+		}()
+		return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: reader}, nil
+	}, nil)
+	require.NoError(t, err)
+	require.NoError(t, <-wireErr)
+	require.Equal(t, "continued", result.Text)
+	require.Empty(t, result.ToolCalls)
+	require.EqualValues(t, 2, result.Usage.Output)
+	entries := logs.FilterMessage("cursor_agentrun_mcp_tool_throw").All()
+	require.Len(t, entries, 1)
+	require.Equal(t, "undeclared_mcp_tool", entries[0].ContextMap()["error_code"])
+}
+
 func TestAgentRunMapsInteractionToolCallStartedToMessagesHandoff(t *testing.T) {
 	// Positive: InteractionUpdate tool_call_started with McpToolCall → tool_use handoff.
 	// Negative: empty tool_call_started is skipped so later text can still complete.

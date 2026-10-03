@@ -943,8 +943,28 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 					return result, err
 				}
 			case messagesExecToolUse:
-				if exec.McpArgs.SmartModeApprovalOnly {
-					return result, errAgentToolProtocol
+				_, declared := normalizeDeclaredTool(exec.McpArgs, input.Model, input.Tools)
+				if exec.McpArgs.SmartModeApprovalOnly || !declared {
+					// Cursor reports native workspace tools through McpArgs on some
+					// model/account combinations (the prod #150 user16 failure was
+					// "cursor requested an undeclared tool"). Treat those frames as
+					// an in-band capability rejection so the model can continue text
+					// generation; returning errAgentToolProtocol here turns the whole
+					// Messages request into a final 502.
+					errText, errCode := outsideExecThrowMessage()
+					logger.FromContext(ctx).Warn("cursor_agentrun_mcp_tool_throw",
+						zap.String("surface", "mcp_args"),
+						zap.Uint32("exec_frame_id", exec.GetId()),
+						zap.String("native_request_id", req.Header.Get("X-Request-Id")),
+						zap.String("error_code", "undeclared_mcp_tool"),
+						zap.String("public_error_code", errCode),
+					)
+					for _, reply := range execClientThrowAndClose(exec, errText, errCode) {
+						if err := send(reply); err != nil {
+							return result, err
+						}
+					}
+					continue
 				}
 				if err := publishCall(exec.McpArgs); err != nil {
 					return result, err

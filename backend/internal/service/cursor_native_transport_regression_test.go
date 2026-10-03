@@ -127,7 +127,7 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 						frame(&pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{McpArgs: &pb.McpArgs{Name: "mcp__tokenkey__not_declared", ToolCallId: "call_native"}}})
 					}
 					usage := &pb.TurnEndedUpdate{}
-					if outcome == "reported" || outcome == "resumed" || outcome == "native_rejected" {
+					if outcome == "reported" || outcome == "resumed" || outcome == "native_rejected" || outcome == "tool_unknown" {
 						usage = &pb.TurnEndedUpdate{InputTokens: proto.Int64(20), OutputTokens: proto.Int64(3), CacheReadTokens: proto.Int64(7), CacheWriteTokens: proto.Int64(2)}
 					}
 					if strings.HasPrefix(outcome, "cyber_") || strings.HasPrefix(outcome, "usage_") {
@@ -223,15 +223,12 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 						require.NotContains(t, strings.ToLower(recorder.Body.String()), forbidden)
 					}
 					if outcome == "tool_unknown" {
-						require.Error(t, err)
-						require.Nil(t, result)
-						require.NotContains(t, strings.ToLower(err.Error()), "cursor")
-						require.NotContains(t, strings.ToLower(err.Error()), "tokenkey")
-						require.NotContains(t, recorder.Body.String(), "message_stop")
-						require.NotContains(t, recorder.Body.String(), `"status":"completed"`)
-						if stream && inbound == protocolrouter.ProtocolMessages {
-							require.Contains(t, recorder.Body.String(), "unsupported tool call")
-						}
+						require.NoError(t, err)
+						require.NotNil(t, result)
+						require.Equal(t, cursor.ReportedBillingTier, result.BillingTier)
+						require.Equal(t, 20, result.Usage.InputTokens)
+						require.Equal(t, 3, result.Usage.OutputTokens)
+						require.Contains(t, recorder.Body.String(), "NATIVE_OK")
 						return
 					}
 					if outcome == "incomplete" {

@@ -100,7 +100,9 @@ func TestMessagesToolProtocolErrorsAreNeutral(t *testing.T) {
 					if afterText {
 						frames = append(frames, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "partial"}}})
 					}
-					frames = append(frames, &pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{McpArgs: args}})
+					frames = append(frames, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{ToolCallStarted: &pb.ToolCallStartedUpdate{
+						CallId: "call", ToolCall: &pb.ToolCall{McpToolCall: &pb.McpToolCall{Args: args}},
+					}}})
 					body := []byte(fmt.Sprintf(`{"model":"composer-2.5","stream":%t,"messages":[{"role":"user","content":"hello"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`, stream))
 					resp, err := Messages(t.Context(), "test", body, nil, "composer-2.5", messagesTestTransport(t, frames...))
 					require.NoError(t, err)
@@ -165,7 +167,7 @@ func TestToolIdentityDiagnosticsRedactCredentialsAndOmitArguments(t *testing.T) 
 	core, logs := observer.New(zap.DebugLevel)
 	ctx := logger.IntoContext(t.Context(), zap.New(core))
 	_, err := RunAgent(ctx, token, AgentRequest{Model: "composer-2.5", Messages: []AgentMessage{{Role: "user", Text: "hello"}}}, messagesTestTransport(t,
-		&pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{McpArgs: &pb.McpArgs{Name: "unknown-" + token, ToolCallId: "call", ProviderIdentifier: "untrusted", Args: map[string]*structpb.Value{"secret": structpb.NewStringValue("private-arguments")}}}},
+		&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{ToolCallStarted: &pb.ToolCallStartedUpdate{ToolCall: &pb.ToolCall{McpToolCall: &pb.McpToolCall{Args: &pb.McpArgs{Name: "unknown-" + token, ToolCallId: "call", ProviderIdentifier: "untrusted", Args: map[string]*structpb.Value{"secret": structpb.NewStringValue("private-arguments")}}}}}}},
 	), nil)
 	require.ErrorIs(t, err, errAgentToolProtocol)
 	entries := logs.FilterMessage("cursor_agentrun_tool_rejected").All()

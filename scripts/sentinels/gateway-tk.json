@@ -942,6 +942,8 @@
         "outsideExecThrowMessage",
         "mcpArgsFromInteractionToolCall",
         "cursor_agentrun_outside_exec_throw",
+        "cursor_agentrun_mcp_tool_throw",
+        "undeclared_mcp_tool",
         "func anthropicShapeReportedUsage",
         "shaped := anthropicShapeReportedUsage(AgentUsage{",
         "result.Usage = &shaped",
@@ -958,7 +960,7 @@
         "cursor requested unsupported local execution",
         "context.WithTimeout(ctx, 2*time.Minute)"
       ],
-      "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes. Never advertise mcp_tool_call allowlist: Cursor then requires GET_MCP_TOOLS in allTools and returns Connect internal (prod #150 user16 claude-opus-5-5 final-502). Caller tools stay on RunAgent McpTools only. Relay must use ASK mode (not AGENT). Outside Messages exec is answered with ExecClientThrow+stream_close so the model can continue text. TurnEnded.input is total prompt; anthropicShapeReportedUsage must map to Anthropic disjoint buckets before Messages/settlement or cache tokens are double-billed at input+cache rates. RunAgent must not restore a wall-clock 2m WithTimeout; frame-idle (defaultAgentStreamIdleTimeout / errAgentStreamIdle / doCh) reaps hung duplex silence including a never-returning do(), and unwraps to DeadlineExceeded for 504 owners."
+      "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes. Never advertise mcp_tool_call allowlist: Cursor then requires GET_MCP_TOOLS in allTools and returns Connect internal (prod #150 user16 claude-opus-5-5 final-502). Caller tools stay on RunAgent McpTools only. Relay must use ASK mode (not AGENT). Outside Messages exec and undeclared MCP workspace frames are answered with ExecClientThrow+stream_close so the model can continue text. TurnEnded.input is total prompt; anthropicShapeReportedUsage must map to Anthropic disjoint buckets before Messages/settlement or cache tokens are double-billed at input+cache rates. RunAgent must not restore a wall-clock 2m WithTimeout; frame-idle (defaultAgentStreamIdleTimeout / errAgentStreamIdle / doCh) reaps hung duplex silence including a never-returning do(), and unwraps to DeadlineExceeded for 504 owners."
     },
     {
       "path": "backend/internal/integration/cursor/agent_timeout_repro_tk_test.go",
@@ -993,6 +995,7 @@
       "path": "backend/internal/integration/cursor/messages_agentrun_tk_test.go",
       "must_contain": [
         "TestAgentRunOutsideExecThrowsAndContinuesText",
+        "TestAgentRunUndeclaredMcpExecThrowsAndContinuesText",
         "TestExecClientThrowAndCloseShapes",
         "TestAgentRunMapsInteractionToolCallStartedToMessagesHandoff",
         "hello after throw",
@@ -1000,6 +1003,7 @@
         "throw + stream_close",
         "gateway_tool_unavailable",
         "public_error_code",
+        "undeclared_mcp_tool",
         "native-exec",
         "readAgentFrame(req.Body)",
         "feedback.GetErrorCode() != code",
