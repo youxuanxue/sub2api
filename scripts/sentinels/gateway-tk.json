@@ -966,7 +966,8 @@
         "func TestRunAgentFrameIdleTimeout",
         "hanging_body_returns_stream_idle_timeout",
         "hanging_do_returns_stream_idle_timeout",
-        "do_ready_at_idle_deadline_prefers_response_not_idle",
+        "ready_do_response_is_closed",
+        "late_do_response_is_closed_after_idle_timeout",
         "processing_time_does_not_consume_idle_budget",
         "real_h2_silence_returns_stream_idle_timeout",
         "live_frames_reset_idle_budget",
@@ -974,7 +975,7 @@
         "require.ErrorIs(t, err, errAgentStreamIdle)",
         "require.ErrorIs(t, err, context.DeadlineExceeded)"
       ],
-      "rationale": "Focused regression for Cursor RunAgent frame-idle timeout: hung duplex yields stream idle + DeadlineExceeded (not provider 502 closed pipe); idle covers both do() and frame waits (not local emit/processing); live frames reset the idle budget; do-vs-idle race prefers a completed response and closes its body; genuine ErrClosedPipe still wraps as stream interrupted."
+      "rationale": "Focused regression for Cursor RunAgent frame-idle timeout: hung duplex yields stream idle + DeadlineExceeded (not provider 502 closed pipe); idle covers both do() and frame waits (not local emit/processing); live frames reset the idle budget; responses arriving before timeout and after cancellation both have their bodies closed; genuine ErrClosedPipe still wraps as stream interrupted."
     },
     {
       "path": "backend/internal/integration/cursor/messages_agentrun_tk.go",

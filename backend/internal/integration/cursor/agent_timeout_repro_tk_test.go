@@ -139,27 +139,42 @@ func TestRunAgentFrameIdleTimeout(t *testing.T) {
 		require.Contains(t, err.Error(), "stream idle timeout")
 	})
 
-	t.Run("do_ready_at_idle_deadline_prefers_response_not_idle", func(t *testing.T) {
-		// When do() completes in the same window as the idle timer, prefer the
-		// response over mis-classifying stream idle (and close the body via the
-		// normal defer path rather than abandoning it).
-		bodyClosed := make(chan struct{})
-		_, err := RunAgent(context.Background(), "test-token", input, func(*http.Request) (*http.Response, error) {
-			time.Sleep(200 * time.Millisecond)
-			return &http.Response{
-				StatusCode: 200,
-				ProtoMajor: 2,
-				Body:       &closeNotifyBody{closed: bodyClosed, err: io.EOF},
-			}, nil
-		}, nil)
-		require.False(t, errors.Is(err, errAgentStreamIdle), "raced do success must not become idle; got %v", err)
-		require.Error(t, err)
-		select {
-		case <-bodyClosed:
-		case <-time.After(2 * time.Second):
-			t.Fatal("response body was not closed after raced do completion")
-		}
-	})
+	for _, tc := range []struct {
+		name      string
+		afterIdle bool
+	}{
+		{name: "ready_do_response_is_closed"},
+		{name: "late_do_response_is_closed_after_idle_timeout", afterIdle: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Equal wall-clock sleeps do not guarantee that do() is ready when
+			// the idle timer fires. Order the late response after cancellation
+			// and verify body reclamation on both sides of the deadline.
+			bodyClosed := make(chan struct{})
+			_, err := RunAgent(context.Background(), "test-token", input, func(req *http.Request) (*http.Response, error) {
+				if tc.afterIdle {
+					<-req.Context().Done()
+				}
+				return &http.Response{
+					StatusCode: 200,
+					ProtoMajor: 2,
+					Body:       &closeNotifyBody{closed: bodyClosed, err: io.EOF},
+				}, nil
+			}, nil)
+			if tc.afterIdle {
+				require.ErrorIs(t, err, errAgentStreamIdle)
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+			} else {
+				require.ErrorIs(t, err, io.EOF)
+				require.NotErrorIs(t, err, errAgentStreamIdle)
+			}
+			select {
+			case <-bodyClosed:
+			case <-time.After(2 * time.Second):
+				t.Fatal("response body was not closed after do completion")
+			}
+		})
+	}
 
 	t.Run("processing_time_does_not_consume_idle_budget", func(t *testing.T) {
 		// Idle budget must cover waiting only. A slow emit longer than one idle
