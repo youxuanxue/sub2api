@@ -22,6 +22,7 @@ func TestAntigravityGatewayService_GetMappedModel_ConvergedSurface(t *testing.T)
 		"gemini-3.1-flash-image": "gemini-3.1-flash-image",
 		"gemini-3-pro-image":     "",
 		"nano-2":                 "gemini-3.1-flash-image",
+		"nano-banana-2":          "gemini-3.1-flash-image",
 		"nano-pro":               "",
 		"claude-sonnet-4-6":      "",
 	}

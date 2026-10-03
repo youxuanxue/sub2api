@@ -2020,6 +2020,7 @@
         "gemini-3.1-flash-image",
         "veo-3.1-generate-001",
         "nano-2",
+        "nano-banana-2",
         "nano-pro",
         "imageParameters: 'capabilities'"
       ],
@@ -2417,6 +2418,7 @@
         "servedModalities?: ReadonlySet<PickerModality>",
         "o.servedModalities.has(modality)",
         "nano-2",
+        "nano-banana-2",
         "nano-pro"
       ],
       "rationale": "The shared modality key picker accepts explicit capability modalities for automatic keys while preserving catalog inference for direct keys. Without this branch Studio can select a key solely because public pricing classifies a same-named model as media-capable."

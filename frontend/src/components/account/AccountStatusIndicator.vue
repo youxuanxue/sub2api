@@ -271,6 +271,7 @@ const formatScopeName = (scope: string): string => {
     'gemini-3.1-flash-image': 'G31FI',
     'gemini-3.1-flash-image-preview': 'G31FIP',
     'nano-2': 'Nano2',
+    'nano-banana-2': 'Nano2',
     'nano-pro': 'NanoPro',
     'veo-3.1-generate-001': 'Veo31',
     'gemini-embedding-001': 'GEmb',

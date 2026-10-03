@@ -457,6 +457,15 @@
         }
       ]
     },
+    "doubao-seed-2.1-pro": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 45,
+          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+        }
+      ]
+    },
     "doubao-seed-2.1-turbo": {
       "display": true,
       "scopes": [

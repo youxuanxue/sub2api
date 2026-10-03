@@ -584,7 +584,11 @@ func applyImageCompatibilityAliases(out map[string]string) map[string]string {
 }
 
 var tkImageCompatibilityAliases = map[string]string{
-	"nano-2":          "gemini-3.1-flash-image",
+	"nano-2": "gemini-3.1-flash-image",
+	// nano-banana-2 stays on Antigravity via DefaultAntigravityModelMapping +
+	// pricing/Studio aliases; do not project it onto TokenSea relay floors —
+	// those scopes have no live openai/anthropic TokenSea accounts that can
+	// serve Gemini native image, so a marketing alias there is unactivatable.
 	"nano-pro":        "gemini-3-pro-image",
 	"nano-banana-pro": "gemini-3-pro-image",
 	"gpt-image-2.5":   "gpt-image-2.5-flare",

@@ -238,6 +238,7 @@ func TestAccountModelMappingFloorForOps_ExportsPolicyMetadata(t *testing.T) {
 	require.ElementsMatch(t, kiroExclusiveModelIDs(), doc.ForbiddenModelMappingKeys[PlatformAnthropic])
 	require.Contains(t, doc.ForbiddenModelMappingKeys[PlatformAnthropic], "claude-opus-5")
 	require.Contains(t, doc.ForbiddenModelMappingKeys[PlatformAnthropic], "claude-opus-5-5")
+	require.Contains(t, doc.ForbiddenModelMappingKeys[PlatformAnthropic], "claude-sonnet-5-5")
 	require.Contains(t, doc.ForbiddenModelMappingPrefixes[PlatformAntigravity], "gpt-oss-")
 	require.Contains(t, doc.ForbiddenModelMappingPrefixes[PlatformNewAPI], "imagen-")
 	require.ElementsMatch(

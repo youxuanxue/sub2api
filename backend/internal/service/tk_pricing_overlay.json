@@ -18,6 +18,7 @@
     "gpt-6": "gpt-6-astra",
     "gpt-image-2.5": "gpt-image-2.5-flare",
     "nano-2": "gemini-3.1-flash-image",
+    "nano-banana-2": "gemini-3.1-flash-image",
     "nano-pro": "gemini-3-pro-image",
     "nano-banana-pro": "gemini-3-pro-image",
     "gemini-3-flash": "gemini-3.8-flash",
@@ -1138,6 +1139,33 @@
     "output_cost_per_token_batches": 1e-05,
     "source": "Anthropic list price via litellm model_prices_and_context_window.json (input $4/M, output $20/M, cache write $5/M, cache read $0.20/M); Cursor scope added 2026-09-24"
   },
+  "claude-sonnet-5-5": {
+    "cache_creation_input_token_cost": 2.5e-06,
+    "cache_creation_input_token_cost_above_1hr": 4e-06,
+    "cache_read_input_token_cost": 2e-07,
+    "input_cost_per_token": 2e-06,
+    "litellm_provider": "anthropic",
+    "max_input_tokens": 1000000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "mode": "chat",
+    "output_cost_per_token": 1e-05,
+    "supports_adaptive_thinking": true,
+    "supports_assistant_prefill": false,
+    "supports_computer_use": true,
+    "supports_function_calling": true,
+    "supports_max_reasoning_effort": true,
+    "supports_output_config": true,
+    "supports_pdf_input": true,
+    "supports_prompt_caching": true,
+    "supports_reasoning": true,
+    "supports_response_schema": true,
+    "supports_sampling_params": false,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_xhigh_reasoning_effort": true,
+    "source": "Anthropic list price via litellm model_prices_and_context_window.json + https://platform.claude.com/docs/en/models/sonnet-5-5/overview (input $2/M, output $10/M, cache write $2.5/M, cache read $0.20/M); admitted for Kiro catalog/floor 2026-10-03"
+  },
   "claude-sonnet-4": {
     "cache_creation_input_token_cost_above_200k_tokens": 7.5e-06,
     "cache_read_input_token_cost_above_200k_tokens": 6e-07,
@@ -2164,6 +2192,14 @@
       }
     ],
     "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
+  },
+  "doubao-seed-2.1-pro": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 8.955223880597016e-07,
+    "output_cost_per_token": 4.477611940298507e-06,
+    "cache_read_input_token_cost": 1.791044776119403e-07,
+    "source": "VolcEngine Ark official model pricing https://www.volcengine.com/docs/82379/1544106 and AI Hub listing, captured 2026-10-03: doubao-seed-2.1-pro online inference standard list input CNY 6/Mtok, output CNY 30/Mtok, cache-hit CNY 1.2/Mtok for input [0, 256]K; CNY/USD=6.7. Excludes priority and batch inference prices. Pre-tax official list rates; the existing official_list_base_tax policy applies at resolution/catalog time. Agent Plan serving is scoped to /api/plan/v3. Upstream probe account 88 /api/plan/v3/responses servable 2026-10-03."
   },
   "doubao-seed-2.1-turbo": {
     "litellm_provider": "volcengine",
