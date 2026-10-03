@@ -138,6 +138,7 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
 	"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
 	"nano-2":                         "gemini-3.1-flash-image",
+	"nano-banana-2":                  "gemini-3.1-flash-image",
 }
 
 // antigravityThinkingWireBases lists public Flash families whose AG upstream

@@ -1,0 +1,153 @@
+name: Model Release Watch
+
+# Daily discovery of upstream public model IDs vs TokenKey multi-channel SSOT.
+# Narrowed: current-generation scope + novelty vs cached state.
+# Issue sync is OPT-IN (default off). Never writes prices/allowlists/mappings.
+
+on:
+  schedule:
+    # GitHub cron is UTC — 02:17 UTC ≈ 10:17 Asia/Shanghai
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      open_issues:
+        description: "Open/update GitHub issues for NEW in-scope gaps"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      alert_all:
+        description: "Ignore novelty filter (alert every in-scope gap)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      bootstrap_state:
+        description: "Force bootstrap seed (update state, suppress issues)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      vendors:
+        description: "Optional comma-separated vendor filter"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: model-release-watch
+  cancel-in-progress: false
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Selftest + unit tests
+        run: |
+          set -euo pipefail
+          python3 ops/pricing/model_release_watch.py --selftest
+          python3 -m unittest ops.pricing.test_model_release_watch \
+            ops.pricing.test_open_model_release_watch_issues -v
+
+  scan:
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      has_actionable: ${{ steps.watch.outputs.has_actionable }}
+      actionable_count: ${{ steps.watch.outputs.actionable_count }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Restore watch state
+        uses: actions/cache@v6
+        with:
+          path: .cache/model-release-watch/state.json
+          key: model-release-watch-state-${{ github.repository }}
+          restore-keys: |
+            model-release-watch-state-
+
+      - name: Scan upstream model releases
+        id: watch
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Optional enrichment only — public docs/changelogs are the default source.
+          OPENAI_API_KEY: ${{ secrets.MODEL_RELEASE_OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.MODEL_RELEASE_ANTHROPIC_API_KEY }}
+          MOONSHOT_API_KEY: ${{ secrets.MODEL_RELEASE_MOONSHOT_API_KEY }}
+          ARK_API_KEY: ${{ secrets.MODEL_RELEASE_ARK_API_KEY }}
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          EXTRA=()
+          VENDORS="${{ github.event.inputs.vendors || '' }}"
+          if [ -n "$VENDORS" ]; then
+            EXTRA+=(--vendors "$VENDORS")
+          fi
+          if [ "${{ github.event.inputs.bootstrap_state || 'false' }}" = "true" ]; then
+            EXTRA+=(--bootstrap-state)
+          fi
+          if [ "${{ github.event.inputs.alert_all || 'false' }}" = "true" ]; then
+            EXTRA+=(--alert-all)
+          fi
+          set +e
+          python3 ops/pricing/model_release_watch.py \
+            --git-sha "$SHA" \
+            --run-url "$RUN_URL" \
+            --report-json .cache/model-release-watch/report.json \
+            --report-md .cache/model-release-watch/report.md \
+            --state .cache/model-release-watch/state.json \
+            "${EXTRA[@]}"
+          set -e
+          python3 -m json.tool .cache/model-release-watch/report.json >/dev/null
+          HAS="$(python3 -c "import json;print('true' if json.load(open('.cache/model-release-watch/report.json'))['summary']['has_actionable'] else 'false')")"
+          COUNT="$(python3 -c "import json;print(json.load(open('.cache/model-release-watch/report.json'))['summary']['actionable_count'])")"
+          {
+            echo "has_actionable=$HAS"
+            echo "actionable_count=$COUNT"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open or update tracking issues (opt-in)
+        if: >-
+          github.event_name == 'workflow_dispatch'
+          && github.event.inputs.open_issues == 'true'
+          && github.event.inputs.bootstrap_state != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::Missing required secret UPSTREAM_MERGE_GH_TOKEN for issue updates."
+            exit 1
+          fi
+          python3 ops/pricing/open_model_release_watch_issues.py \
+            --umbrella \
+            --links-json .cache/model-release-watch/links.json
+
+      - name: Issue sync skipped notice
+        if: >-
+          github.event_name != 'workflow_dispatch'
+          || github.event.inputs.open_issues != 'true'
+        run: |
+          echo "Issue sync gated off (default). Re-run workflow_dispatch with open_issues=true to create issues."
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: model-release-watch-${{ github.run_id }}
+          path: |
+            .cache/model-release-watch/report.json
+            .cache/model-release-watch/report.md
+            .cache/model-release-watch/state.json
+            .cache/model-release-watch/links.json
+          if-no-files-found: ignore

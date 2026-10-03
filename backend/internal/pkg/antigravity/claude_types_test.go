@@ -37,6 +37,7 @@ func TestDefaultModels_StructuralMetadata(t *testing.T) {
 		"gemini-3.5-flash-lite",
 		"gemini-3.1-flash-image",
 		"nano-2",
+		"nano-banana-2",
 		"gemini-3.1-flash-image-preview",
 	} {
 		if _, ok := byID[id]; !ok {

@@ -585,6 +585,7 @@ func applyImageCompatibilityAliases(out map[string]string) map[string]string {
 
 var tkImageCompatibilityAliases = map[string]string{
 	"nano-2":          "gemini-3.1-flash-image",
+	"nano-banana-2":   "gemini-3.1-flash-image",
 	"nano-pro":        "gemini-3-pro-image",
 	"nano-banana-pro": "gemini-3-pro-image",
 	"gpt-image-2.5":   "gpt-image-2.5-flare",

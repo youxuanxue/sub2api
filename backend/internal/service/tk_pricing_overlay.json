@@ -18,6 +18,7 @@
     "gpt-6": "gpt-6-astra",
     "gpt-image-2.5": "gpt-image-2.5-flare",
     "nano-2": "gemini-3.1-flash-image",
+    "nano-banana-2": "gemini-3.1-flash-image",
     "nano-pro": "gemini-3-pro-image",
     "nano-banana-pro": "gemini-3-pro-image",
     "gemini-3-flash": "gemini-3.8-flash",

@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "c539adebe41fe82f4269138e42d822754141fdc5534f9f5ee503ca97b7b9d2b0",
+  "floor_sha256": "66aecba251cbd2ff8fdc674a1b547292bb48c4ec23ed064f92152fa47d5e8c6c",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -41,6 +41,7 @@
         "gpt-image-2.5-flare": "gpt-image-2.5-flare",
         "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst",
         "nano-2": "gemini-3.1-flash-image",
+        "nano-banana-2": "gemini-3.1-flash-image",
         "nano-banana-pro": "gemini-3-pro-image",
         "nano-pro": "gemini-3-pro-image"
       },
@@ -63,7 +64,8 @@
         "gemini-3.8-flash-high": "gemini-3.8-flash-high",
         "gemini-3.8-flash-low": "gemini-3.8-flash-low",
         "gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
-        "nano-2": "gemini-3.1-flash-image"
+        "nano-2": "gemini-3.1-flash-image",
+        "nano-banana-2": "gemini-3.1-flash-image"
       },
       "bedrock": {
         "claude-fable-5": "anthropic.claude-fable-5",
@@ -260,6 +262,7 @@
         "gpt-image-2.5-flare": "gpt-image-2.5-flare",
         "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst",
         "nano-2": "gemini-3.1-flash-image",
+        "nano-banana-2": "gemini-3.1-flash-image",
         "nano-banana-pro": "gemini-3-pro-image",
         "nano-pro": "gemini-3-pro-image"
       }

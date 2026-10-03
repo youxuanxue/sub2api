@@ -400,7 +400,7 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   //    (responseModalities IMAGE), NOT /v1/images/generations. Flat per-image billing.
   {
     modelId: 'gemini-3.1-flash-image',
-    aliasIds: ['gemini-3.1-flash-image-preview', 'nano-2'],
+    aliasIds: ['gemini-3.1-flash-image-preview', 'nano-2', 'nano-banana-2'],
     displayName: 'Nano Banana 2 (Gemini 3.1 Flash Image)',
     qualityBadge: 'fast',
     qualityBadgeKey: 'studio.badge.fast',

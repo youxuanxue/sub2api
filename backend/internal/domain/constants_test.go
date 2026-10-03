@@ -18,6 +18,7 @@ func TestDefaultAntigravityModelMapping_ConvergedPublicSurface(t *testing.T) {
 		"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
 		"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
 		"nano-2":                         "gemini-3.1-flash-image",
+		"nano-banana-2":                  "gemini-3.1-flash-image",
 	}
 	if len(DefaultAntigravityModelMapping) != len(want) {
 		t.Fatalf("size got %d want %d (%v)", len(DefaultAntigravityModelMapping), len(want), DefaultAntigravityModelMapping)
