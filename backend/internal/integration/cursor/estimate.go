@@ -10,6 +10,11 @@ import (
 const EstimatedBillingTier = "cursor-oauth-estimated"
 const ReportedBillingTier = "cursor-oauth-reported"
 
+// Wire labels survive edge relay hops without disclosing the supply source.
+// Durable billing still uses the private labels above.
+const WireEstimatedBillingTier = "model-estimated"
+const WireReportedBillingTier = "model-reported"
+
 // EstimateHandoffUsage uses the same tokenizer as Kiro, without inventing cache
 // hits or adding estimates to reported usage. It counts only this request.
 func EstimateHandoffUsage(input AgentRequest, result AgentResult) AgentUsage {

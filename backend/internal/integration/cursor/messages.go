@@ -182,6 +182,68 @@ func parseMessagesContent(body []byte) (AgentRequest, bool, error) {
 	return input, raw.Stream, nil
 }
 
+const (
+	publicToolUnavailableCode = "gateway_tool_unavailable"
+	publicToolProtocolCode    = "upstream_tool_protocol_error"
+	publicUpstreamCode        = "upstream_unavailable"
+	publicTimeoutCode         = "timeout_error"
+	publicInvalidRequestCode  = "invalid_request_error"
+)
+
+// Preserve native error identity for routing/accounting without allowing a
+// converter or handler to expose the supplier's diagnostic via Error().
+type messagesPublicCause struct{ cause error }
+
+func (e *messagesPublicCause) Unwrap() error { return e.cause }
+func (e *messagesPublicCause) Error() string {
+	var transport *agentTransportError
+	if errors.As(e.cause, &transport) {
+		return transport.Error()
+	}
+	_, message := messagesPublicError(e.cause)
+	return message
+}
+
+// messagesPublicError converts native/provider failures into the stable
+// gateway contract. Native diagnostics remain available to restricted logs;
+// neither buffered responses nor SSE error events expose supplier names,
+// protocol names, request IDs, or raw messages.
+func messagesPublicError(err error) (code, message string) {
+	if err == nil {
+		return "", ""
+	}
+	switch {
+	case errors.Is(err, errAgentToolProtocol):
+		return publicToolProtocolCode, "The model returned an unsupported tool call."
+	case errors.Is(err, errAgentStreamIdle), errors.Is(err, context.DeadlineExceeded):
+		return publicTimeoutCode, "The model service timed out."
+	case errors.Is(err, context.Canceled):
+		return publicUpstreamCode, "The model request was canceled."
+	}
+	var transport *agentTransportError
+	if errors.As(err, &transport) {
+		return publicUpstreamCode, "The model service is temporarily unavailable."
+	}
+	var rejection *AgentRejection
+	if errors.As(err, &rejection) {
+		if rejection.Cause != nil && rejection.Cause.Status >= 500 {
+			return publicUpstreamCode, "The model service is temporarily unavailable."
+		}
+		if rejection.Cause != nil && rejection.Cause.Status == http.StatusTooManyRequests {
+			return "rate_limit_error", "The model service is temporarily unavailable."
+		}
+		return publicInvalidRequestCode, "Invalid request."
+	}
+	var upstream *Error
+	if errors.As(err, &upstream) {
+		if upstream.Status >= 500 {
+			return publicUpstreamCode, "The model service is temporarily unavailable."
+		}
+		return publicInvalidRequestCode, "Invalid request."
+	}
+	return publicUpstreamCode, "The model service is temporarily unavailable."
+}
+
 // MessagesBody owns one request's output pipe and settlement evidence. Closing
 // it cancels the native call and joins the producer; it never parks a run.
 type MessagesBody struct {
@@ -206,8 +268,11 @@ func (b *MessagesBody) Outcome() (string, error) {
 }
 func messageUsage(u AgentUsage, tier string) map[string]any {
 	usage := map[string]any{"input_tokens": u.Input, "output_tokens": u.Output, "cache_read_input_tokens": u.CacheRead, "cache_creation_input_tokens": u.CacheWrite}
-	if tier != "" {
-		usage["tk_billing_tier"] = tier
+	switch tier {
+	case ReportedBillingTier:
+		usage["tk_billing_tier"] = WireReportedBillingTier
+	case EstimatedBillingTier:
+		usage["tk_billing_tier"] = WireEstimatedBillingTier
 	}
 	return usage
 }
@@ -271,7 +336,8 @@ func classifyCursorContinuationRetry(err error) cursorContinuationRetryKind {
 func Messages(ctx context.Context, token string, body []byte, parameters []Parameter, wireModel string, do func(*http.Request) (*http.Response, error), formatError ...func(error) (code, message string)) (*http.Response, error) {
 	input, stream, err := parseMessages(body, parameters, wireModel)
 	if err != nil {
-		return messagesError(http.StatusBadRequest, err.Error()), nil
+		logger.FromContext(ctx).Warn("cursor_messages_invalid_request", zap.String("diagnostic", agentBoundedErrorText(err.Error(), token)))
+		return messagesError(http.StatusBadRequest, "Invalid request.", publicInvalidRequestCode), nil
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	reader, writer := io.Pipe()
@@ -387,7 +453,9 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 			runErr = errors.New("cursor returned no terminal usage")
 		}
 		output.mu.Lock()
-		output.err = runErr
+		if runErr != nil {
+			output.err = &messagesPublicCause{cause: runErr}
+		}
 		if runErr == nil {
 			output.tier = tier
 		}
@@ -397,14 +465,15 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 			if errors.As(runErr, &rejection) {
 				logger.FromContext(ctx).Error("cursor_messages_run_agent_failed", zap.Error(runErr), zap.String("native_request_id", rejection.RequestID), zap.String("messages_request_id", id), zap.String("connect_code", rejection.Code), zap.String("upstream_message", rejection.Diagnostic), zap.String("upstream_metadata", rejection.Metadata), zap.String("upstream_details", rejection.DetailInventory))
 			} else {
-				logger.FromContext(ctx).Error("cursor_messages_run_agent_failed", zap.Error(runErr), zap.String("messages_request_id", id))
+				logger.FromContext(ctx).Error("cursor_messages_run_agent_failed", zap.String("error", agentBoundedErrorText(runErr.Error(), token)), zap.String("messages_request_id", id))
 			}
-			code, message := "", runErr.Error()
+			code, message := messagesPublicError(runErr)
 			if len(formatError) > 0 && formatError[0] != nil {
 				if mappedCode, mappedMessage := formatError[0](runErr); mappedCode != "" {
 					code, message = mappedCode, mappedMessage
 				}
 			}
+			runErr = &messagesPublicCause{cause: runErr}
 			if !started {
 				if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 					ready <- responseResult{err: runErr}

@@ -42,6 +42,8 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 ## TokenKey SSOT 导航
 
+Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor-tool-gateway-compat.md)。
+
 本节只提供契约入口；规则、实现 owner 和验收状态在链接目标维护。
 
 | 要判断的事实 | 契约入口 |

@@ -240,6 +240,7 @@ func (s *OpenAIGatewayService) bufferNativeAnthropicMessages(
 		c.Writer.Header().Set("Content-Type", "application/json")
 	}
 	c.Writer.WriteHeader(http.StatusOK)
+	respBody = s.replaceModelInResponseBody(respBody, upstreamModel, originalModel)
 	_, _ = c.Writer.Write(respBody)
 
 	return &OpenAIForwardResult{
@@ -314,6 +315,7 @@ func (s *OpenAIGatewayService) streamNativeAnthropicMessages(
 				}
 			}
 		}
+		line = s.replaceModelInSSELine(line, upstreamModel, originalModel)
 		writeChunk(line + "\n")
 		if !clientDisconnected {
 			if line == "" && terminalError {

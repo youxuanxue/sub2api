@@ -4,9 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	pb "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb"
 	"github.com/stretchr/testify/require"
@@ -25,60 +30,165 @@ func TestClassifyMessagesAlignedExec(t *testing.T) {
 func TestExecClientThrowAndCloseShapes(t *testing.T) {
 	// Positive: throw + stream_close pair for Cursor recovery. Negative: nil exec → no frames.
 	require.Nil(t, execClientThrowAndClose(nil, "x", "y"))
-	msgs := execClientThrowAndClose(&pb.ExecServerMessage{Id: 9, ExecId: "e1"}, "TokenKey Messages relay (fields=2)", "exec_variant_unsupported")
+	text, code := outsideExecThrowMessage()
+	msgs := execClientThrowAndClose(&pb.ExecServerMessage{Id: 9, ExecId: "e1"}, text, code)
 	require.Len(t, msgs, 2)
 	throw := msgs[0].GetExecClientControlMessage().GetThrow()
 	require.NotNil(t, throw)
 	require.EqualValues(t, 9, throw.GetId())
-	require.Equal(t, "TokenKey Messages relay (fields=2)", throw.GetError())
-	require.Equal(t, "exec_variant_unsupported", throw.GetErrorCode())
+	require.Equal(t, "Workspace tools are unavailable through this gateway. Continue without local execution.", throw.GetError())
+	require.Equal(t, "gateway_tool_unavailable", throw.GetErrorCode())
 	require.NotNil(t, msgs[1].GetExecClientControlMessage().GetStreamClose())
 	require.EqualValues(t, 9, msgs[1].GetExecClientControlMessage().GetStreamClose().GetId())
 }
 
 func TestAgentRunOutsideExecThrowsAndContinuesText(t *testing.T) {
-	// Positive: unknown shell_args (field 2) triggers throw (2 replies) and later
-	// text+usage still surface. Negative: must not fail the Messages turn.
-	var wire []byte
-	wire = protowire.AppendTag(wire, 1, protowire.VarintType)
-	wire = protowire.AppendVarint(wire, 9)
-	wire = protowire.AppendTag(wire, 2, protowire.BytesType)
-	wire = protowire.AppendBytes(wire, []byte{0x0a, 0x01, 0x78})
-	var exec pb.ExecServerMessage
-	require.NoError(t, proto.Unmarshal(wire, &exec))
-	require.Equal(t, messagesExecOutside, classifyMessagesAlignedExec(&exec))
-	require.Contains(t, protobufFieldNumbers(&exec), 2)
-
-	var stream bytes.Buffer
-	require.NoError(t, writeAgentFrame(&stream, &pb.AgentServerMessage{ExecServerMessage: &exec}))
-	require.NoError(t, writeAgentFrame(&stream, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{
-		TextDelta: &pb.TextDeltaUpdate{Text: "hello after throw"},
-	}}))
-	require.NoError(t, writeAgentFrame(&stream, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{
-		TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(3), OutputTokens: proto.Int64(2), CacheReadTokens: proto.Int64(0), CacheWriteTokens: proto.Int64(0)},
-	}}))
-
-	var sawFields []int
-	var sawReplies int
-	testOutsideExecThrowHook = func(fields []int, replyCount int) {
-		sawFields = append([]int(nil), fields...)
-		sawReplies = replyCount
+	// Unknown workspace exec variants stay opaque; the fake upstream waits for
+	// both control replies before allowing text/usage to continue.
+	for _, field := range []protowire.Number{2, 3, 4, 5, 99} {
+		t.Run(fmt.Sprint(field), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			core, logs := observer.New(zap.DebugLevel)
+			ctx = logger.IntoContext(ctx, zap.New(core))
+			reader, writer := io.Pipe()
+			defer func() { _ = reader.Close() }()
+			wireErr := make(chan error, 1)
+			result, err := RunAgent(ctx, "test-credential", AgentRequest{
+				Model: "composer-2.5", Messages: []AgentMessage{{Role: "user", Text: "hello"}},
+			}, func(req *http.Request) (*http.Response, error) {
+				go func() {
+					defer func() { _ = writer.Close() }()
+					check := func() error {
+						read := func() (*pb.AgentClientMessage, error) {
+							_, raw, err := readAgentFrame(req.Body)
+							if err != nil {
+								return nil, err
+							}
+							msg := &pb.AgentClientMessage{}
+							return msg, proto.Unmarshal(raw, msg)
+						}
+						run, err := read()
+						if err != nil {
+							return err
+						}
+						if run.GetRunRequest().GetConversationState().GetMode() != agentModeAsk {
+							return fmt.Errorf("gateway advertised an execution mode")
+						}
+						if req.Header.Get("X-Cursor-Agent-Allowed-Tools") != "" {
+							return fmt.Errorf("native tool allowlist advertised")
+						}
+						exec := &pb.ExecServerMessage{Id: 9, ExecId: "native-exec"}
+						exec.ProtoReflect().SetUnknown(protowire.AppendBytes(protowire.AppendTag(nil, field, protowire.BytesType), []byte("opaque workspace arguments")))
+						if err := writeAgentFrame(writer, &pb.AgentServerMessage{ExecServerMessage: exec}); err != nil {
+							return err
+						}
+						throw, err := read()
+						if err != nil {
+							return err
+						}
+						feedback := throw.GetExecClientControlMessage().GetThrow()
+						text, code := outsideExecThrowMessage()
+						if feedback.GetId() != 9 || feedback.GetError() != text || feedback.GetErrorCode() != code {
+							return fmt.Errorf("unexpected throw: %v", throw)
+						}
+						closeMsg, err := read()
+						if err != nil {
+							return err
+						}
+						if closeMsg.GetExecClientControlMessage().GetStreamClose().GetId() != 9 {
+							return fmt.Errorf("missing stream close: %v", closeMsg)
+						}
+						if err := writeAgentFrame(writer, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "hello after throw"}}}); err != nil {
+							return err
+						}
+						return writeAgentFrame(writer, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(3), OutputTokens: proto.Int64(2), CacheReadTokens: proto.Int64(0), CacheWriteTokens: proto.Int64(0)}}})
+					}
+					wireErr <- check()
+				}()
+				return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: reader}, nil
+			}, nil)
+			require.NoError(t, err)
+			require.NoError(t, <-wireErr)
+			require.Equal(t, "hello after throw", result.Text)
+			require.EqualValues(t, 2, result.Usage.Output)
+			require.Empty(t, result.ToolCalls)
+			entries := logs.FilterMessage("cursor_agentrun_outside_exec_throw").All()
+			require.Len(t, entries, 1)
+			require.Equal(t, "exec_variant_unsupported", entries[0].ContextMap()["error_code"])
+			require.Equal(t, "gateway_tool_unavailable", entries[0].ContextMap()["public_error_code"])
+		})
 	}
-	t.Cleanup(func() { testOutsideExecThrowHook = nil })
+}
 
-	result, err := RunAgent(context.Background(), "test-credential", AgentRequest{
-		Model:    "composer-2.5",
-		Messages: []AgentMessage{{Role: "user", Text: "hello"}},
+func TestAgentRunUndeclaredMcpExecThrowsAndContinuesText(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	core, logs := observer.New(zap.DebugLevel)
+	ctx = logger.IntoContext(ctx, zap.New(core))
+	reader, writer := io.Pipe()
+	defer func() { _ = reader.Close() }()
+	wireErr := make(chan error, 1)
+	result, err := RunAgent(ctx, "test-credential", AgentRequest{
+		Model: "claude-fable-5-1", Messages: []AgentMessage{{Role: "user", Text: "hello"}},
 	}, func(req *http.Request) (*http.Response, error) {
-		go func() { _, _ = io.Copy(io.Discard, req.Body) }()
-		return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: io.NopCloser(bytes.NewReader(stream.Bytes()))}, nil
+		go func() {
+			defer func() { _ = writer.Close() }()
+			read := func() (*pb.AgentClientMessage, error) {
+				_, raw, err := readAgentFrame(req.Body)
+				if err != nil {
+					return nil, err
+				}
+				message := &pb.AgentClientMessage{}
+				return message, proto.Unmarshal(raw, message)
+			}
+			if _, err := read(); err != nil {
+				wireErr <- err
+				return
+			}
+			if err := writeAgentFrame(writer, &pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{
+				Id: 11, ExecId: "workspace-shell", McpArgs: &pb.McpArgs{Name: "shell", ToolCallId: "native-call"},
+			}}); err != nil {
+				wireErr <- err
+				return
+			}
+			throw, err := read()
+			if err != nil {
+				wireErr <- err
+				return
+			}
+			feedback := throw.GetExecClientControlMessage().GetThrow()
+			if feedback.GetId() != 11 || feedback.GetErrorCode() != "gateway_tool_unavailable" || feedback.GetError() != "Workspace tools are unavailable through this gateway. Continue without local execution." {
+				wireErr <- fmt.Errorf("unexpected undeclared-tool throw: %v", throw)
+				return
+			}
+			closeMsg, err := read()
+			if err != nil {
+				wireErr <- err
+				return
+			}
+			if closeMsg.GetExecClientControlMessage().GetStreamClose().GetId() != 11 {
+				wireErr <- fmt.Errorf("unexpected undeclared-tool close: %v", closeMsg)
+				return
+			}
+			if err := writeAgentFrame(writer, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "continued"}}}); err != nil {
+				wireErr <- err
+				return
+			}
+			wireErr <- writeAgentFrame(writer, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: &pb.TurnEndedUpdate{
+				InputTokens: proto.Int64(3), OutputTokens: proto.Int64(2), CacheReadTokens: proto.Int64(0), CacheWriteTokens: proto.Int64(0),
+			}}})
+		}()
+		return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: reader}, nil
 	}, nil)
 	require.NoError(t, err)
-	require.Equal(t, "hello after throw", result.Text)
-	require.NotNil(t, result.Usage)
+	require.NoError(t, <-wireErr)
+	require.Equal(t, "continued", result.Text)
+	require.Empty(t, result.ToolCalls)
 	require.EqualValues(t, 2, result.Usage.Output)
-	require.Contains(t, sawFields, 2)
-	require.Equal(t, 2, sawReplies, "throw + stream_close")
+	entries := logs.FilterMessage("cursor_agentrun_mcp_tool_throw").All()
+	require.Len(t, entries, 1)
+	require.Equal(t, "undeclared_mcp_tool", entries[0].ContextMap()["error_code"])
 }
 
 func TestAgentRunMapsInteractionToolCallStartedToMessagesHandoff(t *testing.T) {

@@ -63,7 +63,7 @@ func TestMessagesReportedUsageAndStreaming(t *testing.T) {
 		require.Contains(t, string(raw), `"input_tokens":11`)
 		require.Contains(t, string(raw), `"cache_read_input_tokens":7`)
 		require.Contains(t, string(raw), `"cache_creation_input_tokens":2`)
-		require.Contains(t, string(raw), `"tk_billing_tier":"cursor-oauth-reported"`)
+		require.Contains(t, string(raw), `"tk_billing_tier":"model-reported"`)
 		if stream {
 			require.Contains(t, string(raw), "event: message_stop")
 			require.Contains(t, string(raw), `"text":"OK"`)
@@ -173,7 +173,7 @@ func TestMessagesToolHandoffEstimatesOnlyMissingUsage(t *testing.T) {
 	tier, err := output.Outcome()
 	require.NoError(t, err)
 	require.Equal(t, EstimatedBillingTier, tier)
-	require.Contains(t, string(raw), `"tk_billing_tier":"cursor-oauth-estimated"`)
+	require.Contains(t, string(raw), `"tk_billing_tier":"model-estimated"`)
 	var message struct {
 		Usage AgentUsage `json:"usage"`
 		Stop  string     `json:"stop_reason"`
@@ -201,7 +201,7 @@ func TestMessagesIncompleteUsageCannotSettleAsReported(t *testing.T) {
 		require.NotContains(t, string(raw), "cursor-oauth-estimated")
 		require.NotContains(t, string(raw), "event: message_stop")
 		if stream {
-			require.ErrorContains(t, readErr, "incomplete terminal usage")
+			require.EqualError(t, readErr, "The model service is temporarily unavailable.")
 			output, ok := resp.Body.(*MessagesBody)
 			require.True(t, ok)
 			tier, outcomeErr := output.Outcome()

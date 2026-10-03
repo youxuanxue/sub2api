@@ -69,7 +69,7 @@ func (u *cursorNativeTestUpstream) Do(req *http.Request, _ string, _ int64, _ in
 func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 	for _, inbound := range []protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses} {
 		for _, stream := range []bool{false, true} {
-			for _, outcome := range []string{"reported", "handoff", "resumed", "incomplete", "cyber_early", "cyber_late", "usage_early", "usage_late", "cyber_http", "usage_http", "usage_message_http", "cyber_429_http", "usage_503_http", "transport_canceled"} {
+			for _, outcome := range []string{"reported", "handoff", "handoff_alias", "native_rejected", "tool_unknown", "resumed", "incomplete", "cyber_early", "cyber_late", "usage_early", "usage_late", "cyber_http", "usage_http", "usage_message_http", "cyber_429_http", "usage_503_http", "transport_canceled"} {
 				t.Run(fmt.Sprintf("%s/stream=%t/%s", inbound, stream, outcome), func(t *testing.T) {
 					const model = "composer-2.5"
 					body := []byte(fmt.Sprintf(`{"model":%q,"stream":%t,"max_tokens":1,"messages":[{"role":"user","content":"lookup"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`, model, stream))
@@ -90,14 +90,17 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 							body = []byte(strings.Replace(string(body), `"input":"lookup"`, `"input":[{"role":"user","content":"lookup"},{"type":"function_call","call_id":"call_native","name":"lookup","arguments":"{\"key\":\"demo\"}"},{"type":"function_call_output","call_id":"call_native","output":"NATIVE_NONCE_739281"}]`, 1))
 						}
 					}
-					request, err := protocolrouter.ParseCanonicalRequest(inbound, path, model, stream, body)
+					const publicModel = "public-model"
+					body = bytes.Replace(body, []byte(`"model":"composer-2.5"`), []byte(`"model":"public-model"`), 1)
+					request, err := protocolrouter.ParseCanonicalRequest(inbound, path, publicModel, stream, body)
 					require.NoError(t, err)
 					account := cursorCandidateAccount(model)
+					account.Credentials["model_mapping"] = map[string]any{publicModel: model}
 					router := NewProtocolRouter()
 					ctx := WithProtocolRouting(t.Context(), router, request)
 					logCore, logEntries := observer.New(zapcore.DebugLevel)
 					ctx = logger.IntoContext(ctx, zap.New(logCore).With(zap.String("request_id", "gateway-fixture"), zap.String("client_request_id", "client-fixture")))
-					plan, _, err := protocolPlanForAccount(ctx, account, model)
+					plan, _, err := protocolPlanForAccount(ctx, account, publicModel)
 					require.NoError(t, err)
 					var response bytes.Buffer
 					frame := func(message proto.Message) {
@@ -108,13 +111,23 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 						response.Write(header[:])
 						response.Write(raw)
 					}
-					if outcome == "handoff" {
+					if outcome == "native_rejected" {
+						exec := &pb.ExecServerMessage{Id: 9}
+						exec.ProtoReflect().SetUnknown(protowire.AppendBytes(protowire.AppendTag(nil, 2, protowire.BytesType), []byte("opaque")))
+						frame(&pb.AgentServerMessage{ExecServerMessage: exec})
+					}
+					if outcome == "handoff_alias" {
+						frame(&pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{McpArgs: &pb.McpArgs{Name: "mcp_tokenkey_lookup", ToolName: "lookup", ToolCallId: "call_native"}}})
+					} else if outcome == "handoff" {
 						frame(&pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{McpArgs: &pb.McpArgs{Name: "mcp__tokenkey__lookup", ToolCallId: "call_native"}}})
 					} else if !strings.HasSuffix(outcome, "_early") {
 						frame(&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "NATIVE_OK"}}})
 					}
+					if outcome == "tool_unknown" {
+						frame(&pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{McpArgs: &pb.McpArgs{Name: "mcp__tokenkey__not_declared", ToolCallId: "call_native"}}})
+					}
 					usage := &pb.TurnEndedUpdate{}
-					if outcome == "reported" || outcome == "resumed" {
+					if outcome == "reported" || outcome == "resumed" || outcome == "native_rejected" || outcome == "tool_unknown" {
 						usage = &pb.TurnEndedUpdate{InputTokens: proto.Int64(20), OutputTokens: proto.Int64(3), CacheReadTokens: proto.Int64(7), CacheWriteTokens: proto.Int64(2)}
 					}
 					if strings.HasPrefix(outcome, "cyber_") || strings.HasPrefix(outcome, "usage_") {
@@ -206,6 +219,18 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 						require.NotEmpty(t, fields["native_request_id"])
 						return
 					}
+					for _, forbidden := range []string{"cursor", "tokenkey", "agentrun", "not_declared", "composer-2.5"} {
+						require.NotContains(t, strings.ToLower(recorder.Body.String()), forbidden)
+					}
+					if outcome == "tool_unknown" {
+						require.NoError(t, err)
+						require.NotNil(t, result)
+						require.Equal(t, cursor.ReportedBillingTier, result.BillingTier)
+						require.Equal(t, 20, result.Usage.InputTokens)
+						require.Equal(t, 3, result.Usage.OutputTokens)
+						require.Contains(t, recorder.Body.String(), "NATIVE_OK")
+						return
+					}
 					if outcome == "incomplete" {
 						require.Error(t, err, "an incomplete native run must not be billed as successful")
 						require.Nil(t, result, "missing native settlement must not create usage")
@@ -238,7 +263,7 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 						require.Equal(t, "demo", step.ToolCall.McpToolCall.Args.Args["key"].GetStringValue())
 					}
 					require.NotNil(t, result)
-					if outcome == "reported" || outcome == "resumed" {
+					if outcome == "reported" || outcome == "resumed" || outcome == "native_rejected" {
 						require.Equal(t, cursor.ReportedBillingTier, result.BillingTier)
 						require.Equal(t, 20, result.Usage.InputTokens, "OpenAI input includes fresh and cached buckets")
 						require.Equal(t, 7, result.Usage.CacheReadInputTokens)

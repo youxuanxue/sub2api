@@ -137,6 +137,10 @@ func cursorResponseOutcome(account *Account, resp *http.Response, result **OpenA
 
 func cursorBillingTier(tier string) string {
 	switch tier {
+	case cursor.WireReportedBillingTier:
+		return cursor.ReportedBillingTier
+	case cursor.WireEstimatedBillingTier:
+		return cursor.EstimatedBillingTier
 	case cursor.ReportedBillingTier, cursor.EstimatedBillingTier:
 		return tier
 	default:

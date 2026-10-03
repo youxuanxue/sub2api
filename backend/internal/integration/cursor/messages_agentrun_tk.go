@@ -1,9 +1,7 @@
 package cursor
 
 import (
-	"fmt"
 	"sort"
-	"strings"
 
 	pb "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -29,9 +27,6 @@ import (
 //     they are not forwarded to Messages. Interaction queries and non-MCP
 //     tool_call_started envelopes are skipped without failing the Messages turn.
 
-// testOutsideExecThrowHook is set only by unit tests to observe the throw path.
-var testOutsideExecThrowHook func(fields []int, replyCount int)
-
 // execClientThrowAndClose answers an unserviceable ExecServerMessage in-band so
 // Cursor can surface the error to the model and keep generating instead of
 // blocking on a missing ExecClientMessage result (oh-my-pi / CLI pattern).
@@ -47,16 +42,8 @@ func execClientThrowAndClose(exec *pb.ExecServerMessage, errText, errCode string
 	}
 }
 
-func outsideExecThrowMessage(fields []int) (errText, errCode string) {
-	errCode = "exec_variant_unsupported"
-	if len(fields) == 0 {
-		return "TokenKey Messages relay does not execute Cursor local Agent tools", errCode
-	}
-	parts := make([]string, 0, len(fields))
-	for _, n := range fields {
-		parts = append(parts, fmt.Sprintf("%d", n))
-	}
-	return "TokenKey Messages relay does not execute Cursor local Agent tools (fields=" + strings.Join(parts, ",") + ")", errCode
+func outsideExecThrowMessage() (errText, errCode string) {
+	return "Workspace tools are unavailable through this gateway. Continue without local execution.", publicToolUnavailableCode
 }
 
 // protobufFieldNumbers lists set known fields plus unknown wire tags on m.
