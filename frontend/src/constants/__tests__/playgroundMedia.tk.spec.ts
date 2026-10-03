@@ -58,6 +58,7 @@ describe('modalityForModel', () => {
       'gemini-3-pro-image-preview',
       'nano-banana-pro-preview',
       'nano-2',
+      'nano-banana-2',
       'nano-pro'
     ]) {
       expect(modalityForModel(id)).toBe('image')
