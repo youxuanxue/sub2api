@@ -18,6 +18,7 @@ func TestCursorMappingFloorExcludesGPTWithoutChangingOtherProviders(t *testing.T
 	require.Contains(t, ids, "claude-fable-5")
 	require.Contains(t, ids, "claude-fable-5-1")
 	require.NotContains(t, ids, "claude-opus-5-5")
+	require.NotContains(t, ids, "claude-sonnet-5-5")
 	displayIDs := NewAPIModelDisplayIDsForAccount(account)
 	require.Contains(t, displayIDs, "claude-fable-5")
 	require.Contains(t, displayIDs, "claude-fable-5-1")
