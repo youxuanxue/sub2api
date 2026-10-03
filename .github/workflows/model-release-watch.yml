@@ -35,6 +35,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
   issues: write
 
 concurrency:
@@ -70,10 +71,10 @@ jobs:
           submodules: recursive
 
       - name: Restore watch state
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
-          path: .cache/model-release-watch/state.json
-          key: model-release-watch-state-${{ github.repository }}
+          path: .cache/model-release-watch
+          key: model-release-watch-state-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             model-release-watch-state-
 
@@ -88,6 +89,7 @@ jobs:
           ARK_API_KEY: ${{ secrets.MODEL_RELEASE_ARK_API_KEY }}
         run: |
           set -euo pipefail
+          mkdir -p .cache/model-release-watch
           SHA="$(git rev-parse HEAD)"
           EXTRA=()
           VENDORS="${{ github.event.inputs.vendors || '' }}"
@@ -100,6 +102,7 @@ jobs:
           if [ "${{ github.event.inputs.alert_all || 'false' }}" = "true" ]; then
             EXTRA+=(--alert-all)
           fi
+          # Exit 1 means actionable gaps; still a successful scan that must advance state.
           set +e
           python3 ops/pricing/model_release_watch.py \
             --git-sha "$SHA" \
@@ -108,7 +111,12 @@ jobs:
             --report-md .cache/model-release-watch/report.md \
             --state .cache/model-release-watch/state.json \
             "${EXTRA[@]}"
+          scan_status=$?
           set -e
+          if [ ! -f .cache/model-release-watch/report.json ]; then
+            echo "::error::model-release-watch produced no report.json (exit=$scan_status)"
+            exit 1
+          fi
           python3 -m json.tool .cache/model-release-watch/report.json >/dev/null
           HAS="$(python3 -c "import json;print('true' if json.load(open('.cache/model-release-watch/report.json'))['summary']['has_actionable'] else 'false')")"
           COUNT="$(python3 -c "import json;print(json.load(open('.cache/model-release-watch/report.json'))['summary']['actionable_count'])")"
@@ -116,12 +124,17 @@ jobs:
             echo "has_actionable=$HAS"
             echo "actionable_count=$COUNT"
           } >> "$GITHUB_OUTPUT"
+          if [ "$scan_status" -ne 0 ] && [ "$scan_status" -ne 1 ]; then
+            echo "::error::model-release-watch failed unexpectedly (exit=$scan_status)"
+            exit "$scan_status"
+          fi
 
       - name: Open or update tracking issues (opt-in)
         if: >-
           github.event_name == 'workflow_dispatch'
           && github.event.inputs.open_issues == 'true'
           && github.event.inputs.bootstrap_state != 'true'
+          && steps.watch.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
         run: |
@@ -140,6 +153,14 @@ jobs:
           || github.event.inputs.open_issues != 'true'
         run: |
           echo "Issue sync gated off (default). Re-run workflow_dispatch with open_issues=true to create issues."
+
+      # A failed scan must not advance the persisted novelty cursor.
+      - name: Save watch state
+        if: ${{ !cancelled() && steps.watch.outcome == 'success' }}
+        uses: actions/cache/save@v6
+        with:
+          path: .cache/model-release-watch
+          key: model-release-watch-state-${{ github.run_id }}-${{ github.run_attempt }}
 
       - uses: actions/upload-artifact@v7
         if: always()
