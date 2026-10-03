@@ -28,6 +28,8 @@ No tool in this directory may collapse those owners into a persistent `deliverab
 
 | Tool | Role |
 | --- | --- |
+| `model_release_watch.py` / `model-release-watch.sh` | Public-channel model-ID discovery vs multi-channel SSOT (catalog seeds + live docs; API keys optional). Google scope: Flash ≥3.8 / Pro ≥3.2 (3.1-pro* frozen) / Image ≥3.1-flash-image non-lite + Nano Banana aliases. |
+| `model-release-public-catalog.json` | Committed public announcement/API-id seeds for model-release-watch (no keys required). |
 | `modelops.py plan` | Read-only comparison of discovery, probe, price, manifest and live mapping evidence. |
 | `modelops.py activate` | Prod-only, evidence-backed activation of a generated mapping floor. Defaults to validation and dry-run. |
 | `refresh-servable-allowlist.py` | Probe and rewrite the shared native catalog/menu empirical sets. |

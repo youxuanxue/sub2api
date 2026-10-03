@@ -445,10 +445,10 @@ func requireTokenseaImageCompatibilityAliases(t *testing.T, mapping map[string]s
 		require.Equal(t, to, mapping[from], "Tokensea image alias %s must map to %s", from, to)
 	}
 	require.Equal(t, "gemini-3.1-flash-image", mapping["nano-2"])
-	require.Equal(t, "gemini-3-pro-image", mapping["nano-pro"])
-	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5"])
 	// nano-banana-2 is Antigravity/Studio/pricing only — never project onto TokenSea.
 	require.NotContains(t, mapping, "nano-banana-2")
+	require.Equal(t, "gemini-3-pro-image", mapping["nano-pro"])
+	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5"])
 	for _, id := range []string{
 		"gpt-image-2-plus",
 		"gpt-image-2-pro",
