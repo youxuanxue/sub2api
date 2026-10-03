@@ -1,0 +1,127 @@
+{
+  "_doc": "Public-channel model ID seeds for model-release-watch. No API keys required. Live docs/changelog fetches merge on top when reachable (often only from non-geo-blocked CI). Update this file when a public announcement / vendor changelog / supplier notice names a new API model id.",
+  "schema_version": 1,
+  "models": [
+    {
+      "vendor": "anthropic",
+      "model_id": "claude-opus-5-5",
+      "source_url": "https://docs.anthropic.com/en/docs/about-claude/models/overview",
+      "notes": "public docs Claude API ID"
+    },
+    {
+      "vendor": "anthropic",
+      "model_id": "claude-sonnet-5-5",
+      "source_url": "https://docs.anthropic.com/en/docs/about-claude/models/overview",
+      "notes": "public docs Claude API ID"
+    },
+    {
+      "vendor": "anthropic",
+      "model_id": "claude-fable-5-1",
+      "source_url": "https://docs.anthropic.com/en/docs/about-claude/models/overview",
+      "notes": "public docs Claude API ID"
+    },
+    {
+      "vendor": "openai",
+      "model_id": "gpt-6-astra",
+      "source_url": "https://openai.com/index/gpt-6-astra/",
+      "notes": "public launch post API id"
+    },
+    {
+      "vendor": "openai",
+      "model_id": "gpt-6-sol",
+      "source_url": "https://openai.com/index/introducing-gpt-6-sol-and-luna/",
+      "notes": "public launch post API id"
+    },
+    {
+      "vendor": "openai",
+      "model_id": "gpt-6-luna",
+      "source_url": "https://openai.com/index/introducing-gpt-6-sol-and-luna/",
+      "notes": "public launch post API id"
+    },
+    {
+      "vendor": "openai",
+      "model_id": "gpt-6.1-sol",
+      "source_url": "https://openai.com/index/introducing-gpt-6-1-sol",
+      "notes": "public launch post API id"
+    },
+    {
+      "vendor": "google",
+      "model_id": "gemini-3.8-flash",
+      "source_url": "https://ai.google.dev/gemini-api/docs/models",
+      "notes": "public Stable text Flash floor (watch: 3.8-flash and newer)"
+    },
+    {
+      "vendor": "google",
+      "model_id": "gemini-3.1-flash-image",
+      "source_url": "https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-image",
+      "notes": "Nano Banana 2 official API id (watch: 3.1-flash-image and newer non-lite)"
+    },
+    {
+      "vendor": "google",
+      "model_id": "gemini-3-pro-image",
+      "source_url": "https://ai.google.dev/gemini-api/docs/models",
+      "notes": "Nano Banana Pro official API id"
+    },
+    {
+      "vendor": "google",
+      "model_id": "nano-banana-2",
+      "source_url": "https://ai.google.dev/gemini-api/docs/models",
+      "notes": "marketing alias for gemini-3.1-flash-image (ship alongside nano-2)"
+    },
+    {
+      "vendor": "google",
+      "model_id": "nano-2",
+      "source_url": "https://ai.google.dev/gemini-api/docs/models",
+      "notes": "short alias mapped to gemini-3.1-flash-image in TK bundle"
+    },
+    {
+      "vendor": "google",
+      "model_id": "nano-banana-pro",
+      "source_url": "https://ai.google.dev/gemini-api/docs/models",
+      "notes": "marketing alias for gemini-3-pro-image"
+    },
+    {
+      "vendor": "google",
+      "model_id": "gemini-4-argon",
+      "source_url": "https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-4-argon/",
+      "watch_only": true,
+      "notes": "announced; no public API model id confirmed"
+    },
+    {
+      "vendor": "doubao",
+      "model_id": "doubao-seed-2.1-pro",
+      "source_url": "https://seed.bytedance.com/zh/blog/seed2-1-officially-released-advancing-ai-productivity",
+      "notes": "public Seed 2.1 family; confirm exact Ark dated id in triage"
+    },
+    {
+      "vendor": "doubao",
+      "model_id": "doubao-seed-2.1-turbo",
+      "source_url": "https://seed.bytedance.com/zh/blog/seed2-1-officially-released-advancing-ai-productivity",
+      "notes": "public Seed 2.1 family"
+    },
+    {
+      "vendor": "deepseek",
+      "model_id": "deepseek-flash",
+      "source_url": "https://api-docs.deepseek.com/quick_start/pricing",
+      "notes": "public pricing page model id for V4.1 Flash"
+    },
+    {
+      "vendor": "glm",
+      "model_id": "glm-5.3",
+      "source_url": "https://docs.z.ai/guides/overview/pricing",
+      "notes": "public Z.ai model code"
+    },
+    {
+      "vendor": "glm",
+      "model_id": "glm-5.3-flash",
+      "source_url": "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+      "notes": "public Z.ai model code"
+    },
+    {
+      "vendor": "kimi",
+      "model_id": "kimi-k3",
+      "source_url": "https://platform.moonshot.cn/docs/pricing/chat",
+      "notes": "public Moonshot model id"
+    }
+  ]
+}

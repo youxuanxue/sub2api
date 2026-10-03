@@ -1741,6 +1741,9 @@ if ! command -v python3 >/dev/null 2>&1; then
 elif ! python3 ./scripts/fingerprint/client_release_watch.py --selftest --quiet; then
     echo "  FAIL: client_release_watch.py self-test failed"
     errors=$((errors + 1))
+elif ! python3 ./ops/pricing/model_release_watch.py --selftest >/dev/null; then
+    echo "  FAIL: model_release_watch.py self-test failed"
+    errors=$((errors + 1))
 elif ! python3 ./scripts/fingerprint/check_client_identity_registry.py --selftest >/dev/null; then
     echo "  FAIL: client identity registry self-test failed"
     errors=$((errors + 1))

@@ -39,6 +39,7 @@ func TestAccountModelMappingForAccount_AntigravityConvergedFloor(t *testing.T) {
 	require.NotContains(t, mapping, "claude-sonnet-4-6")
 	require.NotContains(t, mapping, "gemini-2.5-flash")
 	require.Equal(t, "gemini-3.1-flash-image", mapping["nano-2"])
+	require.Equal(t, "gemini-3.1-flash-image", mapping["nano-banana-2"])
 	require.Empty(t, mapping["nano-pro"])
 	require.Equal(t, "gemini-3.8-flash-high", mapping["gemini-3.8-flash"])
 	require.Equal(t, "gemini-3.8-flash-low", mapping["gemini-3.8-flash-low"])
