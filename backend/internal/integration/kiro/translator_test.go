@@ -163,3 +163,74 @@ func TestClaudeToKiro_ThinkingDisabledOmitsAdditionalModelRequestFields(t *testi
 		t.Fatalf("expected no additionalModelRequestFields, got %+v", payload.AdditionalModelRequestFields)
 	}
 }
+
+func TestClaudeToKiro_HaikuThinkingOmitsAdditionalModelRequestFields(t *testing.T) {
+	// Positive: Haiku + thinking must not emit AMRF (prod 2026-10-04 Kiro 400).
+	for _, model := range []string{
+		"claude-haiku-4-5-20251001",
+		"claude-haiku-4-5",
+		"claude-haiku-4.5",
+	} {
+		req := &ClaudeRequest{
+			Model:     model,
+			MaxTokens: 256,
+			Messages: []ClaudeMessage{
+				{Role: "user", Content: "hi"},
+			},
+			Thinking:     &ClaudeThinkingConfig{Type: "adaptive"},
+			OutputConfig: &ClaudeOutputConfig{Effort: "high"},
+		}
+		payload := ClaudeToKiro(req, true)
+		if payload == nil {
+			t.Fatalf("model %q: ClaudeToKiro returned nil", model)
+		}
+		if payload.AdditionalModelRequestFields != nil {
+			t.Fatalf("model %q: Haiku must omit additionalModelRequestFields, got %+v",
+				model, payload.AdditionalModelRequestFields)
+		}
+		// Soft-thinking prompt path remains available without AMRF.
+		if len(payload.ConversationState.History) == 0 {
+			t.Fatalf("model %q: expected system priming history for thinking prompt", model)
+		}
+	}
+}
+
+func TestClaudeToKiro_NonHaikuThinkingStillEmitsAdditionalModelRequestFields(t *testing.T) {
+	// Negative / regression: Sonnet/Opus thinking must keep AMRF.
+	for _, model := range []string{
+		"claude-sonnet-4-6",
+		"claude-opus-4-6",
+	} {
+		req := &ClaudeRequest{
+			Model:     model,
+			MaxTokens: 256,
+			Messages: []ClaudeMessage{
+				{Role: "user", Content: "hi"},
+			},
+			Thinking: &ClaudeThinkingConfig{Type: "adaptive"},
+		}
+		payload := ClaudeToKiro(req, true)
+		if payload == nil || payload.AdditionalModelRequestFields == nil {
+			t.Fatalf("model %q: expected additionalModelRequestFields for non-Haiku thinking", model)
+		}
+	}
+}
+
+func TestKiroSupportsAdditionalModelRequestFields(t *testing.T) {
+	cases := []struct {
+		model string
+		want  bool
+	}{
+		{"claude-haiku-4.5", false},
+		{"claude-haiku-4-5-20251001", false},
+		{"CLAUDE-HAIKU-4.5", false},
+		{"claude-sonnet-4.6", true},
+		{"claude-opus-4.6", true},
+		{"", true},
+	}
+	for _, tc := range cases {
+		if got := kiroSupportsAdditionalModelRequestFields(tc.model); got != tc.want {
+			t.Fatalf("kiroSupportsAdditionalModelRequestFields(%q)=%v, want %v", tc.model, got, tc.want)
+		}
+	}
+}

@@ -314,7 +314,10 @@ func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 		}
 	}
 
-	if thinking {
+	// Haiku on Kiro/CodeWhisperer rejects additionalModelRequestFields with
+	// HTTP 400 ("... is not supported for this model"). Keep the system-prompt
+	// soft-thinking path, but never emit AMRF for Haiku family IDs.
+	if thinking && kiroSupportsAdditionalModelRequestFields(modelID) {
 		payload.AdditionalModelRequestFields = buildAdditionalModelRequestFields(req)
 	}
 
@@ -322,6 +325,14 @@ func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 	truncatePayloadToLimit(payload, systemPrompt != "")
 
 	return payload
+}
+
+// kiroSupportsAdditionalModelRequestFields reports whether Kiro upstream accepts
+// additionalModelRequestFields for the resolved model ID. Haiku is excluded:
+// prod 2026-10-04 us4/us5/us6 all returned 400 AMRF-not-supported for
+// claude-haiku-4-5-20251001, which prod then wrapped as recovered-200 via tokensea.
+func kiroSupportsAdditionalModelRequestFields(modelID string) bool {
+	return !strings.Contains(strings.ToLower(strings.TrimSpace(modelID)), "haiku")
 }
 
 // buildAdditionalModelRequestFields maps Claude thinking requests onto Kiro

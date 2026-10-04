@@ -129,9 +129,11 @@
     {
       "path": "backend/internal/integration/kiro/translator_test.go",
       "must_contain": [
-        "TestBuildAdditionalModelRequestFields_IgnoresClientDisplayOmitted"
+        "TestBuildAdditionalModelRequestFields_IgnoresClientDisplayOmitted",
+        "TestClaudeToKiro_HaikuThinkingOmitsAdditionalModelRequestFields",
+        "TestClaudeToKiro_NonHaikuThinkingStillEmitsAdditionalModelRequestFields"
       ],
-      "rationale": "Client thinking.display=omitted must not propagate to Kiro upstream wire; prod mirror QA depends on summarized upstream reasoning."
+      "rationale": "Client thinking.display=omitted must not propagate to Kiro upstream wire; prod mirror QA depends on summarized upstream reasoning. Haiku + thinking must omit additionalModelRequestFields (prod 2026-10-04 us4/5/6 400 AMRF-not-supported → tokensea failover) while non-Haiku thinking still emits AMRF."
     },
     {
       "path": "backend/internal/integration/kiro/translator.go",
@@ -141,11 +143,12 @@
         "preserveToolResultFailure(tr, body)",
         "normalizeKiroToolHistory(payload)",
         "buildAdditionalModelRequestFields",
+        "kiroSupportsAdditionalModelRequestFields",
         "display := \"summarized\"",
         "additionalModelRequestFields",
         "func KiroToClaudeResponse"
       ],
-      "rationale": "Translate only client instructions and tools; preserve tool history and failure semantics. No gateway-owned completion prompt or private tool."
+      "rationale": "Translate only client instructions and tools; preserve tool history and failure semantics. No gateway-owned completion prompt or private tool. Haiku must not emit additionalModelRequestFields even when thinking is requested."
     },
     {
       "path": "backend/internal/integration/kiro/tool_result_status_test.go",
