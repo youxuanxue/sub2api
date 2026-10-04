@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "7d335167385a66782308e2e0946c6994d3c04a9823b6fa5f884f043b63501751",
+  "floor_sha256": "7cd206f299835721a72266beab8a28058bde3ddf774dfbbeb9ce708e1545f28b",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -41,6 +41,7 @@
         "gpt-image-2.5-flare": "gpt-image-2.5-flare",
         "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst",
         "nano-2": "gemini-3.1-flash-image",
+        "nano-banana-2": "gemini-3.1-flash-image",
         "nano-banana-pro": "gemini-3-pro-image",
         "nano-pro": "gemini-3-pro-image"
       },
@@ -262,6 +263,7 @@
         "gpt-image-2.5-flare": "gpt-image-2.5-flare",
         "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst",
         "nano-2": "gemini-3.1-flash-image",
+        "nano-banana-2": "gemini-3.1-flash-image",
         "nano-banana-pro": "gemini-3-pro-image",
         "nano-pro": "gemini-3-pro-image"
       }

@@ -909,9 +909,9 @@
       "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
       "must_contain": [
         "append([]string(nil), cursorForbiddenModelMappingPrefixes...),",
-        "nano-banana-2 stays on Antigravity via DefaultAntigravityModelMapping +"
+        "\"nano-banana-2\":"
       ],
-      "rationale": "Export the Cursor serving-family forbidden-prefix policy so account convergence cannot preserve GPT/Gemini/GLM/Kimi as compatible extras. nano-banana-2 must remain Antigravity/Studio/pricing-only and must not re-enter tkImageCompatibilityAliases (TokenSea cannot activate Gemini native image)."
+      "rationale": "Export the Cursor serving-family forbidden-prefix policy so account convergence cannot preserve GPT/Gemini/GLM/Kimi as compatible extras. nano-banana-2 shares tkImageCompatibilityAliases with nano-2 whenever the floor already serves gemini-3.1-flash-image (AG + TokenSea SSOT)."
     },
     {
       "path": "backend/internal/service/account_model_mapping_cursor_tk_test.go",
@@ -933,9 +933,9 @@
         "claude-fable-5-1",
         "require.NotContains(t, override.ModelMapping, \"claude-opus-5-5\")",
         "require.NotContains(t, override.ModelMapping, \"claude-sonnet-5-5\")",
-        "require.NotContains(t, mapping, \"nano-banana-2\")"
+        "require.Equal(t, \"gemini-3.1-flash-image\", mapping[\"nano-banana-2\"])"
       ],
-      "rationale": "The exported immutable Cursor account override must match live Fable mappings and exclude unavailable Opus/Sonnet 5.5. Tokensea image-alias helper must keep nano-banana-2 off TokenSea floors."
+      "rationale": "The exported immutable Cursor account override must match live Fable mappings and exclude unavailable Opus/Sonnet 5.5. Tokensea image-alias helper pins nano-banana-2 onto the same gemini-3.1-flash-image target as nano-2."
     },
     {
       "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
