@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "66aecba251cbd2ff8fdc674a1b547292bb48c4ec23ed064f92152fa47d5e8c6c",
+  "floor_sha256": "7cd206f299835721a72266beab8a28058bde3ddf774dfbbeb9ce708e1545f28b",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -203,7 +203,8 @@
         "claude-opus-5-5": "claude-opus-5-5",
         "claude-sonnet-4-5": "claude-sonnet-4-5",
         "claude-sonnet-4-6": "claude-sonnet-4-6",
-        "claude-sonnet-5": "claude-sonnet-5"
+        "claude-sonnet-5": "claude-sonnet-5",
+        "claude-sonnet-5-5": "claude-sonnet-5-5"
       },
       "openai": {
         "codex-auto-review": "codex-auto-review",
@@ -432,6 +433,7 @@
           "doubao-seed-2.0-lite": "doubao-seed-2.0-lite",
           "doubao-seed-2.0-mini": "doubao-seed-2.0-mini",
           "doubao-seed-2.0-pro": "doubao-seed-2.1-turbo",
+          "doubao-seed-2.1-pro": "doubao-seed-2.1-pro",
           "doubao-seed-2.1-turbo": "doubao-seed-2.1-turbo",
           "doubao-seed-asr-2.0": "doubao-seed-asr-2.0",
           "doubao-seed-evolving": "doubao-seed-evolving",
@@ -572,7 +574,8 @@
       ],
       "anthropic": [
         "claude-opus-5",
-        "claude-opus-5-5"
+        "claude-opus-5-5",
+        "claude-sonnet-5-5"
       ],
       "anthropic_tokensea_relay": [],
       "antigravity": [

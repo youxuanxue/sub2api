@@ -79,6 +79,15 @@ func KiroAdminTestModels() []claude.Model {
 			DisplayName: "Claude Sonnet 5",
 			CreatedAt:   "",
 		},
+		// Sonnet 5.5: gateway ID stays hyphenated (claude-sonnet-5-5); Kiro wire
+		// MapModel rewrites to dotted claude-sonnet-5.5. Upstream 200 on us4
+		// OAuth (edge-us-4) with model_id=claude-sonnet-5.5 on 2026-10-03.
+		{
+			ID:          "claude-sonnet-5-5",
+			Type:        "model",
+			DisplayName: "Claude Sonnet 5.5",
+			CreatedAt:   "",
+		},
 		{
 			ID:          "claude-opus-4-5",
 			Type:        "model",
