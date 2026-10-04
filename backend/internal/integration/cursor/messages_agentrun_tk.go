@@ -14,7 +14,7 @@ import (
 // AgentRun sits at the same gateway level as Messages/Chat/Responses, but it is
 // Cursor's agent harness wire — not a peer public API. TokenKey therefore:
 //
-//   ingress (Messages → AgentRun): buildAgentRun / relayRequestContext / ASK mode
+//   ingress (Messages → AgentRun): buildAgentRun / relayRequestContext / AGENT mode
 //     map only Messages-shaped history, system, and declared tools onto a trimmed
 //     RunAgent request. No workspace agent runtime is advertised.
 //
@@ -22,9 +22,9 @@ import (
 //     text / thinking deltas, terminal usage, and declared-tool McpArgs (or
 //     InteractionUpdate tool_call_started carrying McpToolCall) as tool_use
 //     handoff. RequestContext + history KV stay protocol-internal.
-//     Native shell/read/Pi-* exec frames are answered in-band with
-//     ExecClientThrow + stream_close (Cursor recovers and may continue text);
-//     they are not forwarded to Messages. Interaction queries and non-MCP
+//     Native Read/Write/Shell/Grep (including supported Pi variants) become
+//     declared, schema-validated client tool_use. Unmapped execs receive
+//     ExecClientThrow + stream_close. No tool executes on the gateway. Interaction queries and non-MCP
 //     tool_call_started envelopes are skipped without failing the Messages turn.
 
 // execClientThrowAndClose answers an unserviceable ExecServerMessage in-band so

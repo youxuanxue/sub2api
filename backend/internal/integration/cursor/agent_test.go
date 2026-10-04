@@ -168,18 +168,17 @@ func TestAgentNeverAdvertisesMCPToolCallAllowlist(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestAgentRelayUsesAskModeNotAgentMode(t *testing.T) {
-	// Positive: ConversationState + active UserMessage use ASK. Negative: must not
-	// advertise AGENT (invites native shell/read ExecServerMessage on #150).
+func TestAgentRelayUsesAgentModeWithClientExecution(t *testing.T) {
+	// AGENT enables planning; complete empty context does not expose a workspace.
 	run, _, err := buildAgentRun(AgentRequest{
 		Model:    "composer-2.5",
 		Messages: []AgentMessage{{Role: "user", Text: "hello"}},
 		Tools:    []AgentTool{{Name: "lookup", Schema: map[string]any{"type": "object"}}},
 	})
 	require.NoError(t, err)
-	require.EqualValues(t, agentModeAsk, run.GetConversationState().GetMode())
-	require.NotEqualValues(t, agentModeAgent, run.GetConversationState().GetMode())
-	require.EqualValues(t, agentModeAsk, run.GetAction().GetUserMessageAction().GetUserMessage().GetMode())
+	require.EqualValues(t, agentModeAgent, run.GetConversationState().GetMode())
+	require.NotEqualValues(t, agentModeAsk, run.GetConversationState().GetMode())
+	require.EqualValues(t, agentModeAgent, run.GetAction().GetUserMessageAction().GetUserMessage().GetMode())
 
 	ctx := run.GetAction().GetUserMessageAction().GetRequestContext()
 	require.NotNil(t, ctx)
@@ -189,7 +188,7 @@ func TestAgentRelayUsesAskModeNotAgentMode(t *testing.T) {
 	require.True(t, ctx.GetMcpFileSystemInfoComplete(), "empty FS category must be marked complete")
 	require.Len(t, ctx.GetTools(), 1)
 
-	// History user turns also carry ASK so resumed blobs stay relay-mode.
+	// History user turns also carry AGENT so resumed blobs stay relay-mode.
 	runHist, blobsHist, err := buildAgentRun(AgentRequest{
 		Model: "composer-2.5",
 		Messages: []AgentMessage{
@@ -199,7 +198,7 @@ func TestAgentRelayUsesAskModeNotAgentMode(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.EqualValues(t, agentModeAsk, runHist.GetConversationState().GetMode())
+	require.EqualValues(t, agentModeAgent, runHist.GetConversationState().GetMode())
 	require.NotEmpty(t, runHist.GetConversationState().GetTurns())
 	turnID := runHist.GetConversationState().GetTurns()[0]
 	raw, ok := blobsHist.data[string(turnID)]
@@ -210,7 +209,7 @@ func TestAgentRelayUsesAskModeNotAgentMode(t *testing.T) {
 	require.True(t, ok)
 	var histUser pb.UserMessage
 	require.NoError(t, proto.Unmarshal(userRaw, &histUser))
-	require.EqualValues(t, agentModeAsk, histUser.GetMode())
+	require.EqualValues(t, agentModeAgent, histUser.GetMode())
 }
 
 func TestAgentUsagePresenceOnNativeWire(t *testing.T) {

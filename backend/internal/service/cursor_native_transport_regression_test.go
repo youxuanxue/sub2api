@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -69,7 +70,7 @@ func (u *cursorNativeTestUpstream) Do(req *http.Request, _ string, _ int64, _ in
 func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 	for _, inbound := range []protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses} {
 		for _, stream := range []bool{false, true} {
-			for _, outcome := range []string{"reported", "handoff", "handoff_alias", "native_rejected", "tool_unknown", "resumed", "incomplete", "cyber_early", "cyber_late", "usage_early", "usage_late", "cyber_http", "usage_http", "usage_message_http", "cyber_429_http", "usage_503_http", "transport_canceled"} {
+			for _, outcome := range []string{"reported", "handoff", "handoff_alias", "native_handoff", "native_rejected", "tool_unknown", "resumed", "incomplete", "cyber_early", "cyber_late", "usage_early", "usage_late", "cyber_http", "usage_http", "usage_message_http", "cyber_429_http", "usage_503_http", "transport_canceled"} {
 				t.Run(fmt.Sprintf("%s/stream=%t/%s", inbound, stream, outcome), func(t *testing.T) {
 					const model = "composer-2.5"
 					body := []byte(fmt.Sprintf(`{"model":%q,"stream":%t,"max_tokens":1,"messages":[{"role":"user","content":"lookup"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`, model, stream))
@@ -89,6 +90,10 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 						default:
 							body = []byte(strings.Replace(string(body), `"input":"lookup"`, `"input":[{"role":"user","content":"lookup"},{"type":"function_call","call_id":"call_native","name":"lookup","arguments":"{\"key\":\"demo\"}"},{"type":"function_call_output","call_id":"call_native","output":"NATIVE_NONCE_739281"}]`, 1))
 						}
+					}
+					if outcome == "native_handoff" {
+						body = bytes.ReplaceAll(body, []byte(`"lookup"`), []byte(`"Read"`))
+						body = bytes.ReplaceAll(body, []byte(`{"type":"object"}`), []byte(`{"type":"object","properties":{"file_path":{"type":"string"}},"required":["file_path"]}`))
 					}
 					const publicModel = "public-model"
 					body = bytes.Replace(body, []byte(`"model":"composer-2.5"`), []byte(`"model":"public-model"`), 1)
@@ -113,10 +118,12 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 					}
 					if outcome == "native_rejected" {
 						exec := &pb.ExecServerMessage{Id: 9}
-						exec.ProtoReflect().SetUnknown(protowire.AppendBytes(protowire.AppendTag(nil, 2, protowire.BytesType), []byte("opaque")))
+						exec.ProtoReflect().SetUnknown(protowire.AppendBytes(protowire.AppendTag(nil, 2, protowire.BytesType), nil))
 						frame(&pb.AgentServerMessage{ExecServerMessage: exec})
 					}
-					if outcome == "handoff_alias" {
+					if outcome == "native_handoff" {
+						frame(&pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{Id: 12, ReadArgs: &pb.ReadArgs{Path: "/client/fixture.txt", ToolCallId: "call_native"}}})
+					} else if outcome == "handoff_alias" {
 						frame(&pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{McpArgs: &pb.McpArgs{Name: "mcp_tokenkey_lookup", ToolName: "lookup", ToolCallId: "call_native"}}})
 					} else if outcome == "handoff" {
 						frame(&pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{McpArgs: &pb.McpArgs{Name: "mcp__tokenkey__lookup", ToolCallId: "call_native"}}})
@@ -127,7 +134,7 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 						frame(&pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{McpArgs: &pb.McpArgs{Name: "mcp__tokenkey__not_declared", ToolCallId: "call_native"}}})
 					}
 					usage := &pb.TurnEndedUpdate{}
-					if outcome == "reported" || outcome == "resumed" || outcome == "native_rejected" || outcome == "tool_unknown" {
+					if outcome == "reported" || outcome == "resumed" || outcome == "native_rejected" || outcome == "tool_unknown" || outcome == "native_handoff" {
 						usage = &pb.TurnEndedUpdate{InputTokens: proto.Int64(20), OutputTokens: proto.Int64(3), CacheReadTokens: proto.Int64(7), CacheWriteTokens: proto.Int64(2)}
 					}
 					if strings.HasPrefix(outcome, "cyber_") || strings.HasPrefix(outcome, "usage_") {
@@ -159,6 +166,7 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 					svc.httpUpstream = upstream
 					recorder := httptest.NewRecorder()
 					c, _ := gin.CreateTestContext(recorder)
+					ctx = WithCandidateIdentity(ctx, 16, 23)
 					c.Request = httptest.NewRequest(http.MethodPost, protocolRouteContractInboundPath(inbound), bytes.NewReader(body)).WithContext(ctx)
 					var result *OpenAIForwardResult
 					_, err = ExecuteSelectedProtocol(ctx, router, &AccountSelectionResult{Account: account, ProtocolPlan: &plan}, account,
@@ -246,7 +254,11 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 					}
 					require.NoError(t, err)
 					require.Equal(t, model, upstream.run.GetRequestedModel().GetModelId())
-					require.Equal(t, "mcp__tokenkey__lookup", upstream.run.GetMcpTools().GetMcpTools()[0].GetName())
+					toolName := "lookup"
+					if outcome == "native_handoff" {
+						toolName = "Read"
+					}
+					require.Equal(t, "mcp__tokenkey__"+toolName, upstream.run.GetMcpTools().GetMcpTools()[0].GetName())
 					if outcome == "resumed" {
 						require.NotNil(t, upstream.run.GetAction().GetResumeAction())
 						blobs := make(map[string][]byte)
@@ -269,10 +281,45 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 						require.Equal(t, 7, result.Usage.CacheReadInputTokens)
 						require.Equal(t, 3, result.Usage.OutputTokens, "unsupported output limits do not truncate or cap settlement")
 						require.Contains(t, recorder.Body.String(), "NATIVE_OK")
+					} else if outcome == "native_handoff" {
+						require.Equal(t, cursor.DeferredBillingTier, result.BillingTier)
+						require.Zero(t, result.Usage.InputTokens)
+						require.Zero(t, result.Usage.OutputTokens)
+						id := regexp.MustCompile(`toolu_gw_[a-f0-9]+`).FindString(recorder.Body.String())
+						require.NotEmpty(t, id)
+						resume := []byte(fmt.Sprintf(`{"model":%q,"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}},"required":["file_path"]}}],"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":%q,"content":"client bytes"}]}]}`, model, id))
+
+						other := cursorCandidateAccount(model)
+						other.ID = account.ID + 100
+						other.Priority = -100
+						other.Credentials["model_mapping"] = map[string]any{publicModel: model}
+						resolver, _, _ := globalCandidateFixture([]Group{grp(1, PlatformNewAPI, 1, false)}, []Account{*account, *other})
+						group := grp(1, PlatformNewAPI, 1, false)
+						key := &APIKey{ID: 23, UserID: 16, User: &User{ID: 16, Balance: 100}, GroupID: &group.ID, Group: &group}
+						candidateBody := bytes.Replace(resume, []byte(`"model":"composer-2.5"`), []byte(`"model":"public-model"`), 1)
+						_, selected, selectErr := resolver.PrepareCandidateRequest(t.Context(), key, ShapeAnthropicMessages, "/v1/messages", publicModel, candidateBody, "", "")
+						require.NoError(t, selectErr)
+						require.Equal(t, account.ID, selected.current.account.ID, "continuation must precede normal priority selection")
+						req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(resume)).WithContext(ctx)
+						response, resumeErr := executeCursorMessages(req, account, upstream)
+						require.NoError(t, resumeErr)
+						raw, resumeErr := io.ReadAll(response.Body)
+						require.NoError(t, resumeErr)
+						require.NoError(t, response.Body.Close())
+						require.Equal(t, 200, response.StatusCode, string(raw))
+						require.Contains(t, string(raw), `"input_tokens":11`)
+						require.Equal(t, 1, upstream.calls)
+
 					} else {
 						require.Equal(t, cursor.EstimatedBillingTier, result.BillingTier)
 						require.Positive(t, result.Usage.OutputTokens)
-						require.Contains(t, recorder.Body.String(), "call_native")
+						if outcome == "native_handoff" {
+							require.Contains(t, recorder.Body.String(), "toolu_")
+							require.Contains(t, recorder.Body.String(), "Read")
+							require.Contains(t, recorder.Body.String(), "/client/fixture.txt")
+						} else {
+							require.Contains(t, recorder.Body.String(), "call_native")
+						}
 					}
 				})
 			}

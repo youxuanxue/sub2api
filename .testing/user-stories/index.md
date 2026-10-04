@@ -64,3 +64,5 @@
 | US-058 | Studio 与 Quickstart 生图请求一致性 | Done | `.testing/user-stories/stories/US-058-image-generation-contract.md` |
 
 | US-059 | Antigravity OpenAI Images 协议适配 | InTest | `.testing/user-stories/stories/US-059-antigravity-images-generations.md` |
+
+| US-060 | Cursor Agent client-only tool execution | InTest | `.testing/user-stories/stories/US-060-cursor-client-only-tools.md` |

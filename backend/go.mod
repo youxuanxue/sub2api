@@ -223,6 +223,7 @@ require (
 	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
 	github.com/samber/go-singleflightx v0.3.2 // indirect
 	github.com/samber/hot v0.11.0 // indirect
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/smartwalle/ncrypto v1.0.4 // indirect

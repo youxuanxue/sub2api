@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
+	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -206,6 +207,15 @@ func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, 
 		}
 		state.continuationAccountID = owner
 	}
+	if owner, err := cursor.ContinuationAccount(key.UserID, key.ID, body); err != nil {
+		return ctx, nil, cursor.ErrContinuationUnavailable
+	} else if owner > 0 {
+		if state.continuationAccountID > 0 && state.continuationAccountID != owner {
+			return ctx, nil, ErrCandidateContinuationUnavailable
+		}
+		state.continuationAccountID = owner
+	}
+
 	_, err := state.selectAccount(ctx, candidateSelectOptions{})
 	if err != nil {
 		return ctx, nil, err

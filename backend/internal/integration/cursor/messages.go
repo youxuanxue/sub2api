@@ -74,6 +74,11 @@ func parseMessages(body []byte, parameters []Parameter, wireModel string) (Agent
 		return input, false, err
 	}
 	input.WireModel, input.Parameters = wireModel, parameters
+	// A retained exec resumes its existing conversation. Rebuilding a second
+	// history here is unnecessary and rejects valid result-only continuations.
+	if _, resume, resumeErr := nativeResultToResume(input); resume {
+		return input, stream, resumeErr
+	}
 	if _, _, err := buildAgentRun(input); err != nil {
 		return input, false, err
 	}
@@ -209,6 +214,12 @@ func (e *messagesPublicCause) Error() string {
 // neither buffered responses nor SSE error events expose supplier names,
 // protocol names, request IDs, or raw messages.
 func messagesPublicError(err error) (code, message string) {
+	if errors.Is(err, ErrContinuationUnavailable) {
+		return "tool_continuation_unavailable", "Tool continuation is unavailable or not authorized."
+	}
+	if errors.Is(err, errRunCapacity) {
+		return "gateway_capacity_exceeded", "Tool continuation capacity is temporarily unavailable."
+	}
 	if err == nil {
 		return "", ""
 	}
@@ -245,7 +256,8 @@ func messagesPublicError(err error) (code, message string) {
 }
 
 // MessagesBody owns one request's output pipe and settlement evidence. Closing
-// it cancels the native call and joins the producer; it never parks a run.
+// it cancels this response producer. A delivered native handoff is owned by
+// nativeRuns until its authenticated continuation, expiry or cancellation.
 type MessagesBody struct {
 	io.ReadCloser
 	cancel context.CancelFunc
@@ -269,6 +281,8 @@ func (b *MessagesBody) Outcome() (string, error) {
 func messageUsage(u AgentUsage, tier string) map[string]any {
 	usage := map[string]any{"input_tokens": u.Input, "output_tokens": u.Output, "cache_read_input_tokens": u.CacheRead, "cache_creation_input_tokens": u.CacheWrite}
 	switch tier {
+	case DeferredBillingTier:
+		usage["tk_billing_tier"] = DeferredBillingTier
 	case ReportedBillingTier:
 		usage["tk_billing_tier"] = WireReportedBillingTier
 	case EstimatedBillingTier:
@@ -339,6 +353,13 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 		logger.FromContext(ctx).Warn("cursor_messages_invalid_request", zap.String("diagnostic", agentBoundedErrorText(err.Error(), token)))
 		return messagesError(http.StatusBadRequest, "Invalid request.", publicInvalidRequestCode), nil
 	}
+	if ids := PendingToolIDs(body); len(ids) > 0 {
+		_, resume, resumeErr := nativeResultToResume(input)
+		if !resume || resumeErr != nil || len(ids) != 1 {
+			return messagesError(http.StatusBadRequest, "Tool continuation is unavailable or not authorized.", "tool_continuation_unavailable"), nil
+		}
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	reader, writer := io.Pipe()
 	output := &MessagesBody{ReadCloser: reader, cancel: cancel, done: make(chan struct{})}
@@ -419,9 +440,15 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 			}
 			return event("content_block_delta", map[string]any{"index": index, "delta": map[string]any{"type": "text_delta", "text": delta.Text}})
 		}
-		result, runErr := RunAgent(ctx, token, input, do, emit)
+		result, retained, runErr := nativeRuns.segment(ctx, token, input, do, emit)
+		delivered := false
+		defer func() {
+			if retained != nil && result.ToolHandoff && !delivered {
+				nativeRuns.abort(retained)
+			}
+		}()
 		retryKind := classifyCursorContinuationRetry(runErr)
-		if !started && retryKind != cursorContinuationRetryNone {
+		if retained == nil && !hasNativeClientTools(input) && !started && retryKind != cursorContinuationRetryNone {
 			var original *AgentRejection
 			_ = errors.As(runErr, &original)
 			logger.FromContext(ctx).Warn("cursor_messages_continuation_retry",
@@ -445,6 +472,9 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 			result, runErr = retryResult, retryErr
 		}
 		tier := ReportedBillingTier
+		if retained != nil && result.ToolHandoff {
+			tier = DeferredBillingTier
+		}
 		if runErr == nil && result.Usage == nil && result.ToolHandoff {
 			u := EstimateHandoffUsage(input, result)
 			result.Usage, tier = &u, EstimatedBillingTier
@@ -487,6 +517,12 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 					return
 				}
 				status := http.StatusBadGateway
+				if errors.Is(runErr, ErrContinuationUnavailable) {
+					status = http.StatusBadRequest
+				}
+				if errors.Is(runErr, errRunCapacity) {
+					status = http.StatusTooManyRequests
+				}
 				var upstream *Error
 				if errors.As(runErr, &upstream) {
 					status = upstream.Status
@@ -506,7 +542,7 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 		}
 		if !stream {
 			ready <- responseResult{response: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}, "X-Request-Id": {id}}, Body: output}}
-			_ = json.NewEncoder(writer).Encode(map[string]any{"id": id, "type": "message", "role": "assistant", "model": input.Model, "content": messageContent(result), "stop_reason": stop, "stop_sequence": nil, "usage": messageUsage(*result.Usage, tier)})
+			delivered = json.NewEncoder(writer).Encode(map[string]any{"id": id, "type": "message", "role": "assistant", "model": input.Model, "content": messageContent(result), "stop_reason": stop, "stop_sequence": nil, "usage": messageUsage(*result.Usage, tier)}) == nil
 			return
 		}
 		if err := start(); err != nil {
@@ -518,7 +554,7 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 		if err := event("message_delta", map[string]any{"delta": map[string]any{"stop_reason": stop, "stop_sequence": nil}, "usage": messageUsage(*result.Usage, tier)}); err != nil {
 			return
 		}
-		_ = event("message_stop", map[string]any{})
+		delivered = event("message_stop", map[string]any{}) == nil
 	}()
 	select {
 	case response := <-ready:

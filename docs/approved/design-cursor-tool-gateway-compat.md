@@ -1,7 +1,7 @@
 ---
 title: Provider-neutral Cursor tool gateway compatibility
 status: approved
-approved_by: "feng (conversation approval, 2026-10-01)"
+approved_by: "feng (conversation approval, 2026-10-01; Agent/client-only bridge and revised continuation design approved 2026-10-04)"
 created: 2026-10-01
 ---
 
@@ -18,21 +18,106 @@ identity.
 
 | Upstream frame | Gateway behavior |
 | --- | --- |
-| Native shell/read/grep/write/agent exec | `ExecClientThrow + StreamClose`, public capability error, continue the stream |
-| Declared MCP/function tool | Normalize identity, emit standard tool handoff, cancel the native turn, replay result on the next request |
+| Native Read/Write/Shell/Grep, supported Pi equivalents | Match a declared Read/Write/Bash/Grep tool, validate translated arguments against its schema, emit standard client handoff |
+| Undeclared, incompatible or other native exec | `ExecClientThrow + StreamClose`, public capability error, continue the stream |
+| Declared MCP/function tool | Normalize identity and emit standard tool handoff; MCP-only runs retain history replay, native-capable runs return results on the original connection |
 | Unknown MCP tool | Return a bounded provider-neutral protocol error; never execute or silently pass through |
 | Text/thinking/usage | Convert through the existing Messages/Chat/Responses owners |
 
-Native exec rejection is a frame-level response, not an HTTP request failure.
+Unbridgeable native exec rejection is a frame-level response, not an HTTP request failure.
 The server must continue reading the stream so the model can answer without the
 workspace tool. If the model cannot proceed, the resulting limitation is
 reported as an ordinary capability error.
 
+## Agent mode and client execution boundary
+
+AGENT is used in current and history turns. Mode controls upstream planning;
+it does not authorize any gateway filesystem/process execution. The only native
+bridge owner is `native_client_tools_tk.go`. Exact caller declarations and full
+JSON Schema validation are required; schema references cannot trigger network
+or file reads. Missing tools, `tool_choice=none`, incompatible parameters,
+binary writes and background shell ownership fail closed. Upstream approval or
+sandbox hints never grant client permission. Shell working directories are
+quoted into the client's command parameter; that command is never run here.
+A foreground Shell's background-on-timeout preference is normalized to a bounded
+client foreground call (at most two minutes, within the client-wait TTL);
+explicit background execution remains unavailable.
+
+The approved native lifecycle is: `generating → client tool_use → wait for
+client tool_result → return native result to the waiting upstream → generating`.
+No model-requested tool may execute on the gateway. Continuation ownership,
+expiry, cancellation and result correlation must remain bounded and isolated
+between authenticated callers. Existing declared MCP handoff can continue to
+use its current history replay path.
+
+Implementation status (2026-10-04): retained upstream continuation is implemented.
+The earlier cancel/history replay prototype could not advance Write's internal
+Read phase; keeping the original duplex now allows missing-file Read → client
+Write → final completion. Isolated prod-host buffered probes passed Read,
+Write and Bash. Grep was rejected by upstream policy before any tool emission;
+it remains locally verified only. Streaming Read/Write/Bash also passed on the prod host at 05:22 UTC, including
+a 30-second foreground Bash handoff. The tool target file remained absent.
+Evidence: `.cache/observability/cursor150-retained-20261004/report.md`.
+
+## Revised continuation contract (2026-10-04)
+
+The approved review corrections replace native cancel/history replay with one
+bounded run that owns its upstream connection. Each HTTP response consumes one
+segment, ending at a client tool call or terminal usage. Closing a successfully
+delivered handoff response does not cancel that run. A disconnected response,
+expired wait, exhausted run budget or invalid continuation closes it. No local
+executor, filesystem fallback, prompt/XML tool parser or public session API is
+introduced. Previously working MCP-only replay remains supported.
+
+An opaque, random tool ID identifies a pending operation, not an authorization
+token. The owner is authenticated user + API key + account + resolved model;
+the next request must also preserve the system and tool declarations. Full
+history, when supplied, must match a rolling digest of the retained conversation;
+result-only continuation is accepted without replaying a second conversation. Candidate
+selection resolves pending ownership before ordinary scheduling and still applies
+existing authorization and Plan gates. A live socket belongs to one process:
+the current single-active-process account host resumes locally. A request on a
+different process, after restart or after expiry fails closed with a neutral
+continuation error; it must never silently start another run or fail over. This
+version does not claim transparent socket migration or multi-replica recovery.
+Results are consumed once; duplicates never replay an operation or settlement.
+Pending runs have per-owner, per-account and global limits, a client-wait TTL,
+and an absolute lifetime. IDs reveal neither supplier nor account identity.
+
+Result adapters preserve missing-file, rejection and execution-error semantics.
+Known line-numbered Read output is decoded; ambiguous/truncated output cannot be
+used as complete file contents for an internal edit. Native Read/Write results
+are sent with the original exec IDs. Shell results preserve available status;
+unavailable process metadata is not inferred from arbitrary prose. Grep output
+is accepted only when its structured native representation can be reconstructed.
+Client results are never supplemented by reading gateway files or running tools.
+
+A retained run's intermediate tool segments report zero settled usage with the
+provider-neutral `model-deferred` marker; both shared cost owners settle zero
+(including per-request pricing), preserving normal usage records and hold release. Its final
+reported usage is settled once through existing request billing. Abandoned or
+failed runs remain unbilled, matching the existing failed-turn contract; no
+estimate is charged and then charged again as cumulative reported usage. Pending
+limits bound the extra exposure. This does not alter MCP-only replay settlement.
+
+Acceptance includes Read, missing-file create, existing-file edit, Bash/Grep,
+buffered/SSE protocol handoff, client refusal, duplicate results, expiry,
+disconnect, process loss, tenant isolation and single settlement. All supplier
+probes run on account 150's prod host; deployment and scheduling remain separate.
+
+This design borrows the native-to-client handoff concept from
+[raine v0.0.22](https://github.com/raine/claude-code-proxy/blob/88248df5739b7b3dcaa63a713227f1aeb2d205a8/src/providers/cursor/tool-bridge.ts),
+without its local executors, Read re-read, or XML extraction.
+Protobuf argument definitions follow the pinned oh-my-pi source recorded in
+`agentpb/VENDORED_FROM.md`.
+
 ## Tool identity
 
 The converter matches only against tools declared by the caller. It accepts the
-wire `name`, `tool_name`, the logical name, and the known `mcp__tokenkey__` and
-`mcp_tokenkey_` prefixes. Ambiguous or undeclared names fail closed. Tool call
+wire `name`, `tool_name`, the logical name, and the known `mcp__tokenkey__`,
+`mcp_tokenkey_`, and `tokenkey-` prefixes. The last spelling was observed in a
+prod-host probe of account 150 with `claude-fable-5-1` on 2026-10-04.
+Ambiguous or undeclared names fail closed. Tool call
 IDs are normalized by the existing history ID owner.
 
 ## Public errors
@@ -48,7 +133,8 @@ Native HTTP statuses and the shared policy/failover owners are unchanged.
 Model fields retain the caller's public model name through the existing response
 rewrite owner. Generated prose and caller-provided tool payloads are not rewritten.
 
-Billing provenance on the wire uses `model-reported` / `model-estimated`.
+Billing provenance on the wire uses `model-reported` / `model-estimated`,
+plus `model-deferred` for retained intermediate tool segments.
 The billing owner accepts both these labels and legacy `cursor-oauth-*` labels,
 and persists the existing private labels. Rollout must upgrade the receiving
 prod gateway before sending edges; rollback edges before the receiving gateway
@@ -68,20 +154,30 @@ so old receivers do not lose provenance from new labels.
 
 | Risk / acceptance | Executable coverage |
 | --- | --- |
-| Native workspace exec stays opaque; ASK mode and no native allowlist; actual throw/close replies unblock text and usage | `TestAgentRunOutsideExecThrowsAndContinuesText` |
+| Unbridgeable workspace exec is rejected in AGENT mode; actual throw/close replies unblock text and usage | `TestAgentRunOutsideExecThrowsAndContinuesText` |
+| Native tools map exact parameters, never touch gateway files or execute shell; fresh client results and errors reach the original exec | `TestNativeClientToolArguments`, `TestNativeClientToolsFailClosed`, `TestNativeToolsRetainedRoundTrip`, `TestCursorAdapterCannotImportLocalExecutors` |
 | Declared name, tool_name and known aliases hand off; error tool_result history resumes | `TestMessagesToolAliasesHandoffAndReplay` and `TestCursorProtocolRoutesUseNativeTransportAndSettlement` |
 | Unknown, ambiguous, conflicting and foreign-provider identities fail closed | `TestNormalizeDeclaredTool` and `TestMessagesToolProtocolErrorsAreNeutral` |
 | JSON/SSE errors and public model/usage metadata remain supplier-neutral; failed turns do not settle | `TestMessagesPublicErrorMapping` and `TestCursorProtocolRoutesUseNativeTransportAndSettlement` |
+| Owner/key/schema/history isolation, duplicate consumption, capacity, expiry and disconnect | `TestNativeRunIsolationExpiryAndCancellation`, `TestPendingToolIDsOnlyLatestResultTurn` |
+| Read wrappers, missing/empty file, structured results and client rejection | `TestNativeClientResultSemantics` |
+| Zero intermediate cost including per-request pricing; final settlement remains normal | `TestCursorDeferredSegmentsSettleZeroBeforeTerminalUsage` |
 | Cancellation/timeout identity, partial output, policy and transport regressions | Existing Cursor transport, timeout and buffered failure tests |
 | Legacy and neutral wire provenance retain the same durable billing tier | `TestCursorRelayConversionsRetainBillingProvenance` |
 
 Commands (from `backend/`):
 
 ```sh
-go test ./internal/integration/cursor
+go test -race ./internal/integration/cursor
 go test -tags=unit ./internal/service -run 'TestCursor|TestOpenAI.*Transport|TestMappedResponseModel' -count=1
 ```
 
-This change has no UI artifact (`no-web-impact`); verification uses native
-duplex fixtures and service protocol integration tests, not UI e2e or live
-supplier probes. Production behavior remains unverified until rollout.
+This change has no UI artifact (`no-web-impact`). Local verification uses native
+duplex fixtures and service protocol integration tests. Isolated prod-host probes
+exercise real supplier connections with simulated client tool results; they are
+not UI e2e or a replay of user 16's production traffic. Production remains on
+its existing image and account 150 remains unschedulable until a separate rollout.
+Client permission denials, unsupported tool schemas, upstream policy refusals and
+expired/process-lost continuations remain explicit failure boundaries. Model
+prose is not filtered, so supplier-neutral protocol metadata does not guarantee
+that arbitrary generated text never names a supplier or recommends a mode.

@@ -72,14 +72,14 @@ func TestAgentRunOutsideExecThrowsAndContinuesText(t *testing.T) {
 						if err != nil {
 							return err
 						}
-						if run.GetRunRequest().GetConversationState().GetMode() != agentModeAsk {
-							return fmt.Errorf("gateway advertised an execution mode")
+						if run.GetRunRequest().GetConversationState().GetMode() != agentModeAgent {
+							return fmt.Errorf("gateway did not advertise Agent mode")
 						}
 						if req.Header.Get("X-Cursor-Agent-Allowed-Tools") != "" {
 							return fmt.Errorf("native tool allowlist advertised")
 						}
 						exec := &pb.ExecServerMessage{Id: 9, ExecId: "native-exec"}
-						exec.ProtoReflect().SetUnknown(protowire.AppendBytes(protowire.AppendTag(nil, field, protowire.BytesType), []byte("opaque workspace arguments")))
+						exec.ProtoReflect().SetUnknown(protowire.AppendBytes(protowire.AppendTag(nil, field, protowire.BytesType), nil))
 						if err := writeAgentFrame(writer, &pb.AgentServerMessage{ExecServerMessage: exec}); err != nil {
 							return err
 						}

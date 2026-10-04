@@ -21,8 +21,8 @@ import (
 
 func TestNormalizeDeclaredTool(t *testing.T) {
 	declared := []AgentTool{{Name: "lookup"}, {Name: "other"}}
-	for _, model := range []string{"composer-2.5", "claude-sonnet-4.6"} {
-		for _, alias := range []string{"lookup", "mcp__tokenkey__lookup", "mcp_tokenkey_lookup"} {
+	for _, model := range []string{"composer-2.5", "claude-sonnet-4.6", "claude-fable-5-1"} {
+		for _, alias := range []string{"lookup", "mcp__tokenkey__lookup", "mcp_tokenkey_lookup", "tokenkey-lookup"} {
 			for _, args := range []*pb.McpArgs{{Name: alias}, {ToolName: alias}, {Name: alias, ToolName: "lookup", ProviderIdentifier: "tokenkey"}} {
 				name, ok := normalizeDeclaredTool(args, model, declared)
 				require.True(t, ok, "%v", args)
@@ -35,12 +35,16 @@ func TestNormalizeDeclaredTool(t *testing.T) {
 		{Name: "lookup", ToolName: "other"}, {Name: "unknown", ToolName: "lookup"},
 		{Name: "lookup", ToolName: "unknown"}, {Name: "lookup", ProviderIdentifier: "foreign"},
 		{Name: "Lookup"}, {Name: " lookup"}, {Name: "mcp__tokenkey__mcp__tokenkey__lookup"},
+		{Name: "tokenkey-unknown", ToolName: "lookup", ProviderIdentifier: "tokenkey"},
+		{Name: "tokenkey-lookup", ToolName: "other", ProviderIdentifier: "tokenkey"},
+		{Name: "tokenkey-lookup", ProviderIdentifier: "foreign"},
+		{Name: "foreign-lookup", ToolName: "lookup"}, {Name: "tokenkey-tokenkey-lookup"},
 	} {
 		name, ok := normalizeDeclaredTool(args, "composer-2.5", declared)
 		require.False(t, ok, "%v", args)
 		require.Empty(t, name)
 	}
-	for _, alias := range []string{"mcp__tokenkey__lookup", "mcp_tokenkey_lookup"} {
+	for _, alias := range []string{"mcp__tokenkey__lookup", "mcp_tokenkey_lookup", "tokenkey-lookup"} {
 		collision := append(append([]AgentTool{}, declared...), AgentTool{Name: alias})
 		name, ok := normalizeDeclaredTool(&pb.McpArgs{Name: alias, ToolName: "lookup"}, "composer-2.5", collision)
 		require.False(t, ok)
@@ -54,7 +58,7 @@ func TestNormalizeDeclaredTool(t *testing.T) {
 func TestMessagesToolAliasesHandoffAndReplay(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		for _, interaction := range []bool{false, true} {
-			for _, args := range []*pb.McpArgs{{Name: "lookup"}, {Name: "mcp_tokenkey_lookup"}, {ToolName: "lookup"}} {
+			for _, args := range []*pb.McpArgs{{Name: "lookup"}, {Name: "mcp_tokenkey_lookup"}, {ToolName: "lookup"}, {Name: "tokenkey-lookup", ToolName: "lookup", ProviderIdentifier: "tokenkey"}} {
 				t.Run(fmt.Sprintf("stream=%t/interaction=%t/%s%s", stream, interaction, args.Name, args.ToolName), func(t *testing.T) {
 					args.ToolCallId = "call_fixture"
 					frame := &pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{McpArgs: args}}
@@ -70,6 +74,7 @@ func TestMessagesToolAliasesHandoffAndReplay(t *testing.T) {
 					require.Contains(t, string(raw), `"name":"lookup"`)
 					require.Contains(t, string(raw), `"stop_reason":"tool_use"`)
 					require.NotContains(t, string(raw), "mcp_tokenkey_")
+					require.NotContains(t, string(raw), "tokenkey-lookup")
 					// Replay uses the canonical client name, never the upstream alias.
 					replay := []byte(`{"model":"composer-2.5","messages":[{"role":"user","content":"lookup"},{"role":"assistant","content":[{"type":"tool_use","id":"call_fixture","name":"lookup","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_fixture","content":"result","is_error":true}]}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`)
 					input, _, err := parseMessages(replay, nil, "composer-2.5")

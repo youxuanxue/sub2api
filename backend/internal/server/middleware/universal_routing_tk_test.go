@@ -19,6 +19,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
+	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -428,6 +429,7 @@ func TestMaybeResolveUniversal_ContinuationUnavailableIs400(t *testing.T) {
 		status int
 	}{
 		{"missing_owner", service.ErrCandidateContinuationUnavailable, http.StatusBadRequest},
+		{"native_tool_owner", cursor.ErrContinuationUnavailable, http.StatusBadRequest},
 		{"wrapped_owner", fmt.Errorf("lookup: %w", service.ErrCandidateContinuationUnavailable), http.StatusBadRequest},
 		{"redis_failure", errors.New("redis unavailable"), http.StatusInternalServerError},
 	} {
@@ -443,7 +445,9 @@ func TestMaybeResolveUniversal_ContinuationUnavailableIs400(t *testing.T) {
 			require.Equal(t, tc.status, recorder.Code)
 			require.True(t, c.IsAborted())
 			require.Nil(t, key.GroupID)
-			if tc.status == 400 {
+			if tc.name == "native_tool_owner" {
+				require.Contains(t, recorder.Body.String(), "tool_continuation_unavailable")
+			} else if tc.status == 400 {
 				require.Contains(t, recorder.Body.String(), "previous_response_id is not available for this user")
 			}
 			restored, err := io.ReadAll(c.Request.Body)
