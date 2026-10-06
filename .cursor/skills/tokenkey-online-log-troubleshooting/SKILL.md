@@ -43,4 +43,4 @@ bash ops/observability/run-probe.sh --target prod \
 
 ## 10) 交接给修复流程
 
-配置先形成 plan，再走对应专用 skill 的写入门禁；代码走正常研发/preflight；部署走 Stage0 发布 skill。已坐实非真实上游限流且获得止血授权时，可用 `ops/observability/remediate-schedulable-pool.sh`（经 run-probe 投递）：`MODE=edge-oauth-pool` 恢复 OAuth 池并补 group，`MODE=prod-mirror-cooldown` 清镜像陈旧冷却；必须核对 before/after，不能掩盖上游限流。
+配置先形成 plan，再走对应专用 skill 的写入门禁；代码走正常研发/preflight；部署走 Stage0 发布 skill。已坐实非真实上游限流且获得止血授权时，可用 `ops/observability/remediate-schedulable-pool.sh`（经 run-probe 投递）：`MODE=edge-oauth-pool` 恢复 OAuth 池并补 group，`MODE=prod-mirror-cooldown` 清镜像陈旧冷却；必须核对 before/after，不能掩盖上游限流。OpenAI OAuth 图文共用账号槽：`remediate-openai-oauth-concurrency.sh`（`APPLY=yes-openai-oauth-concurrency`，默认 concurrency=25）；关掉进程级生图闸：`remediate-disable-image-concurrency.sh`（`APPLY=yes-disable-image-concurrency`，会 recreate 活动色容器）。

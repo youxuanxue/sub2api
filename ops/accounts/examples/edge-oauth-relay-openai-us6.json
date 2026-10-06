@@ -8,7 +8,7 @@
     "import_profile": "codex_session",
     "name": "openai-us6-oauth-example",
     "group_ids": [1],
-    "concurrency": 1,
+    "concurrency": 25,
     "priority": 50,
     "accessToken": "REPLACE_ME",
     "refresh_token": "REPLACE_ME",

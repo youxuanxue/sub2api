@@ -123,6 +123,7 @@
     "edge-health watch workflow contract": "observability",
     "edge disk/memory host-alert selftest": "deploy",
     "edge disk remediation script contract": "deploy",
+    "disable image concurrency remediate contract": "observability",
     "env secret backup fail-closed contract": "deploy",
     "QA single-owner SSM operator contract": "qa",
     "Feishu release notes collection": "deploy",
