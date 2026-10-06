@@ -155,7 +155,12 @@ func (s *RateLimitService) tkDispatchHandleUpstreamError(
 		)
 		shouldDisable = s.handle403(ctx, account, upstreamMsg, responseBody)
 	case 404:
-		if customErrorCodesEnabled && account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {
+		// TypeSafe System One uses 404 for remaining_attempts exhaustion.
+		// Do not widen this to every non-Anthropic API-key account that
+		// happens to list 404 in custom_error_codes — that would SetError
+		// NewAPI/OpenAI/Kimi opaque 404s that previously only model-cooled
+		// or no-op'd via handle404.
+		if customErrorCodesEnabled && account.ShouldHandleErrorCode(statusCode) && account.Platform == PlatformTypeSafe {
 			msg := "Custom error code triggered"
 			if upstreamMsg != "" {
 				msg = upstreamMsg
