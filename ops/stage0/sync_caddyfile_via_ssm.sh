@@ -23,8 +23,10 @@
 #          boot UserData persists both there).
 #        - MAIN_GATEWAY_ALLOWED_CIDR (edge only): NOT in .env — boot UserData
 #          holds it only transiently. Recovered from the live Caddyfile's
-#          `remote_ip` line so the relay allowlist is preserved verbatim. For
-#          prod the template has no such token, so the var stays empty/no-op.
+#          `remote_ip` line so the relay allowlist is preserved verbatim, unless
+#          MAIN_GATEWAY_ALLOWED_CIDR is set on this invocation (console-adopted
+#          hosts may currently have 0.0.0.0/0). For prod the template has no
+#          such token, so the var stays empty/no-op.
 #      For prod hosts already migrated to blue/green, rewrite the rendered
 #      canonical prod upstream from tokenkey:8080 to tokenkey-${active}:8080 so
 #      directive hot-sync never disables the active color.
@@ -61,6 +63,11 @@
 #   EDGE_ID                           Lightsail Hybrid edge id; when set and
 #                                     instance_id is mi-*, targets by tag like
 #                                     deploy_via_ssm.sh.
+#   MAIN_GATEWAY_ALLOWED_CIDR         edge-only optional override for Caddy
+#                                     remote_ip (e.g. 34.194.234.88/32). When
+#                                     unset, the live Caddyfile value is reused.
+#   ACME_EMAIL                        optional override when host .env has an
+#                                     empty ACME_EMAIL= (console-adopted edges).
 #   STAGE0_SSM_TIMEOUT_SECONDS        SSM poll timeout (default 240)
 #   STAGE0_SSM_OUTPUT_DIR             where to drop ssm-params/stdout/stderr
 
@@ -109,6 +116,26 @@ api_alias_is_set="${API_ALIAS_DOMAIN+x}"
 if [[ "${KIND}" == edge && ( -n "${global_phase_is_set}" || -n "${global_domain_is_set}" || -n "${api_alias_is_set}" ) ]]; then
   echo "sync_caddyfile_via_ssm: GLOBAL_SITE_*/API_ALIAS are prod-only" >&2
   exit 1
+fi
+TARGET_MAIN_GATEWAY_ALLOWED_CIDR=""
+if [[ -n "${MAIN_GATEWAY_ALLOWED_CIDR+x}" ]]; then
+  if [[ "${KIND}" != edge ]]; then
+    echo "sync_caddyfile_via_ssm: MAIN_GATEWAY_ALLOWED_CIDR is edge-only" >&2
+    exit 1
+  fi
+  TARGET_MAIN_GATEWAY_ALLOWED_CIDR="${MAIN_GATEWAY_ALLOWED_CIDR}"
+  if [[ -z "${TARGET_MAIN_GATEWAY_ALLOWED_CIDR}" || ! "${TARGET_MAIN_GATEWAY_ALLOWED_CIDR}" =~ ^[0-9A-Fa-f.:/[:space:]]+$ ]]; then
+    echo "sync_caddyfile_via_ssm: MAIN_GATEWAY_ALLOWED_CIDR must be a non-empty CIDR list" >&2
+    exit 1
+  fi
+fi
+TARGET_ACME_EMAIL=""
+if [[ -n "${ACME_EMAIL+x}" ]]; then
+  TARGET_ACME_EMAIL="${ACME_EMAIL}"
+  if [[ -z "${TARGET_ACME_EMAIL}" || ! "${TARGET_ACME_EMAIL}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
+    echo "sync_caddyfile_via_ssm: ACME_EMAIL must be a non-empty email address" >&2
+    exit 1
+  fi
 fi
 if [[ "${KIND}" == prod ]]; then
   if [[ -z "${global_phase_is_set}" && -n "${global_domain_is_set}" ]]; then
@@ -194,7 +221,9 @@ jq -n \
   --arg global_site_phase "${TARGET_GLOBAL_SITE_PHASE}" \
   --arg global_site_domain "${TARGET_GLOBAL_SITE_DOMAIN}" \
   --arg apply_api_alias "${APPLY_API_ALIAS}" \
-  --arg api_alias_domain "${TARGET_API_ALIAS_DOMAIN}" '{
+  --arg api_alias_domain "${TARGET_API_ALIAS_DOMAIN}" \
+  --arg main_gateway_cidr "${TARGET_MAIN_GATEWAY_ALLOWED_CIDR}" \
+  --arg acme_email "${TARGET_ACME_EMAIL}" '{
   commands: (
     [
       "set -euo pipefail",
@@ -204,6 +233,8 @@ jq -n \
       ("TARGET_GLOBAL_SITE_DOMAIN=" + ($global_site_domain | @sh)),
       ("APPLY_API_ALIAS=" + ($apply_api_alias | @sh)),
       ("TARGET_API_ALIAS_DOMAIN=" + ($api_alias_domain | @sh)),
+      ("TARGET_MAIN_GATEWAY_ALLOWED_CIDR=" + ($main_gateway_cidr | @sh)),
+      ("TARGET_ACME_EMAIL=" + ($acme_email | @sh)),
       "CADDY_DIR=/var/lib/tokenkey/caddy",
       "LIVE=$CADDY_DIR/Caddyfile",
       "ENV_FILE=/var/lib/tokenkey/.env",
@@ -230,10 +261,20 @@ jq -n \
       "# API_DOMAIN / ACME_EMAIL are persisted in the host .env at boot.",
       "set -a; . /var/lib/tokenkey/.env; set +a",
       "[ -n \"${API_DOMAIN:-}\" ] || { echo \"::error::API_DOMAIN empty in /var/lib/tokenkey/.env\"; exit 1; }",
+      "if [ -n \"$TARGET_ACME_EMAIL\" ]; then ACME_EMAIL=\"$TARGET_ACME_EMAIL\"; fi",
+      "if [ -z \"${ACME_EMAIL:-}\" ]; then",
+      "  ACME_EMAIL=\"$(sed -n '\''s/^[[:space:]]*email[[:space:]][[:space:]]*\\(.*\\)$/\\1/p'\'' \"$LIVE\" | head -1)\"",
+      "fi",
+      "[ -n \"${ACME_EMAIL:-}\" ] || { echo \"::error::ACME_EMAIL empty in /var/lib/tokenkey/.env and live Caddyfile\"; exit 1; }",
       "# MAIN_GATEWAY_ALLOWED_CIDR (edge only) is NOT in .env — it lives only in",
       "# boot UserData. Recover the live value from the remote_ip line in the",
-      "# current rendered Caddyfile so the allowlist survives the re-render verbatim.",
-      "MAIN_GATEWAY_ALLOWED_CIDR=\"$(sed -n '\''s/^[[:space:]]*remote_ip[[:space:]][[:space:]]*\\(.*\\)$/\\1/p'\'' \"$LIVE\" | head -1)\"",
+      "# current rendered Caddyfile so the allowlist survives the re-render verbatim,",
+      "# unless this invocation supplied TARGET_MAIN_GATEWAY_ALLOWED_CIDR.",
+      "if [ -n \"$TARGET_MAIN_GATEWAY_ALLOWED_CIDR\" ]; then",
+      "  MAIN_GATEWAY_ALLOWED_CIDR=\"$TARGET_MAIN_GATEWAY_ALLOWED_CIDR\"",
+      "else",
+      "  MAIN_GATEWAY_ALLOWED_CIDR=\"$(sed -n '\''s/^[[:space:]]*remote_ip[[:space:]][[:space:]]*\\(.*\\)$/\\1/p'\'' \"$LIVE\" | head -1)\"",
+      "fi",
       "if [ \"$KIND\" = edge ] && [ -z \"$MAIN_GATEWAY_ALLOWED_CIDR\" ]; then echo \"::error::could not read remote_ip allowlist from live edge Caddyfile $LIVE\"; exit 1; fi",
       "echo \"render context loaded for kind=$KIND\"",
       ("printf '\''%s'\'' \"" + $b64 + "\" | base64 -d | sudo tee \"$CADDY_DIR/Caddyfile.template\" >/dev/null"),
