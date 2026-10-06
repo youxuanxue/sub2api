@@ -68,6 +68,12 @@ func (s *RateLimitService) tkTryHandleUpstreamErrorPrelude(
 	if s.tkTryHandleStandingBilling(ctx, account, statusCode, responseBody) {
 		return true, true
 	}
+	// DashScope Unpurchased 403: same SSOT as the NewAPI bridge penalty and
+	// failover classifier. Must beat handle403 so a generic 403 ladder cannot
+	// leave an unpurchased Token Plan key schedulable (prod 2026-10-06 #129/#132).
+	if s.tkTryHandleStandingUnpurchased(ctx, account, statusCode, responseBody) {
+		return true, true
+	}
 
 	return false, false
 }

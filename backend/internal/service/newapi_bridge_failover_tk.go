@@ -40,6 +40,9 @@ func tkBridgeFailureSemantic(apiErr *newapitypes.NewAPIError) gatewayFailureSema
 	if tkIsBridgeUpstreamArrears(apiErr) {
 		return gatewayFailureSemanticAccountFault
 	}
+	if tkIsBridgeUpstreamUnpurchased(apiErr) {
+		return gatewayFailureSemanticAccountFault
+	}
 	if apiErr != nil && isUpstreamModelRetiredError(apiErr.StatusCode, tkBridgeUpstreamErrorBody(apiErr), tkBridgeUpstreamRelayMessage(apiErr)) {
 		return gatewayFailureSemanticAccountFault
 	}

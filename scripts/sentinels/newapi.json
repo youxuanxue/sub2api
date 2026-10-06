@@ -703,6 +703,7 @@
         "tkWrapBridgeRelayErrorWithPenalty",
         "tkBridgePenaltyStatusEligible",
         "tkHandleBridgeArrearsPenalty(ctx, rls, account, apiErr)",
+        "rls.tkTryHandleStandingUnpurchased(ctx, account, apiErr.StatusCode, tkBridgeUpstreamErrorBody(apiErr))",
         "bridgeWrapRelayErrorAfterPenalty"
       ],
       "rationale": "TK companion that routes real bridge.Dispatch* upstream errors (401/402/429 allowlist) into RateLimitService.HandleUpstreamError so newapi accounts get disabled/cooled and the Feishu account-incident alert fires. Without it the fifth platform regresses to the 2026-06-11 prod incident: a 402 'Insufficient Balance' DeepSeek account stayed schedulable=true while the gateway hammered the exhausted upstream 6946 times in 2h with zero alerts. The narrow status allowlist is itself load-bearing: it is what keeps client-induced 400/404 (and the synthetic missing-credential/unsupported-channel 400s) from draining the pool (the #617 class). The tkHandleBridgeArrearsPenalty call MUST run BEFORE the tkBridgePenaltyStatusEligible allowlist: DashScope arrears 400 ('Arrearage') is disguised as a client 400, and Moonshot billing-standing 429 would otherwise become a ~5s cooldown. Both must disable+alert (SetError, same as 402), not pass through. Reordering after the allowlist (or dropping it) silently re-opens the 2026-06-12 Qwen / 2026-08-28 kimi incidents. bridgeWrapRelayErrorAfterPenalty must turn those penalized account-level faults into UpstreamFailoverError so the handler can retry on a sibling account in the same request."
@@ -714,9 +715,10 @@
         "tkNewAPIBridgeUpstreamFailoverError",
         "bridgeWrapRelayErrorAfterPenalty",
         "applyGatewayFailoverSemantic",
+        "tkIsBridgeUpstreamUnpurchased",
         "gatewayFailureSemanticAccountFault"
       ],
-      "rationale": "TK companion that converts penalized newapi bridge account-level faults (401/402/429 + upstream arrears 400/403) into UpstreamFailoverError for the existing handler failedAccountIDs loop. Client-induced 400/404 and 5xx outages must stay on NewAPIRelayError to avoid the #617 pool-drain. Dropping this file regresses prod Qwen arrears / DeepSeek 402 cases where a healthy sibling account exists but the first selected account's error was returned immediately."
+      "rationale": "TK companion that converts penalized newapi bridge account-level faults (401/402/429 + upstream arrears 400/403 + Unpurchased 403) into UpstreamFailoverError for the existing handler failedAccountIDs loop. Client-induced 400/404 and generic 403s must stay on NewAPIRelayError to avoid the #617 pool-drain. Dropping this file or the Unpurchased semantic regresses prod ali-token-plan #129/#132 where a healthy sibling existed but the first selected account's 403 was returned immediately."
     },
     {
       "path": "backend/internal/service/newapi_bridge_arrears_tk.go",
@@ -744,9 +746,11 @@
       "path": "backend/internal/service/account_incident_notifier_tk.go",
       "must_contain": [
         "case \"newapi_arrears\":",
-        "IncidentKindPermanentDisable, \"newapi_arrears\", \"上游账号欠费\""
+        "IncidentKindPermanentDisable, \"newapi_arrears\", \"上游账号欠费\"",
+        "tkStandingUnpurchasedIncidentReason",
+        "上游模型未开通"
       ],
-      "rationale": "classifyIncident MUST map reason 'newapi_arrears' to the IMMEDIATE P0 card path (IncidentKindPermanentDisable), NOT the temporary-cooldown digest that PR #730 made default-OFF. Upstream arrears is persistent until a human recharges — it will not self-heal — so folding it into the silenced self-healing digest would mean operators never learn the upstream account needs a recharge. Re-mapping it to IncidentKindTemporaryCooldown silently regresses the 2026-06-12 alerting gap. Card title stays '上游账号欠费'; prepaid 额度不足 (tokensea 403) shares this same reason via tkTryHandleStandingBilling."
+      "rationale": "classifyIncident MUST map reason 'newapi_arrears' to the IMMEDIATE P0 card path (IncidentKindPermanentDisable), NOT the temporary-cooldown digest that PR #730 made default-OFF. Upstream arrears is persistent until a human recharges — it will not self-heal — so folding it into the silenced self-healing digest would mean operators never learn the upstream account needs a recharge. Re-mapping it to IncidentKindTemporaryCooldown silently regresses the 2026-06-12 alerting gap. Card title stays '上游账号欠费'; prepaid 额度不足 (tokensea 403) shares this same reason via tkTryHandleStandingBilling. AccessDenied.Unpurchased must stay a separate reasonClass 'newapi_unpurchased' / '上游模型未开通' so operators do not treat entitlement death as a recharge."
     },
     {
       "path": "backend/internal/service/account_standing_billing_tk.go",
@@ -777,6 +781,28 @@
       "rationale": "Regression for prepaid 额度不足 403 (prod 2026-08-30 account 93) and the weekly-quota negative. Dropping these tests lets handle403 stub-saturation failover stay green while a dead prepaid account remains schedulable."
     },
     {
+      "path": "backend/internal/service/account_standing_unpurchased_tk.go",
+      "must_contain": [
+        "tkStandingUnpurchasedIncidentReason",
+        "tkIsAccountStandingUnpurchasedFailure",
+        "tkTryHandleStandingUnpurchased",
+        "tkIsBridgeUpstreamUnpurchased",
+        "accessdenied.unpurchased",
+        "eligible for using the model"
+      ],
+      "rationale": "SSOT for DashScope AccessDenied.Unpurchased 403 across penalty, failover, and HandleUpstreamError prelude. Prod 2026-10-06 ali-token-plan #129/#132 stayed schedulable and returned final 403 while siblings served the same SKUs. Matcher, SetError policy, incident reason and Feishu P0 path live only here; do not copy the Unpurchased phrases into billing or model_not_found owners."
+    },
+    {
+      "path": "backend/internal/service/account_standing_unpurchased_tk_test.go",
+      "must_contain": [
+        "TestTkTryHandleStandingUnpurchased_DisablesAndAlerts",
+        "TestTkHandleBridgeUpstreamPenalty_UnpurchasedBeforeAllowlist",
+        "TestTkHandleBridgeUpstreamPenalty_Generic403StillSkipped",
+        "dashscopeUnpurchasedBody"
+      ],
+      "rationale": "Regression for prod Unpurchased 403: SetError + newapi_unpurchased P0, failover on the same envelope, and a generic AccessDenied 403 that must not disable or failover. Dropping these tests lets a revert of the SSOT stay green."
+    },
+    {
       "path": "backend/internal/service/newapi_bridge_arrears_tk_test.go",
       "must_contain": [
         "TestTkHandleBridgeArrearsPenalty_VstecscloudPrepaidQuotaUsesStandingBillingSSOT",
@@ -787,11 +813,8 @@
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_upstream_error_prelude.go",
-      "must_contain": [
-        "tkTryHandleStandingBilling",
-        "func (s *RateLimitService) tkTryHandleUpstreamErrorPrelude("
-      ],
-      "rationale": "HandleUpstreamError must call tkTryHandleStandingBilling (via tkTryHandleUpstreamErrorPrelude) before pool-mode skip and tryTempUnschedulable. Otherwise a generic 403 temp rule or Anthropic stub-saturation fallthrough leaves prepaid-dead accounts (tokensea 用户额度不足) schedulable with no Feishu account-failure card."
+      "must_contain": ["tkTryHandleStandingBilling", "tkTryHandleStandingUnpurchased", "func (s *RateLimitService) tkTryHandleUpstreamErrorPrelude("],
+      "rationale": "HandleUpstreamError must call tkTryHandleStandingBilling and tkTryHandleStandingUnpurchased (via tkTryHandleUpstreamErrorPrelude) before pool-mode skip and tryTempUnschedulable. Otherwise a generic 403 temp rule leaves prepaid-dead (tokensea 用户额度不足) or Unpurchased (ali-token-plan AccessDenied.Unpurchased) accounts schedulable with no Feishu account-failure card."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",

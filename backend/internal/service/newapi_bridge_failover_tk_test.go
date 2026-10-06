@@ -28,6 +28,7 @@ func TestTkBridgeUpstreamShouldFailoverAfterPenalty_AccountLevelStatuses(t *test
 		{"401 auth", upstreamBridgeError(401, "Authentication Fails")},
 		{"429 rate limit", upstreamBridgeError(429, "Requests rate limit exceeded")},
 		{"arrears 400", arrearsBridgeError(400, dashscopeArrearsMessage, "Arrearage", "Arrearage")},
+		{"unpurchased 403", arrearsBridgeError(403, dashscopeUnpurchasedMessage, "AccessDenied.Unpurchased", "AccessDenied.Unpurchased")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -54,6 +55,7 @@ func TestTkBridgeUpstreamShouldFailoverAfterPenalty_ClientAndOtherServerErrorsNe
 		err  *newapitypes.NewAPIError
 	}{
 		{"client 400", upstreamBridgeError(400, "The supported API model names are ...")},
+		{"generic 403", arrearsBridgeError(403, "Access forbidden by WAF", "access_denied", "AccessDenied")},
 		{"model not found 404", upstreamBridgeError(404, "model_not_found")},
 		{"server 500", upstreamBridgeError(500, "internal error")},
 		{"client forbidden envelope", upstreamBridgeError(400, "Upstream access forbidden, please contact administrator")},
@@ -249,6 +251,25 @@ func TestBridgeWrapRelayErrorAfterPenalty_ArrearsReturnsFailover(t *testing.T) {
 	require.True(t, errors.As(err, &failoverErr))
 	require.Equal(t, 400, failoverErr.StatusCode)
 	require.True(t, failoverErr.ShouldRetryNextAccount())
+}
+
+func TestBridgeWrapRelayErrorAfterPenalty_UnpurchasedReturnsFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	svc, repo, _, incidents := newBridgePenaltyTestService()
+	account := newQwenArrearsAccount()
+	account.ID = 129
+	apiErr := arrearsBridgeError(http.StatusForbidden, dashscopeUnpurchasedMessage, "AccessDenied.Unpurchased", "AccessDenied.Unpurchased")
+
+	err := bridgeWrapRelayErrorAfterPenalty(context.Background(), svc, c, account, apiErr)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusForbidden, failoverErr.StatusCode)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, []string{tkStandingUnpurchasedIncidentReason}, incidents.reasons)
+	var relayErr *NewAPIRelayError
+	require.False(t, errors.As(err, &relayErr))
 }
 
 func TestBridgeWrapRelayErrorAfterPenalty_Client400ReturnsRelayError(t *testing.T) {
