@@ -304,6 +304,25 @@ func (*preserveUnknownControl) RecordHotFilesCleaned(
 	return nil
 }
 
+func TestDefaultProvisionLockRetryBackoffCoversMinuteScaleContention(t *testing.T) {
+	if len(qaProvisionLockRetryBackoff) < 8 {
+		t.Fatalf("default lock-retry steps=%d; want >= 8", len(qaProvisionLockRetryBackoff))
+	}
+	var total time.Duration
+	for _, delay := range qaProvisionLockRetryBackoff {
+		if delay <= 0 {
+			t.Fatalf("default lock-retry backoff contains non-positive delay: %v", qaProvisionLockRetryBackoff)
+		}
+		total += delay
+	}
+	if total < time.Minute {
+		t.Fatalf(
+			"default lock-retry backoff total=%s; want >= 1m to survive short DDL contention (issue #2446)",
+			total,
+		)
+	}
+}
+
 func TestRunProvisionRetriesOnlyLockContentionBeforeCoverageCheck(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
