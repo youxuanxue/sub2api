@@ -43,6 +43,8 @@ def _run_sync(kind: str = "prod", extra_env: dict[str, str] | None = None):
     }
     env.pop("GLOBAL_SITE_PHASE", None)
     env.pop("GLOBAL_SITE_DOMAIN", None)
+    env.pop("MAIN_GATEWAY_ALLOWED_CIDR", None)
+    env.pop("ACME_EMAIL", None)
     env.update(extra_env or {})
     proc = subprocess.run(
         ["bash", str(_SCRIPT), kind, "i-0stub", "probe"],
@@ -133,6 +135,32 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
 
     def test_global_profile_inputs_are_rejected_for_edge(self) -> None:
         proc, params = _run_sync("edge", {"GLOBAL_SITE_PHASE": "disabled"})
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIsNone(params)
+
+    def test_edge_allowlist_override_skips_live_remote_ip_scrape(self) -> None:
+        proc, params = _run_sync("edge", {"MAIN_GATEWAY_ALLOWED_CIDR": "34.194.234.88/32"})
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert params is not None
+        joined = "\n".join(params["commands"])
+        self.assertIn("TARGET_MAIN_GATEWAY_ALLOWED_CIDR='34.194.234.88/32'", joined)
+        self.assertIn('if [ -n "$TARGET_MAIN_GATEWAY_ALLOWED_CIDR" ]', joined)
+        self.assertIn("ACME_EMAIL empty in /var/lib/tokenkey/.env and live Caddyfile", joined)
+        self.assertLess(
+            joined.index("TARGET_MAIN_GATEWAY_ALLOWED_CIDR='34.194.234.88/32'"),
+            joined.index("MAIN_GATEWAY_ALLOWED_CIDR="),
+        )
+
+    def test_acme_email_override_wins_over_empty_host_env(self) -> None:
+        proc, params = _run_sync("edge", {"ACME_EMAIL": "ops@example.com"})
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert params is not None
+        joined = "\n".join(params["commands"])
+        self.assertIn("TARGET_ACME_EMAIL='ops@example.com'", joined)
+        self.assertIn('if [ -n "$TARGET_ACME_EMAIL" ]; then ACME_EMAIL="$TARGET_ACME_EMAIL"; fi', joined)
+
+    def test_prod_rejects_main_gateway_cidr_override(self) -> None:
+        proc, params = _run_sync("prod", {"MAIN_GATEWAY_ALLOWED_CIDR": "34.194.234.88/32"})
         self.assertNotEqual(proc.returncode, 0)
         self.assertIsNone(params)
 

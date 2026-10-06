@@ -2240,6 +2240,12 @@ fi
 if [ "$_bg_rc" -ne 0 ]; then
   echo "  FAIL: an SSM host command script has a shell syntax error"
   errors=$((errors + 1))
+elif ! python3 ./ops/stage0/test_sync_caddyfile_via_ssm.py >/dev/null 2>&1; then
+  echo "  FAIL: sync_caddyfile_via_ssm render contract"
+  echo "        — run: python3 ops/stage0/test_sync_caddyfile_via_ssm.py"
+  errors=$((errors + 1))
+else
+  echo "  ok: SSM host command scripts parse; Caddyfile sync render tests pass"
 fi
 
 echo ""
@@ -2639,9 +2645,10 @@ echo "=== sub2api: env secret backup fail-closed contract ==="
 if ! bash ./ops/stage0/test_backup_env_secrets_via_ssm.sh >/dev/null 2>&1 || \
    ! bash ./deploy/aws/lightsail/test_restore_edge_env_secrets.sh >/dev/null 2>&1 || \
    ! bash ./ops/lightsail/test_ensure_edge_ssm_role.sh >/dev/null 2>&1 || \
+   ! bash ./ops/lightsail/test_reregister_edge_hybrid.sh >/dev/null 2>&1 || \
    ! bash ./ops/lightsail/test_migrate_edge_ssm_roles.sh >/dev/null 2>&1; then
     echo "  FAIL: env secret backup fail-closed contract test"
-    echo "        — run: bash ops/stage0/test_backup_env_secrets_via_ssm.sh && bash deploy/aws/lightsail/test_restore_edge_env_secrets.sh && bash ops/lightsail/test_ensure_edge_ssm_role.sh && bash ops/lightsail/test_migrate_edge_ssm_roles.sh"
+    echo "        — run: bash ops/stage0/test_backup_env_secrets_via_ssm.sh && bash deploy/aws/lightsail/test_restore_edge_env_secrets.sh && bash ops/lightsail/test_ensure_edge_ssm_role.sh && bash ops/lightsail/test_reregister_edge_hybrid.sh && bash ops/lightsail/test_migrate_edge_ssm_roles.sh"
     errors=$((errors + 1))
 else
     echo "  ok: rejected writes fail and verified backup/restore succeeds"

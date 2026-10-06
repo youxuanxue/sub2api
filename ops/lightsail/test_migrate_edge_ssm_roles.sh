@@ -55,7 +55,7 @@ arg_after() {
   return 1
 }
 edge_from_text() {
-  case "$*" in *us3*) echo us3;; *us4*) echo us4;; *us5*) echo us5;; *us6*) echo us6;; *) return 1;; esac
+  case "$*" in *uk1*) echo uk1;; *uk2*) echo uk2;; *us3*) echo us3;; *us4*) echo us4;; *us5*) echo us5;; *us6*) echo us6;; *) return 1;; esac
 }
 case "$*" in
   *"ssm get-parameter"*"ssm_managed_instance_id"*)
@@ -159,7 +159,7 @@ fi
 run_migration success '' '' >"${tmp}/success.out"
 grep -F 'iam delete-role-policy' "${tmp}/success/aws.log" >/dev/null
 delete_line="$(grep -n 'iam delete-role-policy' "${tmp}/success/aws.log" | cut -d: -f1)"
-for edge in us3 us4 us5 us6; do
+for edge in uk1 uk2 us3 us4 us5 us6; do
   test -f "${tmp}/success/state/${edge}"
   role_line="$(grep -n "describe-instance-information.*mi-${edge}" "${tmp}/success/aws.log" | tail -1 | cut -d: -f1)"
   test "${role_line}" -lt "${delete_line}"

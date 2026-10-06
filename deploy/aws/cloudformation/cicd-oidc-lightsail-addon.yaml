@@ -36,6 +36,88 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
 
+  LightsailSsmHybridRoleUk1:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tokenkey-lightsail-ssm-hybrid-uk1
+      Description: SSM Hybrid role isolated to TokenKey Edge uk1 recovery data.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: EdgeRecoveryData
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadWriteOwnEnvSecrets
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/uk1/stage0/env-secrets-backup"
+              - Sid: ReadWriteOwnPgdumpObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}/edge/uk1/pgdump/*"
+              - Sid: ListOwnPgdumpPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}"
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - edge/uk1/pgdump
+                      - edge/uk1/pgdump/*
+
+  LightsailSsmHybridRoleUk2:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tokenkey-lightsail-ssm-hybrid-uk2
+      Description: SSM Hybrid role isolated to TokenKey Edge uk2 recovery data.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: EdgeRecoveryData
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadWriteOwnEnvSecrets
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/uk2/stage0/env-secrets-backup"
+              - Sid: ReadWriteOwnPgdumpObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}/edge/uk2/pgdump/*"
+              - Sid: ListOwnPgdumpPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}"
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - edge/uk2/pgdump
+                      - edge/uk2/pgdump/*
+
   LightsailSsmHybridRoleUs3:
     Type: AWS::IAM::Role
     Properties:

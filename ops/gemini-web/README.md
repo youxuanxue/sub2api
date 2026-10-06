@@ -78,7 +78,7 @@ Deploy an edge with `deploy-gemini-web-worker.yml` (SSM pull + recreate under th
 container limits below), one edge per dispatch:
 
 ```text
-edge_id           us3 | us4 | us5 | us6   (deployable edges; prod runs no Worker)
+edge_id           deployable Lightsail edge from edge-targets-lightsail.json (prod runs no Worker)
 build_digest      the 12-hex tag the publish job printed as gemini_web_build_digest
 confirm_instance  instance_name from deploy/aws/lightsail/edge-targets-lightsail.json
 ```
