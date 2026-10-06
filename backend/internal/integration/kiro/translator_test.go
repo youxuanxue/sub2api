@@ -2,7 +2,11 @@
 
 package kiro
 
-import "testing"
+import (
+	"encoding/json"
+	"strconv"
+	"testing"
+)
 
 // TestClaudeToKiro_MinimalUserMessage exercises the Claude→Kiro translation on a
 // minimal single-user-turn request and asserts the resulting KiroPayload carries
@@ -129,8 +133,8 @@ func TestClaudeToKiro_AdaptiveThinkingEmitsAdditionalModelRequestFields(t *testi
 	if fields.OutputConfig == nil || fields.OutputConfig.Effort != "high" {
 		t.Fatalf("unexpected output_config: %+v", fields.OutputConfig)
 	}
-	if fields.MaxTokens != 256 {
-		t.Fatalf("expected max_tokens=256, got %d", fields.MaxTokens)
+	if fields.MaxTokens != 0 || payload.InferenceConfig.MaxTokens != 256 {
+		t.Fatalf("expected omitted AMRF limit and native maxTokens=256, got AMRF=%d native=%d", fields.MaxTokens, payload.InferenceConfig.MaxTokens)
 	}
 }
 
@@ -148,6 +152,56 @@ func TestBuildAdditionalModelRequestFields_IgnoresClientDisplayOmitted(t *testin
 	}
 	if fields.Thinking.Display != "summarized" {
 		t.Fatalf("display = %q, want summarized", fields.Thinking.Display)
+	}
+	if fields.MaxTokens != 32000 {
+		t.Fatalf("default max_tokens changed: got %d", fields.MaxTokens)
+	}
+}
+
+func TestClaudeToKiro_ThinkingOutputLimitWire(t *testing.T) {
+	// Kiro rejects AMRF max_tokens below 1024, even though the native
+	// inferenceConfig accepts smaller output limits. Preserve the native field;
+	// forwarding it is not a guarantee that upstream enforces a hard output cap.
+	for _, limit := range []int{1, 256, 1023, 1024, 4096} {
+		t.Run(strconv.Itoa(limit), func(t *testing.T) {
+			req := &ClaudeRequest{
+				Model: "claude-opus-5-5", MaxTokens: limit,
+				Messages:     []ClaudeMessage{{Role: "user", Content: "Reply OK."}},
+				Thinking:     &ClaudeThinkingConfig{Type: "adaptive"},
+				OutputConfig: &ClaudeOutputConfig{Effort: "high"},
+			}
+			payload := ClaudeToKiro(req, true)
+			raw, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var wire struct {
+				InferenceConfig struct {
+					MaxTokens int `json:"maxTokens"`
+				} `json:"inferenceConfig"`
+				AMRF struct {
+					MaxTokens    *int                `json:"max_tokens"`
+					Thinking     KiroThinkingRequest `json:"thinking"`
+					OutputConfig KiroOutputConfig    `json:"output_config"`
+				} `json:"additionalModelRequestFields"`
+			}
+			if err := json.Unmarshal(raw, &wire); err != nil {
+				t.Fatal(err)
+			}
+			if wire.InferenceConfig.MaxTokens != limit || req.MaxTokens != limit {
+				t.Fatalf("native or caller limit changed: wire=%d request=%d want=%d", wire.InferenceConfig.MaxTokens, req.MaxTokens, limit)
+			}
+			if limit < 1024 {
+				if wire.AMRF.MaxTokens != nil {
+					t.Fatalf("unsupported duplicate AMRF max_tokens sent: %d", *wire.AMRF.MaxTokens)
+				}
+			} else if wire.AMRF.MaxTokens == nil || *wire.AMRF.MaxTokens != limit {
+				t.Fatalf("legal AMRF max_tokens not preserved: %v", wire.AMRF.MaxTokens)
+			}
+			if wire.AMRF.Thinking.Type != "adaptive" || wire.AMRF.Thinking.Display != "summarized" || wire.AMRF.OutputConfig.Effort != "high" {
+				t.Fatalf("thinking configuration changed: %+v", wire.AMRF)
+			}
+		})
 	}
 }
 

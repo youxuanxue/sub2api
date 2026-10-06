@@ -130,10 +130,11 @@
       "path": "backend/internal/integration/kiro/translator_test.go",
       "must_contain": [
         "TestBuildAdditionalModelRequestFields_IgnoresClientDisplayOmitted",
+        "TestClaudeToKiro_ThinkingOutputLimitWire",
         "TestClaudeToKiro_HaikuThinkingOmitsAdditionalModelRequestFields",
         "TestClaudeToKiro_NonHaikuThinkingStillEmitsAdditionalModelRequestFields"
       ],
-      "rationale": "Client thinking.display=omitted must not propagate to Kiro upstream wire; prod mirror QA depends on summarized upstream reasoning. Haiku + thinking must omit additionalModelRequestFields (prod 2026-10-04 us4/5/6 400 AMRF-not-supported → tokensea failover) while non-Haiku thinking still emits AMRF."
+      "rationale": "Client thinking.display=omitted must not propagate to Kiro upstream wire; prod mirror QA depends on summarized upstream reasoning. AMRF max_tokens below 1024 must be omitted while preserving the native inferenceConfig limit and thinking controls. Haiku + thinking must omit additionalModelRequestFields (prod 2026-10-04 us4/5/6 400 AMRF-not-supported → tokensea failover) while non-Haiku thinking still emits AMRF."
     },
     {
       "path": "backend/internal/integration/kiro/translator.go",

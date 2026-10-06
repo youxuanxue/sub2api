@@ -347,6 +347,13 @@ func buildAdditionalModelRequestFields(req *ClaudeRequest) *AdditionalModelReque
 	if req != nil {
 		if req.MaxTokens > 0 {
 			maxTokens = req.MaxTokens
+			// Kiro accepts small limits in inferenceConfig.maxTokens but rejects
+			// the duplicate AMRF field below 1024. Omit only that duplicate;
+			// keep the caller's native limit and thinking controls unchanged.
+			// Neither field is a guaranteed upstream generation/spending cap.
+			if maxTokens < 1024 {
+				maxTokens = 0 // omitempty; never raise the caller's requested limit
+			}
 		}
 		if req.Thinking != nil {
 			switch strings.ToLower(strings.TrimSpace(req.Thinking.Type)) {
