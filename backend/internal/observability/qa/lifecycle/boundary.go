@@ -26,6 +26,10 @@ const (
 	qaProvisionLockContentionSQLState = "55P03"
 )
 
+// qaProvisionLockRetryBackoff budgets roughly one minute of CREATE TABLE
+// lock_timeout (100ms) contention. Prod 2026-10-06 08:00 UTC exhausted the
+// previous six-step ~16s budget on qa_records_20261009_07 and recovered on the
+// next hour; keep the geometric ramp and add two longer plateaus.
 var qaProvisionLockRetryBackoff = [...]time.Duration{
 	250 * time.Millisecond,
 	500 * time.Millisecond,
@@ -33,6 +37,8 @@ var qaProvisionLockRetryBackoff = [...]time.Duration{
 	2 * time.Second,
 	4 * time.Second,
 	8 * time.Second,
+	16 * time.Second,
+	32 * time.Second,
 }
 
 type DB interface {
