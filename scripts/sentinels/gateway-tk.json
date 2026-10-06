@@ -783,12 +783,36 @@
       "rationale": "Explicit replay continuation must enforce the reviewed receipt under the deployment lock; optional historical experiments do not become an implicit deployment gate. Infra systemd start/stop must pin -f docker-compose.yml so docker-compose.override.yml (blue/green overlays without image) cannot poison boot after CFN stop/start. Prod may layer docker-compose.prod-pg.yml for GUC tuning without auto-merging override.yml."
     },
     {
+      "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
+      "must_contain": [
+        "env_set GATEWAY_IMAGE_CONCURRENCY_ENABLED \"${GATEWAY_IMAGE_CONCURRENCY_ENABLED:-false}\"",
+        "DELIVER_IMAGE_ENABLED=\"${GATEWAY_IMAGE_CONCURRENCY_ENABLED:-false}\""
+      ],
+      "rationale": "Blue/green inject must keep overwriting GATEWAY_IMAGE_CONCURRENCY_ENABLED to false so a later release cannot silently restore the process-local image gate. Images share account.concurrency; the independent limiter stays opt-in."
+    },
+    {
       "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
       "must_contain": [
         "r\"-f .+/docker-compose\\.yml up -d --no-deps postgres redis\"",
         "r\"-f .+/docker-compose\\.yml up -d --no-deps caddy\""
       ],
       "rationale": "Blue/green systemd start must keep rendering the pinned infra compose -f path; regression of auto-merge with override.yml recreates the 2026-09-17 prod boot outage."
+    },
+    {
+      "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
+      "must_contain": [
+        "self.assertIn(\"GATEWAY_IMAGE_CONCURRENCY_ENABLED='false'\", joined)",
+        "self.assertIn('env_set GATEWAY_IMAGE_CONCURRENCY_ENABLED', remote)"
+      ],
+      "rationale": "Prod blue/green parameter payload must keep delivering ENABLED=false and env_set overwrite, not a first-write-wins default that leaves a live host on true."
+    },
+    {
+      "path": "ops/stage0/deploy_via_ssm.sh",
+      "must_contain": [
+        "--arg enabled \"${GATEWAY_IMAGE_CONCURRENCY_ENABLED:-false}\"",
+        "if [ \\\"$key\\\" = GATEWAY_IMAGE_CONCURRENCY_ENABLED ]; then sudo sed -i"
+      ],
+      "rationale": "Non-bluegreen Stage0 inject must keep overwriting ENABLED on existing .env files; first-write-wins would re-enable the process-local image gate on hosts that already have the key."
     },
     {
       "path": "backend/internal/service/openai_codex_models_service.go",

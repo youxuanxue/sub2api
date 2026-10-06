@@ -290,15 +290,17 @@ image_concurrency_cmds='[]'
 if [[ "${INSTANCE_ID}" == i-* ]]; then
   image_concurrency_cmds="$(jq -n \
     --arg tag "${TAG}" \
-    --arg enabled "${GATEWAY_IMAGE_CONCURRENCY_ENABLED:-true}" \
+    --arg enabled "${GATEWAY_IMAGE_CONCURRENCY_ENABLED:-false}" \
     --arg maxconc "${GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS:-8}" \
     --arg overflow "${GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE:-reject}" '
     [
       ( "ic_e=" + ($enabled|@sh) + "; ic_m=" + ($maxconc|@sh) + "; ic_o=" + ($overflow|@sh)
         + "; for kv in \"ENABLED=$ic_e\" \"MAX_CONCURRENT_REQUESTS=$ic_m\" \"OVERFLOW_MODE=$ic_o\"; do"
         + " key=\"GATEWAY_IMAGE_CONCURRENCY_${kv%%=*}\"; val=\"${kv#*=}\";"
-        + " if ! grep -q \"^${key}=\" /var/lib/tokenkey/.env; then echo \"${key}=${val}\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured ${key}\";"
-        + " else echo \"${key} already present\"; fi; done" ),
+        + " if grep -q \"^${key}=\" /var/lib/tokenkey/.env; then"
+        + " if [ \"$key\" = GATEWAY_IMAGE_CONCURRENCY_ENABLED ]; then sudo sed -i \"s|^${key}=.*|${key}=${val}|\" /var/lib/tokenkey/.env; echo \"updated ${key}\";"
+        + " else echo \"${key} already present\"; fi;"
+        + " else echo \"${key}=${val}\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured ${key}\"; fi; done" ),
       ( "CF=/var/lib/tokenkey/docker-compose.yml; if [ -f \"$CF\" ]; then miss=0;"
         + " for k in ENABLED MAX_CONCURRENT_REQUESTS OVERFLOW_MODE; do grep -q \"GATEWAY_IMAGE_CONCURRENCY_${k}=\" \"$CF\" || miss=1; done;"
         + " if [ \"$miss\" = 1 ]; then sudo cp -a \"$CF\" \"$CF.image-concurrency-before-" + $tag + "\";"
