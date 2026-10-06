@@ -21,6 +21,11 @@ describe('usePlatformOptions (US-018 regression — fifth platform newapi must s
     expect(options.value.find((o) => o.value === 'newapi')?.label).toBe('Extension Engine')
   })
 
+  it('includes typesafe (System One) with a brand label', () => {
+    const { options } = usePlatformOptions()
+    expect(options.value.find((o) => o.value === 'typesafe')?.label).toBe('TypeSafe')
+  })
+
   it('labels every platform with its brand name (no untranslated key leakage)', () => {
     const { options } = usePlatformOptions()
 

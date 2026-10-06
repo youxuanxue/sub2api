@@ -65,10 +65,10 @@
       "path": "backend/internal/pkg/xai/billing.go",
       "must_contain": [
         "CLIClientVersion = \"",
-        "billingCLIUserAgent = \"grok-pager/\" + CLIClientVersion",
+        "req.Header.Set(\"User-Agent\", CLIUserAgent(CLIClientVersion))",
         "req.Header.Set(CLIClientVersionHeader, CLIClientVersion)"
       ],
-      "rationale": "CLIClientVersion is the sole Grok CLI compile fallback and directly owns the billing-probe identity. Watchers must never track a separate advisory constant."
+      "rationale": "CLIClientVersion is the sole Grok CLI compile fallback. Billing probes must advertise the same runtime CLIUserAgent as chat, not a hardcoded macos/aarch64 string that fails linux CI."
     },
     {
       "path": "backend/internal/pkg/xai/cli_identity.go",

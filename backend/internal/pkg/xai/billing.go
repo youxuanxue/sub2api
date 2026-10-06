@@ -20,9 +20,6 @@ const (
 	// one bump here covers OAuth traffic and billing probes together.
 	// Keep in sync with https://x.ai/cli/stable.
 	CLIClientVersion = "1.0.46"
-	// billingCLIUserAgent is the legacy pager/shell UA used by billing probes.
-	// Distinct from CLIUserAgent() in cli_identity.go (workspace-style UA).
-	billingCLIUserAgent = "grok-pager/" + CLIClientVersion + " grok-shell/" + CLIClientVersion + " (macos; aarch64)"
 
 	BillingWeeklyPath  = "/billing?format=credits"
 	BillingMonthlyPath = "/billing"
@@ -148,7 +145,7 @@ func ApplyCLIBillingHeaders(req *http.Request, accessToken string) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(CLITokenAuthHeader, CLITokenAuthValue)
 	req.Header.Set(CLIClientVersionHeader, CLIClientVersion)
-	req.Header.Set("User-Agent", billingCLIUserAgent)
+	req.Header.Set("User-Agent", CLIUserAgent(CLIClientVersion))
 	req.Header.Set("x-grok-client-mode", CLIClientMode)
 }
 
