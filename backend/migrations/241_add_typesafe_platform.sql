@@ -9,6 +9,12 @@
 -- TokenKey: keep newapi/kiro in the quota allowlist. Upstream's original
 -- 241 list omitted them and would silently reject live TokenKey quota rows
 -- (same class as 239_repair_opencode_go_platform_constraints.sql).
+--
+-- DROP/ADD CONSTRAINT takes ACCESS EXCLUSIVE. Fail the new color in 5s
+-- rather than stalling blue/green startup behind a hot quotas table.
+
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '10min';
 
 ALTER TABLE user_platform_quotas
     DROP CONSTRAINT IF EXISTS user_platform_quotas_platform_check;

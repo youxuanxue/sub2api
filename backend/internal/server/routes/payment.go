@@ -18,7 +18,10 @@ import (
 // order, so this leaves ample headroom for real users while making
 // out_trade_no enumeration impractical.
 const (
-	publicOrderVerifyRateLimit       = 20
+	// 40 leaves headroom for PaymentResultView (15 refreshes at 2s plus the
+	// initial lookup) and CGNAT-shared IPs without weakening enumeration
+	// protection. Authenticated polling uses /payment/orders/:id, not this path.
+	publicOrderVerifyRateLimit       = 40
 	publicOrderVerifyRateLimitWindow = time.Minute
 )
 

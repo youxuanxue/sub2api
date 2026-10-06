@@ -1588,8 +1588,9 @@ func TestGatewayModels_GPT6SolLunaDiscoveryRespectsGroupAndAccountRestrictions(t
 	}
 }
 
-// Scenario: jev-latest only works through /v1/systemone, so Composite groups list
-// it in /v1/models only when they can serve it, and never in the Codex manifest.
+// Scenario: jev-latest only works through /v1/systemone. Composite /v1/models
+// must not advertise it — OpenAI-compat clients would then POST chat/messages
+// and get a protocol 404. Codex listing stays TypeSafe-free as well.
 func TestGatewayModels_CompositeTypeSafeListingScope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1614,7 +1615,7 @@ func TestGatewayModels_CompositeTypeSafeListingScope(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var models gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &models))
-	require.Contains(t, modelIDsForTest(models.Data), "jev-latest")
+	require.NotContains(t, modelIDsForTest(models.Data), "jev-latest")
 	require.Contains(t, modelIDsForTest(models.Data), "claude-opus-4-6")
 
 	c, rec = newContext("/models?client_version=0.147.0")

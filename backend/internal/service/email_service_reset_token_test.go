@@ -43,8 +43,14 @@ func TestConsumePasswordResetToken_ComparesHashNotPlaintext(t *testing.T) {
 	require.NoError(t, svc.ConsumePasswordResetToken(context.Background(), "a@b.c", token))
 	require.Equal(t, hash, cache.consumedHash)
 	require.ErrorIs(t, svc.ConsumePasswordResetToken(context.Background(), "a@b.c", token), ErrInvalidResetToken)
+}
 
-	// A legacy plaintext value (issued before upgrade) no longer validates.
-	cache.stored = &PasswordResetTokenData{Token: token}
+func TestConsumePasswordResetToken_AcceptsLegacyPlaintextOnce(t *testing.T) {
+	token := "deadbeef"
+	cache := &resetTokenCacheStub{stored: &PasswordResetTokenData{Token: token}}
+	svc := NewEmailService(nil, cache)
+
+	require.NoError(t, svc.ConsumePasswordResetToken(context.Background(), "a@b.c", token))
+	require.Equal(t, token, cache.consumedHash)
 	require.ErrorIs(t, svc.ConsumePasswordResetToken(context.Background(), "a@b.c", token), ErrInvalidResetToken)
 }

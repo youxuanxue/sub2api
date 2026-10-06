@@ -626,8 +626,13 @@ func (s *EmailService) VerifyPasswordResetToken(ctx context.Context, email, toke
 		return ErrInvalidResetToken
 	}
 
-	// Use constant-time comparison to prevent timing attacks
-	if subtle.ConstantTimeCompare([]byte(data.Token), []byte(hashPasswordResetToken(token))) != 1 {
+	// Always run both compares. Hashed storage is the post-upgrade format;
+	// plaintext is the pre-upgrade Redis value (same 64-hex length), needed
+	// so in-flight reset emails survive the rolling deploy window.
+	hashed := hashPasswordResetToken(token)
+	matchHash := subtle.ConstantTimeCompare([]byte(data.Token), []byte(hashed))
+	matchPlain := subtle.ConstantTimeCompare([]byte(data.Token), []byte(token))
+	if matchHash|matchPlain != 1 {
 		return ErrInvalidResetToken
 	}
 
@@ -640,9 +645,18 @@ func (s *EmailService) ConsumePasswordResetToken(ctx context.Context, email, tok
 	if err := s.VerifyPasswordResetToken(ctx, email, token); err != nil {
 		return err
 	}
-	ok, err := s.cache.ConsumePasswordResetToken(ctx, email, hashPasswordResetToken(token))
+	hashed := hashPasswordResetToken(token)
+	ok, err := s.cache.ConsumePasswordResetToken(ctx, email, hashed)
 	if err != nil {
 		slog.Error("failed to consume password reset token", "email", email, "error", err)
+		return ErrInvalidResetToken
+	}
+	if ok {
+		return nil
+	}
+	ok, err = s.cache.ConsumePasswordResetToken(ctx, email, token)
+	if err != nil {
+		slog.Error("failed to consume legacy plaintext password reset token", "email", email, "error", err)
 		return ErrInvalidResetToken
 	}
 	if !ok {
