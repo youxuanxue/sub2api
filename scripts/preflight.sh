@@ -2622,6 +2622,18 @@ fi
 
 
 fi # preflight gate
+if _preflight_selected 'disable image concurrency remediate contract'; then
+echo "=== sub2api: disable image concurrency remediate contract ==="
+if ! python3 ./ops/observability/test_remediate_disable_image_concurrency.py >/dev/null 2>&1; then
+    echo "  FAIL: remediate-disable-image-concurrency contract test"
+    echo "        — run: python3 ops/observability/test_remediate_disable_image_concurrency.py"
+    errors=$((errors + 1))
+else
+    echo "  ok: image-concurrency disable drain/timeout/ENABLED=false fail-closed"
+fi
+
+
+fi # preflight gate
 if _preflight_selected 'env secret backup fail-closed contract'; then
 echo "=== sub2api: env secret backup fail-closed contract ==="
 if ! bash ./ops/stage0/test_backup_env_secrets_via_ssm.sh >/dev/null 2>&1 || \
