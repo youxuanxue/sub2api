@@ -1,6 +1,7 @@
 package cursor
 
 import (
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -9,8 +10,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Native result fields are populated only from client-supplied evidence. This
-// adapter has no access to the client's filesystem or process state.
+// This adapter has no access to the client's filesystem or process state.
+// Successful tool acknowledgements use native success conventions; they are
+// not independent measurements of process exit status or filesystem metadata.
 func nativeClientResults(exec *pb.ExecServerMessage, result AgentMessage) []*pb.AgentClientMessage {
 	reply := &pb.ExecClientMessage{Id: exec.Id, ExecId: exec.ExecId}
 	finish := func() []*pb.AgentClientMessage {
@@ -48,8 +50,9 @@ func nativeClientResults(exec *pb.ExecServerMessage, result AgentMessage) []*pb.
 			}
 		} else if content, ok := clientReadText(text); ok {
 			ranged := read.Offset != nil || read.Limit != nil
-			value.Success = &pb.ReadSuccess{Path: read.Path, Content: proto.String(content), FileSize: int64(len(content)), RangeApplied: ranged}
+			value.Success = &pb.ReadSuccess{Path: read.Path, Content: proto.String(content), RangeApplied: ranged}
 			if !ranged {
+				value.Success.FileSize = int64(len(content))
 				value.Success.TotalLines = textLines(content)
 			} // unknown total for a page
 		} else {
@@ -73,16 +76,15 @@ func nativeClientResults(exec *pb.ExecServerMessage, result AgentMessage) []*pb.
 			reply.WriteResult = &pb.WriteResult{Success: success}
 		}
 	case shell != nil:
-		if strings.HasPrefix(text, "Command running in background with ID:") {
-			text = "Client returned a background process handle; a completed foreground result is required."
-			result.IsError = true
+		if result.IsError {
+			// A tool error does not distinguish refusal, spawn failure, timeout
+			// or nonzero exit. Preserve it without fabricating that distinction.
+			return execClientThrowAndClose(exec, text, "client_tool_error")
 		}
-		rejected := &pb.ShellRejected{Command: shell.Command, WorkingDirectory: shell.WorkingDirectory, Reason: text}
+		if strings.HasPrefix(text, "Command running in background with ID:") {
+			return execClientThrowAndClose(exec, "Client output cannot confirm foreground completion; no process is managed by the gateway.\n"+text, "client_tool_result_unrepresentable")
+		}
 		if exec.ShellStreamArgs != nil {
-			if result.IsError {
-				reply.ShellStream = &pb.ShellStream{Rejected: rejected}
-				return finish()
-			}
 			// A successful Bash tool_result acknowledges success. No PID, duration or
 			// working-directory changes are invented from output text.
 			return []*pb.AgentClientMessage{
@@ -92,12 +94,7 @@ func nativeClientResults(exec *pb.ExecServerMessage, result AgentMessage) []*pb.
 				{ExecClientControlMessage: &pb.ExecClientControlMessage{StreamClose: &pb.ExecClientStreamClose{Id: exec.Id}}},
 			}
 		}
-		value := &pb.ShellResult{}
-		if result.IsError {
-			value.Rejected = rejected
-		} else {
-			value.Success = &pb.ShellSuccess{Command: shell.Command, WorkingDirectory: shell.WorkingDirectory, Stdout: text}
-		}
+		value := &pb.ShellResult{Success: &pb.ShellSuccess{Command: shell.Command, WorkingDirectory: shell.WorkingDirectory, Stdout: text}}
 		if exec.MiniSweAgentBashArgs != nil {
 			reply.MiniSweAgentBashResult = value
 		} else {
@@ -148,7 +145,9 @@ func nativeClientResults(exec *pb.ExecServerMessage, result AgentMessage) []*pb.
 }
 
 var numberedReadLine = regexp.MustCompile(`^\s*([0-9]+)[→\t](.*)$`)
-var grepContentLine = regexp.MustCompile(`^(.+):([0-9]+):(.*)$`)
+
+// The first :line: delimiter ends the path; later delimiters belong to content.
+var grepContentLine = regexp.MustCompile(`^(.+?):([0-9]+):(.*)$`)
 
 func textLines(text string) int32 {
 	if text == "" {
@@ -229,7 +228,7 @@ func clientGrepResult(args *pb.GrepArgs, text string) (*pb.GrepSuccess, bool) {
 				return nil, false
 			}
 			n, err := strconv.ParseInt(line[pos+1:], 10, 32)
-			if err != nil || n < 0 {
+			if err != nil || n < 0 || n > int64(math.MaxInt32-counts.TotalMatches) {
 				return nil, false
 			}
 			counts.Counts = append(counts.Counts, &pb.GrepFileCount{File: line[:pos], Count: int32(n)})

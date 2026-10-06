@@ -18,6 +18,7 @@
 3. AC-003 (security): Given gateway files and a shell marker target When native Read/Write/Bash/Grep arrive Then file contents are not read into output or modified and the marker is not created.
 4. AC-004 (regression): Given each public protocol and streaming mode When native handoff occurs Then model identity and billing provenance remain correct; rejected tools permit further text.
 5. AC-005 (runtime): Given cancellation, expiry or concurrent continuation When waiting for a client result Then the upstream is released and results cannot cross authenticated callers or be consumed twice.
+6. AC-006 (result fidelity): Given client tool errors or partial output When returning native results Then preserve original errors without gateway-invented refusal/exit classifications, omit whole-file metadata for a Read page, and preserve Grep match content without overflowing totals. Tool-result requests with trailing user input fail closed instead of starting another upstream run; intervening system/developer messages cannot hide pending affinity. Upstream error rendering is outside this guarantee.
 
 ## Assertions
 
@@ -30,6 +31,10 @@ Compare complete translated arguments and returned content. A new unpredictable 
 - `backend/internal/integration/cursor/native_runs_tk_test.go`::`TestNativeToolsRetainedRoundTrip`
 - `backend/internal/integration/cursor/native_runs_tk_test.go`::`TestNativeRunIsolationExpiryAndCancellation`
 - `backend/internal/integration/cursor/native_runs_tk_test.go`::`TestNativeClientResultSemantics`
+- `backend/internal/integration/cursor/native_boundary_tk_test.go`::`TestNativeClientResultEvidence`
+- `backend/internal/integration/cursor/native_boundary_tk_test.go`::`TestNativeShellErrorContinuesOriginalRun`
+- `backend/internal/integration/cursor/native_boundary_tk_test.go`::`TestNativeContinuationTrailingTextFailsClosed`
+- `backend/internal/integration/cursor/native_boundary_tk_test.go`::`TestNativeContinuationConcurrentSingleConsumption`
 - `backend/internal/integration/cursor/native_client_tools_tk_test.go`::`TestCursorAdapterCannotImportLocalExecutors`
 - `backend/internal/integration/cursor/messages_agentrun_tk_test.go`::`TestAgentRunOutsideExecThrowsAndContinuesText`
 - `backend/internal/service/cursor_native_transport_regression_test.go`::`TestCursorProtocolRoutesUseNativeTransportAndSettlement`
@@ -47,7 +52,13 @@ go test -tags=unit ./internal/service -run 'TestCursor|TestOpenAI.*Transport|Tes
 
 ## Evidence
 
-Retained duplex fixtures pass for Read → Write → Bash → Grep, including missing-file creation and existing-file content. Runtime tests cover owner/key/schema mismatch, duplicates, limits, expiry and cancellation. Gateway files and shell markers are checked for side effects. This replaces the failed cancel/replay prototype. On 2026-10-04, isolated probes on account 150's prod host passed buffered and SSE Read/Write/Bash, including Write's preparatory missing-file Read and a bounded 30-second Bash handoff. Client results were simulated; gateway tool targets remained absent. Grep was rejected by upstream policy before tool emission and was not retried, so live Grep acceptance remains open. No actual user 16 traffic was replayed. The active image and account scheduling were unchanged. Evidence: `.cache/observability/cursor150-retained-20261004/report.md`. These are protocol integration tests, not UI e2e. No deployment is part of this change.
+Retained duplex fixtures cover Read → Write → Bash → Grep, including missing-file creation and existing-file content. Runtime tests cover owner/key/schema mismatch, duplicates, limits, expiry and cancellation. Gateway files and shell markers are checked for side effects. Error continuation fixtures require the exact original exec ID, error text and code; success paths reject unexpected throws.
+
+On 2026-10-06, isolated probes of PR #2447 at `e6e36ba27` on account 150's prod host passed buffered and SSE Read/Write/Bash/Grep using `composer-2.5`. Grep passed with complete declarations, including explicit false `-i` and `multiline`; a narrower schema correctly rejected it. Undeclared native tools were rejected within the model stream; trailing user input and duplicate results failed without starting another upstream connection. Client results were simulated and gateway tool targets remained absent.
+
+Shell error text reached the original exec, but the upstream wrapped it as `Command failed to spawn`; classification fidelity is not proven. The model still attempted to reuse a Shell variable across calls; truthful simulated client feedback let it report the failure. TokenKey must not supply an environment to make that assumption work. Evidence: `.cache/observability/cursor150-pr2447-live/report.md`.
+
+These are protocol integration tests, not UI e2e or production user 16 acceptance. They did not exercise production scheduling, a real client executor or billing persistence. At that snapshot production was still on 1.8.272, account 150 remained unschedulable and its previous Claude model mapping was absent. Deployment and scheduling changes are outside this PR.
 
 ## Status
 

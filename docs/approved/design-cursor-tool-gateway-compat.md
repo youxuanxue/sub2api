@@ -50,14 +50,17 @@ expiry, cancellation and result correlation must remain bounded and isolated
 between authenticated callers. Existing declared MCP handoff can continue to
 use its current history replay path.
 
-Implementation status (2026-10-04): retained upstream continuation is implemented.
-The earlier cancel/history replay prototype could not advance Write's internal
-Read phase; keeping the original duplex now allows missing-file Read → client
-Write → final completion. Isolated prod-host buffered probes passed Read,
-Write and Bash. Grep was rejected by upstream policy before any tool emission;
-it remains locally verified only. Streaming Read/Write/Bash also passed on the prod host at 05:22 UTC, including
-a 30-second foreground Bash handoff. The tool target file remained absent.
-Evidence: `.cache/observability/cursor150-retained-20261004/report.md`.
+Implementation status (2026-10-06): retained upstream continuation is implemented.
+Keeping the original duplex allows missing-file Read → client Write → final
+completion. Isolated prod-host probes of PR #2447 at `e6e36ba27` passed buffered
+and SSE Read/Write/Bash/Grep with simulated client results and `composer-2.5`.
+Grep requires the client schema to declare emitted parameters, including explicit
+false `-i` and `multiline`; omitting those declarations correctly rejects the call.
+The gateway tool target remained absent. These probes bypassed the production
+scheduler and did not replay user 16's traffic. At the probe snapshot, production
+remained on 1.8.272, account 150 was unschedulable, and its previous
+`claude-fable-5-1` mapping was absent; protocol success is not production recovery.
+Evidence: `.cache/observability/cursor150-pr2447-live/report.md`.
 
 ## Revised continuation contract (2026-10-04)
 
@@ -84,13 +87,53 @@ Results are consumed once; duplicates never replay an operation or settlement.
 Pending runs have per-owner, per-account and global limits, a client-wait TTL,
 and an absolute lifetime. IDs reveal neither supplier nor account identity.
 
-Result adapters preserve missing-file, rejection and execution-error semantics.
+Result adapters encode recognized missing-file errors and preserve other client
+error text; upstream error rendering is not guaranteed to preserve classification.
 Known line-numbered Read output is decoded; ambiguous/truncated output cannot be
 used as complete file contents for an internal edit. Native Read/Write results
 are sent with the original exec IDs. Shell results preserve available status;
 unavailable process metadata is not inferred from arbitrary prose. Grep output
 is accepted only when its structured native representation can be reconstructed.
 Client results are never supplemented by reading gateway files or running tools.
+
+### Gateway-only boundary clarification (conversation approval, 2026-10-06)
+
+TokenKey retains model protocol state only. Client cwd, environment variables,
+processes, files and permissions belong to the client. The gateway must not
+create an execution environment, poll a background handle, fix generated shell
+programs, or execute a fallback. Model prose about persistent Shell state is
+not a gateway capability promise.
+
+Native Shell success uses the existing compatibility convention: a successful
+client tool acknowledgement maps to native success/zero. This is not a measured
+process exit code; unstructured client text cannot establish stdout/stderr
+separation or process metadata. No PID, duration or changed cwd is added.
+Client `is_error` cannot distinguish permission denial from execution failure:
+send its original text through an in-band exec throw without assigning either
+classification or an exit code. A background-shaped response also retains its
+original text in an in-band representation error; no gateway process ownership
+is implied. These tool errors close the exec frame, not the model stream.
+The 2026-10-06 live probe confirmed original error text reached the upstream on
+the same connection, but the upstream rendered the generic throw as
+`Command failed to spawn`, even for a client-reported nonzero exit. Gateway
+forwarding fidelity does not imply accurate upstream classification. The model
+also attempted to reuse a Shell variable across calls despite a fresh-process
+tool description. Neither limitation authorizes a gateway execution environment,
+invented exit metadata, command repair or filtering of generated prose.
+
+A ranged Read retains content and the range marker but omits whole-file totals.
+Proto3 zero defaults for these totals mean no supplied metadata in this adapter;
+they do not prove an empty file or guarantee the upstream interprets them as
+unknown. Unstructured Read/Write acknowledgements cannot
+independently verify filesystem state. Grep text uses the first `:line:` separator
+(filenames containing that separator remain unsupported); totals must not overflow.
+
+Results with trailing user text are unsupported continuations and fail closed,
+including after expiry. They must not silently create a new model run. System
+and developer messages do not hide pending results from affinity lookup; only a
+later assistant response separates completed tool history from a new user turn.
+Concurrent submissions of one pending result are consumed once. This guards
+gateway replay, not a model issuing a new operation with a new tool ID.
 
 A retained run's intermediate tool segments report zero settled usage with the
 provider-neutral `model-deferred` marker; both shared cost owners settle zero
@@ -161,6 +204,7 @@ so old receivers do not lose provenance from new labels.
 | JSON/SSE errors and public model/usage metadata remain supplier-neutral; failed turns do not settle | `TestMessagesPublicErrorMapping` and `TestCursorProtocolRoutesUseNativeTransportAndSettlement` |
 | Owner/key/schema/history isolation, duplicate consumption, capacity, expiry and disconnect | `TestNativeRunIsolationExpiryAndCancellation`, `TestPendingToolIDsOnlyLatestResultTurn` |
 | Read wrappers, missing/empty file, structured results and client rejection | `TestNativeClientResultSemantics` |
+| Original client errors, ranged metadata, Grep fidelity, trailing-input rejection and concurrent single consumption | `TestNativeClientResultEvidence`, `TestNativeShellErrorContinuesOriginalRun`, `TestNativeContinuationTrailingTextFailsClosed`, `TestNativeContinuationConcurrentSingleConsumption` |
 | Zero intermediate cost including per-request pricing; final settlement remains normal | `TestCursorDeferredSegmentsSettleZeroBeforeTerminalUsage` |
 | Cancellation/timeout identity, partial output, policy and transport regressions | Existing Cursor transport, timeout and buffered failure tests |
 | Legacy and neutral wire provenance retain the same durable billing tier | `TestCursorRelayConversionsRetainBillingProvenance` |

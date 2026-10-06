@@ -20,8 +20,9 @@ import (
 )
 
 type nativeFixtureStep struct {
-	exec  *pb.ExecServerMessage
-	check func(*pb.ExecClientMessage) error
+	exec      *pb.ExecServerMessage
+	check     func(*pb.ExecClientMessage) error
+	wantThrow *pb.ExecClientThrow
 }
 
 // A duplex fixture refuses to advance until the ORIGINAL exec ID receives a
@@ -65,6 +66,10 @@ func retainedFixture(t *testing.T, steps []nativeFixtureStep, calls *atomic.Int3
 						return
 					}
 					if reply := message.ExecClientMessage; reply != nil {
+						if step.wantThrow != nil {
+							_ = writer.CloseWithError(fmt.Errorf("tool result received instead of expected throw"))
+							return
+						}
 						if reply.Id != step.exec.Id || reply.ExecId != step.exec.ExecId {
 							_ = writer.CloseWithError(fmt.Errorf("wrong exec correlation"))
 							return
@@ -77,9 +82,16 @@ func retainedFixture(t *testing.T, steps []nativeFixtureStep, calls *atomic.Int3
 						}
 						matched = true
 					}
+					if control := message.ExecClientControlMessage; control != nil && control.Throw != nil {
+						if step.wantThrow == nil || !proto.Equal(control.Throw, step.wantThrow) {
+							_ = writer.CloseWithError(fmt.Errorf("unexpected tool throw"))
+							return
+						}
+						matched = true
+					}
 					if control := message.ExecClientControlMessage; control != nil && control.StreamClose != nil {
-						if !matched {
-							_ = writer.CloseWithError(fmt.Errorf("exec closed without a result"))
+						if !matched || control.StreamClose.Id != step.exec.Id {
+							_ = writer.CloseWithError(fmt.Errorf("exec closed without a matching result"))
 							return
 						}
 						break
@@ -155,7 +167,7 @@ func TestNativeToolsRetainedRoundTrip(t *testing.T) {
 				require.NoError(t, os.WriteFile(path, []byte("GATEWAY_SECRET"), 0600))
 				nonce := "CLIENT_" + uuid.NewString()
 				steps := []nativeFixtureStep{
-					{&pb.ExecServerMessage{Id: 71, ExecId: "read-before-edit", ReadArgs: &pb.ReadArgs{Path: path, ToolCallId: "edit"}}, func(reply *pb.ExecClientMessage) error {
+					{exec: &pb.ExecServerMessage{Id: 71, ExecId: "read-before-edit", ReadArgs: &pb.ReadArgs{Path: path, ToolCallId: "edit"}}, check: func(reply *pb.ExecClientMessage) error {
 						if missing {
 							if reply.GetReadResult().GetFileNotFound().GetPath() != path {
 								return fmt.Errorf("missing-file result was lost")
@@ -165,19 +177,19 @@ func TestNativeToolsRetainedRoundTrip(t *testing.T) {
 						}
 						return nil
 					}},
-					{&pb.ExecServerMessage{Id: 72, ExecId: "write-phase", WriteArgs: &pb.WriteArgs{Path: path, FileText: nonce, ToolCallId: "edit", ReturnFileContentAfterWrite: true}}, func(reply *pb.ExecClientMessage) error {
+					{exec: &pb.ExecServerMessage{Id: 72, ExecId: "write-phase", WriteArgs: &pb.WriteArgs{Path: path, FileText: nonce, ToolCallId: "edit", ReturnFileContentAfterWrite: true}}, check: func(reply *pb.ExecClientMessage) error {
 						if reply.GetWriteResult().GetSuccess().GetFileContentAfterWrite() != nonce {
 							return fmt.Errorf("write acknowledgement missing")
 						}
 						return nil
 					}},
-					{&pb.ExecServerMessage{Id: 73, ShellArgs: &pb.ShellArgs{Command: "touch " + marker}}, func(reply *pb.ExecClientMessage) error {
+					{exec: &pb.ExecServerMessage{Id: 73, ShellArgs: &pb.ShellArgs{Command: "touch " + marker}}, check: func(reply *pb.ExecClientMessage) error {
 						if reply.GetShellResult().GetSuccess().GetStdout() != nonce {
 							return fmt.Errorf("shell result lost")
 						}
 						return nil
 					}},
-					{&pb.ExecServerMessage{Id: 74, GrepArgs: &pb.GrepArgs{Pattern: nonce, Path: &path}}, func(reply *pb.ExecClientMessage) error {
+					{exec: &pb.ExecServerMessage{Id: 74, GrepArgs: &pb.GrepArgs{Pattern: nonce, Path: &path}}, check: func(reply *pb.ExecClientMessage) error {
 						value := reply.GetGrepResult().GetSuccess().GetWorkspaceResults()[path]
 						if value == nil || len(value.GetContent().GetMatches()) != 1 {
 							return fmt.Errorf("grep result lost")
@@ -349,7 +361,10 @@ func TestPendingToolIDsOnlyLatestResultTurn(t *testing.T) {
 		{fmt.Sprintf(`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":%q}]}]}`, id), true},
 		{fmt.Sprintf(`{"messages":[{"role":"tool","tool_call_id":%q}]}`, id), true},
 		{fmt.Sprintf(`{"input":[{"type":"function_call_output","call_id":%q}]}`, id), true},
-		{fmt.Sprintf(`{"messages":[{"role":"tool","tool_call_id":%q},{"role":"user","content":"next question"}]}`, id), false},
+		{fmt.Sprintf(`{"messages":[{"role":"tool","tool_call_id":%q},{"role":"user","content":"next question"}]}`, id), true},
+		{fmt.Sprintf(`{"messages":[{"role":"tool","tool_call_id":%q},{"role":"assistant","content":"done"},{"role":"user","content":"next question"}]}`, id), false},
+		{fmt.Sprintf(`{"messages":[{"role":"tool","tool_call_id":%q},{"role":"assistant","content":"done"},{"role":"system","content":"rules"},{"role":"user","content":"next question"}]}`, id), false},
+		{fmt.Sprintf(`{"input":[{"type":"function_call_output","call_id":%q},{"role":"assistant","content":"done"},{"role":"developer","content":"rules"},{"role":"user","content":"next question"}]}`, id), false},
 	} {
 		ids := PendingToolIDs([]byte(tc.body))
 		if tc.want {

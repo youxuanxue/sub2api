@@ -13958,6 +13958,11 @@
       "rationale": "Preserve original duplex continuation, authenticated single consumption, bounded expiry, and zero gateway side effects."
     },
     {
+      "path": "backend/internal/integration/cursor/native_boundary_tk_test.go",
+      "must_contain": ["TestNativeClientResultEvidence", "TestNativeShellErrorContinuesOriginalRun", "TestNativeContinuationTrailingTextFailsClosed", "TestNativeContinuationConcurrentSingleConsumption"],
+      "rationale": "Keep client result fidelity and single consumption regressions: never invent error classifications or silently replay a result followed by user text."
+    },
+    {
       "path": "backend/internal/integration/cursor/native_runs_tk.go",
       "must_contain": [
         "func ContinuationAccount",
