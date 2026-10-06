@@ -35,6 +35,7 @@ func (h *GatewayHandler) CodexModels(c *gin.Context) {
 		modelIDs = filterModelsByCustomList(modelIDs, nil, apiKey.Group.ModelsListConfig.Models)
 	}
 	modelIDs = service.FilterCodexModelIDsForGroup(modelIDs, apiKey.Group)
+	modelIDs = omitTypeSafeFromChatCatalog(modelIDs)
 	body, err := h.gatewayService.BuildCodexModelsManifestForGroup(
 		c.Request.Context(),
 		apiKey.Group,
@@ -67,8 +68,8 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 	}
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(ctx, groupID)
-		availableModels = omitTypeSafeFromCodexListing(availableModels)
-		fallbackModels := omitTypeSafeFromCodexListing(defaultCodexModelIDsForPlatform(service.PlatformComposite))
+		availableModels = omitTypeSafeFromChatCatalog(availableModels)
+		fallbackModels := omitTypeSafeFromChatCatalog(defaultCodexModelIDsForPlatform(service.PlatformComposite))
 		if group.ModelAllowlistEnabled() {
 			source := availableModels
 			if len(source) == 0 {
@@ -97,7 +98,7 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 	return fallbackModels
 }
 
-func omitTypeSafeFromCodexListing(models []string) []string {
+func omitTypeSafeFromChatCatalog(models []string) []string {
 	if len(models) == 0 {
 		return models
 	}

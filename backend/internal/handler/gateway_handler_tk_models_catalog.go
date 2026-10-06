@@ -42,18 +42,18 @@ func (h *GatewayHandler) tkServeModels(c *gin.Context) {
 	// selected group platform so cross-platform model_mapping entries on
 	// sibling accounts in the same group don't leak through.
 	if platform == service.PlatformComposite {
-		availableModels := omitTypeSafeFromCodexListing(h.compositeAvailableModels(c.Request.Context(), groupID))
+		availableModels := omitTypeSafeFromChatCatalog(h.compositeAvailableModels(c.Request.Context(), groupID))
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 			fallbackModels := defaultModelIDsForPlatform(service.PlatformComposite)
 			availableModels = modelListingSource(platform, availableModels, fallbackModels)
 			if apiKey.Group.CustomModelsListEnabled() {
 				availableModels = filterModelsByCustomList(availableModels, fallbackModels, apiKey.Group.ModelsListConfig.Models)
 			}
-			writeAllowlistedModelsList(c, platform, omitTypeSafeFromCodexListing(apiKey.Group.ModelAllowlist.FilterForListing(availableModels)))
+			writeAllowlistedModelsList(c, platform, omitTypeSafeFromChatCatalog(apiKey.Group.ModelAllowlist.FilterForListing(availableModels)))
 			return
 		}
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
-			availableModels = omitTypeSafeFromCodexListing(filterModelsByCustomList(availableModels, defaultModelIDsForPlatform(service.PlatformComposite), apiKey.Group.ModelsListConfig.Models))
+			availableModels = omitTypeSafeFromChatCatalog(filterModelsByCustomList(availableModels, defaultModelIDsForPlatform(service.PlatformComposite), apiKey.Group.ModelsListConfig.Models))
 			writeModelsList(c, service.PlatformComposite, availableModels)
 			return
 		}

@@ -4,62 +4,101 @@
   "sentinels": [
     {
       "path": "backend/internal/config/config.go",
-      "must_contain": ["viper.SetDefault(\"billing.inflight_reservation.enabled\", false)", "viper.SetDefault(\"gateway.antigravity_pre_content_keepalive_enabled\", false)"],
+      "must_contain": [
+        "viper.SetDefault(\"billing.inflight_reservation.enabled\", false)",
+        "viper.SetDefault(\"gateway.antigravity_pre_content_keepalive_enabled\", false)"
+      ],
       "rationale": "Upstream imports must not silently add Redis admission reservations or commit pre-content SSE responses; both changes require explicit rollout opt-in while TokenKey persisted holds remain active."
     },
     {
       "path": "backend/internal/config/config_test.go",
-      "must_contain": ["TestLoadInflightReservationRequiresExplicitOptIn"],
+      "must_contain": [
+        "TestLoadInflightReservationRequiresExplicitOptIn"
+      ],
       "rationale": "Runtime loader coverage verifies conservative defaults and explicit environment opt-in instead of relying only on example YAML."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_compat_stream.go",
-      "must_contain": ["s.settingService.cfg.Gateway.AntigravityPreContentKeepaliveEnabled", "s.preContentKeepaliveInterval <= 0", "case now := <-preContentCh:"],
+      "must_contain": [
+        "s.settingService.cfg.Gateway.AntigravityPreContentKeepaliveEnabled",
+        "s.preContentKeepaliveInterval <= 0",
+        "case now := <-preContentCh:"
+      ],
       "rationale": "Pre-content keepalive and its deadline must remain disabled without explicit opt-in so empty streams retain transparent failover."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_compat_test.go",
-      "must_contain": ["TestAntigravityCompatDefaultPreContentPreservesFailover"],
+      "must_contain": [
+        "TestAntigravityCompatDefaultPreContentPreservesFailover"
+      ],
       "rationale": "Chat and Responses regressions protect default uncommitted empty-stream failover while existing opt-in keepalive tests remain intact."
     },
     {
       "path": "backend/internal/service/claude_reset_credits.go",
-      "must_contain": ["req.Header.Set(\"User-Agent\", GetCanonicalUserAgentForContext(ctx))", "s.tlsProfiles.ResolveTLSProfile(account)", "WithHTTPUpstreamPublicHostsOnly(WithHTTPUpstreamRedirectsDisabled(req.Context()))", "s.upstream.DoWithTLS(req.WithContext(ctx), proxy, account.ID, 0, profile)", "s.doForAccount(req, proxy, account)"],
+      "must_contain": [
+        "req.Header.Set(\"User-Agent\", GetCanonicalUserAgentForContext(ctx))",
+        "s.tlsProfiles.ResolveTLSProfile(account)",
+        "WithHTTPUpstreamPublicHostsOnly(WithHTTPUpstreamRedirectsDisabled(req.Context()))",
+        "s.upstream.DoWithTLS(req.WithContext(ctx), proxy, account.ID, 0, profile)",
+        "s.doForAccount(req, proxy, account)"
+      ],
       "rationale": "Claude reset queries reuse the account TLS and canonical UA owners without leaking credentials to redirects or downgrading failed fingerprint transports."
     },
     {
       "path": "backend/internal/service/claude_reset_redeem.go",
-      "must_contain": ["s.organization(ctx, account, token, proxy)", "s.claim(ctx, account, token, proxy, org, grant.ID, operation)", "s.doForAccount(req, proxy, account)"],
+      "must_contain": [
+        "s.organization(ctx, account, token, proxy)",
+        "s.claim(ctx, account, token, proxy, org, grant.ID, operation)",
+        "s.doForAccount(req, proxy, account)"
+      ],
       "rationale": "Profile reads and irreversible claims retain the same account identity as status queries."
     },
     {
       "path": "backend/internal/service/claude_reset_transport_tk_test.go",
-      "must_contain": ["TestClaudeResetUsesCanonicalUserAgentOwner", "TestClaudeResetAccountTLSTransportAndSafety", "TestClaudeResetTLSFailureDoesNotDowngradeTransport"],
+      "must_contain": [
+        "TestClaudeResetUsesCanonicalUserAgentOwner",
+        "TestClaudeResetAccountTLSTransportAndSafety",
+        "TestClaudeResetTLSFailureDoesNotDowngradeTransport"
+      ],
       "rationale": "Reset transport semantic regressions must survive upstream refactors."
     },
     {
       "path": "backend/internal/handler/gateway_handler_responses.go",
-      "must_contain": ["defer inflightRelease()\n\trequestCtx = c.Request.Context()"],
+      "must_contain": [
+        "defer inflightRelease()\n\trequestCtx = c.Request.Context()"
+      ],
       "rationale": "Responses must retain the reservation-bearing context when attaching protocol routing so asynchronous billing holds survive handler return."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_responses_ingress_test.go",
-      "must_contain": ["TestGatewayResponsesRetainsInflightReservationUntilAsyncUsageCompletes"],
+      "must_contain": [
+        "TestGatewayResponsesRetainsInflightReservationUntilAsyncUsageCompletes"
+      ],
       "rationale": "Full-handler streaming and buffered regressions protect reservation handoff to queued billing from upstream context reconstruction."
     },
     {
       "path": "backend/internal/handler/gateway_inflight_reservation.go",
-      "must_contain": ["c.GetBool(tkHoldLifecycleKey)", "service.ReserveCandidateInflight("],
+      "must_contain": [
+        "c.GetBool(tkHoldLifecycleKey)",
+        "service.ReserveCandidateInflight("
+      ],
       "rationale": "Do not double-reserve persisted TokenKey holds or bypass candidate-origin reservation rebinding."
     },
     {
       "path": "backend/internal/service/candidate_inflight_reservation_tk.go",
-      "must_contain": ["SetCandidateBillingHook(ctx, refresh)", "reservation.HandlerDone()", "SetCandidateInflightReservation(ctx, nil)"],
+      "must_contain": [
+        "SetCandidateBillingHook(ctx, refresh)",
+        "reservation.HandlerDone()",
+        "SetCandidateInflightReservation(ctx, nil)"
+      ],
       "rationale": "Candidate-native reservations follow billing-origin changes and asynchronous settlement lifecycle."
     },
     {
       "path": "backend/internal/service/candidate_inflight_reservation_tk_test.go",
-      "must_contain": ["TestCandidateInflightReservationRebindAndAsyncSettlement", "TestCandidateInflightReservationRejectsUnpricedRebind"],
+      "must_contain": [
+        "TestCandidateInflightReservationRebindAndAsyncSettlement",
+        "TestCandidateInflightReservationRejectsUnpricedRebind"
+      ],
       "rationale": "Behavioral coverage must survive upstream reservation changes."
     },
     {
@@ -13890,27 +13929,42 @@
     },
     {
       "path": "backend/internal/service/candidate_request_tk.go",
-      "must_contain": ["cursor.ContinuationAccount(key.UserID, key.ID, body)"],
+      "must_contain": [
+        "cursor.ContinuationAccount(key.UserID, key.ID, body)"
+      ],
       "rationale": "Resolve authenticated native tool continuation before ordinary candidate selection without bypassing eligibility."
     },
     {
       "path": "backend/internal/service/gateway_usage_billing.go",
-      "must_contain": ["cursorDeferredBilling(in.Account, in.Result.BillingTier)"],
+      "must_contain": [
+        "cursorDeferredBilling(in.Account, in.Result.BillingTier)"
+      ],
       "rationale": "Deferred native tool handoffs must not be charged as separate model runs by the shared Messages cost owner."
     },
     {
       "path": "backend/internal/service/openai_gateway_usage.go",
-      "must_contain": ["cursorDeferredBilling(in.Account, in.Result.BillingTier)"],
+      "must_contain": [
+        "cursorDeferredBilling(in.Account, in.Result.BillingTier)"
+      ],
       "rationale": "Chat/Responses settlement and cost previews must defer intermediate native tool segments, including per-call pricing."
     },
     {
       "path": "backend/internal/integration/cursor/native_runs_tk_test.go",
-      "must_contain": ["TestNativeToolsRetainedRoundTrip", "TestNativeRunIsolationExpiryAndCancellation", "TestNativeClientResultSemantics"],
+      "must_contain": [
+        "TestNativeToolsRetainedRoundTrip",
+        "TestNativeRunIsolationExpiryAndCancellation",
+        "TestNativeClientResultSemantics"
+      ],
       "rationale": "Preserve original duplex continuation, authenticated single consumption, bounded expiry, and zero gateway side effects."
     },
     {
       "path": "backend/internal/integration/cursor/native_runs_tk.go",
-      "must_contain": ["func ContinuationAccount", "run.owner != owner", "delete(m.pending, clientResult.ToolCallID)", "context.WithoutCancel(ctx)"],
+      "must_contain": [
+        "func ContinuationAccount",
+        "run.owner != owner",
+        "delete(m.pending, clientResult.ToolCallID)",
+        "context.WithoutCancel(ctx)"
+      ],
       "rationale": "Bind retained connections to authenticated owners; HTTP handoff completion must not cancel the run or permit duplicate execution."
     },
     {
@@ -15569,6 +15623,36 @@
         "service.EvaluateTrialUnpaidMedia("
       ],
       "rationale": "TK companion for the unpaid trial media gate invoked from api_key_auth.go."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_models_catalog.go",
+      "must_contain": [
+        "availableModels := omitTypeSafeFromChatCatalog(h.compositeAvailableModels"
+      ],
+      "rationale": "Composite OpenAI /v1/models must not advertise jev-latest. Chat clients would POST /v1/chat/completions and hit the System One protocol 404."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_codex_models.go",
+      "must_contain": [
+        "func omitTypeSafeFromChatCatalog(",
+        "modelIDs = omitTypeSafeFromChatCatalog(modelIDs)"
+      ],
+      "rationale": "Shared TypeSafe catalog filter and Codex final omit must survive upstream listing rewrites."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_model_list.go",
+      "must_contain": [
+        "ids := omitTypeSafeFromChatCatalog(directCustomCapabilityIDs"
+      ],
+      "rationale": "Candidate/universal /v1/models is served before the composite catalog path; omitting jev here closes the leak."
+    },
+    {
+      "path": "backend/internal/handler/gateway_models_test.go",
+      "must_contain": [
+        "TestGatewayModels_CompositeTypeSafeListingScope",
+        "require.NotContains(t, modelIDsForTest(models.Data), \"jev-latest\")"
+      ],
+      "rationale": "Focused regression: composite /v1/models keeps Claude and drops jev-latest; Codex listing stays TypeSafe-free."
     }
   ]
 }

@@ -83,7 +83,7 @@ func (h *GatewayHandler) tryServeUniversalModels(c *gin.Context, apiKey *service
 		}
 		return true
 	}
-	ids := directCustomCapabilityIDs(apiKey, capabilityModelIDs(capabilities, ""))
+	ids := omitTypeSafeFromChatCatalog(directCustomCapabilityIDs(apiKey, capabilityModelIDs(capabilities, "")))
 	if !apiKey.IsUniversal() && apiKey.Group != nil && !isAnthropicModelsRequest(c) {
 		platform := apiKey.Group.Platform
 		if forcedPlatform, ok := middleware2.GetForcePlatformFromContext(c); ok && forcedPlatform != "" {
