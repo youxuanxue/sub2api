@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
@@ -167,6 +168,12 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 		// 后者不该被伪装成“该模型不在你的套餐内”。
 		if IsClientClosedRequestError(c, err) {
 			writeUniversalClientClosedRequest(c, shape)
+		} else if errors.Is(err, cursor.ErrContinuationUnavailable) {
+			payload := gin.H{"error": gin.H{"type": "invalid_request_error", "code": "tool_continuation_unavailable", "message": "Tool continuation is unavailable or not authorized."}}
+			if shape == service.ShapeAnthropicMessages || shape == service.ShapeAnthropicCountTokens {
+				payload["type"] = "error"
+			}
+			c.AbortWithStatusJSON(http.StatusBadRequest, payload)
 		} else if errors.Is(err, service.ErrCandidateContinuationUnavailable) {
 			writeCandidateContinuationError(c, shape)
 		} else if errors.Is(err, service.ErrUniversalUnsupportedModel) {

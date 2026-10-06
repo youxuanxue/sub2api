@@ -1036,6 +1036,9 @@ func (s *GatewayService) settleClaudeCustomerFacingCost(
 	}
 	multiplier, imageMultiplier := s.claudeUsageRateMultipliers(ctx, in.APIKey, in.User, pricingAt)
 	billingModel := s.resolveClaudeBillingModel(ctx, in.Result, in.APIKey, in.Account, in.ChannelUsageFields)
+	if cursorDeferredBilling(in.Account, in.Result.BillingTier) {
+		return &claudeCustomerFacingCostSettlement{Cost: &CostBreakdown{BillingMode: string(BillingModeToken)}, Multiplier: multiplier, ImageMultiplier: imageMultiplier, BillingModel: billingModel, EffectiveBillingModel: billingModel}, nil
+	}
 	opts := in.Opts
 	if opts == nil {
 		opts = &recordUsageOpts{}

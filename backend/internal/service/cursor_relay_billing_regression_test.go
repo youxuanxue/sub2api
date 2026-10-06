@@ -246,3 +246,20 @@ func TestCursorMessagesRelayFailureDoesNotSettle(t *testing.T) {
 		}
 	}
 }
+
+func TestCursorDeferredSegmentsSettleZeroBeforeTerminalUsage(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	billingRepo := &openAIRecordUsageBillingRepoStub{}
+	svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+	account := cursorCandidateAccount("composer-2.5")
+	input := &OpenAIRecordUsageInput{Result: &OpenAIForwardResult{RequestID: "deferred", Model: "composer-2.5", BillingTier: "model-deferred"}, APIKey: &APIKey{ID: 2}, User: &User{ID: 1}, Account: account}
+	require.NoError(t, svc.RecordUsage(t.Context(), input))
+	require.Equal(t, 1, billingRepo.calls, "normal settlement still owns usage and hold release")
+	require.Zero(t, usageRepo.lastLog.ActualCost)
+	require.Equal(t, "model-deferred", *usageRepo.lastLog.BillingTier)
+	input.Result = &OpenAIForwardResult{RequestID: "terminal", Model: "composer-2.5", BillingTier: "cursor-oauth-reported", Usage: OpenAIUsage{InputTokens: 100, OutputTokens: 20}}
+	require.NoError(t, svc.RecordUsage(t.Context(), input))
+	require.Equal(t, 2, billingRepo.calls)
+	require.Positive(t, usageRepo.lastLog.ActualCost)
+	require.False(t, cursorDeferredBilling(&Account{}, "model-deferred"), "unrelated suppliers cannot waive billing using this marker")
+}

@@ -107,6 +107,10 @@ func executeCursorMessages(req *http.Request, account *Account, upstream HTTPUps
 	body = normalizeCursorMessagesContent(body, model)
 	ctx := logger.IntoContext(req.Context(), logger.FromContext(req.Context()).With(
 		zap.String("component", "gateway.cursor"), zap.Int64("account_id", account.ID), zap.String("model", model)))
+	if identity, ok := candidateIdentityFromContext(req.Context()); ok {
+		ctx = cursor.WithRunOwner(ctx, cursor.RunOwner{UserID: identity.userID, KeyID: identity.keyID, AccountID: account.ID})
+	}
+
 	return cursor.Messages(ctx, account.GetCredential("api_key"), body, parameters, wireModel, func(native *http.Request) (*http.Response, error) {
 		ctx := WithHTTPUpstreamRedirectsDisabled(WithHTTPUpstreamProfile(native.Context(), HTTPUpstreamProfileCursor))
 		return upstream.Do(native.WithContext(ctx), proxyURL, account.ID, account.Concurrency)
@@ -141,7 +145,7 @@ func cursorBillingTier(tier string) string {
 		return cursor.ReportedBillingTier
 	case cursor.WireEstimatedBillingTier:
 		return cursor.EstimatedBillingTier
-	case cursor.ReportedBillingTier, cursor.EstimatedBillingTier:
+	case cursor.ReportedBillingTier, cursor.EstimatedBillingTier, cursor.DeferredBillingTier:
 		return tier
 	default:
 		return ""
@@ -195,4 +199,10 @@ func cursorPublicPolicyError(err error) (string, string) {
 	default:
 		return "", ""
 	}
+}
+
+// Only the native provider's deferred marker exempts an intermediate segment.
+// Keep normal usage/hold settlement running with zero cost (including per-call pricing).
+func cursorDeferredBilling(account *Account, tier string) bool {
+	return account != nil && account.IsCursor() && tier == cursor.DeferredBillingTier
 }

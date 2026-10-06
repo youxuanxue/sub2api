@@ -8,12 +8,24 @@ See `cursor/proto/agent.proto` and `cursor.ts` in that snapshot.
 Wire fields were cross-checked against locally installed Cursor Agent
 `2026.09.02-c22c1a3`. This subset includes the current `TurnEndedUpdate` usage,
 request context completeness flags, prefetched blobs, and protobuf Value MCP
-arguments. No CLI code, SDK runtime, filesystem tools or session cache is shipped.
+arguments. No CLI code, SDK runtime, filesystem tools is shipped. Retained native runs hold only bounded in-memory protocol state.
 `InteractionUpdate.token_delta` is field 8; field 6 is the unconsumed user-message
 event. Terminal usage fields are optional, so absent buckets must not be treated
 as reported zeros. Literal wire regression fixtures preserve these distinctions.
 
-Regenerate from the backend directory with protoc 33.0 and protoc-gen-go 1.36.10:
+The native Read/Write/Shell/Grep and Pi argument/result subset follows
+[oh-my-pi 6d8552d7f9df1852826923f07f0eed4fe29511f3](https://github.com/can1357/oh-my-pi/blob/6d8552d7f9df1852826923f07f0eed4fe29511f3/packages/ai/src/providers/cursor/proto/agent.proto).
+These messages only translate calls to caller-declared tools. They do not add
+native executors. AGENT mode does not grant gateway execution capability.
+
+Shell timeout semantics were cross-checked against the official distributed CLI
+`2026.09.28-64d2043`: `TimeoutBehavior` is UNSPECIFIED=0, CANCEL=1,
+BACKGROUND=2. CANCEL maps to a client timeout. For a foreground command, BACKGROUND is
+a soft-deadline preference: the client instead completes or reports a timeout
+under its own bounded foreground execution. Explicit background execution is
+rejected; no process handles or background ownership are accepted by the relay.
+
+Regenerate from the backend directory with protoc 36.2 and protoc-gen-go 1.36.10:
 
 ```sh
 protoc -I internal/integration/cursor/agentpb --go_out=internal/integration/cursor/agentpb --go_opt=paths=source_relative internal/integration/cursor/agentpb/agent.proto

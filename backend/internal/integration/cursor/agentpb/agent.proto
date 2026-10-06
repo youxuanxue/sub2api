@@ -46,7 +46,7 @@ message ConversationStateStructure {
   repeated string pending_tool_calls = 4;
   repeated bytes turns = 8;
   // AgentMode: 0 UNSPECIFIED, 1 AGENT, 2 ASK, 3 PLAN, 4 DEBUG, 5 TRIAGE, 6 PROJECT.
-  // TokenKey uses ASK — AGENT invites native FS/shell ExecServerMessage.
+  // TokenKey uses AGENT, but all workspace execution is delegated to the client.
   int32 mode = 10;
 }
 message ConversationAction {
@@ -65,7 +65,10 @@ message ConversationTurnStructure { AgentConversationTurnStructure agent_convers
 message AgentConversationTurnStructure { bytes user_message = 1; repeated bytes steps = 2; }
 message ConversationStep { AssistantMessage assistant_message = 1; ToolCall tool_call = 2; }
 message AssistantMessage { string text = 1; }
-message ToolCall { McpToolCall mcp_tool_call = 15; string tool_call_id = 57; }
+message ToolCall {
+  McpToolCall mcp_tool_call = 15;
+  string tool_call_id = 57;
+}
 message McpToolCall { McpArgs args = 1; McpResult result = 2; }
 message McpArgs {
   string name = 1;
@@ -92,12 +95,91 @@ message McpTextContent { string text = 1; }
 message Empty {}
 message ExecServerMessage {
   uint32 id = 1;
+  ShellArgs shell_args = 2;
+  WriteArgs write_args = 3;
+  GrepArgs grep_args = 5;
+  ReadArgs read_args = 7;
   Empty request_context_args = 10;
   McpArgs mcp_args = 11;
+  ShellArgs shell_stream_args = 14;
   string exec_id = 15;
+  ReadArgs redacted_read_args = 29;
+  PiReadExecArgs pi_read_args = 45;
+  PiBashExecArgs pi_bash_args = 46;
+  PiWriteExecArgs pi_write_args = 48;
+  PiGrepExecArgs pi_grep_args = 49;
+  ShellArgs mini_swe_agent_bash_args = 52;
+}
+// Argument-only subset: this adapter has no filesystem or shell executor.
+// Fields follow oh-my-pi 6d8552d7f9df1852826923f07f0eed4fe29511f3.
+message ReadArgs {
+  string path = 1;
+  string tool_call_id = 2;
+  optional int32 offset = 4;
+  optional uint32 limit = 5;
+  optional string encoding_hint = 6;
+}
+message WriteArgs {
+  string path = 1;
+  string file_text = 2;
+  string tool_call_id = 3;
+  bool return_file_content_after_write = 4;
+  bytes file_bytes = 5;
+  optional string encoding_hint = 6;
+}
+message ShellArgs {
+  string command = 1;
+  string working_directory = 2;
+  int32 timeout = 3;
+  string tool_call_id = 4;
+  bool is_background = 11;
+  bool skip_approval = 12;
+  int32 timeout_behavior = 13;
+  optional int32 hard_timeout = 14;
+  optional string description = 15;
+}
+message GrepArgs {
+  string pattern = 1;
+  optional string path = 2;
+  optional string glob = 3;
+  optional string output_mode = 4;
+  optional int32 context_before = 5;
+  optional int32 context_after = 6;
+  optional int32 context = 7;
+  optional bool case_insensitive = 8;
+  optional string type = 9;
+  optional int32 head_limit = 10;
+  optional bool multiline = 11;
+  optional string sort = 12;
+  optional bool sort_ascending = 13;
+  string tool_call_id = 14;
+  optional int32 offset = 16;
+}
+message PiReadExecArgs { string path = 1; optional int32 offset = 2; optional int32 limit = 3; }
+message PiBashExecArgs { string command = 1; optional double timeout = 2; }
+message PiWriteExecArgs { string path = 1; string content = 2; }
+message PiGrepExecArgs {
+  string pattern = 1;
+  optional string path = 2;
+  optional string glob = 3;
+  optional bool ignore_case = 4;
+  optional bool literal = 5;
+  optional int32 context = 6;
+  optional int32 limit = 7;
 }
 message ExecClientMessage {
   uint32 id = 1;
+  ShellResult shell_result = 2;
+  WriteResult write_result = 3;
+  GrepResult grep_result = 5;
+  ReadResult read_result = 7;
+  ShellStream shell_stream = 14;
+  ReadResult redacted_read_result = 29;
+  ShellResult mini_swe_agent_bash_result = 55;
+  PiReadExecResult pi_read_result = 46;
+  PiBashExecResult pi_bash_result = 47;
+  PiWriteExecResult pi_write_result = 49;
+  PiGrepExecResult pi_grep_result = 50;
   RequestContextResult request_context_result = 10;
   McpResult mcp_result = 11;
   string exec_id = 15;
@@ -156,3 +238,45 @@ message TurnEndedUpdate {
   optional int64 cache_write_tokens = 4;
   optional int64 reasoning_tokens = 5;
 }
+
+// Result-only subset. Values originate exclusively from authenticated client results.
+message ReadResult { ReadSuccess success = 1; ReadError error = 2; ReadRejected rejected = 3; ReadFileNotFound file_not_found = 4; }
+message ReadSuccess { string path = 1; optional string content = 2; int32 total_lines = 3; int64 file_size = 4; bool truncated = 6; bool range_applied = 8; }
+message ReadError { string path = 1; string error = 2; }
+message ReadRejected { string path = 1; string reason = 2; }
+message ReadFileNotFound { string path = 1; }
+message WriteResult { WriteSuccess success = 1; WriteError error = 5; WriteRejected rejected = 6; }
+message WriteSuccess { string path = 1; int32 lines_created = 2; int32 file_size = 3; optional string file_content_after_write = 4; }
+message WriteError { string path = 1; string error = 2; }
+message WriteRejected { string path = 1; string reason = 2; }
+message ShellResult { ShellSuccess success = 1; ShellFailure failure = 2; ShellRejected rejected = 4; }
+message ShellSuccess { string command = 1; string working_directory = 2; int32 exit_code = 3; string stdout = 5; string stderr = 6; }
+message ShellFailure { string command = 1; string working_directory = 2; int32 exit_code = 3; string stdout = 5; string stderr = 6; bool aborted = 11; }
+message ShellRejected { string command = 1; string working_directory = 2; string reason = 3; }
+message ShellStream { ShellStreamStdout stdout = 1; ShellStreamStderr stderr = 2; ShellStreamExit exit = 3; ShellStreamStart start = 4; ShellRejected rejected = 5; }
+message ShellStreamStdout { string data = 1; }
+message ShellStreamStderr { string data = 1; }
+message ShellStreamExit { uint32 code = 1; string cwd = 2; bool aborted = 4; }
+message ShellStreamStart {}
+message GrepResult { GrepSuccess success = 1; GrepError error = 2; }
+message GrepError { string error = 1; }
+message GrepSuccess { string pattern = 1; string path = 2; string output_mode = 3; map<string, GrepUnionResult> workspace_results = 4; }
+message GrepUnionResult { GrepCountResult count = 1; GrepFilesResult files = 2; GrepContentResult content = 3; }
+message GrepCountResult { repeated GrepFileCount counts = 1; int32 total_files = 2; int32 total_matches = 3; bool client_truncated = 4; optional int32 head_limit_applied = 6; optional int32 offset_applied = 7; }
+message GrepFileCount { string file = 1; int32 count = 2; }
+message GrepFilesResult { repeated string files = 1; int32 total_files = 2; bool client_truncated = 3; optional int32 head_limit_applied = 5; optional int32 offset_applied = 6; }
+message GrepContentResult { repeated GrepFileMatch matches = 1; int32 total_lines = 2; int32 total_matched_lines = 3; bool client_truncated = 4; optional int32 head_limit_applied = 6; optional int32 offset_applied = 7; }
+message GrepFileMatch { string file = 1; repeated GrepContentMatch matches = 2; }
+message GrepContentMatch { int32 line_number = 1; string content = 2; bool content_truncated = 3; bool is_context_line = 4; }
+message PiReadExecResult { PiReadExecSuccess success = 1; PiReadExecError error = 2; }
+message PiReadExecSuccess { string output = 1; }
+message PiReadExecError { string error = 1; }
+message PiBashExecResult { PiBashExecSuccess success = 1; PiBashExecError error = 2; }
+message PiBashExecSuccess { string output = 1; }
+message PiBashExecError { string error = 1; }
+message PiWriteExecResult { PiWriteExecSuccess success = 1; PiWriteExecError error = 2; }
+message PiWriteExecSuccess { string output = 1; }
+message PiWriteExecError { string error = 1; }
+message PiGrepExecResult { PiGrepExecSuccess success = 1; PiGrepExecError error = 2; }
+message PiGrepExecSuccess { string output = 1; }
+message PiGrepExecError { string error = 1; }

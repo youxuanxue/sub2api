@@ -648,6 +648,9 @@ func (s *OpenAIGatewayService) settleOpenAICustomerFacingCost(
 		return nil, errors.New("openai customer cost input is nil")
 	}
 	prepared := s.prepareOpenAICustomerFacingCostInputs(ctx, in)
+	if cursorDeferredBilling(in.Account, in.Result.BillingTier) {
+		return &openAICustomerFacingCostSettlement{Cost: &CostBreakdown{BillingMode: string(BillingModeToken)}, openAICustomerFacingCostPrepared: prepared}, nil
+	}
 	pricingAt := in.PricingAt
 	if pricingAt.IsZero() {
 		pricingAt = timezone.Now()

@@ -15,6 +15,9 @@ const ReportedBillingTier = "cursor-oauth-reported"
 const WireEstimatedBillingTier = "model-estimated"
 const WireReportedBillingTier = "model-reported"
 
+// Deferred segments carry no charge; terminal reported usage settles the run.
+const DeferredBillingTier = "model-deferred"
+
 // EstimateHandoffUsage uses the same tokenizer as Kiro, without inventing cache
 // hits or adding estimates to reported usage. It counts only this request.
 func EstimateHandoffUsage(input AgentRequest, result AgentResult) AgentUsage {

@@ -74,12 +74,9 @@ const (
 	agentModeAsk   = 2
 )
 
-// relayConversationMode is the mode TokenKey advertises on ConversationState and
-// UserMessage. AGENT invites Cursor to emit native shell/read/Pi-* ExecServerMessage
-// frames against this gateway (prod #150 "unsupported local execution" after
-// 1.8.253). ASK keeps inference + declared McpTools handoff without claiming a
-// local coding-agent runtime.
-const relayConversationMode = agentModeAsk
+// Agent mode enables upstream tool planning. Execution remains exclusively on
+// the caller: native frames are translated to declared client tools or rejected.
+const relayConversationMode = agentModeAgent
 
 // relayRequestContext is the capability surface TokenKey advertises to Cursor.
 // Caller tools are listed on McpTools / RequestContext.tools and returned via
@@ -101,8 +98,8 @@ func relayRequestContext() *pb.RequestContext {
 	}
 }
 
-// AgentMessage is request history, supplied by the caller on every request.
-// No run id, upstream checkpoint, or previous connection is accepted.
+// AgentMessage is caller-supplied history or a tool result. Upstream state is
+// never trusted from the caller; pending IDs resolve through authenticated runs.
 type AgentMessage struct {
 	Role       string
 	Text       string
@@ -122,6 +119,7 @@ type AgentTool struct {
 	Schema      map[string]any
 }
 type AgentRequest struct {
+	handoff    func(context.Context, *pb.ExecServerMessage, AgentResult) (AgentMessage, error)
 	System     string
 	Model      string
 	WireModel  string
@@ -210,7 +208,8 @@ func cursorPromptToolName(model, name string) string {
 // the current request's declaration set: an unknown or ambiguous name fails
 // closed and is never handed to a local executor or forwarded as a tool call.
 // Composer has historically emitted mcp_tokenkey_<name>, while other models
-// commonly use mcp__tokenkey__<name>; both are accepted at this boundary.
+// commonly use mcp__tokenkey__<name>. Live Fable calls also use tokenkey-<name>
+// alongside the logical ToolName. Each spelling must resolve unambiguously.
 func normalizeDeclaredTool(args *pb.McpArgs, model string, declared []AgentTool) (string, bool) {
 	if args == nil || (args.ProviderIdentifier != "" && args.ProviderIdentifier != "tokenkey") {
 		return "", false
@@ -234,6 +233,7 @@ func normalizeDeclaredTool(args *pb.McpArgs, model string, declared []AgentTool)
 		add(tool.Name, tool.Name)
 		add(cursorWireToolName(tool.Name), tool.Name)
 		add("mcp_tokenkey_"+tool.Name, tool.Name)
+		add("tokenkey-"+tool.Name, tool.Name)
 		add(cursorPromptToolName(model, tool.Name), tool.Name)
 	}
 	var resolved string
@@ -263,7 +263,7 @@ func agentCallArgs(call AgentToolCall) (*pb.McpArgs, error) {
 }
 
 func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error) {
-	// Ingress: Messages-shaped AgentRequest → trimmed AgentRun (ASK mode, relay
+	// Ingress: Messages-shaped AgentRequest → trimmed AgentRun (AGENT mode, relay
 	// RequestContext, declared tools only). See messages_agentrun_tk.go.
 	if input.Model == "" || input.Model == "default" || input.Model == "auto" || len(input.Messages) == 0 {
 		return nil, nil, errors.New("cursor requires a fixed model and messages")
@@ -373,6 +373,7 @@ func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error)
 		return nil
 	}
 	paired := make(map[string]string)
+	pairedPrompt := make(map[string]string)
 	wireIDs := make(map[string]string)
 	for index, message := range input.Messages {
 		if index == active {
@@ -426,13 +427,15 @@ func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error)
 				step := &pb.ConversationStep{ToolCall: &pb.ToolCall{ToolCallId: cursorHistoryToolCallID(call.ID), McpToolCall: &pb.McpToolCall{
 					Args: args, Result: &pb.McpResult{Success: &pb.McpSuccess{IsError: result.IsError,
 						Content: []*pb.McpToolResultContentItem{{Text: &pb.McpTextContent{Text: result.Text}}}}}}}}
+				promptName, promptArgs := cursorPromptToolName(input.Model, call.Name), call.Arguments
+				pairedPrompt[call.ID] = promptName
 				id, err := blobs.storeProto(step)
 				if err != nil {
 					return nil, nil, err
 				}
 				turn.Steps = append(turn.Steps, id)
 				content = append(content, map[string]any{"type": "tool-call", "toolCallId": cursorHistoryToolCallID(call.ID),
-					"toolName": cursorPromptToolName(input.Model, call.Name), "args": call.Arguments})
+					"toolName": promptName, "args": promptArgs})
 			}
 		case "tool":
 			name := paired[message.ToolCallID]
@@ -440,7 +443,7 @@ func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error)
 				return nil, nil, errors.New("cursor tool result has no preceding call")
 			}
 			content = append(content, map[string]any{"type": "tool-result", "toolCallId": cursorHistoryToolCallID(message.ToolCallID),
-				"toolName": cursorPromptToolName(input.Model, name), "result": message.Text, "isError": message.IsError})
+				"toolName": pairedPrompt[message.ToolCallID], "result": message.Text, "isError": message.IsError})
 		default:
 			return nil, nil, errors.New("unsupported Cursor history role")
 		}
@@ -525,7 +528,8 @@ func readAgentFrame(reader io.Reader) (byte, []byte, error) {
 	return header[0], data, nil
 }
 
-// RunAgent executes one request using only request-local protocol state. do must
+// RunAgent owns one upstream run and its protocol state. Native handoffs may
+// span multiple HTTP responses through the bounded run manager. do must
 // support HTTP/2 duplex requests and must not retry after sending the request.
 // A tool handoff is explicitly reported without fabricated provider usage.
 //
@@ -721,7 +725,32 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 		return result, errors.New("cursor requires HTTP/2 duplex transport")
 	}
 	seenCalls := make(map[string]bool)
+	seenExec := make(map[string]bool)
+	claimExec := func(exec *pb.ExecServerMessage) bool {
+		key := fmt.Sprintf("%d:%s", exec.Id, exec.ExecId)
+		if seenExec[key] {
+			return false
+		}
+		seenExec[key] = true
+		return true
+	}
 	toolOutputBytes := 0
+	publishToolCall := func(call AgentToolCall) error {
+		if seenCalls[call.ID] {
+			return nil
+		}
+		seenCalls[call.ID] = true
+		raw, err := json.Marshal(call)
+		if err != nil || len(result.ToolCalls) >= 128 || textOutput.Len()+thinkingOutput.Len()+toolOutputBytes+len(raw) > maxAgentOutput {
+			return errors.New("cursor tool output limit exceeded")
+		}
+		toolOutputBytes += len(raw)
+		result.ToolCalls = append(result.ToolCalls, call)
+		if emit != nil {
+			return emit(AgentEvent{ToolCall: &call})
+		}
+		return nil
+	}
 	publishCall := func(args *pb.McpArgs) error {
 		if args == nil {
 			return errAgentToolProtocol
@@ -741,25 +770,48 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 			return errAgentToolProtocol
 		}
 		logger.FromContext(ctx).Debug("cursor_agentrun_tool_normalized", fields...)
-		if seenCalls[args.ToolCallId] {
-			return nil
-		}
-		seenCalls[args.ToolCallId] = true
 		call := AgentToolCall{ID: args.ToolCallId, Name: name, Arguments: make(map[string]any)}
 		for key, value := range args.Args {
 			call.Arguments[key] = value.AsInterface()
 		}
-		raw, err := json.Marshal(call)
-		if err != nil || len(result.ToolCalls) >= 128 || textOutput.Len()+thinkingOutput.Len()+toolOutputBytes+len(raw) > maxAgentOutput {
-			return errors.New("cursor tool output limit exceeded")
+		return publishToolCall(call)
+	}
+	requestHandoff := func() error {
+		if result.ToolHandoff {
+			return nil
 		}
-		toolOutputBytes += len(raw)
-		result.ToolCalls = append(result.ToolCalls, call)
-		if emit != nil {
-			return emit(AgentEvent{ToolCall: &call})
+		result.ToolHandoff = true
+		return send(&pb.AgentClientMessage{ConversationAction: &pb.ConversationAction{CancelAction: &pb.CancelAction{Reason: "External client tool handoff"}}})
+	}
+	// A retained run pauses only the protocol interpreter. The original duplex,
+	// blobs and exec IDs remain alive; caller results are its only tool inputs.
+	handoffs := 0
+	clientHandoff := func(exec *pb.ExecServerMessage) error {
+		handoffs++
+		if handoffs > 128 {
+			return errAgentToolProtocol
 		}
+		segment := result
+		segment.Text, segment.Thinking = textOutput.String(), thinkingOutput.String()
+		segment.ToolHandoff = true
+		segment.Usage = &AgentUsage{} // settlement belongs to terminal upstream usage
+		clientResult, err := input.handoff(ctx, exec, segment)
+		if err != nil {
+			return err
+		}
+		for _, reply := range nativeClientResults(exec, clientResult) {
+			if err := send(reply); err != nil {
+				return err
+			}
+		}
+		textOutput.Reset()
+		thinkingOutput.Reset()
+		toolOutputBytes = 0
+		result = AgentResult{}
+		resetIdle() // waiting for a client is bounded by the run's own TTL
 		return nil
 	}
+
 	frameCh := make(chan agentFrameRead, 1)
 	go func() {
 		for {
@@ -876,18 +928,15 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 		}
 		if update := message.InteractionUpdate; update != nil {
 			// Egress: only Messages-expressible interaction surfaces.
-			if args := mcpArgsFromInteractionToolCall(update.ToolCallStarted); args != nil {
+			if args := mcpArgsFromInteractionToolCall(update.ToolCallStarted); args != nil && input.handoff == nil {
 				if args.SmartModeApprovalOnly {
 					return result, errAgentToolProtocol
 				}
 				if err := publishCall(args); err != nil {
 					return result, err
 				}
-				if !result.ToolHandoff {
-					result.ToolHandoff = true
-					if err := send(&pb.AgentClientMessage{ConversationAction: &pb.ConversationAction{CancelAction: &pb.CancelAction{Reason: "External client tool handoff"}}}); err != nil {
-						return result, err
-					}
+				if err := requestHandoff(); err != nil {
+					return result, err
 				}
 			}
 			// Non-MCP tool_call_started is Agent bookkeeping; paired Exec (if any)
@@ -966,16 +1015,50 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 					}
 					continue
 				}
-				if err := publishCall(exec.McpArgs); err != nil {
-					return result, err
-				}
-				if !result.ToolHandoff {
-					result.ToolHandoff = true
-					if err := send(&pb.AgentClientMessage{ConversationAction: &pb.ConversationAction{CancelAction: &pb.CancelAction{Reason: "External client tool handoff"}}}); err != nil {
+				if input.handoff != nil {
+					if !claimExec(exec) {
+						return result, errAgentToolProtocol
+					}
+					args, ok := proto.Clone(exec.McpArgs).(*pb.McpArgs)
+					if !ok {
+						return result, errAgentToolProtocol
+					}
+					args.ToolCallId = newPendingToolID()
+					if err := publishCall(args); err != nil {
+						return result, err
+					}
+					if err := clientHandoff(exec); err != nil {
+						return result, err
+					}
+				} else {
+					if err := publishCall(exec.McpArgs); err != nil {
+						return result, err
+					}
+					if err := requestHandoff(); err != nil {
 						return result, err
 					}
 				}
 			default:
+				if call, ok := nativeClientToolCall(exec, input.Tools); ok && input.handoff != nil {
+					if !claimExec(exec) {
+						return result, errAgentToolProtocol
+					}
+					call.ID = newPendingToolID()
+					logger.FromContext(ctx).Debug("cursor_agentrun_native_client_handoff",
+						zap.String("tool_name", call.Name), zap.Ints("fields", protobufFieldNumbers(exec)))
+					if err := publishToolCall(call); err != nil {
+						return result, err
+					}
+					if err := clientHandoff(exec); err != nil {
+						return result, err
+					}
+					continue
+				}
+				if shell := exec.GetShellStreamArgs(); shell != nil {
+					logger.FromContext(ctx).Debug("cursor_native_shell_rejected",
+						zap.Bool("background", shell.IsBackground), zap.Int32("timeout_behavior", shell.TimeoutBehavior),
+						zap.Int32("timeout_ms", shell.Timeout), zap.Int32("hard_timeout_ms", shell.GetHardTimeout()))
+				}
 				fields := protobufFieldNumbers(exec)
 				errText, errCode := outsideExecThrowMessage()
 				logger.FromContext(ctx).Warn("cursor_agentrun_outside_exec_throw",
