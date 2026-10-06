@@ -56,6 +56,13 @@ func tkHandleBridgeUpstreamPenalty(ctx context.Context, rls *RateLimitService, a
 	if tkHandleBridgeArrearsPenalty(ctx, rls, account, apiErr) {
 		return
 	}
+	// DashScope Unpurchased 403 is account-standing entitlement death. It is
+	// not on the generic 403 allowlist (WAF/HTML 403 must not SetError) and
+	// must not pass through as a user-visible final 403. Same SSOT as
+	// tkBridgeFailureSemantic / HandleUpstreamError prelude.
+	if rls.tkTryHandleStandingUnpurchased(ctx, account, apiErr.StatusCode, tkBridgeUpstreamErrorBody(apiErr)) {
+		return
+	}
 	if !tkBridgePenaltyStatusEligible(apiErr.StatusCode) {
 		return
 	}

@@ -114,6 +114,11 @@ func classifyIncident(reason string, until time.Time, kind AccountIncidentKind) 
 		// generic 402 Insufficient Balance. Same penalty (SetError) + immediate
 		// P0 Feishu card; recharge does NOT auto-recover. 1h per-account dedupe.
 		return incidentClass{true, IncidentKindPermanentDisable, "newapi_arrears", "上游账号欠费", "上游账号欠费或预付额度耗尽,需在对应控制台充值/还款;" + tkUpstreamStandingDisableRecoveryAdvice}
+	case tkStandingUnpurchasedIncidentReason:
+		// SSOT for DashScope AccessDenied.Unpurchased 403 (prod 2026-10-06
+		// ali-token-plan #129/#132). Not billing — the workspace has not
+		// purchased/enabled the model. Immediate P0, no auto-recovery.
+		return incidentClass{true, IncidentKindPermanentDisable, tkStandingUnpurchasedIncidentReason, "上游模型未开通", "上游返回 AccessDenied.Unpurchased,账号未开通该模型;在阿里云百炼/Token Plan 控制台开通或更换已开通凭证后;" + tkUpstreamStandingDisableRecoveryAdvice}
 	case "kiro_quota_limit":
 		// TK (prod 2026-06-25, edge-us4 account 9): Kiro OAuth subscription quota
 		// exhaustion is HTTP 402 + "You have reached the limit." — not an auth
