@@ -113,6 +113,10 @@ _ACCOUNT_MAPPING_PROPERTIES_SQL = {
     "auth_mode": "a.credentials->>'auth_mode'",
     "vertex_capability_profile": "a.credentials->>'vertex_capability_profile'",
     "supplier_source_id_present": "COALESCE(a.extra ? 'supplier_source_id', false)",
+    "gemini_web_present": (
+        "COALESCE(jsonb_typeof(a.credentials->'gemini_web') = 'object' "
+        "OR a.credentials->'gemini_web_relay' = 'true'::jsonb, false)"
+    ),
 }
 _ACCOUNT_MAPPING_PROPERTIES_PAIRS_SQL = ", ".join(
     f"'{key}', {expression}" for key, expression in _ACCOUNT_MAPPING_PROPERTIES_SQL.items()
@@ -482,7 +486,18 @@ def _is_anthropic_tokensea_relay(row: dict[str, Any]) -> bool:
     return base in _TOKENSEA_RELAY_BASE_URLS
 
 
+def _is_gemini_web_account(row: dict[str, Any]) -> bool:
+    """Match Go isGeminiWebAccount: Gemini API-key plus gemini_web object or gemini_web_relay=true."""
+    if str(row.get("platform") or "").strip().lower() != "gemini":
+        return False
+    if str(row.get("type") or "") != "apikey":
+        return False
+    return (row or {}).get("gemini_web_present") is True
+
+
 def _account_scope(row: dict[str, Any]) -> str:
+    if _is_gemini_web_account(row):
+        return "gemini_web"
     if _is_openai_ainzy_relay(row):
         return "openai_ainzy_relay"
     if _is_openai_tokensea_relay(row):
@@ -2018,6 +2033,16 @@ def cmd_selftest(_args) -> int:
                 "claude-sonnet-5": "claude-sonnet-5",
                 "claude-opus-5": "claude-opus-5",
             },
+            "gemini": {
+                "gemini-3.8-flash": "gemini-3.8-flash",
+                "gemini-3-flash": "gemini-3.8-flash",
+                "gemini-3.1-pro": "gemini-3.1-pro",
+                "gemini-3.1-flash-image": "gemini-3.1-flash-image",
+                "gemini-3-pro-image": "gemini-3-pro-image",
+                "gemini-3.6-flash": "gemini-3.6-flash",
+                "gemini-3.5-flash-lite": "gemini-3.6-flash",
+                "gemini-embedding-001": "gemini-embedding-001",
+            },
         },
         "newapi_channel_types": {
             "41": {"vertex-shared": "vertex-shared"},
@@ -2042,6 +2067,39 @@ def cmd_selftest(_args) -> int:
         },
         "forbidden_model_mapping_prefixes": {"antigravity": ["test-forbidden-prefix-"]},
     }
+    floor["platforms"]["gemini_web"] = {
+        "gemini-3.8-flash": "gemini-3.8-flash",
+        "gemini-3-flash": "gemini-3.8-flash",
+        "gemini-3.1-pro": "gemini-3.1-pro",
+        "gemini-3.1-flash-image": "gemini-3.1-flash-image",
+        "gemini-3-pro-image": "gemini-3-pro-image",
+        "nano-2": "gemini-3.1-flash-image",
+        "nano-pro": "gemini-3-pro-image",
+        "nano-banana-pro": "gemini-3-pro-image",
+    }
+    web_row = {
+        "id": 200,
+        "platform": "gemini",
+        "type": "apikey",
+        "gemini_web_present": True,
+        "model_mapping": dict(floor["platforms"]["gemini_web"]),
+    }
+    assert _is_gemini_web_account(web_row)
+    assert _account_scope(web_row) == "gemini_web"
+    assert _account_plan(web_row, floor) is None
+    native_gemini_row = {
+        **web_row,
+        "id": 201,
+        "gemini_web_present": False,
+        "model_mapping": dict(floor["platforms"]["gemini_web"]),
+    }
+    assert not _is_gemini_web_account(native_gemini_row)
+    assert _account_scope(native_gemini_row) == "gemini"
+    native_plan = _account_plan(native_gemini_row, floor)
+    assert native_plan is not None
+    assert "gemini-3.6-flash" in native_plan["diff"]["missing_keys"]
+    assert "jsonb_typeof(a.credentials->'gemini_web') = 'object'" in ACCOUNT_MODEL_MAPPING_CHECK_SQL
+    assert "a.credentials->'gemini_web_relay' = 'true'::jsonb" in ACCOUNT_MODEL_MAPPING_CHECK_SQL
     assert _account_scope({
         "platform": "anthropic",
         "type": "apikey",

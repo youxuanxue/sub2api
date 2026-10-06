@@ -6138,6 +6138,9 @@
         "case PlatformAnthropic:",
         "case PlatformGemini:",
         "func geminiAccountModelMappingFloor(",
+        "func geminiWebAccountModelMappingFloor(",
+        "accountModelMappingPlatformGeminiWeb",
+        "isGeminiWebAccount(",
         "case PlatformAntigravity:",
         "case PlatformGrok:",
         "case PlatformKiro:",
@@ -6164,6 +6167,7 @@
       "path": "backend/internal/service/account_model_mapping_floor_test.go",
       "must_contain": [
         "TestAccountModelMappingForAccount_AntigravityConvergedFloor",
+        "TestAccountModelMappingForAccount_GeminiWebRestrictedFloor",
         "expectedAntigravityModelMappingForReconcilerTest",
         "Antigravity floor must be the complete owner-derived projection",
         "domain.IsAntigravityStructuralDeadModelMappingKey(from)",
@@ -6339,8 +6343,12 @@
         "\"account_bulk_changed\"",
         "\"group_changed\"",
         "def _is_supplier_managed_account(",
+        "def _is_gemini_web_account(",
         "\"supplier_source_id_present\": \"COALESCE(a.extra ? 'supplier_source_id', false)\"",
-        "if _is_supplier_managed_account(row):"
+        "if _is_supplier_managed_account(row):",
+        "if _is_gemini_web_account(row):",
+        "jsonb_typeof(a.credentials->'gemini_web') = 'object'",
+        "a.credentials->'gemini_web_relay' = 'true'::jsonb"
       ],
       "must_not_contain": [
         "GO_HELPER",

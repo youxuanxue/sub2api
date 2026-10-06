@@ -23,6 +23,7 @@ const (
 	accountModelMappingPlatformOpenAITokenseaRelay    = "openai_tokensea_relay"
 	accountModelMappingPlatformAnthropicTokenseaRelay = "anthropic_tokensea_relay"
 	accountModelMappingPlatformOpenAICloudwiseRelay   = "openai_cloudwise_relay"
+	accountModelMappingPlatformGeminiWeb              = "gemini_web"
 )
 
 // accountModelMappingRuntime is the hot runtime replacement layer for the
@@ -246,6 +247,8 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			return nil, false
 		}
 		return identityModelMapping(ids), true
+	case accountModelMappingPlatformGeminiWeb:
+		return geminiWebAccountModelMappingFloor(), true
 	case PlatformGemini:
 		return geminiAccountModelMappingFloor(ctx, pricing, availability), true
 	case PlatformAntigravity:
@@ -331,6 +334,16 @@ func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*Ac
 	bedrock, ok := accountModelMappingForAccount(ctx, &Account{Platform: PlatformAnthropic, Type: AccountTypeBedrock}, nil, nil, runtime)
 	if ok && len(bedrock) > 0 {
 		out.Platforms[accountModelMappingPlatformBedrock] = cloneStringMap(bedrock)
+	}
+	geminiWebMapping, ok := accountModelMappingForAccount(ctx, &Account{
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			GeminiWebRelayCredentialKey: true,
+		},
+	}, nil, nil, runtime)
+	if ok && len(geminiWebMapping) > 0 {
+		out.Platforms[accountModelMappingPlatformGeminiWeb] = cloneStringMap(geminiWebMapping)
 	}
 
 	channelTypes := map[int]struct{}{
@@ -477,6 +490,8 @@ func accountModelMappingScopeForAccount(account *Account) string {
 		return PlatformKiro
 	case account.IsBedrock():
 		return accountModelMappingPlatformBedrock
+	case isGeminiWebAccount(account):
+		return accountModelMappingPlatformGeminiWeb
 	default:
 		return normalizeAccountModelMappingPresetPlatform(account.Platform)
 	}
@@ -765,6 +780,41 @@ func geminiAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalog
 		}
 	}
 	return applyImageCompatibilityAliases(out)
+}
+
+// Gemini Web is a restricted Worker/relay supply, not the native Gemini API
+// catalog. Floor keys are the public catalog IDs (and traffic aliases) that
+// overlay bills onto Worker wire IDs. Embedding, Veo, 3.5-lite, 3.6 and 3.7
+// stay on platforms.gemini only.
+var supportedGeminiWebCatalogModels = map[string]struct{}{
+	"gemini-3.8-flash":       {},
+	"gemini-3.1-pro":         {},
+	"gemini-3.1-flash-image": {},
+	"gemini-3-pro-image":     {},
+}
+
+var geminiWebTrafficAliases = map[string]string{
+	"gemini-3-flash":         "gemini-3.8-flash",
+	"gemini-3-flash-preview": "gemini-3.8-flash",
+	"gemini-3.1-pro-preview": "gemini-3.1-pro",
+	"nano-2":                 "gemini-3.1-flash-image",
+	"nano-pro":               "gemini-3-pro-image",
+	"nano-banana-pro":        "gemini-3-pro-image",
+}
+
+func geminiWebAccountModelMappingFloor() map[string]string {
+	ids := supportedCatalogModelIDsFromMap(supportedGeminiWebCatalogModels)
+	if len(ids) == 0 {
+		return nil
+	}
+	out := identityModelMapping(ids)
+	displaySet := stringSet(ids)
+	for from, to := range geminiWebTrafficAliases {
+		if _, ok := displaySet[to]; ok {
+			out[from] = to
+		}
+	}
+	return out
 }
 
 func antigravityAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {

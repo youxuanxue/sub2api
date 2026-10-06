@@ -55,6 +55,70 @@ func TestAccountModelMappingForAccount_GrokAppliesCompatibilityAliases(t *testin
 	requireGrokDisplayBackedCompatibilityAliases(t, mapping)
 }
 
+func TestAccountModelMappingForAccount_GeminiWebRestrictedFloor(t *testing.T) {
+	t.Parallel()
+
+	native, ok := accountModelMappingForAccount(context.Background(), &Account{
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+	}, nil, nil, nil)
+	require.True(t, ok)
+	require.Contains(t, native, "gemini-embedding-001")
+	require.Contains(t, native, "veo-3.1-generate-001")
+	require.Contains(t, native, "gemini-3.6-flash")
+	require.Equal(t, "gemini-3.6-flash", native["gemini-3.5-flash-lite"])
+
+	webRelay, ok := accountModelMappingForAccount(context.Background(), &Account{
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			GeminiWebRelayCredentialKey: true,
+		},
+	}, nil, nil, nil)
+	require.True(t, ok)
+	require.Equal(t, geminiWebAccountModelMappingFloor(), webRelay)
+	require.Equal(t, "gemini-3.8-flash", webRelay["gemini-3.8-flash"])
+	require.Equal(t, "gemini-3.8-flash", webRelay["gemini-3-flash"])
+	require.Equal(t, "gemini-3.1-pro", webRelay["gemini-3.1-pro"])
+	require.Equal(t, "gemini-3.1-pro", webRelay["gemini-3.1-pro-preview"])
+	require.Equal(t, "gemini-3.1-flash-image", webRelay["gemini-3.1-flash-image"])
+	require.Equal(t, "gemini-3.1-flash-image", webRelay["nano-2"])
+	require.Equal(t, "gemini-3-pro-image", webRelay["gemini-3-pro-image"])
+	require.Equal(t, "gemini-3-pro-image", webRelay["nano-pro"])
+	require.Equal(t, "gemini-3-pro-image", webRelay["nano-banana-pro"])
+	require.NotContains(t, webRelay, "gemini-embedding-001")
+	require.NotContains(t, webRelay, "veo-3.1-generate-001")
+	require.NotContains(t, webRelay, "gemini-3.6-flash")
+	require.NotContains(t, webRelay, "gemini-3.5-flash-lite")
+	require.NotContains(t, webRelay, "nano-banana-2")
+
+	webSession, ok := accountModelMappingForAccount(context.Background(), &Account{
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"gemini_web": map[string]any{},
+		},
+	}, nil, nil, nil)
+	require.True(t, ok)
+	require.Equal(t, webRelay, webSession)
+
+	require.Equal(t, accountModelMappingPlatformGeminiWeb, accountModelMappingScopeForAccount(&Account{
+		Platform:    PlatformGemini,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{GeminiWebRelayCredentialKey: true},
+	}))
+	require.Equal(t, PlatformGemini, accountModelMappingScopeForAccount(&Account{
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+	}))
+
+	doc, err := AccountModelMappingFloorForOps(context.Background(), "")
+	require.NoError(t, err)
+	require.Equal(t, geminiWebAccountModelMappingFloor(), doc.Platforms[accountModelMappingPlatformGeminiWeb])
+	require.Equal(t, geminiAccountModelMappingFloor(context.Background(), nil, nil), doc.Platforms[PlatformGemini])
+	require.NotEqual(t, doc.Platforms[PlatformGemini], doc.Platforms[accountModelMappingPlatformGeminiWeb])
+}
+
 func TestAccountModelMappingForAccount_NativePlatformsExplicit(t *testing.T) {
 	t.Parallel()
 

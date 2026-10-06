@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "7cd206f299835721a72266beab8a28058bde3ddf774dfbbeb9ce708e1545f28b",
+  "floor_sha256": "7a4665ef1e540adb4ce90039ba693c5ba486445e1bfd8c77aefc8522cee9ae86",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -102,6 +102,18 @@
         "nano-banana-pro": "gemini-3-pro-image",
         "nano-pro": "gemini-3-pro-image",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
+      },
+      "gemini_web": {
+        "gemini-3-flash": "gemini-3.8-flash",
+        "gemini-3-flash-preview": "gemini-3.8-flash",
+        "gemini-3-pro-image": "gemini-3-pro-image",
+        "gemini-3.1-flash-image": "gemini-3.1-flash-image",
+        "gemini-3.1-pro": "gemini-3.1-pro",
+        "gemini-3.1-pro-preview": "gemini-3.1-pro",
+        "gemini-3.8-flash": "gemini-3.8-flash",
+        "nano-2": "gemini-3.1-flash-image",
+        "nano-banana-pro": "gemini-3-pro-image",
+        "nano-pro": "gemini-3-pro-image"
       },
       "grok": {
         "grok": "grok-4.6",
