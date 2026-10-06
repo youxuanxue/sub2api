@@ -11,6 +11,7 @@ import (
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/typesafe"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -1631,4 +1632,33 @@ func TestGatewayModels_CompositeTypeSafeListingScope(t *testing.T) {
 func TestDefaultModelIDsForPlatform_CompositeFallbackExcludesTypeSafe(t *testing.T) {
 	require.NotContains(t, defaultModelIDsForPlatform(service.PlatformComposite), "jev-latest")
 	require.NotContains(t, defaultCodexModelIDsForPlatform(service.PlatformComposite), "jev-latest")
+}
+
+// Scenario: candidate/universal OpenAI listing must not advertise jev-latest.
+// tryServeUniversalModels runs before composite omit; chat clients would 404.
+func TestGatewayModels_UniversalKeyOmitsTypeSafeJev(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &GatewayHandler{tkCapabilities: &us046CapabilitySource{byProtocol: map[service.UniversalProtocol][]service.UniversalCapability{
+		service.UniversalProtocolOpenAI: {
+			{ID: "gpt-callable", Modalities: []service.UniversalModality{service.UniversalModalityChat}},
+			{ID: typesafe.JevLatestModel, Modalities: []service.UniversalModality{service.UniversalModalityChat}},
+		},
+	}}}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		UserID:      16,
+		RoutingMode: service.RoutingModeUniversal,
+		User:        &service.User{ID: 16, Status: service.StatusActive},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, []string{"gpt-callable"}, modelIDsForTest(got.Data))
+	require.NotContains(t, modelIDsForTest(got.Data), typesafe.JevLatestModel)
 }
