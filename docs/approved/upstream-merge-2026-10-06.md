@@ -1,7 +1,8 @@
 ---
 title: TokenKey upstream merge 2026-10-06 approval anchor
-status: pending
-approved_by: pending
+status: approved
+approved_by: "用户（本会话批准审查修复与迁移锚点；不授权合入主线或部署）"
+approved_at: 2026-10-06
 created: 2026-10-06
 owners: [tk-platform]
 scope: "Isolated import of Wei-Shaw/sub2api upstream/main; no main merge or deployment"
