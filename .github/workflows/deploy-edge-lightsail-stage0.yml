@@ -18,6 +18,8 @@ on:
         required: true
         type: choice
         options:
+          - uk1
+          - uk2
           - us1
           - us3
           - us4

@@ -7,11 +7,19 @@
       "required_set": "lightsail-deployable",
       "opt_out_edges": []
     },
+    ".github/workflows/deploy-gemini-web-worker.yml": {
+      "input": "edge_id",
+      "option_prefix": "",
+      "required_set": "lightsail-deployable",
+      "opt_out_edges": []
+    },
     ".github/workflows/ops-stage0-pg-dump-refresh.yml": {
       "input": "target",
       "option_prefix": "edge-",
       "required_set": "all-deployable",
       "opt_out_edges": [
+        {"id": "uk1", "reason": "pg_dump SSM refresh targets the prod EC2 instance only; Lightsail edges are out of scope for this cadence by design"},
+        {"id": "uk2", "reason": "pg_dump SSM refresh targets the prod EC2 instance only; Lightsail edges are out of scope for this cadence by design"},
         {"id": "us3", "reason": "pg_dump SSM refresh targets the prod EC2 instance only; Lightsail edges are out of scope for this cadence by design"},
         {"id": "us4", "reason": "pg_dump SSM refresh targets the prod EC2 instance only; Lightsail edges are out of scope for this cadence by design"},
         {"id": "us5", "reason": "pg_dump SSM refresh targets the prod EC2 instance only; Lightsail edges are out of scope for this cadence by design"},
