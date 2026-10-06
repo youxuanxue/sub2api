@@ -28,6 +28,7 @@ case "$*" in
     echo cmd-register
     printf '%s\n' "$*" >>"${FAKE_REGISTER_LOG}"
     ;;
+  *"get-command-invocation"*cmd-register*"Status"*) echo Failed ;;
   *"get-command-invocation"*"Status"*) echo Success ;;
   *"get-command-invocation"*"StandardOutputContent"*)
     instance="$(arg_after --instance-id "$@")"
@@ -84,6 +85,7 @@ unset FAKE_BOUND_FILE
 
 run_script rebind >"${tmp}/rebind.out"
 grep -F 're-registering onto tokenkey-lightsail-ssm-hybrid-uk1' "${tmp}/rebind.out" >/dev/null
+grep -F 'polling activation act-new' "${tmp}/rebind.out" >/dev/null
 grep -F 'create-activation' "${tmp}/rebind/aws.log" >/dev/null
 grep -F '/tokenkey/lightsail/uk1/ssm_managed_instance_id' "${tmp}/rebind/put.log" >/dev/null
 grep -F 'mi-newuk1aaaaaaaaaaa' "${tmp}/rebind/put.log" >/dev/null

@@ -131,9 +131,12 @@ register_cmd="$(aws ssm send-command \
   --output text)"
 rm -f "${params_file}"
 trap - EXIT
-if ! wait_invocation "${register_cmd}" "${INSTANCE_ID}"; then
-  echo "reregister_edge_hybrid: agent re-register command failed on ${INSTANCE_ID}" >&2
-  exit 1
+# Stopping amazon-ssm-agent mid-command makes the invocation Failed/TimedOut even
+# when -register succeeded. Treat that as "continue and look up the activation".
+if wait_invocation "${register_cmd}" "${INSTANCE_ID}"; then
+  echo "agent re-register command completed on ${INSTANCE_ID}"
+else
+  echo "agent re-register invocation ended before Success on ${INSTANCE_ID}; polling activation ${activation_id}"
 fi
 
 new_id=""
