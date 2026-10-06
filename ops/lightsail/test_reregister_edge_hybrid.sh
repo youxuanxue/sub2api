@@ -28,6 +28,9 @@ case "$*" in
     echo cmd-register
     printf '%s\n' "$*" >>"${FAKE_REGISTER_LOG}"
     ;;
+  *"get-command-invocation"*cmd-probe*"Status"*)
+    if [[ "${FAKE_PROBE_FAIL:-}" == 1 ]]; then echo Failed; else echo Success; fi
+    ;;
   *"get-command-invocation"*cmd-register*"Status"*) echo Failed ;;
   *"get-command-invocation"*"Status"*) echo Success ;;
   *"get-command-invocation"*"StandardOutputContent"*)
@@ -82,6 +85,16 @@ run_script already >"${tmp}/already.out"
 grep -F 'hybrid credentials already bound to tokenkey-lightsail-ssm-hybrid-uk1' "${tmp}/already.out" >/dev/null
 ! grep -F 'create-activation' "${tmp}/already/aws.log" >/dev/null
 unset FAKE_BOUND_FILE
+
+if FAKE_PROBE_FAIL=1 run_script probe-fail >"${tmp}/probe-fail.out" 2>"${tmp}/probe-fail.err"; then
+  echo 'probe failure must fail closed' >&2
+  exit 1
+fi
+if grep -F 'create-activation' "${tmp}/probe-fail/aws.log" >/dev/null; then
+  echo 'probe failure must not mint a Hybrid activation' >&2
+  exit 1
+fi
+grep -F 'refusing to mint a new activation' "${tmp}/probe-fail.err" >/dev/null
 
 run_script rebind >"${tmp}/rebind.out"
 grep -F 're-registering onto tokenkey-lightsail-ssm-hybrid-uk1' "${tmp}/rebind.out" >/dev/null

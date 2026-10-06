@@ -73,7 +73,10 @@ emit_id() {
   fi
 }
 
-current_arn="$(probe_arn "${INSTANCE_ID}" || true)"
+if ! current_arn="$(probe_arn "${INSTANCE_ID}")"; then
+  echo "reregister_edge_hybrid: could not probe STS on ${INSTANCE_ID}; refusing to mint a new activation" >&2
+  exit 1
+fi
 if [[ "${current_arn}" == *":assumed-role/${desired_role}/"* ]]; then
   echo "hybrid credentials already bound to ${desired_role}"
   emit_id "${INSTANCE_ID}"

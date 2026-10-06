@@ -2240,6 +2240,12 @@ fi
 if [ "$_bg_rc" -ne 0 ]; then
   echo "  FAIL: an SSM host command script has a shell syntax error"
   errors=$((errors + 1))
+elif ! python3 ./ops/stage0/test_sync_caddyfile_via_ssm.py >/dev/null 2>&1; then
+  echo "  FAIL: sync_caddyfile_via_ssm render contract"
+  echo "        — run: python3 ops/stage0/test_sync_caddyfile_via_ssm.py"
+  errors=$((errors + 1))
+else
+  echo "  ok: SSM host command scripts parse; Caddyfile sync render tests pass"
 fi
 
 echo ""
