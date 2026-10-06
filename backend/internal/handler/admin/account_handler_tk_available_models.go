@@ -11,6 +11,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/typesafe"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -306,6 +307,14 @@ func (h *AccountHandler) tkRespondAvailableModels(c *gin.Context, account *servi
 
 	if account.IsKiro() || account.IsKiroMirrorStub() {
 		response.Success(c, tkClaudeModelsToAdminOptions(service.KiroAdminTestModels(), nil))
+		return
+	}
+
+	if account.IsTypeSafe() {
+		response.Success(c, []dto.AccountModelOption{{
+			ID:          typesafe.JevLatestModel,
+			DisplayName: typesafe.JevLatestModel,
+		}})
 		return
 	}
 

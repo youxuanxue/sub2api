@@ -752,6 +752,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /v1/responses/*subpath` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/stt` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
 - `GET /v1/sub2api/billing` from `backend/internal/server/routes/gateway.go`
+- `POST /v1/systemone` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/tts` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
 - `GET /v1/usage` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/video/generations` from `backend/internal/server/routes/gateway_tk_openai_compat_handlers.go`

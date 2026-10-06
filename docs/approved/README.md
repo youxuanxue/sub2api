@@ -165,6 +165,7 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | [`upstream-merge-2026-08-15-migrations.md`](upstream-merge-2026-08-15-migrations.md) | Upstream merge 2026-08-15 migrations |
 | [`upstream-merge-20260923.md`](upstream-merge-20260923.md) | TokenKey upstream merge 2026-09-23 |
 | [`upstream-merge-20260930.md`](upstream-merge-20260930.md) | 隔离上游合并与 TokenKey 不变量裁决；不授权主线合并或部署 |
+| [`upstream-merge-2026-10-06.md`](upstream-merge-2026-10-06.md) | 隔离上游合并、241 迁移与 TokenKey CHECK/404 裁决；不授权主线合并或部署 |
 
 ## Pending baselines
 

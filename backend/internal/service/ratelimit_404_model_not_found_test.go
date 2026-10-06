@@ -81,3 +81,47 @@ func TestHandleUpstreamError_NonAnthropic404DoesNotUseAnthropicModelProtection(t
 	require.Zero(t, repo.setErrorCalls)
 	require.Zero(t, repo.rateLimitCalls)
 }
+
+func TestHandleUpstreamError_Custom404DisablesTypeSafeOnly(t *testing.T) {
+	opaque := []byte(`{"error":"not found"}`)
+
+	t.Run("typesafe_custom_404_disables", func(t *testing.T) {
+		repo := &anthropic404AccountRepoStub{}
+		svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+		account := &Account{
+			ID:       45,
+			Platform: PlatformTypeSafe,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"custom_error_codes_enabled": true,
+				"custom_error_codes":         []any{float64(http.StatusNotFound)},
+			},
+		}
+
+		shouldDisable := svc.HandleUpstreamError(context.Background(), account, http.StatusNotFound, http.Header{}, opaque)
+
+		require.True(t, shouldDisable)
+		require.Equal(t, 1, repo.setErrorCalls)
+		require.Zero(t, repo.modelRateLimitCalls)
+	})
+
+	t.Run("openai_custom_404_does_not_set_error", func(t *testing.T) {
+		repo := &anthropic404AccountRepoStub{}
+		svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+		account := &Account{
+			ID:       46,
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"custom_error_codes_enabled": true,
+				"custom_error_codes":         []any{float64(http.StatusNotFound)},
+			},
+		}
+
+		shouldDisable := svc.HandleUpstreamError(context.Background(), account, http.StatusNotFound, http.Header{}, opaque)
+
+		require.False(t, shouldDisable)
+		require.Zero(t, repo.setErrorCalls)
+		require.Zero(t, repo.modelRateLimitCalls)
+	})
+}

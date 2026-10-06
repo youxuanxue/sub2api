@@ -320,6 +320,10 @@ func TestHTTPUpstreamDoAppliesGrokCLIIdentityBeforeOAuthRoundTrip(t *testing.T) 
 			require.NoError(t, resp.Body.Close())
 
 			require.Equal(t, xai.CLIClientVersion, capturedHeaders.Get("x-grok-client-version"))
+			require.Equal(t, "1.0.46", capturedHeaders.Get("x-grok-client-version"))
+			require.Equal(t, "grok-pager", capturedHeaders.Get("x-grok-client-identifier"))
+			require.Equal(t, "interactive", capturedHeaders.Get("x-grok-client-mode"))
+			require.Equal(t, "authenticate-response", capturedHeaders.Get("x-authenticateresponse"))
 			require.Equal(t, "xai-grok-cli", capturedHeaders.Get("X-XAI-Token-Auth"))
 			require.Equal(t, xai.CLIUserAgent(xai.CLIClientVersion), capturedHeaders.Get("User-Agent"))
 		})
@@ -392,6 +396,8 @@ func TestHTTPUpstreamDoFallsBackToOfficialGrokAPIOnCLIAccessDenied(t *testing.T)
 	require.Equal(t, "Bearer oauth-token", fallbackHeaders.Get("Authorization"))
 	require.Empty(t, fallbackHeaders.Get("X-XAI-Token-Auth"))
 	require.Empty(t, fallbackHeaders.Get("x-grok-client-version"))
+	require.Empty(t, fallbackHeaders.Get("x-grok-client-mode"))
+	require.Empty(t, fallbackHeaders.Get("x-authenticateresponse"))
 	require.Empty(t, fallbackHeaders.Get("User-Agent"))
 }
 
@@ -555,7 +561,7 @@ func TestApplyGrokCLIProxyHeaders(t *testing.T) {
 		applyGrokCLIProxyHeaders(req)
 
 		require.Equal(t, "99.0.0-alpha.1", req.Header.Get("x-grok-client-version"))
-		require.Equal(t, "xai-grok-workspace/99.0.0-alpha.1", req.Header.Get("User-Agent"))
+		require.Equal(t, xai.CLIUserAgent("99.0.0-alpha.1"), req.Header.Get("User-Agent"))
 	})
 
 	t.Run("rejects an unsafe override", func(t *testing.T) {
@@ -613,7 +619,7 @@ func TestApplyGrokCLIProxyHeaders(t *testing.T) {
 	}
 
 	t.Run("leaves direct xAI API requests unchanged", func(t *testing.T) {
-		t.Setenv("XAI_GROK_CLI_VERSION", "0.2.95")
+		t.Setenv("XAI_GROK_CLI_VERSION", "1.0.47")
 		req, err := http.NewRequest(http.MethodPost, "https://api.x.ai/v1/responses", nil)
 		require.NoError(t, err)
 		req.Header.Set("User-Agent", "direct-api-client/1.0")
