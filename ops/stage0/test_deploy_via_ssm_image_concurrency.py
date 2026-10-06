@@ -6,11 +6,11 @@ image/video generation concurrency limiter config
 (GATEWAY_IMAGE_CONCURRENCY_{ENABLED,MAX_CONCURRENT_REQUESTS,OVERFLOW_MODE}) onto a
 LIVE prod host on every deploy, anchored to the tokenkey-unique
 SERVER_FRONTEND_URL compose line. The limiter ships disabled in code (a no-op),
-so /v1/images/generations + /v1/video/generations would otherwise run with
-unbounded concurrency against a 256MB max body; this turns it ON in prod with a
-generous cap + reject overflow. Edges (Lightsail mi-*) never serve generation, so
-the injection is gated to the prod EC2 (i-*) node. All three knobs are
-env-overridable.
+so /v1/images/generations + /v1/video/generations share account concurrency with
+text. Prod injection keeps the knob present but ENABLED=false (upsert every
+deploy so a previous true cannot stick). Edges (Lightsail mi-*) never get this
+injection. MAX/OVERFLOW remain additive defaults for an operator who re-enables
+the limiter. All three knobs are env-overridable.
 
 stdlib-only; no AWS, no network.
 """
@@ -54,13 +54,13 @@ class ImageConcurrencyInjectionRenderTest(unittest.TestCase):
         self.assertEqual(len(ic), 2, msg=f"expected 2 image-concurrency cmds, got {len(ic)}: {ic}")
 
         env_cmd = next(c for c in ic if "/var/lib/tokenkey/.env" in c and "docker-compose" not in c)
-        # default prod values: limiter ON, generous per-replica cap, reject overflow
-        # (fast-fail 429 instead of buffering unbounded 256MB bodies — prod has no swap).
-        self.assertIn("ic_e='true'", env_cmd)
+        # default prod values: limiter OFF so images share account.concurrency with text.
+        self.assertIn("ic_e='false'", env_cmd)
         self.assertIn("ic_m='8'", env_cmd)
         self.assertIn("ic_o='reject'", env_cmd)
-        # guarded + additive (must not clobber an operator override already in .env)
+        # ENABLED is upserted; MAX/OVERFLOW stay additive.
         self.assertIn('grep -q "^${key}=" /var/lib/tokenkey/.env', env_cmd)
+        self.assertIn("GATEWAY_IMAGE_CONCURRENCY_ENABLED", env_cmd)
         self.assertIn("tee -a /var/lib/tokenkey/.env", env_cmd)
 
         compose_cmd = next(c for c in ic if "docker-compose.yml" in c)
@@ -81,7 +81,7 @@ class ImageConcurrencyInjectionRenderTest(unittest.TestCase):
             "GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE": "wait",
         })
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        env_cmd = next(c for c in _ic_cmds(commands) if "tee -a" in c)
+        env_cmd = next(c for c in _ic_cmds(commands) if "/var/lib/tokenkey/.env" in c and "docker-compose" not in c)
         self.assertIn("ic_m='16'", env_cmd)
         self.assertIn("ic_o='wait'", env_cmd)
 
@@ -118,7 +118,7 @@ class ImageConcurrencyInjectionExecuteTest(unittest.TestCase):
 
         env_txt = (host / ".env").read_text()
         for k, v in (
-            ("ENABLED", "true"),
+            ("ENABLED", "false"),
             ("MAX_CONCURRENT_REQUESTS", "8"),
             ("OVERFLOW_MODE", "reject"),
         ):
@@ -146,6 +146,26 @@ class ImageConcurrencyInjectionExecuteTest(unittest.TestCase):
         self.assertEqual(
             sum(1 for ln in (host / ".env").read_text().splitlines()
                 if "GATEWAY_IMAGE_CONCURRENCY_" in ln), 3)
+
+    def test_existing_enabled_true_is_overwritten_to_false(self) -> None:
+        host = pathlib.Path(tempfile.mkdtemp(prefix="image-concurrency-overwrite-"))
+        (host / ".env").write_text(
+            "APP_ENV=prod\nGATEWAY_IMAGE_CONCURRENCY_ENABLED=true\n"
+            "GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS=8\n"
+            "GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE=reject\n"
+        )
+        (host / "docker-compose.yml").write_text(
+            "services:\n"
+            "  tokenkey:\n    environment:\n"
+            "      - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}\n"
+            "      - GATEWAY_IMAGE_CONCURRENCY_ENABLED=${GATEWAY_IMAGE_CONCURRENCY_ENABLED:-}\n"
+            "      - GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS=${GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS:-}\n"
+            "      - GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE=${GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE:-}\n"
+        )
+        self._run_ic_cmds_against(host)
+        env_txt = (host / ".env").read_text()
+        self.assertIn("GATEWAY_IMAGE_CONCURRENCY_ENABLED=false\n", env_txt)
+        self.assertNotIn("GATEWAY_IMAGE_CONCURRENCY_ENABLED=true\n", env_txt)
 
 
 if __name__ == "__main__":

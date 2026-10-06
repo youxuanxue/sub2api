@@ -735,7 +735,9 @@ validate_prepared_receipt blue green
         self.assertIn("TELEMETRY_ARCHIVE_BUCKET='tokenkey-prod-archive-682751977094'", joined)
         self.assertIn("TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES='33554432'", joined)
         self.assertIn("MEDIA_STORAGE_BUCKET='tokenkey-prod-media-682751977094'", joined)
+        self.assertIn("GATEWAY_IMAGE_CONCURRENCY_ENABLED='false'", joined)
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS='8'", joined)
+        self.assertIn('env_set GATEWAY_IMAGE_CONCURRENCY_ENABLED', remote)
 
         self.assertIn("docker-compose.bluegreen.yml", remote)
         self.assertIn("active-color", remote)
