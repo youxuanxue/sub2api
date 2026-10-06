@@ -64,8 +64,14 @@ func TestNativeContinuationTrailingTextFailsClosed(t *testing.T) {
 		fmt.Sprintf(`{"messages":[{"role":"tool","tool_call_id":%q,"content":"result"},{"role":"user","content":"continue"}]}`, id),
 		fmt.Sprintf(`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":%q,"content":"result"},{"type":"text","text":"continue"}]}]}`, id),
 		fmt.Sprintf(`{"input":[{"type":"function_call_output","call_id":%q,"output":"result"},{"role":"user","content":"continue"}]}`, id),
+		fmt.Sprintf(`{"messages":[{"role":"tool","tool_call_id":%q,"content":"result"},{"role":"system","content":"same rules"},{"role":"user","content":"continue"}]}`, id),
+		fmt.Sprintf(`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":%q,"content":"result"}]},{"role":"system","content":"same rules"}]}`, id),
+		fmt.Sprintf(`{"input":[{"type":"function_call_output","call_id":%q,"output":"result"},{"role":"developer","content":"same rules"},{"role":"user","content":"continue"}]}`, id),
 	} {
 		require.Equal(t, []string{id}, PendingToolIDs([]byte(body)))
+		account, err := ContinuationAccount(16, 23, []byte(body))
+		require.Zero(t, account)
+		require.ErrorIs(t, err, ErrContinuationUnavailable, "an unknown result must fail before ordinary scheduling")
 	}
 	ctx := WithRunOwner(t.Context(), RunOwner{16, 23, 150})
 	input := AgentRequest{Model: "composer-2.5", Tools: []AgentTool{nativeTestTool("Read", "file_path")}, Messages: []AgentMessage{
@@ -126,7 +132,10 @@ func TestNativeShellErrorContinuesOriginalRun(t *testing.T) {
 			ctx, cancel := context.WithTimeout(WithRunOwner(t.Context(), RunOwner{16, 23, 150}), 3*time.Second)
 			defer cancel()
 			var calls atomic.Int32
-			do := retainedFixture(t, []nativeFixtureStep{{exec: &pb.ExecServerMessage{Id: 7, ShellStreamArgs: &pb.ShellArgs{Command: "exit 7"}}}}, &calls)
+			do := retainedFixture(t, []nativeFixtureStep{{
+				exec:      &pb.ExecServerMessage{Id: 7, ShellStreamArgs: &pb.ShellArgs{Command: "exit 7"}},
+				wantThrow: &pb.ExecClientThrow{Id: 7, Error: "command failed: exit 7", ErrorCode: proto.String("client_tool_error")},
+			}}, &calls)
 			tool := nativeTestTool("Bash", "command")
 			body := map[string]any{"model": "composer-2.5", "stream": stream, "tools": []any{map[string]any{"name": tool.Name, "input_schema": tool.Schema}}, "messages": []any{map[string]any{"role": "user", "content": "run on client"}}}
 			raw, err := json.Marshal(body)

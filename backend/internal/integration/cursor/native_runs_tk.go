@@ -123,6 +123,9 @@ func PendingToolIDs(body []byte) []string {
 			add(item.ToolCallID)
 			continue
 		}
+		if item.Role == "system" || item.Role == "developer" {
+			continue // Instructions do not complete the pending assistant turn.
+		}
 		if item.Role == "user" {
 			var blocks []struct {
 				Type string

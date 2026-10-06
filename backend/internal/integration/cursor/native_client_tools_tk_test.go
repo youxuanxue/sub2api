@@ -48,6 +48,7 @@ func TestNativeClientToolArguments(t *testing.T) {
 		{"native 24h hard limit is not a client timeout", &pb.ExecServerMessage{ShellStreamArgs: &pb.ShellArgs{Command: "pwd", TimeoutBehavior: 2, HardTimeout: proto.Int32(86400000)}}, nativeTestTool("Bash", "command", "timeout"), `{"command":"pwd","timeout":30000}`},
 		{"bounded foreground timeout", &pb.ExecServerMessage{ShellArgs: &pb.ShellArgs{Command: "pwd", Timeout: 86400000}}, nativeTestTool("Bash", "command", "timeout"), `{"command":"pwd","timeout":120000}`},
 		{"grep", &pb.ExecServerMessage{GrepArgs: &pb.GrepArgs{Pattern: "hi", CaseInsensitive: proto.Bool(true), Context: proto.Int32(2)}}, nativeTestTool("Grep", "pattern", "output_mode", "-i", "-C"), `{"pattern":"hi","output_mode":"content","-i":true,"-C":2}`},
+		{"grep explicit false flags", &pb.ExecServerMessage{GrepArgs: &pb.GrepArgs{Pattern: "hi", CaseInsensitive: proto.Bool(false), Multiline: proto.Bool(false)}}, nativeTestTool("Grep", "pattern", "output_mode", "-i", "multiline"), `{"pattern":"hi","output_mode":"content","-i":false,"multiline":false}`},
 		{"pi read", &pb.ExecServerMessage{PiReadArgs: &pb.PiReadExecArgs{Path: "/client/file"}}, nativeTestTool("Read", "file_path"), `{"file_path":"/client/file"}`},
 		{"pi write", &pb.ExecServerMessage{PiWriteArgs: &pb.PiWriteExecArgs{Path: "/client/file", Content: "hello"}}, nativeTestTool("Write", "file_path", "content"), `{"file_path":"/client/file","content":"hello"}`},
 		{"pi bash seconds", &pb.ExecServerMessage{PiBashArgs: &pb.PiBashExecArgs{Command: "pwd", Timeout: proto.Float64(1.5)}}, nativeTestTool("Bash", "command", "timeout"), `{"command":"pwd","timeout":1500}`},
@@ -85,6 +86,8 @@ func TestNativeClientToolsFailClosed(t *testing.T) {
 		{ShellArgs: &pb.ShellArgs{Command: "x\x00y"}},
 		{ReadArgs: &pb.ReadArgs{Path: ""}},
 		{GrepArgs: &pb.GrepArgs{Pattern: "x", Sort: proto.String("path")}},
+		{GrepArgs: &pb.GrepArgs{Pattern: "x", CaseInsensitive: proto.Bool(false)}}, // explicit defaults still need declarations
+		{GrepArgs: &pb.GrepArgs{Pattern: "x", Multiline: proto.Bool(false)}},
 		{PiGrepArgs: &pb.PiGrepExecArgs{Pattern: "x", Literal: proto.Bool(true)}},
 		{PiBashArgs: &pb.PiBashExecArgs{Command: "x", Timeout: proto.Float64(-1)}},
 		{ReadArgs: &pb.ReadArgs{Path: "/x"}, WriteArgs: &pb.WriteArgs{Path: "/x"}},
