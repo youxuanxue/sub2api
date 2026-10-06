@@ -77,6 +77,13 @@ func retainedFixture(t *testing.T, steps []nativeFixtureStep, calls *atomic.Int3
 						}
 						matched = true
 					}
+					if control := message.ExecClientControlMessage; control != nil && control.Throw != nil {
+						if control.Throw.Id != step.exec.Id || step.check != nil {
+							_ = writer.CloseWithError(fmt.Errorf("unexpected tool throw"))
+							return
+						}
+						matched = true
+					}
 					if control := message.ExecClientControlMessage; control != nil && control.StreamClose != nil {
 						if !matched {
 							_ = writer.CloseWithError(fmt.Errorf("exec closed without a result"))
@@ -349,7 +356,8 @@ func TestPendingToolIDsOnlyLatestResultTurn(t *testing.T) {
 		{fmt.Sprintf(`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":%q}]}]}`, id), true},
 		{fmt.Sprintf(`{"messages":[{"role":"tool","tool_call_id":%q}]}`, id), true},
 		{fmt.Sprintf(`{"input":[{"type":"function_call_output","call_id":%q}]}`, id), true},
-		{fmt.Sprintf(`{"messages":[{"role":"tool","tool_call_id":%q},{"role":"user","content":"next question"}]}`, id), false},
+		{fmt.Sprintf(`{"messages":[{"role":"tool","tool_call_id":%q},{"role":"user","content":"next question"}]}`, id), true},
+		{fmt.Sprintf(`{"messages":[{"role":"tool","tool_call_id":%q},{"role":"assistant","content":"done"},{"role":"user","content":"next question"}]}`, id), false},
 	} {
 		ids := PendingToolIDs([]byte(tc.body))
 		if tc.want {

@@ -84,8 +84,9 @@ func nativeFingerprint(input AgentRequest) [32]byte {
 	return sha256.Sum256(data)
 }
 
-// PendingToolIDs examines only the latest result turn, never a past completed
-// tool embedded in history. It handles all three public protocol envelopes.
+// PendingToolIDs examines the turn since the latest assistant response. User
+// text after a result must not hide a continuation and start a second run.
+// Completed tools behind an assistant response remain ordinary history.
 func PendingToolIDs(body []byte) []string {
 	var root struct {
 		Messages []json.RawMessage `json:"messages"`
@@ -134,6 +135,7 @@ func PendingToolIDs(body []byte) []string {
 					}
 				}
 			}
+			continue
 		}
 		break
 	}
@@ -177,6 +179,17 @@ func nativeResultToResume(input AgentRequest) (AgentMessage, bool, error) {
 	}
 	last := input.Messages[len(input.Messages)-1]
 	if last.Role != "tool" || !strings.HasPrefix(last.ToolCallID, pendingToolPrefix) {
+		// Only a sole final tool result can resume the retained duplex. Reject
+		// trailing user text rather than replaying a possibly completed action.
+		for i := len(input.Messages) - 1; i >= 0; i-- {
+			message := input.Messages[i]
+			if message.Role != "user" && message.Role != "tool" {
+				break
+			}
+			if message.Role == "tool" && strings.HasPrefix(message.ToolCallID, pendingToolPrefix) {
+				return AgentMessage{}, true, ErrContinuationUnavailable
+			}
+		}
 		return AgentMessage{}, false, nil
 	}
 	count := 0

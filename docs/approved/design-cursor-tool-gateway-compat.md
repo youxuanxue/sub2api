@@ -92,6 +92,36 @@ unavailable process metadata is not inferred from arbitrary prose. Grep output
 is accepted only when its structured native representation can be reconstructed.
 Client results are never supplemented by reading gateway files or running tools.
 
+### Gateway-only boundary clarification (conversation approval, 2026-10-06)
+
+TokenKey retains model protocol state only. Client cwd, environment variables,
+processes, files and permissions belong to the client. The gateway must not
+create an execution environment, poll a background handle, fix generated shell
+programs, or execute a fallback. Model prose about persistent Shell state is
+not a gateway capability promise.
+
+Native Shell success uses the existing compatibility convention: a successful
+client tool acknowledgement maps to native success/zero. This is not a measured
+process exit code; unstructured client text cannot establish stdout/stderr
+separation or process metadata. No PID, duration or changed cwd is added.
+Client `is_error` cannot distinguish permission denial from execution failure:
+send its original text through an in-band exec throw without assigning either
+classification or an exit code. A background-shaped response also retains its
+original text in an in-band representation error; no gateway process ownership
+is implied. These tool errors close the exec frame, not the model stream.
+
+A ranged Read retains content and the range marker but omits whole-file totals.
+Proto3 zero defaults for these totals mean no supplied metadata in this adapter;
+they do not prove an empty file. Unstructured Read/Write acknowledgements cannot
+independently verify filesystem state. Grep text uses the first `:line:` separator
+(filenames containing that separator remain unsupported); totals must not overflow.
+
+Results with trailing user text are unsupported continuations and fail closed,
+including after expiry. They must not silently create a new model run. A later
+assistant response separates completed tool history from a new user turn.
+Concurrent submissions of one pending result are consumed once. This guards
+gateway replay, not a model issuing a new operation with a new tool ID.
+
 A retained run's intermediate tool segments report zero settled usage with the
 provider-neutral `model-deferred` marker; both shared cost owners settle zero
 (including per-request pricing), preserving normal usage records and hold release. Its final
@@ -161,6 +191,7 @@ so old receivers do not lose provenance from new labels.
 | JSON/SSE errors and public model/usage metadata remain supplier-neutral; failed turns do not settle | `TestMessagesPublicErrorMapping` and `TestCursorProtocolRoutesUseNativeTransportAndSettlement` |
 | Owner/key/schema/history isolation, duplicate consumption, capacity, expiry and disconnect | `TestNativeRunIsolationExpiryAndCancellation`, `TestPendingToolIDsOnlyLatestResultTurn` |
 | Read wrappers, missing/empty file, structured results and client rejection | `TestNativeClientResultSemantics` |
+| Original client errors, ranged metadata, Grep fidelity, trailing-input rejection and concurrent single consumption | `TestNativeClientResultEvidence`, `TestNativeShellErrorContinuesOriginalRun`, `TestNativeContinuationTrailingTextFailsClosed`, `TestNativeContinuationConcurrentSingleConsumption` |
 | Zero intermediate cost including per-request pricing; final settlement remains normal | `TestCursorDeferredSegmentsSettleZeroBeforeTerminalUsage` |
 | Cancellation/timeout identity, partial output, policy and transport regressions | Existing Cursor transport, timeout and buffered failure tests |
 | Legacy and neutral wire provenance retain the same durable billing tier | `TestCursorRelayConversionsRetainBillingProvenance` |

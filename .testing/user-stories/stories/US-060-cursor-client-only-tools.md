@@ -18,6 +18,7 @@
 3. AC-003 (security): Given gateway files and a shell marker target When native Read/Write/Bash/Grep arrive Then file contents are not read into output or modified and the marker is not created.
 4. AC-004 (regression): Given each public protocol and streaming mode When native handoff occurs Then model identity and billing provenance remain correct; rejected tools permit further text.
 5. AC-005 (runtime): Given cancellation, expiry or concurrent continuation When waiting for a client result Then the upstream is released and results cannot cross authenticated callers or be consumed twice.
+6. AC-006 (result fidelity): Given client tool errors or partial output When returning native results Then preserve original errors without invented refusal/exit classifications, omit whole-file metadata for a Read page, and preserve Grep match content without overflowing totals. Tool-result requests with trailing user input fail closed instead of starting another upstream run.
 
 ## Assertions
 
@@ -30,6 +31,10 @@ Compare complete translated arguments and returned content. A new unpredictable 
 - `backend/internal/integration/cursor/native_runs_tk_test.go`::`TestNativeToolsRetainedRoundTrip`
 - `backend/internal/integration/cursor/native_runs_tk_test.go`::`TestNativeRunIsolationExpiryAndCancellation`
 - `backend/internal/integration/cursor/native_runs_tk_test.go`::`TestNativeClientResultSemantics`
+- `backend/internal/integration/cursor/native_boundary_tk_test.go`::`TestNativeClientResultEvidence`
+- `backend/internal/integration/cursor/native_boundary_tk_test.go`::`TestNativeShellErrorContinuesOriginalRun`
+- `backend/internal/integration/cursor/native_boundary_tk_test.go`::`TestNativeContinuationTrailingTextFailsClosed`
+- `backend/internal/integration/cursor/native_boundary_tk_test.go`::`TestNativeContinuationConcurrentSingleConsumption`
 - `backend/internal/integration/cursor/native_client_tools_tk_test.go`::`TestCursorAdapterCannotImportLocalExecutors`
 - `backend/internal/integration/cursor/messages_agentrun_tk_test.go`::`TestAgentRunOutsideExecThrowsAndContinuesText`
 - `backend/internal/service/cursor_native_transport_regression_test.go`::`TestCursorProtocolRoutesUseNativeTransportAndSettlement`
