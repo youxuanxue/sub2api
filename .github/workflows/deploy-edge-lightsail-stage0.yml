@@ -235,9 +235,22 @@ jobs:
           echo "managed_instance_id=$MID" >> "$GITHUB_OUTPUT"
           echo "api_url=$API" >> "$GITHUB_OUTPUT"
 
-      - name: Verify Edge SSM role
+      - name: Rebind Hybrid credentials if stale
+        id: hybrid
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+          SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
+        run: |
+          set -euo pipefail
+          bash ops/lightsail/reregister-edge-hybrid.sh \
+            "${{ steps.edge.outputs.edge_id }}" "$INSTANCE_ID" "$AWS_REGION" "$SSM_PREFIX"
+          MID="$(bash ops/lightsail/resolve_ssm_instance_id.sh "$SSM_PREFIX" "$AWS_REGION")"
+          echo "managed_instance_id=$MID" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Edge SSM role
+        env:
+          INSTANCE_ID: ${{ steps.hybrid.outputs.managed_instance_id }}
           AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
         run: bash ops/lightsail/ensure-edge-ssm-role.sh "${{ steps.edge.outputs.edge_id }}" "$INSTANCE_ID" "$AWS_REGION"
 
@@ -245,7 +258,7 @@ jobs:
         id: ssm
         if: inputs.operation == 'upgrade' || inputs.operation == 'rollback'
         env:
-          INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          INSTANCE_ID: ${{ steps.hybrid.outputs.managed_instance_id }}
           EDGE_ID: ${{ inputs.edge_id }}
           STAGE0_SSM_OUTPUT_DIR: .
         run: bash ops/stage0/deploy_via_ssm_bluegreen.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-edge-lightsail edge=$INPUT_EDGE_ID op=$INPUT_OPERATION"
@@ -276,7 +289,7 @@ jobs:
         # disk/memory alerts and GHCR prune on existing edges. Phase 1 removed QA.
         if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
         env:
-          INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          INSTANCE_ID: ${{ steps.hybrid.outputs.managed_instance_id }}
           AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
           STAGE0_SSM_OUTPUT_DIR: .
         run: bash ops/stage0/sync-edge-host-units-via-ssm.sh "$INSTANCE_ID" "edge-host-units edge=${{ steps.edge.outputs.edge_id }}"
@@ -284,7 +297,7 @@ jobs:
       - name: Backup Edge env secrets off-box
         if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
         env:
-          INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          INSTANCE_ID: ${{ steps.hybrid.outputs.managed_instance_id }}
           AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
           TK_ENV_SECRETS_SOURCE: /var/lib/tokenkey/.env.secret
           TK_ENV_SECRETS_PARAM: /tokenkey/edge/${{ steps.edge.outputs.edge_id }}/stage0/env-secrets-backup
@@ -296,7 +309,7 @@ jobs:
         env:
           EDGE_ID: ${{ steps.edge.outputs.edge_id }}
           EDGE_API_URL: ${{ steps.instance.outputs.api_url }}
-          EDGE_INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          EDGE_INSTANCE_ID: ${{ steps.hybrid.outputs.managed_instance_id }}
           EDGE_SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
           TK_SMOKE_API_KEY: ${{ secrets.TK_SMOKE_API_KEY }}
           TK_SMOKE_EDGE_LOCAL_CHAT_MODELS: ${{ vars.TK_SMOKE_EDGE_LOCAL_CHAT_MODELS || 'claude-sonnet-4-6' }}
@@ -325,7 +338,7 @@ jobs:
             echo "- tag: \`${INPUT_TAG:-none}\`"
             echo "- lightsail_region: \`${{ steps.edge.outputs.lightsail_region }}\`"
             echo "- instance: \`${{ steps.edge.outputs.instance_name }}\`"
-            echo "- managed_instance_id: \`${{ steps.instance.outputs.managed_instance_id }}\`"
+            echo "- managed_instance_id: \`${{ steps.hybrid.outputs.managed_instance_id || steps.instance.outputs.managed_instance_id }}\`"
             echo "- api: ${{ steps.instance.outputs.api_url }}"
             echo "- ssm command id: \`${{ steps.ssm.outputs.command_id }}\`"
             echo
