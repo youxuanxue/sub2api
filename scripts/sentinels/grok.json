@@ -132,7 +132,7 @@
     {
       "path": "backend/internal/model/error_passthrough_rule.go",
       "must_contain": [
-        "PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo}"
+        "PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe}"
       ],
       "rationale": "The separate model.AllPlatforms registry feeds the error-passthrough rule UI's applicable-platform list. The concrete-provider tail must retain Grok together with the TokenKey CN providers and OpenCodeGo; upstream intentionally removed the compatibility-only newapi/kiro entries from this registry."
     },

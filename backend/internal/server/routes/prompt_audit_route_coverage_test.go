@@ -39,6 +39,7 @@ func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 		"/v1/contents/generations/tasks":     {"grok_media.go"},
 		"/contents/generations/tasks":        {"grok_media.go"},
 		"/messages":                          {"gateway_handler.go", "openai_gateway_handler.go"},
+		"/systemone":                         {"gateway_systemone.go"},
 		"/responses":                         {"gateway_handler_responses.go", "openai_gateway_handler.go"},
 		"/responses/*subpath":                {"gateway_handler_responses.go", "openai_gateway_handler.go"},
 		"/chat/completions":                  {"gateway_handler_chat_completions.go", "openai_chat_completions.go"},

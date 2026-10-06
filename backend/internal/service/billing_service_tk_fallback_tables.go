@@ -6,6 +6,10 @@ import "strings"
 // price cards (Fable / Gemini / GPT / DeepSeek / GLM / domestic LLM / Doubao).
 // Claude classic Opus/Sonnet/Haiku and xAI Grok cards stay in initFallbackPricing.
 func (s *BillingService) tkInitFallbackPricingTables() {
+	s.fallbackPrices["jev-latest"] = &ModelPricing{
+		InputPricePerToken:  0.042 / 1_000_000,
+		OutputPricePerToken: 0,
+	}
 	s.fallbackPrices["claude-sonnet-5-5"] = &ModelPricing{
 		InputPricePerToken:         2e-6,
 		OutputPricePerToken:        10e-6,
@@ -473,6 +477,9 @@ func (s *BillingService) tkInitFallbackPricingTables() {
 func (s *BillingService) tkResolveFallbackTableFamilyPricing(modelLower string) *ModelPricing {
 	if s == nil {
 		return nil
+	}
+	if modelLower == "jev-latest" {
+		return s.fallbackPrices["jev-latest"]
 	}
 
 	// Claude Fable 5（Opus 之上的新档）必须先于下面的 claude 兜底命中，

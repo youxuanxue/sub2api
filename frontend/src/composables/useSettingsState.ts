@@ -16,6 +16,10 @@ import type {
   DefaultPlatformQuotasMap,
 } from "@/api/admin/settings";
 import type {
+  RechargeBonusMode,
+  RechargeBonusTierDraft,
+} from "@/utils/rechargeBonus";
+import type {
   AdminGroup,
   LoginAgreementDocument,
   NotifyEmailEntry,
@@ -111,6 +115,9 @@ export type SettingsForm = {
   payment_balance_recharge_multiplier: number;
   payment_subscription_usd_to_cny_rate: number;
   payment_recharge_fee_rate: number;
+  payment_recharge_bonus_tiers: RechargeBonusTierDraft[];
+  payment_recharge_bonus_mode: RechargeBonusMode;
+  payment_recharge_bonus_notice: string;
   payment_enabled_types: string[];
   payment_help_image_url: string;
   payment_help_text: string;

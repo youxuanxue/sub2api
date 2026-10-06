@@ -56,6 +56,7 @@ const (
 	ContentModerationProtocolOpenAIChat        = "openai_chat_completions"
 	ContentModerationProtocolGemini            = "gemini" // protocol enum value, not platform — coincidentally matches PlatformGemini
 	ContentModerationProtocolOpenAIImages      = "openai_images"
+	ContentModerationProtocolTypeSafeSystemOne = "typesafe_systemone"
 
 	defaultContentModerationBaseURL   = "https://api.openai.com"
 	defaultContentModerationModel     = "omni-moderation-latest"

@@ -41,7 +41,7 @@ func (UserPlatformQuota) Fields() []ent.Field {
 				// Must match service.AllowedQuotaPlatforms and the DB CHECK constraint.
 				switch s {
 				case "anthropic", "openai", "gemini", "antigravity", "newapi", "kiro", "grok",
-					"kimi", "zhipu", "deepseek", "minimax", "opencode_go":
+					"kimi", "zhipu", "deepseek", "minimax", "opencode_go", "typesafe":
 					return nil
 				default:
 					return fmt.Errorf("platform %q is not allowed", s)

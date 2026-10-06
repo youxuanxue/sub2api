@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/typesafe"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -66,7 +67,8 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 	}
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(ctx, groupID)
-		fallbackModels := defaultCodexModelIDsForPlatform(service.PlatformComposite)
+		availableModels = omitTypeSafeFromCodexListing(availableModels)
+		fallbackModels := omitTypeSafeFromCodexListing(defaultCodexModelIDsForPlatform(service.PlatformComposite))
 		if group.ModelAllowlistEnabled() {
 			source := availableModels
 			if len(source) == 0 {
@@ -93,4 +95,18 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 		return availableModels
 	}
 	return fallbackModels
+}
+
+func omitTypeSafeFromCodexListing(models []string) []string {
+	if len(models) == 0 {
+		return models
+	}
+	filtered := make([]string, 0, len(models))
+	for _, model := range models {
+		if strings.TrimSpace(model) == typesafe.JevLatestModel {
+			continue
+		}
+		filtered = append(filtered, model)
+	}
+	return filtered
 }

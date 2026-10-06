@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -890,6 +891,145 @@ func TestGatewayModels_CompositeUnmappedAccountsFallbackToLinkedPlatformsOnly(t 
 	require.NotContains(t, ids, "gemini-2.5-flash")
 }
 
+// CN 供应商没有静态默认模型列表：composite 下无映射的可调度 CN 账号不得把
+// defaultModelIDsForPlatform default 分支的 Claude 列表挂到 CN 平台名下。
+func TestGatewayModels_CompositeUnmappedCNAccountsContributeNoDefaults(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(35)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{
+			byGroup: map[int64][]service.Account{
+				groupID: {
+					{ID: 1, Platform: service.PlatformOpenAI},
+					{ID: 2, Platform: service.PlatformKimi},
+					{ID: 3, Platform: service.PlatformZhipu},
+					{ID: 4, Platform: service.PlatformDeepseek},
+					{ID: 5, Platform: service.PlatformMiniMax},
+				},
+			},
+		},
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformComposite},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+
+	ids := modelIDsForTest(got.Data)
+	require.Contains(t, ids, "gpt-5.5")
+	require.NotContains(t, ids, "claude-sonnet-4-6")
+}
+
+// 独立 CN 分组沿用 default 分支的 Claude 默认列表（Claude Code 客户端请求的
+// 就是这些模型名并经账号 model_mapping 转换），composite 支持不得改变该回退。
+func TestDefaultModelIDsForPlatform_CNProvidersKeepClaudeDefaults(t *testing.T) {
+	want := make([]string, 0, len(claude.DefaultModels))
+	for _, model := range claude.DefaultModels {
+		want = append(want, model.ID)
+	}
+	for _, platform := range []string{service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax} {
+		require.Equal(t, want, defaultModelIDsForPlatform(platform), "platform=%s", platform)
+	}
+}
+
+func TestDefaultCodexModelIDsForPlatform_DeepSeekUsesDeepSeekModels(t *testing.T) {
+	require.Equal(t, []string{"deepseek-v4-pro", "deepseek-v4-flash"}, defaultCodexModelIDsForPlatform(service.PlatformDeepseek))
+	require.Equal(t, []string{"MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"}, defaultCodexModelIDsForPlatform(service.PlatformMiniMax))
+	require.Equal(t, defaultModelIDsForPlatform(service.PlatformAnthropic), defaultCodexModelIDsForPlatform(service.PlatformAnthropic))
+}
+
+func TestDefaultModelIDsForPlatform_TypeSafeUsesJev(t *testing.T) {
+	require.Equal(t, []string{"jev-latest"}, defaultModelIDsForPlatform(service.PlatformTypeSafe))
+}
+
+func TestGatewayCodexModels_DeepSeekWithoutMappingUsesDeepSeekDefaults(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const groupID int64 = 130
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {
+				{
+					ID:          1,
+					Platform:    service.PlatformDeepseek,
+					Status:      service.StatusActive,
+					Schedulable: true,
+					Credentials: map[string]any{},
+				},
+			},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/models?client_version=0.150.0", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformDeepseek},
+	})
+
+	h.CodexModels(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got codexModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	slugs := make([]string, 0, len(got.Models))
+	for _, model := range got.Models {
+		slugs = append(slugs, model.Slug)
+	}
+	require.Contains(t, slugs, "deepseek-v4-pro")
+	require.Contains(t, slugs, "deepseek-v4-flash")
+	require.NotContains(t, slugs, "claude-sonnet-4-6")
+	require.NotContains(t, slugs, "claude-opus-4-6")
+}
+
+func TestGatewayCodexModels_OmitsWildcardMappingKeys(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const groupID int64 = 131
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {
+				{
+					ID:       1,
+					Platform: service.PlatformDeepseek,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"foo-*":           "deepseek-v4-pro",
+							"deepseek-v4-pro": "deepseek-v4-pro",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/models?client_version=0.150.0", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformDeepseek},
+	})
+
+	h.CodexModels(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got codexModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	slugs := make([]string, 0, len(got.Models))
+	for _, model := range got.Models {
+		slugs = append(slugs, model.Slug)
+	}
+	require.Equal(t, []string{"deepseek-v4-pro"}, slugs)
+}
+
 func TestGatewayModels_CustomModelsListKeepsConcreteModelAllowedByWildcardMapping(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1446,4 +1586,48 @@ func TestGatewayModels_GPT6SolLunaDiscoveryRespectsGroupAndAccountRestrictions(t
 			require.Equal(t, tc.want, modelIDsForTest(got.Data))
 		})
 	}
+}
+
+// Scenario: jev-latest only works through /v1/systemone, so Composite groups list
+// it in /v1/models only when they can serve it, and never in the Codex manifest.
+func TestGatewayModels_CompositeTypeSafeListingScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(66)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {{ID: 1, Platform: service.PlatformAnthropic}, {ID: 2, Platform: service.PlatformTypeSafe, Type: service.AccountTypeAPIKey}},
+		},
+	})
+	newContext := func(path string) (*gin.Context, *httptest.ResponseRecorder) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodGet, path, nil)
+		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+			Group: &service.Group{ID: groupID, Platform: service.PlatformComposite},
+		})
+		return c, rec
+	}
+
+	c, rec := newContext("/v1/models")
+	h.Models(c)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var models gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &models))
+	require.Contains(t, modelIDsForTest(models.Data), "jev-latest")
+	require.Contains(t, modelIDsForTest(models.Data), "claude-opus-4-6")
+
+	c, rec = newContext("/models?client_version=0.147.0")
+	h.CodexModels(c)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var manifest codexModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &manifest))
+	slugs := codexModelSlugsForTest(manifest.Models)
+	require.Contains(t, slugs, "claude-opus-4-6")
+	require.NotContains(t, slugs, "jev-latest")
+}
+
+func TestDefaultModelIDsForPlatform_CompositeFallbackExcludesTypeSafe(t *testing.T) {
+	require.NotContains(t, defaultModelIDsForPlatform(service.PlatformComposite), "jev-latest")
+	require.NotContains(t, defaultCodexModelIDsForPlatform(service.PlatformComposite), "jev-latest")
 }

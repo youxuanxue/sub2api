@@ -444,6 +444,9 @@ func (s *AccountTestService) testAccountConnectionWithAccount(c *gin.Context, ac
 	if account.IsKiro() {
 		return s.testKiroAccountConnection(c, account, modelID, prompt)
 	}
+	if account.IsTypeSafe() {
+		return s.testTypeSafeAccountConnection(c, account, prompt)
+	}
 
 	return s.testClaudeAccountConnection(c, account, modelID)
 }

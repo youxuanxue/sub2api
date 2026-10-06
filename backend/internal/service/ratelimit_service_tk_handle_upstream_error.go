@@ -155,6 +155,15 @@ func (s *RateLimitService) tkDispatchHandleUpstreamError(
 		)
 		shouldDisable = s.handle403(ctx, account, upstreamMsg, responseBody)
 	case 404:
+		if customErrorCodesEnabled && account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {
+			msg := "Custom error code triggered"
+			if upstreamMsg != "" {
+				msg = upstreamMsg
+			}
+			s.handleCustomErrorCode(ctx, account, statusCode, msg)
+			shouldDisable = true
+			break
+		}
 		shouldDisable = s.handle404(ctx, account, upstreamMsg, responseBody)
 	case 413:
 		if account.Platform == PlatformAnthropic {

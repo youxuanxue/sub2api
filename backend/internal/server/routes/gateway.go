@@ -65,6 +65,8 @@ func RegisterGatewayRoutes(
 	{
 		// /v1/messages: auto-route based on group platform
 		gatewayRoutes.Register(http.MethodPost, "/messages", StreamInference, tkOpenAICompatMessagesPOST(h))
+		// System One carries only JSON text, so it uses the text body limit.
+		gatewayRoutes.Register(http.MethodPost, "/systemone", SyncInference, textBodyLimit, h.Gateway.SystemOne)
 		// /v1/messages/count_tokens: OpenAI bridges upstream, Grok estimates
 		// locally, and Anthropic-compatible platforms retain their existing path.
 		gatewayRoutes.Register(http.MethodPost, "/messages/count_tokens", Excluded("count_tokens"), countTokensHandler)

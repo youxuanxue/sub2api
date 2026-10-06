@@ -12,6 +12,7 @@ import Toggle from "@/components/common/Toggle.vue";
 import Select from "@/components/common/Select.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
 import PaymentProviderList from "@/components/payment/PaymentProviderList.vue";
+import RechargeBonusTierEditor from "@/components/admin/settings/RechargeBonusTierEditor.vue";
 import PaymentProviderDialog from "@/components/payment/PaymentProviderDialog.vue";
 import ConfirmDialog from "@/components/common/ConfirmDialog.vue";
 
@@ -899,6 +900,13 @@ onMounted(() => {
         </template>
       </div>
     </div>
+
+    <RechargeBonusTierEditor
+      v-if="form.payment_enabled"
+      v-model="form.payment_recharge_bonus_tiers"
+      v-model:mode="form.payment_recharge_bonus_mode"
+      v-model:notice="form.payment_recharge_bonus_notice"
+    />
 
     <!-- Provider Management -->
     <PaymentProviderList
