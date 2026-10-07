@@ -70,7 +70,7 @@ func (u *cursorNativeTestUpstream) Do(req *http.Request, _ string, _ int64, _ in
 func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 	for _, inbound := range []protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses} {
 		for _, stream := range []bool{false, true} {
-			for _, outcome := range []string{"reported", "handoff", "handoff_alias", "native_handoff", "native_rejected", "shell_rejected", "tool_unknown", "resumed", "incomplete", "cyber_early", "cyber_late", "usage_early", "usage_late", "cyber_http", "usage_http", "usage_message_http", "cyber_429_http", "usage_503_http", "transport_canceled"} {
+			for _, outcome := range []string{"reported", "handoff", "handoff_alias", "native_handoff", "native_rejected", "shell_rejected", "shell_late", "tool_unknown", "resumed", "incomplete", "cyber_early", "cyber_late", "usage_early", "usage_late", "cyber_http", "usage_http", "usage_message_http", "cyber_429_http", "usage_503_http", "transport_canceled"} {
 				t.Run(fmt.Sprintf("%s/stream=%t/%s", inbound, stream, outcome), func(t *testing.T) {
 					const model = "composer-2.5"
 					body := []byte(fmt.Sprintf(`{"model":%q,"stream":%t,"max_tokens":1,"messages":[{"role":"user","content":"lookup"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`, model, stream))
@@ -132,6 +132,9 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 						frame(&pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{McpArgs: &pb.McpArgs{Name: "mcp__tokenkey__lookup", ToolCallId: "call_native"}}})
 					} else if !strings.HasSuffix(outcome, "_early") {
 						frame(&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "NATIVE_OK"}}})
+					}
+					if outcome == "shell_late" {
+						frame(&pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{Id: 9, ShellStreamArgs: &pb.ShellArgs{Command: "exit 7"}}})
 					}
 					if outcome == "tool_unknown" {
 						frame(&pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{McpArgs: &pb.McpArgs{Name: "mcp__tokenkey__not_declared", ToolCallId: "call_native"}}})
@@ -233,14 +236,35 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 					for _, forbidden := range []string{"cursor", "tokenkey", "agentrun", "not_declared", "composer-2.5"} {
 						require.NotContains(t, strings.ToLower(recorder.Body.String()), forbidden)
 					}
-					if outcome == "shell_rejected" {
+					if outcome == "shell_rejected" || outcome == "shell_late" {
 						require.Error(t, err)
 						require.Nil(t, result, "rejected native shell cannot settle")
 						var failover *UpstreamFailoverError
 						require.False(t, errors.As(err, &failover), "deterministic incompatibility must not replay")
-						require.Equal(t, http.StatusUnprocessableEntity, recorder.Code)
+						if stream && outcome == "shell_late" {
+							require.Equal(t, http.StatusOK, recorder.Code)
+							require.Contains(t, recorder.Body.String(), "NATIVE_OK")
+							require.True(t, c.Writer.Written())
+						} else if outcome == "shell_late" && inbound != protocolrouter.ProtocolMessages {
+							// These converters consume an internal SSE stream even for
+							// buffered callers; the outer handler owns its error response.
+							require.False(t, c.Writer.Written())
+							require.Contains(t, err.Error(), "The model selected a tool that this gateway cannot relay.")
+						} else {
+							require.Equal(t, http.StatusUnprocessableEntity, recorder.Code)
+							require.NotContains(t, recorder.Body.String(), "NATIVE_OK")
+						}
+						if outcome == "shell_late" && inbound != protocolrouter.ProtocolMessages {
+							// The handler writes the terminal client error for converted
+							// streams too; the service must return failure, never settle.
+							require.False(t, IsResponseCommitted(c))
+							require.Contains(t, err.Error(), "The model selected a tool that this gateway cannot relay.")
+						} else {
+							require.Contains(t, recorder.Body.String(), "The model selected a tool that this gateway cannot relay.")
+						}
+						require.NotContains(t, recorder.Body.String(), "message_stop")
+						require.NotContains(t, recorder.Body.String(), `"finish_reason":"stop"`)
 						require.Equal(t, 1, upstream.calls)
-						require.NotContains(t, recorder.Body.String(), "NATIVE_OK")
 						require.NotContains(t, recorder.Body.String(), `"type":"tool_use"`)
 						require.NotContains(t, recorder.Body.String(), `"status":"completed"`)
 						return

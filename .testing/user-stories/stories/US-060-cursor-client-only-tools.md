@@ -20,7 +20,7 @@
 5. AC-005 (runtime): Given cancellation, expiry or concurrent continuation When waiting for a client result Then the upstream is released and results cannot cross authenticated callers or be consumed twice.
 6. AC-006 (result fidelity): Given client tool errors or partial output When returning native results Then preserve original errors without gateway-invented refusal/exit classifications, omit whole-file metadata for a Read page, and preserve Grep match content without overflowing totals. Tool-result requests with trailing user input fail closed instead of starting another upstream run; intervening system/developer messages cannot hide pending affinity. Native non-Shell error rendering is outside this guarantee. Bash uses MCP text/is_error without native execution metadata.
 7. AC-007 (Shell protocol boundary): Given a declared Bash tool When routed through MCP Then preserve schema, permissions, command and client result; if native Shell is selected, reject before client handoff. No gateway execution, environment, command rewriting, fabricated exit metadata or new upstream replay is allowed.
-8. AC-008 (discovery): Given client declarations When upstream requests MCP state with either kick-only value Then return only the requested current declaration snapshot and continue to client handoff on the original connection; unknown namespaces return no tools. No server is started or contacted.
+8. AC-008 (discovery): Given client declarations When upstream requests MCP state with either kick-only value Then return only the requested current declaration snapshot and continue to client handoff on the original connection; unknown namespaces return no tools. No server is started or contacted. Mixed exec variants reject before metadata, context or client handoff.
 9. AC-009 (schema fidelity): Given unchanged client Bash arguments When the caller schema permits additional properties or local references Then preserve and hand off the complete valid arguments; invalid arguments and external schema references fail without network access.
 10. AC-010 (fixed tool filter): Given declared client tools When opening the upstream Run Then allow only MCP invocation and discovery, without modifying the system prompt; upstream errors cannot expand this list or trigger a replay. No tools and tool_choice=none leave the filter disabled.
 
@@ -47,6 +47,7 @@ Compare complete translated arguments and returned content. A new unpredictable 
 - `backend/internal/integration/cursor/client_shell_routing_tk_test.go`::`TestClientBashRejectsInvalidArguments`
 - `backend/internal/integration/cursor/client_shell_routing_tk_test.go`::`TestNativeShellFailsBeforeClientHandoff`
 - `backend/internal/integration/cursor/client_shell_routing_tk_test.go`::`TestClientBashPreservesCallerSchemaSemantics`
+- `backend/internal/integration/cursor/client_tool_metadata_tk_test.go`::`TestAgentRunAmbiguousExecRejectsClientHandoff`
 - `backend/internal/integration/cursor/client_tool_metadata_tk_test.go`::`TestClientToolMetadataSnapshot`
 - `backend/internal/integration/cursor/client_tool_metadata_tk_test.go`::`TestClientToolMetadataContinuesToClientHandoff`
 - `backend/internal/integration/cursor/agent_test.go`::`TestAgentClientToolAllowlistIncludesDiscovery`
