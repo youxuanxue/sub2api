@@ -81,6 +81,19 @@ class GoCacheBoundaryContractTest(unittest.TestCase):
             saving = [s for s in steps if s.get("uses") == "actions/cache/save@v6" and f"steps.{gate_id}.outputs.fits == 'true'" in s.get("if", "")]
             self.assertEqual(len(saving), 1, family)
 
+    def test_budget_decisions_and_audit_share_run_local_evidence(self) -> None:
+        job = load(WORKFLOWS / "warm-release-cache-main.yml")["jobs"]["warm-release-cache"]
+        evidence = job["env"]["GO_CACHE_BUDGET_EVIDENCE"]
+        self.assertTrue(evidence.startswith("${{ runner.temp }}/"), evidence)
+        invocations = [s for s in job["steps"] if "go_cache_prune.py" in s.get("run", "")]
+        for step in invocations:
+            effective_env = job["env"] | step.get("env", {})
+            self.assertEqual(effective_env["GO_CACHE_BUDGET_EVIDENCE"], evidence)
+        self.assertIn("--heal", invocations[0]["run"])
+        self.assertIn("--audit-staleness", invocations[-1]["run"])
+        self.assertNotIn("if", invocations[-1])
+        self.assertNotIn("continue-on-error", invocations[-1])
+
     def test_required_workflows_do_not_compete_with_warm_cache_writer(self) -> None:
         for path in WORKFLOWS.glob("*.yml"):
             for job in load(path).get("jobs", {}).values():

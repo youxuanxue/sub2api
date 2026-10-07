@@ -29,6 +29,8 @@ jobs:
   warm-release-cache:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    env:
+      GO_CACHE_BUDGET_EVIDENCE: ${{ runner.temp }}/go-cache-budget-evidence.json
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
@@ -258,7 +260,8 @@ jobs:
       # slow one. When every save gate evaluates false this job still exits 0,
       # so required CI keeps restoring a frozen snapshot with no signal at all
       # (observed: five families stuck for days while warm ran green each push).
-      # Snapshot age is the only symptom that survives, so assert it here.
+      # Audit retained snapshots and unexplained misses. Budget exclusions must
+      # carry this run's evidence and still agree with the shared prune planner.
       - name: Audit managed Go cache snapshot freshness
         env:
           GH_TOKEN: ${{ github.token }}
