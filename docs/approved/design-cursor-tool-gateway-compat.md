@@ -35,8 +35,8 @@ reported as an ordinary capability error.
 
 AGENT is used in current and history turns. Mode controls upstream planning;
 it does not authorize any gateway filesystem/process execution. The only native
-bridge owner is `native_client_tools_tk.go`. Exact caller declarations and full
-JSON Schema validation are required; schema references cannot trigger network
+bridge owner is `native_client_tools_tk.go`. Ambiguous exec frames are rejected before metadata, context or client handoff.
+Exact caller declarations and full JSON Schema validation are required; schema references cannot trigger network
 or file reads. Missing tools, `tool_choice=none`, incompatible parameters,
 binary writes and background shell ownership fail closed. Upstream approval or
 sandbox hints never grant client permission. Bash uses the caller-declared tool's
@@ -264,6 +264,7 @@ so old receivers do not lose provenance from new labels.
 | Read wrappers, missing/empty file, structured results and client rejection | `TestNativeClientResultSemantics` |
 | Original client errors, ranged metadata, Grep fidelity, trailing-input rejection and concurrent single consumption | `TestNativeClientResultEvidence`, `TestClientBashErrorContinuesOriginalRun`, `TestNativeContinuationTrailingTextFailsClosed`, `TestNativeContinuationConcurrentSingleConsumption` |
 | Client Bash declarations and errors preserved; native Shell rejected before handoff without execution or failover | `TestClientToolRoutingPreservesDeclarations`, `TestClientBashRejectsInvalidArguments`, `TestNativeShellFailsBeforeClientHandoff`, `TestCursorProtocolRoutesUseNativeTransportAndSettlement` |
+| Mixed known/unknown exec variants reject in-band without client handoff or context disclosure | `TestAgentRunAmbiguousExecRejectsClientHandoff` |
 | Client schema semantics preserved without external schema fetch; static metadata discovery continues to client handoff on the same connection | `TestClientBashPreservesCallerSchemaSemantics`, `TestClientToolMetadataSnapshot`, `TestClientToolMetadataContinuesToClientHandoff` |
 | Fixed invocation/discovery allowlist; no filter when tools are absent/disabled; upstream errors never expand the list or replay | `TestAgentClientToolAllowlistIncludesDiscovery`, `TestClientToolFilterDisabledWithoutDeclarations`, `TestClientToolAllowlistDoesNotLearnOrReplay` |
 | Zero intermediate cost including per-request pricing; final settlement remains normal | `TestCursorDeferredSegmentsSettleZeroBeforeTerminalUsage` |

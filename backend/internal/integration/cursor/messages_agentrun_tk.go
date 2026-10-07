@@ -97,8 +97,25 @@ const (
 	messagesExecOutside
 )
 
-func classifyMessagesAlignedExec(exec *pb.ExecServerMessage) messagesAlignedExecAction {
+// The upstream exec payload is a oneof, while our protocol subset uses plain
+// fields. Never choose an operation from a mixed known/unknown variant frame.
+func hasSingleExecVariant(exec *pb.ExecServerMessage) bool {
 	if exec == nil {
+		return false
+	}
+	variants := 0
+	for _, field := range protobufFieldNumbers(exec) {
+		switch field {
+		case 1, 15, 19, 55, 57: // IDs, tracing, hook/machine hints
+		default:
+			variants++
+		}
+	}
+	return variants == 1
+}
+
+func classifyMessagesAlignedExec(exec *pb.ExecServerMessage) messagesAlignedExecAction {
+	if !hasSingleExecVariant(exec) {
 		return messagesExecOutside
 	}
 	switch {

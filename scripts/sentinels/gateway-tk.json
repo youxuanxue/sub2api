@@ -13955,7 +13955,7 @@
     },
     {
       "path": "backend/internal/integration/cursor/client_tool_metadata_tk_test.go",
-      "must_contain": ["TestClientToolMetadataSnapshot", "TestClientToolMetadataContinuesToClientHandoff"],
+      "must_contain": ["TestClientToolMetadataSnapshot", "TestClientToolMetadataContinuesToClientHandoff", "TestAgentRunAmbiguousExecRejectsClientHandoff"],
       "rationale": "Tool discovery must report request declarations without starting MCP servers or probing client environments; the same upstream connection must continue to client handoff."
     },
     {
