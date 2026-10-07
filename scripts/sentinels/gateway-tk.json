@@ -1001,7 +1001,6 @@
         "newAgentHTTPRejection(resp.StatusCode",
         "&agentTransportError{cause: got.err}",
         "if nativeShellExec(exec) {",
-        "if len(input.Tools) > 0 {",
         "classifyMessagesAlignedExec",
         "execClientThrowAndClose",
         "outsideExecThrowMessage",
@@ -1025,7 +1024,7 @@
         "cursor requested unsupported local execution",
         "context.WithTimeout(ctx, 2*time.Minute)"
       ],
-      "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes. Declared client tools use a fixed MCP invocation+discovery allowlist; mcp_tool_call alone caused GET_MCP_TOOLS errors. Native exec guards remain authoritative even if the upstream ignores its tool filter. Caller tools stay on RunAgent McpTools; compatible native execs map to declared client tools in AGENT mode. Local execution is forbidden. Unbridgeable exec and undeclared MCP workspace frames are answered with ExecClientThrow+stream_close so the model can continue text. TurnEnded.input is total prompt; anthropicShapeReportedUsage must map to Anthropic disjoint buckets before Messages/settlement or cache tokens are double-billed at input+cache rates. RunAgent must not restore a wall-clock 2m WithTimeout; frame-idle (defaultAgentStreamIdleTimeout / errAgentStreamIdle / doCh) reaps hung duplex silence including a never-returning do(), and unwraps to DeadlineExceeded for 504 owners."
+      "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes. Every AGENT run, including tool-free requests, sends a fixed MCP invocation+discovery allowlist; omitting it let native Shell produce HTTP 422. mcp_tool_call alone caused GET_MCP_TOOLS errors. Native exec guards remain authoritative even if the upstream ignores its tool filter. Caller tools stay on RunAgent McpTools; compatible native execs map to declared client tools in AGENT mode. Local execution is forbidden. Unbridgeable exec and undeclared MCP workspace frames are answered with ExecClientThrow+stream_close so the model can continue text. TurnEnded.input is total prompt; anthropicShapeReportedUsage must map to Anthropic disjoint buckets before Messages/settlement or cache tokens are double-billed at input+cache rates. RunAgent must not restore a wall-clock 2m WithTimeout; frame-idle (defaultAgentStreamIdleTimeout / errAgentStreamIdle / doCh) reaps hung duplex silence including a never-returning do(), and unwraps to DeadlineExceeded for 504 owners."
     },
     {
       "path": "backend/internal/integration/cursor/agent_timeout_repro_tk_test.go",
@@ -1098,13 +1097,13 @@
         "TestAgentUsagePreservesCacheBuckets",
         "Cursor TurnEnded.input is total; expose Anthropic uncached remainder",
         "already-disjoint input < cache sum must not be double-subtracted",
-        "text-only requests do not enable client tool filtering",
+        "tool-free requests still constrain upstream tools to MCP entries",
         "the discovery dependency must be allowed without exposing native tools",
         "require.Len(t, run.GetMcpTools().GetMcpTools(), 1)",
         "require.EqualValues(t, agentModeAgent, run.GetConversationState().GetMode())",
         "require.NotEqualValues(t, agentModeAsk, run.GetConversationState().GetMode())"
       ],
-      "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history. Guard the complete MCP invocation+discovery allowlist to avoid prod #150 GET_MCP_TOOLS errors, while preserving caller declarations and leaving the filter disabled without tools. AGENT mode enables client-only native tool handoff; local executors remain forbidden. Billing: total TurnEnded.input must normalize to uncached remainder; already-disjoint fixtures must not be double-subtracted."
+      "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history. Guard the complete MCP invocation+discovery allowlist to avoid prod #150 GET_MCP_TOOLS errors, including tool-free AGENT runs so native Shell is not selected. AGENT mode enables client-only native tool handoff; local executors remain forbidden. Billing: total TurnEnded.input must normalize to uncached remainder; already-disjoint fixtures must not be double-subtracted."
     },
     {
       "path": "backend/internal/integration/cursor/messages_test.go",
@@ -13962,7 +13961,7 @@
     },
     {
       "path": "backend/internal/integration/cursor/client_shell_routing_tk_test.go",
-      "must_contain": ["TestClientBashPreservesCallerSchemaSemantics", "TestClientBashRejectsInvalidArguments", "TestNativeShellFailsBeforeClientHandoff", "TestClientToolRoutingPreservesDeclarations", "TestClientToolFilterDisabledWithoutDeclarations", "TestClientToolAllowlistDoesNotLearnOrReplay"],
+      "must_contain": ["TestClientBashPreservesCallerSchemaSemantics", "TestClientBashRejectsInvalidArguments", "TestNativeShellFailsBeforeClientHandoff", "TestClientToolRoutingPreservesDeclarations", "TestClientToolFilterConstrainsUpstreamWithoutDeclarations", "TestClientToolAllowlistDoesNotLearnOrReplay"],
       "rationale": "Unchanged MCP arguments follow the caller schema while native Shell cannot invent client execution state or silently replay operations."
     },
     {

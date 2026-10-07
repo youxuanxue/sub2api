@@ -1,7 +1,7 @@
 ---
 title: Provider-neutral Cursor tool gateway compatibility
 status: approved
-approved_by: "feng (conversation approval, 2026-10-01; Agent/client-only bridge and revised continuation design approved 2026-10-04; client Shell routing revision approved in conversation 2026-10-07; metadata/schema refinement and fixed MCP allowlist authorized by subsequent conversation approvals)"
+approved_by: "feng (conversation approval, 2026-10-01; Agent/client-only bridge and revised continuation design approved 2026-10-04; client Shell routing revision approved in conversation 2026-10-07; metadata/schema refinement and fixed MCP allowlist authorized by subsequent conversation approvals; tool-free MCP allowlist authorized 2026-10-07)"
 created: 2026-10-01
 ---
 
@@ -120,8 +120,11 @@ The second entry permits tool discovery; allowing only `mcp_tool_call` caused
 `GET_MCP_TOOLS` failures in earlier production requests. Discovery is answered
 from static caller declarations, not a running MCP server. The gateway never
 learns additional allowed tools from upstream errors and never starts another
-Run to repair this list. Requests without tools, including `tool_choice=none`,
-do not enable the filter; their existing exec rejection boundary remains.
+Run to repair this list. The same filter is sent for omitted `tools`, `tools: []`,
+and `tool_choice=none`. Those requests keep an empty client tool catalog and do
+not invent Read/Write/Bash declarations, dummy tools, or gateway execution.
+Discovery answers the empty snapshot. The exec rejection boundary remains if
+the upstream ignores the filter.
 
 No Shell routing hint is added to the system prompt. Caller instructions,
 descriptions, schemas, names and arguments are preserved. The existing MCP
@@ -266,7 +269,7 @@ so old receivers do not lose provenance from new labels.
 | Client Bash declarations and errors preserved; native Shell rejected before handoff without execution or failover | `TestClientToolRoutingPreservesDeclarations`, `TestClientBashRejectsInvalidArguments`, `TestNativeShellFailsBeforeClientHandoff`, `TestCursorProtocolRoutesUseNativeTransportAndSettlement` |
 | Mixed known/unknown exec variants reject in-band without client handoff or context disclosure | `TestAgentRunAmbiguousExecRejectsClientHandoff` |
 | Client schema semantics preserved without external schema fetch; static metadata discovery continues to client handoff on the same connection | `TestClientBashPreservesCallerSchemaSemantics`, `TestClientToolMetadataSnapshot`, `TestClientToolMetadataContinuesToClientHandoff` |
-| Fixed invocation/discovery allowlist; no filter when tools are absent/disabled; upstream errors never expand the list or replay | `TestAgentClientToolAllowlistIncludesDiscovery`, `TestClientToolFilterDisabledWithoutDeclarations`, `TestClientToolAllowlistDoesNotLearnOrReplay` |
+| Fixed invocation/discovery allowlist on every AGENT run, including omitted/empty/`tool_choice=none`; empty catalog; upstream errors never expand the list or replay | `TestAgentClientToolAllowlistIncludesDiscovery`, `TestClientToolFilterConstrainsUpstreamWithoutDeclarations`, `TestClientToolAllowlistDoesNotLearnOrReplay` |
 | Zero intermediate cost including per-request pricing; final settlement remains normal | `TestCursorDeferredSegmentsSettleZeroBeforeTerminalUsage` |
 | Cancellation/timeout identity, partial output, policy and transport regressions | Existing Cursor transport, timeout and buffered failure tests |
 | Legacy and neutral wire provenance retain the same durable billing tier | `TestCursorRelayConversionsRetainBillingProvenance` |

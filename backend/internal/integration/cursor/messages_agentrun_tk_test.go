@@ -76,8 +76,8 @@ func TestAgentRunOutsideExecThrowsAndContinuesText(t *testing.T) {
 						if run.GetRunRequest().GetConversationState().GetMode() != agentModeAgent {
 							return fmt.Errorf("gateway did not advertise Agent mode")
 						}
-						if req.Header.Get("X-Cursor-Agent-Allowed-Tools") != "" {
-							return fmt.Errorf("native tool allowlist advertised")
+						if req.Header.Get("X-Cursor-Agent-Allowed-Tools") != clientToolAllowlist {
+							return fmt.Errorf("tool-free runs must still send the MCP allowlist, got %q", req.Header.Get("X-Cursor-Agent-Allowed-Tools"))
 						}
 						exec := &pb.ExecServerMessage{Id: 9, ExecId: "native-exec"}
 						exec.ProtoReflect().SetUnknown(protowire.AppendBytes(protowire.AppendTag(nil, field, protowire.BytesType), nil))
