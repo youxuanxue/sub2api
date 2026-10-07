@@ -272,7 +272,24 @@
               </button>
               <div class="flex min-w-0 flex-col">
                 <HelpTooltip
-                  v-if="accountHomepageUrl(row)"
+                  v-if="isEdgeExpandable(row)"
+                  :content="t('admin.accounts.edgePanel.manageWholeEdge')"
+                  width-class="w-max max-w-sm break-all"
+                  class="-ml-1 self-start"
+                >
+                  <template #trigger>
+                    <button
+                      type="button"
+                      class="border-b border-dotted border-gray-300 font-medium text-gray-900 dark:border-dark-600 dark:text-white"
+                      :disabled="managingEdgeId === row.edge_id"
+                      @click.stop="openStubEdgeManage(row)"
+                    >
+                      {{ value }}
+                    </button>
+                  </template>
+                </HelpTooltip>
+                <HelpTooltip
+                  v-else-if="accountHomepageUrl(row)"
                   :content="accountHomepageUrl(row)"
                   width-class="w-max max-w-sm break-all"
                   class="-ml-1 self-start"
@@ -591,6 +608,7 @@ defineOptions({ name: 'AdminAccountsView' })
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
+import { openEdgeAdminHandoff } from '@/utils/openEdgeAdminHandoff.tk'
 import { cursorAPI } from '@/api/admin/cursor.tk'
 import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
@@ -1882,6 +1900,21 @@ function accountHomepageUrl(row: Account): string {
   if (row.type !== 'apikey' || typeof row.credentials?.base_url !== 'string') return ''
   const baseUrl = sanitizeUrl(row.credentials.base_url)
   return baseUrl ? new URL(baseUrl).origin : ''
+}
+
+const managingEdgeId = ref<string | null>(null)
+
+async function openStubEdgeManage(row: Account) {
+  const edgeId = row.edge_id?.trim()
+  if (!edgeId || managingEdgeId.value) return
+  managingEdgeId.value = edgeId
+  try {
+    await openEdgeAdminHandoff(edgeId)
+  } catch {
+    appStore.showError(t('admin.edgeAccounts.manageFailed'))
+  } finally {
+    managingEdgeId.value = null
+  }
 }
 
 type OpenAICompactBadgeState = 'active' | 'blocked' | 'auto'

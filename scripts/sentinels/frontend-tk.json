@@ -1217,6 +1217,7 @@
         "totals.concurrency.current",
         "admin.edgeAccounts.summaryConcurrency",
         "openEdgeManage",
+        "openEdgeAdminHandoff",
         "admin.edgeAccounts.manageAccounts",
         "AccountCapacityCell",
         "AccountUsageCell",
@@ -2102,6 +2103,22 @@
       "rationale": "Injection points where the upstream-shaped accounts list wires the batch passive-usage composable: the cell usage-override binding (suppresses per-row self-fetch) and the refreshAccountRowMetrics helper that kicks today-stats and usage-batch loading after list load/reload/auto-refresh without serializing those background requests on the main list response. An upstream merge re-resolving AccountsView could drop the override binding (cells fall back to N self-fetches), restore serialized row metrics, or stop refreshing overrides after list changes. Pins the import, the cell binding, and the concurrent row-metric refresh helper/calls."
     },
     {
+      "path": "frontend/src/views/admin/AccountsView.vue",
+      "must_contain": [
+        "openStubEdgeManage(row)",
+        "openEdgeAdminHandoff"
+      ],
+      "rationale": "Mirror-stub account names on /admin/accounts must open the logged-in edge handoff, not a raw https://api-<edge>.tokenkey.dev/ origin. Clicking the origin unauthenticated lands on /home; dropping openStubEdgeManage / openEdgeAdminHandoff restores that trap while the panel's 管理该 edge 全部账号 still works."
+    },
+    {
+      "path": "frontend/src/utils/openEdgeAdminHandoff.tk.ts",
+      "must_contain": [
+        "export async function openEdgeAdminHandoff(",
+        "adminAPI.edgeAccounts.adminSession"
+      ],
+      "rationale": "Shared prod→edge admin-session opener used by AccountsView stub names, EdgeAccountPanelTk, and EdgeAccountsView. Opens the blank tab synchronously so the post-await navigation is not treated as a popup, then navigates to the minted handoff_url. Dropping it (or inlining a raw origin href) splits the three manage entries and reintroduces the unauthenticated /home landing."
+    },
+    {
       "path": "frontend/src/api/admin/accounts.ts",
       "must_contain": [
         "export async function getBatchPassiveUsage("
@@ -2168,6 +2185,7 @@
       "must_contain": [
         "EdgeAccountActionMenuTk",
         "openEdgeManage",
+        "openEdgeAdminHandoff",
         "adminAPI.edgeAccounts.clearRateLimit",
         "shouldShowEdgeAccountError(acct)",
         "PlatformTypeBadge",

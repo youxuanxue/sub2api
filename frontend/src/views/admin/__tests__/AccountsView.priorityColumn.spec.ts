@@ -20,7 +20,8 @@ vi.mock('@/api/admin', () => ({
       toggleSchedulable: vi.fn()
     },
     proxies: { getAll: vi.fn().mockResolvedValue([]) },
-    groups: { getAll: vi.fn().mockResolvedValue([]), getAllIncludingInactive: vi.fn().mockResolvedValue([]) }
+    groups: { getAll: vi.fn().mockResolvedValue([]), getAllIncludingInactive: vi.fn().mockResolvedValue([]) },
+    edgeAccounts: { listWithEtag: vi.fn(), adminSession: vi.fn() }
   }
 }))
 

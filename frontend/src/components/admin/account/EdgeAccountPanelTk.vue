@@ -229,6 +229,7 @@ import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import { formatDateOnly } from '@/utils/format'
 import { anchoredMenuStyle, getAnchoredMenuPosition } from '@/utils/floatingPanel'
 import { adminAPI } from '@/api/admin'
+import { openEdgeAdminHandoff } from '@/utils/openEdgeAdminHandoff.tk'
 import { useAppStore } from '@/stores/app'
 import type { Account, AccountUsageInfo, AccountPlatform, AccountType } from '@/types'
 import type { EdgeAccountSummary, EdgeAccountsResult } from '@/api/admin/edgeAccounts'
@@ -406,15 +407,9 @@ const managing = ref(false)
 async function openEdgeManage() {
   if (managing.value || !edgeId.value) return
   managing.value = true
-  // Open the tab synchronously inside the click so the post-await navigation is not
-  // treated as a popup (mirrors EdgeAccountsView.openEdgeManage).
-  const tab = window.open('', '_blank')
   try {
-    const res = await adminAPI.edgeAccounts.adminSession(edgeId.value)
-    if (tab) tab.location.href = res.handoff_url
-    else window.location.href = res.handoff_url
+    await openEdgeAdminHandoff(edgeId.value)
   } catch {
-    if (tab) tab.close()
     appStore.showError(t('admin.edgeAccounts.manageFailed'))
   } finally {
     managing.value = false

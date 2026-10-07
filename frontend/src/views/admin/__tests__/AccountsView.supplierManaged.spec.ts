@@ -60,7 +60,7 @@ vi.mock('@/api/admin', () => ({
     },
     proxies: { getAll: getAllProxies },
     groups: { getAll: getAllGroups, getAllIncludingInactive },
-    edgeAccounts: { listWithEtag: listEdgeAccounts }
+    edgeAccounts: { listWithEtag: listEdgeAccounts, adminSession: vi.fn() }
   }
 }))
 

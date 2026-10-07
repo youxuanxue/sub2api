@@ -44,7 +44,8 @@ vi.mock('@/api/admin', () => ({
       refreshCredentials
     },
     proxies: { getAll: getAllProxies },
-    groups: { getAll: getAllGroups, getAllIncludingInactive: getAllGroups }
+    groups: { getAll: getAllGroups, getAllIncludingInactive: getAllGroups },
+    edgeAccounts: { listWithEtag: vi.fn(), adminSession: vi.fn() }
   }
 }))
 
