@@ -22,6 +22,19 @@ vi.mock('@/stores/app', () => ({
   })
 }))
 
+vi.mock('@/api/admin', () => ({
+  adminAPI: {
+    edgeAccounts: {
+      adminSession: vi.fn(),
+      getUsage: vi.fn(),
+      setSchedulable: vi.fn(),
+      clearRateLimit: vi.fn(),
+      resetQuota: vi.fn(),
+      clearTempUnschedulable: vi.fn()
+    }
+  }
+}))
+
 function acct(over: Partial<EdgeAccountSummary> = {}): EdgeAccountSummary {
   return {
     id: 8,

@@ -371,6 +371,7 @@ import {
 } from '@/utils/edgeAccounts.tk'
 import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
 import { adminAPI } from '@/api/admin'
+import { openEdgeAdminHandoff } from '@/utils/openEdgeAdminHandoff.tk'
 import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
@@ -388,19 +389,9 @@ const managingEdge = ref<string | null>(null)
 async function openEdgeManage(edgeId: string) {
   if (managingEdge.value) return
   managingEdge.value = edgeId
-  // Open the tab synchronously inside the click so the browser doesn't treat the
-  // post-await window.open as a popup; navigate it once the URL is minted.
-  const tab = window.open('', '_blank')
   try {
-    const res = await adminAPI.edgeAccounts.adminSession(edgeId)
-    if (tab) {
-      tab.location.href = res.handoff_url
-    } else {
-      // Popup blocked — fall back to same-tab navigation.
-      window.location.href = res.handoff_url
-    }
+    await openEdgeAdminHandoff(edgeId)
   } catch {
-    if (tab) tab.close()
     appStore.showError(t('admin.edgeAccounts.manageFailed'))
   } finally {
     managingEdge.value = null
