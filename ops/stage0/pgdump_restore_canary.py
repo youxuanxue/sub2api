@@ -29,6 +29,8 @@ TARGET_RE = re.compile(r"(?:prod|edge:[a-z][a-z0-9]{1,15})")
 OBJECT_RE = re.compile(r"tokenkey-\d{8}T\d{6}Z\.sql\.gz")
 LIVE_POSTGRES = "tokenkey-postgres"
 FRESHNESS = dt.timedelta(hours=4)
+# S3 LastModified can land a second ahead of the host clock right after upload.
+LAST_MODIFIED_CLOCK_SKEW = dt.timedelta(minutes=2)
 CAPACITY_HEADROOM_BYTES = 1024**3
 POSTGRES_READY_ATTEMPTS = 180
 POSTGRES_READY_SLEEP_SECONDS = 1
@@ -94,18 +96,37 @@ def _wait_temporary_postgres(
     sleep: Callable[[float], None],
 ) -> None:
     last_error = "pg_isready failed"
+    postmaster_ready = False
     for attempt in range(POSTGRES_READY_ATTEMPTS):
         try:
-            # Wait for postmaster listen only. Requiring -d tokenkey races CREATE DATABASE
-            # on 0.5–1 CPU ARM hosts and made the first fleet run fail in 60s.
-            _run(run, ["docker", "exec", container, "pg_isready"], timeout=10)
+            # Wait for postmaster listen first. Requiring pg_isready -d tokenkey
+            # races CREATE DATABASE on 0.5–1 CPU ARM hosts and made the first
+            # fleet run fail in 60s. Fast hosts have the opposite race: listen
+            # succeeds before POSTGRES_DB exists, and restore then fails with
+            # FATAL: database "tokenkey" does not exist.
+            if not postmaster_ready:
+                _run(run, ["docker", "exec", container, "pg_isready"], timeout=10)
+                postmaster_ready = True
+            _run(
+                run,
+                [
+                    "docker", "exec", container, "psql", "-U", "tokenkey", "-d",
+                    "tokenkey", "-X", "-A", "-t", "-c", "SELECT 1",
+                ],
+                timeout=10,
+            )
             return
         except CanaryError as exc:
             last_error = str(exc)
             if attempt == POSTGRES_READY_ATTEMPTS - 1:
+                phase = (
+                    "temporary PostgreSQL did not become ready"
+                    if not postmaster_ready
+                    else 'temporary PostgreSQL database "tokenkey" did not become ready'
+                )
                 raise CanaryError(
-                    "temporary PostgreSQL did not become ready: "
-                    f"{_container_ready_diagnostics(run, container)}; last={last_error[:200]}"
+                    f"{phase}: {_container_ready_diagnostics(run, container)}; "
+                    f"last={last_error[:200]}"
                 ) from exc
             sleep(POSTGRES_READY_SLEEP_SECONDS)
 
@@ -245,7 +266,7 @@ def _select_object(
         raise CanaryError("no matching tokenkey-YYYYMMDDTHHMMSSZ.sql.gz object")
     modified, key, modified_raw, size = max(candidates, key=lambda item: item[0])
     age = current_time.astimezone(dt.timezone.utc) - modified
-    if age < dt.timedelta(0) or age > FRESHNESS:
+    if age < -LAST_MODIFIED_CLOCK_SKEW or age > FRESHNESS:
         raise StaleDumpError(f"newest S3 pgdump object is stale or future-dated: age={age}")
     return key, modified_raw, size
 
