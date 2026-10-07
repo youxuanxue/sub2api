@@ -4,7 +4,7 @@ import { defineComponent, ref } from 'vue'
 
 import UsageView from '../UsageView.vue'
 
-const { list, exportList, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs, routeQuery, aoaToSheet, sheetAddAoa, saveAs, xlsxWrite } = vi.hoisted(() => {
+const { list, exportList, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs, routeQuery, addRow, addRows, saveAs, writeBuffer } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),
     setItem: vi.fn(),
@@ -20,10 +20,10 @@ const { list, exportList, getStats, getSnapshotV2, getById, getModelStats, listE
     getModelStats: vi.fn(),
     listErrorLogs: vi.fn(),
     routeQuery: {} as Record<string, string>,
-		aoaToSheet: vi.fn(() => ({})),
-		sheetAddAoa: vi.fn(),
+		addRow: vi.fn(() => ({})),
+		addRows: vi.fn(),
 		saveAs: vi.fn(),
-		xlsxWrite: vi.fn(() => new Uint8Array([1, 2, 3])),
+		writeBuffer: vi.fn(async () => new Uint8Array([1, 2, 3])),
   }
 })
 
@@ -98,14 +98,13 @@ vi.mock('@/api/admin/usage', () => ({
 
 vi.mock('file-saver', () => ({ saveAs }))
 
-vi.mock('xlsx', () => ({
-	utils: {
-		aoa_to_sheet: aoaToSheet,
-		sheet_add_aoa: sheetAddAoa,
-		book_new: vi.fn(() => ({})),
-		book_append_sheet: vi.fn(),
-	},
-	write: xlsxWrite,
+vi.mock('exceljs', () => ({
+  Workbook: vi.fn(function () {
+    return {
+      addWorksheet: vi.fn(() => ({ addRow, addRows })),
+      xlsx: { writeBuffer },
+    }
+  }),
 }))
 
 vi.mock('@/api/admin/ops', () => ({
@@ -963,14 +962,28 @@ describe('admin UsageView model audit export', () => {
 		})
 		getSnapshotV2.mockReset().mockResolvedValue({ trend: [], models: [], groups: [] })
 		getModelStats.mockReset().mockResolvedValue({ models: [] })
-		aoaToSheet.mockClear()
-		sheetAddAoa.mockClear()
+		addRow.mockClear()
+		addRows.mockClear()
 		saveAs.mockClear()
-		xlsxWrite.mockClear()
+		writeBuffer.mockClear()
 	})
 
 	afterEach(() => {
 		vi.useRealTimers()
+	})
+
+	it('does not download a workbook cancelled during serialization', async () => {
+		const wrapper = mountRouteFilteredUsageView()
+		vi.advanceTimersByTime(120)
+		await flushPromises()
+		let finish!: (value: Uint8Array) => void
+		writeBuffer.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+		const exporting = (wrapper.vm as any).exportToExcel()
+		await flushPromises()
+		;(wrapper.vm as any).cancelExport()
+		finish(new Uint8Array([1, 2, 3]))
+		await exporting
+		expect(saveAs).not.toHaveBeenCalled()
 	})
 
 	it('exports requested, sent, response, and mismatch as separate admin columns', async () => {
@@ -987,14 +1000,14 @@ describe('admin UsageView model audit export', () => {
 			expect.anything()
 		)
 
-		const headers = aoaToSheet.mock.calls[0][0][0]
+		const headers = addRow.mock.calls[0][0]
 		expect(headers.slice(4, 8)).toEqual([
 			'Requested model',
 			'Sent upstream model',
 			'Upstream response model',
 			'Upstream model mismatch',
 		])
-		const row = sheetAddAoa.mock.calls[0][1][0]
+		const row = addRows.mock.calls[0][0][0]
 		expect(row.slice(4, 8)).toEqual(['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4', 'Yes'])
 		expect(saveAs).toHaveBeenCalledTimes(1)
 	})

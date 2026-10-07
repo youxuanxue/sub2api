@@ -171,9 +171,9 @@ export default defineConfig(({ mode }) => {
               return 'vendor-airwallex'
             }
 
-            // xlsx 仅 UsageView 导出时动态引入，单独成块，避免被绝大多数后台页面急切下载/解析（~430KB）
-            if (id.includes('/xlsx/')) {
-              return 'vendor-xlsx'
+            // Excel export stays lazy; ordinary pages must not load the workbook library.
+            if (id.includes('/exceljs/')) {
+              return 'vendor-exceljs'
             }
 
             // marked + dompurify（~63KB）仅在实际渲染 markdown 时经 useLazyMarkdown
