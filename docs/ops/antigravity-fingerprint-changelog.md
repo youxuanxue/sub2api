@@ -45,3 +45,4 @@ Drift-fix recipe (see the `tokenkey-antigravity-fingerprint-alignment` skill):
 | 2026-10-01 | **1.2.14** | pure UA | `DefaultUserAgentVersion` 1.2.13 → 1.2.14 | 本机升级后的 `agy --version` 静态验证；UA 格式不变，本次未采集 wire 证据。关联 #2416。 |
 | 2026-10-03 | **1.2.15** | pure UA | `DefaultUserAgentVersion` 1.2.14 → 1.2.15 | 本机升级后的 `agy --version` 静态验证；UA 格式不变，本次未采集 wire 证据。 |
 | 2026-10-06 | **1.2.17** | pure UA | `DefaultUserAgentVersion` 1.2.15 → 1.2.17 | 官方 cask tarball `1.2.17-6683332533157888` sha256 与 Homebrew formula 一致；本机 `agy --version` 静态验证；UA 格式不变，本次未采集 wire 证据。关联 #2441。 |
+| 2026-10-07 | **1.3.0** | pure UA | `DefaultUserAgentVersion` 1.2.17 → 1.3.0 | 本机升级后的 `agy --version` 静态验证；UA 格式不变，本次未采集 wire 证据。关联 #2457。 |
