@@ -11681,19 +11681,43 @@
     {
       "path": "backend/internal/service/upstream_billing_probe.go",
       "must_contain": [
+        "UpstreamBillingProbePlatforms",
+        "ErrUpstreamBillingProbeUnsupported",
         "upstreamBillingProbeSupportsSub2APIBilling",
         "IsOpenAICloudwiseRelay()",
         "IsOpenAITokenseaRelay()"
       ],
-      "rationale": "MaaS dual-stack relays (CloudWise, tokensea) do not expose /v1/sub2api/billing. Runner, manual probe, and admin enable paths must skip/reject them so prod accounts stop accumulating failed probe snapshots."
+      "rationale": "MaaS dual-stack relays (CloudWise, tokensea) do not expose /v1/sub2api/billing and must return UPSTREAM_BILLING_PROBE_UNSUPPORTED. UpstreamBillingProbePlatforms is the Go allowlist (excludes newapi/kiro) kept in lockstep with the frontend via platform-registry-drift."
     },
     {
       "path": "backend/internal/service/upstream_billing_probe_multiplatform_test.go",
       "must_contain": [
         "TestUpstreamBillingProbeCloudwiseRelayManualProbeRejectsAccount",
-        "TestUpstreamBillingProbeCloudwiseRelaySetEnabledRejects"
+        "TestUpstreamBillingProbeCloudwiseRelaySetEnabledRejects",
+        "TestUpstreamBillingProbeNewAPISetEnabledRejectsWithIdentityMessage"
       ],
-      "rationale": "Regression: CloudWise relay accounts must not probe or enable upstream billing probe."
+      "rationale": "Regression: CloudWise relays return unsupported; newapi/kiro API-key relays are identity-ineligible for upstream billing probe."
+    },
+    {
+      "path": "backend/internal/service/admin_account_tk_update.go",
+      "must_contain": [
+        "ErrUpstreamBillingProbeUnsupported"
+      ],
+      "rationale": "Admin UpdateAccount must reject enabling probe on CloudWise/Tokensea with the unsupported error (not the generic identity-invalid toast) so operators can distinguish relay shape from key failures."
+    },
+    {
+      "path": "backend/internal/service/admin_account_tk_bulk_update.go",
+      "must_contain": [
+        "ErrUpstreamBillingProbeUnsupported"
+      ],
+      "rationale": "Bulk probe enable must use the same unsupported vs identity-invalid split as single-account update."
+    },
+    {
+      "path": "backend/internal/service/admin_account.go",
+      "must_contain": [
+        "ErrUpstreamBillingProbeUnsupported"
+      ],
+      "rationale": "CreateAccount probe enablement must reject unsupported MaaS relays with UPSTREAM_BILLING_PROBE_UNSUPPORTED."
     },
     {
       "path": "backend/internal/service/universal_capability_tk.go",
