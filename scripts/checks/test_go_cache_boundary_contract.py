@@ -82,12 +82,26 @@ class GoCacheBoundaryContractTest(unittest.TestCase):
             self.assertEqual(len(saving), 1, family)
 
     def test_budget_decisions_and_audit_share_run_local_evidence(self) -> None:
+        import os
+        import subprocess
+        import tempfile
+
         job = load(WORKFLOWS / "warm-release-cache-main.yml")["jobs"]["warm-release-cache"]
-        evidence = job["env"]["GO_CACHE_BUDGET_EVIDENCE"]
-        self.assertTrue(evidence.startswith("${{ runner.temp }}/"), evidence)
+        initialize = next(s for s in job["steps"] if s.get("name") == "Initialize budget evidence path")
+        # runner context is unavailable in jobs.<id>.env. Execute the setup
+        # step and consume GITHUB_ENV as subsequent workflow steps do.
+        self.assertNotIn("GO_CACHE_BUDGET_EVIDENCE", job.get("env", {}))
+        with tempfile.TemporaryDirectory() as root:
+            env_file = Path(root) / "github-env"
+            subprocess.run(["bash", "-e", "-c", initialize["run"]], check=True,
+                           env=os.environ | {"RUNNER_TEMP": root, "GITHUB_ENV": str(env_file)})
+            exported = dict(line.split("=", 1) for line in env_file.read_text().splitlines())
+            evidence = exported["GO_CACHE_BUDGET_EVIDENCE"]
+            self.assertEqual(evidence, f"{root}/go-cache-budget-evidence.json")
         invocations = [s for s in job["steps"] if "go_cache_prune.py" in s.get("run", "")]
+        self.assertLess(job["steps"].index(initialize), job["steps"].index(invocations[0]))
         for step in invocations:
-            effective_env = job["env"] | step.get("env", {})
+            effective_env = job.get("env", {}) | exported | step.get("env", {})
             self.assertEqual(effective_env["GO_CACHE_BUDGET_EVIDENCE"], evidence)
         self.assertIn("--heal", invocations[0]["run"])
         self.assertIn("--audit-staleness", invocations[-1]["run"])

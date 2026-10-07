@@ -29,10 +29,10 @@ jobs:
   warm-release-cache:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    env:
-      GO_CACHE_BUDGET_EVIDENCE: ${{ runner.temp }}/go-cache-budget-evidence.json
     steps:
       - uses: actions/checkout@v6
+      - name: Initialize budget evidence path
+        run: echo "GO_CACHE_BUDGET_EVIDENCE=${RUNNER_TEMP}/go-cache-budget-evidence.json" >> "$GITHUB_ENV"
       - uses: ./.github/actions/cache-and-checkout-new-api
       - uses: actions/setup-go@v6
         with:
