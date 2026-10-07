@@ -554,7 +554,10 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 		if err := event("message_delta", map[string]any{"delta": map[string]any{"stop_reason": stop, "stop_sequence": nil}, "usage": messageUsage(*result.Usage, tier)}); err != nil {
 			return
 		}
-		delivered = event("message_stop", map[string]any{}) == nil
+		// Buffered consumers finish on the terminal delta and may close before
+		// message_stop. Its successful delivery already transfers tool ownership.
+		delivered = true
+		_ = event("message_stop", map[string]any{})
 	}()
 	select {
 	case response := <-ready:

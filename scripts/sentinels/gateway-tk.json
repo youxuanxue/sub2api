@@ -13995,6 +13995,11 @@
       "rationale": "Keep client result fidelity and single consumption regressions: never invent error classifications or silently replay a result followed by user text."
     },
     {
+      "path": "backend/internal/integration/cursor/native_continuation_close_tk_test.go",
+      "must_contain": ["TestNativeContinuationTerminalClose", "content_block_stop", "message_delta", "message_stop", "ContinuationAccount", "readNativeResponse"],
+      "rationale": "Terminal-delta delivery must preserve the authenticated native continuation even when a buffered gateway closes before message_stop. The regression also requires cleanup before terminal delivery and settlement through the original duplex."
+    },
+    {
       "path": "backend/internal/integration/cursor/native_runs_tk.go",
       "must_contain": [
         "func ContinuationAccount",
