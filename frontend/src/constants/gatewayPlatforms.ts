@@ -108,6 +108,32 @@ export const PLATFORM_ZHIPU = 'zhipu' as const
 export const PLATFORM_DEEPSEEK = 'deepseek' as const
 export const PLATFORM_MINIMAX = 'minimax' as const
 export const PLATFORM_OPENCODE_GO = 'opencode_go' as const
+export const PLATFORM_TYPESAFE = 'typesafe' as const
+
+/**
+ * Platforms whose API-key accounts may opt into `/v1/sub2api/billing` probing.
+ * Mirrors `service.IsUpstreamBillingProbeIdentity` — newapi/kiro relays are
+ * intentionally excluded (they never host that endpoint).
+ */
+export const UPSTREAM_BILLING_PROBE_PLATFORMS: readonly AccountPlatform[] = [
+  PLATFORM_OPENAI,
+  PLATFORM_ANTHROPIC,
+  PLATFORM_GEMINI,
+  PLATFORM_ANTIGRAVITY,
+  PLATFORM_GROK,
+  PLATFORM_KIMI,
+  PLATFORM_ZHIPU,
+  PLATFORM_DEEPSEEK,
+  PLATFORM_MINIMAX,
+  PLATFORM_OPENCODE_GO,
+  PLATFORM_TYPESAFE,
+] as const
+
+/** True when an API-key account on this platform may show/submit probe toggles. */
+export function supportsUpstreamBillingProbe(platform: string | null | undefined): boolean {
+  if (!platform) return false
+  return (UPSTREAM_BILLING_PROBE_PLATFORMS as readonly string[]).includes(platform)
+}
 
 // --- Subscription type constants (use instead of inline literals) ------------
 

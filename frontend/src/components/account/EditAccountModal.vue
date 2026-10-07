@@ -1856,7 +1856,7 @@
             }}
           </p>
           <div
-            v-if="account?.type === 'apikey'"
+            v-if="showUpstreamBillingProbeControls"
             class="mt-3 flex items-center justify-between gap-3"
           >
             <div class="min-w-0">
@@ -2123,7 +2123,7 @@
       </div>
 
       <div
-        v-if="account?.type === 'apikey'"
+        v-if="showUpstreamBillingProbeControls"
         class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div>
@@ -3329,7 +3329,8 @@ import {
   PLATFORM_ANTIGRAVITY,
   PLATFORM_NEWAPI,
   PLATFORM_KIRO,
-  PLATFORM_GROK
+  PLATFORM_GROK,
+  supportsUpstreamBillingProbe
 } from '@/constants/gatewayPlatforms'
 import { STATUS_ACTIVE } from '@/constants/channel'
 
@@ -3941,6 +3942,9 @@ const autoResetCredit5hThreshold = ref(100)
 const autoResetCredit7dThreshold = ref(100)
 const upstreamBillingAutoProbeEnabled = ref(false)
 const upstreamBillingRateSyncEnabled = ref(false)
+const showUpstreamBillingProbeControls = computed(
+  () => props.account?.type === 'apikey' && supportsUpstreamBillingProbe(props.account.platform)
+)
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 // 上游ID：直接上游声明请求标识的响应头名，留空不记录。
 const upstreamRequestIdHeader = ref('')
@@ -5562,7 +5566,7 @@ const handleSubmit = async () => {
       updatePayload.load_factor = 0
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
-    if (props.account.type === 'apikey') {
+    if (showUpstreamBillingProbeControls.value) {
       updatePayload.upstream_billing_probe_enabled = upstreamBillingAutoProbeEnabled.value
       updatePayload.upstream_billing_rate_sync_enabled = upstreamBillingRateSyncEnabled.value
       if (upstreamBillingRateSyncEnabled.value) {

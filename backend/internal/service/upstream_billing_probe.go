@@ -74,7 +74,12 @@ var (
 		"UPSTREAM_BILLING_PROBE_UNAVAILABLE", "upstream billing probe is unavailable",
 	)
 	ErrUpstreamBillingProbeAccountInvalid = infraerrors.BadRequest(
-		"UPSTREAM_BILLING_PROBE_ACCOUNT_INVALID", "account is not an API key account",
+		"UPSTREAM_BILLING_PROBE_ACCOUNT_INVALID",
+		"account is not eligible for upstream billing probe (supported API-key platforms only; newapi/kiro relays are excluded)",
+	)
+	ErrUpstreamBillingProbeUnsupported = infraerrors.BadRequest(
+		"UPSTREAM_BILLING_PROBE_UNSUPPORTED",
+		"account upstream does not support /v1/sub2api/billing probe",
 	)
 	ErrUpstreamBillingProbeIdentityChanged = infraerrors.Conflict(
 		"UPSTREAM_BILLING_PROBE_IDENTITY_CHANGED", "account identity changed during upstream billing probe; retry the probe",
@@ -500,7 +505,7 @@ func (s *UpstreamBillingProbeService) probeAccountWithMode(ctx context.Context, 
 			return nil, ErrUpstreamBillingProbeAccountInvalid
 		}
 		if !upstreamBillingProbeSupportsSub2APIBilling(account) {
-			return nil, ErrUpstreamBillingProbeAccountInvalid
+			return nil, ErrUpstreamBillingProbeUnsupported
 		}
 		if requireEnabled {
 			if !account.IsActive() || !upstreamBillingProbeEnabled(account) {
@@ -611,7 +616,7 @@ func (s *UpstreamBillingProbeService) SetAccountEnabled(ctx context.Context, acc
 		return ErrUpstreamBillingProbeAccountInvalid
 	}
 	if enabled && !upstreamBillingProbeSupportsSub2APIBilling(account) {
-		return ErrUpstreamBillingProbeAccountInvalid
+		return ErrUpstreamBillingProbeUnsupported
 	}
 	updates := map[string]any{UpstreamBillingProbeEnabledExtraKey: enabled}
 	if !enabled {
@@ -1195,6 +1200,9 @@ func safeProbeError(err error) string {
 	}
 	if errors.Is(err, ErrUpstreamBillingProbeAccountInvalid) {
 		return ErrUpstreamBillingProbeAccountInvalid.Error()
+	}
+	if errors.Is(err, ErrUpstreamBillingProbeUnsupported) {
+		return ErrUpstreamBillingProbeUnsupported.Error()
 	}
 	if errors.Is(err, ErrUpstreamBillingProbeUnavailable) {
 		return ErrUpstreamBillingProbeUnavailable.Error()

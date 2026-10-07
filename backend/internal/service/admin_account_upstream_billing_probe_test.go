@@ -609,6 +609,31 @@ func TestUpdateAccountRejectsInvalidProbeEnabled(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestUpdateAccountRejectsProbeEnabledForNewAPI(t *testing.T) {
+	accountID := int64(113)
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{
+		accountID: {
+			ID:       accountID,
+			Platform: PlatformNewAPI,
+			Type:     AccountTypeAPIKey,
+			Status:   StatusActive,
+			Credentials: map[string]any{
+				"api_key":  "nvapi-test",
+				"base_url": "https://integrate.api.nvidia.com",
+			},
+			Extra: map[string]any{},
+		},
+	}}
+
+	enabled := true
+	_, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+		ProbeEnabled: &enabled,
+	})
+
+	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
+	require.Contains(t, err.Error(), "newapi/kiro")
+}
+
 func TestUpdateAccountExtraDropsManagedBillingProbeFields(t *testing.T) {
 	accountID := int64(153)
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{
