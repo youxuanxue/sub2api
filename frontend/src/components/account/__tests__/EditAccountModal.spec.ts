@@ -52,7 +52,8 @@ vi.mock('@/api/admin', () => ({
 }))
 
 vi.mock('@/api/admin/accounts', () => ({
-  getAntigravityDefaultModelMapping: vi.fn()
+  getAntigravityDefaultModelMapping: vi.fn(),
+  getModelMappingPresets: vi.fn().mockResolvedValue([])
 }))
 
 vi.mock('@/api/admin/supplierSources', () => ({
@@ -1490,6 +1491,44 @@ describe('EditAccountModal', () => {
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.upstream_billing_probe_enabled).toBe(true)
+  })
+
+  it('hides upstream billing probe controls for newapi API-key accounts and omits probe fields on save', async () => {
+    const account = buildAccount()
+    account.platform = 'newapi'
+    account.name = 'nvidia-newapi'
+    account.channel_type = 14
+    account.credentials = {
+      api_key: 'nvapi-test',
+      base_url: 'https://integrate.api.nvidia.com'
+    }
+    account.credentials_status = { has_api_key: true }
+    account.extra = {
+      upstream_billing_probe_enabled: true,
+      upstream_billing_rate_sync_enabled: true
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="upstream-billing-rate-sync"]').exists()).toBe(false)
+    const rateInput = wrapper.get<HTMLInputElement>('[data-testid="account-rate-multiplier"]')
+    expect(rateInput.element.disabled).toBe(false)
+    expect(wrapper.text()).toContain('admin.accounts.billingRateMultiplierHint')
+    expect(wrapper.text()).not.toContain('admin.accounts.upstreamBilling.syncRateManagedHint')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload).not.toHaveProperty('upstream_billing_probe_enabled')
+    expect(payload).not.toHaveProperty('upstream_billing_rate_sync_enabled')
+    expect(payload?.rate_multiplier).toBe(1)
   })
 
   it('enabling rate sync also enables probing and stops submitting a manual rate', async () => {

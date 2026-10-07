@@ -31,6 +31,7 @@ class TypeAliasTest(unittest.TestCase):
 
 PLATFORMS = ["anthropic", "gemini", "openai", "antigravity", "newapi", "kiro", "grok"]
 QUOTA_PLATFORMS = ["anthropic", "openai", "gemini", "antigravity", "grok"]
+BILLING_PROBE_PLATFORMS = ["openai", "anthropic", "gemini", "antigravity", "grok"]
 ACCOUNT_TYPES = ["oauth", "setup-token", "apikey", "upstream", "bedrock", "service_account"]
 ROLES = ["admin", "user"]
 REDEEM_TYPES = ["balance", "concurrency", "subscription", "invitation"]
@@ -234,11 +235,27 @@ def _fixture(
     )
     _write(
         root,
+        "backend/internal/service/upstream_billing_probe.go",
+        """
+        package service
+
+        var UpstreamBillingProbePlatforms = []string{
+            PlatformOpenAI,
+            PlatformAnthropic,
+            PlatformGemini,
+            PlatformAntigravity,
+            PlatformGrok,
+        }
+        """,
+    )
+    _write(
+        root,
         "frontend/src/constants/gatewayPlatforms.ts",
         f"""
         export const OPENAI_COMPAT_PLATFORMS = {_ts_array(["openai", "newapi", "grok"])} as const
         export const GROUP_DISPATCH_CONFIG_PLATFORMS = {_ts_array(["openai", "newapi", "gemini", "grok"])} as const
         export const ALLOWED_QUOTA_PLATFORMS = {_ts_array(QUOTA_PLATFORMS)} as const
+        export const UPSTREAM_BILLING_PROBE_PLATFORMS = {_ts_array(BILLING_PROBE_PLATFORMS)} as const
 
         const SOFT_BADGE: Record<string, string> = {_ts_record(soft_badge or PLATFORMS)}
 

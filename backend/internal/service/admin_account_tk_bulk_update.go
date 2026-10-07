@@ -39,7 +39,7 @@ func (s *adminServiceImpl) tkValidateBulkProbeEnabled(input *BulkUpdateAccountsI
 			return ErrUpstreamBillingProbeAccountInvalid
 		}
 		if *input.ProbeEnabled && !upstreamBillingProbeSupportsSub2APIBilling(account) {
-			return ErrUpstreamBillingProbeAccountInvalid
+			return ErrUpstreamBillingProbeUnsupported
 		}
 	}
 	return nil

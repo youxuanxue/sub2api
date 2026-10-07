@@ -507,7 +507,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 			return nil, ErrUpstreamBillingProbeAccountInvalid
 		}
 		if !upstreamBillingProbeSupportsSub2APIBilling(account) {
-			return nil, ErrUpstreamBillingProbeAccountInvalid
+			return nil, ErrUpstreamBillingProbeUnsupported
 		}
 		if account.Extra == nil {
 			account.Extra = make(map[string]any)

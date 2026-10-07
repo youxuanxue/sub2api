@@ -3,7 +3,7 @@
 
 The platform registry is written by hand on BOTH sides of the wire and the
 comments merely *ask* for lockstep. This check makes the ask mechanical.
-Eleven mirrored pairs, backend Go is the single source of truth:
+Thirteen mirrored pairs, backend Go is the single source of truth:
 
   1. OpenAI-compat platforms
        backend/internal/engine/provider.go        OpenAICompatPlatforms()
@@ -77,6 +77,16 @@ Eleven mirrored pairs, backend Go is the single source of truth:
      constant universe that backs AccountPlatform (CHECK 3). A stale subset
      means the group-creation form cannot offer a newly added platform.
 
+ 12. AllowedQuotaPlatforms Go↔TS lockstep
+       backend/internal/service/domain_constants.go  AllowedQuotaPlatforms
+       frontend/src/constants/gatewayPlatforms.ts    ALLOWED_QUOTA_PLATFORMS
+
+ 13. UpstreamBillingProbePlatforms Go↔TS lockstep
+       backend/internal/service/upstream_billing_probe.go  UpstreamBillingProbePlatforms
+       frontend/src/constants/gatewayPlatforms.ts          UPSTREAM_BILLING_PROBE_PLATFORMS
+     Drift reopens admin Edit/Bulk UI submitting probe_enabled for relays
+     (newapi/kiro) that the backend rejects.
+
 Go constant names (`domain.PlatformX` / service aliases `PlatformX`) are
 resolved to their string values from constants.go, so the comparison is on
 wire values, not identifiers. All parsers tolerate gofmt / prettier
@@ -90,7 +100,7 @@ silently pass.
 Exit codes
 ----------
 
-  0 — all eleven pairs agree
+  0 — all thirteen pairs agree
   1 — drift detected (details on stderr, both sides' file:line + sets)
   2 — parse / environment failure
 
@@ -113,6 +123,7 @@ ENGINE_PROVIDER = "backend/internal/engine/provider.go"
 DISPATCH_PREDICATE = "backend/internal/service/openai_messages_dispatch_tk_newapi.go"
 ENT_SCHEMA_ACCOUNT = "backend/ent/schema/account.go"
 SERVICE_DOMAIN_CONSTANTS = "backend/internal/service/domain_constants.go"
+UPSTREAM_BILLING_PROBE = "backend/internal/service/upstream_billing_probe.go"
 TS_GATEWAY_PLATFORMS = "frontend/src/constants/gatewayPlatforms.ts"
 TS_TYPES_INDEX = "frontend/src/types/index.ts"
 
@@ -225,23 +236,33 @@ def resolve_go_idents(
 GO_MEMBER_RE = r'(?:domain\.)?(Platform[A-Za-z0-9_]+)|"([^"]*)"'
 
 
-def parse_go_allowed_quota_platforms(
-    text: str, consts: dict[str, tuple[str, int]]
+def parse_go_string_slice_var(
+    text: str,
+    name: str,
+    rel: str,
+    consts: dict[str, tuple[str, int]],
 ) -> tuple[list[str], int]:
-    """var AllowedQuotaPlatforms = []string{Platform*, ...} → values."""
-    m = re.search(r"var\s+AllowedQuotaPlatforms\s*=\s*\[\]string\s*\{([^{}]*)\}", text, re.S)
+    """var Name = []string{Platform*, ...} → wire values."""
+    m = re.search(rf"var\s+{re.escape(name)}\s*=\s*\[\]string\s*\{{([^{{}}]*)\}}", text, re.S)
     if not m:
         raise ParseFailure(
-            f"{SERVICE_DOMAIN_CONSTANTS}: `var AllowedQuotaPlatforms = []string{{...}}` "
+            f"{rel}: `var {name} = []string{{...}}` "
             "not found — renamed/moved? Update platform-registry-drift.py."
         )
     line = line_of(text, m.start())
     tokens = re.findall(GO_MEMBER_RE, m.group(1))
     if not tokens:
-        raise ParseFailure(
-            f"{SERVICE_DOMAIN_CONSTANTS}:{line}: AllowedQuotaPlatforms slice literal parsed empty"
-        )
-    return resolve_go_idents(tokens, consts, f"{SERVICE_DOMAIN_CONSTANTS}:{line}"), line
+        raise ParseFailure(f"{rel}:{line}: {name} slice literal parsed empty")
+    return resolve_go_idents(tokens, consts, f"{rel}:{line}"), line
+
+
+def parse_go_allowed_quota_platforms(
+    text: str, consts: dict[str, tuple[str, int]]
+) -> tuple[list[str], int]:
+    """var AllowedQuotaPlatforms = []string{Platform*, ...} → values."""
+    return parse_go_string_slice_var(
+        text, "AllowedQuotaPlatforms", SERVICE_DOMAIN_CONSTANTS, consts
+    )
 
 
 def parse_go_compat(text: str, consts: dict[str, tuple[str, int]]) -> tuple[list[str], int]:
@@ -847,6 +868,29 @@ def run(root: Path) -> tuple[list[list[str]], list[str]]:
     else:
         ok_lines.append(
             f"ok: AllowedQuotaPlatforms constant universe in lockstep {fmt_set(go_quota_plat)}"
+        )
+
+    # --- CHECK 13: UpstreamBillingProbePlatforms Go↔TS lockstep ---
+    probe_text = read(root, UPSTREAM_BILLING_PROBE)
+    go_probe_plat, go_probe_plat_line = parse_go_string_slice_var(
+        probe_text, "UpstreamBillingProbePlatforms", UPSTREAM_BILLING_PROBE, consts
+    )
+    ts_probe_plat, ts_probe_plat_line = parse_ts_array(
+        ts_const_text, "UPSTREAM_BILLING_PROBE_PLATFORMS", TS_GATEWAY_PLATFORMS
+    )
+
+    fail = compare_pair(
+        "UpstreamBillingProbePlatforms constant universe",
+        go_probe_plat,
+        f"{UPSTREAM_BILLING_PROBE}:{go_probe_plat_line} UpstreamBillingProbePlatforms",
+        ts_probe_plat,
+        f"{TS_GATEWAY_PLATFORMS}:{ts_probe_plat_line} UPSTREAM_BILLING_PROBE_PLATFORMS",
+    )
+    if fail:
+        failures.append(fail)
+    else:
+        ok_lines.append(
+            f"ok: UpstreamBillingProbePlatforms constant universe in lockstep {fmt_set(go_probe_plat)}"
         )
 
     return failures, ok_lines

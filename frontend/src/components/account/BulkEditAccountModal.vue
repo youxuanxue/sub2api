@@ -1518,7 +1518,12 @@ import {
   resolveOpenAIWSModeHintKey
 } from '@/utils/openaiWsMode'
 import type { OpenAIWSMode } from '@/utils/openaiWsMode'
-import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
+import {
+  PLATFORM_ANTHROPIC,
+  PLATFORM_ANTIGRAVITY,
+  PLATFORM_OPENAI,
+  supportsUpstreamBillingProbe
+} from '@/constants/gatewayPlatforms'
 interface Props {
   show: boolean
   accountIds: number[]
@@ -1594,12 +1599,14 @@ const allOpenAIAPIKey = computed(() => {
   )
 })
 
-// 上游倍率自动探测已放宽到全部 API-key 平台：只要求所选类型全为 apikey，
-// 平台不限（sub2api 上游即可应答 /v1/sub2api/billing）。
+// 上游倍率自动探测：所选类型全为 apikey，且所选平台均在后端 allowlist
+// （newapi/kiro 等继电器排除，见 supportsUpstreamBillingProbe）。
 const allBillingProbeCapable = computed(() => {
   return (
     targetSelectedTypes.value.length > 0 &&
-    targetSelectedTypes.value.every(t => t === 'apikey')
+    targetSelectedTypes.value.every(t => t === 'apikey') &&
+    targetSelectedPlatforms.value.length > 0 &&
+    targetSelectedPlatforms.value.every(p => supportsUpstreamBillingProbe(p))
   )
 })
 
