@@ -1616,6 +1616,7 @@ type ExecServerMessage struct {
 	ShellStreamArgs      *ShellArgs             `protobuf:"bytes,14,opt,name=shell_stream_args,json=shellStreamArgs,proto3" json:"shell_stream_args,omitempty"`
 	ExecId               string                 `protobuf:"bytes,15,opt,name=exec_id,json=execId,proto3" json:"exec_id,omitempty"`
 	RedactedReadArgs     *ReadArgs              `protobuf:"bytes,29,opt,name=redacted_read_args,json=redactedReadArgs,proto3" json:"redacted_read_args,omitempty"`
+	McpStateExecArgs     *McpStateExecArgs      `protobuf:"bytes,36,opt,name=mcp_state_exec_args,json=mcpStateExecArgs,proto3" json:"mcp_state_exec_args,omitempty"`
 	PiReadArgs           *PiReadExecArgs        `protobuf:"bytes,45,opt,name=pi_read_args,json=piReadArgs,proto3" json:"pi_read_args,omitempty"`
 	PiBashArgs           *PiBashExecArgs        `protobuf:"bytes,46,opt,name=pi_bash_args,json=piBashArgs,proto3" json:"pi_bash_args,omitempty"`
 	PiWriteArgs          *PiWriteExecArgs       `protobuf:"bytes,48,opt,name=pi_write_args,json=piWriteArgs,proto3" json:"pi_write_args,omitempty"`
@@ -1721,6 +1722,13 @@ func (x *ExecServerMessage) GetExecId() string {
 func (x *ExecServerMessage) GetRedactedReadArgs() *ReadArgs {
 	if x != nil {
 		return x.RedactedReadArgs
+	}
+	return nil
+}
+
+func (x *ExecServerMessage) GetMcpStateExecArgs() *McpStateExecArgs {
+	if x != nil {
+		return x.McpStateExecArgs
 	}
 	return nil
 }
@@ -2458,6 +2466,7 @@ type ExecClientMessage struct {
 	PiGrepResult           *PiGrepExecResult      `protobuf:"bytes,50,opt,name=pi_grep_result,json=piGrepResult,proto3" json:"pi_grep_result,omitempty"`
 	RequestContextResult   *RequestContextResult  `protobuf:"bytes,10,opt,name=request_context_result,json=requestContextResult,proto3" json:"request_context_result,omitempty"`
 	McpResult              *McpResult             `protobuf:"bytes,11,opt,name=mcp_result,json=mcpResult,proto3" json:"mcp_result,omitempty"`
+	McpStateExecResult     *McpStateExecResult    `protobuf:"bytes,36,opt,name=mcp_state_exec_result,json=mcpStateExecResult,proto3" json:"mcp_state_exec_result,omitempty"`
 	ExecId                 string                 `protobuf:"bytes,15,opt,name=exec_id,json=execId,proto3" json:"exec_id,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
@@ -2587,6 +2596,13 @@ func (x *ExecClientMessage) GetRequestContextResult() *RequestContextResult {
 func (x *ExecClientMessage) GetMcpResult() *McpResult {
 	if x != nil {
 		return x.McpResult
+	}
+	return nil
+}
+
+func (x *ExecClientMessage) GetMcpStateExecResult() *McpStateExecResult {
+	if x != nil {
+		return x.McpStateExecResult
 	}
 	return nil
 }
@@ -5995,6 +6011,267 @@ func (x *PiGrepExecError) GetError() string {
 	return ""
 }
 
+// Metadata only; fields cross-checked against official CLI 2026.10.01-e373342.
+type McpStateExecArgs struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	ServerIdentifiers []string               `protobuf:"bytes,1,rep,name=server_identifiers,json=serverIdentifiers,proto3" json:"server_identifiers,omitempty"`
+	KickOnly          bool                   `protobuf:"varint,2,opt,name=kick_only,json=kickOnly,proto3" json:"kick_only,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *McpStateExecArgs) Reset() {
+	*x = McpStateExecArgs{}
+	mi := &file_agent_proto_msgTypes[97]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *McpStateExecArgs) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*McpStateExecArgs) ProtoMessage() {}
+
+func (x *McpStateExecArgs) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[97]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use McpStateExecArgs.ProtoReflect.Descriptor instead.
+func (*McpStateExecArgs) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{97}
+}
+
+func (x *McpStateExecArgs) GetServerIdentifiers() []string {
+	if x != nil {
+		return x.ServerIdentifiers
+	}
+	return nil
+}
+
+func (x *McpStateExecArgs) GetKickOnly() bool {
+	if x != nil {
+		return x.KickOnly
+	}
+	return false
+}
+
+type McpStateExecResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       *McpStateSuccess       `protobuf:"bytes,1,opt,name=success,proto3" json:"success,omitempty"`
+	Error         *McpStateError         `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *McpStateExecResult) Reset() {
+	*x = McpStateExecResult{}
+	mi := &file_agent_proto_msgTypes[98]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *McpStateExecResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*McpStateExecResult) ProtoMessage() {}
+
+func (x *McpStateExecResult) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[98]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use McpStateExecResult.ProtoReflect.Descriptor instead.
+func (*McpStateExecResult) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{98}
+}
+
+func (x *McpStateExecResult) GetSuccess() *McpStateSuccess {
+	if x != nil {
+		return x.Success
+	}
+	return nil
+}
+
+func (x *McpStateExecResult) GetError() *McpStateError {
+	if x != nil {
+		return x.Error
+	}
+	return nil
+}
+
+type McpStateSuccess struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Servers       []*McpStateServer      `protobuf:"bytes,1,rep,name=servers,proto3" json:"servers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *McpStateSuccess) Reset() {
+	*x = McpStateSuccess{}
+	mi := &file_agent_proto_msgTypes[99]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *McpStateSuccess) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*McpStateSuccess) ProtoMessage() {}
+
+func (x *McpStateSuccess) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[99]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use McpStateSuccess.ProtoReflect.Descriptor instead.
+func (*McpStateSuccess) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{99}
+}
+
+func (x *McpStateSuccess) GetServers() []*McpStateServer {
+	if x != nil {
+		return x.Servers
+	}
+	return nil
+}
+
+type McpStateServer struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	ServerName       string                 `protobuf:"bytes,1,opt,name=server_name,json=serverName,proto3" json:"server_name,omitempty"`
+	ServerIdentifier string                 `protobuf:"bytes,2,opt,name=server_identifier,json=serverIdentifier,proto3" json:"server_identifier,omitempty"`
+	Tools            []*McpToolDefinition   `protobuf:"bytes,5,rep,name=tools,proto3" json:"tools,omitempty"`
+	Status           *string                `protobuf:"bytes,7,opt,name=status,proto3,oneof" json:"status,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *McpStateServer) Reset() {
+	*x = McpStateServer{}
+	mi := &file_agent_proto_msgTypes[100]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *McpStateServer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*McpStateServer) ProtoMessage() {}
+
+func (x *McpStateServer) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[100]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use McpStateServer.ProtoReflect.Descriptor instead.
+func (*McpStateServer) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{100}
+}
+
+func (x *McpStateServer) GetServerName() string {
+	if x != nil {
+		return x.ServerName
+	}
+	return ""
+}
+
+func (x *McpStateServer) GetServerIdentifier() string {
+	if x != nil {
+		return x.ServerIdentifier
+	}
+	return ""
+}
+
+func (x *McpStateServer) GetTools() []*McpToolDefinition {
+	if x != nil {
+		return x.Tools
+	}
+	return nil
+}
+
+func (x *McpStateServer) GetStatus() string {
+	if x != nil && x.Status != nil {
+		return *x.Status
+	}
+	return ""
+}
+
+type McpStateError struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Error         string                 `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *McpStateError) Reset() {
+	*x = McpStateError{}
+	mi := &file_agent_proto_msgTypes[101]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *McpStateError) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*McpStateError) ProtoMessage() {}
+
+func (x *McpStateError) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[101]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use McpStateError.ProtoReflect.Descriptor instead.
+func (*McpStateError) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{101}
+}
+
+func (x *McpStateError) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_agent_proto protoreflect.FileDescriptor
 
 const file_agent_proto_rawDesc = "" +
@@ -6109,7 +6386,7 @@ const file_agent_proto_rawDesc = "" +
 	"\x04text\x18\x01 \x01(\v2\x18.agent.v1.McpTextContentR\x04text\"$\n" +
 	"\x0eMcpTextContent\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\"\a\n" +
-	"\x05Empty\"\xba\x06\n" +
+	"\x05Empty\"\x85\a\n" +
 	"\x11ExecServerMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\rR\x02id\x122\n" +
 	"\n" +
@@ -6123,7 +6400,8 @@ const file_agent_proto_rawDesc = "" +
 	"\bmcp_args\x18\v \x01(\v2\x11.agent.v1.McpArgsR\amcpArgs\x12?\n" +
 	"\x11shell_stream_args\x18\x0e \x01(\v2\x13.agent.v1.ShellArgsR\x0fshellStreamArgs\x12\x17\n" +
 	"\aexec_id\x18\x0f \x01(\tR\x06execId\x12@\n" +
-	"\x12redacted_read_args\x18\x1d \x01(\v2\x12.agent.v1.ReadArgsR\x10redactedReadArgs\x12:\n" +
+	"\x12redacted_read_args\x18\x1d \x01(\v2\x12.agent.v1.ReadArgsR\x10redactedReadArgs\x12I\n" +
+	"\x13mcp_state_exec_args\x18$ \x01(\v2\x1a.agent.v1.McpStateExecArgsR\x10mcpStateExecArgs\x12:\n" +
 	"\fpi_read_args\x18- \x01(\v2\x18.agent.v1.PiReadExecArgsR\n" +
 	"piReadArgs\x12:\n" +
 	"\fpi_bash_args\x18. \x01(\v2\x18.agent.v1.PiBashExecArgsR\n" +
@@ -6231,7 +6509,7 @@ const file_agent_proto_rawDesc = "" +
 	"\b_literalB\n" +
 	"\n" +
 	"\b_contextB\b\n" +
-	"\x06_limit\"\x88\a\n" +
+	"\x06_limit\"\xd9\a\n" +
 	"\x11ExecClientMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\rR\x02id\x128\n" +
 	"\fshell_result\x18\x02 \x01(\v2\x15.agent.v1.ShellResultR\vshellResult\x128\n" +
@@ -6250,7 +6528,8 @@ const file_agent_proto_rawDesc = "" +
 	"\x16request_context_result\x18\n" +
 	" \x01(\v2\x1e.agent.v1.RequestContextResultR\x14requestContextResult\x122\n" +
 	"\n" +
-	"mcp_result\x18\v \x01(\v2\x13.agent.v1.McpResultR\tmcpResult\x12\x17\n" +
+	"mcp_result\x18\v \x01(\v2\x13.agent.v1.McpResultR\tmcpResult\x12O\n" +
+	"\x15mcp_state_exec_result\x18$ \x01(\v2\x1c.agent.v1.McpStateExecResultR\x12mcpStateExecResult\x12\x17\n" +
 	"\aexec_id\x18\x0f \x01(\tR\x06execId\"'\n" +
 	"\x15ExecClientStreamClose\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\rR\x02id\"\xa0\x01\n" +
@@ -6506,6 +6785,23 @@ const file_agent_proto_rawDesc = "" +
 	"\x11PiGrepExecSuccess\x12\x16\n" +
 	"\x06output\x18\x01 \x01(\tR\x06output\"'\n" +
 	"\x0fPiGrepExecError\x12\x14\n" +
+	"\x05error\x18\x01 \x01(\tR\x05error\"^\n" +
+	"\x10McpStateExecArgs\x12-\n" +
+	"\x12server_identifiers\x18\x01 \x03(\tR\x11serverIdentifiers\x12\x1b\n" +
+	"\tkick_only\x18\x02 \x01(\bR\bkickOnly\"x\n" +
+	"\x12McpStateExecResult\x123\n" +
+	"\asuccess\x18\x01 \x01(\v2\x19.agent.v1.McpStateSuccessR\asuccess\x12-\n" +
+	"\x05error\x18\x02 \x01(\v2\x17.agent.v1.McpStateErrorR\x05error\"E\n" +
+	"\x0fMcpStateSuccess\x122\n" +
+	"\aservers\x18\x01 \x03(\v2\x18.agent.v1.McpStateServerR\aservers\"\xb9\x01\n" +
+	"\x0eMcpStateServer\x12\x1f\n" +
+	"\vserver_name\x18\x01 \x01(\tR\n" +
+	"serverName\x12+\n" +
+	"\x11server_identifier\x18\x02 \x01(\tR\x10serverIdentifier\x121\n" +
+	"\x05tools\x18\x05 \x03(\v2\x1b.agent.v1.McpToolDefinitionR\x05tools\x12\x1b\n" +
+	"\x06status\x18\a \x01(\tH\x00R\x06status\x88\x01\x01B\t\n" +
+	"\a_status\"%\n" +
+	"\rMcpStateError\x12\x14\n" +
 	"\x05error\x18\x01 \x01(\tR\x05errorBAZ?github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpbb\x06proto3"
 
 var (
@@ -6520,7 +6816,7 @@ func file_agent_proto_rawDescGZIP() []byte {
 	return file_agent_proto_rawDescData
 }
 
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 99)
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 104)
 var file_agent_proto_goTypes = []any{
 	(*AgentClientMessage)(nil),             // 0: agent.v1.AgentClientMessage
 	(*AgentServerMessage)(nil),             // 1: agent.v1.AgentServerMessage
@@ -6619,9 +6915,14 @@ var file_agent_proto_goTypes = []any{
 	(*PiGrepExecResult)(nil),               // 94: agent.v1.PiGrepExecResult
 	(*PiGrepExecSuccess)(nil),              // 95: agent.v1.PiGrepExecSuccess
 	(*PiGrepExecError)(nil),                // 96: agent.v1.PiGrepExecError
-	nil,                                    // 97: agent.v1.McpArgs.ArgsEntry
-	nil,                                    // 98: agent.v1.GrepSuccess.WorkspaceResultsEntry
-	(*structpb.Value)(nil),                 // 99: google.protobuf.Value
+	(*McpStateExecArgs)(nil),               // 97: agent.v1.McpStateExecArgs
+	(*McpStateExecResult)(nil),             // 98: agent.v1.McpStateExecResult
+	(*McpStateSuccess)(nil),                // 99: agent.v1.McpStateSuccess
+	(*McpStateServer)(nil),                 // 100: agent.v1.McpStateServer
+	(*McpStateError)(nil),                  // 101: agent.v1.McpStateError
+	nil,                                    // 102: agent.v1.McpArgs.ArgsEntry
+	nil,                                    // 103: agent.v1.GrepSuccess.WorkspaceResultsEntry
+	(*structpb.Value)(nil),                 // 104: google.protobuf.Value
 }
 var file_agent_proto_depIdxs = []int32{
 	2,   // 0: agent.v1.AgentClientMessage.run_request:type_name -> agent.v1.AgentRunRequest
@@ -6653,9 +6954,9 @@ var file_agent_proto_depIdxs = []int32{
 	18,  // 26: agent.v1.ToolCall.mcp_tool_call:type_name -> agent.v1.McpToolCall
 	19,  // 27: agent.v1.McpToolCall.args:type_name -> agent.v1.McpArgs
 	22,  // 28: agent.v1.McpToolCall.result:type_name -> agent.v1.McpResult
-	97,  // 29: agent.v1.McpArgs.args:type_name -> agent.v1.McpArgs.ArgsEntry
+	102, // 29: agent.v1.McpArgs.args:type_name -> agent.v1.McpArgs.ArgsEntry
 	21,  // 30: agent.v1.McpTools.mcp_tools:type_name -> agent.v1.McpToolDefinition
-	99,  // 31: agent.v1.McpToolDefinition.input_schema:type_name -> google.protobuf.Value
+	104, // 31: agent.v1.McpToolDefinition.input_schema:type_name -> google.protobuf.Value
 	24,  // 32: agent.v1.McpResult.success:type_name -> agent.v1.McpSuccess
 	23,  // 33: agent.v1.McpResult.rejected:type_name -> agent.v1.McpRejected
 	27,  // 34: agent.v1.McpResult.approved:type_name -> agent.v1.Empty
@@ -6669,84 +6970,90 @@ var file_agent_proto_depIdxs = []int32{
 	19,  // 42: agent.v1.ExecServerMessage.mcp_args:type_name -> agent.v1.McpArgs
 	31,  // 43: agent.v1.ExecServerMessage.shell_stream_args:type_name -> agent.v1.ShellArgs
 	29,  // 44: agent.v1.ExecServerMessage.redacted_read_args:type_name -> agent.v1.ReadArgs
-	33,  // 45: agent.v1.ExecServerMessage.pi_read_args:type_name -> agent.v1.PiReadExecArgs
-	34,  // 46: agent.v1.ExecServerMessage.pi_bash_args:type_name -> agent.v1.PiBashExecArgs
-	35,  // 47: agent.v1.ExecServerMessage.pi_write_args:type_name -> agent.v1.PiWriteExecArgs
-	36,  // 48: agent.v1.ExecServerMessage.pi_grep_args:type_name -> agent.v1.PiGrepExecArgs
-	31,  // 49: agent.v1.ExecServerMessage.mini_swe_agent_bash_args:type_name -> agent.v1.ShellArgs
-	66,  // 50: agent.v1.ExecClientMessage.shell_result:type_name -> agent.v1.ShellResult
-	62,  // 51: agent.v1.ExecClientMessage.write_result:type_name -> agent.v1.WriteResult
-	75,  // 52: agent.v1.ExecClientMessage.grep_result:type_name -> agent.v1.GrepResult
-	57,  // 53: agent.v1.ExecClientMessage.read_result:type_name -> agent.v1.ReadResult
-	70,  // 54: agent.v1.ExecClientMessage.shell_stream:type_name -> agent.v1.ShellStream
-	57,  // 55: agent.v1.ExecClientMessage.redacted_read_result:type_name -> agent.v1.ReadResult
-	66,  // 56: agent.v1.ExecClientMessage.mini_swe_agent_bash_result:type_name -> agent.v1.ShellResult
-	85,  // 57: agent.v1.ExecClientMessage.pi_read_result:type_name -> agent.v1.PiReadExecResult
-	88,  // 58: agent.v1.ExecClientMessage.pi_bash_result:type_name -> agent.v1.PiBashExecResult
-	91,  // 59: agent.v1.ExecClientMessage.pi_write_result:type_name -> agent.v1.PiWriteExecResult
-	94,  // 60: agent.v1.ExecClientMessage.pi_grep_result:type_name -> agent.v1.PiGrepExecResult
-	41,  // 61: agent.v1.ExecClientMessage.request_context_result:type_name -> agent.v1.RequestContextResult
-	22,  // 62: agent.v1.ExecClientMessage.mcp_result:type_name -> agent.v1.McpResult
-	38,  // 63: agent.v1.ExecClientControlMessage.stream_close:type_name -> agent.v1.ExecClientStreamClose
-	39,  // 64: agent.v1.ExecClientControlMessage.throw:type_name -> agent.v1.ExecClientThrow
-	42,  // 65: agent.v1.RequestContextResult.success:type_name -> agent.v1.RequestContextSuccess
-	43,  // 66: agent.v1.RequestContextSuccess.request_context:type_name -> agent.v1.RequestContext
-	44,  // 67: agent.v1.RequestContext.rules:type_name -> agent.v1.CursorRule
-	44,  // 68: agent.v1.RequestContext.non_file_rules:type_name -> agent.v1.CursorRule
-	27,  // 69: agent.v1.RequestContext.env:type_name -> agent.v1.Empty
-	21,  // 70: agent.v1.RequestContext.tools:type_name -> agent.v1.McpToolDefinition
-	45,  // 71: agent.v1.CursorRule.type:type_name -> agent.v1.CursorRuleType
-	27,  // 72: agent.v1.CursorRuleType.global:type_name -> agent.v1.Empty
-	49,  // 73: agent.v1.KvServerMessage.get_blob_args:type_name -> agent.v1.GetBlobArgs
-	51,  // 74: agent.v1.KvServerMessage.set_blob_args:type_name -> agent.v1.SetBlobArgs
-	50,  // 75: agent.v1.KvClientMessage.get_blob_result:type_name -> agent.v1.GetBlobResult
-	27,  // 76: agent.v1.KvClientMessage.set_blob_result:type_name -> agent.v1.Empty
-	53,  // 77: agent.v1.InteractionUpdate.text_delta:type_name -> agent.v1.TextDeltaUpdate
-	54,  // 78: agent.v1.InteractionUpdate.tool_call_started:type_name -> agent.v1.ToolCallStartedUpdate
-	54,  // 79: agent.v1.InteractionUpdate.tool_call_completed:type_name -> agent.v1.ToolCallStartedUpdate
-	53,  // 80: agent.v1.InteractionUpdate.thinking_delta:type_name -> agent.v1.TextDeltaUpdate
-	55,  // 81: agent.v1.InteractionUpdate.token_delta:type_name -> agent.v1.TokenDeltaUpdate
-	56,  // 82: agent.v1.InteractionUpdate.turn_ended:type_name -> agent.v1.TurnEndedUpdate
-	17,  // 83: agent.v1.ToolCallStartedUpdate.tool_call:type_name -> agent.v1.ToolCall
-	58,  // 84: agent.v1.ReadResult.success:type_name -> agent.v1.ReadSuccess
-	59,  // 85: agent.v1.ReadResult.error:type_name -> agent.v1.ReadError
-	60,  // 86: agent.v1.ReadResult.rejected:type_name -> agent.v1.ReadRejected
-	61,  // 87: agent.v1.ReadResult.file_not_found:type_name -> agent.v1.ReadFileNotFound
-	63,  // 88: agent.v1.WriteResult.success:type_name -> agent.v1.WriteSuccess
-	64,  // 89: agent.v1.WriteResult.error:type_name -> agent.v1.WriteError
-	65,  // 90: agent.v1.WriteResult.rejected:type_name -> agent.v1.WriteRejected
-	67,  // 91: agent.v1.ShellResult.success:type_name -> agent.v1.ShellSuccess
-	68,  // 92: agent.v1.ShellResult.failure:type_name -> agent.v1.ShellFailure
-	69,  // 93: agent.v1.ShellResult.rejected:type_name -> agent.v1.ShellRejected
-	71,  // 94: agent.v1.ShellStream.stdout:type_name -> agent.v1.ShellStreamStdout
-	72,  // 95: agent.v1.ShellStream.stderr:type_name -> agent.v1.ShellStreamStderr
-	73,  // 96: agent.v1.ShellStream.exit:type_name -> agent.v1.ShellStreamExit
-	74,  // 97: agent.v1.ShellStream.start:type_name -> agent.v1.ShellStreamStart
-	69,  // 98: agent.v1.ShellStream.rejected:type_name -> agent.v1.ShellRejected
-	77,  // 99: agent.v1.GrepResult.success:type_name -> agent.v1.GrepSuccess
-	76,  // 100: agent.v1.GrepResult.error:type_name -> agent.v1.GrepError
-	98,  // 101: agent.v1.GrepSuccess.workspace_results:type_name -> agent.v1.GrepSuccess.WorkspaceResultsEntry
-	79,  // 102: agent.v1.GrepUnionResult.count:type_name -> agent.v1.GrepCountResult
-	81,  // 103: agent.v1.GrepUnionResult.files:type_name -> agent.v1.GrepFilesResult
-	82,  // 104: agent.v1.GrepUnionResult.content:type_name -> agent.v1.GrepContentResult
-	80,  // 105: agent.v1.GrepCountResult.counts:type_name -> agent.v1.GrepFileCount
-	83,  // 106: agent.v1.GrepContentResult.matches:type_name -> agent.v1.GrepFileMatch
-	84,  // 107: agent.v1.GrepFileMatch.matches:type_name -> agent.v1.GrepContentMatch
-	86,  // 108: agent.v1.PiReadExecResult.success:type_name -> agent.v1.PiReadExecSuccess
-	87,  // 109: agent.v1.PiReadExecResult.error:type_name -> agent.v1.PiReadExecError
-	89,  // 110: agent.v1.PiBashExecResult.success:type_name -> agent.v1.PiBashExecSuccess
-	90,  // 111: agent.v1.PiBashExecResult.error:type_name -> agent.v1.PiBashExecError
-	92,  // 112: agent.v1.PiWriteExecResult.success:type_name -> agent.v1.PiWriteExecSuccess
-	93,  // 113: agent.v1.PiWriteExecResult.error:type_name -> agent.v1.PiWriteExecError
-	95,  // 114: agent.v1.PiGrepExecResult.success:type_name -> agent.v1.PiGrepExecSuccess
-	96,  // 115: agent.v1.PiGrepExecResult.error:type_name -> agent.v1.PiGrepExecError
-	99,  // 116: agent.v1.McpArgs.ArgsEntry.value:type_name -> google.protobuf.Value
-	78,  // 117: agent.v1.GrepSuccess.WorkspaceResultsEntry.value:type_name -> agent.v1.GrepUnionResult
-	118, // [118:118] is the sub-list for method output_type
-	118, // [118:118] is the sub-list for method input_type
-	118, // [118:118] is the sub-list for extension type_name
-	118, // [118:118] is the sub-list for extension extendee
-	0,   // [0:118] is the sub-list for field type_name
+	97,  // 45: agent.v1.ExecServerMessage.mcp_state_exec_args:type_name -> agent.v1.McpStateExecArgs
+	33,  // 46: agent.v1.ExecServerMessage.pi_read_args:type_name -> agent.v1.PiReadExecArgs
+	34,  // 47: agent.v1.ExecServerMessage.pi_bash_args:type_name -> agent.v1.PiBashExecArgs
+	35,  // 48: agent.v1.ExecServerMessage.pi_write_args:type_name -> agent.v1.PiWriteExecArgs
+	36,  // 49: agent.v1.ExecServerMessage.pi_grep_args:type_name -> agent.v1.PiGrepExecArgs
+	31,  // 50: agent.v1.ExecServerMessage.mini_swe_agent_bash_args:type_name -> agent.v1.ShellArgs
+	66,  // 51: agent.v1.ExecClientMessage.shell_result:type_name -> agent.v1.ShellResult
+	62,  // 52: agent.v1.ExecClientMessage.write_result:type_name -> agent.v1.WriteResult
+	75,  // 53: agent.v1.ExecClientMessage.grep_result:type_name -> agent.v1.GrepResult
+	57,  // 54: agent.v1.ExecClientMessage.read_result:type_name -> agent.v1.ReadResult
+	70,  // 55: agent.v1.ExecClientMessage.shell_stream:type_name -> agent.v1.ShellStream
+	57,  // 56: agent.v1.ExecClientMessage.redacted_read_result:type_name -> agent.v1.ReadResult
+	66,  // 57: agent.v1.ExecClientMessage.mini_swe_agent_bash_result:type_name -> agent.v1.ShellResult
+	85,  // 58: agent.v1.ExecClientMessage.pi_read_result:type_name -> agent.v1.PiReadExecResult
+	88,  // 59: agent.v1.ExecClientMessage.pi_bash_result:type_name -> agent.v1.PiBashExecResult
+	91,  // 60: agent.v1.ExecClientMessage.pi_write_result:type_name -> agent.v1.PiWriteExecResult
+	94,  // 61: agent.v1.ExecClientMessage.pi_grep_result:type_name -> agent.v1.PiGrepExecResult
+	41,  // 62: agent.v1.ExecClientMessage.request_context_result:type_name -> agent.v1.RequestContextResult
+	22,  // 63: agent.v1.ExecClientMessage.mcp_result:type_name -> agent.v1.McpResult
+	98,  // 64: agent.v1.ExecClientMessage.mcp_state_exec_result:type_name -> agent.v1.McpStateExecResult
+	38,  // 65: agent.v1.ExecClientControlMessage.stream_close:type_name -> agent.v1.ExecClientStreamClose
+	39,  // 66: agent.v1.ExecClientControlMessage.throw:type_name -> agent.v1.ExecClientThrow
+	42,  // 67: agent.v1.RequestContextResult.success:type_name -> agent.v1.RequestContextSuccess
+	43,  // 68: agent.v1.RequestContextSuccess.request_context:type_name -> agent.v1.RequestContext
+	44,  // 69: agent.v1.RequestContext.rules:type_name -> agent.v1.CursorRule
+	44,  // 70: agent.v1.RequestContext.non_file_rules:type_name -> agent.v1.CursorRule
+	27,  // 71: agent.v1.RequestContext.env:type_name -> agent.v1.Empty
+	21,  // 72: agent.v1.RequestContext.tools:type_name -> agent.v1.McpToolDefinition
+	45,  // 73: agent.v1.CursorRule.type:type_name -> agent.v1.CursorRuleType
+	27,  // 74: agent.v1.CursorRuleType.global:type_name -> agent.v1.Empty
+	49,  // 75: agent.v1.KvServerMessage.get_blob_args:type_name -> agent.v1.GetBlobArgs
+	51,  // 76: agent.v1.KvServerMessage.set_blob_args:type_name -> agent.v1.SetBlobArgs
+	50,  // 77: agent.v1.KvClientMessage.get_blob_result:type_name -> agent.v1.GetBlobResult
+	27,  // 78: agent.v1.KvClientMessage.set_blob_result:type_name -> agent.v1.Empty
+	53,  // 79: agent.v1.InteractionUpdate.text_delta:type_name -> agent.v1.TextDeltaUpdate
+	54,  // 80: agent.v1.InteractionUpdate.tool_call_started:type_name -> agent.v1.ToolCallStartedUpdate
+	54,  // 81: agent.v1.InteractionUpdate.tool_call_completed:type_name -> agent.v1.ToolCallStartedUpdate
+	53,  // 82: agent.v1.InteractionUpdate.thinking_delta:type_name -> agent.v1.TextDeltaUpdate
+	55,  // 83: agent.v1.InteractionUpdate.token_delta:type_name -> agent.v1.TokenDeltaUpdate
+	56,  // 84: agent.v1.InteractionUpdate.turn_ended:type_name -> agent.v1.TurnEndedUpdate
+	17,  // 85: agent.v1.ToolCallStartedUpdate.tool_call:type_name -> agent.v1.ToolCall
+	58,  // 86: agent.v1.ReadResult.success:type_name -> agent.v1.ReadSuccess
+	59,  // 87: agent.v1.ReadResult.error:type_name -> agent.v1.ReadError
+	60,  // 88: agent.v1.ReadResult.rejected:type_name -> agent.v1.ReadRejected
+	61,  // 89: agent.v1.ReadResult.file_not_found:type_name -> agent.v1.ReadFileNotFound
+	63,  // 90: agent.v1.WriteResult.success:type_name -> agent.v1.WriteSuccess
+	64,  // 91: agent.v1.WriteResult.error:type_name -> agent.v1.WriteError
+	65,  // 92: agent.v1.WriteResult.rejected:type_name -> agent.v1.WriteRejected
+	67,  // 93: agent.v1.ShellResult.success:type_name -> agent.v1.ShellSuccess
+	68,  // 94: agent.v1.ShellResult.failure:type_name -> agent.v1.ShellFailure
+	69,  // 95: agent.v1.ShellResult.rejected:type_name -> agent.v1.ShellRejected
+	71,  // 96: agent.v1.ShellStream.stdout:type_name -> agent.v1.ShellStreamStdout
+	72,  // 97: agent.v1.ShellStream.stderr:type_name -> agent.v1.ShellStreamStderr
+	73,  // 98: agent.v1.ShellStream.exit:type_name -> agent.v1.ShellStreamExit
+	74,  // 99: agent.v1.ShellStream.start:type_name -> agent.v1.ShellStreamStart
+	69,  // 100: agent.v1.ShellStream.rejected:type_name -> agent.v1.ShellRejected
+	77,  // 101: agent.v1.GrepResult.success:type_name -> agent.v1.GrepSuccess
+	76,  // 102: agent.v1.GrepResult.error:type_name -> agent.v1.GrepError
+	103, // 103: agent.v1.GrepSuccess.workspace_results:type_name -> agent.v1.GrepSuccess.WorkspaceResultsEntry
+	79,  // 104: agent.v1.GrepUnionResult.count:type_name -> agent.v1.GrepCountResult
+	81,  // 105: agent.v1.GrepUnionResult.files:type_name -> agent.v1.GrepFilesResult
+	82,  // 106: agent.v1.GrepUnionResult.content:type_name -> agent.v1.GrepContentResult
+	80,  // 107: agent.v1.GrepCountResult.counts:type_name -> agent.v1.GrepFileCount
+	83,  // 108: agent.v1.GrepContentResult.matches:type_name -> agent.v1.GrepFileMatch
+	84,  // 109: agent.v1.GrepFileMatch.matches:type_name -> agent.v1.GrepContentMatch
+	86,  // 110: agent.v1.PiReadExecResult.success:type_name -> agent.v1.PiReadExecSuccess
+	87,  // 111: agent.v1.PiReadExecResult.error:type_name -> agent.v1.PiReadExecError
+	89,  // 112: agent.v1.PiBashExecResult.success:type_name -> agent.v1.PiBashExecSuccess
+	90,  // 113: agent.v1.PiBashExecResult.error:type_name -> agent.v1.PiBashExecError
+	92,  // 114: agent.v1.PiWriteExecResult.success:type_name -> agent.v1.PiWriteExecSuccess
+	93,  // 115: agent.v1.PiWriteExecResult.error:type_name -> agent.v1.PiWriteExecError
+	95,  // 116: agent.v1.PiGrepExecResult.success:type_name -> agent.v1.PiGrepExecSuccess
+	96,  // 117: agent.v1.PiGrepExecResult.error:type_name -> agent.v1.PiGrepExecError
+	99,  // 118: agent.v1.McpStateExecResult.success:type_name -> agent.v1.McpStateSuccess
+	101, // 119: agent.v1.McpStateExecResult.error:type_name -> agent.v1.McpStateError
+	100, // 120: agent.v1.McpStateSuccess.servers:type_name -> agent.v1.McpStateServer
+	21,  // 121: agent.v1.McpStateServer.tools:type_name -> agent.v1.McpToolDefinition
+	104, // 122: agent.v1.McpArgs.ArgsEntry.value:type_name -> google.protobuf.Value
+	78,  // 123: agent.v1.GrepSuccess.WorkspaceResultsEntry.value:type_name -> agent.v1.GrepUnionResult
+	124, // [124:124] is the sub-list for method output_type
+	124, // [124:124] is the sub-list for method input_type
+	124, // [124:124] is the sub-list for extension type_name
+	124, // [124:124] is the sub-list for extension extendee
+	0,   // [0:124] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }
@@ -6769,13 +7076,14 @@ func file_agent_proto_init() {
 	file_agent_proto_msgTypes[79].OneofWrappers = []any{}
 	file_agent_proto_msgTypes[81].OneofWrappers = []any{}
 	file_agent_proto_msgTypes[82].OneofWrappers = []any{}
+	file_agent_proto_msgTypes[100].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   99,
+			NumMessages:   104,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

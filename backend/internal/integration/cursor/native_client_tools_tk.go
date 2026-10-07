@@ -10,16 +10,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"strings"
 
 	pb "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
-
-// Leave a delivery margin inside the retained run's client-wait TTL. Upstream
-// process-lifetime limits (often 24h) must not become client Bash timeouts.
-const maxNativeClientTimeoutMS = 120000
 
 // nativeClientToolCall only recognizes explicit, schema-compatible declarations.
 // It never invents a tool, relaxes client permissions, or dispatches an executor.
@@ -45,13 +40,6 @@ func nativeClientToolCall(exec *pb.ExecServerMessage, tools []AgentTool) (AgentT
 	if read == nil {
 		read = exec.RedactedReadArgs
 	}
-	shell := exec.ShellArgs
-	if shell == nil {
-		shell = exec.ShellStreamArgs
-	}
-	if shell == nil {
-		shell = exec.MiniSweAgentBashArgs
-	}
 	switch {
 	case read != nil:
 		if !nativeTextEncoding(read.GetEncodingHint()) || read.GetOffset() < 0 {
@@ -71,35 +59,6 @@ func nativeClientToolCall(exec *pb.ExecServerMessage, tools []AgentTool) (AgentT
 		}
 		name, wireID = "Write", a.ToolCallId
 		args["file_path"], args["content"] = a.Path, a.FileText
-	case shell != nil:
-		// Background process ownership and approval bypass have no safe client
-		// equivalent here. Do not forward skip_approval or sandbox settings.
-		if shell.IsBackground || shell.TimeoutBehavior < 0 || shell.TimeoutBehavior > 2 || shell.GetHardTimeout() < 0 || shell.Timeout < 0 {
-			return call, false
-		}
-		name, wireID = "Bash", shell.ToolCallId
-		command := shell.Command
-		if strings.TrimSpace(command) == "" || strings.ContainsRune(command+shell.WorkingDirectory, 0) {
-			return call, false
-		}
-		if shell.WorkingDirectory != "" {
-			// This is a parameter for the CLIENT's Bash tool, never a local shell.
-			command = "cd -- '" + strings.ReplaceAll(shell.WorkingDirectory, "'", "'\"'\"'") + "' && (\n" + command + "\n)"
-		}
-		args["command"] = command
-		timeout := shell.Timeout
-		// BACKGROUND is a soft-deadline preference, not an already-backgrounded
-		// process. The client may complete in the foreground or return its own
-		// timeout error; the relay never takes ownership of a process handle.
-		if shell.TimeoutBehavior == 2 && timeout == 0 {
-			timeout = 30000
-		}
-		if hard := shell.GetHardTimeout(); hard > 0 && (timeout == 0 || hard < timeout) {
-			timeout = hard
-		}
-		if timeout > 0 {
-			args["timeout"] = min(timeout, int32(maxNativeClientTimeoutMS))
-		}
 	case exec.GrepArgs != nil:
 		a := exec.GrepArgs
 		if a.Sort != nil || a.SortAscending != nil {
@@ -126,16 +85,6 @@ func nativeClientToolCall(exec *pb.ExecServerMessage, tools []AgentTool) (AgentT
 	case exec.PiWriteArgs != nil:
 		a := exec.PiWriteArgs
 		name, args["file_path"], args["content"] = "Write", a.Path, a.Content
-	case exec.PiBashArgs != nil:
-		a := exec.PiBashArgs
-		name, args["command"] = "Bash", a.Command
-		if a.Timeout != nil {
-			ms := a.GetTimeout() * 1000 // Pi uses seconds; Bash uses milliseconds.
-			if math.IsNaN(ms) || math.IsInf(ms, 0) || ms <= 0 || ms > math.MaxInt32 || math.Trunc(ms) != ms {
-				return call, false
-			}
-			args["timeout"] = min(int32(ms), int32(maxNativeClientTimeoutMS))
-		}
 	case exec.PiGrepArgs != nil:
 		a := exec.PiGrepArgs
 		if a.GetLiteral() {
@@ -151,10 +100,8 @@ func nativeClientToolCall(exec *pb.ExecServerMessage, tools []AgentTool) (AgentT
 	default:
 		return call, false
 	}
-	for _, key := range []string{"file_path", "command"} {
-		if value, ok := args[key].(string); ok && (strings.TrimSpace(value) == "" || strings.ContainsRune(value, 0)) {
-			return call, false
-		}
+	if value, ok := args["file_path"].(string); ok && (strings.TrimSpace(value) == "" || strings.ContainsRune(value, 0)) {
+		return call, false
 	}
 	if wireID == "" {
 		wireID = exec.ExecId
@@ -205,6 +152,13 @@ func nativeClientSchemaAccepts(schema map[string]any, args map[string]any) bool 
 			return false
 		}
 	}
+	return clientToolSchemaAccepts(schema, args)
+}
+
+// Untranslated client arguments follow the caller's schema, including open
+// schemas and local references. The native adapter's property whitelist applies
+// only to parameters it synthesizes, never to an unchanged MCP argument object.
+func clientToolSchemaAccepts(schema map[string]any, args map[string]any) bool {
 	encoded, err := json.Marshal(schema)
 	if err != nil {
 		return false

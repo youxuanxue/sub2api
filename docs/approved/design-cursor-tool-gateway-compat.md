@@ -1,7 +1,7 @@
 ---
 title: Provider-neutral Cursor tool gateway compatibility
 status: approved
-approved_by: "feng (conversation approval, 2026-10-01; Agent/client-only bridge and revised continuation design approved 2026-10-04)"
+approved_by: "feng (conversation approval, 2026-10-01; Agent/client-only bridge and revised continuation design approved 2026-10-04; client Shell routing revision approved in conversation 2026-10-07; metadata/schema refinement and fixed MCP allowlist authorized by subsequent conversation approvals)"
 created: 2026-10-01
 ---
 
@@ -18,13 +18,15 @@ identity.
 
 | Upstream frame | Gateway behavior |
 | --- | --- |
-| Native Read/Write/Shell/Grep, supported Pi equivalents | Match a declared Read/Write/Bash/Grep tool, validate translated arguments against its schema, emit standard client handoff |
-| Undeclared, incompatible or other native exec | `ExecClientThrow + StreamClose`, public capability error, continue the stream |
+| Native Read/Write/Grep, supported Pi equivalents | Match a declared Read/Write/Grep tool, validate translated arguments against its schema, emit standard client handoff |
+| Native Shell/ShellStream/MiniSwe/PiBash | Stop before client handoff with provider-neutral `gateway_tool_unavailable`; HTTP 422 before output, terminal error after streaming starts; no fallback/replay |
+| Undeclared, incompatible or other non-Shell native exec | `ExecClientThrow + StreamClose`, public capability error, continue the stream |
 | Declared MCP/function tool | Normalize identity and emit standard tool handoff; MCP-only runs retain history replay, native-capable runs return results on the original connection |
 | Unknown MCP tool | Return a bounded provider-neutral protocol error; never execute or silently pass through |
+| MCP state query | Return only the current request's declared tools in the `tokenkey` namespace; no server discovery, startup or environment access |
 | Text/thinking/usage | Convert through the existing Messages/Chat/Responses owners |
 
-Unbridgeable native exec rejection is a frame-level response, not an HTTP request failure.
+Unbridgeable non-Shell native exec rejection is a frame-level response, not an HTTP request failure.
 The server must continue reading the stream so the model can answer without the
 workspace tool. If the model cannot proceed, the resulting limitation is
 reported as an ordinary capability error.
@@ -37,11 +39,12 @@ bridge owner is `native_client_tools_tk.go`. Exact caller declarations and full
 JSON Schema validation are required; schema references cannot trigger network
 or file reads. Missing tools, `tool_choice=none`, incompatible parameters,
 binary writes and background shell ownership fail closed. Upstream approval or
-sandbox hints never grant client permission. Shell working directories are
-quoted into the client's command parameter; that command is never run here.
-A foreground Shell's background-on-timeout preference is normalized to a bounded
-client foreground call (at most two minutes, within the client-wait TTL);
-explicit background execution remains unavailable.
+sandbox hints never grant client permission. Bash uses the caller-declared tool's
+MCP transport and original parameters. Native
+Shell cannot faithfully represent generic client results and is not bridged.
+The gateway does not wrap commands, adjust timeouts or infer shell state.
+The retained client-wait limit remains three minutes; that is a protocol timeout,
+not a client process lifetime or ownership promise.
 
 The approved native lifecycle is: `generating → client tool_use → wait for
 client tool_result → return native result to the waiting upstream → generating`.
@@ -91,8 +94,8 @@ Result adapters encode recognized missing-file errors and preserve other client
 error text; upstream error rendering is not guaranteed to preserve classification.
 Known line-numbered Read output is decoded; ambiguous/truncated output cannot be
 used as complete file contents for an internal edit. Native Read/Write results
-are sent with the original exec IDs. Shell results preserve available status;
-unavailable process metadata is not inferred from arbitrary prose. Grep output
+are sent with the original exec IDs. Bash results preserve text and `is_error`
+through `McpResult`; process metadata is not inferred from arbitrary prose. Grep output
 is accepted only when its structured native representation can be reconstructed.
 Client results are never supplemented by reading gateway files or running tools.
 
@@ -104,22 +107,76 @@ create an execution environment, poll a background handle, fix generated shell
 programs, or execute a fallback. Model prose about persistent Shell state is
 not a gateway capability promise.
 
-Native Shell success uses the existing compatibility convention: a successful
-client tool acknowledgement maps to native success/zero. This is not a measured
-process exit code; unstructured client text cannot establish stdout/stderr
-separation or process metadata. No PID, duration or changed cwd is added.
-Client `is_error` cannot distinguish permission denial from execution failure:
-send its original text through an in-band exec throw without assigning either
-classification or an exit code. A background-shaped response also retains its
-original text in an in-band representation error; no gateway process ownership
-is implied. These tool errors close the exec frame, not the model stream.
-The 2026-10-06 live probe confirmed original error text reached the upstream on
-the same connection, but the upstream rendered the generic throw as
-`Command failed to spawn`, even for a client-reported nonzero exit. Gateway
-forwarding fidelity does not imply accurate upstream classification. The model
-also attempted to reuse a Shell variable across calls despite a fresh-process
-tool description. Neither limitation authorizes a gateway execution environment,
-invented exit metadata, command repair or filtering of generated prose.
+### Client Shell result protocol revision (conversation approval, 2026-10-07)
+
+Prod-host wire capture showed that native Shell appends persistent cwd/env claims
+and protocol timing as execution duration before the model sees the result. It
+also renders generic client errors as spawn failures. The result protocol, not
+just final prose, must change.
+
+When client tools are declared, the upstream filter is fixed to
+`x-cursor-agent-allowed-tools: mcp_tool_call,get_mcp_tools_tool_call`.
+The second entry permits tool discovery; allowing only `mcp_tool_call` caused
+`GET_MCP_TOOLS` failures in earlier production requests. Discovery is answered
+from static caller declarations, not a running MCP server. The gateway never
+learns additional allowed tools from upstream errors and never starts another
+Run to repair this list. Requests without tools, including `tool_choice=none`,
+do not enable the filter; their existing exec rejection boundary remains.
+
+No Shell routing hint is added to the system prompt. Caller instructions,
+descriptions, schemas, names and arguments are preserved. The existing MCP
+identity normalization and retained connection carry client
+Bash calls and `McpResult` text/`is_error`. Bash arguments must satisfy the caller's
+schema before handoff; remote schema resolution remains disabled.
+Untranslated Bash arguments follow the original schema, including open objects,
+typed additional properties and local references. The native translator's
+explicit-property whitelist does not restrict an unchanged client argument object.
+
+MCP state queries use the official protocol's static server snapshot. Empty
+filters or the `tokenkey` namespace return only current request declarations;
+unknown namespaces return an empty snapshot. Both kick-only and waiting queries
+return immediately without loading or contacting servers. `ready` describes
+available declarations, not client execution health or permission. Client results
+remain the only source of execution evidence.
+
+Native Shell variants terminate at exec dispatch before any client operation is
+published. HTTP 422 avoids ordinary 5xx failover; an already-started stream emits
+a terminal error instead of successful completion. No native throw is sent to
+invite another false spawn-error result, no new upstream run is replayed, and
+no result is fabricated. This deliberately removes the old native Shell adapter,
+including command wrapping and assumed success/zero. Other native tool bridges
+and MCP-only history behavior are unchanged. AGENT mode remains enabled.
+
+If the upstream ignores the tool filter and selects native Shell, this request
+fails before handoff. The filter narrows the model's tool surface; dispatch
+remains the enforced execution boundary. The gateway does not
+promise that arbitrary model prose is accurate. In particular, supplier-generated
+model-switch notices require separate structured evidence and are not filtered
+or used to guess billing identity.
+
+Controlled comparison and candidate evidence are retained under
+`.cache/observability/cursor150-mcp-routing/`. Candidate ordinary/SSE cases covered
+Bash success, client error and independent successive calls on prod account 150,
+using simulated results and no command execution. They prove the candidate's
+supplier protocol path, not production rollout or replay of user 16's client.
+
+Further official-CLI comparison and prod-host probes are retained under
+`.cache/observability/cursor150-metadata-routing/`. The CLI's documented
+`x-cursor-agent-exclude-tools: shell_tool_call` did not suppress native Shell
+in the tested upstream. A truthful native rejection alone did not reliably
+produce client handoff. An upfront recovery contract allowed one handoff, but
+another run failed during upstream tool discovery before client execution.
+These recovery prototypes are not production behavior. No automatic retry,
+native fallback or additional gateway execution capability is introduced.
+
+The subsequent complete allowlist revision follows the protocol dependency
+identified by [minimal-agent's upstream fix](https://github.com/gastonmorixe/minimal-agent-plugins/commit/eb1c76f7c835ce5caa8c2ae8bee9c243335b170a),
+also used by magpie and cursor-rpc. In a prod-host A/B without routing hints,
+the unfiltered request selected native Shell and failed with 422; the same
+Shell task with both MCP entries reached client Bash and completed on the
+original connection. Evidence is retained under
+`.cache/observability/cursor150-mcp-allowlist/`. This does not promise that every
+upstream version honors the filter or authorize enabling #150 scheduling.
 
 A ranged Read retains content and the range marker but omits whole-file totals.
 Proto3 zero defaults for these totals mean no supplied metadata in this adapter;
@@ -172,7 +229,8 @@ operator-only. Public errors use stable provider-neutral codes such as
 
 Error sanitization covers JSON bodies, SSE events, and returned Go errors;
 `errors.Is` / `errors.As` still retain cancellation, timeout and policy evidence.
-Native HTTP statuses and the shared policy/failover owners are unchanged.
+Native Shell incompatibility uses HTTP 422 as specified above. Other native HTTP
+statuses and the shared policy/failover owners are unchanged.
 Model fields retain the caller's public model name through the existing response
 rewrite owner. Generated prose and caller-provided tool payloads are not rewritten.
 
@@ -204,7 +262,10 @@ so old receivers do not lose provenance from new labels.
 | JSON/SSE errors and public model/usage metadata remain supplier-neutral; failed turns do not settle | `TestMessagesPublicErrorMapping` and `TestCursorProtocolRoutesUseNativeTransportAndSettlement` |
 | Owner/key/schema/history isolation, duplicate consumption, capacity, expiry and disconnect | `TestNativeRunIsolationExpiryAndCancellation`, `TestPendingToolIDsOnlyLatestResultTurn` |
 | Read wrappers, missing/empty file, structured results and client rejection | `TestNativeClientResultSemantics` |
-| Original client errors, ranged metadata, Grep fidelity, trailing-input rejection and concurrent single consumption | `TestNativeClientResultEvidence`, `TestNativeShellErrorContinuesOriginalRun`, `TestNativeContinuationTrailingTextFailsClosed`, `TestNativeContinuationConcurrentSingleConsumption` |
+| Original client errors, ranged metadata, Grep fidelity, trailing-input rejection and concurrent single consumption | `TestNativeClientResultEvidence`, `TestClientBashErrorContinuesOriginalRun`, `TestNativeContinuationTrailingTextFailsClosed`, `TestNativeContinuationConcurrentSingleConsumption` |
+| Client Bash declarations and errors preserved; native Shell rejected before handoff without execution or failover | `TestClientToolRoutingPreservesDeclarations`, `TestClientBashRejectsInvalidArguments`, `TestNativeShellFailsBeforeClientHandoff`, `TestCursorProtocolRoutesUseNativeTransportAndSettlement` |
+| Client schema semantics preserved without external schema fetch; static metadata discovery continues to client handoff on the same connection | `TestClientBashPreservesCallerSchemaSemantics`, `TestClientToolMetadataSnapshot`, `TestClientToolMetadataContinuesToClientHandoff` |
+| Fixed invocation/discovery allowlist; no filter when tools are absent/disabled; upstream errors never expand the list or replay | `TestAgentClientToolAllowlistIncludesDiscovery`, `TestClientToolFilterDisabledWithoutDeclarations`, `TestClientToolAllowlistDoesNotLearnOrReplay` |
 | Zero intermediate cost including per-request pricing; final settlement remains normal | `TestCursorDeferredSegmentsSettleZeroBeforeTerminalUsage` |
 | Cancellation/timeout identity, partial output, policy and transport regressions | Existing Cursor transport, timeout and buffered failure tests |
 | Legacy and neutral wire provenance retain the same durable billing tier | `TestCursorRelayConversionsRetainBillingProvenance` |
@@ -219,8 +280,7 @@ go test -tags=unit ./internal/service -run 'TestCursor|TestOpenAI.*Transport|Tes
 This change has no UI artifact (`no-web-impact`). Local verification uses native
 duplex fixtures and service protocol integration tests. Isolated prod-host probes
 exercise real supplier connections with simulated client tool results; they are
-not UI e2e or a replay of user 16's production traffic. Production remains on
-its existing image and account 150 remains unschedulable until a separate rollout.
+not UI e2e or a replay of user 16's production traffic. Candidate verification does not deploy the change or enable account scheduling.
 Client permission denials, unsupported tool schemas, upstream policy refusals and
 expired/process-lost continuations remain explicit failure boundaries. Model
 prose is not filtered, so supplier-neutral protocol metadata does not guarantee

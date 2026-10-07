@@ -29,13 +29,6 @@ func nativeClientResults(exec *pb.ExecServerMessage, result AgentMessage) []*pb.
 	if read == nil {
 		read = exec.RedactedReadArgs
 	}
-	shell := exec.ShellArgs
-	if shell == nil {
-		shell = exec.ShellStreamArgs
-	}
-	if shell == nil {
-		shell = exec.MiniSweAgentBashArgs
-	}
 	switch {
 	case exec.McpArgs != nil:
 		reply.McpResult = &pb.McpResult{Success: &pb.McpSuccess{IsError: result.IsError, Content: []*pb.McpToolResultContentItem{{Text: &pb.McpTextContent{Text: text}}}}}
@@ -75,31 +68,6 @@ func nativeClientResults(exec *pb.ExecServerMessage, result AgentMessage) []*pb.
 			}
 			reply.WriteResult = &pb.WriteResult{Success: success}
 		}
-	case shell != nil:
-		if result.IsError {
-			// A tool error does not distinguish refusal, spawn failure, timeout
-			// or nonzero exit. Preserve it without fabricating that distinction.
-			return execClientThrowAndClose(exec, text, "client_tool_error")
-		}
-		if strings.HasPrefix(text, "Command running in background with ID:") {
-			return execClientThrowAndClose(exec, "Client output cannot confirm foreground completion; no process is managed by the gateway.\n"+text, "client_tool_result_unrepresentable")
-		}
-		if exec.ShellStreamArgs != nil {
-			// A successful Bash tool_result acknowledges success. No PID, duration or
-			// working-directory changes are invented from output text.
-			return []*pb.AgentClientMessage{
-				{ExecClientMessage: &pb.ExecClientMessage{Id: exec.Id, ExecId: exec.ExecId, ShellStream: &pb.ShellStream{Start: &pb.ShellStreamStart{}}}},
-				{ExecClientMessage: &pb.ExecClientMessage{Id: exec.Id, ExecId: exec.ExecId, ShellStream: &pb.ShellStream{Stdout: &pb.ShellStreamStdout{Data: text}}}},
-				{ExecClientMessage: &pb.ExecClientMessage{Id: exec.Id, ExecId: exec.ExecId, ShellStream: &pb.ShellStream{Exit: &pb.ShellStreamExit{Code: 0}}}},
-				{ExecClientControlMessage: &pb.ExecClientControlMessage{StreamClose: &pb.ExecClientStreamClose{Id: exec.Id}}},
-			}
-		}
-		value := &pb.ShellResult{Success: &pb.ShellSuccess{Command: shell.Command, WorkingDirectory: shell.WorkingDirectory, Stdout: text}}
-		if exec.MiniSweAgentBashArgs != nil {
-			reply.MiniSweAgentBashResult = value
-		} else {
-			reply.ShellResult = value
-		}
 	case exec.GrepArgs != nil:
 		value := &pb.GrepResult{}
 		if result.IsError {
@@ -123,13 +91,6 @@ func nativeClientResults(exec *pb.ExecServerMessage, result AgentMessage) []*pb.
 			reply.PiWriteResult.Error = &pb.PiWriteExecError{Error: text}
 		} else {
 			reply.PiWriteResult.Success = &pb.PiWriteExecSuccess{Output: text}
-		}
-	case exec.PiBashArgs != nil:
-		reply.PiBashResult = &pb.PiBashExecResult{}
-		if result.IsError {
-			reply.PiBashResult.Error = &pb.PiBashExecError{Error: text}
-		} else {
-			reply.PiBashResult.Success = &pb.PiBashExecSuccess{Output: text}
 		}
 	case exec.PiGrepArgs != nil:
 		reply.PiGrepResult = &pb.PiGrepExecResult{}

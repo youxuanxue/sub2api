@@ -224,6 +224,8 @@ func messagesPublicError(err error) (code, message string) {
 		return "", ""
 	}
 	switch {
+	case errors.Is(err, errNativeShellUnavailable):
+		return publicToolUnavailableCode, "The model selected a tool that this gateway cannot relay."
 	case errors.Is(err, errAgentToolProtocol):
 		return publicToolProtocolCode, "The model returned an unsupported tool call."
 	case errors.Is(err, errAgentStreamIdle), errors.Is(err, context.DeadlineExceeded):
@@ -517,6 +519,11 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 					return
 				}
 				status := http.StatusBadGateway
+				if errors.Is(runErr, errNativeShellUnavailable) {
+					// Deterministic incompatibility, not a transient supplier
+					// failure: shared status handling must not replay this run.
+					status = http.StatusUnprocessableEntity
+				}
 				if errors.Is(runErr, ErrContinuationUnavailable) {
 					status = http.StatusBadRequest
 				}

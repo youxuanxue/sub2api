@@ -989,6 +989,9 @@
       "path": "backend/internal/integration/cursor/agent.go",
       "must_contain": [
         "func buildAgentRun",
+        "clientToolState(exec, requestContext.Tools)",
+        "clientToolSchemaAccepts(tool.Schema, call.Arguments)",
+        "req.Header.Set(\"X-Cursor-Agent-Allowed-Tools\", clientToolAllowlist)",
         "relayRequestContext",
         "const relayConversationMode = agentModeAgent",
         "cursorPromptToolName(input.Model, call.Name)",
@@ -997,8 +1000,8 @@
         "input.Messages = preparedMessages",
         "newAgentHTTPRejection(resp.StatusCode",
         "&agentTransportError{cause: got.err}",
-        "Never set X-Cursor-Agent-Allowed-Tools=mcp_tool_call",
-        "Required tool GET_MCP_TOOLS not found in allTools",
+        "if nativeShellExec(exec) {",
+        "if len(input.Tools) > 0 {",
         "classifyMessagesAlignedExec",
         "execClientThrowAndClose",
         "outsideExecThrowMessage",
@@ -1022,7 +1025,7 @@
         "cursor requested unsupported local execution",
         "context.WithTimeout(ctx, 2*time.Minute)"
       ],
-      "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes. Never advertise mcp_tool_call allowlist: Cursor then requires GET_MCP_TOOLS in allTools and returns Connect internal (prod #150 user16 claude-opus-5-5 final-502). Caller tools stay on RunAgent McpTools; compatible native execs map to declared client tools in AGENT mode. Local execution is forbidden. Unbridgeable exec and undeclared MCP workspace frames are answered with ExecClientThrow+stream_close so the model can continue text. TurnEnded.input is total prompt; anthropicShapeReportedUsage must map to Anthropic disjoint buckets before Messages/settlement or cache tokens are double-billed at input+cache rates. RunAgent must not restore a wall-clock 2m WithTimeout; frame-idle (defaultAgentStreamIdleTimeout / errAgentStreamIdle / doCh) reaps hung duplex silence including a never-returning do(), and unwraps to DeadlineExceeded for 504 owners."
+      "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes. Declared client tools use a fixed MCP invocation+discovery allowlist; mcp_tool_call alone caused GET_MCP_TOOLS errors. Native exec guards remain authoritative even if the upstream ignores its tool filter. Caller tools stay on RunAgent McpTools; compatible native execs map to declared client tools in AGENT mode. Local execution is forbidden. Unbridgeable exec and undeclared MCP workspace frames are answered with ExecClientThrow+stream_close so the model can continue text. TurnEnded.input is total prompt; anthropicShapeReportedUsage must map to Anthropic disjoint buckets before Messages/settlement or cache tokens are double-billed at input+cache rates. RunAgent must not restore a wall-clock 2m WithTimeout; frame-idle (defaultAgentStreamIdleTimeout / errAgentStreamIdle / doCh) reaps hung duplex silence including a never-returning do(), and unwraps to DeadlineExceeded for 504 owners."
     },
     {
       "path": "backend/internal/integration/cursor/agent_timeout_repro_tk_test.go",
@@ -1089,19 +1092,19 @@
         "TestAgentSystemCompatibilityPreservesHistory",
         "TestAgentUsagePresenceOnNativeWire",
         "TestAgentHistoryReconstructsNativeToolTurns",
-        "TestAgentNeverAdvertisesMCPToolCallAllowlist",
+        "TestAgentClientToolAllowlistIncludesDiscovery",
         "TestAgentRelayUsesAgentModeWithClientExecution",
         "TestAnthropicShapeReportedUsage",
         "TestAgentUsagePreservesCacheBuckets",
         "Cursor TurnEnded.input is total; expose Anthropic uncached remainder",
         "already-disjoint input < cache sum must not be double-subtracted",
-        "text-only runs must not advertise mcp_tool_call",
-        "mcp_tool_call allowlist triggers Required tool GET_MCP_TOOLS not found in allTools",
+        "text-only requests do not enable client tool filtering",
+        "the discovery dependency must be allowed without exposing native tools",
         "require.Len(t, run.GetMcpTools().GetMcpTools(), 1)",
         "require.EqualValues(t, agentModeAgent, run.GetConversationState().GetMode())",
         "require.NotEqualValues(t, agentModeAsk, run.GetConversationState().GetMode())"
       ],
-      "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history. Guard that tools never reintroduce the mcp_tool_call allowlist that caused prod #150 GET_MCP_TOOLS Connect internal, while still encoding caller tools on McpTools. AGENT mode enables client-only native tool handoff; local executors remain forbidden. Billing: total TurnEnded.input must normalize to uncached remainder; already-disjoint fixtures must not be double-subtracted."
+      "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history. Guard the complete MCP invocation+discovery allowlist to avoid prod #150 GET_MCP_TOOLS errors, while preserving caller declarations and leaving the filter disabled without tools. AGENT mode enables client-only native tool handoff; local executors remain forbidden. Billing: total TurnEnded.input must normalize to uncached remainder; already-disjoint fixtures must not be double-subtracted."
     },
     {
       "path": "backend/internal/integration/cursor/messages_test.go",
@@ -13951,6 +13954,16 @@
       "rationale": "HTTP regression covers each companion route through RegisterGatewayRoutes and its API-key middleware; dead registration helpers must not pass by source scanning alone."
     },
     {
+      "path": "backend/internal/integration/cursor/client_tool_metadata_tk_test.go",
+      "must_contain": ["TestClientToolMetadataSnapshot", "TestClientToolMetadataContinuesToClientHandoff"],
+      "rationale": "Tool discovery must report request declarations without starting MCP servers or probing client environments; the same upstream connection must continue to client handoff."
+    },
+    {
+      "path": "backend/internal/integration/cursor/client_shell_routing_tk_test.go",
+      "must_contain": ["TestClientBashPreservesCallerSchemaSemantics", "TestClientBashRejectsInvalidArguments", "TestNativeShellFailsBeforeClientHandoff", "TestClientToolRoutingPreservesDeclarations", "TestClientToolFilterDisabledWithoutDeclarations", "TestClientToolAllowlistDoesNotLearnOrReplay"],
+      "rationale": "Unchanged MCP arguments follow the caller schema while native Shell cannot invent client execution state or silently replay operations."
+    },
+    {
       "path": "backend/internal/integration/cursor/native_client_tools_tk_test.go",
       "must_contain": [
         "TestNativeClientToolArguments",
@@ -13991,7 +14004,7 @@
     },
     {
       "path": "backend/internal/integration/cursor/native_boundary_tk_test.go",
-      "must_contain": ["TestNativeClientResultEvidence", "TestNativeShellErrorContinuesOriginalRun", "TestNativeContinuationTrailingTextFailsClosed", "TestNativeContinuationConcurrentSingleConsumption"],
+      "must_contain": ["TestNativeClientResultEvidence", "TestClientBashErrorContinuesOriginalRun", "TestNativeContinuationTrailingTextFailsClosed", "TestNativeContinuationConcurrentSingleConsumption"],
       "rationale": "Keep client result fidelity and single consumption regressions: never invent error classifications or silently replay a result followed by user text."
     },
     {

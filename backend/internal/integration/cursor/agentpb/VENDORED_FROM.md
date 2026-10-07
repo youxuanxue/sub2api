@@ -18,12 +18,14 @@ The native Read/Write/Shell/Grep and Pi argument/result subset follows
 These messages only translate calls to caller-declared tools. They do not add
 native executors. AGENT mode does not grant gateway execution capability.
 
-Shell timeout semantics were cross-checked against the official distributed CLI
-`2026.09.28-64d2043`: `TimeoutBehavior` is UNSPECIFIED=0, CANCEL=1,
-BACKGROUND=2. CANCEL maps to a client timeout. For a foreground command, BACKGROUND is
-a soft-deadline preference: the client instead completes or reports a timeout
-under its own bounded foreground execution. Explicit background execution is
-rejected; no process handles or background ownership are accepted by the relay.
+MCP state metadata fields were cross-checked against official distributed CLI
+`2026.10.01-e373342`: exec request/result field 36, server identifiers and
+kick-only arguments, and the declared-tool server snapshot. This adapter never
+loads MCP servers; it returns only the request's static declaration namespace.
+The ready status describes available declarations, not client execution health.
+Native Shell terminates with a neutral gateway compatibility error before
+handoff; no native execution result is fabricated. The protocol's rejected
+variant was evaluated in isolated probes but is not used by this adapter.
 
 Regenerate from the backend directory with protoc 36.2 and protoc-gen-go 1.36.10:
 

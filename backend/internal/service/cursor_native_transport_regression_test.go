@@ -70,7 +70,7 @@ func (u *cursorNativeTestUpstream) Do(req *http.Request, _ string, _ int64, _ in
 func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 	for _, inbound := range []protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses} {
 		for _, stream := range []bool{false, true} {
-			for _, outcome := range []string{"reported", "handoff", "handoff_alias", "native_handoff", "native_rejected", "tool_unknown", "resumed", "incomplete", "cyber_early", "cyber_late", "usage_early", "usage_late", "cyber_http", "usage_http", "usage_message_http", "cyber_429_http", "usage_503_http", "transport_canceled"} {
+			for _, outcome := range []string{"reported", "handoff", "handoff_alias", "native_handoff", "native_rejected", "shell_rejected", "tool_unknown", "resumed", "incomplete", "cyber_early", "cyber_late", "usage_early", "usage_late", "cyber_http", "usage_http", "usage_message_http", "cyber_429_http", "usage_503_http", "transport_canceled"} {
 				t.Run(fmt.Sprintf("%s/stream=%t/%s", inbound, stream, outcome), func(t *testing.T) {
 					const model = "composer-2.5"
 					body := []byte(fmt.Sprintf(`{"model":%q,"stream":%t,"max_tokens":1,"messages":[{"role":"user","content":"lookup"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`, model, stream))
@@ -118,8 +118,11 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 					}
 					if outcome == "native_rejected" {
 						exec := &pb.ExecServerMessage{Id: 9}
-						exec.ProtoReflect().SetUnknown(protowire.AppendBytes(protowire.AppendTag(nil, 2, protowire.BytesType), nil))
+						exec.ProtoReflect().SetUnknown(protowire.AppendBytes(protowire.AppendTag(nil, 99, protowire.BytesType), nil))
 						frame(&pb.AgentServerMessage{ExecServerMessage: exec})
+					}
+					if outcome == "shell_rejected" {
+						frame(&pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{Id: 9, ShellStreamArgs: &pb.ShellArgs{Command: "exit 7"}}})
 					}
 					if outcome == "native_handoff" {
 						frame(&pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{Id: 12, ReadArgs: &pb.ReadArgs{Path: "/client/fixture.txt", ToolCallId: "call_native"}}})
@@ -229,6 +232,18 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 					}
 					for _, forbidden := range []string{"cursor", "tokenkey", "agentrun", "not_declared", "composer-2.5"} {
 						require.NotContains(t, strings.ToLower(recorder.Body.String()), forbidden)
+					}
+					if outcome == "shell_rejected" {
+						require.Error(t, err)
+						require.Nil(t, result, "rejected native shell cannot settle")
+						var failover *UpstreamFailoverError
+						require.False(t, errors.As(err, &failover), "deterministic incompatibility must not replay")
+						require.Equal(t, http.StatusUnprocessableEntity, recorder.Code)
+						require.Equal(t, 1, upstream.calls)
+						require.NotContains(t, recorder.Body.String(), "NATIVE_OK")
+						require.NotContains(t, recorder.Body.String(), `"type":"tool_use"`)
+						require.NotContains(t, recorder.Body.String(), `"status":"completed"`)
+						return
 					}
 					if outcome == "tool_unknown" {
 						require.NoError(t, err)

@@ -104,6 +104,7 @@ message ExecServerMessage {
   ShellArgs shell_stream_args = 14;
   string exec_id = 15;
   ReadArgs redacted_read_args = 29;
+  McpStateExecArgs mcp_state_exec_args = 36;
   PiReadExecArgs pi_read_args = 45;
   PiBashExecArgs pi_bash_args = 46;
   PiWriteExecArgs pi_write_args = 48;
@@ -182,6 +183,7 @@ message ExecClientMessage {
   PiGrepExecResult pi_grep_result = 50;
   RequestContextResult request_context_result = 10;
   McpResult mcp_result = 11;
+  McpStateExecResult mcp_state_exec_result = 36;
   string exec_id = 15;
 }
 message ExecClientStreamClose { uint32 id = 1; }
@@ -280,3 +282,18 @@ message PiWriteExecError { string error = 1; }
 message PiGrepExecResult { PiGrepExecSuccess success = 1; PiGrepExecError error = 2; }
 message PiGrepExecSuccess { string output = 1; }
 message PiGrepExecError { string error = 1; }
+
+// Metadata only; fields cross-checked against official CLI 2026.10.01-e373342.
+message McpStateExecArgs { repeated string server_identifiers = 1; bool kick_only = 2; }
+message McpStateExecResult {
+  McpStateSuccess success = 1;
+  McpStateError error = 2;
+}
+message McpStateSuccess { repeated McpStateServer servers = 1; }
+message McpStateServer {
+  string server_name = 1;
+  string server_identifier = 2;
+  repeated McpToolDefinition tools = 5;
+  optional string status = 7;
+}
+message McpStateError { string error = 1; }

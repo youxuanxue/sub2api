@@ -15,26 +15,16 @@ import (
 )
 
 func TestNativeClientResultEvidence(t *testing.T) {
-	t.Run("shell errors do not imply permission rejection or an exit code", func(t *testing.T) {
-		for _, exec := range []*pb.ExecServerMessage{
-			{Id: 9, ShellArgs: &pb.ShellArgs{Command: "exit 7"}},
-			{Id: 9, ShellStreamArgs: &pb.ShellArgs{Command: "exit 7"}},
-			{Id: 9, MiniSweAgentBashArgs: &pb.ShellArgs{Command: "exit 7"}},
-		} {
-			text := "client failed: exit code 7; original output"
-			replies := nativeClientResults(exec, AgentMessage{Text: text, IsError: true})
-			require.Nil(t, replies[0].ExecClientMessage)
-			require.Equal(t, text, replies[0].ExecClientControlMessage.Throw.Error)
-			require.Equal(t, "client_tool_error", replies[0].ExecClientControlMessage.Throw.GetErrorCode())
-			require.EqualValues(t, 9, replies[1].ExecClientControlMessage.StreamClose.Id)
+	t.Run("client Bash evidence is not interpreted as process metadata", func(t *testing.T) {
+		for _, text := range []string{"", "client failed: exit code 7; original output", "Command running in background with ID: client-123\nclient output"} {
+			for _, failed := range []bool{false, true} {
+				replies := nativeClientResults(clientBashExec(t, 9, "task"), AgentMessage{Text: text, IsError: failed})
+				result := replies[0].ExecClientMessage.GetMcpResult().GetSuccess()
+				require.Equal(t, text, result.GetContent()[0].GetText().GetText())
+				require.Equal(t, failed, result.GetIsError())
+				require.EqualValues(t, 9, replies[1].ExecClientControlMessage.StreamClose.Id)
+			}
 		}
-	})
-	t.Run("background response keeps original client evidence", func(t *testing.T) {
-		text := "Command running in background with ID: client-123\nclient output"
-		replies := nativeClientResults(&pb.ExecServerMessage{Id: 10, ShellStreamArgs: &pb.ShellArgs{Command: "task"}}, AgentMessage{Text: text})
-		require.Nil(t, replies[0].ExecClientMessage)
-		require.Equal(t, "Client output cannot confirm foreground completion; no process is managed by the gateway.\n"+text, replies[0].ExecClientControlMessage.Throw.Error)
-		require.Equal(t, "client_tool_result_unrepresentable", replies[0].ExecClientControlMessage.Throw.GetErrorCode())
 	})
 	t.Run("read page is not whole file size", func(t *testing.T) {
 		exec := &pb.ExecServerMessage{Id: 11, ReadArgs: &pb.ReadArgs{Path: "/client/file", Offset: proto.Int32(10), Limit: proto.Uint32(1)}}
@@ -126,15 +116,21 @@ func TestNativeContinuationConcurrentSingleConsumption(t *testing.T) {
 	require.EqualValues(t, 1, results.Load())
 }
 
-func TestNativeShellErrorContinuesOriginalRun(t *testing.T) {
+func TestClientBashErrorContinuesOriginalRun(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(WithRunOwner(t.Context(), RunOwner{16, 23, 150}), 3*time.Second)
 			defer cancel()
 			var calls atomic.Int32
 			do := retainedFixture(t, []nativeFixtureStep{{
-				exec:      &pb.ExecServerMessage{Id: 7, ShellStreamArgs: &pb.ShellArgs{Command: "exit 7"}},
-				wantThrow: &pb.ExecClientThrow{Id: 7, Error: "command failed: exit 7", ErrorCode: proto.String("client_tool_error")},
+				exec: clientBashExec(t, 7, "exit 7"),
+				check: func(reply *pb.ExecClientMessage) error {
+					success := reply.GetMcpResult().GetSuccess()
+					if !success.GetIsError() || len(success.GetContent()) != 1 || success.Content[0].GetText().GetText() != "command failed: exit 7" {
+						return fmt.Errorf("client error text or classification changed")
+					}
+					return nil
+				},
 			}}, &calls)
 			tool := nativeTestTool("Bash", "command")
 			body := map[string]any{"model": "composer-2.5", "stream": stream, "tools": []any{map[string]any{"name": tool.Name, "input_schema": tool.Schema}}, "messages": []any{map[string]any{"role": "user", "content": "run on client"}}}
