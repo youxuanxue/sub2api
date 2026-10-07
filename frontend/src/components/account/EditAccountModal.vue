@@ -1844,12 +1844,12 @@
             step="0.001"
             class="input disabled:cursor-not-allowed disabled:opacity-60"
             data-testid="account-rate-multiplier"
-            :disabled="upstreamBillingRateSyncEnabled"
+            :disabled="showUpstreamBillingProbeControls && upstreamBillingRateSyncEnabled"
           />
           <p class="input-hint">
             {{
               t(
-                upstreamBillingRateSyncEnabled
+                showUpstreamBillingProbeControls && upstreamBillingRateSyncEnabled
                   ? 'admin.accounts.upstreamBilling.syncRateManagedHint'
                   : 'admin.accounts.billingRateMultiplierHint'
               )
@@ -4512,9 +4512,16 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 		typeof extra?.auto_reset_credit_5h_threshold === 'number' ? extra.auto_reset_credit_5h_threshold * 100 : 100
 	autoResetCredit7dThreshold.value =
 		typeof extra?.auto_reset_credit_7d_threshold === 'number' ? extra.auto_reset_credit_7d_threshold * 100 : 100
-	upstreamBillingAutoProbeEnabled.value = extra?.upstream_billing_probe_enabled === true
-  upstreamBillingRateSyncEnabled.value =
-    upstreamBillingAutoProbeEnabled.value && extra?.upstream_billing_rate_sync_enabled === true
+	if (supportsUpstreamBillingProbe(props.account?.platform)) {
+    upstreamBillingAutoProbeEnabled.value = extra?.upstream_billing_probe_enabled === true
+    upstreamBillingRateSyncEnabled.value =
+      upstreamBillingAutoProbeEnabled.value && extra?.upstream_billing_rate_sync_enabled === true
+  } else {
+    // Ineligible platforms (newapi/kiro): ignore stale probe/sync extras so the
+    // rate multiplier stays editable when those toggles are hidden.
+    upstreamBillingAutoProbeEnabled.value = false
+    upstreamBillingRateSyncEnabled.value = false
+  }
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false

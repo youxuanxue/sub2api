@@ -1009,11 +1009,29 @@ func decodeUpstreamBillingProbeSnapshot(extra map[string]any) *UpstreamBillingPr
 	return &snapshot
 }
 
+// UpstreamBillingProbePlatforms is the API-key platform allowlist for
+// `/v1/sub2api/billing` probing. Keep in lockstep with frontend
+// UPSTREAM_BILLING_PROBE_PLATFORMS (scripts/checks/platform-registry-drift.py).
+// newapi/kiro relays are intentionally excluded — they never host that endpoint.
+// CN providers stay in the list; official-domain accounts short-circuit to
+// "unsupported" via upstreamBillingProbeTargetIsOfficialAPI.
+var UpstreamBillingProbePlatforms = []string{
+	PlatformOpenAI,
+	PlatformAnthropic,
+	PlatformGemini,
+	PlatformAntigravity,
+	PlatformGrok,
+	PlatformKimi,
+	PlatformZhipu,
+	PlatformDeepseek,
+	PlatformMiniMax,
+	PlatformOpenCodeGo,
+	PlatformTypeSafe,
+}
+
 // IsUpstreamBillingProbeIdentity reports whether an account identity may opt
 // in to the upstream billing probe. `/v1/sub2api/billing` is a key-scoped
-// sub2api convention shared by the supported API-key platforms (including the
-// CN providers, whose official-domain accounts are short-circuited to
-// "unsupported" by upstreamBillingProbeTargetIsOfficialAPI).
+// sub2api convention shared by UpstreamBillingProbePlatforms.
 // Non-sub2api upstreams return 404 and the snapshot records "unsupported".
 // Only AccountTypeAPIKey is in scope. OAuth/Bedrock hold no static API key to
 // present at all; AccountTypeUpstream (antigravity relay accounts) does carry
@@ -1025,14 +1043,12 @@ func IsUpstreamBillingProbeIdentity(platform, accountType string) bool {
 	if accountType != AccountTypeAPIKey {
 		return false
 	}
-	switch platform {
-	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo,
-		PlatformTypeSafe:
-		return true
-	default:
-		return false
+	for _, p := range UpstreamBillingProbePlatforms {
+		if p == platform {
+			return true
+		}
 	}
+	return false
 }
 
 func isUpstreamBillingProbeAccount(account *Account) bool {

@@ -1503,7 +1503,10 @@ describe('EditAccountModal', () => {
       base_url: 'https://integrate.api.nvidia.com'
     }
     account.credentials_status = { has_api_key: true }
-    account.extra = { upstream_billing_probe_enabled: true }
+    account.extra = {
+      upstream_billing_probe_enabled: true,
+      upstream_billing_rate_sync_enabled: true
+    }
     updateAccountMock.mockReset()
     checkMixedChannelRiskMock.mockReset()
     checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
@@ -1513,6 +1516,10 @@ describe('EditAccountModal', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="upstream-billing-rate-sync"]').exists()).toBe(false)
+    const rateInput = wrapper.get<HTMLInputElement>('[data-testid="account-rate-multiplier"]')
+    expect(rateInput.element.disabled).toBe(false)
+    expect(wrapper.text()).toContain('admin.accounts.billingRateMultiplierHint')
+    expect(wrapper.text()).not.toContain('admin.accounts.upstreamBilling.syncRateManagedHint')
 
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -1521,6 +1528,7 @@ describe('EditAccountModal', () => {
     const payload = updateAccountMock.mock.calls[0]?.[1]
     expect(payload).not.toHaveProperty('upstream_billing_probe_enabled')
     expect(payload).not.toHaveProperty('upstream_billing_rate_sync_enabled')
+    expect(payload?.rate_multiplier).toBe(1)
   })
 
   it('enabling rate sync also enables probing and stops submitting a manual rate', async () => {
