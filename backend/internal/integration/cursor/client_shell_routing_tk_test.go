@@ -40,21 +40,24 @@ func TestClientToolRoutingPreservesDeclarations(t *testing.T) {
 	}
 }
 
-func TestClientToolFilterDisabledWithoutDeclarations(t *testing.T) {
-	for _, none := range []bool{false, true} {
-		t.Run(fmt.Sprint(none), func(t *testing.T) {
-			body := map[string]any{"model": "composer-2.5", "messages": []any{map[string]any{"role": "user", "content": "hello"}}}
-			if none {
-				body["tools"] = []any{map[string]any{"name": "Bash", "input_schema": map[string]any{"type": "object"}}}
-				body["tool_choice"] = map[string]any{"type": "none"}
-			}
-			raw, err := json.Marshal(body)
+func TestClientToolFilterConstrainsUpstreamWithoutDeclarations(t *testing.T) {
+	cases := []struct {
+		name string
+		body map[string]any
+	}{
+		{name: "omitted_tools", body: map[string]any{"model": "composer-2.5", "messages": []any{map[string]any{"role": "user", "content": "hello"}}}},
+		{name: "empty_tools", body: map[string]any{"model": "composer-2.5", "tools": []any{}, "messages": []any{map[string]any{"role": "user", "content": "hello"}}}},
+		{name: "tool_choice_none", body: map[string]any{"model": "composer-2.5", "tool_choice": map[string]any{"type": "none"}, "tools": []any{map[string]any{"name": "Bash", "input_schema": map[string]any{"type": "object"}}}, "messages": []any{map[string]any{"role": "user", "content": "hello"}}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := json.Marshal(tc.body)
 			require.NoError(t, err)
 			input, _, err := parseMessagesContent(raw)
 			require.NoError(t, err)
 			run, _, err := buildAgentRun(input)
 			require.NoError(t, err)
-			require.Empty(t, run.GetMcpTools().GetMcpTools())
+			require.Empty(t, run.GetMcpTools().GetMcpTools(), "tool-free requests keep an empty client tool catalog")
 			var frames bytes.Buffer
 			require.NoError(t, writeAgentFrame(&frames, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: &pb.TurnEndedUpdate{
 				InputTokens: proto.Int64(1), OutputTokens: proto.Int64(1), CacheReadTokens: proto.Int64(0), CacheWriteTokens: proto.Int64(0),
@@ -65,7 +68,7 @@ func TestClientToolFilterDisabledWithoutDeclarations(t *testing.T) {
 				return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: io.NopCloser(&frames)}, nil
 			}, nil)
 			require.NoError(t, err)
-			require.Empty(t, allowed, "absent or disabled tools must not enable the client-tool filter")
+			require.Equal(t, clientToolAllowlist, allowed, "tool-free AGENT runs must still exclude native Shell")
 		})
 	}
 }
@@ -144,6 +147,8 @@ func TestNativeShellFailsBeforeClientHandoff(t *testing.T) {
 				tool := nativeTestTool("Bash", "command")
 				_, mapped := nativeClientToolCall(exec, []AgentTool{tool})
 				require.False(t, mapped)
+				_, mapped = nativeClientToolCall(exec, nil)
+				require.False(t, mapped, "undeclared native Shell must not become a client tool")
 				body, err := json.Marshal(map[string]any{"model": "composer-2.5", "stream": stream, "tools": []any{map[string]any{"name": tool.Name, "input_schema": tool.Schema}}, "messages": []any{map[string]any{"role": "user", "content": "run on client"}}})
 				require.NoError(t, err)
 				response, err := Messages(WithRunOwner(t.Context(), RunOwner{16, 23, 150}), "test-token", body, nil, "composer-2.5", func(*http.Request) (*http.Response, error) {

@@ -136,8 +136,8 @@ func TestAgentUsagePreservesCacheBuckets(t *testing.T) {
 		TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(20), OutputTokens: proto.Int64(3), CacheReadTokens: proto.Int64(7), CacheWriteTokens: proto.Int64(2)}}}))
 	result, err := RunAgent(context.Background(), "test-credential", AgentRequest{Model: "composer-2.5", Messages: []AgentMessage{{Role: "user", Text: "hello"}}},
 		func(req *http.Request) (*http.Response, error) {
-			require.Empty(t, req.Header.Get("X-Cursor-Agent-Allowed-Tools"),
-				"text-only requests do not enable client tool filtering")
+			require.Equal(t, clientToolAllowlist, req.Header.Get("X-Cursor-Agent-Allowed-Tools"),
+				"tool-free requests still constrain upstream tools to MCP entries")
 			return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: io.NopCloser(&stream)}, nil
 		}, nil)
 	require.NoError(t, err)

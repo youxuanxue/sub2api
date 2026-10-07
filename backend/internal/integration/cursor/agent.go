@@ -613,13 +613,12 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 	req.Header.Set("Connect-Accept-Encoding", "gzip")
 	req.Header.Set("X-Cursor-Client-Version", AgentClientVersion)
 	req.Header.Set("X-Cursor-Client-Type", "cli")
-	if len(input.Tools) > 0 {
-		// MCP invocation also requires its discovery entry. Allowing only
-		// mcp_tool_call caused GET_MCP_TOOLS errors on prod account 150.
-		// This narrows the model's tool surface; exec dispatch still enforces
-		// the no-execution boundary if the upstream ignores the filter.
-		req.Header.Set("X-Cursor-Agent-Allowed-Tools", clientToolAllowlist)
-	}
+	// Always send the MCP invocation+discovery allowlist. Omitting it on
+	// tool-free AGENT runs let the upstream pick native Shell, which this
+	// gateway cannot relay (HTTP 422). The catalog stays empty when the
+	// caller declared no tools; discovery answers that empty snapshot.
+	// Exec dispatch remains the fail-closed boundary if the filter is ignored.
+	req.Header.Set("X-Cursor-Agent-Allowed-Tools", clientToolAllowlist)
 	req.Header.Set("X-Ghost-Mode", "true")
 	req.Header.Set("X-Request-Id", uuid.NewString())
 	if err := send(&pb.AgentClientMessage{RunRequest: run}); err != nil {
