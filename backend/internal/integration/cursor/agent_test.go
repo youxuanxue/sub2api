@@ -137,16 +137,16 @@ func TestAgentUsagePreservesCacheBuckets(t *testing.T) {
 	result, err := RunAgent(context.Background(), "test-credential", AgentRequest{Model: "composer-2.5", Messages: []AgentMessage{{Role: "user", Text: "hello"}}},
 		func(req *http.Request) (*http.Response, error) {
 			require.Empty(t, req.Header.Get("X-Cursor-Agent-Allowed-Tools"),
-				"text-only runs must not advertise mcp_tool_call (triggers GET_MCP_TOOLS)")
+				"text-only requests do not enable client tool filtering")
 			return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: io.NopCloser(&stream)}, nil
 		}, nil)
 	require.NoError(t, err)
 	require.Equal(t, &AgentUsage{Input: 11, Output: 3, CacheRead: 7, CacheWrite: 2}, result.Usage)
 }
 
-func TestAgentNeverAdvertisesMCPToolCallAllowlist(t *testing.T) {
-	// Positive: caller tools still encode on McpTools. Negative: allowlist header
-	// must stay absent — otherwise Cursor requires GET_MCP_TOOLS (prod #150 final-502).
+func TestAgentClientToolAllowlistIncludesDiscovery(t *testing.T) {
+	// MCP invocation requires its discovery dependency. Neither native workspace
+	// tools nor a dynamically learned server-required tool belongs in this list.
 	input := AgentRequest{
 		Model:    "composer-2.5",
 		Messages: []AgentMessage{{Role: "user", Text: "use lookup"}},
@@ -160,12 +160,13 @@ func TestAgentNeverAdvertisesMCPToolCallAllowlist(t *testing.T) {
 	var stream bytes.Buffer
 	require.NoError(t, writeAgentFrame(&stream, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{
 		TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(1), OutputTokens: proto.Int64(1), CacheReadTokens: proto.Int64(0), CacheWriteTokens: proto.Int64(0)}}}))
+	var allowed string
 	_, err = RunAgent(context.Background(), "test-credential", input, func(req *http.Request) (*http.Response, error) {
-		require.Empty(t, req.Header.Get("X-Cursor-Agent-Allowed-Tools"),
-			"mcp_tool_call allowlist triggers Required tool GET_MCP_TOOLS not found in allTools")
+		allowed = req.Header.Get("X-Cursor-Agent-Allowed-Tools")
 		return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: io.NopCloser(&stream)}, nil
 	}, nil)
 	require.NoError(t, err)
+	require.Equal(t, "mcp_tool_call,get_mcp_tools_tool_call", allowed, "the discovery dependency must be allowed without exposing native tools")
 }
 
 func TestAgentRelayUsesAgentModeWithClientExecution(t *testing.T) {

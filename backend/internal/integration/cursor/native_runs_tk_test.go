@@ -183,8 +183,8 @@ func TestNativeToolsRetainedRoundTrip(t *testing.T) {
 						}
 						return nil
 					}},
-					{exec: &pb.ExecServerMessage{Id: 73, ShellArgs: &pb.ShellArgs{Command: "touch " + marker}}, check: func(reply *pb.ExecClientMessage) error {
-						if reply.GetShellResult().GetSuccess().GetStdout() != nonce {
+					{exec: clientBashExec(t, 73, "touch "+marker), check: func(reply *pb.ExecClientMessage) error {
+						if reply.GetMcpResult().GetSuccess().GetContent()[0].GetText().GetText() != nonce {
 							return fmt.Errorf("shell result lost")
 						}
 						return nil

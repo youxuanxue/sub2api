@@ -613,12 +613,13 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 	req.Header.Set("Connect-Accept-Encoding", "gzip")
 	req.Header.Set("X-Cursor-Client-Version", AgentClientVersion)
 	req.Header.Set("X-Cursor-Client-Type", "cli")
-	// Never set X-Cursor-Agent-Allowed-Tools=mcp_tool_call. That allowlist makes
-	// Cursor require built-in GET_MCP_TOOLS in allTools; TokenKey declares caller
-	// tools only via McpTools and does not ship GET_MCP_TOOLS. Advertising the
-	// header — even with declared tools — yields Connect internal
-	// "Required tool GET_MCP_TOOLS not found in allTools" (prod #150 user16
-	// claude-opus-5-5 final-502 burst). Tools remain on the RunAgent protobuf.
+	if len(input.Tools) > 0 {
+		// MCP invocation also requires its discovery entry. Allowing only
+		// mcp_tool_call caused GET_MCP_TOOLS errors on prod account 150.
+		// This narrows the model's tool surface; exec dispatch still enforces
+		// the no-execution boundary if the upstream ignores the filter.
+		req.Header.Set("X-Cursor-Agent-Allowed-Tools", clientToolAllowlist)
+	}
 	req.Header.Set("X-Ghost-Mode", "true")
 	req.Header.Set("X-Request-Id", uuid.NewString())
 	if err := send(&pb.AgentClientMessage{RunRequest: run}); err != nil {
@@ -773,6 +774,13 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 		call := AgentToolCall{ID: args.ToolCallId, Name: name, Arguments: make(map[string]any)}
 		for key, value := range args.Args {
 			call.Arguments[key] = value.AsInterface()
+		}
+		if name == "Bash" {
+			for _, tool := range input.Tools {
+				if tool.Name == name && !clientToolSchemaAccepts(tool.Schema, call.Arguments) {
+					return errAgentToolProtocol
+				}
+			}
 		}
 		return publishToolCall(call)
 	}
@@ -985,6 +993,20 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 			}
 		}
 		if exec := message.ExecServerMessage; exec != nil {
+			// Native Shell adds execution semantics that generic client results
+			// cannot establish. Fail before handoff; never replay or feed a
+			// native rejection back as a fabricated command spawn failure.
+			if nativeShellExec(exec) {
+				return result, errNativeShellUnavailable
+			}
+			if exec.McpStateExecArgs != nil {
+				for _, reply := range clientToolState(exec, requestContext.Tools) {
+					if err := send(reply); err != nil {
+						return result, err
+					}
+				}
+				continue
+			}
 			switch classifyMessagesAlignedExec(exec) {
 			case messagesExecRequestContext:
 				if err := send(&pb.AgentClientMessage{ExecClientMessage: &pb.ExecClientMessage{Id: exec.Id, ExecId: exec.ExecId,
@@ -1053,11 +1075,6 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 						return result, err
 					}
 					continue
-				}
-				if shell := exec.GetShellStreamArgs(); shell != nil {
-					logger.FromContext(ctx).Debug("cursor_native_shell_rejected",
-						zap.Bool("background", shell.IsBackground), zap.Int32("timeout_behavior", shell.TimeoutBehavior),
-						zap.Int32("timeout_ms", shell.Timeout), zap.Int32("hard_timeout_ms", shell.GetHardTimeout()))
 				}
 				fields := protobufFieldNumbers(exec)
 				errText, errCode := outsideExecThrowMessage()

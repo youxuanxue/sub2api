@@ -44,8 +44,9 @@ func TestExecClientThrowAndCloseShapes(t *testing.T) {
 
 func TestAgentRunOutsideExecThrowsAndContinuesText(t *testing.T) {
 	// Unknown workspace exec variants stay opaque; the fake upstream waits for
-	// both control replies before allowing text/usage to continue.
-	for _, field := range []protowire.Number{2, 3, 4, 5, 99} {
+	// both control replies before allowing text/usage to continue. Native Shell
+	// (field 2) now terminates before handoff; covered by TestNativeShellFailsBeforeClientHandoff.
+	for _, field := range []protowire.Number{3, 4, 5, 99} {
 		t.Run(fmt.Sprint(field), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()

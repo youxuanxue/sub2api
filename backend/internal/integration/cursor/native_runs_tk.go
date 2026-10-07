@@ -62,7 +62,7 @@ type nativeRunManager struct {
 }
 
 func newNativeRunManager() *nativeRunManager {
-	return &nativeRunManager{runs: map[*nativeRun]bool{}, pending: map[string]*nativeRun{}, waitTTL: time.Duration(maxNativeClientTimeoutMS)*time.Millisecond + time.Minute, lifetime: 15 * time.Minute, maxRuns: 32, maxAccount: 8, maxOwner: 4}
+	return &nativeRunManager{runs: map[*nativeRun]bool{}, pending: map[string]*nativeRun{}, waitTTL: 3 * time.Minute, lifetime: 15 * time.Minute, maxRuns: 32, maxAccount: 8, maxOwner: 4}
 }
 
 var nativeRuns = newNativeRunManager()

@@ -22,8 +22,9 @@ import (
 //     text / thinking deltas, terminal usage, and declared-tool McpArgs (or
 //     InteractionUpdate tool_call_started carrying McpToolCall) as tool_use
 //     handoff. RequestContext + history KV stay protocol-internal.
-//     Native Read/Write/Shell/Grep (including supported Pi variants) become
-//     declared, schema-validated client tool_use. Unmapped execs receive
+//     Native Read/Write/Grep (including supported Pi variants) become
+//     declared, schema-validated client tool_use. Bash uses declared MCP only;
+//     native Shell terminates before handoff. Other unmapped execs receive
 //     ExecClientThrow + stream_close. No tool executes on the gateway. Interaction queries and non-MCP
 //     tool_call_started envelopes are skipped without failing the Messages turn.
 
