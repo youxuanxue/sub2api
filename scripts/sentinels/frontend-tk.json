@@ -2606,6 +2606,38 @@
       "rationale": "The generic edit modal shows the sync-overwrite hint for supplier-managed accounts but still submits ordinary account updates. Field-level read-only special cases are intentionally absent."
     },
     {
+      "path": "frontend/src/constants/gatewayPlatforms.ts",
+      "must_contain": [
+        "export const UPSTREAM_BILLING_PROBE_PLATFORMS",
+        "export function supportsUpstreamBillingProbe"
+      ],
+      "rationale": "Frontend allowlist for /v1/sub2api/billing probe toggles; must stay locked to service.UpstreamBillingProbePlatforms via platform-registry-drift and exclude newapi/kiro relays."
+    },
+    {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": [
+        "showUpstreamBillingProbeControls",
+        "supportsUpstreamBillingProbe(props.account.platform)",
+        "showUpstreamBillingProbeControls && upstreamBillingRateSyncEnabled"
+      ],
+      "rationale": "Edit must hide probe/rate-sync for ineligible platforms and keep rate_multiplier editable when stale sync extras remain on newapi/kiro accounts."
+    },
+    {
+      "path": "frontend/src/components/account/BulkEditAccountModal.vue",
+      "must_contain": [
+        "supportsUpstreamBillingProbe(p)"
+      ],
+      "rationale": "Bulk probe enable UI must require every selected platform to be on the upstream billing probe allowlist."
+    },
+    {
+      "path": "frontend/src/components/account/__tests__/EditAccountModal.spec.ts",
+      "must_contain": [
+        "hides upstream billing probe controls for newapi API-key accounts and omits probe fields on save"
+      ],
+      "rationale": "Regression: newapi edit must hide probe toggles, keep rate editable despite stale sync extras, and omit probe fields on save."
+    },
+
+    {
       "path": "frontend/src/components/admin/account/AccountTestModal.vue",
       "must_contain": [
         "sortAccountTestModels(models)",

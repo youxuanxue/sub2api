@@ -57,6 +57,27 @@ func TestTkValidateBulkProbeEnabled_AcceptsProbeAccount(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestTkValidateBulkProbeEnabled_RejectsNewAPIAccount(t *testing.T) {
+	svc := &adminServiceImpl{}
+	enabled := true
+	err := svc.tkValidateBulkProbeEnabled(&BulkUpdateAccountsInput{
+		AccountIDs:   []int64{7},
+		ProbeEnabled: &enabled,
+	}, map[int64]*Account{
+		7: {
+			ID:       7,
+			Platform: PlatformNewAPI,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"api_key":  "nvapi-test",
+				"base_url": "https://integrate.api.nvidia.com",
+			},
+		},
+	})
+	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
+	require.Contains(t, err.Error(), "newapi/kiro")
+}
+
 func TestTkPrepareBulkUpdateExtras_DoesNotValidateProbe(t *testing.T) {
 	svc := &adminServiceImpl{}
 	enabled := true

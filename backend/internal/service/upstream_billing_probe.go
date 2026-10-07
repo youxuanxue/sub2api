@@ -74,7 +74,12 @@ var (
 		"UPSTREAM_BILLING_PROBE_UNAVAILABLE", "upstream billing probe is unavailable",
 	)
 	ErrUpstreamBillingProbeAccountInvalid = infraerrors.BadRequest(
-		"UPSTREAM_BILLING_PROBE_ACCOUNT_INVALID", "account is not an API key account",
+		"UPSTREAM_BILLING_PROBE_ACCOUNT_INVALID",
+		"account is not eligible for upstream billing probe (supported API-key platforms only; newapi/kiro relays are excluded)",
+	)
+	ErrUpstreamBillingProbeUnsupported = infraerrors.BadRequest(
+		"UPSTREAM_BILLING_PROBE_UNSUPPORTED",
+		"account upstream does not support /v1/sub2api/billing probe",
 	)
 	ErrUpstreamBillingProbeIdentityChanged = infraerrors.Conflict(
 		"UPSTREAM_BILLING_PROBE_IDENTITY_CHANGED", "account identity changed during upstream billing probe; retry the probe",
@@ -500,7 +505,7 @@ func (s *UpstreamBillingProbeService) probeAccountWithMode(ctx context.Context, 
 			return nil, ErrUpstreamBillingProbeAccountInvalid
 		}
 		if !upstreamBillingProbeSupportsSub2APIBilling(account) {
-			return nil, ErrUpstreamBillingProbeAccountInvalid
+			return nil, ErrUpstreamBillingProbeUnsupported
 		}
 		if requireEnabled {
 			if !account.IsActive() || !upstreamBillingProbeEnabled(account) {
@@ -611,7 +616,7 @@ func (s *UpstreamBillingProbeService) SetAccountEnabled(ctx context.Context, acc
 		return ErrUpstreamBillingProbeAccountInvalid
 	}
 	if enabled && !upstreamBillingProbeSupportsSub2APIBilling(account) {
-		return ErrUpstreamBillingProbeAccountInvalid
+		return ErrUpstreamBillingProbeUnsupported
 	}
 	updates := map[string]any{UpstreamBillingProbeEnabledExtraKey: enabled}
 	if !enabled {
@@ -1004,11 +1009,29 @@ func decodeUpstreamBillingProbeSnapshot(extra map[string]any) *UpstreamBillingPr
 	return &snapshot
 }
 
+// UpstreamBillingProbePlatforms is the API-key platform allowlist for
+// `/v1/sub2api/billing` probing. Keep in lockstep with frontend
+// UPSTREAM_BILLING_PROBE_PLATFORMS (scripts/checks/platform-registry-drift.py).
+// newapi/kiro relays are intentionally excluded — they never host that endpoint.
+// CN providers stay in the list; official-domain accounts short-circuit to
+// "unsupported" via upstreamBillingProbeTargetIsOfficialAPI.
+var UpstreamBillingProbePlatforms = []string{
+	PlatformOpenAI,
+	PlatformAnthropic,
+	PlatformGemini,
+	PlatformAntigravity,
+	PlatformGrok,
+	PlatformKimi,
+	PlatformZhipu,
+	PlatformDeepseek,
+	PlatformMiniMax,
+	PlatformOpenCodeGo,
+	PlatformTypeSafe,
+}
+
 // IsUpstreamBillingProbeIdentity reports whether an account identity may opt
 // in to the upstream billing probe. `/v1/sub2api/billing` is a key-scoped
-// sub2api convention shared by the supported API-key platforms (including the
-// CN providers, whose official-domain accounts are short-circuited to
-// "unsupported" by upstreamBillingProbeTargetIsOfficialAPI).
+// sub2api convention shared by UpstreamBillingProbePlatforms.
 // Non-sub2api upstreams return 404 and the snapshot records "unsupported".
 // Only AccountTypeAPIKey is in scope. OAuth/Bedrock hold no static API key to
 // present at all; AccountTypeUpstream (antigravity relay accounts) does carry
@@ -1020,14 +1043,12 @@ func IsUpstreamBillingProbeIdentity(platform, accountType string) bool {
 	if accountType != AccountTypeAPIKey {
 		return false
 	}
-	switch platform {
-	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo,
-		PlatformTypeSafe:
-		return true
-	default:
-		return false
+	for _, p := range UpstreamBillingProbePlatforms {
+		if p == platform {
+			return true
+		}
 	}
+	return false
 }
 
 func isUpstreamBillingProbeAccount(account *Account) bool {
@@ -1195,6 +1216,9 @@ func safeProbeError(err error) string {
 	}
 	if errors.Is(err, ErrUpstreamBillingProbeAccountInvalid) {
 		return ErrUpstreamBillingProbeAccountInvalid.Error()
+	}
+	if errors.Is(err, ErrUpstreamBillingProbeUnsupported) {
+		return ErrUpstreamBillingProbeUnsupported.Error()
 	}
 	if errors.Is(err, ErrUpstreamBillingProbeUnavailable) {
 		return ErrUpstreamBillingProbeUnavailable.Error()

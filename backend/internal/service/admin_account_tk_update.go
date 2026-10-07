@@ -192,7 +192,7 @@ func (s *adminServiceImpl) tkApplyUpdateAccountTKFields(ctx context.Context, acc
 			return ErrUpstreamBillingProbeAccountInvalid
 		}
 		if requestedProbeEnabledUpdate != nil && *requestedProbeEnabledUpdate && !upstreamBillingProbeSupportsSub2APIBilling(account) {
-			return ErrUpstreamBillingProbeAccountInvalid
+			return ErrUpstreamBillingProbeUnsupported
 		}
 	}
 	if account.Extra == nil && (requestedProbeEnabledUpdate != nil || requestedRateSyncEnabledUpdate != nil) {

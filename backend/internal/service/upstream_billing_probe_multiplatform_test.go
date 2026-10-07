@@ -11,14 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 探测资格：/v1/sub2api/billing 是 key 级端点，全部
-// 受支持平台（含国产供应商）的 API-key 账号都可开启探测；OAuth/Bedrock 无静态 Key 仍不合格。
+// 探测资格：/v1/sub2api/billing 是 key 级端点，UpstreamBillingProbePlatforms
+// （含国产供应商）的 API-key 账号都可开启探测；OAuth/Bedrock 无静态 Key 仍不合格。
 func TestUpstreamBillingProbeIdentityCoversAllAPIKeyPlatforms(t *testing.T) {
-	for _, platform := range []string{
-		PlatformOpenAI, PlatformGrok, PlatformAnthropic, PlatformGemini, PlatformAntigravity,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo,
-		PlatformTypeSafe,
-	} {
+	for _, platform := range UpstreamBillingProbePlatforms {
 		require.True(t, IsUpstreamBillingProbeIdentity(platform, AccountTypeAPIKey), platform)
 		require.True(t, isUpstreamBillingProbeAccount(&Account{Platform: platform, Type: AccountTypeAPIKey}), platform)
 	}
@@ -27,6 +23,9 @@ func TestUpstreamBillingProbeIdentityCoversAllAPIKeyPlatforms(t *testing.T) {
 	require.False(t, IsUpstreamBillingProbeIdentity(PlatformAnthropic, AccountTypeBedrock))
 	require.False(t, IsUpstreamBillingProbeIdentity("", AccountTypeAPIKey))
 	require.False(t, IsUpstreamBillingProbeIdentity("future-platform", AccountTypeAPIKey))
+	// newapi/kiro are API-key shaped relays but never host /v1/sub2api/billing.
+	require.False(t, IsUpstreamBillingProbeIdentity(PlatformNewAPI, AccountTypeAPIKey))
+	require.False(t, IsUpstreamBillingProbeIdentity(PlatformKiro, AccountTypeAPIKey))
 	require.False(t, isUpstreamBillingProbeAccount(nil))
 }
 
@@ -137,7 +136,7 @@ func TestUpstreamBillingProbeCloudwiseRelayManualProbeRejectsAccount(t *testing.
 	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
 
 	snapshot, err := svc.ProbeAccount(context.Background(), account.ID)
-	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
+	require.ErrorIs(t, err, ErrUpstreamBillingProbeUnsupported)
 	require.Nil(t, snapshot)
 	require.Nil(t, upstream.lastReq)
 }
@@ -157,7 +156,27 @@ func TestUpstreamBillingProbeCloudwiseRelaySetEnabledRejects(t *testing.T) {
 	svc := newUpstreamBillingProbeTestService(repo, &httpUpstreamRecorder{}, &upstreamBillingProbeSettingRepo{})
 
 	err := svc.SetAccountEnabled(context.Background(), account.ID, true)
+	require.ErrorIs(t, err, ErrUpstreamBillingProbeUnsupported)
+	require.Contains(t, err.Error(), "/v1/sub2api/billing")
+}
+
+func TestUpstreamBillingProbeNewAPISetEnabledRejectsWithIdentityMessage(t *testing.T) {
+	account := &Account{
+		ID:       96,
+		Platform: PlatformNewAPI,
+		Type:     AccountTypeAPIKey,
+		Status:   StatusActive,
+		Credentials: map[string]any{
+			"api_key":  "nvapi-test",
+			"base_url": "https://integrate.api.nvidia.com",
+		},
+	}
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	svc := newUpstreamBillingProbeTestService(repo, &httpUpstreamRecorder{}, &upstreamBillingProbeSettingRepo{})
+
+	err := svc.SetAccountEnabled(context.Background(), account.ID, true)
 	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
+	require.Contains(t, err.Error(), "newapi/kiro")
 }
 
 // 非 OpenAI 平台没有自定义 base_url 时，上游是各自官方 API，必无
