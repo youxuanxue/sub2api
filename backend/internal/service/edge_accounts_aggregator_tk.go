@@ -814,12 +814,18 @@ type EdgeAdminSession struct {
 
 // resolveTarget discovers the mirror-stub edges and returns the one whose derived
 // edge_id matches. ErrEdgeNotFound when no stub matches.
+//
+// Discovery MUST match the by-stub panel (loadEdgeStubCandidates): operators jump
+// "manage on edge" from gemini/openai/grok/… stubs, not only anthropic cc-* rows.
+// Anthropic-only resolution 404s edges that still have an active non-anthropic
+// mirror (e.g. gemini-uk1 after cc-uk1 was soft-deleted) even though that stub's
+// key can mint an admin session on the edge.
 func (a *EdgeAccountsAggregator) resolveTarget(ctx context.Context, edgeID string) (edgeTarget, error) {
 	edgeID = strings.ToLower(strings.TrimSpace(edgeID))
 	if a == nil || a.accounts == nil || edgeID == "" {
 		return edgeTarget{}, ErrEdgeNotFound
 	}
-	stubs, err := a.accounts.ListByPlatform(ctx, PlatformAnthropic)
+	stubs, err := a.loadEdgeStubCandidates(ctx)
 	if err != nil {
 		return edgeTarget{}, err
 	}

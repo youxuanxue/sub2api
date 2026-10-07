@@ -723,6 +723,61 @@ func TestEdgeStubPoolPlatform(t *testing.T) {
 	}
 }
 
+// TestResolveTarget_UsesAllPlatformStubs is the manage-on-edge handoff regression:
+// when the only active mirror for an edge is a non-anthropic stub (gemini-uk1 after
+// cc-uk1 was soft-deleted), resolveTarget must still find it. Anthropic-only
+// discovery returned ErrEdgeNotFound → prod 404 → UI "打开该 edge 管理页失败".
+func TestResolveTarget_UsesAllPlatformStubs(t *testing.T) {
+	gemini := Account{
+		ID: 212, Name: "gemini-uk1", Platform: PlatformGemini, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: false,
+		Credentials: map[string]any{
+			"base_url": "https://api-uk1.tokenkey.dev",
+			"api_key":  "gemini-uk1-key",
+		},
+	}
+	store := &platformAwareEdgeStore{byPlatform: map[string][]Account{
+		PlatformGemini: {gemini},
+		// Soft-deleted anthropic stub must NOT be listed by ListByPlatform (active-only).
+	}}
+	agg := NewEdgeAccountsAggregator(store, &fakeEdgeDoer{})
+
+	got, err := agg.resolveTarget(context.Background(), "uk1")
+	require.NoError(t, err)
+	require.Equal(t, "uk1", got.edgeID)
+	require.Equal(t, "https://api-uk1.tokenkey.dev", got.baseURL)
+	require.Equal(t, "gemini-uk1-key", got.apiKey)
+
+	_, err = agg.resolveTarget(context.Background(), "uk9")
+	require.ErrorIs(t, err, ErrEdgeNotFound)
+}
+
+// TestMintAdminSession_GeminiOnlyStub mints via the gemini mirror key when no
+// anthropic cc-* stub exists for the edge (same topology as prod uk1/uk2).
+func TestMintAdminSession_GeminiOnlyStub(t *testing.T) {
+	gemini := Account{
+		ID: 212, Name: "gemini-uk1", Platform: PlatformGemini, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: false,
+		Credentials: map[string]any{
+			"base_url": "https://api-uk1.tokenkey.dev",
+			"api_key":  "gemini-uk1-key",
+		},
+	}
+	store := &platformAwareEdgeStore{byPlatform: map[string][]Account{PlatformGemini: {gemini}}}
+	doer := &fakeEdgeDoer{bodyByHost: map[string]string{
+		"api-uk1.tokenkey.dev": `{"code":0,"data":{"token":"access","refresh_token":"refresh","expires_in":3600}}`,
+	}}
+	agg := NewEdgeAccountsAggregator(store, doer)
+
+	session, err := agg.MintAdminSession(context.Background(), "uk1")
+	require.NoError(t, err)
+	require.Equal(t, "uk1", session.EdgeID)
+	require.Equal(t, "access", session.Token)
+	require.Equal(t, "refresh", session.RefreshToken)
+	require.Equal(t, 3600, session.ExpiresIn)
+	require.Equal(t, "gemini-uk1-key", doer.keysSeen["api-uk1.tokenkey.dev"])
+}
+
 // TestEdgeStubAPIKey covers edge-key resolution: converged relay stubs authenticate
 // with credentials.api_key. A grok access_token fallback remains only for old stubs.
 func TestEdgeStubAPIKey(t *testing.T) {
