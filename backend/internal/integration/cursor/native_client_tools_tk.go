@@ -20,18 +20,7 @@ import (
 // It never invents a tool, relaxes client permissions, or dispatches an executor.
 func nativeClientToolCall(exec *pb.ExecServerMessage, tools []AgentTool) (AgentToolCall, bool) {
 	var call AgentToolCall
-	if exec == nil {
-		return call, false
-	}
-	// ExecServerMessage.message is a oneof upstream. Our protocol subset is not:
-	// reject ambiguous frames instead of selecting a privileged interpretation.
-	variants := 0
-	for _, n := range protobufFieldNumbers(exec) {
-		if n != 1 && n != 15 && n != 19 && n != 55 {
-			variants++
-		}
-	}
-	if variants != 1 {
+	if !hasSingleExecVariant(exec) {
 		return call, false
 	}
 	args := map[string]any{}

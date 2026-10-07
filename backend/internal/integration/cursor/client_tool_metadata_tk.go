@@ -12,12 +12,8 @@ func clientToolState(exec *pb.ExecServerMessage, tools []*pb.McpToolDefinition) 
 	if args == nil {
 		return nil
 	}
-	for _, field := range protobufFieldNumbers(exec) {
-		switch field {
-		case 1, 15, 19, 36, 55, 57: // IDs, tracing, metadata request, hook/machine hints
-		default:
-			return execClientThrowAndClose(exec, "Ambiguous tool metadata request.", publicToolProtocolCode)
-		}
+	if !hasSingleExecVariant(exec) {
+		return execClientThrowAndClose(exec, "Ambiguous tool metadata request.", publicToolProtocolCode)
 	}
 	success := &pb.McpStateSuccess{}
 	requested := len(args.ServerIdentifiers) == 0

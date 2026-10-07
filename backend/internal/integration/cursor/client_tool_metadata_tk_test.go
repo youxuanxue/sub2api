@@ -1,6 +1,7 @@
 package cursor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,8 +10,49 @@ import (
 
 	pb "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestAgentRunAmbiguousExecRejectsClientHandoff(t *testing.T) {
+	for _, retained := range []bool{false, true} {
+		for _, variant := range []string{"read", "unknown", "context", "metadata"} {
+			t.Run(fmt.Sprintf("%s/retained=%t", variant, retained), func(t *testing.T) {
+				exec := clientBashExec(t, 7, "client command")
+				switch variant {
+				case "read":
+					exec.ReadArgs = &pb.ReadArgs{Path: "/gateway/private"}
+				case "unknown":
+					exec.ProtoReflect().SetUnknown(protowire.AppendBytes(protowire.AppendTag(nil, 99, protowire.BytesType), nil))
+				case "context":
+					exec.RequestContextArgs = &pb.Empty{}
+				case "metadata":
+					exec.McpStateExecArgs = &pb.McpStateExecArgs{}
+				}
+				text, code := outsideExecThrowMessage()
+				if variant == "metadata" {
+					text, code = "Ambiguous tool metadata request.", publicToolProtocolCode
+				}
+				var calls atomic.Int32
+				do := retainedFixture(t, []nativeFixtureStep{{exec: exec, wantThrow: &pb.ExecClientThrow{Id: 7, Error: text, ErrorCode: proto.String(code)}}}, &calls)
+				input := AgentRequest{Model: "composer-2.5", Tools: []AgentTool{nativeTestTool("Bash", "command")}, Messages: []AgentMessage{{Role: "user", Text: "task"}}}
+				handoffs := 0
+				if retained {
+					input.handoff = func(context.Context, *pb.ExecServerMessage, AgentResult) (AgentMessage, error) {
+						handoffs++
+						return AgentMessage{Text: "unexpected handoff"}, nil
+					}
+				}
+				result, err := RunAgent(t.Context(), "test-token", input, do, nil)
+				require.NoError(t, err)
+				require.Empty(t, result.ToolCalls)
+				require.Zero(t, handoffs, "ambiguous exec must never become a client operation")
+				require.Equal(t, "client work acknowledged", result.Text)
+				require.EqualValues(t, 1, calls.Load())
+			})
+		}
+	}
+}
 
 func TestClientToolMetadataSnapshot(t *testing.T) {
 	input := AgentRequest{Model: "composer-2.5", Tools: []AgentTool{nativeTestTool("Bash", "command")}, Messages: []AgentMessage{{Role: "user", Text: "task"}}}
