@@ -474,6 +474,7 @@
     {
       "path": "backend/internal/service/kiro_gateway_service_test.go",
       "must_contain": [
+        "TestKiroGatewayService_ClientInstructionsRoundTrip",
         "TestKiroGatewayService_Forward_NonStreaming_ReadFailureRetriesWithoutPartialOutput",
         "TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError",
         "TestKiroGatewayService_Forward_Streaming_FrameAlignedEOFWithoutStopReasonSendsSSEError",
@@ -1172,10 +1173,11 @@
     {
       "path": "backend/internal/integration/kiro/prompt_filter_test.go",
       "must_contain": [
+        "TestClaudeToKiro_PreservesCallerInstructions",
         "TestClaudeToKiro_NoPrivateCompletionProtocol",
         "require.Len(t, current.UserInputMessageContext.Tools, 1)"
       ],
-      "rationale": "Client instructions/catalog stay client-owned, without completion guard/tool injection, including recognized Claude Code sessions."
+      "rationale": "Client instructions/catalog stay client-owned, without identity override or completion guard/tool injection, including recognized Claude Code sessions. Preserve actual conversation history and explicit thinking translation."
     }
   ]
 }

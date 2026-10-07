@@ -3,6 +3,8 @@
 package kiro
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -42,25 +44,60 @@ func TestApplyPromptFilters_ClaudeCodeStripsEnvNoise(t *testing.T) {
 	require.NotContains(t, got, "# Environment")
 }
 
-func TestBuildClaudeSystemPrompt_AddsKiroIdentityOverrideWithoutSystemPrompt(t *testing.T) {
-	got := buildClaudeSystemPrompt(nil, false)
-	require.Contains(t, got, "You are Claude, Anthropic's assistant")
-	require.Contains(t, got, "Do not identify as Kiro")
-}
-
-func TestBuildClaudeSystemPrompt_ClaudeCodePreservesPromptWithKiroIdentityOverride(t *testing.T) {
-	ccPrompt := strings.Join([]string{
-		"You are Claude Code, Anthropic's official CLI for Claude.",
-		"You are an interactive agent that helps users with software engineering tasks.",
-		"# doing tasks",
-		"# using your tools",
-	}, "\n")
-
-	got := buildClaudeSystemPrompt([]interface{}{map[string]interface{}{"type": "text", "text": ccPrompt}}, false)
-	require.Contains(t, got, "You are Claude, Anthropic's assistant")
-	require.Contains(t, got, "Do not identify as Kiro")
-	require.Contains(t, got, "You are Claude Code, Anthropic's official CLI for Claude.")
-	require.NotContains(t, got, claudepkg.ClaudeCodeCompletionGuardMarker)
+// Client instructions belong to the caller. Adding an identity override here
+// caused Kiro to refuse otherwise valid requests with END_TURN and HTTP 200.
+func TestClaudeToKiro_PreservesCallerInstructions(t *testing.T) {
+	const ccPrompt = "You are Claude Code, Anthropic's official CLI for Claude."
+	for _, tc := range []struct {
+		name       string
+		system     any
+		wantSystem string
+	}{
+		{name: "absent"},
+		{name: "empty", system: ""},
+		{name: "caller string", system: "Answer concisely.", wantSystem: "Answer concisely."},
+		{name: "caller Claude Code", system: []any{map[string]any{"type": "text", "text": ccPrompt}}, wantSystem: ccPrompt},
+	} {
+		for _, thinking := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/thinking=%t", tc.name, thinking), func(t *testing.T) {
+				req := &ClaudeRequest{
+					Model: "claude-sonnet-4-6", System: tc.system,
+					Messages: []ClaudeMessage{
+						{Role: "user", Content: "Remember the label alpha."},
+						{Role: "assistant", Content: "The label is alpha."},
+						{Role: "user", Content: "Reply exactly RELEASE_OK_7291."},
+					},
+				}
+				before, err := json.Marshal(req)
+				require.NoError(t, err)
+				payload := ClaudeToKiro(req, thinking)
+				model := MapModel(req.Model)
+				user := func(text string) KiroHistoryMessage {
+					return KiroHistoryMessage{UserInputMessage: &KiroUserInputMessage{Content: text, ModelID: model, Origin: "AI_EDITOR"}}
+				}
+				assistant := func(text string) KiroHistoryMessage {
+					return KiroHistoryMessage{AssistantResponseMessage: &KiroAssistantResponseMessage{Content: text}}
+				}
+				wantSystem := tc.wantSystem
+				if thinking {
+					wantSystem = ThinkingModePrompt
+					if tc.wantSystem != "" {
+						wantSystem += "\n\n" + tc.wantSystem
+					}
+				}
+				wantHistory := []KiroHistoryMessage{}
+				if wantSystem != "" {
+					wantHistory = append(wantHistory, user(wantSystem), assistant("I will follow these instructions."))
+				}
+				wantHistory = append(wantHistory, user("Remember the label alpha."), assistant("The label is alpha."))
+				require.Equal(t, wantHistory, payload.ConversationState.History)
+				require.Equal(t, KiroUserInputMessage{Content: "Reply exactly RELEASE_OK_7291.", ModelID: model, Origin: "AI_EDITOR"}, payload.ConversationState.CurrentMessage.UserInputMessage)
+				after, err := json.Marshal(req)
+				require.NoError(t, err)
+				require.JSONEq(t, string(before), string(after), "translation must not mutate caller input")
+			})
+		}
+	}
 }
 
 func TestBuildClaudeSystemPrompt_NonClaudeCodeDoesNotAddCompletionGuard(t *testing.T) {
