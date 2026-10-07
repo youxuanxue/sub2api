@@ -369,6 +369,114 @@ class GoCachePruneTest(unittest.TestCase):
             )
         )
 
+    def test_audit_budget_eviction_replays_incident_without_hiding_missing(self) -> None:
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        # Compressed latest snapshots from warm run 37551057197.
+        sizes = dict(gomod=592439657, test=2374015547, integration=1050779905,
+                     analysis=955283733, release=1594189954)
+        caches = [
+            _cache(f"{go_cache_prune.PREFIXES[family]}incident", sizes[family],
+                   cache_id=index, created_at=now.isoformat())
+            for index, family in enumerate(FAMILIES, 1)
+        ]
+        plan = plan_prune(caches)
+        deleted = [c for c in caches if c["id"] in plan.overflow_delete_ids]
+        self.assertEqual([go_cache_prune._family_for(c["key"]) for c in deleted], ["analysis"])
+        kept = [c for c in caches if c["id"] in plan.keep_ids]
+        evidence = {go_cache_prune._family_for(c["key"]): c["sizeInBytes"] for c in deleted}
+        ok, lines = go_cache_prune.audit_staleness(kept, now=now, budget_sizes=evidence)
+        self.assertTrue(ok, lines)
+        self.assertTrue(any("analysis: BUDGET_EXCLUDED" in line for line in lines))
+        self.assertFalse(go_cache_prune.audit_staleness(kept, now=now)[0])
+        # Evidence cannot excuse another missing family or a stale retained one.
+        missing_test = [c for c in kept if go_cache_prune._family_for(c["key"]) != "test"]
+        self.assertFalse(go_cache_prune.audit_staleness(missing_test, now=now, budget_sizes=evidence)[0])
+        stale = [dict(c, createdAt="2020-01-01T00:00:00Z") for c in kept]
+        self.assertFalse(go_cache_prune.audit_staleness(stale, now=now, budget_sizes=evidence)[0])
+        # Once space is available, yesterday's budget decision is not an exemption.
+        small = [dict(c, sizeInBytes=1024) for c in kept]
+        self.assertFalse(go_cache_prune.audit_staleness(small, now=now, budget_sizes=evidence)[0])
+
+    def test_budget_evidence_survives_heal_and_is_scoped_to_run_attempt(self) -> None:
+        import contextlib
+        from datetime import datetime, timezone
+        import io
+        import os
+        import tempfile
+
+        now = datetime.now(timezone.utc).isoformat()
+        caches = [_cache(f"{go_cache_prune.PREFIXES[f]}main", 2 * 1024**3,
+                         cache_id=i, created_at=now) for i, f in enumerate(FAMILIES, 1)]
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {"GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1"}):
+            evidence = str(Path(root) / "budget.json")
+            os.environ["GO_CACHE_BUDGET_EVIDENCE"] = evidence
+            args = []  # Exercise the job-level environment used by the workflow.
+            with patch.object(go_cache_prune, "_list_caches", return_value=caches), patch.object(go_cache_prune, "_delete_caches") as delete:
+                self.assertEqual(go_cache_prune.main(["--heal", *args]), 0)
+                deleted = delete.call_args.args[0]
+            remaining = [c for c in caches if c["id"] not in deleted]
+            out = io.StringIO()
+            with patch.object(go_cache_prune, "_list_caches", return_value=remaining), contextlib.redirect_stdout(out):
+                self.assertEqual(go_cache_prune.main(["--audit-staleness", *args]), 0)
+            self.assertIn("analysis: BUDGET_EXCLUDED", out.getvalue())
+            self.assertIn("release: BUDGET_EXCLUDED", out.getvalue())
+            with patch.dict(os.environ, {"GITHUB_RUN_ATTEMPT": "2"}), patch.object(go_cache_prune, "_list_caches", return_value=remaining):
+                with self.assertRaisesRegex(ValueError, "run"):
+                    go_cache_prune.main(["--audit-staleness", *args])
+
+    def test_denied_save_records_size_and_later_admission_clears_it(self) -> None:
+        import contextlib
+        from datetime import datetime, timezone
+        import io
+        import tempfile
+
+        # All space belongs to higher-priority families; analysis has no remote
+        # snapshot, so only the local pending save can supply its size evidence.
+        caches = [_cache(f"{go_cache_prune.PREFIXES[f]}main", BUDGET_BYTES // 4,
+                         cache_id=i, created_at=datetime.now(timezone.utc).isoformat())
+                  for i, f in enumerate(FAMILIES, 1) if f != "analysis"]
+        with tempfile.TemporaryDirectory() as root:
+            local = Path(root) / "build"
+            local.mkdir()
+            (local / "artifact").write_bytes(b"compiled")
+            evidence = Path(root) / "budget.json"
+            args = ["--budget-evidence", str(evidence)]
+            out = io.StringIO()
+            with patch.object(go_cache_prune, "_list_caches", return_value=caches), contextlib.redirect_stdout(out):
+                self.assertEqual(go_cache_prune.main(["--save-budget", "analysis", "--path", str(local), *args]), 0)
+                self.assertEqual(go_cache_prune.main(["--heal", *args]), 0)
+                self.assertEqual(go_cache_prune.main(["--audit-staleness", *args]), 0)
+            self.assertIn("fits=false", out.getvalue())
+            self.assertIn("analysis: BUDGET_EXCLUDED", out.getvalue())
+            # Budget admits a later save after inventory shrinks. Its failed
+            # upload must not inherit the earlier denial as an audit exemption.
+            small = [dict(c, sizeInBytes=1024) for c in caches]
+            with patch.object(go_cache_prune, "_list_caches", return_value=small):
+                self.assertEqual(go_cache_prune.main(["--save-budget", "analysis", "--path", str(local), *args]), 0)
+                self.assertEqual(go_cache_prune._read_budget_evidence(evidence), {})
+            with patch.object(go_cache_prune, "_list_caches", return_value=caches):
+                self.assertEqual(go_cache_prune.main(["--audit-staleness", *args]), 1)
+
+    def test_budget_evidence_does_not_survive_failed_delete_or_bad_state(self) -> None:
+        import tempfile
+
+        caches = [_cache(f"{go_cache_prune.PREFIXES[f]}main", 2 * 1024**3,
+                         cache_id=i) for i, f in enumerate(FAMILIES, 1)]
+        with tempfile.TemporaryDirectory() as root:
+            evidence = Path(root) / "budget.json"
+            args = ["--budget-evidence", str(evidence)]
+            with patch.object(go_cache_prune, "_list_caches", return_value=caches), patch.object(go_cache_prune, "_delete_caches", side_effect=OSError("delete failed")):
+                with self.assertRaisesRegex(OSError, "delete failed"):
+                    go_cache_prune.main(["--heal", *args])
+            with patch.object(go_cache_prune, "_list_caches", return_value=[]):
+                with self.assertRaises(FileNotFoundError):
+                    go_cache_prune.main(["--audit-staleness", *args])
+                evidence.write_text("not JSON")
+                with self.assertRaises(ValueError):
+                    go_cache_prune.main(["--audit-staleness", *args])
+
     def test_audit_staleness_flags_frozen_and_missing_families(self) -> None:
         from datetime import datetime, timedelta, timezone
 

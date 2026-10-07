@@ -13,12 +13,16 @@ uploading a cache that heal would immediately delete.
 when one falls behind MAX_SNAPSHOT_AGE_HOURS. Without it, a warm run whose save
 gates all evaluate false does nothing, exits 0, and looks green while required
 CI silently cold-compiles against a frozen snapshot.
+Warm runs share GO_CACHE_BUDGET_EVIDENCE across heal/save/audit. A missing family
+is an explicit degradation only when this run recorded its denied size and the
+same planner still excludes it. Retained stale and unexplained missing caches fail.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 import stat
@@ -268,8 +272,9 @@ def audit_staleness(
     *,
     now: datetime | None = None,
     max_age_hours: int = MAX_SNAPSHOT_AGE_HOURS,
+    budget_sizes: dict[str, int] | None = None,
 ) -> tuple[bool, tuple[str, ...]]:
-    """Report per-family snapshot age; ok=False when a family is missing or stale.
+    """Fail on stale or unexplained missing snapshots; report budget exclusions.
 
     A silent writer is the failure mode this catches: when every save gate
     evaluates false the warm job still exits 0, so only snapshot age reveals
@@ -278,6 +283,7 @@ def audit_staleness(
     if now is None:
         now = datetime.now(timezone.utc)
 
+    caches = list(caches)
     latest: dict[str, datetime] = {}
     for cache in caches:
         if cache.get("ref") != DEFAULT_REF:
@@ -291,11 +297,28 @@ def audit_staleness(
         if family not in latest or created > latest[family]:
             latest[family] = created
 
+    # Reconstruct only missing, explicitly budget-denied families. Use the same
+    # planner as heal/save; evidence is not a permanent allow-missing list.
+    candidates = [
+        {"id": -index, "key": f"{PREFIXES[family]}budget-evidence",
+         "sizeInBytes": size, "ref": DEFAULT_REF, "createdAt": _SYNTHETIC_CREATED}
+        for index, (family, size) in enumerate((budget_sizes or {}).items(), 1)
+        if family not in latest
+    ]
+    plan = plan_prune([*caches, *candidates])
+    excluded = {
+        _family_for(str(candidate["key"])): candidate["sizeInBytes"]
+        for candidate in candidates
+        if plan.ok and candidate["id"] in plan.overflow_delete_ids
+    }
     ok = True
     lines: list[str] = []
     for family in FAMILIES:
         created = latest.get(family)
         if created is None:
+            if family in excluded:
+                lines.append(f"{family}: BUDGET_EXCLUDED size={excluded[family]}; cold cache expected")
+                continue
             ok = False
             lines.append(f"{family}: MISSING no snapshot on {DEFAULT_REF}")
             continue
@@ -315,8 +338,38 @@ def audit_staleness(
     return ok, tuple(lines)
 
 
+def _budget_scope() -> dict[str, str]:
+    return {key: os.environ.get(key, "") for key in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT")}
+
+
+def _read_budget_evidence(path: Path) -> dict[str, int]:
+    evidence = json.loads(path.read_text())
+    if evidence["scope"] != _budget_scope():
+        raise ValueError("budget evidence belongs to a different workflow run/attempt")
+    sizes = evidence["sizes"]
+    if not isinstance(sizes, dict) or any(
+        family not in FAMILIES or type(size) is not int or size <= 0
+        for family, size in sizes.items()
+    ):
+        raise ValueError("invalid budget evidence sizes")
+    return sizes
+
+
+def _record_budget_evidence(
+    path: Path | None, sizes: dict[str, int], *, clear: Iterable[str] = (),
+) -> None:
+    if path is None:
+        return
+    recorded = _read_budget_evidence(path) if path.exists() else {}
+    for family in clear:
+        recorded.pop(family, None)
+    recorded.update(sizes)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"scope": _budget_scope(), "sizes": recorded}))
+    temporary.replace(path)
+
+
 def _list_caches() -> list[dict[str, object]]:
-    import json
     import subprocess
 
     raw = subprocess.check_output(
@@ -392,12 +445,21 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="with --fits, model a pending save of this many bytes as FAMILY's latest",
     )
+    parser.add_argument(
+        "--budget-evidence", type=Path, default=os.environ.get("GO_CACHE_BUDGET_EVIDENCE"),
+        help="run-local budget decision evidence shared by heal, save-budget and audit",
+    )
     args = parser.parse_args(argv)
+    if args.budget_evidence and args.budget_evidence.exists():
+        _read_budget_evidence(args.budget_evidence)
     caches = _list_caches()
     if args.audit_staleness:
-        ok, lines = audit_staleness(caches)
+        sizes = _read_budget_evidence(args.budget_evidence) if args.budget_evidence else None
+        ok, lines = audit_staleness(caches, budget_sizes=sizes)
         for line in lines:
             print(f"go_cache_prune: {line}")
+            if "BUDGET_EXCLUDED" in line and os.environ.get("GITHUB_ACTIONS") == "true":
+                print(f"::notice::{line}")
         if not ok:
             print(
                 "go_cache_prune: managed Go cache snapshots are stale or missing; "
@@ -431,6 +493,22 @@ def main(argv: list[str] | None = None) -> int:
         raw_size = size
         size = estimate_compressed_size(raw_size)
         fits = family_fits(caches, args.save_budget, size=size if args.path else None)
+        if not fits:
+            if args.path:
+                denied = {args.save_budget: size}
+            else:
+                plan = plan_prune(caches)
+                denied = {
+                    args.save_budget: int(cache["sizeInBytes"])
+                    for cache in caches
+                    if cache["id"] in plan.overflow_delete_ids
+                    and _family_for(str(cache["key"])) == args.save_budget
+                }
+            _record_budget_evidence(args.budget_evidence, denied)
+        else:
+            # A later admitted save supersedes any earlier denial. If its
+            # upload silently fails, audit must report that missing snapshot.
+            _record_budget_evidence(args.budget_evidence, {}, clear=(args.save_budget,))
         print(
             f"go_cache_prune: save family={args.save_budget} raw_bytes={raw_size} "
             f"est_compressed_bytes={size} fits={fits}",
@@ -472,6 +550,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if plan.delete_ids:
         _delete_caches(plan.delete_ids)
+    _record_budget_evidence(args.budget_evidence, {
+        _family_for(str(cache["key"])): int(cache["sizeInBytes"])
+        for cache in caches if cache["id"] in plan.overflow_delete_ids
+    })
     print(f"go_cache_prune: healed keep={list(plan.keep_ids)} deleted={list(plan.delete_ids)}")
     return 0
 
