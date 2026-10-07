@@ -147,9 +147,10 @@
         "kiroSupportsAdditionalModelRequestFields",
         "display := \"summarized\"",
         "additionalModelRequestFields",
-        "func KiroToClaudeResponse"
+        "func KiroToClaudeResponse",
+        "return claudeCodeBackendPrompt"
       ],
-      "rationale": "Translate only client instructions and tools; preserve tool history and failure semantics. No gateway-owned completion prompt or private tool. Haiku must not emit additionalModelRequestFields even when thinking is requested."
+      "rationale": "Translate only client instructions and tools; preserve tool history and failure semantics. No gateway-owned completion prompt or private tool. Recognized Claude Code system prompts must replace with claudeCodeBackendPrompt (not preserve full CC identity). Haiku must not emit additionalModelRequestFields even when thinking is requested."
     },
     {
       "path": "backend/internal/integration/kiro/tool_result_status_test.go",
@@ -1173,11 +1174,13 @@
     {
       "path": "backend/internal/integration/kiro/prompt_filter_test.go",
       "must_contain": [
+        "TestApplyPromptFilters_ClaudeCodeReplacesWithBackendPrompt",
+        "require.Equal(t, claudeCodeBackendPrompt, got)",
         "TestClaudeToKiro_PreservesCallerInstructions",
         "TestClaudeToKiro_NoPrivateCompletionProtocol",
         "require.Len(t, current.UserInputMessageContext.Tools, 1)"
       ],
-      "rationale": "Client instructions/catalog stay client-owned, without identity override or completion guard/tool injection, including recognized Claude Code sessions. Preserve actual conversation history and explicit thinking translation."
+      "rationale": "No gateway identity override or completion-protocol injection. Ordinary caller system text is preserved; recognized Claude Code system prompts are replaced with the compact backend prompt. Conversation history and explicit thinking translation stay intact."
     }
   ]
 }
