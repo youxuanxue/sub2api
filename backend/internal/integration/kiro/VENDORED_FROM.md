@@ -58,7 +58,7 @@ changes are tracked in git and guarded by `scripts/sentinels/kiro.json`.
    - `config.GetKiroClientConfig` is not mirrored in `shim.go`; the header path is
      the deliberate TokenKey adapter described below.
    - `config.GetFilterClaudeCode` → `true`; `StripBoundaries/EnvNoise` → `false`
-     (preserve Claude Code identity while leaving the other filters disabled).
+     (replace Claude Code system prompts with the compact backend prompt).
    - `config.GetPromptFilterRules` → `nil`.
    - Used `logger.Debugf/Infof/Warnf` calls → local `logDebugf/logInfof/logWarnf`
      (thin `log/slog` wrappers).

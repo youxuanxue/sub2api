@@ -303,7 +303,9 @@ func TestKiroGatewayService_ClientInstructionsRoundTrip(t *testing.T) {
 					require.Empty(t, sent.ConversationState.History, "no caller system means no fabricated priming conversation")
 				} else {
 					require.Len(t, sent.ConversationState.History, 2)
-					require.Equal(t, system, sent.ConversationState.History[0].UserInputMessage.Content)
+					priming := sent.ConversationState.History[0].UserInputMessage.Content
+					require.Contains(t, priming, "serving as the model backend for Claude Code CLI")
+					require.NotContains(t, priming, "You are Claude Code, Anthropic's official CLI")
 					require.Equal(t, "I will follow these instructions.", sent.ConversationState.History[1].AssistantResponseMessage.Content)
 				}
 				require.Equal(t, http.StatusOK, rec.Code)

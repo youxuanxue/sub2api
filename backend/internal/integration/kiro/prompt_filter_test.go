@@ -12,23 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestApplyPromptFilters_ClaudeCodePreservesAnthropicIdentity(t *testing.T) {
-	ccPrompt := strings.Join([]string{
-		"You are Claude Code, Anthropic's official CLI for Claude.",
-		"You are an interactive agent that helps users with software engineering tasks.",
-		"# doing tasks",
-		"# using your tools",
-		"# tone and style",
-	}, "\n")
-
-	got := applyPromptFilters(ccPrompt)
-	require.Contains(t, got, "You are Claude Code, Anthropic's official CLI for Claude.")
-	require.Contains(t, got, "# doing tasks")
-	require.NotContains(t, got, "backend for Claude Code CLI")
-	require.NotEqual(t, claudeCodeBackendPrompt, got)
-}
-
-func TestApplyPromptFilters_ClaudeCodeStripsEnvNoise(t *testing.T) {
+func TestApplyPromptFilters_ClaudeCodeReplacesWithBackendPrompt(t *testing.T) {
 	ccPrompt := strings.Join([]string{
 		"You are Claude Code, Anthropic's official CLI for Claude.",
 		"You are an interactive agent that helps users with software engineering tasks.",
@@ -36,16 +20,17 @@ func TestApplyPromptFilters_ClaudeCodeStripsEnvNoise(t *testing.T) {
 		"gitStatus: dirty",
 		"# doing tasks",
 		"# using your tools",
+		"# tone and style",
 	}, "\n")
 
 	got := applyPromptFilters(ccPrompt)
-	require.Contains(t, got, "Anthropic's official CLI for Claude")
+	require.Equal(t, claudeCodeBackendPrompt, got)
+	require.NotContains(t, got, "You are Claude Code")
 	require.NotContains(t, got, "gitStatus")
-	require.NotContains(t, got, "# Environment")
 }
 
-// Client instructions belong to the caller. Adding an identity override here
-// caused Kiro to refuse otherwise valid requests with END_TURN and HTTP 200.
+// No gateway identity override. Ordinary caller text stays; recognized Claude Code
+// system prompts are replaced with the compact backend prompt.
 func TestClaudeToKiro_PreservesCallerInstructions(t *testing.T) {
 	const ccPrompt = "You are Claude Code, Anthropic's official CLI for Claude."
 	for _, tc := range []struct {
@@ -56,7 +41,7 @@ func TestClaudeToKiro_PreservesCallerInstructions(t *testing.T) {
 		{name: "absent"},
 		{name: "empty", system: ""},
 		{name: "caller string", system: "Answer concisely.", wantSystem: "Answer concisely."},
-		{name: "caller Claude Code", system: []any{map[string]any{"type": "text", "text": ccPrompt}}, wantSystem: ccPrompt},
+		{name: "caller Claude Code", system: []any{map[string]any{"type": "text", "text": ccPrompt}}, wantSystem: claudeCodeBackendPrompt},
 	} {
 		for _, thinking := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/thinking=%t", tc.name, thinking), func(t *testing.T) {
@@ -105,13 +90,20 @@ func TestBuildClaudeSystemPrompt_NonClaudeCodeDoesNotAddCompletionGuard(t *testi
 	require.NotContains(t, got, "<sub2api-claude-code-todo-guard>")
 }
 
-// The gateway must preserve client intent, without injecting business completion
-// instructions or tools. Client-supplied instructions remain client-owned.
+// No private completion protocol. Recognized Claude Code systems become the
+// compact backend prompt; ordinary prompts and client tools stay untouched.
 func TestClaudeToKiro_NoPrivateCompletionProtocol(t *testing.T) {
 	base := "You are Claude Code, Anthropic's official CLI for Claude.\n# doing tasks\n# using your tools"
-	for _, system := range []string{base, base + "\n" + claudepkg.ClaudeCodeCompletionGuardText, "You are a concise support assistant."} {
+	for _, tc := range []struct {
+		system      string
+		wantPriming string
+	}{
+		{system: base, wantPriming: claudeCodeBackendPrompt},
+		{system: base + "\n" + claudepkg.ClaudeCodeCompletionGuardText, wantPriming: claudeCodeBackendPrompt},
+		{system: "You are a concise support assistant.", wantPriming: "You are a concise support assistant."},
+	} {
 		payload := ClaudeToKiro(&ClaudeRequest{
-			Model: "claude-opus-5", System: system,
+			Model: "claude-opus-5", System: tc.system,
 			Messages: []ClaudeMessage{{Role: "user", Content: "Answer only YES or NO. Do not call tools."}},
 			Tools:    []ClaudeTool{{Name: "Read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}},
 		}, false)
@@ -120,8 +112,7 @@ func TestClaudeToKiro_NoPrivateCompletionProtocol(t *testing.T) {
 		require.NotNil(t, current.UserInputMessageContext)
 		require.Len(t, current.UserInputMessageContext.Tools, 1)
 		require.NotEqual(t, claudepkg.ClaudeCodeCompletionToolName, current.UserInputMessageContext.Tools[0].ToolSpecification.Name)
-		priming := payload.ConversationState.History[0].UserInputMessage.Content
-		require.Equal(t, strings.Count(system, claudepkg.ClaudeCodeCompletionGuardMarker), strings.Count(priming, claudepkg.ClaudeCodeCompletionGuardMarker))
-		require.NotContains(t, priming, "Continue the same task now")
+		require.Equal(t, tc.wantPriming, payload.ConversationState.History[0].UserInputMessage.Content)
+		require.NotContains(t, payload.ConversationState.History[0].UserInputMessage.Content, "Continue the same task now")
 	}
 }

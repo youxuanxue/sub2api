@@ -1177,7 +1177,7 @@
         "TestClaudeToKiro_NoPrivateCompletionProtocol",
         "require.Len(t, current.UserInputMessageContext.Tools, 1)"
       ],
-      "rationale": "Client instructions/catalog stay client-owned, without identity override or completion guard/tool injection, including recognized Claude Code sessions. Preserve actual conversation history and explicit thinking translation."
+      "rationale": "No gateway identity override or completion-protocol injection. Ordinary caller system text is preserved; recognized Claude Code system prompts are replaced with the compact backend prompt. Conversation history and explicit thinking translation stay intact."
     }
   ]
 }
