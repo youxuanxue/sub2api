@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 )
 
@@ -271,6 +272,70 @@ func TestKiroGatewayService_Forward_NonStreaming(t *testing.T) {
 	require.Equal(t, "message", resp["type"])
 	require.Equal(t, result.RequestID, resp["id"])
 	require.Equal(t, "end_turn", resp["stop_reason"])
+}
+
+func TestKiroGatewayService_ClientInstructionsRoundTrip(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const answer = "RELEASE_OK_7291"
+	for _, system := range []string{"", "You are Claude Code, Anthropic's official CLI for Claude."} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("caller_system=%t/stream=%t", system != "", stream), func(t *testing.T) {
+				frame := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"RELEASE_OK_"}`))
+				frame = append(frame, buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"7291"}`))...)
+				upstream := &kiroSequenceUpstream{bodies: [][]byte{appendKiroTerminalStop(frame, "END_TURN")}}
+				svc := NewKiroGatewayService(upstream, nil, nil)
+				body, err := json.Marshal(map[string]any{
+					"model": "claude-sonnet-4-6", "system": system, "stream": stream, "max_tokens": 512,
+					"messages": []map[string]any{{"role": "user", "content": "Reply exactly " + answer + "."}},
+				})
+				require.NoError(t, err)
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				result, err := svc.Forward(t.Context(), c, newKiroAccountForTest(), &ParsedRequest{
+					Body: NewRequestBodyRef(body), Model: "claude-sonnet-4-6", Stream: stream,
+				}, time.Now())
+				require.NoError(t, err)
+				require.Equal(t, 1, upstream.calls)
+				var sent kiroproto.KiroPayload
+				require.NoError(t, json.Unmarshal(upstream.requests[0], &sent))
+				require.Equal(t, "Reply exactly "+answer+".", sent.ConversationState.CurrentMessage.UserInputMessage.Content)
+				if system == "" {
+					require.Empty(t, sent.ConversationState.History, "no caller system means no fabricated priming conversation")
+				} else {
+					require.Len(t, sent.ConversationState.History, 2)
+					require.Equal(t, system, sent.ConversationState.History[0].UserInputMessage.Content)
+					require.Equal(t, "I will follow these instructions.", sent.ConversationState.History[1].AssistantResponseMessage.Content)
+				}
+				require.Equal(t, http.StatusOK, rec.Code)
+				require.Equal(t, "claude-sonnet-4-6", result.Model)
+				require.Equal(t, stream, result.Stream)
+				if !stream {
+					var response kiroproto.ClaudeResponse
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+					require.Len(t, response.Content, 1)
+					require.Equal(t, answer, response.Content[0].Text)
+					require.Equal(t, "end_turn", response.StopReason)
+				} else {
+					var text strings.Builder
+					for _, line := range strings.Split(rec.Body.String(), "\n") {
+						if !strings.HasPrefix(line, "data: ") {
+							continue
+						}
+						var event struct {
+							Delta struct {
+								Text string `json:"text"`
+							} `json:"delta"`
+						}
+						require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event))
+						text.WriteString(event.Delta.Text)
+					}
+					require.Equal(t, answer, text.String())
+					require.Contains(t, rec.Body.String(), `"stop_reason":"end_turn"`)
+					require.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_stop"))
+				}
+			})
+		}
+	}
 }
 
 func TestKiroGatewayService_Forward_NonStreaming_PreservesMaxTokensStopReason(t *testing.T) {
