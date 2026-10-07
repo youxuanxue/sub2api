@@ -49,6 +49,8 @@ class FakeCommands:
         rm_fails: bool = False,
         run_times_out: bool = False,
         pg_isready_fails: bool = False,
+        tokenkey_db_ready_after: int = 0,
+        tokenkey_db_never_ready: bool = False,
     ) -> None:
         self.calls: list[list[str]] = []
         self.objects = objects if objects is not None else [
@@ -67,6 +69,9 @@ class FakeCommands:
         self.rm_fails = rm_fails
         self.run_times_out = run_times_out
         self.pg_isready_fails = pg_isready_fails
+        self.tokenkey_db_ready_after = tokenkey_db_ready_after
+        self.tokenkey_db_never_ready = tokenkey_db_never_ready
+        self.tokenkey_db_attempts = 0
         self.container_present = False
 
     def __call__(self, args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -107,6 +112,19 @@ class FakeCommands:
                 stderr = "no response"
             else:
                 stdout = "accepting connections\n"
+        elif (
+            args[:3] == ["docker", "exec", args[2]]
+            and "psql" in args
+            and args[-2:] == ["-c", "SELECT 1"]
+        ):
+            self.tokenkey_db_attempts += 1
+            if self.tokenkey_db_never_ready or (
+                self.tokenkey_db_attempts <= self.tokenkey_db_ready_after
+            ):
+                returncode = 1
+                stderr = 'FATAL:  database "tokenkey" does not exist'
+            else:
+                stdout = "1\n"
         elif args[:3] == ["docker", "exec", "tokenkey-postgres"] and "json_build_object" in joined:
             stdout = json.dumps(LIVE_COUNTS) + "\n"
         elif args[:2] == ["bash", "-o"] and "gunzip -c" in joined:
@@ -133,6 +151,7 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
         s3_uri: str = "s3://tokenkey-prod-pgdump-123/edge/us3/pgdump",
         free_bytes: int = 10 * 1024**3,
         now=None,
+        sleep=None,
     ):
         temp = tempfile.TemporaryDirectory()
         root = pathlib.Path(temp.name)
@@ -145,7 +164,7 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
                 receipt_root=root / "canary",
                 env_path=env_path,
                 run=fake,
-                sleep=lambda _: None,
+                sleep=sleep or (lambda _: None),
                 now=now or (lambda: NOW),
                 disk_usage=disk_usage,
             )
@@ -192,6 +211,12 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
         self.assertFalse(any(":/var/lib/postgresql/data" in arg for arg in docker_run))
         self.assertTrue(any(call.endswith("pg_isready") for call in joined))
         self.assertFalse(any("pg_isready -U tokenkey -d tokenkey" in call for call in joined))
+        select_ready = next(
+            i for i, call in enumerate(joined)
+            if "psql" in call and call.endswith("-c SELECT 1")
+        )
+        restore = next(i for i, call in enumerate(joined) if "gunzip -c" in call)
+        self.assertLess(select_ready, restore)
         self.assertFalse(any("pg_dump" in call for call in joined))
 
     def test_receipt_completion_time_is_sampled_after_cleanup(self) -> None:
@@ -215,6 +240,19 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
         with self.assertRaisesRegex(canary.CanaryError, "matching"):
             self.run_case(fake)
         self.assertFalse(any(call[:2] == ["docker", "run"] for call in fake.calls))
+
+    def test_s3_last_modified_within_small_clock_skew_is_accepted(self) -> None:
+        fake = FakeCommands(objects=[{
+            "Key": "edge/us3/pgdump/tokenkey-20260818T080000Z.sql.gz",
+            "LastModified": "2026-08-18T08:00:01Z",
+            "Size": 0,
+        }])
+        fake.objects[0]["Size"] = len(fake.downloaded)
+        temp, _, result = self.run_case(fake)
+        try:
+            self.assertEqual(result["source_last_modified"], "2026-08-18T08:00:01Z")
+        finally:
+            temp.cleanup()
 
     def test_stale_object_fails_before_download(self) -> None:
         fake = FakeCommands(objects=[{"Key": "edge/us3/pgdump/tokenkey-20260818T010000Z.sql.gz", "LastModified": "2026-08-18T01:01:00Z", "Size": 2000}])
@@ -367,6 +405,30 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
         pg_isready_calls = [call for call in fake.calls if "pg_isready" in call]
         self.assertEqual(len(pg_isready_calls), canary.POSTGRES_READY_ATTEMPTS)
         self.assertEqual(pg_isready_calls[0][-1], "pg_isready")
+        self.assertEqual(fake.tokenkey_db_attempts, 0)
+
+    def test_restore_waits_until_tokenkey_database_exists(self) -> None:
+        fake = FakeCommands(tokenkey_db_ready_after=3)
+        sleeps: list[float] = []
+        temp, _, result = self.run_case(fake, sleep=sleeps.append)
+        try:
+            self.assertEqual(result["live_counts"], LIVE_COUNTS)
+        finally:
+            temp.cleanup()
+        self.assertEqual(fake.tokenkey_db_attempts, 4)
+        self.assertEqual(sleeps, [1, 1, 1])
+        self.assertTrue(any("gunzip -c" in " ".join(call) for call in fake.calls))
+
+    def test_tokenkey_database_timeout_includes_container_diagnostics(self) -> None:
+        fake = FakeCommands(tokenkey_db_never_ready=True)
+        with self.assertRaisesRegex(
+            canary.CanaryError,
+            r'database "tokenkey" did not become ready.*initdb',
+        ):
+            self.run_case(fake)
+        self.assertTrue(any(call[:2] == ["docker", "logs"] for call in fake.calls))
+        self.assertGreaterEqual(fake.tokenkey_db_attempts, canary.POSTGRES_READY_ATTEMPTS - 1)
+        self.assertFalse(any("gunzip -c" in " ".join(call) for call in fake.calls))
 
     def test_docker_run_timeout_removes_container_created_before_timeout(self) -> None:
         fake = FakeCommands(run_times_out=True)
