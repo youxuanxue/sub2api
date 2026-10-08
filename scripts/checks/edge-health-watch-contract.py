@@ -10,7 +10,11 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 WORKFLOW = REPO / ".github" / "workflows" / "edge-health-watch.yml"
+EVALUATOR = REPO / "ops" / "observability" / "edge_model_health_alert.py"
 RESOLVE = REPO / "deploy" / "aws" / "stage0" / "resolve-edge-target.py"
+# Declared GHA cadence and evaluator watch-slot width must stay coupled.
+WATCH_CRON = 'cron: "7,22,37,52 * * * *"'
+WATCH_SLOT_ANCHOR = "WATCH_SLOT = dt.timedelta(minutes=15)"
 
 
 def _workflow_int(text: str, pattern: str, label: str) -> int:
@@ -29,7 +33,7 @@ def main() -> int:
 
     checks = {
         "scheduled trigger": re.search(r"(?m)^\s+schedule:\s*$", text) is not None,
-        "fifteen-minute cadence": 'cron: "7,22,37,52 * * * *"' in text,
+        "fifteen-minute cadence": WATCH_CRON in text,
         "OIDC credentials": "aws-actions/configure-aws-credentials@" in text,
         "fleet scan call site": "bash ops/observability/scan-edge-health.sh --with-prod" in text,
         "structured terminal scan": "--alert-json > terminal-buckets.jsonl" in text,
@@ -50,6 +54,13 @@ def main() -> int:
     scan_script = (REPO / "ops/observability/scan-edge-health.sh").read_text(encoding="utf-8")
     if "--compressed-output" not in scan_script:
         failures.append("integrity-checked compressed probe transport")
+    try:
+        evaluator = EVALUATOR.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"FAIL: edge-health evaluator unavailable: {exc}", file=sys.stderr)
+        return 1
+    if WATCH_SLOT_ANCHOR not in evaluator:
+        failures.append("evaluator WATCH_SLOT matches fifteen-minute cadence")
     if failures:
         for name in failures:
             print(f"FAIL: edge-health-watch contract missing {name}", file=sys.stderr)

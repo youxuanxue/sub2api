@@ -171,9 +171,12 @@ def _unit_key(edge: str, unit: dict) -> tuple[str, str, str]:
 
 
 def _slot(now: dt.datetime) -> str:
-    """Floor wall time to the active watch-slot grid (15-minute boundaries)."""
+    """Floor wall time to the active watch-slot grid (WATCH_SLOT boundaries)."""
+    slot_minutes = int(WATCH_SLOT.total_seconds() // 60)
+    if slot_minutes <= 0 or 60 % slot_minutes != 0:
+        raise AlertContractError(f"WATCH_SLOT must divide one hour evenly, got {WATCH_SLOT}")
     now = now.astimezone(dt.timezone.utc).replace(second=0, microsecond=0)
-    return now.replace(minute=(now.minute // 15) * 15).isoformat().replace("+00:00", "Z")
+    return now.replace(minute=(now.minute // slot_minutes) * slot_minutes).isoformat().replace("+00:00", "Z")
 
 
 def _contiguous_tail(buckets: list[dict], count: int) -> list[dict]:
