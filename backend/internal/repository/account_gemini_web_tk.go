@@ -136,7 +136,7 @@ func (r *accountRepository) CompareAndSwapGeminiWebRuntime(ctx context.Context, 
 		WHERE id = $3
 			AND deleted_at IS NULL
 			AND platform = 'gemini'
-			AND status = 'active' AND schedulable = true
+			AND status = 'active'
 			AND credentials->'gemini_web'->'lease'->>'owner' = $4
 			AND (credentials->'gemini_web'->'lease'->>'expires_at')::numeric > EXTRACT(EPOCH FROM clock_timestamp())
 			AND COALESCE(credentials->'gemini_web'->'runtime'->>'version', '') = $2::text
@@ -206,7 +206,7 @@ func (r *accountRepository) AcquireGeminiWebLease(ctx context.Context, id int64,
 		SET credentials = jsonb_set(credentials, '{gemini_web,lease}',
 			jsonb_build_object('owner', $2::text, 'expires_at', EXTRACT(EPOCH FROM clock_timestamp()) + 600))
 		WHERE id = $1 AND deleted_at IS NULL AND platform = 'gemini'
-			AND type = 'apikey' AND status = 'active' AND schedulable = true
+			AND type = 'apikey' AND status = 'active'
 			AND jsonb_typeof(credentials->'gemini_web'->'runtime') = 'object'
 			AND COALESCE((credentials->'gemini_web'->'lease'->>'expires_at')::numeric, 0)
 				<= EXTRACT(EPOCH FROM clock_timestamp())`, id, owner)
