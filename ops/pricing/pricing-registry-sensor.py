@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import importlib.util
 import json
 import math
 import sys
@@ -20,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+_OVERLAY_CHECK_PATH = REPO_ROOT / "scripts" / "checks" / "pricing-overlay.py"
 REGISTRY_PATH = REPO_ROOT / "backend" / "internal" / "service" / "tk_pricing_overlay.json"
 DEFAULT_SOURCE = (
     "https://raw.githubusercontent.com/BerriAI/litellm/main/"
@@ -234,6 +236,116 @@ def build_report(registry: dict, source: dict, *, source_label: str) -> dict:
     return report
 
 
+def _load_overlay_check():
+    spec = importlib.util.spec_from_file_location(
+        "pricing_overlay_check_for_sensor", _OVERLAY_CHECK_PATH
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"unable to load overlay check from {_OVERLAY_CHECK_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _message_names_owner(message: str, owner: str) -> bool:
+    """True when an overlay error names `owner` as a whole token.
+
+    Prefix match on `{owner}.` / `anchor {owner}` would also hit dotted
+    siblings (`grok-4` vs `grok-4.3`).
+    """
+    return (
+        message.startswith(f"{owner}:")
+        or message.startswith(f"{owner}.video_price_tiers")
+        or message.startswith(f"anchor {owner}:")
+        or message.startswith(f"anchor {owner} ")
+        or message.startswith(f"thinking-anchor {owner}:")
+        or message.startswith(f"thinking-anchor {owner} ")
+    )
+
+
+def _owners_named_in_overlay_errors(errors: list[str], owners: set[str]) -> set[str]:
+    """Map gate messages like `model: …` / `anchor model: …` back to candidate owners."""
+    hit: set[str] = set()
+    for message in errors:
+        for owner in owners:
+            if _message_names_owner(message, owner):
+                hit.add(owner)
+    return hit
+
+
+def _demote_owner_actionable_fields(report: dict, owner: str, reason: str) -> None:
+    for drift in report["owner_drifts"]:
+        if drift["owner"] != owner:
+            continue
+        for field in drift["fields"]:
+            if not field["actionable"]:
+                continue
+            field["actionable"] = False
+            field["rejected_reason"] = reason
+    report.setdefault("report_only_evidence", []).append({
+        "source_key": owner,
+        "normalized_model": owner,
+        "reason": reason,
+    })
+
+
+def _sanitize_candidate_against_overlay(
+    registry: dict,
+    report: dict,
+    candidate: dict,
+    changed_owners: list[str],
+) -> list[str]:
+    """Drop candidate owners that would fail pricing-overlay.py after write.
+
+    LiteLLM evidence can update a flat `output_cost_per_second` while the
+    registry keeps `video_price_tiers` as billing SSOT; applying that blindly
+    fails the catalog floor gate and reds the sensor workflow. Revert those
+    owners and demote their fields to report-only so humans still see the drift.
+    """
+    if not changed_owners:
+        return []
+    overlay_check = _load_overlay_check()
+    # Only attribute regressions the candidate introduced. Toy/partial fixtures
+    # used by unit tests already fail full-registry anchors; those base errors
+    # must not block sensor evidence materialization.
+    base_errors = set(overlay_check.validate_overlay_dict(registry))
+    remaining = list(changed_owners)
+    # Bound retries: each pass reverts at least one owner named by the gate.
+    for _ in range(len(changed_owners) + 1):
+        cand_errors = overlay_check.validate_overlay_dict(candidate)
+        new_errors = [err for err in cand_errors if err not in base_errors]
+        if not new_errors:
+            break
+        blamed = _owners_named_in_overlay_errors(new_errors, set(remaining))
+        if not blamed:
+            # Global / unattributed regression — refuse to emit a dirty candidate.
+            raise RuntimeError(
+                "candidate registry introduces pricing-overlay failures without a "
+                f"revertable owner: {new_errors[:5]}"
+            )
+        sample = "; ".join(new_errors[:3])
+        for owner in sorted(blamed):
+            candidate[owner] = copy.deepcopy(registry[owner])
+            remaining = [name for name in remaining if name != owner]
+            _demote_owner_actionable_fields(
+                report,
+                owner,
+                "candidate rejected: would fail pricing-overlay validation "
+                f"({sample})",
+            )
+    else:
+        raise RuntimeError("candidate sanitization did not converge")
+
+    actionable_owners = {
+        drift["owner"]
+        for drift in report["owner_drifts"]
+        if any(field["actionable"] for field in drift["fields"])
+    }
+    report["summary"]["actionable_owner_count"] = len(actionable_owners)
+    report["summary"]["report_only_count"] = len(report.get("report_only_evidence", []))
+    return sorted(remaining)
+
+
 def build_candidate_registry(registry: dict, report: dict) -> tuple[dict, list[str]]:
     candidate = copy.deepcopy(registry)
     changed_owners: list[str] = []
@@ -247,7 +359,10 @@ def build_candidate_registry(registry: dict, report: dict) -> tuple[dict, list[s
             changed = True
         if changed:
             changed_owners.append(owner)
-    return candidate, sorted(changed_owners)
+    changed_owners = _sanitize_candidate_against_overlay(
+        registry, report, candidate, sorted(changed_owners)
+    )
+    return candidate, changed_owners
 
 
 def render_markdown(report: dict) -> str:

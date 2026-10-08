@@ -52,7 +52,22 @@ jobs:
           REPORT_RUN_ID: ${{ inputs.report_run_id }}
         run: |
           set -euo pipefail
-          RUN_JSON="$(gh run view "$REPORT_RUN_ID" --json workflowName,headBranch,event,conclusion,createdAt,url)"
+          # queue-repair-draft dispatches this workflow from inside the still-running
+          # Ops Daily Diagnostics run (sibling jobs like decision-and-issue may not
+          # have finished). Wait for the source run to complete before trusting
+          # conclusion=success — do not weaken the success gate.
+          RUN_JSON=""
+          for attempt in $(seq 1 60); do
+            RUN_JSON="$(gh run view "$REPORT_RUN_ID" --json workflowName,headBranch,event,conclusion,status,createdAt,url)"
+            STATUS="$(jq -r '.status' <<<"$RUN_JSON")"
+            if [ "$STATUS" = "completed" ]; then
+              break
+            fi
+            echo "source run status=$STATUS; waiting for completion ($attempt/60)"
+            sleep 10
+          done
+          [ -n "$RUN_JSON" ] || { echo "::error::failed to load source run metadata"; exit 1; }
+          [ "$(jq -r '.status' <<<"$RUN_JSON")" = "completed" ] || { echo "::error::source run did not complete in time"; exit 1; }
           [ "$(jq -r '.workflowName' <<<"$RUN_JSON")" = "Ops Daily Diagnostics" ] || { echo "::error::source run is not Ops Daily Diagnostics"; exit 1; }
           [ "$(jq -r '.headBranch' <<<"$RUN_JSON")" = "main" ] || { echo "::error::source run is not from main"; exit 1; }
           [ "$(jq -r '.conclusion' <<<"$RUN_JSON")" = "success" ] || { echo "::error::source run did not succeed"; exit 1; }

@@ -55,7 +55,6 @@ class PricingRegistrySensorTests(unittest.TestCase):
             "model-a": {
                 "litellm_provider": "provider-a",
                 "input_cost_per_token": 4e-6,
-                "long_context_threshold_inclusive": True,
                 "supports_vision": True,
                 "provider_private_metadata": "ignore",
             },
@@ -69,11 +68,23 @@ class PricingRegistrySensorTests(unittest.TestCase):
         candidate, owners = sensor.build_candidate_registry(self.registry, report)
         self.assertEqual(owners, ["model-a"])
         self.assertEqual(candidate["model-a"]["input_cost_per_token"], 4e-6)
-        self.assertTrue(candidate["model-a"]["long_context_threshold_inclusive"])
         self.assertFalse(candidate["model-a"]["supports_vision"])
         self.assertEqual(candidate["model-a"]["source"], "human-approved")
         self.assertNotIn("new-model", candidate)
         self.assertEqual(report["report_only_evidence"][0]["normalized_model"], "new-model")
+
+    def test_incomplete_long_context_candidate_is_demoted(self) -> None:
+        source = {
+            "model-a": {
+                "litellm_provider": "provider-a",
+                "long_context_threshold_inclusive": True,
+            }
+        }
+        report = sensor.build_report(self.registry, source, source_label="fixture")
+        candidate, owners = sensor.build_candidate_registry(self.registry, report)
+        self.assertEqual(owners, [])
+        self.assertNotIn("long_context_threshold_inclusive", candidate["model-a"])
+        self.assertIn("pricing-overlay", report["owner_drifts"][0]["fields"][0]["rejected_reason"])
 
     def test_gpt55_pro_is_always_report_only_without_an_owner(self) -> None:
         source = {
@@ -147,6 +158,95 @@ class PricingRegistrySensorTests(unittest.TestCase):
         report = sensor.build_report(self.registry, {}, source_label="fixture")
         markdown = sensor.render_markdown(report)
         self.assertIn("never publishes runtime pricing", markdown)
+
+    def test_dotted_sibling_owner_is_not_blamed_for_overlay_errors(self) -> None:
+        """`grok-4` must not be reverted when only `grok-4.3` fails the gate."""
+        chat = {
+            "mode": "chat",
+            "litellm_provider": "xai",
+            "input_cost_per_token": 1e-6,
+            "output_cost_per_token": 2e-6,
+            "source": "fixture",
+        }
+        self.registry["grok-4"] = dict(chat)
+        self.registry["grok-4.3"] = {
+            "mode": "video_generation",
+            "litellm_provider": "xai",
+            "output_cost_per_second": 0.03,
+            "default_video_resolution": "720p",
+            "failure_billing": "success_only",
+            "source": "fixture: video_price_tiers is the billing SSOT",
+            "video_price_tiers": [
+                {
+                    "resolution": "720p",
+                    "output_cost_per_second": 0.03,
+                    "default_for_model": True,
+                },
+            ],
+        }
+        source = {
+            "grok-4": {
+                "litellm_provider": "xai",
+                "input_cost_per_token": 4e-6,
+                "output_cost_per_token": 2e-6,
+            },
+            "grok-4.3": {
+                "litellm_provider": "xai",
+                "mode": "video_generation",
+                "output_cost_per_second": 0.05,
+            },
+        }
+        report = sensor.build_report(self.registry, source, source_label="fixture")
+        candidate, owners = sensor.build_candidate_registry(self.registry, report)
+        self.assertEqual(owners, ["grok-4"])
+        self.assertEqual(candidate["grok-4"]["input_cost_per_token"], 4e-6)
+        self.assertEqual(candidate["grok-4.3"]["output_cost_per_second"], 0.03)
+        blamed = {d["owner"] for d in report["owner_drifts"] if any(
+            f.get("rejected_reason") for f in d["fields"]
+        )}
+        self.assertEqual(blamed, {"grok-4.3"})
+
+    def test_video_floor_conflict_is_demoted_not_written(self) -> None:
+        """LiteLLM flat $/s must not break video_price_tiers catalog floor."""
+        self.registry["veo-lite"] = {
+            "mode": "video_generation",
+            "litellm_provider": "vertex_ai-language-models",
+            "output_cost_per_second": 0.03,
+            "default_video_resolution": "720p",
+            "failure_billing": "success_only",
+            "source": "fixture: video_price_tiers is the billing SSOT",
+            "video_price_tiers": [
+                {
+                    "resolution": "720p",
+                    "output_cost_per_second": 0.03,
+                    "default_for_model": True,
+                },
+                {
+                    "resolution": "1080p",
+                    "output_cost_per_second": 0.06,
+                },
+            ],
+        }
+        source = {
+            "veo-lite": {
+                "litellm_provider": "vertex_ai-language-models",
+                "mode": "video_generation",
+                "output_cost_per_second": 0.05,
+            }
+        }
+        report = sensor.build_report(self.registry, source, source_label="fixture")
+        candidate, owners = sensor.build_candidate_registry(self.registry, report)
+        self.assertEqual(owners, [])
+        self.assertEqual(
+            candidate["veo-lite"]["output_cost_per_second"],
+            0.03,
+        )
+        drift_fields = report["owner_drifts"][0]["fields"]
+        self.assertFalse(drift_fields[0]["actionable"])
+        self.assertIn("pricing-overlay", drift_fields[0]["rejected_reason"])
+        self.assertTrue(
+            any("pricing-overlay" in item["reason"] for item in report["report_only_evidence"])
+        )
 
 
 if __name__ == "__main__":

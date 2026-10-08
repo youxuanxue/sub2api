@@ -406,26 +406,12 @@ def validate_deepseek_peak_valley(data: dict) -> list[str]:
     return errors
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--quiet", action="store_true", help="suppress success output")
-    ap.add_argument("--path", type=pathlib.Path, default=OVERLAY,
-                    help="overlay JSON to validate (default: repo embedded overlay)")
-    args = ap.parse_args()
-    quiet = args.quiet
-    overlay = args.path
-    if not overlay.is_absolute():
-        overlay = REPO_ROOT / overlay
+def validate_overlay_dict(data: dict) -> list[str]:
+    """Return overlay validation errors for an in-memory registry document.
 
-    if not overlay.is_file():
-        print(f"  FAIL: pricing overlay not found: {overlay}", flush=True)
-        return 2
-    try:
-        data = json.loads(overlay.read_text(encoding="utf-8"))
-    except (ValueError, OSError) as exc:
-        print(f"  FAIL: pricing overlay unparseable: {exc}", flush=True)
-        return 2
-
+    Extracted so sensors can reject candidate writes that would fail the same
+    gate the workflow runs after materializing a draft registry.
+    """
     # Entries are bare model -> pricing dict; keys starting with "_" (e.g. _meta) are
     # provenance, not pricing.
     entries = {k: v for k, v in data.items() if not k.startswith("_")}
@@ -568,6 +554,31 @@ def main() -> int:
                 f"thinking-anchor {model}: thinking_output_cost_per_token must be > 0 "
                 f"(enable_thinking defaults to true → this is the default-mode price), got {tp!r}"
             )
+    return errors
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--quiet", action="store_true", help="suppress success output")
+    ap.add_argument("--path", type=pathlib.Path, default=OVERLAY,
+                    help="overlay JSON to validate (default: repo embedded overlay)")
+    args = ap.parse_args()
+    quiet = args.quiet
+    overlay = args.path
+    if not overlay.is_absolute():
+        overlay = REPO_ROOT / overlay
+
+    if not overlay.is_file():
+        print(f"  FAIL: pricing overlay not found: {overlay}", flush=True)
+        return 2
+    try:
+        data = json.loads(overlay.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as exc:
+        print(f"  FAIL: pricing overlay unparseable: {exc}", flush=True)
+        return 2
+
+    entries = {k: v for k, v in data.items() if not k.startswith("_")}
+    errors = validate_overlay_dict(data)
 
     if errors:
         print(f"  FAIL: pricing overlay invalid ({len(errors)} issue(s)):", flush=True)

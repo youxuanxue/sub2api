@@ -99,6 +99,15 @@ class ModelReleaseWatchBaselineTest(unittest.TestCase):
         self.assertIn("platform:kiro", surfaces)
 
     def test_fixture_scan_builds_actionable_report(self) -> None:
+        # Synthetic baseline: keep the unpriced/served matrix stable when live
+        # SSOT later prices a previously-unpriced fixture id (claude-sonnet-5-5).
+        baseline = mrw.TokenKeyBaseline(
+            explicit_keys={
+                "claude-opus-5-5": [mrw.SupplyHit("platform:kiro", "claude-opus-5-5")],
+                "claude-sonnet-5-5": [mrw.SupplyHit("platform:bedrock", "x")],
+            },
+            priced_owners={"claude-opus-5-5"},
+        )
         fixture = {
             "models": [
                 {
@@ -130,7 +139,7 @@ class ModelReleaseWatchBaselineTest(unittest.TestCase):
             upstream, errors = mrw.collect_upstream(fixture=path)
             self.assertEqual(errors, [])
             report, _state = mrw.build_report(
-                baseline=mrw.load_baseline(),
+                baseline=baseline,
                 upstream=upstream,
                 fetch_errors=[],
                 state={"version": 1, "seen": {}},

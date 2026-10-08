@@ -26,6 +26,9 @@ class OpsRepairDraftWorkflowTest(unittest.TestCase):
         self.assertIn('= "Ops Daily Diagnostics"', self.text)
         self.assertIn('= "main"', self.text)
         self.assertIn('= "success"', self.text)
+        # Same-run dispatch: wait for parent completion before reading conclusion.
+        self.assertIn("waiting for completion", self.text)
+        self.assertIn('= "completed"', self.text)
         self.assertIn("older than 48 hours", self.text)
         self.assertIn("daily_error_report.py select", self.text)
 
