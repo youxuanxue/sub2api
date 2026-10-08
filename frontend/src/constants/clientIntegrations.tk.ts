@@ -195,6 +195,22 @@ export const TK_CLIENT_CATALOG: TkClientCatalogEntry[] = [
     usesEnvironmentPicker: false
   },
   {
+    id: 'cursor',
+    name: 'Cursor',
+    category: 'coding',
+    sortOrder: 65,
+    icon: 'terminal',
+    guideId: 'cursor',
+    supportTier: 'compatible',
+    action: 'copy-fields',
+    protocols: ['openai'],
+    docsUrl: 'https://cursor.com/docs',
+    surfaces: ['quickstart'],
+    secretTransport: 'secret-ui',
+    guideMode: 'openai-fields',
+    usesEnvironmentPicker: false
+  },
+  {
     id: 'roo-code',
     name: 'Roo Code',
     category: 'coding',
