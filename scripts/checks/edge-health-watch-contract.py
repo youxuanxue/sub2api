@@ -29,7 +29,7 @@ def main() -> int:
 
     checks = {
         "scheduled trigger": re.search(r"(?m)^\s+schedule:\s*$", text) is not None,
-        "five-minute cadence": 'cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"' in text,
+        "fifteen-minute cadence": 'cron: "7,22,37,52 * * * *"' in text,
         "OIDC credentials": "aws-actions/configure-aws-credentials@" in text,
         "fleet scan call site": "bash ops/observability/scan-edge-health.sh --with-prod" in text,
         "structured terminal scan": "--alert-json > terminal-buckets.jsonl" in text,

@@ -3,7 +3,7 @@ title: Edge Model Unit 429 Health Alert
 status: approved
 approved_by: "feng (conversation approval 2026-08-18)"
 date: 2026-08-18
-last_reviewed: 2026-08-18
+last_reviewed: 2026-10-08
 supersedes: null
 related: []
 ---
@@ -385,7 +385,7 @@ Top 受影响模型:
 - `traffic_stopped` 恢复通知写“影响已停止/路由已摘除或已无流量”，不得写“容量恢复”。
 - 状态缺失或损坏时可从完整桶重建。
 - HTTPS、SSM、数据库、账号诊断失败进入各自设计路径。
-- workflow 使用五分钟 cadence、串行执行和结构化聚合数据源。
+- workflow 使用十五分钟 cadence、串行执行和结构化聚合数据源。
 - 旧 Docker 全平台计数不再进入飞书容量判定。
 - 纯函数 selftest 和 workflow contract test 接入 `scripts/preflight.sh`。
 
