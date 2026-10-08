@@ -5,7 +5,14 @@ import pathlib
 import tempfile
 import unittest
 
-from ops.observability.edge_model_health_alert import evaluate, load_family_rules, load_previous_state
+from ops.observability.edge_model_health_alert import (
+    WATCH_SLOT,
+    _slot,
+    _timestamp,
+    evaluate,
+    load_family_rules,
+    load_previous_state,
+)
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -49,6 +56,16 @@ def state_units(decision):
 
 
 class EdgeModelHealthAlertTest(unittest.TestCase):
+    def test_watch_slot_grid_matches_declared_gha_cadence(self):
+        # Cron fires at :07/:22/:37/:52; floors must be 15m apart so consecutive
+        # deliveries accumulate telemetry failure_slots.
+        self.assertEqual(dt.timedelta(minutes=15), WATCH_SLOT)
+        t0 = dt.datetime(2026, 8, 18, 12, 7, tzinfo=dt.timezone.utc)
+        t1 = t0 + dt.timedelta(minutes=15)
+        self.assertEqual("2026-08-18T12:00:00Z", _slot(t0))
+        self.assertEqual("2026-08-18T12:15:00Z", _slot(t1))
+        self.assertEqual(WATCH_SLOT, _timestamp(_slot(t1)) - _timestamp(_slot(t0)))
+
     def test_bad_prod_telemetry_does_not_suppress_other_host_alert(self):
         rows = [
             {"edge": "us6", "schema_version": 1, "reachable": False, "reason": "https_unreachable"},
@@ -57,7 +74,7 @@ class EdgeModelHealthAlertTest(unittest.TestCase):
         first = evaluate(rows, {}, RULES, evaluated_at=NOW)
         self.assertTrue(first["should_alert"])
         self.assertEqual([entry["edge"] for entry in first["state"]["hosts"]], ["us6"])
-        second = evaluate(rows, first["state"], RULES, evaluated_at=NOW + dt.timedelta(minutes=5))
+        second = evaluate(rows, first["state"], RULES, evaluated_at=NOW + dt.timedelta(minutes=15))
         self.assertTrue(second["should_alert"])
         self.assertEqual(second["state"]["telemetry"][0]["status"], "unavailable")
 
@@ -324,7 +341,7 @@ class EdgeModelHealthAlertTest(unittest.TestCase):
             [unavailable],
             repeated["state"],
             RULES,
-            evaluated_at=NOW + dt.timedelta(minutes=5),
+            evaluated_at=NOW + dt.timedelta(minutes=15),
         )
         self.assertTrue(second["should_alert"])
         self.assertIn("监控数据不可用", second["message"])
@@ -333,7 +350,7 @@ class EdgeModelHealthAlertTest(unittest.TestCase):
             [edge(bucket("2026-08-18T12:20:00Z"))],
             second["state"],
             RULES,
-            evaluated_at=NOW + dt.timedelta(minutes=10),
+            evaluated_at=NOW + dt.timedelta(minutes=30),
         )
         self.assertTrue(recovered["should_alert"])
         self.assertEqual([], recovered["state"]["telemetry"])
@@ -349,11 +366,12 @@ class EdgeModelHealthAlertTest(unittest.TestCase):
             "buckets": [],
         }
         first = evaluate([unavailable], {}, RULES, evaluated_at=NOW)
+        # Watch slots are 15 minutes; a 30-minute gap must reset accumulation.
         later = evaluate(
             [unavailable],
             first["state"],
             RULES,
-            evaluated_at=NOW + dt.timedelta(minutes=15),
+            evaluated_at=NOW + dt.timedelta(minutes=30),
         )
         self.assertFalse(later["should_alert"])
         self.assertEqual(1, len(later["state"]["telemetry"][0]["failure_slots"]))

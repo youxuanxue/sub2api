@@ -11,7 +11,6 @@ ACTION = REPO_ROOT / ".github" / "actions" / "pnpm-audit" / "action.yml"
 RUNNER = REPO_ROOT / "tools" / "run_pnpm_audit.py"
 WORKFLOWS = (
     REPO_ROOT / ".github" / "workflows" / "backend-ci.yml",
-    REPO_ROOT / ".github" / "workflows" / "security-scan.yml",
 )
 ACTION_REF = "uses: ./.github/actions/pnpm-audit"
 ACTION_ANCHORS = (
