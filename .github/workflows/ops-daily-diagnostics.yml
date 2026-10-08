@@ -3,11 +3,12 @@ name: Ops Daily Diagnostics
 # Canonical production and Edge diagnostics entry point.
 # Diagnostics may reach prod/Edge through GHA → AWS STS (OIDC) → SSM. The only
 # write is the bounded prod QA Bundle synthetic canary (immutable spec + queue);
-# its short-lived artifacts expire under the Bundle lifecycle policy.
-# Issue creation and repair dispatch are isolated from AWS credentials. This
-# workflow never deploys, rolls back, edits secrets, writes code, pushes
-# branches, or creates PRs. Daily classification is deterministic; eligible
-# repair work is the only AI-funded path and runs in ops-repair-draft.yml.
+# that canary is weekly (Monday UTC on schedule) or opt-in via workflow_dispatch
+# because Bundle export is low-frequency; short-lived artifacts still expire under
+# the Bundle lifecycle. Issue creation and repair dispatch are isolated from AWS
+# credentials. This workflow never deploys, rolls back, edits secrets, writes
+# code, pushes branches, or creates PRs. Daily classification is deterministic;
+# eligible repair work is the only AI-funded path and runs in ops-repair-draft.yml.
 
 on:
   schedule:
@@ -52,6 +53,14 @@ on:
         options:
           - "true"
           - "false"
+      include_qa_bundle_canary:
+        description: "Run prod QA Bundle end-to-end canary (SSM→SQS→Fargate→receipt). Scheduled runs already do this on Monday UTC; leave false for a cheap manual diagnostics pass."
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
       since:
         description: Log dump lookback window passed to docker logs --since (e.g. 30m, 2h, 1d)
         required: false
@@ -227,6 +236,9 @@ jobs:
         env:
           AWS_REGION: ${{ matrix.region }}
           QA_RAW_ARCHIVE_STACK: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
+          # schedule: Monday UTC only; workflow_dispatch: explicit input (default false).
+          INCLUDE_QA_BUNDLE_CANARY: ${{ inputs.include_qa_bundle_canary || 'false' }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           OUT="prod-ops-targets/$TARGET_ID"
@@ -379,11 +391,26 @@ jobs:
               add_finding "qa_bundle_infra" "issue_candidate" "error" "QA Bundle infrastructure failed ($TARGET_ID)" "The read-only Bundle infrastructure readiness gate failed." "qa-bundle-infra|$TARGET_ID"
             fi
 
-            if QA_BUNDLE_CANARY="$(STAGE0_SSM_OUTPUT_DIR="$OUT/qa-bundle-canary" bash ops/stage0/run-qa-bundle-canary-via-ssm.sh "$INSTANCE_ID" "daily qa-bundle canary" 2>>"$STDERR")"; then
-              printf 'qa_bundle_canary: %s\n' "$QA_BUNDLE_CANARY" >> "$STDOUT"
-              add_finding "qa_bundle_canary" "ok" "info" "QA Bundle end-to-end canary passed ($TARGET_ID)" "Raw S3, immutable spec, SQS, Fargate worker, receipt, and manifest completed." "qa-bundle-canary|$TARGET_ID"
+            # End-to-end canary is the expensive write path (~10–20m). Keep daily
+            # infra discovery; run canary weekly (Monday UTC) or when manually opted in.
+            # date -u +%u → 1=Monday … 7=Sunday.
+            RUN_QA_BUNDLE_CANARY=false
+            if [ "${GITHUB_EVENT_NAME:-}" = "schedule" ] && [ "$(date -u +%u)" = "1" ]; then
+              RUN_QA_BUNDLE_CANARY=true
+            elif [ "${INCLUDE_QA_BUNDLE_CANARY:-false}" = "true" ]; then
+              RUN_QA_BUNDLE_CANARY=true
+            fi
+            if [ "$RUN_QA_BUNDLE_CANARY" = "true" ]; then
+              if QA_BUNDLE_CANARY="$(STAGE0_SSM_OUTPUT_DIR="$OUT/qa-bundle-canary" bash ops/stage0/run-qa-bundle-canary-via-ssm.sh "$INSTANCE_ID" "weekly qa-bundle canary" 2>>"$STDERR")"; then
+                printf 'qa_bundle_canary: %s\n' "$QA_BUNDLE_CANARY" >> "$STDOUT"
+                add_finding "qa_bundle_canary" "ok" "info" "QA Bundle end-to-end canary passed ($TARGET_ID)" "Raw S3, immutable spec, SQS, Fargate worker, receipt, and manifest completed." "qa-bundle-canary|$TARGET_ID"
+              else
+                add_finding "qa_bundle_canary" "issue_candidate" "error" "QA Bundle end-to-end canary failed ($TARGET_ID)" "The canonical raw-to-Bundle synthetic job did not complete." "qa-bundle-canary|$TARGET_ID"
+              fi
             else
-              add_finding "qa_bundle_canary" "issue_candidate" "error" "QA Bundle end-to-end canary failed ($TARGET_ID)" "The canonical raw-to-Bundle synthetic job did not complete." "qa-bundle-canary|$TARGET_ID"
+              printf 'qa_bundle_canary: skipped (weekly Monday UTC or include_qa_bundle_canary=true)\n' >> "$STDOUT"
+              # status=skip (not ok): keeps skips[] honest; never becomes issue_candidate.
+              add_finding "qa_bundle_canary" "skip" "info" "QA Bundle end-to-end canary skipped ($TARGET_ID)" "Weekly cadence (Monday UTC on schedule); set include_qa_bundle_canary=true to force. Infra gate still ran." "qa-bundle-canary|$TARGET_ID|skipped"
             fi
           fi
 
