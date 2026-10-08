@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import unittest
 from unittest import mock
 
@@ -106,6 +107,36 @@ class PlanTests(unittest.TestCase):
                     prod_base="https://api.tokenkey.dev",
                     prod_key="admin-test",
                 )
+
+
+class CapabilitySQLTests(unittest.TestCase):
+    def test_sql_uses_profile_platform_and_filters_deleted(self) -> None:
+        profile = profiles.require_implemented("antigravity")
+        sql, platform = mod.build_edge_capability_sql(profile)
+        self.assertEqual(platform, "antigravity")
+        self.assertIn("a.platform = 'antigravity'", sql)
+        self.assertIn("a.deleted_at IS NULL", sql)
+        self.assertIn("$proto$", sql)
+        self.assertIn("$evid$", sql)
+        self.assertIn("gemini_generate_content", sql)
+        self.assertNotIn("'[\"gemini_generate_content\"]'", sql)
+
+    def test_sql_rejects_unsafe_platform(self) -> None:
+        profile = profiles.require_implemented("antigravity")
+        profile["pool_platform"] = "antigravity'; DROP TABLE accounts;--"
+        with self.assertRaises(ValueError):
+            mod.build_edge_capability_sql(profile)
+
+
+class EdgeKeyTests(unittest.TestCase):
+    def test_multi_edge_rejects_shared_env_key(self) -> None:
+        args = mock.Mock(
+            edge_admin_key="",
+            fetch_edge_admin_key=False,
+        )
+        with mock.patch.dict(os.environ, {"TOKENKEY_EDGE_ADMIN_API_KEY": "admin-x"}):
+            with self.assertRaises(SystemExit):
+                mod.resolve_edge_key("uk1", args, multi_edge=True)
 
 
 if __name__ == "__main__":

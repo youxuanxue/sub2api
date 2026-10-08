@@ -63,7 +63,8 @@ cd ops/accounts
   --fetch-edge-admin-key --yes
 ```
 
-硬边界：默认 dry-run；**必须**先 `plan`/`apply`（无 `--yes`）看清动作，再 `--yes`。`probe` 失败（非 `servable`）exit 1。
+硬边界：默认 dry-run；**必须**先 `plan`/`apply`（无 `--yes`）看清动作，再 `--yes`。`probe` 失败（非 `servable` 或 usage 未归因到该 stub）exit 1。  
+多 edge 时禁止复用同一个 `TOKENKEY_EDGE_ADMIN_API_KEY` / `--edge-admin-key`，必须 `--fetch-edge-admin-key`。
 
 ---
 

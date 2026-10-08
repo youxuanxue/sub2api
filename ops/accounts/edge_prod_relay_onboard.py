@@ -16,6 +16,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -23,6 +24,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+_SAFE_SQL_IDENT = re.compile(r"^[a-z][a-z0-9_]*$")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
@@ -46,6 +49,16 @@ from relay_onboard_profiles import (  # noqa: E402
 
 PROD_BASE_DEFAULT = "https://api.tokenkey.dev"
 STAGE0_DIR = REPO_ROOT / "ops" / "stage0"
+
+# ops-sql-coverage registry (see scripts/checks/ops-sql-coverage.py).
+SELF_CHECK_EXEMPT: dict[str, str] = {}
+
+
+def iter_self_check_sql() -> list[tuple[str, str]]:
+    """(label, rendered_sql) for ops-sql-coverage real-Postgres self-check."""
+    sql, _ = build_edge_capability_sql(require_implemented("antigravity"))
+    return [("build_edge_capability_sql", sql)]
+
 
 
 class HttpAPIError(Exception):
@@ -371,9 +384,15 @@ def resolve_prod_group_ids(
 
 
 def load_parity_from_stub(
-    prod_base: str, prod_key: str, stub_name: str
+    prod_base: str,
+    prod_key: str,
+    stub_name: str,
+    *,
+    pool_platform: str,
 ) -> dict[str, Any]:
-    stub = find_account_by_name(prod_base, prod_key, stub_name, platform="antigravity")
+    stub = find_account_by_name(
+        prod_base, prod_key, stub_name, platform=str(pool_platform)
+    )
     if not stub:
         # broader search
         stub = find_account_by_name(prod_base, prod_key, stub_name)
@@ -421,7 +440,10 @@ def build_plan(
         )
     group_ids = resolve_prod_group_ids(prod_base, prod_key, profile)
     parity = load_parity_from_stub(
-        prod_base, prod_key, str(profile["prod_parity_stub_name"])
+        prod_base,
+        prod_key,
+        str(profile["prod_parity_stub_name"]),
+        pool_platform=str(profile["pool_platform"]),
     )
     existing = list_admin_accounts(
         http_json,
@@ -595,45 +617,76 @@ def ensure_edge_relay_key(
     return key, {"action": "created", "id": created.get("id"), "name": name, "group_id": group_id}
 
 
-def ensure_edge_capability(
-    edge_id: str, profile: dict[str, Any], *, dry_run: bool
-) -> dict[str, Any]:
+def build_edge_capability_sql(profile: dict[str, Any]) -> tuple[str, str]:
+    """Return (sql, pool_platform) for capability repair. Raises ValueError if invalid."""
     cap = profile.get("edge_capability")
     if not isinstance(cap, dict):
-        return {"action": "skipped", "reason": "no edge_capability in profile"}
+        raise ValueError("no edge_capability in profile")
+    pool_platform = str(profile.get("pool_platform") or "").strip().lower()
     protocols = cap.get("required_protocols") or []
+    if not pool_platform or not _SAFE_SQL_IDENT.fullmatch(pool_platform):
+        raise ValueError(f"unsafe or empty pool_platform: {pool_platform!r}")
+    if not isinstance(protocols, list) or not protocols:
+        raise ValueError("edge_capability.required_protocols must be a non-empty list")
+    for proto in protocols:
+        if not isinstance(proto, str) or not _SAFE_SQL_IDENT.fullmatch(proto):
+            raise ValueError(f"unsafe protocol ident: {proto!r}")
+    verdict_proto = str(
+        cap.get("positive_verdict_protocol") or protocols[0]
+    ).strip()
+    if not _SAFE_SQL_IDENT.fullmatch(verdict_proto):
+        raise ValueError(f"unsafe positive_verdict_protocol: {verdict_proto!r}")
     evidence = cap.get("probe_evidence") or {}
-    proto_json = json.dumps(protocols)
-    evidence_json = json.dumps(evidence)
-    # Update every capability row currently linked from active schedulable antigravity oauth,
-    # and also the common shared row if present with empty protocols.
+    if not isinstance(evidence, dict):
+        raise ValueError("edge_capability.probe_evidence must be an object")
+    # Dollar-quote JSON so profile content cannot break out of SQL string literals.
+    proto_json = json.dumps(protocols, ensure_ascii=False, separators=(",", ":"))
+    evidence_json = json.dumps(evidence, ensure_ascii=False, separators=(",", ":"))
+    for tag, blob in (("$proto$", proto_json), ("$evid$", evidence_json)):
+        if tag in blob:
+            raise ValueError(f"json payload collides with dollar-quote tag {tag}")
     sql = f"""
 WITH targets AS (
   SELECT DISTINCT a.protocol_endpoint_capability_id AS id
   FROM accounts a
-  WHERE a.platform = 'antigravity'
+  WHERE a.platform = '{pool_platform}'
     AND a.type = 'oauth'
     AND a.deleted_at IS NULL
     AND a.protocol_endpoint_capability_id IS NOT NULL
 )
 UPDATE protocol_endpoint_capabilities c
-SET supported_protocols = '{proto_json}'::jsonb,
+SET supported_protocols = $proto${proto_json}$proto$::jsonb,
     revision = GREATEST(c.revision, 1) + 1,
-    probe_evidence = '{evidence_json}'::jsonb,
+    probe_evidence = $evid${evidence_json}$evid$::jsonb,
     updated_at = NOW()
 FROM targets t
 WHERE c.id = t.id
   AND (
     c.supported_protocols = '[]'::jsonb
     OR c.supported_protocols IS NULL
-    OR NOT (c.supported_protocols ? 'gemini_generate_content')
-    OR coalesce(c.probe_evidence->'verdicts'->>'gemini_generate_content','') <> 'positive'
+    OR NOT (c.supported_protocols ? '{verdict_proto}')
+    OR coalesce(c.probe_evidence->'verdicts'->>'{verdict_proto}','') <> 'positive'
   )
 RETURNING c.id, c.revision, c.supported_protocols,
-  c.probe_evidence->'verdicts'->>'gemini_generate_content' AS verdict;
+  c.probe_evidence->'verdicts'->>'{verdict_proto}' AS verdict;
 """
+    return sql, pool_platform
+
+
+def ensure_edge_capability(
+    edge_id: str, profile: dict[str, Any], *, dry_run: bool
+) -> dict[str, Any]:
+    if not isinstance(profile.get("edge_capability"), dict):
+        return {"action": "skipped", "reason": "no edge_capability in profile"}
+    try:
+        sql, pool_platform = build_edge_capability_sql(profile)
+    except ValueError as exc:
+        die(f"edge {edge_id}: capability profile invalid: {exc}")
     if dry_run:
-        return {"action": "would_repair_if_needed", "sql_targets": "linked antigravity oauth caps"}
+        return {
+            "action": "would_repair_if_needed",
+            "sql_targets": f"linked {pool_platform} oauth caps",
+        }
     out = ssm_psql(edge_id, sql)
     return {"action": "repaired", "psql": out.strip()}
 
@@ -774,7 +827,10 @@ def apply_edge(
 
     group_ids = resolve_prod_group_ids(prod_base, prod_key, profile)
     parity = load_parity_from_stub(
-        prod_base, prod_key, str(profile["prod_parity_stub_name"])
+        prod_base,
+        prod_key,
+        str(profile["prod_parity_stub_name"]),
+        pool_platform=str(profile["pool_platform"]),
     )
     prod_meta = ensure_prod_stub(
         prod_base,
@@ -858,13 +914,18 @@ def run_probe(
             die(f"probe non-json (exit={cp.returncode}): {stdout[:500]}")
         verdict = json.loads(stdout[start:])
     usage = verdict.get("usage_match") if isinstance(verdict.get("usage_match"), dict) else {}
+    usage_account_id = usage.get("account_id")
+    stub_id = stub.get("id")
     return {
         "edge_id": edge_id,
-        "prod_stub_id": stub.get("id"),
+        "prod_stub_id": stub_id,
         "prod_stub_name": stub.get("name"),
         "probe_exit": cp.returncode,
         "verdict": verdict.get("verdict"),
-        "usage_account_id": usage.get("account_id"),
+        "usage_account_id": usage_account_id,
+        "usage_matches_stub": usage_account_id is not None
+        and stub_id is not None
+        and int(usage_account_id) == int(stub_id),
         "upstream_model": usage.get("upstream_model"),
         "gemini_valid": ((verdict.get("response") or {}).get("gemini") or {}).get("valid"),
         "body_excerpt": ((verdict.get("response") or {}).get("body_excerpt") or "")[:200],
@@ -904,11 +965,23 @@ def cmd_plan(args: argparse.Namespace) -> int:
     return 0
 
 
-def resolve_edge_key(edge_id: str, args: argparse.Namespace) -> str:
+def resolve_edge_key(
+    edge_id: str, args: argparse.Namespace, *, multi_edge: bool
+) -> str:
     if args.edge_admin_key:
+        if multi_edge:
+            die(
+                "multiple --edge values cannot share a single --edge-admin-key; "
+                "use --fetch-edge-admin-key instead"
+            )
         return args.edge_admin_key.strip()
     env_key = os.environ.get("TOKENKEY_EDGE_ADMIN_API_KEY", "").strip()
     if env_key:
+        if multi_edge:
+            die(
+                "multiple --edge values cannot reuse TOKENKEY_EDGE_ADMIN_API_KEY "
+                "(each edge has its own admin key); use --fetch-edge-admin-key"
+            )
         return env_key
     if args.fetch_edge_admin_key:
         return fetch_edge_admin_key_via_ssm(edge_id)
@@ -924,9 +997,11 @@ def cmd_apply(args: argparse.Namespace) -> int:
         log("dry-run (pass --yes to write)")
     prod_base = (args.prod_base_url or PROD_BASE_DEFAULT).rstrip("/")
     prod_key = admin_key("TOKENKEY_PROD_ADMIN_API_KEY")
+    edge_ids = parse_edges(args.edge)
+    multi_edge = len(edge_ids) > 1
     results = []
-    for edge_id in parse_edges(args.edge):
-        edge_key = resolve_edge_key(edge_id, args)
+    for edge_id in edge_ids:
+        edge_key = resolve_edge_key(edge_id, args, multi_edge=multi_edge)
         results.append(
             apply_edge(
                 platform=args.platform,
@@ -954,7 +1029,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
             prod_key=prod_key,
         )
         results.append(row)
-        if row.get("verdict") != "servable" or row.get("usage_account_id") is None:
+        if row.get("verdict") != "servable" or not row.get("usage_matches_stub"):
             failed = True
     emit({"results": results})
     return 1 if failed else 0
