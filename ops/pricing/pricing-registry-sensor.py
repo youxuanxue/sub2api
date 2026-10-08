@@ -247,17 +247,28 @@ def _load_overlay_check():
     return module
 
 
+def _message_names_owner(message: str, owner: str) -> bool:
+    """True when an overlay error names `owner` as a whole token.
+
+    Prefix match on `{owner}.` / `anchor {owner}` would also hit dotted
+    siblings (`grok-4` vs `grok-4.3`).
+    """
+    return (
+        message.startswith(f"{owner}:")
+        or message.startswith(f"{owner}.video_price_tiers")
+        or message.startswith(f"anchor {owner}:")
+        or message.startswith(f"anchor {owner} ")
+        or message.startswith(f"thinking-anchor {owner}:")
+        or message.startswith(f"thinking-anchor {owner} ")
+    )
+
+
 def _owners_named_in_overlay_errors(errors: list[str], owners: set[str]) -> set[str]:
     """Map gate messages like `model: …` / `anchor model: …` back to candidate owners."""
     hit: set[str] = set()
     for message in errors:
         for owner in owners:
-            if (
-                message.startswith(f"{owner}:")
-                or message.startswith(f"{owner}.")
-                or message.startswith(f"anchor {owner}")
-                or message.startswith(f"thinking-anchor {owner}")
-            ):
+            if _message_names_owner(message, owner):
                 hit.add(owner)
     return hit
 
