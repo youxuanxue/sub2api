@@ -17,10 +17,10 @@ name: Edge Health Watch
 
 on:
   schedule:
-    # Every 15 minutes, offset from :00/:30. Declared 5-minute cadence was
-    # never delivered by GitHub Actions (best-effort) and risked a spend spike
-    # if scheduling capacity returned; 15m still covers host blackhole detection.
-    - cron: "7,22,37,52 * * * *"
+    # Every 30 minutes, offset from :00/:30. 15m was the largest remaining
+    # scheduled Actions spender (~2.8k min/mo); 30m halves that while still
+    # covering host blackhole detection (GHA schedule remains best-effort).
+    - cron: "7,37 * * * *"
   workflow_dispatch:
     inputs:
       dry_run:
