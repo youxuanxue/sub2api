@@ -28,6 +28,7 @@ env 检查清单、命令模板，**不**在 prose 里重写导入逻辑。
 
 | 运营说法 / 意图 | 走哪条 |
 | --- | --- |
+| **新 edge 从零打通** antigravity（分组/占位/relay key/prod stub/capability/实测） | 转 **`tokenkey-edge-prod-relay-onboard`** |
 | 上 us6 anthropic / ag / grok OAuth，prod 还没有 cc-us6 / ag-us6 | **edge_oauth_relay 情形 A**（新建 prod stub + 自动签发 key） |
 | prod 已有 cc-us6，只换 edge OAuth token | **edge_oauth_relay 情形 B**（只动 edge，prod 跳过） |
 | 手里已有 edge 的 `tk_...`，不想自动签发 | **edge_oauth_relay 情形 C**（`prod_relay.edge_api_key`） |
@@ -155,7 +156,8 @@ dry-run 输出里关注：`prod_action=create`、`edge_api_key_issue.action` 为
 
 | 主题 | 用谁 |
 | --- | --- |
-| 账号导入 / edge relay | **本 skill** + `ops/accounts/` |
+| 账号导入 / edge relay JSON | **本 skill** + `ops/accounts/` |
+| 新 edge 全链路打通（create+probe） | `tokenkey-edge-prod-relay-onboard` |
 | Claude cookie → edge OAuth | `tokenkey-anthropic-oauth-cookie-edge` |
 | catalog / model_mapping / 上架模型 | `tokenkey-modelops-planner` |
 | 单账号单模型能不能通 | `tokenkey-account-model-probe` |

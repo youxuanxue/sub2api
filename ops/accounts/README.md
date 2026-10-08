@@ -4,6 +4,21 @@
 
 **环境**：Python 3.10+，无需安装项目依赖。
 
+### 新 edge 全链路打通（推荐）
+
+从零建 edge 分组 / 占位 OAuth / relay key / prod stub，并跑 gateway 探针时，用：
+
+```bash
+./edge-prod-relay-onboard.sh list-platforms
+./edge-prod-relay-onboard.sh plan  --platform antigravity --edge uk3
+./edge-prod-relay-onboard.sh apply --platform antigravity --edge uk3 --fetch-edge-admin-key --yes
+./edge-prod-relay-onboard.sh probe --platform antigravity --edge uk3
+```
+
+Agent 入口：`tokenkey-edge-prod-relay-onboard`。当前仅 `antigravity` 已证据落地；其它平台见 `relay_onboard_profiles.py` 占位。
+
+单次 JSON 导入仍用下方 `import-accounts.sh`。
+
 ---
 
 ## 先搞懂：TokenKey 上 OAuth 账号通常长什么样
