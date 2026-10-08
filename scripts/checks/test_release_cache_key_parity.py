@@ -28,10 +28,17 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
 
     def test_warm_workflow_runs_only_for_main_backend_build_inputs(self) -> None:
         workflow = load_workflow(WARM_WORKFLOW)
-        push = workflow_on(workflow)["push"]
+        on = workflow_on(workflow)
+        # Nightly + dependency/toolchain paths — not every Go source push.
+        self.assertIn("schedule", on)
+        self.assertTrue(any(item.get("cron") for item in on["schedule"]))
+        push = on["push"]
         self.assertEqual(push["branches"], ["main"])
-        self.assertIn("backend/**/*.go", push["paths"])
+        self.assertNotIn("backend/**/*.go", push["paths"])
+        self.assertIn("backend/go.mod", push["paths"])
+        self.assertIn("backend/go.sum", push["paths"])
         self.assertIn(".new-api-ref", push["paths"])
+        self.assertIn("workflow_dispatch", on)
         job = workflow["jobs"]["warm-release-cache"]
         self.assertEqual(job.get("if"), "github.ref == 'refs/heads/main'")
 

@@ -78,7 +78,7 @@ jobs:
           name: issue-watchdog-${{ matrix.source }}-${{ github.run_attempt }}
           path: .cache/issue-watchdog/
           include-hidden-files: true
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: error
 
       # A failed scan or GitHub update must not advance the persisted cursor.
@@ -164,4 +164,5 @@ jobs:
         with:
           name: issue-fix-output-${{ inputs.source }}-${{ github.run_attempt }}
           path: /tmp/issue-fix-agent-output.txt
+          retention-days: 3
           if-no-files-found: warn

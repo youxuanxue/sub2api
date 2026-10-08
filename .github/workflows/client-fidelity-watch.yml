@@ -80,6 +80,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
+          retention-days: 3
           name: client-fidelity-release-${{ github.run_id }}
           path: |
             .cache/fingerprint/client-release-watch/report.json
@@ -166,6 +167,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
+          retention-days: 3
           name: client-fidelity-prompt-${{ github.run_id }}
           path: .cache/prompt-surface-watch/
           if-no-files-found: ignore
@@ -263,6 +265,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always() && steps.precheck.outputs.skip == 'false'
         with:
+          retention-days: 3
           name: client-fidelity-prompt-${{ github.run_id }}
           path: .cache/prompt-surface-watch/
           if-no-files-found: ignore
@@ -359,6 +362,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always() && steps.precheck.outputs.skip == 'false'
         with:
+          retention-days: 3
           name: client-fidelity-oauth-mimic-${{ github.run_id }}
           path: .cache/oauth-mimic-watch/
           if-no-files-found: ignore
@@ -428,6 +432,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always() && steps.precheck.outputs.skip == 'false'
         with:
+          retention-days: 3
           name: client-fidelity-kiro-parity-${{ github.run_id }}
           path: .cache/kiro-profile-parity/
           if-no-files-found: ignore
@@ -553,6 +558,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
+          retention-days: 3
           name: client-fidelity-watch-${{ github.run_id }}
           path: .cache/fingerprint/client-fidelity-watch/
           if-no-files-found: ignore

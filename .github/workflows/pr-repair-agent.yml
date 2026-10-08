@@ -308,6 +308,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
+          retention-days: 3
           name: pr-repair-agent-output
           path: |
             /tmp/pr-repair-agent-output.txt

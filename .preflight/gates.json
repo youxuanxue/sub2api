@@ -176,6 +176,7 @@
     "release/warm Go cache key parity": "build",
     "Go cache prune plan": "build",
     "Go cache boundary contract": "build",
+    "artifact retention contract": "build",
     "GitHub cache action Node runtime": "build",
     "backend-ci routing and base-ref contract": "build",
     "Docker action Node runtime": "build",
