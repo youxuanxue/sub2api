@@ -969,7 +969,6 @@ const en: LocaleOverlay = {
       "curl": "A runnable HTTP request for integration and diagnostics.",
       "python": "A runnable Python SDK example."
     },
-
     "noKeys": "You have no API keys yet. Create one before configuring a client.",
     "createKey": "Create API Key",
     "manageKeys": "Manage Keys",
@@ -1939,7 +1938,6 @@ const zh: LocaleOverlay = {
       "curl": "用于集成和排障的可运行 HTTP 请求。",
       "python": "可直接运行的 Python SDK 示例。"
     },
-
     "noKeys": "你还没有 API Key，先创建一把再配置客户端。",
     "createKey": "创建 API Key",
     "manageKeys": "管理 Key",

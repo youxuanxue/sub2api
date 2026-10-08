@@ -1410,8 +1410,11 @@ function generateCompatibleClientFields(
   const files: FileConfig[] = [{
     path: t('quickstart.configFields'),
     content: fields.join('\n'),
-    hint: client === 'cursor' ? t('quickstart.cursorSecretHint') : t('quickstart.secretUiHint'),
+    hint: t('quickstart.secretUiHint'),
   }]
+  if (client === 'cursor') {
+    files[0].hint = t('quickstart.cursorSecretHint')
+  }
   if (client === 'dify') {
     const showLimit = (value?: number) => value && value > 0 ? `$${value}` : t('quickstart.unlimited')
     files.push({
