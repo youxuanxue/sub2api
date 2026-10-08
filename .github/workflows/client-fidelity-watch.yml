@@ -7,7 +7,7 @@ name: Client Fidelity Watch
 
 on:
   schedule:
-    # GitHub cron is UTC. Sequential: release scan → registry-gate → prod-aggregate → edge-oauth-mimic.
+    # GitHub cron is UTC. release-scan → registry-gate → (prod / edge-oauth / kiro in parallel).
     - cron: "3 23 * * *"
   workflow_dispatch:
     inputs:
@@ -39,9 +39,8 @@ jobs:
       has_drift: ${{ steps.watch.outputs.has_drift }}
       drift_count: ${{ steps.watch.outputs.drift_count }}
     steps:
+      # Python-only release poll — no submodule tree required.
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
       - name: Scan upstream client releases
         id: watch
@@ -93,6 +92,9 @@ jobs:
     needs: release-scan
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Test build objects omit DWARF; matches backend-ci test-unit family keys.
+      GOFLAGS: -trimpath -gcflags=all=-dwarf=false
     steps:
       - uses: actions/checkout@v6
         with:
@@ -100,22 +102,34 @@ jobs:
 
       - uses: ./.github/actions/cache-and-checkout-new-api
 
+      # cache:false + go-rolling-cache — same restore-only pattern as backend-ci
+      # test-unit. Without it this job cold-compiles prompt-surface packages daily.
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           check-latest: false
           cache: false
           cache-dependency-path: backend/go.sum
+      - uses: ./.github/actions/go-rolling-cache
+        with:
+          family: test
+          fallback_prefix: unit-nodwarf-v3
+          save_caches: "false"
 
       - name: Registry + fixture gateway gate
+        env:
+          # Unittest suite re-invokes --check-fixture-gateway; skip the duplicate
+          # after the explicit call below so fixture go test runs once.
+          PREFLIGHT_SKIP_PROMPT_FIXTURE_GATEWAY: "1"
         run: |
           set -euo pipefail
           python3 ops/anthropic/probe_prompt_surfaces.py --check-registry
           python3 ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway
           (
             cd backend
+            # Omit JSONL gateway coverage case: without the probe env it only Skip.
             go test -tags=unit ./internal/service \
-              -run 'TestTkExtractAnthropicPromptFingerprint|TestTkValidateAnthropicToolContext|TestTkRejectInvalidAnthropicToolContext|TestTkProbePromptSurfaceGatewayCoverageJSONL|TestTkNormalizeCCGeo|TestCanonicalIdentityIsSingleSourceOfTruth|TestGetOrCreateFingerprint_CanonicalProfile' \
+              -run 'TestTkExtractAnthropicPromptFingerprint|TestTkValidateAnthropicToolContext|TestTkRejectInvalidAnthropicToolContext|TestTkNormalizeCCGeo|TestCanonicalIdentityIsSingleSourceOfTruth|TestGetOrCreateFingerprint_CanonicalProfile' \
               -count=1
             go test -tags=unit ./internal/handler \
               -run 'TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient' \
