@@ -27,7 +27,7 @@ Posture (thin / idle-thin / no-accounts) is NOT paged and NOT in the state key â
 and no-accounts edges for context when an incident fires.
 The persisted key is actionable-only (`a:down-active:<edge>` for active down,
 `a:<verdict>:<edge>` otherwise; legacy `a:down:` leading entries ignored on read).
-Same actionable set => no re-alert across watch-slot cycles (currently 30m).
+Same actionable set => no re-alert across 15-minute cycles.
 
 Input (stdin): one verdict JSON object per line (scan-edge-health.sh --json).
 Args:
