@@ -28,8 +28,7 @@
     "gemini-web-pro": "gemini-3.1-pro",
     "gemini-web-pro-image": "gemini-3.1-flash-image",
     "gemini-web-nano-banana-pro": "gemini-3-pro-image",
-    "gpt-6.1": "gpt-6.1-sol",
-    "doubao-seedream-5.0-pro": "doubao-seedream-5-0-pro"
+    "gpt-6.1": "gpt-6.1-sol"
   },
   "_config": {
     "official_list_base_tax": {

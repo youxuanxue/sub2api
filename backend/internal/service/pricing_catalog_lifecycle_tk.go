@@ -51,11 +51,6 @@ var catalogModelWithdrawals = []catalogModelWithdrawal{
 		ModelIDs: []string{"minimax-m2.7"},
 	},
 	{
-		Source:   "https://ark.volcengine.com/docs/82379/2578673",
-		Sunset:   "2026-08-08",
-		ModelIDs: []string{"doubao-seed-2.0-code", "doubao-seed-2.0-pro"},
-	},
-	{
 		Source: "https://www.volcengine.com/docs/82379/2375486",
 		Sunset: "2026-10-08",
 		ModelIDs: []string{
