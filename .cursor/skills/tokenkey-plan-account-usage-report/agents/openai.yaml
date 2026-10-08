@@ -1,0 +1,4 @@
+interface:
+  display_name: "TokenKey Plan Account Usage Report"
+  short_description: "Refresh plan-account monthly metering and peak RPM/TPM report"
+  default_prompt: "Use $tokenkey-plan-account-usage-report to regenerate the read-only plan account usage report for a month or custom period."
