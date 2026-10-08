@@ -396,8 +396,25 @@ func shouldBypassEmbeddedFrontend(path string) bool {
 		// index.html，deploy_via_ssm.sh 的 in_flight=0 等待会空转满 ~76s（已在
 		// prod 1.7.68 实测坐实）。见 internal/server/routes/common.go 的注册。
 		strings.HasPrefix(trimmed, "/health/") ||
+		trimmed == "/models" ||
+		strings.HasPrefix(trimmed, "/models/") ||
 		trimmed == "/responses" ||
 		strings.HasPrefix(trimmed, "/responses/") ||
+		trimmed == "/chat/completions" ||
+		trimmed == "/embeddings" ||
+		trimmed == "/messages/count_tokens" ||
+		trimmed == "/alpha/search" ||
+		trimmed == "/web_search" ||
+		trimmed == "/x_search" ||
+		trimmed == "/tts" ||
+		trimmed == "/stt" ||
+		trimmed == "/realtime" ||
+		trimmed == "/custom-voices" ||
+		strings.HasPrefix(trimmed, "/custom-voices/") ||
+		trimmed == "/contents/generations/tasks" ||
+		strings.HasPrefix(trimmed, "/contents/generations/tasks/") ||
+		trimmed == "/v3/contents/generations/tasks" ||
+		strings.HasPrefix(trimmed, "/v3/contents/generations/tasks/") ||
 		strings.HasPrefix(trimmed, "/images/") ||
 		trimmed == "/video" ||
 		strings.HasPrefix(trimmed, "/video/") ||

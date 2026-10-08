@@ -1267,7 +1267,7 @@ ${codexRemoteCatalogToml.value}wire_api = "responses"
 requires_openai_auth = true
 
 [features]
-goals = true`
+${codexCatalogMode.value === 'remote' ? 'api_key_model_discovery = true\n' : ''}goals = true`
 
   // auth.json content
   const authContent = `{
@@ -1307,7 +1307,7 @@ supports_websockets = true
 requires_openai_auth = true
 
 [features]
-responses_websockets_v2 = true
+${codexCatalogMode.value === 'remote' ? 'api_key_model_discovery = true\n' : ''}responses_websockets_v2 = true
 goals = true`
 
   // auth.json content

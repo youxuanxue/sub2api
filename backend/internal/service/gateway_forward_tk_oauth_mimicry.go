@@ -121,6 +121,10 @@ func (s *GatewayService) tkApplyClaudeOAuthMimicry(
 			return newReqModel, isClaudeCode, shouldMimicClaudeCode, err
 		}
 	}
+	body = getBody()
+	if err := replaceBody(enforceCacheControlLimit(body)); err != nil {
+		return newReqModel, isClaudeCode, shouldMimicClaudeCode, err
+	}
 
 	return newReqModel, isClaudeCode, shouldMimicClaudeCode, nil
 }

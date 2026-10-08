@@ -375,6 +375,7 @@ func createTestPayload(modelID string) (map[string]any, error) {
 // mode is optional - "compact" routes OpenAI accounts to the /responses/compact probe path
 // opts is optional media (image/audio data URLs for real generation / STT).
 func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string, opts ...AccountTestOptions) error {
+	initAccountTestLogger(c, accountID, modelID, mode)
 	ctx := c.Request.Context()
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
@@ -402,6 +403,7 @@ func (s *AccountTestService) testAccountConnectionWithAccount(c *gin.Context, ac
 		s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 		return nil
 	}
+	bindAccountTestPlatform(c, account)
 
 	// Route to platform-specific test method
 	if account.IsCNProvider() {
@@ -464,6 +466,9 @@ func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, acc
 		testModelID = DefaultOpenCodeGoTestModel
 	}
 	testModelID = account.GetMappedModel(testModelID)
+	if IsOpenCodeUnsupportedModel(testModelID) {
+		return fmt.Errorf("model %q is not supported on OpenCode standard gateway (gemini models require Google SDK endpoint, jev models require System One endpoint)", testModelID)
+	}
 	proto := account.GetAPIProtocol()
 	switch proto {
 	case APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses:
@@ -2315,7 +2320,7 @@ func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
 func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) error {
 	suppressLog, _ := c.Get(accountTestSuppressErrorLogContextKey)
 	if suppress, _ := suppressLog.(bool); !suppress {
-		log.Printf("Account test error: %s", errorMsg)
+		logAccountTestError(c, errorMsg)
 	}
 	s.sendEvent(c, TestEvent{Type: "error", Error: errorMsg})
 	return fmt.Errorf("%s", errorMsg)
@@ -2329,6 +2334,7 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 	w := httptest.NewRecorder()
 	ginCtx, _ := gin.CreateTestContext(w)
 	ginCtx.Request = (&http.Request{}).WithContext(ctx)
+	ginCtx.Set(accountTestBackgroundKey, true)
 
 	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, "", AccountTestModeDefault)
 

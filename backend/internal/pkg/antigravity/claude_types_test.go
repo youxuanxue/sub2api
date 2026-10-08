@@ -1,6 +1,9 @@
 package antigravity
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestDefaultModels_StructuralMetadata(t *testing.T) {
 	t.Parallel()
@@ -84,5 +87,25 @@ func TestDefaultGeminiModels_UsesGeminiShape(t *testing.T) {
 		if len(m.SupportedGenerationMethods) == 0 {
 			t.Fatalf("Gemini model %q must advertise generation methods", m.Name)
 		}
+	}
+}
+
+func TestClaudeContentItem_ThinkingAlwaysHasSignature(t *testing.T) {
+	t.Parallel()
+
+	data, err := json.Marshal(ClaudeContentItem{Type: "thinking", Thinking: "plan"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), `{"thinking":"plan","signature":"","type":"thinking"}`; got != want {
+		t.Fatalf("thinking block = %s, want %s", got, want)
+	}
+
+	data, err = json.Marshal(ClaudeContentItem{Type: "text", Text: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), `{"type":"text","text":"hi"}`; got != want {
+		t.Fatalf("text block = %s, want %s", got, want)
 	}
 }

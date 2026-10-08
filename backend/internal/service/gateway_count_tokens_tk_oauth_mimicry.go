@@ -58,6 +58,10 @@ func (s *GatewayService) tkApplyCountTokensOAuthMimicry(
 		}
 	}
 	body = getBody()
+	if err := replaceBody(enforceCacheControlLimit(body)); err != nil {
+		return shouldMimicClaudeCode, nextModel, err
+	}
+	body = getBody()
 	if strippedBody, _ := StripCountTokensUnsupportedFields(body); !bytes.Equal(strippedBody, body) {
 		if err := replaceBody(strippedBody); err != nil {
 			return shouldMimicClaudeCode, nextModel, err

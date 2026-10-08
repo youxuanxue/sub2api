@@ -42,7 +42,7 @@ func (h *GatewayHandler) tkServeModels(c *gin.Context) {
 	// selected group platform so cross-platform model_mapping entries on
 	// sibling accounts in the same group don't leak through.
 	if platform == service.PlatformComposite {
-		availableModels := omitTypeSafeFromChatCatalog(h.compositeAvailableModels(c.Request.Context(), groupID))
+		availableModels := omitTypeSafeFromChatCatalog(h.compositeAvailableModels(c.Request.Context(), groupID, "", true))
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 			fallbackModels := defaultModelIDsForPlatform(service.PlatformComposite)
 			availableModels = modelListingSource(platform, availableModels, fallbackModels)
@@ -119,7 +119,7 @@ func (h *GatewayHandler) tkServeModels(c *gin.Context) {
 	writeModelsListResponse(c, h.tkClaudeDefaultModelIDs(c.Request.Context(), platform))
 }
 
-func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64) []string {
+func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64, endpoint string, includeSystemOne bool) []string {
 	if h == nil || h.gatewayService == nil {
 		return nil
 	}
@@ -136,6 +136,19 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 			}
 		}
 		for _, model := range platformModels {
+			model = strings.TrimSpace(model)
+			if model == "" {
+				continue
+			}
+			if _, ok := seen[model]; ok {
+				continue
+			}
+			seen[model] = struct{}{}
+			models = append(models, model)
+		}
+	}
+	if routeModels, err := h.gatewayService.GetCompositeRouteModels(ctx, groupID, endpoint, includeSystemOne); err == nil {
+		for _, model := range routeModels {
 			model = strings.TrimSpace(model)
 			if model == "" {
 				continue
