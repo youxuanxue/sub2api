@@ -95,9 +95,15 @@
     },
     {
       "vendor": "doubao",
-      "model_id": "doubao-seed-2.1-turbo",
-      "source_url": "https://seed.bytedance.com/zh/blog/seed2-1-officially-released-advancing-ai-productivity",
-      "notes": "public Seed 2.1 family"
+      "model_id": "doubao-seed-2.1-lite",
+      "source_url": "https://www.volcengine.com/docs/82379/1544106",
+      "notes": "Volc Agent Plan Seed 2.1 lite; online list CNY 0.80/2.70 per Mtok"
+    },
+    {
+      "vendor": "doubao",
+      "model_id": "doubao-seedream-5-0-pro",
+      "source_url": "https://ai.volcengine.com/model",
+      "notes": "Volc Agent Plan Seedream 5.0 Pro; alias doubao-seedream-5.0-pro"
     },
     {
       "vendor": "deepseek",

@@ -41,13 +41,22 @@ func TestVolcEnginePlanAliasesAndProviderIsolation(t *testing.T) {
 	}
 	require.Contains(t, tkServedModelsManifestPresetIDsByChannelType(17), "glm-5.2")
 	require.Contains(t, tkServedModelsManifestPresetIDsByChannelType(25), "kimi-k2.6")
-	for _, model := range []string{"doubao-embedding-vision", "doubao-seedream-5.0-lite"} {
+	for _, model := range []string{"doubao-embedding-vision", "doubao-seedream-5-0-pro", "doubao-seed-2.1-lite", "deepseek-v4.1-flash"} {
 		require.Contains(t, display, model)
 		require.Equal(t, model, mapping[model])
 	}
+	require.Equal(t, "kimi-k2.8-preview", mapping["kimi-k2.8-preview"])
+	require.NotContains(t, display, "kimi-k2.8-preview", "no public catalog until Moonshot publishes PAYG list")
+	require.Equal(t, "deepseek-v4.1-flash", mapping["deepseek-flash"])
+	require.Equal(t, "kimi-k2.8-preview", mapping["kimi-k2.8"])
+	require.Equal(t, "doubao-seedream-5-0-pro", mapping["doubao-seedream-5.0-pro"])
+	for _, retired := range []string{"doubao-seed-2.1-turbo", "doubao-seed-2.0-code", "doubao-seed-2.0-pro", "doubao-seedream-5.0-lite"} {
+		require.NotContains(t, mapping, retired)
+		require.NotContains(t, display, retired)
+	}
 	payg := volcEnginePlanTestAccount()
 	payg.Credentials["base_url"] = "https://ark.cn-beijing.volces.com"
-	require.NotContains(t, NewAPIModelMappingPresetIDsForAccount(payg), "doubao-seedream-5.0-lite")
+	require.NotContains(t, NewAPIModelMappingPresetIDsForAccount(payg), "doubao-seedream-5-0-pro")
 }
 
 func TestVolcEnginePlanNativeMediaForward(t *testing.T) {
@@ -57,7 +66,7 @@ func TestVolcEnginePlanNativeMediaForward(t *testing.T) {
 	}{
 		{"text", BridgeEndpointEmbeddings, `{"model":"doubao-embedding-vision","input":["hello","world"],"dimensions":1024}`, `{"data":[{"embedding":[0.1,0.2]}],"usage":{"prompt_tokens":24,"total_tokens":24}}`, "embeddings", 0, 0},
 		{"multimodal", BridgeEndpointEmbeddings, `{"model":"doubao-embedding-vision","input":[{"type":"text","text":"test"},{"type":"image_url","image_url":{"url":"https://example.com/test.png"}}]}`, `{"data":{"embedding":[0.1,0.2]},"usage":{"prompt_tokens":1339,"total_tokens":1339,"prompt_tokens_details":{"text_tokens":27,"image_tokens":1312}}}`, "embeddings/multimodal", 1312, 0},
-		{"images", BridgeEndpointImages, `{"model":"doubao-seedream-5.0-lite","prompt":"test","n":3,"size":"2K"}`, `{"data":[{"url":"https://example.com/test.png"}],"usage":{"generated_images":1,"output_tokens":16384,"total_tokens":16384}}`, "images/generations", 0, 1},
+		{"images", BridgeEndpointImages, `{"model":"doubao-seedream-5-0-pro","prompt":"test","n":3,"size":"2K"}`, `{"data":[{"url":"https://example.com/test.png"}],"usage":{"generated_images":1,"output_tokens":16384,"total_tokens":16384}}`, "images/generations", 0, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body := []byte(tc.input)
@@ -96,7 +105,7 @@ func TestNormalizeVolcEnginePlanEmbeddingResponse(t *testing.T) {
 
 func TestVolcEnginePlanRejectsUnsupportedMediaBeforeSending(t *testing.T) {
 	for _, body := range []string{
-		`{"model":"doubao-seedream-5.0-lite","prompt":"test","stream":true}`,
+		`{"model":"doubao-seedream-5-0-pro","prompt":"test","stream":true}`,
 		`{"model":"doubao-embedding-vision","input":[{"type":"text","text":"hello"}],"encoding_format":"base64"}`,
 	} {
 		recorder := httptest.NewRecorder()
@@ -127,7 +136,7 @@ func TestVolcEnginePlanLargeImageResponseAndBodyRelease(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
-	request := `{"model":"doubao-seedream-5.0-lite","prompt":"test","response_format":"b64_json"}`
+	request := `{"model":"doubao-seedream-5-0-pro","prompt":"test","response_format":"b64_json"}`
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(request))
 	result, err := svc.ForwardAsImageGenerationsDispatched(context.Background(), c, volcEnginePlanTestAccount(), []byte(request), "")
 	require.NoError(t, err)
