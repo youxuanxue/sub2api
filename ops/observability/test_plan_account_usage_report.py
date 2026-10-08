@@ -68,6 +68,23 @@ class PlanAccountUsageReportTest(unittest.TestCase):
         self.assertEqual(start.isoformat(), "2026-12-01T00:00:00+08:00")
         self.assertEqual(end.isoformat(), "2027-01-01T00:00:00+08:00")
 
+    def test_parse_month_rejects_invalid(self) -> None:
+        with self.assertRaises(REPORT.PlanUsageReportError):
+            REPORT.parse_month("2026/09")
+        with self.assertRaises(REPORT.PlanUsageReportError):
+            REPORT.parse_month("26-09")
+
+    def test_collect_rejects_inverted_period(self) -> None:
+        start, end = REPORT.parse_month("2026-09")
+        with self.assertRaises(REPORT.PlanUsageReportError):
+            REPORT.collect(
+                period_start=end,
+                period_end=start,
+                raw_dir=Path("/tmp/unused-plan-usage-raw"),
+                include_prod=False,
+                edges=[],
+            )
+
     def test_format_psql_timestamptz(self) -> None:
         start, _ = REPORT.parse_month("2026-09")
         self.assertEqual(REPORT.format_psql_timestamptz(start), "2026-09-01 00:00:00+08")
@@ -84,6 +101,49 @@ class PlanAccountUsageReportTest(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["target"], "prod")
         self.assertEqual(rows[0]["account_id"], 1)
+
+    def test_accounts_in_period_drops_created_at_or_after_end(self) -> None:
+        _, end = REPORT.parse_month("2026-09")
+        rows = [
+            _account(
+                plan_kind="nvidia_build",
+                account_id=1,
+                name="in-period",
+            ),
+            {
+                **_account(
+                    plan_kind="nvidia_build",
+                    account_id=2,
+                    name="post-period",
+                ),
+                "created_at_utc": "2026-10-07T06:48:00+00:00",
+            },
+        ]
+        kept = REPORT.accounts_in_period(rows, period_end=end)
+        self.assertEqual([row["account_id"] for row in kept], [1])
+
+    def test_render_rejects_dollar_sign(self) -> None:
+        start, end = REPORT.parse_month("2026-09")
+        manifest = {
+            "period_start": start.isoformat(),
+            "period_end": end.isoformat(),
+            "sampled_at_utc": "2026-10-08T12:00:00Z",
+            "targets": ["prod"],
+        }
+        documents = [
+            {
+                "target": "prod",
+                "accounts": [
+                    _account(
+                        plan_kind="ali_token_plan",
+                        account_id=1,
+                        name="bad$name",
+                    )
+                ],
+            }
+        ]
+        with self.assertRaises(REPORT.PlanUsageReportError):
+            REPORT.render_markdown(manifest=manifest, documents=documents)
 
     def test_render_markdown_uses_tpm_millions_without_dollar(self) -> None:
         start, end = REPORT.parse_month("2026-09")

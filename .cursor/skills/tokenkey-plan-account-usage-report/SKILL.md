@@ -54,11 +54,12 @@ python3 ops/observability/plan_account_usage_report.py render \
   - Ali Token Plan：ch17 + `token-plan.cn-beijing.maas.aliyuncs.com`
   - Qianfan Token Plan：ch46 + `.../tokenplan/personal`
   - NVIDIA Build：ch1 + `integrate.api.nvidia.com`
-- **month**：`[period_start, period_end)` 内 `usage_logs` 合计（`total_cost` / `actual_cost`）。
+- **month**：`[period_start, period_end)` 内 `usage_logs` 合计（`total_cost` / `actual_cost`；不做额外 status 过滤）。
+- **账号范围**：`created_at < period_end`；周期结束后新建的账号不进表。
 - **max5h / max7d**：从 `period_start` 起**非重叠步进**（5h / 7d），只保留完整格子，取 total_cost 最大格；不是 1h/1d 滚动窗。
 - **peak_rpm / peak_tpm**：周期内分钟桶峰值；报告里 TPM 用 **million**（/1e6）。
 - Edge 列表：`python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable`。
-- Markdown **禁止美元符号**（预览会把 `$...$` 当公式弄乱表格）。
+- Markdown **禁止美元符号**（预览会把美元符号当公式弄乱表格）。
 
 脚本已算完的数字，prompt 不要重算。失败（`status!=Success` / 非零退出）如实报告，绝不编数。
 

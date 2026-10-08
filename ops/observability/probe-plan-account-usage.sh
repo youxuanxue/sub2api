@@ -48,6 +48,7 @@ scoped AS (
     a.status,
     a.schedulable,
     a.channel_type,
+    a.created_at,
     a.created_at AT TIME ZONE 'UTC' AS created_at_utc,
     a.last_used_at AT TIME ZONE 'UTC' AS last_used_at_utc,
     lower(rtrim(COALESCE(a.credentials->>'base_url', ''), '/')) AS base_url,
@@ -79,7 +80,12 @@ scoped AS (
   WHERE a.deleted_at IS NULL
 ),
 targets AS (
-  SELECT * FROM scoped WHERE plan_kind IS NOT NULL
+  -- Historical periods must not include accounts created at/after period_end.
+  SELECT s.*
+  FROM scoped s
+  CROSS JOIN bounds b
+  WHERE s.plan_kind IS NOT NULL
+    AND s.created_at < b.period_end
 ),
 month_usage AS (
   SELECT
@@ -241,43 +247,5 @@ FROM (
   LEFT JOIN max_7d m7 ON m7.account_id = tg.id
   LEFT JOIN peaks p ON p.account_id = tg.id
   ORDER BY tg.plan_kind, tg.id
-) t;
-SQL
-
-echo "=== summary_by_plan_kind ==="
-"${PSQL[@]}" <<'SQL'
-WITH scoped AS (
-  SELECT a.id,
-    CASE
-      WHEN a.channel_type = 45
-        AND (
-          lower(rtrim(COALESCE(a.credentials->>'base_url', ''), '/'))
-            LIKE 'https://ark.cn-beijing.volces.com/api/plan/v3%'
-          OR lower(COALESCE(a.credentials->>'base_url', '')) IN ('doubao-agent-plan')
-        ) THEN 'volcengine_agent_plan'
-      WHEN a.channel_type = 17
-        AND lower(rtrim(COALESCE(a.credentials->>'base_url', ''), '/'))
-            LIKE 'https://token-plan.cn-beijing.maas.aliyuncs.com%'
-        THEN 'ali_token_plan'
-      WHEN a.channel_type = 46
-        AND (
-          lower(rtrim(COALESCE(a.credentials->>'base_url', ''), '/'))
-            LIKE 'https://qianfan.baidubce.com/v2/tokenplan/personal%'
-          OR lower(rtrim(COALESCE(a.credentials->>'base_url', ''), '/'))
-            LIKE 'https://qianfan.baidubce.com/anthropic/tokenplan/personal%'
-        ) THEN 'qianfan_token_plan'
-      WHEN a.channel_type = 1
-        AND lower(rtrim(COALESCE(a.credentials->>'base_url', ''), '/'))
-            = 'https://integrate.api.nvidia.com'
-        THEN 'nvidia_build'
-      ELSE NULL
-    END AS plan_kind
-  FROM accounts a
-  WHERE a.deleted_at IS NULL
-)
-SELECT row_to_json(t) FROM (
-  SELECT plan_kind, count(*) AS accounts
-  FROM scoped WHERE plan_kind IS NOT NULL
-  GROUP BY plan_kind ORDER BY plan_kind
 ) t;
 SQL

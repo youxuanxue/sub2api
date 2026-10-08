@@ -11,7 +11,7 @@ import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 from zoneinfo import ZoneInfo
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -206,13 +206,48 @@ def load_raw_dir(raw_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     return manifest, documents
 
 
-def flatten_accounts(documents: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+def _account_created_at(row: dict[str, Any]) -> dt.datetime | None:
+    value = row.get("created_at_utc") or row.get("created_at")
+    if not value:
+        return None
+    text = str(value).replace("Z", "+00:00")
+    if "+" not in text[10:] and not text.endswith("Z"):
+        # Naive UTC from probe (created_at AT TIME ZONE 'UTC').
+        text = f"{text}+00:00"
+    try:
+        moment = dt.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=dt.timezone.utc)
+    return moment
+
+
+def accounts_in_period(
+    rows: Sequence[dict[str, Any]], *, period_end: dt.datetime
+) -> list[dict[str, Any]]:
+    """Drop accounts created at/after period_end (defense for cached raw JSON)."""
+    end = period_end.astimezone(dt.timezone.utc)
+    kept: list[dict[str, Any]] = []
+    for row in rows:
+        created = _account_created_at(row)
+        if created is not None and created >= end:
+            continue
+        kept.append(row)
+    return kept
+
+
+def flatten_accounts(
+    documents: Sequence[dict[str, Any]], *, period_end: dt.datetime | None = None
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for document in documents:
         for account in document.get("accounts", []):
             row = dict(account)
             row["target"] = document["target"]
             rows.append(row)
+    if period_end is not None:
+        return accounts_in_period(rows, period_end=period_end)
     return rows
 
 
@@ -261,9 +296,9 @@ def render_markdown(
     documents: Sequence[dict[str, Any]],
     sampled_at: str | None = None,
 ) -> str:
-    rows = flatten_accounts(documents)
     period_start = dt.datetime.fromisoformat(manifest["period_start"]).astimezone(SHANGHAI)
     period_end = dt.datetime.fromisoformat(manifest["period_end"]).astimezone(SHANGHAI)
+    rows = flatten_accounts(documents, period_end=period_end)
     sampled = sampled_at or str(manifest.get("sampled_at_utc") or "-")
     stamp = period_start.strftime("%Y-%m")
 
@@ -298,7 +333,7 @@ def render_markdown(
     a("")
     a("### 月度总量（month）")
     a("")
-    a("- 周期内该账号所有成功请求的 `total_cost` / `actual_cost` 合计。")
+    a("- 周期内该账号所有 `usage_logs` 行的 `total_cost` / `actual_cost` 合计（不做额外 status 过滤）。")
     a("- 当统计窗是一个自然月时，**month 最大值 = 月度总量**。")
     a("")
     a("### 5h / 7d 最大值（非滚动、步进切片）")
@@ -312,7 +347,7 @@ def render_markdown(
     a("")
     a("### 峰值 RPM / TPM")
     a("")
-    a("- 只看周期内成功 `usage_logs`。")
+    a("- 只看周期内 `usage_logs`。")
     a("- 按分钟桶：该分钟请求数 = RPM；input+output+cache token 合计 = TPM。")
     a("- **TPM 以 million 计**：原始 token 数 / 1,000,000，保留两位小数。")
     a("- 取周期内最大分钟值，并标注出现时间（北京时间）。")
@@ -321,6 +356,7 @@ def render_markdown(
     a("")
     a("- Edge 与 Prod 是各自本地账本，同名账号不能直接加总（ID 也不共用）。")
     a("- 某环境无匹配账号时明细为空，汇总计 0。")
+    a("- 只纳入 **创建时间早于 period_end** 的账号；周期结束后新建的账号不进表。")
     a("")
     a("## 二、汇总")
     a("")
@@ -491,7 +527,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             manifest=result["manifest"], documents=result["documents"]
         )
         write_report(output, markdown)
-        print(f"wrote {output} accounts={sum(len(d['accounts']) for d in result['documents'])}")
+        kept = flatten_accounts(result["documents"], period_end=period_end)
+        print(f"wrote {output} accounts={len(kept)}")
         return 0
 
     if args.command == "render":
@@ -500,7 +537,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         output = args.output if args.output.is_absolute() else root / args.output
         markdown = render_markdown(manifest=manifest, documents=documents)
         write_report(output, markdown)
-        print(f"wrote {output} accounts={sum(len(d['accounts']) for d in documents)}")
+        period_end = dt.datetime.fromisoformat(manifest["period_end"])
+        kept = flatten_accounts(documents, period_end=period_end)
+        print(f"wrote {output} accounts={len(kept)}")
         return 0
 
     parser.error(f"unknown command {args.command}")
