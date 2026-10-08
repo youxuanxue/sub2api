@@ -31,6 +31,10 @@ Codex 不自动加载 `.cursor/rules/*.mdc`；需要时按下表路径读取对�
 与供应源凭据故障 owner 继续共享；执行读取实际账号和 Plan，计费组平台不参与选号或
 handler 选择。测试及发布前缺口见 US-050，本地实现不代表已部署。
 
+多模态供应能力门（`ContentKinds` ∩ known-negative）见
+[`docs/approved/multimodal-supply-capability-ssot.md`](docs/approved/multimodal-supply-capability-ssot.md)
+（协作检索名：`multimodal-supply-capability-ssot`）；不重写 Plan。
+
 ## Trajectory SSOT
 
 `traj-ssot`：会话导出契约与唯一 owner 清单见

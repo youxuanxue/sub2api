@@ -62,6 +62,8 @@ HTTP Request → Auth (JWT/APIKey) → Account Scheduling (sticky/load-aware)
 
 **Scheduling and authorized support:** the current policy is owned by
 [`candidate-eligibility-ssot.md`](../approved/candidate-eligibility-ssot.md).
+Multimodal supply gate (`ContentKinds` ∩ known-negative, not a Plan rewrite):
+[`multimodal-supply-capability-ssot.md`](../approved/multimodal-supply-capability-ssot.md).
 Candidate execution and discovery use complete authorization paths and the actual
 account's Plan. Legacy platform-pool helpers serve explicitly non-candidate callers;
 their group-platform partition is not the current candidate policy. User pricing

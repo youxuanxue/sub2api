@@ -181,7 +181,7 @@ func preservesMessagesToResponsesContent(req CanonicalRequest) bool {
 	if req.profile.ContentKinds == 0 {
 		return false
 	}
-	allowed := ContentText | ContentImage | ContentUnknown
+	allowed := ContentText | ContentImage | ContentVideo | ContentUnknown
 	return req.profile.ContentKinds&^allowed == 0
 }
 

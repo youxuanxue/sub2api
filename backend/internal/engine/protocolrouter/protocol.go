@@ -81,6 +81,8 @@ const (
 	ContentAudio
 	ContentFile
 	ContentUnknown
+	// ContentVideo is appended after ContentUnknown so existing bit values stay stable.
+	ContentVideo
 )
 
 type RequestProfile struct {

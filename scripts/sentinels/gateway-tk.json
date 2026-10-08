@@ -2892,6 +2892,7 @@
       "path": "backend/internal/service/candidate_eligibility.go",
       "must_contain": [
         "geminiWebSupportsRequest(ctx, account, model, shape)",
+        "accountAdmitsRequestInputModalities(ctx, account, model)",
         "func (s *GatewayService) evaluateGroupCandidates(",
         "protocolPlanForAccount(ctx, account, model)",
         "s.isClaudeNewAPICrossPlatformAccountAllowed",
@@ -2905,7 +2906,36 @@
         "ListAllWithFilters",
         "result.Supported"
       ],
-      "rationale": "Shared request support and the legacy group adapter retain support/error classification, including main Gemini and count-token fixes. Non-admitting peers must not surface capability-unknown as a platform routing fault. Production account selection is separately anchored."
+      "rationale": "Shared request support and the legacy group adapter retain support/error classification, including main Gemini and count-token fixes. Non-admitting peers must not surface capability-unknown as a platform routing fault. Production account selection is separately anchored. Multimodal supply admit is wired here but owned by candidate_multimodal_supply_tk.go."
+    },
+    {
+      "path": "backend/internal/service/candidate_multimodal_supply_tk.go",
+      "must_contain": [
+        "func accountAdmitsRequestInputModalities(",
+        "func supplyKnownNegativeForInputVideo(",
+        "protocolrouter.ContentVideo",
+        "isNewAPINVIDIABuildAccount(account)",
+        "case \"kimi-k3\":"
+      ],
+      "rationale": "Evidence-backed multimodal supply known-negatives stay in one owner; candidateSupportsRequest must call the admit predicate without inlining the table."
+    },
+    {
+      "path": "backend/internal/service/candidate_multimodal_supply_tk_test.go",
+      "must_contain": [
+        "func TestSupplyKnownNegativeForInputVideoKimiK3NVIDIA(",
+        "func TestAccountAdmitsRequestInputModalitiesVideoGate(",
+        "func TestCandidateSupportsRequestRejectsNVIDIAKimiK3Video(",
+        "func TestCandidateSelectionPrefersVolcForKimiK3Video("
+      ],
+      "rationale": "P1/N1/R1 multimodal supply regressions for kimi-k3 video must survive upstream merges."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/parse_request.go",
+      "must_contain": [
+        "case \"video\", \"input_video\", \"video_url\":",
+        "kinds |= ContentVideo"
+      ],
+      "rationale": "Request ContentKinds must classify video parts so the multimodal supply gate can intersect known-negatives."
     },
     {
       "path": "backend/internal/service/gemini_web_request_tk.go",

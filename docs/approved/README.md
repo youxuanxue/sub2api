@@ -52,6 +52,7 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | endpoint 原生协议与 generation 路由合法性 | [协议路由](protocol-routing-ssot.md) |
 | Responses bridge 参数错误、流式终止及运营错误边界 | [Responses bridge 参数错误分类](responses-bridge-client-error.md) |
 | 授权范围内的候选资格、账号调度与实现 owner | [候选资格 Owners 表](candidate-eligibility-ssot.md#owners) |
+| 请求输入模态 × 供应侧已知能力（ContentKinds ∩ known-negative） | [多模态供应能力门](multimodal-supply-capability-ssot.md) |
 | Studio / Quickstart 生图参数与请求示例 | [生图能力与接入示例](image-generation-quickstart-studio.md)（GPT 精确画布见 [strict canvas](gpt-image-strict-canvas-postprocess.md)，已合并） |
 | Key 授权与计费归属 | [Universal key routing](universal-key-routing.md) |
 | 推理响应 `usage.cost` 标准官方价出口 | [Response usage.cost](response-usage-cost.md) |
@@ -98,6 +99,7 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | [`gpt-image-strict-canvas-postprocess.md`](gpt-image-strict-canvas-postprocess.md) | GPT Image local exact canvas + format post-process（已合并 #2385） |
 | [`universal-key-routing.md`](universal-key-routing.md) | Universal key routing |
 | [`candidate-eligibility-ssot.md`](candidate-eligibility-ssot.md) | Candidate scheduling policy and implementation boundary |
+| [`multimodal-supply-capability-ssot.md`](multimodal-supply-capability-ssot.md) | Multimodal supply gate: ContentKinds ∩ evidence-backed known-negatives (not a Plan rewrite) |
 | [`design-candidate-routing-runtime-snapshot.md`](design-candidate-routing-runtime-snapshot.md) | Candidate read snapshot, canonical request and QA redaction performance plan |
 | [`rolling-capacity-saturation.md`](rolling-capacity-saturation.md) | Rolling account-capacity saturation scheduling |
 | [`candidate-request-policy-convergence.md`](candidate-request-policy-convergence.md) | Direct/Universal model mapping boundary and continuation migration impact |
