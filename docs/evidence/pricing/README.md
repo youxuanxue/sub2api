@@ -16,3 +16,4 @@ kept here. Unreferenced snapshots are deleted (same discipline as #1992).
 | [`aliyun_pricing_20260612.md`](aliyun_pricing_20260612.md) | Alibaba DashScope pricing capture used by existing overlay provenance. |
 | [`xai_pricing_20260815.md`](xai_pricing_20260815.md) | xAI Grok token pricing, inclusive 200k long-context tiers, and local usage-normalization evidence. |
 | [`dashscope_text_embeddings_20260909.md`](dashscope_text_embeddings_20260909.md) | DashScope text-embedding pricing provenance. |
+| [`official_align_20261008.md`](official_align_20261008.md) | 2026-10-08 official-page review of Pricing Registry Sensor draft #2493; applied USD families, deferred CNY÷6.7. |
