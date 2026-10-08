@@ -52,6 +52,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
+          retention-days: 3
           name: pricing-registry-sensor-${{ github.run_id }}
           path: |
             /tmp/pricing-registry-sensor.json

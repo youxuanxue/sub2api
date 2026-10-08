@@ -4018,6 +4018,22 @@ fi
 echo ""
 
 fi # preflight gate
+if _preflight_selected 'artifact retention contract'; then
+echo "=== sub2api: artifact retention contract ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by artifact retention contract)"
+    errors=$((errors + 1))
+elif ! python3 -m unittest scripts.checks.test_artifact_retention >/dev/null; then
+    echo "  FAIL: artifact retention contract"
+    echo "        — run: python3 -m unittest scripts.checks.test_artifact_retention -v"
+    errors=$((errors + 1))
+else
+    echo "  ok: high-churn workflow uploads declare bounded retention-days"
+fi
+
+echo ""
+
+fi # preflight gate
 if _preflight_selected 'GitHub cache action Node runtime'; then
 echo "=== sub2api: GitHub cache action Node runtime ==="
 if ! command -v python3 >/dev/null 2>&1; then

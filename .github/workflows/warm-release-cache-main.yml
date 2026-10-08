@@ -2,11 +2,17 @@ name: Warm Release Cache
 
 # Default-branch writer for the five managed Go cache families. Required CI
 # stays correct on a miss. This workflow is acceleration, not a required gate.
+#
+# Cadence: do NOT re-warm on every `backend/**/*.go` push — that was the largest
+# discretionary Actions spender (~10min × frequent main merges). Nightly +
+# dependency/toolchain path changes keep the rolling caches fresh enough.
 on:
+  schedule:
+    # 04:27 UTC daily (off :00/:30). Best-effort; workflow_dispatch remains available.
+    - cron: '27 4 * * *'
   push:
     branches: [main]
     paths:
-      - 'backend/**/*.go'
       - 'backend/go.mod'
       - 'backend/go.sum'
       - 'backend/.golangci.yml'

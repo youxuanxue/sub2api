@@ -445,6 +445,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
+          retention-days: 7
           name: gateway-capability-plan
           path: ${{ runner.temp }}/gateway-capabilities/*.json
           if-no-files-found: warn

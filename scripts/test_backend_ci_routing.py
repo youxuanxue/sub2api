@@ -195,6 +195,7 @@ class BackendCIRoutingTest(unittest.TestCase):
         command = step.get("run", "")
         expected_modules = {
             "scripts.test_preflight_ci_lint_skip",
+            "scripts.checks.test_artifact_retention",
             "scripts.checks.test_release_cache_key_parity",
             "scripts.checks.test_go_rolling_cache_policy",
             "scripts.checks.test_go_cache_boundary_contract",
