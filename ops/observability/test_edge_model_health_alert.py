@@ -57,7 +57,7 @@ class EdgeModelHealthAlertTest(unittest.TestCase):
         first = evaluate(rows, {}, RULES, evaluated_at=NOW)
         self.assertTrue(first["should_alert"])
         self.assertEqual([entry["edge"] for entry in first["state"]["hosts"]], ["us6"])
-        second = evaluate(rows, first["state"], RULES, evaluated_at=NOW + dt.timedelta(minutes=5))
+        second = evaluate(rows, first["state"], RULES, evaluated_at=NOW + dt.timedelta(minutes=15))
         self.assertTrue(second["should_alert"])
         self.assertEqual(second["state"]["telemetry"][0]["status"], "unavailable")
 
@@ -324,7 +324,7 @@ class EdgeModelHealthAlertTest(unittest.TestCase):
             [unavailable],
             repeated["state"],
             RULES,
-            evaluated_at=NOW + dt.timedelta(minutes=5),
+            evaluated_at=NOW + dt.timedelta(minutes=15),
         )
         self.assertTrue(second["should_alert"])
         self.assertIn("监控数据不可用", second["message"])
@@ -333,7 +333,7 @@ class EdgeModelHealthAlertTest(unittest.TestCase):
             [edge(bucket("2026-08-18T12:20:00Z"))],
             second["state"],
             RULES,
-            evaluated_at=NOW + dt.timedelta(minutes=10),
+            evaluated_at=NOW + dt.timedelta(minutes=30),
         )
         self.assertTrue(recovered["should_alert"])
         self.assertEqual([], recovered["state"]["telemetry"])
@@ -349,11 +349,12 @@ class EdgeModelHealthAlertTest(unittest.TestCase):
             "buckets": [],
         }
         first = evaluate([unavailable], {}, RULES, evaluated_at=NOW)
+        # Watch slots are 15 minutes; a 30-minute gap must reset accumulation.
         later = evaluate(
             [unavailable],
             first["state"],
             RULES,
-            evaluated_at=NOW + dt.timedelta(minutes=15),
+            evaluated_at=NOW + dt.timedelta(minutes=30),
         )
         self.assertFalse(later["should_alert"])
         self.assertEqual(1, len(later["state"]["telemetry"][0]["failure_slots"]))

@@ -13,6 +13,11 @@ import sys
 
 SCHEMA_VERSION = 1
 FIVE_MINUTES = dt.timedelta(minutes=5)
+# Watch/telemetry failure slots follow the GHA edge-health-watch cadence
+# (15m), not the terminal data-bucket width (5m). Requiring FIVE_MINUTES here
+# made "监控数据不可用" unreachable once the workflow stopped claiming a
+# five-minute schedule.
+WATCH_SLOT = dt.timedelta(minutes=15)
 FAMILY_NAMES = {
     "claude": "Claude",
     "gpt": "GPT",
@@ -166,8 +171,9 @@ def _unit_key(edge: str, unit: dict) -> tuple[str, str, str]:
 
 
 def _slot(now: dt.datetime) -> str:
+    """Floor wall time to the active watch-slot grid (15-minute boundaries)."""
     now = now.astimezone(dt.timezone.utc).replace(second=0, microsecond=0)
-    return now.replace(minute=(now.minute // 5) * 5).isoformat().replace("+00:00", "Z")
+    return now.replace(minute=(now.minute // 15) * 15).isoformat().replace("+00:00", "Z")
 
 
 def _contiguous_tail(buckets: list[dict], count: int) -> list[dict]:
@@ -372,7 +378,7 @@ def evaluate(scan_rows: list, previous_state: object, rules: dict, *, evaluated_
             current_slot = _slot(now)
             slots = list(entry.get("failure_slots", []))
             if current_slot not in slots:
-                if slots and _timestamp(current_slot) - _timestamp(slots[-1]) != FIVE_MINUTES:
+                if slots and _timestamp(current_slot) - _timestamp(slots[-1]) != WATCH_SLOT:
                     slots = []
                 slots.append(current_slot)
             entry.update({"failure_slots": slots[-2:], "last_reason": telemetry_reason})
