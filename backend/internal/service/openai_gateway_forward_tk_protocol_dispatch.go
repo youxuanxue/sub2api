@@ -10,7 +10,8 @@ import (
 )
 
 // tkTryRouteOpenAIForwardProtocol handles TokenKey early protocol routing after
-// the Grok early-return and before the main /v1/responses path.
+// the Grok early-return and OpenCode model-protocol switch, and before the main
+// /v1/responses path.
 //
 // When an API-key body normalization mutates the payload, outBody carries the
 // updated bytes so Forward can refresh requestView / originalBody. Callers must

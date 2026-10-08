@@ -139,12 +139,34 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	originalBody := body
+	rememberOpenCodeInboundBody(c, originalBody)
 	requestView := newOpenAIRequestView(body)
 	reqModel, reqStream, promptCacheKey := requestView.Model, requestView.Stream, requestView.PromptCacheKey
 	originalModel := reqModel
 
 	if account.Platform == PlatformGrok {
 		return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)
+	}
+
+	// OpenCode multi-protocol model routing must run before tkTryRoute (parity
+	// with ForwardAsAnthropic and upstream): a bound Plan / Anthropic-protocol
+	// / shouldForward early-return would otherwise swallow adaptive model
+	// rules (e.g. minimax→Anthropic, grok→Responses).
+	if account.IsOpenCodeGo() {
+		mapped := resolveOpenCodeGoMappedModel(account, originalBody, "")
+		if IsOpenCodeUnsupportedModel(mapped) {
+			return nil, writeOpenCodeUnsupportedModelError(c, false, mapped)
+		}
+		if !protocolExecutionBound(ctx) {
+			switch openCodeGoNativeProtocol(account, mapped) {
+			case APIProtocolAnthropic:
+				return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, "")
+			case APIProtocolResponses:
+				break
+			default:
+				return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
+			}
+		}
 	}
 
 	result, outBody, handled, err := s.tkTryRouteOpenAIForwardProtocol(ctx, c, account, body, reqModel)
@@ -1021,7 +1043,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			respBody = s.redactAgentIdentitySensitiveBody(ctx, account, respBody)
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
-			if !httpInvalidEncryptedContentRetryTried && resp.StatusCode == http.StatusBadRequest && upstreamCode == "invalid_encrypted_content" {
+			invalidEncryptedContentError := upstreamCode == "invalid_encrypted_content" ||
+				(upstreamCode == "thinking_signature_invalid" &&
+					strings.Contains(upstreamMsg, "The encrypted content") &&
+					strings.Contains(upstreamMsg, "could not be verified") &&
+					strings.Contains(upstreamMsg, "could not be decrypted or parsed"))
+			if !httpInvalidEncryptedContentRetryTried && resp.StatusCode == http.StatusBadRequest && invalidEncryptedContentError {
 				decoded, decodeErr := ensureReqBody()
 				if decodeErr != nil {
 					return nil, decodeErr

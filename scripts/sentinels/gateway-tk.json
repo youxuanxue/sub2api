@@ -13316,9 +13316,11 @@
     {
       "path": "backend/internal/service/openai_gateway_forward.go",
       "must_contain": [
-        "return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)\n\t}\n\n\tresult, outBody, handled, err := s.tkTryRouteOpenAIForwardProtocol(ctx, c, account, body, reqModel)"
+        "return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)\n\t}\n\n\t// OpenCode multi-protocol model routing must run before tkTryRoute",
+        "if account.IsOpenCodeGo() {\n\t\tmapped := resolveOpenCodeGoMappedModel(account, originalBody, \"\")\n\t\tif IsOpenCodeUnsupportedModel(mapped) {\n\t\t\treturn nil, writeOpenCodeUnsupportedModelError(c, false, mapped)\n\t\t}\n\t\tif !protocolExecutionBound(ctx) {\n\t\t\tswitch openCodeGoNativeProtocol(account, mapped) {",
+        "result, outBody, handled, err := s.tkTryRouteOpenAIForwardProtocol(ctx, c, account, body, reqModel)"
       ],
-      "rationale": "OpenAI Forward must keep PlatformGrok early-return BEFORE tkTryRouteOpenAIForwardProtocol. Dropping the order lets Grok traffic enter protocol/normalize/raw-CC companions and regresses the dedicated Grok Responses path while unit tests on companion helpers can stay green."
+      "rationale": "OpenAI Forward must keep PlatformGrok early-return, then OpenCode unsupported-reject + model-protocol switch (when !protocolExecutionBound), THEN tkTryRouteOpenAIForwardProtocol. Reordering lets Grok enter protocol/normalize/raw-CC companions, or lets Plan/Anthropic/shouldForward swallow OpenCode adaptive multi-protocol routing (parity with ForwardAsAnthropic and upstream)."
     },
     {
       "path": "backend/internal/service/openai_gateway_forward_tk_protocol_dispatch.go",

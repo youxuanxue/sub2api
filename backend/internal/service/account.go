@@ -680,6 +680,9 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 
 	result := make(map[string]string)
 	for k, v := range rawMapping {
+		if strings.TrimSpace(k) == "" {
+			continue
+		}
 		if s, ok := v.(string); ok {
 			result[k] = s
 		}

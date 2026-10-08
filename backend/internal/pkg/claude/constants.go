@@ -22,6 +22,9 @@ const (
 	BetaFastMode                 = "fast-mode-2026-02-01"
 	// Legacy structured output compatibility; forwarded only when explicitly requested.
 	BetaStructuredOutputsLegacy = "structured-outputs-2025-11-13"
+	// Tool-change compatibility tokens; never enabled without an explicit client request.
+	BetaMidConversationToolChanges = "mid-conversation-tool-changes-2026-07-01"
+	BetaInlineTools                = "inline-tools-2026-09-15"
 
 	BetaPromptCachingScope          = "prompt-caching-scope-2026-01-05"
 	BetaEffort                      = "effort-2025-11-24"

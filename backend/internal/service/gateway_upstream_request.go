@@ -584,11 +584,17 @@ func (s *GatewayService) computeFinalAnthropicBeta(
 			if !strings.Contains(strings.ToLower(modelID), "haiku") {
 				requiredBetas = claude.FullClaudeCodeMimicryBetas()
 			}
-			incomingBeta := ""
-			if containsBetaToken(clientBeta, claude.BetaStructuredOutputsLegacy) {
-				incomingBeta = claude.BetaStructuredOutputsLegacy
+			var incomingBetas []string
+			for _, token := range []string{
+				claude.BetaStructuredOutputsLegacy,
+				claude.BetaMidConversationToolChanges,
+				claude.BetaInlineTools,
+			} {
+				if containsBetaToken(clientBeta, token) {
+					incomingBetas = append(incomingBetas, token)
+				}
 			}
-			return mergeAnthropicBetaDropping(requiredBetas, incomingBeta, effectiveDropSet), true
+			return mergeAnthropicBetaDropping(requiredBetas, strings.Join(incomingBetas, ","), effectiveDropSet), true
 		}
 		// 真 Claude Code 客户端透传路径
 		return stripBetaTokensWithSet(s.getBetaHeader(modelID, clientBeta), effectiveDropSet), true

@@ -47,6 +47,12 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	rememberOpenCodeInboundBody(c, body)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
+	if account.IsOpenCodeGo() {
+		mapped := resolveOpenCodeGoMappedModel(account, body, defaultMappedModel)
+		if IsOpenCodeUnsupportedModel(mapped) {
+			return nil, writeOpenCodeUnsupportedModelError(c, true, mapped)
+		}
+	}
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		SetActualOpenAIUpstreamEndpoint(c, "/v1/chat/completions")
 	}
@@ -72,6 +78,17 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// pairs a Chat Completions converter with the plan-selected /v1/responses
 	// endpoint and can synthesize an empty Anthropic end_turn response.
 	if !protocolExecutionBound(ctx) {
+		if account.IsOpenCodeGo() {
+			mapped := resolveOpenCodeGoMappedModel(account, body, defaultMappedModel)
+			switch openCodeGoNativeProtocol(account, mapped) {
+			case APIProtocolAnthropic:
+				return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
+			case APIProtocolResponses:
+				break
+			default:
+				return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+			}
+		}
 		if result, routed, err := s.tkTryRouteForwardAsAnthropic(ctx, c, account, body, defaultMappedModel); routed {
 			return result, err
 		}

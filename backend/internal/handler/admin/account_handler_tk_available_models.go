@@ -213,6 +213,14 @@ func tkClaudeAdminDefaultModels(ctx context.Context) []dto.AccountModelOption {
 func (h *AccountHandler) tkRespondAvailableModels(c *gin.Context, account *service.Account) {
 	// Handle OpenAI accounts
 	if account.IsOpenAI() {
+		if h.accountTestService != nil {
+			if models, fetchErr := h.accountTestService.FetchOpenAIAccountModels(c.Request.Context(), account); fetchErr == nil {
+				response.Success(c, tkAdminModelOptions(models, func(model openai.Model) (string, string) {
+					return model.ID, model.DisplayName
+				}))
+				return
+			}
+		}
 		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
 		if account.IsOpenAIPassthroughEnabled() {
 			response.Success(c, tkOpenAIAdminDefaultModels(c.Request.Context()))

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -805,6 +806,61 @@ func TestAccountHandlerGetAvailableModels_GeminiGoogleOneUsesConservativeCatalog
 	require.ElementsMatch(t, []string{"gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"}, ids)
 	require.NotContains(t, ids, "gemini-3.5-flash")
 	require.NotContains(t, ids, "gemini-2.5-flash-image")
+}
+
+func TestAccountHandlerGetAvailableModels_Antigravity(t *testing.T) {
+	defaults := service.ServableClientFacingIDs(context.Background(), service.PlatformAntigravity, nil, nil)
+	customID := "claude-custom-alias"
+	cases := []struct {
+		name         string
+		credentials  map[string]any
+		wantCatalog  bool
+		forbidCustom bool
+	}{
+		{name: "nil credentials", wantCatalog: true},
+		{name: "missing mapping", credentials: map[string]any{}, wantCatalog: true},
+		{name: "empty JSON mapping", credentials: map[string]any{"model_mapping": map[string]any{}}, wantCatalog: true},
+		{name: "empty string mapping", credentials: map[string]any{"model_mapping": map[string]string{}}, wantCatalog: true},
+		{name: "blank key", credentials: map[string]any{"model_mapping": map[string]any{" ": "upstream-model"}}, wantCatalog: true},
+		{name: "JSON mapping keys stay inside catalog", credentials: map[string]any{"model_mapping": map[string]any{
+			customID: "upstream-model",
+		}}, forbidCustom: true},
+		{name: "string mapping keys stay inside catalog", credentials: map[string]any{"model_mapping": map[string]string{
+			customID: "upstream-model",
+		}}, forbidCustom: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, accountType := range []string{service.AccountTypeOAuth, service.AccountTypeAPIKey} {
+				t.Run(accountType, func(t *testing.T) {
+					svc := &availableModelsAdminService{
+						stubAdminService: newStubAdminService(),
+						account:          service.Account{ID: 51, Platform: service.PlatformAntigravity, Type: accountType, Credentials: tc.credentials},
+					}
+					rec := httptest.NewRecorder()
+					setupAvailableModelsRouter(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/51/models", nil))
+					require.Equal(t, http.StatusOK, rec.Code)
+					var resp struct {
+						Data []dto.AccountModelOption `json:"data"`
+					}
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+					got := make([]string, 0, len(resp.Data))
+					for _, model := range resp.Data {
+						got = append(got, model.ID)
+					}
+					if tc.wantCatalog {
+						require.ElementsMatch(t, defaults, got)
+					}
+					if tc.forbidCustom {
+						require.NotContains(t, got, customID)
+						for _, id := range got {
+							require.Contains(t, defaults, id)
+						}
+					}
+				})
+			}
+		})
+	}
 }
 
 func TestAccountHandlerSyncUpstreamModels_ConfigErrorReturnsBadRequest(t *testing.T) {

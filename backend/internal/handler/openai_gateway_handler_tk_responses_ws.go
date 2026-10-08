@@ -162,6 +162,7 @@ type tkWSBeforeTurnInput struct {
 	Subject               middleware2.AuthSubject
 	ReqLog                *zap.Logger
 	TurnPricing           *openAIWSTurnPricing
+	BillingAPIKeys        *openAIWSTurnBillingAPIKeys
 	ReleaseTurnSlots      func()
 	CurrentUserRelease    *func()
 	CurrentAccountRelease *func()
@@ -174,7 +175,11 @@ func (h *OpenAIGatewayHandler) tkWSBeforeTurn(
 	if in.CyberBlockedThisConn && !h.gatewayService.CyberPolicyLogOnly(ctx, in.APIKey) {
 		return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, cyberSessionBlockedClientMsg, nil)
 	}
-	turnCtx, turnAt := h.gatewayService.WithOpenAITurnPricingContext(ctx, in.APIKey.GroupID)
+	turnBillingCtx := ctx
+	if in.BillingAPIKeys != nil {
+		turnBillingCtx = in.BillingAPIKeys.begin(ctx, h.apiKeyService, in.Turn, in.APIKey)
+	}
+	turnCtx, turnAt := h.gatewayService.WithOpenAITurnPricingContext(turnBillingCtx, in.APIKey.GroupID)
 	if _, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(turnCtx, in.Account); vetoed {
 		in.ReqLog.Info("openai.websocket_turn_profit_vetoed",
 			zap.Int("turn", in.Turn),
