@@ -409,7 +409,8 @@ jobs:
               fi
             else
               printf 'qa_bundle_canary: skipped (weekly Monday UTC or include_qa_bundle_canary=true)\n' >> "$STDOUT"
-              add_finding "qa_bundle_canary" "ok" "info" "QA Bundle end-to-end canary skipped ($TARGET_ID)" "Weekly cadence (Monday UTC on schedule); set include_qa_bundle_canary=true to force. Infra gate still ran." "qa-bundle-canary|$TARGET_ID|skipped"
+              # status=skip (not ok): keeps skips[] honest; never becomes issue_candidate.
+              add_finding "qa_bundle_canary" "skip" "info" "QA Bundle end-to-end canary skipped ($TARGET_ID)" "Weekly cadence (Monday UTC on schedule); set include_qa_bundle_canary=true to force. Infra gate still ran." "qa-bundle-canary|$TARGET_ID|skipped"
             fi
           fi
 

@@ -202,6 +202,7 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn("INCLUDE_QA_BUNDLE_CANARY:", text)
         self.assertIn('date -u +%u)" = "1"', text)
         self.assertIn("weekly qa-bundle canary", text)
+        self.assertIn('add_finding "qa_bundle_canary" "skip"', text)
         self.assertIn("qa-bundle-canary|$TARGET_ID|skipped", text)
         self.assertNotIn("daily qa-bundle canary", text)
         # Infra stays daily; canary is gated after it.
