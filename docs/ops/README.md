@@ -9,5 +9,6 @@
 | [cc-fingerprint-changelog.md](./cc-fingerprint-changelog.md) | Claude Code 指纹对齐 changelog（skill 追加） |
 | [antigravity-fingerprint-changelog.md](./antigravity-fingerprint-changelog.md) | Antigravity 指纹对齐 changelog（skill 追加） |
 | [edge-capacity-report-20260720-c1.md](./edge-capacity-report-20260720-c1.md) | Edge 容量报告（skill `tokenkey-edge-capacity-report` 刷新） |
+| [plan-account-usage-202609.md](./plan-account-usage-202609.md) | Plan 账号周期计量（skill `tokenkey-plan-account-usage-report` 刷新） |
 
 命名约定：带日期后缀的报告由对应 skill / 脚本刷新；不要把一次性排障笔记堆回本目录。
