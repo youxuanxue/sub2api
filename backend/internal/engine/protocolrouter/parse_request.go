@@ -130,6 +130,8 @@ func protocolContentKinds(document any) ContentKindSet {
 					kinds |= ContentAudio
 				case "file", "input_file":
 					kinds |= ContentFile
+				case "video", "input_video", "video_url":
+					kinds |= ContentVideo
 				case "", "message":
 					// Message/container objects are classified by their content children.
 				default:
