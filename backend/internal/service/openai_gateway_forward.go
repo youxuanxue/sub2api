@@ -144,31 +144,34 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	reqModel, reqStream, promptCacheKey := requestView.Model, requestView.Stream, requestView.PromptCacheKey
 	originalModel := reqModel
 
+	if account.Platform == PlatformGrok {
+		return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)
+	}
+
+	// OpenCode multi-protocol model routing must run before tkTryRoute (parity
+	// with ForwardAsAnthropic and upstream): a bound Plan / Anthropic-protocol
+	// / shouldForward early-return would otherwise swallow adaptive model
+	// rules (e.g. minimax→Anthropic, grok→Responses).
 	if account.IsOpenCodeGo() {
 		mapped := resolveOpenCodeGoMappedModel(account, originalBody, "")
 		if IsOpenCodeUnsupportedModel(mapped) {
 			return nil, writeOpenCodeUnsupportedModelError(c, false, mapped)
 		}
-	}
-
-	if account.Platform == PlatformGrok {
-		return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)
+		if !protocolExecutionBound(ctx) {
+			switch openCodeGoNativeProtocol(account, mapped) {
+			case APIProtocolAnthropic:
+				return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, "")
+			case APIProtocolResponses:
+				break
+			default:
+				return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
+			}
+		}
 	}
 
 	result, outBody, handled, err := s.tkTryRouteOpenAIForwardProtocol(ctx, c, account, body, reqModel)
 	if handled || err != nil {
 		return result, err
-	}
-	if account.IsOpenCodeGo() && !protocolExecutionBound(ctx) {
-		mapped := resolveOpenCodeGoMappedModel(account, originalBody, "")
-		switch openCodeGoNativeProtocol(account, mapped) {
-		case APIProtocolAnthropic:
-			return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, "")
-		case APIProtocolResponses:
-			break
-		default:
-			return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
-		}
 	}
 	// Companion may mutate body via API-key normalize; refresh only on change.
 	// (Pre-extract main always re-parsed inside the API-key branch; equal bytes
