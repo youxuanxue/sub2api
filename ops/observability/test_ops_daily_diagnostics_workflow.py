@@ -195,6 +195,19 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertLess(text.index("PHASE2_PROBE="), text.index("QA_BUNDLE_INFRA="))
         self.assertLess(text.index("QA_BUNDLE_INFRA="), text.index("QA_BUNDLE_CANARY="))
 
+    def test_qa_bundle_canary_is_weekly_on_schedule_or_manual_opt_in(self) -> None:
+        # Cost gate: end-to-end canary must not run every daily diagnostics pass.
+        text = workflow_text()
+        self.assertIn("include_qa_bundle_canary:", text)
+        self.assertIn("INCLUDE_QA_BUNDLE_CANARY:", text)
+        self.assertIn('date -u +%u)" = "1"', text)
+        self.assertIn("weekly qa-bundle canary", text)
+        self.assertIn("qa-bundle-canary|$TARGET_ID|skipped", text)
+        self.assertNotIn("daily qa-bundle canary", text)
+        # Infra stays daily; canary is gated after it.
+        self.assertLess(text.index("QA_BUNDLE_INFRA="), text.index("RUN_QA_BUNDLE_CANARY="))
+        self.assertLess(text.index("RUN_QA_BUNDLE_CANARY="), text.index("QA_BUNDLE_CANARY="))
+
     def test_internal_health_probe_uses_drain_immune_live_endpoint(self) -> None:
         commands = extract_runtime_params_commands()
         internal_start = commands.index("echo ===INTERNAL_HEALTH===")
