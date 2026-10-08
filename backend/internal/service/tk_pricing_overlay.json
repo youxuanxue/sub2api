@@ -2201,6 +2201,14 @@
     "cache_read_input_token_cost": 1.791044776119403e-07,
     "source": "VolcEngine Ark official model pricing https://www.volcengine.com/docs/82379/1544106 and AI Hub listing, captured 2026-10-03: doubao-seed-2.1-pro online inference standard list input CNY 6/Mtok, output CNY 30/Mtok, cache-hit CNY 1.2/Mtok for input [0, 256]K; CNY/USD=6.7. Excludes priority and batch inference prices. Pre-tax official list rates; the existing official_list_base_tax policy applies at resolution/catalog time. Agent Plan serving is scoped to /api/plan/v3. Upstream probe account 88 /api/plan/v3/responses servable 2026-10-03."
   },
+  "doubao-seed-2.1-lite": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.1940298507462687e-07,
+    "output_cost_per_token": 4.029850746268657e-07,
+    "cache_read_input_token_cost": 2.3880597014925374e-08,
+    "source": "VolcEngine Ark / Agent Plan list for doubao-seed-2.1-lite, captured 2026-10-08: online inference standard list input CNY 0.80/Mtok, output CNY 2.70/Mtok, cache-hit CNY 0.16/Mtok across the published 1M context window; CNY/USD=6.7. Audio input CNY 12/Mtok is out of TokenKey text overlay scope. Pre-tax official list rates; the existing official_list_base_tax policy applies at resolution/catalog time. Agent Plan serving is scoped to /api/plan/v3; upstream probe account 88 /api/plan/v3/responses servable 2026-10-08."
+  },
   "doubao-seed-2.1-turbo": {
     "litellm_provider": "volcengine",
     "mode": "chat",
@@ -2392,7 +2400,16 @@
     "litellm_provider": "volcengine",
     "mode": "image_generation",
     "output_cost_per_image": 0.03283582089552239,
-    "source": "VolcEngine official https://www.volcengine.com/docs/82379/1544106, verified 2026-09-09: doubao-seedream-5-0-lite 0.22 CNY/successfully generated image, input free; CNY/USD=6.7. Agent Plan model ID documented at https://www.volcengine.com/docs/82379/2375486."
+    "source": "VolcEngine official https://www.volcengine.com/docs/82379/1544106, verified 2026-09-09: doubao-seedream-5-0-lite 0.22 CNY/successfully generated image, input free; CNY/USD=6.7. Agent Plan model ID documented at https://www.volcengine.com/docs/82379/2375486. Retained for historical settlement after Agent Plan withdrawal 2026-10-08."
+  },
+  "doubao-seedream-5-0-pro": {
+    "litellm_provider": "volcengine",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.044776119402985074,
+    "image_price_1k": 0.044776119402985074,
+    "image_price_2k": 0.08955223880597015,
+    "image_price_4k": 0.08955223880597015,
+    "source": "VolcEngine AI Hub / Ark list for Doubao-Seedream-5.0-pro, captured 2026-10-08: output ≤2.36M pixels CNY 0.30/image, >2.36M pixels CNY 0.60/image; CNY/USD=6.7. Catalog floor and image_price_1k use the ≤2.36M tier; image_price_2k/4k use the higher tier (Agent Plan wire ID doubao-seedream-5-0-pro; alias doubao-seedream-5.0-pro). Input reference images CNY 0.02 from the second image are out of this output-image overlay. Upstream probe account 88 /api/plan/v3/images/generations servable 2026-10-08."
   },
   "doubao-seedream-5-0-260128": {
     "litellm_provider": "volcengine",

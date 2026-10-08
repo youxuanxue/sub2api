@@ -25,6 +25,10 @@ func TestDeepSeekFlashSurfacePreservesProviderModelIdentity(t *testing.T) {
 			require.Equal(t, "deepseek-v4-flash-0731", override.ModelMapping["deepseek-v4-flash"], override.BaseURL)
 			require.Equal(t, "deepseek-v4-pro", override.ModelMapping["deepseek-v4-pro-0813"], override.BaseURL)
 		}
+		if override.ChannelType == newapiconstant.ChannelTypeVolcEngine && override.BaseURL == "https://ark.cn-beijing.volces.com/api/plan/v3" {
+			require.Equal(t, "deepseek-v4.1-flash", override.ModelMapping["deepseek-flash"], override.BaseURL)
+			require.Equal(t, "deepseek-v4.1-flash", override.ModelMapping["deepseek-v4.1-flash"], override.BaseURL)
+		}
 	}
 	display := tkServedModelsManifestDisplayPresetIDsByChannelType(newapiconstant.ChannelTypeDeepSeek)
 	require.NotContains(t, display, "deepseek-flash", "Ali migration alias stays hidden from the canonical DeepSeek display surface")

@@ -803,23 +803,24 @@
           "operation": "generation",
           "baseline_protocol": "openai-chat",
           "represented_models": [
+            "deepseek-flash",
             "deepseek-v4-flash",
             "deepseek-v4-flash-0731",
-            "deepseek-v4-pro"
+            "deepseek-v4-pro",
+            "deepseek-v4.1-flash"
           ]
         },
         {
           "family": "doubao-seed",
-          "model": "doubao-seed-2.0-lite",
-          "upstream_model": "doubao-seed-2.0-lite",
+          "model": "doubao-seed-2.1-lite",
+          "upstream_model": "doubao-seed-2.1-lite",
           "operation": "generation",
           "baseline_protocol": "openai-chat",
           "represented_models": [
-            "doubao-seed-2.0-code",
             "doubao-seed-2.0-lite",
             "doubao-seed-2.0-mini",
-            "doubao-seed-2.0-pro",
-            "doubao-seed-2.1-turbo",
+            "doubao-seed-2.1-lite",
+            "doubao-seed-2.1-pro",
             "doubao-seed-evolving"
           ]
         },
@@ -848,12 +849,13 @@
         },
         {
           "family": "image",
-          "model": "doubao-seedream-5.0-lite",
-          "upstream_model": "doubao-seedream-5.0-lite",
+          "model": "doubao-seedream-5-0-pro",
+          "upstream_model": "doubao-seedream-5-0-pro",
           "operation": "image",
           "baseline_protocol": "openai-images",
           "represented_models": [
-            "doubao-seedream-5.0-lite"
+            "doubao-seedream-5-0-pro",
+            "doubao-seedream-5.0-pro"
           ]
         },
         {
