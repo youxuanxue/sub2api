@@ -17,7 +17,7 @@ risk: high
 ## 产品契约
 
 同一客户端 `model_id` 背后可以挂多条异构供应（例：`kimi-k3` 在 Volc Agent Plan 与 NVIDIA Build）。  
-**同名不等于同能力。** 带视频输入时，系统必须只在「已知可吃视频」的供应上选号；若授权范围内没有合格供应，网关在选号前拒绝，不得先打到已知不支持的上游再暴露晦涩 400。
+**同名不等于同能力。** 带视频输入时，不得选中**证据证明不能服务**该模态的供应；未知供应保守仍准入。命中 known-negative 的账号在选号前剔除，避免先打到已知不支持的上游再暴露晦涩 400。
 
 ## 薄切片范围（v1）
 
@@ -28,8 +28,8 @@ risk: high
    - `kimi-k3` + input video + NVIDIA Build（`integrate.api.nvidia.com`）→ **硬排除**  
      证据：上游 `At most 0 video(s)`（2026-10-08 probe）。
    - `kimi-k3` + input video + Volc Agent Plan → **允许**（同日 probe servable）。
-3. **准入**：`candidateSupportsRequest` 在 Plan/映射门之后求交；命中 known-negative → 该账号不是候选。
-4. **未知供应**：不在表内 → **仍准入**（LiteLLM 保守策略），待探针升级为已知。
+3. **准入**：`candidateSupportsRequest` 内与其它准入谓词求交（可在 Plan 前短路）；命中 known-negative → 该账号不是候选。
+4. **未知供应**：不在表内 → **仍准入**（LiteLLM 保守策略），待探针升级为已知。不把 v1 做成 known-positive 全表。
 
 ### 不做什么（v1）
 
