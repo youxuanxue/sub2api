@@ -48,6 +48,15 @@ class ClientFidelityWorkflowContractTest(unittest.TestCase):
         self.assertIn("open_prompt_surface_watch_issues.py", self.text)
         self.assertIn("open_oauth_mimic_watch_issues.py", self.text)
 
+    def test_registry_gate_reuses_rolling_go_cache_and_skips_duplicate_fixture(self) -> None:
+        # Cost gate: daily registry-gate must restore the shared test family and
+        # run fixture gateway once (explicit) rather than twice via unittest.
+        self.assertIn("./.github/actions/go-rolling-cache", self.text)
+        self.assertIn('family: test', self.text)
+        self.assertIn('PREFLIGHT_SKIP_PROMPT_FIXTURE_GATEWAY: "1"', self.text)
+        self.assertIn("probe_prompt_surfaces.py --check-fixture-gateway", self.text)
+        self.assertNotIn("TestTkProbePromptSurfaceGatewayCoverageJSONL", self.text)
+
 
 if __name__ == "__main__":
     unittest.main()
