@@ -191,11 +191,16 @@ describe('TokenKey client catalog', () => {
       'cursor',
       'dify',
       'gemini-cli',
+      'hermes',
+      'kilo-code',
       'lobe-chat',
+      'openclaw',
       'opencode',
       'python',
+      'qoder',
       'qwen-code',
       'roo-code',
+      'trae',
       'workbuddy',
     ])
   })

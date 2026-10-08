@@ -2835,6 +2835,30 @@
         "quickstart.cursorSecretHint"
       ],
       "rationale": "Cursor IDE guide must keep Override Base URL copy-fields plus the Pro/Agent-CLI caveat notes. An upstream merge that drops the cursor branch would silently remove the only Cursor setup instructions while the catalog tile could still appear."
+    },
+    {
+      "path": "frontend/src/constants/clientIntegrations.tk.ts",
+      "must_contain": [
+        "id: 'trae'",
+        "id: 'kilo-code'",
+        "id: 'qoder'",
+        "id: 'openclaw'",
+        "id: 'hermes'",
+        "guideMode: 'agent-config'"
+      ],
+      "rationale": "Quickstart must keep Trae/Kilo/Qoder/OpenClaw/Hermes catalog entries so competitor Agent Plan parity clients stay discoverable. Dropping any id removes the only TokenKey connection guide for that tool."
+    },
+    {
+      "path": "frontend/src/components/keys/UseKeyGuide.vue",
+      "must_contain": [
+        "case 'trae':",
+        "case 'kilo-code':",
+        "case 'qoder':",
+        "generateAgentConfigFiles",
+        "openai-completions",
+        "api_mode: chat_completions"
+      ],
+      "rationale": "Guide owners for the five new coding clients: Trae/Kilo/Qoder stay openai-fields; OpenClaw/Hermes use agent-config generators. Upstream merges that drop these branches leave catalog tiles with empty or wrong setup instructions."
     }
   ]
 }

@@ -31,7 +31,7 @@ export type TkClientCategory = 'coding' | 'apps' | 'build'
 export type TkClientSupportTier = 'verified' | 'import' | 'compatible'
 export type TkClientAction = 'ccs-import' | 'copy-config' | 'app-deeplink' | 'copy-fields'
 export type CcSwitchApp = 'claude' | 'codex' | 'gemini' | 'grokbuild' | 'opencode'
-export type TkClientGuideMode = 'native' | 'qwen' | 'openai-fields' | 'codebuddy-models' | 'raw'
+export type TkClientGuideMode = 'native' | 'qwen' | 'openai-fields' | 'codebuddy-models' | 'agent-config' | 'raw'
 
 export const TK_CLIENT_SUPPORT_META: Record<TkClientSupportTier, {
   icon: 'checkCircle' | 'download' | 'link'
@@ -211,6 +211,22 @@ export const TK_CLIENT_CATALOG: TkClientCatalogEntry[] = [
     usesEnvironmentPicker: false
   },
   {
+    id: 'trae',
+    name: 'Trae',
+    category: 'coding',
+    sortOrder: 66,
+    icon: 'terminal',
+    guideId: 'trae',
+    supportTier: 'compatible',
+    action: 'copy-fields',
+    protocols: ['openai'],
+    docsUrl: 'https://docs.trae.ai/ide/models',
+    surfaces: ['quickstart'],
+    secretTransport: 'secret-ui',
+    guideMode: 'openai-fields',
+    usesEnvironmentPicker: false
+  },
+  {
     id: 'roo-code',
     name: 'Roo Code',
     category: 'coding',
@@ -221,6 +237,38 @@ export const TK_CLIENT_CATALOG: TkClientCatalogEntry[] = [
     action: 'copy-fields',
     protocols: ['openai'],
     docsUrl: 'https://docs.roocode.com/providers/openai-compatible',
+    surfaces: ['quickstart'],
+    secretTransport: 'secret-ui',
+    guideMode: 'openai-fields',
+    usesEnvironmentPicker: false
+  },
+  {
+    id: 'kilo-code',
+    name: 'Kilo Code',
+    category: 'coding',
+    sortOrder: 71,
+    icon: 'terminal',
+    guideId: 'kilo-code',
+    supportTier: 'compatible',
+    action: 'copy-fields',
+    protocols: ['openai'],
+    docsUrl: 'https://kilo.ai',
+    surfaces: ['quickstart'],
+    secretTransport: 'secret-ui',
+    guideMode: 'openai-fields',
+    usesEnvironmentPicker: false
+  },
+  {
+    id: 'qoder',
+    name: 'Qoder',
+    category: 'coding',
+    sortOrder: 72,
+    icon: 'terminal',
+    guideId: 'qoder',
+    supportTier: 'compatible',
+    action: 'copy-fields',
+    protocols: ['openai'],
+    docsUrl: 'https://docs.qoder.com/qoder/custom-models',
     surfaces: ['quickstart'],
     secretTransport: 'secret-ui',
     guideMode: 'openai-fields',
@@ -240,6 +288,38 @@ export const TK_CLIENT_CATALOG: TkClientCatalogEntry[] = [
     surfaces: ['quickstart'],
     secretTransport: 'config',
     guideMode: 'codebuddy-models',
+    usesEnvironmentPicker: false
+  },
+  {
+    id: 'openclaw',
+    name: 'OpenClaw',
+    category: 'coding',
+    sortOrder: 80,
+    icon: 'terminal',
+    guideId: 'openclaw',
+    supportTier: 'compatible',
+    action: 'copy-config',
+    protocols: ['openai'],
+    docsUrl: 'https://openclaw.ai',
+    surfaces: ['quickstart'],
+    secretTransport: 'config',
+    guideMode: 'agent-config',
+    usesEnvironmentPicker: false
+  },
+  {
+    id: 'hermes',
+    name: 'Hermes Agent',
+    category: 'coding',
+    sortOrder: 85,
+    icon: 'terminal',
+    guideId: 'hermes',
+    supportTier: 'compatible',
+    action: 'copy-config',
+    protocols: ['openai'],
+    docsUrl: 'https://hermes-agent.nousresearch.com/docs/user-guide/configuring-models',
+    surfaces: ['quickstart'],
+    secretTransport: 'config',
+    guideMode: 'agent-config',
     usesEnvironmentPicker: false
   },
   {
