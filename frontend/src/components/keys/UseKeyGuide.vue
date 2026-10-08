@@ -897,6 +897,9 @@ const platformNote = computed(() => {
   if (selectedClientEntry.value?.guideMode === 'codebuddy-models') {
     return t('quickstart.codebuddyModelsConfigNote')
   }
+  if (selectedClientEntry.value?.id === 'cursor') {
+    return t('quickstart.cursorConfigNote')
+  }
   if (selectedClientEntry.value) {
     return t('quickstart.clientConfigNote')
   }
@@ -1364,6 +1367,15 @@ function generateCompatibleClientFields(
   let fields: string[]
 
   switch (client) {
+    case 'cursor':
+      fields = [
+        'Cursor Settings → Models',
+        `OpenAI API Key: ${apiKey}`,
+        'Override OpenAI Base URL: enabled',
+        `Base URL: ${apiBase}`,
+        `Add Custom Model: ${model}`,
+      ]
+      break
     case 'dify':
       fields = [
         'Provider: OpenAI-API-compatible',
@@ -1398,7 +1410,7 @@ function generateCompatibleClientFields(
   const files: FileConfig[] = [{
     path: t('quickstart.configFields'),
     content: fields.join('\n'),
-    hint: t('quickstart.secretUiHint'),
+    hint: client === 'cursor' ? t('quickstart.cursorSecretHint') : t('quickstart.secretUiHint'),
   }]
   if (client === 'dify') {
     const showLimit = (value?: number) => value && value > 0 ? `$${value}` : t('quickstart.unlimited')

@@ -934,7 +934,9 @@ const en: LocaleOverlay = {
     "collapseConfig": "Collapse config",
     "qwenSecretHint": "Qwen Code reads the key from .env so settings.json contains no credential.",
     "secretUiHint": "Paste the key into the client's protected credential field.",
+    "cursorSecretHint": "Paste into Cursor Settings → Models. The gateway must be publicly reachable; Tab completions stay on Cursor's own models.",
     "clientConfigNote": "The test checks this key and model endpoint; finish the connection in the selected client.",
+    "cursorConfigNote": "Requires Cursor Pro or higher. Turn off Auto, then select the custom model. Override Base URL applies globally while enabled. Cursor Agent CLI (agent / cursor-agent) cannot use TokenKey keys — use Claude Code, Codex, Gemini CLI, or OpenCode instead.",
     "testToolCall": "Test tool call",
     "toolCallOk": "Tool call verified",
     "toolCallMissing": "The model returned 200 but did not produce the required tool call.",
@@ -956,6 +958,7 @@ const en: LocaleOverlay = {
       "gemini": "Google's terminal coding agent.",
       "opencode": "An open-source, provider-neutral coding agent.",
       "cline": "An autonomous coding agent for VS Code.",
+      "cursor": "Cursor IDE Chat and Agent via OpenAI Base URL override. Agent CLI is not supported.",
       "roo-code": "A multi-mode coding agent for VS Code.",
       "codebuddy": "Tencent Cloud AI-native coding workbench with tool calling and MCP.",
       "cherry-studio": "A multi-model desktop AI workspace.",
@@ -966,6 +969,7 @@ const en: LocaleOverlay = {
       "curl": "A runnable HTTP request for integration and diagnostics.",
       "python": "A runnable Python SDK example."
     },
+
     "noKeys": "You have no API keys yet. Create one before configuring a client.",
     "createKey": "Create API Key",
     "manageKeys": "Manage Keys",
@@ -1900,7 +1904,9 @@ const zh: LocaleOverlay = {
     "collapseConfig": "收起配置",
     "qwenSecretHint": "Qwen Code 从 .env 读取密钥，settings.json 不保存凭证。",
     "secretUiHint": "请将 API Key 粘贴到客户端受保护的密钥输入框。",
+    "cursorSecretHint": "粘贴到 Cursor Settings → Models。网关须公网可达；Tab 补全仍走 Cursor 自有模型。",
     "clientConfigNote": "这里验证的是 Key 与模型端点；最终连接请在所选客户端中完成。",
+    "cursorConfigNote": "需要 Cursor Pro 或更高套餐。关闭 Auto 后选择自定义模型。开启 Override Base URL 期间对 OpenAI 族请求全局生效。Cursor Agent CLI（agent / cursor-agent）无法使用 TokenKey Key，请改用 Claude Code、Codex、Gemini CLI 或 OpenCode。",
     "testToolCall": "验证工具调用",
     "toolCallOk": "工具调用已验证",
     "toolCallMissing": "模型返回了 200，但没有生成要求的工具调用。",
@@ -1922,6 +1928,7 @@ const zh: LocaleOverlay = {
       "gemini": "Google 官方终端编码 Agent。",
       "opencode": "开源、模型中立的编码 Agent。",
       "cline": "运行在 VS Code 中的自治编码 Agent。",
+      "cursor": "Cursor IDE Chat / Agent，通过 Override OpenAI Base URL 接入。不支持 Agent CLI。",
       "roo-code": "运行在 VS Code 中的多模式编码 Agent。",
       "codebuddy": "腾讯云 AI 原生编码工作台，支持工具调用与 MCP。",
       "cherry-studio": "多模型桌面 AI 工作台。",
@@ -1932,6 +1939,7 @@ const zh: LocaleOverlay = {
       "curl": "用于集成和排障的可运行 HTTP 请求。",
       "python": "可直接运行的 Python SDK 示例。"
     },
+
     "noKeys": "你还没有 API Key，先创建一把再配置客户端。",
     "createKey": "创建 API Key",
     "manageKeys": "管理 Key",
