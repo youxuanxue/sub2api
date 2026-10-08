@@ -430,6 +430,7 @@ const activeFlavor = computed<UseKeyFlavor | null>(() => {
     return props.selectedProtocol === 'openai' ? 'openai' : 'anthropic'
   }
   if (selectedClientEntry.value?.guideMode === 'openai-fields') return 'openai'
+  if (selectedClientEntry.value?.guideMode === 'agent-config') return 'openai'
   if (selectedClientEntry.value?.guideMode === 'codebuddy-models') return 'openai'
   if (tab === 'opencode') return null
   if (tab === 'claude') {
@@ -757,6 +758,7 @@ function platformForFiles(): GroupPlatform | null {
     }
     if (tab === 'codex' || tab === 'codex-ws' || selectedClientEntry.value?.guideMode === 'raw'
       || selectedClientEntry.value?.guideMode === 'openai-fields'
+      || selectedClientEntry.value?.guideMode === 'agent-config'
       || selectedClientEntry.value?.guideMode === 'codebuddy-models'
       || tab === 'opencode') {
       return PLATFORM_OPENAI
@@ -900,6 +902,12 @@ const platformNote = computed(() => {
   if (selectedClientEntry.value?.id === 'cursor') {
     return t('quickstart.cursorConfigNote')
   }
+  if (selectedClientEntry.value?.id === 'qoder') {
+    return t('quickstart.qoderConfigNote')
+  }
+  if (selectedClientEntry.value?.id === 'openclaw' || selectedClientEntry.value?.id === 'hermes') {
+    return t(`quickstart.${selectedClientEntry.value.id}ConfigNote`)
+  }
   if (selectedClientEntry.value) {
     return t('quickstart.clientConfigNote')
   }
@@ -1009,6 +1017,10 @@ const currentFiles = computed((): FileConfig[] => {
       rate1d: props.rateLimit1d,
       rate7d: props.rateLimit7d,
     })
+  }
+
+  if (selectedClientEntry.value?.guideMode === 'agent-config') {
+    return generateAgentConfigFiles(selectedClientEntry.value.id, baseRoot, apiKey, model)
   }
 
   if (activeClientTab.value === 'opencode') {
@@ -1376,6 +1388,34 @@ function generateCompatibleClientFields(
         `Add Custom Model: ${model}`,
       ]
       break
+    case 'trae':
+      fields = [
+        'Settings → Models → Add model',
+        'Provider: Custom / OpenAI Compatible',
+        `Base URL: ${apiBase}`,
+        `API Key: ${apiKey}`,
+        `Model ID: ${model}`,
+      ]
+      break
+    case 'kilo-code':
+      fields = [
+        'Settings → Providers → Custom provider',
+        'API Provider: OpenAI Compatible',
+        `Base URL: ${apiBase}`,
+        `API Key: ${apiKey}`,
+        `Model ID: ${model}`,
+      ]
+      break
+    case 'qoder':
+      fields = [
+        'Qoder app → Settings → Models → Add',
+        'Provider: Custom → OpenAI Compatible',
+        'API type: Chat Completions',
+        `Base URL: ${apiBase}`,
+        `API Key: ${apiKey}`,
+        `Model ID: ${model}`,
+      ]
+      break
     case 'dify':
       fields = [
         'Provider: OpenAI-API-compatible',
@@ -1415,6 +1455,9 @@ function generateCompatibleClientFields(
   if (client === 'cursor') {
     files[0].hint = t('quickstart.cursorSecretHint')
   }
+  if (client === 'qoder') {
+    files[0].hint = t('quickstart.qoderSecretHint')
+  }
   if (client === 'dify') {
     const showLimit = (value?: number) => value && value > 0 ? `$${value}` : t('quickstart.unlimited')
     files.push({
@@ -1429,6 +1472,78 @@ function generateCompatibleClientFields(
     })
   }
   return files
+}
+
+function generateAgentConfigFiles(
+  clientId: string,
+  baseRoot: string,
+  apiKey: string,
+  model: string,
+): FileConfig[] {
+  const apiBase = `${baseRoot.replace(/\/+$/, '')}/v1`
+  if (clientId === 'openclaw') {
+    const payload = {
+      models: {
+        mode: 'merge',
+        providers: {
+          tokenkey: {
+            baseUrl: apiBase,
+            apiKey,
+            api: 'openai-completions',
+            models: [{
+              id: model,
+              name: model,
+              reasoning: false,
+              input: ['text'],
+              contextWindow: 200000,
+              maxTokens: 16384,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            }],
+          },
+        },
+      },
+      agents: {
+        defaults: {
+          model: {
+            primary: `tokenkey/${model}`,
+          },
+        },
+      },
+    }
+    return [{
+      path: '~/.openclaw/openclaw.json',
+      content: JSON.stringify(payload, null, 2),
+      hint: t('quickstart.openclawSecretHint'),
+    }]
+  }
+  if (clientId === 'hermes') {
+    const yaml = [
+      'model:',
+      '  provider: custom',
+      `  default: ${model}`,
+      `  base_url: ${apiBase}`,
+      '  api_mode: chat_completions',
+    ].join('\n')
+    const commands = [
+      'hermes config set model.provider custom',
+      `hermes config set model.base_url ${apiBase}`,
+      `hermes config set model.default ${model}`,
+      'hermes config set model.api_mode chat_completions',
+      `hermes config set OPENAI_API_KEY ${apiKey}`,
+    ].join('\n')
+    return [
+      {
+        path: '~/.hermes/config.yaml',
+        content: yaml,
+        hint: t('quickstart.hermesSecretHint'),
+      },
+      {
+        path: 'hermes config set',
+        content: commands,
+      },
+    ]
+  }
+  return generateCompatibleClientFields(clientId, baseRoot, apiKey, model, {})
 }
 
 // Raw-protocol snippets: a complete, runnable request with model / base_url /

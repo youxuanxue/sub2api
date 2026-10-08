@@ -390,6 +390,75 @@ describe('UseKeyGuide — tool-first Quickstart contracts', () => {
     expect(wrapper.find('[data-tk="quickstart-environment-picker"]').exists()).toBe(false)
   })
 
+  it.each([
+    {
+      client: 'trae',
+      needles: ['Settings → Models → Add model', 'Provider: Custom / OpenAI Compatible', 'Base URL: https://example.com/v1', 'Model ID: gpt-5.5'],
+    },
+    {
+      client: 'kilo-code',
+      needles: ['Settings → Providers → Custom provider', 'API Provider: OpenAI Compatible', 'Model ID: gpt-5.5'],
+    },
+    {
+      client: 'qoder',
+      needles: ['Provider: Custom → OpenAI Compatible', 'API type: Chat Completions', 'Base URL: https://example.com/v1'],
+      notes: ['quickstart.qoderConfigNote', 'quickstart.qoderSecretHint'],
+    },
+  ])('renders $client OpenAI Compatible fields', async ({ client, needles, notes }) => {
+    getAPIKeyCapabilities.mockResolvedValue({
+      api_key_id: 42,
+      routing_mode: 'universal',
+      models: [{ id: 'gpt-5.5', protocols: ['openai'], modalities: ['chat'], routes: [] }],
+    })
+    const wrapper = mountQuickstartGuide({ selectedClient: client })
+    await flushPromises()
+    const fields = wrapper.find('pre code').text()
+    for (const needle of needles) {
+      expect(fields).toContain(needle)
+    }
+    for (const note of notes ?? []) {
+      expect(wrapper.text()).toContain(note)
+    }
+    expect(wrapper.find('[data-tk="quickstart-environment-picker"]').exists()).toBe(false)
+  })
+
+  it('renders OpenClaw provider JSON for ~/.openclaw/openclaw.json', async () => {
+    getAPIKeyCapabilities.mockResolvedValue({
+      api_key_id: 42,
+      routing_mode: 'universal',
+      models: [{ id: 'gpt-5.5', protocols: ['openai'], modalities: ['chat'], routes: [] }],
+    })
+    const wrapper = mountQuickstartGuide({ selectedClient: 'openclaw' })
+    await flushPromises()
+    const config = JSON.parse(wrapper.find('pre code').text())
+    expect(config.models.providers.tokenkey.baseUrl).toBe('https://example.com/v1')
+    expect(config.models.providers.tokenkey.apiKey).toBe('sk-test')
+    expect(config.models.providers.tokenkey.api).toBe('openai-completions')
+    expect(config.models.providers.tokenkey.models[0].id).toBe('gpt-5.5')
+    expect(config.agents.defaults.model.primary).toBe('tokenkey/gpt-5.5')
+    expect(wrapper.text()).toContain('quickstart.openclawConfigNote')
+    expect(wrapper.text()).toContain('quickstart.openclawSecretHint')
+  })
+
+  it('renders Hermes config.yaml and hermes config set commands', async () => {
+    getAPIKeyCapabilities.mockResolvedValue({
+      api_key_id: 42,
+      routing_mode: 'universal',
+      models: [{ id: 'gpt-5.5', protocols: ['openai'], modalities: ['chat'], routes: [] }],
+    })
+    const wrapper = mountQuickstartGuide({ selectedClient: 'hermes' })
+    await flushPromises()
+    const codes = wrapper.findAll('pre code').map((node) => node.text())
+    expect(codes[0]).toContain('provider: custom')
+    expect(codes[0]).toContain('base_url: https://example.com/v1')
+    expect(codes[0]).toContain('default: gpt-5.5')
+    expect(codes[0]).toContain('api_mode: chat_completions')
+    expect(codes[1]).toContain('hermes config set model.provider custom')
+    expect(codes[1]).toContain('hermes config set OPENAI_API_KEY sk-test')
+    expect(wrapper.text()).toContain('quickstart.hermesConfigNote')
+    expect(wrapper.text()).toContain('quickstart.hermesSecretHint')
+  })
+
   it('limits OpenCode models to the selected direct key live menu', async () => {
     getMePricingCatalog.mockResolvedValue({
       models: [
