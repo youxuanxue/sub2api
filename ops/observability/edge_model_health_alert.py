@@ -14,10 +14,10 @@ import sys
 SCHEMA_VERSION = 1
 FIVE_MINUTES = dt.timedelta(minutes=5)
 # Watch/telemetry failure slots follow the GHA edge-health-watch cadence
-# (15m), not the terminal data-bucket width (5m). Requiring FIVE_MINUTES here
+# (30m), not the terminal data-bucket width (5m). Requiring FIVE_MINUTES here
 # made "监控数据不可用" unreachable once the workflow stopped claiming a
 # five-minute schedule.
-WATCH_SLOT = dt.timedelta(minutes=15)
+WATCH_SLOT = dt.timedelta(minutes=30)
 FAMILY_NAMES = {
     "claude": "Claude",
     "gpt": "GPT",
