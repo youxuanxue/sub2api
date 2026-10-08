@@ -138,6 +138,63 @@ class EdgeKeyTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 mod.resolve_edge_key("uk1", args, multi_edge=True)
 
+    def test_relay_key_group_mismatch_rejected(self) -> None:
+        profile = profiles.require_implemented("antigravity")
+        with mock.patch.object(
+            mod,
+            "list_admin_user_api_keys",
+            return_value=[
+                {
+                    "id": 9,
+                    "name": "relay-antigravity-uk1",
+                    "key": "sk-real",
+                    "group_id": 99,
+                }
+            ],
+        ):
+            with self.assertRaises(SystemExit):
+                mod.ensure_edge_relay_key(
+                    "https://api-uk1.tokenkey.dev",
+                    "admin-x",
+                    profile,
+                    edge_id="uk1",
+                    group_id=1,
+                    dry_run=False,
+                )
+
+
+class StubSyncTests(unittest.TestCase):
+    def test_sync_prod_stub_api_key_when_stale(self) -> None:
+        existing = {"id": 215, "name": "antigravity-uk1"}
+        with mock.patch.object(
+            mod,
+            "http_data",
+            side_effect=[
+                {"id": 215, "credentials": {"api_key": "sk-old", "pool_mode": True}},
+                {"id": 215},
+            ],
+        ) as http:
+            out = mod.sync_prod_stub_api_key(
+                "https://api.tokenkey.dev",
+                "admin-p",
+                existing,
+                edge_api_key="sk-new",
+                dry_run=False,
+            )
+        self.assertEqual(out["action"], "synced_api_key")
+        self.assertEqual(http.call_args_list[1].kwargs["method"], "PUT")
+        self.assertEqual(
+            http.call_args_list[1].kwargs["payload"]["credentials"]["api_key"],
+            "sk-new",
+        )
+
+    def test_usage_matches_stub(self) -> None:
+        self.assertTrue(mod.usage_matches_stub(215, 215))
+        self.assertTrue(mod.usage_matches_stub("215", 215))
+        self.assertFalse(mod.usage_matches_stub(216, 215))
+        self.assertFalse(mod.usage_matches_stub(None, 215))
+        self.assertFalse(mod.usage_matches_stub("x", 215))
+
 
 if __name__ == "__main__":
     unittest.main()

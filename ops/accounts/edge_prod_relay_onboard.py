@@ -49,6 +49,7 @@ from relay_onboard_profiles import (  # noqa: E402
 
 PROD_BASE_DEFAULT = "https://api.tokenkey.dev"
 STAGE0_DIR = REPO_ROOT / "ops" / "stage0"
+DRY_RUN_RELAY_KEY = "sk_DRY_RUN"
 
 # ops-sql-coverage registry (see scripts/checks/ops-sql-coverage.py).
 SELF_CHECK_EXEMPT: dict[str, str] = {}
@@ -595,6 +596,12 @@ def ensure_edge_relay_key(
         name,
     )
     if existing and str(existing.get("key") or "").strip():
+        existing_gid = existing.get("group_id")
+        if existing_gid is not None and int(existing_gid) != int(group_id):
+            die(
+                f"edge {edge_id}: relay key {name!r} bound to group_id={existing_gid}, "
+                f"expected {group_id}; fix binding in admin before re-run"
+            )
         return str(existing["key"]).strip(), {
             "action": "reused",
             "id": existing.get("id"),
@@ -603,7 +610,11 @@ def ensure_edge_relay_key(
         }
     payload = {"name": name, "routing_mode": "direct", "group_id": group_id}
     if dry_run:
-        return "sk_DRY_RUN", {"action": "would_create", "name": name, "payload": payload}
+        return DRY_RUN_RELAY_KEY, {
+            "action": "would_create",
+            "name": name,
+            "payload": payload,
+        }
     created = http_data(
         edge_base,
         f"/admin/users/{user_id}/api-keys",
@@ -714,11 +725,13 @@ def ensure_prod_stub(
         accounts, edge_id=edge_id, pool_platform=str(profile["pool_platform"])
     )
     if existing:
-        return {
-            "action": "exists",
-            "id": existing.get("id"),
-            "name": existing.get("name"),
-        }
+        return sync_prod_stub_api_key(
+            prod_base,
+            prod_key,
+            existing,
+            edge_api_key=edge_api_key,
+            dry_run=dry_run,
+        )
     payload = {
         "name": name,
         "platform": profile["pool_platform"],
@@ -749,6 +762,46 @@ def ensure_prod_stub(
             f"(keys={list(created)[:12] if isinstance(created, dict) else type(created)})"
         )
     return {"action": "created", "id": created.get("id"), "name": created.get("name")}
+
+
+def sync_prod_stub_api_key(
+    prod_base: str,
+    prod_key: str,
+    existing: dict[str, Any],
+    *,
+    edge_api_key: str,
+    dry_run: bool,
+) -> dict[str, Any]:
+    """Keep an existing prod mirror stub's edge api_key aligned with the relay key."""
+    stub_id = int(existing["id"])
+    meta = {
+        "id": stub_id,
+        "name": existing.get("name"),
+    }
+    if dry_run and edge_api_key == DRY_RUN_RELAY_KEY:
+        return {
+            **meta,
+            "action": "exists",
+            "note": "relay key would be created; apply --yes to sync stub api_key",
+        }
+    full = http_data(prod_base, f"/admin/accounts/{stub_id}", api_key=prod_key)
+    creds = full.get("credentials") if isinstance(full.get("credentials"), dict) else {}
+    current = str(creds.get("api_key") or "").strip()
+    if current and current == edge_api_key:
+        return {**meta, "action": "exists"}
+    if dry_run:
+        return {**meta, "action": "would_sync_api_key"}
+    http_data(
+        prod_base,
+        f"/admin/accounts/{stub_id}",
+        method="PUT",
+        api_key=prod_key,
+        payload={
+            "credentials": {"api_key": edge_api_key},
+            "confirm_mixed_channel_risk": True,
+        },
+    )
+    return {**meta, "action": "synced_api_key"}
 
 
 def touch_account(base_url: str, api_key: str, account_id: int) -> None:
@@ -923,14 +976,21 @@ def run_probe(
         "probe_exit": cp.returncode,
         "verdict": verdict.get("verdict"),
         "usage_account_id": usage_account_id,
-        "usage_matches_stub": usage_account_id is not None
-        and stub_id is not None
-        and int(usage_account_id) == int(stub_id),
+        "usage_matches_stub": usage_matches_stub(usage_account_id, stub_id),
         "upstream_model": usage.get("upstream_model"),
         "gemini_valid": ((verdict.get("response") or {}).get("gemini") or {}).get("valid"),
         "body_excerpt": ((verdict.get("response") or {}).get("body_excerpt") or "")[:200],
         "stderr_tail": stderr.splitlines()[-3:],
     }
+
+
+def usage_matches_stub(usage_account_id: Any, stub_id: Any) -> bool:
+    if usage_account_id is None or stub_id is None:
+        return False
+    try:
+        return int(usage_account_id) == int(stub_id)
+    except (TypeError, ValueError):
+        return False
 
 
 def parse_edges(values: list[str] | None) -> list[str]:
