@@ -323,5 +323,13 @@ func (s *AccountRepoSuite) TestGeminiWebLeaseAndCAS() {
 	acquired, err = s.repo.AcquireGeminiWebLease(s.ctx, id, "three")
 	s.Require().NoError(err)
 	s.Require().True(acquired, "admin connectivity test must lease runtime before scheduling is enabled")
+	updated, err = s.repo.CompareAndSwapGeminiWebRuntime(s.ctx, id, 3, "three", map[string]any{
+		"user_agent": "unschedulable-refresh", "cookies": []any{},
+	})
+	s.Require().NoError(err)
+	s.Require().True(updated, "admin connectivity test must CAS runtime before scheduling is enabled")
+	loaded, err = s.repo.GetByID(s.ctx, id)
+	s.Require().NoError(err)
+	s.Require().Equal("unschedulable-refresh", loaded.Credentials["gemini_web"].(map[string]any)["runtime"].(map[string]any)["user_agent"])
 	s.Require().NoError(s.repo.ReleaseGeminiWebLease(s.ctx, id, "three"))
 }
