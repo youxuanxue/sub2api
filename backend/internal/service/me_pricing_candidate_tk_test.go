@@ -48,7 +48,7 @@ func TestCandidatePricingMenuScopedPriceWithProductionFilter(t *testing.T) {
 }
 
 func TestCandidatePricingMenuDoesNotRestoreHiddenManifestRows(t *testing.T) {
-	const model = "doubao-seed-2.0-code"
+	const model = "minimax-m2.7"
 	require.True(t, isTkCuratedNewAPIModelListed(model))
 	require.False(t, isTkCuratedNewAPIModelDisplayed(model))
 	group := grp(10, PlatformOpenAI, 0, false)

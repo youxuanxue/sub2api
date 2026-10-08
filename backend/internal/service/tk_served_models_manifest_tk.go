@@ -252,13 +252,23 @@ func newAPIAliTokenPlanModelMappingPresetIDs() []string {
 // Keep the aliases scoped to Plan; other providers may still serve old versions.
 func newAPIVolcEngineAgentPlanModelAliases() map[string]string {
 	return map[string]string{
-		"doubao-seed-2.0-code": "doubao-seed-2.1-turbo",
-		"doubao-seed-2.0-pro":  "doubao-seed-2.1-turbo",
-		"glm-4.5-air":          "glm-5.3",
-		"glm-5.2":              "glm-5.3",
-		"kimi-k2.6":            "kimi-k2.7-code",
-		"minimax-m2.7":         "minimax-m3",
+		"deepseek-flash":          "deepseek-v4.1-flash",
+		"doubao-seedream-5.0-pro": "doubao-seedream-5-0-pro",
+		"glm-4.5-air":             "glm-5.3",
+		"glm-5.2":                 "glm-5.3",
+		"kimi-k2.6":               "kimi-k2.7-code",
+		"kimi-k2.8":               "kimi-k2.8-preview",
+		"minimax-m2.7":            "minimax-m3",
 	}
+}
+
+// volcEngineAgentPlanForbiddenModelMappingKeys are withdrawn from Agent Plan
+// serving (console 即将下线 / UnsupportedModel). apply-accounts must strip them.
+var volcEngineAgentPlanForbiddenModelMappingKeys = []string{
+	"doubao-seed-2.0-code",
+	"doubao-seed-2.0-pro",
+	"doubao-seed-2.1-turbo",
+	"doubao-seedream-5.0-lite",
 }
 
 // Ali Token Plan migration intent; shared by presets, runtime floors, the

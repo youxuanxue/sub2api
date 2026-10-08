@@ -79,7 +79,9 @@ func TestNewAPIModelMappingPresetIDs_AgentPlanUsesPropertiesNotAccountID(t *test
 
 	require.Equal(t, NewAPIModelMappingPresetIDsForAccount(agentPlan), NewAPIModelMappingPresetIDsForAccount(otherID))
 	require.NotEqual(t, NewAPIModelMappingPresetIDsForAccount(agentPlan), NewAPIModelMappingPresetIDsForAccount(payAsYouGo))
-	require.NotContains(t, NewAPIModelMappingPresetIDsForAccount(payAsYouGo), "doubao-seed-2.0-pro")
+	require.NotContains(t, NewAPIModelMappingPresetIDsForAccount(payAsYouGo), "doubao-seed-2.1-lite")
+	require.Contains(t, NewAPIModelMappingPresetIDsForAccount(agentPlan), "doubao-seed-2.1-lite")
+	require.NotContains(t, NewAPIModelMappingPresetIDsForAccount(agentPlan), "doubao-seed-2.1-turbo")
 
 	owner := loadTkServedModelsOwnerProjectionForTest(t)
 	planIDs := NewAPIModelMappingPresetIDsForAccount(agentPlan)
@@ -89,6 +91,27 @@ func TestNewAPIModelMappingPresetIDs_AgentPlanUsesPropertiesNotAccountID(t *test
 		if !slices.Contains(owner.IDsByChannel[45], modelID) {
 			require.NotContains(t, payAsYouGoIDs, modelID, "plan-only models must not leak into pay-as-you-go presets")
 		}
+	}
+}
+
+func TestVolcEngineAgentPlanForbiddenKeysStrippedFromFloor(t *testing.T) {
+	t.Parallel()
+	floor, err := AccountModelMappingFloorForOps(context.Background(), "")
+	require.NoError(t, err)
+	scope := "account_override:" + normalizeAccountModelMappingOverrideScope(
+		PlatformNewAPI, newapiconstant.ChannelTypeVolcEngine, newapiintegration.VolcEngineAgentPlanBaseURL,
+	)
+	require.ElementsMatch(t, volcEngineAgentPlanForbiddenModelMappingKeys, floor.ForbiddenModelMappingKeys[scope])
+	account := &Account{
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeVolcEngine,
+		Credentials: map[string]any{"base_url": newapiintegration.VolcEngineAgentPlanBaseURL},
+	}
+	mapping, ok := accountModelMappingForAccount(context.Background(), account, nil, nil, nil)
+	require.True(t, ok)
+	for _, retired := range volcEngineAgentPlanForbiddenModelMappingKeys {
+		require.NotContains(t, mapping, retired)
 	}
 }
 

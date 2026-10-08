@@ -406,6 +406,9 @@ func accountModelMappingForbiddenKeysByScope() map[string][]string {
 		"account_override:" + normalizeAccountModelMappingOverrideScope(
 			PlatformNewAPI, newapiconstant.ChannelTypeOpenAI, newapiintegration.NVIDIABuildBaseURL,
 		): append([]string(nil), nvidiaBuildForbiddenModelMappingKeys...),
+		"account_override:" + normalizeAccountModelMappingOverrideScope(
+			PlatformNewAPI, newapiconstant.ChannelTypeVolcEngine, newapiintegration.VolcEngineAgentPlanBaseURL,
+		): append([]string(nil), volcEngineAgentPlanForbiddenModelMappingKeys...),
 		// Kiro-backed Claude models remain public under the anthropic vendor,
 		// but native Anthropic accounts must not inherit Kiro-only capability.
 		// Kiro mirror stubs resolve to PlatformKiro before this policy applies.

@@ -18,10 +18,6 @@ func tkIsFlatPerImageModel(model string) bool {
 	if strings.HasPrefix(m, "wan2.7-image") {
 		return true
 	}
-	// Agent Plan Seedream Lite: CNY 0.22 per successful image at every size.
-	if m == "doubao-seedream-5.0-lite" {
-		return true
-	}
 	return false
 }
 
