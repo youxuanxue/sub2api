@@ -1,7 +1,7 @@
 {
   "_meta": {
     "note": "TokenKey complete global pricing registry. This file is the sole editable global price owner; channel_model_pricing is a scoped override. Provider/LiteLLM documents are sensor evidence only and never runtime billing input.",
-    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; DeepSeek stable Flash: https://api-docs.deepseek.com/zh-cn/quick_start/pricing, captured 2026-09-15; Pro retains the official rates captured 2026-08-17; all Flash versions, including fixed 0731, share the current Flash selling price by product policy; see per-row sources (idle CNY list ÷ 6.7, weekday peak 2x, cache writes billed as normal input); Moonshot/Kimi account 83: official China model pages under https://platform.kimi.com/docs/pricing/, captured 2026-07-20, CNY/USD=6.7; moonshot-v1-auto intentionally uses the fixed 128K V1 rate because the alias may select the highest tier; volcengine doubao-*/deepseek-v3-2-251201: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=6.7); GLM text rows: PRICING SOURCE ONLY = BigModel official pricing page https://bigmodel.cn/pricing, captured 2026-07-09, CNY/USD=6.7; SERVING for manifest-listed GLM remains the configured Alibaba DashScope/Qwen pool (channel_type=17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct; qwen3.7-max* / qwen3.7-plus / qwen3.6-flash / qwen3-coder-plus / qwen-max / qwen-plus: Alibaba DashScope China-mainland (Beijing) RMB list ÷ 6.7, docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source; the qwen3.7-* / qwen3.6-flash / qwen3-coder-plus values were corrected 2026-06-13 from a prior USD-list basis ≈÷7.27 to the table's canonical CNY/USD=6.7); qwen2.5-coder-32b/7b: retired & absent from current Alibaba list — proxy-filled from lineage successors qwen3-coder-plus / qwen3-coder-flash, Beijing RMB list ÷ 6.7, docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source); seedream/seedance media: VolcEngine Ark official model-pricing page (https://www.volcengine.com/docs/82379/1099320), captured 2026-06-12/2026-07-02, CNY/USD=6.7 — per-image flat price; per-second video price derived at each model's max supported tier (1080p@24fps; 2.0-fast 720p), online standard rate, derivation formula in per-entry source; only IDs present in the live configured Ark account and priced from official sources are served — seedream-4.5/5.0 need separate 2K activation probes/pricing before serving, seedance-1.0-lite and wan2.1 returned unsupported on 2026-07-02; video failure_billing evidence: seedance entries carry the verified official Ark wording (success-only, captured 2026-06-12); veo entries are metric-inferred (billed per generated output second) with the official Google sentence still pending capture",
+    "provenance": "2026-10-08: Gemini/OpenAI/Grok/Claude USD fields aligned to official provider pages; DeepSeek idle CNY÷6.7 stays registry SSOT (peak via deepseek_peak_valley ×2, not stored peak list); Qwen/Moonshot/Kimi deferred. media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; DeepSeek stable Flash: https://api-docs.deepseek.com/zh-cn/quick_start/pricing, captured 2026-09-15; Pro retains the official rates captured 2026-08-17; all Flash versions, including fixed 0731, share the current Flash selling price by product policy; see per-row sources (idle CNY list ÷ 6.7, weekday peak 2x, cache writes billed as normal input); Moonshot/Kimi account 83: official China model pages under https://platform.kimi.com/docs/pricing/, captured 2026-07-20, CNY/USD=6.7; moonshot-v1-auto intentionally uses the fixed 128K V1 rate because the alias may select the highest tier; volcengine doubao-*/deepseek-v3-2-251201: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=6.7); GLM text rows: PRICING SOURCE ONLY = BigModel official pricing page https://bigmodel.cn/pricing, captured 2026-07-09, CNY/USD=6.7; SERVING for manifest-listed GLM remains the configured Alibaba DashScope/Qwen pool (channel_type=17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct; qwen3.7-max* / qwen3.7-plus / qwen3.6-flash / qwen3-coder-plus / qwen-max / qwen-plus: Alibaba DashScope China-mainland (Beijing) RMB list ÷ 6.7, docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source; the qwen3.7-* / qwen3.6-flash / qwen3-coder-plus values were corrected 2026-06-13 from a prior USD-list basis ≈÷7.27 to the table's canonical CNY/USD=6.7); qwen2.5-coder-32b/7b: retired & absent from current Alibaba list — proxy-filled from lineage successors qwen3-coder-plus / qwen3-coder-flash, Beijing RMB list ÷ 6.7, docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source); seedream/seedance media: VolcEngine Ark official model-pricing page (https://www.volcengine.com/docs/82379/1099320), captured 2026-06-12/2026-07-02, CNY/USD=6.7 — per-image flat price; per-second video price derived at each model's max supported tier (1080p@24fps; 2.0-fast 720p), online standard rate, derivation formula in per-entry source; only IDs present in the live configured Ark account and priced from official sources are served — seedream-4.5/5.0 need separate 2K activation probes/pricing before serving, seedance-1.0-lite and wan2.1 returned unsupported on 2026-07-02; video failure_billing evidence: seedance entries carry the verified official Ark wording (success-only, captured 2026-06-12); veo entries are metric-inferred (billed per generated output second) with the official Google sentence still pending capture",
     "regen": "manual registry ownership; scheduled sensors produce reviewed diffs/PRs and never auto-publish candidate prices",
     "migration_baseline_external_sha256": "f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
   },
@@ -1142,7 +1142,7 @@
   "claude-sonnet-5-5": {
     "cache_creation_input_token_cost": 2.5e-06,
     "cache_creation_input_token_cost_above_1hr": 4e-06,
-    "cache_read_input_token_cost": 2e-07,
+    "cache_read_input_token_cost": 1e-07,
     "input_cost_per_token": 2e-06,
     "litellm_provider": "anthropic",
     "max_input_tokens": 1000000,
@@ -1508,7 +1508,8 @@
         "input_cost_per_token": 5.970149253731343e-07,
         "output_cost_per_token": 8.955223880597015e-07
       }
-    ]
+    ],
+    "cache_read_input_token_cost": 2.8e-08
   },
   "deepseek-v3.2-think": {
     "litellm_provider": "deepseek",
@@ -2204,9 +2205,9 @@
   "doubao-seed-2.1-lite": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 1.1940298507462687e-07,
+    "input_cost_per_token": 1.1940298507462686e-07,
     "output_cost_per_token": 4.029850746268657e-07,
-    "cache_read_input_token_cost": 2.3880597014925374e-08,
+    "cache_read_input_token_cost": 2.3880597014925373e-08,
     "source": "VolcEngine Ark / Agent Plan list for doubao-seed-2.1-lite, captured 2026-10-08: online inference standard list input CNY 0.80/Mtok, output CNY 2.70/Mtok, cache-hit CNY 0.16/Mtok across the published 1M context window; CNY/USD=6.7. Audio input CNY 12/Mtok is out of TokenKey text overlay scope. Pre-tax official list rates; the existing official_list_base_tax policy applies at resolution/catalog time. Agent Plan serving is scoped to /api/plan/v3; upstream probe account 88 /api/plan/v3/responses servable 2026-10-08."
   },
   "doubao-seed-2.1-turbo": {
@@ -2405,10 +2406,10 @@
   "doubao-seedream-5-0-pro": {
     "litellm_provider": "volcengine",
     "mode": "image_generation",
-    "output_cost_per_image": 0.044776119402985074,
-    "image_price_1k": 0.044776119402985074,
-    "image_price_2k": 0.08955223880597015,
-    "image_price_4k": 0.08955223880597015,
+    "output_cost_per_image": 0.04477611940298507,
+    "image_price_1k": 0.04477611940298507,
+    "image_price_2k": 0.08955223880597014,
+    "image_price_4k": 0.08955223880597014,
     "source": "VolcEngine AI Hub / Ark list for Doubao-Seedream-5.0-pro, captured 2026-10-08: output ≤2.36M pixels CNY 0.30/image, >2.36M pixels CNY 0.60/image; CNY/USD=6.7. Catalog floor and image_price_1k use the ≤2.36M tier; image_price_2k/4k use the higher tier (Agent Plan wire ID doubao-seedream-5-0-pro; alias doubao-seedream-5.0-pro). Input reference images CNY 0.02 from the second image are out of this output-image overlay. Upstream probe account 88 /api/plan/v3/images/generations servable 2026-10-08."
   },
   "doubao-seedream-5-0-260128": {
@@ -2683,7 +2684,10 @@
     "supports_url_context": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "supports_image_size": false
+    "supports_image_size": false,
+    "cache_read_input_token_cost_priority": 5.4e-08,
+    "input_cost_per_token_priority": 5.4e-07,
+    "output_cost_per_token_priority": 4.5e-06
   },
   "gemini-2.5-flash-image": {
     "cache_read_input_token_cost": 3e-08,
@@ -2786,7 +2790,10 @@
     "supports_url_context": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "supports_image_size": false
+    "supports_image_size": false,
+    "cache_read_input_token_cost_priority": 1.8e-08,
+    "input_cost_per_token_priority": 1.8e-07,
+    "output_cost_per_token_priority": 7.2e-07
   },
   "gemini-2.5-flash-lite-preview-06-17": {
     "cache_read_input_token_cost": 2.5e-08,
@@ -2893,13 +2900,13 @@
   },
   "gemini-2.5-flash-native-audio-latest": {
     "input_cost_per_audio_token": 1e-06,
-    "input_cost_per_token": 3e-07,
+    "input_cost_per_token": 5e-07,
     "litellm_provider": "gemini",
     "max_input_tokens": 1048576,
     "max_output_tokens": 8192,
     "max_tokens": 8192,
     "mode": "chat",
-    "output_cost_per_token": 2.5e-06,
+    "output_cost_per_token": 2e-06,
     "source": "https://ai.google.dev/pricing",
     "supported_endpoints": [
       "/v1/realtime"
@@ -2918,13 +2925,13 @@
   },
   "gemini-2.5-flash-native-audio-preview-09-2025": {
     "input_cost_per_audio_token": 1e-06,
-    "input_cost_per_token": 3e-07,
+    "input_cost_per_token": 5e-07,
     "litellm_provider": "gemini",
     "max_input_tokens": 1048576,
     "max_output_tokens": 8192,
     "max_tokens": 8192,
     "mode": "chat",
-    "output_cost_per_token": 2.5e-06,
+    "output_cost_per_token": 2e-06,
     "source": "https://ai.google.dev/pricing",
     "supported_endpoints": [
       "/v1/realtime"
@@ -2943,13 +2950,13 @@
   },
   "gemini-2.5-flash-native-audio-preview-12-2025": {
     "input_cost_per_audio_token": 1e-06,
-    "input_cost_per_token": 3e-07,
+    "input_cost_per_token": 5e-07,
     "litellm_provider": "gemini",
     "max_input_tokens": 1048576,
     "max_output_tokens": 8192,
     "max_tokens": 8192,
     "mode": "chat",
-    "output_cost_per_token": 2.5e-06,
+    "output_cost_per_token": 2e-06,
     "source": "https://ai.google.dev/pricing",
     "supported_endpoints": [
       "/v1/realtime"
@@ -2967,7 +2974,7 @@
     "gemini_native_audio": true
   },
   "gemini-2.5-flash-preview-09-2025": {
-    "cache_read_input_token_cost": 7.5e-08,
+    "cache_read_input_token_cost": 3e-08,
     "input_cost_per_audio_token": 1e-06,
     "input_cost_per_token": 3e-07,
     "litellm_provider": "vertex_ai-language-models",
@@ -3018,10 +3025,10 @@
     "supports_image_size": false
   },
   "gemini-2.5-flash-preview-tts": {
-    "input_cost_per_token": 3e-07,
+    "input_cost_per_token": 5e-07,
     "litellm_provider": "gemini",
     "mode": "audio_speech",
-    "output_cost_per_token": 2.5e-06,
+    "output_cost_per_token": 1e-05,
     "source": "https://ai.google.dev/pricing",
     "supported_endpoints": [
       "/v1/audio/speech"
@@ -3090,13 +3097,16 @@
     "supports_tool_choice": true,
     "supports_video_input": true,
     "supports_vision": true,
-    "supports_web_search": true
+    "supports_web_search": true,
+    "cache_read_input_token_cost_priority": 2.25e-07,
+    "input_cost_per_token_priority": 2.25e-06,
+    "output_cost_per_token_priority": 1.8e-05
   },
   "gemini-2.5-pro-preview-tts": {
     "cache_read_input_token_cost": 1.25e-07,
     "cache_read_input_token_cost_above_200k_tokens": 2.5e-07,
     "input_cost_per_audio_token": 7e-07,
-    "input_cost_per_token": 1.25e-06,
+    "input_cost_per_token": 1e-06,
     "input_cost_per_token_above_200k_tokens": 2.5e-06,
     "litellm_provider": "vertex_ai-language-models",
     "max_audio_length_hours": 8.4,
@@ -3109,7 +3119,7 @@
     "max_video_length": 1,
     "max_videos_per_prompt": 10,
     "mode": "chat",
-    "output_cost_per_token": 1e-05,
+    "output_cost_per_token": 2e-05,
     "output_cost_per_token_above_200k_tokens": 1.5e-05,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.035,
@@ -3185,7 +3195,11 @@
     "supports_system_messages": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "web_search_billing_unit": "per_query"
+    "web_search_billing_unit": "per_query",
+    "cache_read_input_token_cost": 2e-07,
+    "cache_read_input_token_cost_priority": 3.6e-07,
+    "input_cost_per_token_priority": 3.6e-06,
+    "output_cost_per_token_priority": 2.16e-05
   },
   "gemini-3-pro-image-preview": {
     "input_cost_per_image": 0.0011,
@@ -3226,7 +3240,11 @@
     "supports_system_messages": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "web_search_billing_unit": "per_query"
+    "web_search_billing_unit": "per_query",
+    "cache_read_input_token_cost": 2e-07,
+    "cache_read_input_token_cost_priority": 3.6e-07,
+    "input_cost_per_token_priority": 3.6e-06,
+    "output_cost_per_token_priority": 2.16e-05
   },
   "gemini-3-pro-preview": {
     "cache_creation_input_token_cost_above_200k_tokens": 2.5e-07,
@@ -3327,7 +3345,11 @@
     "supports_system_messages": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "web_search_billing_unit": "per_query"
+    "web_search_billing_unit": "per_query",
+    "cache_read_input_token_cost": 5e-08,
+    "cache_read_input_token_cost_priority": 9e-08,
+    "input_cost_per_token_priority": 9e-07,
+    "output_cost_per_token_priority": 5.4e-06
   },
   "gemini-3.1-flash-image-preview": {
     "input_cost_per_image": 0.00056,
@@ -3365,7 +3387,8 @@
     "supports_system_messages": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "web_search_billing_unit": "per_query"
+    "web_search_billing_unit": "per_query",
+    "cache_read_input_token_cost": 5e-08
   },
   "gemini-3.1-flash-lite": {
     "cache_read_input_token_cost": 2.5e-08,
@@ -3871,17 +3894,17 @@
     "source": "TK overlay: Antigravity wire id (app 'Gemini 3.5 Flash (Medium)', thinkingBudget 4000) priced at equivalent public model gemini-3.5-flash market rate, no markup (in $1.5/M, out $9/M, cache $0.15/M). Ref: backend/resources/model-pricing/model_prices_and_context_window.json gemini-3.5-flash; captured 2026-06-13 via /v1internal:fetchAvailableModels. Billing keys on requested_model; antigravity wire ids absent from the trimmed litellm mirror."
   },
   "gemini-3.6-flash": {
-    "cache_read_input_token_cost": 1.5e-07,
-    "cache_read_input_token_cost_priority": 2.7e-07,
-    "input_cost_per_token": 1.5e-06,
-    "input_cost_per_token_priority": 2.7e-06,
+    "cache_read_input_token_cost": 7.5e-08,
+    "cache_read_input_token_cost_priority": 1.35e-07,
+    "input_cost_per_token": 7.5e-07,
+    "input_cost_per_token_priority": 1.35e-06,
     "litellm_provider": "vertex_ai-language-models",
     "max_input_tokens": 1048576,
     "max_output_tokens": 65536,
     "max_tokens": 65536,
     "mode": "chat",
-    "output_cost_per_token": 7.5e-06,
-    "output_cost_per_token_priority": 1.35e-05,
+    "output_cost_per_token": 3.75e-06,
+    "output_cost_per_token_priority": 6.75e-06,
     "source": "https://ai.google.dev/pricing/gemini-3",
     "supports_prompt_caching": true,
     "supports_reasoning": true,
@@ -3940,7 +3963,10 @@
     "supports_function_calling": true,
     "supports_prompt_caching": true,
     "supports_reasoning": true,
-    "supports_vision": true
+    "supports_vision": true,
+    "cache_read_input_token_cost_priority": 1.35e-07,
+    "input_cost_per_token_priority": 1.35e-06,
+    "output_cost_per_token_priority": 6.75e-06
   },
   "gemini-3.8-flash": {
     "cache_read_input_token_cost": 7.5e-08,
@@ -3956,7 +3982,10 @@
     "supports_function_calling": true,
     "supports_prompt_caching": true,
     "supports_reasoning": true,
-    "supports_vision": true
+    "supports_vision": true,
+    "cache_read_input_token_cost_priority": 1.35e-07,
+    "input_cost_per_token_priority": 1.35e-06,
+    "output_cost_per_token_priority": 6.75e-06
   },
   "gemini-embedding-001": {
     "input_cost_per_token": 1.5e-07,
@@ -3981,7 +4010,8 @@
     "output_vector_size": 3072,
     "source": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
     "supports_multimodal": true,
-    "uses_embed_content": true
+    "uses_embed_content": true,
+    "input_cost_per_image_token": 4.5e-07
   },
   "gemini-embedding-2-preview": {
     "input_cost_per_audio_per_second": 0.00016,
@@ -3995,7 +4025,8 @@
     "output_cost_per_token": 0,
     "output_vector_size": 3072,
     "source": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
-    "uses_embed_content": true
+    "uses_embed_content": true,
+    "input_cost_per_image_token": 4.5e-07
   },
   "gemini-exp-1206": {
     "cache_read_input_token_cost": 3e-08,
@@ -4050,9 +4081,9 @@
     "tpm": 8000000
   },
   "gemini-flash-latest": {
-    "cache_read_input_token_cost": 3e-08,
+    "cache_read_input_token_cost": 7.5e-08,
     "input_cost_per_audio_token": 1e-06,
-    "input_cost_per_token": 3e-07,
+    "input_cost_per_token": 7.5e-07,
     "litellm_provider": "gemini",
     "max_audio_length_hours": 8.4,
     "max_audio_per_prompt": 1,
@@ -4065,7 +4096,7 @@
     "max_videos_per_prompt": 10,
     "mode": "chat",
     "output_cost_per_reasoning_token": 2.5e-06,
-    "output_cost_per_token": 2.5e-06,
+    "output_cost_per_token": 3.75e-06,
     "rpm": 100000,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.035,
@@ -4099,12 +4130,15 @@
     "supports_url_context": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "tpm": 8000000
+    "tpm": 8000000,
+    "cache_read_input_token_cost_priority": 1.35e-07,
+    "input_cost_per_token_priority": 1.35e-06,
+    "output_cost_per_token_priority": 6.75e-06
   },
   "gemini-flash-lite-latest": {
-    "cache_read_input_token_cost": 1e-08,
+    "cache_read_input_token_cost": 3e-08,
     "input_cost_per_audio_token": 3e-07,
-    "input_cost_per_token": 1e-07,
+    "input_cost_per_token": 3e-07,
     "litellm_provider": "gemini",
     "max_audio_length_hours": 8.4,
     "max_audio_per_prompt": 1,
@@ -4117,7 +4151,7 @@
     "max_videos_per_prompt": 10,
     "mode": "chat",
     "output_cost_per_reasoning_token": 4e-07,
-    "output_cost_per_token": 4e-07,
+    "output_cost_per_token": 2.5e-06,
     "rpm": 15,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.035,
@@ -4151,12 +4185,15 @@
     "supports_url_context": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "tpm": 250000
+    "tpm": 250000,
+    "cache_read_input_token_cost_priority": 5e-08,
+    "input_cost_per_token_priority": 5.4e-07,
+    "output_cost_per_token_priority": 4.5e-06
   },
   "gemini-live-2.5-flash-preview-native-audio-09-2025": {
     "cache_read_input_token_cost": 7.5e-08,
     "input_cost_per_audio_token": 3e-06,
-    "input_cost_per_token": 3e-07,
+    "input_cost_per_token": 5e-07,
     "litellm_provider": "vertex_ai-language-models",
     "max_audio_length_hours": 8.4,
     "max_audio_per_prompt": 1,
@@ -4201,7 +4238,8 @@
     "supports_url_context": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "gemini_native_audio": true
+    "gemini_native_audio": true,
+    "input_cost_per_image_token": 3e-06
   },
   "gemini-omni-flash-preview": {
     "input_cost_per_audio_token": 1.5e-06,
@@ -4248,9 +4286,9 @@
     "source": "TK overlay: Antigravity wire id (app 'Gemini 3.1 Pro (High)', thinkingBudget 10001; also the migration target of deprecated gemini-3.1-pro-high) priced at equivalent public model gemini-3.1-pro market rate, no markup (in $2/M, out $12/M, cache $0.2/M). Ref: backend/resources/model-pricing/model_prices_and_context_window.json gemini-3.1-pro-low/-high; captured 2026-06-13 via /v1internal:fetchAvailableModels. Billing keys on requested_model."
   },
   "gemini-pro-latest": {
-    "cache_read_input_token_cost": 1.25e-07,
+    "cache_read_input_token_cost": 2e-07,
     "cache_read_input_token_cost_above_200k_tokens": 2.5e-07,
-    "input_cost_per_token": 1.25e-06,
+    "input_cost_per_token": 2e-06,
     "input_cost_per_token_above_200k_tokens": 2.5e-06,
     "litellm_provider": "gemini",
     "max_audio_length_hours": 8.4,
@@ -4263,7 +4301,7 @@
     "max_video_length": 1,
     "max_videos_per_prompt": 10,
     "mode": "chat",
-    "output_cost_per_token": 1e-05,
+    "output_cost_per_token": 1.2e-05,
     "output_cost_per_token_above_200k_tokens": 1.5e-05,
     "rpm": 2000,
     "search_context_cost_per_query": {
@@ -4296,7 +4334,10 @@
     "supports_video_input": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "tpm": 800000
+    "tpm": 800000,
+    "cache_read_input_token_cost_priority": 3.6e-07,
+    "input_cost_per_token_priority": 3.6e-06,
+    "output_cost_per_token_priority": 2.16e-05
   },
   "gemini-robotics-er-1.5-preview": {
     "cache_read_input_token_cost": 0,
@@ -4811,7 +4852,10 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "cache_read_input_token_cost_priority": 8.75e-07,
+    "input_cost_per_token_priority": 3.5e-06,
+    "output_cost_per_token_priority": 1.4e-05
   },
   "gpt-4.1-mini": {
     "cache_read_input_token_cost": 1e-07,
@@ -4886,7 +4930,10 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "cache_read_input_token_cost_priority": 1.75e-07,
+    "input_cost_per_token_priority": 7e-07,
+    "output_cost_per_token_priority": 2.8e-06
   },
   "gpt-4.1-nano": {
     "cache_read_input_token_cost": 2.5e-08,
@@ -4959,7 +5006,10 @@
     "supports_system_messages": true,
     "supports_tool_choice": true,
     "supports_vision": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "cache_read_input_token_cost_priority": 5e-08,
+    "input_cost_per_token_priority": 2e-07,
+    "output_cost_per_token_priority": 8e-07
   },
   "gpt-4o": {
     "cache_read_input_token_cost": 1.25e-06,
@@ -5027,7 +5077,10 @@
     "supports_system_messages": true,
     "supports_tool_choice": true,
     "supports_vision": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "cache_read_input_token_cost_priority": 2.125e-06,
+    "input_cost_per_token_priority": 4.25e-06,
+    "output_cost_per_token_priority": 1.7e-05
   },
   "gpt-4o-2024-11-20": {
     "cache_read_input_token_cost": 1.25e-06,
@@ -5049,7 +5102,10 @@
     "supports_system_messages": true,
     "supports_tool_choice": true,
     "supports_vision": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "cache_read_input_token_cost_priority": 2.125e-06,
+    "input_cost_per_token_priority": 4.25e-06,
+    "output_cost_per_token_priority": 1.7e-05
   },
   "gpt-4o-audio-preview": {
     "input_cost_per_audio_token": 4e-05,
@@ -5155,7 +5211,10 @@
     "supports_system_messages": true,
     "supports_tool_choice": true,
     "supports_vision": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "cache_read_input_token_cost_priority": 1.25e-07,
+    "input_cost_per_token_priority": 2.5e-07,
+    "output_cost_per_token_priority": 1e-06
   },
   "gpt-4o-mini-audio-preview": {
     "input_cost_per_audio_token": 1e-05,
@@ -5321,7 +5380,7 @@
     "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
   },
   "gpt-4o-mini-tts": {
-    "input_cost_per_token": 2.5e-06,
+    "input_cost_per_token": 6e-07,
     "litellm_provider": "openai",
     "mode": "audio_speech",
     "output_cost_per_audio_token": 1.2e-05,
@@ -5340,7 +5399,7 @@
     "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
   },
   "gpt-4o-mini-tts-2025-03-20": {
-    "input_cost_per_token": 2.5e-06,
+    "input_cost_per_token": 6e-07,
     "litellm_provider": "openai",
     "mode": "audio_speech",
     "output_cost_per_audio_token": 1.2e-05,
@@ -5359,7 +5418,7 @@
     "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
   },
   "gpt-4o-mini-tts-2025-12-15": {
-    "input_cost_per_token": 2.5e-06,
+    "input_cost_per_token": 6e-07,
     "litellm_provider": "openai",
     "mode": "audio_speech",
     "output_cost_per_audio_token": 1.2e-05,
@@ -5870,7 +5929,8 @@
     "supports_vision": true,
     "supports_web_search": true,
     "supports_xhigh_reasoning_effort": false,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "input_cost_per_token_priority": 2.5e-06
   },
   "gpt-5-pro": {
     "input_cost_per_token": 1.5e-05,
@@ -6974,19 +7034,19 @@
   },
   "gpt-5.5": {
     "cache_read_input_token_cost": 5e-07,
-    "cache_read_input_token_cost_priority": 1e-06,
+    "cache_read_input_token_cost_priority": 1.25e-06,
     "long_context_input_token_threshold": 272000,
     "long_context_input_cost_multiplier": 2,
     "long_context_output_cost_multiplier": 1.5,
     "input_cost_per_token": 5e-06,
-    "input_cost_per_token_priority": 1e-05,
+    "input_cost_per_token_priority": 1.25e-05,
     "litellm_provider": "openai",
     "max_input_tokens": 1050000,
     "max_output_tokens": 128000,
     "max_tokens": 128000,
     "mode": "chat",
     "output_cost_per_token": 3e-05,
-    "output_cost_per_token_priority": 6e-05,
+    "output_cost_per_token_priority": 7.5e-05,
     "supported_endpoints": [
       "/v1/chat/completions",
       "/v1/batch",
@@ -7033,12 +7093,12 @@
     "cache_read_input_token_cost": 5e-07,
     "cache_read_input_token_cost_above_272k_tokens": 1e-06,
     "cache_read_input_token_cost_flex": 2.5e-07,
-    "cache_read_input_token_cost_priority": 1e-06,
+    "cache_read_input_token_cost_priority": 1.25e-06,
     "input_cost_per_token": 5e-06,
     "input_cost_per_token_above_272k_tokens": 1e-05,
     "input_cost_per_token_batches": 2.5e-06,
     "input_cost_per_token_flex": 2.5e-06,
-    "input_cost_per_token_priority": 1e-05,
+    "input_cost_per_token_priority": 1.25e-05,
     "litellm_provider": "openai",
     "max_input_tokens": 1050000,
     "max_output_tokens": 128000,
@@ -7048,7 +7108,7 @@
     "output_cost_per_token_above_272k_tokens": 4.5e-05,
     "output_cost_per_token_batches": 1.5e-05,
     "output_cost_per_token_flex": 1.5e-05,
-    "output_cost_per_token_priority": 6e-05,
+    "output_cost_per_token_priority": 7.5e-05,
     "supported_endpoints": [
       "/v1/chat/completions",
       "/v1/batch",
@@ -7194,25 +7254,25 @@
     "regional_processing_uplift_multiplier_us": 1.1
   },
   "gpt-5.6-sol": {
-    "cache_read_input_token_cost": 5e-07,
-    "cache_read_input_token_cost_above_272k_tokens": 1e-06,
+    "cache_read_input_token_cost": 4e-07,
+    "cache_read_input_token_cost_above_272k_tokens": 8e-07,
     "cache_read_input_token_cost_flex": 2.5e-07,
-    "cache_read_input_token_cost_priority": 1e-06,
-    "input_cost_per_token": 5e-06,
-    "input_cost_per_token_above_272k_tokens": 1e-05,
+    "cache_read_input_token_cost_priority": 8e-07,
+    "input_cost_per_token": 4e-06,
+    "input_cost_per_token_above_272k_tokens": 8e-06,
     "input_cost_per_token_batches": 2.5e-06,
     "input_cost_per_token_flex": 2.5e-06,
-    "input_cost_per_token_priority": 1e-05,
+    "input_cost_per_token_priority": 8e-06,
     "litellm_provider": "openai",
     "max_input_tokens": 400000,
     "max_output_tokens": 128000,
     "max_tokens": 128000,
     "mode": "chat",
-    "output_cost_per_token": 3e-05,
-    "output_cost_per_token_above_272k_tokens": 4.5e-05,
+    "output_cost_per_token": 2e-05,
+    "output_cost_per_token_above_272k_tokens": 3e-05,
     "output_cost_per_token_batches": 1.5e-05,
     "output_cost_per_token_flex": 1.5e-05,
-    "output_cost_per_token_priority": 6e-05,
+    "output_cost_per_token_priority": 4e-05,
     "supported_endpoints": [
       "/v1/chat/completions",
       "/v1/batch",
@@ -7240,8 +7300,8 @@
     "supports_vision": true,
     "supports_web_search": true,
     "supports_xhigh_reasoning_effort": true,
-    "cache_creation_input_token_cost": 6.25e-06,
-    "cache_creation_input_token_cost_priority": 1.25e-05,
+    "cache_creation_input_token_cost": 5e-06,
+    "cache_creation_input_token_cost_priority": 1e-05,
     "long_context_input_token_threshold": 272000,
     "long_context_input_cost_multiplier": 2.0,
     "long_context_output_cost_multiplier": 1.5,
@@ -7695,7 +7755,8 @@
     "supports_parallel_function_calling": true,
     "supports_system_messages": true,
     "supports_tool_choice": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "input_cost_per_image_token": 5e-06
   },
   "gpt-realtime-1.5": {
     "cache_creation_input_audio_token_cost": 4e-07,
@@ -7728,7 +7789,8 @@
     "supports_parallel_function_calling": true,
     "supports_system_messages": true,
     "supports_tool_choice": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "input_cost_per_image_token": 5e-06
   },
   "gpt-realtime-2": {
     "cache_creation_input_audio_token_cost": 4e-07,
@@ -7742,7 +7804,7 @@
     "max_tokens": 4096,
     "mode": "realtime",
     "output_cost_per_audio_token": 6.4e-05,
-    "output_cost_per_token": 1.6e-05,
+    "output_cost_per_token": 2.4e-05,
     "supported_endpoints": [
       "/v1/realtime"
     ],
@@ -7761,7 +7823,8 @@
     "supports_parallel_function_calling": true,
     "supports_system_messages": true,
     "supports_tool_choice": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "input_cost_per_image_token": 5e-06
   },
   "gpt-realtime-2.1": {
     "cache_creation_input_audio_token_cost": 4e-07,
@@ -7797,7 +7860,8 @@
     "supports_parallel_function_calling": true,
     "supports_system_messages": true,
     "supports_tool_choice": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "input_cost_per_image_token": 5e-06
   },
   "gpt-realtime-2.1-mini": {
     "cache_creation_input_audio_token_cost": 3e-07,
@@ -7833,7 +7897,8 @@
     "supports_parallel_function_calling": true,
     "supports_system_messages": true,
     "supports_tool_choice": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "input_cost_per_image_token": 8e-07
   },
   "gpt-realtime-2025-08-28": {
     "cache_creation_input_audio_token_cost": 4e-07,
@@ -7866,7 +7931,8 @@
     "supports_parallel_function_calling": true,
     "supports_system_messages": true,
     "supports_tool_choice": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "input_cost_per_image_token": 5e-06
   },
   "gpt-realtime-mini": {
     "cache_creation_input_audio_token_cost": 3e-07,
@@ -7898,7 +7964,9 @@
     "supports_parallel_function_calling": true,
     "supports_system_messages": true,
     "supports_tool_choice": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "cache_read_input_token_cost": 6e-08,
+    "input_cost_per_image_token": 8e-07
   },
   "gpt-realtime-mini-2025-10-06": {
     "cache_creation_input_audio_token_cost": 3e-07,
@@ -7966,7 +8034,8 @@
     "supports_parallel_function_calling": true,
     "supports_system_messages": true,
     "supports_tool_choice": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "input_cost_per_image_token": 8e-07
   },
   "grok-4-fast-reasoning": {
     "litellm_provider": "xai",
@@ -7978,7 +8047,8 @@
     "long_context_input_token_threshold": 200000,
     "long_context_threshold_inclusive": true,
     "long_context_input_cost_multiplier": 2,
-    "long_context_output_cost_multiplier": 2
+    "long_context_output_cost_multiplier": 2,
+    "input_cost_per_image_token": 1.25e-06
   },
   "grok-4.20-0309-non-reasoning": {
     "litellm_provider": "xai",
@@ -7999,7 +8069,8 @@
     "long_context_input_token_threshold": 200000,
     "long_context_threshold_inclusive": true,
     "long_context_input_cost_multiplier": 2,
-    "long_context_output_cost_multiplier": 2
+    "long_context_output_cost_multiplier": 2,
+    "input_cost_per_image_token": 1.25e-06
   },
   "grok-4.20-0309-reasoning": {
     "litellm_provider": "xai",
@@ -8021,7 +8092,8 @@
     "long_context_input_token_threshold": 200000,
     "long_context_threshold_inclusive": true,
     "long_context_input_cost_multiplier": 2,
-    "long_context_output_cost_multiplier": 2
+    "long_context_output_cost_multiplier": 2,
+    "input_cost_per_image_token": 1.25e-06
   },
   "grok-4.20-multi-agent-0309": {
     "cache_read_input_token_cost": 2e-07,
@@ -8043,7 +8115,8 @@
     "long_context_input_token_threshold": 200000,
     "long_context_threshold_inclusive": true,
     "long_context_input_cost_multiplier": 2,
-    "long_context_output_cost_multiplier": 2
+    "long_context_output_cost_multiplier": 2,
+    "input_cost_per_image_token": 1.25e-06
   },
   "grok-4.3": {
     "litellm_provider": "xai",
@@ -8065,7 +8138,8 @@
     "long_context_input_token_threshold": 200000,
     "long_context_threshold_inclusive": true,
     "long_context_input_cost_multiplier": 2,
-    "long_context_output_cost_multiplier": 2
+    "long_context_output_cost_multiplier": 2,
+    "input_cost_per_image_token": 1.25e-06
   },
   "grok-4.3-latest": {
     "litellm_provider": "xai",
@@ -8077,7 +8151,8 @@
     "long_context_input_token_threshold": 200000,
     "long_context_threshold_inclusive": true,
     "long_context_input_cost_multiplier": 2,
-    "long_context_output_cost_multiplier": 2
+    "long_context_output_cost_multiplier": 2,
+    "input_cost_per_image_token": 1.25e-06
   },
   "grok-4.5": {
     "litellm_provider": "xai",
@@ -8099,7 +8174,8 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "long_context_threshold_inclusive": true
+    "long_context_threshold_inclusive": true,
+    "input_cost_per_image_token": 2e-06
   },
   "grok-4.5-latest": {
     "litellm_provider": "xai",
@@ -8111,7 +8187,8 @@
     "long_context_input_token_threshold": 200000,
     "long_context_threshold_inclusive": true,
     "long_context_input_cost_multiplier": 2,
-    "long_context_output_cost_multiplier": 2
+    "long_context_output_cost_multiplier": 2,
+    "input_cost_per_image_token": 2e-06
   },
   "grok-build-0.1": {
     "litellm_provider": "xai",
@@ -8132,7 +8209,8 @@
     "long_context_input_token_threshold": 200000,
     "long_context_threshold_inclusive": true,
     "long_context_input_cost_multiplier": 2,
-    "long_context_output_cost_multiplier": 2
+    "long_context_output_cost_multiplier": 2,
+    "input_cost_per_image_token": 1e-06
   },
   "grok-build-latest": {
     "litellm_provider": "xai",
@@ -8144,7 +8222,8 @@
     "long_context_input_token_threshold": 200000,
     "long_context_threshold_inclusive": true,
     "long_context_input_cost_multiplier": 2,
-    "long_context_output_cost_multiplier": 2
+    "long_context_output_cost_multiplier": 2,
+    "input_cost_per_image_token": 2e-06
   },
   "grok-code-fast": {
     "litellm_provider": "xai",
@@ -8156,7 +8235,8 @@
     "long_context_input_token_threshold": 200000,
     "long_context_threshold_inclusive": true,
     "long_context_input_cost_multiplier": 2,
-    "long_context_output_cost_multiplier": 2
+    "long_context_output_cost_multiplier": 2,
+    "input_cost_per_image_token": 1e-06
   },
   "grok-code-fast-1": {
     "litellm_provider": "xai",
@@ -8168,7 +8248,8 @@
     "long_context_input_token_threshold": 200000,
     "long_context_threshold_inclusive": true,
     "long_context_input_cost_multiplier": 2,
-    "long_context_output_cost_multiplier": 2
+    "long_context_output_cost_multiplier": 2,
+    "input_cost_per_image_token": 1e-06
   },
   "grok-code-fast-1-0825": {
     "litellm_provider": "xai",
@@ -8180,7 +8261,8 @@
     "long_context_input_token_threshold": 200000,
     "long_context_threshold_inclusive": true,
     "long_context_input_cost_multiplier": 2,
-    "long_context_output_cost_multiplier": 2
+    "long_context_output_cost_multiplier": 2,
+    "input_cost_per_image_token": 1e-06
   },
   "grok-imagine-image": {
     "litellm_provider": "xai",
@@ -8254,7 +8336,8 @@
     "long_context_input_token_threshold": 200000,
     "long_context_threshold_inclusive": true,
     "long_context_input_cost_multiplier": 2,
-    "long_context_output_cost_multiplier": 2
+    "long_context_output_cost_multiplier": 2,
+    "input_cost_per_image_token": 1.25e-06
   },
   "imagen-3.0-capability-001": {
     "litellm_provider": "vertex_ai",
@@ -8752,7 +8835,10 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "cache_read_input_token_cost_priority": 8.75e-07,
+    "input_cost_per_token_priority": 3.5e-06,
+    "output_cost_per_token_priority": 1.4e-05
   },
   "o3-deep-research": {
     "cache_read_input_token_cost": 2.5e-06,
@@ -8970,7 +9056,10 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+    "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa",
+    "cache_read_input_token_cost_priority": 5e-07,
+    "input_cost_per_token_priority": 2e-06,
+    "output_cost_per_token_priority": 8e-06
   },
   "o4-mini-deep-research": {
     "cache_read_input_token_cost": 5e-07,
@@ -9988,7 +10077,8 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "long_context_threshold_inclusive": true
+    "long_context_threshold_inclusive": true,
+    "input_cost_per_image_token": 2e-06
   },
   "grok-4.7": {
     "litellm_provider": "xai",
@@ -10010,7 +10100,8 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "long_context_threshold_inclusive": true
+    "long_context_threshold_inclusive": true,
+    "input_cost_per_image_token": 2e-06
   },
   "glm-5.2-fast-preview": {
     "litellm_provider": "zhipu",
@@ -10401,7 +10492,7 @@
     "supports_xhigh_reasoning_effort": true,
     "cache_read_input_token_cost_batches": 1e-07,
     "input_cost_per_token_above_272k_tokens": 4e-06,
-    "output_cost_per_token_above_272k_tokens": 1.5000000000000002e-05,
+    "output_cost_per_token_above_272k_tokens": 1.5e-05,
     "cache_creation_input_token_cost_above_272k_tokens": 5e-06,
     "cache_read_input_token_cost_above_272k_tokens": 4e-07,
     "input_cost_per_token_above_272k_tokens_flex": 2e-06,
@@ -10529,7 +10620,7 @@
     "supports_xhigh_reasoning_effort": true,
     "cache_read_input_token_cost_batches": 5e-08,
     "input_cost_per_token_above_272k_tokens": 4e-06,
-    "output_cost_per_token_above_272k_tokens": 1.5000000000000002e-05,
+    "output_cost_per_token_above_272k_tokens": 1.5e-05,
     "cache_creation_input_token_cost_above_272k_tokens": 5e-06,
     "cache_read_input_token_cost_above_272k_tokens": 2e-07,
     "input_cost_per_token_above_272k_tokens_flex": 2e-06,

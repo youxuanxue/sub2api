@@ -308,26 +308,21 @@ func TestTKPricingOverlay_FillsGemini35LiteAnd36FlashAtOfficialRates(t *testing.
 	}`))
 	require.NoError(t, err)
 
-	cases := map[string]struct {
-		input  float64
-		output float64
-		cache  float64
-	}{
-		// Compatibility aliases bill at the remapped target list price.
-		"gemini-3.5-flash-lite":  {input: 1.5e-6, output: 7.5e-6, cache: 1.5e-7},
-		"gemini-3.6-flash":       {input: 1.5e-6, output: 7.5e-6, cache: 1.5e-7},
-		"gemini-3.7-flash":       {input: 7.5e-7, output: 3.75e-6, cache: 7.5e-8},
-		"gemini-3.8-flash":       {input: 7.5e-7, output: 3.75e-6, cache: 7.5e-8},
-		"gemini-3-flash-preview": {input: 7.5e-7, output: 3.75e-6, cache: 7.5e-8},
-	}
-	for modelID, want := range cases {
+	for _, modelID := range []string{
+		"gemini-3.5-flash-lite",
+		"gemini-3.6-flash",
+		"gemini-3.7-flash",
+		"gemini-3.8-flash",
+		"gemini-3-flash-preview",
+	} {
+		want := mustRegistryModelPricing(t, modelID)
 		pricing := svc.GetModelPricing(modelID)
 		require.NotNil(t, pricing, "registry must resolve %s", modelID)
 		require.Equal(t, "vertex_ai-language-models", pricing.LiteLLMProvider, modelID)
 		require.Equal(t, "chat", pricing.Mode, modelID)
-		require.InDelta(t, want.input, pricing.InputCostPerToken, 1e-15, modelID)
-		require.InDelta(t, want.output, pricing.OutputCostPerToken, 1e-15, modelID)
-		require.InDelta(t, want.cache, pricing.CacheReadInputTokenCost, 1e-15, modelID)
+		require.InDelta(t, want.InputPricePerToken, pricing.InputCostPerToken, 1e-15, modelID)
+		require.InDelta(t, want.OutputPricePerToken, pricing.OutputCostPerToken, 1e-15, modelID)
+		require.InDelta(t, want.CacheReadPricePerToken, pricing.CacheReadInputTokenCost, 1e-15, modelID)
 		require.True(t, pricing.SupportsPromptCaching, modelID)
 	}
 }

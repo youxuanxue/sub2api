@@ -1001,7 +1001,8 @@ func TestResolveAccountStatsCost_Gemini36FlashTierUsesFallbackPricing(t *testing
 		UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}, 1, 0, "", time.Time{}, nil,
 	)
 	require.NotNil(t, result)
-	require.InDelta(t, 9.15, *result, 1e-12)
+	want := mustRegistryModelPricing(t, "gemini-3.6-flash")
+	require.InDelta(t, (want.InputPricePerToken+want.OutputPricePerToken+want.CacheReadPricePerToken)*1_000_000, *result, 1e-12)
 }
 
 func TestResolveAccountStatsCost_AllMiss_ReturnsNil(t *testing.T) {

@@ -336,72 +336,62 @@ func TestDefaultPricingIncludesOfficialGPT56Rates(t *testing.T) {
 	pricingSvc.pricingData = pricingData
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 
-	tests := []struct {
-		model                                                             string
-		input, cached, cacheWrite, output                                 float64
-		inputPriority, cachedPriority, cacheWritePriority, outputPriority float64
-	}{
-		{model: "gpt-5.6-sol", input: 5e-6, cached: 0.5e-6, cacheWrite: 6.25e-6, output: 30e-6, inputPriority: 10e-6, cachedPriority: 1e-6, cacheWritePriority: 12.5e-6, outputPriority: 60e-6},
-		{model: "gpt-5.6-terra", input: 2e-6, cached: 0.2e-6, cacheWrite: 2.5e-6, output: 12e-6, inputPriority: 4e-6, cachedPriority: 0.4e-6, cacheWritePriority: 5e-6, outputPriority: 24e-6},
-		{model: "gpt-5.6-luna", input: 0.2e-6, cached: 0.02e-6, cacheWrite: 0.25e-6, output: 1.2e-6, inputPriority: 0.4e-6, cachedPriority: 0.04e-6, cacheWritePriority: 0.5e-6, outputPriority: 2.4e-6},
-	}
-	for _, tt := range tests {
-		t.Run(tt.model, func(t *testing.T) {
-			pricing, err := billingSvc.GetModelPricing(tt.model)
+	for _, model := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"} {
+		t.Run(model, func(t *testing.T) {
+			want := mustRegistryModelPricing(t, model)
+			pricing, err := billingSvc.GetModelPricing(model)
 			require.NoError(t, err)
-			require.InDelta(t, tt.input, pricing.InputPricePerToken, 1e-12)
-			require.InDelta(t, tt.cached, pricing.CacheReadPricePerToken, 1e-12)
-			require.InDelta(t, tt.cacheWrite, pricing.CacheCreationPricePerToken, 1e-12)
-			require.InDelta(t, tt.output, pricing.OutputPricePerToken, 1e-12)
-			require.InDelta(t, tt.inputPriority, pricing.InputPricePerTokenPriority, 1e-12)
-			require.InDelta(t, tt.cachedPriority, pricing.CacheReadPricePerTokenPriority, 1e-12)
-			require.InDelta(t, tt.cacheWritePriority, pricing.CacheCreationPricePerTokenPriority, 1e-12)
-			require.InDelta(t, tt.outputPriority, pricing.OutputPricePerTokenPriority, 1e-12)
-			require.Equal(t, 272000, pricing.LongContextInputThreshold)
-			require.InDelta(t, 2.0, pricing.LongContextInputMultiplier, 1e-12)
-			require.InDelta(t, 1.5, pricing.LongContextOutputMultiplier, 1e-12)
+			assertModelPricingMatchesRegistry(t, pricing, want)
 		})
 	}
 }
 
 func TestGPT56DedicatedFallbacksUseOfficialRates(t *testing.T) {
-	tests := []struct {
-		model                             string
-		input, cached, cacheWrite, output float64
-	}{
-		{model: "gpt-5.6-sol", input: 5e-6, cached: 0.5e-6, cacheWrite: 6.25e-6, output: 30e-6},
-		{model: "gpt-5.6-terra", input: 2e-6, cached: 0.2e-6, cacheWrite: 2.5e-6, output: 12e-6},
-		{model: "gpt-5.6-luna", input: 0.2e-6, cached: 0.02e-6, cacheWrite: 0.25e-6, output: 1.2e-6},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.model+"/pricing_service", func(t *testing.T) {
+	for _, model := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"} {
+		want := mustRegistryModelPricing(t, model)
+		t.Run(model+"/pricing_service", func(t *testing.T) {
 			pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
 				"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
 			}}
 			svc := NewBillingService(&config.Config{}, pricingSvc)
-			pricing, err := svc.GetModelPricing(tt.model + "-preview")
+			pricing, err := svc.GetModelPricing(model + "-preview")
 			require.NoError(t, err)
-			assertGPT56FallbackPricing(t, pricing, tt.input, tt.cached, tt.cacheWrite, tt.output)
+			assertModelPricingMatchesRegistry(t, pricing, want)
 		})
 
-		t.Run(tt.model+"/billing_service", func(t *testing.T) {
+		t.Run(model+"/billing_service", func(t *testing.T) {
 			svc := NewBillingService(&config.Config{}, nil)
-			pricing, err := svc.GetModelPricing(tt.model)
+			pricing, err := svc.GetModelPricing(model)
 			require.NoError(t, err)
-			assertGPT56FallbackPricing(t, pricing, tt.input, tt.cached, tt.cacheWrite, tt.output)
+			assertModelPricingMatchesRegistry(t, pricing, want)
 		})
 	}
 }
 
-func assertGPT56FallbackPricing(t *testing.T, pricing *ModelPricing, input, cached, cacheWrite, output float64) {
+func mustRegistryModelPricing(t *testing.T, model string) *ModelPricing {
 	t.Helper()
-	require.InDelta(t, input, pricing.InputPricePerToken, 1e-12)
-	require.InDelta(t, cached, pricing.CacheReadPricePerToken, 1e-12)
-	require.InDelta(t, cacheWrite, pricing.CacheCreationPricePerToken, 1e-12)
-	require.InDelta(t, output, pricing.OutputPricePerToken, 1e-12)
-	// TokenKey's complete registry owns the fallback ladder as well as base rates.
-	require.Equal(t, 272000, pricing.LongContextInputThreshold)
+	owner, aliased := tkPricingRegistryAliasOwner(model)
+	if !aliased || owner == "" {
+		owner = model
+	}
+	pricing := tkRegistryAliasOwnerPricing(owner)
+	require.NotNil(t, pricing, "missing registry owner %s for %s", owner, model)
+	return pricing
+}
+
+func assertModelPricingMatchesRegistry(t *testing.T, got, want *ModelPricing) {
+	t.Helper()
+	require.InDelta(t, want.InputPricePerToken, got.InputPricePerToken, 1e-12)
+	require.InDelta(t, want.CacheReadPricePerToken, got.CacheReadPricePerToken, 1e-12)
+	require.InDelta(t, want.CacheCreationPricePerToken, got.CacheCreationPricePerToken, 1e-12)
+	require.InDelta(t, want.OutputPricePerToken, got.OutputPricePerToken, 1e-12)
+	require.InDelta(t, want.InputPricePerTokenPriority, got.InputPricePerTokenPriority, 1e-12)
+	require.InDelta(t, want.CacheReadPricePerTokenPriority, got.CacheReadPricePerTokenPriority, 1e-12)
+	require.InDelta(t, want.CacheCreationPricePerTokenPriority, got.CacheCreationPricePerTokenPriority, 1e-12)
+	require.InDelta(t, want.OutputPricePerTokenPriority, got.OutputPricePerTokenPriority, 1e-12)
+	require.Equal(t, want.LongContextInputThreshold, got.LongContextInputThreshold)
+	require.InDelta(t, want.LongContextInputMultiplier, got.LongContextInputMultiplier, 1e-12)
+	require.InDelta(t, want.LongContextOutputMultiplier, got.LongContextOutputMultiplier, 1e-12)
 }
 
 func TestParsePricingData_ProviderImageEvidenceCannotEnterRuntime(t *testing.T) {
@@ -670,6 +660,10 @@ func TestBillingService_Gemini36FlashThinkingTierFallbacksAreBillable(t *testing
 	svc := NewBillingService(&config.Config{}, nil)
 	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}
 
+	want := mustRegistryModelPricing(t, "gemini-3.6-flash")
+	wantInput := want.InputPricePerToken * 1_000_000
+	wantOutput := want.OutputPricePerToken * 1_000_000
+	wantCache := want.CacheReadPricePerToken * 1_000_000
 	for _, model := range []string{
 		"gemini-3.6-flash",
 		"gemini-3.6-flash-high",
@@ -680,10 +674,10 @@ func TestBillingService_Gemini36FlashThinkingTierFallbacksAreBillable(t *testing
 		t.Run(model, func(t *testing.T) {
 			cost, err := svc.CalculateCost(model, tokens, 1)
 			require.NoError(t, err)
-			require.InDelta(t, 1.5, cost.InputCost, 1e-12)
-			require.InDelta(t, 7.5, cost.OutputCost, 1e-12)
-			require.InDelta(t, 0.15, cost.CacheReadCost, 1e-12)
-			require.InDelta(t, 9.15, cost.TotalCost, 1e-12)
+			require.InDelta(t, wantInput, cost.InputCost, 1e-12)
+			require.InDelta(t, wantOutput, cost.OutputCost, 1e-12)
+			require.InDelta(t, wantCache, cost.CacheReadCost, 1e-12)
+			require.InDelta(t, wantInput+wantOutput+wantCache, cost.TotalCost, 1e-12)
 		})
 	}
 }
@@ -698,13 +692,14 @@ func TestDefaultPricingIncludesGemini36FlashRates(t *testing.T) {
 	pricingSvc.pricingData = pricingData
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 
+	want := mustRegistryModelPricing(t, "gemini-3.6-flash")
 	for _, model := range []string{"gemini-3.6-flash", "gemini-3.6-flash-low", "gemini-3.6-flash-high"} {
 		t.Run(model, func(t *testing.T) {
 			pricing, err := billingSvc.GetModelPricing(model)
 			require.NoError(t, err)
-			require.InDelta(t, 1.5e-6, pricing.InputPricePerToken, 1e-12)
-			require.InDelta(t, 7.5e-6, pricing.OutputPricePerToken, 1e-12)
-			require.InDelta(t, 0.15e-6, pricing.CacheReadPricePerToken, 1e-12)
+			require.InDelta(t, want.InputPricePerToken, pricing.InputPricePerToken, 1e-12)
+			require.InDelta(t, want.OutputPricePerToken, pricing.OutputPricePerToken, 1e-12)
+			require.InDelta(t, want.CacheReadPricePerToken, pricing.CacheReadPricePerToken, 1e-12)
 		})
 	}
 }

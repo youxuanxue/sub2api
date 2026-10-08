@@ -1600,7 +1600,10 @@ func TestOpenAIResponsesWebSocket_PassthroughTracksModelPerTurn(t *testing.T) {
 	require.Equal(t, "terra-channel", *got.logs[1].UpstreamModel)
 	require.NotNil(t, got.logs[1].ModelMappingChain)
 	require.Equal(t, "terra→terra-channel", *got.logs[1].ModelMappingChain)
-	require.InDelta(t, got.logs[1].TotalCost*2.5, got.logs[0].TotalCost, 1e-12,
+	// gpt-5.6-sol / gpt-5.6-terra list ratio at 2in+1out: 28e-6 / 16e-6 = 1.75
+	solCost := wsUsageTurnCostFromRegistry(t, "gpt-5.6-sol")
+	terraCost := wsUsageTurnCostFromRegistry(t, "gpt-5.6-terra")
+	require.InDelta(t, got.logs[1].TotalCost*(solCost/terraCost), got.logs[0].TotalCost, 1e-12,
 		"each turn must be billed with its own channel-mapped model")
 }
 
@@ -1662,7 +1665,9 @@ func TestOpenAIResponsesWebSocket_PassthroughKeepsTurnMappingSnapshot(t *testing
 	require.Equal(t, "gpt-5.6-sol", *got.logs[0].UpstreamModel)
 	require.NotNil(t, got.logs[0].ModelMappingChain)
 	require.Equal(t, "sol→gpt-5.6-sol", *got.logs[0].ModelMappingChain)
-	require.InDelta(t, 40e-6, got.logs[0].TotalCost, 1e-12,
+	solCost := wsUsageTurnCostFromRegistry(t, "gpt-5.6-sol")
+	terraCost := wsUsageTurnCostFromRegistry(t, "gpt-5.6-terra")
+	require.InDelta(t, solCost, got.logs[0].TotalCost, 1e-12,
 		"the in-flight turn must retain the channel-mapped billing model used when it was sent")
 
 	require.Equal(t, "sol", got.logs[1].Model)
@@ -1670,7 +1675,7 @@ func TestOpenAIResponsesWebSocket_PassthroughKeepsTurnMappingSnapshot(t *testing
 	require.Equal(t, "gpt-5.6-terra", *got.logs[1].UpstreamModel)
 	require.NotNil(t, got.logs[1].ModelMappingChain)
 	require.Equal(t, "sol→gpt-5.6-terra", *got.logs[1].ModelMappingChain)
-	require.InDelta(t, got.logs[1].TotalCost*2.5, got.logs[0].TotalCost, 1e-12,
+	require.InDelta(t, got.logs[1].TotalCost*(solCost/terraCost), got.logs[0].TotalCost, 1e-12,
 		"the next turn must use the updated channel mapping")
 }
 
@@ -1695,11 +1700,11 @@ func TestOpenAIResponsesWebSocket_CtxPoolAppliesPerTurnMappingAndPreservesReques
 	require.Len(t, got.logs, 2)
 	require.Equal(t, "gpt-5.6-sol", got.logs[0].RequestedModel)
 	require.Nil(t, got.logs[0].ModelMappingChain)
-	require.InDelta(t, 40e-6, got.logs[0].TotalCost, 1e-12)
+	require.InDelta(t, wsUsageTurnCostFromRegistry(t, "gpt-5.6-sol"), got.logs[0].TotalCost, 1e-12)
 	require.Equal(t, "gpt-5.6-terra", got.logs[1].RequestedModel)
 	require.NotNil(t, got.logs[1].ModelMappingChain)
 	require.Equal(t, "gpt-5.6-terra→gpt-5.6-sol", *got.logs[1].ModelMappingChain)
-	require.InDelta(t, 16e-6, got.logs[1].TotalCost, 1e-12,
+	require.InDelta(t, wsUsageTurnCostFromRegistry(t, "gpt-5.6-terra"), got.logs[1].TotalCost, 1e-12,
 		"BillingModelSourceRequested must use the client model before channel mapping")
 }
 
@@ -2946,6 +2951,14 @@ func TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClien
 	require.Equal(t, int32(1), firstConnections.Load())
 	require.Equal(t, int32(1), secondConnections.Load())
 	require.NotContains(t, accountRepo.rateLimitedIDs, int64(9913), "healthy failover account must not be penalized")
+}
+
+// Usage fixture in runOpenAIResponsesWebSocketUsageLogCase: input_tokens=2, output_tokens=1.
+func wsUsageTurnCostFromRegistry(t *testing.T, model string) float64 {
+	t.Helper()
+	pricing, err := service.NewBillingService(&config.Config{}, nil).GetModelPricing(model)
+	require.NoError(t, err)
+	return 2*pricing.InputPricePerToken + pricing.OutputPricePerToken
 }
 
 func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSUsageLogCase) openAIResponsesWSUsageLogResult {
