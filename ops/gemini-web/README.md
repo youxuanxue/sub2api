@@ -50,6 +50,9 @@ copy the real Worker account again after upgrading instead of guessing identity 
 
 Import success confirms database persistence, not Google sign-in or browser identity.
 Never put this export into an API Key field; do not send it to the production relay account.
+Admin "Test account" follows the platform AccountTestService SSOT and does not require
+scheduling to be enabled: control-plane session/lease/CAS accept active runtimes while
+`GET /warm-accounts` and gateway selection remain schedulable-gated.
 
 ## Validation
 

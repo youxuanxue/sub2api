@@ -322,5 +322,6 @@ func (s *AccountRepoSuite) TestGeminiWebLeaseAndCAS() {
 	s.Require().NoError(s.repo.SetSchedulable(s.ctx, id, false))
 	acquired, err = s.repo.AcquireGeminiWebLease(s.ctx, id, "three")
 	s.Require().NoError(err)
-	s.Require().False(acquired)
+	s.Require().True(acquired, "admin connectivity test must lease runtime before scheduling is enabled")
+	s.Require().NoError(s.repo.ReleaseGeminiWebLease(s.ctx, id, "three"))
 }

@@ -181,10 +181,10 @@ runtime 是否存在仍是会话绑定 SSOT，不增加 extra 初始化标志。
 控制路由挂在 `/api/v1/edge/gemini-web`，复用现有 edge API-key 和活跃管理员 owner
 中间件，不新增 Gemini 专用私网限制或后端服务令牌。传输与部署遵循现有 edge API 规范。
 
-- `GET /accounts/:id/session`：读取该 active、schedulable 的 Gemini API-key 账号 runtime 和 Worker key。
-- `PUT /accounts/:id/runtime`：以 expected_version 和租约 owner 比较交换 runtime，服务端递增版本。
-- `POST /accounts/:id/lease`、`DELETE /accounts/:id/lease`：取得/释放数据库账号租约。
-- `GET /warm-accounts`：返回到期账号的整数 ID 和 `protocol_version=1`，不批量返回 Cookie。
+- `GET /accounts/:id/session`：读取该 active、已有 nonempty runtime 的 Gemini API-key 账号 runtime 和 Worker key。不要求 `schedulable`——调度只决定是否进入 fleet，不决定控制面能否读取会话。
+- `PUT /accounts/:id/runtime`：以 expected_version 和租约 owner 比较交换 runtime，服务端递增版本；同样只要求 active + 租约，不要求 schedulable。
+- `POST /accounts/:id/lease`、`DELETE /accounts/:id/lease`：取得/释放数据库账号租约；active + runtime 即可，与 schedulable 解耦。
+- `GET /warm-accounts`：仅返回 **schedulable** 且到期的账号整数 ID 和 `protocol_version=1`，不批量返回 Cookie。Fleet 维护入口仍由调度门禁保护。
 
 Messages 与 native 两条网关入口都从实际选中账号注入 account ID；
 Worker 校验该账号的 API key，不能仅凭 account ID 执行。维护任务使用独立内部调用路径，
@@ -195,7 +195,7 @@ prod 中继不携带本地 ID。测试请求按显式 Worker/relay 声明生成�
 TEXT+IMAGE，不附加 Worker 不支持的 systemInstruction；生图可传入契约允许的
 imageConfig.aspectRatio。
 普通 Gemini 测试保持原请求形状；用户实际请求的角色、参数不作删减。
-此修复不绕过控制接口既有 active/schedulable 检查，也不自动恢复错误或开启调度。
+与全平台 `AccountTestService` SSOT 对齐：测连不检查、不改写 `schedulable`，也不自动恢复错误或开启调度；导入后保持 `schedulable=false` 时仍应能测通 Worker 会话。
 
 每个账号只有一个 SessionOwner。生成、后台续期、读取最新版本、替换内存和保存共用操作锁。
 跨进程租约和 runtime CAS 在同一数据库账号行执行；租约 600 秒，Worker 总操作预算 480 秒，
@@ -234,7 +234,8 @@ UI 用 `has_gemini_web` 显示资格、用 `has_gemini_web_runtime` 区分初始
 - SQL 仅替换 runtime、删除过期 lease 并更新 updated_at，不修改其他凭据、模型映射、
   status、schedulable 或 extra。新 runtime 清除 blocked/pending/cooldown 并重置
   last_refresh，后续实际 Worker 请求仍执行认证与 bootstrap。
-- 初始化成功保持 `schedulable=false`，运营确认后再手动启用调度。成功摘要是本次已提交版本的回执，不是随后 GET 可能读到的更新版本；账号 DTO
+- 初始化成功保持 `schedulable=false`，运营确认后再手动启用调度。启用前可用 Admin
+  「测试账号」验证会话（控制面 GET/lease 不依赖 schedulable）；成功摘要是本次已提交版本的回执，不是随后 GET 可能读到的更新版本；账号 DTO
   沿用凭据脱敏。审计整体省略导入请求体。文件解析/读取/API 错误统一显示固定
   文案；409 提示稍后重试，禁止将原始错误中的凭据片段带入 UI。
 - 选文件时固定目标 ID；关闭、卸载或换账号使旧操作失效。尚未发送的操作不提交；

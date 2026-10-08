@@ -119,8 +119,10 @@ func TestGeminiWebControlRejectsInvalidAccessAndConflicts(t *testing.T) {
 	require.Equal(t, 409, request(http.MethodPut, "/accounts/28/runtime", "edge-key", body).Code)
 	require.Equal(t, 409, request(http.MethodPost, "/accounts/28/lease", "edge-key", "").Code)
 	require.Equal(t, 400, request(http.MethodGet, "/accounts/no/session", "edge-key", "").Code)
+	// Unschedulable accounts still expose session control (admin test / import
+	// review). Fleet warm-up stays schedulable-gated via ListDueGeminiWebAccounts.
 	store.account.Schedulable = false
-	require.Equal(t, 404, request(http.MethodGet, "/accounts/28/session", "edge-key", "").Code)
+	require.Equal(t, 200, request(http.MethodGet, "/accounts/28/session", "edge-key", "").Code)
 	require.JSONEq(t, `{"accounts":[],"protocol_version":1}`, request(http.MethodGet, "/warm-accounts", "edge-key", "").Body.String())
 	store.account.Schedulable = true
 	delete(store.account.Credentials, "gemini_web")

@@ -71,7 +71,10 @@ func (h *GeminiWebSessionHandler) session(c *gin.Context) (*service.Account, map
 		return nil, nil, false
 	}
 	account, err := h.store.GetByID(c.Request.Context(), id)
-	if err != nil || account == nil || account.Status != service.StatusActive || !account.Schedulable {
+	// Schedulable gates fleet admission (warm-accounts / gateway selection), not
+	// control-plane session access. Admin connectivity tests follow the same
+	// platform SSOT as other accounts: they must work before scheduling is enabled.
+	if err != nil || account == nil || account.Status != service.StatusActive {
 		c.Status(http.StatusNotFound)
 		return nil, nil, false
 	}
