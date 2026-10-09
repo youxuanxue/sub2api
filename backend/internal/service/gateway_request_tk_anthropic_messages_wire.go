@@ -17,10 +17,11 @@ import (
 //     APIKey passthrough, native messages, count_tokens).
 //
 // Path-specific filters (UTF-8 sanitize, StripEmptyTextBlocks, web-search
-// history, beta-token body sanitize, mimicry) stay at their existing call
-// sites. This file owns the thinking-contract subset that was previously
-// wired on OAuth Forward + APIKey passthrough only — and missed tokensea
-// native messages (prod 2026-09-25 user16 claude-fable-5).
+// history, sanitizeAnthropicEgressBody = empty-system content + beta-token
+// body sanitize, mimicry) stay at their existing call sites. This file owns
+// the thinking-contract subset that was previously wired on OAuth Forward +
+// APIKey passthrough only — and missed tokensea native messages
+// (prod 2026-09-25 user16 claude-fable-5).
 
 // tkPrepareAnthropicMessagesWireBody applies the shared Anthropic Messages
 // thinking-contract egress filters:

@@ -1090,18 +1090,15 @@ const anthropicBetaContextManagementToken = "context-management-2025-06-27"
 //     body 字段与 header 不对称 → 上游报 "output_config: Extra inputs are not permitted"
 //   - 缺 token 时净化消息级 output_config（详见 stripAnthropicMessageOutputConfigUnlessBeta）
 //
-// 空 system 控制消息（与 beta 无关）：
-//   - 上游仍要求 system content 至少一个 block；header 带 mid-conversation beta
-//     也不能豁免空 content（prod 2026-10-09 user16 × claude-fable-5-1 × tokensea：
-//     "messages.1: system content must contain at least one block"）
-//   - 因此无正文的 role=system 消息一律删除，见 stripEmptyAnthropicSystemMessages
+// 本函数**只**做能力维度对称；无正文 system 的 content 合法性清理属于
+// stripEmptyAnthropicSystemMessages，由 sanitizeAnthropicEgressBody 组合调用。
 //
 // 本函数按最终发送的 anthropic-beta header 决定是否保留 body 中的上述字段：
 // 缺对应 beta token → strip；客户端 header 已带对应 beta → 保留（不过度删除）。
 // 这将限制完全建立在 "能力维度" 上，与 model 名 / token type / mimicry 子路径无关。
 //
-// 调用约束：必须在创建上游请求之前调用，确保最终 body 与最终 header
-// 的 beta 能力声明一致。
+// 出站路径请调用 sanitizeAnthropicEgressBody（content 合法性 + 本函数），不要单独
+// 调本函数而漏掉空 system 清理。
 //
 // 返回 (sanitized, changed)：changed 表示是否发生实际删除，供调用方决定
 // 是否重用原 body 引用。
@@ -1142,17 +1139,32 @@ func sanitizeAnthropicBodyForBetaTokens(body []byte, anthropicBetaHeader string)
 		body, changed = b, true
 	}
 
-	// 无正文 system 消息：与 mid-conversation beta 无关，一律删除。
-	if b, deleted := stripEmptyAnthropicSystemMessages(body); deleted {
-		body, changed = b, true
-	}
-
 	// messages[].output_config：mid-conversation-output-config beta 专属字段。
 	// 顶层 output_config / effort 不受该 beta 约束，本分支只净化消息内字段。
 	if b, deleted := stripAnthropicMessageOutputConfigUnlessBeta(body, anthropicBetaHeader); deleted {
 		body, changed = b, true
 	}
 
+	return body, changed
+}
+
+// sanitizeAnthropicEgressBody 是 Anthropic Messages 出站 body 净化的单一扇入口：
+//  1. stripEmptyAnthropicSystemMessages — content 合法性（与 beta 无关）
+//  2. sanitizeAnthropicBodyForBetaTokens — body↔beta 能力维度对称
+//
+// 生产路径（Forward / passthrough / native / count_tokens / antigravity）只应调用本函数，
+// 避免漏掉空 system 清理或把 content 规则塞进 beta sanitize。
+func sanitizeAnthropicEgressBody(body []byte, anthropicBetaHeader string) ([]byte, bool) {
+	if len(body) == 0 {
+		return body, false
+	}
+	changed := false
+	if b, deleted := stripEmptyAnthropicSystemMessages(body); deleted {
+		body, changed = b, true
+	}
+	if b, deleted := sanitizeAnthropicBodyForBetaTokens(body, anthropicBetaHeader); deleted {
+		body, changed = b, true
+	}
 	return body, changed
 }
 
@@ -1241,11 +1253,12 @@ func stripEmptyAnthropicSystemMessages(body []byte) ([]byte, bool) {
 // stripAnthropicMessageOutputConfigUnlessBeta 在 anthropic-beta header 缺
 // mid-conversation-output-config beta 时，净化 **messages[].output_config**：
 //   - 仅为携带 message-level output_config 的消息剥该字段；
-//   - 无正文的 system 由 stripEmptyAnthropicSystemMessages 先行删除；本函数对仍
-//     残留的空 system（防御）同样整条删除，有正文 system / user/assistant 只剥字段；
+//   - 无正文的 system 由 sanitizeAnthropicEgressBody → stripEmptyAnthropicSystemMessages
+//     先行删除；本函数对仍残留的空 system（防御）同样整条删除，有正文 system /
+//     user/assistant 只剥字段；
 //   - 无任何消息携带该字段时返回原 body（字节 no-op）。
 //
-// header 含该 beta 时保留 message-level output_config（空 system 已由上游步骤清除）。
+// header 含该 beta 时保留 message-level output_config（空 system 已由 egress 组合清除）。
 // 顶层 output_config / effort 不属于该 beta 保护范围，本函数不做任何处理。
 func stripAnthropicMessageOutputConfigUnlessBeta(body []byte, anthropicBetaHeader string) ([]byte, bool) {
 	if anthropicBetaTokensContains(anthropicBetaHeader, claude.BetaMidConversationOutputConfig) {

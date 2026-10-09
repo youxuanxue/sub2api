@@ -126,7 +126,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicOAuthPassthrough(
 	if c != nil && c.Request != nil {
 		clientBeta = getHeaderRaw(c.Request.Header, "anthropic-beta")
 	}
-	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, clientBeta); changed {
+	if sanitized, changed := sanitizeAnthropicEgressBody(body, clientBeta); changed {
 		body = sanitized
 	}
 
@@ -169,7 +169,7 @@ func (s *GatewayService) buildCountTokensRequestAnthropicOAuthPassthrough(
 	if c != nil && c.Request != nil {
 		clientBeta = getHeaderRaw(c.Request.Header, "anthropic-beta")
 	}
-	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, clientBeta); changed {
+	if sanitized, changed := sanitizeAnthropicEgressBody(body, clientBeta); changed {
 		body = sanitized
 	}
 
