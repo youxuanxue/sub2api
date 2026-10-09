@@ -4,6 +4,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
@@ -359,4 +361,54 @@ func TestOpenAIFilterOnlyReason(t *testing.T) {
 	stats.reasons["model_not_supported"] = 1
 	require.False(t, openAIFilterOnlyReason(stats, openAICompatIneligibleInputModality))
 	require.False(t, openAIFilterOnlyReason(openAISelectionFilterStats{}, openAICompatIneligibleInputModality))
+}
+
+func TestUnsupportedInputModalityFromError(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, multimodalInputModalityVideo, UnsupportedInputModalityFromError(nil))
+	require.Equal(t, multimodalInputModalityVideo, UnsupportedInputModalityFromError(errors.New("other")))
+	require.Equal(t, multimodalInputModalityVideo,
+		UnsupportedInputModalityFromError(wrapUnsupportedInputModality("kimi-k3", multimodalInputModalityVideo)))
+	require.Equal(t, multimodalInputModalityImage,
+		UnsupportedInputModalityFromError(wrapUnsupportedInputModality("gpt-5.3-codex-spark", multimodalInputModalityImage)))
+	require.Equal(t, multimodalInputModalityImage,
+		UnsupportedInputModalityFromError(fmt.Errorf("%w: image model=glm-5.3", ErrUnsupportedInputModality)))
+}
+
+func TestRequestInputModalityPreference(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, multimodalInputModalityVideo, requestInputModalityPreference(context.Background()))
+	router := NewProtocolRouter()
+	imageReq, err := protocolrouter.ParseCanonicalRequest(
+		protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathNone,
+		"glm-5.3", false, multimodalImageChatBody("glm-5.3"),
+	)
+	require.NoError(t, err)
+	imageCtx := WithProtocolRouting(context.Background(), router, imageReq)
+	require.Equal(t, multimodalInputModalityImage, requestInputModalityPreference(imageCtx))
+
+	videoReq, err := protocolrouter.ParseCanonicalRequest(
+		protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathNone,
+		"kimi-k3", false, multimodalVideoChatBody("kimi-k3"),
+	)
+	require.NoError(t, err)
+	videoCtx := WithProtocolRouting(context.Background(), router, videoReq)
+	require.Equal(t, multimodalInputModalityVideo, requestInputModalityPreference(videoCtx))
+}
+
+func TestCandidateSelectionImageEmptyPoolNamesImage(t *testing.T) {
+	china := multimodalSupplyChinaEdgeAccount(152, 10)
+	groups := []Group{grp(10, PlatformNewAPI, 1, false)}
+	r, _, key := globalCandidateFixture(groups, []Account{china})
+	_, state, err := r.PrepareCandidateRequest(
+		context.Background(), key, ShapeOpenAIChat, "/v1/chat/completions",
+		"glm-5.3", multimodalImageChatBody("glm-5.3"), "", "",
+	)
+	require.ErrorIs(t, err, ErrUnsupportedInputModality, "china-edge-only glm-5.3 image pool must be modality 400")
+	require.Contains(t, err.Error(), "image")
+	require.NotContains(t, err.Error(), "video")
+	require.Nil(t, state)
+	require.Equal(t, multimodalInputModalityImage, UnsupportedInputModalityFromError(err))
+	require.Equal(t, "No available endpoints support input image for model: glm-5.3",
+		TkUnsupportedInputModalityMessage("glm-5.3", UnsupportedInputModalityFromError(err)))
 }

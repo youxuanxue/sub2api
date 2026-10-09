@@ -95,10 +95,10 @@ func tkSelectFailureStatusMessage(c *gin.Context, err error, reqModel string) (i
 	}
 	if errors.Is(err, service.ErrUnsupportedInputModality) {
 		// Same client-owned 400 shape as unsupported model: never Retry-After /
-		// capacity 429. Aligns with OpenRouter "no endpoints support input video".
+		// capacity 429. Modality comes from the wrapped sentinel (video/image).
 		markOpsClientRequestRejected(c)
 		return http.StatusBadRequest, service.TkUnsupportedInputModalityErrType,
-			service.TkUnsupportedInputModalityMessage(reqModel, "video")
+			service.TkUnsupportedInputModalityMessage(reqModel, service.UnsupportedInputModalityFromError(err))
 	}
 	if isOpsNoAvailableAccountError(err) {
 		if cls := classifySelectionFailureError(err, noAccountErrorClassification{

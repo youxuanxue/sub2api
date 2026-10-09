@@ -87,12 +87,12 @@ Quickstart 客户示例 owner：`frontend/src/utils/kimiK3VideoExamples.tk.ts`�
 
 - 哨兵：`ErrUnsupportedInputModality`（消息**不含** `no available accounts`）
 - 客户端：HTTP **400** `invalid_request_error`，文案对齐 OpenRouter：  
-  `No available endpoints support input video for model: <id>`
+  `No available endpoints support input <modality> for model: <id>`（`<modality>` 为请求实际被拒的 `video` / `image`，不得硬编码成 video）
 - **不是** capacity 429，也不是 `Unsupported model`（模型名合法，缺的是模态供应）
 - 接线：
   - Universal：`candidateSupportsRequest` → `PrepareCandidateRequest`
-  - Direct OpenAI/newapi：`openAIRequestEligibilityReason` → filter reason `input_modality_unsupported` → `openAIFilterOnlyReason` 空池升级
-  - Handler：`tkSelectFailureStatusMessage`；Universal middleware 同文案
+  - Direct OpenAI/newapi：`openAIRequestEligibilityReason` → filter reason `input_modality_unsupported` → `openAIFilterOnlyReason` 空池升级（升级时用 `requestInputModalityPreference`）
+  - Handler / Universal middleware：从 wrapped error 解析 modality 再调 `TkUnsupportedInputModalityMessage`
 
 混有冷却/容量等原因时仍走既有 empty-pool 429；有合格供应时静默剔除负例。
 
@@ -105,6 +105,7 @@ Quickstart 客户示例 owner：`frontend/src/utils/kimiK3VideoExamples.tk.ts`�
 | R1 | `kimi-k3` 纯文本，池含 NVIDIA | NVIDIA 仍准入（不回归） |
 | R2 | 未建表的账号/模型 + video | 仍准入（未知保守） |
 | E1 | N1 的客户端 envelope | 400 + `No available endpoints support input video for model: kimi-k3`，无 Retry-After |
+| E2 | 仅 image known-negative 空池（如 china-edge `glm-5.3` + image） | 400 + message 含 `input image`，不得写成 `input video` |
 
 自动化：`candidate_multimodal_supply_tk_test.go` + parse ContentVideo 单测 + selection-failure handler 单测。  
 Sentinel：`scripts/sentinels/gateway-tk.json` 锚定 owner 调用。

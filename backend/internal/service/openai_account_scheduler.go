@@ -1457,7 +1457,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		// Pure multimodal known-negative empty pool → 400, not capacity 429.
 		// docs/approved/multimodal-supply-capability-ssot.md
 		if openAIFilterOnlyReason(filterStats, openAICompatIneligibleInputModality) {
-			return nil, 0, 0, 0, wrapUnsupportedInputModality(req.RequestedModel, multimodalInputModalityVideo)
+			return nil, 0, 0, 0, wrapUnsupportedInputModality(req.RequestedModel, requestInputModalityPreference(ctx))
 		}
 		return nil, 0, 0, 0, s.service.tkGroupUnsupportedModelRecordErr(req.GroupID, req.RequestedModel, openAICompatNoCandidateError(req.RequestedModel, req.GroupPlatform, false, accounts, req.ExcludedIDs, &openAICompatNoCandidateEval{
 			ctx:                ctx,

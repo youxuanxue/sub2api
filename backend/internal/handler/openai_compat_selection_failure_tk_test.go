@@ -64,7 +64,7 @@ func TestOpenAICompatFirstAttemptSelectionFailure(t *testing.T) {
 		assert.Equal(t, service.TkUnsupportedModelMessage("deepseek-chat"), body.Error.Message)
 	})
 
-	t.Run("unsupported input modality -> 400 invalid_request_error, no Retry-After", func(t *testing.T) {
+	t.Run("unsupported input modality video -> 400 invalid_request_error, no Retry-After", func(t *testing.T) {
 		c, w := newCtx(t)
 		groupID := int64(18)
 		apiKey := &service.APIKey{
@@ -82,6 +82,27 @@ func TestOpenAICompatFirstAttemptSelectionFailure(t *testing.T) {
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 		assert.Equal(t, service.TkUnsupportedInputModalityErrType, body.Error.Type)
 		assert.Equal(t, service.TkUnsupportedInputModalityMessage("kimi-k3", "video"), body.Error.Message)
+	})
+
+	t.Run("unsupported input modality image -> 400 names image not video", func(t *testing.T) {
+		c, w := newCtx(t)
+		groupID := int64(18)
+		apiKey := &service.APIKey{
+			GroupID: &groupID,
+			Group:   &service.Group{ID: groupID, Platform: service.PlatformNewAPI},
+		}
+		err := fmt.Errorf("%w: image model=gpt-5.3-codex-spark", service.ErrUnsupportedInputModality)
+
+		status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, nil, apiKey, "gpt-5.3-codex-spark", "gpt-5.3-codex-spark", err)
+		writeJSON(t, w, status, errType, msg)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Empty(t, w.Header().Get("Retry-After"))
+		var body errorBody
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		assert.Equal(t, service.TkUnsupportedInputModalityErrType, body.Error.Type)
+		assert.Equal(t, service.TkUnsupportedInputModalityMessage("gpt-5.3-codex-spark", "image"), body.Error.Message)
+		assert.NotContains(t, body.Error.Message, "input video")
 	})
 
 	t.Run("embeddings regression newapi group model not in mapping -> 404 model_not_found", func(t *testing.T) {

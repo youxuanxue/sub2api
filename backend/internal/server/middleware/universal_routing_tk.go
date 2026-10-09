@@ -181,7 +181,7 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 			writeUniversalRoutingUnsupportedModelError(c, shape, model)
 		} else if errors.Is(err, service.ErrUnsupportedInputModality) {
 			reqLog.Warn("universal_routing.unsupported_input_modality")
-			writeUniversalRoutingUnsupportedInputModalityError(c, shape, model)
+			writeUniversalRoutingUnsupportedInputModalityError(c, shape, model, err)
 		} else if errors.Is(err, service.ErrUniversalNoEntitledGroup) {
 			reqLog.Warn("universal_routing.no_entitled_group")
 			writeUniversalRoutingError(c, shape, model)
@@ -254,9 +254,9 @@ func writeUniversalRoutingUnsupportedModelError(c *gin.Context, shape service.Un
 	}
 }
 
-func writeUniversalRoutingUnsupportedInputModalityError(c *gin.Context, shape service.UniversalShape, model string) {
+func writeUniversalRoutingUnsupportedInputModalityError(c *gin.Context, shape service.UniversalShape, model string, err error) {
 	const status = http.StatusBadRequest
-	message := service.TkUnsupportedInputModalityMessage(model, "video")
+	message := service.TkUnsupportedInputModalityMessage(model, service.UnsupportedInputModalityFromError(err))
 	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonUnsupportedInputModality)
 	switch shape {
 	case service.ShapeGemini:

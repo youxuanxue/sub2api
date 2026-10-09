@@ -29,15 +29,59 @@ const (
 
 // TkUnsupportedInputModalityMessage is the client-facing OpenRouter-aligned copy.
 func TkUnsupportedInputModalityMessage(model, modality string) string {
-	modality = strings.TrimSpace(modality)
-	if modality == "" {
-		modality = multimodalInputModalityVideo
-	}
+	modality = normalizeUnsupportedInputModality(modality)
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return fmt.Sprintf("No available endpoints support input %s", modality)
 	}
 	return fmt.Sprintf("No available endpoints support input %s for model: %s", modality, model)
+}
+
+// UnsupportedInputModalityFromError extracts "video" / "image" from a wrapped
+// ErrUnsupportedInputModality. Unknown or missing tokens default to video so
+// legacy callers keep the OpenRouter-aligned shape.
+func UnsupportedInputModalityFromError(err error) string {
+	if err == nil || !errors.Is(err, ErrUnsupportedInputModality) {
+		return multimodalInputModalityVideo
+	}
+	msg := err.Error()
+	const prefix = "unsupported input modality: "
+	rest, ok := strings.CutPrefix(msg, prefix)
+	if !ok {
+		return multimodalInputModalityVideo
+	}
+	if fields := strings.Fields(rest); len(fields) > 0 {
+		return normalizeUnsupportedInputModality(fields[0])
+	}
+	return multimodalInputModalityVideo
+}
+
+// requestInputModalityPreference names the request's blocked input modality for
+// empty-pool upgrades. Video wins when both are present (same order as
+// accountInputModalityRejection). Ungoverned / text-only contexts fall back to
+// video so the client message stays concrete.
+func requestInputModalityPreference(ctx context.Context) string {
+	req, ok := ProtocolRoutingRequest(ctx)
+	if !ok {
+		return multimodalInputModalityVideo
+	}
+	kinds := req.Profile().ContentKinds
+	if kinds&protocolrouter.ContentVideo != 0 {
+		return multimodalInputModalityVideo
+	}
+	if kinds&protocolrouter.ContentImage != 0 {
+		return multimodalInputModalityImage
+	}
+	return multimodalInputModalityVideo
+}
+
+func normalizeUnsupportedInputModality(modality string) string {
+	switch strings.ToLower(strings.TrimSpace(modality)) {
+	case multimodalInputModalityImage:
+		return multimodalInputModalityImage
+	default:
+		return multimodalInputModalityVideo
+	}
 }
 
 // accountInputModalityRejection returns the blocked modality name ("video" /
@@ -180,10 +224,7 @@ func isOpenAIEdgeMirrorAccount(account *Account) bool {
 
 // wrapUnsupportedInputModality builds the stable sentinel + modality + model.
 func wrapUnsupportedInputModality(model, modality string) error {
-	modality = strings.TrimSpace(modality)
-	if modality == "" {
-		modality = multimodalInputModalityVideo
-	}
+	modality = normalizeUnsupportedInputModality(modality)
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return fmt.Errorf("%w: %s", ErrUnsupportedInputModality, modality)
