@@ -35,6 +35,16 @@ class HetznerRenderBootstrapTests(unittest.TestCase):
         )
         self.assertIn("tokenkey-hetzner-bootstrap.log", content)
 
+    def test_generated_installs_awscliv2_not_apt_awscli(self):
+        content = GENERATED.read_text(encoding="utf-8")
+        self.assertIn("awscli-exe-linux-", content)
+        self.assertNotIn("gettext-base awscli", content)
+        self.assertIn("GHCR PAT unavailable", content)
+        self.assertIn(
+            "ExecStartPre=-/usr/bin/docker compose --env-file /var/lib/tokenkey/.env pull",
+            content,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
