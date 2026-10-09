@@ -148,3 +148,7 @@ UTC 12:28:47 开始摘流，4→3→1→0 个在途自然完成，异步任务�
 逻辑备份 `s3://tokenkey-prod-pgdump-682751977094/edge/us4/pgdump/tokenkey-20261009T123058Z.sql.gz`，SHA-256 `bd2a2c4189dffc015cc15ca35d2e7ee3ff614bd8e97f7685da35146d2341dfb1`。源库、隔离恢复、新机启写前均为 accounts 41、api_keys 34、groups 33、settings 52、usage_billing_dedup 1,859,826、users 1。原镜像 ID、定时任务、全容器健康、infra smoke、防火墙与出口 IP 均验收通过。保留原 OpenAI account 11 的 error/不可调度状态，不借迁移清除账号故障；account 23 正常提供生图。
 
 完整窗口 12:28:47–12:51:32，prod 生图 85 次 200、3 次 400，无生图 499/5xx；另有非生图 499 和 429，不能宣称所有请求零错误。恢复后 prod account 68 的 3 次成功与 Edge account 23 的 3 次成功相符；新机可用内存约 6903 MiB、swap 0、PSI 0。新机已产生写入，禁止回切旧磁盘。
+
+### us5（仍待迁移）
+
+截至本报告写入时，实例矩阵中 us5 仍为 `tokenkey-edge-us-or2-ls-s30` / `small_3_0`（2 vCPU / 2 GiB），未完成 cold-snapshot → `large_3_0` 切换。审批范围仍含 us5；不得把 us3/us4/us6 完成误读为四台已全部扩容。us5 迁移须复用同一 `prepare-resize` 单次身份与停写/校验流程，完成后再更新矩阵与本报告。
