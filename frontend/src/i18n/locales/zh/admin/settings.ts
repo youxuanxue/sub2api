@@ -631,8 +631,8 @@ export default {
         backendModeDescription:
           '禁用用户注册、公开页面和自助服务功能。仅管理员可以登录和管理平台。',
         siteName: '站点名称',
-        siteNameHint: '显示在邮件和页面标题中',
-        siteNamePlaceholder: 'Sub2API',
+        siteNameHint: '用于邮件等事务文案。登录页/侧栏/标签标题等壳品牌由域名门面决定（tokenkey.dev=TokenKey，callmodel.io=CallModel），请保持为 TokenKey',
+        siteNamePlaceholder: 'TokenKey',
         siteSubtitle: '站点副标题',
         siteSubtitleHint: '显示在登录和注册页面',
         siteSubtitlePlaceholder: '订阅转 API 转换平台',

@@ -4,7 +4,7 @@ status: approved
 approved_by: feng (对话审批 2026-09-30)
 authors: [agent]
 created: 2026-09-30
-revised_at: 2026-10-01
+revised_at: 2026-10-09
 depends_on:
   - docs/approved/design-dual-market-homepage.md
   - docs/approved/design-apex-domain-phase2.md
@@ -72,7 +72,7 @@ resolveFacade(hostname) ->
 消费规则：
 
 1. **首页内容**：仅 `homeProfile`；Home 路径渲染分支消费。
-2. **品牌铬**：壳层（侧栏/顶栏/登录页/footer/document title）按 `brand`；**允许**非 Home 页面读取 facade（推翻旧「只有 HomeView 可读」）。
+2. **品牌铬**：壳层（侧栏/顶栏/登录页/footer/document title/CCS providerName）**只**按 hostname → `facade.brand`；`resolveChromeBrand` **忽略** Settings `site_name`（`site_name` 仅服务邮件等事务文案）。禁止出现 `tokenkey.dev` 显示 CallModel 或 `callmodel.io` 显示 TokenKey。服务端嵌入 HTML 的 `<title>` 也按请求 Host 重写，不得把共享 `site_name` 烤进双门面缓存。
 3. **站内链接**：门面内一律相对路径；禁止写死踢到另一门面（Admin 例外由 Caddy 执行）。
 4. **删除** Router 的 `resolveGlobalProductRedirect` 跨域踢出。
 5. API 示例：门面 `apiOrigin` + 验证模型 `deepseek-flash`。

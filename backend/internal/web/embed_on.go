@@ -169,6 +169,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 
 		// Replace nonce placeholder with actual nonce before serving
 		content := replaceNoncePlaceholder(cached.Content, nonce)
+		content = applyFacadeChromeTitle(content, c.Request.Host)
 
 		c.Header("ETag", cached.ETag)
 		c.Header("Cache-Control", "no-cache") // Must revalidate
@@ -184,7 +185,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 	settings, err := s.settings.GetPublicSettingsForInjection(ctx)
 	if err != nil {
 		// Fallback: serve without injection
-		c.Data(http.StatusOK, "text/html; charset=utf-8", s.baseHTML)
+		c.Data(http.StatusOK, "text/html; charset=utf-8", applyFacadeChromeTitle(s.baseHTML, c.Request.Host))
 		c.Abort()
 		return
 	}
@@ -192,7 +193,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 	settingsJSON, err := json.Marshal(settings)
 	if err != nil {
 		// Fallback: serve without injection
-		c.Data(http.StatusOK, "text/html; charset=utf-8", s.baseHTML)
+		c.Data(http.StatusOK, "text/html; charset=utf-8", applyFacadeChromeTitle(s.baseHTML, c.Request.Host))
 		c.Abort()
 		return
 	}
@@ -202,6 +203,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 
 	// Replace nonce placeholder with actual nonce before serving
 	content := replaceNoncePlaceholder(rendered, nonce)
+	content = applyFacadeChromeTitle(content, c.Request.Host)
 
 	cached = s.cache.Get()
 	if cached != nil {
@@ -221,8 +223,8 @@ func (s *FrontendServer) injectSettings(settingsJSON []byte) []byte {
 	headClose := []byte("</head>")
 	result := bytes.Replace(s.baseHTML, headClose, append(script, headClose...), 1)
 
-	// Apply custom branding before the browser paints the static defaults.
-	result = injectSiteTitle(result, settingsJSON)
+	// Favicon may still follow Settings. <title> chrome is applied per-request
+	// via applyFacadeChromeTitle so dual-facade hosts cannot share one site_name.
 	result = injectSiteFavicon(result, settingsJSON)
 
 	return result
@@ -279,8 +281,23 @@ func safeImageURL(value string) string {
 	return trimmed
 }
 
-// injectSiteTitle replaces the static <title> in HTML with the configured site name.
-// This ensures the browser tab shows the correct title before JS executes.
+// facadeChromeBrand mirrors frontend resolveChromeBrand / resolveFacade.
+// callmodel.io → CallModel; every other host → TokenKey.
+func facadeChromeBrand(hostport string) string {
+	if isChinaExportHomepageHost(hostport) {
+		return "CallModel"
+	}
+	return "TokenKey"
+}
+
+// applyFacadeChromeTitle paints the dual-facade <title> from the request Host
+// so a shared Settings site_name (e.g. CallModel for email) cannot leak across hosts.
+func applyFacadeChromeTitle(html []byte, hostport string) []byte {
+	return rewriteHTMLTitle(html, facadeChromeBrand(hostport))
+}
+
+// injectSiteTitle replaces the static <title> with Settings site_name.
+// Retained for unit coverage of HTML escaping; production serves applyFacadeChromeTitle.
 func injectSiteTitle(html, settingsJSON []byte) []byte {
 	var cfg struct {
 		SiteName string `json:"site_name"`
@@ -288,15 +305,22 @@ func injectSiteTitle(html, settingsJSON []byte) []byte {
 	if err := json.Unmarshal(settingsJSON, &cfg); err != nil || cfg.SiteName == "" {
 		return html
 	}
+	return rewriteHTMLTitle(html, cfg.SiteName)
+}
 
-	// Find and replace the existing <title>...</title>
+func rewriteHTMLTitle(html []byte, siteName string) []byte {
+	trimmed := strings.TrimSpace(siteName)
+	if trimmed == "" {
+		return html
+	}
+
 	titleStart := bytes.Index(html, []byte("<title>"))
 	titleEnd := bytes.Index(html, []byte("</title>"))
 	if titleStart == -1 || titleEnd == -1 || titleEnd <= titleStart {
 		return html
 	}
 
-	newTitle := []byte("<title>" + htmlpkg.EscapeString(cfg.SiteName) + " - AI API Gateway</title>")
+	newTitle := []byte("<title>" + htmlpkg.EscapeString(trimmed) + " - AI API Gateway</title>")
 	var buf bytes.Buffer
 	buf.Write(html[:titleStart])
 	buf.Write(newTitle)

@@ -4,6 +4,7 @@ import App from './App.vue'
 import router from './router'
 import i18n, { initI18n } from './i18n'
 import { useAppStore } from '@/stores/app'
+import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
 import { resolveDocumentTitle } from '@/router/title'
 import { updateFavicon } from '@/utils/branding'
 import { isIOSDevice } from '@/utils/device'
@@ -45,11 +46,9 @@ async function bootstrap() {
   const appStore = useAppStore()
   appStore.initFromInjectedConfig()
 
-  document.title = resolveDocumentTitle(undefined, appStore.siteName)
-  // Set document title immediately after config is loaded
-  if (appStore.siteName && appStore.siteName !== 'Sub2API') {
-    document.title = `${appStore.siteName} - AI API Gateway`
-  }
+  // Dual-facade: bootstrap title follows hostname chrome, never raw Settings site_name.
+  const chromeBrand = resolveChromeBrand(window.location.hostname, appStore.siteName)
+  document.title = resolveDocumentTitle(undefined, chromeBrand)
   updateFavicon(appStore.siteLogo)
 
   await initI18n()

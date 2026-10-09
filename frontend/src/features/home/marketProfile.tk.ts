@@ -45,16 +45,13 @@ export function resolveHomepageProfile(hostname: string): HomepageProfile {
 }
 
 /**
- * Chrome brand for sidebar / auth / document title.
- * CallModel host always shows CallModel; other hosts keep Settings site_name.
+ * Chrome brand for sidebar / auth / document title / CCS providerName.
+ * Hostname facade owns the paint — Settings site_name must never cross-contaminate
+ * (prod may keep CallModel in site_name for email copy while tokenkey.dev stays TokenKey).
+ * `settingsSiteName` is retained for call-site compatibility and ignored.
  */
-export function resolveChromeBrand(hostname: string, settingsSiteName?: string | null): string {
-  const facade = resolveFacade(hostname)
-  if (facade.id === 'callmodel') {
-    return facade.brand
-  }
-  const trimmed = typeof settingsSiteName === 'string' ? settingsSiteName.trim() : ''
-  return trimmed || facade.brand
+export function resolveChromeBrand(hostname: string, _settingsSiteName?: string | null): string {
+  return resolveFacade(hostname).brand
 }
 
 /**

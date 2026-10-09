@@ -27,14 +27,10 @@ function isSafeImageUrl(value: string): boolean {
 }
 
 function injectBranding(html: string, config: { site_name?: string; site_logo?: string }): string {
+  // Dual-facade: <title> chrome is hostname-owned (resolveChromeBrand). Do not bake
+  // Settings site_name into the static title — it may be CallModel for email copy.
   let brandedHtml = html
-  const siteName = config.site_name?.trim()
-  if (siteName) {
-    brandedHtml = brandedHtml.replace(
-      /<title>[^<]*<\/title>/i,
-      `<title>${escapeHtml(siteName)} - AI API Gateway</title>`,
-    )
-  }
+  void config.site_name
 
   const siteLogo = config.site_logo?.trim()
   if (siteLogo && isSafeImageUrl(siteLogo)) {

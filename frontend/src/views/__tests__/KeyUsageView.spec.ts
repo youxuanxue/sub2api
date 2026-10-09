@@ -291,8 +291,8 @@ describe('KeyUsageView daily detail', () => {
     })
   })
 
-  it('keeps Settings site_name chrome on the TokenKey host', () => {
-    appStoreState.cachedPublicSettings = { site_name: 'Acme Gateway' }
+  it('forces TokenKey chrome on the TokenKey host even when Settings say CallModel', () => {
+    appStoreState.cachedPublicSettings = { site_name: 'CallModel' }
     const originalHostname = window.location.hostname
     Object.defineProperty(window, 'location', {
       configurable: true,
@@ -309,7 +309,7 @@ describe('KeyUsageView daily detail', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('Acme Gateway')
+    expect(wrapper.text()).toContain('TokenKey')
     expect(wrapper.text()).not.toContain('CallModel')
 
     wrapper.unmount()

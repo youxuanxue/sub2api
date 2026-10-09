@@ -58,8 +58,9 @@ describe('resolveChromeBrand', () => {
     expect(resolveChromeBrand('callmodel.io', 'TokenKey')).toBe('CallModel')
   })
 
-  it('keeps Settings site_name on the TokenKey host', () => {
-    expect(resolveChromeBrand('tokenkey.dev', 'Acme Gateway')).toBe('Acme Gateway')
+  it('forces TokenKey on the domestic host even when Settings say CallModel', () => {
+    expect(resolveChromeBrand('tokenkey.dev', 'CallModel')).toBe('TokenKey')
+    expect(resolveChromeBrand('tokenkey.dev', 'Acme Gateway')).toBe('TokenKey')
     expect(resolveChromeBrand('tokenkey.dev', '  ')).toBe('TokenKey')
     expect(resolveChromeBrand('localhost', null)).toBe('TokenKey')
   })

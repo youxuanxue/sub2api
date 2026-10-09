@@ -638,8 +638,8 @@ export default {
         backendModeDescription:
           'Disables user registration, public site, and self-service features. Only admin can log in and manage the platform.',
         siteName: 'Site Name',
-        siteNamePlaceholder: 'Sub2API',
-        siteNameHint: 'Displayed in emails and page titles',
+        siteNamePlaceholder: 'TokenKey',
+        siteNameHint: 'Used in transactional email copy. Shell chrome (login/sidebar/tab title) follows the hostname facade (tokenkey.dev=TokenKey, callmodel.io=CallModel); keep this as TokenKey',
         siteSubtitle: 'Site Subtitle',
         siteSubtitlePlaceholder: 'Subscription to API Conversion Platform',
         siteSubtitleHint: 'Displayed on login and register pages',

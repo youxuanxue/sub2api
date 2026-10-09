@@ -190,10 +190,10 @@ describe('QuickstartView', () => {
     })
   })
 
-  it('keeps Settings site_name as CCS providerName on the TokenKey host', async () => {
+  it('forces TokenKey as CCS providerName on the TokenKey host even when Settings say CallModel', async () => {
     appStoreState.cachedPublicSettings = {
       ...appStoreState.cachedPublicSettings,
-      site_name: 'Acme Gateway',
+      site_name: 'CallModel',
     }
     const originalHostname = window.location.hostname
     Object.defineProperty(window, 'location', {
@@ -207,7 +207,7 @@ describe('QuickstartView', () => {
     await wrapper.get('[data-tk="quickstart-ccs-import"]').trigger('click')
 
     expect(importToCcSwitchMock).toHaveBeenCalledTimes(1)
-    expect(importToCcSwitchMock.mock.calls[0][0].providerName).toBe('Acme Gateway')
+    expect(importToCcSwitchMock.mock.calls[0][0].providerName).toBe('TokenKey')
 
     Object.defineProperty(window, 'location', {
       configurable: true,
