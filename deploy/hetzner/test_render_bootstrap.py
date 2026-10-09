@@ -51,10 +51,13 @@ class HetznerRenderBootstrapTests(unittest.TestCase):
         content = GENERATED.read_text(encoding="utf-8")
         self.assertIn("QA_CAPTURE_ENABLED=false", content)
         self.assertIn(
-            "QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-false}",
+            r"/^      - SERVER_FRONTEND_URL=/a\      - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-false}",
             content,
         )
-        self.assertIn("SERVER_FRONTEND_URL=", content)
+        self.assertIn(
+            "BOOTSTRAP_FAIL: failed to insert compose QA_CAPTURE_ENABLED mapping",
+            content,
+        )
 
     def test_provision_user_data_prefix_starts_with_shebang_before_exports(self):
         """Regression: Ubuntu cloud-init ignores exports-first user-data."""

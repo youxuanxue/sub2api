@@ -196,8 +196,12 @@ ENVEOF
 chmod 0600 /var/lib/tokenkey/.env
 # Edge Stage0 compose does not map QA_CAPTURE by default; inject like Lightsail SSM deploy.
 if ! grep -q 'QA_CAPTURE_ENABLED=' /var/lib/tokenkey/docker-compose.yml; then
-  sed -i '/SERVER_FRONTEND_URL=/a\      - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-false}' \
+  sed -i '/^      - SERVER_FRONTEND_URL=/a\      - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-false}' \
     /var/lib/tokenkey/docker-compose.yml
+fi
+if ! grep -q 'QA_CAPTURE_ENABLED=' /var/lib/tokenkey/docker-compose.yml; then
+  echo "BOOTSTRAP_FAIL: failed to insert compose QA_CAPTURE_ENABLED mapping" >&2
+  exit 1
 fi
 
 if [ -n "${GHCR_PAT_SSM_NAME:-}" ]; then
