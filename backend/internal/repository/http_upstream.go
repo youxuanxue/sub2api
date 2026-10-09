@@ -1396,7 +1396,9 @@ func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL, protocolMo
 		transport.ForceAttemptHTTP2 = true
 		// 显式配置 http2 并启用 PING 健康探测，剔除代理/NAT 静默掐断的死连接，
 		// 避免请求挂在死连接上直到 TCP 重传超时（分钟级）。
-		enableHTTP2KeepAlive(transport, protocolMode)
+		if err := enableHTTP2KeepAlive(transport, protocolMode); err != nil {
+			return nil, err
+		}
 	case upstreamProtocolModeOpenAIH1:
 		transport.ForceAttemptHTTP2 = false
 		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
@@ -1411,27 +1413,40 @@ func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL, protocolMo
 	return transport, nil
 }
 
-// enableHTTP2KeepAlive 显式启用 HTTP/2 PING，提前剔除代理/NAT 静默掐断的连接。
-func enableHTTP2KeepAlive(transport *http.Transport, protocolMode string) {
-	if transport.Protocols == nil {
-		transport.Protocols = new(http.Protocols)
-		transport.Protocols.SetHTTP1(true)
+// enableHTTP2KeepAlive 在 http.Transport 上显式配置 HTTP/2 并启用连接健康探测。
+// Go 默认惰性配置 http2 且 SendPingTimeout=0（不发健康 PING），无法检测被代理/NAT
+// 静默掐断的死连接。此处用 net/http.HTTP2Config 设置 SendPingTimeout/PingTimeout，
+// 让死连接被提前 PING 出并关闭，请求得以重建连接而非挂到 TCP 重传超时。
+func enableHTTP2KeepAlive(transport *http.Transport, protocolMode string) error {
+	if transport == nil {
+		return errors.New("nil http.Transport")
 	}
-	transport.Protocols.SetHTTP2(true)
-	if transport.HTTP2 == nil {
-		transport.HTTP2 = new(http.HTTP2Config)
+	protocols := transport.Protocols
+	if protocols == nil {
+		protocols = new(http.Protocols)
+		transport.Protocols = protocols
+	}
+	protocols.SetHTTP1(true)
+	protocols.SetHTTP2(true)
+
+	readIdleTimeout := longStreamHTTP2ReadIdleTimeout
+	pingTimeout := longStreamHTTP2PingTimeout
+	if protocolMode == upstreamProtocolModeOpenAIH2 {
+		readIdleTimeout = openAIHTTP2ReadIdleTimeout
+		pingTimeout = openAIHTTP2PingTimeout
 	}
 	h2 := transport.HTTP2
+	if h2 == nil {
+		h2 = &http.HTTP2Config{}
+		transport.HTTP2 = h2
+	}
 	h2.CountError = func(kind string) {
 		// Protocol-owned tokens only; no headers, payload or proxy URL.
 		slog.Warn("upstream_http2_transport_error", "protocol_mode", protocolMode, "http2_error_kind", kind)
 	}
-	h2.SendPingTimeout = longStreamHTTP2ReadIdleTimeout
-	h2.PingTimeout = longStreamHTTP2PingTimeout
-	if protocolMode == upstreamProtocolModeOpenAIH2 {
-		h2.SendPingTimeout = openAIHTTP2ReadIdleTimeout
-		h2.PingTimeout = openAIHTTP2PingTimeout
-	}
+	h2.SendPingTimeout = readIdleTimeout
+	h2.PingTimeout = pingTimeout
+	return nil
 }
 
 // buildUpstreamTransportWithTLSFingerprint 构建带 TLS 指纹伪装的 Transport
@@ -1503,7 +1518,9 @@ func buildUpstreamTransportWithTLSFingerprint(settings poolSettings, proxyURL *u
 	// never sees ALPN=h2 even when ForceAttemptHTTP2 is set.
 	if profileSupportsHTTP2(profile) {
 		transport.ForceAttemptHTTP2 = true
-		enableHTTP2KeepAlive(transport, upstreamProtocolModeLongStreamH2)
+		if err := enableHTTP2KeepAlive(transport, upstreamProtocolModeLongStreamH2); err != nil {
+			return nil, err
+		}
 	} else {
 		// Keep profiles that advertise only HTTP/1.1 from inheriting any
 		// automatic HTTP/2 behavior when this function is reused.

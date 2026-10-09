@@ -2865,9 +2865,10 @@
         "return openAIRequestEligibilityReason(ctx, account, requestedModel, requireCompact, requiredCapability)",
         "func openAIRequestEligibilityReason(",
         "protocolRuntimeAuthorizationReady",
-        "protocolRequestEligibilityReason"
+        "protocolRequestEligibilityReason",
+        "accountInputModalityRejection(ctx, account, requestedModel)"
       ],
-      "rationale": "Legacy and advanced OpenAI scheduling share request compatibility while account status remains a separate gate."
+      "rationale": "Legacy and advanced OpenAI scheduling share request compatibility while account status remains a separate gate; multimodal supply known-negatives must veto Direct newapi/openai candidates too."
     },
     {
       "path": "backend/internal/service/candidate_eligibility_test.go",
@@ -2892,7 +2893,8 @@
       "path": "backend/internal/service/candidate_eligibility.go",
       "must_contain": [
         "geminiWebSupportsRequest(ctx, account, model, shape)",
-        "accountAdmitsRequestInputModalities(ctx, account, model)",
+        "accountInputModalityRejection(ctx, account, model)",
+        "wrapUnsupportedInputModality(model, modality)",
         "func (s *GatewayService) evaluateGroupCandidates(",
         "protocolPlanForAccount(ctx, account, model)",
         "s.isClaudeNewAPICrossPlatformAccountAllowed",
@@ -2911,13 +2913,16 @@
     {
       "path": "backend/internal/service/candidate_multimodal_supply_tk.go",
       "must_contain": [
-        "func accountAdmitsRequestInputModalities(",
+        "ErrUnsupportedInputModality",
+        "func accountInputModalityRejection(",
         "func supplyKnownNegativeForInputVideo(",
+        "TkUnsupportedInputModalityMessage",
+        "openAIFilterOnlyReason",
         "protocolrouter.ContentVideo",
         "isNewAPINVIDIABuildAccount(account)",
         "case \"kimi-k3\":"
       ],
-      "rationale": "Evidence-backed multimodal supply known-negatives stay in one owner; candidateSupportsRequest must call the admit predicate without inlining the table."
+      "rationale": "Evidence-backed multimodal supply known-negatives and empty-pool modality 400 stay in one owner; candidateSupportsRequest / Direct scheduler must call without inlining the table."
     },
     {
       "path": "backend/internal/service/candidate_multimodal_supply_tk_test.go",
@@ -2925,9 +2930,19 @@
         "func TestSupplyKnownNegativeForInputVideoKimiK3NVIDIA(",
         "func TestAccountAdmitsRequestInputModalitiesVideoGate(",
         "func TestCandidateSupportsRequestRejectsNVIDIAKimiK3Video(",
-        "func TestCandidateSelectionPrefersVolcForKimiK3Video("
+        "func TestCandidateSelectionPrefersVolcForKimiK3Video(",
+        "ErrUnsupportedInputModality",
+        "func TestOpenAIRequestEligibilityReasonRejectsNVIDIAKimiK3Video("
       ],
-      "rationale": "P1/N1/R1 multimodal supply regressions for kimi-k3 video must survive upstream merges."
+      "rationale": "P1/N1/R1/E1 multimodal supply regressions for kimi-k3 video (including modality 400) must survive upstream merges."
+    },
+    {
+      "path": "backend/internal/handler/no_available_accounts_tk.go",
+      "must_contain": [
+        "ErrUnsupportedInputModality",
+        "TkUnsupportedInputModalityMessage"
+      ],
+      "rationale": "First-attempt selection failures must map modality-empty pools to 400 without Retry-After / capacity 429."
     },
     {
       "path": "backend/internal/engine/protocolrouter/parse_request.go",
@@ -3605,7 +3620,7 @@
         "protocols.SetUnencryptedHTTP2(true)",
         "MaxConcurrentStreams:          int(h2cConfig.MaxConcurrentStreams),"
       ],
-      "rationale": "Main HTTP server migrated off deprecated x/net/http2/h2c.NewHandler (x/net v0.55.0 / GO-2026-5026) to std-lib server.HTTP2 + server.Protocols.SetUnencryptedHTTP2 while preserving cfg.Server.H2C tuning (MaxConcurrentStreams, IdleTimeout, MaxReadFrameSize, MaxUploadBufferPerConnection, MaxUploadBufferPerStream). Pins the merged upstream shape so a future merge cannot silently revert to h2c.NewHandler or drop the tuning block without losing H2C capability."
+      "rationale": "Main HTTP server H2C uses net/http HTTP2Config + Protocols.SetUnencryptedHTTP2 (x/net v0.60 deprecates http2.ConfigureServer). Preserves cfg.Server.H2C tuning (MaxConcurrentStreams, IdleTimeout, MaxReadFrameSize, MaxUploadBuffer*). Pins so a future merge cannot silently revert to h2c.NewHandler / deprecated ConfigureServer or drop the tuning block."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
@@ -14835,7 +14850,7 @@
       "must_contain": [
         "if profileSupportsHTTP2(profile) {",
         "transport.ForceAttemptHTTP2 = true",
-        "enableHTTP2KeepAlive(transport, protocolMode)"
+        "if err := enableHTTP2KeepAlive(transport, protocolMode); err != nil {"
       ],
       "rationale": "TLS-fingerprint transports use DialTLSContext, which disables net/http auto-HTTP/2. Profiles advertising h2 (Antigravity CLI) must ForceAttemptHTTP2 + enableHTTP2KeepAlive or Google's h2 preface is misread as HTTP/1.1."
     },

@@ -1535,6 +1535,7 @@ func isRetryableCodexModelsManifestTransportError(err error) bool {
 	if errors.As(err, &dnsErr) {
 		return true
 	}
+	// GoAwayError is deprecated in x/net v0.60; string match below covers stdlib GOAWAY.
 	var streamErr http2.StreamError
 	if errors.As(err, &streamErr) {
 		return true

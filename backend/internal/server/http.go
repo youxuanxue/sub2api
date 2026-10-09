@@ -149,17 +149,17 @@ func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *http.Server {
 		log.Printf("Global max request body size: %d bytes (%.2f MB)", globalMaxSize, float64(globalMaxSize)/(1<<20))
 	}
 
-	// 根据配置决定是否启用 H2C
+	// 根据配置决定是否启用 H2C（net/http HTTP2Config；x/net/http2.ConfigureServer 已弃用）
 	if cfg.Server.H2C.Enabled {
 		h2cConfig := cfg.Server.H2C
+		if h2cConfig.IdleTimeout > 0 {
+			server.IdleTimeout = time.Duration(h2cConfig.IdleTimeout) * time.Second
+		}
 		server.HTTP2 = &http.HTTP2Config{
 			MaxConcurrentStreams:          int(h2cConfig.MaxConcurrentStreams),
-			MaxReadFrameSize:              h2cConfig.MaxReadFrameSize,
-			MaxReceiveBufferPerConnection: h2cConfig.MaxUploadBufferPerConnection,
-			MaxReceiveBufferPerStream:     h2cConfig.MaxUploadBufferPerStream,
-		}
-		if h2cConfig.IdleTimeout != 0 {
-			server.IdleTimeout = time.Duration(h2cConfig.IdleTimeout) * time.Second
+			MaxReadFrameSize:              int(h2cConfig.MaxReadFrameSize),
+			MaxReceiveBufferPerConnection: int(h2cConfig.MaxUploadBufferPerConnection),
+			MaxReceiveBufferPerStream:     int(h2cConfig.MaxUploadBufferPerStream),
 		}
 		protocols := new(http.Protocols)
 		protocols.SetHTTP1(true)
