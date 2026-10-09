@@ -172,14 +172,12 @@
           {{ t('studio.topUp') }}
         </router-link>
 
-        <div
+        <StudioGatewayError
           v-if="errorMessage"
-          class="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-100"
+          :message="errorMessage"
+          :code="errorCode"
           data-testid="studio-video-error"
-        >
-          {{ errorMessage }}
-          <router-link v-if="studioErrorShowsTopUp(errorCode)" to="/purchase" class="ml-1 font-medium underline">{{ t('studio.topUp') }}</router-link>
-        </div>
+        />
       </div>
     </div>
 
@@ -375,7 +373,8 @@ import StudioVideoDownloadCard from '@/views/user/studio/components/StudioVideoD
 import StudioVideoPreviewChecking from '@/views/user/studio/components/StudioVideoPreviewChecking.vue'
 import StudioVideoPreviewLightbox from '@/views/user/studio/components/StudioVideoPreviewLightbox.vue'
 import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUnavailable.vue'
-import { classifyGatewayError, studioErrorI18nKey, studioErrorShowsTopUp, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
+import StudioGatewayError from '@/views/user/studio/components/StudioGatewayError.vue'
+import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useMediaLibrary, type VideoTaskItem } from '@/composables/useMediaLibrary'
 import { useStudioVideoCardActions, createStudioVideoActionHandlers } from '@/composables/useStudioVideoCardActions'
 import { mountStudioVideoLibrary } from '@/composables/useStudioVideoLibrary'

@@ -164,6 +164,7 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 		if err := tx.Commit(); err != nil {
 			return nil, err
 		}
+		user.TotalRecharged += balance
 		s.assignDefaultSubscriptions(ctx, user.ID)
 		return user, nil
 	}

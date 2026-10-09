@@ -124,3 +124,15 @@ WHERE u.deleted_at IS NULL;
 - Studio: `trial_unpaid_media` error code + `/purchase` CTA; API English message unchanged.
 - Auth cache: L1/L2 TTL will refresh stale `total_recharged` snapshots after deploy; balance>$2 already bypasses the gate.
 - Promo / other `UpdateBalance`-only credits: field may exceed panel sum until those paths journal; accepted pre-existing exception (see §4 Forward #4).
+
+## Implementation owners
+
+| 行为 | 唯一 owner / 调用方 |
+|---|---|
+| 赠额排除集与事务内累计充值 | `backend/internal/service/balance_grant_ledger_tk.go`；notes 原文精确匹配，与面板和回填一致 |
+| 管理员余额变动 | `admin_user_tk_balance.go` 调用事务 writer；`admin_user.go` 开户返回对象反映已提交累计充值 |
+| Studio 错误分类与充值资格 | `frontend/src/utils/studioGatewayError.tk.ts` |
+| Studio 错误与充值入口展示 | `frontend/src/views/user/studio/components/StudioGatewayError.vue`；ImageStudio / VideoStudio / BakeOff 只传入消息和错误码 |
+
+验收映射：`.testing/user-stories/stories/US-061-trial-media-recharge.md`。
+`gateway-tk` / `frontend-tk` sentinel 同时锚定关键调用、实现与回归测试。

@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"strings"
+	"slices"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -21,7 +21,7 @@ import (
 // Pass a transaction-bound client (tx.Client()) so the journal row commits and
 // rolls back atomically with the balance mutation at the call site. The recorded
 // row mirrors the admin recharge shape (type admin_balance, status used), so it
-// shows in the panel as a 余额充值（管理员）entry and counts toward 总充值.
+// shows in the panel as a 余额充值（管理员）entry; qualifying credits count toward 总充值.
 
 // Balance-grant source tags carried in the redeem_code notes field so an operator
 // can tell paid/admin recharges apart from automatic system grants in one panel.
@@ -46,12 +46,7 @@ func GiftBalanceGrantNotes() []string {
 // IsGiftBalanceGrantNote reports whether notes tags an automatic gift that is
 // excluded from qualifying recharge totals (A1).
 func IsGiftBalanceGrantNote(notes string) bool {
-	switch strings.TrimSpace(notes) {
-	case BalanceGrantNoteSignup, BalanceGrantNoteInviteTrial, BalanceGrantNoteOAuthFirstBind:
-		return true
-	default:
-		return false
-	}
+	return slices.Contains(GiftBalanceGrantNotes(), notes)
 }
 
 // addQualifyingTotalRecharged bumps users.total_recharged for positive,

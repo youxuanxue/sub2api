@@ -15859,9 +15859,11 @@
       "path": "backend/internal/service/admin_user.go",
       "must_contain": [
         "bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, s.userRepo, user.ID, balance, BalanceGrantNoteAdminOpening, \"service.admin\")",
-        "bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, s.userRepo, userID, balanceDiff, notes, \"service.admin\")"
+        "bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, s.userRepo, userID, balanceDiff, notes, \"service.admin\")",
+        "writeBalanceGrantLedger(opCtx, tx.Client(), user.ID, balance, BalanceGrantNoteAdminOpening)",
+        "user.TotalRecharged += balance"
       ],
-      "rationale": "Admin opening/balance updates must pass userRepo into bestEffortBalanceGrantLedger so qualifying grants bump users.total_recharged."
+      "rationale": "Admin opening and balance updates must journal and increment qualifying recharge totals; the opening response must reflect the committed total."
     },
     {
       "path": "backend/internal/service/auth_oauth_first_bind.go",
@@ -15869,6 +15871,32 @@
         "writeBalanceGrantLedger(ctx, client, userID, providerDefaults.Balance, BalanceGrantNoteOAuthFirstBind)"
       ],
       "rationale": "OAuth first-bind balance journal must keep BalanceGrantNoteOAuthFirstBind so A1 gift exclusion continues to apply via writeBalanceGrantLedger."
+    },
+    {
+      "path": "backend/internal/service/balance_grant_ledger_tk.go",
+      "must_contain": [
+        "slices.Contains(GiftBalanceGrantNotes(), notes)",
+        "amount <= 0 || IsGiftBalanceGrantNote(notes)",
+        "AddTotalRecharged(amount)"
+      ],
+      "rationale": "Production transaction writer excludes exactly the same gift notes as the panel and bumps qualifying positive totals atomically."
+    },
+    {
+      "path": "backend/internal/service/admin_user_tk_balance.go",
+      "must_contain": [
+        "writeBalanceGrantLedger(opCtx, tx.Client(), userID, balanceDiff, notes)"
+      ],
+      "rationale": "Admin adjustments must pass the transaction client and actual signed delta to the recharge ledger owner."
+    },
+    {
+      "path": "backend/internal/repository/admin_balance_ledger_atomicity_integration_test.go",
+      "must_contain": [
+        "TestAdminService_CreateUser_ReturnsRechargedOpeningBalance",
+        "TestAdminService_BalanceLedger_QualifyingTotals",
+        "TestAdminService_BalanceLedger_RollsBackOnTotalRechargedFailure",
+        "TestTotalRechargedBackfill_QualifyingAndIdempotent"
+      ],
+      "rationale": "Real PostgreSQL regressions lock recharge totals, gift media denial, committed API response, rollback and migration semantics."
     }
   ]
 }

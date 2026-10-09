@@ -16,6 +16,8 @@ func TestIsGiftBalanceGrantNote(t *testing.T) {
 	require.False(t, IsGiftBalanceGrantNote(BalanceGrantNoteAdminOpening))
 	require.False(t, IsGiftBalanceGrantNote(""))
 	require.False(t, IsGiftBalanceGrantNote("线下转账补单"))
+	// Operator notes are matched verbatim, just like the panel and backfill.
+	require.False(t, IsGiftBalanceGrantNote(" "+BalanceGrantNoteSignup+" "))
 }
 
 // CreateUser with a positive opening balance must emit an admin_balance journal
