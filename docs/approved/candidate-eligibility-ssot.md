@@ -1,7 +1,7 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10 and 2026-09-22)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22 and 2026-10-09 stream/nonstream first-output split)"
 created: 2026-09-07
 ---
 
@@ -218,13 +218,18 @@ caller cancellation/deadline and local validation cannot become transport penalt
 
 A replayable NewAPI Chat request may immediately try another eligible account
 on its first pre-output failure; it does not wait for three cross-request failures.
-The first useful output timeout defaults to 60 seconds
-(`gateway.newapi_chat_first_output_timeout`, zero also means 60), with no more
-than three attempts/two switches and a shared budget of three times that timeout.
-Headers, heartbeats, empty deltas and usage-only frames do not stop this timer.
-Actual content, reasoning, refusal or function-tool output commits the response
-and stops pre-output retry. Started output is never replayed. Hard continuation,
-WebSocket, server-side tools and non-text modalities retain their existing owners.
+Streaming and non-streaming use separate first-useful-output budgets:
+streaming defaults to 10 seconds (`gateway.newapi_chat_first_output_timeout`,
+zero also means 10, max 60); non-streaming defaults to 300 seconds
+(`gateway.newapi_chat_nonstream_first_output_timeout`, zero also means 300,
+max 600). Each mode allows no more than three attempts/two switches and a
+shared budget of three times that mode's per-attempt timeout.
+`gateway.response_header_timeout` remains transport header wait only and must
+not redefine these budgets. Headers, heartbeats, empty deltas and usage-only
+frames do not stop this timer. Actual content, reasoning, refusal or
+function-tool output commits the response and stops pre-output retry. Started
+output is never replayed. Hard continuation, WebSocket, server-side tools and
+non-text modalities retain their existing owners.
 Partial output keeps known usage and cannot acquire a synthetic successful end
 marker after an interrupted upstream. NewAPI transport cancellation is opt-in
 so unrelated relay callers preserve their lifecycle.

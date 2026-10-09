@@ -117,6 +117,7 @@ func TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce(t *testing.T) {
 				cfg := &config.Config{RunMode: config.RunModeSimple}
 				cfg.Default.RateMultiplier = 1
 				cfg.Gateway.NewAPIChatFirstOutputTimeout = 1
+				cfg.Gateway.NewAPIChatNonstreamFirstOutputTimeout = 1
 				cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 				cfg.Security.URLAllowlist.AllowPrivateHosts = true
 				usage := &openAIWSUsageHandlerUsageLogRepoStub{created: make(chan *service.UsageLog, 8)}

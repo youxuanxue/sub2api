@@ -1105,9 +1105,14 @@ type GatewayConfig struct {
 	// OpenAIResponseHeaderTimeout: OpenAI/Codex 上游等待响应头的超时时间（秒），0表示无超时
 	// OpenAI/Codex 请求可能在上游排队较久；默认不使用通用响应头超时截断。
 	OpenAIResponseHeaderTimeout int `mapstructure:"openai_response_header_timeout"`
-	// Bounds a replayable NewAPI Chat attempt until useful output, not stream duration.
-	// Seconds; zero uses the default 60 seconds. At most three attempts share 3x this budget.
+	// Bounds a replayable NewAPI Chat *streaming* attempt until useful first output
+	// (not total stream duration). Seconds; zero uses the default 10. Cap is 60.
+	// At most three attempts share 3x this per-attempt budget.
 	NewAPIChatFirstOutputTimeout int `mapstructure:"newapi_chat_first_output_timeout"`
+	// Bounds a replayable NewAPI Chat *non-streaming* attempt until a complete
+	// useful JSON body. Seconds; zero uses the default 300. Cap is 600.
+	// At most three attempts share 3x this per-attempt budget.
+	NewAPIChatNonstreamFirstOutputTimeout int `mapstructure:"newapi_chat_nonstream_first_output_timeout"`
 	// GrokResponseHeaderTimeout bounds the pre-first-byte wait for xAI/Grok.
 	// A zero value uses the provider-safe default instead of the generic gateway timeout.
 	GrokResponseHeaderTimeout int `mapstructure:"grok_response_header_timeout"`
@@ -2691,7 +2696,8 @@ func setDefaults() {
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
-	viper.SetDefault("gateway.newapi_chat_first_output_timeout", 60)
+	viper.SetDefault("gateway.newapi_chat_first_output_timeout", 10)
+	viper.SetDefault("gateway.newapi_chat_nonstream_first_output_timeout", 300)
 	viper.SetDefault("gateway.grok_response_header_timeout", 120)
 	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 0)
 	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 0)
@@ -3678,8 +3684,11 @@ func (c *Config) Validate() error {
 	if c.Gateway.OpenAIResponseHeaderTimeout < 0 {
 		return fmt.Errorf("gateway.openai_response_header_timeout must be non-negative")
 	}
-	if c.Gateway.NewAPIChatFirstOutputTimeout < 0 || c.Gateway.NewAPIChatFirstOutputTimeout > 600 {
-		return fmt.Errorf("gateway.newapi_chat_first_output_timeout must be between 0-600 seconds")
+	if c.Gateway.NewAPIChatFirstOutputTimeout < 0 || c.Gateway.NewAPIChatFirstOutputTimeout > 60 {
+		return fmt.Errorf("gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output)")
+	}
+	if c.Gateway.NewAPIChatNonstreamFirstOutputTimeout < 0 || c.Gateway.NewAPIChatNonstreamFirstOutputTimeout > 600 {
+		return fmt.Errorf("gateway.newapi_chat_nonstream_first_output_timeout must be between 0-600 seconds")
 	}
 	if c.Gateway.GrokResponseHeaderTimeout < 0 || c.Gateway.GrokResponseHeaderTimeout > 1800 {
 		return fmt.Errorf("gateway.grok_response_header_timeout must be between 0-1800 seconds")
