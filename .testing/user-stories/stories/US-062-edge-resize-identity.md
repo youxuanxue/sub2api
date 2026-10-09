@@ -31,8 +31,8 @@
 
 ## Evidence
 
-四项行为测试通过。真实 workflow 与实例迁移验收待完成，不声明已经上线。
+四项行为测试与完整 preflight 通过。us3/us4/us5/us6 的 prepare-resize workflow 均 success，run 链接见 `docs/ops/edge-image-capacity-upgrade-20261009.md`。本 Story 只覆盖注册准备，不代表实例迁移已完成。
 
 ## Status
 
-- InTest
+- Done

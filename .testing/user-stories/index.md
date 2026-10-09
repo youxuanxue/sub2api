@@ -69,4 +69,4 @@
 
 | US-061 | 充值资格与 Studio 媒体错误提示 | Done | `.testing/user-stories/stories/US-061-trial-media-recharge.md` |
 
-| US-062 | Edge 快照迁移单次注册 | InTest | `.testing/user-stories/stories/US-062-edge-resize-identity.md` |
+| US-062 | Edge 快照迁移单次注册 | Done | `.testing/user-stories/stories/US-062-edge-resize-identity.md` |
