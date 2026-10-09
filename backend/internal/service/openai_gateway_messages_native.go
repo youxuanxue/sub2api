@@ -144,9 +144,25 @@ func (s *OpenAIGatewayService) sendNativeAnthropicMessagesRequest(
 	bearerToken string,
 ) (*http.Response, []byte, error) {
 	mappedModel := tkMappedModelFromAnthropicBody(body, "")
-	// Thinking-contract SSOT + tokensea fable CM. This path builds http.NewRequest
-	// directly and does NOT call buildNativeAnthropicUpstreamRequest (prod
-	// 2026-09-20 / 2026-09-25 user16).
+	// This path builds http.NewRequest directly and does NOT call
+	// buildNativeAnthropicUpstreamRequest (prod 2026-09-20 / 2026-09-25 user16),
+	// so content-validity + beta sanitize must happen here too — otherwise
+	// mid-conversation empty system still reaches tokensea as 400
+	// "system content must contain at least one block" (prod 2026-10-09 user16
+	// × claude-fable-5-1 on 1.8.282).
+	clientBeta := ""
+	if c != nil && c.Request != nil {
+		clientBeta = getHeaderRaw(c.Request.Header, "anthropic-beta")
+	}
+	if account != nil {
+		if beta, ok := account.HeaderOverrideValue("anthropic-beta"); ok {
+			clientBeta = beta
+		}
+	}
+	if sanitized, changed := sanitizeAnthropicEgressBody(body, clientBeta); changed {
+		body = sanitized
+	}
+	// Thinking-contract SSOT + tokensea fable CM.
 	body = tkPrepareAnthropicMessagesWireBody(account, body, mappedModel)
 
 	resp, err := s.doNativeAnthropicMessagesHTTP(ctx, c, account, targetURL, body, stream, bearerToken)

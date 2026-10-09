@@ -8536,18 +8536,21 @@
     {
       "path": "backend/internal/service/openai_gateway_messages_native.go",
       "must_contain": [
+        "if sanitized, changed := sanitizeAnthropicEgressBody(body, clientBeta); changed {",
         "tkPrepareAnthropicMessagesWireBody(",
         "func (s *OpenAIGatewayService) sendNativeAnthropicMessagesRequest("
       ],
-      "rationale": "Prod Cursor→tokensea failover uses ForwardAsAnthropic → forwardAnthropicViaNativeMessages → sendNativeAnthropicMessagesRequest (platform=newapi agent.tokensea.ai). This path builds http.NewRequest directly and does NOT call buildNativeAnthropicUpstreamRequest; the strip must live here or tokensea still 400s with context_management Extra inputs (fable-5, opus-4-8, opus-5)."
+      "rationale": "Prod Cursor→tokensea failover uses ForwardAsAnthropic → forwardAnthropicViaNativeMessages → sendNativeAnthropicMessagesRequest (platform=newapi agent.tokensea.ai). This path builds http.NewRequest directly and does NOT call buildNativeAnthropicUpstreamRequest; content-validity sanitizeAnthropicEgressBody (empty system) + thinking-contract/CM strip must live here or tokensea still 400s (context_management Extra inputs; system content must contain at least one block — prod 2026-10-09 user16 × fable-5-1 on 1.8.282)."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_native_test.go",
       "must_contain": [
         "TestForwardAsAnthropic_NativeMessages_TokenseaStripsContextManagement",
-        "native messages egress must strip context_management for tokensea (all models)"
+        "TestForwardAsAnthropic_NativeMessages_TokenseaStripsEmptySystem",
+        "native messages egress must strip context_management for tokensea (all models)",
+        "empty system must be stripped on native tokensea egress"
       ],
-      "rationale": "End-to-end regression for the real newapi tokensea native-messages egress path: ForwardAsAnthropic must strip context_management from the upstream body for both claude-fable-5 and claude-opus-5."
+      "rationale": "End-to-end regressions for the real newapi tokensea native-messages egress path: ForwardAsAnthropic must strip context_management and mid-conversation empty system messages before the upstream POST."
     },
     {
       "path": "backend/internal/service/gateway_upstream_request.go",
