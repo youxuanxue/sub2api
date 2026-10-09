@@ -91,7 +91,7 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 		path := c.Request.URL.Path
 
 		// Skip API routes
-		if shouldBypassEmbeddedFrontend(path) {
+		if shouldBypassEmbeddedFrontend(path, c.Request.Host) {
 			c.Next()
 			return
 		}
@@ -403,7 +403,7 @@ func ServeEmbeddedFrontend() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 
-		if shouldBypassEmbeddedFrontend(path) {
+		if shouldBypassEmbeddedFrontend(path, c.Request.Host) {
 			c.Next()
 			return
 		}
@@ -462,8 +462,14 @@ func isStaticAssetPath(path string) bool {
 		strings.HasPrefix(path, "assets/")
 }
 
-func shouldBypassEmbeddedFrontend(path string) bool {
+func shouldBypassEmbeddedFrontend(path, host string) bool {
 	trimmed := strings.TrimSpace(path)
+	// Exact /models collides with the human SPA marketplace (callmodel.io/models,
+	// tokenkey.dev/models). Only machine API hosts (api.*) bypass to the OpenAI
+	// root alias; /models/:id stays an API path on every host.
+	if trimmed == "/models" {
+		return isMachineAPIHostname(host)
+	}
 	return strings.HasPrefix(trimmed, "/api/") ||
 		strings.HasPrefix(trimmed, "/v1/") ||
 		strings.HasPrefix(trimmed, "/openrouter/") ||
@@ -477,7 +483,6 @@ func shouldBypassEmbeddedFrontend(path string) bool {
 		// index.html，deploy_via_ssm.sh 的 in_flight=0 等待会空转满 ~76s（已在
 		// prod 1.7.68 实测坐实）。见 internal/server/routes/common.go 的注册。
 		strings.HasPrefix(trimmed, "/health/") ||
-		trimmed == "/models" ||
 		strings.HasPrefix(trimmed, "/models/") ||
 		trimmed == "/responses" ||
 		strings.HasPrefix(trimmed, "/responses/") ||
@@ -501,6 +506,12 @@ func shouldBypassEmbeddedFrontend(path string) bool {
 		strings.HasPrefix(trimmed, "/video/") ||
 		trimmed == "/videos" ||
 		strings.HasPrefix(trimmed, "/videos/")
+}
+
+// isMachineAPIHostname reports api.* product machine hosts (api.tokenkey.dev,
+// api.callmodel.io). Edge hosts like api-uk2.tokenkey.dev are not api.* labels.
+func isMachineAPIHostname(hostport string) bool {
+	return strings.HasPrefix(requestHostname(hostport), "api.")
 }
 
 func serveIndexHTML(c *gin.Context, fsys fs.FS) {

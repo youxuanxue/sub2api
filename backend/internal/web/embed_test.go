@@ -658,6 +658,8 @@ func TestFrontendServer_Middleware(t *testing.T) {
 
 				w := httptest.NewRecorder()
 				req := httptest.NewRequest(http.MethodGet, path, nil)
+				// Exact /models is host-aware: only api.* machine hosts bypass SPA.
+				req.Host = "api.tokenkey.dev"
 				router.ServeHTTP(w, req)
 
 				assert.True(t, nextCalled, "next handler should be called for API route")
@@ -838,7 +840,7 @@ func TestEmbeddedFrontendBypassesBareVideoAPIRoutes(t *testing.T) {
 		"/videos/extensions",
 		"/videos/request-123",
 	} {
-		require.True(t, shouldBypassEmbeddedFrontend(path), "path=%s", path)
+		require.True(t, shouldBypassEmbeddedFrontend(path, ""), "path=%s", path)
 	}
 }
 
@@ -849,7 +851,7 @@ func TestEmbeddedFrontendBypassesOpenRouterProviderRoutes(t *testing.T) {
 		"/openrouter/v1/videos",
 		"/openrouter/v1/videos/task-123",
 	} {
-		require.True(t, shouldBypassEmbeddedFrontend(path), "path=%s", path)
+		require.True(t, shouldBypassEmbeddedFrontend(path, ""), "path=%s", path)
 	}
 }
 
@@ -873,7 +875,7 @@ func TestEmbeddedFrontendBypassesBareAPIAliases(t *testing.T) {
 		"/v3/contents/generations/tasks",
 		"/v3/contents/generations/tasks/task-123",
 	} {
-		require.True(t, shouldBypassEmbeddedFrontend(path), "path=%s", path)
+		require.True(t, shouldBypassEmbeddedFrontend(path, ""), "path=%s", path)
 	}
 
 	for _, path := range []string{
@@ -883,8 +885,24 @@ func TestEmbeddedFrontendBypassesBareAPIAliases(t *testing.T) {
 		"/setup",
 		"/v3/other",
 	} {
-		require.False(t, shouldBypassEmbeddedFrontend(path), "path=%s", path)
+		require.False(t, shouldBypassEmbeddedFrontend(path, ""), "path=%s", path)
 	}
+}
+
+func TestExactModelsPathBypassIsHostAware(t *testing.T) {
+	// Human SPA marketplace must not be swallowed by the OpenAI root alias.
+	for _, host := range []string{"callmodel.io", "tokenkey.dev", "www.tokenkey.dev", ""} {
+		require.False(t, shouldBypassEmbeddedFrontend("/models", host), "host=%s", host)
+	}
+	// Machine API hosts keep GET /models as the OpenAI-compatible alias.
+	for _, host := range []string{"api.tokenkey.dev", "api.callmodel.io", "api.tokenkey.dev:443"} {
+		require.True(t, shouldBypassEmbeddedFrontend("/models", host), "host=%s", host)
+	}
+	// Model-id aliases stay API on every host; edge labels are not api.*.
+	require.True(t, shouldBypassEmbeddedFrontend("/models/gpt-5.5", "callmodel.io"))
+	require.False(t, shouldBypassEmbeddedFrontend("/models", "api-uk2.tokenkey.dev"))
+	require.True(t, isMachineAPIHostname("API.TOKENKEY.DEV."))
+	require.False(t, isMachineAPIHostname("api-uk2.tokenkey.dev"))
 }
 
 func TestNewFrontendServer(t *testing.T) {
@@ -1017,6 +1035,7 @@ func TestServeEmbeddedFrontend(t *testing.T) {
 
 				w := httptest.NewRecorder()
 				req := httptest.NewRequest(http.MethodGet, path, nil)
+				req.Host = "api.tokenkey.dev"
 				router.ServeHTTP(w, req)
 
 				assert.True(t, nextCalled, "next handler should be called for API route")
