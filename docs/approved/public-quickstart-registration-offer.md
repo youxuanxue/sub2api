@@ -48,6 +48,7 @@ not an inferred entitlement. Secrets are never placed in return paths or docs st
 | Page orchestration | existing `frontend/src/views/user/QuickstartView.vue` |
 
 生图示例与参数遵循 [image-generation-quickstart-studio.md](image-generation-quickstart-studio.md) 的共享 owner。
+kimi-k3 视频理解 curl/python 示例由 `UseKeyGuide.vue` 渲染，请求形态契约见 [multimodal-supply-capability-ssot.md](multimodal-supply-capability-ssot.md) 的客户请求形态节。
 
 ## Validation
 

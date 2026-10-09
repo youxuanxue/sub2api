@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "6197896d0366151e919b62052ae20813dde8e85e378b65db94a46492e246bb1c",
+  "floor_sha256": "a72fba7a0489a04d3065044da5f0783183ac10ac05c891b4c6f0026e58152e15",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -406,6 +406,7 @@
         "channel_type": 17,
         "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com",
         "model_mapping": {
+          "deepseek-chat": "deepseek-v4.1-flash",
           "deepseek-flash": "deepseek-v4.1-flash",
           "deepseek-v4-flash": "deepseek-v4-flash-0731",
           "deepseek-v4-flash-0731": "deepseek-v4-flash-0731",
@@ -438,6 +439,7 @@
         "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
         "model_mapping": {
           "ark-code-latest": "ark-code-latest",
+          "deepseek-chat": "deepseek-v4.1-flash",
           "deepseek-flash": "deepseek-v4.1-flash",
           "deepseek-v4-flash": "deepseek-v4-flash",
           "deepseek-v4-pro": "deepseek-v4-pro",

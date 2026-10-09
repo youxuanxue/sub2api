@@ -98,7 +98,7 @@ func (s *OpenAIGatewayService) tkPrepareOpenAIPassthroughRequestBody(
 		body = injectedBody
 	}
 	if account != nil && account.IsOpenAI() {
-		normalizedBody, normalized, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(body, account, isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)))
+		normalizedBody, normalized, normalizeErr := normalizeOpenAIResponsesCompatibilityBody(body, account, isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) || isOpenAIResponsesLiteWebSocketPayload(body), isOpenAIResponsesCompactPath(c))
 		if normalizeErr != nil {
 			return body, reqStream, fmt.Errorf("normalize passthrough Responses compatibility: %w", normalizeErr)
 		}

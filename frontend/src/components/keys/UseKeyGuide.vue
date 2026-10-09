@@ -75,6 +75,11 @@
             class="text-xs text-amber-600 dark:text-amber-400 pl-[4.25rem]"
           >{{ t('keys.useKeyModal.modelsEmpty') }}</p>
 
+          <p
+            v-if="isKimiK3VideoExample"
+            class="text-xs text-gray-500 dark:text-gray-400"
+            data-testid="quickstart-kimi-k3-video-hint"
+          >{{ t('videoUnderstanding.hint') }}</p>
           <div v-if="isImageExample" class="space-y-3" data-testid="quickstart-image-example">
             <label class="block text-sm font-medium">{{ t('imageGeneration.prompt') }}
               <textarea v-model="imagePrompt" rows="3" class="mt-1 w-full rounded-lg border border-gray-300 bg-white p-2 dark:border-dark-600 dark:bg-dark-900" data-testid="quickstart-image-prompt" />
@@ -282,6 +287,7 @@
 import ImageGenerationParameters from '@/components/keys/ImageGenerationParameters.vue'
 import { imageGenerationPlan, normalizeImageOptions, imageStudioPath, type ImageGenerationOptions } from '@/utils/imageGeneration.tk'
 import { imageGenerationExample } from '@/utils/imageGenerationExamples.tk'
+import { isKimiK3VideoGuideModel, kimiK3VideoExamples } from '@/utils/kimiK3VideoExamples.tk'
 import { modalityForModel } from '@/constants/playgroundMedia.tk'
 import { ref, computed, h, watch, toRef, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -556,6 +562,7 @@ const currentModelMeta = computed(() =>
   pickerModels.value.find((m) => m.id === selectedModel.value),
 )
 const isImageExample = computed(() => isRawExample.value && (modalityForModel(selectedModel.value) === 'image' || !!currentModelMeta.value?.image_generation?.length))
+const isKimiK3VideoExample = computed(() => isRawExample.value && isKimiK3VideoGuideModel(selectedModel.value))
 const imagePlan = computed(() => imageGenerationPlan(selectedModel.value, currentModelMeta.value?.image_generation, activeFlavor.value === 'gemini'))
 const imageOptions = ref(normalizeImageOptions(imagePlan.value))
 const imagePrompt = ref(t('studio.image.samplePrompt'))
@@ -1063,9 +1070,14 @@ const currentFiles = computed((): FileConfig[] => {
     if (isImageExample.value) return [imageGenerationExample(activeClientTab.value === 'curl' ? 'curl' : 'python', baseRoot, apiKey, model, imagePrompt.value, imagePlan.value, imageOptions.value)]
     const flavor = activeFlavor.value ?? 'anthropic'
     const isAntigravity = platformForFiles() === PLATFORM_ANTIGRAVITY
-    return activeClientTab.value === 'curl'
+    const language = activeClientTab.value === 'curl' ? 'curl' as const : 'python' as const
+    const files = language === 'curl'
       ? [generateCurl(flavor, baseRoot, apiKey, model, isAntigravity)]
       : [generatePython(flavor, baseRoot, apiKey, model, isAntigravity)]
+    if (isKimiK3VideoGuideModel(model)) {
+      files.push(...kimiK3VideoExamples(language, baseRoot, apiKey, t('videoUnderstanding.hint')))
+    }
+    return files
   }
 
   if (showCodexCatalog.value) {

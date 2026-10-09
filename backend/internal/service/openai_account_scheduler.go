@@ -1454,6 +1454,11 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		loadReq = append(loadReq, AccountWithConcurrency{ID: account.ID, MaxConcurrency: account.EffectiveLoadFactor()})
 	}
 	if len(filtered) == 0 {
+		// Pure multimodal known-negative empty pool → 400, not capacity 429.
+		// docs/approved/multimodal-supply-capability-ssot.md
+		if openAIFilterOnlyReason(filterStats, openAICompatIneligibleInputModality) {
+			return nil, 0, 0, 0, wrapUnsupportedInputModality(req.RequestedModel, requestInputModalityPreference(ctx))
+		}
 		return nil, 0, 0, 0, s.service.tkGroupUnsupportedModelRecordErr(req.GroupID, req.RequestedModel, openAICompatNoCandidateError(req.RequestedModel, req.GroupPlatform, false, accounts, req.ExcludedIDs, &openAICompatNoCandidateEval{
 			ctx:                ctx,
 			svc:                s.service,
@@ -1793,6 +1798,9 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if reason := openAIRequestEligibilityReason(ctx, account, req.RequestedModel, req.RequireCompact, req.RequiredCapability); reason != "" {
 		if reason == openAICompatIneligibleModelUnsupported {
 			return false, "model_not_supported"
+		}
+		if strings.HasPrefix(reason, openAICompatIneligibleInputModality) {
+			return false, openAICompatIneligibleInputModality
 		}
 		if strings.HasPrefix(reason, openAICompatIneligibleNoLegalRoute) {
 			return false, "protocol_route_unavailable"
