@@ -141,6 +141,7 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | [`design-edge-env-secrets-recovery.md`](design-edge-env-secrets-recovery.md) | Edge env secrets recovery |
 | [`design-edge-model-family-alert.md`](design-edge-model-family-alert.md) | Edge model-family alert |
 | [`edge-bluegreen-release-safety.md`](edge-bluegreen-release-safety.md) | Edge blue/green safety |
+| [`hetzner-cloud-full-migration.md`](hetzner-cloud-full-migration.md) | Hetzner Cloud 全线迁移（fsn1 / cax21 / Gates；#2517 Phase-1） |
 | [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
 | [`prod-component-release.md`](prod-component-release.md) | Independent prod component releases |
 | [`design-split-deploy-qa-bundle.md`](design-split-deploy-qa-bundle.md) | Physical separation of prod gateway and QA bundle workflows |

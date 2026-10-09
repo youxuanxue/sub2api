@@ -1,13 +1,14 @@
 ---
 title: TokenKey 全线迁移 Hetzner Cloud（prod + edge · 德区 · cax21）
-status: pending
-approved_by: pending
+status: approved
+approved_by: "feng (merge #2517, 2026-10-09)"
 created: 2026-10-09
 revised: 2026-10-09
 owners: [tk-platform]
 scope: >-
   deploy/hetzner/* + deploy-*-hetzner*.yml + Stage0 dispatch 路由；
   凭证与命令见 deploy/hetzner/README.md
+related_prs: [2517]
 related_designs:
   - docs/approved/deploy-stage0-workflow.md
   - docs/approved/edge-bluegreen-release-safety.md
@@ -16,7 +17,7 @@ related_designs:
 
 # TokenKey 全线迁移 Hetzner Cloud
 
-> **`pending`。** 未审批前禁止生产建机、正式 DNS、或把 Lightsail/EC2 换成唯一路径。  
+> **`approved`（#2517）。** Phase-1 骨架已合入；**正式 DNS / 生产切流仍须 Gates 全绿。**  
 > 决策与门禁在此；操作见 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。
 
 ## 目标
