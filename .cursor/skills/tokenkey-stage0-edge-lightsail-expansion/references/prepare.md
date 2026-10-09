@@ -16,7 +16,7 @@
 | `porkbun_a_ipv4` | 可选；DNS 真值锚点，与 `aws lightsail get-static-ip` 的 `ipAddress` 对齐 |
 | `bundle_id` | 默认 `micro_3_0` |
 | `blueprint_id` | 默认 `amazon_linux_2023` |
-| `monthly_budget_usd` | 不得超过 `max_monthly_budget_usd`（当前矩阵上限 44，覆盖 large_3_0） |
+| `monthly_budget_usd` | 不得超过矩阵根字段 `max_monthly_budget_usd`（见 `edge-targets-lightsail.json`） |
 | `ssm_prefix` | `/tokenkey/lightsail/<edge_id>` |
 
 #### 1.1a 已有 Lightsail 实例 + Static IP（adopt 路径）
