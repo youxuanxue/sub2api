@@ -28,9 +28,9 @@ def _deployable_lightsail_edge() -> str | None:
 
 
 class ResolveEdgeDeployRouteTest(unittest.TestCase):
-    def _route(self, edge_id: str) -> dict:
+    def _route(self, *args: str) -> dict:
         proc = subprocess.run(
-            [sys.executable, str(SCRIPT), "--edge-id", edge_id, "--json"],
+            [sys.executable, str(SCRIPT), "--json", *args],
             cwd=REPO_ROOT,
             capture_output=True,
             text=True,
@@ -44,7 +44,7 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
             self.skipTest("no deployable Lightsail edge in matrix")
         targets = json.loads(LIGHTSAIL_MATRIX.read_text(encoding="utf-8")).get("targets") or {}
         expected_instance = str((targets.get(edge_id) or {}).get("instance_name") or "")
-        route = self._route(edge_id)
+        route = self._route("--edge-id", edge_id)
         self.assertEqual(route["platform"], "lightsail")
         self.assertEqual(route["workflow_file"], "deploy-edge-lightsail-stage0.yml")
         self.assertEqual(route["confirm_flag"], "confirm_instance")
@@ -60,6 +60,52 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
         )
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("not deployable", proc.stderr)
+
+    def test_hetzner_planned_requires_explicit_platform(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "--edge-id", "uk1", "--json"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        # uk1 is still deployable on Lightsail → auto stays lightsail
+        self.assertEqual(proc.returncode, 0)
+        route = json.loads(proc.stdout)
+        self.assertEqual(route["platform"], "lightsail")
+
+        route_hz = self._route(
+            "--edge-id", "uk1", "--platform", "hetzner", "--allow-planned"
+        )
+        self.assertEqual(route_hz["platform"], "hetzner")
+        self.assertEqual(route_hz["workflow_file"], "deploy-edge-hetzner-stage0.yml")
+        self.assertEqual(route_hz["confirm_value"], "tokenkey-edge-uk1-hz-cax21")
+
+    def test_hetzner_deployable_wins_auto(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            # Minimal dual matrices: lightsail deployable + hetzner deployable → hetzner wins
+            ls = root / "deploy/aws/lightsail/edge-targets-lightsail.json"
+            hz = root / "deploy/hetzner/edge-targets-hetzner.json"
+            ls.parent.mkdir(parents=True)
+            hz.parent.mkdir(parents=True)
+            ls.write_text(json.dumps({"targets": {"canary": {
+                "deployable": True,
+                "lightsail_region": "eu-west-2",
+                "ssm_prefix": "/tokenkey/lightsail/canary",
+                "instance_name": "ls-canary",
+            }}}))
+            hz.write_text(json.dumps({"targets": {"canary": {
+                "deployable": True,
+                "location": "fsn1",
+                "server_type": "cax21",
+                "ssm_prefix": "/tokenkey/hetzner/canary",
+                "instance_name": "hz-canary",
+            }}}))
+            # Patch script's REPO_ROOT by running resolve_route_tab directly
+            from edge_routing_matrix import resolve_route_tab
+            transport, loc, _ = resolve_route_tab(root, "canary", "auto")
+            self.assertEqual(transport, "hetzner")
+            self.assertEqual(loc, "fsn1")
 
 
 class EdgeRoutingBoundaryTest(unittest.TestCase):
@@ -79,10 +125,13 @@ class EdgeRoutingBoundaryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)
             matrix = root / "deploy/aws/lightsail/edge-targets-lightsail.json"
+            hz = root / "deploy/hetzner/edge-targets-hetzner.json"
             matrix.parent.mkdir(parents=True)
+            hz.parent.mkdir(parents=True)
             matrix.write_text(json.dumps({"targets": {"pilot": {
                 "deployable": False, "lightsail_region": "us-east-1", "ssm_prefix": "/pilot",
             }}}))
+            hz.write_text(json.dumps({"targets": {}}))
             with self.assertRaisesRegex(SystemExit, "not deployable"):
                 resolve_route_tab(root, "pilot")
             self.assertEqual(resolve_route_tab(root, "pilot", "lightsail"),

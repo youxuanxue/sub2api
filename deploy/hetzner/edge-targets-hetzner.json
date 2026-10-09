@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "platform": "hetzner",
+  "default_profile": "edge-hetzner-cax21",
+  "approved_anchor": "docs/approved/hetzner-cloud-full-migration.md",
+  "notes": [
+    "Phase-1: all deployable=false. Naming is derived in resolve from edge id.",
+    "Live traffic stays on Lightsail until an edge flips deployable=true."
+  ],
+  "allowed_locations": ["fsn1"],
+  "allowed_server_types": ["cax21"],
+  "required_architecture": "arm",
+  "target_defaults": {
+    "deployable": false,
+    "profile": "edge-hetzner-cax21",
+    "swap_gib": 2,
+    "location": "fsn1",
+    "server_type": "cax21",
+    "architecture": "arm",
+    "image": "ubuntu-24.04",
+    "ssh_key_name": "tokenkey-hetzner-ops"
+  },
+  "targets": {
+    "uk1": { "purpose": "canary first" },
+    "uk2": {},
+    "us3": {},
+    "us4": {},
+    "us5": { "purpose": "canary cross-ocean (E2/E3)" },
+    "us6": {}
+  }
+}
