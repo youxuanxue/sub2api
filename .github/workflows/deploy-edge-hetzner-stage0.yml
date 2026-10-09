@@ -116,28 +116,44 @@ jobs:
 
       - name: Dry-run provision plan
         if: inputs.operation == 'validate' || (inputs.operation == 'provision' && inputs.confirm_paid == false)
+        env:
+          EDGE_ID: ${{ inputs.edge_id }}
+          ALLOW_PLANNED: ${{ inputs.allow_planned }}
         run: |
-          bash deploy/hetzner/provision-edge.sh \
-            --edge-id "${{ inputs.edge_id }}" \
-            --allow-planned
+          set -euo pipefail
+          ARGS=(--edge-id "$EDGE_ID")
+          if [[ "${ALLOW_PLANNED}" == "true" ]]; then
+            ARGS+=(--allow-planned)
+          fi
+          bash deploy/hetzner/provision-edge.sh "${ARGS[@]}"
+
+      - name: Install hcloud CLI
+        if: inputs.operation == 'provision' && inputs.confirm_paid == true
+        env:
+          HCLOUD_CLI_VERSION: v1.70.1
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_CLI_VERSION}/hcloud-linux-amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin hcloud
+          hcloud version
 
       - name: Paid provision (no DNS)
         if: inputs.operation == 'provision' && inputs.confirm_paid == true
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          EDGE_ID: ${{ inputs.edge_id }}
+          ALLOW_PLANNED: ${{ inputs.allow_planned }}
         run: |
           set -euo pipefail
           if [[ -z "${HCLOUD_TOKEN}" ]]; then
             echo "::error::HCLOUD_TOKEN secret missing (gh secret set HCLOUD_TOKEN)"
             exit 1
           fi
-          # L0: refuse if Primary IP headroom looks exhausted (best-effort)
-          FREE_HINT="$(hcloud primary-ip list -o noheader 2>/dev/null | wc -l | tr -d ' ')"
-          echo "primary_ip_rows=${FREE_HINT}"
-          bash deploy/hetzner/provision-edge.sh \
-            --edge-id "${{ inputs.edge_id }}" \
-            --allow-planned \
-            --confirm-paid
+          ARGS=(--edge-id "$EDGE_ID" --confirm-paid)
+          if [[ "${ALLOW_PLANNED}" == "true" ]]; then
+            ARGS+=(--allow-planned)
+          fi
+          bash deploy/hetzner/provision-edge.sh "${ARGS[@]}"
           echo "::notice::Server create requested. Complete §17 E0–E4 on staging before DNS."
 
       - name: Summary

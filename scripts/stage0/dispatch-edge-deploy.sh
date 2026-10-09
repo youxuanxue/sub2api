@@ -70,7 +70,7 @@ case "${OPERATION}" in
     ;;
 esac
 
-if [[ "${OPERATION}" == "provision" || "${OPERATION}" == "upgrade" || "${OPERATION}" == "rollback" ]]; then
+if [[ "${OPERATION}" == "upgrade" || "${OPERATION}" == "rollback" ]]; then
   if [[ -z "${TAG}" ]]; then
     echo "dispatch-edge-deploy: --tag is required for operation=${OPERATION}" >&2
     exit 1
@@ -104,6 +104,13 @@ done < <(python3 scripts/stage0/resolve-edge-deploy-route.py "${ROUTE_ARGS[@]}")
 
 if [[ -z "${WORKFLOW}" || -z "${CONFIRM_FLAG}" || -z "${CONFIRM_VALUE}" || -z "${PLATFORM}" ]]; then
   echo "dispatch-edge-deploy: incomplete route resolution" >&2
+  exit 1
+fi
+
+# Hetzner Phase-1 provision does not deploy an app image yet; tag optional until SSM upgrade lands.
+# Lightsail/EC2 provision still requires an image tag.
+if [[ "${OPERATION}" == "provision" && "${PLATFORM}" != "hetzner" && -z "${TAG}" ]]; then
+  echo "dispatch-edge-deploy: --tag is required for operation=provision on platform=${PLATFORM}" >&2
   exit 1
 fi
 
