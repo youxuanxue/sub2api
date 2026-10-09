@@ -134,8 +134,8 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
 			}
-			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) {
-				return nil, streamFirstOutputFailoverError()
+			if foErr := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+				return nil, foErr
 			}
 			return nil, s.handleUpstreamTransportError(ctx, c, account, err, OpsUpstreamErrorEvent{
 				UpstreamURL: safeUpstreamURL(upstreamReq.URL.String()),
@@ -540,8 +540,6 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	inPartialEvent := false
 	pendingEventName := ""
 	var pendingStreamError *sseStreamErrorEventError
-	wroteClientBody := false
-	wroteKeepalive := false
 	var callerCtx context.Context
 	if c != nil && c.Request != nil {
 		callerCtx = c.Request.Context()
@@ -551,13 +549,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 		budgetCh = streamAttemptCtx.Done()
 	}
 	firstOutputFailover := func() error {
-		if !firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) || firstOutputGuard.Committed() {
-			return nil
-		}
-		if wroteClientBody || wroteKeepalive {
-			return streamFirstOutputFailoverErrorAfterKeepalive()
-		}
-		return streamFirstOutputFailoverError()
+		return streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)
 	}
 
 	for {
@@ -657,7 +649,6 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 					clientDisconnected = true
 					logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
 				} else {
-					wroteClientBody = true
 					if line == "" {
 						// 按 SSE 事件边界刷出，减少每行 flush 带来的 syscall 开销。
 						flusher.Flush()
@@ -706,7 +697,6 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during keepalive ping, continue draining upstream for usage: account=%d", account.ID)
 				continue
 			}
-			wroteKeepalive = true
 			flusher.Flush()
 			lastDataAt = time.Now()
 			resetKeepaliveTimer()

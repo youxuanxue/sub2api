@@ -121,8 +121,8 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	resp, err := s.doNativeMessagesRequest(upstreamReq, account)
 	hwka.stop()
 	if err != nil {
-		if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) {
-			return nil, streamFirstOutputFailoverError()
+		if foErr := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+			return nil, foErr
 		}
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 	}
@@ -517,8 +517,6 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 		keepaliveTimer.Reset(keepaliveInterval)
 	}
 	inPartialEvent := false
-	wroteClientBody := false
-	wroteKeepalive := false
 	var callerCtx context.Context
 	if c != nil && c.Request != nil {
 		callerCtx = c.Request.Context()
@@ -528,13 +526,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 		budgetCh = streamAttemptCtx.Done()
 	}
 	firstOutputFailover := func() error {
-		if !firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) || firstOutputGuard.Committed() {
-			return nil
-		}
-		if wroteClientBody || wroteKeepalive {
-			return streamFirstOutputFailoverErrorAfterKeepalive()
-		}
-		return streamFirstOutputFailoverError()
+		return streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)
 	}
 
 	for {
@@ -627,7 +619,6 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 					clientDisconnected = true
 					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
 				} else {
-					wroteClientBody = true
 					if line == "" {
 						// 按 SSE 事件边界刷出，减少每行 flush 带来的 syscall 开销。
 						if terminalErrorWritten {
@@ -685,7 +676,6 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during keepalive ping, continue draining upstream for usage: account=%d", account.ID)
 				continue
 			}
-			wroteKeepalive = true
 			flusher.Flush()
 			lastDataAt = time.Now()
 			resetKeepaliveTimer()
