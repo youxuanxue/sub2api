@@ -13,7 +13,6 @@ import (
 
 	pb "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/http2"
 )
 
 func TestRunAgentFrameIdleTimeout(t *testing.T) {
@@ -73,8 +72,6 @@ func TestRunAgentFrameIdleTimeout(t *testing.T) {
 		transport.Protocols = new(http.Protocols)
 		transport.Protocols.SetUnencryptedHTTP2(true)
 		transport.Protocols.SetHTTP1(false)
-		_, err = http2.ConfigureTransports(transport)
-		require.NoError(t, err)
 		client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		defer transport.CloseIdleConnections()
 
