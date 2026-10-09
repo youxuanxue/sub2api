@@ -28,6 +28,26 @@ Addon IAM：`deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml`
 
 Workflow：`.github/workflows/deploy-edge-lightsail-stage0.yml`
 
+## 保留原机的快照迁移准备
+
+普通 IAM operator 没有 `iam:PassRole`。在摘流前，通过既有 OIDC 部署角色准备新机身份：
+
+```bash
+gh workflow run deploy-edge-lightsail-stage0.yml -R youxuanxue/sub2api \
+  --ref <reviewed-ref> -f edge_id=<edge> -f operation=prepare-resize \
+  -f confirm_instance=<matrix-source-instance> -f replacement_instance=<new-name>
+```
+
+本操作只验证源目标与新机不存在，生成四小时内有效、仅能注册一次的 Hybrid activation，
+写入 job summary 指定的 `/tokenkey/lightsail/<edge>/resize-activation/<run_id>-<attempt>` SecureString。
+不停止/创建实例，不修改 IP、业务凭据、IAM 或活跃 SSM 指针，也不执行普通 provision/smoke。
+必须等本次 workflow 成功，再由已授权的迁移操作读取参数；验证其中的 edge、region、
+source/replacement、过期时间和 activation 注册次数后使用，禁止打印 code。
+完成注册后删除本次临时 SecureString，避免长期保留凭据。
+
+后续完整冷快照、数据校验、逐台摘流与回退边界见
+[`edge-8g-snapshot-resize.md`](../../../docs/approved/edge-8g-snapshot-resize.md)。
+
 ## 一次性 Setup
 
 ### 1) 部署 Lightsail IAM Addon

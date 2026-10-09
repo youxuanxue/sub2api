@@ -163,6 +163,8 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 
 ### Upstream merge anchors
 
+Edge 运维：[US Edge 8 GiB 快照迁移](edge-8g-snapshot-resize.md) — 保留数据、原机与静态 IP；使用既有部署角色准备单次新机身份。
+
 | File | Topic |
 | --- | --- |
 | [`upstream-merge-2026-08-15-migrations.md`](upstream-merge-2026-08-15-migrations.md) | Upstream merge 2026-08-15 migrations |
