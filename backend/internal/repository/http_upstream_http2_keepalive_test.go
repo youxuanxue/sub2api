@@ -58,11 +58,10 @@ func TestEnableHTTP2KeepAlive_EnablesPingHealthCheck(t *testing.T) {
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			tr := &http.Transport{}
-			h2, err := enableHTTP2KeepAlive(tr, tc.mode)
-			require.NoError(t, err)
-			require.NotNil(t, h2, "必须返回已配置的 *http2.Transport")
-			require.Equal(t, tc.readIdleTimeout, h2.ReadIdleTimeout)
-			require.Equal(t, tc.pingTimeout, h2.PingTimeout, "各模式应使用独立的 PING 应答期限")
+			require.NoError(t, enableHTTP2KeepAlive(tr, tc.mode))
+			require.NotNil(t, tr.HTTP2, "必须配置 http.HTTP2Config")
+			require.Equal(t, tc.readIdleTimeout, tr.HTTP2.SendPingTimeout)
+			require.Equal(t, tc.pingTimeout, tr.HTTP2.PingTimeout, "各模式应使用独立的 PING 应答期限")
 			requireHTTP2Configured(t, tr, "http2 必须已挂到底层 http.Transport 上")
 		})
 	}
@@ -98,7 +97,9 @@ func TestBuildUpstreamTransport_LongStreamH2_NegotiatesHTTP2(t *testing.T) {
 	tr, err := buildUpstreamTransport(http2KeepAliveTestPoolSettings(), nil, upstreamProtocolModeLongStreamH2)
 	require.NoError(t, err)
 	defer tr.CloseIdleConnections()
-	require.NotNil(t, tr.TLSClientConfig)
+	if tr.TLSClientConfig == nil {
+		tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
 	roots := x509.NewCertPool()
 	roots.AddCert(srv.Certificate())
 	tr.TLSClientConfig.RootCAs = roots

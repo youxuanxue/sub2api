@@ -42,6 +42,10 @@ const (
 	openAICompatIneligibleNoLegalRoute      = "no_legal_protocol_route"
 )
 
+// openAICompatIneligibleInputModality lives in candidate_multimodal_supply_tk.go
+// next to ErrUnsupportedInputModality so the reason string cannot drift from the
+// empty-pool 400 sentinel.
+
 // openAICompatEligibilityReason returns "" when the account passes every
 // ordinary scheduling gate, else a stable reason code naming the branch that
 // rejected it. Gate ORDER and semantics must stay identical to the bool
@@ -106,6 +110,11 @@ func openAIRequestEligibilityReason(ctx context.Context, account *Account, reque
 			return detail
 		}
 		return openAICompatIneligibleNoLegalRoute
+	}
+	// Multimodal supply gate (Direct OpenAI/newapi scheduler). Universal path
+	// hits the same owner via candidateSupportsRequest.
+	if modality := accountInputModalityRejection(ctx, account, requestedModel); modality != "" {
+		return fmt.Sprintf("%s(%s)", openAICompatIneligibleInputModality, modality)
 	}
 	if !protocolRoutingOwnsOpenAITextCapability(ctx, requiredCapability) &&
 		!account.SupportsOpenAIEndpointCapability(requiredCapability) {
