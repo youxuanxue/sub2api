@@ -518,6 +518,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	}
 	inPartialEvent := false
 	wroteClientBody := false
+	wroteKeepalive := false
 	var callerCtx context.Context
 	if c != nil && c.Request != nil {
 		callerCtx = c.Request.Context()
@@ -526,19 +527,28 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	if streamAttemptCtx != nil {
 		budgetCh = streamAttemptCtx.Done()
 	}
+	firstOutputFailover := func() error {
+		if !firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) || firstOutputGuard.Committed() {
+			return nil
+		}
+		if wroteClientBody || wroteKeepalive {
+			return streamFirstOutputFailoverErrorAfterKeepalive()
+		}
+		return streamFirstOutputFailoverError()
+	}
 
 	for {
 		select {
 		case <-budgetCh:
-			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && firstTokenMs == nil && !wroteClientBody {
-				return nil, streamFirstOutputFailoverError()
+			if err := firstOutputFailover(); err != nil {
+				return nil, err
 			}
 			budgetCh = nil
 
 		case ev, ok := <-events:
 			if !ok {
-				if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && firstTokenMs == nil && !wroteClientBody {
-					return nil, streamFirstOutputFailoverError()
+				if err := firstOutputFailover(); err != nil {
+					return nil, err
 				}
 				if policyBlocked {
 					return nil, errOpenAICyberPolicyForwarded
@@ -556,8 +566,8 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), nil
 			}
 			if ev.err != nil {
-				if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && firstTokenMs == nil && !wroteClientBody {
-					return nil, streamFirstOutputFailoverError()
+				if err := firstOutputFailover(); err != nil {
+					return nil, err
 				}
 				if policyBlocked {
 					return nil, errOpenAICyberPolicyForwarded
@@ -675,6 +685,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during keepalive ping, continue draining upstream for usage: account=%d", account.ID)
 				continue
 			}
+			wroteKeepalive = true
 			flusher.Flush()
 			lastDataAt = time.Now()
 			resetKeepaliveTimer()

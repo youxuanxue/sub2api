@@ -260,7 +260,7 @@ Platform wiring for the same universal stream budget:
 | OpenAI native HTTP first semantic output | Wired (default on; `0` emergency off) |
 | Grok first-byte header wait | Wired (default aligned to 30s) |
 | Kiro streaming | Wired (commit = client-visible text/tool) |
-| Anthropic native / passthrough SSE | Wired (commit = first non-empty SSE data; pre-commit silent failover) |
+| Anthropic passthrough / CN-native SSE | Wired. Commit = first non-empty SSE `data:` frame (includes `message_start`; deliberately shorter switch window than Kiro visible-only). Keepalive ping does not Commit; post-ping failover uses `SafeToFailoverAfterWrite`. Classic non-passthrough convert path (`gateway_upstream_response.handleStreamingResponse`) is **not** on this helper yet. |
 | Gemini Messages / native streaming | Wired (commit = first client-visible text/tool or native data frame) |
 
 These are implementation and local test changes, not production acceptance.

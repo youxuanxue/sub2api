@@ -2295,9 +2295,31 @@
         "defaultStreamFirstOutputHighEffortTimeout = 60 * time.Second",
         "func resolveStreamFirstOutputTimeout(",
         "func armStreamFirstOutputGuard(",
-        "Reason:           \"first_output_unavailable\""
+        "Reason:           \"first_output_unavailable\"",
+        "func streamFirstOutputFailoverErrorAfterKeepalive(",
+        "SafeToFailoverAfterWrite: true"
       ],
-      "rationale": "Universal stream first-useful-output budget SSOT (30s / 60s high-effort, cap 120). Platform paths must share this owner rather than hard-coding divergent first-byte waits."
+      "rationale": "Universal stream first-useful-output budget SSOT (30s / 60s high-effort, cap 120). Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_passthrough.go",
+      "must_contain": [
+        "armStreamFirstOutputGuard(base, rem)",
+        "firstOutputGuard.WatchClose(resp.Body)",
+        "firstOutputGuard.Commit()",
+        "wroteKeepalive = true",
+        "streamFirstOutputFailoverErrorAfterKeepalive()"
+      ],
+      "rationale": "Anthropic passthrough streaming must arm the universal first-output budget before Do, Commit on first SSE data, and use SafeToFailoverAfterWrite after keepalive ping."
+    },
+    {
+      "path": "backend/internal/service/anthropic_stream_first_output_tk_test.go",
+      "must_contain": [
+        "TestAnthropicPassthroughStreamFirstOutputBudgetBeforeWrite",
+        "TestAnthropicPassthroughStreamFirstOutputCommitsOnMessageStart",
+        "TestStreamFirstOutputFailoverErrorAfterKeepaliveFlag"
+      ],
+      "rationale": "Focused regressions lock Anthropic first-output failover before write, Commit on message_start, and keepalive SafeToFailoverAfterWrite flag."
     },
     {
       "path": "backend/internal/handler/candidate_chat_failover_tk_test.go",

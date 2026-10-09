@@ -541,6 +541,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	pendingEventName := ""
 	var pendingStreamError *sseStreamErrorEventError
 	wroteClientBody := false
+	wroteKeepalive := false
 	var callerCtx context.Context
 	if c != nil && c.Request != nil {
 		callerCtx = c.Request.Context()
@@ -549,12 +550,21 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	if streamAttemptCtx != nil {
 		budgetCh = streamAttemptCtx.Done()
 	}
+	firstOutputFailover := func() error {
+		if !firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) || firstOutputGuard.Committed() {
+			return nil
+		}
+		if wroteClientBody || wroteKeepalive {
+			return streamFirstOutputFailoverErrorAfterKeepalive()
+		}
+		return streamFirstOutputFailoverError()
+	}
 
 	for {
 		select {
 		case <-budgetCh:
-			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && firstTokenMs == nil && !wroteClientBody {
-				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, streamFirstOutputFailoverError()
+			if err := firstOutputFailover(); err != nil {
+				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, err
 			}
 			budgetCh = nil
 
@@ -567,8 +577,8 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 					// 兜底补刷，确保最后一个未以空行结尾的事件也能及时送达客户端。
 					flusher.Flush()
 				}
-				if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && firstTokenMs == nil && !wroteClientBody {
-					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, streamFirstOutputFailoverError()
+				if err := firstOutputFailover(); err != nil {
+					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, err
 				}
 				if pendingStreamError != nil {
 					MarkResponseCommitted(c)
@@ -586,8 +596,8 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
 			}
 			if ev.err != nil {
-				if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && firstTokenMs == nil && !wroteClientBody {
-					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, streamFirstOutputFailoverError()
+				if err := firstOutputFailover(); err != nil {
+					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, err
 				}
 				if sawTerminalEvent {
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
@@ -696,6 +706,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during keepalive ping, continue draining upstream for usage: account=%d", account.ID)
 				continue
 			}
+			wroteKeepalive = true
 			flusher.Flush()
 			lastDataAt = time.Now()
 			resetKeepaliveTimer()
