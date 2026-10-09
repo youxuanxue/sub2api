@@ -747,8 +747,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
-					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
-					if c.Writer.Size() != writerSizeBeforeForward {
+					// 流式语义内容已写入客户端则禁止 failover；仅 keepalive 且带
+					// SafeToFailoverAfterWrite 时仍允许换号（与 OpenAI 路径对齐）。
+					if !gatewayForwardMayFailover(c, writerSizeBeforeForward, failoverErr) {
 						h.handleFailoverExhausted(c, failoverErr, account.Platform, true)
 						return
 					}
@@ -1593,6 +1594,20 @@ func gatewayForwardErrorAlreadyCommunicated(c *gin.Context, writerSizeBeforeForw
 		return false
 	}
 	return !strings.Contains(contentType, "text/event-stream")
+}
+
+// gatewayForwardMayFailover mirrors openAIForwardMayFailover for Anthropic /
+// Gemini / Responses ingress: Size unchanged → always OK; Size advanced only
+// allows continue when SafeToFailoverAfterWrite (keepalive-only first-output
+// timeout). Semantic SSE already committed must exhaust instead of splicing.
+func gatewayForwardMayFailover(c *gin.Context, writerSizeBeforeForward int, failoverErr *service.UpstreamFailoverError) bool {
+	if c == nil || c.Writer == nil {
+		return false
+	}
+	if c.Writer.Size() == writerSizeBeforeForward {
+		return true
+	}
+	return failoverErr != nil && failoverErr.SafeToFailoverAfterWrite
 }
 
 // checkClaudeCodeVersion 检查 Claude Code 客户端版本是否满足版本要求

@@ -580,8 +580,8 @@ func (s *KiroGatewayService) forwardStreaming(
 		if c != nil && c.Request != nil {
 			callerCtx = c.Request.Context()
 		}
-		if firstOutputGuard.BudgetFired(ctx, callerCtx) {
-			return nil, streamFirstOutputFailoverError()
+		if err := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, ctx, callerCtx); err != nil {
+			return nil, err
 		}
 		return nil, classifyAndRecordKiroForwardError(c, account, callErr, model)
 	}

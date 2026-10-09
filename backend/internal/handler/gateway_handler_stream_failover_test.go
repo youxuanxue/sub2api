@@ -175,4 +175,21 @@ func TestStreamWrittenGuard_NoByteWritten_GuardNotTriggered(t *testing.T) {
 	guardTriggered := c.Writer.Size() != sizeBeforeForward
 	require.False(t, guardTriggered,
 		"未写入任何字节时，守卫条件必须为 false，应允许正常 failover 继续")
+	require.True(t, gatewayForwardMayFailover(c, sizeBeforeForward, &service.UpstreamFailoverError{}))
+}
+
+func TestGatewayForwardMayFailover_KeepaliveSafeFlag(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	before := c.Writer.Size()
+
+	_, err := c.Writer.WriteString("event: ping\ndata: {\"type\": \"ping\"}\n\n")
+	require.NoError(t, err)
+
+	require.True(t, gatewayForwardMayFailover(c, before, &service.UpstreamFailoverError{
+		SafeToFailoverAfterWrite: true,
+	}))
+	require.False(t, gatewayForwardMayFailover(c, before, &service.UpstreamFailoverError{}))
 }

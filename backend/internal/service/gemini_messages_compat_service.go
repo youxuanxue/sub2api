@@ -842,8 +842,8 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		}
 		upstreamReq, idHeader, err := buildReq(doCtx)
 		if err != nil {
-			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) {
-				return nil, streamFirstOutputFailoverError()
+			if foErr := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+				return nil, foErr
 			}
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
@@ -860,8 +860,8 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		hwka.stop()
 		if err != nil {
-			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) {
-				return nil, streamFirstOutputFailoverError()
+			if foErr := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+				return nil, foErr
 			}
 			return nil, s.handleUpstreamTransportError(ctx, c, account, err)
 		}
@@ -1411,8 +1411,8 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		}
 		upstreamReq, idHeader, err := buildReq(doCtx)
 		if err != nil {
-			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) {
-				return nil, streamFirstOutputFailoverError()
+			if foErr := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+				return nil, foErr
 			}
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
@@ -1429,8 +1429,8 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		hwka.stop()
 		if err != nil {
-			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) {
-				return nil, streamFirstOutputFailoverError()
+			if foErr := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+				return nil, foErr
 			}
 			transportErr := s.handleUpstreamTransportError(ctx, c, account, err)
 			// countTokens 不因上游链路故障而失败：本地估算兜底，不换号。
@@ -2238,8 +2238,10 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
-			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && !clientStarted {
-				return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, streamFirstOutputFailoverError()
+			if !clientStarted {
+				if foErr := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+					return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, foErr
+				}
 			}
 			return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream read error: %w", err)
 		}
@@ -2438,8 +2440,10 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(
 		}
 	}
 
-	if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && !clientStarted {
-		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, streamFirstOutputFailoverError()
+	if !clientStarted {
+		if foErr := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+			return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, foErr
+		}
 	}
 	if finishReason == "" && !sawDone && !sawPolicyBlock {
 		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, fmt.Errorf("incomplete Gemini stream: missing terminal event")
@@ -3088,11 +3092,8 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 			break
 		}
 		if err != nil {
-			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && !firstOutputGuard.Committed() {
-				if clientStarted {
-					return nil, streamFirstOutputFailoverErrorAfterKeepalive()
-				}
-				return nil, streamFirstOutputFailoverError()
+			if foErr := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+				return nil, foErr
 			}
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				ensureClientStarted()
@@ -3103,11 +3104,8 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 		}
 	}
 
-	if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && !firstOutputGuard.Committed() {
-		if clientStarted {
-			return nil, streamFirstOutputFailoverErrorAfterKeepalive()
-		}
-		return nil, streamFirstOutputFailoverError()
+	if foErr := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+		return nil, foErr
 	}
 
 	s.finalizeGeminiSSESignal(c, account, true, upstreamRequestID, best, sawDataEvent, fallback)

@@ -4,9 +4,13 @@ package service
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -74,4 +78,35 @@ func TestKiroStreamFirstOutputHighEffort(t *testing.T) {
 	require.True(t, kiroStreamFirstOutputHighEffort(&kiroproto.ClaudeRequest{
 		OutputConfig: &kiroproto.ClaudeOutputConfig{Effort: "high"},
 	}))
+}
+
+func TestStreamFirstOutputFailoverIfBudgetFired_KeepaliveSetsSafeFlag(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	parent := context.Background()
+	ctx, guard := armStreamFirstOutputGuard(parent, 15*time.Millisecond)
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("budget did not fire")
+	}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	require.Equal(t, -1, c.Writer.Size())
+
+	plain := streamFirstOutputFailoverIfBudgetFired(c, guard, ctx, parent)
+	require.Error(t, plain)
+	var fo *UpstreamFailoverError
+	require.True(t, errors.As(plain, &fo))
+	require.False(t, fo.SafeToFailoverAfterWrite)
+
+	_, err := c.Writer.WriteString(anthropicSSEPingFrame)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, c.Writer.Size(), 0)
+
+	after := streamFirstOutputFailoverIfBudgetFired(c, guard, ctx, parent)
+	require.Error(t, after)
+	require.True(t, errors.As(after, &fo))
+	require.True(t, fo.SafeToFailoverAfterWrite)
 }

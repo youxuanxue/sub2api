@@ -375,6 +375,30 @@ func TestCheckPricedServingGate_MediaPricedSuppressesFeishu(t *testing.T) {
 	require.Len(t, spy.events, 1)
 }
 
+func TestTkRegistryHasMediaSettlementPrice_PositiveProbeNotFailOpen(t *testing.T) {
+	billing := tkMediaGuardBillingService()
+	require.True(t, tkRegistryHasMediaSettlementPrice(billing, "veo-3.1-generate-001"))
+	require.True(t, tkRegistryHasMediaSettlementPrice(billing, "imagen-4.0-generate-001"))
+	require.False(t, tkRegistryHasMediaSettlementPrice(billing, "totally-unpriced-xyz"))
+	require.False(t, tkRegistryHasMediaSettlementPrice(nil, "veo-3.1-generate-001"))
+	require.False(t, tkRegistryHasMediaSettlementPrice(&BillingService{}, "totally-unpriced-xyz"))
+	require.Nil(t, tkMediaSettlementNotifySkipFromBilling(nil))
+
+	// Nil pricingService must not suppress via !Tk*ModelUnpriced fail-open.
+	spy := &gateNotifierSpy{}
+	ctx := context.Background()
+	setting := newGateSettingService(PlatformNewAPI)
+	resolve := func(model string) (*ModelPricing, error) {
+		return nil, ErrModelPricingUnavailable
+	}
+	c, _ := newGateTestContext()
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, spy, c, tkGateWireOpenAI, PlatformNewAPI,
+		"totally-unpriced-xyz", "totally-unpriced-xyz",
+		tkMediaSettlementNotifySkipFromBilling(&BillingService{}))
+	require.False(t, ok)
+	require.Len(t, spy.events, 1, "empty billing must still notify for unpriced token models")
+}
+
 // gateNotifierSpy captures NotifyPricingMissing calls.
 type gateNotifierSpy struct {
 	events []PricingMissingEvent

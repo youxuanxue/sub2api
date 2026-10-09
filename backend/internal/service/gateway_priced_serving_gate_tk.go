@@ -41,6 +41,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
@@ -287,21 +288,23 @@ func tkLogAndNotifyPricedServingGateRejection(
 }
 
 // tkRegistryHasMediaSettlementPrice 报告注册表是否已有非 token 结算价（视频秒价 /
-// 图片价 / TTS 字价）。与 Tk*ModelUnpriced 同口径；用于抑制 token 闸错端点飞书噪音。
+// 图片价 / TTS 字价）。只认正向证据（价 > 0）；不得用 !Tk*ModelUnpriced——那些
+// helper 在 billing/pricingService 缺失时 fail-open 为「已定价」，会误吞飞书告警。
 func tkRegistryHasMediaSettlementPrice(billing *BillingService, model string) bool {
-	if billing == nil || model == "" {
+	if billing == nil || strings.TrimSpace(model) == "" {
 		return false
 	}
-	if !billing.TkVideoModelUnpriced(model) {
+	if min, ok := tkVideoMinUnitPriceUSD(model); ok && min > 0 {
 		return true
 	}
-	if !billing.TkImageModelUnpriced(model, nil, "") {
+	pricing := billing.tkRegistryMediaPricing(model)
+	if pricing != nil && pricing.OutputCostPerSecond > 0 {
 		return true
 	}
-	if !billing.TkTTSModelUnpriced(model, nil) {
+	if tkRegistryRowHasBillableImagePrice(pricing) {
 		return true
 	}
-	return false
+	return billing.TkRegistryTTSPricePerMillionChars(model) > 0
 }
 
 // tkMediaSettlementNotifySkipFromBilling 把 BillingService 收成闸的 skipNotify 探针。

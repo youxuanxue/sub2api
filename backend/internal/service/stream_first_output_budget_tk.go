@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
 
@@ -193,6 +194,21 @@ func streamFirstOutputFailoverErrorAfterKeepalive() error {
 		ClientMessage:            "Upstream did not produce a complete response before failover",
 		SafeToFailoverAfterWrite: true,
 	}
+}
+
+// streamFirstOutputFailoverIfBudgetFired returns a failover error when the
+// useful-first-output budget cancelled the attempt. Gin Size()>=0 means bytes
+// already left for the client (typically header-wait / in-stream keepalives);
+// those paths set SafeToFailoverAfterWrite so the handler Size gate can still
+// switch accounts.
+func streamFirstOutputFailoverIfBudgetFired(c *gin.Context, g *streamFirstOutputGuard, guarded, caller context.Context) error {
+	if !g.BudgetFired(guarded, caller) {
+		return nil
+	}
+	if c != nil && c.Writer != nil && c.Writer.Size() >= 0 {
+		return streamFirstOutputFailoverErrorAfterKeepalive()
+	}
+	return streamFirstOutputFailoverError()
 }
 
 // kiroStreamFirstOutputHighEffort maps Claude Messages thinking / effort hints
