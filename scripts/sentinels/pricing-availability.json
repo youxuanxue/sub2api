@@ -358,7 +358,7 @@
       "path": "backend/internal/service/tk_pricing_overlay.json",
       "must_contain": [
         "\"official_list_base_tax\"",
-        "\"multiplier\": 1.06",
+        "\"multiplier\": 1.0",
         "\"provider\": \"deepseek\"",
         "\"provider\": \"dashscope\"",
         "\"provider\": \"moonshot\"",

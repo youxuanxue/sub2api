@@ -60,8 +60,8 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
       model_id: id, vendor: price.litellm_provider, capabilities: ['vision'],
       pricing: {
         currency: 'USD', billing_mode: 'embedding', output_per_1k_tokens: 0,
-        input_per_1k_tokens: price.input_cost_per_token * 1000 * 1.06,
-        input_cost_per_image_token: price.input_cost_per_image_token * 1.06,
+        input_per_1k_tokens: price.input_cost_per_token * 1000 * 1.0,
+        input_cost_per_image_token: price.input_cost_per_image_token * 1.0,
       },
     }])
     await page.goto('/models')
@@ -69,12 +69,12 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     const prices = page.locator('[data-tk-embedding-price]')
     await expect(prices).toContainText('文本')
     await expect(prices).toContainText('图片')
-    await expect(prices.locator('[data-tk="catalog-tier-price"]')).toHaveText(['$0.111', '$0.285'])
+    await expect(prices.locator('[data-tk="catalog-tier-price"]')).toHaveText(['$0.104', '$0.269'])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: `/tmp/tk-volc-embedding-cards-${viewport.width}.png`, fullPage: true })
     await page.locator('[data-tk="catalog-view-pricing"]').click()
     await expect(page.locator('[data-tk="cold-start-pricing-table"]')).toBeVisible()
-    await expect(prices.locator('[data-tk="catalog-tier-price"]')).toHaveText(['$0.111', '$0.285'])
+    await expect(prices.locator('[data-tk="catalog-tier-price"]')).toHaveText(['$0.104', '$0.269'])
     await page.screenshot({ path: `/tmp/tk-volc-embedding-pricing-${viewport.width}.png`, fullPage: true })
   })
 }

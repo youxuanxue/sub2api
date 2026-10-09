@@ -14,7 +14,7 @@ func TestTkOfficialListBaseTax_AppliesToTargetProvidersOnly(t *testing.T) {
 	out := 2.0
 	policy := loadTkOfficialListBaseTaxPolicy()
 	require.NoError(t, policy.validate())
-	require.InDelta(t, 1.06, policy.Multiplier, 1e-12, "behavior-preserving migration from the former Go constant")
+	require.InDelta(t, 1.0, policy.Multiplier, 1e-12, "official_list_base_tax multiplier SSOT")
 	for _, rule := range policy.Rules {
 		p := &LiteLLMModelPricing{
 			LiteLLMProvider:                     rule.Provider,

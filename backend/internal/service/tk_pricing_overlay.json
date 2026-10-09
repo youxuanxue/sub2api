@@ -32,7 +32,7 @@
   },
   "_config": {
     "official_list_base_tax": {
-      "multiplier": 1.06,
+      "multiplier": 1.0,
       "rules": [
         {
           "provider": "deepseek",
@@ -4493,7 +4493,7 @@
     "input_cost_per_token": 7.462686567164179e-08,
     "output_cost_per_token": 4.477611940298508e-07,
     "cache_read_input_token_cost": 1.4925373134328357e-08,
-    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-4.7-FlashX input ¥0.5/Mtok, output ¥3/Mtok, cache-hit ¥0.1/Mtok; CNY/USD=6.7. Overlay stores pre-tax official list rates; TokenKey applies the default 1.06 base-tax multiplier for zhipu at resolution/catalog time. Cache storage is listed as limited-time free. Pricing source only; no current manifest serving path after GLM direct account/group removal. If served later, serving must be separately mapped through the DashScope/Qwen path unless explicitly approved otherwise."
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-4.7-FlashX input ¥0.5/Mtok, output ¥3/Mtok, cache-hit ¥0.1/Mtok; CNY/USD=6.7. Overlay stores pre-tax official list rates; TokenKey applies official_list_base_tax for zhipu at resolution/catalog time. Cache storage is listed as limited-time free. Pricing source only; no current manifest serving path after GLM direct account/group removal. If served later, serving must be separately mapped through the DashScope/Qwen path unless explicitly approved otherwise."
   },
   "glm-5": {
     "litellm_provider": "zhipu",
@@ -4575,7 +4575,7 @@
     "input_cost_per_token": 1.1940298507462686e-06,
     "output_cost_per_token": 4.17910447761194e-06,
     "cache_read_input_token_cost": 2.9850746268656716e-07,
-    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-5.2 input ¥8/Mtok, output ¥28/Mtok, cache-hit ¥2/Mtok; CNY/USD=6.7. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Overlay stores pre-tax official list rates; TokenKey applies the default 1.06 base-tax multiplier for zhipu at resolution/catalog time. Cache storage is listed as limited-time free."
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-5.2 input ¥8/Mtok, output ¥28/Mtok, cache-hit ¥2/Mtok; CNY/USD=6.7. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Overlay stores pre-tax official list rates; TokenKey applies official_list_base_tax for zhipu at resolution/catalog time. Cache storage is listed as limited-time free."
   },
   "gpt-3.5-turbo": {
     "input_cost_per_token": 5e-07,
