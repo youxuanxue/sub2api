@@ -1,0 +1,155 @@
+name: Edge Hetzner Stage0
+
+# Phase-1: validate + provision dry-run (or paid create with confirm_paid).
+# No DNS / mirror cutover. Live upgrades still use Lightsail until Phase-2 SSM wiring.
+# Anchor: docs/approved/hetzner-cloud-full-migration.md
+#
+# Secrets: repository (or Environment) secret HCLOUD_TOKEN — Read & Write API token.
+# Set once:  gh secret set HCLOUD_TOKEN  (paste token; never commit)
+
+run-name: "edge=${{ inputs.edge_id }} op=${{ inputs.operation }} platform=hetzner"
+
+on:
+  workflow_dispatch:
+    inputs:
+      edge_id:
+        description: "Edge id from deploy/hetzner/edge-targets-hetzner.json"
+        required: true
+        type: choice
+        options:
+          - uk1
+          - uk2
+          - us3
+          - us4
+          - us5
+          - us6
+      operation:
+        description: "validate = matrix/tests; provision = dry-run or paid create"
+        required: true
+        type: choice
+        options:
+          - validate
+          - provision
+      confirm_instance:
+        description: "Must match instance_name from hetzner matrix"
+        required: true
+        type: string
+      tag:
+        description: "Image tag without v (reserved; provision does not deploy app yet)"
+        required: false
+        type: string
+      allow_planned:
+        description: "Allow deployable=false rows (Phase-1 default true for validate)"
+        required: false
+        type: boolean
+        default: true
+      confirm_paid:
+        description: "provision only: create paid cax21 (still no DNS). Default false = dry-run"
+        required: false
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - "deploy/hetzner/**"
+      - "ops/stage0/edge_routing_matrix.py"
+      - "scripts/stage0/resolve-edge-deploy-route.py"
+      - "scripts/stage0/dispatch-edge-deploy.sh"
+      - ".github/workflows/deploy-edge-hetzner-stage0.yml"
+      - "docs/approved/hetzner-cloud-full-migration.md"
+
+concurrency:
+  group: deploy-edge-hetzner-${{ github.event.inputs.edge_id || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate-matrix:
+    if: github.event_name == 'pull_request' || inputs.operation == 'validate' || inputs.operation == 'provision'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unit tests (resolver + route)
+        run: |
+          python3 -m unittest deploy/hetzner/test_resolve_edge_hetzner_target.py -v
+          python3 -m unittest scripts/test_resolve_edge_deploy_route.py -v
+
+      - name: Phase-1 guard (no accidental deployable=true)
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          from pathlib import Path
+          data = json.loads(Path("deploy/hetzner/edge-targets-hetzner.json").read_text())
+          bad = [k for k, t in data.get("targets", {}).items() if t.get("deployable") is True]
+          if bad:
+              print(f"::error::Phase-1 forbids deployable=true; got {bad}")
+              sys.exit(1)
+          print("phase1_guard=ok")
+          PY
+
+  dispatch-edge:
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate-matrix
+    runs-on: ubuntu-latest
+    environment: edge-${{ inputs.edge_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve Hetzner target
+        id: edge
+        env:
+          EDGE_ID: ${{ inputs.edge_id }}
+          CONFIRM_INSTANCE: ${{ inputs.confirm_instance }}
+          ALLOW_PLANNED: ${{ inputs.allow_planned }}
+        run: |
+          set -euo pipefail
+          ARGS=(--edge-id "$EDGE_ID" --confirm-instance "$CONFIRM_INSTANCE" --github-output "$GITHUB_OUTPUT")
+          if [[ "${ALLOW_PLANNED}" == "true" ]]; then
+            ARGS+=(--allow-planned)
+          fi
+          python3 deploy/hetzner/resolve-edge-hetzner-target.py "${ARGS[@]}"
+
+      - name: Dry-run provision plan
+        if: inputs.operation == 'validate' || (inputs.operation == 'provision' && inputs.confirm_paid == false)
+        run: |
+          bash deploy/hetzner/provision-edge.sh \
+            --edge-id "${{ inputs.edge_id }}" \
+            --allow-planned
+
+      - name: Paid provision (no DNS)
+        if: inputs.operation == 'provision' && inputs.confirm_paid == true
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${HCLOUD_TOKEN}" ]]; then
+            echo "::error::HCLOUD_TOKEN secret missing (gh secret set HCLOUD_TOKEN)"
+            exit 1
+          fi
+          # L0: refuse if Primary IP headroom looks exhausted (best-effort)
+          FREE_HINT="$(hcloud primary-ip list -o noheader 2>/dev/null | wc -l | tr -d ' ')"
+          echo "primary_ip_rows=${FREE_HINT}"
+          bash deploy/hetzner/provision-edge.sh \
+            --edge-id "${{ inputs.edge_id }}" \
+            --allow-planned \
+            --confirm-paid
+          echo "::notice::Server create requested. Complete §17 E0–E4 on staging before DNS."
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## deploy-edge-hetzner-stage0"
+            echo "- platform: \`hetzner\`"
+            echo "- edge: \`${{ inputs.edge_id }}\`"
+            echo "- operation: \`${{ inputs.operation }}\`"
+            echo "- confirm_paid: \`${{ inputs.confirm_paid }}\`"
+            echo "- instance: \`${{ steps.edge.outputs.instance_name }}\`"
+            echo "- location/type: \`${{ steps.edge.outputs.location }}/${{ steps.edge.outputs.server_type }}\`"
+            echo "- secret: \`HCLOUD_TOKEN\` (required only for confirm_paid=true)"
+          } >> "$GITHUB_STEP_SUMMARY"

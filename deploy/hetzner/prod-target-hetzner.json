@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "platform": "hetzner",
+  "role": "prod",
+  "approved_anchor": "docs/approved/hetzner-cloud-full-migration.md",
+  "notes": [
+    "Phase-1 skeleton only. deployable=false until Phase-4 maintenance window.",
+    "Data volume is mandatory for prod; root disk is not the PG/Redis truth."
+  ],
+  "target": {
+    "deployable": false,
+    "location": "fsn1",
+    "server_type": "cax21",
+    "architecture": "arm",
+    "image": "ubuntu-24.04",
+    "instance_name": "tokenkey-prod-hz-cax21",
+    "domain": "api.tokenkey.dev",
+    "staging_domain": "api-hz.tokenkey.dev",
+    "ssh_key_name": "tokenkey-hetzner-ops",
+    "volume_name": "tokenkey-prod-data",
+    "volume_size_gb": 80,
+    "volume_mount": "/var/lib/tokenkey",
+    "ssm_prefix": "/tokenkey/hetzner/prod",
+    "swap_gib": 2,
+    "purpose": "planned prod migration; deployable=false"
+  }
+}
