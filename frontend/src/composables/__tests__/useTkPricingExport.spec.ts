@@ -51,14 +51,14 @@ describe('useTkPricingExport.buildPricingCsv', () => {
       capabilities: ['vision'],
       pricing: {
         currency: 'USD', billing_mode: 'embedding',
-        input_per_1k_tokens: 0.7 / 6.7 / 1000 * 1.06,
+        input_per_1k_tokens: 0.7 / 6.7 / 1000 * 1.0,
         output_per_1k_tokens: 0,
-        input_cost_per_image_token: 1.8 / 6.7 / 1_000_000 * 1.06,
+        input_cost_per_image_token: 1.8 / 6.7 / 1_000_000 * 1.0,
       },
     }]))
     const [header, row] = csv.split('\r\n').map(parseCsvRow)
-    expect(row[header.indexOf('input_per_1M')]).toBe('0.111')
-    expect(row[header.indexOf('image_input_per_1M')]).toBe('0.285')
+    expect(row[header.indexOf('input_per_1M')]).toBe('0.104')
+    expect(row[header.indexOf('image_input_per_1M')]).toBe('0.269')
     expect(row).toHaveLength(header.length)
   })
 
