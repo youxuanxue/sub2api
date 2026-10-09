@@ -33,9 +33,6 @@ func http2KeepAliveTestPoolSettings() poolSettings {
 }
 
 // requireHTTP2Configured 断言 http2 已显式挂到 http.Transport 上。
-// x/net/http2 在 go1.27 && !http2legacy 下是标准库 HTTP/2 的包装：ConfigureTransports 通过
-// Transport.RegisterProtocol("http/2") 注册配置并打开 Protocols.HTTP2（TLSNextProto 不承载 h2 入口），
-// ReadIdleTimeout/PingTimeout 在建连时映射为 http.HTTP2Config.SendPingTimeout/PingTimeout。
 func requireHTTP2Configured(t *testing.T, tr *http.Transport, msg string) {
 	t.Helper()
 	require.NotNil(t, tr.Protocols, msg)
@@ -44,7 +41,7 @@ func requireHTTP2Configured(t *testing.T, tr *http.Transport, msg string) {
 
 // 长流 / OpenAI 上游改走 HTTP/2 后，池化连接被代理/NAT 静默掐断会成为“死连接”：
 // 两端都以为连接存活，请求落上去会挂到 TCP 重传超时（分钟级）才失败。Go 的
-// http2.Transport 默认 ReadIdleTimeout=0（不发健康 PING），无法检测这种死连接。
+// HTTP2Config 默认 SendPingTimeout=0（不发健康 PING），无法检测这种死连接。
 // 必须显式启用主动 PING 探测，让死连接被提前剔除，而不是只靠 ResponseHeaderTimeout
 // 事后兜底。
 func TestEnableHTTP2KeepAlive_EnablesPingHealthCheck(t *testing.T) {
@@ -72,7 +69,7 @@ func TestBuildUpstreamTransport_LongStreamH2_EnablesPingHealthCheck(t *testing.T
 	tr, err := buildUpstreamTransport(http2KeepAliveTestPoolSettings(), nil, upstreamProtocolModeLongStreamH2)
 	require.NoError(t, err)
 	require.True(t, tr.ForceAttemptHTTP2, "long_stream_h2 必须启用 HTTP/2")
-	requireHTTP2Configured(t, tr, "long_stream_h2 必须显式配置 http2 以启用 ReadIdleTimeout")
+	requireHTTP2Configured(t, tr, "long_stream_h2 必须显式配置 http2 以启用 SendPingTimeout")
 }
 
 // 非 H2 模式（default/h1）不应因本次改动被误配置：default 走 Go 自动 H2（惰性配置，

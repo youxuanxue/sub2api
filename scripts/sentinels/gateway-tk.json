@@ -13841,7 +13841,7 @@
     {
       "path": "backend/internal/service/openai_gateway_passthrough_tk.go",
       "must_contain": [
-        "normalizeOpenAIResponsesWebSocketCompatibilityBody(body, account, isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)))"
+        "normalizeOpenAIResponsesCompatibilityBody(body, account, isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) || isOpenAIResponsesLiteWebSocketPayload(body), isOpenAIResponsesCompactPath(c))"
       ],
       "rationale": "Raw HTTP passthrough must consume the shared Codex compatibility policy."
     },
@@ -15756,6 +15756,73 @@
         "require.NotContains(t, modelIDsForTest(models.Data), \"jev-latest\")"
       ],
       "rationale": "Focused regression: composite /v1/models keeps Claude and drops jev-latest; Codex listing stays TypeSafe-free."
+    },
+    {
+      "path": "backend/internal/service/openai_oauth_web_search_history_tk.go",
+      "must_contain": [
+        "func normalizeOpenAIOAuthWebSearchHistory(",
+        "func isOpenAIResponseProtectionUnavailable("
+      ],
+      "rationale": "OAuth no-tools history declaration repair and exact protection error recognition share one owner; active caller tool permissions remain unchanged."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward.go",
+      "must_contain": [
+        "normalizeOpenAIOAuthWebSearchHistory(body,",
+        "account.IsOpenAIOAuthLike() && !isCompactRequest"
+      ],
+      "rationale": "Converted Responses must repair no-tools hosted-search history after body reconstruction, excluding legacy compact."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_request_body.go",
+      "must_contain": [
+        "normalizeOpenAIOAuthWebSearchHistory(normalized, responsesLite)",
+        "account.IsOpenAIOAuthLike() && !compact"
+      ],
+      "rationale": "HTTP passthrough and both WebSocket paths consume the same scoped history repair."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough_tk_failover.go",
+      "must_contain": [
+        "isOpenAIResponseProtectionUnavailable(message, payload)",
+        "isOpenAIResponseProtectionUnavailable(\"\", responseBody)"
+      ],
+      "rationale": "Protection failures must not amplify through account failover in streaming or passthrough adapters."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_upstream_errors.go",
+      "must_contain": [
+        "isOpenAIResponseProtectionUnavailable(upstreamMsg, upstreamBody)"
+      ],
+      "rationale": "Converted HTTP errors preserve the same no-account-failover semantic as SSE errors."
+    },
+    {
+      "path": "backend/internal/service/openai_oauth_web_search_history_tk_test.go",
+      "must_contain": [
+        "func TestOAuthWebSearchHistoryDoesNotBroadenToolPermissions(",
+        "func TestForwardOAuthWebSearchHistory(",
+        "func TestResponseProtectionStopsAccountAmplificationWithoutClient400("
+      ],
+      "rationale": "Regression tests cover actual Forward payloads, caller tool permission preservation and terminal failures without client-status reclassification."
+    },
+    {
+      "path": "backend/internal/repository/http_upstream.go",
+      "must_contain": [
+        "observeUpstreamRequest(req, entry, accountID)",
+        "s.observeResponseBody(resp, observation, entry, profile)",
+        "s.observeResponseBody(resp, observation, entry, upstreamProfile)",
+        "h2.CountError = func(kind string)"
+      ],
+      "rationale": "Both ordinary and fingerprint transports must observe post-header read failures; protocol PING/GOAWAY diagnostics remain enabled."
+    },
+    {
+      "path": "backend/internal/repository/http_upstream_observation_test.go",
+      "must_contain": [
+        "func TestHTTPUpstreamObservesResetAfterHeadersWithoutClosingHealthyStreams(",
+        "func TestHTTPUpstreamBodyOutcomeOwnsProxyFallbackHealth(",
+        "func TestHTTPUpstreamProxyDiagnosticsExcludeCredentials("
+      ],
+      "rationale": "Real HTTP/2 reset and public Do/read lifecycle tests prevent header-only health accounting from silently returning."
     }
   ]
 }

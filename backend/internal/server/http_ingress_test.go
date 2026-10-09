@@ -17,6 +17,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
 )
 
 func ingressTestConfig() *config.Config {
@@ -53,6 +54,34 @@ func TestProvideHTTPServerEnablesBoundedH2C(t *testing.T) {
 	require.NotNil(t, srv.Protocols)
 	require.True(t, srv.Protocols.UnencryptedHTTP2())
 	require.True(t, srv.Protocols.HTTP1())
+	require.Equal(t, 30*time.Second, srv.IdleTimeout)
+
+	// Verify the limits advertised by the real server, not just its config.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = srv.Close() }()
+	go func() { _ = srv.Serve(listener) }()
+	conn, err := net.DialTimeout("tcp", listener.Addr().String(), time.Second)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+	require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+	_, err = io.WriteString(conn, http2.ClientPreface)
+	require.NoError(t, err)
+	framer := http2.NewFramer(conn, conn)
+	require.NoError(t, framer.WriteSettings())
+	frame, err := framer.ReadFrame()
+	require.NoError(t, err)
+	settings, ok := frame.(*http2.SettingsFrame)
+	require.True(t, ok)
+	for id, want := range map[http2.SettingID]uint32{
+		http2.SettingMaxConcurrentStreams: 25,
+		http2.SettingMaxFrameSize:         64 * 1024,
+		http2.SettingInitialWindowSize:    256 * 1024,
+	} {
+		got, found := settings.Value(id)
+		require.True(t, found, "setting %v must be advertised", id)
+		require.Equal(t, want, got, "setting %v", id)
+	}
 }
 
 func TestConfigureTrustedProxies(t *testing.T) {

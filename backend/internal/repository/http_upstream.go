@@ -219,15 +219,17 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 	// #nosec G704 -- req host is validated by validateRequestHost before dispatch.
 	client := s.httpClientForUpstreamRequest(entry.client, req)
 	client = httpClientWithGrokAccessDeniedFallback(client)
+	req, observation := observeUpstreamRequest(req, entry, accountID)
 	resp, err := doUpstreamRequest(client, req)
 	if err != nil {
 		s.recordOpenAIHTTP2Failure(profile, entry.protocolMode, entry.proxyKey, err)
+		observation.failure("response_headers", nil, 0, err)
 		// 请求失败，立即减少计数
 		atomic.AddInt64(&entry.inFlight, -1)
 		atomic.StoreInt64(&entry.lastUsed, time.Now().UnixNano())
 		return nil, err
 	}
-	s.recordOpenAIHTTP2Success(profile, entry.protocolMode, entry.proxyKey)
+	s.observeResponseBody(resp, observation, entry, profile)
 
 	// 包装响应体，在关闭时自动减少计数并更新时间戳
 	// 这确保了流式响应（如 SSE）在完全读取前不会被淘汰
@@ -262,11 +264,7 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 	if req != nil && req.URL != nil {
 		targetHost = req.URL.Host
 	}
-	proxyInfo := "direct"
-	if proxyURL != "" {
-		proxyInfo = proxyURL
-	}
-	slog.Debug("tls_fingerprint_enabled", "account_id", accountID, "target", targetHost, "proxy", proxyInfo, "profile", profile.Name)
+	slog.Debug("tls_fingerprint_enabled", "account_id", accountID, "target", targetHost, "proxy_host", upstreamProxyHostForLog(proxyURL), "profile", profile.Name)
 
 	if err := s.validateRequestHost(req); err != nil {
 		return nil, err
@@ -274,21 +272,23 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 
 	entry, err := s.acquireClientWithTLS(proxyURL, accountID, accountConcurrency, profile, upstreamProfile)
 	if err != nil {
-		slog.Debug("tls_fingerprint_acquire_client_failed", "account_id", accountID, "error", err)
+		slog.Debug("tls_fingerprint_acquire_client_failed", "account_id", accountID)
 		return nil, err
 	}
 
 	// #nosec G704 -- req host is validated by validateRequestHost before dispatch.
 	client := s.httpClientForUpstreamRequest(entry.client, req)
 	client = httpClientWithGrokAccessDeniedFallback(client)
+	req, observation := observeUpstreamRequest(req, entry, accountID)
 	resp, err := doUpstreamRequest(client, req)
 	if err != nil {
 		atomic.AddInt64(&entry.inFlight, -1)
 		atomic.StoreInt64(&entry.lastUsed, time.Now().UnixNano())
-		slog.Debug("tls_fingerprint_request_failed", "account_id", accountID, "error", err)
+		observation.failure("response_headers", nil, 0, err)
 		return nil, err
 	}
 
+	s.observeResponseBody(resp, observation, entry, upstreamProfile)
 	resp.Body = wrapTrackedBody(resp.Body, func() {
 		atomic.AddInt64(&entry.inFlight, -1)
 		atomic.StoreInt64(&entry.lastUsed, time.Now().UnixNano())
@@ -577,7 +577,7 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 			atomic.AddInt64(&entry.inFlight, 1)
 		}
 		s.mu.RUnlock()
-		slog.Debug("tls_fingerprint_reusing_client", "account_id", accountID, "cache_key", cacheKey)
+		slog.Debug("tls_fingerprint_reusing_client", "account_id", accountID, "proxy_host", upstreamProxyHostForLog(proxyKey))
 		return entry, nil
 	}
 	s.mu.RUnlock()
@@ -591,12 +591,12 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 				atomic.AddInt64(&entry.inFlight, 1)
 			}
 			s.mu.Unlock()
-			slog.Debug("tls_fingerprint_reusing_client", "account_id", accountID, "cache_key", cacheKey)
+			slog.Debug("tls_fingerprint_reusing_client", "account_id", accountID, "proxy_host", upstreamProxyHostForLog(proxyKey))
 			return entry, nil
 		}
 		slog.Debug("tls_fingerprint_evicting_stale_client",
 			"account_id", accountID,
-			"cache_key", cacheKey,
+			"proxy_host", upstreamProxyHostForLog(proxyKey),
 			"proxy_changed", entry.proxyKey != proxyKey,
 			"pool_changed", entry.poolKey != poolKey)
 		s.removeClientLocked(cacheKey, entry)
@@ -614,7 +614,7 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 	}
 
 	// 创建带 TLS 指纹的 Transport
-	slog.Debug("tls_fingerprint_creating_new_client", "account_id", accountID, "cache_key", cacheKey, "proxy", proxyKey)
+	slog.Debug("tls_fingerprint_creating_new_client", "account_id", accountID, "proxy_host", upstreamProxyHostForLog(proxyKey))
 	transport, err := buildUpstreamTransportWithTLSFingerprint(settings, parsedProxy, profile)
 	if err != nil {
 		s.mu.Unlock()
@@ -1189,7 +1189,7 @@ func (s *httpUpstreamService) recordOpenAIHTTP2Failure(profile service.HTTPUpstr
 	activated, until := state.recordFailure(time.Now(), settings.fallbackErrorThreshold, settings.fallbackWindow, settings.fallbackTTL)
 	if activated {
 		slog.Warn("openai_http2_proxy_fallback_activated",
-			"proxy", proxyKey,
+			"proxy_host", upstreamProxyHostForLog(proxyKey),
 			"fallback_until", until.Format(time.RFC3339))
 	}
 }
@@ -1435,13 +1435,17 @@ func enableHTTP2KeepAlive(transport *http.Transport, protocolMode string) error 
 		readIdleTimeout = openAIHTTP2ReadIdleTimeout
 		pingTimeout = openAIHTTP2PingTimeout
 	}
-	cfg := transport.HTTP2
-	if cfg == nil {
-		cfg = &http.HTTP2Config{}
-		transport.HTTP2 = cfg
+	h2 := transport.HTTP2
+	if h2 == nil {
+		h2 = &http.HTTP2Config{}
+		transport.HTTP2 = h2
 	}
-	cfg.SendPingTimeout = readIdleTimeout
-	cfg.PingTimeout = pingTimeout
+	h2.CountError = func(kind string) {
+		// Protocol-owned tokens only; no headers, payload or proxy URL.
+		slog.Warn("upstream_http2_transport_error", "protocol_mode", protocolMode, "http2_error_kind", kind)
+	}
+	h2.SendPingTimeout = readIdleTimeout
+	h2.PingTimeout = pingTimeout
 	return nil
 }
 

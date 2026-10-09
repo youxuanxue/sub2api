@@ -1609,6 +1609,11 @@ func TestIsRetryableCodexModelsManifestTransportError(t *testing.T) {
 			retryable: true,
 		},
 		{
+			name:      "wrapped HTTP2 GOAWAY",
+			err:       fmt.Errorf("models request: %w", errors.New("http2: server sent GOAWAY and closed the connection; LastStreamID=1, ErrCode=NO_ERROR")),
+			retryable: true,
+		},
+		{
 			name:      "stdlib HTTP2 GOAWAY",
 			err:       errors.New("http2: server sent GOAWAY and closed the connection; LastStreamID=1, ErrCode=NO_ERROR"),
 			retryable: true,
