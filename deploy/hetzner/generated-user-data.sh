@@ -155,8 +155,14 @@ JWT_SECRET=${JWT_SECRET}
 JWT_EXPIRE_HOUR=1
 TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY}
 GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED=true
+QA_CAPTURE_ENABLED=false
 ENVEOF
 chmod 0600 /var/lib/tokenkey/.env
+# Edge Stage0 compose does not map QA_CAPTURE by default; inject like Lightsail SSM deploy.
+if ! grep -q 'QA_CAPTURE_ENABLED=' /var/lib/tokenkey/docker-compose.yml; then
+  sed -i '/SERVER_FRONTEND_URL=/a\      - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-false}' \
+    /var/lib/tokenkey/docker-compose.yml
+fi
 
 if [ -n "${GHCR_PAT_SSM_NAME:-}" ]; then
   if GHCR_PAT="$(aws --region "${SSM_REGION}" ssm get-parameter \
