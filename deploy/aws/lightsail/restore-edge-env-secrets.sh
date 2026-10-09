@@ -15,8 +15,8 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-[[ "${PARAMETER}" =~ ^/tokenkey/edge/[a-z0-9-]+/stage0/env-secrets-backup$ ]] || {
-  echo "restore-edge-env-secrets: invalid edge parameter" >&2
+[[ "${PARAMETER}" =~ ^/tokenkey/(edge|hetzner)/[a-z0-9-]+/stage0/env-secrets-backup$ ]] || {
+  echo "restore-edge-env-secrets: bad parameter" >&2
   exit 40
 }
 [[ "${OUTPUT}" = /* ]] || { echo "restore-edge-env-secrets: absolute output path required" >&2; exit 40; }

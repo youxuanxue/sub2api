@@ -282,6 +282,38 @@ Resources:
                       - edge/us6/pgdump
                       - edge/us6/pgdump/*
 
+  # Hetzner uk1 canary (staging): isolated from Lightsail uk1 Hybrid role so dual-run is safe.
+  HetznerSsmHybridRoleUk1:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tokenkey-hetzner-ssm-hybrid-uk1
+      Description: SSM Hybrid role for TokenKey Hetzner Edge uk1 staging/canary.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: EdgeRecoveryData
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadWriteOwnEnvSecrets
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/hetzner/uk1/stage0/env-secrets-backup"
+              - Sid: ReadGhcrPat
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
+
   LightsailEdgeAddonPolicy:
     Type: AWS::IAM::Policy
     Properties:
@@ -336,7 +368,9 @@ Resources:
             # requires the caller to have iam:PassRole on that role.
             Effect: Allow
             Action: iam:PassRole
-            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid-*"
+            Resource:
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid-*"
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-hetzner-ssm-hybrid-*"
             Condition:
               StringEquals:
                 iam:PassedToService: ssm.amazonaws.com
@@ -355,6 +389,7 @@ Resources:
               - !Sub "arn:aws:ssm:*:${AWS::AccountId}:managed-instance/*"
               - !Sub "arn:aws:ssm:*::document/AWS-RunShellScript"
               - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid-*"
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-hetzner-ssm-hybrid-*"
           - Sid: SsmLightsailStateParams
             Effect: Allow
             Action:
@@ -364,6 +399,7 @@ Resources:
               - ssm:DeleteParameter
             Resource:
               - !Sub "arn:aws:ssm:*:${AWS::AccountId}:parameter/tokenkey/lightsail/*"
+              - !Sub "arn:aws:ssm:*:${AWS::AccountId}:parameter/tokenkey/hetzner/*"
               - !Sub "arn:aws:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
           - Sid: SsmDescribeManagedInstances
             Effect: Allow

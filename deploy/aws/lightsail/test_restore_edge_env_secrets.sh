@@ -56,6 +56,33 @@ run_restore() {
       "$@"
 }
 
+# Path allowlist: edge + hetzner stage0 backups only (not lightsail/other prefixes).
+reject_path="${tmp}/reject.secret"
+if PATH="${fake_bin}:${PATH}" \
+  FAKE_AWS_LOG="${tmp}/aws.log" \
+  FAKE_AWS_RESULT=success \
+  FAKE_SSM_VALUE="${valid_value}" \
+  AWS_REGION=us-east-2 \
+  bash "${SCRIPT}" \
+    --parameter /tokenkey/lightsail/uk1/stage0/env-secrets-backup \
+    --output "${reject_path}" >"${tmp}/reject.out" 2>"${tmp}/reject.err"; then
+  echo 'FAIL: /tokenkey/lightsail/... must be rejected by restore path allowlist' >&2
+  exit 1
+fi
+grep -F 'bad parameter' "${tmp}/reject.err" >/dev/null
+test ! -e "${reject_path}"
+
+hetzner_restored="${tmp}/hetzner.secret"
+PATH="${fake_bin}:${PATH}" \
+  FAKE_AWS_LOG="${tmp}/aws.log" \
+  FAKE_AWS_RESULT=success \
+  FAKE_SSM_VALUE="${valid_value}" \
+  AWS_REGION=eu-west-2 \
+  bash "${SCRIPT}" \
+    --parameter /tokenkey/hetzner/uk1/stage0/env-secrets-backup \
+    --output "${hetzner_restored}" >"${tmp}/hetzner.out"
+cmp -s "${expected_restored}" "${hetzner_restored}"
+
 # A valid off-box value is restored exactly and locked to owner-only access.
 restored="${tmp}/restored.secret"
 run_restore success "${restored}" >"${tmp}/restore.out"

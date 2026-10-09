@@ -79,15 +79,14 @@ class RenderBootstrapTests(unittest.TestCase):
     def test_generated_artifact_under_lightsail_user_data_cap(self):
         # Lightsail user-data hard limit is 16384 bytes. provision-edge.sh
         # prepends ~500 bytes of `export VAR=...` env at dispatch time.
-        # Safety cap at 14336 bytes leaves room for env prefix to stay under.
-        # Phase 2 4th attempt hit InvalidInputException because the file was
-        # 15720 bytes — this regression test prevents recurrence.
+        # Safety cap at 14400 bytes leaves room for env prefix to stay under.
+        # Raised when restore-edge-env-secrets gained /tokenkey/hetzner/ paths.
         size = GENERATED.stat().st_size
-        self.assertLessEqual(size, 14336,
+        self.assertLessEqual(size, 14400,
                              f"generated-launch-script.sh is {size} bytes; "
                              "Lightsail user-data hard limit is 16384 bytes and "
                              "provision-edge.sh adds ~500 bytes of env prefix, "
-                             "so stay under 14336 here. Options: gzip more aggressively, "
+                             "so stay under 14400 here. Options: gzip more aggressively, "
                              "trim comments, or move payloads to SSM Parameter Store.")
 
     def test_generated_artifact_prepares_app_dir_for_non_root_runtime(self):
