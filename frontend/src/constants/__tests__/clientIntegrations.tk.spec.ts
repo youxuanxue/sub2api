@@ -49,6 +49,13 @@ describe('generateCodebuddyModelsJson', () => {
     }])
   })
 
+  it('uses the CallModel vendor when the overseas chrome brand is passed', () => {
+    const parsed = JSON.parse(generateCodebuddyModelsJson(BASE_URL, 'deepseek-flash', {
+      vendor: 'CallModel',
+    })) as { models: Array<{ vendor: string }> }
+    expect(parsed.models[0].vendor).toBe('CallModel')
+  })
+
   it('strips trailing /v1 from base URL before building chat/completions path', () => {
     const parsed = JSON.parse(generateCodebuddyModelsJson(`${BASE_URL}/v1`, 'gpt-5.5')) as {
       models: Array<{ url: string }>
@@ -82,6 +89,16 @@ describe('resolveTkClientIntegrationUrl', () => {
       baseUrl: `${BASE_URL}/v1`,
       apiKey: API_KEY,
     })
+  })
+
+  it('labels Cherry Studio with CallModel when brand is passed', () => {
+    const url = resolveTkClientIntegrationUrl({
+      template: template('cherry-studio'),
+      apiKey: API_KEY,
+      baseUrl: BASE_URL,
+      brand: 'CallModel',
+    })
+    expect(decodeParam(url).name).toBe('CallModel')
   })
 
   it('encodes DeepChat payload with id new-api', () => {

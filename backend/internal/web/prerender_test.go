@@ -189,3 +189,39 @@ func TestChinaExportHomepageHostIsExact(t *testing.T) {
 	assert.False(t, isChinaExportHomepageHost("global.tokenkey.dev"))
 	assert.False(t, isChinaExportHomepageHost("tokenkey.dev"))
 }
+
+func TestPrerenderMiddlewareCallModelProductPagesKeepFacadeBrand(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, tc := range []struct {
+		path      string
+		wantTitle string
+		wantCanon string
+	}{
+		{path: "/pricing", wantTitle: "CallModel 定价 - AI API Pricing", wantCanon: "https://callmodel.io/pricing"},
+		{path: "/quickstart", wantTitle: "Quick Start - CallModel AI API Gateway", wantCanon: "https://callmodel.io/quickstart"},
+		{path: "/models", wantTitle: "Model Marketplace - CallModel AI API Gateway", wantCanon: "https://callmodel.io/models"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			router := gin.New()
+			router.Use(PrerenderMiddleware())
+			router.GET("/*path", func(c *gin.Context) {
+				c.String(http.StatusOK, "spa")
+			})
+
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			req.Host = "callmodel.io"
+			req.Header.Set("User-Agent", "Googlebot")
+			router.ServeHTTP(w, req)
+
+			require.Equal(t, http.StatusOK, w.Code)
+			body := w.Body.String()
+			assert.Contains(t, body, tc.wantTitle)
+			assert.Contains(t, body, `href="`+tc.wantCanon+`"`)
+			assert.Contains(t, body, `content="`+tc.wantCanon+`"`)
+			assert.NotContains(t, body, "TokenKey")
+			assert.NotContains(t, body, "https://tokenkey.dev/")
+		})
+	}
+}

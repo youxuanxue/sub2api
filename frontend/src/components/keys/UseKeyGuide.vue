@@ -305,6 +305,7 @@ import {
 import type { GroupPlatform, KeyRoutingMode } from '@/types'
 import { TK_QUICKSTART_CLIENTS, codebuddyModelsJsonPath, generateCodebuddyModelsJson } from '@/constants/clientIntegrations.tk'
 import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_GROK, PLATFORM_NEWAPI, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
+import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
 
 interface Props {
   /** Shared read-only guide, with placeholders and no credential operations. */
@@ -1003,6 +1004,7 @@ const currentFiles = computed((): FileConfig[] => {
         maxOutputTokens: meta?.maxOutput,
         supportsImages: meta?.capabilities?.includes('vision') ?? false,
         supportsReasoning: meta?.capabilities?.includes('reasoning') ?? false,
+        vendor: resolveChromeBrand(window.location.hostname),
       }),
       hint: clientId === 'workbuddy'
         ? t('quickstart.workbuddyModelsHint')

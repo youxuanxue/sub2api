@@ -45,16 +45,17 @@ func PrerenderMiddleware() gin.HandlerFunc {
 		}
 
 		path := c.Request.URL.Path
+		host := c.Request.Host
 		var html string
 		switch path {
 		case "/", "/home":
-			html = prerenderHomeHTML(c.Request.Host)
+			html = prerenderHomeHTML(host)
 		case "/pricing":
-			html = prerenderPricingHTML()
+			html = prerenderPricingHTML(host)
 		case "/quickstart":
-			html = prerenderQuickstartHTML()
+			html = prerenderQuickstartHTML(host)
 		case "/models":
-			html = prerenderModelsHTML()
+			html = prerenderModelsHTML(host)
 		default:
 			c.Next()
 			return
@@ -216,11 +217,19 @@ func prerenderChinaExportHomeHTML() string {
 </html>`, head)
 }
 
-func prerenderPricingHTML() string {
-	title := "TokenKey 定价 - AI API Pricing"
-	desc := "TokenKey AI API 定价方案。官方 API 定价，透明可预期。文本、图像、视频模型统一定价目录，实时模型可用性监控。"
+func prerenderProductOrigin(host string) (brand, origin, ogImage string) {
+	if isChinaExportHomepageHost(host) {
+		return "CallModel", strings.TrimSuffix(chinaExportCanonicalURL, "/"), chinaExportOGImageURL
+	}
+	return "TokenKey", storefrontCanonicalOrigin, storefrontOGImageURL
+}
+
+func prerenderPricingHTML(host string) string {
+	brand, origin, ogImage := prerenderProductOrigin(host)
+	title := brand + " 定价 - AI API Pricing"
+	desc := brand + " AI API 定价方案。官方 API 定价，透明可预期。文本、图像、视频模型统一定价目录，实时模型可用性监控。"
 	ogDesc := "官方 API 定价，透明可预期。文本、图像、视频模型统一定价目录，实时可用性监控。订阅配额制费用可预测。"
-	head := prerenderHead(title, desc, ogDesc, storefrontENTwitterDescription, storefrontCanonicalOrigin+"/pricing", storefrontOGImageURL)
+	head := prerenderHead(title, desc, ogDesc, storefrontENTwitterDescription, origin+"/pricing", ogImage)
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -257,11 +266,12 @@ func prerenderPricingHTML() string {
 </html>`, head, title, desc)
 }
 
-func prerenderQuickstartHTML() string {
-	title := "Quick Start - TokenKey AI API Gateway"
-	desc := "2 分钟开始使用 TokenKey AI API。获取 API Key，配置 Claude Code / Cursor / Codex / Cline，立即调用所有主流 AI 模型。"
+func prerenderQuickstartHTML(host string) string {
+	brand, origin, ogImage := prerenderProductOrigin(host)
+	title := "Quick Start - " + brand + " AI API Gateway"
+	desc := "2 分钟开始使用 " + brand + " AI API。获取 API Key，配置 Claude Code / Cursor / Codex / Cline，立即调用所有主流 AI 模型。"
 	ogDesc := "Get started in 2 minutes. One API key for Claude, GPT, Gemini, Qwen, and more."
-	head := prerenderHead(title, desc, ogDesc, storefrontENTwitterDescription, storefrontCanonicalOrigin+"/quickstart", storefrontOGImageURL)
+	head := prerenderHead(title, desc, ogDesc, storefrontENTwitterDescription, origin+"/quickstart", ogImage)
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -300,11 +310,12 @@ func prerenderQuickstartHTML() string {
 </html>`, head, title, desc, storefrontENFreeTrial)
 }
 
-func prerenderModelsHTML() string {
-	title := "Model Marketplace - TokenKey AI API Gateway"
+func prerenderModelsHTML(host string) string {
+	brand, origin, ogImage := prerenderProductOrigin(host)
+	title := "Model Marketplace - " + brand + " AI API Gateway"
 	desc := "Browse and compare AI models by capability, provider, and price. Text, image, and video models in one catalog with transparent per-model pricing."
 	ogDesc := "Browse Claude, GPT, Gemini, Qwen, and more. Filter by modality and provider, then jump to live pricing."
-	head := prerenderHead(title, desc, ogDesc, storefrontENTwitterDescription, storefrontCanonicalOrigin+"/models", storefrontOGImageURL)
+	head := prerenderHead(title, desc, ogDesc, storefrontENTwitterDescription, origin+"/models", ogImage)
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="zh-CN">
 <head>

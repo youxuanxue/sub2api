@@ -2273,10 +2273,20 @@
       "path": "backend/internal/web/embed_on.go",
       "must_contain": [
         "tryServeCrawlerPrerender(c)",
-        "applyFacadeChromeTitle(content, c.Request.Host)",
+        "applyFacadeChromeDocument(content, c.Request.Host, c.Request.URL.Path)",
         "func facadeChromeBrand"
       ],
-      "rationale": "TK crawler prerender hook must stay a one-line call into embed_on_tk_prerender.go so upstream embed_on.go Middleware() body stays merge-friendly (CLAUDE.md §5 minimal-invasion). Dual-facade HTML <title> must be rewritten from request Host via applyFacadeChromeTitle so a shared Settings site_name cannot paint CallModel onto tokenkey.dev before SPA boot."
+      "rationale": "TK crawler prerender hook must stay a one-line call into embed_on_tk_prerender.go so upstream embed_on.go Middleware() body stays merge-friendly (CLAUDE.md §5 minimal-invasion). Dual-facade HTML <title>/og/canonical must be rewritten from request Host via applyFacadeChromeDocument so a shared Settings site_name cannot paint CallModel onto tokenkey.dev before SPA boot."
+    },
+    {
+      "path": "backend/internal/web/prerender.go",
+      "must_contain": [
+        "prerenderPricingHTML(host)",
+        "prerenderQuickstartHTML(host)",
+        "prerenderModelsHTML(host)",
+        "func prerenderProductOrigin"
+      ],
+      "rationale": "Crawler product pages must paint CallModel brand + callmodel.io canonical on the overseas host; host-blind TokenKey copy/canonical is dual-facade brand leakage."
     },
     {
       "path": "backend/internal/web/embed_on_tk_prerender.go",

@@ -169,7 +169,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 
 		// Replace nonce placeholder with actual nonce before serving
 		content := replaceNoncePlaceholder(cached.Content, nonce)
-		content = applyFacadeChromeTitle(content, c.Request.Host)
+		content = applyFacadeChromeDocument(content, c.Request.Host, c.Request.URL.Path)
 
 		c.Header("ETag", cached.ETag)
 		c.Header("Cache-Control", "no-cache") // Must revalidate
@@ -185,7 +185,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 	settings, err := s.settings.GetPublicSettingsForInjection(ctx)
 	if err != nil {
 		// Fallback: serve without injection
-		c.Data(http.StatusOK, "text/html; charset=utf-8", applyFacadeChromeTitle(s.baseHTML, c.Request.Host))
+		c.Data(http.StatusOK, "text/html; charset=utf-8", applyFacadeChromeDocument(s.baseHTML, c.Request.Host, c.Request.URL.Path))
 		c.Abort()
 		return
 	}
@@ -193,7 +193,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 	settingsJSON, err := json.Marshal(settings)
 	if err != nil {
 		// Fallback: serve without injection
-		c.Data(http.StatusOK, "text/html; charset=utf-8", applyFacadeChromeTitle(s.baseHTML, c.Request.Host))
+		c.Data(http.StatusOK, "text/html; charset=utf-8", applyFacadeChromeDocument(s.baseHTML, c.Request.Host, c.Request.URL.Path))
 		c.Abort()
 		return
 	}
@@ -203,7 +203,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 
 	// Replace nonce placeholder with actual nonce before serving
 	content := replaceNoncePlaceholder(rendered, nonce)
-	content = applyFacadeChromeTitle(content, c.Request.Host)
+	content = applyFacadeChromeDocument(content, c.Request.Host, c.Request.URL.Path)
 
 	cached = s.cache.Get()
 	if cached != nil {
@@ -294,6 +294,36 @@ func facadeChromeBrand(hostport string) string {
 // so a shared Settings site_name (e.g. CallModel for email) cannot leak across hosts.
 func applyFacadeChromeTitle(html []byte, hostport string) []byte {
 	return rewriteHTMLTitle(html, facadeChromeBrand(hostport))
+}
+
+// applyFacadeChromeDocument rewrites <title> plus static TokenKey og/canonical
+// tags so callmodel.io SPA shells cannot inherit tokenkey.dev social meta.
+func applyFacadeChromeDocument(html []byte, hostport, path string) []byte {
+	brand := facadeChromeBrand(hostport)
+	html = rewriteHTMLTitle(html, brand)
+
+	origin := storefrontCanonicalOrigin
+	ogImage := storefrontOGImageURL
+	if isChinaExportHomepageHost(hostport) {
+		origin = strings.TrimSuffix(chinaExportCanonicalURL, "/")
+		ogImage = chinaExportOGImageURL
+	}
+	if path == "" {
+		path = "/"
+	}
+	canonical := origin + path
+	title := brand + " - AI API Gateway"
+
+	replacements := []struct{ old, new string }{
+		{`content="TokenKey - AI API Gateway"`, `content="` + htmlpkg.EscapeString(title) + `"`},
+		{`content="https://tokenkey.dev"`, `content="` + htmlpkg.EscapeString(canonical) + `"`},
+		{`href="https://tokenkey.dev/"`, `href="` + htmlpkg.EscapeString(canonical) + `"`},
+		{`content="https://tokenkey.dev/og-cover.png"`, `content="` + htmlpkg.EscapeString(ogImage) + `"`},
+	}
+	for _, r := range replacements {
+		html = bytes.ReplaceAll(html, []byte(r.old), []byte(r.new))
+	}
+	return html
 }
 
 // injectSiteTitle replaces the static <title> with Settings site_name.

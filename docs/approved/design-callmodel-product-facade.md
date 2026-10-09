@@ -72,7 +72,7 @@ resolveFacade(hostname) ->
 消费规则：
 
 1. **首页内容**：仅 `homeProfile`；Home 路径渲染分支消费。
-2. **品牌铬**：壳层（侧栏/顶栏/登录页/footer/document title/CCS providerName）**只**按 hostname → `facade.brand`；`resolveChromeBrand` **忽略** Settings `site_name`（`site_name` 仅服务邮件等事务文案）。禁止出现 `tokenkey.dev` 显示 CallModel 或 `callmodel.io` 显示 TokenKey。服务端嵌入 HTML 的 `<title>` 也按请求 Host 重写，不得把共享 `site_name` 烤进双门面缓存。
+2. **品牌铬**：壳层（侧栏/顶栏/登录页/footer/document title/CCS providerName/客户端导入 label）**只**按 hostname → `facade.brand`；`resolveChromeBrand` **忽略** Settings `site_name`（`site_name` 仅服务邮件等事务文案）。禁止出现 `tokenkey.dev` 显示 CallModel 或 `callmodel.io` 显示 TokenKey。服务端嵌入 HTML 的 `<title>`/og/canonical，以及爬虫 prerender 的 `/pricing` `/quickstart` `/models`，均按请求 Host 重写，不得把 TokenKey 默认文案或 `tokenkey.dev` canonical 泄漏到 `callmodel.io`。
 3. **站内链接**：门面内一律相对路径；禁止写死踢到另一门面（Admin 例外由 Caddy 执行）。
 4. **删除** Router 的 `resolveGlobalProductRedirect` 跨域踢出。
 5. API 示例：门面 `apiOrigin` + 验证模型 `deepseek-flash`。

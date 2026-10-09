@@ -44,6 +44,35 @@ func TestApplyFacadeChromeTitle(t *testing.T) {
 	})
 }
 
+func TestApplyFacadeChromeDocument(t *testing.T) {
+	html := []byte(`<!doctype html><html><head>
+<title>TokenKey - AI API Gateway</title>
+<meta property="og:title" content="TokenKey - AI API Gateway">
+<meta property="og:url" content="https://tokenkey.dev">
+<meta property="og:image" content="https://tokenkey.dev/og-cover.png">
+<meta name="twitter:title" content="TokenKey - AI API Gateway">
+<link rel="canonical" href="https://tokenkey.dev/">
+</head></html>`)
+
+	t.Run("callmodel_login_rewrites_social_meta", func(t *testing.T) {
+		result := string(applyFacadeChromeDocument(html, "callmodel.io", "/login"))
+		assert.Contains(t, result, "<title>CallModel - AI API Gateway</title>")
+		assert.Contains(t, result, `content="CallModel - AI API Gateway"`)
+		assert.Contains(t, result, `content="https://callmodel.io/login"`)
+		assert.Contains(t, result, `href="https://callmodel.io/login"`)
+		assert.NotContains(t, result, "TokenKey")
+		assert.NotContains(t, result, "https://tokenkey.dev")
+	})
+
+	t.Run("tokenkey_login_keeps_TokenKey_origin", func(t *testing.T) {
+		result := string(applyFacadeChromeDocument(html, "tokenkey.dev", "/login"))
+		assert.Contains(t, result, "<title>TokenKey - AI API Gateway</title>")
+		assert.Contains(t, result, `content="https://tokenkey.dev/login"`)
+		assert.Contains(t, result, `href="https://tokenkey.dev/login"`)
+		assert.NotContains(t, result, "CallModel")
+	})
+}
+
 func TestInjectSiteTitle(t *testing.T) {
 	t.Run("replaces_title_with_site_name", func(t *testing.T) {
 		html := []byte(`<html><head><title>Sub2API - AI API Gateway</title></head><body></body></html>`)
