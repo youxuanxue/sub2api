@@ -74,7 +74,7 @@ decisions: [A1, B1]
 1. 抽出共享 helper：`IsGiftBalanceGrantNote(notes) bool` + `SumQualifyingRecharged(...)`（与面板/回填同一过滤）。
 2. 管理员余额 add/set 正差额：在 `updateUserBalanceWithLedgerTx` 成功后对正 `balanceDiff` 执行 `AddTotalRecharged`（或与 Adjust 同事务更新）。
 3. `writeBalanceGrantLedger` / 注册开户：仅当 notes **不在**排除集时同步 `AddTotalRecharged`；Signup/Invite/OAuth 赠额只动 `balance` + journal，不碰 `total_recharged`。
-4. 已有 `UpdateBalance`（支付/兑换）保持 `AddTotalRecharged`；确认 promo 是否应计入（默认：走 `UpdateBalance` 则计入；若需排除另开决策）。
+4. 已有 `UpdateBalance`（支付/兑换）保持 `AddTotalRecharged`；promo 默认走 `UpdateBalance` 则**计入字段**（若需排除另开决策）。**已知例外（本 PR 不改）**：promo 等只调 `UpdateBalance`、不写 `redeem_codes` journal 的路径会使 `users.total_recharged` **≥** 面板 `SumPositiveBalanceByUser`；门禁读字段（偏放行），面板读 journal（偏保守）。journal 对齐另开决策，不在本变更范围。
 
 **Backfill（一次性，可重复执行）**
 
@@ -123,3 +123,4 @@ WHERE u.deleted_at IS NULL;
 - Backfill: `backend/migrations/tk_102_backfill_total_recharged_qualifying.sql`.
 - Studio: `trial_unpaid_media` error code + `/purchase` CTA; API English message unchanged.
 - Auth cache: L1/L2 TTL will refresh stale `total_recharged` snapshots after deploy; balance>$2 already bypasses the gate.
+- Promo / other `UpdateBalance`-only credits: field may exceed panel sum until those paths journal; accepted pre-existing exception (see §4 Forward #4).
