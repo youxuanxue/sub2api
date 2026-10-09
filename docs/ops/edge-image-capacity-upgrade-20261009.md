@@ -36,26 +36,40 @@ us6 在 36 个生图在途的采样点，该规划参考量为 3.783 GiB；8 GiB
 
 旧机保留停止状态。新机一旦启动应用，就可能产生计费、OAuth 刷新或其他写入，禁止直接回切旧磁盘；此时回退必须先排空新机并迁回最新状态。不能承诺绝对零延迟波动；单节点离线期间其他节点负载会增加。
 
-## 执行状态
+## us6 迁移结果
 
-截至 UTC 08:59（CST 16:59），**四台尚未升配，仍为原 2 vCPU / 2 GiB；没有新实例创建、没有 IP 切换或原机删除**。
+2026-10-09 UTC 10:05（CST 18:05），us6 已恢复原 prod 镜像调度。新机为 `edge-ls-us-oh-3-l30`、`large_3_0`（2 vCPU / 8 GiB / 160 GiB），SSM 为 `mi-0c38af338b67d4c72`。原 Static IP `3.147.98.112`、域名、凭据、应用 `1.8.280` 及全部原容器镜像 ID 均保留。prod 规格、配置和版本未改，仅临时摘除并恢复 us6 镜像。us3/us4/us5 仍是原 2 GiB 实例，本轮未摘流或停机。
 
-us6 已完成一次全量保护演练：HTTP/异步连续归零，新 S3 备份恢复核验成功，9,373 个冷文件 SHA-256 已记录，完整快照 `tokenkey-us6-cold-8g-20261009T081055Z` 已 available。核心表数量：accounts 40、api_keys 15、groups 17、settings 52、usage_billing_dedup 1,612,110、users 1；S3 往返与恢复比对一致。
+| UTC（CST +8h） | 检查点 |
+| --- | --- |
+| 09:29–09:39 | 原版 AWS CLI 直连管理域名，两个区域连续 11 次、跨 10 分钟查询成功；远程 SSM 探针成功 |
+| 09:39 | 精确核对七个 us6 镜像；五个原可调度镜像暂停，原已关闭的 cc/grok 保持关闭；HTTP 与异步任务连续三次归零 |
+| 09:42 | 新 S3 逻辑备份实际恢复、SHA-256 往返和核心表数量比对通过 |
+| 09:43–09:47 | 数据库正常停止、Docker 禁止自启，9,375 个冷文件生成哈希；原机停止，最终快照 available |
+| 09:48 | 2 核 / 8 GiB 新机从最终冷快照创建，注册独立 SSM 身份，复制原防火墙 |
+| 09:59 | 全部 9,375 个冷文件 SHA-256 一致，根盘 160 GiB；业务仍停止 |
+| 10:00:39 | 原 Static IP 挂到新机 |
+| 10:02–10:04 | 核心表数量再次一致，原镜像 ID 一致；应用、sidecar、PostgreSQL、Redis healthy；公网 health 200，非白名单 API 403，网络验收通过 |
+| 10:05:02 | 原 prod 调度状态逐项恢复并回读核对；进入真实业务观察 |
 
-首次新机注册创建被 operator 的 iam:PassRole 权限拒绝。因此在任何新机/IP 变更前，恢复 us6 原机、原镜像与原调度状态；恢复时再次比对核心表数量一致，公网 /health 200。us3/us4/us5 从未摘流或停机。
+最终全量快照：`tokenkey-us6-cold-8g-20261009T094400Z`。原机 `edge-ls-us-oh-3-s30` 保持停止并保留。较早快照 `tokenkey-us6-cold-8g-20261009T081055Z` 已落后于此前恢复服务后的写入，本次没有拿它做最终切换。**新机已经产生写入，禁止直接回切任一旧磁盘。**
 
-已补齐并实际通过 `prepare-resize` 的现有 OIDC 工作流，未修改 IAM 权限：
+最终逻辑备份：`s3://tokenkey-prod-pgdump-682751977094/edge/us6/pgdump/tokenkey-20261009T094044Z.sql.gz`；SHA-256 为 `06374610664bc622f0cf970d9231808129b1c5e5623942b5e8df1494cda85cb2`。原机停写后、隔离恢复后及新机应用启动前，核心表数量均为 accounts 40、api_keys 15、groups 17、settings 52、usage_billing_dedup 1,612,791、users 1。完整冷快照及文件校验覆盖普通逻辑备份排除的日志数据。
 
-| Edge | Workflow run | 结果 |
-| --- | --- | --- |
-| us6 | [37907451348](https://github.com/youxuanxue/sub2api/actions/runs/37907451348) | success |
-| us3 | [37907636895](https://github.com/youxuanxue/sub2api/actions/runs/37907636895) | success |
-| us4 | [37907703041](https://github.com/youxuanxue/sub2api/actions/runs/37907703041) | success |
-| us5 | [37907838833](https://github.com/youxuanxue/sub2api/actions/runs/37907838833) | success |
+新机的原定时任务均恢复启用，含数据库备份和磁盘指标；入口白名单、防火墙 TCP 443/8443、UDP 34567 及限制为单一 IPv4 /32 的 SSH 均验证。SSM `instance_name` 与 `ssm_managed_instance_id` 已指向新机，临时单次注册参数和本地 userdata 已删除。实例矩阵仅更新 us6 与容纳 44 USD/月的上限，其余目标保持原值。
 
-单次身份在生成后四小时过期；过期后必须重新准备，不能继续使用。us6 参数已本地解密验证目标，但从未打印 code。其余三台已提交在线预备快照以缩短后续冷快照等待，不作为最终一致性副本。
+## 用户请求与观察边界
 
-当前阻塞：operator 到 AWS SSM 管理 API 连续 TLS EOF，按会话 AGENTS.md 的连续三次失败纪律暂停切换，等待人工恢复管理网络。已停用的 us6 调度恢复并逐项验证。恢复执行必须重新检查剩余承接容量，再重新排空 us6、生成新备份和最终冷快照；之前快照已落后于恢复服务后的写入，禁止直接用于最终切换。
+完整摘流窗口 UTC 09:39:15–10:05:02（CST 17:39:15–18:05:02），按 prod 已完成请求日志统计：生图成功 159、400 拒绝 5、499 客户端取消 1、生图 5xx 为 0。其中 us6 的 1 次成功是排空中的存量请求，其余成功由其他节点承接。499 对应其他 Edge 的 account 68；没有证据可把它直接归因于本次迁移，也不能以无 5xx 承诺绝对零延迟波动。同期非生图 account 136 有 1 次聊天 502，未落到 us6 镜像。
 
-本地四项注册准备行为测试、完整 preflight 和实际四次准备 workflow 均通过。未宣称 8 GiB 新机、迁移后真实生图或高峰容量已经验收。运维工件暂存在 operator 的 `/tmp/tokenkey-edge8g-migration` 私有目录及 us6 `/var/lib/tokenkey/resize-20261009-8g`；不得把其中的账号或注册凭据原文提交。
+恢复调度后的完整十分钟 UTC 10:05:02–10:15:02（CST 18:05:02–18:15:02）：prod 生图成功 59、未分配账号的 400 拒绝 2、生图 499/5xx 均为 0；其中 us6 镜像 account 63 成功 9 次，与新 Edge 内三个 OpenAI 账号的 9 次成功对应。新 us6 共记录 331 次网关 200，另有 5 次非生图聊天 499 和 3 次 models 304，没有网关 5xx。不能把非生图的客户端取消隐去或宣称所有请求均成功。UTC 10:15:22，新机可用内存 6920 MiB、swap 0、内存 PSI 0、HTTP 在途 1。
 
+停机前其他三台在途为 2 / 7 / 5、可用内存约 872–1140 MiB；维护中复查未见持续内存 PSI 压力。新机启用前可用内存约 6981 MiB、swap 0、内存 PSI 0，应用无遗留 2 GiB 容器内存上限，sidecar 原 384 MiB 限额保留。低峰迁移验收不能替代高峰容量验收；仍需观察 CPU、延迟和内存随生图并发的增长。
+
+## 已解决的管理阻塞与留存
+
+第一次 us6 冷备后，本地 operator 创建 Hybrid activation 被 iam:PassRole 拒绝，已先恢复原服务。随后复用既有 GHA/OIDC 权限生成单次注册身份，未修改 IAM；us6 对应 [prepare-resize run 37907451348](https://github.com/youxuanxue/sub2api/actions/runs/37907451348)。其他三台准备 run 为 37907636895、37907703041、37907838833；身份四小时有效，后续执行前须重新核验，过期则重新准备。
+
+恢复管理链路时确认：原版 AWS CLI 的 Python 读取了 macOS 系统代理 `127.0.0.1:7890`，出现 TLS EOF；系统 curl 则直接连接。运维命令临时设置 `NO_PROXY=amazonaws.com,.amazonaws.com,api.aws,.api.aws` 后稳定，不改全局代理、不禁用证书验证。这个管理连接问题与早先 us6 的内存/OOM 故障分开归因。创建新机前还修正了临时脚本对 AWS `RegistrationsCount` 字段的拼写，错误发生在实际创建调用前，没有重复创建实例。
+
+运维回执在 operator 私有目录 `/tmp/tokenkey-edge8g-migration` 与 `/Users/feng/.local/state/tokenkey/edge8g-20261009`；新机保留 `/var/lib/tokenkey/resize-20261009-8g` 的源清单、备份和冷校验回执。旧机和快照继续计费；不在本次执行中删除。后续配置合并及其余三台迁移应基于这些实际状态，不能把尚未执行的节点标成 8 GiB。
