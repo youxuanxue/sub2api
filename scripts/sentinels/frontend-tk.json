@@ -1359,9 +1359,10 @@
         "export function resolveChromeBrand",
         "export function resolveHomepageProfile",
         "export function resolveGlobalProductRedirect",
+        "return resolveFacade(hostname).brand",
         "return null"
       ],
-      "rationale": "Single pure owner for dual-facade brand chrome + homepage narrative. CallModel host forces CallModel chrome and china-export home; resolveGlobalProductRedirect stays a named no-op so cross-facade SPA kicks cannot silently return."
+      "rationale": "Single pure owner for dual-facade brand chrome + homepage narrative. resolveChromeBrand returns facade.brand from hostname only (ignores Settings site_name) so tokenkey.dev cannot paint CallModel and callmodel.io cannot paint TokenKey; china-export home stays CallModel-host-only; resolveGlobalProductRedirect stays a named no-op so cross-facade SPA kicks cannot silently return."
     },
     {
       "path": "frontend/src/features/home/useHomeShell.tk.ts",
@@ -2271,9 +2272,23 @@
     {
       "path": "backend/internal/web/embed_on.go",
       "must_contain": [
-        "tryServeCrawlerPrerender(c)"
+        "tryServeCrawlerPrerender(c)",
+        "applyFacadeChromeDocument(content, host, path)",
+        "func facadeChromeBrand",
+        "func facadeChromeETag",
+        "Vary\", \"Host\""
       ],
-      "rationale": "TK crawler prerender hook must stay a one-line call into embed_on_tk_prerender.go so upstream embed_on.go Middleware() body stays merge-friendly (CLAUDE.md §5 minimal-invasion)."
+      "rationale": "TK crawler prerender hook must stay a one-line call into embed_on_tk_prerender.go so upstream embed_on.go Middleware() body stays merge-friendly (CLAUDE.md §5 minimal-invasion). Dual-facade HTML <title>/og/canonical must be rewritten from request Host via applyFacadeChromeDocument, and ETag/Vary must include Host brand so caches cannot 304 the wrong facade."
+    },
+    {
+      "path": "backend/internal/web/prerender.go",
+      "must_contain": [
+        "prerenderPricingHTML(host)",
+        "prerenderQuickstartHTML(host)",
+        "prerenderModelsHTML(host)",
+        "func prerenderProductOrigin"
+      ],
+      "rationale": "Crawler product pages must paint CallModel brand + callmodel.io canonical on the overseas host; host-blind TokenKey copy/canonical is dual-facade brand leakage."
     },
     {
       "path": "backend/internal/web/embed_on_tk_prerender.go",

@@ -264,6 +264,7 @@ import {
   TK_CLIENT_INTEGRATIONS,
   type TkClientIntegration
 } from '@/constants/clientIntegrations.tk'
+import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
 import { useClipboard } from '@/composables/useClipboard'
 
 const props = defineProps<{
@@ -334,7 +335,8 @@ function openIntegration(client: TkClientIntegration): void {
     template: client.template,
     apiKey: props.apiKey,
     baseUrl: props.gatewayBase,
-    model: selectedModelId.value
+    model: selectedModelId.value,
+    brand: resolveChromeBrand(window.location.hostname),
   })
   const target = window.open(url, '_blank', 'noopener,noreferrer')
   if (target) target.opener = null

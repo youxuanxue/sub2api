@@ -23,6 +23,68 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
+func TestApplyFacadeChromeTitle(t *testing.T) {
+	html := []byte(`<html><head><title>Sub2API - AI API Gateway</title></head><body></body></html>`)
+
+	t.Run("callmodel_host_forces_CallModel", func(t *testing.T) {
+		result := applyFacadeChromeTitle(html, "callmodel.io")
+		assert.Contains(t, string(result), "<title>CallModel - AI API Gateway</title>")
+		assert.NotContains(t, string(result), "Sub2API")
+	})
+
+	t.Run("tokenkey_host_forces_TokenKey", func(t *testing.T) {
+		result := applyFacadeChromeTitle(html, "tokenkey.dev")
+		assert.Contains(t, string(result), "<title>TokenKey - AI API Gateway</title>")
+		assert.NotContains(t, string(result), "CallModel")
+	})
+
+	t.Run("unknown_host_defaults_to_TokenKey", func(t *testing.T) {
+		result := applyFacadeChromeTitle(html, "localhost:8080")
+		assert.Contains(t, string(result), "<title>TokenKey - AI API Gateway</title>")
+	})
+}
+
+func TestFacadeChromeETag(t *testing.T) {
+	base := `"abc123-settings"`
+	tokenkeyLogin := facadeChromeETag(base, "tokenkey.dev", "/login")
+	callmodelLogin := facadeChromeETag(base, "callmodel.io", "/login")
+	tokenkeyDash := facadeChromeETag(base, "tokenkey.dev", "/dashboard")
+
+	assert.NotEqual(t, tokenkeyLogin, callmodelLogin)
+	assert.NotEqual(t, tokenkeyLogin, tokenkeyDash)
+	assert.True(t, strings.HasPrefix(tokenkeyLogin, `"abc123-settings-`))
+	assert.Equal(t, facadeChromeETag(base, "tokenkey.dev", ""), facadeChromeETag(base, "tokenkey.dev", "/"))
+}
+
+func TestApplyFacadeChromeDocument(t *testing.T) {
+	html := []byte(`<!doctype html><html><head>
+<title>TokenKey - AI API Gateway</title>
+<meta property="og:title" content="TokenKey - AI API Gateway">
+<meta property="og:url" content="https://tokenkey.dev">
+<meta property="og:image" content="https://tokenkey.dev/og-cover.png">
+<meta name="twitter:title" content="TokenKey - AI API Gateway">
+<link rel="canonical" href="https://tokenkey.dev/">
+</head></html>`)
+
+	t.Run("callmodel_login_rewrites_social_meta", func(t *testing.T) {
+		result := string(applyFacadeChromeDocument(html, "callmodel.io", "/login"))
+		assert.Contains(t, result, "<title>CallModel - AI API Gateway</title>")
+		assert.Contains(t, result, `content="CallModel - AI API Gateway"`)
+		assert.Contains(t, result, `content="https://callmodel.io/login"`)
+		assert.Contains(t, result, `href="https://callmodel.io/login"`)
+		assert.NotContains(t, result, "TokenKey")
+		assert.NotContains(t, result, "https://tokenkey.dev")
+	})
+
+	t.Run("tokenkey_login_keeps_TokenKey_origin", func(t *testing.T) {
+		result := string(applyFacadeChromeDocument(html, "tokenkey.dev", "/login"))
+		assert.Contains(t, result, "<title>TokenKey - AI API Gateway</title>")
+		assert.Contains(t, result, `content="https://tokenkey.dev/login"`)
+		assert.Contains(t, result, `href="https://tokenkey.dev/login"`)
+		assert.NotContains(t, result, "CallModel")
+	})
+}
+
 func TestInjectSiteTitle(t *testing.T) {
 	t.Run("replaces_title_with_site_name", func(t *testing.T) {
 		html := []byte(`<html><head><title>Sub2API - AI API Gateway</title></head><body></body></html>`)
@@ -272,6 +334,34 @@ func TestFrontendServer_InjectSettings(t *testing.T) {
 }
 
 func TestFrontendServer_ServeIndexHTML(t *testing.T) {
+	t.Run("paints_host_chrome_title_not_settings_site_name", func(t *testing.T) {
+		provider := &mockSettingsProvider{
+			settings: map[string]string{"site_name": "CallModel"},
+		}
+		server, err := NewFrontendServer(provider)
+		require.NoError(t, err)
+
+		for _, tc := range []struct {
+			host      string
+			wantTitle string
+		}{
+			{host: "tokenkey.dev", wantTitle: "<title>TokenKey - AI API Gateway</title>"},
+			{host: "callmodel.io", wantTitle: "<title>CallModel - AI API Gateway</title>"},
+		} {
+			server.InvalidateCache()
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodGet, "/login", nil)
+			c.Request.Host = tc.host
+			c.Set(middleware.CSPNonceKey, "nonce-facade")
+
+			server.serveIndexHTML(c)
+
+			assert.Equal(t, http.StatusOK, w.Code, tc.host)
+			assert.Contains(t, w.Body.String(), tc.wantTitle, tc.host)
+		}
+	})
+
 	t.Run("serves_html_with_nonce", func(t *testing.T) {
 		provider := &mockSettingsProvider{
 			settings: map[string]string{"test": "value"},

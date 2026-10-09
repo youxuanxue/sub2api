@@ -128,6 +128,22 @@ describe('RegisterView', () => {
     expect(wrapper.text()).not.toContain('Sign up to start using Sub2API')
   })
 
+  it('forces TokenKey brand copy on the TokenKey host even when Settings say CallModel', async () => {
+    getPublicSettingsMock.mockResolvedValue({
+      ...publicSettings,
+      site_name: 'CallModel',
+    })
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, hostname: 'tokenkey.dev' },
+    })
+    const wrapper = mountRegister()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Sign up to start using TokenKey')
+    expect(wrapper.text()).not.toContain('Sign up to start using CallModel')
+  })
+
   it.each([
     ['', 'auth.confirmPasswordRequired'],
     ['different-password', 'auth.passwordsDoNotMatch']

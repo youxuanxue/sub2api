@@ -83,13 +83,16 @@ GLOBAL_SITE_PHASE=disabled \
 
 这里的 `302`/`301` 仅作用于 `callmodel.io/admin*`（踢回 `tokenkey.dev` 保书签）；注册、控制台、Models 等产品路径留在 CallModel 门面。`api.callmodel.io` 非 machine 路径永久跳到 `callmodel.io`。合同见 `docs/approved/design-callmodel-product-facade.md`。
 
-**Caddy 验收后切 Settings（prod DB）**——邮件 / 支付回执 / Quickstart·Keys 复制板以 CallModel 为商业人类入口（`site_name` 仍可保持 TokenKey，壳品牌由前端 `resolveChromeBrand` 按 hostname 覆盖）：
+**Caddy 验收后切 Settings（prod DB）**——邮件 / 支付回执 / Quickstart·Keys 复制板以 CallModel 为商业人类入口。**`site_name` 必须保持 `TokenKey`**（邮件占位符）；壳品牌由 `resolveChromeBrand` / 服务端 Host `<title>` 按 hostname 强制，禁止把 `site_name` 改成 CallModel：
 
 ```bash
 # 只需改两个字段；PUT 为部分更新，未传字段保持原值
 SUB2API_BASE_URL=https://tokenkey.dev SUB2API_ADMIN_API_KEY=... \
   node .cursor/skills/sub2api-admin/scripts/sub2api-admin.js api PUT /admin/settings \
   --json '{"frontend_url":"https://callmodel.io","api_base_url":"https://api.callmodel.io"}'
+
+# 若曾误把 site_name 切成 CallModel，改回（壳层已按 hostname 强制，但邮件文案仍读 site_name）
+# --json '{"site_name":"TokenKey"}'
 
 # 门面合同（含 Settings api_base_url + Admin 踢出 + API alias）
 python3 ops/observability/probe-global-candidate.py \
