@@ -552,6 +552,8 @@ export interface ResolveTkIntegrationParams {
   baseUrl: string
   /** selected model id, required by clients whose import contract carries a model list */
   model?: string
+  /** Hostname chrome brand for import labels (CallModel on callmodel.io). */
+  brand?: string
 }
 
 export interface WorkbuddyModelMeta {
@@ -559,6 +561,8 @@ export interface WorkbuddyModelMeta {
   maxOutputTokens?: number
   supportsImages?: boolean
   supportsReasoning?: boolean
+  /** Hostname chrome brand for vendor label (CallModel on callmodel.io). */
+  vendor?: string
 }
 
 /** Env var referenced in generated models.json apiKey (CodeBuddy / WorkBuddy SSOT). */
@@ -576,11 +580,12 @@ export function generateCodebuddyModelsJson(
   meta: WorkbuddyModelMeta = {},
 ): string {
   const root = baseRoot.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
+  const vendor = meta.vendor?.trim() || 'TokenKey'
   const payload = {
     models: [{
       id: model,
       name: model,
-      vendor: 'TokenKey',
+      vendor,
       apiKey: `\${${CODEBUDDY_MODELS_JSON_ENV_VAR}}`,
       url: `${root}/v1/chat/completions`,
       ...(meta.contextWindow ? { maxInputTokens: meta.contextWindow } : {}),
@@ -606,15 +611,22 @@ export function codebuddyModelsJsonPath(_clientId: 'codebuddy' | 'workbuddy'): s
  * Same branch order as new-api `resolveChatUrl`: config placeholders first
  * (whole-payload base64 JSON), then generic {address}/{key} substitution.
  */
-export function resolveTkClientIntegrationUrl({ template, apiKey, baseUrl, model }: ResolveTkIntegrationParams): string {
+export function resolveTkClientIntegrationUrl({
+  template,
+  apiKey,
+  baseUrl,
+  model,
+  brand,
+}: ResolveTkIntegrationParams): string {
   let url = template
   const baseRoot = baseUrl.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
   const apiBase = `${baseRoot}/v1`
+  const chromeBrand = brand?.trim() || 'TokenKey'
 
   if (url.includes('{cherryConfig}')) {
     return replaceToken(url, '{cherryConfig}', encodeConfig({
       id: 'tokenkey',
-      name: 'TokenKey',
+      name: chromeBrand,
       type: 'openai',
       baseUrl: apiBase,
       apiKey
@@ -629,7 +641,7 @@ export function resolveTkClientIntegrationUrl({ template, apiKey, baseUrl, model
   if (url.includes('{chatboxConfig}')) {
     return replaceToken(url, '{chatboxConfig}', encodeConfig({
       id: 'tokenkey',
-      name: 'TokenKey',
+      name: chromeBrand,
       type: 'openai',
       settings: {
         apiHost: baseRoot,

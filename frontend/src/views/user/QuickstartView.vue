@@ -491,6 +491,10 @@ function openSelectedClient(): void {
     apiKey: key.key,
     baseUrl: baseUrl.value,
     model: selectedModel.value,
+    brand: resolveChromeBrand(
+      window.location.hostname,
+      appStore.cachedPublicSettings?.site_name,
+    ),
   })
   const target = window.open(url, '_blank', 'noopener,noreferrer')
   if (target) target.opener = null
