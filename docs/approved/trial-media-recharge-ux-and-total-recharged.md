@@ -6,6 +6,7 @@ approved_at: 2026-10-09
 authors: [agent]
 created: 2026-10-09
 related_incident: rt@tk.com (user_id=61) 402 trial_unpaid_media_blocked 2026-10-07..2026-10-09
+related_prs: [2503]
 decisions: [A1, B1]
 ---
 
