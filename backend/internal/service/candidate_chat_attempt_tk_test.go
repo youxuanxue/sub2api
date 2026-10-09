@@ -230,7 +230,7 @@ func TestCandidateChatStreamVersusNonstreamBudgets(t *testing.T) {
 	bodyNonStream := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"stream":false}`)
 	bodyStream := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"stream":true}`)
 
-	// Zero config → stream 10s × 3 = 30s deadline; non-stream 300s × 3 = 15m deadline.
+	// Zero config → stream 30s × 3 = 90s deadline; non-stream 300s × 3 = 15m deadline.
 	// Explicit ResponseHeaderTimeout must NOT bleed into either budget.
 	cfg := &config.Config{}
 	cfg.Gateway.ResponseHeaderTimeout = 600
@@ -256,18 +256,22 @@ func TestCandidateChatStreamVersusNonstreamBudgets(t *testing.T) {
 	_, finishS, errS := r.candidateOpenAI.beginCandidateChatAttempt(ctxS, cS, &a, bodyStream)
 	require.NoError(t, errS)
 	require.NotNil(t, finishS)
-	require.True(t, stateS.chatDeadline.Before(time.Now().Add(45*time.Second)), "stream default is 3×10s")
-	require.True(t, stateS.chatDeadline.After(time.Now().Add(20*time.Second)), "stream deadline should be near 30s")
+	require.True(t, stateS.chatDeadline.Before(time.Now().Add(120*time.Second)), "stream default is 3×30s")
+	require.True(t, stateS.chatDeadline.After(time.Now().Add(60*time.Second)), "stream deadline should be near 90s")
 	_, _ = finishS(nil, nil)
 }
 
 func TestNewAPIChatFirstOutputTimeoutResolver(t *testing.T) {
-	require.Equal(t, 10*time.Second, newAPIChatFirstOutputTimeout(nil, true))
-	require.Equal(t, 300*time.Second, newAPIChatFirstOutputTimeout(nil, false))
+	require.Equal(t, 30*time.Second, newAPIChatFirstOutputTimeoutWithEffort(nil, true, false))
+	require.Equal(t, 300*time.Second, newAPIChatFirstOutputTimeoutWithEffort(nil, false, false))
 
 	cfg := &config.Config{}
 	cfg.Gateway.NewAPIChatFirstOutputTimeout = 7
 	cfg.Gateway.NewAPIChatNonstreamFirstOutputTimeout = 120
-	require.Equal(t, 7*time.Second, newAPIChatFirstOutputTimeout(cfg, true))
-	require.Equal(t, 120*time.Second, newAPIChatFirstOutputTimeout(cfg, false))
+	require.Equal(t, 7*time.Second, newAPIChatFirstOutputTimeoutWithEffort(cfg, true, false))
+	require.Equal(t, 120*time.Second, newAPIChatFirstOutputTimeoutWithEffort(cfg, false, false))
+	require.Equal(t, 60*time.Second, newAPIChatFirstOutputTimeoutWithEffort(nil, true, true))
+	cfg.Gateway.StreamFirstOutputTimeoutSeconds = 45
+	cfg.Gateway.NewAPIChatFirstOutputTimeout = 0
+	require.Equal(t, 45*time.Second, newAPIChatFirstOutputTimeoutWithEffort(cfg, true, false))
 }

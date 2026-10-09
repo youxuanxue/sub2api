@@ -1,8 +1,9 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22 and 2026-10-09 stream/nonstream first-output split)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, and 2026-10-09 universal stream first-output 30s/60s)"
 created: 2026-09-07
+revised_at: 2026-10-09
 ---
 
 # Candidate Eligibility SSOT
@@ -216,23 +217,51 @@ health breaker; explicit quota and credential handling remain intact. Transport
 errors retain sanitized output and are attributed only while the caller is alive;
 caller cancellation/deadline and local validation cannot become transport penalties.
 
+### Universal stream first-useful-output budget (2026-10-09)
+
+Streaming first-useful-output is a **cross-platform** admission/failover budget,
+not a NewAPI-only knob and not the same object as metered TTFT.
+
+| Concept | Owner / meaning |
+| --- | --- |
+| **First-useful-output (this budget)** | Timer from attempt start until the attempt **commits** output that stops account failover/replay. Heartbeats, empty deltas, usage-only frames, and transport headers do **not** stop it. Platform commit events must match “client-bound progress that forbids silent retry” (e.g. NewAPI: content / reasoning / refusal / function-tool; Kiro: client-visible text or tool — unsigned thinking alone does not commit). |
+| **TTFT (`usage_logs.first_token_ms`)** | Observability. May use a **narrower** arming rule (e.g. Kiro visible text only; OpenAI `semantic` vs `visible`). A request can therefore show TTFT ≠ the moment this budget stopped. Do not use TTFT percentiles alone to set this budget without checking the platform commit rule. |
+
+Defaults (seconds): standard stream **30**, high-reasoning effort **60**
+(`high` / `xhigh` / `max` and platform equivalents). Cap **120**.
+Config SSOT: `gateway.stream_first_output_timeout_seconds` and
+`gateway.stream_first_output_high_effort_timeout_seconds`. Platform-specific
+keys may override when explicitly set; zero means inherit the universal default
+(except OpenAI native where `0` remains an emergency disable for
+`openai_first_output_timeout_seconds`).
+
+`gateway.response_header_timeout` remains transport header wait only and must
+not redefine these budgets. Grok’s first-byte header wait aligns to the same
+standard default unless overridden.
+
 A replayable NewAPI Chat request may immediately try another eligible account
 on its first pre-output failure; it does not wait for three cross-request failures.
-Streaming and non-streaming use separate first-useful-output budgets:
-streaming defaults to 10 seconds (`gateway.newapi_chat_first_output_timeout`,
-zero also means 10, max 60); non-streaming defaults to 300 seconds
-(`gateway.newapi_chat_nonstream_first_output_timeout`, zero also means 300,
-max 600). Each mode allows no more than three attempts/two switches and a
-shared budget of three times that mode's per-attempt timeout.
-`gateway.response_header_timeout` remains transport header wait only and must
-not redefine these budgets. Headers, heartbeats, empty deltas and usage-only
-frames do not stop this timer. Actual content, reasoning, refusal or
-function-tool output commits the response and stops pre-output retry. Started
-output is never replayed. Hard continuation, WebSocket, server-side tools and
-non-text modalities retain their existing owners.
-Partial output keeps known usage and cannot acquire a synthetic successful end
-marker after an interrupted upstream. NewAPI transport cancellation is opt-in
-so unrelated relay callers preserve their lifecycle.
+Streaming inherits the universal stream budget above (legacy
+`gateway.newapi_chat_first_output_timeout` overrides when >0). Non-streaming
+defaults to 300 seconds (`gateway.newapi_chat_nonstream_first_output_timeout`,
+zero also means 300, max 600). Each mode allows no more than three
+attempts/two switches and a shared budget of three times that mode's
+per-attempt timeout. Started output is never replayed. Hard continuation,
+WebSocket, server-side tools and non-text modalities retain their existing
+owners. Partial output keeps known usage and cannot acquire a synthetic
+successful end marker after an interrupted upstream. NewAPI transport
+cancellation is opt-in so unrelated relay callers preserve their lifecycle.
+
+Platform wiring for the same universal stream budget:
+
+| Path | Status |
+| --- | --- |
+| NewAPI Chat (replayable) | Wired (inherits SSOT; optional override) |
+| OpenAI native HTTP first semantic output | Wired (default on; `0` emergency off) |
+| Grok first-byte header wait | Wired (default aligned to 30s) |
+| Kiro streaming | Wired (commit = client-visible text/tool) |
+| Anthropic native / passthrough SSE | Wired (commit = first non-empty SSE data; pre-commit silent failover) |
+| Gemini Messages / native streaming | Wired (commit = first client-visible text/tool or native data frame) |
 
 These are implementation and local test changes, not production acceptance.
 Production cutover remains forbidden until the user reviews the prepared

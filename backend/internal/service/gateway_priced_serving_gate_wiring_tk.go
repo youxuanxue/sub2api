@@ -149,7 +149,7 @@ func (s *GatewayService) tkPricedServingGate(ctx context.Context, c *gin.Context
 	if s == nil {
 		return true
 	}
-	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.billingService), tkChannelPricingProbeFromResolver(s.resolver), s.settingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel)
+	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.billingService), tkChannelPricingProbeFromResolver(s.resolver), s.settingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel, tkMediaSettlementNotifySkipFromBilling(s.billingService))
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +176,7 @@ func (s *OpenAIGatewayService) tkPricedServingGate(ctx context.Context, c *gin.C
 	if s == nil {
 		return true
 	}
-	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.billingService), tkChannelPricingProbeFromResolver(s.resolver), s.settingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel)
+	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.billingService), tkChannelPricingProbeFromResolver(s.resolver), s.settingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel, tkMediaSettlementNotifySkipFromBilling(s.billingService))
 }
 
 // ---------------------------------------------------------------------------
@@ -216,7 +216,7 @@ func (s *GeminiMessagesCompatService) tkPricedServingGate(ctx context.Context, c
 	if s == nil {
 		return true
 	}
-	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.tkBillingService), tkChannelPricingProbeFromResolver(s.tkPricingResolver), s.tkSettingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel)
+	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.tkBillingService), tkChannelPricingProbeFromResolver(s.tkPricingResolver), s.tkSettingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel, tkMediaSettlementNotifySkipFromBilling(s.tkBillingService))
 }
 
 // ---------------------------------------------------------------------------
@@ -245,7 +245,7 @@ func (s *AntigravityGatewayService) tkPricedServingGate(ctx context.Context, c *
 	if s == nil {
 		return true
 	}
-	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.tkBillingService), tkChannelPricingProbeFromResolver(s.tkPricingResolver), s.settingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel)
+	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.tkBillingService), tkChannelPricingProbeFromResolver(s.tkPricingResolver), s.settingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel, tkMediaSettlementNotifySkipFromBilling(s.tkBillingService))
 }
 
 // ---------------------------------------------------------------------------
@@ -272,5 +272,5 @@ func (s *KiroGatewayService) tkPricedServingGate(ctx context.Context, c *gin.Con
 	if s == nil {
 		return true
 	}
-	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.tkBillingService), tkChannelPricingProbeFromResolver(s.tkPricingResolver), s.tkSettingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel)
+	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.tkBillingService), tkChannelPricingProbeFromResolver(s.tkPricingResolver), s.tkSettingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel, tkMediaSettlementNotifySkipFromBilling(s.tkBillingService))
 }

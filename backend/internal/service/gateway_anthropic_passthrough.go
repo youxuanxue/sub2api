@@ -97,10 +97,25 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 		return nil, err
 	}
 
+	callerCtx := ctx
+	var firstOutputGuard *streamFirstOutputGuard
+	streamAttemptCtx := ctx
+	if input.RequestStream {
+		// Detach client cancel first, then arm first-output so WithoutCancel
+		// cannot strip the budget cancel (see detachStreamUpstreamContext).
+		base := context.WithoutCancel(ctx)
+		rem := remainingStreamFirstOutputBudget(s.cfg, anthropicBodyStreamFirstOutputHighEffort(input.Body), input.StartTime)
+		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, rem)
+	}
+
 	var resp *http.Response
 	retryStart := time.Now()
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
-		upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, input.RequestStream)
+		upstreamCtx := streamAttemptCtx
+		releaseUpstreamCtx := func() {}
+		if !input.RequestStream {
+			upstreamCtx, releaseUpstreamCtx = detachStreamUpstreamContext(ctx, false)
+		}
 		upstreamReq, wireBody, err := s.buildAnthropicPassthroughUpstreamRequest(upstreamCtx, c, account, input.Body, token, authKind)
 		releaseUpstreamCtx()
 		if err != nil {
@@ -118,6 +133,9 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
+			}
+			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) {
+				return nil, streamFirstOutputFailoverError()
 			}
 			return nil, s.handleUpstreamTransportError(ctx, c, account, err, OpsUpstreamErrorEvent{
 				UpstreamURL: safeUpstreamURL(upstreamReq.URL.String()),
@@ -277,7 +295,7 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 	var firstTokenMs *int
 	var clientDisconnect bool
 	if input.RequestStream {
-		streamResult, err := s.handleStreamingResponseAnthropicAPIKeyPassthrough(ctx, resp, c, account, input.StartTime, input.RequestModel)
+		streamResult, err := s.handleStreamingResponseAnthropicAPIKeyPassthrough(ctx, resp, c, account, input.StartTime, input.RequestModel, firstOutputGuard, streamAttemptCtx)
 		if err != nil {
 			s.tkRecordAnthropicPassthroughStreamTerminalError(c, account, resp, err)
 			// 流中断时保留已观测到的 usage 与错误一起返回，避免上游已计量的请求
@@ -397,6 +415,8 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	account *Account,
 	startTime time.Time,
 	model string,
+	firstOutputGuard *streamFirstOutputGuard,
+	streamAttemptCtx context.Context,
 ) (*streamingResult, error) {
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
@@ -404,6 +424,9 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	}
 	if s.rateLimitService != nil {
 		s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
+	}
+	if firstOutputGuard != nil && resp != nil && resp.Body != nil {
+		firstOutputGuard.WatchClose(resp.Body)
 	}
 
 	writeAnthropicPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -517,9 +540,24 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	inPartialEvent := false
 	pendingEventName := ""
 	var pendingStreamError *sseStreamErrorEventError
+	wroteClientBody := false
+	var callerCtx context.Context
+	if c != nil && c.Request != nil {
+		callerCtx = c.Request.Context()
+	}
+	var budgetCh <-chan struct{}
+	if streamAttemptCtx != nil {
+		budgetCh = streamAttemptCtx.Done()
+	}
 
 	for {
 		select {
+		case <-budgetCh:
+			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && firstTokenMs == nil && !wroteClientBody {
+				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, streamFirstOutputFailoverError()
+			}
+			budgetCh = nil
+
 		case ev, ok := <-events:
 			if !ok {
 				if pendingStreamError != nil && inPartialEvent && !clientDisconnected {
@@ -528,6 +566,9 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				if !clientDisconnected {
 					// 兜底补刷，确保最后一个未以空行结尾的事件也能及时送达客户端。
 					flusher.Flush()
+				}
+				if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && firstTokenMs == nil && !wroteClientBody {
+					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, streamFirstOutputFailoverError()
 				}
 				if pendingStreamError != nil {
 					MarkResponseCommitted(c)
@@ -545,6 +586,9 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
 			}
 			if ev.err != nil {
+				if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && firstTokenMs == nil && !wroteClientBody {
+					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, streamFirstOutputFailoverError()
+				}
 				if sawTerminalEvent {
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
 				}
@@ -579,6 +623,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
+					firstOutputGuard.Commit()
 				}
 				parseSSEUsagePassthrough(data, usage)
 			} else {
@@ -601,19 +646,22 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				} else if _, err := io.WriteString(w, "\n"); err != nil {
 					clientDisconnected = true
 					logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
-				} else if line == "" {
-					// 按 SSE 事件边界刷出，减少每行 flush 带来的 syscall 开销。
-					flusher.Flush()
-					lastDataAt = time.Now()
-					resetKeepaliveTimer()
-					inPartialEvent = false
-					if pendingStreamError != nil {
-						MarkResponseCommitted(c)
-						return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: false}, pendingStreamError
-					}
-					pendingEventName = ""
 				} else {
-					inPartialEvent = true
+					wroteClientBody = true
+					if line == "" {
+						// 按 SSE 事件边界刷出，减少每行 flush 带来的 syscall 开销。
+						flusher.Flush()
+						lastDataAt = time.Now()
+						resetKeepaliveTimer()
+						inPartialEvent = false
+						if pendingStreamError != nil {
+							MarkResponseCommitted(c)
+							return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: false}, pendingStreamError
+						}
+						pendingEventName = ""
+					} else {
+						inPartialEvent = true
+					}
 				}
 			}
 

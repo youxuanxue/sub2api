@@ -824,11 +824,27 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		return nil, fmt.Errorf("unsupported account type: %s", account.Type)
 	}
 
+	callerCtx := ctx
+	var firstOutputGuard *streamFirstOutputGuard
+	streamAttemptCtx := ctx
+	if req.Stream {
+		base := context.WithoutCancel(ctx)
+		rem := remainingStreamFirstOutputBudget(s.cfg, geminiBodyStreamFirstOutputHighEffort(body), startTime)
+		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, rem)
+	}
+
 	var resp *http.Response
 	signatureRetryStage := 0
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
-		upstreamReq, idHeader, err := buildReq(ctx)
+		doCtx := ctx
+		if req.Stream {
+			doCtx = streamAttemptCtx
+		}
+		upstreamReq, idHeader, err := buildReq(doCtx)
 		if err != nil {
+			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) {
+				return nil, streamFirstOutputFailoverError()
+			}
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
 			}
@@ -844,6 +860,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		hwka.stop()
 		if err != nil {
+			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) {
+				return nil, streamFirstOutputFailoverError()
+			}
 			return nil, s.handleUpstreamTransportError(ctx, c, account, err)
 		}
 
@@ -1100,7 +1119,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	var responseErr error
 	var firstTokenMs *int
 	if req.Stream {
-		streamRes, err := s.handleStreamingResponse(c, resp, startTime, originalModel)
+		streamRes, err := s.handleStreamingResponse(c, resp, startTime, originalModel, firstOutputGuard, streamAttemptCtx)
 		if streamRes == nil {
 			return nil, err
 		}
@@ -1374,11 +1393,27 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		return nil, s.writeGoogleError(c, http.StatusBadGateway, "Unsupported account type: "+account.Type)
 	}
 
+	callerCtx := ctx
+	var firstOutputGuard *streamFirstOutputGuard
+	streamAttemptCtx := ctx
+	if stream {
+		base := context.WithoutCancel(ctx)
+		rem := remainingStreamFirstOutputBudget(s.cfg, geminiBodyStreamFirstOutputHighEffort(body), startTime)
+		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, rem)
+	}
+
 	var resp *http.Response
 	signatureRetried := false
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
-		upstreamReq, idHeader, err := buildReq(ctx)
+		doCtx := ctx
+		if stream {
+			doCtx = streamAttemptCtx
+		}
+		upstreamReq, idHeader, err := buildReq(doCtx)
 		if err != nil {
+			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) {
+				return nil, streamFirstOutputFailoverError()
+			}
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
 			}
@@ -1394,6 +1429,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		hwka.stop()
 		if err != nil {
+			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) {
+				return nil, streamFirstOutputFailoverError()
+			}
 			transportErr := s.handleUpstreamTransportError(ctx, c, account, err)
 			// countTokens 不因上游链路故障而失败：本地估算兜底，不换号。
 			var failoverErr *UpstreamFailoverError
@@ -1631,7 +1669,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	var firstTokenMs *int
 
 	if stream {
-		streamRes, err := s.handleNativeStreamingResponse(c, resp, startTime, isOAuth, account, requestID)
+		streamRes, err := s.handleNativeStreamingResponse(c, resp, startTime, isOAuth, account, requestID, firstOutputGuard, streamAttemptCtx)
 		if err != nil {
 			return nil, err
 		}
@@ -2123,16 +2161,20 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 	return usage, nil
 }
 
-func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, originalModel string) (*geminiStreamResult, error) {
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-	c.Status(http.StatusOK)
-
+func (s *GeminiMessagesCompatService) handleStreamingResponse(
+	c *gin.Context,
+	resp *http.Response,
+	startTime time.Time,
+	originalModel string,
+	firstOutputGuard *streamFirstOutputGuard,
+	streamAttemptCtx context.Context,
+) (*geminiStreamResult, error) {
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
 		return nil, errors.New("streaming not supported")
+	}
+	if firstOutputGuard != nil && resp != nil && resp.Body != nil {
+		firstOutputGuard.WatchClose(resp.Body)
 	}
 
 	messageID := generateAnthropicMsgID()
@@ -2152,8 +2194,22 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 			},
 		},
 	}
-	writeSSE(c.Writer, "message_start", messageStart)
-	flusher.Flush()
+	// Defer client headers + message_start until useful first output so the
+	// universal stream budget can still silent-failover.
+	clientStarted := false
+	ensureClientStarted := func() {
+		if clientStarted {
+			return
+		}
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+		c.Status(http.StatusOK)
+		writeSSE(c.Writer, "message_start", messageStart)
+		flusher.Flush()
+		clientStarted = true
+	}
 
 	var firstTokenMs *int
 	var usage ClaudeUsage
@@ -2173,11 +2229,18 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	seenToolJSON := ""
 	var internalThinkingBlocks []string
 	defer func() { stashGeminiWebEstimateOutputText(c, seenText) }()
+	var callerCtx context.Context
+	if c != nil && c.Request != nil {
+		callerCtx = c.Request.Context()
+	}
 
 	reader := bufio.NewReader(resp.Body)
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
+			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && !clientStarted {
+				return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, streamFirstOutputFailoverError()
+			}
 			return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream read error: %w", err)
 		}
 
@@ -2239,6 +2302,13 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					continue
 				}
 
+				if firstTokenMs == nil {
+					ms := int(time.Since(startTime).Milliseconds())
+					firstTokenMs = &ms
+					firstOutputGuard.Commit()
+					ensureClientStarted()
+				}
+
 				// Close an open tool_use block before starting text. HEAD tracks tool
 				// and text blocks separately (openToolIndex vs openBlockIndex), so —
 				// mirroring the functionCall branch that closes the open text block —
@@ -2274,10 +2344,6 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					})
 				}
 
-				if firstTokenMs == nil {
-					ms := int(time.Since(startTime).Milliseconds())
-					firstTokenMs = &ms
-				}
 				writeSSE(c.Writer, "content_block_delta", map[string]any{
 					"type":  "content_block_delta",
 					"index": openBlockIndex,
@@ -2295,6 +2361,13 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 				args := fc["args"]
 				if strings.TrimSpace(name) == "" {
 					name = "tool"
+				}
+
+				if firstTokenMs == nil {
+					ms := int(time.Since(startTime).Milliseconds())
+					firstTokenMs = &ms
+					firstOutputGuard.Commit()
+					ensureClientStarted()
 				}
 
 				// Close any open text block before tool_use.
@@ -2365,6 +2438,9 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		}
 	}
 
+	if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && !clientStarted {
+		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, streamFirstOutputFailoverError()
+	}
 	if finishReason == "" && !sawDone && !sawPolicyBlock {
 		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, fmt.Errorf("incomplete Gemini stream: missing terminal event")
 	}
@@ -2372,6 +2448,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, err
 	}
 
+	ensureClientStarted()
 	if openBlockIndex >= 0 {
 		writeSSE(c.Writer, "content_block_stop", map[string]any{
 			"type":  "content_block_stop",
@@ -2825,7 +2902,16 @@ func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(c *gin.Co
 	return &ClaudeUsage{}, nil
 }
 
-func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, isOAuth bool, account *Account, upstreamRequestID string) (*geminiNativeStreamResult, error) {
+func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
+	c *gin.Context,
+	resp *http.Response,
+	startTime time.Time,
+	isOAuth bool,
+	account *Account,
+	upstreamRequestID string,
+	firstOutputGuard *streamFirstOutputGuard,
+	streamAttemptCtx context.Context,
+) (*geminiNativeStreamResult, error) {
 	if s.cfg != nil && s.cfg.Gateway.GeminiDebugResponseHeaders {
 		logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] ========== Streaming Response Headers ==========")
 		for key, values := range resp.Header {
@@ -2836,25 +2922,34 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 		logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] ====================================================")
 	}
 
-	if s.responseHeaderFilter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-	}
-
-	c.Status(resp.StatusCode)
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-
 	contentType := resp.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "text/event-stream; charset=utf-8"
 	}
-	c.Header("Content-Type", contentType)
 	isEventStream := strings.Contains(strings.ToLower(contentType), "text/event-stream")
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
 		return nil, errors.New("streaming not supported")
+	}
+	if firstOutputGuard != nil && resp != nil && resp.Body != nil {
+		firstOutputGuard.WatchClose(resp.Body)
+	}
+
+	clientStarted := false
+	ensureClientStarted := func() {
+		if clientStarted {
+			return
+		}
+		if s.responseHeaderFilter != nil {
+			responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+		}
+		c.Status(resp.StatusCode)
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+		c.Header("Content-Type", contentType)
+		clientStarted = true
 	}
 
 	reader := bufio.NewReader(resp.Body)
@@ -2870,6 +2965,10 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 	fallback := &geminiSSEFallbackBody{}
 	estimateSeenText := ""
 	defer func() { stashGeminiWebEstimateOutputText(c, estimateSeenText) }()
+	var callerCtx context.Context
+	if c != nil && c.Request != nil {
+		callerCtx = c.Request.Context()
+	}
 
 	for {
 		line, err := reader.ReadString('\n')
@@ -2879,6 +2978,12 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 				if !sawDataEvent {
 					fallback.AddLine(trimmed)
 				}
+				if firstTokenMs == nil {
+					ms := int(time.Since(startTime).Milliseconds())
+					firstTokenMs = &ms
+					firstOutputGuard.Commit()
+				}
+				ensureClientStarted()
 				_, _ = io.WriteString(c.Writer, line)
 				flusher.Flush()
 			} else if strings.HasPrefix(trimmed, "data:") {
@@ -2925,7 +3030,9 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 					if firstTokenMs == nil {
 						ms := int(time.Since(startTime).Milliseconds())
 						firstTokenMs = &ms
+						firstOutputGuard.Commit()
 					}
+					ensureClientStarted()
 
 					// Always emit a complete SSE frame. Pass-through of a single
 					// ReadString line can leave "data: ...\n" without the event
@@ -2934,8 +3041,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 					flusher.Flush()
 					lastWroteDataEvent = true
 				} else if !sawDataEvent {
-					_, _ = io.WriteString(c.Writer, line)
-					flusher.Flush()
+					// Pre-commit empty/DONE frames stay off the client wire.
 					lastWroteDataEvent = false
 				}
 			} else if trimmed == "" {
@@ -2948,6 +3054,9 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 					if !sawDataEvent {
 						fallback.AddLine(trimmed)
 					}
+					// Relayed Edge heartbeats must reach the client even before
+					// content; they do not Commit the first-output budget.
+					ensureClientStarted()
 					_, _ = fmt.Fprint(c.Writer, geminiNativeSSEKeepaliveFrame)
 					flusher.Flush()
 				}
@@ -2956,13 +3065,14 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 				if !sawDataEvent {
 					fallback.AddLine(trimmed)
 				}
-				// Relayed Edge heartbeats must reach the client even before content.
+				ensureClientStarted()
 				_, _ = fmt.Fprint(c.Writer, geminiNativeSSEKeepaliveFrame)
 				flusher.Flush()
 			} else if !sawDataEvent {
 				lastWroteDataEvent = false
 				fallback.AddLine(trimmed)
 				if account != nil && !isOAuth {
+					ensureClientStarted()
 					_, _ = io.WriteString(c.Writer, line)
 					flusher.Flush()
 				}
@@ -2978,12 +3088,26 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 			break
 		}
 		if err != nil {
+			if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && !firstOutputGuard.Committed() {
+				if clientStarted {
+					return nil, streamFirstOutputFailoverErrorAfterKeepalive()
+				}
+				return nil, streamFirstOutputFailoverError()
+			}
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				ensureClientStarted()
 				_, _ = fmt.Fprint(c.Writer, geminiNativeSSEErrorFrame(http.StatusBadGateway, "stream_read_error"))
 				flusher.Flush()
 			}
 			return nil, err
 		}
+	}
+
+	if firstOutputGuard.BudgetFired(streamAttemptCtx, callerCtx) && !firstOutputGuard.Committed() {
+		if clientStarted {
+			return nil, streamFirstOutputFailoverErrorAfterKeepalive()
+		}
+		return nil, streamFirstOutputFailoverError()
 	}
 
 	s.finalizeGeminiSSESignal(c, account, true, upstreamRequestID, best, sawDataEvent, fallback)

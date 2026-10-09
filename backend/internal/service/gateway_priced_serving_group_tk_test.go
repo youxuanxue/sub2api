@@ -40,6 +40,6 @@ func TestPricedServingUsesCurrentKeyBillingGroup(t *testing.T) {
 	c, response := newGateTestContext()
 	c.Set("api_key", &APIKey{Group: group, GroupID: &group.ID})
 	ctx := context.WithValue(context.Background(), ctxkey.Group, &Group{ID: 10})
-	require.True(t, tkCheckPricedServingGate(ctx, billing.GetModelPricing, tkChannelPricingProbeFromResolver(resolver), newGateSettingService(PlatformNewAPI), nil, c, tkGateWireOpenAI, PlatformNewAPI, model, model))
+	require.True(t, tkCheckPricedServingGate(ctx, billing.GetModelPricing, tkChannelPricingProbeFromResolver(resolver), newGateSettingService(PlatformNewAPI), nil, c, tkGateWireOpenAI, PlatformNewAPI, model, model, nil))
 	require.Equal(t, 200, response.Code)
 }
