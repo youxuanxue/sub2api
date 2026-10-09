@@ -14003,12 +14003,23 @@
     },
     {
       "path": "backend/internal/integration/cursor/client_tool_metadata_tk_test.go",
-      "must_contain": ["TestClientToolMetadataSnapshot", "TestClientToolMetadataContinuesToClientHandoff", "TestAgentRunAmbiguousExecRejectsClientHandoff"],
+      "must_contain": [
+        "TestClientToolMetadataSnapshot",
+        "TestClientToolMetadataContinuesToClientHandoff",
+        "TestAgentRunAmbiguousExecRejectsClientHandoff"
+      ],
       "rationale": "Tool discovery must report request declarations without starting MCP servers or probing client environments; the same upstream connection must continue to client handoff."
     },
     {
       "path": "backend/internal/integration/cursor/client_shell_routing_tk_test.go",
-      "must_contain": ["TestClientBashPreservesCallerSchemaSemantics", "TestClientBashRejectsInvalidArguments", "TestNativeShellFailsBeforeClientHandoff", "TestClientToolRoutingPreservesDeclarations", "TestClientToolFilterConstrainsUpstreamWithoutDeclarations", "TestClientToolAllowlistDoesNotLearnOrReplay"],
+      "must_contain": [
+        "TestClientBashPreservesCallerSchemaSemantics",
+        "TestClientBashRejectsInvalidArguments",
+        "TestNativeShellFailsBeforeClientHandoff",
+        "TestClientToolRoutingPreservesDeclarations",
+        "TestClientToolFilterConstrainsUpstreamWithoutDeclarations",
+        "TestClientToolAllowlistDoesNotLearnOrReplay"
+      ],
       "rationale": "Unchanged MCP arguments follow the caller schema while native Shell cannot invent client execution state or silently replay operations."
     },
     {
@@ -14052,12 +14063,24 @@
     },
     {
       "path": "backend/internal/integration/cursor/native_boundary_tk_test.go",
-      "must_contain": ["TestNativeClientResultEvidence", "TestClientBashErrorContinuesOriginalRun", "TestNativeContinuationTrailingTextFailsClosed", "TestNativeContinuationConcurrentSingleConsumption"],
+      "must_contain": [
+        "TestNativeClientResultEvidence",
+        "TestClientBashErrorContinuesOriginalRun",
+        "TestNativeContinuationTrailingTextFailsClosed",
+        "TestNativeContinuationConcurrentSingleConsumption"
+      ],
       "rationale": "Keep client result fidelity and single consumption regressions: never invent error classifications or silently replay a result followed by user text."
     },
     {
       "path": "backend/internal/integration/cursor/native_continuation_close_tk_test.go",
-      "must_contain": ["TestNativeContinuationTerminalClose", "content_block_stop", "message_delta", "message_stop", "ContinuationAccount", "readNativeResponse"],
+      "must_contain": [
+        "TestNativeContinuationTerminalClose",
+        "content_block_stop",
+        "message_delta",
+        "message_stop",
+        "ContinuationAccount",
+        "readNativeResponse"
+      ],
       "rationale": "Terminal-delta delivery must preserve the authenticated native continuation even when a buffered gateway closes before message_stop. The regression also requires cleanup before terminal delivery and settlement through the original duplex."
     },
     {
@@ -15823,6 +15846,29 @@
         "func TestHTTPUpstreamProxyDiagnosticsExcludeCredentials("
       ],
       "rationale": "Real HTTP/2 reset and public Do/read lifecycle tests prevent header-only health accounting from silently returning."
+    },
+    {
+      "path": "backend/internal/repository/redeem_code_repo.go",
+      "must_contain": [
+        "giftNotes := service.GiftBalanceGrantNotes()",
+        "redeemcode.NotesNotIn(giftNotes...)"
+      ],
+      "rationale": "B1 panel 总充值 must exclude GiftBalanceGrantNotes; upstream merge must not drop the NotesNotIn filter (docs/approved/trial-media-recharge-ux-and-total-recharged.md)."
+    },
+    {
+      "path": "backend/internal/service/admin_user.go",
+      "must_contain": [
+        "bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, s.userRepo, user.ID, balance, BalanceGrantNoteAdminOpening, \"service.admin\")",
+        "bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, s.userRepo, userID, balanceDiff, notes, \"service.admin\")"
+      ],
+      "rationale": "Admin opening/balance updates must pass userRepo into bestEffortBalanceGrantLedger so qualifying grants bump users.total_recharged."
+    },
+    {
+      "path": "backend/internal/service/auth_oauth_first_bind.go",
+      "must_contain": [
+        "writeBalanceGrantLedger(ctx, client, userID, providerDefaults.Balance, BalanceGrantNoteOAuthFirstBind)"
+      ],
+      "rationale": "OAuth first-bind balance journal must keep BalanceGrantNoteOAuthFirstBind so A1 gift exclusion continues to apply via writeBalanceGrantLedger."
     }
   ]
 }
