@@ -35,6 +35,7 @@ bash deploy/hetzner/provision-edge.sh --edge-id uk1 --allow-planned
 ```
 
 前置：CFN `cicd-oidc-lightsail-addon` 已含 `tokenkey-hetzner-ssm-hybrid-uk1`。  
+user-data **必须以 `#!/bin/bash` 开头**（Ubuntu cloud-init 否则忽略）；AWS CLI 走官方 awscliv2 zip（noble 无 `awscli` apt）。  
 点火后把 `api-uk1-hz.tokenkey.dev` A 指到输出的 `public_ip`，再跑 E0/E1。
 
 ## 硬门禁

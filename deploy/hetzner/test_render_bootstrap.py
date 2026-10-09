@@ -35,6 +35,31 @@ class HetznerRenderBootstrapTests(unittest.TestCase):
         )
         self.assertIn("tokenkey-hetzner-bootstrap.log", content)
 
+    def test_generated_installs_awscliv2_not_apt_awscli(self):
+        content = GENERATED.read_text(encoding="utf-8")
+        self.assertIn("awscli-exe-linux-", content)
+        self.assertNotIn("gettext-base awscli", content)
+        self.assertIn("GHCR PAT unavailable", content)
+        self.assertIn("GHCR docker login failed; continuing with anonymous pull", content)
+        self.assertIn(
+            "ExecStartPre=-/usr/bin/docker compose --env-file /var/lib/tokenkey/.env pull",
+            content,
+        )
+
+    def test_provision_user_data_prefix_starts_with_shebang_before_exports(self):
+        """Regression: Ubuntu cloud-init ignores exports-first user-data."""
+        provision = (HERE / "provision-edge.sh").read_text(encoding="utf-8")
+        marker = "user_data_file=\"$(mktemp)\""
+        start = provision.index(marker)
+        block = provision[start : start + 1200]
+        shebang_at = block.index("#!/bin/bash")
+        export_at = block.index("export EDGE_ID=")
+        self.assertLess(
+            shebang_at,
+            export_at,
+            "cloud-init requires shebang before env exports in user-data",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

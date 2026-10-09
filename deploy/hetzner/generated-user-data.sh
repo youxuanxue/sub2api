@@ -29,7 +29,26 @@ export TZ_VALUE="${TZ_VALUE:-UTC}"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y --no-install-recommends \
-  ca-certificates curl gnupg openssl gzip gettext-base awscli
+  ca-certificates curl gnupg openssl gzip gettext-base unzip
+
+# Ubuntu 24.04 has no awscli apt package; install AWS CLI v2 for the host arch.
+if ! command -v aws >/dev/null 2>&1; then
+  arch="$(uname -m)"
+  case "${arch}" in
+    aarch64|arm64) aws_cli_arch=aarch64 ;;
+    x86_64|amd64) aws_cli_arch=x86_64 ;;
+    *) echo "BOOTSTRAP_FAIL: unsupported arch for awscliv2 ${arch}" >&2; exit 1 ;;
+  esac
+  tmp_aws="$(mktemp -d)"
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${aws_cli_arch}.zip" -o "${tmp_aws}/awscliv2.zip"
+  unzip -q "${tmp_aws}/awscliv2.zip" -d "${tmp_aws}"
+  "${tmp_aws}/aws/install" --update
+  rm -rf "${tmp_aws}"
+fi
+command -v aws >/dev/null 2>&1 || {
+  echo "BOOTSTRAP_FAIL: aws CLI missing after install" >&2
+  exit 1
+}
 
 if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sh
@@ -140,11 +159,17 @@ ENVEOF
 chmod 0600 /var/lib/tokenkey/.env
 
 if [ -n "${GHCR_PAT_SSM_NAME:-}" ]; then
-  GHCR_PAT="$(aws --region "${SSM_REGION}" ssm get-parameter \
+  if GHCR_PAT="$(aws --region "${SSM_REGION}" ssm get-parameter \
     --name "${GHCR_PAT_SSM_NAME}" --with-decryption \
-    --query Parameter.Value --output text)"
-  echo "${GHCR_PAT}" | docker login ghcr.io -u "${GHCR_PULL_USER}" --password-stdin
-  unset GHCR_PAT
+    --query Parameter.Value --output text 2>/dev/null)" && [ -n "${GHCR_PAT}" ]; then
+    # Stale/invalid PAT must not abort bootstrap; anonymous pull often works for public images.
+    if ! echo "${GHCR_PAT}" | docker login ghcr.io -u "${GHCR_PULL_USER}" --password-stdin; then
+      echo "GHCR docker login failed; continuing with anonymous pull for ${TOKENKEY_IMAGE}"
+    fi
+    unset GHCR_PAT
+  else
+    echo "GHCR PAT unavailable at ${GHCR_PAT_SSM_NAME}; anonymous pull for ${TOKENKEY_IMAGE}"
+  fi
 else
   echo "GHCR_PAT_SSM_NAME unset; anonymous pull for ${TOKENKEY_IMAGE}"
 fi
@@ -161,7 +186,7 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/var/lib/tokenkey
 EnvironmentFile=/var/lib/tokenkey/.env
-ExecStartPre=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env pull
+ExecStartPre=-/usr/bin/docker compose --env-file /var/lib/tokenkey/.env pull
 ExecStart=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env up -d --remove-orphans
 ExecStop=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env down
 TimeoutStartSec=10min
