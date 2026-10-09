@@ -386,16 +386,24 @@ func (r *redeemCodeRepository) ListByUserPaginated(ctx context.Context, userID i
 	return redeemCodeEntitiesToService(codes), paginationResultFromTotal(int64(total), params), nil
 }
 
-// SumPositiveBalanceByUser returns total recharged amount (sum of value > 0 where type is balance/admin_balance).
+// SumPositiveBalanceByUser returns qualifying 总充值 (A1/B1): sum of value > 0
+// where type is balance/admin_balance, excluding automatic gift notes
+// (signup / invite trial / OAuth first-bind). See
+// docs/approved/trial-media-recharge-ux-and-total-recharged.md.
 func (r *redeemCodeRepository) SumPositiveBalanceByUser(ctx context.Context, userID int64) (float64, error) {
 	var result []struct {
 		Sum float64 `json:"sum"`
 	}
+	giftNotes := service.GiftBalanceGrantNotes()
 	err := r.client.RedeemCode.Query().
 		Where(
 			redeemcode.UsedByEQ(userID),
 			redeemcode.ValueGT(0),
 			redeemcode.TypeIn(service.RedeemTypeBalance, service.AdjustmentTypeAdminBalance),
+			redeemcode.Or(
+				redeemcode.NotesIsNil(),
+				redeemcode.NotesNotIn(giftNotes...),
+			),
 		).
 		Aggregate(dbent.As(dbent.Sum(redeemcode.FieldValue), "sum")).
 		Scan(ctx, &result)

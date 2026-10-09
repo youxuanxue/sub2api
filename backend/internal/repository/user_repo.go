@@ -912,6 +912,25 @@ func (r *userRepository) UpdateBalance(ctx context.Context, id int64, amount flo
 	return nil
 }
 
+// AddTotalRecharged bumps users.total_recharged without changing balance.
+func (r *userRepository) AddTotalRecharged(ctx context.Context, id int64, amount float64) error {
+	if amount <= 0 {
+		return nil
+	}
+	client := clientFromContext(ctx, r.client)
+	n, err := client.User.Update().
+		Where(dbuser.IDEQ(id), dbuser.DeletedAtIsNil()).
+		AddTotalRecharged(amount).
+		Save(ctx)
+	if err != nil {
+		return translatePersistenceError(err, service.ErrUserNotFound, nil)
+	}
+	if n == 0 {
+		return service.ErrUserNotFound
+	}
+	return nil
+}
+
 func (r *userRepository) ApplyRedeemBalanceAdjustment(ctx context.Context, id int64, delta float64) error {
 	const updateSQL = `
 		UPDATE users

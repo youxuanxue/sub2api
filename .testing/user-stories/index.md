@@ -66,3 +66,5 @@
 | US-059 | Antigravity OpenAI Images 协议适配 | InTest | `.testing/user-stories/stories/US-059-antigravity-images-generations.md` |
 
 | US-060 | Cursor Agent client-only tool execution | InTest | `.testing/user-stories/stories/US-060-cursor-client-only-tools.md` |
+
+| US-061 | 充值资格与 Studio 媒体错误提示 | Done | `.testing/user-stories/stories/US-061-trial-media-recharge.md` |

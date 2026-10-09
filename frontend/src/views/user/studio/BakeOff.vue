@@ -140,10 +140,13 @@
           </span>
         </div>
 
-        <div v-if="errorMessage" class="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-100">
-          {{ errorMessage }}
-          <router-link v-if="errorCode === 'insufficient_balance'" to="/purchase" class="ml-1 font-medium underline">{{ t('studio.topUp') }}</router-link>
-        </div>
+        <StudioGatewayError
+          v-if="errorMessage"
+          :message="errorMessage"
+          :code="errorCode"
+          data-testid="studio-bakeoff-error"
+          class="mt-3"
+        />
       </template>
     </div>
 
@@ -456,6 +459,7 @@ import StudioVideoPreviewChecking from '@/views/user/studio/components/StudioVid
 import StudioVideoPreviewLightbox from '@/views/user/studio/components/StudioVideoPreviewLightbox.vue'
 import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUnavailable.vue'
 import { useAppStore } from '@/stores/app'
+import StudioGatewayError from '@/views/user/studio/components/StudioGatewayError.vue'
 import { classifyGatewayError, parseGatewayErrorMessage, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useStudioImageCardActions } from '@/composables/useStudioImageCardActions'
 import { useStudioVideoCardActions, createStudioVideoActionHandlers } from '@/composables/useStudioVideoCardActions'
@@ -905,7 +909,7 @@ async function generateBakeoffImage(modelId: string, prompt: string, imageSize?:
 
 function panelErrorText(e: unknown): string {
   const msg = parseGatewayErrorMessage(e instanceof Error ? e.message : '')
-  const code = classifyGatewayError(msg)
+  const code = classifyGatewayError(e instanceof Error ? e.message : '')
   if (code !== 'generic') return t(studioErrorI18nKey(code))
   if (msg && msg !== 'no_image' && msg !== 'no_task') return msg
   return t('studio.bakeoff.panelError')
@@ -913,7 +917,7 @@ function panelErrorText(e: unknown): string {
 
 function mapError(e: unknown): void {
   const msg = parseGatewayErrorMessage(e instanceof Error ? e.message : '')
-  const code = classifyGatewayError(msg)
+  const code = classifyGatewayError(e instanceof Error ? e.message : '')
   if (code !== 'generic') {
     errorCode.value = code
     errorMessage.value = t(studioErrorI18nKey(code))

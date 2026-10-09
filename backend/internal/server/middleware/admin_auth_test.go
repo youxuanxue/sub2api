@@ -190,6 +190,8 @@ func (s *stubUserRepo) UpdateUserLastActiveAt(ctx context.Context, userID int64,
 	panic("unexpected UpdateUserLastActiveAt call")
 }
 
+func (s *stubUserRepo) AddTotalRecharged(context.Context, int64, float64) error { return nil }
+
 func (s *stubUserRepo) UpdateBalance(ctx context.Context, id int64, amount float64) error {
 	panic("unexpected UpdateBalance call")
 }

@@ -58,6 +58,10 @@ func (s *onboardingUserRepoStub) List(context.Context, pagination.PaginationPara
 func (s *onboardingUserRepoStub) ListWithFilters(context.Context, pagination.PaginationParams, UserListFilters) ([]User, *pagination.PaginationResult, error) {
 	panic("unexpected ListWithFilters")
 }
+func (s *onboardingUserRepoStub) AddTotalRecharged(context.Context, int64, float64) error {
+	return nil
+}
+
 func (s *onboardingUserRepoStub) UpdateBalance(context.Context, int64, float64) error {
 	panic("unexpected UpdateBalance")
 }

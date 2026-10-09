@@ -228,6 +228,7 @@ const en: LocaleOverlay = {
     },
     "errors": {
       "insufficient_balance": "Insufficient balance — top up to generate.",
+      "trial_unpaid_media": "Image and video generation require a completed recharge. Text models remain available on your trial balance.",
       "permission": "This group is not enabled for this generation type.",
       "unpriced": "This model is not available for generation right now.",
       "rate_limited": "Too many requests — slow down and try again shortly.",
@@ -1208,6 +1209,7 @@ const zh: LocaleOverlay = {
     },
     "errors": {
       "insufficient_balance": "余额不足——充值后即可生成。",
+      "trial_unpaid_media": "图片与视频生成需完成充值后可用；文本模型仍可使用试用余额。",
       "permission": "该分组未开通此类生成。",
       "unpriced": "该模型当前不可用于生成。",
       "rate_limited": "请求过于频繁，请稍后再试。",

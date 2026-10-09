@@ -155,6 +155,10 @@ type UserRepository interface {
 
 	UpdateBalance(ctx context.Context, id int64, amount float64) error
 	DeductBalance(ctx context.Context, id int64, amount float64) error
+	// AddTotalRecharged bumps the cumulative qualifying recharge total without
+	// touching balance. Used by admin/ledger paths that already mutated balance
+	// separately (docs/approved/trial-media-recharge-ux-and-total-recharged.md).
+	AddTotalRecharged(ctx context.Context, id int64, amount float64) error
 	// AdjustBalance 原子地把 delta 累加到余额上，并返回变更前后的值。结果为负时
 	// 拒绝写入并返回 ErrBalanceNegative。管理员的加/扣款必须走这里而不是
 	// "读余额→算新值→整行写回"，否则并发的计费扣款会被旧快照抹掉。

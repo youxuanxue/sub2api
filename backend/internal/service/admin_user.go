@@ -164,6 +164,7 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 		if err := tx.Commit(); err != nil {
 			return nil, err
 		}
+		user.TotalRecharged += balance
 		s.assignDefaultSubscriptions(ctx, user.ID)
 		return user, nil
 	}
@@ -171,7 +172,7 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 		return nil, err
 	}
 	if balance > 0 {
-		bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, user.ID, balance, BalanceGrantNoteAdminOpening, "service.admin")
+		bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, s.userRepo, user.ID, balance, BalanceGrantNoteAdminOpening, "service.admin")
 	}
 	s.assignDefaultSubscriptions(ctx, user.ID)
 	return user, nil
@@ -570,7 +571,7 @@ func (s *adminServiceImpl) UpdateUserBalance(ctx context.Context, userID int64, 
 
 	balanceDiff := change.New - change.Old
 	if balanceDiff != 0 {
-		bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, userID, balanceDiff, notes, "service.admin")
+		bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, s.userRepo, userID, balanceDiff, notes, "service.admin")
 	}
 	if s.authCacheInvalidator != nil && balanceDiff != 0 {
 		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, userID)

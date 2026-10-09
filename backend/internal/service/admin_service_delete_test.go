@@ -171,6 +171,29 @@ func (s *userRepoStub) UpdateBalance(ctx context.Context, id int64, amount float
 	panic("unexpected UpdateBalance call")
 }
 
+func (s *userRepoStub) AddTotalRecharged(_ context.Context, id int64, amount float64) error {
+	if amount <= 0 {
+		return nil
+	}
+	if s.usersByID != nil {
+		if u, ok := s.usersByID[id]; ok {
+			u.TotalRecharged += amount
+			return nil
+		}
+	}
+	if s.user != nil && (s.user.ID == id || s.user.ID == 0) {
+		s.user.TotalRecharged += amount
+		return nil
+	}
+	for _, u := range s.created {
+		if u != nil && u.ID == id {
+			u.TotalRecharged += amount
+			return nil
+		}
+	}
+	return nil
+}
+
 func (s *userRepoStub) DeductBalance(ctx context.Context, id int64, amount float64) error {
 	panic("unexpected DeductBalance call")
 }

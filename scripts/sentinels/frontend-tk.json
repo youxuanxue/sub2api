@@ -493,7 +493,8 @@
         "mountStudioVideoLibrary",
         "onStudioImageThumbError",
         "data-testid=\"bakeoff-video-copy-card-link\"",
-        "test-id=\"bakeoff-video-preview\""
+        "test-id=\"bakeoff-video-preview\"",
+        "StudioGatewayError"
       ],
       "rationale": "BakeOff.vue is the TK-only Studio 'bake-off' compare surface — one prompt rendered across 2-4 priced image/video models side by side, each panel showing its own real price + latency. It is mounted by MediaStudioView.vue (view==='bakeoff') and is the only multi-model compare flow; the test-ids are the contract the studio e2e (frontend/e2e/studio.e2e.ts) drives and the anchors that keep an upstream merge from silently dropping the view (compiles green, feature gone). Note: the bakeoff image/video sub-mode toggle reuses data-testid=\"bakeoff-mode-image\"/\"bakeoff-mode-video\"; the run button + tier chips + result panels are anchored here. Both image and video card-level download actions are wired through their respective shared composables (useStudioImageCardActions / useStudioVideoCardActions) per CLAUDE.md 5.1 SSOT; the image anchor prevents a merge from reverting the image download back to a direct downloadMedia bypass."
     },
@@ -1764,7 +1765,8 @@
         "useStudioImageCardActions",
         "ImageGenerationParameters",
         "gatewayGenerateImage",
-        "normalizeImageOptions"
+        "normalizeImageOptions",
+        "StudioGatewayError"
       ],
       "rationale": "TK-only Studio image-generation surface (mounted by MediaStudioView when mode==='image'). The model card picker, the per-model aspect-ratio chips, and the generate button are the contract the studio e2e drives. The aspect chips are MODEL-SPECIFIC by design: each model's imageSizes (studioMediaPresentations.tk.ts) decides the exact `size` string sent — Imagen ratio codes, Seedream pixels — so an upstream merge that drops the aspect picker or reverts it to a fixed pixel preset reintroduces the Imagen 'Invalid aspect ratio, 3:2' hard-400 on landscape/portrait. mountStudioImageLibrary (SSOT with BakeOff) anchors onMounted IndexedDB hydrate + s3Key re-presign (POST /v1/images/presign) so reloaded sessions don't show dead thumbnails; useStudioImagePreview + StudioImagePreviewLightbox mirror the video SSOT lightbox (#1092). pricesFlat is the FE mirror of the backend Imagen flat-billing exemption (billing_service_tk_flat_image.go): it ORs flatImageBilling (gemini-native) with the model's flatPricePerImage (imagen) and drives the estimate/hold/formula/billed note to drop the 1K/2K/4K size multiplier for imagen WITHOUT touching imagen's /v1/images routing, multi-image n, or no-image-input behaviors — dropping it desyncs the quoted price from settlement (UI over-quotes imagen ×1.5 while the gateway now bills flat). useStudioImageCardActions is the shared image download owner (SSOT sibling of the video path's useStudioVideoCardActions) — dropping the wiring reverts the view to a private downloadMedia bypass. Anchoring the test-ids keeps the surface from compiling green with the feature silently gone. Image controls now use the shared capability-backed ImageGenerationParameters and request builder; billing flags never select routes."
     },
@@ -1791,7 +1793,8 @@
         "mountStudioVideoLibrary",
         "StudioVideoPreviewChecking",
         "StudioVideoDownloadCard",
-        "videoTaskCardPresentation"
+        "videoTaskCardPresentation",
+        "StudioGatewayError"
       ],
       "must_not_contain": [
         "poll.refreshUrl"
@@ -2895,6 +2898,24 @@
         "api_mode: chat_completions"
       ],
       "rationale": "Guide owners for the five new coding clients: Trae/Kilo/Qoder stay openai-fields; OpenClaw/Hermes use agent-config generators. Upstream merges that drop these branches leave catalog tiles with empty or wrong setup instructions."
+    },
+    {
+      "path": "frontend/src/views/user/studio/components/StudioGatewayError.vue",
+      "must_contain": [
+        "studioErrorShowsTopUp(code)",
+        "to=\"/purchase\""
+      ],
+      "rationale": "Studio recharge denial rendering has one owner across Image, Video and BakeOff (trial-media-recharge-ux-and-total-recharged)."
+    },
+    {
+      "path": "frontend/e2e/studio-trial-recharge.e2e.ts",
+      "must_contain": [
+        "trial_unpaid_media_blocked",
+        "permission_denied",
+        "await topUp.click()",
+        "await expect(page).toHaveURL(/\\/purchase$/)"
+      ],
+      "rationale": "Real UI regression verifies trial media denial localization, recharge navigation and removal of stale CTAs."
     }
   ]
 }

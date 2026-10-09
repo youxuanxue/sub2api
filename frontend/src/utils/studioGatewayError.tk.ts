@@ -14,12 +14,18 @@
 
 export type StudioErrorCode =
   | 'insufficient_balance'
+  | 'trial_unpaid_media'
   | 'permission'
   | 'unpriced'
   | 'rate_limited'
   | 'unauthorized'
   | 'unsupported_model'
   | 'generic'
+
+/** Error codes that should offer a purchase CTA in Studio. */
+export function studioErrorShowsTopUp(code: StudioErrorCode | ''): boolean {
+  return code === 'insufficient_balance' || code === 'trial_unpaid_media'
+}
 
 /** Pull a human-readable message from gatewayRequestJSON's stringified error. */
 export function parseGatewayErrorMessage(raw: string | undefined | null): string {
@@ -40,6 +46,14 @@ export function classifyGatewayError(message: string | undefined | null): Studio
   const m = (message || '').toLowerCase()
   if (!m) return 'generic'
   if (m.includes('insufficient_balance') || m.includes('insufficient balance')) return 'insufficient_balance'
+  // API code trial_unpaid_media_blocked + English deny message from EvaluateTrialUnpaidMedia.
+  if (
+    m.includes('trial_unpaid_media') ||
+    m.includes('completed recharge') ||
+    m.includes('image and video generation require')
+  ) {
+    return 'trial_unpaid_media'
+  }
   if (m.includes('authentication_error') || m.includes('invalid api key') || m.includes('401')) return 'unauthorized'
   if (m.includes('permission') || m.includes('not allowed') || m.includes('forbidden')) return 'permission'
   if (m.includes('not yet priced') || m.includes('unpriced') || m.includes('not priced')) return 'unpriced'

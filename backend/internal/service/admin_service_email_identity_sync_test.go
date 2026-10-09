@@ -106,6 +106,9 @@ func (s *emailSyncRepoStub) UpdateUserLastActiveAt(context.Context, int64, time.
 }
 
 func (s *emailSyncRepoStub) UpdateBalance(context.Context, int64, float64) error { return nil }
+func (s *emailSyncRepoStub) AddTotalRecharged(context.Context, int64, float64) error {
+	return nil
+}
 
 func (s *emailSyncRepoStub) DeductBalance(context.Context, int64, float64) error { return nil }
 

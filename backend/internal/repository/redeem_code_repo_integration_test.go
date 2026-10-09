@@ -481,6 +481,68 @@ func (s *RedeemCodeRepoSuite) TestListByUser_DefaultLimit() {
 	s.Require().Len(codes, 1)
 }
 
+// SumPositiveBalanceByUser must exclude automatic gift notes (A1/B1) while
+// counting admin opening, operator notes, nil notes, and paid balance codes.
+func (s *RedeemCodeRepoSuite) TestSumPositiveBalanceByUser_ExcludesGiftNotes() {
+	user := s.createUser(uniqueTestValue(s.T(), "sumpos") + "@example.com")
+	other := s.createUser(uniqueTestValue(s.T(), "sumpos-other") + "@example.com")
+	now := time.Now().UTC()
+
+	seed := func(code, typ string, value float64, notes *string, usedBy int64) {
+		c := s.client.RedeemCode.Create().
+			SetCode(code).
+			SetType(typ).
+			SetStatus(service.StatusUsed).
+			SetValue(value).
+			SetValidityDays(30).
+			SetUsedBy(usedBy).
+			SetUsedAt(now)
+		if notes != nil {
+			c = c.SetNotes(*notes)
+		}
+		_, err := c.Save(s.ctx)
+		s.Require().NoError(err, "seed %s", code)
+	}
+
+	signup := service.BalanceGrantNoteSignup
+	invite := service.BalanceGrantNoteInviteTrial
+	oauth := service.BalanceGrantNoteOAuthFirstBind
+	opening := service.BalanceGrantNoteAdminOpening
+	operator := "线下转账补单"
+
+	seed("GIFT-SIGNUP", service.AdjustmentTypeAdminBalance, 3.5, &signup, user.ID)
+	seed("GIFT-INVITE", service.AdjustmentTypeAdminBalance, 12, &invite, user.ID)
+	seed("GIFT-OAUTH", service.AdjustmentTypeAdminBalance, 5, &oauth, user.ID)
+	seed("ADMIN-OPEN", service.AdjustmentTypeAdminBalance, 100, &opening, user.ID)
+	seed("ADMIN-OPS", service.AdjustmentTypeAdminBalance, 1000, &operator, user.ID)
+	seed("PAID-BAL", service.RedeemTypeBalance, 50, nil, user.ID)
+	seed("NEG-ADJ", service.AdjustmentTypeAdminBalance, -20, &operator, user.ID)
+	seed("OTHER-USER", service.AdjustmentTypeAdminBalance, 999, &operator, other.ID)
+
+	sum, err := s.repo.SumPositiveBalanceByUser(s.ctx, user.ID)
+	s.Require().NoError(err)
+	// 100 (opening) + 1000 (ops) + 50 (paid, nil notes); gifts and negative excluded.
+	s.Require().InDelta(1150.0, sum, 0.0001)
+}
+
+func (s *RedeemCodeRepoSuite) TestSumPositiveBalanceByUser_NoQualifyingCredits() {
+	user := s.createUser(uniqueTestValue(s.T(), "gift-only") + "@example.com")
+	sum, err := s.repo.SumPositiveBalanceByUser(s.ctx, user.ID)
+	s.Require().NoError(err)
+	s.Zero(sum)
+	for _, note := range service.GiftBalanceGrantNotes() {
+		code, err := service.GenerateRedeemCode()
+		s.Require().NoError(err)
+		_, err = s.client.RedeemCode.Create().SetCode(code).
+			SetType(service.AdjustmentTypeAdminBalance).SetStatus(service.StatusUsed).
+			SetValue(2).SetUsedBy(user.ID).SetNotes(note).Save(s.ctx)
+		s.Require().NoError(err)
+	}
+	sum, err = s.repo.SumPositiveBalanceByUser(s.ctx, user.ID)
+	s.Require().NoError(err)
+	s.Zero(sum)
+}
+
 // --- Combined original test ---
 
 func (s *RedeemCodeRepoSuite) TestCreateBatch_Filters_Use_Idempotency_ListByUser() {
