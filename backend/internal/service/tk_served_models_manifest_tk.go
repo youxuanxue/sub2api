@@ -252,6 +252,7 @@ func newAPIAliTokenPlanModelMappingPresetIDs() []string {
 // Keep the aliases scoped to Plan; other providers may still serve old versions.
 func newAPIVolcEngineAgentPlanModelAliases() map[string]string {
 	return map[string]string{
+		"deepseek-chat":           "deepseek-v4.1-flash",
 		"deepseek-flash":          "deepseek-v4.1-flash",
 		"doubao-seedream-5.0-pro": "doubao-seedream-5-0-pro",
 		"glm-4.5-air":             "glm-5.3",
@@ -276,6 +277,7 @@ var volcEngineAgentPlanForbiddenModelMappingKeys = []string{
 // PAYG aliases retain their original targets.
 func newAPIAliTokenPlanModelAliases() map[string]string {
 	return map[string]string{
+		"deepseek-chat":        "deepseek-v4.1-flash",
 		"deepseek-flash":       "deepseek-v4.1-flash",
 		"deepseek-v4-flash":    "deepseek-v4-flash-0731",
 		"deepseek-v4-pro-0813": "deepseek-v4-pro",

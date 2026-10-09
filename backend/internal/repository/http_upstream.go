@@ -220,15 +220,17 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 	// #nosec G704 -- req host is validated by validateRequestHost before dispatch.
 	client := s.httpClientForUpstreamRequest(entry.client, req)
 	client = httpClientWithGrokAccessDeniedFallback(client)
+	req, observation := observeUpstreamRequest(req, entry, accountID)
 	resp, err := doUpstreamRequest(client, req)
 	if err != nil {
 		s.recordOpenAIHTTP2Failure(profile, entry.protocolMode, entry.proxyKey, err)
+		observation.failure("response_headers", nil, 0, err)
 		// 请求失败，立即减少计数
 		atomic.AddInt64(&entry.inFlight, -1)
 		atomic.StoreInt64(&entry.lastUsed, time.Now().UnixNano())
 		return nil, err
 	}
-	s.recordOpenAIHTTP2Success(profile, entry.protocolMode, entry.proxyKey)
+	s.observeResponseBody(resp, observation, entry, profile)
 
 	// 包装响应体，在关闭时自动减少计数并更新时间戳
 	// 这确保了流式响应（如 SSE）在完全读取前不会被淘汰
@@ -282,14 +284,16 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 	// #nosec G704 -- req host is validated by validateRequestHost before dispatch.
 	client := s.httpClientForUpstreamRequest(entry.client, req)
 	client = httpClientWithGrokAccessDeniedFallback(client)
+	req, observation := observeUpstreamRequest(req, entry, accountID)
 	resp, err := doUpstreamRequest(client, req)
 	if err != nil {
 		atomic.AddInt64(&entry.inFlight, -1)
 		atomic.StoreInt64(&entry.lastUsed, time.Now().UnixNano())
-		slog.Debug("tls_fingerprint_request_failed", "account_id", accountID, "error", err)
+		observation.failure("response_headers", nil, 0, err)
 		return nil, err
 	}
 
+	s.observeResponseBody(resp, observation, entry, upstreamProfile)
 	resp.Body = wrapTrackedBody(resp.Body, func() {
 		atomic.AddInt64(&entry.inFlight, -1)
 		atomic.StoreInt64(&entry.lastUsed, time.Now().UnixNano())
@@ -1424,6 +1428,10 @@ func enableHTTP2KeepAlive(transport *http.Transport, protocolMode string) (*http
 		return nil, err
 	}
 	if h2 != nil {
+		h2.CountError = func(kind string) {
+			// Protocol-owned tokens only; no headers, payload or proxy URL.
+			slog.Warn("upstream_http2_transport_error", "protocol_mode", protocolMode, "http2_error_kind", kind)
+		}
 		h2.ReadIdleTimeout = longStreamHTTP2ReadIdleTimeout
 		h2.PingTimeout = longStreamHTTP2PingTimeout
 		if protocolMode == upstreamProtocolModeOpenAIH2 {

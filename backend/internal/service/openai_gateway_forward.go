@@ -647,6 +647,17 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			requestView = newOpenAIRequestView(body)
 		}
 	}
+	if account.IsOpenAIOAuthLike() && !isCompactRequest {
+		next, repaired, err := normalizeOpenAIOAuthWebSearchHistory(body, isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) || isOpenAIResponsesLiteWebSocketPayload(body))
+		if err != nil {
+			return nil, fmt.Errorf("normalize OAuth search history: %w", err)
+		}
+		if repaired {
+			body = next
+			requestView = newOpenAIRequestView(body)
+			reqBody = nil
+		}
+	}
 	// Run after orphan-output filtering and all request-map rebuilds so a
 	// compaction trigger cannot remain ahead of surviving history items.
 	if normalizedBody, changed, normalizeErr := NormalizeCompactionTriggerInputOrder(body); normalizeErr != nil {

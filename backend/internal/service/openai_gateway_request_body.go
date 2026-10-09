@@ -1506,6 +1506,10 @@ func normalizeOpenAIResponseFormatSchemasBody(body []byte) ([]byte, bool, error)
 }
 
 func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Account, responsesLite bool) ([]byte, bool, error) {
+	return normalizeOpenAIResponsesCompatibilityBody(body, account, responsesLite, false)
+}
+
+func normalizeOpenAIResponsesCompatibilityBody(body []byte, account *Account, responsesLite, compact bool) ([]byte, bool, error) {
 	if account == nil || !account.IsOpenAI() {
 		return body, false, nil
 	}
@@ -1576,6 +1580,14 @@ func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Ac
 			normalized = next
 			changed = true
 		}
+	}
+	if account.IsOpenAIOAuthLike() && !compact {
+		next, repaired, err := normalizeOpenAIOAuthWebSearchHistory(normalized, responsesLite)
+		if err != nil {
+			return body, false, fmt.Errorf("normalize OAuth search history: %w", err)
+		}
+		normalized = next
+		changed = changed || repaired
 	}
 	needsOrphanCleanup := account != nil && account.IsOpenAIOAuthLike() &&
 		gjson.GetBytes(normalized, "input").IsArray()
