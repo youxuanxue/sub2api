@@ -162,7 +162,10 @@ if [ -n "${GHCR_PAT_SSM_NAME:-}" ]; then
   if GHCR_PAT="$(aws --region "${SSM_REGION}" ssm get-parameter \
     --name "${GHCR_PAT_SSM_NAME}" --with-decryption \
     --query Parameter.Value --output text 2>/dev/null)" && [ -n "${GHCR_PAT}" ]; then
-    echo "${GHCR_PAT}" | docker login ghcr.io -u "${GHCR_PULL_USER}" --password-stdin
+    # Stale/invalid PAT must not abort bootstrap; anonymous pull often works for public images.
+    if ! echo "${GHCR_PAT}" | docker login ghcr.io -u "${GHCR_PULL_USER}" --password-stdin; then
+      echo "GHCR docker login failed; continuing with anonymous pull for ${TOKENKEY_IMAGE}"
+    fi
     unset GHCR_PAT
   else
     echo "GHCR PAT unavailable at ${GHCR_PAT_SSM_NAME}; anonymous pull for ${TOKENKEY_IMAGE}"
