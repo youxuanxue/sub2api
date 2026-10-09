@@ -206,6 +206,40 @@ class PricingRegistrySensorTests(unittest.TestCase):
         )}
         self.assertEqual(blamed, {"grok-4.3"})
 
+    def test_china_mainland_cny_policy_is_report_only(self) -> None:
+        """LiteLLM must not overwrite intentional China-mainland ÷ FX owners."""
+        self.registry["qwen-max"] = {
+            "mode": "chat",
+            "litellm_provider": "dashscope",
+            "input_cost_per_token": 3.582089552238806e-07,
+            "output_cost_per_token": 1.432835820895522e-06,
+            "source": (
+                "Alibaba DashScope qwen-max official China-mainland (Beijing) "
+                "RMB list ÷ 6.7; International deployment intentionally NOT modeled"
+            ),
+        }
+        source = {
+            "dashscope/qwen-max": {
+                "litellm_provider": "dashscope",
+                "mode": "chat",
+                "input_cost_per_token": 1.6e-06,
+                "output_cost_per_token": 6.4e-06,
+            }
+        }
+        report = sensor.build_report(self.registry, source, source_label="fixture")
+        candidate, owners = sensor.build_candidate_registry(self.registry, report)
+        self.assertEqual(owners, [])
+        self.assertEqual(
+            candidate["qwen-max"]["input_cost_per_token"],
+            3.582089552238806e-07,
+        )
+        self.assertEqual(report["summary"]["actionable_owner_count"], 0)
+        self.assertFalse(report["owner_drifts"][0]["fields"][0]["actionable"])
+        self.assertIn(
+            "manual local/CNY pricing policy",
+            report["owner_drifts"][0]["fields"][0]["rejected_reason"],
+        )
+
     def test_video_floor_conflict_is_demoted_not_written(self) -> None:
         """LiteLLM flat $/s must not break video_price_tiers catalog floor."""
         self.registry["veo-lite"] = {

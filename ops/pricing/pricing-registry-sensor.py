@@ -78,6 +78,20 @@ _METADATA_FIELDS = frozenset({
     "explicit_free",
 })
 
+# Registry `source` text that means TokenKey already owns a manual local price
+# (typically China-mainland RMB ÷ CNY/USD). LiteLLM rows stay evidence-only.
+_LOCAL_PRICE_POLICY_MARKERS = (
+    "China-mainland",
+    "CNY/USD=6.7",
+    "CNY/USD = 6.7",
+    "÷ 6.7",
+    "divided by TokenKey CNY/USD",
+    "Overlay stores idle",
+    "Stored pre-tax",
+    "TokenKey product policy",
+    "intentionally NOT modeled",
+)
+
 
 def _is_relevant_field(field: str) -> bool:
     return (
@@ -214,7 +228,7 @@ def build_report(registry: dict, source: dict, *, source_label: str) -> dict:
         if not key.startswith("_") and isinstance(value, dict)
     )
     registry_without_evidence = sorted(set(registry_owners) - set(selected))
-    report = {
+    report: dict[str, Any] = {
         "schema_version": 1,
         "source": source_label,
         "registry_sha256": hashlib.sha256(
@@ -233,6 +247,7 @@ def build_report(registry: dict, source: dict, *, source_label: str) -> dict:
         "report_only_evidence": report_only,
         "registry_without_evidence": registry_without_evidence,
     }
+    _demote_manual_local_pricing_owners(registry, report)
     return report
 
 
@@ -289,6 +304,49 @@ def _demote_owner_actionable_fields(report: dict, owner: str, reason: str) -> No
     })
 
 
+def _registry_asserts_manual_local_pricing(source: object) -> bool:
+    if not isinstance(source, str) or not source.strip():
+        return False
+    return any(marker in source for marker in _LOCAL_PRICE_POLICY_MARKERS)
+
+
+def _recount_actionable_summary(report: dict) -> None:
+    actionable_owners = {
+        drift["owner"]
+        for drift in report["owner_drifts"]
+        if any(field["actionable"] for field in drift["fields"])
+    }
+    report["summary"]["actionable_owner_count"] = len(actionable_owners)
+    report["summary"]["report_only_count"] = len(report.get("report_only_evidence", []))
+
+
+def _demote_manual_local_pricing_owners(registry: dict, report: dict) -> None:
+    """Keep China-mainland / CNY÷FX owners report-only.
+
+    LiteLLM often carries international or peak USD rows that would silently
+    overwrite TokenKey's intentional local list. Humans still see the drift.
+    """
+    demoted = False
+    for drift in report["owner_drifts"]:
+        owner = drift["owner"]
+        row = registry.get(owner)
+        if not isinstance(row, dict):
+            continue
+        if not _registry_asserts_manual_local_pricing(row.get("source")):
+            continue
+        if not any(field.get("actionable") for field in drift["fields"]):
+            continue
+        _demote_owner_actionable_fields(
+            report,
+            owner,
+            "candidate rejected: registry source asserts manual local/CNY "
+            "pricing policy; LiteLLM evidence stays report-only",
+        )
+        demoted = True
+    if demoted:
+        _recount_actionable_summary(report)
+
+
 def _sanitize_candidate_against_overlay(
     registry: dict,
     report: dict,
@@ -336,13 +394,7 @@ def _sanitize_candidate_against_overlay(
     else:
         raise RuntimeError("candidate sanitization did not converge")
 
-    actionable_owners = {
-        drift["owner"]
-        for drift in report["owner_drifts"]
-        if any(field["actionable"] for field in drift["fields"])
-    }
-    report["summary"]["actionable_owner_count"] = len(actionable_owners)
-    report["summary"]["report_only_count"] = len(report.get("report_only_evidence", []))
+    _recount_actionable_summary(report)
     return sorted(remaining)
 
 
