@@ -178,7 +178,7 @@
           data-testid="studio-video-error"
         >
           {{ errorMessage }}
-          <router-link v-if="errorCode === 'insufficient_balance'" to="/purchase" class="ml-1 font-medium underline">{{ t('studio.topUp') }}</router-link>
+          <router-link v-if="studioErrorShowsTopUp(errorCode)" to="/purchase" class="ml-1 font-medium underline">{{ t('studio.topUp') }}</router-link>
         </div>
       </div>
     </div>
@@ -375,7 +375,7 @@ import StudioVideoDownloadCard from '@/views/user/studio/components/StudioVideoD
 import StudioVideoPreviewChecking from '@/views/user/studio/components/StudioVideoPreviewChecking.vue'
 import StudioVideoPreviewLightbox from '@/views/user/studio/components/StudioVideoPreviewLightbox.vue'
 import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUnavailable.vue'
-import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
+import { classifyGatewayError, studioErrorI18nKey, studioErrorShowsTopUp, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useMediaLibrary, type VideoTaskItem } from '@/composables/useMediaLibrary'
 import { useStudioVideoCardActions, createStudioVideoActionHandlers } from '@/composables/useStudioVideoCardActions'
 import { mountStudioVideoLibrary } from '@/composables/useStudioVideoLibrary'

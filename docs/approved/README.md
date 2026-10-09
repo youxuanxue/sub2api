@@ -154,6 +154,7 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | [`admin-dashboard-rollup-performance.md`](admin-dashboard-rollup-performance.md) | Admin dashboard rollups |
 | [`admin-ui-performance-rollups.md`](admin-ui-performance-rollups.md) | Admin UI rollup performance |
 | [`user-cold-start.md`](user-cold-start.md) | New-user cold start |
+| [`trial-media-recharge-ux-and-total-recharged.md`](trial-media-recharge-ux-and-total-recharged.md) | Trial media 402 Studio UX + `users.total_recharged` / 总充值 SSOT (A1/B1) |
 | [`public-quickstart-registration-offer.md`](public-quickstart-registration-offer.md) | Public Quickstart and shared registration offer |
 | [`usage-balance-fallback.md`](usage-balance-fallback.md) | Usage balance fallback |
 | [`response-usage-cost.md`](response-usage-cost.md) | Inference response `usage.cost` (TotalCost / list price) |

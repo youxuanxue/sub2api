@@ -61,8 +61,8 @@ func (s *AuthService) tkApplyColdStartPostCreate(ctx context.Context, userID int
 // createUserWithSignupLedger inserts a new user and, when the user is created
 // with a positive opening balance (signup default + bonus), records that balance
 // as an admin_balance journal row in the SAME transaction. This closes the gap
-// where a signup credit moved users.balance but never appeared in 充值和并发变动记录
-// nor counted toward 总充值.
+// where a signup credit moved users.balance but never appeared in 充值和并发变动记录.
+// Signup notes are gift-excluded from 总充值 / users.total_recharged (A1).
 //
 // It returns the user-create error unchanged so each register path keeps its
 // existing ErrEmailExists race handling. When the caller already opened a
@@ -76,7 +76,7 @@ func (s *AuthService) createUserWithSignupLedger(ctx context.Context, user *User
 		if err := s.userRepo.CreateWithEmailAliasGuard(ctx, user); err != nil {
 			return err
 		}
-		bestEffortBalanceGrantLedger(ctx, s.redeemRepo, user.ID, user.Balance, BalanceGrantNoteSignup, "service.auth")
+		bestEffortBalanceGrantLedger(ctx, s.redeemRepo, s.userRepo, user.ID, user.Balance, BalanceGrantNoteSignup, "service.auth")
 		return nil
 	}
 

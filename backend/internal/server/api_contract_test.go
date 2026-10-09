@@ -1874,6 +1874,8 @@ func (r *stubUserRepo) ListWithFilters(ctx context.Context, params pagination.Pa
 	return nil, nil, errors.New("not implemented")
 }
 
+func (r *stubUserRepo) AddTotalRecharged(context.Context, int64, float64) error { return nil }
+
 func (r *stubUserRepo) UpdateBalance(ctx context.Context, id int64, amount float64) error {
 	return errors.New("not implemented")
 }

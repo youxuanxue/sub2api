@@ -68,8 +68,9 @@ func NewTrialProvisionService(
 // createTrialUserWithLedger inserts the trial user and, when it is provisioned
 // with a positive opening balance, records that balance as an admin_balance
 // journal row in the SAME transaction so the trial credit shows in
-// 充值和并发变动记录 and counts toward 总充值. Falls back to a plain create plus
-// best-effort journal when no ent client is wired (unit tests).
+// 充值和并发变动记录. Invite-trial notes are gift-excluded from 总充值 /
+// total_recharged (A1). Falls back to a plain create plus best-effort journal
+// when no ent client is wired (unit tests).
 func (s *TrialProvisionService) createTrialUserWithLedger(ctx context.Context, user *User) error {
 	if user.Balance <= 0 {
 		return s.userRepo.Create(ctx, user)
@@ -78,7 +79,7 @@ func (s *TrialProvisionService) createTrialUserWithLedger(ctx context.Context, u
 		if err := s.userRepo.Create(ctx, user); err != nil {
 			return err
 		}
-		bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, user.ID, user.Balance, BalanceGrantNoteInviteTrial, "service.admin")
+		bestEffortBalanceGrantLedger(ctx, s.redeemCodeRepo, s.userRepo, user.ID, user.Balance, BalanceGrantNoteInviteTrial, "service.admin")
 		return nil
 	}
 

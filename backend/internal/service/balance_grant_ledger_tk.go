@@ -2,24 +2,21 @@ package service
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
 // TokenKey: unified balance-change journal writer.
 //
-// The "用户充值和并发变动记录" admin panel and the 总充值 (total recharge) figure
-// are both derived ONLY from redeem_codes rows (see
-// adminServiceImpl.GetUserBalanceHistory / redeemCodeRepository.SumPositiveBalanceByUser).
-// Historically several paths granted or adjusted users.balance WITHOUT writing a
-// journal row — opening balance at account creation (CreateUser / invite-trial),
-// the signup bonus, and OAuth first-bind provider defaults — so those credits were
-// invisible in the panel and silently undercounted in 总充值, while the admin
-// recharge button wrote its row in a separate, non-atomic step that was lost on
-// error. writeBalanceGrantLedger closes that gap by giving every balance-granting
-// path one shared, transaction-aware journal writer.
+// The "用户充值和并发变动记录" admin panel lists redeem_codes rows; 总充值 uses
+// SumPositiveBalanceByUser (qualifying filter A1/B1 — excludes signup/invite/oauth
+// gift notes). users.total_recharged is kept in lockstep on qualifying writes.
+// Historically several paths granted balance WITHOUT a journal row; writeBalanceGrantLedger
+// closes that gap with one shared, transaction-aware journal writer.
 //
 // Pass a transaction-bound client (tx.Client()) so the journal row commits and
 // rolls back atomically with the balance mutation at the call site. The recorded
@@ -35,10 +32,41 @@ const (
 	BalanceGrantNoteOAuthFirstBind = "OAuth首次绑定默认余额"
 )
 
+// GiftBalanceGrantNotes are automatic trial/signup credits. They appear in
+// redeem_codes history but must NOT count toward 总充值 / users.total_recharged
+// (media gate + admin panel SSOT: docs/approved/trial-media-recharge-ux-and-total-recharged.md).
+func GiftBalanceGrantNotes() []string {
+	return []string{
+		BalanceGrantNoteSignup,
+		BalanceGrantNoteInviteTrial,
+		BalanceGrantNoteOAuthFirstBind,
+	}
+}
+
+// IsGiftBalanceGrantNote reports whether notes tags an automatic gift that is
+// excluded from qualifying recharge totals (A1).
+func IsGiftBalanceGrantNote(notes string) bool {
+	switch strings.TrimSpace(notes) {
+	case BalanceGrantNoteSignup, BalanceGrantNoteInviteTrial, BalanceGrantNoteOAuthFirstBind:
+		return true
+	default:
+		return false
+	}
+}
+
+// addQualifyingTotalRecharged bumps users.total_recharged for positive,
+// non-gift balance grants. No-op for gifts, non-positive amounts, or nil repo.
+func addQualifyingTotalRecharged(ctx context.Context, userRepo UserRepository, userID int64, amount float64, notes string) error {
+	if userRepo == nil || amount <= 0 || IsGiftBalanceGrantNote(notes) {
+		return nil
+	}
+	return userRepo.AddTotalRecharged(ctx, userID, amount)
+}
+
 // bestEffortBalanceGrantLedger records a balance grant via the redeem-code repository
 // without a transaction. Used only when no ent client is wired (unit tests); production
 // paths use writeBalanceGrantLedger inside the same tx as the balance mutation.
-func bestEffortBalanceGrantLedger(ctx context.Context, redeemCodeRepo RedeemCodeRepository, userID int64, amount float64, notes string, logComponent string) {
+func bestEffortBalanceGrantLedger(ctx context.Context, redeemCodeRepo RedeemCodeRepository, userRepo UserRepository, userID int64, amount float64, notes string, logComponent string) {
 	if redeemCodeRepo == nil || amount == 0 {
 		return
 	}
@@ -59,6 +87,10 @@ func bestEffortBalanceGrantLedger(ctx context.Context, redeemCodeRepo RedeemCode
 	}
 	if err := redeemCodeRepo.Create(ctx, record); err != nil {
 		logger.LegacyPrintf(logComponent, "failed to create balance grant redeem code: %v", err)
+		return
+	}
+	if err := addQualifyingTotalRecharged(ctx, userRepo, userID, amount, notes); err != nil {
+		logger.LegacyPrintf(logComponent, "failed to add total_recharged for balance grant: %v", err)
 	}
 }
 
@@ -68,6 +100,10 @@ func bestEffortBalanceGrantLedger(ctx context.Context, redeemCodeRepo RedeemCode
 // so the journal row and the balance change are atomic. notes carries the source
 // tag (see the BalanceGrantNote* constants) or, for admin recharges, the
 // operator-supplied reason.
+//
+// Qualifying positive grants (A1: not signup/invite/oauth gifts) also bump
+// users.total_recharged in the same transaction so the field stays aligned with
+// SumPositiveBalanceByUser.
 func writeBalanceGrantLedger(ctx context.Context, client *dbent.Client, userID int64, amount float64, notes string) error {
 	code, err := GenerateRedeemCode()
 	if err != nil {
@@ -82,5 +118,21 @@ func writeBalanceGrantLedger(ctx context.Context, client *dbent.Client, userID i
 		SetUsedAt(time.Now()).
 		SetNotes(notes).
 		Save(ctx)
-	return err
+	if err != nil {
+		return err
+	}
+	if amount <= 0 || IsGiftBalanceGrantNote(notes) {
+		return nil
+	}
+	n, err := client.User.Update().
+		Where(user.IDEQ(userID), user.DeletedAtIsNil()).
+		AddTotalRecharged(amount).
+		Save(ctx)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }

@@ -9,6 +9,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestIsGiftBalanceGrantNote(t *testing.T) {
+	require.True(t, IsGiftBalanceGrantNote(BalanceGrantNoteSignup))
+	require.True(t, IsGiftBalanceGrantNote(BalanceGrantNoteInviteTrial))
+	require.True(t, IsGiftBalanceGrantNote(BalanceGrantNoteOAuthFirstBind))
+	require.False(t, IsGiftBalanceGrantNote(BalanceGrantNoteAdminOpening))
+	require.False(t, IsGiftBalanceGrantNote(""))
+	require.False(t, IsGiftBalanceGrantNote("线下转账补单"))
+}
+
 // CreateUser with a positive opening balance must emit an admin_balance journal
 // row tagged as an opening grant, so the credit shows in 充值和并发变动记录 and counts
 // toward 总充值 (regression for the silently-missing opening balance).
@@ -38,6 +47,7 @@ func TestAdminService_CreateUser_OpeningBalance_WritesLedger(t *testing.T) {
 	require.NotNil(t, rec.UsedBy)
 	require.Equal(t, int64(42), *rec.UsedBy)
 	require.Equal(t, BalanceGrantNoteAdminOpening, rec.Notes)
+	require.InDelta(t, 10000.0, u.TotalRecharged, 0.0001)
 }
 
 // A zero opening balance must NOT create a journal row.
@@ -63,11 +73,12 @@ func TestAdminService_UpdateUserBalance_KeepsOperatorNote(t *testing.T) {
 	redeemRepo := &balanceRedeemRepoStub{redeemRepoStub: &redeemRepoStub{}}
 	svc := &adminServiceImpl{userRepo: userRepo, redeemCodeRepo: redeemRepo}
 
-	_, err := svc.UpdateUserBalance(context.Background(), 9, 500, "add", "线下转账补单")
+	user, err := svc.UpdateUserBalance(context.Background(), 9, 500, "add", "线下转账补单")
 	require.NoError(t, err)
 	require.Len(t, redeemRepo.created, 1)
 	require.Equal(t, "线下转账补单", redeemRepo.created[0].Notes)
 	require.Equal(t, 500.0, redeemRepo.created[0].Value)
+	require.InDelta(t, 500.0, user.TotalRecharged, 0.0001)
 }
 
 func TestAuthService_CreateUserWithSignupLedger_NilEntClient_BestEffortLedger(t *testing.T) {
@@ -92,6 +103,8 @@ func TestAuthService_CreateUserWithSignupLedger_NilEntClient_BestEffortLedger(t 
 	require.Equal(t, 3.5, redeemRepo.created[0].Value)
 	require.NotNil(t, redeemRepo.created[0].UsedBy)
 	require.Equal(t, int64(77), *redeemRepo.created[0].UsedBy)
+	// Signup gift must not unlock media via total_recharged (A1).
+	require.Zero(t, user.TotalRecharged)
 }
 
 func TestTrialProvisionService_CreateTrialUserWithLedger_NilEntClient_BestEffortLedger(t *testing.T) {
@@ -114,4 +127,5 @@ func TestTrialProvisionService_CreateTrialUserWithLedger_NilEntClient_BestEffort
 	require.Len(t, redeemRepo.created, 1)
 	require.Equal(t, BalanceGrantNoteInviteTrial, redeemRepo.created[0].Notes)
 	require.Equal(t, 12.0, redeemRepo.created[0].Value)
+	require.Zero(t, user.TotalRecharged)
 }

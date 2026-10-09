@@ -103,7 +103,7 @@
           data-testid="studio-image-error"
         >
           {{ errorMessage }}
-          <router-link v-if="errorCode === 'insufficient_balance'" to="/purchase" class="ml-1 font-medium underline">{{ t('studio.topUp') }}</router-link>
+          <router-link v-if="studioErrorShowsTopUp(errorCode)" to="/purchase" class="ml-1 font-medium underline">{{ t('studio.topUp') }}</router-link>
         </div>
       </div>
     </div>
@@ -205,7 +205,7 @@ import {
   formatUsd,
   IMAGE_SIZE_MULTIPLIER,
 } from '@/utils/mediaCostEstimate.tk'
-import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
+import { classifyGatewayError, studioErrorI18nKey, studioErrorShowsTopUp, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useStudioImageCardActions } from '@/composables/useStudioImageCardActions'
 import { imageHistoryItemAvailable } from '@/utils/studioMedia.tk'
 import {

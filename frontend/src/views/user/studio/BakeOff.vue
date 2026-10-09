@@ -142,7 +142,7 @@
 
         <div v-if="errorMessage" class="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-100">
           {{ errorMessage }}
-          <router-link v-if="errorCode === 'insufficient_balance'" to="/purchase" class="ml-1 font-medium underline">{{ t('studio.topUp') }}</router-link>
+          <router-link v-if="studioErrorShowsTopUp(errorCode)" to="/purchase" class="ml-1 font-medium underline">{{ t('studio.topUp') }}</router-link>
         </div>
       </template>
     </div>
@@ -456,7 +456,7 @@ import StudioVideoPreviewChecking from '@/views/user/studio/components/StudioVid
 import StudioVideoPreviewLightbox from '@/views/user/studio/components/StudioVideoPreviewLightbox.vue'
 import StudioVideoUnavailable from '@/views/user/studio/components/StudioVideoUnavailable.vue'
 import { useAppStore } from '@/stores/app'
-import { classifyGatewayError, parseGatewayErrorMessage, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
+import { classifyGatewayError, parseGatewayErrorMessage, studioErrorI18nKey, studioErrorShowsTopUp, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useStudioImageCardActions } from '@/composables/useStudioImageCardActions'
 import { useStudioVideoCardActions, createStudioVideoActionHandlers } from '@/composables/useStudioVideoCardActions'
 import { useStudioVideoSubmitOptions } from '@/composables/useStudioVideoSubmitOptions'
