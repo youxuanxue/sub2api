@@ -2,7 +2,7 @@
 
 ## 范围与授权
 
-本次会话明确批准：us3/us4/us5/us6 从 Lightsail small_3_0（2 vCPU / 2 GiB）升级至 large_3_0（2 vCPU / 8 GiB / 160 GiB，44 USD/月/台）。prod 为 EC2 c7g.xlarge（4 vCPU / 8 GiB，arm64），规格和配置保持原样，仅临时暂停/恢复待迁移 Edge 的 prod 镜像调度。uk1/uk2 不在范围内。工作分支最初快进对齐 origin/main `375fee82d2ee1262b2b18294fd660577f1744dcf`；继续迁移前又合并 origin/main `f38bf2a5c`（本地合并提交 `ec288053f`）。
+本次会话明确批准：us3/us4/us5/us6 从 Lightsail small_3_0（2 vCPU / 2 GiB）升级至 large_3_0（2 vCPU / 8 GiB / 160 GiB，44 USD/月/台）。prod 为 EC2 c7g.xlarge（4 vCPU / 8 GiB，arm64），规格和配置保持原样，仅临时暂停/恢复待迁移 Edge 的 prod 镜像调度。uk1/uk2 不在范围内。工作分支最初快进对齐 origin/main `375fee82d2ee1262b2b18294fd660577f1744dcf`；继续迁移前又合并 origin/main `f38bf2a5c`（合并提交 `ec288053f`），收尾期间同工作树的并行操作合并了 `6fe488180`（`9218f26b2`）。
 
 四台长期实例费用由 48 USD/月升至 176 USD/月，增加 128 USD/月。暂存旧实例即使停止仍收费，另有快照保留费用；本次不删除旧机或快照。
 
@@ -135,7 +135,7 @@ UTC 11:39:49，us6 应用仍为 1.8.280、healthy、restart_count=0，启动时�
 
 摘流后等待 HTTP 与异步任务归零；UTC 12:04:09 冷冻结完成。新机 `tokenkey-edge-us-oh1-ls-l30`，SSM `mi-07a9fef2931b474c4`，2 vCPU / 8 GiB / 160 GiB。最终快照 `tokenkey-us3-cold-8g-20261009T120439Z`，原机 `tokenkey-edge-us-oh1-ls-s30` 保留停止。
 
-冷校验覆盖 13,444 个文件，约 2.82 GB，全部 SHA-256 一致；首次从快照读盘耗时 509 秒。UTC 12:20:37 原 Static IP `18.216.113.132` 挂到新机，应用启动前数据库核心表数量再次一致。Gemini sidecar 首次验收仍为 starting，等待健康检查周期后全部 healthy，未重启或跳过校验。镜像 ID、备份/磁盘指标定时任务、出口 IP、防火墙及 infra smoke 均通过。
+冷校验覆盖 13,444 个文件，约 2.82 GB，全部 SHA-256 一致；首次从快照读盘耗时 509 秒。UTC 12:20:37 原 Static IP `18.216.113.132` 挂到新机，应用启动前数据库核心表数量再次一致。Gemini sidecar 首次验收仍为 starting，等待健康检查周期后全部 healthy，未人为重启或跳过校验。镜像 ID、备份/磁盘指标定时任务、出口 IP、防火墙及 infra smoke 均通过。
 
 逻辑备份 `s3://tokenkey-prod-pgdump-682751977094/edge/us3/pgdump/tokenkey-20261009T120103Z.sql.gz`，SHA-256 `6dfc112fd3a224038a0257884dc8fe0aa35ba957fcfc10c5d6b5780ccb4ae4cb`。实际隔离恢复及启动前比对：accounts 26、api_keys 17、groups 18、settings 53、usage_billing_dedup 1,912,584、users 1。完整快照保留逻辑备份排除的日志。
 
@@ -149,6 +149,24 @@ UTC 12:28:47 开始摘流，4→3→1→0 个在途自然完成，异步任务�
 
 完整窗口 12:28:47–12:51:32，prod 生图 85 次 200、3 次 400，无生图 499/5xx；另有非生图 499 和 429，不能宣称所有请求零错误。恢复后 prod account 68 的 3 次成功与 Edge account 23 的 3 次成功相符；新机可用内存约 6903 MiB、swap 0、PSI 0。新机已产生写入，禁止回切旧磁盘。
 
-### us5（仍待迁移）
+### us5
 
-截至本报告写入时，实例矩阵中 us5 仍为 `tokenkey-edge-us-or2-ls-s30` / `small_3_0`（2 vCPU / 2 GiB），未完成 cold-snapshot → `large_3_0` 切换。审批范围仍含 us5；不得把 us3/us4/us6 完成误读为四台已全部扩容。us5 迁移须复用同一 `prepare-resize` 单次身份与停写/校验流程，完成后再更新矩阵与本报告。
+UTC 12:55:34 开始摘流，5→3→2→1→0 个在途自然完成，较长请求未被强制终止，异步任务为 0。新备份实际恢复完成于 13:02:09，13:03:26 冷冻结完成。最终快照 `tokenkey-us5-cold-8g-20261009T130356Z`；新机 `tokenkey-edge-us-or2-ls-l30`、SSM `mi-000663f60d70ef48d`，2 vCPU / 8 GiB / 160 GiB。7,451 个冷文件 SHA-256 全部一致（约 1.90 GB，392 秒），13:18:30 原 Static IP `16.144.175.131` 切到新机，13:21:49 原调度恢复并回读一致。原机 `tokenkey-edge-us-or2-ls-s30` 保留停止，临时注册参数和 userdata 已清理。
+
+逻辑备份 `s3://tokenkey-prod-pgdump-682751977094/edge/us5/pgdump/tokenkey-20261009T130109Z.sql.gz`，SHA-256 `49fe731ba36f94eecce7f9b5cd151c458a9855f4959bf3b8d894ca3b0aede077`。源库、隔离恢复、新机启写前均为 accounts 30、api_keys 22、groups 22、settings 52、usage_billing_dedup 984,446、users 1。镜像 ID、全容器健康、定时任务、防火墙、出口 IP 和 infra smoke 全部通过。
+
+完整维护窗口 12:55:34–13:21:50，prod 生图 69 次 200、3 次 400、1 次 499（us4 镜像 account 68），最终生图 5xx 为 0。不能据此宣称所有链路无错误：us4 在 13:06:13 记录一条生图 502，错误是 `Upstream did not execute image generation`，不是 TLS/HTTP2 错误；同期还有 Kiro 等非生图错误。us5 恢复后 prod account 149 的 2 次生图成功与 Edge account 18/16 各 1 次成功相符，无 us5 生图错误；Edge 另有 account 11/13 的 Kiro messages 502 各一次（`Upstream request failed`），根因未在本扩容任务中进一步确认，不隐去也不归为内存故障。
+
+## 四台收尾与下一步边界
+
+UTC 13:23 云端只读对账确认 us3/us4/us5/us6 均为 running / large_3_0（2 vCPU、8 GiB、160 GiB）；四个原静态 IP、SSM 的 instance_name / managed-instance ID 与实例矩阵完全一致。四台原机均 stopped，最终冷快照均 available。全部 prod 镜像 schedulable 与各自迁移前回执一致；uk1/uk2 未扩容，prod 仍为 c7g.xlarge。全量快照包含日志和业务卷，哈希及实际备份恢复验证通过；新机已经产生写入，禁止直接回切旧磁盘。
+
+UTC 13:07 三台承接节点与 13:23 us5 收尾采样：可用内存分别为 us3 6696 MiB、us4 6695 MiB、us5 6864 MiB、us6 6558 MiB，memory PSI 为 0；us3/us4/us5 swap 0，us6 仅 0.5 MiB。四台应用均 1.8.282 / healthy / RestartCount 0，开机以来无内核 OOM，备份及磁盘/内存指标定时器 active。Gemini sidecar 的启动重试计数非零（us3/us4/us5 各 1、us6 4），最终均 healthy，不将“应用零重启”扩大为“所有容器零重启”。prod 13:14 采样可用内存 5363 MiB、swap 64.75 MiB、PSI 0、在途 26。
+
+三台本轮摘流窗口共完成 270 次 prod 生图 200、8 次 400、2 次 499，无 prod 最终生图 5xx；这只是这些观察窗的最终状态，不表示所有请求无延迟波动，也不能掩盖 Edge 上游错误。旧机和快照继续收费，尚未删除。四台活跃实例长期合计 176 USD/月，相比原来增加 128 USD/月，保留旧机/快照的临时费用另计。
+
+持续负载验收仍未完成。Lightsail 12:31 的 CPU burst 额度 us3 约 1.11%、us6 约 4.96%，此前采样持续增加，属于新机额度积累阶段；当前低峰没有证据表明受 CPU 限速，但不宜把短波压测外推为长期吞吐。后续先观察正常高峰及 burst 趋势，再在单台摘流、独立测试身份下做有预算/时长上限的 20→30 持续负载验证。保护规则应保留 MemAvailable <1.5 GiB 立即停止加压，并以换页速率、持续 PSI、CPU 额度和延迟联合判断；上次连续几页换入换出只作为观察，不单独认定容量耗尽。本次没有追加付费持续压测或修改线上保护阈值。
+
+现有 `image_concurrency_limiter.go` 是单进程闸，OpenAI Images、显式 Responses 生图和 Grok 共用，异步 OpenAI/Grok 任务经相同 handler 执行。它在读取/解析 body 后排队，默认媒体 body 上限为 256 MiB；100 个大 body 的队列本身就可能超出 8 GiB。它也不是跨蓝绿进程或所有供应平台的主机内存闸。因此 20–30 仅作为容量规划值，本次未直接启用“30 并发 + 默认 100 排队”或加容器硬内存限制。后续保护方案需覆盖入队前字节预算、有限队列及多进程/异步路径，并用真实等待和失败行为验收。
+
+私有回执已归档至 `/Users/feng/.local/state/tokenkey/edge8g-20261009`，含各节点 freeze/cold/start 回执、最终控制面/调度对账、流量聚合与主机状态。临时 userdata 不归档。迁移期间同工作树有并行 main 合并导致一次本地 JSON 解析失败；恢复有效矩阵后只重新执行只读探针，未重复投递远端冻结或启动命令。
