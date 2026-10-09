@@ -2,7 +2,7 @@
 
 ## 范围与授权
 
-本次会话明确批准：us3/us4/us5/us6 从 Lightsail small_3_0（2 vCPU / 2 GiB）升级至 large_3_0（2 vCPU / 8 GiB / 160 GiB，44 USD/月/台）。prod 规格和配置保持原样，仅临时暂停/恢复待迁移 Edge 的 prod 镜像调度。uk1/uk2 不在范围内。工作分支最初快进对齐 origin/main `375fee82d2ee1262b2b18294fd660577f1744dcf`；继续迁移前又合并 origin/main `f38bf2a5c`（本地合并提交 `ec288053f`）。
+本次会话明确批准：us3/us4/us5/us6 从 Lightsail small_3_0（2 vCPU / 2 GiB）升级至 large_3_0（2 vCPU / 8 GiB / 160 GiB，44 USD/月/台）。prod 为 EC2 c7g.xlarge（4 vCPU / 8 GiB，arm64），规格和配置保持原样，仅临时暂停/恢复待迁移 Edge 的 prod 镜像调度。uk1/uk2 不在范围内。工作分支最初快进对齐 origin/main `375fee82d2ee1262b2b18294fd660577f1744dcf`；继续迁移前又合并 origin/main `f38bf2a5c`（本地合并提交 `ec288053f`）。
 
 四台长期实例费用由 48 USD/月升至 176 USD/月，增加 128 USD/月。暂存旧实例即使停止仍收费，另有快照保留费用；本次不删除旧机或快照。
 
@@ -140,3 +140,11 @@ UTC 11:39:49，us6 应用仍为 1.8.280、healthy、restart_count=0，启动时�
 逻辑备份 `s3://tokenkey-prod-pgdump-682751977094/edge/us3/pgdump/tokenkey-20261009T120103Z.sql.gz`，SHA-256 `6dfc112fd3a224038a0257884dc8fe0aa35ba957fcfc10c5d6b5780ccb4ae4cb`。实际隔离恢复及启动前比对：accounts 26、api_keys 17、groups 18、settings 53、usage_billing_dedup 1,912,584、users 1。完整快照保留逻辑备份排除的日志。
 
 UTC 12:23:08 恢复原调度并回读核对；原关闭的 cc/kiro 保持关闭。窗口 11:59:00–12:23:09 内 prod 生图 116 次 200、2 次 400、1 次 499（其他 Edge account 149），无生图 5xx；另有非生图 account 136 一次聊天 502。恢复后 prod account 64 的 2 次生图成功与新 us3 account 19 的 2 次成功相符。启动验收可用内存约 6996 MiB、swap 0、PSI 0。SSM 两个实例指针及矩阵已更新，临时注册参数和 userdata 已清理。新机已产生写入，禁止直接回切旧磁盘。
+
+### us4
+
+UTC 12:28:47 开始摘流，4→3→1→0 个在途自然完成，异步任务为 0。S3 备份实际恢复完成于 12:32:33，11,484 个冷文件冻结。最终快照 `tokenkey-us4-cold-8g-20261009T123424Z`；新机 `tokenkey-edge-us-or1-ls-l30`、SSM `mi-011540136a355880e`，2 vCPU / 8 GiB / 160 GiB。全部冷文件 SHA-256 一致（约 2.23 GB，冷校验 321 秒），12:48:32 保留原 Static IP `32.188.80.151` 切换，12:51:31 原调度恢复并回读一致。原机 `tokenkey-edge-us-or1-ls-s30` 保留停止，临时注册参数及 userdata 已清理。
+
+逻辑备份 `s3://tokenkey-prod-pgdump-682751977094/edge/us4/pgdump/tokenkey-20261009T123058Z.sql.gz`，SHA-256 `bd2a2c4189dffc015cc15ca35d2e7ee3ff614bd8e97f7685da35146d2341dfb1`。源库、隔离恢复、新机启写前均为 accounts 41、api_keys 34、groups 33、settings 52、usage_billing_dedup 1,859,826、users 1。原镜像 ID、定时任务、全容器健康、infra smoke、防火墙与出口 IP 均验收通过。保留原 OpenAI account 11 的 error/不可调度状态，不借迁移清除账号故障；account 23 正常提供生图。
+
+完整窗口 12:28:47–12:51:32，prod 生图 85 次 200、3 次 400，无生图 499/5xx；另有非生图 499 和 429，不能宣称所有请求零错误。恢复后 prod account 68 的 3 次成功与 Edge account 23 的 3 次成功相符；新机可用内存约 6903 MiB、swap 0、PSI 0。新机已产生写入，禁止回切旧磁盘。
