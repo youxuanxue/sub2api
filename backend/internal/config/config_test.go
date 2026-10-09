@@ -1908,6 +1908,16 @@ func TestValidateConfigErrors(t *testing.T) {
 			wantErr: "gateway.openai_first_output_timeout_seconds",
 		},
 		{
+			name:    "gateway newapi chat stream first output timeout too large",
+			mutate:  func(c *Config) { c.Gateway.NewAPIChatFirstOutputTimeout = 61 },
+			wantErr: "gateway.newapi_chat_first_output_timeout",
+		},
+		{
+			name:    "gateway newapi chat nonstream first output timeout too large",
+			mutate:  func(c *Config) { c.Gateway.NewAPIChatNonstreamFirstOutputTimeout = 601 },
+			wantErr: "gateway.newapi_chat_nonstream_first_output_timeout",
+		},
+		{
 			name:    "gateway openai high effort first output timeout too large",
 			mutate:  func(c *Config) { c.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds = 1801 },
 			wantErr: "gateway.openai_high_effort_first_output_timeout_seconds",

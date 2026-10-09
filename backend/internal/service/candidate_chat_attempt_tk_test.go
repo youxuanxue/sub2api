@@ -221,7 +221,7 @@ func TestCandidateChatAttemptCancelsRealHTTPBeforeHeadersOrAfterEmpty200(t *test
 	}
 }
 
-func TestCandidateChatNonStreamingExtendedBudget(t *testing.T) {
+func TestCandidateChatStreamVersusNonstreamBudgets(t *testing.T) {
 	a := globalCandidateAccount(1, 1, 10)
 	a.Platform, a.ChannelType = PlatformNewAPI, 1
 	attachTestProtocolCapability(&a, protocolrouter.ProtocolChatCompletions)
@@ -230,15 +230,12 @@ func TestCandidateChatNonStreamingExtendedBudget(t *testing.T) {
 	bodyNonStream := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"stream":false}`)
 	bodyStream := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"stream":true}`)
 
-	// Default config (NewAPIChatFirstOutputTimeout=0/60, ResponseHeaderTimeout=600):
-	// Non-streaming should use ResponseHeaderTimeout budget (3 * 600s = 1800s deadline),
-	// streaming should use 1m default budget (3 * 60s = 180s deadline).
+	// Zero config → stream 10s × 3 = 30s deadline; non-stream 300s × 3 = 15m deadline.
+	// Explicit ResponseHeaderTimeout must NOT bleed into either budget.
 	cfg := &config.Config{}
-	cfg.Gateway.NewAPIChatFirstOutputTimeout = 60
 	cfg.Gateway.ResponseHeaderTimeout = 600
 	r.candidateOpenAI.cfg = cfg
 
-	// Non-streaming test
 	ctxNS, stateNS := prepareGlobalCandidate(t, r, key)
 	ctxNS = withProtocolExecutionPlan(ctxNS, *stateNS.current.plan)
 	cNS, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -247,10 +244,10 @@ func TestCandidateChatNonStreamingExtendedBudget(t *testing.T) {
 	_, finishNS, errNS := r.candidateOpenAI.beginCandidateChatAttempt(ctxNS, cNS, &a, bodyNonStream)
 	require.NoError(t, errNS)
 	require.NotNil(t, finishNS)
-	require.True(t, stateNS.chatDeadline.After(time.Now().Add(25*time.Minute)), "non-streaming attempt should receive 3 * 10m budget")
+	require.True(t, stateNS.chatDeadline.After(time.Now().Add(14*time.Minute)), "non-stream default is 3×300s")
+	require.True(t, stateNS.chatDeadline.Before(time.Now().Add(16*time.Minute)), "non-stream must not use ResponseHeaderTimeout")
 	_, _ = finishNS(nil, nil)
 
-	// Streaming test
 	ctxS, stateS := prepareGlobalCandidate(t, r, key)
 	ctxS = withProtocolExecutionPlan(ctxS, *stateS.current.plan)
 	cS, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -259,6 +256,18 @@ func TestCandidateChatNonStreamingExtendedBudget(t *testing.T) {
 	_, finishS, errS := r.candidateOpenAI.beginCandidateChatAttempt(ctxS, cS, &a, bodyStream)
 	require.NoError(t, errS)
 	require.NotNil(t, finishS)
-	require.True(t, stateS.chatDeadline.Before(time.Now().Add(5*time.Minute)), "streaming attempt should receive 3 * 1m default budget")
+	require.True(t, stateS.chatDeadline.Before(time.Now().Add(45*time.Second)), "stream default is 3×10s")
+	require.True(t, stateS.chatDeadline.After(time.Now().Add(20*time.Second)), "stream deadline should be near 30s")
 	_, _ = finishS(nil, nil)
+}
+
+func TestNewAPIChatFirstOutputTimeoutResolver(t *testing.T) {
+	require.Equal(t, 10*time.Second, newAPIChatFirstOutputTimeout(nil, true))
+	require.Equal(t, 300*time.Second, newAPIChatFirstOutputTimeout(nil, false))
+
+	cfg := &config.Config{}
+	cfg.Gateway.NewAPIChatFirstOutputTimeout = 7
+	cfg.Gateway.NewAPIChatNonstreamFirstOutputTimeout = 120
+	require.Equal(t, 7*time.Second, newAPIChatFirstOutputTimeout(cfg, true))
+	require.Equal(t, 120*time.Second, newAPIChatFirstOutputTimeout(cfg, false))
 }
