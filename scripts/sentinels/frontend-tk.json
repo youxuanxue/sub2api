@@ -2794,6 +2794,27 @@
       "rationale": "Preserve shared image capability and request owners across Studio and Quickstart."
     },
     {
+      "path": "frontend/src/utils/kimiK3VideoExamples.tk.ts",
+      "must_contain": [
+        "KIMI_K3_VIDEO_MODEL",
+        "/v1/chat/completions",
+        "video_url",
+        "data:video/mp4;base64",
+        "/v1/responses",
+        "input_video"
+      ],
+      "rationale": "Quickstart kimi-k3 video snippets must keep chat+base64 as the stable customer path and responses+input_video as the proven supply path; do not collapse guidance to responses-only."
+    },
+    {
+      "path": "frontend/src/components/keys/UseKeyGuide.vue",
+      "must_contain": [
+        "kimiK3VideoExamples",
+        "isKimiK3VideoGuideModel",
+        "quickstart-kimi-k3-video-hint"
+      ],
+      "rationale": "kimi-k3 video guidance must stay on the shared Quickstart renderer; losing the hook silently drops customer snippets back to text-only Hello."
+    },
+    {
       "path": "frontend/src/utils/imageGenerationExamples.tk.ts",
       "must_contain": [
         "buildImageRequest",

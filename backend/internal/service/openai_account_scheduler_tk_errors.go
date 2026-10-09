@@ -83,6 +83,7 @@ func OpenAICompatSelectionFailureOpsSystemLogRedundant(err error) bool {
 		return false
 	}
 	return errors.Is(err, ErrUnsupportedModel) ||
+		errors.Is(err, ErrUnsupportedInputModality) ||
 		errors.Is(err, ErrNoAvailableAccounts) ||
 		errors.Is(err, ErrNoAvailableCompactAccounts)
 }

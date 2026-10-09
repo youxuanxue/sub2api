@@ -93,6 +93,13 @@ func tkSelectFailureStatusMessage(c *gin.Context, err error, reqModel string) (i
 		markOpsClientRequestRejected(c)
 		return http.StatusBadRequest, service.TkUnsupportedModelErrType, service.TkUnsupportedModelMessage(reqModel)
 	}
+	if errors.Is(err, service.ErrUnsupportedInputModality) {
+		// Same client-owned 400 shape as unsupported model: never Retry-After /
+		// capacity 429. Aligns with OpenRouter "no endpoints support input video".
+		markOpsClientRequestRejected(c)
+		return http.StatusBadRequest, service.TkUnsupportedInputModalityErrType,
+			service.TkUnsupportedInputModalityMessage(reqModel, "video")
+	}
 	if isOpsNoAvailableAccountError(err) {
 		if cls := classifySelectionFailureError(err, noAccountErrorClassification{
 			Status:  http.StatusServiceUnavailable,

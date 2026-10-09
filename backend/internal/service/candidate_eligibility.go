@@ -41,8 +41,8 @@ func (s *GatewayService) candidateSupportsRequest(ctx context.Context, account *
 	}
 	// Multimodal supply gate: request ContentKinds ∩ evidence-backed known-negatives.
 	// docs/approved/multimodal-supply-capability-ssot.md
-	if !accountAdmitsRequestInputModalities(ctx, account, model) {
-		return false, nil
+	if modality := accountInputModalityRejection(ctx, account, model); modality != "" {
+		return false, wrapUnsupportedInputModality(model, modality)
 	}
 	if !s.isClaudeNewAPICrossPlatformAccountAllowed(ctx, account, platform, model, false) {
 		if IsOpenAICompatPlatform(platform) {

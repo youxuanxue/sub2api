@@ -655,6 +655,29 @@ describe('UseKeyModal — redesign (picker / test / CC-only / raw tabs)', () => 
     expect(snippet).toContain('"max_tokens": 64')
   })
 
+  it('appends kimi-k3 video chat+base64 and responses snippets without replacing the text ping', async () => {
+    getMePricingCatalog.mockResolvedValue({
+      models: [
+        { model_id: 'gpt-5.5', capabilities: [] },
+        { model_id: 'kimi-k3', capabilities: [] },
+      ],
+    })
+    const wrapper = mountModal({ platform: 'openai', apiKeyId: 11, initialModel: 'kimi-k3' })
+    await flushPromises()
+    await nextTick()
+    const curlTab = wrapper.findAll('button').find((b) => b.text().includes('keys.useKeyModal.cliTabs.curl'))
+    await curlTab!.trigger('click')
+    await nextTick()
+    expect(wrapper.find('[data-testid="quickstart-kimi-k3-video-hint"]').exists()).toBe(true)
+    const snippet = wrapper.findAll('pre code').map((c) => c.text()).join('\n')
+    expect(snippet).toContain('"content": "Hello"')
+    expect(snippet).toContain('/v1/chat/completions')
+    expect(snippet).toContain('data:video/mp4;base64')
+    expect(snippet).toContain('/v1/responses')
+    expect(snippet).toContain('input_video')
+    expect(snippet).toContain('video_url')
+  })
+
   it('Test key button verifies the key live and shows the verbatim error', async () => {
     getMePricingCatalog.mockResolvedValue({ models: [{ model_id: 'gpt-5.5', capabilities: [] }] })
     const fetchMock = vi.fn()

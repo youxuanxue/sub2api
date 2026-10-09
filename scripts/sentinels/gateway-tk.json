@@ -2865,9 +2865,10 @@
         "return openAIRequestEligibilityReason(ctx, account, requestedModel, requireCompact, requiredCapability)",
         "func openAIRequestEligibilityReason(",
         "protocolRuntimeAuthorizationReady",
-        "protocolRequestEligibilityReason"
+        "protocolRequestEligibilityReason",
+        "accountInputModalityRejection(ctx, account, requestedModel)"
       ],
-      "rationale": "Legacy and advanced OpenAI scheduling share request compatibility while account status remains a separate gate."
+      "rationale": "Legacy and advanced OpenAI scheduling share request compatibility while account status remains a separate gate; multimodal supply known-negatives must veto Direct newapi/openai candidates too."
     },
     {
       "path": "backend/internal/service/candidate_eligibility_test.go",
@@ -2892,7 +2893,8 @@
       "path": "backend/internal/service/candidate_eligibility.go",
       "must_contain": [
         "geminiWebSupportsRequest(ctx, account, model, shape)",
-        "accountAdmitsRequestInputModalities(ctx, account, model)",
+        "accountInputModalityRejection(ctx, account, model)",
+        "wrapUnsupportedInputModality(model, modality)",
         "func (s *GatewayService) evaluateGroupCandidates(",
         "protocolPlanForAccount(ctx, account, model)",
         "s.isClaudeNewAPICrossPlatformAccountAllowed",
@@ -2911,13 +2913,16 @@
     {
       "path": "backend/internal/service/candidate_multimodal_supply_tk.go",
       "must_contain": [
-        "func accountAdmitsRequestInputModalities(",
+        "ErrUnsupportedInputModality",
+        "func accountInputModalityRejection(",
         "func supplyKnownNegativeForInputVideo(",
+        "TkUnsupportedInputModalityMessage",
+        "openAIFilterOnlyReason",
         "protocolrouter.ContentVideo",
         "isNewAPINVIDIABuildAccount(account)",
         "case \"kimi-k3\":"
       ],
-      "rationale": "Evidence-backed multimodal supply known-negatives stay in one owner; candidateSupportsRequest must call the admit predicate without inlining the table."
+      "rationale": "Evidence-backed multimodal supply known-negatives and empty-pool modality 400 stay in one owner; candidateSupportsRequest / Direct scheduler must call without inlining the table."
     },
     {
       "path": "backend/internal/service/candidate_multimodal_supply_tk_test.go",
@@ -2925,9 +2930,19 @@
         "func TestSupplyKnownNegativeForInputVideoKimiK3NVIDIA(",
         "func TestAccountAdmitsRequestInputModalitiesVideoGate(",
         "func TestCandidateSupportsRequestRejectsNVIDIAKimiK3Video(",
-        "func TestCandidateSelectionPrefersVolcForKimiK3Video("
+        "func TestCandidateSelectionPrefersVolcForKimiK3Video(",
+        "ErrUnsupportedInputModality",
+        "func TestOpenAIRequestEligibilityReasonRejectsNVIDIAKimiK3Video("
       ],
-      "rationale": "P1/N1/R1 multimodal supply regressions for kimi-k3 video must survive upstream merges."
+      "rationale": "P1/N1/R1/E1 multimodal supply regressions for kimi-k3 video (including modality 400) must survive upstream merges."
+    },
+    {
+      "path": "backend/internal/handler/no_available_accounts_tk.go",
+      "must_contain": [
+        "ErrUnsupportedInputModality",
+        "TkUnsupportedInputModalityMessage"
+      ],
+      "rationale": "First-attempt selection failures must map modality-empty pools to 400 without Retry-After / capacity 429."
     },
     {
       "path": "backend/internal/engine/protocolrouter/parse_request.go",
