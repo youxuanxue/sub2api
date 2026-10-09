@@ -26,17 +26,31 @@ import (
 //      reject on the key billing will actually charge (the requested/original
 //      key on native gemini/anthropic), not be fooled by the priced mapped id.
 //   2. boundary inputs through the REAL GetModelPricing: present-but-zero token
-//      entry → unavailable → reject; media-priced (per-second/per-image) → priced
-//      → pass; family-fallback id absent from the source → priced → pass.
+//      entry → unavailable → reject; TokenPricingAbsent media-only rows (token
+//      fields omitted, matching production overlay imagen/veo) → unavailable →
+//      reject on this token gate (native media surfaces own Tk*ModelUnpriced);
+//      family-fallback id absent from the source → priced → pass.
 
-// newConsistencyBilling builds a real BillingService over an in-test pricing blob
-// (same shape as the catalog source). Family fallbacks (getFallbackPricing) apply
-// on top, exactly as in production.
+// newConsistencyBilling builds a real BillingService over an in-test pricing blob.
+// Direct unmarshal (not parsePricingData): the latter replaces the map with the
+// complete registry. TokenPricingAbsent is derived the same way overlay parsing
+// does — omitted token fields → true — so media fixtures match production.
+// Family fallbacks (getFallbackPricing) apply on top, exactly as in production.
 func newConsistencyBilling(t *testing.T, blob []byte) *BillingService {
 	t.Helper()
-	var data map[string]*LiteLLMModelPricing
-	err := json.Unmarshal(blob, &data)
-	require.NoError(t, err)
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(blob, &raw))
+	data := make(map[string]*LiteLLMModelPricing, len(raw))
+	for name, entry := range raw {
+		var p LiteLLMModelPricing
+		require.NoError(t, json.Unmarshal(entry, &p), name)
+		var fields map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(entry, &fields), name)
+		_, hasIn := fields["input_cost_per_token"]
+		_, hasOut := fields["output_cost_per_token"]
+		p.TokenPricingAbsent = !hasIn && !hasOut
+		data[name] = &p
+	}
 	ps := &PricingService{pricingData: data}
 	return NewBillingService(nil, ps)
 }
@@ -79,15 +93,16 @@ func TestR3_CatchAllKeyConsistency_GateRejectsOnBillingKey(t *testing.T) {
 
 // TestR3_BoundariesThroughRealBilling walks the boundary classes that bare
 // catalog membership got wrong, now asserted through the SAME GetModelPricing the
-// gate uses. gate-rejected ⟺ billing-unavailable is therefore tautological here,
-// which is exactly the safety the refactor buys.
+// gate uses. Media fixtures omit token fields so TokenPricingAbsent matches
+// production overlay imagen/veo — explicit 0 token prices would falsely look
+// "token-priced" and hide the dual-owner contract.
 func TestR3_BoundariesThroughRealBilling(t *testing.T) {
 	blob := []byte(`{
 		"r3-token-priced":   {"input_cost_per_token": 0.000003, "output_cost_per_token": 0.000015, "litellm_provider": "test"},
 		"r3-input-only":     {"input_cost_per_token": 0.000003, "output_cost_per_token": 0, "litellm_provider": "test"},
 		"r3-zero-token":     {"input_cost_per_token": 0, "output_cost_per_token": 0, "litellm_provider": "test"},
-		"r3-video-priced":   {"input_cost_per_token": 0, "output_cost_per_token": 0, "output_cost_per_second": 0.4, "mode": "video", "litellm_provider": "test"},
-		"r3-image-priced":   {"input_cost_per_token": 0, "output_cost_per_token": 0, "output_cost_per_image": 0.04, "mode": "image", "litellm_provider": "test"},
+		"r3-video-priced":   {"output_cost_per_second": 0.4, "mode": "video_generation", "litellm_provider": "test"},
+		"r3-image-priced":   {"output_cost_per_image": 0.04, "mode": "image_generation", "litellm_provider": "test"},
 		"gemini-2.5-pro":    {"input_cost_per_token": 0.00000125, "output_cost_per_token": 0.00001, "litellm_provider": "test"}
 	}`)
 	billing := newConsistencyBilling(t, blob)
@@ -103,8 +118,8 @@ func TestR3_BoundariesThroughRealBilling(t *testing.T) {
 		{"r3-token-priced", false, "token-priced → pass"},
 		{"r3-input-only", false, "input-only is a real price → pass"},
 		{"r3-zero-token", true, "present-but-zero token → billing unavailable → reject"},
-		{"r3-video-priced", false, "per-second media price → pass"},
-		{"r3-image-priced", false, "per-image media price → pass"},
+		{"r3-video-priced", true, "TokenPricingAbsent video-only → token gate reject (VideoSubmit owns video)"},
+		{"r3-image-priced", true, "TokenPricingAbsent image-only → token gate reject (images/generations owns image)"},
 		{"r3-absent-not-family", true, "absent + no fallback family → reject"},
 		{"gemini-new-variant-xyz", false, "post-pivot: gemini family floor → priced (served at floor) → pass"},
 		{"claude-new-variant-xyz", false, "claude family fallback applies → priced → pass"},

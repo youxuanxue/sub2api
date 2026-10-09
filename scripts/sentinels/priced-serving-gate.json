@@ -32,12 +32,21 @@
         "func (s *GeminiMessagesCompatService) tkPricedServingGate(",
         "func (s *AntigravityGatewayService) tkPricedServingGate(",
         "func (s *KiroGatewayService) tkPricedServingGate(",
+        "return b.GetModelPricing",
         "func tkChannelPricingProbeFromResolver(resolver *ModelPricingResolver) tkChannelPricingProbe {",
         "PricingInput{Model: model, GroupID: &groupID, Group: group}",
         "resolved.Source == PricingSourceGroup || resolved.Source == PricingSourceChannel",
         "func tkResolvedPricingChargeable(r *ResolvedPricing) bool {"
       ],
-      "rationale": "Forwarders share the billing resolver and the actual billing group's scoped price cards. Group and channel prices must both remain visible to serving admission, with chargeability validation."
+      "rationale": "Forwarders share BillingService.GetModelPricing and the actual billing group's scoped price cards. Do not invent a second admission oracle that admits TokenPricingAbsent media on token routes — that reopens chat+$0; native media surfaces own Tk*ModelUnpriced."
+    },
+    {
+      "path": "backend/internal/service/gateway_priced_serving_gate_veo_tk_test.go",
+      "must_contain": [
+        "func TestPricedServingGate_VeoGenerate001_DualOwnerContract(",
+        "func TestPricedServingGate_ImageOnlyTokenPricingAbsent_DualOwnerContract("
+      ],
+      "rationale": "Dual-owner contract: overlay-priced Veo/imagen stay gate-rejected on token priced-serving routes while TkVideoModelUnpriced / TkImageModelUnpriced remain chargeable on native media surfaces."
     },
     {
       "path": "backend/internal/service/gateway_priced_serving_group_tk_test.go",

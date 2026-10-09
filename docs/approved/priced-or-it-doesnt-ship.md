@@ -5,11 +5,13 @@ approved_by: "xuejiao (design directive, 2026-06-27)"
 approved_at: 2026-06-27
 authors: [agent]
 created: 2026-06-26
-revised_at: 2026-09-01
+revised_at: 2026-10-09
 revision_note: >
-  Slim to gate contract only; narrative history removed. Delivery formula stays in
-  pricing-serving-single-source-of-truth.md.
-related_prs: [1016]
+  Clarify dual ownership: this token-route gate uses GetModelPricing;
+  native /v1/video/generations and /v1/images/generations keep
+  TkVideoModelUnpriced / TkImageModelUnpriced. TokenPricingAbsent media rows
+  correctly 404 on token routes (not a missing-overlay bug).
+related_prs: [1016, 2518]
 related_commits: []
 related_stories: []
 related_design: docs/approved/pricing-registry-hot-reload.md, docs/approved/pricing-serving-single-source-of-truth.md, docs/approved/pricing-availability-source-of-truth.md
@@ -37,10 +39,15 @@ native 空 `model_mapping` 仍可能 catch-all 透传未定价 id；billing 在
 
 在 billing model id 解析后、上游首字节前调用 `tkCheckPricedServingGate`（companion：
 `gateway_priced_serving_gate_tk.go` + `gateway_priced_serving_gate_wiring_tk.go`）。
+本闸挂在 **token 形** 转发路径（chat / responses / messages / embeddings 及 bridge）；
+原生 `/v1/video/generations`、`/v1/images/generations` 的准入 owner 分别是
+`TkVideoModelUnpriced`、`TkImageModelUnpriced`，不走本闸。
 
 价源（闸 ⟺ billing，无影子谓词）：
 
-1. `BillingService.GetModelPricing`（active registry direct owner + registry family alias / floor）
+1. `BillingService.GetModelPricing`（active registry direct owner + registry family alias / floor）。
+   `TokenPricingAbsent` 媒体专价行在此 fail-closed——这是刻意的：避免 chat×veo / chat×imagen
+   越过 404 后落入 `pricing_missing_record_zero_cost`。有价媒体仍由上述原生 surface 结算。
 2. `ModelPricingResolver` 解析实际计费分组的 `Group.ModelPricing` 及 `channel_model_pricing`（基础价 miss 时）；作用域结果必须存在有效价格维度。
 
 两源都解不出价（含 floor）且平台在启用集内 → 拒。键：native gemini/anthropic 用
