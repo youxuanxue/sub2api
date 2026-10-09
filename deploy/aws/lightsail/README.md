@@ -45,8 +45,7 @@ gh workflow run deploy-edge-lightsail-stage0.yml -R youxuanxue/sub2api \
 source/replacement、过期时间和 activation 注册次数后使用，禁止打印 code。
 完成注册后删除本次临时 SecureString，避免长期保留凭据。
 
-后续完整冷快照、数据校验、逐台摘流与回退边界见
-[`edge-8g-snapshot-resize.md`](../../../docs/approved/edge-8g-snapshot-resize.md)。
+完整冷快照、数据校验、逐台摘流与回退边界属于一次性运维执行记录，不落仓库；按既有 Edge 停写/校验流程执行，新机产生写入后禁止直接回切陈旧磁盘。
 
 ## 一次性 Setup
 
