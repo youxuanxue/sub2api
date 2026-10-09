@@ -218,7 +218,7 @@ func TestVolcEnginePlanASRForwardSilentInputAndBilling(t *testing.T) {
 	require.InDelta(t, 100.0/3_600_000, result.AudioUsage.DurationOrUnits, 1e-12)
 	billing := NewBillingService(nil, nil)
 	price := billing.TkRegistrySTTPricePerHour(VolcEnginePlanASRModel)
-	require.InDelta(t, 1.0/6.7*1.06, price, 1e-12)
+	require.InDelta(t, 1.0/6.7*1.0, price, 1e-12)
 	cost := billing.CalculateAudioCostForModel(VolcEnginePlanASRModel, "stt", 2998.0/3_600_000, nil, 2)
 	require.InDelta(t, price*2998.0/3_600_000*2, cost.ActualCost, 1e-12)
 	zero := 0.0
@@ -282,5 +282,5 @@ func TestVolcEnginePlanASRPositiveTerminalForwardAndBilling(t *testing.T) {
 	require.True(t, conn.closed.Load())
 	require.InDelta(t, 200.0/3_600_000, result.AudioUsage.DurationOrUnits, 1e-12)
 	cost := NewBillingService(nil, nil).CalculateAudioCostForModel(VolcEnginePlanASRModel, result.AudioUsage.Mode, result.AudioUsage.DurationOrUnits, nil, 1)
-	require.InDelta(t, 1.0/6.7*1.06*200/3_600_000, cost.ActualCost, 1e-12)
+	require.InDelta(t, 1.0/6.7*1.0*200/3_600_000, cost.ActualCost, 1e-12)
 }

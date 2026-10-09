@@ -251,7 +251,7 @@
       "path": "frontend/e2e/volcengine-plan-audio-catalog.e2e.ts",
       "must_contain": [
         "multimodal embedding prices",
-        "['$0.111', '$0.285']"
+        "['$0.104', '$0.269']"
       ],
       "rationale": "Real UI regressions cover both embedding input prices in cards and the pricing table on mobile and desktop."
     },
