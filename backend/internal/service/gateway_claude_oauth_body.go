@@ -285,7 +285,7 @@ func normalizeClaudeOAuthRequestBody(body []byte, modelID string, opts claudeOAu
 	//
 	// 注：本函数不按 model 名决定是否保留 context_management。“最终 beta
 	// header 不含 context-management-2025-06-27 时 strip 字段”的能力维度
-	// 对称约束由 sanitizeAnthropicBodyForBetaTokens 在 buildUpstreamRequest /
+	// 对称约束由 sanitizeAnthropicEgressBody（内含 beta sanitize）在 buildUpstreamRequest /
 	// buildCountTokensRequest 层统一执行，与 Bedrock 路径的
 	// sanitizeBedrockFieldsForBetaTokens 对称。
 	if !gjson.GetBytes(out, "context_management").Exists() {

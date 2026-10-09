@@ -32,18 +32,20 @@ import (
 //	"output_config: Extra inputs are not permitted"
 //
 // 修复策略（剥字段，不注入 beta）：
-//   - 无正文的 role=system 消息一律删除（与 mid-conversation beta 无关；上游仍
-//     要求 "system content must contain at least one block"）。
-//   - header 缺该 token：仅为携带 message-level output_config 的消息剥此字段；
-//     system 有正文保留正文与其余字段；user/assistant 只剥字段，绝不整条删除。
+//   - 无正文的 role=system：sanitizeAnthropicEgressBody → stripEmptyAnthropicSystemMessages
+//     （content 合法性，与 beta 无关）。
+//   - header 缺 mid-conversation token：sanitizeAnthropicBodyForBetaTokens 仅为携带
+//     message-level output_config 的消息剥此字段；system 有正文保留正文与其余字段；
+//     user/assistant 只剥字段，绝不整条删除。
 //   - header 含该 token：保留有正文消息上的 message-level output_config。
 //   - 顶层 output_config / effort 不受该 beta 约束，本增量不触碰。
 //
+// 出站扇入：sanitizeAnthropicEgressBody = 空 system 清理 + beta sanitize。
 // 本文件只覆盖 Anthropic 直连路径的该增量；header 侧固定列表（mimic betas）
 // 的改动由并行增量负责。
 
 // ============================================================================
-// sanitizeAnthropicBodyForBetaTokens — message-level output_config
+// sanitizeAnthropicEgressBody / sanitizeAnthropicBodyForBetaTokens
 // ============================================================================
 
 // ★ 主场景：缺 beta 时，多条空控制 system 消息整条删除，且用户顺序 / 顶层 effort
@@ -152,13 +154,20 @@ func TestSanitizeAnthropicBodyForBetaTokens_MidConversationOutputConfig_SystemWi
 
 // header 含该 beta 时仍必须删除空 system；有正文 system 的 message-level
 // output_config 则保留（prod user16：带 beta 也不能豁免空 content）。
-func TestSanitizeAnthropicBodyForBetaTokens_MidConversationOutputConfig_DropsEmptySystemWhenBetaPresent(t *testing.T) {
+// 走 egress 扇入（content 合法性 + beta sanitize），不直接调 beta-only 函数。
+func TestSanitizeAnthropicEgressBody_DropsEmptySystemWhenBetaPresent(t *testing.T) {
 	body := []byte(`{"model":"claude-opus-5","output_config":{"effort":"high"},"messages":[` +
 		`{"role":"system","content":[],"output_config":{"effort":"high"}},` +
 		`{"role":"system","content":"You are helpful.","output_config":{"effort":"high"}},` +
 		`{"role":"user","content":"hi"}]}`)
-	out, changed := sanitizeAnthropicBodyForBetaTokens(body,
-		"claude-code-20250219,oauth-2025-04-20,"+claude.BetaMidConversationOutputConfig)
+	beta := "claude-code-20250219,oauth-2025-04-20," + claude.BetaMidConversationOutputConfig
+
+	// 分区：beta-only sanitize 在含 beta 时不碰空 system（职责边界）。
+	betaOnly, betaChanged := sanitizeAnthropicBodyForBetaTokens(body, beta)
+	require.False(t, betaChanged, "beta sanitize 不得承担 content 合法性清理")
+	require.True(t, bytes.Equal(body, betaOnly))
+
+	out, changed := sanitizeAnthropicEgressBody(body, beta)
 	require.True(t, changed, "空 system 必须删除，即使 header 含 mid-conversation beta")
 
 	msgs := gjson.GetBytes(out, "messages").Array()
@@ -172,10 +181,16 @@ func TestSanitizeAnthropicBodyForBetaTokens_MidConversationOutputConfig_DropsEmp
 	require.Equal(t, "high", gjson.GetBytes(out, "output_config.effort").String())
 }
 
-// 无正文 system（无 message-level output_config）也必须删除；仅 user 的 body 仍 no-op。
-func TestSanitizeAnthropicBodyForBetaTokens_StripEmptySystemWithoutOutputConfig(t *testing.T) {
+// 无正文 system（无 message-level output_config）也必须经 egress 删除；仅 user 仍 no-op。
+func TestSanitizeAnthropicEgressBody_StripEmptySystemWithoutOutputConfig(t *testing.T) {
 	withEmptySystem := []byte(`{"model":"claude-opus-5","output_config":{"effort":"high"},"messages":[{"role":"system","content":[]},{"role":"user","content":"hi"}]}`)
-	out, changed := sanitizeAnthropicBodyForBetaTokens(withEmptySystem, "oauth-2025-04-20")
+
+	// 分区：无 message-level output_config 时 beta sanitize 字节 no-op。
+	betaOnly, betaChanged := sanitizeAnthropicBodyForBetaTokens(withEmptySystem, "oauth-2025-04-20")
+	require.False(t, betaChanged)
+	require.True(t, bytes.Equal(withEmptySystem, betaOnly))
+
+	out, changed := sanitizeAnthropicEgressBody(withEmptySystem, "oauth-2025-04-20")
 	require.True(t, changed)
 	msgs := gjson.GetBytes(out, "messages").Array()
 	require.Len(t, msgs, 1)
@@ -183,7 +198,7 @@ func TestSanitizeAnthropicBodyForBetaTokens_StripEmptySystemWithoutOutputConfig(
 	require.Equal(t, "high", gjson.GetBytes(out, "output_config.effort").String())
 
 	userOnly := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}]}`)
-	out, changed = sanitizeAnthropicBodyForBetaTokens(userOnly, "oauth-2025-04-20")
+	out, changed = sanitizeAnthropicEgressBody(userOnly, "oauth-2025-04-20")
 	require.False(t, changed, "无可净化字段/空 system → 字节 no-op")
 	require.True(t, bytes.Equal(userOnly, out))
 }
