@@ -2273,10 +2273,12 @@
       "path": "backend/internal/web/embed_on.go",
       "must_contain": [
         "tryServeCrawlerPrerender(c)",
-        "applyFacadeChromeDocument(content, c.Request.Host, c.Request.URL.Path)",
-        "func facadeChromeBrand"
+        "applyFacadeChromeDocument(content, host, path)",
+        "func facadeChromeBrand",
+        "func facadeChromeETag",
+        "Vary\", \"Host\""
       ],
-      "rationale": "TK crawler prerender hook must stay a one-line call into embed_on_tk_prerender.go so upstream embed_on.go Middleware() body stays merge-friendly (CLAUDE.md §5 minimal-invasion). Dual-facade HTML <title>/og/canonical must be rewritten from request Host via applyFacadeChromeDocument so a shared Settings site_name cannot paint CallModel onto tokenkey.dev before SPA boot."
+      "rationale": "TK crawler prerender hook must stay a one-line call into embed_on_tk_prerender.go so upstream embed_on.go Middleware() body stays merge-friendly (CLAUDE.md §5 minimal-invasion). Dual-facade HTML <title>/og/canonical must be rewritten from request Host via applyFacadeChromeDocument, and ETag/Vary must include Host brand so caches cannot 304 the wrong facade."
     },
     {
       "path": "backend/internal/web/prerender.go",

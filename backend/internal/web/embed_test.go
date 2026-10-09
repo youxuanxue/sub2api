@@ -44,6 +44,18 @@ func TestApplyFacadeChromeTitle(t *testing.T) {
 	})
 }
 
+func TestFacadeChromeETag(t *testing.T) {
+	base := `"abc123-settings"`
+	tokenkeyLogin := facadeChromeETag(base, "tokenkey.dev", "/login")
+	callmodelLogin := facadeChromeETag(base, "callmodel.io", "/login")
+	tokenkeyDash := facadeChromeETag(base, "tokenkey.dev", "/dashboard")
+
+	assert.NotEqual(t, tokenkeyLogin, callmodelLogin)
+	assert.NotEqual(t, tokenkeyLogin, tokenkeyDash)
+	assert.True(t, strings.HasPrefix(tokenkeyLogin, `"abc123-settings-`))
+	assert.Equal(t, facadeChromeETag(base, "tokenkey.dev", ""), facadeChromeETag(base, "tokenkey.dev", "/"))
+}
+
 func TestApplyFacadeChromeDocument(t *testing.T) {
 	html := []byte(`<!doctype html><html><head>
 <title>TokenKey - AI API Gateway</title>
