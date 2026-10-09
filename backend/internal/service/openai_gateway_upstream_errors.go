@@ -289,7 +289,7 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 	// cyber_policy / usage_policy are request-scoped even when an intermediary
 	// wraps the provider response in a retryable 5xx status. Never punish or
 	// rotate the selected credential, and never auto-retry the same prompt.
-	if isOpenAISafetySessionBlockFault(upstreamMsg, upstreamBody) {
+	if isOpenAIResponseProtectionUnavailable(upstreamMsg, upstreamBody) || isOpenAISafetySessionBlockFault(upstreamMsg, upstreamBody) {
 		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
 		semantic = gatewayFailureSemanticSharedFault

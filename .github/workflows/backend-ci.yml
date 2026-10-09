@@ -466,7 +466,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.13.2
+          version: v2.14.0
           args: --concurrency=4 --timeout=30m
           working-directory: backend
           only-new-issues: false
@@ -506,7 +506,7 @@ jobs:
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.13.2
+          version: v2.14.0
           args: --enable-only gosec --concurrency=4 --timeout=30m
           working-directory: backend
       - name: Note gosec scope (push/PR runs)

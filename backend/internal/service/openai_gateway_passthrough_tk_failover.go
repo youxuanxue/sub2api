@@ -9,7 +9,7 @@ import (
 
 func shouldFailoverOpenAIPassthroughResponse(account *Account, statusCode int, responseBody []byte) bool {
 	semantic := gatewayFailureSemanticUnclassified
-	if isOpenAISafetySessionBlockFault("", responseBody) {
+	if isOpenAIResponseProtectionUnavailable("", responseBody) || isOpenAISafetySessionBlockFault("", responseBody) {
 		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIContextWindowError("", responseBody) {
 		semantic = gatewayFailureSemanticSharedFault
@@ -57,7 +57,7 @@ func openAIStreamFailedClientResponse(payload []byte, message string, default5xx
 
 func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool {
 	semantic := gatewayFailureSemanticTransientFault
-	if isOpenAISafetySessionBlockFault(message, payload) {
+	if isOpenAIResponseProtectionUnavailable(message, payload) || isOpenAISafetySessionBlockFault(message, payload) {
 		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIContextWindowError(message, payload) {
 		semantic = gatewayFailureSemanticSharedFault
@@ -107,7 +107,7 @@ func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool 
 
 func openAIStreamErrorEventShouldFailover(payload []byte, message string) bool {
 	semantic := gatewayFailureSemanticSharedFault
-	if isOpenAISafetySessionBlockFault(message, payload) {
+	if isOpenAIResponseProtectionUnavailable(message, payload) || isOpenAISafetySessionBlockFault(message, payload) {
 		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIContextWindowError(message, payload) {
 		semantic = gatewayFailureSemanticSharedFault
