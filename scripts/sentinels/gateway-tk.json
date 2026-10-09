@@ -15804,7 +15804,8 @@
       "path": "backend/internal/repository/http_upstream_observation_test.go",
       "must_contain": [
         "func TestHTTPUpstreamObservesResetAfterHeadersWithoutClosingHealthyStreams(",
-        "func TestHTTPUpstreamBodyOutcomeOwnsProxyFallbackHealth("
+        "func TestHTTPUpstreamBodyOutcomeOwnsProxyFallbackHealth(",
+        "func TestHTTPUpstreamProxyDiagnosticsExcludeCredentials("
       ],
       "rationale": "Real HTTP/2 reset and public Do/read lifecycle tests prevent header-only health accounting from silently returning."
     }

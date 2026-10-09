@@ -134,3 +134,12 @@ func (s *httpUpstreamService) observeResponseBody(resp *http.Response, o *upstre
 		o.failure("body_read", resp, count, err)
 	}}
 }
+
+// Cache keys retain proxy credentials for isolation; diagnostics must not.
+func upstreamProxyHostForLog(raw string) string {
+	_, proxy, err := normalizeProxyURL(raw)
+	if err != nil || proxy == nil {
+		return ""
+	}
+	return proxy.Host
+}

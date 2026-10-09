@@ -4,14 +4,17 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -150,4 +153,53 @@ func TestObservedUpstreamBodyEarlyCloseAndEOF(t *testing.T) {
 	require.Equal(t, "http2_connection_lost", kind)
 	kind, _, _ = upstreamTransportFailureKind(context.Canceled)
 	require.Equal(t, "canceled", kind)
+}
+
+func TestHTTPUpstreamProxyDiagnosticsExcludeCredentials(t *testing.T) {
+	var mu sync.Mutex
+	var values []string
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(io.Discard, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+		ReplaceAttr: func(_ []string, attr slog.Attr) slog.Attr {
+			mu.Lock()
+			values = append(values, attr.Value.String())
+			mu.Unlock()
+			return attr
+		},
+	})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	cfg := &config.Config{Gateway: config.GatewayConfig{OpenAIHTTP2: config.GatewayOpenAIHTTP2Config{
+		Enabled: true, AllowProxyFallbackToHTTP1: true, FallbackErrorThreshold: 1,
+	}}}
+	s, ok := NewHTTPUpstream(cfg).(*httpUpstreamService)
+	require.True(t, ok)
+	proxy := "http://proxy-user:proxy-pass@proxy.test:8080/path-secret?token=query-secret"
+	profile := &tlsfingerprint.Profile{Name: "diagnostic-test"}
+	for i := 0; i < 2; i++ {
+		_, err := s.getClientEntryWithTLS(proxy, 1, 1, profile, service.HTTPUpstreamProfileDefault, false, true)
+		require.NoError(t, err)
+	}
+	s.recordOpenAIHTTP2Failure(service.HTTPUpstreamProfileOpenAI, upstreamProtocolModeOpenAIH2, proxy,
+		errors.New("stream error: stream ID 3; INTERNAL_ERROR; received from peer"))
+	require.True(t, s.isOpenAIHTTP2FallbackActive(proxy))
+
+	// Invalid proxy parsing must not echo its raw URL through acquisition logs.
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://upstream.test", nil)
+	require.NoError(t, err)
+	_, err = s.DoWithTLS(req, "http://proxy-user:proxy-pass@%zz/query-secret", 1, 1, profile)
+	require.Error(t, err)
+
+	mu.Lock()
+	logged := strings.Join(values, "\n")
+	mu.Unlock()
+	require.Contains(t, logged, "openai_http2_proxy_fallback_activated")
+	require.Contains(t, logged, "tls_fingerprint_creating_new_client")
+	require.Contains(t, logged, "tls_fingerprint_reusing_client")
+	require.Contains(t, logged, "tls_fingerprint_acquire_client_failed")
+	require.Contains(t, logged, "proxy.test:8080")
+	for _, secret := range []string{"proxy-user", "proxy-pass", "path-secret", "query-secret"} {
+		require.NotContains(t, logged, secret)
+	}
 }

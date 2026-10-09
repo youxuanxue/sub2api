@@ -21,7 +21,7 @@ HTTP 200 只表示响应头已收到。排查流失败时同时检查终态、�
 
 `upstream_http2_transport_error` 接收 HTTP/2 transport 的 CountError 事件，字段为 `protocol_mode`、`http2_error_kind`。例如 `conn_close_lost_ping` 可与连接失联关联。它是连接级诊断，不能加到用户请求失败总数，也没有可靠的单请求归属。
 
-日志不记录请求/响应正文、完整 URL、鉴权头、代理 URL 或原始错误字符串。事件使用现有日志管线；Ops sink 启用时 warning 可在系统日志检索。日志采样、sink 丢弃与保留期限仍适用，日志计数不是精确计费或请求计数器。
+日志不记录请求/响应正文、完整 URL、鉴权头、代理 URL 或原始错误字符串。既有代理回退和 TLS 指纹诊断也只记录 `proxy_host`，不输出含凭据的连接池缓存键或代理解析错误原文。事件使用现有日志管线；Ops sink 启用时 warning 可在系统日志检索。日志采样、sink 丢弃与保留期限仍适用，日志计数不是精确计费或请求计数器。
 
 经 `ops/observability/run-probe.sh` 在目标环境执行有界只读 SQL，可查看最近传输故障分布：
 
