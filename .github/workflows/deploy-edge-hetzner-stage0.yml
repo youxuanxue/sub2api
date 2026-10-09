@@ -1,8 +1,8 @@
 name: Edge Hetzner Stage0
 
-# Phase-1: matrix validate + provision dry-run / paid create (no DNS).
+# uk1 ignition: validate + dry-run, or paid create with SSM Hybrid + compose (no formal DNS).
 # Anchor: docs/approved/hetzner-cloud-full-migration.md
-# Secret: HCLOUD_TOKEN (only for confirm_paid=true). Never commit the token.
+# Secrets: HCLOUD_TOKEN (paid). AWS via OIDC (paid). Never commit tokens.
 
 run-name: "edge=${{ inputs.edge_id }} op=${{ inputs.operation }} platform=hetzner"
 
@@ -10,18 +10,22 @@ on:
   workflow_dispatch:
     inputs:
       edge_id:
-        description: "Edge id from deploy/hetzner/edge-targets-hetzner.json"
+        description: "Edge id (ignition knife: uk1)"
         required: true
         type: choice
         options: [uk1, uk2, us3, us4, us5, us6]
       operation:
-        description: "validate = unit tests; provision = dry-run or paid create"
+        description: "validate = unit tests; provision = dry-run or paid ignition"
         required: true
         type: choice
         options: [validate, provision]
       confirm_instance:
-        description: "Must match derived instance_name (tokenkey-edge-<id>-hz-cax21)"
+        description: "Must match tokenkey-edge-<id>-hz-cax21"
         required: true
+        type: string
+      tag:
+        description: "Image tag without v (required when confirm_paid=true)"
+        required: false
         type: string
       allow_planned:
         description: "Allow deployable=false rows"
@@ -29,13 +33,15 @@ on:
         type: boolean
         default: true
       confirm_paid:
-        description: "provision only: create paid cax21 (still no DNS)"
+        description: "Paid create + SSM + compose (still no formal DNS)"
         required: false
         type: boolean
         default: false
   pull_request:
     paths:
       - "deploy/hetzner/**"
+      - "deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml"
+      - "deploy/aws/lightsail/restore-edge-env-secrets.sh"
       - "ops/stage0/edge_routing_matrix.py"
       - "scripts/stage0/resolve-edge-deploy-route.py"
       - "scripts/stage0/dispatch-edge-deploy.sh"
@@ -48,6 +54,7 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   validate-matrix:
@@ -56,10 +63,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Unit tests
+      - name: Unit tests + bootstrap drift
         run: |
           python3 -m unittest deploy/hetzner/test_resolve_edge_hetzner_target.py -v
           python3 -m unittest scripts/test_resolve_edge_deploy_route.py -v
+          bash deploy/hetzner/render-bootstrap.sh --check
 
       - name: Phase-1 guard (no deployable=true)
         if: github.event_name == 'pull_request'
@@ -84,6 +92,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'provision'
     needs: validate-matrix
     runs-on: ubuntu-latest
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -110,6 +120,21 @@ jobs:
           if [[ "${ALLOW_PLANNED}" == "true" ]]; then ARGS+=(--allow-planned); fi
           bash deploy/hetzner/provision-edge.sh "${ARGS[@]}"
 
+      - name: Require OIDC role for paid path
+        if: inputs.confirm_paid == true
+        run: |
+          if [[ -z "${OIDC_ROLE_ARN}" ]]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set"
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        if: inputs.confirm_paid == true
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ steps.edge.outputs.ssm_region || 'eu-west-2' }}
+
       - name: Install hcloud CLI
         if: inputs.confirm_paid == true
         env:
@@ -120,29 +145,43 @@ jobs:
             | tar -xz -C /usr/local/bin hcloud
           hcloud version
 
-      - name: Paid provision (no DNS)
+      - name: Paid ignition (SSM + compose, no formal DNS)
         if: inputs.confirm_paid == true
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
           EDGE_ID: ${{ inputs.edge_id }}
           ALLOW_PLANNED: ${{ inputs.allow_planned }}
+          TAG: ${{ inputs.tag }}
+          ACME_EMAIL: ${{ vars.EDGE_ACME_EMAIL }}
+          MAIN_GATEWAY_ALLOWED_CIDR: ${{ vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR }}
+          GHCR_OWNER: ${{ github.repository_owner }}
+          GHCR_PAT_SSM_NAME: ${{ vars.EDGE_GHCR_PAT_SSM_NAME }}
+          ALLOW_SECRET_GENERATE: "true"
         run: |
           set -euo pipefail
           if [[ -z "${HCLOUD_TOKEN}" ]]; then
-            echo "::error::HCLOUD_TOKEN secret missing (gh secret set HCLOUD_TOKEN)"
+            echo "::error::HCLOUD_TOKEN secret missing"
             exit 1
           fi
-          ARGS=(--edge-id "$EDGE_ID" --confirm-paid)
+          if [[ -z "${TAG}" ]]; then
+            echo "::error::tag input required when confirm_paid=true"
+            exit 1
+          fi
+          if [[ -z "${ACME_EMAIL}" || -z "${MAIN_GATEWAY_ALLOWED_CIDR}" ]]; then
+            echo "::error::EDGE_ACME_EMAIL and EDGE_MAIN_GATEWAY_ALLOWED_CIDR vars required"
+            exit 1
+          fi
+          ARGS=(--edge-id "$EDGE_ID" --confirm-paid --tag "$TAG")
           if [[ "${ALLOW_PLANNED}" == "true" ]]; then ARGS+=(--allow-planned); fi
           bash deploy/hetzner/provision-edge.sh "${ARGS[@]}"
-          echo "::notice::Server create requested. Complete Gates E0–E4 on staging before DNS."
+          echo "::notice::Ignition complete through stack health. Set staging DNS A, then E0/E1. Do not flip deployable or formal DNS."
 
       - name: Summary
         if: always()
         run: |
           {
             echo "## deploy-edge-hetzner-stage0"
-            echo "- edge: \`${{ inputs.edge_id }}\` · paid: \`${{ inputs.confirm_paid }}\`"
+            echo "- edge: \`${{ inputs.edge_id }}\` · paid: \`${{ inputs.confirm_paid }}\` · tag: \`${{ inputs.tag }}\`"
             echo "- instance: \`${{ steps.edge.outputs.instance_name }}\`"
             echo "- \`${{ steps.edge.outputs.location }}/${{ steps.edge.outputs.server_type }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

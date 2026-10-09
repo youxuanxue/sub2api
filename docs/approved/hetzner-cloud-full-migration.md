@@ -36,16 +36,20 @@ related_designs:
 
 **目标：** staging 上跑通 **`uk1` Hetzner 边**——**不切正式 DNS、不翻 `deployable=true`。**
 
+Owner：`deploy/hetzner/provision-edge.sh` + `render-bootstrap.sh`；IAM：`tokenkey-hetzner-ssm-hybrid-uk1`（CFN addon）。
+
 | 步 | 做 | 停线 |
 |---|---|---|
-| 1 | **L0**：Primary IP 空余 ≥2 | 不够就清闲置/提额，禁硬扛 403 |
-| 2 | `confirm_paid` 建 `uk1`（`tokenkey-edge-uk1-hz-cax21`） | 仍无 DNS |
-| 3 | SSM Hybrid + compose 拉起 → `api-uk1-hz.tokenkey.dev` | 起不来不进测 |
-| 4 | **E0** 镜像 arm64；**E1** staging smoke full | 任一红 → 修，不 mirror、不切 DNS |
+| 0 | 应用 CFN addon（含 Hetzner uk1 Hybrid role） | PassRole/create-activation 失败则停 |
+| 1 | **L0**：Primary IP 空余 ≥2 | 不够就清闲置/提额 |
+| 2 | `confirm_paid --tag X.Y.Z`：建机 + user-data（SSM Hybrid + compose） | 仍无正式 DNS |
+| 3 | 等 mi-* + postgres/settings 绿；记下 public IP | 起不来查 `/var/log/tokenkey-hetzner-bootstrap.log` |
+| 4 | Staging DNS：`api-uk1-hz.tokenkey.dev` A → 该 IP | ACME 需要 |
+| 5 | **E0** arm64；**E1** staging smoke full | 红则修；不 mirror、不切正式 DNS |
 
-**本刀交付物：** L0→E1 绿证（可贴 PR / ops 笔记）。到此为止。
+**本刀交付物：** 栈健康 + L0→E1 绿证。到此为止。
 
-**本刀不做：** E2 上游封 IP、mirror、正式 DNS、`us5`、其他 edge、prod、升配、去 SSM。
+**本刀不做：** E2、mirror、正式 DNS、`us5`、其他 edge、prod、升配、去 SSM。
 
 ## 以后才做（别和下一刀混）
 

@@ -117,6 +117,7 @@ def resolve_target(
         "floating_ip_name": target["floating_ip_name"],
         "ssh_key_name": target["ssh_key_name"],
         "ssm_prefix": ssm_prefix,
+        "ssm_region": str(target.get("ssm_region") or "eu-west-2"),
         "ssm_hybrid_role_name": f"tokenkey-hetzner-ssm-hybrid-{edge_id}",
         "purpose": target.get("purpose", ""),
     }

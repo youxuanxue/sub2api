@@ -18,7 +18,8 @@
     "server_type": "cax21",
     "architecture": "arm",
     "image": "ubuntu-24.04",
-    "ssh_key_name": "tokenkey-hetzner-ops"
+    "ssh_key_name": "tokenkey-hetzner-ops",
+    "ssm_region": "eu-west-2"
   },
   "targets": {
     "uk1": { "purpose": "canary first" },

@@ -149,6 +149,10 @@ fi
 
 if [[ "${PLATFORM}" == "hetzner" ]]; then
   if [[ "${CONFIRM_PAID}" -eq 1 ]]; then
+    if [[ -z "${TAG}" ]]; then
+      echo "dispatch-edge-deploy: --tag is required with --confirm-paid on hetzner" >&2
+      exit 1
+    fi
     GH_ARGS+=(-f "confirm_paid=true")
   else
     GH_ARGS+=(-f "confirm_paid=false")

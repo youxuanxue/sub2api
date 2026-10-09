@@ -1,8 +1,8 @@
 #!/bin/bash
-# tokenkey Edge Lightsail bootstrap — generated; do not hand-edit.
+# tokenkey Edge Hetzner bootstrap — generated; do not hand-edit.
 set -euo pipefail
-exec > >(tee -a /var/log/tokenkey-lightsail-bootstrap.log) 2>&1
-echo "LIGHTSAIL_BOOTSTRAP_START $(date -u +%FT%TZ)"
+exec > >(tee -a /var/log/tokenkey-hetzner-bootstrap.log) 2>&1
+echo "HETZNER_BOOTSTRAP_START $(date -u +%FT%TZ)"
 
 : "${EDGE_ID:?EDGE_ID required}"
 : "${INSTANCE_NAME:?INSTANCE_NAME required}"
@@ -10,7 +10,7 @@ echo "LIGHTSAIL_BOOTSTRAP_START $(date -u +%FT%TZ)"
 : "${ACME_EMAIL:?ACME_EMAIL required}"
 : "${MAIN_GATEWAY_ALLOWED_CIDR:?MAIN_GATEWAY_ALLOWED_CIDR required}"
 : "${TOKENKEY_IMAGE:?TOKENKEY_IMAGE required}"
-: "${LIGHTSAIL_REGION:?LIGHTSAIL_REGION required}"
+: "${SSM_REGION:?SSM_REGION required}"
 : "${SSM_ACTIVATION_ID:?SSM_ACTIVATION_ID required}"
 : "${SSM_ACTIVATION_CODE:?SSM_ACTIVATION_CODE required}"
 : "${GHCR_PAT_SSM_NAME:=}"
@@ -22,22 +22,19 @@ case "${ALLOW_SECRET_GENERATE}" in
   *) echo "BOOTSTRAP_FAIL: ALLOW_SECRET_GENERATE must be true or false" >&2; exit 1 ;;
 esac
 
-if command -v hostnamectl >/dev/null 2>&1; then
-  hostnamectl set-hostname "${INSTANCE_NAME}" || true
-else
-  hostname "${INSTANCE_NAME}" 2>/dev/null || true
-fi
-
+hostnamectl set-hostname "${INSTANCE_NAME}" || hostname "${INSTANCE_NAME}" || true
 export ADMIN_EMAIL="${ADMIN_EMAIL:-admin@${API_DOMAIN}}"
 export TZ_VALUE="${TZ_VALUE:-UTC}"
 
-yum -y update || dnf -y update || true
-(yum -y install docker awscli openssl gzip tar || dnf -y install docker aws-cli openssl gzip tar) || true
-systemctl enable --now docker || true
-if ! command -v docker >/dev/null; then
-  (amazon-linux-extras install docker -y || dnf -y install docker) || true
-  systemctl enable --now docker || true
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y --no-install-recommends \
+  ca-certificates curl gnupg openssl gzip gettext-base awscli
+
+if ! command -v docker >/dev/null 2>&1; then
+  curl -fsSL https://get.docker.com | sh
 fi
+systemctl enable --now docker
 if ! docker compose version >/dev/null 2>&1; then
   mkdir -p /usr/local/lib/docker/cli-plugins
   curl -fsSL "https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-$(uname -m)" \
@@ -54,31 +51,38 @@ if [ "${SWAP_SIZE_GIB}" -gt 0 ] && [ ! -f /swapfile ]; then
   grep -q '^/swapfile ' /etc/fstab 2>/dev/null || echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 
-if ! rpm -q amazon-ssm-agent >/dev/null 2>&1; then
-  if ! yum -y install amazon-ssm-agent && ! dnf -y install amazon-ssm-agent; then
-    echo "BOOTSTRAP_FAIL: cannot install amazon-ssm-agent" >&2
-    exit 1
-  fi
+# amazon-ssm-agent (arm64/amd64 deb from AWS)
+arch="$(dpkg --print-architecture)"
+case "${arch}" in
+  arm64) ssm_deb_arch=arm64 ;;
+  amd64) ssm_deb_arch=amd64 ;;
+  *) echo "BOOTSTRAP_FAIL: unsupported arch ${arch}" >&2; exit 1 ;;
+esac
+if ! systemctl is-active --quiet amazon-ssm-agent 2>/dev/null; then
+  tmp="$(mktemp -d)"
+  curl -fsSL "https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/debian_${ssm_deb_arch}/amazon-ssm-agent.deb" \
+    -o "${tmp}/amazon-ssm-agent.deb"
+  dpkg -i "${tmp}/amazon-ssm-agent.deb" || apt-get install -fy
+  rm -rf "${tmp}"
 fi
 systemctl enable amazon-ssm-agent
 if ! /usr/bin/amazon-ssm-agent -register -y \
       -id "${SSM_ACTIVATION_ID}" \
       -code "${SSM_ACTIVATION_CODE}" \
-      -region "${LIGHTSAIL_REGION}"; then
-  echo "BOOTSTRAP_FAIL: amazon-ssm-agent -register failed (activation id/code/region mismatch?)" >&2
+      -region "${SSM_REGION}"; then
+  echo "BOOTSTRAP_FAIL: amazon-ssm-agent -register failed" >&2
   exit 1
 fi
 systemctl restart amazon-ssm-agent
 for i in 1 2 3 4 5 6; do
-  if systemctl is-active --quiet amazon-ssm-agent; then break; fi
-  echo "amazon-ssm-agent not active yet (try ${i}/6) — sleep 5s"
+  systemctl is-active --quiet amazon-ssm-agent && break
   sleep 5
   systemctl restart amazon-ssm-agent || true
 done
-if ! systemctl is-active --quiet amazon-ssm-agent; then
-  echo "BOOTSTRAP_FAIL: amazon-ssm-agent failed to stay active after register" >&2
+systemctl is-active --quiet amazon-ssm-agent || {
+  echo "BOOTSTRAP_FAIL: amazon-ssm-agent not active" >&2
   exit 1
-fi
+}
 
 mkdir -p /var/lib/tokenkey/caddy/data /var/lib/tokenkey/caddy/config
 install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app
@@ -99,13 +103,13 @@ chmod 0755 /usr/local/bin/tokenkey-restore-edge-env-secrets.sh
 
 SECRET_FILE=/var/lib/tokenkey/.env.secret
 restore_secret_args=(
-  --parameter "/tokenkey/edge/${EDGE_ID}/stage0/env-secrets-backup" \
+  --parameter "/tokenkey/hetzner/${EDGE_ID}/stage0/env-secrets-backup" \
   --output "$SECRET_FILE"
 )
 if [ "${ALLOW_SECRET_GENERATE}" = true ]; then
   restore_secret_args+=(--allow-generate)
 fi
-AWS_REGION="${LIGHTSAIL_REGION}" /usr/local/bin/tokenkey-restore-edge-env-secrets.sh \
+AWS_REGION="${SSM_REGION}" /usr/local/bin/tokenkey-restore-edge-env-secrets.sh \
   "${restore_secret_args[@]}"
 set -a; . "$SECRET_FILE"; set +a
 
@@ -136,18 +140,18 @@ ENVEOF
 chmod 0600 /var/lib/tokenkey/.env
 
 if [ -n "${GHCR_PAT_SSM_NAME:-}" ]; then
-  GHCR_PAT="$(aws --region "${LIGHTSAIL_REGION}" ssm get-parameter \
+  GHCR_PAT="$(aws --region "${SSM_REGION}" ssm get-parameter \
     --name "${GHCR_PAT_SSM_NAME}" --with-decryption \
     --query Parameter.Value --output text)"
   echo "${GHCR_PAT}" | docker login ghcr.io -u "${GHCR_PULL_USER}" --password-stdin
   unset GHCR_PAT
 else
-  echo "GHCR_PAT_SSM_NAME unset; relying on anonymous pull for public image ${TOKENKEY_IMAGE}"
+  echo "GHCR_PAT_SSM_NAME unset; anonymous pull for ${TOKENKEY_IMAGE}"
 fi
 
 cat > /etc/systemd/system/tokenkey.service <<'UNITEOF'
 [Unit]
-Description=tokenkey edge lightsail stack (docker compose)
+Description=tokenkey edge hetzner stack (docker compose)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -170,4 +174,4 @@ systemctl daemon-reload
 systemctl enable --now tokenkey.service
 sleep 30
 docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps || true
-echo "LIGHTSAIL_BOOTSTRAP_DONE $(date -u +%FT%TZ)"
+echo "HETZNER_BOOTSTRAP_DONE $(date -u +%FT%TZ)"

@@ -81,6 +81,7 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
         self.assertEqual(resolved["domain"], f"api-{self.any_id}.tokenkey.dev")
         self.assertEqual(resolved["staging_domain"], f"api-{self.any_id}-hz.tokenkey.dev")
         self.assertEqual(resolved["ssm_prefix"], f"/tokenkey/hetzner/{self.any_id}")
+        self.assertEqual(resolved["ssm_region"], "eu-west-2")
         self.assertEqual(
             resolved["ssm_hybrid_role_name"],
             f"tokenkey-hetzner-ssm-hybrid-{self.any_id}",

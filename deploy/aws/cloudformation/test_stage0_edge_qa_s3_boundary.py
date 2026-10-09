@@ -73,6 +73,7 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
             resource["Properties"]["RoleName"]: resource["Properties"]
             for resource in self.addon["Resources"].values()
             if resource.get("Type") == "AWS::IAM::Role"
+            and str(resource["Properties"]["RoleName"]).startswith(EDGE_ROLE_NAME)
         }
         expected_names = {EDGE_ROLE_NAME} | {
             f"{EDGE_ROLE_PREFIX}{edge_id}" for edge_id in deployable
@@ -85,6 +86,26 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
             ["arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"],
         )
         self.assertNotIn("Policies", shared)
+
+        hetzner_uk1 = next(
+            (
+                resource["Properties"]
+                for resource in self.addon["Resources"].values()
+                if resource.get("Type") == "AWS::IAM::Role"
+                and resource["Properties"]["RoleName"] == "tokenkey-hetzner-ssm-hybrid-uk1"
+            ),
+            None,
+        )
+        self.assertIsNotNone(hetzner_uk1)
+        secret_arns = [
+            stmt["Resource"]
+            for pol in hetzner_uk1["Policies"]
+            for stmt in pol["PolicyDocument"]["Statement"]
+            if stmt.get("Sid") == "ReadWriteOwnEnvSecrets"
+        ]
+        self.assertTrue(
+            any("parameter/tokenkey/hetzner/uk1/stage0/env-secrets-backup" in str(a) for a in secret_arns)
+        )
 
         for edge_id in deployable:
             with self.subTest(edge_id=edge_id):
@@ -148,9 +169,16 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
         pass_role = next(
             item for item in addon_statements if item.get("Sid") == "PassSsmHybridRoleToActivation"
         )
-        self.assertEqual(
-            pass_role["Resource"],
+        pass_resources = pass_role["Resource"]
+        if isinstance(pass_resources, str):
+            pass_resources = [pass_resources]
+        self.assertIn(
             "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid-*",
+            pass_resources,
+        )
+        self.assertIn(
+            "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-hetzner-ssm-hybrid-*",
+            pass_resources,
         )
         managed = next(
             item for item in addon_statements if item.get("Sid") == "SsmManagedInstanceCommand"
@@ -158,6 +186,10 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
         self.assertIn("ssm:UpdateManagedInstanceRole", managed["Action"])
         self.assertIn(
             "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid-*",
+            managed["Resource"],
+        )
+        self.assertIn(
+            "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-hetzner-ssm-hybrid-*",
             managed["Resource"],
         )
 

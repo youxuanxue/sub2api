@@ -35,6 +35,7 @@ def materialize_hetzner_target(edge_id: str, matrix: dict, raw: dict | None) -> 
     merged.setdefault("instance_name", f"tokenkey-edge-{edge_id}-hz-cax21")
     merged.setdefault("floating_ip_name", f"tokenkey-edge-{edge_id}-hz-fip")
     merged.setdefault("ssm_prefix", f"/tokenkey/hetzner/{edge_id}")
+    merged.setdefault("ssm_region", "eu-west-2")
     return merged
 
 
