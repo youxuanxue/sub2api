@@ -32,12 +32,11 @@ import (
 //	"output_config: Extra inputs are not permitted"
 //
 // 修复策略（剥字段，不注入 beta）：
+//   - 无正文的 role=system 消息一律删除（与 mid-conversation beta 无关；上游仍
+//     要求 "system content must contain at least one block"）。
 //   - header 缺该 token：仅为携带 message-level output_config 的消息剥此字段；
-//     role=system 且 content 无正文（缺失 / null / 空 string / 空 array / 仅空
-//     text 块）时整条删除；system 有正文保留正文与其余字段；user/assistant 只剥
-//     字段，绝不整条删除。
-//   - header 含该 token：完全保留。
-//   - 无任何 message-level output_config：字节 no-op。
+//     system 有正文保留正文与其余字段；user/assistant 只剥字段，绝不整条删除。
+//   - header 含该 token：保留有正文消息上的 message-level output_config。
 //   - 顶层 output_config / effort 不受该 beta 约束，本增量不触碰。
 //
 // 本文件只覆盖 Anthropic 直连路径的该增量；header 侧固定列表（mimic betas）
@@ -151,28 +150,42 @@ func TestSanitizeAnthropicBodyForBetaTokens_MidConversationOutputConfig_SystemWi
 	}
 }
 
-// header 含该 beta → 完全保留，字节 no-op（即使是空控制 system 消息）。
-func TestSanitizeAnthropicBodyForBetaTokens_MidConversationOutputConfig_ByteNoopWhenBetaPresent(t *testing.T) {
-	body := []byte(`{"model":"claude-opus-5","output_config":{"effort":"high"},"messages":[{"role":"system","content":[],"output_config":{"effort":"high"}},{"role":"user","content":"hi"}]}`)
+// header 含该 beta 时仍必须删除空 system；有正文 system 的 message-level
+// output_config 则保留（prod user16：带 beta 也不能豁免空 content）。
+func TestSanitizeAnthropicBodyForBetaTokens_MidConversationOutputConfig_DropsEmptySystemWhenBetaPresent(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-5","output_config":{"effort":"high"},"messages":[` +
+		`{"role":"system","content":[],"output_config":{"effort":"high"}},` +
+		`{"role":"system","content":"You are helpful.","output_config":{"effort":"high"}},` +
+		`{"role":"user","content":"hi"}]}`)
 	out, changed := sanitizeAnthropicBodyForBetaTokens(body,
 		"claude-code-20250219,oauth-2025-04-20,"+claude.BetaMidConversationOutputConfig)
-	require.False(t, changed, "header 含 mid-conversation-output-config beta → 完全保留")
-	require.True(t, bytes.Equal(body, out), "含 beta 时必须字节 no-op")
+	require.True(t, changed, "空 system 必须删除，即使 header 含 mid-conversation beta")
+
+	msgs := gjson.GetBytes(out, "messages").Array()
+	require.Len(t, msgs, 2)
+	require.Equal(t, "system", msgs[0].Get("role").String())
+	require.Equal(t, "You are helpful.", msgs[0].Get("content").String())
+	require.True(t, msgs[0].Get("output_config").Exists(),
+		"有正文 system 在含 beta 时必须保留 message-level output_config")
+	require.Equal(t, "user", msgs[1].Get("role").String())
+	require.Equal(t, "hi", msgs[1].Get("content").String())
+	require.Equal(t, "high", gjson.GetBytes(out, "output_config.effort").String())
 }
 
-// 无 message-level output_config（仅有顶层 output_config，或完全没有）→ 字节 no-op。
-func TestSanitizeAnthropicBodyForBetaTokens_MidConversationOutputConfig_NoFieldByteNoop(t *testing.T) {
-	bodies := [][]byte{
-		// 只有顶层 output_config（effort），消息无该字段
-		[]byte(`{"model":"claude-opus-5","output_config":{"effort":"high"},"messages":[{"role":"system","content":[]},{"role":"user","content":"hi"}]}`),
-		// 完全没有 output_config
-		[]byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}]}`),
-	}
-	for i, body := range bodies {
-		out, changed := sanitizeAnthropicBodyForBetaTokens(body, "oauth-2025-04-20")
-		require.Falsef(t, changed, "case %d: 无 message-level output_config → 不得改动", i)
-		require.Truef(t, bytes.Equal(body, out), "case %d: 必须字节 no-op", i)
-	}
+// 无正文 system（无 message-level output_config）也必须删除；仅 user 的 body 仍 no-op。
+func TestSanitizeAnthropicBodyForBetaTokens_StripEmptySystemWithoutOutputConfig(t *testing.T) {
+	withEmptySystem := []byte(`{"model":"claude-opus-5","output_config":{"effort":"high"},"messages":[{"role":"system","content":[]},{"role":"user","content":"hi"}]}`)
+	out, changed := sanitizeAnthropicBodyForBetaTokens(withEmptySystem, "oauth-2025-04-20")
+	require.True(t, changed)
+	msgs := gjson.GetBytes(out, "messages").Array()
+	require.Len(t, msgs, 1)
+	require.Equal(t, "user", msgs[0].Get("role").String())
+	require.Equal(t, "high", gjson.GetBytes(out, "output_config.effort").String())
+
+	userOnly := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}]}`)
+	out, changed = sanitizeAnthropicBodyForBetaTokens(userOnly, "oauth-2025-04-20")
+	require.False(t, changed, "无可净化字段/空 system → 字节 no-op")
+	require.True(t, bytes.Equal(userOnly, out))
 }
 
 // 幂等：净化后的 body 再跑一次必须是 no-op。
@@ -194,14 +207,8 @@ func TestSanitizeAnthropicBodyForBetaTokens_MidConversationOutputConfig_Idempote
 // 真实 request 联动
 // ============================================================================
 
-// OAuth mimic 路径真实 request 联动，两 case 明确期望：
-//   - 默认：mimic 固定列表带该 beta → outgoing header 含 token，空控制 system 消息保留；
-//   - policy filter 命中（经 gin context 的 betaPolicyFilterSetKey 缓存注入该 token，
-//     走真实 policy filter/dropSet 路径）→ outgoing header 无 token，空控制 system
-//     消息整条删除。
-//
-// 两 case 都断言 user 文本、消息数、顶层 effort 原值；期望为显式常量，不引用
-// FullClaudeCodeMimicryBetas（避免把实现列表当 expected）。
+// OAuth mimic 路径真实 request 联动：空控制 system 一律删除；两 case 都只剩 user。
+// 期望为显式常量，不引用 FullClaudeCodeMimicryBetas（避免把实现列表当 expected）。
 func TestBuildUpstreamRequestOAuthMimic_MidConversationOutputConfig(t *testing.T) {
 	cases := []struct {
 		name              string
@@ -251,8 +258,7 @@ func TestBuildUpstreamRequestOAuthMimic_MidConversationOutputConfig(t *testing.T
 				"outgoing anthropic-beta 必须与 filter 结果一致（outgoing beta=%q）", outBeta)
 
 			msgs := gjson.GetBytes(outBody, "messages").Array()
-			require.Len(t, msgs, tc.wantMsgLen,
-				"空控制 system 消息：header 带 beta 保留 / 缺 beta 整条删除")
+			require.Len(t, msgs, tc.wantMsgLen, "空控制 system 消息必须整条删除")
 			require.Equal(t, tc.wantFieldOnFirst, msgs[0].Get("output_config").Exists())
 
 			var userContent string
@@ -269,8 +275,8 @@ func TestBuildUpstreamRequestOAuthMimic_MidConversationOutputConfig(t *testing.T
 	}
 }
 
-// API-key passthrough 透传路径：客户端 header 带/不带该 beta 时，
-// 出站 header 与 body 的 message-level output_config 必须同进同退。
+// API-key passthrough：空 system 一律删除；有正文 system 上的 message-level
+// output_config 与客户端 mid-conversation beta 同进同退。
 func TestBuildUpstreamRequestAnthropicAPIKeyPassthrough_MidConversationOutputConfigConsistentWithClientHeader(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -288,7 +294,7 @@ func TestBuildUpstreamRequestAnthropicAPIKeyPassthrough_MidConversationOutputCon
 			name:       "client_header_missing_beta",
 			clientBeta: "oauth-2025-04-20",
 			wantField:  false,
-			wantMsgLen: 1,
+			wantMsgLen: 2,
 		},
 	}
 	for _, tc := range cases {
@@ -301,6 +307,7 @@ func TestBuildUpstreamRequestAnthropicAPIKeyPassthrough_MidConversationOutputCon
 
 			body := []byte(`{"model":"claude-opus-5","output_config":{"effort":"high"},"messages":[` +
 				`{"role":"system","content":[],"output_config":{"effort":"high"}},` +
+				`{"role":"system","content":"You are helpful.","output_config":{"effort":"high"}},` +
 				`{"role":"user","content":"hello"}]}`)
 
 			svc := &GatewayService{cfg: &config.Config{}}
@@ -314,10 +321,14 @@ func TestBuildUpstreamRequestAnthropicAPIKeyPassthrough_MidConversationOutputCon
 
 			require.Equalf(t, tc.wantField, anthropicBetaTokensContains(outBeta, claude.BetaMidConversationOutputConfig),
 				"出站 header 必须与客户端传入的 beta 一致（outgoing beta=%q）", outBeta)
-			require.Equal(t, tc.wantField, gjson.GetBytes(outBody, "messages.0.output_config").Exists(),
-				"header/body 必须一致")
-			require.Len(t, gjson.GetBytes(outBody, "messages").Array(), tc.wantMsgLen,
-				"缺 beta 时空控制 system 消息整条删除；带 beta 时保留")
+			msgs := gjson.GetBytes(outBody, "messages").Array()
+			require.Len(t, msgs, tc.wantMsgLen, "空控制 system 必须删除；有正文 system + user 保留")
+			require.Equal(t, "system", msgs[0].Get("role").String())
+			require.Equal(t, "You are helpful.", msgs[0].Get("content").String())
+			require.Equal(t, tc.wantField, msgs[0].Get("output_config").Exists(),
+				"有正文 system 的 message-level output_config 与 header beta 同进同退")
+			require.Equal(t, "user", msgs[1].Get("role").String())
+			require.Equal(t, "hello", msgs[1].Get("content").String())
 		})
 	}
 }
