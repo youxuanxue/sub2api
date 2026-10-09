@@ -102,6 +102,12 @@ if [[ -z "$TAG" ]]; then
   echo "provision-edge: --tag is required for --confirm-paid (image tag without v)" >&2
   exit 1
 fi
+# Ignition knife: CFN addon only ships tokenkey-hetzner-ssm-hybrid-uk1.
+# Refuse other edge ids until their Hybrid roles land (approved next-cut = uk1).
+if [[ "$EDGE_OUT" != "uk1" ]]; then
+  echo "provision-edge: paid ignition is uk1-only until more tokenkey-hetzner-ssm-hybrid-* roles exist (got ${EDGE_OUT})" >&2
+  exit 1
+fi
 if [[ -z "$ACME_EMAIL" || -z "$MAIN_GATEWAY_ALLOWED_CIDR" || -z "$GHCR_OWNER" ]]; then
   echo "provision-edge: ACME_EMAIL, MAIN_GATEWAY_ALLOWED_CIDR, GHCR_OWNER required for --confirm-paid" >&2
   exit 1

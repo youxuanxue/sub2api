@@ -66,8 +66,10 @@ jobs:
       - name: Unit tests + bootstrap drift
         run: |
           python3 -m unittest deploy/hetzner/test_resolve_edge_hetzner_target.py -v
+          python3 -m unittest deploy/hetzner/test_render_bootstrap.py -v
           python3 -m unittest scripts/test_resolve_edge_deploy_route.py -v
           bash deploy/hetzner/render-bootstrap.sh --check
+          bash deploy/aws/lightsail/test_restore_edge_env_secrets.sh
 
       - name: Phase-1 guard (no deployable=true)
         if: github.event_name == 'pull_request'
