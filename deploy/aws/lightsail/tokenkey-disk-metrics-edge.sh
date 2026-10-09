@@ -181,8 +181,8 @@ fi
 #       latch and no ✅ post, so a transient peak left an operator holding an open
 #       P1 ("立即查重负载/限流或升配") against a box that was back to 40% five
 #       minutes later. Recovery now mirrors handle_disk_state.
-#   (2) Hardcoded "1GiB edge" in the body. Live small_3_0 edges (uk1/uk2/us3/us4/us5;
-#       us6 resized to large_3_0 on 2026-10-09)
+#   (2) Hardcoded "1GiB edge" in the body. Live small_3_0 edges (uk1/uk2/us4/us5;
+#       us3/us6 resized to large_3_0 on 2026-10-09)
 #       are ~1.87GiB; planned/retired micro_3_0 rows (us1/us2/us7/fra1) stay 1GiB.
 #       Misreporting the box class directly misleads the 升配 call. The body now
 #       carries the real MemTotal.
