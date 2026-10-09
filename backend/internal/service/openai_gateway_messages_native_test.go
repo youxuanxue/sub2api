@@ -124,6 +124,59 @@ func TestForwardAsAnthropic_NativeMessages_TokenseaStripsContextManagement(t *te
 	}
 }
 
+// TestForwardAsAnthropic_NativeMessages_TokenseaStripsEmptySystem pins the
+// prod 2026-10-09 user16 path: #2512/#2514 wired empty-system strip into
+// buildNativeAnthropicUpstreamRequest / Anthropic passthrough, but tokensea
+// platform=newapi uses forwardAnthropicViaNativeMessages →
+// sendNativeAnthropicMessagesRequest and still forwarded content=[] system
+// messages (1.8.282 live probe still 400'd).
+func TestForwardAsAnthropic_NativeMessages_TokenseaStripsEmptySystem(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{
+		"model":"claude-fable-5-1",
+		"max_tokens":32,
+		"output_config":{"effort":"high"},
+		"messages":[
+			{"role":"user","content":"ping"},
+			{"role":"system","content":[],"output_config":{"effort":"high"}},
+			{"role":"system","content":"You are helpful.","output_config":{"effort":"high"}},
+			{"role":"user","content":"say ok"}
+		]
+	}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	// Probe / Claude Code default beta: no mid-conversation-output-config.
+	c.Request.Header.Set("anthropic-beta", "claude-code-20250219")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"type":"message","model":"claude-fable-5-1","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":3,"output_tokens":1}}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	_, err := svc.ForwardAsAnthropic(context.Background(), c, tokenseaNativeMessagesAccount(), body, "", "")
+	require.NoError(t, err)
+	require.Equal(t, "https://agent.tokensea.ai/v1/messages", upstream.lastReq.URL.String())
+
+	msgs := gjson.GetBytes(upstream.lastBody, "messages").Array()
+	require.Len(t, msgs, 3, "empty system must be stripped on native tokensea egress")
+	require.Equal(t, "user", msgs[0].Get("role").String())
+	require.Equal(t, "system", msgs[1].Get("role").String())
+	require.Equal(t, "You are helpful.", msgs[1].Get("content").String())
+	require.False(t, msgs[1].Get("output_config").Exists(),
+		"message-level output_config must strip when mid-conversation beta absent")
+	require.Equal(t, "user", msgs[2].Get("role").String())
+	require.Equal(t, "high", gjson.GetBytes(upstream.lastBody, "output_config.effort").String())
+}
+
 // TestForwardAsAnthropic_NativeMessages_PrefiltersToolStormThinking pins the
 // prod 2026-09-25 user16 path: native messages missed ToolSearch/tool-storm
 // historical thinking prefilter and returned final 400 cannot-be-modified.
