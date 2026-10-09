@@ -20,9 +20,9 @@ QUALITY="${QUALITY:-}"
 BACKGROUND="${BACKGROUND:-}"
 OUTPUT_COMPRESSION="${OUTPUT_COMPRESSION:-}"
 # Defaults must match DefaultOpenAICodexVersion (setting_gateway_runtime.go).
-DEFAULT_CODEX_UA="codex-tui/0.161.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.161.0)"
+DEFAULT_CODEX_UA="codex-tui/0.162.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.162.0)"
 CODEX_USER_AGENT="${CODEX_USER_AGENT:-$DEFAULT_CODEX_UA}"
-CODEX_VERSION="${CODEX_VERSION:-0.161.0}"
+CODEX_VERSION="${CODEX_VERSION:-0.162.0}"
 
 PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
 
