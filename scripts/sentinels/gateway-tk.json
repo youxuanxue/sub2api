@@ -15937,6 +15937,24 @@
         "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}"
       ],
       "rationale": "Stage0 compose defaults must match the stream/nonstream NewAPI Chat first-output SSOT; lightsail/CFN embed this file."
+    },
+    {
+      "path": "backend/internal/service/gateway_request.go",
+      "must_contain": [
+        "func stripEmptyAnthropicSystemMessages(body []byte) ([]byte, bool)",
+        "if b, deleted := stripEmptyAnthropicSystemMessages(body); deleted {",
+        "func sanitizeAnthropicBodyForBetaTokens(body []byte, anthropicBetaHeader string) ([]byte, bool)"
+      ],
+      "rationale": "Empty mid-conversation system control messages (role=system, content=[]) must be stripped before Anthropic/tokensea egress regardless of mid-conversation-output-config beta; otherwise upstream returns 400 'system content must contain at least one block' (prod 2026-10-09 user16 × claude-fable-5-1). Lives in upstream-hot gateway_request.go and is easy to drop on merge."
+    },
+    {
+      "path": "backend/internal/service/gateway_mid_conversation_output_config_test.go",
+      "must_contain": [
+        "TestSanitizeAnthropicBodyForBetaTokens_MidConversationOutputConfig_DropsEmptySystemWhenBetaPresent",
+        "TestSanitizeAnthropicBodyForBetaTokens_StripEmptySystemWithoutOutputConfig",
+        "空 system 必须删除，即使 header 含 mid-conversation beta"
+      ],
+      "rationale": "Focused regressions lock empty-system deletion both with and without mid-conversation-output-config beta, and keep message-level output_config on systems that still have body."
     }
   ]
 }

@@ -1081,7 +1081,7 @@ const anthropicBetaContextManagementToken = "context-management-2025-06-27"
 //     "thinking.adaptive.block_binding: Extra inputs are not permitted"
 //
 // message-level output_config 场景：
-//   - pi-ai（Harness 使用的 Anthropic provider）会为 opus5 生成形如
+//   - pi-ai / Claude Code 会为 opus/fable 生成形如
 //     `{"role":"system","content":[],"output_config":{"effort":"high"}}` 的控制消息，
 //     并请求 `mid-conversation-output-config-2026-07-01` beta
 //   - 该 output_config 是 **message 级**字段，只有该 beta 保护；顶层 output_config/effort
@@ -1089,6 +1089,12 @@ const anthropicBetaContextManagementToken = "context-management-2025-06-27"
 //   - OAuth mimic 用 FullClaudeCodeMimicryBetas 覆盖客户端 beta；固定列表漏该 beta 时
 //     body 字段与 header 不对称 → 上游报 "output_config: Extra inputs are not permitted"
 //   - 缺 token 时净化消息级 output_config（详见 stripAnthropicMessageOutputConfigUnlessBeta）
+//
+// 空 system 控制消息（与 beta 无关）：
+//   - 上游仍要求 system content 至少一个 block；header 带 mid-conversation beta
+//     也不能豁免空 content（prod 2026-10-09 user16 × claude-fable-5-1 × tokensea：
+//     "messages.1: system content must contain at least one block"）
+//   - 因此无正文的 role=system 消息一律删除，见 stripEmptyAnthropicSystemMessages
 //
 // 本函数按最终发送的 anthropic-beta header 决定是否保留 body 中的上述字段：
 // 缺对应 beta token → strip；客户端 header 已带对应 beta → 保留（不过度删除）。
@@ -1133,6 +1139,11 @@ func sanitizeAnthropicBodyForBetaTokens(body []byte, anthropicBetaHeader string)
 		body, "fallback_credit_token", anthropicBetaHeader,
 		claude.BetaServerSideFallback, claude.BetaFallbackCredit, claude.BetaFallbackCreditLegacy,
 	); deleted {
+		body, changed = b, true
+	}
+
+	// 无正文 system 消息：与 mid-conversation beta 无关，一律删除。
+	if b, deleted := stripEmptyAnthropicSystemMessages(body); deleted {
 		body, changed = b, true
 	}
 
@@ -1184,16 +1195,58 @@ func anthropicBetaTokensContains(header, token string) bool {
 	return false
 }
 
+// stripEmptyAnthropicSystemMessages 删除 messages[] 中 role=system 且 content 无正文
+// 的消息（缺失 / null / 空 string / 空 array / 仅空 text 块）。
+//
+// mid-conversation-output-config beta 只授权 message-level output_config，不豁免
+// 「system content must contain at least one block」。因此本清理与 beta header
+// 无关，必须在带/不带该 beta 的路径上同样执行。有正文的 system / 全部
+// user/assistant 消息原样保留。
+func stripEmptyAnthropicSystemMessages(body []byte) ([]byte, bool) {
+	msgsRes := gjson.GetBytes(body, "messages")
+	if !msgsRes.Exists() || !msgsRes.IsArray() {
+		return body, false
+	}
+
+	var messages []json.RawMessage
+	if err := json.Unmarshal([]byte(msgsRes.Raw), &messages); err != nil {
+		return body, false
+	}
+
+	changed := false
+	rebuilt := make([]json.RawMessage, 0, len(messages))
+	for _, msg := range messages {
+		if gjson.GetBytes(msg, "role").String() == "system" &&
+			!anthropicMessageContentHasBody(gjson.GetBytes(msg, "content")) {
+			changed = true
+			continue
+		}
+		rebuilt = append(rebuilt, msg)
+	}
+	if !changed {
+		return body, false
+	}
+
+	rebuiltBytes, err := json.Marshal(rebuilt)
+	if err != nil {
+		return body, false
+	}
+	out, err := sjson.SetRawBytes(body, "messages", rebuiltBytes)
+	if err != nil {
+		return body, false
+	}
+	return out, true
+}
+
 // stripAnthropicMessageOutputConfigUnlessBeta 在 anthropic-beta header 缺
 // mid-conversation-output-config beta 时，净化 **messages[].output_config**：
 //   - 仅为携带 message-level output_config 的消息剥该字段；
-//   - 若该消息 role=system 且 content 无正文（缺失 / null / 空 string / 空 array /
-//     仅空 text 块），整条删除（pi-ai 为 opus5 生成的空 system 控制消息即此形态）；
-//   - system 有正文则保留正文与其余字段；user/assistant 只剥字段，绝不整条删除；
+//   - 无正文的 system 由 stripEmptyAnthropicSystemMessages 先行删除；本函数对仍
+//     残留的空 system（防御）同样整条删除，有正文 system / user/assistant 只剥字段；
 //   - 无任何消息携带该字段时返回原 body（字节 no-op）。
 //
-// header 含该 beta 时完全保留。顶层 output_config / effort 不属于该 beta 保护范围，
-// 本函数不做任何处理。多条删除用「稳健重建」实现，保留其余字段与消息先后顺序。
+// header 含该 beta 时保留 message-level output_config（空 system 已由上游步骤清除）。
+// 顶层 output_config / effort 不属于该 beta 保护范围，本函数不做任何处理。
 func stripAnthropicMessageOutputConfigUnlessBeta(body []byte, anthropicBetaHeader string) ([]byte, bool) {
 	if anthropicBetaTokensContains(anthropicBetaHeader, claude.BetaMidConversationOutputConfig) {
 		return body, false
