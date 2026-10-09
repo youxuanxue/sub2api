@@ -9,6 +9,7 @@ import pathlib
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "probe_account_model.sh"
@@ -104,6 +105,88 @@ elif 'cat' in args:
                 self.assertEqual(lifecycle, "prepare\ncleanup\n")
                 self.assertNotIn("instructions", json.loads(sent))
                 self.assertNotIn("system", json.loads(sent))
+
+    def test_concurrent_platform_probe_files_and_cleanup_are_isolated(self) -> None:
+        # Execute the real container shell from each entrypoint invocation. Only curl
+        # is replaced: hold request B open while A reads and cleans up its artifacts.
+        with tempfile.TemporaryDirectory(prefix="probe-concurrent-") as td:
+            root = pathlib.Path(td)
+            audio = root / "audio.wav"
+            audio.write_bytes(b"fixture-audio")
+            curl = root / "curl"
+            curl.write_text("""#!/usr/bin/env python3
+import os, pathlib, sys, time
+args = sys.argv[1:]
+root = pathlib.Path(os.environ['RACE_ROOT'])
+label = os.environ['RACE_LABEL']
+headers = pathlib.Path(args[args.index('-D') + 1])
+body = pathlib.Path(args[args.index('-o') + 1])
+headers.write_text('x-request-id: ' + label + '\\n')
+(root / (label + '-headers')).touch()
+wait_for = root / ('B-headers' if label == 'A' else 'release-B')
+deadline = time.monotonic() + 10
+while not wait_for.exists():
+    if time.monotonic() > deadline:
+        sys.exit('fixture synchronization timed out')
+    time.sleep(0.01)
+if '--data-binary' in args:
+    request = args[args.index('--data-binary') + 1][1:]
+else:
+    request = next(a for a in args if a.startswith('file=@'))[6:].split(';')[0]
+body.write_bytes(pathlib.Path(request).read_bytes())
+print('200', end='')
+""")
+            curl.chmod(0o755)
+            for endpoint in ("images", "transcriptions"):
+                with self.subTest(endpoint=endpoint):
+                    for marker in ("A-headers", "B-headers", "release-B"):
+                        (root / marker).unlink(missing_ok=True)
+                    runs = []
+                    for label, operation in (("A", endpoint), ("B", "messages")):
+                        _, _, calls, _ = self.run_probe_fixture(operation, AUDIO_FILE=str(audio))
+                        commands = [json.loads(call) for call in calls]
+                        send = next(c for c in commands if '-lc' in c)
+                        env = {**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH'],
+                               'RACE_ROOT': str(root), 'RACE_LABEL': label}
+                        for i, arg in enumerate(send):
+                            if arg == '-e':
+                                key, value = send[i + 1].split('=', 1)
+                                env[key] = value.replace('/tmp/', str(root) + '/')
+                        shell = send[-1].replace('/tmp/', str(root) + '/')
+                        proc = subprocess.Popen(['sh', '-c', shell], env=env, stdin=subprocess.PIPE,
+                                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                        proc.stdin.write(label.encode())
+                        proc.stdin.close()
+                        proc.stdin = None
+                        runs.append((proc, commands))
+                        if label == 'A':
+                            # Ensure B overwrites A's headers on the buggy implementation.
+                            deadline = time.monotonic() + 10
+                            while not (root / 'A-headers').exists():
+                                if time.monotonic() > deadline:
+                                    self.fail('first request did not write headers')
+                                time.sleep(0.01)
+                    try:
+                        for index, (proc, commands) in enumerate(runs):
+                            out, err = proc.communicate(timeout=15)
+                            self.assertEqual((proc.returncode, out), (0, b'200'), err)
+                            reads = [c[-1] for c in commands if 'cat' in c and '-lc' not in c]
+                            contents = {pathlib.Path(path).name: pathlib.Path(path.replace('/tmp/', str(root) + '/')).read_text()
+                                        for path in reads}
+                            label = 'AB'[index]
+                            self.assertEqual(next(v for k, v in contents.items() if k.endswith('headers.txt')),
+                                             'x-request-id: ' + label + '\n')
+                            self.assertEqual(next(v for k, v in contents.items() if k.endswith('response.json')), label)
+                            cleanup = next(c for c in commands if 'rm' in c)
+                            args = [a.replace('/tmp/', str(root) + '/') for a in cleanup[cleanup.index('rm'):]]
+                            subprocess.run(args, check=True)
+                            (root / 'release-B').touch()
+                    finally:
+                        (root / 'release-B').touch()
+                        for proc, _ in runs:
+                            if proc.poll() is None:
+                                proc.kill()
+                            proc.communicate()
 
     def test_exact_body_errors_precede_remote_calls_and_probe_resources(self) -> None:
         cases = [

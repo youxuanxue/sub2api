@@ -173,6 +173,10 @@ if [[ "$ENDPOINT" == "transcriptions" ]]; then
 fi
 
 PROBE_ID="tkprobe-${ACCOUNT_ID}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+# Platform locks allow different platforms to probe concurrently in the same container.
+PROBE_REQUEST_PATH="/tmp/${PROBE_ID}-request.json"
+PROBE_RESPONSE_PATH="/tmp/${PROBE_ID}-response.json"
+PROBE_HEADERS_PATH="/tmp/${PROBE_ID}-headers.txt"
 
 TARGET_JSON="$("${PSQL[@]}" -c "
 SELECT COALESCE(row_to_json(t)::text, '')
@@ -237,7 +241,7 @@ cleanup() {
       tk_probe_cleanup_named_group "$GROUP_ID" "$GROUP_NAME" "$KEY_NAME" oneoff >/dev/null 2>&1 || true # preflight-allow: swallow
     fi
   fi
-  sudo docker exec "$APP_CONTAINER" rm -f /tmp/tk-probe-request.json /tmp/tk-probe-response.json /tmp/tk-probe-headers.txt >/dev/null 2>&1 || true # preflight-allow: swallow
+  sudo docker exec "$APP_CONTAINER" rm -f "$PROBE_REQUEST_PATH" "$PROBE_RESPONSE_PATH" "$PROBE_HEADERS_PATH" >/dev/null 2>&1 || true # preflight-allow: swallow
 }
 trap cleanup EXIT
 
@@ -512,14 +516,17 @@ http_output=""
 if [[ "$AUTH_HEADER_NAME" == "x-api-key" ]]; then
   if http_output="$(sudo docker exec -i \
     -e TK_PROBE_KEY="$API_KEY" \
+    -e TK_PROBE_REQUEST_PATH="$PROBE_REQUEST_PATH" \
+    -e TK_PROBE_RESPONSE_PATH="$PROBE_RESPONSE_PATH" \
+    -e TK_PROBE_HEADERS_PATH="$PROBE_HEADERS_PATH" \
     -e TK_PROBE_URL="${APP_URL}${PATH_SUFFIX}" \
     -e TK_PROBE_REQUEST_ID="$CLIENT_REQUEST_ID" \
     -e TK_PROBE_TIMEOUT_SECONDS="$REQUEST_TIMEOUT_SECONDS" \
     -e TK_PROBE_CLAUDE_UA="$TK_SMOKE_CLAUDE_USER_AGENT" \
     "$APP_CONTAINER" sh -lc '
-      cat >/tmp/tk-probe-request.json
+      cat >"$TK_PROBE_REQUEST_PATH"
       curl -sS --connect-timeout 5 --max-time "$TK_PROBE_TIMEOUT_SECONDS" \
-        -D /tmp/tk-probe-headers.txt -o /tmp/tk-probe-response.json -w "%{http_code}" \
+        -D "$TK_PROBE_HEADERS_PATH" -o "$TK_PROBE_RESPONSE_PATH" -w "%{http_code}" \
         -H "x-api-key: $TK_PROBE_KEY" \
         -H "anthropic-version: 2023-06-01" \
         -H "anthropic-beta: claude-code-20250219" \
@@ -527,7 +534,7 @@ if [[ "$AUTH_HEADER_NAME" == "x-api-key" ]]; then
         -H "X-Client-Request-ID: $TK_PROBE_REQUEST_ID" \
         -H "Content-Type: application/json" \
         -H "User-Agent: $TK_PROBE_CLAUDE_UA" \
-        --data-binary @/tmp/tk-probe-request.json \
+        --data-binary "@$TK_PROBE_REQUEST_PATH" \
         "$TK_PROBE_URL"
     ' <"$tmp_payload" 2>"$tmp_err")"; then
     http_code="$http_output"
@@ -539,27 +546,30 @@ else
     -e TK_PROBE_ENDPOINT="$ENDPOINT" \
     -e TK_PROBE_MODEL="$MODEL" \
     -e TK_PROBE_KEY="$API_KEY" \
+    -e TK_PROBE_REQUEST_PATH="$PROBE_REQUEST_PATH" \
+    -e TK_PROBE_RESPONSE_PATH="$PROBE_RESPONSE_PATH" \
+    -e TK_PROBE_HEADERS_PATH="$PROBE_HEADERS_PATH" \
     -e TK_PROBE_URL="${APP_URL}${PATH_SUFFIX}" \
     -e TK_PROBE_REQUEST_ID="$CLIENT_REQUEST_ID" \
     -e TK_PROBE_TIMEOUT_SECONDS="$REQUEST_TIMEOUT_SECONDS" \
     "$APP_CONTAINER" sh -lc '
-      cat >/tmp/tk-probe-request.json
+      cat >"$TK_PROBE_REQUEST_PATH"
       if [ "$TK_PROBE_ENDPOINT" = "transcriptions" ]; then
         exec curl -sS --connect-timeout 5 --max-time "$TK_PROBE_TIMEOUT_SECONDS" \
-          -D /tmp/tk-probe-headers.txt -o /tmp/tk-probe-response.json -w "%{http_code}" \
+          -D "$TK_PROBE_HEADERS_PATH" -o "$TK_PROBE_RESPONSE_PATH" -w "%{http_code}" \
           -H "Authorization: Bearer $TK_PROBE_KEY" \
           -H "X-Client-Request-ID: $TK_PROBE_REQUEST_ID" \
           -H "User-Agent: tokenkey-account-model-probe/1" \
-          -F "model=$TK_PROBE_MODEL" -F "file=@/tmp/tk-probe-request.json;filename=recording.audio" \
+          -F "model=$TK_PROBE_MODEL" -F "file=@$TK_PROBE_REQUEST_PATH;filename=recording.audio" \
           "$TK_PROBE_URL"
       fi
       curl -sS --connect-timeout 5 --max-time "$TK_PROBE_TIMEOUT_SECONDS" \
-        -D /tmp/tk-probe-headers.txt -o /tmp/tk-probe-response.json -w "%{http_code}" \
+        -D "$TK_PROBE_HEADERS_PATH" -o "$TK_PROBE_RESPONSE_PATH" -w "%{http_code}" \
         -H "Authorization: Bearer $TK_PROBE_KEY" \
         -H "X-Client-Request-ID: $TK_PROBE_REQUEST_ID" \
         -H "Content-Type: application/json" \
         -H "User-Agent: tokenkey-account-model-probe/1" \
-        --data-binary @/tmp/tk-probe-request.json \
+        --data-binary "@$TK_PROBE_REQUEST_PATH" \
         "$TK_PROBE_URL"
     ' <"$tmp_payload" 2>"$tmp_err")"; then
     http_code="$http_output"
@@ -569,10 +579,10 @@ else
 fi
 http_code="$(printf '%s' "$http_code" | tr -cd '0-9' | tail -c 3)"
 
-sudo docker exec "$APP_CONTAINER" test -f /tmp/tk-probe-response.json >/dev/null 2>&1 &&
-  sudo docker exec "$APP_CONTAINER" cat /tmp/tk-probe-response.json >"$tmp_body" || : >"$tmp_body"
-sudo docker exec "$APP_CONTAINER" test -f /tmp/tk-probe-headers.txt >/dev/null 2>&1 &&
-  sudo docker exec "$APP_CONTAINER" cat /tmp/tk-probe-headers.txt >"$tmp_headers" || : >"$tmp_headers"
+sudo docker exec "$APP_CONTAINER" test -f "$PROBE_RESPONSE_PATH" >/dev/null 2>&1 &&
+  sudo docker exec "$APP_CONTAINER" cat "$PROBE_RESPONSE_PATH" >"$tmp_body" || : >"$tmp_body"
+sudo docker exec "$APP_CONTAINER" test -f "$PROBE_HEADERS_PATH" >/dev/null 2>&1 &&
+  sudo docker exec "$APP_CONTAINER" cat "$PROBE_HEADERS_PATH" >"$tmp_headers" || : >"$tmp_headers"
 sudo docker logs "$APP_CONTAINER" --since "$LOG_WINDOW" >"$tmp_logs" 2>&1 || true # preflight-allow: swallow
 
 SERVER_REQUEST_ID="$(python3 - "$tmp_headers" <<'PYRID'
