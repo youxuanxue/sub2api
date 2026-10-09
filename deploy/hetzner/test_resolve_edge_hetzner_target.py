@@ -47,8 +47,12 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
         cls.any_id = sorted(cls.targets)[0] if cls.targets else None
 
     def test_matrix_all_planned_during_phase1(self) -> None:
-        """Phase-1 invariant: no live hetzner cutover rows."""
-        deployable = [k for k, t in self.targets.items() if t.get("deployable") is True]
+        """Phase-1 invariant: no live hetzner cutover rows (after defaults)."""
+        sys.path.insert(0, str(REPO_ROOT / "ops" / "stage0"))
+        from edge_routing_matrix import load_hetzner_targets
+
+        materialized = load_hetzner_targets(REPO_ROOT)
+        deployable = [k for k, t in materialized.items() if t.get("deployable") is True]
         self.assertEqual(deployable, [], f"Phase-1 must keep deployable=false; got {deployable}")
 
     def test_planned_fails_without_allow_planned(self) -> None:
@@ -65,7 +69,7 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
     def test_planned_resolves_with_allow_planned(self) -> None:
         if not self.any_id:
             self.skipTest("matrix empty")
-        expected = self.targets[self.any_id]["instance_name"]
+        expected = f"tokenkey-edge-{self.any_id}-hz-cax21"
         resolved = run_resolver(self.any_id, allow_planned=True, confirm_instance=expected)
         self.assertEqual(resolved["edge_id"], self.any_id)
         self.assertEqual(resolved["platform"], "hetzner")
@@ -73,11 +77,14 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
         self.assertEqual(resolved["location"], "fsn1")
         self.assertEqual(resolved["server_type"], "cax21")
         self.assertEqual(resolved["architecture"], "arm")
+        self.assertEqual(resolved["instance_name"], expected)
+        self.assertEqual(resolved["domain"], f"api-{self.any_id}.tokenkey.dev")
+        self.assertEqual(resolved["staging_domain"], f"api-{self.any_id}-hz.tokenkey.dev")
+        self.assertEqual(resolved["ssm_prefix"], f"/tokenkey/hetzner/{self.any_id}")
         self.assertEqual(
             resolved["ssm_hybrid_role_name"],
             f"tokenkey-hetzner-ssm-hybrid-{self.any_id}",
         )
-        self.assertTrue(resolved["ssm_prefix"].startswith("/tokenkey/hetzner/"))
 
     def test_unknown_edge_id_fails(self) -> None:
         proc = subprocess.run(

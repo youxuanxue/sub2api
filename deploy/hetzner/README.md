@@ -1,71 +1,47 @@
-# TokenKey Edge / Prod on Hetzner Cloud
+# TokenKey Edge on Hetzner Cloud
 
-> **审批基线：** [`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)  
-> **Phase-1：** 骨架与矩阵门禁。矩阵内全部 `deployable=false`。  
-> **Live edge 仍是 Lightsail**（`deploy/aws/lightsail/`），直至 Phase-2 单台 canary 翻矩阵并接线 dispatch。
+审批基线：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
 
-## 目录
+Phase-1：矩阵 + resolve + dry-run / 可选付费建机。**全 `deployable=false`，不切 DNS。** Live edge 仍是 Lightsail。
 
-```text
-deploy/hetzner/
-├── edge-targets-hetzner.json       # edge 矩阵 SSOT（fsn1 / cax21 / arm）
-├── prod-target-hetzner.json        # prod 目标（deployable=false）
-├── resolve-edge-hetzner-target.py  # 解析 + 硬门禁（location/SKU/arch）
-├── test_resolve_edge_hetzner_target.py
-├── provision-edge.sh               # 默认 dry-run；--confirm-paid 才建机
-└── README.md
-```
+## 文件
 
-Workflow stub：`.github/workflows/deploy-edge-hetzner-stage0.yml`（validate-only）。
+| 路径 | 作用 |
+|---|---|
+| `edge-targets-hetzner.json` | 矩阵（defaults + edge id） |
+| `resolve-edge-hetzner-target.py` | 派生域名/主机名 + 硬门禁 |
+| `provision-edge.sh` | 默认 dry-run；`--confirm-paid` 才建机 |
+| `.github/workflows/deploy-edge-hetzner-stage0.yml` | validate / provision |
 
-## GitHub Secret / dispatch
+## 用法
 
 ```bash
-# 仓库级 Secret（Environment edge-* 的 job 也可读）
-# 勿把 token 贴进聊天；从本机环境注入：
-gh secret set HCLOUD_TOKEN --body "$HCLOUD_TOKEN"
+gh secret set HCLOUD_TOKEN --body "$HCLOUD_TOKEN"   # 勿贴进聊天
 
-# Phase-1 validate（无建机、无 DNS）
+# 矩阵单测（GHA validate）
 bash scripts/stage0/dispatch-edge-deploy.sh \
   --edge-id uk1 --operation validate --platform hetzner --allow-planned
 
-# provision dry-run（GHA 打印 hcloud plan）
+# provision dry-run
 bash scripts/stage0/dispatch-edge-deploy.sh \
-  --edge-id uk1 --operation provision --tag 0.0.0 \
-  --platform hetzner --allow-planned
+  --edge-id uk1 --operation provision --platform hetzner --allow-planned
 
-# 付费建机（仍无 DNS；需 HCLOUD_TOKEN）
+# 付费建机（仍无 DNS）
 bash scripts/stage0/dispatch-edge-deploy.sh \
-  --edge-id uk1 --operation provision --tag 0.0.0 \
-  --platform hetzner --allow-planned --confirm-paid
-```
+  --edge-id uk1 --operation provision --platform hetzner --allow-planned --confirm-paid
 
-`auto` 路由：Hetzner 矩阵 `deployable=true` 优先；否则 Lightsail（现网默认）。
-
-## 本机 CLI（类 aws）
-
-```bash
-export HCLOUD_TOKEN=…          # 或写入 ~/.zshrc；勿提交
-hcloud server list
+# 本机
 python3 deploy/hetzner/resolve-edge-hetzner-target.py --edge-id uk1 --allow-planned
-bash deploy/hetzner/provision-edge.sh --edge-id uk1 --allow-planned   # dry-run
+bash deploy/hetzner/provision-edge.sh --edge-id uk1 --allow-planned
 ```
 
-付费建机（仍不改 DNS）：
+`auto` 路由：仅当 Hetzner 行 `deployable=true` 时优先，否则 Lightsail。
 
-```bash
-bash deploy/hetzner/provision-edge.sh --edge-id uk1 --allow-planned --confirm-paid
-```
+## 硬门禁
 
-## 硬门禁（与审批文档一致）
-
-- `location` 仅 `fsn1`
-- `server_type` 仅 `cax21`
-- `architecture` 仅 `arm`（E0）
-- `ssm_prefix` 必须以 `/tokenkey/hetzner/` 开头
-- Phase-1：`deployable` 必须全为 `false`
-
-## 测试
+- `location=fsn1` · `server_type=cax21` · `architecture=arm`
+- `ssm_prefix` 以 `/tokenkey/hetzner/` 开头
+- Phase-1：合并 defaults 后不得 `deployable=true`
 
 ```bash
 python3 -m unittest deploy/hetzner/test_resolve_edge_hetzner_target.py

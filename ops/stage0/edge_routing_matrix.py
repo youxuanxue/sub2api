@@ -25,10 +25,31 @@ def load_lightsail_targets(repo_root: pathlib.Path | str) -> dict[str, dict]:
     )["targets"]
 
 
-def load_hetzner_targets(repo_root: pathlib.Path | str) -> dict[str, dict]:
+def materialize_hetzner_target(edge_id: str, matrix: dict, raw: dict | None) -> dict:
+    """Merge target_defaults + derived names; explicit raw fields win."""
+    merged = dict(matrix.get("target_defaults") or {})
+    merged.update(raw or {})
+    merged.setdefault("profile", matrix.get("default_profile") or "edge-hetzner-cax21")
+    merged.setdefault("domain", f"api-{edge_id}.tokenkey.dev")
+    merged.setdefault("staging_domain", f"api-{edge_id}-hz.tokenkey.dev")
+    merged.setdefault("instance_name", f"tokenkey-edge-{edge_id}-hz-cax21")
+    merged.setdefault("floating_ip_name", f"tokenkey-edge-{edge_id}-hz-fip")
+    merged.setdefault("ssm_prefix", f"/tokenkey/hetzner/{edge_id}")
+    return merged
+
+
+def load_hetzner_matrix(repo_root: pathlib.Path | str) -> dict:
     return load_matrix(
         pathlib.Path(repo_root).resolve() / "deploy/hetzner/edge-targets-hetzner.json"
-    )["targets"]
+    )
+
+
+def load_hetzner_targets(repo_root: pathlib.Path | str) -> dict[str, dict]:
+    data = load_hetzner_matrix(repo_root)
+    return {
+        eid: materialize_hetzner_target(eid, data, raw)
+        for eid, raw in (data.get("targets") or {}).items()
+    }
 
 
 def edge_deployable(target: dict | None) -> bool:
@@ -42,6 +63,7 @@ def edge_deployable(target: dict | None) -> bool:
 
 
 def edge_hetzner_deployable(target: dict | None) -> bool:
+    """Expects a materialized Hetzner row (defaults already applied)."""
     return bool(
         target
         and target.get("deployable") is True

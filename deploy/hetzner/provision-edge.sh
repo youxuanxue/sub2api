@@ -96,4 +96,4 @@ hcloud server create \
   --label "tokenkey.io/platform=hetzner" \
   --start-after-create=true
 
-echo "create submitted; complete §17 E0–E4 on staging before any DNS cutover"
+echo "create submitted; complete Gates E0–E4 on staging before any DNS cutover"

@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""Resolve a TokenKey Edge Hetzner target from edge-targets-hetzner.json.
-
-Phase-1: matrix validation only. Live rollout still routes via Lightsail until
-deployable=true flips and dispatch wiring lands (see approved migration doc).
-"""
+"""Resolve a TokenKey Edge Hetzner target from edge-targets-hetzner.json."""
 from __future__ import annotations
 
 import argparse
-import json
 import pathlib
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-DEFAULT_MATRIX = REPO_ROOT / "deploy/hetzner/edge-targets-hetzner.json"
+sys.path.insert(0, str(REPO_ROOT / "ops" / "stage0"))
+
+from edge_routing_matrix import (  # noqa: E402
+    load_hetzner_matrix,
+    load_matrix,
+    materialize_hetzner_target,
+)
 
 ALLOWED_LOCATIONS = frozenset({"fsn1"})
 ALLOWED_SERVER_TYPES = frozenset({"cax21"})
@@ -28,13 +29,6 @@ def gha_quote(value: object) -> str:
     return str(value).replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D")
 
 
-def load_matrix(path: str) -> dict:
-    matrix_path = pathlib.Path(path)
-    if not matrix_path.is_file():
-        fail(f"hetzner edge matrix not found: {matrix_path}")
-    return json.loads(matrix_path.read_text(encoding="utf-8"))
-
-
 def resolve_target(
     data: dict,
     edge_id: str,
@@ -46,16 +40,16 @@ def resolve_target(
         fail("matrix platform must be hetzner")
 
     targets = data.get("targets") or {}
-    target = targets.get(edge_id)
-    if target is None:
+    if edge_id not in targets:
         fail(f"unknown edge_id {edge_id}; known: {', '.join(sorted(targets))}")
 
+    target = materialize_hetzner_target(edge_id, data, targets[edge_id])
     deployable = bool(target.get("deployable"))
     if not deployable and not allow_planned:
         fail(
             f"edge_id {edge_id} is planned but not deployable; "
             "set deployable=true only after Phase-2 gates (see "
-            "docs/approved/hetzner-cloud-full-migration.md §17)"
+            "docs/approved/hetzner-cloud-full-migration.md Gates)"
         )
 
     instance_name = str(target.get("instance_name") or "")
@@ -140,12 +134,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Resolve a TokenKey Edge Hetzner target.")
     parser.add_argument("--edge-id", required=True)
     parser.add_argument("--confirm-instance", default="")
-    parser.add_argument("--matrix", default=str(DEFAULT_MATRIX))
+    parser.add_argument("--matrix", default="")
     parser.add_argument("--allow-planned", action="store_true")
     parser.add_argument("--github-output", default="")
     args = parser.parse_args()
 
-    data = load_matrix(args.matrix)
+    data = (
+        load_matrix(pathlib.Path(args.matrix))
+        if args.matrix
+        else load_hetzner_matrix(REPO_ROOT)
+    )
+
     outputs = resolve_target(
         data,
         args.edge_id,
