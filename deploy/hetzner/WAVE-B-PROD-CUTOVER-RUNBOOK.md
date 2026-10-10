@@ -42,6 +42,7 @@ dig +short A callmodel.io api.callmodel.io @8.8.8.8   # 34.194.234.88
 
 ```bash
 # 凭证：PORKBUN_API_KEY / PORKBUN_SECRET_API_KEY（本地 env，不进 git）
+# ipv4 "-" = 只改 TTL，保留现有 A（切流后误跑也不会写回旧 EIP）
 for spec in \
   'api.tokenkey.dev:tokenkey.dev' \
   'tokenkey.dev:tokenkey.dev' \
@@ -49,7 +50,7 @@ for spec in \
   'callmodel.io:callmodel.io'
 do
   host="${spec%%:*}"; domain="${spec##*:}"
-  bash ops/dns/porkbun-upsert-a.sh "$host" 34.194.234.88 --domain "$domain" --ttl 300 --apply
+  bash ops/dns/porkbun-upsert-a.sh "$host" - --domain "$domain" --ttl 300 --apply
 done
 # 不动 status.tokenkey.dev / api-hz
 ```

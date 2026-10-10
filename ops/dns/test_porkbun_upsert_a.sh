@@ -99,7 +99,13 @@ grep -q 'missing PORKBUN_API_KEY' "${tmp}/missing.err" || fail "missing-cred mes
 if FAKE_RETRIEVE_MODE=empty run_script "${tmp}/badip.out" api-hz not-an-ip; then
   fail "invalid ipv4 must fail"
 fi
-grep -q 'ipv4 must look like' "${tmp}/badip.out.err" || fail "bad ipv4 message"
+grep -q 'ipv4 must look like A.B.C.D or' "${tmp}/badip.out.err" || fail "bad ipv4 message"
+
+# Negative: preserve-ip with no existing record
+if FAKE_RETRIEVE_MODE=empty run_script "${tmp}/preserve-empty.out" api-hz - --ttl 300 --apply; then
+  fail "preserve-ip without record must fail"
+fi
+grep -q "ipv4 '-' requires an existing A record" "${tmp}/preserve-empty.out.err" || fail "preserve-empty message"
 
 # Positive dry-run create plan
 rm -f "${tmp}/curl.log" "${tmp}/create.body"
@@ -130,13 +136,21 @@ grep -q 'noop: api-hz.tokenkey.dev already A 167.233.211.115 ttl=600' "${tmp}/no
 test ! -e "${tmp}/create.body" || fail "noop must not create"
 test ! -e "${tmp}/edit.body" || fail "noop must not edit"
 
-# Positive apply TTL-only edit (same IP, ttl 600 -> 300)
+# Positive apply TTL-only edit via explicit IP (same IP, ttl 600 -> 300)
 rm -f "${tmp}/edit.body" "${tmp}/edit.url"
 FAKE_RETRIEVE_MODE=same run_script "${tmp}/ttl.out" api-hz 167.233.211.115 --ttl 300 --apply \
   || fail "ttl-only edit should succeed"
 grep -q 'action   : edit' "${tmp}/ttl.out" || fail "expected ttl edit plan"
 grep -q 'ttl 600 -> 300' "${tmp}/ttl.out" || fail "ttl edit summary"
 jq -e '.ttl=="300" and .content=="167.233.211.115"' "${tmp}/edit.body" >/dev/null || fail "ttl edit payload"
+
+# Positive apply TTL-only via ipv4 "-" (preserve content; never invent IP)
+rm -f "${tmp}/edit.body" "${tmp}/edit.url"
+FAKE_RETRIEVE_MODE=same run_script "${tmp}/preserve.out" api-hz - --ttl 300 --apply \
+  || fail "preserve-ip ttl edit should succeed"
+grep -q 'action   : edit' "${tmp}/preserve.out" || fail "expected preserve edit plan"
+grep -q '(preserve)' "${tmp}/preserve.out" || fail "preserve marker in plan"
+jq -e '.ttl=="300" and .content=="167.233.211.115"' "${tmp}/edit.body" >/dev/null || fail "preserve edit payload"
 
 # Positive apply edit
 rm -f "${tmp}/edit.body" "${tmp}/edit.url"

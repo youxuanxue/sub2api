@@ -10,10 +10,12 @@
 # Porkbun console click when env credentials are present.
 #
 # Usage:
-#   bash ops/dns/porkbun-upsert-a.sh <host> <ipv4> [--domain tokenkey.dev] [--ttl 300] [--apply]
+#   bash ops/dns/porkbun-upsert-a.sh <host> <ipv4|-> [--domain tokenkey.dev] [--ttl 300] [--apply]
 #
 # <host> may be a bare label (api-hz), an FQDN under --domain
 # (api-hz.tokenkey.dev), or the apex domain itself.
+# Pass ipv4 "-" to keep the existing A content and only change TTL
+# (fails if no A record exists — never invents an address).
 
 set -euo pipefail
 
@@ -27,11 +29,12 @@ API_BASE="${PORKBUN_API_BASE:-https://api.porkbun.com/api/json/v3}"
 
 usage() {
   cat <<EOF >&2
-usage: $0 <host> <ipv4> [--domain tokenkey.dev] [--ttl 300] [--apply]
+usage: $0 <host> <ipv4|-> [--domain tokenkey.dev] [--ttl 300] [--apply]
 
 Reads PORKBUN_API_KEY and PORKBUN_SECRET_API_KEY from the environment.
 Without --apply, only plans (retrieve + intended create/edit/noop).
 TTL-only changes (same IPv4, different ttl) are edits, not noops.
+ipv4 "-" = preserve existing A content (TTL-only; requires an existing record).
 EOF
 }
 
@@ -78,8 +81,11 @@ if [[ -z "$HOST" || -z "$IPV4" ]]; then
   exit 1
 fi
 
-if [[ ! "$IPV4" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-  echo "::error::ipv4 must look like A.B.C.D (got: ${IPV4})" >&2
+PRESERVE_IP=""
+if [[ "$IPV4" == "-" ]]; then
+  PRESERVE_IP=1
+elif [[ ! "$IPV4" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+  echo "::error::ipv4 must look like A.B.C.D or '-' to preserve (got: ${IPV4})" >&2
   exit 1
 fi
 
@@ -166,11 +172,17 @@ elif [[ "$match_count" -eq 1 ]]; then
   record_id="$(jq -r '.[0].id' <<<"$match_json")"
   current_ip="$(jq -r '.[0].content' <<<"$match_json")"
   current_ttl="$(jq -r '.[0].ttl // empty' <<<"$match_json")"
+  if [[ -n "$PRESERVE_IP" ]]; then
+    IPV4="$current_ip"
+  fi
   if [[ "$current_ip" == "$IPV4" && "$current_ttl" == "$TTL" ]]; then
     action="noop"
   else
     action="edit"
   fi
+elif [[ -n "$PRESERVE_IP" ]]; then
+  echo "::error::ipv4 '-' requires an existing A record for ${FQDN}" >&2
+  exit 1
 fi
 
 cat <<PLAN
@@ -178,7 +190,7 @@ cat <<PLAN
 fqdn     : ${FQDN}
 domain   : ${DOMAIN}
 name     : ${NAME:-"(apex)"}
-ipv4     : ${IPV4}
+ipv4     : ${IPV4}${PRESERVE_IP:+ (preserve)}
 ttl      : ${TTL}
 action   : ${action}
 record_id: ${record_id:-"(none)"}
