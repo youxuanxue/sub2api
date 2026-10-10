@@ -2300,6 +2300,27 @@
       "rationale": "Anthropic passthrough streaming must arm a full per-attempt first-output budget (not remaining request wall-clock), Commit on first SSE data, and Size-aware SafeToFailoverAfterWrite after any client bytes (header-wait or in-stream keepalive)."
     },
     {
+      "path": "backend/internal/service/openai_first_output_timeout.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string) time.Duration",
+        "return resolveStreamFirstOutputTimeout(nil, streamFirstOutputHighEffort(reasoningEffort))",
+        "return resolveStreamFirstOutputTimeout(s.cfg, true)",
+        "return resolveStreamFirstOutputTimeout(s.cfg, false)",
+        "openai_first_output_timeout_seconds=0 remains an emergency disable"
+      ],
+      "rationale": "OpenAI native first-semantic-output timeout must inherit the universal stream SSOT via resolveStreamFirstOutputTimeout; explicit openai_first_output_timeout_seconds=0 stays emergency disable. Prevents upstream merges from re-hardcoding divergent OpenAI waits."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "resolveStreamFirstOutputTimeout(s.cfg, geminiBodyStreamFirstOutputHighEffort(body))",
+        "armStreamFirstOutputGuard(base, budget)",
+        "firstOutputGuard.WatchClose(resp.Body)",
+        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)"
+      ],
+      "rationale": "Gemini Messages / native streaming must share the universal first-output SSOT: resolve+arm per attempt, WatchClose upstream body, and Size-aware failover. Upstream merges that rewrite Gemini streaming loops must not silently drop this wiring."
+    },
+    {
       "path": "backend/internal/service/stream_first_output_budget_tk.go",
       "must_contain": [
         "defaultStreamFirstOutputTimeout           = 15 * time.Second",
@@ -2311,7 +2332,8 @@
         "func streamFirstOutputFailoverErrorAfterKeepalive(",
         "func streamFirstOutputFailoverIfBudgetFired(",
         "SafeToFailoverAfterWrite: true",
-        "c.Writer.Size() >= 0"
+        "c.Writer.Size() >= 0",
+        "Do not fall back to openai_high_effort_* here"
       ],
       "rationale": "Universal stream first-useful-output budget SSOT (15s / 30s high-effort, cap 60) plus Grok first-byte inherit helper. Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite via Size-aware streamFirstOutputFailoverIfBudgetFired."
     },
@@ -2367,9 +2389,10 @@
         "resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(body))",
         "armStreamFirstOutputGuard(base, budget)",
         "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)",
-        "beginAnthropicClientHeaderWaitKeepalive(c, clientStream)"
+        "beginAnthropicClientHeaderWaitKeepalive(c, clientStream)",
+        "firstOutputGuard.WatchClose(resp.Body)"
       ],
-      "rationale": "OpenAI-ingress Anthropic native Messages must arm a full per-attempt first-output budget, emit header-wait keepalive, and Size-aware SafeToFailoverAfterWrite when the budget fires after client bytes."
+      "rationale": "OpenAI-ingress Anthropic native Messages must arm a full per-attempt first-output budget, WatchClose the upstream body, emit header-wait keepalive, and Size-aware SafeToFailoverAfterWrite when the budget fires after client bytes."
     },
     {
       "path": "backend/internal/handler/gateway_handler.go",
@@ -2394,9 +2417,11 @@
       "must_contain": [
         "TestKiroFirstOutputBudgetWatchCloseUnblocksUpstreamRead",
         "guard.WatchClose(body)",
-        "CallKiroAPIWithDoerContext"
+        "CallKiroAPIWithDoerContext",
+        "TestResolveStreamFirstOutputHighEffortIgnoresOpenAINamedKnob",
+        "TestResolveGrokFirstByteHeaderTimeoutInheritsStreamSSOT"
       ],
-      "rationale": "Kiro first-output WatchClose regression: a hung custom-doer body is not closed by context cancel alone; budget fire plus WatchClose must unblock parseEventStream so the attempt returns and frees the account slot."
+      "rationale": "Kiro WatchClose + Grok inherit + universal high-effort isolation regressions for the stream first-output SSOT owner."
     },
     {
       "path": "backend/internal/handler/candidate_chat_failover_tk_test.go",
@@ -16025,7 +16050,9 @@
         "viper.SetDefault(\"gateway.newapi_chat_first_output_timeout\", 0)",
         "viper.SetDefault(\"gateway.newapi_chat_nonstream_first_output_timeout\", 300)",
         "gateway.stream_first_output_timeout_seconds must be between 0-60 seconds",
-        "gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)"
+        "gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)",
+        "viper.SetDefault(\"gateway.grok_response_header_timeout\", 0)",
+        "gateway.grok_response_header_timeout must be between 0-60 seconds"
       ],
       "rationale": "Universal stream first-output SSOT defaults to 15s / high-effort 30s (max 60). NewAPI Chat streaming inherits unless overridden; non-streaming stays 300s. Upstream merge must not collapse budgets or revive ResponseHeaderTimeout bleed."
     },
