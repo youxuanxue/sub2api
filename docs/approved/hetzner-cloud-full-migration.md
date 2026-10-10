@@ -3,12 +3,12 @@ title: TokenKey 全线迁移 Hetzner Cloud（prod + edge · 德区 · cax21）
 status: approved
 approved_by: "feng (merge #2517, 2026-10-09)"
 created: 2026-10-09
-revised: 2026-10-09
+revised: 2026-10-10
 owners: [tk-platform]
 scope: >-
   deploy/hetzner/* + deploy-*-hetzner*.yml + Stage0 dispatch 路由；
   凭证与命令见 deploy/hetzner/README.md
-related_prs: [2517]
+related_prs: [2517, 2532]
 related_designs:
   - docs/approved/deploy-stage0-workflow.md
   - docs/approved/edge-bluegreen-release-safety.md
@@ -18,23 +18,67 @@ related_designs:
 # TokenKey 全线迁移 Hetzner Cloud
 
 > **`approved`（#2517）。** Phase-1 骨架已合入。  
-> 操作命令见 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。
+> **操作 / 进度 / 切流清单以** [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md) **为执行 SSOT**（本文件锁决策；README 跟实测更新）。
+
+## 本质：全新换机（不是原地升级）
+
+每条 edge / 未来的 prod 都是 **新 arm64 主机 + 新本地 Postgres/Redis + 新出口 IP**：
+
+| 做 | 不做 / 不假设 |
+|---|---|
+| 新 `cax21` 点火、SSM Hybrid、compose 拉起 | 把 Lightsail 磁盘「搬」到 Hetzner |
+| precious-class `pg_dump` + logs data-only 整库复刻 | 只跑 `migrate-edge-accounts` 当全量 |
+| 正式 A 切到新 IP；旧机 ≥7d 只读回滚 | 双活双写业务库 |
+| Redis / 调度内存态在新机重建 | Redis 热迁移 |
+| gemini-web / OAuth 会话因 **出口 IP 变** 常需 re-import | 「灌库等于会话仍活」 |
+
+延迟与上游成功率不承诺与全球多区 Lightsail 一致。禁止「体验零影响」话术。
 
 ## 已锁定
 
 | | |
 |---|---|
 | 去哪 | Hetzner **`fsn1`**，机型 **`cax21`**（4c/8G **arm64**） |
-| 控面 | **SSM Hybrid**（蓝绿仍走 AWS SSM） |
-| 节奏 | **Edge-first**：`uk1` → `us5` → 其余 edge → prod |
+| 控面 | **SSM Hybrid**（蓝绿仍走 AWS SSM；HZ 现为单色 `tokenkey`） |
+| 节奏 | **Edge-first**：四边已切 → `us3`/`us6` → prod |
 | 身份 | 逻辑 edge id / 正式域名**不变**；平台差靠 `*-hz-*` 与 staging |
+| 数据 | **整库复刻**用舰队 precious-class `pg_dump` + 日志 data-only（见 README）；**禁止**只靠 `migrate-edge-accounts` 当「全量迁移」 |
+| 切流序 | 未切边：**冻写 → 新鲜 dump/restore → 对账 → 正式 A**；已切边禁止再整库覆盖 live HZ |
 
-**承诺：** 数据不丢、无长时间硬中断、可回滚。  
-**不承诺：** 延迟/上游成功率与今日全球多区一致。禁止「体验零影响」。
+**承诺：** 数据不丢（按 RPO/补漏纪律）、可回滚旧 IP、无长时间硬中断为目标。  
+**不承诺：** 延迟/上游成功率与今日全球多区一致。
 
-## 下一刀（唯一）
+## 进度（2026-10-10 晚 · 实测）
 
-**目标：** staging 上跑通 **`uk1` Hetzner 边**——**不切正式 DNS、不翻 `deployable=true`。**
+| 项 | 状态 |
+|---|---|
+| uk1 / us4 / us5 / uk2 正式 DNS | **已切** Hetzner（A 见 README） |
+| 四边 LS app | **已停写**（`tokenkey*` + gemini-web stop；PG/Caddy/Redis 保留 ≥7d；`.env` `TOKENKEY_LS_STANDBY_READONLY=1`） |
+| us3 / us6 HZ | 无机器 / 未起（配额）；正式仍 Lightsail |
+| prod 正式 | **未切**；staging / `provision-prod` 路径已接线 |
+| 库复刻 uk1/uk2/us4/us5 | precious + logs 已灌；切前未切边再刷见 README |
+| us4 定点补漏 | append-only：ulog/dedup/ops_system（含停写前再补）；`post_missing=0` |
+| uk1 补漏 | dump 水位后 LS 0 新行 → 无需补漏 |
+| us4 `qa_records_202608` | 4034 行（全在该分区）已按运营确认删除 |
+| 主机 parity（四边） | disk-metrics + ghcr-prune timer + Feishu webhook **live 已齐**；bootstrap 已嵌入同脚本 |
+| gemini-web worker | arm64 已部署；**会话仍多需 re-import**（出口 IP） |
+| prod stub 切流伤 | `base_url` 缺 `https://`（uk2/us5）已修；容器未吃 host pin 曾双写 LS → restart `tokenkey-green` 后停 |
+
+**下一刀：** `us3` 重建 HZ → 全量复刻 → 切流 → `us6` 同序 → 全 edge 稳后 **prod** P1–P6。
+
+## 切流实测教训（写进执行纪律）
+
+1. **prod 容器 DNS：** host `/etc/hosts` pin **不会**自动进已运行的 `tokenkey-green/blue`；切流后若仍见 prod EIP 打旧 LS IP → `docker restart` 活动色，或 compose `extra_hosts`。  
+2. **prod stub `base_url`：** 必须 `https://api-<edge>.tokenkey.dev`（裸域名 → `invalid base_url` / 502）。切流后同步 edge `api_keys` 时校验 scheme。  
+3. **Caddy `API_DOMAIN`：** 双域名须加引号；`MAIN_GATEWAY_ALLOWED_CIDR`（prod `34.194.234.88/32`）空则 gateway 探针被拒。  
+4. **已切边禁止整库重灌 live HZ**（会丢掉「只在 HZ」窗口）。LS 残留用 `request_id` 定点 `INSERT … NOT EXISTS`。  
+5. **LS 停写：** 停 app/gemini-web，保留 PG/Caddy ≥7d；直打旧 IP 应无落库。  
+6. **探针：** `run-probe --target edge:<id>` 仍解析 Lightsail → 对 HZ 直投 `mi-*`。  
+7. **prod 不可调度 stub（cc/gemini-uk/grok）：** 根因是边侧无健康池/会话 paused，不是 DNS；勿盲目 `schedulable=true`（详见 README）。
+
+## 历史：Phase-1 下一刀（已完成，留档）
+
+**原目标：** staging 上跑通 **`uk1` Hetzner 边**——不切正式 DNS、不翻 `deployable=true`。
 
 Owner：`deploy/hetzner/provision-edge.sh` + `render-bootstrap.sh`；IAM：`tokenkey-hetzner-ssm-hybrid-uk1`（CFN addon）。
 
@@ -47,20 +91,17 @@ Owner：`deploy/hetzner/provision-edge.sh` + `render-bootstrap.sh`；IAM：`toke
 | 4 | Staging DNS：`api-uk1-hz.tokenkey.dev` A → 该 IP | ACME 需要 |
 | 5 | **E0** arm64；**E1** staging smoke full | 红则修；不 mirror、不切正式 DNS |
 
-**本刀交付物：** 栈健康 + L0→E1 绿证。到此为止。
-
-**本刀不做：** E2、mirror、正式 DNS、`us5`、其他 edge、prod、升配、去 SSM。
-
-## 以后才做（别和下一刀混）
+## 以后才做
 
 | 何时 | 做什么 | 门禁 |
 |---|---|---|
-| uk1 E0–E1 绿之后 | E2–E4 → 1 账号 mirror ≥2h → 正式 DNS → E5 60 min | 见附录 |
-| uk1 E5 绿满后 | `us5` 同流程（跨洋），再滚其余 edge | 上台 E5 满 60 min 才开下一台 |
-| 全 edge 稳后 | prod：Volume + P1–P4/P6 → 冻写 ≤5 min 切流 → P5 | 写后禁裸 DNS 回旧库 |
+| **us3** | 配额允许 → provision HZ → 冻写 → precious+logs → 正式 A → LS 停写 | README「增量 + DNS」；E5 |
+| **us6** | 同 us3 | 同上 |
+| gemini-web / 供应 stub | 各 HZ 边会话 re-import；按需修 anthropic/grok 池后再开 prod stub | 冒烟 200 才 `schedulable=true` |
+| 四边稳 + us3/us6 切完 | **prod**：Volume + P1–P4/P6 → 冻写 ≤5 min → `api.tokenkey.dev` → P5 | 写后禁裸 DNS 回旧库 |
 | 另审批 | 升配 / 去 SSM / 多区出口 | Phase-5 |
 
-硬约束（全程）：禁止双写业务库；Redis 不迁；Secrets 不进 git（`/tokenkey/hetzner/…`）；Lightsail/EC2 停机保留 ≥7 天再退役。
+硬约束（全程）：禁止双写业务库；Redis 不迁；Secrets 不进 git（`/tokenkey/hetzner/…`）；Lightsail/EC2 停机保留 ≥7 天再退役；**live HZ 禁止再用 LS 全量 dump 覆盖**（会丢掉切后新账）。
 
 ## 附录：Gates 速查
 

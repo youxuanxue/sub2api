@@ -1,44 +1,42 @@
 #!/usr/bin/env bash
-# Render Hetzner cloud-init user-data (Ubuntu arm64) with embedded Stage0 assets.
-# Reuses deploy/aws/stage0 compose + Caddyfile.edge; SSM Hybrid register on boot.
+# Render Hetzner prod cloud-init user-data (Ubuntu arm64).
+# Mandatory Volume at /var/lib/tokenkey; prod Caddyfile; SSM Hybrid register.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
 STAGE0="${REPO_ROOT}/deploy/aws/stage0"
 LIGHTSAIL="${REPO_ROOT}/deploy/aws/lightsail"
-OUT="${HERE}/generated-user-data.sh"
+OUT="${OUT:-${HERE}/generated-prod-user-data.sh}"
 
 mode="apply"
 if [[ "${1:-}" == "--check" ]]; then
   mode="check"
 fi
 
+# Staging knife uses Caddyfile.edge (single API host). Formal dual-domain /
+# apex SITE_DOMAIN cutover later via sync_caddyfile prod path — api-hz would
+# incorrectly derive SITE_DOMAIN=hz.tokenkey.dev under render-prod-caddyfile.
 for f in \
   "${STAGE0}/docker-compose.yml" \
   "${STAGE0}/Caddyfile.edge" \
   "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh" \
-  "${STAGE0}/tokenkey-ghcr-prune-daily.sh" \
-  "${LIGHTSAIL}/restore-edge-env-secrets.sh" \
-  "${LIGHTSAIL}/tokenkey-disk-metrics-edge.sh"; do
+  "${LIGHTSAIL}/restore-edge-env-secrets.sh"; do
   [[ -f "$f" ]] || { echo "missing $f" >&2; exit 1; }
 done
 
 compose_b64="$(gzip -9n -c "${STAGE0}/docker-compose.yml" | base64 | tr -d '\n')"
 caddy_b64="$(gzip -9n -c "${STAGE0}/Caddyfile.edge" | base64 | tr -d '\n')"
 prune_b64="$(gzip -9n -c "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh" | base64 | tr -d '\n')"
-ghcr_daily_b64="$(gzip -9n -c "${STAGE0}/tokenkey-ghcr-prune-daily.sh" | base64 | tr -d '\n')"
-disk_metrics_b64="$(gzip -9n -c "${LIGHTSAIL}/tokenkey-disk-metrics-edge.sh" | base64 | tr -d '\n')"
 restore_secrets_b64="$(gzip -9n -c "${LIGHTSAIL}/restore-edge-env-secrets.sh" | base64 | tr -d '\n')"
 
 cat >"${OUT}.tmp" <<'LAUNCH_HEAD'
 #!/bin/bash
-# tokenkey Edge Hetzner bootstrap — generated; do not hand-edit.
+# tokenkey Prod Hetzner bootstrap — generated; do not hand-edit.
 set -euo pipefail
 exec > >(tee -a /var/log/tokenkey-hetzner-bootstrap.log) 2>&1
-echo "HETZNER_BOOTSTRAP_START $(date -u +%FT%TZ)"
+echo "HETZNER_PROD_BOOTSTRAP_START $(date -u +%FT%TZ)"
 
-: "${EDGE_ID:?EDGE_ID required}"
 : "${INSTANCE_NAME:?INSTANCE_NAME required}"
 : "${API_DOMAIN:?API_DOMAIN required}"
 : "${ACME_EMAIL:?ACME_EMAIL required}"
@@ -47,6 +45,8 @@ echo "HETZNER_BOOTSTRAP_START $(date -u +%FT%TZ)"
 : "${SSM_REGION:?SSM_REGION required}"
 : "${SSM_ACTIVATION_ID:?SSM_ACTIVATION_ID required}"
 : "${SSM_ACTIVATION_CODE:?SSM_ACTIVATION_CODE required}"
+: "${VOLUME_ID:?VOLUME_ID required}"
+: "${VOLUME_MOUNT:=/var/lib/tokenkey}"
 : "${GHCR_PAT_SSM_NAME:=}"
 : "${GHCR_PULL_USER:=}"
 : "${ALLOW_SECRET_GENERATE:=false}"
@@ -63,7 +63,7 @@ export TZ_VALUE="${TZ_VALUE:-UTC}"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y --no-install-recommends \
-  ca-certificates curl gnupg openssl gzip gettext-base unzip
+  ca-certificates curl gnupg openssl gzip gettext-base unzip e2fsprogs
 
 # Ubuntu 24.04 has no awscli apt package; install AWS CLI v2 for the host arch.
 if ! command -v aws >/dev/null 2>&1; then
@@ -104,6 +104,32 @@ if [ "${SWAP_SIZE_GIB}" -gt 0 ] && [ ! -f /swapfile ]; then
   grep -q '^/swapfile ' /etc/fstab 2>/dev/null || echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 
+# Mandatory Hetzner Volume → /var/lib/tokenkey (attach before first boot).
+vol_dev="/dev/disk/by-id/scsi-0HC_Volume_${VOLUME_ID}"
+echo "waiting for volume device ${vol_dev}"
+for _ in $(seq 1 60); do
+  if [ -e "${vol_dev}" ]; then break; fi
+  sleep 5
+done
+if [ ! -e "${vol_dev}" ]; then
+  echo "BOOTSTRAP_FAIL: volume device ${vol_dev} not present" >&2
+  exit 1
+fi
+if ! blkid "${vol_dev}" >/dev/null 2>&1; then
+  echo "formatting new volume ${vol_dev}"
+  mkfs.ext4 -F -L tokenkey-data "${vol_dev}"
+fi
+mkdir -p "${VOLUME_MOUNT}"
+vol_uuid="$(blkid -s UUID -o value "${vol_dev}")"
+if ! grep -q "UUID=${vol_uuid}" /etc/fstab 2>/dev/null; then
+  echo "UUID=${vol_uuid} ${VOLUME_MOUNT} ext4 defaults,nofail 0 2" >> /etc/fstab
+fi
+mount "${VOLUME_MOUNT}" || mount "${vol_dev}" "${VOLUME_MOUNT}"
+findmnt -n -o SOURCE,TARGET "${VOLUME_MOUNT}" || {
+  echo "BOOTSTRAP_FAIL: ${VOLUME_MOUNT} not mounted" >&2
+  exit 1
+}
+
 # amazon-ssm-agent (arm64/amd64 deb from AWS)
 arch="$(dpkg --print-architecture)"
 case "${arch}" in
@@ -137,16 +163,14 @@ systemctl is-active --quiet amazon-ssm-agent || {
   exit 1
 }
 
-mkdir -p /var/lib/tokenkey/caddy/data /var/lib/tokenkey/caddy/config
-install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app
+mkdir -p "${VOLUME_MOUNT}/caddy/data" "${VOLUME_MOUNT}/caddy/config"
+install -d -m 0755 -o 1000 -g 1000 "${VOLUME_MOUNT}/app"
 LAUNCH_HEAD
 
 cat >>"${OUT}.tmp" <<LAUNCH_EMBED
 COMPOSE_GZB64='${compose_b64}'
 CADDY_GZB64='${caddy_b64}'
 PRUNE_B64='${prune_b64}'
-GHCR_DAILY_B64='${ghcr_daily_b64}'
-DISK_METRICS_B64='${disk_metrics_b64}'
 RESTORE_SECRETS_B64='${restore_secrets_b64}'
 LAUNCH_EMBED
 
@@ -159,47 +183,12 @@ envsubst '${API_DOMAIN} ${ACME_EMAIL} ${MAIN_GATEWAY_ALLOWED_CIDR}' \
 printf '%s' "$PRUNE_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
 chmod +x /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
 
-printf '%s' "$GHCR_DAILY_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-ghcr-prune-daily.sh
-chmod +x /usr/local/bin/tokenkey-ghcr-prune-daily.sh
-/usr/local/bin/tokenkey-ghcr-prune-daily.sh --selftest
-/usr/local/bin/tokenkey-ghcr-prune-daily.sh --install-units
-
-printf '%s' "$DISK_METRICS_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-disk-metrics.sh
-chmod +x /usr/local/bin/tokenkey-disk-metrics.sh
-/usr/local/bin/tokenkey-disk-metrics.sh --selftest
-
-cat > /etc/systemd/system/tokenkey-disk-metrics.service <<'DMSEOF'
-[Unit]
-Description=tokenkey EDGE on-box disk-full and memory-pressure Feishu alerts
-After=network-online.target tokenkey.service
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-EnvironmentFile=-/var/lib/tokenkey/.env
-ExecStart=/usr/local/bin/tokenkey-disk-metrics.sh
-DMSEOF
-
-cat > /etc/systemd/system/tokenkey-disk-metrics.timer <<'DMTEOF'
-[Unit]
-Description=Fire tokenkey EDGE disk/memory pressure alerts every 5 minutes
-
-[Timer]
-OnBootSec=3min
-OnUnitActiveSec=5min
-RandomizedDelaySec=30
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-DMTEOF
-
 printf '%s' "$RESTORE_SECRETS_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-restore-edge-env-secrets.sh
 chmod 0755 /usr/local/bin/tokenkey-restore-edge-env-secrets.sh
 
 SECRET_FILE=/var/lib/tokenkey/.env.secret
 restore_secret_args=(
-  --parameter "/tokenkey/hetzner/${EDGE_ID}/stage0/env-secrets-backup" \
+  --parameter "/tokenkey/hetzner/prod/stage0/env-secrets-backup" \
   --output "$SECRET_FILE"
 )
 if [ "${ALLOW_SECRET_GENERATE}" = true ]; then
@@ -235,7 +224,6 @@ GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED=true
 QA_CAPTURE_ENABLED=false
 ENVEOF
 chmod 0600 /var/lib/tokenkey/.env
-# Edge Stage0 compose does not map QA_CAPTURE by default; inject like Lightsail SSM deploy.
 if ! grep -q 'QA_CAPTURE_ENABLED=' /var/lib/tokenkey/docker-compose.yml; then
   sed -i '/^      - SERVER_FRONTEND_URL=/a\      - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-false}' \
     /var/lib/tokenkey/docker-compose.yml
@@ -249,7 +237,6 @@ if [ -n "${GHCR_PAT_SSM_NAME:-}" ]; then
   if GHCR_PAT="$(aws --region "${SSM_REGION}" ssm get-parameter \
     --name "${GHCR_PAT_SSM_NAME}" --with-decryption \
     --query Parameter.Value --output text 2>/dev/null)" && [ -n "${GHCR_PAT}" ]; then
-    # Stale/invalid PAT must not abort bootstrap; anonymous pull often works for public images.
     if ! echo "${GHCR_PAT}" | docker login ghcr.io -u "${GHCR_PULL_USER}" --password-stdin; then
       echo "GHCR docker login failed; continuing with anonymous pull for ${TOKENKEY_IMAGE}"
     fi
@@ -263,9 +250,9 @@ fi
 
 cat > /etc/systemd/system/tokenkey.service <<'UNITEOF'
 [Unit]
-Description=tokenkey edge hetzner stack (docker compose)
+Description=tokenkey prod hetzner stack (docker compose)
 Requires=docker.service
-After=docker.service network-online.target
+After=docker.service network-online.target local-fs.target
 Wants=network-online.target
 
 [Service]
@@ -284,28 +271,23 @@ UNITEOF
 
 systemctl daemon-reload
 systemctl enable --now tokenkey.service
-# Lightsail installs these via post-provision SSM (user-data size cap); Hetzner
-# user-data can ship them at boot. TOKENKEY_FEISHU_WEBHOOK_* still come from
-# post-boot sync (copy from matching Lightsail .env or sync-feishu-config).
-systemctl enable --now tokenkey-disk-metrics.timer
-systemctl enable --now tokenkey-ghcr-prune-daily.timer
 sleep 30
 docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps || true
-echo "HETZNER_BOOTSTRAP_DONE $(date -u +%FT%TZ)"
+echo "HETZNER_PROD_BOOTSTRAP_DONE $(date -u +%FT%TZ)"
 LAUNCH_TAIL
 
 if [[ "$mode" == "check" ]]; then
   if [[ ! -f "$OUT" ]]; then
-    echo "render-bootstrap: FAIL — ${OUT} missing; run without --check and commit" >&2
+    echo "render-prod-bootstrap: FAIL — ${OUT} missing; run without --check and commit" >&2
     rm -f "${OUT}.tmp"
     exit 1
   fi
   if ! cmp -s "$OUT" "${OUT}.tmp"; then
-    echo "render-bootstrap: FAIL — ${OUT} drift; re-run render-bootstrap.sh" >&2
+    echo "render-prod-bootstrap: FAIL — ${OUT} drift; re-run render-prod-bootstrap.sh" >&2
     rm -f "${OUT}.tmp"
     exit 1
   fi
-  echo "render-bootstrap: OK ($(wc -c <"$OUT" | tr -d ' ') bytes)"
+  echo "render-prod-bootstrap: OK ($(wc -c <"$OUT" | tr -d ' ') bytes)"
   rm -f "${OUT}.tmp"
   exit 0
 fi

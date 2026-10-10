@@ -313,6 +313,21 @@ Resources:
                 Action:
                   - ssm:GetParameter
                 Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
+              - Sid: ReadWriteOwnPgdumpObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}/edge/uk1/pgdump/*"
+              - Sid: ListOwnPgdumpPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}"
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - edge/uk1/pgdump
+                      - edge/uk1/pgdump/*
 
   # Hetzner us5 cross-ocean canary (staging): same isolation pattern as uk1.
   HetznerSsmHybridRoleUs5:
@@ -345,6 +360,21 @@ Resources:
                 Action:
                   - ssm:GetParameter
                 Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
+              - Sid: ReadWriteOwnPgdumpObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}/edge/us5/pgdump/*"
+              - Sid: ListOwnPgdumpPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}"
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - edge/us5/pgdump
+                      - edge/us5/pgdump/*
 
   # Remaining Hetzner edges (prep only — do not provision until prior edge E5 green).
   HetznerSsmHybridRoleUk2:
@@ -377,6 +407,21 @@ Resources:
                 Action:
                   - ssm:GetParameter
                 Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
+              - Sid: ReadWriteOwnPgdumpObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}/edge/uk2/pgdump/*"
+              - Sid: ListOwnPgdumpPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}"
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - edge/uk2/pgdump
+                      - edge/uk2/pgdump/*
 
   HetznerSsmHybridRoleUs3:
     Type: AWS::IAM::Role
@@ -408,6 +453,21 @@ Resources:
                 Action:
                   - ssm:GetParameter
                 Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
+              - Sid: ReadWriteOwnPgdumpObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}/edge/us3/pgdump/*"
+              - Sid: ListOwnPgdumpPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}"
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - edge/us3/pgdump
+                      - edge/us3/pgdump/*
 
   HetznerSsmHybridRoleUs4:
     Type: AWS::IAM::Role
@@ -439,6 +499,21 @@ Resources:
                 Action:
                   - ssm:GetParameter
                 Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
+              - Sid: ReadWriteOwnPgdumpObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}/edge/us4/pgdump/*"
+              - Sid: ListOwnPgdumpPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}"
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - edge/us4/pgdump
+                      - edge/us4/pgdump/*
 
   HetznerSsmHybridRoleUs6:
     Type: AWS::IAM::Role
@@ -470,6 +545,70 @@ Resources:
                 Action:
                   - ssm:GetParameter
                 Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
+              - Sid: ReadWriteOwnPgdumpObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}/edge/us6/pgdump/*"
+              - Sid: ListOwnPgdumpPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}"
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - edge/us6/pgdump
+                      - edge/us6/pgdump/*
+
+  # Hetzner prod staging (Volume + empty stack). Formal DNS / P1 restore later.
+  HetznerSsmHybridRoleProd:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tokenkey-hetzner-ssm-hybrid-prod
+      Description: SSM Hybrid role for TokenKey Hetzner prod staging/canary.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: ProdRecoveryData
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadWriteOwnEnvSecrets
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/hetzner/prod/stage0/env-secrets-backup"
+              - Sid: ReadWriteProdPgdumpObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}/prod/pgdump/*"
+              - Sid: ListProdPgdumpPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}"
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - prod/pgdump
+                      - prod/pgdump/*
+              - Sid: ReadGhcrPat
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/ghcr/pat"
+                  - !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
 
   LightsailEdgeAddonPolicy:
     Type: AWS::IAM::Policy
