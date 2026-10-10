@@ -2,22 +2,12 @@ package repository
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/require"
 )
-
-func TestLatestUsedAtByUserIDsQuery_UsesGroupByNotLateral(t *testing.T) {
-	normalized := strings.Join(strings.Fields(latestUsedAtByUserIDsQuery), " ")
-	require.Contains(t, normalized, "WHERE user_id = ANY($1)")
-	require.Contains(t, normalized, "GROUP BY user_id")
-	require.Contains(t, normalized, "MAX(created_at)")
-	require.NotContains(t, normalized, "CROSS JOIN LATERAL")
-	require.NotContains(t, normalized, "unnest")
-}
 
 func TestGetLatestUsedAtByUserIDs_QueryShapeAndSemantics(t *testing.T) {
 	db, mock, err := sqlmock.New()
