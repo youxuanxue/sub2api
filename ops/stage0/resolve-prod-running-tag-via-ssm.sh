@@ -108,10 +108,13 @@ if [[ -z "${INSTANCE_ID}" || "${INSTANCE_ID}" == "None" ]]; then
   echo "resolve-prod-running-tag: could not resolve InstanceId for stack ${STACK}" >&2
   exit 2
 fi
-if [[ "${INSTANCE_ID}" != i-* ]]; then
-  echo "resolve-prod-running-tag: expected EC2 instance id (i-*), got ${INSTANCE_ID}" >&2
-  exit 1
-fi
+case "${INSTANCE_ID}" in
+  i-* | mi-*) ;;
+  *)
+    echo "resolve-prod-running-tag: expected i-* or mi-*, got ${INSTANCE_ID}" >&2
+    exit 1
+    ;;
+esac
 
 TK_RESOLVER_SNIPPET="$(cd "${SCRIPT_DIR}/../.." && python3 - <<'RESOLVEPY'
 import importlib.util

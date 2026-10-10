@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "platform": "hetzner",
+  "role": "prod",
+  "approved_anchor": "docs/approved/hetzner-cloud-full-migration.md",
+  "notes": [
+    "Staging knife only until P1–P4/P6 green. deployable=false; no formal DNS.",
+    "Data volume is mandatory for prod; root disk is not the PG/Redis truth."
+  ],
+  "allowed_locations": ["fsn1"],
+  "allowed_server_types": ["cax21"],
+  "required_architecture": "arm",
+  "target": {
+    "deployable": false,
+    "location": "fsn1",
+    "server_type": "cax21",
+    "architecture": "arm",
+    "image": "ubuntu-24.04",
+    "instance_name": "tokenkey-prod-hz-cax21",
+    "domain": "api.tokenkey.dev",
+    "staging_domain": "api-hz.tokenkey.dev",
+    "ssh_key_name": "tokenkey-hetzner-ops",
+    "volume_name": "tokenkey-prod-data",
+    "volume_size_gb": 80,
+    "volume_mount": "/var/lib/tokenkey",
+    "ssm_prefix": "/tokenkey/hetzner/prod",
+    "ssm_region": "eu-west-2",
+    "ssm_hybrid_role_name": "tokenkey-hetzner-ssm-hybrid-prod",
+    "swap_gib": 2,
+    "profile": "prod-hetzner-cax21",
+    "purpose": "prod staging ignition; deployable=false"
+  }
+}

@@ -75,6 +75,8 @@ DMTEOF
 
 TEMPLATE_SHA="${GITHUB_SHA:-local}"
 
+# Hetzner/Ubuntu Hybrid SSM runs AWS-RunShellScript under /bin/sh (dash),
+# which rejects `set -o pipefail`. Wrap the whole body in bash -c (Lightsail too).
 jq -n \
   --arg dmsh "${DM_SH_B64}" \
   --arg dmsvc "${DM_SERVICE_B64}" \
@@ -83,28 +85,35 @@ jq -n \
   --arg sha "${TEMPLATE_SHA}" \
   '{
     commands: [
-      "set -euo pipefail",
-      "echo === edge host-units sync: disk/memory pressure alerts + GHCR daily prune, no QA ===",
-      "sudo install -d -m 0755 /etc/tokenkey",
-      ("echo " + $dmsh + " | base64 -d | sudo tee /usr/local/bin/tokenkey-disk-metrics.sh > /dev/null"),
-      "sudo chmod +x /usr/local/bin/tokenkey-disk-metrics.sh",
-      "grep -E -c '\''memory-pressure alert|MemAvailable|磁盘压力已恢复'\'' /usr/local/bin/tokenkey-disk-metrics.sh || true",
-      "sudo /usr/local/bin/tokenkey-disk-metrics.sh --selftest",
-      ("echo " + $dmsvc + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-disk-metrics.service > /dev/null"),
-      ("echo " + $dmtmr + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-disk-metrics.timer > /dev/null"),
-      ("echo " + $ghcrs + " | base64 -d | sudo tee /usr/local/bin/tokenkey-ghcr-prune-daily.sh > /dev/null"),
-      "sudo chmod +x /usr/local/bin/tokenkey-ghcr-prune-daily.sh",
-      "sudo /usr/local/bin/tokenkey-ghcr-prune-daily.sh --selftest",
-      "sudo /usr/local/bin/tokenkey-ghcr-prune-daily.sh --install-units",
-      "sudo systemctl daemon-reload",
-      "sudo systemctl enable --now tokenkey-disk-metrics.timer",
-      "sudo systemctl enable --now tokenkey-ghcr-prune-daily.timer",
-      "sudo systemctl restart tokenkey-disk-metrics.timer tokenkey-ghcr-prune-daily.timer",
-      "echo --- timers ---",
-      "sudo systemctl list-timers tokenkey-disk-metrics.timer tokenkey-ghcr-prune-daily.timer --no-pager || true",
-      "echo --- feishu webhook present in .env -- disk alert no-ops without it --",
-      "grep -cE '\''^TOKENKEY_FEISHU_WEBHOOK_URL='\'' /var/lib/tokenkey/.env || true",
-      ("echo Live edge host units now match deploy/aws@" + $sha + " on $(hostname)")
+      "bash -c " + (
+        (
+          [
+            "set -euo pipefail",
+            "echo === edge host-units sync: disk/memory pressure alerts + GHCR daily prune, no QA ===",
+            "sudo install -d -m 0755 /etc/tokenkey",
+            ("echo " + $dmsh + " | base64 -d | sudo tee /usr/local/bin/tokenkey-disk-metrics.sh > /dev/null"),
+            "sudo chmod +x /usr/local/bin/tokenkey-disk-metrics.sh",
+            "grep -E -c '\''memory-pressure alert|MemAvailable|磁盘压力已恢复'\'' /usr/local/bin/tokenkey-disk-metrics.sh || true",
+            "sudo /usr/local/bin/tokenkey-disk-metrics.sh --selftest",
+            ("echo " + $dmsvc + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-disk-metrics.service > /dev/null"),
+            ("echo " + $dmtmr + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-disk-metrics.timer > /dev/null"),
+            ("echo " + $ghcrs + " | base64 -d | sudo tee /usr/local/bin/tokenkey-ghcr-prune-daily.sh > /dev/null"),
+            "sudo chmod +x /usr/local/bin/tokenkey-ghcr-prune-daily.sh",
+            "sudo /usr/local/bin/tokenkey-ghcr-prune-daily.sh --selftest",
+            "sudo /usr/local/bin/tokenkey-ghcr-prune-daily.sh --install-units",
+            "sudo systemctl daemon-reload",
+            "sudo systemctl enable --now tokenkey-disk-metrics.timer",
+            "sudo systemctl enable --now tokenkey-ghcr-prune-daily.timer",
+            "sudo systemctl restart tokenkey-disk-metrics.timer tokenkey-ghcr-prune-daily.timer",
+            "echo --- timers ---",
+            "sudo systemctl list-timers tokenkey-disk-metrics.timer tokenkey-ghcr-prune-daily.timer --no-pager || true",
+            "echo --- feishu webhook present in .env -- disk alert no-ops without it --",
+            "grep -cE '\''^TOKENKEY_FEISHU_WEBHOOK_URL='\'' /var/lib/tokenkey/.env || true",
+            ("echo Live edge host units now match deploy/aws@" + $sha + " on $(hostname)")
+          ]
+          | join("\n")
+        ) | @sh
+      )
     ]
   }' > "${params_file}"
 

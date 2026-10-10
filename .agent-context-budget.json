@@ -23,7 +23,7 @@
         ".cursor/skills/*/SKILL.md"
       ],
       "max_file_bytes": 9000,
-      "max_total_bytes": 120000
+      "max_total_bytes": 125000
     },
     {
       "name": "reference-navigation",

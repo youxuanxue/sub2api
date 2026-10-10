@@ -71,11 +71,13 @@ tests cover redaction, duplicate reset, both gateway entry points, edge auth and
 
 ## Deployment after authorization
 
-Images come from CI only. `gemini-web-worker.yml` builds one `linux/amd64` image
-per content change on push to main and tags it with the build digest, verifying
-that the image reports the digest it was tagged with. Do not `docker build` on a
+Images come from CI only. `gemini-web-worker.yml` builds a multi-arch
+(`linux/amd64` + `linux/arm64`) image per content change on push to main (or
+`workflow_dispatch`) and tags it with the build digest, verifying each arch
+reports that digest before the manifest is pushed. Do not `docker build` on a
 host: a hand-built image is what produced `tokenkey-gemini-web:1.8.253-147512b9d`,
-a tag naming a commit that never landed on main.
+a tag naming a commit that never landed on main. Hetzner cax* edges need the
+arm64 variant; Lightsail remains amd64.
 
 Deploy an edge with `deploy-gemini-web-worker.yml` (SSM pull + recreate under the
 container limits below), one edge per dispatch:

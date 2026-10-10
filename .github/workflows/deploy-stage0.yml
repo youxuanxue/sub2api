@@ -207,42 +207,44 @@ jobs:
         env:
           STACK_NAME: ${{ steps.stack.outputs.name }}
           CICD_OIDC_STACK_NAME: ${{ vars.CICD_OIDC_STACK_NAME || 'tokenkey-cicd-oidc' }}
+          # Default aws (CFN i-*). Flip repo var or SSM
+          # /tokenkey/prod/control-plane-ssm-target=hetzner only after Wave B B9.
+          PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
         run: |
           set -euo pipefail
-          read -r ID API_URL < <(
-            aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
-              --query 'Stacks[0].Outputs' --output json |
-            python3 -c 'import json, sys; rows=json.load(sys.stdin); m={r.get("OutputKey"): r.get("OutputValue", "") for r in rows}; print(m.get("InstanceId", ""), m.get("ApiUrl", ""))'
+          # Single call: JSON on stdout + id/api_url/browser_origin/ssm_region/… into GITHUB_OUTPUT.
+          RESOLVED_JSON="$(python3 ops/stage0/resolve_prod_ssm_target.py \
+            --target "${PROD_SSM_TARGET}" \
+            --stack "$STACK_NAME" \
+            --format json \
+            --github-output "$GITHUB_OUTPUT")"
+          python3 -c '
+          import json, sys
+          d = json.loads(sys.argv[1])
+          for key in ("id", "api_url", "ssm_region", "deploy_profile", "target"):
+            if not d.get(key):
+              raise SystemExit(f"::error::missing {key} in resolve_prod_ssm_target output")
+          print(
+              "deploying %s to instance=%s api=%s (env=prod target=%s ssm_region=%s profile=%s)"
+              % (
+                  sys.argv[2],
+                  d["id"],
+                  d["api_url"],
+                  d["target"],
+                  d["ssm_region"],
+                  d["deploy_profile"],
+              )
           )
-          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
-            echo "::error::could not resolve InstanceId from stack $STACK_NAME"
-            exit 1
-          fi
-          if [ -z "$API_URL" ] || [ "$API_URL" = "None" ]; then
-            echo "::error::could not resolve ApiUrl from stack $STACK_NAME"
-            exit 1
-          fi
-          API_HOST="${API_URL#https://}"
-          if [ "$API_HOST" = "$API_URL" ] || [ -z "$API_HOST" ]; then
-            echo "::error::ApiUrl must be one HTTPS origin"
-            exit 1
-          fi
-          browser_origin="$API_URL"
-          if [[ "$API_HOST" == api.* ]]; then
-            browser_origin="https://${API_HOST#api.}"
-          fi
-          echo "id=$ID" >> "$GITHUB_OUTPUT"
-          echo "api_url=$API_URL" >> "$GITHUB_OUTPUT"
-          echo "browser_origin=$browser_origin" >> "$GITHUB_OUTPUT"
-          echo "deploying ${INPUT_TAG} to instance=$ID api=$API_URL (env=prod stack=$STACK_NAME)"
+          ' "$RESOLVED_JSON" "$INPUT_TAG"
 
       - name: Resolve previous prod runtime tag
         id: previous_runtime
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
         run: |
           set -euo pipefail
-          PREVIOUS_TAG="$(bash ops/stage0/resolve-prod-running-tag-via-ssm.sh --instance-id "$INSTANCE_ID")"
+          PREVIOUS_TAG="$(bash ops/stage0/resolve-prod-running-tag-via-ssm.sh --region "$AWS_REGION" --instance-id "$INSTANCE_ID")"
           test -n "$PREVIOUS_TAG"
           echo "tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
           echo "prod runtime baseline: $PREVIOUS_TAG"
@@ -259,6 +261,7 @@ jobs:
         if: hashFiles('qa-target-release/backend/internal/service/gemini_web_request_tk.go') != ''
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
         run: |
           bash ops/observability/run-probe.sh --target prod \
             --expected-instance-id "$INSTANCE_ID" \
@@ -268,6 +271,7 @@ jobs:
         if: needs.release-contract.outputs.mode == 'legacy_rollback'
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
         run: python3 ops/stage0/prod_release_state.py read --instance-id "$INSTANCE_ID" --output .prod-release-state.json
 
       - name: Validate legacy QA credentials
@@ -313,6 +317,7 @@ jobs:
         if: needs.release-contract.outputs.mode == 'legacy_rollback'
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
         run: python3 ops/stage0/prod_release_state.py pause --instance-id "$INSTANCE_ID" --plan .prod-release-plan.json
 
       - name: Disable Boundary before legacy gateway mutation
@@ -320,6 +325,7 @@ jobs:
         if: needs.release-contract.outputs.mode == 'legacy_rollback'
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
           QA_BOUNDARY_TIMER_STATE: disabled
           STAGE0_SSM_OUTPUT_DIR: .qa-boundary-legacy-safety
         run: bash ops/stage0/sync-qa-boundary-timer-via-ssm.sh "$INSTANCE_ID" "legacy gateway rollback safety"
@@ -345,11 +351,13 @@ jobs:
         id: ssm
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
+          STAGE0_DEPLOY_PROFILE: ${{ steps.instance.outputs.deploy_profile }}
           STAGE0_SSM_OUTPUT_DIR: .
           QA_BUNDLE_ENABLED: "true"
           QA_BUNDLE_QUEUE_URL: ${{ steps.qa_coordinates.outputs.queue_url }}
           QA_BUNDLE_STORAGE_DRIVER: s3
-          QA_BUNDLE_STORAGE_REGION: ${{ env.AWS_REGION }}
+          QA_BUNDLE_STORAGE_REGION: us-east-1
           QA_BUNDLE_STORAGE_BUCKET: ${{ steps.qa_coordinates.outputs.bucket }}
           QA_BUNDLE_STORAGE_PREFIX: user-qa
           STAGE0_BLUEGREEN_WAIT_PHASE: cutover
@@ -395,6 +403,7 @@ jobs:
         continue-on-error: true
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
           GATEWAY_TAG: ${{ inputs.tag }}
         run: bash ops/stage0/assert-live-host-state.sh "$INSTANCE_ID" "$GATEWAY_TAG" "deploy-stage0 live-host assert env=prod"
 
@@ -525,6 +534,7 @@ jobs:
         if: always() && steps.ssm.outputs.command_id != ''
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
           DEPLOY_COMMAND_ID: ${{ steps.ssm.outputs.command_id }}
           DEPLOY_TOKEN: ${{ steps.ssm.outputs.deploy_token }}
         run: |

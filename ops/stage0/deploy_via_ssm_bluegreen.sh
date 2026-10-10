@@ -70,14 +70,30 @@ if [[ -z "${INSTANCE_ID}" ]]; then
   echo "stage0_deploy_via_ssm_bluegreen: instance id is required" >&2
   exit 1
 fi
+# Prefix default: i-* → prod, mi-* → edge. Hetzner prod Hybrid is mi-* but must
+# keep the prod profile (QA bundle, blue/green stages). Operators/workflows set
+# STAGE0_DEPLOY_PROFILE=prod after Wave B control-plane cutover.
 case "${INSTANCE_ID}" in
-  i-*) DEPLOY_PROFILE=prod ;;
-  mi-*) DEPLOY_PROFILE=edge ;;
+  i-* | mi-*) ;;
   *)
     echo "stage0_deploy_via_ssm_bluegreen: requires EC2 i-* or managed-instance mi-*, got ${INSTANCE_ID}" >&2
     exit 1
     ;;
 esac
+if [[ -n "${STAGE0_DEPLOY_PROFILE:-}" ]]; then
+  case "${STAGE0_DEPLOY_PROFILE}" in
+    prod | edge) DEPLOY_PROFILE="${STAGE0_DEPLOY_PROFILE}" ;;
+    *)
+      echo "stage0_deploy_via_ssm_bluegreen: STAGE0_DEPLOY_PROFILE must be prod or edge" >&2
+      exit 1
+      ;;
+  esac
+else
+  case "${INSTANCE_ID}" in
+    i-*) DEPLOY_PROFILE=prod ;;
+    mi-*) DEPLOY_PROFILE=edge ;;
+  esac
+fi
 if [[ "${STAGE}" != deploy && "${DEPLOY_PROFILE}" != prod ]]; then
   echo "staged blue/green preparation is prod-only" >&2
   exit 1

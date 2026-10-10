@@ -46,45 +46,67 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
         cls.targets = cls.data.get("targets") or {}
         cls.any_id = sorted(cls.targets)[0] if cls.targets else None
 
-    def test_matrix_all_planned_during_phase1(self) -> None:
-        """Phase-1 invariant: no live hetzner cutover rows (after defaults)."""
+    def test_matrix_cutover_live_vs_backlog(self) -> None:
+        """Live cutover edges deployable; us3/us6 stay planned."""
         sys.path.insert(0, str(REPO_ROOT / "ops" / "stage0"))
         from edge_routing_matrix import load_hetzner_targets
 
         materialized = load_hetzner_targets(REPO_ROOT)
-        deployable = [k for k, t in materialized.items() if t.get("deployable") is True]
-        self.assertEqual(deployable, [], f"Phase-1 must keep deployable=false; got {deployable}")
+        deployable = sorted(k for k, t in materialized.items() if t.get("deployable") is True)
+        self.assertEqual(deployable, ["uk1", "uk2", "us4", "us5"])
+        for backlog in ("us3", "us6"):
+            self.assertFalse(materialized[backlog].get("deployable"))
 
     def test_planned_fails_without_allow_planned(self) -> None:
-        if not self.any_id:
-            self.skipTest("matrix empty")
+        backlog = "us3"
+        if backlog not in self.targets:
+            self.skipTest("us3 missing from matrix")
         proc = subprocess.run(
-            [sys.executable, str(RESOLVER), "--edge-id", self.any_id],
+            [sys.executable, str(RESOLVER), "--edge-id", backlog],
             capture_output=True,
             text=True,
         )
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("not deployable", proc.stderr)
 
+    def test_live_edge_resolves_without_allow_planned(self) -> None:
+        live = "us4"
+        if live not in self.targets:
+            self.skipTest("us4 missing from matrix")
+        expected = f"tokenkey-edge-{live}-hz-cax21"
+        resolved = run_resolver(live, allow_planned=False, confirm_instance=expected)
+        self.assertEqual(resolved["edge_id"], live)
+        self.assertEqual(resolved["platform"], "hetzner")
+        self.assertEqual(resolved["deployable"], "true")
+        self.assertEqual(resolved["location"], "fsn1")
+        self.assertEqual(resolved["server_type"], "cax21")
+        self.assertEqual(resolved["architecture"], "arm")
+        self.assertEqual(resolved["instance_name"], expected)
+        self.assertEqual(resolved["domain"], f"api-{live}.tokenkey.dev")
+        self.assertEqual(resolved["staging_domain"], f"api-{live}-hz.tokenkey.dev")
+        self.assertEqual(resolved["ssm_prefix"], f"/tokenkey/hetzner/{live}")
+        self.assertEqual(resolved["ssm_region"], "eu-west-2")
+
     def test_planned_resolves_with_allow_planned(self) -> None:
-        if not self.any_id:
-            self.skipTest("matrix empty")
-        expected = f"tokenkey-edge-{self.any_id}-hz-cax21"
-        resolved = run_resolver(self.any_id, allow_planned=True, confirm_instance=expected)
-        self.assertEqual(resolved["edge_id"], self.any_id)
+        backlog = "us3"
+        if backlog not in self.targets:
+            self.skipTest("us3 missing from matrix")
+        expected = f"tokenkey-edge-{backlog}-hz-cax21"
+        resolved = run_resolver(backlog, allow_planned=True, confirm_instance=expected)
+        self.assertEqual(resolved["edge_id"], backlog)
         self.assertEqual(resolved["platform"], "hetzner")
         self.assertEqual(resolved["deployable"], "false")
         self.assertEqual(resolved["location"], "fsn1")
         self.assertEqual(resolved["server_type"], "cax21")
         self.assertEqual(resolved["architecture"], "arm")
         self.assertEqual(resolved["instance_name"], expected)
-        self.assertEqual(resolved["domain"], f"api-{self.any_id}.tokenkey.dev")
-        self.assertEqual(resolved["staging_domain"], f"api-{self.any_id}-hz.tokenkey.dev")
-        self.assertEqual(resolved["ssm_prefix"], f"/tokenkey/hetzner/{self.any_id}")
+        self.assertEqual(resolved["domain"], f"api-{backlog}.tokenkey.dev")
+        self.assertEqual(resolved["staging_domain"], f"api-{backlog}-hz.tokenkey.dev")
+        self.assertEqual(resolved["ssm_prefix"], f"/tokenkey/hetzner/{backlog}")
         self.assertEqual(resolved["ssm_region"], "eu-west-2")
         self.assertEqual(
             resolved["ssm_hybrid_role_name"],
-            f"tokenkey-hetzner-ssm-hybrid-{self.any_id}",
+            f"tokenkey-hetzner-ssm-hybrid-{backlog}",
         )
 
     def test_unknown_edge_id_fails(self) -> None:

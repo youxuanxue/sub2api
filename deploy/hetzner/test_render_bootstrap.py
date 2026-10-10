@@ -59,6 +59,18 @@ class HetznerRenderBootstrapTests(unittest.TestCase):
             content,
         )
 
+    def test_generated_installs_disk_metrics_and_ghcr_prune_timers(self):
+        """Parity with Lightsail host units (sync-edge-host-units-via-ssm)."""
+        content = GENERATED.read_text(encoding="utf-8")
+        self.assertIn("tokenkey-disk-metrics.sh", content)
+        self.assertIn("tokenkey-ghcr-prune-daily.sh", content)
+        self.assertIn("systemctl enable --now tokenkey-disk-metrics.timer", content)
+        self.assertIn("systemctl enable --now tokenkey-ghcr-prune-daily.timer", content)
+        self.assertIn("OnUnitActiveSec=5min", content)
+        self.assertIn("tokenkey-ghcr-prune-daily.sh --install-units", content)
+        self.assertIn("GHCR_DAILY_B64=", content)
+        self.assertIn("DISK_METRICS_B64=", content)
+
     def test_provision_user_data_prefix_starts_with_shebang_before_exports(self):
         """Regression: Ubuntu cloud-init ignores exports-first user-data."""
         provision = (HERE / "provision-edge.sh").read_text(encoding="utf-8")

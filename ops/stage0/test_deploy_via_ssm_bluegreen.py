@@ -683,6 +683,17 @@ validate_prepared_receipt blue green
         self.assertIsNone(params)
         self.assertIsNone(remote)
 
+    def test_hetzner_prod_mi_uses_prod_profile_when_overridden(self) -> None:
+        proc, params, remote = _render(
+            _EDGE_IID,
+            env_extra={"STAGE0_DEPLOY_PROFILE": "prod"},
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert params is not None
+        joined = "\n".join(params["commands"])
+        self.assertIn("DEPLOY_PROFILE='prod'", joined)
+        self.assertNotIn("DEPLOY_PROFILE='edge'", joined)
+
     def test_edge_profile_explicitly_disables_qa_capture_for_both_colors(self) -> None:
         proc, _, remote = _render(_EDGE_IID, env_extra={"EDGE_ID": "us5"})
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
