@@ -4,6 +4,7 @@
     "ops/observability/*",
     "ops/stage0/*",
     "ops/lightsail/*",
+    "ops/dns/*",
     "ops/qa/*",
     "ops/archive/*",
     "ops/migration/*",
@@ -136,6 +137,7 @@
     "GoReleaser Docker config": "deploy",
     "main ancestry anchor": "base",
     "Caddyfile syntax gate": "deploy",
+    "Porkbun A upsert contract": "deploy",
     "edge-ip-status doc / live AWS drift": "deploy",
     "Stage0 deployment primitive sharing": "deploy",
     "blue/green migration safety": "deploy",
@@ -270,6 +272,7 @@
       "deploy/*",
       "ops/stage0/*",
       "ops/lightsail/*",
+      "ops/dns/*",
       "ops/qa/*",
       "ops/archive/*",
       "ops/migration/*",
@@ -324,7 +327,8 @@
     "deploy-tests": [
       "deploy/*",
       "ops/stage0/*",
-      "ops/lightsail/*"
+      "ops/lightsail/*",
+      "ops/dns/*"
     ],
     "backend": [
       "backend/*",
