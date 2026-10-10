@@ -18,6 +18,8 @@ Lightsail ≥7 天保留作回滚；禁止双写业务库。Redis 不迁（可�
 
 **本质：** 每条边都是 **全新换机**（新 cax21 + 新库 + 新出口 IP），不是 Lightsail 原地升级。决策锁在审批基线「本质：全新换机」节。
 
+**编排入口（Agent）：** [`.cursor/skills/tokenkey-host-replacement/SKILL.md`](../../.cursor/skills/tokenkey-host-replacement/SKILL.md) — plan → provision → replicate → cutover → drain → verify；下次 us3/us6/prod 换机先加载该 skill，坑位回写 skill + 本节。
+
 ## 切流实测教训（2026-10-10）
 
 | 坑 | 现象 | 处置 |

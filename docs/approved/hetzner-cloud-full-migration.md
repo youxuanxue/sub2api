@@ -34,6 +34,8 @@ related_designs:
 
 延迟与上游成功率不承诺与全球多区 Lightsail 一致。禁止「体验零影响」话术。
 
+**Agent 编排：** [`.cursor/skills/tokenkey-host-replacement`](../../.cursor/skills/tokenkey-host-replacement/SKILL.md)（跨平台换机门禁；平台命令仍以本文件决策 + README/DR runbook 为准）。
+
 ## 已锁定
 
 | | |
