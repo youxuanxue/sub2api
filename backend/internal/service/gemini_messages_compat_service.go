@@ -3045,7 +3045,12 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 					flusher.Flush()
 					lastWroteDataEvent = true
 				} else if !sawDataEvent {
-					// Pre-commit empty/DONE frames stay off the client wire.
+					// Empty / [DONE]-only streams must still reach the client so
+					// finalizeGeminiSSESignal can mark empty-stream ops evidence.
+					// Do not Commit: these are not useful first output.
+					ensureClientStarted()
+					_, _ = io.WriteString(c.Writer, line)
+					flusher.Flush()
 					lastWroteDataEvent = false
 				}
 			} else if trimmed == "" {
