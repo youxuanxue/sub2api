@@ -19,7 +19,7 @@ Lightsail 路径**没有 CloudFormation**，所以**没有 drift IMPORT** 这一
 | 候选 IP 撞 exclusion registry 时重试 | 机械 | 同上脚本（默认最多 5 次） |
 | 释放旧 IP 后写入 exclusion registry | 机械 | [`deploy/aws/stage0/record-polluted-ip.py`](../../../deploy/aws/stage0/record-polluted-ip.py)（由 rotate 脚本调用） |
 | 把 ssm_prefix/public_ip 改成新 IP | 机械 | 同上脚本 |
-| Porkbun DNS A 记录更新 | 真判断 | prompt（人工操作 Porkbun） |
+| Porkbun DNS A 记录更新 | 真判断 | `ops/dns/porkbun-upsert-a.sh`（`PORKBUN_*` env + 人批 `--apply`）；否则控制台 |
 | 外部干净出口验证 | 真判断 | prompt（选择哪个 observation host 取决于运营当时态势） |
 
 ## 调用参数
@@ -91,7 +91,7 @@ bash ops/lightsail/rotate-static-ip.sh <edge_id> --apply --reason 'upstream-api-
 
 ## 3) DNS 与 Caddy
 
-去 Porkbun 把 `api-<edge_id>.tokenkey.dev` 的 A 记录改成 NEW ip。等 `dig +short @1.1.1.1` 指向 NEW ip（常见约 1 分钟）。Prod 走 AWS VPC DNS（`10.0.0.2`），可能在 Porkbun TTL 内仍解析旧 IP，表现为 `/api/v1/edge/accounts` `context deadline exceeded`；公网 `/health` 绿不能单独当作 prod 已切过去。
+A 记录改 NEW ip：`bash ops/dns/porkbun-upsert-a.sh api-<edge_id>.tokenkey.dev <new_ip> [--apply]`（需本机 `PORKBUN_*`；无 env 用控制台；凭证不进 git）。等 `dig +short @1.1.1.1` 指向 NEW ip（常见约 1 分钟）。Prod 走 AWS VPC DNS（`10.0.0.2`），可能在 Porkbun TTL 内仍解析旧 IP，表现为 `/api/v1/edge/accounts` `context deadline exceeded`；公网 `/health` 绿不能单独当作 prod 已切过去。
 
 IP 变更后重启 Caddy 以刷新 ACME / 绑定：
 

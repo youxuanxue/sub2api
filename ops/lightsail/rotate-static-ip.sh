@@ -12,8 +12,9 @@
 #   4) append the released IP to deploy/aws/stage0/edge-polluted-ips.json
 #
 # DNS is intentionally NOT touched here — the operator updates Porkbun once
-# the new IP is verified clean. Same posture as the EC2 EIP rotation skill:
-# rotation primitive owns AWS state; DNS swap is the human gate.
+# the new IP is verified clean (console, or ops/dns/porkbun-upsert-a.sh when
+# PORKBUN_* env credentials are present). Same posture as the EC2 EIP
+# rotation skill: rotation primitive owns AWS state; DNS swap is the human gate.
 #
 # Usage:
 #   bash ops/lightsail/rotate-static-ip.sh <edge_id> [--apply] [--reason '...']
@@ -135,6 +136,7 @@ Steps (each is irreversible without re-allocation):
   5) release ${static_ip_name}
   6) append ${old_ip} to ${REGISTRY}
   7) human gate: update Porkbun A record ${domain} -> NEW ip
+     (bash ops/dns/porkbun-upsert-a.sh ${domain} NEW_IP --apply  # needs PORKBUN_* env)
 
 PLAN
 
@@ -227,6 +229,9 @@ registry: ${REGISTRY} (commit this file + run scripts/edge-ip-status.sh --check)
 NEXT (human):
   - update matrix static_ip_name + porkbun_a_ipv4; commit polluted-ips.json; run scripts/edge-ip-status.sh --check
   - Porkbun A record ${domain} -> ${new_ip}
+      bash ops/dns/porkbun-upsert-a.sh ${domain} ${new_ip}          # dry-run plan
+      bash ops/dns/porkbun-upsert-a.sh ${domain} ${new_ip} --apply  # needs PORKBUN_* env
+      # or Porkbun console if credentials are absent
   - external probe from a clean-egress host:
       curl -sS --resolve ${domain}:443:${new_ip} https://${domain}/health
   - after DNS propagation:

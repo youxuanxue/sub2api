@@ -211,7 +211,7 @@ Edge resolver 只读取 Lightsail 矩阵；已删除旧 EC2 edge fallback 和双
 
 **不能与 EC2 EIP 混用：** 旧 EC2 Edge 的 Elastic IP（例如历史 **`16.61.87.51` / `eipalloc-03b2653ddd57b9c93`**）**无法挂到 Lightsail 实例**。若 Porkbun 仍指向已游离的 EC2 EIP，公网会超时。迁到 Lightsail 后必须把 A 记录改到 **Lightsail Static IP**；不再需要的老 EIP 可通过 `release-address` 回收。
 
-核对顺序：先以 **`aws lightsail get-static-ip`** 为真，再改 Porkbun 与本仓库 `porkbun_a_ipv4`，不得在未核对前提下漂移。
+核对顺序：先以 **`aws lightsail get-static-ip`** 为真，再改 Porkbun 与本仓库 `porkbun_a_ipv4`，不得在未核对前提下漂移。本机有 `PORKBUN_*` env 时可用 `bash ops/dns/porkbun-upsert-a.sh <fqdn> <ipv4> --apply`（凭证不进 git）。
 
 端到端实操（provision、旁路校验、DNS 核对、Anthropic OAuth 重建、Smoke）：**`.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md`**（等价副本在 `.claude/skills/…`）。
 Lightsail **首次**拉起实例用 `deploy-edge-lightsail-stage0.yml` **`operation=provision`**；镜像 tag 轮转用 **`upgrade` / `rollback`**。
