@@ -12,7 +12,7 @@
 | **uk2** | **已切** → `2.31.27.73`（冻写重灌后切） | 同左 | `51.24.28.148`（app 已停写，PG/Caddy 保留 ≥7d） | 2026-10-10 `T101627Z`+`logs-T101629Z` |
 | **us3** | LS `18.216.113.132` | **无机器**（曾建后删，腾配额） | 正式仍 LS | 待重建 + 全量复刻 |
 | **us6** | LS `3.147.98.112` | **未起**（配额） | 正式仍 LS | 待 provision + 全量复刻 |
-| **prod** | 仍 AWS Stage0 | staging 路径已接线 | — | **未做** P1 dump/restore / 冻写 / 正式 DNS |
+| **prod** | 仍 AWS Stage0（正式） | **HZ staging 已点火** `167.233.211.115` · `mi-033c9569c7fb8b884` · Volume `tokenkey-prod-data` | — | Wave A：timers 齐 + precious 演练 restore 已灌；**待** Porkbun `api-hz` A → E1；正式 DNS/冻写未做 |
 
 Lightsail ≥7 天保留作回滚；禁止双写业务库。Redis 不迁（可重建）。
 
@@ -182,6 +182,11 @@ bash deploy/hetzner/provision-prod.sh --allow-planned --confirm-paid --tag X.Y.Z
 ```
 
 Bootstrap（`render-prod-bootstrap.sh`）已嵌入：`tokenkey-pgdump.timer`（`TOKENKEY_PGDUMP_S3_URI=s3://tokenkey-prod-pgdump-<acct>/prod/pgdump`）、`tokenkey-disk-metrics.timer`、`tokenkey-ghcr-prune-daily.timer`；staging Caddy 仍为 `Caddyfile.edge`；`QA_CAPTURE_ENABLED=false`。Feishu webhook 仍 post-boot 从 AWS prod `.env` 拷贝（不进 git）。
+
+**Wave A 实测（2026-10-10）：**
+- 点火：GHA `deploy-prod-hetzner-stage0.yml` · tag `1.8.283` · IP `167.233.211.115` · `mi-033c9569c7fb8b884` · E0 `aarch64` · timers active · Feishu webhook 已从 AWS 拷贝  
+- 演练 restore：`tokenkey-20261010T120132Z.sql.gz` → HZ；对账 `accounts=215=215`；`usage_billing_dedup` HZ `14516514` / AWS live `14532143`（dump 后增量，预期）；`usage_logs` HZ `0`（precious 不含行数据，预期）  
+- **阻塞 E1：** 本机无 Porkbun API 凭证 → 需人工设 `api-hz.tokenkey.dev` A → `167.233.211.115` 后 ACME + HTTPS smoke  
 
 user-data **必须以 `#!/bin/bash` 开头**；AWS CLI 走 awscliv2 zip。
 

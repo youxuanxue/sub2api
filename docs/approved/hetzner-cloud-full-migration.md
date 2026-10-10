@@ -57,7 +57,7 @@ related_designs:
 | uk1 / us4 / us5 / uk2 正式 DNS | **已切** Hetzner（A 见 README） |
 | 四边 LS app | **已停写**（`tokenkey*` + gemini-web stop；PG/Caddy/Redis 保留 ≥7d；`.env` `TOKENKEY_LS_STANDBY_READONLY=1`） |
 | us3 / us6 HZ | 无机器 / 未起（配额）；正式仍 Lightsail |
-| prod 正式 | **未切**；staging / `provision-prod` 路径已接线；**先于 us3/us6** 推进（override） |
+| prod 正式 | **未切**；HZ staging **已点火**（`167.233.211.115` / `mi-033c9569c7fb8b884`）；precious 演练已灌；待 `api-hz` DNS + Wave B；**先于 us3/us6**（override） |
 | 库复刻 uk1/uk2/us4/us5 | precious + logs 已灌；切前未切边再刷见 README |
 | us4 定点补漏 | append-only：ulog/dedup/ops_system（含停写前再补）；`post_missing=0` |
 | uk1 补漏 | dump 水位后 LS 0 新行 → 无需补漏 |
