@@ -829,8 +829,8 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	streamAttemptCtx := ctx
 	if req.Stream {
 		base := context.WithoutCancel(ctx)
-		rem := remainingStreamFirstOutputBudget(s.cfg, geminiBodyStreamFirstOutputHighEffort(body), startTime)
-		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, rem)
+		budget := resolveStreamFirstOutputTimeout(s.cfg, geminiBodyStreamFirstOutputHighEffort(body))
+		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, budget)
 	}
 
 	var resp *http.Response
@@ -1398,8 +1398,8 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	streamAttemptCtx := ctx
 	if stream {
 		base := context.WithoutCancel(ctx)
-		rem := remainingStreamFirstOutputBudget(s.cfg, geminiBodyStreamFirstOutputHighEffort(body), startTime)
-		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, rem)
+		budget := resolveStreamFirstOutputTimeout(s.cfg, geminiBodyStreamFirstOutputHighEffort(body))
+		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, budget)
 	}
 
 	var resp *http.Response

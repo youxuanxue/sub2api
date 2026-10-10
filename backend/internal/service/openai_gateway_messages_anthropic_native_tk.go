@@ -101,8 +101,8 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 		if account.IsCursor() {
 			base = ctx
 		}
-		rem := remainingStreamFirstOutputBudget(s.cfg, anthropicBodyStreamFirstOutputHighEffort(body), startTime)
-		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, rem)
+		budget := resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(body))
+		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, budget)
 		upstreamCtx = streamAttemptCtx
 		releaseUpstreamCtx = func() {}
 	} else {

@@ -103,9 +103,12 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 	if input.RequestStream {
 		// Detach client cancel first, then arm first-output so WithoutCancel
 		// cannot strip the budget cancel (see detachStreamUpstreamContext).
+		// Full per-attempt budget (SSOT: attempt start → Commit), not remaining
+		// wall-clock from the handler StartTime — otherwise a prior timed-out
+		// account leaves the next account with ~0s and false 504s.
 		base := context.WithoutCancel(ctx)
-		rem := remainingStreamFirstOutputBudget(s.cfg, anthropicBodyStreamFirstOutputHighEffort(input.Body), input.StartTime)
-		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, rem)
+		budget := resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(input.Body))
+		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, budget)
 	}
 
 	var resp *http.Response

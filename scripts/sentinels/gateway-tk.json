@@ -2306,21 +2306,23 @@
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
       "must_contain": [
-        "armStreamFirstOutputGuard(base, rem)",
+        "resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(input.Body))",
+        "armStreamFirstOutputGuard(base, budget)",
         "firstOutputGuard.WatchClose(resp.Body)",
         "firstOutputGuard.Commit()",
         "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)"
       ],
-      "rationale": "Anthropic passthrough streaming must arm the universal first-output budget before Do, Commit on first SSE data, and Size-aware SafeToFailoverAfterWrite after any client bytes (header-wait or in-stream keepalive)."
+      "rationale": "Anthropic passthrough streaming must arm a full per-attempt first-output budget (not remaining request wall-clock), Commit on first SSE data, and Size-aware SafeToFailoverAfterWrite after any client bytes (header-wait or in-stream keepalive)."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_anthropic_native_tk.go",
       "must_contain": [
-        "armStreamFirstOutputGuard(base, rem)",
+        "resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(body))",
+        "armStreamFirstOutputGuard(base, budget)",
         "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)",
         "beginAnthropicClientHeaderWaitKeepalive(c, clientStream)"
       ],
-      "rationale": "OpenAI-ingress Anthropic native Messages must arm the universal first-output budget, emit header-wait keepalive, and Size-aware SafeToFailoverAfterWrite when the budget fires after client bytes."
+      "rationale": "OpenAI-ingress Anthropic native Messages must arm a full per-attempt first-output budget, emit header-wait keepalive, and Size-aware SafeToFailoverAfterWrite when the budget fires after client bytes."
     },
     {
       "path": "backend/internal/handler/gateway_handler.go",

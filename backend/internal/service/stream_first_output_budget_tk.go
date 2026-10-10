@@ -74,24 +74,6 @@ func newAPIChatFirstOutputTimeoutWithEffort(cfg *config.Config, stream bool, hig
 	return resolveStreamFirstOutputTimeout(cfg, false)
 }
 
-// remainingStreamFirstOutputBudget returns how long remains of the universal
-// stream budget since startedAt. A non-positive remainder becomes 1ns so the
-// guard fires immediately on the next arm.
-func remainingStreamFirstOutputBudget(cfg *config.Config, highEffort bool, startedAt time.Time) time.Duration {
-	budget := resolveStreamFirstOutputTimeout(cfg, highEffort)
-	if budget <= 0 {
-		return 0
-	}
-	if startedAt.IsZero() {
-		return budget
-	}
-	rem := budget - time.Since(startedAt)
-	if rem <= 0 {
-		return time.Nanosecond
-	}
-	return rem
-}
-
 // streamFirstOutputGuard cancels a child context if useful first output is not
 // committed before the budget. After Commit(), the timer is disarmed and the
 // child context stays alive for the rest of the stream (parent cancellation

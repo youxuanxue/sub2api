@@ -60,15 +60,6 @@ func TestAnthropicAndGeminiBodyHighEffort(t *testing.T) {
 	require.True(t, geminiBodyStreamFirstOutputHighEffort([]byte(`{"generationConfig":{"thinkingConfig":{"thinkingBudget":9000}}}`)))
 }
 
-func TestRemainingStreamFirstOutputBudget(t *testing.T) {
-	require.Equal(t, 30*time.Second, remainingStreamFirstOutputBudget(nil, false, time.Time{}))
-	started := time.Now().Add(-29 * time.Second)
-	rem := remainingStreamFirstOutputBudget(nil, false, started)
-	require.Greater(t, rem, time.Duration(0))
-	require.LessOrEqual(t, rem, time.Second+50*time.Millisecond)
-	require.Equal(t, time.Nanosecond, remainingStreamFirstOutputBudget(nil, false, time.Now().Add(-2*time.Minute)))
-}
-
 func TestKiroStreamFirstOutputHighEffort(t *testing.T) {
 	require.False(t, kiroStreamFirstOutputHighEffort(nil))
 	require.False(t, kiroStreamFirstOutputHighEffort(&kiroproto.ClaudeRequest{}))
