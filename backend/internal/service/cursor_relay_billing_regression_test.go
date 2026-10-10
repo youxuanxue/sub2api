@@ -171,7 +171,7 @@ func TestNativeMessagesPolicyRelayTerminatesWithoutSettlement(t *testing.T) {
 					case path == "native":
 						result, err = svc.bufferNativeAnthropicMessages(c, resp, "composer-2.5", "composer-2.5", "composer-2.5", time.Now())
 					case stream:
-						result, err = svc.handleNativeAnthropicStreamingResponse(t.Context(), resp, c, account, "composer-2.5", "composer-2.5", "composer-2.5", nil, time.Now())
+						result, err = svc.handleNativeAnthropicStreamingResponse(t.Context(), resp, c, account, "composer-2.5", "composer-2.5", "composer-2.5", nil, time.Now(), nil, nil)
 					default:
 						result, err = svc.handleNativeAnthropicBufferedResponse(t.Context(), resp, c, account, "composer-2.5", "composer-2.5", "composer-2.5", nil, time.Now())
 					}
@@ -219,7 +219,7 @@ func TestCursorMessagesRelayFailureDoesNotSettle(t *testing.T) {
 					if path == "native" {
 						result, err = svc.streamNativeAnthropicMessages(c, resp, account, "composer-2.5", "composer-2.5", "composer-2.5", time.Now())
 					} else {
-						result, err = svc.handleNativeAnthropicStreamingResponse(t.Context(), resp, c, account, "composer-2.5", "composer-2.5", "composer-2.5", nil, time.Now())
+						result, err = svc.handleNativeAnthropicStreamingResponse(t.Context(), resp, c, account, "composer-2.5", "composer-2.5", "composer-2.5", nil, time.Now(), nil, nil)
 					}
 					if terminal == "complete" {
 						require.NoError(t, err)

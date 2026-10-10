@@ -41,6 +41,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
@@ -77,6 +78,12 @@ type tkBillingPricingResolver func(model string) (*ModelPricing, error)
 // 闸键 == 账键但闸的【价源】不全）。闸补这道渠道价探测后，「闸 ⟺ billing」对两个价源都构造性
 // 成立。nil = 不注入（退化为仅基础价判定，安全 fail-open 方向）。
 type tkChannelPricingProbe func(ctx context.Context, model string, groupID int64) bool
+
+// tkGateNotifySkipProbe 在 token 闸已判定拒绝后，决定是否跳过 PricingMissingNotifier /
+// 飞书「补价后放行」卡。用于「注册表已有视频/图片/TTS 结算价，但客户端打到了 token 路径」
+// ——请求仍 404（GetModelPricing 对 TokenPricingAbsent 故意不可用），告警却是噪音。
+// nil = 不跳过（保持「真未定价 → 飞书补价」原契约）。
+type tkGateNotifySkipProbe func(billingModel string) bool
 
 // tkPricedServingGateRejected 是闸内部的判定结果：true = 应拒绝（平台已启用且基础价 + 家族 floor
 // + 渠道价都解析不出）。拆成独立纯函数便于单测断言「开/关 × 有价/无价 × 渠道价」矩阵，不依赖 gin/notifier。
@@ -124,7 +131,7 @@ func tkPricedServingGateRejected(
 }
 
 // tkCheckPricedServingGate 是各路线注入的统一闸点。返回 true = 放行（继续转发）；
-// false = 已拒绝（已写 404 响应 + 触发告警），调用方必须立即 return 不再转发。
+// false = 已拒绝（已写 404 响应；真未定价才触发飞书补价告警），调用方必须立即 return 不再转发。
 //
 // requestedModel 用于告警样例展示（客户端原始模型名），billingModel 是判定键 +
 // 拒绝文案里点名的模型（**必须是 billing 将记账的确切键**：native gemini/anthropic 是
@@ -132,6 +139,8 @@ func tkPricedServingGateRejected(
 // wireProtocol 决定 404 body 形态（**按调用方实际讲的协议、非 account.Platform**，破 D1 的
 // BLOCKER4 修法）：Forward(anthropic ingress)=anthropic、ForwardNative=gemini、
 // ForwardAs{ChatCompletions,Responses}=openai。
+//
+// skipNotify：媒体已定价但被 token 闸拒时抑制飞书（见 tkGateNotifySkipProbe）；nil = 不抑制。
 //
 // nil-safe：resolve/setting/c 任一为 nil 都安全放行（见 tkPricedServingGateRejected）。
 func tkCheckPricedServingGate(
@@ -143,6 +152,7 @@ func tkCheckPricedServingGate(
 	c *gin.Context,
 	wireProtocol tkGateWireProtocol,
 	platform, billingModel, requestedModel string,
+	skipNotify tkGateNotifySkipProbe,
 ) bool {
 	// Scoped prices and rejection diagnostics use the current key's billing group.
 	groupID := tkGateGroupID(c)
@@ -158,7 +168,7 @@ func tkCheckPricedServingGate(
 		return true
 	}
 	tkWritePricedServingGateRejection(c, wireProtocol)
-	tkLogAndNotifyPricedServingGateRejection(c, notifier, platform, billingModel, requestedModel)
+	tkLogAndNotifyPricedServingGateRejection(c, notifier, platform, billingModel, requestedModel, skipNotify)
 	return false
 }
 
@@ -218,12 +228,13 @@ func tkWritePricedServingGateRejection(c *gin.Context, wireProtocol tkGateWirePr
 }
 
 // tkLogAndNotifyPricedServingGateRejection 写结构化日志 priced_serving_gate.rejected
-// （与 served_zero_cost 对称）并触发既有 PricingMissingNotifier（v1 自动定价通路：让
-// 运维收到「模型 X 未定价被拒、去补价」飞书卡片）。
+// （与 served_zero_cost 对称）。真未定价时再触发 PricingMissingNotifier（飞书「补价后放行」）；
+// 注册表已有媒体结算价时只记日志、不发飞书（错端点噪音，不是缺价）。
 func tkLogAndNotifyPricedServingGateRejection(
 	c *gin.Context,
 	notifier PricingMissingNotifier,
 	platform, billingModel, requestedModel string,
+	skipNotify tkGateNotifySkipProbe,
 ) {
 	// getAPIKeyFromContext dereferences c.Get; a nil gin context (degraded/test
 	// wiring) would panic, so guard here. Production always has a non-nil c.
@@ -233,12 +244,14 @@ func tkLogAndNotifyPricedServingGateRejection(
 	}
 	group := apiKeyGroup(apiKey)
 
+	suppressFeishu := skipNotify != nil && skipNotify(billingModel)
 	fields := []zap.Field{
 		zap.String("component", "service.gateway"),
 		zap.String("subcode", tkPricedServingGateSubcode),
 		zap.String("platform", platform),
 		zap.String("billing_model", billingModel),
 		zap.String("requested_model", requestedModel),
+		zap.Bool("feishu_suppressed_media_priced", suppressFeishu),
 	}
 	if apiKey != nil {
 		fields = append(fields, zap.Int64("api_key_id", apiKey.ID))
@@ -251,7 +264,7 @@ func tkLogAndNotifyPricedServingGateRejection(
 	}
 	logger.L().With(fields...).Warn("priced_serving_gate.rejected")
 
-	if notifier == nil {
+	if notifier == nil || suppressFeishu {
 		return
 	}
 	ev := PricingMissingEvent{
@@ -272,6 +285,36 @@ func tkLogAndNotifyPricedServingGateRejection(
 		}
 	}
 	notifier.NotifyPricingMissing(ev)
+}
+
+// tkRegistryHasMediaSettlementPrice 报告注册表是否已有非 token 结算价（视频秒价 /
+// 图片价 / TTS 字价）。只认正向证据（价 > 0）；不得用 !Tk*ModelUnpriced——那些
+// helper 在 billing/pricingService 缺失时 fail-open 为「已定价」，会误吞飞书告警。
+func tkRegistryHasMediaSettlementPrice(billing *BillingService, model string) bool {
+	if billing == nil || strings.TrimSpace(model) == "" {
+		return false
+	}
+	if min, ok := tkVideoMinUnitPriceUSD(model); ok && min > 0 {
+		return true
+	}
+	pricing := billing.tkRegistryMediaPricing(model)
+	if pricing != nil && pricing.OutputCostPerSecond > 0 {
+		return true
+	}
+	if tkRegistryRowHasBillableImagePrice(pricing) {
+		return true
+	}
+	return billing.TkRegistryTTSPricePerMillionChars(model) > 0
+}
+
+// tkMediaSettlementNotifySkipFromBilling 把 BillingService 收成闸的 skipNotify 探针。
+func tkMediaSettlementNotifySkipFromBilling(billing *BillingService) tkGateNotifySkipProbe {
+	if billing == nil {
+		return nil
+	}
+	return func(billingModel string) bool {
+		return tkRegistryHasMediaSettlementPrice(billing, billingModel)
+	}
 }
 
 // tkGateWireProtocol 是拒绝 body 形态的选择维度：**客户端实际讲的协议**，不是 account.Platform。

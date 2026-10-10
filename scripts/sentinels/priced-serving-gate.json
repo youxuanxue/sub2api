@@ -15,9 +15,15 @@
         "invalid_request_error",
         "tkPricedServingGateSubcode = \"model_not_priced\"",
         "priced_serving_gate.rejected",
-        "notifier.NotifyPricingMissing(ev)"
+        "notifier.NotifyPricingMissing(ev)",
+        "feishu_suppressed_media_priced",
+        "func tkRegistryHasMediaSettlementPrice(",
+        "tkVideoMinUnitPriceUSD(model)",
+        "tkRegistryRowHasBillableImagePrice(pricing)",
+        "TkRegistryTTSPricePerMillionChars(model) > 0",
+        "tkMediaSettlementNotifySkipFromBilling"
       ],
-      "rationale": "The gate core. R3 consistency is BY CONSTRUCTION: the gate judges via billing's own two price sources — `resolve(billingModel)` is BillingService.GetModelPricing (real price + Go family floor) and channelProbe mirrors resolveChannelPricing — rejecting iff BOTH are unavailable, the SAME sources+key billing uses to decide $0. Post-pivot (family floor + alert + converge) there is NO degrade canary: the Go family floors are immune to litellm/overlay source glitches (floored platforms never mass-404), so tkPricingSystemDegraded/tkPricedServingGateCanaryModel were removed (re-adding a fail-open would contradict 'newapi 保留 reject'). The literal error envelope strings (not_found_error / invalid_request_error + model_not_priced subcode) are the byte-aligned shapes clients depend on. NotifyPricingMissing is the reject channel (gate_rejected_unpriced → Feishu → fill) satisfying R4."
+      "rationale": "The gate core. R3 consistency is BY CONSTRUCTION: the gate judges via billing's own two price sources — `resolve(billingModel)` is BillingService.GetModelPricing (real price + Go family floor) and channelProbe mirrors resolveChannelPricing — rejecting iff BOTH are unavailable, the SAME sources+key billing uses to decide $0. Post-pivot (family floor + alert + converge) there is NO degrade canary: the Go family floors are immune to litellm/overlay source glitches (floored platforms never mass-404), so tkPricingSystemDegraded/tkPricedServingGateCanaryModel were removed (re-adding a fail-open would contradict 'newapi 保留 reject'). The literal error envelope strings (not_found_error / invalid_request_error + model_not_priced subcode) are the byte-aligned shapes clients depend on. NotifyPricingMissing is the reject channel for truly unpriced models (gate_rejected_unpriced → Feishu → fill) satisfying R4; media-settlement-priced models rejected on a token path still 404 but must suppress Feishu (feishu_suppressed_media_priced) so wrong-endpoint probes do not page ops. Media suppress must use positive price probes (not !Tk*ModelUnpriced), because those helpers fail-open when billing/pricingService is nil."
     },
     {
       "path": "backend/internal/service/gateway_priced_serving_gate_wiring_tk.go",

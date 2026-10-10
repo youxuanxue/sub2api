@@ -191,7 +191,7 @@ func TestCheckPricedServingGate_PassWhenPriced(t *testing.T) {
 	resolve := gateBillingResolverWith("gemini-2.5-pro")
 	c, w := newGateTestContext()
 
-	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireGemini, "gemini", "gemini-2.5-pro", "gemini-2.5-pro")
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireGemini, "gemini", "gemini-2.5-pro", "gemini-2.5-pro", nil)
 	require.True(t, ok, "priced model on enabled platform must pass")
 	require.Equal(t, http.StatusOK, w.Code, "no response should be written on pass")
 	require.False(t, c.IsAborted())
@@ -204,7 +204,7 @@ func TestCheckPricedServingGate_PassWhenPlatformDisabled(t *testing.T) {
 	resolve := gateBillingResolverWith("gemini-2.5-pro")
 	c, w := newGateTestContext()
 
-	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireOpenAI, "openai", "gpt-unpriced", "gpt-unpriced")
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireOpenAI, "openai", "gpt-unpriced", "gpt-unpriced", nil)
 	require.True(t, ok, "platform not in enabled set: serving unchanged even when unpriced")
 	require.Equal(t, http.StatusOK, w.Code)
 }
@@ -226,7 +226,7 @@ func TestCheckPricedServingGate_Reject_OpenAIShape(t *testing.T) {
 	c, w := newGateTestContext()
 
 	// "no-family-unpriced-zzz" matches no Go family floor (not gpt/gemini/claude) → unavailable → reject.
-	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireOpenAI, "openai", "no-family-unpriced-zzz", "no-family-unpriced-zzz")
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireOpenAI, "openai", "no-family-unpriced-zzz", "no-family-unpriced-zzz", nil)
 	require.False(t, ok)
 	require.Equal(t, http.StatusNotFound, w.Code, "HTTP status must be 404")
 	require.True(t, c.IsAborted())
@@ -247,7 +247,7 @@ func TestCheckPricedServingGate_Reject_AnthropicShape(t *testing.T) {
 	resolve := gateBillingResolverWith("gemini-2.5-pro")
 	c, w := newGateTestContext()
 
-	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireAnthropic, "anthropic", "totally-unpriced-xyz", "totally-unpriced-xyz")
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireAnthropic, "anthropic", "totally-unpriced-xyz", "totally-unpriced-xyz", nil)
 	require.False(t, ok)
 	require.Equal(t, http.StatusNotFound, w.Code, "HTTP status must be 404 (not 4xx-other)")
 
@@ -269,7 +269,7 @@ func TestCheckPricedServingGate_Reject_GeminiShape(t *testing.T) {
 	c, w := newGateTestContext()
 
 	// totally-unpriced-xyz is not gemini-family so it really resolves unavailable.
-	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireGemini, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireGemini, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz", nil)
 	require.False(t, ok)
 	require.Equal(t, http.StatusNotFound, w.Code)
 
@@ -296,7 +296,7 @@ func TestCheckPricedServingGate_WireProtocolDecouplesFromPlatform(t *testing.T) 
 
 	// gemini account, Anthropic ingress → Anthropic envelope.
 	c, w := newGateTestContext()
-	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireAnthropic, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c, tkGateWireAnthropic, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz", nil)
 	require.False(t, ok)
 	var anth map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &anth))
@@ -304,7 +304,7 @@ func TestCheckPricedServingGate_WireProtocolDecouplesFromPlatform(t *testing.T) 
 
 	// gemini account, OpenAI ingress (ForwardAsChatCompletions) → OpenAI envelope.
 	c2, w2 := newGateTestContext()
-	ok2 := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c2, tkGateWireOpenAI, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
+	ok2 := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, c2, tkGateWireOpenAI, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz", nil)
 	require.False(t, ok2)
 	var oai map[string]any
 	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &oai))
@@ -319,7 +319,7 @@ func TestCheckPricedServingGate_NilContextIsSafe(t *testing.T) {
 	resolve := gateBillingResolverWith("gemini-2.5-pro")
 	require.NotPanics(t, func() {
 		// nil gin context: rejection path must not panic (returns false).
-		ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, nil, tkGateWireGemini, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz")
+		ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, nil, nil, tkGateWireGemini, "gemini", "totally-unpriced-xyz", "totally-unpriced-xyz", nil)
 		require.False(t, ok)
 	})
 }
@@ -335,7 +335,7 @@ func TestCheckPricedServingGate_RejectFiresNotifier(t *testing.T) {
 	c, _ := newGateTestContext()
 
 	spy := &gateNotifierSpy{}
-	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, spy, c, tkGateWireGemini, "gemini", "totally-unpriced-xyz", "gemini-flash-orig")
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, spy, c, tkGateWireGemini, "gemini", "totally-unpriced-xyz", "gemini-flash-orig", nil)
 	require.False(t, ok)
 	require.Len(t, spy.events, 1, "rejection must fire exactly one pricing-missing event")
 	ev := spy.events[0]
@@ -343,6 +343,60 @@ func TestCheckPricedServingGate_RejectFiresNotifier(t *testing.T) {
 	require.Equal(t, "totally-unpriced-xyz", ev.BillingModel)
 	require.Equal(t, "gemini-flash-orig", ev.RequestedModel)
 	require.Equal(t, "gemini", ev.Platform)
+}
+
+// TestCheckPricedServingGate_MediaPricedSuppressesFeishu: video/image/TTS already
+// priced in the registry but hit on a token path → still 404, no Feishu "补价" card.
+func TestCheckPricedServingGate_MediaPricedSuppressesFeishu(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx := context.Background()
+	setting := newGateSettingService(PlatformNewAPI)
+	// Token oracle: veo is TokenPricingAbsent → unavailable (same as production GetModelPricing).
+	resolve := func(model string) (*ModelPricing, error) {
+		return nil, ErrModelPricingUnavailable
+	}
+	billing := tkMediaGuardBillingService()
+	c, w := newGateTestContext()
+	spy := &gateNotifierSpy{}
+
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, spy, c, tkGateWireOpenAI, PlatformNewAPI,
+		"veo-3.1-generate-001", "veo-3.1-generate-001",
+		tkMediaSettlementNotifySkipFromBilling(billing))
+	require.False(t, ok, "token path must still reject")
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Empty(t, spy.events, "media-priced wrong-endpoint must not page Feishu")
+
+	// Truly unpriced still notifies.
+	c2, _ := newGateTestContext()
+	ok2 := tkCheckPricedServingGate(ctx, resolve, nil, setting, spy, c2, tkGateWireOpenAI, PlatformNewAPI,
+		"totally-unpriced-xyz", "totally-unpriced-xyz",
+		tkMediaSettlementNotifySkipFromBilling(billing))
+	require.False(t, ok2)
+	require.Len(t, spy.events, 1)
+}
+
+func TestTkRegistryHasMediaSettlementPrice_PositiveProbeNotFailOpen(t *testing.T) {
+	billing := tkMediaGuardBillingService()
+	require.True(t, tkRegistryHasMediaSettlementPrice(billing, "veo-3.1-generate-001"))
+	require.True(t, tkRegistryHasMediaSettlementPrice(billing, "imagen-4.0-generate-001"))
+	require.False(t, tkRegistryHasMediaSettlementPrice(billing, "totally-unpriced-xyz"))
+	require.False(t, tkRegistryHasMediaSettlementPrice(nil, "veo-3.1-generate-001"))
+	require.False(t, tkRegistryHasMediaSettlementPrice(&BillingService{}, "totally-unpriced-xyz"))
+	require.Nil(t, tkMediaSettlementNotifySkipFromBilling(nil))
+
+	// Nil pricingService must not suppress via !Tk*ModelUnpriced fail-open.
+	spy := &gateNotifierSpy{}
+	ctx := context.Background()
+	setting := newGateSettingService(PlatformNewAPI)
+	resolve := func(model string) (*ModelPricing, error) {
+		return nil, ErrModelPricingUnavailable
+	}
+	c, _ := newGateTestContext()
+	ok := tkCheckPricedServingGate(ctx, resolve, nil, setting, spy, c, tkGateWireOpenAI, PlatformNewAPI,
+		"totally-unpriced-xyz", "totally-unpriced-xyz",
+		tkMediaSettlementNotifySkipFromBilling(&BillingService{}))
+	require.False(t, ok)
+	require.Len(t, spy.events, 1, "empty billing must still notify for unpriced token models")
 }
 
 // gateNotifierSpy captures NotifyPricingMissing calls.

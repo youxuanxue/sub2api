@@ -230,17 +230,24 @@ func (s *openAIFirstOutputStage) Close() error {
 }
 
 func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string) time.Duration {
-	if s == nil || s.cfg == nil || s.cfg.Gateway.OpenAIFirstOutputTimeoutSeconds <= 0 {
+	if s == nil || s.cfg == nil {
+		return resolveStreamFirstOutputTimeout(nil, streamFirstOutputHighEffort(reasoningEffort))
+	}
+	// openai_first_output_timeout_seconds=0 remains an emergency disable.
+	if s.cfg.Gateway.OpenAIFirstOutputTimeoutSeconds == 0 {
 		return 0
 	}
-	seconds := s.cfg.Gateway.OpenAIFirstOutputTimeoutSeconds
-	switch strings.ToLower(strings.TrimSpace(reasoningEffort)) {
-	case "high", "xhigh", "max":
+	high := streamFirstOutputHighEffort(reasoningEffort)
+	if high {
 		if override := s.cfg.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds; override > 0 {
-			seconds = override
+			return time.Duration(override) * time.Second
 		}
+		return resolveStreamFirstOutputTimeout(s.cfg, true)
 	}
-	return time.Duration(seconds) * time.Second
+	if s.cfg.Gateway.OpenAIFirstOutputTimeoutSeconds > 0 {
+		return time.Duration(s.cfg.Gateway.OpenAIFirstOutputTimeoutSeconds) * time.Second
+	}
+	return resolveStreamFirstOutputTimeout(s.cfg, false)
 }
 
 // newOpenAIFirstOutputTimeoutError records the timeout as an upstream attempt

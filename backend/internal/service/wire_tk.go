@@ -413,6 +413,7 @@ func ProvideTKPricingMissingNotifier(
 	}
 	if kiroGw != nil {
 		kiroGw.SetPricedServingGateDeps(catalog, billing, setting, n, resolver)
+		kiroGw.SetGatewayConfig(cfg)
 	}
 	return n
 }

@@ -684,7 +684,7 @@ func TestGeminiHandleNativeStreamingResponse_DropsTrailingDONEWithoutBlankLine(t
 		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
 	}
 
-	result, err := svc.handleNativeStreamingResponse(c, resp, time.Now(), false, nil, "")
+	result, err := svc.handleNativeStreamingResponse(c, resp, time.Now(), false, nil, "", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.usage)
@@ -715,7 +715,7 @@ func TestGeminiHandleNativeStreamingResponse_DropsLeadingCommentHeartbeat(t *tes
 		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
 	}
 
-	result, err := svc.handleNativeStreamingResponse(c, resp, time.Now(), false, nil, "")
+	result, err := svc.handleNativeStreamingResponse(c, resp, time.Now(), false, nil, "", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 1, result.usage.OutputTokens)
@@ -1329,7 +1329,7 @@ func TestGeminiMessagesHandleStreamingResponse_ClosesToolBlockBeforeText(t *test
 	c, _ := gin.CreateTestContext(rec)
 
 	svc := &GeminiMessagesCompatService{}
-	result, err := svc.handleStreamingResponse(c, resp, time.Now(), "claude-3-5-sonnet")
+	result, err := svc.handleStreamingResponse(c, resp, time.Now(), "claude-3-5-sonnet", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 

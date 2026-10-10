@@ -126,6 +126,35 @@ func TestCallKiroAPI_CanceledContextSkipsEndpointAttempts(t *testing.T) {
 	}
 }
 
+func TestCallKiroAPI_OnResponseBodyBeforeParse(t *testing.T) {
+	doer := &terminalBodyDoer{}
+	account := &Account{AccessToken: "tok", ProfileArn: "arn:aws:codewhisperer:us-east-1:1:profile/x"}
+	var sawBody io.ReadCloser
+	callback := &KiroStreamCallback{
+		OnResponseBody: func(body io.ReadCloser) { sawBody = body },
+	}
+
+	if err := CallKiroAPIWithDoerContext(context.Background(), doer, account, &KiroPayload{}, callback); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sawBody == nil || doer.calls != 1 {
+		t.Fatalf("OnResponseBody must fire once before parse: sawBody=%v calls=%d", sawBody != nil, doer.calls)
+	}
+}
+
+type terminalBodyDoer struct {
+	calls int
+}
+
+func (d *terminalBodyDoer) Do(req *http.Request) (*http.Response, error) {
+	d.calls++
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader(terminalEventStreamForTest("END_TURN"))),
+		Header:     http.Header{},
+	}, nil
+}
+
 // A 403 from the runtime.kiro.dev gateway must not fail the request immediately;
 // it may fall through to the officially transitional q host. This
 // is the regression test for the auth-error short-circuit that, before the fix,

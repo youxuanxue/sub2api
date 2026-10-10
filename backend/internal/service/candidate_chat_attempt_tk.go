@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -217,33 +216,17 @@ func candidateChatReplayable(r *CandidateRequest, account *Account, ctx context.
 	return true
 }
 
-// newAPIChatFirstOutputTimeout is the per-attempt useful-first-output wait for
-// replayable NewAPI Chat. Streaming and non-streaming use separate budgets:
-// stream defaults to 10s (chat TTFT), non-stream defaults to 300s (whole JSON body).
-func newAPIChatFirstOutputTimeout(cfg *config.Config, stream bool) time.Duration {
-	const (
-		defaultStream    = 10 * time.Second
-		defaultNonStream = 300 * time.Second
-	)
-	if stream {
-		if cfg != nil && cfg.Gateway.NewAPIChatFirstOutputTimeout > 0 {
-			return time.Duration(cfg.Gateway.NewAPIChatFirstOutputTimeout) * time.Second
-		}
-		return defaultStream
-	}
-	if cfg != nil && cfg.Gateway.NewAPIChatNonstreamFirstOutputTimeout > 0 {
-		return time.Duration(cfg.Gateway.NewAPIChatNonstreamFirstOutputTimeout) * time.Second
-	}
-	return defaultNonStream
-}
-
 func (s *OpenAIGatewayService) beginCandidateChatAttempt(ctx context.Context, c *gin.Context, account *Account, body []byte) (context.Context, func(*OpenAIForwardResult, error) (*OpenAIForwardResult, error), error) {
 	r := CandidateRequestFromContext(ctx)
 	if !candidateChatReplayable(r, account, ctx, body) {
 		return ctx, nil, nil
 	}
 	stream := gjson.GetBytes(body, "stream").Bool()
-	timeout := newAPIChatFirstOutputTimeout(s.cfg, stream)
+	effort := gjson.GetBytes(body, "reasoning_effort").String()
+	if effort == "" {
+		effort = gjson.GetBytes(body, "reasoning.effort").String()
+	}
+	timeout := newAPIChatFirstOutputTimeoutWithEffort(s.cfg, stream, streamFirstOutputHighEffort(effort))
 	if r.chatDeadline.IsZero() {
 		r.chatDeadline = time.Now().Add(candidateChatMaxAttempts * timeout)
 	}

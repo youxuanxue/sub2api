@@ -2282,12 +2282,146 @@
         "a.abortBeforeOutput(errCandidateChatFirstOutput)",
         "a.abortOnClientGone(ctx.Err())",
         "errCandidateChatIncomplete",
-        "func newAPIChatFirstOutputTimeout(cfg *config.Config, stream bool) time.Duration",
-        "defaultStream    = 10 * time.Second",
-        "defaultNonStream = 300 * time.Second",
-        "NewAPIChatNonstreamFirstOutputTimeout"
+        "newAPIChatFirstOutputTimeoutWithEffort(",
+        "streamFirstOutputHighEffort(effort)",
+        "CandidateChatSwitchLimit"
       ],
-      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming and non-streaming use separate first-useful-output budgets (defaults 10s / 300s); response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly."
+      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 15s / high-effort 30s); non-streaming defaults to 300s. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_passthrough.go",
+      "must_contain": [
+        "resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(input.Body))",
+        "armStreamFirstOutputGuard(base, budget)",
+        "firstOutputGuard.WatchClose(resp.Body)",
+        "firstOutputGuard.Commit()",
+        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)"
+      ],
+      "rationale": "Anthropic passthrough streaming must arm a full per-attempt first-output budget (not remaining request wall-clock), Commit on first SSE data, and Size-aware SafeToFailoverAfterWrite after any client bytes (header-wait or in-stream keepalive)."
+    },
+    {
+      "path": "backend/internal/service/openai_first_output_timeout.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string) time.Duration",
+        "return resolveStreamFirstOutputTimeout(nil, streamFirstOutputHighEffort(reasoningEffort))",
+        "return resolveStreamFirstOutputTimeout(s.cfg, true)",
+        "return resolveStreamFirstOutputTimeout(s.cfg, false)",
+        "openai_first_output_timeout_seconds=0 remains an emergency disable"
+      ],
+      "rationale": "OpenAI native first-semantic-output timeout must inherit the universal stream SSOT via resolveStreamFirstOutputTimeout; explicit openai_first_output_timeout_seconds=0 stays emergency disable. Prevents upstream merges from re-hardcoding divergent OpenAI waits."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "resolveStreamFirstOutputTimeout(s.cfg, geminiBodyStreamFirstOutputHighEffort(body))",
+        "armStreamFirstOutputGuard(base, budget)",
+        "firstOutputGuard.WatchClose(resp.Body)",
+        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)"
+      ],
+      "rationale": "Gemini Messages / native streaming must share the universal first-output SSOT: resolve+arm per attempt, WatchClose upstream body, and Size-aware failover. Upstream merges that rewrite Gemini streaming loops must not silently drop this wiring."
+    },
+    {
+      "path": "backend/internal/service/stream_first_output_budget_tk.go",
+      "must_contain": [
+        "defaultStreamFirstOutputTimeout           = 15 * time.Second",
+        "defaultStreamFirstOutputHighEffortTimeout = 30 * time.Second",
+        "func resolveStreamFirstOutputTimeout(",
+        "func ResolveGrokFirstByteHeaderTimeout(",
+        "func armStreamFirstOutputGuard(",
+        "Reason:           \"first_output_unavailable\"",
+        "func streamFirstOutputFailoverErrorAfterKeepalive(",
+        "func streamFirstOutputFailoverIfBudgetFired(",
+        "SafeToFailoverAfterWrite: true",
+        "c.Writer.Size() >= 0",
+        "Do not fall back to openai_high_effort_* here"
+      ],
+      "rationale": "Universal stream first-useful-output budget SSOT (15s / 30s high-effort, cap 60) plus Grok first-byte inherit helper. Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite via Size-aware streamFirstOutputFailoverIfBudgetFired."
+    },
+    {
+      "path": "backend/internal/repository/http_upstream.go",
+      "must_contain": [
+        "service.ResolveGrokFirstByteHeaderTimeout(s.cfg)"
+      ],
+      "rationale": "Grok ResponseHeaderTimeout must resolve through ResolveGrokFirstByteHeaderTimeout so changing stream_first_output_timeout_seconds moves Grok unless an explicit grok override is set."
+    },
+    {
+      "path": "backend/internal/service/gateway_upstream_response.go",
+      "must_contain": [
+        "firstOutputGuard.WatchClose(resp.Body)",
+        "firstOutputGuard.Commit()",
+        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)"
+      ],
+      "rationale": "Classic convert streaming handler must WatchClose the upstream body, Commit on first non-empty SSE data, and Size-aware failover when the first-output budget fires."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward.go",
+      "must_contain": [
+        "armStreamFirstOutputGuard(base, budget)",
+        "resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(body))",
+        "streamOrDetachedUpstreamCtx(ctx, reqStream, streamAttemptCtx)",
+        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)",
+        "handleStreamingResponse(ctx, resp, c, account, startTime, originalModel, reqModel, shouldMimicClaudeCode, firstOutputGuard, streamAttemptCtx)"
+      ],
+      "rationale": "Classic Anthropic convert Forward must arm the universal first-output SSOT (same as passthrough), bind Do/retries to the guarded attempt ctx, and pass WatchClose-capable guard into handleStreamingResponse."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service.go",
+      "must_contain": [
+        "resolveStreamFirstOutputTimeout(s.cfg, kiroStreamFirstOutputHighEffort(req))",
+        "armStreamFirstOutputGuard(ctx, budget)",
+        "firstOutputGuard.WatchClose(body)",
+        "OnResponseBody:",
+        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, ctx, callerCtx)"
+      ],
+      "rationale": "Kiro streaming must share the universal first-output SSOT, Commit only on client-visible text/tool, and WatchClose the upstream EventStream body via OnResponseBody so a budget cancel unblocks a stuck read and releases the account concurrency slot promptly."
+    },
+    {
+      "path": "backend/internal/integration/kiro/client.go",
+      "must_contain": [
+        "OnResponseBody func(body io.ReadCloser)",
+        "callback.OnResponseBody(resp.Body)"
+      ],
+      "rationale": "Kiro HTTP 200 bodies must expose OnResponseBody before parseEventStream so gateway first-output WatchClose can close a hung read without waiting on transport-only context cancel."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_anthropic_native_tk.go",
+      "must_contain": [
+        "resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(body))",
+        "armStreamFirstOutputGuard(base, budget)",
+        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)",
+        "beginAnthropicClientHeaderWaitKeepalive(c, clientStream)",
+        "firstOutputGuard.WatchClose(resp.Body)"
+      ],
+      "rationale": "OpenAI-ingress Anthropic native Messages must arm a full per-attempt first-output budget, WatchClose the upstream body, emit header-wait keepalive, and Size-aware SafeToFailoverAfterWrite when the budget fires after client bytes."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "func gatewayForwardMayFailover(",
+        "failoverErr.SafeToFailoverAfterWrite"
+      ],
+      "rationale": "Anthropic/Gemini/Responses handler Size gate must allow account switch when only keepalive bytes were written and SafeToFailoverAfterWrite is set (parity with openAIForwardMayFailover)."
+    },
+    {
+      "path": "backend/internal/service/anthropic_stream_first_output_tk_test.go",
+      "must_contain": [
+        "TestAnthropicPassthroughStreamFirstOutputBudgetBeforeWrite",
+        "TestAnthropicPassthroughStreamFirstOutputCommitsOnMessageStart",
+        "TestStreamFirstOutputFailoverErrorAfterKeepaliveFlag",
+        "TestClassicAnthropicStreamFirstOutputBudgetBeforeWrite"
+      ],
+      "rationale": "Focused regressions lock Anthropic first-output failover before write (passthrough + classic convert), Commit on message_start, and keepalive SafeToFailoverAfterWrite flag."
+    },
+    {
+      "path": "backend/internal/service/stream_first_output_budget_tk_test.go",
+      "must_contain": [
+        "TestKiroFirstOutputBudgetWatchCloseUnblocksUpstreamRead",
+        "guard.WatchClose(body)",
+        "CallKiroAPIWithDoerContext",
+        "TestResolveStreamFirstOutputHighEffortIgnoresOpenAINamedKnob",
+        "TestResolveGrokFirstByteHeaderTimeoutInheritsStreamSSOT"
+      ],
+      "rationale": "Kiro WatchClose + Grok inherit + universal high-effort isolation regressions for the stream first-output SSOT owner."
     },
     {
       "path": "backend/internal/handler/candidate_chat_failover_tk_test.go",
@@ -15908,20 +16042,28 @@
     {
       "path": "backend/internal/config/config.go",
       "must_contain": [
+        "StreamFirstOutputTimeoutSeconds int `mapstructure:\"stream_first_output_timeout_seconds\"`",
+        "StreamFirstOutputHighEffortTimeoutSeconds int `mapstructure:\"stream_first_output_high_effort_timeout_seconds\"`",
         "NewAPIChatNonstreamFirstOutputTimeout int `mapstructure:\"newapi_chat_nonstream_first_output_timeout\"`",
-        "viper.SetDefault(\"gateway.newapi_chat_first_output_timeout\", 10)",
+        "viper.SetDefault(\"gateway.stream_first_output_timeout_seconds\", 15)",
+        "viper.SetDefault(\"gateway.stream_first_output_high_effort_timeout_seconds\", 30)",
+        "viper.SetDefault(\"gateway.newapi_chat_first_output_timeout\", 0)",
         "viper.SetDefault(\"gateway.newapi_chat_nonstream_first_output_timeout\", 300)",
-        "gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output)"
+        "gateway.stream_first_output_timeout_seconds must be between 0-60 seconds",
+        "gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)",
+        "viper.SetDefault(\"gateway.grok_response_header_timeout\", 0)",
+        "gateway.grok_response_header_timeout must be between 0-60 seconds"
       ],
-      "rationale": "Replayable NewAPI Chat first-output budgets are split: streaming defaults to 10s (max 60) and non-streaming defaults to 300s (max 600). Upstream merge must not collapse them back into a single knob or revive the ResponseHeaderTimeout bleed."
+      "rationale": "Universal stream first-output SSOT defaults to 15s / high-effort 30s (max 60). NewAPI Chat streaming inherits unless overridden; non-streaming stays 300s. Upstream merge must not collapse budgets or revive ResponseHeaderTimeout bleed."
     },
     {
       "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
       "must_contain": [
-        "GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT:-10}",
+        "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-15}",
+        "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-30}",
         "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}"
       ],
-      "rationale": "Blue/green deploy must ship stream=10s and nonstream=300s defaults for NewAPI Chat first-output budgets; a single :-300 default previously made streaming empty-wait inherit five minutes."
+      "rationale": "Blue/green deploy must ship universal stream first-output defaults (15s/30s) and NewAPI nonstream 300s."
     },
     {
       "path": "backend/internal/service/candidate_chat_attempt_tk_test.go",
@@ -15929,17 +16071,17 @@
         "TestCandidateChatStreamVersusNonstreamBudgets",
         "TestNewAPIChatFirstOutputTimeoutResolver",
         "non-stream must not use ResponseHeaderTimeout",
-        "stream default is 3×10s"
+        "stream default is 3×15s"
       ],
       "rationale": "Focused unit tests lock stream vs nonstream first-output budgets and forbid ResponseHeaderTimeout from redefining either."
     },
     {
       "path": "deploy/aws/stage0/docker-compose.yml",
       "must_contain": [
-        "GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT:-10}",
+        "GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT:-0}",
         "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}"
       ],
-      "rationale": "Stage0 compose defaults must match the stream/nonstream NewAPI Chat first-output SSOT; lightsail/CFN embed this file."
+      "rationale": "Stage0 compose (embedded in Lightsail user-data at the 14336-byte cap) cannot grow new STREAM_FIRST_OUTPUT_* lines. NewAPI stream override defaults to 0 so hosts inherit code SSOT 15s/30s; nonstream stays 300s. Universal env inject is owned by ops/stage0/deploy_via_ssm_bluegreen.sh + deploy/config.example.yaml + config viper defaults."
     },
     {
       "path": "backend/internal/service/gateway_request.go",

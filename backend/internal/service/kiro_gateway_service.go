@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 )
@@ -47,6 +48,15 @@ type KiroGatewayService struct {
 	// kiroCacheStore holds prompt-prefix fingerprints for optional cache_read
 	// billing (gateway.kiro_cache_billing.enabled). Defaults to in-process memory.
 	kiroCacheStore kiroproto.CacheFingerprintStore
+	// cfg owns universal stream first-output budgets; nil → code defaults 15s/30s.
+	cfg *config.Config
+}
+
+// SetGatewayConfig wires gateway timeout SSOT (stream first-output budgets).
+func (s *KiroGatewayService) SetGatewayConfig(cfg *config.Config) {
+	if s != nil {
+		s.cfg = cfg
+	}
 }
 
 // KiroPostOutputStreamDisconnectError marks an incomplete upstream stream after
@@ -440,6 +450,10 @@ func (s *KiroGatewayService) forwardStreaming(
 		cacheCreationTokens: cacheCreationTokens,
 	}
 
+	// Universal stream first-useful-output budget (commit = client-visible text/tool).
+	budget := resolveStreamFirstOutputTimeout(s.cfg, kiroStreamFirstOutputHighEffort(req))
+	ctx, firstOutputGuard := armStreamFirstOutputGuard(ctx, budget)
+
 	var (
 		mu         sync.Mutex
 		firstTokMs *int
@@ -457,11 +471,13 @@ func (s *KiroGatewayService) forwardStreaming(
 		if delta == "" {
 			return
 		}
+		firstOutputGuard.Commit()
 		stopPreContentStreamKeepalive(c)
 		markFirstVisibleToken()
 		enc.writeTextDelta(delta)
 	}
 	writeVisibleToolUse := func(toolUse kiroproto.KiroToolUse) {
+		firstOutputGuard.Commit()
 		stopPreContentStreamKeepalive(c)
 		markFirstVisibleToken()
 		enc.writeToolUse(toolUse)
@@ -482,6 +498,11 @@ func (s *KiroGatewayService) forwardStreaming(
 	)
 
 	callback := &kiroproto.KiroStreamCallback{
+		OnResponseBody: func(body io.ReadCloser) {
+			// Close the upstream body when the first-output budget fires so a
+			// stuck EventStream read cannot hold the account concurrency slot.
+			firstOutputGuard.WatchClose(body)
+		},
 		OnReasoningContent: func(text, signature string) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -560,6 +581,13 @@ func (s *KiroGatewayService) forwardStreaming(
 	// committed, SSE has no replay point and must end with an error event.
 	if callErr != nil && !enc.started {
 		mu.Unlock()
+		var callerCtx context.Context
+		if c != nil && c.Request != nil {
+			callerCtx = c.Request.Context()
+		}
+		if err := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, ctx, callerCtx); err != nil {
+			return nil, err
+		}
 		return nil, classifyAndRecordKiroForwardError(c, account, callErr, model)
 	}
 	if callErr != nil {

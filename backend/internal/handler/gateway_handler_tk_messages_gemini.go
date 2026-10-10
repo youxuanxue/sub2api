@@ -223,8 +223,7 @@ func (h *GatewayHandler) tkMessagesGeminiPlatform(
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
-				// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
-				if c.Writer.Size() != writerSizeBeforeForward {
+				if !gatewayForwardMayFailover(c, writerSizeBeforeForward, failoverErr) {
 					h.handleFailoverExhausted(c, failoverErr, service.PlatformGemini, true)
 					return
 				}

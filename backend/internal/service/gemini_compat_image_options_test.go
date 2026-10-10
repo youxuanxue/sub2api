@@ -106,7 +106,7 @@ func TestGeminiCompatStreamsPreserveImagesOnce(t *testing.T) {
 			var err error
 			switch protocol {
 			case "messages":
-				_, err = svc.handleStreamingResponse(c, resp, time.Now(), "gemini-test")
+				_, err = svc.handleStreamingResponse(c, resp, time.Now(), "gemini-test", nil, nil)
 			case "chat":
 				_, err = svc.handleChatCompletionsStreamingResponseFromGemini(c, resp, time.Now(), "gemini-test", false, false)
 			case "responses":
@@ -230,7 +230,7 @@ func TestGeminiCompatStreamsRejectIncompleteOrMalformedEvents(t *testing.T) {
 				var err error
 				switch protocol {
 				case "messages":
-					result, err = svc.handleStreamingResponse(c, resp, time.Now(), "gemini-test")
+					result, err = svc.handleStreamingResponse(c, resp, time.Now(), "gemini-test", nil, nil)
 				case "chat":
 					result, err = svc.handleChatCompletionsStreamingResponseFromGemini(c, resp, time.Now(), "gemini-test", false, false)
 				case "responses":

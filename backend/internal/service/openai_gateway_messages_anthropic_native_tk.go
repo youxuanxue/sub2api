@@ -91,9 +91,25 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 		return nil, err
 	}
 
-	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, clientStream)
-	if account.IsCursor() {
-		upstreamCtx = ctx
+	callerCtx := ctx
+	var firstOutputGuard *streamFirstOutputGuard
+	streamAttemptCtx := ctx
+	var upstreamCtx context.Context
+	var releaseUpstreamCtx context.CancelFunc
+	if clientStream {
+		base := context.WithoutCancel(ctx)
+		if account.IsCursor() {
+			base = ctx
+		}
+		budget := resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(body))
+		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, budget)
+		upstreamCtx = streamAttemptCtx
+		releaseUpstreamCtx = func() {}
+	} else {
+		upstreamCtx, releaseUpstreamCtx = detachStreamUpstreamContext(ctx, false)
+		if account.IsCursor() {
+			upstreamCtx = ctx
+		}
 	}
 	upstreamReq, wireBody, err := s.buildNativeAnthropicUpstreamRequest(upstreamCtx, c, account, body, apiKey, targetURL)
 	releaseUpstreamCtx()
@@ -105,6 +121,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	resp, err := s.doNativeMessagesRequest(upstreamReq, account)
 	hwka.stop()
 	if err != nil {
+		if foErr := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+			return nil, foErr
+		}
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -137,7 +156,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 			respBody, upstreamMsg = retryBody, retryMsg
 			if recovered {
 				if clientStream {
-					return s.handleNativeAnthropicStreamingResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
+					return s.handleNativeAnthropicStreamingResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, firstOutputGuard, streamAttemptCtx)
 				}
 				return s.handleNativeAnthropicBufferedResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
 			}
@@ -154,7 +173,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	}
 
 	if clientStream {
-		return s.handleNativeAnthropicStreamingResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
+		return s.handleNativeAnthropicStreamingResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, firstOutputGuard, streamAttemptCtx)
 	}
 	return s.handleNativeAnthropicBufferedResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
 }
@@ -371,6 +390,8 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	upstreamModel string,
 	reasoningEffort *string,
 	startTime time.Time,
+	firstOutputGuard *streamFirstOutputGuard,
+	streamAttemptCtx context.Context,
 ) (result *OpenAIForwardResult, forwardErr error) {
 	defer func() { cursorResponseOutcome(account, resp, &result, &forwardErr) }()
 	observer := upstreamResponseModelObserverFromContext(c)
@@ -379,6 +400,9 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	}
 	if s.rateLimitService != nil {
 		s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
+	}
+	if firstOutputGuard != nil && resp != nil && resp.Body != nil {
+		firstOutputGuard.WatchClose(resp.Body)
 	}
 
 	writeAnthropicPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -493,11 +517,31 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 		keepaliveTimer.Reset(keepaliveInterval)
 	}
 	inPartialEvent := false
+	var callerCtx context.Context
+	if c != nil && c.Request != nil {
+		callerCtx = c.Request.Context()
+	}
+	var budgetCh <-chan struct{}
+	if streamAttemptCtx != nil {
+		budgetCh = streamAttemptCtx.Done()
+	}
+	firstOutputFailover := func() error {
+		return streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)
+	}
 
 	for {
 		select {
+		case <-budgetCh:
+			if err := firstOutputFailover(); err != nil {
+				return nil, err
+			}
+			budgetCh = nil
+
 		case ev, ok := <-events:
 			if !ok {
+				if err := firstOutputFailover(); err != nil {
+					return nil, err
+				}
 				if policyBlocked {
 					return nil, errOpenAICyberPolicyForwarded
 				}
@@ -514,6 +558,9 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), nil
 			}
 			if ev.err != nil {
+				if err := firstOutputFailover(); err != nil {
+					return nil, err
+				}
 				if policyBlocked {
 					return nil, errOpenAICyberPolicyForwarded
 				}
@@ -552,6 +599,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
+					firstOutputGuard.Commit()
 				}
 				parseSSEUsagePassthrough(data, usage)
 			} else {
@@ -570,17 +618,19 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				} else if _, err := io.WriteString(w, "\n"); err != nil {
 					clientDisconnected = true
 					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
-				} else if line == "" {
-					// 按 SSE 事件边界刷出，减少每行 flush 带来的 syscall 开销。
-					if terminalErrorWritten {
-						MarkResponseCommitted(c)
-					}
-					flusher.Flush()
-					lastDataAt = time.Now()
-					resetKeepaliveTimer()
-					inPartialEvent = false
 				} else {
-					inPartialEvent = true
+					if line == "" {
+						// 按 SSE 事件边界刷出，减少每行 flush 带来的 syscall 开销。
+						if terminalErrorWritten {
+							MarkResponseCommitted(c)
+						}
+						flusher.Flush()
+						lastDataAt = time.Now()
+						resetKeepaliveTimer()
+						inPartialEvent = false
+					} else {
+						inPartialEvent = true
+					}
 				}
 			}
 

@@ -335,13 +335,25 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	}
 	setOpsUpstreamRequestBody(c, body)
 
+	// Universal stream first-useful-output budget for classic convert streaming.
+	// Passthrough / CN-native arm the same helper; keep this path aligned so
+	// non-passthrough Anthropic convert cannot silently omit the SSOT gate.
+	callerCtx := ctx
+	var firstOutputGuard *streamFirstOutputGuard
+	streamAttemptCtx := ctx
+	if reqStream {
+		base := context.WithoutCancel(ctx)
+		budget := resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(body))
+		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, budget)
+	}
+
 	// 重试循环
 	var resp *http.Response
 	lastWireBody := body
 	retryStart := time.Now()
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
 		// 构建上游请求（每次重试需要重新构建，因为请求体需要重新读取）
-		upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
+		upstreamCtx, releaseUpstreamCtx := streamOrDetachedUpstreamCtx(ctx, reqStream, streamAttemptCtx)
 		upstreamReq, wireBody, err := s.buildUpstreamRequest(upstreamCtx, c, account, body, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 		releaseUpstreamCtx()
 		if err != nil {
@@ -359,6 +371,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
+			}
+			if foErr := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
+				return nil, foErr
 			}
 			return nil, s.handleUpstreamTransportError(ctx, c, account, err, OpsUpstreamErrorEvent{
 				UpstreamURL: safeUpstreamURL(upstreamReq.URL.String()),
@@ -423,7 +438,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						rectifyKind = "signature_retry_thinking"
 					}
 					_ = rectifyKind
-					retryCtx, releaseRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
+					retryCtx, releaseRetryCtx := streamOrDetachedUpstreamCtx(ctx, reqStream, streamAttemptCtx)
 					retryReq, retryWireBody, buildErr := s.buildUpstreamRequest(retryCtx, c, account, filteredBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 					releaseRetryCtx()
 					if buildErr == nil {
@@ -470,7 +485,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 								if escalateTools && time.Since(retryStart) < maxRetryElapsed {
 									logger.LegacyPrintf("service.gateway", "Account %d: signature retry still failing and looks tool-related, retrying with tool blocks downgraded", account.ID)
 									filteredBody2 := FilterSignatureSensitiveBlocksForRetry(body, reqModel)
-									retryCtx2, releaseRetryCtx2 := detachStreamUpstreamContext(ctx, reqStream)
+									retryCtx2, releaseRetryCtx2 := streamOrDetachedUpstreamCtx(ctx, reqStream, streamAttemptCtx)
 									retryReq2, retryWireBody2, buildErr2 := s.buildUpstreamRequest(retryCtx2, c, account, filteredBody2, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 									releaseRetryCtx2()
 									if buildErr2 == nil {
@@ -549,7 +564,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					})
 					if time.Since(retryStart) < maxRetryElapsed {
 						logger.LegacyPrintf("service.gateway", "[warn] Account %d: upstream rejected anthropic-beta token(s) %v; retrying once with them dropped (manifest needs update)", account.ID, rejected)
-						betaRetryCtx, releaseBetaRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
+						betaRetryCtx, releaseBetaRetryCtx := streamOrDetachedUpstreamCtx(ctx, reqStream, streamAttemptCtx)
 						betaRetryCtx = withBetaSelfHealDrop(betaRetryCtx, rejected)
 						betaRetryReq, betaWireBody, buildErr := s.buildUpstreamRequest(betaRetryCtx, c, account, body, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 						releaseBetaRetryCtx()
@@ -606,7 +621,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					rectifiedBody, applied := RectifyThinkingTypeAdaptive(body)
 					if applied && time.Since(retryStart) < maxRetryElapsed {
 						logger.LegacyPrintf("service.gateway", "Account %d: detected thinking.type adaptive-only error, retrying with adaptive thinking", account.ID)
-						adaptiveRetryCtx, releaseAdaptiveRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
+						adaptiveRetryCtx, releaseAdaptiveRetryCtx := streamOrDetachedUpstreamCtx(ctx, reqStream, streamAttemptCtx)
 						adaptiveRetryReq, adaptiveWireBody, buildErr := s.buildUpstreamRequest(adaptiveRetryCtx, c, account, rectifiedBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 						releaseAdaptiveRetryCtx()
 						if buildErr == nil {
@@ -655,7 +670,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					rectifiedBody, applied := RectifyThinkingBudget(body, reqModel)
 					if applied && time.Since(retryStart) < maxRetryElapsed {
 						logger.LegacyPrintf("service.gateway", "Account %d: detected budget_tokens constraint error, retrying with rectified budget (budget_tokens=%d, max_tokens=%d)", account.ID, BudgetRectifyBudgetTokens, BudgetRectifyMaxTokens)
-						budgetRetryCtx, releaseBudgetRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
+						budgetRetryCtx, releaseBudgetRetryCtx := streamOrDetachedUpstreamCtx(ctx, reqStream, streamAttemptCtx)
 						budgetRetryReq, budgetWireBody, buildErr := s.buildUpstreamRequest(budgetRetryCtx, c, account, rectifiedBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 						releaseBudgetRetryCtx()
 						if buildErr == nil {
@@ -921,7 +936,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	var clientDisconnect bool
 	if reqStream {
 		writerSizeBeforeStream := c.Writer.Size()
-		streamResult, err := s.handleStreamingResponse(ctx, resp, c, account, startTime, originalModel, reqModel, shouldMimicClaudeCode)
+		streamResult, err := s.handleStreamingResponse(ctx, resp, c, account, startTime, originalModel, reqModel, shouldMimicClaudeCode, firstOutputGuard, streamAttemptCtx)
 		if err != nil {
 			var sseErr *sseStreamErrorEventError
 			if errors.As(err, &sseErr) {
