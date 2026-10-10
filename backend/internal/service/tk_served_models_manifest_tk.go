@@ -272,6 +272,38 @@ var volcEngineAgentPlanForbiddenModelMappingKeys = []string{
 	"doubao-seedream-5.0-lite",
 }
 
+// aliTokenPlanForbiddenModelMappingKeys are withdrawn from Ali Token Plan
+// serving. They may remain on the generic ch17 PAYG floor for settlement, but
+// Token Plan live supply (2026-10-11 /models + peer mapping) does not include
+// them — apply-accounts must strip leftovers so new floors cannot reintroduce
+// empty-pool IDs.
+var aliTokenPlanForbiddenModelMappingKeys = []string{
+	"glm-4.5",
+	"glm-4.5-air",
+	"glm-4.6",
+	"glm-4.7",
+	"glm-5",
+	"glm-5.1",
+	"glm-5.2-fast-preview",
+	"qwen3-14b",
+	"qwen3-coder-plus",
+	"qwen3.7-flash-2026-07-15",
+	"qwen3.7-max-2026-05-17",
+	"qwen3.7-max-2026-05-20",
+	"qwen3.7-max-2026-06-08",
+	"qwen3.7-max-preview",
+	"qwen3.7-text-embedding",
+	"qwen3.7-text-embedding-flash",
+	"qwen3.8-2.4t-a95b",
+	"text-embedding-v1",
+	"text-embedding-v2",
+	"text-embedding-v3",
+	"text-embedding-v4",
+	"auto",
+	"decision-model-preview",
+	"qwen-audio-3.0-realtime-plus",
+}
+
 // Ali Token Plan migration intent; shared by presets, runtime floors, the
 // generated activation bundle, and billing settlement (settleBillingOnAccountServedModel).
 // PAYG aliases retain their original targets.
