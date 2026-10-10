@@ -99,7 +99,13 @@ grep -q 'missing PORKBUN_API_KEY' "${tmp}/missing.err" || fail "missing-cred mes
 if FAKE_RETRIEVE_MODE=empty run_script "${tmp}/badip.out" api-hz not-an-ip; then
   fail "invalid ipv4 must fail"
 fi
-grep -q 'ipv4 must look like' "${tmp}/badip.out.err" || fail "bad ipv4 message"
+grep -q 'ipv4 must look like A.B.C.D or' "${tmp}/badip.out.err" || fail "bad ipv4 message"
+
+# Negative: preserve-ip with no existing record
+if FAKE_RETRIEVE_MODE=empty run_script "${tmp}/preserve-empty.out" api-hz - --ttl 300 --apply; then
+  fail "preserve-ip without record must fail"
+fi
+grep -q "ipv4 '-' requires an existing A record" "${tmp}/preserve-empty.out.err" || fail "preserve-empty message"
 
 # Positive dry-run create plan
 rm -f "${tmp}/curl.log" "${tmp}/create.body"
@@ -121,21 +127,37 @@ jq -e '.type=="A" and .content=="167.233.211.115" and .name=="api-hz" and .ttl==
 ! grep -E 'pk1_test_not_real|sk1_test_not_real' \
   "${tmp}/apply-create.out" "${tmp}/apply-create.out.err" >/dev/null || fail "secrets leaked on create"
 
-# Positive apply noop
+# Positive apply noop (same IP + default ttl 600)
 rm -f "${tmp}/create.body" "${tmp}/edit.body"
 FAKE_RETRIEVE_MODE=same run_script "${tmp}/noop.out" api-hz.tokenkey.dev 167.233.211.115 --apply \
   || fail "noop should succeed"
 grep -q 'action   : noop' "${tmp}/noop.out" || fail "expected noop plan"
-grep -q 'noop: api-hz.tokenkey.dev already A 167.233.211.115' "${tmp}/noop.out" || fail "noop summary"
+grep -q 'noop: api-hz.tokenkey.dev already A 167.233.211.115 ttl=600' "${tmp}/noop.out" || fail "noop summary"
 test ! -e "${tmp}/create.body" || fail "noop must not create"
 test ! -e "${tmp}/edit.body" || fail "noop must not edit"
+
+# Positive apply TTL-only edit via explicit IP (same IP, ttl 600 -> 300)
+rm -f "${tmp}/edit.body" "${tmp}/edit.url"
+FAKE_RETRIEVE_MODE=same run_script "${tmp}/ttl.out" api-hz 167.233.211.115 --ttl 300 --apply \
+  || fail "ttl-only edit should succeed"
+grep -q 'action   : edit' "${tmp}/ttl.out" || fail "expected ttl edit plan"
+grep -q 'ttl 600 -> 300' "${tmp}/ttl.out" || fail "ttl edit summary"
+jq -e '.ttl=="300" and .content=="167.233.211.115"' "${tmp}/edit.body" >/dev/null || fail "ttl edit payload"
+
+# Positive apply TTL-only via ipv4 "-" (preserve content; never invent IP)
+rm -f "${tmp}/edit.body" "${tmp}/edit.url"
+FAKE_RETRIEVE_MODE=same run_script "${tmp}/preserve.out" api-hz - --ttl 300 --apply \
+  || fail "preserve-ip ttl edit should succeed"
+grep -q 'action   : edit' "${tmp}/preserve.out" || fail "expected preserve edit plan"
+grep -q '(preserve)' "${tmp}/preserve.out" || fail "preserve marker in plan"
+jq -e '.ttl=="300" and .content=="167.233.211.115"' "${tmp}/edit.body" >/dev/null || fail "preserve edit payload"
 
 # Positive apply edit
 rm -f "${tmp}/edit.body" "${tmp}/edit.url"
 FAKE_RETRIEVE_MODE=different run_script "${tmp}/edit.out" api-hz 167.233.211.115 --apply \
   || fail "edit should succeed"
 grep -q 'action   : edit' "${tmp}/edit.out" || fail "expected edit plan"
-grep -q 'edited: api-hz.tokenkey.dev A 1.2.3.4 -> 167.233.211.115 id=11' "${tmp}/edit.out" || fail "edit summary"
+grep -q 'edited: api-hz.tokenkey.dev A 1.2.3.4 -> 167.233.211.115' "${tmp}/edit.out" || fail "edit summary"
 grep -q '/dns/edit/tokenkey.dev/11' "${tmp}/edit.url" || fail "edit url id"
 jq -e '.type=="A" and .content=="167.233.211.115" and .name=="api-hz"' \
   "${tmp}/edit.body" >/dev/null || fail "edit payload"

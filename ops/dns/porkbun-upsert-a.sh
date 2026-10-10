@@ -10,10 +10,12 @@
 # Porkbun console click when env credentials are present.
 #
 # Usage:
-#   bash ops/dns/porkbun-upsert-a.sh <host> <ipv4> [--domain tokenkey.dev] [--ttl 600] [--apply]
+#   bash ops/dns/porkbun-upsert-a.sh <host> <ipv4|-> [--domain tokenkey.dev] [--ttl 300] [--apply]
 #
 # <host> may be a bare label (api-hz), an FQDN under --domain
 # (api-hz.tokenkey.dev), or the apex domain itself.
+# Pass ipv4 "-" to keep the existing A content and only change TTL
+# (fails if no A record exists — never invents an address).
 
 set -euo pipefail
 
@@ -27,10 +29,12 @@ API_BASE="${PORKBUN_API_BASE:-https://api.porkbun.com/api/json/v3}"
 
 usage() {
   cat <<EOF >&2
-usage: $0 <host> <ipv4> [--domain tokenkey.dev] [--ttl 600] [--apply]
+usage: $0 <host> <ipv4|-> [--domain tokenkey.dev] [--ttl 300] [--apply]
 
 Reads PORKBUN_API_KEY and PORKBUN_SECRET_API_KEY from the environment.
 Without --apply, only plans (retrieve + intended create/edit/noop).
+TTL-only changes (same IPv4, different ttl) are edits, not noops.
+ipv4 "-" = preserve existing A content (TTL-only; requires an existing record).
 EOF
 }
 
@@ -77,13 +81,17 @@ if [[ -z "$HOST" || -z "$IPV4" ]]; then
   exit 1
 fi
 
-if [[ ! "$IPV4" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-  echo "::error::ipv4 must look like A.B.C.D (got: ${IPV4})" >&2
+PRESERVE_IP=""
+if [[ "$IPV4" == "-" ]]; then
+  PRESERVE_IP=1
+elif [[ ! "$IPV4" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+  echo "::error::ipv4 must look like A.B.C.D or '-' to preserve (got: ${IPV4})" >&2
   exit 1
 fi
 
-if [[ ! "$TTL" =~ ^[0-9]+$ ]] || [[ "$TTL" -lt 600 ]]; then
-  echo "::error::ttl must be an integer >= 600 (Porkbun minimum)" >&2
+# Porkbun accepts TTLs below the old 600 floor (verified 300 SUCCESS 2026-10-11).
+if [[ ! "$TTL" =~ ^[0-9]+$ ]] || [[ "$TTL" -lt 300 ]]; then
+  echo "::error::ttl must be an integer >= 300" >&2
   exit 1
 fi
 
@@ -156,17 +164,25 @@ match_count="$(jq 'length' <<<"$match_json")"
 action="create"
 record_id=""
 current_ip=""
+current_ttl=""
 if [[ "$match_count" -gt 1 ]]; then
   echo "::error::found ${match_count} A records for ${FQDN}; resolve duplicates in Porkbun first" >&2
   exit 1
 elif [[ "$match_count" -eq 1 ]]; then
   record_id="$(jq -r '.[0].id' <<<"$match_json")"
   current_ip="$(jq -r '.[0].content' <<<"$match_json")"
-  if [[ "$current_ip" == "$IPV4" ]]; then
+  current_ttl="$(jq -r '.[0].ttl // empty' <<<"$match_json")"
+  if [[ -n "$PRESERVE_IP" ]]; then
+    IPV4="$current_ip"
+  fi
+  if [[ "$current_ip" == "$IPV4" && "$current_ttl" == "$TTL" ]]; then
     action="noop"
   else
     action="edit"
   fi
+elif [[ -n "$PRESERVE_IP" ]]; then
+  echo "::error::ipv4 '-' requires an existing A record for ${FQDN}" >&2
+  exit 1
 fi
 
 cat <<PLAN
@@ -174,11 +190,12 @@ cat <<PLAN
 fqdn     : ${FQDN}
 domain   : ${DOMAIN}
 name     : ${NAME:-"(apex)"}
-ipv4     : ${IPV4}
+ipv4     : ${IPV4}${PRESERVE_IP:+ (preserve)}
 ttl      : ${TTL}
 action   : ${action}
 record_id: ${record_id:-"(none)"}
 current  : ${current_ip:-"(none)"}
+cur_ttl  : ${current_ttl:-"(none)"}
 PLAN
 
 if [[ "$APPLY" != "--apply" ]]; then
@@ -188,7 +205,7 @@ fi
 
 case "$action" in
   noop)
-    echo "noop: ${FQDN} already A ${IPV4}"
+    echo "noop: ${FQDN} already A ${IPV4} ttl=${TTL}"
     ;;
   create)
     create_payload="$(jq -cn \
@@ -199,7 +216,7 @@ case "$action" in
     create_resp="$(porkbun_post "/dns/create/${DOMAIN}" "$create_payload")"
     require_success "$create_resp" create
     new_id="$(jq -r '.id // empty' <<<"$create_resp")"
-    echo "created: ${FQDN} A ${IPV4} id=${new_id:-unknown}"
+    echo "created: ${FQDN} A ${IPV4} ttl=${TTL} id=${new_id:-unknown}"
     ;;
   edit)
     edit_payload="$(jq -cn \
@@ -209,7 +226,7 @@ case "$action" in
       '{type:"A", content:$content, ttl:$ttl} + (if $name == "" then {} else {name:$name} end)')"
     edit_resp="$(porkbun_post "/dns/edit/${DOMAIN}/${record_id}" "$edit_payload")"
     require_success "$edit_resp" edit
-    echo "edited: ${FQDN} A ${current_ip} -> ${IPV4} id=${record_id}"
+    echo "edited: ${FQDN} A ${current_ip} -> ${IPV4} ttl ${current_ttl:-(none)} -> ${TTL} id=${record_id}"
     ;;
   *)
     echo "::error::internal: unknown action ${action}" >&2

@@ -38,14 +38,24 @@ dig +short NS callmodel.io @8.8.8.8   # *.ns.porkbun.com
 dig +short A callmodel.io api.callmodel.io @8.8.8.8   # 34.194.234.88
 ```
 
-### B0b — Porkbun TTL 预压（人工；可提前数小时）
+### B0b — Porkbun TTL 预压（可提前；API）
 
-在 Porkbun → 各域 DNS，把下列 A 的 TTL 收到 **300**（已是 600 也可再压）：
+```bash
+# 凭证：PORKBUN_API_KEY / PORKBUN_SECRET_API_KEY（本地 env，不进 git）
+# ipv4 "-" = 只改 TTL，保留现有 A（切流后误跑也不会写回旧 EIP）
+for spec in \
+  'api.tokenkey.dev:tokenkey.dev' \
+  'tokenkey.dev:tokenkey.dev' \
+  'api.callmodel.io:callmodel.io' \
+  'callmodel.io:callmodel.io'
+do
+  host="${spec%%:*}"; domain="${spec##*:}"
+  bash ops/dns/porkbun-upsert-a.sh "$host" - --domain "$domain" --ttl 300 --apply
+done
+# 不动 status.tokenkey.dev / api-hz
+```
 
-- `tokenkey.dev` / `api.tokenkey.dev`
-- `callmodel.io` / `api.callmodel.io`
-
-**不动** `status.tokenkey.dev`。切 A 后残余缓存最多约一个 TTL；预压只缩短排空，不改指向。
+切 A 后残余缓存最多约一个 TTL（300s）；预压只缩短排空，不改指向。
 
 ### B0c — Better Stack `api-hz` 旁路（人工；可提前）
 
