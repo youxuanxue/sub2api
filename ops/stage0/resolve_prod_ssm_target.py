@@ -93,6 +93,18 @@ def resolve_mode(explicit: str) -> str:
     return "aws"
 
 
+def with_browser_origin(outputs: dict[str, str]) -> dict[str, str]:
+    api_url = outputs["api_url"]
+    api_host = api_url.removeprefix("https://")
+    browser_origin = api_url
+    if api_host.startswith("api."):
+        browser_origin = f"https://{api_host[len('api.') :]}"
+    out = dict(outputs)
+    out["id"] = outputs["instance_id"]
+    out["browser_origin"] = browser_origin
+    return out
+
+
 def resolve_aws(stack: str) -> dict[str, str]:
     rows = aws_json(
         [
@@ -119,14 +131,16 @@ def resolve_aws(stack: str) -> dict[str, str]:
         fail(f"invalid AWS InstanceId for {stack}: {instance_id!r}")
     if not api_url.startswith("https://"):
         fail(f"invalid ApiUrl for {stack}: {api_url!r}")
-    return {
-        "target": "aws",
-        "instance_id": instance_id,
-        "ssm_region": AWS_REGION,
-        "api_url": api_url,
-        "deploy_profile": "prod",
-        "platform": "aws",
-    }
+    return with_browser_origin(
+        {
+            "target": "aws",
+            "instance_id": instance_id,
+            "ssm_region": AWS_REGION,
+            "api_url": api_url,
+            "deploy_profile": "prod",
+            "platform": "aws",
+        }
+    )
 
 
 def load_hetzner_matrix(path: pathlib.Path) -> dict[str, Any]:
@@ -137,6 +151,31 @@ def load_hetzner_matrix(path: pathlib.Path) -> dict[str, Any]:
     return target
 
 
+def list_instance_information(region: str) -> list[dict[str, Any]]:
+    """Paginate DescribeInstanceInformation for Hybrid/Lightsail inventory."""
+    rows: list[dict[str, Any]] = []
+    next_token = ""
+    while True:
+        args = [
+            "ssm",
+            "describe-instance-information",
+            "--region",
+            region,
+            "--max-results",
+            "50",
+        ]
+        if next_token:
+            args.extend(["--next-token", next_token])
+        page = aws_json(args) or {}
+        batch = page.get("InstanceInformationList") or []
+        if isinstance(batch, list):
+            rows.extend(r for r in batch if isinstance(r, dict))
+        next_token = str(page.get("NextToken") or "")
+        if not next_token:
+            break
+    return rows
+
+
 def resolve_hetzner(matrix_path: pathlib.Path) -> dict[str, str]:
     target = load_hetzner_matrix(matrix_path)
     name = str(target.get("instance_name") or "")
@@ -144,39 +183,30 @@ def resolve_hetzner(matrix_path: pathlib.Path) -> dict[str, str]:
     domain = str(target.get("domain") or "api.tokenkey.dev")
     if not name:
         fail("hetzner matrix missing instance_name")
-    # List then match ComputerName — Hybrid activations do not expose a stable
-    # Name tag filter across accounts the way EC2 does.
-    info = aws_json(
-        [
-            "ssm",
-            "describe-instance-information",
-            "--region",
-            region,
-        ]
-    )
-    rows = (info or {}).get("InstanceInformationList") or []
+    rows = list_instance_information(region)
     matches = [
         r
         for r in rows
-        if str(r.get("ComputerName") or "") == name
-        or str(r.get("Name") or "") == name
+        if str(r.get("ComputerName") or "") == name or str(r.get("Name") or "") == name
     ]
     if not matches:
-        fail(f"no Online Hybrid instance with ComputerName/Name={name!r} in {region}")
+        fail(f"no Hybrid instance with ComputerName/Name={name!r} in {region}")
     online = [r for r in matches if str(r.get("PingStatus") or "") == "Online"]
     chosen = online[0] if online else matches[0]
     instance_id = str(chosen.get("InstanceId") or "")
     if not instance_id.startswith("mi-") or not INSTANCE_RE.match(instance_id):
         fail(f"expected Hybrid mi-* for {name}, got {instance_id!r}")
-    return {
-        "target": "hetzner",
-        "instance_id": instance_id,
-        "ssm_region": region,
-        "api_url": f"https://{domain}",
-        "deploy_profile": "prod",
-        "platform": "hetzner",
-        "computer_name": name,
-    }
+    return with_browser_origin(
+        {
+            "target": "hetzner",
+            "instance_id": instance_id,
+            "ssm_region": region,
+            "api_url": f"https://{domain}",
+            "deploy_profile": "prod",
+            "platform": "hetzner",
+            "computer_name": name,
+        }
+    )
 
 
 def write_github_output(path: str, outputs: dict[str, str]) -> None:

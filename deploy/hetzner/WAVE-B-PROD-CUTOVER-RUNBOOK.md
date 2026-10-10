@@ -85,14 +85,14 @@ MI=mi-033c9569c7fb8b884
 
 ```bash
 # 渲染校验（本地 dry）：deploy/aws/stage0/render-prod-caddyfile.sh
+# Hybrid 注册在 eu-west-2 — 必须在 sync 命令前 export
+export AWS_REGION=eu-west-2
 API_DOMAIN=api.tokenkey.dev \
 GLOBAL_SITE_DOMAIN=tokenkey.dev \
 GLOBAL_SITE_PHASE=live \
 API_ALIAS_DOMAIN=api.callmodel.io \
 ACME_EMAIL=<ops> \
   bash ops/stage0/sync_caddyfile_via_ssm.sh prod mi-033c9569c7fb8b884 "wave-b-prod-caddy"
-# 区域：Hybrid 注册在 eu-west-2
-AWS_REGION=eu-west-2  # 与上同 shell
 ```
 
 ---

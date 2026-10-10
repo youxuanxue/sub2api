@@ -51,6 +51,8 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
         with mock.patch.object(self.mod, "aws_json", return_value=rows):
             out = self.mod.resolve_aws("tokenkey-prod-stage0")
         self.assertEqual(out["instance_id"], "i-0e43099f831b03160")
+        self.assertEqual(out["id"], "i-0e43099f831b03160")
+        self.assertEqual(out["browser_origin"], "https://tokenkey.dev")
         self.assertEqual(out["ssm_region"], "us-east-1")
         self.assertEqual(out["deploy_profile"], "prod")
         self.assertEqual(out["target"], "aws")
@@ -78,9 +80,49 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
             with mock.patch.object(self.mod, "aws_json", return_value=info):
                 out = self.mod.resolve_hetzner(path)
         self.assertEqual(out["instance_id"], "mi-033c9569c7fb8b884")
+        self.assertEqual(out["id"], "mi-033c9569c7fb8b884")
         self.assertEqual(out["ssm_region"], "eu-west-2")
         self.assertEqual(out["deploy_profile"], "prod")
         self.assertEqual(out["api_url"], "https://api.tokenkey.dev")
+        self.assertEqual(out["browser_origin"], "https://tokenkey.dev")
+
+    def test_resolve_hetzner_paginates_instance_information(self) -> None:
+        matrix = {
+            "target": {
+                "instance_name": "tokenkey-prod-hz-cax21",
+                "ssm_region": "eu-west-2",
+                "domain": "api.tokenkey.dev",
+            }
+        }
+        pages = [
+            {
+                "InstanceInformationList": [
+                    {"InstanceId": "mi-aaaaaaaaaaaaaaaaa", "ComputerName": "other", "PingStatus": "Online"}
+                ],
+                "NextToken": "page-2",
+            },
+            {
+                "InstanceInformationList": [
+                    {
+                        "InstanceId": "mi-033c9569c7fb8b884",
+                        "ComputerName": "tokenkey-prod-hz-cax21",
+                        "PingStatus": "Online",
+                    }
+                ]
+            },
+        ]
+
+        def fake_aws(args: list[str]) -> dict:
+            if "--next-token" in args:
+                return pages[1]
+            return pages[0]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "m.json"
+            path.write_text(json.dumps({"target": matrix["target"]}), encoding="utf-8")
+            with mock.patch.object(self.mod, "aws_json", side_effect=fake_aws):
+                out = self.mod.resolve_hetzner(path)
+        self.assertEqual(out["instance_id"], "mi-033c9569c7fb8b884")
 
     def test_resolve_aws_rejects_mi(self) -> None:
         rows = [

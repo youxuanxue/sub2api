@@ -101,6 +101,23 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertEqual(deploy["env"]["QA_BUNDLE_STORAGE_BUCKET"], "${{ steps.qa_coordinates.outputs.bucket }}")
         self.assertNotIn("continue-on-error", resolve)
 
+    def test_prod_ssm_target_resolver_wires_region_and_prod_profile(self) -> None:
+        steps = yaml.safe_load(workflow_text())["jobs"]["deploy"]["steps"]
+        by_name = {step.get("name"): step for step in steps}
+        instance = by_name["Resolve target instance + api domain"]
+        deploy = by_name["Deploy via SSM Run-Command"]
+        drain = by_name["Join gateway deployment and old request drain"]
+        self.assertEqual(instance["id"], "instance")
+        self.assertIn("ops/stage0/resolve_prod_ssm_target.py", instance["run"])
+        self.assertIn("--github-output", instance["run"])
+        self.assertIn("--format json", instance["run"])
+        self.assertNotIn("eval \"$(python3 ops/stage0/resolve_prod_ssm_target.py", instance["run"])
+        self.assertEqual(instance["env"]["PROD_SSM_TARGET"], "${{ vars.PROD_SSM_TARGET || 'auto' }}")
+        self.assertEqual(deploy["env"]["AWS_REGION"], "${{ steps.instance.outputs.ssm_region }}")
+        self.assertEqual(deploy["env"]["STAGE0_DEPLOY_PROFILE"], "${{ steps.instance.outputs.deploy_profile }}")
+        self.assertEqual(deploy["env"]["QA_BUNDLE_STORAGE_REGION"], "us-east-1")
+        self.assertEqual(drain["env"]["AWS_REGION"], "${{ steps.instance.outputs.ssm_region }}")
+
     def test_us051_selected_components_and_drain_join_preserve_gateway_acceptance_order(self) -> None:
         steps = yaml.safe_load(workflow_text())["jobs"]["deploy"]["steps"]
         names = [step.get("name", "") for step in steps]

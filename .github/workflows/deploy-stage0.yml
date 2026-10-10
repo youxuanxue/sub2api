@@ -212,36 +212,30 @@ jobs:
           PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
         run: |
           set -euo pipefail
-          eval "$(python3 ops/stage0/resolve_prod_ssm_target.py --target "${PROD_SSM_TARGET}" --stack "$STACK_NAME" | sed 's/^/RESOLVED_/')"
-          ID="${RESOLVED_instance_id:-}"
-          API_URL="${RESOLVED_api_url:-}"
-          SSM_REGION="${RESOLVED_ssm_region:-}"
-          DEPLOY_PROFILE="${RESOLVED_deploy_profile:-prod}"
-          TARGET_PLATFORM="${RESOLVED_target:-}"
-          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
-            echo "::error::could not resolve InstanceId (PROD_SSM_TARGET=${PROD_SSM_TARGET})"
-            exit 1
-          fi
-          if [ -z "$API_URL" ] || [ "$API_URL" = "None" ]; then
-            echo "::error::could not resolve ApiUrl"
-            exit 1
-          fi
-          API_HOST="${API_URL#https://}"
-          if [ "$API_HOST" = "$API_URL" ] || [ -z "$API_HOST" ]; then
-            echo "::error::ApiUrl must be one HTTPS origin"
-            exit 1
-          fi
-          browser_origin="$API_URL"
-          if [[ "$API_HOST" == api.* ]]; then
-            browser_origin="https://${API_HOST#api.}"
-          fi
-          echo "id=$ID" >> "$GITHUB_OUTPUT"
-          echo "api_url=$API_URL" >> "$GITHUB_OUTPUT"
-          echo "browser_origin=$browser_origin" >> "$GITHUB_OUTPUT"
-          echo "ssm_region=$SSM_REGION" >> "$GITHUB_OUTPUT"
-          echo "deploy_profile=$DEPLOY_PROFILE" >> "$GITHUB_OUTPUT"
-          echo "target=$TARGET_PLATFORM" >> "$GITHUB_OUTPUT"
-          echo "deploying ${INPUT_TAG} to instance=$ID api=$API_URL (env=prod target=$TARGET_PLATFORM ssm_region=$SSM_REGION profile=$DEPLOY_PROFILE)"
+          # Single call: JSON on stdout + id/api_url/browser_origin/ssm_region/… into GITHUB_OUTPUT.
+          RESOLVED_JSON="$(python3 ops/stage0/resolve_prod_ssm_target.py \
+            --target "${PROD_SSM_TARGET}" \
+            --stack "$STACK_NAME" \
+            --format json \
+            --github-output "$GITHUB_OUTPUT")"
+          python3 -c '
+          import json, sys
+          d = json.loads(sys.argv[1])
+          for key in ("id", "api_url", "ssm_region", "deploy_profile", "target"):
+            if not d.get(key):
+              raise SystemExit(f"::error::missing {key} in resolve_prod_ssm_target output")
+          print(
+              "deploying %s to instance=%s api=%s (env=prod target=%s ssm_region=%s profile=%s)"
+              % (
+                  sys.argv[2],
+                  d["id"],
+                  d["api_url"],
+                  d["target"],
+                  d["ssm_region"],
+                  d["deploy_profile"],
+              )
+          )
+          ' "$RESOLVED_JSON" "$INPUT_TAG"
 
       - name: Resolve previous prod runtime tag
         id: previous_runtime
@@ -267,6 +261,7 @@ jobs:
         if: hashFiles('qa-target-release/backend/internal/service/gemini_web_request_tk.go') != ''
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
         run: |
           bash ops/observability/run-probe.sh --target prod \
             --expected-instance-id "$INSTANCE_ID" \
@@ -276,6 +271,7 @@ jobs:
         if: needs.release-contract.outputs.mode == 'legacy_rollback'
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
         run: python3 ops/stage0/prod_release_state.py read --instance-id "$INSTANCE_ID" --output .prod-release-state.json
 
       - name: Validate legacy QA credentials
@@ -321,6 +317,7 @@ jobs:
         if: needs.release-contract.outputs.mode == 'legacy_rollback'
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
         run: python3 ops/stage0/prod_release_state.py pause --instance-id "$INSTANCE_ID" --plan .prod-release-plan.json
 
       - name: Disable Boundary before legacy gateway mutation
@@ -328,6 +325,7 @@ jobs:
         if: needs.release-contract.outputs.mode == 'legacy_rollback'
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
           QA_BOUNDARY_TIMER_STATE: disabled
           STAGE0_SSM_OUTPUT_DIR: .qa-boundary-legacy-safety
         run: bash ops/stage0/sync-qa-boundary-timer-via-ssm.sh "$INSTANCE_ID" "legacy gateway rollback safety"
@@ -536,6 +534,7 @@ jobs:
         if: always() && steps.ssm.outputs.command_id != ''
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
           DEPLOY_COMMAND_ID: ${{ steps.ssm.outputs.command_id }}
           DEPLOY_TOKEN: ${{ steps.ssm.outputs.deploy_token }}
         run: |
