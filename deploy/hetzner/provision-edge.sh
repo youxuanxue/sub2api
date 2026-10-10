@@ -102,15 +102,6 @@ if [[ -z "$TAG" ]]; then
   echo "provision-edge: --tag is required for --confirm-paid (image tag without v)" >&2
   exit 1
 fi
-# Ignition knife: CFN addon ships tokenkey-hetzner-ssm-hybrid-{uk1,us5}.
-# Refuse other edge ids until their Hybrid roles land.
-case "$EDGE_OUT" in
-  uk1|us5) ;;
-  *)
-    echo "provision-edge: paid ignition allowed for uk1|us5 only until more Hybrid roles exist (got ${EDGE_OUT})" >&2
-    exit 1
-    ;;
-esac
 if [[ -z "$ACME_EMAIL" || -z "$MAIN_GATEWAY_ALLOWED_CIDR" || -z "$GHCR_OWNER" ]]; then
   echo "provision-edge: ACME_EMAIL, MAIN_GATEWAY_ALLOWED_CIDR, GHCR_OWNER required for --confirm-paid" >&2
   exit 1
@@ -121,6 +112,11 @@ if [[ "$SSM_HYBRID_ROLE_NAME" != "tokenkey-hetzner-ssm-hybrid-${EDGE_OUT}" ]]; t
 fi
 if ! command -v aws >/dev/null 2>&1; then
   echo "provision-edge: aws CLI required for SSM Hybrid activation" >&2
+  exit 1
+fi
+# Fail closed until CFN addon has created this edge's Hybrid role.
+if ! aws iam get-role --role-name "$SSM_HYBRID_ROLE_NAME" >/dev/null 2>&1; then
+  echo "provision-edge: IAM role ${SSM_HYBRID_ROLE_NAME} missing; deploy cicd-oidc-lightsail-addon first" >&2
   exit 1
 fi
 

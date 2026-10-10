@@ -59,7 +59,7 @@ user-data **必须以 `#!/bin/bash` 开头**（Ubuntu cloud-init 否则忽略）
 | 项 | 状态 |
 |---|---|
 | Hybrid IAM uk1/us5 | 已在 AWS |
-| Hybrid IAM uk2/us3/us4/us6 | 模板已写，**未** `aws cloudformation update` |
+| Hybrid IAM uk2/us3/us4/us6 | CFN 已 apply（`tokenkey-cicd-lightsail-addon`） |
 | 矩阵 `deployable=true` | Phase-1 仍禁止 |
 | Porkbun staging `api-*-hz` | 按台临点再改 |
 | `sync_caddyfile` dash/pipefail | 已修为 `bash -c` |
