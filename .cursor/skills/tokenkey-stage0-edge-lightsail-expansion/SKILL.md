@@ -57,7 +57,7 @@ description: >-
 
 ## 3) DNS 与 ACME 时序
 
-手工把 `api-<edge_id>.tokenkey.dev` A 记录指到 Static IP（Porkbun）。等 `dig +short @1.1.1.1` 指向该 IP（常见约 1 分钟）。
+A 记录指 Static IP：`bash ops/dns/porkbun-upsert-a.sh api-<edge_id>.tokenkey.dev <static_ip> [--apply]`（需 `PORKBUN_*`；否则控制台）。等 `dig +short @1.1.1.1` 指向该 IP（常见约 1 分钟）。
 
 **Adopt 路径常见坑**：provision **早于 DNS** → Caddy ACME 对 NXDOMAIN 失败 → DNS 生效后公网 TLS handshake 仍失败。
 

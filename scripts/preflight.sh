@@ -2895,6 +2895,23 @@ else
     fi
 fi
 
+# ---- sub2api: Porkbun A upsert contract ------------------------------------
+# Local DNS helper (ops/dns/porkbun-upsert-a.sh) replaces console clicks when
+# PORKBUN_* env is present; keep create/edit/noop + missing-cred coverage gated.
+echo ""
+
+fi # preflight gate
+if _preflight_selected 'Porkbun A upsert contract'; then
+echo "=== sub2api: Porkbun A upsert contract ==="
+if ! bash ./ops/dns/test_porkbun_upsert_a.sh >/dev/null 2>&1; then
+    echo "  FAIL: Porkbun A upsert contract test"
+    echo "        — run: bash ops/dns/test_porkbun_upsert_a.sh"
+    errors=$((errors + 1))
+else
+    echo "  ok: Porkbun A upsert dry-run/create/edit/noop + missing-cred"
+fi
+
+
 # ---- sub2api: edge-ip-status doc / live AWS drift ---------------------------
 # Source of truth: edge-polluted-ips.json + lightsail matrix porkbun_a_ipv4.
 # --check reconciles polluted and current tables in tokenkey-edge-ip-history.md.

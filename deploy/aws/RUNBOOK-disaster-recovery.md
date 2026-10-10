@@ -64,7 +64,7 @@ aws cloudformation describe-stacks --stack-name "$STACK" \
 | §last 恢复后验证（`ops/stage0/post_deploy_smoke.sh` + `ops/stage0/measure_deploy_blackout.sh`） | ✅ 自主 |
 | §3 CFN `execute-change-set`（换实例） | ⛔ **先 plan、等人类批**：Agent 跑 `create-change-set` + `describe-change-set` 预览（确认 `DataVolume` 不在变更列表 = 卷被保留），把变更呈给人类，**批准后**才 execute |
 | §4 动数据卷（`create-volume` / `detach-volume` / `attach-volume`，含快照与 RPO 选择） | ⛔ **先 plan、等人类批**：选哪个快照、丢多少增量是判断题，Agent 列候选快照 + RPO 影响，人类拍板 |
-| §DNS 切换（Porkbun A 记录） | ⛔ **人类执行**：Porkbun 凭证不在 repo |
+| §DNS 切换（Porkbun A 记录） | ⛔ **人类执行**：凭证不在 repo；有本机 `PORKBUN_*` 时用 `ops/dns/porkbun-upsert-a.sh --apply`，否则控制台 |
 
 原则：**只读与可逆步骤 Agent 自主推进；不可逆 / 高爆炸半径步骤（CFN execute、动卷、切 DNS）一律 plan → 人类批 → execute**——这是确定性自动化唯一保留的人工介入点。命令细节见下方对应章节，本契约不复述。
 
@@ -232,7 +232,9 @@ curl -fsS http://localhost:8080/health/live && echo " live-ok"
 EIP 是 Retain，多数恢复后 IP 不变。若新实例拿到新 EIP：
 
 1. 取新 IP：`aws cloudformation describe-stacks --stack-name "$STACK" --query 'Stacks[0].Outputs[?OutputKey==\`PublicIP\`].OutputValue' --output text`
-2. Porkbun 控制台把 `api.tokenkey.dev` 的 A 记录指向新 IP（TTL 生效 1–10 min）。
+2. 把 `api.tokenkey.dev` 的 A 记录指向新 IP（TTL 生效 1–10 min）：
+   - 本机有 `PORKBUN_API_KEY` / `PORKBUN_SECRET_API_KEY`：`bash ops/dns/porkbun-upsert-a.sh api.tokenkey.dev <new-ip> --apply`
+   - 否则 Porkbun 控制台
 3. 等解析生效：`dig +short api.tokenkey.dev` 命中新 IP。
 
 ---
