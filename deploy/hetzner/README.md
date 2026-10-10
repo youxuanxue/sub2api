@@ -2,7 +2,8 @@
 
 审批基线：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
 
-**下一刀：uk1 点火**（staging，不切正式 DNS）。Live edge 仍是 Lightsail。
+**下一刀：us5 点火**（staging `api-us5-hz`，不切正式 DNS）。  
+**uk1：** 正式 `api-uk1.tokenkey.dev` 已切 Hetzner `188.245.112.147`；Lightsail 实例保留作回滚（≥7 天）。
 
 ## 文件
 
@@ -34,9 +35,9 @@ bash deploy/hetzner/render-bootstrap.sh --check
 bash deploy/hetzner/provision-edge.sh --edge-id uk1 --allow-planned
 ```
 
-前置：CFN `cicd-oidc-lightsail-addon` 已含 `tokenkey-hetzner-ssm-hybrid-uk1`。  
+前置：CFN `cicd-oidc-lightsail-addon` 已含 `tokenkey-hetzner-ssm-hybrid-{uk1,us5}`。  
 user-data **必须以 `#!/bin/bash` 开头**（Ubuntu cloud-init 否则忽略）；AWS CLI 走官方 awscliv2 zip（noble 无 `awscli` apt）。  
-点火后把 `api-uk1-hz.tokenkey.dev` A 指到输出的 `public_ip`，再跑 E0/E1。
+点火后把 `api-<edge>-hz.tokenkey.dev` A 指到输出的 `public_ip`，再跑 E0/E1。
 
 ## 硬门禁
 

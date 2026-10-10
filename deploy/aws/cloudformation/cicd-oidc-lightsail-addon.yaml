@@ -314,6 +314,38 @@ Resources:
                   - ssm:GetParameter
                 Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
 
+  # Hetzner us5 cross-ocean canary (staging): same isolation pattern as uk1.
+  HetznerSsmHybridRoleUs5:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tokenkey-hetzner-ssm-hybrid-us5
+      Description: SSM Hybrid role for TokenKey Hetzner Edge us5 staging/canary.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: EdgeRecoveryData
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadWriteOwnEnvSecrets
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/hetzner/us5/stage0/env-secrets-backup"
+              - Sid: ReadGhcrPat
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
+
   LightsailEdgeAddonPolicy:
     Type: AWS::IAM::Policy
     Properties:
