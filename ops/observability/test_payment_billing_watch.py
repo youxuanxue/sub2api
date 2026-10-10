@@ -332,6 +332,45 @@ class PaymentBillingWatchTest(unittest.TestCase):
             saved = json.loads(state.read_text(encoding="utf-8"))
             self.assertIn("payment:cancel_storm:user:73", saved["active_keys"])
 
+    def test_deliver_weekly_posts_interactive_card(self) -> None:
+        import ops.observability.payment_billing_watch as mod
+
+        cards: list[dict] = []
+        texts: list[str] = []
+
+        def fake_card(card, *, webhook_url, signing_secret, opener=None, now=None):
+            cards.append(card)
+
+        def fake_text(message, *, webhook_url, signing_secret, opener=None, now=None):
+            texts.append(message)
+
+        original_card = mod.post_feishu_card
+        original_text = mod.post_feishu
+        mod.post_feishu_card = fake_card  # type: ignore[assignment]
+        mod.post_feishu = fake_text  # type: ignore[assignment]
+        try:
+            with tempfile.TemporaryDirectory() as raw:
+                result = deliver(
+                    snapshot=sample_snapshot(),
+                    mode="weekly",
+                    state_file=pathlib.Path(raw) / "keys.json",
+                    dry_run=False,
+                    webhook_url="https://example.invalid/hook",
+                    signing_secret="secret",
+                    force_weekly=True,
+                    now=dt.datetime(2026, 10, 10, 12, 0, tzinfo=dt.timezone.utc),
+                )
+        finally:
+            mod.post_feishu_card = original_card  # type: ignore[assignment]
+            mod.post_feishu = original_text  # type: ignore[assignment]
+
+        self.assertIn("weekly-delivered", result["actions"])
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(texts, [])
+        self.assertEqual(cards[0]["header"]["template"], "orange")
+        self.assertIn("支付周报", cards[0]["header"]["title"]["content"])
+        self.assertEqual(cards[0]["elements"][0]["text"]["tag"], "lark_md")
+
 
 if __name__ == "__main__":
     unittest.main()

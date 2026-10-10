@@ -21,12 +21,6 @@ else:
     from edge_health_delivery import DeliveryError, _atomic_write, post_feishu, post_feishu_card
 
 SCHEMA_VERSION = 1
-PERIOD_LABELS = {
-    "last_7d": "近7天",
-    "prev_calendar_month": "上月",
-    "current_calendar_month": "本月",
-    "all_time": "累计",
-}
 CREDIT_LABELS = {
     "payment_fulfillment": "支付履约",
     "admin_opening": "开户注资",

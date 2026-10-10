@@ -125,6 +125,7 @@ def post_feishu_card(
         now=now,
     )
 
+
 def apply_decision(
     decision: dict,
     *,
