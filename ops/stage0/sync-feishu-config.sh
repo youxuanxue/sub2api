@@ -34,7 +34,8 @@ set -euo pipefail
 #   Either empty -> exit 1 (a misconfigured workflow env is caught here, not silently skipped).
 #
 # Behavior:
-#   - Resolves EC2 (CFN InstanceId) vs Lightsail (tag SSM) vs prod (fixed us-east-1) like the admin helpers.
+#   - Resolves Lightsail (tag SSM) vs edge EC2 (CFN); prod uses resolve_prod_ssm_target
+#     (default AWS i-*; post Wave B Hybrid mi-* via cutover flag).
 #   - Idempotent jsonb_set: sets feishu.{webhook_url,signing_secret,enabled,webhook_url_configured,
 #     signing_secret_configured}; PRESERVES rate_limit_per_hour / cooldown_seconds /
 #     account_incident_digest_seconds and every other existing field.
@@ -117,39 +118,55 @@ if [[ -z "${TK_FEISHU_WEBHOOK_URL:-}" || -z "${TK_FEISHU_SIGNING_SECRET:-}" ]]; 
   exit 1
 fi
 
-RES_LINE="$(python3 "${_OPS_DIR}/edge_admin_resolve_target.py" "${REPO_ROOT}" "${EDGE_ID}" "${PLATFORM_PREF}" | tr -d '\r')"
-IFS=$'\t' read -r RES_MODE REGION EC2_STACK <<<"$RES_LINE"
-
-if [[ -z "${RES_MODE:-}" ]]; then
-  echo "[error] resolver returned empty output" >&2
-  exit 1
-fi
-
-if [[ "$RES_MODE" == ec2 ]]; then
-  INSTANCE_ID_EC2=""
-  INSTANCE_ID_EC2="$(aws cloudformation describe-stacks \
-    --region "$REGION" \
-    --stack-name "$EC2_STACK" \
-    --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' \
-    --output text)"
-  if [[ -z "${INSTANCE_ID_EC2:-}" || "${INSTANCE_ID_EC2:-}" == "None" ]]; then
-    echo "[error] could not resolve InstanceId from stack ${EC2_STACK} in ${REGION}" >&2
+INSTANCE_ID_EC2=""
+EC2_STACK=""
+if [[ "$EDGE_ID" == "prod" ]]; then
+  # Same control-plane flip as deploy-stage0 (aws i-* until cutover → hetzner mi-*).
+  RESOLVED_JSON="$(python3 "${_OPS_DIR}/resolve_prod_ssm_target.py" --format json)"
+  INSTANCE_ID_EC2="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"${RESOLVED_JSON}")"
+  REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"${RESOLVED_JSON}")"
+  RES_MODE=ec2
+  EC2_STACK="resolve_prod_ssm_target"
+  if [[ -z "${INSTANCE_ID_EC2:-}" || -z "${REGION:-}" ]]; then
+    echo "[error] resolve_prod_ssm_target returned empty instance_id/ssm_region" >&2
     exit 1
+  fi
+else
+  RES_LINE="$(python3 "${_OPS_DIR}/edge_admin_resolve_target.py" "${REPO_ROOT}" "${EDGE_ID}" "${PLATFORM_PREF}" | tr -d '\r')"
+  IFS=$'\t' read -r RES_MODE REGION EC2_STACK <<<"$RES_LINE"
+
+  if [[ -z "${RES_MODE:-}" ]]; then
+    echo "[error] resolver returned empty output" >&2
+    exit 1
+  fi
+
+  if [[ "$RES_MODE" == ec2 ]]; then
+    INSTANCE_ID_EC2="$(aws cloudformation describe-stacks \
+      --region "$REGION" \
+      --stack-name "$EC2_STACK" \
+      --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' \
+      --output text)"
+    if [[ -z "${INSTANCE_ID_EC2:-}" || "${INSTANCE_ID_EC2:-}" == "None" ]]; then
+      echo "[error] could not resolve InstanceId from stack ${EC2_STACK} in ${REGION}" >&2
+      exit 1
+    fi
   fi
 fi
 
 echo "[info] edge_id=${EDGE_ID} platform=${RES_MODE} region=${REGION} stack=${EC2_STACK:-<lightsail-tags>}"
 if [[ "$RES_MODE" == ec2 ]]; then
-  echo "[info] ec2_instance_id=${INSTANCE_ID_EC2}"
+  echo "[info] instance_id=${INSTANCE_ID_EC2}"
 fi
 echo "[info] syncing Feishu config via SSM (idempotent; secrets not printed)..."
-
 # Build the SSM command array in Python so the webhook/secret are embedded as
 # JSON literals inside a quoted heredoc (<<'EOSQL') — no shell expansion, no
 # quoting hell, and arbitrary characters in the values pass through untouched.
+# Ubuntu Hybrid (Hetzner) SSM agent runs under dash; wrap the body in bash -lc
+# so `set -o pipefail` and heredocs match Amazon Linux EC2 behavior.
 COMMANDS_JSON="$(python3 <<'PY'
 import json
 import os
+import shlex
 
 webhook = os.environ["TK_FEISHU_WEBHOOK_URL"]
 secret = os.environ["TK_FEISHU_SIGNING_SECRET"]
@@ -171,42 +188,43 @@ update_sql = (
     ")::text, updated_at = now() WHERE key = 'ops_email_notification_config';"
 )
 
-commands = [
-    "set -euo pipefail",
-    # Ensure the row exists (fresh node before the app has materialized defaults).
-    "sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 "
-    "-c \"INSERT INTO settings (key, value) SELECT 'ops_email_notification_config', '{}' "
-    "WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'ops_email_notification_config');\" >/dev/null",
-    # Apply webhook/secret/enabled (quoted heredoc -> values pass through literally).
-    "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 <<'EOSQL'",
-    update_sql,
-    "EOSQL",
-    # Read back and verify (never prints the secret values themselves).
-    "FEISHU_ENABLED=$(sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -tA "
-    "-c \"SELECT coalesce(value::jsonb#>>'{feishu,enabled}','false') FROM settings WHERE key='ops_email_notification_config';\")",
-    "FEISHU_WEBHOOK_PRESENT=$(sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -tA "
-    "-c \"SELECT (coalesce(value::jsonb#>>'{feishu,webhook_url}','')<>'') FROM settings WHERE key='ops_email_notification_config';\")",
-    "FEISHU_SECRET_PRESENT=$(sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -tA "
-    "-c \"SELECT (coalesce(value::jsonb#>>'{feishu,signing_secret}','')<>'') FROM settings WHERE key='ops_email_notification_config';\")",
-    "echo \"FEISHU_ENABLED=${FEISHU_ENABLED} FEISHU_WEBHOOK_PRESENT=${FEISHU_WEBHOOK_PRESENT} FEISHU_SECRET_PRESENT=${FEISHU_SECRET_PRESENT}\"",
-    "if [ \"${FEISHU_ENABLED}\" != \"true\" ] || [ \"${FEISHU_WEBHOOK_PRESENT}\" != \"t\" ] || [ \"${FEISHU_SECRET_PRESENT}\" != \"t\" ]; then echo '[error] feishu config not fully applied' >&2; exit 1; fi",
-    "echo FEISHU_SYNC_OK=1",
-    # Mirror webhook/secret into /var/lib/tokenkey/.env so the on-box disk-full
-    # Feishu alert (tokenkey-disk-metrics.sh) can read them when the app/DB is
-    # DOWN — which is exactly when a full disk strikes. The DB copy above feeds
-    # the in-app alert path; this .env copy feeds the independent on-box timer.
-    # Quoted heredoc => values pass through literally, never echoed.
-    "sudo sed -i '/^TOKENKEY_FEISHU_WEBHOOK_URL=/d;/^TOKENKEY_FEISHU_WEBHOOK_SECRET=/d' /var/lib/tokenkey/.env",
-    "sudo tee -a /var/lib/tokenkey/.env >/dev/null <<'EOENV'",
-    "TOKENKEY_FEISHU_WEBHOOK_URL=" + webhook,
-    "TOKENKEY_FEISHU_WEBHOOK_SECRET=" + secret,
-    "EOENV",
-    "echo ENV_FEISHU_SYNC_OK=1",
-]
-print(json.dumps(commands))
+script = "\n".join(
+    [
+        "set -euo pipefail",
+        # Ensure the row exists (fresh node before the app has materialized defaults).
+        "sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 "
+        "-c \"INSERT INTO settings (key, value) SELECT 'ops_email_notification_config', '{}' "
+        "WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'ops_email_notification_config');\" >/dev/null",
+        # Apply webhook/secret/enabled (quoted heredoc -> values pass through literally).
+        "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 <<'EOSQL'",
+        update_sql,
+        "EOSQL",
+        # Read back and verify (never prints the secret values themselves).
+        "FEISHU_ENABLED=$(sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -tA "
+        "-c \"SELECT coalesce(value::jsonb#>>'{feishu,enabled}','false') FROM settings WHERE key='ops_email_notification_config';\")",
+        "FEISHU_WEBHOOK_PRESENT=$(sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -tA "
+        "-c \"SELECT (coalesce(value::jsonb#>>'{feishu,webhook_url}','')<>'') FROM settings WHERE key='ops_email_notification_config';\")",
+        "FEISHU_SECRET_PRESENT=$(sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -tA "
+        "-c \"SELECT (coalesce(value::jsonb#>>'{feishu,signing_secret}','')<>'') FROM settings WHERE key='ops_email_notification_config';\")",
+        "echo \"FEISHU_ENABLED=${FEISHU_ENABLED} FEISHU_WEBHOOK_PRESENT=${FEISHU_WEBHOOK_PRESENT} FEISHU_SECRET_PRESENT=${FEISHU_SECRET_PRESENT}\"",
+        "if [ \"${FEISHU_ENABLED}\" != \"true\" ] || [ \"${FEISHU_WEBHOOK_PRESENT}\" != \"t\" ] || [ \"${FEISHU_SECRET_PRESENT}\" != \"t\" ]; then echo '[error] feishu config not fully applied' >&2; exit 1; fi",
+        "echo FEISHU_SYNC_OK=1",
+        # Mirror webhook/secret into /var/lib/tokenkey/.env so the on-box disk-full
+        # Feishu alert (tokenkey-disk-metrics.sh) can read them when the app/DB is
+        # DOWN — which is exactly when a full disk strikes. The DB copy above feeds
+        # the in-app alert path; this .env copy feeds the independent on-box timer.
+        # Quoted heredoc => values pass through literally, never echoed.
+        "sudo sed -i '/^TOKENKEY_FEISHU_WEBHOOK_URL=/d;/^TOKENKEY_FEISHU_WEBHOOK_SECRET=/d' /var/lib/tokenkey/.env",
+        "sudo tee -a /var/lib/tokenkey/.env >/dev/null <<'EOENV'",
+        "TOKENKEY_FEISHU_WEBHOOK_URL=" + webhook,
+        "TOKENKEY_FEISHU_WEBHOOK_SECRET=" + secret,
+        "EOENV",
+        "echo ENV_FEISHU_SYNC_OK=1",
+    ]
+)
+print(json.dumps(["bash -lc " + shlex.quote(script)]))
 PY
 )"
-
 # Emit the SSM params file. Honor STAGE0_SSM_OUTPUT_DIR so the host-parse guard
 # (scripts/checks/check-stage0-ssm-host-parse.sh) can stub `aws`, capture the
 # rendered commands, and `bash -n` them without contacting AWS — same convention

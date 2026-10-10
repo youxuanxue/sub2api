@@ -107,6 +107,7 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         instance = by_name["Resolve target instance + api domain"]
         deploy = by_name["Deploy via SSM Run-Command"]
         drain = by_name["Join gateway deployment and old request drain"]
+        feishu = by_name["Sync Feishu alert config"]
         self.assertEqual(instance["id"], "instance")
         self.assertIn("ops/stage0/resolve_prod_ssm_target.py", instance["run"])
         self.assertIn("--github-output", instance["run"])
@@ -117,6 +118,11 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertEqual(deploy["env"]["STAGE0_DEPLOY_PROFILE"], "${{ steps.instance.outputs.deploy_profile }}")
         self.assertEqual(deploy["env"]["QA_BUNDLE_STORAGE_REGION"], "us-east-1")
         self.assertEqual(drain["env"]["AWS_REGION"], "${{ steps.instance.outputs.ssm_region }}")
+        # Feishu sync self-resolves prod via resolve_prod_ssm_target (not CFN-only).
+        self.assertEqual(feishu["run"], "bash ops/stage0/sync-feishu-config.sh prod")
+        feishu_src = (REPO_ROOT / "ops/stage0/sync-feishu-config.sh").read_text(encoding="utf-8")
+        self.assertIn("resolve_prod_ssm_target.py", feishu_src)
+        self.assertIn("bash -lc ", feishu_src)
 
     def test_us051_selected_components_and_drain_join_preserve_gateway_acceptance_order(self) -> None:
         steps = yaml.safe_load(workflow_text())["jobs"]["deploy"]["steps"]
