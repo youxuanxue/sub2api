@@ -188,7 +188,7 @@ Bootstrap（`render-prod-bootstrap.sh`）已嵌入：`tokenkey-pgdump.timer`（`
 - 演练 restore（刷新）：`tokenkey-20261010T155229Z.sql.gz` → HZ；对账 `accounts=215=215`；`usage_billing_dedup` HZ `14571497`（dump 窗）；`usage_logs` HZ `0`（precious 预期）；下载 ~17s / restore ~5.0 min  
 - E1：`api-hz.tokenkey.dev` A → `167.233.211.115`；LE 证书已签；`https://api-hz.tokenkey.dev/health` → 200  
 - 零影响预热：HZ SSM secrets 已同步；`warm_pull` `1.8.283` 绿；控制面默认仍 `i-*`；正式 Caddy dry 四 vhost；**CallModel 公网 NS 已跟齐 Porkbun**（A=`34.194.234.88`）；冻写窗实测量级见 runbook B0（约 10–15 min，非 ≤5）  
-- **Wave B 延期（2026-10-10）：** 现网请求量高，**不做冻写/正式 DNS**；正式流量继续 AWS EIP `34.194.234.88`。低流量窗再批「批准冻写切流」。人工仍可做：Porkbun TTL→300；Better Stack `api-hz` 旁路 monitor。  
+- **Wave B 延期（2026-10-10）：** 现网请求量高，**不做冻写/正式 DNS**；正式流量继续 AWS EIP `34.194.234.88`。低流量窗再批「批准冻写切流」。**Porkbun TTL→300 已 apply**（四正式 A；`api-hz` 仍 600）；Better Stack `api-hz` 旁路仍可人工建。  
 
 user-data **必须以 `#!/bin/bash` 开头**；AWS CLI 走 awscliv2 zip。
 
