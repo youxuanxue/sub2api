@@ -187,6 +187,7 @@ Bootstrap（`render-prod-bootstrap.sh`）已嵌入：`tokenkey-pgdump.timer`（`
 - 点火：GHA `deploy-prod-hetzner-stage0.yml` · tag `1.8.283` · IP `167.233.211.115` · `mi-033c9569c7fb8b884` · E0 `aarch64` · timers active · Feishu webhook 已从 AWS 拷贝  
 - 演练 restore：`tokenkey-20261010T120132Z.sql.gz` → HZ；对账 `accounts=215=215`；`usage_billing_dedup` HZ `14516514` / AWS live `14532143`（dump 后增量，预期）；`usage_logs` HZ `0`（precious 不含行数据，预期）  
 - E1：`api-hz.tokenkey.dev` A → `167.233.211.115`；LE 证书已签；`https://api-hz.tokenkey.dev/health` → 200  
+- **Wave B 延期（2026-10-10）：** 现网请求量高，**不做冻写/正式 DNS**；正式流量继续 AWS EIP `34.194.234.88`。HZ staging 保持演练机（可再刷 dump），低流量窗再批「批准冻写切流」。  
 
 user-data **必须以 `#!/bin/bash` 开头**；AWS CLI 走 awscliv2 zip。
 
