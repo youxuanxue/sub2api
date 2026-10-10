@@ -505,7 +505,6 @@
     },
     "glm-5.1": {
       "display": true,
-      "channel_type": 17,
       "scopes": [
         {
           "channel_type": 46,
@@ -519,7 +518,6 @@
     },
     "glm-5": {
       "display": true,
-      "channel_type": 17,
       "scopes": [
         {
           "channel_type": 46,
@@ -528,19 +526,19 @@
       ]
     },
     "glm-4.7": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "glm-4.6": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "glm-4.5": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "glm-4.5-air": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "ark-code-latest": {
@@ -969,6 +967,33 @@
         {
           "channel_type": 14,
           "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "happyhorse-1.1-t2v": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        }
+      ]
+    },
+    "happyhorse-1.1-i2v": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        }
+      ]
+    },
+    "happyhorse-1.1-r2v": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
         }
       ]
     }

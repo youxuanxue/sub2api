@@ -537,6 +537,42 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     // Price table documents 480p/720p only; 5s kept conservative.
     videoDurations: [5],
   },
+  {
+    modelId: 'happyhorse-1.1-t2v',
+    displayName: 'HappyHorse 1.1 · Text',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: DASHSCOPE,
+    modality: 'video',
+    // Ali HappyHorse companion reads seed; t2v rejects image input.
+    supportedParams: ['seed'],
+    // Official HappyHorse duration range [3,15]; expose discrete chips Studio
+    // already understands. Default selection = max of the list (15).
+    videoDurations: [3, 5, 10, 15],
+  },
+  {
+    modelId: 'happyhorse-1.1-i2v',
+    displayName: 'HappyHorse 1.1 · First Frame',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: DASHSCOPE,
+    modality: 'video',
+    // Companion maps Studio `image` / TaskSubmitReq.images[0] → media first_frame.
+    supportedParams: ['seed', 'firstFrameImage'],
+    videoDurations: [3, 5, 10, 15],
+  },
+  {
+    modelId: 'happyhorse-1.1-r2v',
+    displayName: 'HappyHorse 1.1 · Reference',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: DASHSCOPE,
+    modality: 'video',
+    // Studio firstFrameImage is the single-image path; API clients can pass
+    // up to 9 images[] which the companion maps to reference_image media.
+    supportedParams: ['seed', 'firstFrameImage'],
+    videoDurations: [3, 5, 10, 15],
+  },
 ]
 
 function lookupPresentation(modelId: string): MediaModelPresentation | undefined {

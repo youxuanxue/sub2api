@@ -541,6 +541,11 @@ func taskAdaptorForChannel(channelType int, baseURL string) channel.TaskAdaptor 
 	if newapiintegration.IsFMGoBaseURL(channelType, baseURL) {
 		return newFMGoTaskAdaptor()
 	}
+	// Ali / DashScope (ch17) shares one TaskAdaptor; HappyHorse needs a TK
+	// companion for media[] / resolution dialect while Wan keeps upstream.
+	if channelType == newapiconstant.ChannelTypeAli {
+		return newAliVideoTaskAdaptor()
+	}
 	platform := newapiconstant.TaskPlatform(strconv.Itoa(channelType))
 	return newapirelay.GetTaskAdaptor(platform)
 }

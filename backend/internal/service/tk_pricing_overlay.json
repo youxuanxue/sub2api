@@ -10630,5 +10630,74 @@
     "regional_processing_uplift_multiplier_eu": 1.1,
     "regional_processing_uplift_multiplier_us": 1.1,
     "source": "OpenAI GPT-6.1 Sol official API pricing (developers.openai.com/api/docs/models/gpt-6.1-sol): $2/$10 per MTok standard, cached input $0.10/MTok, cache writes $2.50/MTok, priority 2x, batch/flex half, 272k long-context in×2/out×1.5, context 1.05M / max out 128k. Captured 2026-09-30; edge OpenAI OAuth Codex responses servable with Version>=0.159.0."
+  },
+  "happyhorse-1.1-t2v": {
+    "litellm_provider": "dashscope",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.06716417910447761,
+    "source": "Alibaba Model Studio HappyHorse-1.1 official pricing https://help.aliyun.com/zh/model-studio/happyhorse-1-1-t2v (and sibling happyhorse-1-1-i2v / happyhorse-1-1-r2v pages), captured 2026-10-11: 华北2（北京）list 视频生成 480P 0.45 / 720P 0.9 / 1080P 1.2 CNY/s; CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. Official default resolution is 1080P; duration range [3,15]s. failure_billing=success_only: Model Studio video section bills output seconds on successful generation (usage only counts success); TokenKey terminal-failure refund reverses the submit-time charge. Live Ali Token Plan native video-synthesis probe SUCCEEDED for t2v/i2v/r2v on 2026-10-11.",
+    "failure_billing": "success_only",
+    "video_price_tiers": [
+      {
+        "resolution": "480p",
+        "output_cost_per_second": 0.06716417910447761
+      },
+      {
+        "resolution": "720p",
+        "output_cost_per_second": 0.13432835820895522
+      },
+      {
+        "resolution": "1080p",
+        "output_cost_per_second": 0.1791044776119403,
+        "default_for_model": true
+      }
+    ],
+    "default_video_resolution": "1080p"
+  },
+  "happyhorse-1.1-i2v": {
+    "litellm_provider": "dashscope",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.06716417910447761,
+    "source": "Alibaba Model Studio HappyHorse-1.1 official pricing https://help.aliyun.com/zh/model-studio/happyhorse-1-1-i2v (and sibling happyhorse-1-1-i2v / happyhorse-1-1-r2v pages), captured 2026-10-11: 华北2（北京）list 视频生成 480P 0.45 / 720P 0.9 / 1080P 1.2 CNY/s; CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. Official default resolution is 1080P; duration range [3,15]s. failure_billing=success_only: Model Studio video section bills output seconds on successful generation (usage only counts success); TokenKey terminal-failure refund reverses the submit-time charge. Live Ali Token Plan native video-synthesis probe SUCCEEDED for t2v/i2v/r2v on 2026-10-11.",
+    "failure_billing": "success_only",
+    "video_price_tiers": [
+      {
+        "resolution": "480p",
+        "output_cost_per_second": 0.06716417910447761
+      },
+      {
+        "resolution": "720p",
+        "output_cost_per_second": 0.13432835820895522
+      },
+      {
+        "resolution": "1080p",
+        "output_cost_per_second": 0.1791044776119403,
+        "default_for_model": true
+      }
+    ],
+    "default_video_resolution": "1080p"
+  },
+  "happyhorse-1.1-r2v": {
+    "litellm_provider": "dashscope",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.06716417910447761,
+    "source": "Alibaba Model Studio HappyHorse-1.1 official pricing https://help.aliyun.com/zh/model-studio/happyhorse-1-1-r2v (and sibling happyhorse-1-1-i2v / happyhorse-1-1-r2v pages), captured 2026-10-11: 华北2（北京）list 视频生成 480P 0.45 / 720P 0.9 / 1080P 1.2 CNY/s; CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. Official default resolution is 1080P; duration range [3,15]s. failure_billing=success_only: Model Studio video section bills output seconds on successful generation (usage only counts success); TokenKey terminal-failure refund reverses the submit-time charge. Live Ali Token Plan native video-synthesis probe SUCCEEDED for t2v/i2v/r2v on 2026-10-11.",
+    "failure_billing": "success_only",
+    "video_price_tiers": [
+      {
+        "resolution": "480p",
+        "output_cost_per_second": 0.06716417910447761
+      },
+      {
+        "resolution": "720p",
+        "output_cost_per_second": 0.13432835820895522
+      },
+      {
+        "resolution": "1080p",
+        "output_cost_per_second": 0.1791044776119403,
+        "default_for_model": true
+      }
+    ],
+    "default_video_resolution": "1080p"
   }
 }

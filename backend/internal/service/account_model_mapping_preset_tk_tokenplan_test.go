@@ -32,8 +32,14 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 		"deepseek-v4.1-flash",
 		"glm-5.2",
 		"glm-5.3",
+		"happyhorse-1.1-t2v",
+		"happyhorse-1.1-i2v",
+		"happyhorse-1.1-r2v",
 	} {
 		require.Contains(t, want, model)
+	}
+	for _, stale := range []string{"glm-4.5", "glm-4.5-air", "glm-4.6", "glm-4.7", "glm-5", "glm-5.1"} {
+		require.NotContains(t, want, stale)
 	}
 	// PAYG-only ch17 floor ids must not leak into Token Plan override.
 	for _, legacy := range []string{"qwen-plus", "qwen-max", "qwen-turbo"} {
@@ -140,6 +146,23 @@ func TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides(t *testing.T) 
 			require.Contains(t, override.ModelMapping, "wan2.7-image")
 			require.Contains(t, override.ModelMapping, "wan2.7-image-pro")
 			require.Contains(t, override.ModelMapping, "qwen-audio-3.0-tts-plus")
+			for _, video := range []string{
+				"happyhorse-1.1-t2v",
+				"happyhorse-1.1-i2v",
+				"happyhorse-1.1-r2v",
+			} {
+				require.Contains(t, override.ModelMapping, video)
+			}
+			for _, stale := range []string{
+				"glm-4.5", "glm-4.5-air", "glm-4.6", "glm-4.7", "glm-5", "glm-5.1",
+				"text-embedding-v1", "text-embedding-v4",
+			} {
+				require.NotContains(t, override.ModelMapping, stale)
+			}
+			scope := "account_override:" + normalizeAccountModelMappingOverrideScope(
+				PlatformNewAPI, newapiconstant.ChannelTypeAli, newapiintegration.AliTokenPlanBaseURL,
+			)
+			require.ElementsMatch(t, aliTokenPlanForbiddenModelMappingKeys, floor.ForbiddenModelMappingKeys[scope])
 			for alias, target := range newAPIAliTokenPlanModelAliases() {
 				require.Equal(t, target, override.ModelMapping[alias])
 			}

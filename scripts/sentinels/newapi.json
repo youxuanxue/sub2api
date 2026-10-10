@@ -242,10 +242,37 @@
         "newXRTokenTaskAdaptor",
         "IsFMGoBaseURL",
         "newFMGoTaskAdaptor",
+        "ChannelTypeAli",
+        "newAliVideoTaskAdaptor",
         "readVideoFetchResponseBodyForAdaptor",
         "videoFetchResponseSanitizer"
       ],
-      "rationale": "Bridge for the asynchronous video task pipeline (POST /v1/video/generations + GET /v1/video/generations/:task_id and the OpenAI-compat /v1/videos aliases) — currently the only newapi pathway for VolcEngine / DoubaoVideo video generation. normalizeVideoSubmitBodyForTaskAdaptor maps the public resolution/audio fields into pinned new-api TaskSubmitReq metadata so the upstream-generated tier cannot diverge from TokenKey billing. videoFetchResponseMaxBytes / errVideoFetchResponseTooLarge are the pressure guard for upstreams that return inline video bytes: TokenKey may deliver one bounded response to the client, never accept unbounded media into memory. ModelMappedHelper is the account model_mapping application on the video submit path: video was the only bridge relay missing it (text/responses/embedding/image all call it), so credentials.model_mapping was ignored and any upstream naming its SKUs differently was unreachable. It must rewrite UpstreamModelName ONLY — OriginModelName stays the billing key, so a re-introduced body rewrite would bill $0 for an id absent from the overlay. IsXRTokenBaseURL/newXRTokenTaskAdaptor are the base_url-sentinel dispatch that lets ch54 serve both official Ark and the ARK-compatible XRToken host without minting a TK-private channel_type. readVideoFetchResponseBodyForAdaptor fuses the bounded poll read with the variant-dialect rewrite in one function precisely so the rewrite cannot be dropped as a separate skippable line while tests still pass; it must run AFTER the bound because inline-media responses would otherwise be read unbounded inside FetchTask."
+      "rationale": "Bridge for the asynchronous video task pipeline (POST /v1/video/generations + GET /v1/video/generations/:task_id and the OpenAI-compat /v1/videos aliases) — currently the only newapi pathway for VolcEngine / DoubaoVideo video generation. normalizeVideoSubmitBodyForTaskAdaptor maps the public resolution/audio fields into pinned new-api TaskSubmitReq metadata so the upstream-generated tier cannot diverge from TokenKey billing. videoFetchResponseMaxBytes / errVideoFetchResponseTooLarge are the pressure guard for upstreams that return inline video bytes: TokenKey may deliver one bounded response to the client, never accept unbounded media into memory. ModelMappedHelper is the account model_mapping application on the video submit path: video was the only bridge relay missing it (text/responses/embedding/image all call it), so credentials.model_mapping was ignored and any upstream naming its SKUs differently was unreachable. It must rewrite UpstreamModelName ONLY — OriginModelName stays the billing key, so a re-introduced body rewrite would bill $0 for an id absent from the overlay. IsXRTokenBaseURL/newXRTokenTaskAdaptor are the base_url-sentinel dispatch that lets ch54 serve both official Ark and the ARK-compatible XRToken host without minting a TK-private channel_type. ChannelTypeAli/newAliVideoTaskAdaptor select the TK Ali companion so HappyHorse media[]/resolution dialect can ship without patching pinned new-api task/ali (Wan still delegates). readVideoFetchResponseBodyForAdaptor fuses the bounded poll read with the variant-dialect rewrite in one function precisely so the rewrite cannot be dropped as a separate skippable line while tests still pass; it must run AFTER the bound because inline-media responses would otherwise be read unbounded inside FetchTask."
+    },
+    {
+      "path": "backend/internal/relay/bridge/video_relay_tk_ali.go",
+      "must_contain": [
+        "aliVideoTaskAdaptor",
+        "newAliVideoTaskAdaptor",
+        "buildHappyHorseAliRequest",
+        "first_frame",
+        "reference_image",
+        "isHappyHorseVideoModel"
+      ],
+      "rationale": "TK companion for Ali/DashScope video. Upstream task/ali speaks Wan img_url/size; HappyHorse-1.1 needs media[] first_frame/reference_image plus resolution/ratio on the same video-synthesis endpoint. new-api is pinned — this wrapper owns the HappyHorse dialect while Wan BuildRequestBody still delegates. Losing it makes Ali Token Plan HappyHorse submit unusable even when pricing/manifest/mapping are ready."
+    },
+    {
+      "path": "backend/internal/relay/bridge/video_relay_tk_ali_test.go",
+      "must_contain": [
+        "TestTaskAdaptorForChannel_SelectsAliCompanion",
+        "TestBuildHappyHorseAliRequest_T2V",
+        "TestBuildHappyHorseAliRequest_I2VRequiresOneImage",
+        "TestBuildHappyHorseAliRequest_R2VReferenceImages",
+        "TestBuildHappyHorseAliRequest_RejectsBadDuration",
+        "TestAliVideoTaskAdaptor_BuildRequestBody_HappyHorseT2V",
+        "TestAliVideoTaskAdaptor_BuildRequestBody_DelegatesWan"
+      ],
+      "rationale": "Focused regressions for HappyHorse t2v/i2v/r2v body shaping, duration bounds, and Wan passthrough on the Ali companion. Upstream merge that deletes the companion must trip this registry entry."
     },
     {
       "path": "backend/internal/integration/newapi/video_task_resolution.go",

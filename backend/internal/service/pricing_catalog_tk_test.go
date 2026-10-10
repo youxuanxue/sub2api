@@ -731,6 +731,33 @@ func TestPublicCatalog_HidesLegacyTokenPlanAliasesButKeepsPricing(t *testing.T) 
 	}
 }
 
+func TestPublicCatalog_HidesStaleAliTokenPlanGLMAndShowsHappyHorse(t *testing.T) {
+	t.Parallel()
+	s := &PricingCatalogService{}
+	full := s.BuildPublicCatalog(context.Background())
+	require.NotNil(t, full)
+	public := FilterPublicCatalogToServable(full)
+	require.NotNil(t, public)
+	visible := make(map[string]bool, len(public.Data))
+	for _, model := range public.Data {
+		visible[model.ModelID] = true
+	}
+	for _, stale := range []string{"glm-4.5", "glm-4.5-air", "glm-4.6", "glm-4.7", "glm-5"} {
+		assert.False(t, visible[stale], "stale Ali Token Plan GLM %s must not be advertised", stale)
+		assert.False(t, isTkCuratedNewAPIModelDisplayed(stale))
+		assert.True(t, s.IsModelPriced(stale, PlatformNewAPI), "stale %s keeps settlement pricing", stale)
+	}
+	// glm-5.1 stays Qianfan-displayable but left the generic ch17 PAYG floor.
+	assert.True(t, isTkCuratedNewAPIModelDisplayed("glm-5.1"))
+	assert.NotContains(t, tkServedModelsManifestPresetIDsByChannelType(newapiconstant.ChannelTypeAli), "glm-5")
+	assert.NotContains(t, tkServedModelsManifestPresetIDsByChannelType(newapiconstant.ChannelTypeAli), "glm-5.1")
+	for _, video := range []string{"happyhorse-1.1-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v"} {
+		assert.True(t, visible[video], "%s must be public after Token Plan onboard", video)
+		assert.True(t, s.IsModelPriced(video, PlatformNewAPI), "%s must be priced", video)
+		assert.True(t, isTkCuratedNewAPIModelDisplayed(video))
+	}
+}
+
 func firstRecommendedCatalogIDForTest(t *testing.T, m map[string]struct{}) string {
 	t.Helper()
 	require.NotEmpty(t, m, "SSOT map must be populated for this assertion to be meaningful")
