@@ -5,10 +5,14 @@
     {
       "path": "backend/internal/repository/user_repo.go",
       "must_contain": [
-        "FROM unnest($1::bigint[]) AS u(uid)",
+        "WHERE user_id = ANY($1)",
+        "GROUP BY user_id",
+        "latestUsedAtByUserIDsQuery"
+      ],
+      "must_not_contain": [
         "CROSS JOIN LATERAL"
       ],
-      "rationale": "GetLatestUsedAtByUserIDs feeds /admin/users and is called unconditionally on every Users-page load. It MUST stay a per-user LATERAL MAX so each user resolves via an Index Only Scan Backward on idx_usage_logs_user_created. Reverting to `SELECT user_id, MAX(created_at) ... WHERE user_id = ANY($1) GROUP BY user_id` makes Postgres full Seq-Scan usage_logs (prod: 2.4M rows / 2.3 GB → ~1.3s vs ~0.4ms — measured in PR #877). The revert is semantically identical (same returned map), so the integration test TestGetLatestUsedAtByUserIDs_UsesUsageLogs stays green either way — this sentinel is the only thing that catches the perf regression."
+      "rationale": "GetLatestUsedAtByUserIDs feeds /admin/users and is called unconditionally on every Users-page load. After usage_logs daily partitioning (prod ~8.7M rows / 70 partitions), per-user LATERAL MAX Appends across partitions and often falls back to created_at index + Filter (~6.5s for 20 ids). ANY($1) + GROUP BY uses per-partition user_id indexes in one pass (~50–250ms, re-measured 2026-10-10). The two shapes return the same map, so TestGetLatestUsedAtByUserIDs_UsesUsageLogs stays green either way — this sentinel is the only mechanical guard against restoring LATERAL. Do NOT re-introduce LATERAL without re-measuring on partitioned prod."
     },
     {
       "path": "backend/internal/repository/scheduler_outbox_repo.go",

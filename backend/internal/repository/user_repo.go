@@ -766,6 +766,15 @@ func userListOrder(params pagination.PaginationParams) []func(*entsql.Selector) 
 	return []func(*entsql.Selector){dbent.Desc(field), dbent.Desc(dbuser.FieldID)}
 }
 
+// latestUsedAtByUserIDsQuery is the SSOT SQL for admin-users last_used_at enrichment.
+// Keep ANY + GROUP BY on partitioned usage_logs — see GetLatestUsedAtByUserIDs.
+const latestUsedAtByUserIDsQuery = `
+		SELECT user_id, MAX(created_at) AS last_used_at
+		FROM usage_logs
+		WHERE user_id = ANY($1)
+		GROUP BY user_id
+	`
+
 func (r *userRepository) GetLatestUsedAtByUserIDs(ctx context.Context, userIDs []int64) (map[int64]*time.Time, error) {
 	result := make(map[int64]*time.Time, len(userIDs))
 	if len(userIDs) == 0 {
@@ -775,27 +784,15 @@ func (r *userRepository) GetLatestUsedAtByUserIDs(ctx context.Context, userIDs [
 		return nil, fmt.Errorf("sql executor is not configured")
 	}
 
-	// TK perf: a single `WHERE user_id = ANY($1) GROUP BY user_id` over usage_logs
-	// makes Postgres Seq Scan the whole table — it does NOT skip-scan the
-	// idx_usage_logs_user_created (user_id, created_at) index for ANY-array
-	// grouping. On prod (~2.4M rows) that was ~1.3s and dominated the /admin/users
-	// page latency. Rewriting it as a per-user LATERAL MAX turns it into N cheap
-	// Index Only Scan Backward probes on that index (~0.4ms for a page of users).
-	// Semantics are identical: the WHERE drops users with no usage_logs (the old
-	// GROUP BY likewise produced no row for them). Keep this shape — do NOT
-	// "simplify" it back to GROUP BY.
-	const query = `
-		SELECT u.uid, m.last_used_at
-		FROM unnest($1::bigint[]) AS u(uid)
-		CROSS JOIN LATERAL (
-			SELECT MAX(created_at) AS last_used_at
-			FROM usage_logs
-			WHERE user_id = u.uid
-		) m
-		WHERE m.last_used_at IS NOT NULL
-	`
-
-	rows, err := r.sql.QueryContext(ctx, query, pq.Array(userIDs))
+	// TK perf (partitioned usage_logs): prefer ANY + GROUP BY over per-user LATERAL.
+	// On a single-table usage_logs (~2.4M), LATERAL Index Only Scan Backward was
+	// faster (~0.4ms vs ~1.3s GROUP BY). After daily partitioning (~8.7M / 70
+	// partitions on prod), LATERAL MAX rewrites into an Append across partitions
+	// per page user and often falls back to created_at index + Filter — measured
+	// ~6.5s for 20 user_ids and dominated GET /admin/users. The same ids with
+	// GROUP BY use per-partition user_id indexes in one Append (~50–250ms).
+	// Semantics unchanged: users with no usage_logs simply omit a result row.
+	rows, err := r.sql.QueryContext(ctx, latestUsedAtByUserIDsQuery, pq.Array(userIDs))
 	if err != nil {
 		return nil, err
 	}
@@ -826,10 +823,20 @@ func (r *userRepository) GetLatestUsedAtByUserID(ctx context.Context, userID int
 	return latestByUserID[userID], nil
 }
 
+// userLastUsedAtOrderSubquery returns the correlated last-used expression used
+// when sorting admin users by last_used_at. ORDER BY … LIMIT 1 (not MAX) keeps
+// partitioned plans on (user_id, created_at) Index Only Scan Backward.
+func userLastUsedAtOrderSubquery(userIDColumn string) string {
+	return fmt.Sprintf(
+		"(SELECT created_at FROM usage_logs WHERE user_id = %s ORDER BY created_at DESC LIMIT 1)",
+		userIDColumn,
+	)
+}
+
 func userLastUsedAtOrder(sortOrder string) []func(*entsql.Selector) {
 	orderExpr := func(direction, nulls string, tieOrder func(string) string) func(*entsql.Selector) {
 		return func(s *entsql.Selector) {
-			subquery := fmt.Sprintf("(SELECT MAX(created_at) FROM usage_logs WHERE user_id = %s)", s.C(dbuser.FieldID))
+			subquery := userLastUsedAtOrderSubquery(s.C(dbuser.FieldID))
 			s.OrderExpr(entsql.Expr(subquery + " " + direction + " NULLS " + nulls))
 			s.OrderBy(tieOrder(s.C(dbuser.FieldID)))
 		}
