@@ -12,7 +12,7 @@
 | **uk2** | **已切** → `2.31.27.73`（冻写重灌后切） | 同左 | `51.24.28.148`（app 已停写，PG/Caddy 保留 ≥7d） | 2026-10-10 `T101627Z`+`logs-T101629Z` |
 | **us3** | LS `18.216.113.132` | **无机器**（曾建后删，腾配额） | 正式仍 LS | 待重建 + 全量复刻 |
 | **us6** | LS `3.147.98.112` | **未起**（配额） | 正式仍 LS | 待 provision + 全量复刻 |
-| **prod** | 仍 AWS Stage0（正式） | **HZ staging 已点火** `167.233.211.115` · `mi-033c9569c7fb8b884` · Volume `tokenkey-prod-data` | — | Wave A：timers 齐 + precious 演练 restore 已灌；**待** Porkbun `api-hz` A → E1；正式 DNS/冻写未做 |
+| **prod** | 仍 AWS Stage0（正式） | **HZ staging 已绿** `167.233.211.115` · `mi-033c9569c7fb8b884` · Volume `tokenkey-prod-data` · `api-hz` E1 | — | Wave A 齐；dump 已刷 `T135913Z`；Wave B 见 [`WAVE-B-PROD-CUTOVER-RUNBOOK.md`](WAVE-B-PROD-CUTOVER-RUNBOOK.md)；正式 DNS/冻写未做 |
 
 Lightsail ≥7 天保留作回滚；禁止双写业务库。Redis 不迁（可重建）。
 
@@ -185,13 +185,16 @@ Bootstrap（`render-prod-bootstrap.sh`）已嵌入：`tokenkey-pgdump.timer`（`
 
 **Wave A 实测（2026-10-10）：**
 - 点火：GHA `deploy-prod-hetzner-stage0.yml` · tag `1.8.283` · IP `167.233.211.115` · `mi-033c9569c7fb8b884` · E0 `aarch64` · timers active · Feishu webhook 已从 AWS 拷贝  
-- 演练 restore：`tokenkey-20261010T120132Z.sql.gz` → HZ；对账 `accounts=215=215`；`usage_billing_dedup` HZ `14516514` / AWS live `14532143`（dump 后增量，预期）；`usage_logs` HZ `0`（precious 不含行数据，预期）  
+- 演练 restore（刷新）：`tokenkey-20261010T135913Z.sql.gz` → HZ；对账 `accounts=215=215`；`usage_billing_dedup` HZ `14546260` / AWS live 约 `14549226`（未冻写增量，预期）；`usage_logs` HZ `0`（precious 预期）  
 - E1：`api-hz.tokenkey.dev` A → `167.233.211.115`；LE 证书已签；`https://api-hz.tokenkey.dev/health` → 200  
-- **Wave B 延期（2026-10-10）：** 现网请求量高，**不做冻写/正式 DNS**；正式流量继续 AWS EIP `34.194.234.88`。HZ staging 保持演练机（可再刷 dump），低流量窗再批「批准冻写切流」。  
+- 零影响预热：HZ SSM secrets 参数已从 AWS 同步；`warm_pull` `1.8.283` 绿；控制面 `resolve_prod_ssm_target.py` 默认仍 `i-*`  
+- **Wave B 延期（2026-10-10）：** 现网请求量高，**不做冻写/正式 DNS**；正式流量继续 AWS EIP `34.194.234.88`。低流量窗再批「批准冻写切流」。  
 
 user-data **必须以 `#!/bin/bash` 开头**；AWS CLI 走 awscliv2 zip。
 
 ### Wave B — 正式切流清单（第二道批准；冻写 ≤5 min）
+
+**可照抄 runbook（含命令、回滚、QA/告警附录）：** [`WAVE-B-PROD-CUTOVER-RUNBOOK.md`](WAVE-B-PROD-CUTOVER-RUNBOOK.md)
 
 | 步 | 动作 | 红灯 |
 |---|---|---|
@@ -204,9 +207,11 @@ user-data **必须以 `#!/bin/bash` 开头**；AWS CLI 走 awscliv2 zip。
 | B6 | `EDGE_MAIN_GATEWAY_ALLOWED_CIDR=<新IP>/32` + 全 deployable edge `sync_caddyfile`；解冻写到 HZ | Edge 403 |
 | B7 | 注入 live `QA_BUNDLE_*`（勿在 Wave A 做）；sync QA maintenance timer；canary | canary 红 |
 | B8 | Feishu disk-metrics 绿；Better Stack `api.tokenkey.dev/health`；静音旧 EC2 CW 盘/CPU | 假阳性 |
-| B9 | P5：60min 错率 ≤ 基线+2pp；控制面目标 `i-*`→`mi-*`；AWS 停 app，PG/Caddy ≥7d standby | P5 红 → 写前可回 A |
+| B9 | P5：60min 错率 ≤ 基线+2pp；控制面目标 `i-*`→`mi-*`（`resolve_prod_ssm_target.py` / SSM param）；AWS 停 app，PG/Caddy ≥7d standby | P5 红 → 写前可回 A |
 
 IdP / 支付 webhook **URL 字符串不变**（仍 `https://api.tokenkey.dev/...`）。写后禁裸 DNS 回旧库。
+
+控制面默认仍解析 AWS `i-*`；切后才 `PROD_SSM_TARGET=hetzner` 或 PutParameter `/tokenkey/prod/control-plane-ssm-target=hetzner`。
 
 ## 后续 backlog
 

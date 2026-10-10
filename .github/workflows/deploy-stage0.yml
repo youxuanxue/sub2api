@@ -207,19 +207,23 @@ jobs:
         env:
           STACK_NAME: ${{ steps.stack.outputs.name }}
           CICD_OIDC_STACK_NAME: ${{ vars.CICD_OIDC_STACK_NAME || 'tokenkey-cicd-oidc' }}
+          # Default aws (CFN i-*). Flip repo var or SSM
+          # /tokenkey/prod/control-plane-ssm-target=hetzner only after Wave B B9.
+          PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
         run: |
           set -euo pipefail
-          read -r ID API_URL < <(
-            aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
-              --query 'Stacks[0].Outputs' --output json |
-            python3 -c 'import json, sys; rows=json.load(sys.stdin); m={r.get("OutputKey"): r.get("OutputValue", "") for r in rows}; print(m.get("InstanceId", ""), m.get("ApiUrl", ""))'
-          )
+          eval "$(python3 ops/stage0/resolve_prod_ssm_target.py --target "${PROD_SSM_TARGET}" --stack "$STACK_NAME" | sed 's/^/RESOLVED_/')"
+          ID="${RESOLVED_instance_id:-}"
+          API_URL="${RESOLVED_api_url:-}"
+          SSM_REGION="${RESOLVED_ssm_region:-}"
+          DEPLOY_PROFILE="${RESOLVED_deploy_profile:-prod}"
+          TARGET_PLATFORM="${RESOLVED_target:-}"
           if [ -z "$ID" ] || [ "$ID" = "None" ]; then
-            echo "::error::could not resolve InstanceId from stack $STACK_NAME"
+            echo "::error::could not resolve InstanceId (PROD_SSM_TARGET=${PROD_SSM_TARGET})"
             exit 1
           fi
           if [ -z "$API_URL" ] || [ "$API_URL" = "None" ]; then
-            echo "::error::could not resolve ApiUrl from stack $STACK_NAME"
+            echo "::error::could not resolve ApiUrl"
             exit 1
           fi
           API_HOST="${API_URL#https://}"
@@ -234,15 +238,19 @@ jobs:
           echo "id=$ID" >> "$GITHUB_OUTPUT"
           echo "api_url=$API_URL" >> "$GITHUB_OUTPUT"
           echo "browser_origin=$browser_origin" >> "$GITHUB_OUTPUT"
-          echo "deploying ${INPUT_TAG} to instance=$ID api=$API_URL (env=prod stack=$STACK_NAME)"
+          echo "ssm_region=$SSM_REGION" >> "$GITHUB_OUTPUT"
+          echo "deploy_profile=$DEPLOY_PROFILE" >> "$GITHUB_OUTPUT"
+          echo "target=$TARGET_PLATFORM" >> "$GITHUB_OUTPUT"
+          echo "deploying ${INPUT_TAG} to instance=$ID api=$API_URL (env=prod target=$TARGET_PLATFORM ssm_region=$SSM_REGION profile=$DEPLOY_PROFILE)"
 
       - name: Resolve previous prod runtime tag
         id: previous_runtime
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
         run: |
           set -euo pipefail
-          PREVIOUS_TAG="$(bash ops/stage0/resolve-prod-running-tag-via-ssm.sh --instance-id "$INSTANCE_ID")"
+          PREVIOUS_TAG="$(bash ops/stage0/resolve-prod-running-tag-via-ssm.sh --region "$AWS_REGION" --instance-id "$INSTANCE_ID")"
           test -n "$PREVIOUS_TAG"
           echo "tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
           echo "prod runtime baseline: $PREVIOUS_TAG"
@@ -345,11 +353,13 @@ jobs:
         id: ssm
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
+          STAGE0_DEPLOY_PROFILE: ${{ steps.instance.outputs.deploy_profile }}
           STAGE0_SSM_OUTPUT_DIR: .
           QA_BUNDLE_ENABLED: "true"
           QA_BUNDLE_QUEUE_URL: ${{ steps.qa_coordinates.outputs.queue_url }}
           QA_BUNDLE_STORAGE_DRIVER: s3
-          QA_BUNDLE_STORAGE_REGION: ${{ env.AWS_REGION }}
+          QA_BUNDLE_STORAGE_REGION: us-east-1
           QA_BUNDLE_STORAGE_BUCKET: ${{ steps.qa_coordinates.outputs.bucket }}
           QA_BUNDLE_STORAGE_PREFIX: user-qa
           STAGE0_BLUEGREEN_WAIT_PHASE: cutover
@@ -395,6 +405,7 @@ jobs:
         continue-on-error: true
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
           GATEWAY_TAG: ${{ inputs.tag }}
         run: bash ops/stage0/assert-live-host-state.sh "$INSTANCE_ID" "$GATEWAY_TAG" "deploy-stage0 live-host assert env=prod"
 

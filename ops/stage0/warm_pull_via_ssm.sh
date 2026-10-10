@@ -28,9 +28,8 @@
 # A failed warm is non-fatal to the deploy: the later in-band `compose pull`
 # simply pays the full pull as it does today.
 #
-# Targeting mirrors deploy_via_ssm.sh's prod path: a single EC2 instance-id
-# (i-*). Edge (Lightsail mi-*) prewarm is a deliberate follow-up — not wired
-# here so this script carries no unused targeting branch.
+# Targeting: EC2 i-* (us-east-1) or Hybrid/Lightsail mi-* (set AWS_REGION to the
+# registration region, e.g. eu-west-2 for Hetzner prod staging).
 
 set -euo pipefail
 
@@ -50,6 +49,13 @@ if [[ -z "${INSTANCE_ID}" ]]; then
   echo "stage0_warm_pull_via_ssm: instance id is required" >&2
   exit 1
 fi
+case "${INSTANCE_ID}" in
+  i-* | mi-*) ;;
+  *)
+    echo "stage0_warm_pull_via_ssm: instance id must be i-* or mi-*, got ${INSTANCE_ID}" >&2
+    exit 1
+    ;;
+esac
 
 ssm_region_args=()
 if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
@@ -61,20 +67,22 @@ params_file="${OUTPUT_DIR}/warm-ssm-params.json"
 stdout_file="${OUTPUT_DIR}/warm-stdout.txt"
 stderr_file="${OUTPUT_DIR}/warm-stderr.txt"
 
-jq -n --arg tag "${TAG}" '{
-  commands: [
-    "set -euo pipefail",
-    ("echo \"=== warm image for tag=" + $tag + " (read-only pull; no .env edit, no container restart) ===\""),
-    "CUR=$(sed -n '\''s/^TOKENKEY_IMAGE=//p'\'' /var/lib/tokenkey/.env | head -1)",
-    "if [ -z \"$CUR\" ]; then echo \"::error::TOKENKEY_IMAGE not found in /var/lib/tokenkey/.env\"; exit 1; fi",
-    "REPO=\"${CUR%:*}\"",
-    "if [ -z \"$REPO\" ] || [ \"$REPO\" = \"$CUR\" ]; then echo \"::error::could not parse repo from TOKENKEY_IMAGE=$CUR\"; exit 1; fi",
-    ("IMG=\"${REPO}:" + $tag + "\""),
-    "echo \"warming $IMG (host currently runs $CUR)\"",
-    "sudo docker pull \"$IMG\"",
-    "echo \"=== warm complete: $IMG on disk ===\""
-  ]
-}' > "${params_file}"
+# Ubuntu Hybrid (Hetzner) SSM agent runs commands under dash; wrap in bash -lc
+# so `set -o pipefail` and bashisms match Amazon Linux EC2 behavior.
+jq -n --arg tag "${TAG}" '
+  def script:
+    "set -euo pipefail\n"
+    + "echo \"=== warm image for tag=\($tag) (read-only pull; no .env edit, no container restart) ===\"\n"
+    + "CUR=$(sed -n \"s/^TOKENKEY_IMAGE=//p\" /var/lib/tokenkey/.env | head -1)\n"
+    + "if [ -z \"$CUR\" ]; then echo \"::error::TOKENKEY_IMAGE not found in /var/lib/tokenkey/.env\"; exit 1; fi\n"
+    + "REPO=\"${CUR%:*}\"\n"
+    + "if [ -z \"$REPO\" ] || [ \"$REPO\" = \"$CUR\" ]; then echo \"::error::could not parse repo from TOKENKEY_IMAGE=$CUR\"; exit 1; fi\n"
+    + "IMG=\"${REPO}:\($tag)\"\n"
+    + "echo \"warming $IMG (host currently runs $CUR)\"\n"
+    + "sudo docker pull \"$IMG\"\n"
+    + "echo \"=== warm complete: $IMG on disk ===\"\n";
+  {commands: ["bash -lc " + (script | @sh)]}
+' > "${params_file}"
 
 cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" \
