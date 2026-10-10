@@ -498,6 +498,11 @@ func (s *KiroGatewayService) forwardStreaming(
 	)
 
 	callback := &kiroproto.KiroStreamCallback{
+		OnResponseBody: func(body io.ReadCloser) {
+			// Close the upstream body when the first-output budget fires so a
+			// stuck EventStream read cannot hold the account concurrency slot.
+			firstOutputGuard.WatchClose(body)
+		},
 		OnReasoningContent: func(text, signature string) {
 			mu.Lock()
 			defer mu.Unlock()

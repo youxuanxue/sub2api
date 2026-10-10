@@ -267,6 +267,10 @@ type KiroStreamCallback struct {
 	// Returning true permits retrying the next endpoint; false preserves the
 	// error, which is required once streaming output has been committed.
 	ResetForRetry func() bool
+	// OnResponseBody is invoked once per HTTP 200 body immediately before the
+	// event stream is parsed. Gateway first-output budgets use this to arm
+	// WatchClose so a cancelled attempt unblocks a stuck body read promptly.
+	OnResponseBody func(body io.ReadCloser)
 }
 
 // KiroStopMetadata preserves the terminal metadataEvent payload that carries
@@ -480,6 +484,9 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 			continue
 		}
 
+		if callback != nil && callback.OnResponseBody != nil {
+			callback.OnResponseBody(resp.Body)
+		}
 		err = parseEventStream(resp.Body, callback)
 		resp.Body.Close()
 		if err != nil && endpointIndex+1 < len(endpoints) && callback != nil && callback.ResetForRetry != nil && callback.ResetForRetry() {

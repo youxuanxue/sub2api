@@ -259,7 +259,7 @@ Platform wiring for the same universal stream budget:
 | NewAPI Chat (replayable) | Wired (inherits SSOT; optional override) |
 | OpenAI native HTTP first semantic output | Wired (default on; `0` emergency off) |
 | Grok first-byte header wait | Wired (default aligned to 15s SSOT) |
-| Kiro streaming | Wired (commit = client-visible text/tool) |
+| Kiro streaming | Wired (commit = client-visible text/tool; `OnResponseBody` → `WatchClose` so budget cancel unblocks EventStream reads) |
 | Anthropic passthrough / CN-native SSE | Wired. Commit = first non-empty SSE `data:` frame (includes `message_start`; deliberately shorter switch window than Kiro visible-only). Keepalive ping does not Commit; post-ping failover uses `SafeToFailoverAfterWrite`. Classic non-passthrough convert path (`gateway_upstream_response.handleStreamingResponse`) is **not** on this helper yet. |
 | Gemini Messages / native streaming | Wired (commit = first client-visible text/tool or native data frame) |
 

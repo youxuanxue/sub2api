@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -69,6 +70,58 @@ func TestKiroStreamFirstOutputHighEffort(t *testing.T) {
 	require.True(t, kiroStreamFirstOutputHighEffort(&kiroproto.ClaudeRequest{
 		OutputConfig: &kiroproto.ClaudeOutputConfig{Effort: "high"},
 	}))
+}
+
+func TestKiroFirstOutputBudgetWatchCloseUnblocksUpstreamRead(t *testing.T) {
+	// Custom doer bodies are not closed by http.Request context cancel alone.
+	// WatchClose must close the pipe so parseEventStream returns and the
+	// attempt frees the concurrency slot promptly.
+	pr, pw := io.Pipe()
+	t.Cleanup(func() {
+		_ = pw.Close()
+		_ = pr.Close()
+	})
+
+	hang := &kiroHangBodyDoer{body: pr}
+	account := &kiroproto.Account{
+		AccessToken: "tok",
+		ProfileArn:  "arn:aws:codewhisperer:us-east-1:1:profile/x",
+	}
+
+	parent := context.Background()
+	ctx, guard := armStreamFirstOutputGuard(parent, 25*time.Millisecond)
+	callback := &kiroproto.KiroStreamCallback{
+		OnResponseBody: func(body io.ReadCloser) {
+			guard.WatchClose(body)
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- kiroproto.CallKiroAPIWithDoerContext(ctx, hang, account, &kiroproto.KiroPayload{}, callback)
+	}()
+
+	select {
+	case err := <-done:
+		require.Error(t, err, "hung body must fail after WatchClose")
+		require.True(t, guard.BudgetFired(ctx, parent), "budget must have fired")
+		require.False(t, guard.Committed())
+	case <-time.After(2 * time.Second):
+		t.Fatal("Kiro EventStream read was not unblocked by WatchClose after first-output budget")
+	}
+}
+
+type kiroHangBodyDoer struct {
+	body io.ReadCloser
+}
+
+func (d *kiroHangBodyDoer) Do(req *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       d.body,
+		Header:     make(http.Header),
+		Request:    req,
+	}, nil
 }
 
 func TestStreamFirstOutputFailoverIfBudgetFired_KeepaliveSetsSafeFlag(t *testing.T) {

@@ -2315,6 +2315,25 @@
       "rationale": "Anthropic passthrough streaming must arm a full per-attempt first-output budget (not remaining request wall-clock), Commit on first SSE data, and Size-aware SafeToFailoverAfterWrite after any client bytes (header-wait or in-stream keepalive)."
     },
     {
+      "path": "backend/internal/service/kiro_gateway_service.go",
+      "must_contain": [
+        "resolveStreamFirstOutputTimeout(s.cfg, kiroStreamFirstOutputHighEffort(req))",
+        "armStreamFirstOutputGuard(ctx, budget)",
+        "firstOutputGuard.WatchClose(body)",
+        "OnResponseBody:",
+        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, ctx, callerCtx)"
+      ],
+      "rationale": "Kiro streaming must share the universal first-output SSOT, Commit only on client-visible text/tool, and WatchClose the upstream EventStream body via OnResponseBody so a budget cancel unblocks a stuck read and releases the account concurrency slot promptly."
+    },
+    {
+      "path": "backend/internal/integration/kiro/client.go",
+      "must_contain": [
+        "OnResponseBody func(body io.ReadCloser)",
+        "callback.OnResponseBody(resp.Body)"
+      ],
+      "rationale": "Kiro HTTP 200 bodies must expose OnResponseBody before parseEventStream so gateway first-output WatchClose can close a hung read without waiting on transport-only context cancel."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_messages_anthropic_native_tk.go",
       "must_contain": [
         "resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(body))",
@@ -2340,6 +2359,15 @@
         "TestStreamFirstOutputFailoverErrorAfterKeepaliveFlag"
       ],
       "rationale": "Focused regressions lock Anthropic first-output failover before write, Commit on message_start, and keepalive SafeToFailoverAfterWrite flag."
+    },
+    {
+      "path": "backend/internal/service/stream_first_output_budget_tk_test.go",
+      "must_contain": [
+        "TestKiroFirstOutputBudgetWatchCloseUnblocksUpstreamRead",
+        "guard.WatchClose(body)",
+        "CallKiroAPIWithDoerContext"
+      ],
+      "rationale": "Kiro first-output WatchClose regression: a hung custom-doer body is not closed by context cancel alone; budget fire plus WatchClose must unblock parseEventStream so the attempt returns and frees the account slot."
     },
     {
       "path": "backend/internal/handler/candidate_chat_failover_tk_test.go",
