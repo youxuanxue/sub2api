@@ -24,12 +24,18 @@ for f in \
   [[ -f "$f" ]] || { echo "missing $f" >&2; exit 1; }
 done
 
-# Deterministic gzip+base64 (mtime=0): macOS/Linux system gzip diverge and break --check in CI.
+# Deterministic gzip+base64 for CI --check: hand-built header (mtime=0, OS=255)
+# so macOS gzip.compress / system gzip cannot diverge from Linux runners.
 b64_gzip() {
   python3 - "$1" <<'PY'
-import base64, gzip, pathlib, sys
+import base64, pathlib, struct, sys, zlib
+
 data = pathlib.Path(sys.argv[1]).read_bytes()
-sys.stdout.write(base64.b64encode(gzip.compress(data, compresslevel=9, mtime=0)).decode("ascii"))
+comp = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS)
+body = comp.compress(data) + comp.flush()
+header = b"\x1f\x8b\x08\x00" + struct.pack("<I", 0) + b"\x02\xff"
+trailer = struct.pack("<II", zlib.crc32(data) & 0xFFFFFFFF, len(data) & 0xFFFFFFFF)
+sys.stdout.write(base64.b64encode(header + body + trailer).decode("ascii"))
 PY
 }
 
