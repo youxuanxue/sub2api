@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import shlex
 import stat
 import subprocess
 import tempfile
@@ -13,6 +14,17 @@ import textwrap
 import unittest
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "sync_caddyfile_via_ssm.sh"
+
+
+def _ssm_script_body(params: dict) -> str:
+    """Inner script of the single `bash -c …` SSM command (dash-safe wrapper)."""
+    commands = params["commands"]
+    if len(commands) != 1 or not commands[0].startswith("bash -c "):
+        raise AssertionError(f"expected one bash -c command, got {commands!r}")
+    parts = shlex.split(commands[0])
+    if len(parts) < 3 or parts[0] != "bash" or parts[1] != "-c":
+        raise AssertionError(f"unparseable bash -c wrapper: {commands[0][:120]!r}")
+    return parts[2]
 
 
 def _run_sync(kind: str = "prod", extra_env: dict[str, str] | None = None):
@@ -61,11 +73,21 @@ def _run_sync(kind: str = "prod", extra_env: dict[str, str] | None = None):
 
 
 class SyncCaddyfileRenderTest(unittest.TestCase):
+    def test_ssm_commands_are_single_bash_c_for_dash_hybrid(self) -> None:
+        """Hybrid SSM uses /bin/sh; pipefail must run under bash -c."""
+        proc, params = _run_sync("edge")
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert params is not None
+        self.assertEqual(len(params["commands"]), 1)
+        self.assertTrue(params["commands"][0].startswith("bash -c "))
+        body = _ssm_script_body(params)
+        self.assertIn("set -euo pipefail", body)
+
     def test_prod_preserves_bluegreen_active_upstream(self) -> None:
         proc, params = _run_sync("prod")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         assert params is not None
-        joined = "\n".join(params["commands"])
+        joined = _ssm_script_body(params)
 
         parsed = subprocess.run(
             ["bash", "-n"],
@@ -96,7 +118,7 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         assert params is not None
-        joined = "\n".join(params["commands"])
+        joined = _ssm_script_body(params)
 
         parsed = subprocess.run(
             ["bash", "-n"], input=joined, text=True, capture_output=True, check=False
@@ -113,7 +135,7 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
         proc, params = _run_sync("prod", {"GLOBAL_SITE_PHASE": "disabled"})
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         assert params is not None
-        joined = "\n".join(params["commands"])
+        joined = _ssm_script_body(params)
         self.assertIn("TARGET_GLOBAL_SITE_PHASE='disabled'", joined)
         self.assertIn("TARGET_GLOBAL_SITE_DOMAIN=''", joined)
 
@@ -121,7 +143,7 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
         proc, params = _run_sync("prod")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         assert params is not None
-        self.assertIn("APPLY_GLOBAL_PROFILE='false'", "\n".join(params["commands"]))
+        self.assertIn("APPLY_GLOBAL_PROFILE='false'", _ssm_script_body(params))
 
     def test_enabled_phase_requires_valid_hostname(self) -> None:
         for domain in ("", "https://callmodel.io", "CALLMODEL.IO"):
@@ -142,7 +164,7 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
         proc, params = _run_sync("edge", {"MAIN_GATEWAY_ALLOWED_CIDR": "34.194.234.88/32"})
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         assert params is not None
-        joined = "\n".join(params["commands"])
+        joined = _ssm_script_body(params)
         self.assertIn("TARGET_MAIN_GATEWAY_ALLOWED_CIDR='34.194.234.88/32'", joined)
         self.assertIn('if [ -n "$TARGET_MAIN_GATEWAY_ALLOWED_CIDR" ]', joined)
         self.assertIn("ACME_EMAIL empty in /var/lib/tokenkey/.env and live Caddyfile", joined)
@@ -155,7 +177,7 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
         proc, params = _run_sync("edge", {"ACME_EMAIL": "ops@example.com"})
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         assert params is not None
-        joined = "\n".join(params["commands"])
+        joined = _ssm_script_body(params)
         self.assertIn("TARGET_ACME_EMAIL='ops@example.com'", joined)
         self.assertIn('if [ -n "$TARGET_ACME_EMAIL" ]; then ACME_EMAIL="$TARGET_ACME_EMAIL"; fi', joined)
 

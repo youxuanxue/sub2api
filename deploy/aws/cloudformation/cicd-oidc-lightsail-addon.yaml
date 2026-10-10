@@ -346,6 +346,131 @@ Resources:
                   - ssm:GetParameter
                 Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
 
+  # Remaining Hetzner edges (prep only — do not provision until prior edge E5 green).
+  HetznerSsmHybridRoleUk2:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tokenkey-hetzner-ssm-hybrid-uk2
+      Description: SSM Hybrid role for TokenKey Hetzner Edge uk2.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: EdgeRecoveryData
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadWriteOwnEnvSecrets
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/hetzner/uk2/stage0/env-secrets-backup"
+              - Sid: ReadGhcrPat
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
+
+  HetznerSsmHybridRoleUs3:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tokenkey-hetzner-ssm-hybrid-us3
+      Description: SSM Hybrid role for TokenKey Hetzner Edge us3.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: EdgeRecoveryData
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadWriteOwnEnvSecrets
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/hetzner/us3/stage0/env-secrets-backup"
+              - Sid: ReadGhcrPat
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
+
+  HetznerSsmHybridRoleUs4:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tokenkey-hetzner-ssm-hybrid-us4
+      Description: SSM Hybrid role for TokenKey Hetzner Edge us4.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: EdgeRecoveryData
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadWriteOwnEnvSecrets
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/hetzner/us4/stage0/env-secrets-backup"
+              - Sid: ReadGhcrPat
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
+
+  HetznerSsmHybridRoleUs6:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tokenkey-hetzner-ssm-hybrid-us6
+      Description: SSM Hybrid role for TokenKey Hetzner Edge us6.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: EdgeRecoveryData
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadWriteOwnEnvSecrets
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/hetzner/us6/stage0/env-secrets-backup"
+              - Sid: ReadGhcrPat
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
+
   LightsailEdgeAddonPolicy:
     Type: AWS::IAM::Policy
     Properties:
