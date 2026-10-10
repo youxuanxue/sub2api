@@ -92,23 +92,24 @@ PAYLOAD_B64="$(base64 <"${PAYLOAD_SRC}" | tr -d '\n')"
 
 # READY_TRIES/READY_SLEEP travel with the payload so the budget asserted above is
 # the budget the host actually spends.
-jq -n \
+# Hetzner Hybrid SSM uses /bin/sh (dash); wrap under bash like migrate-edge-accounts.
+INNER="$(jq -nr \
   --arg payload "${PAYLOAD_B64}" \
   --arg image "${IMAGE}" \
   --arg digest "${DIGEST}" \
   --arg stop "${STOP_TIMEOUT}" \
   --arg tries "${READY_TRIES}" \
   --arg sleep "${READY_SLEEP}" \
-  '{
-    commands: [
-      "set -euo pipefail",
-      ("echo " + $payload + " | base64 -d | sudo tee /tmp/deploy-worker-on-host.sh > /dev/null"),
-      "sudo chmod +x /tmp/deploy-worker-on-host.sh",
-      ("sudo env READY_TRIES=" + $tries + " READY_SLEEP=" + $sleep
-        + " bash /tmp/deploy-worker-on-host.sh " + $image + " " + $digest + " " + $stop),
-      "sudo rm -f /tmp/deploy-worker-on-host.sh"
-    ]
-  }' > "${params_file}"
+  '"set -euo pipefail\n"
+  + "echo " + $payload + " | base64 -d | sudo tee /tmp/deploy-worker-on-host.sh > /dev/null\n"
+  + "sudo chmod +x /tmp/deploy-worker-on-host.sh\n"
+  + "sudo env READY_TRIES=" + $tries + " READY_SLEEP=" + $sleep
+    + " bash /tmp/deploy-worker-on-host.sh " + $image + " " + $digest + " " + $stop + "\n"
+  + "sudo rm -f /tmp/deploy-worker-on-host.sh\n"')"
+INNER_B64="$(printf '%s' "${INNER}" | base64 | tr -d '\n')"
+jq -n --arg b64 "${INNER_B64}" \
+  '{commands: ["echo " + $b64 + " | base64 -d > /tmp/tk-gemini-web-ssm.sh && bash /tmp/tk-gemini-web-ssm.sh"]}' \
+  > "${params_file}"
 
 cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" \
