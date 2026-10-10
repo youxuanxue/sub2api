@@ -1904,22 +1904,22 @@ func TestValidateConfigErrors(t *testing.T) {
 		},
 		{
 			name:    "gateway openai first output timeout below minimum",
-			mutate:  func(c *Config) { c.Gateway.OpenAIFirstOutputTimeoutSeconds = 29 },
+			mutate:  func(c *Config) { c.Gateway.OpenAIFirstOutputTimeoutSeconds = 14 },
 			wantErr: "gateway.openai_first_output_timeout_seconds",
 		},
 		{
 			name:    "gateway stream first output timeout too large",
-			mutate:  func(c *Config) { c.Gateway.StreamFirstOutputTimeoutSeconds = 121 },
+			mutate:  func(c *Config) { c.Gateway.StreamFirstOutputTimeoutSeconds = 61 },
 			wantErr: "gateway.stream_first_output_timeout_seconds",
 		},
 		{
 			name:    "gateway stream first output high effort timeout too large",
-			mutate:  func(c *Config) { c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds = 121 },
+			mutate:  func(c *Config) { c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds = 61 },
 			wantErr: "gateway.stream_first_output_high_effort_timeout_seconds",
 		},
 		{
 			name:    "gateway newapi chat stream first output timeout too large",
-			mutate:  func(c *Config) { c.Gateway.NewAPIChatFirstOutputTimeout = 121 },
+			mutate:  func(c *Config) { c.Gateway.NewAPIChatFirstOutputTimeout = 61 },
 			wantErr: "gateway.newapi_chat_first_output_timeout",
 		},
 		{

@@ -48,7 +48,7 @@ type KiroGatewayService struct {
 	// kiroCacheStore holds prompt-prefix fingerprints for optional cache_read
 	// billing (gateway.kiro_cache_billing.enabled). Defaults to in-process memory.
 	kiroCacheStore kiroproto.CacheFingerprintStore
-	// cfg owns universal stream first-output budgets; nil → code defaults 30s/60s.
+	// cfg owns universal stream first-output budgets; nil → code defaults 15s/30s.
 	cfg *config.Config
 }
 

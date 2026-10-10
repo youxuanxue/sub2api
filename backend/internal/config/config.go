@@ -1106,28 +1106,28 @@ type GatewayConfig struct {
 	// OpenAI/Codex 请求可能在上游排队较久；默认不使用通用响应头超时截断。
 	OpenAIResponseHeaderTimeout int `mapstructure:"openai_response_header_timeout"`
 	// StreamFirstOutputTimeoutSeconds: cross-platform streaming useful-first-output
-	// budget (seconds). Zero inherits the code default 30. Cap is 120.
+	// budget (seconds). Zero inherits the code default 15. Cap is 60.
 	// See docs/approved/candidate-eligibility-ssot.md (universal stream first-output).
 	StreamFirstOutputTimeoutSeconds int `mapstructure:"stream_first_output_timeout_seconds"`
 	// StreamFirstOutputHighEffortTimeoutSeconds: high/xhigh/max (and equivalents)
-	// override. Zero inherits the code default 60. Cap is 120.
+	// override. Zero inherits the code default 30. Cap is 60.
 	StreamFirstOutputHighEffortTimeoutSeconds int `mapstructure:"stream_first_output_high_effort_timeout_seconds"`
 	// Bounds a replayable NewAPI Chat *streaming* attempt until useful first output
 	// (not total stream duration). Seconds; zero inherits StreamFirstOutputTimeoutSeconds.
-	// Cap is 120. At most three attempts share 3x this per-attempt budget.
+	// Cap is 60. At most three attempts share 3x this per-attempt budget.
 	NewAPIChatFirstOutputTimeout int `mapstructure:"newapi_chat_first_output_timeout"`
 	// Bounds a replayable NewAPI Chat *non-streaming* attempt until a complete
 	// useful JSON body. Seconds; zero uses the default 300. Cap is 600.
 	// At most three attempts share 3x this per-attempt budget.
 	NewAPIChatNonstreamFirstOutputTimeout int `mapstructure:"newapi_chat_nonstream_first_output_timeout"`
 	// GrokResponseHeaderTimeout bounds the pre-first-byte wait for xAI/Grok.
-	// A zero value uses the universal stream first-output default (30s).
+	// A zero value uses the universal stream first-output default (15s).
 	GrokResponseHeaderTimeout int `mapstructure:"grok_response_header_timeout"`
 	// OpenAIFirstOutputTimeoutSeconds: native HTTP Responses 首个语义输出超时（秒）。
-	// 默认 30；显式 0 表示紧急禁用该闸。
+	// 默认 15；显式 0 表示紧急禁用该闸。
 	OpenAIFirstOutputTimeoutSeconds int `mapstructure:"openai_first_output_timeout_seconds"`
 	// OpenAIHighEffortFirstOutputTimeoutSeconds: high/xhigh/max 推理的首个语义输出超时（秒）。
-	// 默认 60；0 表示回退到 StreamFirstOutputHighEffortTimeoutSeconds / 代码默认 60。
+	// 默认 30；0 表示回退到 StreamFirstOutputHighEffortTimeoutSeconds / 代码默认 30。
 	OpenAIHighEffortFirstOutputTimeoutSeconds int `mapstructure:"openai_high_effort_first_output_timeout_seconds"`
 	// 请求体最大字节数，用于网关请求体大小限制
 	MaxBodySize int64 `mapstructure:"max_body_size"`
@@ -2704,13 +2704,13 @@ func setDefaults() {
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
-	viper.SetDefault("gateway.stream_first_output_timeout_seconds", 30)
-	viper.SetDefault("gateway.stream_first_output_high_effort_timeout_seconds", 60)
+	viper.SetDefault("gateway.stream_first_output_timeout_seconds", 15)
+	viper.SetDefault("gateway.stream_first_output_high_effort_timeout_seconds", 30)
 	viper.SetDefault("gateway.newapi_chat_first_output_timeout", 0) // 0 = inherit stream SSOT
 	viper.SetDefault("gateway.newapi_chat_nonstream_first_output_timeout", 300)
-	viper.SetDefault("gateway.grok_response_header_timeout", 30)
-	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 30)
-	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 60)
+	viper.SetDefault("gateway.grok_response_header_timeout", 15)
+	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 15)
+	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 30)
 	viper.SetDefault("gateway.log_upstream_error_body", true)
 	viper.SetDefault("gateway.log_upstream_error_body_max_bytes", 2048)
 	viper.SetDefault("gateway.inject_beta_for_apikey", false)
@@ -3694,14 +3694,14 @@ func (c *Config) Validate() error {
 	if c.Gateway.OpenAIResponseHeaderTimeout < 0 {
 		return fmt.Errorf("gateway.openai_response_header_timeout must be non-negative")
 	}
-	if c.Gateway.StreamFirstOutputTimeoutSeconds < 0 || c.Gateway.StreamFirstOutputTimeoutSeconds > 120 {
-		return fmt.Errorf("gateway.stream_first_output_timeout_seconds must be between 0-120 seconds")
+	if c.Gateway.StreamFirstOutputTimeoutSeconds < 0 || c.Gateway.StreamFirstOutputTimeoutSeconds > 60 {
+		return fmt.Errorf("gateway.stream_first_output_timeout_seconds must be between 0-60 seconds")
 	}
-	if c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds < 0 || c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds > 120 {
-		return fmt.Errorf("gateway.stream_first_output_high_effort_timeout_seconds must be between 0-120 seconds")
+	if c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds < 0 || c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds > 60 {
+		return fmt.Errorf("gateway.stream_first_output_high_effort_timeout_seconds must be between 0-60 seconds")
 	}
-	if c.Gateway.NewAPIChatFirstOutputTimeout < 0 || c.Gateway.NewAPIChatFirstOutputTimeout > 120 {
-		return fmt.Errorf("gateway.newapi_chat_first_output_timeout must be between 0-120 seconds (streaming first-output override)")
+	if c.Gateway.NewAPIChatFirstOutputTimeout < 0 || c.Gateway.NewAPIChatFirstOutputTimeout > 60 {
+		return fmt.Errorf("gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)")
 	}
 	if c.Gateway.NewAPIChatNonstreamFirstOutputTimeout < 0 || c.Gateway.NewAPIChatNonstreamFirstOutputTimeout > 600 {
 		return fmt.Errorf("gateway.newapi_chat_nonstream_first_output_timeout must be between 0-600 seconds")
@@ -3710,12 +3710,12 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("gateway.grok_response_header_timeout must be between 0-1800 seconds")
 	}
 	if c.Gateway.OpenAIFirstOutputTimeoutSeconds < 0 || c.Gateway.OpenAIFirstOutputTimeoutSeconds > 600 ||
-		(c.Gateway.OpenAIFirstOutputTimeoutSeconds > 0 && c.Gateway.OpenAIFirstOutputTimeoutSeconds < 30) {
-		return fmt.Errorf("gateway.openai_first_output_timeout_seconds must be 0 or between 30-600 seconds")
+		(c.Gateway.OpenAIFirstOutputTimeoutSeconds > 0 && c.Gateway.OpenAIFirstOutputTimeoutSeconds < 15) {
+		return fmt.Errorf("gateway.openai_first_output_timeout_seconds must be 0 or between 15-600 seconds")
 	}
 	if c.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds < 0 || c.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds > 1800 ||
-		(c.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds > 0 && c.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds < 30) {
-		return fmt.Errorf("gateway.openai_high_effort_first_output_timeout_seconds must be 0 or between 30-1800 seconds")
+		(c.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds > 0 && c.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds < 15) {
+		return fmt.Errorf("gateway.openai_high_effort_first_output_timeout_seconds must be 0 or between 15-1800 seconds")
 	}
 	if c.Gateway.Live.MaxSessionDurationSeconds <= 0 {
 		c.Gateway.Live.MaxSessionDurationSeconds = 3600

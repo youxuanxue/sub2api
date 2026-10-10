@@ -17,8 +17,8 @@ import (
 
 const (
 	// Universal stream first-useful-output defaults (docs/approved/candidate-eligibility-ssot.md).
-	defaultStreamFirstOutputTimeout           = 30 * time.Second
-	defaultStreamFirstOutputHighEffortTimeout = 60 * time.Second
+	defaultStreamFirstOutputTimeout           = 15 * time.Second
+	defaultStreamFirstOutputHighEffortTimeout = 30 * time.Second
 	defaultNewAPIChatNonstreamFirstOutput     = 300 * time.Second
 )
 

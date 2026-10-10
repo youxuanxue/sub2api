@@ -1,7 +1,7 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, and 2026-10-09 universal stream first-output 30s/60s)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, and 2026-10-10 retune 15s/30s cap 60)"
 created: 2026-09-07
 revised_at: 2026-10-09
 ---
@@ -227,8 +227,8 @@ not a NewAPI-only knob and not the same object as metered TTFT.
 | **First-useful-output (this budget)** | Timer from attempt start until the attempt **commits** output that stops account failover/replay. Heartbeats, empty deltas, usage-only frames, and transport headers do **not** stop it. Platform commit events must match “client-bound progress that forbids silent retry” (e.g. NewAPI: content / reasoning / refusal / function-tool; Kiro: client-visible text or tool — unsigned thinking alone does not commit). |
 | **TTFT (`usage_logs.first_token_ms`)** | Observability. May use a **narrower** arming rule (e.g. Kiro visible text only; OpenAI `semantic` vs `visible`). A request can therefore show TTFT ≠ the moment this budget stopped. Do not use TTFT percentiles alone to set this budget without checking the platform commit rule. |
 
-Defaults (seconds): standard stream **30**, high-reasoning effort **60**
-(`high` / `xhigh` / `max` and platform equivalents). Cap **120**.
+Defaults (seconds): standard stream **15**, high-reasoning effort **30**
+(`high` / `xhigh` / `max` and platform equivalents). Cap **60**.
 Config SSOT: `gateway.stream_first_output_timeout_seconds` and
 `gateway.stream_first_output_high_effort_timeout_seconds`. Platform-specific
 keys may override when explicitly set; zero means inherit the universal default

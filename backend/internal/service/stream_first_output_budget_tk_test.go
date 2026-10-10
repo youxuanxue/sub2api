@@ -18,14 +18,14 @@ import (
 )
 
 func TestResolveStreamFirstOutputTimeoutDefaults(t *testing.T) {
-	require.Equal(t, 30*time.Second, resolveStreamFirstOutputTimeout(nil, false))
-	require.Equal(t, 60*time.Second, resolveStreamFirstOutputTimeout(nil, true))
+	require.Equal(t, 15*time.Second, resolveStreamFirstOutputTimeout(nil, false))
+	require.Equal(t, 30*time.Second, resolveStreamFirstOutputTimeout(nil, true))
 
 	cfg := &config.Config{}
-	cfg.Gateway.StreamFirstOutputTimeoutSeconds = 40
-	cfg.Gateway.StreamFirstOutputHighEffortTimeoutSeconds = 90
-	require.Equal(t, 40*time.Second, resolveStreamFirstOutputTimeout(cfg, false))
-	require.Equal(t, 90*time.Second, resolveStreamFirstOutputTimeout(cfg, true))
+	cfg.Gateway.StreamFirstOutputTimeoutSeconds = 20
+	cfg.Gateway.StreamFirstOutputHighEffortTimeoutSeconds = 45
+	require.Equal(t, 20*time.Second, resolveStreamFirstOutputTimeout(cfg, false))
+	require.Equal(t, 45*time.Second, resolveStreamFirstOutputTimeout(cfg, true))
 }
 
 func TestStreamFirstOutputGuardBudgetFired(t *testing.T) {

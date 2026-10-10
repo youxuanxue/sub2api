@@ -2286,13 +2286,13 @@
         "streamFirstOutputHighEffort(effort)",
         "CandidateChatSwitchLimit"
       ],
-      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 30s / high-effort 60s); non-streaming defaults to 300s. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly."
+      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 15s / high-effort 30s); non-streaming defaults to 300s. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly."
     },
     {
       "path": "backend/internal/service/stream_first_output_budget_tk.go",
       "must_contain": [
-        "defaultStreamFirstOutputTimeout           = 30 * time.Second",
-        "defaultStreamFirstOutputHighEffortTimeout = 60 * time.Second",
+        "defaultStreamFirstOutputTimeout           = 15 * time.Second",
+        "defaultStreamFirstOutputHighEffortTimeout = 30 * time.Second",
         "func resolveStreamFirstOutputTimeout(",
         "func armStreamFirstOutputGuard(",
         "Reason:           \"first_output_unavailable\"",
@@ -2301,7 +2301,7 @@
         "SafeToFailoverAfterWrite: true",
         "c.Writer.Size() >= 0"
       ],
-      "rationale": "Universal stream first-useful-output budget SSOT (30s / 60s high-effort, cap 120). Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite via Size-aware streamFirstOutputFailoverIfBudgetFired."
+      "rationale": "Universal stream first-useful-output budget SSOT (15s / 30s high-effort, cap 60). Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite via Size-aware streamFirstOutputFailoverIfBudgetFired."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
@@ -15963,23 +15963,23 @@
         "StreamFirstOutputTimeoutSeconds int `mapstructure:\"stream_first_output_timeout_seconds\"`",
         "StreamFirstOutputHighEffortTimeoutSeconds int `mapstructure:\"stream_first_output_high_effort_timeout_seconds\"`",
         "NewAPIChatNonstreamFirstOutputTimeout int `mapstructure:\"newapi_chat_nonstream_first_output_timeout\"`",
-        "viper.SetDefault(\"gateway.stream_first_output_timeout_seconds\", 30)",
-        "viper.SetDefault(\"gateway.stream_first_output_high_effort_timeout_seconds\", 60)",
+        "viper.SetDefault(\"gateway.stream_first_output_timeout_seconds\", 15)",
+        "viper.SetDefault(\"gateway.stream_first_output_high_effort_timeout_seconds\", 30)",
         "viper.SetDefault(\"gateway.newapi_chat_first_output_timeout\", 0)",
         "viper.SetDefault(\"gateway.newapi_chat_nonstream_first_output_timeout\", 300)",
-        "gateway.stream_first_output_timeout_seconds must be between 0-120 seconds",
-        "gateway.newapi_chat_first_output_timeout must be between 0-120 seconds (streaming first-output override)"
+        "gateway.stream_first_output_timeout_seconds must be between 0-60 seconds",
+        "gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)"
       ],
-      "rationale": "Universal stream first-output SSOT defaults to 30s / high-effort 60s (max 120). NewAPI Chat streaming inherits unless overridden; non-streaming stays 300s. Upstream merge must not collapse budgets or revive ResponseHeaderTimeout bleed."
+      "rationale": "Universal stream first-output SSOT defaults to 15s / high-effort 30s (max 60). NewAPI Chat streaming inherits unless overridden; non-streaming stays 300s. Upstream merge must not collapse budgets or revive ResponseHeaderTimeout bleed."
     },
     {
       "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
       "must_contain": [
-        "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-30}",
-        "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-60}",
+        "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-15}",
+        "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-30}",
         "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}"
       ],
-      "rationale": "Blue/green deploy must ship universal stream first-output defaults (30s/60s) and NewAPI nonstream 300s."
+      "rationale": "Blue/green deploy must ship universal stream first-output defaults (15s/30s) and NewAPI nonstream 300s."
     },
     {
       "path": "backend/internal/service/candidate_chat_attempt_tk_test.go",
@@ -15987,7 +15987,7 @@
         "TestCandidateChatStreamVersusNonstreamBudgets",
         "TestNewAPIChatFirstOutputTimeoutResolver",
         "non-stream must not use ResponseHeaderTimeout",
-        "stream default is 3×30s"
+        "stream default is 3×15s"
       ],
       "rationale": "Focused unit tests lock stream vs nonstream first-output budgets and forbid ResponseHeaderTimeout from redefining either."
     },
@@ -15997,7 +15997,7 @@
         "GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT:-0}",
         "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}"
       ],
-      "rationale": "Stage0 compose (embedded in Lightsail user-data at the 14336-byte cap) cannot grow new STREAM_FIRST_OUTPUT_* lines. NewAPI stream override defaults to 0 so hosts inherit code SSOT 30s/60s; nonstream stays 300s. Universal env inject is owned by ops/stage0/deploy_via_ssm_bluegreen.sh + deploy/config.example.yaml + config viper defaults."
+      "rationale": "Stage0 compose (embedded in Lightsail user-data at the 14336-byte cap) cannot grow new STREAM_FIRST_OUTPUT_* lines. NewAPI stream override defaults to 0 so hosts inherit code SSOT 15s/30s; nonstream stays 300s. Universal env inject is owned by ops/stage0/deploy_via_ssm_bluegreen.sh + deploy/config.example.yaml + config viper defaults."
     },
     {
       "path": "backend/internal/service/gateway_request.go",
