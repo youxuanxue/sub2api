@@ -942,8 +942,8 @@ fi
 # (a revert returns identical results, so no test catches it; an EXPLAIN-plan
 # test is unreliable on small fixtures since the planner seq-scans tiny tables
 # regardless of shape). First entry: /admin/users GetLatestUsedAtByUserIDs must
-# stay a per-user LATERAL index probe and not revert to the full-table
-# `ANY($1) GROUP BY` seq scan (~1.3s on prod, 2.4M rows). See PR #877.
+# stay ANY($1)+GROUP BY on partitioned usage_logs and not revert to per-user
+# LATERAL MAX (~6.5s on prod, 8.7M rows / 70 partitions). See perf-query-shape.json.
 echo ""
 
 fi # preflight gate
