@@ -2,7 +2,7 @@ name: Ops Payment Billing Watch
 
 # Read-only prod payment/recharge watch:
 #   - every ~30m: attack-pattern Feishu alerts (cancel storms / rapid creates /
-#     suspicious COMPLETED with empty trade_no or sub-5s settle)
+#     COMPLETED with empty payment_trade_no)
 #   - Monday 01:00 UTC (~09:00 Asia/Shanghai): weekly Feishu report covering
 #     last 7d / prev calendar month / current calendar month / all-time
 #

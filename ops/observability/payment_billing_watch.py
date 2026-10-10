@@ -108,33 +108,37 @@ def build_weekly_report(snapshot: dict[str, Any], *, now: dt.datetime | None = N
         )
 
     lines.append("")
-    lines.append("【近7天 COMPLETED 按通道】")
-    provider_rows = [
-        r
-        for r in snapshot["completed_by_provider"]
-        if isinstance(r, dict) and r.get("period") == "last_7d"
-    ]
-    if not provider_rows:
-        lines.append("- （无）")
-    else:
+    lines.append("【COMPLETED 按通道】")
+    for period in ("last_7d", "prev_calendar_month", "current_calendar_month", "all_time"):
+        provider_rows = [
+            r
+            for r in snapshot["completed_by_provider"]
+            if isinstance(r, dict) and r.get("period") == period
+        ]
+        label = PERIOD_LABELS[period]
+        if not provider_rows:
+            lines.append(f"- {label}：（无）")
+            continue
         for row in provider_rows:
             lines.append(
-                f"- {row.get('provider_key')}/{row.get('payment_type')}: "
+                f"- {label} {row.get('provider_key')}/{row.get('payment_type')}: "
                 f"{int(row.get('n') or 0)} 笔 {_money(row.get('amount') or 0)}"
             )
 
     lines.append("")
     lines.append("【站内入账 redeem_codes 正额】")
-    credit_rows = [
-        r for r in snapshot["admin_credits"] if isinstance(r, dict) and r.get("period") == "last_7d"
-    ]
-    if not credit_rows:
-        lines.append("- 近7天：（无）")
-    else:
+    for period in ("last_7d", "prev_calendar_month", "current_calendar_month", "all_time"):
+        credit_rows = [
+            r for r in snapshot["admin_credits"] if isinstance(r, dict) and r.get("period") == period
+        ]
+        label = PERIOD_LABELS[period]
+        if not credit_rows:
+            lines.append(f"- {label}：（无）")
+            continue
         for row in credit_rows:
             kind = str(row.get("notes_kind") or "admin_other")
             lines.append(
-                f"- 近7天 {CREDIT_LABELS.get(kind, kind)}: "
+                f"- {label} {CREDIT_LABELS.get(kind, kind)}: "
                 f"{int(row.get('n') or 0)} 笔 {_money(row.get('amount') or 0)} / "
                 f"{int(row.get('users') or 0)} 用户"
             )

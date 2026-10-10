@@ -173,13 +173,56 @@ class PaymentBillingWatchTest(unittest.TestCase):
             parse_snapshot({"schema_version": 99})
 
     def test_weekly_report_contains_periods_and_channels(self) -> None:
-        report = build_weekly_report(sample_snapshot())
+        snap = sample_snapshot(
+            completed_by_provider=[
+                {
+                    "period": "last_7d",
+                    "provider_key": "easypay",
+                    "payment_type": "usdt",
+                    "n": 2,
+                    "amount": 100.0,
+                },
+                {
+                    "period": "current_calendar_month",
+                    "provider_key": "stripe",
+                    "payment_type": "stripe",
+                    "n": 1,
+                    "amount": 1.0,
+                },
+                {
+                    "period": "all_time",
+                    "provider_key": "easypay",
+                    "payment_type": "usdt",
+                    "n": 2,
+                    "amount": 100.0,
+                },
+            ],
+            admin_credits=[
+                {
+                    "period": "last_7d",
+                    "notes_kind": "admin_adjust",
+                    "n": 1,
+                    "amount": 1000.0,
+                    "users": 1,
+                },
+                {
+                    "period": "all_time",
+                    "notes_kind": "payment_fulfillment",
+                    "n": 3,
+                    "amount": 101.0,
+                    "users": 3,
+                },
+            ],
+        )
+        report = build_weekly_report(snap)
         self.assertIn("支付/充值周报", report)
         self.assertIn("近7天", report)
         self.assertIn("上自然月", report)
         self.assertIn("本自然月", report)
         self.assertIn("全部累计", report)
-        self.assertIn("easypay/usdt", report)
+        self.assertIn("近7天 easypay/usdt", report)
+        self.assertIn("本自然月 stripe/stripe", report)
+        self.assertIn("全部累计 支付履约", report)
         self.assertIn("USDT 支付", report)
         self.assertIn("$100.00", report)
 

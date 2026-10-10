@@ -10,6 +10,10 @@ set -euo pipefail
 
 ANOMALY_WINDOW_MINUTES="${ANOMALY_WINDOW_MINUTES:-15}"
 RAPID_WINDOW_SECONDS="${RAPID_WINDOW_SECONDS:-60}"
+if [[ ! "$ANOMALY_WINDOW_MINUTES" =~ ^[0-9]+$ ]] || [[ ! "$RAPID_WINDOW_SECONDS" =~ ^[0-9]+$ ]]; then
+  echo "probe-payment-billing-watch: ANOMALY_WINDOW_MINUTES and RAPID_WINDOW_SECONDS must be non-negative integers" >&2
+  exit 1
+fi
 PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
 
 $PSQL -v ON_ERROR_STOP=1 -c "
@@ -75,6 +79,17 @@ SELECT json_build_object(
         WHERE created_at >= now() - interval '7 days' AND status = 'COMPLETED'
         GROUP BY 2, 3
         UNION ALL
+        SELECT 'prev_calendar_month',
+               coalesce(provider_key, '(null)'),
+               coalesce(payment_type, '(null)'),
+               count(*),
+               round(sum(amount)::numeric, 2)
+        FROM payment_orders
+        WHERE created_at >= date_trunc('month', now() AT TIME ZONE 'UTC') - interval '1 month'
+          AND created_at < date_trunc('month', now() AT TIME ZONE 'UTC')
+          AND status = 'COMPLETED'
+        GROUP BY 2, 3
+        UNION ALL
         SELECT 'current_calendar_month',
                coalesce(provider_key, '(null)'),
                coalesce(payment_type, '(null)'),
@@ -114,6 +129,24 @@ SELECT json_build_object(
                count(DISTINCT used_by) AS users
         FROM redeem_codes
         WHERE used_at >= now() - interval '7 days'
+          AND type IN ('balance', 'admin_balance')
+          AND value > 0
+        GROUP BY 2
+        UNION ALL
+        SELECT 'prev_calendar_month',
+               CASE
+                 WHEN type = 'balance' THEN 'payment_fulfillment'
+                 WHEN coalesce(notes, '') = '开户期初余额（管理员）' THEN 'admin_opening'
+                 WHEN coalesce(notes, '') IN ('注册初始余额', '邀请试用赠予', 'OAuth首次绑定默认余额') THEN 'signup_gift'
+                 WHEN coalesce(notes, '') = '' THEN 'admin_adjust'
+                 ELSE 'admin_other'
+               END,
+               count(*),
+               round(sum(value)::numeric, 2),
+               count(DISTINCT used_by)
+        FROM redeem_codes
+        WHERE used_at >= date_trunc('month', now() AT TIME ZONE 'UTC') - interval '1 month'
+          AND used_at < date_trunc('month', now() AT TIME ZONE 'UTC')
           AND type IN ('balance', 'admin_balance')
           AND value > 0
         GROUP BY 2
@@ -240,10 +273,9 @@ SELECT json_build_object(
       WHERE o.status = 'COMPLETED'
         AND o.paid_at IS NOT NULL
         AND o.created_at >= now() - make_interval(mins => ${ANOMALY_WINDOW_MINUTES}::int)
-        AND (
-          coalesce(o.payment_trade_no, '') = ''
-          OR extract(epoch FROM (o.paid_at - o.created_at)) < 5
-        )
+        -- Forged EasyPay callbacks typically leave payment_trade_no empty; do not
+        -- alert on sub-5s settle alone (legit Stripe can be that fast).
+        AND coalesce(o.payment_trade_no, '') = ''
       ORDER BY o.id
       LIMIT 20
     ) a
