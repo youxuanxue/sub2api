@@ -22,6 +22,53 @@ class WaveBFreezeDeltaTests(unittest.TestCase):
         sql = delta.watermark_sql()
         self.assertIn("usage_billing_dedup", sql)
         self.assertIn("dedup_max_id", sql)
+        self.assertIn("groups", sql)
+
+    def test_decide_path_c_lite_when_oltp_matches(self) -> None:
+        hz = {
+            "dedup_max_id": 100,
+            "dedup_count": 90,
+            "accounts": 215,
+            "users": 65,
+            "api_keys": 453,
+            "groups": 85,
+            "settings": 318,
+        }
+        aws = dict(hz)
+        aws["dedup_max_id"] = 150
+        aws["dedup_count"] = 140
+        decision = delta.decide_freeze_path(hz, aws)
+        self.assertEqual(decision["path"], "c_lite")
+        self.assertTrue(decision["skip_oltp_refresh"])
+        self.assertEqual(decision["dedup_delta_rows"], 50)
+        self.assertEqual(decision["mismatches"], {})
+
+    def test_decide_path_c_full_on_oltp_mismatch(self) -> None:
+        hz = {
+            "dedup_max_id": 100,
+            "dedup_count": 90,
+            "accounts": 215,
+            "users": 65,
+            "api_keys": 453,
+            "groups": 85,
+            "settings": 318,
+        }
+        aws = dict(hz)
+        aws["accounts"] = 216
+        decision = delta.decide_freeze_path(hz, aws)
+        self.assertEqual(decision["path"], "c_full_oltp")
+        self.assertFalse(decision["skip_oltp_refresh"])
+        self.assertIn("accounts", decision["mismatches"])
+
+    def test_estimate_c_lite_faster_than_full(self) -> None:
+        lite = delta.estimate_freeze_minutes(dedup_delta_rows=963, path="c_lite")
+        full = delta.estimate_freeze_minutes(dedup_delta_rows=963, path="c_full_oltp")
+        self.assertEqual(lite["path"], "c_lite")
+        self.assertLess(lite["user_visible_minutes_estimate"], 3.0)
+        self.assertLess(
+            lite["user_visible_seconds_estimate"],
+            full["user_visible_seconds_estimate"],
+        )
 
     def test_truncate_requires_tables(self) -> None:
         with self.assertRaises(ValueError):
@@ -86,11 +133,81 @@ class WaveBFreezeDeltaTests(unittest.TestCase):
         self.assertIn("session_replication_role = replica", trunc)
         self.assertIn("id > 100", plan["sql"]["dedup_delta_copy"])
         self.assertEqual(plan["estimate"]["dedup_delta_rows"], 7500)
+        self.assertEqual(plan["path"], "c_full_oltp")
         self.assertIn("--exclude-table-data=usage_billing_dedup", plan["pg_dump_exclude_table_data"])
+
+    def test_plan_c_lite_omits_truncate(self) -> None:
+        hz = {
+            "dedup_max_id": 100,
+            "dedup_count": 90,
+            "accounts": 215,
+            "users": 65,
+            "api_keys": 453,
+            "groups": 85,
+            "settings": 318,
+        }
+        aws = dict(hz)
+        aws["dedup_count"] = 140
+        aws["dedup_max_id"] = 150
+        out = subprocess.check_output(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "plan",
+                "--watermark-json",
+                json.dumps(hz),
+                "--aws-frozen-json",
+                json.dumps(aws),
+                "--oltp-tables",
+                "accounts,users,settings",
+            ],
+            text=True,
+        )
+        plan = json.loads(out)
+        self.assertEqual(plan["path"], "c_lite")
+        self.assertIsNone(plan["sql"]["truncate_oltp"])
+        self.assertEqual(plan["estimate"]["path"], "c_lite")
+        self.assertEqual(plan["estimate"]["dedup_delta_rows"], 50)
+
+    def test_decide_path_cli(self) -> None:
+        hz = {
+            "dedup_max_id": 100,
+            "dedup_count": 90,
+            "accounts": 215,
+            "users": 65,
+            "api_keys": 453,
+            "groups": 85,
+            "settings": 318,
+        }
+        aws = dict(hz)
+        aws["dedup_count"] = 140
+        out = subprocess.check_output(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "decide-path",
+                "--hz-json",
+                json.dumps(hz),
+                "--aws-json",
+                json.dumps(aws),
+            ],
+            text=True,
+        )
+        decision = json.loads(out)
+        self.assertEqual(decision["path"], "c_lite")
+        self.assertLess(decision["estimate"]["user_visible_minutes_estimate"], 3.0)
 
     def test_estimate_cli(self) -> None:
         out = subprocess.check_output(
-            [sys.executable, str(SCRIPT), "estimate", "--dedup-delta-rows", "7500"],
+            [
+                sys.executable,
+                str(SCRIPT),
+                "estimate",
+                "--dedup-delta-rows",
+                "7500",
+                "--path",
+                "c_full_oltp",
+            ],
             text=True,
         )
         est = json.loads(out)

@@ -187,7 +187,7 @@ Bootstrap（`render-prod-bootstrap.sh`）已嵌入：`tokenkey-pgdump.timer`（`
 - 点火：GHA `deploy-prod-hetzner-stage0.yml` · tag `1.8.283` · IP `167.233.211.115` · `mi-033c9569c7fb8b884` · E0 `aarch64` · timers active · Feishu webhook 已从 AWS 拷贝  
 - 演练 restore（刷新）：`tokenkey-20261010T155229Z.sql.gz` → HZ；对账 `accounts=215=215`；`usage_billing_dedup` HZ `14571497`（dump 窗）；`usage_logs` HZ `0`（precious 预期）；下载 ~17s / restore ~5.0 min  
 - E1：`api-hz.tokenkey.dev` A → `167.233.211.115`；LE 证书已签；`https://api-hz.tokenkey.dev/health` → 200  
-- 零影响预热：HZ SSM secrets 已同步；`warm_pull` `1.8.283` 绿；控制面默认仍 `i-*`；正式 Caddy dry 四 vhost；**CallModel 公网 NS 已跟齐 Porkbun**（A=`34.194.234.88`）；**Mode C 压窗**见 runbook（预灌+dedup 增量，目标约 4–8 min；整库回退约 10–15 min）  
+- 零影响预热：HZ SSM secrets 已同步；`warm_pull` `1.8.283` 绿；控制面默认仍 `i-*`；正式 Caddy dry 四 vhost；**CallModel 公网 NS 已跟齐 Porkbun**（A=`34.194.234.88`）；**Mode C 压窗**见 runbook（C-lite 约 1.5–2.5 min / C-full 约 4–8 min；整库回退约 10–15 min）  
 - **Wave B 延期（2026-10-10）：** 现网请求量高，**不做冻写/正式 DNS**；正式流量继续 AWS EIP `34.194.234.88`。低流量窗再批「批准冻写切流」。**Porkbun TTL→300 已 apply**（四正式 A；`api-hz` 仍 600）；Better Stack `api-hz` 旁路仍可人工建。  
 
 user-data **必须以 `#!/bin/bash` 开头**；AWS CLI 走 awscliv2 zip。
@@ -196,7 +196,7 @@ user-data **必须以 `#!/bin/bash` 开头**；AWS CLI 走 awscliv2 zip。
 
 **可照抄 runbook（含 Mode C 压窗、回滚、QA/告警附录）：** [`WAVE-B-PROD-CUTOVER-RUNBOOK.md`](WAVE-B-PROD-CUTOVER-RUNBOOK.md)
 
-**默认 Mode C（压窗）：** 开钟前整库预灌 dump A + watermark → 冻写 → OLTP 小包全量 + `usage_billing_dedup id>` 增量 → 对账 → DNS。用户可感知写入中断目标约 **4–8 min**（非整库 10–15 min）。禁止先切 DNS 再补库。SQL/估时：`ops/stage0/wave_b_freeze_delta.py`。
+**默认 Mode C（压窗）：** 开钟前整库预灌 dump A + watermark → 冻写 → `decide-path`：**C-lite**（OLTP count 齐则只灌 dedup，约 **1.5–2.5 min**）或 **C-full**（OLTP 小包 + dedup，约 **4–8 min**）→ 对账 → DNS。禁止先切 DNS 再补库。SQL/估时：`ops/stage0/wave_b_freeze_delta.py`。
 
 | 步 | 动作 | 红灯 |
 |---|---|---|

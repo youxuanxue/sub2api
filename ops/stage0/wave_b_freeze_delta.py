@@ -7,8 +7,8 @@ SQL on frozen AWS / pre-seeded HZ. Default is plan-only.
 Intent (see deploy/hetzner/WAVE-B-PROD-CUTOVER-RUNBOOK.md Mode C):
   1. Ahead of freeze: full precious restore of dump A on HZ; capture watermark.
   2. Freeze AWS writes.
-  3. Refresh small/medium OLTP tables from frozen AWS; append usage_billing_dedup
-     rows with id > watermark (ON CONFLICT DO NOTHING).
+  3. C-lite gate: if frozen AWS OLTP counts == HZ pre-seed, skip OLTP dump/restore
+     and only append usage_billing_dedup id > watermark; else C-full OLTP refresh.
   4. Reconcile counts; then DNS / Caddy / Edge CIDR.
 
 This avoids DROP DATABASE + replaying ~14M dedup rows inside the freeze window.
@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Any
+from typing import Any, Literal
 
 # Partition / bulky reconstructible log parents (precious dump already excludes
 # their row data). Also skip the large append-only ledger — that uses id watermark.
@@ -34,6 +34,16 @@ BULKY_EXCLUDE_STEMS = (
 EXCLUDE_TABLE_REGEX = r"^(" + "|".join(BULKY_EXCLUDE_STEMS) + r")"
 DEDUP_TABLE = "usage_billing_dedup"
 
+# OLTP cardinality keys used for C-lite admission (must match frozen AWS vs HZ).
+# Dedup is allowed to diverge — that is the delta path.
+OLTP_GATE_KEYS = (
+    "accounts",
+    "users",
+    "api_keys",
+    "groups",
+    "settings",
+)
+
 # Tables whose row counts must match AWS after delta apply (canary + cutover gate).
 RECONCILE_TABLES = (
     "users",
@@ -43,6 +53,8 @@ RECONCILE_TABLES = (
     "settings",
     DEDUP_TABLE,
 )
+
+FreezePath = Literal["c_lite", "c_full_oltp"]
 
 
 def list_oltp_tables_sql() -> str:
@@ -68,10 +80,48 @@ SELECT json_build_object(
   'accounts', (SELECT count(*) FROM accounts), -- ops-allow-soft-deleted
   'users', (SELECT count(*) FROM users), -- ops-allow-soft-deleted
   'api_keys', (SELECT count(*) FROM api_keys), -- ops-allow-soft-deleted
+  'groups', (SELECT count(*) FROM groups), -- ops-allow-soft-deleted
   'settings', (SELECT count(*) FROM settings)
 )
 FROM {DEDUP_TABLE};
 """.strip()
+
+
+def decide_freeze_path(hz: dict[str, Any], aws_frozen: dict[str, Any]) -> dict[str, Any]:
+    """Choose C-lite (dedup-only) vs C-full (OLTP refresh + dedup).
+
+    C-lite requires every OLTP_GATE_KEYS count to match. Dedup may differ.
+    Count-only cannot see in-place updates; runbook limits C-lite to fresh C0.
+    """
+    missing = [k for k in OLTP_GATE_KEYS if k not in hz or k not in aws_frozen]
+    mismatches = {
+        k: {"hz": hz.get(k), "aws": aws_frozen.get(k)}
+        for k in OLTP_GATE_KEYS
+        if k not in missing and int(hz[k]) != int(aws_frozen[k])
+    }
+    if missing:
+        path: FreezePath = "c_full_oltp"
+        reason = f"missing OLTP gate keys: {', '.join(missing)}"
+    elif mismatches:
+        path = "c_full_oltp"
+        reason = "OLTP gate count mismatch; refresh OLTP then dedup"
+    else:
+        path = "c_lite"
+        reason = "OLTP gate counts match; skip OLTP dump/restore (dedup-only)"
+    hz_dedup = int(hz.get("dedup_count", 0))
+    aws_dedup = int(aws_frozen.get("dedup_count", hz_dedup))
+    hz_max = int(hz.get("dedup_max_id", 0))
+    aws_max = int(aws_frozen.get("dedup_max_id", hz_max))
+    return {
+        "path": path,
+        "reason": reason,
+        "oltp_gate_keys": list(OLTP_GATE_KEYS),
+        "mismatches": mismatches,
+        "missing_keys": missing,
+        "dedup_delta_rows": max(0, aws_dedup - hz_dedup),
+        "dedup_delta_by_max_id": max(0, aws_max - hz_max),
+        "skip_oltp_refresh": path == "c_lite",
+    }
 
 
 def pg_dump_exclude_table_data_args() -> list[str]:
@@ -164,55 +214,109 @@ def iter_self_check_sql() -> list[tuple[str, str]]:
 def estimate_freeze_minutes(
     *,
     dedup_delta_rows: int,
-    oltp_dump_seconds: int = 45,
-    oltp_restore_seconds: int = 60,
+    path: FreezePath = "c_full_oltp",
+    oltp_dump_seconds: int | None = None,
+    oltp_restore_seconds: int | None = None,
+    ops_pad_seconds: int | None = None,
     dedup_rows_per_second: int = 5000,
 ) -> dict[str, Any]:
     """Rough freeze-window estimate after Mode C pre-seed (not a promise)."""
+    if path == "c_lite":
+        dump_s = 0 if oltp_dump_seconds is None else oltp_dump_seconds
+        restore_s = 0 if oltp_restore_seconds is None else oltp_restore_seconds
+        pad = 120 if ops_pad_seconds is None else ops_pad_seconds
+        note = (
+            "C-lite: dedup-only after OLTP gate match; pad=freeze/reconcile/caddy/dns/cidr; "
+            "excludes DNS TTL residual"
+        )
+    else:
+        dump_s = 45 if oltp_dump_seconds is None else oltp_dump_seconds
+        restore_s = 60 if oltp_restore_seconds is None else oltp_restore_seconds
+        pad = 180 if ops_pad_seconds is None else ops_pad_seconds
+        note = (
+            "C-full: OLTP dump+restore + dedup; pad=freeze/reconcile/caddy/dns/cidr; "
+            "excludes DNS TTL residual"
+        )
     dedup_secs = max(5, int(dedup_delta_rows / max(dedup_rows_per_second, 1)))
-    data_secs = oltp_dump_seconds + oltp_restore_seconds + dedup_secs
-    # freeze stop + reconcile + caddy/dns/cidr outside pure DB path
-    total = data_secs + 180
+    data_secs = dump_s + restore_s + dedup_secs
+    total = data_secs + pad
     return {
+        "path": path,
         "dedup_delta_rows": dedup_delta_rows,
+        "oltp_dump_seconds": dump_s,
+        "oltp_restore_seconds": restore_s,
+        "ops_pad_seconds": pad,
         "db_path_seconds": data_secs,
         "user_visible_seconds_estimate": total,
         "user_visible_minutes_estimate": round(total / 60.0, 1),
-        "note": "assumes pre-seeded HZ + frozen AWS; excludes DNS TTL residual",
+        "note": note,
     }
 
 
-def build_plan(watermark: dict[str, Any], oltp_tables: list[str]) -> dict[str, Any]:
+def build_plan(
+    watermark: dict[str, Any],
+    oltp_tables: list[str],
+    *,
+    aws_frozen: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     wm_id = int(watermark["dedup_max_id"])
-    return {
-        "mode": "wave_b_compress_freeze",
-        "watermark": watermark,
-        "oltp_table_count": len(oltp_tables),
-        "oltp_tables": oltp_tables,
-        "steps": [
-            "B0: full precious restore of dump A on HZ (outside freeze)",
-            "capture watermark on HZ (and optionally AWS) via watermark_sql",
+    decision = None
+    path: FreezePath = "c_full_oltp"
+    if aws_frozen is not None:
+        decision = decide_freeze_path(watermark, aws_frozen)
+        path = decision["path"]  # type: ignore[assignment]
+        dedup_delta = int(decision["dedup_delta_rows"])
+    else:
+        dedup_delta = (
+            max(
+                0,
+                int(watermark.get("aws_dedup_count", watermark["dedup_count"]))
+                - int(watermark["dedup_count"]),
+            )
+            if "aws_dedup_count" in watermark
+            else 0
+        )
+    if path == "c_lite":
+        steps = [
+            "B0/C0: full precious restore of dump A on HZ (outside freeze); watermark",
             "B1: freeze AWS app containers",
-            "export OLTP data-only from AWS excluding logs + usage_billing_dedup",
+            "C-lite gate: decide-path OLTP counts match → skip OLTP dump/restore",
+            "export dedup CSV for id > watermark; HZ apply dedup_delta_apply",
+            "reconcile RECONCILE_TABLES counts AWS == HZ",
+            "B4–B6: Caddy / DNS / Edge CIDR; start HZ app if needed",
+        ]
+    else:
+        steps = [
+            "B0/C0: full precious restore of dump A on HZ (outside freeze); watermark",
+            "B1: freeze AWS app containers",
+            "C-full: export OLTP data-only from AWS excluding logs + usage_billing_dedup",
             "export dedup CSV for id > watermark",
             "HZ: stop app; TRUNCATE oltp tables; restore OLTP dump; apply dedup delta",
             "reconcile RECONCILE_TABLES counts AWS == HZ",
             "B4–B6: Caddy / DNS / Edge CIDR; start HZ app if needed",
-        ],
+        ]
+    return {
+        "mode": "wave_b_compress_freeze",
+        "path": path,
+        "decision": decision,
+        "watermark": watermark,
+        "oltp_table_count": len(oltp_tables),
+        "oltp_tables": oltp_tables,
+        "steps": steps,
         "sql": {
             "list_oltp_tables": list_oltp_tables_sql(),
             "watermark": watermark_sql(),
-            "truncate_oltp": truncate_oltp_sql(oltp_tables) if oltp_tables else None,
+            "truncate_oltp": (
+                None
+                if path == "c_lite"
+                else (truncate_oltp_sql(oltp_tables) if oltp_tables else None)
+            ),
             "dedup_delta_copy": dedup_delta_copy_sql(wm_id),
             "dedup_delta_apply": dedup_delta_apply_sql(),
             "reconcile": reconcile_sql(),
         },
         "pg_dump_exclude_table_data": pg_dump_exclude_table_data_args(),
-        "estimate": estimate_freeze_minutes(
-            dedup_delta_rows=max(0, int(watermark.get("aws_dedup_count", watermark["dedup_count"])) - int(watermark["dedup_count"]))
-            if "aws_dedup_count" in watermark
-            else 0
-        ),
+        "estimate": estimate_freeze_minutes(dedup_delta_rows=dedup_delta, path=path),
     }
 
 
@@ -227,17 +331,36 @@ def main(argv: list[str] | None = None) -> int:
     p_list.set_defaults(fn="list_oltp")
 
     p_plan = sub.add_parser("plan", help="Emit JSON plan from watermark + oltp table list")
-    p_plan.add_argument("--watermark-json", required=True, help="JSON object from watermark_sql")
+    p_plan.add_argument("--watermark-json", required=True, help="JSON object from watermark_sql (HZ)")
     p_plan.add_argument(
         "--oltp-tables",
         required=True,
         help="Comma-separated table names (from list_oltp_tables_sql)",
     )
+    p_plan.add_argument(
+        "--aws-frozen-json",
+        default=None,
+        help="Optional frozen-AWS watermark JSON; enables C-lite vs C-full decision",
+    )
     p_plan.set_defaults(fn="plan")
 
     p_est = sub.add_parser("estimate", help="Estimate freeze minutes from dedup delta rows")
     p_est.add_argument("--dedup-delta-rows", type=int, required=True)
+    p_est.add_argument(
+        "--path",
+        choices=("c_lite", "c_full_oltp"),
+        default="c_full_oltp",
+        help="Freeze path (default c_full_oltp)",
+    )
     p_est.set_defaults(fn="estimate")
+
+    p_dec = sub.add_parser(
+        "decide-path",
+        help="C-lite vs C-full from HZ + frozen-AWS watermark JSON",
+    )
+    p_dec.add_argument("--hz-json", required=True, help="HZ watermark JSON")
+    p_dec.add_argument("--aws-json", required=True, help="Frozen AWS watermark JSON")
+    p_dec.set_defaults(fn="decide")
 
     p_excl = sub.add_parser(
         "print-pg-dump-exclude-args",
@@ -254,7 +377,25 @@ def main(argv: list[str] | None = None) -> int:
         print(list_oltp_tables_sql())
         return 0
     if args.fn == "estimate":
-        print(json.dumps(estimate_freeze_minutes(dedup_delta_rows=args.dedup_delta_rows), indent=2))
+        print(
+            json.dumps(
+                estimate_freeze_minutes(
+                    dedup_delta_rows=args.dedup_delta_rows,
+                    path=args.path,
+                ),
+                indent=2,
+            )
+        )
+        return 0
+    if args.fn == "decide":
+        hz = json.loads(args.hz_json)
+        aws = json.loads(args.aws_json)
+        decision = decide_freeze_path(hz, aws)
+        decision["estimate"] = estimate_freeze_minutes(
+            dedup_delta_rows=int(decision["dedup_delta_rows"]),
+            path=decision["path"],
+        )
+        print(json.dumps(decision, indent=2))
         return 0
     if args.fn == "pg_dump_excl":
         print(" ".join(pg_dump_exclude_table_data_args()))
@@ -262,7 +403,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.fn == "plan":
         watermark = json.loads(args.watermark_json)
         tables = [t.strip() for t in args.oltp_tables.split(",") if t.strip()]
-        print(json.dumps(build_plan(watermark, tables), indent=2))
+        aws_frozen = json.loads(args.aws_frozen_json) if args.aws_frozen_json else None
+        print(json.dumps(build_plan(watermark, tables, aws_frozen=aws_frozen), indent=2))
         return 0
     return 2
 

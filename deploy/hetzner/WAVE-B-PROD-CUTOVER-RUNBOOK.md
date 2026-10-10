@@ -65,12 +65,25 @@ done
 
 | 模式 | 用户可感知写入中断 | 何时用 |
 |---|---|---|
-| **Mode C（默认，压窗）** | **约 4–8 min**（预灌后；见下） | HZ 已预灌 dump A + watermark |
+| **Mode C-lite（默认优先）** | **约 1.5–2.5 min** | C0 预灌较新 + 冻写后 OLTP gate 全绿 → 只灌 dedup 增量 |
+| Mode C-full | 约 4–8 min | OLTP gate 红；或 C0 偏旧不敢 lite |
 | Mode B（整库重灌） | 约 10–15 min | Mode C 红灯回退；或预灌失效 |
 
 Mode B 分步实测（2026-10-10）：冻写 0.5–1 + dump 1–1.5 + 下载 0.5–1 + DROP/CREATE restore ~5 + 对账/Caddy/DNS/CIDR ~4–8。  
 瓶颈是 `usage_billing_dedup`（~14M 行 / 盘上 ~4GB），不是小表。  
 DNS TTL 残余另计（预压 300s 后最多约 5 min 部分客户端仍打已冻 AWS）。
+
+**C-lite 门闩（机械）：** 冻写后两侧跑 `watermark_sql`，再：
+
+```bash
+python3 ops/stage0/wave_b_freeze_delta.py decide-path \
+  --hz-json "$HZ_WM_JSON" --aws-json "$AWS_FROZEN_WM_JSON"
+# path=c_lite → 跳过 OLTP dump/TRUNCATE/restore，只做 dedup delta
+# path=c_full_oltp → 走下节 C2 全量 OLTP
+```
+
+Gate 键：`accounts` / `users` / `api_keys` / `groups` / `settings` **count 必须相等**（`usage_billing_dedup` 允许差）。  
+**限制：** count 看不见同行更新；仅当 C0 预灌较新（建议 <1h）且 gate 绿才用 lite；不确定 → C-full。
 
 ---
 
@@ -107,7 +120,19 @@ python3 ops/stage0/wave_b_freeze_delta.py plan \
 
 同下节 B1（stop app；PG/Caddy 保留）。
 
-### C2 — 冻写窗内：OLTP 全量小包 + dedup 增量（勿 DROP DATABASE）
+### C2a — C-lite（优先）：仅 dedup 增量
+
+冻写后先 `decide-path`。若 `path=c_lite`：
+
+1. AWS：`plan.sql.dedup_delta_copy` → CSV。  
+2. HZ：stop `tokenkey`（可选，短窗）→ `plan.sql.dedup_delta_apply` → `plan.sql.reconcile`。  
+3. **勿** TRUNCATE / OLTP dump。对账绿 → C3。  
+
+红灯（对账失败）→ 解冻 AWS，或立刻改走 C2b / Mode B。
+
+### C2b — C-full：OLTP 全量小包 + dedup 增量（勿 DROP DATABASE）
+
+`decide-path` 为 `c_full_oltp`，或主动选择稳妥路径时用本节。
 
 **禁止** `TRUNCATE … CASCADE`（会经 FK 清空 `usage_logs*` 等 Mode C 不回灌的表）。截断 SQL 必须来自 `plan` 的 `sql.truncate_oltp`（`session_replication_role=replica` + 无 CASCADE）。
 
