@@ -94,6 +94,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'provision'
     needs: validate-matrix
     runs-on: ubuntu-latest
+    # OIDC trust on tokenkey-cicd-oidc allows environment:edge-<id> (not feature-branch refs).
+    environment: edge-${{ inputs.edge_id }}
     env:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
     steps:
