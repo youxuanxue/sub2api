@@ -21,7 +21,10 @@ for f in \
   "${STAGE0}/docker-compose.yml" \
   "${STAGE0}/Caddyfile.edge" \
   "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh" \
-  "${LIGHTSAIL}/restore-edge-env-secrets.sh"; do
+  "${STAGE0}/tokenkey-ghcr-prune-daily.sh" \
+  "${STAGE0}/tokenkey-pgdump.sh" \
+  "${LIGHTSAIL}/restore-edge-env-secrets.sh" \
+  "${LIGHTSAIL}/tokenkey-disk-metrics-edge.sh"; do
   [[ -f "$f" ]] || { echo "missing $f" >&2; exit 1; }
 done
 
@@ -43,6 +46,9 @@ PY
 compose_b64="$(b64_gzip "${STAGE0}/docker-compose.yml")"
 caddy_b64="$(b64_gzip "${STAGE0}/Caddyfile.edge")"
 prune_b64="$(b64_gzip "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh")"
+ghcr_daily_b64="$(b64_gzip "${STAGE0}/tokenkey-ghcr-prune-daily.sh")"
+pgdump_b64="$(b64_gzip "${STAGE0}/tokenkey-pgdump.sh")"
+disk_metrics_b64="$(b64_gzip "${LIGHTSAIL}/tokenkey-disk-metrics-edge.sh")"
 restore_secrets_b64="$(b64_gzip "${LIGHTSAIL}/restore-edge-env-secrets.sh")"
 cat >"${OUT}.tmp" <<'LAUNCH_HEAD'
 #!/bin/bash
@@ -64,6 +70,8 @@ echo "HETZNER_PROD_BOOTSTRAP_START $(date -u +%FT%TZ)"
 : "${GHCR_PAT_SSM_NAME:=}"
 : "${GHCR_PULL_USER:=}"
 : "${ALLOW_SECRET_GENERATE:=false}"
+: "${AWS_ACCOUNT_ID:=}"
+: "${TOKENKEY_PGDUMP_S3_URI:=}"
 
 case "${ALLOW_SECRET_GENERATE}" in
   true|false) ;;
@@ -185,6 +193,9 @@ cat >>"${OUT}.tmp" <<LAUNCH_EMBED
 COMPOSE_GZB64='${compose_b64}'
 CADDY_GZB64='${caddy_b64}'
 PRUNE_B64='${prune_b64}'
+GHCR_DAILY_B64='${ghcr_daily_b64}'
+PGDUMP_B64='${pgdump_b64}'
+DISK_METRICS_B64='${disk_metrics_b64}'
 RESTORE_SECRETS_B64='${restore_secrets_b64}'
 LAUNCH_EMBED
 
@@ -196,6 +207,75 @@ envsubst '${API_DOMAIN} ${ACME_EMAIL} ${MAIN_GATEWAY_ALLOWED_CIDR}' \
 
 printf '%s' "$PRUNE_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
 chmod +x /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
+
+printf '%s' "$GHCR_DAILY_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-ghcr-prune-daily.sh
+chmod +x /usr/local/bin/tokenkey-ghcr-prune-daily.sh
+/usr/local/bin/tokenkey-ghcr-prune-daily.sh --selftest
+/usr/local/bin/tokenkey-ghcr-prune-daily.sh --install-units
+
+printf '%s' "$PGDUMP_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-pgdump.sh
+chmod +x /usr/local/bin/tokenkey-pgdump.sh
+mkdir -p /var/lib/tokenkey/pgdump
+
+printf '%s' "$DISK_METRICS_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-disk-metrics.sh
+chmod +x /usr/local/bin/tokenkey-disk-metrics.sh
+/usr/local/bin/tokenkey-disk-metrics.sh --selftest
+
+cat > /etc/systemd/system/tokenkey-disk-metrics.service <<'DMSEOF'
+[Unit]
+Description=tokenkey PROD on-box disk-full and memory-pressure Feishu alerts
+After=network-online.target tokenkey.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/var/lib/tokenkey/.env
+ExecStart=/usr/local/bin/tokenkey-disk-metrics.sh
+DMSEOF
+
+cat > /etc/systemd/system/tokenkey-disk-metrics.timer <<'DMTEOF'
+[Unit]
+Description=Fire tokenkey PROD disk/memory pressure alerts every 5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+DMTEOF
+
+cat > /etc/systemd/system/tokenkey-pgdump.service <<'PSEOF'
+[Unit]
+Description=tokenkey pg_dump (every 2 hours)
+After=tokenkey.service
+Requires=tokenkey.service
+
+[Service]
+Type=oneshot
+Nice=19
+CPUSchedulingPolicy=other
+CPUQuota=40%
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+EnvironmentFile=-/var/lib/tokenkey/.env
+ExecStart=/usr/local/bin/tokenkey-pgdump.sh
+PSEOF
+
+cat > /etc/systemd/system/tokenkey-pgdump.timer <<'PTEOF'
+[Unit]
+Description=Run tokenkey-pgdump every 2 hours
+
+[Timer]
+OnCalendar=*-*-* 00/2:00:00
+Persistent=true
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target
+PTEOF
 
 printf '%s' "$RESTORE_SECRETS_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-restore-edge-env-secrets.sh
 chmod 0755 /usr/local/bin/tokenkey-restore-edge-env-secrets.sh
@@ -211,6 +291,16 @@ fi
 AWS_REGION="${SSM_REGION}" /usr/local/bin/tokenkey-restore-edge-env-secrets.sh \
   "${restore_secret_args[@]}"
 set -a; . "$SECRET_FILE"; set +a
+
+# Resolve pgdump S3 URI (Hybrid IAM allows prod/pgdump/* on this account bucket).
+if [ -z "${TOKENKEY_PGDUMP_S3_URI:-}" ]; then
+  if [ -z "${AWS_ACCOUNT_ID:-}" ]; then
+    AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)"
+  fi
+  if [ -n "${AWS_ACCOUNT_ID:-}" ] && [ "${AWS_ACCOUNT_ID}" != "None" ]; then
+    TOKENKEY_PGDUMP_S3_URI="s3://tokenkey-prod-pgdump-${AWS_ACCOUNT_ID}/prod/pgdump"
+  fi
+fi
 
 cat > /var/lib/tokenkey/.env <<ENVEOF
 API_DOMAIN=${API_DOMAIN}
@@ -236,6 +326,7 @@ JWT_EXPIRE_HOUR=1
 TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY}
 GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED=true
 QA_CAPTURE_ENABLED=false
+TOKENKEY_PGDUMP_S3_URI=${TOKENKEY_PGDUMP_S3_URI}
 ENVEOF
 chmod 0600 /var/lib/tokenkey/.env
 if ! grep -q 'QA_CAPTURE_ENABLED=' /var/lib/tokenkey/docker-compose.yml; then
@@ -285,6 +376,13 @@ UNITEOF
 
 systemctl daemon-reload
 systemctl enable --now tokenkey.service
+# Host parity with AWS prod / edge HZ: dump + disk/mem Feishu + ghcr prune.
+# QA maintenance/boundary + live QA_BUNDLE_* stay off until Wave B cutover
+# (staging must not point empty DB at live SQS). Feishu webhook env still
+# comes from post-boot sync (copy from AWS prod .env or sync-feishu-config).
+systemctl enable --now tokenkey-pgdump.timer
+systemctl enable --now tokenkey-disk-metrics.timer
+systemctl enable --now tokenkey-ghcr-prune-daily.timer
 sleep 30
 docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps || true
 echo "HETZNER_PROD_BOOTSTRAP_DONE $(date -u +%FT%TZ)"

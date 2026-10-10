@@ -1,0 +1,164 @@
+name: Prod Hetzner Stage0
+
+# Prod staging ignition: validate + dry-run, or paid Volume+cax21+SSM Hybrid
+# (no formal DNS / freeze / P1). Anchor: docs/approved/hetzner-cloud-full-migration.md
+# Secrets: HCLOUD_TOKEN (paid). AWS via OIDC environment:prod. Never commit tokens.
+
+run-name: "prod-hz op=${{ inputs.operation }} paid=${{ inputs.confirm_paid }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "validate = unit tests; provision = dry-run or paid ignition"
+        required: true
+        type: choice
+        options: [validate, provision]
+      confirm_instance:
+        description: "Must match tokenkey-prod-hz-cax21"
+        required: true
+        type: string
+      tag:
+        description: "Image tag without v (required when confirm_paid=true)"
+        required: false
+        type: string
+      allow_planned:
+        description: "Allow deployable=false prod target"
+        required: false
+        type: boolean
+        default: true
+      confirm_paid:
+        description: "Paid create Volume+server+SSM+compose (still no formal DNS)"
+        required: false
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - "deploy/hetzner/**"
+      - "deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml"
+      - "deploy/aws/lightsail/restore-edge-env-secrets.sh"
+      - "deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh"
+      - "deploy/aws/stage0/tokenkey-pgdump.sh"
+      - "deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh"
+      - ".github/workflows/deploy-prod-hetzner-stage0.yml"
+      - "docs/approved/hetzner-cloud-full-migration.md"
+
+concurrency:
+  group: deploy-prod-hetzner
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  validate-prod:
+    if: github.event_name == 'pull_request' || inputs.operation == 'validate' || inputs.operation == 'provision'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unit tests + prod bootstrap drift
+        run: |
+          python3 -m unittest deploy/hetzner/test_resolve_prod_hetzner_target.py -v
+          python3 -m unittest deploy/hetzner/test_render_prod_bootstrap.py -v
+          bash deploy/hetzner/render-prod-bootstrap.sh --check
+          bash deploy/aws/lightsail/test_restore_edge_env_secrets.sh
+
+  dispatch-prod:
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'provision'
+    needs: validate-prod
+    runs-on: ubuntu-latest
+    # OIDC trust on tokenkey-cicd-oidc allows environment:prod.
+    environment: prod
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve Hetzner prod target
+        id: prod
+        env:
+          CONFIRM_INSTANCE: ${{ inputs.confirm_instance }}
+          ALLOW_PLANNED: ${{ inputs.allow_planned }}
+        run: |
+          set -euo pipefail
+          ARGS=(--confirm-instance "$CONFIRM_INSTANCE" --github-output "$GITHUB_OUTPUT")
+          if [[ "${ALLOW_PLANNED}" == "true" ]]; then ARGS+=(--allow-planned); fi
+          python3 deploy/hetzner/resolve-prod-hetzner-target.py "${ARGS[@]}"
+
+      - name: Dry-run provision plan
+        if: inputs.confirm_paid == false
+        env:
+          ALLOW_PLANNED: ${{ inputs.allow_planned }}
+        run: |
+          set -euo pipefail
+          ARGS=()
+          if [[ "${ALLOW_PLANNED}" == "true" ]]; then ARGS+=(--allow-planned); fi
+          bash deploy/hetzner/provision-prod.sh "${ARGS[@]}"
+
+      - name: Require OIDC role for paid path
+        if: inputs.confirm_paid == true
+        run: |
+          if [[ -z "${OIDC_ROLE_ARN}" ]]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set"
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        if: inputs.confirm_paid == true
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ steps.prod.outputs.ssm_region || 'eu-west-2' }}
+
+      - name: Install hcloud CLI
+        if: inputs.confirm_paid == true
+        env:
+          HCLOUD_CLI_VERSION: v1.70.1
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_CLI_VERSION}/hcloud-linux-amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin hcloud
+          hcloud version
+
+      - name: Paid ignition (Volume + SSM + compose, no formal DNS)
+        if: inputs.confirm_paid == true
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          ALLOW_PLANNED: ${{ inputs.allow_planned }}
+          TAG: ${{ inputs.tag }}
+          ACME_EMAIL: ${{ vars.EDGE_ACME_EMAIL }}
+          MAIN_GATEWAY_ALLOWED_CIDR: ${{ vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR }}
+          GHCR_OWNER: ${{ github.repository_owner }}
+          GHCR_PAT_SSM_NAME: ${{ vars.EDGE_GHCR_PAT_SSM_NAME }}
+          ALLOW_SECRET_GENERATE: "true"
+        run: |
+          set -euo pipefail
+          if [[ -z "${HCLOUD_TOKEN}" ]]; then
+            echo "::error::HCLOUD_TOKEN secret missing"
+            exit 1
+          fi
+          if [[ -z "${TAG}" ]]; then
+            echo "::error::tag input required when confirm_paid=true"
+            exit 1
+          fi
+          if [[ -z "${ACME_EMAIL}" || -z "${MAIN_GATEWAY_ALLOWED_CIDR}" ]]; then
+            echo "::error::EDGE_ACME_EMAIL and EDGE_MAIN_GATEWAY_ALLOWED_CIDR vars required"
+            exit 1
+          fi
+          ARGS=(--confirm-paid --tag "$TAG")
+          if [[ "${ALLOW_PLANNED}" == "true" ]]; then ARGS+=(--allow-planned); fi
+          bash deploy/hetzner/provision-prod.sh "${ARGS[@]}"
+          echo "::notice::Ignition complete through stack health. Set api-hz.tokenkey.dev A, then E0/E1. Do not formal DNS / freeze / P1."
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## deploy-prod-hetzner-stage0"
+            echo "- paid: \`${{ inputs.confirm_paid }}\` · tag: \`${{ inputs.tag }}\`"
+            echo "- instance: \`${{ steps.prod.outputs.instance_name }}\`"
+            echo "- staging: \`${{ steps.prod.outputs.staging_domain }}\`"
+            echo "- \`${{ steps.prod.outputs.location }}/${{ steps.prod.outputs.server_type }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

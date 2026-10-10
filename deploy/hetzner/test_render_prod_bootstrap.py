@@ -32,6 +32,11 @@ class RenderProdBootstrapTests(unittest.TestCase):
         self.assertIn("/var/lib/tokenkey", body)
         self.assertIn("HETZNER_PROD_BOOTSTRAP", body)
         self.assertIn("tokenkey/hetzner/prod/stage0/env-secrets-backup", body)
+        self.assertIn("tokenkey-pgdump.timer", body)
+        self.assertIn("tokenkey-disk-metrics.timer", body)
+        self.assertIn("tokenkey-ghcr-prune-daily.timer", body)
+        self.assertIn("TOKENKEY_PGDUMP_S3_URI", body)
+        self.assertIn("QA_CAPTURE_ENABLED=false", body)
 
     def test_committed_artifact_matches_render_when_present(self) -> None:
         if not OUT.exists():

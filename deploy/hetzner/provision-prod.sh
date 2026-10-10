@@ -172,6 +172,9 @@ if [[ -z "$activation_id" || "$activation_id" == "null" ]]; then
   exit 1
 fi
 
+aws_account_id="$(aws sts get-caller-identity --query Account --output text)"
+pgdump_s3_uri="s3://tokenkey-prod-pgdump-${aws_account_id}/prod/pgdump"
+
 user_data_file="$(mktemp)"
 trap 'rm -f "$user_data_file"' EXIT
 {
@@ -195,6 +198,8 @@ export SWAP_SIZE_GIB='${SWAP_GIB}'
 export ALLOW_SECRET_GENERATE='${ALLOW_SECRET_GENERATE}'
 export VOLUME_ID='${volume_id}'
 export VOLUME_MOUNT='${VOLUME_MOUNT}'
+export AWS_ACCOUNT_ID='${aws_account_id}'
+export TOKENKEY_PGDUMP_S3_URI='${pgdump_s3_uri}'
 
 EOF
   if [[ "$(head -n1 "$LAUNCH_BODY")" == '#!'* ]]; then

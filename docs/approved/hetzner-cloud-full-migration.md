@@ -42,7 +42,7 @@ related_designs:
 |---|---|
 | 去哪 | Hetzner **`fsn1`**，机型 **`cax21`**（4c/8G **arm64**） |
 | 控面 | **SSM Hybrid**（蓝绿仍走 AWS SSM；HZ 现为单色 `tokenkey`） |
-| 节奏 | **Edge-first**：四边已切 → `us3`/`us6` → prod |
+| 节奏 | **Edge-first（四边）→ prod（override）→ `us3`/`us6` 延期**：见 README Prod 节 |
 | 身份 | 逻辑 edge id / 正式域名**不变**；平台差靠 `*-hz-*` 与 staging |
 | 数据 | **整库复刻**用舰队 precious-class `pg_dump` + 日志 data-only（见 README）；**禁止**只靠 `migrate-edge-accounts` 当「全量迁移」 |
 | 切流序 | 未切边：**冻写 → 新鲜 dump/restore → 对账 → 正式 A**；已切边禁止再整库覆盖 live HZ |
@@ -57,7 +57,7 @@ related_designs:
 | uk1 / us4 / us5 / uk2 正式 DNS | **已切** Hetzner（A 见 README） |
 | 四边 LS app | **已停写**（`tokenkey*` + gemini-web stop；PG/Caddy/Redis 保留 ≥7d；`.env` `TOKENKEY_LS_STANDBY_READONLY=1`） |
 | us3 / us6 HZ | 无机器 / 未起（配额）；正式仍 Lightsail |
-| prod 正式 | **未切**；staging / `provision-prod` 路径已接线 |
+| prod 正式 | **未切**；staging / `provision-prod` 路径已接线；**先于 us3/us6** 推进（override） |
 | 库复刻 uk1/uk2/us4/us5 | precious + logs 已灌；切前未切边再刷见 README |
 | us4 定点补漏 | append-only：ulog/dedup/ops_system（含停写前再补）；`post_missing=0` |
 | uk1 补漏 | dump 水位后 LS 0 新行 → 无需补漏 |
@@ -66,7 +66,7 @@ related_designs:
 | gemini-web worker | arm64 已部署；**会话仍多需 re-import**（出口 IP） |
 | prod stub 切流伤 | `base_url` 缺 `https://`（uk2/us5）已修；容器未吃 host pin 曾双写 LS → restart `tokenkey-green` 后停 |
 
-**下一刀：** `us3` 重建 HZ → 全量复刻 → 切流 → `us6` 同序 → 全 edge 稳后 **prod** P1–P6。
+**下一刀（override 2026-10-10）：** **prod** Wave A staging → Wave B 冻写切流（同机四 hostname + CallModel + Edge CIDR + timers/QA/告警，见 README）；**us3/us6 延期**。
 
 ## 切流实测教训（写进执行纪律）
 
@@ -97,10 +97,10 @@ Owner：`deploy/hetzner/provision-edge.sh` + `render-bootstrap.sh`；IAM：`toke
 
 | 何时 | 做什么 | 门禁 |
 |---|---|---|
-| **us3** | 配额允许 → provision HZ → 冻写 → precious+logs → 正式 A → LS 停写 | README「增量 + DNS」；E5 |
-| **us6** | 同 us3 | 同上 |
+| **prod**（当前；先于 us3/us6） | Volume + staging `api-hz` → P1–P4/P6 → 冻写 ≤5 min → 四正式 hostname（含 CallModel）→ P5 | README Wave B；写后禁裸 DNS 回旧库 |
+| **us3**（延期） | 配额允许 → provision HZ → 冻写 → precious+logs → 正式 A → LS 停写 | README「增量 + DNS」；E5 |
+| **us6**（延期） | 同 us3 | 同上 |
 | gemini-web / 供应 stub | 各 HZ 边会话 re-import；按需修 anthropic/grok 池后再开 prod stub | 冒烟 200 才 `schedulable=true` |
-| 四边稳 + us3/us6 切完 | **prod**：Volume + P1–P4/P6 → 冻写 ≤5 min → `api.tokenkey.dev` → P5 | 写后禁裸 DNS 回旧库 |
 | 另审批 | 升配 / 去 SSM / 多区出口 | Phase-5 |
 
 硬约束（全程）：禁止双写业务库；Redis 不迁；Secrets 不进 git（`/tokenkey/hetzner/…`）；Lightsail/EC2 停机保留 ≥7 天再退役；**live HZ 禁止再用 LS 全量 dump 覆盖**（会丢掉切后新账）。

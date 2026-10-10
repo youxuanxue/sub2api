@@ -158,31 +158,60 @@ HZ **相对 LS 仍缺 / 不同**：
 
 **探针：** 勿对 Hetzner 用 `run-probe --target edge:<id>`（会解析到 Lightsail）。直投 Hybrid `mi-*`；`sync_caddyfile` **不要**设 `EDGE_ID=`。
 
-## Prod staging
+## Prod staging → 正式切流
 
-**做：** CFN Hybrid `tokenkey-hetzner-ssm-hybrid-prod` → L0 → `--confirm-paid` 建 Volume + `cax21` → staging DNS `api-hz.tokenkey.dev` → E0/E1。  
-**不做（直到全 edge 稳）：** 正式 `api.tokenkey.dev`、P1 dump/restore、冻写窗、`deployable=true`。
+**顺序 override（2026-10-10）：** 四边已切后 **先做 prod**；**us3/us6 明确延期**（本轮不触碰）。覆盖审批基线「全 edge 后再 prod」；执行以本节为准。
+
+### Wave A — staging（零用户影响）
+
+**做：** CFN Hybrid `tokenkey-hetzner-ssm-hybrid-prod` → L0 → `--confirm-paid` 建 Volume + `cax21` → 仅 `api-hz.tokenkey.dev` A → E0/E1 → S3 `prod/pgdump` 演练 restore（隔离库）→ 主机 timer 验收。  
+**不做：** 正式四 hostname DNS、冻写、live `QA_BUNDLE_*`、改 Edge `remote_ip`、`deployable=true`。
 
 ```bash
 python3 deploy/hetzner/resolve-prod-hetzner-target.py --allow-planned
 bash deploy/hetzner/render-prod-bootstrap.sh --check
 bash deploy/hetzner/provision-prod.sh --allow-planned
+# paid（推荐 GHA OIDC：本地 Tech-Partner 无 iam:PassRole）:
+gh workflow run deploy-prod-hetzner-stage0.yml \
+  -f operation=provision -f confirm_instance=tokenkey-prod-hz-cax21 \
+  -f allow_planned=true -f confirm_paid=true -f tag=X.Y.Z
+# 或本地（需 PassRole）:
+ACME_EMAIL=… MAIN_GATEWAY_ALLOWED_CIDR=34.194.234.88/32 GHCR_OWNER=youxuanxue \
+GHCR_PAT_SSM_NAME=/tokenkey/ghcr/pat \
 bash deploy/hetzner/provision-prod.sh --allow-planned --confirm-paid --tag X.Y.Z
 ```
 
-user-data **必须以 `#!/bin/bash` 开头**；AWS CLI 走 awscliv2 zip。  
-prod 正式切流：P1–P4/P6（precious+必要日志）→ 冻写 ≤5 min → DNS → P5；写后禁裸 DNS 回旧库。
+Bootstrap（`render-prod-bootstrap.sh`）已嵌入：`tokenkey-pgdump.timer`（`TOKENKEY_PGDUMP_S3_URI=s3://tokenkey-prod-pgdump-<acct>/prod/pgdump`）、`tokenkey-disk-metrics.timer`、`tokenkey-ghcr-prune-daily.timer`；staging Caddy 仍为 `Caddyfile.edge`；`QA_CAPTURE_ENABLED=false`。Feishu webhook 仍 post-boot 从 AWS prod `.env` 拷贝（不进 git）。
+
+user-data **必须以 `#!/bin/bash` 开头**；AWS CLI 走 awscliv2 zip。
+
+### Wave B — 正式切流清单（第二道批准；冻写 ≤5 min）
+
+| 步 | 动作 | 红灯 |
+|---|---|---|
+| B0 | staging 绿；timer/Caddy/CIDR/QA 脚本就绪 | 缺口未关门 |
+| B1 | 冻写 AWS prod，开钟 | — |
+| B2 | 新鲜 precious+logs → HZ restore；失败则解冻、**不切任何正式 A** | restore/对账失败 |
+| B3 | 对账 `accounts` / `usage_billing_dedup` / `usage_logs` | 不一致 |
+| B4 | `sync_caddyfile_via_ssm.sh prod <mi-*>` 推正式 prod Caddy（CallModel + apex + `@machine`） | Caddy/ACME 红 |
+| B5 | Porkbun **一次**切：`api.tokenkey.dev` · `api.callmodel.io` · `callmodel.io` · `tokenkey.dev` → 新 IP（`status.tokenkey.dev` 不动） | dig 未齐 |
+| B6 | `EDGE_MAIN_GATEWAY_ALLOWED_CIDR=<新IP>/32` + 全 deployable edge `sync_caddyfile`；解冻写到 HZ | Edge 403 |
+| B7 | 注入 live `QA_BUNDLE_*`（勿在 Wave A 做）；sync QA maintenance timer；canary | canary 红 |
+| B8 | Feishu disk-metrics 绿；Better Stack `api.tokenkey.dev/health`；静音旧 EC2 CW 盘/CPU | 假阳性 |
+| B9 | P5：60min 错率 ≤ 基线+2pp；控制面目标 `i-*`→`mi-*`；AWS 停 app，PG/Caddy ≥7d standby | P5 红 → 写前可回 A |
+
+IdP / 支付 webhook **URL 字符串不变**（仍 `https://api.tokenkey.dev/...`）。写后禁裸 DNS 回旧库。
 
 ## 后续 backlog
 
 1. **禁止**再对已切四边整库覆盖 live HZ；LS ≥7d 后可退役实例。  
-2. **us3**：配额允许 → 重建 HZ（全新换机）→ 冻写 → precious+logs → 正式 A → LS 停写。  
-3. **us6**：同 us3。  
-4. **prod**（全 edge 含 us3/us6 稳后）：Volume + P1–P4/P6 → 冻写 ≤5 min → `api.tokenkey.dev` → P5；注意容器 `extra_hosts` / stub `https://`。  
+2. **prod Wave A/B**（当前刀）：见上节；us3/us6 **延期**。  
+3. **us3**（延期）：配额允许 → 重建 HZ → 冻写 → precious+logs → 正式 A → LS 停写。  
+4. **us6**（延期）：同 us3。  
 5. gemini-web：各 HZ 边会话 re-import；再评估 `gemini-uk*` stub。  
 6. 边侧供应：us4 anthropic 失效号、us4/us5 grok 选号/空池、uk 边补 CC 池——冒烟 200 后再开对应 prod stub。  
-7. 新机 Feishu：仍需 post-boot 从匹配 LS `.env` 拷贝（不进 git）。  
-8. bootstrap / CFN：默认 `TOKENKEY_PGDUMP_S3_URI` + pgdump timer（减少手工）。
+7. 新机 Feishu：仍需 post-boot 从 AWS prod `.env` 拷贝（不进 git）。  
+8. Wave B 后：prod 发版 workflow 解析 Hybrid `mi-*`；蓝绿 vs 单色路径对齐。
 
 ## 硬门禁
 
