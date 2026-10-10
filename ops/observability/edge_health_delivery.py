@@ -43,15 +43,15 @@ def _atomic_write(path: pathlib.Path, value: str) -> None:
             temp_path.unlink()
 
 
-def post_feishu(
-    message: str,
+def _post_feishu_payload(
+    payload: dict,
     *,
     webhook_url: str,
     signing_secret: str,
     opener=None,
     now: int | None = None,
 ) -> None:
-    """Post one signed message and require Feishu application-level success."""
+    """Sign and POST one Feishu webhook payload; require application-level success."""
     if not webhook_url or not signing_secret:
         raise DeliveryError("Feishu webhook URL and signing secret are required")
 
@@ -60,17 +60,12 @@ def post_feishu(
     sign = base64.b64encode(
         hmac.new(string_to_sign.encode("utf-8"), digestmod=hashlib.sha256).digest()
     ).decode("utf-8")
-    body = json.dumps(
-        {
-            "timestamp": timestamp,
-            "sign": sign,
-            "msg_type": "text",
-            "content": {"text": message},
-        }
-    ).encode("utf-8")
+    body = dict(payload)
+    body["timestamp"] = timestamp
+    body["sign"] = sign
     request = urllib.request.Request(
         webhook_url,
-        data=body,
+        data=json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json"},
     )
     open_url = opener or urllib.request.urlopen
@@ -84,14 +79,51 @@ def post_feishu(
     if status < 200 or status >= 300:
         raise DeliveryError(f"Feishu HTTP status {status}")
     try:
-        payload = json.loads(response_body.decode("utf-8"))
+        response_payload = json.loads(response_body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise DeliveryError("Feishu returned a non-JSON response") from exc
 
-    code = payload.get("code", payload.get("StatusCode"))
+    code = response_payload.get("code", response_payload.get("StatusCode"))
     if code not in (0, "0"):
         raise DeliveryError(f"Feishu rejected the message with code {code!r}")
 
+
+def post_feishu(
+    message: str,
+    *,
+    webhook_url: str,
+    signing_secret: str,
+    opener=None,
+    now: int | None = None,
+) -> None:
+    """Post one signed text message and require Feishu application-level success."""
+    _post_feishu_payload(
+        {"msg_type": "text", "content": {"text": message}},
+        webhook_url=webhook_url,
+        signing_secret=signing_secret,
+        opener=opener,
+        now=now,
+    )
+
+
+def post_feishu_card(
+    card: dict,
+    *,
+    webhook_url: str,
+    signing_secret: str,
+    opener=None,
+    now: int | None = None,
+) -> None:
+    """Post one signed interactive card and require Feishu application-level success."""
+    if not isinstance(card, dict) or not card:
+        raise DeliveryError("Feishu card payload must be a non-empty object")
+    _post_feishu_payload(
+        {"msg_type": "interactive", "card": card},
+        webhook_url=webhook_url,
+        signing_secret=signing_secret,
+        opener=opener,
+        now=now,
+    )
 
 def apply_decision(
     decision: dict,

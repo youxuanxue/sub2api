@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from ops.observability.payment_billing_watch import (  # noqa: E402
     build_alert_decision,
+    build_weekly_card,
     build_weekly_report,
     deliver,
     is_monday_shanghai,
@@ -172,7 +173,7 @@ class PaymentBillingWatchTest(unittest.TestCase):
         with self.assertRaisesRegex(Exception, "schema_version"):
             parse_snapshot({"schema_version": 99})
 
-    def test_weekly_report_contains_periods_and_channels(self) -> None:
+    def test_weekly_report_is_scannable_and_flags_suspicious(self) -> None:
         snap = sample_snapshot(
             completed_by_provider=[
                 {
@@ -181,21 +182,7 @@ class PaymentBillingWatchTest(unittest.TestCase):
                     "payment_type": "usdt",
                     "n": 2,
                     "amount": 100.0,
-                },
-                {
-                    "period": "current_calendar_month",
-                    "provider_key": "stripe",
-                    "payment_type": "stripe",
-                    "n": 1,
-                    "amount": 1.0,
-                },
-                {
-                    "period": "all_time",
-                    "provider_key": "easypay",
-                    "payment_type": "usdt",
-                    "n": 2,
-                    "amount": 100.0,
-                },
+                }
             ],
             admin_credits=[
                 {
@@ -206,25 +193,58 @@ class PaymentBillingWatchTest(unittest.TestCase):
                     "users": 1,
                 },
                 {
-                    "period": "all_time",
+                    "period": "last_7d",
                     "notes_kind": "payment_fulfillment",
-                    "n": 3,
-                    "amount": 101.0,
-                    "users": 3,
+                    "n": 2,
+                    "amount": 100.0,
+                    "users": 2,
+                },
+                {
+                    "period": "all_time",
+                    "notes_kind": "admin_adjust",
+                    "n": 38,
+                    "amount": 2108273.0,
+                    "users": 12,
+                },
+            ],
+            completed_detail_7d=[
+                {
+                    "id": 13,
+                    "user_id": 73,
+                    "user_email": "a@example.com",
+                    "amount": 50.0,
+                    "payment_type": "usdt",
+                    "provider_key": "easypay",
+                    "payment_trade_no": "",
+                    "paid_after_seconds": 0.1,
+                },
+                {
+                    "id": 2,
+                    "user_id": 1,
+                    "user_email": "admin@tokenkey.dev",
+                    "amount": 1.0,
+                    "payment_type": "stripe",
+                    "provider_key": "stripe",
+                    "payment_trade_no": "pi_x",
+                    "paid_after_seconds": 12.0,
                 },
             ],
         )
         report = build_weekly_report(snap)
-        self.assertIn("支付/充值周报", report)
-        self.assertIn("近7天", report)
-        self.assertIn("上自然月", report)
-        self.assertIn("本自然月", report)
-        self.assertIn("全部累计", report)
-        self.assertIn("近7天 easypay/usdt", report)
-        self.assertIn("本自然月 stripe/stripe", report)
-        self.assertIn("全部累计 支付履约", report)
-        self.assertIn("USDT 支付", report)
-        self.assertIn("$100.00", report)
+        self.assertIn("**本周实收**", report)
+        self.assertIn("$100", report)
+        self.assertIn("本月", report)
+        self.assertIn("累计", report)
+        self.assertIn("EasyPay / USDT", report)
+        self.assertIn("管理员加款", report)
+        self.assertNotIn("2108273", report)  # all-time admin noise stays out
+        self.assertNotIn("支付履约", report)  # already counted as 实收
+        self.assertIn("无上游单号", report)
+        self.assertIn("⚠", report)
+        self.assertLess(report.index("⚠"), report.index("`#2`"))
+        card = build_weekly_card(snap)
+        self.assertEqual(card["header"]["template"], "orange")
+        self.assertIn("需关注", card["header"]["title"]["content"])
 
     def test_alert_fires_on_new_anomalies(self) -> None:
         decision = build_alert_decision(sample_snapshot(), prev_keys=set())
@@ -272,7 +292,8 @@ class PaymentBillingWatchTest(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
-            self.assertIn("支付/充值周报", completed.stdout)
+            self.assertIn("支付周报", completed.stdout)
+            self.assertIn("本周实收", completed.stdout)
             self.assertIn("支付异常告警", completed.stdout)
             self.assertFalse(state.exists())  # dry-run must not advance state
 

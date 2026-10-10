@@ -16,24 +16,27 @@ import sys
 from typing import Any
 
 if __package__:
-    from .edge_health_delivery import DeliveryError, _atomic_write, post_feishu
+    from .edge_health_delivery import DeliveryError, _atomic_write, post_feishu, post_feishu_card
 else:
-    from edge_health_delivery import DeliveryError, _atomic_write, post_feishu
+    from edge_health_delivery import DeliveryError, _atomic_write, post_feishu, post_feishu_card
 
 SCHEMA_VERSION = 1
 PERIOD_LABELS = {
     "last_7d": "近7天",
-    "prev_calendar_month": "上自然月",
-    "current_calendar_month": "本自然月",
-    "all_time": "全部累计",
+    "prev_calendar_month": "上月",
+    "current_calendar_month": "本月",
+    "all_time": "累计",
 }
 CREDIT_LABELS = {
-    "payment_fulfillment": "支付履约(外部实收对应入账)",
-    "admin_opening": "管理员开户",
+    "payment_fulfillment": "支付履约",
+    "admin_opening": "开户注资",
     "admin_adjust": "管理员加款",
     "admin_other": "管理员其他",
-    "signup_gift": "注册赠额(不计外部实收)",
+    "signup_gift": "注册赠额",
 }
+# Weekly card focuses on operator-facing grants; gifts and payment fulfillment
+# are either noise or already counted as 外部实收.
+WEEKLY_CREDIT_KINDS = ("admin_adjust", "admin_opening", "admin_other")
 
 
 class PaymentWatchError(ValueError):
@@ -74,9 +77,12 @@ def parse_snapshot(raw: str | dict[str, Any]) -> dict[str, Any]:
 
 def _money(value: Any) -> str:
     try:
-        return f"${float(value):,.2f}"
+        amount = float(value)
     except (TypeError, ValueError):
         return "$?"
+    if amount == int(amount) and abs(amount) < 1_000_000:
+        return f"${int(amount):,}"
+    return f"${amount:,.2f}"
 
 
 def _period_map(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -87,91 +93,163 @@ def _period_map(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return out
 
 
-def build_weekly_report(snapshot: dict[str, Any], *, now: dt.datetime | None = None) -> str:
-    now = now or dt.datetime.now(dt.timezone.utc)
-    db_now = snapshot.get("db_now_utc") or now.strftime("%Y-%m-%dT%H:%M:%SZ")
-    lines = [
-        "TokenKey 支付/充值周报",
-        f"窗口基准(UTC): {db_now}",
-        f"生成(UTC): {now.strftime('%Y-%m-%dT%H:%M:%SZ')}",
-        "",
-        "【外部支付 COMPLETED】",
-    ]
-    periods = _period_map(snapshot["period_totals"])
-    for key in ("last_7d", "prev_calendar_month", "current_calendar_month", "all_time"):
-        row = periods.get(key, {})
-        lines.append(
-            f"- {PERIOD_LABELS[key]}: {int(row.get('completed_n') or 0)} 笔 / "
-            f"{_money(row.get('completed_amount') or 0)} / "
-            f"{int(row.get('completed_users') or 0)} 用户"
-            f"（未成交 {int(row.get('non_completed_n') or 0)} 笔 {_money(row.get('non_completed_amount') or 0)}）"
-        )
+def _mask_email(email: Any) -> str:
+    text = str(email or "").strip()
+    if not text or "@" not in text:
+        return text or "—"
+    local, _, domain = text.partition("@")
+    if len(local) <= 3:
+        shown = local[:1] + "…"
+    else:
+        shown = local[:3] + "…"
+    return f"{shown}@{domain}"
 
-    lines.append("")
-    lines.append("【COMPLETED 按通道】")
-    for period in ("last_7d", "prev_calendar_month", "current_calendar_month", "all_time"):
-        provider_rows = [
-            r
-            for r in snapshot["completed_by_provider"]
-            if isinstance(r, dict) and r.get("period") == period
-        ]
-        label = PERIOD_LABELS[period]
-        if not provider_rows:
-            lines.append(f"- {label}：（无）")
-            continue
-        for row in provider_rows:
+
+def _channel_label(provider_key: Any, payment_type: Any) -> str:
+    provider = str(provider_key or "?").strip()
+    ptype = str(payment_type or "").strip()
+    if provider == "easypay" and ptype:
+        return f"EasyPay / {ptype.upper()}"
+    if provider == "stripe":
+        return "Stripe"
+    if ptype and ptype != provider:
+        return f"{provider} / {ptype}"
+    return provider
+
+
+def _is_suspicious_completed(row: dict[str, Any]) -> bool:
+    return not str(row.get("payment_trade_no") or "").strip()
+
+
+def _format_when(now: dt.datetime) -> str:
+    shanghai = now.astimezone(dt.timezone(dt.timedelta(hours=8)))
+    return f"{shanghai:%Y-%m-%d %H:%M} CST"
+
+
+def build_weekly_report(snapshot: dict[str, Any], *, now: dt.datetime | None = None) -> str:
+    """Build a scannable lark_md body: hero revenue first, noise last."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    periods = _period_map(snapshot["period_totals"])
+    week = periods.get("last_7d", {})
+    month = periods.get("current_calendar_month", {})
+    prev = periods.get("prev_calendar_month", {})
+    all_time = periods.get("all_time", {})
+
+    week_amount = week.get("completed_amount") or 0
+    week_n = int(week.get("completed_n") or 0)
+    week_users = int(week.get("completed_users") or 0)
+    open_n = int(week.get("non_completed_n") or 0)
+    open_amount = week.get("non_completed_amount") or 0
+
+    lines = [
+        f"**本周实收**  {_money(week_amount)}",
+        f"{week_n} 笔 · {week_users} 用户",
+        "",
+        (
+            f"本月 {_money(month.get('completed_amount') or 0)}"
+            f"　·　上月 {_money(prev.get('completed_amount') or 0)}"
+            f"　·　累计 {_money(all_time.get('completed_amount') or 0)}"
+        ),
+    ]
+    if open_n:
+        lines.append(f"未成交（近7天）{open_n} 笔 {_money(open_amount)} · 不计入实收")
+
+    lines.extend(["", "**通道（本周）**"])
+    week_channels = [
+        r
+        for r in snapshot["completed_by_provider"]
+        if isinstance(r, dict) and r.get("period") == "last_7d"
+    ]
+    if not week_channels:
+        lines.append("· 无外部入账")
+    else:
+        for row in week_channels:
             lines.append(
-                f"- {label} {row.get('provider_key')}/{row.get('payment_type')}: "
-                f"{int(row.get('n') or 0)} 笔 {_money(row.get('amount') or 0)}"
+                f"· {_channel_label(row.get('provider_key'), row.get('payment_type'))}"
+                f"　{_money(row.get('amount') or 0)}（{int(row.get('n') or 0)}）"
             )
 
-    lines.append("")
-    lines.append("【站内入账 redeem_codes 正额】")
-    for period in ("last_7d", "prev_calendar_month", "current_calendar_month", "all_time"):
-        credit_rows = [
-            r for r in snapshot["admin_credits"] if isinstance(r, dict) and r.get("period") == period
-        ]
-        label = PERIOD_LABELS[period]
-        if not credit_rows:
-            lines.append(f"- {label}：（无）")
-            continue
-        for row in credit_rows:
+    lines.extend(["", "**站内注资（本周）**"])
+    week_credits = [
+        r
+        for r in snapshot["admin_credits"]
+        if isinstance(r, dict)
+        and r.get("period") == "last_7d"
+        and str(r.get("notes_kind") or "") in WEEKLY_CREDIT_KINDS
+    ]
+    if not week_credits:
+        lines.append("· 无")
+    else:
+        for row in week_credits:
             kind = str(row.get("notes_kind") or "admin_other")
             lines.append(
-                f"- {label} {CREDIT_LABELS.get(kind, kind)}: "
-                f"{int(row.get('n') or 0)} 笔 {_money(row.get('amount') or 0)} / "
-                f"{int(row.get('users') or 0)} 用户"
+                f"· {CREDIT_LABELS.get(kind, kind)}"
+                f"　{_money(row.get('amount') or 0)}"
+                f"（{int(row.get('users') or 0)} 用户）"
             )
 
-    lines.append("")
-    lines.append("【近7天 COMPLETED 明细】")
     details = [r for r in snapshot["completed_detail_7d"] if isinstance(r, dict)]
+    suspicious = [r for r in details if _is_suspicious_completed(r)]
+    normal = [r for r in details if not _is_suspicious_completed(r)]
+    lines.extend(["", "**本周入账**"])
     if not details:
-        lines.append("- （无）")
+        lines.append("· 无")
     else:
-        for row in details[:30]:
-            trade = row.get("payment_trade_no") or "(empty)"
-            paid_after = row.get("paid_after_seconds")
-            lag = f"{paid_after}s" if paid_after is not None else "?"
+        for row in suspicious[:10]:
+            lag = row.get("paid_after_seconds")
+            lag_s = f"{lag}s" if lag is not None else "?"
             lines.append(
-                f"- #{row.get('id')} user={row.get('user_id')} {row.get('user_email')} "
-                f"{row.get('provider_key')}/{row.get('payment_type')} {_money(row.get('amount') or 0)} "
-                f"lag={lag} trade={trade}"
+                f"⚠ `#{row.get('id')}`　{_money(row.get('amount') or 0)}　"
+                f"{_channel_label(row.get('provider_key'), row.get('payment_type'))}　"
+                f"{lag_s}　无上游单号　{_mask_email(row.get('user_email'))}"
             )
+        for row in normal[:8]:
+            lines.append(
+                f"· `#{row.get('id')}`　{_money(row.get('amount') or 0)}　"
+                f"{_channel_label(row.get('provider_key'), row.get('payment_type'))}　"
+                f"{_mask_email(row.get('user_email'))}"
+            )
+        omitted = max(0, len(suspicious) - 10) + max(0, len(normal) - 8)
+        if omitted:
+            lines.append(f"· …另有 {omitted} 笔")
 
-    lines.append("")
-    lines.append("【已启用支付通道】")
     providers = [r for r in snapshot["providers"] if isinstance(r, dict)]
-    if not providers:
-        lines.append("- （无）")
-    else:
+    if providers:
+        chips = []
         for row in providers:
+            name = str(row.get("name") or row.get("provider_key") or "?")
             flag = "ON" if row.get("enabled") else "OFF"
-            lines.append(
-                f"- #{row.get('id')} {row.get('provider_key')} {row.get('name')} "
-                f"[{flag}] types={row.get('supported_types')} mode={row.get('payment_mode') or '-'}"
-            )
+            chips.append(f"{name} {flag}")
+        lines.extend(["", f"**通道状态**  {' · '.join(chips)}"])
+
+    lines.extend(["", f"_{_format_when(now)}_"])
     return "\n".join(lines)
+
+
+def build_weekly_card(snapshot: dict[str, Any], *, now: dt.datetime | None = None) -> dict[str, Any]:
+    """Feishu interactive card: one hero number, then only what operators need."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    periods = _period_map(snapshot["period_totals"])
+    week_amount = (periods.get("last_7d") or {}).get("completed_amount") or 0
+    suspicious_n = sum(
+        1
+        for row in snapshot["completed_detail_7d"]
+        if isinstance(row, dict) and _is_suspicious_completed(row)
+    )
+    header_color = "orange" if suspicious_n else "blue"
+    title = f"支付周报 · 本周实收 {_money(week_amount)}"
+    if suspicious_n:
+        title = f"支付周报 · {_money(week_amount)} · {suspicious_n} 笔需关注"
+    body = build_weekly_report(snapshot, now=now)
+    return {
+        "header": {
+            "template": header_color,
+            "title": {"tag": "plain_text", "content": title},
+        },
+        "elements": [
+            {"tag": "div", "text": {"tag": "lark_md", "content": body}},
+        ],
+    }
 
 
 def _fingerprint_anomalies(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
@@ -341,12 +419,21 @@ def deliver(
     want_weekly = mode == "weekly" or (mode == "all" and (force_weekly or is_monday_shanghai(now)))
     if want_weekly:
         report = build_weekly_report(snapshot, now=now)
-        results["weekly"] = {"chars": len(report)}
+        card = build_weekly_card(snapshot, now=now)
+        results["weekly"] = {
+            "chars": len(report),
+            "title": card.get("header", {}).get("title", {}).get("content", ""),
+        }
         if dry_run:
+            print(card["header"]["title"]["content"])
             print(report)
             results["actions"].append("weekly-dry-run")
         else:
-            post_feishu(report, webhook_url=webhook_url, signing_secret=signing_secret)
+            post_feishu_card(
+                card,
+                webhook_url=webhook_url,
+                signing_secret=signing_secret,
+            )
             results["actions"].append("weekly-delivered")
 
     return results
@@ -384,6 +471,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.print_report:
+        card = build_weekly_card(snapshot)
+        print(card["header"]["title"]["content"])
         print(build_weekly_report(snapshot))
         return 0
     if args.print_decision:
