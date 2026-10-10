@@ -569,6 +569,18 @@ func detachStreamUpstreamContext(ctx context.Context, stream bool) (context.Cont
 	return context.WithoutCancel(ctx), func() {}
 }
 
+// streamOrDetachedUpstreamCtx prefers the armed first-output attempt context for
+// streaming classic Anthropic Forward; non-stream keeps the caller context.
+func streamOrDetachedUpstreamCtx(ctx context.Context, stream bool, streamAttemptCtx context.Context) (context.Context, context.CancelFunc) {
+	if stream {
+		if streamAttemptCtx == nil {
+			return detachStreamUpstreamContext(ctx, true)
+		}
+		return streamAttemptCtx, func() {}
+	}
+	return detachStreamUpstreamContext(ctx, false)
+}
+
 func detachUpstreamContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		return context.Background(), func() {}

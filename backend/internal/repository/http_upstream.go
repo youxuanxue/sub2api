@@ -976,12 +976,9 @@ func (s *httpUpstreamService) applyProfilePoolSettings(settings poolSettings, pr
 			settings.responseHeaderTimeout = time.Duration(s.cfg.Gateway.OpenAIResponseHeaderTimeout) * time.Second
 		}
 	case service.HTTPUpstreamProfileGrok:
-		// Align with universal stream first-output SSOT (default 15s). Streaming
-		// after headers is unaffected. Zero config falls back to 15s (not unlimited).
-		settings.responseHeaderTimeout = 15 * time.Second
-		if s != nil && s.cfg != nil && s.cfg.Gateway.GrokResponseHeaderTimeout > 0 {
-			settings.responseHeaderTimeout = time.Duration(s.cfg.Gateway.GrokResponseHeaderTimeout) * time.Second
-		}
+		// Inherit universal stream first-useful-output SSOT unless
+		// grok_response_header_timeout is explicitly set (>0).
+		settings.responseHeaderTimeout = service.ResolveGrokFirstByteHeaderTimeout(s.cfg)
 	}
 	return settings
 }

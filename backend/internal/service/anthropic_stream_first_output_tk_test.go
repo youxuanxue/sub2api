@@ -75,6 +75,57 @@ func TestAnthropicPassthroughStreamFirstOutputBudgetBeforeWrite(t *testing.T) {
 	require.Empty(t, rec.Body.String())
 }
 
+func TestClassicAnthropicStreamFirstOutputBudgetBeforeWrite(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	svc := &GatewayService{
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{
+				MaxLineSize:             defaultMaxLineSize,
+				StreamKeepaliveInterval: 0,
+			},
+		},
+		rateLimitService: &RateLimitService{},
+	}
+
+	pr, pw := io.Pipe()
+	defer func() { _ = pr.Close() }()
+	defer func() { _ = pw.Close() }()
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       pr,
+	}
+
+	parent := context.Background()
+	streamCtx, guard := armStreamFirstOutputGuard(parent, 25*time.Millisecond)
+
+	done := make(chan struct{})
+	var gotErr error
+	go func() {
+		defer close(done)
+		_, gotErr = svc.handleStreamingResponse(
+			parent, resp, c, &Account{ID: 1}, time.Now(), "claude-opus-5", "claude-opus-5", false, guard, streamCtx,
+		)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("classic convert stream did not return after first-output budget")
+	}
+
+	var fo *UpstreamFailoverError
+	require.ErrorAs(t, gotErr, &fo)
+	require.Equal(t, GatewayFailureReason("first_output_unavailable"), fo.Reason)
+	require.False(t, fo.SafeToFailoverAfterWrite)
+	require.Empty(t, rec.Body.String())
+}
+
 func TestAnthropicPassthroughStreamFirstOutputCommitsOnMessageStart(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

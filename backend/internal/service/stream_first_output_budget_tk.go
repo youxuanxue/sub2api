@@ -22,6 +22,17 @@ const (
 	defaultNewAPIChatNonstreamFirstOutput     = 300 * time.Second
 )
 
+// ResolveGrokFirstByteHeaderTimeout is the Grok transport ResponseHeaderTimeout
+// aligned to the universal stream first-useful-output SSOT. Explicit
+// gateway.grok_response_header_timeout (>0) overrides; zero inherits
+// stream_first_output_timeout_seconds / code default 15s.
+func ResolveGrokFirstByteHeaderTimeout(cfg *config.Config) time.Duration {
+	if cfg != nil && cfg.Gateway.GrokResponseHeaderTimeout > 0 {
+		return time.Duration(cfg.Gateway.GrokResponseHeaderTimeout) * time.Second
+	}
+	return resolveStreamFirstOutputTimeout(cfg, false)
+}
+
 // resolveStreamFirstOutputTimeout is the cross-platform per-attempt budget until
 // useful first output commits (stops silent failover). highEffort selects the
 // high-reasoning override. This is intentionally not identical to metered TTFT.

@@ -1918,6 +1918,11 @@ func TestValidateConfigErrors(t *testing.T) {
 			wantErr: "gateway.stream_first_output_high_effort_timeout_seconds",
 		},
 		{
+			name:    "gateway grok response header timeout too large",
+			mutate:  func(c *Config) { c.Gateway.GrokResponseHeaderTimeout = 61 },
+			wantErr: "gateway.grok_response_header_timeout",
+		},
+		{
 			name:    "gateway newapi chat stream first output timeout too large",
 			mutate:  func(c *Config) { c.Gateway.NewAPIChatFirstOutputTimeout = 61 },
 			wantErr: "gateway.newapi_chat_first_output_timeout",

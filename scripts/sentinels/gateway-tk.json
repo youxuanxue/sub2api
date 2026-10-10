@@ -2289,21 +2289,6 @@
       "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 15s / high-effort 30s); non-streaming defaults to 300s. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly."
     },
     {
-      "path": "backend/internal/service/stream_first_output_budget_tk.go",
-      "must_contain": [
-        "defaultStreamFirstOutputTimeout           = 15 * time.Second",
-        "defaultStreamFirstOutputHighEffortTimeout = 30 * time.Second",
-        "func resolveStreamFirstOutputTimeout(",
-        "func armStreamFirstOutputGuard(",
-        "Reason:           \"first_output_unavailable\"",
-        "func streamFirstOutputFailoverErrorAfterKeepalive(",
-        "func streamFirstOutputFailoverIfBudgetFired(",
-        "SafeToFailoverAfterWrite: true",
-        "c.Writer.Size() >= 0"
-      ],
-      "rationale": "Universal stream first-useful-output budget SSOT (15s / 30s high-effort, cap 60). Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite via Size-aware streamFirstOutputFailoverIfBudgetFired."
-    },
-    {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
       "must_contain": [
         "resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(input.Body))",
@@ -2313,6 +2298,49 @@
         "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)"
       ],
       "rationale": "Anthropic passthrough streaming must arm a full per-attempt first-output budget (not remaining request wall-clock), Commit on first SSE data, and Size-aware SafeToFailoverAfterWrite after any client bytes (header-wait or in-stream keepalive)."
+    },
+    {
+      "path": "backend/internal/service/stream_first_output_budget_tk.go",
+      "must_contain": [
+        "defaultStreamFirstOutputTimeout           = 15 * time.Second",
+        "defaultStreamFirstOutputHighEffortTimeout = 30 * time.Second",
+        "func resolveStreamFirstOutputTimeout(",
+        "func ResolveGrokFirstByteHeaderTimeout(",
+        "func armStreamFirstOutputGuard(",
+        "Reason:           \"first_output_unavailable\"",
+        "func streamFirstOutputFailoverErrorAfterKeepalive(",
+        "func streamFirstOutputFailoverIfBudgetFired(",
+        "SafeToFailoverAfterWrite: true",
+        "c.Writer.Size() >= 0"
+      ],
+      "rationale": "Universal stream first-useful-output budget SSOT (15s / 30s high-effort, cap 60) plus Grok first-byte inherit helper. Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite via Size-aware streamFirstOutputFailoverIfBudgetFired."
+    },
+    {
+      "path": "backend/internal/repository/http_upstream.go",
+      "must_contain": [
+        "service.ResolveGrokFirstByteHeaderTimeout(s.cfg)"
+      ],
+      "rationale": "Grok ResponseHeaderTimeout must resolve through ResolveGrokFirstByteHeaderTimeout so changing stream_first_output_timeout_seconds moves Grok unless an explicit grok override is set."
+    },
+    {
+      "path": "backend/internal/service/gateway_upstream_response.go",
+      "must_contain": [
+        "firstOutputGuard.WatchClose(resp.Body)",
+        "firstOutputGuard.Commit()",
+        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)"
+      ],
+      "rationale": "Classic convert streaming handler must WatchClose the upstream body, Commit on first non-empty SSE data, and Size-aware failover when the first-output budget fires."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward.go",
+      "must_contain": [
+        "armStreamFirstOutputGuard(base, budget)",
+        "resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(body))",
+        "streamOrDetachedUpstreamCtx(ctx, reqStream, streamAttemptCtx)",
+        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)",
+        "handleStreamingResponse(ctx, resp, c, account, startTime, originalModel, reqModel, shouldMimicClaudeCode, firstOutputGuard, streamAttemptCtx)"
+      ],
+      "rationale": "Classic Anthropic convert Forward must arm the universal first-output SSOT (same as passthrough), bind Do/retries to the guarded attempt ctx, and pass WatchClose-capable guard into handleStreamingResponse."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service.go",
@@ -2356,9 +2384,10 @@
       "must_contain": [
         "TestAnthropicPassthroughStreamFirstOutputBudgetBeforeWrite",
         "TestAnthropicPassthroughStreamFirstOutputCommitsOnMessageStart",
-        "TestStreamFirstOutputFailoverErrorAfterKeepaliveFlag"
+        "TestStreamFirstOutputFailoverErrorAfterKeepaliveFlag",
+        "TestClassicAnthropicStreamFirstOutputBudgetBeforeWrite"
       ],
-      "rationale": "Focused regressions lock Anthropic first-output failover before write, Commit on message_start, and keepalive SafeToFailoverAfterWrite flag."
+      "rationale": "Focused regressions lock Anthropic first-output failover before write (passthrough + classic convert), Commit on message_start, and keepalive SafeToFailoverAfterWrite flag."
     },
     {
       "path": "backend/internal/service/stream_first_output_budget_tk_test.go",

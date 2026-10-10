@@ -123,7 +123,7 @@ func TestGatewayService_HandleStreamingResponse_StripsKiroInternalThinkingSSECom
 
 	result, err := svc.handleStreamingResponse(
 		context.Background(), resp, c, &Account{ID: 55},
-		time.Now(), "claude-sonnet-4-20250514", "claude-sonnet-4-20250514", false,
+		time.Now(), "claude-sonnet-4-20250514", "claude-sonnet-4-20250514", false, nil, nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)

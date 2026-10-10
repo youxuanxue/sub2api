@@ -236,8 +236,9 @@ keys may override when explicitly set; zero means inherit the universal default
 `openai_first_output_timeout_seconds`).
 
 `gateway.response_header_timeout` remains transport header wait only and must
-not redefine these budgets. Grok’s first-byte header wait aligns to the same
-standard default unless overridden.
+not redefine these budgets. Grok’s first-byte header wait inherits
+`stream_first_output_timeout_seconds` unless
+`gateway.grok_response_header_timeout` is explicitly set (>0; cap 60).
 
 A replayable NewAPI Chat request may immediately try another eligible account
 on its first pre-output failure; it does not wait for three cross-request failures.
@@ -258,9 +259,9 @@ Platform wiring for the same universal stream budget:
 | --- | --- |
 | NewAPI Chat (replayable) | Wired (inherits SSOT; optional override) |
 | OpenAI native HTTP first semantic output | Wired (default on; `0` emergency off) |
-| Grok first-byte header wait | Wired (default aligned to 15s SSOT) |
+| Grok first-byte header wait | Wired (`ResolveGrokFirstByteHeaderTimeout`: inherit stream SSOT; explicit `grok_response_header_timeout` overrides, cap 60) |
 | Kiro streaming | Wired (commit = client-visible text/tool; `OnResponseBody` → `WatchClose` so budget cancel unblocks EventStream reads) |
-| Anthropic passthrough / CN-native SSE | Wired. Commit = first non-empty SSE `data:` frame (includes `message_start`; deliberately shorter switch window than Kiro visible-only). Keepalive ping does not Commit; post-ping failover uses `SafeToFailoverAfterWrite`. Classic non-passthrough convert path (`gateway_upstream_response.handleStreamingResponse`) is **not** on this helper yet. |
+| Anthropic passthrough / CN-native SSE / classic convert | Wired. Commit = first non-empty SSE `data:` frame (includes `message_start`; deliberately shorter switch window than Kiro visible-only). Keepalive ping does not Commit; post-ping failover uses `SafeToFailoverAfterWrite`. Classic convert (`gateway_forward` → `handleStreamingResponse`) arms the same helper + `WatchClose`. |
 | Gemini Messages / native streaming | Wired (commit = first client-visible text/tool or native data frame) |
 
 These are implementation and local test changes, not production acceptance.

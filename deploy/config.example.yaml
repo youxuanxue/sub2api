@@ -243,8 +243,8 @@ gateway:
   # Replayable NewAPI Chat non-streaming: complete useful JSON wait per attempt
   # (seconds, 0=default 300, max 600). Separate from response_header_timeout.
   newapi_chat_nonstream_first_output_timeout: 300
-  # Grok text Responses first-byte timeout (seconds, 0=use 15s SSOT default)
-  grok_response_header_timeout: 15
+  # Grok text Responses first-byte timeout (seconds, 0=inherit stream_first_output SSOT, max 60)
+  grok_response_header_timeout: 0
   # Native OpenAI HTTP Responses first semantic output timeout (seconds).
   # Default 15; explicit 0 disables. Includes response-header wait.
   # A timed-out request may already have incurred upstream usage; account failover can therefore duplicate upstream billing.

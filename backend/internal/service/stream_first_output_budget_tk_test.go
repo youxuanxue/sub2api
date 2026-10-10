@@ -29,6 +29,18 @@ func TestResolveStreamFirstOutputTimeoutDefaults(t *testing.T) {
 	require.Equal(t, 45*time.Second, resolveStreamFirstOutputTimeout(cfg, true))
 }
 
+func TestResolveGrokFirstByteHeaderTimeoutInheritsStreamSSOT(t *testing.T) {
+	require.Equal(t, 15*time.Second, ResolveGrokFirstByteHeaderTimeout(nil))
+
+	cfg := &config.Config{}
+	cfg.Gateway.StreamFirstOutputTimeoutSeconds = 20
+	require.Equal(t, 20*time.Second, ResolveGrokFirstByteHeaderTimeout(cfg))
+
+	cfg.Gateway.GrokResponseHeaderTimeout = 25
+	require.Equal(t, 25*time.Second, ResolveGrokFirstByteHeaderTimeout(cfg),
+		"explicit grok override must win over stream SSOT")
+}
+
 func TestStreamFirstOutputGuardBudgetFired(t *testing.T) {
 	parent := context.Background()
 	ctx, guard := armStreamFirstOutputGuard(parent, 20*time.Millisecond)

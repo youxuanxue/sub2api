@@ -1121,7 +1121,8 @@ type GatewayConfig struct {
 	// At most three attempts share 3x this per-attempt budget.
 	NewAPIChatNonstreamFirstOutputTimeout int `mapstructure:"newapi_chat_nonstream_first_output_timeout"`
 	// GrokResponseHeaderTimeout bounds the pre-first-byte wait for xAI/Grok.
-	// A zero value uses the universal stream first-output default (15s).
+	// Zero inherits stream_first_output_timeout_seconds (SSOT); explicit >0
+	// overrides. Cap 60 matches the universal stream first-useful-output budget.
 	GrokResponseHeaderTimeout int `mapstructure:"grok_response_header_timeout"`
 	// OpenAIFirstOutputTimeoutSeconds: native HTTP Responses 首个语义输出超时（秒）。
 	// 默认 15；显式 0 表示紧急禁用该闸。
@@ -2708,7 +2709,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.stream_first_output_high_effort_timeout_seconds", 30)
 	viper.SetDefault("gateway.newapi_chat_first_output_timeout", 0) // 0 = inherit stream SSOT
 	viper.SetDefault("gateway.newapi_chat_nonstream_first_output_timeout", 300)
-	viper.SetDefault("gateway.grok_response_header_timeout", 15)
+	viper.SetDefault("gateway.grok_response_header_timeout", 0)
 	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 15)
 	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 30)
 	viper.SetDefault("gateway.log_upstream_error_body", true)
@@ -3706,8 +3707,8 @@ func (c *Config) Validate() error {
 	if c.Gateway.NewAPIChatNonstreamFirstOutputTimeout < 0 || c.Gateway.NewAPIChatNonstreamFirstOutputTimeout > 600 {
 		return fmt.Errorf("gateway.newapi_chat_nonstream_first_output_timeout must be between 0-600 seconds")
 	}
-	if c.Gateway.GrokResponseHeaderTimeout < 0 || c.Gateway.GrokResponseHeaderTimeout > 1800 {
-		return fmt.Errorf("gateway.grok_response_header_timeout must be between 0-1800 seconds")
+	if c.Gateway.GrokResponseHeaderTimeout < 0 || c.Gateway.GrokResponseHeaderTimeout > 60 {
+		return fmt.Errorf("gateway.grok_response_header_timeout must be between 0-60 seconds")
 	}
 	if c.Gateway.OpenAIFirstOutputTimeoutSeconds < 0 || c.Gateway.OpenAIFirstOutputTimeoutSeconds > 600 ||
 		(c.Gateway.OpenAIFirstOutputTimeoutSeconds > 0 && c.Gateway.OpenAIFirstOutputTimeoutSeconds < 15) {

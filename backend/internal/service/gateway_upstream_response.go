@@ -724,13 +724,16 @@ func partialStreamUsageResult(c *gin.Context, resp *http.Response, streamResult 
 	}
 }
 
-func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string, mimicClaudeCode bool) (*streamingResult, error) {
+func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string, mimicClaudeCode bool, firstOutputGuard *streamFirstOutputGuard, streamAttemptCtx context.Context) (*streamingResult, error) {
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
 	// 更新5h窗口状态
 	s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
+	if firstOutputGuard != nil && resp != nil && resp.Body != nil {
+		firstOutputGuard.WatchClose(resp.Body)
+	}
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -875,6 +878,18 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 	noopDeltaKeepaliveDeltaType := ""
 
 	pendingEventLines := make([]string, 0, 4)
+
+	var callerCtx context.Context
+	if c != nil && c.Request != nil {
+		callerCtx = c.Request.Context()
+	}
+	var budgetCh <-chan struct{}
+	if streamAttemptCtx != nil {
+		budgetCh = streamAttemptCtx.Done()
+	}
+	firstOutputFailover := func() error {
+		return streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)
+	}
 
 	processSSEEvent := func(lines []string) ([]string, string, *sseUsagePatch, error) {
 		if len(lines) == 0 {
@@ -1039,8 +1054,17 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 
 	for {
 		select {
+		case <-budgetCh:
+			if err := firstOutputFailover(); err != nil {
+				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, err
+			}
+			budgetCh = nil
+
 		case ev, ok := <-events:
 			if !ok {
+				if err := firstOutputFailover(); err != nil {
+					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, err
+				}
 				// 上游完成，返回结果
 				if !sawTerminalEvent {
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, fmt.Errorf("stream usage incomplete: missing terminal event")
@@ -1050,6 +1074,9 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			if ev.err != nil {
 				if sawTerminalEvent {
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
+				}
+				if err := firstOutputFailover(); err != nil {
+					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, err
 				}
 				// 检测 context 取消（客户端断开会导致 context 取消，进而影响上游读取）
 				if errors.Is(ev.err, context.Canceled) || errors.Is(ev.err, context.DeadlineExceeded) {
@@ -1118,6 +1145,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 					if firstTokenMs == nil && data != "[DONE]" {
 						ms := int(time.Since(startTime).Milliseconds())
 						firstTokenMs = &ms
+						firstOutputGuard.Commit()
 					}
 					if usagePatch != nil {
 						mergeSSEUsagePatch(usage, usagePatch)
