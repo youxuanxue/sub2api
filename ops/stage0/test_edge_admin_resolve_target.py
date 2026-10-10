@@ -49,17 +49,23 @@ class EdgeAdminResolveTargetTest(unittest.TestCase):
                 self.assertEqual(proc.stdout, "ec2\tus-east-1\ttokenkey-prod-stage0\n")
 
     def test_edge_resolution_still_works(self) -> None:
-        # Sanity: a real deployable Lightsail edge still routes via the matrices,
-        # proving the prod short-circuit did not shadow the edge path.
+        # Sanity: edge path still resolves via matrices (prod short-circuit
+        # did not shadow it). Cutover edges prefer Hetzner on auto; explicit
+        # lightsail still hits standby.
         edge_id = _deployable_lightsail_edge()
         if edge_id is None:
             self.skipTest("no deployable Lightsail edge in matrix")
         proc = _resolve(edge_id)
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         mode, region, _stack = proc.stdout.rstrip("\n").split("\t")
-        self.assertEqual(mode, "lightsail")
+        self.assertIn(mode, ("hetzner", "lightsail"))
         self.assertTrue(region, "edge region should be non-empty")
 
+        proc_ls = _resolve(edge_id, "lightsail")
+        self.assertEqual(proc_ls.returncode, 0, msg=proc_ls.stderr)
+        mode_ls, region_ls, _ = proc_ls.stdout.rstrip("\n").split("\t")
+        self.assertEqual(mode_ls, "lightsail")
+        self.assertTrue(region_ls)
 
 if __name__ == "__main__":
     unittest.main()

@@ -25,11 +25,19 @@ for f in \
   [[ -f "$f" ]] || { echo "missing $f" >&2; exit 1; }
 done
 
-compose_b64="$(gzip -9n -c "${STAGE0}/docker-compose.yml" | base64 | tr -d '\n')"
-caddy_b64="$(gzip -9n -c "${STAGE0}/Caddyfile.edge" | base64 | tr -d '\n')"
-prune_b64="$(gzip -9n -c "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh" | base64 | tr -d '\n')"
-restore_secrets_b64="$(gzip -9n -c "${LIGHTSAIL}/restore-edge-env-secrets.sh" | base64 | tr -d '\n')"
+# Deterministic gzip+base64 (mtime=0): macOS/Linux system gzip diverge and break --check in CI.
+b64_gzip() {
+  python3 - "$1" <<'PY'
+import base64, gzip, pathlib, sys
+data = pathlib.Path(sys.argv[1]).read_bytes()
+sys.stdout.write(base64.b64encode(gzip.compress(data, compresslevel=9, mtime=0)).decode("ascii"))
+PY
+}
 
+compose_b64="$(b64_gzip "${STAGE0}/docker-compose.yml")"
+caddy_b64="$(b64_gzip "${STAGE0}/Caddyfile.edge")"
+prune_b64="$(b64_gzip "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh")"
+restore_secrets_b64="$(b64_gzip "${LIGHTSAIL}/restore-edge-env-secrets.sh")"
 cat >"${OUT}.tmp" <<'LAUNCH_HEAD'
 #!/bin/bash
 # tokenkey Prod Hetzner bootstrap — generated; do not hand-edit.

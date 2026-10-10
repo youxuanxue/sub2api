@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve SSM ``--instance-ids`` targets for Stage0 edges (Lightsail managed instances)."""
+"""Resolve SSM ``--instance-ids`` targets for Stage0 edges (Lightsail or Hetzner Hybrid)."""
 
 from __future__ import annotations
 
@@ -16,19 +16,22 @@ _STAGE0 = pathlib.Path(__file__).resolve().parent
 if str(_STAGE0) not in sys.path:
     sys.path.insert(0, str(_STAGE0))
 
-from edge_routing_matrix import load_lightsail_targets, resolve_route_tab
+from edge_routing_matrix import (
+    load_hetzner_targets,
+    load_lightsail_targets,
+    resolve_route_tab,
+)
 
 
 @dataclass(frozen=True)
 class EdgeExecutionIdentity:
     edge_id: str
-    routing: str  # lightsail
-    region: str
+    routing: str  # lightsail | hetzner
+    region: str  # AWS SSM API region (not Hetzner location)
     instance_id: str
     domain: str
     ec2_stack: str
     ssm_prefix: str
-
 
 def cfn_resolve_instance_id(region: str, stack: str) -> str:
     try:
@@ -111,20 +114,46 @@ def resolve_edge_execution_identity(
 ) -> EdgeExecutionIdentity:
     root = pathlib.Path(repo_root).resolve()
     eid = edge_id.strip()
-    mode, region, _ = resolve_route_tab(
+    mode, _region_or_location, _ = resolve_route_tab(
         root,
         eid,
         platform=platform,  # type: ignore[arg-type]
     )
-    target = load_lightsail_targets(root)[eid]
+    if mode == "hetzner":
+        target = load_hetzner_targets(root).get(eid)
+        if not target:
+            raise SystemExit(f"unknown Hetzner edge_id: {eid}")
+        prefix = str(target.get("ssm_prefix") or "")
+        domain = str(target.get("domain") or "")
+        ssm_region = str(target.get("ssm_region") or "eu-west-2")
+        if not prefix or not domain:
+            raise SystemExit(f"hetzner matrix entry {eid} missing ssm_prefix/domain")
+        return EdgeExecutionIdentity(
+            edge_id=eid,
+            routing="hetzner",
+            region=ssm_region,
+            instance_id=ssm_parameter_managed_instance_id(ssm_region, prefix),
+            domain=domain,
+            ec2_stack="",
+            ssm_prefix=prefix,
+        )
+
+    target = load_lightsail_targets(root).get(eid)
+    if not target:
+        raise SystemExit(f"unknown Lightsail edge_id: {eid}")
     prefix = str(target.get("ssm_prefix") or "")
     domain = str(target.get("domain") or "")
-    if not prefix or not domain:
-        raise SystemExit(f"lightsail matrix entry {eid} missing ssm_prefix/domain")
+    region = str(target.get("lightsail_region") or "")
+    if not prefix or not domain or not region:
+        raise SystemExit(f"lightsail matrix entry {eid} missing ssm_prefix/domain/region")
     return EdgeExecutionIdentity(
-        edge_id=eid, routing=mode, region=region,
+        edge_id=eid,
+        routing="lightsail",
+        region=region,
         instance_id=ssm_parameter_managed_instance_id(region, prefix),
-        domain=domain, ec2_stack="", ssm_prefix=prefix,
+        domain=domain,
+        ec2_stack="",
+        ssm_prefix=prefix,
     )
 
 
@@ -137,7 +166,7 @@ def main() -> int:
     ap.add_argument(
         "--platform",
         default="auto",
-        choices=("auto", "ec2", "lightsail"),
+        choices=("auto", "ec2", "lightsail", "hetzner"),
     )
     ap.add_argument(
         "--format",

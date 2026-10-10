@@ -49,6 +49,6 @@ Prod：卷在→DR §3；无卷/跨云→§4.4。骨架：[references/playbook.m
 
 ## 坑位（2026-10）
 
-prod DNS 缓存→restart/`extra_hosts`；stub 无 scheme→校验 `https://`；已切边整库重灌→禁；CIDR 空→prod EIP/32；空池 stub→修池再开；`run-probe edge:*`→HZ 用 `mi-*`。
+prod DNS 缓存→restart/`extra_hosts`；stub 无 scheme→校验 `https://`；已切边整库重灌→禁；CIDR 空→prod EIP/32；空池 stub→修池再开；`run-probe edge:*` 在矩阵 deployable 后 `auto`→HZ（`--platform lightsail` 才打 standby）。
 
 报告：`target platform phase new_ip old_ip dump checks dns drain smoke followups`

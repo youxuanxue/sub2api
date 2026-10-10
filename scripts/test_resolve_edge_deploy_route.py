@@ -38,13 +38,13 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
         )
         return json.loads(proc.stdout)
 
-    def test_deployable_edge_routes_to_lightsail(self) -> None:
+    def test_explicit_lightsail_routes_standby(self) -> None:
         edge_id = _deployable_lightsail_edge()
         if edge_id is None:
             self.skipTest("no deployable Lightsail edge in matrix")
         targets = json.loads(LIGHTSAIL_MATRIX.read_text(encoding="utf-8")).get("targets") or {}
         expected_instance = str((targets.get(edge_id) or {}).get("instance_name") or "")
-        route = self._route("--edge-id", edge_id)
+        route = self._route("--edge-id", edge_id, "--platform", "lightsail")
         self.assertEqual(route["platform"], "lightsail")
         self.assertEqual(route["workflow_file"], "deploy-edge-lightsail-stage0.yml")
         self.assertEqual(route["confirm_flag"], "confirm_instance")
@@ -61,25 +61,26 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("not deployable", proc.stderr)
 
-    def test_hetzner_planned_requires_explicit_platform(self) -> None:
+    def test_live_hetzner_wins_auto(self) -> None:
         proc = subprocess.run(
             [sys.executable, str(SCRIPT), "--edge-id", "uk1", "--json"],
             cwd=REPO_ROOT,
             capture_output=True,
             text=True,
         )
-        # uk1 is still deployable on Lightsail → auto stays lightsail
-        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
         route = json.loads(proc.stdout)
-        self.assertEqual(route["platform"], "lightsail")
+        self.assertEqual(route["platform"], "hetzner")
+        self.assertEqual(route["workflow_file"], "deploy-edge-hetzner-stage0.yml")
+        self.assertEqual(route["confirm_value"], "tokenkey-edge-uk1-hz-cax21")
 
+        # Backlog Hetzner (us3) still needs explicit platform + allow-planned.
         route_hz = self._route(
-            "--edge-id", "uk1", "--platform", "hetzner", "--allow-planned"
+            "--edge-id", "us3", "--platform", "hetzner", "--allow-planned"
         )
         self.assertEqual(route_hz["platform"], "hetzner")
         self.assertEqual(route_hz["workflow_file"], "deploy-edge-hetzner-stage0.yml")
-        self.assertEqual(route_hz["confirm_value"], "tokenkey-edge-uk1-hz-cax21")
-
+        self.assertEqual(route_hz["confirm_value"], "tokenkey-edge-us3-hz-cax21")
     def test_hetzner_deployable_wins_auto(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)

@@ -68,26 +68,34 @@ jobs:
           python3 -m unittest deploy/hetzner/test_resolve_edge_hetzner_target.py -v
           python3 -m unittest deploy/hetzner/test_render_bootstrap.py -v
           python3 -m unittest scripts/test_resolve_edge_deploy_route.py -v
+          python3 -m unittest ops.stage0.test_edge_ssm_execution -v
           bash deploy/hetzner/render-bootstrap.sh --check
           bash deploy/aws/lightsail/test_restore_edge_env_secrets.sh
 
-      - name: Phase-1 guard (no deployable=true)
+      - name: Cutover matrix guard (live vs backlog)
         if: github.event_name == 'pull_request'
         run: |
           python3 - <<'PY'
           import json, sys
           from pathlib import Path
+          LIVE = {"uk1", "uk2", "us4", "us5"}
+          BACKLOG = {"us3", "us6"}
           data = json.loads(Path("deploy/hetzner/edge-targets-hetzner.json").read_text())
           defaults = data.get("target_defaults") or {}
-          bad = []
+          live_off, backlog_on, unknown = [], [], []
           for k, t in (data.get("targets") or {}).items():
               row = {**defaults, **(t or {})}
-              if row.get("deployable") is True:
-                  bad.append(k)
-          if bad:
-              print(f"::error::Phase-1 forbids deployable=true; got {bad}")
+              dep = row.get("deployable") is True
+              if k in LIVE and not dep:
+                  live_off.append(k)
+              elif k in BACKLOG and dep:
+                  backlog_on.append(k)
+              elif k not in LIVE | BACKLOG and dep:
+                  unknown.append(k)
+          if live_off or backlog_on or unknown:
+              print(f"::error::matrix guard failed live_off={live_off} backlog_on={backlog_on} unknown_deployable={unknown}")
               sys.exit(1)
-          print("phase1_guard=ok")
+          print("cutover_matrix_guard=ok")
           PY
 
   dispatch-edge:

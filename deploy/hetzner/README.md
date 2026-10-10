@@ -188,7 +188,7 @@ prod 正式切流：P1–P4/P6（precious+必要日志）→ 冻写 ≤5 min →
 
 - `location=fsn1` · `server_type=cax21` · `architecture=arm`
 - prod：`volume_mount=/var/lib/tokenkey` · `volume_size_gb>=40`
-- 矩阵 / prod target：`deployable=false` 直至 Phase 门禁绿
+- 矩阵：`uk1/uk2/us4/us5` 已 `deployable=true`（正式切流后）；`us3/us6` 与 prod target 仍 `false` 直至重建/切流
 
 ```bash
 python3 -m unittest deploy/hetzner/test_resolve_edge_hetzner_target.py
