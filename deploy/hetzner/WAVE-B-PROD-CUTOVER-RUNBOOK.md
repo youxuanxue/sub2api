@@ -33,7 +33,40 @@ python3 deploy/hetzner/resolve-prod-hetzner-target.py --allow-planned
 AWS_REGION=eu-west-2 aws ssm send-command --instance-ids mi-033c9569c7fb8b884 \
   --document-name AWS-RunShellScript \
   --parameters 'commands=["systemctl is-active tokenkey-pgdump.timer tokenkey-disk-metrics.timer tokenkey-ghcr-prune-daily.timer"]'
+# CallModel 公网 NS 须已是 Porkbun（改回后递归缓存可能滞后）
+dig +short NS callmodel.io @8.8.8.8   # *.ns.porkbun.com
+dig +short A callmodel.io api.callmodel.io @8.8.8.8   # 34.194.234.88
 ```
+
+### B0b — Porkbun TTL 预压（人工；可提前数小时）
+
+在 Porkbun → 各域 DNS，把下列 A 的 TTL 收到 **300**（已是 600 也可再压）：
+
+- `tokenkey.dev` / `api.tokenkey.dev`
+- `callmodel.io` / `api.callmodel.io`
+
+**不动** `status.tokenkey.dev`。切 A 后残余缓存最多约一个 TTL；预压只缩短排空，不改指向。
+
+### B0c — Better Stack `api-hz` 旁路（人工；可提前）
+
+见附录 B。勿替换正式 `api.tokenkey.dev` monitor。
+
+### 冻写窗耗时（2026-10-10 实测量级）
+
+| 步 | 实测 / 估计 | 备注 |
+|---|---|---|
+| B1 冻写 | ~0.5–1 min | stop app 容器 |
+| B2 dump | ~1–1.5 min | precious ~1.3GiB |
+| B2 下载 → HZ | ~0.5–1 min | S3→Hybrid |
+| B2 restore | ~5 min | DROP/CREATE + gunzip\|psql + start |
+| B3 对账 | ~1 min | |
+| B4 Caddy | ~1–3 min | 正式四 vhost；ACME 若 DNS 未切可能延后签发 |
+| B5 DNS | ~1 min 操作 | 另加 TTL 残余（预压后 ≤5 min） |
+| B6 Edge CIDR | ~2–4 min | 全 deployable edge 并行 sync |
+
+**用户可感知写入中断（冻写→正式 hostname 健康）现实目标：约 10–15 min。**  
+理论下限（脚本极熟、无 ACME/边缘阻塞）约 **8–12 min**；README「≤5 min」对当前 dump 体积偏紧，勿按 5 承诺对外。  
+DNS TTL 未排空的客户端在窗口外仍可能打到已冻的 AWS → 失败直到缓存过期。
 
 ---
 
@@ -88,26 +121,39 @@ MI=mi-033c9569c7fb8b884
 # Hybrid 注册在 eu-west-2 — 必须在 sync 命令前 export
 export AWS_REGION=eu-west-2
 API_DOMAIN=api.tokenkey.dev \
-GLOBAL_SITE_DOMAIN=tokenkey.dev \
+SITE_DOMAIN=tokenkey.dev \
+GLOBAL_SITE_DOMAIN=callmodel.io \
 GLOBAL_SITE_PHASE=live \
 API_ALIAS_DOMAIN=api.callmodel.io \
 ACME_EMAIL=<ops> \
   bash ops/stage0/sync_caddyfile_via_ssm.sh prod mi-033c9569c7fb8b884 "wave-b-prod-caddy"
 ```
 
+本地 dry（切前可反复跑，不触主机）：
+
+```bash
+API_DOMAIN=api.tokenkey.dev SITE_DOMAIN=tokenkey.dev \
+GLOBAL_SITE_DOMAIN=callmodel.io GLOBAL_SITE_PHASE=live \
+API_ALIAS_DOMAIN=api.callmodel.io ACME_EMAIL=<ops> \
+  bash deploy/aws/stage0/render-prod-caddyfile.sh \
+    deploy/aws/stage0/Caddyfile /tmp/prod-caddy.dry
+# 应含 tokenkey.dev / callmodel.io / api.tokenkey.dev / api.callmodel.io 四 vhost
+```
+
 ---
 
 ## B5 — Porkbun 一次切四 hostname
 
-| Hostname | 新 A |
-|---|---|
-| `api.tokenkey.dev` | `167.233.211.115` |
-| `api.callmodel.io` | 同左 |
-| `callmodel.io` | 同左 |
-| `tokenkey.dev` | 同左 |
+| Hostname | 新 A | DNS（2026-10-10） |
+|---|---|---|
+| `api.tokenkey.dev` | `167.233.211.115` | Porkbun |
+| `tokenkey.dev` | 同左 | Porkbun |
+| `api.callmodel.io` | 同左 | Porkbun（已从 Cloudflare NS 改回；权威 A 已是 AWS EIP） |
+| `callmodel.io` | 同左 | 同左 |
 
 **不动** `status.tokenkey.dev`（Better Stack CNAME）。  
-`dig +short` 四条齐 → 继续；不齐 → 不进 B6。
+切前确认公网 `dig NS callmodel.io` 已是 `*.ns.porkbun.com`（部分递归缓存可能短暂仍报 Cloudflare）。  
+`dig +short @8.8.8.8` 四条 A 均到新 IP → 继续；不齐 → 不进 B6。
 
 回滚（仅写前/写后极短窗、且 DB 未双写）：四条 A 改回 `34.194.234.88`。
 
