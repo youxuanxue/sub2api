@@ -1,0 +1,155 @@
+name: Ops Payment Billing Watch
+
+# Read-only prod payment/recharge watch:
+#   - every ~30m: attack-pattern Feishu alerts (cancel storms / rapid creates /
+#     suspicious COMPLETED with empty trade_no or sub-5s settle)
+#   - Monday 01:00 UTC (~09:00 Asia/Shanghai): weekly Feishu report covering
+#     last 7d / prev calendar month / current calendar month / all-time
+#
+# Cadence is best-effort GitHub Actions scheduling (same caveat as edge-health-watch).
+
+on:
+  schedule:
+    - cron: "17,47 * * * *"
+    - cron: "0 1 * * 1"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "alert | weekly | all"
+        required: false
+        default: "all"
+        type: choice
+        options: ["alert", "weekly", "all"]
+      dry_run:
+        description: "Compute + print but do NOT post to Feishu"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      force_weekly:
+        description: "Force weekly report even when not Monday (mode=all/weekly)"
+        required: false
+        default: "true"
+        type: choice
+        options: ["false", "true"]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ops-payment-billing-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      FORCE_WEEKLY: ${{ inputs.force_weekly || 'false' }}
+      FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+      FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve mode
+        id: mode
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            MODE="${{ inputs.mode }}"
+            FORCE_WEEKLY="${FORCE_WEEKLY}"
+          elif [ "${{ github.event.schedule }}" = "0 1 * * 1" ]; then
+            MODE="weekly"
+            FORCE_WEEKLY="true"
+          else
+            MODE="alert"
+            FORCE_WEEKLY="false"
+          fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "force_weekly=$FORCE_WEEKLY" >> "$GITHUB_OUTPUT"
+          echo "resolved mode=$MODE force_weekly=$FORCE_WEEKLY dry_run=$DRY_RUN"
+
+      - name: Check required configuration
+        run: |
+          set -euo pipefail
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable is empty — payment billing watch cannot reach SSM."
+            exit 1
+          fi
+          if [ "$DRY_RUN" != "true" ] && { [ -z "${FEISHU_WEBHOOK_URL:-}" ] || [ -z "${FEISHU_SIGNING_SECRET:-}" ]; }; then
+            echo "::error::TK_FEISHU_WEBHOOK_URL / TK_FEISHU_SIGNING_SECRET must be set for live watches."
+            exit 1
+          fi
+
+      - name: Restore alert dedupe state
+        uses: actions/cache/restore@v6
+        with:
+          path: .payment-billing-watch-state
+          key: payment-billing-watch-state-${{ github.run_id }}
+          restore-keys: |
+            payment-billing-watch-state-
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Probe prod payment billing (read-only SSM)
+        id: probe
+        run: |
+          set -euo pipefail
+          mkdir -p .payment-billing-watch-state
+          bash ops/observability/run-probe.sh \
+            --target prod \
+            --script ops/observability/probe-payment-billing-watch.sh \
+            --comment "payment billing watch mode=${{ steps.mode.outputs.mode }}" \
+            --timeout-seconds 120 \
+            --compressed-output > snapshot.json
+          python3 - <<'PY'
+          import json, sys
+          data = json.load(open("snapshot.json", encoding="utf-8"))
+          assert data.get("schema_version") == 1, data.get("schema_version")
+          print("snapshot ok periods=", len(data.get("period_totals") or []))
+          PY
+
+      - name: Decide + post Feishu
+        id: deliver
+        if: ${{ !cancelled() && steps.probe.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          STATEFILE=.payment-billing-watch-state/keys.json
+          ARGS=(
+            --snapshot snapshot.json
+            --mode "${{ steps.mode.outputs.mode }}"
+            --state-file "$STATEFILE"
+          )
+          if [ "${{ steps.mode.outputs.force_weekly }}" = "true" ]; then
+            ARGS+=(--force-weekly)
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+          python3 ops/observability/payment_billing_watch.py "${ARGS[@]}" | tee delivery.json
+
+      - name: Upload evidence
+        if: ${{ !cancelled() && steps.probe.outcome == 'success' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: payment-billing-watch-${{ github.run_id }}
+          path: |
+            snapshot.json
+            delivery.json
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Save alert dedupe state
+        if: ${{ !cancelled() && steps.deliver.outcome == 'success' && env.DRY_RUN != 'true' && steps.mode.outputs.mode != 'weekly' }}
+        uses: actions/cache/save@v6
+        with:
+          path: .payment-billing-watch-state
+          key: payment-billing-watch-state-${{ github.run_id }}
