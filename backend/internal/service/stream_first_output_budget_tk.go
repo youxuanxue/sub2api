@@ -41,9 +41,10 @@ func resolveStreamFirstOutputTimeout(cfg *config.Config, highEffort bool) time.D
 		if cfg != nil && cfg.Gateway.StreamFirstOutputHighEffortTimeoutSeconds > 0 {
 			return time.Duration(cfg.Gateway.StreamFirstOutputHighEffortTimeoutSeconds) * time.Second
 		}
-		if cfg != nil && cfg.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds > 0 {
-			return time.Duration(cfg.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds) * time.Second
-		}
+		// Do not fall back to openai_high_effort_* here: that knob is
+		// OpenAI-native only (see openAIFirstOutputTimeout). Universal
+		// Anthropic/Kiro/Gemini high-effort must inherit the stream SSOT
+		// code default when the stream high-effort key is unset/zero.
 		return defaultStreamFirstOutputHighEffortTimeout
 	}
 	if cfg != nil && cfg.Gateway.StreamFirstOutputTimeoutSeconds > 0 {

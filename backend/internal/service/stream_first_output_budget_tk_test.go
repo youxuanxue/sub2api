@@ -41,6 +41,14 @@ func TestResolveGrokFirstByteHeaderTimeoutInheritsStreamSSOT(t *testing.T) {
 		"explicit grok override must win over stream SSOT")
 }
 
+func TestResolveStreamFirstOutputHighEffortIgnoresOpenAINamedKnob(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Gateway.StreamFirstOutputHighEffortTimeoutSeconds = 0
+	cfg.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds = 99
+	require.Equal(t, 30*time.Second, resolveStreamFirstOutputTimeout(cfg, true),
+		"universal high-effort must not inherit openai_high_effort_* when stream high-effort is zero")
+}
+
 func TestStreamFirstOutputGuardBudgetFired(t *testing.T) {
 	parent := context.Background()
 	ctx, guard := armStreamFirstOutputGuard(parent, 20*time.Millisecond)
