@@ -74,7 +74,7 @@ bash deploy/hetzner/provision-edge.sh --edge-id uk1 --allow-planned
 | **logs data-only** | `pg_dump --data-only -t 'usage_logs*' -t 'ops_error_logs*' -t 'ops_system_logs*' -t 'qa_records*'` → `tokenkey-logs-*.sql.gz` | 上述历史日志行 | — |
 
 Restore 目标：Hetzner Hybrid `mi-*`。PG18 dump 含 `\restrict`：灌库前 `sed` 去掉；函数冲突时用 `CREATE OR REPLACE FUNCTION`。  
-`TRUNCATE … CASCADE` 可能波及 `billing_usage_entries`——先确认两边行数再截断。
+**禁止** `TRUNCATE … CASCADE` 做 Mode C OLTP 刷新：会经 FK 清空 `usage_logs*`（Mode C 不回灌）。只用 `wave_b_freeze_delta.py` 的 `session_replication_role=replica` + 无 CASCADE `TRUNCATE`（见 Wave B runbook Mode C）。
 
 ### 本轮已灌时间点（UTC，2026-10-10）
 
@@ -187,21 +187,24 @@ Bootstrap（`render-prod-bootstrap.sh`）已嵌入：`tokenkey-pgdump.timer`（`
 - 点火：GHA `deploy-prod-hetzner-stage0.yml` · tag `1.8.283` · IP `167.233.211.115` · `mi-033c9569c7fb8b884` · E0 `aarch64` · timers active · Feishu webhook 已从 AWS 拷贝  
 - 演练 restore（刷新）：`tokenkey-20261010T155229Z.sql.gz` → HZ；对账 `accounts=215=215`；`usage_billing_dedup` HZ `14571497`（dump 窗）；`usage_logs` HZ `0`（precious 预期）；下载 ~17s / restore ~5.0 min  
 - E1：`api-hz.tokenkey.dev` A → `167.233.211.115`；LE 证书已签；`https://api-hz.tokenkey.dev/health` → 200  
-- 零影响预热：HZ SSM secrets 已同步；`warm_pull` `1.8.283` 绿；控制面默认仍 `i-*`；正式 Caddy dry 四 vhost；**CallModel 公网 NS 已跟齐 Porkbun**（A=`34.194.234.88`）；冻写窗实测量级见 runbook B0（约 10–15 min，非 ≤5）  
+- 零影响预热：HZ SSM secrets 已同步；`warm_pull` `1.8.283` 绿；控制面默认仍 `i-*`；正式 Caddy dry 四 vhost；**CallModel 公网 NS 已跟齐 Porkbun**（A=`34.194.234.88`）；**Mode C 压窗**见 runbook（C-lite 约 1.5–2.5 min / C-full 约 4–8 min；整库回退约 10–15 min）  
 - **Wave B 延期（2026-10-10）：** 现网请求量高，**不做冻写/正式 DNS**；正式流量继续 AWS EIP `34.194.234.88`。低流量窗再批「批准冻写切流」。**Porkbun TTL→300 已 apply**（四正式 A；`api-hz` 仍 600）；Better Stack `api-hz` 旁路仍可人工建。  
 
 user-data **必须以 `#!/bin/bash` 开头**；AWS CLI 走 awscliv2 zip。
 
-### Wave B — 正式切流清单（第二道批准；冻写 ≤5 min）
+### Wave B — 正式切流清单（第二道批准；仍须冻写）
 
-**可照抄 runbook（含命令、回滚、QA/告警附录）：** [`WAVE-B-PROD-CUTOVER-RUNBOOK.md`](WAVE-B-PROD-CUTOVER-RUNBOOK.md)
+**可照抄 runbook（含 Mode C 压窗、回滚、QA/告警附录）：** [`WAVE-B-PROD-CUTOVER-RUNBOOK.md`](WAVE-B-PROD-CUTOVER-RUNBOOK.md)
+
+**默认 Mode C（压窗）：** 开钟前整库预灌 dump A + watermark → 冻写 → `decide-path`：**C-lite**（OLTP count 齐则只灌 dedup，约 **1.5–2.5 min**）或 **C-full**（OLTP 小包 + dedup，约 **4–8 min**）→ 对账 → DNS。禁止先切 DNS 再补库。SQL/估时：`ops/stage0/wave_b_freeze_delta.py`。
 
 | 步 | 动作 | 红灯 |
 |---|---|---|
-| B0 | staging 绿；timer/Caddy/CIDR/QA 脚本就绪 | 缺口未关门 |
-| B1 | 冻写 AWS prod，开钟 | — |
-| B2 | 新鲜 precious+logs → HZ restore；失败则解冻、**不切任何正式 A** | restore/对账失败 |
-| B3 | 对账 `accounts` / `usage_billing_dedup` / `usage_logs` | 不一致 |
+| B0 / C0 | staging 绿；**预灌 dump A + watermark**；timer/Caddy/CIDR/QA 脚本就绪 | 缺口未关门 |
+| B1 / C1 | 冻写 AWS prod，开钟 | — |
+| C2（默认） | OLTP truncate+refresh + dedup 增量；失败则解冻、**不切任何正式 A** | 对账失败 |
+| B2（回退） | 新鲜 precious 整库 DROP/CREATE restore | restore/对账失败 |
+| B3 | 对账 `users`/`accounts`/`api_keys`/`groups`/`settings`/`usage_billing_dedup` | 不一致 |
 | B4 | `sync_caddyfile_via_ssm.sh prod <mi-*>` 推正式 prod Caddy（CallModel + apex + `@machine`） | Caddy/ACME 红 |
 | B5 | Porkbun **一次**切四 hostname → 新 IP（`status.tokenkey.dev` 不动；CallModel NS 已回 Porkbun） | dig 未齐 |
 | B6 | `EDGE_MAIN_GATEWAY_ALLOWED_CIDR=<新IP>/32` + 全 deployable edge `sync_caddyfile`；解冻写到 HZ | Edge 403 |
