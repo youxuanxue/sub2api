@@ -16,6 +16,7 @@ REQUIRED = {
     "model-release-watch.yml": 3,
     "ops-daily-diagnostics.yml": 3,
     "client-fidelity-watch.yml": 3,
+    "ops-payment-billing-watch.yml": 3,
     "upstream-issue-watchdog.yml": 7,  # scan artifacts; fix output may be shorter
 }
 
