@@ -61,22 +61,73 @@ done
 
 见附录 B。勿替换正式 `api.tokenkey.dev` monitor。
 
-### 冻写窗耗时（2026-10-10 实测量级）
+### 冻写窗耗时
 
-| 步 | 实测 / 估计 | 备注 |
+| 模式 | 用户可感知写入中断 | 何时用 |
 |---|---|---|
-| B1 冻写 | ~0.5–1 min | stop app 容器 |
-| B2 dump | ~1–1.5 min | precious ~1.3GiB |
-| B2 下载 → HZ | ~0.5–1 min | S3→Hybrid |
-| B2 restore | ~5 min | DROP/CREATE + gunzip\|psql + start |
-| B3 对账 | ~1 min | |
-| B4 Caddy | ~1–3 min | 正式四 vhost；ACME 若 DNS 未切可能延后签发 |
-| B5 DNS | ~1 min 操作 | 另加 TTL 残余（预压后 ≤5 min） |
-| B6 Edge CIDR | ~2–4 min | 全 deployable edge 并行 sync |
+| **Mode C（默认，压窗）** | **约 4–8 min**（预灌后；见下） | HZ 已预灌 dump A + watermark |
+| Mode B（整库重灌） | 约 10–15 min | Mode C 红灯回退；或预灌失效 |
 
-**用户可感知写入中断（冻写→正式 hostname 健康）现实目标：约 10–15 min。**  
-理论下限（脚本极熟、无 ACME/边缘阻塞）约 **8–12 min**；README「≤5 min」对当前 dump 体积偏紧，勿按 5 承诺对外。  
-DNS TTL 未排空的客户端在窗口外仍可能打到已冻的 AWS → 失败直到缓存过期。
+Mode B 分步实测（2026-10-10）：冻写 0.5–1 + dump 1–1.5 + 下载 0.5–1 + DROP/CREATE restore ~5 + 对账/Caddy/DNS/CIDR ~4–8。  
+瓶颈是 `usage_billing_dedup`（~14M 行 / 盘上 ~4GB），不是小表。  
+DNS TTL 残余另计（预压 300s 后最多约 5 min 部分客户端仍打已冻 AWS）。
+
+---
+
+## Mode C — 预灌 + 冻写短窗增量（推荐）
+
+**仍必须冻写。** 禁止「先切 DNS 再补库」。压缩的是冻写窗内的 **DB 路径**，不是取消冻写。
+
+### C0 — 开钟前（零用户影响，可反复）
+
+1. AWS 打一轮 precious dump → S3（或不另打、用最新 `tokenkey-*.sql.gz`）。  
+2. HZ：整库 DROP/CREATE restore 该 dump（与 Wave A 演练相同）；`api-hz` 恢复 200。  
+3. 在 **HZ** 上抓 watermark（写入本地文件，勿提交 git）：
+
+```bash
+python3 ops/stage0/wave_b_freeze_delta.py print-watermark-sql
+# 在 HZ postgres 执行上述 SQL，保存 JSON，例如：
+# {"dedup_max_id":14615286,"dedup_count":14571497,"accounts":215,...}
+```
+
+4. 列出 OLTP 刷新表（排除 logs + `usage_billing_dedup`）：
+
+```bash
+python3 ops/stage0/wave_b_freeze_delta.py print-list-oltp-sql
+# 在任一侧 postgres 执行，得到逗号分隔表名
+python3 ops/stage0/wave_b_freeze_delta.py plan \
+  --watermark-json "$WM_JSON" \
+  --oltp-tables "$OLTP_TABLES"
+# 估时：python3 ops/stage0/wave_b_freeze_delta.py estimate --dedup-delta-rows <AWS_count - HZ_count>
+```
+
+预灌越新鲜，冻写窗内 dedup 增量越小（小时级预灌常见数千行，秒～数十秒可灌完）。
+
+### C1 — 冻写 AWS（开钟）
+
+同下节 B1（stop app；PG/Caddy 保留）。
+
+### C2 — 冻写窗内：OLTP 全量小包 + dedup 增量（勿 DROP DATABASE）
+
+在 **已冻写的 AWS** 上：
+
+1. `pg_dump --data-only`：排除 `usage_logs*` / `ops_*_logs*` / `qa_records*` / `qa_archive*` / **`usage_billing_dedup`**（用 C0 的表清单 `TRUNCATE … CASCADE` 后再 restore 到 HZ）。  
+2. `COPY (SELECT … FROM usage_billing_dedup WHERE id > :dedup_max_id) TO STDOUT CSV`（SQL 见 `wave_b_freeze_delta.py plan`）。  
+
+在 **HZ** 上：
+
+1. stop `tokenkey`（勿动 postgres）。  
+2. `TRUNCATE` OLTP 表清单 → 灌入 AWS 的 data-only dump。  
+3. 按 `dedup_delta_apply`：CSV → temp → `INSERT … ON CONFLICT (request_id, api_key_id) DO NOTHING`，并校正 sequence。  
+4. 对账：`users` / `accounts` / `api_keys` / `groups` / `settings` / `usage_billing_dedup` **count 与冻写后 AWS 一致**。  
+
+红灯 → **解冻 AWS，中止**；不切正式 A。  
+回退整库：改走 Mode B（下节 B2）。
+
+### C3 — 对账通过后
+
+继续 B4 Caddy → B5 DNS → B6 Edge CIDR（与 Mode B 相同）。  
+切后 **不要**再从 AWS 整库覆盖 HZ；历史 logs 可选后续 append-only 补，不挡切流。
 
 ---
 
@@ -95,7 +146,9 @@ AWS_REGION=us-east-1 aws ssm send-command --instance-ids "$IID" \
 
 ---
 
-## B2 — 新鲜 precious dump → HZ restore
+## B2 — Mode B 回退：新鲜 precious 整库 → HZ restore
+
+仅当 Mode C 不可用（无预灌 / 增量对账红）时使用。
 
 ```bash
 # AWS：跑一轮 pgdump（precious）
@@ -115,9 +168,8 @@ MI=mi-033c9569c7fb8b884
 ## B3 — 对账
 
 ```bash
-# 两侧 count：accounts / usage_billing_dedup / usage_logs
-# accounts 必须相等；dedup 允许 dump 后极小漂移仅在未冻干净时出现——冻写后应一致；
-# usage_logs 在 precious 路径可为 0（预期）。
+# Mode C / B：users / accounts / api_keys / groups / settings / usage_billing_dedup
+# 冻写后两侧 count 必须一致；usage_logs 在 precious / Mode C 路径可为 0（预期）。
 ```
 
 ---

@@ -2912,6 +2912,22 @@ else
 fi
 
 
+# ---- sub2api: Wave B freeze-delta contract ---------------------------------
+# Mode C compressed freeze: watermark + OLTP truncate plan + dedup delta SQL.
+echo ""
+
+fi # preflight gate
+if _preflight_selected 'Wave B freeze-delta contract'; then
+echo "=== sub2api: Wave B freeze-delta contract ==="
+if ! python3 ./ops/stage0/test_wave_b_freeze_delta.py >/dev/null 2>&1; then
+    echo "  FAIL: Wave B freeze-delta contract test"
+    echo "        — run: python3 ops/stage0/test_wave_b_freeze_delta.py"
+    errors=$((errors + 1))
+else
+    echo "  ok: wave_b_freeze_delta watermark/plan/estimate"
+fi
+
+
 # ---- sub2api: edge-ip-status doc / live AWS drift ---------------------------
 # Source of truth: edge-polluted-ips.json + lightsail matrix porkbun_a_ipv4.
 # --check reconciles polluted and current tables in tokenkey-edge-ip-history.md.
