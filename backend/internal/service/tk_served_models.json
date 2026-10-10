@@ -796,19 +796,19 @@
       ]
     },
     "text-embedding-v1": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "text-embedding-v2": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "text-embedding-v3": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "text-embedding-v4": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "qwen3.7-text-embedding": {
