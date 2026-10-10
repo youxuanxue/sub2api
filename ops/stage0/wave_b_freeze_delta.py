@@ -23,9 +23,15 @@ from typing import Any
 
 # Partition / bulky reconstructible log parents (precious dump already excludes
 # their row data). Also skip the large append-only ledger — that uses id watermark.
-EXCLUDE_TABLE_REGEX = (
-    r"^(usage_logs|ops_error_logs|ops_system_logs|qa_records|qa_archive)"
+# SSOT for both SQL list filter and pg_dump --exclude-table-data globs.
+BULKY_EXCLUDE_STEMS = (
+    "usage_logs",
+    "ops_error_logs",
+    "ops_system_logs",
+    "qa_records",
+    "qa_archive",
 )
+EXCLUDE_TABLE_REGEX = r"^(" + "|".join(BULKY_EXCLUDE_STEMS) + r")"
 DEDUP_TABLE = "usage_billing_dedup"
 
 # Tables whose row counts must match AWS after delta apply (canary + cutover gate).
@@ -68,11 +74,28 @@ FROM {DEDUP_TABLE};
 """.strip()
 
 
+def pg_dump_exclude_table_data_args() -> list[str]:
+    """Flags for Mode C OLTP data-only dump (same stems as EXCLUDE_TABLE_REGEX + dedup)."""
+    args = [f"--exclude-table-data={stem}*" for stem in BULKY_EXCLUDE_STEMS]
+    args.append(f"--exclude-table-data={DEDUP_TABLE}")
+    return args
+
+
 def truncate_oltp_sql(tables: list[str]) -> str:
+    """Truncate OLTP refresh set without CASCADE.
+
+    CASCADE would wipe FK children excluded from Mode C restore (notably
+    usage_logs* → users/accounts/api_keys/groups). Use replica role so FKs from
+    those excluded tables do not block TRUNCATE; restore puts matching PK ids back.
+    """
     if not tables:
         raise ValueError("oltp table list is empty")
     quoted = ", ".join(f'"{t}"' for t in tables)
-    return f"TRUNCATE {quoted} RESTART IDENTITY CASCADE;"
+    return (
+        "SET session_replication_role = replica;\n"
+        f"TRUNCATE {quoted} RESTART IDENTITY;\n"
+        "SET session_replication_role = DEFAULT;"
+    )
 
 
 def dedup_delta_copy_sql(watermark_id: int) -> str:
@@ -184,6 +207,7 @@ def build_plan(watermark: dict[str, Any], oltp_tables: list[str]) -> dict[str, A
             "dedup_delta_apply": dedup_delta_apply_sql(),
             "reconcile": reconcile_sql(),
         },
+        "pg_dump_exclude_table_data": pg_dump_exclude_table_data_args(),
         "estimate": estimate_freeze_minutes(
             dedup_delta_rows=max(0, int(watermark.get("aws_dedup_count", watermark["dedup_count"])) - int(watermark["dedup_count"]))
             if "aws_dedup_count" in watermark
@@ -215,6 +239,12 @@ def main(argv: list[str] | None = None) -> int:
     p_est.add_argument("--dedup-delta-rows", type=int, required=True)
     p_est.set_defaults(fn="estimate")
 
+    p_excl = sub.add_parser(
+        "print-pg-dump-exclude-args",
+        help="Space-separated pg_dump --exclude-table-data flags for Mode C OLTP dump",
+    )
+    p_excl.set_defaults(fn="pg_dump_excl")
+
     args = parser.parse_args(argv)
 
     if args.fn == "watermark_sql":
@@ -225,6 +255,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.fn == "estimate":
         print(json.dumps(estimate_freeze_minutes(dedup_delta_rows=args.dedup_delta_rows), indent=2))
+        return 0
+    if args.fn == "pg_dump_excl":
+        print(" ".join(pg_dump_exclude_table_data_args()))
         return 0
     if args.fn == "plan":
         watermark = json.loads(args.watermark_json)

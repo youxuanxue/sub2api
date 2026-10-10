@@ -74,7 +74,7 @@ bash deploy/hetzner/provision-edge.sh --edge-id uk1 --allow-planned
 | **logs data-only** | `pg_dump --data-only -t 'usage_logs*' -t 'ops_error_logs*' -t 'ops_system_logs*' -t 'qa_records*'` → `tokenkey-logs-*.sql.gz` | 上述历史日志行 | — |
 
 Restore 目标：Hetzner Hybrid `mi-*`。PG18 dump 含 `\restrict`：灌库前 `sed` 去掉；函数冲突时用 `CREATE OR REPLACE FUNCTION`。  
-`TRUNCATE … CASCADE` 可能波及 `billing_usage_entries`——先确认两边行数再截断。
+**禁止** `TRUNCATE … CASCADE` 做 Mode C OLTP 刷新：会经 FK 清空 `usage_logs*`（Mode C 不回灌）。只用 `wave_b_freeze_delta.py` 的 `session_replication_role=replica` + 无 CASCADE `TRUNCATE`（见 Wave B runbook Mode C）。
 
 ### 本轮已灌时间点（UTC，2026-10-10）
 

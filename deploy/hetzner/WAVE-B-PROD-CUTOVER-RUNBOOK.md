@@ -109,17 +109,30 @@ python3 ops/stage0/wave_b_freeze_delta.py plan \
 
 ### C2 — 冻写窗内：OLTP 全量小包 + dedup 增量（勿 DROP DATABASE）
 
-在 **已冻写的 AWS** 上：
+**禁止** `TRUNCATE … CASCADE`（会经 FK 清空 `usage_logs*` 等 Mode C 不回灌的表）。截断 SQL 必须来自 `plan` 的 `sql.truncate_oltp`（`session_replication_role=replica` + 无 CASCADE）。
 
-1. `pg_dump --data-only`：排除 `usage_logs*` / `ops_*_logs*` / `qa_records*` / `qa_archive*` / **`usage_billing_dedup`**（用 C0 的表清单 `TRUNCATE … CASCADE` 后再 restore 到 HZ）。  
-2. `COPY (SELECT … FROM usage_billing_dedup WHERE id > :dedup_max_id) TO STDOUT CSV`（SQL 见 `wave_b_freeze_delta.py plan`）。  
+Exclude 旗标与表清单同一 SSOT（勿手写 glob）：
+
+```bash
+python3 ops/stage0/wave_b_freeze_delta.py print-pg-dump-exclude-args
+# → --exclude-table-data=usage_logs* … --exclude-table-data=usage_billing_dedup
+```
+
+在 **已冻写的 AWS**（`$IID`）上（示意；容器名以主机为准）：
+
+```bash
+EXCL=$(python3 ops/stage0/wave_b_freeze_delta.py print-pg-dump-exclude-args)
+# pg_dump data-only → 本地/S3 工件（示例）
+# docker exec "$PG" pg_dump -U tokenkey -d tokenkey --data-only $EXCL | gzip > /tmp/wave-b-oltp.sql.gz
+# dedup CSV：plan.sql.dedup_delta_copy | docker exec -i "$PG" psql … -c "COPY …" → /tmp/wave-b-dedup.csv
+```
 
 在 **HZ** 上：
 
 1. stop `tokenkey`（勿动 postgres）。  
-2. `TRUNCATE` OLTP 表清单 → 灌入 AWS 的 data-only dump。  
-3. 按 `dedup_delta_apply`：CSV → temp → `INSERT … ON CONFLICT (request_id, api_key_id) DO NOTHING`，并校正 sequence。  
-4. 对账：`users` / `accounts` / `api_keys` / `groups` / `settings` / `usage_billing_dedup` **count 与冻写后 AWS 一致**。  
+2. 执行 `plan.sql.truncate_oltp`（replica role，**无** CASCADE）→ `gunzip -c wave-b-oltp.sql.gz | psql`。  
+3. `plan.sql.dedup_delta_apply`：CSV → temp → `INSERT … ON CONFLICT (request_id, api_key_id) DO NOTHING`，并校正 sequence。  
+4. 对账：`plan.sql.reconcile` — `users` / `accounts` / `api_keys` / `groups` / `settings` / `usage_billing_dedup` **count 与冻写后 AWS 一致**。  
 
 红灯 → **解冻 AWS，中止**；不切正式 A。  
 回退整库：改走 Mode B（下节 B2）。

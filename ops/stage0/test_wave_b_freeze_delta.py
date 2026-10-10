@@ -27,9 +27,23 @@ class WaveBFreezeDeltaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             delta.truncate_oltp_sql([])
 
-    def test_truncate_quotes_and_cascade(self) -> None:
+    def test_truncate_uses_replica_role_not_cascade(self) -> None:
         sql = delta.truncate_oltp_sql(["accounts", "users"])
-        self.assertEqual(sql, 'TRUNCATE "accounts", "users" RESTART IDENTITY CASCADE;')
+        self.assertNotIn("CASCADE", sql)
+        self.assertIn("SET session_replication_role = replica;", sql)
+        self.assertIn('TRUNCATE "accounts", "users" RESTART IDENTITY;', sql)
+        self.assertIn("SET session_replication_role = DEFAULT;", sql)
+
+    def test_pg_dump_exclude_covers_logs_and_dedup(self) -> None:
+        args = delta.pg_dump_exclude_table_data_args()
+        self.assertIn("--exclude-table-data=usage_logs*", args)
+        self.assertIn("--exclude-table-data=usage_billing_dedup", args)
+        joined = " ".join(args)
+        out = subprocess.check_output(
+            [sys.executable, str(SCRIPT), "print-pg-dump-exclude-args"],
+            text=True,
+        ).strip()
+        self.assertEqual(out, joined)
 
     def test_dedup_copy_uses_watermark(self) -> None:
         sql = delta.dedup_delta_copy_sql(14615286)
@@ -66,9 +80,13 @@ class WaveBFreezeDeltaTests(unittest.TestCase):
         plan = json.loads(out)
         self.assertEqual(plan["mode"], "wave_b_compress_freeze")
         self.assertEqual(plan["oltp_table_count"], 3)
-        self.assertIn('TRUNCATE "accounts", "users", "settings"', plan["sql"]["truncate_oltp"])
+        trunc = plan["sql"]["truncate_oltp"]
+        self.assertIn('TRUNCATE "accounts", "users", "settings"', trunc)
+        self.assertNotIn("CASCADE", trunc)
+        self.assertIn("session_replication_role = replica", trunc)
         self.assertIn("id > 100", plan["sql"]["dedup_delta_copy"])
         self.assertEqual(plan["estimate"]["dedup_delta_rows"], 7500)
+        self.assertIn("--exclude-table-data=usage_billing_dedup", plan["pg_dump_exclude_table_data"])
 
     def test_estimate_cli(self) -> None:
         out = subprocess.check_output(
