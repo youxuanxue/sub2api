@@ -46,6 +46,19 @@ class HetznerRenderBootstrapTests(unittest.TestCase):
             content,
         )
 
+    def test_generated_injects_qa_capture_disabled_into_compose(self):
+        """Edge smoke requires in-container QA_CAPTURE_ENABLED=false; .env alone is insufficient."""
+        content = GENERATED.read_text(encoding="utf-8")
+        self.assertIn("QA_CAPTURE_ENABLED=false", content)
+        self.assertIn(
+            r"/^      - SERVER_FRONTEND_URL=/a\      - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-false}",
+            content,
+        )
+        self.assertIn(
+            "BOOTSTRAP_FAIL: failed to insert compose QA_CAPTURE_ENABLED mapping",
+            content,
+        )
+
     def test_provision_user_data_prefix_starts_with_shebang_before_exports(self):
         """Regression: Ubuntu cloud-init ignores exports-first user-data."""
         provision = (HERE / "provision-edge.sh").read_text(encoding="utf-8")
