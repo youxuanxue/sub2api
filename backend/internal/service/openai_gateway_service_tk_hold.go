@@ -92,18 +92,21 @@ func (s *OpenAIGatewayService) tkHoldGatingDisabled() bool {
 // request. promptTokens must be an UPPER BOUND on the request's input tokens
 // (callers over-estimate). maxOutputTokens is an upper bound only when callers
 // pass an explicit client ceiling; omitted output ceilings may use a low
-// default reserve. Embeddings pass maxOutputTokens=0.
+// default reserve. Embeddings pass maxOutputTokens=0. reasoningEffort is the
+// effort settlement will price this request at, read from the post-policy body
+// ("" when the request declares none, which reserves 1x exactly as settlement
+// bills it — see reasoningEffortHoldMultiplier).
 //
 // Returns held (caller owns the release) and reject (caller returns 403). A
 // pricing/DB failure is fail-open (held=false, reject=false) + an ALERT log: a
 // reservation outage must not deny service (availability wins, same regime as
 // unpriced-chat serve-and-alert), it only narrows the guarantee until resolved.
-func (s *OpenAIGatewayService) TkReserveTokenHold(ctx context.Context, requestID, model, serviceTier string, user *User, apiKey *APIKey, promptTokens, maxOutputTokens int) (held bool, reject bool) {
+func (s *OpenAIGatewayService) TkReserveTokenHold(ctx context.Context, requestID, model, serviceTier, reasoningEffort string, user *User, apiKey *APIKey, promptTokens, maxOutputTokens int) (held bool, reject bool) {
 	if s == nil || s.billingService == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
 		return false, false
 	}
 	multiplier := s.tkHoldRateMultiplier(ctx, user, apiKey)
-	amount, err := s.billingService.EstimateTokenHold(model, serviceTier, promptTokens, maxOutputTokens, multiplier)
+	amount, err := s.billingService.EstimateTokenHold(model, serviceTier, reasoningEffort, promptTokens, maxOutputTokens, multiplier)
 	if err != nil {
 		// Unpriced model: chat bills $0 by design and serves — do not gate.
 		return false, false

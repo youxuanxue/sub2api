@@ -26,7 +26,7 @@ func TestEstimateTokenHold_IsUpperBoundOverDistributions(t *testing.T) {
 	)
 
 	for _, tier := range []string{"", "priority", "flex"} {
-		hold, err := s.EstimateTokenHold(model, tier, prompt, maxOut, mult)
+		hold, err := s.EstimateTokenHold(model, tier, "", prompt, maxOut, mult)
 		if err != nil {
 			t.Fatalf("EstimateTokenHold(tier=%q): %v", tier, err)
 		}
@@ -63,7 +63,7 @@ func TestEstimateTokenHold_HonorsInclusiveLongContextBoundary(t *testing.T) {
 		maxOut = 1000
 	)
 
-	hold, err := s.EstimateTokenHold("grok-4.6", "", prompt, maxOut, 1)
+	hold, err := s.EstimateTokenHold("grok-4.6", "", "", prompt, maxOut, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,46 +88,200 @@ func TestEstimateTokenHold_HonorsInclusiveLongContextBoundary(t *testing.T) {
 // max(). This sweep is the guard for the oversized-reserve fix: it fails both
 // if the estimate under-reserves and (via the sizing test below) if it reverts
 // to charging the priority premium twice.
+// The sweep must settle through the SAME entry point production uses —
+// CalculateCostUnified → calculateTokenCost — not CalculateCostWithServiceTier.
+// The latter stops at computeTokenBreakdown and silently skips the
+// reasoning-effort and channel-time premiums applied after it
+// (billing_service.go:1020-1021), so a sweep built on it cannot see an
+// under-reservation caused by either. `ultrafast` is in the tier list for the
+// same reason: usePriorityServiceTierPricing matches priority/fast only, so
+// ultrafast settles as unit price × UltrafastMultiplier.
 func TestEstimateTokenHold_UpperBoundAcrossTiersAndSplits(t *testing.T) {
 	s := NewBillingService(&config.Config{}, nil)
+	resolver := NewModelPricingResolver(nil, s)
 	const epsilon = 1e-9
-	tiers := []string{"", "default", "priority", "fast", "flex", "scale"}
+	tiers := []string{"", "default", "priority", "fast", "flex", "scale", OpenAIFastTierUltrafast}
+	// "" is the reserve-time unknown: settlement may bill ANY effort, so the
+	// reserve has to cover the dearest one.
+	efforts := []string{"", "minimal", "low", "medium", "high", "xhigh", "max", "none"}
 
-	for _, model := range []string{"gpt-6-astra", "claude-sonnet-4", "grok-4.6", "gpt-5.4"} {
+	for _, model := range []string{"gpt-6-astra", "claude-sonnet-4", "grok-4.6", "gpt-5.4", "claude-fable-5-1", "claude-opus-5-5"} {
 		for _, pm := range [][2]int{{5000, 2000}, {300000, 4000}, {271999, 10}, {272001, 10}} {
 			prompt, maxOut := pm[0], pm[1]
 			for _, requested := range tiers {
-				hold, err := s.EstimateTokenHold(model, requested, prompt, maxOut, 1.0)
-				if err != nil {
-					continue
-				}
-				requestedRank, _ := serviceTierCostRank(requested)
-				for _, billed := range tiers {
-					// Settlement bills the requested tier or a cheaper one.
-					if billedRank, _ := serviceTierCostRank(billed); billedRank > requestedRank {
+				for _, requestedEffort := range efforts {
+					hold, err := s.EstimateTokenHold(model, requested, requestedEffort, prompt, maxOut, 1.0)
+					if err != nil {
 						continue
 					}
-					for _, d := range []UsageTokens{
-						{InputTokens: prompt, OutputTokens: maxOut},
-						{CacheCreationTokens: prompt, OutputTokens: maxOut},
-						{InputTokens: prompt / 2, CacheCreationTokens: prompt / 2, OutputTokens: maxOut},
-						{CacheReadTokens: prompt, OutputTokens: maxOut},
-						{InputTokens: prompt, OutputTokens: maxOut, ImageOutputTokens: maxOut / 2},
-						{CacheCreationTokens: prompt, CacheCreation1hTokens: prompt, OutputTokens: maxOut},
-						{InputTokens: prompt, ImageInputTokens: prompt / 2, OutputTokens: maxOut},
-					} {
-						bd, err := s.CalculateCostWithServiceTier(model, d, 1.0, billed)
-						if err != nil {
+					requestedRank, _ := serviceTierCostRank(requested)
+					// Settlement prices the effort finally forwarded, which the
+					// reserve resolves from the same post-policy body: the group
+					// policy caps and maps declared values but never injects one,
+					// so the billed effort equals the reserved one.
+					billedEfforts := []string{requestedEffort}
+					for _, billed := range tiers {
+						// Settlement bills the requested tier or a cheaper one.
+						if billedRank, _ := serviceTierCostRank(billed); billedRank > requestedRank {
 							continue
 						}
-						if bd.ActualCost > hold+epsilon {
-							t.Fatalf("hold is NOT an upper bound: model=%s requested=%q billed=%q prompt=%d dist=%+v actual=%.12f hold=%.12f",
-								model, requested, billed, prompt, d, bd.ActualCost, hold)
+						for _, billedEffort := range billedEfforts {
+							for _, d := range []UsageTokens{
+								{InputTokens: prompt, OutputTokens: maxOut},
+								{CacheCreationTokens: prompt, OutputTokens: maxOut},
+								{InputTokens: prompt / 2, CacheCreationTokens: prompt / 2, OutputTokens: maxOut},
+								{CacheReadTokens: prompt, OutputTokens: maxOut},
+								{InputTokens: prompt, OutputTokens: maxOut, ImageOutputTokens: maxOut / 2},
+								{CacheCreationTokens: prompt, CacheCreation1hTokens: prompt, OutputTokens: maxOut},
+								{InputTokens: prompt, ImageInputTokens: prompt / 2, OutputTokens: maxOut},
+							} {
+								bd, err := s.CalculateCostUnified(CostInput{
+									Ctx:             context.Background(),
+									Model:           model,
+									Tokens:          d,
+									RateMultiplier:  1.0,
+									ServiceTier:     billed,
+									ReasoningEffort: billedEffort,
+									Resolver:        resolver,
+								})
+								if err != nil || bd == nil {
+									continue
+								}
+								if bd.ActualCost > hold+epsilon {
+									t.Fatalf("hold is NOT an upper bound: model=%s requested_tier=%q billed_tier=%q requested_effort=%q billed_effort=%q prompt=%d dist=%+v actual=%.12f hold=%.12f",
+										model, requested, billed, requestedEffort, billedEffort, prompt, d, bd.ActualCost, hold)
+								}
+							}
 						}
 					}
 				}
 			}
 		}
+	}
+}
+
+// The reserve must carry the reasoning-effort premium settlement applies after
+// computeTokenBreakdown. Fable 5.1 bills an unconfigured `max` effort at 3x, so
+// before this the reserve covered a third of the bill and the overdraw guard did
+// not hold for the dearest requests on that model.
+func TestEstimateTokenHold_CoversReasoningEffortPremium(t *testing.T) {
+	const model = "claude-fable-5-1"
+	s := NewBillingService(&config.Config{}, nil)
+	resolver := NewModelPricingResolver(nil, s)
+	const prompt, maxOut = 5000, 2000
+
+	base, err := s.EstimateTokenHold(model, "", "low", prompt, maxOut, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	maxEffort, err := s.EstimateTokenHold(model, "", "max", prompt, maxOut, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if maxEffort <= base {
+		t.Errorf("a max-effort request must reserve above a low-effort one: max=%.8f low=%.8f", maxEffort, base)
+	}
+
+	settled, err := s.CalculateCostUnified(CostInput{
+		Ctx:             context.Background(),
+		Model:           model,
+		Tokens:          UsageTokens{InputTokens: prompt, OutputTokens: maxOut},
+		RateMultiplier:  1.0,
+		ReasoningEffort: "max",
+		Resolver:        resolver,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled.ActualCost > maxEffort+1e-9 {
+		t.Errorf("max-effort settlement must not exceed its reserve: actual=%.8f hold=%.8f", settled.ActualCost, maxEffort)
+	}
+
+	// An omitted effort must reserve 1x, exactly as settlement bills it: the
+	// policy never injects an effort into a body that omits one, so reserving
+	// the dearest premium here would re-create the oversized reserve this path
+	// exists to remove.
+	unknown, err := s.EstimateTokenHold(model, "", "", prompt, maxOut, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unknown != base {
+		t.Errorf("an omitted effort must reserve the unpremiumed amount: unknown=%.8f low=%.8f", unknown, base)
+	}
+	unknownSettled, err := s.CalculateCostUnified(CostInput{
+		Ctx:            context.Background(),
+		Model:          model,
+		Tokens:         UsageTokens{InputTokens: prompt, OutputTokens: maxOut},
+		RateMultiplier: 1.0,
+		Resolver:       resolver,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unknownSettled.ActualCost > unknown+1e-9 {
+		t.Errorf("an omitted-effort settlement must not exceed its reserve: actual=%.8f hold=%.8f", unknownSettled.ActualCost, unknown)
+	}
+}
+
+// A body with thinking enabled and no explicit effort is forwarded as `high` on
+// passback-required models, so the reserve must price that same effort rather
+// than the absent one — otherwise a premium model under-reserves whenever the
+// client expresses thinking through `thinking.type` instead of an effort field.
+func TestRequestedReasoningEffortForHold_MirrorsThinkingEnabledFallback(t *testing.T) {
+	const model = "claude-fable-5-1"
+	if DefaultEffortForThinkingEnabled(model) == nil {
+		t.Skipf("%s is not a passback-required model; case no longer applicable", model)
+	}
+	s := NewBillingService(&config.Config{}, nil)
+	const prompt, maxOut = 5000, 2000
+
+	absent, err := s.EstimateTokenHold(model, "", "", prompt, maxOut, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallback, err := s.EstimateTokenHold(model, "", *DefaultEffortForThinkingEnabled(model), prompt, maxOut, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fallback < absent {
+		t.Errorf("the thinking-enabled fallback effort must not reserve below an absent one: fallback=%.8f absent=%.8f", fallback, absent)
+	}
+}
+
+// `ultrafast` is not a priority-unit tier: computeTokenBreakdown resolves it to
+// UltrafastMultiplier (6x on gpt-6-astra), so dropping the multiplier for it
+// would under-reserve by that factor.
+func TestEstimateTokenHold_CoversUltrafastMultiplier(t *testing.T) {
+	const model = "gpt-6-astra"
+	s := NewBillingService(&config.Config{}, nil)
+	resolver := NewModelPricingResolver(nil, s)
+	const prompt, maxOut = 5000, 2000
+
+	ultrafast, err := s.EstimateTokenHold(model, OpenAIFastTierUltrafast, "", prompt, maxOut, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	priority, err := s.EstimateTokenHold(model, "priority", "", prompt, maxOut, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ultrafast <= priority {
+		t.Errorf("ultrafast carries its own multiplier, so it must reserve above priority: ultrafast=%.8f priority=%.8f", ultrafast, priority)
+	}
+
+	settled, err := s.CalculateCostUnified(CostInput{
+		Ctx:            context.Background(),
+		Model:          model,
+		Tokens:         UsageTokens{InputTokens: prompt, OutputTokens: maxOut},
+		RateMultiplier: 1.0,
+		ServiceTier:    OpenAIFastTierUltrafast,
+		Resolver:       resolver,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled.ActualCost > ultrafast+1e-9 {
+		t.Errorf("ultrafast settlement must not exceed its reserve: actual=%.8f hold=%.8f", settled.ActualCost, ultrafast)
 	}
 }
 
@@ -143,11 +297,11 @@ func TestEstimateTokenHold_ClampsOutputCeilingToModelLimit(t *testing.T) {
 		t.Fatal("expected a catalog output ceiling for gpt-6-astra")
 	}
 
-	atLimit, err := s.EstimateTokenHold("gpt-6-astra", "", 1000, outputCeiling, 1.0)
+	atLimit, err := s.EstimateTokenHold("gpt-6-astra", "", "", 1000, outputCeiling, 1.0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	absurd, err := s.EstimateTokenHold("gpt-6-astra", "", 1000, outputCeiling*50, 1.0)
+	absurd, err := s.EstimateTokenHold("gpt-6-astra", "", "", 1000, outputCeiling*50, 1.0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +310,7 @@ func TestEstimateTokenHold_ClampsOutputCeilingToModelLimit(t *testing.T) {
 	}
 
 	// Ceilings below the model limit are still honored verbatim.
-	small, err := s.EstimateTokenHold("gpt-6-astra", "", 1000, 512, 1.0)
+	small, err := s.EstimateTokenHold("gpt-6-astra", "", "", 1000, 512, 1.0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,11 +337,11 @@ func TestRegistryMaxOutputTokens_ResolvesThroughAliasOwner(t *testing.T) {
 	}
 
 	s := NewBillingService(&config.Config{}, nil)
-	aliasHold, err := s.EstimateTokenHold(alias, "", 1000, ownerCap*50, 1.0)
+	aliasHold, err := s.EstimateTokenHold(alias, "", "", 1000, ownerCap*50, 1.0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ownerHold, err := s.EstimateTokenHold(owner, "", 1000, ownerCap*50, 1.0)
+	ownerHold, err := s.EstimateTokenHold(owner, "", "", 1000, ownerCap*50, 1.0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,11 +360,11 @@ func TestRegistryMaxOutputTokens_NoCeilingLeavesReserveUnclamped(t *testing.T) {
 		t.Skipf("%s now declares a ceiling (%d); case no longer applicable", model, got)
 	}
 	s := NewBillingService(&config.Config{}, nil)
-	big, err := s.EstimateTokenHold(model, "", 1000, 2_000_000, 1.0)
+	big, err := s.EstimateTokenHold(model, "", "", 1000, 2_000_000, 1.0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	small, err := s.EstimateTokenHold(model, "", 1000, 1000, 1.0)
+	small, err := s.EstimateTokenHold(model, "", "", 1000, 1000, 1.0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,11 +382,11 @@ func TestRegistryMaxOutputTokens_UnknownModelIsUnbounded(t *testing.T) {
 	s := NewBillingService(&config.Config{}, nil)
 	// claude-sonnet-4 resolves via fallback pricing; a huge ceiling must still
 	// scale the reserve rather than be clamped to nothing.
-	big, err := s.EstimateTokenHold("claude-sonnet-4", "", 1000, 1_000_000, 1.0)
+	big, err := s.EstimateTokenHold("claude-sonnet-4", "", "", 1000, 1_000_000, 1.0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	small, err := s.EstimateTokenHold("claude-sonnet-4", "", 1000, 1000, 1.0)
+	small, err := s.EstimateTokenHold("claude-sonnet-4", "", "", 1000, 1000, 1.0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,11 +402,11 @@ func TestEstimateTokenHold_DoesNotDoubleCountPriorityTier(t *testing.T) {
 	s := NewBillingService(&config.Config{}, nil)
 	const prompt, maxOut = 160000, 128000
 
-	priority, err := s.EstimateTokenHold("gpt-6-astra", "priority", prompt, maxOut, 1.0)
+	priority, err := s.EstimateTokenHold("gpt-6-astra", "priority", "", prompt, maxOut, 1.0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	standard, err := s.EstimateTokenHold("gpt-6-astra", "", prompt, maxOut, 1.0)
+	standard, err := s.EstimateTokenHold("gpt-6-astra", "", "", prompt, maxOut, 1.0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,11 +435,11 @@ func TestEstimateTokenHold_DoesNotDoubleCountPriorityTier(t *testing.T) {
 
 func TestEstimateTokenHold_ScalesWithRateMultiplier(t *testing.T) {
 	s := NewBillingService(&config.Config{}, nil)
-	h1, err := s.EstimateTokenHold("claude-sonnet-4", "", 1000, 500, 1.0)
+	h1, err := s.EstimateTokenHold("claude-sonnet-4", "", "", 1000, 500, 1.0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	h2, err := s.EstimateTokenHold("claude-sonnet-4", "", 1000, 500, 2.0)
+	h2, err := s.EstimateTokenHold("claude-sonnet-4", "", "", 1000, 500, 2.0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +450,7 @@ func TestEstimateTokenHold_ScalesWithRateMultiplier(t *testing.T) {
 
 func TestEstimateTokenHold_UnpricedModelErrors(t *testing.T) {
 	s := NewBillingService(&config.Config{}, nil)
-	if _, err := s.EstimateTokenHold("definitely-not-a-real-model-xyz", "", 100, 100, 1.0); err == nil {
+	if _, err := s.EstimateTokenHold("definitely-not-a-real-model-xyz", "", "", 100, 100, 1.0); err == nil {
 		t.Error("expected an error for an unpriced model so the caller can fail-open (chat serves $0)")
 	}
 }
@@ -458,6 +612,7 @@ func TestTkReserveTokenHold_NilBillingServiceFailsOpen(t *testing.T) {
 		context.Background(),
 		"generated:nil-billing",
 		"gpt-5.4",
+		"",
 		"",
 		&User{ID: 1},
 		&APIKey{ID: 2},

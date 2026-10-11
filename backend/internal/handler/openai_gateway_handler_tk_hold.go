@@ -211,12 +211,39 @@ func (h *OpenAIGatewayHandler) tkApplyTokenHold(c *gin.Context, apiKey *service.
 			requestID,
 			reqModel,
 			gjson.GetBytes(body, "service_tier").String(),
+			tkRequestedReasoningEffortForHold(c, body, reqModel),
 			apiKey.User,
 			apiKey,
 			len(body),
 			maxOutputTokens,
 		)
 	})
+}
+
+// tkRequestedReasoningEffortForHold resolves the effort settlement will price
+// this request at, so the reserve carries the same premium. Settlement bills
+// result.ReasoningEffort — the effort finally forwarded — so this reads the body
+// AFTER the group reasoning-effort policy has capped/mapped it (the hold runs
+// downstream of applyOpenAIReasoningEffortPolicyForRequest), preferring the
+// canonical value already bound on the request context.
+//
+// The thinking-enabled fallback is mirrored too: a body with thinking enabled
+// and no explicit effort is forwarded as `high` on passback-required models, so
+// the reserve must price it the same way. An effort that stays absent reserves
+// 1x, exactly as settlement bills it.
+func tkRequestedReasoningEffortForHold(c *gin.Context, body []byte, model string) string {
+	if c != nil && c.Request != nil {
+		if bound := service.RequestedReasoningEffortFromContext(c.Request.Context()); bound != nil {
+			return *bound
+		}
+	}
+	if effort := service.CanonicalRequestedReasoningEffort(body, model); effort != nil {
+		return *effort
+	}
+	if effort := service.ApplyThinkingEnabledFallback(nil, body, model); effort != nil {
+		return *effort
+	}
+	return ""
 }
 
 // tkApplyImageHold reserves a pre-flight hold for an image-generation request

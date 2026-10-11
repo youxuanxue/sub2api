@@ -32,9 +32,13 @@ import "strings"
 //     (billing_service.go:996-1011), and multiplying both double-counted the
 //     dearest tier 2× and was the dominant term in oversized reserves. Only the
 //     multiplier branch that billing can actually combine with these units
-//     (i.e. a configured FastMultiplier, or a non-priority tier such as flex)
+//     (i.e. a configured FastMultiplier, or a non-priority tier such as flex,
+//     or `ultrafast`, which resolves to a multiplier rather than priority units)
 //     is applied here.
-func (s *BillingService) EstimateTokenHold(model, serviceTier string, promptTokens, maxOutputTokens int, rateMultiplier float64) (float64, error) {
+//   - reasoning effort: the premium calculateTokenCost applies after
+//     computeTokenBreakdown. An empty effort reserves the dearest configured
+//     premium, since the final effort is not pinned at reserve time.
+func (s *BillingService) EstimateTokenHold(model, serviceTier, reasoningEffort string, promptTokens, maxOutputTokens int, rateMultiplier float64) (float64, error) {
 	pricing, err := s.GetModelPricing(model) // already carries long-context policy
 	if err != nil {
 		return 0, err
@@ -94,16 +98,44 @@ func (s *BillingService) EstimateTokenHold(model, serviceTier string, promptToke
 	// the ones billing would use, they are already folded into unitIn/unitOut
 	// above and carry the tier premium themselves. Applying a tier multiplier as
 	// well would charge the premium twice.
-	tier := 1.0
-	if !usePriorityServiceTierPricing(serviceTier, pricing) {
-		tier = configuredServiceTierMultiplier(serviceTier, pricing)
-	}
+	//
+	// The either/or holds only for the tiers computeTokenBreakdown actually
+	// resolves to those unit prices, i.e. priority/fast. `ultrafast` is NOT one
+	// of them (usePriorityServiceTierPricing matches priority/fast only), so
+	// settlement bills it as unit price × UltrafastMultiplier — 6x on
+	// gpt-6-astra. Suppressing the multiplier for every tier would therefore
+	// under-reserve ultrafast by that factor, so it is suppressed on exactly the
+	// priority-unit branch and applied otherwise.
 	if rateMultiplier < 0 {
 		rateMultiplier = 0
 	}
 
+	tier := configuredServiceTierMultiplier(serviceTier, pricing)
+	if usePriorityServiceTierPricing(serviceTier, pricing) {
+		// Priority units already carry the premium; the multiplier branch is
+		// unreachable for this tier.
+		tier = 1.0
+	}
+
 	total := float64(promptTokens)*unitIn*lcIn + float64(maxOutputTokens)*unitOut*lcOut
-	return total * tier * rateMultiplier, nil
+	return total * tier * reasoningEffortHoldMultiplier(model, reasoningEffort, pricing) * rateMultiplier, nil
+}
+
+// reasoningEffortHoldMultiplier returns the reasoning-effort premium settlement
+// will apply on top of computeTokenBreakdown (calculateTokenCost does so via
+// tokenKeyReasoningEffortBillingMultiplier, billing_service.go:1021). The hold
+// has to carry it or a `max` effort request on a model with a configured premium
+// settles above its reserve — Fable 5.1 bills max at 3x by default, so the
+// reserve covered a third of the bill and the overdraw guard did not hold.
+//
+// An omitted effort reserves 1x, mirroring settlement exactly: the premium is
+// keyed on the effort finally forwarded, and an absent field stays absent (the
+// group policy caps and maps declared values but never injects one — see
+// ApplyReasoningEffortPolicy, "Omitted values remain untouched"). Reserving the
+// dearest premium for an unspecified effort would re-introduce the oversized
+// reserve this path exists to remove.
+func reasoningEffortHoldMultiplier(model, reasoningEffort string, pricing *ModelPricing) float64 {
+	return tokenKeyReasoningEffortBillingMultiplier(model, reasoningEffort, pricing.ReasoningEffortMultipliers)
 }
 
 // EstimateImageHold returns an upper bound on an image-generation request:
