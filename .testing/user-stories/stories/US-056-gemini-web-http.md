@@ -87,6 +87,7 @@
 - AC-009: `backend/internal/repository/account_gemini_web_tk_integration_test.go`::`AccountRepoSuite.TestGeminiWebExplicitImportConflictsAndPreservesAccount`
 - AC-009: `backend/internal/repository/account_gemini_web_import_error_recovery_tk_test.go`::`TestImportGeminiWebSessionRecoversErrorStatusAndPreservesSchedulableGate`
 - AC-009: `backend/internal/repository/account_gemini_web_import_error_recovery_tk_test.go`::`TestImportGeminiWebSessionConflictSkipsErrorRecoverySideEffects`
+- AC-009: `backend/internal/repository/account_gemini_web_tk_integration_test.go`::`AccountRepoSuite.TestClearErrorSkipsGeminiWebPauseResetWhileLeaseHeld`
 - AC-009: `backend/internal/service/admin_gemini_web_import_test.go`::`TestGeminiWebImportServiceReportsCASConflict`
 - AC-009: `backend/internal/handler/admin/account_handler_gemini_web_import_test.go`::`TestGeminiWebImportHandlerSuccessAndConflict`
 - AC-010: `backend/internal/handler/admin/account_handler_gemini_web_import_test.go`::`TestGeminiWebImportHandlerInitializesCopiedWorker`

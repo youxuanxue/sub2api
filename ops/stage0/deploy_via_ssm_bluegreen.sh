@@ -909,6 +909,10 @@ preserve_target_cutover() {
   CUTOVER_COMMITTED=1
   write_active_color "${color}" || true
   record_cutover || true
+  # Error-recovery cutovers still need Worker control DNS on the preserved color.
+  if ! sync_gemini_web_control_alias "${color}"; then
+    echo "::warning::gemini-web control alias sync failed during preserve_target color=${color}"
+  fi
 }
 
 preserve_unconfirmed_reload() {
@@ -962,14 +966,20 @@ commit_cutover() {
   ROUTE_SWITCHED=1
 
   if write_active_color "${color}" && record_cutover; then
-    CUTOVER_COMMITTED=1
     sudo rm -f "${active_backup}" >/dev/null 2>&1 || true
     log "caddy now routes new requests to ${upstream} (backup=${backup})"
     # Gemini Web Workers resolve GEMINI_WEB_CONTROL_URL host `tokenkey`. Keep a
     # stable Docker DNS name pointed at the active color after blue/green cutover.
+    # SSM remote blob is the primary delivery path (host script may be absent).
     if ! sync_gemini_web_control_alias "${color}"; then
+      if sudo docker inspect tokenkey-gemini-web >/dev/null 2>&1; then
+        echo "::error::gemini-web control alias sync failed while Worker is present; deploy must not report success"
+        CUTOVER_COMMITTED=1
+        return 1
+      fi
       echo "::warning::gemini-web control alias sync failed color=${color}; Workers may report session_poll_failed until repaired"
     fi
+    CUTOVER_COMMITTED=1
     return 0
   else
     echo "::warning::cutover commit failed; restore previous Caddyfile and active-color"
@@ -1010,8 +1020,10 @@ write_active_color() {
 }
 
 # Point Docker DNS name `tokenkey` at the active app color for Gemini Web Workers
-# (GEMINI_WEB_CONTROL_URL=http://tokenkey:8080/api/v1). Prefer the reviewed host
-# script when present on the box; otherwise recreate a tiny socat proxy inline.
+# (GEMINI_WEB_CONTROL_URL=http://tokenkey:8080/api/v1). SSM delivers this remote
+# blob alone, so the heredoc below is the primary path on cutover hosts; the
+# reviewed ops/gemini-web/sync-control-alias-on-host.sh is used when co-located
+# (local/dev or run-probe repair) and must stay behaviorally aligned.
 sync_gemini_web_control_alias() {
   local color="$1" script
   script="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/../gemini-web/sync-control-alias-on-host.sh"
@@ -1019,7 +1031,7 @@ sync_gemini_web_control_alias() {
     TK_ACTIVE_COLOR="${color}" bash "${script}"
     return $?
   fi
-  # Embedded fallback for hosts that only received this blue/green payload.
+  # Embedded primary for SSM blue/green payloads (no sibling gemini-web tree).
   TK_ACTIVE_COLOR="${color}" bash -s <<'ALIAS_SH'
 set -euo pipefail
 NETWORK="${TK_NETWORK:-tokenkey_tokenkey-network}"

@@ -88,6 +88,8 @@ func TestClearGeminiWebSessionPauseResetsPendingWithoutTouchingCookies(t *testin
 	require.Contains(t, pauseSQL, "'{gemini_web,runtime,state,cooldown_until}'")
 	require.NotContains(t, pauseSQL, "cookies")
 	require.Contains(t, pauseSQL, "lease")
+	require.Contains(t, pauseSQL, "expires_at", "active lease must suppress pause reset")
+	require.Contains(t, pauseSQL, "EXTRACT(EPOCH FROM clock_timestamp())")
 }
 
 func TestClearGeminiWebSessionPauseNoopsWithoutSQL(t *testing.T) {

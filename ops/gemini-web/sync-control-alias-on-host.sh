@@ -36,7 +36,7 @@ resolve_color() {
   if [[ -r "${caddy}" ]]; then
     awk '
       $1 == "reverse_proxy" && $2 ~ /^tokenkey-(blue|green):8080$/ {
-        split($2, a, /[:-]/; print a[2]; exit
+        split($2, a, /[:-]/); print a[2]; exit
       }
     ' "${caddy}"
     return 0

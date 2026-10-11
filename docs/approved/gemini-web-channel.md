@@ -184,7 +184,7 @@ runtime 是否存在仍是会话绑定 SSOT，不增加 extra 初始化标志。
 - `GET /accounts/:id/session`：读取该 active、已有 nonempty runtime 的 Gemini API-key 账号 runtime 和 Worker key。不要求 `schedulable`——调度只决定是否进入 fleet，不决定控制面能否读取会话。
 - `PUT /accounts/:id/runtime`：以 expected_version 和租约 owner 比较交换 runtime，服务端递增版本；同样只要求 active + 租约，不要求 schedulable。
 - `POST /accounts/:id/lease`、`DELETE /accounts/:id/lease`：取得/释放数据库账号租约；active + runtime 即可，与 schedulable 解耦。
-- `GET /warm-accounts`：仅返回 **schedulable** 且到期的账号整数 ID 和 `protocol_version=1`，不批量返回 Cookie。Fleet 维护入口仍由调度门禁保护。
+- `GET /warm-accounts`：返回到期账号整数 ID 和 `protocol_version=1`，不批量返回 Cookie。默认仅 **schedulable** 账号；例外是 `schedulable=false` 且 `last_refresh=0` 的新导入可进入一次预热（仍排除暂停/冷却/在途租约）。Fleet 常态维护仍由调度门禁保护。
 
 Messages 与 native 两条网关入口都从实际选中账号注入 account ID；
 Worker 校验该账号的 API key，不能仅凭 account ID 执行。维护任务使用独立内部调用路径，

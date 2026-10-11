@@ -89,6 +89,18 @@ grep -q 'target=tokenkey-green' <<<"$out" && grep -q '^rm ' "$STATE/actions" \
   && grep -q 'TCP:tokenkey-green:8080' "$STATE/actions" \
   && pass switch || fail switch "$out / $(cat "$STATE/actions")"
 
+# 5) Caddyfile fallback when TK_ACTIVE_COLOR and active-color file are absent.
+STATE="$WORK/s5"; mkdir -p "$STATE"
+printf 'tokenkey-green\n' >"$STATE/containers"
+: >"$STATE/actions"
+printf 'reverse_proxy tokenkey-green:8080\n' >"$WORK/Caddyfile"
+out="$(STATE="$STATE" PATH="$WORK/bin:$PATH" TK_DOCKER=docker \
+  TK_ACTIVE_COLOR= TK_ACTIVE_COLOR_FILE="$WORK/missing-active" \
+  TK_CADDYFILE="$WORK/Caddyfile" TK_NETWORK=net bash "$TARGET" 2>&1)" || true
+grep -q 'tk_gemini_web_control_alias: OK color=green' <<<"$out" \
+  && grep -q 'TCP:tokenkey-green:8080' "$STATE/actions" \
+  && pass caddyfile || fail caddyfile "$out / $(cat "$STATE/actions")"
+
 if [[ "$failures" -ne 0 ]]; then
   echo "test_sync_control_alias_on_host: FAIL ($failures)"
   exit 1
