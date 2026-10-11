@@ -236,6 +236,8 @@ def read_runtime_blob(region: str, instance_id: str) -> dict:
 
 
 def _ssm_run_shell_b64_region(region: str, instance_id: str, shell_b64: str, comment: str) -> str:
+    # Hybrid hosts start RunShellScript in dash. Match ops/stage0/ssm_execution.py:
+    # keep inner bash semantics (`set -uo pipefail`), but invoke the wrapper via bash -c.
     command = (
         "set -uo pipefail\n"
         f"echo {shell_b64} | base64 -d > /tmp/.tk_ssm_$$.sh\n"
@@ -243,7 +245,7 @@ def _ssm_run_shell_b64_region(region: str, instance_id: str, shell_b64: str, com
         "rm -f /tmp/.tk_ssm_$$.sh\n"
         "exit $rc"
     )
-    params = json.dumps({"commands": [command]}, ensure_ascii=False)
+    params = json.dumps({"commands": ["bash -c " + shlex.quote(command)]}, ensure_ascii=False)
     try:
         cid = subprocess.check_output(
             [
@@ -3206,6 +3208,44 @@ def cmd_selftest(_args) -> int:
     finally:
         globals()["_run_check_sql_json"] = original_run_check_sql_json2
         globals()["_load_effective_floor"] = original_load_effective_floor2
+
+    # Hybrid AWS-RunShellScript starts in dash; outer transport must be bash -c so
+    # `set -uo pipefail` in the wrapper is legal (mirrors ops/stage0/ssm_execution.py).
+    captured_params: list[dict[str, Any]] = []
+
+    def _fake_ssm_aws(args, **kwargs):
+        if "send-command" in args:
+            captured_params.append(json.loads(args[args.index("--parameters") + 1]))
+            return "test-command-id"
+        return json.dumps({
+            "Status": "Success",
+            "ResponseCode": 0,
+            "StandardOutputContent": "ok\n",
+            "StandardErrorContent": "",
+        })
+
+    with patch.object(subprocess, "check_output", side_effect=_fake_ssm_aws), \
+         patch.object(subprocess, "run"):
+        out = _ssm_run_shell_b64_region(
+            "eu-west-2",
+            "mi-033c9569c7fb8b884",
+            base64.b64encode(b"printf ok\n").decode("ascii"),
+            "selftest dash-safe transport",
+        )
+    assert out == "ok"
+    assert len(captured_params) == 1
+    commands = captured_params[0].get("commands") or []
+    assert len(commands) == 1 and isinstance(commands[0], str)
+    assert commands[0].startswith("bash -c "), commands[0]
+    dash_probe = subprocess.run(
+        ["dash", "-c", commands[0]],
+        input="",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert dash_probe.returncode == 0, dash_probe.stderr
+    assert "ok" in dash_probe.stdout
 
     print("selftest ok")
     return 0
