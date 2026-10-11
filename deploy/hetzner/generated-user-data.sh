@@ -67,7 +67,7 @@ APTEOF
 
 apt-get update -y
 apt-get install -y --no-install-recommends \
-  ca-certificates curl gnupg openssl gzip gettext-base unzip
+  ca-certificates curl gnupg openssl gzip gettext-base unzip jq
 
 # Ubuntu 24.04 has no awscli apt package; install AWS CLI v2 for the host arch.
 if ! command -v aws >/dev/null 2>&1; then

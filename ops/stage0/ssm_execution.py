@@ -29,6 +29,7 @@ import importlib.util
 import json
 import pathlib
 import re
+import shlex
 import subprocess
 import sys
 from typing import NoReturn
@@ -120,7 +121,9 @@ def run_shell_b64(instance_id: str, shell_b64: str, comment: str) -> str:
         "rm -f /tmp/.tk_ssm_$$.sh\n"
         "exit $rc"
     )
-    params = json.dumps({"commands": [command]}, ensure_ascii=False)
+    # Hybrid hosts start RunShellScript in dash. Use bash -c here so selecting
+    # bash does not give stdin-consuming commands a pipe containing our script.
+    params = json.dumps({"commands": ["bash -c " + shlex.quote(command)]}, ensure_ascii=False)
     try:
         cid = subprocess.check_output(
             ["aws", "ssm", "send-command", "--region", PROD_REGION,

@@ -137,6 +137,8 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      # Every helper that resolves prod must inherit the same control plane.
+      PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
       INPUT_TAG: ${{ inputs.tag }}
       INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
     steps:
@@ -207,8 +209,6 @@ jobs:
         env:
           STACK_NAME: ${{ steps.stack.outputs.name }}
           CICD_OIDC_STACK_NAME: ${{ vars.CICD_OIDC_STACK_NAME || 'tokenkey-cicd-oidc' }}
-          # auto → SSM param /tokenkey/prod/control-plane-ssm-target (live: hetzner).
-          PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
         run: |
           set -euo pipefail
           # Single call: JSON on stdout + id/api_url/browser_origin/ssm_region/… into GITHUB_OUTPUT.

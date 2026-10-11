@@ -1325,7 +1325,9 @@ done
 hybrid_prod=false
 [[ "${DEPLOY_PROFILE}" != prod || "${INSTANCE_ID}" != mi-* ]] || hybrid_prod=true
 
-REMOTE_B64="$(printf '%s' "${REMOTE_SCRIPT}" | base64 | tr -d '\n')"
+# Compress before both base64 layers: SSM limits the whole document + parameters
+# to 97 KB, so splitting an uncompressed script into chunks does not help.
+REMOTE_B64="$(printf '%s' "${REMOTE_SCRIPT}" | gzip -n -9 | base64 | tr -d '\n')"
 chunks_json="$(printf '%s' "${REMOTE_B64}" | fold -w 1000 | jq -R -s 'split("\n") | map(select(length > 0))')"
 
 if [[ "${DEPLOY_PROFILE}" = prod ]]; then
@@ -1413,7 +1415,7 @@ jq -n \
     "set -euo pipefail",
     "rm -f /tmp/tokenkey-bluegreen-deploy.b64 /tmp/tokenkey-bluegreen-deploy.sh"
   ] + ($chunks | map("printf %s " + (. | @sh) + " >> /tmp/tokenkey-bluegreen-deploy.b64")) + [
-    "base64 -d /tmp/tokenkey-bluegreen-deploy.b64 > /tmp/tokenkey-bluegreen-deploy.sh",
+    "base64 -d < /tmp/tokenkey-bluegreen-deploy.b64 | gzip -dc > /tmp/tokenkey-bluegreen-deploy.sh",
     "chmod 700 /tmp/tokenkey-bluegreen-deploy.sh",
     (
       "TAG=" + ($tag|@sh)

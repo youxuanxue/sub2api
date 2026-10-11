@@ -434,6 +434,42 @@ TELEMETRY_ARCHIVE_ENABLED=""
 
 
 class BlueGreenRenderTest(unittest.TestCase):
+    def test_ssm_transport_fits_limit_and_restores_exact_host_script(self) -> None:
+        for profile in ("edge", "prod"):
+            with self.subTest(profile=profile), tempfile.TemporaryDirectory() as tmp:
+                proc, params, remote = _render(
+                    _EDGE_IID, env_extra={"STAGE0_DEPLOY_PROFILE": profile},
+                )
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                path = pathlib.Path(tmp) / "params.json"
+                path.write_text(json.dumps(params))
+                wrapper = _SCRIPT.with_name("ssm_wrap_bash_commands.py")
+                subprocess.run(["python3", str(wrapper), str(path)], check=True)
+                # SSM allows 97 KB including its document; reserve headroom.
+                self.assertLess(path.stat().st_size, 90 * 1024)
+                unwrapped = subprocess.check_output(
+                    ["python3", str(wrapper), "--unwrap-stdout", str(path)], text=True,
+                )
+                self.assertEqual(unwrapped, "\n".join(params["commands"]) + "\n")
+                # Exercise delivery only; never execute the deployment itself.
+                bootstrap = "\n".join(params["commands"][:-1]).replace(
+                    "/tmp/tokenkey-bluegreen-deploy", str(pathlib.Path(tmp) / "deploy"),
+                )
+                delivered = subprocess.run(["bash", "-c", bootstrap], capture_output=True, text=True)
+                self.assertEqual(delivered.returncode, 0, delivered.stderr)
+                self.assertEqual((pathlib.Path(tmp) / "deploy.sh").read_text(), remote.rstrip("\n"))
+
+                # A damaged archive must stop before the deployment invocation.
+                (pathlib.Path(tmp) / "deploy.b64").write_text("bm90LWEtZ3ppcC1hcmNoaXZl")
+                decode = next(c for c in params["commands"] if c.startswith("base64 -d"))
+                decode = decode.replace("/tmp/tokenkey-bluegreen-deploy", str(pathlib.Path(tmp) / "deploy"))
+                damaged = subprocess.run(
+                    ["bash", "-c", "set -euo pipefail\n" + decode + "\necho deployment-started"],
+                    capture_output=True, text=True,
+                )
+                self.assertNotEqual(damaged.returncode, 0)
+                self.assertNotIn("deployment-started", damaged.stdout)
+
     def test_drain_requires_verified_zero_before_stopping(self) -> None:
         proc, _, remote = _render()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
