@@ -77,16 +77,19 @@ func queueTestDatabase(t *testing.T) (*sql.DB, string, func()) {
 func TestUS062_PostgresQueueRoleIsolationLeasesAndSingleConcurrency(t *testing.T) {
 	admin, dsn, restart := queueTestDatabase(t)
 	ctx := context.Background()
-	roleQueue := func(role, group string) *postgresJobQueue {
-		_, err := admin.Exec(fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD 'synthetic-test-password' IN ROLE %s", role, group))
-		require.NoError(t, err)
+	openRoleDB := func(role string) *sql.DB {
 		u, err := url.Parse(dsn)
 		require.NoError(t, err)
 		u.User = url.UserPassword(role, "synthetic-test-password")
 		db, err := sql.Open("postgres", u.String())
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, db.Close()) })
-		return &postgresJobQueue{db: db}
+		return db
+	}
+	roleQueue := func(role, group string) *postgresJobQueue {
+		_, err := admin.Exec(fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD 'synthetic-test-password' IN ROLE %s", role, group))
+		require.NoError(t, err)
+		return &postgresJobQueue{db: openRoleDB(role)}
 	}
 	producer := roleQueue("qa_test_producer", "qa_queue_producer")
 	consumer := roleQueue("qa_test_consumer", "qa_queue_consumer")
@@ -198,7 +201,19 @@ func TestUS062_PostgresQueueRoleIsolationLeasesAndSingleConcurrency(t *testing.T
 	require.Equal(t, []string{key(5)}, claimed)
 	var before, after string
 	require.NoError(t, admin.QueryRow("SELECT json_agg(j ORDER BY spec_key)::text FROM qa_queue.jobs j").Scan(&before))
+	// A forced PostgreSQL restart invalidates every idle socket in the process.
+	// Close and rebuild all pools so this test verifies durable queue state and
+	// post-restart application recovery instead of relying on driver-specific
+	// stale-connection retry timing.
+	require.NoError(t, admin.Close())
+	require.NoError(t, producer.db.Close())
+	require.NoError(t, consumer.db.Close())
 	restart()
+	admin, err = sql.Open("postgres", dsn)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, admin.Close()) })
+	producer.db = openRoleDB("qa_test_producer")
+	consumer.db = openRoleDB("qa_test_consumer")
 	require.Eventually(t, func() bool {
 		var alive int
 		return admin.QueryRow("SELECT 1").Scan(&alive) == nil && alive == 1
