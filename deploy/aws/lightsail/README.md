@@ -1,8 +1,8 @@
-# Edge Stage0 on AWS Lightsail（edges 唯一路径）
+# Edge Stage0 on AWS Lightsail（standby / 回滚路径）
 
-> **Lightsail 是 edge 的唯一路径**（2026-06-07 起；EC2/CFN 的 edge 路径已移除）。
-> **prod 主网关仍是 EC2/CFN（`tokenkey-prod-stage0`），不在本目录范围。**
-> 背景见 `docs/spec-delta/edge-lightsail.md`。
+> **现网活边在 Hetzner**（prod + uk1/uk2/us4/us5）— SSOT：[`deploy/hetzner/README.md`](../../hetzner/README.md)。  
+> 本目录只服务 **Lightsail standby**（旧实例 ≥7d / 回滚 / 历史 provision）。EC2/CFN edge 路径已移除。  
+> `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 等现网数值勿在此复制，读 Hetzner README。
 
 Lightsail Edge 与 prod Stage0 **共用**：
 
@@ -89,14 +89,14 @@ bash ops/lightsail/migrate-edge-ssm-roles.sh --apply
 路径默认：`/tokenkey/lightsail/<edge_id>/ghcr/pat`（与 EC2 Edge 的 `/tokenkey/edge/<id>/ghcr/pat` 分开）。
 
 ```bash
-aws ssm put-parameter --region us-east-2 \
-  --name /tokenkey/lightsail/us3/ghcr/pat --type SecureString \
+aws ssm put-parameter --region <lightsail_region> \
+  --name /tokenkey/lightsail/<edge_id>/ghcr/pat --type SecureString \
   --value 'ghp_...'
 ```
 
 ### 3) GitHub Environment
 
-Environment 使用矩阵对应的 `edge-<edge_id>`，例如当前 `us3` 使用 `edge-us3`。
+Environment 使用矩阵对应的 `edge-<edge_id>`，例如 standby 边 `us4` 使用 Environment `edge-us4`（现网发版走 Hetzner）。
 
 Variables：`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`、可选 `TK_SMOKE_EDGE_LOCAL_CHAT_MODELS`
 Secrets：`TK_SMOKE_API_KEY`
@@ -106,19 +106,19 @@ Secrets：`TK_SMOKE_API_KEY`
 ```bash
 TAG=X.Y.Z
 gh workflow run deploy-edge-lightsail-stage0.yml \
-  -f edge_id=us3 \
+  -f edge_id=us4 \
   -f operation=provision \
   -f tag=$TAG \
-  -f confirm_instance=tokenkey-edge-us-oh1-ls
+  -f confirm_instance=<lightsail-instance-name>
 ```
 
 Workflow summary 会输出 Static IP → 手工配置 DNS A 记录 → 再 smoke：
 
 ```bash
 gh workflow run deploy-edge-lightsail-stage0.yml \
-  -f edge_id=us3 \
+  -f edge_id=us4 \
   -f operation=smoke \
-  -f confirm_instance=tokenkey-edge-us-oh1-ls
+  -f confirm_instance=<lightsail-instance-name>
 ```
 
 ### 冒烟 / 本机 curl 对域名长期 `HTTP 000` 或 TCP 超时
@@ -144,7 +144,7 @@ Lightsail **实例控制台「Networking」防火墙**的硬化基线是**放行
 
 Lightsail Edge 启用后，沿用同一 **`edge_routing_matrix`/`edge_ssm_execution` 路由**：
 
-- **`python3 ops/stage0/edge_ssm_execution.py --repo-root . --edge-id us3 [--format env|json]`**
+- **`python3 ops/stage0/edge_ssm_execution.py --repo-root . --edge-id us4 [--format env|json]`**
   输出 SSM **`REGION`** + **`INSTANCE_ID`**（`mi-*` 来自 Parameter Store；EC2 为 `i-*`）。与 **`ops/stage0/edge_admin_resolve_target.py` auto** 规则一致。
 - **`ops/observability/run-probe.sh --target edge:<id>`**（默认 `ALLOW_PLANNED` 未设置）走上述脚本；若要探 **planned 仅 EC2 矩阵条目**，仍可设 **`ALLOW_PLANNED=1`** 走 **`resolve-edge-target.py` + CFN**。
 - **`ops/anthropic/manage-anthropic-config.py`**、**`rebalance-anthropic-priority.py`**、`snapshot`/`apply`/`check` **与 `check-edge-oauth-stability.py`**：**snapshot** / **护栏**在多矩阵下按 Lightsail **`deployable=true` 优先**解析实例（与 **`edge_routing_matrix.py`** 一致）。
@@ -154,10 +154,10 @@ Lightsail Edge 启用后，沿用同一 **`edge_routing_matrix`/`edge_ssm_execut
 
 ```bash
 gh workflow run deploy-edge-lightsail-stage0.yml \
-  -f edge_id=us3 \
+  -f edge_id=us4 \
   -f operation=upgrade \
   -f tag=$TAG \
-  -f confirm_instance=tokenkey-edge-us-oh1-ls
+  -f confirm_instance=<lightsail-instance-name>
 ```
 
 ## 与 EC2 Edge 的关键差异

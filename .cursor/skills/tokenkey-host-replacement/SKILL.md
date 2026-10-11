@@ -31,7 +31,7 @@ description: >-
 
 ## 不变量
 
-禁双写；live HZ **禁**旧机全量覆盖；Redis 不迁；旧机 ≥7d；stub 必须 `https://`；CIDR=`167.233.211.115/32`；HZ 探针用 `mi-*`；`API_DOMAIN` 单正式名。
+禁双写；live HZ **禁**旧机全量覆盖；Redis 不迁；旧机 ≥7d；stub 必须 `https://`；CIDR/IP/`mi-*` 见 Hetzner README；`API_DOMAIN` 单正式名。
 
 ## 阶段
 

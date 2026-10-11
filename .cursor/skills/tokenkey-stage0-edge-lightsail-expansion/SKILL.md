@@ -1,14 +1,15 @@
 ---
 name: tokenkey-stage0-edge-lightsail-expansion
 description: >-
-  Add a TokenKey Stage0 Edge gateway on AWS Lightsail. Use for new edge registration, Lightsail provisioning, DNS pointing, smoke checks, upgrades, or rollbacks on the current edge platform.
+  Add or operate a TokenKey Stage0 Edge on AWS Lightsail standby. Use for
+  Lightsail registration, provision, DNS, smoke, upgrade, or rollback — not for
+  the live Hetzner fleet (see deploy/hetzner/README.md).
 ---
 
-# TokenKey：新增 Lightsail Edge 网关全流程
+# TokenKey：Lightsail Edge（standby）全流程
 
-适用于 TokenKey fork of sub2api。Lightsail 是 edge 的唯一路径（EC2/CFN edge 已移除）；prod 主网关仍是 EC2/CFN。
-权威纪律以仓库根 `CLAUDE.md` 为准（ARM 多架构镜像、release/deploy 顺序、preflight 不绕过）。
-默认路径与放弃决策见 `docs/spec-delta/edge-lightsail.md`。
+适用于 TokenKey fork of sub2api。**现网活边在 Hetzner**（[`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)）；本 skill 只服务 **Lightsail standby / 回滚 / 新建 LS 边**（EC2/CFN edge 已移除）。
+权威纪律以仓库根 `CLAUDE.md` 为准。历史 delta：`docs/spec-delta/edge-lightsail.md`。
 
 ## 执行 owner
 

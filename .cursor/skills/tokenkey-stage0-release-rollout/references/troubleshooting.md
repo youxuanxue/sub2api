@@ -14,7 +14,7 @@
 | 误 dispatch 了一个多余 prod deploy run | release 不再自动 queue，多出来的一定是手动重复 dispatch；取消多余 run、watch 留下的那个即可。 |
 | Edge/prod workflow `tag must match X.Y.Z, got: v…` | 本地入口已修：`dispatch-prod-deploy.sh` / `dispatch-edge-deploy.sh` / `rollout-edges.sh` 经 `normalize-deploy-tag.sh` 剥 `v`。若仍出现，说明绕过了这些入口（手写 `gh workflow run … -f tag=v…`）；改传裸 `X.Y.Z` 或走脚本重试。 |
 | Edge `confirm_stack` mismatch | 停止；检查 Lightsail `edge-targets-lightsail.json` / `resolve-edge-deploy-route.py`，不要手改 confirm。 |
-| Edge smoke 403 | public `/v1/models` 403 预期；主网关 403 查 `EDGE_MAIN_GATEWAY_ALLOWED_CIDR`（`167.233.211.115/32`）。 |
+| Edge smoke 403 | public `/v1/models` 403 预期；主网关 403 查 `EDGE_MAIN_GATEWAY_ALLOWED_CIDR`（值见 `deploy/hetzner/README.md`）。 |
 | main-via-edge smoke HTTP 503 `"no available accounts"` | 先在 prod 上确认对应账号（如 `cc-<edge_id>-oauth`）是否被设为可调度；这是 prod 路由策略，与本次镜像无关。若设计上就不可调度，把这条 smoke 从 hard-fail 降为"infra OK / business-link by design"，**不要 rollback**。若运维想恢复该链路，请按 `/tokenkey-anthropic-oauth-config` 调可调度位再 `dispatch-edge-deploy.sh --operation smoke --smoke-phase main-via-edge` 复验。 |
 | canary / 其余 Edge 的 native OAuth/Kiro 池为空 | 全部池确定为空时，selector 回落首个 deployable Edge；full smoke 的 infra 仍须通过，edge-native-oauth 输出 `SKIPPED no eligible accounts` 并记 N/A，不阻断部署。其余 Edge 仍走 `rollout-edges.sh` 的 infra-only。若账号存在但探针鉴权失败，或池计数探测失败且没有正数候选，仍应失败并停 rollout。 |
 | `gh run watch` 被工具超时打断 | 用同一 run id 再执行 `gh run watch <id> --exit-status` 接到终态（`rollout-edges.sh` 已内置重连）。 |

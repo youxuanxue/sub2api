@@ -43,7 +43,7 @@ Agent 入口：`tokenkey-edge-prod-relay-onboard`。当前仅 `antigravity` 已�
    上游（Anthropic / OpenAI / xAI / …）
 ```
 
-**一句话**：prod 上的 `cc-us4` 不是真 OAuth，只是把流量转发到 edge；edge 上才是真 OAuth。活舰队 edge id：`uk1` / `uk2` / `us4` / `us5`（`us3`/`us6` 已账号级退役，勿再新建 stub）。
+**一句话**：prod 上的 `cc-us4` 不是真 OAuth，只是把流量转发到 edge；edge 上才是真 OAuth。活舰队 edge id 见 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)（`us3`/`us6` 不在舰队，勿新建 stub）。
 
 `gemini` 不走这套 edge 中继，只在单端直接导入。
 

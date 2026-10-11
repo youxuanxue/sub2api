@@ -97,9 +97,10 @@ Forward-looking history, merge modes, and mechanical gates:
 
 ## §9 Release discipline (ARM + tag triggers)
 
-Production (`api.tokenkey.dev`) runs on **AWS Graviton (`arm64`)**. Release
+Production (`api.tokenkey.dev`) runs on **Hetzner `cax21` (`arm64`)**；活舰队
+见 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。Release
 workflow is triggered by `tags: v*`. Operator-facing copy:
-`deploy/aws/README.md` § "发版纪律（两条铁律）".
+`deploy/aws/README.md` § "发版纪律（两条铁律）"（镜像仍须 multi-arch arm64）。
 
 ### §9.1 `simple_release` MUST stay `false`
 

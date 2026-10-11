@@ -8,7 +8,7 @@
 
 **Replicate：** 源 `tokenkey-pgdump.sh`（precious）+ logs data-only → S3；目标 restore；对账 `accounts` / `usage_billing_dedup` / `usage_logs`。
 
-**Cutover：** Porkbun A→NEW_IP；单域名 `API_DOMAIN`；CIDR=`167.233.211.115/32`；sync caddy；stub `https://`；prod pin+restart。
+**Cutover：** Porkbun A→NEW_IP；单域名 `API_DOMAIN`；CIDR 取 Hetzner README；sync caddy；stub `https://`；prod pin+restart。
 
 **Drain：** 旧机停 app（+ gemini-web）；留 PG/Caddy/Redis ≥7d。
 

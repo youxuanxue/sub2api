@@ -252,23 +252,19 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 # 期望 200；首次若 503 是 LE 还在签证书，等 1–2 min
 ```
 
-## Edge Stage 0（Lightsail-only）
+## Edge Stage 0（Lightsail standby）
 
-> **2026-06-07：edges 改为 Lightsail 唯一路径。** EC2/CFN 的 **Edge** 矩阵已退役（`deploy-edge-stage0.yml`、`stage0-edge-ec2.yaml`、EIP 轮换工具已删除；旧空矩阵与 EC2 edge fallback 也已移除）。**prod 主网关仍是 EC2/CFN（`tokenkey-prod-stage0`），不受影响**——本节只讲 edge。
+> **现网活舰队（prod + uk1/uk2/us4/us5）在 Hetzner** — SSOT：[`deploy/hetzner/README.md`](../hetzner/README.md)。  
+> 本节只讲 **Lightsail standby / 回滚**（`deploy/aws/lightsail/`）。EC2/CFN edge 路径已移除。  
+> prod 正式流量与 ops 控制面均在 HCloud Hybrid；AWS `tokenkey-prod-stage0` 仅为 standby。
 
-Edge 子网关不是第二个用户入口。区域域名（如 `api-us3.tokenkey.dev`、`api-us4.tokenkey.dev`）只作为 `api.tokenkey.dev` 背后的区域资源节点，默认 API 路径只允许主网关出口访问。
+Edge 子网关不是第二个用户入口。区域域名（如 `api-us4.tokenkey.dev`）只作为 `api.tokenkey.dev` 背后的区域资源节点，默认 API 路径只允许主网关出口访问。
 
-所有 edge 都在 Lightsail（矩阵 `deploy/aws/lightsail/edge-targets-lightsail.json`，workflow `deploy-edge-lightsail-stage0.yml`）。当前 edge 矩阵示例：
+Lightsail 矩阵：`deploy/aws/lightsail/edge-targets-lightsail.json`，workflow `deploy-edge-lightsail-stage0.yml`（standby）。日常发版走 `scripts/stage0/dispatch-edge-deploy.sh`（**auto → Hetzner**）。
 
-```text
-us3 -> us-east-2 -> api-us3.tokenkey.dev -> tokenkey-edge-us-oh1-ls-s30 -> deploy-edge-lightsail-stage0.yml
-us4 -> us-west-2 -> api-us4.tokenkey.dev -> tokenkey-edge-us-or1-ls-s30 -> deploy-edge-lightsail-stage0.yml
-```
-
-新增 edge / 升级 / 回滚 / IP 轮换的端到端流程见
+新增 / 重建 Lightsail edge、IP 轮换见
 [`.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md)
-与 [`deploy/aws/lightsail/README.md`](lightsail/README.md)。日常发版 rollout 经
-`scripts/stage0/dispatch-edge-deploy.sh`（路由到 `deploy-edge-lightsail-stage0.yml`）。
+与 [`deploy/aws/lightsail/README.md`](lightsail/README.md)。
 
 Edge 不是第二套部署逻辑：prod 和 Lightsail Edge 都调用同一套 same-host blue/green 发版入口：
 
