@@ -222,6 +222,10 @@ if [ "$TARGET" = "prod" ]; then
   # kv lines: instance_id=... ssm_region=...
   INSTANCE_ID="$(printf '%s\n' "${RES_LINES}" | awk -F= '$1=="instance_id" {print $2; exit}')"
   REGION="$(printf '%s\n' "${RES_LINES}" | awk -F= '$1=="ssm_region" {print $2; exit}')"
+  if [ -z "${REGION:-}" ]; then
+    echo "[run-probe] ERROR: resolve_prod_ssm_target returned empty ssm_region" >&2
+    exit 2
+  fi
 elif [[ "$TARGET" == edge:* ]]; then
   EDGE_ID="${TARGET#edge:}"
   if [ -z "$EDGE_ID" ]; then
@@ -245,7 +249,7 @@ if [ -z "${INSTANCE_ID:-}" ] || [ "$INSTANCE_ID" = "None" ]; then
   exit 2
 fi
 if [ -n "$EXPECTED_INSTANCE_ID" ]; then
-  if [[ ! "$EXPECTED_INSTANCE_ID" =~ ^(i|mi)-[0-9a-f]{17}$ ]]; then
+  if [[ ! "$EXPECTED_INSTANCE_ID" =~ ^(i|mi)-[0-9a-f]{8,17}$ ]]; then
     echo "[run-probe] ERROR: --expected-instance-id must be an EC2 or SSM managed instance id" >&2
     exit 1
   fi

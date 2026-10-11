@@ -29,6 +29,16 @@ def wrap_commands(commands: list[str]) -> list[str]:
     return [f"echo {b64} | base64 -d | bash -s"]
 
 
+def unwrap_commands(commands: list[str]) -> list[str]:
+    """Inverse of wrap_commands for tests inspecting ssm-params.json."""
+    if len(commands) != 1:
+        return commands
+    match = _WRAP_RE.fullmatch(commands[0])
+    if match is None:
+        return commands
+    return base64.b64decode(match.group(1)).decode().split("\n")
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print(f"usage: {argv[0]} <ssm-params.json>", file=sys.stderr)

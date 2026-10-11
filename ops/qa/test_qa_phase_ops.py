@@ -41,15 +41,11 @@ def _install_noop_sleep(bin_dir: Path) -> None:
 
 
 def _unwrap_ssm_commands(commands: list[str]) -> list[str]:
-    """Decode Hybrid dash-safe `echo B64 | base64 -d | bash -s` wrapper if present."""
-    if len(commands) != 1:
-        return commands
-    match = re.fullmatch(
-        r"echo ([A-Za-z0-9+/=]+) \| base64 -d \| bash -s", commands[0]
+    """Decode Hybrid dash-safe wrapper via the shared Stage0 helper."""
+    wrap = _load_module(
+        "ssm_wrap_bash_commands", "ops/stage0/ssm_wrap_bash_commands.py"
     )
-    if match is None:
-        return commands
-    return base64.b64decode(match.group(1)).decode().split("\n")
+    return wrap.unwrap_commands(commands)
 
 
 class TestQAPhaseOps(unittest.TestCase):

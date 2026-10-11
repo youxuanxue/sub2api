@@ -42,6 +42,10 @@ class SsmWrapBashCommandsTest(unittest.TestCase):
         twice = self.mod.wrap_commands(once)
         self.assertEqual(once, twice)
 
+    def test_unwrap_round_trip(self) -> None:
+        original = ["set -euo pipefail", "echo hi"]
+        self.assertEqual(self.mod.unwrap_commands(self.mod.wrap_commands(original)), original)
+
     def test_cli_rewrites_params_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "ssm-params.json"
