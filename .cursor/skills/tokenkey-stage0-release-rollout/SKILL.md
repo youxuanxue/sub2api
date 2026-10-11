@@ -1,11 +1,15 @@
 ---
 name: tokenkey-stage0-release-rollout
-description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, rollback, and release-risk checks. Use for release tagging, deploy-stage0, Lightsail edge rollout, structured smoke results, or post-release OAuth checks.
+description: >-
+  Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, rollback,
+  and release-risk checks. Use for release tagging, deploy-stage0, Hetzner
+  edge rollout (auto), structured smoke, or post-release OAuth checks.
 ---
 
 # TokenKey：Stage0 release → prod/Edge rollout → 真实测试
 
-适用于本仓库（TokenKey fork of sub2api）。权威纪律见根目录 `CLAUDE.md`（发版、ARM、`new-api` 路径）。
+适用于本仓库（TokenKey fork of sub2api）。权威纪律见根目录 `CLAUDE.md`。  
+现网舰队 / 发版入口：[`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)（edge dispatch **auto → Hetzner**）。
 
 ## 确定性基线（机械化 vs 真判断）
 

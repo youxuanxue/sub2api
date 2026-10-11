@@ -356,7 +356,7 @@ UNITEOF
 systemctl daemon-reload
 systemctl enable --now tokenkey.service
 # Host parity with AWS prod / edge HZ: dump + disk/mem Feishu + ghcr prune.
-# QA maintenance/boundary + live QA_BUNDLE_* stay off until Wave B cutover
+# QA maintenance/boundary + live QA_BUNDLE_* stay off until ops enables them
 # (staging must not point empty DB at live SQS). Feishu webhook env still
 # comes from post-boot sync (copy from AWS prod .env or sync-feishu-config).
 systemctl enable --now tokenkey-pgdump.timer

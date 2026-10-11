@@ -239,7 +239,7 @@ def summarize_account(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-url", required=True, help="edge base URL, e.g. https://api-us6.tokenkey.dev")
+    parser.add_argument("--base-url", required=True, help="edge base URL, e.g. https://api-us4.tokenkey.dev")
     parser.add_argument("--account-id", required=True, type=int)
     parser.add_argument("--expected-account-name", default="", help="fail if response name differs")
     parser.add_argument("--payload-file", default="-", help="JSON payload file path or - for stdin")

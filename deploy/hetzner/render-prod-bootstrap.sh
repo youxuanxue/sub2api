@@ -14,9 +14,9 @@ if [[ "${1:-}" == "--check" ]]; then
   mode="check"
 fi
 
-# Staging knife uses Caddyfile.edge (single API host). Formal dual-domain /
-# apex SITE_DOMAIN cutover later via sync_caddyfile prod path — api-hz would
-# incorrectly derive SITE_DOMAIN=hz.tokenkey.dev under render-prod-caddyfile.
+# Bootstrap Caddy uses Caddyfile.edge (single API host). Formal prod Caddy
+# (apex / CallModel) is applied later via sync_caddyfile; do not derive
+# SITE_DOMAIN from a staging hostname under render-prod-caddyfile.
 for f in \
   "${STAGE0}/docker-compose.yml" \
   "${STAGE0}/Caddyfile.edge" \
@@ -415,7 +415,7 @@ UNITEOF
 systemctl daemon-reload
 systemctl enable --now tokenkey.service
 # Host parity with AWS prod / edge HZ: dump + disk/mem Feishu + ghcr prune.
-# QA maintenance/boundary + live QA_BUNDLE_* stay off until Wave B cutover
+# QA maintenance/boundary + live QA_BUNDLE_* stay off until ops enables them
 # (staging must not point empty DB at live SQS). Feishu webhook env still
 # comes from post-boot sync (copy from AWS prod .env or sync-feishu-config).
 systemctl enable --now tokenkey-pgdump.timer

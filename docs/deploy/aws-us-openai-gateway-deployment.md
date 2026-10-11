@@ -1,17 +1,17 @@
-# TokenKey AWS 部署入口
+# TokenKey AWS 部署入口（standby / 考古）
 
-Prod 使用 EC2/CloudFormation，Edge 使用 Lightsail。部署参数以模板和目标矩阵为准；
-本页只保留首次 bootstrap 的说明，日常发布、回滚、备份和恢复使用各自的现行入口。
+> **现网活舰队 / 发版 SSOT：** [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。  
+> 本页只保留 **AWS 首次 bootstrap 与 standby** 说明；勿当作现网拓扑。
 
-| 任务 | 唯一入口 |
+| 任务 | 入口 |
 | --- | --- |
-| Prod 首次基础设施创建 | `deploy/aws/cloudformation/stage0-single-ec2.yaml`；下方 bootstrap |
-| Edge 新建与配置 | [`deploy/aws/lightsail/`](../../deploy/aws/lightsail/) 与 `tokenkey-stage0-edge-lightsail-expansion` skill |
-| 应用发布与回滚 | [`deploy/aws/README.md`](../../deploy/aws/README.md)；契约见 [`deploy-stage0-workflow.md`](../approved/deploy-stage0-workflow.md) |
+| 现网发版 / 活舰队 | [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md) |
+| AWS Prod CFN 首次创建（standby） | `deploy/aws/cloudformation/stage0-single-ec2.yaml`；下方 bootstrap |
+| Lightsail Edge standby | [`deploy/aws/lightsail/`](../../deploy/aws/lightsail/) 与 `tokenkey-stage0-edge-lightsail-expansion` skill |
+| AWS 侧操作百科 | [`deploy/aws/README.md`](../../deploy/aws/README.md)；契约见 [`deploy-stage0-workflow.md`](../approved/deploy-stage0-workflow.md) |
 | QA Worker / maintenance 独立发布 | [`prod-component-release.md`](../approved/prod-component-release.md) 与 [`design-split-deploy-qa-bundle.md`](../approved/design-split-deploy-qa-bundle.md) |
 | 备份、整机与数据恢复 | [`RUNBOOK-disaster-recovery.md`](../../deploy/aws/RUNBOOK-disaster-recovery.md) |
 | QA 归档、导出与生命周期 | [`ops/qa/README.md`](../../ops/qa/README.md) |
-| 目标实例、域名与预算 | Prod stack outputs；Edge `deploy/aws/lightsail/edge-targets-lightsail.json` |
 
 ## Prod 首次 bootstrap
 
