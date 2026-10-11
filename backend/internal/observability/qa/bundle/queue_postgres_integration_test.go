@@ -216,12 +216,19 @@ func TestUS062_PostgresQueueRoleIsolationLeasesAndSingleConcurrency(t *testing.T
 	producer.db = openRoleDB("qa_test_producer")
 	consumer.db = openRoleDB("qa_test_consumer")
 	var reconnectErr error
-	require.Eventually(t, func() bool {
+	deadline := time.Now().Add(10 * time.Second)
+	for {
 		var alive int
 		reconnectErr = admin.QueryRow("SELECT 1").Scan(&alive)
-		return reconnectErr == nil && alive == 1
-	}, 10*time.Second, 50*time.Millisecond)
-	require.NoError(t, reconnectErr)
+		if reconnectErr == nil && alive == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			require.NoError(t, reconnectErr)
+			require.Equal(t, 1, alive)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	require.NoError(t, admin.QueryRow("SELECT json_agg(j ORDER BY spec_key)::text FROM qa_queue.jobs j").Scan(&after))
 	require.Equal(t, before, after, "queue state and receipts must survive a PostgreSQL restart")
 	// Exercise the producer after the crash too: this verifies reconnection and
