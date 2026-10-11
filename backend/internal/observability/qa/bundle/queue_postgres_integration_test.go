@@ -20,10 +20,10 @@ import (
 )
 
 // Every run owns a fresh PostgreSQL. There is no production/test DSN override.
-func queueTestDatabase(t *testing.T) (*sql.DB, string, func()) {
+func queueTestDatabase(t *testing.T) (*sql.DB, string, func() string) {
 	t.Helper()
 	var dsn string
-	var restart func()
+	var restart func() string
 	if _, err := exec.LookPath("initdb"); err == nil && os.Getuid() != 0 {
 		root, err := os.MkdirTemp("/tmp", "tkqa-integration-")
 		require.NoError(t, err)
@@ -39,9 +39,10 @@ func queueTestDatabase(t *testing.T) (*sql.DB, string, func()) {
 		pgOptions := "-c listen_addresses=127.0.0.1 -k " + root + " -p 55432"
 		run("pg_ctl", "-D", data, "-l", filepath.Join(root, "postgres.log"), "-o", pgOptions, "-w", "start")
 		t.Cleanup(func() { run("pg_ctl", "-D", data, "-m", "immediate", "-w", "stop") })
-		restart = func() {
+		restart = func() string {
 			run("pg_ctl", "-D", data, "-m", "immediate", "-w", "stop")
 			run("pg_ctl", "-D", data, "-l", filepath.Join(root, "postgres.log"), "-o", pgOptions, "-w", "start")
+			return dsn
 		}
 		dsn = "postgres://qa_test_admin@127.0.0.1:55432/postgres?sslmode=disable"
 		admin, err := sql.Open("postgres", dsn)
@@ -55,9 +56,12 @@ func queueTestDatabase(t *testing.T) (*sql.DB, string, func()) {
 		container, err := postgres.Run(ctx, "postgres:18.1-alpine3.23", postgres.WithDatabase("tokenkey_qa_queue"), postgres.WithUsername("qa_test_admin"), postgres.WithPassword("synthetic-test-password"), postgres.BasicWaitStrategies())
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, container.Terminate(context.Background())) })
-		restart = func() {
+		restart = func() string {
 			require.NoError(t, container.Stop(context.Background(), nil))
 			require.NoError(t, container.Start(context.Background()))
+			next, err := container.ConnectionString(context.Background(), "sslmode=disable")
+			require.NoError(t, err)
+			return next
 		}
 		dsn, err = container.ConnectionString(ctx, "sslmode=disable")
 		require.NoError(t, err)
@@ -72,7 +76,8 @@ func queueTestDatabase(t *testing.T) (*sql.DB, string, func()) {
 	require.NoError(t, err)
 	_, err = db.Exec(strings.ReplaceAll(string(ddl), "\\set ON_ERROR_STOP on\n", ""))
 	require.NoError(t, err)
-	return db, u.String(), restart
+	dsn = u.String()
+	return db, dsn, restart
 }
 
 func TestUS062_PostgresQueueRoleIsolationLeasesAndSingleConcurrency(t *testing.T) {
@@ -209,7 +214,7 @@ func TestUS062_PostgresQueueRoleIsolationLeasesAndSingleConcurrency(t *testing.T
 	require.NoError(t, admin.Close())
 	require.NoError(t, producer.db.Close())
 	require.NoError(t, consumer.db.Close())
-	restart()
+	dsn = restart()
 	admin, err = sql.Open("postgres", dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, admin.Close()) })
