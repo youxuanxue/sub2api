@@ -186,6 +186,16 @@ _EDGE_ROUTING = importlib.util.module_from_spec(ROUTING_SPEC)
 sys.modules.setdefault(ROUTING_SPEC.name, _EDGE_ROUTING)
 ROUTING_SPEC.loader.exec_module(_EDGE_ROUTING)
 
+PROD_SSM_SPEC = importlib.util.spec_from_file_location(
+    "tk_ssm_execution_anthropic",
+    REPO_ROOT / "ops/stage0/ssm_execution.py",
+)
+if PROD_SSM_SPEC is None or PROD_SSM_SPEC.loader is None:
+    raise RuntimeError("cannot load ops/stage0/ssm_execution.py")
+_PROD_SSM = importlib.util.module_from_spec(PROD_SSM_SPEC)
+sys.modules.setdefault(PROD_SSM_SPEC.name, _PROD_SSM)
+PROD_SSM_SPEC.loader.exec_module(_PROD_SSM)
+
 # Reuse the embed sentinel's JSON->effective-tier-row mapping as the single
 # source for expected tier-table values. check-tier-baseline-embed.py already
 # guarantees this JSON == Go embed == tk_012 migration seed (preflight gate),
@@ -244,38 +254,8 @@ def load_json_file(path: pathlib.Path, what: str) -> Any:
 # --------------------------------------------------------------------------
 # AWS / SSM plumbing
 # --------------------------------------------------------------------------
-
-def resolve_instance_id(region: str, stack: str) -> str:
-    try:
-        out = subprocess.check_output(
-            [
-                "aws", "cloudformation", "describe-stacks",
-                "--region", region,
-                "--stack-name", stack,
-                "--query", "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue",
-                "--output", "text",
-            ],
-            text=True,
-        ).strip()
-    except subprocess.CalledProcessError as e:
-        fail(f"describe-stacks failed for {stack}/{region}: {e}")
-    if not out or out == "None":
-        try:
-            out = subprocess.check_output(
-                [
-                    "aws", "cloudformation", "describe-stack-resources",
-                    "--region", region,
-                    "--stack-name", stack,
-                    "--query", "StackResources[?ResourceType=='AWS::EC2::Instance'].PhysicalResourceId | [0]",
-                    "--output", "text",
-                ],
-                text=True,
-            ).strip()
-        except subprocess.CalledProcessError as e:
-            fail(f"describe-stack-resources fallback failed for {stack}/{region}: {e}")
-    if not out or out == "None":
-        fail(f"no InstanceId resolvable for stack {stack}/{region}")
-    return out
+# Prod instance resolve: _resolve_prod_target → ssm_execution.resolve_prod_identity
+# (cutover-aware aws i-* / Hybrid mi-*). Do not reintroduce CFN describe-stacks.
 
 
 def ssm_run_sql(region: str, instance_id: str, sql: str, comment: str) -> tuple[str, str]:
@@ -1075,9 +1055,12 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
         prod_view = {"skipped_reason": "--skip-prod passed"}
     else:
         try:
-            prod_inst = resolve_instance_id(PROD_TARGET["region"], PROD_TARGET["stack"])
-            print(f"snapshot: prod instance={prod_inst} (bundle)", file=sys.stderr)
-            prod_view = _capture_prod_bundle(PROD_TARGET["region"], prod_inst)
+            prod_region, prod_inst, _ = _resolve_prod_target()
+            print(
+                f"snapshot: prod instance={prod_inst} region={prod_region} (bundle)",
+                file=sys.stderr,
+            )
+            prod_view = _capture_prod_bundle(prod_region, prod_inst)
         except SystemExit:
             print("snapshot: prod failed to resolve instance (skipping prod view; "
                   "plan-stub-pool will fail-loud if invoked)", file=sys.stderr)
@@ -1309,8 +1292,8 @@ def _run_tier_table_checks_live(edge_ids: list[str], expected_by_tier: dict[str,
         live = _read_tiers(ident.region, ident.instance_id, f"edge {eid}")
         items.extend(_tier_table_drift_items(f"edge:{eid}", live, expected_by_tier))
     try:
-        prod_inst = resolve_instance_id(PROD_TARGET["region"], PROD_TARGET["stack"])
-        prod_live = _read_tiers(PROD_TARGET["region"], prod_inst, "prod")
+        prod_region, prod_inst, _ = _resolve_prod_target()
+        prod_live = _read_tiers(prod_region, prod_inst, "prod")
         items.extend(_tier_table_drift_items("prod", prod_live, expected_by_tier))
     except SystemExit:
         items.append({"node": "prod", "tier": "*", "status": "error",
@@ -1684,8 +1667,7 @@ def _run_live_node_checks(edge_ids: list[str], ua_expected: dict, *,
         label = "prod" if node == _PROBE_PROD_SENTINEL else f"edge:{node}"
         try:
             if node == _PROBE_PROD_SENTINEL:
-                region = PROD_TARGET["region"]
-                instance_id = resolve_instance_id(region, PROD_TARGET["stack"])
+                region, instance_id, _ = _resolve_prod_target()
             else:
                 ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, node)
                 region, instance_id = ident.region, ident.instance_id
@@ -2996,11 +2978,9 @@ def _resolve_edge_target(edge_id: str) -> tuple[str, str, str]:
 
 
 def _resolve_prod_target() -> tuple[str, str, str]:
-    return (
-        PROD_TARGET["region"],
-        resolve_instance_id(PROD_TARGET["region"], PROD_TARGET["stack"]),
-        PROD_TARGET["label"],
-    )
+    """Return ``(ssm_region, instance_id, label)`` for prod (cutover-aware)."""
+    instance_id, region = _PROD_SSM.resolve_prod_identity()
+    return (region, instance_id, PROD_TARGET["label"])
 
 
 def render_prod_stub_pool_sql(account_id: int, account_name: str,
