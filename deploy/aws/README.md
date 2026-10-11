@@ -57,7 +57,7 @@ bash ops/stage0/sync_caddyfile_via_ssm.sh prod <instance-id>
 EDGE_ID=<edge> bash ops/stage0/sync_caddyfile_via_ssm.sh edge <mi-id>
 ```
 
-脚本复刻开机渲染：`API_DOMAIN`/`ACME_EMAIL`/`SITE_DOMAIN` 取自主机 `.env`（`SITE_DOMAIN` 未设且 `API_DOMAIN` 为 `api.*` 时自动推导 apex，如 `api.tokenkey.dev` → `tokenkey.dev`）；edge 的 `MAIN_GATEWAY_ALLOWED_CIDR`（不在 `.env`）从当前 Caddyfile 的 `remote_ip` 行反读以原样保留 allowlist。prod 主机如果已迁移到 blue/green，会在渲染 canonical Caddyfile 后保留当前 `active-color` 对应的 `tokenkey-blue|green:8080` upstream，避免热同步把流量指回 legacy `tokenkey:8080`。先在一次性 caddy 容器里 `caddy validate`，通过才**就地**写回（`cat > Caddyfile` 保 inode，避免 bind-mount 单文件换 inode 后容器看不到），再 `caddy reload`；任一步失败自动回滚到 backup 并 reload。
+脚本复刻开机渲染：`API_DOMAIN`/`ACME_EMAIL`/`SITE_DOMAIN` 取自主机 `.env`（`SITE_DOMAIN` 未设且 `API_DOMAIN` 为 `api.*` 时自动推导 apex，如 `api.tokenkey.dev` → `tokenkey.dev`）；edge 的 `MAIN_GATEWAY_ALLOWED_CIDR`（不在 `.env`）从当前 Caddyfile 的 `remote_ip` 行反读以原样保留 allowlist。反读值会逐条校验（必须是带非零前缀长度的 CIDR；`0.0.0.0/0` / `::/0` 一律拒绝，避免把只该放行一个 prod IP 的 edge 变成开放中继），校验不过即拒绝并要求显式传 `MAIN_GATEWAY_ALLOWED_CIDR`。主机（prod 或 edge，凡带 `/var/lib/tokenkey/active-color`）如果已迁移到 blue/green，会在渲染 canonical Caddyfile 后保留当前 `active-color` 对应的 `tokenkey-blue|green:8080` upstream，避免热同步把流量指回 legacy `tokenkey:8080`；没有 `active-color` 的主机保持 `tokenkey:8080` 不变。先在一次性 caddy 容器里 `caddy validate`，通过才**就地**写回（`cat > Caddyfile` 保 inode，避免 bind-mount 单文件换 inode 后容器看不到），再 `caddy reload`；任一步失败自动回滚到 backup 并 reload。
 
 `callmodel.io` 的发布阶段也由同一热同步入口确定性切换。脚本先原子备份并更新主机 `.env`，再渲染、校验和 reload；任一步失败会同时恢复 `.env` 与 Caddyfile。不要手改远端配置：
 

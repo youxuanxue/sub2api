@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import shlex
 import stat
 import subprocess
@@ -80,10 +81,25 @@ def _host_script(kind: str = "edge") -> str:
 
 
 def _run_fragment(script: str, start: str, end: str, prelude: str, epilogue: str = ""):
-    """Execute one balanced fragment of the host script under bash."""
+    """Execute one balanced fragment of the host script under bash.
+
+    The markers are asserted to be unique and to bound a non-trivial slice, so a
+    marker that drifts out of the script fails loudly here instead of yielding an
+    empty fragment that every assertion would then pass vacuously.
+    """
+    for marker in (start, end):
+        found = script.count(marker)
+        if found != 1:
+            raise AssertionError(f"fragment marker {marker!r} occurs {found} times, expected exactly 1")
     a = script.index(start)
     b = script.index(end, a)
-    harness = prelude + "\n" + script[a:b] + "\n" + epilogue + "\n"
+    fragment = script[a:b]
+    if len(fragment) <= len(start):
+        raise AssertionError(f"fragment between {start!r} and {end!r} is degenerate: {fragment!r}")
+    # The host script's own first line. Without it the fragment runs with
+    # pipefail off, so an `awk … | tee` guard that exits non-zero inside a
+    # pipeline would look like success here and the test would pass vacuously.
+    harness = "set -euo pipefail\n" + prelude + "\n" + fragment + "\n" + epilogue + "\n"
     return subprocess.run(["bash", "-c", harness], capture_output=True, text=True, check=False)
 
 
@@ -131,6 +147,138 @@ class SyncCaddyfileCidrRecoveryTest(unittest.TestCase):
         proc = self._recover("api.x {\n\t@main {\n\t\tremote_ip 167.233.211.115\n\t}\n}\n")
         self.assertNotEqual(proc.returncode, 0, f"must refuse a bare IP: {proc.stdout}")
         self.assertIn("prefix length", proc.stdout + proc.stderr)
+
+    def test_recovers_an_ipv6_allowlist(self) -> None:
+        proc = self._recover("api.x {\n\t@main {\n\t\tremote_ip 2a01:4f8:c17:1::1/128\n\t}\n}\n")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("RECOVERED=2a01:4f8:c17:1::1/128", proc.stdout)
+
+    def test_refuses_an_all_addresses_v4_allowlist(self) -> None:
+        """0.0.0.0/0 is a syntactically valid CIDR and the exact danger case.
+
+        A blank remote_ip merely breaks relay (Caddy stops matching @allowed_relay,
+        so /v1/* falls through to the 403 handler). An all-addresses entry is the
+        direction that actually exposes the host, so recovery must refuse it.
+        """
+        proc = self._recover("api.x {\n\t@main {\n\t\tremote_ip 0.0.0.0/0\n\t}\n}\n")
+        self.assertNotEqual(proc.returncode, 0, f"must refuse an open allowlist: {proc.stdout}")
+        self.assertIn("every address", proc.stdout + proc.stderr)
+        self.assertNotIn("RECOVERED=", proc.stdout)
+
+    def test_refuses_an_all_addresses_v6_allowlist(self) -> None:
+        proc = self._recover("api.x {\n\t@main {\n\t\tremote_ip ::/0\n\t}\n}\n")
+        self.assertNotEqual(proc.returncode, 0, f"must refuse an open allowlist: {proc.stdout}")
+        self.assertIn("every address", proc.stdout + proc.stderr)
+
+    def test_refuses_an_open_entry_mixed_into_a_valid_list(self) -> None:
+        """Per-entry validation: one bad entry in a list must not ride along."""
+        proc = self._recover("api.x {\n\t@main {\n\t\tremote_ip 1.2.3.4/32 0.0.0.0/0\n\t}\n}\n")
+        self.assertNotEqual(proc.returncode, 0, f"must refuse: {proc.stdout}")
+        self.assertIn("every address", proc.stdout + proc.stderr)
+
+    def test_refuses_a_prefix_without_an_address(self) -> None:
+        proc = self._recover("api.x {\n\t@main {\n\t\tremote_ip /32\n\t}\n}\n")
+        self.assertNotEqual(proc.returncode, 0, f"must refuse: {proc.stdout}")
+        self.assertIn("not an IP address", proc.stdout + proc.stderr)
+
+    def test_refuses_an_address_without_a_prefix_value(self) -> None:
+        proc = self._recover("api.x {\n\t@main {\n\t\tremote_ip 1.2.3.4/\n\t}\n}\n")
+        self.assertNotEqual(proc.returncode, 0, f"must refuse: {proc.stdout}")
+        self.assertIn("non-numeric prefix length", proc.stdout + proc.stderr)
+
+    def test_refuses_an_out_of_range_v4_prefix(self) -> None:
+        proc = self._recover("api.x {\n\t@main {\n\t\tremote_ip 1.2.3.4/33\n\t}\n}\n")
+        self.assertNotEqual(proc.returncode, 0, f"must refuse: {proc.stdout}")
+        self.assertIn("out-of-range", proc.stdout + proc.stderr)
+
+    def test_refuses_a_caddy_placeholder(self) -> None:
+        """A remote_ip rendered as a placeholder is not a literal allowlist."""
+        proc = self._recover("api.x {\n\t@main {\n\t\tremote_ip {remote_host}\n\t}\n}\n")
+        self.assertNotEqual(proc.returncode, 0, f"must refuse: {proc.stdout}")
+
+
+class CaddyTemplateSingleUpstreamTest(unittest.TestCase):
+    """The active-color rewrite's awk exits 7 unless EXACTLY one block matches.
+
+    Both shipped templates must therefore render exactly one
+    `reverse_proxy … {` block, or the hot-sync fails closed on a live host. The
+    edge template keeps its two handles on one `(tk_upstream)` snippet, which is
+    what makes that hold there.
+    """
+
+    _REPO = pathlib.Path(__file__).resolve().parents[2]
+    _BLOCK = re.compile(r"^[ \t]*reverse_proxy[ \t]+.*\{[ \t]*$", re.M)
+
+    def test_edge_template_renders_one_upstream_block(self) -> None:
+        template = (self._REPO / "deploy/aws/stage0/Caddyfile.edge").read_text()
+        rendered = (
+            template.replace("${API_DOMAIN}", "api.x")
+            .replace("${ACME_EMAIL}", "a@b.c")
+            .replace("${MAIN_GATEWAY_ALLOWED_CIDR}", "1.2.3.4/32")
+        )
+        self.assertEqual(len(self._BLOCK.findall(rendered)), 1)
+
+    def test_prod_template_renders_one_upstream_block_in_every_phase(self) -> None:
+        render = self._REPO / "deploy/aws/stage0/render-prod-caddyfile.sh"
+        template = self._REPO / "deploy/aws/stage0/Caddyfile"
+        phases = [
+            {"API_DOMAIN": "api.x.dev", "SITE_DOMAIN": "", "GLOBAL_SITE_PHASE": "disabled"},
+            {"API_DOMAIN": "api.tokenkey.dev", "GLOBAL_SITE_PHASE": "disabled"},
+            {
+                "API_DOMAIN": "api.tokenkey.dev",
+                "GLOBAL_SITE_PHASE": "candidate",
+                "GLOBAL_SITE_DOMAIN": "callmodel.io",
+            },
+            {
+                "API_DOMAIN": "api.tokenkey.dev",
+                "GLOBAL_SITE_PHASE": "live",
+                "GLOBAL_SITE_DOMAIN": "callmodel.io",
+                "API_ALIAS_DOMAIN": "api.callmodel.io",
+            },
+        ]
+        for phase in phases:
+            with self.subTest(phase=phase.get("GLOBAL_SITE_PHASE"), alias=phase.get("API_ALIAS_DOMAIN")):
+                with tempfile.TemporaryDirectory() as tmp:
+                    out = pathlib.Path(tmp) / "Caddyfile"
+                    proc = subprocess.run(
+                        ["bash", str(render), str(template), str(out)],
+                        env={**os.environ, "ACME_EMAIL": "a@b.c", **phase},
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                    self.assertEqual(len(self._BLOCK.findall(out.read_text())), 1)
+
+
+class SyncCaddyfileExplicitCidrOverrideTest(unittest.TestCase):
+    """The explicit MAIN_GATEWAY_ALLOWED_CIDR override takes the same rule.
+
+    It bypasses host-side recovery entirely, so validating only the recovered
+    value would leave the open-relay shape reachable through the override.
+    """
+
+    def test_rejects_an_all_addresses_override(self) -> None:
+        proc, params = _run_sync("edge", {"MAIN_GATEWAY_ALLOWED_CIDR": "0.0.0.0/0"})
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("non-zero prefix length", proc.stderr)
+        self.assertIsNone(params, "must refuse before building the SSM payload")
+
+    def test_rejects_an_all_addresses_v6_override(self) -> None:
+        proc, _ = _run_sync("edge", {"MAIN_GATEWAY_ALLOWED_CIDR": "::/0"})
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("non-zero prefix length", proc.stderr)
+
+    def test_rejects_a_prefixless_override(self) -> None:
+        proc, _ = _run_sync("edge", {"MAIN_GATEWAY_ALLOWED_CIDR": "1.2.3.4"})
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("non-zero prefix length", proc.stderr)
+
+    def test_accepts_a_normal_override(self) -> None:
+        proc, params = _run_sync("edge", {"MAIN_GATEWAY_ALLOWED_CIDR": "167.233.211.115/32"})
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        assert params is not None
+        self.assertIn("167.233.211.115/32", _ssm_script_body(params))
 
 
 class SyncCaddyfileBlueGreenEdgeTest(unittest.TestCase):
@@ -182,6 +330,43 @@ class SyncCaddyfileBlueGreenEdgeTest(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0, f"must refuse: {proc.stdout}")
         self.assertIn("invalid active-color", proc.stdout + proc.stderr)
         self.assertIn("reverse_proxy tokenkey:8080", rendered)
+
+    def test_empty_active_color_fails_closed(self) -> None:
+        """A truncated active-color must refuse, not fall back to a guess."""
+        proc, rendered = self._rewrite(
+            "edge", "", "api.x {\n\treverse_proxy tokenkey:8080 {\n\t}\n}\n")
+        self.assertNotEqual(proc.returncode, 0, f"must refuse: {proc.stdout}")
+        self.assertIn("invalid active-color", proc.stdout + proc.stderr)
+        self.assertIn("reverse_proxy tokenkey:8080", rendered)
+
+    def test_host_without_active_color_is_left_alone(self) -> None:
+        """Widening the gate must not touch a host that never went blue/green.
+
+        Such hosts run a single container named `tokenkey`; rewriting them to
+        tokenkey-<color>:8080 would be the mirror image of the bug being fixed.
+        """
+        body = "api.x {\n\treverse_proxy tokenkey:8080 {\n\t\tflush_interval -1\n\t}\n}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            d = pathlib.Path(tmp)
+            (d / "Caddyfile.new").write_text(body)
+            absent = d / "active-color"  # deliberately never created
+            script = _host_script("edge").replace("/var/lib/tokenkey/active-color", str(absent))
+            proc = _run_fragment(
+                script,
+                "if [ -r " + str(absent),
+                "\necho === validate rendered config",
+                f'sudo() {{ "$@"; }}\nCADDY_DIR={d}\nKIND=edge',
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertEqual((d / "Caddyfile.new").read_text(), body, "legacy host must be untouched")
+
+    def test_rewrite_requires_exactly_one_reverse_proxy_block(self) -> None:
+        """The awk guard is what keeps a template drift from silently half-rewriting."""
+        proc, rendered = self._rewrite(
+            "edge", "blue\n",
+            "api.x {\n\treverse_proxy a:1 {\n\t}\n\treverse_proxy b:2 {\n\t}\n}\n")
+        self.assertNotEqual(proc.returncode, 0, f"must refuse two blocks: {proc.stdout}")
+        self.assertIn("reverse_proxy a:1", rendered, "original must survive a refused rewrite")
 
 
 class SyncCaddyfileRenderTest(unittest.TestCase):
