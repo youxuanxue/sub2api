@@ -153,7 +153,9 @@ read-only unless `--apply` is supplied. Pre-copy uses a bounded single multipart
 stream, explicit bandwidth limit, conditional publication and full SHA256
 readback. Its ledger permits restart after a completed upload, but refuses
 foreign target objects and changes to immutable source objects. Source lifecycle
-expiry is required and recorded in target metadata and the ledger; this metadata
-alone does not implement expiration. Install and verify the migration-expiry
-cleanup owner before cutover. The tool never deletes source objects, switches
+expiry is required and recorded in target metadata and the ledger. The migration
+owner installs and reads back absolute-date lifecycle rules keyed by an object
+expiry tag, alongside ordinary raw/Bundle retention. It preserves source tags and
+explicitly reapplies them after multipart completion (Hetzner drops initiation
+tags). Tag readback is required before recording success. The tool never deletes source objects, switches
 producers, or declares migration complete.

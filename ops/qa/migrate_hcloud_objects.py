@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import sqlite3
 import time
+from urllib.parse import urlencode
 
 SOURCES = {
     'raw': ('tokenkey-prod-qa-raw-archive-682751977094', 'tokenkey-qa-raw-fsn1-dd2ca9019b22', 'raw/v1/'),
@@ -29,7 +30,10 @@ def expiry(head):
     match = re.search(r'expiry-date="([^"]+)"', value)
     if not match:
         raise ValueError('source object has no authoritative lifecycle expiry')
-    return parsedate_to_datetime(match[1]).astimezone(timezone.utc)
+    result = parsedate_to_datetime(match[1]).astimezone(timezone.utc)
+    if any((result.hour, result.minute, result.second, result.microsecond)):
+        raise ValueError('source lifecycle expiry must be midnight UTC')
+    return result
 
 
 def safe_head(client, bucket, key):
@@ -69,12 +73,14 @@ def stream_hash(body, rate):
     return count, digest.hexdigest()
 
 
-def copy_one(source, target, db, source_bucket, target_bucket, key, rate):
+def copy_one(source, target, db, source_bucket, target_bucket, key, rate, expected_expiries=None):
     head = source.head_object(Bucket=source_bucket, Key=key)
     deadline = expiry(head)
     if deadline <= datetime.now(timezone.utc):
         return 'expired'
-    previous = db.execute('SELECT source_etag,target_etag,size,sha256 FROM objects WHERE source_bucket=? AND object_key=?',
+    if expected_expiries is not None and deadline.date().isoformat() not in expected_expiries:
+        raise ValueError('source expiry changed since lifecycle preparation; re-inventory')
+    previous = db.execute('SELECT source_etag,target_etag,size,sha256,expires_at FROM objects WHERE source_bucket=? AND object_key=?',
                           (source_bucket, key)).fetchone()
     dest = safe_head(target, target_bucket, key)
     if dest:
@@ -83,6 +89,7 @@ def copy_one(source, target, db, source_bucket, target_bucket, key, rate):
         same_size = dest['ContentLength'] == head['ContentLength']
         if same_source and same_expiry and same_size:
             if previous and previous[:3] == (head['ETag'], dest['ETag'], head['ContentLength']):
+                verify_expiry_tag(target, target_bucket, key, deadline)
                 return 'verified'
             # Recover a crash between successful upload/readback and ledger commit.
             # Metadata alone is not proof; compare the entire current source and target.
@@ -94,6 +101,7 @@ def copy_one(source, target, db, source_bucket, target_bucket, key, rate):
                 raise ValueError('uncommitted target differs from source')
             if source.head_object(Bucket=source_bucket, Key=key)['ETag'] != head['ETag']:
                 raise ValueError('source changed during recovery')
+            publish_expiry_tags(source, target, source_bucket, target_bucket, key, deadline, dest['ETag'])
             db.execute('INSERT OR REPLACE INTO objects VALUES(?,?,?,?,?,?,?,?,?)',
                        (source_bucket, key, head['ETag'], target_bucket, dest['ETag'], target_size,
                         target_hash, deadline.isoformat(), datetime.now(timezone.utc).isoformat()))
@@ -101,10 +109,10 @@ def copy_one(source, target, db, source_bucket, target_bucket, key, rate):
             return 'recovered'
         if previous is None or dest['ETag'] != previous[1]:
             raise ValueError('target object is not owned by this migration ledger')
+        verify_expiry_tag(target, target_bucket, key, datetime.fromisoformat(previous[4]))
         # Only the mutable raw commit pointer may change during pre-copy.
         if not (source_bucket == SOURCES['raw'][0] and key.endswith('/commit.json')):
             raise ValueError('source immutable object changed')
-    response = source.get_object(Bucket=source_bucket, Key=key, IfMatch=head['ETag'])
     metadata = dict(head.get('Metadata', {}))
     for field in ('tk-migration-source-etag', 'tk-migration-expires-at'):
         if field in metadata:
@@ -112,10 +120,16 @@ def copy_one(source, target, db, source_bucket, target_bucket, key, rate):
     metadata.update({'tk-migration-source-etag': head['ETag'].strip('"'),
                      'tk-migration-expires-at': deadline.isoformat()})
     fields = {k: head[k] for k in ('ContentType', 'ContentEncoding', 'ContentDisposition', 'CacheControl', 'ContentLanguage', 'Expires') if k in head}
-    fields.update(Bucket=target_bucket, Key=key, Metadata=metadata)
+    tags = {t['Key']: t['Value'] for t in source.get_object_tagging(Bucket=source_bucket, Key=key).get('TagSet', [])}
+    if 'tk-original-expiry' in tags or len(tags) >= 10:
+        raise ValueError('source object tags conflict with migration expiry')
+    tags['tk-original-expiry'] = deadline.date().isoformat()
+    fields.update(Bucket=target_bucket, Key=key, Metadata=metadata, Tagging=urlencode(tags))
     upload = None
+    response = None
     start, size, digest = time.monotonic(), 0, hashlib.sha256()
     try:
+        response = source.get_object(Bucket=source_bucket, Key=key, IfMatch=head['ETag'])
         # All objects use multipart for bounded memory, including >5GiB objects.
         upload = target.create_multipart_upload(**fields)['UploadId']
         parts = []
@@ -144,15 +158,76 @@ def copy_one(source, target, db, source_bucket, target_bucket, key, rate):
         target_size, target_hash = stream_hash(downloaded['Body'], rate)
         if target_size != size or target_hash != digest.hexdigest():
             raise ValueError('target readback SHA256 mismatch')
+        publish_expiry_tags(source, target, source_bucket, target_bucket, key, deadline, output['ETag'])
         db.execute('INSERT OR REPLACE INTO objects VALUES(?,?,?,?,?,?,?,?,?)',
                    (source_bucket, key, head['ETag'], target_bucket, output['ETag'], size,
                     target_hash, deadline.isoformat(), datetime.now(timezone.utc).isoformat()))
         db.commit()
         return 'copied'
     finally:
-        response['Body'].close()
+        if response is not None:
+            response['Body'].close()
         if upload:
             target.abort_multipart_upload(Bucket=target_bucket, Key=key, UploadId=upload)
+
+
+def publish_expiry_tags(source, target, source_bucket, target_bucket, key, deadline, etag):
+    # Hetzner accepts Tagging on multipart initiation but drops it at completion.
+    # Publish tags explicitly only after source/target SHA256 equality is proven.
+    tags = source.get_object_tagging(Bucket=source_bucket, Key=key).get('TagSet', [])
+    if len(tags) >= 10 or any(t['Key'] == 'tk-original-expiry' for t in tags):
+        raise ValueError('source object tags conflict with migration expiry')
+    tags.append({'Key':'tk-original-expiry', 'Value':deadline.date().isoformat()})
+    if target.head_object(Bucket=target_bucket, Key=key)['ETag'] != etag:
+        raise ValueError('target changed before tag publication')
+    target.put_object_tagging(Bucket=target_bucket, Key=key, Tagging={'TagSet':tags})
+    verify_expiry_tag(target, target_bucket, key, deadline)
+    if target.head_object(Bucket=target_bucket, Key=key)['ETag'] != etag:
+        raise ValueError('target changed during tag publication')
+
+
+def verify_expiry_tag(client, bucket, key, deadline):
+    tags = {t['Key']: t['Value'] for t in client.get_object_tagging(Bucket=bucket, Key=key).get('TagSet', [])}
+    if tags.get('tk-original-expiry') != deadline.date().isoformat():
+        raise ValueError('target original-expiry tag differs')
+
+
+def install_lifecycle(target, bucket, kind, deadlines):
+    """Use absolute-date tag rules so migration never restarts object retention."""
+    prefix = 'raw/v1/' if kind == 'raw' else 'user-qa/qa-bundles/v1/jobs/'
+    rules = [{'ID': 'expire-qa-runtime-objects', 'Status': 'Enabled', 'Filter': {'Prefix': prefix},
+              'Expiration': {'Days': 7 if kind == 'raw' else 2},
+              'AbortIncompleteMultipartUpload': {'DaysAfterInitiation': 1}}]
+    for day in sorted(set(deadlines)):
+        deadline = datetime.fromisoformat(day).replace(tzinfo=timezone.utc)
+        if deadline.time().isoformat() != '00:00:00':
+            raise ValueError('source lifecycle expiry is not midnight UTC')
+        rules.append({'ID': 'migration-original-expiry-' + day, 'Status': 'Enabled',
+                      'Filter': {'Tag': {'Key': 'tk-original-expiry', 'Value': day}},
+                      'Expiration': {'Date': deadline}})
+    if len(rules) > 1000:
+        raise ValueError('migration exceeds lifecycle rule limit')
+    try:
+        previous = target.get_bucket_lifecycle_configuration(Bucket=bucket).get('Rules', [])
+    except Exception as error:
+        if getattr(error, 'response', {}).get('Error', {}).get('Code') != 'NoSuchLifecycleConfiguration':
+            raise
+        previous = []
+    # Retain prior absolute expiry dates across incremental pre-copy runs.
+    owned = {rule['ID']: rule for rule in rules}
+    for rule in previous:
+        name = rule.get('ID', '')
+        if name.startswith('migration-original-expiry-'):
+            owned.setdefault(name, rule)
+        elif name != 'expire-qa-runtime-objects':
+            raise ValueError('target has an unowned lifecycle rule; reconcile before copying')
+    if len(owned) > 1000:
+        raise ValueError('migration exceeds lifecycle rule limit')
+    target.put_bucket_lifecycle_configuration(Bucket=bucket, LifecycleConfiguration={'Rules': list(owned.values())})
+    actual = target.get_bucket_lifecycle_configuration(Bucket=bucket).get('Rules', [])
+    expected = sorted(owned.values(), key=lambda rule: rule['ID'])
+    if sorted(actual, key=lambda rule: rule['ID']) != expected:
+        raise ValueError('target lifecycle readback differs')
 
 
 def clients():
@@ -179,16 +254,23 @@ def main():
     source, target = clients()
     src, dst, prefix = SOURCES[args.kind]
     count, total, stats = 0, 0, {}
+    inventory, deadlines = [], set()
+    for page in source.get_paginator('list_objects_v2').paginate(Bucket=src, Prefix=prefix):
+        for row in page.get('Contents', []):
+            inventory.append(row)
+            if args.apply:
+                deadlines.add(expiry(source.head_object(Bucket=src, Key=row['Key'])).date().isoformat())
+    if args.apply:
+        install_lifecycle(target, dst, args.kind, deadlines)
     db = ledger_open(args.ledger) if args.apply else None
     try:
-        for page in source.get_paginator('list_objects_v2').paginate(Bucket=src, Prefix=prefix):
-            for row in page.get('Contents', []):
-                count += 1
-                total += row['Size']
-                if args.apply:
-                    outcome = copy_one(source, target, db, src, dst, row['Key'], args.mib_per_second * 1024**2)
-                    stats[outcome] = stats.get(outcome, 0) + 1
-                    print(json.dumps({'objects_seen': count, 'bytes_seen': total, 'results': stats}), flush=True)
+        for row in inventory:
+            count += 1
+            total += row['Size']
+            if args.apply:
+                outcome = copy_one(source, target, db, src, dst, row['Key'], args.mib_per_second * 1024**2, deadlines)
+                stats[outcome] = stats.get(outcome, 0) + 1
+                print(json.dumps({'objects_seen': count, 'bytes_seen': total, 'results': stats}), flush=True)
         print(json.dumps({'apply': args.apply, 'objects': count, 'bytes': total, 'results': stats, 'cutover_ready': False}))
     finally:
         if db:

@@ -6,9 +6,10 @@ import io
 from pathlib import Path
 import tempfile
 import unittest
+from urllib.parse import parse_qsl, urlencode
 from unittest.mock import patch
 
-from ops.qa.migrate_hcloud_objects import copy_one, expiry, ledger_open, SOURCES
+from ops.qa.migrate_hcloud_objects import copy_one, expiry, ledger_open, install_lifecycle, SOURCES
 
 
 class Missing(Exception):
@@ -28,6 +29,12 @@ class Store:
         if Key not in self.objects:
             raise Missing()
         return {k: copy.deepcopy(v) for k,v in self.objects[Key].items() if k != 'Body'}
+
+    def get_object_tagging(self, Bucket, Key):
+        return {'TagSet': [{'Key':k,'Value':v} for k,v in parse_qsl(self.objects[Key].get('Tagging',''))]}
+
+    def put_object_tagging(self, Bucket, Key, Tagging):
+        self.objects[Key]['Tagging'] = urlencode({t['Key']:t['Value'] for t in Tagging['TagSet']})
 
     def get_object(self, Bucket, Key, IfMatch):
         if self.fail_read:
@@ -51,7 +58,7 @@ class Store:
         if IfMatch and self.objects[Key]['ETag'].strip('"') != IfMatch:
             raise ValueError('replace conflict')
         upload = self.uploads.pop(UploadId)
-        headers = {k:v for k,v in upload.items() if k not in ('Parts','Key','Bucket')}
+        headers = {k:v for k,v in upload.items() if k not in ('Parts','Key','Bucket','Tagging')}
         self.seed(Key, b''.join(upload['Parts'].values()), **headers)
         self.writes += 1
         return {'ETag':self.objects[Key]['ETag']}
@@ -60,13 +67,44 @@ class Store:
         self.uploads.pop(UploadId, None)
 
 
+class LifecycleStore:
+    def __init__(self, rules=None):
+        self.rules = rules or []
+
+    def get_bucket_lifecycle_configuration(self, Bucket):
+        return {'Rules': self.rules}
+
+    def put_bucket_lifecycle_configuration(self, Bucket, LifecycleConfiguration):
+        self.rules = LifecycleConfiguration['Rules']
+
+
+class LifecycleTest(unittest.TestCase):
+    def test_absolute_expiry_and_default_retention_survive_incremental_copy(self):
+        target = LifecycleStore()
+        install_lifecycle(target, 'private-target', 'raw', ['2026-10-12'])
+        install_lifecycle(target, 'private-target', 'raw', ['2026-10-13'])
+        actual = {r['ID']:r for r in target.rules}
+        self.assertEqual(actual['expire-qa-runtime-objects']['Expiration'], {'Days':7})
+        for day in ('2026-10-12','2026-10-13'):
+            rule = actual['migration-original-expiry-'+day]
+            self.assertEqual(rule['Expiration']['Date'].isoformat(), day+'T00:00:00+00:00')
+            self.assertEqual(rule['Filter'], {'Tag': {'Key':'tk-original-expiry','Value':day}})
+
+    def test_foreign_rules_are_not_overwritten(self):
+        rules = [{'ID':'operator-owned', 'Status':'Enabled'}]
+        target = LifecycleStore(copy.deepcopy(rules))
+        with self.assertRaises(ValueError):
+            install_lifecycle(target, 'private-target', 'bundle', ['2026-10-12'])
+        self.assertEqual(target.rules,rules)
+
+
 class MigrationObjectsTest(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.db = ledger_open(Path(self.directory.name, 'ledger.sqlite'))
         self.source, self.target = Store(), Store()
         self.key = 'raw/v1/2026/10/11/00/commit.json'
-        self.deadline = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=1)
+        self.deadline = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
         self.headers = {'Expiration':f'expiry-date="{format_datetime(self.deadline, usegmt=True)}", rule-id="raw"',
                         'ContentType':'application/json','ContentEncoding':'gzip','Metadata':{'test':'synthetic'}}
         self.source.seed(self.key, b'synthetic QA contents', **self.headers)
@@ -88,6 +126,18 @@ class MigrationObjectsTest(unittest.TestCase):
         self.assertEqual(self.target.writes,1)
         row = self.db.execute('SELECT sha256,size FROM objects').fetchone()
         self.assertEqual(row,(hashlib.sha256(target['Body']).hexdigest(),len(target['Body'])))
+
+    def test_source_tags_and_absolute_expiry_are_restored_after_multipart_tag_loss(self):
+        self.source.objects[self.key]['Tagging'] = 'purpose=ordinary-qa'
+        self.assertEqual(self.copy(),'copied')
+        tags = self.target.get_object_tagging('target',self.key)['TagSet']
+        self.assertEqual({t['Key']:t['Value'] for t in tags},
+                         {'purpose':'ordinary-qa','tk-original-expiry':self.deadline.date().isoformat()})
+        self.source.seed(self.key,b'next-day commit',**dict(self.headers,
+                         Expiration=f'expiry-date="{format_datetime(self.deadline+timedelta(days=1), usegmt=True)}"'))
+        self.assertEqual(self.copy(),'copied')
+        self.assertEqual(dict(parse_qsl(self.target.objects[self.key]['Tagging']))['tk-original-expiry'],
+                         (self.deadline+timedelta(days=1)).date().isoformat())
 
     def test_interrupted_readback_recovers_without_overwriting(self):
         self.target.fail_read = True
