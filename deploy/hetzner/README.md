@@ -41,6 +41,7 @@ AWS EIP `34.194.234.88` 与四边旧 Lightsail 仅为 ≥7d standby / 回滚，*
 | `render-bootstrap.sh` / `render-prod-bootstrap.sh` | user-data |
 | `generated-user-data.sh` / `generated-prod-user-data.sh` | 渲染产物（与 `--check` 同步提交） |
 | `provision-edge.sh` / `provision-prod.sh` | 点火（dry-run / `--confirm-paid --tag`） |
+| `qa/` | 共用 uk1 上 QA 队列/资源 foundation（见该目录 README；默认网关仍 SQS） |
 
 整库 DR：舰队 `tokenkey-pgdump.sh` + [`deploy/aws/RUNBOOK-disaster-recovery.md`](../aws/RUNBOOK-disaster-recovery.md)。账号级搬运（非整库）：`ops/migration/migrate-edge-accounts.py`。
 
@@ -71,7 +72,8 @@ bash scripts/stage0/dispatch-edge-deploy.sh \
 1. **蓝绿首跑**：下一刀 release 走上节发版；主机仍单色时由 `ensure_legacy_cutover` 迁 blue。  
 2. **gemini-web re-import**：uk1/uk2 上若干 gemini 账号 `error`/不可调度（出口 IP）；修好后再开对应 prod stub。  
 3. **边侧供应**：us4 anthropic / us4·us5 grok / uk CC 池按冒烟 200 再开 stub。  
-4. **旧 LS / AWS prod**：≥7d 后可删实例；`deploy-qa-bundle` / `container-log-policy` 仍偏 AWS，另轨。
+4. **旧 LS / AWS prod**：≥7d 后可删实例；`deploy-qa-bundle` / `container-log-policy` 仍偏 AWS，另轨。  
+5. **QA 去 AWS**：队列/对象存储 foundation 见 [`qa/README.md`](qa/README.md) 与审批基线 `hcloud-bluegreen-qa-migration.md`（未切默认 SQS）。
 
 ## 校验
 

@@ -1,6 +1,7 @@
 # QA on shared uk1: queue and resource foundation
 
-Baseline: [hcloud QA migration](../../../docs/approved/hcloud-bluegreen-qa-migration.md).
+Live fleet SSOT: [`../README.md`](../README.md).  
+Baseline: [hcloud QA migration](../../../docs/approved/hcloud-bluegreen-qa-migration.md).  
 This directory does not deploy QA or migrate objects/messages. Default gateway
 configuration continues using SQS until explicitly changed.
 
