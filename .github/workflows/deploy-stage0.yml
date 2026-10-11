@@ -332,9 +332,11 @@ jobs:
       - name: Resolve QA producer coordinates (read-only)
         id: qa_coordinates
         env:
+          QA_RUNTIME_PROVIDER: ${{ vars.QA_RUNTIME_PROVIDER || 'aws' }}
           QA_STACK_NAME: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
         run: |
-          python3 ops/qa/resolve_qa_bundle_coordinates.py --stack "$QA_STACK_NAME" \
+          python3 ops/qa/resolve_qa_bundle_coordinates.py --provider "$QA_RUNTIME_PROVIDER" \
+            --manifest deploy/hetzner/qa/producer.json --stack "$QA_STACK_NAME" \
             --region "$AWS_REGION" --github-output "$GITHUB_OUTPUT"
 
       - name: Validate human-approved replay receipt
@@ -356,14 +358,31 @@ jobs:
           QA_BUNDLE_ENABLED: "true"
           QA_BUNDLE_QUEUE_URL: ${{ steps.qa_coordinates.outputs.queue_url }}
           QA_BUNDLE_STORAGE_DRIVER: s3
-          QA_BUNDLE_STORAGE_REGION: us-east-1
+          QA_BUNDLE_QUEUE_DRIVER: ${{ steps.qa_coordinates.outputs.queue_driver }}
+          QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE: ${{ steps.qa_coordinates.outputs.queue_postgres_dsn_file }}
+          QA_BUNDLE_STORAGE_ENDPOINT: ${{ steps.qa_coordinates.outputs.endpoint }}
+          QA_BUNDLE_STORAGE_FORCE_PATH_STYLE: ${{ steps.qa_coordinates.outputs.force_path_style }}
+          QA_BUNDLE_STORAGE_CREDENTIALS_FILE: ${{ steps.qa_coordinates.outputs.credentials_file }}
+          QA_BUNDLE_STORAGE_REGION: ${{ steps.qa_coordinates.outputs.region }}
           QA_BUNDLE_STORAGE_BUCKET: ${{ steps.qa_coordinates.outputs.bucket }}
           QA_BUNDLE_STORAGE_PREFIX: user-qa
           STAGE0_BLUEGREEN_WAIT_PHASE: cutover
           STAGE0_BLUEGREEN_STAGE: ${{ inputs.replay_receipt != '' && 'promote' || 'deploy' }}
           STAGE0_BLUEGREEN_APPROVED_RECEIPT: ${{ steps.replay_gate.outputs.prepared_receipt }}
           STAGE0_BLUEGREEN_APPROVED_REPLAY: ${{ inputs.replay_receipt }}
-        run: bash ops/stage0/deploy_via_ssm_bluegreen.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-stage0 env=prod bluegreen"
+          QA_TARGET_ARCHIVE_BUCKET: ${{ steps.qa_coordinates.outputs.archive_bucket }}
+          QA_TARGET_ARCHIVE_PREFIX: ${{ steps.qa_coordinates.outputs.archive_prefix }}
+          QA_TARGET_ARCHIVE_CREDENTIALS_FILE: ${{ steps.qa_coordinates.outputs.archive_credentials_file }}
+        run: |
+          if [[ "$QA_BUNDLE_QUEUE_DRIVER" = postgres ]]; then
+            export QA_ARCHIVE_STORAGE_REGION="$QA_BUNDLE_STORAGE_REGION"
+            export QA_ARCHIVE_STORAGE_ENDPOINT="$QA_BUNDLE_STORAGE_ENDPOINT"
+            export QA_ARCHIVE_STORAGE_FORCE_PATH_STYLE="$QA_BUNDLE_STORAGE_FORCE_PATH_STYLE"
+            export QA_ARCHIVE_STORAGE_CREDENTIALS_FILE="$QA_TARGET_ARCHIVE_CREDENTIALS_FILE"
+            export QA_ARCHIVE_STORAGE_BUCKET="$QA_TARGET_ARCHIVE_BUCKET"
+            export QA_ARCHIVE_STORAGE_PREFIX="$QA_TARGET_ARCHIVE_PREFIX"
+          fi
+          bash ops/stage0/deploy_via_ssm_bluegreen.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-stage0 env=prod bluegreen"
 
       - name: External health check
         env:

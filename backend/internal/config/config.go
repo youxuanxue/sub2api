@@ -227,12 +227,15 @@ type QaArchiveConfig struct {
 }
 
 type QaBundleConfig struct {
-	Enabled  bool                   `mapstructure:"enabled"`
-	QueueURL string                 `mapstructure:"queue_url"`
-	Storage  QACaptureStorageConfig `mapstructure:"storage"`
+	Enabled              bool                   `mapstructure:"enabled"`
+	QueueURL             string                 `mapstructure:"queue_url"`
+	QueueDriver          string                 `mapstructure:"queue_driver"`
+	QueuePostgresDSNFile string                 `mapstructure:"queue_postgres_dsn_file"`
+	Storage              QACaptureStorageConfig `mapstructure:"storage"`
 }
 
 type QACaptureStorageConfig struct {
+	CredentialsFile string `mapstructure:"credentials_file"`
 	Driver          string `mapstructure:"driver"`
 	Endpoint        string `mapstructure:"endpoint"`
 	Region          string `mapstructure:"region"`
@@ -2660,6 +2663,7 @@ func setDefaults() {
 	viper.SetDefault("qa_capture.storage.endpoint", "")
 	viper.SetDefault("qa_capture.storage.region", "auto")
 	viper.SetDefault("qa_capture.storage.bucket", "")
+	viper.SetDefault("qa_capture.storage.credentials_file", "")
 	viper.SetDefault("qa_capture.storage.access_key_id", "")
 	viper.SetDefault("qa_capture.storage.secret_access_key", "")
 	viper.SetDefault("qa_capture.storage.prefix", "qa_blobs")
@@ -2672,6 +2676,7 @@ func setDefaults() {
 	viper.SetDefault("qa_archive.storage.endpoint", "")
 	viper.SetDefault("qa_archive.storage.region", "")
 	viper.SetDefault("qa_archive.storage.bucket", "")
+	viper.SetDefault("qa_archive.storage.credentials_file", "")
 	viper.SetDefault("qa_archive.storage.access_key_id", "")
 	viper.SetDefault("qa_archive.storage.secret_access_key", "")
 	viper.SetDefault("qa_archive.storage.prefix", "raw/v1")
@@ -2679,10 +2684,13 @@ func setDefaults() {
 
 	viper.SetDefault("qa_bundle.enabled", false)
 	viper.SetDefault("qa_bundle.queue_url", "")
+	viper.SetDefault("qa_bundle.queue_driver", "sqs")
+	viper.SetDefault("qa_bundle.queue_postgres_dsn_file", "")
 	viper.SetDefault("qa_bundle.storage.driver", "")
 	viper.SetDefault("qa_bundle.storage.endpoint", "")
 	viper.SetDefault("qa_bundle.storage.region", "")
 	viper.SetDefault("qa_bundle.storage.bucket", "")
+	viper.SetDefault("qa_bundle.storage.credentials_file", "")
 	viper.SetDefault("qa_bundle.storage.access_key_id", "")
 	viper.SetDefault("qa_bundle.storage.secret_access_key", "")
 	viper.SetDefault("qa_bundle.storage.prefix", "user-qa")
@@ -4213,8 +4221,23 @@ func validateQaBundleConfig(bundle QaBundleConfig) error {
 		strings.Trim(strings.TrimSpace(bundle.Storage.Prefix), "/") == "" {
 		return fmt.Errorf("qa_bundle.storage region, bucket, and prefix are required when enabled")
 	}
-	if strings.TrimSpace(bundle.QueueURL) == "" {
-		return fmt.Errorf("qa_bundle.queue_url is required when enabled")
+	switch strings.ToLower(strings.TrimSpace(bundle.QueueDriver)) {
+	case "", "sqs":
+		if strings.TrimSpace(bundle.QueueURL) == "" {
+			return fmt.Errorf("qa_bundle.queue_url is required for sqs")
+		}
+		if strings.TrimSpace(bundle.QueuePostgresDSNFile) != "" {
+			return fmt.Errorf("qa_bundle postgres credentials require the postgres driver")
+		}
+	case "postgres":
+		if strings.TrimSpace(bundle.QueuePostgresDSNFile) == "" {
+			return fmt.Errorf("qa_bundle.queue_postgres_dsn_file is required for postgres")
+		}
+		if strings.TrimSpace(bundle.QueueURL) != "" {
+			return fmt.Errorf("qa_bundle.queue_url must be empty for postgres")
+		}
+	default:
+		return fmt.Errorf("qa_bundle.queue_driver must be sqs or postgres")
 	}
 	return nil
 }

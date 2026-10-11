@@ -124,6 +124,8 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 
 ### Data layer / QA / deploy safety
 
+| [`hcloud-bluegreen-qa-migration.md`](hcloud-bluegreen-qa-migration.md) | HCloud 全栈蓝绿与 QA 私有存储/队列迁移 |
+
 | File | Topic |
 | --- | --- |
 | [`design-capacity-first-data-layer-safety.md`](design-capacity-first-data-layer-safety.md) | Capacity-first 阈值 |

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -63,10 +64,11 @@ type WorkstationRecoveryConfig struct {
 }
 
 type s3ObjectStore struct {
-	client   *s3.Client
-	uploader *transfermanager.Client
-	bucket   string
-	prefix   string
+	client         *s3.Client
+	uploader       *transfermanager.Client
+	bucket         string
+	prefix         string
+	unquoteIfMatch bool
 }
 
 func NewObjectStoreFromConfig(ctx context.Context, storage config.QACaptureStorageConfig) (ObjectStore, error) {
@@ -83,10 +85,14 @@ func NewObjectStoreFromConfig(ctx context.Context, storage config.QACaptureStora
 		return nil, fmt.Errorf("qa archive storage region is required")
 	}
 
+	accessKey, secretKey, err := storage.ReadCredentials()
+	if err != nil {
+		return nil, err
+	}
 	opts := []func(*awsconfig.LoadOptions) error{awsconfig.WithRegion(region)}
-	if strings.TrimSpace(storage.AccessKeyID) != "" {
+	if accessKey != "" {
 		opts = append(opts, awsconfig.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(storage.AccessKeyID, storage.SecretAccessKey, ""),
+			credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
 		))
 	}
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
@@ -106,8 +112,21 @@ func NewObjectStoreFromConfig(ctx context.Context, storage config.QACaptureStora
 	prefix := strings.Trim(strings.TrimSpace(storage.Prefix), "/")
 	return &s3ObjectStore{
 		client: client, uploader: transfermanager.New(client, boundedTransferOptions),
-		bucket: bucket, prefix: prefix,
+		bucket: bucket, prefix: prefix, unquoteIfMatch: hetznerObjectStorageEndpoint(storage.Endpoint),
 	}, nil
+}
+
+func hetznerObjectStorageEndpoint(endpoint string) bool {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || u.Scheme != "https" || u.User != nil {
+		return false
+	}
+	switch u.Host {
+	case "fsn1.your-objectstorage.com", "nbg1.your-objectstorage.com", "hel1.your-objectstorage.com":
+		return true
+	default:
+		return false
+	}
 }
 
 func NewReadOnlyObjectStoreForWorkstation(ctx context.Context, input WorkstationRecoveryConfig) (ReadOnlyObjectStore, error) {
@@ -213,6 +232,14 @@ func (s *s3ObjectStore) CreateWithOptions(ctx context.Context, key string, body 
 func (s *s3ObjectStore) CompareAndSwap(ctx context.Context, key, expectedETag string, body io.Reader, size int64, contentType string) (ObjectInfo, error) {
 	if strings.TrimSpace(expectedETag) == "" {
 		return ObjectInfo{}, fmt.Errorf("expected ETag is required")
+	}
+	// Hetzner returns quoted ETags but compares conditional PUT values literally.
+	// Normalize only that provider; keep AWS and other S3 implementations intact.
+	if s.unquoteIfMatch {
+		expectedETag = strings.TrimSuffix(strings.TrimPrefix(expectedETag, "\""), "\"")
+		if strings.TrimSpace(expectedETag) == "" {
+			return ObjectInfo{}, fmt.Errorf("expected ETag is required")
+		}
 	}
 	return s.put(ctx, key, body, size, ObjectWriteOptions{ContentType: contentType}, aws.String(expectedETag), nil)
 }

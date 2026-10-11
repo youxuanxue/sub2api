@@ -9,10 +9,34 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from resolve_qa_bundle_coordinates import coordinates
+from resolve_qa_bundle_coordinates import coordinates, hetzner_coordinates
 
 
 class CoordinatesTest(unittest.TestCase):
+    def test_hetzner_manifest_resolves_without_aws_and_rejects_unsafe_values(self):
+        manifest = json.loads((Path(__file__).resolve().parents[2] / 'deploy/hetzner/qa/producer.json').read_text())
+        result = hetzner_coordinates(manifest)
+        self.assertEqual(result['queue_driver'], 'postgres')
+        self.assertEqual(result['queue_url'], '')
+        self.assertEqual(result['bucket'], manifest['bucket'])
+        for update in ({'endpoint': 'http://fsn1.your-objectstorage.com'}, {'bucket': 'qa\nOTHER=injected'},
+                       {'archive_bucket': manifest['bucket']}, {'prefix': '../raw'}, {'secret': 'never-allowed'}):
+            with self.subTest(update=update), self.assertRaises(ValueError):
+                hetzner_coordinates(manifest | update)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'producer.json'
+            source.write_text(json.dumps(manifest))
+            aws = root / 'aws'
+            aws.write_text('#!/bin/sh\nexit 99\n')
+            aws.chmod(0o755)
+            output = root / 'out'
+            process = subprocess.run([sys.executable, str(Path(__file__).with_name('resolve_qa_bundle_coordinates.py')),
+                                      '--provider', 'hetzner', '--manifest', str(source), '--github-output', str(output)],
+                                     env={**os.environ, 'PATH': str(root)}, capture_output=True, text=True)
+            self.assertEqual(process.returncode, 0, process.stderr)
+            self.assertEqual(dict(line.split('=', 1) for line in output.read_text().splitlines()), result)
+
     def stack(self, status="UPDATE_IN_PROGRESS"):
         return {"Stacks": [{"StackStatus": status, "Outputs": [
             {"OutputKey": "QaBundleBucketName", "OutputValue": "example-qa-bundles"},

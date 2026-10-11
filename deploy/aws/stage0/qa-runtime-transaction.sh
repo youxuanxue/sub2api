@@ -8,6 +8,7 @@ qa_runtime_backup() {
     /usr/local/lib/tokenkey/qa-runtime.sh
     /usr/local/lib/tokenkey/qa-runtime-compose.yml
     /usr/local/lib/tokenkey/qa-runtime-install.py
+    /usr/local/lib/tokenkey/qa-credential-mounts.py
     /etc/systemd/system/tokenkey-qa-maintenance.service
     /etc/systemd/system/tokenkey-qa-maintenance.timer
   )

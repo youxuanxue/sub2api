@@ -11,8 +11,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/bundle"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
 const bundleCanarySchemaVersion = "qa-bundle-canary-v1"
@@ -33,7 +31,7 @@ type bundleCanaryOptions struct {
 	PollInterval time.Duration
 }
 
-// RunBundleCanary traverses the same S3 spec, SQS, worker, receipt, and manifest
+// RunBundleCanary traverses the same object spec, queue, worker, receipt, and manifest
 // path used by users. Synthetic identities intentionally project zero records.
 func RunBundleCanary(
 	ctx context.Context,
@@ -48,14 +46,11 @@ func RunBundleCanary(
 	if err != nil {
 		return BundleCanaryReceipt{}, fmt.Errorf("open qa bundle canary object store: %w", err)
 	}
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, qaS3LoadOptions(cfg.QaBundle.Storage)...)
-	if err != nil {
-		return BundleCanaryReceipt{}, fmt.Errorf("load qa bundle canary queue credentials: %w", err)
-	}
-	queue, err := bundle.NewSQSJobQueue(sqs.NewFromConfig(awsCfg), cfg.QaBundle.QueueURL)
+	queue, err := bundle.OpenJobQueue(ctx, cfg.QaBundle)
 	if err != nil {
 		return BundleCanaryReceipt{}, err
 	}
+	defer func() { _ = queue.Close() }()
 	return runBundleCanary(
 		ctx,
 		bundle.NewArchiveStore(objectStore),
