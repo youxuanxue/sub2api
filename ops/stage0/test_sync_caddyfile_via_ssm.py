@@ -72,6 +72,118 @@ def _run_sync(kind: str = "prod", extra_env: dict[str, str] | None = None):
     return proc, params
 
 
+def _host_script(kind: str = "edge") -> str:
+    """The host-side script this sync would run, for executing fragments of it."""
+    proc, params = _run_sync(kind)
+    assert params is not None, proc.stderr
+    return _ssm_script_body(params)
+
+
+def _run_fragment(script: str, start: str, end: str, prelude: str, epilogue: str = ""):
+    """Execute one balanced fragment of the host script under bash."""
+    a = script.index(start)
+    b = script.index(end, a)
+    harness = prelude + "\n" + script[a:b] + "\n" + epilogue + "\n"
+    return subprocess.run(["bash", "-c", harness], capture_output=True, text=True, check=False)
+
+
+class SyncCaddyfileCidrRecoveryTest(unittest.TestCase):
+    """A recovered remote_ip allowlist must be validated, not trusted.
+
+    The live Caddyfile can itself be the product of an earlier bad write; that is
+    how two edges were rendered with a blank relay allowlist on 2026-10-11.
+    Recovery now fails closed instead of opening the allowlist.
+    """
+
+    def _recover(self, live_body: str) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as tmp:
+            live = pathlib.Path(tmp) / "Caddyfile"
+            live.write_text(live_body)
+            return _run_fragment(
+                _host_script("edge"),
+                'if [ -n "$TARGET_MAIN_GATEWAY_ALLOWED_CIDR" ]',
+                'echo "render context loaded',
+                f'KIND=edge\nLIVE={live}\nTARGET_MAIN_GATEWAY_ALLOWED_CIDR=',
+                'echo "RECOVERED=$MAIN_GATEWAY_ALLOWED_CIDR"',
+            )
+
+    def test_recovers_a_valid_allowlist(self) -> None:
+        proc = self._recover("api.x {\n\t@main {\n\t\tremote_ip 167.233.211.115/32\n\t}\n}\n")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("RECOVERED=167.233.211.115/32", proc.stdout)
+
+    def test_recovers_a_multi_entry_allowlist(self) -> None:
+        proc = self._recover("api.x {\n\t@main {\n\t\tremote_ip 1.2.3.4/32 5.6.7.8/32\n\t}\n}\n")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("RECOVERED=1.2.3.4/32 5.6.7.8/32", proc.stdout)
+
+    def test_fails_closed_on_a_blank_allowlist(self) -> None:
+        # The exact shape of the 2026-10-11 breakage: remote_ip present but empty.
+        proc = self._recover("api.x {\n\t@main {\n\t\tremote_ip \n\t}\n}\n")
+        self.assertNotEqual(proc.returncode, 0, f"must refuse: {proc.stdout}")
+        self.assertNotIn("RECOVERED=", proc.stdout)
+
+    def test_fails_closed_when_remote_ip_is_missing(self) -> None:
+        proc = self._recover("api.x {\n\treverse_proxy tokenkey:8080\n}\n")
+        self.assertNotEqual(proc.returncode, 0, f"must refuse: {proc.stdout}")
+
+    def test_fails_closed_on_a_prefixless_value(self) -> None:
+        proc = self._recover("api.x {\n\t@main {\n\t\tremote_ip 167.233.211.115\n\t}\n}\n")
+        self.assertNotEqual(proc.returncode, 0, f"must refuse a bare IP: {proc.stdout}")
+        self.assertIn("prefix length", proc.stdout + proc.stderr)
+
+
+class SyncCaddyfileBlueGreenEdgeTest(unittest.TestCase):
+    """Edges run blue/green too, so the active-color rewrite is not prod-only.
+
+    Gating it on kind=prod left a blue/green edge rendering the template's literal
+    tokenkey:8080 and pointing Caddy at a container that does not exist there.
+    """
+
+    def test_rewrite_is_not_gated_on_prod(self) -> None:
+        script = _host_script("edge")
+        self.assertIn("/var/lib/tokenkey/active-color", script)
+        self.assertNotIn('if [ "$KIND" = prod ] && [ -r /var/lib/tokenkey/active-color ]', script)
+
+    def _rewrite(self, kind: str, color: str, body: str):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = pathlib.Path(tmp)
+            (d / "active-color").write_text(color)
+            (d / "Caddyfile.new").write_text(body)
+            script = _host_script(kind).replace("/var/lib/tokenkey/active-color", str(d / "active-color"))
+            proc = _run_fragment(
+                script,
+                'if [ -r ' + str(d / "active-color"),
+                "\necho === validate rendered config",
+                f'sudo() {{ "$@"; }}\nCADDY_DIR={d}\nKIND={kind}',
+            )
+            return proc, (d / "Caddyfile.new").read_text()
+
+    def test_edge_render_rewrites_upstream_to_active_color(self) -> None:
+        proc, rendered = self._rewrite(
+            "edge", "blue\n",
+            "api.x {\n\treverse_proxy tokenkey:8080 {\n\t\theader_up Host {host}\n\t}\n}\n")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("reverse_proxy tokenkey-blue:8080 {", rendered)
+        self.assertNotIn("reverse_proxy tokenkey:8080", rendered)
+        # The rest of the block must survive untouched.
+        self.assertIn("header_up Host {host}", rendered)
+
+    def test_prod_render_still_rewrites(self) -> None:
+        proc, rendered = self._rewrite(
+            "prod", "green\n",
+            "api.x {\n\treverse_proxy tokenkey:8080 {\n\t\tflush_interval -1\n\t}\n}\n")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("reverse_proxy tokenkey-green:8080 {", rendered)
+
+    def test_invalid_active_color_fails_closed(self) -> None:
+        proc, rendered = self._rewrite(
+            "edge", "purple\n", "api.x {\n\treverse_proxy tokenkey:8080 {\n\t}\n}\n")
+        self.assertNotEqual(proc.returncode, 0, f"must refuse: {proc.stdout}")
+        self.assertIn("invalid active-color", proc.stdout + proc.stderr)
+        self.assertIn("reverse_proxy tokenkey:8080", rendered)
+
+
 class SyncCaddyfileRenderTest(unittest.TestCase):
     def test_ssm_commands_are_single_bash_c_for_dash_hybrid(self) -> None:
         """Hybrid SSM uses /bin/sh; pipefail must run under bash -c."""

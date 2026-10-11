@@ -28,7 +28,10 @@
 #          hosts may currently have 0.0.0.0/0). For prod the template has no
 #          such token, so the var stays empty/no-op.
 #      For prod hosts already migrated to blue/green, rewrite the rendered
-#      canonical prod upstream from tokenkey:8080 to tokenkey-${active}:8080 so
+#      canonical upstream from tokenkey:8080 to tokenkey-${active}:8080 so
+#      (ANY host carrying /var/lib/tokenkey/active-color, prod or edge: edges
+#      run blue/green too, and gating this on kind=prod pointed a blue/green
+#      edge at a tokenkey:8080 container that does not exist there)
 #      directive hot-sync never disables the active color.
 #   3. Validate the rendered config in a throwaway caddy:2-alpine container.
 #   4. Apply IN PLACE (`cat new > Caddyfile`, NOT mv): the compose mount binds
@@ -279,6 +282,21 @@ jq -n \
           "  MAIN_GATEWAY_ALLOWED_CIDR=\"$TARGET_MAIN_GATEWAY_ALLOWED_CIDR\"",
           "else",
           "  MAIN_GATEWAY_ALLOWED_CIDR=\"$(sed -n '\''s/^[[:space:]]*remote_ip[[:space:]][[:space:]]*\\(.*\\)$/\\1/p'\'' \"$LIVE\" | head -1)\"",
+          "  MAIN_GATEWAY_ALLOWED_CIDR=\"$(printf '\''%s'\'' \"$MAIN_GATEWAY_ALLOWED_CIDR\" | sed -e '\''s/^[[:space:]]*//'\'' -e '\''s/[[:space:]]*$//'\'')\"",
+          "  # The live file can itself be the product of an earlier bad write, so",
+          "  # validate what came back rather than propagating it. On 2026-10-11 two",
+          "  # edges were rendered with a blank remote_ip this way, which opens the",
+          "  # relay allowlist. Fail closed and make the caller pass the CIDR instead.",
+          "  if [ \"$KIND\" = edge ]; then",
+          "    case \"$MAIN_GATEWAY_ALLOWED_CIDR\" in",
+          "      \"\") echo \"::error::live edge Caddyfile $LIVE has no readable remote_ip allowlist; pass MAIN_GATEWAY_ALLOWED_CIDR explicitly\"; exit 1 ;;",
+          "      *[!0-9A-Fa-f.:/\\ ]*) echo \"::error::recovered remote_ip allowlist is not a CIDR list: $MAIN_GATEWAY_ALLOWED_CIDR\"; exit 1 ;;",
+          "    esac",
+          "    case \"$MAIN_GATEWAY_ALLOWED_CIDR\" in",
+          "      */*) : ;;",
+          "      *) echo \"::error::recovered remote_ip allowlist has no prefix length: $MAIN_GATEWAY_ALLOWED_CIDR\"; exit 1 ;;",
+          "    esac",
+          "  fi",
           "fi",
           "if [ \"$KIND\" = edge ] && [ -z \"$MAIN_GATEWAY_ALLOWED_CIDR\" ]; then echo \"::error::could not read remote_ip allowlist from live edge Caddyfile $LIVE\"; exit 1; fi",
           "echo \"render context loaded for kind=$KIND\"",
@@ -294,7 +312,7 @@ jq -n \
           "else",
           "  envsubst '\''$API_DOMAIN $ACME_EMAIL $MAIN_GATEWAY_ALLOWED_CIDR'\'' < \"$CADDY_DIR/Caddyfile.template\" > \"$CADDY_DIR/Caddyfile.new\"",
           "fi",
-          "if [ \"$KIND\" = prod ] && [ -r /var/lib/tokenkey/active-color ]; then ACTIVE_COLOR=\"$(sed -n '\''1p'\'' /var/lib/tokenkey/active-color | tr -d '\''[:space:]'\'')\"; case \"$ACTIVE_COLOR\" in blue|green) UPSTREAM=\"tokenkey-$ACTIVE_COLOR:8080\"; sudo awk -v upstream=\"$UPSTREAM\" '\''/^[[:space:]]*reverse_proxy[[:space:]]+/ && $0 ~ /\\{[[:space:]]*$/ { count += 1; if (count == 1) { match($0, /[^[:space:]]/); indent = RSTART > 1 ? substr($0, 1, RSTART - 1) : \"\"; print indent \"reverse_proxy \" upstream \" {\" } else { print }; next } { print } END { if (count != 1) exit 7 }'\'' \"$CADDY_DIR/Caddyfile.new\" | sudo tee \"$CADDY_DIR/Caddyfile.rewritten\" >/dev/null; sudo mv \"$CADDY_DIR/Caddyfile.rewritten\" \"$CADDY_DIR/Caddyfile.new\"; echo \"prod blue/green active upstream preserved: $UPSTREAM\" ;; *) echo \"::error::invalid active-color for prod blue/green Caddy sync: ${ACTIVE_COLOR:-<empty>}\"; exit 1 ;; esac; fi",
+          "if [ -r /var/lib/tokenkey/active-color ]; then ACTIVE_COLOR=\"$(sed -n '\''1p'\'' /var/lib/tokenkey/active-color | tr -d '\''[:space:]'\'')\"; case \"$ACTIVE_COLOR\" in blue|green) UPSTREAM=\"tokenkey-$ACTIVE_COLOR:8080\"; sudo awk -v upstream=\"$UPSTREAM\" '\''/^[[:space:]]*reverse_proxy[[:space:]]+/ && $0 ~ /\\{[[:space:]]*$/ { count += 1; if (count == 1) { match($0, /[^[:space:]]/); indent = RSTART > 1 ? substr($0, 1, RSTART - 1) : \"\"; print indent \"reverse_proxy \" upstream \" {\" } else { print }; next } { print } END { if (count != 1) exit 7 }'\'' \"$CADDY_DIR/Caddyfile.new\" | sudo tee \"$CADDY_DIR/Caddyfile.rewritten\" >/dev/null; sudo mv \"$CADDY_DIR/Caddyfile.rewritten\" \"$CADDY_DIR/Caddyfile.new\"; echo \"blue/green active upstream preserved ($KIND): $UPSTREAM\" ;; *) echo \"::error::invalid active-color for blue/green Caddy sync: ${ACTIVE_COLOR:-<empty>}\"; exit 1 ;; esac; fi",
           "echo === validate rendered config in throwaway caddy container ===",
           "sudo docker run --rm -v \"$CADDY_DIR/Caddyfile.new\":/tmp/Caddyfile:ro caddy:2-alpine caddy validate --config /tmp/Caddyfile --adapter caddyfile"
         ]
