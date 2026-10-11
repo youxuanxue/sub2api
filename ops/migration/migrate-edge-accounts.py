@@ -88,18 +88,16 @@ def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
 def resolve_edge(target: str) -> tuple[str, str]:
     """target = 'edge:<id>' | 'hetzner:<id>' | 'prod' -> (region, instance_id).
 
-    ``edge:`` resolves Lightsail (or auto-route). ``hetzner:`` reads
-    ``/tokenkey/hetzner/<id>/ssm_managed_instance_id`` in eu-west-2 so staging
-    Hetzner hosts can be load targets while Lightsail remains formal.
+    ``edge:`` and ``prod`` resolve the live fleet through shared target owners.
+    ``hetzner:`` remains an explicit selector for planned migration targets.
     """
     if target == "prod":
         out = run([
-            "aws", "cloudformation", "describe-stacks", "--region", "us-east-1",
-            "--stack-name", "tokenkey-prod-stage0",
-            "--query", "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue",
-            "--output", "text",
-        ]).stdout.strip()
-        return "us-east-1", out
+            sys.executable, str(REPO_ROOT / "ops/stage0/resolve_prod_ssm_target.py"),
+            "--format", "json",
+        ]).stdout
+        obj = json.loads(out)
+        return obj["ssm_region"], obj["instance_id"]
     if target.startswith("hetzner:"):
         edge_id = target.split(":", 1)[1]
         if not edge_id:

@@ -115,6 +115,7 @@ import base64
 import datetime as _dt
 import importlib.util
 import json
+import shlex
 import os
 import pathlib
 import re
@@ -262,7 +263,7 @@ def ssm_run_sql(region: str, instance_id: str, sql: str, comment: str) -> tuple[
     """Pipe SQL via SSM. Returns (stdout, command_id)."""
     remote = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -t -A -v ON_ERROR_STOP=1"
     command = f"set -euo pipefail\n{remote} <<'SQL'\n{sql}\nSQL"
-    params = json.dumps({"commands": [command]}, ensure_ascii=False)
+    params = json.dumps({"commands": ["bash -c " + shlex.quote(command)]}, ensure_ascii=False)
     try:
         cid = subprocess.check_output(
             [
@@ -324,7 +325,7 @@ def ssm_run_sql_b64(region: str, instance_id: str, sql_b64: str, comment: str
         f"echo {sql_b64} | base64 -d | sudo docker exec -i tokenkey-postgres "
         "psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 -X -A -t"
     )
-    params = json.dumps({"commands": [command]}, ensure_ascii=False)
+    params = json.dumps({"commands": ["bash -c " + shlex.quote(command)]}, ensure_ascii=False)
     try:
         cid = subprocess.check_output(
             [
@@ -374,7 +375,7 @@ def ssm_run_shell(region: str, instance_id: str, shell_script: str, comment: str
                   ) -> tuple[str, str, bool, str]:
     """Run an arbitrary read/write shell script on the remote host via SSM."""
     command = f"set -euo pipefail\n{shell_script}"
-    params = json.dumps({"commands": [command]}, ensure_ascii=False)
+    params = json.dumps({"commands": ["bash -c " + shlex.quote(command)]}, ensure_ascii=False)
     try:
         cid = subprocess.check_output(
             [

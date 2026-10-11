@@ -33,6 +33,19 @@ def job_block(name: str) -> str:
 
 
 class DeployQABundleWorkflowTest(unittest.TestCase):
+    def test_legacy_qa_host_deploy_refuses_live_hcloud_before_ec2_resolution(self):
+        steps = yaml.safe_load(workflow_text())["jobs"]["deploy-qa"]["steps"]
+        name = "Refuse legacy QA host deployment after hcloud cutover"
+        step = next(step for step in steps if step.get("name") == name)
+        names = [step.get("name") for step in steps]
+        self.assertLess(names.index(name), names.index("Resolve target instance and network context"))
+        for target, success in (("auto", False), ("hetzner", False), ("aws", True)):
+            result = subprocess.run(["bash", "-c", step["run"]], cwd=REPO_ROOT,
+                env={**os.environ, "PROD_SSM_TARGET": target}, capture_output=True, text=True)
+            self.assertEqual(result.returncode == 0, success, result.stderr)
+            if not success:
+                self.assertIn("complete the independent QA migration", result.stdout)
+
     def test_maintenance_acceptance_order_and_canary_only_never_mutates_release_state(self):
         steps = yaml.safe_load(workflow_text())["jobs"]["deploy-qa"]["steps"]
         names = [step.get("name") for step in steps]

@@ -33,53 +33,6 @@ class EdgeExecutionIdentity:
     ec2_stack: str
     ssm_prefix: str
 
-def cfn_resolve_instance_id(region: str, stack: str) -> str:
-    try:
-        out = subprocess.check_output(
-            [
-                "aws",
-                "cloudformation",
-                "describe-stacks",
-                "--region",
-                region,
-                "--stack-name",
-                stack,
-                "--query",
-                "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue",
-                "--output",
-                "text",
-            ],
-            text=True,
-        ).strip()
-    except subprocess.CalledProcessError as e:
-        raise SystemExit(f"describe-stacks failed for {stack}/{region}: {e}") from e
-    if not out or out == "None":
-        try:
-            out = subprocess.check_output(
-                [
-                    "aws",
-                    "cloudformation",
-                    "describe-stack-resources",
-                    "--region",
-                    region,
-                    "--stack-name",
-                    stack,
-                    "--query",
-                    "StackResources[?ResourceType=='AWS::EC2::Instance'].PhysicalResourceId | [0]",
-                    "--output",
-                    "text",
-                ],
-                text=True,
-            ).strip()
-        except subprocess.CalledProcessError as e:
-            raise SystemExit(
-                f"describe-stack-resources fallback failed for {stack}/{region}: {e}",
-            ) from e
-    if not out or out == "None":
-        raise SystemExit(f"no InstanceId resolvable for stack {stack}/{region}")
-    return out
-
-
 def ssm_parameter_managed_instance_id(region: str, ssm_prefix: str) -> str:
     name = f"{ssm_prefix.rstrip('/')}/ssm_managed_instance_id"
     try:

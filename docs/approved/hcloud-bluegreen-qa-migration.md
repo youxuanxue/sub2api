@@ -10,6 +10,12 @@ scope: "prod/Edge 蓝绿发布、QA Worker、任务队列、raw/Bundle 存储及
 
 # hcloud 全栈蓝绿与独立 QA 去 AWS
 
+## 网关发布验收更新（2026-10-11）
+
+1.8.284 已完成 prod + 活 Edge 蓝绿升级、排空和烟测（发布修复 #2571）。
+下文首次蓝绿待验收描述为当时快照，网关部分已完成；QA 正式发布、数据/队列迁移和
+真实 UI 验收仍未完成。现网状态与 AWS 保留依赖见 `deploy/hetzner/README.md`。
+
 ## 会话授权与实施边界
 
 用户已同意补齐 prod 和 Edge 的全栈 hcloud 蓝绿部署，并要求 QA worker、存储和队列

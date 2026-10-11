@@ -37,7 +37,8 @@ def _write_fixtures(tmp: Path) -> dict[str, str]:
                         "porkbun_a_ipv4": "1.1.1.1",
                     },
                     "us8": {
-                        "deployable": True,
+                        "deployable": False,
+                        "standby": True,
                         "lightsail_region": "us-west-2",
                         "domain": "api-us8.tokenkey.dev",
                         "static_ip_name": "live-static",
@@ -80,7 +81,7 @@ class EdgeIPStatusTests(unittest.TestCase):
             env = _write_fixtures(Path(tmp))
             md = _run(env)
             self.assertEqual(md.returncode, 0)
-            self.assertIn("BEGIN edge-ip-status:current", md.stdout)
+            self.assertIn("BEGIN edge-ip-status:standby", md.stdout)
             self.assertIn("BEGIN edge-ip-status:polluted", md.stdout)
             self.assertIn("`us8`", md.stdout)
             self.assertIn("`9.9.9.9`", md.stdout)

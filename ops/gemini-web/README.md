@@ -83,9 +83,9 @@ Deploy an edge with `deploy-gemini-web-worker.yml` (SSM pull + recreate under th
 container limits below), one edge per dispatch:
 
 ```text
-edge_id           deployable Lightsail edge from edge-targets-lightsail.json (prod runs no Worker)
+edge_id           deployable Hetzner edge from deploy/hetzner/edge-targets-hetzner.json (prod runs no Worker)
 build_digest      the 12-hex tag the publish job printed as gemini_web_build_digest
-confirm_instance  instance_name from deploy/aws/lightsail/edge-targets-lightsail.json
+confirm_instance  instance_name from deploy/hetzner/resolve-edge-hetzner-target.py
 ```
 
 The run fails unless the container it started answers `/readyz` reporting that

@@ -4,7 +4,7 @@
 
 | 步骤 | 类型 | 承载 |
 |---|---|---|
-| 解析 prod / edge target（region / instance_id / domain） | 机械 | edge 经 `ops/stage0/edge_ssm_execution.py`（Lightsail tag-SSM `EdgeId`/`Platform=lightsail` → `mi-*`）/ `resolve-edge-lightsail-target.py`；prod 经 CFN `describe-stacks` |
+| 解析 prod / edge target（region / instance_id / domain） | 机械 | edge 经 `ops/stage0/edge_ssm_execution.py`；prod 经 `ops/stage0/resolve_prod_ssm_target.py`（默认现网 Hetzner Hybrid） |
 | SSM base64 投递 + send-command + poll | 机械 | `ops/observability/run-probe.sh --target prod\|edge:<id> --script <probe.sh>` |
 | `ops_error_logs` 标准聚合（schema + by_status + upstream_events，保留 reason/截断 message + 429-by-minute） | 机械 | `ops/observability/ops-error-triage.sh`（通过 run-probe.sh 投递） |
 | final-429 / 5xx 分类（config-cap vs 空池 #575 vs 真上游：by error_type/owner/phase + by group·model·account + 5min 桶） | 机械 | `ops/observability/probe-429-classify.sh`（通过 run-probe.sh 投递；`WINDOW_HOURS` 默认 3；triage 后的分类深挖） |

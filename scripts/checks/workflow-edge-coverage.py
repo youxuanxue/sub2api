@@ -75,9 +75,8 @@ def main() -> int:
     sets = {
         "lightsail-deployable": lightsail,
         "hetzner-deployable": hetzner,
-        # Historical alias: Lightsail-only (pgdump cadence etc.). Prefer
-        # platform-specific sets for new workflows.
-        "all-deployable": lightsail,
+        # Live fleet is Hetzner; AWS inventory is standby only.
+        "all-deployable": hetzner,
     }
 
     failures: list[str] = []

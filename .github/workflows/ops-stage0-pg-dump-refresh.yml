@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: "Target: prod (edges are Lightsail-only and not covered by this EC2 SSM cadence)"
+        description: "Target: live prod; Edge timers are owned by their bootstrap"
         required: true
         type: choice
         options:

@@ -5,7 +5,7 @@ name: Gemini Web Worker Deploy
 run-name: "gemini-web edge=${{ inputs.edge_id }} digest=${{ inputs.build_digest }}"
 
 # Sole deploy path for the Gemini Web Worker container. The Worker runs on Edge
-# Lightsail hosts only; prod runs no Worker by design, so there is no prod
+# Hetzner hosts only; prod runs no Worker by design, so there is no prod
 # target here (see ops/gemini-web/README.md#build-identity-and-fleet-convergence).
 #
 # Cadence is deliberately decoupled from the gateway release: this workflow is
@@ -21,22 +21,20 @@ on:
   workflow_dispatch:
     inputs:
       edge_id:
-        description: "Edge target id. Only deployable Lightsail edges run a Worker."
+        description: "Edge target id. Only deployable Hetzner edges run a Worker."
         required: true
         type: choice
         options:
           - uk1
           - uk2
-          - us3
           - us4
           - us5
-          - us6
       build_digest:
         description: "12-hex build digest from ops/gemini-web/build_digest.py (the GHCR image tag published by Gemini Web Worker CI)."
         required: true
         type: string
       confirm_instance:
-        description: "Must match instance_name from the Lightsail matrix (e.g. tokenkey-edge-us-oh1-ls-s30)."
+        description: "Must match instance_name from the Hetzner matrix (e.g. tokenkey-edge-uk1-hz-cax21)."
         required: true
         type: string
 
@@ -79,7 +77,7 @@ jobs:
               ;;
           esac
 
-      - name: Resolve Lightsail edge target
+      - name: Resolve Hetzner edge target
         id: edge
         run: |
           set -euo pipefail
@@ -87,7 +85,7 @@ jobs:
             echo "::error::AWS_OIDC_ROLE_ARN repo variable not set"
             exit 1
           fi
-          python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py \
+          python3 deploy/hetzner/resolve-edge-hetzner-target.py \
             --edge-id "$INPUT_EDGE_ID" \
             --confirm-instance "$INPUT_CONFIRM_INSTANCE" \
             --github-output "$GITHUB_OUTPUT"
@@ -96,16 +94,17 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ steps.edge.outputs.lightsail_region }}
+          aws-region: ${{ steps.edge.outputs.ssm_region }}
 
       - name: Resolve SSM managed instance
         id: instance
         env:
           SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
-          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+          AWS_REGION: ${{ steps.edge.outputs.ssm_region }}
         run: |
           set -euo pipefail
-          MID="$(bash ops/lightsail/resolve_ssm_instance_id.sh "$SSM_PREFIX" "$AWS_REGION")"
+          IDENTITY="$(python3 ops/stage0/edge_ssm_execution.py --edge-id "$INPUT_EDGE_ID" --platform hetzner --format json)"
+          MID="$(jq -er .instance_id <<<"$IDENTITY")"
           if [ -z "$MID" ] || [ "$MID" = "None" ]; then
             echo "::error::could not resolve SSM managed instance id for $INPUT_EDGE_ID"
             exit 1
@@ -116,7 +115,7 @@ jobs:
         id: ssm
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
-          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+          AWS_REGION: ${{ steps.edge.outputs.ssm_region }}
           GEMINI_WEB_IMAGE_REPO: ghcr.io/${{ github.repository }}-gemini-web
           STAGE0_SSM_OUTPUT_DIR: .
         run: |
@@ -139,7 +138,7 @@ jobs:
         # step re-asks through the standard probe transport, so the recorded
         # evidence comes from the same checker the fleet convergence check uses.
         env:
-          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+          AWS_REGION: ${{ steps.edge.outputs.ssm_region }}
         run: |
           set -uo pipefail
           # A `review` verdict makes the checker exit non-zero by design. Do not
@@ -198,7 +197,7 @@ jobs:
         # is allowed to fail visibly without failing the run.
         continue-on-error: true
         env:
-          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+          AWS_REGION: ${{ steps.edge.outputs.ssm_region }}
         run: |
           set -euo pipefail
           bash ops/observability/run-probe.sh \

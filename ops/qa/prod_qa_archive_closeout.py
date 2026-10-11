@@ -20,8 +20,11 @@ import tempfile
 import time
 from typing import Any
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "stage0"))
+import ssm_execution as _SSM  # noqa: E402
+
 PROD_REGION = "us-east-1"
-PROD_STACK = "tokenkey-prod-stage0"
+SSM_REGION = "eu-west-2"
 RAW_ARCHIVE_STACK = "tokenkey-prod-qa-raw-archive"
 HOST_RUNNER = "/usr/local/bin/tokenkey-qa-maintenance.sh"
 RESTORE_CONFIRMATION_PREFIX = "tokenkey-prod-qa-archive-restore-v1"
@@ -84,19 +87,9 @@ def _aws_json(args: list[str]) -> dict[str, Any]:
 
 
 def _resolve_instance() -> str:
-    payload = _aws_json([
-        "aws", "cloudformation", "describe-stacks", "--region", PROD_REGION,
-        "--stack-name", PROD_STACK, "--output", "json",
-    ])
-    stacks = payload.get("Stacks")
-    if not isinstance(stacks, list) or not stacks:
-        raise QAArchiveCloseoutError("prod stack missing")
-    for item in stacks[0].get("Outputs", []):
-        if isinstance(item, dict) and item.get("OutputKey") == "InstanceId":
-            value = item.get("OutputValue")
-            if isinstance(value, str) and value.startswith("i-"):
-                return value
-    raise QAArchiveCloseoutError("prod InstanceId missing")
+    global SSM_REGION
+    instance_id, SSM_REGION = _SSM.resolve_prod_identity()
+    return instance_id
 
 
 def _resolve_recovery_scope() -> tuple[str, str]:
@@ -156,10 +149,10 @@ def _parse_last_json(stdout: str) -> dict[str, Any]:
 
 def _send_remote(instance_id: str, comment: str, remote: str) -> dict[str, Any]:
     payload = _aws_json([
-        "aws", "ssm", "send-command", "--region", PROD_REGION,
+        "aws", "ssm", "send-command", "--region", SSM_REGION,
         "--instance-ids", instance_id, "--document-name", "AWS-RunShellScript",
         "--comment", comment,
-        "--parameters", json.dumps({"commands": [remote]}, separators=(",", ":")),
+        "--parameters", json.dumps({"commands": ["bash -c " + shlex.quote(remote)]}, separators=(",", ":")),
         "--output", "json",
     ])
     command_id = str(payload.get("Command", {}).get("CommandId", ""))
@@ -402,7 +395,7 @@ def _remote_command(command: str, window: dt.datetime, output: str, confirm: str
 def _poll(command_id: str, instance_id: str) -> str:
     for _ in range(POLL_ATTEMPTS):
         payload = _aws_json([
-            "aws", "ssm", "get-command-invocation", "--region", PROD_REGION,
+            "aws", "ssm", "get-command-invocation", "--region", SSM_REGION,
             "--command-id", command_id, "--instance-id", instance_id, "--output", "json",
         ])
         status = payload.get("Status")
@@ -452,10 +445,10 @@ def run(command: str, window_text: str, *, output: str = "", confirm: str = "") 
     instance_id = _resolve_instance()
     remote = _remote_command(command, window, output, confirm)
     payload = _aws_json([
-        "aws", "ssm", "send-command", "--region", PROD_REGION,
+        "aws", "ssm", "send-command", "--region", SSM_REGION,
         "--instance-ids", instance_id, "--document-name", "AWS-RunShellScript",
         "--comment", f"TokenKey QA archive {command}",
-        "--parameters", json.dumps({"commands": [remote]}, separators=(",", ":")),
+        "--parameters", json.dumps({"commands": ["bash -c " + shlex.quote(remote)]}, separators=(",", ":")),
         "--output", "json",
     ])
     command_id = payload["Command"]["CommandId"]

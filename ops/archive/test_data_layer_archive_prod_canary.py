@@ -567,71 +567,15 @@ class ProdArchiveCanaryTest(unittest.TestCase):
     def test_us039_control_plane_resolves_prod_tags_and_validates_receipt(
         self,
     ) -> None:
-        calls: list[list[str]] = []
-
-        def fake_aws(args: list[str]):
-            calls.append(args)
-            if args[:2] == ["cloudformation", "describe-stacks"]:
-                return {
-                    "Stacks": [
-                        {
-                            "Outputs": [
-                                {"OutputKey": "InstanceId", "OutputValue": _INSTANCE_ID}
-                            ]
-                        }
-                    ]
-                }
-            if args[:2] == ["ec2", "describe-instances"]:
-                return {
-                    "Reservations": [
-                        {
-                            "Instances": [
-                                {
-                                    "InstanceId": _INSTANCE_ID,
-                                    "State": {"Name": "running"},
-                                    "Tags": [
-                                        {"Key": "Project", "Value": "tokenkey"},
-                                        {"Key": "Environment", "Value": "prod"},
-                                    ],
-                                }
-                            ]
-                        }
-                    ]
-                }
-            raise AssertionError(args)
-
-        with mock.patch.object(canary, "_aws_json", side_effect=fake_aws):
-            self.assertEqual(canary._prod_instance(), _INSTANCE_ID)
-        self.assertTrue(
-            all(
-                args[args.index("--region") + 1] == canary.PROD_REGION
-                for args in calls
-            )
-        )
-
-        with mock.patch.object(
-            canary, "_stack_output", return_value=_INSTANCE_ID
-        ), mock.patch.object(
-            canary,
-            "_aws_json",
-            return_value={
-                "Reservations": [
-                    {
-                        "Instances": [
-                            {
-                                "InstanceId": _INSTANCE_ID,
-                                "State": {"Name": "running"},
-                                "Tags": [
-                                    {"Key": "Project", "Value": "tokenkey"},
-                                    {"Key": "Environment", "Value": "staging"},
-                                ],
-                            }
-                        ]
-                    }
-                ]
-            },
-        ):
-            with self.assertRaisesRegex(canary.CanaryError, "tags do not match"):
+        import sys
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "stage0"))
+        import ssm_execution
+        with mock.patch.object(ssm_execution, "resolve_prod_instance", return_value="mi-0123456789abcdef0"):
+            self.assertEqual(canary._prod_instance(), "mi-0123456789abcdef0")
+        self.assertEqual(canary._ssm_region("mi-0123456789abcdef0"), "eu-west-2")
+        self.assertEqual(canary._ssm_region(_INSTANCE_ID), "us-east-1")
+        with mock.patch.object(ssm_execution, "resolve_prod_instance", side_effect=SystemExit("offline")):
+            with self.assertRaises(SystemExit):
                 canary._prod_instance()
 
         batch_id = "prod-canary-20260721T030000000000Z-0123456789abcdef"

@@ -80,7 +80,7 @@ rm -rf "${state_tmp}"
 # Execute the exact rendered remote body with harmless command stubs. A host
 # still at 95% after every cleanup attempt must make the transport fail.
 remote_cleanup="$(awk '
-  /^REMOTE_CLEANUP=\$\(cat <<'\''REMOTE'\''$/ { in_body = 1; next }
+  /^read -r -d .* REMOTE_CLEANUP <<'\''REMOTE'\''/ { in_body = 1; next }
   in_body && /^REMOTE$/ { exit }
   in_body { print }
 ' "${SCRIPT}")"

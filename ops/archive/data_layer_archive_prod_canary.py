@@ -788,40 +788,18 @@ def _stack_parameter(stack: str, parameter_key: str) -> str:
 
 
 def _prod_instance() -> str:
-    instance_id = _stack_output(PROD_STACK, "InstanceId")
-    if (
-        not instance_id.startswith("i-")
-        or len(instance_id) != 19
-        or any(character not in "0123456789abcdef" for character in instance_id[2:])
-    ):
-        raise CanaryError("prod stack returned an invalid EC2 instance id")
-    payload = _aws_json(
-        [
-            "ec2",
-            "describe-instances",
-            "--region",
-            PROD_REGION,
-            "--instance-ids",
-            instance_id,
-        ]
-    )
-    try:
-        reservations = payload["Reservations"]
-        if len(reservations) != 1 or len(reservations[0]["Instances"]) != 1:
-            raise ValueError("describe-instances must return exactly one instance")
-        instance = reservations[0]["Instances"][0]
-        resolved_instance_id = instance["InstanceId"]
-        tags = {item["Key"]: item["Value"] for item in instance["Tags"]}
-        state = instance["State"]["Name"]
-    except (KeyError, IndexError, TypeError, ValueError) as exc:
-        raise CanaryError("prod instance metadata is incomplete") from exc
-    if resolved_instance_id != instance_id:
-        raise CanaryError("prod instance metadata does not match the stack output")
-    if tags.get("Project") != "tokenkey" or tags.get("Environment") != "prod":
-        raise CanaryError("prod instance tags do not match Project=tokenkey/Environment=prod")
-    if state != "running":
-        raise CanaryError(f"prod instance is not running: {state}")
-    return instance_id
+    # Import lazily: the uploaded remote bundle does not need workstation routing.
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "stage0"))
+    import ssm_execution
+
+    return ssm_execution.resolve_prod_instance()
+
+
+def _ssm_region(instance_id: str) -> str:
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "stage0"))
+    import ssm_execution
+
+    return ssm_execution.region_for_instance_id(instance_id)
 
 
 def _remote_bundle_sources() -> dict[str, bytes]:
@@ -988,7 +966,7 @@ def _run_ssm(instance_id: str, remote_script: str, *, timeout_seconds: int) -> d
             "ssm",
             "send-command",
             "--region",
-            PROD_REGION,
+            _ssm_region(instance_id),
             "--instance-ids",
             instance_id,
             "--document-name",
@@ -1014,7 +992,7 @@ def _run_ssm(instance_id: str, remote_script: str, *, timeout_seconds: int) -> d
                     "ssm",
                     "get-command-invocation",
                     "--region",
-                    PROD_REGION,
+                    _ssm_region(instance_id),
                     "--command-id",
                     command_id,
                     "--instance-id",
@@ -1039,7 +1017,7 @@ def _run_ssm(instance_id: str, remote_script: str, *, timeout_seconds: int) -> d
                     "ssm",
                     "cancel-command",
                     "--region",
-                    PROD_REGION,
+                    _ssm_region(instance_id),
                     "--command-id",
                     command_id,
                     "--instance-ids",

@@ -38,51 +38,35 @@ def build_prod_ops_matrix(data: dict, *, selector: str, prod_region: str, prod_s
     excluded = []
 
     def include_live_edge(edge_id: str) -> None:
-        # Live fleet: prefer deployable Hetzner Hybrid; else Lightsail.
-        # INSTANCE_ID comes from ssm_prefix/ssm_managed_instance_id at diagnostics time.
-        mode, _, _ = _EDGE_ROUTING.resolve_route_tab(REPO_ROOT, edge_id, "auto")
-        if mode == "hetzner":
-            target = hz_targets[edge_id]
-            include.append(
-                {
-                    "target_id": f"edge-{edge_id}-hz",
-                    "target_kind": "edge",
-                    "platform": "hetzner",
-                    "edge_id": edge_id,
-                    "region": str(target.get("ssm_region") or "eu-west-2"),
-                    "stack": "",
-                    "domain": str(target.get("domain") or f"api-{edge_id}.tokenkey.dev"),
-                    "ssm_prefix": str(target.get("ssm_prefix") or ""),
-                    "purpose": str(target.get("purpose") or ""),
-                }
-            )
-            return
-        target = lightsail_targets[edge_id]
+        # Auto resolution validates that the edge belongs to the live hcloud fleet.
+        _EDGE_ROUTING.resolve_route_tab(REPO_ROOT, edge_id, "auto")
+        target = hz_targets[edge_id]
         include.append(
             {
-                "target_id": f"edge-{edge_id}-ls",
+                "target_id": f"edge-{edge_id}-hz",
                 "target_kind": "edge",
-                "platform": "lightsail",
+                "platform": "hetzner",
                 "edge_id": edge_id,
-                "region": str(target.get("lightsail_region") or ""),
+                "region": str(target.get("ssm_region") or "eu-west-2"),
                 "stack": "",
-                "domain": str(target.get("domain") or ""),
+                "domain": str(target.get("domain") or f"api-{edge_id}.tokenkey.dev"),
                 "ssm_prefix": str(target.get("ssm_prefix") or ""),
                 "purpose": str(target.get("purpose") or ""),
             }
         )
 
     if selector in ("all", "prod"):
+        prod = json.loads((REPO_ROOT / "deploy/hetzner/prod-target-hetzner.json").read_text())["target"]
         include.append(
             {
                 "target_id": "prod",
                 "target_kind": "prod",
-                "platform": "ec2",
+                "platform": "hetzner",
                 "edge_id": "",
-                "region": prod_region,
-                "stack": prod_stack,
-                "domain": "api.tokenkey.dev",
-                "ssm_prefix": "/tokenkey/prod",
+                "region": prod["ssm_region"],
+                "stack": "",
+                "domain": prod["domain"],
+                "ssm_prefix": prod["ssm_prefix"],
                 "purpose": "primary-prod",
             }
         )
@@ -102,13 +86,11 @@ def build_prod_ops_matrix(data: dict, *, selector: str, prod_region: str, prod_s
             include_live_edge(edge_id)
         for edge_id, ls_target in sorted(lightsail_targets.items()):
             if edge_id in live_ids:
-                if _EDGE_ROUTING.edge_deployable(ls_target) and _EDGE_ROUTING.edge_hetzner_deployable(
-                    hz_targets.get(edge_id)
-                ):
+                if _EDGE_ROUTING.edge_hetzner_deployable(hz_targets.get(edge_id)):
                     excluded.append(
                         {
                             "target_id": f"edge-{edge_id}-ls",
-                            "reason": "lightsail standby; live fleet prefers Hetzner",
+                            "reason": "lightsail standby; live fleet uses Hetzner",
                         }
                     )
                 continue
@@ -158,8 +140,7 @@ def main() -> int:
         "--list-deployable",
         action="store_true",
         help=(
-            "Print one live ops edge id per line (Hetzner deployable preferred; "
-            "Lightsail-only deployable when no HZ row). "
+            "Print one live Hetzner edge id per line. "
             "With a non-default --lightsail-matrix, lists Lightsail deployable "
             "from that file only (fixture override). "
             "Mutually exclusive with --prod-ops-matrix. "
@@ -198,7 +179,7 @@ def main() -> int:
         write_outputs(args.github_output, outputs)
         return 0
 
-    fail("--list-deployable or --prod-ops-matrix is required; deploy targets use resolve-edge-lightsail-target.py")
+    fail("--list-deployable or --prod-ops-matrix is required; deploy targets use scripts/stage0/resolve-edge-deploy-route.py")
     return 1
 
 

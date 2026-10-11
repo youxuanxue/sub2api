@@ -46,7 +46,7 @@ topology, Studio SSOT, model-delivery nav, or PR gate navigation.
 
 ## Disaster recovery / 数据重建从哪找
 
-prod 数据层要恢复/重建时，**先看 `deploy/aws/RUNBOOK-disaster-recovery.md` 顶部的「恢复资产地图」**——一张表说清每份备份（PG 账本、`.env` 密钥、CFN 模板、S3 离机 dump）存在哪、用哪节恢复。最常见 §3（实例死卷在→换机零丢失）；离机最后一手是 §4.4（S3 `s3://tokenkey-prod-pgdump-<acct>/prod/pgdump/`，hourly，RPO ≤1h）。
+prod 数据层恢复/重建先读 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md#恢复入口)。现网使用 Hetzner Volume；AWS DR 的 EBS/DLM/CFN 步骤仅适用于旧机，离机备份须单独核验。
 
 ## Current Gateway Flow
 
@@ -69,7 +69,7 @@ menus enrich the same candidate support projection with catalog prices and metad
 
 ## prod ↔ Edge mirror relay topology
 
-Production (`api.tokenkey.dev`) is **not** where the upstream Anthropic OAuth capacity lives. prod holds `cc-<edge>` / platform mirror accounts (`type=apikey`) whose `credentials.base_url = https://api-<edge>.tokenkey.dev`; they relay to **live edges** that hold real OAuth/setup-token pools. **Live fleet / IPs / deploy：** [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)（唯一叙述源）。Blue/green：`deploy_via_ssm_bluegreen.sh`（首发单色→blue）。Failover across `cc-<edge>` is across *edges*, not local prod OAuth.
+Production (`api.tokenkey.dev`) is **not** where the upstream Anthropic OAuth capacity lives. prod holds `cc-<edge>` / platform mirror accounts (`type=apikey`) whose `credentials.base_url = https://api-<edge>.tokenkey.dev`; they relay to **live edges** that hold real OAuth/setup-token pools. **Live fleet / IPs / deploy：** [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)（唯一叙述源）。Blue/green：`deploy_via_ssm_bluegreen.sh`（现网已完成首发蓝绿）。Failover across `cc-<edge>` is across *edges*, not local prod OAuth.
 
 **Attribution discipline:** a prod `cc-<edge>` cooldown (`temp_unschedulable_reason.matched_keyword='anthropic_upstream_error'`) is almost never prod-local — the real cause is on that edge. prod's `upstream-429 by account` / `recovered-200` are polluted by client-cancel tagging + failover smear and **cannot tell a dead edge from a healthy one** (a dead single-account edge and a healthy multi-account edge can both read ~1300 upstream-429). The reliable signal is each edge's OWN access-log `served_200 : no_available_429` ratio + schedulable-account count — run `ops/observability/scan-edge-health.sh`. See skills `tokenkey-online-log-troubleshooting` (§0 trap 9, §6.1 D) and `tokenkey-online-traffic-profile` (§4.1).
 
@@ -92,7 +92,7 @@ Production (`api.tokenkey.dev`) is **not** where the upstream Anthropic OAuth ca
 
 - 非 trivial PR 出口先跑 `bash scripts/upstream/check-drift.sh`；若落后，先合 upstream 或明确记录本 PR 先发原因。
 - 上游删除、merge audit、merge button 与 override marker 由 [上游纪律](upstream-merge-discipline.md) 和 preflight 守卫；失败修复后重跑，不复制脚本判定表。
-- 根 README/通用 compose 保持 upstream 对齐；TokenKey Stage0/AWS/smoke/image/domain/operator 操作归 `deploy/*` 或对应 skill。仅真实 build/release 契约需要时改根文件，优先短指针。
+- 根 README/通用 compose 保持 upstream 对齐；TokenKey Stage0/hcloud/smoke/image/domain/operator 操作归 `deploy/*` 或对应 skill。仅真实 build/release 契约需要时改根文件，优先短指针。
 - 改 dev-rules 时先 push 子模块，再提交父仓库指针与生成产物。
 - 修 upstream/claude-code issue 时，更新 `ops/issue-watchdog/upstream.json` 或 `anthropic.json` 的判断/证据和行为回归测试，不编辑生成 triage/fixes。commit 声明 `Upstream-Fixes: Wei-Shaw/sub2api#NNNN` 或 `Anthropic-Fixes: anthropics/claude-code#NNNN`；preflight 校验 ledger 与 `fixed_if_all_present` anchors。
 

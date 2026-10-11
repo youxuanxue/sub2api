@@ -1,6 +1,6 @@
 # Host replacement — 命令骨架
 
-细则：`deploy/hetzner/README.md`、`RUNBOOK-disaster-recovery.md`。纪律见上级 `SKILL.md`。
+现网与卷恢复入口：`deploy/hetzner/README.md`；AWS DR 仅用于 standby / AWS 离机备份读取。纪律见上级 `SKILL.md`。
 
 ## Edge → Hetzner
 
@@ -14,9 +14,9 @@
 
 **Verify：** `dig +short <host> @8.8.8.8`；`/health`；smoke；disk-metrics/Feishu/ghcr-prune。
 
-## Prod / LS recreate
+## Prod / AWS standby recreate
 
-- 无卷/跨云：DR §4.4；卷在：优先 §3。  
-- LS recreate：expansion + 显式 `recreate=true`。
+- hcloud prod：按 Hetzner README 的恢复入口核对并保留 Volume；无卷/跨云先核验离机 dump 和密钥恢复点。
+- AWS standby：仅显式恢复旧机时使用 AWS DR 的 EBS/CFN 或 Lightsail expansion；不得对现网套用。
 
 **回滚：** 正式 A（及 prod pin）改回旧 IP；勿双写。

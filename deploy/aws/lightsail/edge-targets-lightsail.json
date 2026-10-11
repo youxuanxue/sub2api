@@ -4,13 +4,14 @@
   "default_profile": "edge-lightsail-minimal",
   "max_monthly_budget_usd": 44,
   "notes": [
-    "lightsail_region is the Lightsail API region (not always equal to EC2 edge region).",
+    "AWS standby/retired inventory only. Live fleet: deploy/hetzner/README.md.",
+    "No Lightsail row is eligible for normal deploy or automatic fan-out. Explicit standby recovery requires a reviewed target.",
     "Paris (fra1) has no Lightsail region; map to eu-central-1 (Frankfurt) for PoC only.",
     "bundle_id suffix varies by Lightsail region; resolve script picks bundle_id from matrix."
   ],
   "targets": {
     "uk1": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "eu-west-2",
@@ -24,10 +25,11 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/uk1",
-      "purpose": "eu-west-2-london-egress (resized 2026-10-07 micro_3_0→small_3_0 via snapshot; Static IP 18.135.0.171 retained; old Amazon_Linux_2023-1 kept stopped for rollback)"
+      "purpose": "standby after Hetzner cutover; eu-west-2-london-egress (resized 2026-10-07 micro_3_0\u2192small_3_0 via snapshot; Static IP 18.135.0.171 retained; old Amazon_Linux_2023-1 kept stopped for rollback)",
+      "standby": true
     },
     "uk2": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "eu-west-2",
@@ -41,7 +43,8 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/uk2",
-      "purpose": "eu-west-2-london-egress-2 (resized 2026-10-07 micro_3_0→small_3_0 via snapshot; Static IP 51.24.28.148 retained; old Amazon_Linux_2023-2 kept stopped for rollback)"
+      "purpose": "standby after Hetzner cutover; eu-west-2-london-egress-2 (resized 2026-10-07 micro_3_0\u2192small_3_0 via snapshot; Static IP 51.24.28.148 retained; old Amazon_Linux_2023-2 kept stopped for rollback)",
+      "standby": true
     },
     "us1": {
       "deployable": false,
@@ -123,10 +126,11 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 44,
       "ssm_prefix": "/tokenkey/lightsail/us3",
-      "purpose": "account-decommissioned 2026-10-11 (accounts→uk1; prod stubs cut/soft-deleted); instance still up for gemini-web session drain; deployable=false excludes ops fan-out; explicit --platform lightsail still reaches standby"
+      "purpose": "account-decommissioned 2026-10-11 (accounts\u2192uk1; prod stubs cut/soft-deleted); instance still up for gemini-web session drain; deployable=false excludes ops fan-out; explicit --platform lightsail still reaches standby",
+      "standby": true
     },
     "us4": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "us-west-2",
@@ -140,10 +144,11 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 44,
       "ssm_prefix": "/tokenkey/lightsail/us4",
-      "purpose": "us-west-2-oregon-egress (rotated 2026-08-28: swapped to Static-or-1-rot-20260828T122052Z / 32.188.80.151 after Static-or-1 / 35.81.204.18 upstream API risk-block); resized 2026-10-09 small_3_0→large_3_0 via verified cold snapshot; Static IP retained; old tokenkey-edge-us-or1-ls-s30 kept stopped; stale-disk rollback forbidden after new writes"
+      "purpose": "standby after Hetzner cutover; us-west-2-oregon-egress (rotated 2026-08-28: swapped to Static-or-1-rot-20260828T122052Z / 32.188.80.151 after Static-or-1 / 35.81.204.18 upstream API risk-block); resized 2026-10-09 small_3_0\u2192large_3_0 via verified cold snapshot; Static IP retained; old tokenkey-edge-us-or1-ls-s30 kept stopped; stale-disk rollback forbidden after new writes",
+      "standby": true
     },
     "us5": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "us-west-2",
@@ -157,7 +162,8 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 44,
       "ssm_prefix": "/tokenkey/lightsail/us5",
-      "purpose": "us-west-2-oregon-egress-2 (rotated 2026-08-28: swapped to vless-or-fresh-1-rot-20260828T115642Z / 16.144.175.131 after vless-or-fresh-1 / 32.185.163.163 upstream API risk-block; prior 2026-06-16 rotation was vless-or-fresh-1 after StaticIp-or-2 / 44.224.133.40); resized 2026-10-09 small_3_0→large_3_0 via verified cold snapshot; Static IP retained; old tokenkey-edge-us-or2-ls-s30 kept stopped; stale-disk rollback forbidden after new writes"
+      "purpose": "standby after Hetzner cutover; us-west-2-oregon-egress-2 (rotated 2026-08-28: swapped to vless-or-fresh-1-rot-20260828T115642Z / 16.144.175.131 after vless-or-fresh-1 / 32.185.163.163 upstream API risk-block; prior 2026-06-16 rotation was vless-or-fresh-1 after StaticIp-or-2 / 44.224.133.40); resized 2026-10-09 small_3_0\u2192large_3_0 via verified cold snapshot; Static IP retained; old tokenkey-edge-us-or2-ls-s30 kept stopped; stale-disk rollback forbidden after new writes",
+      "standby": true
     },
     "us6": {
       "deployable": false,
@@ -174,7 +180,8 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 44,
       "ssm_prefix": "/tokenkey/lightsail/us6",
-      "purpose": "account-decommissioned 2026-10-11 (accounts→uk2; prod stubs cut/soft-deleted); instance still up for gemini-web session drain; deployable=false excludes ops fan-out; explicit --platform lightsail still reaches standby"
+      "purpose": "account-decommissioned 2026-10-11 (accounts\u2192uk2; prod stubs cut/soft-deleted); instance still up for gemini-web session drain; deployable=false excludes ops fan-out; explicit --platform lightsail still reaches standby",
+      "standby": true
     },
     "us7": {
       "deployable": false,

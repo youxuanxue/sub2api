@@ -189,6 +189,17 @@ jobs:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Refuse legacy QA host deployment after hcloud cutover
+        env:
+          PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
+        run: |
+          set -euo pipefail
+          TARGET="$(python3 -c 'from ops.stage0.resolve_prod_ssm_target import resolve_mode; print(resolve_mode("auto"))')"
+          if [ "$TARGET" != aws ]; then
+            echo "::error::This workflow still deploys AWS QA infrastructure and an EC2 host runner. Live prod is hcloud; complete the independent QA migration in docs/approved/hcloud-bluegreen-qa-migration.md before deploying. qa-infra-check remains read-only."
+            exit 1
+          fi
+
       - name: Resolve target instance and network context
         id: instance
         env:

@@ -7,6 +7,16 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 mkdir -p "${tmp}/bin"
 
+# Historical AWS migration fixtures are independent of the live Hetzner fleet.
+python3 - "${ROOT}/deploy/aws/lightsail/edge-targets-lightsail.json" "${tmp}/matrix.json" <<'PYFIX'
+import json, sys
+data = json.load(open(sys.argv[1]))
+for row in data['targets'].values():
+    row['deployable'] = row.get('standby', False)
+json.dump(data, open(sys.argv[2], 'w'))
+PYFIX
+export EDGE_LIGHTSAIL_MATRIX="${tmp}/matrix.json"
+
 cat >"${tmp}/bin/backup-env" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail

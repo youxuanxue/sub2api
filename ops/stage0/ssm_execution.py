@@ -14,13 +14,12 @@ truncating everything after the first psql call while still reporting Success (r
 Keeping this — plus the get-command-invocation guard and the stderr-capture limit — in ONE
 place means those fixes cannot regress per-tool.
 
-Distinct from ops/stage0/edge_ssm_execution.py (which resolves EC2/Lightsail EDGE targets
+Distinct from ops/stage0/edge_ssm_execution.py (which resolves Hetzner/explicit standby EDGE targets
 via the edge routing matrix); this module is the prod-control-plane counterpart with no
 edge dependencies, so it importlib-loads cleanly from any ops tool.
 
 Prod target resolution delegates to ``resolve_prod_ssm_target.py`` (same owner as
-run-probe / deploy-stage0): ``PROD_SSM_TARGET`` / cutover SSM param selects aws vs
-hetzner. ``resolve_prod_instance`` updates module ``PROD_REGION`` to the target's
+run-probe / deploy-stage0): auto defaults to Hetzner; ``PROD_SSM_TARGET=aws`` explicitly selects standby. ``resolve_prod_instance`` updates module ``PROD_REGION`` to the target's
 ``ssm_region`` so subsequent ``run_shell_b64`` calls hit the right registration region.
 """
 from __future__ import annotations

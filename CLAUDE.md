@@ -135,3 +135,8 @@ model lists. Implementation truth for New API bridge:
 `internal/integration/newapi/` + `internal/relay/bridge/`.
 
 **Before push:** `./scripts/preflight.sh` + `make test`.
+
+## 现网基础设施入口
+
+部署、排障、恢复和云变量先读 [`deploy/hetzner/README.md`](deploy/hetzner/README.md)。
+该文档拥有现网舰队与 AWS 保留依赖说明；历史 AWS 文件不可作为默认执行路径。

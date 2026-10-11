@@ -657,19 +657,16 @@ ENV_BY_FAMILY = (
 # probe then empty-pools -> false "unservable"). So anthropic probes the edges directly
 # and a model is servable if ANY edge serves it. One healthy edge is enough; unhealthy
 # edges config_error cheaply (no schedulable native account) and we rotate past them.
-FLEET_JSON = REPO / "deploy/aws/lightsail/edge-targets-lightsail.json"
-
-
 def deployable_edges() -> list[str]:
-    """Rotation order = edges marked deployable in the lightsail fleet manifest."""
-    try:
-        data = json.loads(FLEET_JSON.read_text(encoding="utf-8"))
-        edges = [k for k, v in data.get("targets", {}).items() if v.get("deployable")]
-        if edges:
-            return edges
-    except Exception as e:  # noqa: BLE001 — manifest optional; fall back to known edges
-        print(f"[refresh] WARN: fleet manifest unreadable ({e}); using fallback edges", file=sys.stderr)
-    return ["us3", "us4", "us5", "us6"]
+    """Use the shared live-fleet resolver; never probe retired fallback edges."""
+    proc = subprocess.run(
+        [sys.executable, str(REPO / "deploy/aws/stage0/resolve-edge-target.py"), "--list-deployable"],
+        text=True, capture_output=True, check=True,
+    )
+    edges = proc.stdout.split()
+    if not edges:
+        raise SystemExit("FATAL: no deployable Hetzner edges")
+    return edges
 
 
 def _run_probe_batch(env_args: list[str], target: str = "prod") -> str:

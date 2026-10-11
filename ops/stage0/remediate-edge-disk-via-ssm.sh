@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# remediate-edge-disk-via-ssm.sh — emergency root-disk cleanup on Stage0 Lightsail edges.
+# remediate-edge-disk-via-ssm.sh — emergency root-disk cleanup on the live Stage0 fleet.
 #
 # Frees space from stale GHCR tags, dangling Docker images, oversized container logs,
 # journald, and QA stale rows/files. SSM is the default transport; when the host is
-# full enough that SSM cannot spawn a shell (classic 100% root), falls back to
+# full enough that SSM cannot spawn a shell, only legacy Lightsail targets may use
 # Lightsail ephemeral SSH certificates (get-instance-access-details).
 #
 # After cleanup, the on-box tokenkey-disk-metrics timer will post a paired ✅ recovery
@@ -19,7 +19,7 @@
 # Options:
 #   --edge-id <id>       one deployable edge
 #   --edges <csv>        comma-separated subset
-#   --all-deployable     every edge with deployable=true in edge-targets-lightsail.json
+#   --all-deployable     every live Hetzner edge from the shared fleet resolver
 #   --ssm-only           do not attempt Lightsail SSH fallback
 #   --dry-run            resolve and print targets, no AWS mutations
 set -euo pipefail
@@ -83,7 +83,8 @@ if ! [[ "${RECOVER_THRESHOLD}" =~ ^[1-9][0-9]*$ ]] || [ "${RECOVER_THRESHOLD}" -
   exit 1
 fi
 
-REMOTE_CLEANUP=$(cat <<'REMOTE'
+REMOTE_CLEANUP=''
+read -r -d '' REMOTE_CLEANUP <<'REMOTE' || [[ -n "$REMOTE_CLEANUP" ]]
 set -u
 cleanup_failures=0
 disk_used_percent() {
@@ -129,7 +130,6 @@ if [ "${cleanup_failures}" -gt 0 ]; then
   echo "WARN: ${cleanup_failures} cleanup stage(s) failed, but root usage recovered to ${used_after}%" >&2
 fi
 REMOTE
-)
 REMOTE_CLEANUP="${REMOTE_CLEANUP/__KEEP__/${GHCR_KEEP_TAGS}}"
 REMOTE_CLEANUP="${REMOTE_CLEANUP//__RECOVER__/${RECOVER_THRESHOLD}}"
 
@@ -193,6 +193,7 @@ ssm_cleanup() {
     commands: ($remote | split("\n")),
     executionTimeout: [$timeout]
   }' > "${params_file}"
+  python3 "${HERE}/ssm_wrap_bash_commands.py" "${params_file}"
   local cmd_id
   cmd_id="$(aws ssm send-command \
     --region "${region}" \
@@ -248,6 +249,7 @@ for edge_id in "${EDGE_IDS[@]}"; do
   identity="$(python3 "${RESOLVE_EXEC}" --edge-id "${edge_id}" --format json)"
   region="$(printf '%s' "${identity}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["region"])')"
   instance_id="$(printf '%s' "${identity}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])')"
+  routing="$(printf '%s' "${identity}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["routing"])')"
   domain="$(printf '%s' "${identity}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["domain"])')"
   echo "  target=${domain} region=${region} instance=${instance_id}"
 
@@ -260,8 +262,8 @@ for edge_id in "${EDGE_IDS[@]}"; do
     continue
   fi
 
-  if [ "${SSM_ONLY}" = "1" ]; then
-    echo "  FAIL: SSM cleanup failed and --ssm-only set" >&2
+  if [ "${routing}" != lightsail ] || [ "${SSM_ONLY}" = "1" ]; then
+    echo "  FAIL: SSM cleanup failed; refusing fallback to a different host/platform" >&2
     failures=$((failures + 1))
     continue
   fi

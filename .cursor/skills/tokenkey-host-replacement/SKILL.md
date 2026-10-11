@@ -17,7 +17,7 @@ description: >-
 
 触发：换机、整机迁移、reprovision。
 
-勿用→改用：镜像→`stage0-release-rollout`；LS 换 IP→`lightsail-ip-rotation`；仅 accounts→`migrate-edge-accounts`；prod 卷在→DR §3；新 LS edge→`lightsail-expansion`。
+勿用→改用：镜像→`stage0-release-rollout`；LS 换 IP→`lightsail-ip-rotation`；仅 accounts→`migrate-edge-accounts`；prod 卷在→HZ README 恢复入口；仅明确旧 LS 操作→`lightsail-expansion`。
 
 ## 文档
 
@@ -26,7 +26,7 @@ description: >-
 | 本 skill | 门禁/不变量 |
 | `docs/approved/hetzner-cloud-full-migration.md` | 决策锁 |
 | `deploy/hetzner/README.md` | 现网舰队 + 发版 SSOT |
-| `deploy/aws/RUNBOOK-disaster-recovery.md` | prod / §4.4 |
+| `deploy/aws/RUNBOOK-disaster-recovery.md` | AWS standby / 离机 S3 读取（不是 HZ 卷恢复） |
 | fleet pgdump canary approved | precious 契约 |
 
 ## 不变量
@@ -45,6 +45,6 @@ description: >-
 5. drain — 停旧 app；standby；源 usage→0  
 6. verify — dig；smoke；host units；gemini re-import；`mi-*`
 
-Prod：卷在→DR §3；无卷/跨云→§4.4。骨架：[references/playbook.md](references/playbook.md)。
+Prod：卷在→Hetzner README 恢复入口；无卷/跨云先核验离机 dump。AWS DR §4.4 仅参考离机 S3 读取。骨架：[references/playbook.md](references/playbook.md)。
 
 报告：`target platform phase new_ip old_ip dump checks dns drain smoke followups`

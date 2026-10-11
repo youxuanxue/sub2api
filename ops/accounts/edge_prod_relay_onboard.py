@@ -426,7 +426,7 @@ def build_plan(
     for raw in edge_ids:
         eid = normalize_edge_id(raw)
         if eid not in deployable:
-            die(f"edge_id {eid!r} not in deployable lightsail targets")
+            die(f"edge_id {eid!r} not in deployable Hetzner targets")
         edges_out.append(
             {
                 "edge_id": eid,

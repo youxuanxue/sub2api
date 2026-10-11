@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 """Resolve Stage0 prod SSM control-plane target.
 
-``--target auto`` follows the cutover flag (live fleet uses Hybrid ``mi-*``
-when SSM param is ``hetzner``). Explicit ``aws`` / ``hetzner`` force that side.
-
-Resolution order for ``--target auto`` (default):
-
-1. ``PROD_SSM_TARGET`` env if set to ``aws`` / ``hetzner``
-2. SSM String param ``/tokenkey/prod/control-plane-ssm-target`` (us-east-1)
-   when value is ``aws`` / ``hetzner``
-3. Otherwise ``aws`` (CFN ``i-*``)
+``--target auto`` uses the live Hetzner fleet. ``PROD_SSM_TARGET`` may explicitly
+select ``aws`` for standby recovery; there is no remote cutover flag or silent
+fallback to EC2 when permissions, credentials or inventory are unavailable.
 
 Hetzner instance id is resolved from SSM inventory by ComputerName matching
 ``deploy/hetzner/prod-target-hetzner.json`` ``instance_name`` (registration
@@ -28,7 +22,6 @@ from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_MATRIX = REPO_ROOT / "deploy/hetzner/prod-target-hetzner.json"
-CUTOVER_PARAM = "/tokenkey/prod/control-plane-ssm-target"
 AWS_REGION = "us-east-1"
 AWS_STACK = "tokenkey-prod-stage0"
 INSTANCE_RE = re.compile(r"^(?:i|mi)-[0-9a-f]{8,}$")
@@ -53,52 +46,6 @@ def aws_json(args: list[str]) -> Any:
     return json.loads(out)
 
 
-def read_cutover_param() -> str:
-    """Read the cutover flip param; AccessDenied must not silent-fallback to aws."""
-    try:
-        proc = subprocess.run(
-            [
-                "aws",
-                "ssm",
-                "get-parameter",
-                "--region",
-                AWS_REGION,
-                "--name",
-                CUTOVER_PARAM,
-                "--query",
-                "Parameter.Value",
-                "--output",
-                "text",
-            ],
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-    except OSError as exc:
-        fail(f"aws ssm get-parameter {CUTOVER_PARAM} failed to start: {exc}")
-    err = (proc.stderr or "") + (proc.stdout or "")
-    if proc.returncode == 0:
-        return (proc.stdout or "").strip().lower()
-    # ParameterNotFound / empty → pre-cutover default aws.
-    if "ParameterNotFound" in err:
-        return ""
-    if "AccessDenied" in err or "UnauthorizedOperation" in err:
-        # Real IAM miss must not silent-fallback to standby EC2 after Wave B.
-        fail(
-            f"cannot read {CUTOVER_PARAM} (AccessDenied); set PROD_SSM_TARGET=hetzner|aws "
-            "or grant ssm:GetParameter on that name — refusing silent aws fallback"
-        )
-    # Stub/offline aws (preflight host-parse) and transient errors: warn and
-    # treat as unset. Callers that must hit Hybrid should set PROD_SSM_TARGET.
-    print(
-        f"::warning::aws ssm get-parameter {CUTOVER_PARAM} failed "
-        f"(exit={proc.returncode}); defaulting resolve to aws. "
-        f"Set PROD_SSM_TARGET=hetzner after Wave B cutover. detail={err.strip()[:200]!r}",
-        file=sys.stderr,
-    )
-    return ""
-
-
 def resolve_mode(explicit: str) -> str:
     if explicit and explicit != "auto":
         return explicit
@@ -107,12 +54,7 @@ def resolve_mode(explicit: str) -> str:
         return env
     if env and env != "auto":
         fail(f"PROD_SSM_TARGET must be auto|aws|hetzner (got {env!r})")
-    param = read_cutover_param()
-    if param in ("aws", "hetzner"):
-        return param
-    if param and param != "auto":
-        fail(f"{CUTOVER_PARAM} must be aws|hetzner (got {param!r})")
-    return "aws"
+    return "hetzner"
 
 
 def with_browser_origin(outputs: dict[str, str]) -> dict[str, str]:
@@ -214,7 +156,9 @@ def resolve_hetzner(matrix_path: pathlib.Path) -> dict[str, str]:
     if not matches:
         fail(f"no Hybrid instance with ComputerName/Name={name!r} in {region}")
     online = [r for r in matches if str(r.get("PingStatus") or "") == "Online"]
-    chosen = online[0] if online else matches[0]
+    if len(online) != 1:
+        fail(f"expected exactly one Online Hybrid instance for {name!r}; found {len(online)}")
+    chosen = online[0]
     instance_id = str(chosen.get("InstanceId") or "")
     if not instance_id.startswith("mi-") or not INSTANCE_RE.match(instance_id):
         fail(f"expected Hybrid mi-* for {name}, got {instance_id!r}")
@@ -245,7 +189,7 @@ def main() -> int:
         "--target",
         choices=("auto", "aws", "hetzner"),
         default="auto",
-        help="auto respects PROD_SSM_TARGET / cutover SSM param; default aws",
+        help="auto defaults to hetzner; PROD_SSM_TARGET=aws explicitly selects standby",
     )
     parser.add_argument("--stack", default=AWS_STACK)
     parser.add_argument("--matrix", default="")

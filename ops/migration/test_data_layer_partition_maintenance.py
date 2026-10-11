@@ -13,7 +13,7 @@ import unittest
 import data_layer_partition_maintenance as controller
 
 
-INSTANCE_ID = "i-0123456789abcdef0"
+INSTANCE_ID = "mi-0123456789abcdef0"
 COMMAND_ID = "cmd-0123456789abcdef0"
 
 
@@ -42,13 +42,8 @@ class FakeAWS:
     def __call__(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         self.calls.append(list(args))
         operation = args[1:3]
-        if operation == ["cloudformation", "describe-stacks"]:
-            payload = {
-                "Stacks": [{
-                    "StackName": controller.PROD_STACK,
-                    "Outputs": [{"OutputKey": "InstanceId", "OutputValue": INSTANCE_ID}],
-                }]
-            }
+        if args[1].endswith("resolve_prod_ssm_target.py"):
+            payload = {"instance_id": INSTANCE_ID, "ssm_region": "eu-west-2"}
         elif operation == ["ssm", "send-command"]:
             payload = {
                 "Command": {
@@ -117,19 +112,20 @@ class DataLayerPartitionMaintenanceTest(unittest.TestCase):
 
         self.assertEqual(result, persisted)
         self.assertEqual(result["region"], controller.PROD_REGION)
-        self.assertEqual(result["stack"], controller.PROD_STACK)
+        self.assertEqual(result["target"], "prod")
         self.assertEqual(result["instance_id"], INSTANCE_ID)
         self.assertEqual(result["command_id"], COMMAND_ID)
         self.assertEqual(result["remote_receipt"], remote_receipt())
         self.assertEqual(len(fake.calls), 3)
 
         describe, send, invocation = fake.calls
-        for call in fake.calls:
+        for call in fake.calls[1:]:
             self.assertIn("--output", call)
             self.assertIn("json", call)
             self.assertNotIn("--query", call)
-        self.assertEqual(describe[describe.index("--region") + 1], controller.PROD_REGION)
-        self.assertEqual(describe[describe.index("--stack-name") + 1], controller.PROD_STACK)
+        self.assertTrue(describe[1].endswith("resolve_prod_ssm_target.py"))
+        self.assertEqual(send[send.index("--region") + 1], "eu-west-2")
+        self.assertEqual(invocation[invocation.index("--region") + 1], "eu-west-2")
         self.assertEqual(send[send.index("--instance-ids") + 1], INSTANCE_ID)
         parameters = json.loads(send[send.index("--parameters") + 1])
         self.assertEqual(parameters, {"commands": [controller.REMOTE_COMMAND]})

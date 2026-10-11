@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Push tokenkey-ghcr-prune-daily.{sh,service,timer} onto a running Stage0 host
-# (prod EC2 or Lightsail edge) via SSM Run-Command, WITHOUT rebuilding the instance.
+# (live Hetzner prod/edge or explicit AWS standby) via SSM Run-Command, WITHOUT rebuilding the instance.
 #
 # Why: deploy_via_ssm.sh prunes GHCR tags at deploy time only; without a daily timer
 # stale tags pile up between deploys (2026-08 disk-full incident on us3/us4/us6).
@@ -63,6 +63,8 @@ jq -n \
       ("echo Live ghcr-prune-daily timer now matches deploy/aws@" + $sha + " on $(hostname)")
     ]
   }' > "${params_file}"
+
+python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params_file}"
 
 cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" \

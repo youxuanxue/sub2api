@@ -53,11 +53,14 @@ class ProdOpsMatrixLiveFleetTests(unittest.TestCase):
             self.assertIn(f"edge-{edge_id}-ls", excluded)
             self.assertIn("Hetzner", excluded[f"edge-{edge_id}-ls"])
 
-    def test_only_prod_uses_ec2_platform(self):
+    def test_prod_uses_live_hetzner_coordinates(self):
         proc = _run("--prod-ops-matrix", "--target-selector", "all")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         include = json.loads(proc.stdout)["matrix"]["include"]
-        self.assertEqual([t["target_id"] for t in include if t["platform"] == "ec2"], ["prod"])
+        self.assertEqual({t["platform"] for t in include}, {"hetzner"})
+        prod = next(t for t in include if t["target_id"] == "prod")
+        self.assertEqual(prod["region"], "eu-west-2")
+        self.assertEqual(prod["stack"], "")
 
     def test_explicit_live_edge_selector(self):
         proc = _run("--prod-ops-matrix", "--target-selector", "edge:uk1-hz")

@@ -25,7 +25,7 @@ deploy/aws/
     ├── docker-compose.yml            源真：Caddy + tokenkey + PostgreSQL + Redis（主站与 Edge 共用）
     ├── Caddyfile                     主站/test Caddy：LE 自动签证书 + 反代到 tokenkey:8080
     ├── Caddyfile.edge                Edge Caddy：/v1/*、/api/* 默认只允许主网关出口；Lightsail edge 复用
-    ├── resolve-edge-target.py        workflow 解析 Edge 目标并 fail-before-AWS（合并读 Lightsail 矩阵）
+    ├── resolve-edge-target.py        共享 workflow 目标解析（现网 Hetzner；AWS 矩阵仅 standby）
     ├── .env.example                  环境变量模板（生产 .env 由 Cloud-Init 自动生成；本地调试可复制使用）
     └── build-cfn.sh                  把 compose/Caddy + QA 生命周期 / GHCR prune 等 payload 注入 CFN（含 SSM 段）
 ```

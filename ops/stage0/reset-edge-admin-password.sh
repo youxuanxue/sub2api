@@ -3,29 +3,27 @@ set -euo pipefail
 
 _OPS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${_OPS_DIR}/../.." && pwd)"
-# shellcheck source=ssm_resolve_invocation_mi.inc.sh
-source "${_OPS_DIR}/ssm_resolve_invocation_mi.inc.sh"
 
 usage() {
   cat <<'EOF'
 Usage:
-  bash ops/stage0/reset-edge-admin-password.sh [--platform auto|ec2|lightsail] edge-<id>
-  bash ops/stage0/reset-edge-admin-password.sh [--platform auto|ec2|lightsail] <id>
+  bash ops/stage0/reset-edge-admin-password.sh [--platform auto|ec2|lightsail|hetzner] edge-<id>
+  bash ops/stage0/reset-edge-admin-password.sh [--platform auto|ec2|lightsail|hetzner] <id>
   bash ops/stage0/reset-edge-admin-password.sh prod
 
 Examples:
-  bash ops/stage0/reset-edge-admin-password.sh uk1              # auto: Lightsail when deployable=true in lightsail matrix
+  bash ops/stage0/reset-edge-admin-password.sh uk1              # auto: live Hetzner target
   bash ops/stage0/reset-edge-admin-password.sh --platform lightsail uk1
-  bash ops/stage0/reset-edge-admin-password.sh prod            # prod main gateway (tokenkey-prod-stage0, us-east-1)
+  bash ops/stage0/reset-edge-admin-password.sh prod            # prod main gateway (live hcloud prod; identity/region from shared resolver)
 
 Behavior:
-  - Target is an edge id (e.g. uk1, us6) or the literal "prod" (prod Stage0 gateway).
-  - Uses deploy/aws/lightsail/edge-targets-lightsail.json for edges; prod uses CloudFormation:
-      * Platform "auto": deployable Lightsail target + SSM managed instance from Parameter Store.
+  - Target is an edge id (e.g. uk1, us4) or the literal "prod" (prod Stage0 gateway).
+  - Uses the shared prod/edge identity resolvers:
+      * Platform "auto": live Hetzner target + SSM Hybrid identity.
       * "lightsail": explicit Lightsail resolution, including planned targets.
       * "ec2": rejected for edges (retired).
-      * "prod": fixed EC2 stack tokenkey-prod-stage0 in us-east-1 (--platform ignored).
-  - Reads ADMIN_EMAIL from /var/lib/tokenkey/.env on the instance (same stack layout EC2 vs Lightsail).
+      * "prod": shared prod resolver; default Hetzner, explicit ec2 selects standby.
+  - Reads ADMIN_EMAIL from /var/lib/tokenkey/.env on the instance (shared runtime layout).
   - Resets admin password via PostgreSQL (pgcrypto bcrypt).
   - Saves email/password to $HOME/Codes/keys/tokenkey-<id>-admin-password.txt (prod -> tokenkey-prod-admin-password.txt)
   - Never prints the new password.
@@ -73,9 +71,9 @@ INPUT_TARGET="$1"
 EDGE_ID="${INPUT_TARGET#edge-}"
 
 case "${PLATFORM_PREF}" in
-auto | ec2 | lightsail) ;;
+auto | ec2 | lightsail | hetzner) ;;
 *)
-  echo "[error] invalid --platform: ${PLATFORM_PREF} (use auto|ec2|lightsail)" >&2
+  echo "[error] invalid --platform: ${PLATFORM_PREF} (use auto|ec2|lightsail|hetzner)" >&2
   exit 1
   ;;
 esac
@@ -86,24 +84,11 @@ if [[ "$EDGE_ID" != "prod" && ! "$EDGE_ID" =~ ^[a-z]{2,4}[0-9]+$ ]]; then
 fi
 
 RES_LINE="$(python3 "${_OPS_DIR}/edge_admin_resolve_target.py" "${REPO_ROOT}" "${EDGE_ID}" "${PLATFORM_PREF}" | tr -d '\r')"
-IFS=$'\t' read -r RES_MODE REGION EC2_STACK <<<"$RES_LINE"
+IFS=$'\t' read -r RES_MODE REGION INSTANCE_ID_SSM <<<"$RES_LINE"
 
 if [[ -z "${RES_MODE:-}" ]]; then
   echo "[error] resolver returned empty output" >&2
   exit 1
-fi
-
-if [[ "$RES_MODE" == ec2 ]]; then
-  INSTANCE_ID_EC2=""
-  INSTANCE_ID_EC2="$(aws cloudformation describe-stacks \
-    --region "$REGION" \
-    --stack-name "$EC2_STACK" \
-    --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' \
-    --output text)"
-  if [[ -z "${INSTANCE_ID_EC2:-}" || "${INSTANCE_ID_EC2:-}" == "None" ]]; then
-    echo "[error] could not resolve InstanceId from stack ${EC2_STACK} in ${REGION}" >&2
-    exit 1
-  fi
 fi
 
 NEW_PASSWORD="$(openssl rand -hex 16)"
@@ -115,10 +100,7 @@ if [[ ! -d "$KEYS_DIR" ]]; then
   exit 1
 fi
 
-echo "[info] edge_id=${EDGE_ID} platform=${RES_MODE} region=${REGION} stack=${EC2_STACK:-<lightsail-tags>}"
-if [[ "$RES_MODE" == ec2 ]]; then
-  echo "[info] ec2_instance_id=${INSTANCE_ID_EC2}"
-fi
+echo "[info] edge_id=${EDGE_ID} platform=${RES_MODE} region=${REGION}"
 echo "[info] resetting admin password via SSM..."
 
 COMMANDS_JSON="$(NEW_PASSWORD_ESC="$NEW_PASSWORD" python3 <<'PY'
@@ -151,30 +133,17 @@ cleanup_param() {
 }
 trap cleanup_param EXIT
 printf '{"commands":%s}\n' "${COMMANDS_JSON}" >"${PARAM_BODY}"
+python3 "${_OPS_DIR}/ssm_wrap_bash_commands.py" "${PARAM_BODY}"
 
 COMMAND_ID=""
-if [[ "$RES_MODE" == lightsail ]]; then
-  COMMAND_ID="$(aws ssm send-command \
-    --region "$REGION" \
-    --targets "Key=tag:EdgeId,Values=${EDGE_ID}" "Key=tag:Platform,Values=lightsail" \
-    --document-name AWS-RunShellScript \
-    --comment "reset edge admin password (${EDGE_ID} lightsail)" \
-    --parameters "file://${PARAM_BODY}" \
-    --query 'Command.CommandId' \
-    --output text)"
-  INSTANCE_ID_SSM=""
-  INSTANCE_ID_SSM="$(ssm_resolve_invocation_mi "$REGION" "$COMMAND_ID")"
-else
-  COMMAND_ID="$(aws ssm send-command \
-    --region "$REGION" \
-    --instance-ids "$INSTANCE_ID_EC2" \
-    --document-name AWS-RunShellScript \
-    --comment "reset edge admin password (${EDGE_ID} ec2)" \
-    --parameters "file://${PARAM_BODY}" \
-    --query 'Command.CommandId' \
-    --output text)"
-  INSTANCE_ID_SSM="$INSTANCE_ID_EC2"
-fi
+COMMAND_ID="$(aws ssm send-command \
+  --region "$REGION" \
+  --instance-ids "$INSTANCE_ID_SSM" \
+  --document-name AWS-RunShellScript \
+  --comment "reset edge admin password (${EDGE_ID} ${RES_MODE})" \
+  --parameters "file://${PARAM_BODY}" \
+  --query 'Command.CommandId' \
+  --output text)"
 
 echo "[info] ssm_command_id=${COMMAND_ID}"
 echo "[info] ssm_invocation_instance_id=${INSTANCE_ID_SSM}"
@@ -241,8 +210,7 @@ echo "[ok] edge admin password reset complete"
 echo "EDGE_ID=${EDGE_ID}"
 echo "SSM_ROUTING=${RES_MODE}"
 echo "REGION=${REGION}"
-[[ "$RES_MODE" == ec2 ]] && echo "EC2_STACK=${EC2_STACK}" && echo "EC2_INSTANCE_ID=${INSTANCE_ID_EC2}"
-[[ "$RES_MODE" == lightsail ]] && echo "SSM_TAGS=EdgeId=${EDGE_ID},Platform=lightsail"
+echo "SSM_INSTANCE_ID=${INSTANCE_ID_SSM}"
 echo "SSM_PRIMARY_ID=${INSTANCE_ID_SSM}"
 echo "CREDENTIAL_FILE=${CREDENTIAL_FILE}"
 echo "[ok] admin credentials saved; password was not printed"

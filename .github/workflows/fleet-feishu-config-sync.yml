@@ -130,7 +130,7 @@ jobs:
               continue
             fi
             # auto: prod → resolve_prod_ssm_target; edges → Hetzner Hybrid when
-            # deployable, else Lightsail. Script never prints webhook/secret.
+            # deployable; legacy Lightsail requires explicit selection. Script never prints webhook/secret.
             echo "::group::sync $tgt"
             if out="$(bash ops/stage0/sync-feishu-config.sh --platform auto "$tgt" 2>&1)"; then
               printf '%s\n' "$out"

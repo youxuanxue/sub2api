@@ -12,14 +12,16 @@ Rotation：[`tokenkey-stage0-edge-lightsail-ip-rotation`](../../.cursor/skills/t
 
 ## Lightsail standby Static IPs（非现网写路径）
 
-<!-- BEGIN edge-ip-status:current (generated from deploy/aws/lightsail/edge-targets-lightsail.json) -->
+<!-- BEGIN edge-ip-status:standby (generated from deploy/aws/lightsail/edge-targets-lightsail.json) -->
 | Edge | Region | Domain | Static IP name | IPv4 |
 | --- | --- | --- | --- | --- |
 | `uk1` | eu-west-2 | `api-uk1.tokenkey.dev` | `tokenkey-edge-uk1-ip` | `18.135.0.171` |
 | `uk2` | eu-west-2 | `api-uk2.tokenkey.dev` | `tokenkey-edge-uk2-ip` | `51.24.28.148` |
+| `us3` | us-east-2 | `api-us3.tokenkey.dev` | `vless-oh-fresh-1-rot-20260828T122454Z` | `18.216.113.132` |
 | `us4` | us-west-2 | `api-us4.tokenkey.dev` | `Static-or-1-rot-20260828T122052Z` | `32.188.80.151` |
 | `us5` | us-west-2 | `api-us5.tokenkey.dev` | `vless-or-fresh-1-rot-20260828T115642Z` | `16.144.175.131` |
-<!-- END edge-ip-status:current -->
+| `us6` | us-east-2 | `api-us6.tokenkey.dev` | `StaticIp-oh-3-rot-20260828T121745Z` | `3.147.98.112` |
+<!-- END edge-ip-status:standby -->
 
 `us3` / `us6`：不在舰队；Porkbun A 已删；实例仅 gemini drain 前保留（`18.216.113.132` / `3.147.98.112`）。
 
