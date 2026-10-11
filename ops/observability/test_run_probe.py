@@ -299,6 +299,7 @@ class RunProbePollingTest(unittest.TestCase):
                 """\
                 #!/usr/bin/env python3
                 import sys
+                # run-probe passes --target <PROD_SSM_TARGET|auto> --format kv
                 if "--format" in sys.argv and "kv" in sys.argv:
                     print("target=aws")
                     print("instance_id=i-0123456789abcdef1")

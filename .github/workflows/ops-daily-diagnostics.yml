@@ -137,6 +137,10 @@ jobs:
       matrix: ${{ fromJson(needs.discover-targets.outputs.matrix) }}
     env:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      # Job-level so Run target diagnostics + every run-probe inherit cutover.
+      # Step-only env left diagnose on auto → AccessDenied on the flip param
+      # after #2574 fail-closed (#2576 cascade).
+      PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
       SINCE_HOURS: ${{ inputs.since_hours || '24' }}
       DIAGNOSTICS_LOG_SINCE: ${{ inputs.diagnostics_log_since || '24h' }}
       INCLUDE_ERROR_CLUSTERING: ${{ inputs.operation == 'daily_error_report' && 'false' || inputs.diagnostics_include_error_clustering || 'true' }}

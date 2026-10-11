@@ -416,6 +416,15 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
     def test_prod_diagnose_uses_resolve_prod_ssm_target(self) -> None:
         text = workflow_text()
         self.assertIn("ops/stage0/resolve_prod_ssm_target.py", text)
+        # Job-level PROD_SSM_TARGET so Run target diagnostics + run-probe inherit
+        # cutover (step-only env left diagnose on auto → AccessDenied cascade).
+        job = text.index("  diagnose-targets:")
+        job_env = text.index("\n    env:\n", job)
+        first_step = text.index("\n    steps:", job_env)
+        self.assertIn(
+            "PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}",
+            text[job_env:first_step],
+        )
         # Live-host audit + config audit + diagnose body must not CFN-only for prod.
         audit = text.index("Assert live-host state (prod daily audit)")
         config = text.index("Audit prod configuration independently of deployment")
