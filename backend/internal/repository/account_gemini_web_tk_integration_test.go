@@ -39,8 +39,9 @@ func (s *AccountRepoSuite) TestGeminiWebExplicitImportConflictsAndPreservesAccou
 	apply(2, "competing-import", false)
 	loaded, err := s.repo.GetByID(s.ctx, a.ID)
 	s.Require().NoError(err)
-	s.Require().False(loaded.Schedulable)
-	s.Require().Equal("error", loaded.Status)
+	s.Require().False(loaded.Schedulable, "import must preserve pause; ClearError's SetSchedulable(true) is not used")
+	s.Require().Equal(service.StatusActive, loaded.Status, "successful import recovers status=error for control-plane access")
+	s.Require().Empty(loaded.ErrorMessage)
 	s.Require().Equal("rotated", loaded.Credentials["api_key"])
 	s.Require().Equal(a.Credentials["model_mapping"], loaded.Credentials["model_mapping"])
 	web := loaded.Credentials["gemini_web"].(map[string]any)
@@ -174,8 +175,9 @@ func (s *AccountRepoSuite) TestGeminiWebInitializationGuardsAndPreservesAccount(
 	s.Require().Equal(a.Credentials["model_mapping"], loaded.Credentials["model_mapping"])
 	s.Require().Equal(a.Extra, loaded.Extra)
 	s.Require().Equal([]int64{group.ID}, loaded.GroupIDs)
-	s.Require().Equal("error", loaded.Status)
-	s.Require().False(loaded.Schedulable)
+	s.Require().Equal(service.StatusActive, loaded.Status, "successful init recovers status=error for control-plane access")
+	s.Require().Empty(loaded.ErrorMessage)
+	s.Require().False(loaded.Schedulable, "initialization must leave scheduling disabled")
 	// A settings editor loaded the empty declaration before import.
 	loaded.Credentials["gemini_web"] = map[string]any{}
 	loaded.Name = "edited"

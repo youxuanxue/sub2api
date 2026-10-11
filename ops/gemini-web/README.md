@@ -49,6 +49,22 @@ require another Worker. Copies made before this support was deployed lost their 
 copy the real Worker account again after upgrading instead of guessing identity from its name.
 
 Import success confirms database persistence, not Google sign-in or browser identity.
+A successful import also recovers `status=error` → `active` (clears `error_message`) in the
+same write, without changing `schedulable`, so admin "Test account" can reach the control
+plane after egress/session re-import without a separate Clear Error click. Initialization
+still leaves scheduling disabled until an operator enables it.
+
+Uncertain Worker failures (timeout/502 after `generation_pending` was set) intentionally keep
+the session paused so Google work is not retried. Admin **Clear Error** clears
+`blocked` / `generation_pending` / `cooldown_until` on local Worker runtimes (when no lease
+is held), matching operator verification in AdsPower; re-import also resets those flags.
+
+Upstream timeouts are phased so hung text generation fails faster than the old flat 180s
+ceiling: connect 15s; session hygiene (RotateCookies/`/app`/batch) read 30s; text
+`StreamGenerate` read 60s; image `StreamGenerate` read 180s; image download read 90s; each
+read also capped by the remaining operation lease. Worker logs `upstream_phase` with
+`refresh_ms` / `bootstrap_ms` / `generate_ms` / `generate_timeout_s` (also mirrored on the
+`request` event) so operators can see whether time was spent on refresh or GENERATE.
 Never put this export into an API Key field; do not send it to the production relay account.
 Admin "Test account" follows the platform AccountTestService SSOT and does not require
 scheduling to be enabled: control-plane session/lease/CAS accept active runtimes while

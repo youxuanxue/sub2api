@@ -41,6 +41,13 @@ MAX_BYTES = 24 * 1024 * 1024
 BROWSER_PROFILE = BrowserType.chrome145.value  # Fail startup if dependency cannot provide it.
 REFRESH_SECONDS = 600
 POLL_SECONDS = 60
+# Upstream budgets: fail hung StreamGenerate faster for text; image keeps the long ceiling.
+# Each call uses (connect, read); read is also capped by the remaining operation lease.
+CONNECT_TIMEOUT_SECONDS = 15
+DEFAULT_TIMEOUT_SECONDS = 30
+TEXT_GENERATE_TIMEOUT_SECONDS = 60
+IMAGE_GENERATE_TIMEOUT_SECONDS = 180
+DOWNLOAD_TIMEOUT_SECONDS = 90
 # Control-plane contract this build speaks; check_control rejects anything else.
 CONTROL_PROTOCOL_VERSION = 1
 MAX_IMAGE_PIXELS = 16_000_000
@@ -290,7 +297,8 @@ class Account:
         self.generation_pending = state.get('generation_pending', False)
         self.cooldown_until = state.get('cooldown_until', 0)
         self.last_refresh = state.get('last_refresh', 0)
-        self.session = requests.Session(impersonate=BROWSER_PROFILE, timeout=180, trust_env=False)
+        self.session = requests.Session(
+            impersonate=BROWSER_PROFILE, timeout=DEFAULT_TIMEOUT_SECONDS, trust_env=False)
         self.session.headers['User-Agent'] = bundle['user_agent']
         usable_cookies = 0
         self.cookie_records = {}
@@ -316,6 +324,7 @@ class Account:
         self.fields = {}
         self.models = {}
         self.ready_at = 0
+        self.last_phase = {}
         self.session_id = str(uuid.uuid4())
 
     def close(self):
@@ -348,18 +357,32 @@ class Account:
                 raise Failure(502, 'Upstream response exceeds size limit')
             data.extend(chunk)
             return len(chunk)
+        requested = kwargs.pop('timeout', DEFAULT_TIMEOUT_SECONDS)
+        if isinstance(requested, (tuple, list)):
+            if len(requested) != 2:
+                raise ValueError('timeout tuple must be (connect, read)')
+            connect, read = float(requested[0]), float(requested[1])
+        else:
+            connect, read = float(CONNECT_TIMEOUT_SECONDS), float(requested)
         if self.deadline is not None:
             remaining = self.deadline - time.monotonic()
             if remaining <= 0:
                 raise Failure(503, 'Gemini Web operation lease expired')
-            kwargs['timeout'] = min(180, remaining)
+            read = min(read, remaining)
+            connect = min(connect, read)
+        kwargs['timeout'] = (connect, read)
         try:
             response = self.session.request(method, url, allow_redirects=False,
                                              content_callback=collect, **kwargs)
         except Exception as exc:
             # curl exceptions include signed URLs. Never expose their text.
             self.cooldown_until = time.time() + 60
-            print(json.dumps({'event': 'upstream_transport_error', 'type': type(exc).__name__}), flush=True)
+            print(json.dumps({
+                'event': 'upstream_transport_error',
+                'type': type(exc).__name__,
+                'timeout_s': round(read, 3),
+                'connect_timeout_s': round(connect, 3),
+            }), flush=True)
             raise Failure(502, 'Upstream transport failed; request was not retried') from exc
         finally:
             self.persist()
@@ -445,7 +468,9 @@ class Account:
         if 'alr=' not in url:
             url += ('&' if '?' in url else '?') + 'alr=yes'
         for _ in range(6):
-            response, data = self.call('GET', image_url(url), headers={'Referer': ORIGIN + '/'})
+            response, data = self.call(
+                'GET', image_url(url), headers={'Referer': ORIGIN + '/'},
+                timeout=DOWNLOAD_TIMEOUT_SECONDS)
             if response.status_code in (301, 302, 303, 307, 308):
                 url = response.headers.get('location')
                 continue
@@ -507,15 +532,25 @@ class Account:
     def generate(self, model, body):
         prompt, modalities, aspect_ratio, images = request_prompt(body, model)
         blocked_at_start = self.blocked
+        phase = {
+            'refresh_ms': 0,
+            'bootstrap_ms': 0,
+            'generate_ms': 0,
+            'generate_timeout_s': 0,
+        }
         try:
             if self.blocked or self.generation_pending:
                 raise Failure(403, 'Session paused; operator verification or re-import required')
             if time.time() < self.cooldown_until:
                 raise Failure(429, 'Account is cooling down')
             if time.time() - self.last_refresh > REFRESH_SECONDS:
+                started = time.monotonic()
                 self.refresh()
+                phase['refresh_ms'] = round((time.monotonic() - started) * 1000)
             elif time.time() - self.ready_at > 300:
+                started = time.monotonic()
                 self.bootstrap()
+                phase['bootstrap_ms'] = round((time.monotonic() - started) * 1000)
             selector = self.models.get(MODELS[model][0])
             if selector is None:
                 raise Failure(404, 'Requested Web model is unavailable for this account')
@@ -562,8 +597,17 @@ class Account:
                 inner[0][3] = [self.upload(data, mime) for data, mime in images]
             self.generation_pending = True
             self.persist()
-            _, data = self.call('POST', GENERATE, params=self.params(), headers=headers,
-                data={'at': self.fields['SNlM0e'], 'f.req': json.dumps([None, json.dumps(inner)])})
+            generate_timeout = (
+                IMAGE_GENERATE_TIMEOUT_SECONDS if wants_image else TEXT_GENERATE_TIMEOUT_SECONDS)
+            phase['generate_timeout_s'] = generate_timeout
+            started = time.monotonic()
+            try:
+                _, data = self.call(
+                    'POST', GENERATE, params=self.params(), headers=headers,
+                    data={'at': self.fields['SNlM0e'], 'f.req': json.dumps([None, json.dumps(inner)])},
+                    timeout=generate_timeout)
+            finally:
+                phase['generate_ms'] = round((time.monotonic() - started) * 1000)
             text, references = generation_result(data.decode('utf-8'),
                 expected_image_model='Nano Banana Pro' if model == PRO_IMAGE_MODEL else None)
             if model == PRO_IMAGE_MODEL and len(references) != 1:
@@ -598,6 +642,9 @@ class Account:
                 self.generation_pending = False
                 self.persist()
             raise
+        finally:
+            self.last_phase = phase
+            print(json.dumps({'event': 'upstream_phase', **phase}), flush=True)
 
 
 class SessionOwner:
@@ -610,6 +657,7 @@ class SessionOwner:
         self.runtime = None
         self.owner = None
         self.deadline = 0
+        self.last_phase = {}
 
     def persist(self, updated):
         if time.monotonic() >= self.deadline:
@@ -657,7 +705,10 @@ class SessionOwner:
             self.owner, self.deadline = owner, deadline
             self.account.deadline = deadline
             if model is not None:
-                return self.account.generate(model, body)
+                try:
+                    return self.account.generate(model, body)
+                finally:
+                    self.last_phase = dict(getattr(self.account, 'last_phase', {}) or {})
             account = self.account
             if (not account.blocked and not account.generation_pending
                     and time.time() >= account.cooldown_until
@@ -710,9 +761,13 @@ def validate_key(key, record):
 class AuthorizedAccount:
     def __init__(self, owner, key):
         self.owner, self.key = owner, key
+        self.last_phase = {}
 
     def generate(self, model, body):
-        return self.owner.run(key=self.key, model=model, body=body)
+        try:
+            return self.owner.run(key=self.key, model=model, body=body)
+        finally:
+            self.last_phase = dict(getattr(self.owner, 'last_phase', {}) or {})
 
 
 class ControlAdapter:
@@ -890,6 +945,7 @@ class Handler(BaseHTTPRequestHandler):
         code = 500
         admitted = False
         image_admitted = False
+        account = None
         try:
             if self.server.adapter.stopping.is_set():
                 raise Failure(503, 'Worker is draining')
@@ -940,7 +996,17 @@ class Handler(BaseHTTPRequestHandler):
                 self.server.images.release()
             if admitted:
                 self.server.generations.release()
-            print(json.dumps({'event': 'request', 'status': code, 'duration_ms': round((time.monotonic() - started) * 1000)}), flush=True)
+            payload = {
+                'event': 'request',
+                'status': code,
+                'duration_ms': round((time.monotonic() - started) * 1000),
+            }
+            phase = getattr(account, 'last_phase', None) if account is not None else None
+            if isinstance(phase, dict):
+                for key in ('refresh_ms', 'bootstrap_ms', 'generate_ms', 'generate_timeout_s'):
+                    if key in phase:
+                        payload[key] = phase[key]
+            print(json.dumps(payload), flush=True)
 
 
 def main():

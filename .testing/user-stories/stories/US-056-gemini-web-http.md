@@ -21,7 +21,7 @@
 6. AC-006 并发：竞争 owner 与过期租约不能执行/写回；自身保存不触发错误重载。
 7. AC-007 部署影响：空闲维护不写库、旧编辑不覆盖新导入；过载明确拒绝且健康检查可用；排空完成在途请求；超预算图片在解码前拒绝；不兼容控制 API 和暂停账号不能通过部署检查。
 8. AC-008 请求能力准入：不兼容 system、历史、tools、controls 的请求在选账号前跳过 Web 账号；万能 key 可选择其他授权账号，Direct 不越权换组；原生单轮文本与生图仍可用，生图比例 `1:1`、`9:16`、`3:4`、`4:3`、`16:9` 按网页 RPC 实测映射，等待后刷新重验能力声明。
-9. AC-009 导入并发：显式导入成功必须实际落库；竞争导入只有一个成功，Worker 更新或活跃租约使旧导入冲突；保留并发更新的 API Key、模型映射和暂停状态，旧编辑不覆盖新会话。
+9. AC-009 导入并发：显式导入成功必须实际落库；竞争导入只有一个成功，Worker 更新或活跃租约使旧导入冲突；保留并发更新的 API Key、模型映射和暂停状态，旧编辑不覆盖新会话；成功导入将 `status=error` 恢复为 `active`（清空 error_message）且不强制开启调度，以便控制面测连。
 10. AC-010 初始化：复制 Worker 账号保留空 `gemini_web` 声明；首次导入以版本 1 原子初始化并保持调度关闭，普通 Gemini API Key 和 prod 中继仍拒绝。
 11. AC-011 导入安全：仅声明本地 Worker 能力的账号可导入，中继/普通账号拒绝；错误和响应不含 Cookie；文件上限、Cookie 类型、版本、域范围与 CDP 会话有效期均按契约处理。
 12. AC-012 UI 生命周期：真实编辑页面可选文件导入并显示提交摘要；成功导入保留未保存的表单输入；畸形/超限文件不发送；读文件中关闭/切换或迟到 HTTP 响应不串号、不更新新弹窗。
@@ -85,6 +85,8 @@
 - AC-008: `ops/gemini-web/test_worker.py`::`WorkerTests.test_null_image_config_uses_default_image_options`（生图 null 与省略配置生成相同默认 RPC）
 - AC-009: `backend/internal/repository/account_gemini_web_tk_integration_test.go`::`TestGeminiWebConcurrentImportsHaveOneWinner`
 - AC-009: `backend/internal/repository/account_gemini_web_tk_integration_test.go`::`AccountRepoSuite.TestGeminiWebExplicitImportConflictsAndPreservesAccount`
+- AC-009: `backend/internal/repository/account_gemini_web_import_error_recovery_tk_test.go`::`TestImportGeminiWebSessionRecoversErrorStatusAndPreservesSchedulableGate`
+- AC-009: `backend/internal/repository/account_gemini_web_import_error_recovery_tk_test.go`::`TestImportGeminiWebSessionConflictSkipsErrorRecoverySideEffects`
 - AC-009: `backend/internal/service/admin_gemini_web_import_test.go`::`TestGeminiWebImportServiceReportsCASConflict`
 - AC-009: `backend/internal/handler/admin/account_handler_gemini_web_import_test.go`::`TestGeminiWebImportHandlerSuccessAndConflict`
 - AC-010: `backend/internal/handler/admin/account_handler_gemini_web_import_test.go`::`TestGeminiWebImportHandlerInitializesCopiedWorker`
@@ -107,6 +109,7 @@ python3 -m unittest discover -s ops/gemini-web -v
 python3 -m unittest discover -s ops/stage0 -p 'test_probe_account_model*.py'
 cd backend
 go test -tags=unit ./internal/handler/admin ./internal/handler/dto ./internal/service -run 'Test(GeminiWeb|CanImport|DuplicateAccount|RedactCredentials|ValidateGeminiWeb|NormalizeGeminiWeb)'
+go test ./internal/repository -run 'TestImportGeminiWebSession(RecoversErrorStatusAndPreservesSchedulableGate|ConflictSkipsErrorRecoverySideEffects)' -count=1
 go test -tags=integration ./internal/repository -run 'TestGeminiWebConcurrent|TestAccountRepoSuite/TestGeminiWeb' -v
 cd ../frontend
 pnpm exec vitest run src/components/account/__tests__/EditAccountModal.spec.ts

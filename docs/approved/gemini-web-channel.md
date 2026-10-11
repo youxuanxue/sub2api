@@ -199,8 +199,12 @@ imageConfig.aspectRatio。
 
 每个账号只有一个 SessionOwner。生成、后台续期、读取最新版本、替换内存和保存共用操作锁。
 跨进程租约和 runtime CAS 在同一数据库账号行执行；租约 600 秒，Worker 总操作预算 480 秒，
-每次上游请求 timeout 不超过剩余预算。到期禁止新请求与写回；竞争/版本冲突丢弃本地 owner。
-释放只删除匹配 owner 的租约。故障后不自动重试生成。
+每次上游请求使用 `(connect, read)` timeout，且 read 不超过剩余预算。默认会话请求
+（RotateCookies / `/app` / batchexecute）read 上限 30s；文本 `StreamGenerate` 60s；
+出图 `StreamGenerate` 180s；原图下载 90s；connect 上限 15s。到期禁止新请求与写回；
+竞争/版本冲突丢弃本地 owner。释放只删除匹配 owner 的租约。故障后不自动重试生成。
+Worker 对每次生成记录 `upstream_phase`（`refresh_ms` / `bootstrap_ms` / `generate_ms` /
+`generate_timeout_s`），并写入对应 `request` 事件，便于区分冷启动与 GENERATE 挂起。
 
 Worker 每分钟只读维护元数据，只有到期账号才申请租约并执行 RotateCookies → bootstrap，
 正常续期间隔十分钟；暂停、冷却、在途租约和未确认生成不会进入维护列表。
@@ -209,6 +213,9 @@ Worker 每分钟只读维护元数据，只有到期账号才申请租约并执�
 明确鉴权拒绝且已将会话标记 blocked 时，也清除 pending，但 blocked 继续阻止请求。
 本地暂停返回的 403 不清除 pending，连续重试不能绕过暂停。
 下载失败或未知生成结果跨重启保持暂停，防止重复消耗额度。
+运营在 AdsPower 确认网页可聊后，管理端 **清除错误** 会重置本地 Worker 的
+`blocked` / `generation_pending` / `cooldown_until`（无在途 lease 时；保留 Cookie）；
+重新导入会话同样重置这些标志。
 
 普通账号编辑和 credentials 更新在数据库行锁内保留当前会话，防止旧快照覆盖 Worker 更新。
 导入必须显式使用当前版本加一；持有在途租约时拒绝导入，不能通过全量 credentials 覆盖绕开并发保护。
@@ -327,7 +334,7 @@ Cursor/Kiro 同源的 `tokenestimate`（cl100k）估算 input/output，写入结
 | 文件选择、大小限制与弹窗异步生命周期 | frontend/src/components/account/EditAccountModal.vue |
 | 会话生命周期及 HTTP 协议执行 | ops/gemini-web/worker.py 的 SessionOwner / Account |
 | edge 控制请求 | backend/internal/handler/gemini_web_session_handler.go |
-| 数据库租约与 runtime CAS | backend/internal/repository/account_gemini_web_tk.go |
+| 数据库租约与 runtime CAS；导入成功时 error→active（保留 schedulable） | backend/internal/repository/account_gemini_web_tk.go |
 | 网关账号引用 | backend/internal/service/gemini_web_tk.go |
 | 凭据脱敏与留空保留 | backend/internal/service/account_credentials_redact.go |
 | 复制账号重置 | backend/internal/service/admin_account.go |

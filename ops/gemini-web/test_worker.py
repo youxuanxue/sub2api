@@ -641,6 +641,89 @@ assert rss_bytes < 384 * 1024 * 1024, rss_bytes
         with self.assertRaises(ValueError):
             worker.SessionControl('', 'a' * 40)
 
+    def test_text_generate_uses_shorter_upstream_timeout(self):
+        with patch.object(self.account, 'call', return_value=(None, wire().encode())) as call:
+            self.account.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'hi'}]}]})
+        self.assertEqual(call.call_args.kwargs['timeout'], worker.TEXT_GENERATE_TIMEOUT_SECONDS)
+        self.assertEqual(self.account.last_phase['generate_timeout_s'], worker.TEXT_GENERATE_TIMEOUT_SECONDS)
+        self.assertGreaterEqual(self.account.last_phase['generate_ms'], 0)
+
+    def test_image_generate_keeps_long_upstream_timeout(self):
+        original = {'inlineData': {'mimeType': 'image/jpeg', 'data': 'b3JpZ2luYWw='}}
+        with patch.object(self.account, 'call', return_value=(None, wire(images=True).encode())) as call:
+            with patch.object(self.account, 'download', return_value=original):
+                self.account.generate('gemini-web-pro-image', {
+                    'contents': [{'parts': [{'text': 'draw'}]}],
+                    'generationConfig': {'responseModalities': ['IMAGE']},
+                })
+        self.assertEqual(call.call_args.kwargs['timeout'], worker.IMAGE_GENERATE_TIMEOUT_SECONDS)
+        self.assertEqual(self.account.last_phase['generate_timeout_s'], worker.IMAGE_GENERATE_TIMEOUT_SECONDS)
+
+    def test_call_uses_connect_read_timeout_capped_by_lease(self):
+        self.account.deadline = time.monotonic() + 100
+
+        def fake_request(method, url, **kwargs):
+            callback = kwargs.get('content_callback')
+            if callback:
+                callback(b'ok')
+            return SimpleNamespace(status_code=200, headers={})
+
+        with patch.object(self.account.session, 'request', side_effect=fake_request) as request:
+            self.account.call('GET', worker.ORIGIN + '/app', timeout=worker.TEXT_GENERATE_TIMEOUT_SECONDS)
+        connect, read = request.call_args.kwargs['timeout']
+        self.assertEqual(connect, worker.CONNECT_TIMEOUT_SECONDS)
+        self.assertEqual(read, worker.TEXT_GENERATE_TIMEOUT_SECONDS)
+
+        self.account.deadline = time.monotonic() + 8
+        with patch.object(self.account.session, 'request', side_effect=fake_request) as request:
+            self.account.call('GET', worker.ORIGIN + '/app', timeout=worker.TEXT_GENERATE_TIMEOUT_SECONDS)
+        connect, read = request.call_args.kwargs['timeout']
+        self.assertLessEqual(read, 8.01)
+        self.assertEqual(connect, read)
+
+    def test_transport_error_logs_timeout_budget(self):
+        self.account.deadline = time.monotonic() + 120
+
+        def boom(*_args, **_kwargs):
+            raise TimeoutError('hung')
+
+        with patch.object(self.account.session, 'request', side_effect=boom), \
+                patch('builtins.print') as printed:
+            with self.assertRaisesRegex(worker.Failure, 'Upstream transport failed'):
+                self.account.call('POST', worker.GENERATE, timeout=worker.TEXT_GENERATE_TIMEOUT_SECONDS)
+        events = [json.loads(call.args[0]) for call in printed.call_args_list if call.args]
+        transport = next(event for event in events if event.get('event') == 'upstream_transport_error')
+        self.assertEqual(transport['type'], 'TimeoutError')
+        self.assertEqual(transport['timeout_s'], worker.TEXT_GENERATE_TIMEOUT_SECONDS)
+        self.assertEqual(transport['connect_timeout_s'], worker.CONNECT_TIMEOUT_SECONDS)
+
+    def test_generate_logs_upstream_phase_on_refresh_path(self):
+        self.account.last_refresh = 0
+
+        def do_refresh():
+            time.sleep(0.01)
+            self.account.last_refresh = time.time()
+            self.account.ready_at = time.time()
+
+        with patch.object(self.account, 'refresh', side_effect=do_refresh) as refresh, \
+                patch.object(self.account, 'call', return_value=(None, wire().encode())) as call, \
+                patch('builtins.print') as printed:
+            self.account.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'hi'}]}]})
+        refresh.assert_called_once()
+        self.assertEqual(call.call_args.kwargs['timeout'], worker.TEXT_GENERATE_TIMEOUT_SECONDS)
+        events = [json.loads(item.args[0]) for item in printed.call_args_list if item.args]
+        phase = next(event for event in events if event.get('event') == 'upstream_phase')
+        self.assertGreaterEqual(phase['refresh_ms'], 10)
+        self.assertEqual(phase['bootstrap_ms'], 0)
+        self.assertEqual(phase['generate_timeout_s'], worker.TEXT_GENERATE_TIMEOUT_SECONDS)
+        self.assertGreaterEqual(phase['generate_ms'], 0)
+        self.assertEqual(self.account.last_phase, {
+            'refresh_ms': phase['refresh_ms'],
+            'bootstrap_ms': 0,
+            'generate_ms': phase['generate_ms'],
+            'generate_timeout_s': worker.TEXT_GENERATE_TIMEOUT_SECONDS,
+        })
+
     def test_release_failure_does_not_turn_completed_generation_into_retry(self):
         control = Control()
         owner = worker.SessionOwner('28', control)
