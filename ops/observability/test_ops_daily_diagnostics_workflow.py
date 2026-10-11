@@ -361,6 +361,18 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn("PYTHONPATH: .", block)
         self.assertIn("open_prod_ops_issues.py", block)
 
+    def test_prod_diagnose_uses_resolve_prod_ssm_target(self) -> None:
+        text = workflow_text()
+        self.assertIn("ops/stage0/resolve_prod_ssm_target.py", text)
+        # Live-host audit + config audit + diagnose body must not CFN-only for prod.
+        audit = text.index("Assert live-host state (prod daily audit)")
+        config = text.index("Audit prod configuration independently of deployment")
+        diagnose = text.index('if [ "$TARGET_KIND" = "prod" ]; then')
+        self.assertLess(audit, config)
+        self.assertLess(config, diagnose)
+        self.assertIn("resolve_prod_ssm_target.py", text[audit:config + 800])
+        self.assertIn("resolve_prod_ssm_target.py", text[config:diagnose + 600])
+
     def test_missing_target_reports_skipped_when_diagnose_cancelled(self) -> None:
         text = workflow_text()
         self.assertIn("DISCOVER_TARGETS_RESULT", text)
@@ -370,9 +382,10 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         text = workflow_text()
         init = text.index("RUNTIME_SSM_TRANSPORT_OK=false")
         send_success = text.index("RUNTIME_SSM_TRANSPORT_OK=true", init)
-        suppress = text.index('elif [ "$RUNTIME_SSM_TRANSPORT_OK" != "true" ]; then')
+        suppress = text.index('elif [ "$RUNTIME_SSM_TRANSPORT_OK" != "true" ]; then', send_success)
         hybrid = text.index(
-            'elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ] || [ "${TARGET_PLATFORM:-}" = "hetzner" ]; then'
+            'elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ] || [ "${TARGET_PLATFORM:-}" = "hetzner" ]; then',
+            suppress,
         )
         binary_check = text.index("error_clustering_binary_check", hybrid)
 

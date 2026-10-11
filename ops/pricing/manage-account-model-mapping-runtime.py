@@ -334,8 +334,7 @@ def _resolve_check_targets(
     if not skip_prod:
         targets.append(_resolve_prod_target(prod_instance_id))
     if skip_prod or include_edges:
-        ls_targets = _ROUTING.load_lightsail_targets(REPO_ROOT)
-        for eid in _ROUTING.deployable_edge_ids(ls_targets):
+        for eid in _ROUTING.live_deployable_edge_ids(REPO_ROOT):
             ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
             targets.append((f"edge:{eid}", ident.region, ident.instance_id))
     return targets

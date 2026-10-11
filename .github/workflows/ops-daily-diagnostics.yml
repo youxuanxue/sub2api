@@ -197,37 +197,36 @@ jobs:
           aws-region: ${{ env.TARGET_REGION }}
 
       - name: Assert live-host state (prod daily audit)
-        # ADVISORY ONLY — prod only (edges are lightsail anthropic relays with no
-        # QA-export / deploy-sed env surface). Daily read-only audit of the live
-        # host's deploy_via_ssm-injected env, the gap no existing detector covered:
-        # a manual host edit or a deploy-sed that wrote wrong content used to be
-        # caught only by hand. No expected_tag here (audit doesn't know the
-        # intended tag — that assertion belongs in deploy-stage0 post-deploy).
+        # ADVISORY ONLY — prod only. Cutover-aware: resolve_prod_ssm_target (not CFN).
         if: steps.precheck.outputs.skip == 'false' && env.TARGET_KIND == 'prod'
         continue-on-error: true
         env:
-          AWS_REGION: ${{ matrix.region }}
+          PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
         run: |
           set -uo pipefail
-          IID=$(aws cloudformation describe-stacks --region "$TARGET_REGION" --stack-name "$STACK_NAME" \
-            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text 2>/dev/null || echo None)
+          RESOLVED_JSON="$(python3 ops/stage0/resolve_prod_ssm_target.py \
+            --target "${PROD_SSM_TARGET}" --stack "$STACK_NAME" --format json)"
+          IID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$RESOLVED_JSON")"
+          SSM_REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"$RESOLVED_JSON")"
           if [ -n "$IID" ] && [ "$IID" != "None" ]; then
-            bash ops/stage0/assert-live-host-state.sh "$IID" "" "ops-daily-diagnostics live-host audit env=prod"
+            AWS_REGION="$SSM_REGION" bash ops/stage0/assert-live-host-state.sh "$IID" "" "ops-daily-diagnostics live-host audit env=prod"
           else
-            echo "skip live-host audit: no InstanceId for $STACK_NAME"
+            echo "skip live-host audit: resolve_prod_ssm_target returned empty instance_id"
           fi
 
       - name: Audit prod configuration independently of deployment
         if: steps.precheck.outputs.skip == 'false' && env.TARGET_KIND == 'prod'
         continue-on-error: true  # preflight-allow: advisory configuration audit
         env:
-          AWS_REGION: ${{ matrix.region }}
+          PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
           PROD_CONFIG_AUDIT_DIR: prod-ops-targets/${{ matrix.target_id }}/config-audit
         run: |
           set -euo pipefail
-          INSTANCE_ID="$(aws cloudformation describe-stacks --region "$TARGET_REGION" --stack-name "$STACK_NAME" \
-            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue | [0]' --output text)"
+          RESOLVED_JSON="$(python3 ops/stage0/resolve_prod_ssm_target.py \
+            --target "${PROD_SSM_TARGET}" --stack "$STACK_NAME" --format json)"
+          INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$RESOLVED_JSON")"
           export INSTANCE_ID
+          export AWS_REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"$RESOLVED_JSON")"
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           bash ops/observability/prod-config-audit.sh
 
@@ -268,7 +267,27 @@ jobs:
 
           API_URL=""
           INSTANCE_ID=""
-          if [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ] || [ "${TARGET_PLATFORM:-}" = "hetzner" ]; then
+          if [ "$TARGET_KIND" = "prod" ]; then
+            # Cutover-aware control plane (aws i-* or Hybrid mi-*).
+            if ! RESOLVED_JSON="$(PROD_SSM_TARGET="${PROD_SSM_TARGET:-auto}" python3 ops/stage0/resolve_prod_ssm_target.py \
+              --target "${PROD_SSM_TARGET:-auto}" --stack "$STACK_NAME" --format json 2>>"$STDERR")"; then
+              add_finding "resolve_prod_ssm_target" "manual_ops" "error" "Could not resolve prod SSM target" "resolve_prod_ssm_target.py failed for stack $STACK_NAME." "resolve-prod|$STACK_NAME"
+            else
+              INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$RESOLVED_JSON")"
+              TARGET_REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"$RESOLVED_JSON")"
+              API_URL="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("api_url") or "")' <<<"$RESOLVED_JSON")"
+              export AWS_REGION="$TARGET_REGION"
+              if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+                add_finding "resolve_prod_ssm_target" "manual_ops" "error" "Empty prod instance id" "resolve_prod_ssm_target returned empty instance_id." "resolve-prod-empty|$STACK_NAME"
+                INSTANCE_ID=""
+              else
+                [ -n "$API_URL" ] || API_URL="https://$TARGET_DOMAIN"
+                jq --arg instance_id "$INSTANCE_ID" --arg api_url "$API_URL" --arg region "$TARGET_REGION" \
+                  '. + {instance_id:$instance_id, api_url:$api_url, api_url_source:"resolve_prod_ssm_target", region:$region}' \
+                  "$OUT/target.json" > "$OUT/target.tmp" && mv "$OUT/target.tmp" "$OUT/target.json"
+              fi
+            fi
+          elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ] || [ "${TARGET_PLATFORM:-}" = "hetzner" ]; then
             # Hybrid edges (Lightsail or Hetzner) have no CloudFormation stack —
             # INSTANCE_ID is the SSM `mi-*` under ssm_prefix; ApiUrl = https://<domain>.
             INSTANCE_ID="$(aws ssm get-parameter --region "$TARGET_REGION" \

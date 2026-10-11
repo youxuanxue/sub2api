@@ -144,6 +144,7 @@ def _load(rel: str, name: str):
 # boto-free and safe to importlib-load directly for the matrix helpers.
 _SSM = _load("ops/stage0/edge_ssm_execution.py", "tk_edge_ssm_execution")
 _ROUTING = _load("ops/stage0/edge_routing_matrix.py", "tk_edge_routing_matrix")
+_PROD_SSM = _load("ops/stage0/ssm_execution.py", "tk_ssm_execution")
 
 
 def ssm_run_sql(region: str, instance_id: str, sql: str, comment: str) -> str:
@@ -284,15 +285,15 @@ def _check_target(label: str, region: str, instance_id: str) -> list[dict]:
 
 
 def _resolve_targets(skip_prod: bool) -> list[tuple[str, str, str]]:
-    ls_targets = _ROUTING.load_lightsail_targets(REPO_ROOT)
-    edge_ids = _ROUTING.deployable_edge_ids(ls_targets)
+    edge_ids = _ROUTING.live_deployable_edge_ids(REPO_ROOT)
     targets: list[tuple[str, str, str]] = []
     for eid in edge_ids:
         ident = _SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
         targets.append((eid, ident.region, ident.instance_id))
     if not skip_prod:
-        prod_inst = _SSM.cfn_resolve_instance_id(PROD_TARGET["region"], PROD_TARGET["stack"])
-        targets.append((PROD_TARGET["label"], PROD_TARGET["region"], prod_inst))
+        # Cutover-aware: Hybrid mi-* when control-plane param is hetzner.
+        prod_inst, prod_region = _PROD_SSM.resolve_prod_identity()
+        targets.append((PROD_TARGET["label"], prod_region, prod_inst))
     return targets
 
 

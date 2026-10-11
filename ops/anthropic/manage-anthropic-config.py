@@ -1820,7 +1820,7 @@ def _edge_ids_for_check(snapshot: dict | None, allow_planned: bool) -> list[str]
     ls_targets = _EDGE_ROUTING.load_lightsail_targets(REPO_ROOT)
     if allow_planned:
         return sorted(ls_targets)
-    return _EDGE_ROUTING.deployable_edge_ids(ls_targets)
+    return _EDGE_ROUTING.live_deployable_edge_ids(REPO_ROOT)
 
 
 def _guard_items_from_batch(
