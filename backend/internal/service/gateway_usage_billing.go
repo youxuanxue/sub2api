@@ -332,9 +332,14 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	return cmd
 }
 
-func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog, p *postUsageBillingParams, deps *billingDeps, repo UsageBillingRepository) (bool, error) {
+// applyUsageBilling settles one usage record. holdConsumed reports whether a
+// handed-off pre-flight hold (p.TkHoldRequestID) was actually consumed by the
+// settlement transaction, so the caller knows when it must compensate instead:
+// only the committed repo path consumes it, never a dedup rejection, an error,
+// or the legacy postUsageBilling fallback.
+func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog, p *postUsageBillingParams, deps *billingDeps, repo UsageBillingRepository) (applied bool, holdConsumed bool, err error) {
 	if p == nil || deps == nil {
-		return false, nil
+		return false, false, nil
 	}
 	if p.APIKey != nil && p.APIKey.IsUniversal() {
 		// Async callers may still supply a legacy group-derived fallback. The
@@ -347,12 +352,13 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	cmd := buildUsageBillingCommand(requestID, usageLog, p)
 	if cmd == nil || cmd.RequestID == "" || repo == nil {
 		if p.SimpleModeKeyRateLimitOnly {
-			return false, ErrSimpleModeKeyRateLimitBillingUnavailable
+			return false, false, ErrSimpleModeKeyRateLimitBillingUnavailable
 		}
 		// The legacy path is only a fallback for standard billing. Simple mode
 		// must retain request-id deduplication and never bill other balances.
+		// It has no hold handling, so the hold stays the caller's to compensate.
 		postUsageBilling(ctx, p, deps)
-		return true, nil
+		return true, false, nil
 	}
 
 	billingCtx, cancel := detachedBillingContext(ctx)
@@ -360,13 +366,16 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 
 	result, err := repo.Apply(billingCtx, cmd)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 
 	if result == nil || !result.Applied {
+		// Dedup/fingerprint rejection: Apply returned before applying effects, so
+		// the in-transaction hold consume never ran.
 		deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)
-		return false, nil
+		return false, false, nil
 	}
+	holdConsumed = strings.TrimSpace(cmd.TkHoldRequestID) != ""
 
 	if result.APIKeyQuotaExhausted {
 		if invalidator, ok := p.APIKeyService.(apiKeyAuthCacheInvalidator); ok && p.APIKey != nil && p.APIKey.Key != "" {
@@ -375,7 +384,7 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	}
 
 	finalizePostUsageBilling(billingCtx, p, deps, result)
-	return true, nil
+	return true, holdConsumed, nil
 }
 
 func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *billingDeps, result *UsageBillingApplyResult) {
@@ -939,7 +948,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		}
 	}
 	requestID := usageLog.RequestID
-	_, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
+	// This path carries no pre-flight hold (TkHoldRequestID is unset), so the
+	// holdConsumed report is not applicable here.
+	_, _, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
 		Cost:                       cost,
 		User:                       user,
 		APIKey:                     apiKey,

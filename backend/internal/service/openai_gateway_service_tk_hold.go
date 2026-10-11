@@ -92,18 +92,21 @@ func (s *OpenAIGatewayService) tkHoldGatingDisabled() bool {
 // request. promptTokens must be an UPPER BOUND on the request's input tokens
 // (callers over-estimate). maxOutputTokens is an upper bound only when callers
 // pass an explicit client ceiling; omitted output ceilings may use a low
-// default reserve. Embeddings pass maxOutputTokens=0.
+// default reserve. Embeddings pass maxOutputTokens=0. reasoningEffort is the
+// effort settlement will price this request at, read from the post-policy body
+// ("" when the request declares none, which reserves 1x exactly as settlement
+// bills it — see reasoningEffortHoldMultiplier).
 //
 // Returns held (caller owns the release) and reject (caller returns 403). A
 // pricing/DB failure is fail-open (held=false, reject=false) + an ALERT log: a
 // reservation outage must not deny service (availability wins, same regime as
 // unpriced-chat serve-and-alert), it only narrows the guarantee until resolved.
-func (s *OpenAIGatewayService) TkReserveTokenHold(ctx context.Context, requestID, model, serviceTier string, user *User, apiKey *APIKey, promptTokens, maxOutputTokens int) (held bool, reject bool) {
+func (s *OpenAIGatewayService) TkReserveTokenHold(ctx context.Context, requestID, model, serviceTier, reasoningEffort string, user *User, apiKey *APIKey, promptTokens, maxOutputTokens int) (held bool, reject bool) {
 	if s == nil || s.billingService == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
 		return false, false
 	}
 	multiplier := s.tkHoldRateMultiplier(ctx, user, apiKey)
-	amount, err := s.billingService.EstimateTokenHold(model, serviceTier, promptTokens, maxOutputTokens, multiplier)
+	amount, err := s.tkEstimateTokenHoldAmount(ctx, model, serviceTier, reasoningEffort, apiKey, promptTokens, maxOutputTokens, multiplier)
 	if err != nil {
 		// Unpriced model: chat bills $0 by design and serves — do not gate.
 		return false, false
@@ -119,6 +122,34 @@ func (s *OpenAIGatewayService) TkReserveTokenHold(ctx context.Context, requestID
 		return false, false
 	}
 	return held, reject
+}
+
+// tkEstimateTokenHoldAmount mirrors CalculateCostUnified's token path with
+// at-submit upper-bound inputs. Catalog holds use EstimateTokenHold (DeepSeek
+// peak factor included). When the request resolves to group/channel token
+// pricing, the hold is re-priced from that ResolvedPricing — including the
+// dearest channel TimePricing period — so channel unit prices and time
+// multipliers cannot settle above the reserve.
+func (s *OpenAIGatewayService) tkEstimateTokenHoldAmount(
+	ctx context.Context,
+	model, serviceTier, reasoningEffort string,
+	apiKey *APIKey,
+	promptTokens, maxOutputTokens int,
+	multiplier float64,
+) (float64, error) {
+	if s == nil || s.billingService == nil {
+		return 0, ErrModelPricingUnavailable
+	}
+	resolved := s.resolveOpenAIChannelPricing(ctx, model, apiKey)
+	if resolved != nil && resolved.Mode == BillingModeToken && s.resolver != nil &&
+		(resolved.Source == PricingSourceChannel || resolved.Source == PricingSourceGroup) {
+		return s.billingService.EstimateTokenHoldResolved(
+			model, serviceTier, reasoningEffort,
+			promptTokens, maxOutputTokens, multiplier,
+			resolved, s.resolver,
+		)
+	}
+	return s.billingService.EstimateTokenHold(model, serviceTier, reasoningEffort, promptTokens, maxOutputTokens, multiplier)
 }
 
 // TkReserveImageHold estimates an upper-bound image-generation cost and
@@ -291,4 +322,28 @@ func (s *OpenAIGatewayService) TkReleaseHoldChecked(ctx context.Context, request
 	relCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	return tkReleaseBalanceHold(relCtx, s.usageBillingRepo, requestID)
+}
+
+// TkReleaseHoldIfUnconsumed is the settlement-side backstop for a hold that was
+// handed off but whose settlement never consumed it: a dropped usage-record
+// task, an early RecordUsage return (pricing error, shadow-credential failure,
+// nil result), a dedup/fingerprint rejection that skips applyUsageBillingEffects
+// entirely (usage_billing_repo.go Apply returns before the consume), or the
+// legacy postUsageBilling fallback which has no hold handling at all.
+//
+// Safe against double-refund by construction: both this release and the
+// in-transaction consume are `DELETE FROM usage_holds ... RETURNING` guarded, so
+// whichever runs second finds no row and moves no money. Without it the hold
+// survives to the 30-minute reconciler TTL, holding real user balance against
+// admission the whole time.
+func (s *OpenAIGatewayService) TkReleaseHoldIfUnconsumed(ctx context.Context, requestID string) {
+	if s == nil || requestID == "" {
+		return
+	}
+	if err := s.TkReleaseHoldChecked(ctx, requestID); err != nil {
+		logger.L().Error("openai_gateway.hold_settlement_backstop_release_failed",
+			zap.String("request_id", requestID),
+			zap.Error(err),
+		)
+	}
 }

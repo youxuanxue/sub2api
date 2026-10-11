@@ -68,10 +68,10 @@ func TestApplyUsageBillingSimpleModeDeduplicatesWithoutBalanceEffects(t *testing
 		SimpleModeKeyRateLimitOnly: true,
 	}
 
-	first, err := applyUsageBilling(context.Background(), "simple-req", nil, p, &billingDeps{deferredService: &DeferredService{}}, repo)
+	first, _, err := applyUsageBilling(context.Background(), "simple-req", nil, p, &billingDeps{deferredService: &DeferredService{}}, repo)
 	require.NoError(t, err)
 	require.True(t, first)
-	second, err := applyUsageBilling(context.Background(), "simple-req", nil, p, &billingDeps{deferredService: &DeferredService{}}, repo)
+	second, _, err := applyUsageBilling(context.Background(), "simple-req", nil, p, &billingDeps{deferredService: &DeferredService{}}, repo)
 	require.NoError(t, err)
 	require.False(t, second)
 	require.Len(t, repo.cmds, 2)
@@ -102,7 +102,7 @@ func TestApplyUsageBillingSimpleModeRejectsLegacyFallback(t *testing.T) {
 			case "api_key":
 				p.APIKey = nil
 			}
-			_, err := applyUsageBilling(context.Background(), requestID, nil, p, &billingDeps{deferredService: &DeferredService{}}, repo)
+			_, _, err := applyUsageBilling(context.Background(), requestID, nil, p, &billingDeps{deferredService: &DeferredService{}}, repo)
 			require.ErrorIs(t, err, ErrSimpleModeKeyRateLimitBillingUnavailable)
 		})
 	}

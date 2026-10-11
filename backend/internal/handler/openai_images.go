@@ -437,7 +437,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					zap.Int64("account_id", account.ID),
 				).Error("openai.images.record_usage_failed", zap.Error(err))
 			}
-		})
+		}, h.tkReleaseHoldOnDroppedTask(c.Request.Context(), tkHoldRequestID))
 
 		reqLog.Debug("openai.images.request_completed",
 			zap.Int64("account_id", account.ID),
