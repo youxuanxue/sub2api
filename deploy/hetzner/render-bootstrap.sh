@@ -86,12 +86,31 @@ export DEBIAN_FRONTEND=noninteractive
 # real reboot. mask (not disable) survives package upgrades and systemd presets.
 systemctl mask apt-daily-upgrade.timer >/dev/null 2>&1 || true
 systemctl stop apt-daily-upgrade.timer >/dev/null 2>&1 || true
+# Stopping the timer does nothing to a service instance it already launched, and the
+# image's timer can fire during first boot. Without this, the apt-get calls below would
+# contend for the dpkg lock and — under `set -euo pipefail` — abort the whole bootstrap.
+if systemctl is-active --quiet apt-daily-upgrade.service 2>/dev/null; then
+  echo "bootstrap: apt-daily-upgrade.service was mid-run; stopping it"
+  systemctl stop apt-daily-upgrade.service >/dev/null 2>&1 || true
+fi
 # apt-daily.timer stays enabled: it only refreshes package lists (no unit restarts),
 # which is what lets the patch-debt probe report what is pending.
 cat >/etc/apt/apt.conf.d/99tokenkey-no-auto-upgrade <<'APTEOF'
 // Owned by deploy/hetzner/render-bootstrap.sh. Patching is a blue/green release.
 // Enforced by scripts/preflight.sh (fleet apt-exposure check) — do not re-enable here.
 APT::Periodic::Unattended-Upgrade "0";
+APTEOF
+# The `|| true` above keeps bootstrap idempotent, but a silently-failed mask would
+# provision a host that looks healthy and is still fully exposed, with nothing
+# anywhere to notice. Assert the end state instead of trusting the command.
+if [ "$(systemctl is-enabled apt-daily-upgrade.timer 2>/dev/null | sed -n 1p)" != "masked" ]; then
+  echo "BOOTSTRAP_FAIL: apt-daily-upgrade.timer is not masked; host would auto-install packages at peak" >&2
+  exit 1
+fi
+# Belt-and-braces for any apt invocation that still races a stray dpkg holder.
+cat >/etc/apt/apt.conf.d/99tokenkey-lock-timeout <<'APTEOF'
+// Wait for the dpkg lock instead of hard-failing a bootstrap mid-provision.
+DPkg::Lock::Timeout "120";
 APTEOF
 
 apt-get update -y

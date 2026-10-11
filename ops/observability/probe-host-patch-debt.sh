@@ -28,7 +28,14 @@ kv timer_apt_daily "$(systemctl is-enabled apt-daily.timer 2>/dev/null || echo a
 kv periodic_unattended "$(apt-config dump 2>/dev/null | awk -F'"' '/^APT::Periodic::Unattended-Upgrade /{print $2}' | tail -1)"
 kv automatic_reboot "$(apt-config dump 2>/dev/null | awk -F'"' '/^Unattended-Upgrade::Automatic-Reboot /{print $2}' | tail -1)"
 kv pin_file_present "$([ -e /etc/apt/apt.conf.d/99tokenkey-no-auto-upgrade ] && echo yes || echo no)"
-kv next_unattended_fire "$(systemctl list-timers apt-daily-upgrade.timer --no-pager 2>/dev/null | awk 'NR==2{print $1" "$2" "$3}')"
+# On a masked unit `list-timers` prints a header plus "0 timers listed", so a blind
+# `awk NR==2` yields the literal garbage "- - Sun". Report the state instead: this is
+# the field a reader scans to answer "is it really off?".
+if [ "$(systemctl is-enabled apt-daily-upgrade.timer 2>/dev/null | sed -n 1p)" = "masked" ]; then
+  kv next_unattended_fire "none (masked)"
+else
+  kv next_unattended_fire "$(systemctl list-timers apt-daily-upgrade.timer --no-pager 2>/dev/null | awk 'NR==2 && $1 != "0" {print $1" "$2" "$3}')"
+fi
 
 # --- debt: what is installed-but-not-active, and what is still pending -------
 kv reboot_required "$([ -e /var/run/reboot-required ] && echo yes || echo no)"
@@ -37,7 +44,10 @@ kv kernel_running "$(uname -r)"
 kv kernel_installed "$(dpkg -l 2>/dev/null | awk '/^ii +linux-image-[0-9]/{printf "%s ", $2}')"
 # apt-get -s makes no changes; NoLocking avoids contending with a real apt run.
 kv upgradable_count "$(apt-get -s -o Debug::NoLocking=1 upgrade 2>/dev/null | grep -c '^Inst ')"
-kv upgradable_security_count "$(apt-get -s -o Debug::NoLocking=1 upgrade 2>/dev/null | grep '^Inst ' | grep -ci security)"
+# Anchor on the archive name, not a bare "security" substring: package names like
+# libapache2-mod-security would otherwise inflate this, and a security count that
+# silently overstates is worse than none — it reads as debt that may not exist.
+kv upgradable_security_count "$(apt-get -s -o Debug::NoLocking=1 upgrade 2>/dev/null | grep '^Inst ' | grep -cE '[a-z]+-security[,) ]')"
 kv uptime_days "$(awk '{printf "%.1f", $1/86400}' /proc/uptime 2>/dev/null)"
 
 # --- did anything patch-related actually happen recently? --------------------

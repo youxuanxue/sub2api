@@ -41,7 +41,13 @@ state() {
   printf 'timer_active=%s\n' "$(unit_state is-active apt-daily-upgrade.timer)"
   printf 'periodic_unattended=%s\n' "$(apt-config dump 2>/dev/null | awk -F'"' '/^APT::Periodic::Unattended-Upgrade /{print $2}' | tail -1)"
   printf 'pin_file_present=%s\n' "$([ -e "$PIN_FILE" ] && echo yes || echo no)"
-  printf 'next_fire=%s\n' "$(systemctl list-timers apt-daily-upgrade.timer --no-pager 2>/dev/null | awk 'NR==2{print $1" "$2" "$3}')"
+  # A masked unit makes `list-timers` print "0 timers listed", which a blind
+  # `awk NR==2` renders as the literal garbage "- - Sun". Say the state plainly.
+  if [ "$(unit_state is-enabled apt-daily-upgrade.timer)" = "masked" ]; then
+    printf 'next_fire=%s\n' "none (masked)"
+  else
+    printf 'next_fire=%s\n' "$(systemctl list-timers apt-daily-upgrade.timer --no-pager 2>/dev/null | awk 'NR==2 && $1 != "0" {print $1" "$2" "$3}')"
+  fi
   # Carried, not acted on: proof that masking alone leaves the debt in place.
   printf 'reboot_required=%s\n' "$([ -e /var/run/reboot-required ] && echo yes || echo no)"
   printf 'kernel_running=%s\n' "$(uname -r)"
