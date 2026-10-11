@@ -8,7 +8,7 @@ owners: [tk-platform]
 scope: >-
   deploy/hetzner/* + deploy-*-hetzner*.yml + Stage0 dispatch 路由；
   凭证与命令见 deploy/hetzner/README.md
-related_prs: [2517, 2532, 2550, 2551]
+related_prs: [2517, 2532, 2550, 2551, 2556]
 related_designs:
   - docs/approved/deploy-stage0-workflow.md
   - docs/approved/edge-bluegreen-release-safety.md
