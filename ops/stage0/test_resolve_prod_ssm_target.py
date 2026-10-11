@@ -133,6 +133,27 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self.mod.resolve_aws("tokenkey-prod-stage0")
 
+    def test_cutover_param_access_denied_fails_closed(self) -> None:
+        denied = mock.Mock(
+            returncode=254,
+            stdout="",
+            stderr="An error occurred (AccessDeniedException) when calling the GetParameter operation",
+        )
+        with mock.patch.object(self.mod.subprocess, "run", return_value=denied):
+            with mock.patch.dict("os.environ", {}, clear=True):
+                with self.assertRaises(SystemExit):
+                    self.mod.resolve_mode("auto")
+
+    def test_cutover_param_not_found_defaults_aws(self) -> None:
+        missing = mock.Mock(
+            returncode=254,
+            stdout="",
+            stderr="An error occurred (ParameterNotFound) when calling the GetParameter operation",
+        )
+        with mock.patch.object(self.mod.subprocess, "run", return_value=missing):
+            with mock.patch.dict("os.environ", {}, clear=True):
+                self.assertEqual(self.mod.resolve_mode("auto"), "aws")
+
 
 if __name__ == "__main__":
     unittest.main()
