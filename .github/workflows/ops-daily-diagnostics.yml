@@ -1044,18 +1044,31 @@ jobs:
 
       - name: Resolve prod instance ID
         id: instance
+        env:
+          PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
         run: |
-          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
-            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
-          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
-            echo "::error::could not resolve InstanceId from stack $STACK_NAME"
-            exit 1
-          fi
-          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          RESOLVED_JSON="$(python3 ops/stage0/resolve_prod_ssm_target.py \
+            --target "${PROD_SSM_TARGET}" \
+            --stack "$STACK_NAME" \
+            --format json \
+            --github-output "$GITHUB_OUTPUT")"
+          python3 -c '
+          import json, sys
+          d = json.loads(sys.argv[1])
+          for key in ("id", "ssm_region", "target"):
+            if not d.get(key):
+              raise SystemExit(f"::error::missing {key} in resolve_prod_ssm_target output")
+          print(
+              "prod log dump instance=%s target=%s ssm_region=%s"
+              % (d["id"], d["target"], d["ssm_region"])
+          )
+          ' "$RESOLVED_JSON"
 
-      - name: Run docker logs on prod EC2 via SSM
+      - name: Run docker logs on prod via SSM
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
         run: |
           set -euo pipefail
           export GREP_B64="$(printf '%s' "$INPUT_GREP" | base64 -w0 2>/dev/null \
@@ -1086,7 +1099,7 @@ jobs:
           print(json.dumps({"commands": commands}))
           PY
 
-          CMD_ID=$(aws ssm send-command \
+          CMD_ID=$(aws --region "$AWS_REGION" ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name AWS-RunShellScript \
             --comment "prod-log-dump $INPUT_CONTAINER since=$INPUT_SINCE" \
@@ -1096,7 +1109,7 @@ jobs:
 
           DEADLINE=$(( $(date +%s) + 180 ))
           while true; do
-            STATUS=$(aws ssm get-command-invocation \
+            STATUS=$(aws --region "$AWS_REGION" ssm get-command-invocation \
               --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
               --query 'Status' --output text 2>/dev/null || echo InProgress)
             case "$STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
@@ -1104,10 +1117,10 @@ jobs:
             sleep 4
           done
 
-          aws ssm get-command-invocation \
+          aws --region "$AWS_REGION" ssm get-command-invocation \
             --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
             --query 'StandardOutputContent' --output text > stdout.txt
-          aws ssm get-command-invocation \
+          aws --region "$AWS_REGION" ssm get-command-invocation \
             --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
             --query 'StandardErrorContent' --output text > stderr.txt
 

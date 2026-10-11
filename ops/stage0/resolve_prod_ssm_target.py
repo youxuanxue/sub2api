@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Resolve Stage0 prod SSM control-plane target.
 
-Default remains AWS CFN ``i-*`` (us-east-1) until an operator flips the cutover
-flag. Hetzner Hybrid ``mi-*`` is opt-in only.
+``--target auto`` follows the cutover flag (live fleet uses Hybrid ``mi-*``
+when SSM param is ``hetzner``). Explicit ``aws`` / ``hetzner`` force that side.
 
 Resolution order for ``--target auto`` (default):
 
 1. ``PROD_SSM_TARGET`` env if set to ``aws`` / ``hetzner``
 2. SSM String param ``/tokenkey/prod/control-plane-ssm-target`` (us-east-1)
    when value is ``aws`` / ``hetzner``
-3. Otherwise ``aws``
+3. Otherwise ``aws`` (CFN ``i-*``)
 
 Hetzner instance id is resolved from SSM inventory by ComputerName matching
 ``deploy/hetzner/prod-target-hetzner.json`` ``instance_name`` (registration

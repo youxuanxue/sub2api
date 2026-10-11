@@ -68,19 +68,31 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - name: Resolve prod instance id
         id: instance
+        env:
+          PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
         run: |
           set -euo pipefail
-          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
-            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
-          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
-            echo "::error::could not resolve InstanceId from stack $STACK_NAME"
-            exit 1
-          fi
-          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          RESOLVED_JSON="$(python3 ops/stage0/resolve_prod_ssm_target.py \
+            --target "${PROD_SSM_TARGET}" \
+            --stack "$STACK_NAME" \
+            --format json \
+            --github-output "$GITHUB_OUTPUT")"
+          python3 -c '
+          import json, sys
+          d = json.loads(sys.argv[1])
+          for key in ("id", "ssm_region", "target"):
+            if not d.get(key):
+              raise SystemExit(f"::error::missing {key} in resolve_prod_ssm_target output")
+          print(
+              "ghcr-prune timer instance=%s target=%s ssm_region=%s"
+              % (d["id"], d["target"], d["ssm_region"])
+          )
+          ' "$RESOLVED_JSON"
       - name: Sync GHCR prune timer via SSM
         id: ssm
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
           STAGE0_SSM_OUTPUT_DIR: .
         run: bash ops/stage0/sync-ghcr-prune-timer-via-ssm.sh "$INSTANCE_ID" "ops-ghcr-prune-timer target=prod"
       - name: Job summary
