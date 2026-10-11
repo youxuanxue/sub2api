@@ -622,10 +622,9 @@ jobs:
             elif [ "$RUNTIME_SSM_TRANSPORT_OK" != "true" ]; then
               add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "Runtime SSM SendCommand failed; suppressing downstream error_clustering SSM checks for the same transport root cause." "error-clustering|$TARGET_ID|runtime-ssm-send-failed"
             elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ] || [ "${TARGET_PLATFORM:-}" = "hetzner" ]; then
-              # ops/stage0/deploy-error-clustering-binary.sh resolves InstanceId via
-              # CloudFormation; Hybrid edges have no CFN stack. Lightweight diagnostics
-              # (external health + runtime log signal counts) already ran above.
-              add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID ($TARGET_PLATFORM)" "Hybrid edges have no CloudFormation stack; error_clustering installer is EC2/CFN-coupled. Health + log signals ran via SSM Hybrid managed instance." "error-clustering|$TARGET_ID|$TARGET_PLATFORM-skip"
+              # Error clustering installer is prod-oriented; Hybrid edges skip the
+              # binary path. Lightweight diagnostics already ran above via SSM.
+              add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID ($TARGET_PLATFORM)" "Hybrid edges skip error_clustering binary install; health + log signals ran via SSM Hybrid managed instance." "error-clustering|$TARGET_ID|$TARGET_PLATFORM-skip"
             elif ! printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$'; then
               add_finding "error_clustering_input" "manual_ops" "error" "Invalid since_hours input" "since_hours must be a positive integer, got: $SINCE_HOURS" "error-clustering-input|$SINCE_HOURS"
             else
@@ -642,10 +641,14 @@ jobs:
                 done
                 if [ "$BIN_STATUS" != "Success" ]; then
                   echo "error_clustering binary missing or not executable on $TARGET_ID (status=$BIN_STATUS); installing" >> "$STDOUT"
-                  if STACK="$STACK_NAME" AWS_REGION="$TARGET_REGION" AWS_SSM_WAIT_MAX=600 bash ops/stage0/deploy-error-clustering-binary.sh >>"$STDOUT" 2>>"$STDERR"; then
+                  # Reuse already-resolved Hybrid/CFN instance; installer must not
+                  # re-resolve via describe-stacks (live prod control plane is mi-*).
+                  if INSTANCE_ID="$INSTANCE_ID" AWS_REGION="$TARGET_REGION" \
+                      AWS_SSM_WAIT_MAX=600 \
+                      bash ops/stage0/deploy-error-clustering-binary.sh >>"$STDOUT" 2>>"$STDERR"; then
                     add_finding "error_clustering_binary" "ok" "info" "Installed error_clustering binary for $TARGET_ID" "Diagnostic binary was missing and was installed successfully." "error-clustering-binary|$TARGET_ID"
                   else
-                    add_finding "error_clustering_binary" "manual_ops" "error" "Could not install error_clustering binary for $TARGET_ID" "ops/stage0/deploy-error-clustering-binary.sh failed for $STACK_NAME in $TARGET_REGION." "error-clustering-binary|$TARGET_ID|install-failed"
+                    add_finding "error_clustering_binary" "manual_ops" "error" "Could not install error_clustering binary for $TARGET_ID" "ops/stage0/deploy-error-clustering-binary.sh failed for $INSTANCE_ID in $TARGET_REGION." "error-clustering-binary|$TARGET_ID|install-failed"
                   fi
                 fi
               fi

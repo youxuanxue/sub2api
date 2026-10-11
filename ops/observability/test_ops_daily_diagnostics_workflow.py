@@ -372,6 +372,11 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertLess(config, diagnose)
         self.assertIn("resolve_prod_ssm_target.py", text[audit:config + 800])
         self.assertIn("resolve_prod_ssm_target.py", text[config:diagnose + 600])
+        # Error-clustering installer must reuse resolved INSTANCE_ID (Hybrid mi-*).
+        install = text.index("bash ops/stage0/deploy-error-clustering-binary.sh")
+        window = text[install - 220 : install + 80]
+        self.assertIn("INSTANCE_ID=\"$INSTANCE_ID\"", window)
+        self.assertNotIn("STACK=\"$STACK_NAME\"", window)
 
     def test_missing_target_reports_skipped_when_diagnose_cancelled(self) -> None:
         text = workflow_text()

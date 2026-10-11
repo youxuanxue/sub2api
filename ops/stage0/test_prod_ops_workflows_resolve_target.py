@@ -17,6 +17,8 @@ _PROD_RESOLVE_WORKFLOWS = (
     "sync-docs-to-pages.yml",
 )
 
+ROOT_SCRIPTS = ROOT / "ops" / "stage0"
+
 
 class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
     def test_listed_workflows_use_resolve_prod_ssm_target(self) -> None:
@@ -31,6 +33,20 @@ class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
                     "Outputs[?OutputKey==`InstanceId`].OutputValue",
                     text,
                 )
+
+    def test_error_clustering_installer_is_cutover_aware(self) -> None:
+        text = (ROOT_SCRIPTS / "deploy-error-clustering-binary.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("resolve_prod_ssm_target.py", text)
+        self.assertNotIn("Outputs[?OutputKey==`InstanceId`].OutputValue", text)
+
+    def test_resolve_prod_running_tag_is_cutover_aware(self) -> None:
+        text = (ROOT_SCRIPTS / "resolve-prod-running-tag-via-ssm.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("resolve_prod_ssm_target.py", text)
+        self.assertNotIn("Outputs[?OutputKey==`InstanceId`].OutputValue", text)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Tests for resolve-prod-running-tag-via-ssm.sh transport and parsing.
 
-The script is an AWS/SSM wrapper, so these tests stub aws and return deterministic
-probe output. No network or live AWS state is used.
+The script is an AWS/SSM wrapper, so these tests stub aws + resolve_prod_ssm_target
+and return deterministic probe output. No network or live AWS state is used.
 """
 from __future__ import annotations
 
@@ -22,11 +22,29 @@ class ResolveProdRunningTagViaSsmTest(unittest.TestCase):
         self,
         *args: str,
         image: str = "ghcr.io/youxuanxue/sub2api:1.8.91",
+        resolve_instance: str = "mi-test0123456789ab",
+        resolve_region: str = "eu-west-2",
     ) -> subprocess.CompletedProcess[str]:
         tmp = pathlib.Path(tempfile.mkdtemp(prefix="resolve-prod-running-tag-"))
         calls = tmp / "aws-calls.txt"
         fake_bin = tmp / "bin"
         fake_bin.mkdir()
+        fake_resolve = tmp / "resolve_prod_ssm_target.py"
+        fake_resolve.write_text(
+            textwrap.dedent(
+                f"""\
+                #!/usr/bin/env python3
+                import json
+                print(json.dumps({{
+                    "instance_id": {resolve_instance!r},
+                    "ssm_region": {resolve_region!r},
+                    "target": "hetzner",
+                }}))
+                """
+            ),
+            encoding="utf-8",
+        )
+        fake_resolve.chmod(0o755)
         (fake_bin / "aws").write_text(
             textwrap.dedent(
                 f"""\
@@ -37,17 +55,14 @@ class ResolveProdRunningTagViaSsmTest(unittest.TestCase):
                   shift 2
                 fi
                 case "$*" in
-                  'cloudformation describe-stacks '*)
-                    printf 'i-test\\n'
-                    ;;
                   'ssm send-command '*)
                     printf 'cmd-123\\n'
                     ;;
-                  'ssm get-command-invocation --command-id cmd-123 --instance-id i-test --query Status --output text'|\
+                  'ssm get-command-invocation --command-id cmd-123 --instance-id {resolve_instance} --query Status --output text'|\
                   'ssm get-command-invocation --command-id cmd-123 --instance-id i-direct --query Status --output text')
                     printf 'Success\\n'
                     ;;
-                  'ssm get-command-invocation --command-id cmd-123 --instance-id i-test --query StandardOutputContent --output text'|\
+                  'ssm get-command-invocation --command-id cmd-123 --instance-id {resolve_instance} --query StandardOutputContent --output text'|\
                   'ssm get-command-invocation --command-id cmd-123 --instance-id i-direct --query StandardOutputContent --output text')
                     cat <<'OUT'
                 ACTIVE_COLOR {{"value":"green"}}
@@ -68,6 +83,7 @@ class ResolveProdRunningTagViaSsmTest(unittest.TestCase):
         env = {
             **os.environ,
             "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "RESOLVE_PROD_SSM_TARGET": str(fake_resolve),
         }
         proc = subprocess.run(
             ["bash", str(_SCRIPT), "--timeout-seconds", "5", *args],
@@ -79,14 +95,15 @@ class ResolveProdRunningTagViaSsmTest(unittest.TestCase):
         proc.calls = calls.read_text(encoding="utf-8").splitlines()  # type: ignore[attr-defined]
         return proc
 
-    def test_resolves_stack_instance_and_prints_bare_tag(self) -> None:
+    def test_resolves_via_cutover_helper_and_prints_bare_tag(self) -> None:
         proc = self._run()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertEqual(proc.stdout.strip(), "1.8.91")
-        self.assertTrue(any("cloudformation describe-stacks" in c for c in proc.calls))  # type: ignore[attr-defined]
+        self.assertFalse(any("cloudformation describe-stacks" in c for c in proc.calls))  # type: ignore[attr-defined]
         self.assertTrue(any("ssm send-command" in c for c in proc.calls))  # type: ignore[attr-defined]
+        self.assertTrue(any("mi-test0123456789ab" in c for c in proc.calls))  # type: ignore[attr-defined]
 
-    def test_instance_id_skips_cloudformation_and_json_includes_runtime_facts(self) -> None:
+    def test_instance_id_skips_resolver_and_json_includes_runtime_facts(self) -> None:
         proc = self._run("--instance-id", "i-direct", "--json")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         data = json.loads(proc.stdout)

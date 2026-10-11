@@ -61,16 +61,15 @@ REGION=""
 INSTANCE_ID=""
 EDGE_LABEL="$TARGET"
 if [ "$TARGET" = "prod" ]; then
-  REGION="us-east-1"
-  STACK="tokenkey-prod-stage0"
-  INSTANCE_ID=$(aws cloudformation describe-stacks \
-    --region "$REGION" --stack-name "$STACK" \
-    --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" \
-    --output text)
+  RESOLVED_JSON="$(python3 "$REPO_ROOT/ops/stage0/resolve_prod_ssm_target.py" \
+    --target "${PROD_SSM_TARGET:-auto}" \
+    --format json)"
+  INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$RESOLVED_JSON")"
+  REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"$RESOLVED_JSON")"
 elif [[ "$TARGET" == edge:* ]]; then
   EDGE_ID="${TARGET#edge:}"
   RES_LINES=$(python3 "$REPO_ROOT/ops/stage0/edge_ssm_execution.py" \
-    --repo-root "$REPO_ROOT" --edge-id "$EDGE_ID" --format env)
+    --repo-root "$REPO_ROOT" --edge-id "$EDGE_ID" --platform auto --format env)
   eval "$RES_LINES"
   EDGE_LABEL="edge-${EDGE_ID}"
 else
