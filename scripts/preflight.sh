@@ -4480,6 +4480,33 @@ if ! python3 scripts/stage0/update-capability-plan.py --check; then
     errors=$((errors + 1))
 fi
 
+# ---- sub2api: host auto-upgrade disabled -------------------------------------
+# Ubuntu images ship apt-daily-upgrade.timer enabled with
+# APT::Periodic::Unattended-Upgrade "1". Nobody wrote that; it rides in with the
+# installer image, and for eight months nobody turned it off. On 2026-10-11
+# 06:46 UTC a glibc postinst ran `systemctl daemon-reexec` on prod, restarting
+# systemd-networkd and severing every in-flight upstream TLS connection: ~56
+# user-visible 502s across three platforms from one host event. Automatic-Reboot
+# is false, so the host never even activated what it installed. All five live
+# nodes were configured identically. Patching is a blue/green release here.
+# Gate: scripts/checks/host-auto-upgrade-disabled.py.
+echo ""
+
+fi # preflight gate
+if _preflight_selected 'host auto-upgrade disabled'; then
+echo "=== sub2api: host auto-upgrade disabled ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by host-auto-upgrade-disabled.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/host-auto-upgrade-disabled.py --selftest >/dev/null; then
+    echo "  FAIL: host-auto-upgrade-disabled.py self-test failed"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/host-auto-upgrade-disabled.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: fleet bootstraps mask apt-daily-upgrade.timer and pin Unattended-Upgrade 0"
+fi
+
 fi # preflight gate
 
 echo ""
