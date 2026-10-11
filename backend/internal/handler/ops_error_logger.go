@@ -1317,6 +1317,15 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			entry.ClientIP = &clientIP
 		}
 
+		// TK: collapse repeats of a client-owned, self-inflicted limit rejection.
+		// Measured: one quota-exhausted key retried without backoff produced 98%
+		// of a day's rows and buried 587 real incidents. The first occurrence per
+		// (api_key_id, code) per bucket is always written; repeats are counted
+		// onto the next written row. See ops_error_logger_coalesce_tk.go.
+		if !maybeCoalesceOpsErrorLogEntry(entry, parsed.Code) {
+			return
+		}
+
 		// 已删除 key 归因已移除,不再写 attempted_key_prefix /
 		// deleted_key_owner_user_id / deleted_key_name。原因见
 		// docs/approved/ops-error-logs-column-contract.md §已移除的已删除 key 归因:

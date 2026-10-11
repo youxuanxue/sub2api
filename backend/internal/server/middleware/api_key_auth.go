@@ -52,6 +52,10 @@ func skipsBillingEnforcement(method, path string) bool {
 //   - 计费执行（Billing Enforcement）：过期/配额/订阅/余额检查 —— skipBilling 时整块跳过
 //
 // /v1/usage 端点只需鉴权，不需要计费执行（允许过期/配额耗尽的 Key 查询自身用量）。
+//
+// 额度耗尽是唯一提前到鉴权之后、路由之前裁决的计费条件（apiKeyQuotaRejected）：
+// 它与 §6 的判定完全同构（同 skipBilling 豁免、同状态优先级、同响应），只是省掉
+// body 读取/JSON 解析/候选调度。§6 的检查保留为权威兜底。
 func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, settingService *service.SettingService, cfg *config.Config) gin.HandlerFunc {
 	// 全能 Key 解析器：用 APIKeyService 持有的共享单实例(单一跨度缓存,且随授权变更失效)。
 	universalResolver := apiKeyService.UniversalResolver()
@@ -187,6 +191,22 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			return
 		}
 
+		// skipBilling: read-only metadata endpoints only need authentication.
+		// Computed here (not at the billing block) so the quota early-exit below
+		// can honour the exact same exemption.
+		skipBilling := skipsBillingEnforcement(c.Request.Method, c.Request.URL.Path)
+		billingEnforced := !skipBilling && cfg.RunMode != config.RunModeSimple
+
+		// Exhausted-quota early exit. Same status/code/body as the billing block
+		// below, only cheaper: it lands before the body read, the JSON parse and
+		// candidate scheduling, none of which can turn an exhausted key into an
+		// admitted request. A key stuck in a client retry storm otherwise pays the
+		// full routing cost per rejection.
+		if billingEnforced && apiKeyQuotaRejected(apiKey) {
+			abortWithAPIKeyQuotaError(c)
+			return
+		}
+
 		// OpenRouter seller keys use tokenkey/<model> public ids; rewrite
 		// before universal routing peeks model and before handler servable checks.
 		MaybeRewriteOpenRouterProviderChatBody(c, apiKey, settingService)
@@ -211,8 +231,6 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		ctx := context.WithValue(c.Request.Context(), ctxkey.UserID, apiKey.User.ID)
 		c.Request = c.Request.WithContext(ctx)
 		billingInfoRequest := c.Request.URL.Path == "/v1/sub2api/billing"
-		// skipBilling: read-only metadata endpoints only need authentication.
-		skipBilling := skipsBillingEnforcement(c.Request.Method, c.Request.URL.Path)
 		deferCandidateBilling := deferUniversalWebSocketBilling(c, apiKey)
 
 		// ── 4. SimpleMode → early return ─────────────────────────────
@@ -345,8 +363,31 @@ func hasAPIKeyCredentialInput(c *gin.Context) bool {
 		c.GetHeader("x-goog-api-key") != ""
 }
 
+// apiKeyQuotaRejected reports whether billing enforcement would reject this key
+// with the quota 429 rather than the expiry 403. It mirrors the billing block's
+// precedence exactly so the hoisted early exit cannot change which error a key
+// receives: a persisted quota_exhausted status outranks expiry, while a runtime
+// quota overrun loses to both persisted and runtime expiry.
+func apiKeyQuotaRejected(apiKey *service.APIKey) bool {
+	if apiKey == nil {
+		return false
+	}
+	if apiKey.Status == service.StatusAPIKeyQuotaExhausted {
+		return true
+	}
+	if apiKey.Status == service.StatusAPIKeyExpired || apiKey.IsExpired() {
+		return false
+	}
+	return apiKey.IsQuotaExhausted()
+}
+
 func abortWithAPIKeyQuotaError(c *gin.Context) {
 	const message = "API key 额度已用完"
+	// A self-inflicted quota ceiling is not transient, so name a retry delay the
+	// client can honour. Without it, urllib-shaped clients hot-loop the reject
+	// path at full request rate (same precedent as ingress_reject /
+	// panel_rate_limit).
+	setAPIKeyQuotaRetryAfter(c)
 	if isOpenAICompatibleAPIKeyRequest(c) {
 		abortWithOpenAIQuotaError(c, http.StatusTooManyRequests, message)
 		return
