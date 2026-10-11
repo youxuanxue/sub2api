@@ -288,13 +288,13 @@ uk1旧/us2/us7 退役清单，含**删 prod mirror account**）。
 5. gemini-web：**7 个账号待运营 re-import**（uk1 `gemini-web-498`/`gemini-web`；uk2 `gemini-web-506`/`510`/`492`/`505`/`493`），全部 `status=error`+`schedulable=false` 并带原因；re-import 后开边侧账号 + prod `gemini-uk1`/`uk2` 即通（key 已逐字节核对一致）。**期间 prod gemini 组仅 `gemini-us4`/`us5` 两个可调度 stub 承载，属单点。**  
 6. 边侧供应：us4 anthropic 失效号、us4/us5 grok 选号/空池、uk 边补 CC 池——冒烟 200 后再开对应 prod stub。  
 7. 新机 Feishu：仍需 post-boot 从 AWS prod `.env` 拷贝（不进 git）。  
-8. **矩阵/workflow 收敛（后续 PR）：** LS us3/us6 `deployable=false`；`--list-deployable` HZ-first；遗留 workflow 统一 `resolve_prod_ssm_target`；fleet-feishu/ops-daily 跟活边。
+8. ~~矩阵/workflow 收敛~~ **已落地（#2550）：** LS us3/us6 `deployable=false`；`--list-deployable` / prod-ops-matrix HZ-first；warm/timer/docs/log dump + ops-daily prod 统一 `resolve_prod_ssm_target`；fleet-feishu/ops-daily/antigravity/anthropic/mapping 跟活边。未改：`deploy-qa-bundle` 网络/IAM、`container-log-policy`（仍 `i-*` + AWS compose）。
 
 ## 硬门禁
 
 - `location=fsn1` · `server_type=cax21` · `architecture=arm`
 - prod：`volume_mount=/var/lib/tokenkey` · `volume_size_gb>=40`
-- 矩阵：HZ `uk1/uk2/us4/us5` `deployable=true`；LS us3/us6 仍 `deployable=true`（机器在跑，停写前可收运维下发）— **收敛 PR 翻 `false`**；prod HZ target 仍 `false` 直至正式 DNS 切流
+- 矩阵：活边 HZ `uk1/uk2/us4/us5` `deployable=true`；LS 同四边为 standby、us3/us6 `deployable=false`；prod HZ target 仍 `false` 直至正式 DNS 切流
 
 ```bash
 python3 -m unittest deploy/hetzner/test_resolve_edge_hetzner_target.py

@@ -144,8 +144,9 @@ jobs:
         id: instance
         run: |
           set -euo pipefail
+          # auto → live Hetzner Hybrid when deployable; Lightsail only as standby fallback.
           IDENTITY="$(python3 ops/stage0/edge_ssm_execution.py \
-            --edge-id "$EDGE_ID" --platform lightsail --format json)"
+            --edge-id "$EDGE_ID" --platform auto --format json)"
           INSTANCE_ID="$(jq -r .instance_id <<<"$IDENTITY")"
           if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "null" ]; then
             echo "::error::could not resolve SSM managed-instance id for $EDGE_ID"
