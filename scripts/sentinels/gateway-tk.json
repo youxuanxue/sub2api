@@ -9391,6 +9391,38 @@
       ]
     },
     {
+      "path": "backend/internal/service/openai_gateway_usage.go",
+      "must_contain": [
+        "s.TkReleaseHoldIfUnconsumed(ctx, holdRequestID)",
+        "holdSettled = holdConsumed"
+      ],
+      "code_only": true,
+      "rationale": "Hold leak compensation: a handed-off hold is consumed ONLY by a committed settlement transaction. Every other exit from RecordUsage (early return, dedup/fingerprint rejection where Apply returns before applying effects, Apply error, legacy postUsageBilling fallback) must refund it here. Deleting either literal silently restores the leak that pinned ~47% of a live user's balance on one request and produced a 403 burst against a funded account."
+    },
+    {
+      "path": "backend/internal/service/gateway_usage_billing.go",
+      "must_contain": [
+        "holdConsumed = strings.TrimSpace(cmd.TkHoldRequestID) !="
+      ],
+      "code_only": true,
+      "rationale": "applyUsageBilling must report whether settlement actually consumed the handed-off hold. Only the committed repo path does; a dedup rejection, an error, and the legacy fallback do not. Losing this report makes RecordUsage either leak the hold or issue a redundant release on every billed request."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "onUsageRecordTaskDropped(onDropped)"
+      ],
+      "code_only": true,
+      "rationale": "A usage-record task dropped on pool overflow never bills, so a hold already handed off at the submit site is nobody's to refund. The drop path must run the caller's compensations; without it the reservation survives to the 30-minute reconciler TTL."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler_tk_hold.go",
+      "must_contain": [
+        "func (h *OpenAIGatewayHandler) tkReleaseHoldOnDroppedTask("
+      ],
+      "rationale": "Shared drop compensation for handed-off holds, passed as the onDropped hook by every submit site that hands one off (HTTP forward, simple forward, WS turn, images, video). Deleting it silently reopens the dropped-task leak on all of them at once."
+    },
+    {
       "rationale": "Hold hand-off threading (PR #746): postUsageBillingParams.TkHoldRequestID → UsageBillingCommand inside buildUsageBillingCommand. Same silent-revert risk as the openai_gateway_service.go entry — both sides of the thread are pinned.",
       "path": "backend/internal/service/gateway_usage_billing.go",
       "must_contain": [
@@ -9407,9 +9439,10 @@
     {
       "path": "backend/internal/service/wire.go",
       "must_contain": [
-        "func ProvideHoldReconcilerService(repo UsageBillingRepository) *HoldReconcilerService {"
+        "func ProvideHoldReconcilerService(repo UsageBillingRepository, opsRepo OpsRepository) *HoldReconcilerService {",
+        "svc := NewHoldReconcilerService(repo, heartbeat)"
       ],
-      "rationale": "Hold reconciler DI registration (PR #746): the crash-recovery sweep that refunds leaked holds. If the provider drops out of ProviderSet together with its cleanup parameter, the build still compiles — and every crash-leaked hold pins user balance forever. Sentinel makes the silent-consistent deletion loud."
+      "rationale": "Hold reconciler DI registration (PR #746): the crash-recovery sweep that refunds leaked holds. If the provider drops out of ProviderSet together with its cleanup parameter, the build still compiles — and every crash-leaked hold pins user balance forever. Sentinel makes the silent-consistent deletion loud. The opsRepo parameter carries the ops_job_heartbeats dependency: without it the sweep is unobservable, which is what made a stuck hold indistinguishable from an unscheduled reconciler during triage."
     },
     {
       "path": "backend/cmd/server/wire_tk_cleanup.go",

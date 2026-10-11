@@ -3452,8 +3452,21 @@ func getContextInt64(c *gin.Context, key string) (int64, bool) {
 	}
 }
 
-func (h *OpenAIGatewayHandler) submitUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
+// onUsageRecordTaskDropped runs the caller's drop compensations. A dropped task
+// never executes, so anything the submit site already handed off to settlement
+// (notably a pre-flight balance hold) must be reclaimed here or it leaks until
+// the reconciler TTL.
+func onUsageRecordTaskDropped(onDropped []func()) {
+	for _, compensate := range onDropped {
+		if compensate != nil {
+			compensate()
+		}
+	}
+}
+
+func (h *OpenAIGatewayHandler) submitUsageRecordTask(parent context.Context, task service.UsageRecordTask, onDropped ...func()) {
 	if task == nil {
+		onUsageRecordTaskDropped(onDropped)
 		return
 	}
 	task, abandon := wrapUsageRecordTaskContext(parent, task)
@@ -3461,6 +3474,7 @@ func (h *OpenAIGatewayHandler) submitUsageRecordTask(parent context.Context, tas
 		if mode := h.usageRecordWorkerPool.Submit(task); mode != service.UsageRecordSubmitModeDroppedStopped {
 			if mode.Dropped() {
 				abandon()
+				onUsageRecordTaskDropped(onDropped)
 			}
 			return
 		}
@@ -3484,18 +3498,19 @@ func (h *OpenAIGatewayHandler) submitUsageRecordTask(parent context.Context, tas
 	task(ctx)
 }
 
-func (h *OpenAIGatewayHandler) submitOpenAIUsageRecordTask(parent context.Context, result *service.OpenAIForwardResult, task service.UsageRecordTask) {
+func (h *OpenAIGatewayHandler) submitOpenAIUsageRecordTask(parent context.Context, result *service.OpenAIForwardResult, task service.UsageRecordTask, onDropped ...func()) {
 	// Money-critical bills never drop on pool overflow: media, search surcharge, voice.
 	if result != nil && (result.ImageCount > 0 || result.VideoCount > 0 ||
 		result.SearchCount > 0 || result.WebSearchCalls > 0 || result.AudioUsage != nil) {
-		h.submitMandatoryUsageRecordTask(parent, task)
+		h.submitMandatoryUsageRecordTask(parent, task, onDropped...)
 		return
 	}
-	h.submitUsageRecordTask(parent, task)
+	h.submitUsageRecordTask(parent, task, onDropped...)
 }
 
-func (h *OpenAIGatewayHandler) submitMandatoryUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
+func (h *OpenAIGatewayHandler) submitMandatoryUsageRecordTask(parent context.Context, task service.UsageRecordTask, onDropped ...func()) {
 	if task == nil {
+		onUsageRecordTaskDropped(onDropped)
 		return
 	}
 	task, _ = wrapUsageRecordTaskContext(parent, task)

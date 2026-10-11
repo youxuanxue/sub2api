@@ -102,8 +102,12 @@ func (r *candidateHoldRepository) ReleaseExpiredBalanceHolds(context.Context, ti
 	return 0, nil
 }
 
+// Applied must be true to model a COMMITTED settlement: that is the only path
+// that consumes the handed-off hold in its own transaction. A result with
+// Applied=false means the bill was refused (dedup/fingerprint), in which case
+// nothing consumed the hold and the settlement path releases it instead.
 func (r *candidateHoldRepository) Apply(context.Context, *service.UsageBillingCommand) (*service.UsageBillingApplyResult, error) {
-	return &service.UsageBillingApplyResult{}, nil
+	return &service.UsageBillingApplyResult{Applied: true}, nil
 }
 
 func TestTkHoldRebindReleasesOldReservationBeforeReservingNewOrigin(t *testing.T) {
