@@ -155,10 +155,15 @@ func qaS3LoadOptions(storage config.QACaptureStorageConfig) []func(*awsconfig.Lo
 		region = "auto" // Cloudflare R2 default
 	}
 	opts := []func(*awsconfig.LoadOptions) error{awsconfig.WithRegion(region)}
-	if strings.TrimSpace(storage.AccessKeyID) != "" {
-		opts = append(opts, awsconfig.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(storage.AccessKeyID, storage.SecretAccessKey, ""),
-		))
+	if strings.TrimSpace(storage.AccessKeyID) != "" || strings.TrimSpace(storage.CredentialsFile) != "" {
+		opts = append(opts, func(o *awsconfig.LoadOptions) error {
+			access, secret, err := storage.ReadCredentials()
+			if err != nil {
+				return err
+			}
+			o.Credentials = credentials.NewStaticCredentialsProvider(access, secret, "")
+			return nil
+		})
 	}
 	return opts
 }

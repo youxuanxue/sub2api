@@ -7,9 +7,25 @@
       "must_contain": [
         "viper.SetDefault(\"qa_bundle.queue_driver\", \"sqs\")",
         "viper.SetDefault(\"qa_bundle.queue_postgres_dsn_file\", \"\")",
-        "qa_bundle.queue_url must be empty for postgres"
+        "qa_bundle.queue_url must be empty for postgres",
+        "viper.SetDefault(\"qa_bundle.storage.credentials_file\", \"\")",
+        "viper.SetDefault(\"qa_archive.storage.credentials_file\", \"\")"
       ],
       "rationale": "QA queue migration must preserve the SQS default and reject mixed PostgreSQL/SQS configuration."
+    },
+    {
+      "path": "backend/internal/observability/qa/archive/store.go",
+      "must_contain": [
+        "storage.ReadCredentials()"
+      ],
+      "rationale": "QA file identities must remain independent of the ambient AWS provider used by non-QA services."
+    },
+    {
+      "path": "backend/internal/observability/qa/archive/store_credentials_test.go",
+      "must_contain": [
+        "TestUS062_QAFileIdentityOverridesAmbientAWSOnlyForItsStore"
+      ],
+      "rationale": "Protect the actual signed-request regression proving QA credentials override only the selected store."
     },
     {
       "path": "backend/cmd/server/qa_bundle_worker.go",
@@ -6512,7 +6528,7 @@
     {
       "path": ".github/workflows/deploy-stage0.yml",
       "must_contain": [
-        "run: bash ops/stage0/deploy_via_ssm_bluegreen.sh \"$INPUT_TAG\" \"$INSTANCE_ID\" \"deploy-stage0 env=prod bluegreen\"",
+        "bash ops/stage0/deploy_via_ssm_bluegreen.sh \"$INPUT_TAG\" \"$INSTANCE_ID\" \"deploy-stage0 env=prod bluegreen\"",
         "bash ops/stage0/post_deploy_smoke.sh",
         "bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout"
       ],

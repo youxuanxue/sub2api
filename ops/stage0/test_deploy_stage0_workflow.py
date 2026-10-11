@@ -116,7 +116,7 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertEqual(instance["env"]["PROD_SSM_TARGET"], "${{ vars.PROD_SSM_TARGET || 'auto' }}")
         self.assertEqual(deploy["env"]["AWS_REGION"], "${{ steps.instance.outputs.ssm_region }}")
         self.assertEqual(deploy["env"]["STAGE0_DEPLOY_PROFILE"], "${{ steps.instance.outputs.deploy_profile }}")
-        self.assertEqual(deploy["env"]["QA_BUNDLE_STORAGE_REGION"], "us-east-1")
+        self.assertEqual(deploy["env"]["QA_BUNDLE_STORAGE_REGION"], "${{ steps.qa_coordinates.outputs.region }}")
         self.assertEqual(drain["env"]["AWS_REGION"], "${{ steps.instance.outputs.ssm_region }}")
         # Feishu sync self-resolves prod via resolve_prod_ssm_target (not CFN-only).
         self.assertEqual(feishu["run"], "bash ops/stage0/sync-feishu-config.sh prod")

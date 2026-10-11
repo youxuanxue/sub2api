@@ -4,6 +4,7 @@ set -euo pipefail
 
 QA_MAINTENANCE_DOCKER="${QA_MAINTENANCE_DOCKER:-docker}"
 QA_MAINTENANCE_RESOLVER="${QA_MAINTENANCE_RESOLVER:-/usr/local/lib/tokenkey/qa-runtime.sh}"
+QA_MAINTENANCE_CREDENTIAL_HELPER="${QA_MAINTENANCE_CREDENTIAL_HELPER:-/usr/local/lib/tokenkey/qa-credential-mounts.py}"
 QA_MAINTENANCE_RUNTIME_DIR="${QA_MAINTENANCE_RUNTIME_DIR:-/run/tokenkey-qa-maintenance}"
 QA_MAINTENANCE_HOST_DATA_ROOT="${QA_MAINTENANCE_HOST_DATA_ROOT:-/var/lib/tokenkey/app}"
 QA_MAINTENANCE_HOST_SCRATCH="${QA_MAINTENANCE_HOST_SCRATCH:-/var/lib/tokenkey/app/qa_archive_tmp}"
@@ -208,6 +209,15 @@ qa_container_run() {
       --env=AWS_SDK_LOAD_CONFIG=1
     )
   fi
+  local -a qa_cred_args=()
+  local mount_arg mount_args_file="${ENV_FILE}.mounts"
+  if grep -Eq '^QA_(BUNDLE_QUEUE_POSTGRES_DSN_FILE|(BUNDLE|ARCHIVE)_STORAGE_CREDENTIALS_FILE)=.+' "${ENV_FILE}"; then
+    if ! python3 "${QA_MAINTENANCE_CREDENTIAL_HELPER}" --docker-mounts --env-file "${ENV_FILE}" >"${mount_args_file}"; then
+      qa_fail qa_credentials_invalid 48 "QA private credential mounts are missing or unsafe"
+      return
+    fi
+    while IFS= read -r -d '' mount_arg; do qa_cred_args+=("${mount_arg}"); done <"${mount_args_file}"
+  fi
   qa_docker run --rm --name="${name}" \
     --user="${QA_MAINTENANCE_UID}:${QA_MAINTENANCE_GID}" \
     --read-only --cap-drop=ALL --security-opt=no-new-privileges \
@@ -218,7 +228,8 @@ qa_container_run() {
     --volume="${QA_MAINTENANCE_HOST_DLQ_ROOT}:/app/data/qa_dlq:rw" \
     --volume="${QA_MAINTENANCE_HOST_LEDGER_ROOT}:/app/data/qa_capture_ledger:ro" \
     --volume="${QA_MAINTENANCE_HOST_SCRATCH}:${QA_MAINTENANCE_CONTAINER_SCRATCH}:rw" \
-    "${aws_cred_args[@]}" \
+    ${aws_cred_args[@]+"${aws_cred_args[@]}"} \
+    ${qa_cred_args[@]+"${qa_cred_args[@]}"} \
     --env-file="${ENV_FILE}" \
     --env="QA_MAINTENANCE_PAUSE_DROP=$([ -e /var/lib/tokenkey/qa-release/pause-drop ] && printf true || printf false)" \
     --env="TMPDIR=${QA_MAINTENANCE_CONTAINER_SCRATCH}" \
@@ -227,7 +238,7 @@ qa_container_run() {
 
 cleanup_runtime_files() {
   if [ -n "${ENV_FILE}" ]; then
-    rm -f -- "${ENV_FILE}"
+    rm -f -- "${ENV_FILE}" "${ENV_FILE}.mounts"
   fi
   if [ -n "${CHILD_STDOUT:-}" ]; then
     rm -f -- "${CHILD_STDOUT}"

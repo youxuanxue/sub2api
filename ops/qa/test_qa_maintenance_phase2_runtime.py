@@ -406,6 +406,28 @@ exit 9
             docker_calls = docker_log.read_text(encoding="utf-8") if docker_log.exists() else ""
             self.assertNotIn("--qa-single-owner-activate", docker_calls)
 
+    def test_qa_private_mounts_are_passed_to_child_and_failure_stops_launch(self):
+        for failure in (False, True):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                env, _, docker_log, _, _ = self._sandbox(root)
+                docker = root / 'bin/docker'
+                docker.write_text(docker.read_text().replace("'DATA_DIR=/app/data'", "'DATA_DIR=/app/data' 'QA_BUNDLE_STORAGE_CREDENTIALS_FILE=/run/secrets/tokenkey-qa/bundle.json'"))
+                helper = root / 'credential-helper.py'
+                helper.write_text('import sys\n' + ('sys.exit(1)\n' if failure else
+                    'sys.stdout.buffer.write(b"--mount\\0type=bind,src=/private/bundle.json,dst=/run/secrets/tokenkey-qa/bundle.json,readonly\\0")\n'))
+                env['QA_MAINTENANCE_CREDENTIAL_HELPER'] = str(helper)
+                result = subprocess.run(['bash', str(RUNNER), '--qa-bundle-canary'], env=env, capture_output=True, text=True)
+                calls = docker_log.read_text()
+                if failure:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn('run --rm', calls)
+                    self.assertIn('QA private credential mounts are missing or unsafe', result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn('--mount type=bind,src=/private/bundle.json,dst=/run/secrets/tokenkey-qa/bundle.json,readonly', calls)
+                    self.assertIn('--qa-bundle-canary', calls)
+
     def test_bundle_canary_does_not_block_or_depend_on_the_lifecycle_lock(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

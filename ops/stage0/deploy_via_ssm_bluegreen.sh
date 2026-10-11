@@ -31,6 +31,9 @@
 
 set -euo pipefail
 
+# shellcheck source=qa-runtime-environment.sh
+source "$(dirname "$0")/qa-runtime-environment.sh"
+
 TAG="${1:-${INPUT_TAG:-}}"
 INSTANCE_ID="${2:-${INSTANCE_ID:-}}"
 COMMENT="${3:-${SSM_COMMENT:-deploy-stage0-bluegreen}}"
@@ -104,7 +107,8 @@ if [[ ! "${TIMEOUT_SECONDS}" =~ ^[0-9]+$ || ! "${EXECUTION_TIMEOUT_SECONDS}" =~ 
   exit 1
 fi
 if [[ "${DEPLOY_PROFILE}" = prod && "${QA_BUNDLE_ENABLED-}" = true ]]; then
-  for key in QA_BUNDLE_QUEUE_URL QA_BUNDLE_STORAGE_DRIVER QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_PREFIX; do
+  validate_qa_queue_environment
+  for key in QA_BUNDLE_STORAGE_DRIVER QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_PREFIX; do
     if [[ -z "${!key-}" ]]; then
       echo "stage0_deploy_via_ssm_bluegreen: ${key} is required when QA_BUNDLE_ENABLED=true" >&2
       exit 1
@@ -152,6 +156,11 @@ REPLACE_RECEIPT="${REPLACE_RECEIPT:-}"
 PREPARED_FILE="${ROOT}/bluegreen-prepared.json"
 PENDING_DRAIN="${ROOT}/bluegreen-pending-drain.json"
 DEPLOY_TOKEN="${DEPLOY_TOKEN:-}"
+
+# Check the actual data mount before locks, backups, Docker or directory creation.
+if [[ "${HYBRID_PROD:-false}" = true ]]; then
+  python3 -c "$(printf '%s' "${HOST_RUNTIME_B64}" | base64 -d)" --check-volume
+fi
 
 # Serialize host mutations across local invocations and workflow dispatches.
 exec 9>"${ROOT}/bluegreen-deploy.lock"
@@ -265,6 +274,8 @@ trap cleanup_on_exit EXIT
 
 clear_edge_profile_overrides() {
   [[ "${DEPLOY_PROFILE}" = edge ]] || return 0
+  local key
+  for key in "${QA_RUNTIME_KEYS[@]}"; do unset "${key}" "${key}_SET"; done
   unset \
     QA_BUNDLE_ENABLED QA_BUNDLE_ENABLED_SET \
     QA_BUNDLE_QUEUE_URL QA_BUNDLE_QUEUE_URL_SET \
@@ -284,9 +295,36 @@ clear_edge_profile_overrides() {
     GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE
 }
 
+assert_qa_provider_unchanged() {
+  [[ "${DEPLOY_PROFILE}" = prod ]] || return 0
+  local current desired key flag
+  current="$(env_get QA_BUNDLE_QUEUE_DRIVER)"
+  current="${current:-sqs}"
+  desired="${QA_BUNDLE_QUEUE_DRIVER:-${current}}"
+  [[ "${current}" = "${desired}" ]] || die "QA backend changes require the separate frozen migration; gateway deploy cannot migrate QA"
+  if [[ "${current}" = postgres ]]; then
+    # Once migrated, ordinary gateway upgrades may not redirect persisted QA
+    # objects or jobs. The migration owner changes the host coordinates first.
+    for key in "${QA_RUNTIME_KEYS[@]}" QA_BUNDLE_QUEUE_URL QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_PREFIX; do
+      flag="${key}_SET"
+      if [[ "${!flag:-false}" = true && "${!key:-}" != "$(env_get "${key}")" ]]; then
+        die "QA coordinate change requires the separate migration: ${key}"
+      fi
+    done
+  fi
+}
+
 ensure_profile_environment() {
   [[ -f "${ENV_FILE}" ]] || die "missing ${ENV_FILE}; is this a Stage0 host?"
+  assert_qa_provider_unchanged
   clear_edge_profile_overrides
+  if [[ "${DEPLOY_PROFILE}" = prod ]]; then
+    local runtime_key runtime_set
+    for runtime_key in "${QA_RUNTIME_KEYS[@]}"; do
+      runtime_set="${runtime_key}_SET"
+      env_apply_if_supplied "${runtime_key}" "${!runtime_key:-}" "${!runtime_set:-false}"
+    done
+  fi
 
   local api_domain
   api_domain="$(env_get API_DOMAIN)"
@@ -315,7 +353,11 @@ ensure_profile_environment() {
   env_apply_if_supplied QA_BUNDLE_STORAGE_BUCKET "${QA_BUNDLE_STORAGE_BUCKET:-}" "${QA_BUNDLE_STORAGE_BUCKET_SET:-false}"
   env_apply_if_supplied QA_BUNDLE_STORAGE_PREFIX "${QA_BUNDLE_STORAGE_PREFIX:-}" "${QA_BUNDLE_STORAGE_PREFIX_SET:-false}"
   if [[ "$(env_get QA_BUNDLE_ENABLED)" = true ]]; then
-    for key in QA_BUNDLE_QUEUE_URL QA_BUNDLE_STORAGE_DRIVER QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_PREFIX; do
+    QA_BUNDLE_QUEUE_DRIVER="$(env_get QA_BUNDLE_QUEUE_DRIVER)" \
+      QA_BUNDLE_QUEUE_URL="$(env_get QA_BUNDLE_QUEUE_URL)" \
+      QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE="$(env_get QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE)" \
+      validate_qa_queue_environment
+    for key in QA_BUNDLE_STORAGE_DRIVER QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_PREFIX; do
       [[ -n "$(env_get "${key}")" ]] || die "${key} is required when QA_BUNDLE_ENABLED=true"
     done
   fi
@@ -544,7 +586,9 @@ services:
       - "8080"
     volumes:
       - /var/lib/tokenkey/app:/app/data
+      # HOST_RUNTIME_VOLUMES
     environment:
+      # HOST_RUNTIME_ENVIRONMENT
       - SKIP_DATA_CHOWN=1
       - AUTO_SETUP=true
       - SERVER_HOST=0.0.0.0
@@ -584,6 +628,14 @@ services:
       - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-}
       - QA_BUNDLE_ENABLED=${QA_BUNDLE_ENABLED:-}
       - QA_BUNDLE_QUEUE_URL=${QA_BUNDLE_QUEUE_URL:-}
+      - QA_BUNDLE_QUEUE_DRIVER=${QA_BUNDLE_QUEUE_DRIVER:-}
+      - QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE=${QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE:-}
+      - QA_BUNDLE_STORAGE_ENDPOINT=${QA_BUNDLE_STORAGE_ENDPOINT:-}
+      - QA_BUNDLE_STORAGE_FORCE_PATH_STYLE=${QA_BUNDLE_STORAGE_FORCE_PATH_STYLE:-}
+      - QA_BUNDLE_STORAGE_CREDENTIALS_FILE=${QA_BUNDLE_STORAGE_CREDENTIALS_FILE:-}
+      - QA_ARCHIVE_STORAGE_ENDPOINT=${QA_ARCHIVE_STORAGE_ENDPOINT:-}
+      - QA_ARCHIVE_STORAGE_FORCE_PATH_STYLE=${QA_ARCHIVE_STORAGE_FORCE_PATH_STYLE:-}
+      - QA_ARCHIVE_STORAGE_CREDENTIALS_FILE=${QA_ARCHIVE_STORAGE_CREDENTIALS_FILE:-}
       - QA_BUNDLE_STORAGE_DRIVER=${QA_BUNDLE_STORAGE_DRIVER:-}
       - QA_BUNDLE_STORAGE_REGION=${QA_BUNDLE_STORAGE_REGION:-}
       - QA_BUNDLE_STORAGE_BUCKET=${QA_BUNDLE_STORAGE_BUCKET:-}
@@ -634,7 +686,9 @@ services:
       - "8080"
     volumes:
       - /var/lib/tokenkey/app:/app/data
+      # HOST_RUNTIME_VOLUMES
     environment:
+      # HOST_RUNTIME_ENVIRONMENT
       - SKIP_DATA_CHOWN=1
       - AUTO_SETUP=true
       - SERVER_HOST=0.0.0.0
@@ -674,6 +728,14 @@ services:
       - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-}
       - QA_BUNDLE_ENABLED=${QA_BUNDLE_ENABLED:-}
       - QA_BUNDLE_QUEUE_URL=${QA_BUNDLE_QUEUE_URL:-}
+      - QA_BUNDLE_QUEUE_DRIVER=${QA_BUNDLE_QUEUE_DRIVER:-}
+      - QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE=${QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE:-}
+      - QA_BUNDLE_STORAGE_ENDPOINT=${QA_BUNDLE_STORAGE_ENDPOINT:-}
+      - QA_BUNDLE_STORAGE_FORCE_PATH_STYLE=${QA_BUNDLE_STORAGE_FORCE_PATH_STYLE:-}
+      - QA_BUNDLE_STORAGE_CREDENTIALS_FILE=${QA_BUNDLE_STORAGE_CREDENTIALS_FILE:-}
+      - QA_ARCHIVE_STORAGE_ENDPOINT=${QA_ARCHIVE_STORAGE_ENDPOINT:-}
+      - QA_ARCHIVE_STORAGE_FORCE_PATH_STYLE=${QA_ARCHIVE_STORAGE_FORCE_PATH_STYLE:-}
+      - QA_ARCHIVE_STORAGE_CREDENTIALS_FILE=${QA_ARCHIVE_STORAGE_CREDENTIALS_FILE:-}
       - QA_BUNDLE_STORAGE_DRIVER=${QA_BUNDLE_STORAGE_DRIVER:-}
       - QA_BUNDLE_STORAGE_REGION=${QA_BUNDLE_STORAGE_REGION:-}
       - QA_BUNDLE_STORAGE_BUCKET=${QA_BUNDLE_STORAGE_BUCKET:-}
@@ -714,6 +776,9 @@ networks:
     external: true
     name: tokenkey_tokenkey-network
 YAML
+  local -a runtime_args=(--compose "${tmp}")
+  [[ "${HYBRID_PROD:-false}" != true ]] || runtime_args+=(--hybrid-prod)
+  sudo python3 -c "$(printf '%s' "${HOST_RUNTIME_B64}" | base64 -d)" "${runtime_args[@]}"
   sudo mv "${tmp}" "${BG_COMPOSE}"
   log "wrote ${BG_COMPOSE}"
 }
@@ -796,6 +861,21 @@ TimeoutStopSec=240
 [Install]
 WantedBy=multi-user.target
 UNIT
+  if [[ "${HYBRID_PROD:-false}" = true ]]; then
+    sudo install -d -m 0755 /usr/local/lib/tokenkey /etc/systemd/system/docker.service.d /etc/systemd/system/tokenkey.service.d
+    printf '%s' "${HOST_RUNTIME_B64}" | base64 -d | sudo tee /usr/local/lib/tokenkey/bluegreen_host_runtime.py >/dev/null
+    sudo chmod 0644 /usr/local/lib/tokenkey/bluegreen_host_runtime.py
+    # Docker restart policies run before tokenkey.service, so protect both units.
+    local unit
+    for unit in docker tokenkey; do
+      sudo tee "/etc/systemd/system/${unit}.service.d/tokenkey-volume.conf" >/dev/null <<'GUARD'
+[Unit]
+RequiresMountsFor=/var/lib/tokenkey
+[Service]
+ExecStartPre=/usr/bin/python3 /usr/local/lib/tokenkey/bluegreen_host_runtime.py --check-volume
+GUARD
+    done
+  fi
   sudo systemctl daemon-reload
   sudo systemctl enable tokenkey.service >/dev/null
   log "installed blue/green tokenkey.service restart policy"
@@ -1229,7 +1309,20 @@ sudo docker logs "${active_container}" --since 2m 2>&1 | tail -30 || true
 echo "tk_stage0_cutover: timestamp=${CUTOVER_AT}"
 REMOTE
 
+REMOTE_SCRIPT="$(cat "$(dirname "$0")/qa-runtime-environment.sh")
+${REMOTE_SCRIPT}"
 printf '%s\n' "${REMOTE_SCRIPT}" > "${remote_script_file}"
+# Supplemental coordinates use the same explicit/unset contract as older keys.
+qa_runtime_exports=""
+for key in "${QA_RUNTIME_KEYS[@]}"; do
+  case "${!key-}" in
+    *$'\n'*|*$'\r'*|*'$'*) echo "invalid runtime coordinate: ${key}" >&2; exit 1 ;;
+  esac
+  printf -v escaped '%q' "${!key-}"
+  qa_runtime_exports+=" ${key}=${escaped} ${key}_SET=$([[ -n "${!key+x}" ]] && echo true || echo false)"
+done
+hybrid_prod=false
+[[ "${DEPLOY_PROFILE}" != prod || "${INSTANCE_ID}" != mi-* ]] || hybrid_prod=true
 
 REMOTE_B64="$(printf '%s' "${REMOTE_SCRIPT}" | base64 | tr -d '\n')"
 chunks_json="$(printf '%s' "${REMOTE_B64}" | fold -w 1000 | jq -R -s 'split("\n") | map(select(length > 0))')"
@@ -1266,6 +1359,9 @@ fi
 
 jq -n \
   --arg tag "${TAG}" \
+  --arg qa_runtime_exports "${qa_runtime_exports}" \
+  --arg hybrid_prod "${hybrid_prod}" \
+  --arg host_runtime_b64 "$(base64 < "$(dirname "$0")/bluegreen_host_runtime.py" | tr -d '\n')" \
   --arg stage "${STAGE}" \
   --arg deploy_token "${DEPLOY_TOKEN}" \
   --arg approved_receipt "${APPROVED_RECEIPT}" \
@@ -1320,6 +1416,9 @@ jq -n \
     "chmod 700 /tmp/tokenkey-bluegreen-deploy.sh",
     (
       "TAG=" + ($tag|@sh)
+      + $qa_runtime_exports
+      + " HYBRID_PROD=" + ($hybrid_prod|@sh)
+      + " HOST_RUNTIME_B64=" + ($host_runtime_b64|@sh)
       + " STAGE=" + ($stage|@sh)
       + " DEPLOY_TOKEN=" + ($deploy_token|@sh)
       + " APPROVED_RECEIPT=" + ($approved_receipt|@sh)

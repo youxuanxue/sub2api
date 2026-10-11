@@ -85,10 +85,14 @@ func NewObjectStoreFromConfig(ctx context.Context, storage config.QACaptureStora
 		return nil, fmt.Errorf("qa archive storage region is required")
 	}
 
+	accessKey, secretKey, err := storage.ReadCredentials()
+	if err != nil {
+		return nil, err
+	}
 	opts := []func(*awsconfig.LoadOptions) error{awsconfig.WithRegion(region)}
-	if strings.TrimSpace(storage.AccessKeyID) != "" {
+	if accessKey != "" {
 		opts = append(opts, awsconfig.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(storage.AccessKeyID, storage.SecretAccessKey, ""),
+			credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
 		))
 	}
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)

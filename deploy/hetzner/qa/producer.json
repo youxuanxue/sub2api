@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "provider": "hetzner",
+  "region": "fsn1",
+  "endpoint": "https://fsn1.your-objectstorage.com",
+  "bucket": "tokenkey-qa-bundles-fsn1-dd2ca9019b22",
+  "prefix": "user-qa",
+  "archive_bucket": "tokenkey-qa-raw-fsn1-dd2ca9019b22",
+  "archive_prefix": "raw/v1"
+}
