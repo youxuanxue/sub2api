@@ -68,3 +68,4 @@
 | US-060 | Cursor Agent client-only tool execution | InTest | `.testing/user-stories/stories/US-060-cursor-client-only-tools.md` |
 
 | US-061 | 充值资格与 Studio 媒体错误提示 | Done | `.testing/user-stories/stories/US-061-trial-media-recharge.md` |
+| US-062 | QA uk1 独立队列与资源隔离 | InTest | `.testing/user-stories/stories/US-062-qa-uk1-queue-isolation.md` |

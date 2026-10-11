@@ -16,8 +16,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/engine"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/bundle"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
 func (s *Service) UserTrajExportEnabled(ctx context.Context, userID int64) (bool, error) {
@@ -63,11 +61,7 @@ func (s *Service) configureBundle(ctx context.Context, cfg *config.Config, db *s
 	if err != nil {
 		return fmt.Errorf("configure qa bundle signer: %w", err)
 	}
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, qaS3LoadOptions(cfg.QaBundle.Storage)...)
-	if err != nil {
-		return fmt.Errorf("configure qa bundle queue credentials: %w", err)
-	}
-	queue, err := bundle.NewSQSJobQueue(sqs.NewFromConfig(awsCfg), cfg.QaBundle.QueueURL)
+	queue, err := bundle.OpenJobQueue(ctx, cfg.QaBundle)
 	if err != nil {
 		return err
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
 )
@@ -29,12 +30,27 @@ type JobFailure struct {
 }
 
 func (w Worker) RunOne(ctx context.Context) (bool, error) {
+	return w.runOne(ctx, false)
+}
+
+// RunOneDraining stops receiving on shutdown while allowing an already claimed
+// job to finish. The deadline leaves five minutes before the queue lease expires.
+func (w Worker) RunOneDraining(ctx context.Context) (bool, error) {
+	return w.runOne(ctx, true)
+}
+
+func (w Worker) runOne(ctx context.Context, drain bool) (bool, error) {
 	if w.Consumer == nil || w.OutputStore == nil {
 		return false, errors.New("qa bundle worker dependencies are incomplete")
 	}
 	message, ok, err := w.Consumer.Receive(ctx)
 	if err != nil || !ok {
 		return false, err
+	}
+	if drain {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 55*time.Minute)
+		defer cancel()
 	}
 	body, err := w.OutputStore.Read(ctx, message.SpecKey)
 	if err != nil {

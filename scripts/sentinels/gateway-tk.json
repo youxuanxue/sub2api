@@ -5,6 +5,30 @@
     {
       "path": "backend/internal/config/config.go",
       "must_contain": [
+        "viper.SetDefault(\"qa_bundle.queue_driver\", \"sqs\")",
+        "viper.SetDefault(\"qa_bundle.queue_postgres_dsn_file\", \"\")",
+        "qa_bundle.queue_url must be empty for postgres"
+      ],
+      "rationale": "QA queue migration must preserve the SQS default and reject mixed PostgreSQL/SQS configuration."
+    },
+    {
+      "path": "backend/cmd/server/qa_bundle_worker.go",
+      "must_contain": [
+        "bundle.OpenJobQueue(ctx, cfg.QaBundle)",
+        "worker.RunOneDraining(ctx)"
+      ],
+      "rationale": "The standalone worker must share the producer/canary queue factory and drain claimed work on shutdown."
+    },
+    {
+      "path": "backend/internal/config/qa_bundle_env_test.go",
+      "must_contain": [
+        "TestQABundlePostgresConfigRejectsAmbiguousDriver"
+      ],
+      "rationale": "Keep runtime environment binding and rejection coverage for queue backend migration."
+    },
+    {
+      "path": "backend/internal/config/config.go",
+      "must_contain": [
         "viper.SetDefault(\"billing.inflight_reservation.enabled\", false)",
         "viper.SetDefault(\"gateway.antigravity_pre_content_keepalive_enabled\", false)"
       ],

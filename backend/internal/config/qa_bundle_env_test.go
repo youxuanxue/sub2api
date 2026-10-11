@@ -21,3 +21,33 @@ func TestQABundleEnvBinding(t *testing.T) {
 		t.Fatalf("qa_bundle=%+v", cfg.QaBundle)
 	}
 }
+
+func TestQABundlePostgresConfigRejectsAmbiguousDriver(t *testing.T) {
+	valid := QaBundleConfig{Enabled: true, QueueDriver: "postgres", QueuePostgresDSNFile: "/run/secrets/queue.dsn",
+		Storage: QACaptureStorageConfig{Driver: "s3", Region: "fsn1", Bucket: "qa", Prefix: "bundle"}}
+	if err := validateQaBundleConfig(valid); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutate := range []func(*QaBundleConfig){
+		func(c *QaBundleConfig) { c.QueueURL = "https://sqs.example/queue" },
+		func(c *QaBundleConfig) { c.QueuePostgresDSNFile = "" },
+		func(c *QaBundleConfig) { c.QueueDriver = "unknown" },
+		func(c *QaBundleConfig) { c.QueueDriver = "sqs"; c.QueueURL = "https://sqs.example/queue" },
+	} {
+		cfg := valid
+		mutate(&cfg)
+		if err := validateQaBundleConfig(cfg); err == nil {
+			t.Fatal("ambiguous or incomplete queue accepted")
+		}
+	}
+	t.Setenv("QA_BUNDLE_QUEUE_DRIVER", "postgres")
+	t.Setenv("QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE", "/run/secrets/queue.dsn")
+	t.Setenv("QA_BUNDLE_QUEUE_URL", "")
+	cfg, err := LoadForBootstrap()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.QaBundle.QueueDriver != "postgres" || cfg.QaBundle.QueuePostgresDSNFile != "/run/secrets/queue.dsn" {
+		t.Fatal("PostgreSQL queue environment not bound")
+	}
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "target": "edge:uk1",
+  "aggregate": {"cpu_millis": 1000, "memory_bytes": 2147483648, "pids": 256},
+  "worker": {"cpu_millis": 750, "memory_bytes": 1610612736, "pids": 128},
+  "queue": {"cpu_millis": 250, "memory_bytes": 536870912, "pids": 64},
+  "concurrency": 1,
+  "scratch_bytes": 4294967296,
+  "log_max_bytes": 10485760,
+  "log_max_files": 3
+}
