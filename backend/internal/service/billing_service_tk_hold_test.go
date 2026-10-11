@@ -101,8 +101,9 @@ func TestEstimateTokenHold_UpperBoundAcrossTiersAndSplits(t *testing.T) {
 	resolver := NewModelPricingResolver(nil, s)
 	const epsilon = 1e-9
 	tiers := []string{"", "default", "priority", "fast", "flex", "scale", OpenAIFastTierUltrafast}
-	// "" is the reserve-time unknown: settlement may bill ANY effort, so the
-	// reserve has to cover the dearest one.
+	// Effort is pinned at reserve time from the post-policy body; omitted
+	// effort reserves 1x (settlement never injects one). Sweep still walks
+	// every declared effort so a premium cannot silently under-reserve.
 	efforts := []string{"", "minimal", "low", "medium", "high", "xhigh", "max", "none"}
 
 	for _, model := range []string{"gpt-6-astra", "claude-sonnet-4", "grok-4.6", "gpt-5.4", "claude-fable-5-1", "claude-opus-5-5"} {
@@ -282,6 +283,98 @@ func TestEstimateTokenHold_CoversUltrafastMultiplier(t *testing.T) {
 	}
 	if settled.ActualCost > ultrafast+1e-9 {
 		t.Errorf("ultrafast settlement must not exceed its reserve: actual=%.8f hold=%.8f", settled.ActualCost, ultrafast)
+	}
+}
+
+// Catalog DeepSeek list prices are off-peak; settlement scales by
+// PeakMultiplier during windows. The hold must carry that peak factor or a
+// peak-window request overdraws by that multiplier (proven 2.00x before the
+// fix on deepseek-v4-flash).
+func TestEstimateTokenHold_CoversDeepSeekPeakMultiplier(t *testing.T) {
+	const model = "deepseek-v4-flash"
+	s := NewBillingService(&config.Config{}, &PricingService{useActiveRegistry: true})
+	resolver := NewModelPricingResolver(nil, s)
+	const prompt, maxOut = 5000, 2000
+	peakAt := time.Date(2026, 8, 24, 2, 0, 0, 0, time.UTC) // 10:00 Beijing peak
+
+	hold, err := s.EstimateTokenHold(model, "", "", prompt, maxOut, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settled, err := s.CalculateCostUnified(CostInput{
+		Ctx:            context.Background(),
+		Model:          model,
+		Tokens:         UsageTokens{InputTokens: prompt, OutputTokens: maxOut},
+		RateMultiplier: 1.0,
+		Resolver:       resolver,
+		PricingAt:      peakAt,
+		BillingAt:      peakAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled.ActualCost > hold+1e-9 {
+		t.Fatalf("deepseek peak settlement must not exceed its reserve: actual=%.12f hold=%.12f", settled.ActualCost, hold)
+	}
+	policy := loadTkDeepSeekPeakValleyPolicy()
+	if policy == nil || policy.PeakMultiplier <= 1 {
+		t.Fatal("expected a DeepSeek peak policy with PeakMultiplier > 1")
+	}
+	// Off-peak catalog hold without the peak scale would be settle/PeakMultiplier.
+	// Require the hold to be at least the peak settlement (within epsilon).
+	if hold+1e-9 < settled.ActualCost {
+		t.Fatalf("hold under-reserved peak: hold=%.12f settle=%.12f", hold, settled.ActualCost)
+	}
+}
+
+// Channel TimePricing multiplies settlement after computeTokenBreakdown.
+// Catalog EstimateTokenHold alone cannot see it; EstimateTokenHoldResolved
+// must carry the dearest period multiplier.
+func TestEstimateTokenHoldResolved_CoversChannelTimeMultiplier(t *testing.T) {
+	s := NewBillingService(&config.Config{}, nil)
+	const groupID int64 = 42
+	const model = "gpt-5.1"
+	const prompt, maxOut = 5000, 2000
+	resolver := newOpenAITokenImageChannelPricingResolverWithTimeForTest(t, groupID, model, &ChannelTimePricing{
+		Timezone: "UTC",
+		Periods:  []ChannelTimePricingPeriod{{StartTime: "09:00", EndTime: "12:00", Multiplier: 2}},
+	})
+	apiKey := &APIKey{ID: 1, GroupID: &[]int64{groupID}[0], Group: &Group{ID: groupID, Platform: PlatformOpenAI, RateMultiplier: 1}}
+	gw := &OpenAIGatewayService{billingService: s, resolver: resolver}
+	resolved := gw.resolveOpenAIChannelPricing(context.Background(), model, apiKey)
+	if resolved == nil || resolved.Source != PricingSourceChannel {
+		t.Fatalf("expected channel pricing, got %#v", resolved)
+	}
+
+	hold, err := s.EstimateTokenHoldResolved(model, "", "", prompt, maxOut, 1.0, resolved, resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogHold, err := s.EstimateTokenHold(model, "", "", prompt, maxOut, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hold <= catalogHold {
+		t.Fatalf("channel time hold must exceed catalog hold: channel=%.12f catalog=%.12f", hold, catalogHold)
+	}
+
+	peakAt := time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC)
+	settled, err := s.CalculateCostUnified(CostInput{
+		Ctx:            context.Background(),
+		Model:          model,
+		GroupID:        &[]int64{groupID}[0],
+		Tokens:         UsageTokens{InputTokens: prompt, OutputTokens: maxOut},
+		RateMultiplier: 1.0,
+		Resolver:       resolver,
+		Resolved:       resolved,
+		PricingAt:      peakAt,
+		BillingAt:      peakAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled.ActualCost > hold+1e-9 {
+		t.Fatalf("channel time settlement must not exceed its reserve: actual=%.12f hold=%.12f", settled.ActualCost, hold)
 	}
 }
 

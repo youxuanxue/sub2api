@@ -36,12 +36,66 @@ import "strings"
 //     or `ultrafast`, which resolves to a multiplier rather than priority units)
 //     is applied here.
 //   - reasoning effort: the premium calculateTokenCost applies after
-//     computeTokenBreakdown. An empty effort reserves the dearest configured
-//     premium, since the final effort is not pinned at reserve time.
+//     computeTokenBreakdown. An omitted effort reserves 1x, mirroring
+//     settlement exactly — group policy never injects an effort into an
+//     absent field (ApplyReasoningEffortPolicy, "Omitted values remain
+//     untouched").
+//   - DeepSeek peak/valley: catalog list prices are off-peak; settlement
+//     scales by PeakMultiplier during windows. The hold always carries that
+//     peak factor (not MultiplierAt(now)) so a reserve taken off-peak still
+//     covers settlement that lands in a peak window.
 func (s *BillingService) EstimateTokenHold(model, serviceTier, reasoningEffort string, promptTokens, maxOutputTokens int, rateMultiplier float64) (float64, error) {
 	pricing, err := s.GetModelPricing(model) // already carries long-context policy
 	if err != nil {
 		return 0, err
+	}
+	pricing = tkDeepSeekHoldUpperBoundPricing(model, pricing, PricingSourceFallback)
+	return estimateTokenHoldFromPricing(model, serviceTier, reasoningEffort, promptTokens, maxOutputTokens, rateMultiplier, pricing, 1.0)
+}
+
+// EstimateTokenHoldResolved prices a token hold from the same ResolvedPricing
+// settlement will use (group/channel BasePricing + intervals), and multiplies
+// by the dearest configured channel TimePricing period when Source is channel.
+// Catalog-only callers keep using EstimateTokenHold.
+func (s *BillingService) EstimateTokenHoldResolved(
+	model, serviceTier, reasoningEffort string,
+	promptTokens, maxOutputTokens int,
+	rateMultiplier float64,
+	resolved *ResolvedPricing,
+	resolver *ModelPricingResolver,
+) (float64, error) {
+	if resolved == nil || resolver == nil || resolved.Mode != BillingModeToken {
+		return s.EstimateTokenHold(model, serviceTier, reasoningEffort, promptTokens, maxOutputTokens, rateMultiplier)
+	}
+	// Prefer the interval that matches the reserved prompt size (settlement
+	// with long-context enabled does the same). Across intervals, take the
+	// max of every unit price the hold formula reads so a cheaper first-tier
+	// base cannot under-reserve a higher-context request.
+	base := resolver.GetIntervalPricing(resolved, promptTokens)
+	if base == nil {
+		base = resolved.BasePricing
+	}
+	if base == nil {
+		return s.EstimateTokenHold(model, serviceTier, reasoningEffort, promptTokens, maxOutputTokens, rateMultiplier)
+	}
+	pricing := holdUpperBoundPricingAcrossIntervals(resolved, base)
+	pricing = tkDeepSeekHoldUpperBoundPricing(model, pricing, resolved.Source)
+	return estimateTokenHoldFromPricing(
+		model, serviceTier, reasoningEffort,
+		promptTokens, maxOutputTokens, rateMultiplier,
+		pricing, maxChannelTimeHoldMultiplier(resolved),
+	)
+}
+
+func estimateTokenHoldFromPricing(
+	model, serviceTier, reasoningEffort string,
+	promptTokens, maxOutputTokens int,
+	rateMultiplier float64,
+	pricing *ModelPricing,
+	timeMultiplier float64,
+) (float64, error) {
+	if pricing == nil {
+		return 0, ErrModelPricingUnavailable
 	}
 	if promptTokens < 0 {
 		promptTokens = 0
@@ -109,6 +163,12 @@ func (s *BillingService) EstimateTokenHold(model, serviceTier, reasoningEffort s
 	if rateMultiplier < 0 {
 		rateMultiplier = 0
 	}
+	if timeMultiplier < 0 {
+		timeMultiplier = 0
+	}
+	if timeMultiplier == 0 {
+		timeMultiplier = 1
+	}
 
 	tier := configuredServiceTierMultiplier(serviceTier, pricing)
 	if usePriorityServiceTierPricing(serviceTier, pricing) {
@@ -118,7 +178,75 @@ func (s *BillingService) EstimateTokenHold(model, serviceTier, reasoningEffort s
 	}
 
 	total := float64(promptTokens)*unitIn*lcIn + float64(maxOutputTokens)*unitOut*lcOut
-	return total * tier * reasoningEffortHoldMultiplier(model, reasoningEffort, pricing) * rateMultiplier, nil
+	return total * tier * reasoningEffortHoldMultiplier(model, reasoningEffort, pricing) * rateMultiplier * timeMultiplier, nil
+}
+
+// tkDeepSeekHoldUpperBoundPricing scales catalog DeepSeek units by the policy
+// PeakMultiplier so the hold covers settlement that lands in a peak window.
+// Channel/group pricing is left untouched — peak/valley does not apply there.
+func tkDeepSeekHoldUpperBoundPricing(model string, pricing *ModelPricing, pricingSource string) *ModelPricing {
+	if pricing == nil {
+		return nil
+	}
+	policy := loadTkDeepSeekPeakValleyPolicy()
+	if pricing.registrySnapshot != nil {
+		policy = pricing.registrySnapshot.DeepSeekPeakValley
+	}
+	if !tkDeepSeekPeakValleyAppliesWithPolicy(policy, model, pricingSource) {
+		return pricing
+	}
+	if policy == nil || policy.PeakMultiplier <= 1 {
+		return pricing
+	}
+	return tkScaleModelPricingByFactor(pricing, policy.PeakMultiplier)
+}
+
+// maxChannelTimeHoldMultiplier returns the dearest configured channel
+// TimePricing period multiplier. Settlement uses MultiplierAt(pricingAt); the
+// hold cannot know that clock, so it takes the max period (default 1 when
+// unset). Mirrors resolvedChannelTimeMultiplier's channel-only gate.
+func maxChannelTimeHoldMultiplier(resolved *ResolvedPricing) float64 {
+	if resolved == nil || resolved.Source != PricingSourceChannel || resolved.channelPricing == nil || resolved.channelPricing.TimePricing == nil {
+		return 1
+	}
+	m := 1.0
+	for _, p := range resolved.channelPricing.TimePricing.Periods {
+		if p.Multiplier > m {
+			m = p.Multiplier
+		}
+	}
+	return m
+}
+
+// holdUpperBoundPricingAcrossIntervals folds every interval's unit prices into
+// a single ModelPricing whose max()-based hold formula dominates any interval
+// settlement could pick for the reserved prompt size.
+func holdUpperBoundPricingAcrossIntervals(resolved *ResolvedPricing, base *ModelPricing) *ModelPricing {
+	if base == nil {
+		return nil
+	}
+	out := *base
+	if resolved == nil || len(resolved.Intervals) == 0 {
+		return &out
+	}
+	for i := range resolved.Intervals {
+		overlay := tkOverlayIntervalOntoBasePricing(base, &resolved.Intervals[i], resolved.SupportsCacheBreakdown)
+		if overlay == nil {
+			continue
+		}
+		out.InputPricePerToken = maxFloat(out.InputPricePerToken, overlay.InputPricePerToken)
+		out.InputPricePerTokenPriority = maxFloat(out.InputPricePerTokenPriority, overlay.InputPricePerTokenPriority)
+		out.ImageInputPricePerToken = maxFloat(out.ImageInputPricePerToken, overlay.ImageInputPricePerToken)
+		out.CacheCreationPricePerToken = maxFloat(out.CacheCreationPricePerToken, overlay.CacheCreationPricePerToken)
+		out.CacheCreationPricePerTokenPriority = maxFloat(out.CacheCreationPricePerTokenPriority, overlay.CacheCreationPricePerTokenPriority)
+		out.CacheCreation5mPrice = maxFloat(out.CacheCreation5mPrice, overlay.CacheCreation5mPrice)
+		out.CacheCreation1hPrice = maxFloat(out.CacheCreation1hPrice, overlay.CacheCreation1hPrice)
+		out.OutputPricePerToken = maxFloat(out.OutputPricePerToken, overlay.OutputPricePerToken)
+		out.OutputPricePerTokenPriority = maxFloat(out.OutputPricePerTokenPriority, overlay.OutputPricePerTokenPriority)
+		out.ThinkingOutputPricePerToken = maxFloat(out.ThinkingOutputPricePerToken, overlay.ThinkingOutputPricePerToken)
+		out.ImageOutputPricePerToken = maxFloat(out.ImageOutputPricePerToken, overlay.ImageOutputPricePerToken)
+	}
+	return &out
 }
 
 // reasoningEffortHoldMultiplier returns the reasoning-effort premium settlement

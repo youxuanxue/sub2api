@@ -13777,19 +13777,33 @@
       "path": "backend/internal/service/billing_service_tk_hold.go",
       "must_contain": [
         "func reasoningEffortHoldMultiplier(",
-        "reasoningEffortHoldMultiplier(model, reasoningEffort, pricing)"
+        "reasoningEffortHoldMultiplier(model, reasoningEffort, pricing)",
+        "func tkDeepSeekHoldUpperBoundPricing(",
+        "func maxChannelTimeHoldMultiplier(",
+        "func (s *BillingService) EstimateTokenHoldResolved("
       ],
       "code_only": true,
-      "rationale": "The post-hoc deduct has no balance floor, so the token hold is the ONLY guard against concurrent overdraw and must stay an upper bound on settlement. calculateTokenCost applies a reasoning-effort premium AFTER computeTokenBreakdown (billing_service.go), so a reserve that omits it under-reserves by that factor — 3x on an unconfigured Fable 5.1 `max` effort. Dropping this call compiles and passes a sweep built on CalculateCostWithServiceTier, which never reaches that multiplier."
+      "rationale": "The post-hoc deduct has no balance floor, so the token hold is the ONLY guard against concurrent overdraw and must stay an upper bound on settlement. calculateTokenCost applies a reasoning-effort premium AFTER computeTokenBreakdown, DeepSeek peak/valley after GetIntervalPricing, and channel TimePricing via resolvedChannelTimeMultiplier — a reserve that omits any of them under-reserves by that factor."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_hold.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) tkEstimateTokenHoldAmount(",
+        "EstimateTokenHoldResolved("
+      ],
+      "code_only": true,
+      "rationale": "Token holds must resolve group/channel pricing the same way image holds do; catalog-only EstimateTokenHold cannot see channel unit prices or TimePricing multipliers."
     },
     {
       "path": "backend/internal/service/billing_service_tk_hold_test.go",
       "must_contain": [
         "CalculateCostUnified(CostInput{",
         "TestEstimateTokenHold_CoversReasoningEffortPremium",
-        "TestEstimateTokenHold_CoversUltrafastMultiplier"
+        "TestEstimateTokenHold_CoversUltrafastMultiplier",
+        "TestEstimateTokenHold_CoversDeepSeekPeakMultiplier",
+        "TestEstimateTokenHoldResolved_CoversChannelTimeMultiplier"
       ],
-      "rationale": "The hold >= settlement sweep must settle through CalculateCostUnified (the entry point production bills with), not CalculateCostWithServiceTier, which stops at computeTokenBreakdown and skips the reasoning-effort and channel-time premiums. A sweep rewritten back to the cheaper helper would go green while the reserve under-covers the dearest requests."
+      "rationale": "The hold >= settlement sweep must settle through CalculateCostUnified (the entry point production bills with), not CalculateCostWithServiceTier, which stops at computeTokenBreakdown and skips the reasoning-effort and channel-time premiums. Focused DeepSeek peak and channel TimePricing regressions pin the post-breakdown multipliers the catalog-only path previously missed."
     },
     {
       "path": "backend/internal/service/account_model_mapping_preset_tk.go",
