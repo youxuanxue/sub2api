@@ -32,6 +32,34 @@ def workflow_text() -> str:
 
 
 def extract_runtime_params_commands() -> list[str]:
+    """Inner host script lines from runtime-params.json builder.
+
+    Hybrid SSM wraps the array as a single ``bash -c '…'`` command so dash
+    can start the document; tests assert the unwrapped body.
+    """
+    from ops.stage0.ssm_wrap_bash_commands import unwrap_commands
+
+    marker = 'python3 - <<\'PY\' > "$OUT/runtime-params.json"\n'
+    text = workflow_text()
+    start = text.index(marker) + len(marker)
+    end = text.index("\n          PY", start)
+    script = textwrap.dedent(text[start:end])
+    old_since = os.environ.get("DIAGNOSTICS_LOG_SINCE")
+    os.environ["DIAGNOSTICS_LOG_SINCE"] = "24h"
+    try:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            exec(compile(script, str(WORKFLOW), "exec"), {})
+        return unwrap_commands(json.loads(stdout.getvalue())["commands"])
+    finally:
+        if old_since is None:
+            os.environ.pop("DIAGNOSTICS_LOG_SINCE", None)
+        else:
+            os.environ["DIAGNOSTICS_LOG_SINCE"] = old_since
+
+
+def extract_runtime_params_raw_commands() -> list[str]:
+    """Raw SSM commands array (still wrapped) for Hybrid dash regression."""
     marker = 'python3 - <<\'PY\' > "$OUT/runtime-params.json"\n'
     text = workflow_text()
     start = text.index(marker) + len(marker)
@@ -137,6 +165,30 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         runtime_end = text.index("if [ \"$INCLUDE_ERROR_CLUSTERING\"", runtime_start)
         runtime_block = text[runtime_start:runtime_end]
         self.assertNotIn("run-probe.sh", runtime_block)
+
+    def test_runtime_ssm_params_wrap_pipefail_in_bash_c_for_hybrid_dash(self) -> None:
+        """Hybrid RunShellScript starts under dash; pipefail must be inside bash -c."""
+        raw = extract_runtime_params_raw_commands()
+        self.assertEqual(len(raw), 1, raw)
+        self.assertTrue(raw[0].startswith("bash -c "), raw[0][:80])
+        body = extract_runtime_params_commands()
+        self.assertEqual(body[0], "set -euo pipefail")
+        self.assertIn("echo ===INTERNAL_HEALTH===", body)
+
+        text = workflow_text()
+        for marker in (
+            'python3 - <<\'PY\' > "$OUT/runtime-params.json"',
+            'python3 - <<\'PY\' > "$OUT/error-clustering-params.json"',
+            "python3 - <<'PY' > ssm-params.json",
+        ):
+            start = text.index(marker)
+            end = text.index("\n          PY", start)
+            block = text[start:end]
+            self.assertIn(
+                '["bash -c " + shlex.quote("\\n".join(commands))]',
+                block,
+                msg=f"missing Hybrid bash -c wrap near {marker}",
+            )
 
     def test_expression_interpolated_run_blocks_fit_github_limit(self) -> None:
         workflow = yaml.safe_load(workflow_text())

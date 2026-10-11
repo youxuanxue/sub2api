@@ -56,6 +56,9 @@ jobs:
       matrix: ${{ fromJson(needs.discover-targets.outputs.matrix) }}
     env:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      # Cutover-aware prod resolve (run-probe → resolve_prod_ssm_target). Without
+      # this, auto falls back to CFN i-* when OIDC cannot read the SSM flip param.
+      PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
       TARGET_KIND: ${{ matrix.target_kind }}
       EDGE_ID: ${{ matrix.edge_id }}
       TARGET_REGION: ${{ matrix.region }}

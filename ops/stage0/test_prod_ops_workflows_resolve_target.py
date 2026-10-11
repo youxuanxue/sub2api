@@ -48,6 +48,15 @@ class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
         self.assertIn("resolve_prod_ssm_target.py", text)
         self.assertNotIn("Outputs[?OutputKey==`InstanceId`].OutputValue", text)
 
+    def test_pgdump_restore_canary_passes_prod_ssm_target(self) -> None:
+        # Canary reaches prod via run-probe (indirect resolve). Without
+        # PROD_SSM_TARGET in job env, OIDC AccessDenied on the flip param
+        # silent-fallbacked to standby EC2 after Wave B cutover.
+        text = (WORKFLOWS / "ops-pgdump-restore-canary.yml").read_text(encoding="utf-8")
+        self.assertIn("PROD_SSM_TARGET", text)
+        self.assertIn("vars.PROD_SSM_TARGET || 'auto'", text)
+        self.assertIn("run-probe.sh", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -54,8 +54,9 @@ def aws_json(args: list[str]) -> Any:
 
 
 def read_cutover_param() -> str:
+    """Read the cutover flip param; AccessDenied must not silent-fallback to aws."""
     try:
-        out = subprocess.check_output(
+        proc = subprocess.run(
             [
                 "aws",
                 "ssm",
@@ -70,11 +71,32 @@ def read_cutover_param() -> str:
                 "text",
             ],
             text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except subprocess.CalledProcessError:
+            capture_output=True,
+            check=False,
+        )
+    except OSError as exc:
+        fail(f"aws ssm get-parameter {CUTOVER_PARAM} failed to start: {exc}")
+    err = (proc.stderr or "") + (proc.stdout or "")
+    if proc.returncode == 0:
+        return (proc.stdout or "").strip().lower()
+    # ParameterNotFound / empty → pre-cutover default aws.
+    if "ParameterNotFound" in err:
         return ""
-    return out.lower()
+    if "AccessDenied" in err or "UnauthorizedOperation" in err:
+        # Real IAM miss must not silent-fallback to standby EC2 after Wave B.
+        fail(
+            f"cannot read {CUTOVER_PARAM} (AccessDenied); set PROD_SSM_TARGET=hetzner|aws "
+            "or grant ssm:GetParameter on that name — refusing silent aws fallback"
+        )
+    # Stub/offline aws (preflight host-parse) and transient errors: warn and
+    # treat as unset. Callers that must hit Hybrid should set PROD_SSM_TARGET.
+    print(
+        f"::warning::aws ssm get-parameter {CUTOVER_PARAM} failed "
+        f"(exit={proc.returncode}); defaulting resolve to aws. "
+        f"Set PROD_SSM_TARGET=hetzner after Wave B cutover. detail={err.strip()[:200]!r}",
+        file=sys.stderr,
+    )
+    return ""
 
 
 def resolve_mode(explicit: str) -> str:

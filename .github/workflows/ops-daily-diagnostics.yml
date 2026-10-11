@@ -352,7 +352,7 @@ jobs:
               *) add_finding "data_layer_capacity" "skip" "info" "Data-layer capacity inconclusive ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID" ;;
             esac
 
-            SAFETY_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-safety.sh --with ops/observability/data-layer-partition-coverage.sql --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
+            SAFETY_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-safety.sh --with ops/observability/data-layer-partition-coverage.sql --with ops/lib/resolve-app-container.sh --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
             SNAPSHOT_SIGNAL="$(bash ops/observability/data_layer_snapshot_signal.sh "$TARGET_REGION" "$STACK_NAME" 2>>"$STDERR" || echo '{"latest_snapshot_at":null}')" # preflight-allow: swallow — helper failures become an explicit missing snapshot signal
             ARCHIVE_SIGNAL="$(python3 ops/observability/data_layer_archive_health.py 2>>"$STDERR" || echo 'ARCHIVESTATS {}')"
             SAFETY_VERDICT="$(printf '%s\nSNAPSHOTSTATS %s\n%s\n' "$SAFETY_OUT" "$SNAPSHOT_SIGNAL" "$ARCHIVE_SIGNAL" | python3 ops/observability/data_layer_safety_verdict.py 2>>"$STDERR" || echo '{"verdict":"unsafe","findings":[{"kind":"data_layer_safety_probe","status":"issue_candidate","severity":"error","summary":"data-layer safety verdict failed"}]}')"
@@ -452,6 +452,7 @@ jobs:
           import os
           import pathlib
           import shlex
+
           log_since = os.environ["DIAGNOSTICS_LOG_SINCE"]
           quoted_since = shlex.quote(log_since)
           # Canonical app-container resolver. This workflow sends an inline SSM
@@ -503,7 +504,8 @@ jobs:
               "grep -Ei 'panic|fatal|error|traceback|failed|timeout|refused|denied| 5[0-9][0-9] | 429 ' \"$SIG_OUT/tokenkey.log\" | tail -60 || true",
               "sudo rm -rf \"$SIG_OUT\" || true",  # preflight-allow: exact mktemp directory
           ]
-          print(json.dumps({"commands": commands}))
+          # Hybrid hosts start RunShellScript in dash; pipefail requires bash.
+          print(json.dumps({"commands": ["bash -c " + shlex.quote("\n".join(commands))]}))
           PY
             RUNTIME_SSM_TRANSPORT_OK=false
             if CMD_ID="$(aws ssm send-command --region "$TARGET_REGION" --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript --comment "prod-ops runtime diagnostics target=$TARGET_ID" --parameters "file://$OUT/runtime-params.json" --query 'Command.CommandId' --output text 2>>"$STDERR")"; then
@@ -656,6 +658,8 @@ jobs:
               python3 - <<'PY' > "$OUT/error-clustering-params.json"
           import json
           import os
+          import shlex
+
           since_hours = os.environ["SINCE_HOURS"]
           commands = [
               "set -euo pipefail",
@@ -676,7 +680,8 @@ jobs:
               "echo",
               "echo ===END_REPORT_MD===",
           ]
-          print(json.dumps({"commands": commands}))
+          # Hybrid hosts start RunShellScript in dash; pipefail requires bash.
+          print(json.dumps({"commands": ["bash -c " + shlex.quote("\n".join(commands))]}))
           PY
               if CMD_ID="$(aws ssm send-command --region "$TARGET_REGION" --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript --comment "error-clustering target=$TARGET_ID ${SINCE_HOURS}h" --parameters "file://$OUT/error-clustering-params.json" --query 'Command.CommandId' --output text 2>>"$STDERR")"; then
                 echo "error_clustering ssm command-id=$CMD_ID" >> "$STDOUT"
@@ -1117,7 +1122,8 @@ jobs:
               "echo",
               "echo ===END_LOGS===",
           ]
-          print(json.dumps({"commands": commands}))
+          # Hybrid hosts start RunShellScript in dash; pipefail requires bash.
+          print(json.dumps({"commands": ["bash -c " + shlex.quote("\n".join(commands))]}))
           PY
 
           CMD_ID=$(aws --region "$AWS_REGION" ssm send-command \
