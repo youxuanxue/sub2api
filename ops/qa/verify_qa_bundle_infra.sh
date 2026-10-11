@@ -3,7 +3,10 @@
 set -euo pipefail
 
 STACK="${QA_RAW_ARCHIVE_STACK:-tokenkey-prod-qa-raw-archive}"
-REGION="${AWS_REGION:-us-east-1}"
+# QA Bundle CFN/S3/SQS/ECS stay in the archive account region (us-east-1).
+# Do not inherit AWS_REGION after Hybrid cutover rewrites it to the SSM
+# registration region (eu-west-2) — that yields AccessDenied on the wrong ARN.
+REGION="${QA_RAW_ARCHIVE_REGION:-${AWS_REGION:-us-east-1}}"
 MODE="${QA_BUNDLE_VERIFY_MODE:-expected}"
 EXPECTED_IMAGE="${QA_BUNDLE_WORKER_IMAGE:-}"
 EXPECTED_DESIRED="${QA_BUNDLE_WORKER_DESIRED_COUNT:-1}"

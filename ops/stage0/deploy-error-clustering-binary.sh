@@ -77,6 +77,10 @@ jq -n --arg b64 "$TAR_B64" '{
   ]
 }' > "$PARAMS_FILE"
 
+# Hybrid/Ubuntu SSM RunShellScript starts under dash, which rejects pipefail.
+# Same wrap owner as deploy_via_ssm / sync-*-via-ssm.
+python3 "$REPO_ROOT/ops/stage0/ssm_wrap_bash_commands.py" "$PARAMS_FILE"
+
 CMD_ID=$(aws ssm send-command \
   --region "$REGION" \
   --instance-ids "$INSTANCE_ID" \

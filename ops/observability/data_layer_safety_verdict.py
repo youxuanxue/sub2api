@@ -112,8 +112,13 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
             )
         )
 
+    # Hybrid / Hetzner prod has no EBS data volume; pgdump_restore_canary owns
+    # backup freshness. Callers set applicable=false so this gate is a no-op.
+    snapshot_applicable = True
+    if isinstance(snapshot, dict) and snapshot.get("applicable") is False:
+        snapshot_applicable = False
     snapshot_at = _timestamp(snapshot.get("latest_snapshot_at")) if isinstance(snapshot, dict) else None
-    if isinstance(snapshot, dict) and snapshot.get("probe_ok") is False:
+    if snapshot_applicable and isinstance(snapshot, dict) and snapshot.get("probe_ok") is False:
         probe_error = str(snapshot.get("probe_error") or "snapshot query failed").strip()
         findings.append(
             _finding(
@@ -121,7 +126,7 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
                 f"EBS snapshot probe failed: {probe_error}",
             )
         )
-    elif not _fresh(snapshot_at, now, SNAPSHOT_MAX_AGE):
+    elif snapshot_applicable and not _fresh(snapshot_at, now, SNAPSHOT_MAX_AGE):
         findings.append(
             _finding(
                 "ebs_snapshot_freshness",

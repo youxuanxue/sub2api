@@ -221,6 +221,9 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         safety_end = text.index("ARCHIVE_SIGNAL=", safety_start)
         snapshot_block = text[safety_start:safety_end]
         self.assertIn("data_layer_snapshot_signal.sh", snapshot_block)
+        self.assertIn("DATA_LAYER_SNAPSHOT_APPLICABLE=false", snapshot_block)
+        self.assertIn('INSTANCE_ID" == mi-*', snapshot_block)
+        self.assertIn("PROD_STACK_REGION:-us-east-1", snapshot_block)
         self.assertNotIn("describe-instances", snapshot_block)
         self.assertNotIn("BlockDeviceMappings[0]", snapshot_block)
         self.assertNotIn("describe-snapshots", snapshot_block)
@@ -241,6 +244,8 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
             "QA_BUNDLE_VERIFY_MODE=discovery bash ops/qa/verify_qa_bundle_infra.sh",
             text,
         )
+        # Hybrid rewrites AWS_REGION to SSM eu-west-2; archive CFN stays us-east-1.
+        self.assertIn('QA_RAW_ARCHIVE_REGION="${QA_RAW_ARCHIVE_REGION:-us-east-1}"', text)
         self.assertIn("run-qa-bundle-canary-via-ssm.sh", text)
         self.assertIn("qa-bundle-infra|$TARGET_ID", text)
         self.assertIn("qa-bundle-canary|$TARGET_ID", text)

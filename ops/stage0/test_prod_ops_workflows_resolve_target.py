@@ -40,6 +40,11 @@ class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
         )
         self.assertIn("resolve_prod_ssm_target.py", text)
         self.assertNotIn("Outputs[?OutputKey==`InstanceId`].OutputValue", text)
+        # Hybrid dash rejects bare pipefail; must wrap before send-command.
+        self.assertIn("ssm_wrap_bash_commands.py", text)
+        wrap_at = text.index("ssm_wrap_bash_commands.py")
+        send_at = text.index("aws ssm send-command")
+        self.assertLess(wrap_at, send_at)
 
     def test_resolve_prod_running_tag_is_cutover_aware(self) -> None:
         text = (ROOT_SCRIPTS / "resolve-prod-running-tag-via-ssm.sh").read_text(
