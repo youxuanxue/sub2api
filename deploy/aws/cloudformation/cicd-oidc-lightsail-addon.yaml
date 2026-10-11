@@ -629,6 +629,8 @@ Resources:
                   - s3:PutObject
                   - s3:GetObject
                   - s3:ListBucket
+                  - s3:AbortMultipartUpload
+                  - s3:ListMultipartUploadParts
                 Resource:
                   - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-bundles-${AWS::AccountId}"
                   - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-bundles-${AWS::AccountId}/user-qa/*"
@@ -636,6 +638,28 @@ Resources:
                   - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-exports-${AWS::AccountId}/*"
                   - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-raw-archive-${AWS::AccountId}"
                   - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-raw-archive-${AWS::AccountId}/*"
+              # SSE-KMS on raw-archive requires identity-based KMS use in addition to
+              # the bucket/key resource policies (2026-10-11 maintenance AccessDenied).
+              - Sid: QaRawArchiveKmsViaS3
+                Effect: Allow
+                Action:
+                  - kms:Encrypt
+                  - kms:Decrypt
+                  - kms:ReEncrypt*
+                  - kms:GenerateDataKey*
+                  - kms:DescribeKey
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:kms:us-east-1:${AWS::AccountId}:key/*"
+                  - !Sub "arn:${AWS::Partition}:kms:us-east-1:${AWS::AccountId}:alias/tokenkey-prod-qa-raw-archive"
+                Condition:
+                  StringEquals:
+                    kms:ViaService: s3.us-east-1.amazonaws.com
+                  StringLike:
+                    kms:EncryptionContext:aws:s3:arn:
+                      - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-raw-archive-${AWS::AccountId}"
+                      - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-raw-archive-${AWS::AccountId}/*"
+                      - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-raw-archive-${AWS::AccountId}/raw/v1/*"
+                      - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-raw-archive-${AWS::AccountId}/raw/partial/*"
 
   LightsailEdgeAddonPolicy:
     Type: AWS::IAM::Policy

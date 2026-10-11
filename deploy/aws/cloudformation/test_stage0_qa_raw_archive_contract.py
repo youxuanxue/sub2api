@@ -71,6 +71,20 @@ class Stage0QARawArchiveContractTest(unittest.TestCase):
             statement["Sid"]: statement
             for statement in template["Resources"]["QaRawArchiveKey"]["Properties"]["KeyPolicy"]["Statement"]
         }
+        key_write = key_statements["AllowAppInstanceRoleUseViaS3"]
+        write_principals = key_write["Principal"]["AWS"]
+        if isinstance(write_principals, str):
+            write_principals = [write_principals]
+        self.assertIn("AppInstanceRoleArn", write_principals)
+        self.assertIn(
+            "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-hetzner-ssm-hybrid-prod",
+            write_principals,
+        )
+        self.assertEqual(
+            key_write["Condition"]["StringEquals"],
+            {"kms:ViaService": "s3.${AWS::Region}.amazonaws.com"},
+        )
+        self.assertIn("kms:GenerateDataKey*", key_write["Action"])
         key_read = key_statements["AllowOpsRecoveryRoleReadViaS3"]
         self.assertEqual(key_read["Principal"], {"AWS": "QaRawArchiveRecoveryRole.Arn"})
         self.assertEqual(key_read["Action"], ["kms:Decrypt", "kms:DescribeKey"])
