@@ -1,48 +1,55 @@
 name: Edge Hetzner Stage0
 
-# uk1 ignition: validate + dry-run, or paid create with SSM Hybrid + compose (no formal DNS).
+# Hetzner edge: provision (ignition) + upgrade/rollback/smoke via shared
+# deploy_via_ssm_bluegreen.sh (same primitive as Lightsail / prod).
 # Anchor: docs/approved/hetzner-cloud-full-migration.md
-# Secrets: HCLOUD_TOKEN (paid). AWS via OIDC (paid). Never commit tokens.
+# Secrets: HCLOUD_TOKEN (paid provision). AWS via OIDC. Never commit tokens.
 
-run-name: "edge=${{ inputs.edge_id }} op=${{ inputs.operation }} platform=hetzner"
+run-name: "edge=${{ inputs.edge_id }} op=${{ inputs.operation }} platform=hetzner tag=${{ inputs.tag || 'none' }}"
 
 on:
   workflow_dispatch:
     inputs:
       edge_id:
-        description: "Edge id (ignition knife: uk1)"
+        description: "Edge id from deploy/hetzner/edge-targets-hetzner.json"
         required: true
         type: choice
         options: [uk1, uk2, us3, us4, us5, us6]
       operation:
-        description: "validate = unit tests; provision = dry-run or paid ignition"
+        description: "validate | provision | upgrade | rollback | smoke"
         required: true
         type: choice
-        options: [validate, provision]
+        options: [validate, provision, upgrade, rollback, smoke]
       confirm_instance:
         description: "Must match tokenkey-edge-<id>-hz-cax21"
         required: true
         type: string
       tag:
-        description: "Image tag without v (required when confirm_paid=true)"
+        description: "Image tag without v (required for provision confirm_paid / upgrade / rollback)"
         required: false
         type: string
       allow_planned:
-        description: "Allow deployable=false rows"
-        required: false
-        type: boolean
-        default: true
-      confirm_paid:
-        description: "Paid create + SSM + compose (still no formal DNS)"
+        description: "Allow deployable=false rows (Phase-1 / backlog)"
         required: false
         type: boolean
         default: false
+      confirm_paid:
+        description: "Paid create + SSM + compose (provision only)"
+        required: false
+        type: boolean
+        default: false
+      smoke_phase:
+        description: "Edge smoke scope: infra | edge-native-oauth | main-via-edge | full. Empty = auto."
+        required: false
+        type: string
+        default: ""
   pull_request:
     paths:
       - "deploy/hetzner/**"
       - "deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml"
       - "deploy/aws/lightsail/restore-edge-env-secrets.sh"
       - "ops/stage0/edge_routing_matrix.py"
+      - "ops/stage0/deploy_via_ssm_bluegreen.sh"
       - "scripts/stage0/resolve-edge-deploy-route.py"
       - "scripts/stage0/dispatch-edge-deploy.sh"
       - ".github/workflows/deploy-edge-hetzner-stage0.yml"
@@ -55,6 +62,12 @@ concurrency:
 permissions:
   contents: read
   id-token: write
+
+env:
+  INPUT_EDGE_ID: ${{ inputs.edge_id }}
+  INPUT_OPERATION: ${{ inputs.operation }}
+  INPUT_TAG: ${{ inputs.tag }}
+  INPUT_SMOKE_PHASE: ${{ inputs.smoke_phase }}
 
 jobs:
   validate-matrix:
@@ -98,11 +111,14 @@ jobs:
           print("cutover_matrix_guard=ok")
           PY
 
-  dispatch-edge:
+      - name: Hetzner bluegreen workflow contract
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/checks/check-hetzner-edge-bluegreen-workflow.py
+
+  dispatch-provision:
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'provision'
     needs: validate-matrix
     runs-on: ubuntu-latest
-    # OIDC trust on tokenkey-cicd-oidc allows environment:edge-<id> (not feature-branch refs).
     environment: edge-${{ inputs.edge_id }}
     env:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
@@ -157,7 +173,7 @@ jobs:
             | tar -xz -C /usr/local/bin hcloud
           hcloud version
 
-      - name: Paid ignition (SSM + compose, no formal DNS)
+      - name: Paid ignition (SSM + compose)
         if: inputs.confirm_paid == true
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
@@ -186,14 +202,160 @@ jobs:
           ARGS=(--edge-id "$EDGE_ID" --confirm-paid --tag "$TAG")
           if [[ "${ALLOW_PLANNED}" == "true" ]]; then ARGS+=(--allow-planned); fi
           bash deploy/hetzner/provision-edge.sh "${ARGS[@]}"
-          echo "::notice::Ignition complete through stack health. Set staging DNS A, then E0/E1. Do not flip deployable or formal DNS."
+          echo "::notice::Ignition complete. First upgrade migrates single-color tokenkey → blue/green via deploy_via_ssm_bluegreen.sh."
 
       - name: Summary
         if: always()
         run: |
           {
-            echo "## deploy-edge-hetzner-stage0"
+            echo "## deploy-edge-hetzner-stage0 (provision)"
             echo "- edge: \`${{ inputs.edge_id }}\` · paid: \`${{ inputs.confirm_paid }}\` · tag: \`${{ inputs.tag }}\`"
             echo "- instance: \`${{ steps.edge.outputs.instance_name }}\`"
             echo "- \`${{ steps.edge.outputs.location }}/${{ steps.edge.outputs.server_type }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  dispatch-upgrade:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke')
+    runs-on: ubuntu-latest
+    environment: edge-${{ inputs.edge_id }}
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Normalize tag
+        if: inputs.operation == 'upgrade' || inputs.operation == 'rollback'
+        id: tag
+        run: |
+          set -euo pipefail
+          if [[ -z "${INPUT_TAG:-}" ]]; then
+            echo "::error::tag is required for operation=${INPUT_OPERATION}"
+            exit 1
+          fi
+          NORM="$(bash ops/stage0/normalize-deploy-tag.sh "$INPUT_TAG")"
+          echo "tag=$NORM" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve Hetzner target
+        id: edge
+        env:
+          EDGE_ID: ${{ inputs.edge_id }}
+          CONFIRM_INSTANCE: ${{ inputs.confirm_instance }}
+          ALLOW_PLANNED: ${{ inputs.allow_planned }}
+        run: |
+          set -euo pipefail
+          ARGS=(--edge-id "$EDGE_ID" --confirm-instance "$CONFIRM_INSTANCE" --github-output "$GITHUB_OUTPUT")
+          if [[ "${ALLOW_PLANNED}" == "true" ]]; then ARGS+=(--allow-planned); fi
+          python3 deploy/hetzner/resolve-edge-hetzner-target.py "${ARGS[@]}"
+
+      - name: Validate OIDC role
+        run: |
+          set -euo pipefail
+          if [[ -z "${OIDC_ROLE_ARN:-}" ]]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set"
+            exit 1
+          fi
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ steps.edge.outputs.ssm_region || 'eu-west-2' }}
+
+      - name: Resolve Hybrid managed instance
+        id: instance
+        env:
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          DOMAIN: ${{ steps.edge.outputs.domain }}
+        run: |
+          set -euo pipefail
+          IDENTITY="$(python3 ops/stage0/edge_ssm_execution.py \
+            --edge-id "$EDGE_ID" --platform hetzner --format json)"
+          MID="$(jq -r .instance_id <<<"$IDENTITY")"
+          REGION="$(jq -r .region <<<"$IDENTITY")"
+          if [[ -z "$MID" || "$MID" == "null" ]]; then
+            echo "::error::could not resolve Hybrid mi-* for edge $EDGE_ID"
+            exit 1
+          fi
+          echo "managed_instance_id=$MID" >> "$GITHUB_OUTPUT"
+          echo "ssm_region=$REGION" >> "$GITHUB_OUTPUT"
+          echo "api_url=https://${DOMAIN}" >> "$GITHUB_OUTPUT"
+          echo "hetzner edge=$EDGE_ID instance=$MID region=$REGION"
+
+      - name: Upgrade or rollback via shared SSM blue/green primitive
+        id: ssm
+        if: inputs.operation == 'upgrade' || inputs.operation == 'rollback'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
+          STAGE0_DEPLOY_PROFILE: edge
+          STAGE0_SSM_OUTPUT_DIR: .
+          INPUT_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          bash ops/stage0/deploy_via_ssm_bluegreen.sh \
+            "$INPUT_TAG" "$INSTANCE_ID" \
+            "deploy-edge-hetzner edge=$INPUT_EDGE_ID op=$INPUT_OPERATION"
+
+      - name: External Edge health check
+        if: inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
+        env:
+          API_URL: ${{ steps.instance.outputs.api_url }}
+        run: bash ops/stage0/external_health.sh "$API_URL"
+
+      - name: Sync Feishu alert config
+        if: inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
+        env:
+          TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+          TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+        run: bash ops/stage0/sync-feishu-config.sh --platform hetzner "${{ steps.edge.outputs.edge_id }}"
+
+      - name: Sync edge host units
+        if: inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
+          STAGE0_SSM_OUTPUT_DIR: .
+        run: bash ops/stage0/sync-edge-host-units-via-ssm.sh "$INSTANCE_ID" "edge-host-units edge=${{ steps.edge.outputs.edge_id }}"
+
+      - name: Edge smoke
+        if: inputs.operation == 'smoke' || inputs.operation == 'upgrade' || inputs.operation == 'rollback'
+        env:
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          EDGE_API_URL: ${{ steps.instance.outputs.api_url }}
+          EDGE_INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          EDGE_SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
+          TK_SMOKE_API_KEY: ${{ secrets.TK_SMOKE_API_KEY }}
+          TK_SMOKE_EDGE_LOCAL_CHAT_MODELS: ${{ vars.TK_SMOKE_EDGE_LOCAL_CHAT_MODELS || 'claude-sonnet-4-6' }}
+        run: |
+          set -euo pipefail
+          PHASE="${INPUT_SMOKE_PHASE:-}"
+          if [ -z "$PHASE" ]; then
+            case "$INPUT_OPERATION" in
+              smoke) PHASE=full ;;
+              upgrade|rollback) PHASE=infra ;;
+              *) PHASE=infra ;;
+            esac
+          fi
+          export EDGE_SMOKE_PHASE="$PHASE"
+          export SKIP_EXTERNAL_HEALTH=1
+          bash ops/stage0/edge_post_deploy_smoke.sh
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## deploy-edge-hetzner-stage0 (blue/green)"
+            echo "- platform: \`hetzner\`"
+            echo "- edge_id: \`${{ steps.edge.outputs.edge_id }}\`"
+            echo "- operation: \`$INPUT_OPERATION\`"
+            echo "- tag: \`${{ steps.tag.outputs.tag || inputs.tag || 'none' }}\`"
+            echo "- instance: \`${{ steps.edge.outputs.instance_name }}\`"
+            echo "- managed_instance_id: \`${{ steps.instance.outputs.managed_instance_id }}\`"
+            echo "- api: ${{ steps.instance.outputs.api_url }}"
+            echo "- first upgrade on single-color hosts migrates \`tokenkey\` → \`tokenkey-blue\` via \`ensure_legacy_cutover\`"
           } >> "$GITHUB_STEP_SUMMARY"

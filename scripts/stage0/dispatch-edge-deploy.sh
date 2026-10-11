@@ -107,8 +107,8 @@ if [[ -z "${WORKFLOW}" || -z "${CONFIRM_FLAG}" || -z "${CONFIRM_VALUE}" || -z "$
   exit 1
 fi
 
-# Hetzner Phase-1 provision does not deploy an app image yet; tag optional until SSM upgrade lands.
-# Lightsail/EC2 provision still requires an image tag.
+# Hetzner provision embeds the image in user-data when --confirm-paid + --tag;
+# dry provision may omit tag. Lightsail provision still requires --tag.
 if [[ "${OPERATION}" == "provision" && "${PLATFORM}" != "hetzner" && -z "${TAG}" ]]; then
   echo "dispatch-edge-deploy: --tag is required for operation=provision on platform=${PLATFORM}" >&2
   exit 1
@@ -126,12 +126,8 @@ if [[ "${OPERATION}" == "validate" && "${PLATFORM}" != "hetzner" ]]; then
   exit 1
 fi
 
-if [[ "${OPERATION}" == "upgrade" || "${OPERATION}" == "rollback" || "${OPERATION}" == "smoke" ]]; then
-  if [[ "${PLATFORM}" == "hetzner" ]]; then
-    echo "dispatch-edge-deploy: hetzner ${OPERATION} not wired yet (Phase-1 = validate|provision dry-run)" >&2
-    exit 1
-  fi
-fi
+# Hetzner upgrade/rollback/smoke use deploy-edge-hetzner-stage0.yml →
+# deploy_via_ssm_bluegreen.sh (shared with Lightsail / prod).
 
 GH_ARGS=(
   workflow run "${WORKFLOW}"

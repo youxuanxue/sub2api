@@ -4,14 +4,16 @@
   "role": "prod",
   "approved_anchor": "docs/approved/hetzner-cloud-full-migration.md",
   "notes": [
-    "Staging knife only until P1–P4/P6 green. deployable=false; no formal DNS.",
-    "Data volume is mandatory for prod; root disk is not the PG/Redis truth."
+    "Live after Wave B formal DNS cutover (api.tokenkey.dev → 167.233.211.115).",
+    "deployable=true; AWS EIP 34.194.234.88 remains standby ≥7d.",
+    "Data volume is mandatory for prod; root disk is not the PG/Redis truth.",
+    "First deploy-stage0 upgrade migrates single-color tokenkey → blue via ensure_legacy_cutover."
   ],
   "allowed_locations": ["fsn1"],
   "allowed_server_types": ["cax21"],
   "required_architecture": "arm",
   "target": {
-    "deployable": false,
+    "deployable": true,
     "location": "fsn1",
     "server_type": "cax21",
     "architecture": "arm",
@@ -28,6 +30,6 @@
     "ssm_hybrid_role_name": "tokenkey-hetzner-ssm-hybrid-prod",
     "swap_gib": 2,
     "profile": "prod-hetzner-cax21",
-    "purpose": "prod staging ignition; deployable=false"
+    "purpose": "live prod after Wave B DNS cutover; deployable=true"
   }
 }
