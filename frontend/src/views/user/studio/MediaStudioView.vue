@@ -160,6 +160,7 @@ import {
   type APIKeyCapabilityModality,
 } from '@/api/api-key-capabilities'
 import { gatewayListModels, resolveGatewayBaseUrl } from '@/api/playground'
+import { resolveFacadeApiBaseUrl } from '@/features/home/marketProfile.tk'
 import { getMePricingCatalog } from '@/api/me-pricing'
 import { getPublicPricing, type PublicCatalogModel } from '@/api/pricing'
 import {
@@ -508,7 +509,13 @@ watch(() => route.fullPath, () => {
 async function bootstrap(): Promise<void> {
   loadError.value = ''
   await appStore.fetchPublicSettings()
-  gatewayBase.value = resolveGatewayBaseUrl(appStore.apiBaseUrl || appStore.cachedPublicSettings?.api_base_url)
+  gatewayBase.value = resolveGatewayBaseUrl(
+    resolveFacadeApiBaseUrl(
+      typeof window !== 'undefined' ? window.location.hostname : '',
+      appStore.apiBaseUrl || appStore.cachedPublicSettings?.api_base_url,
+      typeof window !== 'undefined' ? window.location.origin : '',
+    ),
+  )
   try {
     const page = await keysAPI.list(1, 50, { status: 'active' })
     keys.value = filterUserSelectableApiKeys((page.items || []).filter((k) => !!k.key))

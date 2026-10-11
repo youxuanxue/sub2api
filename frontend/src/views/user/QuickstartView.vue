@@ -299,7 +299,7 @@ import { flavorOfModel } from '@/composables/useTkUseKey'
 import { gatewayWarmupConnection } from '@/api/playground'
 import { PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 import { useCcSwitchImport } from '@/composables/useCcSwitchImport'
-import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
+import { resolveChromeBrand, resolveFacadeApiBaseUrl } from '@/features/home/marketProfile.tk'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -358,10 +358,13 @@ const codexTransports = computed(() => [
   { id: 'websocket' as const, label: t('quickstart.transportWebSocket'), disabled: !preview.value && !codexWebSocketAvailable() },
 ])
 
-const baseUrl = computed(() => {
-  const raw = appStore.cachedPublicSettings?.api_base_url || (preview.value ? 'YOUR_TOKENKEY_BASE_URL' : window.location.origin)
-  return raw.replace(/\/+$/, '')
-})
+const baseUrl = computed(() =>
+  resolveFacadeApiBaseUrl(
+    typeof window !== 'undefined' ? window.location.hostname : '',
+    appStore.cachedPublicSettings?.api_base_url,
+    preview.value ? 'YOUR_TOKENKEY_BASE_URL' : (typeof window !== 'undefined' ? window.location.origin : ''),
+  )
+)
 
 const selectedKey = computed(() =>
   keys.value.find((k) => k.id === selectedKeyId.value) ?? null,

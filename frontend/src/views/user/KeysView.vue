@@ -71,8 +71,8 @@
             </div>
           </div>
           <EndpointPopover
-            v-if="publicSettings?.api_base_url || (publicSettings?.custom_endpoints?.length ?? 0) > 0"
-            :api-base-url="publicSettings?.api_base_url || ''"
+            v-if="displayApiBaseUrl || (publicSettings?.custom_endpoints?.length ?? 0) > 0"
+            :api-base-url="displayApiBaseUrl"
             :custom-endpoints="publicSettings?.custom_endpoints || []"
           />
           <div v-if="selectedIds.length" class="flex flex-wrap items-center gap-3 text-sm">
@@ -1316,7 +1316,7 @@ import {
   type CcSwitchApp,
 } from '@/utils/ccswitchImport'
 import { useCcSwitchImport } from '@/composables/useCcSwitchImport'
-import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
+import { resolveChromeBrand, resolveFacadeApiBaseUrl } from '@/features/home/marketProfile.tk'
 import { isUniversalKey } from '@/utils/studioUniversalKey.tk'
 import { STATUS_ACTIVE } from '@/constants/channel'
 import { PLATFORM_ANTIGRAVITY } from '@/constants/gatewayPlatforms'
@@ -1508,6 +1508,13 @@ const showExportPanel = ref(false)
 const exportPanelKey = ref<ApiKey | null>(null)
 const groupSelectorKeyId = ref<number | null>(null)
 const publicSettings = ref<PublicSettings | null>(null)
+const displayApiBaseUrl = computed(() =>
+  resolveFacadeApiBaseUrl(
+    typeof window !== 'undefined' ? window.location.hostname : '',
+    publicSettings.value?.api_base_url,
+    typeof window !== 'undefined' ? window.location.origin : '',
+  )
+)
 const dropdownRef = ref<HTMLElement | null>(null)
 const columnDropdownRef = ref<HTMLElement | null>(null)
 const dropdownPosition = ref<{ top?: number; bottom?: number; left: number } | null>(null)
@@ -2131,7 +2138,7 @@ const importToCcswitch = (row: ApiKey) => {
 }
 
 const executeCcsImport = (row: ApiKey, ccsApp: CcSwitchApp) => {
-  const baseUrl = (publicSettings.value?.api_base_url || window.location.origin).replace(/\/+$/, '')
+  const baseUrl = displayApiBaseUrl.value
   const providerName = resolveChromeBrand(window.location.hostname, publicSettings.value?.site_name)
   importToCcSwitch({
     key: row,

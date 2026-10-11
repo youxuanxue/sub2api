@@ -13,7 +13,12 @@ export const CHINA_EXPORT_HOSTNAME = 'callmodel.io'
 export const CHINA_EXPORT_API_ORIGIN = 'https://api.callmodel.io'
 export const CHINA_EXPORT_BRAND = 'CallModel'
 export const PRODUCT_ORIGIN = 'https://tokenkey.dev'
+export const PRODUCT_HOSTNAME = 'tokenkey.dev'
 export const PRODUCT_API_ORIGIN = 'https://api.tokenkey.dev'
+
+function stripTrailingSlashes(value: string): string {
+  return value.replace(/\/+$/, '')
+}
 
 const CALLMODEL_FACADE: SiteFacade = {
   id: 'callmodel',
@@ -52,6 +57,31 @@ export function resolveHomepageProfile(hostname: string): HomepageProfile {
  */
 export function resolveChromeBrand(hostname: string, _settingsSiteName?: string | null): string {
   return resolveFacade(hostname).brand
+}
+
+/**
+ * Machine API base for Keys / Quickstart / CCS copy boards.
+ * Production human hosts pin to facade.apiOrigin so Settings `api_base_url`
+ * (CallModel commercial default) cannot paint api.callmodel.io onto tokenkey.dev.
+ * Local/staging hosts keep Settings, then fallbackOrigin.
+ */
+export function resolveFacadeApiBaseUrl(
+  hostname: string,
+  settingsApiBaseUrl?: string | null,
+  fallbackOrigin?: string | null,
+): string {
+  const host = normalizeHostname(hostname)
+  if (host === CHINA_EXPORT_HOSTNAME) {
+    return CHINA_EXPORT_API_ORIGIN
+  }
+  if (host === PRODUCT_HOSTNAME) {
+    return PRODUCT_API_ORIGIN
+  }
+  const fromSettings = stripTrailingSlashes((settingsApiBaseUrl || '').trim())
+  if (fromSettings) {
+    return fromSettings
+  }
+  return stripTrailingSlashes((fallbackOrigin || '').trim())
 }
 
 /**

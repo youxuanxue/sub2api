@@ -12,6 +12,7 @@ import type {
   TrendDataPoint,
   ModelStat,
   GroupStat,
+  ApiKeyStat,
   UsageRequestType,
   UserErrorRequest,
   UserErrorRequestDetail,
@@ -110,6 +111,13 @@ export interface UsageDashboardSnapshotV2Response {
   trend?: TrendDataPoint[]
   models?: ModelStat[]
   groups?: GroupStat[]
+}
+
+export interface ApiKeyDistributionResponse {
+  api_keys: ApiKeyStat[]
+  days: number
+  start_date: string
+  end_date: string
 }
 
 /**
@@ -316,6 +324,16 @@ export async function getDashboardSnapshotV2(
   return data
 }
 
+export async function getDashboardAPIKeys(
+  days: 7 | 30 = 7
+): Promise<ApiKeyDistributionResponse> {
+  const { data } = await apiClient.get<ApiKeyDistributionResponse>(
+    '/usage/dashboard/api-keys',
+    { params: { days } }
+  )
+  return data
+}
+
 export interface BatchApiKeyUsageStats {
   api_key_id: number
   today_actual_cost: number
@@ -377,6 +395,7 @@ export const usageAPI = {
   getDashboardModels,
   getMyApiKeyDailyUsage,
   getDashboardSnapshotV2,
+  getDashboardAPIKeys,
   getDashboardApiKeysUsage,
   // Error requests
   listMyErrorRequests,

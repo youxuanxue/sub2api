@@ -398,6 +398,22 @@ func (s *UsageService) GetGroupStatsWithFilters(ctx context.Context, startTime, 
 	return stats, nil
 }
 
+// GetAPIKeyStatsWithFilters returns per-API-key usage stats using the shared usage filter shape.
+func (s *UsageService) GetAPIKeyStatsWithFilters(ctx context.Context, startTime, endTime time.Time, filters usagestats.UsageLogFilters) ([]usagestats.APIKeyStat, error) {
+	type apiKeyStatsWithUsageFiltersRepo interface {
+		GetAPIKeyStatsWithUsageFilters(ctx context.Context, startTime, endTime time.Time, filters usagestats.UsageLogFilters) ([]usagestats.APIKeyStat, error)
+	}
+	repo, ok := s.usageRepo.(apiKeyStatsWithUsageFiltersRepo)
+	if !ok {
+		return nil, fmt.Errorf("get api key stats with filters: repository does not support api key distribution")
+	}
+	stats, err := repo.GetAPIKeyStatsWithUsageFilters(ctx, startTime, endTime, filters)
+	if err != nil {
+		return nil, fmt.Errorf("get api key stats with filters: %w", err)
+	}
+	return stats, nil
+}
+
 // GetAPIKeyModelStats returns per-model usage stats for a specific API Key.
 func (s *UsageService) GetAPIKeyModelStats(ctx context.Context, apiKeyID int64, startTime, endTime time.Time) ([]usagestats.ModelStat, error) {
 	stats, err := s.usageRepo.GetModelStatsWithFilters(ctx, startTime, endTime, 0, apiKeyID, 0, 0, nil, nil, nil)

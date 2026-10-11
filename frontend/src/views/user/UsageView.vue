@@ -49,6 +49,13 @@
         </div>
 
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <ApiKeyDistributionChart
+            v-model:days="apiKeyDistributionDays"
+            v-model:metric="apiKeyDistributionMetric"
+            :api-key-stats="apiKeyStats"
+            :loading="apiKeyStatsLoading"
+            :show-metric-toggle="true"
+          />
           <EndpointDistributionChart
             v-model:source="endpointDistributionSource"
             v-model:metric="endpointDistributionMetric"
@@ -64,6 +71,9 @@
             :start-date="startDate"
             :end-date="endDate"
           />
+        </div>
+
+        <div class="grid grid-cols-1 gap-6">
           <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
         </div>
       </div>
@@ -234,6 +244,7 @@ import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import GroupDistributionChart from '@/components/charts/GroupDistributionChart.vue'
+import ApiKeyDistributionChart from '@/components/charts/ApiKeyDistributionChart.vue'
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
 import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -244,6 +255,7 @@ import { getBillingModeLabel, getDisplayBillingMode as resolveDisplayBillingMode
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
 import type {
   ApiKey,
+  ApiKeyStat,
   EndpointStat,
   Group,
   GroupStat,
@@ -262,12 +274,14 @@ const appStore = useAppStore()
 
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
+type ApiKeyDistributionDays = 7 | 30
 
 const usageStats = ref<UsageStatsResponse | null>(null)
 const usageLogs = ref<UsageLog[]>([])
 const trendData = ref<TrendDataPoint[]>([])
 const requestedModelStats = ref<ModelStat[]>([])
 const groupStats = ref<GroupStat[]>([])
+const apiKeyStats = ref<ApiKeyStat[]>([])
 const inboundEndpointStats = ref<EndpointStat[]>([])
 const upstreamEndpointStats = ref<EndpointStat[]>([])
 const endpointPathStats = ref<EndpointStat[]>([])
@@ -275,6 +289,7 @@ const endpointPathStats = ref<EndpointStat[]>([])
 const loading = ref(false)
 const chartsLoading = ref(false)
 const modelStatsLoading = ref(false)
+const apiKeyStatsLoading = ref(false)
 const endpointStatsLoading = ref(false)
 const exporting = ref(false)
 const errorRows = ref<UserErrorRequest[]>([])
@@ -332,6 +347,7 @@ let abortController: AbortController | null = null
 let chartReqSeq = 0
 let statsReqSeq = 0
 let modelStatsReqSeq = 0
+let apiKeyStatsReqSeq = 0
 
 const formatLocalDate = (date: Date): string =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -357,6 +373,8 @@ const granularity = ref<'day' | 'hour'>(getGranularityForRange(startDate.value, 
 
 const modelDistributionMetric = ref<DistributionMetric>('tokens')
 const groupDistributionMetric = ref<DistributionMetric>('tokens')
+const apiKeyDistributionMetric = ref<DistributionMetric>('tokens')
+const apiKeyDistributionDays = ref<ApiKeyDistributionDays>(7)
 const endpointDistributionMetric = ref<DistributionMetric>('tokens')
 const endpointDistributionSource = ref<EndpointSource>('inbound')
 const activeTab = ref<'usage' | 'errors'>('usage')
@@ -535,6 +553,22 @@ const loadChartData = async () => {
   }
 }
 
+const loadApiKeyStats = async () => {
+  const seq = ++apiKeyStatsReqSeq
+  apiKeyStatsLoading.value = true
+  try {
+    const response = await usageAPI.getDashboardAPIKeys(apiKeyDistributionDays.value)
+    if (seq !== apiKeyStatsReqSeq) return
+    apiKeyStats.value = response.api_keys || []
+  } catch (error) {
+    if (seq !== apiKeyStatsReqSeq) return
+    console.error('Failed to load api key distribution:', error)
+    apiKeyStats.value = []
+  } finally {
+    if (seq === apiKeyStatsReqSeq) apiKeyStatsLoading.value = false
+  }
+}
+
 const refreshModelOptions = (models: ModelStat[]) => {
   const current = filters.value.model
   const set = new Set(modelOptionValues.value)
@@ -559,6 +593,7 @@ const refreshData = () => {
   void loadStats()
   void loadModelStats()
   void loadChartData()
+  void loadApiKeyStats()
   if (activeTab.value === 'errors') void loadErrors()
 }
 
@@ -926,5 +961,9 @@ onUnmounted(() => {
 
 watch(endpointDistributionSource, () => {
   // Endpoint source switching is handled by the chart component using already loaded stats.
+})
+
+watch(apiKeyDistributionDays, () => {
+  void loadApiKeyStats()
 })
 </script>
