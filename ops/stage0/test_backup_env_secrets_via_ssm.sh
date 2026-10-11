@@ -50,21 +50,21 @@ PATH="${local_bin}:${PATH}" \
   AWS_REGION=us-east-2 \
   bash "${SCRIPT}" mi-test rendered-payload-test >"${tmp}/outer.out"
 
-remote_line="$(jq -r '.commands[1]' "${output_dir}/ssm-params.json")"
-host_b64="$(printf '%s\n' "${remote_line}" | awk '{print $2}')"
-host_rendered="${tmp}/host-rendered.sh"
 host_script="${tmp}/host-under-test.sh"
-printf '%s' "${host_b64}" | base64 -d >"${host_rendered}"
+# Execute the complete SSM payload under the same shell as Ubuntu Hybrid hosts.
+# Testing only the inner bash script hides failures before it is invoked.
+jq -r '.commands[]' "${output_dir}/ssm-params.json" >"${host_script}"
 
 expected_parameter="${tmp}/expected.parameter"
 printf '%s\n%s\n%s' \
   'JWT_SECRET=1111111111111111111111111111111111111111111111111111111111111111' \
   'POSTGRES_PASSWORD=222222222222222222222222222222222222222222222222' \
   'TOTP_ENCRYPTION_KEY=3333333333333333333333333333333333333333333333333333333333333333' >"${expected_parameter}"
-cp "${host_rendered}" "${host_script}"
-
-grep -F "SOURCE=\"${secret_file}\"" "${host_script}" >/dev/null
-grep -F 'PARAM="/tokenkey/edge/us3/stage0/env-secrets-backup"' "${host_script}" >/dev/null
+cat >"${remote_bin}/sudo" <<'EOF'
+#!/usr/bin/env bash
+exec "$@"
+EOF
+chmod +x "${remote_bin}/sudo"
 
 cat >"${remote_bin}/aws" <<'EOF'
 #!/usr/bin/env bash
@@ -131,7 +131,7 @@ run_host() {
     FAKE_SSM_STATE="${state_file}" \
     FAKE_PUT_COUNT="${put_count_file}" \
     FAKE_PUT_RESULT="${put_result}" \
-    bash "${host_script}" >"${tmp}/${label}.out" 2>"${tmp}/${label}.err"
+    dash "${host_script}" >"${tmp}/${label}.out" 2>"${tmp}/${label}.err"
 }
 
 # Regression: a rejected write must make the SSM host payload fail.

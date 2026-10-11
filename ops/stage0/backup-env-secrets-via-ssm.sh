@@ -124,6 +124,9 @@ jq -n --arg b64 "${HOST_B64}" '{
   ]
 }' > "${params_file}"
 
+# Hybrid RunShellScript starts in dash; select bash before using pipefail.
+python3 "$(dirname "${BASH_SOURCE[0]}")/ssm_wrap_bash_commands.py" "${params_file}"
+
 cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" \
   --document-name AWS-RunShellScript \
