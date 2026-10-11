@@ -10,9 +10,9 @@
 | main bump 路由探测（direct-push / bump-via-pr） | 机械 | `bash scripts/release-main-push-route.sh`（读 protection + 当前 gh 用户 bypass 能力） |
 | VERSION/tag 三态决策（tag-only / bump-and-tag / skip-bump-skip-tag） | 机械 | `scripts/release-decide-version.sh [--emit-suggested-bump]`（被上行脚本消费；单独跑仅用于诊断） |
 | 打 tag（含 skip-ci / VERSION 一致 / HEAD==origin/main 校验） | 机械 | `scripts/release-tag.sh vX.Y.Z`（被上行脚本调用；**git 侧必须带 `v`**） |
-| 读取 deployable edge 矩阵 | 机械 | `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` |
+| 读取活边 edge 矩阵 | 机械 | `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` |
 | **canary Edge 选择（容量合格 → 低流量 → 高内存余量 → 矩阵顺序）** | 机械 | `python3 scripts/stage0/pick_release_canary_edge.py`（SSM 探测全部 deployable Edge；硬门禁为内存/磁盘，按近 30 分钟完成请求数和内存余量排序；native OAuth/Kiro 池仅作 audit/smoke applicability；`--json` 带完整 audit） |
-| Edge dispatch 路由（edges 均为 Lightsail） | 机械 | `scripts/stage0/resolve-edge-deploy-route.py --edge-id <id> --json` |
+| Edge dispatch 路由（auto→HZ/LS） | 机械 | `scripts/stage0/resolve-edge-deploy-route.py --edge-id <id> --json` |
 | Edge upgrade/smoke/rollback dispatch | 机械 | `bash scripts/stage0/dispatch-edge-deploy.sh --edge-id … --operation … --tag X.Y.Z\|vX.Y.Z`（入口剥 `v`） |
 | **其余 Edge rollout（bounded parallel fail-stop + smoke 标记验收）** | 机械 | `bash scripts/stage0/rollout-edges.sh --tag X.Y.Z\|vX.Y.Z --skip <canary>`（**默认 `--parallel 1` 顺序**，降低并发换容器对线上的影响；`N>1` 仅在可接受该影响时用） |
 | **prod deploy / replay / smoke-only / warm dispatch** | 机械 | `bash scripts/stage0/dispatch-prod-deploy.sh --operation deploy\|replay\|smoke-only\|warm --tag X.Y.Z\|vX.Y.Z`（入口剥 `v`；不要手写 `gh workflow run deploy-stage0.yml` / `warm-image-stage0.yml`） |
