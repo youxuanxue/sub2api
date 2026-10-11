@@ -676,9 +676,8 @@ func (h *UsageHandler) DashboardAPIKeys(c *gin.Context) {
 		return
 	}
 
-	now := time.Now()
-	startTime := now.AddDate(0, 0, -days)
-	endTime := now
+	// Calendar-day window in the caller's timezone — same owner as GetMyAPIKeyDailyUsage.
+	startTime, endTime := apiKeyDailyUsageRange(days, c.Query("timezone"))
 	filters := usagestats.UsageLogFilters{UserID: subject.UserID}
 
 	stats, err := h.usageService.GetAPIKeyStatsWithFilters(c.Request.Context(), startTime, endTime, filters)
@@ -695,7 +694,7 @@ func (h *UsageHandler) DashboardAPIKeys(c *gin.Context) {
 		"api_keys":   userAPIKeyStatsFromUsageStats(stats),
 		"days":       days,
 		"start_date": startTime.Format("2006-01-02"),
-		"end_date":   endTime.Format("2006-01-02"),
+		"end_date":   endTime.AddDate(0, 0, -1).Format("2006-01-02"),
 	})
 }
 

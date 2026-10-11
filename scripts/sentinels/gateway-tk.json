@@ -16226,9 +16226,10 @@
       "must_contain": [
         "func (h *UsageHandler) DashboardAPIKeys(c *gin.Context)",
         "GetAPIKeyStatsWithFilters",
-        "Invalid days value, use 7 or 30"
+        "Invalid days value, use 7 or 30",
+        "apiKeyDailyUsageRange(days, c.Query(\"timezone\"))"
       ],
-      "rationale": "User dashboard API Key distribution endpoint. Pins days=7|30 validation and user-scoped GetAPIKeyStatsWithFilters so an upstream usage_handler rewrite cannot silently drop the route handler while routes/user.go still registers it."
+      "rationale": "User dashboard API Key distribution endpoint. Pins days=7|30 validation, user-TZ calendar window via apiKeyDailyUsageRange, and user-scoped GetAPIKeyStatsWithFilters so an upstream usage_handler rewrite cannot silently drop the route handler while routes/user.go still registers it."
     },
     {
       "path": "backend/internal/server/routes/user.go",

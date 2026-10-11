@@ -55,21 +55,23 @@ func TestDashboardAPIKeysDefaultSevenDays(t *testing.T) {
 	}
 	router := newDashboardAPIKeysRouter(repo)
 
-	before := time.Now()
-	req := httptest.NewRequest(http.MethodGet, "/usage/dashboard/api-keys", nil)
+	req := httptest.NewRequest(http.MethodGet, "/usage/dashboard/api-keys?timezone=Asia/Shanghai", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
-	after := time.Now()
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, int64(16), repo.filters.UserID)
-	require.WithinDuration(t, before.AddDate(0, 0, -7), repo.start, time.Second)
-	require.WithinDuration(t, after, repo.end, time.Second)
+
+	wantStart, wantEnd := apiKeyDailyUsageRange(7, "Asia/Shanghai")
+	require.True(t, repo.start.Equal(wantStart), "start=%v want=%v", repo.start, wantStart)
+	require.True(t, repo.end.Equal(wantEnd), "end=%v want=%v", repo.end, wantEnd)
 
 	var body struct {
 		Data struct {
-			Days    int `json:"days"`
-			APIKeys []struct {
+			Days      int    `json:"days"`
+			StartDate string `json:"start_date"`
+			EndDate   string `json:"end_date"`
+			APIKeys   []struct {
 				APIKeyID   int64   `json:"api_key_id"`
 				APIKeyName string  `json:"api_key_name"`
 				ActualCost float64 `json:"actual_cost"`
@@ -78,6 +80,8 @@ func TestDashboardAPIKeysDefaultSevenDays(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Equal(t, 7, body.Data.Days)
+	require.Equal(t, wantStart.Format("2006-01-02"), body.Data.StartDate)
+	require.Equal(t, wantEnd.AddDate(0, 0, -1).Format("2006-01-02"), body.Data.EndDate)
 	require.Len(t, body.Data.APIKeys, 1)
 	require.Equal(t, int64(11), body.Data.APIKeys[0].APIKeyID)
 	require.Equal(t, "prod-key", body.Data.APIKeys[0].APIKeyName)
@@ -88,13 +92,14 @@ func TestDashboardAPIKeysThirtyDays(t *testing.T) {
 	repo := &apiKeyStatsRepoCapture{}
 	router := newDashboardAPIKeysRouter(repo)
 
-	before := time.Now()
-	req := httptest.NewRequest(http.MethodGet, "/usage/dashboard/api-keys?days=30", nil)
+	req := httptest.NewRequest(http.MethodGet, "/usage/dashboard/api-keys?days=30&timezone=UTC", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.WithinDuration(t, before.AddDate(0, 0, -30), repo.start, time.Second)
+	wantStart, wantEnd := apiKeyDailyUsageRange(30, "UTC")
+	require.True(t, repo.start.Equal(wantStart), "start=%v want=%v", repo.start, wantStart)
+	require.True(t, repo.end.Equal(wantEnd), "end=%v want=%v", repo.end, wantEnd)
 }
 
 func TestDashboardAPIKeysRejectsInvalidDays(t *testing.T) {

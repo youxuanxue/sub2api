@@ -277,7 +277,7 @@ describe('user UsageView', () => {
       include_group_stats: true,
       timezone: expect.any(String),
     }))
-    expect(getDashboardAPIKeys).toHaveBeenCalledWith(7)
+    expect(getDashboardAPIKeys).toHaveBeenCalledWith(7, expect.any(String))
     expect(list).toHaveBeenCalledTimes(1)
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
@@ -291,7 +291,7 @@ describe('user UsageView', () => {
     ;(wrapper.vm as any).apiKeyDistributionDays = 30
     await flushPromises()
 
-    expect(getDashboardAPIKeys).toHaveBeenCalledWith(30)
+    expect(getDashboardAPIKeys).toHaveBeenCalledWith(30, expect.any(String))
   })
 
   it('passes showStandardCost=false to usage summary and distribution charts', async () => {

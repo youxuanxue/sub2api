@@ -557,7 +557,10 @@ const loadApiKeyStats = async () => {
   const seq = ++apiKeyStatsReqSeq
   apiKeyStatsLoading.value = true
   try {
-    const response = await usageAPI.getDashboardAPIKeys(apiKeyDistributionDays.value)
+    const response = await usageAPI.getDashboardAPIKeys(
+      apiKeyDistributionDays.value,
+      browserTimezone,
+    )
     if (seq !== apiKeyStatsReqSeq) return
     apiKeyStats.value = response.api_keys || []
   } catch (error) {

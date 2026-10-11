@@ -325,11 +325,12 @@ export async function getDashboardSnapshotV2(
 }
 
 export async function getDashboardAPIKeys(
-  days: 7 | 30 = 7
+  days: 7 | 30 = 7,
+  timezone?: string
 ): Promise<ApiKeyDistributionResponse> {
   const { data } = await apiClient.get<ApiKeyDistributionResponse>(
     '/usage/dashboard/api-keys',
-    { params: { days } }
+    { params: { days, timezone } }
   )
   return data
 }
