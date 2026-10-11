@@ -4,15 +4,15 @@
 
 ## Edge → Hetzner
 
-**Provision：** `deploy/hetzner` render → cloud-init → SSM Hybrid → dispatch；稳态正式名（切流窗可短暂 `-hz`）。
+**Provision：** `deploy/hetzner` render → cloud-init → SSM Hybrid → dispatch。
 
-**Replicate（冻写）：** 源 `tokenkey-pgdump.sh`（precious）+ logs data-only → S3；目标 restore（PG18 `\restrict` / `OR REPLACE`；logs 用 replica role）。对账：`accounts` / `usage_billing_dedup` / `usage_logs`。
+**Replicate：** 源 `tokenkey-pgdump.sh`（precious）+ logs data-only → S3；目标 restore；对账 `accounts` / `usage_billing_dedup` / `usage_logs`。
 
-**Cutover：** Porkbun A→NEW_IP；单域名 `API_DOMAIN`；CIDR=`167.233.211.115/32`；sync caddy；删 `-hz`；stub `https://`；prod pin+restart。
+**Cutover：** Porkbun A→NEW_IP；单域名 `API_DOMAIN`；CIDR=`167.233.211.115/32`；sync caddy；stub `https://`；prod pin+restart。
 
-**Drain：** 旧机 `docker stop` app（+ gemini-web）；留 PG/Caddy/Redis；standby；源近窗 usage=0。
+**Drain：** 旧机停 app（+ gemini-web）；留 PG/Caddy/Redis ≥7d。
 
-**Verify：** `dig +short <host> @8.8.8.8`；`/health`；prod stub smoke；disk-metrics/Feishu/ghcr-prune。
+**Verify：** `dig +short <host> @8.8.8.8`；`/health`；smoke；disk-metrics/Feishu/ghcr-prune。
 
 ## Prod / LS recreate
 

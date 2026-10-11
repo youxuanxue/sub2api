@@ -1,20 +1,16 @@
 # Edge egress IP registry
 
-Live Lightsail Static IPs and the permanent exclusion list of polluted /
-retired egress addresses. Do not bind excluded addresses to any edge again.
+**现网流量出口：** HCloud 五节点见 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。  
+本文件登记 **Lightsail 残留 Static IP**（standby / 污染排除），不是现网路由表。
 
-- **Live IPs:** [`deploy/aws/lightsail/edge-targets-lightsail.json`](../../deploy/aws/lightsail/edge-targets-lightsail.json) (`porkbun_a_ipv4` / `static_ip_name`)
-- **Exclusion registry:** [`deploy/aws/stage0/edge-polluted-ips.json`](../../deploy/aws/stage0/edge-polluted-ips.json)
-- **Enforcement:** [`deploy/aws/stage0/record-polluted-ip.py`](../../deploy/aws/stage0/record-polluted-ip.py) + [`ops/lightsail/rotate-static-ip.sh`](../../ops/lightsail/rotate-static-ip.sh)
-- **Regenerate tables:** `scripts/edge-ip-status.sh --markdown` (current + polluted); `--check` fails if either block drifted
+- **LS 矩阵 IP：** [`deploy/aws/lightsail/edge-targets-lightsail.json`](../../deploy/aws/lightsail/edge-targets-lightsail.json)
+- **Exclusion registry：** [`deploy/aws/stage0/edge-polluted-ips.json`](../../deploy/aws/stage0/edge-polluted-ips.json)
+- **Enforcement：** [`deploy/aws/stage0/record-polluted-ip.py`](../../deploy/aws/stage0/record-polluted-ip.py) + [`ops/lightsail/rotate-static-ip.sh`](../../ops/lightsail/rotate-static-ip.sh)
+- **Regenerate：** `scripts/edge-ip-status.sh --markdown`；`--check` 核对下方 generated 块
 
-Rotation runbook: [`.cursor/skills/tokenkey-stage0-edge-lightsail-ip-rotation/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-ip-rotation/SKILL.md).
+Rotation：[`tokenkey-stage0-edge-lightsail-ip-rotation`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-ip-rotation/SKILL.md)。勿把污染表中的 IP 再绑到任何边。
 
-The EC2 `rotate_egress_ip` path was removed 2026-06-07 when edges went Lightsail-only; legacy EC2 EIP rows stay in the polluted table as history.
-
-Prod talks to edges by hostname (`api-<id>.tokenkey.dev`). After an A-record change, AWS VPC DNS (`10.0.0.2`) can keep the old IP until the Porkbun TTL expires; `/health` from a public resolver can be green while prod still times out.
-
-## Current live Static IPs
+## Lightsail standby Static IPs（非现网写路径）
 
 <!-- BEGIN edge-ip-status:current (generated from deploy/aws/lightsail/edge-targets-lightsail.json) -->
 | Edge | Region | Domain | Static IP name | IPv4 |
@@ -25,12 +21,7 @@ Prod talks to edges by hostname (`api-<id>.tokenkey.dev`). After an A-record cha
 | `us5` | us-west-2 | `api-us5.tokenkey.dev` | `vless-or-fresh-1-rot-20260828T115642Z` | `16.144.175.131` |
 <!-- END edge-ip-status:current -->
 
-Standby (deployable=false；账号级退役 2026-10-11，gemini 会话 drain 前保留实例；不进 fan-out；**Porkbun A 已删**，下表 Domain 仅为历史 hostname / 直连 IP 参考)：
-
-| Edge | Region | Domain (historical) | Static IP name | IPv4 |
-| --- | --- | --- | --- | --- |
-| `us3` | us-east-2 | `api-us3.tokenkey.dev`（A 已删） | `vless-oh-fresh-1-rot-20260828T122454Z` | `18.216.113.132` |
-| `us6` | us-east-2 | `api-us6.tokenkey.dev`（A 已删） | `StaticIp-oh-3-rot-20260828T121745Z` | `3.147.98.112` |
+`us3` / `us6`：不在舰队；Porkbun A 已删；实例仅 gemini drain 前保留（`18.216.113.132` / `3.147.98.112`）。
 
 ## Polluted IPs (do not re-use)
 
