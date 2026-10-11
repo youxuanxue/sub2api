@@ -196,6 +196,24 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
         provision = PROVISION_SCRIPT.read_text(encoding="utf-8")
         self.assertIn('--iam-role "$SSM_HYBRID_ROLE_NAME"', provision)
 
+    def test_prod_hybrid_publisher_has_raw_archive_kms_via_s3(self) -> None:
+        """Wave B: HZ Hybrid must GenerateDataKey for SSE-KMS raw-archive puts."""
+        role = self.addon["Resources"]["HetznerSsmHybridRoleProd"]["Properties"]
+        self.assertEqual(role["RoleName"], "tokenkey-hetzner-ssm-hybrid-prod")
+        policies = {p["PolicyName"]: p["PolicyDocument"] for p in role["Policies"]}
+        self.assertIn("ProdQaPublisher", policies)
+        statements = {s["Sid"]: s for s in policies["ProdQaPublisher"]["Statement"]}
+        self.assertIn("QaRawArchiveKmsViaS3", statements)
+        kms = statements["QaRawArchiveKmsViaS3"]
+        self.assertEqual(kms["Effect"], "Allow")
+        self.assertIn("kms:GenerateDataKey*", kms["Action"])
+        self.assertEqual(
+            kms["Condition"]["StringEquals"]["kms:ViaService"],
+            "s3.us-east-1.amazonaws.com",
+        )
+        s3 = statements["QaBundleS3"]
+        self.assertIn("s3:AbortMultipartUpload", s3["Action"])
+
     def assert_qa_bucket_deny(
         self,
         template: dict,

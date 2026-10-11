@@ -118,7 +118,10 @@ Resources:
           - Sid: AllowAppInstanceRoleUseViaS3
             Effect: Allow
             Principal:
-              AWS: !Ref AppInstanceRoleArn
+              AWS:
+                - !Ref AppInstanceRoleArn
+                # Wave B: HZ Hybrid publishes archives (no EC2 IMDS); same ViaService scope.
+                - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-hetzner-ssm-hybrid-prod'
             Action:
               - 'kms:Encrypt'
               - 'kms:Decrypt'
