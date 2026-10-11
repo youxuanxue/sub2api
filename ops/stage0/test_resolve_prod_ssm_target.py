@@ -25,10 +25,24 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
     def setUp(self) -> None:
         self.mod = load_mod()
 
-    def test_auto_defaults_aws_without_env_or_param(self) -> None:
-        with mock.patch.object(self.mod, "read_cutover_param", return_value=""):
-            with mock.patch.dict("os.environ", {}, clear=True):
-                self.assertEqual(self.mod.resolve_mode("auto"), "aws")
+    def test_auto_defaults_hetzner_without_cloud_lookup(self) -> None:
+        with mock.patch.dict("os.environ", {}, clear=True), mock.patch.object(
+            self.mod.subprocess, "check_output", side_effect=AssertionError("unexpected AWS lookup")
+        ), mock.patch.object(self.mod.subprocess, "run", side_effect=AssertionError("unexpected cutover lookup")):
+            self.assertEqual(self.mod.resolve_mode("auto"), "hetzner")
+
+    def test_auto_env_still_defaults_hetzner(self) -> None:
+        with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "auto"}, clear=True):
+            self.assertEqual(self.mod.resolve_mode("auto"), "hetzner")
+
+    def test_explicit_standby_env(self) -> None:
+        with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "aws"}, clear=True):
+            self.assertEqual(self.mod.resolve_mode("auto"), "aws")
+
+    def test_invalid_env_fails_closed(self) -> None:
+        with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "typo"}, clear=True):
+            with self.assertRaises(SystemExit):
+                self.mod.resolve_mode("auto")
 
     def test_env_hetzner_wins(self) -> None:
         with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "hetzner"}):
@@ -37,11 +51,6 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
     def test_explicit_aws_ignores_env(self) -> None:
         with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "hetzner"}):
             self.assertEqual(self.mod.resolve_mode("aws"), "aws")
-
-    def test_param_hetzner(self) -> None:
-        with mock.patch.object(self.mod, "read_cutover_param", return_value="hetzner"):
-            with mock.patch.dict("os.environ", {}, clear=True):
-                self.assertEqual(self.mod.resolve_mode("auto"), "hetzner")
 
     def test_resolve_aws_shape(self) -> None:
         rows = [
@@ -124,6 +133,14 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
                 out = self.mod.resolve_hetzner(path)
         self.assertEqual(out["instance_id"], "mi-033c9569c7fb8b884")
 
+    def test_hybrid_missing_offline_or_ambiguous_never_falls_back(self) -> None:
+        target = self.mod.load_hetzner_matrix(self.mod.DEFAULT_MATRIX)
+        row = {"ComputerName": target["instance_name"], "InstanceId": "mi-0123456789abcdef0", "PingStatus": "Online"}
+        for rows in ([], [{**row, "PingStatus": "ConnectionLost"}], [row, row]):
+            with self.subTest(rows=rows), mock.patch.object(self.mod, "list_instance_information", return_value=rows):
+                with self.assertRaises(SystemExit):
+                    self.mod.resolve_hetzner(self.mod.DEFAULT_MATRIX)
+
     def test_resolve_aws_rejects_mi(self) -> None:
         rows = [
             {"OutputKey": "InstanceId", "OutputValue": "mi-033c9569c7fb8b884"},
@@ -133,26 +150,6 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self.mod.resolve_aws("tokenkey-prod-stage0")
 
-    def test_cutover_param_access_denied_fails_closed(self) -> None:
-        denied = mock.Mock(
-            returncode=254,
-            stdout="",
-            stderr="An error occurred (AccessDeniedException) when calling the GetParameter operation",
-        )
-        with mock.patch.object(self.mod.subprocess, "run", return_value=denied):
-            with mock.patch.dict("os.environ", {}, clear=True):
-                with self.assertRaises(SystemExit):
-                    self.mod.resolve_mode("auto")
-
-    def test_cutover_param_not_found_defaults_aws(self) -> None:
-        missing = mock.Mock(
-            returncode=254,
-            stdout="",
-            stderr="An error occurred (ParameterNotFound) when calling the GetParameter operation",
-        )
-        with mock.patch.object(self.mod.subprocess, "run", return_value=missing):
-            with mock.patch.dict("os.environ", {}, clear=True):
-                self.assertEqual(self.mod.resolve_mode("auto"), "aws")
 
 
 if __name__ == "__main__":

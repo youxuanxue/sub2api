@@ -16,7 +16,7 @@ COMMENT="${SSM_COMMENT:-sync-prod-pg-tuning}"
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-300}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
 
-if [[ ! "${INSTANCE_ID}" =~ ^i-[a-zA-Z0-9]+$ ]]; then
+if [[ ! "${INSTANCE_ID}" =~ ^(i|mi)-[a-zA-Z0-9]+$ ]]; then
   echo "usage: $0 <prod-instance-id> [--apply]" >&2
   exit 2
 fi
@@ -29,13 +29,22 @@ elif [[ -n "${MODE}" ]]; then
   exit 2
 fi
 
-EXPECTED_PROD="${TOKENKEY_PROD_INSTANCE_ID:-i-0e43099f831b03160}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -n "${TOKENKEY_PROD_INSTANCE_ID:-}" ]]; then
+  EXPECTED_PROD="$TOKENKEY_PROD_INSTANCE_ID"
+  if [[ "$EXPECTED_PROD" == mi-* && -z "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
+    REGION="$(PYTHONPATH="$SCRIPT_DIR" python3 -c 'import sys; from ssm_execution import region_for_instance_id; print(region_for_instance_id(sys.argv[1]))' "$EXPECTED_PROD")"
+  fi
+else
+  IDENTITY="$(python3 "${SCRIPT_DIR}/resolve_prod_ssm_target.py" --format json)"
+  EXPECTED_PROD="$(jq -er .instance_id <<<"$IDENTITY")"
+  REGION="$(jq -er .ssm_region <<<"$IDENTITY")"
+fi
 if [[ "${INSTANCE_ID}" != "${EXPECTED_PROD}" && "${TOKENKEY_ALLOW_NONPROD_PG_TUNING:-}" != "1" ]]; then
-  echo "refusing non-prod instance ${INSTANCE_ID} (expected ${EXPECTED_PROD}; set TOKENKEY_ALLOW_NONPROD_PG_TUNING=1 to override)" >&2
+  echo "refusing non-prod instance ${INSTANCE_ID} (expected ${EXPECTED_PROD})" >&2
   exit 2
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OVERLAY_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/docker-compose.prod-pg.yml"
 [[ -f "${OVERLAY_SRC}" ]] || { echo "missing ${OVERLAY_SRC}" >&2; exit 1; }
 OVERLAY_B64="$(base64 < "${OVERLAY_SRC}" | tr -d '\n')"
@@ -80,6 +89,8 @@ jq -n \
     ] end)
   )
 }' >"${params_file}"
+
+python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params_file}"
 
 CMD_ID="$(aws ssm send-command \
   --region "${REGION}" \

@@ -47,3 +47,8 @@ QA Bundle 是用户会话导出的唯一数据来源；采集/归档/授权沿�
 公开与登录态接入指南、注册入口和返回路径的 owner 清单见
 [`docs/approved/public-quickstart-registration-offer.md`](docs/approved/public-quickstart-registration-offer.md)。
 页面只做编排；配置生成和注册承诺必须复用该文档中的共享 owner。
+
+## 现网基础设施入口
+
+部署、排障、恢复和云变量先读 [`deploy/hetzner/README.md`](deploy/hetzner/README.md)。
+该文档拥有现网舰队与 AWS 保留依赖说明；历史 AWS 文件不可作为默认执行路径。

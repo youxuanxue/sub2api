@@ -1,5 +1,11 @@
 # QA Operations
 
+> QA 仍有 AWS 运行依赖，尚未完成正式迁移。目标和验收见
+> [`hcloud-bluegreen-qa-migration.md`](../../docs/approved/hcloud-bluegreen-qa-migration.md)；
+> gateway 主机已在 hcloud，主机操作使用共享 prod resolver，不能由 QA 的 AWS 网络/存储坐标推断主机位置。
+> `deploy-qa-bundle` 的 legacy deploy/canary 路径在 hcloud 默认目标下会明确拒绝，避免误写 EC2 旧机；`qa-infra-check` 仍可只读检查 AWS QA。正式 hcloud QA 发布仍待实现。
+
+
 The approved target is defined by `docs/approved/design-prod-qa-24h-s3-lifecycle.md`.
 Machine-readable policy lives in `ops/qa/policy.yaml`; repository readiness and observed live state are separate in `ops/qa/deploy_rollout.yaml`.
 

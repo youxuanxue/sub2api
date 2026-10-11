@@ -1,7 +1,7 @@
 ---
 name: tokenkey-stage0-local-deploy
 description: >-
-  Run the local Docker Stage0 stack for TokenKey. Use for Caddy/app/Postgres/Redis local deploy, compose setup, smoke verification, teardown, or matching deploy/aws behavior on a workstation.
+  Run the local Docker Stage0 stack for TokenKey. Use for Caddy/app/Postgres/Redis local deploy, compose setup, smoke verification, teardown, or matching the shared Stage0 runtime on a workstation.
 ---
 
 # TokenKey：本地 Stage0 栈

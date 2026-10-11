@@ -207,7 +207,8 @@
     "backend lint": "backend",
     "changed script syntax": "base",
     "gemini web control protocol parity": "gemini-web",
-    "gemini web worker fleet verdict selftest": "gemini-web"
+    "gemini web worker fleet verdict selftest": "gemini-web",
+    "hcloud live-fleet routing and transport": "hcloud-live-ops"
   },
   "backgrounds": {
     "qa_bundle": "QA Bundle service/worker contract",
@@ -357,6 +358,18 @@
       "backend/internal/handler/gemini_web_session_handler.go",
       "ops/observability/check-gemini-web-worker-fleet.sh",
       "ops/observability/probe-gemini-web-worker-build.sh"
+    ],
+    "hcloud-live-ops": [
+      "ops/qa/prod_qa_maintenance.py",
+      "ops/qa/prod_qa_archive_closeout.py",
+      "ops/stage0/*",
+      "ops/anthropic/*",
+      "ops/accounts/*",
+      "ops/pricing/*",
+      "deploy/hetzner/*",
+      "deploy/aws/lightsail/edge-targets-lightsail.json",
+      "deploy/aws/stage0/resolve-edge-target.py",
+      ".github/workflows/deploy-gemini-web-worker.yml"
     ]
   },
   "isolated_inputs": {

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# ensure-edge-admin-credentials.sh — After Lightsail/EC2 edge provision, persist
+# ensure-edge-admin-credentials.sh — After Hetzner/standby edge provision, persist
 # initial admin credentials to $HOME/Codes/keys/tokenkey-<edge_id>-admin-password.txt.
 #
 # Tries capture from bootstrap logs first; on exit 3 (logs rotated / missing),
 # falls back to reset-edge-admin-password.sh. Neither path prints the password.
 #
 # Usage:
-#   bash ops/stage0/ensure-edge-admin-credentials.sh [--platform auto|ec2|lightsail] <edge_id|prod>
+#   bash ops/stage0/ensure-edge-admin-credentials.sh [--platform auto|ec2|lightsail|hetzner] <edge_id|prod>
 #
-# Target is an edge id (e.g. uk1, us6) or the literal "prod" (tokenkey-prod-stage0).
+# Target is an edge id (e.g. uk1, us4) or the literal "prod" (live hcloud prod).
 # For prod the bootstrap log is usually rotated, so capture misses and this falls
 # straight through to reset (rotate) — saved as tokenkey-prod-admin-password.txt.
 #
@@ -23,11 +23,11 @@ RESET="${_OPS_DIR}/reset-edge-admin-password.sh"
 usage() {
   cat <<'EOF'
 Usage:
-  bash ops/stage0/ensure-edge-admin-credentials.sh [--platform auto|ec2|lightsail] edge-<id>
-  bash ops/stage0/ensure-edge-admin-credentials.sh [--platform auto|ec2|lightsail] <id>
+  bash ops/stage0/ensure-edge-admin-credentials.sh [--platform auto|ec2|lightsail|hetzner] edge-<id>
+  bash ops/stage0/ensure-edge-admin-credentials.sh [--platform auto|ec2|lightsail|hetzner] <id>
   bash ops/stage0/ensure-edge-admin-credentials.sh prod
 
-Target is an edge id (e.g. uk1, us6) or the literal "prod" (tokenkey-prod-stage0, us-east-1).
+Target is an edge id (e.g. uk1, us4) or the literal "prod" (live hcloud prod; identity/region from shared resolver).
 Writes: $HOME/Codes/keys/tokenkey-<edge_id>-admin-password.txt (chmod 600; prod -> tokenkey-prod-admin-password.txt)
 Never prints the password.
 EOF

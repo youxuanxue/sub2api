@@ -44,13 +44,13 @@ case "$*" in
   *send-command*)                    echo "cmd-stub" ;;
   *get-command-invocation*Status*)   echo "Success" ;;
   *list-command-invocations*)        echo '{"CommandInvocations":[{"InstanceId":"mi-stub"}]}' ;;
-  # resolve_prod_ssm_target (sync-feishu prod): missing cutover param → default aws
+  # resolve_prod_ssm_target (sync-feishu prod): default live Hetzner Hybrid inventory
   *get-parameter*)                   exit 1 ;;
   *describe-stacks*)
     echo '[{"OutputKey":"InstanceId","OutputValue":"i-0123456789abcdef0"},{"OutputKey":"ApiUrl","OutputValue":"https://api.tokenkey.dev"}]'
     ;;
   *describe-instance-information*)
-    echo '{"InstanceInformationList":[]}'
+    echo '{"InstanceInformationList":[{"InstanceId":"mi-0123456789abcdef0","ComputerName":"tokenkey-prod-hz-cax21","PingStatus":"Online"}]}'
     ;;
   *)                                 echo "stub" ;;
 esac

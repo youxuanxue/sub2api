@@ -3,7 +3,7 @@
 #
 # Sources:
 #   deploy/aws/stage0/edge-polluted-ips.json
-#   deploy/aws/lightsail/edge-targets-lightsail.json (deployable current IPs)
+#   deploy/aws/lightsail/edge-targets-lightsail.json (standby IPs only)
 # Target: docs/deploy/tokenkey-edge-ip-history.md
 #
 # Usage:
@@ -44,17 +44,17 @@ emit_polluted_block() {
 }
 
 emit_current_block() {
-  echo "<!-- BEGIN edge-ip-status:current (generated from deploy/aws/lightsail/edge-targets-lightsail.json) -->"
+  echo "<!-- BEGIN edge-ip-status:standby (generated from deploy/aws/lightsail/edge-targets-lightsail.json) -->"
   echo "| Edge | Region | Domain | Static IP name | IPv4 |"
   echo "| --- | --- | --- | --- | --- |"
   jq -r '
     .targets
     | to_entries
     | sort_by(.key)[]
-    | select(.value.deployable == true)
+    | select(.value.standby == true)
     | "| `\(.key)` | \(.value.lightsail_region) | `\(.value.domain)` | `\(.value.static_ip_name)` | `\(.value.porkbun_a_ipv4 // "")` |"
   ' "$MATRIX"
-  echo "<!-- END edge-ip-status:current -->"
+  echo "<!-- END edge-ip-status:standby -->"
 }
 
 extract_block() {
@@ -91,7 +91,7 @@ case "$MODE" in
     ;;
   --json)
     jq -nc --argjson polluted "$polluted_json" --argjson current "$(
-      jq '[.targets | to_entries | sort_by(.key)[] | select(.value.deployable == true) | {edge:.key, region:.value.lightsail_region, domain:.value.domain, static_ip_name:.value.static_ip_name, ipv4:(.value.porkbun_a_ipv4 // "")}]' "$MATRIX"
+      jq '[.targets | to_entries | sort_by(.key)[] | select(.value.standby == true) | {edge:.key, region:.value.lightsail_region, domain:.value.domain, static_ip_name:.value.static_ip_name, ipv4:(.value.porkbun_a_ipv4 // "")}]' "$MATRIX"
     )" '{current:$current, polluted:$polluted}'
     ;;
   --check)
@@ -101,7 +101,7 @@ case "$MODE" in
     fi
     failed=0
     check_block "polluted" "$(emit_polluted_block)" "$(extract_block '<!-- BEGIN edge-ip-status:polluted ' '<!-- END edge-ip-status:polluted -->')" || failed=1
-    check_block "current" "$(emit_current_block)" "$(extract_block '<!-- BEGIN edge-ip-status:current ' '<!-- END edge-ip-status:current -->')" || failed=1
+    check_block "current" "$(emit_current_block)" "$(extract_block '<!-- BEGIN edge-ip-status:standby ' '<!-- END edge-ip-status:standby -->')" || failed=1
     exit "$failed"
     ;;
   *)

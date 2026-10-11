@@ -139,7 +139,7 @@ class EdgeRoutingBoundaryTest(unittest.TestCase):
                              ("lightsail", "us-east-1", None))
             with self.assertRaisesRegex(SystemExit, "retired"):
                 resolve_route_tab(root, "pilot", "ec2")
-            with self.assertRaisesRegex(SystemExit, "unknown"):
+            with self.assertRaisesRegex(SystemExit, "not deployable"):
                 resolve_route_tab(root, "missing")
 
 

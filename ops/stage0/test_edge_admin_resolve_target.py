@@ -1,71 +1,58 @@
 #!/usr/bin/env python3
-"""Tests for ops/stage0/edge_admin_resolve_target.py — admin-target routing.
-
-Covers the prod short-circuit (a fixed EC2/CFN target outside the edge matrices)
-and confirms the existing edge resolution still works. Pure: reads the repo's
-matrices for edges and hardcodes prod; no AWS calls. stdlib-only.
-"""
+"""Exercise admin target resolution without reaching AWS or reading credentials."""
 from __future__ import annotations
 
+import os
 import pathlib
 import subprocess
+import tempfile
 import unittest
-import json
 
-_SCRIPT = pathlib.Path(__file__).resolve().parent / "edge_admin_resolve_target.py"
-_REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-_LIGHTSAIL_MATRIX = _REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
-
-
-def _resolve(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["python3", str(_SCRIPT), str(_REPO_ROOT), *args],
-        capture_output=True, text=True, check=False,
-    )
-
-
-def _deployable_lightsail_edge() -> str | None:
-    matrix = json.loads(_LIGHTSAIL_MATRIX.read_text(encoding="utf-8"))
-    targets = matrix.get("targets") or {}
-    deployable = sorted(
-        edge_id for edge_id, target in targets.items()
-        if isinstance(target, dict) and target.get("deployable") is True
-    )
-    return deployable[0] if deployable else None
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / 'ops/stage0/edge_admin_resolve_target.py'
 
 
 class EdgeAdminResolveTargetTest(unittest.TestCase):
-    def test_prod_resolves_to_prod_stage0_ec2_stack(self) -> None:
-        proc = _resolve("prod")
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        self.assertEqual(proc.stdout, "ec2\tus-east-1\ttokenkey-prod-stage0\n")
+    def resolve(self, *args):
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = pathlib.Path(tmp) / 'aws'
+            stub.write_text('''#!/usr/bin/env python3
+import json, sys
+args = sys.argv
+if 'describe-instance-information' in args:
+    print(json.dumps({'InstanceInformationList': [{'ComputerName': 'tokenkey-prod-hz-cax21', 'InstanceId': 'mi-0123456789abcdef0', 'PingStatus': 'Online'}]}))
+elif 'get-parameter' in args:
+    assert args[args.index('--name')+1].startswith('/tokenkey/hetzner/uk1/')
+    assert args[args.index('--region')+1] == 'eu-west-2'
+    print('mi-11111111111111111')
+else:
+    raise AssertionError('unexpected AWS standby lookup: ' + repr(args))
+''')
+            stub.chmod(0o755)
+            env = {**os.environ, 'PATH': f'{tmp}:{os.environ["PATH"]}', 'PROD_SSM_TARGET': 'auto'}
+            return subprocess.run(['python3', str(SCRIPT), str(ROOT), *args], env=env,
+                                  capture_output=True, text=True)
 
-    def test_prod_ignores_platform_preference(self) -> None:
-        # prod is always EC2/CFN; an explicit --platform value must not change it.
-        for pref in ("auto", "ec2", "lightsail"):
-            with self.subTest(platform=pref):
-                proc = _resolve("prod", pref)
-                self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-                self.assertEqual(proc.stdout, "ec2\tus-east-1\ttokenkey-prod-stage0\n")
+    def test_prod_defaults_to_hybrid_instance_and_ssm_region(self):
+        proc = self.resolve('prod')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, 'hetzner\teu-west-2\tmi-0123456789abcdef0\n')
 
-    def test_edge_resolution_still_works(self) -> None:
-        # Sanity: edge path still resolves via matrices (prod short-circuit
-        # did not shadow it). Cutover edges prefer Hetzner on auto; explicit
-        # lightsail still hits standby.
-        edge_id = _deployable_lightsail_edge()
-        if edge_id is None:
-            self.skipTest("no deployable Lightsail edge in matrix")
-        proc = _resolve(edge_id)
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        mode, region, _stack = proc.stdout.rstrip("\n").split("\t")
-        self.assertIn(mode, ("hetzner", "lightsail"))
-        self.assertTrue(region, "edge region should be non-empty")
+    def test_edge_uses_hybrid_region_not_hcloud_location(self):
+        proc = self.resolve('uk1')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, 'hetzner\teu-west-2\tmi-11111111111111111\n')
 
-        proc_ls = _resolve(edge_id, "lightsail")
-        self.assertEqual(proc_ls.returncode, 0, msg=proc_ls.stderr)
-        mode_ls, region_ls, _ = proc_ls.stdout.rstrip("\n").split("\t")
-        self.assertEqual(mode_ls, "lightsail")
-        self.assertTrue(region_ls)
+    def test_invalid_prod_platform_fails_before_aws(self):
+        proc = self.resolve('prod', 'lightsail')
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn('prod has no Lightsail target', proc.stderr)
 
-if __name__ == "__main__":
+    def test_retired_edge_does_not_query_standby(self):
+        proc = self.resolve('us3')
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn('not deployable', proc.stderr)
+
+
+if __name__ == '__main__':
     unittest.main()

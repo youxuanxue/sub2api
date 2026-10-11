@@ -5,11 +5,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
+import pathlib
 import subprocess
 import sys
 import time
 
-PROD_REGION = "us-east-1"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "stage0"))
+import ssm_execution as _SSM  # noqa: E402
+
+SSM_REGION = "eu-west-2"
 HOST_RUNNER = "/usr/local/bin/tokenkey-qa-maintenance.sh"
 HOST_RECEIPT = "/var/lib/tokenkey/qa-maintenance-last-run.json"
 POLL_ATTEMPTS = 100
@@ -31,28 +36,9 @@ def _aws_json(args: list[str]) -> dict:
 
 
 def _resolve_instance() -> str:
-    payload = _aws_json(
-        [
-            "aws",
-            "cloudformation",
-            "describe-stacks",
-            "--region",
-            PROD_REGION,
-            "--stack-name",
-            "tokenkey-prod-stage0",
-            "--output",
-            "json",
-        ]
-    )
-    stacks = payload.get("Stacks")
-    if not isinstance(stacks, list) or not stacks:
-        raise QAMaintenanceError("prod stack missing")
-    for item in stacks[0].get("Outputs", []):
-        if isinstance(item, dict) and item.get("OutputKey") == "InstanceId":
-            value = item.get("OutputValue")
-            if isinstance(value, str) and value.startswith("i-"):
-                return value
-    raise QAMaintenanceError("prod InstanceId missing")
+    global SSM_REGION
+    instance_id, SSM_REGION = _SSM.resolve_prod_identity()
+    return instance_id
 
 
 def _remote_command() -> str:
@@ -71,7 +57,7 @@ def _poll(command_id: str, instance_id: str) -> str:
                 "ssm",
                 "get-command-invocation",
                 "--region",
-                PROD_REGION,
+                SSM_REGION,
                 "--command-id",
                 command_id,
                 "--instance-id",
@@ -127,7 +113,7 @@ def run() -> dict:
             "ssm",
             "send-command",
             "--region",
-            PROD_REGION,
+            SSM_REGION,
             "--instance-ids",
             instance_id,
             "--document-name",
@@ -135,7 +121,7 @@ def run() -> dict:
             "--comment",
             "TokenKey QA maintenance",
             "--parameters",
-            json.dumps({"commands": [_remote_command()]}, separators=(",", ":")),
+            json.dumps({"commands": ["bash -c " + shlex.quote(_remote_command())]}, separators=(",", ":")),
             "--output",
             "json",
         ]

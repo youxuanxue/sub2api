@@ -10,8 +10,8 @@
 # exits 3 — run reset-edge-admin-password.sh instead.
 #
 # Usage:
-#   bash ops/stage0/capture-edge-admin-credentials.sh [--platform auto|ec2|lightsail] edge-<id>
-#   bash ops/stage0/capture-edge-admin-credentials.sh [--platform auto|ec2|lightsail] <id>
+#   bash ops/stage0/capture-edge-admin-credentials.sh [--platform auto|ec2|lightsail|hetzner] edge-<id>
+#   bash ops/stage0/capture-edge-admin-credentials.sh [--platform auto|ec2|lightsail|hetzner] <id>
 #
 # Exit codes:
 #   0 — credentials captured and written
@@ -23,17 +23,15 @@ set -euo pipefail
 
 _OPS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${_OPS_DIR}/../.." && pwd)"
-# shellcheck source=ssm_resolve_invocation_mi.inc.sh
-source "${_OPS_DIR}/ssm_resolve_invocation_mi.inc.sh"
 
 usage() {
   cat <<'EOF'
 Usage:
-  bash ops/stage0/capture-edge-admin-credentials.sh [--platform auto|ec2|lightsail] edge-<id>
-  bash ops/stage0/capture-edge-admin-credentials.sh [--platform auto|ec2|lightsail] <id>
+  bash ops/stage0/capture-edge-admin-credentials.sh [--platform auto|ec2|lightsail|hetzner] edge-<id>
+  bash ops/stage0/capture-edge-admin-credentials.sh [--platform auto|ec2|lightsail|hetzner] <id>
   bash ops/stage0/capture-edge-admin-credentials.sh prod
 
-Target is an edge id (e.g. uk1, us6) or the literal "prod" (tokenkey-prod-stage0, us-east-1).
+Target is an edge id (e.g. uk1, us4) or the literal "prod" (live hcloud prod; identity/region from shared resolver).
 Lightsail probes also try /var/log/tokenkey-lightsail-bootstrap.log (EC2 bootstrap uses tokenkey-edge-bootstrap.log).
 prod's bootstrap log is typically long rotated, so capture exits 3 there and ensure-edge-admin-credentials
 falls back to reset-edge-admin-password (rotate). To rotate prod directly use reset-edge-admin-password.sh prod.
@@ -77,7 +75,7 @@ INPUT_TARGET="$1"
 EDGE_ID="${INPUT_TARGET#edge-}"
 
 case "${PLATFORM_PREF}" in
-auto | ec2 | lightsail) ;;
+auto | ec2 | lightsail | hetzner) ;;
 *)
   echo "[capture-edge-admin-credentials] ERROR: invalid --platform: ${PLATFORM_PREF}" >&2
   exit 1
@@ -90,7 +88,7 @@ if [[ "$EDGE_ID" != "prod" && ! "$EDGE_ID" =~ ^[a-z]{2,4}[0-9]+$ ]]; then
 fi
 
 RES_LINE="$(python3 "${_OPS_DIR}/edge_admin_resolve_target.py" "${REPO_ROOT}" "${EDGE_ID}" "${PLATFORM_PREF}" | tr -d '\r')"
-IFS=$'\t' read -r RES_MODE REGION EC2_STACK <<<"${RES_LINE}"
+IFS=$'\t' read -r RES_MODE REGION INSTANCE_ID_SSM <<<"${RES_LINE}"
 if [[ -z "${RES_MODE:-}" ]]; then
   echo "[capture-edge-admin-credentials] ERROR: resolver returned empty output" >&2
   exit 2
@@ -103,22 +101,7 @@ if [[ ! -d "$KEYS_DIR" ]]; then
   exit 1
 fi
 
-if [[ "${RES_MODE}" == ec2 ]]; then
-  INSTANCE_ID_EC2="$(aws cloudformation describe-stacks \
-    --region "$REGION" \
-    --stack-name "$EC2_STACK" \
-    --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' \
-    --output text)"
-  if [[ -z "${INSTANCE_ID_EC2:-}" || "${INSTANCE_ID_EC2:-}" == "None" ]]; then
-    echo "[capture-edge-admin-credentials] ERROR: no InstanceId in stack ${EC2_STACK} (${REGION})" >&2
-    exit 2
-  fi
-fi
-
-echo "[capture-edge-admin-credentials] edge_id=${EDGE_ID} platform=${RES_MODE} region=${REGION} stack=${EC2_STACK:-}"
-if [[ "${RES_MODE}" == ec2 ]]; then
-  echo "[capture-edge-admin-credentials] ec2_instance_id=${INSTANCE_ID_EC2}"
-fi
+echo "[capture-edge-admin-credentials] edge_id=${EDGE_ID} platform=${RES_MODE} region=${REGION}"
 echo "[capture-edge-admin-credentials] reading logs via SSM..."
 
 PARAM_BODY="$(mktemp)"
@@ -137,32 +120,23 @@ commands = [
     "sudo journalctl -u tokenkey.service --no-pager | grep -E 'Generated admin password' || true",
     # EC2 / historical naming
     "sudo grep -E 'Generated admin password|ADMIN_EMAIL' /var/log/tokenkey-edge-bootstrap.log || true",
+    "sudo grep -E 'Generated admin password|ADMIN_EMAIL' /var/log/tokenkey-hetzner-bootstrap.log || true",
     # Lightsail (deploy/aws/lightsail/generated-launch-script.sh logs to tokenkey-lightsail-bootstrap.log)
     "sudo grep -E 'Generated admin password|ADMIN_EMAIL' /var/log/tokenkey-lightsail-bootstrap.log || true",
 ]
 json.dump({"commands": commands}, sys.stdout)
 PY
 
+python3 "${_OPS_DIR}/ssm_wrap_bash_commands.py" "${PARAM_BODY}"
+
 COMMAND_ID=""
-if [[ "${RES_MODE}" == lightsail ]]; then
-  COMMAND_ID="$(aws ssm send-command \
-    --region "$REGION" \
-    --targets "Key=tag:EdgeId,Values=${EDGE_ID}" "Key=tag:Platform,Values=lightsail" \
-    --document-name AWS-RunShellScript \
-    --comment "capture initial edge admin credentials (${EDGE_ID} lightsail)" \
-    --parameters "file://${PARAM_BODY}" \
-    --query Command.CommandId --output text)"
-  INSTANCE_ID_SSM="$(ssm_resolve_invocation_mi "${REGION}" "${COMMAND_ID}")"
-else
-  COMMAND_ID="$(aws ssm send-command \
-    --region "$REGION" \
-    --instance-ids "${INSTANCE_ID_EC2}" \
-    --document-name AWS-RunShellScript \
-    --comment "capture initial edge admin credentials (${EDGE_ID} ec2)" \
-    --parameters "file://${PARAM_BODY}" \
-    --query Command.CommandId --output text)"
-  INSTANCE_ID_SSM="${INSTANCE_ID_EC2}"
-fi
+COMMAND_ID="$(aws ssm send-command \
+  --region "$REGION" \
+  --instance-ids "${INSTANCE_ID_SSM}" \
+  --document-name AWS-RunShellScript \
+  --comment "capture initial edge admin credentials (${EDGE_ID} ${RES_MODE})" \
+  --parameters "file://${PARAM_BODY}" \
+  --query Command.CommandId --output text)"
 
 echo "[capture-edge-admin-credentials] ssm_command_id=${COMMAND_ID}"
 echo "[capture-edge-admin-credentials] ssm_invocation_instance_id=${INSTANCE_ID_SSM}"
@@ -211,5 +185,4 @@ echo "[capture-edge-admin-credentials] ok: credentials saved (password not print
 echo "EDGE_ID=${EDGE_ID}"
 echo "SSM_ROUTING=${RES_MODE}"
 echo "REGION=${REGION}"
-[[ "${RES_MODE}" == ec2 ]] && echo "EC2_STACK=${EC2_STACK}"
 echo "CREDENTIAL_FILE=${CREDENTIAL_FILE}"

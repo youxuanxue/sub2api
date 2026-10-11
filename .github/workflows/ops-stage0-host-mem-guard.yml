@@ -1,4 +1,4 @@
-name: Stage0 Host Mem-Guard Refresh
+name: AWS Standby Host Mem-Guard Refresh
 
 # One-shot ops workflow that pushes the host memory-pressure defenses into a
 # running Stage0 prod EC2 via SSM, WITHOUT rebuilding the instance:
@@ -11,14 +11,14 @@ name: Stage0 Host Mem-Guard Refresh
 # that bootstrap at run time — single source of truth, no second copy to drift.
 # A future stack rebuild remains the source of truth.
 #
-# Prod-only: swap + the tokenkey-disk-metrics timer are EC2/prod constructs;
-# edges are Lightsail relays with a separate bootstrap and no such timer.
+# AWS standby only: payloads depend on EC2 IMDS/CloudWatch/EBS.
+# Live hcloud host setup belongs to deploy/hetzner/.
 
 on:
   workflow_dispatch:
     inputs:
       target:
-        description: "Target: prod (edges are Lightsail-only and not covered by this EC2 SSM refresh)"
+        description: "AWS standby prod only; not the live hcloud fleet"
         required: true
         type: choice
         options:
@@ -61,7 +61,7 @@ jobs:
         id: instance
         env:
           STACK_NAME: ${{ env.STACK_NAME }}
-          PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
+          PROD_SSM_TARGET: aws
         run: |
           set -euo pipefail
           RESOLVED_JSON="$(python3 ops/stage0/resolve_prod_ssm_target.py \

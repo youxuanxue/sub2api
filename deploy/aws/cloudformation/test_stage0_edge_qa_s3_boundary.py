@@ -59,7 +59,7 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
         deployable = {
             edge_id: target
             for edge_id, target in matrix["targets"].items()
-            if target["deployable"] is True
+            if target.get("standby") is True or target["deployable"] is True
         }
         self.assertTrue(deployable)
         self.assertTrue(
@@ -77,7 +77,7 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
             if resource.get("Type") == "AWS::IAM::Role"
             and str(resource["Properties"]["RoleName"]).startswith(EDGE_ROLE_NAME)
         }
-        # Every live deployable edge must have an isolated role. Standby /
+        # Every retained standby edge must keep its isolated recovery role. Standby /
         # recently-retired matrix rows (deployable=false) may keep IAM until
         # instance drain — those extras are allowed if the edge id is still in
         # the Lightsail matrix.

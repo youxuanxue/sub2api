@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Push refreshed pg_dump cadence (every 2 hours, keep newest 6 rolling files) into a running
-# Stage0 EC2 via SSM Run-Command. Mirrors deploy/aws/stage0/tokenkey-pgdump.sh
+# Stage0 prod host via SSM Run-Command. Mirrors deploy/aws/stage0/tokenkey-pgdump.sh
 # and systemd units from stage0-ec2-bootstrap.sh so the live timer matches the
 # template-of-record without rebuilding the EC2.
 
@@ -98,6 +98,8 @@ jq -n \
       ("echo Live tokenkey-pgdump.{sh,service,timer} now match deploy/aws/stage0/tokenkey-pgdump.sh@" + $sha + " on $(hostname)")
     ]
   }' > "${params_file}"
+
+python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params_file}"
 
 cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" \

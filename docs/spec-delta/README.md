@@ -37,6 +37,6 @@ under this directory does not.
 | [`cc-fable-5.md`](cc-fable-5.md) | Fable 5 request surface |
 | [`cc-oauth-mimicry-fingerprint-scope.md`](cc-oauth-mimicry-fingerprint-scope.md) | OAuth mimicry fingerprint scope beyond UA |
 | [`cc-system-prompt.md`](cc-system-prompt.md) | Claude Code system-prompt anchors |
-| [`edge-lightsail.md`](edge-lightsail.md) | Lightsail-only edge path |
+| [`edge-lightsail.md`](edge-lightsail.md) | 历史 Lightsail standby 契约；现网入口见 Hetzner README |
 | [`group-unsupported-model-negative-cache.md`](group-unsupported-model-negative-cache.md) | Group unsupported-model negative cache |
 | [`kiro-cache-billing.md`](kiro-cache-billing.md) | Kiro estimated prefix-cache billing and rollback switch |

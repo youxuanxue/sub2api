@@ -6,12 +6,13 @@ import datetime as dt
 import importlib.util
 import json
 import pathlib
+import shlex
 import subprocess
 import sys
 from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-DEFAULT_MATRIX = REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
+DEFAULT_MATRIX = REPO_ROOT / "deploy/hetzner/edge-targets-hetzner.json"
 DEFAULT_BASELINE = REPO_ROOT / "deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json"
 CONFIRM_UPDATE = "yes-update-anthropic-stable-list"
 
@@ -97,17 +98,17 @@ def resolve_edge(
 ) -> dict[str, Any]:
     target = targets.get(edge_id)
     if target is None:
-        fail(f"unknown edge_id {edge_id}; Lightsail ids: {', '.join(sorted(targets))}")
-    deploy = _EDGE_ROUTING.edge_deployable(target)
+        fail(f"unknown edge_id {edge_id}; fleet ids: {', '.join(sorted(targets))}")
+    deploy = (target.get("deployable") is True)
     if not deploy and not allow_planned:
         fail(f"edge_id {edge_id} is planned but not deployable")
-    for key in ("domain", "ssm_prefix", "lightsail_region"):
+    for key in ("domain", "ssm_prefix"):
         if not target.get(key):
-            fail(f"Lightsail matrix entry for {edge_id} missing required field {key}")
+            fail(f"fleet matrix entry for {edge_id} missing required field {key}")
     return {
-        "edge_id": edge_id, "region": str(target["lightsail_region"]), "stack": "",
+        "edge_id": edge_id, "region": str(target.get("ssm_region") or target.get("lightsail_region") or "eu-west-2"), "stack": "",
         "domain": str(target["domain"]), "ssm_prefix": str(target["ssm_prefix"]),
-        "routing": "lightsail", "deployable": deploy,
+        "routing": "hetzner" if target.get("location") else "lightsail", "deployable": deploy,
     }
 
 
@@ -115,12 +116,14 @@ def resolve_edges(
     matrix: dict[str, Any], edge_id: str, *, allow_planned: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     targets = matrix["targets"]
+    if matrix.get("platform") == "hetzner":
+        targets = {eid: _EDGE_ROUTING.materialize_hetzner_target(eid, matrix, row) for eid, row in targets.items()}
     if edge_id != "all":
         return [resolve_edge(targets, edge_id, allow_planned=allow_planned)], []
     edges, excluded = [], []
     for eid, target in sorted(targets.items()):
-        if not _EDGE_ROUTING.edge_deployable(target) and not allow_planned:
-            excluded.append({"edge_id": eid, "reason": "not deployable (Lightsail matrix)"})
+        if not (target.get("deployable") is True) and not allow_planned:
+            excluded.append({"edge_id": eid, "reason": "not deployable"})
         else:
             edges.append(resolve_edge(targets, eid, allow_planned=allow_planned))
     return edges, excluded
@@ -130,8 +133,8 @@ def resolve_instance_id(edge: dict[str, Any], instance_id: str) -> str:
     if instance_id:
         return instance_id
 
-    if edge.get("routing") != "lightsail":
-        fail("internal error: expected Lightsail edge topology")
+    if edge.get("routing") not in ("lightsail", "hetzner"):
+        fail("internal error: expected Hybrid edge topology")
     pname = edge["ssm_prefix"].rstrip("/") + "/ssm_managed_instance_id"
     mi = run_cmd([
         "aws", "ssm", "get-parameter", "--region", edge["region"],
@@ -365,7 +368,7 @@ WHERE a.platform = 'anthropic'
 def run_remote_query(edge: dict[str, Any], instance_id: str, sql: str, *, comment: str) -> tuple[str, str]:
     remote = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -t -A -v ON_ERROR_STOP=1"
     command = f"set -euo pipefail\n{remote} <<'SQL'\n{sql}\nSQL"
-    params = json.dumps({"commands": [command]}, ensure_ascii=False)
+    params = json.dumps({"commands": ["bash -c " + shlex.quote(command)]}, ensure_ascii=False)
     cmd_id = run_cmd([
         "aws",
         "ssm",

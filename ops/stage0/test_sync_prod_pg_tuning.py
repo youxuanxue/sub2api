@@ -7,17 +7,23 @@ import subprocess
 import tempfile
 import unittest
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ssm_wrap_bash_commands import unwrap_commands
+
 SCRIPT = Path(__file__).with_name("sync-prod-pg-tuning-via-ssm.sh")
 
 
 class SyncProdPGTuningTest(unittest.TestCase):
-    def run_sync(self, status, code, *, apply=False):
+    def run_sync(self, status, code, *, apply=False, instance="i-testprod"):
+        env = {key: value for key, value in os.environ.items() if key not in ("AWS_REGION", "AWS_DEFAULT_REGION")}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             aws = root / "aws"
             aws.write_text("""#!/usr/bin/env python3
 import json, os, sys
 args = sys.argv[1:]
+assert args[args.index('--region') + 1] == os.environ['EXPECTED_REGION']
 if 'send-command' in args:
     print('fake-command')
 elif 'wait' in args:
@@ -27,14 +33,14 @@ else:
 """)
             aws.chmod(0o755)
             result = subprocess.run(
-                ["bash", str(SCRIPT), "i-testprod", *(["--apply"] if apply else [])],
-                env={**os.environ, "PATH": f"{root}:{os.environ['PATH']}",
-                     "TOKENKEY_PROD_INSTANCE_ID": "i-testprod", "STAGE0_SSM_OUTPUT_DIR": str(root),
+                ["bash", str(SCRIPT), instance, *(["--apply"] if apply else [])],
+                env={**env, "EXPECTED_REGION": "eu-west-2" if instance.startswith("mi-") else "us-east-1", "PATH": f"{root}:{os.environ['PATH']}",
+                     "TOKENKEY_PROD_INSTANCE_ID": instance, "STAGE0_SSM_OUTPUT_DIR": str(root),
                      "SSM_STATUS": status, "SSM_CODE": str(code)},
                 capture_output=True, text=True, check=False,
             )
             params = json.loads((root / "ssm-params-pg-tuning.json").read_text())
-            return result, params["commands"]
+            return result, unwrap_commands(params["commands"])
 
     def assert_remote_shell_parses(self, commands):
         script = "\n".join(commands) + "\n"
@@ -49,6 +55,10 @@ else:
         self.assertFalse(any("--force-recreate" in command for command in commands))
         self.assert_remote_shell_parses(commands)
         self.assertTrue(any("SHOW shared_buffers" in command for command in commands))
+
+    def test_hybrid_pin_uses_hcloud_registration_region(self):
+        result, _ = self.run_sync("Success", 0, instance="mi-0123456789abcdef0")
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_apply_uses_overlay_and_preserves_env_overrides(self):
         result, commands = self.run_sync("Success", 0, apply=True)

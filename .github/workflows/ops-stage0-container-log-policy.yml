@@ -28,7 +28,7 @@ jobs:
     env:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-      STACK_NAME: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
+      PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -51,14 +51,12 @@ jobs:
         id: instance
         run: |
           set -euo pipefail
-          id=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
-            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
-          [ -n "$id" ] && [ "$id" != None ]
-          echo "id=$id" >> "$GITHUB_OUTPUT"
+          python3 ops/stage0/resolve_prod_ssm_target.py --format json --github-output "$GITHUB_OUTPUT"
       - name: Sync bounded log policy and recreate Caddy
         id: sync
         env:
           STAGE0_SSM_OUTPUT_DIR: .
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
         run: bash ops/stage0/sync-container-log-policy-via-ssm.sh "${{ steps.instance.outputs.id }}" "bounded Docker logs; Caddy-only recreate"
       - name: Verify external health
         run: bash ops/stage0/external_health.sh https://api.tokenkey.dev

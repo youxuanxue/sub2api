@@ -1,5 +1,8 @@
 # Edge Stage0 on AWS Lightsail（standby / 回滚路径）
 
+> 历史 AWS / standby 资料。现网 hcloud 入口与保留依赖见 [Hetzner fleet](../../../deploy/hetzner/README.md)；不要将下文 EC2/Lightsail 步骤用于现网。
+
+
 > **现网活边 SSOT：** [`deploy/hetzner/README.md`](../../hetzner/README.md)（勿在此复制节点/IP/CIDR）。  
 > 本目录只服务 **Lightsail standby**（旧实例 ≥7d / 回滚 / 历史 provision）。EC2/CFN edge 路径已移除。
 

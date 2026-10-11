@@ -48,7 +48,7 @@ class LiveDeployableEdgeIdsTest(unittest.TestCase):
         }
         self.assertEqual(
             live_deployable_edge_ids(".", lightsail_targets=ls, hetzner_targets=hz),
-            ["uk1", "us3"],
+            ["uk1"],
         )
         self.assertEqual(deployable_edge_ids(ls), ["uk1", "us3"])
 

@@ -12,7 +12,7 @@
 | 打 tag（含 skip-ci / VERSION 一致 / HEAD==origin/main 校验） | 机械 | `scripts/release-tag.sh vX.Y.Z`（被上行脚本调用；**git 侧必须带 `v`**） |
 | 读取活边 edge 矩阵 | 机械 | `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` |
 | **canary Edge 选择（容量合格 → 低流量 → 高内存余量 → 矩阵顺序）** | 机械 | `python3 scripts/stage0/pick_release_canary_edge.py`（SSM 探测全部 deployable Edge；硬门禁为内存/磁盘，按近 30 分钟完成请求数和内存余量排序；native OAuth/Kiro 池仅作 audit/smoke applicability；`--json` 带完整 audit） |
-| Edge dispatch 路由（auto→HZ/LS） | 机械 | `scripts/stage0/resolve-edge-deploy-route.py --edge-id <id> --json` |
+| Edge dispatch 路由（auto→HZ；LS 仅显式 standby） | 机械 | `scripts/stage0/resolve-edge-deploy-route.py --edge-id <id> --json` |
 | Edge upgrade/smoke/rollback dispatch | 机械 | `bash scripts/stage0/dispatch-edge-deploy.sh --edge-id … --operation … --tag X.Y.Z\|vX.Y.Z`（入口剥 `v`） |
 | **其余 Edge rollout（bounded parallel fail-stop + smoke 标记验收）** | 机械 | `bash scripts/stage0/rollout-edges.sh --tag X.Y.Z\|vX.Y.Z --skip <canary>`（**默认 `--parallel 1` 顺序**，降低并发换容器对线上的影响；`N>1` 仅在可接受该影响时用） |
 | **prod deploy / replay / smoke-only / warm dispatch** | 机械 | `bash scripts/stage0/dispatch-prod-deploy.sh --operation deploy\|replay\|smoke-only\|warm --tag X.Y.Z\|vX.Y.Z`（入口剥 `v`；不要手写 `gh workflow run deploy-stage0.yml` / `warm-image-stage0.yml`） |
@@ -36,8 +36,8 @@
 
 ## 镜像发布之外的入口
 
-- `.github/workflows/ops-stage0-pg-dump-refresh.yml` + `ops/stage0/pg_dump_refresh_via_ssm.sh` — in-place 同步 `deploy/aws/cloudformation/stage0-single-ec2.yaml` 里的 `tokenkey-pgdump.*` systemd unit 到 live 实例（不重建 EC2）；下次有类似 user-data 模板改动可参考此形状写一个 one-shot ops workflow。
-- `.github/workflows/ops-stage0-host-mem-guard.yml` + `ops/stage0/sync-host-mem-guard-via-ssm.sh` — 同形状的 one-shot：把 #811 的 `/swapfile` 释放阀 + sysctl + `tokenkey-disk-metrics.sh` 内存压力告警从 `stage0-ec2-bootstrap.sh` 运行时抽取（单一源）推到 live prod（不重建 EC2，prod-only）。**发版本身不会落地这批 infra 改动**（deploy 只换镜像、不跑 bootstrap）——改了 bootstrap 的 swap/内存防御后，要么等下次换机，要么 dispatch 此 workflow 立刻生效。
+- `.github/workflows/ops-stage0-pg-dump-refresh.yml` + `ops/stage0/pg_dump_refresh_via_ssm.sh` — in-place 同步共享 `tokenkey-pgdump.sh` 与该脚本的 timer 到 resolver 选择的 prod 主机；下次有类似 user-data 模板改动可参考此形状写一个 one-shot ops workflow。
+- `.github/workflows/ops-stage0-host-mem-guard.yml` / `sync-host-mem-guard-via-ssm.sh` — EC2 standby 专用的旧 host payload；不得下发给 hcloud。现网 host 配置由 Hetzner renderer 拥有。
 
 Gateway verification owners: `gateway_capability_host.py` (prepared candidate requests),
 `gateway_capability_matrix.py` (account-supply plan/report), `gateway_capability_scenarios.py`

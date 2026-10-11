@@ -77,7 +77,7 @@ prod 无 OAuth 账号时只写 settings；edge 两者都写。HTTP UA 运行时 
 
 | 阶段 | 输入 | 输出 | exit |
 |---|---|---|---|
-| snapshot | EC2/Lightsail SSM 权限 | `snap.json`：`edges.*.oauth_accounts` + `prod.anthropic_stubs`，**字段名嵌在值旁**（jsonb_agg） | 0 / 2 error |
+| snapshot | Hetzner Hybrid SSM 权限 | `snap.json`：`edges.*.oauth_accounts` + `prod.anthropic_stubs`，**字段名嵌在值旁**（jsonb_agg） | 0 / 2 error |
 | check | snap.json | 每 edge 跑 `check-edge-oauth-stability.py`（含 `tls_profile` diff）+ `operator_balance` + `tier_table_drift` + `http_ua_drift` + `redis_cache_drift`（**始终 live 读**：UA settings/mimicry manifest vs baseline JSON；Redis blob `tls_fingerprint_profiles`/`tiers` vs 各节点 DB 表）；**报告**，drift/error 计入 violation | 0 ok / 1 violation / 2 error |
 | plan-guard-drift-fix | snap.json + check.json（或重跑 guard） | 每个 `status=drift` 账号一个 `edge_account_tier` action（force template rewrite，重写 TLS profile + 绑定 + credentials 模板字段） | 0 / 2 |
 | remediate-guard-drift | confirm + job-dir | 上述全流程（snapshot → check → plan → apply --sync-runtime → verify → check）artifact 落盘 | 0 / 1 |

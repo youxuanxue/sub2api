@@ -8,6 +8,10 @@ import subprocess
 import tempfile
 import unittest
 
+import sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from ssm_wrap_bash_commands import unwrap_commands
+
 SCRIPT = pathlib.Path(__file__).with_name("sync-container-log-policy-via-ssm.sh")
 
 
@@ -17,7 +21,7 @@ class SyncContainerLogPolicyTest(unittest.TestCase):
             env = os.environ.copy()
             env.update({"STAGE0_RENDER_ONLY": "1", "STAGE0_SSM_OUTPUT_DIR": tmp})
             proc = subprocess.run(
-                ["bash", str(SCRIPT), "i-0stub"],
+                ["bash", str(SCRIPT), "mi-0stub"],
                 env=env,
                 capture_output=True,
                 text=True,
@@ -25,7 +29,7 @@ class SyncContainerLogPolicyTest(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 0, msg=proc.stderr)
             payload = json.loads((pathlib.Path(tmp) / "ssm-params.json").read_text())
-            commands = "\n".join(payload["commands"])
+            commands = "\n".join(unwrap_commands(payload["commands"]))
             self.assertIn("trap rollback ERR", commands)
             self.assertIn("--force-recreate caddy", commands)
             self.assertNotIn("--force-recreate postgres", commands)
@@ -40,10 +44,10 @@ class SyncContainerLogPolicyTest(unittest.TestCase):
 
     def test_rejects_non_prod_instance_shape(self) -> None:
         proc = subprocess.run(
-            ["bash", str(SCRIPT), "mi-edge"], capture_output=True, text=True, check=False
+            ["bash", str(SCRIPT), "invalid-target"], capture_output=True, text=True, check=False
         )
         self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("prod EC2 instance id", proc.stderr)
+        self.assertIn("prod SSM instance id", proc.stderr)
 
 
 if __name__ == "__main__":

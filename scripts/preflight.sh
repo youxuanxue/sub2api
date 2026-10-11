@@ -4509,6 +4509,14 @@ fi
 
 fi # preflight gate
 
+if _preflight_selected 'hcloud live-fleet routing and transport'; then
+  echo "=== sub2api: hcloud live-fleet routing and transport ==="
+  if ! python3 -m unittest ops/stage0/test_hcloud_ops_contract.py ops/stage0/test_resolve_prod_ssm_target.py ops/stage0/test_edge_admin_resolve_target.py; then
+    echo "  FAIL: hcloud routing/Ubuntu SSM regression"
+    errors=$((errors + 1))
+  fi
+fi # preflight gate
+
 echo ""
 if [ "$errors" -eq 0 ]; then
     echo "=== preflight (with sub2api checks): PASS ($((SECONDS - _preflight_started))s) ==="

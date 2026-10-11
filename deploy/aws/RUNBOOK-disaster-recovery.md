@@ -1,5 +1,8 @@
 # TokenKey Stage0 Prod — 灾难恢复 Runbook（单节点）
 
+> 历史 AWS / standby 资料。现网 hcloud 入口与保留依赖见 [Hetzner fleet](../../deploy/hetzner/README.md)；不要将下文 EC2/Lightsail 步骤用于现网。
+
+
 > 适用对象：`api.tokenkey.dev` 的 AWS Stage0 单机栈（`deploy/aws/cloudformation/stage0-single-ec2.yaml`）。
 > 目标：prod 整机 / OS / 数据卷级故障时，用**确定性步骤**把服务在分钟级恢复，而不是临场拼命令。
 > 这是「冷重建」runbook，不是热备。100 用户阶段刻意选它——便宜、够用、零常驻技术债。

@@ -86,22 +86,10 @@ def live_deployable_edge_ids(
     lightsail_targets: dict[str, dict] | None = None,
     hetzner_targets: dict[str, dict] | None = None,
 ) -> list[str]:
-    """Ops live fleet edge ids: deployable Hetzner first, else Lightsail-only deployable.
-
-    An edge that is deployable on both platforms appears once (Hetzner preferred).
-    Retired / planned rows on either matrix are omitted.
-    """
+    """Live fleet is Hetzner only; AWS standby never enters automatic fan-out."""
     root = pathlib.Path(repo_root).resolve()
     hz = hetzner_targets if hetzner_targets is not None else load_hetzner_targets(root)
-    ls = lightsail_targets if lightsail_targets is not None else load_lightsail_targets(root)
-    ids: set[str] = set()
-    for eid, target in hz.items():
-        if edge_hetzner_deployable(target):
-            ids.add(eid)
-    for eid, target in ls.items():
-        if edge_deployable(target) and not edge_hetzner_deployable(hz.get(eid)):
-            ids.add(eid)
-    return sorted(ids)
+    return sorted(eid for eid, target in hz.items() if edge_hetzner_deployable(target))
 
 
 def resolve_route_tab(
@@ -111,7 +99,7 @@ def resolve_route_tab(
 ) -> tuple[Transport, str, None]:
     """Return (transport, region_or_location, empty stack).
 
-    ``auto`` prefers a deployable Hetzner row when present; otherwise Lightsail.
+    ``auto`` requires a deployable Hetzner row; it never falls back to standby.
     Explicit ``lightsail`` / ``hetzner`` force that matrix (planned rows allowed).
     """
     if platform == "ec2":
@@ -131,6 +119,7 @@ def resolve_route_tab(
             return "hetzner", str(hz["location"]), None
         if edge_hetzner_deployable(hz):
             return "hetzner", str(hz["location"]), None
+        raise SystemExit(f"edge {eid} is not deployable in the live Hetzner fleet; standby requires explicit --platform lightsail")
 
     if platform not in ("auto", "lightsail"):
         raise SystemExit(f"unsupported platform preference: {platform}")

@@ -10,8 +10,8 @@ REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-300}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
 
-if [[ ! "$INSTANCE_ID" =~ ^i-[a-zA-Z0-9]+$ ]]; then
-  echo "sync-container-log-policy: prod EC2 instance id (i-*) is required" >&2
+if [[ ! "$INSTANCE_ID" =~ ^(i|mi)-[a-zA-Z0-9]+$ ]]; then
+  echo "sync-container-log-policy: prod SSM instance id (i-* or mi-*) is required" >&2
   exit 1
 fi
 
@@ -62,6 +62,8 @@ jq -n --arg compose "$COMPOSE_B64" '{
   ],
   executionTimeout: ["300"]
 }' > "$params_file"
+
+python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params_file}"
 
 if [ "${STAGE0_RENDER_ONLY:-0}" = "1" ]; then
   echo "sync-container-log-policy: render-only params=$params_file"

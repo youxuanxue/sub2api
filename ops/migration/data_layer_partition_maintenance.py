@@ -21,10 +21,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "lib"))
 import resolve_app_container  # noqa: E402  (path bootstrap above)
 
 
-PROD_REGION = "us-east-1"
-PROD_STACK = "tokenkey-prod-stage0"
+PROD_REGION = "eu-west-2"
 CONFIRMATION = "tokenkey-prod-partition-maintenance-v1"
-INSTANCE_RE = re.compile(r"i-[0-9a-f]{17}")
+INSTANCE_RE = re.compile(r"(?:i|mi)-[0-9a-f]{17}")
 COMMAND_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{7,127}")
 POLL_ATTEMPTS = 100
 POLL_INTERVAL_SECONDS = 3
@@ -91,34 +90,20 @@ def _aws_json(args: list[str], run_aws: AWSRunner) -> dict[str, Any]:
 
 
 def _resolve_instance(run_aws: AWSRunner) -> str:
+    global PROD_REGION
     payload = _aws_json(
-        [
-            "aws",
-            "cloudformation",
-            "describe-stacks",
-            "--region",
-            PROD_REGION,
-            "--stack-name",
-            PROD_STACK,
-            "--output",
-            "json",
-        ],
+        [sys.executable, str(pathlib.Path(__file__).resolve().parents[1] / "stage0/resolve_prod_ssm_target.py"),
+         "--format", "json"],
         run_aws,
     )
-    stacks = payload.get("Stacks")
-    if not isinstance(stacks, list) or len(stacks) != 1 or not isinstance(stacks[0], dict):
-        raise PartitionMaintenanceError("production stack response is incomplete")
-    stack = stacks[0]
-    if stack.get("StackName") != PROD_STACK or not isinstance(stack.get("Outputs"), list):
-        raise PartitionMaintenanceError("production stack identity is invalid")
-    values = [
-        item.get("OutputValue")
-        for item in stack["Outputs"]
-        if isinstance(item, dict) and item.get("OutputKey") == "InstanceId"
-    ]
-    if len(values) != 1 or not isinstance(values[0], str) or INSTANCE_RE.fullmatch(values[0]) is None:
-        raise PartitionMaintenanceError("production stack has no unique valid InstanceId")
-    return values[0]
+    instance_id = payload.get("instance_id")
+    region = payload.get("ssm_region")
+    if not isinstance(instance_id, str) or INSTANCE_RE.fullmatch(instance_id) is None:
+        raise PartitionMaintenanceError("prod resolver has no valid instance identity")
+    if not isinstance(region, str) or re.fullmatch(r"[a-z0-9-]+", region) is None:
+        raise PartitionMaintenanceError("prod resolver has no valid SSM region")
+    PROD_REGION = region
+    return instance_id
 
 
 def _send_once(instance_id: str, run_aws: AWSRunner) -> str:
@@ -300,7 +285,7 @@ def run(
     receipt = {
         "controller_receipt_version": 1,
         "region": PROD_REGION,
-        "stack": PROD_STACK,
+        "target": "prod",
         "instance_id": instance_id,
         "command_id": command_id,
         "recorded_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),

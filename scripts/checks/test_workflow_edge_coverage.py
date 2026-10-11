@@ -49,6 +49,9 @@ class WorkflowEdgeCoverageTest(unittest.TestCase):
             (root / ".github/workflows").mkdir(parents=True)
             ls_path = root / "deploy/aws/lightsail/edge-targets-lightsail.json"
             ls_path.write_text(_matrix(lightsail))
+            hz_path = root / "deploy/hetzner/edge-targets-hetzner.json"
+            hz_path.parent.mkdir(parents=True)
+            hz_path.write_text(_matrix(lightsail))
             wf_rel = ".github/workflows/wf.yml"
             (root / wf_rel).write_text(_workflow(input_name, wf_options))
             reg = root / "registry.json"
@@ -58,7 +61,8 @@ class WorkflowEdgeCoverageTest(unittest.TestCase):
             }}}))
             with mock.patch.object(wec, "REPO_ROOT", root), \
                  mock.patch.object(wec, "REGISTRY", reg), \
-                 mock.patch.object(wec, "LIGHTSAIL_MATRIX", ls_path):
+                 mock.patch.object(wec, "LIGHTSAIL_MATRIX", ls_path), \
+                 mock.patch.object(wec, "HETZNER_MATRIX", hz_path):
                 return wec.main()
 
     def test_covered_passes(self) -> None:

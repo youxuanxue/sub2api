@@ -54,6 +54,11 @@ if [ -z "${INSTANCE_ID}" ]; then
   exit 1
 fi
 
+if [[ ! "$INSTANCE_ID" =~ ^i-[a-zA-Z0-9]+$ ]]; then
+  echo "EC2 standby payload only; hcloud host configuration belongs to deploy/hetzner renderers" >&2
+  exit 2
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BOOTSTRAP_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/stage0-ec2-bootstrap.sh"
 [[ -f "${BOOTSTRAP_SRC}" ]] || { echo "missing ${BOOTSTRAP_SRC}" >&2; exit 1; }
@@ -122,6 +127,8 @@ jq -n \
       ("echo Live /swapfile + root/data metrics + pressure alerts now match deploy/aws/stage0/stage0-ec2-bootstrap.sh@" + $sha + " on $(hostname)")
     ]
   }' > "${params_file}"
+
+python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params_file}"
 
 cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" \

@@ -1,13 +1,14 @@
 """Prod ↔ edge OAuth relay orchestration for ops/accounts/import-accounts.py."""
 from __future__ import annotations
 
-import json
 import re
+import sys
 from pathlib import Path
 from typing import Any, Callable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-EDGE_TARGETS_PATH = REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
+sys.path.insert(0, str(REPO_ROOT / "ops/stage0"))
+from edge_routing_matrix import load_hetzner_targets  # noqa: E402
 
 EDGE_STUB_BASE_URL_RE = re.compile(r"^https://api-([a-z0-9]+)\.tokenkey\.dev/?$", re.IGNORECASE)
 
@@ -51,9 +52,7 @@ def edge_id_from_base_url(base_url: str) -> str | None:
 
 
 def load_edge_targets() -> dict[str, Any]:
-    if not EDGE_TARGETS_PATH.is_file():
-        return {"targets": {}}
-    return json.loads(EDGE_TARGETS_PATH.read_text(encoding="utf-8"))
+    return {"targets": load_hetzner_targets(REPO_ROOT)}
 
 
 def list_deployable_edges() -> list[dict[str, str]]:
