@@ -48,6 +48,18 @@ def step_run(name: str) -> str:
 
 
 class DeployStage0WorkflowTest(unittest.TestCase):
+    def test_prod_steps_inherit_the_same_control_plane_selection(self) -> None:
+        workflow = yaml.safe_load(workflow_text())
+        job = workflow["jobs"]["deploy"]
+        # Probe, alert-sync and post-release helpers resolve prod independently.
+        # They must receive the same override even if reading the flag is denied.
+        for step in job["steps"]:
+            if "run" not in step:
+                continue
+            with self.subTest(step=step.get("name")):
+                effective = {**workflow.get("env", {}), **job.get("env", {}), **step.get("env", {})}
+                self.assertEqual(effective.get("PROD_SSM_TARGET"), "${{ vars.PROD_SSM_TARGET || 'auto' }}")
+
     def test_failed_legacy_summary_reports_actual_safety_step_outcomes(self) -> None:
         steps = yaml.safe_load(workflow_text())["jobs"]["deploy"]["steps"]
         step = next(step for step in steps if step.get("name") == "Job summary")
@@ -113,7 +125,8 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertIn("--github-output", instance["run"])
         self.assertIn("--format json", instance["run"])
         self.assertNotIn("eval \"$(python3 ops/stage0/resolve_prod_ssm_target.py", instance["run"])
-        self.assertEqual(instance["env"]["PROD_SSM_TARGET"], "${{ vars.PROD_SSM_TARGET || 'auto' }}")
+        self.assertEqual(yaml.safe_load(workflow_text())["jobs"]["deploy"]["env"]["PROD_SSM_TARGET"],
+                         "${{ vars.PROD_SSM_TARGET || 'auto' }}")
         self.assertEqual(deploy["env"]["AWS_REGION"], "${{ steps.instance.outputs.ssm_region }}")
         self.assertEqual(deploy["env"]["STAGE0_DEPLOY_PROFILE"], "${{ steps.instance.outputs.deploy_profile }}")
         self.assertEqual(deploy["env"]["QA_BUNDLE_STORAGE_REGION"], "${{ steps.qa_coordinates.outputs.region }}")
