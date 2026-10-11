@@ -76,13 +76,16 @@ root = pathlib.Path.cwd()
 matrix_dir = pathlib.Path(matrix_dir_arg)
 if not matrix_dir.is_absolute():
     matrix_dir = root / matrix_dir
-ls_path = matrix_dir / "lightsail/edge-targets-lightsail.json"
-domain = ""
-if ls_path.is_file():
-    data = json.loads(ls_path.read_text(encoding="utf-8"))
-    target = (data.get("targets") or {}).get(edge) or {}
-    if target.get("deployable") is True:
-        domain = str(target.get("domain") or "")
+if matrix_dir.resolve() == (root / "deploy/aws").resolve():
+    sys.path.insert(0, str(root / "ops/stage0"))
+    from edge_routing_matrix import load_hetzner_targets, edge_hetzner_deployable
+    row = load_hetzner_targets(root).get(edge) or {}
+    domain = str(row.get("domain") or "") if edge_hetzner_deployable(row) else ""
+else:
+    # Explicit test/standby matrix override; never used as automatic fallback.
+    data = json.loads((matrix_dir / "lightsail/edge-targets-lightsail.json").read_text())
+    row = (data.get("targets") or {}).get(edge) or {}
+    domain = str(row.get("domain") or "") if row.get("deployable") is True else ""
 if not domain:
     raise SystemExit(f"no deployable domain for edge {edge}")
 print(domain)

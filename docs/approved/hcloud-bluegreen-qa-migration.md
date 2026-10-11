@@ -16,6 +16,28 @@ scope: "prod/Edge 蓝绿发布、QA Worker、任务队列、raw/Bundle 存储及
 下文首次蓝绿待验收描述为当时快照，网关部分已完成；QA 正式发布、数据/队列迁移和
 真实 UI 验收仍未完成。现网状态与 AWS 保留依赖见 `deploy/hetzner/README.md`。
 
+## QA uk1 运行准备（2026-10-11，尚未切生产）
+
+已创建受删除保护的私网 `tokenkey-qa`（10.77.0.0/24），仅 uk1 接入 10.77.0.3；
+prod 尚未接入，原默认路由保持不变。`deploy/hetzner/qa/runtime.json` 记录非秘密运行坐标。
+独立 PostgreSQL 与 worker 已在 uk1 启动，队列为空且保持 paused；生产 producer、旧 ECS
+worker、SQS 与 AWS 对象存储继续工作。不得把目标准备完成当成正式迁移完成。
+
+按用户后续批准，S3 复用既有项目凭据，分别通过私有文件挂载；队列登录角色仍独立。
+实际父 cgroup 已读回确认总量 1 CPU / 2 GiB、swap=0、256 PID；底层磁盘读写各限
+10 MiB/s、100 IOPS。scratch 与队列各使用预分配 4 GiB ext4 loop filesystem，带
+nodev/nosuid/noexec，独立 UID 和只读根文件系统。
+
+`verify_hcloud_runtime.py` 在线验证通过实际 cgroup 归属、容器权限、硬容量文件系统、
+consumer TLS/角色权限，以及宿主机、Edge 数据服务、元数据、非白名单公网和反向
+Edge→QA 队列拒绝。原网关容器启动时间未变化，连续健康检查保持通过；这不替代
+生产业务延迟、峰值负载和蓝绿并发验收。
+
+AWS 只读盘点存在约 228 GB raw 对象。预拷贝 owner 已通过单元测试及 Hetzner 专用
+验证桶的 9 MiB multipart、SHA256 回读、重跑验证；合成对象已清理，尚未复制生产数据。
+目标文件系统与容器尚未启用开机自动恢复；备份恢复、动态出站地址维护、发布协调、
+保留期清理、生产冻结/迁移对账、真实 UI 和首次切换验收仍须完成。
+
 ## 会话授权与实施边界
 
 用户已同意补齐 prod 和 Edge 的全栈 hcloud 蓝绿部署，并要求 QA worker、存储和队列
@@ -138,8 +160,11 @@ KMS 与 Bundle 的 SSE-S3 属源端机制，源对象迁移时仍需原身份正
 Hetzner 的 If-Match 值需去掉返回 ETag 的外层引号，适配只对官方 Hetzner HTTPS endpoint
 生效；其他 S3 的行为保持不变，错误/过期 ETag 仍必须返回冲突。
 
-producer、worker、recovery 使用独立身份和最小权限 bucket policy，worker 只读 raw。
-项目级开通凭据只保留在操作端，不注入运行容器。raw 永不直接签发给普通用户；用户只能
+用户在后续实施会话明确批准“用之前的 s3 凭据就行”：producer、worker、recovery
+复用现有 Hetzner 项目级 S3 凭据，通过各组件独立的私有只读文件注入，不要求另建三组
+S3 身份。该凭据拥有项目桶读写权限，不能宣称 worker 在存储服务端只读 raw，
+也不能宣称三者具备 S3 身份隔离。容器、挂载、队列角色、网络与用户授权仍须隔离；
+共享凭据轮换须协调三个组件。raw 永不直接签发给普通用户；用户只能
 获得经既有鉴权通过的 Bundle 签名 URL。过期对象清理与独立审计继续由 QA lifecycle 承载。
 Hetzner 不提供 AWS CloudTrail/KMS/VPC Endpoint 的同等服务，本方案不宣称审计等价。
 
@@ -234,7 +259,7 @@ Worker 的 `RunOneDraining` 在停止信号后终止领取，已领取任务有 
   Caddy 持久状态不一致、卷未挂载、重启保留数据和 Gemini/QA 配置。
 - Queue：真实 PostgreSQL 多消费者、连接失败/重启、重复提交、租约边界、毒消息、worker
   排空和快照恢复；最小权限角色不得读 prod 用户库或越权操作队列。
-- Storage：真实供应商条件写与错 ETag 拒绝、私有桶匿名访问拒绝、独立身份权限隔离、multipart、
+- Storage：真实供应商条件写与错 ETag 拒绝、私有桶匿名访问拒绝、共享凭据边界记录、应用授权隔离、multipart、
   checksum/Content-Encoding、CORS、签名过期及跨用户/跨 raw 域拒绝。
 - Migration：中途失败重跑、源对象变化、缺对象/坏 checksum、队列 inflight、未知 envelope、
   历史 terminal gap 保持、写后回退对账和 DROP pause 不被提前解除。
@@ -276,13 +301,13 @@ multipart 上传与 SHA256 校验、无需额外请求头的签名 GET、CORS OP
 CORS 配置在供应商前端间异步生效，配置后须等待实际预检成功。
 Go archive store 已对官方 Hetzner HTTPS endpoint 加入 If-Match 适配，普通 S3 回归由同一 HTTP 行为测试覆盖；仍须完整运行路径验收。
 
-运行身份仍需 producer/worker/recovery 分离及最小权限 bucket policy；尚未把本机
-项目级凭据注入任何线上容器。跨用户和跨 raw 域拒绝、浏览器下载回归、历史对象迁移与备份恢复仍待运行验收。
+按后续用户批准复用项目级 S3 凭据，队列 producer/consumer/bootstrap 身份仍须分离；
+尚未把本机项目级凭据注入任何线上容器。跨用户和跨 raw 域拒绝、浏览器下载回归、历史对象迁移与备份恢复仍待运行验收。
 
 ## 上线判定
 
 资源开通、队列本地通过和供应商合成测试通过均不等于完成生产迁移。
-必须补齐独立运行身份、私网/TLS、scratch 硬配额、备份恢复、迁移对账、真实用户路径
+必须补齐独立队列身份及私有凭据文件、私网/TLS、scratch 硬配额、备份恢复、迁移对账、真实用户路径
 以及 gateway/QA 蓝绿协调验证后，才允许正式切换。不得删除未确认迁完的 AWS 资产。
 
 ## 后续发布链路实现（待发布验收）

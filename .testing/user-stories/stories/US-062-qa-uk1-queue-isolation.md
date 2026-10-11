@@ -26,6 +26,9 @@
 10. AC-010（发布）：PostgreSQL 坐标可通过发布 renderer；混用 SQS、缺 DSN 被拒绝，Hetzner resolver 不调用 CFN。
 11. AC-011（主机）：两个颜色使用相同只读身份挂载；缺卷、错数据盘、公开可读或错误凭据路径拒绝；候选准备失败恢复修改前的宿主配置。
 
+12. AC-012（运行包）：默认只准备独立队列；私有文件、TLS IP 身份、不可变镜像和网络地址校验拒绝错误配置。线上磁盘/网络/恢复验收前不切 producer。
+13. AC-013（预拷贝）：保持字节、元数据和源到期时刻；SHA256 回读后记录台账；中断重跑不覆盖外来对象，源变化/损坏/未知到期时刻拒绝发布。
+
 ## Linked Tests
 
 - `backend/internal/observability/qa/archive/store_hetzner_test.go`::`TestUS062_HetznerConditionalWritesNormalizeOnlyKnownProvider`
@@ -54,6 +57,19 @@ cd backend && go test -tags=unit ./internal/config ./internal/observability/qa/a
 go test -tags=integration ./internal/observability/qa/bundle -run TestUS062 -count=1
 ```
 
+- `ops/qa/test_hcloud_runtime.py`::`HcloudRuntimeTest.test_credentials_are_private_separate_queue_roles_and_tls_verifies`
+- `ops/qa/test_hcloud_runtime.py`::`HcloudRuntimeTest.test_rejects_mutable_images_public_endpoints_and_network_overlap`
+- `ops/qa/test_hcloud_runtime.py`::`HcloudRuntimeTest.test_compose_validates_and_does_not_start_consumer_by_default`
+- `ops/qa/test_migrate_hcloud_objects.py`::`MigrationObjectsTest.test_copy_roundtrip_preserves_bytes_headers_expiry_and_skips_verified`
+- `ops/qa/test_migrate_hcloud_objects.py`::`MigrationObjectsTest.test_interrupted_readback_recovers_without_overwriting`
+- `ops/qa/test_migrate_hcloud_objects.py`::`MigrationObjectsTest.test_recovery_rejects_corruption_and_unknown_target`
+- `ops/qa/test_migrate_hcloud_objects.py`::`MigrationObjectsTest.test_only_owned_mutable_commit_may_be_replaced`
+- `ops/qa/test_migrate_hcloud_objects.py`::`MigrationObjectsTest.test_expired_missing_expiry_and_changed_source_never_publish`
+
+```bash
+python3 -m unittest ops.qa.test_hcloud_runtime ops.qa.test_migrate_hcloud_objects
+```
+
 ## Assertions
 
 角色通过真实 PostgreSQL 权限系统验证；并发领取和 receipt fencing 验证状态变化。
@@ -61,8 +77,8 @@ go test -tags=integration ./internal/observability/qa/bundle -run TestUS062 -cou
 
 ## Evidence
 
-会话中的隔离实验和验证结果见 Trace 文档。生产 S3 替换、4 GiB scratch quota、
-双向网络拒绝与正式数据迁移尚未验收，不以本 Story 宣称完整 QA 去 AWS。
+会话中的隔离实验和验证结果见 Trace 文档。uk1 运行包已实测 TLS/权限、4 GiB scratch 与队列文件系统、双向网络拒绝。
+生产 S3 替换、峰值/蓝绿并发、恢复与正式数据迁移尚未验收，不以本 Story 宣称完整 QA 去 AWS。
 
 ## Status
 

@@ -109,8 +109,10 @@ QA storage accepts `QA_BUNDLE_STORAGE_CREDENTIALS_FILE` and
 The gateway and maintenance mount `/var/lib/tokenkey/qa-secrets/bundle.json`,
 `raw.json`, `queue.dsn` and `queue-ca.pem` at the corresponding
 `/run/secrets/tokenkey-qa/` paths. Credential files must be owned by UID 1000,
-mode 0400 or 0600. Never put worker/recovery/bootstrap identities in these
-producer files. Replace an identity through a new component preparation;
+mode 0400 or 0600. The user approved reusing the existing project S3 identity across producer,
+worker and recovery; this does not provide S3 role isolation. Queue login roles
+and bootstrap credentials remain separate. Never mount queue bootstrap credentials
+in the gateway or worker. Replace an identity through a new component preparation;
 file mounts and SDK initialization do not support hot key rotation.
 
 On hcloud prod, `/var/lib/tokenkey/aws/credentials` must also be a private
@@ -118,3 +120,40 @@ UID 1000 file. Its parent is mounted read-only at `/aws` so the existing Hybrid
 refresh timer can atomically rotate the file. This identity remains separate
 from QA storage. Blue/green refuses a missing data Volume before touching the
 host and installs mount guards for both Docker and the application service.
+
+## Runtime preparation tooling
+
+`ops/qa/hcloud_runtime.py` renders a runnable Compose project, PostgreSQL TLS/HBA
+configuration, and firewall tables scoped to `tk-qa0`. Both images must be pinned
+by digest. The worker is behind the `worker` Compose profile, so preparing the
+queue does not start consuming jobs. The parent slice and two bounded ext4
+filesystems must be prepared before using Compose.
+
+`ops/qa/hcloud_credentials.py` reads the existing protected Hetzner environment
+credentials and creates a new private output directory. It refuses to overwrite
+an existing generation. Keep `operator/` (CA private key and bootstrap SQL) out of
+runtime containers. Install queue files as UID 70 and producer/worker files as
+UID 1000, with private directories and 0400 files. Queue TLS certificates expire
+after 90 days; rotate through a drained component preparation before expiry.
+
+`ops/qa/hcloud_host.py --policy ... <operation>` only runs as root on the approved
+uk1 hostname. `prepare` mounts preallocated QA-only filesystems and installs the
+resource slice; `bootstrap` initializes only an absent QA data directory, applies
+`queue.sql` and starts with claims paused. `queue-start` / `worker-start` enforce
+mounts, private credentials and the scoped firewall. `pause`, `status`, `drain`,
+and `resume` operate only on the dedicated QA queue. Replacement requires claims
+to be paused and leases drained. No operation restarts Docker or a gateway.
+
+These tools are not yet a cutover command: persistent startup, backup/restore,
+release coordination, migration reconciliation and actual allow/deny tests must
+pass before the first producer switch.
+
+`ops/qa/migrate_hcloud_objects.py --kind raw|bundle --ledger <private.sqlite>` is
+read-only unless `--apply` is supplied. Pre-copy uses a bounded single multipart
+stream, explicit bandwidth limit, conditional publication and full SHA256
+readback. Its ledger permits restart after a completed upload, but refuses
+foreign target objects and changes to immutable source objects. Source lifecycle
+expiry is required and recorded in target metadata and the ledger; this metadata
+alone does not implement expiration. Install and verify the migration-expiry
+cleanup owner before cutover. The tool never deletes source objects, switches
+producers, or declares migration complete.

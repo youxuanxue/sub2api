@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "network_name": "tokenkey-qa",
+  "network_cidr": "10.77.0.0/24",
+  "queue_host": "10.77.0.3",
+  "producer_host": "10.77.0.2",
+  "worker_image": "ghcr.io/youxuanxue/sub2api@sha256:50e3eec320b3b50be1d4f9500288cecb4d7b8405e0737b7aab6860a64a636608",
+  "queue_image": "postgres@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873",
+  "gateway_release": "1.8.284"
+}

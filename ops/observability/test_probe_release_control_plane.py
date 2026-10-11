@@ -101,6 +101,26 @@ class ProbeReleaseControlPlaneTest(unittest.TestCase):
             self.assertIn("https://prod.example.test/api/v1/settings/public", urls)
             self.assertIn("https://api-us9.example.test/health", urls)
 
+    def test_default_live_fleet_works_with_all_lightsail_rows_retired(self):
+        with tempfile.TemporaryDirectory() as td:
+            curl = pathlib.Path(td) / "curl"
+            curl.write_text("#!/bin/sh\nprintf '200 0.01'\n")
+            curl.chmod(0o755)
+            env = {key: value for key, value in os.environ.items()
+                   if key not in ("MATRIX_DIR", "EDGE_IDS", "PROD_BASE_URL", "INCLUDE_SETTINGS_PUBLIC")}
+            proc = subprocess.run(["bash", str(_SCRIPT)], cwd=_REPO, text=True,
+                capture_output=True, env={**env, "PATH": f"{td}:{os.environ['PATH']}"})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            rows = [json.loads(line) for line in proc.stdout.splitlines()]
+            import sys
+            sys.path.insert(0, str(_REPO / "ops/stage0"))
+            from edge_routing_matrix import live_deployable_edge_ids, load_hetzner_targets
+            targets = load_hetzner_targets(_REPO)
+            expected = {"https://" + targets[e]["domain"] + "/health" for e in live_deployable_edge_ids(_REPO)}
+            actual = {row["url"] for row in rows if row.get("target", "").startswith("edge:")}
+            self.assertEqual(actual, expected)
+            self.assertEqual(rows[-1]["failures"], [])
+
     def test_prod_settings_public_uses_apex_when_gateway_is_api_subdomain(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tmp = pathlib.Path(td)

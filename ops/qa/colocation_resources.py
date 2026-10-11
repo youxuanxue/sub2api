@@ -34,6 +34,9 @@ def load_policy(path=DEFAULT_POLICY):
             raise ValueError(f'{key} must be a positive integer')
     if policy['scratch_bytes'] > 4 * 1024**3:
         raise ValueError('QA scratch exceeds the approved 4 GiB ceiling')
+    for key, maximum in [('queue_disk_bytes', 4 * 1024**3), ('io_bytes_per_second', 10 * 1024**2), ('io_iops', 100)]:
+        if type(policy.get(key)) is not int or not 0 < policy[key] <= maximum:
+            raise ValueError(f'{key} exceeds QA deployment ceiling')
     return policy
 
 

@@ -22,8 +22,7 @@ TAG_PATTERN = re.compile(
     r"(?:-(?:beta|rc)\.(?:0|[1-9][0-9]*))?$"
 )
 
-# Rolling Fargate is required only when the Worker execution path or its
-# CloudFormation contract changed.
+# A worker rollout is required when execution or its deployment contract changes.
 WORKER_SURFACE_PATHS = (
     "backend/internal/observability/qa/bundle/",
     "backend/internal/observability/trajectory/",
@@ -31,6 +30,10 @@ WORKER_SURFACE_PATHS = (
     "backend/cmd/server/qa_bundle_worker.go",
     "deploy/aws/cloudformation/stage0-qa-raw-archive.yaml",
     "ops/qa/deploy_qa_raw_archive_cfn.sh",
+    "deploy/hetzner/qa/",
+    "ops/qa/hcloud_runtime.py",
+    "ops/qa/hcloud_host.py",
+    "ops/qa/colocation_resources.py",
 )
 
 # Canary must still run when the app-side publisher/canary runner changed,

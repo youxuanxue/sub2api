@@ -1,0 +1,151 @@
+import copy
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
+import hashlib
+import io
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from ops.qa.migrate_hcloud_objects import copy_one, expiry, ledger_open, SOURCES
+
+
+class Missing(Exception):
+    response = {'ResponseMetadata': {'HTTPStatusCode': 404}}
+
+
+class Store:
+    def __init__(self):
+        self.objects, self.uploads = {}, {}
+        self.writes = 0
+        self.fail_read = False
+
+    def seed(self, key, body, **headers):
+        self.objects[key] = dict(headers, Body=body, ContentLength=len(body), ETag='"'+hashlib.md5(body).hexdigest()+'"')
+
+    def head_object(self, Bucket, Key):
+        if Key not in self.objects:
+            raise Missing()
+        return {k: copy.deepcopy(v) for k,v in self.objects[Key].items() if k != 'Body'}
+
+    def get_object(self, Bucket, Key, IfMatch):
+        if self.fail_read:
+            raise RuntimeError('synthetic read interruption')
+        value = self.head_object(Bucket, Key)
+        if value['ETag'] != IfMatch:
+            raise ValueError('source/target version changed')
+        return dict(value, Body=io.BytesIO(self.objects[Key]['Body']))
+
+    def create_multipart_upload(self, **fields):
+        self.uploads['upload'] = dict(fields, Parts={})
+        return {'UploadId':'upload'}
+
+    def upload_part(self, Bucket, Key, UploadId, PartNumber, Body):
+        self.uploads[UploadId]['Parts'][PartNumber] = Body
+        return {'ETag':str(PartNumber)}
+
+    def complete_multipart_upload(self, Bucket, Key, UploadId, MultipartUpload, IfMatch=None, IfNoneMatch=None):
+        if IfNoneMatch == '*' and Key in self.objects:
+            raise ValueError('create conflict')
+        if IfMatch and self.objects[Key]['ETag'].strip('"') != IfMatch:
+            raise ValueError('replace conflict')
+        upload = self.uploads.pop(UploadId)
+        headers = {k:v for k,v in upload.items() if k not in ('Parts','Key','Bucket')}
+        self.seed(Key, b''.join(upload['Parts'].values()), **headers)
+        self.writes += 1
+        return {'ETag':self.objects[Key]['ETag']}
+
+    def abort_multipart_upload(self, Bucket, Key, UploadId):
+        self.uploads.pop(UploadId, None)
+
+
+class MigrationObjectsTest(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.db = ledger_open(Path(self.directory.name, 'ledger.sqlite'))
+        self.source, self.target = Store(), Store()
+        self.key = 'raw/v1/2026/10/11/00/commit.json'
+        self.deadline = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=1)
+        self.headers = {'Expiration':f'expiry-date="{format_datetime(self.deadline, usegmt=True)}", rule-id="raw"',
+                        'ContentType':'application/json','ContentEncoding':'gzip','Metadata':{'test':'synthetic'}}
+        self.source.seed(self.key, b'synthetic QA contents', **self.headers)
+
+    def tearDown(self):
+        self.db.close()
+        self.directory.cleanup()
+
+    def copy(self):
+        return copy_one(self.source,self.target,self.db,SOURCES['raw'][0],SOURCES['raw'][1],self.key,float('inf'))
+
+    def test_copy_roundtrip_preserves_bytes_headers_expiry_and_skips_verified(self):
+        self.assertEqual(self.copy(),'copied')
+        target = self.target.objects[self.key]
+        self.assertEqual(target['Body'],self.source.objects[self.key]['Body'])
+        self.assertEqual(target['ContentEncoding'],'gzip')
+        self.assertEqual(target['Metadata']['tk-migration-expires-at'],self.deadline.isoformat())
+        self.assertEqual(self.copy(),'verified')
+        self.assertEqual(self.target.writes,1)
+        row = self.db.execute('SELECT sha256,size FROM objects').fetchone()
+        self.assertEqual(row,(hashlib.sha256(target['Body']).hexdigest(),len(target['Body'])))
+
+    def test_interrupted_readback_recovers_without_overwriting(self):
+        self.target.fail_read = True
+        with self.assertRaises(RuntimeError):
+            self.copy()
+        self.assertEqual(self.db.execute('SELECT count(*) FROM objects').fetchone()[0],0)
+        self.target.fail_read = False
+        self.assertEqual(self.copy(),'recovered')
+        self.assertEqual(self.target.writes,1)
+
+    def test_recovery_rejects_corruption_and_unknown_target(self):
+        self.target.seed(self.key,b'unknown foreign object')
+        with self.assertRaisesRegex(ValueError,'not owned'):
+            self.copy()
+        self.target.objects.clear()
+        self.target.fail_read = True
+        with self.assertRaises(RuntimeError):
+            self.copy()
+        self.target.fail_read = False
+        row = self.target.objects[self.key]
+        row['Body'] = b'X' * len(row['Body'])
+        with self.assertRaisesRegex(ValueError,'differs'):
+            self.copy()
+        self.assertEqual(self.target.writes,1)
+
+    def test_only_owned_mutable_commit_may_be_replaced(self):
+        self.assertEqual(self.copy(),'copied')
+        self.source.seed(self.key,b'next generation',**self.headers)
+        self.assertEqual(self.copy(),'copied')
+        self.key = 'raw/v1/2026/10/11/00/records.parquet'
+        self.source.seed(self.key,b'immutable',**self.headers)
+        self.assertEqual(self.copy(),'copied')
+        self.source.seed(self.key,b'changed immutable',**self.headers)
+        with self.assertRaisesRegex(ValueError,'immutable'):
+            self.copy()
+
+    def test_expired_missing_expiry_and_changed_source_never_publish(self):
+        with self.assertRaises(ValueError):
+            expiry({})
+        self.source.objects[self.key]['Expiration'] = 'expiry-date="Thu, 01 Jan 1970 00:00:00 GMT"'
+        self.assertEqual(self.copy(),'expired')
+        self.assertEqual(self.target.writes,0)
+        self.source.objects[self.key]['Expiration'] = self.headers['Expiration']
+        original = self.source.head_object
+        calls = 0
+        def changed(*args,**kwargs):
+            nonlocal calls
+            calls += 1
+            value = original(*args,**kwargs)
+            if calls > 2:
+                value['ETag'] = 'changed'
+            return value
+        with patch.object(self.source,'head_object',side_effect=changed):
+            with self.assertRaisesRegex(ValueError,'source changed'):
+                self.copy()
+        self.assertEqual(self.target.writes,0)
+        self.assertEqual(self.target.uploads,{})
+
+
+if __name__ == '__main__':
+    unittest.main()

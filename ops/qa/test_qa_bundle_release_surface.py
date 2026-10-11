@@ -73,6 +73,20 @@ def classify(repo: Path, image: str, to_tag: str) -> subprocess.CompletedProcess
 
 
 class QABundleReleaseSurfaceTest(unittest.TestCase):
+    def test_hcloud_runtime_change_requires_worker_rollout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = init_repo(Path(directory))
+            source = repo / 'deploy/hetzner/qa/resource-policy.json'
+            source.parent.mkdir(parents=True)
+            source.write_text('{"changed":"QA resource policy"}')
+            git(repo, 'add', '.')
+            git(repo, 'commit', '-m', 'QA resource policy')
+            git(repo, 'tag', 'v1.8.164')
+            proc = classify(repo, f'{IMAGE_REPOSITORY}:1.8.163', '1.8.164')
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertTrue(json.loads(proc.stdout)['worker_surface_changed'])
+            self.assertFalse(json.loads(proc.stdout)['publisher_surface_changed'])
+
     def test_same_tag_is_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = init_repo(Path(temp_dir))
