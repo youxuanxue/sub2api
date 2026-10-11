@@ -4,11 +4,11 @@
 
 ## Edge → Hetzner
 
-**Provision：** `deploy/hetzner` render → cloud-init → SSM Hybrid → dispatch；staging `api-<id>-hz`。
+**Provision：** `deploy/hetzner` render → cloud-init → SSM Hybrid → dispatch；稳态正式名（切流窗可短暂 `-hz`）。
 
 **Replicate（冻写）：** 源 `tokenkey-pgdump.sh`（precious）+ logs data-only → S3；目标 restore（PG18 `\restrict` / `OR REPLACE`；logs 用 replica role）。对账：`accounts` / `usage_billing_dedup` / `usage_logs`。
 
-**Cutover：** Porkbun A→NEW_IP；`API_DOMAIN`；`MAIN_GATEWAY_ALLOWED_CIDR`；sync caddy；prod stub `https://`；prod pin + restart 活动色。
+**Cutover：** Porkbun A→NEW_IP；单域名 `API_DOMAIN`；CIDR=`167.233.211.115/32`；sync caddy；删 `-hz`；stub `https://`；prod pin+restart。
 
 **Drain：** 旧机 `docker stop` app（+ gemini-web）；留 PG/Caddy/Redis；standby；源近窗 usage=0。
 

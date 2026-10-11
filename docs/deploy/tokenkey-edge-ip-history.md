@@ -25,12 +25,12 @@ Prod talks to edges by hostname (`api-<id>.tokenkey.dev`). After an A-record cha
 | `us5` | us-west-2 | `api-us5.tokenkey.dev` | `vless-or-fresh-1-rot-20260828T115642Z` | `16.144.175.131` |
 <!-- END edge-ip-status:current -->
 
-Standby (deployable=false；账号级退役 2026-10-11，gemini 会话 drain 前保留实例；不进 fan-out)：
+Standby (deployable=false；账号级退役 2026-10-11，gemini 会话 drain 前保留实例；不进 fan-out；**Porkbun A 已删**，下表 Domain 仅为历史 hostname / 直连 IP 参考)：
 
-| Edge | Region | Domain | Static IP name | IPv4 |
+| Edge | Region | Domain (historical) | Static IP name | IPv4 |
 | --- | --- | --- | --- | --- |
-| `us3` | us-east-2 | `api-us3.tokenkey.dev` | `vless-oh-fresh-1-rot-20260828T122454Z` | `18.216.113.132` |
-| `us6` | us-east-2 | `api-us6.tokenkey.dev` | `StaticIp-oh-3-rot-20260828T121745Z` | `3.147.98.112` |
+| `us3` | us-east-2 | `api-us3.tokenkey.dev`（A 已删） | `vless-oh-fresh-1-rot-20260828T122454Z` | `18.216.113.132` |
+| `us6` | us-east-2 | `api-us6.tokenkey.dev`（A 已删） | `StaticIp-oh-3-rot-20260828T121745Z` | `3.147.98.112` |
 
 ## Polluted IPs (do not re-use)
 

@@ -1,24 +1,25 @@
 # Wave B — Prod → Hetzner 正式切流（可照抄）
 
-**门禁：** 仅在人工明确批准「冻写切流」后执行。高流量窗默认延期。  
-**禁止提前做：** 冻写、切四正式 hostname、改 Edge `MAIN_GATEWAY_ALLOWED_CIDR`、staging 挂 live `QA_BUNDLE_*`、静音仍在服务的 AWS CloudWatch。
+**状态（2026-10-11）：** Wave B **已完成**。本文件保留为切流窗照抄与回滚参考；稳态执行以 [`README.md`](README.md) 为准。  
+**切后收尾已做：** staging `api-hz` A 已删；边 `MAIN_GATEWAY_ALLOWED_CIDR=167.233.211.115/32`；GitHub `EDGE_GHCR_PAT_SSM_NAME=/tokenkey/edge/fleet/ghcr/pat`。
 
-| 常量 | 值（2026-10-10 Wave A） |
+**门禁（历史切流窗）：** 仅在人工明确批准「冻写切流」后执行。高流量窗默认延期。  
+**禁止提前做（切流窗）：** 冻写、切四正式 hostname、改 Edge `MAIN_GATEWAY_ALLOWED_CIDR`、staging 挂 live `QA_BUNDLE_*`、静音仍在服务的 AWS CloudWatch。
+
+| 常量 | 值 |
 |---|---|
 | HZ IP | `167.233.211.115` |
 | SSM Hybrid | `mi-033c9569c7fb8b884`（`eu-west-2`） |
-| Staging | `https://api-hz.tokenkey.dev` |
+| 正式域名 | `https://api.tokenkey.dev`（staging `api-hz` A 已删） |
 | AWS EIP（回滚 A） | `34.194.234.88` |
-| AWS Instance | CFN `tokenkey-prod-stage0` → `i-*`（`us-east-1`） |
-| Image tag（例） | 运行时绿标（勿写死；切前用 resolver 读） |
+| AWS Instance | CFN `tokenkey-prod-stage0` → `i-*`（`us-east-1`） standby |
+| Image tag（例） | 运行时绿标（勿写死） |
 
-控制面解析（默认仍 AWS，切后才翻）：
+控制面（现网默认 HCloud）：
 
 ```bash
-# 默认 → i-* / us-east-1
 python3 ops/stage0/resolve_prod_ssm_target.py
-# 切后：PutParameter 或一次性
-PROD_SSM_TARGET=hetzner python3 ops/stage0/resolve_prod_ssm_target.py
+# 显式：PROD_SSM_TARGET=hetzner python3 ops/stage0/resolve_prod_ssm_target.py
 ```
 
 ---

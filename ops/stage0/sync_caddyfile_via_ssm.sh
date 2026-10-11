@@ -67,7 +67,7 @@
 #                                     instance_id is mi-*, targets by tag like
 #                                     deploy_via_ssm.sh.
 #   MAIN_GATEWAY_ALLOWED_CIDR         edge-only optional override for Caddy
-#                                     remote_ip (e.g. 34.194.234.88/32). When
+#                                     remote_ip (e.g. 167.233.211.115/32). When
 #                                     unset, the live Caddyfile value is reused.
 #   ACME_EMAIL                        optional override when host .env has an
 #                                     empty ACME_EMAIL= (console-adopted edges).

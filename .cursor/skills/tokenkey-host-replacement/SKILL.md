@@ -43,7 +43,7 @@ description: >-
 1. plan — IP/配额/RPO/授权/回滚（A→旧 IP）  
 2. provision — HZ README；LS expansion（`recreate` 须明示）；staging 先绿  
 3. replicate — precious+logs→restore→对账；未切流才可整库重灌  
-4. cutover — 正式 A；双域名；CIDR；prod pin+restart；stub `https://`  
+4. cutover — 正式 A；稳态单域名；CIDR=HCloud prod/32；删 `-hz`；prod pin+restart；stub `https://`  
 5. drain — 停旧 app；standby 标记；源 usage→0  
 6. verify — dig@8.8.8.8；smoke；host units；gemini re-import；HZ 用 `mi-*`
 
@@ -51,7 +51,7 @@ Prod：卷在→DR §3；无卷/跨云→§4.4。骨架：[references/playbook.m
 
 ## 坑位（2026-10）
 
-DNS 缓存→restart/`extra_hosts`；stub 无 scheme→`https://`；已切边禁整库重灌；CIDR 空→prod EIP/32；空池 stub→先修池；`run-probe edge:*` deployable 后 `auto`→HZ。  
+DNS 缓存→restart/`extra_hosts`；stub 无 scheme→`https://`；已切边禁整库重灌；CIDR→`167.233.211.115/32`；空池 stub→先修池；`run-probe edge:*`→`mi-*`。  
 prod：ops 控制面 `mi-*`；正式 DNS/冻写见 `WAVE-B-PROD-CUTOVER-RUNBOOK.md`。
 
 报告：`target platform phase new_ip old_ip dump checks dns drain smoke followups`

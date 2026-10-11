@@ -8,7 +8,7 @@ owners: [tk-platform]
 scope: >-
   deploy/hetzner/* + deploy-*-hetzner*.yml + Stage0 dispatch 路由；
   凭证与命令见 deploy/hetzner/README.md
-related_prs: [2517, 2532]
+related_prs: [2517, 2532, 2550, 2551]
 related_designs:
   - docs/approved/deploy-stage0-workflow.md
   - docs/approved/edge-bluegreen-release-safety.md
@@ -57,8 +57,9 @@ related_designs:
 |---|---|
 | uk1 / us4 / us5 / uk2 正式 DNS | **已切** Hetzner（A 见 README） |
 | 四边 LS app | **已停写**（`tokenkey*` + gemini-web stop；PG/Caddy/Redis 保留 ≥7d；`.env` `TOKENKEY_LS_STANDBY_READONLY=1`） |
-| us3 / us6 HZ | 不再建（账号级退役，2026-10-11）；LS 机器仍在跑但已无 prod stub，待 gemini re-import 后停写 |
-| prod 正式 | **已切** `api.tokenkey.dev` → `167.233.211.115`；ops 控制面 Hybrid `mi-*`（param=`hetzner`）；AWS EIP standby；矩阵 `prod-target-hetzner.json` `deployable=true` |
+| us3 / us6 HZ | 不再建（账号级退役，2026-10-11）；LS 机器仍在跑但已无 prod stub；**Porkbun A 已删**；待 gemini re-import 后停写 |
+| prod 正式 | **已切** `api.tokenkey.dev` → `167.233.211.115`；ops 控制面 Hybrid `mi-*`（param=`hetzner`）；AWS EIP standby；矩阵 `prod-target-hetzner.json` `deployable=true`；staging `api-hz` A **已删** |
+| DNS 收尾 | **2026-10-11：** 删 `api-*-hz` / `api-hz` / `api-us3` / `api-us6`；边 `MAIN_GATEWAY_ALLOWED_CIDR=167.233.211.115/32`；`EDGE_GHCR_PAT_SSM_NAME=/tokenkey/edge/fleet/ghcr/pat` |
 | 库复刻 uk1/uk2/us4/us5 | precious + logs 已灌；切前未切边再刷见 README |
 | us4 定点补漏 | append-only：ulog/dedup/ops_system（含停写前再补）；`post_missing=0` |
 | uk1 补漏 | dump 水位后 LS 0 新行 → 无需补漏 |
@@ -73,7 +74,7 @@ related_designs:
 
 1. **prod 容器 DNS：** host `/etc/hosts` pin **不会**自动进已运行的 `tokenkey-green/blue`；切流后若仍见 prod EIP 打旧 LS IP → `docker restart` 活动色，或 compose `extra_hosts`。  
 2. **prod stub `base_url`：** 必须 `https://api-<edge>.tokenkey.dev`（裸域名 → `invalid base_url` / 502）。切流后同步 edge `api_keys` 时校验 scheme。  
-3. **Caddy `API_DOMAIN`：** 双域名须加引号；`MAIN_GATEWAY_ALLOWED_CIDR`（prod `34.194.234.88/32`）空则 gateway 探针被拒。  
+3. **Caddy `API_DOMAIN`：** 切流窗双域名须加引号；ACME 绿后收成单正式名并删 `-hz` A。`MAIN_GATEWAY_ALLOWED_CIDR` 现网为 HCloud prod `167.233.211.115/32`（勿再写 AWS EIP）；空则 gateway 探针被拒。  
 4. **已切边禁止整库重灌 live HZ**（会丢掉「只在 HZ」窗口）。LS 残留用 `request_id` 定点 `INSERT … NOT EXISTS`。  
 5. **LS 停写：** 停 app/gemini-web，保留 PG/Caddy ≥7d；直打旧 IP 应无落库。  
 6. **探针：** `run-probe --target edge:<id>` 仍解析 Lightsail → 对 HZ 直投 `mi-*`。  

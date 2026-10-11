@@ -10,9 +10,9 @@
 | **us4** | **已切** → `188.245.14.132` | 同左 | `32.188.80.151`（app 已停写，PG/Caddy 保留 ≥7d） | precious + logs 已灌；已定点补漏 42×ulog+42×dedup（≈$0.62） |
 | **us5** | **已切** → `91.98.83.56`（冻写重灌后切） | 同左 | `16.144.175.131`（app 已停写，PG/Caddy 保留 ≥7d） | 2026-10-10 `T101255Z`+`logs-T101315Z` |
 | **uk2** | **已切** → `2.31.27.73`（冻写重灌后切） | 同左 | `51.24.28.148`（app 已停写，PG/Caddy 保留 ≥7d） | 2026-10-10 `T101627Z`+`logs-T101629Z` |
-| **us3** | LS `18.216.113.132`（仍在跑，已无 prod stub） | **无机器**（不再重建） | — | **2026-10-11 账号级退役**：12 账号 → uk1，stub 全切/软删；见「us3/us6 账号级退役」 |
-| **us6** | LS `3.147.98.112`（仍在跑，已无 prod stub） | **未起**（不再 provision） | — | **2026-10-11 账号级退役**：19 账号 → uk2，stub 全切/软删；同上 |
-| **prod** | **已切** → `167.233.211.115`（`api.tokenkey.dev` / `api-hz` 同 IP） | 同左 · `mi-033c9569c7fb8b884` · Volume `tokenkey-prod-data` | AWS EIP `34.194.234.88` standby | **正式 DNS + ops 控制面均已在 HCloud**（param=`hetzner`）；发版走 `deploy-stage0` → `deploy_via_ssm_bluegreen.sh`（首发从单色 `tokenkey` 迁到 blue） |
+| **us3** | **Porkbun A 已删**（2026-10-11）；LS `18.216.113.132` 仍在跑、已无 prod stub | **无机器**（不再重建） | — | **2026-10-11 账号级退役**：12 账号 → uk1，stub 全切/软删；见「us3/us6 账号级退役」 |
+| **us6** | **Porkbun A 已删**（2026-10-11）；LS `3.147.98.112` 仍在跑、已无 prod stub | **未起**（不再 provision） | — | **2026-10-11 账号级退役**：19 账号 → uk2，stub 全切/软删；同上 |
+| **prod** | **已切** → `167.233.211.115`（仅 `api.tokenkey.dev`；staging `api-hz` A 已删） | 同左 · `mi-033c9569c7fb8b884` · Volume `tokenkey-prod-data` | AWS EIP `34.194.234.88` standby | **正式 DNS + ops 控制面均已在 HCloud**（param=`hetzner`）；发版走 `deploy-stage0` → `deploy_via_ssm_bluegreen.sh`（首发从单色 `tokenkey` 迁到 blue） |
 
 活舰队（ops fan-out / probe 默认）：**prod + uk1/uk2/us4/us5**（五节点）。Lightsail ≥7 天保留作回滚；禁止双写业务库。Redis 不迁（可重建）。
 
@@ -26,7 +26,7 @@
 |----|------|------|
 | prod 容器 DNS | host `/etc/hosts` pin 后，已跑的 `tokenkey-green` 仍解析旧 LS → us4/us5 LS 继续落 `usage`（来源 `34.194.234.88`） | `docker restart` 活动色；发版考虑 `extra_hosts` |
 | stub `base_url` 缺 scheme | `invalid base_url: api-uk2…/antigravity`、`api-us5…` → prod 502 | 一律 `https://api-<edge>.tokenkey.dev`；同步 key 后校验 |
-| Caddy `remote_ip` / CIDR | `MAIN_GATEWAY_ALLOWED_CIDR` 空 → gateway 探活被拒 | 设 prod EIP `/32`；改 `.env` 后 sync/restart caddy |
+| Caddy `remote_ip` / CIDR | `MAIN_GATEWAY_ALLOWED_CIDR` 空或仍写 AWS EIP → 探针 403 / 下次 sync 回写旧值 | live 用 **HCloud prod** `167.233.211.115/32`；`.env` 与 Caddy 必须同值；GitHub `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 已对齐 |
 | 已切边整库重灌 | 丢掉「只在 HZ」窗口账 | **禁止**；只用 `request_id` 定点补漏 |
 | LS 停写 | 四边 app+gemini-web 已 stop；PG/Caddy 留 ≥7d | `.env` `TOKENKEY_LS_STANDBY_READONLY=1` |
 | prod stub `cc-*` / `gemini-uk*` / `grok-*` | `schedulable=f` | **边侧无健康池/会话 paused**，非 DNS；冒烟 200 前勿强开 |
@@ -118,7 +118,8 @@ Restore 目标：Hetzner Hybrid `mi-*`。PG18 dump 含 `\restrict`：灌库前 `
 4. HZ：precious restore（`DROP DATABASE` / `TEMPLATE template0`）→ logs restore（`session_replication_role=replica` + 明确 `TRUNCATE` 日志父表）。  
 5. 行数对账：`accounts` / `usage_billing_dedup` / `usage_logs` / `ops_*`。  
 6. Porkbun：`api-<edge>.tokenkey.dev` A → Hetzner IP；prod `/etc/hosts` 可临时 pin。  
-7. 双域名 Caddy + ACME；smoke；E5 soak。  
+7. Caddy：`API_DOMAIN=api-<edge>.tokenkey.dev`（正式名）+ ACME；smoke；E5 soak。  
+   切流窗可短暂保留 staging 别名 `api-<edge>-hz`（须给 `API_DOMAIN` 加引号）；**ACME 绿后应收成单域名并删 Porkbun `-hz` A**（勿长期双 SAN）。  
 8. Lightsail 保留 ≥7 天只读/回滚，勿继续当正式写库。
 
 对 **已切** 边：只做定点补漏或接受 dump→切流窗口 RPO；禁止再次整库覆盖 live HZ。
@@ -148,15 +149,20 @@ HZ **相对 LS 仍缺 / 不同**：
 1. 按上节完成 **冻写 → 新鲜 dump/restore → 对账**（未切边强制）。  
 2. Porkbun：`api-<edge>.tokenkey.dev` A → Hetzner IP（Lightsail IP 先留着）。  
 3. 主机 `/var/lib/tokenkey/.env`：  
-   `API_DOMAIN="api-<edge>.tokenkey.dev, api-<edge>-hz.tokenkey.dev"`  
-   （**必须加引号**）。  
-4. `bash ops/stage0/sync_caddyfile_via_ssm.sh edge <mi-…>`（**不设** `EDGE_ID`）→ ACME。  
-5. 外网 health 200 + 非 gemini 账号类 smoke → E5 短 soak。  
-6. prod 若 NSS 缓存旧 A：临时 `/etc/hosts` pin；TTL 干净后删。
+   - **稳态（现网）：** `API_DOMAIN=api-<edge>.tokenkey.dev`（单正式名）  
+   - **切流窗可选：**  
+     `API_DOMAIN="api-<edge>.tokenkey.dev, api-<edge>-hz.tokenkey.dev"`（**必须加引号**）  
+     ACME 绿后立刻收成单域名，再删 Porkbun `api-<edge>-hz` A（现网四边 + prod staging 别名已于 2026-10-11 删完）。  
+4. `MAIN_GATEWAY_ALLOWED_CIDR=167.233.211.115/32`（HCloud prod；与 GitHub `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 一致）。  
+5. `bash ops/stage0/sync_caddyfile_via_ssm.sh edge <mi-…>`（**不设** `EDGE_ID`）→ ACME。  
+6. 外网 health 200 + 非 gemini 账号类 smoke → E5 短 soak。  
+7. prod 若 NSS 缓存旧 A：临时 `/etc/hosts` pin；TTL 干净后删。
 
-回滚：A 指回 Lightsail；双域名 Caddy 可留。
+回滚：A 指回 Lightsail。切流窗若曾开双域名，回滚时可暂留；稳态勿再挂 `-hz`。
 
 **探针：** 勿对 Hetzner 用 `run-probe --target edge:<id>`（会解析到 Lightsail）。直投 Hybrid `mi-*`；`sync_caddyfile` **不要**设 `EDGE_ID=`。
+
+**GitHub Variables（现网）：** `PROD_SSM_TARGET=hetzner`；`EDGE_MAIN_GATEWAY_ALLOWED_CIDR=167.233.211.115/32`；`EDGE_GHCR_PAT_SSM_NAME=/tokenkey/edge/fleet/ghcr/pat`（eu-west-2；IAM 通配 `tokenkey/edge/*/ghcr/pat`）。
 
 ## Prod staging → 正式切流
 
@@ -176,20 +182,21 @@ gh workflow run deploy-prod-hetzner-stage0.yml \
   -f operation=provision -f confirm_instance=tokenkey-prod-hz-cax21 \
   -f allow_planned=true -f confirm_paid=true -f tag=X.Y.Z
 # 或本地（需 PassRole）:
-ACME_EMAIL=… MAIN_GATEWAY_ALLOWED_CIDR=34.194.234.88/32 GHCR_OWNER=youxuanxue \
-GHCR_PAT_SSM_NAME=/tokenkey/ghcr/pat \
+ACME_EMAIL=… MAIN_GATEWAY_ALLOWED_CIDR=167.233.211.115/32 GHCR_OWNER=youxuanxue \
+GHCR_PAT_SSM_NAME=/tokenkey/edge/fleet/ghcr/pat \
 bash deploy/hetzner/provision-prod.sh --allow-planned --confirm-paid --tag X.Y.Z
 ```
 
-Bootstrap（`render-prod-bootstrap.sh`）已嵌入：`tokenkey-pgdump.timer`（`TOKENKEY_PGDUMP_S3_URI=s3://tokenkey-prod-pgdump-<acct>/prod/pgdump`）、`tokenkey-disk-metrics.timer`、`tokenkey-ghcr-prune-daily.timer`；staging Caddy 仍为 `Caddyfile.edge`；`QA_CAPTURE_ENABLED=false`。Feishu webhook 仍 post-boot 从 AWS prod `.env` 拷贝（不进 git）。
+Bootstrap（`render-prod-bootstrap.sh`）已嵌入：`tokenkey-pgdump.timer`（`TOKENKEY_PGDUMP_S3_URI=s3://tokenkey-prod-pgdump-<acct>/prod/pgdump`）、`tokenkey-disk-metrics.timer`、`tokenkey-ghcr-prune-daily.timer`；staging Caddy 仍为 `Caddyfile.edge`；`QA_CAPTURE_ENABLED=false`。Feishu webhook 仍 post-boot 从 AWS prod `.env` 拷贝（不进 git）。Hybrid 主机读 GHCR PAT 用 **eu-west-2** 参数（`EDGE_GHCR_PAT_SSM_NAME`）；`us-east-1` 的 `/tokenkey/ghcr/pat` 是另一套，勿混用。
 
 **Wave A 实测（2026-10-10）：**
 - 点火：GHA `deploy-prod-hetzner-stage0.yml` · tag `1.8.283` · IP `167.233.211.115` · `mi-033c9569c7fb8b884` · E0 `aarch64` · timers active · Feishu webhook 已从 AWS 拷贝  
 - 演练 restore（刷新）：`tokenkey-20261010T155229Z.sql.gz` → HZ；对账 `accounts=215=215`；`usage_billing_dedup` HZ `14571497`（dump 窗）；`usage_logs` HZ `0`（precious 预期）；下载 ~17s / restore ~5.0 min  
-- E1：`api-hz.tokenkey.dev` A → `167.233.211.115`；LE 证书已签；`https://api-hz.tokenkey.dev/health` → 200  
+- E1（当时）：`api-hz.tokenkey.dev` A → `167.233.211.115`；LE 已签。**2026-10-11 已删 staging `api-hz` A**；稳态只保留 `api.tokenkey.dev`  
 - 零影响预热：HZ SSM secrets 已同步；`warm_pull` `1.8.283` 绿；正式 Caddy dry 四 vhost；**Mode C 压窗**见 runbook  
 - **ops 控制面（2026-10-11）：** SSM param `/tokenkey/prod/control-plane-ssm-target=hetzner`；QA/warm/probe 经 `resolve_prod_ssm_target` 打 Hybrid `mi-*`  
-- **Wave B 正式 DNS（已完成）：** `api.tokenkey.dev` / `api-hz` → `167.233.211.115`（dig@1.1.1.1 已核）；AWS EIP `34.194.234.88` standby；矩阵 `deployable=true`  
+- **Wave B 正式 DNS（已完成）：** `api.tokenkey.dev` → `167.233.211.115`；AWS EIP `34.194.234.88` standby；矩阵 `deployable=true`  
+- **DNS 收尾（2026-10-11）：** 删 `api-*-hz` / `api-hz` / `api-us3` / `api-us6` A；边 `.env` `MAIN_GATEWAY_ALLOWED_CIDR` 与 `ADMIN_EMAIL` 对齐正式名  
 - **蓝绿发版（基础设施已齐，主机仍单色）：** 下一刀 release 走 `deploy-stage0` / edge dispatch；`ensure_legacy_cutover` 迁到 `tokenkey-blue`  
 
 user-data **必须以 `#!/bin/bash` 开头**；AWS CLI 走 awscliv2 zip。
@@ -273,6 +280,8 @@ uk1/uk2，edge id 不再保留，**不重建机器、不做整库复刻**。基�
 - 软删有流量的 stub 前，确认它所在的每个组还剩 ≥2 个可调度同伴（本次用 SQL 守卫强制）。
 
 ### 剩余（未做）
+
+**Porkbun：** `api-us3` / `api-us6` A 已于 2026-10-11 删除（正式域名不再指向 LS）。
 
 停写 us3/us6 **故意延后**：uk1/uk2 的 gemini 会话还没 re-import，而 `gemini-web-498`(us3)/
 `gemini-web-506`(us6) 的原会话在原机上，是唯一退路。re-import 落地后再按纪律收尾：
