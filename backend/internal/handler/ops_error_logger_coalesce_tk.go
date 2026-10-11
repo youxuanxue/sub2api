@@ -28,7 +28,10 @@ import (
 //   - The first occurrence in a bucket is always written, immediately. Nothing
 //     is queued, delayed or batched, so a genuine incident never waits.
 //   - Repeats inside the bucket are dropped, and their count is carried onto
-//     the next bucket's first row, so no occurrence is silently lost.
+//     the next bucket's first row, so no occurrence is silently lost. A storm
+//     always ends, and the final bucket has no next occurrence to ride out on:
+//     that residue is added to the `dropped` counter when the entry is
+//     reclaimed, so it is accounted for rather than vanishing.
 //   - Buckets are per (api_key_id, code): another key, or another code on the
 //     same key, has its own bucket and is never suppressed by this one.
 //   - Memory is bounded and fails open: at capacity an unknown bucket is not
@@ -77,18 +80,23 @@ type opsCoalescer struct {
 	tracked       atomic.Int64
 	admitted      atomic.Uint64
 	suppressed    atomic.Uint64
+	dropped       atomic.Uint64
 	overCapacity  atomic.Uint64
 	cleanupNext   atomic.Int64
 	cleanupCursor atomic.Uint32
 }
 
 // OpsErrorLogCoalesceHealth exposes the gate's counters for ops visibility.
-// suppressed is the row count this process did not write.
+// suppressed is the row count this process did not write. dropped is the subset
+// of those that were never reported on any row, because the storm ended before
+// another occurrence could carry the count out; suppressed-minus-dropped is
+// what actually reached a row's `[repeated xN]` annotation.
 type OpsErrorLogCoalesceHealth struct {
 	Tracked      int64  `json:"tracked"`
 	Capacity     int64  `json:"capacity"`
 	Admitted     uint64 `json:"admitted"`
 	Suppressed   uint64 `json:"suppressed"`
+	Dropped      uint64 `json:"dropped"`
 	OverCapacity uint64 `json:"over_capacity"`
 }
 
@@ -249,13 +257,27 @@ func (c *opsCoalescer) reserveEntry() bool {
 	}
 }
 
-// maybeCleanupAtCapacity reclaims idle buckets one shard at a time, at most
-// once per 100ms, and only once capacity is actually reached. Same shape as
-// invalid_auth_abuse_limiter.maybeCleanupAtCapacity.
+// maybeCleanupAtCapacity reclaims idle buckets once capacity is reached. Same
+// shape as invalid_auth_abuse_limiter.maybeCleanupAtCapacity.
 func (c *opsCoalescer) maybeCleanupAtCapacity(now time.Time) {
 	if c.tracked.Load() < c.capacity {
 		return
 	}
+	c.reclaimIdle(now)
+}
+
+// reclaimIdle reclaims closed buckets from one shard, at most once per 100ms.
+//
+// An entry is reclaimed once its bucket has closed, whether or not it still
+// holds a suppressed count. Requiring a zero count was a defect: the residue of
+// a *finished* storm is exactly a non-zero count with no further occurrence
+// coming to carry it out, so such entries were never reclaimable. A fleet-wide
+// churn of briefly-rejected keys could then pin the map at capacity and leave
+// the gate permanently failed open — coalescing silently stops working.
+//
+// The residue is not discarded silently: it is added to `dropped`, so
+// suppressed == (reported on rows) + dropped always holds.
+func (c *opsCoalescer) reclaimIdle(now time.Time) {
 	nowUnixNano := now.UnixNano()
 	for {
 		next := c.cleanupNext.Load()
@@ -268,28 +290,37 @@ func (c *opsCoalescer) maybeCleanupAtCapacity(now time.Time) {
 	}
 	index := c.cleanupCursor.Add(1) - 1
 	shard := &c.shards[index%opsCoalesceShardCount]
+
+	var residue int64
+	var reclaimed int64
 	shard.mu.Lock()
 	for key, entry := range shard.entries {
-		if c.entryIdle(entry, now) {
-			delete(shard.entries, key)
-			c.tracked.Add(-1)
+		if !c.entryIdle(entry, now) {
+			continue
 		}
+		residue += entry.carried + entry.repeats
+		delete(shard.entries, key)
+		reclaimed++
 	}
 	shard.mu.Unlock()
+
+	if reclaimed > 0 {
+		c.tracked.Add(-reclaimed)
+	}
+	if residue > 0 {
+		c.dropped.Add(uint64(residue))
+	}
 }
 
-// entryIdle reports whether an entry can be dropped without losing a count:
-// its bucket has closed and nothing is left to report. A bucket that only ever
-// saw its one written occurrence qualifies — dropping it costs nothing, since a
-// later occurrence would be written as a first occurrence either way.
+// entryIdle reports whether an entry's bucket has closed, meaning a later
+// occurrence would be written as a first occurrence anyway and the entry no
+// longer affects any decision. A held count does not keep an entry alive — see
+// reclaimIdle for why that would be a leak rather than a safeguard.
 func (c *opsCoalescer) entryIdle(entry *opsCoalesceEntry, now time.Time) bool {
 	if entry == nil {
 		return true
 	}
-	if now.Sub(entry.bucketStart) < c.bucket {
-		return false
-	}
-	return entry.carried == 0 && entry.repeats == 0
+	return now.Sub(entry.bucketStart) >= c.bucket
 }
 
 func (c *opsCoalescer) shard(key string) *opsCoalesceShard {
@@ -312,6 +343,7 @@ func (c *opsCoalescer) health() OpsErrorLogCoalesceHealth {
 		Capacity:     c.capacity,
 		Admitted:     c.admitted.Load(),
 		Suppressed:   c.suppressed.Load(),
+		Dropped:      c.dropped.Load(),
 		OverCapacity: c.overCapacity.Load(),
 	}
 }

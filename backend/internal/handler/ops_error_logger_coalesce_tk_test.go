@@ -310,3 +310,63 @@ func TestOpsCoalesceMeasuredStormReduction(t *testing.T) {
 	require.Equal(t, minutes, written, "one row per minute, not "+strconv.Itoa(minutes*perMinute))
 	require.EqualValues(t, minutes*perMinute-minutes, c.health().Suppressed)
 }
+
+// A storm always ends. When it does, the final bucket's suppressed count has no
+// next occurrence to ride out on, and the entry still holds a non-zero count —
+// which, before the dropped-counter fix, made it permanently unreclaimable.
+// Both halves are regressions worth pinning: the count must be accounted for,
+// and the entry must be reclaimable.
+func TestOpsCoalesceStormEndAccountsForTrailingRepeats(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(1700000000, 0)}
+	c := newOpsCoalescer(time.Minute, 4096, clock.Now)
+
+	for i := 0; i < 10; i++ {
+		require.Equal(t, i == 0, c.admit(quotaRejectEntry(362), "API_KEY_QUOTA_EXHAUSTED"),
+			"only the first occurrence of the bucket is written")
+	}
+	require.Equal(t, uint64(9), c.health().Suppressed)
+
+	// The client stops. Nothing will ever admit this key again.
+	clock.Advance(10 * time.Minute)
+	for i := 0; i < 64; i++ {
+		c.reclaimIdle(clock.Now())
+		clock.Advance(200 * time.Millisecond)
+	}
+
+	h := c.health()
+	require.Zero(t, h.Tracked, "the entry must be reclaimed once its bucket closed")
+	require.Equal(t, uint64(9), h.Dropped,
+		"occurrences that never made it onto a row must be accounted for, not silently lost")
+}
+
+// The failure mode this guards: entries carrying a suppressed count were exempt
+// from reclaim, so a fleet-wide churn of briefly-rejected keys could pin the map
+// at capacity and leave the gate permanently failed open — coalescing silently
+// stops working, with only an over_capacity counter nobody reads to show it.
+func TestOpsCoalesceRecoversFromCapacityWithTrailingRepeats(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(1700000000, 0)}
+	const capacity = int64(64)
+	c := newOpsCoalescer(time.Minute, capacity, clock.Now)
+
+	for key := int64(0); key < capacity; key++ {
+		for i := 0; i < 3; i++ { // one written, two suppressed
+			c.admit(quotaRejectEntry(key), "API_KEY_QUOTA_EXHAUSTED")
+		}
+	}
+	require.Equal(t, capacity, c.health().Tracked)
+
+	clock.Advance(10 * time.Minute)
+	for i := 0; i < 512; i++ {
+		c.reclaimIdle(clock.Now())
+		clock.Advance(200 * time.Millisecond)
+	}
+
+	h := c.health()
+	require.Zero(t, h.Tracked, "idle entries must be reclaimable even when they carry a count")
+	require.Equal(t, uint64(capacity*2), h.Dropped, "every suppressed occurrence is accounted for")
+
+	// The gate works again rather than staying failed open.
+	require.True(t, c.admit(quotaRejectEntry(9999), "API_KEY_QUOTA_EXHAUSTED"))
+	require.False(t, c.admit(quotaRejectEntry(9999), "API_KEY_QUOTA_EXHAUSTED"),
+		"coalescing is live again, not permanently failed open")
+}
