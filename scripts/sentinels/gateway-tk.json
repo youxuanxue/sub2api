@@ -16211,6 +16211,48 @@
         "空 system 必须删除，即使 header 含 mid-conversation beta"
       ],
       "rationale": "Focused regressions lock empty-system deletion via egress fan-in, assert beta-only sanitize does not own content validity, and keep message-level output_config on systems that still have body."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_api_key_stats_tk.go",
+      "must_contain": [
+        "func (r *usageLogRepository) GetAPIKeyStatsWithUsageFilters(",
+        "GROUP BY ul.api_key_id, k.name",
+        "LEFT JOIN api_keys k ON k.id = ul.api_key_id"
+      ],
+      "rationale": "User /usage API Key distribution aggregates usage_logs by api_key_id for the authenticated user. Upstream merge rewriting usage_log_repo_trend/stats must not drop this companion; pins the query owner, per-key grouping, and name join."
+    },
+    {
+      "path": "backend/internal/handler/usage_handler.go",
+      "must_contain": [
+        "func (h *UsageHandler) DashboardAPIKeys(c *gin.Context)",
+        "GetAPIKeyStatsWithFilters",
+        "Invalid days value, use 7 or 30",
+        "apiKeyDailyUsageRange(days, c.Query(\"timezone\"))"
+      ],
+      "rationale": "User dashboard API Key distribution endpoint. Pins days=7|30 validation, user-TZ calendar window via apiKeyDailyUsageRange, and user-scoped GetAPIKeyStatsWithFilters so an upstream usage_handler rewrite cannot silently drop the route handler while routes/user.go still registers it."
+    },
+    {
+      "path": "backend/internal/server/routes/user.go",
+      "must_contain": [
+        "usage.GET(\"/dashboard/api-keys\", h.Usage.DashboardAPIKeys)"
+      ],
+      "rationale": "Injection point for the user API Key distribution route. Without this anchor, upstream route reshuffles can unregister the endpoint while the handler companion remains."
+    },
+    {
+      "path": "backend/internal/handler/usage_handler_api_keys_tk_test.go",
+      "must_contain": [
+        "TestDashboardAPIKeysDefaultSevenDays",
+        "TestDashboardAPIKeysThirtyDays",
+        "TestDashboardAPIKeysRejectsInvalidDays"
+      ],
+      "rationale": "Focused regression for DashboardAPIKeys days contract and auth-user scoping."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_api_key_stats_tk_test.go",
+      "must_contain": [
+        "TestUsageLogRepositoryGetAPIKeyStatsWithUsageFilters"
+      ],
+      "rationale": "Focused SQL-shape regression for per-API-key usage aggregation used by /usage API Key distribution."
     }
   ]
 }

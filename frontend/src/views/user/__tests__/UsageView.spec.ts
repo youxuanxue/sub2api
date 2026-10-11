@@ -12,6 +12,7 @@ const {
   getStats,
   getDashboardModels,
   getDashboardSnapshotV2,
+  getDashboardAPIKeys,
   listMyErrorRequests,
   list,
   getAvailable,
@@ -24,6 +25,7 @@ const {
   getStats: vi.fn(),
   getDashboardModels: vi.fn(),
   getDashboardSnapshotV2: vi.fn(),
+  getDashboardAPIKeys: vi.fn(),
   listMyErrorRequests: vi.fn(),
   list: vi.fn(),
   getAvailable: vi.fn(),
@@ -82,6 +84,7 @@ vi.mock('@/api', () => ({
     getStats,
     getDashboardModels,
     getDashboardSnapshotV2,
+    getDashboardAPIKeys,
     listMyErrorRequests,
   },
   keysAPI: {
@@ -194,6 +197,10 @@ function mountUsageView(options?: {
           'showAccountCost',
           'showStandardCost',
         ]),
+        ApiKeyDistributionChart: propCaptureStub('api-key-distribution-chart', billingSurfaceProps, [
+          'days',
+          'apiKeyStats',
+        ]),
         EndpointDistributionChart: propCaptureStub('endpoint-distribution-chart', billingSurfaceProps, [
           'showStandardCost',
         ]),
@@ -208,6 +215,7 @@ describe('user UsageView', () => {
     getStats.mockReset()
     getDashboardModels.mockReset()
     getDashboardSnapshotV2.mockReset()
+    getDashboardAPIKeys.mockReset()
     listMyErrorRequests.mockReset()
     list.mockReset()
     getAvailable.mockReset()
@@ -244,12 +252,18 @@ describe('user UsageView', () => {
       trend: [],
       groups: [],
     })
+    getDashboardAPIKeys.mockResolvedValue({
+      api_keys: [{ api_key_id: 1, api_key_name: 'demo-key', requests: 1, total_tokens: 30, cost: 0.1, actual_cost: 0.08 }],
+      days: 7,
+      start_date: '2026-03-01',
+      end_date: '2026-03-08',
+    })
     listMyErrorRequests.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
     list.mockResolvedValue({ items: [{ id: 1, name: 'demo-key' }], total: 1, page: 1, page_size: 100, pages: 1 })
     getAvailable.mockResolvedValue([{ id: 1, name: 'default' }])
   })
 
-  it('loads logs, stats, model stats, and snapshot on first render', async () => {
+  it('loads logs, stats, model stats, snapshot, and api key distribution on first render', async () => {
     const wrapper = mountUsageView()
     await flushPromises()
 
@@ -263,9 +277,21 @@ describe('user UsageView', () => {
       include_group_stats: true,
       timezone: expect.any(String),
     }))
+    expect(getDashboardAPIKeys).toHaveBeenCalledWith(7, expect.any(String))
     expect(list).toHaveBeenCalledTimes(1)
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
+  })
+
+  it('reloads api key distribution when days tab changes to 30d', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    getDashboardAPIKeys.mockClear()
+
+    ;(wrapper.vm as any).apiKeyDistributionDays = 30
+    await flushPromises()
+
+    expect(getDashboardAPIKeys).toHaveBeenCalledWith(30, expect.any(String))
   })
 
   it('passes showStandardCost=false to usage summary and distribution charts', async () => {

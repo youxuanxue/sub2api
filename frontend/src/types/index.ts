@@ -2201,6 +2201,15 @@ export interface GroupStat {
   account_cost?: number // 账号成本（仅管理员接口返回）
 }
 
+export interface ApiKeyStat {
+  api_key_id: number
+  api_key_name: string
+  requests: number
+  total_tokens: number
+  cost: number
+  actual_cost: number
+}
+
 export interface UserBreakdownItem {
   user_id: number
   email: string

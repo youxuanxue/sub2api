@@ -45,6 +45,15 @@ type userGroupStat struct {
 	ActualCost  float64 `json:"actual_cost"`
 }
 
+type userAPIKeyStat struct {
+	APIKeyID    int64   `json:"api_key_id"`
+	APIKeyName  string  `json:"api_key_name"`
+	Requests    int64   `json:"requests"`
+	TotalTokens int64   `json:"total_tokens"`
+	Cost        float64 `json:"cost"`
+	ActualCost  float64 `json:"actual_cost"`
+}
+
 // UsageHandler handles usage-related requests
 type UsageHandler struct {
 	usageService   *service.UsageService
@@ -645,6 +654,63 @@ func parseBoolQueryWithDefault(c *gin.Context, key string, fallback bool) (bool,
 // BatchAPIKeysUsageRequest represents the request for batch API keys usage
 type BatchAPIKeysUsageRequest struct {
 	APIKeyIDs []int64 `json:"api_key_ids" binding:"required"`
+}
+
+// DashboardAPIKeys returns per-API-key distribution stats for the current user.
+// GET /api/v1/usage/dashboard/api-keys?days=7|30
+func (h *UsageHandler) DashboardAPIKeys(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	var days int
+	switch strings.TrimSpace(c.DefaultQuery("days", "7")) {
+	case "7":
+		days = 7
+	case "30":
+		days = 30
+	default:
+		response.BadRequest(c, "Invalid days value, use 7 or 30")
+		return
+	}
+
+	// Calendar-day window in the caller's timezone — same owner as GetMyAPIKeyDailyUsage.
+	startTime, endTime := apiKeyDailyUsageRange(days, c.Query("timezone"))
+	filters := usagestats.UsageLogFilters{UserID: subject.UserID}
+
+	stats, err := h.usageService.GetAPIKeyStatsWithFilters(c.Request.Context(), startTime, endTime, filters)
+	if err != nil {
+		if middleware2.IsClientClosedRequestError(c, err) {
+			middleware2.AbortClientClosedRequest(c, err)
+			return
+		}
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"api_keys":   userAPIKeyStatsFromUsageStats(stats),
+		"days":       days,
+		"start_date": startTime.Format("2006-01-02"),
+		"end_date":   endTime.AddDate(0, 0, -1).Format("2006-01-02"),
+	})
+}
+
+func userAPIKeyStatsFromUsageStats(stats []usagestats.APIKeyStat) []userAPIKeyStat {
+	out := make([]userAPIKeyStat, 0, len(stats))
+	for _, stat := range stats {
+		out = append(out, userAPIKeyStat{
+			APIKeyID:    stat.APIKeyID,
+			APIKeyName:  stat.APIKeyName,
+			Requests:    stat.Requests,
+			TotalTokens: stat.TotalTokens,
+			Cost:        stat.Cost,
+			ActualCost:  stat.ActualCost,
+		})
+	}
+	return out
 }
 
 // DashboardAPIKeysUsage handles getting usage stats for user's own API keys

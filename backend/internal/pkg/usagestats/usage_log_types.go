@@ -156,6 +156,20 @@ type GroupStat struct {
 	AccountCost                          float64 `json:"account_cost"` // 账号成本
 }
 
+// APIKeyStat represents usage statistics for a single API key.
+type APIKeyStat struct {
+	APIKeyID            int64   `json:"api_key_id"`
+	APIKeyName          string  `json:"api_key_name"`
+	Requests            int64   `json:"requests"`
+	InputTokens         int64   `json:"input_tokens"`
+	OutputTokens        int64   `json:"output_tokens"`
+	CacheCreationTokens int64   `json:"cache_creation_tokens"`
+	CacheReadTokens     int64   `json:"cache_read_tokens"`
+	TotalTokens         int64   `json:"total_tokens"`
+	Cost                float64 `json:"cost"`        // 标准计费
+	ActualCost          float64 `json:"actual_cost"` // 实际扣除
+}
+
 // UserUsageTrendPoint represents user usage trend data point
 type UserUsageTrendPoint struct {
 	Date       string  `json:"date"`

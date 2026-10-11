@@ -4,8 +4,10 @@ import {
   CHINA_EXPORT_API_ORIGIN,
   CHINA_EXPORT_BRAND,
   CHINA_EXPORT_HOSTNAME,
+  PRODUCT_API_ORIGIN,
   resolveChromeBrand,
   resolveFacade,
+  resolveFacadeApiBaseUrl,
   resolveGlobalProductRedirect,
   resolveHomepageProfile,
 } from '../marketProfile.tk'
@@ -63,6 +65,29 @@ describe('resolveChromeBrand', () => {
     expect(resolveChromeBrand('tokenkey.dev', 'Acme Gateway')).toBe('TokenKey')
     expect(resolveChromeBrand('tokenkey.dev', '  ')).toBe('TokenKey')
     expect(resolveChromeBrand('localhost', null)).toBe('TokenKey')
+  })
+})
+
+describe('resolveFacadeApiBaseUrl', () => {
+  it('pins tokenkey.dev to api.tokenkey.dev even when Settings say CallModel', () => {
+    expect(
+      resolveFacadeApiBaseUrl('tokenkey.dev', 'https://api.callmodel.io', 'https://tokenkey.dev'),
+    ).toBe(PRODUCT_API_ORIGIN)
+  })
+
+  it('pins callmodel.io to api.callmodel.io even when Settings say TokenKey', () => {
+    expect(
+      resolveFacadeApiBaseUrl('callmodel.io', 'https://api.tokenkey.dev', 'https://callmodel.io'),
+    ).toBe(CHINA_EXPORT_API_ORIGIN)
+  })
+
+  it('keeps Settings for local/staging hosts', () => {
+    expect(
+      resolveFacadeApiBaseUrl('localhost', 'https://api.callmodel.io', 'http://localhost:5173'),
+    ).toBe('https://api.callmodel.io')
+    expect(
+      resolveFacadeApiBaseUrl('preview.tokenkey.dev', '', 'https://preview.tokenkey.dev'),
+    ).toBe('https://preview.tokenkey.dev')
   })
 })
 
