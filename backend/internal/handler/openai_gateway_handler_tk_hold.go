@@ -95,6 +95,20 @@ func (hh *tkHoldHandle) HandOffToSettlement() string {
 	return hh.requestID
 }
 
+// tkReleaseHoldOnDroppedTask returns the drop compensation for a hold already
+// handed off to settlement: when the usage-record task is dropped on pool
+// overflow the bill never runs, so nothing will consume the hold and it would
+// pin the user's balance until the reconciler TTL. Pass the result as the
+// submit site's onDropped hook. Nil-safe and no-op for an empty hold key.
+func (h *OpenAIGatewayHandler) tkReleaseHoldOnDroppedTask(ctx context.Context, holdRequestID string) func() {
+	if h == nil || h.gatewayService == nil || holdRequestID == "" {
+		return nil
+	}
+	return func() {
+		h.gatewayService.TkReleaseHoldIfUnconsumed(ctx, holdRequestID)
+	}
+}
+
 // tkApplyHold is the shared reserve-or-skip shell: skips subscription requests
 // (no balance to overdraw), resolves the usage-billing request id (plus an
 // optional suffix for sub-request holds, e.g. WS turns), runs the

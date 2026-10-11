@@ -81,7 +81,7 @@ func (h *OpenAIGatewayHandler) tkSubmitHTTPForwardUsage(res *service.OpenAIForwa
 				zap.Int64("account_id", in.Account.ID),
 			).Error(in.LogFailedEventName, zap.Error(err))
 		}
-	})
+	}, h.tkReleaseHoldOnDroppedTask(in.C.Request.Context(), tkHoldRequestID))
 }
 
 type tkOpenAISimpleUsageSubmitInput struct {
@@ -142,5 +142,5 @@ func (h *OpenAIGatewayHandler) tkSubmitOpenAISimpleForwardUsage(in tkOpenAISimpl
 				zap.Int64("account_id", in.Account.ID),
 			).Error(in.LogFailedEventName, zap.Error(err))
 		}
-	})
+	}, h.tkReleaseHoldOnDroppedTask(in.C.Request.Context(), tkHoldRequestID))
 }

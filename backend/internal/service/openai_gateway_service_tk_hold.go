@@ -292,3 +292,27 @@ func (s *OpenAIGatewayService) TkReleaseHoldChecked(ctx context.Context, request
 	defer cancel()
 	return tkReleaseBalanceHold(relCtx, s.usageBillingRepo, requestID)
 }
+
+// TkReleaseHoldIfUnconsumed is the settlement-side backstop for a hold that was
+// handed off but whose settlement never consumed it: a dropped usage-record
+// task, an early RecordUsage return (pricing error, shadow-credential failure,
+// nil result), a dedup/fingerprint rejection that skips applyUsageBillingEffects
+// entirely (usage_billing_repo.go Apply returns before the consume), or the
+// legacy postUsageBilling fallback which has no hold handling at all.
+//
+// Safe against double-refund by construction: both this release and the
+// in-transaction consume are `DELETE FROM usage_holds ... RETURNING` guarded, so
+// whichever runs second finds no row and moves no money. Without it the hold
+// survives to the 30-minute reconciler TTL, holding real user balance against
+// admission the whole time.
+func (s *OpenAIGatewayService) TkReleaseHoldIfUnconsumed(ctx context.Context, requestID string) {
+	if s == nil || requestID == "" {
+		return
+	}
+	if err := s.TkReleaseHoldChecked(ctx, requestID); err != nil {
+		logger.L().Error("openai_gateway.hold_settlement_backstop_release_failed",
+			zap.String("request_id", requestID),
+			zap.Error(err),
+		)
+	}
+}

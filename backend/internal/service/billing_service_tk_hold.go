@@ -17,16 +17,23 @@ import "strings"
 //     unit prices (input / cache-creation 5m / 1h / priority). At billing time
 //     each token is one of input | cache_read | cache_creation; cache_read is
 //     the cheapest and cache_creation the dearest, so max() dominates any split.
-//   - output side: the caller-provided maxOutputTokens at the MAX of output /
-//     priority-output / image-output unit price. This is a hard upper bound
-//     only when maxOutputTokens came from an explicit client ceiling.
+//   - output side: the caller-provided maxOutputTokens, CLAMPED to the model's
+//     own catalog output ceiling (pricing.MaxOutputTokens) because the upstream
+//     cannot emit more than that however large a ceiling the client asks for,
+//     at the MAX of output / priority-output / image-output unit price. This is
+//     a hard upper bound only when maxOutputTokens came from an explicit client
+//     ceiling.
 //   - long-context: applied whenever promptTokens COULD cross the model
 //     threshold (actual triggers on input+cache_read ≤ promptTokens, so this is
 //     a safe over-approximation).
-//   - service tier: serviceTierCostMultiplier covers the non-priority-unit
-//     branch (priority→2.0); combined with the priority unit price in max()
-//     above it over-covers the priority branch (computeTokenBreakdown picks
-//     ONE of the two), never under.
+//   - service tier: priority/fast resolve to the priority UNIT prices already
+//     taken by the max() above, so the tier multiplier must NOT be applied on
+//     top of them — computeTokenBreakdown picks exactly ONE of the two
+//     (billing_service.go:996-1011), and multiplying both double-counted the
+//     dearest tier 2× and was the dominant term in oversized reserves. Only the
+//     multiplier branch that billing can actually combine with these units
+//     (i.e. a configured FastMultiplier, or a non-priority tier such as flex)
+//     is applied here.
 func (s *BillingService) EstimateTokenHold(model, serviceTier string, promptTokens, maxOutputTokens int, rateMultiplier float64) (float64, error) {
 	pricing, err := s.GetModelPricing(model) // already carries long-context policy
 	if err != nil {
@@ -38,17 +45,34 @@ func (s *BillingService) EstimateTokenHold(model, serviceTier string, promptToke
 	if maxOutputTokens < 0 {
 		maxOutputTokens = 0
 	}
+	// A client ceiling above the model's own catalog output limit is not
+	// reservable cost: the upstream physically cannot bill beyond that limit, so
+	// honoring an arbitrarily large max_output_tokens verbatim pinned a large
+	// share of the user's balance for output that could never be produced.
+	// Resolved via the registry (alias-aware) rather than a ModelPricing field,
+	// so an alias and its owner clamp identically — see tkRegistryMaxOutputTokens.
+	if outputCeiling := tkRegistryMaxOutputTokens(model); outputCeiling > 0 && maxOutputTokens > outputCeiling {
+		maxOutputTokens = outputCeiling
+	}
 
+	// Every input-side unit price billing could select, priority variants
+	// included. CacheCreationPricePerTokenPriority must be in this max(): it is
+	// the dearest input unit on priority-capable models, and omitting it made the
+	// estimate rely on the tier multiplier to cover a cache-creation-heavy
+	// priority request.
 	unitIn := maxFloat(
 		pricing.InputPricePerToken,
 		pricing.InputPricePerTokenPriority,
+		pricing.ImageInputPricePerToken,
 		pricing.CacheCreationPricePerToken,
+		pricing.CacheCreationPricePerTokenPriority,
 		pricing.CacheCreation5mPrice,
 		pricing.CacheCreation1hPrice,
 	)
 	unitOut := maxFloat(
 		pricing.OutputPricePerToken,
 		pricing.OutputPricePerTokenPriority,
+		pricing.ThinkingOutputPricePerToken,
 		pricing.ImageOutputPricePerToken,
 	)
 
@@ -66,7 +90,14 @@ func (s *BillingService) EstimateTokenHold(model, serviceTier string, promptToke
 		}
 	}
 
-	tier := serviceTierCostMultiplier(serviceTier)
+	// Mirror computeTokenBreakdown's either/or: when the priority unit prices are
+	// the ones billing would use, they are already folded into unitIn/unitOut
+	// above and carry the tier premium themselves. Applying a tier multiplier as
+	// well would charge the premium twice.
+	tier := 1.0
+	if !usePriorityServiceTierPricing(serviceTier, pricing) {
+		tier = configuredServiceTierMultiplier(serviceTier, pricing)
+	}
 	if rateMultiplier < 0 {
 		rateMultiplier = 0
 	}

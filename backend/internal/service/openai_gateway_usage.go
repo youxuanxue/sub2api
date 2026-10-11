@@ -157,6 +157,29 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if input == nil {
 		return errors.New("openai usage input is nil")
 	}
+	// TK: settlement owns the handed-off pre-flight hold, so no path out of
+	// RecordUsage may leave the usage_holds row behind. Only a committed
+	// settlement consumes it in-transaction (tkConsumeBalanceHoldInTx); every
+	// other exit must refund it here, or the reservation pins real user balance
+	// until the 30-minute reconciler TTL. That covers an early return below (nil
+	// result, shadow-credential failure, a pricing error that is not
+	// pricing-unavailable), a dedup/fingerprint rejection where Apply returns
+	// before applying effects, and the legacy postUsageBilling fallback which
+	// has no hold handling at all.
+	//
+	// holdSettled is set only on the committed path, so the deferred release is
+	// skipped exactly when the hold is already gone. Even if the two raced, both
+	// are `DELETE ... RETURNING` guarded, so the second finds no row and moves no
+	// money — this can never double-refund.
+	holdRequestID := strings.TrimSpace(input.TkHoldRequestID)
+	holdSettled := false
+	if holdRequestID != "" {
+		defer func() {
+			if !holdSettled {
+				s.TkReleaseHoldIfUnconsumed(ctx, holdRequestID)
+			}
+		}()
+	}
 	result := input.Result
 	if result == nil {
 		return errors.New("openai usage result is nil")
@@ -464,7 +487,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		quotaPlatform = PlatformFromAPIKey(apiKey)
 	}
 
-	_, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
+	_, holdConsumed, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
 		TkHoldRequestID:            input.TkHoldRequestID,
 		Cost:                       cost,
 		User:                       user,
@@ -478,6 +501,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		Platform:                   quotaPlatform,
 		SimpleModeKeyRateLimitOnly: simpleModeKeyRateLimitOnly,
 	}, s.billingDeps(), s.usageBillingRepo)
+	holdSettled = holdConsumed
 
 	if billingErr != nil {
 		usageLog.ActualCost = 0

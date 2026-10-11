@@ -294,5 +294,5 @@ func (h *OpenAIGatewayHandler) tkWSAfterTurnSubmitUsage(in tkWSAfterTurnUsageInp
 				zap.Error(err),
 			)
 		}
-	})
+	}, h.tkReleaseHoldOnDroppedTask(in.C.Request.Context(), tkHoldRequestID))
 }

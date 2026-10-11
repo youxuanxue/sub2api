@@ -72,6 +72,37 @@ func tkPricingRegistryAliasOwner(model string) (string, bool) {
 	return owner, ok
 }
 
+// tkRegistryMaxOutputTokens resolves a model's catalog output ceiling, used
+// ONLY to bound a pre-flight hold estimate (never to settle a bill).
+//
+// Capability metadata is deliberately NOT a ModelPricing field: ModelPricing is
+// compared for alias/owner settlement equivalence (an alias must bill exactly
+// like its owner — see TestGrokDirectRegistryRowsMatchSemanticOwners), and
+// registry rows that share a pricing owner routinely declare different
+// metadata, so carrying the ceiling in that struct would break the invariant.
+//
+// It reads the model's own registry row, then its declared public alias owner
+// (`_aliases`). Nothing deeper: the clamp is a best-effort bound, and a model
+// the registry gives no ceiling for is treated as unbounded — no clamp, exactly
+// the previous behaviour. That keeps this strictly a reduction of over-reserving
+// and never a new way to under-reserve.
+func tkRegistryMaxOutputTokens(model string) int {
+	snapshot := loadTKPricingOverlaySnapshot()
+	if snapshot == nil {
+		return 0
+	}
+	lower := strings.ToLower(strings.TrimSpace(model))
+	if row := snapshot.Models[lower]; row != nil && row.MaxOutputTokens > 0 {
+		return row.MaxOutputTokens
+	}
+	if owner, ok := snapshot.Aliases[lower]; ok && owner != "" {
+		if row := snapshot.Models[owner]; row != nil && row.MaxOutputTokens > 0 {
+			return row.MaxOutputTokens
+		}
+	}
+	return 0
+}
+
 // getRegistryAliasPricing resolves settlement price after the public alias
 // owner. Declared public aliases live only in overlay `_aliases`. What remains
 // below is family-floor remapping so unknown IDs in a known family still bill

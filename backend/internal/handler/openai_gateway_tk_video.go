@@ -332,7 +332,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 				zap.Int64("account_id", account.ID),
 			).Error("openai_video_submit.record_usage_failed", zap.Error(err))
 		}
-	})
+	}, h.tkReleaseHoldOnDroppedTask(c.Request.Context(), tkHoldRequestID))
 	// NOTE: no c.JSON here — the bridge already wrote the OpenAI-Video
 	// success body (with publicTaskID stamped) inside DispatchVideoSubmit.
 }
