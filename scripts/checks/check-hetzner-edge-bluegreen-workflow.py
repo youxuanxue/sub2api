@@ -36,6 +36,12 @@ def main() -> int:
     runs = "\n".join(str(step.get("run") or "") for step in (upgrade.get("steps") or []))
     if "deploy_via_ssm_bluegreen.sh" not in runs:
         return fail("dispatch-upgrade does not call deploy_via_ssm_bluegreen.sh")
+    if "bluegreen-migration-safety.py" not in runs:
+        return fail("dispatch-upgrade missing bluegreen-migration-safety.py --release-tag")
+    if "verify_ghcr_manifest.sh" not in runs:
+        return fail("dispatch-upgrade missing verify_ghcr_manifest.sh")
+    if "backup-env-secrets-via-ssm.sh" not in runs:
+        return fail("dispatch-upgrade missing backup-env-secrets-via-ssm.sh")
     if "STAGE0_DEPLOY_PROFILE" not in dump or "edge" not in dump:
         return fail("dispatch-upgrade missing STAGE0_DEPLOY_PROFILE=edge")
     if "edge_ssm_execution.py" not in runs:

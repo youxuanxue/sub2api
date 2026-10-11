@@ -2,9 +2,8 @@
 """Gate C: per-edge workflow coverage of the deployable edge matrices.
 
 As the edge fleet grows, the hardcoded ``choice`` option lists in per-edge
-workflows silently drift: a new deployable edge in
-``deploy/aws/lightsail/edge-targets-lightsail.json`` (Lightsail) becomes
-un-dispatchable / un-covered with no error. GitHub Actions cannot compute choice
+workflows silently drift: a new deployable edge in Lightsail or Hetzner matrices
+becomes un-dispatchable with no error. GitHub Actions cannot compute choice
 options dynamically, so the only defence is a drift check.
 
 This check reads ``scripts/checks/workflow-edge-coverage.json`` (the registry of
@@ -24,12 +23,23 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 REGISTRY = pathlib.Path(__file__).resolve().parent / "workflow-edge-coverage.json"
 LIGHTSAIL_MATRIX = REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
+HETZNER_MATRIX = REPO_ROOT / "deploy/hetzner/edge-targets-hetzner.json"
 
 
-def _deployable_ids(path: pathlib.Path) -> set[str]:
-    """Edge ids with deployable=true from the canonical Lightsail matrix."""
+def _deployable_ids_lightsail(path: pathlib.Path) -> set[str]:
     targets = (json.loads(path.read_text(encoding="utf-8")).get("targets") or {})
     return {eid for eid, t in targets.items() if isinstance(t, dict) and t.get("deployable") is True}
+
+
+def _deployable_ids_hetzner(path: pathlib.Path) -> set[str]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    defaults = data.get("target_defaults") or {}
+    out: set[str] = set()
+    for eid, raw in (data.get("targets") or {}).items():
+        row = {**defaults, **(raw or {})}
+        if row.get("deployable") is True:
+            out.add(str(eid))
+    return out
 
 
 def _workflow_options(doc: dict, input_name: str) -> list[str] | None:
@@ -56,13 +66,17 @@ def main() -> int:
 
     try:
         registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
-        lightsail = _deployable_ids(LIGHTSAIL_MATRIX)
+        lightsail = _deployable_ids_lightsail(LIGHTSAIL_MATRIX)
+        hetzner = _deployable_ids_hetzner(HETZNER_MATRIX)
     except (OSError, json.JSONDecodeError) as exc:
         print(f"FAIL: cannot read registry/matrix: {exc}", file=sys.stderr)
         return 2
 
     sets = {
         "lightsail-deployable": lightsail,
+        "hetzner-deployable": hetzner,
+        # Historical alias: Lightsail-only (pgdump cadence etc.). Prefer
+        # platform-specific sets for new workflows.
         "all-deployable": lightsail,
     }
 
