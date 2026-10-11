@@ -308,6 +308,23 @@ def _normalize_instance_id(raw: str | None, label: str) -> str | None:
     return instance_id
 
 
+def _resolve_prod_target(prod_instance_id: str | None = None) -> tuple[str, str, str]:
+    """Return ``(label, ssm_region, instance_id)`` for prod.
+
+    Auto-resolve follows cutover (``resolve_prod_ssm_target``). An explicit pin
+    keeps that instance id but binds region by id shape (``mi-*`` → Hetzner
+    matrix region, ``i-*`` → us-east-1) so Hybrid pins never ride a stale
+    ``PROD_REGION``.
+    """
+    pinned = _normalize_instance_id(prod_instance_id, "--prod-instance-id")
+    if pinned is not None:
+        region = _SSM.region_for_instance_id(pinned)
+        _SSM.PROD_REGION = region
+        return ("prod", region, pinned)
+    instance_id = _SSM.resolve_prod_instance()
+    return ("prod", _SSM.PROD_REGION, instance_id)
+
+
 def _resolve_check_targets(
     skip_prod: bool,
     include_edges: bool = False,
@@ -315,7 +332,7 @@ def _resolve_check_targets(
 ) -> list[tuple[str, str, str]]:
     targets: list[tuple[str, str, str]] = []
     if not skip_prod:
-        targets.append(("prod", _SSM.PROD_REGION, prod_instance_id or _SSM.resolve_prod_instance()))
+        targets.append(_resolve_prod_target(prod_instance_id))
     if skip_prod or include_edges:
         ls_targets = _ROUTING.load_lightsail_targets(REPO_ROOT)
         for eid in _ROUTING.deployable_edge_ids(ls_targets):
@@ -336,7 +353,7 @@ def _resolve_apply_targets(
     target = target.strip().lower()
     pinned_prod_instance = _normalize_instance_id(prod_instance_id, "--prod-instance-id")
     if target == "prod":
-        return [("prod", _SSM.PROD_REGION, pinned_prod_instance or _SSM.resolve_prod_instance())]
+        return [_resolve_prod_target(pinned_prod_instance)]
     if pinned_prod_instance:
         fail("--prod-instance-id is only valid with --target prod")
     if target.startswith("edge:"):
