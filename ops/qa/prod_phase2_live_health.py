@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ops" / "stage0"))
 sys.path.insert(0, str(ROOT / "ops" / "qa"))
 
-from ssm_execution import PROD_REGION, resolve_prod_instance, run_shell_b64  # noqa: E402
+import ssm_execution  # noqa: E402
+from ssm_execution import resolve_prod_instance, run_shell_b64  # noqa: E402
 import qa_phase2_health  # noqa: E402
 import verify_raw_archive_iam_contract as iam_contract  # noqa: E402
 
@@ -161,7 +162,7 @@ def main() -> int:
         )
         snapshot = _parse_probe_output(remote_out)
         payload = {
-            "region": PROD_REGION,
+            "region": ssm_execution.PROD_REGION,
             "instance_id": instance_id,
             **evaluate_snapshot(snapshot, skip_iam=args.skip_iam),
         }

@@ -8,7 +8,7 @@ REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-2100}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.qa-bundle-canary}"
 
-[[ "${INSTANCE_ID}" =~ ^i-[0-9a-f]{17}$ ]] || { echo "valid instance id required" >&2; exit 1; }
+[[ "${INSTANCE_ID}" =~ ^(i|mi)-[0-9a-f]{8,17}$ ]] || { echo "valid instance id required" >&2; exit 1; }
 mkdir -p "${OUTPUT_DIR}"
 params="${OUTPUT_DIR}/ssm-params.json"
 stdout="${OUTPUT_DIR}/stdout.txt"
@@ -17,6 +17,10 @@ jq -n --arg image "${QA_CANARY_IMAGE:-}" '{commands:[
   "set -euo pipefail",
   ("sudo env QA_CANARY_IMAGE=" + ($image | @sh) + " /usr/local/bin/tokenkey-qa-maintenance.sh --qa-bundle-canary")
 ]}' >"${params}"
+
+# Hybrid/managed-instance RunShellScript uses /bin/sh (dash); wrap for bash features.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params}"
 
 command_id="$(aws --region "${REGION}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" --document-name AWS-RunShellScript \

@@ -1375,6 +1375,11 @@ if [[ -n "${STAGE0_RENDER_ONLY:-}" ]]; then
   exit 0
 fi
 
+# Hybrid/managed-instance RunShellScript uses /bin/sh (dash); wrap for bash features.
+# After the render-only seam: that seam's contract is the plain-text host script;
+# wrapping is a transport transform reversed by `--unwrap-stdout`.
+python3 "$(dirname "${BASH_SOURCE[0]}")/ssm_wrap_bash_commands.py" "${params_file}"
+
 cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" \
   --document-name AWS-RunShellScript \

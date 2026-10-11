@@ -118,7 +118,10 @@ Resources:
           - Sid: AllowAppInstanceRoleUseViaS3
             Effect: Allow
             Principal:
-              AWS: !Ref AppInstanceRoleArn
+              AWS:
+                - !Ref AppInstanceRoleArn
+                # Wave B: HZ Hybrid publishes archives (no EC2 IMDS); same ViaService scope.
+                - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-hetzner-ssm-hybrid-prod'
             Action:
               - 'kms:Encrypt'
               - 'kms:Decrypt'
@@ -225,7 +228,9 @@ Resources:
           - Sid: AllowAppInstanceRoleWriteRaw
             Effect: Allow
             Principal:
-              AWS: !Ref AppInstanceRoleArn
+              AWS:
+                - !Ref AppInstanceRoleArn
+                - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-hetzner-ssm-hybrid-prod'
             Action:
               - 's3:PutObject'
               - 's3:AbortMultipartUpload'
@@ -240,7 +245,9 @@ Resources:
           - Sid: AllowAppInstanceRoleVerifyRaw
             Effect: Allow
             Principal:
-              AWS: !Ref AppInstanceRoleArn
+              AWS:
+                - !Ref AppInstanceRoleArn
+                - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-hetzner-ssm-hybrid-prod'
             Action: 's3:GetObject'
             Resource:
               - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/date=*/hour=*/commit.json'
@@ -438,13 +445,17 @@ Resources:
           - Sid: AllowAppInstanceRoleCreateScopedBundleJobs
             Effect: Allow
             Principal:
-              AWS: !Ref AppInstanceRoleArn
+              AWS:
+                - !Ref AppInstanceRoleArn
+                - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-hetzner-ssm-hybrid-prod'
             Action: 's3:PutObject'
             Resource: !Sub '${QaBundleBucket.Arn}/user-qa/qa-bundles/v1/jobs/*/spec.json'
           - Sid: AllowAppInstanceRoleReadScopedBundleArtifacts
             Effect: Allow
             Principal:
-              AWS: !Ref AppInstanceRoleArn
+              AWS:
+                - !Ref AppInstanceRoleArn
+                - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-hetzner-ssm-hybrid-prod'
             Action: 's3:GetObject'
             Resource:
               - !Sub '${QaBundleBucket.Arn}/user-qa/qa-bundles/v1/jobs/*/spec.json'
@@ -456,7 +467,9 @@ Resources:
           - Sid: AllowAppInstanceRoleListScopedBundleJobs
             Effect: Allow
             Principal:
-              AWS: !Ref AppInstanceRoleArn
+              AWS:
+                - !Ref AppInstanceRoleArn
+                - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-hetzner-ssm-hybrid-prod'
             Action: 's3:ListBucket'
             Resource: !GetAtt QaBundleBucket.Arn
             Condition:
@@ -494,7 +507,9 @@ Resources:
           - Sid: AllowAppInstanceRoleSendBundleJobs
             Effect: Allow
             Principal:
-              AWS: !Ref AppInstanceRoleArn
+              AWS:
+                - !Ref AppInstanceRoleArn
+                - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-hetzner-ssm-hybrid-prod'
             Action: 'sqs:SendMessage'
             Resource: !GetAtt QaBundleQueue.Arn
 

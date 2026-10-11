@@ -40,6 +40,14 @@ def _install_noop_sleep(bin_dir: Path) -> None:
     sleep.chmod(0o755)
 
 
+def _unwrap_ssm_commands(commands: list[str]) -> list[str]:
+    """Decode Hybrid dash-safe wrapper via the shared Stage0 helper."""
+    wrap = _load_module(
+        "ssm_wrap_bash_commands", "ops/stage0/ssm_wrap_bash_commands.py"
+    )
+    return wrap.unwrap_commands(commands)
+
+
 class TestQAPhaseOps(unittest.TestCase):
     def test_prod_rollout_separates_repository_readiness_from_live_activation(self) -> None:
         import yaml
@@ -684,19 +692,19 @@ exit 0
             self.assertEqual(proc.returncode, 0, proc.stderr)
             payload = json.loads((output / "ssm-params.json").read_text(encoding="utf-8"))
 
+        commands = _unwrap_ssm_commands(payload["commands"])
         self.assertIn(
             "sudo systemctl disable --now tokenkey-qa-maintenance.timer",
-            payload["commands"],
+            commands,
         )
         self.assertNotIn(
             "sudo systemctl enable --now tokenkey-qa-maintenance.timer",
-            payload["commands"],
+            commands,
         )
         self.assertIn(
             'test "$(sudo systemctl is-active tokenkey-qa-maintenance.timer)" = "inactive"',
-            payload["commands"],
+            commands,
         )
-        commands = payload["commands"]
         quiesce_timer = (
             "if sudo systemctl list-unit-files tokenkey-qa-maintenance.timer "
             '--no-legend 2>/dev/null | grep -q "^tokenkey-qa-maintenance[.]timer"; '
@@ -810,13 +818,14 @@ exit 0
             self.assertEqual(proc.returncode, 0, proc.stderr)
             payload = json.loads((output / "ssm-params.json").read_text(encoding="utf-8"))
 
+        commands = _unwrap_ssm_commands(payload["commands"])
         self.assertIn(
             "sudo systemctl enable --now tokenkey-qa-maintenance.timer",
-            payload["commands"],
+            commands,
         )
         self.assertIn(
             'test "$(sudo systemctl is-active tokenkey-qa-maintenance.timer)" = "active"',
-            payload["commands"],
+            commands,
         )
 
     def test_qa_maintenance_sync_validates_install_unit_result_before_timer_state(self) -> None:
@@ -851,7 +860,11 @@ exit 0
                 check=False,
             )
             self.assertEqual(payload_proc.returncode, 0, payload_proc.stderr)
-            commands = json.loads((output / "ssm-params.json").read_text(encoding="utf-8"))["commands"]
+            commands = _unwrap_ssm_commands(
+                json.loads((output / "ssm-params.json").read_text(encoding="utf-8"))[
+                    "commands"
+                ]
+            )
             install_result = next(command for command in commands if "unit_install_result" in command)
             timer_command = next(
                 command
@@ -942,7 +955,7 @@ esac
             self.assertEqual(proc.returncode, 0, (proc.stdout, proc.stderr))
             payload = json.loads((output / "ssm-params.json").read_text(encoding="utf-8"))
 
-        commands = payload["commands"]
+        commands = _unwrap_ssm_commands(payload["commands"])
         restore = next(command for command in commands if "qa_sync_restore" in command)
         owner = commands[commands.index("qa_sync_committed=1") - 1]
 
@@ -1258,7 +1271,7 @@ esac
             self.assertEqual(healthy.returncode, 0, healthy.stderr)
             payload = json.loads((healthy_output / "ssm-params.json").read_text(encoding="utf-8"))
             self.assertEqual(
-                payload["commands"],
+                _unwrap_ssm_commands(payload["commands"]),
                 ["set -euo pipefail", "sudo env QA_CANARY_IMAGE='' /usr/local/bin/tokenkey-qa-maintenance.sh --qa-bundle-canary"],
             )
 

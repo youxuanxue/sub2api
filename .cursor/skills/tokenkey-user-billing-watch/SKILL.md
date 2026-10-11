@@ -23,6 +23,7 @@ bash ops/observability/run-probe.sh \
 
 - 默认盯 `users.status='active' AND deleted_at IS NULL` 全量；固定子集才加 `--env USER_IDS=1,6,16`。
 - `--compressed-output` 防 SSM 截断；压缩帧/校验失败按失败处理，不用部分结果。
+- `--target prod` 经 `resolve_prod_ssm_target.py` 解析（切流后应为 Hetzner `mi-*` / `eu-west-2`）；若仍打到旧 `i-*`，读数会像「无流量」。
 - 本机 `aws/pyexpat` 启动失败（macOS 常见）：先 `python3 scripts/checks/check-local-aws-pyexpat.py --apply`。
 - **失败如实报告**：`status!=Success` / 非零退出 / 传输错误 → 报失败与原因，绝不编数。
 

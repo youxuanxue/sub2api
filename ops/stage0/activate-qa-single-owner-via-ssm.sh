@@ -17,7 +17,7 @@ for argument in "$@"; do
   esac
 done
 
-[[ "${INSTANCE_ID}" =~ ^i-[0-9a-f]{17}$ ]] || { echo "qa-single-owner-via-ssm: valid prod instance id required" >&2; exit 40; }
+[[ "${INSTANCE_ID}" =~ ^(i|mi)-[0-9a-f]{8,17}$ ]] || { echo "qa-single-owner-via-ssm: valid prod instance id required" >&2; exit 40; }
 [[ "${TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] || { echo "qa-single-owner-via-ssm: timeout must be a positive integer" >&2; exit 40; }
 
 case "${MODE}" in
@@ -38,6 +38,13 @@ case "${MODE}" in
 esac
 
 parameters="$(jq -cn --arg command "${remote_command}" '{commands:[$command]}')"
+# Hybrid/managed-instance RunShellScript uses /bin/sh (dash); wrap for bash features.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+params_file="$(mktemp)"
+printf '%s\n' "${parameters}" >"${params_file}"
+python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params_file}"
+parameters="$(cat "${params_file}")"
+rm -f "${params_file}"
 command_id="$(aws --region "${REGION}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" \
   --document-name AWS-RunShellScript \

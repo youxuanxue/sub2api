@@ -354,6 +354,12 @@ if [[ -n "${STAGE0_RENDER_ONLY:-}" ]]; then
   exit 0
 fi
 
+# Hybrid/managed-instance RunShellScript uses /bin/sh (dash); wrap for bash features.
+# Placed AFTER the render-only seam on purpose: that seam's contract is the
+# plain-text host script (what tests and humans read), and wrapping is a
+# transport-layer transform that `--unwrap-stdout` reverses losslessly.
+python3 "$(dirname "${BASH_SOURCE[0]}")/ssm_wrap_bash_commands.py" "${params_file}"
+
 eff_instance_id="${INSTANCE_ID}"
 if [[ "${INSTANCE_ID}" == mi-* && -n "${EDGE_ID:-}" ]]; then
   # Hybrid managed nodes minted via create-activation carry tags EdgeId + Platform

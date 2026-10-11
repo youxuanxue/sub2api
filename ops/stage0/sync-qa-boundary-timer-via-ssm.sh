@@ -11,7 +11,7 @@ TIMER_STATE="${QA_BOUNDARY_TIMER_STATE:-disabled}"
 REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
 
 # QA_BOUNDARY_TIMER_STATE: disabled | enabled | auto
-[[ "${INSTANCE_ID}" =~ ^i-[0-9a-f]{17}$ ]] || { echo "valid instance id required" >&2; exit 1; }
+[[ "${INSTANCE_ID}" =~ ^(i|mi)-[0-9a-f]{8,17}$ ]] || { echo "valid instance id required" >&2; exit 1; }
 [[ "${DRAIN_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] || { echo "QA_SYNC_DRAIN_TIMEOUT_SECONDS must be a positive integer" >&2; exit 1; }
 case "${TIMER_STATE}" in
   disabled)
@@ -91,6 +91,9 @@ jq -n \
     "trap - EXIT",
     ("echo Live qa-boundary units now match deploy/aws@" + $artifact_sha + " timer=" + $timer_state + " on $(hostname)")
   ]}' >"${params}"
+
+# Hybrid/managed-instance RunShellScript uses /bin/sh (dash); wrap for bash features.
+python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params}"
 
 command_id="$(aws --region "${REGION}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" --document-name AWS-RunShellScript \
