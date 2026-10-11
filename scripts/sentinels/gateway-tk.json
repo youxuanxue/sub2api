@@ -16253,6 +16253,104 @@
         "TestUsageLogRepositoryGetAPIKeyStatsWithUsageFilters"
       ],
       "rationale": "Focused SQL-shape regression for per-API-key usage aggregation used by /usage API Key distribution."
+    },
+    {
+      "path": "backend/internal/server/middleware/api_key_auth.go",
+      "must_contain": [
+        "skipBilling := skipsBillingEnforcement(c.Request.Method, c.Request.URL.Path)",
+        "billingEnforced := !skipBilling && cfg.RunMode != config.RunModeSimple",
+        "if billingEnforced && apiKeyQuotaRejected(apiKey) {",
+        "func apiKeyQuotaRejected(apiKey *service.APIKey) bool",
+        "setAPIKeyQuotaRetryAfter(c)"
+      ],
+      "rationale": "Cost seam for the quota-exhausted reject path. The early exit MUST stay ABOVE MaybeRewriteOpenRouterProviderChatBody / MaybeResolveUniversal: below them, a request already certain to be rejected still pays a body read, a second buffer copy, a full JSON parse and PrepareCandidateIngress candidate scheduling. Measured 2026-10-11: one key at its own ceiling (quota=500 / quota_used=500.04) retried by a no-backoff client at ~356 req/min for 90+ min, ~29,700 rejections; bench 17.2us/54.2 KB -> 3.6us/13.9 KB per reject. The hoisted skipBilling computation is load-bearing for CORRECTNESS, not only cost: without it the early exit rejects billing-exempt endpoints (/v1/usage, /v1/models) that must stay reachable for an exhausted key, and without the RunModeSimple term it breaks SimpleMode's quota bypass. apiKeyQuotaRejected must remain the single owner of the predicate so it cannot drift from the billing block's precedence (persisted quota_exhausted outranks expiry; a runtime overrun loses to expiry) and silently turn an expired key's 403 into a 429. An upstream merge that reorders this block, re-inlines skipBilling at the billing block, or drops the predicate re-opens both the cost regression and the exemption defect."
+    },
+    {
+      "path": "backend/internal/server/middleware/api_key_auth_google.go",
+      "must_contain": [
+        "apiKeyQuotaRejected(apiKey) {",
+        "setAPIKeyQuotaRetryAfter(c)"
+      ],
+      "rationale": "Same quota-reject cost seam for the Gemini /v1beta ingress (APIKeyAuthWithSubscriptionGoogle), which runs the identical MaybeResolveUniversal body-read + candidate-scheduling path before its own quota rejection. It shares the apiKeyQuotaRejected predicate with the main middleware instead of re-deriving precedence, so the two ingresses cannot drift on which error an expired-and-exhausted key receives. Dropping this leaves /v1beta paying full routing cost per rejection while /v1 does not. Complements the pre-existing candidate-binding entry for this file; both must survive."
+    },
+    {
+      "path": "backend/internal/server/middleware/api_key_quota_retry_after_tk.go",
+      "must_contain": [
+        "func setAPIKeyQuotaRetryAfter(c *gin.Context)",
+        "apiKeyQuotaRetryAfterSeconds = 60",
+        "c.Header(\"Retry-After\", strconv.Itoa(apiKeyQuotaRetryAfterSeconds))"
+      ],
+      "rationale": "TK companion owning the Retry-After header on the api-key quota 429. abortWithAPIKeyQuotaError delegates to abortWithOpenAIQuotaError / AbortWithError, neither of which sets any header upstream, so without this a client has no backoff signal and hot-loops the reject path at full request rate (the measured ~356 req/min urllib storm). Follows the existing header shape in ingress_reject.go (rejectInvalidAuthAbuse) and panel_rate_limit.go (abortPanelRateLimited); it deliberately does not overwrite a more specific value already set by an earlier limiter on the same request."
+    },
+    {
+      "path": "backend/internal/server/middleware/api_key_auth_quota_early_exit_tk_test.go",
+      "must_contain": [
+        "TestAPIKeyQuotaRejectionDoesNotReadRequestBody",
+        "TestAPIKeyQuotaExhaustedStillServesBillingExemptPaths",
+        "TestAPIKeyQuotaExhaustedSimpleModeStillBypasses",
+        "TestAPIKeyQuotaRejectedPrecedence",
+        "TestAPIKeyQuotaRejectionSetsRetryAfter",
+        "TestAPIKeyQuotaRejectionPreservesResponseShape"
+      ],
+      "rationale": "Focused regressions proving the quota early-exit boundary: (1) a counting body proves the payload is NOT read before the rejection (the cost claim itself; verified to go red when the hoist is disabled); (2) billing-exempt endpoints and SimpleMode still admit an exhausted key, which is the correctness risk of hoisting; (3) the status/expiry/quota precedence table pins that an expired key keeps its 403 rather than becoming a 429; (4) both error writers carry Retry-After; (5) status code, error code and message stay identical to pre-hoist behaviour. Dropping these lets an upstream merge silently revert the hoist (cost) or widen it over billing-exempt paths (customer-visible breakage) with a green build."
+    },
+    {
+      "path": "backend/internal/server/middleware/api_key_auth_google_quota_early_exit_tk_test.go",
+      "must_contain": [
+        "TestGoogleAPIKeyQuotaRejectionSkipsBodyAndSetsRetryAfter",
+        "TestGoogleAPIKeyQuotaExhaustedStillServesBillingExemptPaths"
+      ],
+      "rationale": "Same two guarantees for the /v1beta ingress: no body read before the quota rejection, Retry-After present, the Google error envelope unchanged, and /v1beta/models still reachable for an exhausted key."
+    },
+    {
+      "path": "backend/internal/server/middleware/api_key_auth_quota_early_exit_tk_bench_test.go",
+      "must_contain": [
+        "func BenchmarkAPIKeyQuotaRejection(b *testing.B)"
+      ],
+      "rationale": "Reproducible measurement behind the cost claim: per-rejection ns/op and B/op against a realistic conversational body, so the 17.2us -> 3.6us / 54.2 KB -> 13.9 KB figure stays re-derivable instead of a number stranded in a PR description."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger.go",
+      "must_contain": [
+        "if !maybeCoalesceOpsErrorLogEntry(entry, parsed.Code) {"
+      ],
+      "rationale": "Injection point for ops_error_logs coalescing of client-owned, self-inflicted limit rejections. It must stay AFTER the api-key attribution block (the gate buckets on entry.APIKeyID) and immediately BEFORE enqueueOpsErrorLog, the only point that can suppress a row without losing its attribution. Measured 2026-10-11: one quota-exhausted key produced 29,731 of 30,318 rows in 24h (98%), burying 587 rows of real incidents, with that day's partition at 46 MB against 176 kB for an empty one and 18 indexes maintained per insert. Dropping this single line restores one indistinguishable row per repeat with a green build."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_coalesce_tk.go",
+      "must_contain": [
+        "func maybeCoalesceOpsErrorLogEntry(entry *service.OpsInsertErrorLogInput, code string) bool",
+        "func opsCoalesceKey(entry *service.OpsInsertErrorLogInput, code string) (string, bool)",
+        "if entry.ErrorOwner != \"client\" || !entry.IsBusinessLimited {",
+        "if entry.UpstreamStatusCode != nil || entry.UpstreamErrorMessage != nil ||",
+        "if !isOpsLocalBusinessLimitError(bucketKey, strings.ToLower(entry.ErrorMessage)) {",
+        "func annotateOpsCoalescedRepeats(entry *service.OpsInsertErrorLogInput, suppressed int64)",
+        "c.overCapacity.Add(1)"
+      ],
+      "rationale": "TK owner of the ops_error_logs coalescing gate. Every pinned literal is a containment boundary, not decoration: the client/business-limited test and the upstream-attribution test keep the gate OFF any row carrying per-occurrence information (provider-owned rows, anything with an upstream status or event); the isOpsLocalBusinessLimitError reuse keeps the suppressed set identical to the existing classifier instead of a second hand-maintained list; annotateOpsCoalescedRepeats is what makes suppression lossless, carrying the repeat count onto the next written row; and the overCapacity path is the fail-open guarantee, so at capacity an untracked bucket is WRITTEN and memory pressure costs rows rather than signal. No new column is added: ops_error_logs has a declared==written column contract (docs/approved/ops-error-logs-column-contract.md), so the count rides in error_message and must stay a prefix, keeping the original text a contiguous substring for ILIKE / trigram search and strings.Contains classification."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_coalesce_tk_test.go",
+      "must_contain": [
+        "TestOpsCoalesceWritesFirstOccurrenceImmediately",
+        "TestOpsCoalesceCollapsesRepeatsWithinBucket",
+        "TestOpsCoalesceCarriesSuppressedCountOntoNextRow",
+        "TestOpsCoalesceNeverSuppressesDifferentKeyOrCode",
+        "TestOpsCoalesceSkipsRowsThatCarryInformation",
+        "TestOpsCoalesceFailsOpenAtCapacity",
+        "TestOpsCoalesceConcurrentAdmitsLoseNoOccurrence",
+        "TestOpsCoalesceAnnotationStaysSearchable"
+      ],
+      "rationale": "Focused regressions proving the coalescing boundary, each mapping to a way this gate could lose a real incident: the first occurrence in a bucket is always written immediately (never queued or delayed); repeats collapse within the bucket; suppressed counts carry onto the next written row so no occurrence vanishes; a different key or a different code is never suppressed by another's bucket; information-carrying rows are never coalesced; capacity pressure fails open; concurrent admits satisfy written+suppressed==offered; and the annotation leaves the message searchable and classified identically. Dropping these lets a refactor turn a bounded de-duplicator into silent data loss."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_coalesce_middleware_tk_test.go",
+      "must_contain": [
+        "TestOpsErrorLoggerMiddlewareCoalescesQuotaRejectStorm",
+        "TestOpsErrorLoggerMiddlewareStillRecordsDistinctKeys",
+        "TestOpsErrorLoggerMiddlewareStillRecordsUpstreamFailuresEveryTime"
+      ],
+      "rationale": "End-to-end proof through the real OpsErrorLoggerMiddleware rather than the gate in isolation: 300 identical quota rejections queue one row, two different keys each keep their own row, and upstream failures are queued every time. This is the test that fails if the injection line in ops_error_logger.go is dropped or moved above the api-key attribution block."
     }
   ]
 }
