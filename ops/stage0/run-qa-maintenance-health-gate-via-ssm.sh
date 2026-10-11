@@ -26,15 +26,7 @@ jq -n --arg gate "${gate_payload}" '{commands:[
 ]}' >"${params}"
 
 # Hybrid/managed-instance RunShellScript uses /bin/sh (dash); wrap for bash features.
-python3 - "${params}" <<'PY'
-import base64, json, pathlib, sys
-path = pathlib.Path(sys.argv[1])
-data = json.loads(path.read_text())
-script = "\n".join(data["commands"])
-b64 = base64.b64encode(script.encode()).decode()
-data["commands"] = [f"echo {b64} | base64 -d | bash -s"]
-path.write_text(json.dumps(data))
-PY
+python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params}"
 
 command_id="$(aws --region "${REGION}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" --document-name AWS-RunShellScript \

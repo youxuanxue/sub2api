@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""Unit tests for ops/stage0/ssm_wrap_bash_commands.py."""
+
+from __future__ import annotations
+
+import base64
+import importlib.util
+import json
+import pathlib
+import subprocess
+import tempfile
+import unittest
+
+_HERE = pathlib.Path(__file__).resolve().parent
+_SCRIPT = _HERE / "ssm_wrap_bash_commands.py"
+
+
+def _load_wrap_module():
+    spec = importlib.util.spec_from_file_location("ssm_wrap_bash_commands", _SCRIPT)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {_SCRIPT}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class SsmWrapBashCommandsTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.mod = _load_wrap_module()
+
+    def test_wraps_multi_command_payload(self) -> None:
+        wrapped = self.mod.wrap_commands(["set -euo pipefail", "echo hi"])
+        self.assertEqual(len(wrapped), 1)
+        self.assertTrue(wrapped[0].startswith("echo "))
+        self.assertTrue(wrapped[0].endswith(" | base64 -d | bash -s"))
+        b64 = wrapped[0][len("echo ") : -len(" | base64 -d | bash -s")]
+        self.assertEqual(base64.b64decode(b64).decode(), "set -euo pipefail\necho hi")
+
+    def test_idempotent_when_already_wrapped(self) -> None:
+        once = self.mod.wrap_commands(["set -euo pipefail"])
+        twice = self.mod.wrap_commands(once)
+        self.assertEqual(once, twice)
+
+    def test_cli_rewrites_params_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "ssm-params.json"
+            path.write_text(json.dumps({"commands": ["set -euo pipefail", "true"]}))
+            proc = subprocess.run(
+                ["python3", str(_SCRIPT), str(path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            payload = json.loads(path.read_text())
+            self.assertEqual(len(payload["commands"]), 1)
+            self.assertIn("base64 -d | bash -s", payload["commands"][0])
+
+
+if __name__ == "__main__":
+    unittest.main()
