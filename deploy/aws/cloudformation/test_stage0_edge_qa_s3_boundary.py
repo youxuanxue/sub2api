@@ -206,13 +206,36 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
         self.assertIn("QaRawArchiveKmsViaS3", statements)
         kms = statements["QaRawArchiveKmsViaS3"]
         self.assertEqual(kms["Effect"], "Allow")
-        self.assertIn("kms:GenerateDataKey*", kms["Action"])
+        for action in (
+            "kms:Encrypt",
+            "kms:Decrypt",
+            "kms:ReEncrypt*",
+            "kms:GenerateDataKey*",
+            "kms:DescribeKey",
+        ):
+            self.assertIn(action, kms["Action"])
         self.assertEqual(
             kms["Condition"]["StringEquals"]["kms:ViaService"],
             "s3.us-east-1.amazonaws.com",
         )
+        # Identity policy must stay bucket-scoped; dropping EncryptionContext would
+        # let GenerateDataKey* apply to any key matched by Resource (incl. key/*).
+        enc = kms["Condition"]["StringLike"]["kms:EncryptionContext:aws:s3:arn"]
+        bucket = "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-raw-archive-${AWS::AccountId}"
+        self.assertEqual(
+            set(enc),
+            {bucket, f"{bucket}/*", f"{bucket}/raw/v1/*", f"{bucket}/raw/partial/*"},
+        )
+        resources = kms["Resource"]
+        if isinstance(resources, str):
+            resources = [resources]
+        self.assertIn(
+            "arn:${AWS::Partition}:kms:us-east-1:${AWS::AccountId}:alias/tokenkey-prod-qa-raw-archive",
+            resources,
+        )
         s3 = statements["QaBundleS3"]
         self.assertIn("s3:AbortMultipartUpload", s3["Action"])
+        self.assertIn("s3:ListMultipartUploadParts", s3["Action"])
 
     def assert_qa_bucket_deny(
         self,
