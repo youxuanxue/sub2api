@@ -237,7 +237,7 @@ def read_runtime_blob(region: str, instance_id: str) -> dict:
 
 def _ssm_run_shell_b64_region(region: str, instance_id: str, shell_b64: str, comment: str) -> str:
     # Hybrid hosts start RunShellScript in dash. Match ops/stage0/ssm_execution.py:
-    # keep inner bash semantics, but invoke the wrapper via bash -c.
+    # keep inner bash semantics (`set -uo pipefail`), but invoke the wrapper via bash -c.
     command = (
         "set -uo pipefail\n"
         f"echo {shell_b64} | base64 -d > /tmp/.tk_ssm_$$.sh\n"
