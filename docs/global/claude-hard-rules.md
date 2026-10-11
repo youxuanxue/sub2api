@@ -193,6 +193,13 @@ bash ops/observability/run-probe.sh --target prod|edge:<id> \
 报 `reboot_required` / `upgradable_count` / 运行内核 vs 已装内核 / `daemon_reexec_7d`，
 并复核 live 主机是否仍符合 bootstrap 契约（期望 `timer_apt_daily_upgrade=masked`、
 `periodic_unattended=0`）。debt 非零**不阻塞发版**，只决定下次蓝绿要不要顺带还债。
+
+**已在跑的主机**（bootstrap 只管新建）用
+`ops/observability/remediate-disable-host-auto-upgrade.sh` 对齐契约：默认 dry-run，
+需 `APPLY=yes-disable-host-auto-upgrade`，幂等。它只做止血——mask timer + 固定
+`Periodic=0`，**不装不卸不升级、不重启任何服务或容器**，因此把主机冻结在
+"磁盘已打补丁、内存仍旧"的状态；`patch_debt=unchanged` 会在 verify 输出里显式标出。
+还债仍然只能走蓝绿。已于 2026-10-11 对 live 五节点执行完毕。
 关掉自动升级之后真正的风险是"再也不打补丁而没人发现"，这个探测就是对冲。
 
 ## Account Usage SSOT (detail)
