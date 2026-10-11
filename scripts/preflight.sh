@@ -392,6 +392,7 @@ export PREFLIGHT_BASE="${template_base:-origin/main}"
 # checks; a missing prerequisite leaves the job unspawned and the section
 # falls back to its serial FAIL/skip path.
 _qa_bundle_gate_run() {
+    python3 -m unittest ops.qa.test_colocation_resources &&
     cd backend && go test -tags=unit -v ./internal/observability/qa/bundle ./internal/observability/qa
 }
 _protocol_routing_gate_run() {

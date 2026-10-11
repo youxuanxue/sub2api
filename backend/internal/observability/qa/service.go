@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -221,6 +222,9 @@ func NewService(cfg *config.Config, client *ent.Client, sqlDB *sql.DB) (*Service
 func (s *Service) Stop() {
 	if s == nil {
 		return
+	}
+	if closer, ok := s.bundleQueue.(io.Closer); ok {
+		_ = closer.Close()
 	}
 	if s.ledgerStop != nil {
 		s.ledgerStopOnce.Do(func() { close(s.ledgerStop) })

@@ -149,6 +149,24 @@ REQUIRED = {
         "qaBundleWorkerRequested",
         '"--qa-bundle-worker"',
     ),
+    "backend/internal/observability/qa/service_bundle.go": (
+        "bundle.OpenJobQueue(ctx, cfg.QaBundle)",
+    ),
+    "backend/internal/observability/qa/service_bundle_canary.go": (
+        "bundle.OpenJobQueue(ctx, cfg.QaBundle)",
+    ),
+    "backend/internal/observability/qa/bundle/queue_config.go": (
+        'case "postgres":',
+        "openPostgresJobQueue(ctx, cfg.QueuePostgresDSNFile)",
+    ),
+    "backend/internal/observability/qa/bundle/queue_postgres_integration_test.go": (
+        "TestUS062_PostgresQueueRoleIsolationLeasesAndSingleConcurrency",
+        "consumer.Ack(ctx, retained)",
+    ),
+    "backend/internal/observability/qa/bundle/queue_postgres_test.go": (
+        "TestUS062_QueueCredentialRejectsUnsafeConnectionsWithoutLeakingSecrets",
+        "TestUS062_WorkerDrainsClaimedJobAfterShutdownWithBoundedDeadline",
+    ),
     "backend/cmd/server/qa_bundle_worker_test.go": (
         "TestQABundleWorkerRequested",
         '[]string{"--qa-bundle-worker"}',

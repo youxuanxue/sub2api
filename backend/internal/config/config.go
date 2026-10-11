@@ -227,9 +227,11 @@ type QaArchiveConfig struct {
 }
 
 type QaBundleConfig struct {
-	Enabled  bool                   `mapstructure:"enabled"`
-	QueueURL string                 `mapstructure:"queue_url"`
-	Storage  QACaptureStorageConfig `mapstructure:"storage"`
+	Enabled              bool                   `mapstructure:"enabled"`
+	QueueURL             string                 `mapstructure:"queue_url"`
+	QueueDriver          string                 `mapstructure:"queue_driver"`
+	QueuePostgresDSNFile string                 `mapstructure:"queue_postgres_dsn_file"`
+	Storage              QACaptureStorageConfig `mapstructure:"storage"`
 }
 
 type QACaptureStorageConfig struct {
@@ -2679,6 +2681,8 @@ func setDefaults() {
 
 	viper.SetDefault("qa_bundle.enabled", false)
 	viper.SetDefault("qa_bundle.queue_url", "")
+	viper.SetDefault("qa_bundle.queue_driver", "sqs")
+	viper.SetDefault("qa_bundle.queue_postgres_dsn_file", "")
 	viper.SetDefault("qa_bundle.storage.driver", "")
 	viper.SetDefault("qa_bundle.storage.endpoint", "")
 	viper.SetDefault("qa_bundle.storage.region", "")
@@ -4213,8 +4217,23 @@ func validateQaBundleConfig(bundle QaBundleConfig) error {
 		strings.Trim(strings.TrimSpace(bundle.Storage.Prefix), "/") == "" {
 		return fmt.Errorf("qa_bundle.storage region, bucket, and prefix are required when enabled")
 	}
-	if strings.TrimSpace(bundle.QueueURL) == "" {
-		return fmt.Errorf("qa_bundle.queue_url is required when enabled")
+	switch strings.ToLower(strings.TrimSpace(bundle.QueueDriver)) {
+	case "", "sqs":
+		if strings.TrimSpace(bundle.QueueURL) == "" {
+			return fmt.Errorf("qa_bundle.queue_url is required for sqs")
+		}
+		if strings.TrimSpace(bundle.QueuePostgresDSNFile) != "" {
+			return fmt.Errorf("qa_bundle postgres credentials require the postgres driver")
+		}
+	case "postgres":
+		if strings.TrimSpace(bundle.QueuePostgresDSNFile) == "" {
+			return fmt.Errorf("qa_bundle.queue_postgres_dsn_file is required for postgres")
+		}
+		if strings.TrimSpace(bundle.QueueURL) != "" {
+			return fmt.Errorf("qa_bundle.queue_url must be empty for postgres")
+		}
+	default:
+		return fmt.Errorf("qa_bundle.queue_driver must be sqs or postgres")
 	}
 	return nil
 }
