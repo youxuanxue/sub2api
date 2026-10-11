@@ -122,20 +122,26 @@ def main() -> int:
         "--list-deployable",
         action="store_true",
         help=(
-            "Print one deployable Lightsail edge id per line. "
+            "Print one live ops edge id per line (Hetzner deployable preferred; "
+            "Lightsail-only deployable when no HZ row). "
+            "With a non-default --lightsail-matrix, lists Lightsail deployable "
+            "from that file only (fixture override). "
             "Mutually exclusive with --prod-ops-matrix. "
-            "Stable output for shell consumers in skills/scripts; "
-            "exits 0 even when no edges are deployable (prints nothing)."
+            "Exits 0 even when no edges are deployable (prints nothing)."
         ),
     )
     args = parser.parse_args()
 
-    data = _EDGE_ROUTING.load_matrix(pathlib.Path(args.lightsail_matrix))
+    lightsail_path = pathlib.Path(args.lightsail_matrix).resolve()
+    data = _EDGE_ROUTING.load_matrix(lightsail_path)
 
     if args.list_deployable:
         if args.prod_ops_matrix:
             fail("--list-deployable is mutually exclusive with --prod-ops-matrix")
-        ids = _EDGE_ROUTING.deployable_edge_ids(data["targets"])
+        if lightsail_path == LIGHTSAIL_MATRIX.resolve():
+            ids = _EDGE_ROUTING.live_deployable_edge_ids(REPO_ROOT)
+        else:
+            ids = _EDGE_ROUTING.deployable_edge_ids(data["targets"])
         for edge_id in ids:
             print(edge_id)
         return 0

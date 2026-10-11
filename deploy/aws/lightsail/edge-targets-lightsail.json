@@ -109,7 +109,7 @@
       "purpose": "retired 2026-06-23: Lightsail instance, Static IP, SSM managed instance, SSM params, DNS, and prod mirror account removed; had adopted StaticIp-oh-2 after us-east-1 100.48.129.133 pollution"
     },
     "us3": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "us-east-2",
@@ -123,7 +123,7 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 44,
       "ssm_prefix": "/tokenkey/lightsail/us3",
-      "purpose": "us-east-2-ohio-egress (rotated 2026-08-28: swapped to vless-oh-fresh-1-rot-20260828T122454Z / 18.216.113.132 after vless-oh-fresh-1 / 18.220.195.44 upstream API risk-block; prior 2026-06-16 rotation was vless-oh-fresh-1 after Static-oh-1 / 3.128.102.134); resized 2026-10-09 small_3_0→large_3_0 via verified cold snapshot; Static IP retained; old tokenkey-edge-us-oh1-ls-s30 kept stopped; stale-disk rollback forbidden after new writes"
+      "purpose": "account-decommissioned 2026-10-11 (accounts→uk1; prod stubs cut/soft-deleted); instance still up for gemini-web session drain; deployable=false excludes ops fan-out; explicit --platform lightsail still reaches standby"
     },
     "us4": {
       "deployable": true,
@@ -160,7 +160,7 @@
       "purpose": "us-west-2-oregon-egress-2 (rotated 2026-08-28: swapped to vless-or-fresh-1-rot-20260828T115642Z / 16.144.175.131 after vless-or-fresh-1 / 32.185.163.163 upstream API risk-block; prior 2026-06-16 rotation was vless-or-fresh-1 after StaticIp-or-2 / 44.224.133.40); resized 2026-10-09 small_3_0→large_3_0 via verified cold snapshot; Static IP retained; old tokenkey-edge-us-or2-ls-s30 kept stopped; stale-disk rollback forbidden after new writes"
     },
     "us6": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "us-east-2",
@@ -174,7 +174,7 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 44,
       "ssm_prefix": "/tokenkey/lightsail/us6",
-      "purpose": "us-east-2-ohio-egress (resized 2026-10-09 small_3_0→large_3_0 via verified cold snapshot; Static IP 3.147.98.112 retained; old edge-ls-us-oh-3-s30 kept stopped, stale-disk rollback forbidden after new writes; rotated 2026-08-28 from StaticIp-oh-3 / 3.148.79.145 after upstream API risk-block)"
+      "purpose": "account-decommissioned 2026-10-11 (accounts→uk2; prod stubs cut/soft-deleted); instance still up for gemini-web session drain; deployable=false excludes ops fan-out; explicit --platform lightsail still reaches standby"
     },
     "us7": {
       "deployable": false,

@@ -5,8 +5,8 @@
   "approved_anchor": "docs/approved/hetzner-cloud-full-migration.md",
   "notes": [
     "uk1/uk2/us4/us5: deployable=true after formal DNS cutover (2026-10-10).",
-    "us3/us6 remain planned until rebuild + dump/restore + cutover.",
-    "auto routing / run-probe prefer deployable Hetzner over Lightsail standby."
+    "us3/us6: rebuild cancelled 2026-10-11 (account-level decommission into uk1/uk2); rows kept planned/empty.",
+    "auto routing / run-probe / --list-deployable prefer deployable Hetzner over Lightsail standby."
   ],
   "allowed_locations": ["fsn1"],
   "allowed_server_types": ["cax21"],

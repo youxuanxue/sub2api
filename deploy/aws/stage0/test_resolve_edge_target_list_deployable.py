@@ -59,6 +59,21 @@ class ListDeployableTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(proc.stdout, "")
 
+    def test_shipped_matrices_list_live_hz_fleet_without_us3_us6(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(_SCRIPT), "--list-deployable"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=pathlib.Path(__file__).resolve().parents[3],
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        ids = proc.stdout.splitlines()
+        self.assertEqual(ids, ["uk1", "uk2", "us4", "us5"])
+        self.assertNotIn("us3", ids)
+        self.assertNotIn("us6", ids)
+
 
 if __name__ == "__main__":
     unittest.main()
+

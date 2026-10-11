@@ -147,7 +147,8 @@ fi
 ! grep -F 'iam delete-role-policy' "${tmp}/recovery-fails/aws.log" >/dev/null
 
 set +e # preflight-allow: swallow -- capture the expected child exit without an if-context
-run_migration invalid-receipt '' '' '' '' us6 >"${tmp}/invalid-receipt.out" 2>"${tmp}/invalid-receipt.err"
+# Use a still-deployable edge (us3/us6 are account-decommissioned / deployable=false).
+run_migration invalid-receipt '' '' '' '' uk2 >"${tmp}/invalid-receipt.out" 2>"${tmp}/invalid-receipt.err"
 rc=$?
 set -e
 if [[ "${rc}" -eq 0 ]]; then
@@ -159,7 +160,7 @@ fi
 run_migration success '' '' >"${tmp}/success.out"
 grep -F 'iam delete-role-policy' "${tmp}/success/aws.log" >/dev/null
 delete_line="$(grep -n 'iam delete-role-policy' "${tmp}/success/aws.log" | cut -d: -f1)"
-for edge in uk1 uk2 us3 us4 us5 us6; do
+for edge in uk1 uk2 us4 us5; do
   test -f "${tmp}/success/state/${edge}"
   role_line="$(grep -n "describe-instance-information.*mi-${edge}" "${tmp}/success/aws.log" | tail -1 | cut -d: -f1)"
   test "${role_line}" -lt "${delete_line}"
