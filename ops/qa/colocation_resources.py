@@ -27,6 +27,8 @@ def load_policy(path=DEFAULT_POLICY):
             raise ValueError(f'QA components exceed aggregate {key}')
     if policy['aggregate']['cpu_millis'] > 1000 or policy['aggregate']['memory_bytes'] > 2 * 1024**3:
         raise ValueError('QA policy exceeds the approved 1 CPU / 2 GiB ceiling')
+    if policy['aggregate']['pids'] > 256:
+        raise ValueError('QA policy exceeds the approved 256 PID ceiling')
     for key in ('scratch_bytes', 'log_max_bytes', 'log_max_files'):
         if type(policy[key]) is not int or policy[key] <= 0:
             raise ValueError(f'{key} must be a positive integer')

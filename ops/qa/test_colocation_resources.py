@@ -27,7 +27,7 @@ class QAColocationResourcesTest(unittest.TestCase):
         base = load_policy()
         for scope, key, value in [('worker', 'memory_bytes', base['aggregate']['memory_bytes']),
                                   ('queue', 'cpu_millis', 1000), ('aggregate', 'cpu_millis', 2000),
-                                  ('worker', 'pids', -1), ('queue', 'cpu_millis', True)]:
+                                  ('aggregate', 'pids', 257), ('worker', 'pids', -1), ('queue', 'cpu_millis', True)]:
             with self.subTest(scope=scope, key=key, value=value), tempfile.TemporaryDirectory() as directory:
                 changed = copy.deepcopy(base)
                 changed[scope][key] = value
@@ -46,6 +46,89 @@ class QAColocationResourcesTest(unittest.TestCase):
             self.assertEqual(service['mem_limit'], service['memswap_limit'])
         self.assertEqual(services['qa-worker']['stop_grace_period'], '56m')
         self.assertIn('MemorySwapMax=0', slice_unit(policy))
+
+
+class QAColocationSandboxTest(unittest.TestCase):
+    def run_sandbox(self, scenario):
+        import contextlib
+        import io
+        import subprocess
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        script = Path(__file__).with_name('verify_colocation_sandbox.sh').read_text()
+        code = script.split("python3 - <<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
+        state = {'exists': False, 'removed': False, 'docker_calls': 0}
+        output = io.StringIO()
+
+        def run(args, **kwargs):
+            stdout = ''
+            if args == ['hostname']:
+                stdout = 'another-host' if scenario == 'wrong-host' else 'tokenkey-edge-uk1-hz-cax21'
+            else:
+                state['docker_calls'] += 1
+                action = args[1]
+                if action == 'create':
+                    state['exists'] = True
+                    state['name'] = args[args.index('--name') + 1]
+                    if scenario == 'create-timeout':
+                        raise subprocess.TimeoutExpired(args, 45)
+                elif action == 'start':
+                    stdout = 'container_boundary_checks_passed'
+                elif action == 'ps':
+                    stdout = 'synthetic-id' if state['exists'] else ''
+                elif action == 'rm':
+                    # A successful receipt must never precede confirmed cleanup.
+                    self.assertEqual(output.getvalue(), '')
+                    if scenario == 'cleanup-failed':
+                        raise subprocess.CalledProcessError(1, args)
+                    state.update(exists=False, removed=True)
+                elif action == 'inspect':
+                    if args[-1] == 'tokenkey':
+                        stdout = 'sha256:synthetic'
+                    elif '--format' in args:
+                        stdout = 'different-owner' if scenario == 'unowned' else state['name']
+                    else:
+                        stdout = json.dumps([{'State': {'ExitCode': 0}, 'Mounts': [], 'HostConfig': {'Binds': None}}])
+                else:
+                    self.fail(f'unexpected Docker operation: {action}')
+            return SimpleNamespace(stdout=stdout, stderr='', returncode=0)
+
+        error = None
+        with patch('subprocess.run', side_effect=run), contextlib.redirect_stdout(output):
+            try:
+                exec(compile(code, str(Path(__file__).with_name('verify_colocation_sandbox.sh')), 'exec'), {})
+            except (SystemExit, RuntimeError, subprocess.SubprocessError) as exc:
+                error = exc
+        return state, output.getvalue(), error
+
+    def test_target_guard_precedes_docker(self):
+        state, output, error = self.run_sandbox('wrong-host')
+        self.assertIsInstance(error, SystemExit)
+        self.assertEqual(state['docker_calls'], 0)
+        self.assertEqual(output, '')
+
+    def test_create_timeout_still_removes_owned_container(self):
+        import subprocess
+        state, output, error = self.run_sandbox('create-timeout')
+        self.assertIsInstance(error, subprocess.TimeoutExpired)
+        self.assertTrue(state['removed'])
+        self.assertFalse(state['exists'])
+        self.assertEqual(output, '')
+
+    def test_cleanup_failures_never_report_success_or_remove_foreign_container(self):
+        for scenario in ('cleanup-failed', 'unowned'):
+            with self.subTest(scenario=scenario):
+                state, output, error = self.run_sandbox(scenario)
+                self.assertIsNotNone(error)
+                self.assertFalse(state['removed'])
+                self.assertEqual(output, '')
+
+    def test_success_receipt_follows_cleanup(self):
+        state, output, error = self.run_sandbox('success')
+        self.assertIsNone(error)
+        self.assertTrue(state['removed'])
+        self.assertEqual(json.loads(output)['cleaned_up'], True)
 
 
 if __name__ == '__main__':

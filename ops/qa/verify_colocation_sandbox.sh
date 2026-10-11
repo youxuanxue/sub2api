@@ -14,6 +14,9 @@ import uuid
 def run(args, **kwargs):
     return subprocess.run(args, check=True, capture_output=True, text=True, timeout=45, **kwargs)
 
+if run(['hostname']).stdout.strip() != 'tokenkey-edge-uk1-hz-cax21':
+    raise SystemExit('this experiment is authorized only on uk1')
+
 image = run(['docker', 'inspect', '--format', '{{.Image}}', 'tokenkey']).stdout.strip()
 name = 'tokenkey-qa-isolation-check-' + uuid.uuid4().hex[:12]
 # Use the already-present immutable image, bypass its application entrypoint.
@@ -47,10 +50,13 @@ if dd if=/dev/zero of=/tmp/qa-full bs=65536 count=32 2>/dev/null; then exit 13; 
 rm /tmp/qa-full
 printf 'container_boundary_checks_passed\n'
 '''
-created = False
+create_attempted = False
 try:
+    # Docker may create the container even if the client times out.
+    create_attempted = True
     run(['docker', 'create', '--name', name, '--pull=never',
          '--label', 'tokenkey.io/role=qa-isolation-prototype',
+         '--label', 'tokenkey.io/verification=' + name,
          '--network', 'none', '--user', '65534:65534', '--read-only',
          '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges=true',
          '--security-opt', 'apparmor=docker-default',
@@ -58,14 +64,13 @@ try:
          '--pids-limit', '32', '--ipc', 'none', '--log-driver', 'none', '--no-healthcheck',
          '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=1m,mode=1777',
          '--entrypoint', '/bin/sh', image, '-c', checks])
-    created = True
     result = run(['docker', 'start', '--attach', name])
     state = json.loads(run(['docker', 'inspect', name]).stdout)[0]
     if state['State']['ExitCode'] != 0 or 'container_boundary_checks_passed' not in result.stdout:
         raise RuntimeError('sandbox checks failed: ' + str(state['State']['ExitCode']) + ' ' + result.stderr)
     if state['Mounts'] or state['HostConfig']['Binds']:
         raise RuntimeError('unexpected data mounts in sandbox')
-    print(json.dumps({
+    receipt = {
         'container': name,
         'checks': ['nonroot', 'no_capabilities', 'no_new_privileges', 'seccomp',
                    'apparmor_enforcing', 'readonly_root', 'no_host_mounts',
@@ -78,11 +83,18 @@ try:
         'limitations': ['no production egress or queue path tested',
                         'CPU/memory/PID limits read from cgroup; not stress-tested',
                         'shared kernel, Docker daemon, host storage and failure domain'],
-    }, separators=(',', ':')))
+    }
 finally:
-    if created:
-        run(['docker', 'rm', '--force', name])
+    if create_attempted:
+        remaining = run(['docker', 'ps', '-aq', '--filter', 'name=^/' + name + '$']).stdout.strip()
+        if remaining:
+            owner = run(['docker', 'inspect', '--format', '{{index .Config.Labels "tokenkey.io/verification"}}', name]).stdout.strip()
+            if owner != name:
+                raise RuntimeError('refusing to remove an unowned sandbox')
+            run(['docker', 'rm', '--force', name])
         remaining = run(['docker', 'ps', '-aq', '--filter', 'name=^/' + name + '$']).stdout.strip()
         if remaining:
             raise RuntimeError('sandbox cleanup incomplete')
+receipt['cleaned_up'] = True
+print(json.dumps(receipt, separators=(',', ':')))
 PY

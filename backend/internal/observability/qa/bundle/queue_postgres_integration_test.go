@@ -36,7 +36,7 @@ func queueTestDatabase(t *testing.T) (*sql.DB, string, func() string) {
 			require.NoError(t, err, string(output))
 		}
 		run("initdb", "-D", data, "-U", "qa_test_admin", "--auth=trust", "--locale=C", "-E", "UTF8")
-		pgOptions := "-c listen_addresses=127.0.0.1 -k " + root + " -p 55432"
+		pgOptions := "-c listen_addresses='' -k " + root + " -p 55432"
 		run("pg_ctl", "-D", data, "-l", filepath.Join(root, "postgres.log"), "-o", pgOptions, "-w", "start")
 		t.Cleanup(func() { run("pg_ctl", "-D", data, "-m", "immediate", "-w", "stop") })
 		restart = func() string {
@@ -44,7 +44,7 @@ func queueTestDatabase(t *testing.T) (*sql.DB, string, func() string) {
 			run("pg_ctl", "-D", data, "-l", filepath.Join(root, "postgres.log"), "-o", pgOptions, "-w", "start")
 			return dsn
 		}
-		dsn = "postgres://qa_test_admin@127.0.0.1:55432/postgres?sslmode=disable"
+		dsn = "postgres://qa_test_admin@/postgres?host=" + url.QueryEscape(root) + "&port=55432&sslmode=disable"
 		admin, err := sql.Open("postgres", dsn)
 		require.NoError(t, err)
 		_, err = admin.Exec("CREATE DATABASE tokenkey_qa_queue")
@@ -115,6 +115,8 @@ func TestUS062_PostgresQueueRoleIsolationLeasesAndSingleConcurrency(t *testing.T
 	require.Error(t, err)
 	require.Error(t, consumer.Enqueue(ctx, key(99)))
 	require.Error(t, producer.Enqueue(ctx, "../../foreign"))
+	_, err = producer.db.Exec("SELECT qa_queue.enqueue($1)", "../../foreign")
+	require.Error(t, err, "the SECURITY DEFINER function must enforce the spec key contract")
 	require.NoError(t, producer.Enqueue(ctx, key(1)))
 	require.NoError(t, producer.Enqueue(ctx, key(1)))
 	message, ok, err := consumer.Receive(ctx)
@@ -236,8 +238,7 @@ func TestUS062_PostgresQueueRoleIsolationLeasesAndSingleConcurrency(t *testing.T
 	}
 	require.NoError(t, admin.QueryRow("SELECT json_agg(j ORDER BY spec_key)::text FROM qa_queue.jobs j").Scan(&after))
 	require.Equal(t, before, after, "queue state and receipts must survive a PostgreSQL restart")
-	// Exercise the producer after the crash too: this verifies reconnection and
-	// evicts its stale idle socket before cleanup closes the pool.
+	// Verify that the refreshed endpoint also works for both runtime roles.
 	require.NoError(t, producer.Enqueue(ctx, key(11)))
 	var retained JobMessage
 	require.NoError(t, admin.QueryRow("SELECT spec_key, receipt::text FROM qa_queue.jobs WHERE state='leased'").Scan(&retained.SpecKey, &retained.ReceiptHandle))
