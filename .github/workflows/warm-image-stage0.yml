@@ -12,7 +12,7 @@ name: Stage0 Warm Image
 # Driven by the tokenkey-stage0-release-rollout skill: dispatched (and its prod
 # Environment approval auto-approved via gh, since the warm is read-only) right
 # before the prod deploy so the layers are on disk by deploy time. Mirrors
-# deploy-stage0.yml's prod resolve path (CFN InstanceId + the shared
+# deploy-stage0.yml's prod resolve path (resolve_prod_ssm_target + the shared
 # validate-deploy-tag / verify_ghcr_manifest gates) so the two never diverge.
 
 on:
@@ -91,20 +91,30 @@ jobs:
         id: instance
         env:
           STACK_NAME: ${{ steps.stack.outputs.name }}
+          PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
         run: |
           set -euo pipefail
-          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
-            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
-          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
-            echo "::error::could not resolve InstanceId from stack $STACK_NAME"
-            exit 1
-          fi
-          echo "id=$ID" >> "$GITHUB_OUTPUT"
-          echo "warming ${INPUT_TAG} on instance=$ID (env=prod stack=$STACK_NAME)"
+          RESOLVED_JSON="$(python3 ops/stage0/resolve_prod_ssm_target.py \
+            --target "${PROD_SSM_TARGET}" \
+            --stack "$STACK_NAME" \
+            --format json \
+            --github-output "$GITHUB_OUTPUT")"
+          python3 -c '
+          import json, sys
+          d = json.loads(sys.argv[1])
+          for key in ("id", "ssm_region", "target"):
+            if not d.get(key):
+              raise SystemExit(f"::error::missing {key} in resolve_prod_ssm_target output")
+          print(
+              "warming %s on instance=%s (env=prod target=%s ssm_region=%s stack=%s)"
+              % (sys.argv[2], d["id"], d["target"], d["ssm_region"], sys.argv[3])
+          )
+          ' "$RESOLVED_JSON" "$INPUT_TAG" "$STACK_NAME"
 
       - name: Warm image via SSM Run-Command
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
           STAGE0_SSM_OUTPUT_DIR: .
         run: bash ops/stage0/warm_pull_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "warm-image env=prod"
 

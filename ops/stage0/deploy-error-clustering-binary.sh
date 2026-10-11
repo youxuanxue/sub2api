@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the error_clustering binary inside a transient golang:1.26-alpine
-# container on the prod EC2 host (Graviton arm64), then install it to
+# container on the prod host (Graviton arm64), then install it to
 # /usr/local/bin/error_clustering. The Ops Daily Diagnostics error clustering job then
 # invokes it via SSM + a transient docker container attached to the
 # tokenkey_default network.
@@ -9,35 +9,50 @@
 #
 # Required:
 #   AWS credentials with SSM SendCommand on the target instance.
-#   AWS_REGION (default us-east-1) and STACK (default tokenkey-prod-stage0).
+#   Instance resolve: INSTANCE_ID env, or cutover-aware resolve_prod_ssm_target
+#   (PROD_SSM_TARGET / STACK defaults).
 #
 # This script is designed to be runnable both locally (operator) and from CI
-# (after AWS OIDC). It assumes the prod stack already exposes InstanceId in
-# its CloudFormation outputs.
+# (after AWS OIDC).
 
 set -euo pipefail
 
+REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 REGION=${AWS_REGION:-us-east-1}
 STACK=${STACK:-tokenkey-prod-stage0}
+PROD_SSM_TARGET="${PROD_SSM_TARGET:-auto}"
+INSTANCE_ID="${INSTANCE_ID:-}"
 
 if ! command -v aws >/dev/null 2>&1; then
   echo "aws CLI not found" >&2
   exit 1
 fi
 
-REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SRC_DIR="$REPO_ROOT/tools/error_clustering"
 if [[ ! -f "$SRC_DIR/main.go" ]]; then
   echo "missing $SRC_DIR/main.go" >&2
   exit 1
 fi
 
-INSTANCE_ID=$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \
-  --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+if [[ -z "$INSTANCE_ID" ]]; then
+  RESOLVED_JSON="$(python3 "$REPO_ROOT/ops/stage0/resolve_prod_ssm_target.py" \
+    --target "${PROD_SSM_TARGET}" \
+    --stack "$STACK" \
+    --format json)"
+  INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$RESOLVED_JSON")"
+  REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"$RESOLVED_JSON")"
+fi
 if [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "None" ]]; then
-  echo "could not resolve InstanceId for stack $STACK in $REGION" >&2
+  echo "could not resolve prod SSM instance (INSTANCE_ID / resolve_prod_ssm_target)" >&2
   exit 1
 fi
+case "$INSTANCE_ID" in
+  i-* | mi-*) ;;
+  *)
+    echo "expected i-* or mi-* instance id, got $INSTANCE_ID" >&2
+    exit 1
+    ;;
+esac
 
 # Tar + base64 the standalone module (~5 KB total) so it fits in one SSM payload.
 TAR_B64=$(cd "$REPO_ROOT" && tar czf - -C tools error_clustering | base64 | tr -d '\n')
@@ -70,7 +85,7 @@ CMD_ID=$(aws ssm send-command \
   --parameters "file://$PARAMS_FILE" \
   --query 'Command.CommandId' --output text)
 
-echo "SSM command-id: $CMD_ID"
+echo "SSM command-id: $CMD_ID instance=$INSTANCE_ID region=$REGION"
 echo "polling until completion..."
 
 # AWS_SSM_WAIT_MAX seconds total (default 240); poll every 5s. SSM's built-in

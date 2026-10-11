@@ -1,6 +1,4 @@
-"""Verify that --prod-ops-matrix surfaces deployable Lightsail edges alongside
-the EC2/CFN production gateway, with platform=lightsail and ssm_prefix set from the lightsail
-matrix.
+"""Verify --prod-ops-matrix surfaces the live Hetzner-first fleet + prod.
 
 stdlib-only.
 """
@@ -14,7 +12,8 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 SCRIPT = REPO_ROOT / "deploy/aws/stage0/resolve-edge-target.py"
-LIGHTSAIL_MATRIX = REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
+sys.path.insert(0, str(REPO_ROOT / "ops" / "stage0"))
+from edge_routing_matrix import live_deployable_edge_ids  # noqa: E402
 
 
 def _run(*args: str) -> subprocess.CompletedProcess:
@@ -23,61 +22,50 @@ def _run(*args: str) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         check=False,
+        cwd=str(REPO_ROOT),
     )
 
 
-class ProdOpsMatrixLightsailTests(unittest.TestCase):
-    def test_all_selector_includes_lightsail_deployable_edges(self):
-        ls = json.loads(LIGHTSAIL_MATRIX.read_text(encoding="utf-8"))
-        deployable_ls = sorted(
-            edge_id for edge_id, target in ls.get("targets", {}).items() if target.get("deployable")
-        )
+class ProdOpsMatrixLiveFleetTests(unittest.TestCase):
+    def test_all_selector_includes_live_hz_edges(self):
+        live = live_deployable_edge_ids(REPO_ROOT)
+        self.assertEqual(live, ["uk1", "uk2", "us4", "us5"])
         proc = _run("--prod-ops-matrix", "--target-selector", "all")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         include = payload["matrix"]["include"]
         target_ids = {item["target_id"]: item for item in include}
-        for edge_id in deployable_ls:
-            ls_id = f"edge-{edge_id}-ls"
-            self.assertIn(ls_id, target_ids, f"missing lightsail edge in matrix: {ls_id}")
-            self.assertEqual(target_ids[ls_id]["platform"], "lightsail")
-            self.assertEqual(target_ids[ls_id]["target_kind"], "edge")
-            self.assertEqual(target_ids[ls_id]["stack"], "")
-            self.assertTrue(target_ids[ls_id]["ssm_prefix"].startswith("/tokenkey/lightsail/"))
+        self.assertIn("prod", target_ids)
+        for edge_id in live:
+            hz_id = f"edge-{edge_id}-hz"
+            self.assertIn(hz_id, target_ids, f"missing hetzner edge in matrix: {hz_id}")
+            self.assertEqual(target_ids[hz_id]["platform"], "hetzner")
+            self.assertEqual(target_ids[hz_id]["target_kind"], "edge")
+            self.assertEqual(target_ids[hz_id]["stack"], "")
+            self.assertTrue(target_ids[hz_id]["ssm_prefix"].startswith("/tokenkey/hetzner/"))
+            self.assertEqual(target_ids[hz_id]["region"], "eu-west-2")
 
-    def test_only_prod_uses_ec2(self):
+    def test_lightsail_standby_excluded_with_reason(self):
+        proc = _run("--prod-ops-matrix", "--target-selector", "all")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        excluded = {item["target_id"]: item["reason"] for item in json.loads(proc.stdout)["excluded"]}
+        for edge_id in ("uk1", "uk2", "us4", "us5"):
+            self.assertIn(f"edge-{edge_id}-ls", excluded)
+            self.assertIn("Hetzner", excluded[f"edge-{edge_id}-ls"])
+
+    def test_only_prod_uses_ec2_platform(self):
         proc = _run("--prod-ops-matrix", "--target-selector", "all")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         include = json.loads(proc.stdout)["matrix"]["include"]
         self.assertEqual([t["target_id"] for t in include if t["platform"] == "ec2"], ["prod"])
-        prod = next(t for t in include if t["target_id"] == "prod")
-        self.assertEqual(prod["stack"], "tokenkey-prod-stage0")
-        self.assertEqual(prod["region"], "us-east-1")
 
-    def test_planned_lightsail_excluded_with_reason(self):
-        proc = _run("--prod-ops-matrix", "--target-selector", "all")
+    def test_explicit_live_edge_selector(self):
+        proc = _run("--prod-ops-matrix", "--target-selector", "edge:uk1-hz")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        payload = json.loads(proc.stdout)
-        excluded = payload["excluded"]
-        ls_excluded = [item for item in excluded if item["target_id"].endswith("-ls")]
-        for item in ls_excluded:
-            self.assertIn("lightsail", item["reason"])
-
-    def test_explicit_lightsail_selector(self):
-        ls = json.loads(LIGHTSAIL_MATRIX.read_text(encoding="utf-8"))
-        deployable_ls = [
-            edge_id for edge_id, target in ls.get("targets", {}).items() if target.get("deployable")
-        ]
-        if not deployable_ls:
-            self.skipTest("no deployable lightsail edges in matrix")
-        edge_id = deployable_ls[0]
-        proc = _run("--prod-ops-matrix", "--target-selector", f"edge:{edge_id}-ls")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        payload = json.loads(proc.stdout)
-        include = payload["matrix"]["include"]
+        include = json.loads(proc.stdout)["matrix"]["include"]
         self.assertEqual(len(include), 1)
-        self.assertEqual(include[0]["target_id"], f"edge-{edge_id}-ls")
-        self.assertEqual(include[0]["platform"], "lightsail")
+        self.assertEqual(include[0]["target_id"], "edge-uk1-hz")
+        self.assertEqual(include[0]["platform"], "hetzner")
 
 
 if __name__ == "__main__":

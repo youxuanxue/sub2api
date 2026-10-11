@@ -37,8 +37,6 @@ import subprocess
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-PROD_TARGET = {"region": "us-east-1", "stack": "tokenkey-prod-stage0", "label": "prod"}
-
 # Read-only snapshot: each newapi account + its model_mapping key count.
 NEWAPI_ACCOUNTS_SQL = (
     "SELECT COALESCE(json_agg(json_build_object("
@@ -79,7 +77,7 @@ def _load(rel: str, name: str):
     return mod
 
 
-_SSM = _load("ops/stage0/edge_ssm_execution.py", "tk_edge_ssm_execution")
+_SSM = _load("ops/stage0/ssm_execution.py", "tk_ssm_execution_audit_mapping")
 
 
 def ssm_run_sql(region: str, instance_id: str, sql: str, comment: str) -> str:
@@ -119,8 +117,8 @@ def main() -> int:
     ap.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     args = ap.parse_args()
 
-    inst = _SSM.cfn_resolve_instance_id(PROD_TARGET["region"], PROD_TARGET["stack"])
-    out = ssm_run_sql(PROD_TARGET["region"], inst, NEWAPI_ACCOUNTS_SQL, "newapi model_mapping audit")
+    inst, region = _SSM.resolve_prod_identity()
+    out = ssm_run_sql(region, inst, NEWAPI_ACCOUNTS_SQL, "newapi model_mapping audit")
     try:
         accounts = json.loads(out) if out else []
     except json.JSONDecodeError:

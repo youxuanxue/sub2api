@@ -292,7 +292,7 @@ class ApplyDispatchTest(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = pathlib.Path(self._tmp.name)
         self._orig_ssm = mgr.ssm_run_sql_b64
-        self._orig_resolve = mgr.resolve_instance_id
+        self._orig_resolve_prod = mgr._resolve_prod_target
         self._orig_resolve_edge = mgr._resolve_edge_target
         self.captured: list[dict] = []
 
@@ -305,14 +305,18 @@ class ApplyDispatchTest(unittest.TestCase):
             return ("UPDATE 1", "cid-fake", True, "")
 
         mgr.ssm_run_sql_b64 = fake_ssm
-        mgr.resolve_instance_id = lambda region, stack: f"i-fake-{stack}"
+        mgr._resolve_prod_target = lambda: (
+            "us-east-1",
+            f"i-fake-{mgr.PROD_TARGET['stack']}",
+            mgr.PROD_TARGET["label"],
+        )
         mgr._resolve_edge_target = lambda edge_id: (
             "us-west-2", f"i-fake-{edge_id}", f"edge:{edge_id}",
         )
 
     def tearDown(self) -> None:
         mgr.ssm_run_sql_b64 = self._orig_ssm
-        mgr.resolve_instance_id = self._orig_resolve
+        mgr._resolve_prod_target = self._orig_resolve_prod
         mgr._resolve_edge_target = self._orig_resolve_edge
         self._tmp.cleanup()
 

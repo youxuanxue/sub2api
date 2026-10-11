@@ -2,7 +2,7 @@
 
 审批基线：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
 
-## 当前状态（2026-10-10；us5/uk2 正式 A 已切 HZ）
+## 当前状态（2026-10-11；四边正式 A 已切 HZ；us3/us6 账号级退役）
 
 | edge | 正式 A（`api-<id>.tokenkey.dev`） | Hetzner IP | Lightsail IP（回滚） | 库复刻 |
 |------|-----------------------------------|------------|----------------------|--------|
@@ -10,15 +10,15 @@
 | **us4** | **已切** → `188.245.14.132` | 同左 | `32.188.80.151`（app 已停写，PG/Caddy 保留 ≥7d） | precious + logs 已灌；已定点补漏 42×ulog+42×dedup（≈$0.62） |
 | **us5** | **已切** → `91.98.83.56`（冻写重灌后切） | 同左 | `16.144.175.131`（app 已停写，PG/Caddy 保留 ≥7d） | 2026-10-10 `T101255Z`+`logs-T101315Z` |
 | **uk2** | **已切** → `2.31.27.73`（冻写重灌后切） | 同左 | `51.24.28.148`（app 已停写，PG/Caddy 保留 ≥7d） | 2026-10-10 `T101627Z`+`logs-T101629Z` |
-| **us3** | LS `18.216.113.132` | **无机器**（曾建后删，腾配额） | 正式仍 LS | 待重建 + 全量复刻 |
-| **us6** | LS `3.147.98.112` | **未起**（配额） | 正式仍 LS | 待 provision + 全量复刻 |
-| **prod** | 仍 AWS Stage0（正式） | **HZ staging 已绿** `167.233.211.115` · `mi-033c9569c7fb8b884` · Volume `tokenkey-prod-data` · `api-hz` E1 | — | Wave A 齐；dump 已刷 `T155229Z`；Wave B 见 [`WAVE-B-PROD-CUTOVER-RUNBOOK.md`](WAVE-B-PROD-CUTOVER-RUNBOOK.md)；正式 DNS/冻写未做 |
+| **us3** | LS `18.216.113.132`（仍在跑，已无 prod stub） | **无机器**（不再重建） | — | **2026-10-11 账号级退役**：12 账号 → uk1，stub 全切/软删；见「us3/us6 账号级退役」 |
+| **us6** | LS `3.147.98.112`（仍在跑，已无 prod stub） | **未起**（不再 provision） | — | **2026-10-11 账号级退役**：19 账号 → uk2，stub 全切/软删；同上 |
+| **prod** | 正式流量仍 AWS EIP `34.194.234.88`（冻写/正式 DNS 未做） | **HZ staging 已绿** `167.233.211.115` · `mi-033c9569c7fb8b884` · Volume `tokenkey-prod-data` · `api-hz` E1 | — | Wave A 齐；**ops 控制面已切** Hybrid `mi-*`（SSM param `/tokenkey/prod/control-plane-ssm-target=hetzner`，#2542/#2543）；正式 DNS/冻写见 [`WAVE-B-PROD-CUTOVER-RUNBOOK.md`](WAVE-B-PROD-CUTOVER-RUNBOOK.md) |
 
-Lightsail ≥7 天保留作回滚；禁止双写业务库。Redis 不迁（可重建）。
+活舰队（ops fan-out / probe 默认）：**prod + uk1/uk2/us4/us5**（五节点）。Lightsail ≥7 天保留作回滚；禁止双写业务库。Redis 不迁（可重建）。
 
-**本质：** 每条边都是 **全新换机**（新 cax21 + 新库 + 新出口 IP），不是 Lightsail 原地升级。决策锁在审批基线「本质：全新换机」节。
+**本质：** 每条边都是 **全新换机**（新 cax21 + 新库 + 新出口 IP），不是 Lightsail 原地升级。决策锁在审批基线「本质：全新换机」节。us3/us6 **未走换机**，见账号级退役节。
 
-**编排入口（Agent）：** [`.cursor/skills/tokenkey-host-replacement/SKILL.md`](../../.cursor/skills/tokenkey-host-replacement/SKILL.md) — plan → provision → replicate → cutover → drain → verify；下次 us3/us6/prod 换机先加载该 skill，坑位回写 skill + 本节。
+**编排入口（Agent）：** [`.cursor/skills/tokenkey-host-replacement/SKILL.md`](../../.cursor/skills/tokenkey-host-replacement/SKILL.md) — plan → provision → replicate → cutover → drain → verify；下次 **prod 正式切流**或新边换机先加载该 skill，坑位回写 skill + 本节。
 
 ## 切流实测教训（2026-10-10）
 
@@ -91,7 +91,7 @@ Restore 目标：Hetzner Hybrid `mi-*`。PG18 dump 含 `\restrict`：灌库前 `
 
 | 边状态 | 增量策略 |
 |--------|----------|
-| **未切流**（未来 us3/us6） | 切流前做一次 **冻写窗内的新鲜 precious + logs** 整库重灌（或等价增量），然后 **立刻** 改正式 A。不要「先切 DNS 再慢慢补库」。 |
+| **未切流**（历史模板；本轮无待切边） | 切流前做一次 **冻写窗内的新鲜 precious + logs** 整库重灌（或等价增量），然后 **立刻** 改正式 A。不要「先切 DNS 再慢慢补库」。us3/us6 已改账号级退役，不再走本行。 |
 | **已切流**（uk1/us4/us5/uk2） | 正式流量已写 HZ。uk1/us4：prod 容器曾因切流前启动未吃到 host pin，us4 `/v1/responses` 仍打 LS——已 restart 纠正；LS app/gemini-web 已停（PG/Caddy 保留 ≥7d）；按 `request_id` 定点补漏见下表。**不要**再对已切边做整库覆盖。 |
 
 禁止双活双写：增量窗口内正式流量只能打一侧。
@@ -110,7 +110,7 @@ Restore 目标：Hetzner Hybrid `mi-*`。PG18 dump 含 `\restrict`：灌库前 `
 
 ## 增量 + DNS 切流推荐顺序
 
-对 **尚未切正式 DNS** 的边（当前：us3/us6）：
+对 **尚未切正式 DNS** 的边（历史模板；us3/us6 已取消重建，见「账号级退役」）：
 
 1. Staging / 探针绿（E0–E4 级）。  
 2. **冻写**（短）：停 LS 上该边业务写入路径，或接受秒～分钟级 RPO 并加速执行 3–5。  
@@ -160,7 +160,7 @@ HZ **相对 LS 仍缺 / 不同**：
 
 ## Prod staging → 正式切流
 
-**顺序 override（2026-10-10）：** 四边已切后 **先做 prod**；**us3/us6 明确延期**（本轮不触碰）。覆盖审批基线「全 edge 后再 prod」；执行以本节为准。
+**顺序 override：** 四边已切后 **先做 prod**；us3/us6 原「延期重建」于 **2026-10-11 取消**（账号级退役）。覆盖审批基线「全 edge 后再 prod」；执行以本节为准。
 
 ### Wave A — staging（零用户影响）
 
@@ -187,8 +187,9 @@ Bootstrap（`render-prod-bootstrap.sh`）已嵌入：`tokenkey-pgdump.timer`（`
 - 点火：GHA `deploy-prod-hetzner-stage0.yml` · tag `1.8.283` · IP `167.233.211.115` · `mi-033c9569c7fb8b884` · E0 `aarch64` · timers active · Feishu webhook 已从 AWS 拷贝  
 - 演练 restore（刷新）：`tokenkey-20261010T155229Z.sql.gz` → HZ；对账 `accounts=215=215`；`usage_billing_dedup` HZ `14571497`（dump 窗）；`usage_logs` HZ `0`（precious 预期）；下载 ~17s / restore ~5.0 min  
 - E1：`api-hz.tokenkey.dev` A → `167.233.211.115`；LE 证书已签；`https://api-hz.tokenkey.dev/health` → 200  
-- 零影响预热：HZ SSM secrets 已同步；`warm_pull` `1.8.283` 绿；控制面默认仍 `i-*`；正式 Caddy dry 四 vhost；**CallModel 公网 NS 已跟齐 Porkbun**（A=`34.194.234.88`）；**Mode C 压窗**见 runbook（C-lite 约 1.5–2.5 min / C-full 约 4–8 min；整库回退约 10–15 min）  
-- **Wave B 延期（2026-10-10）：** 现网请求量高，**不做冻写/正式 DNS**；正式流量继续 AWS EIP `34.194.234.88`。低流量窗再批「批准冻写切流」。**Porkbun TTL→300 已 apply**（四正式 A；`api-hz` 仍 600）；Better Stack `api-hz` 旁路仍可人工建。  
+- 零影响预热：HZ SSM secrets 已同步；`warm_pull` `1.8.283` 绿；正式 Caddy dry 四 vhost；**CallModel 公网 NS 已跟齐 Porkbun**（A=`34.194.234.88`）；**Mode C 压窗**见 runbook（C-lite 约 1.5–2.5 min / C-full 约 4–8 min；整库回退约 10–15 min）  
+- **ops 控制面（2026-10-11）：** SSM param `/tokenkey/prod/control-plane-ssm-target=hetzner`；QA/warm/probe 经 `resolve_prod_ssm_target` 打 Hybrid `mi-*`（#2542/#2543）。**不等于**正式流量切流。  
+- **Wave B 正式 DNS 延期（2026-10-10 起）：** 现网请求量高，**不做冻写/正式 DNS**；正式流量继续 AWS EIP `34.194.234.88`。低流量窗再批「批准冻写切流」。**Porkbun TTL→300 已 apply**（四正式 A；`api-hz` 仍 600）；Better Stack `api-hz` 旁路仍可人工建。  
 
 user-data **必须以 `#!/bin/bash` 开头**；AWS CLI 走 awscliv2 zip。
 
@@ -214,24 +215,86 @@ user-data **必须以 `#!/bin/bash` 开头**；AWS CLI 走 awscliv2 zip。
 
 IdP / 支付 webhook **URL 字符串不变**（仍 `https://api.tokenkey.dev/...`）。写后禁裸 DNS 回旧库。
 
-控制面默认仍解析 AWS `i-*`；切后才 `PROD_SSM_TARGET=hetzner` 或 PutParameter `/tokenkey/prod/control-plane-ssm-target=hetzner`。
+**控制面现状（2026-10-11）：** ops 已 PutParameter `hetzner`，`resolve_prod_ssm_target` 默认 Hybrid `mi-*`。正式流量仍 AWS EIP；冻写切流后才停 AWS app。回滚 ops 控制面：`PROD_SSM_TARGET=aws` 或 param=`aws`。
+
+## us3/us6 账号级退役（2026-10-11 执行）
+
+**与审批基线的差异（已获用户逐项确认）：** 基线 [`hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md) §节奏/§路线锁的是
+「us3/us6 重建 HZ、逻辑 edge id 不变、整库复刻」。实际改为**账号级退役**：把两边账号折叠进既有的
+uk1/uk2，edge id 不再保留，**不重建机器、不做整库复刻**。基线文档保留原决策不改（人工审批产物）。
+
+**为何不违反「禁止只靠 migrate-edge-accounts 当全量迁移」：** 那条禁令（基线 §30/§47、
+[`README`](README.md) 的「数据复刻（必做）」节）约束的是「换机但要保住整台边」的场景——那需要
+`usage_logs*`/dedup/settings/audit 全量。这里不保留 edge id，历史数据留在原机只读（≥7d），
+所以脚本的设计用途（搬无法从 admin UI 重录的凭证）正好吻合。
+
+### 实际路径（每类平台五步，主力最后动）
+
+1. `migrate-edge-accounts.py extract → build`（dry-run，逐条审 SQL）→ `load --execute`
+2. 目标边建缺失的 relay `api_key`（`api_keys.group_id` 必填，所以先有组才有 key）
+3. 把 `*-us3`/`*-us6` 后缀组合并进目标边原有同名组，删空组
+4. 改 prod stub 的 `credentials.base_url` + `api_key` + `name`（**分组绑定/优先级/is_exclusive 一律不动**）
+5. 从 prod 实测 `/v1/models` + 盯盘确认错误零新增，再软删剩余 stub
+
+### 结果
+
+| 项 | us3 → uk1 | us6 → uk2 |
+|---|---|---|
+| 账号 | 12/12（`name\|platform\|cred_len` 逐字节对账，差集为空） | 19/19（同法对账） |
+| 切流 stub | `openai-us3`→`openai-uk1`(64)、`china-us3`→`china-uk1`(198) | `openai-us6`→`openai-uk2`(63)、`china-us6`→`china-uk2`(199)、`kiro-us6`→`kiro-uk2`(66) |
+| 软删 stub | `cc-us3`(52)、`kiro-us3`(70)、`antigravity-us3`(61)、`gemini-us3`(208)；`grok-us3`(80) 早前已删 | `cc-us6`(55)、`grok-us6`(81)、`antigravity-us6`(85)、`gemini-us6`(210) |
+| 合并后组 | `antigravity` 7、`gemini-web` 2、`default` 1、`china` 3、`openai` 4 | `antigravity` 9、`gemini-web` 5、`kiro` 5、`china` 7、`openai` 4 |
+| 新建 relay key | `relay-openai-uk1`、`relay-china-uk1` | `relay-openai-uk2`、`relay-china-uk2`、`relay-kiro-uk2` |
+
+`schedulable`/`status` 用 `--preserve-schedulable` 保持与源侧一致（含故意保留 `anti-503`/`anti-510` 的
+`error`）；唯一刻意偏离是 gemini —— 全部压成 `error`+不可调度等 re-import。
+
+### 坑位（复用时先读）
+
+- **空池废 stub**：`kiro-us3`(70)、`grok-us6`(81) 的 prod stub 活着但边库对应平台 0 账号。迁移前要用
+  「prod stub ↔ edge 平台账号数」对照表筛一遍，否则会为空池白做一轮。
+- **孤儿账号**：uk2 的 `nvidia-build-492/493/505` 此前 live 但**未绑任何组**，根本路由不到（非本次引入）。
+  已收养进 `china`。目标边迁入前先跑一次 orphan 检查。
+- **配置不随账号走**：账号搬完后 `settings` 仍是目标边的。本次实际漏过一项——us3 独有的
+  `tk_account_model_mapping_runtime`（antigravity `gemini-3-flash`→`gemini-3.8-flash-medium`），
+  靠事后复审才抓到；不补就是静默行为漂移。另外 `ops_advanced_settings`/`ops_metric_thresholds`
+  是舰队标准值（us3/us4/us5/us6 md5 全等），**uk1/uk2 切流时就漏配了**，本次一并补齐六边一致。
+- **gemini-web 会话必失效,kiro OAuth 不受影响**：uk2 原有两个带会话的 gemini 迁来后即 `error`，
+  是出口 IP 变更的实证；而 kiro 5 个 OAuth 搬到 uk2 后**立刻成功服务**（01:40:13 起），
+  所以 kiro 凭证不绑出口 IP。迁 gemini 必须排 re-import，迁 kiro 不必。
+- **脚本不幂等**：裸 `INSERT ... RETURNING id`，无 `ON CONFLICT`，重跑即重复账号且无 undo。
+  每批只跑一次 `load --execute`；`--replace-target` 全程禁用（会软删目标所有账号 = 清空 live 边）。
+- **`account_groups` 只有 4 列**（`account_id`/`group_id`/`priority`/`created_at`，无 `updated_at`）；
+  `settings` 只有 4 列（`id`/`key`/`value` text/`updated_at`，无 `created_at`）；边机**无 pgcrypto**
+  （`gen_random_bytes` 不可用，relay key 用 `md5(random()||clock_timestamp())` 拼 64 hex）。
+- **改 stub `base_url` 是瞬时切换、无灰度**，但也正因此是唯一的快速回滚手段（改回去即可）。
+  切前必须先从 prod 侧实测目标边 `/v1/models` 拿到 200。
+- 软删有流量的 stub 前，确认它所在的每个组还剩 ≥2 个可调度同伴（本次用 SQL 守卫强制）。
+
+### 剩余（未做）
+
+停写 us3/us6 **故意延后**：uk1/uk2 的 gemini 会话还没 re-import，而 `gemini-web-498`(us3)/
+`gemini-web-506`(us6) 的原会话在原机上，是唯一退路。re-import 落地后再按纪律收尾：
+停 app + gemini-web → `.env` 置 `TOKENKEY_LS_STANDBY_READONLY=1` → 保留 PG/Caddy ≥7d →
+`edge-targets-lightsail.json` 翻 `deployable=false` → ≥7d 后删实例（参照 2026-06-23
+uk1旧/us2/us7 退役清单，含**删 prod mirror account**）。
 
 ## 后续 backlog
 
 1. **禁止**再对已切四边整库覆盖 live HZ；LS ≥7d 后可退役实例。  
-2. **prod Wave A/B**（当前刀）：见上节；us3/us6 **延期**。  
-3. **us3**（延期）：配额允许 → 重建 HZ → 冻写 → precious+logs → 正式 A → LS 停写。  
-4. **us6**（延期）：同 us3。  
-5. gemini-web：各 HZ 边会话 re-import；再评估 `gemini-uk*` stub。  
+2. **prod Wave B 正式 DNS/冻写**（当前刀）：见上节；ops 控制面 `mi-*` 已就绪。
+3. ~~us3 重建 HZ~~ **已取消**：2026-10-11 改走账号级退役（账号迁 uk1），不再重建机器。剩停写 + 实例退役，见上节「剩余」。
+4. ~~us6 重建 HZ~~ **已取消**：同 us3（账号迁 uk2）。
+5. gemini-web：**7 个账号待运营 re-import**（uk1 `gemini-web-498`/`gemini-web`；uk2 `gemini-web-506`/`510`/`492`/`505`/`493`），全部 `status=error`+`schedulable=false` 并带原因；re-import 后开边侧账号 + prod `gemini-uk1`/`uk2` 即通（key 已逐字节核对一致）。**期间 prod gemini 组仅 `gemini-us4`/`us5` 两个可调度 stub 承载，属单点。**  
 6. 边侧供应：us4 anthropic 失效号、us4/us5 grok 选号/空池、uk 边补 CC 池——冒烟 200 后再开对应 prod stub。  
 7. 新机 Feishu：仍需 post-boot 从 AWS prod `.env` 拷贝（不进 git）。  
-8. Wave B 后：prod 发版 workflow 解析 Hybrid `mi-*`；蓝绿 vs 单色路径对齐。
+8. ~~矩阵/workflow 收敛~~ **已落地（#2550）：** LS us3/us6 `deployable=false`；`--list-deployable` / prod-ops-matrix HZ-first；warm/timer/docs/log dump + ops-daily prod 统一 `resolve_prod_ssm_target`；fleet-feishu/ops-daily/antigravity/anthropic/mapping 跟活边。未改：`deploy-qa-bundle` 网络/IAM、`container-log-policy`（仍 `i-*` + AWS compose）。
 
 ## 硬门禁
 
 - `location=fsn1` · `server_type=cax21` · `architecture=arm`
 - prod：`volume_mount=/var/lib/tokenkey` · `volume_size_gb>=40`
-- 矩阵：`uk1/uk2/us4/us5` 已 `deployable=true`（正式切流后）；`us3/us6` 与 prod target 仍 `false` 直至重建/切流
+- 矩阵：活边 HZ `uk1/uk2/us4/us5` `deployable=true`；LS 同四边为 standby、us3/us6 `deployable=false`；prod HZ target 仍 `false` 直至正式 DNS 切流
 
 ```bash
 python3 -m unittest deploy/hetzner/test_resolve_edge_hetzner_target.py

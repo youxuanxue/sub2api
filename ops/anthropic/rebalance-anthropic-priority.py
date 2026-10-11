@@ -168,43 +168,9 @@ def load_json_file(path: pathlib.Path, what: str) -> Any:
 
 
 # --------------------------------------------------------------------------
-# AWS / SSM helpers mirror manage-anthropic-config.py; edge routing + MI
-# resolution reuse ops/stage0/edge_* so Lightsail edges stay coherent.
+# AWS / SSM helpers. Edge MI resolve uses edge_ssm_execution (auto → HZ-first).
+# Priority rebalance is edge-only; do not add CFN prod describe-stacks here.
 # --------------------------------------------------------------------------
-
-def resolve_instance_id(region: str, stack: str) -> str:
-    try:
-        out = subprocess.check_output(
-            [
-                "aws", "cloudformation", "describe-stacks",
-                "--region", region,
-                "--stack-name", stack,
-                "--query", "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue",
-                "--output", "text",
-            ],
-            text=True,
-        ).strip()
-    except subprocess.CalledProcessError as e:
-        fail(f"describe-stacks failed for {stack}/{region}: {e}")
-    if not out or out == "None":
-        try:
-            out = subprocess.check_output(
-                [
-                    "aws", "cloudformation", "describe-stack-resources",
-                    "--region", region,
-                    "--stack-name", stack,
-                    "--query",
-                    "StackResources[?ResourceType=='AWS::EC2::Instance'].PhysicalResourceId | [0]",
-                    "--output", "text",
-                ],
-                text=True,
-            ).strip()
-        except subprocess.CalledProcessError as e:
-            fail(f"describe-stack-resources fallback failed for {stack}/{region}: {e}")
-    if not out or out == "None":
-        fail(f"no InstanceId resolvable for stack {stack}/{region}")
-    return out
-
 
 def ssm_run_sql(region: str, instance_id: str, sql: str, comment: str) -> tuple[str, str]:
     remote = (

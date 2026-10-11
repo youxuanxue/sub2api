@@ -21,12 +21,12 @@ set -euo pipefail
 #
 # Usage:
 #   TK_FEISHU_WEBHOOK_URL=... TK_FEISHU_SIGNING_SECRET=... \
-#     bash ops/stage0/sync-feishu-config.sh <edge-id|prod> [--platform auto|ec2|lightsail]
+#     bash ops/stage0/sync-feishu-config.sh <edge-id|prod> [--platform auto|lightsail|hetzner]
 #
 # Examples:
-#   ... bash ops/stage0/sync-feishu-config.sh us6        # auto-resolves Lightsail vs EC2
-#   ... bash ops/stage0/sync-feishu-config.sh prod       # prod Stage0 gateway
-#   ... bash ops/stage0/sync-feishu-config.sh --platform ec2 fra1
+#   ... bash ops/stage0/sync-feishu-config.sh uk1        # auto → deployable Hetzner mi-*
+#   ... bash ops/stage0/sync-feishu-config.sh prod       # prod control plane (resolve_prod_ssm_target)
+#   ... bash ops/stage0/sync-feishu-config.sh --platform lightsail uk1  # LS standby
 #
 # Required env:
 #   TK_FEISHU_WEBHOOK_URL     shared incoming-webhook URL (https://...)
@@ -34,8 +34,8 @@ set -euo pipefail
 #   Either empty -> exit 1 (a misconfigured workflow env is caught here, not silently skipped).
 #
 # Behavior:
-#   - Resolves Lightsail (tag SSM) vs edge EC2 (CFN); prod uses resolve_prod_ssm_target
-#     (default AWS i-*; post Wave B Hybrid mi-* via cutover flag).
+#   - Edges: edge_ssm_execution (auto prefers Hetzner Hybrid mi-*; explicit lightsail/hetzner).
+#   - prod: resolve_prod_ssm_target (cutover-aware aws i-* / hetzner mi-*).
 #   - Idempotent jsonb_set: sets feishu.{webhook_url,signing_secret,enabled,webhook_url_configured,
 #     signing_secret_configured}; PRESERVES rate_limit_per_hour / cooldown_seconds /
 #     account_incident_digest_seconds and every other existing field.
@@ -46,14 +46,12 @@ set -euo pipefail
 
 _OPS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${_OPS_DIR}/../.." && pwd)"
-# shellcheck source=ssm_resolve_invocation_mi.inc.sh
-source "${_OPS_DIR}/ssm_resolve_invocation_mi.inc.sh"
 
 usage() {
   cat <<'EOF'
 Usage:
   TK_FEISHU_WEBHOOK_URL=... TK_FEISHU_SIGNING_SECRET=... \
-    bash ops/stage0/sync-feishu-config.sh [--platform auto|ec2|lightsail] <edge-id|prod>
+    bash ops/stage0/sync-feishu-config.sh [--platform auto|lightsail|hetzner] <edge-id|prod>
 
 Sets the shared Feishu webhook+secret into the node's ops_email_notification_config
 and enables Feishu alerting (idempotent), then verifies the write. Never prints secrets.
@@ -99,9 +97,13 @@ INPUT_TARGET="$1"
 EDGE_ID="${INPUT_TARGET#edge-}"
 
 case "${PLATFORM_PREF}" in
-auto | ec2 | lightsail) ;;
+auto | lightsail | hetzner) ;;
+ec2)
+  echo "[error] --platform ec2 is retired for edges; use auto|lightsail|hetzner" >&2
+  exit 1
+  ;;
 *)
-  echo "[error] invalid --platform: ${PLATFORM_PREF} (use auto|ec2|lightsail)" >&2
+  echo "[error] invalid --platform: ${PLATFORM_PREF} (use auto|lightsail|hetzner)" >&2
   exit 1
   ;;
 esac
@@ -118,45 +120,34 @@ if [[ -z "${TK_FEISHU_WEBHOOK_URL:-}" || -z "${TK_FEISHU_SIGNING_SECRET:-}" ]]; 
   exit 1
 fi
 
-INSTANCE_ID_EC2=""
+INSTANCE_ID=""
 EC2_STACK=""
 if [[ "$EDGE_ID" == "prod" ]]; then
-  # Same control-plane flip as deploy-stage0 (aws i-* until cutover → hetzner mi-*).
   RESOLVED_JSON="$(python3 "${_OPS_DIR}/resolve_prod_ssm_target.py" --format json)"
-  INSTANCE_ID_EC2="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"${RESOLVED_JSON}")"
+  INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"${RESOLVED_JSON}")"
   REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"${RESOLVED_JSON}")"
-  RES_MODE=ec2
+  RES_MODE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["target"])' <<<"${RESOLVED_JSON}")"
   EC2_STACK="resolve_prod_ssm_target"
-  if [[ -z "${INSTANCE_ID_EC2:-}" || -z "${REGION:-}" ]]; then
+  if [[ -z "${INSTANCE_ID:-}" || -z "${REGION:-}" ]]; then
     echo "[error] resolve_prod_ssm_target returned empty instance_id/ssm_region" >&2
     exit 1
   fi
 else
-  RES_LINE="$(python3 "${_OPS_DIR}/edge_admin_resolve_target.py" "${REPO_ROOT}" "${EDGE_ID}" "${PLATFORM_PREF}" | tr -d '\r')"
-  IFS=$'\t' read -r RES_MODE REGION EC2_STACK <<<"$RES_LINE"
-
-  if [[ -z "${RES_MODE:-}" ]]; then
-    echo "[error] resolver returned empty output" >&2
+  RESOLVED_JSON="$(python3 "${_OPS_DIR}/edge_ssm_execution.py" \
+    --repo-root "${REPO_ROOT}" \
+    --edge-id "${EDGE_ID}" \
+    --platform "${PLATFORM_PREF}" \
+    --format json)"
+  RES_MODE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["routing"])' <<<"${RESOLVED_JSON}")"
+  REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["region"])' <<<"${RESOLVED_JSON}")"
+  INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"${RESOLVED_JSON}")"
+  if [[ -z "${RES_MODE:-}" || -z "${REGION:-}" || -z "${INSTANCE_ID:-}" ]]; then
+    echo "[error] edge_ssm_execution returned empty routing/region/instance_id" >&2
     exit 1
   fi
-
-  if [[ "$RES_MODE" == ec2 ]]; then
-    INSTANCE_ID_EC2="$(aws cloudformation describe-stacks \
-      --region "$REGION" \
-      --stack-name "$EC2_STACK" \
-      --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' \
-      --output text)"
-    if [[ -z "${INSTANCE_ID_EC2:-}" || "${INSTANCE_ID_EC2:-}" == "None" ]]; then
-      echo "[error] could not resolve InstanceId from stack ${EC2_STACK} in ${REGION}" >&2
-      exit 1
-    fi
-  fi
 fi
 
-echo "[info] edge_id=${EDGE_ID} platform=${RES_MODE} region=${REGION} stack=${EC2_STACK:-<lightsail-tags>}"
-if [[ "$RES_MODE" == ec2 ]]; then
-  echo "[info] instance_id=${INSTANCE_ID_EC2}"
-fi
+echo "[info] edge_id=${EDGE_ID} platform=${RES_MODE} region=${REGION} instance_id=${INSTANCE_ID}"
 echo "[info] syncing Feishu config via SSM (idempotent; secrets not printed)..."
 # Build the SSM command array in Python so the webhook/secret are embedded as
 # JSON literals inside a quoted heredoc (<<'EOSQL') — no shell expansion, no
@@ -238,29 +229,15 @@ fi
 PARAM_BODY="${OUTPUT_DIR}/ssm-params.json"
 printf '{"commands":%s}\n' "${COMMANDS_JSON}" >"${PARAM_BODY}"
 
-COMMAND_ID=""
-if [[ "$RES_MODE" == lightsail ]]; then
-  COMMAND_ID="$(aws ssm send-command \
-    --region "$REGION" \
-    --targets "Key=tag:EdgeId,Values=${EDGE_ID}" "Key=tag:Platform,Values=lightsail" \
-    --document-name AWS-RunShellScript \
-    --comment "sync feishu config (${EDGE_ID} lightsail)" \
-    --parameters "file://${PARAM_BODY}" \
-    --query 'Command.CommandId' \
-    --output text)"
-  INSTANCE_ID_SSM=""
-  INSTANCE_ID_SSM="$(ssm_resolve_invocation_mi "$REGION" "$COMMAND_ID")"
-else
-  COMMAND_ID="$(aws ssm send-command \
-    --region "$REGION" \
-    --instance-ids "$INSTANCE_ID_EC2" \
-    --document-name AWS-RunShellScript \
-    --comment "sync feishu config (${EDGE_ID} ec2)" \
-    --parameters "file://${PARAM_BODY}" \
-    --query 'Command.CommandId' \
-    --output text)"
-  INSTANCE_ID_SSM="$INSTANCE_ID_EC2"
-fi
+COMMAND_ID="$(aws ssm send-command \
+  --region "$REGION" \
+  --instance-ids "$INSTANCE_ID" \
+  --document-name AWS-RunShellScript \
+  --comment "sync feishu config (${EDGE_ID} ${RES_MODE})" \
+  --parameters "file://${PARAM_BODY}" \
+  --query 'Command.CommandId' \
+  --output text)"
+INSTANCE_ID_SSM="$INSTANCE_ID"
 
 echo "[info] ssm_command_id=${COMMAND_ID}"
 echo "[info] ssm_invocation_instance_id=${INSTANCE_ID_SSM}"
@@ -314,8 +291,7 @@ echo "[ok] feishu config sync complete"
 echo "EDGE_ID=${EDGE_ID}"
 echo "SSM_ROUTING=${RES_MODE}"
 echo "REGION=${REGION}"
-[[ "$RES_MODE" == ec2 ]] && echo "EC2_STACK=${EC2_STACK}" && echo "EC2_INSTANCE_ID=${INSTANCE_ID_EC2}"
-[[ "$RES_MODE" == lightsail ]] && echo "SSM_TAGS=EdgeId=${EDGE_ID},Platform=lightsail"
+[[ -n "${EC2_STACK:-}" ]] && echo "EC2_STACK=${EC2_STACK}"
 echo "SSM_PRIMARY_ID=${INSTANCE_ID_SSM}"
 echo "VERIFY=${VERIFY_LINE}"
 echo "[ok] feishu alerting enabled; webhook/secret were not printed"

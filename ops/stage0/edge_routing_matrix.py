@@ -76,7 +76,32 @@ def edge_hetzner_deployable(target: dict | None) -> bool:
 
 
 def deployable_edge_ids(targets: dict[str, dict]) -> list[str]:
+    """Lightsail-only deployable ids (historical; prefer live_deployable_edge_ids for ops fan-out)."""
     return sorted(eid for eid, target in targets.items() if edge_deployable(target))
+
+
+def live_deployable_edge_ids(
+    repo_root: pathlib.Path | str,
+    *,
+    lightsail_targets: dict[str, dict] | None = None,
+    hetzner_targets: dict[str, dict] | None = None,
+) -> list[str]:
+    """Ops live fleet edge ids: deployable Hetzner first, else Lightsail-only deployable.
+
+    An edge that is deployable on both platforms appears once (Hetzner preferred).
+    Retired / planned rows on either matrix are omitted.
+    """
+    root = pathlib.Path(repo_root).resolve()
+    hz = hetzner_targets if hetzner_targets is not None else load_hetzner_targets(root)
+    ls = lightsail_targets if lightsail_targets is not None else load_lightsail_targets(root)
+    ids: set[str] = set()
+    for eid, target in hz.items():
+        if edge_hetzner_deployable(target):
+            ids.add(eid)
+    for eid, target in ls.items():
+        if edge_deployable(target) and not edge_hetzner_deployable(hz.get(eid)):
+            ids.add(eid)
+    return sorted(ids)
 
 
 def resolve_route_tab(

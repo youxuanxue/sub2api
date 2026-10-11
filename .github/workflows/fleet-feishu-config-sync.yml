@@ -129,15 +129,10 @@ jobs:
               echo "| \`$tgt\` | dry-run (skipped) | — |" >> "$GITHUB_STEP_SUMMARY"
               continue
             fi
-            # prod resolves to EC2 (auto); every edge is Lightsail. The script never
-            # prints the webhook/secret; we only surface its VERIFY booleans.
-            if [ "$tgt" = "prod" ]; then
-              PLATFORM_FLAG=()
-            else
-              PLATFORM_FLAG=(--platform lightsail)
-            fi
+            # auto: prod → resolve_prod_ssm_target; edges → Hetzner Hybrid when
+            # deployable, else Lightsail. Script never prints webhook/secret.
             echo "::group::sync $tgt"
-            if out="$(bash ops/stage0/sync-feishu-config.sh "${PLATFORM_FLAG[@]}" "$tgt" 2>&1)"; then
+            if out="$(bash ops/stage0/sync-feishu-config.sh --platform auto "$tgt" 2>&1)"; then
               printf '%s\n' "$out"
               verify="$(printf '%s\n' "$out" | grep -E '^VERIFY=' | tail -n1 | sed 's/^VERIFY=//')"
               echo "| \`$tgt\` | ✅ ok | ${verify:-<none>} |" >> "$GITHUB_STEP_SUMMARY"

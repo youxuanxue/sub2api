@@ -54,6 +54,11 @@ def main() -> int:
     workflow_text = WORKFLOW.read_text(encoding="utf-8")
     if "instance_id: mi-" in workflow_text:
         return fail("workflow still embeds mutable SSM managed-instance ids")
+    # Edge fan-out must follow live fleet routing (HZ-first), not pin Lightsail standby.
+    if "--platform lightsail" in workflow_text:
+        return fail("edge resolve hardcodes --platform lightsail; use auto for live fleet")
+    if "edge_ssm_execution.py" in workflow_text and "--platform auto" not in workflow_text:
+        return fail("edge resolve missing --platform auto")
 
     print(f"check-ghcr-prune-workflow: ok ({len(deployable)} registry targets)")
     return 0

@@ -21,11 +21,16 @@ Prod talks to edges by hostname (`api-<id>.tokenkey.dev`). After an A-record cha
 | --- | --- | --- | --- | --- |
 | `uk1` | eu-west-2 | `api-uk1.tokenkey.dev` | `tokenkey-edge-uk1-ip` | `18.135.0.171` |
 | `uk2` | eu-west-2 | `api-uk2.tokenkey.dev` | `tokenkey-edge-uk2-ip` | `51.24.28.148` |
-| `us3` | us-east-2 | `api-us3.tokenkey.dev` | `vless-oh-fresh-1-rot-20260828T122454Z` | `18.216.113.132` |
 | `us4` | us-west-2 | `api-us4.tokenkey.dev` | `Static-or-1-rot-20260828T122052Z` | `32.188.80.151` |
 | `us5` | us-west-2 | `api-us5.tokenkey.dev` | `vless-or-fresh-1-rot-20260828T115642Z` | `16.144.175.131` |
-| `us6` | us-east-2 | `api-us6.tokenkey.dev` | `StaticIp-oh-3-rot-20260828T121745Z` | `3.147.98.112` |
 <!-- END edge-ip-status:current -->
+
+Standby (deployable=false；账号级退役 2026-10-11，gemini 会话 drain 前保留实例；不进 fan-out)：
+
+| Edge | Region | Domain | Static IP name | IPv4 |
+| --- | --- | --- | --- | --- |
+| `us3` | us-east-2 | `api-us3.tokenkey.dev` | `vless-oh-fresh-1-rot-20260828T122454Z` | `18.216.113.132` |
+| `us6` | us-east-2 | `api-us6.tokenkey.dev` | `StaticIp-oh-3-rot-20260828T121745Z` | `3.147.98.112` |
 
 ## Polluted IPs (do not re-use)
 

@@ -12,8 +12,8 @@
 #   default: tag only (e.g. 1.8.91), suitable for RUNNING_TAG=$(...)
 #   --json:  {"instance_id":...,"container":...,"image":...,"tag":...}
 #
-# Read-only: CloudFormation Describe* + SSM RunShellScript probe containing only
-# docker inspect / active-color reads.
+# Read-only: resolve_prod_ssm_target (cutover-aware) + SSM RunShellScript probe
+# containing only docker inspect / active-color reads.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,8 +32,8 @@ Output:
   default: tag only (e.g. 1.8.91), suitable for RUNNING_TAG=$(...)
   --json:  {"instance_id":...,"container":...,"image":...,"tag":...}
 
-Read-only: CloudFormation Describe* + SSM RunShellScript probe containing only
-docker inspect / active-color reads.
+Read-only: resolve_prod_ssm_target (cutover-aware) + SSM RunShellScript probe
+containing only docker inspect / active-color reads.
 
 Usage:
   ops/stage0/resolve-prod-running-tag-via-ssm.sh [--region us-east-1] [--stack tokenkey-prod-stage0]
@@ -41,9 +41,10 @@ Usage:
 
 Options:
   --region REGION       AWS region. Default: $AWS_REGION / $AWS_DEFAULT_REGION / us-east-1.
-  --stack STACK         Prod CFN stack to resolve when --instance-id is omitted.
+                        Overridden by resolve_prod_ssm_target ssm_region when --instance-id is omitted.
+  --stack STACK         Prod stack name passed to resolve_prod_ssm_target when --instance-id is omitted.
                         Default: $PROD_STACK_NAME / tokenkey-prod-stage0.
-  --instance-id ID      Skip CFN resolution and probe this EC2 instance directly.
+  --instance-id ID      Skip auto resolution and probe this i-* / mi-* instance directly.
   --container NAME      auto | tokenkey | tokenkey-blue | tokenkey-green. Default: auto.
   --json                Emit JSON instead of the bare tag.
   --timeout-seconds N   SSM polling budget. Default: 120.
@@ -88,24 +89,23 @@ aws_region() {
   aws --region "${REGION}" "$@"
 }
 
+RESOLVE_PROD="${RESOLVE_PROD_SSM_TARGET:-${SCRIPT_DIR}/resolve_prod_ssm_target.py}"
+
 if [[ -z "${INSTANCE_ID}" ]]; then
-  INSTANCE_ID="$(aws_region cloudformation describe-stacks \
-    --stack-name "${STACK}" \
-    --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" \
-    --output text 2>&1)" || {
-      echo "resolve-prod-running-tag: describe-stacks failed for ${STACK} in ${REGION}" >&2
-      printf '%s\n' "${INSTANCE_ID}" >&2
-      exit 2
-    }
-  if [[ -z "${INSTANCE_ID}" || "${INSTANCE_ID}" == "None" ]]; then
-    INSTANCE_ID="$(aws_region cloudformation describe-stack-resources \
-      --stack-name "${STACK}" \
-      --query "StackResources[?ResourceType=='AWS::EC2::Instance']|[0].PhysicalResourceId" \
-      --output text 2>/dev/null || true)"  # preflight-allow: swallow -- describe-stacks output is authoritative; this fallback is optional and checked below
+  # Cutover-aware: Hybrid mi-* when control-plane param is hetzner (not CFN i-*).
+  if ! RESOLVED_JSON="$(PROD_SSM_TARGET="${PROD_SSM_TARGET:-auto}" python3 "${RESOLVE_PROD}" \
+    --target "${PROD_SSM_TARGET:-auto}" \
+    --stack "${STACK}" \
+    --format json 2>&1)"; then
+    echo "resolve-prod-running-tag: resolve_prod_ssm_target failed for ${STACK}" >&2
+    printf '%s\n' "${RESOLVED_JSON}" >&2
+    exit 2
   fi
+  INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"${RESOLVED_JSON}")"
+  REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"${RESOLVED_JSON}")"
 fi
 if [[ -z "${INSTANCE_ID}" || "${INSTANCE_ID}" == "None" ]]; then
-  echo "resolve-prod-running-tag: could not resolve InstanceId for stack ${STACK}" >&2
+  echo "resolve-prod-running-tag: could not resolve instance id for stack ${STACK}" >&2
   exit 2
 fi
 case "${INSTANCE_ID}" in

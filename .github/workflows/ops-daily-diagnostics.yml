@@ -197,37 +197,36 @@ jobs:
           aws-region: ${{ env.TARGET_REGION }}
 
       - name: Assert live-host state (prod daily audit)
-        # ADVISORY ONLY — prod only (edges are lightsail anthropic relays with no
-        # QA-export / deploy-sed env surface). Daily read-only audit of the live
-        # host's deploy_via_ssm-injected env, the gap no existing detector covered:
-        # a manual host edit or a deploy-sed that wrote wrong content used to be
-        # caught only by hand. No expected_tag here (audit doesn't know the
-        # intended tag — that assertion belongs in deploy-stage0 post-deploy).
+        # ADVISORY ONLY — prod only. Cutover-aware: resolve_prod_ssm_target (not CFN).
         if: steps.precheck.outputs.skip == 'false' && env.TARGET_KIND == 'prod'
         continue-on-error: true
         env:
-          AWS_REGION: ${{ matrix.region }}
+          PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
         run: |
           set -uo pipefail
-          IID=$(aws cloudformation describe-stacks --region "$TARGET_REGION" --stack-name "$STACK_NAME" \
-            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text 2>/dev/null || echo None)
+          RESOLVED_JSON="$(python3 ops/stage0/resolve_prod_ssm_target.py \
+            --target "${PROD_SSM_TARGET}" --stack "$STACK_NAME" --format json)"
+          IID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$RESOLVED_JSON")"
+          SSM_REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"$RESOLVED_JSON")"
           if [ -n "$IID" ] && [ "$IID" != "None" ]; then
-            bash ops/stage0/assert-live-host-state.sh "$IID" "" "ops-daily-diagnostics live-host audit env=prod"
+            AWS_REGION="$SSM_REGION" bash ops/stage0/assert-live-host-state.sh "$IID" "" "ops-daily-diagnostics live-host audit env=prod"
           else
-            echo "skip live-host audit: no InstanceId for $STACK_NAME"
+            echo "skip live-host audit: resolve_prod_ssm_target returned empty instance_id"
           fi
 
       - name: Audit prod configuration independently of deployment
         if: steps.precheck.outputs.skip == 'false' && env.TARGET_KIND == 'prod'
         continue-on-error: true  # preflight-allow: advisory configuration audit
         env:
-          AWS_REGION: ${{ matrix.region }}
+          PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
           PROD_CONFIG_AUDIT_DIR: prod-ops-targets/${{ matrix.target_id }}/config-audit
         run: |
           set -euo pipefail
-          INSTANCE_ID="$(aws cloudformation describe-stacks --region "$TARGET_REGION" --stack-name "$STACK_NAME" \
-            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue | [0]' --output text)"
+          RESOLVED_JSON="$(python3 ops/stage0/resolve_prod_ssm_target.py \
+            --target "${PROD_SSM_TARGET}" --stack "$STACK_NAME" --format json)"
+          INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$RESOLVED_JSON")"
           export INSTANCE_ID
+          export AWS_REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"$RESOLVED_JSON")"
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           bash ops/observability/prod-config-audit.sh
 
@@ -268,20 +267,39 @@ jobs:
 
           API_URL=""
           INSTANCE_ID=""
-          if [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ]; then
-            # Lightsail edges have no CloudFormation stack — INSTANCE_ID is the
-            # SSM Hybrid `mi-*` written by deploy-edge-lightsail-stage0.yml
-            # provision; ApiUrl always defaults to https://<domain>.
+          if [ "$TARGET_KIND" = "prod" ]; then
+            # Cutover-aware control plane (aws i-* or Hybrid mi-*).
+            if ! RESOLVED_JSON="$(PROD_SSM_TARGET="${PROD_SSM_TARGET:-auto}" python3 ops/stage0/resolve_prod_ssm_target.py \
+              --target "${PROD_SSM_TARGET:-auto}" --stack "$STACK_NAME" --format json 2>>"$STDERR")"; then
+              add_finding "resolve_prod_ssm_target" "manual_ops" "error" "Could not resolve prod SSM target" "resolve_prod_ssm_target.py failed for stack $STACK_NAME." "resolve-prod|$STACK_NAME"
+            else
+              INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$RESOLVED_JSON")"
+              TARGET_REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"$RESOLVED_JSON")"
+              API_URL="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("api_url") or "")' <<<"$RESOLVED_JSON")"
+              export AWS_REGION="$TARGET_REGION"
+              if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+                add_finding "resolve_prod_ssm_target" "manual_ops" "error" "Empty prod instance id" "resolve_prod_ssm_target returned empty instance_id." "resolve-prod-empty|$STACK_NAME"
+                INSTANCE_ID=""
+              else
+                [ -n "$API_URL" ] || API_URL="https://$TARGET_DOMAIN"
+                jq --arg instance_id "$INSTANCE_ID" --arg api_url "$API_URL" --arg region "$TARGET_REGION" \
+                  '. + {instance_id:$instance_id, api_url:$api_url, api_url_source:"resolve_prod_ssm_target", region:$region}' \
+                  "$OUT/target.json" > "$OUT/target.tmp" && mv "$OUT/target.tmp" "$OUT/target.json"
+              fi
+            fi
+          elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ] || [ "${TARGET_PLATFORM:-}" = "hetzner" ]; then
+            # Hybrid edges (Lightsail or Hetzner) have no CloudFormation stack —
+            # INSTANCE_ID is the SSM `mi-*` under ssm_prefix; ApiUrl = https://<domain>.
             INSTANCE_ID="$(aws ssm get-parameter --region "$TARGET_REGION" \
               --name "${SSM_PREFIX}/ssm_managed_instance_id" \
               --query 'Parameter.Value' --output text 2>>"$STDERR" || echo None)"
             if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
-              add_finding "lightsail_managed_instance" "manual_ops" "error" "Lightsail managed instance id missing for $TARGET_ID" "${SSM_PREFIX}/ssm_managed_instance_id is empty — has $TARGET_ID been provisioned via deploy-edge-lightsail-stage0.yml?" "lightsail-managed-instance|$TARGET_ID"
+              add_finding "hybrid_managed_instance" "manual_ops" "error" "Hybrid managed instance id missing for $TARGET_ID" "${SSM_PREFIX}/ssm_managed_instance_id is empty — has $TARGET_ID been provisioned?" "hybrid-managed-instance|$TARGET_ID|$TARGET_PLATFORM"
               INSTANCE_ID=""
             else
               API_URL="https://$TARGET_DOMAIN"
-              jq --arg instance_id "$INSTANCE_ID" --arg api_url "$API_URL" \
-                '. + {instance_id:$instance_id, api_url:$api_url, api_url_source:"lightsail_domain"}' \
+              jq --arg instance_id "$INSTANCE_ID" --arg api_url "$API_URL" --arg src "${TARGET_PLATFORM}_domain" \
+                '. + {instance_id:$instance_id, api_url:$api_url, api_url_source:$src}' \
                 "$OUT/target.json" > "$OUT/target.tmp" && mv "$OUT/target.tmp" "$OUT/target.json"
             fi
           elif ! INSTANCE_ID="$(run_aws_text 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue')"; then
@@ -603,11 +621,10 @@ jobs:
               add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "diagnostics_include_error_clustering=false; runtime/health-only lightweight diagnostics." "error-clustering|$TARGET_ID|lightweight-skip"
             elif [ "$RUNTIME_SSM_TRANSPORT_OK" != "true" ]; then
               add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "Runtime SSM SendCommand failed; suppressing downstream error_clustering SSM checks for the same transport root cause." "error-clustering|$TARGET_ID|runtime-ssm-send-failed"
-            elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ]; then
-              # ops/stage0/deploy-error-clustering-binary.sh resolves InstanceId via
-              # CloudFormation; Lightsail edges have no CFN stack. Lightweight diagnostics
-              # (external health + runtime log signal counts) already ran above.
-              add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID (lightsail)" "Lightsail edges have no CloudFormation stack; error_clustering installer is EC2/CFN-coupled. Health + log signals ran via SSM Hybrid managed instance." "error-clustering|$TARGET_ID|lightsail-skip"
+            elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ] || [ "${TARGET_PLATFORM:-}" = "hetzner" ]; then
+              # Error clustering installer is prod-oriented; Hybrid edges skip the
+              # binary path. Lightweight diagnostics already ran above via SSM.
+              add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID ($TARGET_PLATFORM)" "Hybrid edges skip error_clustering binary install; health + log signals ran via SSM Hybrid managed instance." "error-clustering|$TARGET_ID|$TARGET_PLATFORM-skip"
             elif ! printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$'; then
               add_finding "error_clustering_input" "manual_ops" "error" "Invalid since_hours input" "since_hours must be a positive integer, got: $SINCE_HOURS" "error-clustering-input|$SINCE_HOURS"
             else
@@ -624,10 +641,14 @@ jobs:
                 done
                 if [ "$BIN_STATUS" != "Success" ]; then
                   echo "error_clustering binary missing or not executable on $TARGET_ID (status=$BIN_STATUS); installing" >> "$STDOUT"
-                  if STACK="$STACK_NAME" AWS_REGION="$TARGET_REGION" AWS_SSM_WAIT_MAX=600 bash ops/stage0/deploy-error-clustering-binary.sh >>"$STDOUT" 2>>"$STDERR"; then
+                  # Reuse already-resolved Hybrid/CFN instance; installer must not
+                  # re-resolve via describe-stacks (live prod control plane is mi-*).
+                  if INSTANCE_ID="$INSTANCE_ID" AWS_REGION="$TARGET_REGION" \
+                      AWS_SSM_WAIT_MAX=600 \
+                      bash ops/stage0/deploy-error-clustering-binary.sh >>"$STDOUT" 2>>"$STDERR"; then
                     add_finding "error_clustering_binary" "ok" "info" "Installed error_clustering binary for $TARGET_ID" "Diagnostic binary was missing and was installed successfully." "error-clustering-binary|$TARGET_ID"
                   else
-                    add_finding "error_clustering_binary" "manual_ops" "error" "Could not install error_clustering binary for $TARGET_ID" "ops/stage0/deploy-error-clustering-binary.sh failed for $STACK_NAME in $TARGET_REGION." "error-clustering-binary|$TARGET_ID|install-failed"
+                    add_finding "error_clustering_binary" "manual_ops" "error" "Could not install error_clustering binary for $TARGET_ID" "ops/stage0/deploy-error-clustering-binary.sh failed for $INSTANCE_ID in $TARGET_REGION." "error-clustering-binary|$TARGET_ID|install-failed"
                   fi
                 fi
               fi
@@ -1044,18 +1065,31 @@ jobs:
 
       - name: Resolve prod instance ID
         id: instance
+        env:
+          PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
         run: |
-          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
-            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
-          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
-            echo "::error::could not resolve InstanceId from stack $STACK_NAME"
-            exit 1
-          fi
-          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          RESOLVED_JSON="$(python3 ops/stage0/resolve_prod_ssm_target.py \
+            --target "${PROD_SSM_TARGET}" \
+            --stack "$STACK_NAME" \
+            --format json \
+            --github-output "$GITHUB_OUTPUT")"
+          python3 -c '
+          import json, sys
+          d = json.loads(sys.argv[1])
+          for key in ("id", "ssm_region", "target"):
+            if not d.get(key):
+              raise SystemExit(f"::error::missing {key} in resolve_prod_ssm_target output")
+          print(
+              "prod log dump instance=%s target=%s ssm_region=%s"
+              % (d["id"], d["target"], d["ssm_region"])
+          )
+          ' "$RESOLVED_JSON"
 
-      - name: Run docker logs on prod EC2 via SSM
+      - name: Run docker logs on prod via SSM
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
         run: |
           set -euo pipefail
           export GREP_B64="$(printf '%s' "$INPUT_GREP" | base64 -w0 2>/dev/null \
@@ -1086,7 +1120,7 @@ jobs:
           print(json.dumps({"commands": commands}))
           PY
 
-          CMD_ID=$(aws ssm send-command \
+          CMD_ID=$(aws --region "$AWS_REGION" ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name AWS-RunShellScript \
             --comment "prod-log-dump $INPUT_CONTAINER since=$INPUT_SINCE" \
@@ -1096,7 +1130,7 @@ jobs:
 
           DEADLINE=$(( $(date +%s) + 180 ))
           while true; do
-            STATUS=$(aws ssm get-command-invocation \
+            STATUS=$(aws --region "$AWS_REGION" ssm get-command-invocation \
               --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
               --query 'Status' --output text 2>/dev/null || echo InProgress)
             case "$STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
@@ -1104,10 +1138,10 @@ jobs:
             sleep 4
           done
 
-          aws ssm get-command-invocation \
+          aws --region "$AWS_REGION" ssm get-command-invocation \
             --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
             --query 'StandardOutputContent' --output text > stdout.txt
-          aws ssm get-command-invocation \
+          aws --region "$AWS_REGION" ssm get-command-invocation \
             --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
             --query 'StandardErrorContent' --output text > stderr.txt
 

@@ -3,7 +3,7 @@ name: tokenkey-host-replacement
 description: >-
   TokenKey fresh-host replacement (edge/prod): new machine + precious/logs
   dump-restore + DNS cutover + old-host standby. Use for 换机、整机迁移、
-  Hetzner/Lightsail reprovision、us3/us6/prod; not image-only deploy, IP-only
+  Hetzner/Lightsail reprovision、prod; not image-only deploy, IP-only
   rotation, or accounts-only migrate.
 ---
 
@@ -11,11 +11,13 @@ description: >-
 
 编排：**新主机 + 整库复刻 + 切流 + 旧机 ≥7d**。平台命令见下方文档。
 
+活舰队：prod + uk1/uk2/us4/us5（HZ）。us3/us6 账号级退役（不重建）见 hetzner README。
+
 ## 触发 / 勿用
 
-触发：换机、整机迁移、reprovision、LS→HZ、`us3`/`us6`/prod。
+触发：换机、整机迁移、reprovision、LS→HZ、prod Wave B。
 
-勿用→改用：镜像→`stage0-release-rollout`；LS 换 IP→`lightsail-ip-rotation`；仅 accounts→`migrate-edge-accounts`；prod 卷在→DR §3；新 LS edge→`lightsail-expansion`。
+勿用→改用：镜像→`stage0-release-rollout`；LS 换 IP→`lightsail-ip-rotation`；仅 accounts→`migrate-edge-accounts`；prod 卷在→DR §3；新 LS edge→`lightsail-expansion`；us3/us6 重建→已取消。
 
 ## 文档
 
@@ -49,7 +51,7 @@ Prod：卷在→DR §3；无卷/跨云→§4.4。骨架：[references/playbook.m
 
 ## 坑位（2026-10）
 
-DNS 缓存→restart/`extra_hosts`；stub 无 scheme→`https://`；已切边禁整库重灌；CIDR 空→prod EIP/32；空池 stub→先修池；`run-probe edge:*` 在 deployable 后 `auto`→HZ。  
-prod 切流：同机四 hostname + 正式 Caddy（非 staging edge）+ Edge CIDR；bootstrap 带 pgdump/disk-metrics/ghcr-prune；Wave A 禁 live `QA_BUNDLE_*`。us3/us6 defer 以 README 为准。详见 `WAVE-B-PROD-CUTOVER-RUNBOOK.md`。
+DNS 缓存→restart/`extra_hosts`；stub 无 scheme→`https://`；已切边禁整库重灌；CIDR 空→prod EIP/32；空池 stub→先修池；`run-probe edge:*` deployable 后 `auto`→HZ。  
+prod：ops 控制面 `mi-*`；正式 DNS/冻写见 `WAVE-B-PROD-CUTOVER-RUNBOOK.md`。
 
 报告：`target platform phase new_ip old_ip dump checks dns drain smoke followups`
