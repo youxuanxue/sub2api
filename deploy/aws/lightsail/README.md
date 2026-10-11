@@ -1,8 +1,7 @@
 # Edge Stage0 on AWS Lightsail（standby / 回滚路径）
 
-> **现网活边在 Hetzner**（prod + uk1/uk2/us4/us5）— SSOT：[`deploy/hetzner/README.md`](../../hetzner/README.md)。  
-> 本目录只服务 **Lightsail standby**（旧实例 ≥7d / 回滚 / 历史 provision）。EC2/CFN edge 路径已移除。  
-> `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 等现网数值勿在此复制，读 Hetzner README。
+> **现网活边 SSOT：** [`deploy/hetzner/README.md`](../../hetzner/README.md)（勿在此复制节点/IP/CIDR）。  
+> 本目录只服务 **Lightsail standby**（旧实例 ≥7d / 回滚 / 历史 provision）。EC2/CFN edge 路径已移除。
 
 Lightsail Edge 与 prod Stage0 **共用**：
 

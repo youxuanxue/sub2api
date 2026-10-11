@@ -11,7 +11,7 @@ description: >-
 
 编排：**新主机 + 整库复刻 + 切流 + 旧机 ≥7d**。
 
-活舰队：prod + uk1/uk2/us4/us5（HZ）— [`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)。
+活舰队 SSOT：[`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)。
 
 ## 触发 / 勿用
 

@@ -4,9 +4,10 @@
   "role": "prod",
   "approved_anchor": "docs/approved/hetzner-cloud-full-migration.md",
   "notes": [
-    "Live prod: api.tokenkey.dev → 167.233.211.115; deployable=true.",
+    "Live prod deployable=true; public IP / CIDR / GHCR path: deploy/hetzner/README.md (SSOT).",
     "Data volume mandatory; root disk is not the PG/Redis truth.",
-    "First deploy-stage0 upgrade migrates single-color tokenkey → blue via ensure_legacy_cutover."
+    "First deploy-stage0 upgrade migrates single-color tokenkey → blue via ensure_legacy_cutover.",
+    "staging_domain is matrix field only; live DNS is domain (no -hz A)."
   ],
   "allowed_locations": ["fsn1"],
   "allowed_server_types": ["cax21"],

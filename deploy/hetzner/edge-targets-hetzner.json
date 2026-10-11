@@ -4,8 +4,8 @@
   "default_profile": "edge-hetzner-cax21",
   "approved_anchor": "docs/approved/hetzner-cloud-full-migration.md",
   "notes": [
-    "Live fleet: uk1/uk2/us4/us5 deployable=true (HCloud).",
-    "us3/us6: empty rows; not in fleet.",
+    "deployable=true rows are live HCloud edges; inventory/IP SSOT: deploy/hetzner/README.md.",
+    "Empty rows (e.g. us3/us6): not in fleet.",
     "auto / --list-deployable prefer deployable Hetzner over Lightsail standby."
   ],
   "allowed_locations": ["fsn1"],

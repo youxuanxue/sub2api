@@ -118,15 +118,15 @@ aws iam get-role --role-name tokenkey-gha-us-east-1-error-clustering \
 
 新 edge **若不跑 smoke**，可跳过 `TK_SMOKE_API_KEY`（见 §1.5 说明；uk1/us1 以外的 edge 默认不配）。
 
-#### 1.3b Lightsail-only edge：**不要**加 EC2 CFN execution role
+#### 1.3b Lightsail standby edge：**不要**加 EC2 CFN execution role
 
-`us2` / `us3` / `us4`、已完成 EC2→Lightsail 的 `uk1` 等 **只在 Lightsail 矩阵 `deployable=true`** 的 edge：
+现网活边在 Hetzner（`deploy/hetzner/README.md`）。对本 skill 操作的 Lightsail 边：
 
 - OIDC 只需 `cicd-oidc.yaml` → `AllowedSubjects` 含 `environment:edge-<id>`（§1.5a）。
-- **不要**在 `cicd-oidc.yaml` 新增 `Edge<PascalCase>CloudFormationExecutionRoleArn` / `EdgeXTargetInstanceId` / 区域 SSM `ssm:SendCommand` 到 EC2 instance ARN——那是已于 2026-06-07 退役的 EC2/CFN edge 路径,不要复活。
+- **不要**在 `cicd-oidc.yaml` 新增 `Edge<PascalCase>CloudFormationExecutionRoleArn` / `EdgeXTargetInstanceId` / 区域 SSM `ssm:SendCommand` 到 EC2 instance ARN——EC2/CFN edge 已退役，不要复活。
 - 运维入口：`deploy-edge-lightsail-stage0.yml` + SSM Hybrid tag `EdgeId` / `Platform=lightsail`。
 
-若误加了 uk1 EC2 IAM：只清残留 IAM/文档；edge 已无 EC2 迁移流程，新增 edge 只用本 skill。
+若误加了旧 EC2 IAM：只清残留；新增 LS 边只用本 skill。
 
 ### 1.6 PR + 落库
 

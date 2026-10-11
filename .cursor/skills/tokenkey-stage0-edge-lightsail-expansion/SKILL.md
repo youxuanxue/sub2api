@@ -8,7 +8,7 @@ description: >-
 
 # TokenKey：Lightsail Edge（standby）全流程
 
-适用于 TokenKey fork of sub2api。**现网活边在 Hetzner**（[`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)）；本 skill 只服务 **Lightsail standby / 回滚 / 新建 LS 边**（EC2/CFN edge 已移除）。
+适用于 TokenKey fork of sub2api。**现网活边 SSOT：** [`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)。本 skill 只服务 **Lightsail standby / 回滚 / 新建 LS 边**（EC2/CFN edge 已移除）。
 权威纪律以仓库根 `CLAUDE.md` 为准。历史 delta：`docs/spec-delta/edge-lightsail.md`。
 
 ## 执行 owner

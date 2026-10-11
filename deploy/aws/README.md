@@ -4,11 +4,14 @@
 > 「部署侧产品身份」（stack 名、容器名、`/var/lib/tokenkey/`、systemd 单元、CW namespace、PG 用户/库默认）统一用 `tokenkey`；
 > 应用环境变量名（`DATABASE_*`/`REDIS_*`/`JWT_*`）与 GHCR 镜像名 `sub2api`（`ghcr.io/<owner>/sub2api:<tag>`）是代码侧约定，**保持不变**。
 
-本目录维护 Stage0 可执行 IaC、运行配置及日常操作入口。
-Prod 使用 EC2/CloudFormation，Edge 使用 Lightsail。
-首次 bootstrap 见 [部署入口](../../docs/deploy/aws-us-openai-gateway-deployment.md)；
-应用发布行为以 [审批契约](../../docs/approved/deploy-stage0-workflow.md) 为准，
-资源规格和备份参数直接读取模板与脚本。
+本目录维护 **AWS 侧** Stage0 IaC、共用 compose/Caddy、以及 Lightsail/EC2 **standby** 操作入口。
+
+> **现网活舰队（prod + edges）在 Hetzner** — 节点 / IP / CIDR / 发版 SSOT：[`deploy/hetzner/README.md`](../hetzner/README.md)。  
+> 下文大量 `tokenkey-prod-stage0` / EC2 内容仅适用于 **AWS standby 或历史 CFN**，勿当作现网写路径。
+
+首次 AWS bootstrap 考古见 [部署入口](../../docs/deploy/aws-us-openai-gateway-deployment.md)；
+应用发布行为以 [审批契约](../../docs/approved/deploy-stage0-workflow.md) 为准；
+现网发版入口见 Hetzner README。
 
 ## 目录布局
 
@@ -254,9 +257,9 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 
 ## Edge Stage 0（Lightsail standby）
 
-> **现网活舰队（prod + uk1/uk2/us4/us5）在 Hetzner** — SSOT：[`deploy/hetzner/README.md`](../hetzner/README.md)。  
+> **现网活舰队 SSOT：** [`deploy/hetzner/README.md`](../hetzner/README.md)。  
 > 本节只讲 **Lightsail standby / 回滚**（`deploy/aws/lightsail/`）。EC2/CFN edge 路径已移除。  
-> prod 正式流量与 ops 控制面均在 HCloud Hybrid；AWS `tokenkey-prod-stage0` 仅为 standby。
+> AWS `tokenkey-prod-stage0` 仅为 standby，不是现网 prod。
 
 Edge 子网关不是第二个用户入口。区域域名（如 `api-us4.tokenkey.dev`）只作为 `api.tokenkey.dev` 背后的区域资源节点，默认 API 路径只允许主网关出口访问。
 
