@@ -36,13 +36,14 @@ func queueTestDatabase(t *testing.T) (*sql.DB, string, func()) {
 			require.NoError(t, err, string(output))
 		}
 		run("initdb", "-D", data, "-U", "qa_test_admin", "--auth=trust", "--locale=C", "-E", "UTF8")
-		run("pg_ctl", "-D", data, "-l", filepath.Join(root, "postgres.log"), "-o", "-c listen_addresses='' -k "+root+" -p 55432", "-w", "start")
+		pgOptions := "-c listen_addresses=127.0.0.1 -k " + root + " -p 55432"
+		run("pg_ctl", "-D", data, "-l", filepath.Join(root, "postgres.log"), "-o", pgOptions, "-w", "start")
 		t.Cleanup(func() { run("pg_ctl", "-D", data, "-m", "immediate", "-w", "stop") })
 		restart = func() {
 			run("pg_ctl", "-D", data, "-m", "immediate", "-w", "stop")
-			run("pg_ctl", "-D", data, "-l", filepath.Join(root, "postgres.log"), "-o", "-c listen_addresses='' -k "+root+" -p 55432", "-w", "start")
+			run("pg_ctl", "-D", data, "-l", filepath.Join(root, "postgres.log"), "-o", pgOptions, "-w", "start")
 		}
-		dsn = "postgres://qa_test_admin@/postgres?host=" + url.QueryEscape(root) + "&port=55432&sslmode=disable"
+		dsn = "postgres://qa_test_admin@127.0.0.1:55432/postgres?sslmode=disable"
 		admin, err := sql.Open("postgres", dsn)
 		require.NoError(t, err)
 		_, err = admin.Exec("CREATE DATABASE tokenkey_qa_queue")
@@ -214,10 +215,13 @@ func TestUS062_PostgresQueueRoleIsolationLeasesAndSingleConcurrency(t *testing.T
 	t.Cleanup(func() { require.NoError(t, admin.Close()) })
 	producer.db = openRoleDB("qa_test_producer")
 	consumer.db = openRoleDB("qa_test_consumer")
+	var reconnectErr error
 	require.Eventually(t, func() bool {
 		var alive int
-		return admin.QueryRow("SELECT 1").Scan(&alive) == nil && alive == 1
+		reconnectErr = admin.QueryRow("SELECT 1").Scan(&alive)
+		return reconnectErr == nil && alive == 1
 	}, 10*time.Second, 50*time.Millisecond)
+	require.NoError(t, reconnectErr)
 	require.NoError(t, admin.QueryRow("SELECT json_agg(j ORDER BY spec_key)::text FROM qa_queue.jobs j").Scan(&after))
 	require.Equal(t, before, after, "queue state and receipts must survive a PostgreSQL restart")
 	// Exercise the producer after the crash too: this verifies reconnection and
