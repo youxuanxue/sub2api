@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import base64
+import json
 import pathlib
+import subprocess
 import unittest
 from unittest import mock
 
@@ -22,6 +25,35 @@ def load_mod():
 class SsmExecutionResolveTest(unittest.TestCase):
     def setUp(self) -> None:
         self.mod = load_mod()
+
+    def test_shell_transport_runs_under_dash_without_consuming_following_commands(self) -> None:
+        run = subprocess.run
+        for script, expected_rc in (("cat >/dev/null\nprintf after-stdin", 0), ("exit 7", 7)):
+            with self.subTest(script=script):
+                result = None
+
+                def aws(args, **kwargs):
+                    nonlocal result
+                    if "send-command" in args:
+                        params = json.loads(args[args.index("--parameters") + 1])
+                        result = run(["dash", "-c", "\n".join(params["commands"])],
+                                     input="", capture_output=True, text=True)
+                        return "test-command"
+                    return json.dumps({"Status": "Success" if result.returncode == 0 else "Failed",
+                                       "ResponseCode": result.returncode,
+                                       "StandardOutputContent": result.stdout,
+                                       "StandardErrorContent": result.stderr})
+
+                with mock.patch.object(self.mod.subprocess, "check_output", side_effect=aws), \
+                     mock.patch.object(self.mod.subprocess, "run"):
+                    encoded = base64.b64encode(script.encode()).decode()
+                    if expected_rc:
+                        with self.assertRaises(SystemExit):
+                            self.mod.run_shell_b64("mi-033c9569c7fb8b884", encoded, "test")
+                    else:
+                        self.assertEqual(self.mod.run_shell_b64("mi-033c9569c7fb8b884", encoded, "test"),
+                                         "after-stdin")
+                self.assertEqual(result.returncode, expected_rc)
 
     def test_resolve_prod_instance_follows_hetzner_cutover_and_binds_region(self) -> None:
         fake = mock.Mock()
