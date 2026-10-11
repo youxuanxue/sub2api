@@ -81,6 +81,204 @@ func TestEstimateTokenHold_HonorsInclusiveLongContextBoundary(t *testing.T) {
 	}
 }
 
+// The reserve must stay an upper bound on whatever settlement can bill, across
+// every tier the request could be billed at (the upstream may only lower the
+// tier) and every token split — WITHOUT double-counting the tier premium by
+// applying a multiplier on top of the priority unit prices already taken by
+// max(). This sweep is the guard for the oversized-reserve fix: it fails both
+// if the estimate under-reserves and (via the sizing test below) if it reverts
+// to charging the priority premium twice.
+func TestEstimateTokenHold_UpperBoundAcrossTiersAndSplits(t *testing.T) {
+	s := NewBillingService(&config.Config{}, nil)
+	const epsilon = 1e-9
+	tiers := []string{"", "default", "priority", "fast", "flex", "scale"}
+
+	for _, model := range []string{"gpt-6-astra", "claude-sonnet-4", "grok-4.6", "gpt-5.4"} {
+		for _, pm := range [][2]int{{5000, 2000}, {300000, 4000}, {271999, 10}, {272001, 10}} {
+			prompt, maxOut := pm[0], pm[1]
+			for _, requested := range tiers {
+				hold, err := s.EstimateTokenHold(model, requested, prompt, maxOut, 1.0)
+				if err != nil {
+					continue
+				}
+				requestedRank, _ := serviceTierCostRank(requested)
+				for _, billed := range tiers {
+					// Settlement bills the requested tier or a cheaper one.
+					if billedRank, _ := serviceTierCostRank(billed); billedRank > requestedRank {
+						continue
+					}
+					for _, d := range []UsageTokens{
+						{InputTokens: prompt, OutputTokens: maxOut},
+						{CacheCreationTokens: prompt, OutputTokens: maxOut},
+						{InputTokens: prompt / 2, CacheCreationTokens: prompt / 2, OutputTokens: maxOut},
+						{CacheReadTokens: prompt, OutputTokens: maxOut},
+						{InputTokens: prompt, OutputTokens: maxOut, ImageOutputTokens: maxOut / 2},
+						{CacheCreationTokens: prompt, CacheCreation1hTokens: prompt, OutputTokens: maxOut},
+						{InputTokens: prompt, ImageInputTokens: prompt / 2, OutputTokens: maxOut},
+					} {
+						bd, err := s.CalculateCostWithServiceTier(model, d, 1.0, billed)
+						if err != nil {
+							continue
+						}
+						if bd.ActualCost > hold+epsilon {
+							t.Fatalf("hold is NOT an upper bound: model=%s requested=%q billed=%q prompt=%d dist=%+v actual=%.12f hold=%.12f",
+								model, requested, billed, prompt, d, bd.ActualCost, hold)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// A client ceiling far above what the model can emit is not reservable cost.
+// gpt-6-astra caps output at 128k, so an absurd max_output_tokens must reserve
+// the capped amount rather than scaling without limit — this is what pinned
+// ~47% of a real user's balance on one request and produced a 403 burst while
+// the account visibly had money.
+func TestEstimateTokenHold_ClampsOutputCeilingToModelLimit(t *testing.T) {
+	s := NewBillingService(&config.Config{}, nil)
+	outputCeiling := tkRegistryMaxOutputTokens("gpt-6-astra")
+	if outputCeiling <= 0 {
+		t.Fatal("expected a catalog output ceiling for gpt-6-astra")
+	}
+
+	atLimit, err := s.EstimateTokenHold("gpt-6-astra", "", 1000, outputCeiling, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	absurd, err := s.EstimateTokenHold("gpt-6-astra", "", 1000, outputCeiling*50, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if absurd != atLimit {
+		t.Errorf("a ceiling above the model limit must reserve the capped amount: absurd=%.6f at_limit=%.6f", absurd, atLimit)
+	}
+
+	// Ceilings below the model limit are still honored verbatim.
+	small, err := s.EstimateTokenHold("gpt-6-astra", "", 1000, 512, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if small >= atLimit {
+		t.Errorf("a small explicit ceiling must reserve less than the model cap: small=%.6f at_limit=%.6f", small, atLimit)
+	}
+}
+
+// A declared public alias has no registry row of its own, so the ceiling must
+// resolve through its owner — otherwise every aliased model silently loses the
+// clamp, and an alias and its owner would reserve different amounts for an
+// identical request.
+func TestRegistryMaxOutputTokens_ResolvesThroughAliasOwner(t *testing.T) {
+	const (
+		alias = "deepseek-chat"
+		owner = "deepseek-v4-flash"
+	)
+	ownerCap := tkRegistryMaxOutputTokens(owner)
+	if ownerCap <= 0 {
+		t.Skipf("registry declares no output ceiling for %s", owner)
+	}
+	if got := tkRegistryMaxOutputTokens(alias); got != ownerCap {
+		t.Errorf("alias %s must inherit its owner's ceiling: got %d, want %d", alias, got, ownerCap)
+	}
+
+	s := NewBillingService(&config.Config{}, nil)
+	aliasHold, err := s.EstimateTokenHold(alias, "", 1000, ownerCap*50, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerHold, err := s.EstimateTokenHold(owner, "", 1000, ownerCap*50, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aliasHold != ownerHold {
+		t.Errorf("alias and owner must reserve identically: alias=%.6f owner=%.6f", aliasHold, ownerHold)
+	}
+}
+
+// A model whose registry row declares no ceiling must keep the previous
+// unbounded behaviour: the clamp only ever reduces over-reserving, it must
+// never become a path to under-reserving. grok-code-fast-1 is a direct registry
+// row that omits max_output_tokens, so it exercises exactly that case.
+func TestRegistryMaxOutputTokens_NoCeilingLeavesReserveUnclamped(t *testing.T) {
+	const model = "grok-code-fast-1"
+	if got := tkRegistryMaxOutputTokens(model); got != 0 {
+		t.Skipf("%s now declares a ceiling (%d); case no longer applicable", model, got)
+	}
+	s := NewBillingService(&config.Config{}, nil)
+	big, err := s.EstimateTokenHold(model, "", 1000, 2_000_000, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	small, err := s.EstimateTokenHold(model, "", 1000, 1000, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if big <= small {
+		t.Errorf("an undeclared ceiling must leave the reserve unclamped: big=%.6f small=%.6f", big, small)
+	}
+}
+
+// An unknown model declares no ceiling, so the clamp must not collapse the
+// reserve to zero (that would silently disable overdraft protection).
+func TestRegistryMaxOutputTokens_UnknownModelIsUnbounded(t *testing.T) {
+	if got := tkRegistryMaxOutputTokens("definitely-not-a-real-model-xyz"); got != 0 {
+		t.Errorf("unknown model must report no ceiling, got %d", got)
+	}
+	s := NewBillingService(&config.Config{}, nil)
+	// claude-sonnet-4 resolves via fallback pricing; a huge ceiling must still
+	// scale the reserve rather than be clamped to nothing.
+	big, err := s.EstimateTokenHold("claude-sonnet-4", "", 1000, 1_000_000, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	small, err := s.EstimateTokenHold("claude-sonnet-4", "", 1000, 1000, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if big <= small {
+		t.Errorf("an unclamped ceiling must still scale the reserve: big=%.6f small=%.6f", big, small)
+	}
+}
+
+// The tier premium lives in the priority UNIT prices that max() already takes,
+// so it must not be multiplied in a second time. computeTokenBreakdown picks
+// exactly one of the two.
+func TestEstimateTokenHold_DoesNotDoubleCountPriorityTier(t *testing.T) {
+	s := NewBillingService(&config.Config{}, nil)
+	const prompt, maxOut = 160000, 128000
+
+	priority, err := s.EstimateTokenHold("gpt-6-astra", "priority", prompt, maxOut, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	standard, err := s.EstimateTokenHold("gpt-6-astra", "", prompt, maxOut, 1.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Priority units are already the max() for this model, so a priority request
+	// reserves the same as a standard one — not 2x it.
+	if priority != standard {
+		t.Errorf("priority must not add a multiplier on top of priority unit prices: priority=%.6f standard=%.6f", priority, standard)
+	}
+
+	pricing, err := s.GetModelPricing("gpt-6-astra")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unitIn := maxFloat(pricing.InputPricePerToken, pricing.InputPricePerTokenPriority,
+		pricing.CacheCreationPricePerToken, pricing.CacheCreationPricePerTokenPriority,
+		pricing.CacheCreation5mPrice, pricing.CacheCreation1hPrice)
+	unitOut := maxFloat(pricing.OutputPricePerToken, pricing.OutputPricePerTokenPriority,
+		pricing.ThinkingOutputPricePerToken, pricing.ImageOutputPricePerToken)
+	// Long-context multipliers apply at this prompt size (threshold 272k is not
+	// crossed by 160k), so the expectation is the flat product.
+	want := float64(prompt)*unitIn + float64(maxOut)*unitOut
+	if priority != want {
+		t.Errorf("priority reserve = %.6f, want the single-premium product %.6f", priority, want)
+	}
+}
+
 func TestEstimateTokenHold_ScalesWithRateMultiplier(t *testing.T) {
 	s := NewBillingService(&config.Config{}, nil)
 	h1, err := s.EstimateTokenHold("claude-sonnet-4", "", 1000, 500, 1.0)

@@ -817,8 +817,12 @@ func ProvideIdempotencyCleanupService(repo IdempotencyRepository, cfg *config.Co
 // reconciler (crash-recovery for the overdraft fix; see
 // hold_reconciler_service.go). No-op when the repository lacks the hold
 // capability.
-func ProvideHoldReconcilerService(repo UsageBillingRepository) *HoldReconcilerService {
-	svc := NewHoldReconcilerService(repo)
+func ProvideHoldReconcilerService(repo UsageBillingRepository, opsRepo OpsRepository) *HoldReconcilerService {
+	var heartbeat holdReconcilerHeartbeat
+	if opsRepo != nil {
+		heartbeat = opsRepo
+	}
+	svc := NewHoldReconcilerService(repo, heartbeat)
 	svc.Start()
 	return svc
 }

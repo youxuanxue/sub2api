@@ -410,7 +410,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	schedulerRateLimitReaper := service.ProvideSchedulerRateLimitReaper(rateLimitExpiryRepository, configConfig)
 	accountTierService := service.NewAccountTierService(adminService, tierService, tlsFingerprintProfileService)
 	anthropicConfigReconciler := service.ProvideAnthropicConfigReconciler(accountRepository, userRepository, adminService, tierService, accountTierService, tlsFingerprintProfileService, settingService, configConfig, redisClient)
-	holdReconcilerService := service.ProvideHoldReconcilerService(usageBillingRepository)
+	holdReconcilerService := service.ProvideHoldReconcilerService(usageBillingRepository, opsRepository)
 	tkPricingMissingNotifier := service.ProvideTKPricingMissingNotifier(gatewayService, openAIGatewayService, geminiMessagesCompatService, antigravityGatewayService, kiroGatewayService, pricingCatalogService, billingService, settingService, opsService, configConfig)
 	signupBonusIPCounter := repository.NewSignupBonusIPCounter(redisClient)
 	tkAuthServiceColdStartReady := service.ProvideTKAuthServiceColdStart(authService, apiKeyService, settingService, signupBonusIPCounter)
