@@ -144,6 +144,51 @@ printf allowed
             self.assertNotEqual(failed.returncode, 0)
             self.assertIsNone(params)
 
+    def test_failed_candidate_restores_environment_before_profile_changes(self):
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        functions = '\n'.join(_extract_shell_function(remote, name) for name in (
+            'run_bluegreen_stage', 'ensure_legacy_cutover', 'deploy_target_color',
+            'backup_env', 'restore_env_if_safe', 'cleanup_on_exit',
+        ))
+        for stage, layout in (('deploy', 'legacy'), ('deploy', 'blue'), ('prepare', 'blue')):
+            with self.subTest(stage=stage, layout=layout), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                original = 'QA_BUNDLE_STORAGE_CREDENTIALS_FILE=\nTOKENKEY_IMAGE=repo:1.8.98\n'
+                (root / '.env').write_text(original)
+                script = 'set -euo pipefail\n' + functions + '''
+ENV_FILE="$ROOT/.env"
+PREPARED_FILE="$ROOT/prepared.json"
+ENV_BACKUP=""
+CUTOVER_COMMITTED=0
+ROUTE_SWITCHED=0
+TARGET_CONTAINER=""
+LEGACY_MIGRATED=0
+TAG=1.8.99
+sudo() { if [[ "$1" = docker ]]; then return 0; fi; command "$@"; }
+log() { :; }
+die() { echo "$*" >&2; exit 1; }
+read_active_color() { [[ "$TEST_LAYOUT" = legacy ]] || printf blue; }
+caddy_active_color() { read_active_color; }
+assert_active_route_consistent() { :; }
+container_image() { printf repo:1.8.98; }
+image_repo() { printf repo; }
+other_color() { printf green; }
+color_container() { printf 'tokenkey-%s' "$1"; }
+env_set() { :; }
+ensure_profile_environment() {
+  printf 'QA_BUNDLE_STORAGE_CREDENTIALS_FILE=/run/secrets/tokenkey-qa/bundle.json\n' > "$ENV_FILE"
+}
+# A missing private credential rejects the candidate before Docker or cutover.
+write_bluegreen_compose() { return 73; }
+trap cleanup_on_exit EXIT
+run_bluegreen_stage
+'''
+                result = subprocess.run(['bash'], input=script, capture_output=True, text=True,
+                                        env={**os.environ, 'ROOT': tmp, 'STAGE': stage, 'TEST_LAYOUT': layout})
+                self.assertEqual(result.returncode, 73, result.stderr)
+                self.assertEqual((root / '.env').read_text(), original)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -24,7 +24,7 @@
 
 9. AC-009（身份）：QA 私有文件身份用于实际对象签名；显式坏文件拒绝，不回退或泄露内容，其他存储仍走原 AWS 身份。
 10. AC-010（发布）：PostgreSQL 坐标可通过发布 renderer；混用 SQS、缺 DSN 被拒绝，Hetzner resolver 不调用 CFN。
-11. AC-011（主机）：两个颜色使用相同只读身份挂载；缺卷、错数据盘、公开可读或错误凭据路径拒绝。
+11. AC-011（主机）：两个颜色使用相同只读身份挂载；缺卷、错数据盘、公开可读或错误凭据路径拒绝；候选准备失败恢复修改前的宿主配置。
 
 ## Linked Tests
 
@@ -42,6 +42,7 @@
 - `backend/internal/observability/qa/archive/store_credentials_test.go`::`TestUS062_QAFileIdentityOverridesAmbientAWSOnlyForItsStore`
 - `ops/stage0/test_bluegreen_host_runtime.py`::`HostRuntimeTest.test_both_colors_receive_readonly_identity_without_secret_contents`
 - `ops/stage0/test_bluegreen_host_runtime.py`::`HostRuntimeTest.test_root_disk_and_unmounted_data_are_rejected`
+- `ops/stage0/test_bluegreen_host_runtime.py`::`HostRuntimeTest.test_failed_candidate_restores_environment_before_profile_changes`
 - `ops/stage0/test_bluegreen_host_runtime.py`::`HostRuntimeTest.test_postgres_renderer_accepts_file_and_rejects_ambiguous_queue`
 - `ops/qa/test_resolve_qa_bundle_coordinates.py`::`CoordinatesTest.test_hetzner_manifest_resolves_without_aws_and_rejects_unsafe_values`
 

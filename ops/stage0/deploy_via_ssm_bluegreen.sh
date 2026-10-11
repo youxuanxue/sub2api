@@ -1072,7 +1072,6 @@ ensure_legacy_cutover() {
   fi
   blue_img="${repo}:${TAG}"
 
-  backup_env legacy
   env_set TOKENKEY_IMAGE_BLUE "${blue_img}"
   env_set TOKENKEY_IMAGE_GREEN "${blue_img}"
   env_set TOKENKEY_IMAGE "${blue_img}"
@@ -1121,7 +1120,6 @@ deploy_target_color() {
   log "deploy target=${target} image=${new_img} active=${active} active_image=${active_img:-unknown}"
   TARGET_CONTAINER="${target_container}"
   CUTOVER_COMMITTED=0
-  backup_env "target-${target}"
   if [[ -n "${TELEMETRY_ARCHIVE_ENABLED:-}" ]]; then
     env_set TELEMETRY_ARCHIVE_ENABLED "${TELEMETRY_ARCHIVE_ENABLED}"
     log "set TELEMETRY_ARCHIVE_ENABLED=${TELEMETRY_ARCHIVE_ENABLED}"
@@ -1267,11 +1265,14 @@ run_bluegreen_stage() {
       else
         [[ -z "${REPLACE_RECEIPT:-}" ]] || die "replacement receipt specified but no prepared candidate exists"
       fi
+      # Capture the rollback baseline before any profile/credential changes.
+      backup_env prepare
       ensure_profile_environment
       deploy_target_color
       ;;
     deploy)
       [[ ! -e "${PREPARED_FILE}" ]] || die "prepared candidate awaits review; use explicit promote"
+      backup_env deploy
       ensure_profile_environment
       ensure_legacy_cutover
       if [[ "${LEGACY_MIGRATED}" = 0 ]]; then deploy_target_color; fi

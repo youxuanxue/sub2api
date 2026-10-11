@@ -288,6 +288,8 @@ QA 存储 `credentials_file` 为 0400/0600 JSON，字段仅为 `access_key_id`�
 QA 文件分别挂到 `/run/secrets/tokenkey-qa/{bundle.json,raw.json,queue.dsn,queue-ca.pem}`，
 不会把凭据内容传入 Compose/SSM 环境变量。私钥/DSN 文件归服务 UID 1000 所有。
 单文件 bind mount 与进程初始化缓存要求轮换后重新准备/重启对应组件。
+发布在改写宿主配置之前建立回退备份；legacy 升级、蓝绿升级与 prepare 的候选准备失败
+均恢复该配置，避免把未通过凭据校验的配置留给下一次重启。
 
 hcloud prod 在任何主机写入与 Docker 调用前验证 `/var/lib/tokenkey` 为真实 Hetzner ext4
 Volume 挂载。首次蓝绿安装同时给 Docker 和 tokenkey systemd unit 添加 RequiresMountsFor
