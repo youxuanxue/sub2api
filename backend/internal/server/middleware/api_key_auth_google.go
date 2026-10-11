@@ -123,6 +123,18 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			return
 		}
 
+		// Same exhausted-quota early exit as the main middleware: identical
+		// decision (shared apiKeyQuotaRejected predicate, same skipBilling
+		// exemption), just before the body read and candidate scheduling. The
+		// Google error envelope and status below are unchanged.
+		if !skipsBillingEnforcement(c.Request.Method, c.Request.URL.Path) &&
+			cfg.RunMode != config.RunModeSimple &&
+			apiKeyQuotaRejected(apiKey) {
+			setAPIKeyQuotaRetryAfter(c)
+			abortWithGoogleError(c, infraerrors.Code(service.ErrAPIKeyQuotaExhausted), clientFacingAppErrorMessage(service.ErrAPIKeyQuotaExhausted))
+			return
+		}
+
 		MaybeRewriteOpenRouterProviderChatBody(c, apiKey, settingService)
 
 		// Google ingress uses the same authorized candidates and billing binding;
@@ -177,6 +189,9 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 				keyErr = apiKeyService.CheckAPIKeyQuotaAndExpiry(apiKey)
 			}
 			if keyErr != nil {
+				if errors.Is(keyErr, service.ErrAPIKeyQuotaExhausted) {
+					setAPIKeyQuotaRetryAfter(c)
+				}
 				abortWithGoogleError(c, infraerrors.Code(keyErr), clientFacingAppErrorMessage(keyErr))
 				return
 			}
