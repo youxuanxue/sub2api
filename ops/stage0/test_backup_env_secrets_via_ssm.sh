@@ -69,6 +69,10 @@ chmod +x "${remote_bin}/sudo"
 cat >"${remote_bin}/aws" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+[ "${AWS_REGION:-}" = us-east-2 ] && [ "${AWS_DEFAULT_REGION:-}" = us-east-2 ] || {
+  echo "remote AWS region was not delivered" >&2
+  exit 2
+}
 args="$*"
 case "${args}" in
   *"ssm get-parameter"*)
@@ -125,7 +129,8 @@ assert_work_dir_empty() {
 run_host() {
   local label="$1"
   local put_result="$2"
-  PATH="${remote_bin}:${PATH}" \
+  env -u AWS_REGION -u AWS_DEFAULT_REGION \
+    PATH="${remote_bin}:${PATH}" \
     LC_ALL=C \
     TMPDIR="${work_dir}" \
     FAKE_SSM_STATE="${state_file}" \

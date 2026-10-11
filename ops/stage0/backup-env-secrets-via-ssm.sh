@@ -36,6 +36,7 @@ PARAM="${TK_ENV_SECRETS_PARAM:-/tokenkey/prod/stage0/env-secrets-backup}"
 SOURCE="${TK_ENV_SECRETS_SOURCE:-/var/lib/tokenkey/.env}"
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-180}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
+REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
 
 if [[ -z "${INSTANCE_ID}" ]]; then
   echo "backup_env_secrets_via_ssm: instance id is required" >&2
@@ -43,10 +44,11 @@ if [[ -z "${INSTANCE_ID}" ]]; then
 fi
 [[ "${PARAM}" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "backup_env_secrets_via_ssm: invalid parameter name" >&2; exit 1; }
 [[ "${SOURCE}" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "backup_env_secrets_via_ssm: invalid source path" >&2; exit 1; }
+[[ -z "${REGION}" || "${REGION}" =~ ^[a-z0-9-]+$ ]] || { echo "backup_env_secrets_via_ssm: invalid region" >&2; exit 1; }
 
 ssm_region_args=()
-if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
-  ssm_region_args=(--region "${AWS_REGION:-${AWS_DEFAULT_REGION}}")
+if [[ -n "${REGION}" ]]; then
+  ssm_region_args=(--region "${REGION}")
 fi
 
 mkdir -p "${OUTPUT_DIR}"
@@ -62,6 +64,10 @@ HOST_B64="$(base64 <<HOSTEOF | tr -d '\n'
 set -euo pipefail
 PARAM="${PARAM}"
 SOURCE="${SOURCE}"
+# Hybrid hosts have no EC2 region metadata or default AWS CLI region.
+if [ -n "${REGION}" ]; then
+  export AWS_REGION="${REGION}" AWS_DEFAULT_REGION="${REGION}"
+fi
 T=\$(mktemp); C=\$(mktemp); chmod 600 "\$T" "\$C"
 cleanup() {
   if command -v shred >/dev/null 2>&1; then
