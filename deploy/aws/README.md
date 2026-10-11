@@ -287,8 +287,8 @@ ops/stage0/sync-feishu-config.sh
 
 **飞书告警自动接入（无需按 Edge 重复配）**：账号失效 / P0 卡片靠每个节点 DB 里的
 `settings.ops_email_notification_config.feishu`（webhook + signing_secret + enabled）。这份配置不在镜像、
-也不能进 git（密钥，规则 §7），过去是手工逐节点写，console-adopt 的新边（us6/us7）漏写 → **静默零告警**
-（2026-06-06 us7 `oh-4-b` 被 Anthropic org-disabled 却没报警即此故障）。现已自动化:
+也不能进 git（密钥，规则 §7），过去是手工逐节点写，console-adopt 新边漏写 → **静默零告警**
+（2026-06-06 历史边 `oh-4-b` 被 Anthropic org-disabled 却没报警即此故障）。现已自动化:
 - webhook/secret 作为**仓库级** GitHub secrets **`TK_FEISHU_WEBHOOK_URL`**、**`TK_FEISHU_SIGNING_SECRET`**
   配置**一次**即可——repo 级密钥对**所有** `environment:`（`prod` / `edge-*`）的 job 都可见,**不要**在每个
   `edge-<id>` Environment 里重复配（也别在 Environment 里建同名密钥,否则会覆盖 repo 级）。webhook 全 fleet 共用一个。
@@ -1139,7 +1139,7 @@ Edge 根盘告警后，先用以下命令预览目标；需要实际应急回收
 规则的数据，保留 SSM 不可用时的 Lightsail SSH 恢复路径。
 
 ```bash
-bash ops/stage0/remediate-edge-disk-via-ssm.sh --edge-id us3 --dry-run
+bash ops/stage0/remediate-edge-disk-via-ssm.sh --edge-id us4 --dry-run
 ```
 
 ### 手动触发 QA maintenance
