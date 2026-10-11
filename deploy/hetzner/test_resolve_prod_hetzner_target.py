@@ -39,27 +39,15 @@ def run_resolver(
 
 
 class ResolveProdHetznerTargetTests(unittest.TestCase):
-    def test_matrix_not_deployable(self) -> None:
+    def test_matrix_is_deployable(self) -> None:
         data = json.loads(MATRIX.read_text(encoding="utf-8"))
-        self.assertFalse(bool(data["target"].get("deployable")))
+        self.assertTrue(bool(data["target"].get("deployable")))
 
-    def test_planned_fails_without_allow_planned(self) -> None:
-        proc = subprocess.run(
-            [sys.executable, str(RESOLVER)],
-            capture_output=True,
-            text=True,
-        )
-        self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("not deployable", proc.stderr)
-
-    def test_planned_resolves_with_allow_planned(self) -> None:
-        resolved = run_resolver(
-            allow_planned=True,
-            confirm_instance="tokenkey-prod-hz-cax21",
-        )
+    def test_live_resolves_without_allow_planned(self) -> None:
+        resolved = run_resolver(confirm_instance="tokenkey-prod-hz-cax21")
         self.assertEqual(resolved["role"], "prod")
         self.assertEqual(resolved["platform"], "hetzner")
-        self.assertEqual(resolved["deployable"], "false")
+        self.assertEqual(resolved["deployable"], "true")
         self.assertEqual(resolved["location"], "fsn1")
         self.assertEqual(resolved["server_type"], "cax21")
         self.assertEqual(resolved["architecture"], "arm")
@@ -75,9 +63,22 @@ class ResolveProdHetznerTargetTests(unittest.TestCase):
             "tokenkey-hetzner-ssm-hybrid-prod",
         )
 
+    def test_planned_fails_without_allow_planned(self) -> None:
+        data = json.loads(MATRIX.read_text(encoding="utf-8"))
+        data["target"]["deployable"] = False
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "matrix.json"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            proc = subprocess.run(
+                [sys.executable, str(RESOLVER), "--matrix", str(path)],
+                capture_output=True,
+                text=True,
+            )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("not deployable", proc.stderr)
+
     def test_reject_non_fsn1_location(self) -> None:
         bad = json.loads(MATRIX.read_text(encoding="utf-8"))
-        bad["target"]["deployable"] = True
         bad["target"]["location"] = "ash"
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "matrix.json"
@@ -92,7 +93,6 @@ class ResolveProdHetznerTargetTests(unittest.TestCase):
 
     def test_reject_wrong_volume_mount(self) -> None:
         bad = json.loads(MATRIX.read_text(encoding="utf-8"))
-        bad["target"]["deployable"] = True
         bad["target"]["volume_mount"] = "/data"
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "matrix.json"
@@ -110,7 +110,6 @@ class ResolveProdHetznerTargetTests(unittest.TestCase):
             [
                 sys.executable,
                 str(RESOLVER),
-                "--allow-planned",
                 "--confirm-instance",
                 "wrong-name",
             ],

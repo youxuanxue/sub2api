@@ -139,6 +139,35 @@ class DispatchEdgeDeploySmokePhaseTest(unittest.TestCase):
         self.assertIn("invalid --tag", proc.stderr)
         self.assertFalse(self.gh_log.exists())
 
+    def test_hetzner_upgrade_dispatches_hetzner_workflow(self) -> None:
+        (self.repo / "scripts/stage0/resolve-edge-deploy-route.py").write_text(
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env python3
+                print("workflow_file=deploy-edge-hetzner-stage0.yml")
+                print("confirm_flag=confirm_instance")
+                print("confirm_value=tokenkey-edge-uk1-hz-cax21")
+                print("platform=hetzner")
+                """
+            ),
+        )
+        (self.repo / "scripts/stage0/resolve-edge-deploy-route.py").chmod(0o755)
+        proc = self._run(
+            "--edge-id",
+            "uk1",
+            "--operation",
+            "upgrade",
+            "--tag",
+            "1.8.283",
+            "--platform",
+            "hetzner",
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        args = self._gh_args()
+        self.assertIn("deploy-edge-hetzner-stage0.yml", args)
+        self.assertIn("smoke_phase=infra", args)
+        self.assertNotIn("not wired yet", proc.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

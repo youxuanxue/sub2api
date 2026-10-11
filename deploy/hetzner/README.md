@@ -12,7 +12,7 @@
 | **uk2** | **已切** → `2.31.27.73`（冻写重灌后切） | 同左 | `51.24.28.148`（app 已停写，PG/Caddy 保留 ≥7d） | 2026-10-10 `T101627Z`+`logs-T101629Z` |
 | **us3** | LS `18.216.113.132`（仍在跑，已无 prod stub） | **无机器**（不再重建） | — | **2026-10-11 账号级退役**：12 账号 → uk1，stub 全切/软删；见「us3/us6 账号级退役」 |
 | **us6** | LS `3.147.98.112`（仍在跑，已无 prod stub） | **未起**（不再 provision） | — | **2026-10-11 账号级退役**：19 账号 → uk2，stub 全切/软删；同上 |
-| **prod** | 正式流量仍 AWS EIP `34.194.234.88`（冻写/正式 DNS 未做） | **HZ staging 已绿** `167.233.211.115` · `mi-033c9569c7fb8b884` · Volume `tokenkey-prod-data` · `api-hz` E1 | — | Wave A 齐；**ops 控制面已切** Hybrid `mi-*`（SSM param `/tokenkey/prod/control-plane-ssm-target=hetzner`，#2542/#2543）；正式 DNS/冻写见 [`WAVE-B-PROD-CUTOVER-RUNBOOK.md`](WAVE-B-PROD-CUTOVER-RUNBOOK.md) |
+| **prod** | **已切** → `167.233.211.115`（`api.tokenkey.dev` / `api-hz` 同 IP） | 同左 · `mi-033c9569c7fb8b884` · Volume `tokenkey-prod-data` | AWS EIP `34.194.234.88` standby | **正式 DNS + ops 控制面均已在 HCloud**（param=`hetzner`）；发版走 `deploy-stage0` → `deploy_via_ssm_bluegreen.sh`（首发从单色 `tokenkey` 迁到 blue） |
 
 活舰队（ops fan-out / probe 默认）：**prod + uk1/uk2/us4/us5**（五节点）。Lightsail ≥7 天保留作回滚；禁止双写业务库。Redis 不迁（可重建）。
 
@@ -38,7 +38,7 @@
 | 路径 | 作用 |
 |---|---|
 | `edge-targets-hetzner.json` | edge 矩阵（defaults + edge id） |
-| `prod-target-hetzner.json` | prod 目标（Volume 强制；`deployable=false`） |
+| `prod-target-hetzner.json` | prod 目标（Volume 强制；`deployable=true`） |
 | `resolve-edge-hetzner-target.py` / `resolve-prod-hetzner-target.py` | 派生命名 + 硬门禁 |
 | `render-bootstrap.sh` / `render-prod-bootstrap.sh` | Ubuntu user-data（SSM + compose；prod 挂 Volume） |
 | `generated-user-data.sh` / `generated-prod-user-data.sh` | 渲染产物（须与 `--check` 同步提交） |
@@ -131,11 +131,11 @@ HZ **相对 LS 仍缺 / 不同**：
 
 | 项 | Lightsail | Hetzner | 影响 |
 |----|-----------|---------|------|
-| 蓝绿 | `docker-compose.bluegreen.yml` + blue/green 单元 | 单容器 `tokenkey` | 发版路径不同；勿假设 bluegreen |
+| 蓝绿 | `deploy_via_ssm_bluegreen.sh` | **已接线**（同 primitive；主机仍单色直至首发 upgrade） | edge：`dispatch-edge-deploy` → `deploy-edge-hetzner-stage0`；prod：`deploy-stage0`；首发 `ensure_legacy_cutover` |
 | `tokenkey-disk-metrics.timer` | 有（飞书盘/内存告警） | bootstrap 已装；**四边 live 已验证** | 缺 webhook 时 timer 静默 no-op |
 | `tokenkey-ghcr-prune-daily.timer` | 有 | bootstrap 已装；**四边 live 已验证** | — |
 | `TOKENKEY_FEISHU_WEBHOOK_*` | 有（deploy sync） | **uk1/uk2/us4/us5 已从 LS 拷到 HZ**（不进 git）；新机仍需 post-boot 拷贝 | 告警依赖这两行 |
-| `TOKENKEY_IMAGE_BLUE/GREEN` | 有 | 无 | 随蓝绿 |
+| `TOKENKEY_IMAGE_BLUE/GREEN` | 有 | 首发升级时由 `ensure_legacy_cutover` 写入 | 勿手改 |
 | Redis / 调度内存态 | 独立 | 独立（不迁） | 限流/窗口态不共享属预期 |
 | gemini-web 会话 | 部分 active | 常因 **出口 IP 变更** Session paused | 需 re-import，不是漏搬行 |
 | TLS fingerprint / proxy 等 host-local | LS | 迁库时 `proxy_id` 等会重置 | 按边复查 |
@@ -187,9 +187,10 @@ Bootstrap（`render-prod-bootstrap.sh`）已嵌入：`tokenkey-pgdump.timer`（`
 - 点火：GHA `deploy-prod-hetzner-stage0.yml` · tag `1.8.283` · IP `167.233.211.115` · `mi-033c9569c7fb8b884` · E0 `aarch64` · timers active · Feishu webhook 已从 AWS 拷贝  
 - 演练 restore（刷新）：`tokenkey-20261010T155229Z.sql.gz` → HZ；对账 `accounts=215=215`；`usage_billing_dedup` HZ `14571497`（dump 窗）；`usage_logs` HZ `0`（precious 预期）；下载 ~17s / restore ~5.0 min  
 - E1：`api-hz.tokenkey.dev` A → `167.233.211.115`；LE 证书已签；`https://api-hz.tokenkey.dev/health` → 200  
-- 零影响预热：HZ SSM secrets 已同步；`warm_pull` `1.8.283` 绿；正式 Caddy dry 四 vhost；**CallModel 公网 NS 已跟齐 Porkbun**（A=`34.194.234.88`）；**Mode C 压窗**见 runbook（C-lite 约 1.5–2.5 min / C-full 约 4–8 min；整库回退约 10–15 min）  
-- **ops 控制面（2026-10-11）：** SSM param `/tokenkey/prod/control-plane-ssm-target=hetzner`；QA/warm/probe 经 `resolve_prod_ssm_target` 打 Hybrid `mi-*`（#2542/#2543）。**不等于**正式流量切流。  
-- **Wave B 正式 DNS 延期（2026-10-10 起）：** 现网请求量高，**不做冻写/正式 DNS**；正式流量继续 AWS EIP `34.194.234.88`。低流量窗再批「批准冻写切流」。**Porkbun TTL→300 已 apply**（四正式 A；`api-hz` 仍 600）；Better Stack `api-hz` 旁路仍可人工建。  
+- 零影响预热：HZ SSM secrets 已同步；`warm_pull` `1.8.283` 绿；正式 Caddy dry 四 vhost；**Mode C 压窗**见 runbook  
+- **ops 控制面（2026-10-11）：** SSM param `/tokenkey/prod/control-plane-ssm-target=hetzner`；QA/warm/probe 经 `resolve_prod_ssm_target` 打 Hybrid `mi-*`  
+- **Wave B 正式 DNS（已完成）：** `api.tokenkey.dev` / `api-hz` → `167.233.211.115`（dig@1.1.1.1 已核）；AWS EIP `34.194.234.88` standby；矩阵 `deployable=true`  
+- **蓝绿发版（基础设施已齐，主机仍单色）：** 下一刀 release 走 `deploy-stage0` / edge dispatch；`ensure_legacy_cutover` 迁到 `tokenkey-blue`  
 
 user-data **必须以 `#!/bin/bash` 开头**；AWS CLI 走 awscliv2 zip。
 
@@ -215,7 +216,7 @@ user-data **必须以 `#!/bin/bash` 开头**；AWS CLI 走 awscliv2 zip。
 
 IdP / 支付 webhook **URL 字符串不变**（仍 `https://api.tokenkey.dev/...`）。写后禁裸 DNS 回旧库。
 
-**控制面现状（2026-10-11）：** ops 已 PutParameter `hetzner`，`resolve_prod_ssm_target` 默认 Hybrid `mi-*`。正式流量仍 AWS EIP；冻写切流后才停 AWS app。回滚 ops 控制面：`PROD_SSM_TARGET=aws` 或 param=`aws`。
+**控制面 + 流量现状（2026-10-11）：** ops param=`hetzner` → Hybrid `mi-*`；正式 A 已指 HCloud。AWS app 应已停写（standby ≥7d）。回滚 ops：`PROD_SSM_TARGET=aws` 或 param=`aws`（仅控制面；流量回滚须改 DNS）。
 
 ## us3/us6 账号级退役（2026-10-11 执行）
 
@@ -282,19 +283,19 @@ uk1旧/us2/us7 退役清单，含**删 prod mirror account**）。
 ## 后续 backlog
 
 1. **禁止**再对已切四边整库覆盖 live HZ；LS ≥7d 后可退役实例。  
-2. **prod Wave B 正式 DNS/冻写**（当前刀）：见上节；ops 控制面 `mi-*` 已就绪。
+2. **HCloud 蓝绿首跑**（当前刀）：prod `deploy-stage0`、edge `bash scripts/stage0/dispatch-edge-deploy.sh --edge-id <id> --operation upgrade --tag X.Y.Z`（平台 auto→HZ）。主机仍单色时由 `ensure_legacy_cutover` 迁 blue。  
 3. ~~us3 重建 HZ~~ **已取消**：2026-10-11 改走账号级退役（账号迁 uk1），不再重建机器。剩停写 + 实例退役，见上节「剩余」。
 4. ~~us6 重建 HZ~~ **已取消**：同 us3（账号迁 uk2）。
 5. gemini-web：**7 个账号待运营 re-import**（uk1 `gemini-web-498`/`gemini-web`；uk2 `gemini-web-506`/`510`/`492`/`505`/`493`），全部 `status=error`+`schedulable=false` 并带原因；re-import 后开边侧账号 + prod `gemini-uk1`/`uk2` 即通（key 已逐字节核对一致）。**期间 prod gemini 组仅 `gemini-us4`/`us5` 两个可调度 stub 承载，属单点。**  
 6. 边侧供应：us4 anthropic 失效号、us4/us5 grok 选号/空池、uk 边补 CC 池——冒烟 200 后再开对应 prod stub。  
 7. 新机 Feishu：仍需 post-boot 从 AWS prod `.env` 拷贝（不进 git）。  
-8. ~~矩阵/workflow 收敛~~ **已落地（#2550）：** LS us3/us6 `deployable=false`；`--list-deployable` / prod-ops-matrix HZ-first；warm/timer/docs/log dump + ops-daily prod 统一 `resolve_prod_ssm_target`；fleet-feishu/ops-daily/antigravity/anthropic/mapping 跟活边。未改：`deploy-qa-bundle` 网络/IAM、`container-log-policy`（仍 `i-*` + AWS compose）。
+8. ~~矩阵/workflow 收敛~~ **已落地（#2550）**；~~prod/edge HZ 蓝绿 workflow~~ **本 PR**。未改：`deploy-qa-bundle` 网络/IAM、`container-log-policy`（仍 `i-*` + AWS compose）。
 
 ## 硬门禁
 
 - `location=fsn1` · `server_type=cax21` · `architecture=arm`
 - prod：`volume_mount=/var/lib/tokenkey` · `volume_size_gb>=40`
-- 矩阵：活边 HZ `uk1/uk2/us4/us5` `deployable=true`；LS 同四边为 standby、us3/us6 `deployable=false`；prod HZ target 仍 `false` 直至正式 DNS 切流
+- 矩阵：活边 HZ `uk1/uk2/us4/us5` + prod `deployable=true`；LS 同四边为 standby、us3/us6 `deployable=false`
 
 ```bash
 python3 -m unittest deploy/hetzner/test_resolve_edge_hetzner_target.py
