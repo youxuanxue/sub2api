@@ -30,6 +30,25 @@ export ADMIN_EMAIL="${ADMIN_EMAIL:-admin@${API_DOMAIN}}"
 export TZ_VALUE="${TZ_VALUE:-UTC}"
 
 export DEBIAN_FRONTEND=noninteractive
+
+# Ubuntu ships apt-daily-upgrade.timer enabled (OnCalendar=6:00, RandomizedDelaySec=60m)
+# with APT::Periodic::Unattended-Upgrade "1" from the installer image. On a gateway host
+# that window is 14:00-15:00 CST — peak traffic — and a glibc upgrade's postinst runs
+# `systemctl daemon-reexec`, which restarts systemd-networkd/resolved and severs every
+# in-flight upstream TLS connection inside the containers. Automatic-Reboot stays false,
+# so the host also never activates what it installed: patched on disk, unpatched in
+# memory. Patching is a release here, performed blue/green on the standby side with a
+# real reboot. mask (not disable) survives package upgrades and systemd presets.
+systemctl mask apt-daily-upgrade.timer >/dev/null 2>&1 || true
+systemctl stop apt-daily-upgrade.timer >/dev/null 2>&1 || true
+# apt-daily.timer stays enabled: it only refreshes package lists (no unit restarts),
+# which is what lets the patch-debt probe report what is pending.
+cat >/etc/apt/apt.conf.d/99tokenkey-no-auto-upgrade <<'APTEOF'
+// Owned by deploy/hetzner/render-prod-bootstrap.sh. Patching is a blue/green release.
+// Enforced by scripts/preflight.sh (fleet apt-exposure check) — do not re-enable here.
+APT::Periodic::Unattended-Upgrade "0";
+APTEOF
+
 apt-get update -y
 apt-get install -y --no-install-recommends \
   ca-certificates curl gnupg openssl gzip gettext-base unzip e2fsprogs

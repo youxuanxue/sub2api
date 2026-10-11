@@ -142,6 +142,59 @@ commits (imported upstream messages exempt).
 exempt (file contents never reach commit-message context).
 `main-ancestry-guard.yml` Check 3 enforces this.
 
+## Host patching / 宿主机打补丁 (detail)
+
+**宿主机不自动打补丁。补丁是一次蓝绿发版。**
+
+Ubuntu 镜像出厂启用 `apt-daily-upgrade.timer`（`OnCalendar=*-*-* 6:00` +
+`RandomizedDelaySec=60m`）和 `APT::Periodic::Unattended-Upgrade "1"`。这两处都不是
+本仓写的，是装机镜像带进来的（`/etc/apt/apt.conf.d/20auto-upgrades` mtime 停在
+2024-02-12，比现有节点出生早八个月；全仓 grep `apt-daily` 零命中）。不是误配，是遗漏。
+
+对网关主机，这个默认值恰好最差：
+
+1. 06:00–07:00 UTC 窗口换成 CST 是 **14:00–15:00**，正好压在流量高峰。
+2. `libc6` 的 postinst 会跑 `systemctl daemon-reexec`
+   （`/var/lib/dpkg/info/libc6:arm64.postinst`），systemd 重新 exec 连带重启
+   systemd-networkd / resolved / timesyncd、eth0 重走 DHCP。**容器自己不重启**，
+   但容器内在飞的上游 TLS 连接被整片打断——它们共享同一条 eth0 出口。
+   2026-10-11 06:46:05 UTC prod 实测：九分钟内约 56 次用户可见 502，横跨
+   newapi / openai / anthropic 三个平台。
+3. `Unattended-Upgrade::Automatic-Reboot` 为 `false`（这个默认值本身是对的，自动重启
+   生产网关更糟），于是主机装了却从不激活：glibc 和内核在磁盘上已更新，长驻进程仍
+   映射旧版本。**付了可用性代价，没拿到安全收益。**
+
+因此两个 bootstrap（`deploy/hetzner/render-bootstrap.sh`、`render-prod-bootstrap.sh`）
+在首次 apt 调用前 `mask` 掉该 timer，并用 `/etc/apt/apt.conf.d/99tokenkey-no-auto-upgrade`
+固定 `APT::Periodic::Unattended-Upgrade "0"`。用 `mask` 不用 `disable`——后者会被包升级和
+systemd preset 静默重开；写进 `99-` 新文件而不是改 `20auto-upgrades`——后者是装机器产物，
+apt 按字典序后读者胜。改完必须重跑 renderer 让 generated user-data 同步。
+
+`apt-daily.timer` **故意保留**：它只刷包列表、不重启任何 unit，留着才能让补丁债可见；
+一起关掉等于让自己瞎掉。
+
+不要折中。把 `libc6` 加黑名单、或把窗口挪到半夜，都只改了"什么时候挨刀"，没改"挨了刀
+还不管用"；而真正需要紧急修的包（glibc、kernel、openssl、openssh）恰好全是激活必须重启
+的那批。"自动装、从不重启"是合规幻觉。
+
+**门禁：** preflight `host auto-upgrade disabled`
+（`scripts/checks/host-auto-upgrade-disabled.py`，`.preflight/gates.json` → `deploy` 作用域）
+同时校验 renderer 与 generated 产物，带 `--selftest`。新增 fleet bootstrap 必须进该脚本的
+`BOOTSTRAPS`，否则它静默继承 Ubuntu 默认。
+
+**打补丁流程：** 零流量待机侧 `full-upgrade` + **真重启** + 健康检查 → 切流 → 另一侧重复。
+只读盘点每节点债务：
+
+```bash
+bash ops/observability/run-probe.sh --target prod|edge:<id> \
+  --script ops/observability/probe-host-patch-debt.sh
+```
+
+报 `reboot_required` / `upgradable_count` / 运行内核 vs 已装内核 / `daemon_reexec_7d`，
+并复核 live 主机是否仍符合 bootstrap 契约（期望 `timer_apt_daily_upgrade=masked`、
+`periodic_unattended=0`）。debt 非零**不阻塞发版**，只决定下次蓝绿要不要顺带还债。
+关掉自动升级之后真正的风险是"再也不打补丁而没人发现"，这个探测就是对冲。
+
 ## Account Usage SSOT (detail)
 
 - NewAPI 可恢复配额窗口的解析、Extra 快照和用量投影归

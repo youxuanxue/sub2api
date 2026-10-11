@@ -185,6 +185,7 @@
     "Docker action Node runtime": "build",
     "pnpm audit owner contract": "build",
     "Cursor deployment isolation": "build",
+    "host auto-upgrade disabled": "deploy",
     "gh CLI repository context": "deploy",
     "Node version alignment": "build",
     "Go version alignment": "build",
