@@ -965,6 +965,11 @@ commit_cutover() {
     CUTOVER_COMMITTED=1
     sudo rm -f "${active_backup}" >/dev/null 2>&1 || true
     log "caddy now routes new requests to ${upstream} (backup=${backup})"
+    # Gemini Web Workers resolve GEMINI_WEB_CONTROL_URL host `tokenkey`. Keep a
+    # stable Docker DNS name pointed at the active color after blue/green cutover.
+    if ! sync_gemini_web_control_alias "${color}"; then
+      echo "::warning::gemini-web control alias sync failed color=${color}; Workers may report session_poll_failed until repaired"
+    fi
     return 0
   else
     echo "::warning::cutover commit failed; restore previous Caddyfile and active-color"
@@ -1002,6 +1007,49 @@ write_active_color() {
   printf '%s\n' "${color}" | sudo tee "${tmp}" >/dev/null
   sudo mv "${tmp}" "${ACTIVE_FILE}"
   log "active-color=${color}"
+}
+
+# Point Docker DNS name `tokenkey` at the active app color for Gemini Web Workers
+# (GEMINI_WEB_CONTROL_URL=http://tokenkey:8080/api/v1). Prefer the reviewed host
+# script when present on the box; otherwise recreate a tiny socat proxy inline.
+sync_gemini_web_control_alias() {
+  local color="$1" script
+  script="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/../gemini-web/sync-control-alias-on-host.sh"
+  if [[ -x "${script}" ]]; then
+    TK_ACTIVE_COLOR="${color}" bash "${script}"
+    return $?
+  fi
+  # Embedded fallback for hosts that only received this blue/green payload.
+  TK_ACTIVE_COLOR="${color}" bash -s <<'ALIAS_SH'
+set -euo pipefail
+NETWORK="${TK_NETWORK:-tokenkey_tokenkey-network}"
+PROXY_NAME=tokenkey
+SOCAT_IMAGE="${TK_CONTROL_PROXY_IMAGE:-alpine/socat:1.8.0.0}"
+color="${TK_ACTIVE_COLOR:?}"
+target="tokenkey-${color}"
+sudo docker inspect "${target}" >/dev/null
+if sudo docker inspect "${PROXY_NAME}" >/dev/null 2>&1; then
+  image="$(sudo docker inspect "${PROXY_NAME}" --format '{{.Config.Image}}' 2>/dev/null || true)"
+  if [[ "${image}" == *sub2api* && "${image}" != *socat* && "${image}" != *gemini-web* ]]; then
+    echo "gemini-web-control-alias: legacy app container named tokenkey; leaving intact"
+    exit 0
+  fi
+  desired="TCP:${target}:8080"
+  current="$(sudo docker inspect "${PROXY_NAME}" --format '{{json .Config.Cmd}}' 2>/dev/null || true)"
+  running="$(sudo docker inspect "${PROXY_NAME}" --format '{{.State.Running}}' 2>/dev/null || true)"
+  if [[ "${running}" == "true" && "${current}" == *"${desired}"* ]]; then
+    echo "gemini-web-control-alias: already proxies ${desired}"
+    exit 0
+  fi
+  sudo docker rm -f "${PROXY_NAME}" >/dev/null
+fi
+sudo docker image inspect "${SOCAT_IMAGE}" >/dev/null 2>&1 || sudo docker pull "${SOCAT_IMAGE}" >/dev/null
+sudo docker run -d --name "${PROXY_NAME}" --restart unless-stopped \
+  --network "${NETWORK}" --user 65534:65534 --read-only --cap-drop ALL \
+  --security-opt no-new-privileges --memory 32m --memory-swap 32m --cpus 0.1 --pids-limit 32 \
+  "${SOCAT_IMAGE}" TCP-LISTEN:8080,fork,reuseaddr "TCP:${target}:8080" >/dev/null
+echo "tk_gemini_web_control_alias: OK color=${color} target=${target}"
+ALIAS_SH
 }
 
 observe_routed_health() {

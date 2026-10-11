@@ -207,8 +207,12 @@ Worker 对每次生成记录 `upstream_phase`（`refresh_ms` / `bootstrap_ms` / 
 `generate_timeout_s`），并写入对应 `request` 事件，便于区分冷启动与 GENERATE 挂起。
 
 Worker 每分钟只读维护元数据，只有到期账号才申请租约并执行 RotateCookies → bootstrap，
-正常续期间隔十分钟；暂停、冷却、在途租约和未确认生成不会进入维护列表。
-每次 HTTP 响应保存 Cookie 更新；runtime 未变化时不重复写入。
+正常续期间隔十分钟；`schedulable=false` 但 `last_refresh=0` 的新导入也会进入一次预热，
+以便测连前完成 bootstrap。暂停、冷却、在途租约和未确认生成不会进入维护列表。
+上游成功响应仅在 Cookie jar 变化时写回；`ready_at` / `fields` / `models` 随 state 持久化，
+避免 runtime CAS 重建 Account 后重复 bootstrap。runtime 未变化时不重复写入。
+蓝绿发版后须保持 Docker DNS 名 `tokenkey` 指向当前 active 应用色（控制面别名代理），
+否则 Worker 的 `GEMINI_WEB_CONTROL_URL=http://tokenkey:8080/api/v1` 会解析失败。
 生成前持久化 generation_pending，完整成功或明确 quota 拒绝后清除；本次调用收到上游
 明确鉴权拒绝且已将会话标记 blocked 时，也清除 pending，但 blocked 继续阻止请求。
 本地暂停返回的 403 不清除 pending，连续重试不能绕过暂停。

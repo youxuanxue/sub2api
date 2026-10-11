@@ -648,6 +648,42 @@ assert rss_bytes < 384 * 1024 * 1024, rss_bytes
         self.assertEqual(self.account.last_phase['generate_timeout_s'], worker.TEXT_GENERATE_TIMEOUT_SECONDS)
         self.assertGreaterEqual(self.account.last_phase['generate_ms'], 0)
 
+    def test_persisted_bootstrap_cache_skips_bootstrap_after_reload(self):
+        self.account.ready_at = time.time()
+        self.account.last_refresh = time.time()
+        self.account.persist()
+        restored = self.restore()
+        try:
+            self.assertGreater(restored.ready_at, 0)
+            self.assertEqual(restored.models['Flash'], ('id-flash', 1, 2))
+            self.assertEqual(restored.fields['SNlM0e'], 'fixture-at')
+            with patch.object(restored, 'bootstrap') as bootstrap, \
+                    patch.object(restored, 'call', return_value=(None, wire().encode())) as call:
+                restored.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'hi'}]}]})
+            bootstrap.assert_not_called()
+            self.assertEqual(call.call_args.kwargs['timeout'], worker.TEXT_GENERATE_TIMEOUT_SECONDS)
+        finally:
+            restored.close()
+
+    def test_call_skips_persist_when_cookies_unchanged(self):
+        self.account.deadline = time.monotonic() + 100
+        persists = []
+
+        def track(state):
+            persists.append(dict(state))
+
+        self.account.persist_callback = track
+
+        def fake_request(method, url, **kwargs):
+            callback = kwargs.get('content_callback')
+            if callback:
+                callback(b'ok')
+            return SimpleNamespace(status_code=200, headers={})
+
+        with patch.object(self.account.session, 'request', side_effect=fake_request):
+            self.account.call('GET', worker.ORIGIN + '/app')
+        self.assertEqual(persists, [])
+
     def test_image_generate_keeps_long_upstream_timeout(self):
         original = {'inlineData': {'mimeType': 'image/jpeg', 'data': 'b3JpZ2luYWw='}}
         with patch.object(self.account, 'call', return_value=(None, wire(images=True).encode())) as call:

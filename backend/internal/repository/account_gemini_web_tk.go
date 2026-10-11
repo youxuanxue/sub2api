@@ -15,11 +15,18 @@ import (
 // A poll performs no writes. Due accounts still acquire the fenced lease before
 // touching Google, so concurrent workers and foreground requests remain safe.
 func (r *accountRepository) ListDueGeminiWebAccounts(ctx context.Context) ([]int64, error) {
-	rows, err := r.sql.QueryContext(ctx, `SELECT id,
+	// Schedulable accounts follow the normal 10-minute refresh cadence. Fresh
+	// imports leave schedulable=false with last_refresh=0; include those once so
+	// Workers can bootstrap before an operator enables scheduling / admin test.
+	rows, err := r.sql.QueryContext(ctx, `SELECT id, schedulable,
 		credentials #> '{gemini_web,runtime,state}', credentials #> '{gemini_web,lease}'
 		FROM accounts WHERE deleted_at IS NULL AND platform='gemini' AND type='apikey'
-		AND status='active' AND schedulable=true
+		AND status='active'
 		AND jsonb_typeof(credentials #> '{gemini_web,runtime}')='object'
+		AND (
+			schedulable = true
+			OR COALESCE((credentials #> '{gemini_web,runtime,state}'->>'last_refresh')::double precision, 0) = 0
+		)
 		ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -29,8 +36,9 @@ func (r *accountRepository) ListDueGeminiWebAccounts(ctx context.Context) ([]int
 	now := float64(time.Now().Unix())
 	for rows.Next() {
 		var id int64
+		var schedulable bool
 		var stateRaw, leaseRaw []byte
-		if err := rows.Scan(&id, &stateRaw, &leaseRaw); err != nil {
+		if err := rows.Scan(&id, &schedulable, &stateRaw, &leaseRaw); err != nil {
 			return nil, err
 		}
 		state, lease := map[string]any{}, map[string]any{}
@@ -48,6 +56,9 @@ func (r *accountRepository) ListDueGeminiWebAccounts(ctx context.Context) ([]int
 		cooldown, _ := state["cooldown_until"].(float64)
 		expiresAt, _ := lease["expires_at"].(float64)
 		if state["blocked"] == true || state["generation_pending"] == true || cooldown > now || expiresAt > now {
+			continue
+		}
+		if !schedulable && lastRefresh != 0 {
 			continue
 		}
 		if now-lastRefresh >= 600 {

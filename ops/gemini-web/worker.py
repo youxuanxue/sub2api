@@ -321,14 +321,41 @@ class Account:
             usable_cookies += 1
         if not usable_cookies:
             raise ValueError('Gemini Web session bundle contains no supported cookies')
+        # Restore bootstrap cache across Account rebuilds (runtime CAS bumps version
+        # after every meaningful persist). Missing/invalid cache forces bootstrap.
         self.fields = {}
         self.models = {}
         self.ready_at = 0
+        raw_fields = state.get('fields')
+        if isinstance(raw_fields, dict) and all(
+                isinstance(raw_fields.get(name), str) and raw_fields[name]
+                for name in ('SNlM0e', 'cfb2h', 'FdrFJe')):
+            self.fields = {name: raw_fields[name] for name in ('SNlM0e', 'cfb2h', 'FdrFJe')}
+        raw_models = state.get('models')
+        if isinstance(raw_models, dict):
+            restored = {}
+            for name, spec in raw_models.items():
+                if (isinstance(name, str) and isinstance(spec, (list, tuple)) and len(spec) == 3
+                        and isinstance(spec[0], str) and isinstance(spec[1], int)
+                        and isinstance(spec[2], int)):
+                    restored[name] = (spec[0], spec[1], spec[2])
+            self.models = restored
+        try:
+            ready_at = float(state.get('ready_at') or 0)
+        except (TypeError, ValueError):
+            ready_at = 0
+        if self.fields and self.models and ready_at > 0:
+            self.ready_at = ready_at
         self.last_phase = {}
         self.session_id = str(uuid.uuid4())
 
     def close(self):
         self.session.close()
+
+    def cookie_fingerprint(self):
+        return tuple(sorted(
+            (cookie.name, cookie.domain, cookie.path, cookie.value)
+            for cookie in self.session.cookies.jar if not cookie.is_expired()))
 
     def persist(self):
         records = {}
@@ -341,9 +368,14 @@ class Account:
                            path=cookie.path, secure=cookie.secure,
                            expires=cookie.expires or -1)
             records[key] = updated
-        state = dict(cookies=list(records.values()), blocked=self.blocked,
-                     generation_pending=self.generation_pending,
-                     last_refresh=self.last_refresh, cooldown_until=self.cooldown_until)
+        state = dict(
+            cookies=list(records.values()), blocked=self.blocked,
+            generation_pending=self.generation_pending,
+            last_refresh=self.last_refresh, cooldown_until=self.cooldown_until,
+            ready_at=self.ready_at,
+            fields=dict(self.fields) if self.fields else {},
+            models={name: list(spec) for name, spec in self.models.items()},
+        )
         self.cookie_records = {(c['name'], c['domain'], c.get('path', '/')): c for c in state['cookies']}
         if self.persist_callback is not None:
             self.persist_callback(state)
@@ -371,6 +403,7 @@ class Account:
             read = min(read, remaining)
             connect = min(connect, read)
         kwargs['timeout'] = (connect, read)
+        before_cookies = self.cookie_fingerprint()
         try:
             response = self.session.request(method, url, allow_redirects=False,
                                              content_callback=collect, **kwargs)
@@ -383,8 +416,11 @@ class Account:
                 'timeout_s': round(read, 3),
                 'connect_timeout_s': round(connect, 3),
             }), flush=True)
+            self.persist()
             raise Failure(502, 'Upstream transport failed; request was not retried') from exc
-        finally:
+        # Cookie jar updates are the only silent side effect of success; skip CAS
+        # when Google did not rotate cookies (explicit pending/blocked still persist).
+        if self.cookie_fingerprint() != before_cookies:
             self.persist()
         code = response.status_code
         if code in (401, 403) or (300 <= code < 400 and 'accounts.google.com' in response.headers.get('location', '')):
@@ -446,6 +482,7 @@ class Account:
             raise Failure(502, 'Google Web model discovery failed')
         self.models = models
         self.ready_at = time.time()
+        self.persist()
 
     def refresh(self):
         self.call('POST', 'https://accounts.google.com/RotateCookies',

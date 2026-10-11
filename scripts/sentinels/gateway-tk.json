@@ -861,9 +861,10 @@
         "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" up -d --no-deps caddy",
         "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" stop -t 60 caddy",
         "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" stop -t 60 postgres redis",
-        "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" -f \"${ROOT}/docker-compose.prod-pg.yml\" stop -t 60 postgres redis"
+        "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" -f \"${ROOT}/docker-compose.prod-pg.yml\" stop -t 60 postgres redis",
+        "sync_gemini_web_control_alias"
       ],
-      "rationale": "Explicit replay continuation must enforce the reviewed receipt under the deployment lock; optional historical experiments do not become an implicit deployment gate. Infra systemd start/stop must pin -f docker-compose.yml so docker-compose.override.yml (blue/green overlays without image) cannot poison boot after CFN stop/start. Prod may layer docker-compose.prod-pg.yml for GUC tuning without auto-merging override.yml."
+      "rationale": "Explicit replay continuation must enforce the reviewed receipt under the deployment lock; optional historical experiments do not become an implicit deployment gate. Infra systemd start/stop must pin -f docker-compose.yml so docker-compose.override.yml (blue/green overlays without image) cannot poison boot after CFN stop/start. Prod may layer docker-compose.prod-pg.yml for GUC tuning without auto-merging override.yml. Cutover must keep Docker DNS name tokenkey pointed at the active app color for Gemini Web Workers."
     },
     {
       "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
@@ -14525,6 +14526,16 @@
         "tk_gemini_web_worker_deploy: RESTORE-FAILED"
       ],
       "rationale": "Host-side Worker recreate. Two identity gates are load-bearing and must both stay: the pulled image is asked for its own digest before anything is stopped, and the running container must report that digest at /readyz before the deploy is called done. The previous container is renamed, never removed, so a bad deploy leaves evidence, and both failure paths must call restore_previous: a not-ready container left under the canonical name is still in the serving path, because health status alone does not remove accounts from gateway scheduling. The RESTORED/RESTORE-FAILED markers are how an operator learns whether the host still has a running Worker. The isolation flags are the Worker's security contract (it drives a browser session with real cookies), not tuning."
+    },
+    {
+      "path": "ops/gemini-web/sync-control-alias-on-host.sh",
+      "contains_any": [
+        "PROXY_NAME",
+        "tokenkey-blue",
+        "alpine/socat",
+        "tk_gemini_web_control_alias"
+      ],
+      "rationale": "Blue/green removes the legacy app container named tokenkey. Workers keep GEMINI_WEB_CONTROL_URL=http://tokenkey:8080/api/v1; without this alias sync they permanently session_poll_failed after cutover."
     },
     {
       "path": "ops/gemini-web/prune-worker-pets.sh",

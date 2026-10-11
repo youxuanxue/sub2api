@@ -65,6 +65,16 @@ ceiling: connect 15s; session hygiene (RotateCookies/`/app`/batch) read 30s; tex
 read also capped by the remaining operation lease. Worker logs `upstream_phase` with
 `refresh_ms` / `bootstrap_ms` / `generate_ms` / `generate_timeout_s` (also mirrored on the
 `request` event) so operators can see whether time was spent on refresh or GENERATE.
+
+After blue/green cutover the app containers are `tokenkey-blue` / `tokenkey-green`. Keep a
+stable Docker DNS name `tokenkey` for `GEMINI_WEB_CONTROL_URL` via
+`ops/gemini-web/sync-control-alias-on-host.sh` (also invoked from blue/green `commit_cutover`).
+Repair a broken edge with:
+
+```bash
+bash ops/observability/run-probe.sh --target edge:us4 \
+  --script ops/gemini-web/sync-control-alias-on-host.sh
+```
 Never put this export into an API Key field; do not send it to the production relay account.
 Admin "Test account" follows the platform AccountTestService SSOT and does not require
 scheduling to be enabled: control-plane session/lease/CAS accept active runtimes while

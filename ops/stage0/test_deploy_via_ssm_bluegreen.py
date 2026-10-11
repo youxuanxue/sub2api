@@ -221,6 +221,7 @@ write_active_color() {{
   printf '%s\\n' "$1" > "$ACTIVE_FILE"
 }}
 record_cutover() {{ return 1; }}
+sync_gemini_web_control_alias() {{ :; }}
 sudo() {{
   if [ "$1" = mv ] && [ "$ACTIVE_RESTORE_FAILS" = 1 ]; then return 1; fi
   if [ "$1" = sh ]; then
@@ -838,6 +839,8 @@ validate_prepared_receipt blue green
         assert remote is not None
         function = _extract_shell_function(remote, "commit_cutover")
         success_branch = function.index('if write_active_color "${color}" && record_cutover; then')
+        self.assertIn("sync_gemini_web_control_alias", function[success_branch:])
+        self.assertIn("sync_gemini_web_control_alias", remote)
         durable_commit = function.index("CUTOVER_COMMITTED=1", success_branch)
         self.assertLess(success_branch, durable_commit)
         self.assertLess(

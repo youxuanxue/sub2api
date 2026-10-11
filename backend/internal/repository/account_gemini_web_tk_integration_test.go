@@ -232,6 +232,21 @@ func (s *AccountRepoSuite) TestGeminiWebMaintenanceOnlyReturnsDueAccounts() {
 			want = append(want, account.ID)
 		}
 	}
+	// Fresh import: schedulable=false and last_refresh=0 still needs one warm-up.
+	imported := mustCreateAccount(s.T(), s.client, &service.Account{Name: "imported-paused",
+		Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey,
+		Credentials: map[string]any{"gemini_web": map[string]any{
+			"runtime": map[string]any{"version": 1, "state": map[string]any{"last_refresh": 0}},
+		}}})
+	s.Require().NoError(s.repo.SetSchedulable(s.ctx, imported.ID, false))
+	want = append(want, imported.ID)
+	// Unschedulable but already refreshed must stay out of the maintenance list.
+	pausedFresh := mustCreateAccount(s.T(), s.client, &service.Account{Name: "paused-fresh",
+		Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey,
+		Credentials: map[string]any{"gemini_web": map[string]any{
+			"runtime": map[string]any{"version": 1, "state": map[string]any{"last_refresh": now}},
+		}}})
+	s.Require().NoError(s.repo.SetSchedulable(s.ctx, pausedFresh.ID, false))
 	plain := mustCreateAccount(s.T(), s.client, &service.Account{Name: "ordinary-gemini",
 		Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey,
 		Credentials: map[string]any{"api_key": "ordinary-key"}})
