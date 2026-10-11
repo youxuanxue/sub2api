@@ -212,7 +212,10 @@ if [ "$TARGET" = "prod" ]; then
   # Same control-plane flip as deploy-stage0 / feishu sync (aws i-* until cutover → hetzner mi-*).
   RESOLVE_PROD="${RUN_PROBE_RESOLVE_PROD:-$REPO_ROOT/ops/stage0/resolve_prod_ssm_target.py}"
   PYERR=$(mktemp)
-  if ! RES_LINES=$(python3 "${RESOLVE_PROD}" --format kv 2>"$PYERR"); then
+  # Honor PROD_SSM_TARGET explicitly; bare --format kv defaults to auto and
+  # fails closed on flip-param AccessDenied after Wave B (#2574 / #2576).
+  if ! RES_LINES=$(python3 "${RESOLVE_PROD}" \
+      --target "${PROD_SSM_TARGET:-auto}" --format kv 2>"$PYERR"); then
     echo "[run-probe] ERROR: resolve_prod_ssm_target failed" >&2
     cat "$PYERR" >&2
     rm -f "$PYERR"
