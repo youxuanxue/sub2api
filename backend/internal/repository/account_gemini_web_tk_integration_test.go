@@ -39,8 +39,9 @@ func (s *AccountRepoSuite) TestGeminiWebExplicitImportConflictsAndPreservesAccou
 	apply(2, "competing-import", false)
 	loaded, err := s.repo.GetByID(s.ctx, a.ID)
 	s.Require().NoError(err)
-	s.Require().False(loaded.Schedulable)
-	s.Require().Equal("error", loaded.Status)
+	s.Require().False(loaded.Schedulable, "import must preserve pause; ClearError's SetSchedulable(true) is not used")
+	s.Require().Equal(service.StatusActive, loaded.Status, "successful import recovers status=error for control-plane access")
+	s.Require().Empty(loaded.ErrorMessage)
 	s.Require().Equal("rotated", loaded.Credentials["api_key"])
 	s.Require().Equal(a.Credentials["model_mapping"], loaded.Credentials["model_mapping"])
 	web := loaded.Credentials["gemini_web"].(map[string]any)
@@ -174,8 +175,9 @@ func (s *AccountRepoSuite) TestGeminiWebInitializationGuardsAndPreservesAccount(
 	s.Require().Equal(a.Credentials["model_mapping"], loaded.Credentials["model_mapping"])
 	s.Require().Equal(a.Extra, loaded.Extra)
 	s.Require().Equal([]int64{group.ID}, loaded.GroupIDs)
-	s.Require().Equal("error", loaded.Status)
-	s.Require().False(loaded.Schedulable)
+	s.Require().Equal(service.StatusActive, loaded.Status, "successful init recovers status=error for control-plane access")
+	s.Require().Empty(loaded.ErrorMessage)
+	s.Require().False(loaded.Schedulable, "initialization must leave scheduling disabled")
 	// A settings editor loaded the empty declaration before import.
 	loaded.Credentials["gemini_web"] = map[string]any{}
 	loaded.Name = "edited"
@@ -230,6 +232,21 @@ func (s *AccountRepoSuite) TestGeminiWebMaintenanceOnlyReturnsDueAccounts() {
 			want = append(want, account.ID)
 		}
 	}
+	// Fresh import: schedulable=false and last_refresh=0 still needs one warm-up.
+	imported := mustCreateAccount(s.T(), s.client, &service.Account{Name: "imported-paused",
+		Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey,
+		Credentials: map[string]any{"gemini_web": map[string]any{
+			"runtime": map[string]any{"version": 1, "state": map[string]any{"last_refresh": 0}},
+		}}})
+	s.Require().NoError(s.repo.SetSchedulable(s.ctx, imported.ID, false))
+	want = append(want, imported.ID)
+	// Unschedulable but already refreshed must stay out of the maintenance list.
+	pausedFresh := mustCreateAccount(s.T(), s.client, &service.Account{Name: "paused-fresh",
+		Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey,
+		Credentials: map[string]any{"gemini_web": map[string]any{
+			"runtime": map[string]any{"version": 1, "state": map[string]any{"last_refresh": now}},
+		}}})
+	s.Require().NoError(s.repo.SetSchedulable(s.ctx, pausedFresh.ID, false))
 	plain := mustCreateAccount(s.T(), s.client, &service.Account{Name: "ordinary-gemini",
 		Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey,
 		Credentials: map[string]any{"api_key": "ordinary-key"}})
@@ -249,6 +266,36 @@ func (s *AccountRepoSuite) TestGeminiWebMaintenanceOnlyReturnsDueAccounts() {
 		s.Require().NotContains(web, "lease")
 		s.Require().Equal(float64(1), web["runtime"].(map[string]any)["version"])
 	}
+}
+
+func (s *AccountRepoSuite) TestClearErrorSkipsGeminiWebPauseResetWhileLeaseHeld() {
+	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "clear-error-lease",
+		Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive,
+		Credentials: map[string]any{"gemini_web": map[string]any{
+			"runtime": map[string]any{"version": 1, "state": map[string]any{
+				"blocked": false, "generation_pending": true, "cooldown_until": 0,
+				"last_refresh": float64(time.Now().Unix()),
+			}},
+		}}})
+	acquired, err := s.repo.AcquireGeminiWebLease(s.ctx, account.ID, "clear-error-owner")
+	s.Require().NoError(err)
+	s.Require().True(acquired)
+	// Operator Clear Error while Worker still holds the lease: status recovers but
+	// pause flags stay until the in-flight owner releases.
+	s.Require().NoError(s.repo.ClearError(s.ctx, account.ID))
+	loaded, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(service.StatusActive, loaded.Status)
+	state := loaded.Credentials["gemini_web"].(map[string]any)["runtime"].(map[string]any)["state"].(map[string]any)
+	s.Require().Equal(true, state["generation_pending"], "active lease must keep generation_pending")
+
+	s.Require().NoError(s.repo.ReleaseGeminiWebLease(s.ctx, account.ID, "clear-error-owner"))
+	s.Require().NoError(s.repo.ClearError(s.ctx, account.ID))
+	loaded, err = s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	state = loaded.Credentials["gemini_web"].(map[string]any)["runtime"].(map[string]any)["state"].(map[string]any)
+	s.Require().Equal(false, state["generation_pending"], "released lease allows Clear Error pause reset")
 }
 
 func (s *AccountRepoSuite) TestGeminiWebImportSurvivesPreBindingEditor() {

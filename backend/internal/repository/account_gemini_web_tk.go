@@ -7,17 +7,26 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
 // Only read maintenance metadata, never cookie jars or unrelated Gemini accounts.
 // A poll performs no writes. Due accounts still acquire the fenced lease before
 // touching Google, so concurrent workers and foreground requests remain safe.
 func (r *accountRepository) ListDueGeminiWebAccounts(ctx context.Context) ([]int64, error) {
-	rows, err := r.sql.QueryContext(ctx, `SELECT id,
+	// Schedulable accounts follow the normal 10-minute refresh cadence. Fresh
+	// imports leave schedulable=false with last_refresh=0; include those once so
+	// Workers can bootstrap before an operator enables scheduling / admin test.
+	rows, err := r.sql.QueryContext(ctx, `SELECT id, schedulable,
 		credentials #> '{gemini_web,runtime,state}', credentials #> '{gemini_web,lease}'
 		FROM accounts WHERE deleted_at IS NULL AND platform='gemini' AND type='apikey'
-		AND status='active' AND schedulable=true
+		AND status='active'
 		AND jsonb_typeof(credentials #> '{gemini_web,runtime}')='object'
+		AND (
+			schedulable = true
+			OR COALESCE((credentials #> '{gemini_web,runtime,state}'->>'last_refresh')::double precision, 0) = 0
+		)
 		ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -27,8 +36,9 @@ func (r *accountRepository) ListDueGeminiWebAccounts(ctx context.Context) ([]int
 	now := float64(time.Now().Unix())
 	for rows.Next() {
 		var id int64
+		var schedulable bool
 		var stateRaw, leaseRaw []byte
-		if err := rows.Scan(&id, &stateRaw, &leaseRaw); err != nil {
+		if err := rows.Scan(&id, &schedulable, &stateRaw, &leaseRaw); err != nil {
 			return nil, err
 		}
 		state, lease := map[string]any{}, map[string]any{}
@@ -46,6 +56,9 @@ func (r *accountRepository) ListDueGeminiWebAccounts(ctx context.Context) ([]int
 		cooldown, _ := state["cooldown_until"].(float64)
 		expiresAt, _ := lease["expires_at"].(float64)
 		if state["blocked"] == true || state["generation_pending"] == true || cooldown > now || expiresAt > now {
+			continue
+		}
+		if !schedulable && lastRefresh != 0 {
 			continue
 		}
 		if now-lastRefresh >= 600 {
@@ -155,7 +168,9 @@ func (r *accountRepository) CompareAndSwapGeminiWebRuntime(ctx context.Context, 
 // runtime. expectedVersion=-1 means initialization and requires no runtime;
 // non-negative versions replace an existing runtime. The predicate turns a
 // stale editor/import into a conflict and preserves every unrelated credential
-// and account column.
+// column and schedulable. status=error is recovered to active in the same write
+// so control-plane GET/lease/CAS (which require StatusActive) can serve admin
+// tests after operator re-import, without ClearError's SetSchedulable(true).
 func (r *accountRepository) ImportGeminiWebSession(ctx context.Context, id, expectedVersion int64, runtime map[string]any) (bool, error) {
 	if id <= 0 || expectedVersion < -1 || expectedVersion >= 1<<53-1 || runtime == nil {
 		return false, errors.New("invalid Gemini Web runtime version")
@@ -171,7 +186,10 @@ func (r *accountRepository) ImportGeminiWebSession(ctx context.Context, id, expe
 			'{gemini_web,runtime}',
 			jsonb_set($1::jsonb, '{version}', to_jsonb(CASE WHEN $2::bigint = -1 THEN 1 ELSE $2::bigint + 1 END), true),
 			true
-		), updated_at = NOW()
+		),
+			status = CASE WHEN status = 'error' THEN 'active' ELSE status END,
+			error_message = CASE WHEN status = 'error' THEN '' ELSE error_message END,
+			updated_at = NOW()
 		WHERE id = $3
 			AND deleted_at IS NULL
 			AND platform = 'gemini' AND type = 'apikey'
@@ -195,7 +213,52 @@ func (r *accountRepository) ImportGeminiWebSession(ctx context.Context, id, expe
 	if err != nil {
 		return false, err
 	}
-	return affected == 1, nil
+	if affected != 1 {
+		return false, nil
+	}
+	// status may have moved error→active; keep scheduler snapshots coherent when
+	// the account is already schedulable (replacement after egress/session recovery).
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue gemini web import failed: account=%d err=%v", id, err)
+	}
+	r.syncSchedulerAccountSnapshot(ctx, id)
+	return true, nil
+}
+
+// clearGeminiWebSessionPause clears Worker pause flags after operator recovery.
+// It is a no-op for non-Worker rows, missing runtimes, or accounts with an
+// active lease (the in-flight owner still owns state). Cookies and version are
+// preserved; only blocked / generation_pending / cooldown_until are reset.
+func (r *accountRepository) clearGeminiWebSessionPause(ctx context.Context, id int64) error {
+	if r == nil || r.sql == nil || id <= 0 {
+		return nil
+	}
+	_, err := r.sql.ExecContext(ctx, `
+		UPDATE accounts
+		SET credentials = jsonb_set(
+			jsonb_set(
+				jsonb_set(
+					credentials,
+					'{gemini_web,runtime,state,blocked}',
+					'false'::jsonb
+				),
+				'{gemini_web,runtime,state,generation_pending}',
+				'false'::jsonb
+			),
+			'{gemini_web,runtime,state,cooldown_until}',
+			'0'::jsonb
+		),
+			updated_at = NOW()
+		WHERE id = $1
+			AND deleted_at IS NULL
+			AND platform = 'gemini' AND type = 'apikey'
+			AND jsonb_typeof(credentials->'gemini_web'->'runtime'->'state') = 'object'
+			AND COALESCE(credentials->'gemini_web_relay', 'false'::jsonb) = 'false'::jsonb
+			AND extra->>'relay_kind' IS DISTINCT FROM 'gemini_web'
+			AND COALESCE((credentials->'gemini_web'->'lease'->>'expires_at')::numeric, 0)
+				<= EXTRACT(EPOCH FROM clock_timestamp())
+	`, id)
+	return err
 }
 
 // The 600s crash lease exceeds the worker's 480s total operation budget.

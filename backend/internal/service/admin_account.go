@@ -579,8 +579,10 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 
 // ImportGeminiWebSession atomically replaces only the managed browser runtime.
 // It deliberately bypasses the generic full-account update path so an editor
-// cannot overwrite API keys, model mappings, status, or scheduling fields from
-// a stale account snapshot.
+// cannot overwrite API keys, model mappings, or scheduling fields from a stale
+// account snapshot. Repository import recovers status=error→active (clearing
+// error_message) without forcing schedulable=true, so admin Test account can
+// reach the control plane after re-import while AC-010 init pause is preserved.
 func (s *adminServiceImpl) ImportGeminiWebSession(ctx context.Context, id, expectedVersion int64, runtime map[string]any) (*Account, error) {
 	importer, ok := s.accountRepo.(interface {
 		ImportGeminiWebSession(context.Context, int64, int64, map[string]any) (bool, error)

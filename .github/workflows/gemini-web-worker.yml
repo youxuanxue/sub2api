@@ -36,6 +36,7 @@ jobs:
           set -euo pipefail
           bash ops/gemini-web/test_deploy_worker_on_host.sh
           bash ops/gemini-web/test_prune_worker_pets.sh
+          bash ops/gemini-web/test_sync_control_alias_on_host.sh
 
       - name: Shell syntax of host-side ops scripts
         run: |

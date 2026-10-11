@@ -909,6 +909,10 @@ preserve_target_cutover() {
   CUTOVER_COMMITTED=1
   write_active_color "${color}" || true
   record_cutover || true
+  # Error-recovery cutovers still need Worker control DNS on the preserved color.
+  if ! sync_gemini_web_control_alias "${color}"; then
+    echo "::warning::gemini-web control alias sync failed during preserve_target color=${color}"
+  fi
 }
 
 preserve_unconfirmed_reload() {
@@ -962,9 +966,20 @@ commit_cutover() {
   ROUTE_SWITCHED=1
 
   if write_active_color "${color}" && record_cutover; then
-    CUTOVER_COMMITTED=1
     sudo rm -f "${active_backup}" >/dev/null 2>&1 || true
     log "caddy now routes new requests to ${upstream} (backup=${backup})"
+    # Gemini Web Workers resolve GEMINI_WEB_CONTROL_URL host `tokenkey`. Keep a
+    # stable Docker DNS name pointed at the active color after blue/green cutover.
+    # SSM remote blob is the primary delivery path (host script may be absent).
+    if ! sync_gemini_web_control_alias "${color}"; then
+      if sudo docker inspect tokenkey-gemini-web >/dev/null 2>&1; then
+        echo "::error::gemini-web control alias sync failed while Worker is present; deploy must not report success"
+        CUTOVER_COMMITTED=1
+        return 1
+      fi
+      echo "::warning::gemini-web control alias sync failed color=${color}; Workers may report session_poll_failed until repaired"
+    fi
+    CUTOVER_COMMITTED=1
     return 0
   else
     echo "::warning::cutover commit failed; restore previous Caddyfile and active-color"
@@ -1002,6 +1017,51 @@ write_active_color() {
   printf '%s\n' "${color}" | sudo tee "${tmp}" >/dev/null
   sudo mv "${tmp}" "${ACTIVE_FILE}"
   log "active-color=${color}"
+}
+
+# Point Docker DNS name `tokenkey` at the active app color for Gemini Web Workers
+# (GEMINI_WEB_CONTROL_URL=http://tokenkey:8080/api/v1). SSM delivers this remote
+# blob alone, so the heredoc below is the primary path on cutover hosts; the
+# reviewed ops/gemini-web/sync-control-alias-on-host.sh is used when co-located
+# (local/dev or run-probe repair) and must stay behaviorally aligned.
+sync_gemini_web_control_alias() {
+  local color="$1" script
+  script="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/../gemini-web/sync-control-alias-on-host.sh"
+  if [[ -x "${script}" ]]; then
+    TK_ACTIVE_COLOR="${color}" bash "${script}"
+    return $?
+  fi
+  # Embedded primary for SSM blue/green payloads (no sibling gemini-web tree).
+  TK_ACTIVE_COLOR="${color}" bash -s <<'ALIAS_SH'
+set -euo pipefail
+NETWORK="${TK_NETWORK:-tokenkey_tokenkey-network}"
+PROXY_NAME=tokenkey
+SOCAT_IMAGE="${TK_CONTROL_PROXY_IMAGE:-alpine/socat:1.8.0.0}"
+color="${TK_ACTIVE_COLOR:?}"
+target="tokenkey-${color}"
+sudo docker inspect "${target}" >/dev/null
+if sudo docker inspect "${PROXY_NAME}" >/dev/null 2>&1; then
+  image="$(sudo docker inspect "${PROXY_NAME}" --format '{{.Config.Image}}' 2>/dev/null || true)"
+  if [[ "${image}" == *sub2api* && "${image}" != *socat* && "${image}" != *gemini-web* ]]; then
+    echo "gemini-web-control-alias: legacy app container named tokenkey; leaving intact"
+    exit 0
+  fi
+  desired="TCP:${target}:8080"
+  current="$(sudo docker inspect "${PROXY_NAME}" --format '{{json .Config.Cmd}}' 2>/dev/null || true)"
+  running="$(sudo docker inspect "${PROXY_NAME}" --format '{{.State.Running}}' 2>/dev/null || true)"
+  if [[ "${running}" == "true" && "${current}" == *"${desired}"* ]]; then
+    echo "gemini-web-control-alias: already proxies ${desired}"
+    exit 0
+  fi
+  sudo docker rm -f "${PROXY_NAME}" >/dev/null
+fi
+sudo docker image inspect "${SOCAT_IMAGE}" >/dev/null 2>&1 || sudo docker pull "${SOCAT_IMAGE}" >/dev/null
+sudo docker run -d --name "${PROXY_NAME}" --restart unless-stopped \
+  --network "${NETWORK}" --user 65534:65534 --read-only --cap-drop ALL \
+  --security-opt no-new-privileges --memory 32m --memory-swap 32m --cpus 0.1 --pids-limit 32 \
+  "${SOCAT_IMAGE}" TCP-LISTEN:8080,fork,reuseaddr "TCP:${target}:8080" >/dev/null
+echo "tk_gemini_web_control_alias: OK color=${color} target=${target}"
+ALIAS_SH
 }
 
 observe_routed_health() {

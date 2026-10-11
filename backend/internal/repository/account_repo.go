@@ -2484,6 +2484,12 @@ func (r *accountRepository) ClearError(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
+	// Gemini Web keeps generation_pending after uncertain 502/timeout so Google
+	// work is not retried. Operator Clear Error is the recovery signal (same as
+	// re-import resetting state) once AdsPower chat has been verified.
+	if err := r.clearGeminiWebSessionPause(ctx, id); err != nil {
+		logger.LegacyPrintf("repository.account", "[GeminiWeb] clear session pause failed: account=%d err=%v", id, err)
+	}
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue clear error failed: account=%d err=%v", id, err)
 	}

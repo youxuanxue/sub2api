@@ -120,7 +120,8 @@ func TestGeminiWebControlRejectsInvalidAccessAndConflicts(t *testing.T) {
 	require.Equal(t, 409, request(http.MethodPost, "/accounts/28/lease", "edge-key", "").Code)
 	require.Equal(t, 400, request(http.MethodGet, "/accounts/no/session", "edge-key", "").Code)
 	// Unschedulable accounts still expose session control (admin test / import
-	// review). Fleet warm-up stays schedulable-gated via ListDueGeminiWebAccounts.
+	// review). Fleet warm-up remains ListDue-owned (schedulable cadence, plus
+	// never-refreshed imports); this stub returns no due IDs when paused.
 	store.account.Schedulable = false
 	store.updated = true
 	require.Equal(t, 200, request(http.MethodGet, "/accounts/28/session", "edge-key", "").Code)

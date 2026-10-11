@@ -221,6 +221,11 @@ write_active_color() {{
   printf '%s\\n' "$1" > "$ACTIVE_FILE"
 }}
 record_cutover() {{ return 1; }}
+SYNC_ALIAS_LOG={shlex.quote(str(root / "sync-alias.log"))}
+sync_gemini_web_control_alias() {{
+  printf '%s\\n' "$1" >> "$SYNC_ALIAS_LOG"
+  [ "$SYNC_ALIAS_FAILS" = 0 ] || return 1
+}}
 sudo() {{
   if [ "$1" = mv ] && [ "$ACTIVE_RESTORE_FAILS" = 1 ]; then return 1; fi
   if [ "$1" = sh ]; then
@@ -234,6 +239,10 @@ sudo() {{
       if [ "$TARGET_RELOAD_FAILS" = 1 ] && [ "$RELOAD_COUNT" -eq 1 ]; then return 1; fi
       if [ "$ROLLBACK_RELOAD_FAILS" = 1 ] && [ "$RELOAD_COUNT" -eq 2 ]; then return 1; fi
     fi
+    if [ "$2" = inspect ] && [ "$3" = tokenkey-gemini-web ]; then
+      [ "$WORKER_PRESENT" = 1 ] && return 0
+      return 1
+    fi
     return 0
   fi
   command "$@"
@@ -245,6 +254,8 @@ CUTOVER_COMMITTED=0
 ROUTE_SWITCHED=0
 RELOAD_COUNT=0
 SH_WRITE_COUNT=0
+SYNC_ALIAS_FAILS=0
+WORKER_PRESENT=0
 ROLLBACK_RELOAD_FAILS={1 if rollback_reload_fails else 0}
 LIVE_WRITE_FAILS={1 if live_write_fails else 0}
 TARGET_RELOAD_FAILS={1 if target_reload_fails else 0}
@@ -262,6 +273,67 @@ printf 'rc=%s committed=%s live=%s active=%s\\n' "$rc" "$CUTOVER_COMMITTED" "$(c
         return subprocess.run(
             ["bash"], input=script, capture_output=True, text=True, check=False
         )
+
+
+def _run_commit_cutover_success(
+    remote: str,
+    *,
+    sync_alias_fails: bool = False,
+    worker_present: bool = False,
+) -> tuple[subprocess.CompletedProcess[str], str]:
+    """Exercise the durable-commit success branch with a recording sync stub."""
+    function = "\n".join((
+        _extract_shell_function(remote, "preserve_target_cutover"),
+        _extract_shell_function(remote, "preserve_unconfirmed_reload"),
+        _extract_shell_function(remote, "commit_cutover"),
+    ))
+    with tempfile.TemporaryDirectory(prefix="bluegreen-commit-ok-") as tmp:
+        root = pathlib.Path(tmp)
+        caddy_dir = root / "caddy"
+        caddy_dir.mkdir()
+        live = caddy_dir / "Caddyfile"
+        active = root / "active-color"
+        sync_log = root / "sync-alias.log"
+        live.write_text("old-route\n")
+        active.write_text("blue\n")
+        script = f"""{function}
+color_container() {{ printf 'tokenkey-%s' "$1"; }}
+die() {{ return 1; }}
+log() {{ :; }}
+render_caddy_with_upstream() {{ printf 'new-route:%s\\n' "$1" > "$2"; }}
+write_active_color() {{ printf '%s\\n' "$1" > "$ACTIVE_FILE"; }}
+record_cutover() {{ return 0; }}
+SYNC_ALIAS_LOG={shlex.quote(str(sync_log))}
+sync_gemini_web_control_alias() {{
+  printf '%s\\n' "$1" >> "$SYNC_ALIAS_LOG"
+  [ "$SYNC_ALIAS_FAILS" = 0 ] || return 1
+}}
+sudo() {{
+  if [ "$1" = docker ]; then
+    if [ "$2" = inspect ] && [ "$3" = tokenkey-gemini-web ]; then
+      [ "$WORKER_PRESENT" = 1 ] && return 0
+      return 1
+    fi
+    return 0
+  fi
+  command "$@"
+}}
+CADDY_DIR={shlex.quote(str(caddy_dir))}
+LIVE_CADDY={shlex.quote(str(live))}
+ACTIVE_FILE={shlex.quote(str(active))}
+CUTOVER_COMMITTED=0
+ROUTE_SWITCHED=0
+SYNC_ALIAS_FAILS={1 if sync_alias_fails else 0}
+WORKER_PRESENT={1 if worker_present else 0}
+commit_cutover green
+rc=$?
+printf 'rc=%s committed=%s live=%s active=%s\\n' "$rc" "$CUTOVER_COMMITTED" "$(cat "$LIVE_CADDY")" "$(cat "$ACTIVE_FILE")"
+"""
+        proc = subprocess.run(
+            ["bash"], input=script, capture_output=True, text=True, check=False
+        )
+        sync_text = sync_log.read_text().strip() if sync_log.exists() else ""
+        return proc, sync_text
 
 
 def _run_systemd_start(
@@ -837,14 +909,50 @@ validate_prepared_receipt blue green
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         assert remote is not None
         function = _extract_shell_function(remote, "commit_cutover")
+        preserve = _extract_shell_function(remote, "preserve_target_cutover")
         success_branch = function.index('if write_active_color "${color}" && record_cutover; then')
+        self.assertIn("sync_gemini_web_control_alias", function[success_branch:])
+        self.assertIn("sync_gemini_web_control_alias", preserve)
+        self.assertIn("tokenkey-gemini-web", function[success_branch:])
+        self.assertIn("sync_gemini_web_control_alias", remote)
+        # SSM primary path embeds the socat proxy; keep markers aligned with host script.
+        sync_fn = _extract_shell_function(remote, "sync_gemini_web_control_alias")
+        for marker in (
+            "PROXY_NAME=tokenkey",
+            "alpine/socat",
+            "TCP-LISTEN:8080,fork,reuseaddr",
+            "tk_gemini_web_control_alias",
+        ):
+            self.assertIn(marker, sync_fn)
         durable_commit = function.index("CUTOVER_COMMITTED=1", success_branch)
         self.assertLess(success_branch, durable_commit)
+        self.assertLess(
+            function.index("sync_gemini_web_control_alias"),
+            function.rindex("CUTOVER_COMMITTED=1"),
+        )
         self.assertLess(
             function.index('sudo cp -a "${tmp}" "${target_config}"'),
             function.index('cat \'${tmp}\' > \'${LIVE_CADDY}\''),
         )
         self.assertIn("restore previous Caddyfile", function)
+
+        ok, sync_log = _run_commit_cutover_success(remote)
+        self.assertEqual(ok.returncode, 0, msg=ok.stderr)
+        self.assertIn("rc=0 committed=1", ok.stdout)
+        self.assertEqual(sync_log, "green")
+
+        worker_fail, _ = _run_commit_cutover_success(
+            remote, sync_alias_fails=True, worker_present=True
+        )
+        self.assertEqual(worker_fail.returncode, 0, msg=worker_fail.stderr)
+        self.assertIn("rc=1 committed=1", worker_fail.stdout)
+
+        warn_only, sync_log_warn = _run_commit_cutover_success(
+            remote, sync_alias_fails=True, worker_present=False
+        )
+        self.assertEqual(warn_only.returncode, 0, msg=warn_only.stderr)
+        self.assertIn("rc=0 committed=1", warn_only.stdout)
+        self.assertEqual(sync_log_warn, "green")
 
         live_write_failed = _run_commit_cutover_record_failure(
             remote, live_write_fails=True
