@@ -42,7 +42,7 @@ SSM 均在线。prod 运行 `1.8.283`，容器为 `tokenkey`，尚无 active col
 
 - #2551 已接线 Hetzner upgrade/rollback/smoke，复用共享蓝绿 primitive；线上首次切色尚未执行。
 - prod 具有 legacy → blue 的首次迁移能力，但 prepare/replay 拒绝 legacy 布局。
-- prod 蓝绿 compose 未挂载 Hybrid 临时 AWS 凭证目录，首次切色不能假定继承旧容器的手动挂载。
+- 后续发布链路已补 Hybrid 临时 AWS 凭证目录挂载与 Volume 门禁；首次线上切色尚未验收。
 - QA workflow 仍从 EC2 解析网络并部署 Fargate；本分支已补 PostgreSQL adapter，默认仍为 SQS。
 - PostgreSQL 队列入口不加载 AWS 凭据；SQS 分支保留旧配置以兼容现网。
 - #2551 已对齐 prod 目标矩阵及正式 DNS 文档；不回填未执行的线上蓝绿验收。
@@ -277,3 +277,30 @@ Go archive store 已对官方 Hetzner HTTPS endpoint 加入 If-Match 适配，�
 资源开通、队列本地通过和供应商合成测试通过均不等于完成生产迁移。
 必须补齐独立运行身份、私网/TLS、scratch 硬配额、备份恢复、迁移对账、真实用户路径
 以及 gateway/QA 蓝绿协调验证后，才允许正式切换。不得删除未确认迁完的 AWS 资产。
+
+## 后续发布链路实现（待发布验收）
+
+`qa-runtime-environment.sh` 共享本地 renderer 与远端的队列校验契约，支持 PostgreSQL
+DSN 文件；蓝绿 compose 与独立 maintenance pin 传递 endpoint、path-style 及凭据文件路径。
+`bluegreen_host_runtime.py` 验证凭据文件与挂载，两个颜色与 maintenance 使用同一 mount owner。
+QA 存储 `credentials_file` 为 0400/0600 JSON，字段仅为 `access_key_id`、`secret_access_key`；
+显式文件缺失、格式错误或与 inline credentials 混用时拒绝，不回退到进程 AWS 身份。
+QA 文件分别挂到 `/run/secrets/tokenkey-qa/{bundle.json,raw.json,queue.dsn,queue-ca.pem}`，
+不会把凭据内容传入 Compose/SSM 环境变量。私钥/DSN 文件归服务 UID 1000 所有。
+单文件 bind mount 与进程初始化缓存要求轮换后重新准备/重启对应组件。
+发布在改写宿主配置之前建立回退备份；legacy 升级、蓝绿升级与 prepare 的候选准备失败
+均恢复该配置，避免把未通过凭据校验的配置留给下一次重启。
+
+hcloud prod 在任何主机写入与 Docker 调用前验证 `/var/lib/tokenkey` 为真实 Hetzner ext4
+Volume 挂载。首次蓝绿安装同时给 Docker 和 tokenkey systemd unit 添加 RequiresMountsFor
+及 ExecStartPre 校验，防止 Docker 的自动重启先于应用 unit 在根盘启动空数据层。
+Hybrid 临时 AWS 身份继续通过 `/var/lib/tokenkey/aws` 目录只读挂载，支持原子文件轮换；
+QA 自身使用文件身份，不覆盖仍访问 AWS 的媒体/telemetry 身份。
+
+`deploy/hetzner/qa/producer.json` 仅包含非秘密坐标；resolver 的 Hetzner 分支不请求 CFN。
+`deploy-stage0` 默认仍使用 AWS 坐标，只有显式设置仓库变量 `QA_RUNTIME_PROVIDER=hetzner`
+才选择新坐标。**该变量不是迁移命令，不能在正式迁移步骤之前切换。**
+普通 gateway deploy 拒绝改变宿主队列后端；已迁移 PostgreSQL 的对象/队列坐标也必须与
+宿主一致。迁移 owner 先在冻结/对账后更新宿主，再使发布入口选择相同坐标。
+独立 QA workflow、uk1 worker/queue 正式运行包、私网/TLS、scratch 硬配额、备份恢复及
+任务/对象迁移仍需完成；本节不表示 QA 已去 AWS，也不表示生产蓝绿首切已通过。

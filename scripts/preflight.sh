@@ -392,8 +392,8 @@ export PREFLIGHT_BASE="${template_base:-origin/main}"
 # checks; a missing prerequisite leaves the job unspawned and the section
 # falls back to its serial FAIL/skip path.
 _qa_bundle_gate_run() {
-    python3 -m unittest ops.qa.test_colocation_resources &&
-    cd backend && go test -tags=unit -v ./internal/observability/qa/bundle ./internal/observability/qa
+    python3 -m unittest ops.qa.test_colocation_resources ops.stage0.test_bluegreen_host_runtime ops.qa.test_resolve_qa_bundle_coordinates &&
+    cd backend && go test -tags=unit -v ./internal/config ./internal/observability/qa/archive ./internal/observability/qa/bundle ./internal/observability/qa
 }
 _protocol_routing_gate_run() {
     python3 ./scripts/checks/test_protocol_routing_ssot.py >/dev/null &&

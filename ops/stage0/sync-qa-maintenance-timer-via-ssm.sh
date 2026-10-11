@@ -64,6 +64,7 @@ RESOLVER_SRC="${ARTIFACT_ROOT}/deploy/aws/stage0/qa-runtime.sh"
 [[ -f "${MAINT_SRC}" ]] || { echo "missing ${MAINT_SRC}" >&2; exit 1; }
 [[ -f "${RESOLVER_SRC}" ]] || { echo "missing ${RESOLVER_SRC}" >&2; exit 1; }
 
+HOST_RUNTIME_B64="$(base64 <"${SCRIPT_DIR}/bluegreen_host_runtime.py" | tr -d '\n')"
 MAINT_SH_B64="$(base64 <"${MAINT_SRC}" | tr -d '\n')"
 RESOLVER_SH_B64="$(base64 <"${RESOLVER_SRC}" | tr -d '\n')"
 TEMPLATE_SHA="${QA_HOST_ARTIFACT_SHA:-${GITHUB_SHA:-local}}"
@@ -72,6 +73,7 @@ RUNTIME_INSTALL_B64="$(base64 <"${SCRIPT_DIR}/qa-runtime-install.py" | tr -d '\n
 RUNTIME_TRANSACTION_B64="$(base64 <"${ARTIFACT_ROOT}/deploy/aws/stage0/qa-runtime-transaction.sh" | tr -d '\n')"
 
 jq -n \
+  --arg host_runtime "${HOST_RUNTIME_B64}" \
   --arg maint "${MAINT_SH_B64}" \
   --arg resolver "${RESOLVER_SH_B64}" \
   --arg runtime_template "${RUNTIME_TEMPLATE_B64}" \
@@ -103,6 +105,8 @@ jq -n \
       "sudo install -d -m 0755 /usr/local/lib/tokenkey",
       ("echo " + $resolver + " | base64 -d | sudo tee /usr/local/lib/tokenkey/qa-runtime.sh > /dev/null"),
       "sudo chmod 0644 /usr/local/lib/tokenkey/qa-runtime.sh",
+      ("echo " + $host_runtime + " | base64 -d | sudo tee /usr/local/lib/tokenkey/qa-credential-mounts.py > /dev/null"),
+      "sudo chmod 0644 /usr/local/lib/tokenkey/qa-credential-mounts.py",
       ("echo " + $runtime_template + " | base64 -d | sudo tee /usr/local/lib/tokenkey/qa-runtime-compose.yml > /dev/null"),
       ("echo " + $runtime_install + " | base64 -d | sudo tee /usr/local/lib/tokenkey/qa-runtime-install.py > /dev/null"),
       (if $runtime_image != "" then "sudo env " + (if $bundle_queue != "" and $bundle_bucket != "" then "QA_BUNDLE_QUEUE_URL=" + ($bundle_queue | @sh) + " QA_BUNDLE_STORAGE_BUCKET=" + ($bundle_bucket | @sh) + " QA_BUNDLE_STORAGE_REGION=" + ($bundle_region | @sh) + " " else "" end) + "python3 /usr/local/lib/tokenkey/qa-runtime-install.py --keep-previous --template /usr/local/lib/tokenkey/qa-runtime-compose.yml --image " + ($runtime_image | @sh) else "sudo docker inspect tokenkey-qa-runtime >/dev/null" end),

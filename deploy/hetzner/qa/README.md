@@ -91,3 +91,29 @@ uv run --no-project --with boto3 python ops/qa/probe_hcloud_object_storage.py --
 This verifies the provider API, including conditional writes and ordinary signed GET/CORS; it does not
 exercise the production Go store, runtime identities, migration, or browser UI.
 See the baseline for live results and the required ETag compatibility change.
+
+## Producer and maintenance deployment coordinates
+
+`producer.json` owns non-secret Hetzner coordinates. The resolver supports
+`--provider hetzner --manifest deploy/hetzner/qa/producer.json` without CFN.
+The gateway workflow defaults to `QA_RUNTIME_PROVIDER=aws`; changing that
+repository variable is a migration cutover action, not a way to provision QA.
+Complete the migration baseline before selecting `hetzner`. Gateway deploys
+reject a queue-backend transition or changed PostgreSQL storage coordinates;
+only the separate frozen migration may update the host coordinates first.
+
+QA storage accepts `QA_BUNDLE_STORAGE_CREDENTIALS_FILE` and
+`QA_ARCHIVE_STORAGE_CREDENTIALS_FILE`. Each private JSON file contains only
+`access_key_id` and `secret_access_key`. Do not set inline keys at the same time.
+The gateway and maintenance mount `/var/lib/tokenkey/qa-secrets/bundle.json`,
+`raw.json`, `queue.dsn` and `queue-ca.pem` at the corresponding
+`/run/secrets/tokenkey-qa/` paths. Credential files must be owned by UID 1000,
+mode 0400 or 0600. Never put worker/recovery/bootstrap identities in these
+producer files. Replace an identity through a new component preparation;
+file mounts and SDK initialization do not support hot key rotation.
+
+On hcloud prod, `/var/lib/tokenkey/aws/credentials` must also be a private
+UID 1000 file. Its parent is mounted read-only at `/aws` so the existing Hybrid
+refresh timer can atomically rotate the file. This identity remains separate
+from QA storage. Blue/green refuses a missing data Volume before touching the
+host and installs mount guards for both Docker and the application service.
