@@ -12,7 +12,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ops" / "stage0"))
-from ssm_execution import PROD_REGION, resolve_prod_instance, run_shell_b64  # noqa: E402
+import ssm_execution  # noqa: E402
+from ssm_execution import resolve_prod_instance, run_shell_b64  # noqa: E402
 
 REMOTE = r"""set -uo pipefail
 cd /var/lib/tokenkey
@@ -95,7 +96,7 @@ def main() -> int:
         "prod qa phase2 baseline",
     )
     payload = {
-        "region": PROD_REGION,
+        "region": ssm_execution.PROD_REGION,
         "instance_id": instance_id,
         "account_id": account_id,
         "raw_archive_bucket": bucket,

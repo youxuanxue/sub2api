@@ -34,8 +34,9 @@
 #       --script ops/observability/probe-endpoint-matrix.sh \
 #       --with ops/pricing/probe_reserved_resources.sh
 #
-#   --target prod        resolves region+instance from CloudFormation
-#                        (stack=tokenkey-prod-stage0, region=us-east-1)
+#   --target prod        resolves region+instance via
+#                        ops/stage0/resolve_prod_ssm_target.py (aws i-* or
+#                        hetzner mi-* after control-plane cutover)
 #   --target edge:<id>   resolves a deployable Lightsail managed instance via
 #                        ops/stage0/edge_ssm_execution.py and Parameter Store.
 #
@@ -208,21 +209,22 @@ fi
 REGION=""
 INSTANCE_ID=""
 if [ "$TARGET" = "prod" ]; then
-  REGION="us-east-1"
-  STACK="tokenkey-prod-stage0"
-  INSTANCE_ID=$(aws cloudformation describe-stacks \
-    --region "$REGION" --stack-name "$STACK" \
-    --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" \
-    --output text 2>&1) || {
-    echo "[run-probe] ERROR: describe-stacks failed for $STACK in $REGION" >&2
-    printf '%s\n' "$INSTANCE_ID" >&2
+  # Same control-plane flip as deploy-stage0 / feishu sync (aws i-* until cutover → hetzner mi-*).
+  RESOLVE_PROD="${RUN_PROBE_RESOLVE_PROD:-$REPO_ROOT/ops/stage0/resolve_prod_ssm_target.py}"
+  PYERR=$(mktemp)
+  if ! RES_LINES=$(python3 "${RESOLVE_PROD}" --format kv 2>"$PYERR"); then
+    echo "[run-probe] ERROR: resolve_prod_ssm_target failed" >&2
+    cat "$PYERR" >&2
+    rm -f "$PYERR"
     exit 2
-  }
-  if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
-    INSTANCE_ID=$(aws cloudformation describe-stack-resources \
-      --region "$REGION" --stack-name "$STACK" \
-      --query "StackResources[?ResourceType=='AWS::EC2::Instance']|[0].PhysicalResourceId" \
-      --output text 2>/dev/null || true)
+  fi
+  rm -f "$PYERR"
+  # kv lines: instance_id=... ssm_region=...
+  INSTANCE_ID="$(printf '%s\n' "${RES_LINES}" | awk -F= '$1=="instance_id" {print $2; exit}')"
+  REGION="$(printf '%s\n' "${RES_LINES}" | awk -F= '$1=="ssm_region" {print $2; exit}')"
+  if [ -z "${REGION:-}" ]; then
+    echo "[run-probe] ERROR: resolve_prod_ssm_target returned empty ssm_region" >&2
+    exit 2
   fi
 elif [[ "$TARGET" == edge:* ]]; then
   EDGE_ID="${TARGET#edge:}"
@@ -247,7 +249,7 @@ if [ -z "${INSTANCE_ID:-}" ] || [ "$INSTANCE_ID" = "None" ]; then
   exit 2
 fi
 if [ -n "$EXPECTED_INSTANCE_ID" ]; then
-  if [[ ! "$EXPECTED_INSTANCE_ID" =~ ^(i|mi)-[0-9a-f]{17}$ ]]; then
+  if [[ ! "$EXPECTED_INSTANCE_ID" =~ ^(i|mi)-[0-9a-f]{8,17}$ ]]; then
     echo "[run-probe] ERROR: --expected-instance-id must be an EC2 or SSM managed instance id" >&2
     exit 1
   fi

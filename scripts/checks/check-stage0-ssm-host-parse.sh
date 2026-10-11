@@ -84,7 +84,12 @@ check_one() {
     rc=1
     return
   fi
-  if ! jq -r '.commands[]' "${pf}" | bash -n 2>"${tmp}/${out}/parse"; then
+  # Hybrid hosts run /bin/sh (dash), so senders wrap the array into a single
+  # `echo <b64> | base64 -d | bash -s`. That one line parses trivially, which
+  # would silently neuter this guard — unwrap first so we still `bash -n` the
+  # REAL host script. unwrap_commands is a no-op on unwrapped arrays.
+  if ! python3 "${HERE}/../../ops/stage0/ssm_wrap_bash_commands.py" --unwrap-stdout "${pf}" \
+      | bash -n 2>"${tmp}/${out}/parse"; then
     echo "  FAIL: ${label} — joined host command script has a shell syntax error:" >&2
     sed 's/^/      /' "${tmp}/${out}/parse" >&2
     rc=1

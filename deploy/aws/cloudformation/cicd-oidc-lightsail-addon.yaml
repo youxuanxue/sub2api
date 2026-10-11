@@ -609,6 +609,33 @@ Resources:
                 Resource:
                   - !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/ghcr/pat"
                   - !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
+        # Wave B cutover: HZ prod publishes QA Bundle jobs / archives with the
+        # Hybrid role (no EC2 IMDS). Keep scopes aligned with AppInstanceRole
+        # resource policies on the QA buckets/queue.
+        - PolicyName: ProdQaPublisher
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: SendQaBundleJobs
+                Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !Sub "arn:${AWS::Partition}:sqs:us-east-1:${AWS::AccountId}:tokenkey-prod-qa-bundle"
+              - Sid: QaBundleS3
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-bundles-${AWS::AccountId}"
+                  - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-bundles-${AWS::AccountId}/user-qa/*"
+                  - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-exports-${AWS::AccountId}"
+                  - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-exports-${AWS::AccountId}/*"
+                  - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-raw-archive-${AWS::AccountId}"
+                  - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-raw-archive-${AWS::AccountId}/*"
 
   LightsailEdgeAddonPolicy:
     Type: AWS::IAM::Policy

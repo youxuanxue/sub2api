@@ -4,7 +4,7 @@
 Centralizes the two things ops/pricing/manage-overlay-runtime.py and
 ops/newapi/apply-model-mapping-live.py both need (and previously copy-pasted):
 
-  - resolve_prod_instance(): the prod Stage0 CFN stack's InstanceId (format-validated).
+  - resolve_prod_instance(): cutover-aware prod SSM target (aws i-* or Hybrid mi-*).
   - run_shell_b64(): run a base64-encoded shell script on prod via SSM, return stdout.
 
 `run_shell_b64` writes the decoded script to a FILE and bash's the file rather than piping
@@ -17,10 +17,17 @@ place means those fixes cannot regress per-tool.
 Distinct from ops/stage0/edge_ssm_execution.py (which resolves EC2/Lightsail EDGE targets
 via the edge routing matrix); this module is the prod-control-plane counterpart with no
 edge dependencies, so it importlib-loads cleanly from any ops tool.
+
+Prod target resolution delegates to ``resolve_prod_ssm_target.py`` (same owner as
+run-probe / deploy-stage0): ``PROD_SSM_TARGET`` / cutover SSM param selects aws vs
+hetzner. ``resolve_prod_instance`` updates module ``PROD_REGION`` to the target's
+``ssm_region`` so subsequent ``run_shell_b64`` calls hit the right registration region.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
+import pathlib
 import re
 import subprocess
 import sys
@@ -31,6 +38,8 @@ PROD_STACK = "tokenkey-prod-stage0"
 # AWS SSM get-command-invocation inlines stdout/stderr up to ~2500 chars; cap our captured
 # stderr below that so a failure message is preserved without truncating the JSON envelope.
 _STDERR_CAP = 2000
+_INSTANCE_RE = re.compile(r"^(?:i|mi)-[0-9a-f]{8,17}$")
+_RESOLVE_MOD = None
 
 
 def fail(msg: str) -> NoReturn:
@@ -38,18 +47,63 @@ def fail(msg: str) -> NoReturn:
     sys.exit(2)
 
 
+def _resolve_mod():
+    global _RESOLVE_MOD
+    if _RESOLVE_MOD is not None:
+        return _RESOLVE_MOD
+    path = pathlib.Path(__file__).resolve().parent / "resolve_prod_ssm_target.py"
+    spec = importlib.util.spec_from_file_location("tk_resolve_prod_ssm_target", path)
+    if spec is None or spec.loader is None:
+        fail(f"cannot load {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    _RESOLVE_MOD = mod
+    return mod
+
+
+def resolve_prod_identity() -> tuple[str, str]:
+    """Return ``(instance_id, ssm_region)`` via cutover-aware resolve_prod_ssm_target."""
+    mod = _resolve_mod()
+    mode = mod.resolve_mode("auto")
+    if mode == "aws":
+        outputs = mod.resolve_aws(PROD_STACK)
+    else:
+        outputs = mod.resolve_hetzner(mod.DEFAULT_MATRIX)
+    instance_id = str(outputs.get("instance_id") or "")
+    region = str(outputs.get("ssm_region") or "").strip()
+    if not _INSTANCE_RE.match(instance_id):
+        fail(f"resolve_prod_ssm_target returned invalid instance id {instance_id!r}")
+    if not region:
+        fail("resolve_prod_ssm_target returned empty ssm_region")
+    return instance_id, region
+
+
 def resolve_prod_instance() -> str:
-    try:
-        out = subprocess.check_output(
-            ["aws", "cloudformation", "describe-stacks", "--region", PROD_REGION,
-             "--stack-name", PROD_STACK,
-             "--query", "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue",
-             "--output", "text"], text=True).strip()
-    except subprocess.CalledProcessError as e:
-        fail(f"describe-stacks failed for {PROD_STACK}/{PROD_REGION}: {e}")
-    if not re.match(r"^i-[0-9a-f]{17}$", out):  # modern AWS instance id = i- + 17 hex
-        fail(f"no valid InstanceId for {PROD_STACK}/{PROD_REGION} (got {out!r})")
-    return out
+    """Resolve prod instance id and bind ``PROD_REGION`` to its ssm_region."""
+    global PROD_REGION
+    instance_id, region = resolve_prod_identity()
+    PROD_REGION = region
+    return instance_id
+
+
+def region_for_instance_id(instance_id: str) -> str:
+    """SSM region for an explicit pin without re-resolving a different instance.
+
+    ``mi-*`` Hybrid nodes register in the Hetzner matrix region; ``i-*`` stays on
+    the legacy Stage0 AWS region. Callers that pin an id must not keep a stale
+    module ``PROD_REGION`` from a prior resolve.
+    """
+    instance_id = instance_id.strip()
+    if not _INSTANCE_RE.match(instance_id):
+        fail(f"invalid EC2/SSM-managed instance id {instance_id!r}")
+    if instance_id.startswith("mi-"):
+        mod = _resolve_mod()
+        matrix = mod.load_hetzner_matrix(mod.DEFAULT_MATRIX)
+        region = str(matrix.get("ssm_region") or "eu-west-2").strip()
+        if not region:
+            fail("hetzner matrix missing ssm_region")
+        return region
+    return "us-east-1"
 
 
 def run_shell_b64(instance_id: str, shell_b64: str, comment: str) -> str:

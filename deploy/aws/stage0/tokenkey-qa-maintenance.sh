@@ -198,6 +198,16 @@ load_app_runtime() {
 qa_container_run() {
   local name="$1"
   shift
+  # Hybrid hosts (no IMDS): optional synced SSM role credentials under /var/lib/tokenkey/aws.
+  # EC2 Stage0 keeps IMDS and leaves this path absent — do not force the shared-file chain.
+  local -a aws_cred_args=()
+  if [ -f /var/lib/tokenkey/aws/credentials ]; then
+    aws_cred_args=(
+      --volume=/var/lib/tokenkey/aws:/aws:ro
+      --env=AWS_SHARED_CREDENTIALS_FILE=/aws/credentials
+      --env=AWS_SDK_LOAD_CONFIG=1
+    )
+  fi
   qa_docker run --rm --name="${name}" \
     --user="${QA_MAINTENANCE_UID}:${QA_MAINTENANCE_GID}" \
     --read-only --cap-drop=ALL --security-opt=no-new-privileges \
@@ -208,6 +218,7 @@ qa_container_run() {
     --volume="${QA_MAINTENANCE_HOST_DLQ_ROOT}:/app/data/qa_dlq:rw" \
     --volume="${QA_MAINTENANCE_HOST_LEDGER_ROOT}:/app/data/qa_capture_ledger:ro" \
     --volume="${QA_MAINTENANCE_HOST_SCRATCH}:${QA_MAINTENANCE_CONTAINER_SCRATCH}:rw" \
+    "${aws_cred_args[@]}" \
     --env-file="${ENV_FILE}" \
     --env="QA_MAINTENANCE_PAUSE_DROP=$([ -e /var/lib/tokenkey/qa-release/pause-drop ] && printf true || printf false)" \
     --env="TMPDIR=${QA_MAINTENANCE_CONTAINER_SCRATCH}" \

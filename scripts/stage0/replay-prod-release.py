@@ -16,8 +16,19 @@ import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'ops/stage0'))
-from ssm_execution import PROD_REGION, resolve_prod_instance  # noqa: E402
+import ssm_execution  # noqa: E402
+from ssm_execution import resolve_prod_instance as _resolve_prod_instance  # noqa: E402
 import gateway_capability_matrix as matrix  # noqa: E402
+
+# Re-export for tests/callers; kept in sync after resolve_prod_instance().
+PROD_REGION = ssm_execution.PROD_REGION
+
+
+def resolve_prod_instance() -> str:
+    global PROD_REGION
+    instance_id = _resolve_prod_instance()
+    PROD_REGION = ssm_execution.PROD_REGION
+    return instance_id
 
 
 def normalize_deploy_tag(tag: str) -> str:

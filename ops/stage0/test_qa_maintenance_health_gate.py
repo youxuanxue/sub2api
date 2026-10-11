@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import pathlib
@@ -14,6 +15,17 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 WRAPPER = ROOT / "ops/stage0/run-qa-maintenance-health-gate-via-ssm.sh"
+
+
+def _unwrap_ssm_commands(commands: list[str]) -> list[str]:
+    path = ROOT / "ops/stage0/ssm_wrap_bash_commands.py"
+    spec = importlib.util.spec_from_file_location("ssm_wrap_bash_commands", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.unwrap_commands(commands)
+
 
 
 class QAMaintenanceHealthGateTest(unittest.TestCase):
@@ -60,9 +72,11 @@ class QAMaintenanceHealthGateTest(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, (proc.stdout, proc.stderr))
         self.assertEqual(sleep_calls.read_text(encoding="utf-8"), "3\n")
-        commands = json.loads(
-            (output / "ssm-params.json").read_text(encoding="utf-8")
-        )["commands"]
+        commands = _unwrap_ssm_commands(
+            json.loads((output / "ssm-params.json").read_text(encoding="utf-8"))[
+                "commands"
+            ]
+        )
         self.assertEqual(commands[0], "set -euo pipefail")
         return commands[1]
 

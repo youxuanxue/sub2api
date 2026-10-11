@@ -80,7 +80,7 @@ jq -n \
   --arg runtime_image "${QA_MAINTENANCE_IMAGE:-}" \
   --arg bundle_queue "${QA_BUNDLE_QUEUE_URL:-}" \
   --arg bundle_bucket "${QA_BUNDLE_STORAGE_BUCKET:-}" \
-  --arg bundle_region "${AWS_REGION:-us-east-1}" \
+  --arg bundle_region "${QA_BUNDLE_STORAGE_REGION:-us-east-1}" \
   --arg sha "${TEMPLATE_SHA}" \
   --arg timer_command "${timer_command}" \
   --arg timer_state "${TIMER_STATE}" \
@@ -123,6 +123,9 @@ jq -n \
       ("echo Live qa-maintenance units now match deploy/aws@" + $sha + " timer=" + $timer_state + " on $(hostname)")
     ]
   }' > "${params_file}"
+
+# Hybrid/managed-instance RunShellScript uses /bin/sh (dash); wrap for bash features.
+python3 "${SCRIPT_DIR}/ssm_wrap_bash_commands.py" "${params_file}"
 
 cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" \

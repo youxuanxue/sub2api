@@ -15,11 +15,22 @@ set -euo pipefail
 printf '%s\n' "$*" >>"${FAKE_AWS_LOG}"
 args="$*"
 case "${args}" in
-  *'ssm send-command'*) echo test-command-id ;;
+  *'ssm send-command'*)
+    python3 - "${FAKE_AWS_LOG}" "${FAKE_AWS_DECODED_LOG}" <<'PY'
+import base64, pathlib, re, sys
+log = pathlib.Path(sys.argv[1]).read_text()
+out = pathlib.Path(sys.argv[2])
+match = re.search(r"echo ([A-Za-z0-9+/=]+) \| base64 -d \| bash -s", log)
+if match is None:
+    raise SystemExit(f"missing hybrid bash wrapper in aws log: {log[:200]!r}")
+out.write_text(base64.b64decode(match.group(1)).decode())
+PY
+    echo test-command-id
+    ;;
   *'ssm get-command-invocation'*'Status'*) echo Success ;;
   *'ssm get-command-invocation'*'ResponseCode'*) echo 0 ;;
   *'ssm get-command-invocation'*'StandardOutputContent'*)
-    if grep -F -- '--activate-single-owner' "${FAKE_AWS_LOG}" >/dev/null; then
+    if grep -F -- '--activate-single-owner' "${FAKE_AWS_DECODED_LOG}" >/dev/null; then
       echo '{"ok":true,"phase":"single_owner_activate","plan_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'
     else
       echo '{"schema_version":"qa-single-owner-activation-plan-v1","plan_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'
@@ -40,14 +51,17 @@ chmod +x "${fake_bin}/sleep"
 
 export PATH="${fake_bin}:${PATH}"
 export FAKE_AWS_LOG="${tmp}/aws.log"
+export FAKE_AWS_DECODED_LOG="${tmp}/aws-decoded.log"
 export FAKE_SLEEP_LOG="${tmp}/sleep.log"
 export STAGE0_SSM_OUTPUT_DIR="${tmp}/output"
+: >"${FAKE_AWS_DECODED_LOG}"
 
 bash "${SCRIPT}" plan i-0123456789abcdef0 >"${tmp}/plan.out"
 grep -F '"plan_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' "${tmp}/plan.out" >/dev/null
-grep -F -- '--plan-single-owner' "${FAKE_AWS_LOG}" >/dev/null
+grep -F -- '--plan-single-owner' "${FAKE_AWS_DECODED_LOG}" >/dev/null
 
 : >"${FAKE_AWS_LOG}"
+: >"${FAKE_AWS_DECODED_LOG}"
 if bash "${SCRIPT}" activate i-0123456789abcdef0 \
   --plan-hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
   --confirm=wrong >"${tmp}/invalid.out" 2>"${tmp}/invalid.err"; then
@@ -61,7 +75,7 @@ bash "${SCRIPT}" activate i-0123456789abcdef0 \
   --confirm=tokenkey-prod-qa-single-owner-activate-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
   >"${tmp}/activate.out"
 grep -F '"phase":"single_owner_activate"' "${tmp}/activate.out" >/dev/null
-grep -F -- '--activate-single-owner' "${FAKE_AWS_LOG}" >/dev/null
+grep -F -- '--activate-single-owner' "${FAKE_AWS_DECODED_LOG}" >/dev/null
 test "$(wc -l <"${FAKE_SLEEP_LOG}" | tr -d '[:space:]')" = 2
 
 echo 'test_activate_qa_single_owner_via_ssm: ok (fake_poll_sleeps=2)'
