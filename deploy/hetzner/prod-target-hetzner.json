@@ -4,10 +4,10 @@
   "role": "prod",
   "approved_anchor": "docs/approved/hetzner-cloud-full-migration.md",
   "notes": [
-    "Live after Wave B formal DNS cutover (api.tokenkey.dev → 167.233.211.115).",
-    "deployable=true; AWS EIP 34.194.234.88 remains standby ≥7d.",
-    "Data volume is mandatory for prod; root disk is not the PG/Redis truth.",
-    "First deploy-stage0 upgrade migrates single-color tokenkey → blue via ensure_legacy_cutover."
+    "Live prod deployable=true; public IP / CIDR / GHCR path: deploy/hetzner/README.md (SSOT).",
+    "Data volume mandatory; root disk is not the PG/Redis truth.",
+    "First deploy-stage0 upgrade migrates single-color tokenkey → blue via ensure_legacy_cutover.",
+    "staging_domain is matrix field only; live DNS is domain (no -hz A)."
   ],
   "allowed_locations": ["fsn1"],
   "allowed_server_types": ["cax21"],
@@ -30,6 +30,6 @@
     "ssm_hybrid_role_name": "tokenkey-hetzner-ssm-hybrid-prod",
     "swap_gib": 2,
     "profile": "prod-hetzner-cax21",
-    "purpose": "live prod after Wave B DNS cutover; deployable=true"
+    "purpose": "live prod; deployable=true"
   }
 }

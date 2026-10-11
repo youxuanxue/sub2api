@@ -34,8 +34,9 @@ HTTPS、最小权限凭据和既有用户下载授权，不引入 SSE-C、自管
 
 检查基线包含 #2551（`db8619b40`），提交前已继续快进至
 `origin/main` 的 `12efff54d`（#2553，Caddy 同步蓝绿修复）。
-正式 prod DNS 指向 Hetzner；prod 和 uk1/uk2/us4/us5 的 `/health` 均为 200，
-SSM 均在线。prod 运行 `1.8.283`，容器为 `tokenkey`，尚无 active color。
+正式 prod DNS 指向 Hetzner；活舰队五节点 `/health` 均为 200、SSM 均在线
+（节点清单见 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)）。
+prod 运行 `1.8.283`，容器为 `tokenkey`，尚无 active color。
 四边容量探针均合格；此次低流量 canary 结果为 uk1，执行时必须重新计算。
 
 已确认的代码缺口：

@@ -29,8 +29,8 @@ env 检查清单、命令模板，**不**在 prose 里重写导入逻辑。
 | 运营说法 / 意图 | 走哪条 |
 | --- | --- |
 | **新 edge 从零打通** antigravity（分组/占位/relay key/prod stub/capability/实测） | 转 **`tokenkey-edge-prod-relay-onboard`** |
-| 上 us6 anthropic / ag / grok OAuth，prod 还没有 cc-us6 / ag-us6 | **edge_oauth_relay 情形 A**（新建 prod stub + 自动签发 key） |
-| prod 已有 cc-us6，只换 edge OAuth token | **edge_oauth_relay 情形 B**（只动 edge，prod 跳过） |
+| 上 us4 anthropic / ag / grok OAuth，prod 还没有 cc-us4 / ag-us4 | **edge_oauth_relay 情形 A**（新建 prod stub + 自动签发 key） |
+| prod 已有 cc-us4，只换 edge OAuth token | **edge_oauth_relay 情形 B**（只动 edge，prod 跳过） |
 | 手里已有 edge 的 `tk_...`，不想自动签发 | **edge_oauth_relay 情形 C**（`prod_relay.edge_api_key`） |
 | 只在 prod 或 edge 建 API Key / newapi / gemini 等 | **单端导入 情形 D** |
 | 从 Antigravity 导出 JSON 导入 | `examples/antigravity-oauth-export.json` 或 relay 内 `edge_oauth` |
@@ -99,18 +99,18 @@ cd ops/accounts
 
 ## 3) 情形 A — 全新 edge OAuth + prod 中继（推荐自动签发 key）
 
-模板：`examples/edge-oauth-relay-<pool>-us6.json`（把 `us6` 换成目标 edge）。
+模板：`examples/edge-oauth-relay-<pool>-us6.json`（占位；改成活边 `uk1`/`uk2`/`us4`/`us5`）。
 
 JSON 要点：
 
 ```json
 {
   "import_profile": "edge_oauth_relay",
-  "edge_id": "us6",
+  "edge_id": "us4",
   "pool_platform": "anthropic",
   "edge_oauth": { "...": "真 OAuth 凭据" },
   "prod_relay": {
-    "name": "cc-us6",
+    "name": "cc-us4",
     "group_ids": [1],
     "edge_api_key_user_id": 1,
     "edge_api_key_group_id": 1
@@ -132,7 +132,7 @@ dry-run 输出里关注：`prod_action=create`、`edge_api_key_issue.action` 为
 
 ```json
 "prod_relay": {
-  "name": "cc-us6",
+  "name": "cc-us4",
   "group_ids": [1],
   "edge_api_key": "tk_已在_edge_签好的_key"
 }

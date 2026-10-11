@@ -4,9 +4,9 @@
   "default_profile": "edge-hetzner-cax21",
   "approved_anchor": "docs/approved/hetzner-cloud-full-migration.md",
   "notes": [
-    "uk1/uk2/us4/us5: deployable=true after formal DNS cutover (2026-10-10).",
-    "us3/us6: rebuild cancelled 2026-10-11 (account-level decommission into uk1/uk2); rows kept planned/empty.",
-    "auto routing / run-probe / --list-deployable prefer deployable Hetzner over Lightsail standby."
+    "deployable=true rows are live HCloud edges; inventory/IP SSOT: deploy/hetzner/README.md.",
+    "Empty rows (e.g. us3/us6): not in fleet.",
+    "auto / --list-deployable prefer deployable Hetzner over Lightsail standby."
   ],
   "allowed_locations": ["fsn1"],
   "allowed_server_types": ["cax21"],
@@ -23,11 +23,11 @@
     "ssm_region": "eu-west-2"
   },
   "targets": {
-    "uk1": { "deployable": true, "purpose": "live after 2026-10 cutover" },
-    "uk2": { "deployable": true, "purpose": "live after 2026-10 cutover" },
+    "uk1": { "deployable": true, "purpose": "live" },
+    "uk2": { "deployable": true, "purpose": "live" },
     "us3": {},
-    "us4": { "deployable": true, "purpose": "live after 2026-10 cutover" },
-    "us5": { "deployable": true, "purpose": "live after 2026-10 cutover (canary)" },
+    "us4": { "deployable": true, "purpose": "live" },
+    "us5": { "deployable": true, "purpose": "live" },
     "us6": {}
   }
 }

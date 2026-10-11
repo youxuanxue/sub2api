@@ -4,7 +4,7 @@
 Does not talk to AWS/SSM by itself. Operators (or an SSM wrapper) run the emitted
 SQL on frozen AWS / pre-seeded HZ. Default is plan-only.
 
-Intent (see deploy/hetzner/WAVE-B-PROD-CUTOVER-RUNBOOK.md Mode C):
+Intent (compressed OLTP refresh + dedup delta; historical Wave B helper):
   1. Ahead of freeze: full precious restore of dump A on HZ; capture watermark.
   2. Freeze AWS writes.
   3. C-lite gate: if frozen AWS OLTP counts == HZ pre-seed, skip OLTP dump/restore

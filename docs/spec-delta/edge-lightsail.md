@@ -1,9 +1,7 @@
-# Edge Lightsail 部署路径（spec delta）
+# Edge Lightsail 部署路径（spec delta · 历史）
 
-> **2026-06-07 更新：Lightsail 是 edge 的唯一路径。** EC2/CFN 的 edge 路径已移除
-> （`deploy-edge-stage0.yml`、`stage0-edge-ec2.yaml`、EIP 轮换工具已删除，
-> 旧空矩阵与 EC2 edge fallback 也已移除）。本 delta 此前把 Lightsail 描述为「与 EC2 并行的
-> 实验路径」——该定位已废止；现在它是 edge 的唯一实现。**prod 主网关仍是 EC2/CFN，不受影响。**
+> **现网（2026-10）：** 活舰队在 Hetzner — [`deploy/hetzner/README.md`](../deploy/hetzner/README.md)。Lightsail 仅为 standby。  
+> **本文件保留 2026-06 的 Lightsail 收敛 delta（相对 EC2 edge）作考古；勿当现网拓扑。**
 
 ## Background
 
