@@ -33,13 +33,31 @@ def gha_quote(value: object) -> str:
 def build_prod_ops_matrix(data: dict, *, selector: str, prod_region: str, prod_stack: str) -> tuple[dict, list[dict]]:
     selector = selector.strip() or "all"
     lightsail_targets = data["targets"]
+    hz_targets = _EDGE_ROUTING.load_hetzner_targets(REPO_ROOT)
     include = []
     excluded = []
 
-    def include_lightsail_edge(edge_id: str, target: dict) -> None:
-        # Lightsail edges have no CloudFormation stack — INSTANCE_ID is resolved
-        # from ssm_prefix/ssm_managed_instance_id at diagnostics time. ApiUrl
-        # likewise has no CFN output; the workflow falls back to https://<domain>.
+    def include_live_edge(edge_id: str) -> None:
+        # Live fleet: prefer deployable Hetzner Hybrid; else Lightsail.
+        # INSTANCE_ID comes from ssm_prefix/ssm_managed_instance_id at diagnostics time.
+        mode, _, _ = _EDGE_ROUTING.resolve_route_tab(REPO_ROOT, edge_id, "auto")
+        if mode == "hetzner":
+            target = hz_targets[edge_id]
+            include.append(
+                {
+                    "target_id": f"edge-{edge_id}-hz",
+                    "target_kind": "edge",
+                    "platform": "hetzner",
+                    "edge_id": edge_id,
+                    "region": str(target.get("ssm_region") or "eu-west-2"),
+                    "stack": "",
+                    "domain": str(target.get("domain") or f"api-{edge_id}.tokenkey.dev"),
+                    "ssm_prefix": str(target.get("ssm_prefix") or ""),
+                    "purpose": str(target.get("purpose") or ""),
+                }
+            )
+            return
+        target = lightsail_targets[edge_id]
         include.append(
             {
                 "target_id": f"edge-{edge_id}-ls",
@@ -71,24 +89,42 @@ def build_prod_ops_matrix(data: dict, *, selector: str, prod_region: str, prod_s
     elif selector.startswith("prod:"):
         fail(f"unsupported target_selector {selector}; use prod")
 
+    live_ids = set(
+        _EDGE_ROUTING.live_deployable_edge_ids(
+            REPO_ROOT,
+            lightsail_targets=lightsail_targets,
+            hetzner_targets=hz_targets,
+        )
+    )
+
     if selector in ("all", "edge:*"):
+        for edge_id in sorted(live_ids):
+            include_live_edge(edge_id)
         for edge_id, ls_target in sorted(lightsail_targets.items()):
+            if edge_id in live_ids:
+                if _EDGE_ROUTING.edge_deployable(ls_target) and _EDGE_ROUTING.edge_hetzner_deployable(
+                    hz_targets.get(edge_id)
+                ):
+                    excluded.append(
+                        {
+                            "target_id": f"edge-{edge_id}-ls",
+                            "reason": "lightsail standby; live fleet prefers Hetzner",
+                        }
+                    )
+                continue
             if _EDGE_ROUTING.edge_deployable(ls_target):
-                include_lightsail_edge(edge_id, ls_target)
+                excluded.append({"target_id": f"edge-{edge_id}-ls", "reason": "not in live fleet"})
             else:
                 excluded.append({"target_id": f"edge-{edge_id}-ls", "reason": "lightsail deployable=false"})
     elif selector.startswith("edge:"):
         edge_id = selector.split(":", 1)[1].strip()
         if not edge_id:
             fail("target_selector edge: requires an edge id")
-        if edge_id.endswith("-ls"):
+        if edge_id.endswith("-ls") or edge_id.endswith("-hz"):
             edge_id = edge_id[:-3]
-        target = lightsail_targets.get(edge_id)
-        if target is None:
-            fail(f"unknown edge target_selector {selector}; known: {', '.join(sorted(lightsail_targets))}")
-        if not _EDGE_ROUTING.edge_deployable(target):
-            fail(f"target_selector {selector} is planned but not deployable")
-        include_lightsail_edge(edge_id, target)
+        if edge_id not in live_ids:
+            fail(f"target_selector {selector} is not in the live deployable fleet")
+        include_live_edge(edge_id)
     elif selector not in ("all", "prod"):
         fail(f"unsupported target_selector {selector}; expected all, prod, edge:*, or edge:<id>")
 
@@ -122,20 +158,26 @@ def main() -> int:
         "--list-deployable",
         action="store_true",
         help=(
-            "Print one deployable Lightsail edge id per line. "
+            "Print one live ops edge id per line (Hetzner deployable preferred; "
+            "Lightsail-only deployable when no HZ row). "
+            "With a non-default --lightsail-matrix, lists Lightsail deployable "
+            "from that file only (fixture override). "
             "Mutually exclusive with --prod-ops-matrix. "
-            "Stable output for shell consumers in skills/scripts; "
-            "exits 0 even when no edges are deployable (prints nothing)."
+            "Exits 0 even when no edges are deployable (prints nothing)."
         ),
     )
     args = parser.parse_args()
 
-    data = _EDGE_ROUTING.load_matrix(pathlib.Path(args.lightsail_matrix))
+    lightsail_path = pathlib.Path(args.lightsail_matrix).resolve()
+    data = _EDGE_ROUTING.load_matrix(lightsail_path)
 
     if args.list_deployable:
         if args.prod_ops_matrix:
             fail("--list-deployable is mutually exclusive with --prod-ops-matrix")
-        ids = _EDGE_ROUTING.deployable_edge_ids(data["targets"])
+        if lightsail_path == LIGHTSAIL_MATRIX.resolve():
+            ids = _EDGE_ROUTING.live_deployable_edge_ids(REPO_ROOT)
+        else:
+            ids = _EDGE_ROUTING.deployable_edge_ids(data["targets"])
         for edge_id in ids:
             print(edge_id)
         return 0

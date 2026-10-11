@@ -207,8 +207,7 @@ jobs:
         env:
           STACK_NAME: ${{ steps.stack.outputs.name }}
           CICD_OIDC_STACK_NAME: ${{ vars.CICD_OIDC_STACK_NAME || 'tokenkey-cicd-oidc' }}
-          # Default aws (CFN i-*). Flip repo var or SSM
-          # /tokenkey/prod/control-plane-ssm-target=hetzner only after Wave B B9.
+          # auto → SSM param /tokenkey/prod/control-plane-ssm-target (live: hetzner).
           PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
         run: |
           set -euo pipefail

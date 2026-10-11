@@ -67,7 +67,7 @@ export TOKENKEY_ADMIN_API_KEY="admin-…"
 ```bash
 export TOKENKEY_PROD_BASE_URL="https://api.tokenkey.dev"
 export TOKENKEY_PROD_ADMIN_API_KEY="admin-…"
-export TOKENKEY_EDGE_BASE_URL="https://api-us6.tokenkey.dev"
+export TOKENKEY_EDGE_BASE_URL="https://api-us5.tokenkey.dev"
 export TOKENKEY_EDGE_ADMIN_API_KEY="admin-…"
 ```
 

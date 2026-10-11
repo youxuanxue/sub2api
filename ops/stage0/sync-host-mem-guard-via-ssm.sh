@@ -43,6 +43,11 @@ COMMENT="${2:-${SSM_COMMENT:-ops-host-mem-guard}}"
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-300}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
 
+ssm_region_args=()
+if [ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]; then
+  ssm_region_args=(--region "${AWS_REGION:-${AWS_DEFAULT_REGION}}")
+fi
+
 if [ -z "${INSTANCE_ID}" ]; then
   echo "sync_host_mem_guard_via_ssm: instance id is required" >&2
   echo "usage: $0 <instance_id> [comment]" >&2
@@ -118,7 +123,7 @@ jq -n \
     ]
   }' > "${params_file}"
 
-cmd_id="$(aws ssm send-command \
+cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" \
   --document-name AWS-RunShellScript \
   --comment "${COMMENT}" \
@@ -133,7 +138,7 @@ fi
 deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
 status="InProgress"
 while true; do
-  status="$(aws ssm get-command-invocation \
+  status="$(aws "${ssm_region_args[@]}" ssm get-command-invocation \
     --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
     --query 'Status' --output text 2>/dev/null || echo InProgress)"
   case "${status}" in
@@ -147,10 +152,10 @@ while true; do
   sleep 5
 done
 
-aws ssm get-command-invocation \
+aws "${ssm_region_args[@]}" ssm get-command-invocation \
   --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
   --query 'StandardOutputContent' --output text > "${stdout_file}"
-aws ssm get-command-invocation \
+aws "${ssm_region_args[@]}" ssm get-command-invocation \
   --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
   --query 'StandardErrorContent' --output text > "${stderr_file}"
 

@@ -148,7 +148,7 @@ Lightsail Edge 启用后，沿用同一 **`edge_routing_matrix`/`edge_ssm_execut
   输出 SSM **`REGION`** + **`INSTANCE_ID`**（`mi-*` 来自 Parameter Store；EC2 为 `i-*`）。与 **`ops/stage0/edge_admin_resolve_target.py` auto** 规则一致。
 - **`ops/observability/run-probe.sh --target edge:<id>`**（默认 `ALLOW_PLANNED` 未设置）走上述脚本；若要探 **planned 仅 EC2 矩阵条目**，仍可设 **`ALLOW_PLANNED=1`** 走 **`resolve-edge-target.py` + CFN**。
 - **`ops/anthropic/manage-anthropic-config.py`**、**`rebalance-anthropic-priority.py`**、`snapshot`/`apply`/`check` **与 `check-edge-oauth-stability.py`**：**snapshot** / **护栏**在多矩阵下按 Lightsail **`deployable=true` 优先**解析实例（与 **`edge_routing_matrix.py`** 一致）。
-- **`python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable`**：列出 **Lightsail deployable** 的 edge id（可选 **`--lightsail-matrix`**）。
+- **`python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable`**：列出 **活边** edge id（Hetzner deployable 优先；无 HZ 行时才列 Lightsail deployable）。自定义 **`--lightsail-matrix`** 时仅列该文件的 Lightsail deployable（测试/fixture）。
 
 ## 升级 / 回滚
 

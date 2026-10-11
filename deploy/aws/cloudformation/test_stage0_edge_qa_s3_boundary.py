@@ -69,16 +69,26 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
 
     def test_deployable_fleet_has_one_isolated_ssm_hybrid_role_per_edge(self) -> None:
         deployable = self.deployable_edges()
+        matrix = json.loads(EDGE_TARGETS.read_text(encoding="utf-8"))
+        matrix_ids = set(matrix["targets"])
         roles = {
             resource["Properties"]["RoleName"]: resource["Properties"]
             for resource in self.addon["Resources"].values()
             if resource.get("Type") == "AWS::IAM::Role"
             and str(resource["Properties"]["RoleName"]).startswith(EDGE_ROLE_NAME)
         }
-        expected_names = {EDGE_ROLE_NAME} | {
+        # Every live deployable edge must have an isolated role. Standby /
+        # recently-retired matrix rows (deployable=false) may keep IAM until
+        # instance drain — those extras are allowed if the edge id is still in
+        # the Lightsail matrix.
+        required_names = {EDGE_ROLE_NAME} | {
             f"{EDGE_ROLE_PREFIX}{edge_id}" for edge_id in deployable
         }
-        self.assertEqual(set(roles), expected_names)
+        self.assertTrue(required_names.issubset(set(roles)), msg=f"missing={required_names - set(roles)}")
+        extras = set(roles) - {EDGE_ROLE_NAME} - {
+            f"{EDGE_ROLE_PREFIX}{edge_id}" for edge_id in matrix_ids
+        }
+        self.assertEqual(extras, set())
 
         shared = roles[EDGE_ROLE_NAME]
         self.assertEqual(

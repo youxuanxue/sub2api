@@ -371,13 +371,15 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         init = text.index("RUNTIME_SSM_TRANSPORT_OK=false")
         send_success = text.index("RUNTIME_SSM_TRANSPORT_OK=true", init)
         suppress = text.index('elif [ "$RUNTIME_SSM_TRANSPORT_OK" != "true" ]; then')
-        lightsail = text.index('elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ]; then')
-        binary_check = text.index("error_clustering_binary_check", lightsail)
+        hybrid = text.index(
+            'elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ] || [ "${TARGET_PLATFORM:-}" = "hetzner" ]; then'
+        )
+        binary_check = text.index("error_clustering_binary_check", hybrid)
 
         self.assertLess(init, send_success)
         self.assertLess(send_success, suppress)
-        self.assertLess(suppress, lightsail)
-        self.assertLess(lightsail, binary_check)
+        self.assertLess(suppress, hybrid)
+        self.assertLess(hybrid, binary_check)
         self.assertIn(
             "Runtime SSM SendCommand failed; suppressing downstream error_clustering SSM checks",
             text,
