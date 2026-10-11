@@ -916,7 +916,7 @@ def _resolved_prod_instance_id(gate: dict[str, Any]) -> str:
     if len(matches) != 1:
         raise ActivationError("release gate did not resolve exactly one prod target")
     instance_id = matches[0].get("instance_id")
-    if not isinstance(instance_id, str) or not re.fullmatch(r"i-[0-9a-f]{17}", instance_id):
+    if not isinstance(instance_id, str) or not re.fullmatch(r"(?:i|mi)-[0-9a-f]{8,17}", instance_id):
         raise ActivationError("release gate reported an invalid prod instance id")
     return instance_id
 

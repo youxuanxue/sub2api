@@ -47,7 +47,7 @@ def resolve_prod_instance() -> str:
              "--output", "text"], text=True).strip()
     except subprocess.CalledProcessError as e:
         fail(f"describe-stacks failed for {PROD_STACK}/{PROD_REGION}: {e}")
-    if not re.match(r"^i-[0-9a-f]{17}$", out):  # modern AWS instance id = i- + 17 hex
+    if not re.match(r"^(?:i|mi)-[0-9a-f]{8,17}$", out):  # EC2 i- or SSM Hybrid mi-
         fail(f"no valid InstanceId for {PROD_STACK}/{PROD_REGION} (got {out!r})")
     return out
 

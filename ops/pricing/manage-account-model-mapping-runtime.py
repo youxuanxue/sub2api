@@ -303,8 +303,8 @@ def _normalize_instance_id(raw: str | None, label: str) -> str | None:
     if raw is None or str(raw).strip() == "":
         return None
     instance_id = str(raw).strip()
-    if not re.match(r"^i-[0-9a-f]{17}$", instance_id):
-        fail(f"{label}: invalid EC2 instance id {instance_id!r}")
+    if not re.match(r"^(?:i|mi)-[0-9a-f]{8,17}$", instance_id):
+        fail(f"{label}: invalid EC2/SSM-managed instance id {instance_id!r}")
     return instance_id
 
 

@@ -46,6 +46,44 @@ class SsmWrapBashCommandsTest(unittest.TestCase):
         original = ["set -euo pipefail", "echo hi"]
         self.assertEqual(self.mod.unwrap_commands(self.mod.wrap_commands(original)), original)
 
+    def test_unwrap_stdout_prints_real_script_so_lint_guards_still_work(self) -> None:
+        """The preflight host-parse guard lints `--unwrap-stdout` output.
+
+        Wrapping collapses the array into one trivially-parseable line, which
+        would silently neuter that guard. This asserts the real host script
+        comes back out, syntax error and all.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "ssm-params.json"
+            # #512 bug shape: unquoted parens inside echo.
+            bad = ["set -euo pipefail", "echo === sync (kind=$KIND) ==="]
+            path.write_text(json.dumps({"commands": bad}))
+            subprocess.run(["python3", str(_SCRIPT), str(path)], check=True)
+            self.assertEqual(len(json.loads(path.read_text())["commands"]), 1)
+
+            proc = subprocess.run(
+                ["python3", str(_SCRIPT), "--unwrap-stdout", str(path)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout.rstrip("\n").split("\n"), bad)
+            # params file must be untouched by the read-only mode
+            self.assertEqual(len(json.loads(path.read_text())["commands"]), 1)
+            lint = subprocess.run(["bash", "-n"], input=proc.stdout, text=True, capture_output=True)
+            self.assertNotEqual(lint.returncode, 0, "unwrapped lint must surface the syntax error")
+
+    def test_unwrap_stdout_is_noop_on_unwrapped_array(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "ssm-params.json"
+            plain = ["set -euo pipefail", "echo ok"]
+            path.write_text(json.dumps({"commands": plain}))
+            proc = subprocess.run(
+                ["python3", str(_SCRIPT), "--unwrap-stdout", str(path)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout.rstrip("\n").split("\n"), plain)
+
     def test_cli_rewrites_params_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "ssm-params.json"
