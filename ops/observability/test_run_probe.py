@@ -292,6 +292,22 @@ class RunProbePollingTest(unittest.TestCase):
         compressed_output: bool = False,
         companions: tuple[pathlib.Path, ...] = (),
     ) -> subprocess.CompletedProcess[str]:
+        resolve_stub = self.bin_dir / "resolve_prod_ssm_target.py"
+        self._write_executable(
+            resolve_stub,
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env python3
+                import sys
+                if "--format" in sys.argv and "kv" in sys.argv:
+                    print("target=aws")
+                    print("instance_id=i-0123456789abcdef1")
+                    print("ssm_region=us-east-1")
+                    raise SystemExit(0)
+                raise SystemExit("unexpected resolve stub args: " + " ".join(sys.argv[1:]))
+                """
+            ),
+        )
         env = os.environ.copy()
         env.update(
             {
@@ -302,6 +318,7 @@ class RunProbePollingTest(unittest.TestCase):
                 "FAKE_AWS_SCENARIO": scenario,
                 "FAKE_DATE_STATE": str(self.date_state),
                 "FAKE_DATE_STEP": str(date_step),
+                "RUN_PROBE_RESOLVE_PROD": str(resolve_stub),
             }
         )
         args = [
@@ -428,8 +445,12 @@ class RunProbePollingTest(unittest.TestCase):
 
         self.assertEqual(proc.returncode, 1)
         self.assertIn("resolved instance does not match --expected-instance-id", proc.stderr)
-        operations = [operation for operation, _ in self._aws_calls()]
-        self.assertNotIn("ssm send-command", operations)
+        # Resolve happens via RUN_PROBE_RESOLVE_PROD stub; no aws CLI calls yet.
+        if self.aws_log.exists():
+            operations = [operation for operation, _ in self._aws_calls()]
+            self.assertNotIn("ssm send-command", operations)
+        else:
+            self.assertFalse(self.aws_log.exists())
 
     def test_registered_companions_are_uploaded_automatically(self) -> None:
         probe = pathlib.Path(__file__).resolve().parents[1] / "stage0" / "probe_direct_upstream_model.sh"

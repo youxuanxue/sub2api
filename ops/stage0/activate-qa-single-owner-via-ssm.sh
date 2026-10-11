@@ -17,7 +17,7 @@ for argument in "$@"; do
   esac
 done
 
-[[ "${INSTANCE_ID}" =~ ^i-[0-9a-f]{17}$ ]] || { echo "qa-single-owner-via-ssm: valid prod instance id required" >&2; exit 40; }
+[[ "${INSTANCE_ID}" =~ ^(i|mi)-[0-9a-f]{8,17}$ ]] || { echo "qa-single-owner-via-ssm: valid prod instance id required" >&2; exit 40; }
 [[ "${TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] || { echo "qa-single-owner-via-ssm: timeout must be a positive integer" >&2; exit 40; }
 
 case "${MODE}" in
@@ -38,6 +38,20 @@ case "${MODE}" in
 esac
 
 parameters="$(jq -cn --arg command "${remote_command}" '{commands:[$command]}')"
+# Hybrid/managed-instance RunShellScript uses /bin/sh (dash); wrap for bash features.
+params_file="$(mktemp)"
+printf '%s\n' "${parameters}" >"${params_file}"
+python3 - "${params_file}" <<'PY'
+import base64, json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+data = json.loads(path.read_text())
+script = "\n".join(data["commands"])
+b64 = base64.b64encode(script.encode()).decode()
+data["commands"] = [f"echo {b64} | base64 -d | bash -s"]
+path.write_text(json.dumps(data))
+PY
+parameters="$(cat "${params_file}")"
+rm -f "${params_file}"
 command_id="$(aws --region "${REGION}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" \
   --document-name AWS-RunShellScript \

@@ -253,7 +253,23 @@ class QARuntimeInstallTest(unittest.TestCase):
             result = subprocess.run(["bash", str(ROOT / "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh"), "i-test"],
                                     env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            commands = json.loads((root / "output/ssm-params.json").read_text())["commands"]
+            raw_commands = json.loads((root / "output/ssm-params.json").read_text())["commands"]
+            if (
+                len(raw_commands) == 1
+                and raw_commands[0].startswith("echo ")
+                and "base64 -d | bash -s" in raw_commands[0]
+            ):
+                import base64
+                import re
+
+                match = re.fullmatch(
+                    r"echo ([A-Za-z0-9+/=]+) \| base64 -d \| bash -s",
+                    raw_commands[0],
+                )
+                self.assertIsNotNone(match, raw_commands[0])
+                commands = base64.b64decode(match.group(1)).decode().split("\n")
+            else:
+                commands = raw_commands
             install = next(command for command in commands if command.startswith("sudo env "))
             capture = fake_bin / "python3"
             capture.write_text(f"#!{sys.executable}\nimport os, json\nprint(json.dumps(dict(os.environ)))\n")

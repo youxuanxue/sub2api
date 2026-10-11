@@ -282,6 +282,7 @@ export EDGE_MAIN_GATEWAY_ALLOWED_CIDR=167.233.211.115/32
 
 ```bash
 # 切后示例（值从现网抄，勿提交 git）：
+# SSM 控制面 region=eu-west-2；QA S3/SQS 仍在 us-east-1 —— 二者不要混用。
 AWS_REGION=eu-west-2 \
 QA_BUNDLE_ENABLED=true \
 QA_BUNDLE_QUEUE_URL='https://sqs.us-east-1.amazonaws.com/682751977094/tokenkey-prod-qa-bundle' \
@@ -289,11 +290,21 @@ QA_BUNDLE_STORAGE_DRIVER=s3 \
 QA_BUNDLE_STORAGE_REGION=us-east-1 \
 QA_BUNDLE_STORAGE_BUCKET=tokenkey-prod-qa-bundles-682751977094 \
 QA_BUNDLE_STORAGE_PREFIX=user-qa \
+QA_MAINTENANCE_IMAGE='ghcr.io/youxuanxue/sub2api:<prod-tag>' \
 QA_MAINTENANCE_TIMER_STATE=enabled \
   bash ops/stage0/sync-qa-maintenance-timer-via-ssm.sh mi-033c9569c7fb8b884 "wave-b-qa"
 # boundary timer 同理：ops/stage0/sync-qa-boundary-timer-via-ssm.sh
 # 再跑 QA canary（deploy-qa-bundle / verify_qa_bundle_infra）
 ```
+
+Hybrid 无 IMDS：主机需 `tokenkey-sync-aws-creds.timer` 把 SSM Hybrid 临时凭证同步到
+`/var/lib/tokenkey/aws/credentials`，compose 挂载给 `tokenkey`；maintenance canary
+经 `tokenkey-qa-maintenance.sh` 在该路径存在时自动挂载。Hybrid 角色
+`tokenkey-hetzner-ssm-hybrid-prod` 需有 QA Bundle/Archive S3+SQS 权限（CFN
+`ProdQaPublisher` + bucket/queue resource policy 含该角色）。
+
+盯盘：`run-probe.sh --target prod` 必须走 `resolve_prod_ssm_target.py`（切流后 `mi-*`）；
+勿再写死 CFN `i-*`，否则会读到已停写的旧 EC2 库、误报「无流量」。
 
 ---
 

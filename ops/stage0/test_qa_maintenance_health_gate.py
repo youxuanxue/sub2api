@@ -60,9 +60,26 @@ class QAMaintenanceHealthGateTest(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, (proc.stdout, proc.stderr))
         self.assertEqual(sleep_calls.read_text(encoding="utf-8"), "3\n")
-        commands = json.loads(
+        raw = json.loads(
             (output / "ssm-params.json").read_text(encoding="utf-8")
         )["commands"]
+        # Hybrid hosts run AWS-RunShellScript under dash; wrappers ship one
+        # `echo B64 | base64 -d | bash -s` command.
+        if (
+            len(raw) == 1
+            and "base64 -d | bash -s" in raw[0]
+            and raw[0].startswith("echo ")
+        ):
+            import base64
+            import re
+
+            match = re.fullmatch(
+                r"echo ([A-Za-z0-9+/=]+) \| base64 -d \| bash -s", raw[0]
+            )
+            self.assertIsNotNone(match, raw[0])
+            commands = base64.b64decode(match.group(1)).decode().split("\n")
+        else:
+            commands = raw
         self.assertEqual(commands[0], "set -euo pipefail")
         return commands[1]
 

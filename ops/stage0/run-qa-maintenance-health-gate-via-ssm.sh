@@ -8,7 +8,7 @@ REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-2700}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.qa-maintenance-health-gate}"
 
-[[ "${INSTANCE_ID}" =~ ^i-[0-9a-f]{17}$ ]] || { echo "valid instance id required" >&2; exit 1; }
+[[ "${INSTANCE_ID}" =~ ^(i|mi)-[0-9a-f]{8,17}$ ]] || { echo "valid instance id required" >&2; exit 1; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARTIFACT_ROOT="${QA_HOST_ARTIFACT_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 GATE_SRC="${ARTIFACT_ROOT}/deploy/aws/stage0/tokenkey-qa-maintenance-health-gate.sh"
@@ -24,6 +24,17 @@ jq -n --arg gate "${gate_payload}" '{commands:[
   "set -euo pipefail",
   ("printf %s " + ($gate | @sh) + " | base64 -d | sudo bash")
 ]}' >"${params}"
+
+# Hybrid/managed-instance RunShellScript uses /bin/sh (dash); wrap for bash features.
+python3 - "${params}" <<'PY'
+import base64, json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+data = json.loads(path.read_text())
+script = "\n".join(data["commands"])
+b64 = base64.b64encode(script.encode()).decode()
+data["commands"] = [f"echo {b64} | base64 -d | bash -s"]
+path.write_text(json.dumps(data))
+PY
 
 command_id="$(aws --region "${REGION}" ssm send-command \
   --instance-ids "${INSTANCE_ID}" --document-name AWS-RunShellScript \
