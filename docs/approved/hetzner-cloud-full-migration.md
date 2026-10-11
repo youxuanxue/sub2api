@@ -58,7 +58,7 @@ related_designs:
 | uk1 / us4 / us5 / uk2 正式 DNS | **已切** Hetzner（A 见 README） |
 | 四边 LS app | **已停写**（`tokenkey*` + gemini-web stop；PG/Caddy/Redis 保留 ≥7d；`.env` `TOKENKEY_LS_STANDBY_READONLY=1`） |
 | us3 / us6 HZ | 不再建（账号级退役，2026-10-11）；LS 机器仍在跑但已无 prod stub，待 gemini re-import 后停写 |
-| prod 正式 | **未切**（高流量 **Wave B 延期**）；HZ staging 已绿（`167.233.211.115` / `mi-033c9569c7fb8b884` + `api-hz` E1）；正式仍 AWS EIP；低流量窗再冻写切流；**先于 us3/us6**（override） |
+| prod 正式 | **正式 DNS/冻写未切**（高流量延期）；HZ staging 已绿；**ops 控制面已切** Hybrid `mi-*`（param=`hetzner`，#2542/#2543）；正式流量仍 AWS EIP；低流量窗再冻写切流 |
 | 库复刻 uk1/uk2/us4/us5 | precious + logs 已灌；切前未切边再刷见 README |
 | us4 定点补漏 | append-only：ulog/dedup/ops_system（含停写前再补）；`post_missing=0` |
 | uk1 补漏 | dump 水位后 LS 0 新行 → 无需补漏 |
@@ -67,7 +67,7 @@ related_designs:
 | gemini-web worker | arm64 已部署；**会话仍多需 re-import**（出口 IP） |
 | prod stub 切流伤 | `base_url` 缺 `https://`（uk2/us5）已修；容器未吃 host pin 曾双写 LS → restart `tokenkey-green` 后停 |
 
-**下一刀（override 2026-10-10）：** **prod** Wave A staging → Wave B 冻写切流（同机四 hostname + CallModel + Edge CIDR + timers/QA/告警，见 README）；**us3/us6 延期**。
+**下一刀：** **prod** Wave B 冻写/正式 DNS 切流（同机四 hostname + CallModel + Edge CIDR + timers/QA/告警，见 README）；ops 控制面已 `mi-*`。us3/us6 重建已取消（账号级退役）。
 
 ## 切流实测教训（写进执行纪律）
 
@@ -98,7 +98,7 @@ Owner：`deploy/hetzner/provision-edge.sh` + `render-bootstrap.sh`；IAM：`toke
 
 | 何时 | 做什么 | 门禁 |
 |---|---|---|
-| **prod**（当前；先于 us3/us6） | Volume + staging `api-hz` → P1–P4/P6 → 冻写 ≤5 min → 四正式 hostname（含 CallModel）→ P5 | README Wave B；写后禁裸 DNS 回旧库 |
+| **prod**（正式 DNS 仍待） | staging 已绿；ops 控制面 `mi-*`；冻写 ≤5 min → 四正式 hostname（含 CallModel）→ P5 | README Wave B；写后禁裸 DNS 回旧库 |
 | ~~**us3**（延期）~~ **已取消** | 2026-10-11 账号级退役替代：12 账号 → uk1，prod stub 全切/软删，不重建机器 | README「us3/us6 账号级退役」 |
 | ~~**us6**（延期）~~ **已取消** | 同上：19 账号 → uk2 | 同上 |
 | gemini-web / 供应 stub | 各 HZ 边会话 re-import；按需修 anthropic/grok 池后再开 prod stub | 冒烟 200 才 `schedulable=true` |
