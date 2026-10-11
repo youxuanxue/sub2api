@@ -199,7 +199,10 @@ func TestUS062_PostgresQueueRoleIsolationLeasesAndSingleConcurrency(t *testing.T
 	var before, after string
 	require.NoError(t, admin.QueryRow("SELECT json_agg(j ORDER BY spec_key)::text FROM qa_queue.jobs j").Scan(&before))
 	restart()
-	require.Eventually(t, func() bool { return admin.Ping() == nil }, 10*time.Second, 50*time.Millisecond)
+	require.Eventually(t, func() bool {
+		var alive int
+		return admin.QueryRow("SELECT 1").Scan(&alive) == nil && alive == 1
+	}, 10*time.Second, 50*time.Millisecond)
 	require.NoError(t, admin.QueryRow("SELECT json_agg(j ORDER BY spec_key)::text FROM qa_queue.jobs j").Scan(&after))
 	require.Equal(t, before, after, "queue state and receipts must survive a PostgreSQL restart")
 	// Exercise the producer after the crash too: this verifies reconnection and
