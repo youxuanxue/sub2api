@@ -3,7 +3,7 @@ title: TokenKey 全线迁移 Hetzner Cloud（prod + edge · 德区 · cax21）
 status: approved
 approved_by: "feng (merge #2517, 2026-10-09)"
 created: 2026-10-09
-revised: 2026-10-10
+revised: 2026-10-11
 owners: [tk-platform]
 scope: >-
   deploy/hetzner/* + deploy-*-hetzner*.yml + Stage0 dispatch 路由；
@@ -43,6 +43,7 @@ related_designs:
 | 去哪 | Hetzner **`fsn1`**，机型 **`cax21`**（4c/8G **arm64**） |
 | 控面 | **SSM Hybrid**（蓝绿仍走 AWS SSM；HZ 现为单色 `tokenkey`） |
 | 节奏 | **Edge-first（四边）→ prod（override）→ `us3`/`us6` 延期**：见 README Prod 节 |
+| ⚠️ us3/us6 实际路径 | **2026-10-11 改为账号级退役，本基线的「重建 HZ + 整库复刻」未执行且已取消。** 账号折叠进既有 uk1/uk2（12+19 个），edge id 不保留，不重建机器。偏离经用户逐项确认；执行记录与坑位见 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md) 「us3/us6 账号级退役」节。 |
 | 身份 | 逻辑 edge id / 正式域名**不变**；平台差靠 `*-hz-*` 与 staging |
 | 数据 | **整库复刻**用舰队 precious-class `pg_dump` + 日志 data-only（见 README）；**禁止**只靠 `migrate-edge-accounts` 当「全量迁移」 |
 | 切流序 | 未切边：**冻写 → 新鲜 dump/restore → 对账 → 正式 A**；已切边禁止再整库覆盖 live HZ |
@@ -56,7 +57,7 @@ related_designs:
 |---|---|
 | uk1 / us4 / us5 / uk2 正式 DNS | **已切** Hetzner（A 见 README） |
 | 四边 LS app | **已停写**（`tokenkey*` + gemini-web stop；PG/Caddy/Redis 保留 ≥7d；`.env` `TOKENKEY_LS_STANDBY_READONLY=1`） |
-| us3 / us6 HZ | 无机器 / 未起（配额）；正式仍 Lightsail |
+| us3 / us6 HZ | 不再建（账号级退役，2026-10-11）；LS 机器仍在跑但已无 prod stub，待 gemini re-import 后停写 |
 | prod 正式 | **未切**（高流量 **Wave B 延期**）；HZ staging 已绿（`167.233.211.115` / `mi-033c9569c7fb8b884` + `api-hz` E1）；正式仍 AWS EIP；低流量窗再冻写切流；**先于 us3/us6**（override） |
 | 库复刻 uk1/uk2/us4/us5 | precious + logs 已灌；切前未切边再刷见 README |
 | us4 定点补漏 | append-only：ulog/dedup/ops_system（含停写前再补）；`post_missing=0` |
@@ -98,8 +99,8 @@ Owner：`deploy/hetzner/provision-edge.sh` + `render-bootstrap.sh`；IAM：`toke
 | 何时 | 做什么 | 门禁 |
 |---|---|---|
 | **prod**（当前；先于 us3/us6） | Volume + staging `api-hz` → P1–P4/P6 → 冻写 ≤5 min → 四正式 hostname（含 CallModel）→ P5 | README Wave B；写后禁裸 DNS 回旧库 |
-| **us3**（延期） | 配额允许 → provision HZ → 冻写 → precious+logs → 正式 A → LS 停写 | README「增量 + DNS」；E5 |
-| **us6**（延期） | 同 us3 | 同上 |
+| ~~**us3**（延期）~~ **已取消** | 2026-10-11 账号级退役替代：12 账号 → uk1，prod stub 全切/软删，不重建机器 | README「us3/us6 账号级退役」 |
+| ~~**us6**（延期）~~ **已取消** | 同上：19 账号 → uk2 | 同上 |
 | gemini-web / 供应 stub | 各 HZ 边会话 re-import；按需修 anthropic/grok 池后再开 prod stub | 冒烟 200 才 `schedulable=true` |
 | 另审批 | 升配 / 去 SSM / 多区出口 | Phase-5 |
 

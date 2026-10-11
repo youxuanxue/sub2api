@@ -10,8 +10,8 @@
 | **us4** | **已切** → `188.245.14.132` | 同左 | `32.188.80.151`（app 已停写，PG/Caddy 保留 ≥7d） | precious + logs 已灌；已定点补漏 42×ulog+42×dedup（≈$0.62） |
 | **us5** | **已切** → `91.98.83.56`（冻写重灌后切） | 同左 | `16.144.175.131`（app 已停写，PG/Caddy 保留 ≥7d） | 2026-10-10 `T101255Z`+`logs-T101315Z` |
 | **uk2** | **已切** → `2.31.27.73`（冻写重灌后切） | 同左 | `51.24.28.148`（app 已停写，PG/Caddy 保留 ≥7d） | 2026-10-10 `T101627Z`+`logs-T101629Z` |
-| **us3** | LS `18.216.113.132` | **无机器**（曾建后删，腾配额） | 正式仍 LS | 待重建 + 全量复刻 |
-| **us6** | LS `3.147.98.112` | **未起**（配额） | 正式仍 LS | 待 provision + 全量复刻 |
+| **us3** | LS `18.216.113.132`（仍在跑，已无 prod stub） | **无机器**（不再重建） | — | **2026-10-11 账号级退役**：12 账号 → uk1，stub 全切/软删；见「us3/us6 账号级退役」 |
+| **us6** | LS `3.147.98.112`（仍在跑，已无 prod stub） | **未起**（不再 provision） | — | **2026-10-11 账号级退役**：19 账号 → uk2，stub 全切/软删；同上 |
 | **prod** | 仍 AWS Stage0（正式） | **HZ staging 已绿** `167.233.211.115` · `mi-033c9569c7fb8b884` · Volume `tokenkey-prod-data` · `api-hz` E1 | — | Wave A 齐；dump 已刷 `T155229Z`；Wave B 见 [`WAVE-B-PROD-CUTOVER-RUNBOOK.md`](WAVE-B-PROD-CUTOVER-RUNBOOK.md)；正式 DNS/冻写未做 |
 
 Lightsail ≥7 天保留作回滚；禁止双写业务库。Redis 不迁（可重建）。
@@ -216,13 +216,75 @@ IdP / 支付 webhook **URL 字符串不变**（仍 `https://api.tokenkey.dev/...
 
 控制面默认仍解析 AWS `i-*`；切后才 `PROD_SSM_TARGET=hetzner` 或 PutParameter `/tokenkey/prod/control-plane-ssm-target=hetzner`。
 
+## us3/us6 账号级退役（2026-10-11 执行）
+
+**与审批基线的差异（已获用户逐项确认）：** 基线 [`hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md) §节奏/§路线锁的是
+「us3/us6 重建 HZ、逻辑 edge id 不变、整库复刻」。实际改为**账号级退役**：把两边账号折叠进既有的
+uk1/uk2，edge id 不再保留，**不重建机器、不做整库复刻**。基线文档保留原决策不改（人工审批产物）。
+
+**为何不违反「禁止只靠 migrate-edge-accounts 当全量迁移」：** 那条禁令（基线 §30/§47、
+[`README`](README.md) 的「数据复刻（必做）」节）约束的是「换机但要保住整台边」的场景——那需要
+`usage_logs*`/dedup/settings/audit 全量。这里不保留 edge id，历史数据留在原机只读（≥7d），
+所以脚本的设计用途（搬无法从 admin UI 重录的凭证）正好吻合。
+
+### 实际路径（每类平台五步，主力最后动）
+
+1. `migrate-edge-accounts.py extract → build`（dry-run，逐条审 SQL）→ `load --execute`
+2. 目标边建缺失的 relay `api_key`（`api_keys.group_id` 必填，所以先有组才有 key）
+3. 把 `*-us3`/`*-us6` 后缀组合并进目标边原有同名组，删空组
+4. 改 prod stub 的 `credentials.base_url` + `api_key` + `name`（**分组绑定/优先级/is_exclusive 一律不动**）
+5. 从 prod 实测 `/v1/models` + 盯盘确认错误零新增，再软删剩余 stub
+
+### 结果
+
+| 项 | us3 → uk1 | us6 → uk2 |
+|---|---|---|
+| 账号 | 12/12（`name\|platform\|cred_len` 逐字节对账，差集为空） | 19/19（同法对账） |
+| 切流 stub | `openai-us3`→`openai-uk1`(64)、`china-us3`→`china-uk1`(198) | `openai-us6`→`openai-uk2`(63)、`china-us6`→`china-uk2`(199)、`kiro-us6`→`kiro-uk2`(66) |
+| 软删 stub | `cc-us3`(52)、`kiro-us3`(70)、`antigravity-us3`(61)、`gemini-us3`(208)；`grok-us3`(80) 早前已删 | `cc-us6`(55)、`grok-us6`(81)、`antigravity-us6`(85)、`gemini-us6`(210) |
+| 合并后组 | `antigravity` 7、`gemini-web` 2、`default` 1、`china` 3、`openai` 4 | `antigravity` 9、`gemini-web` 5、`kiro` 5、`china` 7、`openai` 4 |
+| 新建 relay key | `relay-openai-uk1`、`relay-china-uk1` | `relay-openai-uk2`、`relay-china-uk2`、`relay-kiro-uk2` |
+
+`schedulable`/`status` 用 `--preserve-schedulable` 保持与源侧一致（含故意保留 `anti-503`/`anti-510` 的
+`error`）；唯一刻意偏离是 gemini —— 全部压成 `error`+不可调度等 re-import。
+
+### 坑位（复用时先读）
+
+- **空池废 stub**：`kiro-us3`(70)、`grok-us6`(81) 的 prod stub 活着但边库对应平台 0 账号。迁移前要用
+  「prod stub ↔ edge 平台账号数」对照表筛一遍，否则会为空池白做一轮。
+- **孤儿账号**：uk2 的 `nvidia-build-492/493/505` 此前 live 但**未绑任何组**，根本路由不到（非本次引入）。
+  已收养进 `china`。目标边迁入前先跑一次 orphan 检查。
+- **配置不随账号走**：账号搬完后 `settings` 仍是目标边的。本次实际漏过一项——us3 独有的
+  `tk_account_model_mapping_runtime`（antigravity `gemini-3-flash`→`gemini-3.8-flash-medium`），
+  靠事后复审才抓到；不补就是静默行为漂移。另外 `ops_advanced_settings`/`ops_metric_thresholds`
+  是舰队标准值（us3/us4/us5/us6 md5 全等），**uk1/uk2 切流时就漏配了**，本次一并补齐六边一致。
+- **gemini-web 会话必失效,kiro OAuth 不受影响**：uk2 原有两个带会话的 gemini 迁来后即 `error`，
+  是出口 IP 变更的实证；而 kiro 5 个 OAuth 搬到 uk2 后**立刻成功服务**（01:40:13 起），
+  所以 kiro 凭证不绑出口 IP。迁 gemini 必须排 re-import，迁 kiro 不必。
+- **脚本不幂等**：裸 `INSERT ... RETURNING id`，无 `ON CONFLICT`，重跑即重复账号且无 undo。
+  每批只跑一次 `load --execute`；`--replace-target` 全程禁用（会软删目标所有账号 = 清空 live 边）。
+- **`account_groups` 只有 4 列**（`account_id`/`group_id`/`priority`/`created_at`，无 `updated_at`）；
+  `settings` 只有 4 列（`id`/`key`/`value` text/`updated_at`，无 `created_at`）；边机**无 pgcrypto**
+  （`gen_random_bytes` 不可用，relay key 用 `md5(random()||clock_timestamp())` 拼 64 hex）。
+- **改 stub `base_url` 是瞬时切换、无灰度**，但也正因此是唯一的快速回滚手段（改回去即可）。
+  切前必须先从 prod 侧实测目标边 `/v1/models` 拿到 200。
+- 软删有流量的 stub 前，确认它所在的每个组还剩 ≥2 个可调度同伴（本次用 SQL 守卫强制）。
+
+### 剩余（未做）
+
+停写 us3/us6 **故意延后**：uk1/uk2 的 gemini 会话还没 re-import，而 `gemini-web-498`(us3)/
+`gemini-web-506`(us6) 的原会话在原机上，是唯一退路。re-import 落地后再按纪律收尾：
+停 app + gemini-web → `.env` 置 `TOKENKEY_LS_STANDBY_READONLY=1` → 保留 PG/Caddy ≥7d →
+`edge-targets-lightsail.json` 翻 `deployable=false` → ≥7d 后删实例（参照 2026-06-23
+uk1旧/us2/us7 退役清单，含**删 prod mirror account**）。
+
 ## 后续 backlog
 
 1. **禁止**再对已切四边整库覆盖 live HZ；LS ≥7d 后可退役实例。  
-2. **prod Wave A/B**（当前刀）：见上节；us3/us6 **延期**。  
-3. **us3**（延期）：配额允许 → 重建 HZ → 冻写 → precious+logs → 正式 A → LS 停写。  
-4. **us6**（延期）：同 us3。  
-5. gemini-web：各 HZ 边会话 re-import；再评估 `gemini-uk*` stub。  
+2. **prod Wave A/B**（当前刀）：见上节。
+3. ~~us3 重建 HZ~~ **已取消**：2026-10-11 改走账号级退役（账号迁 uk1），不再重建机器。剩停写 + 实例退役，见下节。
+4. ~~us6 重建 HZ~~ **已取消**：同 us3（账号迁 uk2）。
+5. gemini-web：**7 个账号待运营 re-import**（uk1 `gemini-web-498`/`gemini-web`；uk2 `gemini-web-506`/`510`/`492`/`505`/`493`），全部 `status=error`+`schedulable=false` 并带原因；re-import 后开边侧账号 + prod `gemini-uk1`/`uk2` 即通（key 已逐字节核对一致）。**期间 prod gemini 组仅 `gemini-us4`/`us5` 两个可调度 stub 承载，属单点。**  
 6. 边侧供应：us4 anthropic 失效号、us4/us5 grok 选号/空池、uk 边补 CC 池——冒烟 200 后再开对应 prod stub。  
 7. 新机 Feishu：仍需 post-boot 从 AWS prod `.env` 拷贝（不进 git）。  
 8. Wave B 后：prod 发版 workflow 解析 Hybrid `mi-*`；蓝绿 vs 单色路径对齐。
@@ -231,7 +293,7 @@ IdP / 支付 webhook **URL 字符串不变**（仍 `https://api.tokenkey.dev/...
 
 - `location=fsn1` · `server_type=cax21` · `architecture=arm`
 - prod：`volume_mount=/var/lib/tokenkey` · `volume_size_gb>=40`
-- 矩阵：`uk1/uk2/us4/us5` 已 `deployable=true`（正式切流后）；`us3/us6` 与 prod target 仍 `false` 直至重建/切流
+- 矩阵：`uk1/uk2/us4/us5` 已 `deployable=true`（正式切流后）；`us3/us6` 在 Lightsail 矩阵中仍 `deployable=true`（机器在跑，可收 probe/运维下发），**停写退役时才翻 `false`**；prod target 仍 `false` 直至切流
 
 ```bash
 python3 -m unittest deploy/hetzner/test_resolve_edge_hetzner_target.py
