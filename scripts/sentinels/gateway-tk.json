@@ -16445,6 +16445,58 @@
         "AND created_at < $3"
       ],
       "rationale": "Injection surface for the /keys batch usage upper-bound prune (paired with usage_log_repo_batch_api_key_usage_tk_test.go). Upstream-shaped stats file; a merge can drop the WHERE created_at < $3 bound while compiling green."
+    },
+    {
+      "path": "backend/internal/service/openai_images_input_patches_tk.go",
+      "must_contain": [
+        "func validateOpenAIImagesEditInputPatches(req *OpenAIImagesRequest) error",
+        "openAIImagesInputPatchLimit  = 30000",
+        "openAIImagesInputPatchSizePx = 32",
+        "_ \"image/gif\"",
+        "func openAIImagesInputPatchCount(width, height int) int"
+      ],
+      "rationale": "TK companion: reject gpt-image edits whose local input image exceeds OpenAI's ceil(W/32)*ceil(H/32) 30000-patch budget before account selection/upstream. Failing open on undecodable/http URLs is intentional; dropping this companion silently restores late upstream 400s for oversized edits."
+    },
+    {
+      "path": "backend/internal/service/openai_images.go",
+      "must_contain": [
+        "if err := validateOpenAIImagesEditInputPatches(req); err != nil {",
+        "const GPTImageRejectedOnChatCompletionsMessage = \"This model is not supported on the Chat Completions endpoint; use POST /v1/images/generations or /v1/images/edits\""
+      ],
+      "rationale": "Injection: ParseOpenAIImagesRequest must call validateOpenAIImagesEditInputPatches before scheduling; Chat Completions rejection copy SSOT lives here so both gateway and OpenAI handlers stay aligned. Upstream merge that drops either call/const compiles but loses early patches precheck or the Images endpoint hint."
+    },
+    {
+      "path": "backend/internal/service/openai_images_input_patches_tk_test.go",
+      "must_contain": [
+        "TestParseOpenAIImagesRequest_EditRejectsOverPatchLimitInput",
+        "TestParseOpenAIImagesRequest_EditRejectsOverPatchLimitGIF",
+        "TestForwardImages_EditOverPatchLimitNeverHitsUpstream",
+        "TestForwardImages_EditSmallInputStillReachesUpstream"
+      ],
+      "rationale": "Focused regressions for the patches precheck: over-limit PNG/GIF 400, never hits upstream; small inputs still reach upstream. Path-only companion coverage is insufficient."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_chat_completions.go",
+      "must_contain": [
+        "service.GPTImageRejectedOnChatCompletionsMessage"
+      ],
+      "rationale": "Gateway Chat Completions must reject gpt-image-* with the Images-endpoint hint const, not a bare unsupported message. Upstream merge that restores the old string compiles but drops the /v1/images/* guidance."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "service.GPTImageRejectedOnChatCompletionsMessage"
+      ],
+      "rationale": "OpenAI-compat Chat Completions must reject gpt-image-* with the shared Images-endpoint hint const. Keep in lockstep with gateway_handler_chat_completions.go."
+    },
+    {
+      "path": "backend/internal/handler/chat_completions_image_model_test.go",
+      "must_contain": [
+        "service.GPTImageRejectedOnChatCompletionsMessage",
+        "/v1/images/generations",
+        "/v1/images/edits"
+      ],
+      "rationale": "Handler regression asserting the full Chat→Images hint message (not a soft Contains on Chat Completions alone)."
     }
   ]
 }
