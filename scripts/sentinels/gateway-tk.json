@@ -7131,6 +7131,26 @@
       "rationale": "Responses OAuth builder must inject Style guidance before AR marker and retry on plan-gated main-model 400 with the next driver. Compile-clean if dropped — style and driver fallback would silently regress."
     },
     {
+      "path": "backend/internal/service/openai_images_perceived_quality_tk.go",
+      "must_contain": [
+        "func openAIImagesReasoningEffortForPrompt(prompt string) string",
+        "func applyOpenAIImagesPerceivedQualityPrompt(prompt string, edit bool) string",
+        "openAIImagesDefaultReasoningEffort",
+        "openAIImagesVerbatimReasoningEffort",
+        "SUB2API_IMAGES_REASONING_EFFORT"
+      ],
+      "rationale": "OAuth gpt-image perceived-quality owner: reasoning.effort default medium, with a short ASCII quoted-label bump to high. CJK quotes do not raise effort. The labeled-spec prompt scaffold must not claim resolution, and edits keep the input image framing. Dropping the file is compile-clean only if the call site below is also dropped; this anchor keeps the policy from disappearing in an upstream merge."
+    },
+    {
+      "path": "backend/internal/service/openai_images_responses.go",
+      "must_contain": [
+        "reasoningEffort := openAIImagesReasoningEffortForPrompt(prompt)",
+        "prompt = applyOpenAIImagesPerceivedQualityPrompt(prompt, parsed.IsEdits())",
+        "req, _ = sjson.SetBytes(req, \"reasoning.effort\", reasoningEffort)"
+      ],
+      "rationale": "Responses OAuth image builder must apply the perceived-quality scaffold before style/AR and set reasoning.effort from that owner. instructions stay empty (codex2api). Removing the calls compiles if the helpers remain, but every OAuth image would silently lose the scaffold and the ASCII-label effort bump. tools[].quality stays forwarded so a soft upstream remap remains observable."
+    },
+    {
       "path": "backend/internal/service/openai_images_codex_direct_multi_tk.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingMulti(",
