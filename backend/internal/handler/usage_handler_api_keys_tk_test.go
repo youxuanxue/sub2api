@@ -102,11 +102,54 @@ func TestDashboardAPIKeysThirtyDays(t *testing.T) {
 	require.True(t, repo.end.Equal(wantEnd), "end=%v want=%v", repo.end, wantEnd)
 }
 
+func TestDashboardAPIKeysDateRange(t *testing.T) {
+	repo := &apiKeyStatsRepoCapture{}
+	router := newDashboardAPIKeysRouter(repo)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/usage/dashboard/api-keys?start_date=2026-10-01&end_date=2026-10-07&timezone=UTC",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	wantStart, wantEnd, wantDays, err := parseAPIKeyCalendarDateRange("2026-10-01", "2026-10-07", "UTC")
+	require.NoError(t, err)
+	require.Equal(t, 7, wantDays)
+	require.True(t, repo.start.Equal(wantStart), "start=%v want=%v", repo.start, wantStart)
+	require.True(t, repo.end.Equal(wantEnd), "end=%v want=%v", repo.end, wantEnd)
+
+	var body struct {
+		Data struct {
+			Days      int    `json:"days"`
+			StartDate string `json:"start_date"`
+			EndDate   string `json:"end_date"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, 7, body.Data.Days)
+	require.Equal(t, "2026-10-01", body.Data.StartDate)
+	require.Equal(t, "2026-10-07", body.Data.EndDate)
+}
+
 func TestDashboardAPIKeysRejectsInvalidDays(t *testing.T) {
 	repo := &apiKeyStatsRepoCapture{}
 	router := newDashboardAPIKeysRouter(repo)
 
 	req := httptest.NewRequest(http.MethodGet, "/usage/dashboard/api-keys?days=14", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestDashboardAPIKeysRejectsPartialDateRange(t *testing.T) {
+	repo := &apiKeyStatsRepoCapture{}
+	router := newDashboardAPIKeysRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/dashboard/api-keys?start_date=2026-10-01", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 

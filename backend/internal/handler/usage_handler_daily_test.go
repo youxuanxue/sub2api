@@ -143,6 +143,36 @@ func TestGetMyAPIKeyDailyUsageReturnsEmptyData(t *testing.T) {
 	require.Empty(t, got.Data.Items)
 }
 
+func TestGetMyAPIKeyDailyUsageDateRange(t *testing.T) {
+	usageRepo := &dailyUsageRepoStub{trend: []usagestats.TrendDataPoint{}}
+	apiKeyRepo := &dailyUsageAPIKeyRepoStub{
+		keys: map[int64]*service.APIKey{
+			7: {ID: 7, UserID: 42, Status: service.StatusAPIKeyActive},
+		},
+	}
+	router := newDailyUsageTestRouter(usageRepo, apiKeyRepo, 42)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/user/api-keys/7/usage/daily?start_date=2026-10-01&end_date=2026-10-07&timezone=UTC",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, usageRepo.called)
+	wantStart, wantEnd, wantDays, err := parseAPIKeyCalendarDateRange("2026-10-01", "2026-10-07", "UTC")
+	require.NoError(t, err)
+	require.Equal(t, 7, wantDays)
+	require.True(t, usageRepo.startTime.Equal(wantStart))
+	require.True(t, usageRepo.endTime.Equal(wantEnd))
+
+	var got dailyUsageHandlerResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, 7, got.Data.Days)
+}
+
 func TestGetMyAPIKeyDailyUsageAggregatesByDayForOwnedKey(t *testing.T) {
 	usageRepo := &dailyUsageRepoStub{
 		trend: []usagestats.TrendDataPoint{

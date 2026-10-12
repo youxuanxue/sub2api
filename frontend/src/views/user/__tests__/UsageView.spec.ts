@@ -277,21 +277,34 @@ describe('user UsageView', () => {
       include_group_stats: true,
       timezone: expect.any(String),
     }))
-    expect(getDashboardAPIKeys).toHaveBeenCalledWith(7, expect.any(String))
+    expect(getDashboardAPIKeys).toHaveBeenCalledWith(expect.objectContaining({
+      start_date: expect.any(String),
+      end_date: expect.any(String),
+      timezone: expect.any(String),
+    }))
     expect(list).toHaveBeenCalledTimes(1)
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
   })
 
-  it('reloads api key distribution when days tab changes to 30d', async () => {
+  it('reloads api key distribution when the page date range changes', async () => {
     const wrapper = mountUsageView()
     await flushPromises()
     getDashboardAPIKeys.mockClear()
 
-    ;(wrapper.vm as any).apiKeyDistributionDays = 30
+    const datePicker = wrapper.findComponent(DateRangePicker)
+    datePicker.vm.$emit('change', {
+      startDate: '2026-03-01',
+      endDate: '2026-03-07',
+      preset: '7days',
+    })
     await flushPromises()
 
-    expect(getDashboardAPIKeys).toHaveBeenCalledWith(30, expect.any(String))
+    expect(getDashboardAPIKeys).toHaveBeenCalledWith(expect.objectContaining({
+      start_date: '2026-03-01',
+      end_date: '2026-03-07',
+      timezone: expect.any(String),
+    }))
   })
 
   it('passes showStandardCost=false to usage summary and distribution charts', async () => {

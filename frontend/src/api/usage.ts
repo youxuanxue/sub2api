@@ -305,11 +305,26 @@ export async function getDashboardModels(params?: {
  */
 export async function getMyApiKeyDailyUsage(
   apiKeyId: number,
-  days: number = 30
+  options?: {
+    days?: number
+    start_date?: string
+    end_date?: string
+    timezone?: string
+  }
 ): Promise<ApiKeyDailyUsageResponse> {
+  const params: Record<string, string | number> = {}
+  if (options?.start_date && options?.end_date) {
+    params.start_date = options.start_date
+    params.end_date = options.end_date
+  } else {
+    params.days = options?.days ?? 30
+  }
+  if (options?.timezone) {
+    params.timezone = options.timezone
+  }
   const { data } = await apiClient.get<ApiKeyDailyUsageResponse>(
     `/user/api-keys/${apiKeyId}/usage/daily`,
-    { params: { days } }
+    { params }
   )
   return data
 }
@@ -324,13 +339,15 @@ export async function getDashboardSnapshotV2(
   return data
 }
 
-export async function getDashboardAPIKeys(
-  days: 7 | 30 = 7,
+export async function getDashboardAPIKeys(params?: {
+  start_date?: string
+  end_date?: string
+  days?: 7 | 30
   timezone?: string
-): Promise<ApiKeyDistributionResponse> {
+}): Promise<ApiKeyDistributionResponse> {
   const { data } = await apiClient.get<ApiKeyDistributionResponse>(
     '/usage/dashboard/api-keys',
-    { params: { days, timezone } }
+    { params }
   )
   return data
 }
@@ -355,13 +372,29 @@ export async function getDashboardApiKeysUsage(
   apiKeyIds: number[],
   options?: {
     signal?: AbortSignal
+    start_date?: string
+    end_date?: string
+    timezone?: string
   }
 ): Promise<BatchApiKeysUsageResponse> {
+  const body: {
+    api_key_ids: number[]
+    start_date?: string
+    end_date?: string
+    timezone?: string
+  } = {
+    api_key_ids: apiKeyIds
+  }
+  if (options?.start_date && options?.end_date) {
+    body.start_date = options.start_date
+    body.end_date = options.end_date
+  }
+  if (options?.timezone) {
+    body.timezone = options.timezone
+  }
   const { data } = await apiClient.post<BatchApiKeysUsageResponse>(
     '/usage/dashboard/api-keys-usage',
-    {
-      api_key_ids: apiKeyIds
-    },
+    body,
     {
       signal: options?.signal
     }

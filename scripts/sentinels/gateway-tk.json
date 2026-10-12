@@ -16288,10 +16288,11 @@
       "must_contain": [
         "func (h *UsageHandler) DashboardAPIKeys(c *gin.Context)",
         "GetAPIKeyStatsWithFilters",
+        "parseAPIKeyCalendarDateRange",
         "Invalid days value, use 7 or 30",
-        "apiKeyDailyUsageRange(days, c.Query(\"timezone\"))"
+        "start_date and end_date are required together"
       ],
-      "rationale": "User dashboard API Key distribution endpoint. Pins days=7|30 validation, user-TZ calendar window via apiKeyDailyUsageRange, and user-scoped GetAPIKeyStatsWithFilters so an upstream usage_handler rewrite cannot silently drop the route handler while routes/user.go still registers it."
+      "rationale": "User dashboard API Key distribution endpoint. Pins start_date/end_date calendar window (shared with Keys/Usage DateRangePicker) plus legacy days=7|30 fallback, and user-scoped GetAPIKeyStatsWithFilters so an upstream usage_handler rewrite cannot silently drop the route handler while routes/user.go still registers it."
     },
     {
       "path": "backend/internal/server/routes/user.go",
@@ -16305,9 +16306,11 @@
       "must_contain": [
         "TestDashboardAPIKeysDefaultSevenDays",
         "TestDashboardAPIKeysThirtyDays",
-        "TestDashboardAPIKeysRejectsInvalidDays"
+        "TestDashboardAPIKeysDateRange",
+        "TestDashboardAPIKeysRejectsInvalidDays",
+        "TestDashboardAPIKeysRejectsPartialDateRange"
       ],
-      "rationale": "Focused regression for DashboardAPIKeys days contract and auth-user scoping."
+      "rationale": "Focused regression for DashboardAPIKeys date-range contract, legacy days fallback, and auth-user scoping."
     },
     {
       "path": "backend/internal/repository/usage_log_repo_api_key_stats_tk_test.go",
