@@ -1109,11 +1109,11 @@ type GatewayConfig struct {
 	// OpenAI/Codex 请求可能在上游排队较久；默认不使用通用响应头超时截断。
 	OpenAIResponseHeaderTimeout int `mapstructure:"openai_response_header_timeout"`
 	// StreamFirstOutputTimeoutSeconds: cross-platform streaming useful-first-output
-	// budget (seconds). Zero inherits the code default 15. Cap is 60.
+	// budget (seconds). Zero inherits the code default 30. Cap is 60.
 	// See docs/approved/candidate-eligibility-ssot.md (universal stream first-output).
 	StreamFirstOutputTimeoutSeconds int `mapstructure:"stream_first_output_timeout_seconds"`
 	// StreamFirstOutputHighEffortTimeoutSeconds: high/xhigh/max (and equivalents)
-	// override. Zero inherits the code default 30. Cap is 60.
+	// override. Zero inherits the code default 60. Cap is 60.
 	StreamFirstOutputHighEffortTimeoutSeconds int `mapstructure:"stream_first_output_high_effort_timeout_seconds"`
 	// Bounds a replayable NewAPI Chat *streaming* attempt until useful first output
 	// (not total stream duration). Seconds; zero inherits StreamFirstOutputTimeoutSeconds.
@@ -1128,10 +1128,10 @@ type GatewayConfig struct {
 	// overrides. Cap 60 matches the universal stream first-useful-output budget.
 	GrokResponseHeaderTimeout int `mapstructure:"grok_response_header_timeout"`
 	// OpenAIFirstOutputTimeoutSeconds: native HTTP Responses 首个语义输出超时（秒）。
-	// 默认 15；显式 0 表示紧急禁用该闸。
+	// 默认 30；显式 0 表示紧急禁用该闸。
 	OpenAIFirstOutputTimeoutSeconds int `mapstructure:"openai_first_output_timeout_seconds"`
 	// OpenAIHighEffortFirstOutputTimeoutSeconds: high/xhigh/max 推理的首个语义输出超时（秒）。
-	// 默认 30；0 表示回退到 StreamFirstOutputHighEffortTimeoutSeconds / 代码默认 30。
+	// 默认 60；0 表示回退到 StreamFirstOutputHighEffortTimeoutSeconds（stream SSOT 代码默认 60）。
 	OpenAIHighEffortFirstOutputTimeoutSeconds int `mapstructure:"openai_high_effort_first_output_timeout_seconds"`
 	// 请求体最大字节数，用于网关请求体大小限制
 	MaxBodySize int64 `mapstructure:"max_body_size"`
@@ -2713,13 +2713,15 @@ func setDefaults() {
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
-	viper.SetDefault("gateway.stream_first_output_timeout_seconds", 15)
-	viper.SetDefault("gateway.stream_first_output_high_effort_timeout_seconds", 30)
+	viper.SetDefault("gateway.stream_first_output_timeout_seconds", 30)
+	viper.SetDefault("gateway.stream_first_output_high_effort_timeout_seconds", 60)
 	viper.SetDefault("gateway.newapi_chat_first_output_timeout", 0) // 0 = inherit stream SSOT
 	viper.SetDefault("gateway.newapi_chat_nonstream_first_output_timeout", 300)
 	viper.SetDefault("gateway.grok_response_header_timeout", 0)
-	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 15)
-	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 30)
+	// OpenAI native keys stay explicit at the same 30s/60s so openai_*=0 remains
+	// an emergency disable without collapsing the universal stream SSOT.
+	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 30)
+	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 60)
 	viper.SetDefault("gateway.log_upstream_error_body", true)
 	viper.SetDefault("gateway.log_upstream_error_body_max_bytes", 2048)
 	viper.SetDefault("gateway.inject_beta_for_apikey", false)

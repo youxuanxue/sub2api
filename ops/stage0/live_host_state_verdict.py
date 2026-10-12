@@ -28,6 +28,7 @@ Input (stdin): tagged, field-named JSON lines emitted by the probe:
     RUNIMAGE {"image":"ghcr.io/owner/sub2api:1.8.10"}
     ENV      {"key":"QA_BUNDLE_STORAGE_DRIVER","value":"s3"}
     ENV      {"key":"SERVER_FRONTEND_URL","value":"https://api.tokenkey.dev"}
+    ENV      {"key":"GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"30"}
     RETENTION {"value":"2"}
 (ENV lines are emitted only for keys actually present in the running container;
 a required key with no ENV line is therefore a "missing" drift.)
@@ -38,6 +39,8 @@ Args:
                             is not known to the caller).
     --require-env K1,K2,..  env keys that MUST be present and non-empty on the host
                             (defaults to the deploy_via_ssm.sh injection set).
+    --expect-env K=V,...    KEY=VALUE pairs that replace the default first-output
+                            SSOT expectations from first_output_timeout_ssot.py.
 
 Exit: 0 = no drift, 3 = drift (advisory; the orchestrator converts drift into a
 non-blocking ::warning:: and always exits 0 so a working deploy is never failed).
@@ -48,7 +51,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import pathlib
 import sys
+
+_STAGE0 = pathlib.Path(__file__).resolve().parent
+if str(_STAGE0) not in sys.path:
+    sys.path.insert(0, str(_STAGE0))
+from first_output_timeout_ssot import EXPECTED_ENV as DEFAULT_EXPECTED_ENV  # noqa: E402
 
 # The CONTAINER env keys deploy_via_ssm.sh sed-injects into the compose mapping,
 # so they reach the app at runtime (verifiable via `docker exec printenv`). Keep
@@ -99,6 +108,10 @@ def parse_facts(lines):
 def compute_drifts(facts, expected_tag=None, required_env=None, expected_env=None):
     """Pure verdict: return a sorted list of human-readable drift strings."""
     required_env = required_env if required_env is not None else DEFAULT_REQUIRED_ENV
+    # None → first-output SSOT values; explicit {} disables value checks
+    # (tests that only exercise presence/tag paths).
+    if expected_env is None:
+        expected_env = DEFAULT_EXPECTED_ENV
     drifts = []
 
     image = facts.get("image")
@@ -117,7 +130,7 @@ def compute_drifts(facts, expected_tag=None, required_env=None, expected_env=Non
         elif env[key] is None or str(env[key]).strip() == "":
             drifts.append(f"required env present but empty on host: {key}")
 
-    for key, expected in (expected_env or {}).items():
+    for key, expected in expected_env.items():
         observed = env.get(key)
         if observed is None:
             drifts.append(f"missing required env on host: {key}")
@@ -134,6 +147,13 @@ def _verdict(lines, expected_tag=None, required_env=None, expected_env=None):
     return compute_drifts(facts, expected_tag=expected_tag, required_env=required_env, expected_env=expected_env)
 
 
+def _first_output_env_lines():
+    return [
+        f'ENV {{"key":"{key}","value":"{value}"}}'
+        for key, value in DEFAULT_EXPECTED_ENV.items()
+    ]
+
+
 def _selftest():
     cases = []
 
@@ -147,6 +167,7 @@ def _selftest():
         'ENV {"key":"QA_BUNDLE_STORAGE_BUCKET","value":"tokenkey-prod-qa-bundles-123"}',
         'ENV {"key":"QA_BUNDLE_STORAGE_PREFIX","value":"user-qa"}',
         'RETENTION {"value":"2"}',
+        *_first_output_env_lines(),
     ]
     cases.append(("clean post-deploy → no drift", _verdict(clean, expected_tag="1.8.10"), []))
 
@@ -180,6 +201,32 @@ def _selftest():
     audit[0] = 'RUNIMAGE {"image":"ghcr.io/o/sub2api:9.9.9"}'
     cases.append(("audit mode ignores tag → no drift", _verdict(audit), []))
 
+    # first-output value drift (stale host left on prior 15s default)
+    stale = list(clean)
+    stale = [
+        l if "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS" not in l
+        else 'ENV {"key":"GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"15"}'
+        for l in stale
+    ]
+    got = _verdict(stale, expected_tag="1.8.10")
+    cases.append((
+        "stream first-output value drift → drift",
+        any(
+            "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS" in d and "expected='30'" in d
+            for d in got
+        ),
+        True,
+    ))
+
+    # missing first-output key
+    missing_fo = [l for l in clean if "GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS" not in l]
+    got = _verdict(missing_fo, expected_tag="1.8.10")
+    cases.append((
+        "missing OpenAI first-output env → drift",
+        any("GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS" in d for d in got),
+        True,
+    ))
+
     ok = True
     for name, got, want in cases:
         passed = (got == want)
@@ -196,12 +243,16 @@ def main():
     ap.add_argument("--require-env", default=None,
                     help="comma-separated env keys (default: deploy_via_ssm injection set)")
     ap.add_argument("--expect-env", default=None,
-                    help="comma-separated KEY=VALUE pairs that must match the running container")
+                    help="comma-separated KEY=VALUE pairs that replace the default "
+                         "first-output SSOT expectations (omit to use defaults)")
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--print-required", action="store_true",
                     help="print the default required-env keys (one per line) — the "
                          "single source of truth a preflight check greps against "
                          "deploy_via_ssm.sh so the two can't silently drift")
+    ap.add_argument("--print-expect-env", action="store_true",
+                    help="print default KEY=VALUE first-output expectations "
+                         "(from first_output_timeout_ssot.py)")
     args = ap.parse_args()
 
     if args.selftest:
@@ -212,17 +263,25 @@ def main():
             print(key)
         return 0
 
+    if args.print_expect_env:
+        for key, value in DEFAULT_EXPECTED_ENV.items():
+            print(f"{key}={value}")
+        return 0
+
     required_env = None
     if args.require_env is not None:
         required_env = [k.strip() for k in args.require_env.split(",") if k.strip()]
 
-    expected_env = {}
-    if args.expect_env:
-        for item in args.expect_env.split(","):
-            key, separator, value = item.partition("=")
-            if not separator or not key.strip():
-                raise SystemExit(f"invalid --expect-env item: {item!r}")
-            expected_env[key.strip()] = value
+    expected_env = None
+    if args.expect_env is not None:
+        expected_env = {}
+        raw = args.expect_env.strip()
+        if raw:
+            for item in raw.split(","):
+                key, separator, value = item.partition("=")
+                if not separator or not key.strip():
+                    raise SystemExit(f"invalid --expect-env item: {item!r}")
+                expected_env[key.strip()] = value
 
     drifts = _verdict(sys.stdin.readlines(), expected_tag=args.expected_tag, required_env=required_env, expected_env=expected_env)
     if not drifts:

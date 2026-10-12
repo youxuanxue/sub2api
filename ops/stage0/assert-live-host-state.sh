@@ -18,7 +18,9 @@
 # What it asserts (the verdict logic + fixtures live in live_host_state_verdict.py):
 #   - the running container image tag == the expected/deployed tag (when given);
 #   - the deploy_via_ssm.sh-injected env keys are actually present + non-empty in
-#     the running container.
+#     the running container;
+#   - first-output timeout env values match first_output_timeout_ssot.py
+#     (stream 30/60 + OpenAI 30/60) unless EXPECT_ENV overrides.
 #
 # Usage:
 #   ops/stage0/assert-live-host-state.sh <instance_id> [expected_tag] [comment]
@@ -81,7 +83,7 @@ printf 'APPCONTAINER {"name":"%s"}\n' "\$app_container"
 img=\$(docker inspect "\$app_container" --format '{{.Config.Image}}' 2>/dev/null)
 printf 'RUNIMAGE {"image":"%s"}\n' "\$img"
 docker exec "\$app_container" printenv 2>/dev/null \
-  | grep -E '^(SERVER_FRONTEND_URL|QA_BUNDLE_(ENABLED|QUEUE_URL|STORAGE_(DRIVER|REGION|BUCKET|PREFIX)))=' \
+  | grep -E '^(SERVER_FRONTEND_URL|QA_BUNDLE_(ENABLED|QUEUE_URL|STORAGE_(DRIVER|REGION|BUCKET|PREFIX))|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS|GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS)=' \
   | while IFS='=' read -r k v; do printf 'ENV {"key":"%s","value":"%s"}\n' "\$k" "\$v"; done
 PROBE
 

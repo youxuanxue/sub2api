@@ -25,6 +25,28 @@ class LiveHostStateVerdictBundleTest(unittest.TestCase):
             "required env value differs on host: QA_BUNDLE_QUEUE_URL expected='https://sqs.example/new' observed='https://sqs.example/old'"
         ])
 
+    def test_default_expected_env_is_first_output_ssot(self) -> None:
+        self.assertEqual(
+            verdict.DEFAULT_EXPECTED_ENV["GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS"],
+            "30",
+        )
+        self.assertEqual(
+            verdict.DEFAULT_EXPECTED_ENV[
+                "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS"
+            ],
+            "60",
+        )
+        self.assertEqual(
+            verdict.DEFAULT_EXPECTED_ENV["GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS"],
+            "30",
+        )
+        self.assertEqual(
+            verdict.DEFAULT_EXPECTED_ENV[
+                "GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS"
+            ],
+            "60",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

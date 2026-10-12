@@ -2758,6 +2758,28 @@ else
     done
 fi
 
+# first-output timeout SSOT: single owner ops/stage0/first_output_timeout_ssot.py
+# must agree with viper defaults, Go stream defaults, blue/green compose inject,
+# config.example.yaml, and remediate WANT_* — otherwise live assert and remediates
+# silently diverge (the 2026-10 OpenAI-only vs full-stream miss class).
+echo ""
+
+fi # preflight gate
+if _preflight_selected 'first-output timeout SSOT sync'; then
+echo "=== sub2api: first-output timeout SSOT sync ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for first-output timeout SSOT sync)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/first-output-timeout-ssot.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: first-output-timeout-ssot.py selftest"
+    echo "        — run: python3 scripts/checks/first-output-timeout-ssot.py --selftest"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/first-output-timeout-ssot.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: first-output timeout owners match SSOT (stream 30/60 + OpenAI 30/60)"
+fi
+
 # ---- sub2api: pgdump timer cadence parity ----------------------------------
 # The tokenkey-pgdump systemd timer is defined in TWO places that must stay in
 # sync: the first-boot copy in stage0-ec2-bootstrap.sh and the live-host refresh
