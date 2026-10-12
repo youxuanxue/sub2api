@@ -66,6 +66,30 @@ class LocalBootstrapTest(unittest.TestCase):
         self.assertNotIn(pw, proc.stdout)
         self.assertNotIn(pw, proc.stderr)
 
+    def test_caddyfile_encode_comes_from_deploy_ssot(self) -> None:
+        """local-bootstrap must inject encode from deploy/Caddyfile, not a hand copy."""
+        proc = _run(self.env)
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        generated = (self.root / "caddy/Caddyfile").read_text()
+        owner = (_REPO_ROOT / "deploy/Caddyfile").read_text()
+        # Pull the owner encode block the same way the helper does (brace depth).
+        extract = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f'. "{_REPO_ROOT}/deploy/caddy-encode-ssot.sh" && '
+                f'caddy_extract_encode_block "{_REPO_ROOT}/deploy/Caddyfile"',
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        block = extract.stdout
+        self.assertTrue(block.strip().startswith("encode"), block)
+        self.assertIn(block, generated)
+        self.assertIn(block, owner)
+        self.assertNotRegex(generated, r"(?m)^\s*encode\s+zstd\s+gzip")
+
     def test_second_run_preserves_env(self) -> None:
         proc1 = _run(self.env)
         self.assertEqual(proc1.returncode, 0, msg=proc1.stderr)

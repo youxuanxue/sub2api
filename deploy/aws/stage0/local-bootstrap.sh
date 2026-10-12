@@ -136,40 +136,33 @@ EOF
   fi
 fi
 
-# Caddyfile: always rewritten (no secrets; safe to overwrite)
+# Caddyfile: always rewritten (no secrets; safe to overwrite).
+# Encode whitelist is injected from deploy/Caddyfile (SSOT) — do not hand-copy.
+# shellcheck source=../../caddy-encode-ssot.sh
+. "$REPO_ROOT/deploy/caddy-encode-ssot.sh"
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "[local-bootstrap] would write Caddyfile: $CADDYFILE"
 else
   echo "[local-bootstrap] writing Caddyfile: $CADDYFILE"
 fi
 if [ "$DRY_RUN" -eq 0 ]; then
-  cat > "$CADDYFILE" <<'CADDY'
+  _encode_owner="$(caddy_encode_owner)"
+  _encode_block="$(caddy_extract_encode_block "$_encode_owner")"
+  if [ -z "$_encode_block" ]; then
+    echo "[local-bootstrap] ERROR: no encode block in $_encode_owner" >&2
+    exit 2
+  fi
+  {
+    cat <<'CADDY_HEAD'
 {
 	email local@tokenkey.local
 }
 
 :80 {
-	# Content-Type whitelist only — never shorthand encode (buffers SSE).
-	# See deploy/EDGE_SECURITY.md / deploy/aws/stage0/Caddyfile.
-	encode {
-		zstd
-		gzip 6
-		minimum_length 256
-		match {
-			header Content-Type text/css*
-			header Content-Type text/csv*
-			header Content-Type text/html*
-			header Content-Type text/javascript*
-			header Content-Type text/markdown*
-			header Content-Type text/plain*
-			header Content-Type text/xml*
-			header Content-Type application/json*
-			header Content-Type application/javascript*
-			header Content-Type application/xml*
-			header Content-Type application/rss+xml*
-			header Content-Type image/svg+xml*
-		}
-	}
+CADDY_HEAD
+    # Indent matches site-block level in deploy/Caddyfile (already tabbed).
+    printf '%s\n' "$_encode_block"
+    cat <<'CADDY_TAIL'
 
 	@static {
 		path /assets/*
@@ -204,7 +197,8 @@ if [ "$DRY_RUN" -eq 0 ]; then
 		level INFO
 	}
 }
-CADDY
+CADDY_TAIL
+  } > "$CADDYFILE"
 fi
 
 # override.yml: always rewritten
