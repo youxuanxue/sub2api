@@ -5440,11 +5440,11 @@
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
       "must_contain": [
         "case <-keepaliveCh:",
-        "event: ping\\ndata: {\\\"type\\\": \\\"ping\\\"}\\n\\n",
+        "anthropicStreamIdleKeepaliveSSE(c, model)",
         "inPartialEvent",
         "lastDataAt"
       ],
-      "rationale": "Upstream Wei-Shaw/sub2api#2552: keepalive ping injection for Anthropic API-key passthrough streams. Uses the existing cfg.Gateway.StreamKeepaliveInterval config field (opt-in when > 0). The select case must remain so long-lived passthrough streams can emit SSE ping events to prevent proxy/load-balancer idle-timeout disconnections. The inPartialEvent guard prevents pings mid-event-boundary; lastDataAt prevents spurious pings when the upstream is already active. This is a pure upstream feature, not a TK-specific injection — documented here so future upstream re-merges cannot silently revert the keepalive path."
+      "rationale": "Upstream Wei-Shaw/sub2api#2552 keepalive plus TK Claude Code contract: passthrough in-stream idle frames go through anthropicStreamIdleKeepaliveSSE (message_start once, then ping) so prod→edge Kiro thinking stalls do not emit ping-only first. Uses cfg.Gateway.StreamKeepaliveInterval (opt-in when > 0). The select case must remain so long-lived passthrough streams keep emitting keepalive; inPartialEvent prevents mid-event-boundary frames; lastDataAt prevents spurious pings when upstream is already active."
     },
     {
       "path": "backend/internal/service/wire_tk.go",
@@ -8483,6 +8483,8 @@
       "path": "backend/internal/service/gateway_service_tk_header_wait_keepalive.go",
       "must_contain": [
         "func (s *GatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive",
+        "func (s *GatewayService) beginAnthropicMessagesHeaderWaitKeepalive",
+        "func anthropicStreamIdleKeepaliveSSE",
         "func startHeaderWaitKeepalive(c *gin.Context, interval time.Duration, frame string) *headerWaitKeepalive",
         "func (k *headerWaitKeepalive) stop()",
         "anthropicSSEPingFrame",
@@ -8496,16 +8498,16 @@
         "func (s *GeminiMessagesCompatService) beginGeminiNativeHeaderWaitKeepalive",
         "geminiNativeSSEKeepaliveFrame"
       ],
-      "rationale": "Pre-content / header-wait SSE keepalive (Wei-Shaw/sub2api#2121 generalized): emits platform-shaped ping frames while streaming Do waits for upstream headers so idle intermediaries do not drop slow thinking/header-wait. First ping is delayed one interval to preserve transparent failover. Shared bind/stop helpers are the single extension point for Anthropic, OpenAI, Kiro, Bedrock, Antigravity, and Gemini streaming Do entries. Gemini-native must use geminiNativeSSEKeepaliveFrame (whitespace), never openaiSSECommentFrame."
+      "rationale": "Pre-content / header-wait SSE keepalive (Wei-Shaw/sub2api#2121 generalized): emits platform-shaped ping frames while streaming Do waits for upstream headers so idle intermediaries do not drop slow thinking/header-wait. First ping is delayed one interval to preserve transparent failover. Shared bind/stop helpers are the single extension point for Anthropic, OpenAI, Kiro, Bedrock, Antigravity, and Gemini streaming Do entries. Gemini-native must use geminiNativeSSEKeepaliveFrame (whitespace), never openaiSSECommentFrame. beginAnthropicMessagesHeaderWaitKeepalive + anthropicStreamIdleKeepaliveSSE own the Claude Code message_start-before-ping contract for Kiro mirrors and in-stream idle."
     },
     {
       "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
-        "hwka := s.beginHeaderWaitKeepalive(c, reqStream)",
+        "hwka := s.beginAnthropicMessagesHeaderWaitKeepalive(c, reqStream, account, reqModel)",
         "s.httpUpstream.DoWithTLS(upstreamReq",
         "hwka.stop()"
       ],
-      "rationale": "Thin injection point of the header-wait SSE keepalive around the primary streaming DoWithTLS call in Forward. Begin returns a no-op for non-streaming/disabled requests; stop() must run the instant DoWithTLS returns and before any other write to c.Writer so a ping cannot race the stream handler. Catches an upstream merge that copies the old DoWithTLS shape back over the injection."
+      "rationale": "Thin injection point of the header-wait SSE keepalive around the primary streaming DoWithTLS call in Forward. Kiro mirror stubs use beginAnthropicMessagesHeaderWaitKeepalive (message_start before ping) so Claude Code survives prod→edge thinking stalls; Begin returns a no-op for non-streaming/disabled requests; stop() must run the instant DoWithTLS returns and before any other write to c.Writer so a ping cannot race the stream handler. Catches an upstream merge that copies the old DoWithTLS shape back over the injection."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_header_wait_keepalive_test.go",

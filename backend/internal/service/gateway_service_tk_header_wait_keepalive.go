@@ -108,6 +108,45 @@ func (s *GatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool
 	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.cfg.Gateway.StreamKeepaliveInterval, anthropicSSEPingFrame)
 }
 
+// beginAnthropicMessagesHeaderWaitKeepalive is the /v1/messages header-wait
+// keepalive. Kiro mirror stubs (and any caller that already set the Anthropic
+// stream model) emit message_start before the first ping so Claude Code does
+// not treat the prod→edge stall as idle. Native Anthropic stays ping-only
+// unless the model was explicitly staged — upstream message_start arrives
+// quickly and a synthetic frame would duplicate without the in-stream skip.
+func (s *GatewayService) beginAnthropicMessagesHeaderWaitKeepalive(c *gin.Context, reqStream bool, account *Account, model string) *headerWaitKeepalive {
+	if s == nil || s.cfg == nil {
+		return nil
+	}
+	if !reqStream || s.cfg.Gateway.StreamKeepaliveInterval <= 0 {
+		return nil
+	}
+	interval := time.Duration(s.cfg.Gateway.StreamKeepaliveInterval) * time.Second
+	if account != nil && account.IsKiroMirrorStub() {
+		return startAnthropicMessageStartKeepalive(c, interval, model)
+	}
+	if anthropicStreamModelWasSet(c) {
+		return startAnthropicMessageStartKeepalive(c, interval, anthropicStreamModelFromContext(c))
+	}
+	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.cfg.Gateway.StreamKeepaliveInterval, anthropicSSEPingFrame)
+}
+
+// anthropicStreamIdleKeepaliveSSE returns Claude-Code-safe idle keepalive bytes
+// for Anthropic SSE: synthesize message_start once if the client has not seen
+// it yet, then emit the standard ping frame. Shared by convert and passthrough
+// in-stream keepalive paths (prod→edge Kiro thinking stalls).
+func anthropicStreamIdleKeepaliveSSE(c *gin.Context, model string) string {
+	var b strings.Builder
+	if !anthropicMessageStartAlreadySent(c) {
+		if frame := anthropicStreamMessageStartSSE(strings.TrimSpace(model), ""); frame != "" {
+			_, _ = b.WriteString(frame)
+			markAnthropicMessageStartSent(c)
+		}
+	}
+	_, _ = b.WriteString(anthropicSSEPingFrame)
+	return b.String()
+}
+
 // beginHeaderWaitKeepalive (OpenAI) is the OpenAI/Codex passthrough analogue of
 // the Anthropic header-wait keepalive above. The OpenAI passthrough streaming
 // forward (forwardOpenAIPassthrough) blocks in s.httpUpstream.Do(...) waiting for
