@@ -460,8 +460,11 @@ func (s *KiroGatewayService) forwardStreaming(
 
 	// SSOT: every Kiro streaming caller (messages + CC bridge) arms Claude-Code-
 	// safe keepalive here. message_start precedes the first ping; visible
-	// text/tool stops it. Callers must not bind a second emitter.
+	// text/tool stops it. Callers must not bind a second emitter. Always stop
+	// on return — early failover paths used to rely on tkTryForwardKiro's
+	// post-Forward stop, which was removed when ownership moved here.
 	s.ensureKiroStreamingKeepalive(c, model)
+	defer stopPreContentStreamKeepalive(c)
 
 	inputTokens, cacheReadTokens, cacheCreationTokens, cacheSessionKey, cacheBillingEnabled := s.kiroPromptUsage(ctx, account, req, payload)
 	enc := &kiroSSEEncoder{
