@@ -42,7 +42,7 @@
 }
 
 ${API_DOMAIN} {
-	encode zstd gzip
+	# No encode: SSE relay must not gzip text/event-stream (EDGE_SECURITY.md).
 
 	@static {
 		path /assets/*

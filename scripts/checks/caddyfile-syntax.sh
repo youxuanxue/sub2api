@@ -88,6 +88,37 @@ adapt_with_caddy() {
 }
 
 failures=0
+
+# SSE safety + encode SSOT (owner: deploy/Caddyfile; helpers: deploy/caddy-encode-ssot.sh).
+# shellcheck source=../../deploy/caddy-encode-ssot.sh
+. "$REPO_ROOT/deploy/caddy-encode-ssot.sh"
+for rel in "${FILES[@]}"; do
+  src="$REPO_ROOT/$rel"
+  [ -f "$src" ] || continue
+  if grep -nE '^[[:space:]]*encode[[:space:]]+(zstd[[:space:]]+gzip|gzip[[:space:]]+zstd)[[:space:]]*$' "$src" >/dev/null; then
+    echo "FAIL: $rel uses shorthand encode that buffers text/event-stream" >&2
+    echo "      — keep Content-Type whitelist encode matching deploy/Caddyfile" >&2
+    failures=$((failures + 1))
+  fi
+done
+_owner="$(caddy_encode_owner)"
+_ref="$(caddy_normalize_encode_block "$_owner")"
+if [ -z "$_ref" ]; then
+  echo "FAIL: $_owner has no encode block (SSOT owner)" >&2
+  failures=$((failures + 1))
+else
+  _got="$(caddy_normalize_encode_block "$REPO_ROOT/deploy/aws/stage0/Caddyfile")"
+  if [ "$_got" != "$_ref" ]; then
+    echo "FAIL: deploy/aws/stage0/Caddyfile encode block drifts from deploy/Caddyfile (SSOT)" >&2
+    failures=$((failures + 1))
+  fi
+fi
+# Edge is an SSE relay and must not enable encode at all.
+if grep -nE '^[[:space:]]*encode[[:space:]]' "$REPO_ROOT/deploy/aws/stage0/Caddyfile.edge" >/dev/null; then
+  echo "FAIL: deploy/aws/stage0/Caddyfile.edge must not enable encode (SSE relay)" >&2
+  failures=$((failures + 1))
+fi
+
 # The three adapts are independent; run the containers concurrently — serial
 # `docker run` startup (~1-3s each) made this gate the preflight long pole.
 declare -a _adapt_pids=() _adapt_rels=()
