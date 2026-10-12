@@ -34,7 +34,13 @@ func TestApplyOpenAIImagesStyleGuidanceBeforeAspectRatioMarker(t *testing.T) {
 	body, err := buildOpenAIImagesResponsesRequest(parsed, "gpt-image-2")
 	require.NoError(t, err)
 	text := gjson.GetBytes(body, "input.0.content.0.text").String()
-	require.Equal(t, "a red cube\n\nStyle guidance: vivid, marker AR=16:9", text)
+	assertOpenAIImagesPerceivedQualityPrompt(t, text, "a red cube", false)
+	require.Contains(t, text, "Primary request: a red cube")
+	styleAt := strings.Index(text, "Style guidance: vivid")
+	markerAt := strings.Index(text, "marker AR=16:9")
+	require.Greater(t, styleAt, strings.Index(text, "Primary request:"))
+	require.Greater(t, markerAt, styleAt)
+	require.True(t, strings.HasSuffix(text, "marker AR=16:9"))
 	require.False(t, gjson.GetBytes(body, "tools.0.style").Exists())
 }
 

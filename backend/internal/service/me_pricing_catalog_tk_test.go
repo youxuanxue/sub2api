@@ -843,6 +843,9 @@ func TestBuildForUser_ChannelAndAccountHideLegacyTokenPlanAliases(t *testing.T) 
 		for _, id := range []string{legacy, "alibaba/" + legacy, replacement} {
 			models = append(models, mkSupportedModel(id, PlatformNewAPI, mkPricing(0.001, 0.002, 0)))
 			whitelist = append(whitelist, id)
+			if isMePricingModelDisplayed(id) {
+				replacements[id] = true
+			}
 		}
 		replacements[replacement] = true
 	}
@@ -858,9 +861,13 @@ func TestBuildForUser_ChannelAndAccountHideLegacyTokenPlanAliases(t *testing.T) 
 	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
 	require.NoError(t, err)
 	require.Len(t, resp.Models, len(replacements))
+	visible := make(map[string]bool, len(resp.Models))
 	for _, model := range resp.Models {
 		require.True(t, replacements[model.ModelID], "legacy channel or account row leaked: %s", model.ModelID)
+		visible[model.ModelID] = true
 	}
+	require.True(t, visible["deepseek-flash"], "official Flash name remains selectable")
+	require.False(t, visible["deepseek-chat"], "historical chat alias remains hidden")
 }
 
 func TestBuildForUser_AnnouncedWithdrawalsHiddenAcrossSources(t *testing.T) {

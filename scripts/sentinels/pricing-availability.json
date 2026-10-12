@@ -85,7 +85,8 @@
       "path": "backend/internal/service/pricing_catalog_tk_test.go",
       "must_contain": [
         "TestPublicCatalog_EmbeddingsFollowManifestDisplayIntent",
-        "TestPublicCatalog_EmbeddingFilterDoesNotMutateSettlementCatalog"
+        "TestPublicCatalog_EmbeddingFilterDoesNotMutateSettlementCatalog",
+        "TestPublicCatalog_ManifestDisplayAliasesInheritOwner"
       ],
       "rationale": "Preserve exact manifest display selection and separation of catalog presentation from settlement."
     },
@@ -97,7 +98,8 @@
         "pricing.InputCostPerSecond = *e.InputCostPerSecond",
         "pricing.InputCostPerImageToken = *e.InputCostPerImageToken",
         "ThinkingOutputPer1KTokens",
-        "tier.ThinkingOutputPer1KTokens = *iv.ThinkingOutputPrice * 1000"
+        "tier.ThinkingOutputPer1KTokens = *iv.ThinkingOutputPrice * 1000",
+        "appendCatalogDisplayAliasesFromSnapshot(resp, snapshot)"
       ],
       "rationale": "Audio duration and embedding image-token rates must survive catalog projection; focused tests protect the distinct billing-mode branches. Interval thinking_output must also project onto PublicCatalogTier so /pricing discloses the same thinking rates billing selects per input-context bracket."
     },

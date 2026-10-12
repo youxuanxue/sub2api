@@ -460,6 +460,33 @@ func applyCatalogRegistrySnapshot(resp *PublicCatalogResponse, snapshot *tkPrici
 	applyCatalogOfficialListBaseTaxFromSnapshot(resp, snapshot)
 	attachCatalogVideoPriceTiersFromSnapshot(resp, snapshot)
 	attachCatalogDeepSeekPeakValleyFromSnapshot(resp, snapshot)
+	appendCatalogDisplayAliasesFromSnapshot(resp, snapshot)
+}
+
+// Display intent belongs to the manifest, while all price dimensions and
+// metadata still come from the alias's owner in this same registry snapshot.
+// Project before public filtering: a withdrawn owner ID can price a current alias.
+func appendCatalogDisplayAliasesFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
+	if resp == nil || snapshot == nil {
+		return
+	}
+	byID := make(map[string]PublicCatalogModel, len(resp.Data))
+	for _, row := range resp.Data {
+		byID[row.ModelID] = row
+	}
+	for alias, owner := range snapshot.Aliases {
+		if !isTkCuratedNewAPIModelDisplayed(alias) {
+			continue
+		}
+		if _, exists := byID[alias]; exists {
+			continue
+		}
+		if row, ok := byID[owner]; ok {
+			row.ModelID = alias
+			resp.Data = append(resp.Data, row)
+		}
+	}
+	sort.Slice(resp.Data, func(i, j int) bool { return resp.Data[i].ModelID < resp.Data[j].ModelID })
 }
 
 func catalogModelFromEntry(name string, e *catalogRichEntry) PublicCatalogModel {

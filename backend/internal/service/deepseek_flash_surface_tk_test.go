@@ -31,7 +31,7 @@ func TestDeepSeekFlashSurfacePreservesProviderModelIdentity(t *testing.T) {
 		}
 	}
 	display := tkServedModelsManifestDisplayPresetIDsByChannelType(newapiconstant.ChannelTypeDeepSeek)
-	require.NotContains(t, display, "deepseek-flash", "Ali migration alias stays hidden from the canonical DeepSeek display surface")
+	require.Contains(t, display, "deepseek-flash", "official stable Flash name follows manifest display intent")
 	require.Contains(t, display, "deepseek-v4-pro")
 	require.NotContains(t, display, "deepseek-v4.1-flash")
 }
