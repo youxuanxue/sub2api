@@ -4,8 +4,10 @@
 
 Long Kiro thinking stalls on thinking-relay edges died at ~90.8s with ~225B
 responses. Claude Code treats ping-only Anthropic SSE as idle; Kiro historically
-deferred `message_start` until visible text/tool. Edge/prod Caddy `encode zstd
-gzip` also buffered `text/event-stream`.
+deferred `message_start` until visible text/tool. Caddy `encode` buffering of
+`text/event-stream` was a compounding factor and is owned by
+`fix(ops): 禁止 Caddy gzip 缓冲 SSE keepalive` (#2598) +
+`deploy/caddy-encode-ssot.sh`.
 
 ## Delta
 
@@ -14,8 +16,8 @@ gzip` also buffered `text/event-stream`.
 - Kiro `forwardStreaming` owns Claude-Code-safe pre-content keepalive:
   `message_start` before the first Anthropic `ping` (shared helper with
   Responses→Anthropic). Applies to `/v1/messages` and CC→Kiro.
-- Stage0 Caddy encode allowlists that exclude `text/event-stream`, gated by
-  `scripts/checks/caddyfile-sse-encode.sh`.
+- `defer stopPreContentStreamKeepalive` so early failover paths cannot leak the
+  keepalive goroutine.
 
 ### MODIFIED
 
@@ -38,6 +40,5 @@ gzip` also buffered `text/event-stream`.
 
 ## Validation
 
-- Unit: Kiro keepalive / message_start-before-ping / sole-owner / failover-empty.
-- `caddyfile-sse-encode.sh`, `caddyfile-syntax.sh`, `build-cfn --check`,
-  `render-bootstrap --check`.
+- Unit: Kiro keepalive / message_start-before-ping / ensure-from-config stall /
+  sole-owner / failover-empty.
