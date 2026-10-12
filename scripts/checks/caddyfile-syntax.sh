@@ -102,6 +102,35 @@ for rel in "${FILES[@]}" deploy/aws/stage0/local-bootstrap.sh; do
   fi
 done
 
+# Whitelist parity: stage0 prod + local-bootstrap must keep the same Content-Type
+# match set as deploy/Caddyfile (hand copies drift otherwise).
+_encode_types() {
+  # Prefer ggrep if present; fall back to system grep -E.
+  grep -E 'header Content-Type ' "$1" | sed -E 's/.*header Content-Type //;s/[[:space:]]*$//' | sort -u
+}
+_ref_types="$(_encode_types "$REPO_ROOT/deploy/Caddyfile")"
+if [ -z "$_ref_types" ]; then
+  echo "FAIL: deploy/Caddyfile has no encode Content-Type whitelist to compare" >&2
+  failures=$((failures + 1))
+else
+  for rel in deploy/aws/stage0/Caddyfile deploy/aws/stage0/local-bootstrap.sh; do
+    _got="$(_encode_types "$REPO_ROOT/$rel")"
+    if [ "$_got" != "$_ref_types" ]; then
+      echo "FAIL: $rel encode Content-Type whitelist drifts from deploy/Caddyfile" >&2
+      echo "      expected:" >&2
+      printf '%s\n' "$_ref_types" | sed 's/^/        /' >&2
+      echo "      got:" >&2
+      printf '%s\n' "$_got" | sed 's/^/        /' >&2
+      failures=$((failures + 1))
+    fi
+  done
+fi
+# Edge is an SSE relay and must not enable encode at all.
+if grep -nE '^[[:space:]]*encode[[:space:]]' "$REPO_ROOT/deploy/aws/stage0/Caddyfile.edge" >/dev/null; then
+  echo "FAIL: deploy/aws/stage0/Caddyfile.edge must not enable encode (SSE relay)" >&2
+  failures=$((failures + 1))
+fi
+
 # The three adapts are independent; run the containers concurrently — serial
 # `docker run` startup (~1-3s each) made this gate the preflight long pole.
 declare -a _adapt_pids=() _adapt_rels=()
