@@ -73,7 +73,11 @@
         </div>
 
         <div class="grid grid-cols-1 gap-6">
-          <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
+          <TokenUsageTrend
+            :trend-data="trendData"
+            :loading="chartsLoading"
+            :title="trendChartTitle"
+          />
         </div>
       </div>
 
@@ -442,6 +446,26 @@ const modelOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('admin.usage.allModels') },
   ...modelOptionValues.value.map((model) => ({ value: model, label: model })),
 ])
+
+/** Title for TokenUsageTrend: append key/model/group when those filters scope the chart. */
+const trendChartTitle = computed(() => {
+  const scope: string[] = []
+  if (filters.value.api_key_id != null) {
+    const key = apiKeys.value.find((item) => item.id === filters.value.api_key_id)
+    scope.push(key?.name || String(filters.value.api_key_id))
+  }
+  if (filters.value.model) {
+    scope.push(filters.value.model)
+  }
+  if (filters.value.group_id != null) {
+    const group = groups.value.find((item) => item.id === filters.value.group_id)
+    scope.push(group?.name || String(filters.value.group_id))
+  }
+  if (scope.length === 0) {
+    return t('admin.dashboard.tokenUsageTrend')
+  }
+  return t('admin.dashboard.tokenUsageTrendScoped', { scope: scope.join(' · ') })
+})
 
 const normalizedFilters = computed<UsageQueryParams>(() => {
   const requestType = filters.value.request_type
