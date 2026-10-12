@@ -107,9 +107,10 @@ func detectOpenAIUsagePolicy(upstreamMsg string, payload []byte) (bool, string) 
 	return false, ""
 }
 
-// isOpenAISafetySessionBlockFault is true for cyber_policy or usage_policy —
-// both must SharedFault (no account failover / same-prompt auto-retry) and may
-// write the session block table.
+// isOpenAISafetySessionBlockFault is true for cyber safety codes (upstream
+// cyber_policy + local session_blocked_by_cyber_policy via detectOpenAICyberPolicy)
+// or usage_policy — all must SharedFault (no account failover / same-prompt
+// auto-retry) and may write the session block table.
 func isOpenAISafetySessionBlockFault(upstreamMsg string, payload []byte) bool {
 	if hit, _, _ := detectOpenAICyberPolicy(payload); hit {
 		return true

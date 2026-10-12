@@ -13,6 +13,28 @@ import (
 // handler 在 Forward 返回后读取以触发风控记录、邮件与 tokens=0 用量行。
 const opsCyberPolicyKey = "ops_cyber_policy"
 
+// OpenAI cyber / session-isolation error.code SSOT.
+// Upstream provider uses OpenAICyberPolicyErrorCode; TokenKey local session-block
+// responses use OpenAICyberSessionBlockedErrorCode. Both must share the same
+// detect → SharedFault / no-failover → mark → session-block write path so a
+// mirror/edge 403 cannot rotate the pool (prod→edge fanout gap).
+const (
+	OpenAICyberPolicyErrorCode         = "cyber_policy"
+	OpenAICyberSessionBlockedErrorCode = "session_blocked_by_cyber_policy"
+)
+
+// openAIErrorCodeIsCyberSafetyBlock is the single structured-code gate for
+// cyber safety session isolation. All failover adapters and mark helpers must
+// go through detectOpenAICyberPolicy (which calls this), not re-match codes.
+func openAIErrorCodeIsCyberSafetyBlock(code string) bool {
+	switch strings.ToLower(strings.TrimSpace(code)) {
+	case OpenAICyberPolicyErrorCode, OpenAICyberSessionBlockedErrorCode:
+		return true
+	default:
+		return false
+	}
+}
+
 // errOpenAICyberPolicyForwarded 表示 cyber_policy 已按当前端点格式透传给客户端
 // （error 已写出/下发）。compat 路径 ForwardAsChatCompletions / ForwardAsAnthropic 出口
 // 据此丢弃 result 并返回该哨兵，使 handler 落入 tokens=0 免费用量行（对齐 /v1/responses），
@@ -38,7 +60,7 @@ func MarkOpsCyberPolicy(c *gin.Context, mark CyberPolicyMark) {
 	if GetOpsCyberPolicy(c) != nil {
 		return
 	}
-	mark.Code = "cyber_policy"
+	mark.Code = OpenAICyberPolicyErrorCode
 	mark.Message = strings.TrimSpace(mark.Message)
 	mark.Body = strings.TrimSpace(mark.Body)
 	c.Set(opsCyberPolicyKey, &mark)
@@ -70,21 +92,24 @@ func ClearOpsCyberPolicy(c *gin.Context) {
 	c.Set(opsCyberPolicyKey, (*CyberPolicyMark)(nil))
 }
 
-// detectOpenAICyberPolicy 精确识别 cyber_policy（对齐 codex api_bridge.rs:145 /
-// sse/responses.rs:529）。命中返回 (true, "cyber_policy", message)。
+// detectOpenAICyberPolicy 识别 cyber 安全会话隔离类 structured error.code：
+// 上游 cyber_policy（对齐 codex api_bridge.rs:145 / sse/responses.rs:529）以及
+// TokenKey 本地 session_blocked_by_cyber_policy（edge/mirror 回流）。
+// 命中一律归一为 (true, OpenAICyberPolicyErrorCode, message)，使 mark / ops /
+// session-block 写路径与 #2157 SharedFault 门禁共用同一 owner。
 func detectOpenAICyberPolicy(payload []byte) (bool, string, string) {
 	code := gjson.GetBytes(payload, "error.code").String()
 	if code == "" {
 		code = gjson.GetBytes(payload, "response.error.code").String()
 	}
-	if !strings.EqualFold(strings.TrimSpace(code), "cyber_policy") {
+	if !openAIErrorCodeIsCyberSafetyBlock(code) {
 		return false, "", ""
 	}
 	msg := gjson.GetBytes(payload, "error.message").String()
 	if msg == "" {
 		msg = gjson.GetBytes(payload, "response.error.message").String()
 	}
-	return true, "cyber_policy", strings.TrimSpace(msg)
+	return true, OpenAICyberPolicyErrorCode, strings.TrimSpace(msg)
 }
 
 func markOpenAICyberPolicyEvent(c *gin.Context, payload []byte, upstreamStatus int, usage *OpenAIUsage) bool {

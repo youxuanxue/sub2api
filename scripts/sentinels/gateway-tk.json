@@ -14669,13 +14669,25 @@
       "rationale": "Real HTTP handler failover observes attempts without duplicate billing-path samples."
     },
     {
+      "path": "backend/internal/service/openai_cyber_policy.go",
+      "must_contain": [
+        "OpenAICyberPolicyErrorCode",
+        "OpenAICyberSessionBlockedErrorCode",
+        "func openAIErrorCodeIsCyberSafetyBlock(",
+        "func detectOpenAICyberPolicy(",
+        "openAIErrorCodeIsCyberSafetyBlock(code)"
+      ],
+      "rationale": "SSOT for cyber safety structured codes: upstream cyber_policy and local session_blocked_by_cyber_policy share one gate so detect/mark/SharedFault stay aligned; dropping the local code re-enables prod→edge mirror fanout on session blocks."
+    },
+    {
       "path": "backend/internal/service/openai_usage_policy_tk.go",
       "must_contain": [
         "func detectOpenAIUsagePolicy(",
         "func isOpenAISafetySessionBlockFault(",
         "func markOpenAISafetyPolicyEvent(",
         "Never scan the",
-        "isOpenAIUpstreamAccessStateError(upstreamMsg, payload)"
+        "isOpenAIUpstreamAccessStateError(upstreamMsg, payload)",
+        "detectOpenAICyberPolicy(payload)"
       ],
       "rationale": "OpenAI usage_policy / cyber_policy session-isolation owner: detect only structured error fields, SharedFault classification helper, and mark helper. Upstream merges that drop this companion re-enable same-prompt failover and lose usage session isolation."
     },
@@ -14684,13 +14696,14 @@
       "must_contain": [
         "TestDetectOpenAIUsagePolicy",
         "TestOpenAIUsagePolicyNeverFailsOver",
+        "TestOpenAICyberSessionBlockedNeverFailsOver",
         "wrapper_msg_still_reads_body_message",
         "echoed_user_prompt_in_body_not_enough",
         "TestOpenAIUsagePolicyPreservesCredentialFaults",
         "TestOpenAIPassthroughSafetyPolicyKeepsClientError",
         "TestCyberSessionBlockSettingsMatchRuntime"
       ],
-      "rationale": "Pins positive usage_policy detect, SharedFault hard-stop, wrapper upstreamMsg body.message coverage, and echoed-prompt non-false-positive."
+      "rationale": "Pins positive usage_policy detect, SharedFault hard-stop for usage and local session_blocked_by_cyber_policy, wrapper upstreamMsg body.message coverage, and echoed-prompt non-false-positive."
     },
     {
       "path": "backend/internal/service/openai_gateway_upstream_errors.go",

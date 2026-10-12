@@ -70,6 +70,8 @@ func TestDetectOpenAICyberPolicy(t *testing.T) {
 		{"top-level error", `{"error":{"code":"cyber_policy","message":"flagged"}}`, true, "flagged"},
 		{"response-wrapped", `{"response":{"error":{"code":"cyber_policy","message":"  bad  "}}}`, true, "bad"},
 		{"case-insensitive", `{"error":{"code":"Cyber_Policy"}}`, true, ""},
+		{"local session blocked", `{"error":{"code":"session_blocked_by_cyber_policy","message":"session blocked","type":"permission_error"}}`, true, "session blocked"},
+		{"local session blocked response-wrapped", `{"response":{"error":{"code":"session_blocked_by_cyber_policy","message":"  blocked  "}}}`, true, "blocked"},
 		{"content_policy not cyber", `{"error":{"code":"content_policy","message":"x"}}`, false, ""},
 		{"safety message not cyber", `{"error":{"type":"safety_error","message":"high-risk cyber activity"}}`, false, ""},
 		{"empty", ``, false, ""},
@@ -80,9 +82,17 @@ func TestDetectOpenAICyberPolicy(t *testing.T) {
 			hit, code, msg := detectOpenAICyberPolicy([]byte(tc.payload))
 			require.Equal(t, tc.hit, hit)
 			if tc.hit {
-				require.Equal(t, "cyber_policy", code)
+				require.Equal(t, OpenAICyberPolicyErrorCode, code, "family codes normalize to cyber_policy")
 				require.Equal(t, tc.msg, msg)
 			}
 		})
 	}
+}
+
+func TestOpenAIErrorCodeIsCyberSafetyBlock(t *testing.T) {
+	require.True(t, openAIErrorCodeIsCyberSafetyBlock(OpenAICyberPolicyErrorCode))
+	require.True(t, openAIErrorCodeIsCyberSafetyBlock(OpenAICyberSessionBlockedErrorCode))
+	require.True(t, openAIErrorCodeIsCyberSafetyBlock("Cyber_Policy"))
+	require.False(t, openAIErrorCodeIsCyberSafetyBlock("content_policy"))
+	require.False(t, openAIErrorCodeIsCyberSafetyBlock(""))
 }

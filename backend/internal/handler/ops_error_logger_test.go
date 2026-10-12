@@ -296,7 +296,7 @@ func TestOpsErrorLoggerMiddleware_DedicatedCyberSessionBlockRecordsExactlyOnce(t
 	router.POST("/v1/responses", func(c *gin.Context) {
 		h.enqueueCyberSessionBlockedOpsEntry(c, apiKey, "gpt-test", "session-block-hash")
 		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{
-			"type": "permission_error", "code": "session_blocked_by_cyber_policy", "message": "blocked",
+			"type": "permission_error", "code": service.OpenAICyberSessionBlockedErrorCode, "message": "blocked",
 		}})
 	})
 

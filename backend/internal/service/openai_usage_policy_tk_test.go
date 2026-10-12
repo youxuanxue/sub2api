@@ -103,6 +103,24 @@ func TestOpenAIUsagePolicyNeverFailsOver(t *testing.T) {
 	require.False(t, openAIStreamErrorEventShouldFailover(body, "violating our usage policy"))
 }
 
+// Live gap: edge local session-block returns permission_error /
+// session_blocked_by_cyber_policy; prod must SharedFault-stop every adapter
+// (same owner as upstream cyber_policy), not rotate openai-uk*/us* mirrors.
+func TestOpenAICyberSessionBlockedNeverFailsOver(t *testing.T) {
+	body := []byte(`{"error":{"code":"` + OpenAICyberSessionBlockedErrorCode + `","message":"该会话已被网络安全策略屏蔽，请开启新会话 / This session is blocked by cyber-security policy, please start a new session","type":"permission_error"}}`)
+	svc := &OpenAIGatewayService{}
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(nil)
+
+	require.True(t, isOpenAISafetySessionBlockFault("", body))
+	require.Equal(t, "cyber_policy", markOpenAISafetyPolicyEvent(c, body, http.StatusForbidden, nil))
+	require.NotNil(t, GetOpsCyberPolicy(c))
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusForbidden, "", body))
+	require.False(t, shouldFailoverOpenAIPassthroughResponse(&Account{Type: AccountTypeOAuth}, http.StatusForbidden, body))
+	require.False(t, openAIStreamFailedEventShouldFailover(body, ""))
+	require.False(t, openAIStreamErrorEventShouldFailover(body, ""))
+}
+
 func TestMarkOpenAISafetyPolicyEventPrefersCyber(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(nil)

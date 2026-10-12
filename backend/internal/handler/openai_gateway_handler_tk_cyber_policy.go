@@ -29,12 +29,12 @@ func writeCyberSessionBlockedWSError(ctx context.Context, conn *coderws.Conn) {
 		"type":     "error",
 		"error": gin.H{
 			"type":    "permission_error",
-			"code":    "session_blocked_by_cyber_policy",
+			"code":    service.OpenAICyberSessionBlockedErrorCode,
 			"message": cyberSessionBlockedClientMsg,
 		},
 	})
 	if err != nil {
-		payload = []byte(`{"event_id":"evt_cyber_session_blocked","type":"error","error":{"type":"permission_error","code":"session_blocked_by_cyber_policy","message":"This session is blocked by cyber-security policy, please start a new session"}}`)
+		payload = []byte(`{"event_id":"evt_cyber_session_blocked","type":"error","error":{"type":"permission_error","code":"` + service.OpenAICyberSessionBlockedErrorCode + `","message":"This session is blocked by cyber-security policy, please start a new session"}}`)
 	}
 	writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
@@ -249,7 +249,7 @@ func (h *OpenAIGatewayHandler) rejectIfCyberSessionBlocked(c *gin.Context, apiKe
 	default: // cyberBlockFormatResponses 与 cyberBlockFormatChat：同构的 OpenAI error envelope
 		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{
 			"type":    "permission_error",
-			"code":    "session_blocked_by_cyber_policy",
+			"code":    service.OpenAICyberSessionBlockedErrorCode,
 			"message": cyberSessionBlockedClientMsg,
 		}})
 	}
