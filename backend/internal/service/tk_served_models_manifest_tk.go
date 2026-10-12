@@ -440,6 +440,11 @@ func isTkCuratedNewAPIModelLegacyTokenPlanAlias(modelID string) bool {
 	if modelID == "" {
 		return false
 	}
+	// DeepSeek's current official model name is also a scoped Token Plan alias.
+	// That supplier mapping must not withdraw the official public catalog ID.
+	if modelID == "deepseek-flash" {
+		return false
+	}
 	if _, ok := newAPIAliTokenPlanModelAliases()[modelID]; ok {
 		return true
 	}

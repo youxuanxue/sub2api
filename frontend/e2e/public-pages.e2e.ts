@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 
 const settings = {
@@ -40,6 +41,51 @@ async function openPricing(page: Page) {
   await page.goto('/models?view=pricing')
   await expect(page.locator('tbody tr')).toHaveCount(catalog.data.length)
 }
+
+test('DeepSeek official Flash alias opens its public pricing row', async ({ page }) => {
+  const serviceRoot = new URL('../../backend/internal/service/', import.meta.url)
+  const registry = JSON.parse(readFileSync(new URL('tk_pricing_overlay.json', serviceRoot), 'utf8'))
+  const manifest = JSON.parse(readFileSync(new URL('tk_served_models.json', serviceRoot), 'utf8'))
+  const modelID = 'deepseek-flash'
+  expect(manifest.entries[modelID].display).toBe(true)
+  const owner = registry[registry._aliases[modelID]]
+  const tax = registry._config.official_list_base_tax.multiplier
+  const policy = registry._config.deepseek_peak_valley
+  const pricing = {
+    currency: 'USD',
+    input_per_1k_tokens: owner.input_cost_per_token * 1000 * tax,
+    output_per_1k_tokens: owner.output_cost_per_token * 1000 * tax,
+    cache_read_per_1k: owner.cache_read_input_token_cost * 1000 * tax,
+  }
+  const row = {
+    model_id: modelID, vendor: owner.litellm_provider,
+    context_window: owner.max_input_tokens, max_output_tokens: owner.max_output_tokens,
+    capabilities: ['vision', 'reasoning', 'tool_calls', 'prompt_caching'],
+    pricing: {
+      ...pricing,
+      peak_valley: {
+        timezone: policy.timezone, weekdays_only: policy.weekdays_only,
+        windows: policy.windows.map((window: { start: string; end: string }) => `${window.start}-${window.end}`),
+        peak_multiplier: policy.peak_multiplier,
+        input_per_1k_tokens: pricing.input_per_1k_tokens * policy.peak_multiplier,
+        output_per_1k_tokens: pricing.output_per_1k_tokens * policy.peak_multiplier,
+        cache_read_per_1k: pricing.cache_read_per_1k * policy.peak_multiplier,
+      },
+    },
+  }
+  await page.route('**/api/v1/public/pricing', route => route.fulfill({ json: { ...catalog, data: [row] } }))
+  await page.goto('/models')
+  const card = page.locator(`[data-tk="models-marketplace-card-${modelID}"]`)
+  await expect(card).toBeVisible()
+  await expect(card).toContainText('DeepSeek')
+  await expect(page.getByText('deepseek-chat', { exact: true })).toHaveCount(0)
+  await card.click()
+  await expect(page.getByPlaceholder('按模型名称搜索…')).toHaveValue(modelID)
+  const rows = page.locator('tbody tr').filter({ hasText: modelID })
+  await expect(rows.first()).toBeVisible()
+  await expect(page.locator('tbody')).toContainText('09:00')
+  await expect(page.locator('tbody')).toContainText('18:00')
+})
 
 test('catalog groups Google and Baidu vendor aliases with working filters', async ({ page }) => {
   const vendors = ['Google', 'gemini', 'antigravity', 'vertex_ai-language-models', 'vertex_ai', 'vertex_ai-video-models', 'wenxin', 'qianfan', 'baidu', 'openai']
