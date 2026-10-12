@@ -1292,6 +1292,18 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				finalStatus := status
 				entry.UpstreamStatusCode = &finalStatus
 			}
+			// Captured terminal SSE (response.failed / error) always fabricates
+			// upstream_* columns above. When no ops upstream event was recorded,
+			// classifyOpsErrorLog still defaults api_error → internal/platform —
+			// the exact code_owned gate in daily_error_report (#2587). Terminal
+			// upstream frames that landed as platform/internal are provider-owned.
+			// Client/routing narrowings (request/auth/routing) are left alone.
+			if entry.ErrorPhase == "internal" && entry.ErrorOwner == "platform" {
+				entry.ErrorPhase = "upstream"
+				entry.ErrorOwner = "provider"
+				entry.ErrorSource = "upstream_http"
+				entry.IsBusinessLimited = false
+			}
 		}
 		suppressOpsUpstreamAttributionForLocalModelConfiguration(c, entry)
 
