@@ -68,11 +68,11 @@ bash scripts/stage0/dispatch-edge-deploy.sh \
 
 ## 开放运维项（非过程史）
 
-1. **蓝绿已验收**：1.8.284 已完成 prod + 活 Edge 的升级、排空及烟测；QA 发布仍独立。
+1. **蓝绿已验收**：1.8.284 已完成 prod + 活 Edge 的升级、排空及烟测；raw maintenance pin 的发布与存储切换仍独立。
 2. **gemini-web re-import**：uk1/uk2 上若干 gemini 账号 `error`/不可调度（出口 IP）；修好后再开对应 prod stub。
 3. **边侧供应**：us4 anthropic / us4·us5 grok / uk CC 池按冒烟 200 再开 stub。
 4. **旧 LS / AWS prod**：≥7d 后可删实例；QA raw archive 迁移完成后再按观察期单独清理 AWS 源。
-5. **QA 去 AWS**：raw archive 目标见 [`../approved/qa-raw-only.md`](../docs/approved/qa-raw-only.md)，AWS 源保留观察期。
+5. **QA 去 AWS**：raw archive 目标见 [`docs/approved/qa-raw-only.md`](../../docs/approved/qa-raw-only.md)，AWS 源保留观察期。
 
 ## 校验
 

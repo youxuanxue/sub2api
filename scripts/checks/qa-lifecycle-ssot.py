@@ -356,8 +356,12 @@ def scan(root: Path) -> list[str]:
     return failures
 
 
-TEXT_SUFFIXES = {".go", ".py", ".sh", ".ts", ".vue", ".yaml", ".yml", ".json", ".html"}
+TEXT_SUFFIXES = {".go", ".py", ".sh", ".ts", ".vue", ".yaml", ".yml", ".json", ".html", ".md"}
 PRODUCT_MARKER = re.compile(r"QA_BUNDLE|qa_bundle|qa-bundle|QABundle|qaBundle")
+EXPORT_PROMISE = re.compile(
+    r"authorized trajectory exports|view and export their QA history|"
+    r"经授权的会话导出|经授权的用户可查看、导出自己的 QA 历史"
+)
 
 
 def scan_retired_product(root: Path) -> list[str]:
@@ -374,11 +378,11 @@ def scan_retired_product(root: Path) -> list[str]:
     failures = []
     for path in paths:
         rel = path.relative_to(root).as_posix()
-        if not path.is_file() or path.suffix not in TEXT_SUFFIXES:
+        if not path.is_file() or (path.suffix not in TEXT_SUFFIXES and rel != "Makefile"):
             continue
         if not rel.startswith(
-            ("backend/", "frontend/src/", "ops/", "deploy/", ".github/workflows/")
-        ):
+            ("backend/", "frontend/src/", "ops/", "deploy/", ".github/workflows/", ".cursor/skills/")
+        ) and rel != "Makefile":
             continue
         if (
             "/ent/" in rel
@@ -387,8 +391,11 @@ def scan_retired_product(root: Path) -> list[str]:
             or "/__tests__/" in rel
         ):
             continue
-        if PRODUCT_MARKER.search(path.read_text(encoding="utf-8")):
+        text = path.read_text(encoding="utf-8")
+        if PRODUCT_MARKER.search(text):
             failures.append(f"retired QA product runtime remains: {rel}")
+        if path.suffix == ".html" and EXPORT_PROMISE.search(text):
+            failures.append(f"retired QA export promise remains: {rel}")
     return failures
 
 
@@ -503,6 +510,23 @@ def self_test() -> int:
             if not any("retired" in item for item in scan(fixture)):
                 raise AssertionError(f"missed retired surface: {rel}")
             target.unlink()
+        for rel, text in (
+            ("Makefile", "test: src/api/__tests__/qaBundle.spec.ts\n"),
+            (".cursor/skills/release/references/tools.md", "Run deploy-qa-bundle.yml\n"),
+            ("deploy/aws/README.md", "Dispatch deploy-qa-bundle.yml\n"),
+            ("deploy/aws/stage0/legal-page/privacy.html", "Authorized users can view and export their QA history."),
+            ("deploy/aws/stage0/legal-page/privacy.html", "经授权的用户可查看、导出自己的 QA 历史"),
+        ):
+            target = fixture / rel
+            original = target.read_text() if target.exists() else None
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+            if not any("retired QA" in item for item in scan(fixture)):
+                raise AssertionError(f"missed retired guidance: {rel}")
+            if original is None:
+                target.unlink()
+            else:
+                target.write_text(original)
     print("qa lifecycle ssot self-test: ok")
     return 0
 

@@ -127,17 +127,15 @@ func newBlobStore(cfg config.QACaptureConfig) (BlobStore, error) {
 // It injects a static credentials provider ONLY when an access key is explicitly
 // configured (non-AWS / local S3-compatible stores like R2 / MinIO). When the
 // access key is empty it adds NO credentials provider, so LoadDefaultConfig uses
-// the default AWS credential chain — i.e. the EC2 instance role on prod. That is
-// exactly how the deploy is wired: ops/stage0/deploy_via_ssm.sh injects only
-// DRIVER/REGION/BUCKET/PREFIX (never a long-lived key), and the QaExports bucket
-// policy grants the app instance role Put/Get/Delete
-// (deploy/aws/cloudformation/stage0-backups.yaml).
+// the default AWS credential chain. Production capture uses local blobs; raw
+// archive coordinates and credential mounts belong to the independent maintenance
+// runtime (docs/approved/qa-raw-only.md), not to a user export bucket.
 //
 // Previously newBlobStore unconditionally passed an empty static provider, so
-// every prod export died with "operation error S3: PutObject ... static
+// S3-backed writes failed with "operation error S3: PutObject ... static
 // credentials are empty". This mirrors S3MediaStore
 // (internal/repository/media_s3_store.go), which is why media offload works on
-// the same instance role while export did not.
+// the same credential chain.
 func qaS3LoadOptions(storage config.QACaptureStorageConfig) []func(*awsconfig.LoadOptions) error {
 	region := strings.TrimSpace(storage.Region)
 	if region == "" {

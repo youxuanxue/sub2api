@@ -59,4 +59,4 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 
 发布/烟测失败时按报错查询；fail-stop，恢复后仍由 CI/脚本裁决，不自行编造 green。 见 [操作细则](references/troubleshooting.md)。
 
-普通 gateway/all rollout 不自动 dispatch QA；修改 bootstrap 或独立 QA 部署时，读 [工具表的镜像发布之外入口](references/tools.md#镜像发布之外的入口)。发版不自动执行 host bootstrap。
+普通 gateway/all rollout 不更新独立 raw maintenance；修改 bootstrap 或独立 maintenance pin 时，读 [工具表的镜像发布之外入口](references/tools.md#镜像发布之外的入口)。发版不自动执行 host bootstrap。
