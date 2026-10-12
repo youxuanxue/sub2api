@@ -112,6 +112,18 @@ class AssertFirstOutputTimeoutsTransportTest(unittest.TestCase):
         self.assertIn("::warning::first-output drift target=edge:us4:", proc.stdout)
         self.assertIn("GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS", proc.stdout)
 
+    def test_missing_all_keys_is_drift_not_transport_skip(self) -> None:
+        # Probe may emit only container/image lines when grep matches nothing.
+        empty = (
+            'APPCONTAINER {"name":"tokenkey-blue"}\n'
+            'RUNIMAGE {"image":"ghcr.io/o/sub2api:1.0.0"}\n'
+        )
+        proc = self._run(target="edge:uk2", probe_stdout=empty)
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        self.assertIn("DRIFT:", proc.stdout)
+        self.assertIn("::warning::first-output drift target=edge:uk2:", proc.stdout)
+        self.assertNotIn("transport failed", proc.stdout)
+
     def test_transport_failure_warns_and_skips(self) -> None:
         proc = self._run(target="prod", probe_stdout="", probe_rc=2)
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
