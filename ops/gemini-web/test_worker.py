@@ -665,6 +665,117 @@ assert rss_bytes < 384 * 1024 * 1024, rss_bytes
         finally:
             restored.close()
 
+    def test_hot_session_skips_stale_ready_at_bootstrap(self):
+        self.account.ready_at = time.time() - 301
+        self.account.last_refresh = time.time()
+        with patch.object(self.account, 'bootstrap') as bootstrap, \
+                patch.object(self.account, 'call', return_value=(None, wire().encode())) as call:
+            self.account.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'hi'}]}]})
+        bootstrap.assert_not_called()
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual(self.account.last_phase['bootstrap_ms'], 0)
+
+    def test_missing_fields_still_bootstrap_before_generate(self):
+        self.account.fields = {}
+        self.account.ready_at = time.time()
+        self.account.last_refresh = time.time()
+
+        def do_bootstrap():
+            self.account.fields = {
+                'SNlM0e': 'fixture-at', 'cfb2h': 'fixture-build', 'FdrFJe': 'fixture-session'}
+            self.account.ready_at = time.time()
+
+        with patch.object(self.account, 'bootstrap', side_effect=do_bootstrap) as bootstrap, \
+                patch.object(self.account, 'call', return_value=(None, wire().encode())):
+            self.account.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'hi'}]}]})
+        bootstrap.assert_called_once()
+
+    def test_generate_defers_pending_persist_until_uncertain_failure(self):
+        persists = []
+
+        def track(state):
+            persists.append(dict(state))
+
+        self.account.persist_callback = track
+
+        def fail_generate(method, url, **kwargs):
+            self.assertTrue(self.account.generation_pending)
+            self.assertEqual(persists, [])
+            raise worker.Failure(502, 'uncertain transport')
+
+        with patch.object(self.account, 'call', side_effect=fail_generate):
+            with self.assertRaisesRegex(worker.Failure, 'uncertain transport'):
+                self.account.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'x'}]}]})
+        self.assertEqual(len(persists), 1)
+        self.assertTrue(persists[0]['generation_pending'])
+        self.assertTrue(self.account.generation_pending)
+
+    def test_multi_image_downloads_in_parallel(self):
+        candidate = [None] * 38
+        candidate[0], candidate[1], candidate[8] = 'rc_one', ['answer'], [2]
+        images = []
+        for index in range(2):
+            images.append([
+                [None, None, None, [None, None, 'description',
+                                    'https://lh3.googleusercontent.com/preview-%d' % index]],
+                ['image-%d' % index],
+            ])
+        rich = [None] * 8
+        rich[7] = [images]
+        candidate[12] = rich
+        value = [None, ['c_one', 'r_one'], None, None, [candidate]]
+        value.extend([None] * (43 - len(value)))
+        raw = ")]}'\n\n12\n" + json.dumps([['wrb.fr', None, json.dumps(value), None]]) + '\n'
+        active = 0
+        peak = 0
+        lock = threading.Lock()
+        barrier = threading.Barrier(2)
+
+        def download(reference):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            try:
+                barrier.wait(timeout=2)
+            finally:
+                with lock:
+                    active -= 1
+            return {'inlineData': {'mimeType': 'image/jpeg',
+                                   'data': base64.b64encode(reference[0].encode()).decode()}}
+
+        with patch.object(self.account, 'call', return_value=(None, raw.encode())), \
+                patch.object(self.account, 'download', side_effect=download) as mocked:
+            result = self.account.generate('gemini-web-pro-image', {
+                'contents': [{'parts': [{'text': 'two images'}]}],
+                'generationConfig': {'responseModalities': ['IMAGE']},
+            })
+        self.assertEqual(mocked.call_count, 2)
+        self.assertEqual(peak, 2)
+        parts = result['candidates'][0]['content']['parts']
+        self.assertEqual(
+            [base64.b64decode(part['inlineData']['data']).decode() for part in parts],
+            ['image-0', 'image-1'])
+
+    def test_download_decodes_with_single_pillow_open(self):
+        output = io.BytesIO()
+        Image.new('RGB', (8, 8), 'red').save(output, 'JPEG')
+        data = output.getvalue()
+        opens = []
+        real_open = Image.open
+
+        def counting_open(buffer):
+            opens.append(1)
+            return real_open(buffer)
+
+        with patch.object(self.account, 'batch', return_value=['https://lh3.googleusercontent.com/gg-dl/ref']), \
+                patch.object(self.account, 'call', return_value=(
+                    SimpleNamespace(status_code=200, headers={'content-type': 'image/jpeg'}), data)), \
+                patch('worker.Image.open', side_effect=counting_open):
+            part = self.account.download(('i', 'c', 'r', 'rc'))
+        self.assertEqual(len(opens), 1)
+        self.assertEqual(base64.b64decode(part['inlineData']['data']), data)
+
     def test_call_skips_persist_when_cookies_unchanged(self):
         self.account.deadline = time.monotonic() + 100
         persists = []
