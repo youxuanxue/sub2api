@@ -15,6 +15,7 @@ from ops.qa.migrate_hcloud_objects import (
     expiry,
     frozen_inventory,
     install_lifecycle,
+    lifecycle_rules,
     ledger_open,
     verify_frozen,
     verify_one,
@@ -28,8 +29,15 @@ class Missing(Exception):
 class Store:
     def __init__(self):
         self.objects, self.uploads = {}, {}
+        self.rules = []
         self.writes = 0
         self.fail_read = False
+
+    def get_bucket_lifecycle_configuration(self, Bucket):
+        return {"Rules": copy.deepcopy(self.rules)}
+
+    def put_bucket_lifecycle_configuration(self, Bucket, LifecycleConfiguration):
+        self.rules = copy.deepcopy(LifecycleConfiguration["Rules"])
 
     def seed(self, key, body, **headers):
         self.objects[key] = dict(
@@ -166,6 +174,9 @@ class MigrationObjectsTest(unittest.TestCase):
             "Metadata": {"test": "synthetic"},
         }
         self.source.seed(self.key, b"synthetic QA contents", **self.headers)
+        install_lifecycle(
+            self.target, SOURCES["raw"][1], "raw", [self.deadline.date().isoformat()]
+        )
 
     def tearDown(self):
         self.db.close()
@@ -249,6 +260,62 @@ class MigrationObjectsTest(unittest.TestCase):
                 inventory[0],
                 float("inf"),
             )
+
+    def test_final_verification_rejects_missing_disabled_or_changed_lifecycle(self):
+        self.copy()
+        inventory = frozen_inventory(self.source, SOURCES["raw"][0], "raw/v1/")
+        original = copy.deepcopy(self.target.rules)
+        for mutation in ("missing", "disabled", "expiry", "runtime"):
+            with self.subTest(mutation=mutation):
+                self.target.rules = copy.deepcopy(original)
+                if mutation == "missing":
+                    self.target.rules.pop()
+                elif mutation == "disabled":
+                    self.target.rules[-1]["Status"] = "Disabled"
+                elif mutation == "expiry":
+                    self.target.rules[-1]["Expiration"]["Date"] += timedelta(days=1)
+                else:
+                    self.target.rules[0]["Expiration"]["Days"] = 30
+                with self.assertRaisesRegex(ValueError, "lifecycle"):
+                    verify_frozen(
+                        self.source,
+                        self.target,
+                        self.db,
+                        *SOURCES["raw"],
+                        inventory,
+                        float("inf"),
+                    )
+        self.assertEqual(self.target.writes, 1)
+
+    def test_final_verification_rejects_lifecycle_change_during_readback(self):
+        self.copy()
+        inventory = frozen_inventory(self.source, SOURCES["raw"][0], "raw/v1/")
+        original = self.target.get_object
+
+        rules = copy.deepcopy(self.target.rules)
+        for mutation in ("disabled", "additional_date"):
+            with self.subTest(mutation=mutation):
+                self.target.rules = copy.deepcopy(rules)
+
+                def changed(*args, **kwargs):
+                    if mutation == "disabled":
+                        self.target.rules[-1]["Status"] = "Disabled"
+                    else:
+                        day = (self.deadline + timedelta(days=1)).date().isoformat()
+                        self.target.rules.append(lifecycle_rules("raw", [day])[-1])
+                    return original(*args, **kwargs)
+
+                with patch.object(self.target, "get_object", side_effect=changed):
+                    with self.assertRaisesRegex(ValueError, "lifecycle"):
+                        verify_frozen(
+                            self.source,
+                            self.target,
+                            self.db,
+                            *SOURCES["raw"],
+                            inventory,
+                            float("inf"),
+                        )
+        self.assertEqual(self.target.writes, 1)
 
     def test_source_tags_and_absolute_expiry_are_restored_after_multipart_tag_loss(
         self,

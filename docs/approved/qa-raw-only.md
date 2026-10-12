@@ -57,7 +57,7 @@ python3 ops/qa/migrate_hcloud_objects.py --kind raw --ledger "$QA_MIGRATION_LEDG
 python3 ops/qa/migrate_hcloud_objects.py --kind raw --ledger "$QA_MIGRATION_LEDGER" --verify-only "$QA_FROZEN_INVENTORY" --receipt "$QA_VERIFICATION_RECEIPT"
 ```
 
-清单与回执独占创建、权限 0600。最终验证重新读取所有源/目标对象，校验 SHA256、内容头、元数据和原到期标签；验证前后重新列举源，任何新增、变化或缺失均拒绝。回执始终 `cutover_ready: false`，还需 raw restore 与独立 maintenance 接受验证。
+清单与回执独占创建、权限 0600。最终验证重新读取所有源/目标对象，校验 SHA256、内容头、元数据和原到期标签；验证前后重新列举源并读取目标 bucket 生命周期配置，拒绝对象漂移、原绝对到期规则缺失/停用/变化及 runtime 保留规则漂移。回执始终 `cutover_ready: false`，还需 raw restore 与独立 maintenance 接受验证。
 
 raw 凭据只挂载给 maintenance 子容器；网关两种颜色不挂载 raw 文件。网关发布只接受 `raw_archive_v1` 目标；缺失、旧 Bundle 和未知契约在触碰主机前拒绝。历史版本回滚须另行验证 raw capture/maintenance 兼容性与 DROP pause，不能由普通发布绕过。
 

@@ -311,8 +311,8 @@ def verify_expiry_tag(client, bucket, key, deadline):
         raise ValueError("target original-expiry tag differs")
 
 
-def install_lifecycle(target, bucket, kind, deadlines):
-    """Use absolute-date tag rules so migration never restarts object retention."""
+def lifecycle_rules(kind, deadlines):
+    """One contract for installing and verifying absolute-date retention."""
     if kind != "raw":
         raise ValueError("only raw archive migration is supported")
     prefix = "raw/v1/"
@@ -339,6 +339,29 @@ def install_lifecycle(target, bucket, kind, deadlines):
         )
     if len(rules) > 1000:
         raise ValueError("migration exceeds lifecycle rule limit")
+    return rules
+
+
+def verify_lifecycle(target, bucket, deadlines):
+    actual = target.get_bucket_lifecycle_configuration(Bucket=bucket).get("Rules", [])
+    required = {rule["ID"]: rule for rule in lifecycle_rules("raw", deadlines)}
+    observed = {rule["ID"]: rule for rule in actual}
+    if len(observed) != len(actual):
+        raise ValueError("target lifecycle has duplicate rules")
+    for name in observed:
+        if name.startswith("migration-original-expiry-"):
+            day = name.removeprefix("migration-original-expiry-")
+            required.setdefault(name, lifecycle_rules("raw", [day])[-1])
+        elif name != "expire-qa-runtime-objects":
+            raise ValueError("target lifecycle has an unowned rule")
+    if observed != required:
+        raise ValueError("target lifecycle differs from original-expiry contract")
+    return sorted(actual, key=lambda rule: rule["ID"])
+
+
+def install_lifecycle(target, bucket, kind, deadlines):
+    """Use absolute-date tag rules so migration never restarts object retention."""
+    rules = lifecycle_rules(kind, deadlines)
     try:
         previous = target.get_bucket_lifecycle_configuration(Bucket=bucket).get(
             "Rules", []
@@ -499,6 +522,11 @@ def verify_frozen(
         raise ValueError("frozen inventory is empty or has duplicate keys")
     if any(not item["key"].startswith(prefix) for item in inventory):
         raise ValueError("inventory key is outside raw prefix")
+    deadlines = {
+        datetime.fromisoformat(item["expires_at"]).date().isoformat()
+        for item in inventory
+    }
+    lifecycle = verify_lifecycle(target, target_bucket, deadlines)
     if frozen_inventory(source, source_bucket, prefix) != inventory:
         raise ValueError("source inventory changed before verification")
     objects = [
@@ -507,6 +535,8 @@ def verify_frozen(
     ]
     if frozen_inventory(source, source_bucket, prefix) != inventory:
         raise ValueError("source inventory changed during verification")
+    if verify_lifecycle(target, target_bucket, deadlines) != lifecycle:
+        raise ValueError("target lifecycle changed during verification")
     return objects
 
 
