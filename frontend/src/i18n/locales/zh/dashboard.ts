@@ -34,6 +34,7 @@ export default {
       disabled: '已禁用',
     },
     tokenUsageTrend: 'Token 使用趋势',
+    tokenUsageTrendScoped: 'Token 使用趋势（{scope}）',
     noDataAvailable: '暂无数据',
     model: '模型',
     group: '分组',

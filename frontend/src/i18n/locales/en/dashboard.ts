@@ -34,6 +34,7 @@ export default {
       disabled: 'Disabled',
     },
     tokenUsageTrend: 'Token Usage Trend',
+    tokenUsageTrendScoped: 'Token Usage Trend ({scope})',
     noDataAvailable: 'No data available',
     model: 'Model',
     group: 'Group',

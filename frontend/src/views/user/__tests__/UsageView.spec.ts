@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent, h } from 'vue'
+import { defineComponent, h, watchEffect } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import UsageView from '../UsageView.vue'
@@ -40,6 +40,8 @@ const messages: Record<string, string> = {
   'admin.dashboard.granularity': 'Granularity',
   'admin.dashboard.day': 'Day',
   'admin.dashboard.hour': 'Hour',
+  'admin.dashboard.tokenUsageTrend': 'Token Usage Trend',
+  'admin.dashboard.tokenUsageTrendScoped': 'Token Usage Trend ({scope})',
   'admin.users.columnSettings': 'Columns',
   'admin.usage.group': 'Group',
   'admin.usage.billingType': 'Billing type',
@@ -113,7 +115,11 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => messages[key] ?? key,
+      t: (key: string, params?: Record<string, string>) => {
+        const template = messages[key] ?? key
+        if (!params) return template
+        return template.replace(/\{(\w+)\}/g, (_, name: string) => params[name] ?? `{${name}}`)
+      },
     }),
   }
 })
@@ -130,9 +136,11 @@ function propCaptureStub(
     name: `Capture${testId}`,
     props: propNames,
     setup(props) {
-      sink[testId] = Object.fromEntries(
-        propNames.map((name) => [name, (props as Record<string, unknown>)[name]]),
-      )
+      watchEffect(() => {
+        sink[testId] = Object.fromEntries(
+          propNames.map((name) => [name, (props as Record<string, unknown>)[name]]),
+        )
+      })
       return () => h('div', { 'data-testid': testId })
     },
   })
@@ -172,8 +180,10 @@ const usageLog = {
 
 function mountUsageView(options?: {
   billingSurfaceProps?: Record<string, Record<string, unknown>>
+  trendTitleSink?: Record<string, Record<string, unknown>>
 }) {
   const billingSurfaceProps = options?.billingSurfaceProps ?? {}
+  const trendTitleSink = options?.trendTitleSink ?? {}
   return mount(UsageView, {
     global: {
       stubs: {
@@ -183,7 +193,7 @@ function mountUsageView(options?: {
         DateRangePicker: true,
         Icon: true,
         UsageTable: { ...chartStub, props: ['columns'] },
-        TokenUsageTrend: chartStub,
+        TokenUsageTrend: propCaptureStub('token-usage-trend', trendTitleSink, ['title', 'trendData', 'loading']),
         UsageStatsCards: propCaptureStub('usage-stats-cards', billingSurfaceProps, [
           'stats',
           'showAccountCost',
@@ -285,6 +295,30 @@ describe('user UsageView', () => {
     expect(list).toHaveBeenCalledTimes(1)
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
+  })
+
+  it('scopes the token trend title to the selected API key', async () => {
+    const trendTitleSink: Record<string, Record<string, unknown>> = {}
+    const wrapper = mountUsageView({ trendTitleSink })
+    await flushPromises()
+
+    expect(trendTitleSink['token-usage-trend']).toEqual(
+      expect.objectContaining({ title: 'Token Usage Trend' }),
+    )
+
+    const keySelect = wrapper.findAllComponents(Select).find((select) =>
+      select.props('options').some((option: SelectOption) => option.label === 'All API Keys'),
+    )!
+    keySelect.vm.$emit('update:modelValue', 1)
+    keySelect.vm.$emit('change', 1)
+    await flushPromises()
+
+    expect(trendTitleSink['token-usage-trend']).toEqual(
+      expect.objectContaining({ title: 'Token Usage Trend (demo-key)' }),
+    )
+    expect(getDashboardSnapshotV2).toHaveBeenCalledWith(
+      expect.objectContaining({ api_key_id: 1, include_trend: true }),
+    )
   })
 
   it('reloads api key distribution when the page date range changes', async () => {
