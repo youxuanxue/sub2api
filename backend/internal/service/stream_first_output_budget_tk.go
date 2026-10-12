@@ -17,15 +17,15 @@ import (
 
 const (
 	// Universal stream first-useful-output defaults (docs/approved/candidate-eligibility-ssot.md).
-	defaultStreamFirstOutputTimeout           = 30 * time.Second
-	defaultStreamFirstOutputHighEffortTimeout = 60 * time.Second
+	defaultStreamFirstOutputTimeout           = 15 * time.Second
+	defaultStreamFirstOutputHighEffortTimeout = 30 * time.Second
 	defaultNewAPIChatNonstreamFirstOutput     = 300 * time.Second
 )
 
 // ResolveGrokFirstByteHeaderTimeout is the Grok transport ResponseHeaderTimeout
 // aligned to the universal stream first-useful-output SSOT. Explicit
 // gateway.grok_response_header_timeout (>0) overrides; zero inherits
-// stream_first_output_timeout_seconds / code default 30s.
+// stream_first_output_timeout_seconds / code default 15s.
 func ResolveGrokFirstByteHeaderTimeout(cfg *config.Config) time.Duration {
 	if cfg != nil && cfg.Gateway.GrokResponseHeaderTimeout > 0 {
 		return time.Duration(cfg.Gateway.GrokResponseHeaderTimeout) * time.Second

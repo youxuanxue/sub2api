@@ -1109,11 +1109,11 @@ type GatewayConfig struct {
 	// OpenAI/Codex 请求可能在上游排队较久；默认不使用通用响应头超时截断。
 	OpenAIResponseHeaderTimeout int `mapstructure:"openai_response_header_timeout"`
 	// StreamFirstOutputTimeoutSeconds: cross-platform streaming useful-first-output
-	// budget (seconds). Zero inherits the code default 30. Cap is 60.
+	// budget (seconds). Zero inherits the code default 15. Cap is 60.
 	// See docs/approved/candidate-eligibility-ssot.md (universal stream first-output).
 	StreamFirstOutputTimeoutSeconds int `mapstructure:"stream_first_output_timeout_seconds"`
 	// StreamFirstOutputHighEffortTimeoutSeconds: high/xhigh/max (and equivalents)
-	// override. Zero inherits the code default 60. Cap is 60.
+	// override. Zero inherits the code default 30. Cap is 60.
 	StreamFirstOutputHighEffortTimeoutSeconds int `mapstructure:"stream_first_output_high_effort_timeout_seconds"`
 	// Bounds a replayable NewAPI Chat *streaming* attempt until useful first output
 	// (not total stream duration). Seconds; zero inherits StreamFirstOutputTimeoutSeconds.
@@ -2713,11 +2713,13 @@ func setDefaults() {
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
-	viper.SetDefault("gateway.stream_first_output_timeout_seconds", 30)
-	viper.SetDefault("gateway.stream_first_output_high_effort_timeout_seconds", 60)
+	viper.SetDefault("gateway.stream_first_output_timeout_seconds", 15)
+	viper.SetDefault("gateway.stream_first_output_high_effort_timeout_seconds", 30)
 	viper.SetDefault("gateway.newapi_chat_first_output_timeout", 0) // 0 = inherit stream SSOT
 	viper.SetDefault("gateway.newapi_chat_nonstream_first_output_timeout", 300)
 	viper.SetDefault("gateway.grok_response_header_timeout", 0)
+	// OpenAI native defaults are intentionally higher than the universal stream
+	// SSOT: prod 24h first_output_timeout events were openai-only (GPT-6 family).
 	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 30)
 	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 60)
 	viper.SetDefault("gateway.log_upstream_error_body", true)

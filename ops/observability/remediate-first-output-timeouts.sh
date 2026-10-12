@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Write-capable: raise first-useful-output budgets on this host and recreate the
-# active app container. Delivered via run-probe.sh.
-# Requires APPLY=yes-first-output-timeouts.
+# Write-capable: apply OpenAI-scoped first-output budgets (and restore universal
+# stream SSOT defaults) on this host, then recreate the active app container.
+# Delivered via run-probe.sh. Requires APPLY=yes-first-output-timeouts.
 #
-# Target (GPT-6 high-effort first_output_timeout mitigation):
-#   GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=30
-#   GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=60
+# Evidence (prod 24h): first_output_timeout events were openai-only, so only
+# OpenAI knobs are raised. Universal stream SSOT stays 15s / 30s.
+#
+# Target:
+#   GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=15
+#   GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=30
 #   GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=30
 #   GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=60
 set -euo pipefail
@@ -16,8 +19,8 @@ ACTIVE_FILE=/var/lib/tokenkey/active-color
 ROOT=/var/lib/tokenkey
 COMPOSE_BG="$ROOT/docker-compose.bluegreen.yml"
 
-WANT_STREAM=30
-WANT_STREAM_HIGH=60
+WANT_STREAM=15
+WANT_STREAM_HIGH=30
 WANT_OPENAI=30
 WANT_OPENAI_HIGH=60
 
@@ -54,34 +57,29 @@ ensure_compose_openai_lines() {
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text()
-needle = "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-30}"
+candidates = [
+    "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-30}",
+    "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-60}",
+]
+needle = next((c for c in candidates if c in text), None)
+if needle is None:
+    raise SystemExit("compose missing STREAM high-effort line; refuse to patch")
 insert = (
     needle
     + "\n      - GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-30}"
     + "\n      - GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS:-60}"
 )
-if needle not in text:
-    # already rewritten fallbacks
-    needle2 = "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-60}"
-    insert = (
-        needle2
-        + "\n      - GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-30}"
-        + "\n      - GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS:-60}"
-    )
-    if needle2 not in text:
-        raise SystemExit("compose missing STREAM high-effort line; refuse to patch")
-    text = text.replace(needle2, insert)
-else:
-    text = text.replace(needle, insert)
-path.write_text(text)
+path.write_text(text.replace(needle, insert))
 PY
 }
 
-bump_compose_stream_fallbacks() {
+bump_compose_fallbacks() {
   local f="$1"
   sudo sed -i \
-    -e 's|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=\${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-30}|g' \
-    -e 's|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=\${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-60}|g' \
+    -e 's|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=\${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-15}|g' \
+    -e 's|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=\${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-30}|g' \
+    -e 's|GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=\${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-30}|g' \
+    -e 's|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=\${GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS:-60}|g' \
     "$f"
 }
 
@@ -123,7 +121,7 @@ sudo awk '/^(GATEWAY_STREAM_FIRST_OUTPUT_|GATEWAY_OPENAI_FIRST_OUTPUT_|GATEWAY_O
 
 echo "=== patch compose ==="
 ensure_compose_openai_lines "$COMPOSE_BG"
-bump_compose_stream_fallbacks "$COMPOSE_BG"
+bump_compose_fallbacks "$COMPOSE_BG"
 sudo grep -nE 'STREAM_FIRST|OPENAI_FIRST|OPENAI_HIGH' "$COMPOSE_BG"
 
 cd "$ROOT"
@@ -197,4 +195,4 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 echo "=== ok ==="
-echo '{"apply":true,"stream":30,"stream_high":60,"openai":30,"openai_high":60,"container":"'"$container"'"}'
+echo '{"apply":true,"stream":15,"stream_high":30,"openai":30,"openai_high":60,"container":"'"$container"'"}'

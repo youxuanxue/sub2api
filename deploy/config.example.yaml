@@ -233,11 +233,11 @@ gateway:
   # OpenAI/Codex upstream response header timeout (seconds, 0=disabled)
   # OpenAI/Codex 等待上游响应头超时时间（秒，0=禁用本地响应头超时）
   openai_response_header_timeout: 0
-  # Universal streaming useful-first-output budget (seconds, 0=code default 30, max 60).
+  # Universal streaming useful-first-output budget (seconds, 0=code default 15, max 60).
   # Cross-platform SSOT: docs/approved/candidate-eligibility-ssot.md
-  stream_first_output_timeout_seconds: 30
-  # High-reasoning override (high/xhigh/max); 0=code default 60, max 60.
-  stream_first_output_high_effort_timeout_seconds: 60
+  stream_first_output_timeout_seconds: 15
+  # High-reasoning override (high/xhigh/max); 0=code default 30, max 60.
+  stream_first_output_high_effort_timeout_seconds: 30
   # Replayable NewAPI Chat streaming override (seconds, 0=inherit stream SSOT, max 60).
   newapi_chat_first_output_timeout: 0
   # Replayable NewAPI Chat non-streaming: complete useful JSON wait per attempt
