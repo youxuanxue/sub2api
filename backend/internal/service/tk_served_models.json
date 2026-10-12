@@ -29,7 +29,7 @@
       ]
     },
     "deepseek-v4-flash": {
-      "display": true,
+      "display": false,
       "channel_type": 43,
       "scopes": [
         {
@@ -203,7 +203,7 @@
       ]
     },
     "qwen3.7-flash": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "qwen3.7-flash-2026-07-15": {
@@ -239,19 +239,19 @@
       "channel_type": 17
     },
     "qwen-max": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "qwen-turbo": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "qwen-plus": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "qwen3-8b": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "qwen3-14b": {
@@ -259,15 +259,15 @@
       "channel_type": 17
     },
     "qwen3-32b": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "qwen3-235b-a22b": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "qwen3.6-27b": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "doubao-seed-2-0-pro-260215": {
@@ -863,7 +863,7 @@
       ]
     },
     "deepseek-v4-pro-0813": {
-      "display": true,
+      "display": false,
       "price_owner": "deepseek-v4-pro",
       "scopes": [
         {

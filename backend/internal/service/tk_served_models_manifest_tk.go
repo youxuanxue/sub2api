@@ -79,7 +79,7 @@ func loadTkServedModelsManifest() {
 				continue
 			}
 			out[modelID] = struct{}{}
-			displayAllowed := e.Display && isCatalogModelRecommended(modelID) && !isTkCuratedNewAPIModelLegacyTokenPlanAlias(modelID)
+			displayAllowed := e.Display && isCatalogModelRecommended(modelID)
 			if displayAllowed {
 				display[modelID] = struct{}{}
 			}
@@ -434,24 +434,6 @@ func isTkCuratedNewAPIModelDisplayed(modelID string) bool {
 	loadTkServedModelsManifest()
 	_, ok := tkServedModelsManifestDisplayIDs[modelID]
 	return ok
-}
-
-func isTkCuratedNewAPIModelLegacyTokenPlanAlias(modelID string) bool {
-	if modelID == "" {
-		return false
-	}
-	// DeepSeek's current official model name is also a scoped Token Plan alias.
-	// That supplier mapping must not withdraw the official public catalog ID.
-	if modelID == "deepseek-flash" {
-		return false
-	}
-	if _, ok := newAPIAliTokenPlanModelAliases()[modelID]; ok {
-		return true
-	}
-	if _, ok := newAPIQianfanTokenPlanModelAliases()[modelID]; ok {
-		return true
-	}
-	return false
 }
 
 // isTkCuratedNewAPICatalogRowListed is the shared SSOT gate for newapi long-tail

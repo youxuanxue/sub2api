@@ -223,9 +223,6 @@ func (s *PricingCatalogService) BuildPublicCatalog(_ context.Context) *PublicCat
 		resp.membership = buildCatalogMembershipIndex(resp.Data)
 		if snapshot != nil {
 			for alias, owner := range snapshot.Aliases {
-				if _, exists := resp.membership.literal[alias]; exists {
-					continue
-				}
 				if i, ok := resp.membership.literal[owner]; ok {
 					resp.membership.literal[alias] = i
 					resp.membership.fallback[alias] = i

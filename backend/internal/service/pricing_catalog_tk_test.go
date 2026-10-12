@@ -603,7 +603,7 @@ func TestPublicCatalog_ManifestDisplayAliasesInheritOwner(t *testing.T) {
 		assert.Equal(t, want, byID[alias], "display aliases inherit every decorated owner dimension")
 		resolved, ok := s.findCatalogModel(alias)
 		require.True(t, ok)
-		assert.Equal(t, alias, resolved.ModelID, "literal display alias must not be overwritten by owner membership")
+		assert.Equal(t, owner, resolved.ModelID, "display projection preserves canonical price membership")
 	}
 	public := FilterPublicCatalogToServable(full)
 	publicByID := make(map[string]PublicCatalogModel, len(public.Data))
