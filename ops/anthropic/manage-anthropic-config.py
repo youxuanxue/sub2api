@@ -20,12 +20,9 @@ SQL):
      — per ``anthropic-edge-operator-balance-baselines.json``
      — action.kind = ``edge_operator_balance`` (edge only; when live balance < threshold → default)
 
-Topology (which edges exist, and which prod stub maps to which edge) is read
-from ``deploy/aws/lightsail/edge-targets-lightsail.json`` (each edge's ``domain`` field
-is the authoritative prod-stub↔edge link) plus ``deploy/aws/lightsail/edge-targets-lightsail.json``
-when an edge is live on Lightsail (auto route: LS ``deployable=true`` wins per
-``ops/stage0/edge_routing_matrix.py``). Prod is pinned separately as ``PROD_TARGET`` —
-never re-inferred from account names or ad-hoc slug parsing.
+Topology comes from ``ops/stage0/edge_routing_matrix.py``: automatic fleet
+checks use deployable Hetzner edges only. Execution identities come from
+``edge_ssm_execution``; AWS standby never enters automatic fan-out.
 
 Stages
 ------
@@ -831,10 +828,10 @@ FROM tiers t;
 def _read_tiers(region: str, instance_id: str, label: str) -> list[dict]:
     """Pull the live `tiers` reference-table rows for one node (edge or prod)."""
     raw, _ = ssm_run_sql(region, instance_id, TIERS_SQL, f"snapshot: {label} tiers table")
-    try:
-        return json.loads(raw) if raw else []
-    except json.JSONDecodeError:
-        return []
+    rows = json.loads(raw)
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise ValueError("invalid tiers response")
+    return rows
 
 
 OPERATOR_CONCURRENCY_SQL = f"""
@@ -883,10 +880,9 @@ def _read_operator_balance(region: str, instance_id: str, label: str) -> dict:
     """Pull users.id=1 balance for edge operator balance surface (E)."""
     raw, _ = ssm_run_sql(region, instance_id, OPERATOR_BALANCE_SQL,
                          f"snapshot: {label} operator balance")
-    try:
-        obj = json.loads(raw) if raw else {}
-    except json.JSONDecodeError:
-        obj = {}
+    obj = json.loads(raw)
+    if not isinstance(obj, dict) or not isinstance(obj.get("operator_user_exists"), bool):
+        raise ValueError("invalid operator balance response")
     bal = obj.get("operator_user_balance")
     if bal is not None:
         try:
@@ -956,10 +952,7 @@ def _capture_edge_bundle(
         EDGE_CAPTURE_BUNDLE_SQL,
         f"snapshot bundle: edge {eid}",
     )
-    try:
-        bundle = json.loads(raw) if raw else {}
-    except json.JSONDecodeError:
-        bundle = {}
+    bundle = _parse_capture_bundle(raw, edge=True)
     op = bundle.get("operator_concurrency") or {}
     bal = _parse_operator_balance_obj(bundle.get("operator_balance") or {})
     tiers_raw = bundle.get("tiers")
@@ -986,10 +979,7 @@ def _capture_prod_bundle(region: str, prod_inst: str) -> dict[str, Any]:
         PROD_CAPTURE_BUNDLE_SQL,
         "snapshot bundle: prod",
     )
-    try:
-        bundle = json.loads(raw) if raw else {}
-    except json.JSONDecodeError:
-        bundle = {}
+    bundle = _parse_capture_bundle(raw, edge=False)
     op = bundle.get("operator_concurrency") or {}
     tiers_raw = bundle.get("tiers")
     return {
@@ -1004,52 +994,62 @@ def _capture_prod_bundle(region: str, prod_inst: str) -> dict[str, Any]:
     }
 
 
-def _snapshot_edge_task(task: tuple[str, dict | None, bool, bool]) -> tuple[str, dict]:
-    """Worker for parallel snapshot: (eid, ls_t, deploy, allow_planned)."""
-    eid, ls_t, deploy, allow_planned = task
-    region = (ls_t or {}).get("lightsail_region")
-    stack = ""
-    if not deploy and not allow_planned:
-        return eid, {
-            "deployable": False,
-            "skipped_reason": f"edge {eid} is planned; pass --allow-planned to include",
-            "region": region,
-            "stack": stack,
-        }
-    if not deploy and allow_planned:
-        return eid, {
-            "deployable": False,
-            "skipped_reason": f"edge {eid} is planned (--allow-planned)",
-            "region": region,
-            "stack": stack,
-        }
+def _parse_capture_bundle(raw: str, *, edge: bool) -> dict:
+    bundle = json.loads(raw)
+    fields = {"tiers": list, "operator_concurrency": dict}
+    fields.update({"oauth_accounts": list, "operator_balance": dict} if edge
+                  else {"anthropic_stubs": list})
+    if not isinstance(bundle, dict) or any(
+        not isinstance(bundle.get(key), kind) for key, kind in fields.items()
+    ):
+        raise ValueError("invalid snapshot bundle shape")
+    return bundle
+
+
+def _snapshot_edge_task(eid: str) -> tuple[str, dict]:
     try:
         ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
-    except SystemExit:
-        return eid, {"error": f"could not resolve SSM instance for edge {eid}"}
-    print(
-        f"snapshot: edge {eid} instance={ident.instance_id} routing={ident.routing} (bundle)",
-        file=sys.stderr,
-    )
-    return eid, _capture_edge_bundle(eid, ident, ec2_stack=stack)
+        print(f"snapshot: edge {eid} instance={ident.instance_id} routing={ident.routing} (bundle)",
+              file=sys.stderr)
+        return eid, _capture_edge_bundle(eid, ident, ec2_stack="")
+    except (SystemExit, Exception) as exc:
+        # Preserve the target in the receipt and continue collecting other nodes.
+        return eid, {"deployable": True, "error": f"snapshot read failed ({type(exc).__name__})"}
+
+
+def _live_check_edges(allow_planned: bool) -> list[str]:
+    if allow_planned:
+        fail("--allow-planned is unsupported for fleet snapshot/check; only live Hetzner edges are checked")
+    return _EDGE_ROUTING.live_deployable_edge_ids(REPO_ROOT)
+
+
+def _snapshot_coverage(snapshot: dict, edge_ids: list[str], *, include_prod: bool = True) -> dict:
+    expected = [f"edge:{eid}" for eid in edge_ids] + (["prod"] if include_prod else [])
+    checked, missing, failed = [], [], []
+    edges = snapshot.get("edges")
+    if not isinstance(edges, dict):
+        edges = {}
+    for node in expected:
+        row = snapshot.get("prod") if node == "prod" else edges.get(node[5:])
+        if row is None:
+            missing.append(node)
+        elif (not isinstance(row, dict) or row.get("error") or row.get("skipped_reason")
+              or (node != "prod" and row.get("deployable") is not True)
+              or not isinstance(row.get("tiers"), list)
+              or not isinstance(row.get("anthropic_stubs" if node == "prod" else "oauth_accounts"), list)):
+            failed.append(node)
+        else:
+            checked.append(node)
+    return {"expected": expected, "checked": checked, "missing": missing, "failed": failed}
 
 
 def cmd_snapshot(args: argparse.Namespace) -> int:
-    ls_targets = _EDGE_ROUTING.load_lightsail_targets(REPO_ROOT)
-
+    edge_ids = _live_check_edges(bool(args.allow_planned))
     edges: dict[str, dict] = {}
     workers = _parallel_edges_workers(getattr(args, "parallel_edges", None))
-    tasks: list[tuple[str, dict | None, bool, bool]] = []
-    for eid in sorted(ls_targets):
-        ls_t = ls_targets.get(eid)
-        deploy = _EDGE_ROUTING.edge_deployable(ls_t)
-        tasks.append((eid, ls_t, deploy, bool(args.allow_planned)))
-    if tasks:
-        print(f"snapshot: {len(tasks)} edge(s) parallel_workers={workers}", file=sys.stderr)
-        for eid, edge in _run_parallel_ordered(
-            tasks, _snapshot_edge_task, workers, label="snapshot",
-        ):
-            edges[eid] = edge
+    print(f"snapshot: {len(edge_ids)} edge(s) parallel_workers={workers}", file=sys.stderr)
+    for eid, edge in _run_parallel_ordered(edge_ids, _snapshot_edge_task, workers, label="snapshot"):
+        edges[eid] = edge
 
     prod_view: dict[str, Any]
     if getattr(args, "skip_prod", False):
@@ -1062,10 +1062,8 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             prod_view = _capture_prod_bundle(prod_region, prod_inst)
-        except SystemExit:
-            print("snapshot: prod failed to resolve instance (skipping prod view; "
-                  "plan-stub-pool will fail-loud if invoked)", file=sys.stderr)
-            prod_view = {"error": "could not resolve instance for prod"}
+        except (SystemExit, Exception) as exc:
+            prod_view = {"error": f"snapshot read failed ({type(exc).__name__})"}
 
     snapshot = {
         "version": SNAPSHOT_VERSION,
@@ -1074,13 +1072,15 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
         "prod": prod_view,
     }
 
+    snapshot["coverage"] = _snapshot_coverage(
+        snapshot, edge_ids, include_prod=not getattr(args, "skip_prod", False))
     out_str = json.dumps(snapshot, indent=2, ensure_ascii=False)
     if args.out:
         pathlib.Path(args.out).write_text(out_str)
         print(f"snapshot: written {args.out} ({len(out_str)} bytes)", file=sys.stderr)
     else:
         print(out_str)
-    return 0
+    return 2 if snapshot["coverage"]["missing"] or snapshot["coverage"]["failed"] else 0
 
 
 # --------------------------------------------------------------------------
@@ -1172,10 +1172,10 @@ def _run_balance_checks_live(edge_ids: list[str], policy: dict) -> list[dict]:
     for eid in edge_ids:
         try:
             ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
-        except SystemExit:
-            out.append({"edge_id": eid, "status": "error", "reason": "could not resolve SSM instance"})
+            live = _read_operator_balance(ident.region, ident.instance_id, f"edge {eid}")
+        except (SystemExit, Exception):
+            out.append({"edge_id": eid, "status": "error", "reason": "could not read operator balance"})
             continue
-        live = _read_operator_balance(ident.region, ident.instance_id, f"edge {eid}")
         if not live.get("operator_user_exists"):
             out.append({
                 "edge_id": eid,
@@ -1286,19 +1286,19 @@ def _run_tier_table_checks_live(edge_ids: list[str], expected_by_tier: dict[str,
     for eid in edge_ids:
         try:
             ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
-        except SystemExit:
+            live = _read_tiers(ident.region, ident.instance_id, f"edge {eid}")
+        except (SystemExit, Exception):
             items.append({"node": f"edge:{eid}", "tier": "*", "status": "error",
-                          "warning": f"could not resolve SSM instance for edge {eid}"})
+                          "warning": f"could not read tiers for edge {eid}"})
             continue
-        live = _read_tiers(ident.region, ident.instance_id, f"edge {eid}")
         items.extend(_tier_table_drift_items(f"edge:{eid}", live, expected_by_tier))
     try:
         prod_region, prod_inst, _ = _resolve_prod_target()
         prod_live = _read_tiers(prod_region, prod_inst, "prod")
         items.extend(_tier_table_drift_items("prod", prod_live, expected_by_tier))
-    except SystemExit:
+    except (SystemExit, Exception):
         items.append({"node": "prod", "tier": "*", "status": "error",
-                      "warning": "could not resolve SSM instance for prod"})
+                      "warning": "could not read tiers for prod"})
     return items
 
 
@@ -1697,8 +1697,21 @@ def _run_live_node_checks(edge_ids: list[str], ua_expected: dict, *,
 
 
 def cmd_check(args: argparse.Namespace) -> int:
-    snapshot = load_json_file(pathlib.Path(args.snapshot), "snapshot") if args.snapshot else None
-    edge_ids = _edge_ids_for_check(snapshot, bool(args.allow_planned))
+    snapshot = _load_snapshot_or_die(args.snapshot) if args.snapshot else None
+    expected_edges = _live_check_edges(bool(args.allow_planned))
+    if snapshot is not None:
+        coverage = _snapshot_coverage(snapshot, expected_edges)
+        # Never probe obsolete nodes from old snapshots or trust their coverage claim.
+        snapshot = {**snapshot, "edges": {
+            eid: snapshot["edges"][eid] for eid in expected_edges
+            if f"edge:{eid}" in coverage["checked"]}}
+        if "prod" not in coverage["checked"]:
+            snapshot["prod"] = {"error": "prod snapshot unavailable"}
+        edge_ids = list(snapshot["edges"])
+    else:
+        edge_ids = expected_edges
+        expected = [f"edge:{eid}" for eid in edge_ids] + ["prod"]
+        coverage = {"expected": expected, "checked": expected.copy(), "missing": [], "failed": []}
     report = _run_check_guards(
         edge_ids,
         bool(args.allow_planned),
@@ -1707,9 +1720,6 @@ def cmd_check(args: argparse.Namespace) -> int:
     )
     policy = _load_operator_balance_policy()
     if snapshot is not None:
-        if snapshot.get("version") != SNAPSHOT_VERSION:
-            fail(f"check --snapshot: version {snapshot.get('version')} != {SNAPSHOT_VERSION} "
-                 "(re-run snapshot for operator_user_balance)")
         balance_items = _balance_violations_from_snapshot(snapshot, policy)
     else:
         balance_items = _run_balance_checks_live(edge_ids, policy)
@@ -1761,8 +1771,19 @@ def cmd_check(args: argparse.Namespace) -> int:
         "error_count": sum(1 for x in redis_items if x.get("status") == "error"),
         "items": redis_items,
     }
+    failed_nodes = set(coverage["failed"])
+    for eid, guard in zip(edge_ids, report.get("guards", [])):
+        if guard.get("exit_code") not in (0, 1):
+            failed_nodes.add(f"edge:{eid}")
+    for item in balance_items + tier_items + http_ua_items + redis_items:
+        if item.get("status") == "error":
+            failed_nodes.add(item.get("node") or f"edge:{item['edge_id']}")
+    coverage["failed"] = sorted(failed_nodes)
+    coverage["checked"] = [node for node in coverage["checked"] if node not in failed_nodes]
+    report["coverage"] = coverage
+    incomplete = bool(coverage["missing"] or coverage["failed"])
     report["any_violation"] = (
-        bool(report.get("any_violation")) or balance_violation or balance_error
+        incomplete or bool(report.get("any_violation")) or balance_violation or balance_error
         or tier_table_violation or http_ua_violation or redis_violation
     )
     if args.json:
@@ -1774,9 +1795,13 @@ def cmd_check(args: argparse.Namespace) -> int:
               f"tier_table_drift={report['tier_table_drift']['violation_count']} "
               f"http_ua_drift={report['http_ua_drift']['violation_count']} "
               f"redis_cache_drift={report['redis_cache_drift']['violation_count']}")
+        print(f"  coverage: {json.dumps(coverage, sort_keys=True)}")
         for sr in report.get("guards", []):
             ec = sr.get("exit_code")
             status = "OK" if ec == 0 else (sr.get("skipped_reason", "?") if ec is None else f"FAIL exit={ec}")
+            summary = (sr.get("report") or {}).get("summary") or {}
+            if ec == 0 and summary.get("not_applicable_count"):
+                status = "NOT_APPLICABLE no anthropic OAuth accounts"
             print(f"  [{status}] {sr.get('description')}")
         for item in balance_items:
             st = item.get("status")
@@ -1791,19 +1816,17 @@ def cmd_check(args: argparse.Namespace) -> int:
             print(f"  [UA-{item.get('status', '?').upper()}] {item.get('warning')}")
         for item in redis_items:
             print(f"  [REDIS-{item.get('status', '?').upper()}] {item.get('warning')}")
-    return 1 if report.get("any_violation") else 0
+    return 2 if incomplete else (1 if report.get("any_violation") else 0)
 
 
 def _edge_ids_for_check(snapshot: dict | None, allow_planned: bool) -> list[str]:
+    """Shared scope for remediation callers; refuse incomplete snapshot input."""
+    ids = _live_check_edges(allow_planned)
     if snapshot is not None:
-        return sorted([
-            eid for eid, e in snapshot.get("edges", {}).items()
-            if e.get("deployable") is not False and "error" not in e
-        ])
-    ls_targets = _EDGE_ROUTING.load_lightsail_targets(REPO_ROOT)
-    if allow_planned:
-        return sorted(ls_targets)
-    return _EDGE_ROUTING.live_deployable_edge_ids(REPO_ROOT)
+        coverage = _snapshot_coverage(snapshot, ids, include_prod=False)
+        if coverage["missing"] or coverage["failed"]:
+            fail(f"snapshot has incomplete live-edge coverage: {json.dumps(coverage)}")
+    return ids
 
 
 def _guard_items_from_batch(
@@ -1819,7 +1842,8 @@ def _guard_items_from_batch(
         items.append({
             "edge": {**edge_meta},
             "account_name": "all",
-            "status": "ok",
+            "status": "not_applicable",
+            "reason": "no_anthropic_oauth_accounts",
             "diff_count": 0,
             "diffs": [],
             "accounts_found": 0,
@@ -1871,24 +1895,15 @@ def _run_guard_batch_for_edge(eid: str, allow_planned: bool) -> dict[str, Any]:
     baseline = load_json_file(TIER_BASELINES, "tier baseline")
     try:
         ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
-    except SystemExit:
-        return {
-            "exit_code": 2,
-            "description": f"edge-oauth-stability edge={eid}",
-            "report": None,
-        }
-    raw, cid = ssm_run_sql(
-        ident.region,
-        ident.instance_id,
-        _GUARD.build_all_oauth_guard_live_batch_query(),
-        f"guard batch edge={eid}",
-    )
-    try:
-        batch_rows = json.loads(raw) if raw else []
-    except json.JSONDecodeError:
-        batch_rows = []
-    if not isinstance(batch_rows, list):
-        batch_rows = []
+        raw, cid = ssm_run_sql(
+            ident.region, ident.instance_id,
+            _GUARD.build_all_oauth_guard_live_batch_query(), f"guard batch edge={eid}")
+        batch_rows = json.loads(raw)
+        if not isinstance(batch_rows, list) or any(not isinstance(row, dict) or not row for row in batch_rows):
+            raise ValueError("invalid guard batch shape")
+    except (SystemExit, Exception) as exc:
+        return {"exit_code": 2, "description": f"edge-oauth-stability edge={eid}",
+                "error": f"guard read failed ({type(exc).__name__})", "report": None}
     edge_meta = {
         "edge_id": eid,
         "region": ident.region,
@@ -1898,7 +1913,7 @@ def _run_guard_batch_for_edge(eid: str, allow_planned: bool) -> dict[str, Any]:
     items = _guard_items_from_batch(eid, edge_meta, batch_rows, baseline)
     drift_count = sum(1 for x in items if x.get("status") == "drift")
     error_count = sum(1 for x in items if x.get("status") == "error")
-    exit_code = 1 if drift_count or error_count else 0
+    exit_code = 2 if error_count else (1 if drift_count else 0)
     report = {
         "mode": "batch",
         "selector": {
@@ -1911,6 +1926,7 @@ def _run_guard_batch_for_edge(eid: str, allow_planned: bool) -> dict[str, Any]:
             "excluded_edge_total": 0,
             "account_result_total": len(items),
             "ok_count": sum(1 for x in items if x.get("status") == "ok"),
+            "not_applicable_count": sum(1 for x in items if x.get("status") == "not_applicable"),
             "drift_count": drift_count,
             "error_count": error_count,
         },
@@ -3912,16 +3928,16 @@ def main() -> int:
                         help="pull each deployable edge's anthropic OAuth accounts + prod anthropic api-key stubs into one JSON")
     sp.add_argument("--out", help="write snapshot JSON to this path (otherwise stdout)")
     sp.add_argument("--allow-planned", action="store_true",
-                    help="include planned edges from the Lightsail matrix")
+                    help="deprecated; rejected for automatic live-fleet checks")
     sp.add_argument("--skip-prod", action="store_true",
                     help="skip the prod stub query (offline / lab runs that only need edge data)")
     _add_parallel_edges_arg(sp)
     sp.set_defaults(handler=cmd_snapshot)
 
     sp = sub.add_parser("check", help="run edge OAuth stability guard for each edge in scope")
-    sp.add_argument("--snapshot", help="snapshot JSON path; used to discover edge IDs in scope")
+    sp.add_argument("--snapshot", help="snapshot JSON path; must cover the current live fleet")
     sp.add_argument("--allow-planned", action="store_true",
-                    help="expand edge IDs in scope via merged matrices (see snapshot)")
+                    help="deprecated; rejected for automatic live-fleet checks")
     sp.add_argument("--json", action="store_true")
     _add_parallel_edges_arg(sp)
     _add_legacy_guard_arg(sp)
