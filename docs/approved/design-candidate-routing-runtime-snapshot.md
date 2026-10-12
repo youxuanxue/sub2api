@@ -46,7 +46,7 @@ the outcome.
 | Current readiness | scheduler, quota, cooldown, concurrency and health owners | Read at selection and rechecked before execution |
 | Billing source and reservations | `candidate_billing_tk.go`, `CandidateRequest.bind` and existing billing owners | Never decided by the snapshot |
 | Sticky identity and continuation | existing candidate identity owners | Snapshot data cannot bypass revalidation |
-| QA record and session export | existing QA Bundle and trajectory owners | Redaction optimization cannot change blob/export ownership |
+| QA capture and raw archive | [QA raw-only owners](qa-raw-only.md) | Redaction optimization cannot change capture/blob/archive ownership |
 
 No second protocol graph, universal alias table, global billing cache or
 parallel candidate eligibility service is introduced.

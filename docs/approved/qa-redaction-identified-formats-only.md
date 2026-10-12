@@ -62,7 +62,7 @@ QA 采集会对请求、响应和流式片段做自动脱敏。当前非结构�
 
 - `qaRedactionVersion` 固定升级为 `logredact-v4`，便于导出方和审计区分新旧保护边界。
 - 已有 QA blob 不重写、不迁移。
-- QA 导出元数据继续携带脱敏版本；实现 PR 同步更新 [`security-capture-and-ingress.md`](security-capture-and-ingress.md)、[`qa-bundle-session-export.md`](qa-bundle-session-export.md) 及[产品隐私说明](../../deploy/aws/stage0/legal-page/privacy.html)，明确“自动脱敏仅覆盖已识别格式，未知格式可能包含秘密”。
+- QA capture 与 raw 归档保留脱敏版本；实现 PR 同步更新 [`security-capture-and-ingress.md`](security-capture-and-ingress.md)、[`qa-raw-only.md`](qa-raw-only.md) 及[产品隐私说明](../../deploy/aws/stage0/legal-page/privacy.html)，明确“自动脱敏仅覆盖已识别格式，未知格式可能包含秘密”。用户导出已退役。
 
 # 验证与观测
 

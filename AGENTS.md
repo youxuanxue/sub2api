@@ -37,9 +37,9 @@ handler 选择。测试及发布前缺口见 US-050，本地实现不代表已�
 
 ## Trajectory SSOT
 
-`traj-ssot`：会话导出契约与唯一 owner 清单见
+`traj-ssot`：QA raw 采集、归档与生命周期契约见
 [`docs/approved/qa-raw-only.md`](docs/approved/qa-raw-only.md)。
-QA 仅保留 prod capture 与 raw archive/restore/lifecycle；用户导出、Bundle、worker 和队列已退役。
+QA 仅保留 prod capture 与 raw archive/restore/lifecycle；用户导出、Bundle、worker 和队列代码已退役；线上资源状态以独立退役验收为准。
 
 ## Public Quickstart 与注册承诺 SSOT
 

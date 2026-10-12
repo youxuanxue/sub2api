@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/require"
 )
@@ -38,32 +39,35 @@ func (r *ingressRejectRepoStub) ListIngressRejects(context.Context, *OpsIngressR
 }
 
 func TestOpsIngressRejectAggregatorUsesGlobalBucketCapacity(t *testing.T) {
-	repo := &ingressRejectRepoStub{}
-	a := NewOpsIngressRejectAggregator(repo)
-	a.Start()
+	// Hold the minute bucket fixed: a wall-clock rollover legitimately resets capacity.
+	synctest.Test(t, func(t *testing.T) {
+		repo := &ingressRejectRepoStub{}
+		a := NewOpsIngressRejectAggregator(repo)
+		a.Start()
+		defer a.Stop()
 
-	// Concentrating all dimensions in one shard must not waste capacity in the others.
-	inserted := 0
-	for i := 0; inserted < 600; i++ {
-		ip := fmt.Sprintf("target-%d", i)
-		key := ingressRejectKey{reason: "invalid_api_key", routeFamily: "messages", protocol: "anthropic", clientIP: ip}
-		if ingressRejectHash(key)%ingressRejectShardCount == 0 {
-			a.RecordIngressReject(key.reason, key.routeFamily, key.protocol, ip, 0, 0)
-			inserted++
+		// Concentrating all dimensions in one shard must not waste capacity in the others.
+		inserted := 0
+		for i := 0; inserted < 600; i++ {
+			ip := fmt.Sprintf("target-%d", i)
+			key := ingressRejectKey{reason: "invalid_api_key", routeFamily: "messages", protocol: "anthropic", clientIP: ip}
+			if ingressRejectHash(key)%ingressRejectShardCount == 0 {
+				a.RecordIngressReject(key.reason, key.routeFamily, key.protocol, ip, 0, 0)
+				inserted++
+			}
 		}
-	}
-	require.Equal(t, int64(600), a.Health().Cardinality)
+		require.Equal(t, int64(600), a.Health().Cardinality)
 
-	for i := 0; i < ingressRejectMaxEntries; i++ {
-		a.RecordIngressReject("invalid_api_key", "messages", "anthropic", fmt.Sprintf("rotating-%d", i), 0, 0)
-	}
-	health := a.Health()
-	require.Equal(t, int64(ingressRejectMaxEntries), health.Cardinality)
-	require.Greater(t, health.Overflowed, uint64(0))
+		for i := 0; i < ingressRejectMaxEntries; i++ {
+			a.RecordIngressReject("invalid_api_key", "messages", "anthropic", fmt.Sprintf("rotating-%d", i), 0, 0)
+		}
+		health := a.Health()
+		require.Equal(t, int64(ingressRejectMaxEntries), health.Cardinality)
+		require.Greater(t, health.Overflowed, uint64(0))
 
-	a.snapshotAndEnqueue(false)
-	require.Equal(t, int64(ingressRejectMaxEntries), a.Health().Cardinality, "periodic flush must retain the minute budget")
-	a.Stop()
+		a.snapshotAndEnqueue(false)
+		require.Equal(t, int64(ingressRejectMaxEntries), a.Health().Cardinality, "periodic flush must retain the minute budget")
+	})
 }
 
 func TestOpsIngressRejectAggregatorConcurrentCountAndStopFlush(t *testing.T) {

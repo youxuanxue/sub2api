@@ -46,6 +46,7 @@ Legacy historical replay remains in `prod_replay.py`; it is not the default depl
 See `docs/approved/prod-replay-capability-matrix.md`.
 
 
-独立 QA 发布入口：`.github/workflows/deploy-qa-bundle.yml`（`deploy` / `canary-only` / `qa-infra-check`）。
-普通 gateway/all rollout 不自动 dispatch QA；target contract 由 `ops/stage0/prod_release_plan.py`
-自动选择 legacy-only 回滚安全分支。发布与验收边界见 `docs/approved/design-split-deploy-qa-bundle.md`。
+QA 仅保留 prod capture、raw archive/restore/lifecycle。独立 maintenance pin 的发布与
+验收入口见 `ops/qa/README.md`，批准边界见 `docs/approved/qa-raw-only.md`。普通
+gateway/all rollout 不更新该 pin，不切换 raw 存储坐标；已删除的用户导出和 worker
+发布入口不可恢复。

@@ -119,7 +119,7 @@ TokenKey 长期保留的 fork 差异只应服务核心产品能力：
 
 - `qa_records` 是当前请求级 evidence metadata owner。
 - `backend/internal/observability/qa/*` 捕获 request / response / SSE chunk。
-- 会话导出与 evidence helpers 的实现边界由 [traj SSOT](../approved/qa-bundle-session-export.md) 统一登记。
+- QA capture 与 raw archive/restore/lifecycle 的实现边界由 [QA raw-only](../approved/qa-raw-only.md) 统一登记。
 - Engine owner 已承载 bridge endpoint、provider、capability、video channel support 等 truth。
 - brand、engine、newapi、trajectory、terminal、redaction 等 sentinel / checker 已进入 preflight 或 CI。
 - upstream merge PR 已按 `Merge Harness + Invariant Commit + OPC Refactor Commit` 组织。

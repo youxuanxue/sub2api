@@ -728,11 +728,10 @@ bash ops/stage0/load_smoke_github_env.sh --check prod
 **首次启用前**必须按 §5 重新部署 `cicd-oidc.yaml` 并为 **`prod`** Environment 配置
 Required reviewers；否则 prod deploy 会在无人把关的情况下继续执行（GitHub 首次引用
 Environment 时会自动创建无门禁的同名 Env）。
-QA Bundle 的 dedicated OIDC role、CloudFormation service role 和 GitHub variable bootstrap 只在
-`ops/qa/README.md` 维护；不要在本部署手册复制第二套值。bootstrap 后 dispatch
-`deploy-stage0.yml` 的 `operation=qa-infra-check` 做只读验收；它真实 assume dedicated role，
-并检查 recognized legacy raw-archive stack 或 Bundle-era service-role binding，不创建 change set、
-不发 SSM、不改 app/Worker/host。
+QA 用户导出与 worker 发布入口已删除。仅保留 raw capture/archive/restore/lifecycle；
+独立 maintenance pin 的操作入口见 `ops/qa/README.md`，迁移和退役边界见
+`docs/approved/qa-raw-only.md`。旧 QA 云资源仍须独立核实、停用和验收，
+不能用网关 release 或本手册中的历史 AWS 命令替代。
 
 回滚也走 dispatch：
 
@@ -740,7 +739,7 @@ QA Bundle 的 dedicated OIDC role、CloudFormation service role 和 GitHub varia
 gh workflow run deploy-stage0.yml -f tag=<上一版本>
 ```
 
-输入是目标 release tag；同一入口自动选择发生变化的 gateway、QA maintenance 和 Bundle Worker。
+输入是目标 release tag；普通入口仅发布 gateway，不能更新独立 QA maintenance pin。
 maintenance 使用 `tokenkey-qa-runtime` 停止容器固定独立镜像、配置和 data network；gateway-only 发布不更新或执行 QA。
 首次启用必须完成完整 QA 验收；旧 contract 回滚保留 QA pin 并暂停 DROP。
 组件与失败恢复契约见 [`prod-component-release.md`](../../docs/approved/prod-component-release.md)，数据生命周期仍以 QA SSOT 为准。
