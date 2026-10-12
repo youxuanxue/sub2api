@@ -41,14 +41,34 @@ func openAIErrorCodeIsCyberSafetyBlock(code string) bool {
 // 既不计费、也不 failover、不重复写响应。
 var errOpenAICyberPolicyForwarded = errors.New("openai cyber_policy forwarded to client")
 
-// CyberPolicyMark 记录一次 cyber_policy 硬阻断的上游证据。
+// CyberPolicyMark 记录一次 cyber 安全会话隔离命中证据。
 type CyberPolicyMark struct {
-	Code           string // 固定 "cyber_policy"
-	Message        string // 上游 error.message
+	// Code is OpenAICyberPolicyErrorCode (upstream) or
+	// OpenAICyberSessionBlockedErrorCode (TokenKey local / mirror echo).
+	// Local echo must not feed RecordCyberPolicyEvent ban counting.
+	Code           string
+	Message        string // 上游 / 本地 error.message
 	Body           string // 上游 response.failed / 400 原始 body（已截断；未脱敏，ops_error 落库由 sanitizeErrorBodyForStorage、风控日志由 redactContentModerationSecrets 统一脱敏）
-	UpstreamStatus int    // 上游 HTTP 状态（流式=200，非流式=400）
+	UpstreamStatus int    // 上游 HTTP 状态（流式=200，非流式=400；本地 echo 多为 403）
 	UpstreamInTok  int    // 上游已报 input tokens（如有）
 	UpstreamOutTok int    // 上游已报 output tokens（如有）
+}
+
+// canonicalizeCyberPolicyMarkCode keeps local session-block identity distinct
+// from upstream cyber_policy while accepting case variants of either SSOT code.
+func canonicalizeCyberPolicyMarkCode(code string) string {
+	switch strings.ToLower(strings.TrimSpace(code)) {
+	case OpenAICyberSessionBlockedErrorCode:
+		return OpenAICyberSessionBlockedErrorCode
+	default:
+		return OpenAICyberPolicyErrorCode
+	}
+}
+
+// IsOpenAICyberSessionBlockedMark reports a TokenKey local / mirror-echo
+// session-block mark (not a fresh upstream cyber_policy hit).
+func IsOpenAICyberSessionBlockedMark(mark *CyberPolicyMark) bool {
+	return mark != nil && mark.Code == OpenAICyberSessionBlockedErrorCode
 }
 
 // MarkOpsCyberPolicy 记录 cyber 标记；首个写入生效，后续忽略（同一 turn 只记一次）。
@@ -60,7 +80,7 @@ func MarkOpsCyberPolicy(c *gin.Context, mark CyberPolicyMark) {
 	if GetOpsCyberPolicy(c) != nil {
 		return
 	}
-	mark.Code = OpenAICyberPolicyErrorCode
+	mark.Code = canonicalizeCyberPolicyMarkCode(mark.Code)
 	mark.Message = strings.TrimSpace(mark.Message)
 	mark.Body = strings.TrimSpace(mark.Body)
 	c.Set(opsCyberPolicyKey, &mark)
@@ -95,8 +115,8 @@ func ClearOpsCyberPolicy(c *gin.Context) {
 // detectOpenAICyberPolicy 识别 cyber 安全会话隔离类 structured error.code：
 // 上游 cyber_policy（对齐 codex api_bridge.rs:145 / sse/responses.rs:529）以及
 // TokenKey 本地 session_blocked_by_cyber_policy（edge/mirror 回流）。
-// 命中一律归一为 (true, OpenAICyberPolicyErrorCode, message)，使 mark / ops /
-// session-block 写路径与 #2157 SharedFault 门禁共用同一 owner。
+// SharedFault / no-failover 共用 openAIErrorCodeIsCyberSafetyBlock；返回的 code
+// 保留上游 vs 本地身份，供 mark / ops / 风控计数分支（本地 echo 不进封号）。
 func detectOpenAICyberPolicy(payload []byte) (bool, string, string) {
 	code := gjson.GetBytes(payload, "error.code").String()
 	if code == "" {
@@ -109,7 +129,7 @@ func detectOpenAICyberPolicy(payload []byte) (bool, string, string) {
 	if msg == "" {
 		msg = gjson.GetBytes(payload, "response.error.message").String()
 	}
-	return true, OpenAICyberPolicyErrorCode, strings.TrimSpace(msg)
+	return true, canonicalizeCyberPolicyMarkCode(code), strings.TrimSpace(msg)
 }
 
 func markOpenAICyberPolicyEvent(c *gin.Context, payload []byte, upstreamStatus int, usage *OpenAIUsage) bool {

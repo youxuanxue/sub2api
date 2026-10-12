@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -82,7 +83,11 @@ func TestDetectOpenAICyberPolicy(t *testing.T) {
 			hit, code, msg := detectOpenAICyberPolicy([]byte(tc.payload))
 			require.Equal(t, tc.hit, hit)
 			if tc.hit {
-				require.Equal(t, OpenAICyberPolicyErrorCode, code, "family codes normalize to cyber_policy")
+				wantCode := OpenAICyberPolicyErrorCode
+				if strings.Contains(tc.payload, OpenAICyberSessionBlockedErrorCode) {
+					wantCode = OpenAICyberSessionBlockedErrorCode
+				}
+				require.Equal(t, wantCode, code, "upstream vs local session-block identity must be preserved")
 				require.Equal(t, tc.msg, msg)
 			}
 		})
@@ -95,4 +100,19 @@ func TestOpenAIErrorCodeIsCyberSafetyBlock(t *testing.T) {
 	require.True(t, openAIErrorCodeIsCyberSafetyBlock("Cyber_Policy"))
 	require.False(t, openAIErrorCodeIsCyberSafetyBlock("content_policy"))
 	require.False(t, openAIErrorCodeIsCyberSafetyBlock(""))
+}
+
+func TestMarkOpsCyberPolicyPreservesSessionBlockedIdentity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	MarkOpsCyberPolicy(c, CyberPolicyMark{
+		Code:           OpenAICyberSessionBlockedErrorCode,
+		Message:        "session blocked",
+		UpstreamStatus: 403,
+	})
+	got := GetOpsCyberPolicy(c)
+	require.NotNil(t, got)
+	require.Equal(t, OpenAICyberSessionBlockedErrorCode, got.Code)
+	require.True(t, IsOpenAICyberSessionBlockedMark(got))
+	require.False(t, IsOpenAICyberSessionBlockedMark(&CyberPolicyMark{Code: OpenAICyberPolicyErrorCode}))
 }

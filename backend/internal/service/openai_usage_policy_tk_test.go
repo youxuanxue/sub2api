@@ -114,7 +114,10 @@ func TestOpenAICyberSessionBlockedNeverFailsOver(t *testing.T) {
 
 	require.True(t, isOpenAISafetySessionBlockFault("", body))
 	require.Equal(t, "cyber_policy", markOpenAISafetyPolicyEvent(c, body, http.StatusForbidden, nil))
-	require.NotNil(t, GetOpsCyberPolicy(c))
+	mark := GetOpsCyberPolicy(c)
+	require.NotNil(t, mark)
+	require.Equal(t, OpenAICyberSessionBlockedErrorCode, mark.Code)
+	require.True(t, IsOpenAICyberSessionBlockedMark(mark))
 	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusForbidden, "", body))
 	require.False(t, shouldFailoverOpenAIPassthroughResponse(&Account{Type: AccountTypeOAuth}, http.StatusForbidden, body))
 	require.False(t, openAIStreamFailedEventShouldFailover(body, ""))

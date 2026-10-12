@@ -14674,10 +14674,13 @@
         "OpenAICyberPolicyErrorCode",
         "OpenAICyberSessionBlockedErrorCode",
         "func openAIErrorCodeIsCyberSafetyBlock(",
+        "func canonicalizeCyberPolicyMarkCode(",
+        "func IsOpenAICyberSessionBlockedMark(",
         "func detectOpenAICyberPolicy(",
-        "openAIErrorCodeIsCyberSafetyBlock(code)"
+        "openAIErrorCodeIsCyberSafetyBlock(code)",
+        "canonicalizeCyberPolicyMarkCode(code)"
       ],
-      "rationale": "SSOT for cyber safety structured codes: upstream cyber_policy and local session_blocked_by_cyber_policy share one gate so detect/mark/SharedFault stay aligned; dropping the local code re-enables prod→edge mirror fanout on session blocks."
+      "rationale": "SSOT for cyber safety structured codes: upstream cyber_policy and local session_blocked_by_cyber_policy share one detect/SharedFault gate while preserving local-echo identity so mark/ops can skip ban counting; dropping either re-enables mirror fanout or re-bans on session-block retries."
     },
     {
       "path": "backend/internal/service/openai_usage_policy_tk.go",
@@ -14727,9 +14730,12 @@
         "GetOpsUsagePolicy(c)",
         "buildUsagePolicyOpsErrorEntry",
         "ClearOpsUsagePolicy(c)",
-        "Session isolation for both cyber_policy and usage_policy hits"
+        "Session isolation for both cyber_policy and usage_policy hits",
+        "localSessionBlockEcho := service.IsOpenAICyberSessionBlockedMark(cyberMark)",
+        "cmSvc != nil && !localSessionBlockEcho",
+        "buildCyberSessionBlockedOpsEntry(opsMeta)"
       ],
-      "rationale": "Handler post-forward path writes session block + ops rows for usage_policy as well as cyber_policy, and clears both marks per WS turn."
+      "rationale": "Handler post-forward path writes session block + ops for usage/cyber, clears both marks per WS turn, and treats mirror session_blocked_by_cyber_policy echoes as session_blocked ops without RecordCyberPolicyEvent ban counting."
     },
     {
       "path": "backend/internal/service/setting_gateway_runtime.go",
@@ -14766,9 +14772,10 @@
       "path": "backend/internal/handler/openai_gateway_cyber_test.go",
       "must_contain": [
         "TestRecordCyberPolicyIfMarked_UsagePolicyWritesSessionBlock",
-        "usage_policy mark must write cyber session block keys"
+        "usage_policy mark must write cyber session block keys",
+        "TestRecordCyberPolicyIfMarked_SessionBlockedEchoSkipsModerationOpsAsSessionBlocked"
       ],
-      "rationale": "Handler behavior test: usage_policy mark must write session-block keys when the feature is enabled."
+      "rationale": "Handler behavior tests: usage_policy writes session-block keys; session_blocked echo skips upstream cyber moderation/ban counting (R-001)."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",

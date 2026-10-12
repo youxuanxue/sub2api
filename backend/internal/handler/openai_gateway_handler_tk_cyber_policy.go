@@ -423,6 +423,10 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 		CreatedAt:       time.Now(),
 	}
 	// Session isolation for both cyber_policy and usage_policy hits.
+	// Local session-block echo (mirror/edge 403 with session_blocked_by_cyber_policy)
+	// still writes the prod session-block table so rejectIfCyberSessionBlocked can
+	// short-circuit later, but must not re-enter RecordCyberPolicyEvent ban counting.
+	localSessionBlockEcho := service.IsOpenAICyberSessionBlockedMark(cyberMark)
 	cyberLogOnly := h.cyberPolicyLogOnly(c, apiKey)
 	if gwSvc != nil && apiKey != nil && !cyberLogOnly {
 		plan := buildCyberSessionBlockWritePlan(apiKey.ID, c, cyberBlockBody)
@@ -430,12 +434,15 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 			blockCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 			gwSvc.MarkCyberSessionBlocked(blockCtx, plan.scopeKey, plan.keys)
 			cancel()
+			if localSessionBlockEcho && opsMeta.SessionBlockKey == "" {
+				opsMeta.SessionBlockKey = plan.keys[0]
+			}
 		}
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if cyberMark != nil && cmSvc != nil {
+		if cyberMark != nil && cmSvc != nil && !localSessionBlockEcho {
 			cmSvc.RecordCyberPolicyEvent(ctx, service.CyberPolicyRecordInput{
 				LogOnly:         cyberLogOnly,
 				RequestID:       requestID,
@@ -460,7 +467,7 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 		} else if usageMark != nil {
 			inTok, outTok = usageMark.UpstreamInTok, usageMark.UpstreamOutTok
 		}
-		if forwardErrored && gwSvc != nil && cyberMark != nil {
+		if forwardErrored && gwSvc != nil && cyberMark != nil && !localSessionBlockEcho {
 			gwSvc.RecordCyberPolicyUsageLog(ctx, service.CyberPolicyUsageInput{
 				APIKey:             apiKey,
 				Account:            account,
@@ -481,7 +488,9 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 			})
 		}
 		if opsSvc != nil {
-			if cyberMark != nil {
+			if cyberMark != nil && localSessionBlockEcho {
+				enqueueOpsErrorLog(opsSvc, buildCyberSessionBlockedOpsEntry(opsMeta))
+			} else if cyberMark != nil {
 				enqueueOpsErrorLog(opsSvc, buildCyberPolicyOpsErrorEntry(opsMeta, cyberMark))
 			} else if usageMark != nil {
 				enqueueOpsErrorLog(opsSvc, buildUsagePolicyOpsErrorEntry(opsMeta, usageMark))
