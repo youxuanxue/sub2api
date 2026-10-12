@@ -315,6 +315,18 @@ jobs:
             "$INPUT_TAG" "$INSTANCE_ID" \
             "deploy-edge-hetzner edge=$INPUT_EDGE_ID op=$INPUT_OPERATION"
 
+      - name: Assert first-output timeouts (advisory)
+        # Catches compose/.env drift vs first_output_timeout_ssot after edge roll.
+        if: inputs.operation == 'upgrade' || inputs.operation == 'rollback'
+        continue-on-error: true
+        env:
+          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
+        run: |
+          set -uo pipefail
+          bash ops/stage0/assert-first-output-timeouts.sh \
+            --target "edge:${{ steps.edge.outputs.edge_id }}" \
+            --comment "deploy-edge-hetzner first-output assert edge=${{ steps.edge.outputs.edge_id }}"
+
       - name: External Edge health check
         if: inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
         env:
