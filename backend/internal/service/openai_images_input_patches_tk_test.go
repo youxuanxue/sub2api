@@ -110,6 +110,26 @@ func TestParseOpenAIImagesRequest_EditRejectsOverPatchLimitDataURL(t *testing.T)
 	require.Contains(t, err.Error(), "exceeding the limit of 30000")
 }
 
+func TestParseOpenAIImagesRequest_EditRejectsOverPatchLimitGIF(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// GIF logical-screen is uint16; 6000×6000 → 35344 patches without a full frame bitmap.
+	gifBytes := gifLogicalScreenDimensions(t, 6000, 6000)
+	body, contentType := multipartEditBody(t, "gpt-image-2", "touch up", gifBytes)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+
+	parsed, err := (&OpenAIGatewayService{}).ParseOpenAIImagesRequest(c, body)
+	require.Error(t, err)
+	require.Nil(t, parsed)
+	require.Contains(t, err.Error(), "35344 patches")
+	require.Contains(t, err.Error(), "exceeding the limit of 30000")
+}
+
 func TestForwardImages_EditOverPatchLimitNeverHitsUpstream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -259,4 +279,29 @@ func writePNGChunk(buf *bytes.Buffer, chunkType string, data []byte) {
 	var crcBuf [4]byte
 	binary.BigEndian.PutUint32(crcBuf[:], crc.Sum32())
 	buf.Write(crcBuf[:])
+}
+
+// gifLogicalScreenDimensions builds a minimal GIF89a whose logical screen is
+// width×height (uint16). image.DecodeConfig reads LSD without needing frames.
+func gifLogicalScreenDimensions(t *testing.T, width, height int) []byte {
+	t.Helper()
+	require.Greater(t, width, 0)
+	require.Greater(t, height, 0)
+	require.LessOrEqual(t, width, 0xffff)
+	require.LessOrEqual(t, height, 0xffff)
+
+	var buf bytes.Buffer
+	buf.WriteString("GIF89a")
+	var wh [4]byte
+	binary.LittleEndian.PutUint16(wh[0:2], uint16(width))
+	binary.LittleEndian.PutUint16(wh[2:4], uint16(height))
+	buf.Write(wh[:])
+	buf.Write([]byte{0x00, 0x00, 0x00}) // packed (no GCT), bg, aspect
+	buf.WriteByte(0x3b)                 // trailer
+
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(buf.Bytes()))
+	require.NoError(t, err)
+	require.Equal(t, width, cfg.Width)
+	require.Equal(t, height, cfg.Height)
+	return buf.Bytes()
 }
