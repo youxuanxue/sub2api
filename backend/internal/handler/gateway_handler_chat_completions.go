@@ -84,7 +84,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 	if service.IsGPTImageGenerationModel(reqModel) {
-		h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "This model is not supported on the Chat Completions endpoint")
+		h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", service.GPTImageRejectedOnChatCompletionsMessage)
 		return
 	}
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))

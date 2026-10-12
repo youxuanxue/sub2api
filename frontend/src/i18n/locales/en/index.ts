@@ -10,6 +10,7 @@ export default {
   imageGeneration: {
     "softRatio": "Aspect ratio is a composition preference; the model determines the actual output dimensions.",
     "exactCanvas": "Selected size is returned as the final canvas (gateway local pad/coerce).",
+    "gptImagesEndpointHint": "GPT Image only supports /v1/images/generations (create) or /v1/images/edits (edit). Calling /v1/chat/completions returns 400 and will not generate images.",
     "prompt": "Image prompt",
     "verifyKey": "Verify key",
     "verifyHint": "This checks the key only. Image generation is unverified. Generate in Studio; usage is billed.",
