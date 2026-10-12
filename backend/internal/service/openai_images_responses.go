@@ -373,6 +373,11 @@ func buildOpenAIImagesResponsesRequestWithMainModel(parsed *OpenAIImagesRequest,
 	if strings.TrimSpace(prompt) == "" {
 		return nil, fmt.Errorf("prompt is required")
 	}
+	// Perceived-quality scaffold before style and AR so marker AR=... stays at
+	// the end. Effort is chosen from the client prompt, before the scaffold
+	// adds its own labels. instructions stay empty below (codex2api).
+	reasoningEffort := openAIImagesReasoningEffortForPrompt(prompt)
+	prompt = applyOpenAIImagesPerceivedQualityPrompt(prompt, parsed.IsEdits())
 	// Style before AR marker so marker AR=... stays at the end (idempotent soft control).
 	prompt = applyOpenAIImagesStyleGuidance(prompt, parsed.Style)
 	prompt = applyOpenAIImagesAspectRatioMarker(prompt, resolveOpenAIImagesAspectRatioForMarker(parsed, true))
@@ -401,9 +406,12 @@ func buildOpenAIImagesResponsesRequestWithMainModel(parsed *OpenAIImagesRequest,
 
 	req := []byte(`{"instructions":"","stream":true,"reasoning":{"effort":"medium","summary":"auto"},"parallel_tool_calls":true,"include":["reasoning.encrypted_content"],"model":"","store":false,"tool_choice":{"type":"image_generation"}}`)
 	req, _ = sjson.SetBytes(req, "model", mainModel)
-	// Match codex2api: leave instructions empty so the driver does not rewrite the
-	// user prompt before invoking image_generation. Verbatim control lives in the
-	// tool fields + local fidelity post-process instead.
+	req, _ = sjson.SetBytes(req, "reasoning.effort", reasoningEffort)
+	// Match codex2api: leave instructions empty so the driver is not told to
+	// rewrite the user prompt. Velmo's labeled-spec preamble belongs in
+	// instructions and would fight that, so the cues live on input_text
+	// (applyOpenAIImagesPerceivedQualityPrompt). reasoning.effort is the
+	// mainline polish knob (default medium; quoted text → high).
 
 	input := []byte(`[{"type":"message","role":"user","content":[{"type":"input_text","text":""}]}]`)
 	input, _ = sjson.SetBytes(input, "0.content.0.text", prompt)

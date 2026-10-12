@@ -129,7 +129,9 @@ func TestBuildOpenAIImagesOAuthPayloadInjectsAspectRatioMarker(t *testing.T) {
 	body, target, err := buildOpenAIImagesOAuthPayload(parsed, "gpt-image-2")
 	require.NoError(t, err)
 	require.Equal(t, chatgptCodexURL, target)
-	require.Equal(t, "a tiny gray cube, marker AR=9:16", gjson.GetBytes(body, "input.0.content.0.text").String())
+	text := gjson.GetBytes(body, "input.0.content.0.text").String()
+	assertOpenAIImagesPerceivedQualityPrompt(t, text, "a tiny gray cube", false)
+	require.True(t, strings.HasSuffix(text, "marker AR=9:16"))
 	require.False(t, gjson.GetBytes(body, "aspect_ratio").Exists())
 	require.Equal(t, "image_generation", gjson.GetBytes(body, "tools.0.type").String())
 }
@@ -145,7 +147,9 @@ func TestBuildOpenAIImagesOAuthPayloadInjectsMarkerFromOfficialSize(t *testing.T
 	}
 	body, _, err := buildOpenAIImagesOAuthPayload(parsed, "gpt-image-2")
 	require.NoError(t, err)
-	require.Equal(t, "a tiny gray cube, marker AR=3:2", gjson.GetBytes(body, "input.0.content.0.text").String())
+	text := gjson.GetBytes(body, "input.0.content.0.text").String()
+	assertOpenAIImagesPerceivedQualityPrompt(t, text, "a tiny gray cube", false)
+	require.True(t, strings.HasSuffix(text, "marker AR=3:2"))
 	require.Equal(t, "1536x1024", gjson.GetBytes(body, "tools.0.size").String())
 }
 
@@ -248,7 +252,9 @@ func TestBuildOpenAIImagesResponsesRequestInjectsAspectRatioMarker(t *testing.T)
 	}
 	body, err := buildOpenAIImagesResponsesRequest(parsed, "gpt-image-1")
 	require.NoError(t, err)
-	require.Equal(t, "draw a cat, marker AR=2:3", gjson.GetBytes(body, "input.0.content.0.text").String())
+	text := gjson.GetBytes(body, "input.0.content.0.text").String()
+	assertOpenAIImagesPerceivedQualityPrompt(t, text, "draw a cat", false)
+	require.True(t, strings.HasSuffix(text, "marker AR=2:3"))
 }
 
 func boundaryFromContentType(t *testing.T, contentType string) string {

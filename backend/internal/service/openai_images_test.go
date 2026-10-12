@@ -981,7 +981,10 @@ func TestOpenAIGatewayServiceForwardImages_OAuthPassesNAndReturnsAllImages(t *te
 		require.False(t, gjson.GetBytes(body, "tools.0.n").Exists())
 	}
 	// OAuth Responses soft-control derives marker AR from official size.
-	require.Equal(t, "draw a cat, marker AR=1:1", gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String())
+	oauthPrompt := gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String()
+	assertOpenAIImagesPerceivedQualityPrompt(t, oauthPrompt, "draw a cat", false)
+	require.True(t, strings.HasSuffix(oauthPrompt, "marker AR=1:1"))
+	require.Equal(t, "medium", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "gpt-image-1", gjson.Get(rec.Body.String(), "model").String())
@@ -2029,7 +2032,9 @@ func TestOpenAIGatewayServiceForwardImages_OAuthEditsMultipartUsesResponsesAPI(t
 	require.Equal(t, "webp", gjson.GetBytes(upstream.lastBody, "tools.0.output_format").String())
 	require.True(t, strings.HasPrefix(gjson.GetBytes(upstream.lastBody, "input.0.content.1.image_url").String(), "data:image/png;base64,"))
 	require.True(t, strings.HasPrefix(gjson.GetBytes(upstream.lastBody, "tools.0.input_image_mask.image_url").String(), "data:image/png;base64,"))
-	require.Equal(t, "replace background with aurora", gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String())
+	editPrompt := gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String()
+	assertOpenAIImagesPerceivedQualityPrompt(t, editPrompt, "replace background with aurora", true)
+	require.Equal(t, "medium", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
 	outB64 := gjson.Get(rec.Body.String(), "data.0.b64_json").String()
 	require.NotEmpty(t, outB64)
 	require.NotEqual(t, editedPNG, outB64) // coerced to webp
@@ -2134,7 +2139,7 @@ func TestBuildOpenAIImagesResponsesRequest_OmitsNBecauseUpstreamRejects(t *testi
 	require.NotNil(t, body)
 	require.False(t, gjson.GetBytes(body, "tools.0.n").Exists())
 	require.Equal(t, "gpt-image-2", gjson.GetBytes(body, "tools.0.model").String())
-	require.Equal(t, "draw a cat", gjson.GetBytes(body, "input.0.content.0.text").String())
+	assertOpenAIImagesPerceivedQualityPrompt(t, gjson.GetBytes(body, "input.0.content.0.text").String(), "draw a cat", false)
 }
 
 func TestBuildOpenAIImagesResponsesRequest_ForcesImageToolChoice(t *testing.T) {
@@ -2184,7 +2189,10 @@ func TestBuildOpenAIImagesResponsesRequest_FoldsStyleIntoPromptNotTool(t *testin
 	require.NotNil(t, body)
 	require.Equal(t, "high", gjson.GetBytes(body, "tools.0.input_fidelity").String())
 	require.False(t, gjson.GetBytes(body, "tools.0.style").Exists())
-	require.Equal(t, "replace background\n\nStyle guidance: vivid", gjson.GetBytes(body, "input.0.content.0.text").String())
+	styled := gjson.GetBytes(body, "input.0.content.0.text").String()
+	assertOpenAIImagesPerceivedQualityPrompt(t, styled, "replace background", true)
+	require.Contains(t, styled, "Style guidance: vivid")
+	require.Greater(t, strings.Index(styled, "Style guidance: vivid"), strings.Index(styled, "Primary request:"))
 	require.Equal(t, "edit", gjson.GetBytes(body, "tools.0.action").String())
 }
 
@@ -2200,7 +2208,10 @@ func TestBuildOpenAIImagesResponsesRequest_UsesEmptyInstructionsLikeCodex2API(t 
 	body, err := buildOpenAIImagesResponsesRequest(parsed, "gpt-image-2")
 	require.NoError(t, err)
 	require.Equal(t, "", gjson.GetBytes(body, "instructions").String())
-	require.Equal(t, prompt, gjson.GetBytes(body, "input.0.content.0.text").String())
+	require.Equal(t, "high", gjson.GetBytes(body, "reasoning.effort").String())
+	quotedText := gjson.GetBytes(body, "input.0.content.0.text").String()
+	require.Contains(t, quotedText, prompt)
+	assertOpenAIImagesPerceivedQualityPrompt(t, quotedText, prompt, false)
 	require.Equal(t, openAIImagesResponsesMainModel, gjson.GetBytes(body, "model").String())
 	require.Equal(t, "image_generation", gjson.GetBytes(body, "tool_choice.type").String())
 	require.Equal(t, "generate", gjson.GetBytes(body, "tools.0.action").String())
