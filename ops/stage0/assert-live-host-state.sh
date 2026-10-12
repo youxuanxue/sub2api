@@ -20,7 +20,7 @@
 #   - the deploy_via_ssm.sh-injected env keys are actually present + non-empty in
 #     the running container;
 #   - first-output timeout env values match first_output_timeout_ssot.py
-#     (stream 30/60 + OpenAI 30/60) unless EXPECT_ENV overrides.
+#     (stream 30/60 + OpenAI 60/300) unless EXPECT_ENV overrides.
 #
 # Usage:
 #   ops/stage0/assert-live-host-state.sh <instance_id> [expected_tag] [comment]

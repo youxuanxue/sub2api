@@ -2777,7 +2777,7 @@ elif ! python3 ./scripts/checks/first-output-timeout-ssot.py --selftest >/dev/nu
 elif ! python3 ./scripts/checks/first-output-timeout-ssot.py --quiet; then
     errors=$((errors + 1))
 else
-    echo "  ok: first-output timeout owners match SSOT (stream 30/60 + OpenAI 30/60)"
+    echo "  ok: first-output timeout owners match SSOT (stream 30/60 + OpenAI 60/300)"
 fi
 
 # ---- sub2api: pgdump timer cadence parity ----------------------------------
