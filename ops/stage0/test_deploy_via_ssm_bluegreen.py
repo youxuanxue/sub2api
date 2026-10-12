@@ -905,6 +905,16 @@ printf accepted
         self.assertIn('max-size: "100m"', remote)
         self.assertIn('max-file: "5"', remote)
         self.assertEqual(remote.count("- SKIP_DATA_CHOWN=1"), 2)
+        self.assertEqual(
+            remote.count("- SUB2API_IMAGES_REASONING_EFFORT=${SUB2API_IMAGES_REASONING_EFFORT:-}"),
+            2,
+        )
+        self.assertEqual(
+            remote.count("- SUB2API_IMAGES_PROMPT_SCAFFOLD=${SUB2API_IMAGES_PROMPT_SCAFFOLD:-}"),
+            2,
+        )
+        self.assertNotIn("env_set SUB2API_IMAGES_REASONING_EFFORT", remote)
+        self.assertNotIn("env_set SUB2API_IMAGES_PROMPT_SCAFFOLD", remote)
         self.assertEqual(remote.count("QA_ARCHIVE_ENABLED="), 2)
         self.assertEqual(remote.count("- TELEMETRY_ARCHIVE_ENABLED="), 2)
         self.assertIn("env_default TELEMETRY_ARCHIVE_ENABLED false", remote)
