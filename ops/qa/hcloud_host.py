@@ -12,10 +12,10 @@ import time
 
 try:
     from .colocation_resources import load_policy, slice_unit
-    from .hcloud_runtime import HOST_ROOT, BRIDGE
+    from .hcloud_runtime import HOST_ROOT, render_files
 except ImportError:
     from colocation_resources import load_policy, slice_unit
-    from hcloud_runtime import HOST_ROOT, BRIDGE
+    from hcloud_runtime import HOST_ROOT, render_files
 
 ROOT = Path(HOST_ROOT)
 OWNER = 'qa-hcloud'
@@ -54,18 +54,52 @@ def gateway_snapshot():
                 for k in ('StartedAt', 'Running')} for n in names}
 
 
-def config():
-    path = ROOT / 'config/compose.json'
-    doc = json.loads(path.read_text())
-    if doc.get('name') != 'tokenkey-qa' or set(doc['services']) != {'qa-queue', 'qa-worker'}:
-        raise RuntimeError('unexpected QA Compose project')
-    for name, service in doc['services'].items():
-        if service['container_name'] != 'tokenkey-' + name or service['cgroup_parent'] != 'tokenkey-qa.slice':
-            raise RuntimeError('unexpected QA container boundary')
+def config(policy):
+    directory = ROOT / 'config'
+    inputs = json.loads((directory / 'render-inputs.json').read_text())
+    expected = render_files(**inputs, policy=policy)
+    for name, value in expected.items():
+        actual = (directory / name).read_text()
+        if (json.loads(actual) != json.loads(value) if name.endswith('.json') else actual != value):
+            raise RuntimeError('QA configuration differs from the approved renderer')
+    doc = json.loads(expected['compose.json'])
+    for service in doc['services'].values():
         for mount in service['volumes']:
-            if not mount['source'].startswith(HOST_ROOT + '/') or mount.get('bind', {}).get('create_host_path') is not False:
-                raise RuntimeError('unapproved QA mount')
+            # Exact renderer comparison rejects traversal; resolution also rejects
+            # a symlink replacing any component of an otherwise approved bind.
+            source = Path(mount['source'])
+            if source.resolve() != source:
+                raise RuntimeError('QA bind path must not contain symlinks')
     return doc
+
+
+def root_io_device():
+    root_device = run('findmnt', '-no', 'SOURCE', '/')
+    parent = run('lsblk', '-no', 'PKNAME', root_device)
+    return '/dev/' + parent if parent else root_device
+
+
+def check_slice(policy):
+    if run('systemctl', 'is-active', 'tokenkey-qa.slice') != 'active':
+        raise RuntimeError('QA parent slice is not active; prepare it first')
+    group = run('systemctl', 'show', '--property=ControlGroup', '--value', 'tokenkey-qa.slice')
+    if group != '/tokenkey.slice/tokenkey-qa.slice':
+        raise RuntimeError('unexpected QA parent cgroup')
+    path = Path('/sys/fs/cgroup') / group.lstrip('/')
+    cap = policy['aggregate']
+    expected = {'memory.max': cap['memory_bytes'], 'memory.swap.max': 0, 'pids.max': cap['pids']}
+    if any((path / name).read_text().strip() != str(value) for name, value in expected.items()):
+        raise RuntimeError('QA parent memory/swap/PID limits differ')
+    quota, period = (path / 'cpu.max').read_text().split()
+    if quota == 'max' or int(quota) * 1000 != int(period) * cap['cpu_millis']:
+        raise RuntimeError('QA parent CPU limit differs')
+    device = run('lsblk', '-dnro', 'MAJ:MIN', root_io_device())
+    rows = {row.split()[0]: dict(item.split('=') for item in row.split()[1:])
+            for row in (path / 'io.max').read_text().splitlines()}
+    expected_io = {'rbps': str(policy['io_bytes_per_second']), 'wbps': str(policy['io_bytes_per_second']),
+                   'riops': str(policy['io_iops']), 'wiops': str(policy['io_iops'])}
+    if any(rows.get(device, {}).get(key) != value for key, value in expected_io.items()):
+        raise RuntimeError('QA parent physical disk IO limits differ')
 
 
 def compose(*args):
@@ -87,7 +121,7 @@ def check_mount(name, expected):
 
 
 def prepare(policy):
-    config()
+    config(policy)
     if shutil.disk_usage(ROOT).free < 16 * 1024**3:
         raise RuntimeError('uk1 free disk below 16 GiB preparation floor')
     if int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines()
@@ -125,10 +159,8 @@ WantedBy=multi-user.target
         check_mount(name, size)
         os.chown(mount, uid, uid)
         mount.chmod(0o700)
-    root_device = run('findmnt', '-no', 'SOURCE', '/')
     # io.max on the physical parent covers loop-backed writes too; verify live cgroup counters.
-    parent = run('lsblk', '-no', 'PKNAME', root_device)
-    device = '/dev/' + parent if parent else root_device
+    device = root_io_device()
     unit = slice_unit(policy) + (f'IOAccounting=yes\nIOWeight=10\n'
                                f'IOReadBandwidthMax={device} {policy["io_bytes_per_second"]}\n'
                                f'IOWriteBandwidthMax={device} {policy["io_bytes_per_second"]}\n'
@@ -137,6 +169,7 @@ WantedBy=multi-user.target
     write_unit('tokenkey-qa.slice', unit)
     run('systemctl', 'daemon-reload')
     run('systemctl', 'start', 'tokenkey-qa.slice')
+    check_slice(policy)
     run('nft', '--check', '--file', str(ROOT/'config/firewall.nft'))
 
 
@@ -176,7 +209,8 @@ def load_firewall():
 
 
 def bootstrap(policy):
-    doc = config()
+    doc = config(policy)
+    check_slice(policy)
     check_mount('queue', policy['queue_disk_bytes'])
     if (ROOT/'queue/pgdata').exists():
         raise RuntimeError('queue data already exists; bootstrap refuses to reinitialize it')
@@ -229,6 +263,49 @@ def drain():
     compose('stop', 'qa-worker')
 
 
+def runtime_boundary(policy):
+    config(policy)
+    check_mount('queue', policy['queue_disk_bytes'])
+    check_mount('scratch', policy['scratch_bytes'])
+    check_slice(policy)
+    verify_private_files()
+    load_firewall()
+
+
+def start_component(operation, policy):
+    runtime_boundary(policy)
+    existing = run('docker', 'ps', '-a', '--filter', 'name=^tokenkey-qa-queue$', '--format', '{{.Names}}')
+    running = bool(existing) and owned_container('tokenkey-qa-queue')['State']['Running']
+    if operation == 'worker-start' and not running:
+        raise RuntimeError('start the queue before preparing a worker')
+    if running:
+        state = status()
+        if not state['paused'] or state['active_leases']:
+            raise RuntimeError('pause and drain before replacing QA components')
+    else:
+        # A restarted database may contain paused=false. No consumer may reconnect
+        # before it is explicitly paused; HBA admits only this worker address.
+        worker = run('docker', 'ps', '-a', '--filter', 'name=^tokenkey-qa-worker$', '--format', '{{.Names}}')
+        if worker and owned_container('tokenkey-qa-worker')['State']['Running']:
+            raise RuntimeError('stop the worker before recovering a stopped queue')
+    component = 'qa-queue' if operation == 'queue-start' else 'qa-worker'
+    compose('up', '-d', '--no-build', '--no-deps', '--pull', 'never', component)
+    if not running:
+        deadline = time.monotonic() + 60
+        while True:
+            info = owned_container('tokenkey-qa-queue')
+            if not info['State']['Running']:
+                raise RuntimeError('recovered QA queue failed to start')
+            if info['State'].get('Health', {}).get('Status') == 'healthy':
+                break
+            if time.monotonic() >= deadline:
+                raise RuntimeError('QA queue readiness timed out; keep worker stopped')
+            time.sleep(1)
+        sql('UPDATE qa_queue.control SET paused=true')
+        if not status()['paused']:
+            raise RuntimeError('recovered QA queue is not paused; keep worker stopped')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('operation', choices=('prepare', 'bootstrap', 'queue-start', 'worker-start', 'status', 'pause', 'resume', 'drain'))
@@ -245,23 +322,11 @@ def main():
         elif args.operation == 'bootstrap':
             bootstrap(policy)
         elif args.operation in ('queue-start', 'worker-start'):
-            config()
-            check_mount('queue', policy['queue_disk_bytes'])
-            check_mount('scratch', policy['scratch_bytes'])
-            load_firewall()
-            verify_private_files()
-            existing = run('docker', 'ps', '-a', '--filter', 'name=^tokenkey-qa-queue$', '--format', '{{.Names}}')
-            if existing:
-                state = status()
-                if not state['paused'] or state['active_leases']:
-                    raise RuntimeError('pause and drain before replacing QA components')
-            if args.operation == 'worker-start' and not existing:
-                raise RuntimeError('start the queue before preparing a worker')
-            compose('up', '-d', '--no-build', '--no-deps', '--pull', 'never',
-                    'qa-queue' if args.operation == 'queue-start' else 'qa-worker')
+            start_component(args.operation, policy)
         elif args.operation == 'pause':
             sql('UPDATE qa_queue.control SET paused=true')
         elif args.operation == 'resume':
+            runtime_boundary(policy)
             sql('UPDATE qa_queue.control SET paused=false')
         elif args.operation == 'drain':
             drain()

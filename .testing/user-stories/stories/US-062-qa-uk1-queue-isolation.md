@@ -26,7 +26,7 @@
 10. AC-010（发布）：PostgreSQL 坐标可通过发布 renderer；混用 SQS、缺 DSN 被拒绝，Hetzner resolver 不调用 CFN。
 11. AC-011（主机）：两个颜色使用相同只读身份挂载；缺卷、错数据盘、公开可读或错误凭据路径拒绝；候选准备失败恢复修改前的宿主配置。
 
-12. AC-012（运行包）：默认只准备独立队列；私有文件、TLS IP 身份、不可变镜像和网络地址校验拒绝错误配置。线上磁盘/网络/恢复验收前不切 producer。
+12. AC-012（运行包）：默认只准备独立队列；私有文件、TLS IP 身份、不可变镜像和网络地址校验拒绝错误配置。启动拒绝配置漂移、符号链接挂载及缺失的父 cgroup 实际限额；停止的队列须在 worker 停止时恢复并暂停领取。线上磁盘/网络/恢复验收前不切 producer。
 13. AC-013（预拷贝）：保持字节、元数据和源到期时刻；SHA256 回读后记录台账；中断重跑不覆盖外来对象，源变化/损坏/未知到期时刻拒绝发布。
 
 ## Linked Tests
@@ -60,6 +60,11 @@ go test -tags=integration ./internal/observability/qa/bundle -run TestUS062 -cou
 - `ops/qa/test_hcloud_runtime.py`::`HcloudRuntimeTest.test_credentials_are_private_separate_queue_roles_and_tls_verifies`
 - `ops/qa/test_hcloud_runtime.py`::`HcloudRuntimeTest.test_rejects_mutable_images_public_endpoints_and_network_overlap`
 - `ops/qa/test_hcloud_runtime.py`::`HcloudRuntimeTest.test_compose_validates_and_does_not_start_consumer_by_default`
+- `ops/qa/test_hcloud_host.py`::`HostBoundaryTest.test_rendered_configuration_accepts_valid_and_rejects_boundary_drift`
+- `ops/qa/test_hcloud_host.py`::`HostBoundaryTest.test_live_slice_rejects_inactive_unlimited_and_missing_physical_io_cap`
+- `ops/qa/test_hcloud_host.py`::`HostBoundaryTest.test_failed_boundary_prevents_container_start`
+- `ops/qa/test_hcloud_host.py`::`HostBoundaryTest.test_stopped_queue_recovers_paused_before_worker_can_start`
+- `ops/qa/test_hcloud_host.py`::`HostBoundaryTest.test_recovery_refuses_a_live_worker_and_replacement_refuses_live_leases`
 - `ops/qa/test_migrate_hcloud_objects.py`::`MigrationObjectsTest.test_copy_roundtrip_preserves_bytes_headers_expiry_and_skips_verified`
 - `ops/qa/test_migrate_hcloud_objects.py`::`MigrationObjectsTest.test_interrupted_readback_recovers_without_overwriting`
 - `ops/qa/test_migrate_hcloud_objects.py`::`MigrationObjectsTest.test_recovery_rejects_corruption_and_unknown_target`
@@ -67,7 +72,7 @@ go test -tags=integration ./internal/observability/qa/bundle -run TestUS062 -cou
 - `ops/qa/test_migrate_hcloud_objects.py`::`MigrationObjectsTest.test_expired_missing_expiry_and_changed_source_never_publish`
 
 ```bash
-python3 -m unittest ops.qa.test_hcloud_runtime ops.qa.test_migrate_hcloud_objects
+python3 -m unittest ops.qa.test_hcloud_host ops.qa.test_hcloud_runtime ops.qa.test_migrate_hcloud_objects
 ```
 
 ## Assertions

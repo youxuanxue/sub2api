@@ -125,7 +125,10 @@ host and installs mount guards for both Docker and the application service.
 
 `ops/qa/hcloud_runtime.py` renders a runnable Compose project, PostgreSQL TLS/HBA
 configuration, and firewall tables scoped to `tk-qa0`. Both images must be pinned
-by digest. The worker is behind the `worker` Compose profile, so preparing the
+by digest. The generated `render-inputs.json` contains only non-secret inputs;
+host operations regenerate and compare the entire configuration before use.
+Install the complete generated directory together (older directories without
+`render-inputs.json` must be regenerated). The worker is behind the `worker` Compose profile, so preparing the
 queue does not start consuming jobs. The parent slice and two bounded ext4
 filesystems must be prepared before using Compose.
 
@@ -142,7 +145,11 @@ resource slice; `bootstrap` initializes only an absent QA data directory, applie
 `queue.sql` and starts with claims paused. `queue-start` / `worker-start` enforce
 mounts, private credentials and the scoped firewall. `pause`, `status`, `drain`,
 and `resume` operate only on the dedicated QA queue. Replacement requires claims
-to be paused and leases drained. No operation restarts Docker or a gateway.
+to be paused and leases drained. Bootstrap, start and resume read back the active
+parent cgroup's CPU, memory, swap, PID and physical-device IO limits; a missing or
+unbounded slice refuses execution. Recovering a stopped queue requires the
+worker to be stopped, then waits for database readiness and pauses claims before
+allowing worker preparation. No operation restarts Docker or a gateway.
 
 These tools are not yet a cutover command: persistent startup, backup/restore,
 release coordination, migration reconciliation and actual allow/deny tests must

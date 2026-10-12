@@ -5,11 +5,11 @@ from pathlib import Path
 import subprocess
 from urllib.parse import urlparse, parse_qs
 try:
-    from .hcloud_host import guard, owned_container, status, check_mount, ROOT
+    from .hcloud_host import guard, owned_container, status, check_mount, check_slice, ROOT
     from .colocation_resources import load_policy
     from .hcloud_runtime import QUEUE_IP
 except ImportError:
-    from hcloud_host import guard, owned_container, status, check_mount, ROOT
+    from hcloud_host import guard, owned_container, status, check_mount, check_slice, ROOT
     from colocation_resources import load_policy
     from hcloud_runtime import QUEUE_IP
 
@@ -50,6 +50,8 @@ def main():
     guard()
     policy = load_policy(ROOT/'resource-policy.json')
     checks = {}
+    check_slice(policy)
+    checks['parent_resource_limits'] = True
     for component, uid in [('queue','70:70'),('worker','1000:1000')]:
         name = 'tokenkey-qa-' + component
         info = owned_container(name)

@@ -175,6 +175,17 @@ table bridge tokenkey_qa {{
 '''
 
 
+def render_files(worker_image, queue_image, queue_host, producer_host, storage_ips, coordinates=None, policy=None):
+    coordinates = coordinates or json.loads((ROOT / 'deploy/hetzner/qa/producer.json').read_text())
+    inputs = dict(worker_image=worker_image, queue_image=queue_image, queue_host=queue_host,
+                  producer_host=producer_host, storage_ips=storage_ips, coordinates=coordinates)
+    return {'render-inputs.json': json.dumps(inputs, indent=2),
+            'compose.json': json.dumps(render(worker_image, queue_image, queue_host, producer_host,
+                                             coordinates, policy), indent=2),
+            'postgresql.conf': postgres_config(), 'pg_hba.conf': hba_config(producer_host),
+            'firewall.nft': firewall(queue_host, producer_host, storage_ips)}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--worker-image', required=True)
@@ -184,11 +195,9 @@ def main():
     parser.add_argument('--storage-ip', action='append', required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    compose = render(args.worker_image, args.queue_image, args.queue_host, args.producer_host)
-    rules = firewall(args.queue_host, args.producer_host, args.storage_ip)
+    files = render_files(args.worker_image, args.queue_image, args.queue_host, args.producer_host, args.storage_ip)
     args.output.mkdir(mode=0o700, parents=True, exist_ok=True)
-    for name, value in {'compose.json': json.dumps(compose, indent=2), 'postgresql.conf': postgres_config(),
-                        'pg_hba.conf': hba_config(args.producer_host), 'firewall.nft': rules}.items():
+    for name, value in files.items():
         (args.output / name).write_text(value)
 
 
