@@ -688,9 +688,12 @@
         "if (response.get('protocol_version') != CONTROL_PROTOCOL_VERSION",
         "self.last_control_ok = None",
         "if self.last_control_ok is None or time.monotonic() - self.last_control_ok >= POLL_SECONDS:",
-        "raise Failure(400, 'Missing Gemini Web account reference')"
+        "raise Failure(400, 'Missing Gemini Web account reference')",
+        "elif not self.fields or not self.models:",
+        "pending_claimed = True",
+        "elif pending_claimed and self.generation_pending:"
       ],
-      "rationale": "The Worker deploys on its own cadence (prod does not run it), so its identity surface is the only way a fleet check can prove all edges run one build. Image tags are hand-typed and have lied before (1.8.253-147512b9d names a commit absent from main); the digest is derived from shipped sources instead. Removing it makes ops/observability/check-gemini-web-worker-fleet.sh blind. The protocol anchor pins the declaration, not the number: a paired bump with handler.GeminiWebControlProtocolVersion is legitimate, and scripts/checks/gemini-web-control-protocol.py owns whether the two agree. Readiness must distinguish never-verified from verified-long-ago: time.monotonic() counts from boot, so a 0 sentinel made the freshness window look satisfied for a host's first POLL_SECONDS and ready() reported not-ready without ever calling the control plane. Missing X-TokenKey-Gemini-Web-Account-ID must stay HTTP 400 (request-shape), never 401, so gateways do not SetError healthy cookie sessions."
+      "rationale": "The Worker deploys on its own cadence (prod does not run it), so its identity surface is the only way a fleet check can prove all edges run one build. Image tags are hand-typed and have lied before (1.8.253-147512b9d names a commit absent from main); the digest is derived from shipped sources instead. Removing it makes ops/observability/check-gemini-web-worker-fleet.sh blind. The protocol anchor pins the declaration, not the number: a paired bump with handler.GeminiWebControlProtocolVersion is legitimate, and scripts/checks/gemini-web-control-protocol.py owns whether the two agree. Readiness must distinguish never-verified from verified-long-ago: time.monotonic() counts from boot, so a 0 sentinel made the freshness window look satisfied for a host's first POLL_SECONDS and ready() reported not-ready without ever calling the control plane. Missing X-TokenKey-Gemini-Web-Account-ID must stay HTTP 400 (request-shape), never 401, so gateways do not SetError healthy cookie sessions. Hot-path generate must keep cached fields/models without a 300s /app rebootstrap, and generation_pending must stay memory-first with a persist on uncertain Failure so StreamGenerate is not blocked by a preflight CAS while restarts still pause retries."
     },
     {
       "path": "ops/gemini-web/build_digest.py",
@@ -721,9 +724,13 @@
         "def test_digest_is_computable_from_the_shipped_file_set_alone(self):",
         "def test_dockerfile_changes_the_build_digest(self):",
         "def test_readiness_verifies_control_on_a_freshly_booted_host(self):",
-        "cannot identify itself"
+        "cannot identify itself",
+        "def test_hot_session_skips_stale_ready_at_bootstrap(self):",
+        "def test_generate_defers_pending_persist_until_uncertain_failure(self):",
+        "def test_multi_image_downloads_in_parallel(self):",
+        "def test_download_decodes_with_single_pillow_open(self):"
       ],
-      "rationale": "Guards the Worker's build-identity contract, which has failed in both directions already. test_dockerfile_ships_every_digest_input must cover every DIGEST_FILES entry with no exemption: exempting the Dockerfile (on the false reasoning that a build input need not ship) published an image reporting `unknown`. test_digest_is_computable_from_the_shipped_file_set_alone stages exactly the COPYed set and computes the digest the way the running container does, because asserting over the Dockerfile's text cannot catch an input that never arrived. test_dockerfile_changes_the_build_digest keeps a changed security contract from reusing a tag. The freshly-booted-host test pins that time.monotonic() counting from boot must not make never-verified look like verified-long-ago, which made a Worker started in a host's first POLL_SECONDS never become ready."
+      "rationale": "Guards the Worker's build-identity contract, which has failed in both directions already. test_dockerfile_ships_every_digest_input must cover every DIGEST_FILES entry with no exemption: exempting the Dockerfile (on the false reasoning that a build input need not ship) published an image reporting `unknown`. test_digest_is_computable_from_the_shipped_file_set_alone stages exactly the COPYed set and computes the digest the way the running container does, because asserting over the Dockerfile's text cannot catch an input that never arrived. test_dockerfile_changes_the_build_digest keeps a changed security contract from reusing a tag. The freshly-booted-host test pins that time.monotonic() counting from boot must not make never-verified look like verified-long-ago, which made a Worker started in a host's first POLL_SECONDS never become ready. Image hot-path regressions must keep warm-session skip, deferred pending persist, parallel multi-image download, and single-Pillow decode coverage so a future edit cannot silently restore the pre-generate CAS or double-open path."
     },
     {
       "path": ".github/workflows/gemini-web-worker.yml",
