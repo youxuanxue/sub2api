@@ -17,6 +17,7 @@ import signal
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -348,6 +349,8 @@ class Account:
             self.ready_at = ready_at
         self.last_phase = {}
         self.session_id = str(uuid.uuid4())
+        # Parallel original downloads share one jar; serialize curl_cffi I/O only.
+        self._session_lock = threading.Lock()
 
     def close(self):
         self.session.close()
@@ -404,35 +407,36 @@ class Account:
             connect = min(connect, read)
         kwargs['timeout'] = (connect, read)
         before_cookies = self.cookie_fingerprint()
-        try:
-            response = self.session.request(method, url, allow_redirects=False,
-                                             content_callback=collect, **kwargs)
-        except Exception as exc:
-            # curl exceptions include signed URLs. Never expose their text.
-            self.cooldown_until = time.time() + 60
-            print(json.dumps({
-                'event': 'upstream_transport_error',
-                'type': type(exc).__name__,
-                'timeout_s': round(read, 3),
-                'connect_timeout_s': round(connect, 3),
-            }), flush=True)
-            self.persist()
-            raise Failure(502, 'Upstream transport failed; request was not retried') from exc
-        # Cookie jar updates are the only silent side effect of success; skip CAS
-        # when Google did not rotate cookies (explicit pending/blocked still persist).
-        if self.cookie_fingerprint() != before_cookies:
-            self.persist()
-        code = response.status_code
-        if code in (401, 403) or (300 <= code < 400 and 'accounts.google.com' in response.headers.get('location', '')):
-            self.blocked = True
-            self.persist()
-            raise Failure(403, 'Google session requires operator verification or re-import')
-        if code == 429:
-            self.cooldown_until = time.time() + 300
-            self.persist()
-            raise Failure(429, 'Google Web quota exceeded')
-        if code != 200 and code not in (301, 302, 303, 307, 308):
-            raise Failure(502, 'Google Web HTTP %d' % code)
+        with self._session_lock:
+            try:
+                response = self.session.request(method, url, allow_redirects=False,
+                                                 content_callback=collect, **kwargs)
+            except Exception as exc:
+                # curl exceptions include signed URLs. Never expose their text.
+                self.cooldown_until = time.time() + 60
+                print(json.dumps({
+                    'event': 'upstream_transport_error',
+                    'type': type(exc).__name__,
+                    'timeout_s': round(read, 3),
+                    'connect_timeout_s': round(connect, 3),
+                }), flush=True)
+                self.persist()
+                raise Failure(502, 'Upstream transport failed; request was not retried') from exc
+            # Cookie jar updates are the only silent side effect of success; skip CAS
+            # when Google did not rotate cookies (explicit pending/blocked still persist).
+            if self.cookie_fingerprint() != before_cookies:
+                self.persist()
+            code = response.status_code
+            if code in (401, 403) or (300 <= code < 400 and 'accounts.google.com' in response.headers.get('location', '')):
+                self.blocked = True
+                self.persist()
+                raise Failure(403, 'Google session requires operator verification or re-import')
+            if code == 429:
+                self.cooldown_until = time.time() + 300
+                self.persist()
+                raise Failure(429, 'Google Web quota exceeded')
+            if code != 200 and code not in (301, 302, 303, 307, 308):
+                raise Failure(502, 'Google Web HTTP %d' % code)
         return response, bytes(data)
 
     def params(self):
@@ -514,6 +518,7 @@ class Account:
             mime = response.headers.get('content-type', '').split(';')[0]
             if mime.startswith('image/'):
                 try:
+                    # One Pillow pass: load() fully decodes; no second open after verify().
                     with Image.open(io.BytesIO(data)) as image:
                         actual = Image.MIME.get(image.format)
                         if actual not in ('image/jpeg', 'image/png', 'image/webp') or actual != mime:
@@ -522,8 +527,6 @@ class Account:
                             raise ValueError('image exceeds decoded pixel budget')
                         # The original-image RPC is mandatory; dimensions are evidence,
                         # never a reason to upscale a preview and call it an original.
-                        image.verify()
-                    with Image.open(io.BytesIO(data)) as image:
                         image.load()
                 except Exception as exc:
                     raise Failure(502, 'Invalid original image bytes') from exc
@@ -569,6 +572,7 @@ class Account:
     def generate(self, model, body):
         prompt, modalities, aspect_ratio, images = request_prompt(body, model)
         blocked_at_start = self.blocked
+        pending_claimed = False
         phase = {
             'refresh_ms': 0,
             'bootstrap_ms': 0,
@@ -584,7 +588,9 @@ class Account:
                 started = time.monotonic()
                 self.refresh()
                 phase['refresh_ms'] = round((time.monotonic() - started) * 1000)
-            elif time.time() - self.ready_at > 300:
+            elif not self.fields or not self.models:
+                # Hot path: reuse cached /app fields until RotateCookies refresh.
+                # Avoid re-bootstrap every 300s when the jar is already warm.
                 started = time.monotonic()
                 self.bootstrap()
                 phase['bootstrap_ms'] = round((time.monotonic() - started) * 1000)
@@ -632,8 +638,11 @@ class Account:
                 'x-goog-ext-73010989-jspb': '[0]', 'x-goog-ext-73010990-jspb': '[0,0,0]'}
             if images:
                 inner[0][3] = [self.upload(data, mime) for data, mime in images]
+            # Memory-first pending: avoid a sync control CAS before StreamGenerate.
+            # Transport errors persist via call(); other Failure paths persist below.
+            # Extreme crash before that persist can leave pending unset (accepted).
             self.generation_pending = True
-            self.persist()
+            pending_claimed = True
             generate_timeout = (
                 IMAGE_GENERATE_TIMEOUT_SECONDS if wants_image else TEXT_GENERATE_TIMEOUT_SECONDS)
             phase['generate_timeout_s'] = generate_timeout
@@ -654,9 +663,14 @@ class Account:
             if references and 'IMAGE' not in modalities:
                 raise Failure(502, 'Google returned images for a text-only request')
             parts = [{'text': text}] if text and 'TEXT' in modalities else []
+            if len(references) <= 1:
+                image_parts = [self.download(reference) for reference in references]
+            else:
+                # Overlap Pillow decode with the next original fetch; jar I/O is locked.
+                with ThreadPoolExecutor(max_workers=min(4, len(references))) as pool:
+                    image_parts = list(pool.map(self.download, references))
             encoded_bytes = 0
-            for reference in references:
-                part = self.download(reference)
+            for part in image_parts:
                 encoded_bytes += len(part['inlineData']['data'])
                 if encoded_bytes > MAX_BYTES:
                     raise Failure(502, 'Combined original images exceed response size limit')
@@ -677,6 +691,9 @@ class Account:
                 # (generation_pending) also raises 403, but must retain the
                 # marker so an uncertain upstream operation cannot be retried.
                 self.generation_pending = False
+                self.persist()
+            elif pending_claimed and self.generation_pending:
+                # Uncertain StreamGenerate/download outcomes must survive restart.
                 self.persist()
             raise
         finally:
