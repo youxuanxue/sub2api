@@ -39,13 +39,18 @@ nano-pro
 
 ## 1. 入口（实测错误码）
 
+> **客户常见误用（prod 已见）：** `gpt-image-*` 打到 `/v1/chat/completions` → **400**，不会出图。
+> 正确入口：**文生图** `POST /v1/images/generations`；**图生图/编辑** `POST /v1/images/edits`。
+> 产品不放行 Chat 生图；Quickstart/Studio 对 GPT Image 有同面警示（owner 见
+> [`image-generation-quickstart-studio.md`](../approved/image-generation-quickstart-studio.md)）。
+
 | 模型 | 正确入口 | 错误入口（实测） |
 | --- | --- | --- |
-| `gpt-image-*` | `POST /v1/images/generations` | 走 Chat → **400** `This model is not supported on the Chat Completions endpoint` |
+| `gpt-image-*` | `POST /v1/images/generations`（文生图）或 `POST /v1/images/edits`（编辑） | 走 Chat → **400**（文案含 Chat Completions 不受支持 + Images 入口 hint） |
 | Gemini 原生生图 / `nano-*` | `POST /v1/chat/completions` | 走 Images → **404** `The images API is only available for OpenAI-compatible platform groups` |
 | 同上（可选） | `POST /v1beta/models/{model}:generateContent` | 实测 `gemini-3.1-flash-image` + `aspectRatio=16:9` → **200**，像素 `1376x768` |
 
-Universal 客户优先：**GPT → Images**；**Gemini → Chat**（与 Studio/Quickstart 一致）。
+Universal 客户优先：**GPT → Images（generations/edits）**；**Gemini → Chat**（与 Studio/Quickstart 一致）。
 
 ---
 

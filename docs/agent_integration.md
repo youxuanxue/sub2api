@@ -1131,7 +1131,12 @@ adapter registry:
   no-prefix alias `POST /images/generations`). Synchronous: returns the
   upstream JSON body inline. Volcengine `channel_type = 45` (e.g.
   `doubao-seedream-4-0-250828`) is supported via the upstream `volcengine`
-  adapter.
+  adapter. **GPT Image (`gpt-image-*`) must use `/v1/images/generations`
+  or `/v1/images/edits` only** — posting those models to
+  `/v1/chat/completions` returns **400** (`invalid_request_error`); TokenKey
+  does not accept Chat Completions for GPT Image. Product/Quickstart copy
+  for this warning lives under
+  `docs/approved/image-generation-quickstart-studio.md` (not a second SSOT).
 - **Video generation** — `POST /v1/video/generations`,
   `GET /v1/video/generations/:task_id`, and the OpenAI-compat aliases
   `POST /v1/videos`, `GET /v1/videos/:task_id` (plus their no-prefix
