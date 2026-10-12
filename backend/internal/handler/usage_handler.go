@@ -456,6 +456,45 @@ func apiKeyDailyUsageRange(days int, userTZ string) (time.Time, time.Time) {
 	return startTime, endTime
 }
 
+// parseAPIKeyCalendarDateRange parses inclusive YYYY-MM-DD bounds into a half-open
+// [start, end) window in the caller's timezone. Span is capped at maxAPIKeyDailyUsageDays.
+func parseAPIKeyCalendarDateRange(startDateStr, endDateStr, userTZ string) (time.Time, time.Time, int, error) {
+	startTime, err := timezone.ParseInUserLocation("2006-01-02", startDateStr, userTZ)
+	if err != nil {
+		return time.Time{}, time.Time{}, 0, errInvalidAPIKeyStartDate
+	}
+	endDay, err := timezone.ParseInUserLocation("2006-01-02", endDateStr, userTZ)
+	if err != nil {
+		return time.Time{}, time.Time{}, 0, errInvalidAPIKeyEndDate
+	}
+	endTime := endDay.AddDate(0, 0, 1)
+	if !endTime.After(startTime) {
+		return time.Time{}, time.Time{}, 0, errInvalidAPIKeyDateOrder
+	}
+	// Count inclusive civil days from Y/M/D (UTC midnights) so DST spring-forward
+	// days (23h wall clock) are not rejected as a zero-length span.
+	sy, sm, sd := startTime.Date()
+	ey, em, ed := endDay.Date()
+	civilStart := time.Date(sy, sm, sd, 0, 0, 0, 0, time.UTC)
+	civilEnd := time.Date(ey, em, ed, 0, 0, 0, 0, time.UTC)
+	days := int(civilEnd.Sub(civilStart)/(24*time.Hour)) + 1
+	if days <= 0 || days > maxAPIKeyDailyUsageDays {
+		return time.Time{}, time.Time{}, 0, errInvalidAPIKeyDateSpan
+	}
+	return startTime, endTime, days, nil
+}
+
+var (
+	errInvalidAPIKeyStartDate = errAPIKeyUsageWindow("Invalid start_date format, use YYYY-MM-DD")
+	errInvalidAPIKeyEndDate   = errAPIKeyUsageWindow("Invalid end_date format, use YYYY-MM-DD")
+	errInvalidAPIKeyDateOrder = errAPIKeyUsageWindow("end_date must be on or after start_date")
+	errInvalidAPIKeyDateSpan  = errAPIKeyUsageWindow("date range exceeds maximum of 90 days")
+)
+
+type errAPIKeyUsageWindow string
+
+func (e errAPIKeyUsageWindow) Error() string { return string(e) }
+
 // DashboardStats handles getting user dashboard statistics
 // GET /api/v1/usage/dashboard/stats
 func (h *UsageHandler) DashboardStats(c *gin.Context) {
@@ -654,10 +693,14 @@ func parseBoolQueryWithDefault(c *gin.Context, key string, fallback bool) (bool,
 // BatchAPIKeysUsageRequest represents the request for batch API keys usage
 type BatchAPIKeysUsageRequest struct {
 	APIKeyIDs []int64 `json:"api_key_ids" binding:"required"`
+	StartDate string  `json:"start_date"`
+	EndDate   string  `json:"end_date"`
+	Timezone  string  `json:"timezone"`
 }
 
 // DashboardAPIKeys returns per-API-key distribution stats for the current user.
-// GET /api/v1/usage/dashboard/api-keys?days=7|30
+// GET /api/v1/usage/dashboard/api-keys?start_date=&end_date=
+// Legacy: ?days=7|30 still accepted when dates are omitted.
 func (h *UsageHandler) DashboardAPIKeys(c *gin.Context) {
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
@@ -665,19 +708,42 @@ func (h *UsageHandler) DashboardAPIKeys(c *gin.Context) {
 		return
 	}
 
+	userTZ := c.Query("timezone")
+	startDateStr := strings.TrimSpace(c.Query("start_date"))
+	endDateStr := strings.TrimSpace(c.Query("end_date"))
+	daysParam := strings.TrimSpace(c.Query("days"))
+
+	var startTime, endTime time.Time
 	var days int
-	switch strings.TrimSpace(c.DefaultQuery("days", "7")) {
-	case "7":
-		days = 7
-	case "30":
-		days = 30
+	switch {
+	case startDateStr != "" || endDateStr != "":
+		if startDateStr == "" || endDateStr == "" {
+			response.BadRequest(c, "start_date and end_date are required together")
+			return
+		}
+		parsedStart, parsedEnd, parsedDays, err := parseAPIKeyCalendarDateRange(startDateStr, endDateStr, userTZ)
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+		startTime, endTime, days = parsedStart, parsedEnd, parsedDays
 	default:
-		response.BadRequest(c, "Invalid days value, use 7 or 30")
-		return
+		days = 7
+		if daysParam != "" {
+			switch daysParam {
+			case "7":
+				days = 7
+			case "30":
+				days = 30
+			default:
+				response.BadRequest(c, "Invalid days value, use 7 or 30")
+				return
+			}
+		}
+		// Legacy calendar-day window — same owner as GetMyAPIKeyDailyUsage days mode.
+		startTime, endTime = apiKeyDailyUsageRange(days, userTZ)
 	}
 
-	// Calendar-day window in the caller's timezone — same owner as GetMyAPIKeyDailyUsage.
-	startTime, endTime := apiKeyDailyUsageRange(days, c.Query("timezone"))
 	filters := usagestats.UsageLogFilters{UserID: subject.UserID}
 
 	stats, err := h.usageService.GetAPIKeyStatsWithFilters(c.Request.Context(), startTime, endTime, filters)
@@ -754,12 +820,31 @@ func (h *UsageHandler) DashboardAPIKeysUsage(c *gin.Context) {
 		return
 	}
 
-	// Default to last 30 days at the handler level to avoid scanning all-time
-	// data. The repo also applies this default, but being explicit here prevents
-	// unbounded queries if the repo default is ever removed.
-	now := time.Now()
-	startTime := now.AddDate(0, 0, -30)
-	endTime := now
+	userTZ := strings.TrimSpace(req.Timezone)
+	startDateStr := strings.TrimSpace(req.StartDate)
+	endDateStr := strings.TrimSpace(req.EndDate)
+
+	var startTime, endTime time.Time
+	switch {
+	case startDateStr != "" || endDateStr != "":
+		if startDateStr == "" || endDateStr == "" {
+			response.BadRequest(c, "start_date and end_date are required together")
+			return
+		}
+		parsedStart, parsedEnd, _, err := parseAPIKeyCalendarDateRange(startDateStr, endDateStr, userTZ)
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+		startTime, endTime = parsedStart, parsedEnd
+	default:
+		// Default to last 30 days at the handler level to avoid scanning all-time
+		// data. The repo also applies this default, but being explicit here prevents
+		// unbounded queries if the repo default is ever removed.
+		now := time.Now()
+		startTime = now.AddDate(0, 0, -30)
+		endTime = now
+	}
 
 	stats, err := h.usageService.GetBatchAPIKeyUsageStats(c.Request.Context(), validAPIKeyIDs, startTime, endTime)
 	if err != nil {
@@ -775,7 +860,8 @@ func (h *UsageHandler) DashboardAPIKeysUsage(c *gin.Context) {
 }
 
 // GetMyAPIKeyDailyUsage handles getting daily usage details for the current user's API key.
-// GET /api/v1/user/api-keys/:id/usage/daily?days=30
+// GET /api/v1/user/api-keys/:id/usage/daily?start_date=&end_date=
+// Legacy: ?days=1..90 (defaults to 30) when dates are omitted.
 func (h *UsageHandler) GetMyAPIKeyDailyUsage(c *gin.Context) {
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
@@ -786,12 +872,6 @@ func (h *UsageHandler) GetMyAPIKeyDailyUsage(c *gin.Context) {
 	apiKeyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid API key ID")
-		return
-	}
-
-	days, ok := parseAPIKeyDailyUsageDays(c.DefaultQuery("days", ""))
-	if !ok {
-		response.BadRequest(c, "Invalid days, allowed range is 1-90")
 		return
 	}
 
@@ -811,7 +891,33 @@ func (h *UsageHandler) GetMyAPIKeyDailyUsage(c *gin.Context) {
 	}
 
 	userTZ := c.Query("timezone")
-	startTime, endTime := apiKeyDailyUsageRange(days, userTZ)
+	startDateStr := strings.TrimSpace(c.Query("start_date"))
+	endDateStr := strings.TrimSpace(c.Query("end_date"))
+
+	var startTime, endTime time.Time
+	var days int
+	switch {
+	case startDateStr != "" || endDateStr != "":
+		if startDateStr == "" || endDateStr == "" {
+			response.BadRequest(c, "start_date and end_date are required together")
+			return
+		}
+		parsedStart, parsedEnd, parsedDays, parseErr := parseAPIKeyCalendarDateRange(startDateStr, endDateStr, userTZ)
+		if parseErr != nil {
+			response.BadRequest(c, parseErr.Error())
+			return
+		}
+		startTime, endTime, days = parsedStart, parsedEnd, parsedDays
+	default:
+		parsedDays, daysOK := parseAPIKeyDailyUsageDays(c.DefaultQuery("days", ""))
+		if !daysOK {
+			response.BadRequest(c, "Invalid days, allowed range is 1-90")
+			return
+		}
+		days = parsedDays
+		startTime, endTime = apiKeyDailyUsageRange(days, userTZ)
+	}
+
 	items, err := h.usageService.GetAPIKeyDailyUsage(c.Request.Context(), subject.UserID, apiKeyID, startTime, endTime)
 	if err != nil {
 		response.ErrorFrom(c, err)

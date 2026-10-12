@@ -4,58 +4,30 @@
       <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
         {{ t('usage.apiKeyDistribution') }}
       </h3>
-      <div class="flex flex-wrap items-center justify-end gap-2">
-        <div
-          class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-dark-700 dark:bg-dark-800"
+      <div
+        v-if="showMetricToggle"
+        class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-dark-700 dark:bg-dark-800"
+      >
+        <button
+          type="button"
+          class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+          :class="metric === 'tokens'
+            ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
+            : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+          @click="emit('update:metric', 'tokens')"
         >
-          <button
-            type="button"
-            class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
-            :class="days === 7
-              ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
-            data-testid="api-key-distribution-days-7"
-            @click="emit('update:days', 7)"
-          >
-            {{ t('usage.days7') }}
-          </button>
-          <button
-            type="button"
-            class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
-            :class="days === 30
-              ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
-            data-testid="api-key-distribution-days-30"
-            @click="emit('update:days', 30)"
-          >
-            {{ t('usage.days30') }}
-          </button>
-        </div>
-        <div
-          v-if="showMetricToggle"
-          class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-dark-700 dark:bg-dark-800"
+          {{ t('admin.dashboard.metricTokens') }}
+        </button>
+        <button
+          type="button"
+          class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+          :class="metric === 'actual_cost'
+            ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
+            : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+          @click="emit('update:metric', 'actual_cost')"
         >
-          <button
-            type="button"
-            class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
-            :class="metric === 'tokens'
-              ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
-            @click="emit('update:metric', 'tokens')"
-          >
-            {{ t('admin.dashboard.metricTokens') }}
-          </button>
-          <button
-            type="button"
-            class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
-            :class="metric === 'actual_cost'
-              ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
-            @click="emit('update:metric', 'actual_cost')"
-          >
-            {{ t('admin.dashboard.metricActualCost') }}
-          </button>
-        </div>
+          {{ t('admin.dashboard.metricActualCost') }}
+        </button>
       </div>
     </div>
 
@@ -124,23 +96,19 @@ ChartJS.register(ArcElement, Tooltip, Legend)
 const { t } = useI18n()
 
 type DistributionMetric = 'tokens' | 'actual_cost'
-type DistributionDays = 7 | 30
 
 const props = withDefaults(defineProps<{
   apiKeyStats: ApiKeyStat[]
   loading?: boolean
-  days?: DistributionDays
   metric?: DistributionMetric
   showMetricToggle?: boolean
 }>(), {
   loading: false,
-  days: 7,
   metric: 'tokens',
   showMetricToggle: true,
 })
 
 const emit = defineEmits<{
-  'update:days': [value: DistributionDays]
   'update:metric': [value: DistributionMetric]
 }>()
 
@@ -186,52 +154,30 @@ const doughnutOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
   plugins: {
-    legend: {
-      display: false,
-    },
+    legend: { display: false },
     tooltip: {
       callbacks: {
-        label: (context: any) => {
-          const value = context.raw as number
-          const total = context.dataset.data.reduce((a: number, b: number) => a + b, 0)
-          const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0'
-          const formattedValue = props.metric === 'actual_cost'
-            ? `$${formatCost(value)}`
-            : formatTokens(value)
-          return `${context.label}: ${formattedValue} (${percentage}%)`
+        label: (context: { label?: string; parsed?: number }) => {
+          const value = toFiniteNumber(context.parsed)
+          if (props.metric === 'actual_cost') {
+            return `${context.label}: $${formatCost(value)}`
+          }
+          return `${context.label}: ${formatTokens(value)}`
         },
       },
     },
   },
 }))
 
-const formatTokens = (value: number): string => {
-  if (value >= 1_000_000_000) {
-    return `${(value / 1_000_000_000).toFixed(2)}B`
-  } else if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(2)}M`
-  } else if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(2)}K`
-  }
-  return value.toLocaleString()
-}
-
-const formatNumber = (value: number): string => toFiniteNumber(value).toLocaleString()
-
 const toFiniteNumber = (value: unknown): number => {
-  const numberValue = Number(value)
-  return Number.isFinite(numberValue) ? numberValue : 0
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : 0
 }
 
-const formatCost = (value: number | null | undefined): string => {
-  const safeValue = toFiniteNumber(value)
-  if (safeValue >= 1000) {
-    return (safeValue / 1000).toFixed(2) + 'K'
-  } else if (safeValue >= 1) {
-    return safeValue.toFixed(2)
-  } else if (safeValue >= 0.01) {
-    return safeValue.toFixed(3)
-  }
-  return safeValue.toFixed(4)
-}
+const formatNumber = (value: number): string =>
+  new Intl.NumberFormat().format(toFiniteNumber(value))
+
+const formatTokens = (value: number): string => formatNumber(value)
+
+const formatCost = (value: number): string => toFiniteNumber(value).toFixed(4)
 </script>

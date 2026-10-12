@@ -254,6 +254,8 @@ const mountView = async () => {
         Icon: IconStub,
         UseKeyModal: true,
         BulkEditKeysModal: true,
+        KeyUsageTrendDialog: true,
+        DateRangePicker: true,
         EndpointPopover: true,
         GroupBadge: true,
         GroupOptionItem: true,
@@ -371,6 +373,8 @@ describe('user KeysView column settings', () => {
           Icon: IconStub,
           UseKeyModal: true,
           BulkEditKeysModal: true,
+          KeyUsageTrendDialog: true,
+          DateRangePicker: true,
           EndpointPopover: true,
           GroupBadge: true,
           GroupOptionItem: true,
@@ -384,6 +388,13 @@ describe('user KeysView column settings', () => {
     expect(listKeys).toHaveBeenCalled()
     expect(wrapper.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
     expect(wrapper.findComponent({ name: 'DataTable' }).props('data')).toHaveLength(1)
+    expect(getDashboardApiKeysUsage).toHaveBeenCalledWith(
+      [1],
+      expect.objectContaining({
+        start_date: expect.any(String),
+        end_date: expect.any(String),
+      }),
+    )
 
     resolveUsage({ stats: {} })
     await flushPromises()
@@ -751,5 +762,76 @@ describe('user KeysView use key navigation', () => {
       path: '/quickstart',
       query: { keyId: '1' },
     })
+  })
+})
+
+describe('user KeysView usage window', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    listKeys.mockReset()
+    getPublicSettings.mockReset()
+    getDashboardApiKeysUsage.mockReset()
+    getAvailableGroups.mockReset()
+    getUserGroupRates.mockReset()
+    listKeys.mockResolvedValue({
+      items: [createApiKey()],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    getPublicSettings.mockResolvedValue({})
+    getDashboardApiKeysUsage.mockResolvedValue({
+      stats: {
+        '1': { api_key_id: 1, today_actual_cost: 0.1, total_actual_cost: 1.2345 },
+      },
+    })
+    getAvailableGroups.mockResolvedValue([])
+    getUserGroupRates.mockResolvedValue({})
+    isCurrentStep.mockReturnValue(false)
+  })
+
+  it('loads window spend with the shared date range and opens the trend dialog', async () => {
+    const wrapper = await mountView()
+    expect(getDashboardApiKeysUsage).toHaveBeenCalledWith(
+      [1],
+      expect.objectContaining({
+        start_date: expect.any(String),
+        end_date: expect.any(String),
+      }),
+    )
+
+    const trend = wrapper.findComponent({ name: 'KeyUsageTrendDialog' })
+    expect(trend.exists()).toBe(true)
+    expect(trend.props('show')).toBe(false)
+
+    // DataTable stub does not render cell slots; drive the open handler directly.
+    ;(wrapper.vm as any).openUsageTrend(createApiKey())
+    await nextTick()
+    expect(wrapper.findComponent({ name: 'KeyUsageTrendDialog' }).props('show')).toBe(true)
+    expect(wrapper.findComponent({ name: 'KeyUsageTrendDialog' }).props('apiKeyId')).toBe(1)
+  })
+
+  it('refreshes usage only when the date range changes (does not re-spin the table)', async () => {
+    const wrapper = await mountView()
+    getDashboardApiKeysUsage.mockClear()
+    listKeys.mockClear()
+
+    ;(wrapper.vm as any).onUsageDateRangeChange({
+      startDate: '2026-10-01',
+      endDate: '2026-10-07',
+      preset: '7days',
+    })
+    await flushPromises()
+
+    expect(listKeys).not.toHaveBeenCalled()
+    expect(wrapper.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
+    expect(getDashboardApiKeysUsage).toHaveBeenCalledWith(
+      [1],
+      expect.objectContaining({
+        start_date: '2026-10-01',
+        end_date: '2026-10-07',
+      }),
+    )
   })
 })

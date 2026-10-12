@@ -16308,10 +16308,11 @@
       "must_contain": [
         "func (h *UsageHandler) DashboardAPIKeys(c *gin.Context)",
         "GetAPIKeyStatsWithFilters",
+        "parseAPIKeyCalendarDateRange",
         "Invalid days value, use 7 or 30",
-        "apiKeyDailyUsageRange(days, c.Query(\"timezone\"))"
+        "start_date and end_date are required together"
       ],
-      "rationale": "User dashboard API Key distribution endpoint. Pins days=7|30 validation, user-TZ calendar window via apiKeyDailyUsageRange, and user-scoped GetAPIKeyStatsWithFilters so an upstream usage_handler rewrite cannot silently drop the route handler while routes/user.go still registers it."
+      "rationale": "User dashboard API Key distribution endpoint. Pins start_date/end_date calendar window (shared with Keys/Usage DateRangePicker) plus legacy days=7|30 fallback, and user-scoped GetAPIKeyStatsWithFilters so an upstream usage_handler rewrite cannot silently drop the route handler while routes/user.go still registers it."
     },
     {
       "path": "backend/internal/server/routes/user.go",
@@ -16325,9 +16326,21 @@
       "must_contain": [
         "TestDashboardAPIKeysDefaultSevenDays",
         "TestDashboardAPIKeysThirtyDays",
-        "TestDashboardAPIKeysRejectsInvalidDays"
+        "TestDashboardAPIKeysDateRange",
+        "TestDashboardAPIKeysRejectsInvalidDays",
+        "TestDashboardAPIKeysRejectsPartialDateRange",
+        "TestParseAPIKeyCalendarDateRangeSpringForwardDay"
       ],
-      "rationale": "Focused regression for DashboardAPIKeys days contract and auth-user scoping."
+      "rationale": "Focused regression for DashboardAPIKeys date-range contract, legacy days fallback, DST civil-day span, and auth-user scoping."
+    },
+    {
+      "path": "backend/internal/handler/usage_handler_api_keys_usage_tk_test.go",
+      "must_contain": [
+        "TestDashboardAPIKeysUsageDateRange",
+        "TestDashboardAPIKeysUsageRejectsPartialDateRange",
+        "TestDashboardAPIKeysUsageRejectsOversizedSpan"
+      ],
+      "rationale": "Focused regression for Keys-page POST /usage/dashboard/api-keys-usage start_date/end_date contract (happy path + partial/oversized negatives)."
     },
     {
       "path": "backend/internal/repository/usage_log_repo_api_key_stats_tk_test.go",
