@@ -170,7 +170,7 @@ const TablePageLayoutStub = {
 
 const DataTableStub = {
   name: 'DataTable',
-  props: { columns: Array, data: Array, selectedKeys: Array, selectable: Boolean },
+  props: { columns: Array, data: Array, selectedKeys: Array, selectable: Boolean, loading: Boolean },
   emits: ['sort', 'update:selectedKeys'],
   template: `
     <div>
@@ -345,6 +345,48 @@ describe('user KeysView column settings', () => {
     await wrapper.get('#key-form').trigger('submit')
     await flushPromises()
     expect(updateKey).toHaveBeenNthCalledWith(2, key.id, expect.objectContaining({ name: 'Unsaved name', status: formStatus }))
+    wrapper.unmount()
+  })
+
+  it('shows the key table before slow usage stats resolve', async () => {
+    let resolveUsage: (value: { stats: Record<string, never> }) => void = () => undefined
+    getDashboardApiKeysUsage.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveUsage = resolve
+      }),
+    )
+
+    const wrapper = mount(KeysView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          TablePageLayout: TablePageLayoutStub,
+          DataTable: DataTableStub,
+          Pagination: PaginationStub,
+          BaseDialog: true,
+          ConfirmDialog: true,
+          EmptyState: true,
+          Select: SelectStub,
+          SearchInput: SearchInputStub,
+          Icon: IconStub,
+          UseKeyModal: true,
+          BulkEditKeysModal: true,
+          EndpointPopover: true,
+          GroupBadge: true,
+          GroupOptionItem: true,
+          Teleport: true,
+        },
+      },
+    })
+    await flushPromises()
+    await nextTick()
+
+    expect(listKeys).toHaveBeenCalled()
+    expect(wrapper.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
+    expect(wrapper.findComponent({ name: 'DataTable' }).props('data')).toHaveLength(1)
+
+    resolveUsage({ stats: {} })
+    await flushPromises()
     wrapper.unmount()
   })
 

@@ -4,12 +4,20 @@
   "sentinels": [
     {
       "path": "frontend/src/components/account/EditAccountModal.vue",
-      "must_contain": ["canImportGeminiWebSession", "invalidateGeminiWebSessionImport", "adminAPI.accounts.importGeminiWebSession(targetAccountID, parsed)", "has_gemini_web_runtime", "webSessionInitializeSuccess"],
+      "must_contain": [
+        "canImportGeminiWebSession",
+        "invalidateGeminiWebSessionImport",
+        "adminAPI.accounts.importGeminiWebSession(targetAccountID, parsed)",
+        "has_gemini_web_runtime",
+        "webSessionInitializeSuccess"
+      ],
       "rationale": "The account editor must keep the local Worker import boundary and invalidate stale file reads/HTTP completions when switching accounts."
     },
     {
       "path": "frontend/src/components/account/__tests__/EditAccountModal.spec.ts",
-      "must_contain": ["keeps an editing draft on account refresh and rehydrates when switching accounts"],
+      "must_contain": [
+        "keeps an editing draft on account refresh and rehydrates when switching accounts"
+      ],
       "rationale": "Import/status refreshes must preserve unsaved inputs, while account switches rehydrate the editor."
     },
     {
@@ -24,7 +32,9 @@
     },
     {
       "path": ".github/workflows/backend-ci.yml",
-      "must_contain": ["pnpm exec playwright test --config playwright.gemini-import.config.ts"],
+      "must_contain": [
+        "pnpm exec playwright test --config playwright.gemini-import.config.ts"
+      ],
       "rationale": "The credential import browser regression must run in CI, not only during manual review."
     },
     {
@@ -2684,7 +2694,6 @@
       ],
       "rationale": "Regression: newapi edit must hide probe toggles, keep rate editable despite stale sync extras, and omit probe fields on save."
     },
-
     {
       "path": "frontend/src/components/admin/account/AccountTestModal.vue",
       "must_contain": [
@@ -2928,6 +2937,14 @@
         "await expect(page).toHaveURL(/\\/purchase$/)"
       ],
       "rationale": "Real UI regression verifies trial media denial localization, recharge navigation and removal of stale CTAs."
+    },
+    {
+      "path": "frontend/src/views/user/KeysView.vue",
+      "must_contain": [
+        "Unblock the table as soon as keys arrive",
+        "usageAPI.getDashboardApiKeysUsage(keyIds, { signal })"
+      ],
+      "rationale": "/keys must clear the table loading spinner as soon as the key list returns, then asynchronously fill today/total spend via getDashboardApiKeysUsage. Waiting on usage (hundreds of ms for 60+ keys) re-blocks the whole table spinner; KeysView.vue is upstream-shaped and a merge can restore the old await-usage-before-clear order while tests for other features still pass."
     }
   ]
 }

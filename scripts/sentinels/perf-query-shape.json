@@ -222,6 +222,15 @@
         "func TestBalanceHold_ProgressWithExhaustedConnectionPool("
       ],
       "rationale": "Real PostgreSQL regression prevents application-lock/DB-pool inversion across reserve and release; balance concurrency remains owned by atomic SQL transactions."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_stats.go",
+      "must_contain": [
+        "func (r *usageLogRepository) GetBatchAPIKeyUsageStats(",
+        "AND created_at < $3",
+        "COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $4 AND created_at < $3), 0) as today_cost"
+      ],
+      "rationale": "/keys batch usage (GetBatchAPIKeyUsageStats) MUST keep an inclusive-exclusive created_at upper bound (created_at < $3 / end) so partitioned usage_logs can prune future partitions. Without the bound, the planner retains every partition after LEAST(start, today) — measured ~285ms planning alone on prod for multi-key /keys. Unit tests assert the substring but cannot see EXPLAIN on tiny fixtures; this shape sentinel is the merge-gate guard."
     }
   ]
 }
