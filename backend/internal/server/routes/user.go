@@ -160,10 +160,4 @@ func RegisterUserRoutes(
 		}
 	}
 
-	// TokenKey-only routes that need to accept BOTH user-scope JWT and
-	// user-scope API key (issue #63 — SDK / CI callers like M0 hold an
-	// API key, not a JWT). Kept out of the JWT-only `authenticated`
-	// group above so the auth shape switch is explicit at the route
-	// site, not buried inside a shared middleware.
-	registerTKUserDualAuthRoutes(v1, h, eitherAuth, settingService)
 }

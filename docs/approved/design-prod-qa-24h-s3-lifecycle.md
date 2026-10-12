@@ -16,6 +16,9 @@ scope:
   - edge QA removal
 ---
 
+> QA 产品导出与 worker 部分由 [QA raw-only](qa-raw-only.md) 替代；raw 生命周期与网关蓝绿约束继续有效。
+
+
 # Prod-only QA S3 用户面与小时归档生命周期
 
 ## 1. 决策摘要

@@ -970,7 +970,6 @@ func userEntityToService(u *dbent.User) *service.User {
 		TotalRecharged:             u.TotalRecharged,
 		OnboardingTourSeenAt:       u.OnboardingTourSeenAt,
 		RPMLimit:                   u.RpmLimit,
-		TrajExportEnabled:          u.TrajExportEnabled,
 		CreatedAt:                  u.CreatedAt,
 		UpdatedAt:                  u.UpdatedAt,
 		DeletedAt:                  u.DeletedAt,

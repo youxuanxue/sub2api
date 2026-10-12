@@ -243,7 +243,7 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
             "arn:${AWS::Partition}:kms:us-east-1:${AWS::AccountId}:alias/tokenkey-prod-qa-raw-archive",
             resources,
         )
-        s3 = statements["QaBundleS3"]
+        s3 = statements["QaRawArchiveS3"]
         self.assertIn("s3:AbortMultipartUpload", s3["Action"])
         self.assertIn("s3:ListMultipartUploadParts", s3["Action"])
 
@@ -277,19 +277,13 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
                 continue
             self.assertNotIn(EDGE_ROLE_NAME, json.dumps(statement, sort_keys=True))
 
-    def test_both_qa_bucket_policies_deny_shared_and_per_edge_roles(self) -> None:
+    def test_raw_qa_bucket_policy_deny_shared_and_per_edge_roles(self) -> None:
         cases = (
             (
                 self.raw,
                 "QaRawArchiveBucketPolicy",
                 "QaRawArchiveBucket.Arn",
                 "${QaRawArchiveBucket.Arn}/*",
-            ),
-            (
-                self.raw,
-                "QaBundleBucketPolicy",
-                "QaBundleBucket.Arn",
-                "${QaBundleBucket.Arn}/*",
             ),
         )
         for template, policy_name, bucket_arn, object_arn in cases:

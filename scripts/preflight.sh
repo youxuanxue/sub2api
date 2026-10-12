@@ -88,9 +88,8 @@
 #        silently rots when the target heading is reworded. Driven by
 #        `scripts/checks/approved-docs-index.py` (status vocabulary stays with
 #        `dev-rules/scripts/check_approved_docs.py`, which does not check membership).
-#   QA Bundle contract gate      — runs the active S3 Bundle service/worker package
-#        tests and requires the US-044 authorization anchor to prevent zero-match
-#        false greens after an upstream merge.
+#   QA raw archive contract gate — runs archive/lifecycle tests and ensures the
+#        retired Bundle service/worker surface cannot return.
 #   gh CLI repository context    — a workflow job that calls repo-scoped `gh`
 #        subcommands without actions/checkout must pass GH_REPO, or gh fails at
 #        runtime with "fatal: not a git repository". Driven by
@@ -391,9 +390,9 @@ export PREFLIGHT_BASE="${template_base:-origin/main}"
 # section positions below. Spawn guards mirror each section's prerequisite
 # checks; a missing prerequisite leaves the job unspawned and the section
 # falls back to its serial FAIL/skip path.
-_qa_bundle_gate_run() {
-    python3 -m unittest ops.qa.test_colocation_resources ops.stage0.test_bluegreen_host_runtime ops.qa.test_resolve_qa_bundle_coordinates &&
-    cd backend && go test -tags=unit -v ./internal/config ./internal/observability/qa/archive ./internal/observability/qa/bundle ./internal/observability/qa
+_qa_raw_archive_gate_run() {
+    python3 -m unittest ops.stage0.test_bluegreen_host_runtime ops.stage0.test_prod_component_release ops.qa.test_migrate_hcloud_objects &&
+    cd backend && go test -tags=unit -v ./internal/config ./internal/observability/qa/archive ./internal/observability/qa/lifecycle ./internal/observability/qa
 }
 _protocol_routing_gate_run() {
     python3 ./scripts/checks/test_protocol_routing_ssot.py >/dev/null &&
@@ -433,7 +432,7 @@ _qa_phase_ops_spawn_if_needed() {
     fi
 }
 if [ "$_preflight_skip_go_contracts" -ne 1 ] && [ "$_preflight_skip_slow_ops" -ne 1 ] && command -v python3 >/dev/null 2>&1 && command -v go >/dev/null 2>&1; then
-    _bg_spawn qa_bundle _qa_bundle_gate_run
+    _bg_spawn qa_raw_archive _qa_raw_archive_gate_run
 fi
 if command -v python3 >/dev/null 2>&1; then
     _bg_spawn anthropic_unittest \
@@ -1899,12 +1898,12 @@ else
     echo "  ok: gateway trajectory hooks and QA terminal capture are aligned"
 fi
 
-# ---- sub2api: Bundle session export SSOT -------------------------------------
+# ---- sub2api: QA raw capture SSOT -------------------------------------
 echo ""
 
 fi # preflight gate
-if _preflight_selected 'Bundle session export SSOT'; then
-echo "=== sub2api: Bundle session export SSOT ==="
+if _preflight_selected 'QA raw capture SSOT'; then
+echo "=== sub2api: QA raw capture SSOT ==="
 if ! python3 ./scripts/checks/traj-ssot.py; then
     errors=$((errors + 1))
 elif ! python3 ./scripts/checks/test_traj_ssot.py; then
@@ -2056,34 +2055,29 @@ else
     echo "  ok: Phase 1 closeout + Phase 2 baseline artifacts compile and regression tests pass"
 fi
 
-# ---- sub2api: QA Bundle service/worker contract ------------------------------------
-# Runs the active S3 Bundle service and worker packages, then requires one US-044
-# authorization test in verbose output so a rename/deletion cannot pass vacuously.
+# ---- sub2api: QA raw archive contract --------------------------------------------
 echo ""
 
 fi # preflight gate
-if _preflight_selected 'QA Bundle service/worker contract'; then
-echo "=== sub2api: QA Bundle service/worker contract ==="
+if _preflight_selected 'QA raw archive contract'; then
+echo "=== sub2api: QA raw archive contract ==="
 if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
     echo "  skip: unchanged Go preflight surface"
 elif [ "$_preflight_skip_slow_ops" -eq 1 ]; then
     echo "  skip: unchanged CI surface; required preflight gate not needed"
 elif ! command -v go >/dev/null 2>&1; then
-    echo "  FAIL: go not on PATH (required to run QA Bundle contract tests)"
+    echo "  FAIL: go not on PATH (required to run QA raw archive contract tests)"
     errors=$((errors + 1))
-elif ! _bg_spawned qa_bundle; then
-    echo "  FAIL: QA Bundle gate background job was not spawned (internal preflight bug)"
+elif ! _bg_spawned qa_raw_archive; then
+    echo "  FAIL: QA raw archive gate background job was not spawned (internal preflight bug)"
     errors=$((errors + 1))
 else
-    _bg_join qa_bundle
+    _bg_join qa_raw_archive
     if [ "$_bg_rc" -ne 0 ]; then
-        tail -40 "$_preflight_bg_dir/qa_bundle.out" | sed 's/^/    /'
-        errors=$((errors + 1))
-    elif ! grep -q -- '--- PASS: TestUS044_QABundle' "$_preflight_bg_dir/qa_bundle.out"; then
-        echo "  FAIL: QA Bundle packages passed without the US-044 authorization anchor (renamed/moved?)"
+        tail -40 "$_preflight_bg_dir/qa_raw_archive.out" | sed 's/^/    /'
         errors=$((errors + 1))
     else
-        echo "  ok: QA Bundle service/worker tests and US-044 authorization anchor pass"
+        echo "  ok: QA raw archive and lifecycle contract tests pass"
     fi
 fi
 

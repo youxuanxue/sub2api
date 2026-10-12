@@ -4,22 +4,18 @@ package qa
 
 import (
 	"context"
-	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
-// On prod the QA export S3 store authenticates via the EC2 instance role: the
+// On prod the QA raw S3 store authenticates via the EC2 instance role: the
 // deploy injects only DRIVER/REGION/BUCKET/PREFIX and the QaExports bucket
 // policy grants the instance role Put/Get/Delete. Forcing an empty static
-// credentials provider broke every export with "static credentials are empty"
+// credentials provider broke every raw upload with "static credentials are empty"
 // (PutObject). This locks the fix: a static provider is added ONLY when an
 // access key is configured; otherwise we fall through to the default chain.
 func TestQAS3LoadOptions_StaticCredsOnlyWhenConfigured(t *testing.T) {
@@ -28,7 +24,7 @@ func TestQAS3LoadOptions_StaticCredsOnlyWhenConfigured(t *testing.T) {
 	// No access key (the prod / instance-role path): exactly one option (region),
 	// no static credentials provider injected.
 	noCreds := qaS3LoadOptions(config.QACaptureStorageConfig{
-		Driver: "s3", Region: "us-east-1", Bucket: "tokenkey-prod-qa-exports",
+		Driver: "s3", Region: "us-east-1", Bucket: "tokenkey-prod-qa-raw-archive",
 	})
 	if len(noCreds) != 1 {
 		t.Fatalf("empty access key must add only the region option (no static provider); got %d options", len(noCreds))
@@ -78,38 +74,5 @@ func TestQAS3LoadOptions_EmptyKeyDoesNotForceEmptyStatic(t *testing.T) {
 			t.Fatalf("regression: empty static provider forced — export would fail on prod: %v", err)
 		}
 		// Any other error (no creds available in sandbox) is acceptable here.
-	}
-}
-
-func TestUS062_BundleSignedDownloadUsesPrivateFileIdentity(t *testing.T) {
-	t.Setenv("AWS_ACCESS_KEY_ID", "ambient-access")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "ambient-secret")
-	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
-	path := filepath.Join(t.TempDir(), "bundle.json")
-	if err := os.WriteFile(path, []byte(`{"access_key_id":"bundle-access","secret_access_key":"bundle-secret"}`), 0600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := config.QACaptureConfig{Storage: config.QACaptureStorageConfig{Driver: "s3", Region: "fsn1", Bucket: "qa-bundle", Prefix: "user-qa", Endpoint: "https://fsn1.your-objectstorage.com", ForcePathStyle: true, CredentialsFile: path}}
-	store, err := newBlobStore(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	signed, err := store.PresignURL(context.Background(), "session.zip", time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	parsed, err := url.Parse(signed)
-	if err != nil {
-		t.Fatal("invalid signed download URL")
-	}
-	if !strings.HasPrefix(parsed.Query().Get("X-Amz-Credential"), "bundle-access/") || parsed.Host != "fsn1.your-objectstorage.com" || parsed.Path != "/qa-bundle/user-qa/session.zip" {
-		t.Fatal("signed download used the wrong identity or coordinates")
-	}
-	if strings.Contains(signed, "bundle-secret") {
-		t.Fatal("download URL exposed secret")
-	}
-	cfg.Storage.CredentialsFile += ".missing"
-	if _, err := newBlobStore(cfg); err == nil {
-		t.Fatal("signer fell back to ambient AWS identity")
 	}
 }

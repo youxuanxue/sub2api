@@ -74,7 +74,7 @@ if [[ -z "${INSTANCE_ID}" ]]; then
   exit 1
 fi
 # Prefix default: i-* → prod, mi-* → edge. Hetzner prod Hybrid is mi-* but must
-# keep the prod profile (QA bundle, blue/green stages). Operators/workflows set
+# keep the prod profile (raw archive, blue/green stages). Operators/workflows set
 # STAGE0_DEPLOY_PROFILE=prod after Wave B control-plane cutover.
 case "${INSTANCE_ID}" in
   i-* | mi-*) ;;
@@ -105,15 +105,6 @@ if [[ ! "${TIMEOUT_SECONDS}" =~ ^[0-9]+$ || ! "${EXECUTION_TIMEOUT_SECONDS}" =~ 
   || (( TIMEOUT_SECONDS <= 0 || EXECUTION_TIMEOUT_SECONDS <= 0 )); then
   echo "stage0_deploy_via_ssm_bluegreen: timeout values must be positive integers" >&2
   exit 1
-fi
-if [[ "${DEPLOY_PROFILE}" = prod && "${QA_BUNDLE_ENABLED-}" = true ]]; then
-  validate_qa_queue_environment
-  for key in QA_BUNDLE_STORAGE_DRIVER QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_PREFIX; do
-    if [[ -z "${!key-}" ]]; then
-      echo "stage0_deploy_via_ssm_bluegreen: ${key} is required when QA_BUNDLE_ENABLED=true" >&2
-      exit 1
-    fi
-  done
 fi
 
 CAPACITY_POLICY="$(cd "$(dirname "$0")" && pwd)/bluegreen-capacity-policy.env"
@@ -277,12 +268,6 @@ clear_edge_profile_overrides() {
   local key
   for key in "${QA_RUNTIME_KEYS[@]}"; do unset "${key}" "${key}_SET"; done
   unset \
-    QA_BUNDLE_ENABLED QA_BUNDLE_ENABLED_SET \
-    QA_BUNDLE_QUEUE_URL QA_BUNDLE_QUEUE_URL_SET \
-    QA_BUNDLE_STORAGE_DRIVER QA_BUNDLE_STORAGE_DRIVER_SET \
-    QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_REGION_SET \
-    QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_BUCKET_SET \
-    QA_BUNDLE_STORAGE_PREFIX QA_BUNDLE_STORAGE_PREFIX_SET \
     QA_ARCHIVE_ENABLED QA_ARCHIVE_STORAGE_DRIVER QA_ARCHIVE_STORAGE_REGION \
     QA_ARCHIVE_STORAGE_BUCKET QA_ARCHIVE_STORAGE_PREFIX \
     TELEMETRY_ARCHIVE_ENABLED TELEMETRY_ARCHIVE_REGION TELEMETRY_ARCHIVE_BUCKET \
@@ -297,21 +282,15 @@ clear_edge_profile_overrides() {
 
 assert_qa_provider_unchanged() {
   [[ "${DEPLOY_PROFILE}" = prod ]] || return 0
-  local current desired key flag
-  current="$(env_get QA_BUNDLE_QUEUE_DRIVER)"
-  current="${current:-sqs}"
-  desired="${QA_BUNDLE_QUEUE_DRIVER:-${current}}"
-  [[ "${current}" = "${desired}" ]] || die "QA backend changes require the separate frozen migration; gateway deploy cannot migrate QA"
-  if [[ "${current}" = postgres ]]; then
-    # Once migrated, ordinary gateway upgrades may not redirect persisted QA
-    # objects or jobs. The migration owner changes the host coordinates first.
-    for key in "${QA_RUNTIME_KEYS[@]}" QA_BUNDLE_QUEUE_URL QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_PREFIX; do
-      flag="${key}_SET"
-      if [[ "${!flag:-false}" = true && "${!key:-}" != "$(env_get "${key}")" ]]; then
-        die "QA coordinate change requires the separate migration: ${key}"
-      fi
-    done
-  fi
+  local key flag
+  # A normal gateway release must not redirect archive writes. The frozen raw
+  # migration updates maintenance coordinates before any gateway release.
+  for key in "${QA_RUNTIME_KEYS[@]}"; do
+    flag="${key}_SET"
+    if [[ "${!flag:-false}" = true && "${!key:-}" != "$(env_get "${key}")" ]]; then
+      die "QA coordinate change requires the separate migration: ${key}"
+    fi
+  done
 }
 
 ensure_profile_environment() {
@@ -344,22 +323,6 @@ ensure_profile_environment() {
     env_set QA_CAPTURE_ENABLED false
     log "edge profile: enforced QA_CAPTURE_ENABLED=false; preserving archive/media/concurrency host values"
     return 0
-  fi
-
-  env_apply_if_supplied QA_BUNDLE_ENABLED "${QA_BUNDLE_ENABLED:-}" "${QA_BUNDLE_ENABLED_SET:-false}"
-  env_apply_if_supplied QA_BUNDLE_QUEUE_URL "${QA_BUNDLE_QUEUE_URL:-}" "${QA_BUNDLE_QUEUE_URL_SET:-false}"
-  env_apply_if_supplied QA_BUNDLE_STORAGE_DRIVER "${QA_BUNDLE_STORAGE_DRIVER:-}" "${QA_BUNDLE_STORAGE_DRIVER_SET:-false}"
-  env_apply_if_supplied QA_BUNDLE_STORAGE_REGION "${QA_BUNDLE_STORAGE_REGION:-}" "${QA_BUNDLE_STORAGE_REGION_SET:-false}"
-  env_apply_if_supplied QA_BUNDLE_STORAGE_BUCKET "${QA_BUNDLE_STORAGE_BUCKET:-}" "${QA_BUNDLE_STORAGE_BUCKET_SET:-false}"
-  env_apply_if_supplied QA_BUNDLE_STORAGE_PREFIX "${QA_BUNDLE_STORAGE_PREFIX:-}" "${QA_BUNDLE_STORAGE_PREFIX_SET:-false}"
-  if [[ "$(env_get QA_BUNDLE_ENABLED)" = true ]]; then
-    QA_BUNDLE_QUEUE_DRIVER="$(env_get QA_BUNDLE_QUEUE_DRIVER)" \
-      QA_BUNDLE_QUEUE_URL="$(env_get QA_BUNDLE_QUEUE_URL)" \
-      QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE="$(env_get QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE)" \
-      validate_qa_queue_environment
-    for key in QA_BUNDLE_STORAGE_DRIVER QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_PREFIX; do
-      [[ -n "$(env_get "${key}")" ]] || die "${key} is required when QA_BUNDLE_ENABLED=true"
-    done
   fi
 
   # Target: ops/qa/policy.yaml prod.archive.enabled. Rollout gate default true
@@ -628,20 +591,9 @@ services:
       - GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT:-0}
       - GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}
       - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-}
-      - QA_BUNDLE_ENABLED=${QA_BUNDLE_ENABLED:-}
-      - QA_BUNDLE_QUEUE_URL=${QA_BUNDLE_QUEUE_URL:-}
-      - QA_BUNDLE_QUEUE_DRIVER=${QA_BUNDLE_QUEUE_DRIVER:-}
-      - QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE=${QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE:-}
-      - QA_BUNDLE_STORAGE_ENDPOINT=${QA_BUNDLE_STORAGE_ENDPOINT:-}
-      - QA_BUNDLE_STORAGE_FORCE_PATH_STYLE=${QA_BUNDLE_STORAGE_FORCE_PATH_STYLE:-}
-      - QA_BUNDLE_STORAGE_CREDENTIALS_FILE=${QA_BUNDLE_STORAGE_CREDENTIALS_FILE:-}
       - QA_ARCHIVE_STORAGE_ENDPOINT=${QA_ARCHIVE_STORAGE_ENDPOINT:-}
       - QA_ARCHIVE_STORAGE_FORCE_PATH_STYLE=${QA_ARCHIVE_STORAGE_FORCE_PATH_STYLE:-}
       - QA_ARCHIVE_STORAGE_CREDENTIALS_FILE=${QA_ARCHIVE_STORAGE_CREDENTIALS_FILE:-}
-      - QA_BUNDLE_STORAGE_DRIVER=${QA_BUNDLE_STORAGE_DRIVER:-}
-      - QA_BUNDLE_STORAGE_REGION=${QA_BUNDLE_STORAGE_REGION:-}
-      - QA_BUNDLE_STORAGE_BUCKET=${QA_BUNDLE_STORAGE_BUCKET:-}
-      - QA_BUNDLE_STORAGE_PREFIX=${QA_BUNDLE_STORAGE_PREFIX:-}
       - QA_ARCHIVE_ENABLED=${QA_ARCHIVE_ENABLED:-}
       - QA_ARCHIVE_STORAGE_DRIVER=${QA_ARCHIVE_STORAGE_DRIVER:-}
       - QA_ARCHIVE_STORAGE_REGION=${QA_ARCHIVE_STORAGE_REGION:-}
@@ -730,20 +682,9 @@ services:
       - GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT:-0}
       - GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}
       - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-}
-      - QA_BUNDLE_ENABLED=${QA_BUNDLE_ENABLED:-}
-      - QA_BUNDLE_QUEUE_URL=${QA_BUNDLE_QUEUE_URL:-}
-      - QA_BUNDLE_QUEUE_DRIVER=${QA_BUNDLE_QUEUE_DRIVER:-}
-      - QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE=${QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE:-}
-      - QA_BUNDLE_STORAGE_ENDPOINT=${QA_BUNDLE_STORAGE_ENDPOINT:-}
-      - QA_BUNDLE_STORAGE_FORCE_PATH_STYLE=${QA_BUNDLE_STORAGE_FORCE_PATH_STYLE:-}
-      - QA_BUNDLE_STORAGE_CREDENTIALS_FILE=${QA_BUNDLE_STORAGE_CREDENTIALS_FILE:-}
       - QA_ARCHIVE_STORAGE_ENDPOINT=${QA_ARCHIVE_STORAGE_ENDPOINT:-}
       - QA_ARCHIVE_STORAGE_FORCE_PATH_STYLE=${QA_ARCHIVE_STORAGE_FORCE_PATH_STYLE:-}
       - QA_ARCHIVE_STORAGE_CREDENTIALS_FILE=${QA_ARCHIVE_STORAGE_CREDENTIALS_FILE:-}
-      - QA_BUNDLE_STORAGE_DRIVER=${QA_BUNDLE_STORAGE_DRIVER:-}
-      - QA_BUNDLE_STORAGE_REGION=${QA_BUNDLE_STORAGE_REGION:-}
-      - QA_BUNDLE_STORAGE_BUCKET=${QA_BUNDLE_STORAGE_BUCKET:-}
-      - QA_BUNDLE_STORAGE_PREFIX=${QA_BUNDLE_STORAGE_PREFIX:-}
       - QA_ARCHIVE_ENABLED=${QA_ARCHIVE_ENABLED:-}
       - QA_ARCHIVE_STORAGE_DRIVER=${QA_ARCHIVE_STORAGE_DRIVER:-}
       - QA_ARCHIVE_STORAGE_REGION=${QA_ARCHIVE_STORAGE_REGION:-}
@@ -1437,18 +1378,6 @@ jq -n \
   --arg replace_receipt "${REPLACE_RECEIPT}" \
   --arg deploy_profile "${DEPLOY_PROFILE}" \
   --arg execution_timeout "${EXECUTION_TIMEOUT_SECONDS}" \
-  --arg qa_enabled "${QA_BUNDLE_ENABLED-}" \
-  --arg qa_queue_url "${QA_BUNDLE_QUEUE_URL-}" \
-  --arg qa_driver "${QA_BUNDLE_STORAGE_DRIVER-}" \
-  --arg qa_region "${QA_BUNDLE_STORAGE_REGION-}" \
-  --arg qa_bucket "${QA_BUNDLE_STORAGE_BUCKET-}" \
-  --arg qa_prefix "${QA_BUNDLE_STORAGE_PREFIX-}" \
-  --argjson qa_enabled_set "$([[ -n "${QA_BUNDLE_ENABLED+x}" ]] && echo true || echo false)" \
-  --argjson qa_queue_url_set "$([[ -n "${QA_BUNDLE_QUEUE_URL+x}" ]] && echo true || echo false)" \
-  --argjson qa_driver_set "$([[ -n "${QA_BUNDLE_STORAGE_DRIVER+x}" ]] && echo true || echo false)" \
-  --argjson qa_region_set "$([[ -n "${QA_BUNDLE_STORAGE_REGION+x}" ]] && echo true || echo false)" \
-  --argjson qa_bucket_set "$([[ -n "${QA_BUNDLE_STORAGE_BUCKET+x}" ]] && echo true || echo false)" \
-  --argjson qa_prefix_set "$([[ -n "${QA_BUNDLE_STORAGE_PREFIX+x}" ]] && echo true || echo false)" \
   --arg qa_archive_enabled "${DELIVER_QA_ARCHIVE_ENABLED}" \
   --arg qa_archive_driver "${DELIVER_QA_ARCHIVE_DRIVER}" \
   --arg qa_archive_region "${DELIVER_QA_ARCHIVE_REGION}" \
@@ -1493,18 +1422,6 @@ jq -n \
       + " REPLAY_CONTRACT_B64=" + ($replay_contract_b64|@sh)
       + " REPLACE_RECEIPT=" + ($replace_receipt|@sh)
       + " DEPLOY_PROFILE=" + ($deploy_profile|@sh)
-      + " QA_BUNDLE_ENABLED=" + ($qa_enabled|@sh)
-      + " QA_BUNDLE_ENABLED_SET=" + ($qa_enabled_set|tostring)
-      + " QA_BUNDLE_QUEUE_URL=" + ($qa_queue_url|@sh)
-      + " QA_BUNDLE_QUEUE_URL_SET=" + ($qa_queue_url_set|tostring)
-      + " QA_BUNDLE_STORAGE_DRIVER=" + ($qa_driver|@sh)
-      + " QA_BUNDLE_STORAGE_DRIVER_SET=" + ($qa_driver_set|tostring)
-      + " QA_BUNDLE_STORAGE_REGION=" + ($qa_region|@sh)
-      + " QA_BUNDLE_STORAGE_REGION_SET=" + ($qa_region_set|tostring)
-      + " QA_BUNDLE_STORAGE_BUCKET=" + ($qa_bucket|@sh)
-      + " QA_BUNDLE_STORAGE_BUCKET_SET=" + ($qa_bucket_set|tostring)
-      + " QA_BUNDLE_STORAGE_PREFIX=" + ($qa_prefix|@sh)
-      + " QA_BUNDLE_STORAGE_PREFIX_SET=" + ($qa_prefix_set|tostring)
       + " QA_ARCHIVE_ENABLED=" + ($qa_archive_enabled|@sh)
       + " QA_ARCHIVE_STORAGE_DRIVER=" + ($qa_archive_driver|@sh)
       + " QA_ARCHIVE_STORAGE_REGION=" + ($qa_archive_region|@sh)

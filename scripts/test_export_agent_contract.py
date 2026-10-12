@@ -100,32 +100,13 @@ func registerTKUserRoutes(authenticated, user *gin.RouterGroup) {
                 [route],
             )
 
-    def test_retired_qa_traj_export_routes_point_at_bundle_replacements(self) -> None:
-        replacements = {
-            route["path"]: route["replacement"]
-            for route in export_agent_contract.RETIRED_HTTP_ROUTES
-            if route["path"].startswith("/api/v1/users/me/qa/")
-        }
-        self.assertEqual(
-            replacements["/api/v1/users/me/qa/export"],
-            "/api/v1/users/me/qa/bundles",
-        )
-        self.assertEqual(
-            replacements["/api/v1/users/me/qa/traj/export"],
-            "/api/v1/users/me/qa/bundles",
-        )
-        self.assertEqual(
-            replacements["/api/v1/users/me/qa/traj/export/jobs"],
-            "POST /api/v1/users/me/qa/bundles",
-        )
-        self.assertEqual(
-            replacements["/api/v1/users/me/qa/traj/export/jobs/:job_id"],
-            "/api/v1/users/me/qa/bundles/:job_id",
-        )
-        self.assertEqual(
-            replacements["/api/v1/users/me/qa/traj/exports/*key"],
-            "/api/v1/users/me/qa/bundle-exports/:job_id",
-        )
+    def test_retired_qa_routes_have_no_product_replacement(self) -> None:
+        retired = [route for route in export_agent_contract.RETIRED_HTTP_ROUTES
+                   if route["path"].startswith("/api/v1/users/me/qa/")]
+        for route in retired:
+            self.assertEqual(route["replacement"], "removed; raw archive is operations-only")
+            self.assertEqual(export_agent_contract.find_retired_source_registrations(
+                Path(__file__).resolve().parents[1], (route,)), [])
 
     def test_resurrected_qa_traj_export_route_is_rejected(self) -> None:
         route = {

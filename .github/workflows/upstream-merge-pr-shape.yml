@@ -64,8 +64,8 @@ name: Upstream Merge PR Shape
 #   9. The Engine Spine facade contract stays aligned: key dispatch paths must
 #      keep routing bridge eligibility through the shared engine facade so
 #      provider selection truth does not drift back into hotspot service files.
-#  10. The S3 QA Bundle contract stays aligned: service/worker tests and the
-#      US-044 authorization anchor must remain executable after the merge.
+#  10. Raw archive behavior and lifecycle deletion guards must remain
+#      executable after the merge.
 #  11. The pricing-availability tap contract stays intact: TK call sites registered
 #      in `scripts/sentinels/pricing-availability.json` must survive the merge so
 #      passive availability does not silently go dark (preflight parity).
@@ -479,15 +479,11 @@ jobs:
             exit 1
           fi
 
-      - name: Check 10 — QA Bundle service and worker contract stays executable after merge
+      - name: Check 10 — raw archive contract stays executable after merge
         run: |
-          # Same active packages and US-044 zero-match guard as scripts/preflight.sh.
-          MATCHED=$(cd backend && go test -tags=unit ./internal/observability/qa -list 'TestUS044_QABundle' 2>/dev/null | grep -c '^TestUS044_QABundle' || true)  # preflight-allow: swallow
-          if [ "${MATCHED:-0}" -lt 1 ]; then
-            echo "::error::TestUS044_QABundle matched ZERO tests (renamed / moved / deleted?)."
-            exit 1
-          fi
-          (cd backend && go test -tags=unit ./internal/observability/qa/bundle ./internal/observability/qa -count=1)
+          set -euo pipefail
+          (cd backend && go test -tags=unit ./internal/observability/qa/archive ./internal/observability/qa/lifecycle ./internal/observability/qa -count=1)
+          python3 scripts/checks/qa-lifecycle-ssot.py
 
       - name: Check 11 — pricing-availability sentinels still intact after merge
         run: |

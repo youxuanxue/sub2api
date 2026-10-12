@@ -89,7 +89,7 @@ func TestUS070_MiddlewarePersistsUpstreamModelFromOpsContext(t *testing.T) {
 		sentinelOutputTokens = 45
 		sentinelCachedTokens = 6
 	)
-	svc, client, _ := newQAExportTestService(t)
+	svc, client, _ := newQACaptureTestService(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -165,7 +165,7 @@ func TestQARequestCaptureBytes_OmitsMultipartBodies(t *testing.T) {
 }
 
 func TestQAMetadataSurvivesBodyCaptureLimit(t *testing.T) {
-	svc, client, store := newQAExportTestService(t)
+	svc, client, store := newQACaptureTestService(t)
 	svc.bodyMaxBytes = 32
 	r := gin.New()
 	r.Use(middleware.RequestLogger(), svc.Middleware())

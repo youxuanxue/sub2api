@@ -170,22 +170,6 @@ Resources:
                   StringEquals:
                     "aws:RequestedRegion":
                       - !Ref AWS::Region
-              - Sid: ReadQaBundleRuntimeForDiagnostics
-                Effect: Allow
-                Action:
-                  - ecs:DescribeServices
-                  - ecs:DescribeTasks
-                  - ecs:ListTasks
-                  - sqs:GetQueueAttributes
-                Resource: "*"
-              - Sid: ReadQaBundleBucketState
-                Effect: Allow
-                Action:
-                  - s3:GetBucketCORS
-                  - s3:GetEncryptionConfiguration
-                  - s3:GetLifecycleConfiguration
-                  - s3:ListBucket
-                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-bundles-${AWS::AccountId}"
               - Sid: ReadEbsSnapshotsForDiagnostics
                 # ops-daily-diagnostics data_layer_snapshot_signal.sh runs on the
                 # GHA runner (OIDC creds), not via SSM — needs direct EC2 read.
@@ -207,7 +191,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub "tokenkey-${AWS::Region}-qa-infra-cloudformation"
-      Description: Executes only the dedicated prod QA raw archive and Bundle stack.
+      Description: Executes only the dedicated prod QA raw archive stack.
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -216,7 +200,7 @@ Resources:
               Service: cloudformation.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: ManageQaArchiveAndBundleInfra
+        - PolicyName: ManageQaRawArchiveInfra
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -276,49 +260,9 @@ Resources:
                   - iam:UpdateRole
                   - iam:UpdateRoleDescription
                 Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-prod-qa-raw-arch*"
-              - Sid: CreateEcsServiceLinkedRole
-                Effect: Allow
-                Action: iam:CreateServiceLinkedRole
-                Resource: "*"
-                Condition:
-                  StringEquals:
-                    iam:AWSServiceName: ecs.amazonaws.com
-              - Sid: ManageQaEcs
+              - Sid: ManageQaTrailAndNetwork
                 Effect: Allow
                 Action:
-                  - ecs:CreateCluster
-                  - ecs:CreateService
-                  - ecs:DeleteCluster
-                  - ecs:DeleteService
-                  - ecs:DeregisterTaskDefinition
-                  - ecs:DescribeClusters
-                  - ecs:DescribeServices
-                  - ecs:DescribeTaskDefinition
-                  - ecs:ListTagsForResource
-                  - ecs:RegisterTaskDefinition
-                  - ecs:TagResource
-                  - ecs:UntagResource
-                  - ecs:UpdateService
-                Resource: "*"
-              - Sid: ManageQaQueueLogsTrailAndNetwork
-                Effect: Allow
-                Action:
-                  - sqs:CreateQueue
-                  - sqs:DeleteQueue
-                  - sqs:GetQueueAttributes
-                  - sqs:GetQueueUrl
-                  - sqs:ListQueueTags
-                  - sqs:SetQueueAttributes
-                  - sqs:TagQueue
-                  - sqs:UntagQueue
-                  - logs:CreateLogGroup
-                  - logs:DeleteLogGroup
-                  - logs:DescribeLogGroups
-                  - logs:DescribeIndexPolicies
-                  - logs:ListTagsForResource
-                  - logs:PutRetentionPolicy
-                  - logs:TagResource
-                  - logs:UntagResource
                   - cloudtrail:CreateTrail
                   - cloudtrail:DeleteTrail
                   - cloudtrail:GetEventSelectors
@@ -372,7 +316,7 @@ Resources:
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
                 "token.actions.githubusercontent.com:sub": "repo:youxuanxue/sub2api:environment:prod"
       Policies:
-        - PolicyName: DeployQaArchiveAndBundleStack
+        - PolicyName: DeployQaRawArchiveStack
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -395,22 +339,6 @@ Resources:
                 Condition:
                   StringEquals:
                     iam:PassedToService: cloudformation.amazonaws.com
-              - Sid: VerifyQaBundleRuntime
-                Effect: Allow
-                Action:
-                  - ecs:DescribeServices
-                  - ecs:DescribeTasks
-                  - ecs:ListTasks
-                  - sqs:GetQueueAttributes
-                Resource: "*"
-              - Sid: ReadQaBundleBucketState
-                Effect: Allow
-                Action:
-                  - s3:GetBucketCORS
-                  - s3:GetEncryptionConfiguration
-                  - s3:GetLifecycleConfiguration
-                  - s3:ListBucket
-                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-bundles-${AWS::AccountId}"
       Tags:
         - Key: Project
           Value: tokenkey

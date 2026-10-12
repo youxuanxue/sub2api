@@ -124,7 +124,6 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 
 ### Data layer / QA / deploy safety
 
-| [`hcloud-bluegreen-qa-migration.md`](hcloud-bluegreen-qa-migration.md) | HCloud 全栈蓝绿与 QA 私有存储/队列迁移 |
 
 | File | Topic |
 | --- | --- |
@@ -134,7 +133,6 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | [`design-data-layer-phase1-closeout.md`](design-data-layer-phase1-closeout.md) | Phase1 closeout |
 | [`design-phase1-prod-activation-gates.md`](design-phase1-prod-activation-gates.md) | Phase1 activation gates |
 | [`design-prod-archive-bucket.md`](design-prod-archive-bucket.md) | 长期 archive 桶 |
-| [`qa-bundle-session-export.md`](qa-bundle-session-export.md) | QA Bundle 保真会话导出与 traj SSOT |
 | [`ops-error-logs-column-contract.md`](ops-error-logs-column-contract.md) | `ops_error_logs` 列契约：声明 == 写入 ∪ DB 托管（无 Ent schema 表的机械替代） |
 | [`design-prod-qa-24h-s3-lifecycle.md`](design-prod-qa-24h-s3-lifecycle.md) | QA 24h S3 lifecycle |
 | [`security-capture-and-ingress.md`](security-capture-and-ingress.md) | QA capture protection, trusted ingress and public image download boundary |
@@ -146,7 +144,6 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | [`hetzner-cloud-full-migration.md`](hetzner-cloud-full-migration.md) | Hetzner 舰队决策锁（fsn1 / cax21；执行 SSOT：`deploy/hetzner/README.md`） |
 | [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
 | [`prod-component-release.md`](prod-component-release.md) | Independent prod component releases |
-| [`design-split-deploy-qa-bundle.md`](design-split-deploy-qa-bundle.md) | Physical separation of prod gateway and QA bundle workflows |
 
 ### Ops / admin / misc
 
@@ -182,3 +179,14 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 - [Stage0 release-check remediation](stage0-release-check-remediation.md) — approved fixes and production impact boundaries.
 
 - [Antigravity OpenAI Images 协议适配](antigravity-images-generations-adapter.md)：复用原生 Gemini Plan、单张 b64_json、参数边界与计费前响应校验。
+
+## QA raw-only 与历史设计
+
+| File | Topic |
+| --- | --- |
+| [qa-raw-only.md](qa-raw-only.md) | 当前 QA raw 归档与 Hetzner 迁移契约 |
+| [qa-bundle-session-export.md](qa-bundle-session-export.md) | archived：退役用户会话导出 |
+| [design-split-deploy-qa-bundle.md](design-split-deploy-qa-bundle.md) | archived：退役 Bundle worker 发布 |
+| [prod-component-release.md](prod-component-release.md) | archived：原组件发布设计，由 raw-only 替代 |
+
+网关 hcloud 蓝绿发布仍以 [hcloud-bluegreen-qa-migration.md](hcloud-bluegreen-qa-migration.md) 为基线，QA 部分以 raw-only 覆盖。

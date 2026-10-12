@@ -226,7 +226,6 @@ func ProvideHandlers(
 	qaService *qaobs.Service,
 	pricingCatalogHandler *PricingCatalogHandler,
 	mePricingCatalogHandler *MePricingCatalogHandler,
-	qaHandler *QAHandler,
 	edgeCapacityHandler *EdgeCapacityHandler,
 	edgeAccountsHandler *EdgeAccountsHandler,
 	edgeAdminSessionHandler *EdgeAdminSessionHandler,
@@ -261,7 +260,6 @@ func ProvideHandlers(
 		QACapture:        qaService,
 		PricingCatalog:   pricingCatalogHandler,
 		MePricingCatalog: mePricingCatalogHandler,
-		QA:               qaHandler,
 		EdgeCapacity:     edgeCapacityHandler,
 		EdgeAccounts:     edgeAccountsHandler,
 		EdgeAdminSession: edgeAdminSessionHandler,
@@ -293,7 +291,6 @@ var ProviderSet = wire.NewSet(
 	NewAvailableChannelHandler,
 	NewModelPlazaHandler,
 	NewAsyncImageHandler,
-	NewQAHandler,
 	ProvideBatchImageHandler,
 
 	// Admin handlers

@@ -160,7 +160,6 @@ func (r *userRepository) createUser(ctx context.Context, txClient *dbent.Client,
 		SetNillableLastLoginAt(userIn.LastLoginAt).
 		SetNillableLastActiveAt(userIn.LastActiveAt).
 		SetRpmLimit(userIn.RPMLimit).
-		SetTrajExportEnabled(userIn.TrajExportEnabled).
 		Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, nil, service.ErrEmailExists)
@@ -332,9 +331,6 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User, field
 	}
 	if fields.BalanceNotifyExtraEmails {
 		updateOp = updateOp.SetBalanceNotifyExtraEmails(marshalExtraEmails(userIn.BalanceNotifyExtraEmails))
-	}
-	if fields.TrajExportEnabled {
-		updateOp = updateOp.SetTrajExportEnabled(userIn.TrajExportEnabled)
 	}
 	if fields.SignupSource && userIn.SignupSource != "" {
 		updateOp = updateOp.SetSignupSource(userIn.SignupSource)

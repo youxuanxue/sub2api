@@ -119,7 +119,7 @@ jobs:
     if: inputs.operation == 'deploy'
     needs: release-contract
     concurrency:
-      group: ${{ needs.release-contract.outputs.mode == 'legacy_rollback' && 'prod-qa-lifecycle' || 'prod-gateway-compatible' }}
+      group: prod-gateway-compatible
       cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
@@ -266,79 +266,6 @@ jobs:
             --expected-instance-id "$INSTANCE_ID" \
             --script ops/observability/probe-gemini-web-relay-declarations.sh
 
-      - name: Read legacy rollback maintenance pin
-        if: needs.release-contract.outputs.mode == 'legacy_rollback'
-        env:
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
-          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
-        run: python3 ops/stage0/prod_release_state.py read --instance-id "$INSTANCE_ID" --output .prod-release-state.json
-
-      - name: Validate legacy QA credentials
-        if: needs.release-contract.outputs.mode == 'legacy_rollback'
-        env:
-          QA_INFRA_OIDC_ROLE_ARN: ${{ vars.QA_INFRA_OIDC_ROLE_ARN }}
-        run: test -n "$QA_INFRA_OIDC_ROLE_ARN"
-
-      - name: Configure QA credentials for legacy Worker verification
-        if: needs.release-contract.outputs.mode == 'legacy_rollback'
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ vars.QA_INFRA_OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Verify preserved legacy Worker
-        if: needs.release-contract.outputs.mode == 'legacy_rollback'
-        id: legacy_worker
-        env:
-          QA_RAW_ARCHIVE_STACK: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
-          QA_BUNDLE_VERIFY_MODE: discovery
-        run: bash ops/qa/verify_qa_bundle_infra.sh
-
-      - name: Plan legacy rollback without changing QA pins
-        if: needs.release-contract.outputs.mode == 'legacy_rollback'
-        env:
-          PREVIOUS_GATEWAY_TAG: ${{ steps.previous_runtime.outputs.tag }}
-          VERIFIED_WORKER_IMAGE: ${{ steps.legacy_worker.outputs.worker_image }}
-        run: |
-          python3 ops/stage0/prod_release_plan.py --target "$INPUT_TAG" --gateway "$PREVIOUS_GATEWAY_TAG" \
-            --worker "$VERIFIED_WORKER_IMAGE" --state .prod-release-state.json \
-            --rollout qa-target-release/ops/qa/deploy_rollout.yaml --output .prod-release-plan.json
-
-      - name: Restore Stage0 credentials for legacy host safety
-        if: needs.release-contract.outputs.mode == 'legacy_rollback'
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Pause DROP before legacy gateway mutation
-        id: legacy_pause
-        if: needs.release-contract.outputs.mode == 'legacy_rollback'
-        env:
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
-          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
-        run: python3 ops/stage0/prod_release_state.py pause --instance-id "$INSTANCE_ID" --plan .prod-release-plan.json
-
-      - name: Disable Boundary before legacy gateway mutation
-        id: legacy_boundary
-        if: needs.release-contract.outputs.mode == 'legacy_rollback'
-        env:
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
-          AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
-          QA_BOUNDARY_TIMER_STATE: disabled
-          STAGE0_SSM_OUTPUT_DIR: .qa-boundary-legacy-safety
-        run: bash ops/stage0/sync-qa-boundary-timer-via-ssm.sh "$INSTANCE_ID" "legacy gateway rollback safety"
-
-      - name: Resolve QA producer coordinates (read-only)
-        id: qa_coordinates
-        env:
-          QA_RUNTIME_PROVIDER: ${{ vars.QA_RUNTIME_PROVIDER || 'aws' }}
-          QA_STACK_NAME: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
-        run: |
-          python3 ops/qa/resolve_qa_bundle_coordinates.py --provider "$QA_RUNTIME_PROVIDER" \
-            --manifest deploy/hetzner/qa/producer.json --stack "$QA_STACK_NAME" \
-            --region "$AWS_REGION" --github-output "$GITHUB_OUTPUT"
-
       - name: Validate human-approved replay receipt
         if: inputs.replay_receipt != ''
         id: replay_gate
@@ -355,33 +282,11 @@ jobs:
           AWS_REGION: ${{ steps.instance.outputs.ssm_region }}
           STAGE0_DEPLOY_PROFILE: ${{ steps.instance.outputs.deploy_profile }}
           STAGE0_SSM_OUTPUT_DIR: .
-          QA_BUNDLE_ENABLED: "true"
-          QA_BUNDLE_QUEUE_URL: ${{ steps.qa_coordinates.outputs.queue_url }}
-          QA_BUNDLE_STORAGE_DRIVER: s3
-          QA_BUNDLE_QUEUE_DRIVER: ${{ steps.qa_coordinates.outputs.queue_driver }}
-          QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE: ${{ steps.qa_coordinates.outputs.queue_postgres_dsn_file }}
-          QA_BUNDLE_STORAGE_ENDPOINT: ${{ steps.qa_coordinates.outputs.endpoint }}
-          QA_BUNDLE_STORAGE_FORCE_PATH_STYLE: ${{ steps.qa_coordinates.outputs.force_path_style }}
-          QA_BUNDLE_STORAGE_CREDENTIALS_FILE: ${{ steps.qa_coordinates.outputs.credentials_file }}
-          QA_BUNDLE_STORAGE_REGION: ${{ steps.qa_coordinates.outputs.region }}
-          QA_BUNDLE_STORAGE_BUCKET: ${{ steps.qa_coordinates.outputs.bucket }}
-          QA_BUNDLE_STORAGE_PREFIX: user-qa
           STAGE0_BLUEGREEN_WAIT_PHASE: cutover
           STAGE0_BLUEGREEN_STAGE: ${{ inputs.replay_receipt != '' && 'promote' || 'deploy' }}
           STAGE0_BLUEGREEN_APPROVED_RECEIPT: ${{ steps.replay_gate.outputs.prepared_receipt }}
           STAGE0_BLUEGREEN_APPROVED_REPLAY: ${{ inputs.replay_receipt }}
-          QA_TARGET_ARCHIVE_BUCKET: ${{ steps.qa_coordinates.outputs.archive_bucket }}
-          QA_TARGET_ARCHIVE_PREFIX: ${{ steps.qa_coordinates.outputs.archive_prefix }}
-          QA_TARGET_ARCHIVE_CREDENTIALS_FILE: ${{ steps.qa_coordinates.outputs.archive_credentials_file }}
         run: |
-          if [[ "$QA_BUNDLE_QUEUE_DRIVER" = postgres ]]; then
-            export QA_ARCHIVE_STORAGE_REGION="$QA_BUNDLE_STORAGE_REGION"
-            export QA_ARCHIVE_STORAGE_ENDPOINT="$QA_BUNDLE_STORAGE_ENDPOINT"
-            export QA_ARCHIVE_STORAGE_FORCE_PATH_STYLE="$QA_BUNDLE_STORAGE_FORCE_PATH_STYLE"
-            export QA_ARCHIVE_STORAGE_CREDENTIALS_FILE="$QA_TARGET_ARCHIVE_CREDENTIALS_FILE"
-            export QA_ARCHIVE_STORAGE_BUCKET="$QA_TARGET_ARCHIVE_BUCKET"
-            export QA_ARCHIVE_STORAGE_PREFIX="$QA_TARGET_ARCHIVE_PREFIX"
-          fi
           bash ops/stage0/deploy_via_ssm_bluegreen.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-stage0 env=prod bluegreen"
 
       - name: External health check
@@ -588,10 +493,6 @@ jobs:
       - name: Job summary
         if: always()
         env:
-          RELEASE_MODE: ${{ needs.release-contract.outputs.mode }}
-          LEGACY_WORKER_OUTCOME: ${{ steps.legacy_worker.outcome }}
-          LEGACY_PAUSE_OUTCOME: ${{ steps.legacy_pause.outcome }}
-          LEGACY_BOUNDARY_OUTCOME: ${{ steps.legacy_boundary.outcome }}
           API_URL: ${{ steps.instance.outputs.api_url }}
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STACK_NAME: ${{ steps.stack.outputs.name }}
@@ -600,10 +501,6 @@ jobs:
         run: |
           {
             echo "## deploy-stage0"
-            if [ "$RELEASE_MODE" = legacy_rollback ]; then
-              printf -- '- legacy safety: Worker verification=%s; DROP pause=%s; Boundary disable=%s\n' "$LEGACY_WORKER_OUTCOME" "$LEGACY_PAUSE_OUTCOME" "$LEGACY_BOUNDARY_OUTCOME"
-              echo '- Successful legacy rollback keeps QA degraded until compatible QA acceptance.'
-            fi
             echo "- environment: \`prod\`"
             echo "- app image: \`ghcr.io/youxuanxue/sub2api:${INPUT_TAG}\`"
             echo "- stack: \`$STACK_NAME\`"

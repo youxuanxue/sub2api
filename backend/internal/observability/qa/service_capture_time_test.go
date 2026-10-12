@@ -17,7 +17,7 @@ import (
 )
 
 func TestSubmitUsesTrustedServerCaptureTime(t *testing.T) {
-	svc, client, _ := newQAExportTestService(t)
+	svc, client, _ := newQACaptureTestService(t)
 	callerTime := time.Date(2026, 8, 15, 6, 42, 0, 0, time.UTC)
 	serverNow := time.Date(2026, 8, 15, 9, 42, 0, 0, time.UTC)
 	svc.now = func() time.Time { return serverNow }
@@ -40,7 +40,7 @@ func TestSubmitUsesTrustedServerCaptureTime(t *testing.T) {
 
 func TestSubmitPersistsCaptureLedgerTransitions(t *testing.T) {
 	now := time.Date(2026, 8, 15, 9, 40, 0, 0, time.UTC)
-	svc, _, _ := newQAExportTestService(t)
+	svc, _, _ := newQACaptureTestService(t)
 	svc.now = func() time.Time { return now }
 	ledger, err := captureledger.Open(t.TempDir(), "runtime-a", now.Add(-time.Minute), func() time.Time { return now })
 	require.NoError(t, err)
@@ -64,7 +64,7 @@ func TestSubmitPersistsCaptureLedgerTransitions(t *testing.T) {
 
 func TestSubmitRecordsDatabasePersistFailureInLedger(t *testing.T) {
 	now := time.Date(2026, 8, 15, 9, 40, 0, 0, time.UTC)
-	svc, client, _ := newQAExportTestService(t)
+	svc, client, _ := newQACaptureTestService(t)
 	svc.now = func() time.Time { return now }
 	ledger, err := captureledger.Open(t.TempDir(), "runtime-a", now.Add(-time.Minute), func() time.Time { return now })
 	require.NoError(t, err)
@@ -87,7 +87,7 @@ func TestSubmitRecordsDatabasePersistFailureInLedger(t *testing.T) {
 
 func TestSubmitMirrorsDLQCaptureAsDegradedLedgerHealth(t *testing.T) {
 	now := time.Date(2026, 8, 15, 9, 40, 0, 0, time.UTC)
-	svc, _, _ := newQAExportTestService(t)
+	svc, _, _ := newQACaptureTestService(t)
 	svc.now = func() time.Time { return now }
 	svc.store = dlqOnlyBlobStore{}
 	svc.dlqDir = filepath.Join(t.TempDir(), "qa_dlq")

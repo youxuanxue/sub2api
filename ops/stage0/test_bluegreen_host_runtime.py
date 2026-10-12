@@ -20,12 +20,10 @@ class HostRuntimeTest(unittest.TestCase):
             root = Path(tmp)
             (root / 'aws').mkdir()
             (root / 'qa-secrets').mkdir()
-            for path in (root / 'aws/credentials', root / 'qa-secrets/queue.dsn', root / 'qa-secrets/bundle.json'):
+            for path in (root / 'aws/credentials', root / 'qa-secrets/raw.json'):
                 path.write_text('secret-must-not-be-rendered')
                 path.chmod(0o600)
-            (root / 'qa-secrets/queue-ca.pem').write_text('synthetic-ca')
-            env = {'QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE': '/run/secrets/tokenkey-qa/queue.dsn',
-                   'QA_BUNDLE_STORAGE_CREDENTIALS_FILE': '/run/secrets/tokenkey-qa/bundle.json'}
+            env = {'QA_ARCHIVE_STORAGE_CREDENTIALS_FILE': '/run/secrets/tokenkey-qa/raw.json'}
             mounts, environment = bindings(root, env, True, uid=os.getuid())
             proc, _, remote = _render()
             self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -35,7 +33,7 @@ class HostRuntimeTest(unittest.TestCase):
             for color in ('blue', 'green'):
                 service = result['services']['tokenkey-' + color]
                 actual = service['volumes'][1:]
-                self.assertEqual({m['target'] for m in actual}, {'/aws', *env.values(), '/run/secrets/tokenkey-qa/queue-ca.pem'})
+                self.assertEqual({m['target'] for m in actual}, {'/aws'})
                 self.assertTrue(all(m['read_only'] and not m['bind']['create_host_path'] for m in actual))
                 self.assertIn('AWS_SHARED_CREDENTIALS_FILE=/aws/credentials', service['environment'])
 
@@ -46,19 +44,34 @@ class HostRuntimeTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 bindings(root, {}, True)
             (root / 'qa-secrets').mkdir()
-            path = root / 'qa-secrets/bundle.json'
+            path = root / 'qa-secrets/raw.json'
             path.write_text('synthetic')
             path.chmod(0o644)
-            env = {'QA_BUNDLE_STORAGE_CREDENTIALS_FILE': '/run/secrets/tokenkey-qa/bundle.json'}
+            env = {'QA_ARCHIVE_STORAGE_CREDENTIALS_FILE': '/run/secrets/tokenkey-qa/raw.json'}
             with self.assertRaises(ValueError):
-                bindings(root, env, False, uid=os.getuid())
+                bindings(root, env, False, uid=os.getuid(), qa_maintenance=True)
             path.chmod(0o600)
             with self.assertRaises(ValueError):
-                bindings(root, {**env, 'QA_BUNDLE_STORAGE_CREDENTIALS_FILE': '/etc/passwd'}, False)
+                bindings(root, {**env, 'QA_ARCHIVE_STORAGE_CREDENTIALS_FILE': '/etc/passwd'}, False, qa_maintenance=True)
             path.unlink()
             path.symlink_to('/etc/passwd')
             with self.assertRaises(ValueError):
-                bindings(root, env, False, uid=os.getuid())
+                bindings(root, env, False, uid=os.getuid(), qa_maintenance=True)
+
+    def test_only_maintenance_receives_private_raw_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = {'QA_ARCHIVE_STORAGE_CREDENTIALS_FILE': '/run/secrets/tokenkey-qa/raw.json'}
+            self.assertEqual(bindings(root, env, False), ([], []))
+            (root / 'qa-secrets').mkdir()
+            raw = root / 'qa-secrets/raw.json'
+            raw.write_text('synthetic-raw-identity')
+            raw.chmod(0o600)
+            mounts, environment = bindings(root, env, False, uid=os.getuid(), qa_maintenance=True)
+            self.assertEqual(mounts, [{'type': 'bind', 'source': str(raw),
+                                     'target': env['QA_ARCHIVE_STORAGE_CREDENTIALS_FILE'],
+                                     'read_only': True, 'bind': {'create_host_path': False}}])
+            self.assertEqual(environment, [])
 
     def test_root_disk_and_unmounted_data_are_rejected(self):
         root = Path('/var/lib/tokenkey')
@@ -93,56 +106,7 @@ class HostRuntimeTest(unittest.TestCase):
             self.assertFalse(marker_path.exists())
             self.assertIn('runtime prerequisite failed', result.stderr)
 
-    def test_gateway_upgrade_cannot_switch_queue_backend_or_redirect_migrated_objects(self):
-        proc, _, remote = _render()
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        function = _extract_shell_function(remote, 'assert_qa_provider_unchanged')
-        contract = Path(__file__).with_name('qa-runtime-environment.sh').read_text()
-        for current, desired, bucket, expected in (
-            ('sqs', 'postgres', 'existing', 1), ('postgres', 'sqs', 'existing', 1),
-            ('postgres', 'postgres', 'different', 1), ('postgres', 'postgres', 'existing', 0),
-            ('', 'sqs', 'existing', 0),
-        ):
-            script = contract + '\n' + function + """
-set -eu
-die() { echo "$*" >&2; exit 1; }
-env_get() {
-  case "$1" in
-    QA_BUNDLE_QUEUE_DRIVER) printf '%s' "$TEST_CURRENT" ;;
-    QA_BUNDLE_STORAGE_BUCKET) printf existing ;;
-  esac
-}
-assert_qa_provider_unchanged
-printf allowed
-"""
-            result = subprocess.run(['bash'], input=script, capture_output=True, text=True,
-                                    env={**os.environ, 'DEPLOY_PROFILE': 'prod', 'TEST_CURRENT': current,
-                                         'QA_BUNDLE_QUEUE_DRIVER': desired, 'QA_BUNDLE_STORAGE_BUCKET': bucket,
-                                         'QA_BUNDLE_STORAGE_BUCKET_SET': 'true'})
-            self.assertEqual(result.returncode, expected, (current, desired, result.stderr))
-            self.assertEqual(result.stdout, 'allowed' if expected == 0 else '')
 
-    def test_postgres_renderer_accepts_file_and_rejects_ambiguous_queue(self):
-        env = {'QA_BUNDLE_ENABLED': 'true', 'QA_BUNDLE_QUEUE_DRIVER': 'postgres',
-               'QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE': '/run/secrets/tokenkey-qa/queue.dsn',
-               'QA_BUNDLE_QUEUE_URL': '', 'QA_BUNDLE_STORAGE_DRIVER': 's3',
-               'QA_BUNDLE_STORAGE_REGION': 'fsn1', 'QA_BUNDLE_STORAGE_BUCKET': 'qa-test',
-               'QA_BUNDLE_STORAGE_PREFIX': 'user-qa'}
-        proc, params, _ = _render(env_extra=env)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        # Execute the delivered assignment prefix to test quoting and actual
-        # env propagation rather than matching the script's spelling.
-        prefix = params['commands'][-1].rsplit(' /tmp/tokenkey-bluegreen-deploy.sh', 1)[0] + ' '
-        observed = subprocess.run(['bash', '-c', prefix + "python3 -c 'import os; print(os.environ[\"QA_BUNDLE_QUEUE_DRIVER\"]); print(os.environ[\"QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE\"])'"],
-                                  capture_output=True, text=True, env=os.environ)
-        self.assertEqual(observed.returncode, 0, observed.stderr)
-        self.assertEqual(observed.stdout.splitlines(), ['postgres', env['QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE']])
-        for override in ({'QA_BUNDLE_QUEUE_URL': 'https://sqs.example/queue'},
-                         {'QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE': ''}, {'QA_BUNDLE_QUEUE_DRIVER': 'unknown'},
-                         {'QA_BUNDLE_STORAGE_ENDPOINT': 'bad\nINJECT=secret'}):
-            failed, params, _ = _render(env_extra=env | override)
-            self.assertNotEqual(failed.returncode, 0)
-            self.assertIsNone(params)
 
     def test_failed_candidate_restores_environment_before_profile_changes(self):
         proc, _, remote = _render()
@@ -154,7 +118,7 @@ printf allowed
         for stage, layout in (('deploy', 'legacy'), ('deploy', 'blue'), ('prepare', 'blue')):
             with self.subTest(stage=stage, layout=layout), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                original = 'QA_BUNDLE_STORAGE_CREDENTIALS_FILE=\nTOKENKEY_IMAGE=repo:1.8.98\n'
+                original = 'QA_ARCHIVE_STORAGE_CREDENTIALS_FILE=\nTOKENKEY_IMAGE=repo:1.8.98\n'
                 (root / '.env').write_text(original)
                 script = 'set -euo pipefail\n' + functions + '''
 ENV_FILE="$ROOT/.env"
@@ -177,9 +141,9 @@ other_color() { printf green; }
 color_container() { printf 'tokenkey-%s' "$1"; }
 env_set() { :; }
 ensure_profile_environment() {
-  printf 'QA_BUNDLE_STORAGE_CREDENTIALS_FILE=/run/secrets/tokenkey-qa/bundle.json\n' > "$ENV_FILE"
+  printf 'QA_ARCHIVE_STORAGE_CREDENTIALS_FILE=/run/secrets/tokenkey-qa/raw.json\n' > "$ENV_FILE"
 }
-# A missing private credential rejects the candidate before Docker or cutover.
+# A candidate prerequisite failure precedes Docker and cutover.
 write_bluegreen_compose() { return 73; }
 trap cleanup_on_exit EXIT
 run_bluegreen_stage

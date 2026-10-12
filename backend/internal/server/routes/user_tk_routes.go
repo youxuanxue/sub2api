@@ -2,8 +2,6 @@ package routes
 
 import (
 	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,8 +20,7 @@ import (
 //     pickers for switching between accessible groups. See
 //     handler/me_pricing_catalog_handler_tk.go.
 //
-// Endpoints requiring BOTH JWT and API-key auth live in
-// registerTKUserDualAuthRoutes below.
+
 func registerTKUserRoutes(authenticated, user *gin.RouterGroup, h *handler.Handlers) {
 	user.POST("/onboarding-tour-completed", h.User.MarkOnboardingTourSeen)
 	if h.MePricingCatalog != nil {
@@ -31,34 +28,5 @@ func registerTKUserRoutes(authenticated, user *gin.RouterGroup, h *handler.Handl
 	}
 	if h.APIKey != nil {
 		authenticated.GET("/me/api-keys/:id/capabilities", h.APIKey.GetCapabilities)
-	}
-}
-
-// registerTKUserDualAuthRoutes wires TokenKey user-side endpoints that
-// must accept EITHER user-scope JWT (browser / 用户中心) OR user-scope
-// API key (SDK / CI callers like M0). Issue #63 — the M0 dual-CC client
-// holds the same `sk-...` token it uses against `/v1/messages`; routing
-// the QA self-export through JWT-only middleware made TokenKey reject
-// its own canonical "developer credential" with HTTP 401.
-//
-// The handler layer is auth-source-agnostic — both branches of
-// EitherAuth write the same AuthSubject{UserID} into context, so QA
-// service reads `WHERE user_id = subject.UserID` are unaffected.
-//
-// Endpoints (JWT OR API-key) expose only scoped S3 QA Bundle jobs and URLs.
-func registerTKUserDualAuthRoutes(
-	v1 *gin.RouterGroup,
-	h *handler.Handlers,
-	eitherAuth middleware.EitherAuthMiddleware,
-	settingService *service.SettingService,
-) {
-	dualAuth := v1.Group("")
-	dualAuth.Use(gin.HandlerFunc(eitherAuth))
-	dualAuth.Use(middleware.BackendModeUserGuard(settingService))
-	{
-		dualAuth.POST("/users/me/qa/bundles", h.QA.CreateSelfQABundle)
-		dualAuth.GET("/users/me/qa/bundles/:job_id", h.QA.GetSelfQABundle)
-		dualAuth.POST("/users/me/qa/bundles/:job_id/export", h.QA.CreateSelfQABundleExport)
-		dualAuth.GET("/users/me/qa/bundle-exports/:job_id", h.QA.GetSelfQABundleExport)
 	}
 }

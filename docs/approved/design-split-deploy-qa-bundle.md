@@ -1,9 +1,13 @@
 ---
-status: approved
+status: archived
 approved_by: "feng (conversation 2026-09-14: confirmed independent normal releases, legacy-only rollback safety, and serialized QA acceptance)"
 approved_at: 2026-09-14
 scope: "split production workflows, legacy rollback safety, maintenance release acceptance, release plan/state owners, notifications and regression guards"
+superseded_by: qa-raw-only.md
 ---
+
+> 历史设计：QA Bundle、worker 与用户导出已由 [QA raw-only](qa-raw-only.md) 退役。本文仅供历史核对。
+
 
 # Physical Separation of Prod Stage0 Gateway and QA Bundle Workflows
 

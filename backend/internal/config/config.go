@@ -105,7 +105,6 @@ type Config struct {
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	QACapture               QACaptureConfig               `mapstructure:"qa_capture"`
 	QaArchive               QaArchiveConfig               `mapstructure:"qa_archive"`
-	QaBundle                QaBundleConfig                `mapstructure:"qa_bundle"`
 	MediaStorage            MediaStorageConfig            `mapstructure:"media_storage"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
@@ -224,14 +223,6 @@ type QaArchiveConfig struct {
 	Enabled          bool                   `mapstructure:"enabled"`
 	SealDelayMinutes int                    `mapstructure:"seal_delay_minutes"`
 	Storage          QACaptureStorageConfig `mapstructure:"storage"`
-}
-
-type QaBundleConfig struct {
-	Enabled              bool                   `mapstructure:"enabled"`
-	QueueURL             string                 `mapstructure:"queue_url"`
-	QueueDriver          string                 `mapstructure:"queue_driver"`
-	QueuePostgresDSNFile string                 `mapstructure:"queue_postgres_dsn_file"`
-	Storage              QACaptureStorageConfig `mapstructure:"storage"`
 }
 
 type QACaptureStorageConfig struct {
@@ -2682,20 +2673,6 @@ func setDefaults() {
 	viper.SetDefault("qa_archive.storage.prefix", "raw/v1")
 	viper.SetDefault("qa_archive.storage.force_path_style", false)
 
-	viper.SetDefault("qa_bundle.enabled", false)
-	viper.SetDefault("qa_bundle.queue_url", "")
-	viper.SetDefault("qa_bundle.queue_driver", "sqs")
-	viper.SetDefault("qa_bundle.queue_postgres_dsn_file", "")
-	viper.SetDefault("qa_bundle.storage.driver", "")
-	viper.SetDefault("qa_bundle.storage.endpoint", "")
-	viper.SetDefault("qa_bundle.storage.region", "")
-	viper.SetDefault("qa_bundle.storage.bucket", "")
-	viper.SetDefault("qa_bundle.storage.credentials_file", "")
-	viper.SetDefault("qa_bundle.storage.access_key_id", "")
-	viper.SetDefault("qa_bundle.storage.secret_access_key", "")
-	viper.SetDefault("qa_bundle.storage.prefix", "user-qa")
-	viper.SetDefault("qa_bundle.storage.force_path_style", false)
-
 	// media_storage.* has no struct default, so pin viper keys here to enable
 	// MEDIA_STORAGE_* env injection (same nested-key reason as export_storage).
 	viper.SetDefault("media_storage.driver", "")
@@ -3682,9 +3659,6 @@ func (c *Config) Validate() error {
 	if err := validateQaArchiveConfig(c.QaArchive); err != nil {
 		return err
 	}
-	if err := validateQaBundleConfig(c.QaBundle); err != nil {
-		return err
-	}
 	if c.Gateway.MaxBodySize <= 0 {
 		return fmt.Errorf("gateway.max_body_size must be positive")
 	}
@@ -4209,38 +4183,6 @@ func validateQaArchiveConfig(archive QaArchiveConfig) error {
 	}
 	if strings.Trim(strings.TrimSpace(archive.Storage.Prefix), "/") == "" {
 		return fmt.Errorf("qa_archive.storage.prefix is required when enabled")
-	}
-	return nil
-}
-
-func validateQaBundleConfig(bundle QaBundleConfig) error {
-	if !bundle.Enabled {
-		return nil
-	}
-	if strings.ToLower(strings.TrimSpace(bundle.Storage.Driver)) != "s3" {
-		return fmt.Errorf("qa_bundle.storage.driver must be s3 when enabled")
-	}
-	if strings.TrimSpace(bundle.Storage.Region) == "" || strings.TrimSpace(bundle.Storage.Bucket) == "" ||
-		strings.Trim(strings.TrimSpace(bundle.Storage.Prefix), "/") == "" {
-		return fmt.Errorf("qa_bundle.storage region, bucket, and prefix are required when enabled")
-	}
-	switch strings.ToLower(strings.TrimSpace(bundle.QueueDriver)) {
-	case "", "sqs":
-		if strings.TrimSpace(bundle.QueueURL) == "" {
-			return fmt.Errorf("qa_bundle.queue_url is required for sqs")
-		}
-		if strings.TrimSpace(bundle.QueuePostgresDSNFile) != "" {
-			return fmt.Errorf("qa_bundle postgres credentials require the postgres driver")
-		}
-	case "postgres":
-		if strings.TrimSpace(bundle.QueuePostgresDSNFile) == "" {
-			return fmt.Errorf("qa_bundle.queue_postgres_dsn_file is required for postgres")
-		}
-		if strings.TrimSpace(bundle.QueueURL) != "" {
-			return fmt.Errorf("qa_bundle.queue_url must be empty for postgres")
-		}
-	default:
-		return fmt.Errorf("qa_bundle.queue_driver must be sqs or postgres")
 	}
 	return nil
 }

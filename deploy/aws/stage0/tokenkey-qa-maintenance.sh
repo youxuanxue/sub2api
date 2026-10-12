@@ -211,8 +211,8 @@ qa_container_run() {
   fi
   local -a qa_cred_args=()
   local mount_arg mount_args_file="${ENV_FILE}.mounts"
-  if grep -Eq '^QA_(BUNDLE_QUEUE_POSTGRES_DSN_FILE|(BUNDLE|ARCHIVE)_STORAGE_CREDENTIALS_FILE)=.+' "${ENV_FILE}"; then
-    if ! python3 "${QA_MAINTENANCE_CREDENTIAL_HELPER}" --docker-mounts --env-file "${ENV_FILE}" >"${mount_args_file}"; then
+  if grep -Eq '^QA_ARCHIVE_STORAGE_CREDENTIALS_FILE=.+' "${ENV_FILE}"; then
+    if ! python3 "${QA_MAINTENANCE_CREDENTIAL_HELPER}" --qa-maintenance --docker-mounts --env-file "${ENV_FILE}" >"${mount_args_file}"; then
       qa_fail qa_credentials_invalid 48 "QA private credential mounts are missing or unsafe"
       return
     fi
@@ -681,27 +681,6 @@ run_single_owner_plan() {
   return "${result}"
 }
 
-run_bundle_canary() {
-  ERROR_CODE=""
-  CHILD_STDOUT=""
-  CHILD_STDERR=""
-  load_app_runtime
-  if [ -n "${QA_CANARY_IMAGE:-}" ]; then
-    [[ "${QA_CANARY_IMAGE}" =~ ^ghcr.io/youxuanxue/sub2api:[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta)\.[0-9]+)?$ ]] || return 40
-    APP_IMAGE="$(qa_docker image inspect --format '{{.Id}}' "${QA_CANARY_IMAGE}")" || return
-  fi
-  set +e
-  qa_container_run "tokenkey-qa-bundle-canary-$$" \
-    "${APP_IMAGE}" /app/sub2api \
-    --qa-bundle-canary \
-    --confirm=tokenkey-prod-qa-bundle-canary-v1 \
-    --timeout-seconds="${QA_BUNDLE_CANARY_TIMEOUT_SECONDS:-1800}"
-  local result=$?
-  set -e
-  cleanup_runtime_files
-  return "${result}"
-}
-
 run_selftest_container() {
   local name="$1"
   shift
@@ -863,10 +842,6 @@ main() {
     --plan-single-owner)
       [ "$#" -eq 1 ] || { printf 'tokenkey-qa-maintenance: plan accepts no arguments\n' >&2; return 40; }
       with_qa_lifecycle_lock run_single_owner_plan
-      ;;
-    --qa-bundle-canary)
-      [ "$#" -eq 1 ] || { printf 'tokenkey-qa-maintenance: canary accepts no arguments\n' >&2; return 40; }
-      run_bundle_canary
       ;;
     --trigger=*)
       local trigger="${1#--trigger=}"

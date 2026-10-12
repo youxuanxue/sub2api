@@ -14,8 +14,7 @@ WHY THIS EXISTS:
       - the running image tag is hot-deployed via SSM (deploy_via_ssm.sh), so the
         CFN ImageTag parameter intentionally lags (changing it would REPLACE the
         instance — ImageTag is substituted into UserData);
-      - prod-only env (SERVER_FRONTEND_URL, TOKENKEY_GHCR_KEEP_TAGS, the four
-        QA_BUNDLE_* vars) is injected onto the host by
+      - prod-only env (SERVER_FRONTEND_URL, TOKENKEY_GHCR_KEEP_TAGS, SERVER_FRONTEND_URL) is injected onto the host by
         deploy_via_ssm.sh, NOT carried in the shared compose (avoids the edge
         14 KiB launch-script limit).
     The decoupling is by design and good — but until now NOTHING watched the live
@@ -26,7 +25,6 @@ WHY THIS EXISTS:
 
 Input (stdin): tagged, field-named JSON lines emitted by the probe:
     RUNIMAGE {"image":"ghcr.io/owner/sub2api:1.8.10"}
-    ENV      {"key":"QA_BUNDLE_STORAGE_DRIVER","value":"s3"}
     ENV      {"key":"SERVER_FRONTEND_URL","value":"https://api.tokenkey.dev"}
     ENV      {"key":"GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"30"}
     RETENTION {"value":"2"}
@@ -66,15 +64,7 @@ from first_output_timeout_ssot import EXPECTED_ENV as DEFAULT_EXPECTED_ENV  # no
 # content — the 2026-06 "3× repeat"). NOTE: TOKENKEY_GHCR_KEEP_TAGS is injected
 # into the HOST .env only (consumed by the host ghcr-prune script), NOT mapped
 # into the container, so it is deliberately NOT a container-env assertion here.
-DEFAULT_REQUIRED_ENV = [
-    "SERVER_FRONTEND_URL",
-    "QA_BUNDLE_ENABLED",
-    "QA_BUNDLE_QUEUE_URL",
-    "QA_BUNDLE_STORAGE_DRIVER",
-    "QA_BUNDLE_STORAGE_REGION",
-    "QA_BUNDLE_STORAGE_BUCKET",
-    "QA_BUNDLE_STORAGE_PREFIX",
-]
+DEFAULT_REQUIRED_ENV = ["SERVER_FRONTEND_URL"]
 
 
 def parse_facts(lines):
@@ -160,12 +150,6 @@ def _selftest():
     clean = [
         'RUNIMAGE {"image":"ghcr.io/o/sub2api:1.8.10"}',
         'ENV {"key":"SERVER_FRONTEND_URL","value":"https://api.tokenkey.dev"}',
-        'ENV {"key":"QA_BUNDLE_ENABLED","value":"true"}',
-        'ENV {"key":"QA_BUNDLE_QUEUE_URL","value":"https://sqs.us-east-1.amazonaws.com/123/tokenkey-prod-qa-bundle"}',
-        'ENV {"key":"QA_BUNDLE_STORAGE_DRIVER","value":"s3"}',
-        'ENV {"key":"QA_BUNDLE_STORAGE_REGION","value":"us-east-1"}',
-        'ENV {"key":"QA_BUNDLE_STORAGE_BUCKET","value":"tokenkey-prod-qa-bundles-123"}',
-        'ENV {"key":"QA_BUNDLE_STORAGE_PREFIX","value":"user-qa"}',
         'RETENTION {"value":"2"}',
         *_first_output_env_lines(),
     ]
@@ -177,12 +161,12 @@ def _selftest():
     got = _verdict(rolled, expected_tag="1.8.10")
     cases.append(("tag rollback → drift", bool(got) and "running image tag" in got[0], True))
 
-    # missing QA Bundle env (the 3× incident class)
-    missing = [l for l in clean if "QA_BUNDLE_STORAGE_BUCKET" not in l]
+    # missing gateway env (the 3× incident class)
+    missing = [l for l in clean if "SERVER_FRONTEND_URL" not in l]
     got = _verdict(missing, expected_tag="1.8.10")
     cases.append((
-        "missing QA Bundle bucket env → drift",
-        any("QA_BUNDLE_STORAGE_BUCKET" in d for d in got),
+        "missing gateway frontend env → drift",
+        any("SERVER_FRONTEND_URL" in d for d in got),
         True,
     ))
 

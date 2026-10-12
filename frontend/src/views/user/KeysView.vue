@@ -435,16 +435,6 @@
                 <Icon v-else name="checkCircle" size="sm" />
                 <span class="text-xs">{{ row.status === 'active' ? t('keys.disable') : t('keys.enable') }}</span>
               </button>
-              <!-- QA Bundle Button -->
-              <button
-                v-if="canExportTraj && trajExportPlatforms.includes(row.group?.platform ?? '')"
-                @click="openExportPanel(row)"
-                :title="t('keys.exportTooltip')"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400"
-              >
-                <Icon name="chat" size="sm" />
-                <span class="text-xs">QA</span>
-              </button>
               <!-- Edit Button -->
               <button
                 @click="editKey(row)"
@@ -1129,13 +1119,6 @@
       @cancel="showResetRateLimitDialog = false"
     />
 
-    <QABundlePanel
-      :show="showExportPanel"
-      :api-key-id="exportPanelKey?.id ?? null"
-      :api-key-name="exportPanelKey?.name"
-      @close="closeExportPanel"
-    />
-
     <!-- CCS app selection (Antigravity or Universal keys) -->
     <BaseDialog
       :show="showCcsClientSelect"
@@ -1300,7 +1283,6 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
-import { useAuthStore } from '@/stores/auth'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import BulkEditKeysModal from '@/components/keys/BulkEditKeysModal.vue'
 import KeyUsageTrendDialog from '@/components/keys/KeyUsageTrendDialog.vue'
@@ -1313,7 +1295,6 @@ import KeyUsageTrendDialog from '@/components/keys/KeyUsageTrendDialog.vue'
 	import SearchInput from '@/components/common/SearchInput.vue'
 	import DateRangePicker from '@/components/common/DateRangePicker.vue'
 	import Icon from '@/components/icons/Icon.vue'
-	import QABundlePanel from '@/components/keys/QABundlePanel.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
@@ -1359,19 +1340,8 @@ interface GroupOption {
 
 const appStore = useAppStore()
 const { importToCcSwitch } = useCcSwitchImport()
-const authStore = useAuthStore()
 const onboardingStore = useOnboardingStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
-
-// Admin-granted per-user switch: only then does each key row expose the
-// conversation-record export entry (backend also enforces 403).
-const canExportTraj = computed(() => authStore.user?.traj_export_enabled === true)
-
-// Server-driven allowlist of platforms whose conversation records the Bundle session
-// projector can reconstruct (engine.TrajProjectablePlatforms via /auth/me).
-// The chip renders only for a key whose group platform is in this list — the UI
-// holds no hardcoded platform list of its own (single source = the backend).
-const trajExportPlatforms = computed(() => authStore.user?.traj_export_platforms ?? [])
 
 const allColumns = computed<Column[]>(() => [
   { key: 'name', label: t('common.name'), sortable: true },
@@ -1529,8 +1499,6 @@ const pendingCcsRow = ref<ApiKey | null>(null)
 const ccsAppSelectMode = ref<'antigravity' | 'universal'>('antigravity')
 const selectedKey = ref<ApiKey | null>(null)
 const copiedKeyId = ref<number | null>(null)
-const showExportPanel = ref(false)
-const exportPanelKey = ref<ApiKey | null>(null)
 const groupSelectorKeyId = ref<number | null>(null)
 const publicSettings = ref<PublicSettings | null>(null)
 const displayApiBaseUrl = computed(() =>
@@ -2226,16 +2194,6 @@ const handleCcsAppSelect = (ccsApp: CcSwitchApp) => {
   pendingCcsRow.value = null
 }
 
-// Open the S3-only QA Bundle surface for this key.
-const openExportPanel = (row: ApiKey) => {
-  exportPanelKey.value = row
-  showExportPanel.value = true
-}
-
-const closeExportPanel = () => {
-  showExportPanel.value = false
-  exportPanelKey.value = null
-}
 
 const closeCcsClientSelect = () => {
   showCcsClientSelect.value = false
