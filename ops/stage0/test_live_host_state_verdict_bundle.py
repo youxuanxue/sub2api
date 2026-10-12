@@ -38,13 +38,13 @@ class LiveHostStateVerdictBundleTest(unittest.TestCase):
         )
         self.assertEqual(
             verdict.DEFAULT_EXPECTED_ENV["GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS"],
-            "30",
+            "60",
         )
         self.assertEqual(
             verdict.DEFAULT_EXPECTED_ENV[
                 "GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS"
             ],
-            "60",
+            "300",
         )
 
 

@@ -53,8 +53,8 @@ class AssertLiveHostStateTransportTest(unittest.TestCase):
                 ENV {{"key":"QA_BUNDLE_STORAGE_PREFIX","value":"user-qa"}}
                 ENV {{"key":"GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"30"}}
                 ENV {{"key":"GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS","value":"60"}}
-                ENV {{"key":"GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"30"}}
-                ENV {{"key":"GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"60"}}
+                ENV {{"key":"GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"60"}}
+                ENV {{"key":"GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"300"}}
                 RETENTION {{"value":"1.5"}}
                 OUT
                     ;;

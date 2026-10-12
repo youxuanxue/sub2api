@@ -16216,25 +16216,25 @@
         "viper.SetDefault(\"gateway.stream_first_output_high_effort_timeout_seconds\", 60)",
         "viper.SetDefault(\"gateway.newapi_chat_first_output_timeout\", 0)",
         "viper.SetDefault(\"gateway.newapi_chat_nonstream_first_output_timeout\", 300)",
-        "viper.SetDefault(\"gateway.openai_first_output_timeout_seconds\", 30)",
-        "viper.SetDefault(\"gateway.openai_high_effort_first_output_timeout_seconds\", 60)",
+        "viper.SetDefault(\"gateway.openai_first_output_timeout_seconds\", 60)",
+        "viper.SetDefault(\"gateway.openai_high_effort_first_output_timeout_seconds\", 300)",
         "gateway.stream_first_output_timeout_seconds must be between 0-60 seconds",
         "gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)",
         "viper.SetDefault(\"gateway.grok_response_header_timeout\", 0)",
         "gateway.grok_response_header_timeout must be between 0-60 seconds"
       ],
-      "rationale": "Universal stream first-output SSOT is 30s / high-effort 60s (max 60). OpenAI native keys stay explicit at the same values so openai_*=0 remains emergency disable. NewAPI Chat streaming inherits stream SSOT unless overridden; non-streaming stays 300s."
+      "rationale": "Universal stream first-output SSOT is 30s / high-effort 60s (max 60). OpenAI native keys stay explicit: standard 60s, high-effort 300s for large gpt-6.* bodies; openai_*=0 remains emergency disable. NewAPI Chat streaming inherits stream SSOT unless overridden; non-streaming stays 300s."
     },
     {
       "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
       "must_contain": [
         "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-30}",
         "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-60}",
-        "GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-30}",
-        "GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS:-60}",
+        "GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-60}",
+        "GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS:-300}",
         "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}"
       ],
-      "rationale": "Blue/green deploy must ship universal stream first-output inject defaults (30s/60s), matching OpenAI-native defaults, and NewAPI nonstream 300s so recreate keeps the raised failover wall."
+      "rationale": "Blue/green deploy must ship universal stream first-output inject defaults (30s/60s), OpenAI 60s / high-effort 300s, and NewAPI nonstream 300s so recreate keeps the raised failover wall."
     },
     {
       "path": "backend/internal/service/candidate_chat_attempt_tk_test.go",

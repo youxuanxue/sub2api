@@ -1,7 +1,7 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, and 2026-10-12 raise universal stream SSOT to 30s/60s after further review)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, and 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls)"
 created: 2026-09-07
 revised_at: 2026-10-12
 ---
@@ -235,11 +235,12 @@ keys may override when explicitly set; zero means inherit the universal default
 (except OpenAI native where `0` remains an emergency disable for
 `openai_first_output_timeout_seconds`).
 
-OpenAI native defaults match the universal stream SSOT
-(`openai_first_output_timeout_seconds` **30**,
-`openai_high_effort_first_output_timeout_seconds` **60**) but remain explicit
-keys so `openai_*=0` can emergency-disable OpenAI waits without collapsing the
-cross-platform stream budget.
+OpenAI native defaults stay explicit keys so `openai_*=0` can emergency-disable
+OpenAI waits without collapsing the cross-platform stream budget:
+`openai_first_output_timeout_seconds` **60**,
+`openai_high_effort_first_output_timeout_seconds` **300** (wider than stream
+30/60 — prod evidence that large `gpt-6.*` compaction bodies often stall past
+60s without semantic first output on OAuth edges).
 
 `gateway.response_header_timeout` remains transport header wait only and must
 not redefine these budgets. Grok’s first-byte header wait inherits
