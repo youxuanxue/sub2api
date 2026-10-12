@@ -4,7 +4,8 @@
 Writable copies that have bitten before (compose inject without OpenAI lines,
 viper defaults, remediate WANT_*, Go stream defaults, config.example.yaml) must
 all agree with the SSOT table. Live-host value drift is covered separately by
-assert-live-host-state.sh → live_host_state_verdict.py.
+assert-live-host-state.sh (prod) /
+assert-first-output-timeouts.sh (edges) → live_host_state_verdict.py.
 """
 
 from __future__ import annotations

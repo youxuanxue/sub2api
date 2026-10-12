@@ -7,8 +7,6 @@ const messages: Record<string, string> = {
   'usage.apiKeyDistribution': 'API Key Distribution',
   'usage.apiKeyFilter': 'API Key',
   'usage.cost': 'Cost',
-  'usage.days7': '7d',
-  'usage.days30': '30d',
   'usage.unknownApiKey': 'Unknown key',
   'admin.dashboard.requests': 'Requests',
   'admin.dashboard.tokens': 'Tokens',
@@ -80,13 +78,13 @@ describe('ApiKeyDistributionChart', () => {
     expect(chartData.datasets[0].data).toEqual([0.9, 0.1])
   })
 
-  it('emits days tab changes', async () => {
+  it('does not render a separate 7d/30d time toggle', () => {
     const wrapper = mount(ApiKeyDistributionChart, {
-      props: { apiKeyStats, days: 7 },
+      props: { apiKeyStats },
       global: { stubs: { LoadingSpinner: true } },
     })
 
-    await wrapper.get('[data-testid="api-key-distribution-days-30"]').trigger('click')
-    expect(wrapper.emitted('update:days')?.[0]).toEqual([30])
+    expect(wrapper.find('[data-testid="api-key-distribution-days-7"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="api-key-distribution-days-30"]').exists()).toBe(false)
   })
 })

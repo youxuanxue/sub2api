@@ -378,7 +378,14 @@ jq -n \
           "sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile",
           "echo === verify ===",
           "sudo docker inspect tokenkey-caddy --format '\''caddy state={{.State.Status}} running={{.State.Running}}'\''",
-          "grep -nE '\''lb_try_duration|handle /privacy|root \\* /data/legal'\'' \"$LIVE\" || true",
+          "grep -nE '\''lb_try_duration|handle /privacy|root \\* /data/legal|header Content-Type application/json'\'' \"$LIVE\" || true",
+          "if grep -nE '\''^[[:space:]]*encode[[:space:]]+(zstd[[:space:]]+gzip|gzip[[:space:]]+zstd)[[:space:]]*$'\'' \"$LIVE\"; then echo \"::error::live Caddyfile still has shorthand encode (buffers SSE)\"; exit 1; fi",
+          "# prod SPA hosts keep whitelist encode; edge API relays omit encode entirely.",
+          "if [ \"$KIND\" = prod ]; then",
+          "  grep -q '\''header Content-Type application/json'\'' \"$LIVE\" || { echo \"::error::prod encode Content-Type whitelist missing after sync\"; exit 1; }",
+          "elif grep -nE '\''^[[:space:]]*encode[[:space:]]'\'' \"$LIVE\"; then",
+          "  echo \"::error::edge Caddyfile must not enable encode (SSE relay)\"; exit 1",
+          "fi",
           "trap - ERR",
           "echo === sync done ==="
         ]

@@ -208,6 +208,16 @@ jobs:
             echo "skip live-host audit: resolve_prod_ssm_target returned empty instance_id"
           fi
 
+      - name: Assert first-output timeouts (edge daily audit)
+        # ADVISORY — edges only. Prod already covered by assert-live-host-state.
+        if: steps.precheck.outputs.skip == 'false' && env.TARGET_KIND != 'prod'
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          bash ops/stage0/assert-first-output-timeouts.sh \
+            --target "edge:${EDGE_ID}" \
+            --comment "ops-daily-diagnostics first-output audit target=$TARGET_ID"
+
       - name: Audit prod configuration independently of deployment
         if: steps.precheck.outputs.skip == 'false' && env.TARGET_KIND == 'prod'
         continue-on-error: true  # preflight-allow: advisory configuration audit

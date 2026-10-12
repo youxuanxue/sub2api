@@ -76,10 +76,12 @@ func (e *kiroSSEEncoder) writeMessageStart() {
 }
 
 // ensureBlock opens a content block of the requested kind, closing any
-// previously open block of a different kind first. It lazily emits message_start
-// on first content so that an upstream failure occurring before any content
-// arrives leaves enc.started == false (the caller's `!enc.started` guard then
-// surfaces the error instead of closing out a clean empty 200 stream).
+// previously open block of a different kind first. It emits message_start on
+// first content when keepalive has not already synthesized one. Fast upstream
+// failures before any SSE byte still leave enc.started == false so the
+// caller's `!enc.started` guard can failover; after the first keepalive tick
+// (message_start+ping) the Written() gate is already tripped — same tradeoff
+// as the Responses→Anthropic compat path.
 func (e *kiroSSEEncoder) ensureBlock(kind kiroBlockKind) {
 	if e.openBlock == kind {
 		return

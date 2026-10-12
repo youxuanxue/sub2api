@@ -22,6 +22,11 @@
                 :options="statusFilterOptions"
                 @update:model-value="onStatusFilterChange"
               />
+              <DateRangePicker
+                v-model:start-date="usageStartDate"
+                v-model:end-date="usageEndDate"
+                @change="onUsageDateRangeChange"
+              />
             </div>
             <div class="flex shrink-0 gap-3">
               <button
@@ -220,18 +225,15 @@
 
           <template #cell-usage="{ row }">
             <div class="text-sm">
-              <div class="flex items-center gap-1.5">
-                <span class="text-gray-500 dark:text-gray-400">{{ t('keys.today') }}:</span>
-                <span class="font-medium text-gray-900 dark:text-white">
-                  ${{ (usageStats[row.id]?.today_actual_cost ?? 0).toFixed(4) }}
-                </span>
-              </div>
-              <div class="mt-0.5 flex items-center gap-1.5">
-                <span class="text-gray-500 dark:text-gray-400">{{ t('keys.total') }}:</span>
-                <span class="font-medium text-gray-900 dark:text-white">
-                  ${{ (usageStats[row.id]?.total_actual_cost ?? 0).toFixed(4) }}
-                </span>
-              </div>
+              <button
+                type="button"
+                class="font-medium text-primary-600 hover:text-primary-700 tabular-nums dark:text-primary-400 dark:hover:text-primary-300"
+                :title="t('keys.usageTrendHint')"
+                data-testid="key-usage-cost"
+                @click="openUsageTrend(row)"
+              >
+                ${{ (usageStats[row.id]?.total_actual_cost ?? 0).toFixed(4) }}
+              </button>
               <!-- Quota progress (if quota is set) -->
               <div v-if="row.quota > 0" class="mt-1.5">
                 <div class="flex items-center gap-1.5">
@@ -474,6 +476,16 @@
         />
       </template>
     </TablePageLayout>
+
+    <KeyUsageTrendDialog
+      :show="showUsageTrend"
+      :api-key-id="usageTrendKeyId"
+      :api-key-name="usageTrendKeyName"
+      :start-date="usageStartDate"
+      :end-date="usageEndDate"
+      :timezone="browserTimezone"
+      @close="closeUsageTrend"
+    />
 
     <!-- Create/Edit Modal -->
     <BaseDialog
@@ -1273,6 +1285,7 @@ const router = useRouter()
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import BulkEditKeysModal from '@/components/keys/BulkEditKeysModal.vue'
+import KeyUsageTrendDialog from '@/components/keys/KeyUsageTrendDialog.vue'
 	import DataTable from '@/components/common/DataTable.vue'
 	import Pagination from '@/components/common/Pagination.vue'
 	import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -1280,6 +1293,7 @@ import BulkEditKeysModal from '@/components/keys/BulkEditKeysModal.vue'
 	import EmptyState from '@/components/common/EmptyState.vue'
 	import Select from '@/components/common/Select.vue'
 	import SearchInput from '@/components/common/SearchInput.vue'
+	import DateRangePicker from '@/components/common/DateRangePicker.vue'
 	import Icon from '@/components/icons/Icon.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
@@ -1445,6 +1459,17 @@ const submitting = ref(false)
 const now = ref(new Date())
 let resetTimer: ReturnType<typeof setInterval> | null = null
 const usageStats = ref<Record<string, BatchApiKeyUsageStats>>({})
+
+const formatLocalDate = (date: Date): string =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+
+const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined
+const todayLocal = formatLocalDate(new Date())
+const usageStartDate = ref(todayLocal)
+const usageEndDate = ref(todayLocal)
+const showUsageTrend = ref(false)
+const usageTrendKeyId = ref<number | null>(null)
+const usageTrendKeyName = ref('')
 const userGroupRates = ref<Record<number, number>>({})
 
 const pagination = ref({
@@ -1689,24 +1714,16 @@ const loadApiKeys = async () => {
     pagination.value.total = response.total
     pagination.value.pages = response.pages
 
-    // Unblock the table as soon as keys arrive. Today/total spend is secondary
+    // Unblock the table as soon as keys arrive. Window spend is secondary
     // and can take hundreds of ms on heavy accounts (user 16 ≈ 60+ keys).
     if (abortController === controller) {
       loading.value = false
     }
 
-    if (response.items.length > 0) {
-      const keyIds = response.items.map((k) => k.id)
-      try {
-        const usageResponse = await usageAPI.getDashboardApiKeysUsage(keyIds, { signal })
-        if (signal.aborted) return
-        usageStats.value = usageResponse.stats
-      } catch (e) {
-        if (!isAbortError(e)) {
-          console.error('Failed to load usage stats:', e)
-        }
-      }
-    }
+    await loadUsageStatsForKeys(
+      response.items.map((k) => k.id),
+      signal,
+    )
   } catch (error) {
     if (isAbortError(error)) {
       return
@@ -1715,6 +1732,36 @@ const loadApiKeys = async () => {
   } finally {
     if (abortController === controller) {
       loading.value = false
+    }
+  }
+}
+
+let usageAbortController: AbortController | null = null
+
+/** Refresh window spend without toggling the keys-table loading spinner. */
+const loadUsageStatsForKeys = async (keyIds: number[], signal?: AbortSignal) => {
+  if (!signal) {
+    usageAbortController?.abort()
+    const controller = new AbortController()
+    usageAbortController = controller
+    signal = controller.signal
+  }
+  if (keyIds.length === 0) {
+    usageStats.value = {}
+    return
+  }
+  try {
+    const usageResponse = await usageAPI.getDashboardApiKeysUsage(keyIds, {
+      signal,
+      start_date: usageStartDate.value,
+      end_date: usageEndDate.value,
+      timezone: browserTimezone,
+    })
+    if (signal.aborted) return
+    usageStats.value = usageResponse.stats
+  } catch (e) {
+    if (!isAbortError(e)) {
+      console.error('Failed to load usage stats:', e)
     }
   }
 }
@@ -1745,6 +1792,24 @@ const loadPublicSettings = async () => {
 
 const openUseKeyModal = (key: ApiKey) => {
   router.push({ path: '/quickstart', query: { keyId: String(key.id) } })
+}
+
+const onUsageDateRangeChange = (range: { startDate: string; endDate: string; preset: string | null }) => {
+  usageStartDate.value = range.startDate
+  usageEndDate.value = range.endDate
+  void loadUsageStatsForKeys(apiKeys.value.map((k) => k.id))
+}
+
+const openUsageTrend = (key: ApiKey) => {
+  usageTrendKeyId.value = key.id
+  usageTrendKeyName.value = key.name || `#${key.id}`
+  showUsageTrend.value = true
+}
+
+const closeUsageTrend = () => {
+  showUsageTrend.value = false
+  usageTrendKeyId.value = null
+  usageTrendKeyName.value = ''
 }
 
 const handlePageChange = (page: number) => {

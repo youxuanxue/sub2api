@@ -484,5 +484,71 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
         self.assertIsNone(params)
 
 
+class SyncCaddyfileEncodeVerifyTest(unittest.TestCase):
+    """Post-reload encode guards: prod whitelist / edge no-encode / no shorthand."""
+
+    _WHITELIST = textwrap.dedent(
+        """\
+        (tokenkey_encode_static) {
+        	encode {
+        		zstd
+        		gzip 6
+        		match {
+        			header Content-Type application/json*
+        			header Content-Type text/html*
+        		}
+        	}
+        }
+        """
+    )
+    _SHORTHAND = "api.x {\n\tencode zstd gzip\n}\n"
+    _NO_ENCODE = "api.x {\n\t# No encode: SSE relay\n\treverse_proxy tokenkey:8080 {\n\t}\n}\n"
+
+    def _run_verify(self, kind: str, live_body: str):
+        script = _host_script(kind)
+        self.assertIn("live Caddyfile still has shorthand encode", script)
+        with tempfile.TemporaryDirectory() as tmp:
+            live = pathlib.Path(tmp) / "Caddyfile"
+            live.write_text(live_body)
+            # Slice only the encode-related verify predicates (docker inspect is
+            # incidental and unavailable in unit tests).
+            start = 'if grep -nE \'^[[:space:]]*encode[[:space:]]+(zstd[[:space:]]+gzip|gzip[[:space:]]+zstd)[[:space:]]*$\' "$LIVE"'
+            end = "trap - ERR"
+            return _run_fragment(
+                script,
+                start,
+                end,
+                f'LIVE={shlex.quote(str(live))}\nKIND={shlex.quote(kind)}\n',
+            )
+
+    def test_prod_accepts_whitelist_encode(self) -> None:
+        proc = self._run_verify("prod", self._WHITELIST)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    def test_prod_rejects_missing_whitelist(self) -> None:
+        proc = self._run_verify("prod", self._NO_ENCODE)
+        self.assertNotEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("prod encode Content-Type whitelist missing", proc.stdout + proc.stderr)
+
+    def test_prod_rejects_shorthand_encode(self) -> None:
+        proc = self._run_verify("prod", self._SHORTHAND)
+        self.assertNotEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("shorthand encode", proc.stdout + proc.stderr)
+
+    def test_edge_accepts_no_encode(self) -> None:
+        proc = self._run_verify("edge", self._NO_ENCODE)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    def test_edge_rejects_any_encode_directive(self) -> None:
+        proc = self._run_verify("edge", self._WHITELIST)
+        self.assertNotEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("must not enable encode", proc.stdout + proc.stderr)
+
+    def test_edge_rejects_shorthand_encode(self) -> None:
+        proc = self._run_verify("edge", self._SHORTHAND)
+        self.assertNotEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("shorthand encode", proc.stdout + proc.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

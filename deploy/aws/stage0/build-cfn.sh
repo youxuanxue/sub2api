@@ -95,6 +95,10 @@ PYPG
 
 COMPOSE_GZB64="$(encode_gzb64 "${COMPOSE_SRC}")"
 CADDY_GZB64="$(encode_gzb64 "${CADDY_SRC}")"
+# Caddyfile grew past Standard-tier 4096 when encode became a Content-Type
+# whitelist (SSE must not be gzip-buffered). Split like qa-boundary.
+CADDY_PART1="${CADDY_GZB64:0:${SSM_STANDARD_VALUE_LIMIT}}"
+CADDY_PART2="${CADDY_GZB64:${SSM_STANDARD_VALUE_LIMIT}}"
 CADDY_RENDER_GZB64="$(encode_gzb64 "${CADDY_RENDER_SRC}")"
 QA_BOUNDARY_GZB64="$(encode_gzb64 "${QA_BOUNDARY_SRC}")"
 QA_BOUNDARY_PART1="${QA_BOUNDARY_GZB64:0:${SSM_STANDARD_VALUE_LIMIT}}"
@@ -122,7 +126,8 @@ check_ssm_len() {
 }
 
 check_ssm_len compose "${COMPOSE_GZB64}"
-check_ssm_len caddy "${CADDY_GZB64}"
+check_ssm_len caddy_part1 "${CADDY_PART1}"
+check_ssm_len caddy_part2 "${CADDY_PART2}"
 check_ssm_len caddy_render "${CADDY_RENDER_GZB64}"
 check_ssm_len qa_boundary_part1 "${QA_BOUNDARY_PART1}"
 check_ssm_len qa_boundary_part2 "${QA_BOUNDARY_PART2}"
@@ -150,10 +155,10 @@ fi
 refresh_template() {
   local src="$1"
   local dst="$2"
-  local caddy_blob="$3"
   local indent='      '
   local new_compose="${indent}Value: '${COMPOSE_GZB64}'"
-  local new_caddy="${indent}Value: '${caddy_blob}'"
+  local new_caddy1="${indent}Value: '${CADDY_PART1}'"
+  local new_caddy2="${indent}Value: '${CADDY_PART2}'"
   local new_caddy_render="${indent}Value: '${CADDY_RENDER_GZB64}'"
   local new_qa_boundary1="${indent}Value: '${QA_BOUNDARY_PART1}'"
   local new_qa_boundary2="${indent}Value: '${QA_BOUNDARY_PART2}'"
@@ -168,7 +173,8 @@ refresh_template() {
   printf '%s\n' "${USERDATA_BODY}" >"${userdata_tmp}"
 
   awk -v new_compose_ssm="${new_compose}" \
-      -v new_caddy_ssm="${new_caddy}" \
+      -v new_caddy1_ssm="${new_caddy1}" \
+      -v new_caddy2_ssm="${new_caddy2}" \
       -v new_caddy_render_ssm="${new_caddy_render}" \
       -v new_qa_boundary1_ssm="${new_qa_boundary1}" \
       -v new_qa_boundary2_ssm="${new_qa_boundary2}" \
@@ -182,8 +188,10 @@ refresh_template() {
     BEGIN { skip = 0 }
     />>> COMPOSE_GZB64_SSM START/ { print; print new_compose_ssm; skip = 1; next }
     />>> COMPOSE_GZB64_SSM END/ { skip = 0; print; next }
-    />>> CADDY_GZB64_SSM START/ { print; print new_caddy_ssm; skip = 1; next }
-    />>> CADDY_GZB64_SSM END/ { skip = 0; print; next }
+    />>> CADDY_GZB64_SSM_PART1 START/ { print; print new_caddy1_ssm; skip = 1; next }
+    />>> CADDY_GZB64_SSM_PART1 END/ { skip = 0; print; next }
+    />>> CADDY_GZB64_SSM_PART2 START/ { print; print new_caddy2_ssm; skip = 1; next }
+    />>> CADDY_GZB64_SSM_PART2 END/ { skip = 0; print; next }
     />>> CADDY_RENDER_GZB64_SSM START/ { print; print new_caddy_render_ssm; skip = 1; next }
     />>> CADDY_RENDER_GZB64_SSM END/ { skip = 0; print; next }
     />>> QA_BOUNDARY_GZB64_SSM_PART1 START/ { print; print new_qa_boundary1_ssm; skip = 1; next }
@@ -245,7 +253,8 @@ if [[ "${mode}" == "check" ]]; then
 
   # gzip+base64 payloads (the version-fragile ones):
   committed_value COMPOSE_GZB64_SSM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${COMPOSE_SRC}" || report compose
-  committed_value CADDY_GZB64_SSM   | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${CADDY_SRC}"   || report caddy
+  { committed_value CADDY_GZB64_SSM_PART1; committed_value CADDY_GZB64_SSM_PART2; } \
+    | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${CADDY_SRC}" || report caddy
   committed_value CADDY_RENDER_GZB64_SSM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${CADDY_RENDER_SRC}" || report caddy-render
   { committed_value BOOTSTRAP_GZB64_SSM_PART1; committed_value BOOTSTRAP_GZB64_SSM_PART2; committed_value BOOTSTRAP_GZB64_SSM_PART3; } \
     | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${BOOTSTRAP_SRC}" || report bootstrap
@@ -276,13 +285,13 @@ fi
 
 tmp_main="$(mktemp)"
 trap 'rm -f "${tmp_main}"' EXIT
-refresh_template "${CFN_FILE}" "${tmp_main}" "${CADDY_GZB64}"
+refresh_template "${CFN_FILE}" "${tmp_main}"
 mv "${tmp_main}" "${CFN_FILE}"
 trap - EXIT
 
 echo "stage0 CFN refreshed."
 echo "  compose gzip+base64 (SSM): ${#COMPOSE_GZB64} chars"
-echo "  caddy gzip+base64 (SSM): ${#CADDY_GZB64} chars"
+echo "  caddy gzip+base64 (SSM total): ${#CADDY_GZB64} chars (part1=${#CADDY_PART1}, part2=${#CADDY_PART2})"
 echo "  caddy renderer gzip+base64 (SSM): ${#CADDY_RENDER_GZB64} chars"
 echo "  qa boundary gzip+base64 (SSM total): ${#QA_BOUNDARY_GZB64} chars (part1=${#QA_BOUNDARY_PART1}, part2=${#QA_BOUNDARY_PART2})"
 echo "  pgdump gzip+base64 (SSM): ${#PGDUMP_GZB64} chars"

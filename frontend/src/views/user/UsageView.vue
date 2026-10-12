@@ -50,7 +50,6 @@
 
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <ApiKeyDistributionChart
-            v-model:days="apiKeyDistributionDays"
             v-model:metric="apiKeyDistributionMetric"
             :api-key-stats="apiKeyStats"
             :loading="apiKeyStatsLoading"
@@ -274,7 +273,6 @@ const appStore = useAppStore()
 
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
-type ApiKeyDistributionDays = 7 | 30
 
 const usageStats = ref<UsageStatsResponse | null>(null)
 const usageLogs = ref<UsageLog[]>([])
@@ -374,7 +372,6 @@ const granularity = ref<'day' | 'hour'>(getGranularityForRange(startDate.value, 
 const modelDistributionMetric = ref<DistributionMetric>('tokens')
 const groupDistributionMetric = ref<DistributionMetric>('tokens')
 const apiKeyDistributionMetric = ref<DistributionMetric>('tokens')
-const apiKeyDistributionDays = ref<ApiKeyDistributionDays>(7)
 const endpointDistributionMetric = ref<DistributionMetric>('tokens')
 const endpointDistributionSource = ref<EndpointSource>('inbound')
 const activeTab = ref<'usage' | 'errors'>('usage')
@@ -557,10 +554,11 @@ const loadApiKeyStats = async () => {
   const seq = ++apiKeyStatsReqSeq
   apiKeyStatsLoading.value = true
   try {
-    const response = await usageAPI.getDashboardAPIKeys(
-      apiKeyDistributionDays.value,
-      browserTimezone,
-    )
+    const response = await usageAPI.getDashboardAPIKeys({
+      start_date: startDate.value,
+      end_date: endDate.value,
+      timezone: browserTimezone,
+    })
     if (seq !== apiKeyStatsReqSeq) return
     apiKeyStats.value = response.api_keys || []
   } catch (error) {
@@ -588,6 +586,7 @@ const applyFilters = () => {
   void loadStats()
   void loadModelStats()
   void loadChartData()
+  void loadApiKeyStats()
   resetErrorRows()
 }
 
@@ -964,9 +963,5 @@ onUnmounted(() => {
 
 watch(endpointDistributionSource, () => {
   // Endpoint source switching is handled by the chart component using already loaded stats.
-})
-
-watch(apiKeyDistributionDays, () => {
-  void loadApiKeyStats()
 })
 </script>
