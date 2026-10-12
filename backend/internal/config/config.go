@@ -1131,7 +1131,7 @@ type GatewayConfig struct {
 	// 默认 30；显式 0 表示紧急禁用该闸。
 	OpenAIFirstOutputTimeoutSeconds int `mapstructure:"openai_first_output_timeout_seconds"`
 	// OpenAIHighEffortFirstOutputTimeoutSeconds: high/xhigh/max 推理的首个语义输出超时（秒）。
-	// 默认 60；0 表示回退到 StreamFirstOutputHighEffortTimeoutSeconds / 代码默认 60。
+	// 默认 60；0 表示回退到 StreamFirstOutputHighEffortTimeoutSeconds（stream SSOT 代码默认 30）。
 	OpenAIHighEffortFirstOutputTimeoutSeconds int `mapstructure:"openai_high_effort_first_output_timeout_seconds"`
 	// 请求体最大字节数，用于网关请求体大小限制
 	MaxBodySize int64 `mapstructure:"max_body_size"`
