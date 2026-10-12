@@ -8,15 +8,24 @@ STACK_NAME="${2:-}"
 emit_signal() {
   local value="${1:-}"
   local probe_error="${2:-}"
+  local applicable="${3:-true}"
   jq -cn \
     --arg value "$value" \
     --arg err "$probe_error" \
+    --argjson applicable "$applicable" \
     '{
       latest_snapshot_at: (if $value == "" or $value == "None" or $value == "null" then null else $value end),
       probe_ok: (if $err == "" then true else false end),
-      probe_error: (if $err == "" then null else $err end)
+      probe_error: (if $err == "" then null else $err end),
+      applicable: $applicable
     }'
 }
+
+# Hybrid mi-* prod has no EBS data volume (pgdump owns backup freshness).
+if [[ "${DATA_LAYER_SNAPSHOT_APPLICABLE:-true}" == "false" ]]; then
+  emit_signal "" "" false
+  exit 0
+fi
 
 if [[ -z "$REGION" || -z "$STACK_NAME" ]]; then
   emit_signal "" "missing region or stack name"

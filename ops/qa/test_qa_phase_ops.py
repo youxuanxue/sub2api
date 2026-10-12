@@ -1137,6 +1137,27 @@ esac
                 "ecs describe-tasks",
             ):
                 self.assertIn(expected, observed)
+            # Default region is us-east-1 (not inherited SSM eu-west-2).
+            self.assertIn("--region us-east-1", observed)
+            self.assertNotIn("--region eu-west-2", observed)
+
+            # Hybrid diagnose overwrites AWS_REGION; archive pin must win.
+            calls.write_text("", encoding="utf-8")
+            pinned = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    **base_env,
+                    "AWS_REGION": "eu-west-2",
+                    "QA_RAW_ARCHIVE_REGION": "us-east-1",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(pinned.returncode, 0, pinned.stderr)
+            pinned_calls = calls.read_text(encoding="utf-8")
+            self.assertIn("--region us-east-1", pinned_calls)
+            self.assertNotIn("--region eu-west-2", pinned_calls)
 
             discovery_output = root / "github-output-discovery"
             discovery = subprocess.run(

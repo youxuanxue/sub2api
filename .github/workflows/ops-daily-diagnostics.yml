@@ -271,6 +271,7 @@ jobs:
 
           API_URL=""
           INSTANCE_ID=""
+          CONTROL_PLANE_TARGET=""
           if [ "$TARGET_KIND" = "prod" ]; then
             # Cutover-aware control plane (aws i-* or Hybrid mi-*).
             if ! RESOLVED_JSON="$(PROD_SSM_TARGET="${PROD_SSM_TARGET:-auto}" python3 ops/stage0/resolve_prod_ssm_target.py \
@@ -278,8 +279,10 @@ jobs:
               add_finding "resolve_prod_ssm_target" "manual_ops" "error" "Could not resolve prod SSM target" "resolve_prod_ssm_target.py failed for stack $STACK_NAME." "resolve-prod|$STACK_NAME"
             else
               INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$RESOLVED_JSON")"
+              CONTROL_PLANE_TARGET="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("target") or "")' <<<"$RESOLVED_JSON")"
               TARGET_REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"$RESOLVED_JSON")"
               API_URL="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("api_url") or "")' <<<"$RESOLVED_JSON")"
+              # SSM registration region (eu-west-2 for Hybrid). CFN/QA archive stay us-east-1.
               export AWS_REGION="$TARGET_REGION"
               if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
                 add_finding "resolve_prod_ssm_target" "manual_ops" "error" "Empty prod instance id" "resolve_prod_ssm_target returned empty instance_id." "resolve-prod-empty|$STACK_NAME"
@@ -357,7 +360,13 @@ jobs:
             esac
 
             SAFETY_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-safety.sh --with ops/observability/data-layer-partition-coverage.sql --with ops/lib/resolve-app-container.sh --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
-            SNAPSHOT_SIGNAL="$(bash ops/observability/data_layer_snapshot_signal.sh "$TARGET_REGION" "$STACK_NAME" 2>>"$STDERR" || echo '{"latest_snapshot_at":null}')" # preflight-allow: swallow — helper failures become an explicit missing snapshot signal
+            # EBS DataVolumeId lives on the AWS CFN stack (us-east-1). Hybrid mi-*
+            # prod has no EBS volume — pgdump_restore_canary owns backup freshness.
+            if [[ "$INSTANCE_ID" == mi-* ]] || [ "$CONTROL_PLANE_TARGET" = "hetzner" ]; then
+              SNAPSHOT_SIGNAL="$(DATA_LAYER_SNAPSHOT_APPLICABLE=false bash ops/observability/data_layer_snapshot_signal.sh unused unused 2>>"$STDERR" || echo '{"latest_snapshot_at":null,"probe_ok":true,"probe_error":null,"applicable":false}')" # preflight-allow: swallow — N/A signal must not fail the run
+            else
+              SNAPSHOT_SIGNAL="$(bash ops/observability/data_layer_snapshot_signal.sh "${PROD_STACK_REGION:-us-east-1}" "$STACK_NAME" 2>>"$STDERR" || echo '{"latest_snapshot_at":null,"probe_ok":false,"probe_error":"snapshot signal helper failed","applicable":true}')" # preflight-allow: swallow — helper failures become an explicit probe_ok=false signal
+            fi
             ARCHIVE_SIGNAL="$(python3 ops/observability/data_layer_archive_health.py 2>>"$STDERR" || echo 'ARCHIVESTATS {}')"
             SAFETY_VERDICT="$(printf '%s\nSNAPSHOTSTATS %s\n%s\n' "$SAFETY_OUT" "$SNAPSHOT_SIGNAL" "$ARCHIVE_SIGNAL" | python3 ops/observability/data_layer_safety_verdict.py 2>>"$STDERR" || echo '{"verdict":"unsafe","findings":[{"kind":"data_layer_safety_probe","status":"issue_candidate","severity":"error","summary":"data-layer safety verdict failed"}]}')"
             printf 'data_layer_safety: %s\n' "$SAFETY_VERDICT" >> "$STDOUT"
@@ -406,7 +415,8 @@ jobs:
               add_finding "qa_phase2_live_health" "warning" "warning" "QA Phase 2 live probe warning ($TARGET_ID)" "$PHASE2_WARNING" "qa-phase2-live-warning|$TARGET_ID|$PHASE2_WARNING"
             done < <(printf '%s' "$PHASE2_VERDICT" | jq -r '.warnings[]?')
 
-            if QA_BUNDLE_INFRA="$(QA_BUNDLE_VERIFY_MODE=discovery bash ops/qa/verify_qa_bundle_infra.sh 2>>"$STDERR")"; then
+            # Pin archive region: Hybrid overwrites AWS_REGION to SSM eu-west-2.
+            if QA_BUNDLE_INFRA="$(QA_RAW_ARCHIVE_REGION="${QA_RAW_ARCHIVE_REGION:-us-east-1}" AWS_REGION="${QA_RAW_ARCHIVE_REGION:-us-east-1}" QA_BUNDLE_VERIFY_MODE=discovery bash ops/qa/verify_qa_bundle_infra.sh 2>>"$STDERR")"; then
               printf 'qa_bundle_infra: %s\n' "$QA_BUNDLE_INFRA" >> "$STDOUT"
               add_finding "qa_bundle_infra" "ok" "info" "QA Bundle infrastructure passed ($TARGET_ID)" "Stack, bucket, queues, ECS capacity, DLQ, and worker image are ready." "qa-bundle-infra|$TARGET_ID"
             else

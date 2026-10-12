@@ -69,6 +69,7 @@ class DataLayerSnapshotSignalTest(unittest.TestCase):
                 "latest_snapshot_at": "2026-08-04T01:02:03Z",
                 "probe_ok": True,
                 "probe_error": None,
+                "applicable": True,
             },
         )
         self.assertTrue(any("OutputKey==`DataVolumeId`" in call for call in calls), msg=calls)
@@ -94,6 +95,42 @@ class DataLayerSnapshotSignalTest(unittest.TestCase):
         self.assertTrue(body["probe_ok"])
         self.assertIsNone(body["probe_error"])
         self.assertTrue(any("describe-snapshots" in call for call in calls), msg=calls)
+
+    def test_not_applicable_skips_aws_calls(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            fakebin = root / "bin"
+            fakebin.mkdir()
+            calls = root / "aws-calls.log"
+            aws = fakebin / "aws"
+            aws.write_text(
+                "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$FAKE_AWS_CALLS\"\nexit 2\n",
+                encoding="utf-8",
+            )
+            aws.chmod(0o755)
+            proc = subprocess.run(
+                ["bash", str(_SCRIPT), "us-east-1", "tokenkey-prod-stage0"],
+                env={
+                    **os.environ,
+                    "PATH": f"{fakebin}:{os.environ.get('PATH', '')}",
+                    "FAKE_AWS_CALLS": str(calls),
+                    "DATA_LAYER_SNAPSHOT_APPLICABLE": "false",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        self.assertEqual(
+            json.loads(proc.stdout),
+            {
+                "latest_snapshot_at": None,
+                "probe_ok": True,
+                "probe_error": None,
+                "applicable": False,
+            },
+        )
+        self.assertFalse(calls.exists() and calls.read_text(encoding="utf-8").strip())
 
     def test_describe_snapshots_access_denied_reports_probe_error(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -190,6 +190,21 @@ class DataLayerSafetyVerdictTest(unittest.TestCase):
         self.assertIn("probe failed", snapshot_findings[0]["summary"])
         self.assertIn("AccessDenied", snapshot_findings[0]["summary"])
 
+    def test_hybrid_snapshot_not_applicable_skips_ebs_gate(self) -> None:
+        signals = _signals()
+        signals["SNAPSHOTSTATS"] = {
+            "latest_snapshot_at": None,
+            "probe_ok": True,
+            "probe_error": None,
+            "applicable": False,
+        }
+        result = verdict.compute_verdict(signals)
+        self.assertEqual(result["verdict"], "green")
+        self.assertNotIn(
+            "ebs_snapshot_freshness",
+            {f["kind"] for f in result["findings"]},
+        )
+
     def test_future_dated_freshness_evidence_fails_closed(self) -> None:
         cases = (
             ("heartbeat", "PARTITIONSTATS", "partition_maintenance_last_success_at", "partition_maintenance_heartbeat"),
