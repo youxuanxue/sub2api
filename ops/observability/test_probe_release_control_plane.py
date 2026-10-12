@@ -41,16 +41,16 @@ class ProbeReleaseControlPlaneTest(unittest.TestCase):
     def test_prod_and_edge_health_success(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tmp = pathlib.Path(td)
-            matrix = tmp / "aws"
-            (matrix / "stage0").mkdir(parents=True)
-            (matrix / "lightsail").mkdir(parents=True)
-            (matrix / "lightsail/edge-targets-lightsail.json").write_text(
+            matrix = tmp / "deploy"
+            (matrix / "hetzner").mkdir(parents=True)
+            (matrix / "hetzner/edge-targets-hetzner.json").write_text(
                 json.dumps({
                     "targets": {
                         "us9": {
                             "deployable": True,
                             "domain": "api-us9.example.test",
-                            "lightsail_region": "us-east-1",
+                            "location": "fsn1",
+                            "server_type": "cax21",
                             "ssm_prefix": "/edge/us9",
                         }
                     }
@@ -241,6 +241,80 @@ class ProbeReleaseControlPlaneTest(unittest.TestCase):
             self.assertEqual(rows[0]["http_code"], 0)
             self.assertIn("Failed to connect", rows[0]["curl_error"])
             self.assertEqual(rows[-1]["status"], "fail")
+
+
+class LiveFleetProbeTest(unittest.TestCase):
+    def probe(self, *, selector="", matrix=None):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            fakebin = root / "bin"
+            fakebin.mkdir()
+            calls = root / "urls"
+            curl = fakebin / "curl"
+            curl.write_text("#!/bin/sh\n"
+                            "while [ \"$#\" -gt 0 ]; do\n"
+                            " case \"$1\" in -o) out=$2; shift 2;; -w|--max-time) shift 2;; -sS) shift;; *) url=$1; shift;; esac\n"
+                            "done\nprintf '%s\\n' \"$url\" >> \"$CALLS\"\n"
+                            "printf '{}' > \"$out\"\nprintf '200 0.1'\n")
+            curl.chmod(0o755)
+            env = {**os.environ, "PATH": f"{fakebin}:{os.environ['PATH']}",
+                   "CALLS": str(calls), "EDGE_IDS": selector, "MATRIX_DIR": str(_REPO / "deploy"),
+                   "INCLUDE_SETTINGS_PUBLIC": "1", "PROD_BASE_URL": "https://api.prod.example.test"}
+            if matrix is not None:
+                deploy = root / "deploy"
+                (deploy / "hetzner").mkdir(parents=True)
+                (deploy / "aws/lightsail").mkdir(parents=True)
+                (deploy / "hetzner/edge-targets-hetzner.json").write_text(json.dumps(matrix))
+                # Standby can even be re-enabled accidentally: it must not enter this probe.
+                (deploy / "aws/lightsail/edge-targets-lightsail.json").write_text(json.dumps({
+                    "targets": {"old": {"deployable": True, "domain": "old.example.test"}}}))
+                env["MATRIX_DIR"] = str(deploy)
+            result = subprocess.run(["bash", str(_SCRIPT)], env=env, capture_output=True, text=True)
+            rows = [json.loads(line) for line in result.stdout.splitlines()]
+            urls = calls.read_text().splitlines() if calls.exists() else []
+            return result, rows, urls
+
+    def test_default_entry_checks_current_fleet_domains(self):
+        import sys
+        sys.path.insert(0, str(_REPO / "ops/stage0"))
+        from edge_routing_matrix import live_deployable_edge_ids, load_hetzner_targets
+        ids = live_deployable_edge_ids(_REPO)
+        targets = load_hetzner_targets(_REPO)
+        result, rows, urls = self.probe()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(urls, ["https://api.prod.example.test/health",
+                               "https://prod.example.test/api/v1/settings/public"] +
+                         [f"https://{targets[e]['domain']}/health" for e in ids])
+        self.assertEqual(rows[-1]["total"], 2 + len(ids))
+        self.assertEqual(rows[-1]["failures"], [])
+
+    def test_materialized_defaults_and_explicit_domain_exclude_standby(self):
+        matrix = {"target_defaults": {"location": "fsn1", "server_type": "cax21"},
+                  "targets": {"new": {"deployable": True},
+                              "custom": {"deployable": True, "domain": "custom.example.test"},
+                              "planned": {"deployable": False}}}
+        result, rows, urls = self.probe(matrix=matrix)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(urls[2:], ["https://custom.example.test/health", "https://api-new.tokenkey.dev/health"])
+        self.assertEqual(rows[-1]["ok"], 4)
+
+    def test_invalid_selected_target_does_not_prevent_other_probes(self):
+        matrix = {"target_defaults": {"location": "fsn1", "server_type": "cax21"},
+                  "targets": {"valid": {"deployable": True}}}
+        result, rows, urls = self.probe(selector="missing,valid", matrix=matrix)
+        self.assertEqual(result.returncode, 4)
+        self.assertEqual(urls[-1], "https://api-valid.tokenkey.dev/health")
+        self.assertEqual(rows[-1]["failures"], ["edge:missing:target_resolution"])
+        self.assertEqual(rows[-1]["ok"], 3)
+        self.assertEqual(rows[-1]["total"], 4)
+        self.assertEqual(rows[2]["status"], "fail")
+
+    def test_invalid_matrix_reports_failure_and_still_checks_prod(self):
+        result, rows, urls = self.probe(matrix={"targets": []})
+        self.assertEqual(result.returncode, 4)
+        self.assertEqual(len(urls), 2)
+        self.assertEqual(rows[-1]["failures"], ["fleet:target_resolution"])
+        self.assertEqual(rows[-1]["ok"], 2)
 
 
 if __name__ == "__main__":

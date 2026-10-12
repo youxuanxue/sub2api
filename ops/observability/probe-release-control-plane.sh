@@ -13,7 +13,8 @@
 # Env:
 #   PROD_BASE_URL=https://api.tokenkey.dev  gateway /health (machine path)
 #   PROD_SITE_BASE_URL optional; defaults from PROD_BASE_URL (api.* → apex)
-#   EDGE_IDS=us3,us4 limits edges; EDGE_IDS=none checks prod only.
+#   EDGE_IDS=uk1,us4 limits edges; EDGE_IDS=none checks prod only.
+#   MATRIX_DIR=deploy overrides the deployment root for offline matrix fixtures.
 #
 # Usage:
 #   bash ops/observability/probe-release-control-plane.sh
@@ -43,7 +44,7 @@ PROD_SITE_BASE_URL="$(smoke_human_base_url "${PROD_BASE_URL}")"
 CURL_TIMEOUT_SECONDS="${CURL_TIMEOUT_SECONDS:-10}"
 INCLUDE_SETTINGS_PUBLIC="${INCLUDE_SETTINGS_PUBLIC:-1}"
 EDGE_IDS="${EDGE_IDS:-}"
-MATRIX_DIR="${MATRIX_DIR:-deploy/aws}"
+MATRIX_DIR="${MATRIX_DIR:-deploy}"
 
 case "$CURL_TIMEOUT_SECONDS" in
   ''|*[!0-9]*) echo "probe-release-control-plane: CURL_TIMEOUT_SECONDS must be positive integer" >&2; exit 2 ;;
@@ -59,37 +60,41 @@ if [ "$INCLUDE_SETTINGS_PUBLIC" = "1" ]; then
   PROBES+=("prod settings_public ${PROD_SITE_BASE_URL%/}/api/v1/settings/public")
 fi
 
-if [ "$EDGE_IDS" = "none" ]; then
-  EDGE_LIST=""
-elif [ -n "$EDGE_IDS" ]; then
-  EDGE_LIST="$EDGE_IDS"
-else
-  EDGE_LIST="$(python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable)"
-fi
-
-while IFS= read -r edge_id; do
-  [ -n "$edge_id" ] || continue
-  domain="$(python3 - "$edge_id" "$MATRIX_DIR" <<'PY'
-import json, pathlib, sys
-edge, matrix_dir_arg = sys.argv[1], sys.argv[2]
-root = pathlib.Path.cwd()
-matrix_dir = pathlib.Path(matrix_dir_arg)
-if not matrix_dir.is_absolute():
-    matrix_dir = root / matrix_dir
-ls_path = matrix_dir / "lightsail/edge-targets-lightsail.json"
-domain = ""
-if ls_path.is_file():
-    data = json.loads(ls_path.read_text(encoding="utf-8"))
-    target = (data.get("targets") or {}).get(edge) or {}
-    if target.get("deployable") is True:
-        domain = str(target.get("domain") or "")
-if not domain:
-    raise SystemExit(f"no deployable domain for edge {edge}")
-print(domain)
-PY
+# Enumeration and domain materialization share the live fleet owner. Resolve
+# every selected target before probing, retaining failures in the final summary.
+TARGETS="$(python3 - "$EDGE_IDS" "$MATRIX_DIR" <<'PYTARGETS'
+import pathlib, sys
+sys.path.insert(0, str(pathlib.Path.cwd() / "ops/stage0"))
+from edge_routing_matrix import live_deployable_edge_ids, load_hetzner_targets, resolve_route_tab
+selector, matrix_dir = sys.argv[1:]
+root = pathlib.Path(matrix_dir).resolve().parent
+if selector == "none":
+    raise SystemExit(0)
+try:
+    targets = load_hetzner_targets(root)
+    ids = list(dict.fromkeys(selector.replace(",", " ").split())) if selector else live_deployable_edge_ids(root)
+except (ValueError, OSError, SystemExit) as exc:
+    print(f"fleet target resolution failed: {exc}", file=sys.stderr)
+    print("fleet target_resolution -")
+    raise SystemExit(0)
+for eid in ids:
+    # Whitespace-delimited shell records require matrix identities and URLs
+    # without whitespace; never let malformed input change record structure.
+    label = "edge:" + eid
+    try:
+        resolve_route_tab(root, eid)
+        domain = targets[eid]["domain"]
+        if not isinstance(domain, str) or not domain or any(c.isspace() for c in domain):
+            raise ValueError("invalid edge domain")
+        print(f"{label} health https://{domain}/health")
+    except (KeyError, ValueError, SystemExit) as exc:
+        print(f"{label} target resolution failed: {exc}", file=sys.stderr)
+        print(f"{label} target_resolution -")
+PYTARGETS
 )"
-  PROBES+=("edge:${edge_id} health https://${domain}/health")
-done <<< "$(printf '%s\n' "$EDGE_LIST" | tr ',' '\n' | awk '{for (i = 1; i <= NF; i++) print $i}')"
+while IFS= read -r target; do
+  [ -z "$target" ] || PROBES+=("$target")
+done <<< "$TARGETS"
 
 total=0
 ok=0
@@ -99,6 +104,16 @@ for spec in "${PROBES[@]}"; do
   target="$(printf '%s' "$spec" | awk '{print $1}')"
   check="$(printf '%s' "$spec" | awk '{print $2}')"
   url="$(printf '%s' "$spec" | awk '{print $3}')"
+  if [ "$check" = target_resolution ]; then
+    failures+=("${target}:target_resolution")
+    total=$((total + 1))
+    python3 - "$target" <<'PYERROR'
+import json, sys
+print(json.dumps({"target": sys.argv[1], "check": "target_resolution",
+                  "status": "fail", "error": "live target resolution failed"}, sort_keys=True))
+PYERROR
+    continue
+  fi
   tmp="$(mktemp /tmp/tk-release-health.XXXXXX)"
   set +e
   curl_out="$(curl -sS --max-time "$CURL_TIMEOUT_SECONDS" -o "$tmp" -w '\n%{http_code} %{time_total}' "$url" 2>&1)"
