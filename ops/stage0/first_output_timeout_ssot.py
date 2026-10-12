@@ -8,9 +8,10 @@ OpenAI keeps explicit keys so `openai_first_output_*=0` remains an emergency
 disable without collapsing the universal stream budget.
 
 Every writable copy (viper SetDefault, compose inject fallbacks, remediate
-WANT_*, Go code defaults, config.example.yaml) must match this table. Live-host
-assert uses EXPECTED_ENV; scripts/checks/first-output-timeout-ssot.py fails
-preflight when any owner drifts.
+WANT_*, Go code defaults, config.example.yaml) must match this table. Live checks:
+prod assert-live-host-state.sh; edges assert-first-output-timeouts.sh (daily +
+upgrade/rollback). scripts/checks/first-output-timeout-ssot.py fails preflight
+on writable-owner drift.
 """
 
 from __future__ import annotations

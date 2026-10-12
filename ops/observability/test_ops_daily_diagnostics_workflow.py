@@ -430,14 +430,22 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
             "PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}",
             text[job_env:first_step],
         )
-        # Live-host audit + config audit + diagnose body must not CFN-only for prod.
+        # Live-host (prod) + first-output (edges) + config audit; no CFN-only prod path.
         audit = text.index("Assert live-host state (prod daily audit)")
+        fot = text.index("Assert first-output timeouts (edge daily audit)")
         config = text.index("Audit prod configuration independently of deployment")
-        diagnose = text.index('if [ "$TARGET_KIND" = "prod" ]; then')
-        self.assertLess(audit, config)
+        diagnose = text.index("- name: Run target diagnostics")
+        self.assertLess(audit, fot)
+        self.assertLess(fot, config)
         self.assertLess(config, diagnose)
-        self.assertIn("resolve_prod_ssm_target.py", text[audit:config + 800])
+        self.assertIn("resolve_prod_ssm_target.py", text[audit:fot + 200])
+        self.assertIn("assert-first-output-timeouts.sh", text[fot:config])
+        self.assertIn('TARGET_KIND != \'prod\'', text[fot:config])
         self.assertIn("resolve_prod_ssm_target.py", text[config:diagnose + 600])
+        self.assertIn(
+            'if [ "$TARGET_KIND" = "prod" ]; then',
+            text[diagnose : diagnose + 2500],
+        )
         # Error-clustering installer must reuse resolved INSTANCE_ID (Hybrid mi-*).
         install = text.index("bash ops/stage0/deploy-error-clustering-binary.sh")
         window = text[install - 220 : install + 80]
