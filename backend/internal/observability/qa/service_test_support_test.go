@@ -8,7 +8,6 @@ import (
 	"errors"
 	"io"
 	"testing"
-	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/enttest"
@@ -53,11 +52,7 @@ func (m *memBlobStore) Delete(_ context.Context, key string) error {
 	return nil
 }
 
-func (m *memBlobStore) PresignURL(_ context.Context, key string, _ time.Duration) (string, error) {
-	return "https://mem.example/qa/" + key, nil
-}
-
-func newQAExportTestService(t *testing.T) (*Service, *dbent.Client, *memBlobStore) {
+func newQACaptureTestService(t *testing.T) (*Service, *dbent.Client, *memBlobStore) {
 	t.Helper()
 	db, err := sql.Open("sqlite", "file:"+t.Name()+"?mode=memory&cache=shared&_fk=1")
 	require.NoError(t, err)
@@ -91,8 +86,4 @@ func (dlqOnlyBlobStore) Get(context.Context, string) ([]byte, error) {
 
 func (dlqOnlyBlobStore) Delete(context.Context, string) error {
 	return nil
-}
-
-func (dlqOnlyBlobStore) PresignURL(context.Context, string, time.Duration) (string, error) {
-	return "", nil
 }

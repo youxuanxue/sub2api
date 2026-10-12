@@ -38,7 +38,7 @@ class SelectionTest(unittest.TestCase):
         self.assertFalse(selected['full'])
         for gate in ('user billing watch probe', 'ops/deploy SQL soft-delete filter', 'script ref existence', 'ops tool orphan check'):
             self.assertIn(gate, selected['gates'])
-        for gate in ('backend lint', 'observability test suite', 'stage0 test suite', 'scripts test suite', 'QA Bundle service/worker contract', 'Caddyfile syntax gate', 'ops/anthropic orchestrators unittest', 'generated model-surface bundle drift'):
+        for gate in ('backend lint', 'observability test suite', 'stage0 test suite', 'scripts test suite', 'QA raw archive contract', 'Caddyfile syntax gate', 'ops/anthropic orchestrators unittest', 'generated model-surface bundle drift'):
             self.assertNotIn(gate, selected['gates'])
 
     def test_shared_observability_helper_keeps_directory_and_consumers(self):
@@ -55,7 +55,7 @@ class SelectionTest(unittest.TestCase):
         selected = self.choose('frontend/src/views/HomeView.vue')
         self.assertFalse(selected['full'])
         self.assertIn('frontend release asset contract', selected['gates'])
-        for gate in ('backend lint', 'QA Bundle service/worker contract', 'Caddyfile syntax gate', 'generated model-surface bundle drift'):
+        for gate in ('backend lint', 'QA raw archive contract', 'Caddyfile syntax gate', 'generated model-surface bundle drift'):
             self.assertNotIn(gate, selected['gates'])
 
     def test_unknown_and_gate_machinery_changes_fall_back_to_full(self):
@@ -191,20 +191,20 @@ class ShellDispatchTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / 'selected').write_text('user billing watch probe\n')
-            (root / 'registered').write_text('bg:qa_bundle\nuser billing watch probe\n')
+            (root / 'registered').write_text('bg:qa_raw_archive\nuser billing watch probe\n')
             shell = '\n'.join([
                 'set -u', f'_preflight_plan_dir={shlex.quote(tmp)}',
                 '_preflight_bg_dir="$_preflight_plan_dir"',
                 'PREFLIGHT_SELECTION_FILE="$_preflight_plan_dir/selected"',
                 _shell_function('_preflight_selected'), _shell_function('_bg_spawn'),
-                '_bg_spawn qa_bundle touch "$_preflight_plan_dir/should-not-run"',
+                '_bg_spawn qa_raw_archive touch "$_preflight_plan_dir/should-not-run"',
                 '_bg_spawn future_job touch "$_preflight_plan_dir/unknown-ran"',
                 'wait',
             ])
             result = subprocess.run(['bash','-c',shell],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr)
             self.assertFalse((root/'should-not-run').exists())
-            self.assertFalse((root/'qa_bundle.pid').exists())
+            self.assertFalse((root/'qa_raw_archive.pid').exists())
             self.assertTrue((root/'unknown-ran').exists())
 
 

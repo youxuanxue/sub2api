@@ -1,9 +1,13 @@
 ---
-status: approved
+status: archived
 approved_by: "feng (conversation 2026-09-10: agreed to implement the three focused release changes)"
 approved_at: 2026-09-10
 scope: "prod component classification, independent QA runtime, parallel gateway acceptance and drain"
+superseded_by: qa-raw-only.md
 ---
+
+> 历史设计：QA Bundle、worker 与用户导出已由 [QA raw-only](qa-raw-only.md) 退役。本文仅供历史核对。
+
 
 # Independent Prod Component Releases
 
@@ -15,7 +19,7 @@ General cleanup/aggregation services remain in the gateway.
 
 `ops/stage0/prod_release_plan.py` owns target runtime-contract classification and QA
 acceptance planning. Its component-diff mode remains available for release analysis,
-consuming the Bundle worker/publisher paths from `ops/qa/qa_bundle_release_surface.py`.
+historically consuming the Bundle worker/publisher surface, now retired by raw-only.
 The standalone QA plan preserves the observed gateway version and tests that publisher
 against the requested Worker/maintenance version. Unknown contract evidence fails closed.
 

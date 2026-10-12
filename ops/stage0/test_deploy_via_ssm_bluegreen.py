@@ -820,6 +820,32 @@ validate_prepared_receipt blue green
             2,
         )
 
+    def test_raw_coordinates_can_only_change_through_migration(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        guard = _extract_shell_function(remote, "assert_qa_provider_unchanged")
+        keys = ["QA_ARCHIVE_STORAGE_ENDPOINT", "QA_ARCHIVE_STORAGE_BUCKET", "QA_ARCHIVE_STORAGE_PREFIX",
+                "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE"]
+        for key in keys:
+            for incoming, success in [("original", True), ("redirected", False)]:
+                with self.subTest(key=key, incoming=incoming):
+                    script = f"""set -euo pipefail
+{guard}
+DEPLOY_PROFILE=prod
+QA_RUNTIME_KEYS=({key})
+{key}_SET=true
+{key}={incoming}
+env_get() {{ printf original; }}
+die() {{ echo "$*" >&2; exit 42; }}
+assert_qa_provider_unchanged
+printf accepted
+"""
+                    result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, 0 if success else 42)
+                    self.assertEqual(result.stdout, "accepted" if success else "")
+                    if not success:
+                        self.assertIn("separate migration", result.stderr)
+
     def test_remote_script_parses(self) -> None:
         proc, params, remote = _render()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
@@ -846,8 +872,8 @@ validate_prepared_receipt blue green
         self.assertIn("/tmp/tokenkey-bluegreen-deploy.sh", joined)
         self.assertIn("TAG='1.8.99'", joined)
         self.assertIn("DEPLOY_PROFILE='prod'", joined)
-        self.assertIn("QA_BUNDLE_STORAGE_BUCKET=''", joined)
-        self.assertIn("QA_BUNDLE_STORAGE_BUCKET_SET=false", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET=''", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET_SET=false", joined)
         self.assertIn("QA_ARCHIVE_ENABLED='true'", joined)
         self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-prod-qa-raw-archive-682751977094'", joined)
         self.assertIn("TELEMETRY_ARCHIVE_ENABLED=''", joined)
@@ -1224,60 +1250,19 @@ finish_pending_drain
 
     def test_values_are_env_overridable(self) -> None:
         proc, params, _ = _render(env_extra={
-            "QA_BUNDLE_STORAGE_BUCKET": "custom-qa",
+            "QA_ARCHIVE_STORAGE_BUCKET": "custom-qa",
             "MEDIA_STORAGE_BUCKET": "custom-media",
             "GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS": "16",
         })
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         assert params is not None
         joined = "\n".join(params["commands"])
-        self.assertIn("QA_BUNDLE_STORAGE_BUCKET='custom-qa'", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='custom-qa'", joined)
         self.assertIn("MEDIA_STORAGE_BUCKET='custom-media'", joined)
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS='16'", joined)
 
-    def test_bundle_desired_value_replaces_a_stale_host_value(self) -> None:
-        proc, params, remote = _render(env_extra={
-            "QA_BUNDLE_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/123456789012/new-queue",
-        })
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        assert params is not None
-        assert remote is not None
-        joined = "\n".join(params["commands"])
-        self.assertIn("QA_BUNDLE_QUEUE_URL='https://sqs.us-east-1.amazonaws.com/123456789012/new-queue'", joined)
-        self.assertIn("QA_BUNDLE_QUEUE_URL_SET=true", joined)
-        self.assertIn("env_apply_if_supplied", remote)
-        self.assertIn("env_set \"${key}\" \"${desired}\"", remote)
 
-    def test_unset_bundle_values_preserve_the_host_without_prod_fallbacks(self) -> None:
-        proc, _, remote = _render()
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        assert remote is not None
-        self.assertIn("not supplied; preserving existing host value", remote)
-        self.assertNotIn(
-            "https://sqs.us-east-1.amazonaws.com/682751977094/tokenkey-prod-qa-bundle",
-            remote,
-        )
-        self.assertNotIn("tokenkey-prod-qa-bundles-682751977094", remote)
 
-    def test_explicit_bundle_enable_requires_complete_configuration(self) -> None:
-        incomplete, params, remote = _render(env_extra={"QA_BUNDLE_ENABLED": "true"})
-        self.assertNotEqual(incomplete.returncode, 0)
-        self.assertIn("QA_BUNDLE_QUEUE_URL is required", incomplete.stderr)
-        self.assertIsNone(params)
-        self.assertIsNone(remote)
-
-        complete_env = {
-            "QA_BUNDLE_ENABLED": "true",
-            "QA_BUNDLE_QUEUE_URL": "https://sqs.example/queue",
-            "QA_BUNDLE_STORAGE_DRIVER": "s3",
-            "QA_BUNDLE_STORAGE_REGION": "us-east-1",
-            "QA_BUNDLE_STORAGE_BUCKET": "qa-bucket",
-            "QA_BUNDLE_STORAGE_PREFIX": "user-qa",
-        }
-        complete, params, remote = _render(env_extra=complete_env)
-        self.assertEqual(complete.returncode, 0, msg=complete.stderr)
-        self.assertIsNotNone(params)
-        self.assertIsNotNone(remote)
 
 
 if __name__ == "__main__":

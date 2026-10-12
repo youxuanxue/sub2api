@@ -80,12 +80,3 @@ func IsOpenAICompatPlatform(platform string) bool {
 func AllSchedulingPlatforms() []string {
 	return engine.AllSchedulingPlatforms()
 }
-
-// TrajProjectablePlatforms returns the platforms whose captured wire shape the
-// Bundle session export projector can faithfully reconstruct, exposed to the handler layer
-// (the /auth/me projectable allowlist that gates the frontend export chip).
-// Single source lives in engine.TrajProjectablePlatforms(); this is the service
-// re-export sibling of OpenAICompatPlatforms() / AllSchedulingPlatforms() above.
-func TrajProjectablePlatforms() []string {
-	return engine.TrajProjectablePlatforms()
-}

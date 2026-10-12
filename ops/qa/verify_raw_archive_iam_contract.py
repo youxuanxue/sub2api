@@ -305,11 +305,7 @@ def evaluate_edge_qa_boundary(
 def verify_live_edge_qa_boundary(account_id: str) -> dict[str, Any]:
     try:
         raw_bucket = _stack_output(RAW_ARCHIVE_STACK, "QaRawArchiveBucketName")
-        bundle_bucket = _stack_output(RAW_ARCHIVE_STACK, "QaBundleBucketName")
-        buckets = {
-            raw_bucket: _live_bucket_policy(raw_bucket),
-            bundle_bucket: _live_bucket_policy(bundle_bucket),
-        }
+        buckets = {raw_bucket: _live_bucket_policy(raw_bucket)}
     except RuntimeError as exc:
         return {
             "ok": False,
@@ -485,7 +481,7 @@ def main() -> int:
     parser.add_argument(
         "--edge-qa-boundary",
         action="store_true",
-        help="read prod raw archive and QA Bundle policies and verify the shared edge-role deny",
+        help="read prod raw archive policy and verify the shared edge-role deny",
     )
     args = parser.parse_args()
 

@@ -45,13 +45,9 @@
     {
       "path": "backend/internal/config/config.go",
       "must_contain": [
-        "viper.SetDefault(\"qa_bundle.queue_driver\", \"sqs\")",
-        "viper.SetDefault(\"qa_bundle.queue_postgres_dsn_file\", \"\")",
-        "qa_bundle.queue_url must be empty for postgres",
-        "viper.SetDefault(\"qa_bundle.storage.credentials_file\", \"\")",
         "viper.SetDefault(\"qa_archive.storage.credentials_file\", \"\")"
       ],
-      "rationale": "QA queue migration must preserve the SQS default and reject mixed PostgreSQL/SQS configuration."
+      "rationale": "Raw archive credentials use a private file without changing other S3 services."
     },
     {
       "path": "backend/internal/observability/qa/archive/store.go",
@@ -66,21 +62,6 @@
         "TestUS062_QAFileIdentityOverridesAmbientAWSOnlyForItsStore"
       ],
       "rationale": "Protect the actual signed-request regression proving QA credentials override only the selected store."
-    },
-    {
-      "path": "backend/cmd/server/qa_bundle_worker.go",
-      "must_contain": [
-        "bundle.OpenJobQueue(ctx, cfg.QaBundle)",
-        "worker.RunOneDraining(ctx)"
-      ],
-      "rationale": "The standalone worker must share the producer/canary queue factory and drain claimed work on shutdown."
-    },
-    {
-      "path": "backend/internal/config/qa_bundle_env_test.go",
-      "must_contain": [
-        "TestQABundlePostgresConfigRejectsAmbiguousDriver"
-      ],
-      "rationale": "Keep runtime environment binding and rejection coverage for queue backend migration."
     },
     {
       "path": "backend/internal/config/config.go",

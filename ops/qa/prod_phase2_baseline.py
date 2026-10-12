@@ -30,8 +30,8 @@ if [ -z "${qa_cap}" ]; then
 fi
 [ -n "${qa_cap}" ] || qa_cap=missing
 qa_archive=$(sudo docker exec "${app_container}" printenv QA_ARCHIVE_ENABLED 2>/dev/null || echo missing)
-export_driver=$(sudo docker exec "${app_container}" printenv QA_BUNDLE_STORAGE_DRIVER 2>/dev/null || echo missing)
-export_bucket=$(sudo docker exec "${app_container}" printenv QA_BUNDLE_STORAGE_BUCKET 2>/dev/null || echo missing)
+archive_driver=$(sudo docker exec "${app_container}" printenv QA_ARCHIVE_STORAGE_DRIVER 2>/dev/null || echo missing)
+archive_bucket=$(sudo docker exec "${app_container}" printenv QA_ARCHIVE_STORAGE_BUCKET 2>/dev/null || echo missing)
 rec_count=0
 rec_oldest=
 rec_newest=
@@ -51,8 +51,8 @@ fi
 if [ -d qa_blobs ] || [ -d qa_dlq ]; then
   blob_bytes=$(du -sb qa_blobs qa_dlq 2>/dev/null | awk '{s+=$1} END {print s+0}')
 fi
-printf 'QA_CAPTURE_ENABLED=%s\nQA_ARCHIVE_ENABLED=%s\nEXPORT_DRIVER=%s\nEXPORT_BUCKET=%s\nQA_RECORDS=%s\nQA_OLDEST=%s\nQA_NEWEST=%s\nBLOB_BYTES=%s\n' \
-  "$qa_cap" "$qa_archive" "$export_driver" "$export_bucket" "$rec_count" "$rec_oldest" "$rec_newest" "$blob_bytes"
+printf 'QA_CAPTURE_ENABLED=%s\nQA_ARCHIVE_ENABLED=%s\nARCHIVE_DRIVER=%s\nARCHIVE_BUCKET=%s\nQA_RECORDS=%s\nQA_OLDEST=%s\nQA_NEWEST=%s\nBLOB_BYTES=%s\n' \
+  "$qa_cap" "$qa_archive" "$archive_driver" "$archive_bucket" "$rec_count" "$rec_oldest" "$rec_newest" "$blob_bytes"
 """
 
 

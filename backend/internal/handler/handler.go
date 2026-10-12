@@ -83,8 +83,6 @@ type Handlers struct {
 	PricingCatalog *PricingCatalogHandler
 	// TK: per-user "your menu" view backing GET /api/v1/me/pricing-catalog.
 	MePricingCatalog *MePricingCatalogHandler
-	// TK: user-facing QA export (issue #59 / docs/approved/ops-unified-contract.md §2).
-	QA *QAHandler
 	// TK: internal edge capacity read (surface C) — see edge_tk_capacity_handler.go.
 	EdgeCapacity *EdgeCapacityHandler
 	// TK: internal edge read-only account inventory — see edge_tk_accounts_handler.go.

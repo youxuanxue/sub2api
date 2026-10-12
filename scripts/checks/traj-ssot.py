@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CONTRACT = "docs/approved/qa-bundle-session-export.md"
+CONTRACT = "docs/approved/qa-raw-only.md"
 RETIRED = (
     "projection.go", "projection_v2.go", "projection_openai.go", "projection_gemini.go",
 )
@@ -46,7 +46,7 @@ def main() -> int:
     for failure in failures:
         print(f"FAIL: {failure}")
     if not failures:
-        print("ok: traj has one Bundle session contract and no retired projector")
+        print("ok: traj capture has one raw-only contract and no retired projector")
     return int(bool(failures))
 
 

@@ -1,209 +1,170 @@
 #!/usr/bin/env python3
 """Behavioral coverage for independent releases and split cutover/completion."""
+
 from __future__ import annotations
 
-import copy
 import base64
 import contextlib
-import io
 import importlib.util
+import io
 import json
 import os
 import shlex
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bluegreen_completion as completion
 import prod_release_plan as planner
+
+REPOSITORY = "ghcr.io/youxuanxue/sub2api"
 import prod_release_state as release_state
 
-_install_spec = importlib.util.spec_from_file_location("qa_runtime_install", ROOT / "ops/stage0/qa-runtime-install.py")
+_install_spec = importlib.util.spec_from_file_location(
+    "qa_runtime_install", ROOT / "ops/stage0/qa-runtime-install.py"
+)
 installer = importlib.util.module_from_spec(_install_spec)
 _install_spec.loader.exec_module(installer)
 
 
-class ComponentPlanTest(unittest.TestCase):
-    def test_split_release_classification_is_contract_based_and_unknown_fails_closed(self):
-        with tempfile.TemporaryDirectory() as directory:
-            rollout = Path(directory) / "rollout.yaml"
-            self.assertEqual(planner.release_mode(rollout), "legacy_rollback")
-            rollout.write_text("prod: {}\n")
-            self.assertEqual(planner.release_mode(rollout), "legacy_rollback")
-            rollout.write_text("prod: {user_export: {bundle_runtime_contract: unknown}}\n")
+class RawArchiveReleasePlanTest(unittest.TestCase):
+    def test_rollout_is_raw_archive_contract(self):
+        self.assertEqual(
+            planner.release_mode(ROOT / "ops/qa/deploy_rollout.yaml"), "raw_archive"
+        )
+
+    def test_unknown_contract_fails_closed(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "rollout.yaml"
+            p.write_text(
+                "prod: {component_release: {runtime_contract: old_worker_v1}}\n"
+            )
             with self.assertRaisesRegex(ValueError, "unsupported"):
-                planner.release_mode(rollout)
-            rollout.write_text("prod: {component_release: {runtime_contract: unknown}}\n")
-            with self.assertRaisesRegex(ValueError, "unsupported"):
-                planner.release_mode(rollout)
-            rollout.write_text("[malformed")
-            with self.assertRaises(ValueError):
-                planner.release_mode(rollout)
-        self.assertEqual(planner.release_mode(ROOT / "ops/qa/deploy_rollout.yaml"), "phase3")
+                planner.release_mode(p)
 
-    def test_standalone_qa_acceptance_preserves_and_tests_actual_gateway(self):
-        rollout = ROOT / "ops/qa/deploy_rollout.yaml"
-        result = planner.qa_plan("1.8.228", "1.8.227", rollout, rollout)
-        self.assertFalse(result["deploy_gateway"])
-        self.assertEqual(result["gateway_tag"], "1.8.227")
-        self.assertEqual(result["canary_tag"], "1.8.227")
-        self.assertEqual(result["maintenance_tag"], "1.8.228")
-        self.assertEqual(result["worker_image"], planner.REPOSITORY + ":1.8.228")
-        for target, gateway in ((Path("/missing"), rollout), (rollout, Path("/missing"))):
-            with self.subTest(target=target, gateway=gateway), self.assertRaisesRegex(ValueError, "compatible"):
-                planner.qa_plan("1.8.228", "1.8.227", target, gateway)
-
-    def test_legacy_rollback_rejects_a_pin_left_unverified_by_failed_qa_deploy(self):
-        state = copy.deepcopy(self.state)
-        state["runtime"]["id"] = "unaccepted-pin"
-        with self.assertRaisesRegex(ValueError, "verified worker and pinned maintenance"):
-            planner.plan(ROOT, "1.8.150", "1.8.214", planner.REPOSITORY + ":1.8.183",
-                         state, Path("/missing-legacy-rollout"))
-
-    def setUp(self):
-        self.state = {"runtime": {"tag": "1.8.200", "id": "pin", "host_sha": "host"},
-                      "verified": {"schema_version": planner.SCHEMA, "gateway_tag": "1.8.214",
-                                   "maintenance_tag": "1.8.200", "runtime_id": "pin", "runtime_host_sha": "host",
-                                   "worker_image": planner.REPOSITORY + ":1.8.183", "publisher_tag": "1.8.214"}}
-
-    def resolve(self, paths=(), *, state=None, worker_paths=None, maintenance_paths=None):
-        def diff(repo, before, after):
-            if before == "1.8.183" and worker_paths is not None:
-                return worker_paths
-            if before == "1.8.200" and maintenance_paths is not None:
-                return maintenance_paths
-            return list(paths)
-        with patch.object(planner, "changed", side_effect=diff):
-            return planner.plan(ROOT, "1.8.215", "1.8.214", planner.REPOSITORY + ":1.8.183",
-                                self.state if state is None else state, ROOT / "ops/qa/deploy_rollout.yaml")
-
-    def test_us051_gateway_only_never_restarts_or_runs_qa(self):
-        for path in (
-            "backend/internal/service/gateway_service.go",
-            "backend/internal/pkg/apicompat/gemini_messages_request_tk.go",
-            "backend/ent/schema/model_availability.go",
-            "backend/internal/service/ops_user_error.go",
-        ):
-            with self.subTest(path=path):
-                result = self.resolve([path])
-                self.assertTrue(result["deploy_gateway"])
-                self.assertFalse(result["deploy_worker"])
-                self.assertFalse(result["deploy_maintenance"])
-                self.assertFalse(result["run_canary"])
-
-    def test_us051_qa_schema_triggers_maintenance(self):
-        result = self.resolve(["backend/ent/schema/qa_record.go"])
-        self.assertFalse(result["deploy_gateway"])
-        self.assertFalse(result["deploy_worker"])
-        self.assertTrue(result["deploy_maintenance"])
-        self.assertFalse(result["run_canary"])
-
-    def test_us051_old_worker_does_not_repeat_verified_publisher_canary(self):
-        result = self.resolve(["backend/internal/service/gateway_service.go"],
-                              worker_paths=["backend/internal/observability/qa/service_bundle_canary.go"],
-                              maintenance_paths=[])
-        self.assertFalse(result["run_canary"])
-        self.assertEqual(result["worker_image"], planner.REPOSITORY + ":1.8.183")
-
-    def test_us051_worker_only_preserves_running_gateway_and_maintenance(self):
-        result = self.resolve(["backend/cmd/server/qa_bundle_worker.go"])
-        self.assertFalse(result["deploy_gateway"])
-        self.assertEqual(result["gateway_tag"], "1.8.214")
-        self.assertTrue(result["deploy_worker"])
-        self.assertFalse(result["deploy_maintenance"])
-        self.assertTrue(result["run_canary"])
-
-    def test_us051_maintenance_only_preserves_gateway(self):
-        result = self.resolve(["backend/cmd/server/qa_maintenance.go"])
-        self.assertFalse(result["deploy_gateway"])
-        self.assertFalse(result["deploy_worker"])
-        self.assertTrue(result["deploy_maintenance"])
-
-    def test_us051_shared_protocol_or_build_dependencies_coordinate(self):
-        for path in ("backend/go.mod", "Dockerfile", "backend/internal/config/config.go",
-                     "backend/migrations/tk_next.sql", "backend/internal/observability/qa/bundle/job.go"):
-            with self.subTest(path=path):
-                result = self.resolve([path])
-                self.assertTrue(result["deploy_gateway"])
-                self.assertTrue(result["deploy_worker"])
-                self.assertTrue(result["deploy_maintenance"])
-                self.assertTrue(result["run_canary"])
-
-    def test_us051_missing_or_drifted_receipt_requires_full_qa_acceptance(self):
-        for field in ("runtime_id", "runtime_host_sha", "worker_image", "gateway_tag"):
-            state = copy.deepcopy(self.state)
-            state["verified"][field] = "drift"
-            with self.subTest(field=field):
-                result = self.resolve(state=state)
-                self.assertTrue(result["deploy_maintenance"])
-                self.assertTrue(result["run_canary"])
-        result = self.resolve(state={})
-        self.assertTrue(result["deploy_maintenance"])
-        self.assertTrue(result["run_canary"])
-
-    def test_us051_legacy_rollback_keeps_qa_pins_and_pauses_drop(self):
+    def test_missing_and_malformed_contracts_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:
-            rollout = Path(directory) / "rollout.yaml"
-            rollout.write_text("prod: {user_export: {bundle_runtime_contract: phase3_v1}}\n")
-            result = planner.plan(ROOT, "1.8.150", "1.8.214", planner.REPOSITORY + ":1.8.183", self.state, rollout)
-            self.assertTrue(result["legacy_rollback"])
-            self.assertEqual(result["mode"], "legacy_rollback")
-            self.assertFalse(result["deploy_worker"])
-            self.assertFalse(result["deploy_maintenance"])
-            with self.assertRaises(ValueError):
-                planner.plan(ROOT, "1.8.150", "1.8.214", planner.REPOSITORY + ":1.8.183", {}, rollout)
+            path = Path(directory) / "rollout.yaml"
+            for body in (
+                "{}",
+                "[]",
+                "prod: []",
+                "prod: {component_release: []}",
+                "prod: {component_release: {runtime_contract: independent_v1}}",
+            ):
+                with self.subTest(body=body):
+                    path.write_text(body)
+                    with self.assertRaisesRegex(
+                        ValueError, "unsupported runtime contract"
+                    ):
+                        planner.release_mode(path)
 
-    def test_nonruntime_files_do_not_trigger_components(self):
-        for path in ("docs/example.md", "backend/cmd/server/VERSION", "backend/internal/service/gateway_test.go"):
-            self.assertFalse(planner.runtime_path(path))
-
-    def test_unknown_runtime_contract_is_rejected_before_planning_mutations(self):
+    def test_cli_rejects_legacy_before_publishing_workflow_output(self):
         with tempfile.TemporaryDirectory() as directory:
-            rollout = Path(directory) / "rollout.yaml"
-            rollout.write_text("prod: {user_export: {bundle_runtime_contract: phase3_v1}, component_release: {runtime_contract: independent_v2}}\n")
-            with self.assertRaisesRegex(ValueError, "unsupported independent"):
-                planner.plan(ROOT, "1.8.215", "1.8.214", planner.REPOSITORY + ":1.8.183", self.state, rollout)
+            path = Path(directory) / "rollout.yaml"
+            path.write_text(
+                "prod: {component_release: {runtime_contract: independent_v1}}"
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "ops/stage0/prod_release_plan.py"),
+                    "--operation",
+                    "classify",
+                    "--rollout",
+                    str(path),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("raw archive compatibility", result.stderr)
 
 
 class BlueGreenCompletionTest(unittest.TestCase):
     token = "a" * 32
 
     def test_us051_cutover_returns_while_original_deploy_is_draining(self):
-        receipt = {"token": self.token, "tag": "1.8.215", "cutover_at": "2026-09-10T02:59:01Z"}
-        with patch.object(completion, "invocation", return_value={"Status": "InProgress"}) as inspect, \
-             patch.object(completion.ssm_execution, "run_shell_b64", return_value=json.dumps(receipt)):
-            result = completion.wait("instance", "command", self.token, "1.8.215", "cutover", 10)
+        receipt = {
+            "token": self.token,
+            "tag": "1.8.215",
+            "cutover_at": "2026-09-10T02:59:01Z",
+        }
+        with (
+            patch.object(
+                completion, "invocation", return_value={"Status": "InProgress"}
+            ) as inspect,
+            patch.object(
+                completion.ssm_execution,
+                "run_shell_b64",
+                return_value=json.dumps(receipt),
+            ),
+        ):
+            result = completion.wait(
+                "instance", "command", self.token, "1.8.215", "cutover", 10
+            )
         self.assertEqual(result, receipt["cutover_at"])
         self.assertEqual(inspect.call_count, 1)
 
     def test_us051_stale_receipt_cannot_claim_cutover(self):
-        receipt = {"token": "b" * 32, "tag": "1.8.215", "cutover_at": "2026-09-10T02:59:01Z"}
+        receipt = {
+            "token": "b" * 32,
+            "tag": "1.8.215",
+            "cutover_at": "2026-09-10T02:59:01Z",
+        }
         with self.assertRaises(ValueError):
             completion.validate_receipt(receipt, self.token, "1.8.215")
 
     def test_us051_completion_waits_and_propagates_drain_failure(self):
-        with patch.object(completion, "invocation", side_effect=[{"Status": "InProgress"}, {"Status": "Failed", "ResponseCode": 1}]), \
-             patch.object(completion.time, "sleep"):
+        with (
+            patch.object(
+                completion,
+                "invocation",
+                side_effect=[
+                    {"Status": "InProgress"},
+                    {"Status": "Failed", "ResponseCode": 1},
+                ],
+            ),
+            patch.object(completion.time, "sleep"),
+        ):
             with self.assertRaises(RuntimeError):
-                completion.wait("instance", "command", self.token, "1.8.215", "complete", 10)
+                completion.wait(
+                    "instance", "command", self.token, "1.8.215", "complete", 10
+                )
 
     def test_us051_completion_requires_successful_remote_exit(self):
-        with patch.object(completion, "invocation", return_value={"Status": "Success", "ResponseCode": 0}):
-            self.assertIsNone(completion.wait("instance", "command", self.token, "1.8.215", "complete", 10))
-        with patch.object(completion, "invocation", return_value={"Status": "Success", "ResponseCode": 1}):
+        with patch.object(
+            completion,
+            "invocation",
+            return_value={"Status": "Success", "ResponseCode": 0},
+        ):
+            self.assertIsNone(
+                completion.wait(
+                    "instance", "command", self.token, "1.8.215", "complete", 10
+                )
+            )
+        with patch.object(
+            completion,
+            "invocation",
+            return_value={"Status": "Success", "ResponseCode": 1},
+        ):
             with self.assertRaises(RuntimeError):
-                completion.wait("instance", "command", self.token, "1.8.215", "complete", 10)
+                completion.wait(
+                    "instance", "command", self.token, "1.8.215", "complete", 10
+                )
 
 
 class QARuntimeResolverTest(unittest.TestCase):
     def resolve(self, network="tokenkey-data", contract="independent-v1"):
         script = (ROOT / "deploy/aws/stage0/qa-runtime.sh").read_text()
-        script += r'''
+        script += r"""
 qa_docker() {
   case "$*" in
     *dev.tokenkey.qa-runtime*) printf '%s\n' "$TEST_CONTRACT" ;;
@@ -214,10 +175,19 @@ qa_docker() {
   esac
 }
 tk_resolve_qa_runtime
-'''
-        return subprocess.run(["bash"], input=script, text=True, capture_output=True,
-                              env={**os.environ, "TEST_NETWORK": network, "TEST_CONTRACT": contract,
-                                   "ACTIVE_COLOR_FILE": "/missing-gateway-color"})
+"""
+        return subprocess.run(
+            ["bash"],
+            input=script,
+            text=True,
+            capture_output=True,
+            env={
+                **os.environ,
+                "TEST_NETWORK": network,
+                "TEST_CONTRACT": contract,
+                "ACTIVE_COLOR_FILE": "/missing-gateway-color",
+            },
+        )
 
     def test_us051_runtime_does_not_depend_on_gateway_color(self):
         result = self.resolve()
@@ -232,53 +202,8 @@ tk_resolve_qa_runtime
 
 
 class QARuntimeInstallTest(unittest.TestCase):
-    def test_sync_passes_verified_coordinates_to_config_render_without_gateway_redeploy(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            fake_bin = root / "bin"
-            fake_bin.mkdir()
-            for name, body in {
-                "aws": "#!/bin/bash\ncase \"$*\" in *send-command*) echo command;; *'--query Status'*) echo Success;; *'--query ResponseCode'*) echo 0;; esac\n",
-                "sleep": "#!/bin/bash\nexit 0\n",
-                "sudo": "#!/bin/bash\nexec \"$@\"\n",
-            }.items():
-                command = fake_bin / name
-                command.write_text(body)
-                command.chmod(0o755)
-            queue = "https://sqs.example.test/queue'$(exit 42)"
-            env = {**os.environ, "PATH": str(fake_bin) + os.pathsep + os.environ["PATH"],
-                   "QA_BUNDLE_QUEUE_URL": queue, "QA_BUNDLE_STORAGE_BUCKET": "new-bucket",
-                   "QA_MAINTENANCE_IMAGE": planner.REPOSITORY + ":1.8.228",
-                   "AWS_REGION": "us-east-1", "STAGE0_SSM_OUTPUT_DIR": str(root / "output")}
-            result = subprocess.run(["bash", str(ROOT / "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh"), "i-test"],
-                                    env=env, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            wrap_spec = importlib.util.spec_from_file_location(
-                "ssm_wrap_bash_commands", ROOT / "ops/stage0/ssm_wrap_bash_commands.py"
-            )
-            wrap_mod = importlib.util.module_from_spec(wrap_spec)
-            wrap_spec.loader.exec_module(wrap_mod)
-            commands = wrap_mod.unwrap_commands(
-                json.loads((root / "output/ssm-params.json").read_text())["commands"]
-            )
-            install = next(command for command in commands if command.startswith("sudo env "))
-            capture = fake_bin / "python3"
-            capture.write_text(f"#!{sys.executable}\nimport os, json\nprint(json.dumps(dict(os.environ)))\n")
-            capture.chmod(0o755)
-            result = subprocess.run(["bash", "-c", install], env=env, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            received = json.loads(result.stdout)
-            self.assertEqual(received["QA_BUNDLE_QUEUE_URL"], queue)
-            self.assertEqual(received["QA_BUNDLE_STORAGE_BUCKET"], "new-bucket")
-            self.assertEqual(received["QA_BUNDLE_STORAGE_REGION"], "us-east-1")
-            env.pop("QA_BUNDLE_STORAGE_BUCKET")
-            result = subprocess.run(["bash", str(ROOT / "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh"), "i-test"],
-                                    env=env, capture_output=True, text=True)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("supplied together", result.stderr)
-
     def run_install(self, *, fail_promotion=False, keep_previous=False):
-        image = planner.REPOSITORY + ":1.8.215"
+        image = REPOSITORY + ":1.8.215"
         names = {"tokenkey-qa-runtime": "old"}
         captured_env = []
 
@@ -286,19 +211,42 @@ class QARuntimeInstallTest(unittest.TestCase):
             if args[:3] == ("docker", "inspect", "tokenkey-postgres"):
                 return json.dumps([{"NetworkSettings": {"Networks": {"data": {}}}}])
             if args[:2] == ("docker", "compose"):
-                return json.dumps({"services": {"runtime": {"image": image, "labels": {},
-                                                            "environment": {"DATABASE_PASSWORD": "private", "QA_ARCHIVE_SEAL_DELAY_MINUTES": "15"}}}})
+                return json.dumps(
+                    {
+                        "services": {
+                            "runtime": {
+                                "image": image,
+                                "labels": {},
+                                "environment": {
+                                    "DATABASE_PASSWORD": "private",
+                                    "QA_ARCHIVE_SEAL_DELAY_MINUTES": "15",
+                                },
+                            }
+                        }
+                    }
+                )
             if args[:2] == ("docker", "pull"):
                 return image
             if args[:2] == ("docker", "ps"):
                 return names.get("tokenkey-qa-runtime", "")
             if args[:2] == ("docker", "create"):
                 names[args[3]] = "new"
-                captured_env.append(Path(args[args.index("--env-file") + 1]).read_text())
+                captured_env.append(
+                    Path(args[args.index("--env-file") + 1]).read_text()
+                )
                 self.assertEqual(args[args.index("--network") + 1], "data")
                 return "new"
             if args[:2] == ("docker", "inspect"):
-                return json.dumps([{"Id": names[args[2]], "Image": "sha256:new", "Config": {"Image": image}, "State": {"Running": False}}])
+                return json.dumps(
+                    [
+                        {
+                            "Id": names[args[2]],
+                            "Image": "sha256:new",
+                            "Config": {"Image": image},
+                            "State": {"Running": False},
+                        }
+                    ]
+                )
             if args[:2] == ("docker", "rename"):
                 if fail_promotion and names[args[2]] == "new":
                     raise RuntimeError("promotion failed")
@@ -309,9 +257,12 @@ class QARuntimeInstallTest(unittest.TestCase):
                 return ""
             self.fail(f"unexpected command {args[:2]}")
 
-        with patch.object(installer, "command", side_effect=command), \
-             patch.object(installer.subprocess, "run"), patch.dict(os.environ), \
-             contextlib.redirect_stdout(io.StringIO()):
+        with (
+            patch.object(installer, "command", side_effect=command),
+            patch.object(installer.subprocess, "run"),
+            patch.dict(os.environ),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             if fail_promotion:
                 with self.assertRaisesRegex(RuntimeError, "promotion failed"):
                     installer.install(image, "template", keep_previous=keep_previous)
@@ -332,7 +283,7 @@ class QARuntimeInstallTest(unittest.TestCase):
     def test_runtime_rejects_mutable_image_before_docker_calls(self):
         with patch.object(installer, "command") as command:
             with self.assertRaises(ValueError):
-                installer.install(planner.REPOSITORY + ":latest", "template")
+                installer.install(REPOSITORY + ":latest", "template")
             command.assert_not_called()
 
 
@@ -342,13 +293,25 @@ class ReleaseStateTest(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.source = release_state.REMOTE.replace("/var/lib/tokenkey", str(self.root))
-        for original in ("/usr/local/bin/tokenkey-qa-maintenance.sh", "/usr/local/bin/tokenkey-qa-boundary.sh",
-                         "/usr/local/lib/tokenkey/qa-runtime.sh"):
+        for original in (
+            "/usr/local/bin/tokenkey-qa-maintenance.sh",
+            "/usr/local/bin/tokenkey-qa-boundary.sh",
+            "/usr/local/lib/tokenkey/qa-runtime.sh",
+        ):
             local = self.root / Path(original).name
             local.write_text("verified host artifact")
             self.source = self.source.replace(original, str(local))
-        self.pin = {"Id": "pin", "Image": "sha256:pin", "State": {"Running": False},
-                    "Config": {"Labels": {"dev.tokenkey.qa-runtime": "independent-v1", "dev.tokenkey.release-tag": "1.8.200"}}}
+        self.pin = {
+            "Id": "pin",
+            "Image": "sha256:pin",
+            "State": {"Running": False},
+            "Config": {
+                "Labels": {
+                    "dev.tokenkey.qa-runtime": "independent-v1",
+                    "dev.tokenkey.release-tag": "1.8.200",
+                }
+            },
+        }
 
     def run_remote(self, operation, plan=None):
         def docker(args, **kwargs):
@@ -357,19 +320,36 @@ class ReleaseStateTest(unittest.TestCase):
             if args[2] == "tokenkey-qa-runtime":
                 return json.dumps([self.pin])
             if args[2] == "tokenkey-green":
-                return json.dumps([{"Config": {"Image": planner.REPOSITORY + ":1.8.215"}}])
+                return json.dumps([{"Config": {"Image": REPOSITORY + ":1.8.215"}}])
             self.fail(f"unexpected docker operation {args[:3]}")
+
         output = io.StringIO()
-        with patch.object(sys, "argv", ["-", operation, base64.b64encode(json.dumps(plan or {}).encode()).decode()]), \
-             patch.dict(os.environ, TK_RELEASE_ACTIVE_CONTAINER="tokenkey-green"), \
-             patch("subprocess.check_output", side_effect=docker), contextlib.redirect_stdout(output):
+        with (
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "-",
+                    operation,
+                    base64.b64encode(json.dumps(plan or {}).encode()).decode(),
+                ],
+            ),
+            patch.dict(os.environ, TK_RELEASE_ACTIVE_CONTAINER="tokenkey-green"),
+            patch("subprocess.check_output", side_effect=docker),
+            contextlib.redirect_stdout(output),
+        ):
             exec(self.source, {})
         return json.loads(output.getvalue())
 
     def test_us051_failed_acceptance_cannot_advance_receipt_or_clear_pause(self):
         self.run_remote("pause")
         pin = self.run_remote("read")["runtime"]
-        plan = {"gateway_tag": "1.8.215", "maintenance_tag": "1.8.200", "runtime_id": "drift", "runtime_host_sha": pin["host_sha"]}
+        plan = {
+            "gateway_tag": "1.8.215",
+            "maintenance_tag": "1.8.200",
+            "runtime_id": "drift",
+            "runtime_host_sha": pin["host_sha"],
+        }
         with self.assertRaisesRegex(ValueError, "changed after acceptance"):
             self.run_remote("record", plan)
         state = self.run_remote("read")
@@ -379,8 +359,14 @@ class ReleaseStateTest(unittest.TestCase):
     def test_us051_accepted_combination_clears_pause_only_for_compatible_release(self):
         self.run_remote("pause")
         pin = self.run_remote("read")["runtime"]
-        plan = {"gateway_tag": "1.8.215", "target_tag": "1.8.215", "maintenance_tag": "1.8.200",
-                "runtime_id": pin["id"], "runtime_host_sha": pin["host_sha"], "legacy_rollback": True}
+        plan = {
+            "gateway_tag": "1.8.215",
+            "target_tag": "1.8.215",
+            "maintenance_tag": "1.8.200",
+            "runtime_id": pin["id"],
+            "runtime_host_sha": pin["host_sha"],
+            "legacy_rollback": True,
+        }
         self.assertTrue(self.run_remote("record", plan)["pause_drop"])
         plan["legacy_rollback"] = False
         result = self.run_remote("record", plan)
@@ -388,16 +374,28 @@ class ReleaseStateTest(unittest.TestCase):
         self.assertEqual(result["verified"]["publisher_tag"], "1.8.215")
 
     def test_resolver_failure_is_not_masked_by_export(self):
-        result = subprocess.run(["bash"], input=release_state.remote_script("read", {}, "tk_resolve_app_container() { return 42; }"),
-                                text=True, capture_output=True)
+        result = subprocess.run(
+            ["bash"],
+            input=release_state.remote_script(
+                "read", {}, "tk_resolve_app_container() { return 42; }"
+            ),
+            text=True,
+            capture_output=True,
+        )
         self.assertEqual(result.returncode, 42)
 
     def test_qa_acceptance_records_tested_publisher_not_requested_worker(self):
         self.run_remote("pause", {"reason": "standalone_qa_acceptance"})
         pin = self.run_remote("read")["runtime"]
-        plan = {"gateway_tag": "1.8.215", "target_tag": "1.8.228", "canary_tag": "1.8.215",
-                "maintenance_tag": "1.8.200", "runtime_id": pin["id"],
-                "runtime_host_sha": pin["host_sha"], "legacy_rollback": False}
+        plan = {
+            "gateway_tag": "1.8.215",
+            "target_tag": "1.8.228",
+            "canary_tag": "1.8.215",
+            "maintenance_tag": "1.8.200",
+            "runtime_id": pin["id"],
+            "runtime_host_sha": pin["host_sha"],
+            "legacy_rollback": False,
+        }
         result = self.run_remote("record", plan)
         self.assertFalse(result["pause_drop"])
         self.assertEqual(result["verified"]["publisher_tag"], "1.8.215")
@@ -410,10 +408,17 @@ class ReleaseStateTest(unittest.TestCase):
         self.assertEqual(self.run_remote("read")["verified"], result["verified"])
 
     def test_record_takes_gateway_lock_before_resolving_active_color(self):
-        script = release_state.remote_script("record", {}, "tk_resolve_app_container() { echo reached-resolver >&2; return 42; }")
+        script = release_state.remote_script(
+            "record",
+            {},
+            "tk_resolve_app_container() { echo reached-resolver >&2; return 42; }",
+        )
         script = script.replace("/var/lib/tokenkey", str(self.root))
-        result = subprocess.run(["bash", "-c", "flock() { return 1; };\n" + script],
-                                capture_output=True, text=True)
+        result = subprocess.run(
+            ["bash", "-c", "flock() { return 1; };\n" + script],
+            capture_output=True,
+            text=True,
+        )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("gateway deployment in progress", result.stderr)
         self.assertNotIn("reached-resolver", result.stderr)
@@ -424,7 +429,12 @@ class QARuntimeTransactionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = (ROOT / "deploy/aws/stage0/qa-runtime-transaction.sh").read_text()
-            for prefix in ("/var/lib/tokenkey", "/usr/local/bin", "/usr/local/lib/tokenkey", "/etc/systemd/system"):
+            for prefix in (
+                "/var/lib/tokenkey",
+                "/usr/local/bin",
+                "/usr/local/lib/tokenkey",
+                "/etc/systemd/system",
+            ):
                 local = root / prefix.removeprefix("/")
                 local.mkdir(parents=True, exist_ok=True)
                 source = source.replace(prefix, str(local))
@@ -432,7 +442,7 @@ class QARuntimeTransactionTest(unittest.TestCase):
             script.write_text("old runner")
             pointer = root / "current"
             pointer.write_text("old-id")
-            harness = f'''set -euo pipefail
+            harness = f"""set -euo pipefail
 {source}
 POINTER={shlex.quote(str(pointer))}
 sudo() {{
@@ -450,8 +460,10 @@ printf 'new runner' > {shlex.quote(str(script))}
 printf new-id > "$POINTER"
 qa_runtime_rollback
 qa_runtime_cleanup
-'''
-            result = subprocess.run(["bash"], input=harness, text=True, capture_output=True)
+"""
+            result = subprocess.run(
+                ["bash"], input=harness, text=True, capture_output=True
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(script.read_text(), "old runner")
             self.assertEqual(pointer.read_text(), "old-id")

@@ -50,9 +50,7 @@ Layering: `handler → service → repository → ent`. Key paths:
 ### 1. PostgreSQL Only
 
 Business persistence = PostgreSQL 16+ / Ent only. **NEVER** add SQLite/MySQL for
-business data. QA Bundle's temporary SQLite spill
-([`docs/approved/qa-bundle-session-export.md`](docs/approved/qa-bundle-session-export.md))
-is not a second business DB.
+business data. QA archive maintenance may use bounded local scratch files; it is not a second business DB.
 
 ### 2. Ent Schema Is Source of Truth
 
@@ -127,7 +125,7 @@ submodule then parent. CI must `submodules: recursive`.
 | Account usage UI / NewAPI windows | [`claude-hard-rules.md`](docs/global/claude-hard-rules.md#account-usage-ssot-detail) |
 | Studio Image / Video / BakeOff | [`agent-reference.md`](docs/global/agent-reference.md#studio-ssot-studio-image--video--bakeoff) |
 | Client-closed 499 | [`docs/approved/client-closed-499-ssot.md`](docs/approved/client-closed-499-ssot.md) — owner `client_closed_request_tk.go` |
-| Trajectory / QA Bundle export | [`docs/approved/qa-bundle-session-export.md`](docs/approved/qa-bundle-session-export.md) |
+| Trajectory capture / raw archive | [`docs/approved/qa-raw-only.md`](docs/approved/qa-raw-only.md) |
 | Skills | `.cursor/skills/*/SKILL.md`; `.claude/skills` → symlink; index [`AGENTS.md`](AGENTS.md) |
 
 Model/catalog tests derive sets from SSOT owners — do not hand-maintain duplicate

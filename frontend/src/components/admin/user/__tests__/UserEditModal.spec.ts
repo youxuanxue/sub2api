@@ -40,7 +40,6 @@ describe('UserEditModal', () => {
           role: 'admin',
           concurrency: 3,
           rpm_limit: 0,
-          traj_export_enabled: true
         } as any
       },
       global: {

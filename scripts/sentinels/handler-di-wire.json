@@ -124,12 +124,11 @@
         "TrialProvision *admin.TrialProvisionHandler",
         "PricingCatalog *PricingCatalogHandler",
         "MePricingCatalog *MePricingCatalogHandler",
-        "QA *QAHandler",
         "EdgeCapacity *EdgeCapacityHandler",
         "EdgeAdminSession *EdgeAdminSessionHandler",
         "GeminiWebSession *GeminiWebSessionHandler"
       ],
-      "rationale": "DI registration center: AdminHandlers and Handlers struct fields are the sole compile-time link between TK handler implementations and the application. Dropping any field silently deregisters the corresponding TK surface (routes still reference the handler but get nil, causing runtime panics or silent 404s). The 8 anchors cover all TK-only struct fields across both structs."
+      "rationale": "DI registration center: AdminHandlers and Handlers struct fields are the sole compile-time link between TK handler implementations and the application. Dropping any field silently deregisters the corresponding TK surface (routes still reference the handler but get nil, causing runtime panics or silent 404s). The remaining anchors cover all TK-only struct fields across both structs."
     },
     {
       "path": "backend/internal/handler/wire_tk.go",

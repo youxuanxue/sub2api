@@ -412,12 +412,12 @@ exit 9
                 root = Path(directory)
                 env, _, docker_log, _, _ = self._sandbox(root)
                 docker = root / 'bin/docker'
-                docker.write_text(docker.read_text().replace("'DATA_DIR=/app/data'", "'DATA_DIR=/app/data' 'QA_BUNDLE_STORAGE_CREDENTIALS_FILE=/run/secrets/tokenkey-qa/bundle.json'"))
+                docker.write_text(docker.read_text().replace("'DATA_DIR=/app/data'", "'DATA_DIR=/app/data' 'QA_ARCHIVE_STORAGE_CREDENTIALS_FILE=/run/secrets/tokenkey-qa/raw.json'"))
                 helper = root / 'credential-helper.py'
                 helper.write_text('import sys\n' + ('sys.exit(1)\n' if failure else
-                    'sys.stdout.buffer.write(b"--mount\\0type=bind,src=/private/bundle.json,dst=/run/secrets/tokenkey-qa/bundle.json,readonly\\0")\n'))
+                    'sys.stdout.buffer.write(b"--mount\\0type=bind,src=/private/raw.json,dst=/run/secrets/tokenkey-qa/raw.json,readonly\\0")\n'))
                 env['QA_MAINTENANCE_CREDENTIAL_HELPER'] = str(helper)
-                result = subprocess.run(['bash', str(RUNNER), '--qa-bundle-canary'], env=env, capture_output=True, text=True)
+                result = subprocess.run(['bash', str(RUNNER), '--selftest'], env=env, capture_output=True, text=True)
                 calls = docker_log.read_text()
                 if failure:
                     self.assertNotEqual(result.returncode, 0)
@@ -425,26 +425,9 @@ exit 9
                     self.assertIn('QA private credential mounts are missing or unsafe', result.stderr)
                 else:
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertIn('--mount type=bind,src=/private/bundle.json,dst=/run/secrets/tokenkey-qa/bundle.json,readonly', calls)
-                    self.assertIn('--qa-bundle-canary', calls)
+                    self.assertIn('--mount type=bind,src=/private/raw.json,dst=/run/secrets/tokenkey-qa/raw.json,readonly', calls)
+                    self.assertIn('qa-maintenance-selftest-create', calls)
 
-    def test_bundle_canary_does_not_block_or_depend_on_the_lifecycle_lock(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            env, _, docker_log, _, _ = self._sandbox(root)
-            flock = root / "bin" / "flock"
-            flock.write_text("#!/usr/bin/env bash\nexit 75\n", encoding="utf-8")
-            flock.chmod(0o755)
-
-            result = subprocess.run(
-                ["bash", str(RUNNER), "--qa-bundle-canary"],
-                env=env,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("--qa-bundle-canary", docker_log.read_text(encoding="utf-8"))
 
     def test_us045_selftest_uses_real_image_user_and_mount_for_create_read_remove(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

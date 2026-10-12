@@ -374,6 +374,9 @@ jobs:
         run: |
           pnpm exec playwright install --with-deps chromium
           pnpm exec playwright test --config playwright.quickstart.config.ts
+      - name: QA product retirement browser journeys
+        working-directory: frontend
+        run: pnpm exec playwright test --config playwright.qa-retirement.config.ts
       - name: Gemini Web admin import browser journeys
         working-directory: frontend
         run: pnpm exec playwright test --config playwright.gemini-import.config.ts

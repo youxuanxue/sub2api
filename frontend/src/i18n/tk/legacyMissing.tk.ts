@@ -419,43 +419,6 @@ const en: LocaleOverlay = {
   "keys": {
     "export": "Export",
     "exporting": "Exporting…",
-    "exportTooltip": "Open archived QA history and export a Bundle ZIP",
-    "exportSuccess": "Exported {count} conversation records",
-    "exportEmpty": "No conversation records captured for this key yet",
-    "exportFailed": "Export failed, please try again",
-    "qaBundle": {
-      "title": "QA History",
-      "window": "{from} – {until}",
-      "watermark": "Archived through {time}",
-      "recordCount": "{count} records",
-      "export": "Export ZIP",
-      "exportContents": "Includes conversations, tool links and captured request evidence.",
-      "exporting": "Preparing…",
-      "failed": "QA history is temporarily unavailable",
-      "empty": "No QA records in this archived window",
-      "platform": "Platform",
-      "model": "Model",
-      "tokens": "Input / output",
-      "latency": "Latency"
-    },
-    "exportPanel": {
-      "title": "Export Conversations",
-      "exportNow": "Export now",
-      "exporting": "Exporting…",
-      "lastExport": "Last export: {time}",
-      "noExports": "No exports yet",
-      "download": "Download",
-      "expired": "Expired",
-      "recordCount": "{count} records",
-      "status": "Status",
-      "statusValue": {
-        "pending": "Pending",
-        "running": "Running",
-        "done": "Ready",
-        "failed": "Failed"
-      },
-      "close": "Close"
-    },
     "universalLabel": "Automatic routing",
     "universalHint": "Automatically choose an authorized service for each protocol and model. Turn off to restrict this key to one service group.",
     "universalBadge": "Automatic",
@@ -492,12 +455,6 @@ const en: LocaleOverlay = {
       "promptCachePartiallyObservable": "Partially observable",
       "promptCacheNoTraffic": "No prompt traffic in this period",
       "cacheReadTokens": "Cache Read"
-    },
-    "users": {
-      "form": {
-        "trajExport": "Allow conversation export",
-        "trajExportHint": "When on, the user can export each API key's captured conversation records individually."
-      }
     },
     "groups": {
       "platforms": {
@@ -1400,43 +1357,6 @@ const zh: LocaleOverlay = {
   "keys": {
     "export": "导出",
     "exporting": "导出中…",
-    "exportTooltip": "查看归档 QA 记录并导出 Bundle ZIP",
-    "exportSuccess": "已导出 {count} 条对话记录",
-    "exportEmpty": "该 Key 暂无可导出的对话记录",
-    "exportFailed": "导出失败，请重试",
-    "qaBundle": {
-      "title": "QA 记录",
-      "window": "{from} 至 {until}",
-      "watermark": "归档水位：{time}",
-      "recordCount": "共 {count} 条",
-      "export": "导出 ZIP",
-      "exportContents": "包含会话、工具调用关联及已采集的请求证据。",
-      "exporting": "生成中…",
-      "failed": "QA 记录暂时不可用",
-      "empty": "该归档窗口暂无 QA 记录",
-      "platform": "平台",
-      "model": "模型",
-      "tokens": "输入 / 输出",
-      "latency": "耗时"
-    },
-    "exportPanel": {
-      "title": "导出对话",
-      "exportNow": "立即导出",
-      "exporting": "导出中…",
-      "lastExport": "上次导出：{time}",
-      "noExports": "暂无导出记录",
-      "download": "下载",
-      "expired": "已过期",
-      "recordCount": "{count} 条",
-      "status": "状态",
-      "statusValue": {
-        "pending": "排队中",
-        "running": "处理中",
-        "done": "已就绪",
-        "failed": "失败"
-      },
-      "close": "关闭"
-    },
     "universalLabel": "自动选择服务",
     "universalHint": "系统会按协议和模型自动选择已授权服务。关闭后，这把 Key 将限制到一个服务组。",
     "universalBadge": "自动路由",
@@ -1473,12 +1393,6 @@ const zh: LocaleOverlay = {
       "promptCachePartiallyObservable": "部分可观测",
       "promptCacheNoTraffic": "当前时段暂无 Prompt 流量",
       "cacheReadTokens": "命中缓存"
-    },
-    "users": {
-      "form": {
-        "trajExport": "允许导出对话记录",
-        "trajExportHint": "开启后，该用户每个 API Key 可单独导出其捕获的对话记录"
-      }
     },
     "groups": {
       "platforms": {

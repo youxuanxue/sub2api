@@ -44,7 +44,6 @@
 | US-038 | Kiro CONTENT_FILTERED 返回客户端错误且不触发 failover | InTest | `.testing/user-stories/stories/US-038-kiro-content-filter-client-error.md` |
 | US-041 | Kiro Claude Code completion continuity preserves unfinished work | InTest | `.testing/user-stories/stories/US-041-kiro-claude-code-completion-continuity.md` |
 | US-043 | Global pricing has one registry owner and protected hot reload | Done | `.testing/user-stories/stories/US-043-pricing-registry-hot-reload.md` |
-| US-044 | QA S3 Bundle 用户面与单一生命周期 owner | Done | `.testing/user-stories/stories/US-044-qa-lifecycle-single-owner-and-export-contract.md` |
 | US-045 | QA single-owner 迁移边界 | Done | `.testing/user-stories/stories/US-045-qa-phase2-production-integrity.md` |
 | US-046 | 默认 API Key 的诚实能力发现与统一菜单 | Done | `.testing/user-stories/stories/US-046-universal-key-capability-discovery.md` |
 | US-047 | Anthropic 缓冲流失败进入 failover，部分内容诚实标记截断 | Done | `.testing/user-stories/stories/US-047-anthropic-buffered-stream-failure-contract.md` |
@@ -53,7 +52,6 @@
 | US-052 | Gemini generateContent 使用通用 Chat 转换边 | InTest | `.testing/user-stories/stories/US-052-gemini-chat-conversion.md` |
 | US-053 | 正文采集与入口安全边界 | InTest | `.testing/user-stories/stories/US-053-security-capture-and-ingress.md` |
 
-| US-055 | QA Bundle 保真会话导出 | Done | `.testing/user-stories/stories/US-055-qa-bundle-session-export.md` |
 
 | US-054 | Public Quickstart 与统一注册承诺 | Done | `.testing/user-stories/stories/US-054-public-quickstart-registration-offer.md` |
 
@@ -68,4 +66,3 @@
 | US-060 | Cursor Agent client-only tool execution | InTest | `.testing/user-stories/stories/US-060-cursor-client-only-tools.md` |
 
 | US-061 | 充值资格与 Studio 媒体错误提示 | Done | `.testing/user-stories/stories/US-061-trial-media-recharge.md` |
-| US-062 | QA uk1 独立队列与资源隔离 | InTest | `.testing/user-stories/stories/US-062-qa-uk1-queue-isolation.md` |

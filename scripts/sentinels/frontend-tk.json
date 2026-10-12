@@ -356,35 +356,6 @@
       "rationale": "Single source of truth for TK sidebar geometry and admin-shell default zoom. AppSidebar.vue / AppLayout.vue import the sidebar constants so upstream-shaped layout files stay close to upstream; AdminShellView imports TK_ADMIN_UI_ZOOM for the ops default 80% scale. If either constant disappears, the import sites fail to compile (loud). The sentinel adds a second layer in case an upstream merge replaces the entire constants file."
     },
     {
-      "path": "frontend/src/composables/useTkQABundle.ts",
-      "must_contain": [
-        "export function useTkQABundle",
-        "qaBundleAPI.createBundle",
-        "qaBundleAPI.fetchPage",
-        "qaBundleAPI.createExport",
-        "qaBundleAPI.download"
-      ],
-      "rationale": "Single frontend behavior owner for per-key S3 QA Bundle list, page hydration, selection, retry, and ZIP export. All user-visible QA reads and downloads must stay on Bundle/S3 APIs with no prod trajectory-export fallback; KeysView remains thin wiring."
-    },
-    {
-      "path": "frontend/src/components/keys/QABundlePanel.vue",
-      "must_contain": [
-        "useTkQABundle",
-        "keys.qaBundle.title",
-        "qa.exportZip"
-      ],
-      "rationale": "Shared QA Bundle dialog renders the archived watermark, S3-backed record list/detail, retry state, and ZIP command over useTkQABundle. Losing it would remove the only supported user QA surface."
-    },
-    {
-      "path": "frontend/src/views/user/KeysView.vue",
-      "must_contain": [
-        "openExportPanel",
-        "QABundlePanel",
-        "canExportTraj && trajExportPlatforms.includes(row.group?.platform"
-      ],
-      "rationale": "The upstream-shaped API-key page only gates and mounts QABundlePanel. The admin-granted entitlement and server-driven platform allowlist must both remain at the entry point; Bundle service authorization repeats the same security boundary server-side."
-    },
-    {
       "path": "frontend/src/components/layout/AppSidebar.vue",
       "must_contain": [
         "TK_SIDEBAR_WIDTH_CLASS"
@@ -2064,16 +2035,6 @@
         "2048x1152"
       ],
       "rationale": "Generated GPT Image Studio chips must stay byte-identical to Go openAIImagesKnownSizeTable (StudioChip rows). Hand-editing this file creates a second size table; regenerate via cmd/gpt-image-sizes-ssot instead."
-    },
-    {
-      "path": "frontend/src/api/qaBundle.ts",
-      "must_contain": [
-        "qaBundleAPI",
-        "'/users/me/qa/bundles'",
-        "/users/me/qa/bundle-exports/",
-        "credentials: 'omit'"
-      ],
-      "rationale": "The QA Bundle API client is the only frontend data path for QA list/detail/export. Page objects and ZIP artifacts use presigned S3 URLs without credentials; no legacy prod read/export/proxy endpoint may return."
     },
     {
       "path": "frontend/src/api/client.tk.ts",

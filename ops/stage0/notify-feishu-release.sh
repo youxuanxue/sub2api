@@ -160,12 +160,12 @@ lines = [
 ]
 if component == "qa":
     lines = [
-        f"**QA Worker / Maintenance**  v{tag}",
+        f"**QA Raw Maintenance**  v{tag}",
         f"**维护基线**  {'v' + previous_tag if previous_tag else '首次安装'}",
         "**环境**  prod",
         f"**API**  {api_url}",
         f"**验收时间**  {when}",
-        "**验收**  ✅ 维护健康检查与 Bundle canary 通过",
+        "**验收**  ✅ 维护健康检查与 raw archive 验证通过",
     ]
 links = []
 if repo:

@@ -28,15 +28,6 @@ prod:
     container_scratch_dir: /app/data/qa_archive_tmp
     host_receipt_path: /var/lib/tokenkey/qa-maintenance-last-run.json
 
-  user_qa:
-    entitlement: users.traj_export_enabled
-    source: s3_qa_bundle
-    compute: ecs_fargate
-    download: direct_s3
-    job_registry: immutable_s3_spec
-    database_job_registry: false
-    prod_fallback: forbidden
-
   disk_monitor:
     used_percent: 80
     free_gib: 10

@@ -60,58 +60,8 @@ class DeployStage0WorkflowTest(unittest.TestCase):
                 effective = {**workflow.get("env", {}), **job.get("env", {}), **step.get("env", {})}
                 self.assertEqual(effective.get("PROD_SSM_TARGET"), "${{ vars.PROD_SSM_TARGET || 'auto' }}")
 
-    def test_failed_legacy_summary_reports_actual_safety_step_outcomes(self) -> None:
-        steps = yaml.safe_load(workflow_text())["jobs"]["deploy"]["steps"]
-        step = next(step for step in steps if step.get("name") == "Job summary")
-        with tempfile.TemporaryDirectory() as directory:
-            output = pathlib.Path(directory) / "summary"
-            values = {key: "fixture" for key in step["env"]}
-            values.update(RELEASE_MODE="legacy_rollback", LEGACY_WORKER_OUTCOME="failure",
-                          LEGACY_PAUSE_OUTCOME="skipped", LEGACY_BOUNDARY_OUTCOME="skipped",
-                          GITHUB_STEP_SUMMARY=str(output))
-            result = subprocess.run(["bash", "-euc", step["run"]],
-                                    env={**os.environ, **values}, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("Worker verification=failure; DROP pause=skipped; Boundary disable=skipped", output.read_text())
 
-    def test_legacy_safety_is_fail_closed_and_excluded_from_normal_gateway_path(self) -> None:
-        workflow = yaml.safe_load(workflow_text())
-        job = workflow["jobs"]["deploy"]
-        self.assertEqual(job["needs"], "release-contract")
-        self.assertNotIn("QA_INFRA_OIDC_ROLE_ARN", job["env"])
-        steps = job["steps"]
-        by_name = {step.get("name"): step for step in steps}
-        ordered = ["Read legacy rollback maintenance pin", "Validate legacy QA credentials",
-                   "Configure QA credentials for legacy Worker verification", "Verify preserved legacy Worker",
-                   "Plan legacy rollback without changing QA pins", "Restore Stage0 credentials for legacy host safety",
-                   "Pause DROP before legacy gateway mutation", "Disable Boundary before legacy gateway mutation"]
-        indexes = [steps.index(by_name[name]) for name in ordered]
-        self.assertEqual(indexes, sorted(indexes))
-        self.assertLess(indexes[-1], steps.index(by_name["Deploy via SSM Run-Command"]))
-        for name in ordered:
-            self.assertEqual(by_name[name]["if"], "needs.release-contract.outputs.mode == 'legacy_rollback'")
-            self.assertNotIn("continue-on-error", by_name[name])
-        self.assertEqual(by_name[ordered[-1]]["env"]["QA_BOUNDARY_TIMER_STATE"], "disabled")
-        self.assertEqual(by_name[ordered[3]]["env"]["QA_BUNDLE_VERIFY_MODE"], "discovery")
-        qa = yaml.safe_load((WORKFLOW.parent / "deploy-qa-bundle.yml").read_text())["jobs"]["deploy-qa"]
-        self.assertEqual(qa["concurrency"]["group"], "prod-qa-lifecycle")
-        self.assertEqual(job["concurrency"]["group"],
-                         "${{ needs.release-contract.outputs.mode == 'legacy_rollback' && 'prod-qa-lifecycle' || 'prod-gateway-compatible' }}")
-        self.assertFalse(qa["concurrency"]["cancel-in-progress"])
-        self.assertFalse(job["concurrency"]["cancel-in-progress"])
 
-    def test_gateway_passes_live_stack_coordinates_before_bluegreen_mutation(self) -> None:
-        steps = yaml.safe_load(workflow_text())["jobs"]["deploy"]["steps"]
-        by_name = {step.get("name"): step for step in steps}
-        resolve = by_name["Resolve QA producer coordinates (read-only)"]
-        deploy = by_name["Deploy via SSM Run-Command"]
-        self.assertLess(steps.index(resolve), steps.index(deploy))
-        self.assertEqual(resolve["id"], "qa_coordinates")
-        self.assertIn("ops/qa/resolve_qa_bundle_coordinates.py", resolve["run"])
-        self.assertEqual(deploy["env"]["QA_BUNDLE_ENABLED"], "true")
-        self.assertEqual(deploy["env"]["QA_BUNDLE_QUEUE_URL"], "${{ steps.qa_coordinates.outputs.queue_url }}")
-        self.assertEqual(deploy["env"]["QA_BUNDLE_STORAGE_BUCKET"], "${{ steps.qa_coordinates.outputs.bucket }}")
-        self.assertNotIn("continue-on-error", resolve)
 
     def test_prod_ssm_target_resolver_wires_region_and_prod_profile(self) -> None:
         steps = yaml.safe_load(workflow_text())["jobs"]["deploy"]["steps"]
@@ -129,7 +79,7 @@ class DeployStage0WorkflowTest(unittest.TestCase):
                          "${{ vars.PROD_SSM_TARGET || 'auto' }}")
         self.assertEqual(deploy["env"]["AWS_REGION"], "${{ steps.instance.outputs.ssm_region }}")
         self.assertEqual(deploy["env"]["STAGE0_DEPLOY_PROFILE"], "${{ steps.instance.outputs.deploy_profile }}")
-        self.assertEqual(deploy["env"]["QA_BUNDLE_STORAGE_REGION"], "${{ steps.qa_coordinates.outputs.region }}")
+        self.assertFalse(any(key.startswith("QA_") for key in deploy["env"]))
         self.assertEqual(drain["env"]["AWS_REGION"], "${{ steps.instance.outputs.ssm_region }}")
         # Feishu sync self-resolves prod via resolve_prod_ssm_target (not CFN-only).
         self.assertEqual(feishu["run"], "bash ops/stage0/sync-feishu-config.sh prod")

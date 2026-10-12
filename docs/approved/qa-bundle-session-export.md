@@ -1,12 +1,16 @@
 ---
 title: 基于 QA Bundle 的保真会话导出与 traj SSOT
-status: approved
+status: archived
 approved_by: "user (2026-09-11 conversation: 同意目标收敛为基于 QA Bundle 的保真会话导出；吸收高优先级功能并收敛 traj SSOT)"
 approved_at: 2026-09-11
 created: 2026-09-11
 authors: [codex]
 risk: high
+superseded_by: qa-raw-only.md
 ---
+
+> 历史设计：QA Bundle、worker 与用户导出已由 [QA raw-only](qa-raw-only.md) 退役。本文仅供历史核对。
+
 
 # 基于 QA Bundle 的保真会话导出
 
