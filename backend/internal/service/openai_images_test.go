@@ -2192,6 +2192,8 @@ func TestBuildOpenAIImagesResponsesRequest_FoldsStyleIntoPromptNotTool(t *testin
 	styled := gjson.GetBytes(body, "input.0.content.0.text").String()
 	assertOpenAIImagesPerceivedQualityPrompt(t, styled, "replace background", true)
 	require.Contains(t, styled, "Style guidance: vivid")
+	require.Contains(t, styled, "keep the input image's framing")
+	require.NotContains(t, styled, "clear focal subject")
 	require.Greater(t, strings.Index(styled, "Style guidance: vivid"), strings.Index(styled, "Primary request:"))
 	require.Equal(t, "edit", gjson.GetBytes(body, "tools.0.action").String())
 }
@@ -2208,7 +2210,7 @@ func TestBuildOpenAIImagesResponsesRequest_UsesEmptyInstructionsLikeCodex2API(t 
 	body, err := buildOpenAIImagesResponsesRequest(parsed, "gpt-image-2")
 	require.NoError(t, err)
 	require.Equal(t, "", gjson.GetBytes(body, "instructions").String())
-	require.Equal(t, "high", gjson.GetBytes(body, "reasoning.effort").String())
+	require.Equal(t, "medium", gjson.GetBytes(body, "reasoning.effort").String())
 	quotedText := gjson.GetBytes(body, "input.0.content.0.text").String()
 	require.Contains(t, quotedText, prompt)
 	assertOpenAIImagesPerceivedQualityPrompt(t, quotedText, prompt, false)

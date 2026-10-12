@@ -410,8 +410,9 @@ func buildOpenAIImagesResponsesRequestWithMainModel(parsed *OpenAIImagesRequest,
 	// Match codex2api: leave instructions empty so the driver is not told to
 	// rewrite the user prompt. Velmo's labeled-spec preamble belongs in
 	// instructions and would fight that, so the cues live on input_text
-	// (applyOpenAIImagesPerceivedQualityPrompt). reasoning.effort is the
-	// mainline polish knob (default medium; quoted text → high).
+	// (applyOpenAIImagesPerceivedQualityPrompt). reasoning.effort defaults
+	// to medium. Only a short ASCII "label" bumps to high. CJK quotes,
+	// unbalanced marks, and digit-prefixed inch marks do not.
 
 	input := []byte(`[{"type":"message","role":"user","content":[{"type":"input_text","text":""}]}]`)
 	input, _ = sjson.SetBytes(input, "0.content.0.text", prompt)

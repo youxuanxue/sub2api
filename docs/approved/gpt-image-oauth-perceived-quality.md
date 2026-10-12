@@ -39,8 +39,9 @@ TokenKey 现状（改前）：`instructions` 固定 `""`（codex2api，避免主
 
 移植：
 
-- `reasoning.effort` 可配。未设置 `SUB2API_IMAGES_REASONING_EFFORT` 时：普通 prompt 为 `medium`（对齐当前行为，也对齐 Velmo 有增强时的档）；用户 prompt 含引号或中文书名号时升到 `high`（对齐 Velmo verbatim → high）。显式环境变量覆盖自动档，合法值与库一致。非法值忽略，回退自动档。
-- 结构化观感脚手架写在 **用户 `input_text`**，使用 Velmo 的标签名：`Primary request`、`Composition/framing`、`Lighting/mood`、`Materials/textures`、`Constraints`、`Avoid`；有引号时加一行 `Text (verbatim)`。编辑请求的 Constraints 要求保留未点名区域。
+- `reasoning.effort` 可配。未设置 `SUB2API_IMAGES_REASONING_EFFORT` 时默认 `medium`（对齐当前行为，也对齐 Velmo 有增强时的档）。Velmo 只在 dict 的 `Text (verbatim)` 字段有内容时升到 `high`；自由字符串本身不会升档。TokenKey 只把短的成对 ASCII `"label"`（1–48 个字符、非纯空白、开引号前不是数字）当作这个字段的替身并升到 `high`。中文引号、书名号、不成对引号、英寸记号（`12"`、`12" to 24"`）保持 `medium`。成对的短中文引号仍会在脚手架里加一行 `Text (verbatim)`，但不升 effort。
+- 显式环境变量覆盖自动档。合法值 `none` / `minimal` / `low` / `medium` / `high` / `xhigh`。别名 `x-high`、`extra_high`、`extrahigh` 以及 Velmo 模式名 `max` 归一成 `xhigh`（Codex 允许列表里没有 effort `max`）。`auto` 和其他无法识别的值忽略，回退自动档。留空（compose 默认空字符串）等同未设置。
+- 结构化观感脚手架写在 **用户 `input_text`**，使用 Velmo 的标签名：`Primary request`、`Composition/framing`、`Lighting/mood`、`Materials/textures`、`Constraints`、`Avoid`。生成请求的构图/光线/材质是条件句（请求没写才补，不覆盖已写明的构图或媒介）。编辑请求改为保留输入图的构图、光线和表面，只改请求点名的部分，不再套用「清晰主体 / 新光线」那套生成提示。有短引号跨度时加一行 `Text (verbatim)`。
 - `instructions` 保持空字符串。
 
 不移植：
