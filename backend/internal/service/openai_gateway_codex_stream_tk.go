@@ -168,10 +168,12 @@ func (in tkCodexStreamFailureInput) handleFailureEvent(
 			return out, true
 		}
 	}
+	recordedUpstream := false
 	if outputStarted && !out.cyberHit {
 		in.codex.onOutputStartedFailureSideEffects(in.s, in.c, in.account, in.eventType, in.dataBytes, out.failedMessage, in.respHeader, in.canonicalModel)
 		if in.eventType == "response.failed" || !in.codex.enabled {
 			in.s.recordOpenAIStreamUpstreamError(in.c, in.account, in.passthrough, in.upstreamRequestID, "stream_failed", in.dataBytes, out.failedMessage)
+			recordedUpstream = true
 		}
 	}
 	considerFailover := !outputStarted || (!in.failoverOnlyBeforeOutput && in.eventType == "response.failed")
@@ -213,6 +215,16 @@ func (in tkCodexStreamFailureInput) handleFailureEvent(
 		openAIStreamClientOutputStarted(in.c, in.clientOutputStarted) &&
 		isOpenAIUpstreamCapacityShedEvent(in.dataBytes) {
 		out.logCapacityFailoverSuppress = true
+	}
+	// Non-retryable terminal flush (SharedFault such as "response protection is
+	// unavailable"): the event is forwarded with no account switch. Failover and
+	// output-started paths already record ops upstream context; this fallthrough
+	// historically did not. Without a verdict, middleware StreamFailure parsing
+	// sees nested type=internal_error → api_error → phase=internal /
+	// owner=platform and daily_error_report treats it as code_owned (#2587).
+	// Attribution only — failover decision is unchanged.
+	if !out.cyberHit && !recordedUpstream {
+		in.s.recordOpenAIStreamUpstreamError(in.c, in.account, in.passthrough, in.upstreamRequestID, "stream_failed", in.dataBytes, out.failedMessage)
 	}
 	out.forceFlushFailedEvent = true
 	out.sawFailedEvent = true

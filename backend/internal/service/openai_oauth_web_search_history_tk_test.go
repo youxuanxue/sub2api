@@ -160,7 +160,25 @@ func TestResponseProtectionStopsAccountAmplificationWithoutClient400(t *testing.
 				var failover *UpstreamFailoverError
 				require.False(t, errors.As(err, &failover), "terminal protection must not request another account")
 				require.Len(t, upstream.bodies, 1)
+				// #2587: SharedFault must still leave an attributable upstream
+				// verdict so ops does not book the 502 as platform/internal.
+				events := openAIProtectionOpsEvents(t, c)
+				require.NotEmpty(t, events, "terminal protection must record ops upstream context")
+				require.Equal(t, http.StatusBadGateway, events[len(events)-1].UpstreamStatusCode)
+				require.Equal(t, account.ID, events[len(events)-1].AccountID)
+				require.Contains(t, events[len(events)-1].Message, "response protection is unavailable")
 			})
 		}
 	}
+}
+
+func openAIProtectionOpsEvents(t *testing.T, c *gin.Context) []*OpsUpstreamErrorEvent {
+	t.Helper()
+	value, ok := c.Get(OpsUpstreamErrorsKey)
+	if !ok {
+		return nil
+	}
+	events, ok := value.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok, "OpsUpstreamErrorsKey must hold []*OpsUpstreamErrorEvent")
+	return events
 }
