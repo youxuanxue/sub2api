@@ -408,6 +408,9 @@
       "must_contain": [
         "type KiroGatewayService",
         "func (s *KiroGatewayService) Forward",
+        "ensureKiroStreamingKeepalive",
+        "startAnthropicMessageStartKeepalive",
+        "syncKiroMessageStartFromKeepalive",
         "ResetForRetry: func() bool",
         "CallKiroAPIWithDoerContext(ctx",
         "PersistKiroProfileArnIfChanged",
@@ -435,7 +438,7 @@
         "rawAssistant",
         "if callOutputCommitted"
       ],
-      "rationale": "Preserve authoritative turn outcomes, client tools, estimated usage/cache billing and internal reasoning signatures. Transport retries reset only uncommitted output. A normal END_TURN must never generate a gateway-authored user instruction; focused turn-boundary tests anchor that behavior."
+      "rationale": "Preserve authoritative turn outcomes, client tools, estimated usage/cache billing and internal reasoning signatures. Transport retries reset only uncommitted output. A normal END_TURN must never generate a gateway-authored user instruction; focused turn-boundary tests anchor that behavior. forwardStreaming is also the sole owner of Claude-Code-safe pre-content keepalive (message_start before ping) for every Kiro streaming caller."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_tk_cache_billing.go",
@@ -547,19 +550,26 @@
       "must_contain": [
         "account.IsKiro()",
         "kiroGateway",
-        "beginHeaderWaitKeepalive(c, parsed != nil && parsed.Stream)",
-        "bindPreContentStreamKeepalive(c, hwka)"
+        "s.kiroGateway.Forward"
       ],
-      "rationale": "The Forward() dispatch injection point (next to IsBedrock) + the GatewayService.kiroGateway field. Kiro dial/thinking can sit silent for minutes with no client-visible SSE (unsigned reasoning stays off the wire); the shared pre-content header-wait keepalive must be bound on this early branch or idle intermediaries and Claude Code drop/appear stuck. Companion holds the branch body after P3 extraction."
+      "rationale": "The Forward() dispatch injection point (next to IsBedrock) + the GatewayService.kiroGateway field. Pre-content keepalive is intentionally NOT bound here: KiroGatewayService.forwardStreaming owns Claude-Code-safe message_start+ping so /v1/messages and CC→Kiro share one SSOT (see ensureKiroStreamingKeepalive). Companion holds the branch body after P3 extraction."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_header_wait_keepalive.go",
+      "must_contain": [
+        "func startAnthropicMessageStartKeepalive"
+      ],
+      "rationale": "Shared Claude-Code-safe frame builder (message_start then Anthropic ping) used by Kiro forwardStreaming and Responses→Anthropic client header-wait. Duplicate per-platform copies would drift the idle-drop contract."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_tk_keepalive_test.go",
       "must_contain": [
         "TestKiroStreaming_HeaderWaitKeepaliveDuringThinkingStall",
         "TestKiroStreaming_FastFailoverPathWritesNoKeepalive",
-        "TestKiroStreaming_FirstTokenIgnoresThinkingOnly"
+        "TestKiroStreaming_FirstTokenIgnoresThinkingOnly",
+        "message_start must precede the first ping"
       ],
-      "rationale": "Regression coverage for Kiro thinking-stall keepalive, failover-safe no-write-before-interval, and first_token_ms only arming on client-visible content."
+      "rationale": "Regression coverage for Kiro thinking-stall keepalive, failover-safe no-write-before-interval, first_token_ms only arming on client-visible content, and message_start-before-ping so Claude Code keeps late-first-token streams."
     },
     {
       "path": "backend/internal/service/gateway_usage_billing.go",

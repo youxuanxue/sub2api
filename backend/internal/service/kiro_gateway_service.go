@@ -52,11 +52,34 @@ type KiroGatewayService struct {
 	cfg *config.Config
 }
 
-// SetGatewayConfig wires gateway timeout SSOT (stream first-output budgets).
+// SetGatewayConfig wires gateway timeout SSOT (stream first-output budgets)
+// and stream keepalive interval for Claude-Code-safe pre-content frames.
 func (s *KiroGatewayService) SetGatewayConfig(cfg *config.Config) {
 	if s != nil {
 		s.cfg = cfg
 	}
+}
+
+// ensureKiroStreamingKeepalive is the sole owner of Kiro pre-content SSE
+// keepalive: message_start before the first ping so Claude Code does not drop
+// long thinking stalls. No-op when already bound (tests) or keepalive disabled.
+func (s *KiroGatewayService) ensureKiroStreamingKeepalive(c *gin.Context, model string) {
+	if boundPreContentStreamKeepalive(c) != nil {
+		return
+	}
+	intervalSec := 0
+	if s != nil && s.cfg != nil {
+		intervalSec = s.cfg.Gateway.StreamKeepaliveInterval
+	}
+	if intervalSec <= 0 {
+		return
+	}
+	k := startAnthropicMessageStartKeepalive(
+		c,
+		time.Duration(intervalSec)*time.Second,
+		model,
+	)
+	bindPreContentStreamKeepalive(c, k)
 }
 
 // KiroPostOutputStreamDisconnectError marks an incomplete upstream stream after
@@ -435,6 +458,11 @@ func (s *KiroGatewayService) forwardStreaming(
 	c.Header("X-Accel-Buffering", "no")
 	c.Header("x-request-id", requestID)
 
+	// SSOT: every Kiro streaming caller (messages + CC bridge) arms Claude-Code-
+	// safe keepalive here. message_start precedes the first ping; visible
+	// text/tool stops it. Callers must not bind a second emitter.
+	s.ensureKiroStreamingKeepalive(c, model)
+
 	inputTokens, cacheReadTokens, cacheCreationTokens, cacheSessionKey, cacheBillingEnabled := s.kiroPromptUsage(ctx, account, req, payload)
 	enc := &kiroSSEEncoder{
 		w:       w,
@@ -449,6 +477,10 @@ func (s *KiroGatewayService) forwardStreaming(
 		cacheReadTokens:     cacheReadTokens,
 		cacheCreationTokens: cacheCreationTokens,
 	}
+	// Keepalive may have already synthesized message_start (Claude Code idle
+	// contract). Adopt that without duplicating the event; message_delta still
+	// carries the authoritative prompt usage for billing.
+	syncKiroMessageStartFromKeepalive(c, enc)
 
 	// Universal stream first-useful-output budget (commit = client-visible text/tool).
 	budget := resolveStreamFirstOutputTimeout(s.cfg, kiroStreamFirstOutputHighEffort(req))
@@ -473,12 +505,14 @@ func (s *KiroGatewayService) forwardStreaming(
 		}
 		firstOutputGuard.Commit()
 		stopPreContentStreamKeepalive(c)
+		syncKiroMessageStartFromKeepalive(c, enc)
 		markFirstVisibleToken()
 		enc.writeTextDelta(delta)
 	}
 	writeVisibleToolUse := func(toolUse kiroproto.KiroToolUse) {
 		firstOutputGuard.Commit()
 		stopPreContentStreamKeepalive(c)
+		syncKiroMessageStartFromKeepalive(c, enc)
 		markFirstVisibleToken()
 		enc.writeToolUse(toolUse)
 	}
@@ -576,9 +610,13 @@ func (s *KiroGatewayService) forwardStreaming(
 	callErr := kiroproto.CallKiroAPIWithDoerContext(ctx, doer, kiroAcct, payload, callback)
 
 	mu.Lock()
+	// Keepalive may have raced message_start onto the wire during the call.
+	syncKiroMessageStartFromKeepalive(c, enc)
 	// If the upstream failed before producing any client-visible content,
 	// surface the error for account failover. Once response content was
 	// committed, SSE has no replay point and must end with an error event.
+	// Note: keepalive-synthesized message_start alone sets enc.started and
+	// trips the Written() failover gate — same tradeoff as Responses→Anthropic.
 	if callErr != nil && !enc.started {
 		mu.Unlock()
 		var callerCtx context.Context
@@ -639,9 +677,10 @@ func (s *KiroGatewayService) forwardStreaming(
 	mu.Unlock()
 	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, toolUses)
 
-	// Upstream succeeded but produced no content (enc.started still false):
-	// emit message_start lazily here so the closing events form a valid stream.
+	// Upstream succeeded: ensure message_start exists (keepalive may already
+	// have synthesized it) so the closing events form a valid stream.
 	stopPreContentStreamKeepalive(c)
+	syncKiroMessageStartFromKeepalive(c, enc)
 	enc.writeMessageStart()
 	enc.closeOpenBlock()
 	// Relay consumers merge terminal usage into the billing accumulator.

@@ -86,8 +86,9 @@ func TestKiroStreaming_HeaderWaitKeepaliveDuringThinkingStall(t *testing.T) {
 	})
 	parsed := &ParsedRequest{Body: NewRequestBodyRef(reqBody), Model: "claude-opus-5", Stream: true}
 
-	// Same bind path as gateway_forward.go for account.IsKiro().
-	k := startHeaderWaitKeepalive(c, 20*time.Millisecond, anthropicSSEPingFrame)
+	// Sub-second interval for a fast stall test; production arms the same
+	// startAnthropicMessageStartKeepalive owner via ensureKiroStreamingKeepalive.
+	k := startAnthropicMessageStartKeepalive(c, 20*time.Millisecond, parsed.Model)
 	bindPreContentStreamKeepalive(c, k)
 	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
 	k.stop()
@@ -96,8 +97,12 @@ func TestKiroStreaming_HeaderWaitKeepaliveDuringThinkingStall(t *testing.T) {
 
 	out := rec.Body.String()
 	require.GreaterOrEqual(t, strings.Count(out, "event: ping"), 1, "expected keepalive pings during Kiro stall, body=%q", out)
+	require.Contains(t, out, "event: message_start", "Claude Code requires message_start before ping on Kiro stalls")
+	require.Less(t, strings.Index(out, "event: message_start"), strings.Index(out, "event: ping"),
+		"message_start must precede the first ping so Claude Code keeps the late-first-token stream")
 	require.Contains(t, out, "final answer")
 	require.NotContains(t, out, "plan step one")
+	require.Equal(t, 1, strings.Count(out, "event: message_start"), "keepalive + encoder must not duplicate message_start")
 	require.NotNil(t, result.FirstTokenMs)
 	// first_token_ms must reflect client-visible text, not an earlier thinking mark.
 	require.GreaterOrEqual(t, *result.FirstTokenMs, 50, "first_token_ms=%d should cover the stall before visible text", *result.FirstTokenMs)
