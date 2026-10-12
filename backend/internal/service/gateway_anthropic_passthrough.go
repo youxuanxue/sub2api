@@ -542,6 +542,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	}
 	inPartialEvent := false
 	pendingEventName := ""
+	skipClientMessageStartEvent := false
 	var pendingStreamError *sseStreamErrorEventError
 	var callerCtx context.Context
 	if c != nil && c.Request != nil {
@@ -631,6 +632,13 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 					firstOutputGuard.Commit()
 				}
 				parseSSEUsagePassthrough(data, usage)
+				if gjson.Get(trimmed, "type").String() == "message_start" {
+					if anthropicMessageStartAlreadySent(c) {
+						skipClientMessageStartEvent = true
+					} else {
+						markAnthropicMessageStartSent(c)
+					}
+				}
 			} else {
 				if strings.HasPrefix(trimmedLine, "event:") {
 					pendingEventName = strings.TrimSpace(strings.TrimPrefix(trimmedLine, "event:"))
@@ -640,7 +648,23 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 					if anthropicStreamEventIsTerminal(pendingEventName, "") {
 						sawTerminalEvent = true
 					}
+					if strings.EqualFold(pendingEventName, "message_start") && anthropicMessageStartAlreadySent(c) {
+						skipClientMessageStartEvent = true
+					}
 				}
+			}
+
+			if skipClientMessageStartEvent {
+				if line == "" {
+					skipClientMessageStartEvent = false
+					lastDataAt = time.Now()
+					resetKeepaliveTimer()
+					inPartialEvent = false
+					pendingEventName = ""
+				} else {
+					inPartialEvent = true
+				}
+				continue
 			}
 
 			if !clientDisconnected {
@@ -695,7 +719,9 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				resetKeepaliveTimer()
 				continue
 			}
-			if _, err := fmt.Fprint(w, "event: ping\ndata: {\"type\": \"ping\"}\n\n"); err != nil {
+			// Match convert-path Claude Code contract: message_start before ping
+			// on pre-content stalls (shared with prod→edge Kiro mirrors).
+			if _, err := fmt.Fprint(w, anthropicStreamIdleKeepaliveSSE(c, model)); err != nil {
 				clientDisconnected = true
 				logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during keepalive ping, continue draining upstream for usage: account=%d", account.ID)
 				continue

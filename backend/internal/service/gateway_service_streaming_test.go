@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,6 +80,45 @@ func TestGatewayService_StreamingKeepaliveUsesIdleTimer(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Contains(t, rec.Body.String(), "event: ping")
+}
+
+func TestGatewayService_StreamingKeepaliveEmitsMessageStartBeforePingOnPreContentStall(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := newStreamingResponseTestGatewayService()
+	svc.cfg.Gateway.StreamKeepaliveInterval = 1
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	pr, pw := io.Pipe()
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: pr}
+
+	go func() {
+		defer func() { _ = pw.Close() }()
+		// Stall past one keepalive tick with no upstream bytes — mirrors prod→edge
+		// Kiro thinking where in-stream keepalive used to emit ping-only first.
+		time.Sleep(1100 * time.Millisecond)
+		_, _ = pw.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":9}}}\n\n"))
+		_, _ = pw.Write([]byte("event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"))
+		_, _ = pw.Write([]byte("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n"))
+		_, _ = pw.Write([]byte("event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"))
+		_, _ = pw.Write([]byte("event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n"))
+		_, _ = pw.Write([]byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
+	}()
+
+	result, err := svc.handleStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "claude-sonnet-4-6", "claude-sonnet-4-6", false, nil, nil)
+	_ = pr.Close()
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	body := rec.Body.String()
+	require.Contains(t, body, "event: message_start")
+	require.Contains(t, body, "event: ping")
+	require.Less(t, strings.Index(body, "event: message_start"), strings.Index(body, "event: ping"),
+		"Claude Code requires message_start before ping on pre-content stalls, got %q", body)
+	require.Equal(t, 1, strings.Count(body, "event: message_start"),
+		"keepalive-synthesized message_start must suppress the upstream duplicate, got %q", body)
+	require.Equal(t, 9, result.usage.InputTokens, "usage from skipped upstream message_start must still merge")
 }
 
 func TestGatewayService_StreamingKeepaliveUsesNoopDeltaForAffectedClaudeCodeVersion(t *testing.T) {

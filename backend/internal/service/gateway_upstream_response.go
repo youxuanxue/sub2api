@@ -1152,6 +1152,16 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 					}
 				}
 				eventType := gjson.Get(data, "type").String()
+				// Idle keepalive may have already synthesized message_start for
+				// Claude Code. Keep usage merge, but do not duplicate the event.
+				skipClientWrite := false
+				if eventType == "message_start" {
+					if anthropicMessageStartAlreadySent(c) {
+						skipClientWrite = true
+					} else {
+						markAnthropicMessageStartSent(c)
+					}
+				}
 				injectCost := eventType == "message_delta" && usage.hasObservedTokens()
 				var deltaCost *CostBreakdown
 				if injectCost {
@@ -1159,6 +1169,11 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 					if deltaCost != nil {
 						stashPrecomputedResponseUsageCost(c, deltaCost)
 					}
+				}
+				if skipClientWrite {
+					lastDataAt = time.Now()
+					resetKeepaliveTimer()
+					continue
 				}
 				for _, block := range outputBlocks {
 					if deltaCost != nil {
@@ -1208,7 +1223,10 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 				resetKeepaliveTimer()
 				continue
 			}
-			keepaliveBlock := "event: ping\ndata: {\"type\": \"ping\"}\n\n"
+			// Claude Code requires message_start before ping on pre-content stalls
+			// (prod→edge Kiro thinking). Noop-delta keepalive for affected CC builds
+			// stays on the open content block and must not inject message_start.
+			keepaliveBlock := anthropicStreamIdleKeepaliveSSE(c, originalModel)
 			if useNoopDeltaKeepalive && noopDeltaKeepaliveBlockIndex >= 0 {
 				if block, ok := buildClaudeCodeNoopDeltaKeepalive(noopDeltaKeepaliveBlockIndex, noopDeltaKeepaliveDeltaType); ok {
 					keepaliveBlock = block
