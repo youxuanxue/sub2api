@@ -1920,7 +1920,10 @@
       "must_contain": [
         "func newAPIVolcEngineAgentPlanModelAliases() map[string]string"
       ],
-      "rationale": "Agent Plan aliases share one owner for account floors, activation and target-model billing."
+      "rationale": "Agent Plan aliases share one owner for account floors, activation and target-model billing.",
+      "must_not_contain": [
+        "isTkCuratedNewAPIModelLegacyTokenPlanAlias"
+      ]
     },
     {
       "path": "backend/internal/engine/protocolrouter/registry.go",
@@ -6974,7 +6977,8 @@
         "TestTkServedModelsManifestProjectionsMatchRawOwner",
         "manifestScopeKeyForTest",
         "IsAliTokenPlanBaseURL",
-        "IsQianfanTokenPlanBaseURL"
+        "IsQianfanTokenPlanBaseURL",
+        "displayAllowed := entry.Display && isCatalogModelRecommended(modelID)"
       ],
       "rationale": "Raw-owner projection test must recognize the same property scopes as production manifestScopeKey (including Ali/Qianfan Token Plan). A parallel hardcoded allowlist would drift and falsely pass while Token Plan scopes are silently dropped from the live loader."
     },
@@ -12526,7 +12530,8 @@
       "path": "backend/internal/service/deepseek_flash_surface_tk_test.go",
       "must_contain": [
         "TestDeepSeekFlashSurfacePreservesProviderModelIdentity",
-        "TestDeepSeekFlashFallbackSharesCurrentPrice"
+        "TestDeepSeekFlashFallbackSharesCurrentPrice",
+        "require.Contains(t, display, \"deepseek-flash\""
       ],
       "rationale": "Keep V4.1 official API naming and scope, continuing Pro mappings, and unified Flash selling prices across upstream merges."
     },

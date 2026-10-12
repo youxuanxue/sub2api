@@ -585,6 +585,47 @@ func TestPricingCatalogService_AntigravityConvergedSurfaceSurfaces(t *testing.T)
 	assert.Equal(t, "antigravity", img.Vendor)
 }
 
+func TestPublicCatalog_ManifestDisplayAliasesInheritOwner(t *testing.T) {
+	snapshot := loadTKPricingOverlaySnapshot()
+	s := &PricingCatalogService{}
+	full := s.BuildPublicCatalog(context.Background())
+	byID := make(map[string]PublicCatalogModel, len(full.Data))
+	for _, row := range full.Data {
+		byID[row.ModelID] = row
+	}
+	for alias, owner := range snapshot.Aliases {
+		if !isTkCuratedNewAPIModelDisplayed(alias) {
+			assert.NotContains(t, byID, alias, "hidden aliases remain settlement-only")
+			continue
+		}
+		want := byID[owner]
+		want.ModelID = alias
+		assert.Equal(t, want, byID[alias], "display aliases inherit every decorated owner dimension")
+		resolved, ok := s.findCatalogModel(alias)
+		require.True(t, ok)
+		assert.Equal(t, owner, resolved.ModelID, "display projection preserves canonical price membership")
+	}
+	public := FilterPublicCatalogToServable(full)
+	publicByID := make(map[string]PublicCatalogModel, len(public.Data))
+	for _, row := range public.Data {
+		publicByID[row.ModelID] = row
+	}
+	// The official stable name must stay public even though its pricing owner's
+	// legacy ID has been withdrawn from recommendations.
+	flash, ok := publicByID["deepseek-flash"]
+	require.True(t, ok)
+	assert.NotContains(t, publicByID, snapshot.Aliases[flash.ModelID])
+	assert.Equal(t, "deepseek", flash.Vendor)
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(1)*1000*tkOfficialListBaseTaxMultiplier(), flash.Pricing.InputPer1KTokens, 1e-12)
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(4)*1000*tkOfficialListBaseTaxMultiplier(), flash.Pricing.OutputPer1KTokens, 1e-12)
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(0.02)*1000*tkOfficialListBaseTaxMultiplier(), flash.Pricing.CacheReadPer1K, 1e-12)
+	require.NotNil(t, flash.Pricing.PeakValley)
+	assert.Equal(t, flash.Pricing.InputPer1KTokens*2, flash.Pricing.PeakValley.InputPer1KTokens)
+	assert.Equal(t, flash.Pricing.OutputPer1KTokens*2, flash.Pricing.PeakValley.OutputPer1KTokens)
+	assert.Equal(t, flash.Pricing.CacheReadPer1K*2, flash.Pricing.PeakValley.CacheReadPer1K)
+	assert.Contains(t, flash.Capabilities, "vision")
+}
+
 // TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice verifies that an
 // unknown-zero source row is replaced by the complete registry row, including
 // its catalog metadata.
@@ -724,7 +765,7 @@ func TestPublicCatalog_HidesLegacyTokenPlanAliasesButKeepsPricing(t *testing.T) 
 	}
 	for legacy, replacement := range newAPIAliTokenPlanModelAliases() {
 		assert.True(t, s.IsModelPriced(legacy, PlatformNewAPI), "legacy %s retains PAYG catalog pricing; Token Plan billing settles on served model", legacy)
-		assert.False(t, visible[legacy], "legacy %s must not be advertised", legacy)
+		assert.Equal(t, isTkCuratedNewAPIModelDisplayed(legacy), visible[legacy], "scoped alias %s follows shared catalog display intent", legacy)
 		if strings.HasPrefix(legacy, "qwen") {
 			assert.True(t, visible[replacement], "replacement %s remains public", replacement)
 		}
