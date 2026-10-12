@@ -148,6 +148,37 @@ wait_healthy tokenkey-green
         return proc.returncode, calls, proc.stdout + proc.stderr
 
 
+_IMAGE_EFFORT_MAPPING = "- SUB2API_IMAGES_REASONING_EFFORT=${SUB2API_IMAGES_REASONING_EFFORT:-}"
+_IMAGE_SCAFFOLD_MAPPING = "- SUB2API_IMAGES_PROMPT_SCAFFOLD=${SUB2API_IMAGES_PROMPT_SCAFFOLD:-}"
+
+
+def _bluegreen_service_block(remote: str, service: str) -> str:
+    writer = _extract_shell_function(remote, "write_bluegreen_compose")
+    heredoc_at = writer.index("<<'YAML'\n")
+    body = writer[heredoc_at + len("<<'YAML'\n"):]
+    body = body[:body.index("\nYAML\n")]
+    marker = f"  {service}:\n"
+    start = body.index(marker)
+    end = len(body)
+    for label in ("  tokenkey-blue:\n", "  tokenkey-green:\n", "networks:\n"):
+        if label == marker:
+            continue
+        found = body.find(label, start + len(marker))
+        if found != -1:
+            end = min(end, found)
+    return body[start:end]
+
+
+def _launch_command(commands: list[str]) -> str:
+    matches = [
+        command for command in commands
+        if "TAG=" in command and command.rstrip().endswith("/tmp/tokenkey-bluegreen-deploy.sh")
+    ]
+    if len(matches) != 1:
+        raise AssertionError(f"expected one blue/green launch command, got {matches!r}")
+    return matches[0]
+
+
 def _extract_shell_function(remote: str, name: str) -> str:
     start = remote.index(f"{name}() {{")
     end = remote.index("\n}\n\n", start) + len("\n}\n")
@@ -939,6 +970,37 @@ printf accepted
         self.assertNotIn('"http://${upstream}/health"', remote)
         self.assertNotIn("--no-check-certificate", remote)
         self.assertIn("last-cutover-at", remote)
+
+    def test_image_quality_env_reaches_both_colors_from_host_dotenv_only(self) -> None:
+        for instance_id, extra in (
+            (_PROD_IID, None),
+            (_EDGE_IID, {"EDGE_ID": "uk1"}),
+        ):
+            with self.subTest(instance_id=instance_id):
+                proc, params, remote = _render(instance_id, env_extra={
+                    **(extra or {}),
+                    "SUB2API_IMAGES_REASONING_EFFORT": "xhigh",
+                    "SUB2API_IMAGES_PROMPT_SCAFFOLD": "off",
+                })
+                self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+                assert params is not None
+                assert remote is not None
+                for service in ("tokenkey-blue", "tokenkey-green"):
+                    block = _bluegreen_service_block(remote, service)
+                    self.assertEqual(block.count(_IMAGE_EFFORT_MAPPING), 1, msg=service)
+                    self.assertEqual(block.count(_IMAGE_SCAFFOLD_MAPPING), 1, msg=service)
+                    self.assertNotIn("SUB2API_IMAGES_REASONING_EFFORT=xhigh", block)
+                    self.assertNotIn("SUB2API_IMAGES_PROMPT_SCAFFOLD=off", block)
+                writer = _extract_shell_function(remote, "write_bluegreen_compose")
+                self.assertLess(writer.index("<<'YAML'"), writer.index(_IMAGE_EFFORT_MAPPING))
+                self.assertNotIn("env_set SUB2API_IMAGES_REASONING_EFFORT", remote)
+                self.assertNotIn("env_set SUB2API_IMAGES_PROMPT_SCAFFOLD", remote)
+                self.assertNotIn("env_default SUB2API_IMAGES_REASONING_EFFORT", remote)
+                self.assertNotIn("env_default SUB2API_IMAGES_PROMPT_SCAFFOLD", remote)
+                launch = _launch_command(params["commands"])
+                self.assertNotIn("SUB2API_IMAGES_REASONING_EFFORT=", launch)
+                self.assertNotIn("SUB2API_IMAGES_PROMPT_SCAFFOLD=", launch)
+                self.assertNotIn("xhigh", launch)
 
     def test_commit_cutover_marks_committed_only_after_route_and_state_persist(self) -> None:
         proc, _, remote = _render()
