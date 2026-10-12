@@ -88,6 +88,20 @@ adapt_with_caddy() {
 }
 
 failures=0
+
+# Mechanical SSE safety: shorthand `encode zstd gzip` / `encode gzip zstd`
+# compresses text/event-stream and buffers keepalives until EOF (Claude Code
+# "No response from the gateway"). deploy/EDGE_SECURITY.md forbids it.
+for rel in "${FILES[@]}" deploy/aws/stage0/local-bootstrap.sh; do
+  src="$REPO_ROOT/$rel"
+  [ -f "$src" ] || continue
+  if grep -nE '^[[:space:]]*encode[[:space:]]+(zstd[[:space:]]+gzip|gzip[[:space:]]+zstd)[[:space:]]*$' "$src" >/dev/null; then
+    echo "FAIL: $rel uses shorthand encode that buffers text/event-stream" >&2
+    echo "      — use Content-Type whitelist encode { ... match { ... } } (see deploy/Caddyfile)" >&2
+    failures=$((failures + 1))
+  fi
+done
+
 # The three adapts are independent; run the containers concurrently — serial
 # `docker run` startup (~1-3s each) made this gate the preflight long pole.
 declare -a _adapt_pids=() _adapt_rels=()

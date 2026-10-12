@@ -149,7 +149,27 @@ if [ "$DRY_RUN" -eq 0 ]; then
 }
 
 :80 {
-	encode zstd gzip
+	# Content-Type whitelist only — never shorthand encode (buffers SSE).
+	# See deploy/EDGE_SECURITY.md / deploy/aws/stage0/Caddyfile.
+	encode {
+		zstd
+		gzip 6
+		minimum_length 256
+		match {
+			header Content-Type text/css*
+			header Content-Type text/csv*
+			header Content-Type text/html*
+			header Content-Type text/javascript*
+			header Content-Type text/markdown*
+			header Content-Type text/plain*
+			header Content-Type text/xml*
+			header Content-Type application/json*
+			header Content-Type application/javascript*
+			header Content-Type application/xml*
+			header Content-Type application/rss+xml*
+			header Content-Type image/svg+xml*
+		}
+	}
 
 	@static {
 		path /assets/*

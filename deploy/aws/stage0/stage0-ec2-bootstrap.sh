@@ -195,9 +195,12 @@ cd /var/lib/tokenkey
 # --- 3. docker-compose + Caddy from SSM ---------------------------------
 COMPOSE_PARAM="${STAGE0_PREFIX}/docker-compose.gzip.b64"
 CADDY_PARAM="${STAGE0_PREFIX}/caddyfile.template.gzip.b64"
+CADDY_PARAM_PART2="${STAGE0_PREFIX}/caddyfile.template.gzip.b64.part2"
 CADDY_RENDER_PARAM="${STAGE0_PREFIX}/render-prod-caddyfile.gzip.b64"
 COMPOSE_B64="$(aws ssm get-parameter --name "${COMPOSE_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
 CADDY_B64="$(aws ssm get-parameter --name "${CADDY_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
+# part2 may be empty when the Caddyfile still fits Standard-tier 4096.
+CADDY_B64+="$(aws ssm get-parameter --name "${CADDY_PARAM_PART2}" --region "${REGION}" --query Parameter.Value --output text 2>/dev/null || true)"
 RENDER_B64="$(aws ssm get-parameter --name "${CADDY_RENDER_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
 printf '%s' "${COMPOSE_B64}" | base64 -d | gunzip > docker-compose.yml
 # Prod-only PG GUCs. Generated from docker-compose.prod-pg.yml by build-cfn.sh.
