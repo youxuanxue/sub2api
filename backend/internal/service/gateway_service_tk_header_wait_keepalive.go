@@ -59,6 +59,23 @@ func (k *headerWaitKeepalive) stop() {
 	<-k.doneCh
 }
 
+// startAnthropicMessageStartKeepalive emits message_start then Anthropic ping
+// frames. Claude Code requires message_start as the first typed event and
+// treats ping-only idle as a drop. Shared by Kiro forwardStreaming and the
+// Responses→Anthropic client header-wait path. interval <= 0 yields nil.
+func startAnthropicMessageStartKeepalive(c *gin.Context, interval time.Duration, model string) *headerWaitKeepalive {
+	if interval <= 0 {
+		return nil
+	}
+	return startHeaderWaitKeepaliveWithPrefix(
+		c,
+		interval,
+		anthropicStreamMessageStartSSE(strings.TrimSpace(model), ""),
+		anthropicSSEPingFrame,
+		func() { markAnthropicMessageStartSent(c) },
+	)
+}
+
 // beginHeaderWaitKeepalive starts a background SSE ping emitter for streaming
 // Anthropic requests. It is a no-op (returns nil) for non-streaming requests or
 // when keepalive is disabled (gateway.stream_keepalive_interval <= 0). The
@@ -122,19 +139,11 @@ func (s *OpenAIGatewayService) beginAnthropicClientHeaderWaitKeepalive(c *gin.Co
 	// on the Responses→Anthropic compat path. Native Anthropic / chat
 	// fallback callers share this helper and must keep ping-only frames:
 	// a synthetic message_start would duplicate the real upstream one.
-	firstFrame := ""
-	var afterFirstWrite func()
+	interval := time.Duration(s.cfg.Gateway.StreamKeepaliveInterval) * time.Second
 	if anthropicStreamModelWasSet(c) {
-		firstFrame = anthropicStreamMessageStartSSE(anthropicStreamModelFromContext(c), "")
-		afterFirstWrite = func() { markAnthropicMessageStartSent(c) }
+		return startAnthropicMessageStartKeepalive(c, interval, anthropicStreamModelFromContext(c))
 	}
-	return startHeaderWaitKeepaliveWithPrefix(
-		c,
-		time.Duration(s.cfg.Gateway.StreamKeepaliveInterval)*time.Second,
-		firstFrame,
-		anthropicSSEPingFrame,
-		afterFirstWrite,
-	)
+	return startHeaderWaitKeepaliveWithPrefix(c, interval, "", anthropicSSEPingFrame, nil)
 }
 
 func setAnthropicStreamModel(c *gin.Context, model string) {
@@ -332,6 +341,30 @@ func startHeaderWaitKeepaliveWithPrefix(
 // etc.) can stop it the instant the first client-visible SSE byte is written,
 // without racing the keepalive goroutine.
 const preContentStreamKeepaliveKey = "tk_pre_content_stream_keepalive"
+
+// syncKiroMessageStartFromKeepalive adopts a keepalive-synthesized
+// message_start into the Kiro SSE encoder so content/terminal writers do not
+// duplicate the event. Safe when c or enc is nil or message_start was not sent.
+func syncKiroMessageStartFromKeepalive(c *gin.Context, enc *kiroSSEEncoder) {
+	if enc == nil || enc.started {
+		return
+	}
+	if anthropicMessageStartAlreadySent(c) {
+		enc.started = true
+	}
+}
+
+func boundPreContentStreamKeepalive(c *gin.Context) *headerWaitKeepalive {
+	if c == nil {
+		return nil
+	}
+	v, ok := c.Get(preContentStreamKeepaliveKey)
+	if !ok || v == nil {
+		return nil
+	}
+	k, _ := v.(*headerWaitKeepalive)
+	return k
+}
 
 // bindPreContentStreamKeepalive attaches a keepalive handle for later stop from
 // the first client-visible write path. No-op when c or k is nil.

@@ -82,6 +82,48 @@ func TestStartHeaderWaitKeepalive_DisabledReturnsNil(t *testing.T) {
 	nilHandle.stop()
 }
 
+func TestStartAnthropicMessageStartKeepaliveEmitsMessageStartBeforePing(t *testing.T) {
+	c, rec := newKeepaliveTestContext(t)
+	k := startAnthropicMessageStartKeepalive(c, 20*time.Millisecond, "claude-opus-5")
+	if k == nil {
+		t.Fatal("expected non-nil Anthropic message_start keepalive handle")
+	}
+	time.Sleep(90 * time.Millisecond)
+	k.stop()
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "event: ping") {
+		t.Fatalf("must emit Anthropic ping, got %q", body)
+	}
+	if !strings.Contains(body, "event: message_start") {
+		t.Fatalf("must emit message_start before ping, got %q", body)
+	}
+	if strings.Index(body, "event: message_start") > strings.Index(body, "event: ping") {
+		t.Fatalf("message_start must precede ping, got %q", body)
+	}
+	if !anthropicMessageStartAlreadySent(c) {
+		t.Fatal("expected message_start sent flag after first keepalive tick")
+	}
+}
+
+func TestKiroGatewayService_EnsureStreamingKeepaliveIsSoleOwner(t *testing.T) {
+	c, rec := newKeepaliveTestContext(t)
+	svc := NewKiroGatewayService(nil, nil, nil)
+	svc.SetGatewayConfig(&config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}})
+	svc.ensureKiroStreamingKeepalive(c, "claude-opus-5")
+	// Second arm must be a no-op (SSOT: forwardStreaming owns one emitter).
+	svc.ensureKiroStreamingKeepalive(c, "claude-opus-5")
+	k := boundPreContentStreamKeepalive(c)
+	if k == nil {
+		t.Fatal("expected keepalive bound by ensureKiroStreamingKeepalive")
+	}
+	time.Sleep(1100 * time.Millisecond)
+	k.stop()
+	if strings.Count(rec.Body.String(), "event: message_start") != 1 {
+		t.Fatalf("expected exactly one message_start from sole owner, got %q", rec.Body.String())
+	}
+}
+
 func TestOpenAIGatewayService_BeginAnthropicClientHeaderWaitKeepaliveUsesPingFrame(t *testing.T) {
 	c, rec := newKeepaliveTestContext(t)
 	setAnthropicStreamModel(c, "gpt-5.4")

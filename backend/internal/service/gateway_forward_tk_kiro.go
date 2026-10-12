@@ -23,15 +23,10 @@ func (s *GatewayService) tkTryForwardKiro(
 	if s.kiroGateway == nil {
 		return nil, true, fmt.Errorf("kiro gateway service not configured")
 	}
-	// Kiro dial + reasoning can sit silent for minutes before the first
-	// client-visible text/tool block. Anthropic's header-wait keepalive
-	// only covers the native HTTP Do path; bind the shared pre-content
-	// ping emitter here and let forwardStreaming stop it on the first
-	// visible SSE write.
-	hwka := s.beginHeaderWaitKeepalive(c, parsed != nil && parsed.Stream)
-	bindPreContentStreamKeepalive(c, hwka)
+	// Pre-content keepalive (message_start before ping) is owned exclusively by
+	// KiroGatewayService.forwardStreaming so /v1/messages and CC→Kiro share one
+	// path. Do not re-bind here — a second owner would silently drift.
 	result, err = s.kiroGateway.Forward(ctx, c, account, parsed, startTime)
-	stopPreContentStreamKeepalive(c)
 	s.tkHandleKiroForwardUpstreamError(ctx, account, err)
 	return result, true, err
 }
