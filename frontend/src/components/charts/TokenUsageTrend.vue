@@ -1,7 +1,7 @@
 <template>
   <div class="card p-4">
     <h3 class="mb-4 text-sm font-semibold text-gray-900 dark:text-white">
-      {{ t('admin.dashboard.tokenUsageTrend') }}
+      {{ title || t('admin.dashboard.tokenUsageTrend') }}
     </h3>
     <div v-if="loading" class="flex h-48 items-center justify-center">
       <LoadingSpinner />
@@ -52,6 +52,8 @@ const { t } = useI18n()
 const props = defineProps<{
   trendData: TrendDataPoint[]
   loading?: boolean
+  /** Override panel title (e.g. scoped to selected API key / model / group). */
+  title?: string
 }>()
 
 const isDarkMode = computed(() => {

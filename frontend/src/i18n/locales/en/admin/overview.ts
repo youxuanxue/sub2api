@@ -39,6 +39,7 @@ export default {
       metricTokens: 'By Tokens',
       metricActualCost: 'By Actual Cost',
       tokenUsageTrend: 'Token Usage Trend',
+      tokenUsageTrendScoped: 'Token Usage Trend ({scope})',
       userUsageTrend: 'User Usage Trend (Top 12)',
       model: 'Model',
       group: 'Group',

@@ -87,6 +87,22 @@ describe('TokenUsageTrend', () => {
     expect(hitRateDataset.data[0]).toBe(0)
   })
 
+  it('renders an overridden title when scoped', () => {
+    const wrapper = mount(TokenUsageTrend, {
+      props: {
+        trendData: [],
+        title: 'Token Usage Trend (demo-key)',
+      },
+      global: {
+        stubs: {
+          LoadingSpinner: true,
+        },
+      },
+    })
+
+    expect(wrapper.find('h3').text()).toBe('Token Usage Trend (demo-key)')
+  })
+
   it('includes cache_creation_tokens in denominator for Anthropic models', () => {
     const wrapper = mount(TokenUsageTrend, {
       props: {
