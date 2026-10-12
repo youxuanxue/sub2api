@@ -16415,6 +16415,22 @@
         "TestOpsErrorLoggerMiddlewareStillRecordsUpstreamFailuresEveryTime"
       ],
       "rationale": "End-to-end proof through the real OpsErrorLoggerMiddleware rather than the gate in isolation: 300 identical quota rejections queue one row, two different keys each keep their own row, and upstream failures are queued every time. This is the test that fails if the injection line in ops_error_logger.go is dropped or moved above the api-key attribution block."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_batch_api_key_usage_tk_test.go",
+      "must_contain": [
+        "TestGetBatchAPIKeyUsageStatsPrunesWithCreatedAtUpperBound",
+        "created_at < \\$3"
+      ],
+      "rationale": "TK companion asserting GetBatchAPIKeyUsageStats SQL retains created_at < $3 so partitioned usage_logs prune future partitions for /keys. Losing this test lets the slow unbounded shape return unnoticed on small fixtures."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_stats.go",
+      "must_contain": [
+        "func (r *usageLogRepository) GetBatchAPIKeyUsageStats(",
+        "AND created_at < $3"
+      ],
+      "rationale": "Injection surface for the /keys batch usage upper-bound prune (paired with usage_log_repo_batch_api_key_usage_tk_test.go). Upstream-shaped stats file; a merge can drop the WHERE created_at < $3 bound while compiling green."
     }
   ]
 }
