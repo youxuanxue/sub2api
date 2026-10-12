@@ -131,6 +131,7 @@
     "ghcr-prune-daily timer contract": "deploy",
     "live-host state verdict selftest": "observability",
     "live-host detector ↔ deploy injector env sync": "observability",
+    "first-output timeout SSOT sync": "observability",
     "pgdump timer cadence parity": "deploy",
     "workflow job-level if env-context": "deploy",
     "release.yml simple_release default": "deploy",
@@ -391,6 +392,7 @@
       "edge-health watch workflow contract",
       "live-host state verdict selftest",
       "live-host detector ↔ deploy injector env sync",
+      "first-output timeout SSOT sync",
       "observability test suite",
       "stage0 test suite"
     ]

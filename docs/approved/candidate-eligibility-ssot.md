@@ -1,7 +1,7 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, and 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, and 2026-10-12 raise universal stream SSOT to 30s/60s after further review)"
 created: 2026-09-07
 revised_at: 2026-10-12
 ---
@@ -227,7 +227,7 @@ not a NewAPI-only knob and not the same object as metered TTFT.
 | **First-useful-output (this budget)** | Timer from attempt start until the attempt **commits** output that stops account failover/replay. Heartbeats, empty deltas, usage-only frames, and transport headers do **not** stop it. Platform commit events must match “client-bound progress that forbids silent retry” (e.g. NewAPI: content / reasoning / refusal / function-tool; Kiro: client-visible text or tool — unsigned thinking alone does not commit). |
 | **TTFT (`usage_logs.first_token_ms`)** | Observability. May use a **narrower** arming rule (e.g. Kiro visible text only; OpenAI `semantic` vs `visible`). A request can therefore show TTFT ≠ the moment this budget stopped. Do not use TTFT percentiles alone to set this budget without checking the platform commit rule. |
 
-Defaults (seconds): standard stream **15**, high-reasoning effort **30**
+Defaults (seconds): standard stream **30**, high-reasoning effort **60**
 (`high` / `xhigh` / `max` and platform equivalents). Cap **60**.
 Config SSOT: `gateway.stream_first_output_timeout_seconds` and
 `gateway.stream_first_output_high_effort_timeout_seconds`. Platform-specific
@@ -235,12 +235,11 @@ keys may override when explicitly set; zero means inherit the universal default
 (except OpenAI native where `0` remains an emergency disable for
 `openai_first_output_timeout_seconds`).
 
-OpenAI native defaults are **higher** than the universal stream SSOT
+OpenAI native defaults match the universal stream SSOT
 (`openai_first_output_timeout_seconds` **30**,
-`openai_high_effort_first_output_timeout_seconds` **60**): prod 24h
-`first_output_timeout` events were openai-only (GPT-6 / GPT-5.6 families), so
-the wider budget stays platform-scoped rather than raising every platform's
-failover wall.
+`openai_high_effort_first_output_timeout_seconds` **60**) but remain explicit
+keys so `openai_*=0` can emergency-disable OpenAI waits without collapsing the
+cross-platform stream budget.
 
 `gateway.response_header_timeout` remains transport header wait only and must
 not redefine these budgets. Grok’s first-byte header wait inherits

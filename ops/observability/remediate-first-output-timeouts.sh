@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Write-capable: apply OpenAI-scoped first-output budgets (and restore universal
-# stream SSOT defaults) on this host, then recreate the active app container.
+# Write-capable: apply universal stream + OpenAI first-output budgets on this
+# host, then recreate the active app container.
 # Delivered via run-probe.sh. Requires APPLY=yes-first-output-timeouts.
 #
-# Evidence (prod 24h): first_output_timeout events were openai-only, so only
-# OpenAI knobs are raised. Universal stream SSOT stays 15s / 30s.
+# Numbers owned by ops/stage0/first_output_timeout_ssot.py (preflight-gated):
+# stream and OpenAI both 30s / high-effort 60s.
 #
 # Target:
-#   GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=15
-#   GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=30
+#   GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=30
+#   GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=60
 #   GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=30
 #   GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=60
 set -euo pipefail
@@ -19,8 +19,10 @@ ACTIVE_FILE=/var/lib/tokenkey/active-color
 ROOT=/var/lib/tokenkey
 COMPOSE_BG="$ROOT/docker-compose.bluegreen.yml"
 
-WANT_STREAM=15
-WANT_STREAM_HIGH=30
+# Keep in lockstep with first_output_timeout_ssot.EXPECTED_ENV (checked by
+# scripts/checks/first-output-timeout-ssot.py).
+WANT_STREAM=30
+WANT_STREAM_HIGH=60
 WANT_OPENAI=30
 WANT_OPENAI_HIGH=60
 
@@ -58,8 +60,8 @@ import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text()
 candidates = [
-    "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-30}",
     "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-60}",
+    "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-30}",
 ]
 needle = next((c for c in candidates if c in text), None)
 if needle is None:
@@ -76,8 +78,8 @@ PY
 bump_compose_fallbacks() {
   local f="$1"
   sudo sed -i \
-    -e 's|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=\${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-15}|g' \
-    -e 's|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=\${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-30}|g' \
+    -e 's|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=\${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-30}|g' \
+    -e 's|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=\${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-60}|g' \
     -e 's|GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=\${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-30}|g' \
     -e 's|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=\${GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS:-60}|g' \
     "$f"
@@ -195,4 +197,4 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 echo "=== ok ==="
-echo '{"apply":true,"stream":15,"stream_high":30,"openai":30,"openai_high":60,"container":"'"$container"'"}'
+echo '{"apply":true,"stream":30,"stream_high":60,"openai":30,"openai_high":60,"container":"'"$container"'"}'
