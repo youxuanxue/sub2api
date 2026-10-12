@@ -1721,7 +1721,12 @@ const loadApiKeys = async () => {
     pagination.value.total = response.total
     pagination.value.pages = response.pages
 
-    // Load usage stats for all API keys in the list
+    // Unblock the table as soon as keys arrive. Today/total spend is secondary
+    // and can take hundreds of ms on heavy accounts (user 16 ≈ 60+ keys).
+    if (abortController === controller) {
+      loading.value = false
+    }
+
     if (response.items.length > 0) {
       const keyIds = response.items.map((k) => k.id)
       try {

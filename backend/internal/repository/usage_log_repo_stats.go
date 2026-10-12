@@ -577,14 +577,18 @@ func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKe
 		result[id] = &BatchAPIKeyUsageStats{APIKeyID: id}
 	}
 
+	// Upper-bound created_at so partitioned usage_logs can prune future
+	// partitions. Without `< end`, the planner keeps every partition after
+	// LEAST(start, today) — measured ~285ms planning alone for /keys on prod.
 	query := `
 		SELECT
 			api_key_id,
 			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $2 AND created_at < $3), 0) as total_cost,
-			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $4), 0) as today_cost
+			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $4 AND created_at < $3), 0) as today_cost
 		FROM usage_logs
 		WHERE api_key_id = ANY($1)
 		  AND created_at >= LEAST($2, $4)
+		  AND created_at < $3
 		GROUP BY api_key_id
 	`
 	today := timezone.Today()
