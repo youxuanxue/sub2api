@@ -155,3 +155,14 @@ func TestDashboardAPIKeysRejectsPartialDateRange(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestParseAPIKeyCalendarDateRangeSpringForwardDay(t *testing.T) {
+	// America/New_York spring-forward 2026-03-08 is a 23h civil day; wall-clock
+	// Hours/24 would yield 0 and incorrectly reject a valid single-day window.
+	start, end, days, err := parseAPIKeyCalendarDateRange("2026-03-08", "2026-03-08", "America/New_York")
+	require.NoError(t, err)
+	require.Equal(t, 1, days)
+	require.True(t, end.After(start))
+	require.Equal(t, "2026-03-08", start.Format("2006-01-02"))
+	require.Equal(t, "2026-03-09", end.Format("2006-01-02"))
+}

@@ -811,4 +811,27 @@ describe('user KeysView usage window', () => {
     expect(wrapper.findComponent({ name: 'KeyUsageTrendDialog' }).props('show')).toBe(true)
     expect(wrapper.findComponent({ name: 'KeyUsageTrendDialog' }).props('apiKeyId')).toBe(1)
   })
+
+  it('refreshes usage only when the date range changes (does not re-spin the table)', async () => {
+    const wrapper = await mountView()
+    getDashboardApiKeysUsage.mockClear()
+    listKeys.mockClear()
+
+    ;(wrapper.vm as any).onUsageDateRangeChange({
+      startDate: '2026-10-01',
+      endDate: '2026-10-07',
+      preset: '7days',
+    })
+    await flushPromises()
+
+    expect(listKeys).not.toHaveBeenCalled()
+    expect(wrapper.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
+    expect(getDashboardApiKeysUsage).toHaveBeenCalledWith(
+      [1],
+      expect.objectContaining({
+        start_date: '2026-10-01',
+        end_date: '2026-10-07',
+      }),
+    )
+  })
 })

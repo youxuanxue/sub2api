@@ -2942,11 +2942,12 @@
       "path": "frontend/src/views/user/KeysView.vue",
       "must_contain": [
         "Unblock the table as soon as keys arrive",
-        "usageAPI.getDashboardApiKeysUsage(keyIds, {",
+        "loadUsageStatsForKeys",
         "start_date: usageStartDate.value",
-        "KeyUsageTrendDialog"
+        "KeyUsageTrendDialog",
+        "void loadUsageStatsForKeys(apiKeys.value.map((k) => k.id))"
       ],
-      "rationale": "/keys must clear the table loading spinner as soon as the key list returns, then asynchronously fill DateRangePicker window spend via getDashboardApiKeysUsage and open KeyUsageTrendDialog for the curve. Waiting on usage (hundreds of ms for 60+ keys) re-blocks the whole table spinner; KeysView.vue is upstream-shaped and a merge can restore the old await-usage-before-clear order or drop the shared date window while tests for other features still pass."
+      "rationale": "/keys must clear the table loading spinner as soon as the key list returns, then asynchronously fill DateRangePicker window spend via loadUsageStatsForKeys/getDashboardApiKeysUsage and open KeyUsageTrendDialog for the curve. Date-range changes must refresh spend only (not reload the key list / re-spin the table). KeysView.vue is upstream-shaped and a merge can restore the old await-usage-before-clear order or drop the shared date window while tests for other features still pass."
     }
   ]
 }

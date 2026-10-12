@@ -1752,25 +1752,10 @@ const loadApiKeys = async () => {
       loading.value = false
     }
 
-    if (response.items.length > 0) {
-      const keyIds = response.items.map((k) => k.id)
-      try {
-        const usageResponse = await usageAPI.getDashboardApiKeysUsage(keyIds, {
-          signal,
-          start_date: usageStartDate.value,
-          end_date: usageEndDate.value,
-          timezone: browserTimezone,
-        })
-        if (signal.aborted) return
-        usageStats.value = usageResponse.stats
-      } catch (e) {
-        if (!isAbortError(e)) {
-          console.error('Failed to load usage stats:', e)
-        }
-      }
-    } else {
-      usageStats.value = {}
-    }
+    await loadUsageStatsForKeys(
+      response.items.map((k) => k.id),
+      signal,
+    )
   } catch (error) {
     if (isAbortError(error)) {
       return
@@ -1779,6 +1764,36 @@ const loadApiKeys = async () => {
   } finally {
     if (abortController === controller) {
       loading.value = false
+    }
+  }
+}
+
+let usageAbortController: AbortController | null = null
+
+/** Refresh window spend without toggling the keys-table loading spinner. */
+const loadUsageStatsForKeys = async (keyIds: number[], signal?: AbortSignal) => {
+  if (!signal) {
+    usageAbortController?.abort()
+    const controller = new AbortController()
+    usageAbortController = controller
+    signal = controller.signal
+  }
+  if (keyIds.length === 0) {
+    usageStats.value = {}
+    return
+  }
+  try {
+    const usageResponse = await usageAPI.getDashboardApiKeysUsage(keyIds, {
+      signal,
+      start_date: usageStartDate.value,
+      end_date: usageEndDate.value,
+      timezone: browserTimezone,
+    })
+    if (signal.aborted) return
+    usageStats.value = usageResponse.stats
+  } catch (e) {
+    if (!isAbortError(e)) {
+      console.error('Failed to load usage stats:', e)
     }
   }
 }
@@ -1814,7 +1829,7 @@ const openUseKeyModal = (key: ApiKey) => {
 const onUsageDateRangeChange = (range: { startDate: string; endDate: string; preset: string | null }) => {
   usageStartDate.value = range.startDate
   usageEndDate.value = range.endDate
-  void loadApiKeys()
+  void loadUsageStatsForKeys(apiKeys.value.map((k) => k.id))
 }
 
 const openUsageTrend = (key: ApiKey) => {

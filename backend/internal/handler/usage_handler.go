@@ -471,7 +471,13 @@ func parseAPIKeyCalendarDateRange(startDateStr, endDateStr, userTZ string) (time
 	if !endTime.After(startTime) {
 		return time.Time{}, time.Time{}, 0, errInvalidAPIKeyDateOrder
 	}
-	days := int(endTime.Sub(startTime).Hours() / 24)
+	// Count inclusive civil days from Y/M/D (UTC midnights) so DST spring-forward
+	// days (23h wall clock) are not rejected as a zero-length span.
+	sy, sm, sd := startTime.Date()
+	ey, em, ed := endDay.Date()
+	civilStart := time.Date(sy, sm, sd, 0, 0, 0, 0, time.UTC)
+	civilEnd := time.Date(ey, em, ed, 0, 0, 0, 0, time.UTC)
+	days := int(civilEnd.Sub(civilStart)/(24*time.Hour)) + 1
 	if days <= 0 || days > maxAPIKeyDailyUsageDays {
 		return time.Time{}, time.Time{}, 0, errInvalidAPIKeyDateSpan
 	}
