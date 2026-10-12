@@ -279,6 +279,60 @@ func TestRecordCyberPolicyIfMarked_UsagePolicyWritesSessionBlock(t *testing.T) {
 	}, 2*time.Second, 20*time.Millisecond, "usage_policy mark must write cyber session block keys")
 }
 
+// Mirror/edge local session-block echo must SharedFault-stop via the cyber mark,
+// write prod session-block keys, and record cyber_policy_session_blocked — never
+// re-enter upstream cyber_policy moderation/ban counting (R-001).
+func TestRecordCyberPolicyIfMarked_SessionBlockedEchoSkipsModerationOpsAsSessionBlocked(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 2)
+	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	gatewayCache := testutil.NewRedisGatewayCache(t)
+	settingRepo := &contentModerationHandlerSettingRepo{values: map[string]string{
+		service.SettingKeyCyberSessionBlockEnabled:    "true",
+		service.SettingKeyCyberSessionBlockTTLSeconds: "60",
+	}}
+	settingSvc := service.NewSettingService(settingRepo, nil)
+	cfg := &config.Config{}
+	gatewaySvc := service.NewOpenAIGatewayService(
+		nil, nil, nil, nil, nil, nil, gatewayCache, cfg, nil, nil,
+		service.NewBillingService(cfg, nil), nil, nil, nil, &service.DeferredService{},
+		nil, nil, nil, nil, nil, settingSvc, nil,
+	)
+
+	body := []byte(`{"messages":[{"role":"user","content":"hello session blocked echo"}]}`)
+	c := newTestGinContext()
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body)))
+	c.Request.RemoteAddr = "203.0.113.66:4444"
+	c.Request.Header.Set("User-Agent", "codex-review/1.0")
+	c.Request.Header.Set("session_id", "sess-local-echo")
+	service.MarkOpsCyberPolicy(c, service.CyberPolicyMark{
+		Code:           service.OpenAICyberSessionBlockedErrorCode,
+		Message:        "该会话已被网络安全策略屏蔽",
+		Body:           `{"error":{"code":"session_blocked_by_cyber_policy","type":"permission_error"}}`,
+		UpstreamStatus: http.StatusForbidden,
+	})
+	require.True(t, service.IsOpenAICyberSessionBlockedMark(service.GetOpsCyberPolicy(c)))
+
+	h := &OpenAIGatewayHandler{gatewayService: gatewaySvc, opsService: ops}
+	apiKey := &service.APIKey{ID: 88, Key: "sk-test-session-echo", User: &service.User{ID: 16}}
+	h.recordCyberPolicyIfMarked(c, apiKey, nil, nil, "gpt-6-sol", true, body, service.ChannelUsageFields{}, "")
+	require.True(t, c.GetBool(cyberPolicyRecordedKey))
+
+	require.Eventually(t, func() bool {
+		return gatewaySvc.FindCyberSessionBlockedForRequest(
+			context.Background(), apiKey.ID, c, body, "203.0.113.66", "codex-review/1.0",
+		) != ""
+	}, 2*time.Second, 20*time.Millisecond, "session-block echo must still write prod session-block keys")
+
+	require.Eventually(t, func() bool {
+		return OpsErrorLogQueueLength() >= 1
+	}, 2*time.Second, 20*time.Millisecond)
+	job := <-opsErrorLogQueue
+	require.Equal(t, "cyber_policy_session_blocked", job.entry.ErrorType)
+	require.Equal(t, service.OpsErrorOwnerClient, job.entry.ErrorOwner)
+	require.Equal(t, "gateway_local", job.entry.ErrorSource)
+	require.False(t, service.IsOpsSLAFaultOwner(job.entry.ErrorOwner))
+}
+
 // TestBuildCyberPolicyOpsErrorEntry_StatusCode verifies F6: the ops error log
 // records the status the codex client actually received (400 non-stream / 200 stream),
 // not a hardcoded 403.
