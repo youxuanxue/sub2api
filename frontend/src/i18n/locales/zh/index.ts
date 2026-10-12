@@ -10,6 +10,7 @@ export default {
   imageGeneration: {
     "softRatio": "比例为构图偏好，实际输出尺寸由模型决定。",
     "exactCanvas": "所选尺寸由网关本地精确画布兑现（上游像素可能先漂移，再 pad/coerce）。",
+    "gptImagesEndpointHint": "GPT Image 只能调用 /v1/images/generations（文生图）或 /v1/images/edits（编辑）。打到 /v1/chat/completions 会返回 400，不会出图。",
     "prompt": "生图提示词",
     "verifyKey": "验证密钥",
     "verifyHint": "此处只验证密钥，不验证生图。请在 Studio 中生成图片，生成会产生费用。",

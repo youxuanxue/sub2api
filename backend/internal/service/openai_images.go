@@ -251,6 +251,9 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 	if err := validateOpenAIImagesAspectRatio(req); err != nil {
 		return nil, err
 	}
+	if err := validateOpenAIImagesEditInputPatches(req); err != nil {
+		return nil, err
+	}
 	req.SizeTier = normalizeOpenAIImageSizeTier(req.Size)
 	req.RequiredCapability = classifyOpenAIImagesCapability(req)
 	return req, nil
@@ -534,6 +537,11 @@ func IsGPTImageGenerationModel(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
 	return strings.HasPrefix(model, "gpt-image-")
 }
+
+// GPTImageRejectedOnChatCompletionsMessage is the local 400 body when a
+// gpt-image-* model is posted to Chat Completions. Status/type stay
+// invalid_request_error; the hint points clients at the Images endpoints.
+const GPTImageRejectedOnChatCompletionsMessage = "This model is not supported on the Chat Completions endpoint; use POST /v1/images/generations or /v1/images/edits"
 
 func isGrokImageGenerationModel(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))

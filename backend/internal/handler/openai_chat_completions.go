@@ -99,7 +99,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 	if service.IsGPTImageGenerationModel(reqModel) {
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "This model is not supported on the Chat Completions endpoint")
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", service.GPTImageRejectedOnChatCompletionsMessage)
 		return
 	}
 

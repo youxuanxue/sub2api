@@ -100,6 +100,13 @@ func TestGPTImage25PricingDoesNotUseLegacyImageRates(t *testing.T) {
 	}
 }
 
+func TestGPTImageRejectedOnChatCompletionsMessage(t *testing.T) {
+	require.True(t, IsGPTImageGenerationModel("gpt-image-2"))
+	require.Contains(t, GPTImageRejectedOnChatCompletionsMessage, "Chat Completions")
+	require.Contains(t, GPTImageRejectedOnChatCompletionsMessage, "/v1/images/generations")
+	require.Contains(t, GPTImageRejectedOnChatCompletionsMessage, "/v1/images/edits")
+}
+
 func TestGPTImage25AccountModelPermissions(t *testing.T) {
 	for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken} {
 		for _, model := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst"} {
