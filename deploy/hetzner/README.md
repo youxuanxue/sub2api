@@ -41,7 +41,6 @@ AWS EIP `34.194.234.88` 与四边旧 Lightsail 仅为 ≥7d standby / 回滚，*
 | `render-bootstrap.sh` / `render-prod-bootstrap.sh` | user-data |
 | `generated-user-data.sh` / `generated-prod-user-data.sh` | 渲染产物（与 `--check` 同步提交） |
 | `provision-edge.sh` / `provision-prod.sh` | 点火（dry-run / `--confirm-paid --tag`） |
-| `qa/` | 共用 uk1 上 QA 队列/资源 foundation（见该目录 README；默认网关仍 SQS） |
 
 整库 DR：舰队 `tokenkey-pgdump.sh` + [恢复入口](#恢复入口)。账号级搬运（非整库）：`ops/migration/migrate-edge-accounts.py`。
 
@@ -72,8 +71,8 @@ bash scripts/stage0/dispatch-edge-deploy.sh \
 1. **蓝绿已验收**：1.8.284 已完成 prod + 活 Edge 的升级、排空及烟测；QA 发布仍独立。
 2. **gemini-web re-import**：uk1/uk2 上若干 gemini 账号 `error`/不可调度（出口 IP）；修好后再开对应 prod stub。
 3. **边侧供应**：us4 anthropic / us4·us5 grok / uk CC 池按冒烟 200 再开 stub。
-4. **旧 LS / AWS prod**：≥7d 后可删实例；`deploy-qa-bundle` 仍使用 AWS QA 基础设施，另轨。
-5. **QA 去 AWS**：队列/对象存储 foundation 见 [`qa/README.md`](qa/README.md) 与审批基线 `hcloud-bluegreen-qa-migration.md`（未切默认 SQS）。
+4. **旧 LS / AWS prod**：≥7d 后可删实例；QA raw archive 迁移完成后再按观察期单独清理 AWS 源。
+5. **QA 去 AWS**：raw archive 目标见 [`../approved/qa-raw-only.md`](../docs/approved/qa-raw-only.md)，AWS 源保留观察期。
 
 ## 校验
 
@@ -93,7 +92,7 @@ bash deploy/hetzner/render-prod-bootstrap.sh --check
 | 类别 | 当前用途 / owner | 清理条件 |
 |---|---|---|
 | SSM Hybrid / Parameter Store / STS OIDC | hcloud 远程执行、参数与 GHCR 身份；`ops/stage0/{resolve_prod_ssm_target,edge_ssm_execution}.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
-| QA ECS/Fargate、SQS、S3/KMS | `deploy-qa-bundle.yml`、`ops/qa/`、`deploy/aws/cloudformation/stage0-qa-raw-archive.yaml`；hcloud 队列/对象存储已有 foundation，尚未正式迁完 | 按 `hcloud-bluegreen-qa-migration.md` 完成 worker、任务/对象迁移、UI 与恢复验收 |
+| QA raw archive | `ops/qa/`、`deploy/aws/cloudformation/stage0-qa-raw-archive.yaml`；Hetzner raw bucket 为迁移目标，AWS 源保留观察期 | 完成最终增量、校验、restore 和 maintenance 坐标切换后再单独审批清理 |
 | PG dump / env-secrets / archive / media | AWS S3、SSM SecureString；`tokenkey-pgdump.sh`、`backup-env-secrets-via-ssm.sh`、archive/media 配置 | 数据与恢复能力迁移后才能移除 |
 | 共享运行文件的旧目录名 | `deploy/aws/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 仍直接消费 | 是共享 owner，路径不代表部署在 AWS；迁路径必须同时更新引用、生成产物和 sentinel |
 | AWS standby 脚手架 | `deploy/aws/lightsail/`、EC2 bootstrap/CFN、`ops/lightsail/`、AWS DR 与 IP 历史 | 不进现网自动 fan-out；仅明确指定旧机恢复时使用，资产退役单独授权 |

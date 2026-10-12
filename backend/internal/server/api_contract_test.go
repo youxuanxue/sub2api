@@ -57,7 +57,6 @@ func TestAPIContracts(t *testing.T) {
 						"frozen_balance": 0,
 						"concurrency": 5,
 					"rpm_limit": 0,
-					"traj_export_enabled": false,
 					"status": "active",
 					"allowed_groups": null,
 					"created_at": "2025-01-02T03:04:05Z",
@@ -210,8 +209,7 @@ func TestAPIContracts(t *testing.T) {
 							"bind_start_path": "/api/v1/auth/oauth/dingtalk/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						}
 					},
-					"run_mode": "standard",
-					"traj_export_platforms": ["anthropic", "kiro", "gemini", "antigravity", "openai", "newapi", "grok", "kimi", "zhipu", "deepseek", "minimax", "opencode_go"]
+					"run_mode": "standard"
 				}
 			}`,
 		},

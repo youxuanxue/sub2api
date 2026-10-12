@@ -66,13 +66,6 @@
         />
         <p class="input-hint">{{ t('admin.users.form.rpmLimitHint') }}</p>
       </div>
-      <div>
-        <label class="flex cursor-pointer items-center gap-2">
-          <input v-model="form.traj_export_enabled" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-          <span class="input-label !mb-0">{{ t('admin.users.form.trajExport') }}</span>
-        </label>
-        <p class="input-hint">{{ t('admin.users.form.trajExportHint') }}</p>
-      </div>
       <UserAttributeForm v-model="form.customAttributes" :user-id="user?.id" />
     </form>
     <template #footer>
@@ -112,11 +105,11 @@ const roleOptions = computed(() => [
   { value: 'user', label: t('admin.users.roles.user') },
   { value: 'admin', label: t('admin.users.roles.admin') }
 ])
-const form = reactive({ email: '', password: '', username: '', notes: '', role: 'user', concurrency: 1, rpm_limit: 0, traj_export_enabled: false, customAttributes: {} as UserAttributeValuesMap })
+const form = reactive({ email: '', password: '', username: '', notes: '', role: 'user', concurrency: 1, rpm_limit: 0, customAttributes: {} as UserAttributeValuesMap })
 
 watch(() => props.user, (u) => {
   if (u) {
-    Object.assign(form, { email: u.email, password: '', username: u.username || '', notes: u.notes || '', role: u.role || 'user', concurrency: u.concurrency, rpm_limit: u.rpm_limit ?? 0, traj_export_enabled: u.traj_export_enabled ?? false, customAttributes: {} })
+    Object.assign(form, { email: u.email, password: '', username: u.username || '', notes: u.notes || '', role: u.role || 'user', concurrency: u.concurrency, rpm_limit: u.rpm_limit ?? 0, customAttributes: {} })
     passwordCopied.value = false
   }
 }, { immediate: true })
@@ -147,7 +140,7 @@ const handleUpdateUser = async () => {
   const userId = props.user.id
   submitting.value = true
   try {
-    const data: any = { email: form.email, username: form.username, notes: form.notes, role: form.role, concurrency: form.concurrency, rpm_limit: form.rpm_limit, traj_export_enabled: form.traj_export_enabled }
+    const data: any = { email: form.email, username: form.username, notes: form.notes, role: form.role, concurrency: form.concurrency, rpm_limit: form.rpm_limit }
     if (form.password.trim()) data.password = form.password.trim()
     // 提升为管理员属敏感操作：后端返回 STEP_UP_REQUIRED 时弹 TOTP 验证并重试
     await stepUp.run(() => adminAPI.users.update(userId, data))

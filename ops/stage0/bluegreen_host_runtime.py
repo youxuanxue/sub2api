@@ -13,8 +13,6 @@ import sys
 
 
 QA_FILES = {
-    'QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE': 'queue.dsn',
-    'QA_BUNDLE_STORAGE_CREDENTIALS_FILE': 'bundle.json',
     'QA_ARCHIVE_STORAGE_CREDENTIALS_FILE': 'raw.json',
 }
 QA_CONTAINER_ROOT = '/run/secrets/tokenkey-qa'
@@ -42,7 +40,7 @@ def check_volume(root, run=subprocess.check_output):
         raise ValueError('prod data source is not a Hetzner volume')
 
 
-def bindings(root, env, hybrid_prod, uid=1000):
+def bindings(root, env, hybrid_prod, uid=1000, *, qa_maintenance=False):
     mounts, environment = [], []
     if hybrid_prod:
         directory = root / 'aws'
@@ -57,7 +55,7 @@ def bindings(root, env, hybrid_prod, uid=1000):
         mounts.append({'type': 'bind', 'source': str(directory), 'target': '/aws',
                        'read_only': True, 'bind': {'create_host_path': False}})
         environment += ['AWS_SHARED_CREDENTIALS_FILE=/aws/credentials', 'AWS_SDK_LOAD_CONFIG=1']
-    selected = {key: name for key, name in QA_FILES.items() if env.get(key)}
+    selected = {key: name for key, name in QA_FILES.items() if qa_maintenance and env.get(key)}
     if selected:
         directory = root / 'qa-secrets'
         if directory.is_symlink() or not directory.is_dir():
@@ -68,13 +66,6 @@ def bindings(root, env, hybrid_prod, uid=1000):
                 raise ValueError('unsupported QA credential path')
             private_file(directory / name, uid)
             mounts.append({'type': 'bind', 'source': str(directory / name), 'target': env[key],
-                           'read_only': True, 'bind': {'create_host_path': False}})
-        if 'QA_BUNDLE_QUEUE_POSTGRES_DSN_FILE' in selected:
-            # DSN refers to this CA; never deliver a root CA through an env value.
-            ca = directory / 'queue-ca.pem'
-            if not ca.is_file() or ca.is_symlink():
-                raise ValueError('QA queue CA file is required')
-            mounts.append({'type': 'bind', 'source': str(ca), 'target': QA_CONTAINER_ROOT + '/queue-ca.pem',
                            'read_only': True, 'bind': {'create_host_path': False}})
     return mounts, environment
 
@@ -95,6 +86,7 @@ def main():
     parser.add_argument('--check-volume', action='store_true')
     parser.add_argument('--compose', type=Path)
     parser.add_argument('--docker-mounts', action='store_true')
+    parser.add_argument('--qa-maintenance', action='store_true', help='mount raw identity only for maintenance children')
     parser.add_argument('--env-file', type=Path)
     args = parser.parse_args()
     try:
@@ -106,7 +98,7 @@ def main():
                 key, sep, value = line.partition('=')
                 if sep:
                     env[key] = value.strip().strip('\"\'')
-            mounts, environment = bindings(args.root, env, args.hybrid_prod)
+            mounts, environment = bindings(args.root, env, args.hybrid_prod, qa_maintenance=args.qa_maintenance)
             if args.compose:
                 args.compose.write_text(patch_compose(args.compose.read_text(), mounts, environment))
             if args.docker_mounts:

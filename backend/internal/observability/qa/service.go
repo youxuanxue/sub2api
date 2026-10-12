@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +23,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/engine"
-	"github.com/Wei-Shaw/sub2api/internal/observability/qa/bundle"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/captureledger"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/lifecycle"
 	"github.com/Wei-Shaw/sub2api/internal/observability/trajectory"
@@ -55,15 +53,6 @@ type Service struct {
 	ledgerStopOnce    sync.Once
 	ledgerWG          sync.WaitGroup
 	hourlyCutover     atomic.Pointer[time.Time]
-
-	// exportStore signs scoped Bundle pages and ZIPs. It is configured only from
-	// qa_bundle.storage; prod never proxies or materializes these artifacts.
-	exportStore BlobStore
-
-	bundleStore     bundle.Store
-	bundleQueue     bundle.JobQueue
-	bundleWatermark func(context.Context) (time.Time, error)
-	bundleAuthorize func(context.Context, int64, int64) (bool, error)
 }
 
 type captureLedger interface {
@@ -168,20 +157,17 @@ const (
 	qaEndpointVideoGenerationsTask   = "/v1/video/generations/:task_id"
 )
 
-// NewServiceForTest constructs a minimal Service usable in cross-package
-// unit tests (the export-path tests in handler/ can't reach unexported
-// fields). Production callers MUST use NewService — this bypasses the
-// worker pool, DLQ directory, and capture-side body limits.
+// NewServiceForTest constructs a minimal capture service for unit tests.
+// Production callers must use NewService for the pool, ledger and body limits.
 func NewServiceForTest(client *ent.Client, store BlobStore) *Service {
 	return &Service{
-		client:      client,
-		store:       store,
-		exportStore: store,
-		cfg:         config.QACaptureConfig{Enabled: true},
+		client: client,
+		store:  store,
+		cfg:    config.QACaptureConfig{Enabled: true},
 	}
 }
 
-func NewService(cfg *config.Config, client *ent.Client, sqlDB *sql.DB) (*Service, error) {
+func NewService(cfg *config.Config, client *ent.Client, _ *sql.DB) (*Service, error) {
 	if cfg == nil || client == nil {
 		return &Service{}, nil
 	}
@@ -201,9 +187,6 @@ func NewService(cfg *config.Config, client *ent.Client, sqlDB *sql.DB) (*Service
 		optInBodyMaxBytes: cfg.QACapture.OptInBodyMaxBytes,
 		dlqDir:            filepath.Join(dataDir, "qa_dlq"),
 	}
-	if err := svc.configureBundle(context.Background(), cfg, sqlDB); err != nil {
-		return nil, err
-	}
 	svc.captureLedger, svc.ledgerInitErr = captureledger.Open(
 		filepath.Join(dataDir, "qa_capture_ledger"),
 		uuid.NewString(),
@@ -222,9 +205,6 @@ func NewService(cfg *config.Config, client *ent.Client, sqlDB *sql.DB) (*Service
 func (s *Service) Stop() {
 	if s == nil {
 		return
-	}
-	if closer, ok := s.bundleQueue.(io.Closer); ok {
-		_ = closer.Close()
 	}
 	if s.ledgerStop != nil {
 		s.ledgerStopOnce.Do(func() { close(s.ledgerStop) })
@@ -666,8 +646,6 @@ func (s *Service) hourlyStorageCutover(ctx context.Context) (time.Time, error) {
 	s.hourlyCutover.CompareAndSwap(nil, &cutover)
 	return *s.hourlyCutover.Load(), nil
 }
-
-const presignedURLTTL = 24 * time.Hour
 
 func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []string, error) {
 	// traj-opt-in 的 Anthropic 记录：保留 thinking 块的 signature（仅 thinking 块，

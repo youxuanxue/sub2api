@@ -435,7 +435,7 @@ def isolated_environment(source, name, password):
                 'REDIS_PASSWORD': password, 'REDIS_USERNAME': 'default', 'REDIS_ENABLE_TLS': 'false',
                 'SERVER_PORT': '8080', 'DATA_DIR': '/app/data', 'AUTO_SETUP': 'false',
                 'TOKEN_REFRESH_ENABLED': 'false', 'QA_CAPTURE_ENABLED': 'false',
-                'QA_ARCHIVE_ENABLED': 'false', 'QA_BUNDLE_ENABLED': 'false',
+                'QA_ARCHIVE_ENABLED': 'false',
                 'TELEMETRY_ARCHIVE_ENABLED': 'false', 'OPS_CLEANUP_ENABLED': 'false',
                 'OPS_ENABLED': 'false', 'DASHBOARD_AGGREGATION_ENABLED': 'false',
                 'USAGE_CLEANUP_ENABLED': 'false', 'GATEWAY_CN_PROVIDERS_BALANCE_CHECK_ENABLED': 'false',

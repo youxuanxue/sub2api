@@ -121,66 +121,6 @@ params_file="${OUTPUT_DIR}/ssm-params.json"
 stdout_file="${OUTPUT_DIR}/stdout.txt"
 stderr_file="${OUTPUT_DIR}/stderr.txt"
 
-# --- QA Bundle user surface (prod-only) --------------------------------------
-# Same mechanism as the SERVER_FRONTEND_URL backfill below: additive, guarded
-# (`grep -q`), idempotent .env + compose-mapping patches on a LIVE host, re-applied
-# on every deploy. The QA Bundle runtime vars are deliberately
-# NOT in the shared stage0 compose — that file is also embedded in the edge
-# Lightsail launch script, which sits ~46 B under Lightsail's 16 KB user-data cap,
-# so adding them there breaks edge provisioning. Edges are pure cc-relay mirrors
-# that never capture/export QA trajectories, so they have no use for this config.
-# Gate on the prod signal (EC2 `i-*`; every edge is a Lightsail `mi-*`) → edges get
-# an empty array, i.e. a byte-identical command list to before this change.
-# Credentials stay EMPTY on purpose: the dedicated QA Bundle bucket policy names
-# the prod InstanceRole ARN, so no static keys ever land in .env. Bundle coordinates
-# are supplied only by the canonical deploy workflow from verified CloudFormation
-# outputs; this legacy path preserves host values and fails closed if an enabled
-# Bundle is incomplete.
-# Lifecycle owner: docs/approved/design-prod-qa-24h-s3-lifecycle.md.
-#
-# Compose insertion anchors on the tokenkey service's SERVER_FRONTEND_URL line, NOT
-# its TZ line: every service (caddy/tokenkey/postgres/redis) carries a `- TZ=` line,
-# so `/^      - TZ=/a\` matched all of them and injected the 4 mappings once PER
-# service (harmless on postgres/redis, which ignore the env, but wrong). The first
-# 1.8.11 prod deploy did exactly that; the host compose was de-duplicated out of band.
-# SERVER_FRONTEND_URL is unique to the tokenkey service and is guaranteed present by
-# the SERVER_FRONTEND_URL backfill below, which runs earlier in this command list.
-qa_bundle_cmds='[]'
-if [[ "${INSTANCE_ID}" == i-* ]]; then
-  qa_bundle_cmds="$(jq -n \
-    --arg tag "${TAG}" \
-    --arg enabled "${QA_BUNDLE_ENABLED-}" \
-    --arg queue_url "${QA_BUNDLE_QUEUE_URL-}" \
-    --arg driver "${QA_BUNDLE_STORAGE_DRIVER-}" \
-    --arg region "${QA_BUNDLE_STORAGE_REGION-}" \
-    --arg bucket "${QA_BUNDLE_STORAGE_BUCKET-}" \
-    --arg prefix "${QA_BUNDLE_STORAGE_PREFIX-}" \
-    --argjson enabled_set "$([[ -n "${QA_BUNDLE_ENABLED+x}" ]] && echo true || echo false)" \
-    --argjson queue_url_set "$([[ -n "${QA_BUNDLE_QUEUE_URL+x}" ]] && echo true || echo false)" \
-    --argjson driver_set "$([[ -n "${QA_BUNDLE_STORAGE_DRIVER+x}" ]] && echo true || echo false)" \
-    --argjson region_set "$([[ -n "${QA_BUNDLE_STORAGE_REGION+x}" ]] && echo true || echo false)" \
-    --argjson bucket_set "$([[ -n "${QA_BUNDLE_STORAGE_BUCKET+x}" ]] && echo true || echo false)" \
-    --argjson prefix_set "$([[ -n "${QA_BUNDLE_STORAGE_PREFIX+x}" ]] && echo true || echo false)" '
-    [
-      ( "qa_en=" + ($enabled|@sh) + "; qa_q=" + ($queue_url|@sh) + "; qa_d=" + ($driver|@sh) + "; qa_r=" + ($region|@sh) + "; qa_b=" + ($bucket|@sh) + "; qa_p=" + ($prefix|@sh)
-        + "; qa_en_set=" + ($enabled_set|tostring) + "; qa_q_set=" + ($queue_url_set|tostring) + "; qa_d_set=" + ($driver_set|tostring) + "; qa_r_set=" + ($region_set|tostring) + "; qa_b_set=" + ($bucket_set|tostring) + "; qa_p_set=" + ($prefix_set|tostring)
-        + "; for kv in \"ENABLED=$qa_en\" \"QUEUE_URL=$qa_q\" \"STORAGE_DRIVER=$qa_d\" \"STORAGE_REGION=$qa_r\" \"STORAGE_BUCKET=$qa_b\" \"STORAGE_PREFIX=$qa_p\"; do"
-        + " key=\"QA_BUNDLE_${kv%%=*}\"; val=\"${kv#*=}\";"
-        + " case \"$key\" in QA_BUNDLE_ENABLED) supplied=$qa_en_set;; QA_BUNDLE_QUEUE_URL) supplied=$qa_q_set;; QA_BUNDLE_STORAGE_DRIVER) supplied=$qa_d_set;; QA_BUNDLE_STORAGE_REGION) supplied=$qa_r_set;; QA_BUNDLE_STORAGE_BUCKET) supplied=$qa_b_set;; *) supplied=$qa_p_set;; esac;"
-        + " if [ \"$supplied\" = true ]; then if grep -q \"^${key}=\" /var/lib/tokenkey/.env; then sudo sed -i \"s|^${key}=.*|${key}=${val}|\" /var/lib/tokenkey/.env; else echo \"${key}=${val}\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; fi; echo \"applied desired ${key}\";"
-        + " else echo \"${key} not supplied; preserving existing host value\"; fi; done;"
-        + " if grep -q \"^QA_BUNDLE_ENABLED=true$\" /var/lib/tokenkey/.env; then for key in QA_BUNDLE_QUEUE_URL QA_BUNDLE_STORAGE_DRIVER QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_PREFIX; do if ! grep -q \"^${key}=.\" /var/lib/tokenkey/.env; then echo \"${key} is required when QA_BUNDLE_ENABLED=true\" >&2; exit 1; fi; done; fi" ),
-      ( "CF=/var/lib/tokenkey/docker-compose.yml; if [ -f \"$CF\" ]; then miss=0;"
-        + " for k in ENABLED QUEUE_URL STORAGE_DRIVER STORAGE_REGION STORAGE_BUCKET STORAGE_PREFIX; do grep -q \"QA_BUNDLE_${k}=\" \"$CF\" || miss=1; done;"
-        + " if [ \"$miss\" = 1 ]; then sudo cp -a \"$CF\" \"$CF.qa-bundle-before-" + $tag + "\";"
-        + " for k in STORAGE_PREFIX STORAGE_BUCKET STORAGE_REGION STORAGE_DRIVER QUEUE_URL ENABLED; do key=\"QA_BUNDLE_$k\";"
-        + " grep -q \"${key}=\" \"$CF\" || sudo sed -i '\''/^      - SERVER_FRONTEND_URL=/a\\      - '\''\"$key\"'\''=${'\''\"$key\"'\'':-}'\'' \"$CF\"; done;"
-        + " if grep -q QA_BUNDLE_STORAGE_DRIVER \"$CF\"; then echo ensured-compose-QA_BUNDLE-mappings;"
-        + " else echo '\''::warning::failed to insert compose QA_BUNDLE mappings'\''; fi;"
-        + " else echo compose-QA_BUNDLE-mappings-present; fi; fi" )
-    ]')"
-fi
-
 # --- QA raw archive (prod-only, Phase 2) ---------------------------------------
 # QA_ARCHIVE_* wires hourly maintenance uploads to tokenkey-prod-qa-raw-archive-*.
 # Target policy: ops/qa/policy.yaml (prod.archive.enabled). Deploy inject default
@@ -212,7 +152,7 @@ if [[ "${INSTANCE_ID}" == i-* ]]; then
     ]')"
 fi
 
-# Same proven mechanism as the QA-export block above (additive, grep-guarded,
+# Same proven mechanism as the raw archive block above (additive, grep-guarded,
 # idempotent .env + compose-mapping patches on a LIVE host). Wires the media store:
 # MEDIA_STORAGE_DRIVER/REGION/BUCKET. Credentials stay EMPTY on purpose — the prod
 # instance role + the media bucket policy (Principal = prod InstanceRole ARN) grant
@@ -312,7 +252,7 @@ if [[ "${INSTANCE_ID}" == i-* ]]; then
     ]')"
 fi
 
-jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_bundle_cmds}" --argjson qa_archive_cmds "${qa_archive_cmds}" --argjson media_cmds "${media_storage_cmds}" --argjson ic_cmds "${image_concurrency_cmds}" --argjson edge_qa_cmds "${edge_qa_capture_cmds}" '{
+jq -n --arg tag "${TAG}" --argjson qa_archive_cmds "${qa_archive_cmds}" --argjson media_cmds "${media_storage_cmds}" --argjson ic_cmds "${image_concurrency_cmds}" --argjson edge_qa_cmds "${edge_qa_capture_cmds}" '{
   commands: ([
     "set -euo pipefail",
     ("echo === deploy stage0 to tag=" + $tag + " ==="),
@@ -328,7 +268,7 @@ jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_bundle_cmds}" --argjson qa_arch
     "if ! grep -q '\''^SERVER_FRONTEND_URL='\'' /var/lib/tokenkey/.env; then d=$(sed -n '\''s/^API_DOMAIN=//p'\'' /var/lib/tokenkey/.env | head -1); if [ -n \"$d\" ]; then echo \"SERVER_FRONTEND_URL=https://$d\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured SERVER_FRONTEND_URL=https://$d\"; else echo \"API_DOMAIN empty; skip SERVER_FRONTEND_URL backfill\"; fi; else echo \"SERVER_FRONTEND_URL already present\"; fi",
     "if ! grep -q '\''^TOKENKEY_GHCR_KEEP_TAGS='\'' /var/lib/tokenkey/.env; then echo '\''TOKENKEY_GHCR_KEEP_TAGS=3'\'' | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo '\''ensured TOKENKEY_GHCR_KEEP_TAGS=3'\''; else echo '\''TOKENKEY_GHCR_KEEP_TAGS already present'\''; fi",
     ("if [ -f /var/lib/tokenkey/docker-compose.yml ] && ! grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then sudo cp -a /var/lib/tokenkey/docker-compose.yml /var/lib/tokenkey/docker-compose.yml.compose-before-" + $tag + "; sudo sed -i '\''/^      - TZ=/a\\      - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}'\'' /var/lib/tokenkey/docker-compose.yml; if grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then echo ensured-compose-SERVER_FRONTEND_URL-mapping; else echo '\''::warning::failed to insert compose SERVER_FRONTEND_URL mapping'\''; fi; else echo compose-SERVER_FRONTEND_URL-mapping-present-or-no-compose; fi")
-  ] + $qa_cmds + $qa_archive_cmds + $media_cmds + $ic_cmds + $edge_qa_cmds + [
+  ] + $qa_archive_cmds + $media_cmds + $ic_cmds + $edge_qa_cmds + [
     "echo \"=== pull new image BEFORE drain (old container keeps serving 100% traffic) ===\"",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
     "echo \"=== pre-drain: SIGUSR1 + wait in_flight=0 (only when outgoing container healthy) ===\"",
@@ -347,8 +287,8 @@ jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_bundle_cmds}" --argjson qa_arch
 }' > "${params_file}"
 
 # Render-only seam: write the SSM command document and exit before any AWS call.
-# Lets the prod-vs-edge QA-export injection be asserted deterministically in tests
-# (see ops/stage0/test_deploy_via_ssm_qa_export.py) without touching live infra.
+# Lets the prod-vs-edge raw archive injection be asserted deterministically in tests
+# (see ops/stage0/test_deploy_via_ssm_bluegreen.py) without touching live infra.
 if [[ -n "${STAGE0_RENDER_ONLY:-}" ]]; then
   echo "stage0_deploy_via_ssm: STAGE0_RENDER_ONLY set; wrote ${params_file} and exiting" >&2
   exit 0

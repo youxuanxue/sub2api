@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/observability/trajectory"
@@ -22,13 +21,10 @@ import (
 type BlobStore interface {
 	Put(ctx context.Context, key string, body []byte, contentType string) (string, error)
 	// PutReader streams body to the store without buffering the whole payload
-	// in memory. Used by the trajectory export, whose zip can be hundreds of MB
-	// (an in-memory build is what hung prod on 2026-06-17). r SHOULD be an
-	// io.ReadSeeker (e.g. *os.File) so the S3 driver can set Content-Length.
+	// in memory. A seekable reader lets the S3 driver set Content-Length.
 	PutReader(ctx context.Context, key string, r io.Reader, contentType string) (string, error)
 	Get(ctx context.Context, key string) ([]byte, error)
 	Delete(ctx context.Context, key string) error
-	PresignURL(ctx context.Context, key string, expiry time.Duration) (string, error)
 }
 
 type localFSBlobStore struct {
@@ -85,13 +81,6 @@ func (s *localFSBlobStore) Delete(_ context.Context, key string) error {
 		return err
 	}
 	return nil
-}
-
-func (s *localFSBlobStore) PresignURL(_ context.Context, key string, _ time.Duration) (string, error) {
-	if !filepath.IsLocal(filepath.FromSlash(key)) {
-		return "", fmt.Errorf("blob key must be relative to the storage root")
-	}
-	return "file://" + filepath.Join(s.root, filepath.FromSlash(key)), nil
 }
 
 type s3BlobStore struct {
@@ -237,17 +226,4 @@ func (s *s3BlobStore) Delete(ctx context.Context, key string) error {
 		Key:    &fullKey,
 	})
 	return err
-}
-
-func (s *s3BlobStore) PresignURL(ctx context.Context, key string, expiry time.Duration) (string, error) {
-	fullKey := s.fullKey(key)
-	client := s3.NewPresignClient(s.client)
-	out, err := client.PresignGetObject(ctx, &s3.GetObjectInput{
-		Bucket: &s.bucket,
-		Key:    &fullKey,
-	}, s3.WithPresignExpires(expiry))
-	if err != nil {
-		return "", err
-	}
-	return out.URL, nil
 }

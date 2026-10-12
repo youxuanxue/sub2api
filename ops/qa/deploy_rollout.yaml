@@ -7,7 +7,7 @@ schema_version: 1
 
 prod:
   component_release:
-    runtime_contract: independent_v1
+    runtime_contract: raw_archive_v1
     repository_state: ready
     observed_live_state: not_deployed
     planner: ops/stage0/prod_release_plan.py
@@ -64,17 +64,6 @@ prod:
   qa_records:
     partition_owner_repository: tokenkey-qa-maintenance
     partition_owner_observed: qa_lifecycle_boundary
-  user_export:
-    phase3_worker_repository_state: s3_bundle_ready
-    phase3_worker_observed_state: transitional_in_prod
-    job_registry: immutable_s3_spec
-    database_job_registry: retired
-    bundle_infra_repository_state: ready
-    bundle_infra_observed_state: not_verified
-    bundle_runtime_contract: phase3_v1
-    bundle_worker_desired_count: 1
-    bundle_readiness_verifier: ops/qa/verify_qa_bundle_infra.sh
-    bundle_canary: ops/stage0/run-qa-bundle-canary-via-ssm.sh
   QA_CAPTURE_ENABLED:
     deploy_inject: edge_only_false
     policy_target: prod.capture_enabled

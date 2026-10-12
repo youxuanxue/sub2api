@@ -45,12 +45,6 @@ class AssertLiveHostStateTransportTest(unittest.TestCase):
                 APPCONTAINER {{"name":"tokenkey-blue"}}
                 RUNIMAGE {{"image":"ghcr.io/youxuanxue/sub2api:1.8.40"}}
                 ENV {{"key":"SERVER_FRONTEND_URL","value":"https://api.tokenkey.dev"}}
-                ENV {{"key":"QA_BUNDLE_ENABLED","value":"true"}}
-                ENV {{"key":"QA_BUNDLE_QUEUE_URL","value":"https://sqs.us-east-1.amazonaws.com/123/tokenkey-prod-qa-bundle"}}
-                ENV {{"key":"QA_BUNDLE_STORAGE_DRIVER","value":"s3"}}
-                ENV {{"key":"QA_BUNDLE_STORAGE_REGION","value":"us-east-1"}}
-                ENV {{"key":"QA_BUNDLE_STORAGE_BUCKET","value":"tokenkey-prod-qa-bundles-123"}}
-                ENV {{"key":"QA_BUNDLE_STORAGE_PREFIX","value":"user-qa"}}
                 ENV {{"key":"GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"30"}}
                 ENV {{"key":"GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS","value":"60"}}
                 ENV {{"key":"GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"60"}}

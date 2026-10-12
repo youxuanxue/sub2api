@@ -53,7 +53,7 @@ class GeminiWebRelayCheckTest(unittest.TestCase):
             self.assertEqual(verdict, json.loads(result.stdout)["verdict"])
             self.assertNotIn("do-not-print", result.stdout + result.stderr)
 
-    def test_workflow_blocks_before_prod_mutation_and_preserves_old_rollback(self):
+    def test_workflow_blocks_before_prod_mutation_and_preserves_compatible_rollback(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-stage0.yml").read_text())
         steps = workflow["jobs"]["deploy"]["steps"]
         gate_index = next(i for i, step in enumerate(steps)
@@ -64,7 +64,7 @@ class GeminiWebRelayCheckTest(unittest.TestCase):
                          gate["if"])
         self.assertIn("--expected-instance-id", gate["run"])
         self.assertIn("--script ops/observability/probe-gemini-web-relay-declarations.sh", gate["run"])
-        for step_id in ("legacy_pause", "legacy_boundary", "ssm"):
+        for step_id in ("ssm",):
             mutation_index = next(i for i, step in enumerate(steps) if step.get("id") == step_id)
             self.assertLess(gate_index, mutation_index)
 

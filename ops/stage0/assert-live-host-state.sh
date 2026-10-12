@@ -7,7 +7,7 @@
 #   baseline and kept current by imperative healers — the image tag is hot-deployed
 #   via SSM (deploy_via_ssm.sh) so the CFN ImageTag param intentionally lags
 #   (changing it would REPLACE the instance), and prod-only env
-#   (SERVER_FRONTEND_URL, TOKENKEY_GHCR_KEEP_TAGS, QA_BUNDLE_* vars) is injected
+#   (SERVER_FRONTEND_URL, TOKENKEY_GHCR_KEEP_TAGS) is injected
 #   onto the host, NOT carried in the shared compose (avoids
 #   the edge 14 KiB launch-script limit). The decoupling is by design — but until
 #   this check, NOTHING watched the live host, so every drift (a deploy-sed that
@@ -83,7 +83,7 @@ printf 'APPCONTAINER {"name":"%s"}\n' "\$app_container"
 img=\$(docker inspect "\$app_container" --format '{{.Config.Image}}' 2>/dev/null)
 printf 'RUNIMAGE {"image":"%s"}\n' "\$img"
 docker exec "\$app_container" printenv 2>/dev/null \
-  | grep -E '^(SERVER_FRONTEND_URL|QA_BUNDLE_(ENABLED|QUEUE_URL|STORAGE_(DRIVER|REGION|BUCKET|PREFIX))|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS|GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS)=' \
+  | grep -E '^(SERVER_FRONTEND_URL|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS|GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS)=' \
   | while IFS='=' read -r k v; do printf 'ENV {"key":"%s","value":"%s"}\n' "\$k" "\$v"; done
 PROBE
 
