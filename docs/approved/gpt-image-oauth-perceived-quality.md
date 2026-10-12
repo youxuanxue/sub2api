@@ -56,10 +56,13 @@ TokenKey 现状（改前）：`instructions` 固定 `""`（codex2api，避免主
 
 `SUB2API_IMAGES_PROMPT_SCAFFOLD=off|false|0|no` 关掉脚手架，effort 逻辑仍在。
 
+Stage0 蓝绿模板 `ops/stage0/deploy_via_ssm_bluegreen.sh` 把这两个变量从宿主机 `.env` 透传到 blue 和 green。未设置时模板写成空字符串，应用仍走自动档。部署器不把空值写回宿主机 `.env`。
+
 ## Owners
 
 | 关注点 | Owner |
 | --- | --- |
 | effort 解析与 prompt 脚手架 | `backend/internal/service/openai_images_perceived_quality_tk.go` |
 | OAuth Responses 接线（空 instructions、style 之前、AR marker 仍在末尾） | `backend/internal/service/openai_images_responses.go` |
+| Stage0 蓝绿宿主机 `.env` 透传 | `ops/stage0/deploy_via_ssm_bluegreen.sh` |
 | 像素 / 格式 | `openai_images_strict_canvas_tk.go`、`openai_images_upscale_tk.go`（本变更不改） |
