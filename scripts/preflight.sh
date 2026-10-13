@@ -391,7 +391,7 @@ export PREFLIGHT_BASE="${template_base:-origin/main}"
 # checks; a missing prerequisite leaves the job unspawned and the section
 # falls back to its serial FAIL/skip path.
 _qa_raw_archive_gate_run() {
-    python3 -m unittest ops.stage0.test_bluegreen_host_runtime ops.stage0.test_prod_component_release ops.qa.test_migrate_hcloud_objects &&
+    python3 -m unittest ops.stage0.test_bluegreen_host_runtime ops.stage0.test_prod_component_release &&
     cd backend && go test -tags=unit -v ./internal/config ./internal/observability/qa/archive ./internal/observability/qa/lifecycle ./internal/observability/qa
 }
 _protocol_routing_gate_run() {

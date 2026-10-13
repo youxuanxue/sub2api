@@ -50,7 +50,7 @@ raw 文件身份只挂载给 maintenance 子容器，网关两种颜色不挂载
 用户后续决定退役 QA 主机、uk1 worker/队列、Bundle 与用户导出。本文件中的旧共用资源、
 隔离实验与迁移步骤已移出当前部署指南；历史证据保留在 Git。
 唯一现行 QA 契约为 [QA raw-only](qa-raw-only.md)：prod 定时归档到私有 raw S3，
-冻结清单、SHA256、restore 与 maintenance 接受验证通过后才切换存储。
+存量按 AWS 原有生命周期自然到期；新增归档经 restore 与 maintenance 接受验证切换存储。
 本轮代码 PR 不部署、不迁移生产数据、不删除 AWS 源；不能据此宣称 QA 已去 AWS。
 
 ## 发布验收证据
