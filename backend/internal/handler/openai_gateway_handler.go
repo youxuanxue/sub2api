@@ -821,6 +821,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				dispatchBody := tkResponsesForwardDispatchBody(apiKey, executionAccount, request.Body(), failedAccountIDs, h.gatewayService.ReplaceModelInBody)
 				return h.deriveOpenAIForwardAttemptBody(reqLog, dispatchBody, executionAccount, &passthroughFailoverState)
 			}
+			service.BeginOpsFirstOutputAttempt(c)
 			value, executeErr := service.ExecuteSelectedProtocol(
 				c.Request.Context(),
 				h.protocolRouter,
@@ -1452,6 +1453,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				}
 				return forwardBody
 			}
+			service.BeginOpsFirstOutputAttempt(c)
 			value, executeErr := service.ExecuteSelectedProtocol(
 				c.Request.Context(),
 				h.protocolRouter,
@@ -3234,7 +3236,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 
 		for {
+			service.BeginOpsFirstOutputAttempt(c)
 			err := h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, hooks)
+			c.Set("ops_first_output_ws_failed", err != nil)
 			if err == nil {
 				reqLog.Info("openai.websocket_ingress_closed", zap.Int64("account_id", account.ID))
 				return

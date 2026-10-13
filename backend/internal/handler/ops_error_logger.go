@@ -1130,6 +1130,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		c.Writer = w
 		c.Next()
 		w.finalizeCapture()
+		finalizeOpsFirstOutputEvaluation(c, w)
 
 		if _, rejected := middleware2.GetIngressRejectReason(c); rejected {
 			return

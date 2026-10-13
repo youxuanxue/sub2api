@@ -294,6 +294,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				logOpenAIStudioChatImageRequestAudit(c, apiKey, subject.UserID, executionAccount, request.Body(), forwardBody)
 				return forwardBody
 			}
+			service.BeginOpsFirstOutputAttempt(c)
 			value, executeErr := service.ExecuteSelectedProtocol(
 				c.Request.Context(),
 				h.protocolRouter,

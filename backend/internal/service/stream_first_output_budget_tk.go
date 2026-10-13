@@ -201,6 +201,7 @@ func streamFirstOutputFailoverIfBudgetFired(c *gin.Context, g *streamFirstOutput
 	if !g.BudgetFired(guarded, caller) {
 		return nil
 	}
+	recordOpsStreamFirstOutputTimeout(c)
 	if c != nil && c.Writer != nil && c.Writer.Size() >= 0 {
 		return streamFirstOutputFailoverErrorAfterKeepalive()
 	}

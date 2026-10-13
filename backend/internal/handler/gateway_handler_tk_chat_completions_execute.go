@@ -49,6 +49,7 @@ func (h *GatewayHandler) executeChatCompletionsSelectedProtocol(
 	parsedReq *service.ParsedRequest,
 ) (*service.ForwardResult, error) {
 	channelMapping = service.CandidateForwardMapping(requestCtx, channelMapping)
+	service.BeginOpsFirstOutputAttempt(c)
 	value, executeErr := service.ExecuteSelectedProtocol(
 		requestCtx,
 		h.protocolRouter,

@@ -235,6 +235,15 @@ func (s *OpenAIGatewayService) beginCandidateChatAttempt(ctx context.Context, c 
 	}
 	r.chatAttempts++
 	timeout = min(timeout, time.Until(r.chatDeadline))
+	reason := "default"
+	if !stream {
+		reason = "nonstream"
+	} else if streamFirstOutputHighEffort(effort) {
+		reason = "high_effort"
+	} else if s.cfg == nil || s.cfg.Gateway.NewAPIChatFirstOutputTimeout <= 0 {
+		reason = "newapi_inherit"
+	}
+	RecordOpsFirstOutputBudget(c, account, timeout, reason)
 	a := newCandidateChatAttempt(ctx, c.Writer, stream, timeout)
 	request := c.Request
 	ctx = context.WithValue(a.ctx, candidateChatAttemptKey{}, a)
@@ -244,6 +253,9 @@ func (s *OpenAIGatewayService) beginCandidateChatAttempt(ctx context.Context, c 
 		defer a.close()
 		c.Writer, c.Request = a.ResponseWriter, request
 		cause := context.Cause(a.ctx)
+		if errors.Is(cause, errCandidateChatFirstOutput) {
+			recordOpsStreamFirstOutputTimeout(c)
+		}
 		// Prefer the inbound caller error so handler marks 499 and retains any
 		// partial result for billing, whether cancel landed before or after the
 		// first useful output.

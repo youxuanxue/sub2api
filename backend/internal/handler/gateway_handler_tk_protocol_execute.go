@@ -61,6 +61,7 @@ func (h *GatewayHandler) executeMessagesSelectedProtocol(
 	hasBoundSession bool,
 ) (*service.ForwardResult, error) {
 	channelMapping = service.CandidateForwardMapping(requestCtx, channelMapping)
+	service.BeginOpsFirstOutputAttempt(c)
 	value, executeErr := service.ExecuteSelectedProtocol(
 		requestCtx,
 		h.protocolRouter,

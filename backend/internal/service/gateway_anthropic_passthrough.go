@@ -108,6 +108,7 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 		// account leaves the next account with ~0s and false 504s.
 		base := context.WithoutCancel(ctx)
 		budget := resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(input.Body))
+		RecordOpsFirstOutputBudget(c, account, budget, streamFirstOutputBudgetReason(anthropicBodyStreamFirstOutputHighEffort(input.Body)))
 		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, budget)
 	}
 

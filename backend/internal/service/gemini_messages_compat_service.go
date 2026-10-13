@@ -830,6 +830,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	if req.Stream {
 		base := context.WithoutCancel(ctx)
 		budget := resolveStreamFirstOutputTimeout(s.cfg, geminiBodyStreamFirstOutputHighEffort(body))
+		RecordOpsFirstOutputBudget(c, account, budget, streamFirstOutputBudgetReason(geminiBodyStreamFirstOutputHighEffort(body)))
 		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, budget)
 	}
 
@@ -1399,6 +1400,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	if stream {
 		base := context.WithoutCancel(ctx)
 		budget := resolveStreamFirstOutputTimeout(s.cfg, geminiBodyStreamFirstOutputHighEffort(body))
+		RecordOpsFirstOutputBudget(c, account, budget, streamFirstOutputBudgetReason(geminiBodyStreamFirstOutputHighEffort(body)))
 		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, budget)
 	}
 
