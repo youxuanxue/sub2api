@@ -12,16 +12,14 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
-// On prod the QA raw S3 store authenticates via the EC2 instance role: the
-// deploy injects only DRIVER/REGION/BUCKET/PREFIX and the QaExports bucket
-// policy grants the instance role Put/Get/Delete. Forcing an empty static
-// credentials provider broke every raw upload with "static credentials are empty"
-// (PutObject). This locks the fix: a static provider is added ONLY when an
-// access key is configured; otherwise we fall through to the default chain.
+// QA S3 stores may authenticate through the default AWS credential chain.
+// An explicit static provider must be selected only when an access key exists.
+// An empty static provider fails PutObject with "static credentials are empty".
+// Without an access key, authentication must fall through to the default chain.
 func TestQAS3LoadOptions_StaticCredsOnlyWhenConfigured(t *testing.T) {
 	ctx := context.Background()
 
-	// No access key (the prod / instance-role path): exactly one option (region),
+	// No access key (the default credential-chain path): exactly one option (region),
 	// no static credentials provider injected.
 	noCreds := qaS3LoadOptions(config.QACaptureStorageConfig{
 		Driver: "s3", Region: "us-east-1", Bucket: "tokenkey-prod-qa-raw-archive",

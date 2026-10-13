@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Tests for the prod-only media-storage injection in ops/stage0/deploy_via_ssm.sh.
 
-Mirrors test_deploy_via_ssm_qa_export.py: deploy_via_ssm.sh self-heals the
+Checks that deploy_via_ssm.sh self-heals the
 generated-media S3 offload config (MEDIA_STORAGE_DRIVER/REGION/BUCKET) onto a LIVE
 prod host on every deploy, anchored to the tokenkey-unique SERVER_FRONTEND_URL
-compose line. Edges (Lightsail mi-*) are pure cc-relay mirrors that never serve
+compose line. Managed hcloud Edges are relay mirrors that never serve
 media generation, so the injection is gated to the prod EC2 (i-*) node. Credentials
 are never written — the prod instance role + the media bucket policy grant S3
 access, so presigned links are signed by the instance role (no long-lived key).

@@ -191,7 +191,7 @@ if [[ "${INSTANCE_ID}" == i-* ]]; then
 fi
 
 # --- Image/video generation concurrency cap (prod-only) ----------------------
-# Same proven mechanism as the QA-export / media blocks above (additive,
+# Same proven mechanism as the media block above (additive,
 # grep-guarded, idempotent .env + compose-mapping patches on a LIVE host). The
 # image/video generation concurrency limiter ships DISABLED in code (a no-op),
 # leaving /v1/images/generations + /v1/video/generations exposed to a
