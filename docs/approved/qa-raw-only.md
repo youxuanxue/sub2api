@@ -35,6 +35,8 @@ raw 目标为私有 Hetzner Object Storage，region fsn1、HTTPS、固定 raw/v1
 
 用户追加确认存量 raw 不搬迁：AWS 原归档按原有 7 天生命周期自然到期，保留其原始到期规则与运维恢复入口；停止预复制，不开临时搬迁机，也不在 Edge 上运行搬迁服务。S3 到期删除是异步操作，不以切换后第 7 天必然清空作为验收条件；根据 AWS 最后写入对象的实际到期边界及只读清单确认自然退场。
 
+旧对象的保留期继续按其原始写入时间计算，切换不重置到期时间。AWS 仍有未到期 raw 对象时，必须保留读取这些对象所需的桶、KMS 和恢复角色权限；不能为提前结束过渡而缩短生命周期或撤销恢复访问。
+
 仅切换新增归档的存储坐标。以 UTC 归档小时记录最后一个 AWS 小时和第一个 Hetzner 小时，先确认旧小时已 committed、restore_verified，且没有未完成 segment 或未覆盖的源记录；不能把旧小时的补写任务误送到缺少原 commit 的新桶。短暂停止并排空 maintenance 与 boundary 两个 owner，保护 DROP，保留原 pin、配置和定时器状态，再切换独立 maintenance pin；capture 持续运行。普通 gateway deploy 不得替代这些步骤，也不得静默切换 raw bucket 或 endpoint。
 
 切换前确认 Hetzner 私有桶的 7 天 raw 生命周期、受保护凭据和现有 S3 兼容性验证。切换后至少观察两次定时新增归档 committed、restore_verified、missing blobs=0，并对新产生的 Hetzner 归档做隔离 restore，核对生命周期及 prod/edges 健康。失败时保护 DROP，按真实小时归属保留两侧数据与恢复坐标，再恢复原 maintenance 配置；不能把已在 Hetzner 提交的小时当作 AWS 已保存。暂停期间监控磁盘、捕获队列与未来分区覆盖，超出既有容量门禁则回退。AWS 源不主动删除；AWS 桶、KMS 和恢复角色等资源销毁仍须另行审批。
