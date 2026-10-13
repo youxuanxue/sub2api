@@ -364,12 +364,7 @@ func buildOpenAIImagesResponsesRequestWithMainModel(parsed *OpenAIImagesRequest,
 	if parsed == nil {
 		return nil, fmt.Errorf("parsed images request is required")
 	}
-	prompt := parsed.Prompt
-	if !parsed.Multipart && gjson.ValidBytes(parsed.Body) {
-		if rawPrompt := gjson.GetBytes(parsed.Body, "prompt").String(); rawPrompt != "" {
-			prompt = rawPrompt
-		}
-	}
+	prompt := openAIImagesClientPrompt(parsed)
 	if strings.TrimSpace(prompt) == "" {
 		return nil, fmt.Errorf("prompt is required")
 	}
@@ -433,6 +428,12 @@ func buildOpenAIImagesResponsesRequestWithMainModel(parsed *OpenAIImagesRequest,
 	// Never set tools[].n: live ChatGPT Codex Responses rejects it with
 	// unknown_parameter (2026-09-30). n>1 is fulfilled by TokenKey multi-fetch.
 	// Never set tools[].style: fold into prompt via applyOpenAIImagesStyleGuidance.
+	// gpt-image-2 / gpt-image-2-codex reject tools[].input_fidelity
+	// (invalid_input_fidelity_model). Other tool models on this builder keep it.
+	inputFidelity := parsed.InputFidelity
+	if openAIImagesCodexSoftModelRejectsInputFidelity(toolModel) {
+		inputFidelity = ""
+	}
 
 	for _, field := range []struct {
 		path  string
@@ -443,7 +444,7 @@ func buildOpenAIImagesResponsesRequestWithMainModel(parsed *OpenAIImagesRequest,
 		{path: "background", value: parsed.Background},
 		{path: "output_format", value: parsed.OutputFormat},
 		{path: "moderation", value: parsed.Moderation},
-		{path: "input_fidelity", value: parsed.InputFidelity},
+		{path: "input_fidelity", value: inputFidelity},
 	} {
 		if trimmed := strings.TrimSpace(field.value); trimmed != "" {
 			tool, _ = sjson.SetBytes(tool, field.path, trimmed)
@@ -1874,14 +1875,21 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	}
 	beginUpstreamResponseModelObservation(c)
 	SetOpsUpstreamModel(c, upstreamModel)
-	logger.LegacyPrintf(
-		"service.openai_gateway",
-		"[OpenAI] Images request routing request_model=%s endpoint=%s account_type=%s uploads=%d",
-		requestModel,
-		parsed.Endpoint,
-		account.Type,
-		len(parsed.Uploads),
-	)
+	mainModel := openAIImagesEffectiveMainModel(ctx)
+	var dispatch openAIImagesOAuthDispatchFacts
+	if direct {
+		logger.LegacyPrintf(
+			"service.openai_gateway",
+			"[OpenAI] Images request routing request_model=%s endpoint=%s account_type=%s uploads=%d",
+			requestModel,
+			parsed.Endpoint,
+			account.Type,
+			len(parsed.Uploads),
+		)
+	} else {
+		dispatch = openAIImagesOAuthDispatchFactsFor(parsed, upstreamModel, mainModel)
+		logOpenAIImagesOAuthDispatch(account, requestModel, parsed.Endpoint, len(parsed.Uploads), dispatch)
+	}
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	defer releaseUpstreamCtx()
 
@@ -1892,7 +1900,6 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 
 	var responsesBody []byte
 	var targetURL string
-	mainModel := openAIImagesEffectiveMainModel(ctx)
 	if direct {
 		responsesBody, targetURL, err = buildOpenAIImagesOAuthPayload(parsed, upstreamModel)
 	} else {
@@ -2028,7 +2035,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		}
 		if err != nil {
 			if imageCount > 0 {
-				return &OpenAIForwardResult{
+				partial := &OpenAIForwardResult{
 					RequestID:                     resp.Header.Get("x-request-id"),
 					UpstreamHeaders:               resp.Header,
 					Usage:                         usage,
@@ -2045,7 +2052,9 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 					ImageSize:                     parsed.SizeTier,
 					ImageInputSize:                parsed.Size,
 					ImageOutputSizes:              imageOutputSizes,
-				}, err
+				}
+				stampOpenAIImagesOAuthDispatch(partial, dispatch)
+				return partial, err
 			}
 			return nil, s.handleOpenAIImagesOAuthResponseError(
 				upstreamCtx,
@@ -2094,7 +2103,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 			RetryableOnSameAccount: true,
 		}
 	}
-	return &OpenAIForwardResult{
+	result := &OpenAIForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),
 		UpstreamHeaders:               resp.Header,
 		Usage:                         usage,
@@ -2111,7 +2120,9 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		ImageSize:                     parsed.SizeTier,
 		ImageInputSize:                parsed.Size,
 		ImageOutputSizes:              imageOutputSizes,
-	}, nil
+	}
+	stampOpenAIImagesOAuthDispatch(result, dispatch)
+	return result, nil
 }
 
 const (

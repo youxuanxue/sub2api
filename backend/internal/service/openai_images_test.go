@@ -2187,7 +2187,8 @@ func TestBuildOpenAIImagesResponsesRequest_FoldsStyleIntoPromptNotTool(t *testin
 	body, err := buildOpenAIImagesResponsesRequest(parsed, "gpt-image-2")
 	require.NoError(t, err)
 	require.NotNil(t, body)
-	require.Equal(t, "high", gjson.GetBytes(body, "tools.0.input_fidelity").String())
+	// gpt-image-2 is served as gpt-image-2-codex, which rejects input_fidelity.
+	require.False(t, gjson.GetBytes(body, "tools.0.input_fidelity").Exists())
 	require.False(t, gjson.GetBytes(body, "tools.0.style").Exists())
 	styled := gjson.GetBytes(body, "input.0.content.0.text").String()
 	assertOpenAIImagesPerceivedQualityPrompt(t, styled, "replace background", true)

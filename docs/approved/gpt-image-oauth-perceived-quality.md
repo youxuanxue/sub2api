@@ -48,7 +48,8 @@ TokenKey 现状（改前）：`instructions` 固定 `""`（codex2api，避免主
 
 - 不把 Velmo 的 labeled-spec preamble 放进 `instructions`。那段文字的作用是让主模型改写 prompt，和 codex2api 的空 `instructions` 相反。
 - 不把默认 effort 降到 `none`（Velmo 对纯字符串 `auto` 会这样做），否则观感会比现在的 `medium` 更差。
-- 不改工具 schema：仍传 `action`、`quality`、`input_fidelity`、mask。不删 `summary=auto`、`parallel_tool_calls`、`include`。
+- 仍传 `action`、`quality`、mask。不删 `summary=auto`、`parallel_tool_calls`、`include`。
+- `input_fidelity` 只在 Codex 软模型上省略，见下方 2026-10-13 修订。API-key Images 与其它工具模型继续透传。
 - 不接色键、skill 文件、batch/chain、`text.verbosity`。
 - 不接 Real-ESRGAN 或任何放大模型。
 - 不改 API-key Images 路由，也不把脚手架套到 API-key prompt 上。
@@ -58,11 +59,37 @@ TokenKey 现状（改前）：`instructions` 固定 `""`（codex2api，避免主
 
 Stage0 蓝绿模板 `ops/stage0/deploy_via_ssm_bluegreen.sh` 在 blue 和 green 的 `environment` 里保留 `${SUB2API_IMAGES_REASONING_EFFORT:-}` 与 `${SUB2API_IMAGES_PROMPT_SCAFFOLD:-}`。`docker compose --env-file .env` 创建容器时读取宿主机 `.env`。键缺失或值为空时，容器里对应值是空字符串：effort 走自动档，脚手架保持开启（与 `deploy/docker-compose.yml` 里脚手架默认 `on` 的应用行为相同）。部署器不 `env_set` / `env_default` 这两个键，也不把它们放进 SSM 启动前缀，避免部署机上的空值盖住宿主机已有配置。
 
+2026-10-13 edge-uk1 A/B（medium / high / xhigh，2048 与一发 4K）没有稳定观感增益。默认档保持 `medium`（短 ASCII `"label"` 仍升到 `high`）。不要为了这次观感把默认改成 high 或 xhigh。
+
+## 2026-10-13 edge-uk1：可观测与 input_fidelity
+
+证据：blue `1.8.289`，`model=gpt-image-2`，账号落到 OAuth Responses，上游软模型 `gpt-image-2-codex`。
+
+### 可观测
+
+当时 `usage_logs.reasoning_effort` 与 `requested_reasoning_effort` 全是 NULL；`main_model` 与脚手架没有列，路由日志也没有这三项。
+
+OAuth Responses 生图（`forwardOpenAIImagesOAuth` 的非 Direct 分支）现在：
+
+- 结构化事件 `openai_images.oauth_dispatch`，以及同一条 `[OpenAI] Images request routing` 文本，带上本次实际的 `reasoning_effort`、`effort_source`（`env` 或 `auto`）、`main_model`、`main_model_fallbacks`（当前驱动之后仍可重试的链）、`scaffold_on`、`tool_model`、`input_fidelity_omitted`。
+- `OpenAIForwardResult.ReasoningEffort` 写成即将发往上游的 `reasoning.effort`。`RecordUsage` 把它落入 `usage_logs.reasoning_effort`；Images API 没有客户端 effort 字段，`requested_reasoning_effort` 由既有 coalesce 记成同一个值。
+- `main_model` 与 `scaffold_on` 没有 usage_logs 列，不新增 schema，只出现在上述日志。
+- API-key Images 不走这套 Responses 驱动，不写 effort 列。
+
+分组若为该模型配置了 reasoning effort 倍率，OAuth 生图会开始按这个实际档计费。未配置时倍率仍是 1，默认价格不变。
+
+### input_fidelity
+
+同一轮 edits：`input_fidelity=high` 与 `low` 都是 HTTP 400，`invalid_input_fidelity_model`，模型 `gpt-image-2-codex` 不支持该字段。省略字段则 200。
+
+`buildOpenAIImagesResponsesRequestWithMainModel` 在工具模型是 `gpt-image-2`、`gpt-image-2-codex`，或以 `gpt-image-2-codex-` 开头时不写 `tools[].input_fidelity`。`gpt-image-2` 是上游软成 `gpt-image-2-codex` 的工具名。`gpt-image-1`、`gpt-image-1.5`、`gpt-image-2.5-*` 以及 API-key Images 原文透传继续保留该字段。Direct Images 仍关闭，不在本修订里重新打开。
+
 ## Owners
 
 | 关注点 | Owner |
 | --- | --- |
 | effort 解析与 prompt 脚手架 | `backend/internal/service/openai_images_perceived_quality_tk.go` |
+| OAuth 生图 dispatch 日志、usage effort、Codex `input_fidelity` 省略 | `backend/internal/service/openai_images_oauth_dispatch_tk.go` |
 | OAuth Responses 接线（空 instructions、style 之前、AR marker 仍在末尾） | `backend/internal/service/openai_images_responses.go` |
 | Stage0 蓝绿宿主机 `.env` 透传 | `ops/stage0/deploy_via_ssm_bluegreen.sh` |
 | 像素 / 格式 | `openai_images_strict_canvas_tk.go`、`openai_images_upscale_tk.go`（本变更不改） |
