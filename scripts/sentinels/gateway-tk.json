@@ -16676,10 +16676,12 @@
         "func normalizeChatProviderRequest(",
         "func normalizeBridgeChatProviderRequest(",
         "normalizeStrictChatDeveloperRoles(account, targetURL, body)",
+        "func coalescePlanChatTokenLimit(",
+        "body = coalescePlanChatTokenLimit(body)",
         "func normalizeChatToolConstraints(",
         "delete(root, \"functions\")"
       ],
-      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role/token-limit owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
     },
     {
       "path": "backend/internal/service/openai_chat_roles.go",
@@ -16722,11 +16724,12 @@
         "func TestChatToolConstraints_SelectionAndHistory(",
         "func TestChatToolConstraints_InvalidAndUnconstrained(",
         "func TestChatProviderConstraints_DestinationAndRetryIsolation(",
+        "func TestChatProviderConstraints_PlanTokenLimitCoalesce(",
         "func TestChatProviderConstraints_ForwardRawAndAliAdaptor(",
         "func TestChatProviderConstraints_InvalidSelectionDoesNotSend(",
         "func TestChatProviderConstraints_ResponsesFallback("
       ],
-      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role/token-limit owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
     },
     {
       "path": "backend/internal/server/routes/gateway_terminal_routes.go",

@@ -124,6 +124,52 @@ func TestChatProviderConstraints_DestinationAndRetryIsolation(t *testing.T) {
 	require.Equal(t, original, got)
 }
 
+func TestChatProviderConstraints_PlanTokenLimitCoalesce(t *testing.T) {
+	account := &Account{Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeVolcEngine,
+		Credentials: map[string]any{"base_url": newapiintegration.VolcEngineAgentPlanBaseURL}}
+	dual := []byte(`{"model":"glm-5.3","messages":[{"role":"user","content":"hi"}],"max_tokens":128,"max_completion_tokens":256}`)
+	original := bytes.Clone(dual)
+
+	got, err := normalizeChatProviderRequest(account, newapiintegration.VolcEngineAgentPlanBaseURL+"/chat/completions", dual)
+	require.NoError(t, err)
+	require.Equal(t, original, dual)
+	require.EqualValues(t, 256, gjson.GetBytes(got, "max_tokens").Int())
+	require.False(t, gjson.GetBytes(got, "max_completion_tokens").Exists())
+
+	ali := &Account{Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeAli,
+		Credentials: map[string]any{"base_url": newapiintegration.AliTokenPlanBaseURL}}
+	onlyCompletion := []byte(`{"model":"glm-5.3","max_completion_tokens":512,"messages":[{"role":"user","content":"hi"}]}`)
+	got, err = normalizeChatProviderRequest(ali, newapiintegration.AliTokenPlanBaseURL+"/compatible-mode/v1/chat/completions", onlyCompletion)
+	require.NoError(t, err)
+	require.EqualValues(t, 512, gjson.GetBytes(got, "max_tokens").Int())
+	require.False(t, gjson.GetBytes(got, "max_completion_tokens").Exists())
+
+	onlyMax := []byte(`{"model":"glm-5.3","max_tokens":64}`)
+	got, err = normalizeChatProviderRequest(account, newapiintegration.VolcEngineAgentPlanBaseURL+"/chat/completions", onlyMax)
+	require.NoError(t, err)
+	require.Equal(t, onlyMax, got)
+
+	for _, bad := range []string{
+		`{"max_completion_tokens":null,"max_tokens":8}`,
+		`{"max_completion_tokens":"256","max_tokens":8}`,
+		`{"max_completion_tokens":-1,"max_tokens":8}`,
+		`{"max_completion_tokens":0,"max_tokens":8}`,
+	} {
+		body := []byte(bad)
+		got, err = normalizeChatProviderRequest(account, newapiintegration.VolcEngineAgentPlanBaseURL+"/chat/completions", body)
+		require.NoError(t, err)
+		require.Equal(t, body, got)
+	}
+
+	foreign := []byte(`{"max_tokens":128,"max_completion_tokens":256}`)
+	got, err = normalizeChatProviderRequest(account, "https://api.openai.com/v1/chat/completions", foreign)
+	require.NoError(t, err)
+	require.Equal(t, foreign, got)
+	got, err = normalizeChatProviderRequest(account, "https://ark.cn-beijing.volces.com/api/v3/chat/completions", foreign)
+	require.NoError(t, err)
+	require.Equal(t, foreign, got)
+}
+
 // Emulates the observed provider defect: ignore tool_choice and call every
 // advertised function. The gateway must constrain the actual outbound list.
 func chatConstraintSupplier(body []byte) (string, string) {
@@ -171,7 +217,7 @@ func TestChatProviderConstraints_ForwardRawAndAliAdaptor(t *testing.T) {
 			for _, universal := range []bool{false, true} {
 				for _, mode := range []string{"named", "none", "json_object", "json_schema"} {
 					t.Run(fmt.Sprintf("ali=%t/stream=%t/universal=%t/%s", ali, stream, universal, mode), func(t *testing.T) {
-						request := gin.H{"model": "glm-5.3", "messages": []any{gin.H{"role": "developer", "content": "Return White"}, gin.H{"role": "user", "content": "weather and time"}}, "stream": stream, "max_tokens": 128, "tools": json.RawMessage(constraintTools)}
+						request := gin.H{"model": "glm-5.3", "messages": []any{gin.H{"role": "developer", "content": "Return White"}, gin.H{"role": "user", "content": "weather and time"}}, "stream": stream, "max_tokens": 128, "max_completion_tokens": 256, "tools": json.RawMessage(constraintTools)}
 						if mode == "named" {
 							request["tool_choice"] = gin.H{"type": "function", "function": gin.H{"name": "get_weather"}}
 						} else {
@@ -242,6 +288,8 @@ func TestChatProviderConstraints_ForwardRawAndAliAdaptor(t *testing.T) {
 						}
 						require.Equal(t, role, gjson.GetBytes(wire, "messages.0.role").String())
 						require.Equal(t, "Return White", gjson.GetBytes(wire, "messages.0.content").String())
+						require.EqualValues(t, 256, gjson.GetBytes(wire, "max_tokens").Int())
+						require.False(t, gjson.GetBytes(wire, "max_completion_tokens").Exists())
 						if mode == "named" {
 							require.Equal(t, int64(1), gjson.GetBytes(wire, "tools.#").Int())
 							require.Contains(t, rec.Body.String(), "get_weather")
