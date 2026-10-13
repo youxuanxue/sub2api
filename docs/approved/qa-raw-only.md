@@ -37,6 +37,8 @@ raw 目标为私有 Hetzner Object Storage，region fsn1、HTTPS、固定 raw/v1
 
 若复制、对账、restore 或健康门禁失败，保持 DROP pause 和 AWS 源，恢复原 maintenance 配置；不删除源数据。冻结期间须监控磁盘和捕获队列，超出既有容量门禁则回退并恢复定时归档。切换后验证连续定时归档、restore、生命周期健康和 prod/edges 网关健康，观察期后再单独审批销毁 AWS 数据与资源。
 
+迁移验收范围经用户追加确认为「保留旧警告，继续迁移已保存的数据」。冻结前保存现有 unresolved capture failure 的精确基线；历史 `runtime_discontinuity` 可作为显式保留的例外，不清除 failure、不补造 seal，也不宣称不确定区间已完整捕获或全局 capture hard-health 已恢复。该例外仅允许迁移已经保存并经完整对账与 restore 校验的数据，不授予缺少 seal 的小时 DROP 权限。新增 failure、当前 runtime 不可 seal、捕获积压不收敛、新完成小时缺少有效 seal 或新归档无法恢复，继续阻止切换和验收。
+
 ## 线上安全边界
 
 QA 基础设施部署权限由 `deploy/aws/cloudformation/cicd-oidc.yaml` 管理，收敛到 raw archive/audit；删除旧 Bundle、ECS 和 SQS 授权。IAM 栈收尾仅修改 QA 部署角色，不替换角色、不修改其他资源，保留现有 raw 栈的服务角色绑定。
