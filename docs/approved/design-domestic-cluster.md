@@ -17,11 +17,12 @@ JWT/TOTP 密钥和数据库均不与现网共享。两个站点不做跨地域�
 做成跨境主从。
 
 本方案是部署设计，不包含云资源创建、域名注册、ICP备案、数据导入或流量切换。
-域名、云厂商、合规主体和是否需要境外上游出口仍需业务决策。
+UCloud 已确定；域名、地域、合规主体和是否需要境外上游出口仍需业务决策。
 
 # 推荐基线
 
-采用 UCloud 的 VPC、负载均衡/WAF、云主机、对象存储、密钥管理和云助手/远程执行能力。
+采用 UCloud 的 VPC、负载均衡/WAF、云主机、对象存储、密钥管理和远程执行通道；具体
+UCloud 产品组合由 PoC 定案。
 每个 prod/edge 节点运行一套与现网 Stage0 兼容的 Docker Compose：Caddy、
 TokenKey、PostgreSQL、Redis 和持久化数据卷。prod 是唯一的公共 API 入口；edge 只接受
 prod relay 和运维通道，承担对应平台账号池。
@@ -61,8 +62,9 @@ flowchart LR
 | `cn-edge-1..4` | 4 | 完整前端/管理面、对应平台账号池、edge relay、本地 PostgreSQL/Redis | 只允许 `cn-prod` 固定源地址、私网域名和运维通道 |
 
 每个节点都使用独立数据卷和独立 secrets。PostgreSQL 是该节点业务事实源，Redis 可丢失
-并重建；节点之间不共享数据库。云助手/SSM、镜像仓库和对象存储属于控制面，不新增一台
-必需的运维业务节点。
+并重建；节点之间不共享数据库。prod 负责国内用户、余额、API key、兑换码和计费事实；
+edge 只负责本 edge 的 Agent/Token 账号、平台映射和运行状态。云助手/SSM、镜像仓库和
+对象存储属于控制面，不新增一台必需的运维业务节点。
 
 VPC 至少划分 WAF/SLB、业务节点、运维/数据三个安全域。数据库和 Redis 不分配公网
 地址，安全组只允许本节点 TokenKey、prod→edge relay 和备份任务访问。Edge 入站同时受
@@ -136,7 +138,8 @@ VPC 至少划分 WAF/SLB、业务节点、运维/数据三个安全域。数据�
 3. 使用国内云助手/SSM 通过私网下发升级，不开放 SSH 入站。云 API 身份、命令通道、
    secrets 前缀和审计日志全部属于 `domestic` 发布环境。
 4. **公共代码/运行时发布**：edge canary → prod → 其余 edge，沿用 Stage0 的 drain、
-   in-flight 归零、digest 切换、`/health/live`/`/health/ready` 检查和 fail-stop。
+   in-flight 归零、digest 切换、`/health/live`/`/health/ready` 检查和 fail-stop；prod 还要
+   检查公网 frontend/admin，edge 只从 prod 固定来源检查受限 frontend/admin。
 5. **平台/账号/模型映射变更**：由人类先判断影响矩阵，只 dispatch 受影响的 edge；若
    只影响 prod relay 或站点配置，则只部署 prod。无需同时发布的目标保持原 digest。
 6. 回滚只引用上一个已验收 digest 和配置快照，不重新构建镜像。数据库迁移保持向前兼容；
@@ -197,18 +200,22 @@ fingerprint 变更只选受影响的 target。两套站点可以暂时运行不�
 
 # 服务范围
 
-国内五个节点都部署完整的运营站点：后端 API、API key 鉴权、Agent Plan/Token Plan 账号
-选择、用户/账号管理、用量记录与基础统计、管理员审计、健康检查，以及内置的前端和管理面。
-只有 `cn-prod` 对公网提供用户入口；`cn-edge-1..4` 的 frontend/admin 也存在，但只接受
-来自 `cn-prod` 的固定源地址、约定域名和运维通道。
+国内五个节点都部署同一套完整的运营站点镜像：后端 API、API key 鉴权、Agent Plan/Token
+Plan 账号选择、用户/账号管理、用量记录与基础统计、管理员审计、健康检查，以及内置的
+前端和管理面。只有 `cn-prod` 对公网提供用户入口；`cn-edge-1..4` 的 frontend/admin 也
+存在，但只接受来自 `cn-prod` 的固定源地址、约定域名和运维通道。
+
+管理职责按数据归属限制：prod 管国内用户、余额、API key、兑换码、计费和全站统计；edge
+只管本 edge 的 Agent/Token 账号、平台映射、容量和健康状态。edge 不提供用户和余额管理，
+这些页面应隐藏或跳转到 prod，避免运营人员在独立 edge 数据库上误操作。
 
 完整站点不需要额外的前端服务器：当前镜像会在构建时把 frontend embed 到 TokenKey 二进制，
 prod 的 Caddy 开放站点和 `/admin`，edge 的 Caddy 只对 prod/运维来源开放同一套站点和
 `/admin`。运营入口建议使用独立管理域名或管理路径，并加办公网/VPN allowlist、强管理员
 认证和审计。
 
-“完整”只代表运营所需的前后端和管理面，不代表打开所有产品模块。QA、Gemini worker、媒体
-和其他未部署依赖的菜单/路由必须由能力开关或权限隐藏，并在 backend 侧拒绝实际调用。
+“完整”只代表当前节点所需的前后端和管理面，不代表打开所有产品模块。QA、Gemini worker、
+媒体和其他未部署依赖的菜单/路由必须由能力开关或权限隐藏，并在 backend 侧拒绝实际调用。
 
 与 API-only 的差异：
 
@@ -219,7 +226,7 @@ prod 的 Caddy 开放站点和 `/admin`，edge 的 Caddy 只对 prod/运维来�
 | CPU/内存 | 主要消耗来自 API、上游请求、PostgreSQL/Redis | 基线基本相同；增加页面请求、静态资源、用户/账号列表和统计查询负载 |
 | 带宽/日志 | 低，主要是 API 流量 | 高一些，增加静态资源、管理操作和浏览器日志；可由 CDN/WAF 缓存静态资源 |
 | 安全面 | 公开路由少 | 多出登录、管理、静态资源和管理员攻击面，需要 allowlist、审计和更严格告警 |
-| 运营能力 | 主要靠脚本/API | 五个节点都可运营；公网用户只进入 prod，edge 由 prod 或运维入口访问 |
+| 运营能力 | 主要靠脚本/API | prod 管全站用户与计费，edge 管本地账号池；公网用户只进入 prod |
 
 因此五个节点统一部署完整运营站点，减少两套运行形态带来的心智负担。额外资源主要是
 管理请求、统计查询和静态资源带宽，通常远小于新增一台业务节点；真正的容量瓶颈仍是
