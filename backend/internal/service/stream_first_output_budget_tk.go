@@ -12,6 +12,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -67,6 +68,22 @@ func streamFirstOutputHighEffort(reasoningEffort string) bool {
 	default:
 		return false
 	}
+}
+
+// firstOutputHighEffortModel keeps known long-thinking model families in the
+// complex tier even when the client omits an explicit effort value.
+func firstOutputHighEffortModel(model string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(claude.NormalizeModelID(model)))
+	normalized = strings.TrimPrefix(normalized, "anthropic.")
+	for _, family := range []string{"claude-opus", "claude-fable"} {
+		if normalized == family || strings.HasPrefix(normalized, family+"-") || strings.HasPrefix(normalized, family+".") {
+			return true
+		}
+	}
+	return isOpenAIGPT6AstraModel(normalized) ||
+		isOpenAIGPT56Model(normalized) ||
+		openai.IsGPT6SolOrLunaModelSpelling(normalized) ||
+		openai.IsGPT61SolModelSpelling(normalized)
 }
 
 // newAPIChatFirstOutputTimeoutWithEffort is the per-attempt useful-first-output
@@ -228,12 +245,8 @@ func kiroStreamFirstOutputHighEffort(req *kiroproto.ClaudeRequest) bool {
 	if req == nil {
 		return false
 	}
-	model := strings.ToLower(strings.TrimSpace(claude.NormalizeModelID(req.Model)))
-	model = strings.TrimPrefix(model, "anthropic.")
-	for _, family := range []string{"claude-opus", "claude-fable"} {
-		if model == family || strings.HasPrefix(model, family+"-") || strings.HasPrefix(model, family+".") {
-			return true
-		}
+	if firstOutputHighEffortModel(req.Model) {
+		return true
 	}
 	if req.OutputConfig != nil && streamFirstOutputHighEffort(req.OutputConfig.Effort) {
 		return true
@@ -253,6 +266,9 @@ func kiroStreamFirstOutputHighEffort(req *kiroproto.ClaudeRequest) bool {
 func anthropicBodyStreamFirstOutputHighEffort(body []byte) bool {
 	if len(body) == 0 {
 		return false
+	}
+	if firstOutputHighEffortModel(gjson.GetBytes(body, "model").String()) {
+		return true
 	}
 	if streamFirstOutputHighEffort(gjson.GetBytes(body, "output_config.effort").String()) {
 		return true

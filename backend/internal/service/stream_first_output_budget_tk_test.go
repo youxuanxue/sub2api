@@ -92,6 +92,26 @@ func TestKiroStreamFirstOutputHighEffort(t *testing.T) {
 	}))
 }
 
+func TestFirstOutputHighEffortModelFamilies(t *testing.T) {
+	for _, tc := range []struct {
+		model string
+		high  bool
+	}{
+		{model: "claude-opus-5-5", high: true},
+		{model: "claude-fable-5-1", high: true},
+		{model: "gpt-6-astra", high: true},
+		{model: "gpt-5.6-sol", high: true},
+		{model: "gpt-6.1-sol", high: true},
+		{model: "gpt-6-luna", high: true},
+		{model: "claude-sonnet-4-5", high: false},
+		{model: "gpt-6.1-luna", high: false},
+	} {
+		t.Run(tc.model, func(t *testing.T) {
+			require.Equal(t, tc.high, firstOutputHighEffortModel(tc.model))
+		})
+	}
+}
+
 func TestKiroFirstOutputBudgetWatchCloseUnblocksUpstreamRead(t *testing.T) {
 	// Custom doer bodies are not closed by http.Request context cancel alone.
 	// WatchClose must close the pipe so parseEventStream returns and the
