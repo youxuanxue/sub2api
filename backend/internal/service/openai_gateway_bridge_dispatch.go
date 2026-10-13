@@ -84,6 +84,11 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 		return nil, shapeErr
 	}
 	body = applyNVIDIABuildChatTokenLimit(account, body)
+	body, err = normalizeBridgeChatProviderRequest(account, in, body)
+	if err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
 	if strings.TrimSpace(in.APIKey) == "" {
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
@@ -161,6 +166,11 @@ func dispatchNewAPIAccountTestChatCompletions(
 	}
 	body = applyNVIDIABuildChatTokenLimit(account, body)
 	in := newAPIBridgeChannelInputForBody(account, 0, "", body)
+	var err error
+	body, err = normalizeBridgeChatProviderRequest(account, in, body)
+	if err != nil {
+		return err
+	}
 	if strings.TrimSpace(in.APIKey) == "" {
 		return &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}

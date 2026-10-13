@@ -16651,6 +16651,64 @@
         "writeAnthropicError(c, statusCode, errType, errMsg)"
       ],
       "rationale": "Native and compatible Messages share the same context-error and late SSE owner."
+    },
+    {
+      "path": "backend/internal/service/openai_chat_constraints_tk.go",
+      "must_contain": [
+        "func normalizeChatProviderRequest(",
+        "func normalizeBridgeChatProviderRequest(",
+        "normalizeStrictChatDeveloperRoles(account, targetURL, body)",
+        "func normalizeChatToolConstraints(",
+        "delete(root, \"functions\")"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_chat_roles.go",
+      "must_contain": [
+        "newapiintegration.IsAliTokenPlanBaseURL(newapiconstant.ChannelTypeAli, targetURL)"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": [
+        "normalizeChatProviderRequest(account, targetURL, upstreamBody)"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
+      "must_contain": [
+        "normalizeBridgeChatProviderRequest(account, in, body)"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_responses_fallback.go",
+      "must_contain": [
+        "normalizeBridgeChatProviderRequest(account, in, chatBody)"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_responses_chat_fallback.go",
+      "must_contain": [
+        "normalizeChatProviderRequest(account, targetURL, chatBody)"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_chat_constraints_tk_test.go",
+      "must_contain": [
+        "func TestChatToolConstraints_SelectionAndHistory(",
+        "func TestChatToolConstraints_InvalidAndUnconstrained(",
+        "func TestChatProviderConstraints_DestinationAndRetryIsolation(",
+        "func TestChatProviderConstraints_ForwardRawAndAliAdaptor(",
+        "func TestChatProviderConstraints_InvalidSelectionDoesNotSend(",
+        "func TestChatProviderConstraints_ResponsesFallback("
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
     }
   ]
 }
