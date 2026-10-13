@@ -17,9 +17,11 @@ import (
 
 const (
 	// Universal stream first-useful-output defaults (docs/approved/candidate-eligibility-ssot.md).
+	// first-output-timeout-ssot:begin
 	defaultStreamFirstOutputTimeout           = 30 * time.Second
 	defaultStreamFirstOutputHighEffortTimeout = 60 * time.Second
-	defaultNewAPIChatNonstreamFirstOutput     = 300 * time.Second
+	// first-output-timeout-ssot:end
+	defaultNewAPIChatNonstreamFirstOutput = 300 * time.Second
 )
 
 // ResolveGrokFirstByteHeaderTimeout is the Grok transport ResponseHeaderTimeout

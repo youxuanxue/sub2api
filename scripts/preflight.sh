@@ -2752,10 +2752,9 @@ else
     done
 fi
 
-# first-output timeout SSOT: single owner ops/stage0/first_output_timeout_ssot.py
-# must agree with viper defaults, Go stream defaults, blue/green compose inject,
-# config.example.yaml, and remediate WANT_* — otherwise live assert and remediates
-# silently diverge (the 2026-10 OpenAI-only vs full-stream miss class).
+# first-output timeout SSOT: edit ops/stage0/first_output_timeout_ssot.py then
+# python3 scripts/checks/first-output-timeout-ssot.py --apply (generates viper /
+# compose / remediate / example / Go defaults). --check fails on drift.
 echo ""
 
 fi # preflight gate
@@ -2768,10 +2767,11 @@ elif ! python3 ./scripts/checks/first-output-timeout-ssot.py --selftest >/dev/nu
     echo "  FAIL: first-output-timeout-ssot.py selftest"
     echo "        — run: python3 scripts/checks/first-output-timeout-ssot.py --selftest"
     errors=$((errors + 1))
-elif ! python3 ./scripts/checks/first-output-timeout-ssot.py --quiet; then
+elif ! python3 ./scripts/checks/first-output-timeout-ssot.py --check --quiet; then
+    echo "        — run: python3 scripts/checks/first-output-timeout-ssot.py --apply"
     errors=$((errors + 1))
 else
-    echo "  ok: first-output timeout owners match SSOT (stream 30/60 + OpenAI 60/300)"
+    echo "  ok: first-output timeout generated owners match SSOT"
 fi
 
 # ---- sub2api: pgdump timer cadence parity ----------------------------------

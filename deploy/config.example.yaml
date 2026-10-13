@@ -233,11 +233,17 @@ gateway:
   # OpenAI/Codex upstream response header timeout (seconds, 0=disabled)
   # OpenAI/Codex 等待上游响应头超时时间（秒，0=禁用本地响应头超时）
   openai_response_header_timeout: 0
-  # Universal streaming useful-first-output budget (seconds, 0=code default 30, max 60).
-  # Cross-platform SSOT: docs/approved/candidate-eligibility-ssot.md
+  # First-output budgets: ops/stage0/first_output_timeout_ssot.py (generated).
+  # Compact / compaction_trigger / body >= 1 MiB force OpenAI high-effort budget.
+  # Explicit openai_*=0 emergency-disables OpenAI waits. Pre-output staging capped at 8 MiB.
+  # first-output-timeout-ssot:begin
+  # Generated — edit ops/stage0/first_output_timeout_ssot.py then:
+  #   python3 scripts/checks/first-output-timeout-ssot.py --apply
   stream_first_output_timeout_seconds: 30
-  # High-reasoning override (high/xhigh/max); 0=code default 60, max 60.
   stream_first_output_high_effort_timeout_seconds: 60
+  openai_first_output_timeout_seconds: 120
+  openai_high_effort_first_output_timeout_seconds: 300
+  # first-output-timeout-ssot:end
   # Replayable NewAPI Chat streaming override (seconds, 0=inherit stream SSOT, max 60).
   newapi_chat_first_output_timeout: 0
   # Replayable NewAPI Chat non-streaming: complete useful JSON wait per attempt
@@ -245,13 +251,6 @@ gateway:
   newapi_chat_nonstream_first_output_timeout: 300
   # Grok text Responses first-byte timeout (seconds, 0=inherit stream_first_output SSOT, max 60)
   grok_response_header_timeout: 0
-  # Native OpenAI HTTP Responses first semantic output timeout (seconds).
-  # Default 60; explicit 0 disables. Includes response-header wait.
-  # A timed-out request may already have incurred upstream usage; account failover can therefore duplicate upstream billing.
-  # Pre-output attempt staging is capped at 8 MiB; overflow fails over without exposing partial SSE data.
-  openai_first_output_timeout_seconds: 60
-  # Optional high/xhigh/max override (seconds, 0=inherit stream high-effort SSOT / 60)
-  openai_high_effort_first_output_timeout_seconds: 300
   # Max request body size in bytes (default: 256MB)
   # 请求体最大字节数（默认 256MB）
   max_body_size: 268435456

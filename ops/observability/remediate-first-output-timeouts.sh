@@ -3,14 +3,8 @@
 # host, then recreate the active app container.
 # Delivered via run-probe.sh. Requires APPLY=yes-first-output-timeouts.
 #
-# Numbers owned by ops/stage0/first_output_timeout_ssot.py (preflight-gated):
-# stream 30/60; OpenAI 60 / high-effort 300.
-#
-# Target:
-#   GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=30
-#   GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=60
-#   GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=60
-#   GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=300
+# Numbers: ops/stage0/first_output_timeout_ssot.py →
+#   python3 scripts/checks/first-output-timeout-ssot.py --apply
 set -euo pipefail
 
 APPLY="${APPLY:-}"
@@ -19,12 +13,20 @@ ACTIVE_FILE=/var/lib/tokenkey/active-color
 ROOT=/var/lib/tokenkey
 COMPOSE_BG="$ROOT/docker-compose.bluegreen.yml"
 
-# Keep in lockstep with first_output_timeout_ssot.EXPECTED_ENV (checked by
-# scripts/checks/first-output-timeout-ssot.py).
+# first-output-timeout-ssot:begin
+# Generated — edit ops/stage0/first_output_timeout_ssot.py then:
+#   python3 scripts/checks/first-output-timeout-ssot.py --apply
+#
+# Target:
+#   GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=30
+#   GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=60
+#   GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=120
+#   GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=300
 WANT_STREAM=30
 WANT_STREAM_HIGH=60
-WANT_OPENAI=60
+WANT_OPENAI=120
 WANT_OPENAI_HIGH=300
+# first-output-timeout-ssot:end
 
 KEYS=(
   GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS
@@ -61,14 +63,14 @@ path = pathlib.Path(sys.argv[1])
 text = path.read_text()
 candidates = [
     "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-60}",
-    "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-30}",
+    "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-60}",
 ]
 needle = next((c for c in candidates if c in text), None)
 if needle is None:
     raise SystemExit("compose missing STREAM high-effort line; refuse to patch")
 insert = (
     needle
-    + "\n      - GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-60}"
+    + "\n      - GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-120}"
     + "\n      - GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS:-300}"
 )
 path.write_text(text.replace(needle, insert))
@@ -80,7 +82,7 @@ bump_compose_fallbacks() {
   sudo sed -i \
     -e 's|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=\${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-30}|g' \
     -e 's|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=\${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-60}|g' \
-    -e 's|GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=\${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-60}|g' \
+    -e 's|GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=\${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-120}|g' \
     -e 's|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=\${GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS:-300}|g' \
     "$f"
 }
@@ -197,4 +199,4 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 echo "=== ok ==="
-echo '{"apply":true,"stream":30,"stream_high":60,"openai":60,"openai_high":300,"container":"'"$container"'"}'
+echo '{"apply":true,"stream":30,"stream_high":60,"openai":120,"openai_high":300,"container":"'"$container"'"}'

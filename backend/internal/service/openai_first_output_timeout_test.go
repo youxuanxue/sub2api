@@ -185,10 +185,35 @@ func TestOpenAIFirstOutputTimeoutForReasoningEffort(t *testing.T) {
 		OpenAIHighEffortFirstOutputTimeoutSeconds: 300,
 	}}}
 
-	require.Equal(t, 120*time.Second, svc.openAIFirstOutputTimeout("low"))
-	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout("high"))
-	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout("xhigh"))
-	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout("max"))
+	require.Equal(t, 120*time.Second, svc.openAIFirstOutputTimeout("low", false))
+	require.Equal(t, 120*time.Second, svc.openAIFirstOutputTimeout("medium", false))
+	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout("high", false))
+	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout("xhigh", false))
+	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout("max", false))
+	// Compact / large-body force-high overrides medium/low onto the high budget.
+	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout("medium", true))
+	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout("low", true))
+}
+
+func TestOpenAIFirstOutputForceHighBudgetCompactAndLargeBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	compactRec := httptest.NewRecorder()
+	compactC, _ := gin.CreateTestContext(compactRec)
+	compactC.Request = httptest.NewRequest(http.MethodPost, "/v1/responses/compact", nil)
+	require.True(t, openAIFirstOutputForceHighBudget(compactC, []byte(`{"model":"gpt-6.1-sol"}`)))
+
+	triggerBody := []byte(`{"model":"gpt-6.1-sol","input":[{"type":"message","role":"user","content":"hi"},{"type":"compaction_trigger"}]}`)
+	plainRec := httptest.NewRecorder()
+	plainC, _ := gin.CreateTestContext(plainRec)
+	plainC.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	require.True(t, openAIFirstOutputForceHighBudget(plainC, triggerBody))
+
+	small := bytes.Repeat([]byte("a"), openAIFirstOutputLargeBodyBytes-1)
+	require.False(t, openAIFirstOutputForceHighBudget(plainC, small))
+	large := bytes.Repeat([]byte("b"), openAIFirstOutputLargeBodyBytes)
+	require.True(t, openAIFirstOutputForceHighBudget(plainC, large))
+	require.True(t, openAIFirstOutputForceHighBudget(nil, large))
 }
 
 func TestOpenAIFirstOutputStageDefaultLimitIsIndependentFromScannerLimit(t *testing.T) {

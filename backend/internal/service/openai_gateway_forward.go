@@ -959,9 +959,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if reasoningEffort != nil {
 		reasoningEffortValue = *reasoningEffort
 	}
+	forceHighFirstOutput := openAIFirstOutputForceHighBudget(c, body)
 	firstOutputTimeout := time.Duration(0)
 	if reqStream && account.Platform == PlatformOpenAI {
-		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffortValue)
+		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffortValue, forceHighFirstOutput)
 	}
 
 	httpInvalidEncryptedContentRetryTried := false
@@ -1167,7 +1168,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		searchCount := 0
 		var imageOutputSizes []string
 		if reqStream {
-			streamResult, err := s.handleStreamingResponseWithReasoning(ctx, resp, c, account, startTime, originalModel, upstreamModel, reasoningEffortValue)
+			streamResult, err := s.handleStreamingResponseWithReasoning(ctx, resp, c, account, startTime, originalModel, upstreamModel, reasoningEffortValue, forceHighFirstOutput)
 			if err != nil {
 				if signal, ok := asOpenAICompactFallbackSignal(err); ok {
 					if retryBody, fallbackModel, retry := s.prepareOpenAICompactFallbackRetry(

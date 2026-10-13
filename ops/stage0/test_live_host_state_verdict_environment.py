@@ -7,6 +7,7 @@ import unittest
 
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import first_output_timeout_ssot as first_output_ssot
 import live_host_state_verdict as verdict
 
 
@@ -26,26 +27,7 @@ class LiveHostStateVerdictTest(unittest.TestCase):
         ])
 
     def test_default_expected_env_is_first_output_ssot(self) -> None:
-        self.assertEqual(
-            verdict.DEFAULT_EXPECTED_ENV["GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS"],
-            "30",
-        )
-        self.assertEqual(
-            verdict.DEFAULT_EXPECTED_ENV[
-                "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS"
-            ],
-            "60",
-        )
-        self.assertEqual(
-            verdict.DEFAULT_EXPECTED_ENV["GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS"],
-            "60",
-        )
-        self.assertEqual(
-            verdict.DEFAULT_EXPECTED_ENV[
-                "GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS"
-            ],
-            "300",
-        )
+        self.assertEqual(verdict.DEFAULT_EXPECTED_ENV, first_output_ssot.EXPECTED_ENV)
 
 
 if __name__ == "__main__":

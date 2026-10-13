@@ -103,7 +103,7 @@ class AssertFirstOutputTimeoutsTransportTest(unittest.TestCase):
 
     def test_drift_emits_warning_but_exits_zero(self) -> None:
         bad = _expected_env_lines().replace(
-            'GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"60"',
+            'GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"120"',
             'GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"15"',
         )
         proc = self._run(target="edge:us4", probe_stdout=bad)
