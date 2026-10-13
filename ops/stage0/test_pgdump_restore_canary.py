@@ -8,6 +8,7 @@ import gzip
 import json
 import pathlib
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -143,6 +144,60 @@ class FakeCommands:
 
 
 class PgdumpRestoreCanaryTest(unittest.TestCase):
+    def test_io_limits_use_whole_disk_and_reject_non_block_device(self):
+        with mock.patch.object(pathlib.Path, "stat", return_value=mock.Mock(st_mode=stat.S_IFBLK)):
+            run = mock.Mock(return_value=subprocess.CompletedProcess([], 0, stdout="sda\n"))
+            self.assertEqual(canary._io_limits(run, "/dev/sda1"),
+                             ["--device-read-bps", "/dev/sda:10485760", "--device-write-bps", "/dev/sda:10485760"])
+        with mock.patch.object(pathlib.Path, "stat", return_value=mock.Mock(st_mode=stat.S_IFREG)):
+            with self.assertRaisesRegex(canary.CanaryError, "block device"):
+                canary._io_limits(run, "/dev/sda1")
+
+    def test_restore_failure_does_not_print_credential_bearing_copy_row(self):
+        fake = FakeCommands()
+
+        def failing_restore(args, **kwargs):
+            if args[:2] == ["bash", "-o"] and "gunzip -c" in " ".join(args):
+                return subprocess.CompletedProcess(args, 1, stderr="COPY accounts: secret-user-token")
+            return fake(args, **kwargs)
+
+        with self.assertRaisesRegex(canary.CanaryError, "row details withheld") as error:
+            self.run_case(failing_restore)
+        self.assertNotIn("secret-user-token", str(error.exception))
+        self.assertFalse(fake.container_present)
+
+    def test_hetzner_restore_uses_encrypted_private_identity_and_verifies_round_trip(self):
+        from test_pgdump_storage import StorageTests
+        fixture = StorageTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.values["target"] = "edge:us3"
+        fixture.values["s3_uri"] = "s3://tokenkey-pgdump-test/edge/us3/pgdump"
+        fixture.write_config()
+        fake = FakeCommands()
+        source = fixture.root / "tokenkey-20260818T070000Z.sql.gz"
+        source.write_bytes(fake.downloaded)
+        storage_calls = []
+
+        def run(args, **kwargs):
+            if args[0] == "env":
+                storage_calls.append(args)
+                args = args[args.index("aws"):]
+            return fake(args, **kwargs)
+
+        receipt = canary.run_canary("edge:us3", env_path=fixture.env, storage_config=fixture.config,
+                                   receipt_root=fixture.root / "canary", expected_source_path=source,
+                                   run=run, sleep=lambda _: None, now=lambda: NOW,
+                                   disk_usage=lambda _: shutil._ntuple_diskusage(20 * 1024**3, 0, 10 * 1024**3))
+        self.assertEqual(receipt["source_endpoint"], fixture.values["endpoint"])
+        self.assertEqual(receipt["source_encryption"], "SSE-C")
+        self.assertTrue(receipt["s3_round_trip_verified"])
+        self.assertEqual(receipt["artifact_sha256"], receipt["source_local_sha256"])
+        listing, download = storage_calls
+        self.assertNotIn("--sse-c-key", listing)
+        self.assertIn(f"fileb://{fixture.key}", download)
+        self.assertIn("AWS_PROFILE=pgdump", download)
+
     def run_case(
         self,
         fake: FakeCommands,
@@ -205,7 +260,7 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
         self.assertTrue(any("s3api list-objects-v2" in call for call in joined))
         self.assertTrue(any("s3 cp s3://tokenkey-prod-pgdump-123/edge/us3/pgdump/tokenkey-20260818T070000Z.sql.gz" in call for call in joined))
         self.assertTrue(any("gunzip -c" in call and "docker exec -i" in call and "ON_ERROR_STOP=1" in call for call in joined))
-        self.assertTrue(any("--cpus=1.00" in call and "--memory=1024m" in call for call in joined))
+        self.assertTrue(any("--cpus=0.50" in call and "--memory=1024m" in call for call in joined))
         docker_run = next(call for call in fake.calls if call[:2] == ["docker", "run"])
         self.assertTrue(any(arg.endswith(":/var/lib/postgresql") for arg in docker_run))
         self.assertFalse(any(":/var/lib/postgresql/data" in arg for arg in docker_run))

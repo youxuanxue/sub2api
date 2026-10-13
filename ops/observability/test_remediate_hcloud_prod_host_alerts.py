@@ -69,6 +69,7 @@ esac''',
         variables = {
             "ALERT_SOURCE": SOURCE,
             "PROD_MATRIX": MATRIX,
+            "EDGE_MATRIX": ROOT / "deploy/hetzner/edge-targets-hetzner.json",
             "ALERT_INSTALLED": self.installed,
             "DROPIN_DIR": self.dropin,
             "BACKUP_ROOT": self.root / "backups",
@@ -122,6 +123,25 @@ esac''',
         self.assertIn("backup=", result.stdout)
         self.assertNotIn("mode=apply", result.stdout)
         self.assertTrue(list((self.root / "backups").glob("*/tokenkey-disk-metrics.sh")))
+
+    def test_edge_installs_only_alert_script_without_volume_or_timer_restart(self):
+        import sys
+        sys.path.insert(0, str(ROOT / "ops/stage0"))
+        from edge_routing_matrix import materialize_hetzner_target
+        matrix = json.loads((ROOT / "deploy/hetzner/edge-targets-hetzner.json").read_text())
+        host = materialize_hetzner_target("uk1", matrix, matrix["targets"]["uk1"])["instance_name"]
+        result = self.run_installer(ALERT_TARGET="edge:uk1", TEST_HOST=host,
+                                    APPLY="yes-hcloud-host-alerts", TEST_MOUNT_FAILURE="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.installed.read_bytes(), SOURCE.read_bytes())
+        self.assertEqual((self.dropin / "hetzner-volume.conf").read_text(), "old binding\n")
+        self.assertNotIn("restart", self.trace.read_text())
+
+    def test_non_deployable_edge_fails_before_mutation(self):
+        before = self.snapshot()
+        result = self.run_installer(ALERT_TARGET="edge:us3", APPLY="yes-hcloud-host-alerts")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(before, self.snapshot())
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ prefix, and selects the newest object whose basename matches
 
 The configured prefix must match the target identity: `prod/pgdump` for prod and
 `edge/<edge-id>/pgdump` for an Edge. The selected object's S3 `LastModified` must
-be no more than three hours old. Missing configuration, an empty prefix, an
+be no more than four hours old. Missing configuration, an empty prefix, an
 unexpected key, a stale object, or an S3 read failure stops the canary.
 
 ## Restore isolation and capacity
@@ -33,8 +33,11 @@ actual filesystem containing the canary root. Required free bytes are the
 compressed object plus twice the uncompressed SQL size plus one GiB of headroom.
 Insufficient capacity fails before PostgreSQL restore work begins.
 
+Hetzner host identity, key handling and storage cutover follow
+[`hcloud-pgdump-storage.md`](hcloud-pgdump-storage.md).
+
 The temporary PostgreSQL container uses the live container's already-present
-image, no network, bounded CPU and memory, and a bind-mounted temporary data
+image, no network, half a CPU and 1 GiB memory without additional swap, and a bind-mounted temporary data
 directory. Restore uses the production backup format directly:
 
 ```text

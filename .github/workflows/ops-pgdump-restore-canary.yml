@@ -47,7 +47,7 @@ jobs:
     needs: discover-targets
     if: needs.discover-targets.outputs.has_targets == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 75
     permissions:
       contents: read
       id-token: write
@@ -100,7 +100,8 @@ jobs:
             --script ops/stage0/pgdump_restore_canary_remote.sh \
             --with ops/stage0/pgdump_restore_canary.py \
             --with ops/stage0/pgdump_restore_canary_contract.py \
-            --timeout-seconds 1500 \
+            --with ops/stage0/pgdump_storage.py \
+            --timeout-seconds 4200 \
             --comment "weekly pgdump restore canary target=$TARGET_ID" \
             --env "CANARY_TARGET=$PROBE_TARGET" | tee restore-canary.json
           jq -e '.mode == "pgdump_restore_canary" and .target == $target and .source_mutated == false and .deletion_authorized == false' \

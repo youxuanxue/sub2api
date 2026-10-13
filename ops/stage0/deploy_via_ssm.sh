@@ -152,8 +152,8 @@ if [[ "${INSTANCE_ID}" == i-* ]]; then
     ]')"
 fi
 
-# Same proven mechanism as the raw archive block above (additive, grep-guarded,
-# idempotent .env + compose-mapping patches on a LIVE host). Wires the media store:
+# Explicit MEDIA_STORAGE_BUCKET is required; the dormant AWS default is retired.
+# For an operator-selected media store, reuse the additive .env/compose mechanism:
 # MEDIA_STORAGE_DRIVER/REGION/BUCKET. Credentials stay EMPTY on purpose — the prod
 # instance role + the media bucket policy (Principal = prod InstanceRole ARN) grant
 # s3:PutObject/GetObject, so no static keys land in .env.
@@ -167,12 +167,12 @@ fi
 # enable before the CFN media bucket exists: the store degrades to base64
 # passthrough on any S3 error. The media/ key prefix matches the bucket lifecycle.
 media_storage_cmds='[]'
-if [[ "${INSTANCE_ID}" == i-* ]]; then
+if [[ "${INSTANCE_ID}" == i-* ]] && [ -n "${MEDIA_STORAGE_BUCKET:-}" ]; then
   media_storage_cmds="$(jq -n \
     --arg tag "${TAG}" \
     --arg driver "${MEDIA_STORAGE_DRIVER:-s3}" \
     --arg region "${MEDIA_STORAGE_REGION:-us-east-1}" \
-    --arg bucket "${MEDIA_STORAGE_BUCKET:-tokenkey-prod-media-682751977094}" '
+    --arg bucket "${MEDIA_STORAGE_BUCKET}" '
     [
       ( "ms_d=" + ($driver|@sh) + "; ms_r=" + ($region|@sh) + "; ms_b=" + ($bucket|@sh)
         + "; for kv in \"DRIVER=$ms_d\" \"REGION=$ms_r\" \"BUCKET=$ms_b\"; do"
