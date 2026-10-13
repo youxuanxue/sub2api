@@ -262,6 +262,11 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
         self.assertTrue(any("gunzip -c" in call and "docker exec -i" in call and "ON_ERROR_STOP=1" in call for call in joined))
         self.assertTrue(any("--cpus=0.50" in call and "--memory=1024m" in call for call in joined))
         docker_run = next(call for call in fake.calls if call[:2] == ["docker", "run"])
+        self.assertEqual(docker_run[-8:], ["postgres:18-alpine", "postgres", "-c", "fsync=off",
+                                          "-c", "synchronous_commit=off", "-c", "full_page_writes=off"])
+        self.assertIn("--network=none", docker_run)
+        self.assertTrue(docker_run[docker_run.index("--name") + 1].startswith("tokenkey-pgdump-canary-"))
+        self.assertFalse(any("ALTER SYSTEM" in " ".join(call) for call in fake.calls))
         self.assertTrue(any(arg.endswith(":/var/lib/postgresql") for arg in docker_run))
         self.assertFalse(any(":/var/lib/postgresql/data" in arg for arg in docker_run))
         self.assertTrue(any(call.endswith("pg_isready") for call in joined))

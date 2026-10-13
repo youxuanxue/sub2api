@@ -166,6 +166,7 @@ def _counts(run: RunCommand, container: str) -> dict[str, int]:
             "tokenkey", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c",
             _count_sql(),
         ],
+        timeout=120 if container == LIVE_POSTGRES else 600,
     )
     try:
         value = json.loads([line for line in raw.splitlines() if line.strip()][-1])
@@ -452,6 +453,11 @@ def run_canary(
                     # postgres:18+ official images refuse a bind mount on
                     # /var/lib/postgresql/data and require one mount at the parent.
                     "--volume", f"{data_dir}:/var/lib/postgresql", image,
+                    # Only this disposable database relaxes crash durability.
+                    # The immutable source and complete SQL/count verification
+                    # remain required; avoid repeated WAL flushes on a live host.
+                    "postgres", "-c", "fsync=off", "-c", "synchronous_commit=off",
+                    "-c", "full_page_writes=off",
                 ],
             )
             _wait_temporary_postgres(run, container, sleep)
@@ -461,7 +467,7 @@ def run_canary(
                 f"docker exec -i {shlex.quote(container)} psql -U tokenkey -d tokenkey "
                 "-v ON_ERROR_STOP=1"
             )
-            _run(run, ["bash", "-o", "pipefail", "-c", pipeline], timeout=2400)
+            _run(run, ["bash", "-o", "pipefail", "-c", pipeline], timeout=3600)
             restored_counts = _counts(run, container)
             pending_receipt = {
                 "schema_version": 2,
