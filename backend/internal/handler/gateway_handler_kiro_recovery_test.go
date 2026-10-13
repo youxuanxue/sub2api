@@ -195,12 +195,15 @@ func newGatewayHandlerForKiroRecoveryTest(
 	return h, billingCacheSvc.Stop
 }
 
-func runGatewayHandlerKiroRecoveryRequest(t *testing.T, h *GatewayHandler, group *service.Group, body []byte) (*gin.Context, *httptest.ResponseRecorder) {
+func runGatewayHandlerKiroRecoveryRequest(t *testing.T, h *GatewayHandler, group *service.Group, body []byte, requestContexts ...context.Context) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	if len(requestContexts) > 0 {
+		req = req.WithContext(requestContexts[0])
+	}
 	req = req.WithContext(context.WithValue(req.Context(), ctxkey.Group, group))
 	c.Request = req
 	apiKey := &service.APIKey{
@@ -325,16 +328,7 @@ func (u *gatewayHandlerKiroBudgetUpstream) DoWithTLS(req *http.Request, _ string
 func TestGatewayHandlerMessages_KiroBudgetAfterKeepaliveSwitchesAccount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	group := &service.Group{ID: 2003, Hydrated: true, Platform: service.PlatformKiro, Status: service.StatusActive}
-	accounts := make([]*service.Account, 0, 2)
-	for i := int64(0); i < 2; i++ {
-		id := int64(1101) + i
-		accounts = append(accounts, &service.Account{
-			ID: id, Name: fmt.Sprintf("kiro-budget-%d", i), Platform: service.PlatformKiro, Type: service.AccountTypeOAuth,
-			Credentials: map[string]any{"access_token": "at", "refresh_token": "rt", "profile_arn": "arn:aws:codewhisperer:us-east-1:123456789012:profile/test", "region": "us-east-1", "auth_method": "social"},
-			Concurrency: 1, Priority: int(i), Status: service.StatusActive, Schedulable: true,
-			AccountGroups: []service.AccountGroup{{AccountID: id, GroupID: group.ID}},
-		})
-	}
+	accounts := gatewayHandlerKiroBudgetAccounts(group)
 	upstream := &gatewayHandlerKiroBudgetUpstream{stalledID: accounts[0].ID}
 	cfg := &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1, StreamFirstOutputTimeoutSeconds: 2}}
 	h, cleanup := newGatewayHandlerForKiroRecoveryTest(t, group, accounts, newGatewayHandlerKiroRecoveryCache(), upstream, cfg)
@@ -351,4 +345,45 @@ func TestGatewayHandlerMessages_KiroBudgetAfterKeepaliveSwitchesAccount(t *testi
 	selected, ok := c.Get(opsAccountIDKey)
 	require.True(t, ok)
 	require.Equal(t, accounts[1].ID, selected)
+}
+
+func gatewayHandlerKiroBudgetAccounts(group *service.Group) []*service.Account {
+	accounts := make([]*service.Account, 0, 2)
+	for i := int64(0); i < 2; i++ {
+		id := int64(1101) + i
+		accounts = append(accounts, &service.Account{
+			ID: id, Name: fmt.Sprintf("kiro-budget-%d", i), Platform: service.PlatformKiro, Type: service.AccountTypeOAuth,
+			Credentials: map[string]any{"access_token": "at", "refresh_token": "rt", "profile_arn": "arn:aws:codewhisperer:us-east-1:123456789012:profile/test", "region": "us-east-1", "auth_method": "social"},
+			Concurrency: 1, Priority: int(i), Status: service.StatusActive, Schedulable: true,
+			AccountGroups: []service.AccountGroup{{AccountID: id, GroupID: group.ID}},
+		})
+	}
+	return accounts
+}
+
+// A deadline must stop retries without impersonating a caller disconnect. The
+// handler remains responsible for a visible terminal error and its Ops marker.
+func TestGatewayHandlerMessages_KiroCallerDeadlineAfterKeepaliveTerminates(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	group := &service.Group{ID: 2003, Hydrated: true, Platform: service.PlatformKiro, Status: service.StatusActive}
+	accounts := gatewayHandlerKiroBudgetAccounts(group)
+	upstream := &gatewayHandlerKiroBudgetUpstream{stalledID: accounts[0].ID}
+	cfg := &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1, StreamFirstOutputTimeoutSeconds: 5}}
+	h, cleanup := newGatewayHandlerForKiroRecoveryTest(t, group, accounts, newGatewayHandlerKiroRecoveryCache(), upstream, cfg)
+	t.Cleanup(cleanup)
+	ctx, cancel := context.WithTimeout(context.Background(), 1250*time.Millisecond)
+	defer cancel()
+	body := []byte(`{"model":"claude-opus-4-8","max_tokens":256,"stream":true,"messages":[{"role":"user","content":"test one model turn"}]}`)
+	c, rec := runGatewayHandlerKiroRecoveryRequest(t, h, group, body, ctx)
+	require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
+	require.Equal(t, []int64{accounts[0].ID}, upstream.accountIDs, "deadline must not consume a replacement account")
+	require.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_start"))
+	require.Contains(t, rec.Body.String(), "event: ping")
+	require.Equal(t, 1, strings.Count(rec.Body.String(), `"type":"error"`))
+	require.NotContains(t, rec.Body.String(), "event: message_stop")
+	require.False(t, service.IsClientClosedRequest(c, ctx.Err()))
+	failure, ok := service.GetOpsStreamError(c)
+	require.True(t, ok, "HTTP 200 after keepalive must not hide the terminal failure")
+	require.Equal(t, http.StatusBadGateway, failure.IntendedStatus)
+	require.Zero(t, failure.UpstreamStatus, "caller deadline is not a provider verdict")
 }

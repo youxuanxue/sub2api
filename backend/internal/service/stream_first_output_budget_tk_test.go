@@ -174,3 +174,62 @@ func TestStreamFirstOutputFailoverIfBudgetFired_KeepaliveSetsSafeFlag(t *testing
 	require.True(t, errors.As(after, &fo))
 	require.True(t, fo.SafeToFailoverAfterWrite)
 }
+
+// A running AfterFunc can have already read committed=false when Commit stops
+// its timer. Stop does not join a running callback: cancel must be serialized
+// with Commit so it cannot fire after Commit returns and useful output starts.
+func TestStreamFirstOutputGuardCommitJoinsBudgetCancellation(t *testing.T) {
+	ctx, guard := armStreamFirstOutputGuard(context.Background(), time.Hour)
+	originalCancel := guard.cancel
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	// Arm a long timer first, install the cancellation barrier before resetting
+	// it, then drive the real AfterFunc callback (not a copy of its branches).
+	guard.cancel = func() { close(entered); <-release; originalCancel() }
+	guard.timer.Reset(time.Nanosecond)
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("budget callback did not start")
+	}
+	done := make(chan struct{})
+	go func() { guard.Commit(); close(done) }()
+	select {
+	case <-done:
+		close(release)
+		<-ctx.Done()
+		t.Fatal("Commit returned while the budget callback could still cancel newly committed output")
+	case <-time.After(25 * time.Millisecond):
+		close(release)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Commit did not finish after budget cancellation")
+	}
+	require.ErrorIs(t, ctx.Err(), context.Canceled, "the already-running budget cancellation must complete before Commit returns")
+	require.True(t, guard.Committed(), "late output still prevents replay")
+}
+
+func TestStreamFirstOutputGuardLateCommitStillClosesTimedOutBody(t *testing.T) {
+	ctx, guard := armStreamFirstOutputGuard(context.Background(), time.Millisecond)
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("budget did not fire")
+	}
+	guard.Commit() // late output forbids replay but cannot revive the canceled read
+	closed := make(chan struct{})
+	guard.WatchClose(streamBudgetCloseRecorder{closed})
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("late Commit prevented timed-out body cleanup")
+	}
+	require.True(t, guard.Committed())
+	require.False(t, guard.BudgetFired(ctx, context.Background()), "visible late output still forbids failover")
+}
+
+type streamBudgetCloseRecorder struct{ closed chan struct{} }
+
+func (c streamBudgetCloseRecorder) Close() error { close(c.closed); return nil }

@@ -93,11 +93,13 @@ func newAPIChatFirstOutputTimeoutWithEffort(cfg *config.Config, stream bool, hig
 // child context stays alive for the rest of the stream (parent cancellation
 // still applies).
 type streamFirstOutputGuard struct {
-	cancel    context.CancelFunc
-	timer     *time.Timer
-	committed atomic.Bool
-	stopOnce  sync.Once
-	finished  chan struct{} // closed on Commit or budget fire
+	decisionMu     sync.Mutex // Commit and budget cancellation must have one order.
+	budgetCanceled atomic.Bool
+	cancel         context.CancelFunc
+	timer          *time.Timer
+	committed      atomic.Bool
+	stopOnce       sync.Once
+	finished       chan struct{} // closed on Commit or budget fire
 }
 
 func armStreamFirstOutputGuard(parent context.Context, timeout time.Duration) (context.Context, *streamFirstOutputGuard) {
@@ -110,9 +112,12 @@ func armStreamFirstOutputGuard(parent context.Context, timeout time.Duration) (c
 	ctx, cancel := context.WithCancel(parent)
 	g := &streamFirstOutputGuard{cancel: cancel, finished: make(chan struct{})}
 	g.timer = time.AfterFunc(timeout, func() {
+		g.decisionMu.Lock()
 		if !g.committed.Load() && g.cancel != nil {
+			g.budgetCanceled.Store(true)
 			g.cancel()
 		}
+		g.decisionMu.Unlock()
 		g.finish()
 	})
 	return ctx, g
@@ -134,12 +139,14 @@ func (g *streamFirstOutputGuard) Commit() {
 	if g == nil {
 		return
 	}
+	g.decisionMu.Lock()
 	g.committed.Store(true)
 	// Only the caller, after arm returns, may read timer. The timer callback
 	// can run before AfterFunc's result is assigned to g.timer.
 	if g.timer != nil {
 		g.timer.Stop()
 	}
+	g.decisionMu.Unlock()
 	g.finish()
 }
 
@@ -151,7 +158,9 @@ func (g *streamFirstOutputGuard) WatchClose(body io.Closer) {
 	}
 	go func() {
 		<-g.finished
-		if !g.Committed() {
+		// A budget that won before late output must still unblock this body.
+		// Committed remains true for replay safety, independently of that result.
+		if g.budgetCanceled.Load() {
 			_ = body.Close()
 		}
 	}()
