@@ -36,7 +36,7 @@ func (r *UniversalRoutingResolver) PrepareCandidateIngress(c *gin.Context, key *
 	} else {
 		session = r.candidateOpenAI.GenerateSessionHash(c, body)
 	}
-	ctx, state, err := r.prepareCandidateRequest(ctx, key, shape, path, model, body, session, forcedPlatform, false, c.GetHeader("Content-Type"))
+	ctx, state, err := r.prepareCandidateRequest(ctx, key, shape, path, model, body, session, forcedPlatform, false, c.GetHeader("Content-Type"), candidateNewAPIPromptCacheSession(c, key, shape, model, body))
 	if err != nil {
 		return nil, err
 	}

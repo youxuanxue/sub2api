@@ -300,6 +300,19 @@ changing authorized-group set belongs in that lookup identity. Account ID alone
 is not a session key; ownership and session isolation remain required. Each hit
 must revalidate account authorization and request policy before it can be used.
 
+The 2026-10-13 conversation authorizes repairing Universal prompt-cache affinity.
+For Universal HTTP Chat/Responses requests without an explicit session signal,
+reusable system/developer/tools/instructions prefixes supply an additional
+user/key/model-scoped soft binding for actual NewAPI execution accounts. This
+binding replaces first-user content affinity for those candidates; two conflicting
+fallback bindings must not compete. Other platforms retain their ordinary session
+identity, and requests without reusable prefixes retain first-user anchoring.
+Initial admission, acquisition, retries and waited-slot rechecks share this
+preference and update it only after successful capacity/billing validation.
+It cannot override authorization, Plan, payment tier, effective priority or ready
+capacity, and does not guarantee the upstream provider will retain cached tokens.
+Implementation and tests are authorized; rollout and live acceptance are separate.
+
 Group-independent lookup and sticky-aware eligibility are separate obligations:
 the pre-billing candidate evaluation must recognize a validated existing
 session's sticky-only eligibility. Treating it as a new session can reject

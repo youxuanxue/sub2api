@@ -88,6 +88,14 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
 	in.BoundedChatAttempt = finishAttempt != nil
+	originalWriter := c.Writer
+	costWriter := &bridgeUsageCostWriter{ResponseWriter: originalWriter, stream: gjson.GetBytes(body, "stream").Bool()}
+	c.Writer = costWriter
+	defer func() {
+		// Errors/panics must not strand bytes held for successful settlement.
+		_, _ = costWriter.finish(nil)
+		c.Writer = originalWriter
+	}()
 	out, apiErr := dispatchNewAPIChatCompletions(ctx, c, in, body)
 	if apiErr != nil {
 		if attempt, _ := ctx.Value(candidateChatAttemptKey{}).(*candidateChatAttempt); attempt != nil {
@@ -118,7 +126,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	if upstreamModel == "" {
 		upstreamModel = out.Model
 	}
-	return &OpenAIForwardResult{
+	result = &OpenAIForwardResult{
 		Model:          out.Model,
 		UpstreamModel:  upstreamModel,
 		Stream:         out.Stream,
@@ -126,7 +134,14 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 		Usage:          openAIUsageFromNewAPIDTO(out.Usage),
 		ImageCount:     out.ImageCount,
 		EnableThinking: tkThinkingModeActiveFromBody(body),
-	}, nil
+	}
+	result.PrecomputedCost, err = costWriter.finish(func() *CostBreakdown {
+		if out.Usage == nil {
+			return nil
+		}
+		return s.previewOpenAIClientUsageCost(ctx, c, account, result)
+	})
+	return result, err
 }
 
 // dispatchNewAPIAccountTestChatCompletions is the admin account-test probe for newapi; it must
