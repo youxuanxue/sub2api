@@ -38,9 +38,10 @@ SSM core connectivity while live registrations are migrated, but it owns no env
 secret or pg_dump permissions. The migration explicitly deletes the live,
 manually-created `EdgePgdumpPutOnly` inline policy after every managed instance
 has moved and verifies that the shared role has no remaining non-core policy.
-The QA raw-archive and QA Bundle bucket policies deny both that shared role and
-`tokenkey-lightsail-ssm-hybrid-*`; this is the post-#1703 boundary, with no
-legacy QA exports bucket in the design.
+The QA raw-archive bucket policy denies both that shared role and
+`tokenkey-lightsail-ssm-hybrid-*`; this is the post-#1703 boundary.
+[QA raw-only](qa-raw-only.md) retires the Bundle and legacy user-export buckets;
+they are not part of Edge recovery.
 
 ## First provision and replacement
 

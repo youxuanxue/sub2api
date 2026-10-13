@@ -68,7 +68,7 @@ func publishKiroInternalThinkingSideChannel(c *gin.Context, w io.Writer, hdr htt
 }
 
 // kiroInternalThinkingBlockJSON returns one Anthropic-shaped thinking block JSON
-// string for QA/traj export. Signature is included only when Kiro upstream sent it.
+// string for prod QA raw capture. Signature is included only when Kiro upstream sent it.
 func kiroInternalThinkingBlockJSON(thinking, signature string) string {
 	thinking = strings.TrimSpace(thinking)
 	signature = strings.TrimSpace(signature)

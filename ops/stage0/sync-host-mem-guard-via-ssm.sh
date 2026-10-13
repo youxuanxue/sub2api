@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Push the host memory-pressure defenses into a running Stage0 prod EC2 via SSM
+# Legacy EC2 standby only: push the host memory-pressure defenses via SSM
 # Run-Command, WITHOUT rebuilding the instance (a CFN/user-data rebuild would
 # replace the instance — see rule §9 / pin-AMI #804).
 #
@@ -12,9 +12,9 @@
 # But those only run at instance bootstrap. `deploy-stage0` is an SSM image hot-
 # swap — it does NOT re-run bootstrap — so an instance provisioned before #811
 # stays without swap and runs the stale disk-metrics.sh (no mem alert) until it
-# is recreated. This one-shot brings the LIVE instance in sync. The runtime
-# root-cause fix (#808 async streamed qa export) ships in the image; this is the
-# defense-in-depth layer.
+# is recreated. This one-shot brings the standby instance in sync. QA user
+# export is now retired (docs/approved/qa-raw-only.md); these host defenses remain
+# independent of that feature.
 #
 # Single source of truth: both payloads are EXTRACTED from
 # deploy/aws/stage0/stage0-ec2-bootstrap.sh at run time (the swap block between
@@ -25,9 +25,8 @@
 # Idempotent: the swap block skips if /swapfile is already active; the disk-
 # metrics script is overwritten in place (its timer re-runs it every 5 min).
 #
-# Prod-only: the swap incident + the tokenkey-disk-metrics systemd timer are
-# EC2/prod constructs. Edge Stage0 stacks are Lightsail anthropic-OAuth relays
-# with a separate bootstrap and no such timer, so this is NOT wired for edges.
+# The payload belongs to the legacy EC2 bootstrap. Current hcloud prod/edges
+# use deploy/hetzner renderers; this script rejects their managed instance IDs.
 #
 # Usage:
 #   ops/stage0/sync-host-mem-guard-via-ssm.sh <instance_id> [comment]

@@ -10,8 +10,7 @@ import (
 // Prod enables generated-media S3 offload via env (MEDIA_STORAGE_*). viper
 // AutomaticEnv only binds nested keys it "knows" (via SetDefault), so this pins
 // that the env injection actually reaches cfg.MediaStorage — otherwise the
-// offload silently no-ops and video keeps streaming inline base64. Mirrors
-// TestQAExportStorageEnvBinding.
+// offload silently no-ops and video keeps streaming inline base64.
 func TestMediaStorageEnvBinding(t *testing.T) {
 	viper.Reset()
 	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))

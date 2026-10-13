@@ -275,7 +275,7 @@
         "runtime.us-east-1.kiro.dev",
         "q.us-east-1.amazonaws.com"
       ],
-      "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for QA/traj export without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
+      "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for prod QA raw capture without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
     },
     {
       "path": "backend/internal/integration/kiro/eventstream_delta_test.go",
@@ -331,7 +331,7 @@
         "KiroStopMetadata",
         "CONTENT_FILTERED"
       ],
-      "rationale": "Protocol-level evidence that metadataEvent.stopReason survives EventStream decoding and that reasoningContentEvent signature tokens survive EventStream decoding for QA/traj export. Without these callbacks the service cannot distinguish an upstream content-policy terminal outcome from a broken empty response, or silently drops upstream thinking signatures."
+      "rationale": "Protocol-level evidence that metadataEvent.stopReason survives EventStream decoding and that reasoningContentEvent signature tokens survive EventStream decoding for prod QA raw capture. Without these callbacks the service cannot distinguish an upstream content-policy terminal outcome from a broken empty response, or silently drops upstream thinking signatures."
     },
     {
       "path": "backend/internal/integration/kiro/client_endpoints_test.go",
@@ -536,7 +536,7 @@
       "must_contain": [
         "TestKiroToClaudeResponse_OmitsUnsignedThinking"
       ],
-      "rationale": "Non-streaming counterpart to the Kiro client-wire compatibility guard. The synthesized JSON response must omit unsigned Kiro reasoning while the service-level internal side channel remains responsible for QA export."
+      "rationale": "Non-streaming counterpart to the Kiro client-wire compatibility guard. The synthesized JSON response must omit unsigned Kiro reasoning while the service-level internal side channel remains responsible for prod QA raw capture."
     },
     {
       "path": "backend/internal/service/gateway_forward.go",
@@ -592,7 +592,7 @@
         "func setKiroInternalThinkingMirrorHopHeader",
         "func parseKiroInternalThinkingSSECommentLine"
       ],
-      "rationale": "Kiro upstream thinking + signature side channel for prod mirror QA/traj export. Signature is included only when Kiro upstream sent it; synthetic placeholders are forbidden. setKiroInternalThinkingMirrorHopHeaderForAccount must gate on IsKiroMirrorStub(): only prod Anthropic API-key stubs with mirror_platform=kiro emit the hop header; native cc-us5/cc-us6 edge relays must omit it or edge treats Fable/Opus as Kiro-sidecar traffic and rejects. Edge emits the wire side channel only when the prod mirror hop header is present; direct edge clients get gin-context stash only. Losing publishKiroInternalThinkingSideChannel or the mirror-stub gate regresses to leaking plaintext thinking on edge direct SSE/headers or drops prod passthrough stash."
+      "rationale": "Kiro upstream thinking + signature side channel for prod mirror QA raw capture. Signature is included only when Kiro upstream sent it; synthetic placeholders are forbidden. setKiroInternalThinkingMirrorHopHeaderForAccount must gate on IsKiroMirrorStub(): only prod Anthropic API-key stubs with mirror_platform=kiro emit the hop header; native cc-us5/cc-us6 edge relays must omit it or edge treats Fable/Opus as Kiro-sidecar traffic and rejects. Edge emits the wire side channel only when the prod mirror hop header is present; direct edge clients get gin-context stash only. Losing publishKiroInternalThinkingSideChannel or the mirror-stub gate regresses to leaking plaintext thinking on edge direct SSE/headers or drops prod passthrough stash."
     },
     {
       "path": "backend/internal/service/kiro_internal_thinking_tk_test.go",
@@ -610,7 +610,7 @@
       "must_contain": [
         "TestGatewayService_AnthropicAPIKeyPassthrough_StripsKiroInternalThinkingSSEComment"
       ],
-      "rationale": "Regression guard for prod passthrough stripping Kiro internal-thinking SSE comments while stashing blocks for QA/traj export."
+      "rationale": "Regression guard for prod passthrough stripping Kiro internal-thinking SSE comments while stashing blocks for prod QA raw capture."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_kiro_validate.go",
