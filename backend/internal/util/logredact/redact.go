@@ -143,6 +143,8 @@ var (
 	rePrivateKey    = regexp.MustCompile(`(?s)-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----.*?(?:-----END (?:[A-Z0-9]+ )?PRIVATE KEY-----|$)`)
 	reProviderToken = regexp.MustCompile(`\b(?:glpat-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|(?:AKIA|ASIA)[A-Z0-9]{16}|LTAI[A-Za-z0-9]{12,})`)
 	reBearer        = regexp.MustCompile(`(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+`)
+	// Gemini auth key：AQ.Ab 前缀 + 48 位，长度放宽以覆盖格式变体。
+	reGeminiAuthKey = regexp.MustCompile(`AQ\.Ab[0-9A-Za-z_-]{40,}`)
 
 	defaultTextRedactPatterns = compileTextRedactPatterns(nil)
 	extraTextPatternCache     sync.Map // map[string]*textRedactPatterns
@@ -434,6 +436,9 @@ func redactUnstructuredText(input string, patterns *textRedactPatterns) string {
 	}
 	if strings.Contains(out, "AIza") {
 		out = reAIza.ReplaceAllString(out, "AIza***")
+	}
+	if strings.Contains(out, "AQ.Ab") {
+		out = reGeminiAuthKey.ReplaceAllString(out, "AQ.***")
 	}
 	if !patterns.mayContainAssignment(out) {
 		return out

@@ -154,7 +154,12 @@ def check_account_asset(asset: str, source: str) -> list[str]:
     if quota_idx >= 0 and quota_idx < create_mount_idx:
         errors.append(f"{source}: quota controls appear before create-mode Extension Engine field mount")
 
-    if create_mount_idx - platform_idx > 5000:
+    # Byte budget for "picker -> mount" distance in the minified bundle. Raised
+    # 5000 -> 6000 in the 2026-10 upstream merge: the picker legitimately grew
+    # (typesafe promoted to row 1 + catalog-driven multi-protocol aggregator row),
+    # while the UX invariant this guards — create-mode newapi fields render
+    # directly under the platform picker — is unchanged.
+    if create_mount_idx - platform_idx > 6000:
         errors.append(
             f"{source}: create-mode Extension Engine field mount is too far from platform picker ({create_mount_idx - platform_idx} bytes)"
         )

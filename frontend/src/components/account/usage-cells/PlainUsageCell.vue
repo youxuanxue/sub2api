@@ -1,6 +1,6 @@
 <template>
   <div ref="rootRef">
-    <AccountQuotaInfo v-if="account.platform === 'gemini'" :account="account" />
+    <AccountQuotaInfo v-if="showGeminiQuotaInfo" :account="account" />
     <div v-else class="space-y-1">
       <TodayStatsBadges :stats="todayStats" :loading="todayStatsLoading" />
 
@@ -44,6 +44,7 @@ import {
   accountUsageCellPropDefaults,
   type AccountUsageCellProps
 } from '../accountUsageCellProps'
+import { isGeminiThirdPartyApiKeyAccount } from '@/utils/geminiExplicitCache'
 
 interface QuotaBarInfo {
   utilization: number
@@ -53,6 +54,11 @@ interface QuotaBarInfo {
 const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCellPropDefaults)
 
 const rootRef = ref<HTMLElement | null>(null)
+
+// Gemini 第三方上游 API Key 没有 AI Studio 等级与本地模拟配额（upstream 2026-10）。
+const showGeminiQuotaInfo = computed(
+  () => props.account.platform === 'gemini' && !isGeminiThirdPartyApiKeyAccount(props.account)
+)
 
 const makeQuotaBar = (
   used: number,

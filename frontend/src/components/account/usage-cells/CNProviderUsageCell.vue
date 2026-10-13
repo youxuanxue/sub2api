@@ -20,8 +20,6 @@ import { cnQuotaCellVisible, cnBalanceCellVisible } from '../credentialsBuilder'
 
 const props = defineProps<{ account: Account }>()
 const { t } = useI18n()
-const mode = computed(() => typeof props.account.credentials?.account_mode === 'string'
-  ? props.account.credentials.account_mode : '')
-const quotaVisible = computed(() => cnQuotaCellVisible(props.account.platform, mode.value))
-const balanceVisible = computed(() => cnBalanceCellVisible(props.account.platform, mode.value))
+const quotaVisible = computed(() => cnQuotaCellVisible(props.account))
+const balanceVisible = computed(() => cnBalanceCellVisible(props.account))
 </script>

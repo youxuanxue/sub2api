@@ -20,6 +20,7 @@ import {
   usesPassiveUsageOnMount as accountUsesPassiveUsageOnMount
 } from '@/utils/accountUsageBatch.tk'
 import { PLATFORM_GEMINI, PLATFORM_KIRO, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
+import { isGeminiThirdPartyApiKeyAccount } from '@/utils/geminiExplicitCache'
 
 // Module-level cache shared across all usage cell instances
 const _usageCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
@@ -312,11 +313,12 @@ export function useAccountUsageFetch(
 }
 
 export function showUsageWindowsForAccount(account: Account): boolean {
-  if (
-    account.platform === PLATFORM_GEMINI ||
-    account.platform === PLATFORM_KIRO ||
-    usesLocalUsageWindows(account)
-  ) {
+  // Gemini 第三方上游 API Key 没有本地模拟配额，按普通 Key 账号展示今日统计与
+  // 额度进度条（upstream 2026-10）。
+  if (account.platform === PLATFORM_GEMINI) {
+    return !isGeminiThirdPartyApiKeyAccount(account)
+  }
+  if (account.platform === PLATFORM_KIRO || usesLocalUsageWindows(account)) {
     return true
   }
   return account.type === 'oauth' || account.type === 'setup-token'

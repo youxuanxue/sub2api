@@ -99,7 +99,8 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		subscriptionExpirySvc,
 		&service.UsageCleanupService{},
 		idempotencyCleanupSvc,
-		nil, // batchImageCleanup
+		service.NewGeminiCachedContentService(nil, nil, cfg),
+		&service.BatchImageCleanupService{},
 		nil, // batchImageWorker
 		pricingSvc,
 		emailQueueSvc,
@@ -129,6 +130,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // promptAudit
 		nil, // telemetryArchive
 		nil, // telemetryArchiveHealth
+		nil, // pluginManager
 	)
 
 	require.NotPanics(t, func() {

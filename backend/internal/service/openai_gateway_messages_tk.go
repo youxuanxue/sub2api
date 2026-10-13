@@ -53,9 +53,26 @@ func (s *OpenAIGatewayService) tkTryRouteForwardAsAnthropic(
 		result, err := s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
 		return result, true, err
 	}
-	if account.IsAnthropicProtocol() || account.IsAdaptiveAPIProtocol() {
+	// 显式 pinned anthropic 协议的账号零转换直通。adaptive 账号不走此快捷分支：
+	// 按模型分流平台（OpenCode / Command Code）的 protocol_rules 是协议权威
+	// （gpt-* → Responses，不能被账号级 adaptive 标记压回 native），统一由下方
+	// resolveUpstreamProtocolFor 分流（upstream golden 语义）。
+	if account.IsAnthropicProtocol() {
 		result, err := s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
 		return result, true, err
+	}
+	if account.IsAdaptiveAPIProtocol() {
+		// adaptive 按统一协议判定分流：命中供应商原生 Anthropic 端点时直通，
+		// 无原生 Anthropic 端点（如 Cline 只有 Chat Completions）时走 raw CC，
+		// Responses 落空走下方 Responses 转换链。
+		switch s.resolveUpstreamProtocolFor(ctx, account, APIProtocolAnthropic, upstreamRoutingModel(account, body, defaultMappedModel)) {
+		case APIProtocolAnthropic:
+			result, err := s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
+			return result, true, err
+		case APIProtocolChatCompletions:
+			result, err := s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+			return result, true, err
+		}
 	}
 	if account.IsCNProvider() && account.GetAPIProtocol() == APIProtocolChatCompletions {
 		result, err := s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
@@ -73,7 +90,12 @@ func (s *OpenAIGatewayService) tkTryRouteForwardAsAnthropic(
 		result, err := s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 		return result, true, err
 	}
-	if account.Type == AccountTypeAPIKey && !account.IsCNProvider() && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
+	// 多协议平台（OpenCode / Command Code / Cline 等）不参与此探针回退：
+	// protocol_rules / profile 内置规则是协议权威，probe Extra 不得把按规则应走
+	// Responses 的模型压回 Chat Completions（与 upstream
+	// shouldForwardOpenAIResponsesViaRawChatCompletions 的 routesByModel 豁免一致；
+	// Cline 等无 Responses 端点的平台已由上方 adaptive 分流到 raw CC）。
+	if account.Type == AccountTypeAPIKey && !account.IsCNProvider() && !account.IsMultiProtocolAPIKey() && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
 		result, err := s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 		return result, true, err
 	}

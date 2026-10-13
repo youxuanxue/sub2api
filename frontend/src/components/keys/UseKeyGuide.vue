@@ -218,6 +218,65 @@
           <p v-if="manifestState === 'error'" role="alert" class="w-full text-sm text-red-600">{{ t('keys.useKeyModal.codexModelCatalog.errorDescription') }}</p>
         </div>
 
+        <!-- Codex Authentication Mode（upstream 2026-10） -->
+        <div
+          v-if="showCodexAuthMode && !preview"
+          class="rounded-lg border border-gray-200 p-3 dark:border-dark-700"
+        >
+          <div class="mb-2">
+            <p class="text-sm font-medium text-gray-900 dark:text-white">
+              {{ t('keys.useKeyModal.openai.authModeTitle') }}
+            </p>
+            <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('keys.useKeyModal.openai.authModeDescription') }}
+            </p>
+          </div>
+          <div
+            class="grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-700"
+            role="radiogroup"
+            :aria-label="t('keys.useKeyModal.openai.authModeTitle')"
+          >
+            <button
+              type="button"
+              role="radio"
+              data-testid="codex-auth-mode-legacy"
+              :aria-checked="codexAuthMode === 'legacy'"
+              :class="[
+                'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                codexAuthMode === 'legacy'
+                  ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+              ]"
+              @click="codexAuthMode = 'legacy'"
+            >
+              {{ t('keys.useKeyModal.openai.authModeLegacy') }}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              data-testid="codex-auth-mode-api-key"
+              :aria-checked="codexAuthMode === 'api-key'"
+              :class="[
+                'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                codexAuthMode === 'api-key'
+                  ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+              ]"
+              @click="codexAuthMode = 'api-key'"
+            >
+              {{ t('keys.useKeyModal.openai.authModeApiKey') }}
+            </button>
+          </div>
+          <div
+            v-if="codexAuthMode === 'api-key'"
+            data-testid="codex-api-key-restart-notice"
+            class="mt-3 flex items-start gap-2 border-l-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-500 dark:bg-amber-950/30 dark:text-amber-200"
+          >
+            <Icon name="exclamationCircle" size="sm" class="mt-0.5 flex-shrink-0" />
+            <p>{{ t('keys.useKeyModal.openai.authModeApiKeyRestartNotice') }}</p>
+          </div>
+        </div>
+
         <!-- Code Blocks (Stacked for multi-file platforms) -->
         <div class="space-y-4">
           <div
@@ -403,6 +462,16 @@ const codexModels = computed<UseKeyServableModel[] | null>(() => manifest.models
 })) ?? null)
 const showCodexCatalog = computed(() => hasGuideContext.value && ['codex', 'codex-ws'].includes(activeClientTab.value))
 const codexCatalogPath = computed(() => activeTab.value === 'windows' ? '%userprofile%\\.codex\\codex-models.json' : '~/.codex/codex-models.json')
+
+// Codex 认证模式（upstream 2026-10）：legacy 兼容模式写 auth.json；api-key 模式用
+// experimental_bearer_token 授权客户端图像执行器。
+type CodexAuthMode = 'legacy' | 'api-key'
+const codexAuthMode = ref<CodexAuthMode>('legacy')
+const showCodexAuthMode = computed(() =>
+  hasGuideContext.value &&
+  platformForFiles() === PLATFORM_OPENAI &&
+  ['codex', 'codex-ws'].includes(activeClientTab.value)
+)
 async function loadCodexCatalog() {
   const preferred = selectedModel.value
   if (!props.preview && await manifest.load()) tk.setModel('openai', preferred)
@@ -1262,6 +1331,43 @@ ${keyword('$env:')}${variable('GEMINI_MODEL')}${operator('=')}${string(`"${model
   return { path, content, highlighted }
 }
 
+function escapeTomlBasicString(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+function generateCodexProviderAuthConfig(apiKey: string): string {
+  if (codexAuthMode.value === 'api-key') {
+    return `requires_openai_auth = false
+experimental_bearer_token = "${escapeTomlBasicString(apiKey)}"
+http_headers = { "x-openai-actor-authorization" = "local-image-extension" }`
+  }
+
+  return 'requires_openai_auth = true'
+}
+
+function buildOpenAICodexFileConfigs(
+  configDir: string,
+  configContent: string,
+  apiKey: string
+): FileConfig[] {
+  const files: FileConfig[] = [
+    {
+      path: `${configDir}/config.toml`,
+      content: configContent,
+      hint: t('keys.useKeyModal.openai.configTomlHint')
+    }
+  ]
+
+  if (codexAuthMode.value === 'legacy') {
+    files.push({
+      path: `${configDir}/auth.json`,
+      content: JSON.stringify({ OPENAI_API_KEY: apiKey }, null, 2)
+    })
+  }
+
+  return files
+}
+
 function generateOpenAIFiles(baseUrl: string, apiKey: string, model: string): FileConfig[] {
   const isWindows = activeTab.value === 'windows'
   const configDir = isWindows ? '%userprofile%\\.codex' : '~/.codex'
@@ -1278,27 +1384,12 @@ windows_wsl_setup_acknowledged = true
 name = "OpenAI"
 base_url = "${baseUrl}"
 ${codexRemoteCatalogToml.value}wire_api = "responses"
-requires_openai_auth = true
+${generateCodexProviderAuthConfig(apiKey)}
 
 [features]
 ${codexCatalogMode.value === 'remote' ? 'api_key_model_discovery = true\n' : ''}goals = true`
 
-  // auth.json content
-  const authContent = `{
-  "OPENAI_API_KEY": "${apiKey}"
-}`
-
-  return [
-    {
-      path: `${configDir}/config.toml`,
-      content: configContent,
-      hint: t('keys.useKeyModal.openai.configTomlHint')
-    },
-    {
-      path: `${configDir}/auth.json`,
-      content: authContent
-    }
-  ]
+  return buildOpenAICodexFileConfigs(configDir, configContent, apiKey)
 }
 
 function generateOpenAIWsFiles(baseUrl: string, apiKey: string, model: string): FileConfig[] {
@@ -1318,28 +1409,13 @@ name = "OpenAI"
 base_url = "${baseUrl}"
 ${codexRemoteCatalogToml.value}wire_api = "responses"
 supports_websockets = true
-requires_openai_auth = true
+${generateCodexProviderAuthConfig(apiKey)}
 
 [features]
 ${codexCatalogMode.value === 'remote' ? 'api_key_model_discovery = true\n' : ''}responses_websockets_v2 = true
 goals = true`
 
-  // auth.json content
-  const authContent = `{
-  "OPENAI_API_KEY": "${apiKey}"
-}`
-
-  return [
-    {
-      path: `${configDir}/config.toml`,
-      content: configContent,
-      hint: t('keys.useKeyModal.openai.configTomlHint')
-    },
-    {
-      path: `${configDir}/auth.json`,
-      content: authContent
-    }
-  ]
+  return buildOpenAICodexFileConfigs(configDir, configContent, apiKey)
 }
 
 function generateQwenCodeFiles(

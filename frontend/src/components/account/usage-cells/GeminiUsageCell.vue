@@ -9,7 +9,7 @@
       >
         {{ geminiAuthTypeLabel }}
       </span>
-      <span class="group relative cursor-help">
+      <span v-if="showGeminiQuotaPolicy" class="group relative cursor-help">
         <svg
           class="h-3.5 w-3.5 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
           fill="currentColor"
@@ -75,7 +75,7 @@
         </p>
         <UpstreamQuotaSummary :quota="usageInfo?.upstream_quota" />
       </div>
-      <div v-else class="text-xs text-gray-400">
+      <div v-else-if="!showGeminiTodayStats" class="text-xs text-gray-400">
         {{ t('admin.accounts.gemini.rateLimit.unlimited') }}
         <UpstreamQuotaSummary :quota="usageInfo?.upstream_quota" class="mt-1" />
       </div>
@@ -111,6 +111,7 @@ const {
   geminiQuotaPolicyDocsUrl,
   geminiUsageAvailable,
   geminiUsageBars,
-  showGeminiTodayStats
+  showGeminiTodayStats,
+  showGeminiQuotaPolicy
 } = useGeminiUsageMeta(props.account, usageInfo)
 </script>

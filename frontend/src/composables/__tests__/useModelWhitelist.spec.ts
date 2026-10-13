@@ -7,8 +7,38 @@ vi.mock('@/api/admin/accounts', () => ({
 
 import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
 import { apiBackedPlatforms } from '../useServableModels'
+import { BUILTIN_PLATFORM_CATALOG, resetPlatformCatalog, setPlatformCatalog } from '@/constants/platformCatalog'
 
 describe('useModelWhitelist', () => {
+  it('平台清单中没有内置模型列表的多协议供应商不预填白名单', async () => {
+    setPlatformCatalog({
+      ...BUILTIN_PLATFORM_CATALOG,
+      platforms: [
+        ...BUILTIN_PLATFORM_CATALOG.platforms,
+        {
+          id: 'acme_router',
+          display_name: 'Acme Router',
+          gateway: 'openai',
+          cn_provider: false,
+          multi_protocol: {
+            default_mode: 'standard',
+            routing: 'by_model',
+            modes: [{ mode: 'standard', base_urls: { chat_completions: 'https://api.acme-router.example/v1' } }]
+          }
+        }
+      ]
+    })
+    try {
+      expect(getModelsByPlatform('acme_router')).toEqual([])
+      expect(getModelsByPlatform('kimi').length).toBeGreaterThan(0)
+      // 非多协议供应商的未知平台维持原有 Claude 回退（anthropic 在 TK 走后端目录，
+      // 未加载时为空，不能直接与它比较）。
+      expect(getModelsByPlatform('bedrock').length).toBeGreaterThan(0)
+    } finally {
+      resetPlatformCatalog()
+    }
+  })
+
   it('exposes one GPT-6.1 Sol mapping action with the TokenKey preset', () => {
     const presets = getPresetMappingsByPlatform('openai')
     expect(presets.filter(preset => preset.from === 'gpt-6.1-sol')).toEqual([
@@ -158,5 +188,23 @@ describe('useModelWhitelist', () => {
       allowedModels: ['gpt-5.4'],
       modelMappings: [{ from: 'gpt-latest', to: 'gpt-5.4' }],
     })
+  })
+
+  it('openai 预设映射包含 GPT-6 别名和 Astra', () => {
+    expect(getPresetMappingsByPlatform('openai')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'GPT-6.1 Sol', from: 'gpt-6.1-sol', to: 'gpt-6.1-sol' }),
+      expect.objectContaining({ label: 'GPT-6', from: 'gpt-6', to: 'gpt-6' }),
+      expect.objectContaining({ label: 'GPT-6 Astra', from: 'gpt-6-astra', to: 'gpt-6-astra' })
+    ]))
+  })
+  it('openai 模型列表不再暴露已下线的 ChatGPT 登录 Codex 模型', () => {
+    const models = getModelsByPlatform('openai')
+
+    expect(models).not.toContain('gpt-5')
+    expect(models).not.toContain('gpt-5.1')
+    expect(models).not.toContain('gpt-5.1-codex')
+    expect(models).not.toContain('gpt-5.1-codex-max')
+    expect(models).not.toContain('gpt-5.1-codex-mini')
+    expect(models).not.toContain('gpt-5.2-codex')
   })
 })

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
@@ -22,6 +23,7 @@ func (s *OpenAIGatewayService) tkTryRouteOpenAIForwardProtocol(
 	account *Account,
 	body []byte,
 	reqModel string,
+	startTime time.Time,
 ) (result *OpenAIForwardResult, outBody []byte, handled bool, err error) {
 	outBody = body
 
@@ -31,7 +33,7 @@ func (s *OpenAIGatewayService) tkTryRouteOpenAIForwardProtocol(
 			result, err = s.forwardResponsesViaNativeAnthropic(ctx, c, account, outBody, reqModel)
 			return result, outBody, true, err
 		case protocolrouter.ProtocolChatCompletions:
-			result, err = s.forwardResponsesViaRawChatCompletions(ctx, c, account, outBody)
+			result, err = s.forwardResponsesViaRawChatCompletions(ctx, c, account, outBody, startTime)
 			return result, outBody, true, err
 		case protocolrouter.ProtocolResponses:
 			// Continue through the native Responses transport below.
@@ -62,7 +64,7 @@ func (s *OpenAIGatewayService) tkTryRouteOpenAIForwardProtocol(
 	}
 
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
-		result, err = s.forwardResponsesViaRawChatCompletions(ctx, c, account, outBody)
+		result, err = s.forwardResponsesViaRawChatCompletions(ctx, c, account, outBody, startTime)
 		return result, outBody, true, err
 	}
 	return nil, outBody, false, nil
@@ -72,15 +74,20 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
 	}
-	if IsMultiProtocolAPIKeyProvider(account.Platform) {
-		// Explicit protocol configuration takes precedence over asynchronous probes.
+	if account.routesByModel() {
+		// Model protocol_rules are the authority. Probe Extra must not collapse
+		// Grok/GPT/Muse into Chat Completions.
+		return false
+	}
+	if account.RoutesProtocolByInbound() {
+		// 按入站协议分流的供应商（国产厂商等）：显式协议配置优先于异步探针
+		// Extra；adaptive 仅在供应商有原生 Responses 端点时直转，否则回退
+		// Chat Completions（如 GLM）。
 		switch account.GetAPIProtocol() {
 		case APIProtocolChatCompletions:
 			return true
 		case APIProtocolAdaptive:
 			return !account.SupportsNativeCNResponses()
-		case APIProtocolResponses, APIProtocolAnthropic:
-			return false
 		default:
 			return false
 		}

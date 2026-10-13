@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import {
@@ -10,6 +10,10 @@ import {
 } from '@/utils/vertexServiceAccount'
 
 export const VERTEX_SA_DEFAULT_LOCATION = 'us-central1'
+/** API Key 认证的默认 location（upstream 2026-10：Vertex API Key 默认 global）。 */
+export const VERTEX_APIKEY_DEFAULT_LOCATION = 'global'
+
+export type VertexAuthMode = 'service_account' | 'apikey'
 
 export interface UseVertexServiceAccountFieldsOptions {
   defaultLocation?: string
@@ -31,6 +35,26 @@ export function useVertexServiceAccountFields(options: UseVertexServiceAccountFi
   const normalizedJson = ref('')
   const dragActive = ref(false)
   const fileInputRef = ref<HTMLInputElement | null>(null)
+
+  // API Key 认证（upstream 2026-10）：仅 Gemini 平台的 Vertex 账号可选；Anthropic
+  // 平台的 Vertex 账号始终使用 Service Account JSON（模态框据此决定是否展示切换）。
+  const authMode = ref<VertexAuthMode>('service_account')
+  const apiKey = ref('')
+  const isApiKeyMode = computed(() => authMode.value === 'apikey')
+
+  // 两种认证方式的 Project ID 来源不同（JSON 读取 / 手填），切换时清空凭证字段避免串用。
+  // populateFromCredentials 回填（编辑场景）不触发清空。
+  let populating = false
+  watch(authMode, (mode) => {
+    if (populating) return
+    jsonInput.value = ''
+    apiKey.value = ''
+    clearDerived()
+    location.value =
+      mode === 'apikey'
+        ? VERTEX_APIKEY_DEFAULT_LOCATION
+        : (options.defaultLocation ?? VERTEX_SA_DEFAULT_LOCATION)
+  })
 
   const isLoaded = computed(() => Boolean(clientEmail.value.trim()))
 
@@ -93,6 +117,8 @@ export function useVertexServiceAccountFields(options: UseVertexServiceAccountFi
   }
 
   function reset() {
+    authMode.value = 'service_account'
+    apiKey.value = ''
     location.value = options.defaultLocation ?? VERTEX_SA_DEFAULT_LOCATION
     jsonInput.value = ''
     clearDerived()
@@ -100,6 +126,9 @@ export function useVertexServiceAccountFields(options: UseVertexServiceAccountFi
   }
 
   function populateFromCredentials(credentials: Record<string, unknown> | undefined | null) {
+    populating = true
+    authMode.value = credentials?.auth_mode === 'apikey' ? 'apikey' : 'service_account'
+    apiKey.value = '' // API Key 已脱敏不再随 credentials 返回；留空表示保留原 Key。
     jsonInput.value = ''
     normalizedJson.value = ''
     projectId.value = typeof credentials?.project_id === 'string' ? credentials.project_id.trim() : ''
@@ -110,6 +139,10 @@ export function useVertexServiceAccountFields(options: UseVertexServiceAccountFi
       (typeof credentials?.vertex_location === 'string' && credentials.vertex_location.trim()) ||
       ''
     location.value = loc || VERTEX_SA_DEFAULT_LOCATION
+    // watch(authMode) 是 pre-flush 异步执行，等它跑完再解除回填保护。
+    void nextTick(() => {
+      populating = false
+    })
   }
 
   function validateForCreate(): boolean {
@@ -127,7 +160,36 @@ export function useVertexServiceAccountFields(options: UseVertexServiceAccountFi
     return true
   }
 
+  function validateApiKeyForCreate(): boolean {
+    if (!apiKey.value.trim()) {
+      appStore.showError(t('admin.accounts.vertexApiKeyRequired'))
+      return false
+    }
+    if (projectId.value.trim() && !location.value.trim()) {
+      appStore.showError(t('admin.accounts.vertexLocationRequired'))
+      return false
+    }
+    return true
+  }
+
+  function buildApiKeyCredentials(): Record<string, unknown> {
+    const credentials: Record<string, unknown> = {
+      auth_mode: 'apikey',
+      api_key: apiKey.value.trim(),
+      location: location.value.trim() || VERTEX_APIKEY_DEFAULT_LOCATION,
+      tier_id: 'vertex'
+    }
+    if (projectId.value.trim()) {
+      credentials.project_id = projectId.value.trim()
+    }
+    return credentials
+  }
+
   function buildCredentialsForCreate(): Record<string, unknown> | null {
+    if (isApiKeyMode.value) {
+      if (!validateApiKeyForCreate()) return null
+      return buildApiKeyCredentials()
+    }
     if (!validateForCreate()) return null
     return buildVertexServiceAccountCredentials(
       {
@@ -144,14 +206,47 @@ export function useVertexServiceAccountFields(options: UseVertexServiceAccountFi
    */
   function mergeCredentialsForEdit(
     currentCredentials: Record<string, unknown>,
-    credentialsStatus?: { has_service_account_json?: boolean; has_service_account?: boolean } | null
+    credentialsStatus?: {
+      has_service_account_json?: boolean
+      has_service_account?: boolean
+      has_api_key?: boolean
+    } | null
   ): Record<string, unknown> | null {
+    const next: Record<string, unknown> = { ...currentCredentials }
+
+    if (isApiKeyMode.value) {
+      // API Key 已脱敏不再随 credentials 返回，存在性读 credentials_status；留空表示保留原 Key。
+      const newApiKey = apiKey.value.trim()
+      const hasExistingApiKey = credentialsStatus
+        ? Boolean(credentialsStatus.has_api_key)
+        : Boolean(currentCredentials.api_key)
+      if (!newApiKey && !hasExistingApiKey) {
+        appStore.showError(t('admin.accounts.vertexApiKeyRequired'))
+        return null
+      }
+      if (projectId.value.trim() && !location.value.trim()) {
+        appStore.showError(t('admin.accounts.vertexLocationRequired'))
+        return null
+      }
+      if (newApiKey) {
+        next.api_key = newApiKey
+      }
+      if (projectId.value.trim()) {
+        next.project_id = projectId.value.trim()
+      } else {
+        delete next.project_id
+      }
+      next.location = location.value.trim() || VERTEX_APIKEY_DEFAULT_LOCATION
+      next.auth_mode = 'apikey'
+      next.tier_id = 'vertex'
+      return next
+    }
+
     if (!location.value.trim()) {
       appStore.showError(t('admin.accounts.vertexLocationRequired'))
       return null
     }
 
-    const next: Record<string, unknown> = { ...currentCredentials }
     const saJsonInput = jsonInput.value.trim()
 
     if (saJsonInput) {
@@ -199,6 +294,9 @@ export function useVertexServiceAccountFields(options: UseVertexServiceAccountFi
     dragActive,
     fileInputRef,
     isLoaded,
+    authMode,
+    apiKey,
+    isApiKeyMode,
     applyJson,
     previewJsonInput,
     handleFileChange,

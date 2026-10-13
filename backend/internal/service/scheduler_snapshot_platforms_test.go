@@ -29,6 +29,8 @@ func TestAllSchedulingPlatforms_IncludesNewAPI(t *testing.T) {
 		PlatformMiniMax:     false,
 		PlatformOpenCodeGo:  false,
 		PlatformTypeSafe:    false,
+		PlatformCommandCode: false,
+		PlatformCline:       false,
 	}
 	for _, p := range got {
 		if _, ok := want[p]; !ok {

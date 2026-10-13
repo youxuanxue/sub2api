@@ -640,7 +640,7 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "missing_api_key", 0)
 	}
 	baseURL := account.GetCredential("base_url")
-	if account.IsCNProvider() && account.IsAdaptiveAPIProtocol() {
+	if account.RoutesProtocolByInbound() && account.IsAdaptiveAPIProtocol() {
 		baseURL = account.GetCNProtocolBaseURL(APIProtocolChatCompletions)
 	}
 	if account.Platform == PlatformOpenAI {
@@ -1027,6 +1027,10 @@ var UpstreamBillingProbePlatforms = []string{
 	PlatformMiniMax,
 	PlatformOpenCodeGo,
 	PlatformTypeSafe,
+	// upstream 把 probe identity 泛化为全部具体平台；TK 保持列表制，仅随上游
+	// 补入新登记的 Command Code / Cline，newapi / kiro 维持合并前不探测。
+	PlatformCommandCode,
+	PlatformCline,
 }
 
 // IsUpstreamBillingProbeIdentity reports whether an account identity may opt
@@ -1097,6 +1101,8 @@ var upstreamBillingProbeOfficialAPIDomains = []string{
 	"deepseek.com",
 	"opencode.ai",
 	"typesafe.ai",
+	"commandcode.ai",
+	"cline.bot",
 }
 
 func upstreamBillingProbeTargetIsOfficialAPI(baseURL string) bool {

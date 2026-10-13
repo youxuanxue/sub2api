@@ -6,10 +6,14 @@ export const GATEWAY_PLATFORMS = [
   'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe', 'composite'
 ] as const satisfies readonly AccountPlatform[]
 
-/** Platforms represented by a composite group in the channel editor. */
+/**
+ * Platforms represented by a composite group in the channel editor.
+ * 与平台清单 composite_precedence 同源（upstream 2026-10 新增 command_code/cline；
+ * newapi/kiro 按 TK 约束不进 composite 回退）。
+ */
 export const COMPOSITE_PLATFORM_MEMBERS = [
   'anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu',
-  'deepseek', 'minimax', 'opencode_go', 'typesafe',
+  'deepseek', 'minimax', 'opencode_go', 'typesafe', 'command_code', 'cline',
 ] as const satisfies readonly Exclude<AccountPlatform, 'composite'>[]
 
 /**
@@ -19,7 +23,8 @@ export const COMPOSITE_PLATFORM_MEMBERS = [
  */
 export const ALLOWED_QUOTA_PLATFORMS = [
   'anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro', 'grok',
-  'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe'
+  'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe',
+  'command_code', 'cline'
 ] as const satisfies readonly AccountPlatform[]
 export type QuotaPlatform = (typeof ALLOWED_QUOTA_PLATFORMS)[number]
 
@@ -85,6 +90,9 @@ export const CREATE_ACCOUNT_PLATFORM_SEGMENT_ACTIVE: Record<AccountPlatform, str
   minimax: 'bg-white text-rose-700 shadow-sm dark:bg-dark-600 dark:text-rose-300',
   opencode_go: 'bg-white text-amber-700 shadow-sm dark:bg-dark-600 dark:text-amber-300',
   typesafe: 'bg-white text-sky-700 shadow-sm dark:bg-dark-600 dark:text-sky-300',
+  command_code:
+    'bg-white text-neutral-700 shadow-sm dark:bg-dark-600 dark:text-neutral-300',
+  cline: 'bg-white text-violet-700 shadow-sm dark:bg-dark-600 dark:text-violet-300',
   composite: 'bg-white text-cyan-700 shadow-sm dark:bg-dark-600 dark:text-cyan-300',
 }
 
@@ -127,6 +135,8 @@ export const UPSTREAM_BILLING_PROBE_PLATFORMS = [
   'minimax',
   'opencode_go',
   'typesafe',
+  'command_code',
+  'cline',
 ] as const satisfies readonly AccountPlatform[]
 
 /** True when an API-key account on this platform may show/submit probe toggles. */
@@ -189,6 +199,8 @@ const SOFT_BADGE: Record<string, string> = {
   minimax: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300',
   opencode_go: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
   typesafe: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300',
+  command_code: 'bg-neutral-200 text-neutral-800 dark:bg-neutral-700/40 dark:text-neutral-200',
+  cline: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-300',
 }
 
 /** Background + text colors for compact platform pills (e.g. channel model tags). */

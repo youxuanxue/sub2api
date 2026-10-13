@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
@@ -50,7 +51,7 @@ func TestTkTryRouteOpenAIForwardProtocol_OAuthContinuesNativeResponses(t *testin
 	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 	body := []byte(`{"model":"gpt-5","input":"hi"}`)
 
-	result, outBody, handled, err := svc.tkTryRouteOpenAIForwardProtocol(context.Background(), c, account, body, "gpt-5")
+	result, outBody, handled, err := svc.tkTryRouteOpenAIForwardProtocol(context.Background(), c, account, body, "gpt-5", time.Time{})
 	require.NoError(t, err)
 	require.False(t, handled, "OAuth must fall through to native Responses transport")
 	require.Nil(t, result)
@@ -76,7 +77,7 @@ func TestTkTryRouteOpenAIForwardProtocol_APIKeyNormalizeMutatesOutBodyThenContin
 	}
 	body := []byte(`{"model":"gpt-5","input":"hi","parallel_tool_calls":true}`)
 
-	result, outBody, handled, err := svc.tkTryRouteOpenAIForwardProtocol(context.Background(), c, account, body, "gpt-5")
+	result, outBody, handled, err := svc.tkTryRouteOpenAIForwardProtocol(context.Background(), c, account, body, "gpt-5", time.Time{})
 	require.NoError(t, err)
 	require.False(t, handled, "after normalize, native Responses must continue when Extra allows Responses")
 	require.Nil(t, result)
@@ -109,7 +110,7 @@ func TestTkTryRouteOpenAIForwardProtocol_CloudwiseRawChatAfterNormalize(t *testi
 	require.True(t, account.IsOpenAICloudwiseRelay())
 	body := []byte(`{"model":"gpt-5","input":"hi","parallel_tool_calls":true}`)
 
-	result, outBody, handled, err := svc.tkTryRouteOpenAIForwardProtocol(context.Background(), c, account, body, "gpt-5")
+	result, outBody, handled, err := svc.tkTryRouteOpenAIForwardProtocol(context.Background(), c, account, body, "gpt-5", time.Time{})
 	require.NoError(t, err)
 	require.True(t, handled, "cloudwise dual-stack must route via raw Chat Completions")
 	require.NotNil(t, result)
@@ -145,7 +146,7 @@ func TestTkTryRouteOpenAIForwardProtocol_AnthropicProtocolBeforeRawChat(t *testi
 	require.True(t, account.IsCNProvider())
 
 	body := []byte(`{"model":"kimi-k2","input":"hi"}`)
-	_, _, handled, _ := svc.tkTryRouteOpenAIForwardProtocol(context.Background(), c, account, body, "kimi-k2")
+	_, _, handled, _ := svc.tkTryRouteOpenAIForwardProtocol(context.Background(), c, account, body, "kimi-k2", time.Time{})
 	// Native Anthropic conversion may error without full fixtures; what matters is
 	// handled=true (Anthropic branch taken) and NOT chat/completions upstream.
 	require.True(t, handled, "Anthropic protocol must short-circuit before raw-CC")
@@ -190,7 +191,7 @@ func TestTkTryRouteOpenAIForwardProtocol_UnsupportedPlannedTargetErrors(t *testi
 	ctx := withProtocolExecutionPlan(context.Background(), plan)
 	svc := &OpenAIGatewayService{}
 
-	result, _, handled, routeErr := svc.tkTryRouteOpenAIForwardProtocol(ctx, c, account, []byte(`{}`), "gemini-2.5-flash")
+	result, _, handled, routeErr := svc.tkTryRouteOpenAIForwardProtocol(ctx, c, account, []byte(`{}`), "gemini-2.5-flash", time.Time{})
 	require.True(t, handled)
 	require.Nil(t, result)
 	require.Error(t, routeErr)

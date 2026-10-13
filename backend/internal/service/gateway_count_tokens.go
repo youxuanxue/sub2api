@@ -42,17 +42,19 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 
 	if account != nil && account.IsAnthropicAPIKeyPassthroughEnabled() {
 		passthroughBody := parsed.Body.Bytes()
+		passthroughModel := parsed.Model
 		if reqModel := parsed.Model; reqModel != "" {
 			if mappedModel := account.GetMappedModel(reqModel); mappedModel != reqModel {
 				passthroughBody = s.replaceModelInBody(passthroughBody, mappedModel)
+				passthroughModel = mappedModel
 				logger.LegacyPrintf("service.gateway", "CountTokens passthrough model mapping: %s -> %s (account: %s)", reqModel, mappedModel, account.Name)
 			}
 		}
-		return s.forwardCountTokensAnthropicAPIKeyPassthrough(ctx, c, account, passthroughBody)
+		return s.forwardCountTokensAnthropicAPIKeyPassthrough(ctx, c, account, passthroughBody, passthroughModel)
 	}
 
 	if account != nil && account.IsAnthropicOAuthPassthroughEnabled() {
-		return s.forwardCountTokensAnthropicPassthrough(ctx, c, account, parsed.Body.Bytes(), anthropicPassthroughAuthOAuth)
+		return s.forwardCountTokensAnthropicPassthrough(ctx, c, account, parsed.Body.Bytes(), parsed.Model, anthropicPassthroughAuthOAuth)
 	}
 
 	// Bedrock 不支持 count_tokens 端点
@@ -238,13 +240,14 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 			writeEstimatedAnthropicCountTokens(c, body)
 			return nil
 		}
+		// 标记账号状态（429/529等）；传入实际发往上游的模型，临时不可调度规则才能按模型隔离。
+		// 必须先于 failover 短路：显式模型级 401 规则只冷却该模型（upstream 语义），
+		// failover 换号不影响本次副作用。
+		if s.rateLimitService != nil && !tkCountTokensSkipBreaker(resp.StatusCode) {
+			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, reqModel)
+		}
 		if failoverErr := s.tkCountTokensFailoverError(account, resp, respBody); failoverErr != nil {
 			return failoverErr
-		}
-
-		// 标记账号状态（429/529等）
-		if s.rateLimitService != nil && !tkCountTokensSkipBreaker(resp.StatusCode) {
-			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
@@ -291,11 +294,15 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	return nil
 }
 
-func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte) error {
-	return s.forwardCountTokensAnthropicPassthrough(ctx, c, account, body, anthropicPassthroughAuthAPIKey)
+// forwardCountTokensAnthropicAPIKeyPassthrough 透传 count_tokens 请求；upstreamModel 是 body 中实际发往上游的模型，
+// 仅用于上游错误处理按模型隔离。
+func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte, upstreamModel string) error {
+	return s.forwardCountTokensAnthropicPassthrough(ctx, c, account, body, upstreamModel, anthropicPassthroughAuthAPIKey)
 }
 
-func (s *GatewayService) forwardCountTokensAnthropicPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte, authKind anthropicPassthroughAuthKind) error {
+// forwardCountTokensAnthropicPassthrough 透传 count_tokens；upstreamModel 是 body 中实际发往上游的模型，
+// 仅用于上游错误处理按模型隔离。authKind 区分 API-key / OAuth 凭据校验。
+func (s *GatewayService) forwardCountTokensAnthropicPassthrough(ctx context.Context, c *gin.Context, account *Account, body []byte, upstreamModel string, authKind anthropicPassthroughAuthKind) error {
 	if normalized, _ := tkApplyAnthropicCCPromptSurfaceNormalize(ctx, c, account, body); len(normalized) > 0 {
 		body = normalized
 	}
@@ -369,11 +376,11 @@ func (s *GatewayService) forwardCountTokensAnthropicPassthrough(ctx context.Cont
 			writeEstimatedAnthropicCountTokens(c, body)
 			return nil
 		}
+		if s.rateLimitService != nil && !tkCountTokensSkipBreaker(resp.StatusCode) {
+			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
+		}
 		if failoverErr := s.tkCountTokensFailoverError(account, resp, respBody); failoverErr != nil {
 			return failoverErr
-		}
-		if s.rateLimitService != nil && !tkCountTokensSkipBreaker(resp.StatusCode) {
-			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))

@@ -93,6 +93,18 @@ describe('UseKeyModal — preserved snippet correctness', () => {
     expect(configToml).toContain('[features]')
     expect(configToml).toContain('api_key_model_discovery = true')
     expect(configToml).toContain('goals = true')
+    expect(configToml).not.toContain('model = "gpt-5.4"')
+    expect(configToml).not.toContain('model_context_window')
+    expect(configToml).not.toContain('model_auto_compact_token_limit')
+    expect(configToml).toContain('requires_openai_auth = true')
+    expect(configToml).not.toContain('experimental_bearer_token')
+    expect(configToml).not.toContain('x-openai-actor-authorization')
+    expect(configToml).not.toContain('env_key')
+    expect(configToml).not.toContain('image_generation')
+    expect(configToml).not.toContain('supports_websockets')
+    expect(configToml).not.toContain('responses_websockets_v2')
+    const features = configToml?.split('[features]\n')[1]?.split('\n[')[0]
+    expect(features).toContain('goals = true')
     expect(configToml).not.toContain('model_reasoning_effort = "xhigh"')
     expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
     expect(wrapper.text()).toContain('auth.json')
@@ -152,22 +164,45 @@ describe('UseKeyModal — preserved snippet correctness', () => {
     expect(configToml).not.toContain('x-openai-actor-authorization')
     expect(configToml).toContain('[features]')
     expect(configToml).toContain('api_key_model_discovery = true')
-    expect(configToml).toContain('responses_websockets_v2 = true')
-    expect(configToml).toContain('goals = true')
+    expect(configToml).not.toContain('env_key')
+    expect(configToml).not.toContain('image_generation')
+    expect(configToml).toContain('supports_websockets = true')
+    const features = configToml?.split('[features]\n')[1]?.split('\n[')[0]
+    expect(features).toContain('responses_websockets_v2 = true')
+    expect(features).toContain('goals = true')
     expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
     expect(wrapper.text()).toContain('auth.json')
   })
 
-  it('uses the current API-key auth contract without legacy actor headers', () => {
+  it('uses the current API-key auth contract without legacy actor headers', async () => {
     const wrapper = mountModal({ platform: 'openai' })
+    await wrapper.get('[data-testid="codex-auth-mode-api-key"]').trigger('click')
+    await nextTick()
+
     const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
     const configToml = codeBlocks.find((content) => content.includes('model_provider = "OpenAI"'))
 
     expect(configToml).toBeDefined()
-    expect(configToml).toContain('requires_openai_auth = true')
-    expect(configToml).not.toContain('experimental_bearer_token')
-    expect(configToml).not.toContain('x-openai-actor-authorization')
-    expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
+    expect(configToml).toContain('requires_openai_auth = false')
+    expect(configToml).toContain('experimental_bearer_token = "sk-test"')
+    expect(configToml).toContain('http_headers = { "x-openai-actor-authorization" = "local-image-extension" }')
+    expect(configToml).not.toContain('env_key')
+    expect(configToml).not.toContain('image_generation')
+    expect(codeBlocks).not.toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
+    expect(wrapper.text()).not.toContain('auth.json')
+
+    const restartNotice = wrapper.get('[data-testid="codex-api-key-restart-notice"]')
+    expect(restartNotice.text()).toContain(
+      'keys.useKeyModal.openai.authModeApiKeyRestartNotice'
+    )
+
+    // 切回兼容模式：恢复 auth.json，不再携带 actor header。
+    await wrapper.get('[data-testid="codex-auth-mode-legacy"]').trigger('click')
+    await nextTick()
+    expect(wrapper.find('[data-testid="codex-api-key-restart-notice"]').exists()).toBe(false)
+    const restored = wrapper.findAll('pre code').map((code) => code.text()).join('\n')
+    expect(restored).toContain('requires_openai_auth = true')
+    expect(restored).not.toContain('x-openai-actor-authorization')
   })
 
   it('retains the current Codex auth contract when the modal reopens or platform changes', async () => {

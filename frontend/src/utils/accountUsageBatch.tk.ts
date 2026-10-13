@@ -6,6 +6,7 @@
  */
 import type { Account } from '@/types'
 import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_GROK, PLATFORM_KIRO, PLATFORM_NEWAPI, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
+import { isGeminiThirdPartyApiKeyAccount } from '@/utils/geminiExplicitCache'
 
 /** Accounts whose upstream adapter reports TokenKey-local 5h/7d billing windows. */
 export function usesLocalUsageWindows(account: Account): boolean {
@@ -32,6 +33,11 @@ export function usesPassiveUsageOnMount(account: Account): boolean {
 /** Whether AccountUsageCell may ever load usage for this account. */
 export function canSelfFetchUsage(account: Account): boolean {
   if (isBatchPassiveCapable(account)) return true
-  if (account.platform === PLATFORM_GEMINI) return true
+  if (account.platform === PLATFORM_GEMINI) {
+    // 第三方上游 API Key 没有本地模拟配额；Vertex（service_account）没有模拟配额，
+    // 用量窗口只展示今日统计（upstream 2026-10）。
+    if (isGeminiThirdPartyApiKeyAccount(account)) return false
+    return account.type !== 'service_account'
+  }
   return account.platform === PLATFORM_ANTIGRAVITY && account.type === 'oauth'
 }

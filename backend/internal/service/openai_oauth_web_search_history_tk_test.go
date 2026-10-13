@@ -89,7 +89,7 @@ func TestOAuthWebSearchHistoryCompatibilityScope(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			account := &Account{Platform: PlatformOpenAI, Type: tc.typ}
-			next, _, err := normalizeOpenAIResponsesCompatibilityBody([]byte(searchHistoryCompactionRequest), account, false, tc.compact)
+			next, _, err := normalizeOpenAIResponsesCompatibilityBodyWithOptions([]byte(searchHistoryCompactionRequest), account, openAIResponsesCompatibilityOptions{Compact: tc.compact})
 			require.NoError(t, err)
 			require.Equal(t, tc.want, gjson.GetBytes(next, "tools.0.type").String() == "web_search")
 		})
