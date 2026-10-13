@@ -10,10 +10,11 @@ product API or user interface.
 
 The approved migration is documented in
 [`docs/approved/qa-raw-only.md`](../../docs/approved/qa-raw-only.md). Migration
-steps are offline copy, final incremental copy, per-object checksum comparison,
-restore verification, and an independently reviewed maintenance coordinate
-switch. AWS source data remains retained until the observation period and a
-separate deletion approval.
+switch covers new archive hours only, with restore verification and an independent
+maintenance coordinate change. Existing AWS raw data expires under its original
+seven-day lifecycle; its recovery access remains available during that period.
+Record the UTC archive-hour boundary to select the right store for recovery.
+AWS resource destruction requires separate approval.
 
 Useful checks:
 
@@ -31,6 +32,5 @@ Raw 生命周期的保留运维入口：
 | 暂停 DROP 与读取维护 pin | `ops/stage0/prod_release_state.py` | 仅独立迁移/接受验证，普通 gateway 发布不调用 |
 | 定时维护发布 | `ops/stage0/sync-qa-maintenance-timer-via-ssm.sh` | 独立维护 pin 与受限子容器，健康验收通过后才确认配置 |
 | 合成 Object Storage 兼容性探针 | `ops/qa/probe_hcloud_object_storage.py` | 显式 opt-in，仅专用合成 bucket；不证明生产迁移完成 |
-| raw 预复制与冻结清单验证 | `ops/qa/migrate_hcloud_objects.py` | 接口与上线安全边界见 raw-only 契约 |
 
 这些工具不是本 PR 的线上执行清单；单一 owner 激活和存储切换分别验收。

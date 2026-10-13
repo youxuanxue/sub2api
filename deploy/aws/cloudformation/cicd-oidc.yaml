@@ -225,7 +225,8 @@ Resources:
                   - s3:GetLifecycleConfiguration
                   - s3:PutBucketTagging
                 Resource:
-                  - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-*"
+                  - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-raw-archive-${AWS::AccountId}"
+                  - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-raw-audit-${AWS::AccountId}"
               - Sid: ManageQaKms
                 Effect: Allow
                 Action:

@@ -71,8 +71,8 @@ bash scripts/stage0/dispatch-edge-deploy.sh \
 1. **蓝绿已验收**：1.8.284 已完成 prod + 活 Edge 的升级、排空及烟测；raw maintenance pin 的发布与存储切换仍独立。
 2. **gemini-web re-import**：uk1/uk2 上若干 gemini 账号 `error`/不可调度（出口 IP）；修好后再开对应 prod stub。
 3. **边侧供应**：us4 anthropic / us4·us5 grok / uk CC 池按冒烟 200 再开 stub。
-4. **旧 LS / AWS prod**：≥7d 后可删实例；QA raw archive 迁移完成后再按观察期单独清理 AWS 源。
-5. **QA 去 AWS**：raw archive 目标见 [`docs/approved/qa-raw-only.md`](../../docs/approved/qa-raw-only.md)，AWS 源保留观察期。
+4. **旧 LS / AWS prod**：≥7d 后可删实例；QA raw 的存储与资源退役条件独立，见下一项。
+5. **QA 去 AWS**：仅切换新增归档；存量不搬，按 AWS 原生命周期自然到期，期间保留恢复访问。切换验收与资源退役条件见 [`docs/approved/qa-raw-only.md`](../../docs/approved/qa-raw-only.md)。
 
 ## 校验
 
@@ -92,7 +92,7 @@ bash deploy/hetzner/render-prod-bootstrap.sh --check
 | 类别 | 当前用途 / owner | 清理条件 |
 |---|---|---|
 | SSM Hybrid / Parameter Store / STS OIDC | hcloud 远程执行、参数与 GHCR 身份；`ops/stage0/{resolve_prod_ssm_target,edge_ssm_execution}.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
-| QA raw archive | `ops/qa/`、`deploy/aws/cloudformation/stage0-qa-raw-archive.yaml`；Hetzner raw bucket 为迁移目标，AWS 源保留观察期 | 完成最终增量、校验、restore 和 maintenance 坐标切换后再单独审批清理 |
+| QA raw archive | `ops/qa/`、`deploy/aws/cloudformation/stage0-qa-raw-archive.yaml`；仅新增归档切到 Hetzner，AWS 存量按原生命周期自然到期，期间保留恢复访问 | 按 [raw-only 契约](../../docs/approved/qa-raw-only.md)验收新增归档切换、restore 与到期边界；AWS 桶、KMS 和恢复角色销毁另行审批 |
 | PG dump / env-secrets / archive / media | AWS S3、SSM SecureString；`tokenkey-pgdump.sh`、`backup-env-secrets-via-ssm.sh`、archive/media 配置 | 数据与恢复能力迁移后才能移除 |
 | 共享运行文件的旧目录名 | `deploy/aws/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 仍直接消费 | 是共享 owner，路径不代表部署在 AWS；迁路径必须同时更新引用、生成产物和 sentinel |
 | AWS standby 脚手架 | `deploy/aws/lightsail/`、EC2 bootstrap/CFN、`ops/lightsail/`、AWS DR 与 IP 历史 | 不进现网自动 fan-out；仅明确指定旧机恢复时使用，资产退役单独授权 |
