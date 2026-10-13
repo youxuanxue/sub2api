@@ -17,7 +17,9 @@ Run separately on prod or an edge; request ids are not merged across hosts.
 Read deploy/hetzner/README.md before choosing a live target. The report uses UTC.
 A candidate can include a later recovery; inspect its ordered request timeline.
 HTTP 200 stream failures without a terminal error record are not detected.
-A partial report means missing correlation or row limits can affect the runs.
+A partial report means missing correlation or row limits affect coverage.
+If any row limit is reached, no candidates are emitted: narrow the window/scope.
+Uncorrelated events with known user/key break that key's failure runs conservatively.
 Candidates are observed failure runs, not proof of a dead conversation or root
 cause. Missing session identities and retained logs limit recall. A billed usage
 row may describe partial output; a matching terminal error always takes precedence.
@@ -32,6 +34,7 @@ deterministic and reviewable without a live host.
 
 from __future__ import annotations
 
+import bisect
 import collections
 import datetime as dt
 import hashlib
@@ -158,12 +161,15 @@ def _failure_class(row: dict[str, Any]) -> str:
 def _actionable_failure(row: dict[str, Any], min_cancel_latency_ms: int) -> bool:
     status = _int(row.get("status_code"))
     upstream = _int(row.get("upstream_status_code"))
-    if _NON_ACTIONABLE_RE.search(" ".join(_text(row.get(k), 120) for k in ("error_type", "error_message"))):
-        return False
     if _failure_class(row) == "client_cancel":
         latency = max(_int(row.get("response_latency_ms")), _int(row.get("access_latency_ms")))
         return latency >= min_cancel_latency_ms
-    return status >= 500 or status == 429 or upstream >= 400
+    # Similar messages describe both user errors and broken supplier credentials.
+    if upstream >= 400 or row.get("error_owner") == "provider" or status >= 500:
+        return True
+    if _NON_ACTIONABLE_RE.search(" ".join(_text(row.get(k), 120) for k in ("error_type", "error_message"))):
+        return False
+    return status == 429
 
 
 def _session_for(row: dict[str, Any], logs: dict[str, dict[str, Any]]) -> tuple[str, str]:
@@ -186,6 +192,16 @@ def build_events(
     errors = list(errors)
     failed_ids = {row.get("request_id") for row in errors if row.get("request_id")}
     seen = set()
+    gaps: dict[tuple[int, int], list[dt.datetime]] = collections.defaultdict(list)
+
+    def identity(row):
+        return (_int(row.get("user_id")), _int(row.get("api_key_id")))
+
+    def remember_gap(row):
+        tenant = identity(row)
+        at = _time(row.get("created_at"))
+        if min(tenant) > 0 and at is not None:
+            gaps[tenant].append(at)
 
     def group_key(row, ref):
         # Client supplied session identifiers are not globally unique.
@@ -205,7 +221,8 @@ def build_events(
             seen.add(rid)
         coverage["error_rows"] += 1
         kind, ref = _session_for(row, logs)
-        if not ref or _int(row.get("user_id")) <= 0 or _int(row.get("api_key_id")) <= 0:
+        if not ref or min(identity(row)) <= 0:
+            remember_gap(row)
             continue
         coverage["error_rows_with_session"] += 1
         row.update(
@@ -226,13 +243,29 @@ def build_events(
             seen.add(rid)
         coverage["success_rows"] += 1
         kind, ref = _session_for(row, logs)
-        if not ref or _int(row.get("user_id")) <= 0 or _int(row.get("api_key_id")) <= 0:
+        if not ref or min(identity(row)) <= 0:
+            remember_gap(row)
+            continue
+        if kind == "client_session_id" and group_key(row, ref) not in grouped:
+            # No evidence equates this client id to a gateway hash. Treat it as
+            # a possible intervening success, rather than inventing an alias.
+            remember_gap(row)
             continue
         coverage["success_rows_with_session"] += 1
         row.update(event_kind="success", actionable=False, session_kind=kind, session_ref=ref, at=_time(row.get("created_at")))
         grouped[group_key(row, ref)].append(row)
+    for times in gaps.values():
+        times.sort()
     for events in grouped.values():
         events.sort(key=lambda event: (event.get("at") or dt.datetime.min.replace(tzinfo=dt.timezone.utc), _text(event.get("request_id"), 128)))
+        times = gaps.get(identity(events[0]), [])
+        previous_epoch = 0
+        for event in events:
+            at = event.get("at") or dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+            epoch = bisect.bisect_right(times, at)
+            event["break_before"] = epoch != previous_epoch or bisect.bisect_left(times, at) < epoch
+            previous_epoch = epoch
+    coverage["uncorrelated_breakers"] = sum(len(times) for times in gaps.values())
     return dict(grouped), coverage
 
 
@@ -286,17 +319,17 @@ def detect_candidates(
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     for events in grouped.values():
-        run: list[dict[str, Any]] = []
-        longest: list[dict[str, Any]] = []
+        run = longest = 0
         for event in events:
+            if event.get("break_before"):
+                run = 0
             if event.get("event_kind") == "failure" and event.get("actionable"):
-                run.append(event)
-                if len(run) > len(longest):
-                    longest = list(run)
+                run += 1
+                longest = max(longest, run)
             else:
-                run = []
+                run = 0
         failures = [event for event in events if event.get("event_kind") == "failure" and event.get("actionable")]
-        if len(failures) < min_failures or len(longest) < min_consecutive:
+        if len(failures) < min_failures or longest < min_consecutive:
             continue
         latencies = [
             max(_int(event.get("response_latency_ms")), _int(event.get("access_latency_ms")))
@@ -312,7 +345,7 @@ def detect_candidates(
             "session_kind": next((event.get("session_kind") for event in events if event.get("session_kind")), "unknown"),
             "request_count": len(events),
             "failure_count": len(failures),
-            "max_consecutive_failures": len(longest),
+            "max_consecutive_failures": longest,
             "failure_classes": dict(classes),
             "accounts": accounts,
             "platforms": sorted({_text(event.get("platform"), 48) for event in failures if _text(event.get("platform"), 48)}),
@@ -470,7 +503,9 @@ SELECT row_to_json(t)::text FROM (
         if 200 <= _int(log.get("access_status")) < 300 and rid not in error_request_ids and rid not in usage_ids:
             successes.append({**log, "request_id": rid, "created_at": log.get("completed_at")})
     grouped, coverage = build_events(errors[:max_rows], successes[:max_rows], logs, cancel_latency)
-    candidates = detect_candidates(grouped, min_failures, min_consecutive)
+    truncated = len(errors) > max_rows or len(successes) > max_rows
+    # Dropping a successful request can fabricate a consecutive failure run.
+    candidates = [] if truncated else detect_candidates(grouped, min_failures, min_consecutive)
     return {
         "schema_version": 1,
         "window_minutes": window,

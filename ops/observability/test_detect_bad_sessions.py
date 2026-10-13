@@ -169,6 +169,83 @@ class DetectBadSessionsTest(unittest.TestCase):
         self.assertEqual(report["status"], "no_candidates")
         self.assertEqual(report["coverage"]["success_rows_with_session"], 1)
 
+    def test_supplier_credentials_and_quota_failures_are_actionable(self):
+        base = dt.datetime(2026, 7, 20, 9, 0, tzinfo=dt.timezone.utc)
+        for message in ("invalid_api_key", "insufficient_quota", "insufficient balance"):
+            with self.subTest(message=message):
+                errors = [row(f"r{i}", base + dt.timedelta(seconds=i), status=502,
+                              upstream_status_code=401, error_owner="provider", error_message=message)
+                          for i in range(3)]
+                logs = {r["request_id"]: {"session_hash": "supplier"} for r in errors}
+                groups, _ = MODULE.build_events(errors, [], logs)
+                self.assertEqual(MODULE.detect_candidates(groups)[0]["failure_classes"], {"upstream_failure": 3})
+        user_error = row("user", base, status=429, error_message="insufficient_quota", error_owner="client")
+        self.assertFalse(MODULE._actionable_failure(user_error, 30000))
+        self.assertFalse(MODULE._actionable_failure(row("cancel", base, latency=29999), 30000))
+
+    def test_unknown_session_success_breaks_only_its_users_key(self):
+        base = dt.datetime(2026, 7, 20, 9, 0, tzinfo=dt.timezone.utc)
+        errors = [row(f"r{i}", base + dt.timedelta(seconds=i * 2)) for i in range(5)]
+        logs = {r["request_id"]: {"session_hash": "gateway-hash"} for r in errors}
+        for session in (None, "different-client-id"):
+            with self.subTest(session=session):
+                success = {"request_id": "ok", "user_id": 16, "api_key_id": 8,
+                           "session_id": session, "created_at": (base + dt.timedelta(seconds=3)).isoformat()}
+                groups, coverage = MODULE.build_events(errors[:3], [success], logs)
+                self.assertEqual(MODULE.detect_candidates(groups), [])
+                self.assertEqual(coverage["success_rows_with_session"], 0)
+                self.assertEqual(coverage["uncorrelated_breakers"], 1)
+                # New failures after a gap still form a real observed run.
+                groups, _ = MODULE.build_events(errors, [success], logs)
+                self.assertEqual(MODULE.detect_candidates(groups)[0]["max_consecutive_failures"], 3)
+                groups, _ = MODULE.build_events(errors[:3], [{**success, "api_key_id": 9}], logs)
+                self.assertEqual(MODULE.detect_candidates(groups)[0]["max_consecutive_failures"], 3)
+
+    def test_known_other_session_success_does_not_break_run(self):
+        base = dt.datetime(2026, 7, 20, 9, 0, tzinfo=dt.timezone.utc)
+        errors = [row(f"r{i}", base + dt.timedelta(seconds=i * 2)) for i in range(3)]
+        logs = {r["request_id"]: {"session_hash": "failing"} for r in errors}
+        logs["ok"] = {"session_hash": "other"}
+        success = {"request_id": "ok", "user_id": 16, "api_key_id": 8,
+                   "created_at": (base + dt.timedelta(seconds=3)).isoformat()}
+        groups, coverage = MODULE.build_events(errors, [success], logs)
+        self.assertEqual(MODULE.detect_candidates(groups)[0]["max_consecutive_failures"], 3)
+        self.assertEqual(coverage["uncorrelated_breakers"], 0)
+
+    def test_truncation_never_reports_a_fabricated_failure_run(self):
+        base = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=10)
+        errors = [row(f"r{i}", base + dt.timedelta(seconds=i * 2)) for i in range(3)]
+        logs = {r["request_id"]: {"session_hash": "same"} for r in errors}
+        logs["ok"] = {"session_hash": "same", "user_id": 16, "api_key_id": 8,
+                      "access_status": 200, "completed_at": (base + dt.timedelta(seconds=3)).isoformat()}
+        usages = [{"request_id": f"other{i}", "user_id": 17, "api_key_id": 9, "session_id": "other",
+                   "created_at": (base - dt.timedelta(seconds=1)).isoformat()} for i in range(100)]
+        for source in ("success", "error"):
+            with self.subTest(source=source), \
+                 mock.patch.dict(os.environ, {"MAX_ROWS": "100"}, clear=True), \
+                 mock.patch.object(MODULE, "_resolve_container", return_value="app"), \
+                 mock.patch.object(MODULE, "_run_json_query", side_effect=[errors, usages] if source == "success" else [errors * 34, []]), \
+                 mock.patch.object(MODULE, "parse_gateway_log_lines", return_value=logs), \
+                 mock.patch.object(MODULE, "_docker_log_lines", return_value=[]):
+                report = MODULE.live_report()
+            self.assertEqual(report["status"], "partial")
+            self.assertTrue(report["coverage"][source + "_rows_truncated"])
+            self.assertEqual(report["candidates"], [])
+            self.assertEqual(report["candidate_count"], 0)
+
+    def test_long_failure_run_reports_exact_count_after_break(self):
+        base = dt.datetime(2026, 7, 20, 9, 0, tzinfo=dt.timezone.utc)
+        errors = [row(f"r{i}", base + dt.timedelta(seconds=i)) for i in range(10000)]
+        logs = {r["request_id"]: {"session_hash": "same"} for r in errors}
+        success = {"request_id": "ok", "user_id": 16, "api_key_id": 8,
+                   "created_at": (base + dt.timedelta(seconds=99, milliseconds=500)).isoformat()}
+        logs["ok"] = {"session_hash": "same"}
+        groups, _ = MODULE.build_events(errors, [success], logs)
+        candidate = MODULE.detect_candidates(groups)[0]
+        self.assertEqual(candidate["max_consecutive_failures"], 9900)
+        self.assertEqual(candidate["failure_count"], 10000)
+        self.assertEqual(candidate["request_count"], 10001)
+
     def test_wrapper_executes_python_and_propagates_failure(self):
         # Missing resolver is intentional: exercises Bash -> Python and error exit,
         # without touching Docker, the database, or a live host.
