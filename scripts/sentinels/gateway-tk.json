@@ -16609,6 +16609,43 @@
         "writeAnthropicError(c, statusCode, errType, errMsg)"
       ],
       "rationale": "Native and compatible Messages share the same context-error and late SSE owner."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_terminal_routes.go",
+      "must_contain": [
+        "group.Handlers = append(gin.HandlersChain{handler.TerminalOutcomeMiddleware(r.sink, policy.kind)}, group.Handlers...)"
+      ],
+      "rationale": "Terminal collector must wrap inherited auth/routing middleware so early Gin Abort cannot hide typed empty-pool outcomes."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_terminal_routes_test.go",
+      "must_contain": [
+        "TestTerminalRouteRegistrarRecordsInheritedEarlyAbort",
+        "TestTerminalRouteRegistrarRecordsEarlyWebSocketRejectOnce",
+        "TestTerminalRouteRegistrarObservesRecovery",
+        "TestTerminalRouteRegistrarDoesNotAttributeUnauthenticatedBody",
+        "TestTerminalRouteRegistrarIgnoresRecoveredUpstreamAttemptError"
+      ],
+      "rationale": "Behavioral regression for root/group early rejects and WebSocket handshake rejects, plus excluded sibling isolation. Recovery after committed headers is a failure, broken pipes stay excluded, and authentication/attempt errors cannot invent terminal attribution."
+    },
+    {
+      "path": "backend/internal/handler/terminal_outcome_middleware.go",
+      "must_contain": [
+        "middleware2.GetOpsFallbackAPIKey(c)",
+        "terminalOutcomeWebSocketRecordedKey",
+        "middleware2.RecoveryOutcome(c)"
+      ],
+      "rationale": "Early terminal failures retain fallback group identity and must not double-count WebSocket handshake/turn outcomes. The collector wraps Recovery and must observe its error chain instead of treating a committed 200 as success."
+    },
+    {
+      "path": "backend/internal/server/middleware/recovery.go",
+      "must_contain": [
+        "type recoveredPanicError struct",
+        "func RecoveryOutcome(c *gin.Context)",
+        "_ = c.Error(recoveredPanicError{value: recovered})",
+        "isBrokenPipe(entry.Err)"
+      ],
+      "rationale": "Recovered handler panics and Gin broken pipes must remain visible to the outer terminal collector on the existing Gin error chain, without changing the committed response."
     }
   ]
 }

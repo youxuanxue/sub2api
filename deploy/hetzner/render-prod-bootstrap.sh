@@ -268,6 +268,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 EnvironmentFile=-/var/lib/tokenkey/.env
+Environment=TOKENKEY_DATA_VOLUME_PATH=/var/lib/tokenkey
 ExecStart=/usr/local/bin/tokenkey-disk-metrics.sh
 DMSEOF
 
