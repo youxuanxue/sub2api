@@ -320,7 +320,6 @@ func TestHTTPUpstreamDoAppliesGrokCLIIdentityBeforeOAuthRoundTrip(t *testing.T) 
 			require.NoError(t, resp.Body.Close())
 
 			require.Equal(t, xai.CLIClientVersion, capturedHeaders.Get("x-grok-client-version"))
-			require.Equal(t, "1.0.46", capturedHeaders.Get("x-grok-client-version"))
 			require.Equal(t, "grok-pager", capturedHeaders.Get("x-grok-client-identifier"))
 			require.Equal(t, "interactive", capturedHeaders.Get("x-grok-client-mode"))
 			require.Equal(t, "authenticate-response", capturedHeaders.Get("x-authenticateresponse"))
