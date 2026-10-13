@@ -31,14 +31,18 @@ var (
 	ErrSupplierSourceInvalidPurchaseRatio = errors.New("supplier source purchase ratio must be a number greater than 0 and at most 1")
 	ErrSupplierSourceDuplicateClientModel = errors.New("supplier source client model ids must be unique")
 	ErrSupplierSourceInvalidInput         = errors.New("invalid supplier source input")
-	ErrSupplierSourceProbeFailed          = infraerrors.New(http.StatusUnprocessableEntity, "SUPPLIER_SOURCE_PROBE_FAILED", "one or more supplier models failed validation")
-	ErrSupplierSourceMultipleMatches      = errors.New("supplier source matched multiple accounts")
-	ErrSupplierSourceIdentityConflict     = errors.New("supplier source identity already exists")
-	ErrSupplierProjectionReadbackMismatch = errors.New("supplier projection readback mismatch")
-	ErrSupplierProjectionProtocolNotReady = infraerrors.New(http.StatusUnprocessableEntity, "SUPPLIER_PROTOCOL_NOT_READY", "supplier account protocol capability is not ready")
-	ErrSupplierProjectionReaderMissing    = errors.New("supplier projection reader unavailable")
-	ErrSupplierProjectionUpdaterMissing   = errors.New("supplier projection updater unavailable")
-	ErrSupplierReservedAccountExtra       = infraerrors.BadRequest("SUPPLIER_RESERVED_ACCOUNT_EXTRA", "supplier_source_id and supplier_discount_band are reserved for supplier-source sync")
+	// ErrSupplierSourceCredentialUndecryptable means the stored ciphertext cannot be
+	// opened with the current TOTP_ENCRYPTION_KEY (key rotation / migration without
+	// re-protect). Operators must re-enter the API key and save before sync/probe.
+	ErrSupplierSourceCredentialUndecryptable = errors.New("supplier credential cannot be decrypted with the current encryption key; re-enter the API key and save")
+	ErrSupplierSourceProbeFailed             = infraerrors.New(http.StatusUnprocessableEntity, "SUPPLIER_SOURCE_PROBE_FAILED", "one or more supplier models failed validation")
+	ErrSupplierSourceMultipleMatches         = errors.New("supplier source matched multiple accounts")
+	ErrSupplierSourceIdentityConflict        = errors.New("supplier source identity already exists")
+	ErrSupplierProjectionReadbackMismatch    = errors.New("supplier projection readback mismatch")
+	ErrSupplierProjectionProtocolNotReady    = infraerrors.New(http.StatusUnprocessableEntity, "SUPPLIER_PROTOCOL_NOT_READY", "supplier account protocol capability is not ready")
+	ErrSupplierProjectionReaderMissing       = errors.New("supplier projection reader unavailable")
+	ErrSupplierProjectionUpdaterMissing      = errors.New("supplier projection updater unavailable")
+	ErrSupplierReservedAccountExtra          = infraerrors.BadRequest("SUPPLIER_RESERVED_ACCOUNT_EXTRA", "supplier_source_id and supplier_discount_band are reserved for supplier-source sync")
 )
 
 const (

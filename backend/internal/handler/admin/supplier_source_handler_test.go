@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -185,4 +186,24 @@ func TestUS048_SupplierSourceWriteFailureReturnsCompletedChanges(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, changes, 1)
 	require.NotContains(t, recorder.Body.String(), "injected account write failure")
+}
+
+func TestUS048_DecryptCredentialFailureReturnsActionableMessage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	result := &service.SupplierSourceSyncResult{
+		SourceID: 14, Changes: []service.SupplierSourceAccountChange{}, FailedStep: "decrypt_credential",
+	}
+
+	writeSupplierSourceSyncError(ctx, result, fmt.Errorf("%w: cipher: message authentication failed", service.ErrSupplierSourceCredentialUndecryptable))
+
+	require.Equal(t, http.StatusConflict, recorder.Code)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.Equal(t, service.ErrSupplierSourceCredentialUndecryptable.Error(), payload["message"])
+	data, ok := payload["data"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "decrypt_credential", data["failed_step"])
+	require.NotContains(t, recorder.Body.String(), "message authentication failed")
 }
