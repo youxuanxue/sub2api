@@ -16598,6 +16598,29 @@
         "writeAnthropicError(c, statusCode, errType, errMsg)"
       ],
       "rationale": "Native and compatible Messages share the same context-error and late SSE owner."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_terminal_routes.go",
+      "must_contain": [
+        "group.Handlers = append(gin.HandlersChain{handler.TerminalOutcomeMiddleware(r.sink, policy.kind)}, group.Handlers...)"
+      ],
+      "rationale": "Terminal collector must wrap inherited auth/routing middleware so early Gin Abort cannot hide typed empty-pool outcomes."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_terminal_routes_test.go",
+      "must_contain": [
+        "TestTerminalRouteRegistrarRecordsInheritedEarlyAbort",
+        "TestTerminalRouteRegistrarRecordsEarlyWebSocketRejectOnce"
+      ],
+      "rationale": "Behavioral regression for root/group early rejects and WebSocket handshake rejects, plus excluded sibling isolation."
+    },
+    {
+      "path": "backend/internal/handler/terminal_outcome_middleware.go",
+      "must_contain": [
+        "middleware2.GetOpsFallbackAPIKey(c)",
+        "terminalOutcomeWebSocketRecordedKey"
+      ],
+      "rationale": "Early terminal failures retain fallback group identity and must not double-count WebSocket handshake/turn outcomes."
     }
   ]
 }

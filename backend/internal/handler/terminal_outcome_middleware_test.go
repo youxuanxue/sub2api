@@ -139,6 +139,7 @@ func TestRecordWebSocketTerminalOutcomeSkipsCanceledTurn(t *testing.T) {
 func TestRecordWebSocketHandshakeTerminalOutcomeUsesActualHTTPStatus(t *testing.T) {
 	sink := &terminalOutcomeSinkStub{}
 	events := runTerminalOutcomeMiddleware(t, sink, TerminalOutcomeWebSocketTurn, func(c *gin.Context) {
+		setOpsRequestContext(c, "grok-voice-latest", false)
 		c.Status(http.StatusServiceUnavailable)
 		RecordWebSocketHandshakeTerminalOutcome(c, "grok-voice-latest")
 	})

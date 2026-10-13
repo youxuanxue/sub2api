@@ -15,8 +15,9 @@ import (
 type TerminalOutcomePolicy string
 
 const (
-	terminalOutcomeWebSocketSinkKey = "terminal_outcome_websocket_sink"
-	terminalOutcomeExcludedKey      = "terminal_outcome_excluded"
+	terminalOutcomeWebSocketSinkKey     = "terminal_outcome_websocket_sink"
+	terminalOutcomeExcludedKey          = "terminal_outcome_excluded"
+	terminalOutcomeWebSocketRecordedKey = "terminal_outcome_websocket_recorded"
 )
 
 const (
@@ -33,10 +34,18 @@ func TerminalOutcomeMiddleware(sink service.TerminalOutcomeSink, policy Terminal
 			c.Set(terminalOutcomeWebSocketSinkKey, sink)
 		}
 		c.Next()
-		if sink == nil || policy == TerminalOutcomeExcluded || policy == TerminalOutcomeWebSocketTurn {
+		if sink == nil || policy == TerminalOutcomeExcluded {
 			return
 		}
 		if excluded, _ := c.Get(terminalOutcomeExcludedKey); excluded == true || terminalRequestCanceled(c) {
+			return
+		}
+		if policy == TerminalOutcomeWebSocketTurn {
+			// Auth/routing can reject before the endpoint's handshake adapter.
+			// Once a handshake/turn was recorded, do not add a connection result.
+			if c.Writer.Status() >= http.StatusBadRequest && !c.GetBool(terminalOutcomeWebSocketRecordedKey) {
+				RecordWebSocketHandshakeTerminalOutcome(c, terminalRequestedModel(c))
+			}
 			return
 		}
 		model := terminalRequestedModel(c)
@@ -89,6 +98,7 @@ func recordWebSocketTerminalOutcomeKind(c *gin.Context, model string, kind servi
 	if !ok || sink == nil {
 		return
 	}
+	c.Set(terminalOutcomeWebSocketRecordedKey, true)
 	sink.Record(service.TerminalOutcomeEvent{
 		At:             time.Now().UTC(),
 		GroupID:        terminalGroupID(c),
@@ -134,7 +144,10 @@ func terminalRequestedModel(c *gin.Context) string {
 
 func terminalGroupID(c *gin.Context) int64 {
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
-	if !ok || apiKey == nil || apiKey.GroupID == nil {
+	if !ok || apiKey == nil {
+		apiKey, _ = middleware2.GetOpsFallbackAPIKey(c)
+	}
+	if apiKey == nil || apiKey.GroupID == nil {
 		return 0
 	}
 	return *apiKey.GroupID

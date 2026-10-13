@@ -1,14 +1,16 @@
 #!/bin/bash
-# TokenKey Stage0 EDGE — on-box disk-full + memory-pressure Feishu alerts
+# TokenKey Stage0 host — on-box disk-full + memory-pressure Feishu alerts
 # (Lightsail variant of the prod alert in deploy/aws/stage0/stage0-ec2-bootstrap.sh).
 #
 # Single source of record: consumed by
 #   - ops/stage0/sync-edge-host-units-via-ssm.sh (pushes onto running edges via SSM;
 #     also called from deploy-edge-lightsail-stage0 after provision/upgrade).
-# Edit ONLY this file for edge host-pressure alert logic.
+#   - deploy/hetzner/render{,-prod}-bootstrap.sh (prod declares its data volume).
+# Edit ONLY this file for shared host-pressure alert logic.
 #
 # Differences vs the prod EC2 alert (intentional):
-#   - df target is /  (edge has NO separate /var/lib/tokenkey data volume).
+#   - Root is always checked; TOKENKEY_DATA_VOLUME_PATH additionally requires
+#     a separate mounted data volume (Hetzner prod; unset on edges).
 #   - NO CloudWatch put-metric. Edges have no DataVolumeDiskAlarm and may lack
 #     cloudwatch:PutMetricData IAM — Feishu post is the whole point.
 #   - Node label from API_DOMAIN (.env), not IMDS instance-id.
@@ -140,24 +142,44 @@ tk_feishu_post_now() {
 
 handle_disk_state() {
   local used="$1" threshold="$2" recover_threshold="$3"
-  local active_stamp="$4" cooldown_stamp="$5"
+  local active_stamp="$4" cooldown_stamp="$5" label="${6:-根盘 /}"
   if [ "${used}" -ge "${threshold}" ]; then
     if tk_feishu_alert "${cooldown_stamp}" \
-      "🔴 P0 磁盘将满 ${NODE} — 根盘 / 使用率 ${used}% (阈值 ${threshold}%)。Postgres 满盘会崩溃→网关全挂。立即清 docker 镜像/日志或扩容。node=${NODE}"; then
+      "🔴 P0 磁盘将满 ${NODE} — ${label} 使用率 ${used}% (阈值 ${threshold}%)。Postgres 满盘会崩溃→网关全挂。立即清 docker 镜像/日志或扩容。node=${NODE}"; then
       echo 1 >"${active_stamp}" 2>/dev/null || true  # preflight-allow: swallow — best-effort latch; timer retries next tick
     fi
   elif [ "${used}" -lt "${recover_threshold}" ]; then
     if [ -r "${active_stamp}" ] || [ -r "${cooldown_stamp}" ]; then
       if tk_feishu_post_now \
-        "✅ P0 磁盘压力已恢复 ${NODE} — 根盘 / 使用率 ${used}% (恢复阈值 ${recover_threshold}%，告警阈值 ${threshold}%)。node=${NODE}"; then
+        "✅ P0 磁盘压力已恢复 ${NODE} — ${label} 使用率 ${used}% (恢复阈值 ${recover_threshold}%，告警阈值 ${threshold}%)。node=${NODE}"; then
         rm -f "${active_stamp}" "${cooldown_stamp}" 2>/dev/null || true  # preflight-allow: swallow — clear latch + legacy cooldown for next incident
       fi
     fi
   fi
 }
 
-# --- root disk-full alert + paired recovery ----------------------------------
-USED="$(df -P / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
+# An absent required mount must never be measured as its underlying root disk.
+# Keep mount-loss and pressure latches separate: remount is not disk recovery.
+handle_disk_target() {
+  local target="$1" label="$2" active="$3" cooldown="$4" require_mount="${5:-0}"
+  local used missing="${active}-mount-missing"
+  if [ "${require_mount}" = "1" ] && ! mountpoint -q "${target}"; then
+    echo "ERROR required data volume is not mounted: ${target}" >&2
+    tk_feishu_alert "${missing}" "🔴 P0 数据卷未挂载 ${NODE} — ${target}。磁盘使用率未知，不能当作根盘健康。node=${NODE}" || true # preflight-allow: swallow — service still fails below; absent volume can also hide webhook env
+    return 1
+  fi
+  if ! used="$(df -P "${target}" | awk 'NR==2 {gsub(/%/,"",$5); print $5}')" || [[ ! "${used}" =~ ^[0-9]+$ ]]; then
+    echo "ERROR cannot read disk usage: ${target}" >&2
+    return 1
+  fi
+  if [ -r "${missing}" ]; then
+    if tk_feishu_post_now "✅ P0 数据卷挂载已恢复 ${NODE} — ${target}，使用率 ${used}%。node=${NODE}"; then
+      rm -f "${missing}"
+    fi
+  fi
+  handle_disk_state "${used}" "${THRESHOLD}" "${RECOVER_THRESHOLD}" "${active}" "${cooldown}" "${label}"
+}
+
 THRESHOLD="${TOKENKEY_DISK_ALERT_THRESHOLD:-85}"
 RECOVER_THRESHOLD="${TOKENKEY_DISK_RECOVER_THRESHOLD:-$((THRESHOLD - 5))}"
 if [ "${RECOVER_THRESHOLD}" -ge "${THRESHOLD}" ]; then
@@ -167,9 +189,13 @@ if [ "${RECOVER_THRESHOLD}" -lt 1 ]; then
   RECOVER_THRESHOLD=1
 fi
 
-if [ "${TK_SELFTEST}" != "1" ] && [ -n "${USED}" ]; then
-  handle_disk_state "${USED}" "${THRESHOLD}" "${RECOVER_THRESHOLD}" \
-    "${DISK_ACTIVE_STAMP}" /run/tokenkey-disk-alert.stamp
+DISK_STATUS=0
+if [ "${TK_SELFTEST}" != "1" ]; then
+  handle_disk_target / "根盘 /" "${DISK_ACTIVE_STAMP}" /run/tokenkey-disk-alert.stamp || DISK_STATUS=1
+  if [ -n "${TOKENKEY_DATA_VOLUME_PATH:-}" ]; then
+    handle_disk_target "${TOKENKEY_DATA_VOLUME_PATH}" "数据卷 ${TOKENKEY_DATA_VOLUME_PATH}" \
+      /run/tokenkey-data-disk-alert-active /run/tokenkey-data-disk-alert.stamp 1 || DISK_STATUS=1
+  fi
 fi
 
 # --- memory-pressure alert + paired recovery (prod parity; 2026-08-03 us6 OOM) -
@@ -286,6 +312,37 @@ if [ "${TK_SELFTEST}" = "1" ]; then
   # "0\n0" and break every zero-assertion. Count with awk instead.
   tk_count() { awk -v p="^$1" 'index($0,substr(p,2))==1 {n++} END{ printf "%d", n+0 }' "${SENT_LOG}" 2>/dev/null; }
 
+  # Real disk collector + state machine: root remains healthy while the
+  # independent prod volume fills, stays in hysteresis, then recovers once.
+  df() { printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/test 100 90 10 %s%% %s\n' "${TEST_DISK_USED}" "$2"; }
+  mountpoint() { [ "${TEST_MOUNTED}" = "1" ]; }
+  TEST_MOUNTED=1; TEST_DISK_USED=11
+  ROOT_ACTIVE="${TK_SELFTEST_DIR}/root-active"; ROOT_COOLDOWN="${TK_SELFTEST_DIR}/root-cooldown"
+  DATA_ACTIVE="${TK_SELFTEST_DIR}/data-active"; DATA_COOLDOWN="${TK_SELFTEST_DIR}/data-cooldown"
+  tk_reset
+  handle_disk_target / "根盘 /" "${ROOT_ACTIVE}" "${ROOT_COOLDOWN}"
+  TEST_DISK_USED=90
+  handle_disk_target /var/lib/tokenkey "数据卷 /var/lib/tokenkey" "${DATA_ACTIVE}" "${DATA_COOLDOWN}" 1
+  [ "$(tk_count ALERT)" = "1" ] && [ -r "${DATA_ACTIVE}" ] && [ ! -r "${ROOT_ACTIVE}" ] || { echo "FAIL data disk did not alert independently" >&2; fail=1; }
+  grep -q '数据卷 /var/lib/tokenkey 使用率 90%' "${SENT_LOG}" || { echo "FAIL data alert label" >&2; fail=1; }
+  TEST_DISK_USED=82
+  handle_disk_target /var/lib/tokenkey data "${DATA_ACTIVE}" "${DATA_COOLDOWN}" 1
+  [ "$(tk_count RECOVERY)" = "0" ] || { echo "FAIL disk recovery inside hysteresis" >&2; fail=1; }
+  TEST_MOUNTED=0; TEST_DISK_USED=11
+  if handle_disk_target /var/lib/tokenkey data "${DATA_ACTIVE}" "${DATA_COOLDOWN}" 1 2>/dev/null; then
+    echo "FAIL absent data mount accepted as healthy root" >&2; fail=1
+  fi
+  [ -r "${DATA_ACTIVE}" ] && [ "$(tk_count RECOVERY)" = "0" ] || { echo "FAIL absent mount cleared pressure" >&2; fail=1; }
+  TEST_MOUNTED=1; TEST_DISK_USED=75
+  handle_disk_target /var/lib/tokenkey data "${DATA_ACTIVE}" "${DATA_COOLDOWN}" 1
+  [ "$(tk_count RECOVERY)" = "2" ] && [ ! -r "${DATA_ACTIVE}" ] || { echo "FAIL paired mount and pressure recovery" >&2; fail=1; }
+  handle_disk_target /var/lib/tokenkey data "${DATA_ACTIVE}" "${DATA_COOLDOWN}" 1
+  [ "$(tk_count RECOVERY)" = "2" ] || { echo "FAIL duplicate disk recovery" >&2; fail=1; }
+  TEST_DISK_USED=unknown
+  if handle_disk_target /var/lib/tokenkey data "${DATA_ACTIVE}" "${DATA_COOLDOWN}" 1 2>/dev/null; then
+    echo "FAIL invalid df accepted" >&2; fail=1
+  fi
+
   # Case 1 — the us5 false page: one 91% spike then recovery sends NOTHING.
   tk_reset; tk_tick 91
   [ "$(tk_count ALERT)" = "0" ] || { echo "FAIL single 91% spike paged (us5 regression)" >&2; fail=1; }
@@ -325,3 +382,5 @@ fi
 
 MEMUSEDPCT="$(awk '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2} END{ if(t>0) printf "%d",(t-a)*100/t; else print 0 }' "${TK_MEMINFO_PATH}" 2>/dev/null || echo 0)"
 handle_mem_state "${MEMUSEDPCT:-0}" "${MEM_THRESHOLD}" "${MEM_CRITICAL_THRESHOLD}" "${MEM_RECOVER_THRESHOLD}"
+
+exit "${DISK_STATUS}"
