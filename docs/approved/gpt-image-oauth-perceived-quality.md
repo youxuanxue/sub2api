@@ -56,7 +56,7 @@ TokenKey 现状（改前）：`instructions` 固定 `""`（codex2api，避免主
 
 `SUB2API_IMAGES_PROMPT_SCAFFOLD=off|false|0|no` 关掉脚手架，effort 逻辑仍在。
 
-Stage0 蓝绿模板 `ops/stage0/deploy_via_ssm_bluegreen.sh` 把这两个变量从宿主机 `.env` 透传到 blue 和 green。未设置时模板写成空字符串，应用仍走自动档。部署器不把空值写回宿主机 `.env`。
+Stage0 蓝绿模板 `ops/stage0/deploy_via_ssm_bluegreen.sh` 在 blue 和 green 的 `environment` 里保留 `${SUB2API_IMAGES_REASONING_EFFORT:-}` 与 `${SUB2API_IMAGES_PROMPT_SCAFFOLD:-}`。`docker compose --env-file .env` 创建容器时读取宿主机 `.env`。键缺失或值为空时，容器里对应值是空字符串：effort 走自动档，脚手架保持开启（与 `deploy/docker-compose.yml` 里脚手架默认 `on` 的应用行为相同）。部署器不 `env_set` / `env_default` 这两个键，也不把它们放进 SSM 启动前缀，避免部署机上的空值盖住宿主机已有配置。
 
 ## Owners
 
