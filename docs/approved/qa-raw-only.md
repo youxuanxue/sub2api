@@ -61,6 +61,8 @@ python3 ops/qa/migrate_hcloud_objects.py --kind raw --ledger "$QA_MIGRATION_LEDG
 
 清单与回执独占创建、权限 0600。最终验证重新读取所有源/目标对象，校验 SHA256、内容头、元数据和原到期标签；验证前后重新列举源并读取目标 bucket 生命周期配置，拒绝对象漂移、原绝对到期规则缺失/停用/变化及 runtime 保留规则漂移。回执始终 `cutover_ready: false`，还需 raw restore 与独立 maintenance 接受验证。
 
+冻结清单与预复制使用同一个源对象绝对到期边界：已到期但仍等待 S3 异步删除的对象不进入待迁移清单，不延长其保留期。冻结后若有清单内对象到期，最终对账拒绝旧清单，须重新冻结和验证；保留期内的缺失或漂移继续阻止切换。
+
 raw 凭据只挂载给 maintenance 子容器；网关两种颜色不挂载 raw 文件。网关发布只接受 `raw_archive_v1` 目标；缺失、旧 Bundle 和未知契约在触碰主机前拒绝。历史版本回滚须另行验证 raw capture/maintenance 兼容性与 DROP pause，不能由普通发布绕过。
 
 测试入口：[迁移](../../ops/qa/test_migrate_hcloud_objects.py)、[凭据隔离](../../ops/stage0/test_bluegreen_host_runtime.py)、[退役路由](../../backend/internal/server/routes/qa_retired_routes_test.go)、[真实 UI](../../frontend/e2e/qa-retirement.e2e.ts)。

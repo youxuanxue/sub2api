@@ -426,6 +426,7 @@ def clients():
 
 def frozen_inventory(source, bucket, prefix):
     objects = []
+    retained_at = datetime.now(timezone.utc)
     for page in source.get_paginator("list_objects_v2").paginate(
         Bucket=bucket, Prefix=prefix
     ):
@@ -433,12 +434,17 @@ def frozen_inventory(source, bucket, prefix):
             head = source.head_object(Bucket=bucket, Key=item["Key"])
             if (item["ETag"], item["Size"]) != (head["ETag"], head["ContentLength"]):
                 raise ValueError("source changed while freezing inventory")
+            deadline = expiry(head)
+            # Lifecycle deletion is asynchronous; match copy_one's retention
+            # boundary rather than require a target for deliberately skipped data.
+            if deadline <= retained_at:
+                continue
             objects.append(
                 {
                     "key": item["Key"],
                     "etag": head["ETag"],
                     "size": head["ContentLength"],
-                    "expires_at": expiry(head).isoformat(),
+                    "expires_at": deadline.isoformat(),
                 }
             )
     return sorted(objects, key=lambda row: row["key"])

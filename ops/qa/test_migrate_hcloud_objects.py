@@ -208,6 +208,64 @@ class MigrationObjectsTest(unittest.TestCase):
             row, (hashlib.sha256(target["Body"]).hexdigest(), len(target["Body"]))
         )
 
+    def test_final_verification_ignores_expired_objects_pending_source_deletion(self):
+        self.copy()
+        expired_key = "raw/v1/expired/commit.json"
+        expired_headers = dict(self.headers)
+        deadline = self.deadline - timedelta(days=2)
+        expired_headers["Expiration"] = (
+            f'expiry-date="{format_datetime(deadline, usegmt=True)}", rule-id="raw"'
+        )
+        self.source.seed(expired_key, b"expired QA contents", **expired_headers)
+        install_lifecycle(
+            self.target, SOURCES["raw"][1], "raw", [deadline.date().isoformat()]
+        )
+        self.assertEqual(
+            copy_one(
+                self.source,
+                self.target,
+                self.db,
+                *SOURCES["raw"][:2],
+                expired_key,
+                float("inf"),
+            ),
+            "expired",
+        )
+        inventory = frozen_inventory(self.source, SOURCES["raw"][0], "raw/v1/")
+        # S3 lifecycle deletion may finish after the inventory was frozen.
+        del self.source.objects[expired_key]
+        result = verify_frozen(
+            self.source, self.target, self.db, *SOURCES["raw"], inventory, float("inf")
+        )
+        self.assertEqual(
+            result,
+            [
+                {
+                    "key": self.key,
+                    "size": len(b"synthetic QA contents"),
+                    "sha256": hashlib.sha256(b"synthetic QA contents").hexdigest(),
+                }
+            ],
+        )
+        self.assertEqual(self.target.writes, 1)
+
+    def test_expiry_during_frozen_verification_requires_a_new_inventory(self):
+        self.copy()
+        inventory = frozen_inventory(self.source, SOURCES["raw"][0], "raw/v1/")
+        with patch("ops.qa.migrate_hcloud_objects.datetime", wraps=datetime) as clock:
+            clock.now.side_effect = [
+                datetime.now(timezone.utc), self.deadline + timedelta(seconds=1)
+            ]
+            with self.assertRaisesRegex(ValueError, "source inventory changed"):
+                verify_frozen(
+                    self.source,
+                    self.target,
+                    self.db,
+                    *SOURCES["raw"],
+                    inventory,
+                    float("inf"),
+                )
+
     def test_final_verification_rereads_bytes_even_when_etag_and_ledger_match(self):
         self.copy()
         inventory = frozen_inventory(self.source, SOURCES["raw"][0], "raw/v1/")
