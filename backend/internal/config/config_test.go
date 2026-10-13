@@ -1931,12 +1931,12 @@ func TestValidateConfigErrors(t *testing.T) {
 		},
 		{
 			name:    "gateway stream first output timeout too large",
-			mutate:  func(c *Config) { c.Gateway.StreamFirstOutputTimeoutSeconds = 61 },
+			mutate:  func(c *Config) { c.Gateway.StreamFirstOutputTimeoutSeconds = 601 },
 			wantErr: "gateway.stream_first_output_timeout_seconds",
 		},
 		{
 			name:    "gateway stream first output high effort timeout too large",
-			mutate:  func(c *Config) { c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds = 61 },
+			mutate:  func(c *Config) { c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds = 601 },
 			wantErr: "gateway.stream_first_output_high_effort_timeout_seconds",
 		},
 		{

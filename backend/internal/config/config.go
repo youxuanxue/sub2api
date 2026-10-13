@@ -1100,11 +1100,11 @@ type GatewayConfig struct {
 	// OpenAI/Codex 请求可能在上游排队较久；默认不使用通用响应头超时截断。
 	OpenAIResponseHeaderTimeout int `mapstructure:"openai_response_header_timeout"`
 	// StreamFirstOutputTimeoutSeconds: cross-platform streaming useful-first-output
-	// budget (seconds). Zero inherits the code default 30. Cap is 60.
+	// budget (seconds). Zero inherits the code default 120. Cap is 600.
 	// See docs/approved/candidate-eligibility-ssot.md (universal stream first-output).
 	StreamFirstOutputTimeoutSeconds int `mapstructure:"stream_first_output_timeout_seconds"`
 	// StreamFirstOutputHighEffortTimeoutSeconds: high/xhigh/max (and equivalents)
-	// override. Zero inherits the code default 60. Cap is 60.
+	// override. Zero inherits the code default 600. Cap is 600.
 	StreamFirstOutputHighEffortTimeoutSeconds int `mapstructure:"stream_first_output_high_effort_timeout_seconds"`
 	// Bounds a replayable NewAPI Chat *streaming* attempt until useful first output
 	// (not total stream duration). Seconds; zero inherits StreamFirstOutputTimeoutSeconds.
@@ -1123,7 +1123,7 @@ type GatewayConfig struct {
 	// 强制走 high-effort 预算（见 openAIFirstOutputForceHighBudget）。
 	OpenAIFirstOutputTimeoutSeconds int `mapstructure:"openai_first_output_timeout_seconds"`
 	// OpenAIHighEffortFirstOutputTimeoutSeconds: high/xhigh/max（及 force-high）首个语义输出超时（秒）。
-	// 默认 300；0 表示回退到 StreamFirstOutputHighEffortTimeoutSeconds（stream SSOT 代码默认 60）。
+	// 默认 600；0 表示回退到 StreamFirstOutputHighEffortTimeoutSeconds（stream SSOT 代码默认 600）。
 	OpenAIHighEffortFirstOutputTimeoutSeconds int `mapstructure:"openai_high_effort_first_output_timeout_seconds"`
 	// Kiro fixed request wait: streaming until visible text/tool, non-streaming
 	// until complete JSON. Zero inherits Kiro defaults; retries share the budget.
@@ -2696,12 +2696,12 @@ func setDefaults() {
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
 	// first-output-timeout-ssot:begin
-	viper.SetDefault("gateway.stream_first_output_timeout_seconds", 30)
-	viper.SetDefault("gateway.stream_first_output_high_effort_timeout_seconds", 60)
+	viper.SetDefault("gateway.stream_first_output_timeout_seconds", 120)
+	viper.SetDefault("gateway.stream_first_output_high_effort_timeout_seconds", 600)
 	viper.SetDefault("gateway.kiro_first_output_timeout_seconds", 120)
 	viper.SetDefault("gateway.kiro_high_effort_first_output_timeout_seconds", 600)
 	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 120)
-	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 300)
+	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 600)
 	// first-output-timeout-ssot:end
 	viper.SetDefault("gateway.newapi_chat_first_output_timeout", 0) // 0 = inherit stream SSOT
 	viper.SetDefault("gateway.newapi_chat_nonstream_first_output_timeout", 300)
@@ -3686,11 +3686,11 @@ func (c *Config) Validate() error {
 	if c.Gateway.OpenAIResponseHeaderTimeout < 0 {
 		return fmt.Errorf("gateway.openai_response_header_timeout must be non-negative")
 	}
-	if c.Gateway.StreamFirstOutputTimeoutSeconds < 0 || c.Gateway.StreamFirstOutputTimeoutSeconds > 60 {
-		return fmt.Errorf("gateway.stream_first_output_timeout_seconds must be between 0-60 seconds")
+	if c.Gateway.StreamFirstOutputTimeoutSeconds < 0 || c.Gateway.StreamFirstOutputTimeoutSeconds > 600 {
+		return fmt.Errorf("gateway.stream_first_output_timeout_seconds must be between 0-600 seconds")
 	}
-	if c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds < 0 || c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds > 60 {
-		return fmt.Errorf("gateway.stream_first_output_high_effort_timeout_seconds must be between 0-60 seconds")
+	if c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds < 0 || c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds > 600 {
+		return fmt.Errorf("gateway.stream_first_output_high_effort_timeout_seconds must be between 0-600 seconds")
 	}
 	if c.Gateway.NewAPIChatFirstOutputTimeout < 0 || c.Gateway.NewAPIChatFirstOutputTimeout > 60 {
 		return fmt.Errorf("gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)")

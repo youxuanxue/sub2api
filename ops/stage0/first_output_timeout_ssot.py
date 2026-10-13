@@ -5,8 +5,8 @@ Edit THIS file, then regenerate writable copies:
 
   python3 scripts/checks/first-output-timeout-ssot.py --apply
 
-Universal stream SSOT defaults to 30s / high-effort 60s (stream cap 60).
-OpenAI standard is 120s; OpenAI high-effort is 300s. Compact path,
+Universal stream SSOT defaults to 120s / high-effort 600s (stream cap 600).
+OpenAI standard is 120s; OpenAI high-effort is 600s. Compact path,
 compaction_trigger input, or request bodies at/above
 OPENAI_FORCE_HIGH_BODY_BYTES force the high-effort budget even when
 reasoning.effort is medium/low — prod gpt-6.* compact/large-body stalls
@@ -24,28 +24,28 @@ from __future__ import annotations
 
 # Container / compose / .env keys → intended string values.
 EXPECTED_ENV: dict[str, str] = {
-    "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS": "30",
-    "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS": "60",
+    "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS": "120",
+    "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS": "600",
     "GATEWAY_KIRO_FIRST_OUTPUT_TIMEOUT_SECONDS": "120",
     "GATEWAY_KIRO_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS": "600",
     "GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS": "120",
-    "GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS": "300",
+    "GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS": "600",
 }
 
 # viper / yaml mapstructure keys → intended int defaults.
 EXPECTED_VIPER: dict[str, int] = {
-    "gateway.stream_first_output_timeout_seconds": 30,
-    "gateway.stream_first_output_high_effort_timeout_seconds": 60,
+    "gateway.stream_first_output_timeout_seconds": 120,
+    "gateway.stream_first_output_high_effort_timeout_seconds": 600,
     "gateway.kiro_first_output_timeout_seconds": 120,
     "gateway.kiro_high_effort_first_output_timeout_seconds": 600,
     "gateway.openai_first_output_timeout_seconds": 120,
-    "gateway.openai_high_effort_first_output_timeout_seconds": 300,
+    "gateway.openai_high_effort_first_output_timeout_seconds": 600,
 }
 
 # Go duration defaults in stream_first_output_budget_tk.go (Kiro also covers non-stream completion).
 EXPECTED_GO_STREAM_SECONDS: dict[str, int] = {
-    "defaultStreamFirstOutputTimeout": 30,
-    "defaultStreamFirstOutputHighEffortTimeout": 60,
+    "defaultStreamFirstOutputTimeout": 120,
+    "defaultStreamFirstOutputHighEffortTimeout": 600,
     "defaultKiroFirstOutputTimeout": 120,
     "defaultKiroHighEffortFirstOutputTimeout": 600,
 }

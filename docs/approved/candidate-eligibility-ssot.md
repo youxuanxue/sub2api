@@ -1,9 +1,9 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls, and 2026-10-12 OpenAI standard 120s + compact/large-body force high-effort 300s after medium compact mis-kills; Kiro fixed ordinary/high-latency request budgets approved by feng in the #2621 conversation)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls, 2026-10-12 OpenAI standard 120s + compact/large-body force high-effort 300s after medium compact mis-kills, 2026-10-13 universal ordinary/complex first-output budgets approved as 120s/600s; Kiro fixed ordinary/high-latency request budgets approved by feng in the #2621 conversation)"
 created: 2026-09-07
-revised_at: 2026-10-12
+revised_at: 2026-10-13
 ---
 
 # Candidate Eligibility SSOT
@@ -227,8 +227,8 @@ not a NewAPI-only knob and not the same object as metered TTFT.
 | **First-useful-output (this budget)** | Timer from attempt start until the attempt **commits** output that stops account failover/replay. Heartbeats, empty deltas, usage-only frames, and transport headers do **not** stop it. Platform commit events must match “client-bound progress that forbids silent retry” (e.g. NewAPI: content / reasoning / refusal / function-tool; Kiro: client-visible text or tool — unsigned thinking alone does not commit). |
 | **TTFT (`usage_logs.first_token_ms`)** | Observability. May use a **narrower** arming rule (e.g. Kiro visible text only; OpenAI `semantic` vs `visible`). A request can therefore show TTFT ≠ the moment this budget stopped. Do not use TTFT percentiles alone to set this budget without checking the platform commit rule. |
 
-Defaults (seconds): standard stream **30**, high-reasoning effort **60**
-(`high` / `xhigh` / `max` and platform equivalents). Cap **60**.
+Defaults (seconds): standard stream **120**, high-reasoning effort **600**
+(`high` / `xhigh` / `max` and platform equivalents). Cap **600**.
 Config SSOT: `gateway.stream_first_output_timeout_seconds` and
 `gateway.stream_first_output_high_effort_timeout_seconds`. Platform-specific
 keys may override when explicitly set; zero means inherit the universal default
@@ -240,8 +240,8 @@ OpenAI waits without collapsing the cross-platform stream budget. Numeric
 defaults are owned only by `ops/stage0/first_output_timeout_ssot.py`; run
 `python3 scripts/checks/first-output-timeout-ssot.py --apply` to regenerate
 viper / compose / remediate / `config.example.yaml` / Go defaults (preflight
-`--check`). Policy: high-effort budget aligns with Codex client
-`stream_idle_timeout_ms` default 300s; compact path (`/responses/compact`),
+`--check`). Policy: high-effort budget uses the 600-second class for long
+Codex client thinking; compact path (`/responses/compact`),
 `compaction_trigger` input, or request body ≥ `OPENAI_FORCE_HIGH_BODY_BYTES`
 force the high-effort budget even when `reasoning.effort` is medium/low.
 

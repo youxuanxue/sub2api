@@ -239,12 +239,12 @@ gateway:
   # first-output-timeout-ssot:begin
   # Generated — edit ops/stage0/first_output_timeout_ssot.py then:
   #   python3 scripts/checks/first-output-timeout-ssot.py --apply
-  stream_first_output_timeout_seconds: 30
-  stream_first_output_high_effort_timeout_seconds: 60
+  stream_first_output_timeout_seconds: 120
+  stream_first_output_high_effort_timeout_seconds: 600
   kiro_first_output_timeout_seconds: 120
   kiro_high_effort_first_output_timeout_seconds: 600
   openai_first_output_timeout_seconds: 120
-  openai_high_effort_first_output_timeout_seconds: 300
+  openai_high_effort_first_output_timeout_seconds: 600
   # first-output-timeout-ssot:end
   # Replayable NewAPI Chat streaming override (seconds, 0=inherit stream SSOT, max 60).
   newapi_chat_first_output_timeout: 0
