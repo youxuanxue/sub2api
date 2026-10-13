@@ -51,7 +51,7 @@ raw 文件身份只挂载给 maintenance 子容器，网关两种颜色不挂载
 隔离实验与迁移步骤已移出当前部署指南；历史证据保留在 Git。
 唯一现行 QA 契约为 [QA raw-only](qa-raw-only.md)：prod 定时归档到私有 raw S3，
 存量按 AWS 原有生命周期自然到期；新增归档经 restore 与 maintenance 接受验证切换存储。
-本轮代码 PR 不部署、不迁移生产数据、不删除 AWS 源；不能据此宣称 QA 已去 AWS。
+代码 PR 本身不部署。后续新增 raw 归档已完成 Hetzner 切换与验收，AWS 旧数据仍保留自然到期和恢复访问；当前状态及恢复分界见 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)。
 
 ## 发布验收证据
 
@@ -60,5 +60,5 @@ raw 文件身份只挂载给 maintenance 子容器，网关两种颜色不挂载
 [Hetzner 运维入口](../../deploy/hetzner/README.md) 和实时只读探针核实。
 
 蓝绿状态机沿用 [Stage0 部署基线](deploy-stage0-workflow.md) 与
-[Edge 安全决策](edge-bluegreen-release-safety.md)。具体 raw 迁移观察与资源退役证据
-在实际执行后补充，不从代码就绪推导上线完成。
+[Edge 安全决策](edge-bluegreen-release-safety.md)。raw 存储验收见上述 QA 运维入口；
+AWS 资源退役仍须单独核查与审批，不从代码就绪推导上线完成。
