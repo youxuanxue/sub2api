@@ -37,7 +37,8 @@ func TerminalOutcomeMiddleware(sink service.TerminalOutcomeSink, policy Terminal
 		if sink == nil || policy == TerminalOutcomeExcluded {
 			return
 		}
-		if excluded, _ := c.Get(terminalOutcomeExcludedKey); excluded == true || terminalRequestCanceled(c) {
+		_, disconnected := middleware2.RecoveryOutcome(c)
+		if excluded, _ := c.Get(terminalOutcomeExcludedKey); excluded == true || terminalRequestCanceled(c) || disconnected {
 			return
 		}
 		if policy == TerminalOutcomeWebSocketTurn {
@@ -115,6 +116,10 @@ func terminalRequestCanceled(c *gin.Context) bool {
 }
 
 func terminalHTTPOutcomeKind(c *gin.Context, policy TerminalOutcomePolicy) service.TerminalOutcomeKind {
+	// A recovered panic can leave a partially written response at HTTP 200.
+	if panicked, _ := middleware2.RecoveryOutcome(c); panicked {
+		return service.TerminalOutcomeOtherError
+	}
 	status := c.Writer.Status()
 	if policy == TerminalOutcomeStreamInference {
 		if streamErr, ok := service.GetOpsStreamError(c); ok {

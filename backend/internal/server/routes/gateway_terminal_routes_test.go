@@ -2,9 +2,12 @@ package routes
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -108,4 +111,77 @@ func TestTerminalRouteRegistrarRecordsEarlyWebSocketRejectOnce(t *testing.T) {
 	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/responses", nil))
 	require.Len(t, sink.events, 1)
 	require.Equal(t, service.TerminalOutcomeFinalEmptyPool429, sink.events[0].Kind)
+}
+
+func TestTerminalRouteRegistrarObservesRecovery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name       string
+		write      bool
+		brokenPipe bool
+	}{
+		{name: "before_headers"},
+		{name: "after_stream_headers", write: true},
+		{name: "disconnected_client", write: true, brokenPipe: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			router := gin.New()
+			router.Use(middleware.Recovery())
+			sink := &routeTerminalSinkStub{}
+			registrar := newTerminalRouteRegistrar(router.Group("/v1"), sink)
+			registrar.Register(http.MethodPost, "/messages", StreamInference, func(c *gin.Context) {
+				service.SetOpsRequestModel(c, "claude-sonnet-4-6")
+				if tc.write {
+					c.Writer.WriteHeader(http.StatusOK)
+					_, _ = c.Writer.Write([]byte("event: message_start\n\n"))
+					c.Writer.Flush()
+				}
+				if tc.brokenPipe {
+					panic(&net.OpError{Op: "write", Net: "tcp", Err: &os.SyscallError{Syscall: "write", Err: syscall.EPIPE}})
+				}
+				panic("stream handler failed")
+			})
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			if tc.write {
+				require.Equal(t, http.StatusOK, w.Code)
+				require.Equal(t, "event: message_start\n\n", w.Body.String())
+			} else {
+				require.Equal(t, http.StatusInternalServerError, w.Code)
+			}
+			if tc.brokenPipe {
+				require.Empty(t, sink.events)
+			} else {
+				require.Len(t, sink.events, 1)
+				require.Equal(t, service.TerminalOutcomeOtherError, sink.events[0].Kind)
+			}
+		})
+	}
+}
+
+func TestTerminalRouteRegistrarDoesNotAttributeUnauthenticatedBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.AbortWithStatus(http.StatusUnauthorized) })
+	sink := &routeTerminalSinkStub{}
+	registrar := newTerminalRouteRegistrar(router, sink)
+	registrar.Register(http.MethodPost, "/messages", StreamInference, func(c *gin.Context) { t.Fatal("handler reached") })
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"model":"untrusted-model"}`)))
+	require.Empty(t, sink.events)
+}
+
+func TestTerminalRouteRegistrarIgnoresRecoveredUpstreamAttemptError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(middleware.Recovery())
+	sink := &routeTerminalSinkStub{}
+	registrar := newTerminalRouteRegistrar(router, sink)
+	registrar.Register(http.MethodPost, "/messages", StreamInference, func(c *gin.Context) {
+		service.SetOpsRequestModel(c, "claude-sonnet-4-6")
+		_ = c.Error(fmt.Errorf("first attempt failed; next attempt succeeded"))
+		c.Status(http.StatusOK)
+	})
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/messages", nil))
+	require.Len(t, sink.events, 1)
+	require.Equal(t, service.TerminalOutcomeSuccess, sink.events[0].Kind)
 }
