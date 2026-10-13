@@ -120,7 +120,7 @@ func (s *SupplierSourceService) probeConfiguredSourceModels(ctx context.Context,
 	}
 	credential, err := s.encryptor.Decrypt(source.EncryptedCredential)
 	if err != nil {
-		return nil, fmt.Errorf("decrypt supplier credential: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrSupplierSourceCredentialUndecryptable, err)
 	}
 	targets, err := supplierTargetBands(source)
 	if err != nil {
@@ -159,7 +159,7 @@ func (s *SupplierSourceService) StartSupplierProbeJob(ctx context.Context, sourc
 	if err != nil {
 		result.FailedStep = "decrypt_credential"
 		result.ProbeStatus = SupplierProbeJobFailed
-		return result, fmt.Errorf("decrypt supplier credential: %w", err)
+		return result, fmt.Errorf("%w: %v", ErrSupplierSourceCredentialUndecryptable, err)
 	}
 	upstream, err := lister.ListSupplierUpstreamModels(ctx, source.Endpoint, source.ChannelType, credential)
 	if err != nil {

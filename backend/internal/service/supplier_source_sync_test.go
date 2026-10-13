@@ -908,6 +908,7 @@ func TestUS048_SupplierSyncEarlyErrorsAlwaysReportFailedStep(t *testing.T) {
 		accounts  *supplierSyncAccountStoreFake
 		encryptor SecretEncryptor
 		wantStep  string
+		wantErr   error
 	}{
 		{
 			name: "load source", repo: &supplierSourceRepoFake{}, accounts: &supplierSyncAccountStoreFake{},
@@ -916,6 +917,7 @@ func TestUS048_SupplierSyncEarlyErrorsAlwaysReportFailedStep(t *testing.T) {
 		{
 			name: "decrypt credential", repo: &supplierSourceRepoFake{stored: source}, accounts: &supplierSyncAccountStoreFake{},
 			encryptor: supplierSyncFailingEncryptor{}, wantStep: "decrypt_credential",
+			wantErr: ErrSupplierSourceCredentialUndecryptable,
 		},
 		{
 			name: "load managed accounts", repo: &supplierSourceRepoFake{stored: source},
@@ -940,6 +942,9 @@ func TestUS048_SupplierSyncEarlyErrorsAlwaysReportFailedStep(t *testing.T) {
 			require.Error(t, err)
 			require.Equal(t, tt.wantStep, result.FailedStep)
 			require.NotNil(t, result.Changes)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
 		})
 	}
 }
