@@ -111,7 +111,7 @@ bash deploy/hetzner/render-prod-bootstrap.sh --check
 |---|---|---|
 | SSM Hybrid / Parameter Store / STS OIDC | hcloud 远程执行、参数与 GHCR 身份；`ops/stage0/{resolve_prod_ssm_target,edge_ssm_execution}.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
 | QA raw archive | 新归档已写入 Hetzner；AWS raw 栈仅保留旧数据恢复与审计，存量按原生命周期自然到期 | 按 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)核查实际到期与对象清单；AWS 桶、KMS 和恢复角色销毁另行审批 |
-| PG dump | Hetzner 迁移入口见下方；AWS 旧备份保留恢复 | 真实加密上传/下载/隔离恢复验收后逐节点切换，不销毁旧数据 |
+| PG dump | prod 与活跃 Edge 已切换到私有 Hetzner 存储；AWS 旧备份保留恢复 | 切换均经过真实加密上传/下载/隔离恢复验收，不销毁旧数据 |
 | env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
 | 历史 archive / dormant media 桶 | 历史数据与停用配置；媒体默认不启用 S3，只有显式 opt-in | 资产销毁另行审批，不能把停用 bucket 描述成现网迁移对象 |
 | 共享运行文件的旧目录名 | `deploy/aws/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 仍直接消费 | 是共享 owner，路径不代表部署在 AWS；迁路径必须同时更新引用、生成产物和 sentinel |
@@ -141,6 +141,12 @@ bash deploy/hetzner/render-prod-bootstrap.sh --check
 迁移使用的专用私有桶为 `tokenkey-pgdump-fsn1-850a09b1c6de`（fsn1，七天生命周期）。
 上传 owner 仍是 `deploy/aws/stage0/tokenkey-pgdump.sh`；host-only 存储身份及加密参数
 由 `ops/stage0/pgdump_storage.py` 同时供上传和恢复使用。
+现网 prod、uk1、uk2、us4、us5 均已激活该身份，并逐节点完成真实 dump 的
+下载哈希比对、完整 SQL 恢复、核心数据核对和临时数据清理。原两小时 timer 保持启用。
+切换后的五节点正常定时备份已核对实际新对象、大小与 SSE-C 状态，不仅是配置切换。
+主机告警共享实现已刷新，prod 监控实际 `/var/lib/tokenkey` Hetzner 数据卷；
+告警直接通知飞书，无需 S3。休眠 AWS 媒体默认值已从 prod host `.env` 清理，
+运行容器的旧变量随下次正常蓝绿发布更新；未启用的 offload 不产生媒体 S3 数据。
 
 `ops/stage0/provision_hcloud_pgdump_bucket.py --bucket <专用桶> --apply` 校验私有桶、
 TLS、七天生命周期及普通/multipart SSE-C 往返。脚本读取本机受保护的

@@ -37,8 +37,12 @@
 
 ## Evidence
 
-自动化行为测试已通过。现场逐节点回执在操作机受保护目录，完成后补最终状态。
+自动化行为测试、完整 preflight 与 PR CI 已通过。prod、uk1、uk2、us4、us5
+逐节点完成真实 dump 的加密上传/下载、本地 SHA-256 比对、完整 SQL 恢复、
+核心数据核对与临时数据清理后激活；五节点正常定时任务的新备份均已写入 Hetzner，
+远端对象大小及 SSE-C 状态核对通过。现场回执在操作机受保护目录，不提交数据文件。
+多轮公共探活全部通过，活跃 gateway healthy、restart count 0；未重启 gateway/Caddy/PG/Redis。
 
 ## Status
 
-- InTest
+- Done
