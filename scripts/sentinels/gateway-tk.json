@@ -7154,6 +7154,26 @@
       "rationale": "Responses OAuth image builder must apply the perceived-quality scaffold before style/AR and set reasoning.effort from that owner. instructions stay empty (codex2api). Removing the calls compiles if the helpers remain, but every OAuth image would silently lose the scaffold and the ASCII-label effort bump. tools[].quality stays forwarded so a soft upstream remap remains observable."
     },
     {
+      "path": "backend/internal/service/openai_images_responses.go",
+      "must_contain": [
+        "openAIImagesCodexSoftModelRejectsInputFidelity(toolModel)",
+        "logOpenAIImagesOAuthDispatch(account, requestModel, parsed.Endpoint, len(parsed.Uploads), dispatch)",
+        "stampOpenAIImagesOAuthDispatch(result, dispatch)"
+      ],
+      "rationale": "OAuth Codex Responses image path must omit input_fidelity for gpt-image-2 / gpt-image-2-codex (edge-uk1 2026-10-13: 400 invalid_input_fidelity_model) and must log plus stamp the sent reasoning effort onto the forward result. Dropping either call compiles if the helper file remains, but edits with input_fidelity hard-fail again and usage_logs effort columns go back to NULL."
+    },
+    {
+      "path": "backend/internal/service/openai_images_oauth_dispatch_tk.go",
+      "must_contain": [
+        "func openAIImagesCodexSoftModelRejectsInputFidelity(model string) bool",
+        "model == \"gpt-image-2\" || model == \"gpt-image-2-codex\"",
+        "func stampOpenAIImagesOAuthDispatch(",
+        "result.ReasoningEffort = &effort",
+        "openai_images.oauth_dispatch"
+      ],
+      "rationale": "Owner for the OAuth image dispatch tuple (reasoning_effort, main_model, fallbacks, scaffold_on) and the Codex soft-model input_fidelity omit. gpt-image-2.5 and API-key Images must stay outside this predicate."
+    },
+    {
       "path": "backend/internal/service/openai_images_codex_direct_multi_tk.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingMulti(",
