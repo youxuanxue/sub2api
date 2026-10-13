@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import fnmatch
 import pathlib
 import subprocess
 import tempfile
@@ -32,6 +33,54 @@ CloudFormationLoader.add_multi_constructor("!", _cloudformation_tag)
 class Stage0QARawArchiveContractTest(unittest.TestCase):
     def setUp(self) -> None:
         self.template = yaml.load(TEMPLATE.read_text(encoding="utf-8"), Loader=CloudFormationLoader)
+
+    def test_infra_roles_can_manage_raw_buckets_but_not_retired_exports_or_workers(self) -> None:
+        infrastructure = yaml.load(
+            TEMPLATE.with_name("cicd-oidc.yaml").read_text(encoding="utf-8"),
+            Loader=CloudFormationLoader,
+        )
+        substitutions = {"AWS::Partition": "aws", "AWS::AccountId": "123456789012"}
+
+        def allowed(policies: list[dict], action: str, resource: str) -> bool:
+            decision = False
+            for policy in policies:
+                for statement in policy["PolicyDocument"]["Statement"]:
+                    actions = statement["Action"]
+                    resources = statement["Resource"]
+                    if isinstance(actions, str):
+                        actions = [actions]
+                    if isinstance(resources, str):
+                        resources = [resources]
+                    resolved = []
+                    for pattern in resources:
+                        for name, value in substitutions.items():
+                            pattern = pattern.replace("${" + name + "}", value)
+                        resolved.append(pattern)
+                    if not any(fnmatch.fnmatchcase(action.lower(), item.lower()) for item in actions):
+                        continue
+                    if not any(fnmatch.fnmatchcase(resource, item) for item in resolved):
+                        continue
+                    if statement["Effect"] == "Deny":
+                        return False
+                    decision = statement["Effect"] == "Allow" or decision
+            return decision
+
+        service = infrastructure["Resources"]["QAInfraCloudFormationServiceRole"]["Properties"]["Policies"]
+        for suffix in ("raw-archive", "raw-audit"):
+            bucket = f"arn:aws:s3:::tokenkey-prod-qa-{suffix}-123456789012"
+            for action in ("s3:CreateBucket", "s3:GetBucketPolicy", "s3:PutBucketPolicy", "s3:PutLifecycleConfiguration"):
+                with self.subTest(bucket=suffix, action=action):
+                    self.assertTrue(allowed(service, action, bucket))
+        for role in ("QAInfraCloudFormationServiceRole", "QAInfraDeploymentRole"):
+            policies = infrastructure["Resources"][role]["Properties"]["Policies"]
+            for suffix in ("bundles", "exports", "raw-unowned", "raw-archive-foreign"):
+                bucket = f"arn:aws:s3:::tokenkey-prod-qa-{suffix}-123456789012"
+                for action in ("s3:CreateBucket", "s3:GetBucketCORS", "s3:ListBucket", "s3:PutBucketPolicy"):
+                    with self.subTest(role=role, bucket=suffix, action=action):
+                        self.assertFalse(allowed(policies, action, bucket))
+            for action in ("ecs:CreateCluster", "ecs:RegisterTaskDefinition", "sqs:CreateQueue", "sqs:GetQueueAttributes"):
+                with self.subTest(role=role, action=action):
+                    self.assertFalse(allowed(policies, action, "*"))
 
     def test_us045_app_role_has_suffix_scoped_access_without_list_or_partial_reads(self) -> None:
         self.assert_app_policy_contract(self.template)

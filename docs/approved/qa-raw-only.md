@@ -39,6 +39,8 @@ raw 目标为私有 Hetzner Object Storage，region fsn1、HTTPS、固定 raw/v1
 
 ## 线上安全边界
 
+QA 基础设施部署权限由 `deploy/aws/cloudformation/cicd-oidc.yaml` 管理，收敛到 raw archive/audit；删除旧 Bundle、ECS 和 SQS 授权。IAM 栈收尾仅修改 QA 部署角色，不替换角色、不修改其他资源，保留现有 raw 栈的服务角色绑定。
+
 代码 PR 不触发部署。uk1 QA 容器和 Bundle AWS 资源在代码合并、切换验证后按资源名核实并停用；任何销毁单独记录证据。禁止操作 tokenkey-blue/green、Caddy、主 PostgreSQL/Redis，禁止重启宿主机。主网关异常时停止迁移并回退 QA 操作。
 
 ## 验证
