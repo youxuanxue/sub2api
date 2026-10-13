@@ -325,26 +325,26 @@ func (u *gatewayHandlerKiroBudgetUpstream) DoWithTLS(req *http.Request, _ string
 	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(body))}, nil
 }
 
-func TestGatewayHandlerMessages_KiroBudgetAfterKeepaliveSwitchesAccount(t *testing.T) {
+func TestGatewayHandlerMessages_KiroBudgetAfterKeepaliveStopsRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	group := &service.Group{ID: 2003, Hydrated: true, Platform: service.PlatformKiro, Status: service.StatusActive}
 	accounts := gatewayHandlerKiroBudgetAccounts(group)
 	upstream := &gatewayHandlerKiroBudgetUpstream{stalledID: accounts[0].ID}
-	cfg := &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1, StreamFirstOutputTimeoutSeconds: 2}}
+	cfg := &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1, KiroHighEffortFirstOutputTimeoutSeconds: 2}}
 	h, cleanup := newGatewayHandlerForKiroRecoveryTest(t, group, accounts, newGatewayHandlerKiroRecoveryCache(), upstream, cfg)
 	t.Cleanup(cleanup)
 	body := []byte(`{"model":"claude-opus-4-8","max_tokens":256,"stream":true,"messages":[{"role":"user","content":"test one model turn"}]}`)
 	c, rec := runGatewayHandlerKiroRecoveryRequest(t, h, group, body)
-	require.Equal(t, []int64{accounts[0].ID, accounts[1].ID}, upstream.accountIDs)
+	require.Equal(t, []int64{accounts[0].ID}, upstream.accountIDs)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), "event: ping")
-	require.Contains(t, rec.Body.String(), "recovered answer")
-	require.NotContains(t, rec.Body.String(), "event: error")
+	require.NotContains(t, rec.Body.String(), "recovered answer")
+	require.Contains(t, rec.Body.String(), `"type":"error"`)
 	require.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_start"))
-	require.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_stop"))
+	require.NotContains(t, rec.Body.String(), "event: message_stop")
 	selected, ok := c.Get(opsAccountIDKey)
 	require.True(t, ok)
-	require.Equal(t, accounts[1].ID, selected)
+	require.Equal(t, accounts[0].ID, selected)
 }
 
 func gatewayHandlerKiroBudgetAccounts(group *service.Group) []*service.Account {
@@ -368,7 +368,7 @@ func TestGatewayHandlerMessages_KiroCallerDeadlineAfterKeepaliveTerminates(t *te
 	group := &service.Group{ID: 2003, Hydrated: true, Platform: service.PlatformKiro, Status: service.StatusActive}
 	accounts := gatewayHandlerKiroBudgetAccounts(group)
 	upstream := &gatewayHandlerKiroBudgetUpstream{stalledID: accounts[0].ID}
-	cfg := &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1, StreamFirstOutputTimeoutSeconds: 5}}
+	cfg := &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1, KiroHighEffortFirstOutputTimeoutSeconds: 5}}
 	h, cleanup := newGatewayHandlerForKiroRecoveryTest(t, group, accounts, newGatewayHandlerKiroRecoveryCache(), upstream, cfg)
 	t.Cleanup(cleanup)
 	ctx, cancel := context.WithTimeout(context.Background(), 1250*time.Millisecond)

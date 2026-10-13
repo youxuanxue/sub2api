@@ -11,15 +11,19 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
 
 const (
-	// Universal stream first-useful-output defaults (docs/approved/candidate-eligibility-ssot.md).
+	// First-output defaults (docs/approved/candidate-eligibility-ssot.md).
 	// first-output-timeout-ssot:begin
-	defaultStreamFirstOutputTimeout           = 30 * time.Second
-	defaultStreamFirstOutputHighEffortTimeout = 60 * time.Second
+	defaultStreamFirstOutputTimeout           = 120 * time.Second
+	defaultStreamFirstOutputHighEffortTimeout = 600 * time.Second
+	defaultKiroFirstOutputTimeout             = 120 * time.Second
+	defaultKiroHighEffortFirstOutputTimeout   = 600 * time.Second
 	// first-output-timeout-ssot:end
 	defaultNewAPIChatNonstreamFirstOutput = 300 * time.Second
 )
@@ -27,7 +31,7 @@ const (
 // ResolveGrokFirstByteHeaderTimeout is the Grok transport ResponseHeaderTimeout
 // aligned to the universal stream first-useful-output SSOT. Explicit
 // gateway.grok_response_header_timeout (>0) overrides; zero inherits
-// stream_first_output_timeout_seconds / code default 30s.
+// stream_first_output_timeout_seconds / code default 120s.
 func ResolveGrokFirstByteHeaderTimeout(cfg *config.Config) time.Duration {
 	if cfg != nil && cfg.Gateway.GrokResponseHeaderTimeout > 0 {
 		return time.Duration(cfg.Gateway.GrokResponseHeaderTimeout) * time.Second
@@ -45,7 +49,7 @@ func resolveStreamFirstOutputTimeout(cfg *config.Config, highEffort bool) time.D
 		}
 		// Do not fall back to openai_high_effort_* here: that knob is
 		// OpenAI-native only (see openAIFirstOutputTimeout). Universal
-		// Anthropic/Kiro/Gemini high-effort must inherit the stream SSOT
+		// Anthropic/Gemini high-effort must inherit the stream SSOT
 		// code default when the stream high-effort key is unset/zero.
 		return defaultStreamFirstOutputHighEffortTimeout
 	}
@@ -64,6 +68,22 @@ func streamFirstOutputHighEffort(reasoningEffort string) bool {
 	default:
 		return false
 	}
+}
+
+// firstOutputHighEffortModel keeps known long-thinking model families in the
+// complex tier even when the client omits an explicit effort value.
+func firstOutputHighEffortModel(model string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(claude.NormalizeModelID(model)))
+	normalized = strings.TrimPrefix(normalized, "anthropic.")
+	for _, family := range []string{"claude-opus", "claude-fable"} {
+		if normalized == family || strings.HasPrefix(normalized, family+"-") || strings.HasPrefix(normalized, family+".") {
+			return true
+		}
+	}
+	return isOpenAIGPT6AstraModel(normalized) ||
+		isOpenAIGPT56Model(normalized) ||
+		openai.IsGPT6SolOrLunaModelSpelling(normalized) ||
+		openai.IsGPT61SolModelSpelling(normalized)
 }
 
 // newAPIChatFirstOutputTimeoutWithEffort is the per-attempt useful-first-output
@@ -219,11 +239,14 @@ func streamFirstOutputFailoverIfBudgetFired(c *gin.Context, g *streamFirstOutput
 	return streamFirstOutputFailoverError()
 }
 
-// kiroStreamFirstOutputHighEffort maps Claude Messages thinking / effort hints
-// onto the high-effort first-output budget.
+// kiroStreamFirstOutputHighEffort selects the high tier for Fable/Opus families
+// and explicit Claude Messages thinking / high-effort hints.
 func kiroStreamFirstOutputHighEffort(req *kiroproto.ClaudeRequest) bool {
 	if req == nil {
 		return false
+	}
+	if firstOutputHighEffortModel(req.Model) {
+		return true
 	}
 	if req.OutputConfig != nil && streamFirstOutputHighEffort(req.OutputConfig.Effort) {
 		return true
@@ -232,9 +255,6 @@ func kiroStreamFirstOutputHighEffort(req *kiroproto.ClaudeRequest) bool {
 	if req.Thinking != nil {
 		switch strings.ToLower(strings.TrimSpace(req.Thinking.Type)) {
 		case "enabled", "adaptive":
-			return true
-		}
-		if req.Thinking.BudgetTokens >= 8000 {
 			return true
 		}
 	}
@@ -246,6 +266,9 @@ func kiroStreamFirstOutputHighEffort(req *kiroproto.ClaudeRequest) bool {
 func anthropicBodyStreamFirstOutputHighEffort(body []byte) bool {
 	if len(body) == 0 {
 		return false
+	}
+	if firstOutputHighEffortModel(gjson.GetBytes(body, "model").String()) {
+		return true
 	}
 	if streamFirstOutputHighEffort(gjson.GetBytes(body, "output_config.effort").String()) {
 		return true

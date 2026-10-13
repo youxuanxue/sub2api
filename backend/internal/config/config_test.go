@@ -44,6 +44,18 @@ func TestLoadDefaultModelsListReadMaxBytes(t *testing.T) {
 	require.Equal(t, DefaultModelsListReadMaxBytes, cfg.Gateway.ModelsListReadMaxBytes)
 }
 
+func TestLoadKiroWaitBudgetsAreIndependent(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("GATEWAY_KIRO_FIRST_OUTPUT_TIMEOUT_SECONDS", "100")
+	t.Setenv("GATEWAY_KIRO_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS", "500")
+	t.Setenv("GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS", "30")
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, 100, cfg.Gateway.KiroFirstOutputTimeoutSeconds)
+	require.Equal(t, 500, cfg.Gateway.KiroHighEffortFirstOutputTimeoutSeconds)
+	require.Equal(t, 30, cfg.Gateway.OpenAIFirstOutputTimeoutSeconds)
+}
+
 func TestLoadInflightReservationRequiresExplicitOptIn(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	cfg, err := Load()
@@ -1903,18 +1915,28 @@ func TestValidateConfigErrors(t *testing.T) {
 			wantErr: "gateway.openai_response_header_timeout",
 		},
 		{
+			name:    "kiro negative wait budget",
+			mutate:  func(c *Config) { c.Gateway.KiroFirstOutputTimeoutSeconds = -1 },
+			wantErr: "gateway.kiro_first_output_timeout_seconds",
+		},
+		{
+			name:    "kiro high wait budget exceeds cap",
+			mutate:  func(c *Config) { c.Gateway.KiroHighEffortFirstOutputTimeoutSeconds = 601 },
+			wantErr: "gateway.kiro_high_effort_first_output_timeout_seconds",
+		},
+		{
 			name:    "gateway openai first output timeout below minimum",
 			mutate:  func(c *Config) { c.Gateway.OpenAIFirstOutputTimeoutSeconds = 14 },
 			wantErr: "gateway.openai_first_output_timeout_seconds",
 		},
 		{
 			name:    "gateway stream first output timeout too large",
-			mutate:  func(c *Config) { c.Gateway.StreamFirstOutputTimeoutSeconds = 61 },
+			mutate:  func(c *Config) { c.Gateway.StreamFirstOutputTimeoutSeconds = 601 },
 			wantErr: "gateway.stream_first_output_timeout_seconds",
 		},
 		{
 			name:    "gateway stream first output high effort timeout too large",
-			mutate:  func(c *Config) { c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds = 61 },
+			mutate:  func(c *Config) { c.Gateway.StreamFirstOutputHighEffortTimeoutSeconds = 601 },
 			wantErr: "gateway.stream_first_output_high_effort_timeout_seconds",
 		},
 		{
