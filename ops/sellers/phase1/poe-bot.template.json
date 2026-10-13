@@ -1,0 +1,17 @@
+{
+  "handle": "REPLACE_WITH_AVAILABLE_HANDLE",
+  "description": "REPLACE_WITH_VERIFIED_MODEL_DESCRIPTION",
+  "is_private": true,
+  "api_bot_settings": {
+    "model_name": "REPLACE_WITH_VERIFIED_MODEL_ID",
+    "base_url": "https://api.tokenkey.dev/v1",
+    "api_key": "INJECT_DEDICATED_TOKENKEY_KEY_AT_SUBMISSION",
+    "api_type": "chat_completions_api",
+    "input_modalities": ["text"],
+    "output_modalities": ["text"],
+    "pricing": {
+      "prompt": "REPLACE_WITH_USD_PER_SINGLE_TOKEN",
+      "completion": "REPLACE_WITH_USD_PER_SINGLE_TOKEN"
+    }
+  }
+}
