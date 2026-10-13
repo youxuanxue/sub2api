@@ -1,7 +1,7 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, and 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls, and 2026-10-12 OpenAI standard 120s + compact/large-body force high-effort 300s after medium compact mis-kills)"
 created: 2026-09-07
 revised_at: 2026-10-12
 ---
@@ -236,11 +236,14 @@ keys may override when explicitly set; zero means inherit the universal default
 `openai_first_output_timeout_seconds`).
 
 OpenAI native defaults stay explicit keys so `openai_*=0` can emergency-disable
-OpenAI waits without collapsing the cross-platform stream budget:
-`openai_first_output_timeout_seconds` **60**,
-`openai_high_effort_first_output_timeout_seconds` **300** (wider than stream
-30/60 — prod evidence that large `gpt-6.*` compaction bodies often stall past
-60s without semantic first output on OAuth edges).
+OpenAI waits without collapsing the cross-platform stream budget. Numeric
+defaults are owned only by `ops/stage0/first_output_timeout_ssot.py`; run
+`python3 scripts/checks/first-output-timeout-ssot.py --apply` to regenerate
+viper / compose / remediate / `config.example.yaml` / Go defaults (preflight
+`--check`). Policy: high-effort budget aligns with Codex client
+`stream_idle_timeout_ms` default 300s; compact path (`/responses/compact`),
+`compaction_trigger` input, or request body ≥ `OPENAI_FORCE_HIGH_BODY_BYTES`
+force the high-effort budget even when `reasoning.effort` is medium/low.
 
 `gateway.response_header_timeout` remains transport header wait only and must
 not redefine these budgets. Grok’s first-byte header wait inherits

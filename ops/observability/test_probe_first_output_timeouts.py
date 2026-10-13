@@ -65,7 +65,7 @@ class ProbeFirstOutputTimeoutsTest(unittest.TestCase):
         proc = self._run(
             printenv=(
                 "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=30\n"
-                "GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=60\n"
+                "GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=120\n"
                 "UNRELATED=x\n"
             )
         )
@@ -75,7 +75,7 @@ class ProbeFirstOutputTimeoutsTest(unittest.TestCase):
             proc.stdout,
         )
         self.assertIn(
-            'ENV {"key":"GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"60"}',
+            'ENV {"key":"GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"120"}',
             proc.stdout,
         )
         self.assertNotIn("UNRELATED", proc.stdout)

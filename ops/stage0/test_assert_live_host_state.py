@@ -47,7 +47,7 @@ class AssertLiveHostStateTransportTest(unittest.TestCase):
                 ENV {{"key":"SERVER_FRONTEND_URL","value":"https://api.tokenkey.dev"}}
                 ENV {{"key":"GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"30"}}
                 ENV {{"key":"GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS","value":"60"}}
-                ENV {{"key":"GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"60"}}
+                ENV {{"key":"GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"120"}}
                 ENV {{"key":"GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"300"}}
                 RETENTION {{"value":"1.5"}}
                 OUT

@@ -24,7 +24,13 @@ const (
 	openAIFirstOutputStageMaxBytes           = 8 * 1024 * 1024
 	openAIFirstOutputScannerFramingAllowance = 64
 	openAIFirstOutputGuardQueueSize          = 1
-	openAIDefaultStreamQueueSize             = 16
+	// Compact path / compaction_trigger / bodies at or above this size force
+	// the high-effort first-output budget.
+	// first-output-timeout-ssot:begin
+	// OPENAI_FORCE_HIGH_BODY_BYTES from first_output_timeout_ssot.py
+	openAIFirstOutputLargeBodyBytes = 1 * 1024 * 1024
+	// first-output-timeout-ssot:end
+	openAIDefaultStreamQueueSize = 16
 )
 
 var (
@@ -229,15 +235,26 @@ func (s *openAIFirstOutputStage) Close() error {
 	return closeErr
 }
 
-func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string) time.Duration {
+// openAIFirstOutputForceHighBudget reports whether compact or large-body
+// requests must use the high-effort first-output budget regardless of
+// reasoning.effort. Owned with OPENAI_FORCE_HIGH_BODY_BYTES in
+// ops/stage0/first_output_timeout_ssot.py.
+func openAIFirstOutputForceHighBudget(c *gin.Context, body []byte) bool {
+	if isOpenAIResponsesCompactPath(c) || HasCompactionTriggerInInput(body) {
+		return true
+	}
+	return len(body) >= openAIFirstOutputLargeBodyBytes
+}
+
+func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string, forceHigh bool) time.Duration {
 	if s == nil || s.cfg == nil {
-		return resolveStreamFirstOutputTimeout(nil, streamFirstOutputHighEffort(reasoningEffort))
+		return resolveStreamFirstOutputTimeout(nil, forceHigh || streamFirstOutputHighEffort(reasoningEffort))
 	}
 	// openai_first_output_timeout_seconds=0 remains an emergency disable.
 	if s.cfg.Gateway.OpenAIFirstOutputTimeoutSeconds == 0 {
 		return 0
 	}
-	high := streamFirstOutputHighEffort(reasoningEffort)
+	high := forceHigh || streamFirstOutputHighEffort(reasoningEffort)
 	if high {
 		if override := s.cfg.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds; override > 0 {
 			return time.Duration(override) * time.Second
