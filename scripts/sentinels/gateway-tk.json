@@ -2371,9 +2371,13 @@
         "armStreamFirstOutputGuard(base, budget)",
         "firstOutputGuard.WatchClose(resp.Body)",
         "firstOutputGuard.Commit()",
-        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)"
+        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)",
+        "armKiroWaitBudget(ctx, c, s.cfg, &req, input.StartTime)",
+        "setKiroWaitDeadlineHeader(c, req, account)",
+        "kiroPassthroughUsefulOutput(trimmed)",
+        "resp.Header.Get(KiroOutcomeHeader) == kiroWaitExhaustedOutcome"
       ],
-      "rationale": "Anthropic passthrough streaming must arm a full per-attempt first-output budget (not remaining request wall-clock), Commit on first SSE data, and Size-aware SafeToFailoverAfterWrite after any client bytes (header-wait or in-stream keepalive)."
+      "rationale": "Anthropic passthrough streaming must arm a full per-attempt first-output budget (not remaining request wall-clock), Commit on first SSE data, and Size-aware SafeToFailoverAfterWrite after any client bytes (header-wait or in-stream keepalive). Kiro mirrors use fixed shared deadlines; synthetic starts do not Commit and edge exhaustion is request scoped."
     },
     {
       "path": "backend/internal/service/openai_first_output_timeout.go",
@@ -2412,9 +2416,11 @@
         "func streamFirstOutputFailoverIfBudgetFired(",
         "SafeToFailoverAfterWrite: true",
         "c.Writer.Size() >= 0",
-        "Do not fall back to openai_high_effort_* here"
+        "Do not fall back to openai_high_effort_* here",
+        "defaultKiroFirstOutputTimeout",
+        "defaultKiroHighEffortFirstOutputTimeout"
       ],
-      "rationale": "Universal stream first-useful-output budget SSOT (30s / 60s high-effort, cap 60) plus Grok first-byte inherit helper. Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite via Size-aware streamFirstOutputFailoverIfBudgetFired."
+      "rationale": "Universal stream first-useful-output budget SSOT (30s / 60s high-effort, cap 60) plus Grok first-byte inherit helper. Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite via Size-aware streamFirstOutputFailoverIfBudgetFired. Kiro has independent generated defaults; reasoning never renews this shared fixed timer."
     },
     {
       "path": "backend/internal/repository/http_upstream.go",
@@ -2446,13 +2452,14 @@
     {
       "path": "backend/internal/service/kiro_gateway_service.go",
       "must_contain": [
-        "resolveStreamFirstOutputTimeout(s.cfg, kiroStreamFirstOutputHighEffort(req))",
-        "armStreamFirstOutputGuard(ctx, budget)",
-        "firstOutputGuard.WatchClose(body)",
-        "OnResponseBody:",
-        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, ctx, callerCtx)"
+        "armKiroWaitBudget(ctx, c, s.cfg, req, startTime)",
+        "kiroWaitBudgetError(c, waitGuard, ctx, callerCtx)",
+        "kiroWaitBudgetError(c, firstOutputGuard, ctx, callerCtx)",
+        "context.AfterFunc(ctx, func() { _ = body.Close() })",
+        "waitGuard.Commit()",
+        "firstOutputGuard.Commit()"
       ],
-      "rationale": "Kiro streaming must share the universal first-output SSOT, Commit only on client-visible text/tool, and WatchClose the upstream EventStream body via OnResponseBody so a budget cancel unblocks a stuck read and releases the account concurrency slot promptly."
+      "rationale": "Kiro stream and nonstream share one fixed request deadline, close canceled bodies and commit only at their own client output boundary."
     },
     {
       "path": "backend/internal/integration/kiro/client.go",
@@ -2535,6 +2542,9 @@
         "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)",
         "r.recheck(path, options)",
         "gw.candidateSaturationState().counts(ctx, accounts, r.model)",
+        "accountStickyID = promptCacheStickyID",
+        "r.bindSessionAffinity(path.ctx, path.account)",
+        "r.bindSessionAffinity(ctx, r.current.account)",
         "diag := &CandidateCapacityDiag{AccountTotal: len(accounts)}",
         "r.pathReadyReason(path, options)"
       ],
@@ -2700,11 +2710,31 @@
       "path": "backend/internal/service/candidate_identity_tk.go",
       "must_contain": [
         "func CandidateAffinityCacheScope(",
+        "func candidateNewAPIPromptCacheSession(",
+        "func (r *CandidateRequest) bindSessionAffinity(",
         "func (s *OpenAIGatewayService) ResolveCandidateContinuation(",
         "lookup(0, candidateResponseID(apiKey.UserID, previousResponseID))",
         "lookup(group.ID, previousResponseID)"
       ],
       "rationale": "Soft affinity excludes billing groups; hard continuation validates owner/account pairs in one namespace with bounded authorized legacy reads."
+    },
+    {
+      "path": "backend/internal/service/candidate_ingress_tk.go",
+      "must_contain": [
+        "candidateNewAPIPromptCacheSession(c, key, shape, model, body)"
+      ],
+      "rationale": "Universal NewAPI prefix affinity must be prepared before initial candidate admission, not inferred later from a bound billing group."
+    },
+    {
+      "path": "backend/internal/service/candidate_prompt_cache_tk_test.go",
+      "must_contain": [
+        "TestCandidatePromptCacheIndependentTurnsAndConflictingOldBinding",
+        "TestCandidatePromptCacheIsolationAndExplicitSession",
+        "TestCandidatePromptCacheNeverOverridesEligibilityOrCapacity",
+        "TestCandidatePromptCacheWaitedSlotPublishesAffinity",
+        "TestCandidatePromptCacheDoesNotChangeOtherPlatforms"
+      ],
+      "rationale": "Production ingress and selector regressions retain tenant/model isolation, explicit sessions and NewAPI-only soft prefix affinity under retries and capacity escape."
     },
     {
       "path": "backend/internal/repository/gateway_cache.go",
@@ -16014,6 +16044,36 @@
       "rationale": "OpenAIForwardResult must carry the settled CostBreakdown so RecordUsage can bill ActualCost while the response exposes TotalCost."
     },
     {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
+      "must_contain": [
+        "costWriter := &bridgeUsageCostWriter",
+        "result.PrecomputedCost, err = costWriter.finish(",
+        "s.previewOpenAIClientUsageCost(ctx, c, account, result)"
+      ],
+      "rationale": "NewAPI bridge Chat must settle canonical adaptor usage before terminal output and return the same PrecomputedCost to ledger billing."
+    },
+    {
+      "path": "backend/internal/service/response_usage_cost_bridge_tk.go",
+      "must_contain": [
+        "func (w *bridgeUsageCostWriter) finish(",
+        "bridgeTerminalUsageLine(",
+        "InjectUsageCostSSEDataLine(line, cost.TotalCost)",
+        "InjectUsageCostJSON(w.pending, cost.TotalCost)",
+        "maxBridgeUsageCostBuffer"
+      ],
+      "rationale": "Bridge Chat preserves streaming content and injects standard TotalCost only after canonical usage is available, with bounded buffering."
+    },
+    {
+      "path": "backend/internal/service/response_usage_cost_bridge_tk_test.go",
+      "must_contain": [
+        "func TestBridgeChatUsageCost_AliAdaptorAndLedger(",
+        "func TestBridgeUsageCostWriter_StreamFragmentsAndFlush(",
+        "func TestBridgeUsageCostWriter_RepeatedTerminalCosts(",
+        "func TestBridgeUsageCostWriter_MixedTerminalReleasesCandidateOutput("
+      ],
+      "rationale": "Preserve real Ali adaptor-to-ledger cost parity and fragmented, repeated, mixed terminal SSE behavior across upstream merges."
+    },
+    {
       "path": "backend/internal/service/response_usage_cost_tk_test.go",
       "must_contain": [
         "func TestHandleNonStreamingResponse_InjectsUsageCost(",
@@ -16611,6 +16671,64 @@
       "rationale": "Native and compatible Messages share the same context-error and late SSE owner."
     },
     {
+      "path": "backend/internal/service/openai_chat_constraints_tk.go",
+      "must_contain": [
+        "func normalizeChatProviderRequest(",
+        "func normalizeBridgeChatProviderRequest(",
+        "normalizeStrictChatDeveloperRoles(account, targetURL, body)",
+        "func normalizeChatToolConstraints(",
+        "delete(root, \"functions\")"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_chat_roles.go",
+      "must_contain": [
+        "newapiintegration.IsAliTokenPlanBaseURL(newapiconstant.ChannelTypeAli, targetURL)"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": [
+        "normalizeChatProviderRequest(account, targetURL, upstreamBody)"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
+      "must_contain": [
+        "normalizeBridgeChatProviderRequest(account, in, body)"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_responses_fallback.go",
+      "must_contain": [
+        "normalizeBridgeChatProviderRequest(account, in, chatBody)"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_responses_chat_fallback.go",
+      "must_contain": [
+        "normalizeChatProviderRequest(account, targetURL, chatBody)"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_chat_constraints_tk_test.go",
+      "must_contain": [
+        "func TestChatToolConstraints_SelectionAndHistory(",
+        "func TestChatToolConstraints_InvalidAndUnconstrained(",
+        "func TestChatProviderConstraints_DestinationAndRetryIsolation(",
+        "func TestChatProviderConstraints_ForwardRawAndAliAdaptor(",
+        "func TestChatProviderConstraints_InvalidSelectionDoesNotSend(",
+        "func TestChatProviderConstraints_ResponsesFallback("
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
       "path": "backend/internal/server/routes/gateway_terminal_routes.go",
       "must_contain": [
         "group.Handlers = append(gin.HandlersChain{handler.TerminalOutcomeMiddleware(r.sink, policy.kind)}, group.Handlers...)"
@@ -16646,6 +16764,18 @@
         "isBrokenPipe(entry.Err)"
       ],
       "rationale": "Recovered handler panics and Gin broken pipes must remain visible to the outer terminal collector on the existing Gin error chain, without changing the committed response."
+    },
+    {
+      "path": "backend/internal/service/kiro_wait_budget_tk.go",
+      "must_contain": [
+        "func getKiroWaitBudget(",
+        "func armKiroWaitBudget(",
+        "Scope:                    GatewayFailureScopeRequest,",
+        "func setKiroWaitDeadlineHeader(",
+        "func kiroPassthroughUsefulOutput(",
+        "WithHTTPUpstreamProfile(parent, HTTPUpstreamProfileKiro)"
+      ],
+      "rationale": "Single Kiro request budget owner: latch deadline once, restrict relay inheritance, preserve caller cancel and stop account retries at exhaustion."
     }
   ]
 }

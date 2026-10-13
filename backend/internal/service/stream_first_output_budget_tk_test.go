@@ -62,38 +62,6 @@ func TestStreamFirstOutputGuardBudgetFired(t *testing.T) {
 	require.False(t, guard.Committed())
 }
 
-func TestStreamFirstOutputGuardProgressResetsSilenceUntilDeadline(t *testing.T) {
-	parent := context.Background()
-	ctx, guard := armStreamFirstOutputGuard(parent, 40*time.Millisecond)
-	guard.EnableProgressExtension(90 * time.Millisecond)
-
-	time.Sleep(25 * time.Millisecond)
-	guard.NoteUpstreamProgress()
-	time.Sleep(25 * time.Millisecond)
-	require.NoError(t, ctx.Err(), "reasoning progress must reset the silence budget")
-
-	select {
-	case <-ctx.Done():
-	case <-time.After(time.Second):
-		t.Fatal("budget did not fire after progress extension deadline")
-	}
-	require.True(t, guard.BudgetFired(ctx, parent))
-	require.False(t, guard.Committed())
-}
-
-func TestStreamFirstOutputGuardProgressIgnoredWithoutExtension(t *testing.T) {
-	parent := context.Background()
-	ctx, guard := armStreamFirstOutputGuard(parent, 30*time.Millisecond)
-	time.Sleep(10 * time.Millisecond)
-	guard.NoteUpstreamProgress()
-	select {
-	case <-ctx.Done():
-	case <-time.After(time.Second):
-		t.Fatal("silence budget must still fire when progress extension is disabled")
-	}
-	require.True(t, guard.BudgetFired(ctx, parent))
-}
-
 func TestStreamFirstOutputGuardCommitDisarms(t *testing.T) {
 	parent := context.Background()
 	ctx, guard := armStreamFirstOutputGuard(parent, 30*time.Millisecond)

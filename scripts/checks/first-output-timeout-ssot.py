@@ -138,24 +138,6 @@ def rewrite_env_fallbacks(text: str) -> str:
     return text
 
 
-def rewrite_remediate_summary_json(text: str) -> str:
-    stream = EXPECTED_ENV["GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS"]
-    stream_high = EXPECTED_ENV[
-        "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS"
-    ]
-    openai = EXPECTED_ENV["GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS"]
-    openai_high = EXPECTED_ENV[
-        "GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS"
-    ]
-    return re.sub(
-        r'\{"apply":true,"stream":\d+,"stream_high":\d+,"openai":\d+,"openai_high":\d+,"container":"',
-        f'{{"apply":true,"stream":{stream},"stream_high":{stream_high},'
-        f'"openai":{openai},"openai_high":{openai_high},"container":"',
-        text,
-        count=1,
-    )
-
-
 def body_config_go() -> str:
     lines = [f'\tviper.SetDefault("{key}", {value})' for key, value in EXPECTED_VIPER.items()]
     return "\n".join(lines) + "\n"
@@ -195,27 +177,14 @@ def body_compose_env() -> str:
 
 
 def body_remediate_want() -> str:
-    stream = EXPECTED_ENV["GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS"]
-    stream_high = EXPECTED_ENV[
-        "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS"
-    ]
-    openai = EXPECTED_ENV["GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS"]
-    openai_high = EXPECTED_ENV[
-        "GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS"
-    ]
-    comment_lines = "\n".join(f"#   {k}={v}" for k, v in EXPECTED_ENV.items())
+    keys = "\n".join(f"  {key}" for key in EXPECTED_ENV)
+    values = " ".join(EXPECTED_ENV.values())
     return (
         "# Generated — edit ops/stage0/first_output_timeout_ssot.py then:\n"
         "#   python3 scripts/checks/first-output-timeout-ssot.py --apply\n"
-        "#\n"
-        "# Target:\n"
-        f"{comment_lines}\n"
-        f"WANT_STREAM={stream}\n"
-        f"WANT_STREAM_HIGH={stream_high}\n"
-        f"WANT_OPENAI={openai}\n"
-        f"WANT_OPENAI_HIGH={openai_high}\n"
+        f"KEYS=(\n{keys}\n)\n"
+        f"WANTS=({values})\n"
     )
-
 
 def render_path(path: pathlib.Path, text: str) -> str:
     if path == CONFIG_GO:
@@ -248,7 +217,7 @@ def render_path(path: pathlib.Path, text: str) -> str:
         if n != 1:
             raise ValueError(f"{path.name}: expected 1 marked region, got {n}")
         out = rewrite_env_fallbacks(out)
-        return rewrite_remediate_summary_json(out)
+        return out
     raise ValueError(f"unknown target {path}")
 
 

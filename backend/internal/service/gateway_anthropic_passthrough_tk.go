@@ -144,7 +144,7 @@ func (s *GatewayService) tkMaybeRetryAnthropicPassthrough400(
 			retryKind == "thinking_cannot_modify_signature_sensitive" {
 			s.armSigPreemptOnError(ctx, c, account)
 		}
-		retryCtx, releaseRetryCtx := detachStreamUpstreamContext(ctx, input.RequestStream)
+		retryCtx, releaseRetryCtx := detachStreamUpstreamContext(ctx, input.RequestStream && !account.IsKiroMirrorStub())
 		retryReq, retryWireBody, buildErr := s.buildAnthropicPassthroughUpstreamRequest(retryCtx, c, account, retryBody, token, authKind)
 		releaseRetryCtx()
 		if buildErr == nil {
@@ -181,7 +181,7 @@ func (s *GatewayService) tkMaybeRetryAnthropicPassthrough400(
 					if retryReadErr == nil && isAnthropicThinkingCannotBeModifiedError(retryRespBody) {
 						escalated := FilterSignatureSensitiveBlocksForRetry(retryBody, input.RequestModel)
 						s.armSigPreemptOnError(ctx, c, account)
-						escCtx, releaseEscCtx := detachStreamUpstreamContext(ctx, input.RequestStream)
+						escCtx, releaseEscCtx := detachStreamUpstreamContext(ctx, input.RequestStream && !account.IsKiroMirrorStub())
 						escReq, escWireBody, escBuildErr := s.buildAnthropicPassthroughUpstreamRequest(escCtx, c, account, escalated, token, authKind)
 						releaseEscCtx()
 						if escBuildErr == nil {
@@ -279,6 +279,12 @@ func (s *GatewayService) tkRecordAnthropicPassthroughStreamTerminalError(
 ) {
 	var sseErr *sseStreamErrorEventError
 	if errors.As(err, &sseErr) {
+		if account.IsKiroMirrorStub() && gjson.Get(sseErr.RawData, "error.message").String() == kiroWaitBudgetClientMessage {
+			// Edge exhausted its request budget; the terminal frame is already
+			// on the client wire. Preserve timeout attribution without replay.
+			recordOpsStreamFirstOutputTimeout(c)
+			return
+		}
 		// The error frame has already been forwarded as the terminal client
 		// outcome. Reuse the canonical recorder for ops evidence, but keep
 		// the non-failover error shape so the handler does not append a

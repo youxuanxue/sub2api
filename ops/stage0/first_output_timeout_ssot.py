@@ -15,7 +15,7 @@ OpenAI keeps explicit keys so `openai_first_output_*=0` remains an emergency
 disable without collapsing the universal stream budget.
 
 Generated owners (do not hand-edit numbers): viper SetDefault, compose inject
-fallbacks, remediate WANT_*, Go stream/large-body defaults, config.example.yaml.
+fallbacks, remediate env arrays, Go stream/large-body defaults, config.example.yaml.
 Preflight runs `--check`. Live hosts: assert-live-host-state.sh /
 assert-first-output-timeouts.sh.
 """
@@ -26,6 +26,8 @@ from __future__ import annotations
 EXPECTED_ENV: dict[str, str] = {
     "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS": "30",
     "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS": "60",
+    "GATEWAY_KIRO_FIRST_OUTPUT_TIMEOUT_SECONDS": "120",
+    "GATEWAY_KIRO_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS": "600",
     "GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS": "120",
     "GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS": "300",
 }
@@ -34,14 +36,18 @@ EXPECTED_ENV: dict[str, str] = {
 EXPECTED_VIPER: dict[str, int] = {
     "gateway.stream_first_output_timeout_seconds": 30,
     "gateway.stream_first_output_high_effort_timeout_seconds": 60,
+    "gateway.kiro_first_output_timeout_seconds": 120,
+    "gateway.kiro_high_effort_first_output_timeout_seconds": 600,
     "gateway.openai_first_output_timeout_seconds": 120,
     "gateway.openai_high_effort_first_output_timeout_seconds": 300,
 }
 
-# Go duration defaults in stream_first_output_budget_tk.go (stream only).
+# Go duration defaults in stream_first_output_budget_tk.go (Kiro also covers non-stream completion).
 EXPECTED_GO_STREAM_SECONDS: dict[str, int] = {
     "defaultStreamFirstOutputTimeout": 30,
     "defaultStreamFirstOutputHighEffortTimeout": 60,
+    "defaultKiroFirstOutputTimeout": 120,
+    "defaultKiroHighEffortFirstOutputTimeout": 600,
 }
 
 # OpenAI force-high policy: body length threshold mirrored by

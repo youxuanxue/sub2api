@@ -1,7 +1,7 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls, and 2026-10-12 OpenAI standard 120s + compact/large-body force high-effort 300s after medium compact mis-kills)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls, and 2026-10-12 OpenAI standard 120s + compact/large-body force high-effort 300s after medium compact mis-kills; Kiro fixed ordinary/high-latency request budgets approved by feng in the #2621 conversation)"
 created: 2026-09-07
 revised_at: 2026-10-12
 ---
@@ -245,6 +245,36 @@ viper / compose / remediate / `config.example.yaml` / Go defaults (preflight
 `compaction_trigger` input, or request body ≥ `OPENAI_FORCE_HIGH_BODY_BYTES`
 force the high-effort budget even when `reasoning.effort` is medium/low.
 
+### Kiro fixed request waiting budget (#2621 conversation approval)
+
+Kiro owns independent `gateway.kiro_first_output_timeout_seconds` and
+`gateway.kiro_high_effort_first_output_timeout_seconds`. Zero inherits Kiro's
+own defaults from `ops/stage0/first_output_timeout_ssot.py`, never OpenAI or
+the universal stream settings. Ordinary requests use 120 seconds; Fable/Opus
+families, thinking `enabled`/`adaptive`, or effort `high`/`xhigh`/`max` use 600
+seconds. Family matching respects model token boundaries, including dated IDs.
+
+The first Kiro attempt chooses a fixed deadline once per inbound request.
+Endpoint retries, backoff and account switches consume its remaining time.
+Prod Kiro mirror requests use the common Anthropic passthrough lifecycle and
+send `X-Tk-Kiro-Wait-Deadline-Ms`; edge may only shorten its own deadline.
+This internal header is an absolute Unix millisecond timestamp and assumes
+normal host clock synchronization. A caller-supplied value cannot extend the
+server budget. Both relay and edge enforce the deadline independently. The Kiro HTTP profile
+leaves header wait to this guard, avoiding an earlier generic transport cutoff.
+
+Streaming stops this timer on client-visible text/tool output; non-streaming
+keeps it until the complete JSON response is ready. Thinking, local keepalive,
+and upstream ping never extend or stop it. No separate idle timer or 15-minute
+thinking extension is added. Exhaustion is a request-scoped terminal 504 (SSE
+error if the stream already started), not another account retry. The existing
+Kiro outcome header preserves this request-scoped result through the relay.
+Caller cancellation propagates and is not recorded as an upstream account
+failure; cancellation/timeout closes the body and releases the attempt.
+
+New client fallback HTTP requests start new budgets: a client-side 360-second
+limit or repeated fallback must still be verified with client logs.
+
 `gateway.response_header_timeout` remains transport header wait only and must
 not redefine these budgets. Grok’s first-byte header wait inherits
 `stream_first_output_timeout_seconds` unless
@@ -299,6 +329,19 @@ the actual account. Neither the current billing group nor a hash of the user's
 changing authorized-group set belongs in that lookup identity. Account ID alone
 is not a session key; ownership and session isolation remain required. Each hit
 must revalidate account authorization and request policy before it can be used.
+
+The 2026-10-13 conversation authorizes repairing Universal prompt-cache affinity.
+For Universal HTTP Chat/Responses requests without an explicit session signal,
+reusable system/developer/tools/instructions prefixes supply an additional
+user/key/model-scoped soft binding for actual NewAPI execution accounts. This
+binding replaces first-user content affinity for those candidates; two conflicting
+fallback bindings must not compete. Other platforms retain their ordinary session
+identity, and requests without reusable prefixes retain first-user anchoring.
+Initial admission, acquisition, retries and waited-slot rechecks share this
+preference and update it only after successful capacity/billing validation.
+It cannot override authorization, Plan, payment tier, effective priority or ready
+capacity, and does not guarantee the upstream provider will retain cached tokens.
+Implementation and tests are authorized; rollout and live acceptance are separate.
 
 Group-independent lookup and sticky-aware eligibility are separate obligations:
 the pre-billing candidate evaluation must recognize a validated existing
@@ -404,6 +447,7 @@ consume the same selected path, including retries and final slot checks.
 
 | Fact or decision | Unique owner | Consumer contract |
 | --- | --- | --- |
+| Kiro request waiting budget | `kiro_wait_budget_tk.go` | Direct Kiro and prod mirror share fixed tier/deadline semantics; streaming commits on visible text/tool, non-streaming on complete JSON. |
 | Model mapping, native/converter legality | `protocolrouter.Router.Plan` via `protocol_routing_context.go` | Parse the actual request using `protocolrouter.ParseCanonicalRequest`; a valid converter is equally eligible. |
 | Authorization paths and account selection | `candidate_request_tk.go`, `candidate_selection_tk.go` | HTTP auth, Responses WS, both schedulers and retries consume one request-local state. |
 | Native client-tool continuation | `integration/cursor/native_runs_tk.go` | Authenticated pending-tool ownership pins the original account before ordinary selection; current eligibility and Plan remain mandatory. Missing/expired/process-lost state fails closed. Approved in the Cursor tool gateway compatibility design. |

@@ -29,6 +29,7 @@ type CandidateRequest struct {
 	forcePlatform         string
 	websocket             bool
 	session               string
+	promptCacheSession    string
 	continuationAccountID int64
 	current               *candidateExecutionPath
 	subscription          *UserSubscription
@@ -157,14 +158,14 @@ func (r *UniversalRoutingResolver) CandidateSchedulingEnabled() bool {
 // PrepareCandidateRequest selects an initial billing path without taking an
 // account slot. The real selector repeats the same policy and acquires capacity.
 func (r *UniversalRoutingResolver) PrepareCandidateRequest(ctx context.Context, key *APIKey, shape UniversalShape, path, model string, body []byte, session, forcedPlatform string) (context.Context, *CandidateRequest, error) {
-	return r.prepareCandidateRequest(ctx, key, shape, path, model, body, session, forcedPlatform, false, "application/json")
+	return r.prepareCandidateRequest(ctx, key, shape, path, model, body, session, forcedPlatform, false, "application/json", "")
 }
 
 func (r *UniversalRoutingResolver) PrepareCandidateWebSocket(ctx context.Context, key *APIKey, path, model string, body []byte, session, forcedPlatform string) (context.Context, *CandidateRequest, error) {
-	return r.prepareCandidateRequest(ctx, key, ShapeOpenAIChat, path, model, body, session, forcedPlatform, true, "application/json")
+	return r.prepareCandidateRequest(ctx, key, ShapeOpenAIChat, path, model, body, session, forcedPlatform, true, "application/json", "")
 }
 
-func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, key *APIKey, shape UniversalShape, path, model string, body []byte, session, forcedPlatform string, websocket bool, contentType string) (context.Context, *CandidateRequest, error) {
+func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, key *APIKey, shape UniversalShape, path, model string, body []byte, session, forcedPlatform string, websocket bool, contentType, promptCacheSession string) (context.Context, *CandidateRequest, error) {
 	if !r.CandidateSchedulingEnabled() || key == nil || shape == ShapeSkip || strings.TrimSpace(model) == "" {
 		return ctx, nil, nil
 	}
@@ -191,7 +192,7 @@ func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, 
 	ctx = context.WithValue(ctx, ctxkey.UserID, key.UserID)
 	ctx = WithCandidateIdentity(ctx, key.UserID, key.ID)
 	state := &CandidateRequest{resolver: r, key: key, groups: eligible, shape: shape, path: path, model: model,
-		body: append([]byte(nil), body...), contentType: contentType, forcePlatform: forcedPlatform, session: session, websocket: websocket}
+		body: append([]byte(nil), body...), contentType: contentType, forcePlatform: forcedPlatform, session: session, websocket: websocket, promptCacheSession: promptCacheSession}
 	canonicalInbound, canonicalPath, canonicalShapeOK := candidateCanonicalProtocol(shape, path)
 	if canonical, ok := ProtocolRoutingRequest(ctx); ok && canonicalShapeOK &&
 		canonical.InboundProtocol() == canonicalInbound && canonical.ResponsesPath() == canonicalPath && bytes.Equal(canonical.Body(), body) {

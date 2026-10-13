@@ -11,15 +11,18 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
 
 const (
-	// Universal stream first-useful-output defaults (docs/approved/candidate-eligibility-ssot.md).
+	// First-output defaults (docs/approved/candidate-eligibility-ssot.md).
 	// first-output-timeout-ssot:begin
 	defaultStreamFirstOutputTimeout           = 30 * time.Second
 	defaultStreamFirstOutputHighEffortTimeout = 60 * time.Second
+	defaultKiroFirstOutputTimeout             = 120 * time.Second
+	defaultKiroHighEffortFirstOutputTimeout   = 600 * time.Second
 	// first-output-timeout-ssot:end
 	defaultNewAPIChatNonstreamFirstOutput = 300 * time.Second
 )
@@ -45,7 +48,7 @@ func resolveStreamFirstOutputTimeout(cfg *config.Config, highEffort bool) time.D
 		}
 		// Do not fall back to openai_high_effort_* here: that knob is
 		// OpenAI-native only (see openAIFirstOutputTimeout). Universal
-		// Anthropic/Kiro/Gemini high-effort must inherit the stream SSOT
+		// Anthropic/Gemini high-effort must inherit the stream SSOT
 		// code default when the stream high-effort key is unset/zero.
 		return defaultStreamFirstOutputHighEffortTimeout
 	}
@@ -93,16 +96,13 @@ func newAPIChatFirstOutputTimeoutWithEffort(cfg *config.Config, stream bool, hig
 // child context stays alive for the rest of the stream (parent cancellation
 // still applies).
 type streamFirstOutputGuard struct {
-	decisionMu       sync.Mutex // Commit and budget cancellation must have one order.
-	budgetCanceled   atomic.Bool
-	cancel           context.CancelFunc
-	timer            *time.Timer
-	committed        atomic.Bool
-	stopOnce         sync.Once
-	finished         chan struct{} // closed on Commit or budget fire
-	silence          time.Duration
-	progressGen      atomic.Uint64
-	progressDeadline time.Time
+	decisionMu     sync.Mutex // Commit and budget cancellation must have one order.
+	budgetCanceled atomic.Bool
+	cancel         context.CancelFunc
+	timer          *time.Timer
+	committed      atomic.Bool
+	stopOnce       sync.Once
+	finished       chan struct{} // closed on Commit or budget fire
 }
 
 func armStreamFirstOutputGuard(parent context.Context, timeout time.Duration) (context.Context, *streamFirstOutputGuard) {
@@ -113,68 +113,17 @@ func armStreamFirstOutputGuard(parent context.Context, timeout time.Duration) (c
 		return parent, &streamFirstOutputGuard{}
 	}
 	ctx, cancel := context.WithCancel(parent)
-	g := &streamFirstOutputGuard{cancel: cancel, finished: make(chan struct{}), silence: timeout}
-	g.scheduleSilenceTimer(timeout)
-	return ctx, g
-}
-
-// scheduleSilenceTimer arms a one-shot silence timer. A newer schedule
-// invalidates the previous callback via progressGen so NoteUpstreamProgress
-// can reset the wait without Commit.
-func (g *streamFirstOutputGuard) scheduleSilenceTimer(delay time.Duration) {
-	if delay <= 0 {
-		delay = time.Millisecond
-	}
-	gen := g.progressGen.Add(1)
-	if g.timer != nil {
-		g.timer.Stop()
-	}
-	g.timer = time.AfterFunc(delay, func() {
+	g := &streamFirstOutputGuard{cancel: cancel, finished: make(chan struct{})}
+	g.timer = time.AfterFunc(timeout, func() {
 		g.decisionMu.Lock()
-		current := g.progressGen.Load() == gen
-		if current && !g.committed.Load() && g.cancel != nil {
+		if !g.committed.Load() && g.cancel != nil {
 			g.budgetCanceled.Store(true)
 			g.cancel()
 		}
 		g.decisionMu.Unlock()
-		if current {
-			g.finish()
-		}
+		g.finish()
 	})
-}
-
-// EnableProgressExtension allows NoteUpstreamProgress to reset the silence
-// timer until deadline. It does not Commit: client-visible output is still
-// the only event that stops account failover. max <= 0 disables extension.
-func (g *streamFirstOutputGuard) EnableProgressExtension(max time.Duration) {
-	if g == nil || max <= 0 || g.silence <= 0 {
-		return
-	}
-	g.decisionMu.Lock()
-	g.progressDeadline = time.Now().Add(max)
-	g.decisionMu.Unlock()
-}
-
-// NoteUpstreamProgress resets the silence timer when the upstream is producing
-// frames that are not yet client-visible. No-op unless EnableProgressExtension
-// ran, or after Commit / budget fire / the extension deadline.
-func (g *streamFirstOutputGuard) NoteUpstreamProgress() {
-	if g == nil || g.silence <= 0 {
-		return
-	}
-	g.decisionMu.Lock()
-	defer g.decisionMu.Unlock()
-	if g.committed.Load() || g.budgetCanceled.Load() || g.progressDeadline.IsZero() {
-		return
-	}
-	delay := g.silence
-	if remain := time.Until(g.progressDeadline); remain < delay {
-		delay = remain
-	}
-	if delay <= 0 {
-		return
-	}
-	g.scheduleSilenceTimer(delay)
+	return ctx, g
 }
 
 func (g *streamFirstOutputGuard) finish() {
@@ -273,11 +222,18 @@ func streamFirstOutputFailoverIfBudgetFired(c *gin.Context, g *streamFirstOutput
 	return streamFirstOutputFailoverError()
 }
 
-// kiroStreamFirstOutputHighEffort maps Claude Messages thinking / effort hints
-// onto the high-effort first-output budget.
+// kiroStreamFirstOutputHighEffort selects the high tier for Fable/Opus families
+// and explicit Claude Messages thinking / high-effort hints.
 func kiroStreamFirstOutputHighEffort(req *kiroproto.ClaudeRequest) bool {
 	if req == nil {
 		return false
+	}
+	model := strings.ToLower(strings.TrimSpace(claude.NormalizeModelID(req.Model)))
+	model = strings.TrimPrefix(model, "anthropic.")
+	for _, family := range []string{"claude-opus", "claude-fable"} {
+		if model == family || strings.HasPrefix(model, family+"-") || strings.HasPrefix(model, family+".") {
+			return true
+		}
 	}
 	if req.OutputConfig != nil && streamFirstOutputHighEffort(req.OutputConfig.Effort) {
 		return true
@@ -286,9 +242,6 @@ func kiroStreamFirstOutputHighEffort(req *kiroproto.ClaudeRequest) bool {
 	if req.Thinking != nil {
 		switch strings.ToLower(strings.TrimSpace(req.Thinking.Type)) {
 		case "enabled", "adaptive":
-			return true
-		}
-		if req.Thinking.BudgetTokens >= 8000 {
 			return true
 		}
 	}

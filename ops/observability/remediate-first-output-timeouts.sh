@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Write-capable: apply universal stream + OpenAI first-output budgets on this
+# Write-capable: apply universal stream + OpenAI + Kiro first-output budgets on this
 # host, then recreate the active app container.
 # Delivered via run-probe.sh. Requires APPLY=yes-first-output-timeouts.
 #
@@ -16,29 +16,21 @@ COMPOSE_BG="$ROOT/docker-compose.bluegreen.yml"
 # first-output-timeout-ssot:begin
 # Generated — edit ops/stage0/first_output_timeout_ssot.py then:
 #   python3 scripts/checks/first-output-timeout-ssot.py --apply
-#
-# Target:
-#   GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=30
-#   GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=60
-#   GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=120
-#   GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=300
-WANT_STREAM=30
-WANT_STREAM_HIGH=60
-WANT_OPENAI=120
-WANT_OPENAI_HIGH=300
-# first-output-timeout-ssot:end
-
 KEYS=(
   GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS
   GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS
+  GATEWAY_KIRO_FIRST_OUTPUT_TIMEOUT_SECONDS
+  GATEWAY_KIRO_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS
   GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS
   GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS
 )
-WANTS=("$WANT_STREAM" "$WANT_STREAM_HIGH" "$WANT_OPENAI" "$WANT_OPENAI_HIGH")
+WANTS=(30 60 120 600 120 300)
+# first-output-timeout-ssot:end
+
 
 container_env_timeouts() {
   sudo docker inspect "$1" --format '{{range .Config.Env}}{{println .}}{{end}}' \
-    | awk '/^(GATEWAY_STREAM_FIRST_OUTPUT_|GATEWAY_OPENAI_FIRST_OUTPUT_|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_)/'
+    | awk '/^(GATEWAY_STREAM_FIRST_OUTPUT_|GATEWAY_OPENAI_FIRST_OUTPUT_|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_|GATEWAY_KIRO_)/'
 }
 
 upsert_env() {
@@ -50,47 +42,39 @@ upsert_env() {
   fi
 }
 
-ensure_compose_openai_lines() {
-  # Insert OpenAI timeout env after STREAM high-effort line in both color blocks
-  # when missing. Idempotent.
+ensure_compose_timeout_lines() {
+  # Insert missing keys in each color block and update existing defaults.
   local f="$1"
-  if sudo grep -q 'GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS' "$f"; then
-    return 0
-  fi
-  sudo python3 - "$f" <<'PY'
-import pathlib, sys
+  sudo python3 - "$f" "${KEYS[@]}" "${WANTS[@]}" <<'PYCOMPOSE'
+import pathlib, re, sys
 path = pathlib.Path(sys.argv[1])
+args = sys.argv[2:]
+mid = len(args) // 2
+values = dict(zip(args[:mid], args[mid:]))
 text = path.read_text()
-candidates = [
-    "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-60}",
-    "GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-60}",
-]
-needle = next((c for c in candidates if c in text), None)
-if needle is None:
-    raise SystemExit("compose missing STREAM high-effort line; refuse to patch")
-insert = (
-    needle
-    + "\n      - GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-120}"
-    + "\n      - GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS:-300}"
-)
-path.write_text(text.replace(needle, insert))
-PY
-}
-
-bump_compose_fallbacks() {
-  local f="$1"
-  sudo sed -i \
-    -e 's|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=\${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-30}|g' \
-    -e 's|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=\${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-60}|g' \
-    -e 's|GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=\${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-120}|g' \
-    -e 's|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=\${GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS:-[0-9]*}|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS:-300}|g' \
-    "$f"
+anchor = next(iter(values))
+blocks = text.split(f"      - {anchor}=")
+if len(blocks) < 2:
+    raise SystemExit("compose missing stream timeout anchor; refuse to patch")
+for i in range(1, len(blocks)):
+    block = f"      - {anchor}=" + blocks[i]
+    for key, value in values.items():
+        line = f"      - {key}=${{{key}:-{value}}}"
+        pattern = rf"      - {re.escape(key)}=[^\n]*"
+        if re.search(pattern, block):
+            block = re.sub(pattern, lambda _: line, block)
+        else:
+            first, rest = block.split("\n", 1)
+            block = first + "\n" + line + "\n" + rest
+    blocks[i] = block
+path.write_text("".join(blocks))
+PYCOMPOSE
 }
 
 echo "=== before .env timeout keys ==="
-sudo awk '/^(GATEWAY_STREAM_FIRST_OUTPUT_|GATEWAY_OPENAI_FIRST_OUTPUT_|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_)/' "$ENV_FILE" || true
+sudo awk '/^(GATEWAY_STREAM_FIRST_OUTPUT_|GATEWAY_OPENAI_FIRST_OUTPUT_|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_|GATEWAY_KIRO_)/' "$ENV_FILE" || true
 echo "=== before compose timeout lines ==="
-sudo grep -nE 'STREAM_FIRST|OPENAI_FIRST|OPENAI_HIGH' "$COMPOSE_BG" || true
+sudo grep -nE 'STREAM_FIRST|OPENAI_FIRST|OPENAI_HIGH|KIRO_' "$COMPOSE_BG" || true
 echo "=== before container env ==="
 if [ -r "$ACTIVE_FILE" ]; then
   color="$(sed -n '1p' "$ACTIVE_FILE" | tr -d '[:space:]')"
@@ -121,12 +105,11 @@ echo "=== upsert .env ==="
 for i in "${!KEYS[@]}"; do
   upsert_env "${KEYS[$i]}" "${WANTS[$i]}"
 done
-sudo awk '/^(GATEWAY_STREAM_FIRST_OUTPUT_|GATEWAY_OPENAI_FIRST_OUTPUT_|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_)/' "$ENV_FILE"
+sudo awk '/^(GATEWAY_STREAM_FIRST_OUTPUT_|GATEWAY_OPENAI_FIRST_OUTPUT_|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_|GATEWAY_KIRO_)/' "$ENV_FILE"
 
 echo "=== patch compose ==="
-ensure_compose_openai_lines "$COMPOSE_BG"
-bump_compose_fallbacks "$COMPOSE_BG"
-sudo grep -nE 'STREAM_FIRST|OPENAI_FIRST|OPENAI_HIGH' "$COMPOSE_BG"
+ensure_compose_timeout_lines "$COMPOSE_BG"
+sudo grep -nE 'STREAM_FIRST|OPENAI_FIRST|OPENAI_HIGH|KIRO_' "$COMPOSE_BG"
 
 cd "$ROOT"
 if [ -n "$color" ] && [ -f docker-compose.bluegreen.yml ]; then
@@ -199,4 +182,9 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 echo "=== ok ==="
-echo '{"apply":true,"stream":30,"stream_high":60,"openai":120,"openai_high":300,"container":"'"$container"'"}'
+python3 - "$container" "${KEYS[@]}" "${WANTS[@]}" <<'PYRESULT'
+import json, sys
+args = sys.argv[2:]
+mid = len(args) // 2
+print(json.dumps({"apply": True, "container": sys.argv[1], "timeouts": dict(zip(args[:mid], map(int, args[mid:])))}))
+PYRESULT

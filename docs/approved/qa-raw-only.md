@@ -51,7 +51,9 @@ QA 基础设施部署权限由 `deploy/aws/cloudformation/cicd-oidc.yaml` 管理
 
 ## 验证
 
-运行 capture/archive/lifecycle 既有测试、退役 API/UI 行为测试、raw 存储坐标和凭据隔离测试、maintenance 容器限制测试、preflight 和 review。UI 验收经真实 Playwright 浏览器。线上切换与资源退役证据在执行后补充；本文不宣称已上线。
+运行 capture/archive/lifecycle 既有测试、退役 API/UI 行为测试、raw 存储坐标和凭据隔离测试、maintenance 容器限制测试、preflight 和 review。UI 验收经真实 Playwright 浏览器。
+
+新增 raw 归档已于 2026-10-13 切换 Hetzner，并通过两次真实定时归档与新数据隔离恢复验收；DROP pause 已解除，boundary timer 已恢复。实际归档小时分界、恢复坐标、原始验收回执位置和后续只读检查见 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)。此结论仅覆盖新增 raw 存储，不代表 AWS 旧数据或全部 AWS 依赖已退役。
 
 ## 运维工具接口
 

@@ -273,7 +273,8 @@
         "buildKiroHeaderValues(host)",
         "applyKiroBaseHeaders(req, account, headerValues)",
         "runtime.us-east-1.kiro.dev",
-        "q.us-east-1.amazonaws.com"
+        "q.us-east-1.amazonaws.com",
+        "doer = requestContextDoer{ctx: ctx, doer: doer}"
       ],
       "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for prod QA raw capture without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
     },
@@ -572,13 +573,18 @@
       "rationale": "Regression coverage for Kiro thinking-stall keepalive, failover-safe no-write-before-interval, first_token_ms only arming on client-visible content, and message_start-before-ping so Claude Code keeps late-first-token streams."
     },
     {
-      "path": "backend/internal/service/kiro_gateway_service_tk_thinking_progress_test.go",
+      "path": "backend/internal/service/kiro_wait_budget_tk_test.go",
       "must_contain": [
-        "TestKiroStreaming_ReasoningFramesPastSilenceBudgetStillComplete",
-        "TestKiroStreaming_ReasoningThenSilenceStillFailoversWithoutCommit",
-        "canceled attempt must not open another Kiro endpoint"
+        "TestKiroWaitBudgetPolicy",
+        "TestKiroWaitBudgetProgressDoesNotExtendDeadline",
+        "TestKiroWaitBudgetRetriesShareDeadline",
+        "TestKiroRelayBudgetBoundsBothResponseModes",
+        "TestKiroNonStreamingCallerCancellation",
+        "TestKiroRelayBudgetHonorsEdgeExhaustion",
+        "TestKiroRelayBudgetSSETerminalPreservesTimeoutAttribution",
+        "TestKiroWaitBudgetClosesStalledErrorBody"
       ],
-      "rationale": "Opus-class Kiro thinking must reset the first-output silence budget on reasoning frames and still failover, without a usage result, once those frames stop. A canceled attempt must not open a second upstream endpoint."
+      "rationale": "Kiro fixed tier/deadline behavior, nonstream partial output, relay keepalive, terminal edge outcome and cancellation must remain covered."
     },
     {
       "path": "backend/internal/service/gateway_usage_billing.go",
@@ -748,7 +754,8 @@
         "MarkOpsClientContentFiltered(c)",
         "origCommitted := IsResponseCommitted(c)",
         "c.Set(ResponseCommittedKey, origCommitted)",
-        "KiroOutcomeHeader"
+        "KiroOutcomeHeader",
+        "failoverErr.Scope != GatewayFailureScopeRequest"
       ],
       "rationale": "Native Kiro Chat Completions mapping must turn the typed content-policy outcome into a committed HTTP 400 content_filter_error before rate-limit handling. Internal capture errors must restore the outer response commitment so the handler can report failures to the actual client."
     },
@@ -1200,6 +1207,32 @@
         "require.Len(t, current.UserInputMessageContext.Tools, 1)"
       ],
       "rationale": "No gateway identity override or completion-protocol injection. Ordinary caller system text is preserved; recognized Claude Code system prompts are replaced with the compact backend prompt. Conversation history and explicit thinking translation stay intact."
+    },
+    {
+      "path": "backend/internal/service/kiro_wait_budget_tk.go",
+      "must_contain": [
+        "func getKiroWaitBudget(",
+        "func armKiroWaitBudget(",
+        "Scope:                    GatewayFailureScopeRequest,",
+        "func setKiroWaitDeadlineHeader(",
+        "func kiroPassthroughUsefulOutput(",
+        "WithHTTPUpstreamProfile(parent, HTTPUpstreamProfileKiro)"
+      ],
+      "rationale": "Single Kiro request budget owner: latch deadline once, restrict relay inheritance, preserve caller cancel and stop account retries at exhaustion."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_tk_oauth_passthrough_dispatch.go",
+      "must_contain": [
+        "account.IsAnthropicAPIKeyPassthroughEnabled() || account.IsKiroMirrorStub()"
+      ],
+      "rationale": "Kiro mirrors always reach the relay budget lifecycle, including legacy accounts without the passthrough flag."
+    },
+    {
+      "path": "backend/internal/repository/http_upstream.go",
+      "must_contain": [
+        "case service.HTTPUpstreamProfileKiro:"
+      ],
+      "rationale": "Kiro fixed high budget must not be truncated by the generic header timeout."
     }
   ]
 }

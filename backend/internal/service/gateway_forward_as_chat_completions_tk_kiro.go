@@ -80,7 +80,7 @@ func (s *GatewayService) forwardAsChatCompletionsViaKiro(
 		}
 		if s.rateLimitService != nil {
 			var failoverErr *UpstreamFailoverError
-			if errors.As(err, &failoverErr) {
+			if errors.As(err, &failoverErr) && failoverErr.Scope != GatewayFailureScopeRequest {
 				s.rateLimitService.HandleUpstreamError(ctx, account, failoverErr.StatusCode, failoverErr.ResponseHeaders, failoverErr.ResponseBody)
 			}
 		}
