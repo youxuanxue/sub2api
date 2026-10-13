@@ -572,6 +572,15 @@
       "rationale": "Regression coverage for Kiro thinking-stall keepalive, failover-safe no-write-before-interval, first_token_ms only arming on client-visible content, and message_start-before-ping so Claude Code keeps late-first-token streams."
     },
     {
+      "path": "backend/internal/service/kiro_gateway_service_tk_thinking_progress_test.go",
+      "must_contain": [
+        "TestKiroStreaming_ReasoningFramesPastSilenceBudgetStillComplete",
+        "TestKiroStreaming_ReasoningThenSilenceStillFailoversWithoutCommit",
+        "canceled attempt must not open another Kiro endpoint"
+      ],
+      "rationale": "Opus-class Kiro thinking must reset the first-output silence budget on reasoning frames and still failover, without a usage result, once those frames stop. A canceled attempt must not open a second upstream endpoint."
+    },
+    {
       "path": "backend/internal/service/gateway_usage_billing.go",
       "must_contain": [
         "BillingTier:              optionalTrimmedStringPtr(result.BillingTier)",

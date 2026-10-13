@@ -93,13 +93,16 @@ func newAPIChatFirstOutputTimeoutWithEffort(cfg *config.Config, stream bool, hig
 // child context stays alive for the rest of the stream (parent cancellation
 // still applies).
 type streamFirstOutputGuard struct {
-	decisionMu     sync.Mutex // Commit and budget cancellation must have one order.
-	budgetCanceled atomic.Bool
-	cancel         context.CancelFunc
-	timer          *time.Timer
-	committed      atomic.Bool
-	stopOnce       sync.Once
-	finished       chan struct{} // closed on Commit or budget fire
+	decisionMu       sync.Mutex // Commit and budget cancellation must have one order.
+	budgetCanceled   atomic.Bool
+	cancel           context.CancelFunc
+	timer            *time.Timer
+	committed        atomic.Bool
+	stopOnce         sync.Once
+	finished         chan struct{} // closed on Commit or budget fire
+	silence          time.Duration
+	progressGen      atomic.Uint64
+	progressDeadline time.Time
 }
 
 func armStreamFirstOutputGuard(parent context.Context, timeout time.Duration) (context.Context, *streamFirstOutputGuard) {
@@ -110,17 +113,68 @@ func armStreamFirstOutputGuard(parent context.Context, timeout time.Duration) (c
 		return parent, &streamFirstOutputGuard{}
 	}
 	ctx, cancel := context.WithCancel(parent)
-	g := &streamFirstOutputGuard{cancel: cancel, finished: make(chan struct{})}
-	g.timer = time.AfterFunc(timeout, func() {
+	g := &streamFirstOutputGuard{cancel: cancel, finished: make(chan struct{}), silence: timeout}
+	g.scheduleSilenceTimer(timeout)
+	return ctx, g
+}
+
+// scheduleSilenceTimer arms a one-shot silence timer. A newer schedule
+// invalidates the previous callback via progressGen so NoteUpstreamProgress
+// can reset the wait without Commit.
+func (g *streamFirstOutputGuard) scheduleSilenceTimer(delay time.Duration) {
+	if delay <= 0 {
+		delay = time.Millisecond
+	}
+	gen := g.progressGen.Add(1)
+	if g.timer != nil {
+		g.timer.Stop()
+	}
+	g.timer = time.AfterFunc(delay, func() {
 		g.decisionMu.Lock()
-		if !g.committed.Load() && g.cancel != nil {
+		current := g.progressGen.Load() == gen
+		if current && !g.committed.Load() && g.cancel != nil {
 			g.budgetCanceled.Store(true)
 			g.cancel()
 		}
 		g.decisionMu.Unlock()
-		g.finish()
+		if current {
+			g.finish()
+		}
 	})
-	return ctx, g
+}
+
+// EnableProgressExtension allows NoteUpstreamProgress to reset the silence
+// timer until deadline. It does not Commit: client-visible output is still
+// the only event that stops account failover. max <= 0 disables extension.
+func (g *streamFirstOutputGuard) EnableProgressExtension(max time.Duration) {
+	if g == nil || max <= 0 || g.silence <= 0 {
+		return
+	}
+	g.decisionMu.Lock()
+	g.progressDeadline = time.Now().Add(max)
+	g.decisionMu.Unlock()
+}
+
+// NoteUpstreamProgress resets the silence timer when the upstream is producing
+// frames that are not yet client-visible. No-op unless EnableProgressExtension
+// ran, or after Commit / budget fire / the extension deadline.
+func (g *streamFirstOutputGuard) NoteUpstreamProgress() {
+	if g == nil || g.silence <= 0 {
+		return
+	}
+	g.decisionMu.Lock()
+	defer g.decisionMu.Unlock()
+	if g.committed.Load() || g.budgetCanceled.Load() || g.progressDeadline.IsZero() {
+		return
+	}
+	delay := g.silence
+	if remain := time.Until(g.progressDeadline); remain < delay {
+		delay = remain
+	}
+	if delay <= 0 {
+		return
+	}
+	g.scheduleSilenceTimer(delay)
 }
 
 func (g *streamFirstOutputGuard) finish() {

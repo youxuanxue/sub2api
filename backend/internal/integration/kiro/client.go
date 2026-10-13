@@ -490,6 +490,13 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 		err = parseEventStream(resp.Body, callback)
 		resp.Body.Close()
 		if err != nil && endpointIndex+1 < len(endpoints) && callback != nil && callback.ResetForRetry != nil && callback.ResetForRetry() {
+			// Caller cancel and the first-output budget both cancel this ctx.
+			// Do not open the next endpoint after that; the loop check below
+			// would also stop, but only after this branch has already decided
+			// a retry is allowed.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			lastErr = err
 			logWarnf("[KiroAPI] Endpoint %s response read failed before output; trying next: %v", ep.Name, err)
 			continue

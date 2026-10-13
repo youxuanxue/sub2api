@@ -20,6 +20,14 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 )
 
+// kiroThinkingProgressCap bounds how long active Kiro reasoning may keep
+// resetting the universal first-output silence budget (30s / 60s high-effort).
+// Frames that never arrive still trip that budget. Visible text or tool use
+// still Commits and disarms it. 15m covers an Opus-class long-context review
+// on the streaming connection that already emits SSE keepalive, and still
+// releases the account slot if reasoning never becomes client-visible output.
+const kiroThinkingProgressCap = 15 * time.Minute
+
 // KiroGatewayService forwards Anthropic /v1/messages requests onto the Kiro
 // (sixth platform) CodeWhisperer EventStream upstream via the vendored
 // internal/integration/kiro protocol layer.
@@ -486,10 +494,13 @@ func (s *KiroGatewayService) forwardStreaming(
 	syncKiroMessageStartFromKeepalive(c, enc)
 
 	// Universal stream first-useful-output budget (commit = client-visible text/tool).
+	// Unsigned reasoning does not Commit, but each reasoning frame resets the
+	// silence timer so a live Opus thinking stream is not failed over at 60s.
 	budget := resolveStreamFirstOutputTimeout(s.cfg, kiroStreamFirstOutputHighEffort(req))
 	RecordOpsFirstOutputBudget(c, account, budget, streamFirstOutputBudgetReason(kiroStreamFirstOutputHighEffort(req)))
 	callerCtx := ctx
 	ctx, firstOutputGuard := armStreamFirstOutputGuard(ctx, budget)
+	firstOutputGuard.EnableProgressExtension(kiroThinkingProgressCap)
 
 	var (
 		mu         sync.Mutex
@@ -551,6 +562,9 @@ func (s *KiroGatewayService) forwardStreaming(
 			if signature != "" && thinkingSigBuf == "" {
 				thinkingSigBuf = signature
 			}
+			if text != "" || signature != "" {
+				firstOutputGuard.NoteUpstreamProgress()
+			}
 		},
 		OnText: func(text string, isThinking bool) {
 			mu.Lock()
@@ -559,12 +573,19 @@ func (s *KiroGatewayService) forwardStreaming(
 				// Thinking stays off the client wire (unsigned Kiro
 				// reasoning). Keepalive continues until visible text/tool
 				// arrives; first_token_ms only arms on client-visible bytes.
-				thinkingBuf += text
+				// A live reasoning frame is not a silent stall.
+				if text != "" {
+					thinkingBuf += text
+					firstOutputGuard.NoteUpstreamProgress()
+				}
 				return
 			}
 			rawAssistant += text
 			visible, inlineThinking := redactor.Push(text)
 			thinkingBuf += inlineThinking
+			if visible == "" && inlineThinking != "" {
+				firstOutputGuard.NoteUpstreamProgress()
+			}
 			if visible != "" {
 				textBuf += visible
 				writeVisibleText(visible)
