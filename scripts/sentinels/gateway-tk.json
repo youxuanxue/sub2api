@@ -12968,13 +12968,14 @@
         "func (s *SupplierSourceService) StartSupplierProbeJob(",
         "func (s *SupplierSourceService) GetSupplierProbeJob(",
         "supplierProbeCandidateConcurrency = 8",
-        "go s.runSupplierProbeCandidates(jobCtx, job, probeAccount, probeable)"
+        "go s.runSupplierProbeCandidates(jobCtx, job, probeAccount, probeable)",
+        "return result, fmt.Errorf(\"%w: %v\", ErrSupplierSourceCredentialUndecryptable, err)"
       ],
       "must_not_contain": [
         "supplierDiscoverProbeBudget",
         "probe_skipped_budget"
       ],
-      "rationale": "models-discover must list/normalize synchronously then probe EVERY probeable candidate asynchronously at high concurrency. A fixed probe budget would silently leave remaining upstream models' servability unknown, which violates the supplier-source product definition."
+      "rationale": "models-discover must list/normalize synchronously then probe EVERY probeable candidate asynchronously at high concurrency. A fixed probe budget would silently leave remaining upstream models' servability unknown, which violates the supplier-source product definition. Discover/validate decrypt failures wrap ErrSupplierSourceCredentialUndecryptable for actionable admin responses."
     },
     {
       "path": "backend/internal/service/supplier_source_probe_test.go",
@@ -12999,9 +13000,18 @@
         "result, err := h.service.GetSupplierDiscoverJob(c.Request.Context(), id, jobID)",
         "AccountConcurrency",
         "account_concurrency",
-        "case errors.As(err, &syncErr):"
+        "case errors.As(err, &syncErr):",
+        "case errors.Is(err, service.ErrSupplierSourceCredentialUndecryptable):",
+        "slog.Warn(\"supplier_source_sync_failed\""
       ],
-      "rationale": "Admin discover starts async candidate jobs with optional channel_scoped family filtering and job polling; discover-channel-scoped-defaults exposes the family-rule SSOT for UI checkbox defaults; validate probes configured models; upstream models-list failures map through UpstreamModelSyncError.SafeMessage. Supplier-source CRUD must round-trip account_concurrency."
+      "rationale": "Admin discover starts async candidate jobs with optional channel_scoped family filtering and job polling; discover-channel-scoped-defaults exposes the family-rule SSOT for UI checkbox defaults; validate probes configured models; upstream models-list failures map through UpstreamModelSyncError.SafeMessage. Supplier-source CRUD must round-trip account_concurrency. Decrypt failures map to Conflict with an actionable message and sync failures are logged with failed_step."
+    },
+    {
+      "path": "backend/internal/service/supplier_source.go",
+      "must_contain": [
+        "ErrSupplierSourceCredentialUndecryptable = errors.New(\"supplier credential cannot be decrypted with the current encryption key; re-enter the API key and save\")"
+      ],
+      "rationale": "Supplier sync/discover/validate must surface a dedicated undecryptable-credential error when TOTP_ENCRYPTION_KEY cannot open encrypted_credential (key rotation / migration without re-protect). Losing the sentinel lets an upstream merge restore opaque 500s and hide the operator remediations path."
     },
     {
       "path": "backend/internal/service/supplier_source_service.go",
@@ -13017,12 +13027,13 @@
         "ChannelType:           source.ChannelType,",
         "relevantMatches := make([]*Account, 0, len(matches))",
         "if err := s.syncSupplierMetadata(ctx, source, managedByBand, result); err != nil {",
-        "if err := s.ensureSupplierRoutingGroups(ctx, source, managedByBand, result); err != nil {"
+        "if err := s.ensureSupplierRoutingGroups(ctx, source, managedByBand, result); err != nil {",
+        "return result, fmt.Errorf(\"%w: %v\", ErrSupplierSourceCredentialUndecryptable, err)"
       ],
       "must_not_contain": [
         "result.ProbeResults = s.probeSupplierTargets"
       ],
-      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write. Metadata (name/priority) converges before structural projection so base_priority changes are not stranded behind protocol failures. Anthropic sources ensure claude routing group membership after metadata and again after successful structural writes for newly created bands. Governed text identity drift is repaired by a projection write; media-only accounts without a text capability are already converged, while a stale capability link triggers exactly one cleanup write. Adoption candidates are already transport-scoped by FindCredentialEndpointMatches(channel_type); sync only skips this source's managed accounts before adopt/conflict."
+      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write. Metadata (name/priority) converges before structural projection so base_priority changes are not stranded behind protocol failures. Anthropic sources ensure claude routing group membership after metadata and again after successful structural writes for newly created bands. Governed text identity drift is repaired by a projection write; media-only accounts without a text capability are already converged, while a stale capability link triggers exactly one cleanup write. Adoption candidates are already transport-scoped by FindCredentialEndpointMatches(channel_type); sync only skips this source's managed accounts before adopt/conflict. Decrypt failures wrap ErrSupplierSourceCredentialUndecryptable so admin APIs return an actionable conflict instead of a generic 500."
     },
     {
       "path": "backend/internal/service/supplier_source_routing_group.go",
