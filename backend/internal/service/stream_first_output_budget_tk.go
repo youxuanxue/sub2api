@@ -123,9 +123,6 @@ func (g *streamFirstOutputGuard) finish() {
 		return
 	}
 	g.stopOnce.Do(func() {
-		if g.timer != nil {
-			g.timer.Stop()
-		}
 		if g.finished != nil {
 			close(g.finished)
 		}
@@ -138,6 +135,11 @@ func (g *streamFirstOutputGuard) Commit() {
 		return
 	}
 	g.committed.Store(true)
+	// Only the caller, after arm returns, may read timer. The timer callback
+	// can run before AfterFunc's result is assigned to g.timer.
+	if g.timer != nil {
+		g.timer.Stop()
+	}
 	g.finish()
 }
 
