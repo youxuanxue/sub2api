@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Run the prod supplier projection probe and preserve checker-style exit codes:
 # 0 aligned, 1 drift, 2 setup/transport failure.
+# Credential ciphertext mismatch after encryption-key rotation:
+#   ops/observability/remediate-supplier-credential-reencrypt.sh (APPLY=1 via run-probe).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

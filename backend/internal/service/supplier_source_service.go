@@ -248,7 +248,7 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 	credential, err := s.encryptor.Decrypt(source.EncryptedCredential)
 	if err != nil {
 		result.FailedStep = "decrypt_credential"
-		return result, fmt.Errorf("decrypt supplier credential: %w", err)
+		return result, fmt.Errorf("%w: %v", ErrSupplierSourceCredentialUndecryptable, err)
 	}
 	targets, err := supplierTargetBands(source)
 	if err != nil {

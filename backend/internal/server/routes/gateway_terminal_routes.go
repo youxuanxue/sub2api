@@ -38,13 +38,25 @@ func (r terminalRouteRegistrar) Register(method, path string, policy terminalRou
 	if !validTerminalRoutePolicy(policy) {
 		panic(fmt.Sprintf("gateway route %s %s has invalid terminal policy", method, path))
 	}
-	if policy.kind != handler.TerminalOutcomeExcluded {
-		chain := make([]gin.HandlerFunc, 0, len(handlers)+1)
-		chain = append(chain, handler.TerminalOutcomeMiddleware(r.sink, policy.kind))
-		chain = append(chain, handlers...)
-		handlers = chain
+	if policy.kind == handler.TerminalOutcomeExcluded {
+		return r.routes.Handle(method, path, handlers...)
 	}
-	return r.routes.Handle(method, path, handlers...)
+	// Gin runs inherited group middleware before route handlers. Authentication
+	// can resolve a universal candidate and Abort with an empty-pool 429, so a
+	// route-local collector never sees that terminal. Clone the group at each
+	// registration: preserve its current chain/order, wrapping it without
+	// mutating siblings or maintaining another route/policy registry.
+	var group *gin.RouterGroup
+	switch routes := r.routes.(type) {
+	case *gin.Engine:
+		group = routes.Group("")
+	case *gin.RouterGroup:
+		group = routes.Group("")
+	default:
+		panic("terminal registrar requires a Gin engine or router group")
+	}
+	group.Handlers = append(gin.HandlersChain{handler.TerminalOutcomeMiddleware(r.sink, policy.kind)}, group.Handlers...)
+	return group.Handle(method, path, handlers...)
 }
 
 func validTerminalRoutePolicy(policy terminalRoutePolicy) bool {

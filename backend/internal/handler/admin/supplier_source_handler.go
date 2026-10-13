@@ -312,6 +312,16 @@ func writeSupplierSourceProbeError(c *gin.Context, result *service.SupplierSourc
 
 func writeSupplierSourceSyncError(c *gin.Context, result *service.SupplierSourceSyncResult, err error) {
 	statusCode, message, reason, metadata := supplierSourceHTTPError(err)
+	failedStep := ""
+	if result != nil {
+		failedStep = result.FailedStep
+	}
+	slog.Warn("supplier_source_sync_failed",
+		"status_code", statusCode,
+		"failed_step", failedStep,
+		"message", message,
+		"err", err.Error(),
+	)
 	c.JSON(statusCode, response.Response{
 		Code: statusCode, Message: message, Reason: reason, Metadata: metadata, Data: result,
 	})
@@ -347,6 +357,8 @@ func supplierSourceHTTPError(err error) (int, string, string, map[string]string)
 		errors.Is(err, service.ErrSupplierSourceInvalidPurchaseRatio),
 		errors.Is(err, service.ErrSupplierSourceDuplicateClientModel):
 		return http.StatusBadRequest, err.Error(), "", nil
+	case errors.Is(err, service.ErrSupplierSourceCredentialUndecryptable):
+		return http.StatusConflict, service.ErrSupplierSourceCredentialUndecryptable.Error(), "", nil
 	case errors.Is(err, service.ErrSupplierSourceNotFound):
 		return http.StatusNotFound, err.Error(), "", nil
 	case errors.Is(err, service.ErrSupplierSourceIdentityConflict),

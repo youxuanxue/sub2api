@@ -488,6 +488,7 @@ func (s *KiroGatewayService) forwardStreaming(
 	// Universal stream first-useful-output budget (commit = client-visible text/tool).
 	budget := resolveStreamFirstOutputTimeout(s.cfg, kiroStreamFirstOutputHighEffort(req))
 	RecordOpsFirstOutputBudget(c, account, budget, streamFirstOutputBudgetReason(kiroStreamFirstOutputHighEffort(req)))
+	callerCtx := ctx
 	ctx, firstOutputGuard := armStreamFirstOutputGuard(ctx, budget)
 
 	var (
@@ -613,23 +614,33 @@ func (s *KiroGatewayService) forwardStreaming(
 
 	callErr := kiroproto.CallKiroAPIWithDoerContext(ctx, doer, kiroAcct, payload, callback)
 
+	// Join the writer goroutine before inspecting response size or deciding
+	// whether this attempt is replayable.
+	stopPreContentStreamKeepalive(c)
 	mu.Lock()
 	// Keepalive may have raced message_start onto the wire during the call.
 	syncKiroMessageStartFromKeepalive(c, enc)
+	if callErr != nil || callbackErr != nil {
+		// A synthetic message_start is not useful output. Check the budget
+		// before enc.started so a thinking stall can still switch accounts
+		// after keepalive, without sending a terminal error to the client.
+		if err := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, ctx, callerCtx); err != nil {
+			mu.Unlock()
+			return nil, err
+		}
+		// A canceled caller cannot consume another account or an SSE error.
+		// In particular it is not a provider stream failure after keepalive.
+		if callerCtx != nil && callerCtx.Err() != nil {
+			mu.Unlock()
+			return nil, callerCtx.Err()
+		}
+	}
 	// If the upstream failed before producing any client-visible content,
 	// surface the error for account failover. Once response content was
 	// committed, SSE has no replay point and must end with an error event.
-	// Note: keepalive-synthesized message_start alone sets enc.started and
-	// trips the Written() failover gate — same tradeoff as Responses→Anthropic.
+	// Non-budget upstream failures keep the existing committed-stream policy.
 	if callErr != nil && !enc.started {
 		mu.Unlock()
-		var callerCtx context.Context
-		if c != nil && c.Request != nil {
-			callerCtx = c.Request.Context()
-		}
-		if err := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, ctx, callerCtx); err != nil {
-			return nil, err
-		}
 		return nil, classifyAndRecordKiroForwardError(c, account, callErr, model)
 	}
 	if callErr != nil {

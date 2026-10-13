@@ -2608,6 +2608,12 @@ if ! bash ./deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh --selftest >/dev/
 else
     echo "  ok: edge disk/memory alert awk fixtures pass"
 fi
+if ! python3 ./ops/observability/test_remediate_hcloud_prod_host_alerts.py >/dev/null 2>&1; then
+    echo "  FAIL: existing HCloud prod host-alert installer behavior tests"
+    errors=$((errors + 1))
+else
+    echo "  ok: HCloud prod alert plan/apply, identity, backup, and failure behavior"
+fi
 
 
 fi # preflight gate

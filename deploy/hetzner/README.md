@@ -68,6 +68,22 @@ bash scripts/stage0/dispatch-edge-deploy.sh \
 
 ## 开放运维项（非过程史）
 
+存量 prod 的主机告警脚本不随应用镜像发版更新。更新共享脚本与数据卷绑定使用版本化入口：
+
+```bash
+bash ops/observability/run-probe.sh --target prod \
+  --script ops/observability/remediate-hcloud-prod-host-alerts.sh \
+  --with deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh \
+  --with deploy/hetzner/prod-target-hetzner.json
+```
+
+默认只校验主机身份、Hetzner 卷挂载和现有 timer 并输出 plan；执行安装时追加
+`--env APPLY=yes-hcloud-prod-host-alerts`。安装前自测共享脚本并备份旧脚本/全部 drop-ins，
+输出备份目录后原子替换脚本与 volume drop-in、reload 并验证生效绑定；失败非零退出。
+不主动执行告警服务，沿用现有 timer。回退时从输出的备份恢复脚本和原 drop-ins，再
+`systemctl daemon-reload`。edges 继续用既有
+`ops/stage0/sync-edge-host-units-via-ssm.sh`。
+
 1. **蓝绿已验收**：1.8.284 已完成 prod + 活 Edge 的升级、排空及烟测；raw maintenance pin 的发布与存储切换仍独立。
 2. **gemini-web re-import**：uk1/uk2 上若干 gemini 账号 `error`/不可调度（出口 IP）；修好后再开对应 prod stub。
 3. **边侧供应**：us4 anthropic / us4·us5 grok / uk CC 池按冒烟 200 再开 stub。
