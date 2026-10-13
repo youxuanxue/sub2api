@@ -65,6 +65,7 @@ func (h *GatewayHandler) executeGeminiV1BetaSelectedProtocol(
 		}
 		return h.geminiCompatService.ForwardNative(executionCtx, c, executionAccount, modelName, action, stream, forwardBody)
 	}
+	service.BeginOpsFirstOutputAttempt(c)
 	value, executeErr := service.ExecuteSelectedProtocol(
 		requestCtx,
 		h.protocolRouter,

@@ -135,6 +135,7 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 	account := selection.Account
 
 	setOpsSelectedAccountFrom(c, account)
+	service.BeginOpsFirstOutputAttempt(c)
 	_, err = service.ExecuteSelectedProtocol(
 		c.Request.Context(),
 		h.protocolRouter,

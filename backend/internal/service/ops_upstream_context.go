@@ -584,6 +584,12 @@ type OpsUpstreamErrorEvent struct {
 	// Outcome
 	UpstreamStatusCode int    `json:"upstream_status_code,omitempty"`
 	UpstreamRequestID  string `json:"upstream_request_id,omitempty"`
+	// First-output evaluation fields. These remain on the structured attempt
+	// event so recovered and final failures share the same evidence.
+	BudgetMS       int64  `json:"budget_ms,omitempty"`
+	BudgetReason   string `json:"budget_reason,omitempty"`
+	AttemptCount   int    `json:"attempt_count,omitempty"`
+	TimeoutOutcome string `json:"timeout_outcome,omitempty"`
 
 	// UpstreamURL is the actual upstream URL that was called (host + path, query/fragment stripped).
 	// Helps debug 404/routing errors by showing which endpoint was targeted.

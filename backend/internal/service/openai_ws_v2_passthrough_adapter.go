@@ -273,6 +273,7 @@ type openAIWSPassthroughFirstOutputDeadline struct {
 	startedAt       time.Time
 	requestModel    string
 	reasoningEffort string
+	budgetReason    string
 	phase           openAIWSPassthroughDeadlinePhase
 }
 
@@ -943,9 +944,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if current := usageMeta.reasoningEffort.Load(); current != nil {
 				reasoningEffort = *current
 			}
+			budgetReason := openAIFirstOutputBudgetReason(nil, payload, reasoningEffort)
 			timeout := s.openAIFirstOutputTimeout(
 				reasoningEffort,
-				openAIFirstOutputForceHighBudget(nil, payload),
+				budgetReason == "compact" || budgetReason == "large_body",
 			)
 			if timeout <= 0 {
 				timeout = s.openAIWSPassthroughIdleTimeout()
@@ -962,6 +964,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				startedAt:       time.Now(),
 				requestModel:    model,
 				reasoningEffort: reasoningEffort,
+				budgetReason:    budgetReason,
 			}
 		},
 	}
@@ -1446,7 +1449,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			deadline.reasoningEffort,
 			deadline.timeout,
 			"websocket_first_semantic_output",
-			handshakeHeaders,
+			handshakeHeaders, deadline.budgetReason,
 		)
 		if turnCount == 0 && !relayExit.WroteDownstream {
 			relayErr = failoverErr

@@ -102,6 +102,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 			base = ctx
 		}
 		budget := resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(body))
+		RecordOpsFirstOutputBudget(c, account, budget, streamFirstOutputBudgetReason(anthropicBodyStreamFirstOutputHighEffort(body)))
 		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, budget)
 		upstreamCtx = streamAttemptCtx
 		releaseUpstreamCtx = func() {}

@@ -344,6 +344,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	if reqStream {
 		base := context.WithoutCancel(ctx)
 		budget := resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(body))
+		RecordOpsFirstOutputBudget(c, account, budget, streamFirstOutputBudgetReason(anthropicBodyStreamFirstOutputHighEffort(body)))
 		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, budget)
 	}
 

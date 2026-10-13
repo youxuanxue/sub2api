@@ -487,6 +487,7 @@ func (s *KiroGatewayService) forwardStreaming(
 
 	// Universal stream first-useful-output budget (commit = client-visible text/tool).
 	budget := resolveStreamFirstOutputTimeout(s.cfg, kiroStreamFirstOutputHighEffort(req))
+	RecordOpsFirstOutputBudget(c, account, budget, streamFirstOutputBudgetReason(kiroStreamFirstOutputHighEffort(req)))
 	ctx, firstOutputGuard := armStreamFirstOutputGuard(ctx, budget)
 
 	var (
