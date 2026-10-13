@@ -8320,7 +8320,7 @@
     {
       "path": "backend/internal/service/gateway_upstream_response.go",
       "must_contain": [
-        "\"message\": TkUnsupportedModelMessage(model),"
+        "writeAnthropicError(c, http.StatusBadRequest, TkUnsupportedModelErrType, TkUnsupportedModelMessage(model))"
       ],
       "rationale": "Path B client contract (prod P0 2026-06-06, edge us5): handleErrorResponse maps an Anthropic upstream 404 model-not-found to the SAME 400 invalid_request_error 'Unsupported model: X' as scheduler path A (TkUnsupportedModelMessage), instead of the generic 502 default. Paired with the ratelimit skip (shouldDisable=false, no failover wrap) this turns one bad-model request into one immediate 400 with zero failover/cooldown/pool-drain. An upstream merge that drops this case-404 branch re-buries the bad model name as a 502; this sentinel pins the branch."
     },
@@ -16538,6 +16538,46 @@
         "/v1/images/edits"
       ],
       "rationale": "Handler regression asserting the full Chat→Images hint message (not a soft Contains on Chat Completions alone)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages.go",
+      "must_contain": [
+        "tkWriteAnthropicError(c, statusCode, errType, message)"
+      ],
+      "rationale": "Messages errors must preserve context recovery and committed SSE failures."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_error_recovery_tk.go",
+      "must_contain": [
+        "func tkWriteAnthropicError(",
+        "tkAnthropicContextLimitMessage.MatchString(message)",
+        "MarkOpsStreamFailure(c, errType, \"\", message, statusCode)",
+        "buildAnthropicStreamErrorSSE(errType, message)"
+      ],
+      "rationale": "Shared Anthropic context rejection semantics, SSE error framing and truthful terminal outcome."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_error_recovery_tk_test.go",
+      "must_contain": [
+        "TestUS062_AnthropicContextErrorRecovery",
+        "TestUS062_AnthropicContextErrorMatchBoundaries"
+      ],
+      "rationale": "Pin late rejection and exact-match regression coverage."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_anthropic_context_tk_test.go",
+      "must_contain": [
+        "TestUS062_AnthropicContextErrorOutcome"
+      ],
+      "rationale": "Failed heartbeat streams must not return to recovered telemetry."
+    },
+    {
+      "path": "backend/internal/service/gateway_upstream_response.go",
+      "must_contain": [
+        "tkWriteAnthropicPassthrough400(c, body)",
+        "writeAnthropicError(c, statusCode, errType, errMsg)"
+      ],
+      "rationale": "Native and compatible Messages share the same context-error and late SSE owner."
     }
   ]
 }

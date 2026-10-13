@@ -444,13 +444,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		}
 		if model != "" {
 			s.tkModelNotFoundRecordUpstream404(account.Platform, model)
-			c.JSON(http.StatusBadRequest, gin.H{
-				"type": "error",
-				"error": gin.H{
-					"type":    TkUnsupportedModelErrType,
-					"message": TkUnsupportedModelMessage(model),
-				},
-			})
+			writeAnthropicError(c, http.StatusBadRequest, TkUnsupportedModelErrType, TkUnsupportedModelMessage(model))
 			return nil, fmt.Errorf("upstream error: %d unsupported model=%s", resp.StatusCode, model)
 		}
 	}
@@ -477,13 +471,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		"upstream_error",
 		"Upstream request failed",
 	); matched {
-		c.JSON(status, gin.H{
-			"type": "error",
-			"error": gin.H{
-				"type":    errType,
-				"message": errMsg,
-			},
-		})
+		writeAnthropicError(c, status, errType, errMsg)
 
 		summary := upstreamMsg
 		if summary == "" {
@@ -501,7 +489,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 
 	switch resp.StatusCode {
 	case 400:
-		c.Data(http.StatusBadRequest, "application/json", body)
+		tkWriteAnthropicPassthrough400(c, body)
 		summary := upstreamMsg
 		if summary == "" {
 			summary = truncateForLog(body, 512)
@@ -537,13 +525,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 	}
 
 	// 返回自定义错误响应
-	c.JSON(statusCode, gin.H{
-		"type": "error",
-		"error": gin.H{
-			"type":    errType,
-			"message": errMsg,
-		},
-	})
+	writeAnthropicError(c, statusCode, errType, errMsg)
 
 	if upstreamMsg == "" {
 		return nil, fmt.Errorf("upstream error: %d", resp.StatusCode)
@@ -642,13 +624,7 @@ func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *ht
 		"upstream_error",
 		"Upstream request failed after retries",
 	); matched {
-		c.JSON(status, gin.H{
-			"type": "error",
-			"error": gin.H{
-				"type":    errType,
-				"message": errMsg,
-			},
-		})
+		writeAnthropicError(c, status, errType, errMsg)
 
 		summary := upstreamMsg
 		if summary == "" {
@@ -661,13 +637,7 @@ func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *ht
 	}
 
 	// 返回统一的重试耗尽错误响应
-	c.JSON(http.StatusBadGateway, gin.H{
-		"type": "error",
-		"error": gin.H{
-			"type":    "upstream_error",
-			"message": "Upstream request failed after retries",
-		},
-	})
+	writeAnthropicError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries")
 
 	if upstreamMsg == "" {
 		return nil, fmt.Errorf("upstream error: %d (retries exhausted)", resp.StatusCode)

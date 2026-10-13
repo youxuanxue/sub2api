@@ -116,6 +116,7 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | [`volcengine-plan-asr.md`](volcengine-plan-asr.md) | VolcEngine Agent Plan speech recognition |
 | [`anthropic-window-util-sched.md`](anthropic-window-util-sched.md) | Upstream window-util scheduling |
 | [`anthropic-buffered-stream-failure-contract.md`](anthropic-buffered-stream-failure-contract.md) | Anthropic buffered stream failure |
+| [`claude-context-error-recovery.md`](claude-context-error-recovery.md) | Claude context rejection recognition and committed SSE failure reporting |
 | [`cc-only-disable-prep-decisions.md`](cc-only-disable-prep-decisions.md) | Relaxing cc-only OAuth identity gates |
 | [`rpm-override-deferred-removal.md`](rpm-override-deferred-removal.md) | RPM override layer |
 | [`model-supplier-source-management.md`](model-supplier-source-management.md) | 供应源管理 |
