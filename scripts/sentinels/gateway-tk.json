@@ -2535,6 +2535,9 @@
         "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)",
         "r.recheck(path, options)",
         "gw.candidateSaturationState().counts(ctx, accounts, r.model)",
+        "accountStickyID = promptCacheStickyID",
+        "r.bindSessionAffinity(path.ctx, path.account)",
+        "r.bindSessionAffinity(ctx, r.current.account)",
         "diag := &CandidateCapacityDiag{AccountTotal: len(accounts)}",
         "r.pathReadyReason(path, options)"
       ],
@@ -2700,11 +2703,31 @@
       "path": "backend/internal/service/candidate_identity_tk.go",
       "must_contain": [
         "func CandidateAffinityCacheScope(",
+        "func candidateNewAPIPromptCacheSession(",
+        "func (r *CandidateRequest) bindSessionAffinity(",
         "func (s *OpenAIGatewayService) ResolveCandidateContinuation(",
         "lookup(0, candidateResponseID(apiKey.UserID, previousResponseID))",
         "lookup(group.ID, previousResponseID)"
       ],
       "rationale": "Soft affinity excludes billing groups; hard continuation validates owner/account pairs in one namespace with bounded authorized legacy reads."
+    },
+    {
+      "path": "backend/internal/service/candidate_ingress_tk.go",
+      "must_contain": [
+        "candidateNewAPIPromptCacheSession(c, key, shape, model, body)"
+      ],
+      "rationale": "Universal NewAPI prefix affinity must be prepared before initial candidate admission, not inferred later from a bound billing group."
+    },
+    {
+      "path": "backend/internal/service/candidate_prompt_cache_tk_test.go",
+      "must_contain": [
+        "TestCandidatePromptCacheIndependentTurnsAndConflictingOldBinding",
+        "TestCandidatePromptCacheIsolationAndExplicitSession",
+        "TestCandidatePromptCacheNeverOverridesEligibilityOrCapacity",
+        "TestCandidatePromptCacheWaitedSlotPublishesAffinity",
+        "TestCandidatePromptCacheDoesNotChangeOtherPlatforms"
+      ],
+      "rationale": "Production ingress and selector regressions retain tenant/model isolation, explicit sessions and NewAPI-only soft prefix affinity under retries and capacity escape."
     },
     {
       "path": "backend/internal/repository/gateway_cache.go",
@@ -16014,6 +16037,36 @@
       "rationale": "OpenAIForwardResult must carry the settled CostBreakdown so RecordUsage can bill ActualCost while the response exposes TotalCost."
     },
     {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
+      "must_contain": [
+        "costWriter := &bridgeUsageCostWriter",
+        "result.PrecomputedCost, err = costWriter.finish(",
+        "s.previewOpenAIClientUsageCost(ctx, c, account, result)"
+      ],
+      "rationale": "NewAPI bridge Chat must settle canonical adaptor usage before terminal output and return the same PrecomputedCost to ledger billing."
+    },
+    {
+      "path": "backend/internal/service/response_usage_cost_bridge_tk.go",
+      "must_contain": [
+        "func (w *bridgeUsageCostWriter) finish(",
+        "bridgeTerminalUsageLine(",
+        "InjectUsageCostSSEDataLine(line, cost.TotalCost)",
+        "InjectUsageCostJSON(w.pending, cost.TotalCost)",
+        "maxBridgeUsageCostBuffer"
+      ],
+      "rationale": "Bridge Chat preserves streaming content and injects standard TotalCost only after canonical usage is available, with bounded buffering."
+    },
+    {
+      "path": "backend/internal/service/response_usage_cost_bridge_tk_test.go",
+      "must_contain": [
+        "func TestBridgeChatUsageCost_AliAdaptorAndLedger(",
+        "func TestBridgeUsageCostWriter_StreamFragmentsAndFlush(",
+        "func TestBridgeUsageCostWriter_RepeatedTerminalCosts(",
+        "func TestBridgeUsageCostWriter_MixedTerminalReleasesCandidateOutput("
+      ],
+      "rationale": "Preserve real Ali adaptor-to-ledger cost parity and fragmented, repeated, mixed terminal SSE behavior across upstream merges."
+    },
+    {
       "path": "backend/internal/service/response_usage_cost_tk_test.go",
       "must_contain": [
         "func TestHandleNonStreamingResponse_InjectsUsageCost(",
@@ -16609,6 +16662,64 @@
         "writeAnthropicError(c, statusCode, errType, errMsg)"
       ],
       "rationale": "Native and compatible Messages share the same context-error and late SSE owner."
+    },
+    {
+      "path": "backend/internal/service/openai_chat_constraints_tk.go",
+      "must_contain": [
+        "func normalizeChatProviderRequest(",
+        "func normalizeBridgeChatProviderRequest(",
+        "normalizeStrictChatDeveloperRoles(account, targetURL, body)",
+        "func normalizeChatToolConstraints(",
+        "delete(root, \"functions\")"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_chat_roles.go",
+      "must_contain": [
+        "newapiintegration.IsAliTokenPlanBaseURL(newapiconstant.ChannelTypeAli, targetURL)"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": [
+        "normalizeChatProviderRequest(account, targetURL, upstreamBody)"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
+      "must_contain": [
+        "normalizeBridgeChatProviderRequest(account, in, body)"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_responses_fallback.go",
+      "must_contain": [
+        "normalizeBridgeChatProviderRequest(account, in, chatBody)"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_responses_chat_fallback.go",
+      "must_contain": [
+        "normalizeChatProviderRequest(account, targetURL, chatBody)"
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+    },
+    {
+      "path": "backend/internal/service/openai_chat_constraints_tk_test.go",
+      "must_contain": [
+        "func TestChatToolConstraints_SelectionAndHistory(",
+        "func TestChatToolConstraints_InvalidAndUnconstrained(",
+        "func TestChatProviderConstraints_DestinationAndRetryIsolation(",
+        "func TestChatProviderConstraints_ForwardRawAndAliAdaptor(",
+        "func TestChatProviderConstraints_InvalidSelectionDoesNotSend(",
+        "func TestChatProviderConstraints_ResponsesFallback("
+      ],
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
     },
     {
       "path": "backend/internal/server/routes/gateway_terminal_routes.go",
