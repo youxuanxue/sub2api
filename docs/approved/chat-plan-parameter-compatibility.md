@@ -1,7 +1,7 @@
 ---
 title: Plan Chat 工具与角色兼容
 status: approved
-approved_by: "user (2026-10-13 conversation: 请实现修复方案，指定函数仅提供该函数、none 移除 tools、阿里 developer 改 system、显式 json_object)"
+approved_by: "user (2026-10-13 conversation: 请实现修复方案，指定函数仅提供该函数、none 移除 tools、阿里 developer 改 system、显式 json_object; 先把 max_tokens + max_completion_tokens 并存 → 400 修复)"
 approved_at: 2026-10-13
 risk: high
 ---
@@ -27,20 +27,26 @@ Ali Token Plan 和 VolcEngine Agent Plan 的部分 Chat 供应路径接受工具
   定义返回现有 invalid_request_error / 400，不进行供应请求，不包含客户正文。
 - Ali Token Plan 的 developer 转为 system，保留消息顺序、内容和扩展字段；
   火山和其他支持 developer 的供应目的地不因模型名称相同而被改写。
+- 输出长度：当存在正数 `max_completion_tokens` 时，写入 `max_tokens` 并删除
+  `max_completion_tokens`，避免 Volc/Ali Plan 因双字段并存返回 400。仅
+  `max_tokens`、非法或非正 `max_completion_tokens` 保持原样。预算以
+  `max_completion_tokens` 为准（与 Chat 转换器优先级一致）。
 - 所有调整使用本次出站副本；换账号重试仍读取原始入站内容。
 - response_format 完整保留。json_object 仅由调用方显式选择，客户端仍须校验
   JSON。json_schema/strict 不转换成 json_object，不剥围栏、不自行补生成结果。
   因此严格 schema 的原失败用例不会因本修复自动通过。
-- 只在实际官方 Plan 目的地应用新增工具约束；代理账号名称和模型名不决定能力。
-  远端 edge 转发由实际访问供应源的 edge 执行同一适配，需在对应节点发布。
+- 只在实际官方 Plan 目的地应用工具约束与 token 归一；代理账号名称和模型名
+  不决定能力。远端 edge 转发由实际访问供应源的 edge 执行同一适配，需在对应
+  节点发布。
 
 ## Owners / flow
 
 `openai_chat_constraints_tk.go::normalizeChatProviderRequest` 为请求约束入口，
-复用 `openai_chat_roles.go::normalizeStrictChatDeveloperRoles` 处理角色。
-raw Chat 和 raw Responses→Chat 在发送前调用；NewAPI Chat、账号测试和
-Responses→Chat 桥接经 `normalizeBridgeChatProviderRequest` 使用 adaptor
-解析的实际目的地调用。原有 candidate/Plan 继续裁决账号与协议。
+复用 `openai_chat_roles.go::normalizeStrictChatDeveloperRoles` 处理角色，并用
+`coalescePlanChatTokenLimit` 归一双输出长度字段。raw Chat 和 raw
+Responses→Chat 在发送前调用；NewAPI Chat、账号测试和 Responses→Chat 桥接经
+`normalizeBridgeChatProviderRequest` 使用 adaptor 解析的实际目的地调用。原有
+candidate/Plan 继续裁决账号与协议。
 
 流程：选定账号/Plan → 协议转换（如需）→ 供应请求适配 → 既有传输及响应/计费。
 无数据库、UI 或配置迁移（no-web-impact）。
@@ -55,9 +61,11 @@ Responses→Chat 桥接经 `normalizeBridgeChatProviderRequest` 使用 adaptor
   auto/required 不变，错误不泄露内容。
 - `TestChatProviderConstraints_DestinationAndRetryIsolation`：官方目的地、相似域名、
   非 Plan endpoint、模型别名、换账号隔离。
+- `TestChatProviderConstraints_PlanTokenLimitCoalesce`：双字段 / 仅 completion /
+  仅 max_tokens / 非法值；官方 Plan 归一，非 Plan 与 pay-as-you-go 火山不变。
 - `TestChatProviderConstraints_ForwardRawAndAliAdaptor`：真实 Ali adaptor 对本地
   HTTP 供应端、火山 raw 发送；直连/万能 key × 流式/非流式，验证出站与客户端
-  工具结果、角色、用量以及显式 json_object/strict schema 无降级。
+  工具结果、角色、双 token 字段归一、用量以及显式 json_object/strict schema 无降级。
 - `TestChatProviderConstraints_InvalidSelectionDoesNotSend`：raw/bridge 返回现有
   400 错误结构，零上游调用，错误不带客户正文。
 - `TestChatProviderConstraints_ResponsesFallback`：raw/bridge 协议转换后仍过滤
