@@ -1,11 +1,8 @@
 name: Stage0 pg_dump Refresh
 
-# One-shot ops workflow that pushes the refreshed pg_dump cadence (every 2h,
-# ≤12 rolling files) into running Stage0 instances. The same systemd unit /
-# timer / script content already lives in
-# deploy/aws/cloudformation/stage0-single-ec2.yaml; this workflow brings the
-# LIVE instance in sync without rebuilding EC2 user-data (which would trigger
-# a prod restart). Future stack rebuild remains the source of truth.
+# Refresh live HCloud prod via SSM Hybrid without restarting the gateway.
+# Shared script owner: deploy/aws/stage0/tokenkey-pgdump.sh; host bootstrap
+# consumers: deploy/hetzner/render-{prod-,}bootstrap.sh. EC2 is standby only.
 
 on:
   workflow_dispatch:
@@ -94,6 +91,6 @@ jobs:
             echo "- instance: \`$INSTANCE_ID\`"
             echo "- ssm command id: \`${CMD_ID:-none}\`"
             echo "- cadence: every 2 hours"
-            echo "- retention: max 12 rolling files + 24h mtime ceiling"
-            echo "- template-sync-from: \`${GITHUB_SHA}\` (deploy/aws/cloudformation/stage0-single-ec2.yaml)"
+            echo "- retention: newest 6 local rolling files by default; off-box policy is independent"
+            echo "- source: \`${GITHUB_SHA}\` (deploy/aws/stage0/tokenkey-pgdump.sh)"
           } >> "$GITHUB_STEP_SUMMARY"

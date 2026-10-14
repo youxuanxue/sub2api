@@ -16,6 +16,12 @@
 # .part and exited before pruning — dumps piled up forever and Postgres crashed on
 # the full volume (2026-06-15 prod P0). Pruning first self-heals a near-full volume.
 set -euo pipefail
+# QA DDL must not race pg_dump's relation locks. Reuse the lifecycle host lock;
+# the shared backup lease ends before object upload so QA does not wait on S3.
+QA_LIFECYCLE_LOCK_FILE="${QA_LIFECYCLE_LOCK_FILE:-/var/lib/tokenkey/qa-lifecycle/host.lock}"
+install -d -m 0755 "$(dirname "${QA_LIFECYCLE_LOCK_FILE}")"
+exec 8>"${QA_LIFECYCLE_LOCK_FILE}"
+flock -s -w 2400 8
 DUMP_DIR=/var/lib/tokenkey/pgdump
 KEEP="${TOKENKEY_PGDUMP_KEEP:-6}"   # newest local rolling copies to retain
 GZIP_LEVEL="${TOKENKEY_PGDUMP_GZIP_LEVEL:-1}" # fast compression to bound CPU time
@@ -94,6 +100,8 @@ if [ "${SZ}" -lt 2048 ]; then
 fi
 
 mv -f "${PART}" "${OUT}"
+flock -u 8
+exec 8>&-
 
 # Off-box copy to S3 (best-effort; never fails the local dump). Read the .env to
 # pick up TOKENKEY_PGDUMP_S3_URI (e.g. s3://tokenkey-stage0-backups/prod/pgdump).

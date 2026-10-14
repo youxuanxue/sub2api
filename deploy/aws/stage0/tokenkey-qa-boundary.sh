@@ -8,6 +8,7 @@ QA_BOUNDARY_RUNTIME_DIR="${QA_BOUNDARY_RUNTIME_DIR:-/run/tokenkey-qa-boundary}"
 QA_BOUNDARY_HOST_DATA_ROOT="${QA_BOUNDARY_HOST_DATA_ROOT:-/var/lib/tokenkey/app}"
 QA_BOUNDARY_RECEIPT="${QA_BOUNDARY_RECEIPT:-/var/lib/tokenkey/qa-boundary-last-run.json}"
 QA_BOUNDARY_SYSTEMD_DIR="${QA_BOUNDARY_SYSTEMD_DIR:-/etc/systemd/system}"
+QA_LIFECYCLE_LOCK_FILE="${QA_LIFECYCLE_LOCK_FILE:-/var/lib/tokenkey/qa-lifecycle/host.lock}"
 QA_BOUNDARY_UID=1000
 QA_BOUNDARY_GID=1000
 
@@ -289,6 +290,12 @@ run_qa_boundary() {
   ERROR_MESSAGE=""
   trap finalize_boundary EXIT
 
+  install -d -m 0755 "$(dirname "${QA_LIFECYCLE_LOCK_FILE}")"
+  exec 9>"${QA_LIFECYCLE_LOCK_FILE}"
+  if ! flock -w 600 9; then
+    qa_fail lifecycle_lock_busy 75 "timed out waiting for QA/backup host lock"
+    return
+  fi
   load_app_runtime
   CHILD_STDOUT="$(mktemp "${QA_BOUNDARY_RUNTIME_DIR}/child.out.XXXXXX")"
   CHILD_STDERR="$(mktemp "${QA_BOUNDARY_RUNTIME_DIR}/child.err.XXXXXX")"

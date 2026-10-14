@@ -45,15 +45,21 @@ qa_fail() {
   return "${exit_code}"
 }
 
-with_qa_lifecycle_lock() {
+acquire_qa_lifecycle_lock() {
+  local wait_seconds="$1"
   local lock_parent
   lock_parent="$(dirname "${QA_LIFECYCLE_LOCK_FILE}")"
   install -d -m 0755 "${lock_parent}"
   exec 9>"${QA_LIFECYCLE_LOCK_FILE}"
-  if ! flock -n 9; then
-    qa_fail lifecycle_lock_busy 75 "QA lifecycle host lock is already held"
-    return
+  if ! flock -w "${wait_seconds}" 9; then
+    qa_fail lifecycle_lock_busy 75 "QA/backup host lock is already held"
+    return 75
   fi
+}
+
+with_qa_lifecycle_lock() {
+  acquire_qa_lifecycle_lock "$1" || return $?
+  shift
   "$@"
 }
 
@@ -404,6 +410,7 @@ run_qa_maintenance() {
   CHILD_STDERR=""
   trap finalize_maintenance EXIT
 
+  acquire_qa_lifecycle_lock 600 || return $?
   load_app_runtime
   CHILD_STDOUT="$(mktemp "${QA_MAINTENANCE_RUNTIME_DIR}/child.out.XXXXXX")"
   CHILD_STDERR="$(mktemp "${QA_MAINTENANCE_RUNTIME_DIR}/child.err.XXXXXX")"
@@ -837,19 +844,19 @@ main() {
         printf 'tokenkey-qa-maintenance: activation requires plan hash and confirmation\n' >&2
         return 40
       }
-      with_qa_lifecycle_lock run_single_owner_activation "${plan_hash}" "${confirmation}"
+      with_qa_lifecycle_lock 0 run_single_owner_activation "${plan_hash}" "${confirmation}"
       ;;
     --plan-single-owner)
       [ "$#" -eq 1 ] || { printf 'tokenkey-qa-maintenance: plan accepts no arguments\n' >&2; return 40; }
-      with_qa_lifecycle_lock run_single_owner_plan
+      with_qa_lifecycle_lock 0 run_single_owner_plan
       ;;
     --trigger=*)
       local trigger="${1#--trigger=}"
       [ "$#" -eq 1 ] || { printf 'tokenkey-qa-maintenance: trigger accepts no arguments\n' >&2; return 40; }
-      with_qa_lifecycle_lock run_qa_maintenance "${trigger}"
+      run_qa_maintenance "${trigger}"
       ;;
     '')
-      with_qa_lifecycle_lock run_qa_maintenance timer
+      run_qa_maintenance timer
       ;;
     *)
       printf 'tokenkey-qa-maintenance: unknown argument %s\n' "$1" >&2
