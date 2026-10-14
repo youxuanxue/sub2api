@@ -815,6 +815,46 @@ validate_prepared_receipt blue green
             "qa=host-qa telemetry=host-telemetry media=host-media limit=host-limit",
         )
 
+    def test_telemetry_defaults_are_empty_and_explicit_storage_survives(self) -> None:
+        for bucket, region in [("", ""), ("explicit-archive", "us-west-2")]:
+            with self.subTest(bucket=bucket):
+                proc, params, remote = _render(env_extra={
+                    "TELEMETRY_ARCHIVE_BUCKET": bucket, "TELEMETRY_ARCHIVE_REGION": region,
+                })
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                delivered = dict(part.split("=", 1) for part in shlex.split(_launch_command(params["commands"]))
+                                 if "=" in part)
+                self.assertEqual(delivered["TELEMETRY_ARCHIVE_BUCKET"], bucket)
+                self.assertEqual(delivered["TELEMETRY_ARCHIVE_REGION"], region)
+                functions = "\n".join(_extract_shell_function(remote, name) for name in
+                                      ("env_default", "env_apply_if_supplied", "ensure_profile_environment"))
+                for existing in (False, True):
+                    with tempfile.TemporaryDirectory() as tmp:
+                        env_file = pathlib.Path(tmp) / ".env"
+                        env_file.write_text("TELEMETRY_ARCHIVE_BUCKET=host-custom\nTELEMETRY_ARCHIVE_REGION=host-region\n"
+                                            if existing else "")
+                        script = f"""set -euo pipefail
+{functions}
+ENV_FILE={shlex.quote(str(env_file))}
+DEPLOY_PROFILE=prod
+QA_RUNTIME_KEYS=(QA_ARCHIVE_ENABLED)
+TELEMETRY_ARCHIVE_BUCKET={shlex.quote(delivered['TELEMETRY_ARCHIVE_BUCKET'])}
+TELEMETRY_ARCHIVE_REGION={shlex.quote(delivered['TELEMETRY_ARCHIVE_REGION'])}
+log() {{ :; }}
+assert_qa_provider_unchanged() {{ :; }}
+assert_live_qa_archive_coordinates() {{ :; }}
+clear_edge_profile_overrides() {{ :; }}
+env_get() {{ sed -n "s/^$1=//p" "$ENV_FILE"; }}
+env_set() {{ printf '%s=%s\n' "$1" "$2" >> "$ENV_FILE"; }}
+ensure_profile_environment
+"""
+                        result = subprocess.run(["bash"], input=script, capture_output=True, text=True)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        final = dict(line.split("=", 1) for line in env_file.read_text().splitlines())
+                        self.assertEqual(final["TELEMETRY_ARCHIVE_ENABLED"], "false")
+                        self.assertEqual(final["TELEMETRY_ARCHIVE_BUCKET"], "host-custom" if existing else bucket)
+                        self.assertEqual(final["TELEMETRY_ARCHIVE_REGION"], "host-region" if existing else region)
+
     def test_rejects_unknown_instance_id_shape(self) -> None:
         proc, params, remote = _render("x-invalid")
         self.assertNotEqual(proc.returncode, 0)
@@ -877,6 +917,54 @@ printf accepted
                     if not success:
                         self.assertIn("separate migration", result.stderr)
 
+    def test_live_qa_coordinates_are_hcloud_and_complete(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        assert remote is not None
+        guard = _extract_shell_function(remote, "assert_live_qa_archive_coordinates")
+        owner = (_SCRIPT.parent / "qa-runtime-environment.sh").read_text()
+        script = f"""set -euo pipefail
+{owner}
+{guard}
+DEPLOY_PROFILE=prod
+HYBRID_PROD=true
+env_get() {{
+  case "$1" in
+    QA_ARCHIVE_ENABLED) printf true ;;
+    QA_ARCHIVE_STORAGE_CREDENTIALS_FILE) printf /run/secrets/tokenkey-qa/raw.json ;;
+    *) key="${{1/QA_ARCHIVE_/QA_LIVE_ARCHIVE_}}"; printf '%s' "${{!key}}" ;;
+  esac
+}}
+die() {{ echo "$*" >&2; exit 42; }}
+assert_live_qa_archive_coordinates
+printf accepted
+"""
+        result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "accepted")
+
+        for key, value in {
+            "QA_ARCHIVE_STORAGE_REGION": "us-east-1",
+            "QA_ARCHIVE_STORAGE_BUCKET": "legacy-aws-raw",
+            "QA_ARCHIVE_STORAGE_ENDPOINT": "",
+            "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE": "",
+        }.items():
+            with self.subTest(key=key):
+                bad_script = script.replace(
+                    '  case "$1" in',
+                    f'  case "$1" in\n    {key}) printf %s {shlex.quote(value)} ;;',
+                )
+                failed = subprocess.run(["bash"], input=bad_script, text=True, capture_output=True)
+                self.assertEqual(failed.returncode, 42)
+                self.assertIn("live QA archive", failed.stderr)
+                # The same historical configuration remains valid for an
+                # explicitly selected EC2 standby or a non-capturing edge.
+                for override in ("HYBRID_PROD=false", "DEPLOY_PROFILE=edge"):
+                    legacy = bad_script.replace("assert_live_qa_archive_coordinates\nprintf", override + "\nassert_live_qa_archive_coordinates\nprintf")
+                    result = subprocess.run(["bash"], input=legacy, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "accepted")
+
     def test_remote_script_parses(self) -> None:
         proc, params, remote = _render()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
@@ -906,14 +994,20 @@ printf accepted
         self.assertIn("QA_ARCHIVE_STORAGE_BUCKET=''", joined)
         self.assertIn("QA_ARCHIVE_STORAGE_BUCKET_SET=false", joined)
         self.assertIn("QA_ARCHIVE_ENABLED='true'", joined)
-        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-prod-qa-raw-archive-682751977094'", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_DRIVER='s3'", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_REGION='fsn1'", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-qa-raw-fsn1-dd2ca9019b22'", joined)
+        self.assertNotIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-prod-qa-raw-archive-682751977094'", joined)
         self.assertIn("TELEMETRY_ARCHIVE_ENABLED=''", joined)
-        self.assertIn("TELEMETRY_ARCHIVE_BUCKET='tokenkey-prod-archive-682751977094'", joined)
+        self.assertIn("TELEMETRY_ARCHIVE_BUCKET=''", joined)
+        self.assertIn("TELEMETRY_ARCHIVE_REGION=''", joined)
         self.assertIn("TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES='33554432'", joined)
-        self.assertIn("MEDIA_STORAGE_BUCKET='tokenkey-prod-media-682751977094'", joined)
+        self.assertIn("MEDIA_STORAGE_BUCKET=''", joined)
+        self.assertIn("MEDIA_STORAGE_DRIVER='local'", joined)
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_ENABLED='false'", joined)
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS='8'", joined)
         self.assertIn('env_set GATEWAY_IMAGE_CONCURRENCY_ENABLED', remote)
+        self.assertIn("assert_live_qa_archive_coordinates", remote)
 
         self.assertIn("docker-compose.bluegreen.yml", remote)
         self.assertIn("active-color", remote)

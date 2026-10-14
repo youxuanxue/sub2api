@@ -1,10 +1,11 @@
 #!/bin/bash
-# tokenkey Stage0 pg_dump (every 2 hours). Installed by stage0-ec2-bootstrap.sh.
+# Shared host pg_dump (every 2 hours): Hetzner renderers; EC2 bootstrap is standby.
 # PRECIOUS-CLASS dump: schema for all tables + data for everything EXCEPT the
 # bulky reconstructible log tables (see EXCLUDE_DATA_GLOBS below). A restore is
 # structurally complete; the excluded log tables come back empty and refill from
-# live traffic. See deploy/aws/RUNBOOK-disaster-recovery.md §4.4.
-# Off-box: if TOKENKEY_PGDUMP_S3_URI is set (via /var/lib/tokenkey/.env), each fresh
+# live traffic. Recovery owner: deploy/hetzner/README.md.
+# Off-box: private /etc/tokenkey/pgdump-storage.json on Hetzner; standby uses
+# TOKENKEY_PGDUMP_S3_URI from /var/lib/tokenkey/.env. Each fresh
 # dump is also copied to S3 (archive of record; off-box RPO = dump cadence). S3
 # failure never fails the local dump.
 #
@@ -15,6 +16,12 @@
 # .part and exited before pruning — dumps piled up forever and Postgres crashed on
 # the full volume (2026-06-15 prod P0). Pruning first self-heals a near-full volume.
 set -euo pipefail
+# QA DDL must not race pg_dump's relation locks. Reuse the lifecycle host lock;
+# the shared backup lease ends before object upload so QA does not wait on S3.
+QA_LIFECYCLE_LOCK_FILE="${QA_LIFECYCLE_LOCK_FILE:-/var/lib/tokenkey/qa-lifecycle/host.lock}"
+install -d -m 0755 "$(dirname "${QA_LIFECYCLE_LOCK_FILE}")"
+exec 8>"${QA_LIFECYCLE_LOCK_FILE}"
+flock -s -w 2400 8
 DUMP_DIR=/var/lib/tokenkey/pgdump
 KEEP="${TOKENKEY_PGDUMP_KEEP:-6}"   # newest local rolling copies to retain
 GZIP_LEVEL="${TOKENKEY_PGDUMP_GZIP_LEVEL:-1}" # fast compression to bound CPU time
@@ -41,11 +48,11 @@ find "${DUMP_DIR}" -maxdepth 1 -type f -name 'pre-*.dump' -delete 2>/dev/null ||
 # Prune BEFORE dumping so a near-full volume frees space first (dead-lock fix).
 prune_rolling
 
-# Precious-class dump. This hourly dump exists to protect the IRREPLACEABLE data
+# Precious-class dump. This periodic dump exists to protect the IRREPLACEABLE data
 # (the billing ledger usage_billing_dedup + all OLTP/config) — NOT the bulky,
 # reconstructible time-series LOG tables. Pre-tiering the full-DB dump dragged
 # ~8GB of logs (ops_system_logs 4.3G + usage_logs 2.3G + ops_error_logs 1.4G +
-# qa_records ~0.8G) into every hourly copy, and the dump's own footprint was the
+# qa_records ~0.8G) into each periodic copy, and the dump's own footprint was the
 # disk-full fuse (2026-06-15 prod P0). We use --exclude-table-data (NOT
 # --exclude-table) so the table SCHEMA is still dumped and a restore stays
 # structurally complete — only the rows are dropped; these tables refill from
@@ -93,15 +100,23 @@ if [ "${SZ}" -lt 2048 ]; then
 fi
 
 mv -f "${PART}" "${OUT}"
+flock -u 8
+exec 8>&-
 
-# Off-box copy to S3 (best-effort; never fails the local dump). Source the .env to
+# Off-box copy to S3 (best-effort; never fails the local dump). Read the .env to
 # pick up TOKENKEY_PGDUMP_S3_URI (e.g. s3://tokenkey-stage0-backups/prod/pgdump).
 # Absent var => no-op (back-compat; edges with no bucket configured just skip).
 S3_URI=""
 if [ -r /var/lib/tokenkey/.env ]; then
   S3_URI="$(sed -n 's/^TOKENKEY_PGDUMP_S3_URI=//p' /var/lib/tokenkey/.env | head -1)"
 fi
-if [ -n "${S3_URI}" ]; then
+if [ -e /etc/tokenkey/pgdump-storage.json ] || [ -L /etc/tokenkey/pgdump-storage.json ]; then
+  # Explicit host-only Hetzner identity takes precedence. A malformed config,
+  # missing helper/key or upload failure must NEVER use the AWS role instead.
+  if ! python3 /usr/local/lib/tokenkey/pgdump_storage.py --upload "${OUT}"; then
+    echo "::warning::pgdump: configured off-box upload failed (local copy kept; no AWS fallback)" >&2
+  fi
+elif [ -n "${S3_URI}" ]; then
   if command -v aws >/dev/null 2>&1; then
     if aws s3 cp --only-show-errors "${OUT}" "${S3_URI%/}/$(basename "${OUT}")"; then
       echo "pgdump: off-boxed $(basename "${OUT}") -> ${S3_URI%/}/"

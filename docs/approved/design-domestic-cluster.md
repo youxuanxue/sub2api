@@ -28,8 +28,8 @@ TokenKey、PostgreSQL、Redis 和持久化数据卷。prod 是唯一的公共 AP
 prod relay 和运维通道，承担对应平台账号池。
 
 一期不引入 Kubernetes，不把五个节点改造成共享数据库集群。这样能直接复用现有
-`1 prod + N edge` 的路由、账号、drain、回滚和数据边界。数据库高可用通过备份、恢复
-演练和节点重建保证；业务增长后再单独评估托管 PostgreSQL/Redis 或 HA 集群。
+`1 prod + N edge` 的路由、账号、drain、回滚和数据边界。每个节点的 PostgreSQL 仍是单点，
+备份、恢复演练和节点重建提供灾难恢复能力，不承诺自动故障切换；数据库 HA 另行评估。
 
 ```mermaid
 flowchart LR
@@ -67,7 +67,8 @@ edge 只负责本 edge 的 Agent/Token 账号、平台映射和运行状态。�
 对象存储属于控制面，不新增一台必需的运维业务节点。
 
 VPC 至少划分 WAF/SLB、业务节点、运维/数据三个安全域。数据库和 Redis 不分配公网
-地址，安全组只允许本节点 TokenKey、prod→edge relay 和备份任务访问。Edge 入站同时受
+地址，仅允许本节点应用和必要的本地备份任务访问；prod→edge relay 只访问 edge 的
+HTTPS 网关，不开放 edge 数据库或 Redis 端口。Edge 入站同时受
 两层限制：UCloud 安全组只放行 `cn-prod` 的固定私网源地址（必要时再加固定公网出口），
 应用层 Caddy 只接受约定的 edge 管理域名/SNI 和来自 prod 的 Host/来源标识；域名只负责
 路由，真正的访问边界由源地址、TLS 和安全组保证。应用出站按平台域名/IP allowlist
@@ -75,8 +76,12 @@ VPC 至少划分 WAF/SLB、业务节点、运维/数据三个安全域。数据�
 
 # 域名与合规
 
-1. 选择新的正式域名（例如 `api.example.cn`，实际名称待定），在大陆 DNS 服务商托管，
-   完成 ICP 备案；上线后按主体要求完成公安联网备案和云厂商备案接入。
+1. 候选公共入口为 `api-cn.tokenkey.dev`，与现网 `api.tokenkey.dev` 使用不同主机名，
+   不要求另外注册一个主域名。DNS/TLS 技术上可使用该子域名；大陆上线前必须核实
+   `tokenkey.dev` 的后缀、注册商、实名主体是否满足工信部备案和 UCloud 接入要求，
+   已有备案是否需要新增网站或接入。当前未取得该核验结果，不能视为可上线域名；若
+   不满足条件，再选择可备案的新主域名。ICP 备案及 UCloud 接入须在公网开放前完成；
+   公安联网备案按主体要求办理。DNS 托管位置本身不能替代备案。
 2. WAF/CDN 终止公网 TLS，证书由云证书服务托管并自动续期。网关到应用使用内网
    TLS/mTLS；应用不依赖 Caddy 自动申请公网证书。
 3. 新域名只指向国内 WAF/SLB。现有 `api.tokenkey.dev`、四个 Hetzner edge 域名和
@@ -126,22 +131,25 @@ VPC 至少划分 WAF/SLB、业务节点、运维/数据三个安全域。数据�
 前缀或回滚凭据。国内目标矩阵固定为 `prod`、`edge-1`、`edge-2`、`edge-3`、`edge-4`。
 
 镜像构建不重复实现：继续复用现有 `release.yml` 完成版本、前端构建、后端构建、多架构
-镜像、SBOM 和 GHCR digest。`domestic-release.yml` 接收一个已经发布的 tag/digest，先
+镜像和 GHCR digest。当前 GoReleaser 配置关闭 SBOM/provenance，发布链也未生成镜像签名，
+不能把这些能力当成已有验收证据。`domestic-release.yml` 接收一个已经发布的 tag/digest，先
 校验 digest，再把同一镜像同步到 UCloud 镜像仓库并部署国内目标。这样只有发布目标和
 控制通道分开，构建事实仍只有一个来源。
 
 推荐发布链路：
 
-1. GitHub Actions 构建一次多架构镜像，生成 SBOM、签名和不可变 digest。
+1. GitHub Actions 构建一次多架构镜像，记录不可变 digest；若国内上线要求 SBOM、签名，
+   在共享构建链补齐生成及验证后再验收，不另建国内构建链。
 2. 通过受控镜像同步作业把同一 digest 推送到国内仓库。同步失败不得产生“国内已发布”
    状态；必要时由合规 relay 执行 `skopeo copy`，国内节点不访问 GHCR。
 3. 使用国内云助手/SSM 通过私网下发升级，不开放 SSH 入站。云 API 身份、命令通道、
    secrets 前缀和审计日志全部属于 `domestic` 发布环境。
 4. **公共代码/运行时发布**：edge canary → prod → 其余 edge，沿用 Stage0 的 drain、
-   in-flight 归零、digest 切换、`/health/live`/`/health/ready` 检查和 fail-stop；prod 还要
+   in-flight 归零、digest 切换、`/health/live`（存活）与 `/health`（就绪）检查和 fail-stop；prod 还要
    检查公网 frontend/admin，edge 只从 prod 固定来源检查受限 frontend/admin。
-5. **平台/账号/模型映射变更**：由人类先判断影响矩阵，只 dispatch 受影响的 edge；若
-   只影响 prod relay 或站点配置，则只部署 prod。无需同时发布的目标保持原 digest。
+5. **平台/账号/模型映射变更**：dispatcher 按下文影响矩阵推导并校验 target，无法确定
+   范围时停止并交人判断；只 dispatch 受影响的目标。账号或配置变更不换镜像；代码中
+   的平台 fingerprint 变更仍须同步新 digest，并对受影响节点执行 drain、升级和 smoke。
 6. 回滚只引用上一个已验收 digest 和配置快照，不重新构建镜像。数据库迁移保持向前兼容；
    破坏性迁移先拆成 expand/migrate/contract，未具备回滚路径不得进入生产。
 
@@ -152,15 +160,16 @@ VPC 至少划分 WAF/SLB、业务节点、运维/数据三个安全域。数据�
 
 发布工作流至少拆成两条：
 
-- `domestic-release.yml`：校验并同步既有镜像 digest，执行 edge canary、prod、剩余 edge、
-  回滚和运行时 smoke。
+- `domestic-release.yml`：校验并同步既有镜像 digest，按影响矩阵执行全站或指定目标升级、
+  回滚和运行时 smoke；全站顺序为 edge canary → prod → 其余 edge。
 - `domestic-platform-ops.yml`：账号导入/刷新、Agent/Token 计划账号变更、平台模型映射和
   单 edge 配置；每次必须有显式 target，禁止默认 all。
 
-影响矩阵：公共 backend/Compose/安全补丁才走全站 release；某平台账号或 fingerprint
-只走该平台 edge；edge 账号池只走该 edge；prod relay/model mapping 只走 prod；文档和
-不影响运行时的配置不部署。人类可以把目标扩展到全站，但 dispatcher 必须记录理由和
-审批 receipt。
+影响矩阵：公共 backend/Compose/安全补丁走全站 release；某平台账号或 fingerprint
+只走实际承载该平台的目标；edge 账号池只走该 edge；prod relay/model mapping 只走 prod；
+文档和不影响运行时的配置不部署。镜像或主机运行时变更走 release，账号/配置操作走
+platform-ops，不能把编译进镜像的 fingerprint 修复当成账号操作。release 必须支持按
+矩阵限定目标并拒绝遗漏依赖；人类可以扩展到全站，但 dispatcher 必须记录理由和审批 receipt。
 
 ## 与现网发布的区别
 
@@ -169,19 +178,19 @@ VPC 至少划分 WAF/SLB、业务节点、运维/数据三个安全域。数据�
 | 目标 | Hetzner 的现网 prod/edge 矩阵 | UCloud 的 `domestic/prod`、`domestic/edge-1..4` 矩阵 | 两边不会因为同一个 tag 自动互相部署 |
 | 控制通道 | 既有 GitHub Actions + AWS/SSM Hybrid + Hetzner resolver | 独立 GitHub Environment + UCloud 云助手/远程执行 | 凭据、权限、审计和回滚入口完全分开 |
 | 镜像 | 现网从 GHCR 拉取 | UCloud 镜像仓库中的同 digest | `release.yml` 统一构建，国内只做同步和部署 |
-| 发布范围 | 现有 Stage0 支持 prod、edge canary、全 edge rollout，以及较完整的平台 smoke | `domestic-release.yml` 只管国内公共运行时；按 `prod + 4 edge` 顺序发布 | 国内发布失败只停在国内，不会回滚 Hetzner |
+| 发布范围 | 现有 Stage0 支持 prod、edge canary、全 edge rollout，以及较完整的平台 smoke | `domestic-release.yml` 管国内运行时；全站按 edge canary → prod → 其余 edge，平台代码按影响矩阵限定目标 | 国内发布失败只停在国内，不会回滚 Hetzner |
 | 平台/账号变更 | 现有账号运维脚本按现网目标执行，部分操作可选 prod/edge/all | `domestic-platform-ops.yml` 强制要求一个明确国内 target | 只改某个平台或某个 edge 时，其余节点不重启、不换镜像 |
-| 验证 | 现网保留既有完整 smoke、模型映射和平台相关检查 | 只做 health、API key、Agent/Token 请求和用量递增 | 国内没有 QA 账号、QA worker、raw archive 或完整 QA 流程 |
+| 验证 | 现网保留既有完整 smoke、模型映射和平台相关检查 | health、API key、Agent/Token 请求、用量递增及本文 UI/权限和恢复验收 | 国内没有 QA 账号、QA worker、raw archive 或完整 QA 流程 |
 | 数据 | 现网各自的 Hetzner 数据卷和备份前缀 | UCloud 节点独立数据卷和 `site_id=domestic` 备份前缀 | 不复制现网库，不会把国内用户写入现网 |
 
 白话解释：`domestic-release.yml` 相当于“国内版总发布按钮”，只负责国内这五个节点的
-公共代码、Compose、主机安全补丁和回滚；它不是现有 `release.yml` 或
+运行时升级、Compose、主机安全补丁和回滚；它不是现有 `release.yml` 或
 `deploy-stage0.yml` 的开关，也不会顺手更新现网。`domestic-platform-ops.yml` 相当于
 “国内版定点维修按钮”，例如只给 Agent Plan 的 `edge-2` 换账号，只执行 `edge-2` 的
 账号导入和验证，不构建新镜像，也不触碰其他 edge。
 
-唯一需要人判断的是“影响范围”：公共 backend 变更才扩大到全站；账号、平台映射或
-fingerprint 变更只选受影响的 target。两套站点可以暂时运行不同版本，但数据库迁移必须
+影响范围由 dispatcher 根据变更类型和目标矩阵计算，无法识别的依赖及范围扩展才交人判断。
+两套站点可以暂时运行不同版本，但数据库迁移必须
 保持向前兼容，并在发布 receipt 中记录每个站点的 digest 和 schema 版本。
 
 # 备份、恢复与灾难演练
@@ -195,6 +204,9 @@ fingerprint 变更只选受影响的 target。两套站点可以暂时运行不�
   沿用现有 `pgdump_restore_canary` 的 fail-stop 和 cleanup 约束。
 - 目标值建议为 RPO 15 分钟、RTO 60 分钟，需在审批时确认。恢复顺序：数据库 → Redis
   重建 → 应用节点 → 网关/WAF → smoke；恢复期间 DNS 不切回现网，先用临时管理域名验收。
+  每日逻辑备份本身不能兑现该 RPO；若批准 15 分钟目标，须增加基础备份与连续 WAL
+  归档/PITR，将归档延迟纳入告警，并实测最近可恢复事务距故障点不超过 15 分钟。
+  这套恢复链尚未实现；若一期只做逻辑备份，须重新审批其实际可恢复窗口，不能沿用该目标。
 - 灾难演练至少覆盖：单应用节点丢失、网关节点丢失、数据库主库故障、整套地域恢复、
   镜像仓库不可用和密钥轮换。每次演练保留时间线、恢复点和未解决项。
 
@@ -207,7 +219,10 @@ Plan 账号选择、用户/账号管理、用量记录与基础统计、管理�
 
 管理职责按数据归属限制：prod 管国内用户、余额、API key、兑换码、计费和全站统计；edge
 只管本 edge 的 Agent/Token 账号、平台映射、容量和健康状态。edge 不提供用户和余额管理，
-这些页面应隐藏或跳转到 prod，避免运营人员在独立 edge 数据库上误操作。
+这些页面应隐藏或跳转到 prod；backend 同时拒绝 edge 上面向终端用户的注册、用户/余额、
+兑换码和业务 API key 管理调用，不能仅靠隐藏菜单隔离。edge 管理员认证和 prod relay 所需
+的内部身份仍须保留，权限与终端用户运营功能分开。节点角色与能力由一个共享策略 owner
+裁决，前端据此展示、后端强制执行；该能力是后续实现项，当前完整镜像不自动满足此边界。
 
 完整站点不需要额外的前端服务器：当前镜像会在构建时把 frontend embed 到 TokenKey 二进制，
 prod 的 Caddy 开放站点和 `/admin`，edge 的 Caddy 只对 prod/运维来源开放同一套站点和
@@ -262,11 +277,17 @@ secret 和告警。任何后来新增功能先更新本节和 target matrix，�
 - 新域名启用 WAF，限制为办公出口或临时 allowlist；不建立现网用户的 DNS 跳转。
 - 验证 API key、Agent/Token 请求、用量统计、上游失败、管理员审计和 drain 发布；至少
   完成一次 restore canary。
+- 通过真实 UI 验证 prod 用户/管理旅程及 edge 账号管理；直接调用 edge 被禁用的业务
+  管理 API 必须拒绝，prod relay 与 edge 管理员登录仍正常。部署预检须机械核对节点角色、
+  允许的能力和探针路径；实现时补聚焦回归测试及必要的 sentinel，不能只验菜单隐藏。
+- 若选择 15 分钟 RPO，完成 WAL 归档中断告警与 PITR 故障恢复演练，记录实际数据损失窗口
+  和恢复耗时；每日 dump 的 restore canary 不替代该验收。
 
 ## 阶段 2：小规模开放
 
 - 仅邀请新站点用户，独立发放 API key；观测 24 小时的 2xx/4xx/5xx、P95、用量计数和
-  上游成功率。异常时撤销 WAF allowlist 或停用国内域名即可回退，不修改现网 DNS。
+  上游成功率。异常时在 WAF 明确拒绝用户流量、保留运维入口，再按发布回执回滚；
+  不以删除 allowlist 规则或等待 DNS 缓存过期作为即时止流手段，不修改现网 DNS。
 
 ## 阶段 3：正式运营
 
@@ -276,7 +297,7 @@ secret 和告警。任何后来新增功能先更新本节和 target matrix，�
 # 需要审批的决策
 
 1. UCloud 主地域/灾备地域和最终产品组合；先做七天 PoC，再创建正式资源。
-2. 新正式域名、备案主体和数据保留期限。
+2. 候选 `api-cn.tokenkey.dev` 的备案可用性、最终正式域名、备案主体和数据保留期限。
 3. 国内站是否只使用境内供应商；若需境外供应，relay 所在地、合规评估和允许传输的
    最小数据集合。
 4. 是否接受五个独立 Compose target（1 prod + 4 edge）及 RPO 15 分钟、RTO 60 分钟目标。

@@ -74,7 +74,7 @@ func TestOpenAIImagesOAuthDispatchFacts_RecordsEffortMainModelAndScaffold(t *tes
 
 	quoted := &OpenAIImagesRequest{Model: "gpt-image-2", Prompt: `cup text "NOVA"`}
 	quotedFacts := openAIImagesOAuthDispatchFactsFor(quoted, "gpt-image-2", "")
-	require.Equal(t, "high", quotedFacts.ReasoningEffort)
+	require.Equal(t, "medium", quotedFacts.ReasoningEffort)
 	require.Equal(t, "auto", quotedFacts.EffortSource)
 	require.False(t, quotedFacts.InputFidelityOmitted)
 
@@ -121,7 +121,7 @@ func TestForwardOpenAIImagesOAuth_PersistsDispatchEffortAndStripsCodexFidelity(t
 	require.Contains(t, gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String(), "Primary request:")
 }
 
-func TestForwardOpenAIImagesOAuth_AutoHighQuotedLabelIsPersisted(t *testing.T) {
+func TestForwardOpenAIImagesOAuth_QuotedLabelKeepsMediumAndVerbatimScaffold(t *testing.T) {
 	t.Setenv(openAIImagesReasoningEffortEnv, "")
 	t.Setenv(openAIImagesPromptScaffoldEnv, "")
 	t.Setenv("SUB2API_IMAGES_MAIN_MODEL", "")
@@ -136,8 +136,9 @@ func TestForwardOpenAIImagesOAuth_AutoHighQuotedLabelIsPersisted(t *testing.T) {
 	result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
 	require.NoError(t, err)
 	require.NotNil(t, result.ReasoningEffort)
-	require.Equal(t, "high", *result.ReasoningEffort)
-	require.Equal(t, "high", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+	require.Equal(t, "medium", *result.ReasoningEffort)
+	require.Equal(t, "medium", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+	require.Contains(t, gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String(), "Text (verbatim):")
 }
 
 func TestForwardOpenAIImagesOAuth_EnvEffortAndScaffoldOffAreWhatGetsSent(t *testing.T) {

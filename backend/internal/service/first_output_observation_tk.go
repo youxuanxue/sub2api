@@ -7,6 +7,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -117,6 +118,9 @@ func openAIFirstOutputBudgetReason(c *gin.Context, body []byte, effort string) s
 	}
 	if len(body) >= openAIFirstOutputLargeBodyBytes {
 		return "large_body"
+	}
+	if firstOutputHighEffortModel(gjson.GetBytes(body, "model").String()) {
+		return "high_effort"
 	}
 	return streamFirstOutputBudgetReason(streamFirstOutputHighEffort(effort))
 }

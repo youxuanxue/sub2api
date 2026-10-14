@@ -14,15 +14,16 @@ import pathlib
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import time
-import urllib.parse
 from collections.abc import Callable, Iterable
 from typing import Any
 
 from pgdump_restore_canary_contract import PRECIOUS_TABLES, precious_counts_valid
+from pgdump_storage import Storage, StorageError, CONFIG_PATH
 
 
 TARGET_RE = re.compile(r"(?:prod|edge:[a-z][a-z0-9]{1,15})")
@@ -67,9 +68,28 @@ def _raw_run(
 def _run(run: RunCommand, args: list[str], *, timeout: int = 120) -> str:
     completed = _raw_run(run, args, timeout=timeout)
     if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "command failed").strip()
+        # psql COPY errors can echo an entire credential-bearing source row.
+        detail = ("isolated SQL restore failed; row details withheld"
+                  if args[0] == "bash" and "gunzip -c" in " ".join(args)
+                  else (completed.stderr or completed.stdout or "command failed").strip())
         raise CanaryError(f"command failed: {args[0]} {args[1]}: {detail[:400]}")
     return completed.stdout.strip()
+
+
+def _io_limits(run: RunCommand, device: str) -> list[str]:
+    if not device:
+        return []
+    if not device.startswith("/dev/") or not stat.S_ISBLK(pathlib.Path(device).stat().st_mode):
+        raise CanaryError("canary IO device must be a block device")
+    # Linux cgroup io.max accepts the whole disk, not its mounted partition.
+    parent = _run(run, ["lsblk", "-n", "-o", "PKNAME", device])
+    if parent:
+        if re.fullmatch(r"[a-zA-Z0-9_-]+", parent) is None:
+            raise CanaryError("invalid parent block device")
+        device = f"/dev/{parent}"
+        if not stat.S_ISBLK(pathlib.Path(device).stat().st_mode):
+            raise CanaryError("parent is not a block device")
+    return ["--device-read-bps", f"{device}:10485760", "--device-write-bps", f"{device}:10485760"]
 
 
 def _container_ready_diagnostics(run: RunCommand, container: str) -> str:
@@ -146,6 +166,7 @@ def _counts(run: RunCommand, container: str) -> dict[str, int]:
             "tokenkey", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c",
             _count_sql(),
         ],
+        timeout=120 if container == LIVE_POSTGRES else 600,
     )
     try:
         value = json.loads([line for line in raw.splitlines() if line.strip()][-1])
@@ -209,23 +230,10 @@ def _parse_time(value: object) -> dt.datetime:
 
 def _s3_location(target: str, env_path: pathlib.Path) -> tuple[str, str]:
     try:
-        lines = env_path.read_text(encoding="utf-8").splitlines()
-    except OSError as exc:
-        raise CanaryError(f"cannot read host env: {env_path}") from exc
-    values = [line.partition("=")[2] for line in lines if line.startswith("TOKENKEY_PGDUMP_S3_URI=")]
-    if len(values) != 1 or not values[0]:
-        raise CanaryError("TOKENKEY_PGDUMP_S3_URI must appear exactly once and be non-empty")
-    raw = values[0]
-    if raw.strip() != raw or any(char in raw for char in "'\"`$\\"):
-        raise CanaryError("TOKENKEY_PGDUMP_S3_URI contains unsupported shell syntax")
-    parsed = urllib.parse.urlparse(raw)
-    if parsed.scheme != "s3" or not parsed.netloc or parsed.params or parsed.query or parsed.fragment:
-        raise CanaryError("TOKENKEY_PGDUMP_S3_URI must be an s3://bucket/prefix URI")
-    prefix = parsed.path.strip("/")
-    expected = "prod/pgdump" if target == "prod" else f"edge/{target.split(':', 1)[1]}/pgdump"
-    if prefix != expected:
-        raise CanaryError(f"configured pgdump prefix {prefix!r} does not match target {target}")
-    return parsed.netloc, prefix
+        storage = Storage(target=target, env_path=env_path)
+        return storage.bucket, storage.prefix
+    except StorageError as exc:
+        raise CanaryError(str(exc)) from exc
 
 
 def _select_object(
@@ -338,6 +346,7 @@ def run_canary(
     *,
     receipt_root: pathlib.Path = pathlib.Path("/var/lib/tokenkey/pgdump-canary"),
     env_path: pathlib.Path = pathlib.Path("/var/lib/tokenkey/.env"),
+    storage_config: pathlib.Path = CONFIG_PATH,
     expected_source_path: pathlib.Path | None = None,
     run: RunCommand = _default_run,
     sleep: Callable[[float], None] = time.sleep,
@@ -346,7 +355,17 @@ def run_canary(
 ) -> dict[str, Any]:
     if TARGET_RE.fullmatch(target) is None:
         raise CanaryError("target must be prod or edge:<id>")
-    bucket, prefix = _s3_location(target, env_path)
+    try:
+        storage = Storage(target=target, env_path=env_path, config_path=storage_config)
+    except StorageError as exc:
+        raise CanaryError(str(exc)) from exc
+    bucket, prefix = storage.bucket, storage.prefix
+    original_run = run
+
+    def run(args, **kwargs):
+        if args[0] == "aws":
+            args = storage.command(args[1:], encrypted=args[1:3] == ["s3", "cp"])
+        return original_run(args, **kwargs)
     if expected_source_path is not None:
         expected_source_path = expected_source_path.expanduser().resolve()
         if OBJECT_RE.fullmatch(expected_source_path.name) is None:
@@ -422,17 +441,23 @@ def run_canary(
             data_dir = temporary / "postgres-data"
             data_dir.mkdir()
             data_dir.chmod(0o777)
+            io_args = _io_limits(run, os.environ.get("TOKENKEY_PGDUMP_CANARY_IO_DEVICE", ""))
             container_creation_attempted = True
             _run(
                 run,
                 [
                     "docker", "run", "--detach", "--name", container, "--pull=never",
-                    "--network=none", "--cpus=1.00", "--memory=1024m",
-                    "--memory-swap=1536m", "--env", "POSTGRES_HOST_AUTH_METHOD=trust",
+                    "--network=none", "--cpus=0.50", "--memory=1024m",
+                    "--memory-swap=1024m", *io_args, "--env", "POSTGRES_HOST_AUTH_METHOD=trust",
                     "--env", "POSTGRES_USER=tokenkey", "--env", "POSTGRES_DB=tokenkey",
                     # postgres:18+ official images refuse a bind mount on
                     # /var/lib/postgresql/data and require one mount at the parent.
                     "--volume", f"{data_dir}:/var/lib/postgresql", image,
+                    # Only this disposable database relaxes crash durability.
+                    # The immutable source and complete SQL/count verification
+                    # remain required; avoid repeated WAL flushes on a live host.
+                    "postgres", "-c", "fsync=off", "-c", "synchronous_commit=off",
+                    "-c", "full_page_writes=off",
                 ],
             )
             _wait_temporary_postgres(run, container, sleep)
@@ -442,13 +467,15 @@ def run_canary(
                 f"docker exec -i {shlex.quote(container)} psql -U tokenkey -d tokenkey "
                 "-v ON_ERROR_STOP=1"
             )
-            _run(run, ["bash", "-o", "pipefail", "-c", pipeline], timeout=1200)
+            _run(run, ["bash", "-o", "pipefail", "-c", pipeline], timeout=3600)
             restored_counts = _counts(run, container)
             pending_receipt = {
                 "schema_version": 2,
                 "mode": "pgdump_restore_canary",
                 "target": target,
                 "source_s3_uri": source_s3_uri,
+                "source_endpoint": storage.endpoint,
+                "source_encryption": "SSE-C" if storage.sse_key is not None else "AWS-bucket-default",
                 "source_last_modified": last_modified,
                 "compressed_bytes": compressed_bytes,
                 "uncompressed_bytes": uncompressed_bytes,
@@ -557,6 +584,8 @@ def run_fresh_dump_canary(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", required=True)
+    parser.add_argument("--storage-config", type=pathlib.Path, default=CONFIG_PATH)
+    parser.add_argument("--expected-source", type=pathlib.Path)
     parser.add_argument(
         "--create-dump",
         action="store_true",
@@ -573,12 +602,17 @@ def main(argv: Iterable[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     receipt_root = pathlib.Path(args.receipt_root)
     try:
+        if args.create_dump and (args.storage_config != CONFIG_PATH or args.expected_source is not None):
+            raise CanaryError("candidate storage verification must use an existing dump")
         if args.create_dump:
             receipt = run_fresh_dump_canary(args.target, receipt_root=receipt_root)
         else:
             try:
-                receipt = run_canary(args.target, receipt_root=receipt_root)
+                receipt = run_canary(args.target, receipt_root=receipt_root,
+                                     storage_config=args.storage_config, expected_source_path=args.expected_source)
             except StaleDumpError as exc:
+                if args.storage_config != CONFIG_PATH or args.expected_source is not None:
+                    raise
                 # Hourly dumps can gap after edge IP rotation / timer drift.
                 # Prefer restoring the newest S3 object when it is fresh; otherwise
                 # self-heal by creating one dump and proving its round-trip restore

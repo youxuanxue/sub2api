@@ -22,7 +22,9 @@ func (s *GatewayService) tkTryForwardAnthropicPassthrough(
 	if account == nil {
 		return nil, false, nil
 	}
-	if account.IsAnthropicAPIKeyPassthroughEnabled() {
+	// Kiro mirrors use the same relay lifecycle regardless of the legacy
+	// passthrough toggle, so classic forwarding cannot reset/detach the budget.
+	if account.IsAnthropicAPIKeyPassthroughEnabled() || account.IsKiroMirrorStub() {
 		passthroughBody := parsed.Body.Bytes()
 		passthroughModel := parsed.Model
 		if passthroughModel != "" {

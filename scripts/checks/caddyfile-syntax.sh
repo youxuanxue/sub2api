@@ -81,10 +81,15 @@ render_template() {
 
 adapt_with_caddy() {
   local file="$1"
+  local source="$2"
+  local adapted="$file.json"
   docker run --rm \
     -v "$file:/work/Caddyfile:ro" \
     "$CADDY_IMAGE" \
-    caddy adapt --config /work/Caddyfile --adapter caddyfile >/dev/null
+    caddy adapt --config /work/Caddyfile --adapter caddyfile > "$adapted"
+  if [[ "$source" == deploy/aws/stage0/* ]]; then
+    python3 "$REPO_ROOT/scripts/checks/caddy-health-policy.py" "$adapted"
+  fi
 }
 
 failures=0
@@ -141,7 +146,7 @@ for rel in "${FILES[@]}"; do
     render_template "$src" "$rendered"
   fi
 
-  adapt_with_caddy "$rendered" &
+  adapt_with_caddy "$rendered" "$rel" &
   _adapt_pids+=($!)
   _adapt_rels+=("$rel")
 done

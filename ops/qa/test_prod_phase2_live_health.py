@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 import datetime as dt
 from pathlib import Path
@@ -14,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ops" / "qa"))
 
 import prod_phase2_live_health as live_health  # noqa: E402
+import prod_phase2_baseline as baseline  # noqa: E402
 import qa_phase2_health as health  # noqa: E402
 import verify_raw_archive_iam_contract as iam_contract  # noqa: E402
 
@@ -32,6 +36,11 @@ def _load_runtime_case():
 def _fresh_snapshot() -> tuple[dict, dt.datetime]:
     now = dt.datetime.now(dt.timezone.utc)
     snapshot, _ = _load_runtime_case()._healthy_snapshot()
+    snapshot["storage"] = {
+        "status": "ok", "runtime_contract": "independent-v1", "runtime_stopped": True,
+        "environment": {"QA_ARCHIVE_ENABLED": "true", **live_health.live_archive_coordinates()},
+        "credentials_file_present": True,
+    }
     snapshot.setdefault("qa_records", {"partition_owner": "partitioned", "hourly_cutover_active": False})
     finished = now - dt.timedelta(seconds=30)
     started = finished - dt.timedelta(seconds=30)
@@ -64,6 +73,7 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         return "\n".join(
             [
                 "PHASE2SYSTEMD " + json.dumps(snapshot["systemd"], sort_keys=True),
+                "PHASE2STORAGE " + json.dumps(snapshot["storage"], sort_keys=True),
                 "PHASE2RECEIPT " + json.dumps(snapshot["host_receipt"], sort_keys=True),
                 "PHASE2HEARTBEAT " + json.dumps(snapshot["database_heartbeat"], sort_keys=True),
                 "PHASE2ARCHIVE " + json.dumps(snapshot["archive_control"], sort_keys=True),
@@ -146,6 +156,140 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         payload = json.loads(proc.stdout)
         self.assertEqual(payload["health"]["status"], "healthy")
 
+    def test_cli_defaults_to_live_hetzner_check_without_aws_iam(self) -> None:
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "ops/qa/prod_phase2_live_health.py"),
+                "--from-probe-stdin",
+            ],
+            input=self._healthy_probe_text(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["iam_contract"], {"ok": True, "status": "skipped", "failures": []})
+
+    def test_baseline_does_not_touch_aws_without_legacy_flag(self) -> None:
+        with mock.patch.object(baseline, "_account_id", side_effect=AssertionError("AWS must be opt-in")):
+            account_id, bucket = baseline._archive_bucket_status(legacy_aws=False)
+        self.assertIsNone(account_id)
+        self.assertEqual(bucket, {"status": "skipped", "reason": "live archive is Hetzner"})
+
+    def test_live_storage_fails_on_missing_facts_aws_and_invalid_pin(self) -> None:
+        for mutation in ("missing", "aws", "credentials", "running", "label"):
+            with self.subTest(mutation=mutation):
+                snapshot, now = _fresh_snapshot()
+                storage = snapshot["storage"]
+                if mutation == "missing":
+                    del snapshot["storage"]
+                elif mutation == "aws":
+                    storage["environment"]["QA_ARCHIVE_STORAGE_ENDPOINT"] = ""
+                    storage["environment"]["QA_ARCHIVE_STORAGE_REGION"] = "us-east-1"
+                elif mutation == "credentials":
+                    storage["credentials_file_present"] = False
+                elif mutation == "running":
+                    storage["runtime_stopped"] = False
+                else:
+                    storage["runtime_contract"] = ""
+                result = live_health.evaluate_snapshot(snapshot, now=now)
+                self.assertFalse(result["storage_contract"]["ok"])
+                self.assertEqual(result["health"]["status"], "failed")
+                self.assertTrue(result["health"]["forward_reasons"])
+
+    def test_legacy_iam_failure_is_separate_from_live_health(self) -> None:
+        snapshot, now = _fresh_snapshot()
+        with (
+            mock.patch.object(iam_contract, "_account_id", return_value="123456789012"),
+            mock.patch.object(iam_contract, "resolve_app_role_arn", return_value="legacy-role"),
+            mock.patch.object(iam_contract, "evaluate", return_value={"ok": False, "failures": ["legacy drift"]}) as verify,
+        ):
+            result = live_health.evaluate_snapshot(snapshot, skip_iam=False, now=now)
+        self.assertEqual(verify.call_count, 1)
+        self.assertFalse(result["iam_contract"]["ok"])
+        self.assertEqual(result["health"]["status"], "healthy")
+
+    def test_baseline_checks_pin_and_fails_when_storage_is_unknown(self) -> None:
+        import contextlib
+        import io
+
+        for body, code in ((self._healthy_probe_text(), 0), ("", 2)):
+            with (
+                self.subTest(code=code),
+                mock.patch.object(sys, "argv", ["baseline", "--json"]),
+                mock.patch.object(baseline, "resolve_prod_instance", return_value="mi-test"),
+                mock.patch.object(baseline, "run_shell_b64", return_value=body),
+                mock.patch.object(baseline, "_account_id", side_effect=AssertionError("legacy AWS disabled")),
+                contextlib.redirect_stdout(io.StringIO()) as output,
+            ):
+                self.assertEqual(baseline.main(), code)
+                self.assertEqual(json.loads(output.getvalue())["storage_contract"]["ok"], code == 0)
+
+    @unittest.skipUnless(shutil.which("docker"), "Docker Compose CLI required")
+    def test_runtime_compose_requires_each_storage_coordinate(self) -> None:
+        env = {
+            "PATH": os.environ["PATH"], "QA_MAINTENANCE_IMAGE": "example:1.0.0",
+            "QA_MAINTENANCE_TAG": "1.0.0", "POSTGRES_PASSWORD": "synthetic-password",
+            "QA_RUNTIME_NETWORK": "synthetic-data", **live_health.live_archive_coordinates(),
+            "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE": "/run/secrets/tokenkey-qa/raw.json",
+        }
+        command = ["docker", "compose", "--env-file", os.devnull, "-f",
+                   str(ROOT / "deploy/aws/stage0/qa-runtime-compose.yml"), "config", "--format", "json"]
+        result = subprocess.run(command, env=env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        resolved = json.loads(result.stdout)["services"]["runtime"]["environment"]
+        for key, value in live_health.live_archive_coordinates().items():
+            self.assertEqual(resolved[key], value)
+        for key in (*live_health.live_archive_coordinates(), "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE"):
+            with self.subTest(missing=key):
+                missing = {name: value for name, value in env.items() if name != key}
+                failed = subprocess.run(command, env=missing, text=True, capture_output=True)
+                self.assertNotEqual(failed.returncode, 0)
+                self.assertIn(f"{key} is required", failed.stderr)
+
+    def test_storage_probe_reads_stopped_pin_and_redacts_secrets(self) -> None:
+        snapshot, _ = _fresh_snapshot()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = root / "pin.json"
+            coordinates = snapshot["storage"]["environment"]
+            facts = [{
+                "Config": {
+                    "Env": [f"{key}={value}" for key, value in coordinates.items()] + [
+                        "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE=/private/secret.json",
+                        "DATABASE_PASSWORD=do-not-print-password",
+                        "AWS_SECRET_ACCESS_KEY=do-not-print-key",
+                    ],
+                    "Labels": {"dev.tokenkey.qa-runtime": "independent-v1"},
+                },
+                "State": {"Running": False},
+            }]
+            fixture.write_text(json.dumps(facts))
+            (root / "docker").write_text(
+                '#!/bin/sh\nif [ "$1" = inspect ]; then\n'
+                '  [ "$2" = tokenkey-qa-runtime ] || exit 2\n'
+                '  cat "$TEST_PIN_FIXTURE"\nelse cat >/dev/null; fi\n'
+            )
+            (root / "systemctl").write_text("#!/bin/sh\nexit 1\n")
+            for binary in ("docker", "systemctl"):
+                (root / binary).chmod(0o755)
+            env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}",
+                   "TEST_PIN_FIXTURE": str(fixture), "QA_MAINTENANCE_RECEIPT": str(root / "absent"),
+                   "QA_BOUNDARY_RECEIPT": str(root / "absent-boundary")}
+            for missing in (False, True):
+                with self.subTest(missing=missing):
+                    if missing:
+                        fixture.unlink()
+                    result = subprocess.run(["bash", str(live_health.PROBE)], env=env, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    storage = live_health._parse_probe_output(result.stdout)["storage"]
+                    self.assertEqual(storage, {"status": "unknown", "reason": "qa_runtime_storage_unavailable"}
+                                     if missing else snapshot["storage"])
+                    for secret in ("/private/secret.json", "do-not-print-password", "do-not-print-key"):
+                        self.assertNotIn(secret, result.stdout + result.stderr)
+
     def test_cli_degraded_exit_zero(self) -> None:
         snapshot, now = _fresh_snapshot()
         snapshot["archive_control"]["terminal_failures_after_cutover"] = [
@@ -157,6 +301,7 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         probe_text = "\n".join(
             [
                 "PHASE2SYSTEMD " + json.dumps(snapshot["systemd"], sort_keys=True),
+                "PHASE2STORAGE " + json.dumps(snapshot["storage"], sort_keys=True),
                 "PHASE2RECEIPT " + json.dumps(snapshot["host_receipt"], sort_keys=True),
                 "PHASE2HEARTBEAT " + json.dumps(snapshot["database_heartbeat"], sort_keys=True),
                 "PHASE2ARCHIVE " + json.dumps(snapshot["archive_control"], sort_keys=True),
@@ -194,6 +339,7 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         probe_text = "\n".join(
             [
                 "PHASE2SYSTEMD " + json.dumps(snapshot["systemd"], sort_keys=True),
+                "PHASE2STORAGE " + json.dumps(snapshot["storage"], sort_keys=True),
                 "PHASE2RECEIPT " + json.dumps(snapshot["host_receipt"], sort_keys=True),
                 "PHASE2HEARTBEAT " + json.dumps(snapshot["database_heartbeat"], sort_keys=True),
                 "PHASE2ARCHIVE " + json.dumps(snapshot["archive_control"], sort_keys=True),

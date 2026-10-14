@@ -48,6 +48,7 @@ caddy_b64="$(b64_gzip "${STAGE0}/Caddyfile.edge")"
 prune_b64="$(b64_gzip "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh")"
 ghcr_daily_b64="$(b64_gzip "${STAGE0}/tokenkey-ghcr-prune-daily.sh")"
 pgdump_b64="$(b64_gzip "${STAGE0}/tokenkey-pgdump.sh")"
+pgdump_storage_b64="$(b64_gzip "${REPO_ROOT}/ops/stage0/pgdump_storage.py")"
 disk_metrics_b64="$(b64_gzip "${LIGHTSAIL}/tokenkey-disk-metrics-edge.sh")"
 restore_secrets_b64="$(b64_gzip "${LIGHTSAIL}/restore-edge-env-secrets.sh")"
 cat >"${OUT}.tmp" <<'LAUNCH_HEAD'
@@ -70,7 +71,6 @@ echo "HETZNER_PROD_BOOTSTRAP_START $(date -u +%FT%TZ)"
 : "${GHCR_PAT_SSM_NAME:=}"
 : "${GHCR_PULL_USER:=}"
 : "${ALLOW_SECRET_GENERATE:=false}"
-: "${AWS_ACCOUNT_ID:=}"
 : "${TOKENKEY_PGDUMP_S3_URI:=}"
 
 case "${ALLOW_SECRET_GENERATE}" in
@@ -233,6 +233,7 @@ CADDY_GZB64='${caddy_b64}'
 PRUNE_B64='${prune_b64}'
 GHCR_DAILY_B64='${ghcr_daily_b64}'
 PGDUMP_B64='${pgdump_b64}'
+PGDUMP_STORAGE_B64='${pgdump_storage_b64}'
 DISK_METRICS_B64='${disk_metrics_b64}'
 RESTORE_SECRETS_B64='${restore_secrets_b64}'
 LAUNCH_EMBED
@@ -253,6 +254,9 @@ chmod +x /usr/local/bin/tokenkey-ghcr-prune-daily.sh
 
 printf '%s' "$PGDUMP_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-pgdump.sh
 chmod +x /usr/local/bin/tokenkey-pgdump.sh
+install -d -m 0755 /usr/local/lib/tokenkey
+printf '%s' "$PGDUMP_STORAGE_B64" | base64 -d | gunzip > /usr/local/lib/tokenkey/pgdump_storage.py
+chmod 0600 /usr/local/lib/tokenkey/pgdump_storage.py
 mkdir -p /var/lib/tokenkey/pgdump
 
 printf '%s' "$DISK_METRICS_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-disk-metrics.sh
@@ -331,15 +335,8 @@ AWS_REGION="${SSM_REGION}" /usr/local/bin/tokenkey-restore-edge-env-secrets.sh \
   "${restore_secret_args[@]}"
 set -a; . "$SECRET_FILE"; set +a
 
-# Resolve pgdump S3 URI (Hybrid IAM allows prod/pgdump/* on this account bucket).
-if [ -z "${TOKENKEY_PGDUMP_S3_URI:-}" ]; then
-  if [ -z "${AWS_ACCOUNT_ID:-}" ]; then
-    AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)"
-  fi
-  if [ -n "${AWS_ACCOUNT_ID:-}" ] && [ "${AWS_ACCOUNT_ID}" != "None" ]; then
-    TOKENKEY_PGDUMP_S3_URI="s3://tokenkey-prod-pgdump-${AWS_ACCOUNT_ID}/prod/pgdump"
-  fi
-fi
+# Off-box storage is installed separately with private host-only credentials.
+# Never infer an AWS backup bucket from the SSM control-plane identity.
 
 cat > /var/lib/tokenkey/.env <<ENVEOF
 API_DOMAIN=${API_DOMAIN}

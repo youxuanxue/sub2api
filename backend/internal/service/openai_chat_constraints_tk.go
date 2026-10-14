@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
@@ -10,6 +11,7 @@ import (
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // normalizeChatProviderRequest runs at the selected Chat destination, including
@@ -28,7 +30,33 @@ func normalizeChatProviderRequest(account *Account, targetURL string, body []byt
 		!newapiintegration.IsVolcEngineAgentPlanBaseURL(newapiconstant.ChannelTypeVolcEngine, base) {
 		return body, nil
 	}
+	body = coalescePlanChatTokenLimit(body)
 	return normalizeChatToolConstraints(body)
+}
+
+// coalescePlanChatTokenLimit collapses OpenAI-style dual output limits that
+// Volc/Ali Plan reject with 400 "max_tokens and max_completion_tokens cannot
+// be set at the same time". Prefer a positive max_completion_tokens budget
+// (Chat converter priority), map it onto max_tokens, and drop
+// max_completion_tokens. Invalid or non-positive values are left untouched.
+func coalescePlanChatTokenLimit(body []byte) []byte {
+	value := gjson.GetBytes(body, "max_completion_tokens")
+	if !value.Exists() || value.Type == gjson.Null {
+		return body
+	}
+	limit, err := strconv.ParseInt(value.Raw, 10, 64)
+	if err != nil || limit <= 0 {
+		return body
+	}
+	next, err := sjson.SetRawBytes(body, "max_tokens", []byte(value.Raw))
+	if err != nil {
+		return body
+	}
+	next, err = sjson.DeleteBytes(next, "max_completion_tokens")
+	if err != nil {
+		return body
+	}
+	return next
 }
 
 func normalizeBridgeChatProviderRequest(account *Account, in bridge.ChannelContextInput, body []byte) ([]byte, error) {

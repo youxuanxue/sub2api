@@ -6,12 +6,15 @@ stub the AWS CLI so the shell wrapper can be exercised without network access.
 """
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import subprocess
 import tempfile
 import textwrap
 import unittest
+
+from first_output_timeout_ssot import EXPECTED_ENV
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "assert-live-host-state.sh"
 
@@ -24,6 +27,10 @@ class AssertLiveHostStateTransportTest(unittest.TestCase):
         calls = tmp / "aws-calls.txt"
         fake_bin = tmp / "bin"
         fake_bin.mkdir()
+        timeout_lines = "\n                ".join(
+            "ENV " + json.dumps({"key": key, "value": value})
+            for key, value in EXPECTED_ENV.items()
+        )
         (fake_bin / "aws").write_text(
             textwrap.dedent(
                 f"""\
@@ -45,10 +52,7 @@ class AssertLiveHostStateTransportTest(unittest.TestCase):
                 APPCONTAINER {{"name":"tokenkey-blue"}}
                 RUNIMAGE {{"image":"ghcr.io/youxuanxue/sub2api:1.8.40"}}
                 ENV {{"key":"SERVER_FRONTEND_URL","value":"https://api.tokenkey.dev"}}
-                ENV {{"key":"GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"30"}}
-                ENV {{"key":"GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS","value":"60"}}
-                ENV {{"key":"GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"120"}}
-                ENV {{"key":"GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"300"}}
+                {timeout_lines}
                 RETENTION {{"value":"1.5"}}
                 OUT
                     ;;

@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Prod enables generated-media S3 offload via env (MEDIA_STORAGE_*). viper
+// Explicit generated-media S3 offload uses env (MEDIA_STORAGE_*). viper
 // AutomaticEnv only binds nested keys it "knows" (via SetDefault), so this pins
 // that the env injection actually reaches cfg.MediaStorage — otherwise the
 // offload silently no-ops and video keeps streaming inline base64.

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Tests for the prod-only media-storage injection in ops/stage0/deploy_via_ssm.sh.
 
-Checks that deploy_via_ssm.sh self-heals the
-generated-media S3 offload config (MEDIA_STORAGE_DRIVER/REGION/BUCKET) onto a LIVE
-prod host on every deploy, anchored to the tokenkey-unique SERVER_FRONTEND_URL
+Checks that default deployment leaves media storage disabled and explicit
+opt-in injects MEDIA_STORAGE_DRIVER/REGION/BUCKET onto an AWS standby host,
+anchored to the tokenkey-unique SERVER_FRONTEND_URL
 compose line. Managed hcloud Edges are relay mirrors that never serve
 media generation, so the injection is gated to the prod EC2 (i-*) node. Credentials
 are never written — the prod instance role + the media bucket policy grant S3
@@ -44,8 +44,8 @@ def _media_cmds(commands: list[str]) -> list[str]:
 
 
 class MediaStorageInjectionRenderTest(unittest.TestCase):
-    def test_prod_injects_exactly_two_guarded_commands(self) -> None:
-        proc, commands = _render(_PROD_IID)
+    def test_explicit_opt_in_injects_exactly_two_guarded_commands(self) -> None:
+        proc, commands = _render(_PROD_IID, env_extra={"MEDIA_STORAGE_BUCKET": "explicit-media-bucket"})
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         media = _media_cmds(commands)
         self.assertEqual(len(media), 2, msg=f"expected 2 media cmds, got {len(media)}: {media}")
@@ -53,7 +53,7 @@ class MediaStorageInjectionRenderTest(unittest.TestCase):
         env_cmd = next(c for c in media if "/var/lib/tokenkey/.env" in c and "docker-compose" not in c)
         self.assertIn("ms_d='s3'", env_cmd)
         self.assertIn("ms_r='us-east-1'", env_cmd)
-        self.assertIn("ms_b='tokenkey-prod-media-682751977094'", env_cmd)
+        self.assertIn("ms_b='explicit-media-bucket'", env_cmd)
         # guarded + additive
         self.assertIn('grep -q "^${key}=" /var/lib/tokenkey/.env', env_cmd)
         self.assertIn("tee -a /var/lib/tokenkey/.env", env_cmd)
@@ -66,6 +66,11 @@ class MediaStorageInjectionRenderTest(unittest.TestCase):
         self.assertNotIn("/^      - TZ=/a\\", compose_cmd)
         self.assertIn("media-storage-before-1.8.99", compose_cmd)
         self.assertIn('grep -q "${key}=" "$CF"', compose_cmd)
+
+    def test_default_prod_does_not_inject_aws_media(self) -> None:
+        proc, commands = _render(_PROD_IID)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(_media_cmds(commands), [])
 
     def test_edge_gets_no_media_injection(self) -> None:
         proc, commands = _render(_EDGE_IID, env_extra={"EDGE_ID": "us2"})
@@ -87,7 +92,7 @@ class MediaStorageInjectionExecuteTest(unittest.TestCase):
     """Execute the two prod media commands against a fake host and assert results."""
 
     def _run_media_cmds_against(self, host: pathlib.Path) -> None:
-        _, commands = _render(_PROD_IID)
+        _, commands = _render(_PROD_IID, env_extra={"MEDIA_STORAGE_BUCKET": "explicit-media-bucket"})
         script = "\n".join(_media_cmds(commands))
         script = script.replace("/var/lib/tokenkey", str(host)).replace("sudo ", "")
         subprocess.run(["bash", "-e", "-c", script], check=True, capture_output=True, text=True)
@@ -110,7 +115,7 @@ class MediaStorageInjectionExecuteTest(unittest.TestCase):
         self._run_media_cmds_against(host)
 
         env_txt = (host / ".env").read_text()
-        for k, v in (("DRIVER", "s3"), ("REGION", "us-east-1"), ("BUCKET", "tokenkey-prod-media-682751977094")):
+        for k, v in (("DRIVER", "s3"), ("REGION", "us-east-1"), ("BUCKET", "explicit-media-bucket")):
             self.assertIn(f"MEDIA_STORAGE_{k}={v}\n", env_txt)
         self.assertNotIn("ACCESS_KEY", env_txt)
 

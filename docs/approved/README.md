@@ -140,6 +140,7 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | [`security-capture-and-ingress.md`](security-capture-and-ingress.md) | QA capture protection, trusted ingress and public image download boundary |
 | [`qa-redaction-identified-formats-only.md`](qa-redaction-identified-formats-only.md) | QA 脱敏已识别格式边界与性能优化 |
 | [`design-fleet-pgdump-restore-canary.md`](design-fleet-pgdump-restore-canary.md) | Fleet pgdump restore canary |
+| [`hcloud-pgdump-storage.md`](hcloud-pgdump-storage.md) | Hetzner host-only pgdump identity, encryption and cutover |
 | [`design-edge-env-secrets-recovery.md`](design-edge-env-secrets-recovery.md) | Edge env secrets recovery |
 | [`design-edge-model-family-alert.md`](design-edge-model-family-alert.md) | Edge model-family alert |
 | [`edge-bluegreen-release-safety.md`](edge-bluegreen-release-safety.md) | Edge blue/green safety |

@@ -985,7 +985,7 @@ GitHub Actions 不再用长期 AWS 凭证，**OIDC 临时换 STS** → `ssm:Send
 ### Workflow 行为
 
 - 触发：每天 02:00 UTC cron + 手动 `workflow_dispatch`。
-- 默认 operation：`diagnostics`，覆盖 prod + `deploy/aws/lightsail/edge-targets-lightsail.json` 里 `deployable=true` 的 Lightsail Edge（edges 均为 Lightsail）。
+- 默认 operation：`diagnostics`，覆盖现役 HCloud prod 与 Hetzner 矩阵中 `deployable=true` 的 Edge；现网入口见 [`deploy/hetzner/README.md`](../hetzner/README.md)。
 - 手动 target selector：`all`、`prod`、`edge:*`、`edge:<id>`；`deployable=false` 的 Edge 只进入 excluded summary。
 - 输出：每个目标上传 `prod-ops-target-<target>-<run_id>` artifact，汇总上传 `prod-ops-report-<run_id>`。
 - Issue 决策：账号容量与 provider health 异常保留在日报并由现有飞书链路告警，不创建 GitHub Issue；Caddy error-level access 粗计数仅作 report-only 证据，由 canonical daily ledger 负责可行动错误分类；其余 `issue_candidate` / `manual_ops` findings 才创建或更新 Issue，并使用 `ops-sig:*`、`target:*`、`finding:*` label 去重。开放签名追加评论，最近 7 天内已关闭的签名处于冷却期，不重新建单。
@@ -999,7 +999,7 @@ GitHub Actions 不再用长期 AWS 凭证，**OIDC 临时换 STS** → `ssm:Send
 让 **Cursor Cloud Agent** 也能查 prod/Edge 运行态信号时，**不要**复制 AWS 凭证到 Agent
 secrets——Cloud Agent 既无 AWS key 也无 GHA OIDC token，复制凭证会扩大长期密钥的攻击面，
 与 §"无长期 AWS 凭证"约束冲突。改用：让 Agent 通过 `gh workflow run` 触发**已有的**
-`ops-daily-diagnostics.yml`，再下载 artifact。AWS OIDC → SSM → EC2 链路完全不动。
+`ops-daily-diagnostics.yml`，再下载 artifact。沿用 AWS OIDC → SSM Hybrid → HCloud 链路。
 
 **配置（Cursor Dashboard → Cloud Agents → Secrets）**：
 

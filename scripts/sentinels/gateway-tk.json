@@ -3,6 +3,74 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "deploy/aws/stage0/tokenkey-pgdump.sh",
+      "must_contain": [
+        "python3 /usr/local/lib/tokenkey/pgdump_storage.py --upload",
+        "local copy kept; no AWS fallback",
+        "flock -s -w 2400 8",
+        "flock -u 8"
+      ],
+      "rationale": "The shared host dump must use explicit private Hetzner storage before the AWS standby identity; upload failures retain the local recovery point. The dump holds the QA lifecycle lease only while producing the local recovery file."
+    },
+    {
+      "path": "ops/stage0/pgdump_storage.py",
+      "must_contain": [
+        "storage configuration belongs to another target",
+        "AWS_EC2_METADATA_DISABLED=true",
+        "encrypted=True"
+      ],
+      "rationale": "Backup upload and restore share private file identities, validated target prefixes and encryption; ambient AWS roles cannot replace an explicit Hetzner identity."
+    },
+    {
+      "path": "ops/stage0/pgdump_restore_canary.py",
+      "must_contain": [
+        "args = storage.command(args[1:], encrypted=args[1:3] == [\"s3\", \"cp\"])",
+        "source_local_sha256 != artifact_sha256"
+      ],
+      "rationale": "The recovery verifier must read using the same encrypted identity and compare the real local dump with its off-box copy."
+    },
+    {
+      "path": "ops/stage0/test_pgdump_storage.py",
+      "must_contain": [
+        "test_encrypted_upload_and_read_use_private_identity_despite_ambient_aws",
+        "test_invalid_explicit_config_never_falls_back_to_valid_aws_env"
+      ],
+      "rationale": "Execute identity isolation and fail-closed configuration regressions rather than preserving only storage filenames."
+    },
+    {
+      "path": "scripts/preflight.sh",
+      "must_contain": [
+        "ops/stage0/test_pgdump_storage.py",
+        "ops/stage0/test_install_hcloud_pgdump_storage.py",
+        "ops/stage0/test_provision_hcloud_pgdump_bucket.py",
+        "ops/stage0/test_retire_dormant_media_storage.py"
+      ],
+      "rationale": "Private backup identity, guarded cutover/rollback, effective retention and safe dormant-media cleanup must remain executable preflight gates."
+    },
+    {
+      "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
+      "must_contain": [
+        "env_default MEDIA_STORAGE_DRIVER \"${MEDIA_STORAGE_DRIVER:-local}\"",
+        "env_default MEDIA_STORAGE_BUCKET \"${MEDIA_STORAGE_BUCKET:-}\""
+      ],
+      "rationale": "Normal fleet rollout must preserve explicit media opt-in and cannot resurrect the retired default AWS media bucket."
+    },
+    {
+      "path": "ops/stage0/deploy_via_ssm.sh",
+      "must_contain": [
+        "&& [ -n \"${MEDIA_STORAGE_BUCKET:-}\" ]"
+      ],
+      "rationale": "The AWS standby deployment path may inject media storage only for an explicitly selected bucket."
+    },
+    {
+      "path": "ops/stage0/test_deploy_via_ssm_media_storage.py",
+      "must_contain": [
+        "test_default_prod_does_not_inject_aws_media",
+        "test_explicit_opt_in_injects_exactly_two_guarded_commands"
+      ],
+      "rationale": "Behavioral coverage preserves dormant default retirement while retaining explicit optional S3 media compatibility."
+    },
+    {
       "path": "ops/stage0/resolve_prod_ssm_target.py",
       "must_contain": [
         "return \"hetzner\"",
@@ -38,7 +106,9 @@
     {
       "path": "scripts/preflight.sh",
       "must_contain": [
-        "ops/stage0/test_hcloud_ops_contract.py"
+        "ops/stage0/test_hcloud_ops_contract.py",
+        "ops/stage0/test_qa_backup_host_lock.py",
+        "ops/stage0/test_retire_aws_standby_timers.py"
       ],
       "rationale": "Migration routing regression tests must remain wired to preflight."
     },
@@ -2362,7 +2432,7 @@
         "streamFirstOutputHighEffort(effort)",
         "CandidateChatSwitchLimit"
       ],
-      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 30s / high-effort 60s); non-streaming defaults to 300s. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly."
+      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 120s / high-effort 600s); non-streaming defaults to 300s. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
@@ -2371,9 +2441,13 @@
         "armStreamFirstOutputGuard(base, budget)",
         "firstOutputGuard.WatchClose(resp.Body)",
         "firstOutputGuard.Commit()",
-        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)"
+        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)",
+        "armKiroWaitBudget(ctx, c, s.cfg, &req, input.StartTime)",
+        "setKiroWaitDeadlineHeader(c, req, account)",
+        "kiroPassthroughUsefulOutput(trimmed)",
+        "resp.Header.Get(KiroOutcomeHeader) == kiroWaitExhaustedOutcome"
       ],
-      "rationale": "Anthropic passthrough streaming must arm a full per-attempt first-output budget (not remaining request wall-clock), Commit on first SSE data, and Size-aware SafeToFailoverAfterWrite after any client bytes (header-wait or in-stream keepalive)."
+      "rationale": "Anthropic passthrough streaming must arm a full per-attempt first-output budget (not remaining request wall-clock), Commit on first SSE data, and Size-aware SafeToFailoverAfterWrite after any client bytes (header-wait or in-stream keepalive). Kiro mirrors use fixed shared deadlines; synthetic starts do not Commit and edge exhaustion is request scoped."
     },
     {
       "path": "backend/internal/service/openai_first_output_timeout.go",
@@ -2402,8 +2476,8 @@
     {
       "path": "backend/internal/service/stream_first_output_budget_tk.go",
       "must_contain": [
-        "defaultStreamFirstOutputTimeout           = 30 * time.Second",
-        "defaultStreamFirstOutputHighEffortTimeout = 60 * time.Second",
+        "defaultStreamFirstOutputTimeout           = 120 * time.Second",
+        "defaultStreamFirstOutputHighEffortTimeout = 600 * time.Second",
         "func resolveStreamFirstOutputTimeout(",
         "func ResolveGrokFirstByteHeaderTimeout(",
         "func armStreamFirstOutputGuard(",
@@ -2412,9 +2486,11 @@
         "func streamFirstOutputFailoverIfBudgetFired(",
         "SafeToFailoverAfterWrite: true",
         "c.Writer.Size() >= 0",
-        "Do not fall back to openai_high_effort_* here"
+        "Do not fall back to openai_high_effort_* here",
+        "defaultKiroFirstOutputTimeout",
+        "defaultKiroHighEffortFirstOutputTimeout"
       ],
-      "rationale": "Universal stream first-useful-output budget SSOT (30s / 60s high-effort, cap 60) plus Grok first-byte inherit helper. Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite via Size-aware streamFirstOutputFailoverIfBudgetFired."
+      "rationale": "Universal stream first-useful-output budget SSOT (120s / 600s high-effort, cap 600) plus Grok first-byte inherit helper. Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite via Size-aware streamFirstOutputFailoverIfBudgetFired. Kiro has independent generated defaults; reasoning never renews this shared fixed timer."
     },
     {
       "path": "backend/internal/repository/http_upstream.go",
@@ -2446,13 +2522,14 @@
     {
       "path": "backend/internal/service/kiro_gateway_service.go",
       "must_contain": [
-        "resolveStreamFirstOutputTimeout(s.cfg, kiroStreamFirstOutputHighEffort(req))",
-        "armStreamFirstOutputGuard(ctx, budget)",
-        "firstOutputGuard.WatchClose(body)",
-        "OnResponseBody:",
-        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, ctx, callerCtx)"
+        "armKiroWaitBudget(ctx, c, s.cfg, req, startTime)",
+        "kiroWaitBudgetError(c, waitGuard, ctx, callerCtx)",
+        "kiroWaitBudgetError(c, firstOutputGuard, ctx, callerCtx)",
+        "context.AfterFunc(ctx, func() { _ = body.Close() })",
+        "waitGuard.Commit()",
+        "firstOutputGuard.Commit()"
       ],
-      "rationale": "Kiro streaming must share the universal first-output SSOT, Commit only on client-visible text/tool, and WatchClose the upstream EventStream body via OnResponseBody so a budget cancel unblocks a stuck read and releases the account concurrency slot promptly."
+      "rationale": "Kiro stream and nonstream share one fixed request deadline, close canceled bodies and commit only at their own client output boundary."
     },
     {
       "path": "backend/internal/integration/kiro/client.go",
@@ -7165,7 +7242,7 @@
         "openAIImagesVerbatimReasoningEffort",
         "SUB2API_IMAGES_REASONING_EFFORT"
       ],
-      "rationale": "OAuth gpt-image perceived-quality owner: reasoning.effort default medium, with a short ASCII quoted-label bump to high. CJK quotes do not raise effort. The labeled-spec prompt scaffold must not claim resolution, and edits keep the input image framing. Dropping the file is compile-clean only if the call site below is also dropped; this anchor keeps the policy from disappearing in an upstream merge."
+      "rationale": "OAuth gpt-image perceived-quality owner: reasoning.effort defaults to medium for all prompts, including short ASCII quoted labels; explicit environment overrides take precedence. The labeled-spec prompt scaffold must not claim resolution, and edits keep the input image framing. Dropping the file is compile-clean only if the call site below is also dropped; this anchor keeps the policy from disappearing in an upstream merge."
     },
     {
       "path": "backend/internal/service/openai_images_responses.go",
@@ -7174,7 +7251,7 @@
         "prompt = applyOpenAIImagesPerceivedQualityPrompt(prompt, parsed.IsEdits())",
         "req, _ = sjson.SetBytes(req, \"reasoning.effort\", reasoningEffort)"
       ],
-      "rationale": "Responses OAuth image builder must apply the perceived-quality scaffold before style/AR and set reasoning.effort from that owner. instructions stay empty (codex2api). Removing the calls compiles if the helpers remain, but every OAuth image would silently lose the scaffold and the ASCII-label effort bump. tools[].quality stays forwarded so a soft upstream remap remains observable."
+      "rationale": "Responses OAuth image builder must apply the perceived-quality scaffold before style/AR and set reasoning.effort from that owner. instructions stay empty (codex2api). Removing the calls compiles if the helpers remain, but every OAuth image would silently lose the scaffold and the shared effort policy. tools[].quality stays forwarded so a soft upstream remap remains observable."
     },
     {
       "path": "backend/internal/service/openai_images_responses.go",
@@ -7184,6 +7261,15 @@
         "stampOpenAIImagesOAuthDispatch(result, dispatch)"
       ],
       "rationale": "OAuth Codex Responses image path must omit input_fidelity for gpt-image-2 / gpt-image-2-codex (edge-uk1 2026-10-13: 400 invalid_input_fidelity_model) and must log plus stamp the sent reasoning effort onto the forward result. Dropping either call compiles if the helper file remains, but edits with input_fidelity hard-fail again and usage_logs effort columns go back to NULL."
+    },
+    {
+      "path": "backend/internal/service/openai_images_oauth_dispatch_tk_test.go",
+      "must_contain": [
+        "func TestForwardOpenAIImagesOAuth_QuotedLabelKeepsMediumAndVerbatimScaffold(",
+        "require.Equal(t, \"medium\", *result.ReasoningEffort)",
+        "require.Equal(t, \"medium\", gjson.GetBytes(upstream.lastBody, \"reasoning.effort\").String())"
+      ],
+      "rationale": "Regression guard for withdrawing automatic high effort on quoted image prompts: validate the sent effort and usage attribution while retaining Text (verbatim). The request-builder call-site and policy owner above must keep this behavior through upstream merges."
     },
     {
       "path": "backend/internal/service/openai_images_oauth_dispatch_tk.go",
@@ -16327,13 +16413,13 @@
         "StreamFirstOutputTimeoutSeconds int `mapstructure:\"stream_first_output_timeout_seconds\"`",
         "StreamFirstOutputHighEffortTimeoutSeconds int `mapstructure:\"stream_first_output_high_effort_timeout_seconds\"`",
         "NewAPIChatNonstreamFirstOutputTimeout int `mapstructure:\"newapi_chat_nonstream_first_output_timeout\"`",
-        "viper.SetDefault(\"gateway.stream_first_output_timeout_seconds\", 30)",
-        "viper.SetDefault(\"gateway.stream_first_output_high_effort_timeout_seconds\", 60)",
+        "viper.SetDefault(\"gateway.stream_first_output_timeout_seconds\", 120)",
+        "viper.SetDefault(\"gateway.stream_first_output_high_effort_timeout_seconds\", 600)",
         "viper.SetDefault(\"gateway.newapi_chat_first_output_timeout\", 0)",
         "viper.SetDefault(\"gateway.newapi_chat_nonstream_first_output_timeout\", 300)",
         "first-output-timeout-ssot:begin",
         "first-output-timeout-ssot:end",
-        "gateway.stream_first_output_timeout_seconds must be between 0-60 seconds",
+        "gateway.stream_first_output_timeout_seconds must be between 0-600 seconds",
         "gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)",
         "viper.SetDefault(\"gateway.grok_response_header_timeout\", 0)",
         "gateway.grok_response_header_timeout must be between 0-60 seconds"
@@ -16368,7 +16454,7 @@
         "TestCandidateChatStreamVersusNonstreamBudgets",
         "TestNewAPIChatFirstOutputTimeoutResolver",
         "non-stream must not use ResponseHeaderTimeout",
-        "stream default is 3×30s"
+        "stream default is 3×120s"
       ],
       "rationale": "Focused unit tests lock stream vs nonstream first-output budgets and forbid ResponseHeaderTimeout from redefining either."
     },
@@ -16378,7 +16464,7 @@
         "GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT:-0}",
         "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}"
       ],
-      "rationale": "Stage0 compose (embedded in Lightsail user-data at the 14336-byte cap) cannot grow new STREAM_FIRST_OUTPUT_* lines. NewAPI stream override defaults to 0 so hosts inherit code SSOT 30s/60s; nonstream stays 300s. Universal env inject is owned by ops/stage0/deploy_via_ssm_bluegreen.sh + deploy/config.example.yaml + config viper defaults."
+      "rationale": "Stage0 compose (embedded in Lightsail user-data at the 14336-byte cap) cannot grow new STREAM_FIRST_OUTPUT_* lines. NewAPI stream override defaults to 0 so hosts inherit code SSOT 120s/600s; nonstream stays 300s. Universal env inject is owned by ops/stage0/deploy_via_ssm_bluegreen.sh + deploy/config.example.yaml + config viper defaults."
     },
     {
       "path": "backend/internal/service/gateway_request.go",
@@ -16669,10 +16755,12 @@
         "func normalizeChatProviderRequest(",
         "func normalizeBridgeChatProviderRequest(",
         "normalizeStrictChatDeveloperRoles(account, targetURL, body)",
+        "func coalescePlanChatTokenLimit(",
+        "body = coalescePlanChatTokenLimit(body)",
         "func normalizeChatToolConstraints(",
         "delete(root, \"functions\")"
       ],
-      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role/token-limit owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
     },
     {
       "path": "backend/internal/service/openai_chat_roles.go",
@@ -16715,11 +16803,12 @@
         "func TestChatToolConstraints_SelectionAndHistory(",
         "func TestChatToolConstraints_InvalidAndUnconstrained(",
         "func TestChatProviderConstraints_DestinationAndRetryIsolation(",
+        "func TestChatProviderConstraints_PlanTokenLimitCoalesce(",
         "func TestChatProviderConstraints_ForwardRawAndAliAdaptor(",
         "func TestChatProviderConstraints_InvalidSelectionDoesNotSend(",
         "func TestChatProviderConstraints_ResponsesFallback("
       ],
-      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role/token-limit owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
     },
     {
       "path": "backend/internal/server/routes/gateway_terminal_routes.go",
@@ -16757,6 +16846,147 @@
         "isBrokenPipe(entry.Err)"
       ],
       "rationale": "Recovered handler panics and Gin broken pipes must remain visible to the outer terminal collector on the existing Gin error chain, without changing the committed response."
+    },
+    {
+      "path": "backend/internal/service/kiro_wait_budget_tk.go",
+      "must_contain": [
+        "func getKiroWaitBudget(",
+        "func armKiroWaitBudget(",
+        "Scope:                    GatewayFailureScopeRequest,",
+        "func setKiroWaitDeadlineHeader(",
+        "func kiroPassthroughUsefulOutput(",
+        "WithHTTPUpstreamProfile(parent, HTTPUpstreamProfileKiro)"
+      ],
+      "rationale": "Single Kiro request budget owner: latch deadline once, restrict relay inheritance, preserve caller cancel and stop account retries at exhaustion."
+    },
+    {
+      "path": "ops/stage0/qa-runtime-environment.sh",
+      "must_contain": [
+        "QA_LIVE_ARCHIVE_STORAGE_DRIVER=\"s3\"",
+        "QA_LIVE_ARCHIVE_STORAGE_REGION=\"fsn1\"",
+        "QA_LIVE_ARCHIVE_STORAGE_BUCKET=\"tokenkey-qa-raw-fsn1-dd2ca9019b22\"",
+        "QA_LIVE_ARCHIVE_STORAGE_ENDPOINT=\"https://fsn1.your-objectstorage.com\"",
+        "QA_LIVE_ARCHIVE_STORAGE_PREFIX=\"raw/v1\""
+      ],
+      "rationale": "Live QA raw storage coordinates are owned here and shared with the delivered deployment script and health evaluator. Ordinary releases must not silently restore AWS raw defaults."
+    },
+    {
+      "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
+      "must_contain": [
+        "assert_live_qa_archive_coordinates() {",
+        "  assert_live_qa_archive_coordinates",
+        "[[ \"${HYBRID_PROD:-false}\" = true ]] || return 0",
+        "DELIVER_QA_ARCHIVE_REGION=\"${QA_ARCHIVE_STORAGE_REGION:-${QA_LIVE_ARCHIVE_STORAGE_REGION}}\"",
+        "env_default TELEMETRY_ARCHIVE_BUCKET \"${TELEMETRY_ARCHIVE_BUCKET:-}\"",
+        "DELIVER_TELEMETRY_BUCKET=\"${TELEMETRY_ARCHIVE_BUCKET:-}\""
+      ],
+      "must_not_contain": [
+        "tokenkey-prod-qa-raw-archive-682751977094"
+      ],
+      "rationale": "HCloud prod deploys validate existing raw coordinates before preparing a gateway; missing settings fail instead of changing buckets. Explicit EC2 standby is preserved. Disabled telemetry also has no implicit AWS storage destination."
+    },
+    {
+      "path": "deploy/aws/stage0/qa-runtime-compose.yml",
+      "must_contain": [
+        "${QA_ARCHIVE_STORAGE_DRIVER:?QA_ARCHIVE_STORAGE_DRIVER is required}",
+        "${QA_ARCHIVE_STORAGE_REGION:?QA_ARCHIVE_STORAGE_REGION is required}",
+        "${QA_ARCHIVE_STORAGE_ENDPOINT:?QA_ARCHIVE_STORAGE_ENDPOINT is required}",
+        "${QA_ARCHIVE_STORAGE_CREDENTIALS_FILE:?QA_ARCHIVE_STORAGE_CREDENTIALS_FILE is required}",
+        "${QA_ARCHIVE_STORAGE_PREFIX:?QA_ARCHIVE_STORAGE_PREFIX is required}"
+      ],
+      "rationale": "The HCloud maintenance pin consumes this shared template. Omitted storage configuration must not silently fall back to AWS credentials or endpoints."
+    },
+    {
+      "path": "ops/observability/probe-qa-phase2-live-health.sh",
+      "must_contain": [
+        "[\"docker\", \"inspect\", \"tokenkey-qa-runtime\"]",
+        "print(\"PHASE2STORAGE \"",
+        "\"credentials_file_present\": bool(env.get(\"QA_ARCHIVE_STORAGE_CREDENTIALS_FILE\", \"\").strip())"
+      ],
+      "rationale": "Archive coordinates come from the independent stopped maintenance pin, not a gateway color. Probe output must filter credential contents."
+    },
+    {
+      "path": "ops/qa/prod_phase2_live_health.py",
+      "must_contain": [
+        "def live_archive_coordinates()",
+        "ops/stage0/qa-runtime-environment.sh",
+        "storage = evaluate_storage(snapshot.get(\"storage\"))",
+        "\"qa_runtime_storage_unavailable\"",
+        "skip_iam = not args.legacy_aws"
+      ],
+      "rationale": "Live QA health validates the maintenance pin against the shared Hetzner contract, fails on missing evidence, and keeps historical AWS IAM explicit."
+    },
+    {
+      "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
+      "must_contain": [
+        "def test_live_qa_coordinates_are_hcloud_and_complete(",
+        "for override in (\"HYBRID_PROD=false\", \"DEPLOY_PROFILE=edge\")",
+        "test_telemetry_defaults_are_empty_and_explicit_storage_survives"
+      ],
+      "rationale": "Executable guard regressions cover valid HCloud coordinates, AWS drift, missing credentials and historical standby/edge isolation."
+    },
+    {
+      "path": "ops/qa/test_prod_phase2_live_health.py",
+      "must_contain": [
+        "def test_live_storage_fails_on_missing_facts_aws_and_invalid_pin(",
+        "def test_legacy_iam_failure_is_separate_from_live_health(",
+        "def test_storage_probe_reads_stopped_pin_and_redacts_secrets(",
+        "def test_runtime_compose_requires_each_storage_coordinate(",
+        "def test_baseline_checks_pin_and_fails_when_storage_is_unknown("
+      ],
+      "rationale": "Behavior tests prevent false healthy output when HCloud pin evidence is absent, secrets leaking through probe output, and template fallback to AWS."
+    },
+    {
+      "path": ".github/workflows/ops-daily-diagnostics.yml",
+      "must_contain": [
+        "prod_phase2_live_health.py --from-probe-stdin --legacy-aws --json"
+      ],
+      "rationale": "Daily diagnostics explicitly retain the historical AWS IAM audit while old objects retain recovery access; default live health uses HCloud."
+    },
+    {
+      "path": "deploy/aws/stage0/tokenkey-qa-maintenance.sh",
+      "must_contain": [
+        "with_qa_lifecycle_lock 0 run_single_owner_activation",
+        "acquire_qa_lifecycle_lock 600 || return $?",
+        "acquire_qa_lifecycle_lock \"$1\" || return $?"
+      ],
+      "rationale": "Scheduled archive waits for backup; owner activation must fail immediately on a busy host lock."
+    },
+    {
+      "path": "deploy/aws/stage0/tokenkey-qa-boundary.sh",
+      "must_contain": [
+        "QA_LIFECYCLE_LOCK_FILE",
+        "flock -w 600 9",
+        "qa_fail lifecycle_lock_busy 75"
+      ],
+      "rationale": "Boundary DDL must share the backup/archive lease and fail with a receipt before child execution."
+    },
+    {
+      "path": "ops/stage0/test_qa_backup_host_lock.py",
+      "must_contain": [
+        "test_archive_waits_for_backup_and_preserves_success_receipt",
+        "test_boundary_lock_timeout_records_failure_without_container_work",
+        "test_dump_releases_lease_before_slow_object_upload"
+      ],
+      "rationale": "Real kernel locks protect QA and dumps without holding QA behind object upload."
+    },
+    {
+      "path": "ops/stage0/retire_aws_standby_timers.py",
+      "must_contain": [
+        "instance_identity() != expected",
+        "running - {\"tokenkey-postgres\", \"tokenkey-redis\"}",
+        "command(\"systemctl\", \"disable\", \"--now\", timer)",
+        "restore(states)"
+      ],
+      "rationale": "Old-host cleanup requires exact AWS identity and idle services, touches only allowlisted timers and retains rollback state."
+    },
+    {
+      "path": "ops/stage0/test_retire_aws_standby_timers.py",
+      "must_contain": [
+        "test_hcloud_wrong_identity_running_gateway_and_busy_jobs_never_mutate",
+        "test_partial_failure_restores_original_timer_states"
+      ],
+      "rationale": "Timer retirement cannot target a live gateway and must restore original state on partial failure."
     }
   ]
 }

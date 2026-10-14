@@ -717,6 +717,21 @@ func (s *HTTPUpstreamSuite) TestOpenAIProfileDefaultsToHTTP2AndNoHeaderTimeout()
 	require.Equal(s.T(), upstreamProtocolModeOpenAIH2, entry.protocolMode)
 }
 
+func (s *HTTPUpstreamSuite) TestKiroProfileLeavesHeaderWaitToRequestBudget() {
+	s.cfg.Gateway.ResponseHeaderTimeout = 1
+	svc := s.newService()
+	entry, err := svc.getClientEntry("", 1, 1, service.HTTPUpstreamProfileKiro, false, false)
+	require.NoError(s.T(), err)
+	transport, ok := entry.client.Transport.(*http.Transport)
+	require.True(s.T(), ok)
+	require.Zero(s.T(), transport.ResponseHeaderTimeout, "generic header timer must not truncate Kiro's high tier")
+	ordinary, err := svc.getClientEntry("", 1, 1, service.HTTPUpstreamProfileDefault, false, false)
+	require.NoError(s.T(), err)
+	ordinaryTransport, ok := ordinary.client.Transport.(*http.Transport)
+	require.True(s.T(), ok)
+	require.Equal(s.T(), time.Second, ordinaryTransport.ResponseHeaderTimeout)
+}
+
 func (s *HTTPUpstreamSuite) TestLongStreamProfileUsesSharedHTTP2KeepAlive() {
 	s.cfg.Gateway = config.GatewayConfig{
 		ResponseHeaderTimeout: 600,

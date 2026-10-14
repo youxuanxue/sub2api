@@ -37,7 +37,7 @@
 #   --target prod        resolves region+instance via
 #                        ops/stage0/resolve_prod_ssm_target.py (aws i-* or
 #                        hetzner mi-* after control-plane cutover)
-#   --target edge:<id>   resolves a deployable Lightsail managed instance via
+#   --target edge:<id>   resolves the live Hetzner managed instance first via
 #                        ops/stage0/edge_ssm_execution.py and Parameter Store.
 #
 #   --timeout-seconds    30..2592000; passed to SSM and also used as the local

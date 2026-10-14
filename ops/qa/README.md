@@ -46,6 +46,17 @@ AWS 最后一次已核实写入为 `2026-10-13T09:18:49Z`，最后小时 commit 
 为 **`2026-10-21T00:00:00Z`**。这是已观测对象的到期边界，不是删桶时间：到期删除异步进行，
 之后须重新只读核查对象清单、版本及未完成上传，并确认无新写入和其他依赖，再另行审批资源退役。
 
+## QA 与备份锁冲突
+
+宿主脚本升级后，boundary、archive 与 pg_dump 共享生命周期 host.lock，排队规则和
+安装/回退见 [HCloud 运维入口](../../deploy/hetzner/README.md#qa-与备份排队旧-aws-定时任务收尾)。
+2026-10-14 曾观测到 boundary 与 pg_dump 同时启动，随后分区创建因 lock timeout 失败；
+这说明存在时间重叠，不能据此断言 pg_dump 是唯一数据库 blocker。
+
+排队超时以 `lifecycle_lock_busy` 失败并写 QA 回执，未获取锁不启动维护子容器。
+更新代码本身不修复历史回执；安装后应观察正常 timer 的成功回执、未来分区覆盖及过期分区清理，
+并继续检查当前 capture。数据库短锁超时和现有 seal/restore/DROP 门禁保持原契约。
+
 ## 持续健康检查
 
 2026-10-13 的后续只读复查确认：新 `12:00 UTC` 小时定时归档成功、恢复校验通过、缺失 blob 为 0；
@@ -58,12 +69,18 @@ pending/inflight 为 0、新完成小时已有 seal。历史警告仍保留，�
 恢复。Phase 2 的 `catchup_terminal_gaps_present` 则是已接受的旧补归档缺口，与这七个采集警告是两类事实。
 
 ```bash
-# 现行归档、分区及维护健康；旧 AWS IAM 不用于证明 Hetzner 写入健康。
-python3 ops/qa/prod_phase2_live_health.py --skip-iam --json
+# 现行归档、分区及维护健康；默认只检查 Hetzner，不访问旧 AWS IAM。
+python3 ops/qa/prod_phase2_live_health.py --json
+# 需要审计历史 AWS raw 权限时显式追加：
+python3 ops/qa/prod_phase2_live_health.py --legacy-aws --json
 bash ops/observability/probe-release-control-plane.sh
 ```
 
-检查还须只读核对实际 maintenance pin 的存储坐标、主机验收回执及 capture ledger 与批准基线。
+上述检查从独立、停止的 maintenance pin 读取存储坐标并对照
+`ops/stage0/qa-runtime-environment.sh` 的现行 Hetzner 契约；pin 缺失、坐标漂移或
+未配置凭据文件时失败。凭据字段仅报告是否配置，不输出路径或密钥。
+存储检查不执行上传或恢复；归档成功与恢复校验由维护回执和数据库记录证明。
+仍须只读核对主机验收回执及 capture ledger 与批准基线。
 新增 failure、过时快照、捕获积压、缺少 seal 或归档/恢复失败按 raw-only 契约处理，不能清除旧警告
 来获取绿灯。`scan-edge-health.sh` 默认只看 Anthropic 账号池，空直连池不能代表整个 edge 宕机；
 供应渠道状态与网关进程健康分别解释。

@@ -48,7 +48,7 @@ type KiroGatewayService struct {
 	// kiroCacheStore holds prompt-prefix fingerprints for optional cache_read
 	// billing (gateway.kiro_cache_billing.enabled). Defaults to in-process memory.
 	kiroCacheStore kiroproto.CacheFingerprintStore
-	// cfg owns universal stream first-output budgets; nil → code defaults 30s/60s.
+	// cfg owns Kiro fixed waiting budgets and pre-content keepalive.
 	cfg *config.Config
 }
 
@@ -317,6 +317,15 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	requestID, model string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
+	callerCtx := ctx
+	ctx, waitGuard, releaseBudget, err := armKiroWaitBudget(ctx, c, s.cfg, req, startTime)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseBudget()
+	b := getKiroWaitBudget(c, s.cfg, req, startTime)
+	RecordOpsFirstOutputBudget(c, account, b.budget, streamFirstOutputBudgetReason(b.high))
+
 	inputTokens, cacheReadTokens, cacheCreationTokens, cacheSessionKey, cacheBillingEnabled := s.kiroPromptUsage(ctx, account, req, payload)
 
 	var (
@@ -331,6 +340,9 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	)
 
 	callback := &kiroproto.KiroStreamCallback{
+		OnResponseBody: func(body io.ReadCloser) {
+			context.AfterFunc(ctx, func() { _ = body.Close() })
+		},
 		OnReasoningContent: func(text, signature string) {
 			if text != "" {
 				thinkingBuf += text
@@ -376,8 +388,12 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		},
 	}
 
-	if err := kiroproto.CallKiroAPIWithDoerContext(ctx, doer, kiroAcct, payload, callback); err != nil {
-		return nil, classifyAndRecordKiroForwardError(c, account, err, model)
+	callErr := kiroproto.CallKiroAPIWithDoerContext(ctx, doer, kiroAcct, payload, callback)
+	if err := kiroWaitBudgetError(c, waitGuard, ctx, callerCtx); err != nil {
+		return nil, err
+	}
+	if callErr != nil {
+		return nil, classifyAndRecordKiroForwardError(c, account, callErr, model)
 	}
 	if callbackErr != nil {
 		return nil, classifyAndRecordKiroForwardError(c, account, callbackErr, model)
@@ -406,6 +422,11 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	resp.ID = requestID
 	resp.Usage.CacheReadInputTokens = cacheReadTokens
 	resp.Usage.CacheCreationInputTokens = cacheCreationTokens
+
+	if err := kiroWaitBudgetError(c, waitGuard, ctx, callerCtx); err != nil {
+		return nil, err
+	}
+	waitGuard.Commit()
 
 	if c != nil {
 		c.Header("x-request-id", requestID)
@@ -485,11 +506,14 @@ func (s *KiroGatewayService) forwardStreaming(
 	// carries the authoritative prompt usage for billing.
 	syncKiroMessageStartFromKeepalive(c, enc)
 
-	// Universal stream first-useful-output budget (commit = client-visible text/tool).
-	budget := resolveStreamFirstOutputTimeout(s.cfg, kiroStreamFirstOutputHighEffort(req))
-	RecordOpsFirstOutputBudget(c, account, budget, streamFirstOutputBudgetReason(kiroStreamFirstOutputHighEffort(req)))
 	callerCtx := ctx
-	ctx, firstOutputGuard := armStreamFirstOutputGuard(ctx, budget)
+	ctx, firstOutputGuard, releaseBudget, err := armKiroWaitBudget(ctx, c, s.cfg, req, startTime)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseBudget()
+	b := getKiroWaitBudget(c, s.cfg, req, startTime)
+	RecordOpsFirstOutputBudget(c, account, b.budget, streamFirstOutputBudgetReason(b.high))
 
 	var (
 		mu         sync.Mutex
@@ -505,7 +529,7 @@ func (s *KiroGatewayService) forwardStreaming(
 	// Stop header-wait pings before the first client-visible write so the
 	// keepalive goroutine cannot race content frames on c.Writer.
 	writeVisibleText := func(delta string) {
-		if delta == "" {
+		if delta == "" || ctx.Err() != nil {
 			return
 		}
 		firstOutputGuard.Commit()
@@ -515,6 +539,9 @@ func (s *KiroGatewayService) forwardStreaming(
 		enc.writeTextDelta(delta)
 	}
 	writeVisibleToolUse := func(toolUse kiroproto.KiroToolUse) {
+		if ctx.Err() != nil {
+			return
+		}
 		firstOutputGuard.Commit()
 		stopPreContentStreamKeepalive(c)
 		syncKiroMessageStartFromKeepalive(c, enc)
@@ -540,7 +567,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		OnResponseBody: func(body io.ReadCloser) {
 			// Close the upstream body when the first-output budget fires so a
 			// stuck EventStream read cannot hold the account concurrency slot.
-			firstOutputGuard.WatchClose(body)
+			context.AfterFunc(ctx, func() { _ = body.Close() })
 		},
 		OnReasoningContent: func(text, signature string) {
 			mu.Lock()
@@ -620,20 +647,10 @@ func (s *KiroGatewayService) forwardStreaming(
 	mu.Lock()
 	// Keepalive may have raced message_start onto the wire during the call.
 	syncKiroMessageStartFromKeepalive(c, enc)
-	if callErr != nil || callbackErr != nil {
-		// A synthetic message_start is not useful output. Check the budget
-		// before enc.started so a thinking stall can still switch accounts
-		// after keepalive, without sending a terminal error to the client.
-		if err := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, ctx, callerCtx); err != nil {
-			mu.Unlock()
-			return nil, err
-		}
-		// A canceled caller cannot consume another account or an SSE error.
-		// In particular it is not a provider stream failure after keepalive.
-		if callerCtx != nil && callerCtx.Err() != nil {
-			mu.Unlock()
-			return nil, callerCtx.Err()
-		}
+	// Synthetic message_start and ping do not make an exhausted wait replayable.
+	if err := kiroWaitBudgetError(c, firstOutputGuard, ctx, callerCtx); err != nil {
+		mu.Unlock()
+		return nil, err
 	}
 	// If the upstream failed before producing any client-visible content,
 	// surface the error for account failover. Once response content was

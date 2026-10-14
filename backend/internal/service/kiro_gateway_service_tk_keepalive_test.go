@@ -165,7 +165,7 @@ func TestKiroStreaming_FirstTokenIgnoresThinkingOnly(t *testing.T) {
 	require.NotContains(t, rec.Body.String(), "hidden plan")
 }
 
-func TestKiroStreaming_FirstOutputTimeoutAfterKeepaliveRemainsReplayable(t *testing.T) {
+func TestKiroStreaming_FixedBudgetAfterKeepaliveStopsRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -173,16 +173,16 @@ func TestKiroStreaming_FirstOutputTimeoutAfterKeepaliveRemainsReplayable(t *test
 	reader, writer := io.Pipe()
 	t.Cleanup(func() { _ = reader.Close(); _ = writer.Close() })
 	svc := NewKiroGatewayService(&kiroStallUpstream{respBody: reader}, nil, nil)
-	svc.SetGatewayConfig(&config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1, StreamFirstOutputTimeoutSeconds: 2}})
+	svc.SetGatewayConfig(&config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1, KiroHighEffortFirstOutputTimeoutSeconds: 2}})
 	body := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}],"max_tokens":32,"stream":true}`)
 	_, err := svc.Forward(c.Request.Context(), c, newKiroAccountForTest(), &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-5", Stream: true}, time.Now())
 	var failover *UpstreamFailoverError
 	require.ErrorAs(t, err, &failover)
-	require.Equal(t, GatewayFailureReason("first_output_unavailable"), failover.Reason)
+	require.Equal(t, GatewayFailureReason("kiro_wait_budget_exhausted"), failover.Reason)
 	require.True(t, failover.SafeToFailoverAfterWrite)
 	require.Contains(t, rec.Body.String(), "event: message_start")
 	require.Contains(t, rec.Body.String(), "event: ping")
-	require.NotContains(t, rec.Body.String(), "event: error", "only a spent attempt; the next account can still serve the request")
+	require.NotContains(t, rec.Body.String(), "event: error", "the handler owns the single terminal error")
 	require.NotContains(t, rec.Body.String(), "event: message_stop")
 	require.Nil(t, boundPreContentStreamKeepalive(c))
 	events, ok := c.Get(OpsUpstreamErrorsKey)
@@ -190,16 +190,14 @@ func TestKiroStreaming_FirstOutputTimeoutAfterKeepaliveRemainsReplayable(t *test
 	require.Len(t, events.([]*OpsUpstreamErrorEvent), 1)
 	require.Equal(t, "first_output_timeout", events.([]*OpsUpstreamErrorEvent)[0].Kind)
 
-	// Reuse the real gin writer for the replacement attempt. The keepalive's
-	// message_start must remain the sole start across both accounts.
-	complete := appendKiroTerminalStop(buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"recovered answer"}`)), "END_TURN")
-	result, err := NewKiroGatewayService(&kiroFakeUpstream{body: complete}, nil, nil).Forward(
+	// A replacement account may not restart an exhausted request budget.
+	result, err := NewKiroGatewayService(&kiroFakeUpstream{}, nil, nil).Forward(
 		c.Request.Context(), c, newKiroAccountForTest(), &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-5", Stream: true}, time.Now())
-	require.NoError(t, err)
-	require.NotNil(t, result)
+	require.Nil(t, result)
+	require.ErrorAs(t, err, &failover)
+	require.False(t, failover.ShouldRetryNextAccount())
 	require.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_start"))
-	require.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_stop"))
-	require.Contains(t, rec.Body.String(), "recovered answer")
+	require.NotContains(t, rec.Body.String(), "event: message_stop")
 }
 
 type kiroCallerCancelUpstream struct{ cancel context.CancelFunc }

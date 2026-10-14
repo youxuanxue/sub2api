@@ -95,10 +95,11 @@ PYPG
 
 COMPOSE_GZB64="$(encode_gzb64 "${COMPOSE_SRC}")"
 CADDY_GZB64="$(encode_gzb64 "${CADDY_SRC}")"
-# Caddyfile grew past Standard-tier 4096 when encode became a Content-Type
-# whitelist (SSE must not be gzip-buffered). Split like qa-boundary.
-CADDY_PART1="${CADDY_GZB64:0:${SSM_STANDARD_VALUE_LIMIT}}"
-CADDY_PART2="${CADDY_GZB64:${SSM_STANDARD_VALUE_LIMIT}}"
+# Both SSM resources must stay nonempty, even when the template shrinks below
+# one Standard-tier parameter. Reassembly joins both parts before decoding.
+CADDY_SPLIT=$(( (${#CADDY_GZB64} + 1) / 2 ))
+CADDY_PART1="${CADDY_GZB64:0:CADDY_SPLIT}"
+CADDY_PART2="${CADDY_GZB64:CADDY_SPLIT}"
 CADDY_RENDER_GZB64="$(encode_gzb64 "${CADDY_RENDER_SRC}")"
 QA_BOUNDARY_GZB64="$(encode_gzb64 "${QA_BOUNDARY_SRC}")"
 QA_BOUNDARY_PART1="${QA_BOUNDARY_GZB64:0:${SSM_STANDARD_VALUE_LIMIT}}"

@@ -49,6 +49,8 @@ func TestFirstOutputBudgetReasonUsesSelectionInputs(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	require.Equal(t, "large_body", openAIFirstOutputBudgetReason(c, []byte(strings.Repeat(" ", openAIFirstOutputLargeBodyBytes)), "medium"))
 	require.Equal(t, "high_effort", openAIFirstOutputBudgetReason(c, []byte(`{}`), "xhigh"))
+	require.Equal(t, "high_effort", openAIFirstOutputBudgetReason(c, []byte(`{"model":"gpt-6-astra"}`), "medium"))
+	require.Equal(t, "high_effort", openAIFirstOutputBudgetReason(c, []byte(`{"model":"gpt-5.6-sol"}`), "medium"))
 	require.Equal(t, "default", openAIFirstOutputBudgetReason(c, []byte(`{}`), "medium"))
 }
 
