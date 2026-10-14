@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Collect prod QA Phase 2 live facts and evaluate correlated health + IAM contract."""
+"""Collect prod QA Phase 2 live facts and evaluate the Hetzner archive contract."""
 from __future__ import annotations
 
 import argparse
 import base64
 import datetime as dt
 import json
+import shlex
 import sys
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,38 @@ import verify_raw_archive_iam_contract as iam_contract  # noqa: E402
 
 PROBE = ROOT / "ops" / "observability/probe-qa-phase2-live-health.sh"
 POLICY = ROOT / "ops/qa/policy.yaml"
+
+
+def live_archive_coordinates() -> dict[str, str]:
+    """Read literal values from the same owner shipped to blue/green hosts."""
+    owner = ROOT / "ops/stage0/qa-runtime-environment.sh"
+    values = {}
+    for line in owner.read_text(encoding="utf-8").splitlines():
+        if line.startswith("QA_LIVE_ARCHIVE_STORAGE_"):
+            key, value = shlex.split(line)[0].split("=", 1)
+            values[key.replace("QA_LIVE_ARCHIVE_", "QA_ARCHIVE_", 1)] = value
+    if not values:
+        raise ValueError("live QA archive coordinates are unavailable")
+    return values
+
+
+def evaluate_storage(storage: Any) -> dict[str, Any]:
+    failures = []
+    if not isinstance(storage, dict) or storage.get("status") != "ok":
+        return {"ok": False, "failures": ["qa_runtime_storage_unavailable"]}
+    if storage.get("runtime_contract") != "independent-v1" or storage.get("runtime_stopped") is not True:
+        failures.append("qa_runtime_pin_invalid")
+    environment = storage.get("environment")
+    if not isinstance(environment, dict):
+        environment = {}
+    if environment.get("QA_ARCHIVE_ENABLED") != "true":
+        failures.append("qa_archive_disabled_or_unknown")
+    for key, expected in live_archive_coordinates().items():
+        if environment.get(key) != expected:
+            failures.append("qa_archive_coordinate_drift:" + key)
+    if storage.get("credentials_file_present") is not True:
+        failures.append("qa_archive_credentials_file_missing")
+    return {"ok": not failures, "failures": failures}
 
 
 def _partition_owner(qa_records: dict[str, Any]) -> str | None:
@@ -60,7 +93,9 @@ def _parse_probe_output(text: str) -> dict[str, Any]:
         if not line:
             continue
         prefix, _, payload = line.partition(" ")
-        if prefix == "PHASE2SYSTEMD":
+        if prefix == "PHASE2STORAGE":
+            snapshot["storage"] = json.loads(payload)
+        elif prefix == "PHASE2SYSTEMD":
             snapshot["systemd"] = json.loads(payload)
         elif prefix == "PHASE2RECEIPT":
             snapshot["host_receipt"] = None if payload == "null" else json.loads(payload)
@@ -87,11 +122,16 @@ def _parse_probe_output(text: str) -> dict[str, Any]:
 def evaluate_snapshot(
     snapshot: dict[str, Any],
     *,
-    skip_iam: bool = False,
+    skip_iam: bool = True,
     now: dt.datetime | None = None,
 ) -> dict[str, Any]:
     catchup_gap_policy = _load_catchup_gap_policy()
     health = qa_phase2_health.evaluate(snapshot, now=now, catchup_gap_policy=catchup_gap_policy)
+    storage = evaluate_storage(snapshot.get("storage"))
+    if not storage["ok"]:
+        health["reasons"] = sorted(set([*health.get("reasons", []), *storage["failures"]]))
+        health["forward_reasons"] = sorted(set([*health.get("forward_reasons", []), *storage["failures"]]))
+        health.update(status="failed", healthy=False)
     warnings: list[str] = []
     qa_records = snapshot.get("qa_records")
     if isinstance(qa_records, dict):
@@ -120,13 +160,9 @@ def evaluate_snapshot(
             )
         except RuntimeError as exc:
             iam = {"ok": False, "status": "unknown", "failures": [str(exc)]}
-        if not iam.get("ok"):
-            health.setdefault("reasons", []).append("raw_archive_iam_contract_drift")
-            health["reasons"] = sorted(set(health["reasons"]))
-            health["status"] = "failed"
-            health["healthy"] = False
     return {
         "health": health,
+        "storage_contract": storage,
         "iam_contract": iam,
         "warnings": warnings,
         "catchup_gap_policy": catchup_gap_policy,
@@ -142,16 +178,30 @@ def main() -> int:
         action="store_true",
         help="read probe-qa-phase2-live-health.sh stdout from stdin",
     )
-    parser.add_argument("--skip-iam", action="store_true", help="skip live IAM contract verification")
+    iam_mode = parser.add_mutually_exclusive_group()
+    iam_mode.add_argument(
+        "--legacy-aws",
+        dest="legacy_aws",
+        action="store_true",
+        help="also verify the historical AWS raw archive IAM contract",
+    )
+    iam_mode.add_argument(
+        "--skip-iam",
+        action="store_true",
+        help="deprecated compatibility alias; live checks already skip AWS IAM",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+    skip_iam = not args.legacy_aws
+    if args.skip_iam:
+        skip_iam = True
 
     if args.snapshot_file is not None:
         snapshot = json.loads(args.snapshot_file.read_text(encoding="utf-8"))
-        payload = evaluate_snapshot(snapshot, skip_iam=args.skip_iam)
+        payload = evaluate_snapshot(snapshot, skip_iam=skip_iam)
     elif args.from_probe_stdin:
         snapshot = _parse_probe_output(sys.stdin.read())
-        payload = evaluate_snapshot(snapshot, skip_iam=args.skip_iam)
+        payload = evaluate_snapshot(snapshot, skip_iam=skip_iam)
     else:
         probe_script = PROBE.read_text(encoding="utf-8")
         instance_id = resolve_prod_instance()
@@ -164,11 +214,11 @@ def main() -> int:
         payload = {
             "region": ssm_execution.PROD_REGION,
             "instance_id": instance_id,
-            **evaluate_snapshot(snapshot, skip_iam=args.skip_iam),
+            **evaluate_snapshot(snapshot, skip_iam=skip_iam),
         }
     print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
     health_status = payload["health"].get("status", "failed")
-    if not args.skip_iam and not payload.get("iam_contract", {}).get("ok", False):
+    if not skip_iam and not payload.get("iam_contract", {}).get("ok", False):
         return 2
     accepted_terminal_only = (
         health_status == "degraded"

@@ -38,6 +38,9 @@ prod:
       - host_receipt
       - database_heartbeat
       - archive_control_rows
+    live_archive_provider: hetzner_object_storage
+    live_archive_coordinates_owner: ops/stage0/qa-runtime-environment.sh
+    legacy_aws_iam_check: explicit --legacy-aws
   tokenkey_qa_boundary:
     repository_closeout_state: pre_activation_fixed_age_transition
     observed_live_state: single_owner_not_activated

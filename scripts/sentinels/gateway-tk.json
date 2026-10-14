@@ -16845,6 +16845,87 @@
         "WithHTTPUpstreamProfile(parent, HTTPUpstreamProfileKiro)"
       ],
       "rationale": "Single Kiro request budget owner: latch deadline once, restrict relay inheritance, preserve caller cancel and stop account retries at exhaustion."
+    },
+    {
+      "path": "ops/stage0/qa-runtime-environment.sh",
+      "must_contain": [
+        "QA_LIVE_ARCHIVE_STORAGE_DRIVER=\"s3\"",
+        "QA_LIVE_ARCHIVE_STORAGE_REGION=\"fsn1\"",
+        "QA_LIVE_ARCHIVE_STORAGE_BUCKET=\"tokenkey-qa-raw-fsn1-dd2ca9019b22\"",
+        "QA_LIVE_ARCHIVE_STORAGE_ENDPOINT=\"https://fsn1.your-objectstorage.com\"",
+        "QA_LIVE_ARCHIVE_STORAGE_PREFIX=\"raw/v1\""
+      ],
+      "rationale": "Live QA raw storage coordinates are owned here and shared with the delivered deployment script and health evaluator. Ordinary releases must not silently restore AWS raw defaults."
+    },
+    {
+      "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
+      "must_contain": [
+        "assert_live_qa_archive_coordinates() {",
+        "  assert_live_qa_archive_coordinates",
+        "[[ \"${HYBRID_PROD:-false}\" = true ]] || return 0",
+        "DELIVER_QA_ARCHIVE_REGION=\"${QA_ARCHIVE_STORAGE_REGION:-${QA_LIVE_ARCHIVE_STORAGE_REGION}}\""
+      ],
+      "must_not_contain": [
+        "tokenkey-prod-qa-raw-archive-682751977094"
+      ],
+      "rationale": "HCloud prod deploys validate existing raw coordinates before preparing a gateway; missing settings fail instead of changing buckets. Explicit EC2 standby is preserved."
+    },
+    {
+      "path": "deploy/aws/stage0/qa-runtime-compose.yml",
+      "must_contain": [
+        "${QA_ARCHIVE_STORAGE_DRIVER:?QA_ARCHIVE_STORAGE_DRIVER is required}",
+        "${QA_ARCHIVE_STORAGE_REGION:?QA_ARCHIVE_STORAGE_REGION is required}",
+        "${QA_ARCHIVE_STORAGE_ENDPOINT:?QA_ARCHIVE_STORAGE_ENDPOINT is required}",
+        "${QA_ARCHIVE_STORAGE_CREDENTIALS_FILE:?QA_ARCHIVE_STORAGE_CREDENTIALS_FILE is required}",
+        "${QA_ARCHIVE_STORAGE_PREFIX:?QA_ARCHIVE_STORAGE_PREFIX is required}"
+      ],
+      "rationale": "The HCloud maintenance pin consumes this shared template. Omitted storage configuration must not silently fall back to AWS credentials or endpoints."
+    },
+    {
+      "path": "ops/observability/probe-qa-phase2-live-health.sh",
+      "must_contain": [
+        "[\"docker\", \"inspect\", \"tokenkey-qa-runtime\"]",
+        "print(\"PHASE2STORAGE \"",
+        "\"credentials_file_present\": bool(env.get(\"QA_ARCHIVE_STORAGE_CREDENTIALS_FILE\", \"\").strip())"
+      ],
+      "rationale": "Archive coordinates come from the independent stopped maintenance pin, not a gateway color. Probe output must filter credential contents."
+    },
+    {
+      "path": "ops/qa/prod_phase2_live_health.py",
+      "must_contain": [
+        "def live_archive_coordinates()",
+        "ops/stage0/qa-runtime-environment.sh",
+        "storage = evaluate_storage(snapshot.get(\"storage\"))",
+        "\"qa_runtime_storage_unavailable\"",
+        "skip_iam = not args.legacy_aws"
+      ],
+      "rationale": "Live QA health validates the maintenance pin against the shared Hetzner contract, fails on missing evidence, and keeps historical AWS IAM explicit."
+    },
+    {
+      "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
+      "must_contain": [
+        "def test_live_qa_coordinates_are_hcloud_and_complete(",
+        "for override in (\"HYBRID_PROD=false\", \"DEPLOY_PROFILE=edge\")"
+      ],
+      "rationale": "Executable guard regressions cover valid HCloud coordinates, AWS drift, missing credentials and historical standby/edge isolation."
+    },
+    {
+      "path": "ops/qa/test_prod_phase2_live_health.py",
+      "must_contain": [
+        "def test_live_storage_fails_on_missing_facts_aws_and_invalid_pin(",
+        "def test_legacy_iam_failure_is_separate_from_live_health(",
+        "def test_storage_probe_reads_stopped_pin_and_redacts_secrets(",
+        "def test_runtime_compose_requires_each_storage_coordinate(",
+        "def test_baseline_checks_pin_and_fails_when_storage_is_unknown("
+      ],
+      "rationale": "Behavior tests prevent false healthy output when HCloud pin evidence is absent, secrets leaking through probe output, and template fallback to AWS."
+    },
+    {
+      "path": ".github/workflows/ops-daily-diagnostics.yml",
+      "must_contain": [
+        "prod_phase2_live_health.py --from-probe-stdin --legacy-aws --json"
+      ],
+      "rationale": "Daily diagnostics explicitly retain the historical AWS IAM audit while old objects retain recovery access; default live health uses HCloud."
     }
   ]
 }

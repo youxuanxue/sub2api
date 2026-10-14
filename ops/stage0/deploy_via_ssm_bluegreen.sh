@@ -293,6 +293,29 @@ assert_qa_provider_unchanged() {
   done
 }
 
+assert_live_qa_archive_coordinates() {
+  [[ "${DEPLOY_PROFILE}" = prod ]] || return 0
+  # EC2 standby keeps its explicit historical recovery configuration.
+  [[ "${HYBRID_PROD:-false}" = true ]] || return 0
+  [[ "$(env_get QA_ARCHIVE_ENABLED)" = true ]] || return 0
+
+  local key expected actual
+  for key in \
+    QA_ARCHIVE_STORAGE_DRIVER \
+    QA_ARCHIVE_STORAGE_REGION \
+    QA_ARCHIVE_STORAGE_BUCKET \
+    QA_ARCHIVE_STORAGE_ENDPOINT \
+    QA_ARCHIVE_STORAGE_PREFIX; do
+    expected="${key/QA_ARCHIVE_/QA_LIVE_ARCHIVE_}"
+    expected="${!expected}"
+    actual="$(env_get "${key}")"
+    [[ -n "${actual}" ]] || die "missing live QA archive coordinate: ${key}"
+    [[ "${actual}" = "${expected}" ]] || die "live QA archive coordinate differs from Hetzner contract: ${key}"
+  done
+  [[ -n "$(env_get QA_ARCHIVE_STORAGE_CREDENTIALS_FILE)" ]] ||
+    die "missing live QA archive credential file: QA_ARCHIVE_STORAGE_CREDENTIALS_FILE"
+}
+
 ensure_profile_environment() {
   [[ -f "${ENV_FILE}" ]] || die "missing ${ENV_FILE}; is this a Stage0 host?"
   assert_qa_provider_unchanged
@@ -328,10 +351,7 @@ ensure_profile_environment() {
   # Target: ops/qa/policy.yaml prod.archive.enabled. Rollout gate default true
   # after Phase 2 recovery closeout: ops/qa/deploy_rollout.yaml (SSOT).
   env_default QA_ARCHIVE_ENABLED "${QA_ARCHIVE_ENABLED:-true}"
-  env_default QA_ARCHIVE_STORAGE_DRIVER "${QA_ARCHIVE_STORAGE_DRIVER:-s3}"
-  env_default QA_ARCHIVE_STORAGE_REGION "${QA_ARCHIVE_STORAGE_REGION:-us-east-1}"
-  env_default QA_ARCHIVE_STORAGE_BUCKET "${QA_ARCHIVE_STORAGE_BUCKET:-tokenkey-prod-qa-raw-archive-682751977094}"
-  env_default QA_ARCHIVE_STORAGE_PREFIX "${QA_ARCHIVE_STORAGE_PREFIX:-raw/v1}"
+  assert_live_qa_archive_coordinates
 
   env_default TELEMETRY_ARCHIVE_ENABLED false
   env_default TELEMETRY_ARCHIVE_REGION "${TELEMETRY_ARCHIVE_REGION:-us-east-1}"
@@ -1352,10 +1372,10 @@ chunks_json="$(printf '%s' "${REMOTE_B64}" | fold -w 1000 | jq -R -s 'split("\n"
 
 if [[ "${DEPLOY_PROFILE}" = prod ]]; then
   DELIVER_QA_ARCHIVE_ENABLED="${QA_ARCHIVE_ENABLED:-true}"
-  DELIVER_QA_ARCHIVE_DRIVER="${QA_ARCHIVE_STORAGE_DRIVER:-s3}"
-  DELIVER_QA_ARCHIVE_REGION="${QA_ARCHIVE_STORAGE_REGION:-us-east-1}"
-  DELIVER_QA_ARCHIVE_BUCKET="${QA_ARCHIVE_STORAGE_BUCKET:-tokenkey-prod-qa-raw-archive-682751977094}"
-  DELIVER_QA_ARCHIVE_PREFIX="${QA_ARCHIVE_STORAGE_PREFIX:-raw/v1}"
+  DELIVER_QA_ARCHIVE_DRIVER="${QA_ARCHIVE_STORAGE_DRIVER:-${QA_LIVE_ARCHIVE_STORAGE_DRIVER}}"
+  DELIVER_QA_ARCHIVE_REGION="${QA_ARCHIVE_STORAGE_REGION:-${QA_LIVE_ARCHIVE_STORAGE_REGION}}"
+  DELIVER_QA_ARCHIVE_BUCKET="${QA_ARCHIVE_STORAGE_BUCKET:-${QA_LIVE_ARCHIVE_STORAGE_BUCKET}}"
+  DELIVER_QA_ARCHIVE_PREFIX="${QA_ARCHIVE_STORAGE_PREFIX:-${QA_LIVE_ARCHIVE_STORAGE_PREFIX}}"
   DELIVER_TELEMETRY_REGION="${TELEMETRY_ARCHIVE_REGION:-us-east-1}"
   DELIVER_TELEMETRY_BUCKET="${TELEMETRY_ARCHIVE_BUCKET:-tokenkey-prod-archive-682751977094}"
   DELIVER_TELEMETRY_PREFIX="${TELEMETRY_ARCHIVE_PREFIX:-prod/raw-telemetry}"
