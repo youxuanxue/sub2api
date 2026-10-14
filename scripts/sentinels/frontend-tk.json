@@ -2460,9 +2460,10 @@
         "export function getPublicPlatformLabel(",
         "export function getPublicPlatformStyleKey(",
         "export function normalizePlatformDashboardStats(",
-        "export function normalizePlatformUsage("
+        "export function normalizePlatformUsage(",
+        "return PUBLIC_PLATFORM_LABELS[canonical] ?? platformDisplayName(canonical)"
       ],
-      "rationale": "Single frontend compatibility owner for the public platform taxonomy. Customer and business usage views must merge internal Gemini and Antigravity routing sources into Google; losing this module can restore source-specific labels during a staggered backend/frontend rollout even while all pages compile."
+      "rationale": "Single frontend compatibility owner for the public platform taxonomy. Customer and business usage views must merge internal Gemini and Antigravity routing sources into Google; losing this module can restore source-specific labels during a staggered backend/frontend rollout even while all pages compile. Registered provider labels fall back to the shared platform catalog so TypeSafe / Jev and other names are not reduced to raw IDs."
     },
     {
       "path": "frontend/src/components/user/PlatformUsageCards.vue",

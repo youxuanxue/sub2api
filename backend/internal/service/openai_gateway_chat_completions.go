@@ -445,7 +445,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 			return s.forwardAsRawChatCompletionsWithStartTime(ctx, c, account, body, defaultMappedModel, startTime)
 		}
 		responsesMode, _ := account.Extra[openai_compat.ExtraKeyResponsesMode].(string)
-		if account.IsOpenAIApiKey() &&
+		if !protocolExecutionBound(ctx) && account.IsOpenAIApiKey() &&
 			openai_compat.NormalizeResponsesSupportMode(responsesMode) == openai_compat.ResponsesSupportModeAuto &&
 			openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportYes &&
 			!isResponsesShape &&

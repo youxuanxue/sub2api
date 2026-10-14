@@ -186,18 +186,20 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 	// 上游协议统一由 resolveUpstreamProtocol 判定（按模型分流时带上游模型目录）。OpenAI API Key 账号只会落到
 	// Responses / Chat Completions，上面的归一化对两条路径都生效。
-	routingModel := upstreamRoutingModel(account, body, "")
-	if account.IsOpenCodeGo() && IsOpenCodeUnsupportedModel(routingModel) {
-		return nil, writeOpenCodeUnsupportedModelError(c, false, routingModel)
-	}
-	switch s.resolveUpstreamProtocolFor(ctx, account, APIProtocolResponses, routingModel) {
-	case APIProtocolAnthropic:
-		// Responses 客户端 × Anthropic 上游：转成 Anthropic 请求走原生端点。不能落到
-		// raw-CC 分支——其 URL 构造会把 anthropic base 当 CC base 用。
-		// 账号映射未命中时以去除首尾空白的请求模型兜底，计费名与上游模型名一致。
-		return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, reqModel)
-	case APIProtocolChatCompletions:
-		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body, startTime)
+	if !protocolExecutionBound(ctx) {
+		routingModel := upstreamRoutingModel(account, body, "")
+		if account.IsOpenCodeGo() && IsOpenCodeUnsupportedModel(routingModel) {
+			return nil, writeOpenCodeUnsupportedModelError(c, false, routingModel)
+		}
+		switch s.resolveUpstreamProtocolFor(ctx, account, APIProtocolResponses, routingModel) {
+		case APIProtocolAnthropic:
+			// Responses 客户端 × Anthropic 上游：转成 Anthropic 请求走原生端点。不能落到
+			// raw-CC 分支——其 URL 构造会把 anthropic base 当 CC base 用。
+			// 账号映射未命中时以去除首尾空白的请求模型兜底，计费名与上游模型名一致。
+			return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, reqModel)
+		case APIProtocolChatCompletions:
+			return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body, startTime)
+		}
 	}
 	SetActualOpenAIUpstreamEndpoint(c, openAIResponsesUpstreamEndpoint)
 	if account.IsOpenAI() && (account.IsOpenAIApiKey() || account.IsOpenAIOAuthLike()) {

@@ -45,7 +45,7 @@ func (s *OpenAIGatewayService) tkTryRouteOpenAIForwardProtocol(
 	// CN 供应商 anthropic 协议账号：/v1/responses 入站是交叉协议组合
 	// （Responses 客户端 × Anthropic 上游），转成 Anthropic 请求走原生端点。
 	// 不能落到下面的 raw-CC 分支——其 URL 构造会把 anthropic base 当 CC base 用。
-	if account.IsAnthropicProtocol() {
+	if !protocolExecutionBound(ctx) && account.IsAnthropicProtocol() {
 		result, err = s.forwardResponsesViaNativeAnthropic(ctx, c, account, outBody, reqModel)
 		return result, outBody, true, err
 	}
@@ -63,7 +63,7 @@ func (s *OpenAIGatewayService) tkTryRouteOpenAIForwardProtocol(
 		}
 	}
 
-	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+	if !protocolExecutionBound(ctx) && shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		result, err = s.forwardResponsesViaRawChatCompletions(ctx, c, account, outBody, startTime)
 		return result, outBody, true, err
 	}

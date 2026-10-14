@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type protocolDispatchHTTPUpstream struct {
@@ -196,4 +197,81 @@ func TestTkTryRouteOpenAIForwardProtocol_UnsupportedPlannedTargetErrors(t *testi
 	require.Nil(t, result)
 	require.Error(t, routeErr)
 	require.Contains(t, routeErr.Error(), "unsupported selected protocol target")
+}
+
+func TestForwardPreservesSelectedResponsesPlanOverProviderRules(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	account := &Account{
+		ID: 903, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "test-key", "base_url": "https://provider.example",
+			"model_mapping": map[string]any{"deepseek-v4": "deepseek-v4"},
+		},
+		Extra: map[string]any{
+			"openai_responses_supported": false,
+		},
+	}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolResponses)
+	body := []byte(`{"model":"deepseek-v4","input":"hi","stream":false}`)
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses, RequestedModel: "deepseek-v4",
+		Body: body,
+	})
+	require.NoError(t, err)
+	snapshot, err := protocolAccountSnapshotForRequest(account, request)
+	require.NoError(t, err)
+	plan, err := NewProtocolRouter().Plan(request, snapshot)
+	require.NoError(t, err)
+	require.Equal(t, protocolrouter.ProtocolResponses, plan.TargetProtocol())
+	require.Equal(t, APIProtocolChatCompletions, resolveUpstreamProtocol(account, APIProtocolResponses, "deepseek-v4", nil))
+
+	upstream := &protocolDispatchHTTPUpstream{}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	result, err := svc.Forward(withProtocolExecutionPlan(context.Background(), plan), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "/v1/responses", upstream.requests[0].URL.Path,
+		"provider defaults must not replace the scheduler's immutable protocol plan")
+	sentBody, err := io.ReadAll(upstream.requests[0].Body)
+	require.NoError(t, err)
+	require.False(t, gjson.GetBytes(sentBody, "messages").Exists(), "Responses endpoint must not receive a Chat body")
+	require.Equal(t, "hi", gjson.GetBytes(sentBody, "input").String())
+}
+
+func TestChatResponsesRejectionDoesNotReplaceSelectedPlan(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	account := structuredInputRetryTestAccount()
+	account.Credentials["model_mapping"] = map[string]any{"gpt-5.4": "gpt-5.4"}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolResponses)
+	body := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathRoot, "gpt-5.4", false, body)
+	require.NoError(t, err)
+	snapshot, err := protocolAccountSnapshotForRequest(account, request)
+	require.NoError(t, err)
+	plan, err := NewProtocolRouter().Plan(request, snapshot)
+	require.NoError(t, err)
+	require.Equal(t, protocolrouter.ProtocolResponses, plan.TargetProtocol())
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"invalid_type","param":"input","message":"Expected a string for input, but got an array instead."}}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"chatcmpl_1","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)),
+		},
+	}}
+	svc := &OpenAIGatewayService{cfg: structuredInputRetryTestConfig(), httpUpstream: upstream}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	_, err = svc.ForwardAsChatCompletions(withProtocolExecutionPlan(context.Background(), plan), c, account, body, "", "")
+	require.Len(t, upstream.requests, 1, "an error must not send to an unplanned, unverified endpoint")
+	require.Error(t, err)
+	require.Equal(t, "/v1/responses", upstream.requests[0].URL.Path)
 }
