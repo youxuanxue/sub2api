@@ -41,8 +41,17 @@ func (r *settingRepository) SetContentModerationConfig(ctx context.Context, valu
 		return err
 	}
 	if tx != nil {
-		return tx.Commit()
+		if err := tx.Commit(); err != nil {
+			return err
+		}
 	}
+	// TK 设置缓存（5s TTL）：直写路径提交后失效，避免读到旧的审核配置。
+	r.mu.Lock()
+	if r.cache != nil {
+		delete(r.cache, service.SettingKeyContentModerationConfig)
+	}
+	r.allCached = false
+	r.mu.Unlock()
 	return nil
 }
 
@@ -63,6 +72,14 @@ func NewSettingRepository(client *ent.Client) service.SettingRepository {
 	}
 }
 
+// ensureCache 懒初始化缓存 map：部分测试直接以 &settingRepository{client: ...}
+// 构造（绕过 NewSettingRepository），写 nil map 会 panic。调用方须持有写锁。
+func (r *settingRepository) ensureCache() {
+	if r.cache == nil {
+		r.cache = make(map[string]settingCacheEntry)
+	}
+}
+
 func (r *settingRepository) Get(ctx context.Context, key string) (*service.Setting, error) {
 	now := time.Now()
 	r.mu.RLock()
@@ -80,6 +97,7 @@ func (r *settingRepository) Get(ctx context.Context, key string) (*service.Setti
 	if err != nil {
 		if ent.IsNotFound(err) {
 			r.mu.Lock()
+			r.ensureCache()
 			r.cache[key] = settingCacheEntry{setting: nil, expires: time.Now().Add(r.ttl)}
 			r.mu.Unlock()
 			return nil, service.ErrSettingNotFound
@@ -93,6 +111,7 @@ func (r *settingRepository) Get(ctx context.Context, key string) (*service.Setti
 		UpdatedAt: m.UpdatedAt,
 	}
 	r.mu.Lock()
+	r.ensureCache()
 	r.cache[key] = settingCacheEntry{setting: val, expires: time.Now().Add(r.ttl)}
 	r.mu.Unlock()
 
@@ -123,6 +142,7 @@ func (r *settingRepository) Set(ctx context.Context, key, value string) error {
 	}
 
 	r.mu.Lock()
+	r.ensureCache()
 	r.cache[key] = settingCacheEntry{
 		setting: &service.Setting{Key: key, Value: value, UpdatedAt: now},
 		expires: now.Add(r.ttl),
@@ -162,6 +182,7 @@ func (r *settingRepository) GetMultiple(ctx context.Context, keys []string) (map
 	}
 
 	r.mu.Lock()
+	r.ensureCache()
 	now = time.Now()
 	found := make(map[string]bool, len(settings))
 	for _, s := range settings {
@@ -205,6 +226,7 @@ func (r *settingRepository) SetMultiple(ctx context.Context, settings map[string
 	}
 
 	r.mu.Lock()
+	r.ensureCache()
 	for key, value := range settings {
 		r.cache[key] = settingCacheEntry{
 			setting: &service.Setting{Key: key, Value: value, UpdatedAt: now},
