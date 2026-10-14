@@ -160,6 +160,8 @@ func TestFormatAlertTime(t *testing.T) {
 func TestSiteFromFrontendURL(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
+		"https://api-cn.tokenkey.dev":       "cn-prod",
+		"https://API-CN.tokenkey.dev/":      "cn-prod",
 		"https://api.tokenkey.dev":          "prod",
 		"https://api-us1.tokenkey.dev":      "edge-us1",
 		"https://api-uk1.tokenkey.dev/":     "edge-uk1",
@@ -174,6 +176,7 @@ func TestSiteFromFrontendURL(t *testing.T) {
 
 func TestIsEdgeFrontendURL(t *testing.T) {
 	t.Parallel()
+	require.False(t, IsEdgeFrontendURL("https://api-cn.tokenkey.dev"))
 	require.True(t, IsEdgeFrontendURL("https://api-us3.tokenkey.dev"))
 	require.False(t, IsEdgeFrontendURL("https://api.tokenkey.dev"))
 	require.False(t, IsEdgeFrontendURL(""))

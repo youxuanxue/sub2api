@@ -1,0 +1,30 @@
+# Merge with ../aws/stage0/docker-compose.yml. Supply immutable local image tags
+# only after verifying the source manifest and archive checksums.
+services:
+  tokenkey:
+    pull_policy: never
+    environment:
+      QA_CAPTURE_ENABLED: "false"
+      TELEMETRY_ARCHIVE_ENABLED: "false"
+      GOMEMLIMIT: "768MiB"
+      DATABASE_MAX_OPEN_CONNS: "20"
+      DATABASE_MAX_IDLE_CONNS: "5"
+      REDIS_POOL_SIZE: "32"
+      REDIS_MIN_IDLE_CONNS: "2"
+    logging:
+      options:
+        max-size: "20m"
+        max-file: "3"
+  caddy:
+    image: ${CADDY_IMAGE:?Pinned CADDY_IMAGE is required}
+    pull_policy: never
+    logging:
+      options:
+        max-size: "20m"
+        max-file: "3"
+  postgres:
+    image: ${POSTGRES_IMAGE:?Pinned POSTGRES_IMAGE is required}
+    pull_policy: never
+  redis:
+    image: ${REDIS_IMAGE:?Pinned REDIS_IMAGE is required}
+    pull_policy: never

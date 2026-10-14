@@ -1,0 +1,366 @@
+{
+  "metadata": {
+    "run_id": "cn-prod-kimik3-20261014T124657Z",
+    "api_key_id": 3,
+    "group_id": 2,
+    "routing_mode": "direct",
+    "base_url": "https://api-cn.tokenkey.dev",
+    "model": "kimi-k3",
+    "output_dir": "/tmp/cn-prod-kimik3-20261014T124657Z",
+    "max_output_tokens": 2048,
+    "thinking": "provider_default"
+  },
+  "start_utc": "2026-10-14T12:47:14.102947+00:00",
+  "end_utc": "2026-10-14T13:03:06.551943+00:00",
+  "measured_requests": 76,
+  "measured_successes": 76,
+  "formal_requests": 84,
+  "formal_successes": 84,
+  "attributed_formal_requests": 84,
+  "formal_actual_cost_usd": 1.1516315823,
+  "formal_list_cost_usd": 3.8387719404,
+  "all_key_actual_cost_usd": 1.1574569554,
+  "key_state": [
+    {
+      "key_id": 3,
+      "key_status": "inactive",
+      "routing_mode": "direct",
+      "expires_at": "2026-10-15T20:46:55.196134+08:00",
+      "quota_used": 1.15745694
+    }
+  ],
+  "gateway_image": "tokenkey-domestic/tokenkey:af85a7c219ae",
+  "gateway_revision": "3d8fba3d2c46f1a6af1593b06e7be43a492ddc82",
+  "cleanup_verification": {
+    "api_key_id": 3,
+    "database_status": "inactive",
+    "auth_http_status": 401,
+    "disabled_verified": true
+  },
+  "stages": [
+    {
+      "target": 4096,
+      "label": "4K @10",
+      "concurrency": 10,
+      "n": 20,
+      "success_n": 20,
+      "warm_n": 1,
+      "warm_ok": 1,
+      "success_pct": 100.0,
+      "ttft50": 7203.908936500056,
+      "ttft95": 30875.887185899894,
+      "first_any50": 3891.1827849999554,
+      "tpot95": 22.567271675548024,
+      "tps50": 46.528316294628695,
+      "lat95": 39832.46873415007,
+      "lat_ratio": 2.2866013416479736,
+      "gateway50": 72.0,
+      "cache_token_pct": 93.75,
+      "cache_request_pct": 100.0,
+      "cache_coverage": 20,
+      "tokens_range": [
+        4096,
+        4096
+      ],
+      "visible_tokens_range": [
+        475,
+        594
+      ],
+      "errors": {},
+      "accounts": {
+        "4": 9,
+        "3": 11
+      },
+      "finish_reasons": {
+        "stop": 20
+      },
+      "skip": [],
+      "result": "样本全成功"
+    },
+    {
+      "target": 12288,
+      "label": "12K @8",
+      "concurrency": 8,
+      "n": 16,
+      "success_n": 16,
+      "warm_n": 1,
+      "warm_ok": 1,
+      "success_pct": 100.0,
+      "ttft50": 8747.508496500132,
+      "ttft95": 33940.8745904999,
+      "first_any50": 5163.144195000086,
+      "tpot95": 21.551892701938733,
+      "tps50": 49.39648255408041,
+      "lat95": 43662.46235999984,
+      "lat_ratio": 2.631923053906552,
+      "gateway50": 45.0,
+      "cache_token_pct": 97.91666666666667,
+      "cache_request_pct": 100.0,
+      "cache_coverage": 16,
+      "tokens_range": [
+        12288,
+        12288
+      ],
+      "visible_tokens_range": [
+        475,
+        594
+      ],
+      "errors": {},
+      "accounts": {
+        "3": 13,
+        "4": 3
+      },
+      "finish_reasons": {
+        "stop": 16
+      },
+      "skip": [],
+      "result": "样本全成功"
+    },
+    {
+      "target": 16384,
+      "label": "16K @6",
+      "concurrency": 6,
+      "n": 12,
+      "success_n": 12,
+      "warm_n": 1,
+      "warm_ok": 1,
+      "success_pct": 100.0,
+      "ttft50": 8482.417530500243,
+      "ttft95": 17779.5573138499,
+      "first_any50": 5500.471285499998,
+      "tpot95": 22.045623458769217,
+      "tps50": 47.65106832226049,
+      "lat95": 30254.87567989975,
+      "lat_ratio": 1.7665122144886316,
+      "gateway50": 41.0,
+      "cache_token_pct": 98.4375,
+      "cache_request_pct": 100.0,
+      "cache_coverage": 12,
+      "tokens_range": [
+        16384,
+        16384
+      ],
+      "visible_tokens_range": [
+        594,
+        594
+      ],
+      "errors": {},
+      "accounts": {
+        "4": 10,
+        "3": 2
+      },
+      "finish_reasons": {
+        "stop": 12
+      },
+      "skip": [],
+      "result": "样本全成功"
+    },
+    {
+      "target": 32768,
+      "label": "32K @6",
+      "concurrency": 6,
+      "n": 12,
+      "success_n": 12,
+      "warm_n": 1,
+      "warm_ok": 1,
+      "success_pct": 100.0,
+      "ttft50": 11862.193358999775,
+      "ttft95": 17300.82075705036,
+      "first_any50": 8175.256053000112,
+      "tpot95": 22.387606203794146,
+      "tps50": 46.15801030375226,
+      "lat95": 30314.683551850085,
+      "lat_ratio": 1.3241248341075813,
+      "gateway50": 24.0,
+      "cache_token_pct": 99.21875,
+      "cache_request_pct": 100.0,
+      "cache_coverage": 12,
+      "tokens_range": [
+        32768,
+        32768
+      ],
+      "visible_tokens_range": [
+        475,
+        594
+      ],
+      "errors": {},
+      "accounts": {
+        "4": 6,
+        "3": 6
+      },
+      "finish_reasons": {
+        "stop": 12
+      },
+      "skip": [],
+      "result": "样本全成功"
+    },
+    {
+      "target": 65536,
+      "label": "64K @4",
+      "concurrency": 4,
+      "n": 8,
+      "success_n": 8,
+      "warm_n": 1,
+      "warm_ok": 1,
+      "success_pct": 100.0,
+      "ttft50": 12640.136890499889,
+      "ttft95": 20069.088280450025,
+      "first_any50": 9995.568192000064,
+      "tpot95": 22.45705619831355,
+      "tps50": 47.27523729643046,
+      "lat95": 31192.632850849852,
+      "lat_ratio": 1.240515631811084,
+      "gateway50": 29.5,
+      "cache_token_pct": 99.60633525588209,
+      "cache_request_pct": 100.0,
+      "cache_coverage": 8,
+      "tokens_range": [
+        65538,
+        65538
+      ],
+      "visible_tokens_range": [
+        594,
+        594
+      ],
+      "errors": {},
+      "accounts": {
+        "3": 4,
+        "4": 4
+      },
+      "finish_reasons": {
+        "stop": 8
+      },
+      "skip": [],
+      "result": "样本全成功"
+    },
+    {
+      "target": 131072,
+      "label": "128K @2",
+      "concurrency": 2,
+      "n": 4,
+      "success_n": 4,
+      "warm_n": 1,
+      "warm_ok": 1,
+      "success_pct": 100.0,
+      "ttft50": 17445.881064000103,
+      "ttft95": 18454.966613999954,
+      "first_any50": 13644.157182500066,
+      "tpot95": 21.82709656570818,
+      "tps50": 47.26530312954461,
+      "lat95": 31389.241365599857,
+      "lat_ratio": 1.0928672754194908,
+      "gateway50": 44.5,
+      "cache_token_pct": 99.80316462456322,
+      "cache_request_pct": 100.0,
+      "cache_coverage": 4,
+      "tokens_range": [
+        131074,
+        131074
+      ],
+      "visible_tokens_range": [
+        475,
+        594
+      ],
+      "errors": {},
+      "accounts": {
+        "3": 2,
+        "4": 2
+      },
+      "finish_reasons": {
+        "stop": 4
+      },
+      "skip": [],
+      "result": "样本全成功"
+    },
+    {
+      "target": 262144,
+      "label": "256K @1",
+      "concurrency": 1,
+      "n": 2,
+      "success_n": 2,
+      "warm_n": 1,
+      "warm_ok": 1,
+      "success_pct": 100.0,
+      "ttft50": 22715.112353999983,
+      "ttft95": 25190.36390129984,
+      "first_any50": 15980.33889200019,
+      "tpot95": 20.68112774220008,
+      "tps50": 53.93141311351549,
+      "lat95": 35093.30565140012,
+      "lat_ratio": 1.0829542147316384,
+      "gateway50": 68.0,
+      "cache_token_pct": 99.90005721914935,
+      "cache_request_pct": 100.0,
+      "cache_coverage": 2,
+      "tokens_range": [
+        262150,
+        262150
+      ],
+      "visible_tokens_range": [
+        475,
+        594
+      ],
+      "errors": {},
+      "accounts": {
+        "3": 2
+      },
+      "finish_reasons": {
+        "stop": 2
+      },
+      "skip": [],
+      "result": "样本全成功"
+    },
+    {
+      "target": 524288,
+      "label": "512K @1",
+      "concurrency": 1,
+      "n": 2,
+      "success_n": 2,
+      "warm_n": 1,
+      "warm_ok": 1,
+      "success_pct": 100.0,
+      "ttft50": 62285.93056650016,
+      "ttft95": 68697.36437475031,
+      "first_any50": 60248.3600165001,
+      "tpot95": 21.9786148219224,
+      "tps50": 49.25424091723285,
+      "lat95": 79913.0504612001,
+      "lat_ratio": 1.0805156136408534,
+      "gateway50": 109.5,
+      "cache_token_pct": 99.99752050825767,
+      "cache_request_pct": 100.0,
+      "cache_coverage": 2,
+      "tokens_range": [
+        524301,
+        524301
+      ],
+      "visible_tokens_range": [
+        594,
+        594
+      ],
+      "errors": {},
+      "accounts": {
+        "4": 1,
+        "3": 1
+      },
+      "finish_reasons": {
+        "stop": 2
+      },
+      "skip": [
+        {
+          "skipped_target": 524288,
+          "reason": "budget_guard",
+          "spent_usd": 0.7960640599,
+          "reserved_usd": 5.2918272
+        }
+      ],
+      "result": "样本全成功"
+    }
+  ],
+  "findings": [
+    "正式测量 76/76 成功（100.0%）；成功要求有正文，不只看 HTTP 状态。",
+    "4K @10 正文 TTFT P50 7.20s，P95 30.88s；正文速度 P50 46.5 tok/s。",
+    "本轮正文 TTFT 中位数最高的档位为 512K @1：62.29s。各档并发不同，不是控制并发不变的纯上下文对比。",
+    "缓存为共享前缀预热后的混合状态；长上下文档位样本很少，结果不能外推为冷缓存性能、持续吞吐或 SLA。"
+  ]
+}

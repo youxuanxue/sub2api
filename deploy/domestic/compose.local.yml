@@ -1,0 +1,5 @@
+# Management tunnel endpoint. Never bind to a public interface.
+services:
+  tokenkey:
+    ports:
+      - "127.0.0.1:18080:8080"

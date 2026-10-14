@@ -90,10 +90,11 @@ else
   TK_MEMINFO_PATH=/proc/meminfo
   TK_LOADAVG_PATH=/proc/loadavg
 fi
-if [ "${TK_SELFTEST}" != "1" ] && [ -r /var/lib/tokenkey/.env ]; then
-  WEBHOOK="$(sed -n 's/^TOKENKEY_FEISHU_WEBHOOK_URL=//p' /var/lib/tokenkey/.env | head -1)"
-  SECRET="$(sed -n 's/^TOKENKEY_FEISHU_WEBHOOK_SECRET=//p' /var/lib/tokenkey/.env | head -1)"
-  DOM="$(sed -n 's/^API_DOMAIN=//p' /var/lib/tokenkey/.env | head -1)"
+ALERT_ENV_FILE="${TOKENKEY_HOST_ALERT_ENV_FILE:-/var/lib/tokenkey/.env}"
+if [ "${TK_SELFTEST}" != "1" ] && [ -r "${ALERT_ENV_FILE}" ]; then
+  WEBHOOK="$(sed -n 's/^TOKENKEY_FEISHU_WEBHOOK_URL=//p' "${ALERT_ENV_FILE}" | head -1)"
+  SECRET="$(sed -n 's/^TOKENKEY_FEISHU_WEBHOOK_SECRET=//p' "${ALERT_ENV_FILE}" | head -1)"
+  DOM="$(sed -n 's/^API_DOMAIN=//p' "${ALERT_ENV_FILE}" | head -1)"
   [ -n "${DOM}" ] && NODE="${DOM}"
 fi
 

@@ -47,6 +47,8 @@ func deriveOpsNodeIdentity(frontendURL string) (label string, dashboardURL strin
 	}
 	host := parsed.Hostname()
 	switch {
+	case siteFromFrontendURL(raw) == "cn-prod":
+		label = "cn-prod"
 	case opsNodeShortLabelRe.MatchString(host):
 		label = opsNodeShortLabelRe.FindStringSubmatch(host)[1]
 	case strings.HasPrefix(host, "api."):

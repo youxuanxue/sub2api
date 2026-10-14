@@ -204,6 +204,13 @@ func TestOpsFeishuNotifierIncludesNodeIdentityAndLink(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(prodBody), "TokenKey P0 告警 · prod")
 
+	cnPayload, err := notifier.buildPayload(OpsFeishuAlertConfig{}, "https://api-cn.tokenkey.dev", testOpsFeishuRule(), testOpsFeishuEvent(1))
+	require.NoError(t, err)
+	cnBody, err := json.Marshal(cnPayload)
+	require.NoError(t, err)
+	require.Contains(t, string(cnBody), "TokenKey P0 告警 · cn-prod")
+	require.Contains(t, string(cnBody), "https://api-cn.tokenkey.dev/admin/ops")
+
 	// Unconfigured node (empty frontend_url): degrade to "overall", no header
 	// suffix, no link.
 	bare, err := notifier.buildPayload(OpsFeishuAlertConfig{}, "", testOpsFeishuRule(), testOpsFeishuEvent(1))
