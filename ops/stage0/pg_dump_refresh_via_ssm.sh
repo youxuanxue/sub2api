@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Push refreshed pg_dump cadence (every 2 hours, keep newest 6 rolling files) into a running
-# Stage0 prod host via SSM Run-Command. Mirrors deploy/aws/stage0/tokenkey-pgdump.sh
-# and systemd units from stage0-ec2-bootstrap.sh so the live timer matches the
-# template-of-record without rebuilding the EC2.
+# HCloud prod host via SSM Hybrid. Shared script owner:
+# deploy/aws/stage0/tokenkey-pgdump.sh; timer cadence matches Hetzner bootstrap.
+# EC2 is standby only; this refresh does not restart the gateway.
 
 set -euo pipefail
 
@@ -66,7 +66,7 @@ PTEOF
 )"
 
 # In-place sync trace: written to the SSM stdout so operators can confirm
-# which stage0-single-ec2.yaml commit the live timer is now aligned to.
+# which shared-script commit the live timer is now aligned to.
 # Falls back to "local" when run outside a workflow.
 TEMPLATE_SHA="${GITHUB_SHA:-local}"
 

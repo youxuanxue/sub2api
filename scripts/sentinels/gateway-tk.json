@@ -6,9 +6,11 @@
       "path": "deploy/aws/stage0/tokenkey-pgdump.sh",
       "must_contain": [
         "python3 /usr/local/lib/tokenkey/pgdump_storage.py --upload",
-        "local copy kept; no AWS fallback"
+        "local copy kept; no AWS fallback",
+        "flock -s -w 2400 8",
+        "flock -u 8"
       ],
-      "rationale": "The shared host dump must use explicit private Hetzner storage before the AWS standby identity; upload failures retain the local recovery point."
+      "rationale": "The shared host dump must use explicit private Hetzner storage before the AWS standby identity; upload failures retain the local recovery point. The dump holds the QA lifecycle lease only while producing the local recovery file."
     },
     {
       "path": "ops/stage0/pgdump_storage.py",
@@ -104,7 +106,9 @@
     {
       "path": "scripts/preflight.sh",
       "must_contain": [
-        "ops/stage0/test_hcloud_ops_contract.py"
+        "ops/stage0/test_hcloud_ops_contract.py",
+        "ops/stage0/test_qa_backup_host_lock.py",
+        "ops/stage0/test_retire_aws_standby_timers.py"
       ],
       "rationale": "Migration routing regression tests must remain wired to preflight."
     },
@@ -16863,12 +16867,14 @@
         "assert_live_qa_archive_coordinates() {",
         "  assert_live_qa_archive_coordinates",
         "[[ \"${HYBRID_PROD:-false}\" = true ]] || return 0",
-        "DELIVER_QA_ARCHIVE_REGION=\"${QA_ARCHIVE_STORAGE_REGION:-${QA_LIVE_ARCHIVE_STORAGE_REGION}}\""
+        "DELIVER_QA_ARCHIVE_REGION=\"${QA_ARCHIVE_STORAGE_REGION:-${QA_LIVE_ARCHIVE_STORAGE_REGION}}\"",
+        "env_default TELEMETRY_ARCHIVE_BUCKET \"${TELEMETRY_ARCHIVE_BUCKET:-}\"",
+        "DELIVER_TELEMETRY_BUCKET=\"${TELEMETRY_ARCHIVE_BUCKET:-}\""
       ],
       "must_not_contain": [
         "tokenkey-prod-qa-raw-archive-682751977094"
       ],
-      "rationale": "HCloud prod deploys validate existing raw coordinates before preparing a gateway; missing settings fail instead of changing buckets. Explicit EC2 standby is preserved."
+      "rationale": "HCloud prod deploys validate existing raw coordinates before preparing a gateway; missing settings fail instead of changing buckets. Explicit EC2 standby is preserved. Disabled telemetry also has no implicit AWS storage destination."
     },
     {
       "path": "deploy/aws/stage0/qa-runtime-compose.yml",
@@ -16905,7 +16911,8 @@
       "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
       "must_contain": [
         "def test_live_qa_coordinates_are_hcloud_and_complete(",
-        "for override in (\"HYBRID_PROD=false\", \"DEPLOY_PROFILE=edge\")"
+        "for override in (\"HYBRID_PROD=false\", \"DEPLOY_PROFILE=edge\")",
+        "test_telemetry_defaults_are_empty_and_explicit_storage_survives"
       ],
       "rationale": "Executable guard regressions cover valid HCloud coordinates, AWS drift, missing credentials and historical standby/edge isolation."
     },
@@ -16926,6 +16933,50 @@
         "prod_phase2_live_health.py --from-probe-stdin --legacy-aws --json"
       ],
       "rationale": "Daily diagnostics explicitly retain the historical AWS IAM audit while old objects retain recovery access; default live health uses HCloud."
+    },
+    {
+      "path": "deploy/aws/stage0/tokenkey-qa-maintenance.sh",
+      "must_contain": [
+        "acquire_qa_lifecycle_lock 600",
+        "with_qa_lifecycle_lock 0 run_single_owner_activation"
+      ],
+      "rationale": "Scheduled archive waits for backup; owner activation must fail immediately on a busy host lock."
+    },
+    {
+      "path": "deploy/aws/stage0/tokenkey-qa-boundary.sh",
+      "must_contain": [
+        "QA_LIFECYCLE_LOCK_FILE",
+        "flock -w 600 9",
+        "qa_fail lifecycle_lock_busy 75"
+      ],
+      "rationale": "Boundary DDL must share the backup/archive lease and fail with a receipt before child execution."
+    },
+    {
+      "path": "ops/stage0/test_qa_backup_host_lock.py",
+      "must_contain": [
+        "test_archive_waits_for_backup_and_preserves_success_receipt",
+        "test_boundary_lock_timeout_records_failure_without_container_work",
+        "test_dump_releases_lease_before_slow_object_upload"
+      ],
+      "rationale": "Real kernel locks protect QA and dumps without holding QA behind object upload."
+    },
+    {
+      "path": "ops/stage0/retire_aws_standby_timers.py",
+      "must_contain": [
+        "instance_identity() != expected",
+        "running - {\"tokenkey-postgres\", \"tokenkey-redis\"}",
+        "command(\"systemctl\", \"disable\", \"--now\", timer)",
+        "restore(states)"
+      ],
+      "rationale": "Old-host cleanup requires exact AWS identity and idle services, touches only allowlisted timers and retains rollback state."
+    },
+    {
+      "path": "ops/stage0/test_retire_aws_standby_timers.py",
+      "must_contain": [
+        "test_hcloud_wrong_identity_running_gateway_and_busy_jobs_never_mutate",
+        "test_partial_failure_restores_original_timer_states"
+      ],
+      "rationale": "Timer retirement cannot target a live gateway and must restore original state on partial failure."
     }
   ]
 }

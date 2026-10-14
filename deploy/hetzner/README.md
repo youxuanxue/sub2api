@@ -136,6 +136,40 @@ bash deploy/hetzner/render-prod-bootstrap.sh --check
 无显式 image storage 设置和视频任务。只删已知休眠默认值，自定义配置拒绝处理。
 运行容器的旧环境变量在下一次正常蓝绿发布时消失；此入口不重启容器。
 
+## QA 与备份排队、旧 AWS 定时任务收尾
+
+共享脚本使用 `/var/lib/tokenkey/qa-lifecycle/host.lock`：pg_dump 持共享锁，QA boundary 与
+archive 持独占锁；备份完成本地文件后立即解锁，上传不阻塞 QA。定时 QA 最多等待 600 秒，
+备份最多等待 2400 秒；超时任务失败，不跳过数据库原有短锁超时、seal、restore 或 DROP 门禁。
+单一 owner 的 plan/activation 仍立即报锁忙，避免把旧计划排队执行。
+
+现有主机不会因代码合并自动更新。安装前保存三个 host 脚本的原文件、权限与哈希，核对
+备份、maintenance、boundary service 都未运行，再使用同一 host.lock 排他锁安装脚本；
+保持原有 timer、maintenance pin、存储身份和资源限制。任务忙则等待，不能强杀。
+回退同样在任务空闲且持排他锁时恢复原文件，随后观察下一轮 timer 的回执与备份产物。
+仅更新宿主脚本，不发布网关镜像或重启 gateway、Caddy、PostgreSQL/Redis。
+
+旧 AWS prod standby 上的 QA/告警 timer 可独立停用；实例和数据继续保留。
+入口默认只读 plan，必须明确旧 EC2 ID（禁止 Hybrid/HCloud）：
+
+```bash
+PROD_SSM_TARGET=aws bash ops/observability/run-probe.sh --target prod \
+  --expected-instance-id <旧EC2-ID> \
+  --script ops/stage0/retire-aws-standby-timers-remote.sh \
+  --with ops/stage0/retire_aws_standby_timers.py \
+  --env EXPECTED_STANDBY_INSTANCE_ID=<旧EC2-ID>
+```
+
+核实 plan 后同一命令追加 `--env OPERATION=apply`。入口核对 IMDSv2 身份、无运行中的
+TokenKey gateway/worker、相关 service 空闲，只 disable/stop 三个 allowlist timer：
+QA maintenance、QA boundary、disk metrics；不操作 PG/Redis 或删除资源。apply 输出
+root-only 状态备份路径，失败尝试恢复原 timer 状态；回退用 `--env OPERATION=rollback`
+及 `--env BACKUP=<输出的备份路径>`，仍须通过旧机身份与空闲检查。
+
+普通蓝绿发布不再注入 telemetry 的 AWS 桶/region 默认值，telemetry 默认关闭。
+显式 opt-in 和主机已有配置继续保留；此变更不等于已清理运行容器中的休眠变量，也不表示
+telemetry 已支持 Hetzner 存储。需要启用该能力时必须单独验收其存储契约。
+
 ## 数据库备份迁移入口
 
 审批边界：[host-only pgdump](../../docs/approved/hcloud-pgdump-storage.md)。
