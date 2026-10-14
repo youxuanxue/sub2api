@@ -164,3 +164,72 @@ func TestKiroStreaming_FirstTokenIgnoresThinkingOnly(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "visible")
 	require.NotContains(t, rec.Body.String(), "hidden plan")
 }
+
+func TestKiroStreaming_FixedBudgetAfterKeepaliveStopsRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	reader, writer := io.Pipe()
+	t.Cleanup(func() { _ = reader.Close(); _ = writer.Close() })
+	svc := NewKiroGatewayService(&kiroStallUpstream{respBody: reader}, nil, nil)
+	svc.SetGatewayConfig(&config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1, KiroHighEffortFirstOutputTimeoutSeconds: 2}})
+	body := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}],"max_tokens":32,"stream":true}`)
+	_, err := svc.Forward(c.Request.Context(), c, newKiroAccountForTest(), &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-5", Stream: true}, time.Now())
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.Equal(t, GatewayFailureReason("kiro_wait_budget_exhausted"), failover.Reason)
+	require.True(t, failover.SafeToFailoverAfterWrite)
+	require.Contains(t, rec.Body.String(), "event: message_start")
+	require.Contains(t, rec.Body.String(), "event: ping")
+	require.NotContains(t, rec.Body.String(), "event: error", "the handler owns the single terminal error")
+	require.NotContains(t, rec.Body.String(), "event: message_stop")
+	require.Nil(t, boundPreContentStreamKeepalive(c))
+	events, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	require.Len(t, events.([]*OpsUpstreamErrorEvent), 1)
+	require.Equal(t, "first_output_timeout", events.([]*OpsUpstreamErrorEvent)[0].Kind)
+
+	// A replacement account may not restart an exhausted request budget.
+	result, err := NewKiroGatewayService(&kiroFakeUpstream{}, nil, nil).Forward(
+		c.Request.Context(), c, newKiroAccountForTest(), &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-5", Stream: true}, time.Now())
+	require.Nil(t, result)
+	require.ErrorAs(t, err, &failover)
+	require.False(t, failover.ShouldRetryNextAccount())
+	require.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_start"))
+	require.NotContains(t, rec.Body.String(), "event: message_stop")
+}
+
+type kiroCallerCancelUpstream struct{ cancel context.CancelFunc }
+
+func (u *kiroCallerCancelUpstream) Do(req *http.Request, proxy string, accountID int64, concurrency int) (*http.Response, error) {
+	return u.DoWithTLS(req, proxy, accountID, concurrency, nil)
+}
+
+func (u *kiroCallerCancelUpstream) DoWithTLS(req *http.Request, _ string, _ int64, _ int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	time.Sleep(1100 * time.Millisecond)
+	u.cancel()
+	<-req.Context().Done()
+	return nil, req.Context().Err()
+}
+
+func TestKiroStreaming_CallerCancelAfterKeepaliveDoesNotRecordProviderFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil).WithContext(ctx)
+	body := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}],"max_tokens":32,"stream":true}`)
+	svc := NewKiroGatewayService(&kiroCallerCancelUpstream{cancel: cancel}, nil, nil)
+	svc.SetGatewayConfig(&config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}})
+	_, err := svc.Forward(
+		ctx, c, newKiroAccountForTest(), &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-5", Stream: true}, time.Now())
+	require.ErrorIs(t, err, context.Canceled)
+	var failover *UpstreamFailoverError
+	require.NotErrorAs(t, err, &failover)
+	require.Contains(t, rec.Body.String(), "event: ping")
+	require.NotContains(t, rec.Body.String(), "event: error")
+	_, recorded := c.Get(OpsUpstreamErrorsKey)
+	require.False(t, recorded, "caller cancellation must not become a provider failure")
+}

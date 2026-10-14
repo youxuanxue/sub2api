@@ -36,13 +36,17 @@ Universal Key / 直连 Key 的推理响应在已有 `usage` token 字段上，�
 
 ## Out of scope（v1 不做）
 
-- OpenAI Responses / 非 raw Chat Completions 写出路径（后续追加）。
+- OpenAI Responses / 除下述 NewAPI bridge 外的非 raw Chat Completions 写出路径（后续追加）。
 - 新响应头、HTTP trailer、新查询 endpoint。
 - `cost_details` / upstream 成本拆分。
 - 改写客户端可见的 token 数字。
 - 强制媒体 / 按次计费路径在响应里返回 cost。
 - 在响应里暴露 `actual_cost` / 分组倍率后的实扣。
-- v1 覆盖面：**Claude Messages** + **OpenAI Chat Completions raw** 的 token 路径。
+- 初始 v1 覆盖面：**Claude Messages** + **OpenAI Chat Completions raw** 的 token 路径。
+- 2026-10-13 用户明确要求修复阿里成本统计漏项，授权增加 **NewAPI bridge Chat Completions**
+  token 路径，沿用 `TotalCost` 语义。bridge 以 adaptor 返回的最终规范化 usage 结算，
+  JSON 或流式最后一个 terminal usage 帧在写出前注入；内容 SSE 仍即时透传。
+  失败、缺 usage、无法定价及媒体路径不补字段；缓冲超过 8 MiB 时原样透传并由账本正常计费。
 
 ## Owners
 
@@ -54,6 +58,7 @@ Universal Key / 直连 Key 的推理响应在已有 `usage` token 字段上，�
 | OpenAI 客户实扣结算 | `settleOpenAICustomerFacingCost`（`openai_gateway_usage.go`）— 含 response_model / Free Fast；RecordUsage 与响应预览共用 |
 | Claude Messages 写出 | `gateway_upstream_response.go`（注入 `TotalCost`） |
 | OpenAI Chat Completions raw 写出 | `openai_gateway_chat_completions_raw.go`（注入 `TotalCost`） |
+| NewAPI bridge Chat 写出 | `openai_gateway_bridge_dispatch.go` + `response_usage_cost_bridge_tk.go`（等待 canonical usage、调用共享 preview、返回 `PrecomputedCost`） |
 | 同请求防漂移 | 响应侧结算结果挂 `PrecomputedCost`，`RecordUsage` 复用，禁止二次编排 |
 
 禁止在 preview 路径再镜像一份 response_model / Free Fast / 倍率编排；新增结算规则只改 `settle*`。
@@ -65,3 +70,7 @@ Universal Key / 直连 Key 的推理响应在已有 `usage` token 字段上，�
   当分组倍率 ≠ 1 时，`usage.cost` ≠ `actual_cost`。
 - 流式：末帧 / `message_delta` 含 `usage.cost`；无 usage 时不出现 cost。
 - 既有无 usage 的错误/中断路径行为不变。
+
+- bridge 回归：真实 Ali adaptor 对本地供应端的流式/非流式请求验证缓存 token、
+  `usage.cost == usage_logs.total_cost` 及倍率分离；分片 SSE、Flush、尾帧顺序、
+  `usage:null`、无定价、断连及缓冲上限由 `response_usage_cost_bridge_tk_test.go` 验证。

@@ -26,7 +26,7 @@ WHY THIS EXISTS:
 Input (stdin): tagged, field-named JSON lines emitted by the probe:
     RUNIMAGE {"image":"ghcr.io/owner/sub2api:1.8.10"}
     ENV      {"key":"SERVER_FRONTEND_URL","value":"https://api.tokenkey.dev"}
-    ENV      {"key":"GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"30"}
+    ENV      {"key":"GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"120"}
     RETENTION {"value":"2"}
 (ENV lines are emitted only for keys actually present in the running container;
 a required key with no ENV line is therefore a "missing" drift.)
@@ -196,7 +196,7 @@ def _selftest():
     cases.append((
         "stream first-output value drift → drift",
         any(
-            "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS" in d and "expected='30'" in d
+            "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS" in d and "expected='120'" in d
             for d in got
         ),
         True,

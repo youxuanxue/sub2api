@@ -2,13 +2,16 @@ package kiro
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type staleProfileChatDoer struct {
@@ -135,5 +138,23 @@ func TestCallKiroAPI_FailsWhenProfileArnUnresolved(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "resolve profileArn") && !strings.Contains(err.Error(), "no available Kiro profile") {
 		t.Fatalf("error = %q, want profileArn resolution failure", err)
+	}
+}
+
+func TestCallKiroAPI_ProfileDiscoverySharesCallerDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	calls := 0
+	doer := restDoerFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		if req.Context().Done() == nil {
+			return nil, fmt.Errorf("profile discovery lost the caller context")
+		}
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})
+	err := CallKiroAPIWithDoerContext(ctx, doer, &Account{AccessToken: "tok"}, &KiroPayload{}, nil)
+	if calls != 1 || ctx.Err() != context.DeadlineExceeded || err == nil {
+		t.Fatalf("profile deadline: calls=%d caller=%v result=%v", calls, ctx.Err(), err)
 	}
 }

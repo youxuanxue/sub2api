@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 type candidateIdentityContextKey struct{}
@@ -100,4 +103,37 @@ func (s *OpenAIGatewayService) ResolveCandidateContinuation(ctx context.Context,
 		}
 	}
 	return 0, ErrCandidateContinuationUnavailable
+}
+
+// candidateNewAPIPromptCacheSession prepares a secondary soft affinity before
+// initial candidate admission. It belongs to actual NewAPI accounts, independent
+// of a Universal key's provisional billing group. Explicit sessions retain their
+// existing meaning; prefix-less requests never collapse onto a model-only key.
+func candidateNewAPIPromptCacheSession(c *gin.Context, key *APIKey, shape UniversalShape, model string, body []byte) string {
+	if key == nil || !key.IsUniversal() || key.UserID <= 0 || key.ID <= 0 || shape != ShapeOpenAIChat || explicitOpenAIRequestSessionID(c, body) != "" {
+		return ""
+	}
+	prefix := deriveOpenAIStablePrefixSessionSeed(body)
+	if prefix == "" {
+		return ""
+	}
+	seed := fmt.Sprintf("candidate-newapi-prefix:v1:%d:%d:%s:%s", key.UserID, key.ID, strings.TrimSpace(model), prefix)
+	hash, _ := deriveOpenAISessionHashes(seed)
+	return hash
+}
+
+// bindSessionAffinity is shared by immediate acquisition and waited-slot
+// rechecks. Prefix affinity remains an expiring, best-effort preference and never
+// becomes continuation ownership or bypasses candidate eligibility.
+func (r *CandidateRequest) bindSessionAffinity(ctx context.Context, account *Account) {
+	cache := r.resolver.candidateGateway.cache
+	if cache == nil {
+		return
+	}
+	if r.session != "" {
+		_ = cache.SetSessionAccountID(ctx, 0, r.session, account.ID, time.Hour)
+	}
+	if r.promptCacheSession != "" && account.Platform == PlatformNewAPI {
+		_ = cache.SetSessionAccountID(ctx, 0, r.promptCacheSession, account.ID, time.Hour)
+	}
 }

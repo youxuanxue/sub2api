@@ -51,6 +51,7 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | 展示、请求计划与运行时可用性的组合边界 | [模型交付承诺](pricing-serving-single-source-of-truth.md) |
 | endpoint 原生协议与 generation 路由合法性 | [协议路由](protocol-routing-ssot.md) |
 | Responses bridge 参数错误、流式终止及运营错误边界 | [Responses bridge 参数错误分类](responses-bridge-client-error.md) |
+| Ali / Volc Plan Chat 的工具选择、developer 与显式 JSON 模式 | [Plan Chat 参数兼容](chat-plan-parameter-compatibility.md) |
 | 授权范围内的候选资格、账号调度与实现 owner | [候选资格 Owners 表](candidate-eligibility-ssot.md#owners) |
 | 请求输入模态 × 供应侧已知能力（ContentKinds ∩ known-negative）；kimi-k3 客户视频请求形态 | [多模态供应能力门](multimodal-supply-capability-ssot.md) |
 | Studio / Quickstart 生图参数与请求示例 | [生图能力与接入示例](image-generation-quickstart-studio.md)（GPT 精确画布见 [strict canvas](gpt-image-strict-canvas-postprocess.md)，已合并；OAuth 观感脚手架见 [perceived quality](gpt-image-oauth-perceived-quality.md)） |
@@ -139,6 +140,7 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | [`security-capture-and-ingress.md`](security-capture-and-ingress.md) | QA capture protection, trusted ingress and public image download boundary |
 | [`qa-redaction-identified-formats-only.md`](qa-redaction-identified-formats-only.md) | QA 脱敏已识别格式边界与性能优化 |
 | [`design-fleet-pgdump-restore-canary.md`](design-fleet-pgdump-restore-canary.md) | Fleet pgdump restore canary |
+| [`hcloud-pgdump-storage.md`](hcloud-pgdump-storage.md) | Hetzner host-only pgdump identity, encryption and cutover |
 | [`design-edge-env-secrets-recovery.md`](design-edge-env-secrets-recovery.md) | Edge env secrets recovery |
 | [`design-edge-model-family-alert.md`](design-edge-model-family-alert.md) | Edge model-family alert |
 | [`edge-bluegreen-release-safety.md`](edge-bluegreen-release-safety.md) | Edge blue/green safety |

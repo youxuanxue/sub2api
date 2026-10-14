@@ -19,8 +19,8 @@ import (
 )
 
 func TestResolveStreamFirstOutputTimeoutDefaults(t *testing.T) {
-	require.Equal(t, 30*time.Second, resolveStreamFirstOutputTimeout(nil, false))
-	require.Equal(t, 60*time.Second, resolveStreamFirstOutputTimeout(nil, true))
+	require.Equal(t, 120*time.Second, resolveStreamFirstOutputTimeout(nil, false))
+	require.Equal(t, 600*time.Second, resolveStreamFirstOutputTimeout(nil, true))
 
 	cfg := &config.Config{}
 	cfg.Gateway.StreamFirstOutputTimeoutSeconds = 20
@@ -30,7 +30,7 @@ func TestResolveStreamFirstOutputTimeoutDefaults(t *testing.T) {
 }
 
 func TestResolveGrokFirstByteHeaderTimeoutInheritsStreamSSOT(t *testing.T) {
-	require.Equal(t, 30*time.Second, ResolveGrokFirstByteHeaderTimeout(nil))
+	require.Equal(t, 120*time.Second, ResolveGrokFirstByteHeaderTimeout(nil))
 
 	cfg := &config.Config{}
 	cfg.Gateway.StreamFirstOutputTimeoutSeconds = 20
@@ -45,7 +45,7 @@ func TestResolveStreamFirstOutputHighEffortIgnoresOpenAINamedKnob(t *testing.T) 
 	cfg := &config.Config{}
 	cfg.Gateway.StreamFirstOutputHighEffortTimeoutSeconds = 0
 	cfg.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds = 99
-	require.Equal(t, 60*time.Second, resolveStreamFirstOutputTimeout(cfg, true),
+	require.Equal(t, 600*time.Second, resolveStreamFirstOutputTimeout(cfg, true),
 		"universal high-effort must not inherit openai_high_effort_* when stream high-effort is zero")
 }
 
@@ -90,6 +90,26 @@ func TestKiroStreamFirstOutputHighEffort(t *testing.T) {
 	require.True(t, kiroStreamFirstOutputHighEffort(&kiroproto.ClaudeRequest{
 		OutputConfig: &kiroproto.ClaudeOutputConfig{Effort: "high"},
 	}))
+}
+
+func TestFirstOutputHighEffortModelFamilies(t *testing.T) {
+	for _, tc := range []struct {
+		model string
+		high  bool
+	}{
+		{model: "claude-opus-5-5", high: true},
+		{model: "claude-fable-5-1", high: true},
+		{model: "gpt-6-astra", high: true},
+		{model: "gpt-5.6-sol", high: true},
+		{model: "gpt-6.1-sol", high: true},
+		{model: "gpt-6-luna", high: true},
+		{model: "claude-sonnet-4-5", high: false},
+		{model: "gpt-6.1-luna", high: false},
+	} {
+		t.Run(tc.model, func(t *testing.T) {
+			require.Equal(t, tc.high, firstOutputHighEffortModel(tc.model))
+		})
+	}
 }
 
 func TestKiroFirstOutputBudgetWatchCloseUnblocksUpstreamRead(t *testing.T) {
@@ -174,3 +194,62 @@ func TestStreamFirstOutputFailoverIfBudgetFired_KeepaliveSetsSafeFlag(t *testing
 	require.True(t, errors.As(after, &fo))
 	require.True(t, fo.SafeToFailoverAfterWrite)
 }
+
+// A running AfterFunc can have already read committed=false when Commit stops
+// its timer. Stop does not join a running callback: cancel must be serialized
+// with Commit so it cannot fire after Commit returns and useful output starts.
+func TestStreamFirstOutputGuardCommitJoinsBudgetCancellation(t *testing.T) {
+	ctx, guard := armStreamFirstOutputGuard(context.Background(), time.Hour)
+	originalCancel := guard.cancel
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	// Arm a long timer first, install the cancellation barrier before resetting
+	// it, then drive the real AfterFunc callback (not a copy of its branches).
+	guard.cancel = func() { close(entered); <-release; originalCancel() }
+	guard.timer.Reset(time.Nanosecond)
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("budget callback did not start")
+	}
+	done := make(chan struct{})
+	go func() { guard.Commit(); close(done) }()
+	select {
+	case <-done:
+		close(release)
+		<-ctx.Done()
+		t.Fatal("Commit returned while the budget callback could still cancel newly committed output")
+	case <-time.After(25 * time.Millisecond):
+		close(release)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Commit did not finish after budget cancellation")
+	}
+	require.ErrorIs(t, ctx.Err(), context.Canceled, "the already-running budget cancellation must complete before Commit returns")
+	require.True(t, guard.Committed(), "late output still prevents replay")
+}
+
+func TestStreamFirstOutputGuardLateCommitStillClosesTimedOutBody(t *testing.T) {
+	ctx, guard := armStreamFirstOutputGuard(context.Background(), time.Millisecond)
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("budget did not fire")
+	}
+	guard.Commit() // late output forbids replay but cannot revive the canceled read
+	closed := make(chan struct{})
+	guard.WatchClose(streamBudgetCloseRecorder{closed})
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("late Commit prevented timed-out body cleanup")
+	}
+	require.True(t, guard.Committed())
+	require.False(t, guard.BudgetFired(ctx, context.Background()), "visible late output still forbids failover")
+}
+
+type streamBudgetCloseRecorder struct{ closed chan struct{} }
+
+func (c streamBudgetCloseRecorder) Close() error { close(c.closed); return nil }

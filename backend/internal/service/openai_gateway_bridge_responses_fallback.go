@@ -291,6 +291,11 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 	chatBody = ensureNewAPIChatFallbackStreamOptions(chatBody)
 	upstreamStream := chatFallbackUpstreamRequiresStream(chatBody)
 	chatBody = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, chatBody, upstreamModel)
+	chatBody, err = normalizeBridgeChatProviderRequest(account, in, chatBody)
+	if err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
 	if serviceTier == nil {
 		serviceTier = extractOpenAIServiceTierFromBody(chatBody)
 	}

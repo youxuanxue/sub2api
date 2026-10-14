@@ -64,14 +64,14 @@ class ProbeFirstOutputTimeoutsTest(unittest.TestCase):
     def test_matching_keys_emitted(self) -> None:
         proc = self._run(
             printenv=(
-                "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=30\n"
+                "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=120\n"
                 "GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=120\n"
                 "UNRELATED=x\n"
             )
         )
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
         self.assertIn(
-            'ENV {"key":"GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"30"}',
+            'ENV {"key":"GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"120"}',
             proc.stdout,
         )
         self.assertIn(

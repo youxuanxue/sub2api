@@ -79,7 +79,7 @@ func InjectUsageCostJSON(body []byte, cost float64) []byte {
 		return body
 	}
 	for _, path := range []string{"usage", "message.usage", "response.usage"} {
-		if !gjson.GetBytes(body, path).Exists() {
+		if !gjson.GetBytes(body, path).IsObject() {
 			continue
 		}
 		next, err := sjson.SetBytes(body, path+".cost", cost)

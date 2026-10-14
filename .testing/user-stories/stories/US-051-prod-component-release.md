@@ -33,8 +33,8 @@
 
 ## Evidence
 
-Raw-only 验证：Playwright 桌面/手机 Keys 与管理员编辑通过；capture/archive/lifecycle、退役路由和坐标保护测试已运行。存量复制与其测试随用户确认的自然到期方案移除；新增归档切换的验收边界见 raw-only 契约。完整 preflight 证据在 PR 验证段记录；生产切换尚未执行。
+Raw-only 验证：Playwright 桌面/手机 Keys 与管理员编辑通过；capture/archive/lifecycle、退役路由和坐标保护测试已运行。存量复制与其测试随用户确认的自然到期方案移除；新增 raw 存储已完成生产切换、定时归档及隔离恢复验收，实际分界和回执位置见 [QA 运维入口](../../../ops/qa/README.md#生产存储与恢复分界)。完整 preflight 证据在 PR 验证段记录；QA 存储验收不替代独立 gateway 发布验收。
 
 ## Status
 
-- [x] Done: repository implementation and local verification; production rollout remains separate.
+- [x] Done: repository implementation and local verification; new raw storage acceptance completed independently of gateway rollout.

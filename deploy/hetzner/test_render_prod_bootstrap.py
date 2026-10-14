@@ -38,6 +38,22 @@ class RenderProdBootstrapTests(unittest.TestCase):
         self.assertIn("TOKENKEY_PGDUMP_S3_URI", body)
         self.assertIn("QA_CAPTURE_ENABLED=false", body)
 
+    def test_disk_unit_requires_prod_volume_but_edges_only_check_root(self) -> None:
+        # Evaluate the service configuration emitted by each renderer: the
+        # shared script's default is root-only, so omitting this binding recreates
+        # the live prod blind spot even while its own selftest is green.
+        for artifact, expected in [
+            (OUT, {"TOKENKEY_DATA_VOLUME_PATH": "/var/lib/tokenkey"}),
+            (HERE / "generated-user-data.sh", {}),
+        ]:
+            body = artifact.read_text(encoding="utf-8")
+            unit = body.split("tokenkey-disk-metrics.service <<'DMSEOF'", 1)[1].split("DMSEOF", 1)[0]
+            environment = dict(
+                line.removeprefix("Environment=").split("=", 1)
+                for line in unit.splitlines() if line.startswith("Environment=")
+            )
+            self.assertEqual(environment, expected, artifact.name)
+
     def test_committed_artifact_matches_render_when_present(self) -> None:
         if not OUT.exists():
             self.skipTest("generated-prod-user-data.sh not committed yet")

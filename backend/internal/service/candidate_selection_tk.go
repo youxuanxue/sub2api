@@ -78,6 +78,10 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 	if r.session != "" && gw.cache != nil {
 		stickyID, _ = gw.cache.GetSessionAccountID(ctx, 0, r.session)
 	}
+	var promptCacheStickyID int64
+	if r.promptCacheSession != "" && gw.cache != nil {
+		promptCacheStickyID, _ = gw.cache.GetSessionAccountID(ctx, 0, r.promptCacheSession)
+	}
 	usable := make(map[int64]bool)
 	var failure error
 	for _, group := range r.groups {
@@ -120,7 +124,13 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 			diag.reject("force_platform_mismatch")
 			continue
 		}
-		sticky := account.ID == stickyID || account.ID == r.continuationAccountID
+		accountStickyID := stickyID
+		if account.Platform == PlatformNewAPI && r.promptCacheSession != "" {
+			// A prefix binding supersedes the first-user fallback for this supply.
+			// Combining both would give conflicting old bindings equal preference.
+			accountStickyID = promptCacheStickyID
+		}
+		sticky := account.ID == accountStickyID || account.ID == r.continuationAccountID
 		var subscriptions, balances []Group
 		paths := make(map[int64]*candidateExecutionPath)
 		accountSupported := false
@@ -407,9 +417,7 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 			if acquired != nil {
 				result.Acquired = true
 				result.ReleaseFunc = sync.OnceFunc(acquired.ReleaseFunc)
-				if r.session != "" && gw.cache != nil {
-					_ = gw.cache.SetSessionAccountID(path.ctx, 0, r.session, path.account.ID, time.Hour)
-				}
+				r.bindSessionAffinity(path.ctx, path.account)
 			}
 			return result, nil
 		}
@@ -558,9 +566,7 @@ func RecheckCandidateAccountSlot(ctx context.Context, accountID int64) error {
 	if !gw.checkAndRegisterSession(ctx, r.current.account, r.session) {
 		return ErrUniversalCapacityUnavailable
 	}
-	if r.session != "" && gw.cache != nil {
-		_ = gw.cache.SetSessionAccountID(ctx, 0, r.session, accountID, time.Hour)
-	}
+	r.bindSessionAffinity(ctx, r.current.account)
 	return nil
 }
 

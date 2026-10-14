@@ -15,8 +15,9 @@ import (
 type TerminalOutcomePolicy string
 
 const (
-	terminalOutcomeWebSocketSinkKey = "terminal_outcome_websocket_sink"
-	terminalOutcomeExcludedKey      = "terminal_outcome_excluded"
+	terminalOutcomeWebSocketSinkKey     = "terminal_outcome_websocket_sink"
+	terminalOutcomeExcludedKey          = "terminal_outcome_excluded"
+	terminalOutcomeWebSocketRecordedKey = "terminal_outcome_websocket_recorded"
 )
 
 const (
@@ -33,10 +34,19 @@ func TerminalOutcomeMiddleware(sink service.TerminalOutcomeSink, policy Terminal
 			c.Set(terminalOutcomeWebSocketSinkKey, sink)
 		}
 		c.Next()
-		if sink == nil || policy == TerminalOutcomeExcluded || policy == TerminalOutcomeWebSocketTurn {
+		if sink == nil || policy == TerminalOutcomeExcluded {
 			return
 		}
-		if excluded, _ := c.Get(terminalOutcomeExcludedKey); excluded == true || terminalRequestCanceled(c) {
+		_, disconnected := middleware2.RecoveryOutcome(c)
+		if excluded, _ := c.Get(terminalOutcomeExcludedKey); excluded == true || terminalRequestCanceled(c) || disconnected {
+			return
+		}
+		if policy == TerminalOutcomeWebSocketTurn {
+			// Auth/routing can reject before the endpoint's handshake adapter.
+			// Once a handshake/turn was recorded, do not add a connection result.
+			if c.Writer.Status() >= http.StatusBadRequest && !c.GetBool(terminalOutcomeWebSocketRecordedKey) {
+				RecordWebSocketHandshakeTerminalOutcome(c, terminalRequestedModel(c))
+			}
 			return
 		}
 		model := terminalRequestedModel(c)
@@ -89,6 +99,7 @@ func recordWebSocketTerminalOutcomeKind(c *gin.Context, model string, kind servi
 	if !ok || sink == nil {
 		return
 	}
+	c.Set(terminalOutcomeWebSocketRecordedKey, true)
 	sink.Record(service.TerminalOutcomeEvent{
 		At:             time.Now().UTC(),
 		GroupID:        terminalGroupID(c),
@@ -105,6 +116,10 @@ func terminalRequestCanceled(c *gin.Context) bool {
 }
 
 func terminalHTTPOutcomeKind(c *gin.Context, policy TerminalOutcomePolicy) service.TerminalOutcomeKind {
+	// A recovered panic can leave a partially written response at HTTP 200.
+	if panicked, _ := middleware2.RecoveryOutcome(c); panicked {
+		return service.TerminalOutcomeOtherError
+	}
 	status := c.Writer.Status()
 	if policy == TerminalOutcomeStreamInference {
 		if streamErr, ok := service.GetOpsStreamError(c); ok {
@@ -134,7 +149,10 @@ func terminalRequestedModel(c *gin.Context) string {
 
 func terminalGroupID(c *gin.Context) int64 {
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
-	if !ok || apiKey == nil || apiKey.GroupID == nil {
+	if !ok || apiKey == nil {
+		apiKey, _ = middleware2.GetOpsFallbackAPIKey(c)
+	}
+	if apiKey == nil || apiKey.GroupID == nil {
 		return 0
 	}
 	return *apiKey.GroupID

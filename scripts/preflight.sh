@@ -2352,6 +2352,18 @@ elif ! python3 ./ops/migration/test_usage_logs_daily_partition.py >/dev/null 2>&
     echo "  FAIL: Fleet usage_logs daily partition operator contracts"
     echo "        - run: python3 ops/migration/test_usage_logs_daily_partition.py"
     errors=$((errors + 1))
+elif ! python3 ./ops/stage0/test_pgdump_storage.py >/dev/null 2>&1; then
+    echo "  FAIL: pgdump private storage identity and encryption contracts"
+    errors=$((errors + 1))
+elif ! python3 ./ops/stage0/test_install_hcloud_pgdump_storage.py >/dev/null 2>&1; then
+    echo "  FAIL: pgdump guarded storage cutover/rollback contracts"
+    errors=$((errors + 1))
+elif ! python3 ./ops/stage0/test_provision_hcloud_pgdump_bucket.py >/dev/null 2>&1; then
+    echo "  FAIL: private pgdump bucket and active retention contracts"
+    errors=$((errors + 1))
+elif ! python3 ./ops/stage0/test_retire_dormant_media_storage.py >/dev/null 2>&1; then
+    echo "  FAIL: dormant media cleanup preserves custom/active configuration"
+    errors=$((errors + 1))
 elif ! python3 ./ops/stage0/test_pgdump_restore_canary.py >/dev/null 2>&1; then
     echo "  FAIL: Fleet pg_dump restore canary contracts"
     echo "        - run: python3 ops/stage0/test_pgdump_restore_canary.py"
@@ -2608,6 +2620,12 @@ if ! bash ./deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh --selftest >/dev/
 else
     echo "  ok: edge disk/memory alert awk fixtures pass"
 fi
+if ! python3 ./ops/observability/test_remediate_hcloud_prod_host_alerts.py >/dev/null 2>&1; then
+    echo "  FAIL: existing HCloud prod host-alert installer behavior tests"
+    errors=$((errors + 1))
+else
+    echo "  ok: HCloud prod alert plan/apply, identity, backup, and failure behavior"
+fi
 
 
 fi # preflight gate
@@ -2775,31 +2793,23 @@ else
 fi
 
 # ---- sub2api: pgdump timer cadence parity ----------------------------------
-# The tokenkey-pgdump systemd timer is defined in TWO places that must stay in
-# sync: the first-boot copy in stage0-ec2-bootstrap.sh and the live-host refresh
-# in ops/stage0/pg_dump_refresh_via_ssm.sh. A cadence change to one but not the
-# other silently leaves prod on a stale schedule. Compare the pgdump timer's
-# OnCalendar line across both (value-agnostic — extract + equal, so the cadence
-# can change freely as long as both move together).
+# Cadence parity across the standby bootstrap, refresh entrypoint and both live
+# Hetzner renderers. Shared paths do not imply an AWS deployment target.
 echo ""
 
 fi # preflight gate
 if _preflight_selected 'pgdump timer cadence parity'; then
 echo "=== sub2api: pgdump timer cadence parity ==="
-_pgdump_boot_cal="$(awk '/tokenkey-pgdump\.timer/{f=1} f&&/OnCalendar=/{print; exit}' deploy/aws/stage0/stage0-ec2-bootstrap.sh 2>/dev/null)"
-_pgdump_refresh_cal="$(grep -m1 'OnCalendar=' ops/stage0/pg_dump_refresh_via_ssm.sh 2>/dev/null)"
-if [ -z "${_pgdump_boot_cal}" ] || [ -z "${_pgdump_refresh_cal}" ]; then
-    echo "  FAIL: could not extract pgdump timer OnCalendar from both sources"
-    echo "        boot='${_pgdump_boot_cal}' refresh='${_pgdump_refresh_cal}'"
-    errors=$((errors + 1))
-elif [ "${_pgdump_boot_cal}" != "${_pgdump_refresh_cal}" ]; then
-    echo "  FAIL: pgdump timer cadence drift between bootstrap and pg_dump_refresh"
-    echo "        bootstrap:        ${_pgdump_boot_cal}"
-    echo "        pg_dump_refresh:  ${_pgdump_refresh_cal}"
-    errors=$((errors + 1))
-else
-    echo "  ok: pgdump timer cadence in sync (${_pgdump_boot_cal})"
-fi
+_pgdump_reference="$(grep -m1 'OnCalendar=' ops/stage0/pg_dump_refresh_via_ssm.sh 2>/dev/null)"
+for _pgdump_source in deploy/aws/stage0/stage0-ec2-bootstrap.sh deploy/hetzner/render-bootstrap.sh deploy/hetzner/render-prod-bootstrap.sh; do
+    _pgdump_calendar="$(awk '/tokenkey-pgdump\.timer/{f=1} f&&/OnCalendar=/{print; exit}' "$_pgdump_source" 2>/dev/null)"
+    if [ -z "$_pgdump_reference" ] || [ "$_pgdump_calendar" != "$_pgdump_reference" ]; then
+        echo "  FAIL: pgdump timer cadence drift in $_pgdump_source"
+        errors=$((errors + 1))
+    else
+        echo "  ok: $_pgdump_source cadence matches refresh ($_pgdump_calendar)"
+    fi
+done
 
 # ---- sub2api: workflow job-level if env-context drift -----------------------
 # GitHub Actions does NOT allow env references in jobs.<name>.if expressions

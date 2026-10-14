@@ -5,11 +5,17 @@ import (
 	"errors"
 	"net/url"
 	"strings"
+
+	newapiconstant "github.com/QuantumNous/new-api/constant"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 )
 
 func requiresSystemChatRole(account *Account, targetURL string) bool {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
+	}
+	if newapiintegration.IsAliTokenPlanBaseURL(newapiconstant.ChannelTypeAli, targetURL) {
+		return true
 	}
 	switch account.Platform {
 	case PlatformDeepseek, PlatformKimi, PlatformZhipu:
