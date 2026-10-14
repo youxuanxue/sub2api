@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import gzip
+import hashlib
 import os
 import pathlib
 import re
@@ -55,6 +56,38 @@ def _extract_userdata_launcher(cfn_text: str) -> str:
 
 
 class BuildCfnSizeTest(unittest.TestCase):
+    def test_caddy_ssm_parts_are_deployable_and_round_trip(self) -> None:
+        # CloudFormation AWS::SSM::Parameter.Value has minLength=1; exercise
+        # payloads on both sides of the one-parameter limit, plus the real owner.
+        large = b"\n".join(
+            b"# " + hashlib.sha256(str(i).encode()).hexdigest().encode()
+            for i in range(96)
+        )
+        for payload, over_limit in ((b"# small fixture\n", False), (large, True),
+                                    ((STAGE0 / "Caddyfile").read_bytes(), None)):
+            with self.subTest(over_limit=over_limit), tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                stage0 = root / "deploy/aws/stage0"
+                shutil.copytree(STAGE0, stage0)
+                cfn = root / "template.yaml"
+                shutil.copy2(CFN_MAIN, cfn)
+                (stage0 / "Caddyfile").write_bytes(payload)
+                proc = subprocess.run(
+                    ["bash", str(stage0 / "build-cfn.sh")], cwd=root,
+                    env={**os.environ, "CFN_FILE": str(cfn)},
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                parts = [_extract_marker_value(cfn.read_text(), f"CADDY_GZB64_SSM_PART{i}")
+                         for i in (1, 2)]
+                for part in parts:
+                    self.assertGreaterEqual(len(part), 1, "SSM rejects empty parameter values")
+                    self.assertLessEqual(len(part), SSM_STANDARD_LIMIT)
+                encoded = "".join(parts)
+                if over_limit is not None:
+                    self.assertEqual(len(encoded) > SSM_STANDARD_LIMIT, over_limit)
+                self.assertEqual(gzip.decompress(base64.b64decode(encoded)), payload)
+
     def test_prod_userdata_under_ec2_limit(self) -> None:
         body = _extract_userdata_body(CFN_MAIN.read_text())
         self.assertLessEqual(
