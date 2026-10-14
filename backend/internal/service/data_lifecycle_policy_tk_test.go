@@ -113,6 +113,17 @@ func TestDataLifecycleRoleKnown(t *testing.T) {
 	require.False(t, dataLifecycleRoleKnown("https://api-jp1.example.com"))
 }
 
+func TestDomesticProdLifecycleRole(t *testing.T) {
+	for _, frontendURL := range []string{"https://api-cn.tokenkey.dev", "https://API-CN.tokenkey.dev/"} {
+		require.True(t, dataLifecycleRoleKnown(frontendURL))
+		require.False(t, IsEdgeFrontendURL(frontendURL))
+		policy := resolveDataLifecyclePolicy(&config.Config{
+			Server: config.ServerConfig{FrontendURL: frontendURL},
+		}, config.OpsCleanupConfig{})
+		require.Equal(t, "prod", policy.role)
+	}
+}
+
 func TestResolveDataLifecyclePolicyTreatsCustomAPISubdomainAsProdSafe(t *testing.T) {
 	policy := resolveDataLifecyclePolicy(&config.Config{
 		Server: config.ServerConfig{FrontendURL: "https://api-us1.example.com"},

@@ -3,6 +3,36 @@
   "rationale": "Load-bearing TokenKey-only frontend surfaces that anchor admin-UI behavior diverging from upstream defaults — sidebar geometry (TK uses a narrower w-44 rail vs upstream w-64), the fluid table mode used on /admin/accounts (no horizontal scroll, cells wrap), per-page sticky-edge-hints opt-out, and the control-plane login policy that does not depend on Turnstile. These are the kinds of small TK changes that get silently reverted by upstream merges precisely because they're small and local; the registry upgrades the rule from `agent must remember` to `merge will fail`. Source-of-truth read by both `scripts/preflight.sh` (frontend TK sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (frontend TK sentinels check, on `merge/upstream-*` PRs). Adding a new TK-only frontend surface that must survive upstream merges MUST add a sentinel here in the same commit. Sibling registries: `newapi-sentinels.json` (fifth-platform integration), `brand-sentinels.json` (outward TK brand surfaces). This file now also guards upstream payment-surface carry-ins that touch shared admin/i18n/style hotspots during upstream merges; updating those hotspots in merge PRs requires explicit sentinel-registry rationale refresh or a `sentinel-registry-reviewed` / `upstream-merge` commit marker to keep the gate mechanical.",
   "sentinels": [
     {
+      "path": "frontend/src/utils/siteRouteAvailability.ts",
+      "must_contain": ["isSiteRouteAvailable", "api-cn.tokenkey.dev"],
+      "rationale": "Domestic prod shares one tool-route policy across menus, quick actions and router guards; a frontend-only hide is never an API authorization boundary."
+    },
+    {
+      "path": "frontend/src/components/layout/AppSidebar.vue",
+      "must_contain": ["if (!isSiteRouteAvailable(item.path)) continue"],
+      "rationale": "Both customer and administrator personal navigation must hide unpublished domestic tools via the shared route policy."
+    },
+    {
+      "path": "frontend/src/router/index.ts",
+      "must_contain": ["if (!isSiteRouteAvailable(to.path))"],
+      "rationale": "Direct URLs and SPA navigation must use the same domestic tool restriction as the sidebar."
+    },
+    {
+      "path": "frontend/src/composables/useBatchImageAccess.ts",
+      "must_contain": ["isSiteRouteAvailable('/batch-image')"],
+      "rationale": "Cached batch-image entitlement must not expose dashboard shortcuts or menus on domestic prod."
+    },
+    {
+      "path": "frontend/src/views/user/QuickstartView.vue",
+      "must_contain": ["isSiteRouteAvailable('/studio')"],
+      "rationale": "The shared quickstart must not invite domestic customers into the unpublished Studio."
+    },
+    {
+      "path": "frontend/e2e/public-pages.e2e.ts",
+      "must_contain": ["sees API access without unpublished tool routes"],
+      "rationale": "Real browser checks cover domestic customer/admin menus and blocked direct links alongside global console regression coverage in the existing CI suite."
+    },
+    {
       "path": "frontend/src/components/account/EditAccountModal.vue",
       "must_contain": [
         "canImportGeminiWebSession",

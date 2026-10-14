@@ -259,7 +259,7 @@
       <div class="flex flex-wrap items-center justify-center gap-4 pb-6">
         <router-link v-if="authStore.isAuthenticated" to="/keys" class="btn btn-secondary text-sm">{{ t('quickstart.manageKeys') }}</router-link>
         <router-link to="/models?view=pricing" class="btn btn-secondary text-sm">{{ t('quickstart.viewPricing') }}</router-link>
-        <router-link v-if="authStore.isAuthenticated" to="/studio" class="btn btn-primary text-sm">{{ t('quickstart.tryStudio') }}</router-link>
+        <router-link v-if="authStore.isAuthenticated && isSiteRouteAvailable('/studio')" to="/studio" class="btn btn-primary text-sm">{{ t('quickstart.tryStudio') }}</router-link>
       </div>
     </div>
 </template>
@@ -300,6 +300,7 @@ import { gatewayWarmupConnection } from '@/api/playground'
 import { PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 import { useCcSwitchImport } from '@/composables/useCcSwitchImport'
 import { resolveChromeBrand, resolveFacadeApiBaseUrl } from '@/features/home/marketProfile.tk'
+import { isSiteRouteAvailable } from '@/utils/siteRouteAvailability'
 
 const { t } = useI18n()
 const route = useRoute()

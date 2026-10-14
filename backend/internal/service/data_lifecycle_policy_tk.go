@@ -62,5 +62,5 @@ func UsageLogRetentionDays(cfg *config.Config) int {
 
 func dataLifecycleRoleKnown(frontendURL string) bool {
 	site := siteFromFrontendURL(frontendURL)
-	return site == "prod" || IsEdgeFrontendURL(frontendURL)
+	return site == "prod" || site == "cn-prod" || IsEdgeFrontendURL(frontendURL)
 }

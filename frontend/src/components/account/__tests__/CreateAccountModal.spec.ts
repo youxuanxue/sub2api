@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { defaultOpenCodeProtocolRules } from '../credentialsBuilder'
 
 const {
   createAccountMock,
@@ -409,13 +410,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
         anthropic: 'https://opencode.ai/zen',
         responses: 'https://opencode.ai/zen/v1'
       },
-      protocol_rules: [
-        { pattern: 'grok-*', protocol: 'responses' },
-        { pattern: 'gpt-*', protocol: 'responses' },
-        { pattern: 'muse-spark-*', protocol: 'responses' },
-        { pattern: 'claude-*', protocol: 'anthropic' },
-        { pattern: 'qwen*', protocol: 'anthropic' }
-      ]
+      protocol_rules: defaultOpenCodeProtocolRules('zen')
     })
   })
 
@@ -439,13 +434,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
         anthropic: 'https://opencode.ai/zen/go',
         responses: 'https://opencode.ai/zen/go/v1'
       },
-      protocol_rules: [
-        { pattern: 'grok-*', protocol: 'responses' },
-        { pattern: 'gpt-*', protocol: 'responses' },
-        { pattern: 'muse-spark-*', protocol: 'responses' },
-        { pattern: 'minimax-*', protocol: 'anthropic' },
-        { pattern: 'qwen*', protocol: 'anthropic' }
-      ]
+      protocol_rules: defaultOpenCodeProtocolRules('go')
     })
   })
 

@@ -71,6 +71,16 @@ RPO/RTO 按用户要求后续运维处理，本期不作恢复能力承诺，不
 QA、媒体和其他工具不进入此次服务能力。验收须确认 QA capture 关闭、未创建相关依赖，
 公共入口拒绝未开放功能调用。现有镜像菜单能力如有缺口，明确记录并修复，不能仅写文档称已隔离。
 
+## Implementation / Owners
+
+国内站的界面限制以实际浏览器域名 `api-cn.tokenkey.dev` 判定，不增加管理开关；后端公共
+入口独立执行媒体/实时功能拒绝，界面隐藏不代替鉴权。修复发布前，现网旧镜像仍有工具菜单。
+
+| 行为 | 共享 owner | 验证 |
+|---|---|---|
+| 菜单、快捷入口、SPA 直达统一限制 Studio/批量图像 | `frontend/src/utils/siteRouteAvailability.ts`；Sidebar、Router、Quickstart、`useBatchImageAccess` 只消费它 | `siteRouteAvailability.spec.ts`、`public-pages.e2e.ts` 国内 user/admin 与其他站点回归 |
+| 公网拒绝未开放接口及 provider/兼容别名 | `deploy/domestic/prepare-runtime.py` 渲染共享 Caddy 模板 | `deploy/domestic/test_runtime.py` 真实 Caddy 转发/拒绝测试，经 `caddyfile-syntax.sh` 进入 preflight |
+
 # DNS、TLS 与验收
 
 仅创建/更新 `api-cn.tokenkey.dev` 的记录。备案事项按用户要求后续考虑；域名/TLS 实际可达性

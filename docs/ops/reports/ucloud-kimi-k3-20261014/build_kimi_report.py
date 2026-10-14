@@ -332,7 +332,6 @@ error_lines += [
 ]
 accounts = "；".join(f"{a['id']}={a['name']}" for a in evidence["accounts"])
 key_state = evidence["key_state"][0]
-complete_stages = [s for s in stages if s["n"]]
 slow = max(
     (s for s in stages if s["ttft50"] is not None),
     key=lambda s: s["ttft50"],

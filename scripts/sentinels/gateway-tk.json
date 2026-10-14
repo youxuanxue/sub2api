@@ -12034,9 +12034,42 @@
       "path": "backend/internal/service/account_incident_notifier_tk.go",
       "must_contain": [
         "func IsEdgeFrontendURL(frontendURL string) bool {",
-        "strings.HasSuffix(strings.ToLower(parsed.Hostname()), \".tokenkey.dev\")"
+        "strings.HasSuffix(strings.ToLower(parsed.Hostname()), \".tokenkey.dev\")",
+        "strings.EqualFold(host, \"api-cn.tokenkey.dev\")",
+        "return \"cn-prod\""
       ],
-      "rationale": "The lifecycle policy connects this shared role helper to destructive retention cutoffs. Edge classification must require the canonical TokenKey domain; otherwise a custom prod host such as api-us1.example.com is treated as an unknown/non-edge role and may apply the wrong role policy while cleanup still reports success."
+      "rationale": "The lifecycle policy connects this shared role helper to destructive retention cutoffs. Edge classification must require the canonical TokenKey domain. The exact api-cn.tokenkey.dev exception must stay a customer-facing prod: losing it silently suppresses prod-only failure notifications and relabels domestic alerts as edge-cn."
+    },
+    {
+      "path": "deploy/domestic/prepare-runtime.py",
+      "must_contain": [
+        "@unavailable_live_sideband",
+        "refusing to omit domestic restrictions"
+      ],
+      "rationale": "Domestic production must fail closed if the shared Caddy insertion point changes; provider media aliases and live sidebands remain excluded without blocking text API or administration. Real Caddy HTTP coverage in test_runtime.py owns the semantic boundary."
+    },
+    {
+      "path": "deploy/domestic/test_runtime.py",
+      "must_contain": [
+        "def test_unavailable_features_never_reach_app(",
+        "def test_text_api_and_management_still_reach_app(",
+        "def test_prepare_preserves_secrets_and_private_permissions("
+      ],
+      "rationale": "Execute rendered domestic ingress through real Caddy: forbidden aliases must return 404 before the upstream, supported text/management routes must reach it, and preparation must preserve private secrets on rerun."
+    },
+    {
+      "path": "scripts/checks/caddyfile-syntax.sh",
+      "must_contain": [
+        "python3 -m unittest deploy/domestic/test_runtime.py"
+      ],
+      "rationale": "Keep domestic ingress behavior tests in the existing Docker/Caddy preflight and CI gate; syntax-only adaptation would miss alias bypasses."
+    },
+    {
+      "path": "backend/internal/service/data_lifecycle_policy_tk_test.go",
+      "must_contain": [
+        "TestDomesticProdLifecycleRole"
+      ],
+      "rationale": "The domestic gateway is a known prod role, including case-insensitive canonical hostname handling; alert and lifecycle classification must not drift back to edge-cn or unknown."
     },
     {
       "path": "backend/internal/service/data_lifecycle_policy_tk_test.go",
