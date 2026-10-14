@@ -6,6 +6,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -16,6 +17,7 @@ func Logger() gin.HandlerFunc {
 		// 开始时间
 		startTime := time.Now()
 		observeIngress(c, startTime)
+		c.Request = service.WithImageIngressTiming(c.Request, startTime)
 
 		// 请求路径
 		path := c.Request.URL.Path
@@ -78,6 +80,10 @@ func Logger() gin.HandlerFunc {
 		}
 		if model != "" {
 			fields = append(fields, zap.String("model", model))
+		}
+
+		for key, value := range service.ImageIngressTimingFields(c.Request.Context()) {
+			fields = append(fields, zap.Int64(key, value))
 		}
 
 		l := logger.FromContext(c.Request.Context()).With(fields...)
