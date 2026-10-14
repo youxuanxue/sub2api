@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -115,4 +116,30 @@ func TestKiroGatewayService_InvalidToolDoesNotReplayEarlierTool(t *testing.T) {
 	require.NotContains(t, rec.Body.String(), `"id":"bad"`)
 	require.Contains(t, rec.Body.String(), "event: error")
 	require.NotContains(t, rec.Body.String(), "event: message_stop")
+}
+
+func TestKiroGatewayService_OmittedEmptyToolInputCompletesWithoutReplay(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", streaming), func(t *testing.T) {
+			request := newKiroToolRequestForTest(streaming, false, "ListAgents")
+			var native kiroproto.ClaudeRequest
+			require.NoError(t, json.Unmarshal(request.Body.Bytes(), &native))
+			payload := kiroproto.ClaudeToKiro(&native, false)
+			wireName := payload.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext.Tools[0].ToolSpecification.Name
+			frames := buildKiroEventStreamMessage("toolUseEvent", []byte(fmt.Sprintf(`{"name":%q,"toolUseId":"empty"}`, wireName)))
+			frames = append(frames, buildKiroEventStreamMessage("toolUseEvent", []byte(fmt.Sprintf(`{"name":%q,"toolUseId":"empty","stop":true}`, wireName)))...)
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{appendKiroTerminalStop(frames, "TOOL_USE")}}
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), request, time.Now())
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 1, upstream.calls)
+			require.Contains(t, rec.Body.String(), `"name":"ListAgents"`)
+			require.Contains(t, rec.Body.String(), `"input":{}`)
+			require.Contains(t, rec.Body.String(), `"stop_reason":"tool_use"`)
+			require.NotContains(t, rec.Body.String(), "event: error")
+		})
+	}
 }

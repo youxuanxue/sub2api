@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -506,9 +507,15 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 			continue
 		}
 
-		err = parseEventStream(resp.Body, callback)
+		var tools []KiroToolWrapper
+		if inputContext := payload.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext; inputContext != nil {
+			tools = inputContext.Tools
+		}
+		err = parseEventStream(resp.Body, callback, tools...)
 		resp.Body.Close()
-		if err != nil && endpointIndex+1 < len(endpoints) && callback != nil && callback.ResetForRetry != nil && callback.ResetForRetry() {
+		// A protocol-invalid tool is not a broken connection. Leave recovery to
+		// the existing account failover owner instead of multiplying endpoint attempts.
+		if err != nil && !errors.Is(err, ErrInvalidToolUse) && endpointIndex+1 < len(endpoints) && callback != nil && callback.ResetForRetry != nil && callback.ResetForRetry() {
 			// Caller cancel and the first-output budget both cancel this ctx.
 			// Do not open the next endpoint after that; the loop check below
 			// would also stop, but only after this branch has already decided
@@ -537,7 +544,7 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 var ErrIncompleteEventStream = fmt.Errorf("Kiro event stream ended before terminal stop reason: %w", io.ErrUnexpectedEOF)
 
 // parseEventStream decodes an AWS binary Event Stream response body.
-func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
+func parseEventStream(body io.Reader, callback *KiroStreamCallback, advertisedTools ...KiroToolWrapper) error {
 	if callback == nil {
 		callback = &KiroStreamCallback{}
 	}
@@ -545,7 +552,11 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 	// Read directly without bufio to avoid buffering latency in streaming responses.
 	var inputTokens, outputTokens int
 	var totalCredits float64
-	tools := toolUseDecoder{pending: make(map[string]*toolUseState), completed: make(map[string]bool)}
+	tools := toolUseDecoder{
+		tools:     advertisedTools,
+		pending:   make(map[string]*toolUseState),
+		completed: make(map[string]bool),
+	}
 	var sawTerminalStop bool
 
 	for {

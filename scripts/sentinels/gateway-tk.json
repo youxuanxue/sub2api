@@ -16978,6 +16978,31 @@
         "test_partial_failure_restores_original_timer_states"
       ],
       "rationale": "Timer retirement cannot target a live gateway and must restore original state on partial failure."
+    },
+    {
+      "path": "backend/internal/server/middleware/logger.go",
+      "must_contain": [
+        "observeIngress(c, startTime)",
+        "ingressTimingFields(c)"
+      ],
+      "rationale": "Ingress upload and routing observation must remain attached to the complete HTTP request lifecycle."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk.go",
+      "must_contain": [
+        "finishRoutingTiming := observeIngressRouting(c)",
+        "defer finishRoutingTiming()"
+      ],
+      "rationale": "Measure candidate preparation separately from the original wire body reads, including error exits."
+    },
+    {
+      "path": "backend/internal/server/middleware/ingress_timing_test.go",
+      "must_contain": [
+        "TestIngressTiming_ObservesWireReadOnceAcrossBodyReplay",
+        "TestIngressTiming_RejectedAuthenticationDoesNotReadBody",
+        "TestIngressTiming_PreservesPartialReadError"
+      ],
+      "rationale": "Timing cannot consume unauthenticated uploads, double-count replay, or change read errors."
     }
   ]
 }
