@@ -1,3 +1,7 @@
+-- Bound blue/green startup DDL waits; a busy old instance must not stall live traffic.
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '30s';
+
 -- Gemini 显式缓存修改有效期的进行中操作（修改意图）：mutation_token 标识持有者，
 -- mutation_lease_until 之前同一缓存的其他修改被拒绝；expire_time 在提交前保持修改前的值，
 -- 租约过期仍未清除的意图由恢复流程把上游有效期回滚到 expire_time。

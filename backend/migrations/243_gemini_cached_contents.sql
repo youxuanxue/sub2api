@@ -1,3 +1,7 @@
+-- Bound blue/green startup DDL waits; a busy old instance must not stall live traffic.
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '30s';
+
 -- Gemini 显式缓存（cachedContents）的网关资源绑定。
 -- public_id 是网关对客户端暴露的缓存 ID；upstream_name 是上游资源名，
 -- 引用缓存的请求只能路由到 account_id 对应的账号。

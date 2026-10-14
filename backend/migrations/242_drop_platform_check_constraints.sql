@@ -1,3 +1,7 @@
+-- Bound blue/green startup DDL waits; a busy old instance must not stall live traffic.
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '30s';
+
 -- 平台白名单改由应用层的平台清单（internal/domain/platforms.go）统一校验，
 -- 新增平台不再需要修改数据库约束的迁移。
 --

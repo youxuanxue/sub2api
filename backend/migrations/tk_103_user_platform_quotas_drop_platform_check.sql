@@ -1,3 +1,7 @@
+-- Bound blue/green startup DDL waits; a busy old instance must not stall live traffic.
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '30s';
+
 -- Drop user_platform_quotas.platform CHECK constraint (TokenKey follow-up to upstream 242).
 --
 -- Upstream 242_drop_platform_check_constraints.sql removed the platform CHECK

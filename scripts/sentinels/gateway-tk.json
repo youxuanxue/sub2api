@@ -16956,6 +16956,15 @@
         "prod_phase2_live_health.py --from-probe-stdin --legacy-aws --json"
       ],
       "rationale": "Daily diagnostics explicitly retain the historical AWS IAM audit while old objects retain recovery access; default live health uses HCloud."
+    },
+    {
+      "path": "backend/internal/repository/upstream_20261013_migration_integration_test.go",
+      "must_contain": [
+        "func TestUpstream20261013Migrations_PreserveOldWriterAndRetry",
+        "func TestUpstream20261013Migrations_LiveReaderBoundsDDLWait",
+        "pq.ErrorCode(\"55P03\")"
+      ],
+      "rationale": "Real PostgreSQL regression for this upstream rollout: ordinary old-instance readers cannot leave DDL waiting indefinitely, partial ALTER rolls back, retry succeeds, and old-column writes preserve quota data and new defaults."
     }
   ]
 }
