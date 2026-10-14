@@ -11,23 +11,25 @@ provider: ucloud
 在中国大陆新建一个独立域名和独立部署，服务大陆用户，同时保持现有 Hetzner 五节点
 站点稳定运行。这是新部署，不是迁移现网主机或复制现网生产库。
 
-国内站点固定为 `1 prod + N edge`，一期 `N=4`。只接入 Agent Plan 和 Token Plan
-账号，提供后端 API、API key 和基础用量统计。用户、余额、兑换码、管理员、上游账号池、
+国内站点采用 `1 prod + N edge`，一期精简为 `1 prod + 1 edge`（`N=1`），后续按容量扩容。
+只接入 Agent Plan 和 Token Plan 账号，提供后端 API、API key 和基础用量统计。用户、余额、兑换码、管理员、上游账号池、
 JWT/TOTP 密钥和数据库均不与现网共享。两个站点不做跨地域双写，也不把一套 PostgreSQL
 做成跨境主从。
 
 本方案是部署设计，不包含云资源创建、域名注册、ICP备案、数据导入或流量切换。
-UCloud 已确定；域名、地域、合规主体和是否需要境外上游出口仍需业务决策。
+UCloud 已确定，使用正式生产资源，目标为方案确认后的次日向新客户提供服务；不设置七天 PoC
+等待期。仅接入境内供应商，不建设境外 relay 或上游出口。具体地域、机型/费用、数据保留
+期限及恢复目标仍须落实，次日交付不能替代上线验证。
 
 # 推荐基线
 
 采用 UCloud 的 VPC、负载均衡/WAF、云主机、对象存储、密钥管理和远程执行通道；具体
-UCloud 产品组合由 PoC 定案。
+UCloud 产品组合由正式资源清单、API 可用性、费用和上线验收确定。
 每个 prod/edge 节点运行一套与现网 Stage0 兼容的 Docker Compose：Caddy、
 TokenKey、PostgreSQL、Redis 和持久化数据卷。prod 是唯一的公共 API 入口；edge 只接受
 prod relay 和运维通道，承担对应平台账号池。
 
-一期不引入 Kubernetes，不把五个节点改造成共享数据库集群。这样能直接复用现有
+一期不引入 Kubernetes，不把两个节点改造成共享数据库集群。这样能直接复用现有
 `1 prod + N edge` 的路由、账号、drain、回滚和数据边界。每个节点的 PostgreSQL 仍是单点，
 备份、恢复演练和节点重建提供灾难恢复能力，不承诺自动故障切换；数据库 HA 另行评估。
 
@@ -37,34 +39,29 @@ flowchart LR
   DNS --> WAF[WAF / SLB]
   WAF --> P[cn-prod\nAPI + Caddy + PG + Redis]
   P --> E1[cn-edge-1\nfull site, prod-only ingress]
-  P --> E2[cn-edge-2\nfull site, prod-only ingress]
-  P --> E3[cn-edge-3\nfull site, prod-only ingress]
-  P --> E4[cn-edge-4\nfull site, prod-only ingress]
   P -.backup.-> OBJ[(大陆对象存储)]
   E1 -.backup.-> OBJ
-  E2 -.backup.-> OBJ
-  E3 -.backup.-> OBJ
-  E4 -.backup.-> OBJ
   CI[国内独立发布控制面] -.云助手/私网.-> P
   CI -.云助手/私网.-> E1
-  CI -.云助手/私网.-> E2
-  CI -.云助手/私网.-> E3
-  CI -.云助手/私网.-> E4
 ```
 
 ## 节点与网络
 
-生产基线保留五台计算节点：
+一期生产基线仅部署两台计算节点：
 
 | 节点 | 数量 | 作用 | 暴露面 |
 |---|---:|---|---|
 | `cn-prod` | 1 | 公共 API、完整前端/管理面、prod relay、Agent/Token 计划映射、本地 PostgreSQL/Redis | 仅经 WAF/SLB 接收公网 80/443 |
-| `cn-edge-1..4` | 4 | 完整前端/管理面、对应平台账号池、edge relay、本地 PostgreSQL/Redis | 只允许 `cn-prod` 固定源地址、私网域名和运维通道 |
+| `cn-edge-1` | 1 | 完整前端/管理面、全部一期 Agent/Token 平台账号池、edge relay、本地 PostgreSQL/Redis | 只允许 `cn-prod` 固定源地址、私网域名和运维通道 |
 
 每个节点都使用独立数据卷和独立 secrets。PostgreSQL 是该节点业务事实源，Redis 可丢失
 并重建；节点之间不共享数据库。prod 负责国内用户、余额、API key、兑换码和计费事实；
 edge 只负责本 edge 的 Agent/Token 账号、平台映射和运行状态。云助手/SSM、镜像仓库和
 对象存储属于控制面，不新增一台必需的运维业务节点。
+
+一期的 Agent Plan 和 Token Plan 账号池共用 `cn-edge-1`，按平台分组和限额。唯一 edge
+故障会中断该站全部上游供应，prod 本身也没有热备；备份恢复不能替代计算节点冗余。
+后续新增 edge 时再创建资源、更新目标矩阵并迁移对应账号池，不提前保留空节点。
 
 VPC 至少划分 WAF/SLB、业务节点、运维/数据三个安全域。数据库和 Redis 不分配公网
 地址，仅允许本节点应用和必要的本地备份任务访问；prod→edge relay 只访问 edge 的
@@ -80,8 +77,9 @@ HTTPS 网关，不开放 edge 数据库或 Redis 端口。Edge 入站同时受
    不要求另外注册一个主域名。DNS/TLS 技术上可使用该子域名；大陆上线前必须核实
    `tokenkey.dev` 的后缀、注册商、实名主体是否满足工信部备案和 UCloud 接入要求，
    已有备案是否需要新增网站或接入。当前未取得该核验结果，不能视为可上线域名；若
-   不满足条件，再选择可备案的新主域名。ICP 备案及 UCloud 接入须在公网开放前完成；
-   公安联网备案按主体要求办理。DNS 托管位置本身不能替代备案。
+   不满足条件，再选择可备案的新主域名。用户决定备案事项后续处理；这不代表 UCloud
+   已允许未备案域名公网接入。公网客户交付前须核实云厂商接入要求并实测域名可达性，
+   若被限制则明确阻塞，不能把创建 DNS 记录当作上线成功。DNS 托管位置本身不能替代备案。
 2. WAF/CDN 终止公网 TLS，证书由云证书服务托管并自动续期。网关到应用使用内网
    TLS/mTLS；应用不依赖 Caddy 自动申请公网证书。
 3. 新域名只指向国内 WAF/SLB。现有 `api.tokenkey.dev`、四个 Hetzner edge 域名和
@@ -95,40 +93,34 @@ HTTPS 网关，不开放 edge 数据库或 Redis 端口。Edge 入站同时受
 - 国内站生成全新的 `JWT_SECRET`、`TOTP_ENCRYPTION_KEY`、数据库密码、Redis 密码、
   管理员初始凭据和 webhook secret，并放入国内 KMS/Secrets Manager；GitHub secrets
   只保存云端短期身份和镜像发布所需的最小权限。
-- 国内上游账号池单独创建、单独分组和单独限额。现网账号不可通过复制数据库或导入
-  `.env` 的方式复用。
+- 国内上游账号池单独创建、单独分组和单独限额，仅启用境内供应商的境内服务端点；
+  不配置境外 relay、境外供应或境外故障回退。现网账号不可通过复制数据库或导入 `.env`
+  的方式复用。
 - PostgreSQL 是业务事实源；Redis 可丢失并重建。用户、余额、兑换码、API key 和
   计费流水不做跨站同步。若未来需要迁移，使用一次性脱敏导出、字段映射、校验和及
   人工确认，不执行旧库覆盖新库。
 - 国内站和现网站点可以共享公开镜像源码和发布版本号，但每个站点记录自己的镜像
   digest、配置快照、数据库迁移版本和恢复点。
 
-# 云厂商评估
+# 正式资源与交付
 
-本轮不把阿里云、百度智能云、腾讯云列入候选；选型看网络、主机、数据库、对象存储、
-安全和自动化能力，不看大模型供应能力。
+一期直接使用 UCloud 正式生产资源，不另建七天 PoC 环境，不创建其他云厂商或境外灾备
+节点。仅创建 `cn-prod` 与 `cn-edge-1` 两台计算节点；备份存放于大陆对象存储，灾备恢复
+按已验证的备份和节点重建执行，不预建第三台热备计算节点。
 
-| 优先级 | 厂商 | 适合点 | 主要取舍 |
-|---|---|---|---|
-| 1（已选） | **UCloud** | 独立云厂商，云主机、私网、负载均衡、托管 PostgreSQL/Redis、对象存储和 API 较直接，适合复刻现有 Compose/Stage0 | 地域、生态和可观测性深度小于头部厂商；跨地域灾备选择较少，需先做 PoC |
-| 2 | **华为云** | 大陆地域和网络覆盖完整；VPC、ECS、ELB/WAF、云数据库 PostgreSQL、Redis、对象存储、KMS、云助手和监控产品齐全；安全与合规材料成熟 | 产品面较大，IAM 和网络配置需要专人维护；费用需按实际地域和出站量核算 |
-| 3 | **青云 QingCloud** | 私有网络、主机、负载均衡、托管数据库和对象存储组合清晰，适合成本敏感的五节点独立站 | 地域覆盖和运维生态较小；高峰出站、云助手和支持 SLA 要实测确认 |
-| 备选 | **中国电信云 / 中国移动云 / 中国联通云** | 国内网络和政企合规、专线、工单支持强，适合已有运营商采购或行业合规要求 | 开发者 API、镜像同步和 CI/CD 体验通常弱于公有云，需要把发布控制面 PoC 做深 |
-| 备选 | **京东云** | 企业级主机、网络、数据库和安全产品完整，适合已有京东云账户或采购关系 | 生态和跨地域运维工具仍需按目标地域核实；不因其模型能力选型 |
+资源创建前形成可执行清单：项目、主地域/可用区、机型、磁盘、网络出口、镜像仓库、对象
+存储、远程执行及凭据方案、预计费用。地域与预算未确定的项目保留待定，不把本机只读查询
+过的地域当作已获批准的生产地域。正式节点先在受限网络下部署和验证，再接入客户流量。
 
-已选择 **UCloud**。华为云、青云、运营商云和京东云保留为故障替代或后续灾备候选，
-不进入一期资源创建。AWS China、Azure China 不作为一期替代，因为账号和运营主体独立，
-镜像、控制面和支持路径会再增加一套边界。
-
-最终签约前做七天 PoC：五节点跨可用区网络、云助手无 SSH 执行、国内镜像拉取、Agent/Token
-上游成功率、对象存储备份/恢复、节点重建、WAF/SLB 观测和费用/出站账单。PoC 结果写入
-站点 target matrix 的 `provider`、`region` 和 `approved_anchor`，不得凭产品目录直接上线。
+上线前实测 prod→edge 网络、国内镜像拉取、Agent/Token 上游成功率、请求计费/用量、
+管理员入口、备份恢复、发布回滚和告警。验证结果与实际资源身份写入目标矩阵及发布回执；
+不等待固定七天，但任何关键验收失败仍须修复后才能交付。
 
 # 镜像与发布控制面
 
 现网发布继续使用 GitHub Actions、GHCR 和既有 Hetzner/SSM 路径。国内站建立独立的
 发布环境、并发锁、镜像仓库和云助手通道，不复用现网的 `prod` environment、SSM 参数
-前缀或回滚凭据。国内目标矩阵固定为 `prod`、`edge-1`、`edge-2`、`edge-3`、`edge-4`。
+前缀或回滚凭据。国内一期目标矩阵只包含 `prod`、`edge-1`；不预建其他 edge 资源。
 
 镜像构建不重复实现：继续复用现有 `release.yml` 完成版本、前端构建、后端构建、多架构
 镜像和 GHCR digest。当前 GoReleaser 配置关闭 SBOM/provenance，发布链也未生成镜像签名，
@@ -144,9 +136,11 @@ HTTPS 网关，不开放 edge 数据库或 Redis 端口。Edge 入站同时受
    状态；必要时由合规 relay 执行 `skopeo copy`，国内节点不访问 GHCR。
 3. 使用国内云助手/SSM 通过私网下发升级，不开放 SSH 入站。云 API 身份、命令通道、
    secrets 前缀和审计日志全部属于 `domestic` 发布环境。
-4. **公共代码/运行时发布**：edge canary → prod → 其余 edge，沿用 Stage0 的 drain、
+4. **公共代码/运行时发布**：edge-1 验证通过 → prod，沿用 Stage0 的 drain、
    in-flight 归零、digest 切换、`/health/live`（存活）与 `/health`（就绪）检查和 fail-stop；prod 还要
    检查公网 frontend/admin，edge 只从 prod 固定来源检查受限 frontend/admin。
+   一期没有其他 edge 承接流量；edge 升级须验证 drain、恢复和回滚，不能将先发唯一 edge
+   等同于有冗余的 canary，也不承诺跨节点零中断。
 5. **平台/账号/模型映射变更**：dispatcher 按下文影响矩阵推导并校验 target，无法确定
    范围时停止并交人判断；只 dispatch 受影响的目标。账号或配置变更不换镜像；代码中
    的平台 fingerprint 变更仍须同步新 digest，并对受影响节点执行 drain、升级和 smoke。
@@ -161,7 +155,7 @@ HTTPS 网关，不开放 edge 数据库或 Redis 端口。Edge 入站同时受
 发布工作流至少拆成两条：
 
 - `domestic-release.yml`：校验并同步既有镜像 digest，按影响矩阵执行全站或指定目标升级、
-  回滚和运行时 smoke；全站顺序为 edge canary → prod → 其余 edge。
+  回滚和运行时 smoke；全站顺序为 edge-1 验证通过 → prod。
 - `domestic-platform-ops.yml`：账号导入/刷新、Agent/Token 计划账号变更、平台模型映射和
   单 edge 配置；每次必须有显式 target，禁止默认 all。
 
@@ -175,19 +169,19 @@ platform-ops，不能把编译进镜像的 fingerprint 修复当成账号操作�
 
 | 项目 | 现网发布 | 国内发布 | 实际影响 |
 |---|---|---|---|
-| 目标 | Hetzner 的现网 prod/edge 矩阵 | UCloud 的 `domestic/prod`、`domestic/edge-1..4` 矩阵 | 两边不会因为同一个 tag 自动互相部署 |
+| 目标 | Hetzner 的现网 prod/edge 矩阵 | UCloud 的 `domestic/prod`、`domestic/edge-1` 矩阵 | 两边不会因为同一个 tag 自动互相部署 |
 | 控制通道 | 既有 GitHub Actions + AWS/SSM Hybrid + Hetzner resolver | 独立 GitHub Environment + UCloud 云助手/远程执行 | 凭据、权限、审计和回滚入口完全分开 |
 | 镜像 | 现网从 GHCR 拉取 | UCloud 镜像仓库中的同 digest | `release.yml` 统一构建，国内只做同步和部署 |
-| 发布范围 | 现有 Stage0 支持 prod、edge canary、全 edge rollout，以及较完整的平台 smoke | `domestic-release.yml` 管国内运行时；全站按 edge canary → prod → 其余 edge，平台代码按影响矩阵限定目标 | 国内发布失败只停在国内，不会回滚 Hetzner |
+| 发布范围 | 现有 Stage0 支持 prod、edge canary、全 edge rollout，以及较完整的平台 smoke | `domestic-release.yml` 管国内运行时；全站按 edge-1 验证通过 → prod，平台代码按影响矩阵限定目标 | 国内发布失败只停在国内，不会回滚 Hetzner |
 | 平台/账号变更 | 现有账号运维脚本按现网目标执行，部分操作可选 prod/edge/all | `domestic-platform-ops.yml` 强制要求一个明确国内 target | 只改某个平台或某个 edge 时，其余节点不重启、不换镜像 |
 | 验证 | 现网保留既有完整 smoke、模型映射和平台相关检查 | health、API key、Agent/Token 请求、用量递增及本文 UI/权限和恢复验收 | 国内没有 QA 账号、QA worker、raw archive 或完整 QA 流程 |
 | 数据 | 现网各自的 Hetzner 数据卷和备份前缀 | UCloud 节点独立数据卷和 `site_id=domestic` 备份前缀 | 不复制现网库，不会把国内用户写入现网 |
 
-白话解释：`domestic-release.yml` 相当于“国内版总发布按钮”，只负责国内这五个节点的
+白话解释：`domestic-release.yml` 相当于“国内版总发布按钮”，只负责国内这两个节点的
 运行时升级、Compose、主机安全补丁和回滚；它不是现有 `release.yml` 或
 `deploy-stage0.yml` 的开关，也不会顺手更新现网。`domestic-platform-ops.yml` 相当于
-“国内版定点维修按钮”，例如只给 Agent Plan 的 `edge-2` 换账号，只执行 `edge-2` 的
-账号导入和验证，不构建新镜像，也不触碰其他 edge。
+“国内版定点维修按钮”，例如只给 Agent Plan 的 `edge-1` 换账号，只执行 `edge-1` 的
+账号导入和验证，不构建新镜像，也不重启 prod。
 
 影响范围由 dispatcher 根据变更类型和目标矩阵计算，无法识别的依赖及范围扩展才交人判断。
 两套站点可以暂时运行不同版本，但数据库迁移必须
@@ -212,9 +206,9 @@ platform-ops，不能把编译进镜像的 fingerprint 修复当成账号操作�
 
 # 服务范围
 
-国内五个节点都部署同一套完整的运营站点镜像：后端 API、API key 鉴权、Agent Plan/Token
+国内两个节点都部署同一套完整的运营站点镜像：后端 API、API key 鉴权、Agent Plan/Token
 Plan 账号选择、用户/账号管理、用量记录与基础统计、管理员审计、健康检查，以及内置的
-前端和管理面。只有 `cn-prod` 对公网提供用户入口；`cn-edge-1..4` 的 frontend/admin 也
+前端和管理面。只有 `cn-prod` 对公网提供用户入口；`cn-edge-1` 的 frontend/admin 也
 存在，但只接受来自 `cn-prod` 的固定源地址、约定域名和运维通道。
 
 管理职责按数据归属限制：prod 管国内用户、余额、API key、兑换码、计费和全站统计；edge
@@ -243,7 +237,7 @@ prod 的 Caddy 开放站点和 `/admin`，edge 的 Caddy 只对 prod/运维来�
 | 安全面 | 公开路由少 | 多出登录、管理、静态资源和管理员攻击面，需要 allowlist、审计和更严格告警 |
 | 运营能力 | 主要靠脚本/API | prod 管全站用户与计费，edge 管本地账号池；公网用户只进入 prod |
 
-因此五个节点统一部署完整运营站点，减少两套运行形态带来的心智负担。额外资源主要是
+因此两个节点统一部署完整运营站点，减少两套运行形态带来的心智负担。额外资源主要是
 管理请求、统计查询和静态资源带宽，通常远小于新增一台业务节点；真正的容量瓶颈仍是
 上游请求、数据库连接、Redis 和账号池。上线前用运营并发和统计查询做一次压测，以实际
 数据决定 UCloud 机型，不为了前端单独扩容。
@@ -259,7 +253,7 @@ secret 和告警。任何后来新增功能先更新本节和 target matrix，�
 账单和出站流量。告警按“用户请求失败、数据恢复风险、供应能力下降、容量不足、合规/
 安全事件”分组，并带 `site_id=domestic` 与 `target` 标签。
 
-日常变更使用小批量和可观测窗口：先执行只读 preflight，再发布 canary；发布后立即和
+日常变更使用小批量和可观测窗口：先执行只读 preflight，再按影响矩阵发布；发布后立即和
 延迟观察窗口分别做 smoke。账号池调整、模型映射、限流和计费配置必须通过国内站点的
 管理员审计记录，禁止直接改生产数据库。供应商凭据故障与应用发布分开排查，避免用镜像
 回滚掩盖上游故障。
@@ -268,9 +262,10 @@ secret 和告警。任何后来新增功能先更新本节和 target matrix，�
 
 ## 阶段 0：准备（不接用户流量）
 
-- 完成主体、域名、ICP/公安备案、云账号、VPC、安全组、KMS、镜像仓库和五个 target。
+- 落实云账号、正式资源清单、VPC、安全组、密钥存储、镜像仓库和 `prod`、`edge-1` 两个 target；
+  核实候选域名的实际接入条件。备案后续处理按“域名与合规”记录，不把未完成事项标为已通过。
 - 生成并核对国内独立 secrets；验证节点不能从公网访问 PostgreSQL/Redis。
-- 先点火四个 edge，再点火 prod relay；用受限合成 key 做 API/用量 smoke，不建立 QA 资源。
+- 先点火 `edge-1`，再点火 prod relay；用受限合成 key 做 API/用量 smoke，不建立 QA 资源。
 
 ## 阶段 1：内部 canary
 
@@ -285,8 +280,8 @@ secret 和告警。任何后来新增功能先更新本节和 target matrix，�
 
 ## 阶段 2：小规模开放
 
-- 仅邀请新站点用户，独立发放 API key；观测 24 小时的 2xx/4xx/5xx、P95、用量计数和
-  上游成功率。异常时在 WAF 明确拒绝用户流量、保留运维入口，再按发布回执回滚；
+- 核心验收通过后向首批新客户交付，独立发放 API key；交付后持续观测首个 24 小时的
+  2xx/4xx/5xx、P95、用量计数和上游成功率，不将满 24 小时作为首次交付的等待期。异常时在 WAF 明确拒绝用户流量、保留运维入口，再按发布回执回滚；
   不以删除 allowlist 规则或等待 DNS 缓存过期作为即时止流手段，不修改现网 DNS。
 
 ## 阶段 3：正式运营
@@ -294,16 +289,21 @@ secret 和告警。任何后来新增功能先更新本节和 target matrix，�
 - 通过发布、备份恢复、密钥轮换和节点替换演练；确认告警有人接收，runbook 能在无 SSH
   情况下执行。达到连续观察窗口后才扩大配额和账号池。
 
-# 需要审批的决策
+# 已确认的范围与待落实项
 
-1. UCloud 主地域/灾备地域和最终产品组合；先做七天 PoC，再创建正式资源。
-2. 候选 `api-cn.tokenkey.dev` 的备案可用性、最终正式域名、备案主体和数据保留期限。
-3. 国内站是否只使用境内供应商；若需境外供应，relay 所在地、合规评估和允许传输的
-   最小数据集合。
-4. 是否接受五个独立 Compose target（1 prod + 4 edge）及 RPO 15 分钟、RTO 60 分钟目标。
-5. 是否确认仅 Agent Plan/Token Plan、API key、基础用量统计和 prod 运营管理面；QA 和
-   其他工具永久不进入一期发布基线。
+本次用户已确认：
 
-审批通过后再拆分实现任务：`deploy/domestic` 目标矩阵、国内云助手、镜像同步、站点级
-secrets/备份前缀、目标选择 dispatcher、生产合成 key smoke 套件和恢复演练脚本；在此
-之前不创建云资源、不改现网 workflow、不切换 DNS。
+- 使用 UCloud 正式生产资源，目标为次日服务新客户，取消七天 PoC 等待期。
+- 一期为 `1 prod + 1 edge`，仅使用境内供应商，不建设境外 relay。
+- 仅提供 Agent Plan/Token Plan、API key、基础用量统计和 prod 运营管理面；QA 和其他
+  工具不进入一期发布基线。
+- 使用现有 `tokenkey.dev` 的子域名 `api-cn.tokenkey.dev` 作为候选入口；备案后续处理，
+  公网交付仍以云厂商接入条件和实际可达性验证为准。
+
+仍待落实：主地域/可用区、最终机型和产品组合及费用、上游账号、域名接入可用性、备案主体
+与数据保留期限。RPO 15 分钟、RTO 60 分钟尚未获单独确认，不能因为缩减为两个节点就
+视为承诺成立；恢复方案与验收按“备份、恢复与灾难演练”执行。
+
+后续实现包括 `deploy/domestic` 目标矩阵、国内远程执行、镜像同步、节点角色与能力隔离、
+站点级 secrets/备份前缀、目标选择 dispatcher、生产合成 key smoke 和恢复演练脚本。
+当前 PR 仅记录设计及上述用户决定，不代表这些能力已实现、云资源已创建或站点已可交付。
