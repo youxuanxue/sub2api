@@ -160,6 +160,13 @@ if proc.returncode != 0:
     sys.exit(1)
 
 SAFE_KEYS = (
+    "ingress_body_read_ms",
+    "ingress_body_bytes",
+    "ingress_body_read_calls",
+    "ingress_body_first_read_ms",
+    "ingress_body_last_read_ms",
+    "ingress_before_routing_ms",
+    "ingress_routing_ms",
     "path",
     "model",
     "status_code",

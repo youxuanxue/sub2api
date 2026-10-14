@@ -131,3 +131,58 @@ func TestParseEventStream_RejectsToolAfterTerminalStop(t *testing.T) {
 	require.Empty(t, tools)
 	require.False(t, completed)
 }
+
+func TestParseEventStream_KiroOmittedEmptyInputUsesAdvertisedSchema(t *testing.T) {
+	// Shape captured from a synthetic Opus 5 request on 2026-10-14: no input
+	// frame at all, even on the terminal toolUseEvent.
+	stream := toolEventStream(`{"name":"probe_empty","toolUseId":"a"}`, `{"name":"probe_empty","toolUseId":"a","stop":true}`)
+	for _, tc := range []struct {
+		name, schema string
+		allowed      bool
+	}{
+		{"empty parameters", `{"type":"object","properties":{}}`, true},
+		{"optional parameter", `{"type":"object","properties":{"value":{"type":"string"}}}`, true},
+		{"required parameter", `{"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}`, false},
+		{"minimum properties", `{"type":"object","minProperties":1}`, false},
+		{"nested requirement", `{"type":"object","allOf":[{"required":["value"]}]}`, false},
+		{"local reference accepts empty", `{"$ref":"#/$defs/args","$defs":{"args":{"type":"object","properties":{}}}}`, true},
+		{"external reference", `{"$ref":"https://example.invalid/tool.json"}`, false},
+		{"invalid schema", `{"type":"no-such-type"}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var tool KiroToolWrapper
+			tool.ToolSpecification.Name = "probe_empty"
+			require.NoError(t, json.Unmarshal([]byte(tc.schema), &tool.ToolSpecification.InputSchema.JSON))
+			var got []KiroToolUse
+			err := parseEventStream(bytes.NewReader(stream), &KiroStreamCallback{OnToolUse: func(v KiroToolUse) { got = append(got, v) }}, tool)
+			if !tc.allowed {
+				require.ErrorIs(t, err, ErrInvalidToolUse)
+				require.Empty(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, []KiroToolUse{{ToolUseID: "a", Name: "probe_empty", Input: map[string]any{}}}, got)
+		})
+	}
+}
+
+func TestParseEventStream_EmptySchemaDoesNotRepairSuppliedInvalidInput(t *testing.T) {
+	var tool KiroToolWrapper
+	tool.ToolSpecification.Name = "probe_empty"
+	tool.ToolSpecification.InputSchema.JSON = map[string]any{"type": "object", "properties": map[string]any{}}
+	for _, input := range []string{`""`, `"{"`, `"null"`, `null`, `"[]"`, `"{} {}"`} {
+		t.Run(input, func(t *testing.T) {
+			called := false
+			stream := toolEventStream(`{"name":"probe_empty","toolUseId":"a","input":` + input + `,"stop":true}`)
+			err := parseEventStream(bytes.NewReader(stream), &KiroStreamCallback{OnToolUse: func(KiroToolUse) { called = true }}, tool)
+			require.ErrorIs(t, err, ErrInvalidToolUse)
+			require.False(t, called)
+		})
+	}
+	for _, tools := range [][]KiroToolWrapper{nil, {tool, tool}} {
+		called := false
+		err := parseEventStream(bytes.NewReader(toolEventStream(`{"name":"probe_empty","toolUseId":"a","stop":true}`)), &KiroStreamCallback{OnToolUse: func(KiroToolUse) { called = true }}, tools...)
+		require.ErrorIs(t, err, ErrInvalidToolUse)
+		require.False(t, called)
+	}
+}

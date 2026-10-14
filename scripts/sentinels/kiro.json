@@ -274,7 +274,9 @@
         "applyKiroBaseHeaders(req, account, headerValues)",
         "runtime.us-east-1.kiro.dev",
         "q.us-east-1.amazonaws.com",
-        "doer = requestContextDoer{ctx: ctx, doer: doer}"
+        "doer = requestContextDoer{ctx: ctx, doer: doer}",
+        "parseEventStream(resp.Body, callback, tools...)",
+        "!errors.Is(err, ErrInvalidToolUse)"
       ],
       "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for prod QA raw capture without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
     },
@@ -305,7 +307,8 @@
         "d.completed[id]",
         "if !stop",
         "decoder.UseNumber()",
-        "decoder.Decode(&trailing) != io.EOF"
+        "decoder.Decode(&trailing) != io.EOF",
+        "!state.sawInput && toolAcceptsEmptyInput(d.tools, state.name)"
       ],
       "rationale": "Tool execution requires a unique upstream identity, complete JSON object and explicit tool stop. Never fabricate identity, replace malformed input with an empty object, or lose numeric precision."
     },
@@ -1233,6 +1236,21 @@
         "case service.HTTPUpstreamProfileKiro:"
       ],
       "rationale": "Kiro fixed high budget must not be truncated by the generic header timeout."
+    },
+    {
+      "path": "backend/internal/integration/kiro/tool_empty_input.go",
+      "must_contain": [
+        "compiler.LoadURL",
+        "compiled.Validate(map[string]any{}) == nil"
+      ],
+      "rationale": "Omitted Kiro tool input may become an empty object only when the advertised schema accepts it, without fetching external schema references."
+    },
+    {
+      "path": "backend/internal/integration/kiro/client_tool_retry_test.go",
+      "must_contain": [
+        "TestCallKiroAPI_ToolInputOmissionAndInvalidInputDoNotAmplifyEndpoints"
+      ],
+      "rationale": "Pin real no-argument tool completion and one endpoint attempt for protocol-invalid tools."
     }
   ]
 }

@@ -16,6 +16,7 @@ func Logger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 开始时间
 		startTime := time.Now()
+		observeIngress(c, startTime)
 		c.Request = service.WithImageIngressTiming(c.Request, startTime)
 
 		// 请求路径
@@ -64,6 +65,7 @@ func Logger() gin.HandlerFunc {
 			zap.String("method", method),
 			zap.String("path", path),
 		}
+		fields = append(fields, ingressTimingFields(c)...)
 		if rejected {
 			fields = append(fields,
 				zap.String("ingress_reject_reason", string(reason)),

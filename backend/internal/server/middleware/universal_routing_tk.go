@@ -79,6 +79,9 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 		}
 	}
 
+	finishRoutingTiming := observeIngressRouting(c)
+	defer finishRoutingTiming()
+
 	raw, readErr := readAndRestoreUniversalBody(c)
 	if readErr != nil {
 		writeUniversalBodyReadError(c, shape, readErr)
