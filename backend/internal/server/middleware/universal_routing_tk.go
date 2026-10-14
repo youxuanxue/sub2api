@@ -31,6 +31,9 @@ const universalPeekMaxCompressedBytes = 256 << 10
 // Explicit ForcePlatform restrictions remain authorization constraints.
 // A true return means a protocol-shaped error was written and the request aborted.
 func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *service.UniversalRoutingResolver) bool {
+	if c != nil && c.Request != nil {
+		defer service.FinishImageIngress(c.Request.Context())
+	}
 	if resolver == nil || apiKey == nil || (!apiKey.IsUniversal() && !resolver.CandidateSchedulingEnabled()) {
 		return false
 	}

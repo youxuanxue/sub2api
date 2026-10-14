@@ -51,7 +51,7 @@ class ProbeTailGatewayLogsTest(unittest.TestCase):
                     fi
                     if [ "$1" = logs ]; then
                       cat <<'LOGS'
-                    2026-06-24T05:00:00Z INFO http request completed {"request_id":"r1","path":"/v1/messages","status_code":200,"latency_ms":123}
+                    2026-06-24T05:00:00Z INFO http request completed {"request_id":"r1","path":"/v1/messages","status_code":200,"latency_ms":17123,"image_ingress_ms":17016,"image_ingress_key_auth_ms":3,"image_ingress_selection_ms":13,"image_ingress_candidates_ms":11,"image_ingress_bind_ms":2,"image_request_body_read_ms":17000,"image_request_body_bytes":13,"image_request_content_length":-1,"prompt":"private","Authorization":"secret"}
                     LOGS
                       exit 0
                     fi
@@ -78,6 +78,16 @@ class ProbeTailGatewayLogsTest(unittest.TestCase):
             self.assertIn("active-color=green", payload["meta"]["container_resolution"])
             self.assertIn("tokenkey-green is running", payload["meta"]["container_resolution"])
             self.assertEqual(payload["requests"][0]["request_id"], "r1")
+            row = payload["requests"][0]
+            self.assertEqual(
+                {key: value for key, value in row.items() if key.startswith("image_")},
+                {"image_ingress_ms": 17016, "image_ingress_key_auth_ms": 3,
+                 "image_ingress_selection_ms": 13, "image_ingress_candidates_ms": 11, "image_ingress_bind_ms": 2,
+                 "image_request_body_read_ms": 17000, "image_request_body_bytes": 13,
+                 "image_request_content_length": -1},
+            )
+            self.assertNotIn("prompt", row)
+            self.assertNotIn("Authorization", row)
 
     def test_auto_container_falls_back_to_legacy(self) -> None:
         with tempfile.TemporaryDirectory() as td:

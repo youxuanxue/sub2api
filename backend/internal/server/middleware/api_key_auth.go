@@ -60,6 +60,8 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 	// 全能 Key 解析器：用 APIKeyService 持有的共享单实例(单一跨度缓存,且随授权变更失效)。
 	universalResolver := apiKeyService.UniversalResolver()
 	return func(c *gin.Context) {
+		finishKeyAuth := service.BeginImageIngressPhase(c.Request.Context(), service.ImageIngressKeyAuth)
+		defer finishKeyAuth()
 		// ── 1. 提取 API Key ──────────────────────────────────────────
 		if rejectInvalidAuthAbuse(c, apiKeyService) {
 			AbortWithError(c, http.StatusTooManyRequests, "INVALID_AUTH_RATE_LIMITED", "Too many invalid authentication attempts; retry later")
@@ -218,6 +220,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 		// Build one authorized candidate state before billing. The request-local
 		// key follows its selected billing origin while execution follows the account.
+		finishKeyAuth()
 		if MaybeResolveUniversal(c, apiKey, universalResolver) {
 			return
 		}
