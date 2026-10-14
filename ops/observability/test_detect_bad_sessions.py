@@ -3,6 +3,9 @@ import datetime as dt
 import importlib.util
 import pathlib
 import json
+import gzip
+import io
+from contextlib import redirect_stdout, redirect_stderr
 import os
 import subprocess
 import tempfile
@@ -245,6 +248,85 @@ class DetectBadSessionsTest(unittest.TestCase):
         self.assertEqual(candidate["max_consecutive_failures"], 9900)
         self.assertEqual(candidate["failure_count"], 10000)
         self.assertEqual(candidate["request_count"], 10001)
+
+    def test_retained_plain_and_compressed_logs_respect_window_and_report_retention(self):
+        since = dt.datetime(2026, 7, 20, 9, 0, tzinfo=dt.timezone.utc)
+        until = since + dt.timedelta(hours=1)
+        def line(at, rid, message):
+            return json.dumps({"time": at.isoformat(), "msg": message, "request_id": rid,
+                               "session_hash": "same", "user_id": 16, "api_key_id": 8,
+                               "status_code": 499, "latency_ms": 330000, "completed_at": at.isoformat()}) + "\n"
+        with tempfile.TemporaryDirectory() as folder:
+            with gzip.open(pathlib.Path(folder) / "sub2api-old.log.gz", "wt") as f:
+                f.write(line(since - dt.timedelta(seconds=1), "old", "sticky.session_hash_generated"))
+                f.write(line(since, "r1", "sticky.session_hash_generated"))
+            (pathlib.Path(folder) / "sub2api.log").write_text(
+                line(since + dt.timedelta(seconds=1), "r1", "http request completed") +
+                line(until, "future", "http request completed"))
+            coverage = {}
+            logs = MODULE.parse_gateway_log_lines(MODULE._retained_log_lines(folder, since, until, coverage))
+            self.assertEqual(set(logs), {"r1"})
+            self.assertEqual(logs["r1"]["session_hash"], "same")
+            self.assertEqual(logs["r1"]["access_status"], 499)
+            self.assertFalse(coverage["log_window_incomplete"])
+            later_coverage = {}
+            list(MODULE._retained_log_lines(folder, since - dt.timedelta(hours=2), until, later_coverage))
+            self.assertTrue(later_coverage["log_window_incomplete"])
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaisesRegex(RuntimeError, "no retained"):
+                list(MODULE._retained_log_lines(folder, since, until, {}))
+
+    def test_fixed_window_and_retained_source_are_used_by_live_report(self):
+        until = dt.datetime(2026, 7, 20, 9, 0, tzinfo=dt.timezone.utc)
+        captured = []
+        def retained(folder, since, end, coverage):
+            captured.append((folder, since, end))
+            coverage.update(log_window_incomplete=True, log_source="retained_files")
+            return []
+        with mock.patch.dict(os.environ, {"UNTIL_UTC": until.isoformat(), "WINDOW_MINUTES": "2880", "LOG_DIR": "/retained"}, clear=True), \
+             mock.patch.object(MODULE, "_run_json_query", side_effect=[[], []]), \
+             mock.patch.object(MODULE, "_retained_log_lines", side_effect=retained), \
+             mock.patch.object(MODULE, "_resolve_container", side_effect=AssertionError("must use retained files")):
+            report = MODULE.live_report()
+        self.assertEqual(captured, [("/retained", until - dt.timedelta(days=2), until)])
+        self.assertEqual(report["until_utc"], until.isoformat())
+        self.assertEqual(report["status"], "partial")
+
+    def test_report_file_preserves_timelines_and_returns_bounded_summary(self):
+        report = {"candidate_count": 22, "candidates": [{"session_ref": str(i), "requests": [{"request_id": "r"}]} for i in range(22)]}
+        with tempfile.TemporaryDirectory() as folder:
+            target = pathlib.Path(folder) / "report.json"
+            with mock.patch.dict(os.environ, {"REPORT_PATH": str(target)}, clear=True), \
+                 mock.patch.object(MODULE, "live_report", return_value=report), redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(MODULE.main(), 0)
+            self.assertEqual(json.loads(target.read_text()), report)
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+            summary = json.loads(output.getvalue())
+            self.assertEqual(summary["candidates_omitted"], 2)
+            self.assertEqual(summary["candidates"], [{"session_ref": str(i)} for i in range(20)])
+            with mock.patch.dict(os.environ, {"REPORT_PATH": str(target)}, clear=True), \
+                 mock.patch.object(MODULE, "live_report", return_value=report), redirect_stderr(io.StringIO()) as error:
+                self.assertEqual(MODULE.main(), 2)
+            self.assertEqual(json.loads(error.getvalue())["status"], "error")
+            self.assertEqual(json.loads(target.read_text()), report)
+
+    def test_local_billing_ids_join_logs_and_do_not_mask_failures(self):
+        base = dt.datetime(2026, 7, 20, 9, 0, tzinfo=dt.timezone.utc)
+        errors = [row(f"r{i}", base + dt.timedelta(seconds=i * 2)) for i in range(3)]
+        logs = {r["request_id"]: {"session_hash": "same"} for r in errors}
+        partial = [{**r, "request_id": "local:" + r["request_id"]} for r in errors]
+        grouped, _ = MODULE.build_events(errors, partial, logs)
+        candidate = MODULE.detect_candidates(grouped)[0]
+        self.assertEqual(candidate["request_count"], 3)
+        self.assertEqual(candidate["max_consecutive_failures"], 3)
+        success = {"request_id": "local:ok", "user_id": 16, "api_key_id": 8,
+                   "created_at": (base + dt.timedelta(seconds=3)).isoformat()}
+        logs["ok"] = {"session_hash": "same"}
+        grouped, coverage = MODULE.build_events(errors, [success, {**success, "request_id": "ok"}], logs)
+        self.assertEqual(MODULE.detect_candidates(grouped), [])
+        self.assertEqual(coverage["success_rows_with_session"], 1)
+        self.assertEqual(coverage["uncorrelated_breakers"], 0)
+        self.assertEqual(MODULE._request_id("web_search:local:r1"), "web_search:local:r1")
 
     def test_wrapper_executes_python_and_propagates_failure(self):
         # Missing resolver is intentional: exercises Bash -> Python and error exit,

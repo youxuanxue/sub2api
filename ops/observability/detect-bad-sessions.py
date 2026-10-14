@@ -12,7 +12,12 @@ Usage (read-only, via the existing SSM transport):
         --script ops/observability/probe-bad-sessions.sh --env WINDOW_MINUTES=180
 
 Optional env: USER_ID, API_KEY_ID, PLATFORM, MODEL, MIN_FAILURES (3),
-MIN_CONSECUTIVE (3), MIN_CANCEL_LATENCY_MS (30000), MAX_ROWS (50000).
+MIN_CONSECUTIVE (3), MIN_CANCEL_LATENCY_MS (30000), MAX_ROWS (50000; max 500000).
+LOG_DIR optionally reads retained sub2api*.log[.gz] on the host instead of only
+the current container. For prod this is /var/lib/tokenkey/app/logs after verifying
+the live mount. UNTIL_UTC fixes an ISO timestamp for reproducible multi-user scans.
+REPORT_PATH optionally saves the full report to a new mode-0600 host file and
+returns only summaries of the top 20 candidates, fitting SSM inline transport.
 Run separately on prod or an edge; request ids are not merged across hosts.
 Read deploy/hetzner/README.md before choosing a live target. The report uses UTC.
 A candidate can include a later recovery; inspect its ordered request timeline.
@@ -38,8 +43,11 @@ import bisect
 import collections
 import datetime as dt
 import hashlib
+import gzip
+import itertools
 import json
 import os
+import pathlib
 import re
 import statistics
 import subprocess
@@ -172,8 +180,13 @@ def _actionable_failure(row: dict[str, Any], min_cancel_latency_ms: int) -> bool
     return status == 429
 
 
+def _request_id(value: Any) -> str:
+    # gateway_usage_billing.go stores server request ids with this billing prefix.
+    return _text(value, 128).removeprefix("local:")
+
+
 def _session_for(row: dict[str, Any], logs: dict[str, dict[str, Any]]) -> tuple[str, str]:
-    request_id = _text(row.get("request_id"), 128)
+    request_id = _request_id(row.get("request_id"))
     log = logs.get(request_id, {})
     if log.get("session_hash"):
         return "session_hash", short_session_ref(log["session_hash"])
@@ -190,7 +203,7 @@ def build_events(
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int]]:
     grouped: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     errors = list(errors)
-    failed_ids = {row.get("request_id") for row in errors if row.get("request_id")}
+    failed_ids = {_request_id(row.get("request_id")) for row in errors if row.get("request_id")}
     seen = set()
     gaps: dict[tuple[int, int], list[dt.datetime]] = collections.defaultdict(list)
 
@@ -208,8 +221,9 @@ def build_events(
         return f"{_int(row.get('user_id'))}:{_int(row.get('api_key_id'))}:{ref}"
 
     def enrich(raw):
-        log = logs.get(_text(raw.get("request_id"), 128), {})
-        return {**log, **{k: v for k, v in raw.items() if v is not None}}
+        rid = _request_id(raw.get("request_id"))
+        log = logs.get(rid, {})
+        return {**log, **{k: v for k, v in raw.items() if v is not None}, "request_id": rid}
 
     coverage = {"error_rows": 0, "error_rows_with_session": 0, "success_rows": 0, "success_rows_with_session": 0}
     for raw in errors:
@@ -364,6 +378,8 @@ def detect_candidates(
                     "model": _text(event.get("model"), 100),
                     "latency_ms": max(_int(event.get("response_latency_ms")), _int(event.get("duration_ms")), _int(event.get("access_latency_ms"))) or None,
                     "error_type": _text(event.get("error_type"), 96) if event.get("event_kind") == "failure" else "",
+                    "actionable": bool(event.get("actionable")),
+                    "correlation_gap_before": bool(event.get("break_before")),
                 }
                 for event in events
             ],
@@ -428,14 +444,56 @@ def _docker_log_lines(container: str, since: dt.datetime, until: dt.datetime) ->
         yield from output
 
 
+_LOG_TIME_RE = re.compile(r"20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})")
+
+
+def _retained_log_lines(directory: str, since: dt.datetime, until: dt.datetime, coverage: dict) -> Iterable[str]:
+    paths = sorted(pathlib.Path(directory).glob("sub2api*.log*"))
+    paths = [p for p in paths if p.is_file() and (p.name.endswith(".log") or p.name.endswith(".log.gz"))]
+    if not paths:
+        raise RuntimeError("LOG_DIR has no retained sub2api logs")
+    first_at = None
+    files_read = 0
+    for path in paths:
+        opener = gzip.open if path.name.endswith(".gz") else open
+        with opener(path, "rt", encoding="utf-8", errors="replace") as source:
+            # The first timestamp describes retention, including files starting
+            # before the requested window. Never return raw lines in the report.
+            first = source.readline()
+            match = _LOG_TIME_RE.search(first)
+            at = _time(match.group(0)) if match else None
+            if at is not None:
+                first_at = min(first_at, at) if first_at else at
+            if at is not None and at >= until:
+                continue
+            if dt.datetime.fromtimestamp(path.stat().st_mtime, dt.timezone.utc) < since:
+                continue
+            files_read += 1
+            for line in itertools.chain((first,), source):
+                if "sticky.session_hash_generated" not in line and "http request completed" not in line:
+                    continue
+                match = _LOG_TIME_RE.search(line)
+                at = _time(match.group(0)) if match else None
+                if at is not None and since <= at < until:
+                    yield line
+    coverage.update(log_source="retained_files", log_files_read=files_read,
+                    retained_logs_since_utc=first_at.isoformat() if first_at else None,
+                    log_window_incomplete=first_at is None or first_at > since)
+
+
 def live_report() -> dict[str, Any]:
     window = max(1, min(_int(os.environ.get("WINDOW_MINUTES", DEFAULT_WINDOW_MINUTES)), 10_080))
     min_failures = max(1, _int(os.environ.get("MIN_FAILURES", DEFAULT_MIN_FAILURES)))
     min_consecutive = max(1, _int(os.environ.get("MIN_CONSECUTIVE", DEFAULT_MIN_CONSECUTIVE)))
     cancel_latency = max(0, _int(os.environ.get("MIN_CANCEL_LATENCY_MS", DEFAULT_MIN_CANCEL_LATENCY_MS)))
-    max_rows = max(100, min(_int(os.environ.get("MAX_ROWS", DEFAULT_MAX_ROWS)), 200_000))
-    container = _resolve_container(os.environ.get("CONTAINER", "auto"))
+    max_rows = max(100, min(_int(os.environ.get("MAX_ROWS", DEFAULT_MAX_ROWS)), 500_000))
+    container = None if os.environ.get("LOG_DIR") else _resolve_container(os.environ.get("CONTAINER", "auto"))
     until_at = dt.datetime.now(dt.timezone.utc)
+    if os.environ.get("UNTIL_UTC"):
+        requested_until = _time(os.environ["UNTIL_UTC"])
+        if requested_until is None or requested_until > until_at:
+            raise ValueError("UNTIL_UTC must be a valid ISO timestamp at or before now")
+        until_at = requested_until
     since_at = until_at - dt.timedelta(minutes=window)
     since = _sql_literal(since_at.isoformat()) + "::timestamptz"
     until = _sql_literal(until_at.isoformat()) + "::timestamptz"
@@ -481,7 +539,11 @@ SELECT row_to_json(t)::text FROM (
 """
     errors = _run_json_query(error_sql, "tokenkey-postgres")
     successes = _run_json_query(success_sql, "tokenkey-postgres")
-    log_lines = _docker_log_lines(container, since_at, until_at)
+    log_coverage: dict[str, Any] = {"log_source": "docker"}
+    if os.environ.get("LOG_DIR"):
+        log_lines = _retained_log_lines(os.environ["LOG_DIR"], since_at, until_at, log_coverage)
+    else:
+        log_lines = _docker_log_lines(container, since_at, until_at)
     logs = parse_gateway_log_lines(log_lines)
     def in_scope(log):
         at = _time(log.get("completed_at"))
@@ -493,12 +555,12 @@ SELECT row_to_json(t)::text FROM (
         return True
 
     scoped_logs = {rid: log for rid, log in logs.items() if in_scope(log)}
-    error_request_ids = {row.get("request_id") for row in errors}
+    error_request_ids = {_request_id(row.get("request_id")) for row in errors}
     access_rows = [row for row in access_log_failures(scoped_logs) if row["request_id"] not in error_request_ids]
     errors.extend(access_rows)
     # A wire 2xx without a recorded failure breaks a run conservatively. It is
     # not proof that a stream completed or that the user received useful output.
-    usage_ids = {row.get("request_id") for row in successes}
+    usage_ids = {_request_id(row.get("request_id")) for row in successes}
     for rid, log in scoped_logs.items():
         if 200 <= _int(log.get("access_status")) < 300 and rid not in error_request_ids and rid not in usage_ids:
             successes.append({**log, "request_id": rid, "created_at": log.get("completed_at")})
@@ -513,8 +575,8 @@ SELECT row_to_json(t)::text FROM (
         "until_utc": until_at.isoformat(),
         "thresholds": {"min_failures": min_failures, "min_consecutive": min_consecutive, "min_cancel_latency_ms": cancel_latency},
         "scope": {key.lower(): _text(os.environ.get(key), 120) for key in ("USER_ID", "API_KEY_ID", "PLATFORM", "MODEL") if os.environ.get(key)},
-        "coverage": coverage | {"gateway_log_request_ids": len(logs), "access_only_failures": len(access_rows), "error_rows_truncated": len(errors) > max_rows, "success_rows_truncated": len(successes) > max_rows},
-        "status": "partial" if len(errors) > max_rows or len(successes) > max_rows or (coverage["error_rows_with_session"] < coverage["error_rows"] or coverage["success_rows_with_session"] < coverage["success_rows"]) else ("candidates_found" if candidates else "no_candidates"),
+        "coverage": coverage | log_coverage | {"gateway_log_request_ids": len(logs), "access_only_failures": len(access_rows), "error_rows_truncated": len(errors) > max_rows, "success_rows_truncated": len(successes) > max_rows},
+        "status": "partial" if log_coverage.get("log_window_incomplete") or len(errors) > max_rows or len(successes) > max_rows or (coverage["error_rows_with_session"] < coverage["error_rows"] or coverage["success_rows_with_session"] < coverage["success_rows"]) else ("candidates_found" if candidates else "no_candidates"),
         "candidate_count": len(candidates),
         "candidates": candidates,
     }
@@ -522,7 +584,20 @@ SELECT row_to_json(t)::text FROM (
 
 def main() -> int:
     try:
-        print(json.dumps(live_report(), ensure_ascii=False, indent=2))
+        report = live_report()
+        if os.environ.get("REPORT_PATH"):
+            report_path = os.environ["REPORT_PATH"]
+            fd = os.open(report_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as output:
+                json.dump(report, output, ensure_ascii=False)
+            report = {
+                **report,
+                "report_path": report_path,
+                "candidates_omitted": max(0, len(report["candidates"]) - 20),
+                "candidates": [{k: v for k, v in candidate.items() if k != "requests"}
+                               for candidate in report["candidates"][:20]],
+            }
+        print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:  # probe failures must be visible and non-zero
         print(json.dumps({"schema_version": 1, "status": "error", "error": _text(exc, 500)}, ensure_ascii=False), file=sys.stderr)
