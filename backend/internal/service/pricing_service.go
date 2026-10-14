@@ -40,6 +40,15 @@ var (
 		Mode:                    "image_generation",
 		SupportsPromptCaching:   true,
 	}
+	// claude-haiku-5-5 官方静态 fallback（upstream 引入）：注册表缺价时保底。
+	claudeHaiku55FallbackPricing = &LiteLLMModelPricing{
+		InputCostPerToken: 1e-7, OutputCostPerToken: 5e-7,
+		CacheCreationInputTokenCost: 1.25e-7, CacheCreationInputTokenCostAbove1hr: 2e-7,
+		CacheReadInputTokenCost:        1e-8,
+		LongContextInputTokenThreshold: 100000,
+		LongContextInputCostMultiplier: 5, LongContextOutputCostMultiplier: 5,
+		LiteLLMProvider: "anthropic", Mode: "chat", SupportsPromptCaching: true,
+	}
 	openAIModelDatePattern = regexp.MustCompile(`-\d{8}$`)
 	openAIModelBasePattern = regexp.MustCompile(`^(gpt-\d+(?:\.\d+)?)(?:-|$)`)
 )
@@ -110,6 +119,9 @@ type LiteLLMModelPricing struct {
 
 	// DefaultVideoResolution 客户端未指定 resolution 时的默认档位（registry SSOT）。
 	DefaultVideoResolution string `json:"-"`
+	// CacheStorageCostPerTokenPerHour 显式上下文缓存存储单价（每 token 每小时，USD），一般由定价覆盖文件提供，
+	// 配置后优先于内置价（见 BillingService.CacheStoragePricePerTokenHour）。
+	CacheStorageCostPerTokenPerHour float64 `json:"cache_storage_cost_per_token_per_hour"`
 
 	// TokenPricingAbsent 表示源数据中 input/output token 价格均缺失（仅有图片价）。
 	// 此类条目只可用于图片计费，token 计费必须继续 registry alias 或 fail closed，
@@ -172,6 +184,7 @@ type LiteLLMRawEntry struct {
 	OutputCostPerTokenAbove272K         *float64 `json:"output_cost_per_token_above_272k_tokens"`
 	CacheReadInputTokenCostAbove272K    *float64 `json:"cache_read_input_token_cost_above_272k_tokens"`
 	ExplicitFree                        bool     `json:"explicit_free"`
+	CacheStorageCostPerTokenPerHour     *float64 `json:"cache_storage_cost_per_token_per_hour"`
 }
 
 // PricingService 动态价格服务
@@ -691,6 +704,9 @@ func (s *PricingService) parsePricingSensorData(body []byte) (map[string]*LiteLL
 		}
 		if entry.InputCostPerSecond != nil {
 			pricing.InputCostPerSecond = *entry.InputCostPerSecond
+		}
+		if entry.CacheStorageCostPerTokenPerHour != nil {
+			pricing.CacheStorageCostPerTokenPerHour = *entry.CacheStorageCostPerTokenPerHour
 		}
 
 		hasExplicitLongContext := entry.LongContextInputTokenThreshold != nil ||
@@ -1279,6 +1295,12 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 			return pricing
 		}
 		return nil
+	}
+	if claude.IsHaiku55(model) {
+		if pricing, ok := s.pricingData["claude-haiku-5-5"]; ok {
+			return pricing
+		}
+		return claudeHaiku55FallbackPricing
 	}
 	// modelFamily 定义一个模型系列的匹配和定价查找规则。
 	type modelFamily struct {

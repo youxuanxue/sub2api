@@ -1,4 +1,5 @@
 import type { PlatformDashboardStats } from '@/types'
+import { platformDisplayName } from '@/constants/platformCatalog'
 import type { PlatformUsage } from '@/api/admin/dashboard'
 import type { PlatformQuotaItem } from '@/api/admin/users'
 import type {
@@ -56,7 +57,7 @@ export function normalizePublicPlatform(platform: string | null | undefined): st
 export function getPublicPlatformLabel(platform: string | null | undefined): string {
   const canonical = normalizePublicPlatform(platform)
   if (!canonical) return '-'
-  return PUBLIC_PLATFORM_LABELS[canonical] ?? canonical
+  return PUBLIC_PLATFORM_LABELS[canonical] ?? platformDisplayName(canonical)
 }
 
 export function expandPublicPlatforms(platforms: readonly string[]): string[] {

@@ -64,6 +64,8 @@ func AllSchedulingPlatforms() []string {
 		domain.PlatformMiniMax,
 		domain.PlatformOpenCodeGo,
 		domain.PlatformTypeSafe,
+		domain.PlatformCommandCode,
+		domain.PlatformCline,
 	}
 }
 
@@ -78,7 +80,7 @@ func apiKeyOnlySchedulingPlatforms() []string {
 	return []string{
 		domain.PlatformNewAPI, domain.PlatformKimi, domain.PlatformZhipu,
 		domain.PlatformDeepseek, domain.PlatformMiniMax, domain.PlatformOpenCodeGo,
-		domain.PlatformTypeSafe,
+		domain.PlatformTypeSafe, domain.PlatformCommandCode, domain.PlatformCline,
 	}
 }
 

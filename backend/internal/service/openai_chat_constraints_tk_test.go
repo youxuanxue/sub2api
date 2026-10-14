@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapidto "github.com/QuantumNous/new-api/dto"
@@ -385,7 +386,7 @@ func TestChatProviderConstraints_ResponsesFallback(t *testing.T) {
 						}
 						result, err = svc.forwardResponsesViaNewAPIBridgeChatCompletions(context.Background(), c, account, body, newAPIBridgeChannelInputForBody(account, 0, "", body))
 					} else {
-						result, err = svc.forwardResponsesViaRawChatCompletions(context.Background(), c, account, body)
+						result, err = svc.forwardResponsesViaRawChatCompletions(context.Background(), c, account, body, time.Now())
 						wire = transport.lastBody
 					}
 					require.NoError(t, err)

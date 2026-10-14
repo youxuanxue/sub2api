@@ -31,7 +31,7 @@ import GeminiUsageCell from './usage-cells/GeminiUsageCell.vue'
 import KiroUsageCell from './usage-cells/KiroUsageCell.vue'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
 import CNProviderUsageCell from './usage-cells/CNProviderUsageCell.vue'
-import { isCNProviderPlatform } from './credentialsBuilder'
+import { isMultiProtocolApiKeyPlatform } from './credentialsBuilder'
 import { usesLocalUsageWindows } from '@/utils/accountUsageBatch.tk'
 import {
   PLATFORM_ANTHROPIC,
@@ -59,7 +59,9 @@ const activeCell = computed(() => {
     return OllamaCloudUsageCell
   }
 
-  if (isCNProviderPlatform(account.platform) || account.platform === 'opencode_go') {
+  // 多协议 API Key 供应商（国产厂商、OpenCode、Command Code、Cline）：coding-plan /
+  // 订阅额度窗口或余额，由 CNProvider*Cell 自行探测（upstream 2026-10）。
+  if (isMultiProtocolApiKeyPlatform(account.platform)) {
     return CNProviderUsageCell
   }
 

@@ -29,9 +29,10 @@ func (s *RateLimitService) tkDispatchHandleUpstreamError(
 	cloudwiseModelBalance402 := tkIsCloudwiseModelBalance402Response(account, statusCode, responseBody)
 
 	// 池模式默认不标记本地账号状态；但管理员显式配置的临时不可调度规则优先。
-	// 401 保留现有认证错误语义，不在这里改变池模式的认证处理。
+	// 401 只在非凭据级且命中显式模型级规则时由规则处理，其余保留池模式现有的认证处理。
 	if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic && !cloudwiseModelBalance402 {
-		if statusCode != http.StatusUnauthorized && s.tryTempUnschedulable(ctx, account, statusCode, responseBody) {
+		if tempUnschedRulesApply(account, statusCode, responseBody, tempUnschedulableModel(ctx, nil)) &&
+			s.tryTempUnschedulable(ctx, account, statusCode, responseBody) {
 			return true
 		}
 		slog.Info("pool_mode_error_skipped", "account_id", account.ID, "status_code", statusCode)
@@ -66,10 +67,10 @@ func (s *RateLimitService) tkDispatchHandleUpstreamError(
 		}
 	}
 
-	// 先尝试临时不可调度规则（401除外）
+	// 先尝试临时不可调度规则（401 仅限非凭据级且命中显式模型级规则）
 	// 如果匹配成功，直接返回，不执行后续禁用逻辑
 	// 529 overload 走 handle529 全局冷却，优先于账号级 temp-unsched 规则。
-	if statusCode != 401 && statusCode != 529 {
+	if statusCode != 529 && tempUnschedRulesApply(account, statusCode, responseBody, tempUnschedulableModel(ctx, requestedModel)) {
 		if s.tryTempUnschedulable(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel)) {
 			return true
 		}
@@ -87,6 +88,28 @@ func (s *RateLimitService) tkDispatchHandleUpstreamError(
 
 	if handled, quotaDisable := s.tkMaybeHandleKiroEndpointQuotaExhausted(ctx, account, upstreamMsg, responseBody); handled {
 		return quotaDisable
+	}
+
+	// Command Code 用量超限按文案区分、与状态码无关（见 ratelimit_command_code.go）；
+	// 未识别的错误（含普通频率限制）继续走下面的默认逻辑。
+	if account.IsCommandCode() && (statusCode == http.StatusPaymentRequired ||
+		statusCode == http.StatusForbidden || statusCode == http.StatusTooManyRequests) {
+		if handled, disable := s.handleCommandCodeUsageError(ctx, account, statusCode, responseBody, upstreamMsg); handled {
+			return disable
+		}
+	}
+	// Cline 积分、花费上限与 ClinePass 超限按结构化错误区分，只冷却对应的钱包。
+	// 400 是请求错误，不能因回显的模型名或请求内容触发钱包冷却。
+	if account.IsCline() && (statusCode == http.StatusPaymentRequired ||
+		statusCode == http.StatusForbidden || statusCode == http.StatusTooManyRequests) {
+		if s.handleClineError(ctx, account, statusCode, responseBody, upstreamMsg) {
+			return false
+		}
+		// 402 只会是积分不足：冷却没写进去也不能落到下面的 402 默认分支——那里永久置
+		// status=error，而周期探测只覆盖激活账号，充值后无法自动恢复。
+		if statusCode == http.StatusPaymentRequired {
+			return false
+		}
 	}
 
 	switch statusCode {
@@ -116,9 +139,11 @@ func (s *RateLimitService) tkDispatchHandleUpstreamError(
 	case 401:
 		shouldDisable = s.tkHandleAuth401(ctx, account, upstreamMsg, responseBody)
 	case 402:
-		// 国产供应商：余额不足是可恢复状态（充值/检测恢复后由周期任务自动解除），
-		// 不能走 handleAuthError 永久置 status=error。改为可恢复的临时停调。
-		if account.IsCNProvider() {
+		// 国产供应商 / Command Code：余额（积分）不足是可恢复状态（充值/检测恢复后
+		// 由周期任务自动解除），不能走 handleAuthError 永久置 status=error。改为可恢复的
+		// 临时停调。注：上游同时把 IsOpenCodeZen 并入此分支，TK 侧 OpenCode Zen 402 仍由
+		// prelude 的 standing-billing 路径承接，保持合并前行为。
+		if account.IsCNProvider() || account.IsCommandCode() {
 			s.handleCNProviderInsufficientBalance(ctx, account, upstreamMsg)
 			shouldDisable = true
 			break

@@ -46,7 +46,8 @@ func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverE
 				c.Set(service.OpsSkipPassthroughKey, true)
 			}
 
-			googleError(c, respCode, msg)
+			// 按透传规则改写的是上游错误，不登记本地错误类型。
+			googleErrorWithType(c, respCode, "", "", msg)
 			return
 		}
 	}

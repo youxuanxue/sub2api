@@ -21,22 +21,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-type openAIChatStreamReadErrorCloser struct {
-	payload []byte
-	err     error
-}
-
-func (r *openAIChatStreamReadErrorCloser) Read(p []byte) (int, error) {
-	if len(r.payload) == 0 {
-		return 0, r.err
-	}
-	n := copy(p, r.payload)
-	r.payload = r.payload[n:]
-	return n, nil
-}
-
-func (r *openAIChatStreamReadErrorCloser) Close() error { return nil }
-
 func TestBuildOpenAIChatCompletionsURL(t *testing.T) {
 	t.Parallel()
 

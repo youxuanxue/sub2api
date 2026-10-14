@@ -325,6 +325,61 @@ func TestIsModelRateLimited_OpenAIImageGenerationIntentBlocksTextModelImageTool(
 	require.True(t, account.isModelRateLimitedWithContext(WithOpenAIImageGenerationIntent(context.Background()), "gpt-5.4"))
 }
 
+func TestIsModelRateLimited_AntigravityImageDoesNotInheritGeminiFamilyLimit(t *testing.T) {
+	future := time.Now().Add(10 * time.Minute).Format(time.RFC3339)
+	account := &Account{
+		Platform: PlatformAntigravity,
+		Extra: map[string]any{
+			modelRateLimitsKey: map[string]any{
+				antigravityGeminiModelRateLimitKey: map[string]any{
+					"rate_limit_reset_at": future,
+				},
+			},
+		},
+	}
+
+	for _, model := range []string{"gemini-3.1-flash-image", "gemini-3.1-flash-image-preview", "gemini-3-pro-image"} {
+		require.False(t, account.isModelRateLimitedWithContext(context.Background(), model), model)
+	}
+	require.True(t, account.isModelRateLimitedWithContext(context.Background(), "gemini-3-flash"))
+	rawLimits, ok := account.Extra[modelRateLimitsKey].(map[string]any)
+	require.True(t, ok)
+	rawLimits["gemini-3.1-flash-image"] = map[string]any{
+		"rate_limit_reset_at": future,
+	}
+	// TK: AG 的 Pro image ID 绝不重映射到 Flash image（domain.DefaultAntigravityModelMapping
+	// 注释；Pro 路径由 Gemini Web 独立验证），flash-image 限流不波及 pro-image-preview。
+	require.False(t, account.isModelRateLimitedWithContext(context.Background(), "gemini-3-pro-image-preview"))
+	// 直接命中 flash image wire key 仍然生效。
+	require.True(t, account.isModelRateLimitedWithContext(context.Background(), "gemini-3.1-flash-image-preview"))
+}
+
+func TestIsModelRateLimited_Antigravity_ThinkingAffectsModelKey(t *testing.T) {
+	now := time.Now()
+	future := now.Add(10 * time.Minute).Format(time.RFC3339)
+
+	account := &Account{
+		Platform: PlatformAntigravity,
+		// TK: AG 的 Claude 白名单由 runtime serving overlay 注入（生产路径），
+		// 单测用显式 model_mapping 代替，与上游静态默认映射中的 Claude 条目等价。
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"claude-sonnet-4-5": "claude-sonnet-4-5"},
+		},
+		Extra: map[string]any{
+			modelRateLimitsKey: map[string]any{
+				"claude-sonnet-4-5-thinking": map[string]any{
+					"rate_limit_reset_at": future,
+				},
+			},
+		},
+	}
+
+	ctx := context.WithValue(context.Background(), ctxkey.ThinkingEnabled, true)
+	if !account.isModelRateLimitedWithContext(ctx, "claude-sonnet-4-5") {
+		t.Errorf("expected model to be rate limited")
+	}
+}
+
 func TestIsModelRateLimited_Antigravity_PreviewAliasUsesHighWireKey(t *testing.T) {
 	account := &Account{
 		Platform: PlatformAntigravity,

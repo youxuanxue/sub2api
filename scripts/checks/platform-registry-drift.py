@@ -619,7 +619,20 @@ def run(root: Path) -> tuple[list[list[str]], list[str]]:
     )
 
     ts_types_text = read(root, TS_TYPES_INDEX)
-    ts_union, ts_union_line = parse_ts_union(ts_types_text, "AccountPlatform", TS_TYPES_INDEX)
+    # 2026-10 upstream merge: AccountPlatform widened to
+    # `KnownAccountPlatform | (string & {})` so newly-registered catalog platforms
+    # type-check. The literal platform universe now lives in KnownAccountPlatform;
+    # keep AccountPlatform delegating to it so the lockstep target cannot fork.
+    if not re.search(
+        r"export\s+type\s+AccountPlatform\s*=\s*KnownAccountPlatform\s*\|\s*\(string\s*&\s*\{\}\)",
+        ts_types_text,
+    ):
+        raise ParseFailure(
+            f"{TS_TYPES_INDEX}: `AccountPlatform = KnownAccountPlatform | (string & {{}})` "
+            "delegation not found — the widened alias shape changed; update "
+            "platform-registry-drift.py."
+        )
+    ts_union, ts_union_line = parse_ts_union(ts_types_text, "KnownAccountPlatform", TS_TYPES_INDEX)
 
     domain_values = [v for v, _ in consts.values()]
     domain_line = min(line for _, line in consts.values())
@@ -648,8 +661,10 @@ def run(root: Path) -> tuple[list[list[str]], list[str]]:
             "platform constant universe",
             domain_values,
             f"{DOMAIN_CONSTANTS}:{domain_line} Platform* constants",
-            ts_union,
-            f"{TS_TYPES_INDEX}:{ts_union_line} AccountPlatform union",
+            # 2026-10 shape: AccountPlatform = KnownAccountPlatform | (string & {});
+            # 'composite' lives only on GroupPlatform (CHECK 11 pins that union).
+            [*ts_union, "composite"],
+            f"{TS_TYPES_INDEX}:{ts_union_line} AccountPlatform union (via KnownAccountPlatform; 'composite' on GroupPlatform)",
         ),
     ]:
         fail = compare_pair(label, gv, gl, tv, tl)
@@ -824,16 +839,26 @@ def run(root: Path) -> tuple[list[list[str]], list[str]]:
     # universe that AccountPlatform is checked against (CHECK 3). A stale
     # subset means the group-creation form cannot offer a newly added platform.
 
-    ts_group_plat, ts_group_plat_line = parse_ts_union(
-        ts_types_text, "GroupPlatform", TS_TYPES_INDEX
-    )
+    # 2026-10 upstream merge: GroupPlatform is `AccountPlatform | 'composite'`,
+    # so its literal universe is KnownAccountPlatform + composite; pin the
+    # delegation shape and compare against ts_union (CHECK 3) + 'composite'.
+    if not re.search(
+        r"export\s+type\s+GroupPlatform\s*=\s*AccountPlatform\s*\|\s*'composite'",
+        ts_types_text,
+    ):
+        raise ParseFailure(
+            f"{TS_TYPES_INDEX}: `GroupPlatform = AccountPlatform | 'composite'` "
+            "delegation not found — shape changed; update platform-registry-drift.py."
+        )
+    ts_group_plat = [*ts_union, "composite"]
+    ts_group_plat_line = ts_union_line
 
     fail = compare_pair(
         "GroupPlatform constant universe",
         domain_values,
         f"{DOMAIN_CONSTANTS}:{domain_line} Platform* constants",
         ts_group_plat,
-        f"{TS_TYPES_INDEX}:{ts_group_plat_line} GroupPlatform union",
+        f"{TS_TYPES_INDEX}:{ts_group_plat_line} GroupPlatform union (via KnownAccountPlatform + 'composite')",
     )
     if fail:
         failures.append(fail)
@@ -849,9 +874,31 @@ def run(root: Path) -> tuple[list[list[str]], list[str]]:
     # settings UI silently hides quota controls for newly added platforms.
 
     svc_domain_text = read(root, SERVICE_DOMAIN_CONSTANTS)
-    go_quota_plat, go_quota_plat_line = parse_go_allowed_quota_platforms(
-        svc_domain_text, consts
+    # 2026-10 upstream merge: AllowedQuotaPlatforms is now catalog-driven
+    # (`domain.ConcretePlatformIDs()`), i.e. every concrete platform in
+    # domain/platforms.go platformList (which includes TK's newapi/kiro).
+    if not re.search(
+        r"var\s+AllowedQuotaPlatforms\s*=\s*domain\.ConcretePlatformIDs\(\)",
+        svc_domain_text,
+    ):
+        raise ParseFailure(
+            f"{SERVICE_DOMAIN_CONSTANTS}: `AllowedQuotaPlatforms = "
+            "domain.ConcretePlatformIDs()` delegation not found — shape changed; "
+            "update platform-registry-drift.py."
+        )
+    domain_platforms_text = read(root, "backend/internal/domain/platforms.go")
+    pl_m = re.search(r"var\s+platformList\s*=\s*\[\]PlatformSpec\{(.*?)\n\}", domain_platforms_text, re.S)
+    if not pl_m:
+        raise ParseFailure(
+            "backend/internal/domain/platforms.go: `var platformList = []PlatformSpec{...}` "
+            "not found — renamed/moved? Update platform-registry-drift.py."
+        )
+    go_quota_plat = resolve_go_idents(
+        [(t, "") for t in re.findall(r"\{ID:\s*(Platform\w+)", pl_m.group(1))],
+        consts,
+        "backend/internal/domain/platforms.go",
     )
+    go_quota_plat_line = line_of(domain_platforms_text, pl_m.start())
     ts_quota_plat, ts_quota_plat_line = parse_ts_array(
         ts_const_text, "ALLOWED_QUOTA_PLATFORMS", TS_GATEWAY_PLATFORMS
     )

@@ -52,6 +52,12 @@ func AccountShouldLocalEstimateCountTokens(account *Account) bool {
 	if isNewAPIQianfanTokenPlanAccount(account) {
 		return true
 	}
+	// Cline / Command Code 同样没有 OpenAI Responses input_tokens 端点；合并后
+	// provider profile 默认基址对 chat 非空，不加分支 count_tokens 会凭空拼
+	// .../responses/input_tokens。
+	if account.IsCline() || account.IsCommandCode() {
+		return true
+	}
 	return strings.TrimSpace(nativeOpenAIBaseURLForAccount(account)) == ""
 }
 

@@ -401,6 +401,9 @@ func (s *adminServiceImpl) buildDuplicateAccount(ctx context.Context, source *Ac
 	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
 		return nil, nil, err
 	}
+	if err := NormalizeProtocolRulesCredentials(input.Credentials); err != nil {
+		return nil, nil, err
+	}
 	duplicate, err := buildAccountForCreate(input, accountExtra)
 	if err != nil {
 		return nil, nil, err
@@ -784,6 +787,9 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	// 校验并规范化请求头覆写配置（批量路径为 JSONB 顶层 key 合并，直接校验增量即可）
 	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
+		return nil, err
+	}
+	if err := NormalizeProtocolRulesCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
 	// Bulk may mix platforms; always drop ephemeral SSO/password keys (cookie

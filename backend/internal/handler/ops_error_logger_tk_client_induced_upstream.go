@@ -153,7 +153,13 @@ func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool
 	if tkOpsDashScopeRequestRejection(body, msg) {
 		return true
 	}
-	if strings.EqualFold(strings.TrimSpace(clientErrType), "invalid_request_error") {
+	// TK(merge 2026-10-13)：Google 错误格式（gemini_v1beta 经 SetOpsLocalErrorType 登记
+	// 错误类型）不套用 invalid_request_error 一律 caller-fault 的 blanket 规则。上游对
+	// Google 格式的契约是只有 MarkOpsRequestScopedError 显式标记的失败归 client，通用
+	// upstream 400 保持 upstream/provider 归因
+	// （ops_error_logger_google_test: GoogleErrorAfterUpstreamFailureKeepsUpstreamAttribution）。
+	// 下方基于正文/结构化 error.type 的积极内容判定仍然生效。
+	if localType, _ := service.OpsLocalErrorType(c); localType == "" && strings.EqualFold(strings.TrimSpace(clientErrType), "invalid_request_error") {
 		return true
 	}
 	// Structured signal first: the upstream error envelope type.

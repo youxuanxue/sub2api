@@ -21,11 +21,25 @@ func TestUserPlatformQuotasCNProvidersMigration(t *testing.T) {
 		"CHECK (platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek'))")
 }
 
-func TestUserPlatformQuotasLatestConstraintMigrationPreservesAllPlatforms(t *testing.T) {
-	content, err := FS.ReadFile("tk_087_user_platform_quotas_allow_all_served_platforms.sql")
+// upstream 242 彻底移除 platform CHECK 约束（平台成员资格由应用层目录校验）。
+// 已发布的 tk_083/tk_087/tk_096 不可变（仍会重建放宽版 CHECK，文件名排序在 242 之后），
+// 因此由 tk_103 在其后幂等 DROP，使全新安装与已迁移环境都收敛到 post-242 形态。
+func TestUserPlatformQuotasTK103DropsPlatformCheckAfterWideningMigrations(t *testing.T) {
+	content, err := FS.ReadFile("tk_103_user_platform_quotas_drop_platform_check.sql")
 	require.NoError(t, err)
 
 	sql := strings.Join(strings.Fields(string(content)), " ")
-	require.Contains(t, sql,
-		"CHECK (platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'newapi', 'kiro'))")
+	require.Contains(t, sql, "DROP CONSTRAINT IF EXISTS user_platform_quotas_platform_check")
+	require.NotContains(t, sql, "ADD CONSTRAINT")
+
+	// 迁移按文件名字典序执行：tk_103 必须排在所有重建 CHECK 的迁移之后。
+	for _, earlier := range []string{
+		"242_drop_platform_check_constraints.sql",
+		"tk_083_user_platform_quotas_allow_newapi_kiro.sql",
+		"tk_087_user_platform_quotas_allow_all_served_platforms.sql",
+		"tk_096_quota_platforms_include_minimax.sql",
+	} {
+		require.Less(t, earlier, "tk_103_user_platform_quotas_drop_platform_check.sql",
+			"%s must sort before tk_103", earlier)
+	}
 }

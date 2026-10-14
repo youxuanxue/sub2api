@@ -269,7 +269,7 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 			if result, err, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
 				return result, err
 			}
-			s.handleRetryExhaustedSideEffects(ctx, resp, account)
+			s.handleRetryExhaustedSideEffects(ctx, resp, account, input.RequestModel)
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				ProxyID:            opsUpstreamProxyID(account),
 				ProxyName:          opsUpstreamProxyName(account),
@@ -294,7 +294,7 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 				RetryableOnSameAccount: tkRetryableOnSameAccount(account, resp, respBody),
 			}
 		}
-		return s.handleRetryExhaustedError(ctx, resp, c, account)
+		return s.handleRetryExhaustedError(ctx, resp, c, account, input.RequestModel)
 	}
 
 	if resp.StatusCode >= 400 && s.shouldFailoverUpstreamError(resp.StatusCode) {

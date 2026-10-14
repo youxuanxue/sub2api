@@ -132,9 +132,9 @@
     {
       "path": "backend/internal/model/error_passthrough_rule.go",
       "must_contain": [
-        "PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe}"
+        "PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe, PlatformCommandCode, PlatformCline}"
       ],
-      "rationale": "The separate model.AllPlatforms registry feeds the error-passthrough rule UI's applicable-platform list. The concrete-provider tail must retain Grok together with the TokenKey CN providers and OpenCodeGo; upstream intentionally removed the compatibility-only newapi/kiro entries from this registry."
+      "rationale": "The separate model.AllPlatforms registry feeds the error-passthrough rule UI's applicable-platform list. The concrete-provider tail must retain Grok together with the TokenKey CN providers and OpenCodeGo; upstream intentionally removed the compatibility-only newapi/kiro entries from this registry. (2026-10 merge: upstream added command_code/cline to the concrete-provider tail; grok/CN/OpenCodeGo membership unchanged.)"
     },
     {
       "path": "backend/internal/pkg/xai/oauth_tk_refresh.go",
@@ -485,9 +485,9 @@
     {
       "path": "backend/internal/handler/admin/group_handler.go",
       "must_contain": [
-        "antigravity newapi kiro grok"
+        "`json:\"platform\" binding:\"omitempty,group_platform\"`"
       ],
-      "rationale": "grok must be an accepted group Platform value on the create/update admin DTOs (CreateGroupRequest/UpdateGroupRequest `oneof`). TK has appended a platform to this exact binding three times (newapi, kiro #481, grok #791); an upstream merge that reverts the oneof to the upstream/earlier platform set silently strips grok (and kiro/newapi), leaving platform=grok accounts with no schedulable group. Pinning the extended enum tail makes such a revert fail the merge sentinel check."
+      "rationale": "grok must be an accepted group Platform value on the create/update admin DTOs. Upstream 2026-10 replaced the hand-written oneof whitelist with the catalog-driven group_platform validator (internal/handler/admin/platform_validation.go -> domain.IsGroupPlatform over domain/platforms.go, which registers anthropic/openai/gemini/antigravity/newapi/kiro/grok/...). This sentinel now anchors that both Create/UpdateGroupRequest keep the group_platform binding; platform membership itself is pinned by the domain catalog tests."
     },
     {
       "path": "backend/internal/service/account.go",

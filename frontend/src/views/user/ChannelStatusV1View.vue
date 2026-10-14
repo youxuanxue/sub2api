@@ -6,7 +6,7 @@
       :loading="loading"
       :auto-refresh="autoRefresh"
       @update:window="handleWindowChange"
-      @refresh="manualReload"
+      @refresh="refresh()"
     />
 
     <MonitorCardGrid
@@ -69,7 +69,7 @@ const autoRefresh = useAutoRefresh({
   intervals: [30, 60, 120] as const,
   defaultInterval: DEFAULT_INTERVAL_SECONDS,
   defaultEnabled: true,
-  onRefresh: () => reload(true),
+  onRefresh: () => refresh(true),
   shouldPause: () => document.hidden || loading.value,
 })
 const countdown = autoRefresh.countdown
@@ -112,23 +112,36 @@ async function reload(silent = false) {
   }
 }
 
-async function manualReload() {
-  await reload(false)
+async function refresh(silent = false) {
+  await reload(silent)
   // After base reload, refresh any cached detail records so non-7d availability
   // values stay in sync without forcing the user to switch tabs again.
+  // reload 已清空 detailCache，非强制加载即可；与 items watch 共享 in-flight 去重。
   if (currentWindow.value !== '7d') {
     await Promise.all(items.value.map((item) => loadDetail(item, true)))
   }
 }
 
+const detailInflight = new Map<number, Promise<void>>()
+
 async function loadDetail(item: PublicUserMonitorView, force = false) {
   if (!force && detailCache[item.id]) return
-  try {
-    const details = await Promise.all(item.source_monitor_ids.map(fetchChannelMonitorDetail))
-    detailCache[item.id] = mergePublicMonitorDetails(details)
-  } catch (err: unknown) {
-    appStore.showError(extractApiErrorMessage(err, t('channelStatus.detailLoadError')))
-  }
+  // 同一 monitor 的并发加载（items watch 与 refresh 都会触发）共享同一个请求，
+  // 避免计时器节拍时对 status 端点打两次。
+  const pending = detailInflight.get(item.id)
+  if (pending) return pending
+  const task = (async () => {
+    try {
+      const details = await Promise.all(item.source_monitor_ids.map(fetchChannelMonitorDetail))
+      detailCache[item.id] = mergePublicMonitorDetails(details)
+    } catch (err: unknown) {
+      appStore.showError(extractApiErrorMessage(err, t('channelStatus.detailLoadError')))
+    } finally {
+      detailInflight.delete(item.id)
+    }
+  })()
+  detailInflight.set(item.id, task)
+  return task
 }
 
 async function ensureDetailsForWindow() {

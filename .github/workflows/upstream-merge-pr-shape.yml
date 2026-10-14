@@ -119,6 +119,9 @@ jobs:
         with:
           python-version: '3.x'
 
+      - name: Install Python check dependencies
+        run: python3 -m pip install --quiet pyyaml
+
       - name: Add upstream remote and fetch
         run: |
           if ! git remote get-url upstream >/dev/null 2>&1; then

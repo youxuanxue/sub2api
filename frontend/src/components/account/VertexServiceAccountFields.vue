@@ -10,10 +10,13 @@ const props = withDefaults(
     fields: VertexServiceAccountFieldBag
     variant?: 'create' | 'edit'
     jsonWriteOnce?: boolean
+    /** 是否提供 API Key 认证切换（仅 create + Gemini 平台；edit 模式由账号现有 auth_mode 决定）。 */
+    allowApiKeyMode?: boolean
   }>(),
   {
     variant: 'create',
-    jsonWriteOnce: false
+    jsonWriteOnce: false,
+    allowApiKeyMode: false
   }
 )
 
@@ -55,7 +58,47 @@ const jsonPlaceholderKey = () => {
 
 <template>
   <div class="space-y-4">
-    <div>
+    <!-- API Key 认证切换（upstream 2026-10）：仅创建 Gemini Vertex 账号时提供。 -->
+    <div v-if="allowApiKeyMode">
+      <label class="input-label">{{ t('admin.accounts.vertexAuthMode') }}</label>
+      <div class="mt-2 flex gap-4">
+        <label class="flex cursor-pointer items-center">
+          <input
+            v-model="fields.authMode.value"
+            type="radio"
+            value="service_account"
+            data-testid="vertex-auth-mode-serviceaccount"
+            class="mr-2 text-primary-600 focus:ring-primary-500"
+          />
+          <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.vertexAuthModeServiceAccount') }}</span>
+        </label>
+        <label class="flex cursor-pointer items-center">
+          <input
+            v-model="fields.authMode.value"
+            type="radio"
+            value="apikey"
+            data-testid="vertex-auth-mode-apikey"
+            class="mr-2 text-primary-600 focus:ring-primary-500"
+          />
+          <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.vertexAuthModeApiKey') }}</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- API Key 认证字段 -->
+    <div v-if="fields.isApiKeyMode.value">
+      <label class="input-label">API Key</label>
+      <input
+        v-model="fields.apiKey.value"
+        type="password"
+        class="input font-mono"
+        :data-testid="variant === 'edit' ? 'edit-vertex-api-key-input' : 'vertex-api-key-input'"
+        :placeholder="variant === 'edit' ? t('admin.accounts.leaveEmptyToKeep') : ''"
+      />
+      <p class="input-hint">{{ t('admin.accounts.vertexApiKeyHint') }}</p>
+    </div>
+
+    <div v-if="!fields.isApiKeyMode.value">
       <label class="input-label">{{ t('admin.accounts.vertexSaJsonLabel') }}</label>
       <input
         :ref="(el) => { fields.fileInputRef.value = el as HTMLInputElement | null }"
@@ -134,12 +177,24 @@ const jsonPlaceholderKey = () => {
       <div>
         <label class="input-label">Project ID</label>
         <input
+          v-if="fields.isApiKeyMode.value"
+          v-model="fields.projectId.value"
+          type="text"
+          class="input font-mono"
+          :data-testid="variant === 'edit' ? 'edit-vertex-api-key-project-id-input' : 'vertex-api-key-project-id-input'"
+          :placeholder="t('admin.accounts.vertexApiKeyProjectIdPlaceholder')"
+        />
+        <input
+          v-else
           :value="fields.projectId.value"
           type="text"
           class="input font-mono"
           readonly
           :placeholder="t('admin.accounts.vertexProjectIdPlaceholder')"
         />
+        <p v-if="fields.isApiKeyMode.value" class="input-hint">
+          {{ t('admin.accounts.vertexApiKeyProjectIdHint') }}
+        </p>
       </div>
       <div>
         <label class="input-label">Location</label>

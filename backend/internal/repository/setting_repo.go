@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -15,6 +16,43 @@ const defaultSettingCacheTTL = 5 * time.Second
 type settingCacheEntry struct {
 	setting *service.Setting
 	expires time.Time
+}
+
+// SetContentModerationConfig holds live group rows until the setting is written.
+// Deletion takes FOR UPDATE on the group before cleaning this setting, so both
+// operations follow the same lock order: groups, then settings.
+func (r *settingRepository) SetContentModerationConfig(ctx context.Context, value string, groupIDs []int64) error {
+	tx, err := r.client.Tx(ctx)
+	if err != nil && !errors.Is(err, ent.ErrTxStarted) {
+		return err
+	}
+	client := r.client
+	if err == nil {
+		defer func() { _ = tx.Rollback() }()
+		client = tx.Client()
+	}
+	if err := lockLiveGroups(ctx, client, groupIDs); err != nil {
+		return err
+	}
+	now := time.Now()
+	if err := client.Setting.Create().SetKey(service.SettingKeyContentModerationConfig).
+		SetValue(value).SetUpdatedAt(now).OnConflictColumns(setting.FieldKey).
+		UpdateNewValues().Exec(ctx); err != nil {
+		return err
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	// TK 设置缓存（5s TTL）：直写路径提交后失效，避免读到旧的审核配置。
+	r.mu.Lock()
+	if r.cache != nil {
+		delete(r.cache, service.SettingKeyContentModerationConfig)
+	}
+	r.allCached = false
+	r.mu.Unlock()
+	return nil
 }
 
 type settingRepository struct {
@@ -31,6 +69,14 @@ func NewSettingRepository(client *ent.Client) service.SettingRepository {
 		client: client,
 		cache:  make(map[string]settingCacheEntry),
 		ttl:    defaultSettingCacheTTL,
+	}
+}
+
+// ensureCache 懒初始化缓存 map：部分测试直接以 &settingRepository{client: ...}
+// 构造（绕过 NewSettingRepository），写 nil map 会 panic。调用方须持有写锁。
+func (r *settingRepository) ensureCache() {
+	if r.cache == nil {
+		r.cache = make(map[string]settingCacheEntry)
 	}
 }
 
@@ -51,6 +97,7 @@ func (r *settingRepository) Get(ctx context.Context, key string) (*service.Setti
 	if err != nil {
 		if ent.IsNotFound(err) {
 			r.mu.Lock()
+			r.ensureCache()
 			r.cache[key] = settingCacheEntry{setting: nil, expires: time.Now().Add(r.ttl)}
 			r.mu.Unlock()
 			return nil, service.ErrSettingNotFound
@@ -64,6 +111,7 @@ func (r *settingRepository) Get(ctx context.Context, key string) (*service.Setti
 		UpdatedAt: m.UpdatedAt,
 	}
 	r.mu.Lock()
+	r.ensureCache()
 	r.cache[key] = settingCacheEntry{setting: val, expires: time.Now().Add(r.ttl)}
 	r.mu.Unlock()
 
@@ -94,6 +142,7 @@ func (r *settingRepository) Set(ctx context.Context, key, value string) error {
 	}
 
 	r.mu.Lock()
+	r.ensureCache()
 	r.cache[key] = settingCacheEntry{
 		setting: &service.Setting{Key: key, Value: value, UpdatedAt: now},
 		expires: now.Add(r.ttl),
@@ -133,6 +182,7 @@ func (r *settingRepository) GetMultiple(ctx context.Context, keys []string) (map
 	}
 
 	r.mu.Lock()
+	r.ensureCache()
 	now = time.Now()
 	found := make(map[string]bool, len(settings))
 	for _, s := range settings {
@@ -176,6 +226,7 @@ func (r *settingRepository) SetMultiple(ctx context.Context, settings map[string
 	}
 
 	r.mu.Lock()
+	r.ensureCache()
 	for key, value := range settings {
 		r.cache[key] = settingCacheEntry{
 			setting: &service.Setting{Key: key, Value: value, UpdatedAt: now},

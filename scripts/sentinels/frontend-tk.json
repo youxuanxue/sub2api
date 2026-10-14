@@ -1506,11 +1506,11 @@
     {
       "path": "frontend/src/constants/platforms.ts",
       "must_contain": [
-        "value: 'newapi'",
-        "value: 'kiro'",
-        "...CONCRETE_PLATFORM_OPTIONS"
+        "watchSyncEffect(() => {",
+        "const concrete = listPlatforms().map(spec => ({ value: spec.id, label: spec.display_name }))",
+        "CONCRETE_PLATFORM_OPTIONS.splice(0, CONCRETE_PLATFORM_OPTIONS.length, ...concrete)"
       ],
-      "rationale": "The active shared selector must preserve TokenKey platforms across upstream updates; otherwise existing NewAPI and Kiro groups lose create/filter/edit access."
+      "rationale": "The active shared selector must preserve TokenKey platforms across upstream updates; otherwise existing NewAPI and Kiro groups lose create/filter/edit access. Upstream 2026-10 drives CONCRETE_PLATFORM_OPTIONS from the platform catalog (listPlatforms); newapi/kiro membership is pinned by platformCatalog.builtin.json/domain SSOT, so this sentinel anchors the catalog-driven fill."
     },
     {
       "path": "frontend/src/views/admin/groupsImagePricing.ts",
@@ -2460,9 +2460,10 @@
         "export function getPublicPlatformLabel(",
         "export function getPublicPlatformStyleKey(",
         "export function normalizePlatformDashboardStats(",
-        "export function normalizePlatformUsage("
+        "export function normalizePlatformUsage(",
+        "return PUBLIC_PLATFORM_LABELS[canonical] ?? platformDisplayName(canonical)"
       ],
-      "rationale": "Single frontend compatibility owner for the public platform taxonomy. Customer and business usage views must merge internal Gemini and Antigravity routing sources into Google; losing this module can restore source-specific labels during a staggered backend/frontend rollout even while all pages compile."
+      "rationale": "Single frontend compatibility owner for the public platform taxonomy. Customer and business usage views must merge internal Gemini and Antigravity routing sources into Google; losing this module can restore source-specific labels during a staggered backend/frontend rollout even while all pages compile. Registered provider labels fall back to the shared platform catalog so TypeSafe / Jev and other names are not reduced to raw IDs."
     },
     {
       "path": "frontend/src/components/user/PlatformUsageCards.vue",

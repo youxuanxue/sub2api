@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
@@ -22,6 +23,7 @@ func (s *OpenAIGatewayService) tkTryRouteOpenAIForwardProtocol(
 	account *Account,
 	body []byte,
 	reqModel string,
+	startTime time.Time,
 ) (result *OpenAIForwardResult, outBody []byte, handled bool, err error) {
 	outBody = body
 
@@ -31,7 +33,7 @@ func (s *OpenAIGatewayService) tkTryRouteOpenAIForwardProtocol(
 			result, err = s.forwardResponsesViaNativeAnthropic(ctx, c, account, outBody, reqModel)
 			return result, outBody, true, err
 		case protocolrouter.ProtocolChatCompletions:
-			result, err = s.forwardResponsesViaRawChatCompletions(ctx, c, account, outBody)
+			result, err = s.forwardResponsesViaRawChatCompletions(ctx, c, account, outBody, startTime)
 			return result, outBody, true, err
 		case protocolrouter.ProtocolResponses:
 			// Continue through the native Responses transport below.
@@ -43,7 +45,7 @@ func (s *OpenAIGatewayService) tkTryRouteOpenAIForwardProtocol(
 	// CN 供应商 anthropic 协议账号：/v1/responses 入站是交叉协议组合
 	// （Responses 客户端 × Anthropic 上游），转成 Anthropic 请求走原生端点。
 	// 不能落到下面的 raw-CC 分支——其 URL 构造会把 anthropic base 当 CC base 用。
-	if account.IsAnthropicProtocol() {
+	if !protocolExecutionBound(ctx) && account.IsAnthropicProtocol() {
 		result, err = s.forwardResponsesViaNativeAnthropic(ctx, c, account, outBody, reqModel)
 		return result, outBody, true, err
 	}
@@ -61,8 +63,8 @@ func (s *OpenAIGatewayService) tkTryRouteOpenAIForwardProtocol(
 		}
 	}
 
-	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
-		result, err = s.forwardResponsesViaRawChatCompletions(ctx, c, account, outBody)
+	if !protocolExecutionBound(ctx) && shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+		result, err = s.forwardResponsesViaRawChatCompletions(ctx, c, account, outBody, startTime)
 		return result, outBody, true, err
 	}
 	return nil, outBody, false, nil
@@ -72,15 +74,20 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
 	}
-	if IsMultiProtocolAPIKeyProvider(account.Platform) {
-		// Explicit protocol configuration takes precedence over asynchronous probes.
+	if account.routesByModel() {
+		// Model protocol_rules are the authority. Probe Extra must not collapse
+		// Grok/GPT/Muse into Chat Completions.
+		return false
+	}
+	if account.RoutesProtocolByInbound() {
+		// 按入站协议分流的供应商（国产厂商等）：显式协议配置优先于异步探针
+		// Extra；adaptive 仅在供应商有原生 Responses 端点时直转，否则回退
+		// Chat Completions（如 GLM）。
 		switch account.GetAPIProtocol() {
 		case APIProtocolChatCompletions:
 			return true
 		case APIProtocolAdaptive:
 			return !account.SupportsNativeCNResponses()
-		case APIProtocolResponses, APIProtocolAnthropic:
-			return false
 		default:
 			return false
 		}

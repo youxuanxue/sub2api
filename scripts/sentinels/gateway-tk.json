@@ -13741,17 +13741,17 @@
       "must_contain": [
         "return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)\n\t}\n\n\t// OpenCode multi-protocol model routing must run before tkTryRoute",
         "if account.IsOpenCodeGo() {\n\t\tmapped := resolveOpenCodeGoMappedModel(account, originalBody, \"\")\n\t\tif IsOpenCodeUnsupportedModel(mapped) {\n\t\t\treturn nil, writeOpenCodeUnsupportedModelError(c, false, mapped)\n\t\t}\n\t\tif !protocolExecutionBound(ctx) {\n\t\t\tswitch openCodeGoNativeProtocol(account, mapped) {",
-        "result, outBody, handled, err := s.tkTryRouteOpenAIForwardProtocol(ctx, c, account, body, reqModel)"
+        "result, outBody, handled, err := s.tkTryRouteOpenAIForwardProtocol(ctx, c, account, body, reqModel, startTime)"
       ],
-      "rationale": "OpenAI Forward must keep PlatformGrok early-return, then OpenCode unsupported-reject + model-protocol switch (when !protocolExecutionBound), THEN tkTryRouteOpenAIForwardProtocol. Reordering lets Grok enter protocol/normalize/raw-CC companions, or lets Plan/Anthropic/shouldForward swallow OpenCode adaptive multi-protocol routing (parity with ForwardAsAnthropic and upstream)."
+      "rationale": "OpenAI Forward must keep PlatformGrok early-return, then OpenCode unsupported-reject + model-protocol switch (when !protocolExecutionBound), THEN tkTryRouteOpenAIForwardProtocol. Reordering lets Grok enter protocol/normalize/raw-CC companions, or lets Plan/Anthropic/shouldForward swallow OpenCode adaptive multi-protocol routing (parity with ForwardAsAnthropic and upstream). (2026-10 merge: call gained the upstream startTime arg for latency attribution; ordering invariant unchanged.)"
     },
     {
       "path": "backend/internal/service/openai_gateway_forward_tk_protocol_dispatch.go",
       "must_contain": [
         "if target, planned := protocolExecutionTarget(ctx); planned {",
-        "if account.IsAnthropicProtocol() {",
+        "if !protocolExecutionBound(ctx) && account.IsAnthropicProtocol() {",
         "if account.IsOpenAIApiKey() {",
-        "if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {"
+        "if !protocolExecutionBound(ctx) && shouldForwardOpenAIResponsesViaRawChatCompletions(account) {"
       ],
       "rationale": "P2 protocol-dispatch companion owns the load-bearing early-routing order after Grok: planned protocol target → Anthropic-protocol native → API-key normalize → shouldForward raw-CC. Reordering (especially Anthropic after raw-CC, or normalize after shouldForward) silently breaks CN Anthropic Responses and CloudWise dual-stack accounts. Focused regressions live in openai_gateway_forward_tk_protocol_dispatch_test.go."
     },
@@ -14281,9 +14281,9 @@
     {
       "path": "backend/internal/service/openai_gateway_passthrough_tk.go",
       "must_contain": [
-        "normalizeOpenAIResponsesCompatibilityBody(body, account, isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) || isOpenAIResponsesLiteWebSocketPayload(body), isOpenAIResponsesCompactPath(c))"
+        "normalizedBody, normalized, normalizeErr := normalizeOpenAIResponsesCompatibilityBodyWithOptions(body, account, openAIResponsesCompatibilityOptions{"
       ],
-      "rationale": "Raw HTTP passthrough must consume the shared Codex compatibility policy."
+      "rationale": "Raw HTTP passthrough must consume the shared Codex compatibility policy. (2026-10 merge: upstream refactored the shared policy entry to normalizeOpenAIResponsesCompatibilityBodyWithOptions with an options struct; the passthrough path still consumes the same Codex compatibility policy.)"
     },
     {
       "path": "backend/internal/service/openai_ws_forwarder_ingress_tk.go",
@@ -16300,9 +16300,9 @@
       "path": "backend/internal/service/openai_gateway_request_body.go",
       "must_contain": [
         "normalizeOpenAIOAuthWebSearchHistory(normalized, responsesLite)",
-        "account.IsOpenAIOAuthLike() && !compact"
+        "account.IsOpenAIOAuthLike() && !opts.Compact"
       ],
-      "rationale": "HTTP passthrough and both WebSocket paths consume the same scoped history repair."
+      "rationale": "HTTP passthrough and both WebSocket paths consume the same scoped history repair. (2026-10 merge: upstream threaded the compact flag through an options struct; the OAuth-like + non-compact scoping of the shared history repair is unchanged.)"
     },
     {
       "path": "backend/internal/service/openai_gateway_passthrough_tk_failover.go",
@@ -16851,6 +16851,36 @@
       "rationale": "Single Kiro request budget owner: latch deadline once, restrict relay inheritance, preserve caller cancel and stop account retries at exhaustion."
     },
     {
+      "path": "backend/internal/service/openai_gateway_forward.go",
+      "must_contain": [
+        "if !protocolExecutionBound(ctx) {\n\t\troutingModel := upstreamRoutingModel(account, body, \"\")"
+      ],
+      "rationale": "Selected TokenKey protocol Plans own endpoint and wire shape. Upstream routing must not convert Responses to Chat after binding."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward_tk_protocol_dispatch.go",
+      "must_contain": [
+        "!protocolExecutionBound(ctx) && account.IsAnthropicProtocol()",
+        "!protocolExecutionBound(ctx) && shouldForwardOpenAIResponsesViaRawChatCompletions(account)"
+      ],
+      "rationale": "Legacy protocol hints must not replace a selected Responses Plan; preserve normalization without entering another converter."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "if !protocolExecutionBound(ctx) && account.IsOpenAIApiKey() &&\n\t\t\topenai_compat.NormalizeResponsesSupportMode(responsesMode)"
+      ],
+      "rationale": "Structured-input retries cannot replay a Chat payload to a bound Responses endpoint."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward_tk_protocol_dispatch_test.go",
+      "must_contain": [
+        "func TestForwardPreservesSelectedResponsesPlanOverProviderRules",
+        "func TestChatResponsesRejectionDoesNotReplaceSelectedPlan"
+      ],
+      "rationale": "Assert outbound payload shape as well as URL, and no cross-protocol resend after a bound Plan receives a structured-input 400; URL-only assertions missed the regression."
+    },
+    {
       "path": "ops/stage0/qa-runtime-environment.sh",
       "must_contain": [
         "QA_LIVE_ARCHIVE_STORAGE_DRIVER=\"s3\"",
@@ -16933,6 +16963,15 @@
         "prod_phase2_live_health.py --from-probe-stdin --legacy-aws --json"
       ],
       "rationale": "Daily diagnostics explicitly retain the historical AWS IAM audit while old objects retain recovery access; default live health uses HCloud."
+    },
+    {
+      "path": "backend/internal/repository/upstream_20261013_migration_integration_test.go",
+      "must_contain": [
+        "func TestUpstream20261013Migrations_PreserveOldWriterAndRetry",
+        "func TestUpstream20261013Migrations_LiveReaderBoundsDDLWait",
+        "pq.ErrorCode(\"55P03\")"
+      ],
+      "rationale": "Real PostgreSQL regression for this upstream rollout: ordinary old-instance readers cannot leave DDL waiting indefinitely, partial ALTER rolls back, retry succeeds, and old-column writes preserve quota data and new defaults."
     },
     {
       "path": "deploy/aws/stage0/tokenkey-qa-maintenance.sh",

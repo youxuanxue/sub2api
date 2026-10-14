@@ -15,5 +15,9 @@ package service
 func UsesOpenAI403Ladder(platform string) bool {
 	return platform == PlatformOpenAI ||
 		platform == PlatformOpenCodeGo ||
+		// 上游新增的多协议 API-key 平台（command_code / cline）与原
+		// IsMultiProtocolAPIKey 403 覆盖范围对齐。
+		platform == PlatformCommandCode ||
+		platform == PlatformCline ||
 		IsCNProvider(platform)
 }

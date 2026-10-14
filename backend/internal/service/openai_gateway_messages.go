@@ -89,9 +89,27 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 				return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 			}
 		}
+		// 按模型分流平台（Command Code 等）：模型 protocol_rules 是协议判定的权威，
+		// 必须先于账号级协议标记（tkTryRouteForwardAsAnthropic）按统一入口分流。
+		// OpenCode 已在上方 switch 处理（Responses 落空时这里 resolve 同样返回
+		// Responses，不会再命中分支）。
+		if account.routesByModel() {
+			routingModel := upstreamRoutingModel(account, body, defaultMappedModel)
+			switch s.resolveUpstreamProtocolFor(ctx, account, APIProtocolAnthropic, routingModel) {
+			case APIProtocolAnthropic:
+				// 上游为供应商原生 Anthropic 端点：/v1/messages 零转换直通。
+				return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
+			case APIProtocolChatCompletions:
+				return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+			}
+		}
 		if result, routed, err := s.tkTryRouteForwardAsAnthropic(ctx, c, account, body, defaultMappedModel); routed {
 			return result, err
 		}
+	}
+
+	if _, err := s.prepareCodexAccountIdentitySource(ctx, c, account); err != nil {
+		return nil, err
 	}
 
 	startTime := time.Now()

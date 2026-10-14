@@ -261,11 +261,11 @@ describe('CreateAccountModal — NewAPI (5th platform)', () => {
     await clickPlatform(wrapper, 'Gemini')
     await nextTick()
 
-    expect(wrapper.text()).toContain('admin.accounts.gemini.accountType.vertexTitle')
-    expect(wrapper.text()).toContain('admin.accounts.gemini.accountType.vertexDesc')
+    expect(wrapper.text()).toContain('admin.accounts.vertexLabel')
+    expect(wrapper.text()).toContain('admin.accounts.vertexGeminiDesc')
 
     const serviceAccountButtons = wrapper.findAll('button').filter((b) =>
-      b.text().includes('admin.accounts.gemini.accountType.vertexTitle')
+      b.text().includes('admin.accounts.vertexLabel')
     )
     expect(serviceAccountButtons).toHaveLength(1)
     await serviceAccountButtons[0].trigger('click')

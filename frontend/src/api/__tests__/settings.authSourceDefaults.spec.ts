@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { ALLOWED_QUOTA_PLATFORMS } from '@/constants/gatewayPlatforms';
 
 import {
   appendAuthSourceDefaultsToUpdateRequest,
@@ -9,9 +8,17 @@ import {
   type UpdateSettingsRequest,
   type DefaultPlatformQuotasMap,
 } from "@/api/admin/settings";
+import { listPlatformIds } from "@/constants/platformCatalog";
 
+/** 与后端 AllowedQuotaPlatforms 一致的全部具体平台（平台清单）。 */
+const quotaPlatforms = [
+  "anthropic", "openai", "gemini", "antigravity", "newapi", "kiro", "grok",
+  "kimi", "zhipu", "deepseek", "minimax", "opencode_go", "typesafe", "command_code", "cline",
+];
+
+/** 全部平台全 null 的 map，用于断言归一化默认值 */
 const allNullQuotas: DefaultPlatformQuotasMap = Object.fromEntries(
-  ALLOWED_QUOTA_PLATFORMS.map(platform => [platform, { daily: null, weekly: null, monthly: null }])
+  quotaPlatforms.map((platform) => [platform, { daily: null, weekly: null, monthly: null }]),
 )
 
 describe("admin settings auth source defaults helpers", () => {
@@ -234,11 +241,14 @@ describe("normalizePlatformQuotasMap", () => {
     expect(result.gemini).toEqual({ daily: null, weekly: null, monthly: null });
     expect(result.antigravity).toEqual({ daily: null, weekly: null, monthly: null });
     expect(result.grok).toEqual({ daily: null, weekly: null, monthly: null });
+    expect(result.kimi).toEqual({ daily: null, weekly: null, monthly: null });
+    expect(result.opencode_go).toEqual({ daily: null, weekly: null, monthly: null });
   });
 
-  it("无参数时返回 registry 所有配额平台全 null", () => {
+  it("无参数时返回平台清单中的全部平台全 null", () => {
     const result = normalizePlatformQuotasMap();
-    expect(Object.keys(result).sort()).toEqual([...ALLOWED_QUOTA_PLATFORMS].sort());
+    expect(listPlatformIds()).toEqual(quotaPlatforms);
+    expect(Object.keys(result)).toEqual(quotaPlatforms);
     for (const v of Object.values(result)) {
       expect(v).toEqual({ daily: null, weekly: null, monthly: null });
     }
@@ -286,7 +296,7 @@ describe("sanitizePlatformQuotasMap", () => {
 
   it("缺失平台填充为全 null", () => {
     const result = sanitizePlatformQuotasMap({});
-    expect(Object.keys(result).sort()).toEqual([...ALLOWED_QUOTA_PLATFORMS].sort());
+    expect(Object.keys(result)).toEqual(quotaPlatforms);
     for (const v of Object.values(result)) {
       expect(v).toEqual({ daily: null, weekly: null, monthly: null });
     }

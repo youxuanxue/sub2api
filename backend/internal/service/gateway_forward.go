@@ -791,7 +791,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			if result, err, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
 				return result, err
 			}
-			s.handleRetryExhaustedSideEffects(ctx, resp, account)
+			s.handleRetryExhaustedSideEffects(ctx, resp, account, reqModel)
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				ProxyID:            opsUpstreamProxyID(account),
 				ProxyName:          opsUpstreamProxyName(account),
@@ -815,7 +815,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				RetryableOnSameAccount: tkRetryableOnSameAccount(account, resp, respBody),
 			}
 		}
-		return s.handleRetryExhaustedError(ctx, resp, c, account)
+		return s.handleRetryExhaustedError(ctx, resp, c, account, reqModel)
 	}
 
 	// 处理可切换账号的错误

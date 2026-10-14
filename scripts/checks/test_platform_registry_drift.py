@@ -89,6 +89,7 @@ def _fixture(
             PlatformNewAPI = "newapi"
             PlatformKiro = "kiro"
             PlatformGrok = "grok"
+            PlatformComposite = "composite"
         )
 
         const (
@@ -123,6 +124,26 @@ def _fixture(
             SubscriptionStatusSuspended = "suspended"
             SubscriptionStatusRevoked   = "revoked"
         )
+        """,
+    )
+    _write(
+        root,
+        "backend/internal/domain/platforms.go",
+        """
+        package domain
+
+        type PlatformSpec struct {
+            ID          string
+            DisplayName string
+        }
+
+        var platformList = []PlatformSpec{
+            {ID: PlatformAnthropic, DisplayName: "Anthropic"},
+            {ID: PlatformOpenAI, DisplayName: "OpenAI"},
+            {ID: PlatformGemini, DisplayName: "Gemini"},
+            {ID: PlatformAntigravity, DisplayName: "Antigravity"},
+            {ID: PlatformGrok, DisplayName: "Grok"},
+        }
         """,
     )
     _write(
@@ -195,18 +216,13 @@ def _fixture(
           status: 'active' | 'disabled'
         }
 
-        export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+        export type KnownAccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+
+        export type AccountPlatform = KnownAccountPlatform | (string & {})
+
+        export type GroupPlatform = AccountPlatform | 'composite'
 
         export type SubscriptionType = 'standard' | 'subscription'
-
-        export type AccountPlatform =
-          | 'anthropic'
-          | 'gemini'
-          | 'openai'
-          | 'antigravity'
-          | 'newapi'
-          | 'kiro'
-          | 'grok'
 
         export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
 
@@ -224,13 +240,7 @@ def _fixture(
         """
         package service
 
-        var AllowedQuotaPlatforms = []string{
-            PlatformAnthropic,
-            PlatformOpenAI,
-            PlatformGemini,
-            PlatformAntigravity,
-            PlatformGrok,
-        }
+        var AllowedQuotaPlatforms = domain.ConcretePlatformIDs()
         """,
     )
     _write(
@@ -333,9 +343,10 @@ class PlatformRegistryDriftTest(unittest.TestCase):
                   role: 'admin'
                   status: 'active' | 'disabled'
                 }
-                export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+                export type KnownAccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+                export type AccountPlatform = KnownAccountPlatform | (string & {})
+                export type GroupPlatform = AccountPlatform | 'composite'
                 export type SubscriptionType = 'standard' | 'subscription'
-                export type AccountPlatform = 'anthropic' | 'gemini' | 'openai' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
                 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
                 export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription' | 'invitation'
                 export interface UserSubscription {
@@ -367,9 +378,10 @@ class PlatformRegistryDriftTest(unittest.TestCase):
                   role: 'admin' | 'user'
                   status: 'active' | 'disabled'
                 }
-                export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+                export type KnownAccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+                export type AccountPlatform = KnownAccountPlatform | (string & {})
+                export type GroupPlatform = AccountPlatform | 'composite'
                 export type SubscriptionType = 'standard' | 'subscription'
-                export type AccountPlatform = 'anthropic' | 'gemini' | 'openai' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
                 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
                 export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription' | 'invitation' | 'bogus'
                 export interface UserSubscription {
@@ -401,9 +413,10 @@ class PlatformRegistryDriftTest(unittest.TestCase):
                   role: 'admin' | 'user'
                   status: 'active' | 'disabled'
                 }
-                export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+                export type KnownAccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
+                export type AccountPlatform = KnownAccountPlatform | (string & {})
+                export type GroupPlatform = AccountPlatform | 'composite'
                 export type SubscriptionType = 'standard' | 'subscription'
-                export type AccountPlatform = 'anthropic' | 'gemini' | 'openai' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
                 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
                 export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription' | 'invitation'
                 export interface UserSubscription {
@@ -425,7 +438,7 @@ class PlatformRegistryDriftTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = pathlib.Path(d)
             _fixture(root)
-            # Overwrite TS to make GroupPlatform a stale subset (missing 'grok')
+            # Overwrite TS to make KnownAccountPlatform a stale subset (missing 'grok'),# which makes GroupPlatform (= AccountPlatform | 'composite') stale too
             _write(
                 root,
                 "frontend/src/types/index.ts",
@@ -435,9 +448,10 @@ class PlatformRegistryDriftTest(unittest.TestCase):
                   role: 'admin' | 'user'
                   status: 'active' | 'disabled'
                 }
-                export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro'
+                export type KnownAccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro'
+                export type AccountPlatform = KnownAccountPlatform | (string & {})
+                export type GroupPlatform = AccountPlatform | 'composite'
                 export type SubscriptionType = 'standard' | 'subscription'
-                export type AccountPlatform = 'anthropic' | 'gemini' | 'openai' | 'antigravity' | 'newapi' | 'kiro' | 'grok'
                 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
                 export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription' | 'invitation'
                 export interface UserSubscription {

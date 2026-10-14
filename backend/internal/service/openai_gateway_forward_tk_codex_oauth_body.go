@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,13 +20,25 @@ func (s *OpenAIGatewayService) tkApplyCodexOAuthForwardBody(
 	newUpstreamModel = upstreamModel
 	newPromptCacheKey = promptCacheKey
 
+	// 与 upstream Forward 保持一致：Responses Lite 决定注入的托管工具声明位置；
+	// 纯文本 system 可无损提升后删除，JSON object 模式仍需在 input 中保留 JSON 指令。
+	responsesLite := c != nil && isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader))
+	omitPromotedSystemMessages := true
+	if textField, ok := decoded["text"].(map[string]any); ok {
+		if format, ok := textField["format"].(map[string]any); ok {
+			if typ, ok := format["type"].(string); ok {
+				omitPromotedSystemMessages = !strings.EqualFold(strings.TrimSpace(typ), "json_object")
+			}
+		}
+	}
+
 	codexResult := codexTransformResult{}
 	if compatMessagesBridge {
-		codexResult = applyCodexOAuthTransformWithOptions(decoded, codexOAuthTransformOptions{IsCodexCLI: isCodexCLI, IsCompact: isCompactRequest, SkipDefaultInstructions: true, PreserveToolCallIDs: true})
+		codexResult = applyCodexOAuthTransformWithOptions(decoded, codexOAuthTransformOptions{IsCodexCLI: isCodexCLI, IsCompact: isCompactRequest, SkipDefaultInstructions: true, PreserveToolCallIDs: true, OmitPromotedSystemMessagesFromInput: omitPromotedSystemMessages, ResponsesLite: responsesLite})
 		ensureCodexOAuthInstructionsField(decoded)
 		modified = true
 	} else {
-		codexResult = applyCodexOAuthTransform(decoded, isCodexCLI, isCompactRequest)
+		codexResult = applyCodexOAuthTransformWithOptions(decoded, codexOAuthTransformOptions{IsCodexCLI: isCodexCLI, IsCompact: isCompactRequest, OmitPromotedSystemMessagesFromInput: omitPromotedSystemMessages, ResponsesLite: responsesLite})
 	}
 	if codexResult.Error != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": codexResult.Error.Error()}})

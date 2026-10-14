@@ -126,12 +126,14 @@ func ProvideGatewayHandler(
 	cfg *config.Config,
 	settingService *service.SettingService,
 	coordinator *securityaudit.Coordinator,
+	geminiCachedContentService *service.GeminiCachedContentService,
 	protocolRoutingReady service.ProtocolRoutingSSOTReady,
 ) *GatewayHandler {
 	h := NewGatewayHandler(gatewayService, openAIGatewayService, geminiCompatService, antigravityGatewayService,
 		userService, concurrencyService, billingCacheService, usageService, apiKeyService, usageRecordWorkerPool,
 		errorPassthroughService, contentModerationService, userMsgQueueService, cfg, settingService)
 	h.securityAuditCoordinator = coordinator
+	h.geminiCachedContentService = geminiCachedContentService
 	h.SetProtocolRouter(protocolRoutingReady.EnabledRouter())
 	return h
 }

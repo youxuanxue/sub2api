@@ -203,10 +203,15 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 	return decision, decision.Matched, nil
 }
 
+// isConcreteRequestPlatform 报告平台是否可作为请求路由目标（composite 路由 /
+// 账号模型归属解析 / 定价匹配等）。TK: newapi（直连分组）与 kiro（独立调度池）
+// 是登记的具体平台（分组 / 额度 / 目录可用），但刻意不作为请求路由目标，保持
+// 合并前行为；判定不能直接用 domain.IsConcretePlatform。
 func isConcreteRequestPlatform(platform string) bool {
 	switch platform {
 	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe:
+		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe,
+		PlatformCommandCode, PlatformCline:
 		return true
 	default:
 		return false

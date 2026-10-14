@@ -27,9 +27,15 @@ export function useGeminiUsageMeta(
     return creds?.oauth_type === 'code_assist' || (!creds?.oauth_type && !!creds?.project_id)
   })
 
-  const geminiChannelShort = computed((): 'ai studio' | 'gcp' | 'google one' | 'client' | null => {
+  // Vertex（service_account）：无 AI Studio 等级与本地模拟配额，用量窗口展示今日统计。
+  const isGeminiVertex = computed(() => {
+    return account.platform === PLATFORM_GEMINI && account.type === 'service_account'
+  })
+
+  const geminiChannelShort = computed((): 'ai studio' | 'vertex' | 'gcp' | 'google one' | 'client' | null => {
     if (account.platform !== PLATFORM_GEMINI) return null
 
+    if (isGeminiVertex.value) return 'vertex'
     if (account.type === 'apikey') return 'ai studio'
 
     if (geminiOAuthType.value === 'google_one') return 'google one'
@@ -41,6 +47,7 @@ export function useGeminiUsageMeta(
 
   const geminiUserLevel = computed((): string | null => {
     if (account.platform !== PLATFORM_GEMINI) return null
+    if (isGeminiVertex.value) return null
 
     const tier = (geminiTier.value || '').toString().trim()
     const tierLower = tier.toLowerCase()
@@ -100,7 +107,7 @@ export function useGeminiUsageMeta(
     const channel = geminiChannelShort.value
     const level = geminiUserLevel.value
 
-    if (channel === 'client' || channel === 'ai studio') {
+    if (channel === 'client' || channel === 'ai studio' || channel === 'vertex') {
       return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
     }
 
@@ -253,7 +260,12 @@ export function useGeminiUsageMeta(
   })
 
   const showGeminiTodayStats = computed(() => {
-    return account.platform === PLATFORM_GEMINI && account.type === 'service_account'
+    return isGeminiVertex.value
+  })
+
+  // Vertex 没有配额策略说明（帮助图标与 unlimited 文案只对非 Vertex 展示）。
+  const showGeminiQuotaPolicy = computed(() => {
+    return !isGeminiVertex.value
   })
 
   return {
@@ -264,6 +276,7 @@ export function useGeminiUsageMeta(
     geminiQuotaPolicyDocsUrl,
     geminiUsageAvailable,
     geminiUsageBars,
-    showGeminiTodayStats
+    showGeminiTodayStats,
+    showGeminiQuotaPolicy
   }
 }

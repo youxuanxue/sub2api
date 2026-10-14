@@ -107,7 +107,7 @@ func (s *OpenAIGatewayService) ForwardResponsesInputTokens(
 			return nil
 		}
 		if s.rateLimitService != nil {
-			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, prepared.UpstreamModel)
 		}
 		upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
 		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, "")
@@ -152,7 +152,7 @@ func prepareNativeOpenAIInputTokensCountRequest(body []byte, account *Account) (
 }
 
 func shouldEstimateOpenAIInputTokensLocally(account *Account) bool {
-	if account == nil || account.IsGrok() || account.IsCNProvider() || account.Type == AccountTypeUpstream {
+	if account == nil || account.IsGrok() || account.RoutesProtocolByInbound() || account.Type == AccountTypeUpstream {
 		return true
 	}
 	if account.Type != AccountTypeAPIKey {
@@ -356,7 +356,7 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 
 		upstreamMsg := fallback.UpstreamMessage
 		if s.rateLimitService != nil {
-			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, prepared.UpstreamModel)
 		}
 
 		upstreamDetail := ""

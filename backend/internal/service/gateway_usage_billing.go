@@ -225,7 +225,8 @@ func isForcedUsageBillingRequestID(requestID string) bool {
 	return strings.HasPrefix(id, "web_search:") ||
 		strings.HasPrefix(id, "grok-video:") ||
 		strings.HasPrefix(id, "grok_audio:") ||
-		strings.HasPrefix(id, "grok_realtime:")
+		strings.HasPrefix(id, "grok_realtime:") ||
+		strings.HasPrefix(id, GeminiCachedContentUsageRequestIDPrefix)
 }
 
 // StableGrokAudioBillingRequestID is the durable usage_logs / dedup key for one
@@ -897,6 +898,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		billingModel = settled.BillingModel
 		effectiveBillingModel = settled.EffectiveBillingModel
 	}
+	cacheStorageCost := s.cacheStorageCost(result, billingModel)
 
 	// 判断计费方式：订阅模式 vs 余额模式
 	isSubscriptionBilling := subscription != nil && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
@@ -914,16 +916,18 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
 		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost)
 
-	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
-	if apiKey.GroupID != nil {
+	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）。纯存储费不是一次模型请求，
+	// 账号统计成本回落 total_cost（官方存储价）。
+	if apiKey.GroupID != nil && !isCacheStorageOnlyResult(result) {
 		var mirroredTokenCost *float64
 		if cost != nil {
 			mirroredTokenCost = s.mirrorAccountStatsTokenCost(ctx, result, apiKey, effectiveBillingModel, pricingAt, opts, cost)
 		}
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
 			account.ID, *apiKey.GroupID, result.UpstreamModel, result.Model,
-			cost.TotalCost, pricingAt, mirroredTokenCost,
+			cost.TotalCost-cacheStorageCost, pricingAt, mirroredTokenCost,
 		)
+		addCacheStorageToAccountStatsCost(usageLog, cacheStorageCost)
 	}
 
 	simpleModeKeyRateLimitOnly := simpleModeKeyRateLimitBillingEnabled(s.cfg, apiKey)
@@ -1081,7 +1085,7 @@ func (s *GatewayService) settleClaudeCustomerFacingCost(
 		in.BillingModelSource,
 		in.Result.UpstreamResponseModel,
 		in.Result.UpstreamResponseModelConflict,
-		in.Result.ImageCount > 0 || in.Result.AudioUsage != nil || in.Result.SearchCount > 0,
+		in.Result.ImageCount > 0 || in.Result.AudioUsage != nil || in.Result.SearchCount > 0 || in.Result.CacheStorageTokenHours > 0,
 	); responseModel != "" && !strings.EqualFold(responseModel, strings.TrimSpace(billingModel)) {
 		if identified, responseChannelPriced := s.hasIdentifiedResponseModelPricing(ctx, responseModel, in.APIKey); identified {
 			responseCost, responseErr := s.calculateRecordUsageCost(ctx, in.Result, in.APIKey, responseModel, multiplier, imageMultiplier, pricingAt, opts)
@@ -1104,6 +1108,73 @@ func (s *GatewayService) settleClaudeCustomerFacingCost(
 		BillingModel:          billingModel,
 		EffectiveBillingModel: effectiveBillingModel,
 	}, nil
+}
+
+// cacheStoragePrice 返回计费模型的显式缓存存储单价；计费模型未配置时依次回退到实际转发模型与请求模型。
+func (s *GatewayService) cacheStoragePrice(result *ForwardResult, billingModel string) float64 {
+	if s.billingService == nil {
+		return 0
+	}
+	for _, model := range []string{billingModel, result.UpstreamModel, result.Model} {
+		if strings.TrimSpace(model) == "" {
+			continue
+		}
+		if price := s.billingService.CacheStoragePricePerTokenHour(model); price > 0 {
+			return price
+		}
+	}
+	return 0
+}
+
+// cacheStorageCost 返回 result 的显式缓存存储费（USD，倍率前）。
+func (s *GatewayService) cacheStorageCost(result *ForwardResult, billingModel string) float64 {
+	if result.CacheStorageTokenHours <= 0 {
+		return 0
+	}
+	return result.CacheStorageTokenHours * s.cacheStoragePrice(result, billingModel)
+}
+
+// isCacheStorageOnlyResult 判断 result 是否只有显式缓存存储费（延长有效期）：不含 token 用量，不算一次模型请求。
+func isCacheStorageOnlyResult(result *ForwardResult) bool {
+	u := result.Usage
+	return result.CacheStorageTokenHours > 0 && u.InputTokens == 0 && u.OutputTokens == 0 &&
+		u.CacheCreationInputTokens == 0 && u.CacheReadInputTokens == 0 && u.ImageOutputTokens == 0 &&
+		result.ImageCount == 0 && result.AudioUsage == nil && result.SearchCount == 0
+}
+
+// CacheStoragePriced 判断 RecordUsage 对 input.Result 采用的计费模型（含回退候选）是否配置了显式缓存存储单价。
+func (s *GatewayService) CacheStoragePriced(ctx context.Context, input *RecordUsageInput) bool {
+	billingModel := s.resolveClaudeBillingModel(ctx, input.Result, input.APIKey, input.Account, input.ChannelUsageFields)
+	return s.cacheStoragePrice(input.Result, billingModel) > 0
+}
+
+// QuoteUsageCost 按与 RecordUsage 相同的倍率、计费模型与定价计算 input.Result 的应付金额（倍率后 USD），不记录也不扣费。
+func (s *GatewayService) QuoteUsageCost(ctx context.Context, input *RecordUsageInput) float64 {
+	user := input.User
+	if user == nil {
+		user = input.APIKey.User
+	}
+	pricingAt := input.PricingAt
+	if pricingAt.IsZero() {
+		pricingAt = timezone.Now()
+	}
+	multiplier, imageMultiplier := s.claudeUsageRateMultipliers(ctx, input.APIKey, user, pricingAt)
+	billingModel := s.resolveClaudeBillingModel(ctx, input.Result, input.APIKey, input.Account, input.ChannelUsageFields)
+	cost, err := s.calculateRecordUsageCost(ctx, input.Result, input.APIKey, billingModel, multiplier, imageMultiplier, pricingAt, &recordUsageOpts{})
+	if err != nil || cost == nil {
+		return 0
+	}
+	return cost.ActualCost
+}
+
+// addCacheStorageToAccountStatsCost 把显式缓存存储费按官方价叠加到账号统计成本。
+// 账号统计定价只覆盖 token 部分；统计成本为空时成本统计回落 total_cost，其中已含存储费。
+func addCacheStorageToAccountStatsCost(usageLog *UsageLog, storageCost float64) {
+	if usageLog == nil || usageLog.AccountStatsCost == nil || storageCost <= 0 {
+		return
+	}
+	cost := *usageLog.AccountStatsCost + storageCost
+	usageLog.AccountStatsCost = &cost
 }
 
 // calculateRecordUsageCost 根据请求类型计算费用。
@@ -1144,8 +1215,13 @@ func (s *GatewayService) calculateRecordUsageCost(
 		return s.billingService.CalculateAudioCostForModel(billingModel, result.AudioUsage.Mode, result.AudioUsage.DurationOrUnits, cfg, multiplier), nil
 	}
 
-	// Token 计费；SearchCount 为叠加 surcharge（不替代 token）。
-	tokenCost := s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt, opts)
+	// Token 计费；SearchCount 为叠加 surcharge（不替代 token）。纯存储费不是一次模型请求，不计 token / 按次费用。
+	var tokenCost *CostBreakdown
+	if isCacheStorageOnlyResult(result) {
+		tokenCost = &CostBreakdown{}
+	} else {
+		tokenCost = s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt, opts)
+	}
 	if result.SearchCount > 0 {
 		price := groupSearchPricePer1kFromAPIKey(apiKey)
 		if price != nil && *price == 0 {
@@ -1159,6 +1235,14 @@ func (s *GatewayService) calculateRecordUsageCost(
 			tokenCost.TotalCost += searchCost.TotalCost
 			tokenCost.ActualCost += searchCost.ActualCost
 		}
+	}
+	// 显式缓存存储费同为叠加 surcharge，与 token 费用使用同一计费模型与倍率。
+	if storageCost := s.cacheStorageCost(result, billingModel); storageCost > 0 {
+		if tokenCost == nil {
+			tokenCost = &CostBreakdown{}
+		}
+		tokenCost.TotalCost += storageCost
+		tokenCost.ActualCost += storageCost * multiplier
 	}
 	return tokenCost, nil
 }

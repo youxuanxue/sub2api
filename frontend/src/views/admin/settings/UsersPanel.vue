@@ -4,7 +4,14 @@ import { useI18n } from "vue-i18n";
 import { useSettingsState } from "@/composables/useSettingsState";
 import type { AuthSourceType } from "@/api/admin/settings";
 import type { AdminGroup } from "@/types";
-import { ALLOWED_QUOTA_PLATFORMS } from "@/constants/gatewayPlatforms";
+import { listPlatformIds } from "@/constants/platformCatalog";
+import type { DefaultPlatformQuotasMap } from "@/api/admin/settings";
+
+// 平台限额表格的行：平台清单顺序中、已在归一化 map 里的平台（upstream 2026-10；
+// 清单晚于设置加载时不渲染尚未归一化的平台，保持模板非空绑定）。
+function platformQuotaRows(map: DefaultPlatformQuotasMap | undefined): string[] {
+  return listPlatformIds().filter((platform) => !!map?.[platform]);
+}
 import Select from "@/components/common/Select.vue";
 import Toggle from "@/components/common/Toggle.vue";
 import GroupBadge from "@/components/common/GroupBadge.vue";
@@ -671,7 +678,7 @@ watch(
                 </tr>
               </thead>
               <tbody class="space-y-2">
-                <tr v-for="p in ALLOWED_QUOTA_PLATFORMS" :key="p" class="align-top">
+                <tr v-for="p in platformQuotaRows(form.default_platform_quotas)" :key="p" class="align-top">
                   <td class="pr-4 py-1">
                     <span class="font-mono text-xs text-gray-700 dark:text-gray-300">{{ p }}</span>
                   </td>
@@ -1005,7 +1012,7 @@ watch(
                       </tr>
                     </thead>
                     <tbody>
-                      <tr v-for="p in ALLOWED_QUOTA_PLATFORMS" :key="`${authSource.source}-pq-${p}`" class="align-top">
+                      <tr v-for="p in platformQuotaRows(authSourceDefaults[authSource.source].platform_quotas)" :key="`${authSource.source}-pq-${p}`" class="align-top">
                         <td class="pr-4 py-1">
                           <span class="font-mono text-xs text-gray-700 dark:text-gray-300">{{ p }}</span>
                         </td>

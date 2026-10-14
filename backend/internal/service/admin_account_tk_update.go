@@ -89,6 +89,9 @@ func (s *adminServiceImpl) tkApplyUpdateAccountTKFields(ctx context.Context, acc
 		if err := NormalizeHeaderOverrideCredentials(account.Credentials); err != nil {
 			return err
 		}
+		if err := NormalizeProtocolRulesCredentials(account.Credentials); err != nil {
+			return err
+		}
 		// Strip SSO/password residue that must never sit next to OAuth tokens.
 		account.Credentials = SanitizeStoredCredentials(account.Platform, account.Credentials)
 		account.Credentials = FinalizeAccountCredentials(account.Credentials, account.ChannelType)

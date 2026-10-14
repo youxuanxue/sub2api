@@ -84,6 +84,10 @@ describe('usePlatformOptions (US-018 regression — fifth platform newapi must s
     // commit adds a 6th value to the AccountPlatform union and forgets to
     // populate PLATFORM_LABELS, `tsc` will fail. We assert the shape today so
     // the regression boundary is documented in a runnable test.
-    expect(Object.keys(PLATFORM_LABELS).sort()).toEqual([...GATEWAY_PLATFORMS].sort())
+    // AccountPlatform 联合类型（upstream）包含 command_code/cline，
+    // Record<AccountPlatform, string> 要求这两个 key 存在；它们不进 GATEWAY_PLATFORMS。
+    expect(Object.keys(PLATFORM_LABELS).sort()).toEqual(
+      [...GATEWAY_PLATFORMS, 'command_code', 'cline'].sort()
+    )
   })
 })

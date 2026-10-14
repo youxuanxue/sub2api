@@ -9,6 +9,24 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
+// handleGeminiThirdParty429 处理第三方上游的 429：不套用 AI Studio 每日配额语义，
+// 只认响应里显式给出的重试时间，否则走全局 429 兜底冷却。
+// TK: upstream 在 gemini_messages_compat_service.go 定义本方法；该区域由本
+// companion 接管，定义随 429 调用点迁入。
+func (s *GeminiMessagesCompatService) handleGeminiThirdParty429(ctx context.Context, account *Account, body []byte) {
+	if resetAt := parseGeminiRetryDelayResetTime(body); resetAt != nil {
+		resetTime := time.Unix(*resetAt, 0)
+		_ = s.accountRepo.SetRateLimited(ctx, account.ID, resetTime)
+		logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (third-party API Key) rate limited until %v", account.ID, resetTime)
+		return
+	}
+	if s.rateLimitService != nil {
+		s.rateLimitService.apply429FallbackRateLimit(ctx, account, "gemini_third_party_no_reset_time")
+		return
+	}
+	_ = s.accountRepo.SetRateLimited(ctx, account.ID, time.Now().Add(defaultRateLimit429CooldownSeconds*time.Second))
+}
+
 // handleGeminiUpstreamError applies Gemini upstream account-state side effects
 // (401/403/529 via RateLimitService; 429 account-level SetRateLimited with TK
 // Code Assist per-model and OAuth cooldown hooks). Moved from the upstream-
@@ -33,6 +51,10 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 	// 池模式账号不写账号级限流：账号留在池内，由 failover / 同号重试消化 429。
 	// 自定义错误码优先级高于池模式，开启后仍按其命中结果标记。
 	if account.IsPoolMode() && !account.IsCustomErrorCodesEnabled() {
+		return
+	}
+	if account.IsGeminiThirdPartyAPIKey() {
+		s.handleGeminiThirdParty429(ctx, account, body)
 		return
 	}
 
