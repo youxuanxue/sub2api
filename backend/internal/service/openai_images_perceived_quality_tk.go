@@ -29,7 +29,7 @@ const (
 	openAIImagesReasoningEffortEnv      = "SUB2API_IMAGES_REASONING_EFFORT"
 	openAIImagesPromptScaffoldEnv       = "SUB2API_IMAGES_PROMPT_SCAFFOLD"
 	openAIImagesDefaultReasoningEffort  = "medium"
-	openAIImagesVerbatimReasoningEffort = "high"
+	openAIImagesVerbatimReasoningEffort = openAIImagesDefaultReasoningEffort
 
 	openAIImagesPerceivedQualityPrimary = "Primary request:"
 )
@@ -38,11 +38,9 @@ func openAIImagesReasoningEffortForPrompt(prompt string) string {
 	if effort, ok := openAIImagesExplicitReasoningEffort(); ok {
 		return effort
 	}
-	// Velmo bumps to high only when a dict prompt has a populated
-	// Text (verbatim) field. A free-form Images string is not that field.
-	// A short ASCII "label" is the only string-shaped stand-in. CJK quotes,
-	// unbalanced marks, whitespace-only pairs, and digit-prefixed inch
-	// marks (12") stay at medium.
+	// Quoted labels use the same medium effort as other prompts. Production
+	// traffic showed higher latency without a stable quality gain from high;
+	// exact text remains a prompt-scaffold instruction, not an effort upgrade.
 	if openAIImagesPromptHasShortASCIIQuotedLabel(prompt) {
 		return openAIImagesVerbatimReasoningEffort
 	}

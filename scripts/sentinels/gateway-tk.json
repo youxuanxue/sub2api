@@ -7242,7 +7242,7 @@
         "openAIImagesVerbatimReasoningEffort",
         "SUB2API_IMAGES_REASONING_EFFORT"
       ],
-      "rationale": "OAuth gpt-image perceived-quality owner: reasoning.effort default medium, with a short ASCII quoted-label bump to high. CJK quotes do not raise effort. The labeled-spec prompt scaffold must not claim resolution, and edits keep the input image framing. Dropping the file is compile-clean only if the call site below is also dropped; this anchor keeps the policy from disappearing in an upstream merge."
+      "rationale": "OAuth gpt-image perceived-quality owner: reasoning.effort defaults to medium for all prompts, including short ASCII quoted labels; explicit environment overrides take precedence. The labeled-spec prompt scaffold must not claim resolution, and edits keep the input image framing. Dropping the file is compile-clean only if the call site below is also dropped; this anchor keeps the policy from disappearing in an upstream merge."
     },
     {
       "path": "backend/internal/service/openai_images_responses.go",
@@ -7251,7 +7251,7 @@
         "prompt = applyOpenAIImagesPerceivedQualityPrompt(prompt, parsed.IsEdits())",
         "req, _ = sjson.SetBytes(req, \"reasoning.effort\", reasoningEffort)"
       ],
-      "rationale": "Responses OAuth image builder must apply the perceived-quality scaffold before style/AR and set reasoning.effort from that owner. instructions stay empty (codex2api). Removing the calls compiles if the helpers remain, but every OAuth image would silently lose the scaffold and the ASCII-label effort bump. tools[].quality stays forwarded so a soft upstream remap remains observable."
+      "rationale": "Responses OAuth image builder must apply the perceived-quality scaffold before style/AR and set reasoning.effort from that owner. instructions stay empty (codex2api). Removing the calls compiles if the helpers remain, but every OAuth image would silently lose the scaffold and the shared effort policy. tools[].quality stays forwarded so a soft upstream remap remains observable."
     },
     {
       "path": "backend/internal/service/openai_images_responses.go",
@@ -7261,6 +7261,15 @@
         "stampOpenAIImagesOAuthDispatch(result, dispatch)"
       ],
       "rationale": "OAuth Codex Responses image path must omit input_fidelity for gpt-image-2 / gpt-image-2-codex (edge-uk1 2026-10-13: 400 invalid_input_fidelity_model) and must log plus stamp the sent reasoning effort onto the forward result. Dropping either call compiles if the helper file remains, but edits with input_fidelity hard-fail again and usage_logs effort columns go back to NULL."
+    },
+    {
+      "path": "backend/internal/service/openai_images_oauth_dispatch_tk_test.go",
+      "must_contain": [
+        "func TestForwardOpenAIImagesOAuth_QuotedLabelKeepsMediumAndVerbatimScaffold(",
+        "require.Equal(t, \"medium\", *result.ReasoningEffort)",
+        "require.Equal(t, \"medium\", gjson.GetBytes(upstream.lastBody, \"reasoning.effort\").String())"
+      ],
+      "rationale": "Regression guard for withdrawing automatic high effort on quoted image prompts: validate the sent effort and usage attribution while retaining Text (verbatim). The request-builder call-site and policy owner above must keep this behavior through upstream merges."
     },
     {
       "path": "backend/internal/service/openai_images_oauth_dispatch_tk.go",
