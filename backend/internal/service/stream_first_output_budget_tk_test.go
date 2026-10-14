@@ -19,8 +19,8 @@ import (
 )
 
 func TestResolveStreamFirstOutputTimeoutDefaults(t *testing.T) {
-	require.Equal(t, 30*time.Second, resolveStreamFirstOutputTimeout(nil, false))
-	require.Equal(t, 60*time.Second, resolveStreamFirstOutputTimeout(nil, true))
+	require.Equal(t, 120*time.Second, resolveStreamFirstOutputTimeout(nil, false))
+	require.Equal(t, 600*time.Second, resolveStreamFirstOutputTimeout(nil, true))
 
 	cfg := &config.Config{}
 	cfg.Gateway.StreamFirstOutputTimeoutSeconds = 20
@@ -30,7 +30,7 @@ func TestResolveStreamFirstOutputTimeoutDefaults(t *testing.T) {
 }
 
 func TestResolveGrokFirstByteHeaderTimeoutInheritsStreamSSOT(t *testing.T) {
-	require.Equal(t, 30*time.Second, ResolveGrokFirstByteHeaderTimeout(nil))
+	require.Equal(t, 120*time.Second, ResolveGrokFirstByteHeaderTimeout(nil))
 
 	cfg := &config.Config{}
 	cfg.Gateway.StreamFirstOutputTimeoutSeconds = 20
@@ -45,7 +45,7 @@ func TestResolveStreamFirstOutputHighEffortIgnoresOpenAINamedKnob(t *testing.T) 
 	cfg := &config.Config{}
 	cfg.Gateway.StreamFirstOutputHighEffortTimeoutSeconds = 0
 	cfg.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds = 99
-	require.Equal(t, 60*time.Second, resolveStreamFirstOutputTimeout(cfg, true),
+	require.Equal(t, 600*time.Second, resolveStreamFirstOutputTimeout(cfg, true),
 		"universal high-effort must not inherit openai_high_effort_* when stream high-effort is zero")
 }
 
@@ -90,6 +90,26 @@ func TestKiroStreamFirstOutputHighEffort(t *testing.T) {
 	require.True(t, kiroStreamFirstOutputHighEffort(&kiroproto.ClaudeRequest{
 		OutputConfig: &kiroproto.ClaudeOutputConfig{Effort: "high"},
 	}))
+}
+
+func TestFirstOutputHighEffortModelFamilies(t *testing.T) {
+	for _, tc := range []struct {
+		model string
+		high  bool
+	}{
+		{model: "claude-opus-5-5", high: true},
+		{model: "claude-fable-5-1", high: true},
+		{model: "gpt-6-astra", high: true},
+		{model: "gpt-5.6-sol", high: true},
+		{model: "gpt-6.1-sol", high: true},
+		{model: "gpt-6-luna", high: true},
+		{model: "claude-sonnet-4-5", high: false},
+		{model: "gpt-6.1-luna", high: false},
+	} {
+		t.Run(tc.model, func(t *testing.T) {
+			require.Equal(t, tc.high, firstOutputHighEffortModel(tc.model))
+		})
+	}
 }
 
 func TestKiroFirstOutputBudgetWatchCloseUnblocksUpstreamRead(t *testing.T) {

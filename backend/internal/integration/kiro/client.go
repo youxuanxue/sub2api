@@ -267,7 +267,7 @@ type KiroStreamCallback struct {
 	// Returning true permits retrying the next endpoint; false preserves the
 	// error, which is required once streaming output has been committed.
 	ResetForRetry func() bool
-	// OnResponseBody is invoked once per HTTP 200 body immediately before the
+	// OnResponseBody is invoked once per HTTP response before status handling or the
 	// event stream is parsed. Gateway first-output budgets use this to arm
 	// WatchClose so a cancelled attempt unblocks a stuck body read promptly.
 	OnResponseBody func(body io.ReadCloser)
@@ -345,6 +345,20 @@ type HTTPDoer interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
+// requestContextDoer also binds profile discovery, whose REST builder otherwise
+// creates a background request. Discovery and endpoint retries share one lifetime.
+type requestContextDoer struct {
+	ctx  context.Context
+	doer HTTPDoer
+}
+
+func (d requestContextDoer) Do(req *http.Request) (*http.Response, error) {
+	if err := d.ctx.Err(); err != nil {
+		return nil, err
+	}
+	return d.doer.Do(req.WithContext(d.ctx))
+}
+
 // CallKiroAPIWithDoer streams using an optional injected HTTP doer.
 // A nil doer uses the built-in per-proxy client (GetClientForProxy).
 func CallKiroAPIWithDoer(doer HTTPDoer, account *Account, payload *KiroPayload, callback *KiroStreamCallback) error {
@@ -357,6 +371,10 @@ func CallKiroAPIWithDoerContext(ctx context.Context, doer HTTPDoer, account *Acc
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if doer == nil {
+		doer = GetClientForProxy(ResolveAccountProxyURL(account))
+	}
+	doer = requestContextDoer{ctx: ctx, doer: doer}
 	originalProfileArn := ""
 	if payload != nil {
 		originalProfileArn = payload.ProfileArn
@@ -457,6 +475,10 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 			continue
 		}
 
+		if callback != nil && callback.OnResponseBody != nil {
+			callback.OnResponseBody(resp.Body)
+		}
+
 		if resp.StatusCode == 429 {
 			resp.Body.Close()
 			logWarnf("[KiroAPI] Endpoint %s quota exhausted (429), trying next...", ep.Name)
@@ -484,12 +506,16 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 			continue
 		}
 
-		if callback != nil && callback.OnResponseBody != nil {
-			callback.OnResponseBody(resp.Body)
-		}
 		err = parseEventStream(resp.Body, callback)
 		resp.Body.Close()
 		if err != nil && endpointIndex+1 < len(endpoints) && callback != nil && callback.ResetForRetry != nil && callback.ResetForRetry() {
+			// Caller cancel and the first-output budget both cancel this ctx.
+			// Do not open the next endpoint after that; the loop check below
+			// would also stop, but only after this branch has already decided
+			// a retry is allowed.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			lastErr = err
 			logWarnf("[KiroAPI] Endpoint %s response read failed before output; trying next: %v", ep.Name, err)
 			continue

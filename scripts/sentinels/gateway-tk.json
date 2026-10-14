@@ -2362,7 +2362,7 @@
         "streamFirstOutputHighEffort(effort)",
         "CandidateChatSwitchLimit"
       ],
-      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 30s / high-effort 60s); non-streaming defaults to 300s. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly."
+      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Streaming inherits the universal stream first-output SSOT (default 120s / high-effort 600s); non-streaming defaults to 300s. response_header_timeout must not redefine them. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
@@ -2371,9 +2371,13 @@
         "armStreamFirstOutputGuard(base, budget)",
         "firstOutputGuard.WatchClose(resp.Body)",
         "firstOutputGuard.Commit()",
-        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)"
+        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)",
+        "armKiroWaitBudget(ctx, c, s.cfg, &req, input.StartTime)",
+        "setKiroWaitDeadlineHeader(c, req, account)",
+        "kiroPassthroughUsefulOutput(trimmed)",
+        "resp.Header.Get(KiroOutcomeHeader) == kiroWaitExhaustedOutcome"
       ],
-      "rationale": "Anthropic passthrough streaming must arm a full per-attempt first-output budget (not remaining request wall-clock), Commit on first SSE data, and Size-aware SafeToFailoverAfterWrite after any client bytes (header-wait or in-stream keepalive)."
+      "rationale": "Anthropic passthrough streaming must arm a full per-attempt first-output budget (not remaining request wall-clock), Commit on first SSE data, and Size-aware SafeToFailoverAfterWrite after any client bytes (header-wait or in-stream keepalive). Kiro mirrors use fixed shared deadlines; synthetic starts do not Commit and edge exhaustion is request scoped."
     },
     {
       "path": "backend/internal/service/openai_first_output_timeout.go",
@@ -2402,8 +2406,8 @@
     {
       "path": "backend/internal/service/stream_first_output_budget_tk.go",
       "must_contain": [
-        "defaultStreamFirstOutputTimeout           = 30 * time.Second",
-        "defaultStreamFirstOutputHighEffortTimeout = 60 * time.Second",
+        "defaultStreamFirstOutputTimeout           = 120 * time.Second",
+        "defaultStreamFirstOutputHighEffortTimeout = 600 * time.Second",
         "func resolveStreamFirstOutputTimeout(",
         "func ResolveGrokFirstByteHeaderTimeout(",
         "func armStreamFirstOutputGuard(",
@@ -2412,9 +2416,11 @@
         "func streamFirstOutputFailoverIfBudgetFired(",
         "SafeToFailoverAfterWrite: true",
         "c.Writer.Size() >= 0",
-        "Do not fall back to openai_high_effort_* here"
+        "Do not fall back to openai_high_effort_* here",
+        "defaultKiroFirstOutputTimeout",
+        "defaultKiroHighEffortFirstOutputTimeout"
       ],
-      "rationale": "Universal stream first-useful-output budget SSOT (30s / 60s high-effort, cap 60) plus Grok first-byte inherit helper. Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite via Size-aware streamFirstOutputFailoverIfBudgetFired."
+      "rationale": "Universal stream first-useful-output budget SSOT (120s / 600s high-effort, cap 600) plus Grok first-byte inherit helper. Platform paths must share this owner rather than hard-coding divergent first-byte waits. Keepalive-after-write failover must keep SafeToFailoverAfterWrite via Size-aware streamFirstOutputFailoverIfBudgetFired. Kiro has independent generated defaults; reasoning never renews this shared fixed timer."
     },
     {
       "path": "backend/internal/repository/http_upstream.go",
@@ -2446,13 +2452,14 @@
     {
       "path": "backend/internal/service/kiro_gateway_service.go",
       "must_contain": [
-        "resolveStreamFirstOutputTimeout(s.cfg, kiroStreamFirstOutputHighEffort(req))",
-        "armStreamFirstOutputGuard(ctx, budget)",
-        "firstOutputGuard.WatchClose(body)",
-        "OnResponseBody:",
-        "streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, ctx, callerCtx)"
+        "armKiroWaitBudget(ctx, c, s.cfg, req, startTime)",
+        "kiroWaitBudgetError(c, waitGuard, ctx, callerCtx)",
+        "kiroWaitBudgetError(c, firstOutputGuard, ctx, callerCtx)",
+        "context.AfterFunc(ctx, func() { _ = body.Close() })",
+        "waitGuard.Commit()",
+        "firstOutputGuard.Commit()"
       ],
-      "rationale": "Kiro streaming must share the universal first-output SSOT, Commit only on client-visible text/tool, and WatchClose the upstream EventStream body via OnResponseBody so a budget cancel unblocks a stuck read and releases the account concurrency slot promptly."
+      "rationale": "Kiro stream and nonstream share one fixed request deadline, close canceled bodies and commit only at their own client output boundary."
     },
     {
       "path": "backend/internal/integration/kiro/client.go",
@@ -16327,13 +16334,13 @@
         "StreamFirstOutputTimeoutSeconds int `mapstructure:\"stream_first_output_timeout_seconds\"`",
         "StreamFirstOutputHighEffortTimeoutSeconds int `mapstructure:\"stream_first_output_high_effort_timeout_seconds\"`",
         "NewAPIChatNonstreamFirstOutputTimeout int `mapstructure:\"newapi_chat_nonstream_first_output_timeout\"`",
-        "viper.SetDefault(\"gateway.stream_first_output_timeout_seconds\", 30)",
-        "viper.SetDefault(\"gateway.stream_first_output_high_effort_timeout_seconds\", 60)",
+        "viper.SetDefault(\"gateway.stream_first_output_timeout_seconds\", 120)",
+        "viper.SetDefault(\"gateway.stream_first_output_high_effort_timeout_seconds\", 600)",
         "viper.SetDefault(\"gateway.newapi_chat_first_output_timeout\", 0)",
         "viper.SetDefault(\"gateway.newapi_chat_nonstream_first_output_timeout\", 300)",
         "first-output-timeout-ssot:begin",
         "first-output-timeout-ssot:end",
-        "gateway.stream_first_output_timeout_seconds must be between 0-60 seconds",
+        "gateway.stream_first_output_timeout_seconds must be between 0-600 seconds",
         "gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)",
         "viper.SetDefault(\"gateway.grok_response_header_timeout\", 0)",
         "gateway.grok_response_header_timeout must be between 0-60 seconds"
@@ -16368,7 +16375,7 @@
         "TestCandidateChatStreamVersusNonstreamBudgets",
         "TestNewAPIChatFirstOutputTimeoutResolver",
         "non-stream must not use ResponseHeaderTimeout",
-        "stream default is 3×30s"
+        "stream default is 3×120s"
       ],
       "rationale": "Focused unit tests lock stream vs nonstream first-output budgets and forbid ResponseHeaderTimeout from redefining either."
     },
@@ -16378,7 +16385,7 @@
         "GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT:-0}",
         "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}"
       ],
-      "rationale": "Stage0 compose (embedded in Lightsail user-data at the 14336-byte cap) cannot grow new STREAM_FIRST_OUTPUT_* lines. NewAPI stream override defaults to 0 so hosts inherit code SSOT 30s/60s; nonstream stays 300s. Universal env inject is owned by ops/stage0/deploy_via_ssm_bluegreen.sh + deploy/config.example.yaml + config viper defaults."
+      "rationale": "Stage0 compose (embedded in Lightsail user-data at the 14336-byte cap) cannot grow new STREAM_FIRST_OUTPUT_* lines. NewAPI stream override defaults to 0 so hosts inherit code SSOT 120s/600s; nonstream stays 300s. Universal env inject is owned by ops/stage0/deploy_via_ssm_bluegreen.sh + deploy/config.example.yaml + config viper defaults."
     },
     {
       "path": "backend/internal/service/gateway_request.go",
@@ -16760,6 +16767,18 @@
         "isBrokenPipe(entry.Err)"
       ],
       "rationale": "Recovered handler panics and Gin broken pipes must remain visible to the outer terminal collector on the existing Gin error chain, without changing the committed response."
+    },
+    {
+      "path": "backend/internal/service/kiro_wait_budget_tk.go",
+      "must_contain": [
+        "func getKiroWaitBudget(",
+        "func armKiroWaitBudget(",
+        "Scope:                    GatewayFailureScopeRequest,",
+        "func setKiroWaitDeadlineHeader(",
+        "func kiroPassthroughUsefulOutput(",
+        "WithHTTPUpstreamProfile(parent, HTTPUpstreamProfileKiro)"
+      ],
+      "rationale": "Single Kiro request budget owner: latch deadline once, restrict relay inheritance, preserve caller cancel and stop account retries at exhaustion."
     }
   ]
 }
