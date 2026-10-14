@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect prod QA Phase 2 live facts and evaluate correlated health + IAM contract."""
+"""Collect prod QA Phase 2 live facts and evaluate the Hetzner archive contract."""
 from __future__ import annotations
 
 import argparse
@@ -87,7 +87,7 @@ def _parse_probe_output(text: str) -> dict[str, Any]:
 def evaluate_snapshot(
     snapshot: dict[str, Any],
     *,
-    skip_iam: bool = False,
+    skip_iam: bool = True,
     now: dt.datetime | None = None,
 ) -> dict[str, Any]:
     catchup_gap_policy = _load_catchup_gap_policy()
@@ -142,16 +142,30 @@ def main() -> int:
         action="store_true",
         help="read probe-qa-phase2-live-health.sh stdout from stdin",
     )
-    parser.add_argument("--skip-iam", action="store_true", help="skip live IAM contract verification")
+    parser.add_argument(
+        "--legacy-aws",
+        "--legacy-aws-iam",
+        dest="legacy_aws",
+        action="store_true",
+        help="also verify the historical AWS raw archive IAM contract",
+    )
+    parser.add_argument(
+        "--skip-iam",
+        action="store_true",
+        help="deprecated compatibility alias; live checks already skip AWS IAM",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+    skip_iam = not args.legacy_aws
+    if args.skip_iam:
+        skip_iam = True
 
     if args.snapshot_file is not None:
         snapshot = json.loads(args.snapshot_file.read_text(encoding="utf-8"))
-        payload = evaluate_snapshot(snapshot, skip_iam=args.skip_iam)
+        payload = evaluate_snapshot(snapshot, skip_iam=skip_iam)
     elif args.from_probe_stdin:
         snapshot = _parse_probe_output(sys.stdin.read())
-        payload = evaluate_snapshot(snapshot, skip_iam=args.skip_iam)
+        payload = evaluate_snapshot(snapshot, skip_iam=skip_iam)
     else:
         probe_script = PROBE.read_text(encoding="utf-8")
         instance_id = resolve_prod_instance()
@@ -164,11 +178,11 @@ def main() -> int:
         payload = {
             "region": ssm_execution.PROD_REGION,
             "instance_id": instance_id,
-            **evaluate_snapshot(snapshot, skip_iam=args.skip_iam),
+            **evaluate_snapshot(snapshot, skip_iam=skip_iam),
         }
     print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
     health_status = payload["health"].get("status", "failed")
-    if not args.skip_iam and not payload.get("iam_contract", {}).get("ok", False):
+    if not skip_iam and not payload.get("iam_contract", {}).get("ok", False):
         return 2
     accepted_terminal_only = (
         health_status == "degraded"

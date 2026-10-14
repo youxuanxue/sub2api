@@ -58,8 +58,10 @@ pending/inflight 为 0、新完成小时已有 seal。历史警告仍保留，�
 恢复。Phase 2 的 `catchup_terminal_gaps_present` 则是已接受的旧补归档缺口，与这七个采集警告是两类事实。
 
 ```bash
-# 现行归档、分区及维护健康；旧 AWS IAM 不用于证明 Hetzner 写入健康。
-python3 ops/qa/prod_phase2_live_health.py --skip-iam --json
+# 现行归档、分区及维护健康；默认只检查 Hetzner，不访问旧 AWS IAM。
+python3 ops/qa/prod_phase2_live_health.py --json
+# 需要审计历史 AWS raw 权限时显式追加：
+python3 ops/qa/prod_phase2_live_health.py --legacy-aws --json
 bash ops/observability/probe-release-control-plane.sh
 ```
 

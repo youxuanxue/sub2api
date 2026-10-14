@@ -877,6 +877,60 @@ printf accepted
                     if not success:
                         self.assertIn("separate migration", result.stderr)
 
+    def test_live_qa_coordinates_are_hcloud_and_complete(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        assert remote is not None
+        guard = _extract_shell_function(remote, "assert_live_qa_archive_coordinates")
+        script = f"""set -euo pipefail
+{guard}
+DEPLOY_PROFILE=prod
+QA_LIVE_ARCHIVE_STORAGE_DRIVER=s3
+QA_LIVE_ARCHIVE_STORAGE_REGION=fsn1
+QA_LIVE_ARCHIVE_STORAGE_BUCKET=tokenkey-qa-raw-fsn1-dd2ca9019b22
+QA_LIVE_ARCHIVE_STORAGE_ENDPOINT=https://fsn1.your-objectstorage.com
+QA_LIVE_ARCHIVE_STORAGE_PREFIX=raw/v1
+env_get() {{
+  case "$1" in
+    QA_ARCHIVE_ENABLED) printf true ;;
+    QA_ARCHIVE_STORAGE_DRIVER) printf s3 ;;
+    QA_ARCHIVE_STORAGE_REGION) printf fsn1 ;;
+    QA_ARCHIVE_STORAGE_BUCKET) printf tokenkey-qa-raw-fsn1-dd2ca9019b22 ;;
+    QA_ARCHIVE_STORAGE_ENDPOINT) printf https://fsn1.your-objectstorage.com ;;
+    QA_ARCHIVE_STORAGE_PREFIX) printf raw/v1 ;;
+    QA_ARCHIVE_STORAGE_CREDENTIALS_FILE) printf /run/secrets/tokenkey-qa/raw.json ;;
+    *) printf '' ;;
+  esac
+}}
+die() {{ echo "$*" >&2; exit 42; }}
+assert_live_qa_archive_coordinates
+printf accepted
+"""
+        result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "accepted")
+
+        for key, value in {
+            "QA_ARCHIVE_STORAGE_REGION": "us-east-1",
+            "QA_ARCHIVE_STORAGE_BUCKET": "tokenkey-prod-qa-raw-archive-682751977094",
+            "QA_ARCHIVE_STORAGE_ENDPOINT": "https://old.example",
+            "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE": "",
+        }.items():
+            with self.subTest(key=key):
+                original = (
+                    "fsn1" if key.endswith("REGION")
+                    else "tokenkey-qa-raw-fsn1-dd2ca9019b22" if key.endswith("BUCKET")
+                    else "https://fsn1.your-objectstorage.com" if key.endswith("ENDPOINT")
+                    else "/run/secrets/tokenkey-qa/raw.json"
+                )
+                bad_script = script.replace(
+                    f"{key}) printf {original}",
+                    f"{key}) printf {value!r}",
+                )
+                failed = subprocess.run(["bash"], input=bad_script, text=True, capture_output=True)
+                self.assertEqual(failed.returncode, 42)
+                self.assertIn("live QA archive", failed.stderr)
+
     def test_remote_script_parses(self) -> None:
         proc, params, remote = _render()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
@@ -906,7 +960,10 @@ printf accepted
         self.assertIn("QA_ARCHIVE_STORAGE_BUCKET=''", joined)
         self.assertIn("QA_ARCHIVE_STORAGE_BUCKET_SET=false", joined)
         self.assertIn("QA_ARCHIVE_ENABLED='true'", joined)
-        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-prod-qa-raw-archive-682751977094'", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_DRIVER='s3'", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_REGION='fsn1'", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-qa-raw-fsn1-dd2ca9019b22'", joined)
+        self.assertNotIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-prod-qa-raw-archive-682751977094'", joined)
         self.assertIn("TELEMETRY_ARCHIVE_ENABLED=''", joined)
         self.assertIn("TELEMETRY_ARCHIVE_BUCKET='tokenkey-prod-archive-682751977094'", joined)
         self.assertIn("TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES='33554432'", joined)
@@ -915,6 +972,7 @@ printf accepted
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_ENABLED='false'", joined)
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS='8'", joined)
         self.assertIn('env_set GATEWAY_IMAGE_CONCURRENCY_ENABLED', remote)
+        self.assertIn("assert_live_qa_archive_coordinates", remote)
 
         self.assertIn("docker-compose.bluegreen.yml", remote)
         self.assertIn("active-color", remote)

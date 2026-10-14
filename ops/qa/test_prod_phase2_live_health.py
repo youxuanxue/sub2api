@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ops" / "qa"))
 
 import prod_phase2_live_health as live_health  # noqa: E402
+import prod_phase2_baseline as baseline  # noqa: E402
 import qa_phase2_health as health  # noqa: E402
 import verify_raw_archive_iam_contract as iam_contract  # noqa: E402
 
@@ -145,6 +146,28 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertEqual(payload["health"]["status"], "healthy")
+
+    def test_cli_defaults_to_live_hetzner_check_without_aws_iam(self) -> None:
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "ops/qa/prod_phase2_live_health.py"),
+                "--from-probe-stdin",
+            ],
+            input=self._healthy_probe_text(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["iam_contract"], {"ok": True, "status": "skipped", "failures": []})
+
+    def test_baseline_does_not_touch_aws_without_legacy_flag(self) -> None:
+        with mock.patch.object(baseline, "_account_id", side_effect=AssertionError("AWS must be opt-in")):
+            account_id, bucket = baseline._archive_bucket_status(legacy_aws=False)
+        self.assertIsNone(account_id)
+        self.assertEqual(bucket, {"status": "skipped", "reason": "live archive is Hetzner"})
 
     def test_cli_degraded_exit_zero(self) -> None:
         snapshot, now = _fresh_snapshot()
