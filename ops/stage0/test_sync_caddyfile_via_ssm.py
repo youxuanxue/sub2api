@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import copy
+import importlib.util
 import json
 import os
 import pathlib
@@ -195,6 +197,48 @@ class SyncCaddyfileCidrRecoveryTest(unittest.TestCase):
         """A remote_ip rendered as a placeholder is not a literal allowlist."""
         proc = self._recover("api.x {\n\t@main {\n\t\tremote_ip {remote_host}\n\t}\n}\n")
         self.assertNotEqual(proc.returncode, 0, f"must refuse: {proc.stdout}")
+
+
+class CaddyHealthPolicyTest(unittest.TestCase):
+    """Reject unsafe adapted semantics, including nested/imported proxy routes."""
+
+    def setUp(self) -> None:
+        checker = pathlib.Path(__file__).resolve().parents[2] / "scripts/checks/caddy-health-policy.py"
+        spec = importlib.util.spec_from_file_location("caddy_health_policy", checker)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.check_policy = module.check_policy
+        self.proxy = {
+            "handler": "reverse_proxy",
+            "upstreams": [{"dial": "tokenkey-blue:8080"}],
+            "health_checks": {"active": {
+                "uri": "/health", "interval": 5_000_000_000, "timeout": 3_000_000_000,
+            }},
+            "load_balancing": {"try_duration": 30_000_000_000, "try_interval": 1_000_000_000},
+        }
+
+    def test_accepts_active_health_with_bounded_retries(self) -> None:
+        self.check_policy({"routes": [{"handle": [self.proxy]}]})
+
+    def test_rejects_passive_transport_cooldown_even_without_status_list(self) -> None:
+        for passive in ({"fail_duration": 5_000_000_000}, {
+            "fail_duration": 5_000_000_000, "max_fails": 1, "unhealthy_status": [502, 504],
+        }):
+            with self.subTest(passive=passive):
+                broken = copy.deepcopy(self.proxy)
+                broken["health_checks"]["passive"] = passive
+                with self.assertRaisesRegex(ValueError, "passive health"):
+                    self.check_policy({"routes": [self.proxy, {"handle": [broken]}]})
+
+    def test_rejects_loss_of_drain_or_downtime_protection(self) -> None:
+        for field, value in (("health_checks", {}), ("load_balancing", {}), ("upstreams", [])):
+            with self.subTest(field=field):
+                broken = copy.deepcopy(self.proxy)
+                broken[field] = value
+                with self.assertRaises(ValueError):
+                    self.check_policy({"handle": [broken]})
+        with self.assertRaisesRegex(ValueError, "no reverse proxy"):
+            self.check_policy({"routes": []})
 
 
 class CaddyTemplateSingleUpstreamTest(unittest.TestCase):
