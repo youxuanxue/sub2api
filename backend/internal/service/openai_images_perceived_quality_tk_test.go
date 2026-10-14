@@ -44,8 +44,10 @@ func assertOpenAIImagesPerceivedQualityPrompt(t *testing.T, text, original strin
 func TestOpenAIImagesReasoningEffortDefaultsAndOverride(t *testing.T) {
 	t.Setenv(openAIImagesReasoningEffortEnv, "")
 
+	require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt("cat"))
+	require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt(`"cat"`))
 	require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt("a ceramic mug on a table"))
-	require.Equal(t, "high", openAIImagesReasoningEffortForPrompt(`cup text "SkelOT"`))
+	require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt(`cup text "SkelOT"`))
 	require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt("杯身只写“SkelOT”"))
 	require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt("标题用「SkelOT」"))
 	require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt("标题用『SkelOT』"))
@@ -55,17 +57,23 @@ func TestOpenAIImagesReasoningEffortDefaultsAndOverride(t *testing.T) {
 	require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt("只写「SkelOT"))
 	require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt(`blank ""`))
 	require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt(`"   "`))
-	require.Equal(t, "high", openAIImagesReasoningEffortForPrompt("杯身只写\"SkelOT\""))
+	require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt("杯身只写\"SkelOT\""))
 
 	label48 := `"` + strings.Repeat("a", 48) + `"`
 	label49 := `"` + strings.Repeat("b", 49) + `"`
-	require.Equal(t, "high", openAIImagesReasoningEffortForPrompt("mark "+label48))
+	require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt("mark "+label48))
 	require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt("mark "+label49))
 
 	for _, raw := range []string{" XHIGH ", "x-high", "extra_high", "max"} {
 		t.Setenv(openAIImagesReasoningEffortEnv, raw)
 		require.Equal(t, "xhigh", openAIImagesReasoningEffortForPrompt("plain"), raw)
 		require.Equal(t, "xhigh", openAIImagesReasoningEffortForPrompt(`quoted "text"`), raw)
+	}
+
+	for _, effort := range []string{"low", "high"} {
+		t.Setenv(openAIImagesReasoningEffortEnv, effort)
+		require.Equal(t, effort, openAIImagesReasoningEffortForPrompt("cat"))
+		require.Equal(t, effort, openAIImagesReasoningEffortForPrompt(`"cat"`))
 	}
 
 	t.Setenv(openAIImagesReasoningEffortEnv, "none")
@@ -77,7 +85,7 @@ func TestOpenAIImagesReasoningEffortDefaultsAndOverride(t *testing.T) {
 	for _, raw := range []string{"auto", "turbo", "MAXX"} {
 		t.Setenv(openAIImagesReasoningEffortEnv, raw)
 		require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt("plain"), raw)
-		require.Equal(t, "high", openAIImagesReasoningEffortForPrompt(`quoted "text"`), raw)
+		require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt(`quoted "text"`), raw)
 		require.Equal(t, "medium", openAIImagesReasoningEffortForPrompt("杯身只写“SkelOT”"), raw)
 	}
 }
@@ -211,7 +219,7 @@ func TestBuildOpenAIImagesResponsesRequest_EditScaffoldKeepsSourceAndForwardsQua
 	}, "gpt-image-2")
 	require.NoError(t, err)
 	require.Equal(t, "", gjson.GetBytes(ascii, "instructions").String())
-	require.Equal(t, "high", gjson.GetBytes(ascii, "reasoning.effort").String())
+	require.Equal(t, "medium", gjson.GetBytes(ascii, "reasoning.effort").String())
 	require.Equal(t, "high", gjson.GetBytes(ascii, "tools.0.quality").String())
 	require.Equal(t, "edit", gjson.GetBytes(ascii, "tools.0.action").String())
 	asciiText := gjson.GetBytes(ascii, "input.0.content.0.text").String()
