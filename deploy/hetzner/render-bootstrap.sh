@@ -39,6 +39,8 @@ sys.stdout.write(base64.b64encode(header + body + trailer).decode("ascii"))
 PY
 }
 
+pgdump_b64="$(b64_gzip "${STAGE0}/tokenkey-pgdump.sh")"
+pgdump_storage_b64="$(b64_gzip "${REPO_ROOT}/ops/stage0/pgdump_storage.py")"
 compose_b64="$(b64_gzip "${STAGE0}/docker-compose.yml")"
 caddy_b64="$(b64_gzip "${STAGE0}/Caddyfile.edge")"
 prune_b64="$(b64_gzip "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh")"
@@ -200,6 +202,8 @@ PRUNE_B64='${prune_b64}'
 GHCR_DAILY_B64='${ghcr_daily_b64}'
 DISK_METRICS_B64='${disk_metrics_b64}'
 RESTORE_SECRETS_B64='${restore_secrets_b64}'
+PGDUMP_B64='${pgdump_b64}'
+PGDUMP_STORAGE_B64='${pgdump_storage_b64}'
 LAUNCH_EMBED
 
 cat >>"${OUT}.tmp" <<'LAUNCH_TAIL'
@@ -245,6 +249,43 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 DMTEOF
+
+printf '%s' "$PGDUMP_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-pgdump.sh
+chmod 0755 /usr/local/bin/tokenkey-pgdump.sh
+install -d -m 0700 /var/lib/tokenkey/pgdump
+install -d -m 0755 /usr/local/lib/tokenkey
+printf '%s' "$PGDUMP_STORAGE_B64" | base64 -d | gunzip > /usr/local/lib/tokenkey/pgdump_storage.py
+chmod 0600 /usr/local/lib/tokenkey/pgdump_storage.py
+
+cat > /etc/systemd/system/tokenkey-pgdump.service <<'PSEOF'
+[Unit]
+Description=tokenkey pg_dump (every 2 hours)
+After=tokenkey.service
+Requires=tokenkey.service
+
+[Service]
+Type=oneshot
+Nice=19
+CPUSchedulingPolicy=other
+CPUQuota=40%
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+EnvironmentFile=-/var/lib/tokenkey/.env
+ExecStart=/usr/local/bin/tokenkey-pgdump.sh
+PSEOF
+
+cat > /etc/systemd/system/tokenkey-pgdump.timer <<'PTEOF'
+[Unit]
+Description=Run tokenkey-pgdump every 2 hours
+
+[Timer]
+OnCalendar=*-*-* 00/2:00:00
+Persistent=true
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target
+PTEOF
 
 printf '%s' "$RESTORE_SECRETS_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-restore-edge-env-secrets.sh
 chmod 0755 /usr/local/bin/tokenkey-restore-edge-env-secrets.sh
@@ -341,6 +382,7 @@ systemctl enable --now tokenkey.service
 # post-boot sync (copy from matching Lightsail .env or sync-feishu-config).
 systemctl enable --now tokenkey-disk-metrics.timer
 systemctl enable --now tokenkey-ghcr-prune-daily.timer
+systemctl enable --now tokenkey-pgdump.timer
 sleep 30
 docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps || true
 echo "HETZNER_BOOTSTRAP_DONE $(date -u +%FT%TZ)"

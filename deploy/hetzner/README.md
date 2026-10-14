@@ -82,7 +82,9 @@ bash ops/observability/run-probe.sh --target prod \
 输出备份目录后原子替换脚本与 volume drop-in、reload 并验证生效绑定；失败非零退出。
 不主动执行告警服务，沿用现有 timer。回退时从输出的备份恢复脚本和原 drop-ins，再
 `systemctl daemon-reload`。edges 继续用既有
-`ops/stage0/sync-edge-host-units-via-ssm.sh`。
+同一安装器，附加 `--with deploy/hetzner/edge-targets-hetzner.json`、
+`--with ops/stage0/edge_routing_matrix.py` 与 `--env ALERT_TARGET=edge:<id>`，apply 值为
+`yes-hcloud-host-alerts`；只更新告警脚本，不同步 GHCR 或重启 timer。
 
 1. **蓝绿已验收**：1.8.284 已完成 prod + 活 Edge 的升级、排空及烟测；raw maintenance pin 的发布与存储切换仍独立。
 2. **gemini-web re-import**：uk1/uk2 上若干 gemini 账号 `error`/不可调度（出口 IP）；修好后再开对应 prod stub。
@@ -109,7 +111,9 @@ bash deploy/hetzner/render-prod-bootstrap.sh --check
 |---|---|---|
 | SSM Hybrid / Parameter Store / STS OIDC | hcloud 远程执行、参数与 GHCR 身份；`ops/stage0/{resolve_prod_ssm_target,edge_ssm_execution}.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
 | QA raw archive | 新归档已写入 Hetzner；AWS raw 栈仅保留旧数据恢复与审计，存量按原生命周期自然到期 | 按 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)核查实际到期与对象清单；AWS 桶、KMS 和恢复角色销毁另行审批 |
-| PG dump / env-secrets / archive / media | AWS S3、SSM SecureString；`tokenkey-pgdump.sh`、`backup-env-secrets-via-ssm.sh`、archive/media 配置 | 数据与恢复能力迁移后才能移除 |
+| PG dump | prod 与活跃 Edge 已切换到私有 Hetzner 存储；AWS 旧备份保留恢复 | 切换均经过真实加密上传/下载/隔离恢复验收，不销毁旧数据 |
+| env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
+| 历史 archive / dormant media 桶 | 历史数据与停用配置；媒体默认不启用 S3，只有显式 opt-in | 资产销毁另行审批，不能把停用 bucket 描述成现网迁移对象 |
 | 共享运行文件的旧目录名 | `deploy/aws/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 仍直接消费 | 是共享 owner，路径不代表部署在 AWS；迁路径必须同时更新引用、生成产物和 sentinel |
 | AWS standby 脚手架 | `deploy/aws/lightsail/`、EC2 bootstrap/CFN、`ops/lightsail/`、AWS DR 与 IP 历史 | 不进现网自动 fan-out；仅明确指定旧机恢复时使用，资产退役单独授权 |
 | 第三方 AWS 协议 | Kiro/Bedrock 的 AWS endpoint、SDK/SigV4、S3 兼容客户端 | 属模型供应商/协议能力，不能随基础设施迁移删除 |
@@ -124,6 +128,52 @@ bash deploy/hetzner/render-prod-bootstrap.sh --check
 | `HCLOUD_S3_Access_Key` / `HCLOUD_S3_Secret_Key` | 本机受保护的对象存储凭据；不输出、不入库 |
 | `QA_RUNTIME_PROVIDER` 与 `QA_*` | QA 独立迁移契约；不得因网关迁完而直接切换默认值 |
 | `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` / `EDGE_GHCR_PAT_SSM_NAME` | 仍由现网发布使用，值见本文件现网不变量 |
+
+媒体默认 AWS 坐标清理：`ops/stage0/retire_dormant_media_storage.py` 默认 plan；
+通过 `run-probe --script ops/stage0/retire_dormant_media_storage_remote.sh`
+附带 `--with ops/stage0/retire_dormant_media_storage.py` 和 prod 矩阵，追加 `--env APPLY=yes-retire-dormant-media` 前必须确认 image offload 未启用、
+无显式 image storage 设置和视频任务。只删已知休眠默认值，自定义配置拒绝处理。
+运行容器的旧环境变量在下一次正常蓝绿发布时消失；此入口不重启容器。
+
+## 数据库备份迁移入口
+
+审批边界：[host-only pgdump](../../docs/approved/hcloud-pgdump-storage.md)。
+迁移使用的专用私有桶为 `tokenkey-pgdump-fsn1-850a09b1c6de`（fsn1，七天生命周期）。
+上传 owner 仍是 `deploy/aws/stage0/tokenkey-pgdump.sh`；host-only 存储身份及加密参数
+由 `ops/stage0/pgdump_storage.py` 同时供上传和恢复使用。
+现网 prod、uk1、uk2、us4、us5 均已激活该身份，并逐节点完成真实 dump 的
+下载哈希比对、完整 SQL 恢复、核心数据核对和临时数据清理。原两小时 timer 保持启用。
+切换后的五节点正常定时备份已核对实际新对象、大小与 SSE-C 状态，不仅是配置切换。
+主机告警共享实现已刷新，prod 监控实际 `/var/lib/tokenkey` Hetzner 数据卷；
+告警直接通知飞书，无需 S3。休眠 AWS 媒体默认值已从 prod host `.env` 清理，
+运行容器的旧变量随下次正常蓝绿发布更新；未启用的 offload 不产生媒体 S3 数据。
+
+`ops/stage0/provision_hcloud_pgdump_bucket.py --bucket <专用桶> --apply` 校验私有桶、
+TLS、七天生命周期及普通/multipart SSE-C 往返。脚本读取本机受保护的
+`HCLOUD_S3_Access_Key` / `HCLOUD_S3_Secret_Key`，不打印凭据。
+
+现有主机切换用 `ops/stage0/install_hcloud_pgdump_storage.py`，提供 `--target prod|edge:<id>`、
+`--bundle <root-only SSH bundle>`、`--release <id>` 和 `--operation plan|prepare|activate|rollback`。
+bundle 包含共享 pgdump/helper/canary/contract、现网矩阵与 `edge_routing_matrix.py`，
+并包含 `pgdump-storage.json`、`credentials`、独立的 32-byte `sse-c.key`。
+私密文件用验证 host key 的 SSH 传送，**禁止**用 run-probe `--with` 或 `--env` 传密钥。
+
+JSON schema v1 字段为 `schema_version`、`target`、`s3_uri`、`endpoint`、`region`、
+`credentials_file`、`sse_c_key_file`。region 为 `fsn1`，endpoint 为
+`https://fsn1.your-objectstorage.com`；URI 前缀必须为 `prod/pgdump` 或 `edge/<id>/pgdump`。
+凭据文件只含 `[pgdump]` 的 `aws_access_key_id` 与 `aws_secret_access_key`；所有私密文件
+必须属调用者且为 0600，安装目录在 `/etc/tokenkey/pgdump/<release>/`，网关不挂载。
+
+prepare 上传最近已有的真实 dump。用既有 canary 的 `--storage-config <候选 storage.json>`、
+`--expected-source <prepare 输出的本地文件>`、`--receipt-root /var/lib/tokenkey/pgdump-canary/<release>`
+核对 SHA-256 并隔离恢复。低优先级宿主任务、内存余量至少 2GiB；设置
+`TOKENKEY_PGDUMP_CANARY_IO_DEVICE` 为实际数据盘以限制恢复容器读写各 10MiB/s。
+未通过磁盘容量门禁或恢复/清理失败不得 activate。activate 校验匹配回执，安装并保存回滚材料；
+遇到任务运行或 timer 即将触发则等本轮结束再执行。切换后核对新备份产物：可观察正常 timer，或在容量门禁通过后低优先级执行一次同一备份脚本，
+并核对远端对象。不要为验证重启任何应用/数据库 unit。
+
+新主机 bootstrap 只装共享任务，不推断 AWS 桶；正式接流量前必须安装并验收存储配置。
+灾难恢复必须取回对应节点 SSE-C 密钥；丢失该密钥的备份不可读。AWS 旧数据不会被该入口删除。
 
 ## 恢复入口
 

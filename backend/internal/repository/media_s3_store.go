@@ -49,8 +49,8 @@ func NewMediaStore(cfg *config.Config) service.MediaStore {
 	}
 
 	loadOpts := []func(*awsconfig.LoadOptions) error{awsconfig.WithRegion(region)}
-	// Static creds ONLY when explicitly provided (non-AWS / local S3). On prod
-	// both are empty → default chain → EC2 instance role (no long-lived key).
+	// Static creds ONLY when explicitly provided (non-AWS / local S3). Otherwise
+	// use the default chain, for example the instance role on an AWS standby host.
 	if mc.AccessKeyID != "" {
 		loadOpts = append(loadOpts, awsconfig.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(mc.AccessKeyID, mc.SecretAccessKey, ""),

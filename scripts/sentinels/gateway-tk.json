@@ -3,6 +3,72 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "deploy/aws/stage0/tokenkey-pgdump.sh",
+      "must_contain": [
+        "python3 /usr/local/lib/tokenkey/pgdump_storage.py --upload",
+        "local copy kept; no AWS fallback"
+      ],
+      "rationale": "The shared host dump must use explicit private Hetzner storage before the AWS standby identity; upload failures retain the local recovery point."
+    },
+    {
+      "path": "ops/stage0/pgdump_storage.py",
+      "must_contain": [
+        "storage configuration belongs to another target",
+        "AWS_EC2_METADATA_DISABLED=true",
+        "encrypted=True"
+      ],
+      "rationale": "Backup upload and restore share private file identities, validated target prefixes and encryption; ambient AWS roles cannot replace an explicit Hetzner identity."
+    },
+    {
+      "path": "ops/stage0/pgdump_restore_canary.py",
+      "must_contain": [
+        "args = storage.command(args[1:], encrypted=args[1:3] == [\"s3\", \"cp\"])",
+        "source_local_sha256 != artifact_sha256"
+      ],
+      "rationale": "The recovery verifier must read using the same encrypted identity and compare the real local dump with its off-box copy."
+    },
+    {
+      "path": "ops/stage0/test_pgdump_storage.py",
+      "must_contain": [
+        "test_encrypted_upload_and_read_use_private_identity_despite_ambient_aws",
+        "test_invalid_explicit_config_never_falls_back_to_valid_aws_env"
+      ],
+      "rationale": "Execute identity isolation and fail-closed configuration regressions rather than preserving only storage filenames."
+    },
+    {
+      "path": "scripts/preflight.sh",
+      "must_contain": [
+        "ops/stage0/test_pgdump_storage.py",
+        "ops/stage0/test_install_hcloud_pgdump_storage.py",
+        "ops/stage0/test_provision_hcloud_pgdump_bucket.py",
+        "ops/stage0/test_retire_dormant_media_storage.py"
+      ],
+      "rationale": "Private backup identity, guarded cutover/rollback, effective retention and safe dormant-media cleanup must remain executable preflight gates."
+    },
+    {
+      "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
+      "must_contain": [
+        "env_default MEDIA_STORAGE_DRIVER \"${MEDIA_STORAGE_DRIVER:-local}\"",
+        "env_default MEDIA_STORAGE_BUCKET \"${MEDIA_STORAGE_BUCKET:-}\""
+      ],
+      "rationale": "Normal fleet rollout must preserve explicit media opt-in and cannot resurrect the retired default AWS media bucket."
+    },
+    {
+      "path": "ops/stage0/deploy_via_ssm.sh",
+      "must_contain": [
+        "&& [ -n \"${MEDIA_STORAGE_BUCKET:-}\" ]"
+      ],
+      "rationale": "The AWS standby deployment path may inject media storage only for an explicitly selected bucket."
+    },
+    {
+      "path": "ops/stage0/test_deploy_via_ssm_media_storage.py",
+      "must_contain": [
+        "test_default_prod_does_not_inject_aws_media",
+        "test_explicit_opt_in_injects_exactly_two_guarded_commands"
+      ],
+      "rationale": "Behavioral coverage preserves dormant default retirement while retaining explicit optional S3 media compatibility."
+    },
+    {
       "path": "ops/stage0/resolve_prod_ssm_target.py",
       "must_contain": [
         "return \"hetzner\"",
