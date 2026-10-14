@@ -250,6 +250,7 @@ func (r *CandidateRequest) RevalidateTurn(ctx context.Context, accountID int64, 
 }
 
 func (r *CandidateRequest) bind(ctx context.Context, selected *candidateExecutionPath) error {
+	defer BeginImageIngressPhase(ctx, ImageIngressBind)()
 	subscription, err := r.admit(ctx, selected.group)
 	if err != nil {
 		return err

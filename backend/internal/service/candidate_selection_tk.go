@@ -47,6 +47,7 @@ func (r *CandidateRequest) accounts(ctx context.Context) ([]Account, error) {
 }
 
 func (r *CandidateRequest) candidates(ctx context.Context, options candidateSelectOptions) ([]*candidateExecutionPath, bool, error) {
+	defer BeginImageIngressPhase(ctx, ImageIngressCandidates)()
 	ctx = r.withProfitPricing(ctx)
 	if r.key.IsUniversal() {
 		groups, err := r.resolver.span(ctx, r.key.UserID)
@@ -326,6 +327,7 @@ func openAIFilterPrimaryReason(stats openAISelectionFilterStats) string {
 // selectAccount is shared by initial admission, real slot acquisition and retry.
 // Account ID is deduplicated only after selecting the admitted payment tier.
 func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateSelectOptions) (*AccountSelectionResult, error) {
+	defer BeginImageIngressPhase(ctx, ImageIngressSelection)()
 	paths, supported, evaluationErr := r.candidates(ctx, options)
 	capacityPlatform := r.capacityPlatformHint
 	if fp := strings.TrimSpace(r.forcePlatform); fp != "" {
