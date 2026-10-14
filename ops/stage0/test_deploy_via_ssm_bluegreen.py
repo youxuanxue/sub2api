@@ -877,6 +877,54 @@ printf accepted
                     if not success:
                         self.assertIn("separate migration", result.stderr)
 
+    def test_live_qa_coordinates_are_hcloud_and_complete(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        assert remote is not None
+        guard = _extract_shell_function(remote, "assert_live_qa_archive_coordinates")
+        owner = (_SCRIPT.parent / "qa-runtime-environment.sh").read_text()
+        script = f"""set -euo pipefail
+{owner}
+{guard}
+DEPLOY_PROFILE=prod
+HYBRID_PROD=true
+env_get() {{
+  case "$1" in
+    QA_ARCHIVE_ENABLED) printf true ;;
+    QA_ARCHIVE_STORAGE_CREDENTIALS_FILE) printf /run/secrets/tokenkey-qa/raw.json ;;
+    *) key="${{1/QA_ARCHIVE_/QA_LIVE_ARCHIVE_}}"; printf '%s' "${{!key}}" ;;
+  esac
+}}
+die() {{ echo "$*" >&2; exit 42; }}
+assert_live_qa_archive_coordinates
+printf accepted
+"""
+        result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "accepted")
+
+        for key, value in {
+            "QA_ARCHIVE_STORAGE_REGION": "us-east-1",
+            "QA_ARCHIVE_STORAGE_BUCKET": "legacy-aws-raw",
+            "QA_ARCHIVE_STORAGE_ENDPOINT": "",
+            "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE": "",
+        }.items():
+            with self.subTest(key=key):
+                bad_script = script.replace(
+                    '  case "$1" in',
+                    f'  case "$1" in\n    {key}) printf %s {shlex.quote(value)} ;;',
+                )
+                failed = subprocess.run(["bash"], input=bad_script, text=True, capture_output=True)
+                self.assertEqual(failed.returncode, 42)
+                self.assertIn("live QA archive", failed.stderr)
+                # The same historical configuration remains valid for an
+                # explicitly selected EC2 standby or a non-capturing edge.
+                for override in ("HYBRID_PROD=false", "DEPLOY_PROFILE=edge"):
+                    legacy = bad_script.replace("assert_live_qa_archive_coordinates\nprintf", override + "\nassert_live_qa_archive_coordinates\nprintf")
+                    result = subprocess.run(["bash"], input=legacy, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "accepted")
+
     def test_remote_script_parses(self) -> None:
         proc, params, remote = _render()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
@@ -906,7 +954,10 @@ printf accepted
         self.assertIn("QA_ARCHIVE_STORAGE_BUCKET=''", joined)
         self.assertIn("QA_ARCHIVE_STORAGE_BUCKET_SET=false", joined)
         self.assertIn("QA_ARCHIVE_ENABLED='true'", joined)
-        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-prod-qa-raw-archive-682751977094'", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_DRIVER='s3'", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_REGION='fsn1'", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-qa-raw-fsn1-dd2ca9019b22'", joined)
+        self.assertNotIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-prod-qa-raw-archive-682751977094'", joined)
         self.assertIn("TELEMETRY_ARCHIVE_ENABLED=''", joined)
         self.assertIn("TELEMETRY_ARCHIVE_BUCKET='tokenkey-prod-archive-682751977094'", joined)
         self.assertIn("TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES='33554432'", joined)
@@ -915,6 +966,7 @@ printf accepted
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_ENABLED='false'", joined)
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS='8'", joined)
         self.assertIn('env_set GATEWAY_IMAGE_CONCURRENCY_ENABLED', remote)
+        self.assertIn("assert_live_qa_archive_coordinates", remote)
 
         self.assertIn("docker-compose.bluegreen.yml", remote)
         self.assertIn("active-color", remote)

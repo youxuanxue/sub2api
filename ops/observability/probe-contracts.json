@@ -1,4 +1,16 @@
 {
+  "probe-bad-sessions.sh": {
+    "companions": [
+      "ops/observability/detect-bad-sessions.py",
+      "ops/lib/resolve_app_container.py"
+    ],
+    "verdicts": [
+      "candidates_found",
+      "no_candidates",
+      "error",
+      "partial"
+    ]
+  },
   "probe_account_model.sh": {
     "companions": [
       "ops/pricing/probe_reserved_resources.sh",
