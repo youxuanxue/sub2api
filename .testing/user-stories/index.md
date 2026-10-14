@@ -68,3 +68,5 @@
 | US-061 | 充值资格与 Studio 媒体错误提示 | Done | `.testing/user-stories/stories/US-061-trial-media-recharge.md` |
 
 | US-062 | Claude context error recovery | Done | `.testing/user-stories/stories/US-062-claude-context-error-recovery.md` |
+
+| US-063 | Hetzner 数据库备份安全切换 | Done | `.testing/user-stories/stories/US-063-hcloud-pgdump-storage.md` |

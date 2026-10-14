@@ -63,7 +63,7 @@ class EdgeQACaptureDisableRenderTest(unittest.TestCase):
         )
         edge_only = len(_edge_qa_cmds(edge))
         self.assertFalse(any("QA_BUNDLE_" in command for command in prod + edge))
-        self.assertEqual(prod_only, 6)
+        self.assertEqual(prod_only, 4) # QA archive + image limit; media requires explicit opt-in
         self.assertEqual(edge_only, 2)
         self.assertEqual(len(prod) - len(edge), prod_only - edge_only)
 
