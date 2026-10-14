@@ -16937,8 +16937,9 @@
     {
       "path": "deploy/aws/stage0/tokenkey-qa-maintenance.sh",
       "must_contain": [
-        "acquire_qa_lifecycle_lock 600",
-        "with_qa_lifecycle_lock 0 run_single_owner_activation"
+        "with_qa_lifecycle_lock 0 run_single_owner_activation",
+        "acquire_qa_lifecycle_lock 600 || return $?",
+        "acquire_qa_lifecycle_lock \"$1\" || return $?"
       ],
       "rationale": "Scheduled archive waits for backup; owner activation must fail immediately on a busy host lock."
     },

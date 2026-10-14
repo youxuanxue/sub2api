@@ -53,12 +53,12 @@ acquire_qa_lifecycle_lock() {
   exec 9>"${QA_LIFECYCLE_LOCK_FILE}"
   if ! flock -w "${wait_seconds}" 9; then
     qa_fail lifecycle_lock_busy 75 "QA/backup host lock is already held"
-    return
+    return 75
   fi
 }
 
 with_qa_lifecycle_lock() {
-  acquire_qa_lifecycle_lock "$1"
+  acquire_qa_lifecycle_lock "$1" || return $?
   shift
   "$@"
 }
@@ -410,7 +410,7 @@ run_qa_maintenance() {
   CHILD_STDERR=""
   trap finalize_maintenance EXIT
 
-  acquire_qa_lifecycle_lock 600
+  acquire_qa_lifecycle_lock 600 || return $?
   load_app_runtime
   CHILD_STDOUT="$(mktemp "${QA_MAINTENANCE_RUNTIME_DIR}/child.out.XXXXXX")"
   CHILD_STDERR="$(mktemp "${QA_MAINTENANCE_RUNTIME_DIR}/child.err.XXXXXX")"
