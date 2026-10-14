@@ -39,7 +39,7 @@ TokenKey 现状（改前）：`instructions` 固定 `""`（codex2api，避免主
 
 移植：
 
-- `reasoning.effort` 可配。未设置 `SUB2API_IMAGES_REASONING_EFFORT` 时默认 `medium`（对齐当前行为，也对齐 Velmo 有增强时的档）。Velmo 只在 dict 的 `Text (verbatim)` 字段有内容时升到 `high`；自由字符串本身不会升档。TokenKey 只把短的成对 ASCII `"label"`（1–48 个字符、非纯空白、开引号前不是数字）当作这个字段的替身并升到 `high`。中文引号、书名号、不成对引号、英寸记号（`12"`、`12" to 24"`）保持 `medium`。成对的短中文引号仍会在脚手架里加一行 `Text (verbatim)`，但不升 effort。
+- `reasoning.effort` 可配。未设置有效的 `SUB2API_IMAGES_REASONING_EFFORT` 时，所有 prompt 均使用 `medium`；短 prompt、短 ASCII 引号、中文引号都不升档。短引号的识别仅用于 `Text (verbatim)` 脚手架。原先短 ASCII `"label"` 升 `high` 的策略已按下方 2026-10-14 修订撤回。
 - 显式环境变量覆盖自动档。合法值 `none` / `minimal` / `low` / `medium` / `high` / `xhigh`。别名 `x-high`、`extra_high`、`extrahigh` 以及 Velmo 模式名 `max` 归一成 `xhigh`（Codex 允许列表里没有 effort `max`）。`auto` 和其他无法识别的值忽略，回退自动档。留空（compose 默认空字符串）等同未设置。
 - 结构化观感脚手架写在 **用户 `input_text`**，使用 Velmo 的标签名：`Primary request`、`Composition/framing`、`Lighting/mood`、`Materials/textures`、`Constraints`、`Avoid`。生成请求的构图/光线/材质是条件句（请求没写才补，不覆盖已写明的构图或媒介）。编辑请求改为保留输入图的构图、光线和表面，只改请求点名的部分，不再套用「清晰主体 / 新光线」那套生成提示。有短引号跨度时加一行 `Text (verbatim)`。
 - `instructions` 保持空字符串。
@@ -59,7 +59,7 @@ TokenKey 现状（改前）：`instructions` 固定 `""`（codex2api，避免主
 
 Stage0 蓝绿模板 `ops/stage0/deploy_via_ssm_bluegreen.sh` 在 blue 和 green 的 `environment` 里保留 `${SUB2API_IMAGES_REASONING_EFFORT:-}` 与 `${SUB2API_IMAGES_PROMPT_SCAFFOLD:-}`。`docker compose --env-file .env` 创建容器时读取宿主机 `.env`。键缺失或值为空时，容器里对应值是空字符串：effort 走自动档，脚手架保持开启（与 `deploy/docker-compose.yml` 里脚手架默认 `on` 的应用行为相同）。部署器不 `env_set` / `env_default` 这两个键，也不把它们放进 SSM 启动前缀，避免部署机上的空值盖住宿主机已有配置。
 
-2026-10-13 edge-uk1 A/B（medium / high / xhigh，2048 与一发 4K）没有稳定观感增益。默认档保持 `medium`（短 ASCII `"label"` 仍升到 `high`）。不要为了这次观感把默认改成 high 或 xhigh。
+2026-10-13 edge-uk1 A/B（medium / high / xhigh，2048 与一发 4K）没有稳定观感增益。当时默认档保持 `medium`、短 ASCII `"label"` 仍升到 `high`；后者已按 2026-10-14 修订撤回。不要为了这次观感把默认改成 high 或 xhigh。
 
 ## 2026-10-13 edge-uk1：可观测与 input_fidelity
 
@@ -83,6 +83,23 @@ OAuth Responses 生图（`forwardOpenAIImagesOAuth` 的非 Direct 分支）现�
 同一轮 edits：`input_fidelity=high` 与 `low` 都是 HTTP 400，`invalid_input_fidelity_model`，模型 `gpt-image-2-codex` 不支持该字段。省略字段则 200。
 
 `buildOpenAIImagesResponsesRequestWithMainModel` 在工具模型是 `gpt-image-2`、`gpt-image-2-codex`，或以 `gpt-image-2-codex-` 开头时不写 `tools[].input_fidelity`。`gpt-image-2` 是上游软成 `gpt-image-2-codex` 的工具名。`gpt-image-1`、`gpt-image-1.5`、`gpt-image-2.5-*` 以及 API-key Images 原文透传继续保留该字段。Direct Images 仍关闭，不在本修订里重新打开。
+
+## 2026-10-14：撤回引号自动升档
+
+用户在核实四边现网延迟后授权修复并开 PR。OAuth Images 自动档统一为 `medium`，
+`openAIImagesVerbatimReasoningEffort` 复用默认档；`Text (verbatim)` 脚手架保持不变。
+该修订适用于共享 OAuth Responses 生图路径，不限定工具模型名。
+
+只读复查窗口为 2026-10-13 09:00 至 2026-10-14 09:00 UTC，限定 `gpt-image-2`、
+OAuth、`image_size=2K`、`/v1/images/edits`，排除未落 effort 的历史行。
+四边 high 组的 p50、p95 和均值均高于 medium 组；us4 进一步限定同一输出尺寸、
+单张 edits 后仍有差异。此为观察性分组，不能将全部延迟差归因于 effort，
+也不承诺每条请求省时；结合前述未观察到稳定质量增益，撤回自动升档。
+
+环境变量仍优先于自动档，本次不调整运行环境或默认降到 `low`。复查窗口内 uk1 已有
+少量 `low` generations 记录，但不足以证明主路 edits 的质量与延迟收益；
+后续降档须另做固定输入、重复采样的对照验证。部署后检查 dispatch 的 `effort_source=auto`
+对应 `reasoning_effort=medium`，并观察文字正确率、失败率与延迟。
 
 ## Owners
 
