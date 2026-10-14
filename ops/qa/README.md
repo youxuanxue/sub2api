@@ -65,7 +65,11 @@ python3 ops/qa/prod_phase2_live_health.py --legacy-aws --json
 bash ops/observability/probe-release-control-plane.sh
 ```
 
-检查还须只读核对实际 maintenance pin 的存储坐标、主机验收回执及 capture ledger 与批准基线。
+上述检查从独立、停止的 maintenance pin 读取存储坐标并对照
+`ops/stage0/qa-runtime-environment.sh` 的现行 Hetzner 契约；pin 缺失、坐标漂移或
+未配置凭据文件时失败。凭据字段仅报告是否配置，不输出路径或密钥。
+存储检查不执行上传或恢复；归档成功与恢复校验由维护回执和数据库记录证明。
+仍须只读核对主机验收回执及 capture ledger 与批准基线。
 新增 failure、过时快照、捕获积压、缺少 seal 或归档/恢复失败按 raw-only 契约处理，不能清除旧警告
 来获取绿灯。`scan-edge-health.sh` 默认只看 Anthropic 账号池，空直连池不能代表整个 edge 宕机；
 供应渠道状态与网关进程健康分别解释。

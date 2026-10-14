@@ -295,6 +295,8 @@ assert_qa_provider_unchanged() {
 
 assert_live_qa_archive_coordinates() {
   [[ "${DEPLOY_PROFILE}" = prod ]] || return 0
+  # EC2 standby keeps its explicit historical recovery configuration.
+  [[ "${HYBRID_PROD:-false}" = true ]] || return 0
   [[ "$(env_get QA_ARCHIVE_ENABLED)" = true ]] || return 0
 
   local key expected actual
@@ -304,16 +306,11 @@ assert_live_qa_archive_coordinates() {
     QA_ARCHIVE_STORAGE_BUCKET \
     QA_ARCHIVE_STORAGE_ENDPOINT \
     QA_ARCHIVE_STORAGE_PREFIX; do
-    case "${key}" in
-      QA_ARCHIVE_STORAGE_DRIVER) expected="${QA_LIVE_ARCHIVE_STORAGE_DRIVER}" ;;
-      QA_ARCHIVE_STORAGE_REGION) expected="${QA_LIVE_ARCHIVE_STORAGE_REGION}" ;;
-      QA_ARCHIVE_STORAGE_BUCKET) expected="${QA_LIVE_ARCHIVE_STORAGE_BUCKET}" ;;
-      QA_ARCHIVE_STORAGE_ENDPOINT) expected="${QA_LIVE_ARCHIVE_STORAGE_ENDPOINT}" ;;
-      QA_ARCHIVE_STORAGE_PREFIX) expected="${QA_LIVE_ARCHIVE_STORAGE_PREFIX}" ;;
-    esac
+    expected="${key/QA_ARCHIVE_/QA_LIVE_ARCHIVE_}"
+    expected="${!expected}"
     actual="$(env_get "${key}")"
     [[ -n "${actual}" ]] || die "missing live QA archive coordinate: ${key}"
-    [[ "${actual}" = "${expected}" ]] || die "live QA archive must use Hetzner (${key}=${expected}); got ${actual}"
+    [[ "${actual}" = "${expected}" ]] || die "live QA archive coordinate differs from Hetzner contract: ${key}"
   done
   [[ -n "$(env_get QA_ARCHIVE_STORAGE_CREDENTIALS_FILE)" ]] ||
     die "missing live QA archive credential file: QA_ARCHIVE_STORAGE_CREDENTIALS_FILE"

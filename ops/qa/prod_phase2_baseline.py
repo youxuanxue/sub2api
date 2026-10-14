@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only prod QA Phase 2 baseline probe (local QA footprint + live archive coordinates)."""
+"""Read-only prod QA maintenance pin, storage and lifecycle baseline."""
 from __future__ import annotations
 
 import argparse
@@ -15,48 +15,7 @@ sys.path.insert(0, str(ROOT / "ops" / "stage0"))
 import ssm_execution  # noqa: E402
 from ssm_execution import resolve_prod_instance, run_shell_b64  # noqa: E402
 
-REMOTE = r"""set -uo pipefail
-cd /var/lib/tokenkey
-app_container=tokenkey
-if [ -r active-color ]; then
-  color=$(sed -n '1p' active-color 2>/dev/null | tr -d '[:space:]')
-  case "${color}" in
-    blue|green) app_container="tokenkey-${color}" ;;
-  esac
-fi
-qa_cap=$(sudo docker exec "${app_container}" printenv QA_CAPTURE_ENABLED 2>/dev/null || true)
-if [ -z "${qa_cap}" ]; then
-  qa_cap=$(grep -E '^QA_CAPTURE_ENABLED=' .env 2>/dev/null | cut -d= -f2- || echo missing)
-fi
-[ -n "${qa_cap}" ] || qa_cap=missing
-qa_archive=$(sudo docker exec "${app_container}" printenv QA_ARCHIVE_ENABLED 2>/dev/null || echo missing)
-archive_driver=$(sudo docker exec "${app_container}" printenv QA_ARCHIVE_STORAGE_DRIVER 2>/dev/null || echo missing)
-archive_region=$(sudo docker exec "${app_container}" printenv QA_ARCHIVE_STORAGE_REGION 2>/dev/null || echo missing)
-archive_bucket=$(sudo docker exec "${app_container}" printenv QA_ARCHIVE_STORAGE_BUCKET 2>/dev/null || echo missing)
-archive_endpoint=$(sudo docker exec "${app_container}" printenv QA_ARCHIVE_STORAGE_ENDPOINT 2>/dev/null || echo missing)
-archive_prefix=$(sudo docker exec "${app_container}" printenv QA_ARCHIVE_STORAGE_PREFIX 2>/dev/null || echo missing)
-rec_count=0
-rec_oldest=
-rec_newest=
-blob_bytes=0
-if sudo docker ps --format '{{.Names}}' | grep -qx tokenkey-postgres; then
-  PGPASS="$(sudo grep '^POSTGRES_PASSWORD=' /var/lib/tokenkey/.env | cut -d= -f2- || true)"
-  NET="$(sudo docker inspect tokenkey-postgres --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' 2>/dev/null || true)"
-  if [ -n "${PGPASS}" ] && [ -n "${NET}" ]; then
-    rec_count=$(sudo docker run --rm --network "${NET}" -e PGPASSWORD="${PGPASS}" postgres:16-alpine \
-      psql -h tokenkey-postgres -U tokenkey -d tokenkey -Atqc "SELECT COUNT(*) FROM qa_records;" 2>/dev/null || echo 0)
-    rec_oldest=$(sudo docker run --rm --network "${NET}" -e PGPASSWORD="${PGPASS}" postgres:16-alpine \
-      psql -h tokenkey-postgres -U tokenkey -d tokenkey -Atq -c "SELECT MIN(created_at) FROM qa_records;" 2>/dev/null | head -1)
-    rec_newest=$(sudo docker run --rm --network "${NET}" -e PGPASSWORD="${PGPASS}" postgres:16-alpine \
-      psql -h tokenkey-postgres -U tokenkey -d tokenkey -Atq -c "SELECT MAX(created_at) FROM qa_records;" 2>/dev/null | head -1)
-  fi
-fi
-if [ -d qa_blobs ] || [ -d qa_dlq ]; then
-  blob_bytes=$(du -sb qa_blobs qa_dlq 2>/dev/null | awk '{s+=$1} END {print s+0}')
-fi
-printf 'QA_CAPTURE_ENABLED=%s\nQA_ARCHIVE_ENABLED=%s\nARCHIVE_DRIVER=%s\nARCHIVE_REGION=%s\nARCHIVE_BUCKET=%s\nARCHIVE_ENDPOINT=%s\nARCHIVE_PREFIX=%s\nQA_RECORDS=%s\nQA_OLDEST=%s\nQA_NEWEST=%s\nBLOB_BYTES=%s\n' \
-  "$qa_cap" "$qa_archive" "$archive_driver" "$archive_region" "$archive_bucket" "$archive_endpoint" "$archive_prefix" "$rec_count" "$rec_oldest" "$rec_newest" "$blob_bytes"
-"""
+import prod_phase2_live_health as live_health  # noqa: E402
 
 
 def _account_id() -> str:
@@ -86,7 +45,7 @@ def _raw_bucket_status(account_id: str) -> dict[str, str]:
 
 
 def _archive_bucket_status(*, legacy_aws: bool) -> tuple[str | None, dict[str, str]]:
-    """Return the optional historical AWS check without touching AWS by default."""
+    """Inspect the historical AWS bucket only when explicitly requested."""
     if not legacy_aws:
         return None, {"status": "skipped", "reason": "live archive is Hetzner"}
     account_id = _account_id()
@@ -107,14 +66,19 @@ def main() -> int:
     instance_id = resolve_prod_instance()
     remote_out = run_shell_b64(
         instance_id,
-        base64.b64encode(REMOTE.encode()).decode(),
+        base64.b64encode(live_health.PROBE.read_bytes()).decode(),
         "prod qa phase2 baseline",
     )
+    snapshot = live_health._parse_probe_output(remote_out)
+    storage = live_health.evaluate_storage(snapshot.get("storage"))
     payload = {
         "region": ssm_execution.PROD_REGION,
         "instance_id": instance_id,
         "account_id": account_id,
         "raw_archive_bucket": bucket,
+        "raw_archive_storage": snapshot.get("storage"),
+        "storage_contract": storage,
+        "qa_records": snapshot.get("qa_records"),
         "stdout": remote_out.strip(),
     }
     if args.json:
@@ -123,7 +87,7 @@ def main() -> int:
         print(f"prod instance={instance_id} account={account_id}")
         print(f"raw_archive: {bucket}")
         print(remote_out.strip())
-    return 0
+    return 0 if storage["ok"] else 2
 
 
 if __name__ == "__main__":

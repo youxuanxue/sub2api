@@ -882,24 +882,17 @@ printf accepted
         self.assertEqual(proc.returncode, 0, proc.stderr)
         assert remote is not None
         guard = _extract_shell_function(remote, "assert_live_qa_archive_coordinates")
+        owner = (_SCRIPT.parent / "qa-runtime-environment.sh").read_text()
         script = f"""set -euo pipefail
+{owner}
 {guard}
 DEPLOY_PROFILE=prod
-QA_LIVE_ARCHIVE_STORAGE_DRIVER=s3
-QA_LIVE_ARCHIVE_STORAGE_REGION=fsn1
-QA_LIVE_ARCHIVE_STORAGE_BUCKET=tokenkey-qa-raw-fsn1-dd2ca9019b22
-QA_LIVE_ARCHIVE_STORAGE_ENDPOINT=https://fsn1.your-objectstorage.com
-QA_LIVE_ARCHIVE_STORAGE_PREFIX=raw/v1
+HYBRID_PROD=true
 env_get() {{
   case "$1" in
     QA_ARCHIVE_ENABLED) printf true ;;
-    QA_ARCHIVE_STORAGE_DRIVER) printf s3 ;;
-    QA_ARCHIVE_STORAGE_REGION) printf fsn1 ;;
-    QA_ARCHIVE_STORAGE_BUCKET) printf tokenkey-qa-raw-fsn1-dd2ca9019b22 ;;
-    QA_ARCHIVE_STORAGE_ENDPOINT) printf https://fsn1.your-objectstorage.com ;;
-    QA_ARCHIVE_STORAGE_PREFIX) printf raw/v1 ;;
     QA_ARCHIVE_STORAGE_CREDENTIALS_FILE) printf /run/secrets/tokenkey-qa/raw.json ;;
-    *) printf '' ;;
+    *) key="${{1/QA_ARCHIVE_/QA_LIVE_ARCHIVE_}}"; printf '%s' "${{!key}}" ;;
   esac
 }}
 die() {{ echo "$*" >&2; exit 42; }}
@@ -912,24 +905,25 @@ printf accepted
 
         for key, value in {
             "QA_ARCHIVE_STORAGE_REGION": "us-east-1",
-            "QA_ARCHIVE_STORAGE_BUCKET": "tokenkey-prod-qa-raw-archive-682751977094",
-            "QA_ARCHIVE_STORAGE_ENDPOINT": "https://old.example",
+            "QA_ARCHIVE_STORAGE_BUCKET": "legacy-aws-raw",
+            "QA_ARCHIVE_STORAGE_ENDPOINT": "",
             "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE": "",
         }.items():
             with self.subTest(key=key):
-                original = (
-                    "fsn1" if key.endswith("REGION")
-                    else "tokenkey-qa-raw-fsn1-dd2ca9019b22" if key.endswith("BUCKET")
-                    else "https://fsn1.your-objectstorage.com" if key.endswith("ENDPOINT")
-                    else "/run/secrets/tokenkey-qa/raw.json"
-                )
                 bad_script = script.replace(
-                    f"{key}) printf {original}",
-                    f"{key}) printf {value!r}",
+                    '  case "$1" in',
+                    f'  case "$1" in\n    {key}) printf %s {shlex.quote(value)} ;;',
                 )
                 failed = subprocess.run(["bash"], input=bad_script, text=True, capture_output=True)
                 self.assertEqual(failed.returncode, 42)
                 self.assertIn("live QA archive", failed.stderr)
+                # The same historical configuration remains valid for an
+                # explicitly selected EC2 standby or a non-capturing edge.
+                for override in ("HYBRID_PROD=false", "DEPLOY_PROFILE=edge"):
+                    legacy = bad_script.replace("assert_live_qa_archive_coordinates\nprintf", override + "\nassert_live_qa_archive_coordinates\nprintf")
+                    result = subprocess.run(["bash"], input=legacy, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "accepted")
 
     def test_remote_script_parses(self) -> None:
         proc, params, remote = _render()

@@ -6,6 +6,37 @@ PSQL=(docker exec -i -e 'PGOPTIONS=-c default_transaction_read_only=on -c lock_t
 RECEIPT="${QA_MAINTENANCE_RECEIPT:-/var/lib/tokenkey/qa-maintenance-last-run.json}"
 BOUNDARY_RECEIPT="${QA_BOUNDARY_RECEIPT:-/var/lib/tokenkey/qa-boundary-last-run.json}"
 
+# Read the stopped maintenance pin, which owns archive coordinates independently
+# of gateway colors. Only emit storage coordinates and a credential presence bit.
+python3 - <<'PY'
+import json
+import subprocess
+
+try:
+    result = subprocess.run(
+        ["docker", "inspect", "tokenkey-qa-runtime"],
+        capture_output=True, text=True, check=True, timeout=10,
+    )
+    facts = json.loads(result.stdout)[0]
+    config = facts["Config"]
+    env = dict(line.split("=", 1) for line in config["Env"] if "=" in line)
+    keys = (
+        "QA_ARCHIVE_ENABLED", "QA_ARCHIVE_STORAGE_DRIVER",
+        "QA_ARCHIVE_STORAGE_REGION", "QA_ARCHIVE_STORAGE_BUCKET",
+        "QA_ARCHIVE_STORAGE_ENDPOINT", "QA_ARCHIVE_STORAGE_PREFIX",
+    )
+    payload = {
+        "status": "ok",
+        "runtime_contract": (config.get("Labels") or {}).get("dev.tokenkey.qa-runtime"),
+        "runtime_stopped": facts["State"]["Running"] is False,
+        "environment": {key: env.get(key, "") for key in keys},
+        "credentials_file_present": bool(env.get("QA_ARCHIVE_STORAGE_CREDENTIALS_FILE", "").strip()),
+    }
+except (OSError, ValueError, KeyError, IndexError, TypeError, subprocess.SubprocessError):
+    payload = {"status": "unknown", "reason": "qa_runtime_storage_unavailable"}
+print("PHASE2STORAGE " + json.dumps(payload, ensure_ascii=True, sort_keys=True))
+PY
+
 timer_enabled=false
 timer_active=false
 if systemctl is-enabled tokenkey-qa-maintenance.timer >/dev/null 2>&1; then

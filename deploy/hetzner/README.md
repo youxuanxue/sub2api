@@ -126,8 +126,8 @@ bash deploy/hetzner/render-prod-bootstrap.sh --check
 | `PROD_STACK_NAME` / `STACK_NAME` | 旧 AWS standby 或仍在使用的 QA/备份 CFN，不是 hcloud 主机身份 |
 | `HCLOUD_TOKEN` | hcloud 资源管理；普通镜像升级走 SSM，不重新 provision |
 | `HCLOUD_S3_Access_Key` / `HCLOUD_S3_Secret_Key` | 本机受保护的对象存储凭据；不输出、不入库 |
-| `QA_RUNTIME_PROVIDER` 与 `QA_*` | QA 独立迁移契约；不得因网关迁完而直接切换默认值 |
-| `QA_LIVE_ARCHIVE_*` | 现行 QA raw 坐标由 `ops/stage0/qa-runtime-environment.sh` 统一持有；蓝绿发布缺失或偏离 HCloud 坐标时直接失败。旧 AWS IAM/raw 检查仅显式传 `--legacy-aws` |
+| `QA_*` | QA 独立迁移契约；不得因网关迁完而直接切换默认值 |
+| `QA_LIVE_ARCHIVE_*`（脚本内部常量） | 现行 QA raw 坐标由 `ops/stage0/qa-runtime-environment.sh` 统一持有；HCloud prod 蓝绿发布缺失或偏离这些坐标时直接失败。旧 AWS IAM/raw 检查仅显式传 `--legacy-aws` |
 | `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` / `EDGE_GHCR_PAT_SSM_NAME` | 仍由现网发布使用，值见本文件现网不变量 |
 
 媒体默认 AWS 坐标清理：`ops/stage0/retire_dormant_media_storage.py` 默认 plan；
