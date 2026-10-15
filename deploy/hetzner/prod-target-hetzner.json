@@ -6,7 +6,7 @@
   "notes": [
     "Historical prod; fresh AWS identity is deploy/aws/fresh-migration-20261015.json. Do not use this host for production writes.",
     "Data volume mandatory; root disk is not the PG/Redis truth.",
-    "Live prod uses blue/green; ensure_legacy_cutover supports newly provisioned single-color hosts.",
+    "Historical hosts may still use blue/green layout; ensure_legacy_cutover supports newly provisioned single-color hosts.",
     "staging_domain is matrix field only; live DNS is domain (no -hz A)."
   ],
   "allowed_locations": [

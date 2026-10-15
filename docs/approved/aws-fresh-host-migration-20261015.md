@@ -133,13 +133,14 @@ prod 批次 `oltp-prod-20261015T0723`、`precious-prod-20261015T074216Z`、
 并观察旧地址访问趋零；仅等待 TTL 不是所有客户端都已更新的证明。
 
 `prepare-aws-control-plane.py` 生成并离线验证待切流 patch，未改现网默认值。
-当前 GitHub `PROD_SSM_TARGET=hetzner`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR=167.233.211.115/32`；
-GHCR PAT 参数路径不变。四边 `/tokenkey/lightsail/<id>/ssm_managed_instance_id` 仍指向历史 AWS
+**准备阶段当时** GitHub 仍为 `PROD_SSM_TARGET=hetzner`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR=167.233.211.115/32`
+（prod 切流完成后的现网值见文首最新状态与 `deploy/hetzner/README.md`）；
+GHCR PAT 参数路径不变。四边 `/tokenkey/lightsail/<id>/ssm_managed_instance_id` 在准备阶段仍指向历史 AWS
 身份，正式窗口必须与 instance_name、AWS 矩阵和 GitHub 变量一并切换；不能提前覆盖。
 共享代码已补齐混合舰队的 Gemini worker 发布、账号导入、OAuth 检查、健康探针和运维 fan-out；
 待切流 patch 只修改选定 edge 的活矩阵和舰队文档。47 项临时副本测试及 workflow 覆盖检查通过；
-同 ID 双平台启用会拒绝自动派发。当前工作树活矩阵仍全部 Hcloud，prod 默认值与 GitHub 变量
-不变。旧平台的显式历史查询仍可用；不再生成默认 prod 同时迁移的全舰队补丁。
+同 ID 双平台启用会拒绝自动派发。准备阶段工作树活矩阵仍全部 Hcloud，prod 默认值与 GitHub 变量
+当时不变。旧平台的显式历史查询仍可用；不再生成默认 prod 同时迁移的全舰队补丁。
 
 生成命令：`python3 ops/migration/prepare-aws-control-plane.py --edge uk2 --output /tmp/aws-uk2-cutover-pending.patch`。
 当前按选定 edge 生成 `.actions.json`，列出该边的 instance_name、static_ip_name、public_ip、
