@@ -145,6 +145,8 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | [`design-edge-model-family-alert.md`](design-edge-model-family-alert.md) | Edge model-family alert |
 | [`edge-bluegreen-release-safety.md`](edge-bluegreen-release-safety.md) | Edge blue/green safety |
 | [`hetzner-cloud-full-migration.md`](hetzner-cloud-full-migration.md) | Hetzner 舰队决策锁（fsn1 / cax21；执行 SSOT：`deploy/hetzner/README.md`） |
+| [`aws-fresh-host-migration-20261015.md`](aws-fresh-host-migration-20261015.md) | 全新 AWS 迁移、预同步与已批准的 uk2 单节点切流 |
+| [`lightsail-existing-canary-registration.md`](lightsail-existing-canary-registration.md) | 已创建 Lightsail 迁移新机的受限 SSM 注册 |
 | [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
 | [`prod-component-release.md`](prod-component-release.md) | Independent prod component releases |
 

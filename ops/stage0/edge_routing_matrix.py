@@ -149,3 +149,24 @@ def load_live_targets(repo_root: pathlib.Path | str) -> dict[str, dict]:
     ls = load_lightsail_targets(repo_root)
     ids = live_deployable_edge_ids(repo_root, hetzner_targets=hz, lightsail_targets=ls)
     return {eid: (hz[eid] if edge_hetzner_deployable(hz.get(eid)) else ls[eid]) for eid in ids}
+
+
+def validate_live_fleet(repo_root):
+    """Require every contracted edge on exactly one platform, including raw flags."""
+    hz = load_hetzner_targets(repo_root)
+    ls = load_lightsail_targets(repo_root)
+    expected = {"uk1", "uk2", "us4", "us5"}
+    for platform, rows in (("hetzner", hz), ("lightsail", ls)):
+        predicate = edge_hetzner_deployable if platform == "hetzner" else edge_deployable
+        for eid, row in rows.items():
+            if row.get("deployable") is True and (eid not in expected or not predicate(row)):
+                raise ValueError(f"invalid active {platform} edge: {eid}")
+    actual = set(live_deployable_edge_ids(repo_root, hetzner_targets=hz, lightsail_targets=ls))
+    if actual != expected:
+        raise ValueError(f"live fleet mismatch: missing={sorted(expected - actual)}, extra={sorted(actual - expected)}")
+    return sorted(actual)
+
+
+if __name__ == "__main__":
+    validate_live_fleet(pathlib.Path(__file__).resolve().parents[2])
+    print("cutover_matrix_guard=ok")
