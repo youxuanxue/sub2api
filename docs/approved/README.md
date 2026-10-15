@@ -195,3 +195,5 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | [prod-component-release.md](prod-component-release.md) | archived：原组件发布设计，由 raw-only 替代 |
 
 网关 hcloud 蓝绿发布仍以 [hcloud-bluegreen-qa-migration.md](hcloud-bluegreen-qa-migration.md) 为基线，QA 部分以 raw-only 覆盖。
+
+- [Volc Agent Plan Kimi Chat compatibility](volc-kimi-chat-compatibility.md) — supplier-scoped thinking and tool selectors.
