@@ -11,6 +11,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'ops/stage0/edge_admin_resolve_target.py'
+FRESH_PROD = json.loads((ROOT / 'deploy/aws/fresh-migration-20261015.json').read_text())['prod']
 
 
 class EdgeAdminResolveTargetTest(unittest.TestCase):
@@ -29,7 +30,7 @@ class EdgeAdminResolveTargetTest(unittest.TestCase):
 import json, sys, os
 args = sys.argv
 if 'describe-instance-information' in args:
-    print(json.dumps({'InstanceInformationList': [{'ComputerName': 'tokenkey-prod-hz-cax21', 'InstanceId': 'mi-0123456789abcdef0', 'PingStatus': 'Online'}]}))
+    print(json.dumps({'InstanceInformationList': [{'ComputerName': os.environ['TEST_PROD_NAME'], 'InstanceId': os.environ['TEST_PROD_ID'], 'PingStatus': 'Online'}]}))
 elif 'get-parameter' in args:
     assert args[args.index('--name')+1] == '/tokenkey/' + os.environ['TEST_EDGE_PLATFORM'] + '/uk1/ssm_managed_instance_id'
     assert args[args.index('--region')+1] == 'eu-west-2'
@@ -39,14 +40,15 @@ else:
 ''')
             stub.chmod(0o755)
             env = {**os.environ, 'PATH': f'{tmp}:{os.environ["PATH"]}', 'PROD_SSM_TARGET': 'auto',
-                   'TEST_EDGE_PLATFORM': edge_platform}
+                   'TEST_EDGE_PLATFORM': edge_platform, 'TEST_PROD_NAME': FRESH_PROD['instance_name'],
+                   'TEST_PROD_ID': FRESH_PROD['instance_id']}
             return subprocess.run(['python3', str(SCRIPT), str(fixture), *args], env=env,
                                   capture_output=True, text=True)
 
-    def test_prod_defaults_to_hybrid_instance_and_ssm_region(self):
+    def test_prod_defaults_to_fresh_ec2_instance_and_ssm_region(self):
         proc = self.resolve('prod')
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(proc.stdout, 'hetzner\teu-west-2\tmi-0123456789abcdef0\n')
+        self.assertEqual(proc.stdout, f"ec2\t{FRESH_PROD['region']}\t{FRESH_PROD['instance_id']}\n")
 
     def test_edge_uses_hybrid_region_not_hcloud_location(self):
         proc = self.resolve('uk1')

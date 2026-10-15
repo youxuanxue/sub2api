@@ -1,0 +1,360 @@
+{
+  "recorded_at": "2026-10-15T18:29:37.010633+00:00",
+  "scope": "prod precutover preparation only; original US candidate retained; Japan change canceled",
+  "source_writers_stopped": false,
+  "candidate_activated": false,
+  "dns_changed": false,
+  "cutover_performed": false,
+  "historical_qa_raw_sync": false,
+  "prod_gemini_worker_required": false,
+  "sync": {
+    "node": "prod",
+    "candidate": {
+      "instance_id": "i-022f2553503211775",
+      "instance_name": "tokenkey-prod-aws-20261015",
+      "region": "us-east-1",
+      "ip": "23.21.138.205",
+      "source_ip": "167.233.211.115",
+      "domain": "api.tokenkey.dev",
+      "domains": [
+        "tokenkey.dev",
+        "api.tokenkey.dev",
+        "callmodel.io",
+        "api.callmodel.io"
+      ]
+    },
+    "source": {
+      "instance_name": "tokenkey-prod-hz-cax21",
+      "instance_id": "mi-033c9569c7fb8b884",
+      "region": "eu-west-2"
+    },
+    "remote": "/var/lib/tokenkey/migration/sync-prod-20261015T181513Z-052134c9",
+    "uri": "s3://tokenkey-prod-pgdump-682751977094/prod/pgdump/migration-pre-sync/aws-20261015/sync-prod-20261015T181513Z-052134c9",
+    "code": {
+      "fresh_host_delta.py": "c6ad5bf72359740b32ddfe926580329cb5dd7a042acdc73b0b38177f13b58a34",
+      "standard_freeze_delta.py": "657b8f0a07da04d392d9d8dd861d40a81cb8d827e2ae145d9738c5870ad38d8e",
+      "oltp_foreign_keys.py": "66694be5aa537bda286e3ba259b801c3343a15e0495f08e3e7e1229e1cec151d",
+      "fresh_host_runtime.py": "48f66235b6fc22542c1f67ad697bcf7681d167b0d3f37c44c11b54855a67e05b",
+      "resolve_app_container.py": "c173121a459cd60e02adb7950282c0a740d71f45e7ba09d7b9729b33a2bd0817",
+      "sync-control-alias-on-host.sh": "eda6a1ea1a4f44a2155d1c0217175917a0eeaf068253f9de3d9a4a561e5eff41"
+    },
+    "commands": [
+      {
+        "phase": "prepare-candidate",
+        "target": "i-022f2553503211775",
+        "region": "us-east-1",
+        "command_id": "4114574b-54f5-414c-99db-c02bbf6a03c0",
+        "status": "Success",
+        "elapsed": "PT1M49.22S",
+        "output": "code.tar.gz: OK\nfresh_host_delta.py: OK\nstandard_freeze_delta.py: OK\noltp_foreign_keys.py: OK\nfresh_host_runtime.py: OK\nresolve_app_container.py: OK\nsync-control-alias-on-host.sh: OK\n{\"runtime_check\": \"passed\", \"active_color\": \"green\", \"pg_id\": \"c867a7ef7f2d4a3003d58a167ff2c4e0f8fa3f98ff3b5c1f45a94e94a3f65370\"}\nIMAGES=[\"ghcr.io/youxuanxue/sub2api:1.8.292\"]\n{\"manifest\": \"precious-base.json\", \"tables\": 109}\n{\"manifest\": \"logs-base.json\", \"tables\": 206}\n",
+        "error": "BASELINE_precious_SECONDS=77.44\nBASELINE_logs_SECONDS=29.92\n"
+      },
+      {
+        "phase": "prepare-source",
+        "target": "mi-033c9569c7fb8b884",
+        "region": "eu-west-2",
+        "command_id": "234609f7-5a92-4dec-9232-f6d44a727e7c",
+        "status": "Success",
+        "elapsed": "PT4.016S",
+        "output": "code.tar.gz: OK\nfresh_host_delta.py: OK\nstandard_freeze_delta.py: OK\noltp_foreign_keys.py: OK\nfresh_host_runtime.py: OK\nresolve_app_container.py: OK\nsync-control-alias-on-host.sh: OK\nIMAGES=[\"ghcr.io/youxuanxue/sub2api:1.8.292\"]\n",
+        "error": ""
+      },
+      {
+        "phase": "export",
+        "target": "mi-033c9569c7fb8b884",
+        "region": "eu-west-2",
+        "command_id": "4fe3efaa-8e33-405e-87b0-6ceef17076f8",
+        "status": "Success",
+        "elapsed": "PT2M52.655S",
+        "output": "fresh_host_delta.py: OK\nstandard_freeze_delta.py: OK\noltp_foreign_keys.py: OK\nfresh_host_runtime.py: OK\nresolve_app_container.py: OK\nsync-control-alias-on-host.sh: OK\n{\"changed_units\": 29, \"compressed_bytes\": 23584885}\n{\"changed_units\": 3, \"compressed_bytes\": 15253099}\n",
+        "error": "EXPORT_precious_SECONDS=118.91\nEXPORT_logs_SECONDS=48.53\n"
+      },
+      {
+        "phase": "apply",
+        "target": "i-022f2553503211775",
+        "region": "us-east-1",
+        "command_id": "595d5f28-5ef2-4e58-a24e-bc4776c480c7",
+        "status": "Success",
+        "elapsed": "PT3M24.18S",
+        "output": "fresh_host_delta.py: OK\nstandard_freeze_delta.py: OK\noltp_foreign_keys.py: OK\nfresh_host_runtime.py: OK\nresolve_app_container.py: OK\nsync-control-alias-on-host.sh: OK\nbundle.tar: OK\n{\"applied_units\": 29, \"content_verified_before_commit\": true, \"source_hostname\": \"tokenkey-prod-hz-cax21\", \"final_freeze_verified\": false}\n{\"applied_units\": 3, \"content_verified_before_commit\": true, \"source_hostname\": \"tokenkey-prod-hz-cax21\", \"final_freeze_verified\": false}\n",
+        "error": "APPLY_precious_SECONDS=160.07\nAPPLY_logs_SECONDS=42.51\n"
+      }
+    ],
+    "state": "synced",
+    "final_freeze_verified": false,
+    "prepared_at": 1792088233.14726,
+    "images": [
+      "ghcr.io/youxuanxue/sub2api:1.8.292"
+    ],
+    "final_requested": false,
+    "completed_at": 1792088793.3030882
+  },
+  "summary": {
+    "changed_precious_units": 29,
+    "changed_log_units": 3,
+    "compressed_bytes": 38837984,
+    "export_elapsed_seconds": 172.655,
+    "apply_elapsed_seconds": 204.18,
+    "timing_is_downtime_estimate": false
+  },
+  "post_sync_runtime": [
+    {
+      "runtime_check": "passed",
+      "active_color": "green",
+      "pg_id": "c867a7ef7f2d4a3003d58a167ff2c4e0f8fa3f98ff3b5c1f45a94e94a3f65370"
+    },
+    {
+      "checked_at": "2026-10-15T18:28:20.820475+00:00",
+      "hold": true,
+      "active_color": "green"
+    },
+    {
+      "container": "tokenkey-qa-runtime",
+      "image": "ghcr.io/youxuanxue/sub2api:1.8.288",
+      "status": "Created"
+    },
+    {
+      "container": "tokenkey-caddy",
+      "image": "caddy:2-alpine",
+      "status": "Exited (0) 12 hours ago"
+    },
+    {
+      "container": "tokenkey-green",
+      "image": "ghcr.io/youxuanxue/sub2api:1.8.292",
+      "status": "Exited (0) 12 hours ago"
+    },
+    {
+      "container": "tokenkey-redis",
+      "image": "redis:8-alpine",
+      "status": "Exited (137) 12 hours ago"
+    },
+    {
+      "container": "tokenkey-postgres",
+      "image": "postgres:18-alpine",
+      "status": "Up 13 hours (healthy)"
+    },
+    {
+      "unit": "tokenkey.service",
+      "state": "ActiveState=inactive\nUnitFileState=disabled"
+    },
+    {
+      "unit": "tokenkey-pgdump.timer",
+      "state": "ActiveState=inactive\nUnitFileState=disabled"
+    },
+    {
+      "unit": "tokenkey-qa-raw-archive.timer",
+      "state": "ActiveState=inactive\nUnitFileState="
+    }
+  ],
+  "post_sync_runtime_command_id": "f6210b12-02b9-4171-b7c5-f3af3edf611a",
+  "live_checks": {
+    "checked_at": "2026-10-15T18:28:21.913995+00:00",
+    "results": [
+      {
+        "domain": "tokenkey.dev",
+        "dns_a": [
+          "167.233.211.115"
+        ]
+      },
+      {
+        "domain": "api.tokenkey.dev",
+        "dns_a": [
+          "167.233.211.115"
+        ]
+      },
+      {
+        "domain": "callmodel.io",
+        "dns_a": [
+          "167.233.211.115"
+        ]
+      },
+      {
+        "domain": "api.callmodel.io",
+        "dns_a": [
+          "167.233.211.115"
+        ]
+      },
+      {
+        "domain": "api.tokenkey.dev",
+        "http_code": "200",
+        "returncode": 0
+      },
+      {
+        "domain": "api-uk1.tokenkey.dev",
+        "http_code": "200",
+        "returncode": 0
+      },
+      {
+        "domain": "api-uk2.tokenkey.dev",
+        "http_code": "200",
+        "returncode": 0
+      },
+      {
+        "domain": "api-us4.tokenkey.dev",
+        "http_code": "200",
+        "returncode": 0
+      },
+      {
+        "domain": "api-us5.tokenkey.dev",
+        "http_code": "200",
+        "returncode": 0
+      }
+    ],
+    "github_variables": {
+      "PROD_SSM_TARGET": "hetzner",
+      "EDGE_MAIN_GATEWAY_ALLOWED_CIDR": "167.233.211.115/32"
+    }
+  },
+  "staged_caddy_receipts": {
+    "prod-source": {
+      "hostname": "tokenkey-prod-hz-cax21",
+      "prepared_dir": "/var/lib/tokenkey/migration/prod-cutover-prepared-20261016",
+      "files": {
+        "prod-source-maintenance.Caddyfile": "7632f5df7c2faa163ebee61d6908101e5a25f8e156628fd6fc44f41d0d3d7844",
+        "prod-source-forward.Caddyfile": "38e51ffab7a182ae5185dacddf93ab0d6c0675508da388b6750cefc9b1b5da1a"
+      },
+      "installed": false
+    },
+    "prod-candidate": {
+      "hostname": "tokenkey-prod-aws-20261015",
+      "prepared_dir": "/var/lib/tokenkey/migration/prod-cutover-prepared-20261016",
+      "files": {
+        "prod-candidate-transition.Caddyfile": "a307587a118cb527e72079ecfeb6bd7f14b591084f0882c24d943229dbe2646a",
+        "prod-candidate-final.Caddyfile": "7df3719d2c1aa5f9d31c92c2e01712de23c43e454755071d37db6b45993555a2"
+      },
+      "installed": false
+    },
+    "uk1-active": {
+      "hostname": "tokenkey-edge-uk1-aws-20261015",
+      "prepared_dir": "/var/lib/tokenkey/migration/prod-cutover-prepared-20261016",
+      "files": {
+        "uk1-prod-transition.Caddyfile": "212821fcb24db49fc4311fc15fa0cf6befafec96579264ed0b605d6d7045885b",
+        "uk1-prod-final.Caddyfile": "ffb5c0d46859f1a0124aa9420b6d5cce74815cdef3a1e8906ebd1837286f2b4f"
+      },
+      "installed": false
+    },
+    "uk2-active": {
+      "hostname": "tokenkey-edge-uk2-aws-20261015",
+      "prepared_dir": "/var/lib/tokenkey/migration/prod-cutover-prepared-20261016",
+      "files": {
+        "uk2-prod-transition.Caddyfile": "e24c363d6fe1c8c7168bb956aab2c25dcda0a3e45f16728971a3ba7f29c2b3eb",
+        "uk2-prod-final.Caddyfile": "27c18f04213d6bca4871939d92007ca8164916f88d25f77eba810ba5eceb3bd0"
+      },
+      "installed": false
+    },
+    "us4-active": {
+      "hostname": "tokenkey-edge-us4-aws-20261015",
+      "prepared_dir": "/var/lib/tokenkey/migration/prod-cutover-prepared-20261016",
+      "files": {
+        "us4-prod-transition.Caddyfile": "dafd30c7afa9eca05300d9ae12be3a13ac284f77ae8faa439b0bc62637fc9faa",
+        "us4-prod-final.Caddyfile": "81afdde0b8ec3be4081ede78d71b1646dcc987b4d40646936f84a868d28d9656"
+      },
+      "installed": false
+    },
+    "us5-active": {
+      "hostname": "tokenkey-edge-us5-aws-20261015",
+      "prepared_dir": "/var/lib/tokenkey/migration/prod-cutover-prepared-20261016",
+      "files": {
+        "us5-prod-transition.Caddyfile": "ca26dccdd8f07bdef57be203a1be418855d7e7b5bdb4285e6ebed439a8936ca5",
+        "us5-prod-final.Caddyfile": "1a075b4fdce1d043c4e42a4c6af5a519d48cc10cd294e12963967b3ce376e809"
+      },
+      "installed": false
+    }
+  },
+  "caddy_validation": [
+    {
+      "file": "prod-candidate-final.Caddyfile",
+      "adapt": "passed",
+      "health_policy": "passed"
+    },
+    {
+      "file": "prod-candidate-transition.Caddyfile",
+      "adapt": "passed",
+      "health_policy": "passed"
+    },
+    {
+      "file": "prod-source-forward.Caddyfile",
+      "adapt": "passed",
+      "health_policy": "not_applicable"
+    },
+    {
+      "file": "prod-source-maintenance.Caddyfile",
+      "adapt": "passed",
+      "health_policy": "not_applicable"
+    },
+    {
+      "file": "uk1-prod-final.Caddyfile",
+      "adapt": "passed",
+      "health_policy": "passed"
+    },
+    {
+      "file": "uk1-prod-transition.Caddyfile",
+      "adapt": "passed",
+      "health_policy": "passed"
+    },
+    {
+      "file": "uk2-prod-final.Caddyfile",
+      "adapt": "passed",
+      "health_policy": "passed"
+    },
+    {
+      "file": "uk2-prod-transition.Caddyfile",
+      "adapt": "passed",
+      "health_policy": "passed"
+    },
+    {
+      "file": "us4-prod-final.Caddyfile",
+      "adapt": "passed",
+      "health_policy": "passed"
+    },
+    {
+      "file": "us4-prod-transition.Caddyfile",
+      "adapt": "passed",
+      "health_policy": "passed"
+    },
+    {
+      "file": "us5-prod-final.Caddyfile",
+      "adapt": "passed",
+      "health_policy": "passed"
+    },
+    {
+      "file": "us5-prod-transition.Caddyfile",
+      "adapt": "passed",
+      "health_policy": "passed"
+    }
+  ],
+  "pending_edge_pins": {
+    "installed": false,
+    "source": "/var/lib/tokenkey/docker-compose.bluegreen.yml",
+    "source_sha256": "5e709c6cb3f95a00b5e8e4d89b1cc4aafa421e1dcebce352cc0a74e1c1385ecf",
+    "pending_sha256": "882120be24970b4c23ea3110e243475f3c631bd35f39d5d7cf790888c069e72f",
+    "services": [
+      "tokenkey-blue",
+      "tokenkey-green"
+    ],
+    "edge_pins": {
+      "api-us4.tokenkey.dev": "44.254.243.147",
+      "api-us5.tokenkey.dev": "35.164.198.30",
+      "api-uk1.tokenkey.dev": "18.132.100.198",
+      "api-uk2.tokenkey.dev": "35.178.162.181"
+    },
+    "activation": "replace the bluegreen compose only after final data checks; recheck source hash",
+    "removal": "after DNS transition, regenerate via normal bluegreen deploy; do not deploy during transition"
+  },
+  "local_prepared_directory": "/tmp/prod-precutover-1016",
+  "pending_control_plane_patch": {
+    "path": "/tmp/prod-precutover-1016/prod-control-plane.pending.patch",
+    "sha256": "1b7306b6fdd45eff87ef27dd60ed0d603c400564dd9a61d1fd49933667b87306",
+    "applied": false,
+    "git_apply_check": "passed",
+    "targeted_tests_passed": 37
+  },
+  "migration_regression_tests_passed": 23,
+  "remaining": [
+    "User selects and authorizes prod cutover window.",
+    "Recheck live target/image/config hashes and traffic; prepare a fresh unconsumed sync baseline within 30 minutes before sync.",
+    "At authorized window: maintenance, drain and verify all source writers stopped; final delta sync and reconciliation.",
+    "Activate candidate, perform basic service checks, apply transition routing and DNS/control-plane changes; observe and drain old source."
+  ],
+  "old_source_policy": "historical lookup only after cutover; never resume production writes"
+}

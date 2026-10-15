@@ -5,30 +5,30 @@
 
 ## 活舰队（五节点）
 
-| 节点 | 正式域名 | 公网 IP | SSM Hybrid | 备注 |
+| 节点 | 正式域名 | 公网 IP | SSM 身份 | 备注 |
 |------|----------|---------|------------|------|
-| **prod** | `api.tokenkey.dev` | `167.233.211.115` | `mi-033c9569c7fb8b884` · Volume `tokenkey-prod-data` | ops 控制面 `PROD_SSM_TARGET=hetzner` |
+| **prod** | `api.tokenkey.dev` | `23.21.138.205` | `i-022f2553503211775` · us-east-1 | EC2 c7g.xlarge · tokenkey-prod-aws-20261015 · `PROD_SSM_TARGET=aws-fresh` |
 | **uk1** | `api-uk1.tokenkey.dev` | `18.132.100.198` | `mi-039a529756d9add02` | AWS Lightsail · tokenkey-edge-uk1-aws-20261015 |
 | **uk2** | `api-uk2.tokenkey.dev` | `35.178.162.181` | `mi-022bedb939517c7f3` | AWS Lightsail · tokenkey-edge-uk2-aws-20261015 |
 | **us4** | `api-us4.tokenkey.dev` | `44.254.243.147` | `mi-0e3bd48991983b1bd` | AWS Lightsail · tokenkey-edge-us4-aws-20261015 |
 | **us5** | `api-us5.tokenkey.dev` | `35.164.198.30` | `mi-026a9e5d198bd0570` | AWS Lightsail · tokenkey-edge-us5-aws-20261015 |
 
-- 活矩阵：Hcloud `edge-targets-hetzner.json` + AWS `../aws/lightsail/edge-targets-lightsail.json`；每个 edge 仅一个平台 deployable。prod 仍为 Hcloud。
+- 活矩阵：Hcloud `edge-targets-hetzner.json` + AWS `../aws/lightsail/edge-targets-lightsail.json`；每个 edge 仅一个平台 deployable。prod 使用 fresh AWS 清单中的独立 EC2。
 - fan-out / probe 默认：`resolve-edge-target.py --list-deployable` → 上表四边；prod 单独解析
-- Hcloud 机型：`fsn1` · `cax21` · arm64；AWS uk1/uk2/us4/us5：Lightsail `xlarge_3_0`（4 vCPU / 16 GiB）。后续升级使用既有 blue/green 状态机。
+- 历史 Hcloud 机型：`fsn1` · `cax21` · arm64；当前 prod 为 EC2 c7g.xlarge，AWS uk1/uk2/us4/us5：Lightsail `xlarge_3_0`（4 vCPU / 16 GiB）。后续升级使用既有 blue/green 状态机。
 - **不在舰队：** `us3` / `us6`（无正式 A、无 prod stub；矩阵空行 / LS `deployable=false`）。旧 LS 仅 gemini 会话 drain 前保留，勿当路由目标
 
-本轮 AWS 活节点：uk1, uk2, us4, us5。新边仅放行现网 Hcloud prod；旧 edge 的单地址转发信任只在 DNS 过渡期间保留。
-后续旧平台专用 provision、卷与告警操作仅适用于仍在 Hcloud 的节点，不能用于已切换 AWS 的 edge。
+本轮 AWS 活节点：prod、uk1、uk2、us4、us5。四边允许新 AWS prod；旧 edge 的单地址转发信任只在 DNS 过渡期间保留。
+后续 Hcloud 专用 provision、卷与告警操作仅用于历史节点，不能用于已切换 AWS 的活舰队。
 
 ## 现网不变量
 
 | 项 | 值 |
 |----|-----|
-| Edge `MAIN_GATEWAY_ALLOWED_CIDR` | `167.233.211.115/32`（与 GitHub `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 一致） |
+| Edge `MAIN_GATEWAY_ALLOWED_CIDR` | `23.21.138.205/32`（与 GitHub `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 一致） |
 | Edge / prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
 | GHCR PAT（Hybrid） | SSM `/tokenkey/edge/fleet/ghcr/pat`（eu-west-2；`EDGE_GHCR_PAT_SSM_NAME`） |
-| 探针 / sync Caddy | 直投 Hybrid `mi-*`；`sync_caddyfile` **勿**设 `EDGE_ID=`；日常探针用 `run-probe --target edge:<id>`（共享解析器按活矩阵选择 Hcloud 或 AWS） |
+| 探针 / sync Caddy | prod 解析至 EC2 `i-*`，edge 直投 Hybrid `mi-*`；`sync_caddyfile` **勿**设 `EDGE_ID=`；日常探针用 `run-probe --target edge:<id>`（共享解析器按活矩阵选择 Hcloud 或 AWS） |
 | prod stub `base_url` | 必须 `https://api-<edge>.tokenkey.dev` |
 | live HZ 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
 | Secrets | `/tokenkey/hetzner/…`；不进 git |
@@ -125,9 +125,9 @@ bash deploy/hetzner/render-prod-bootstrap.sh --check
 
 | 变量 | 语义 |
 |---|---|
-| `PROD_SSM_TARGET` | `auto`/未设置默认 hcloud；`aws` 仅显式选择旧 prod standby。旧 `/tokenkey/prod/control-plane-ssm-target` 参数不再参与默认解析 |
+| `PROD_SSM_TARGET` | `auto`/未设置默认 aws-fresh；`hetzner` 仅显式选择历史 Hcloud，`aws` 仅显式选择旧 EC2 standby。旧 `/tokenkey/prod/control-plane-ssm-target` 参数不再参与默认解析 |
 | `AWS_REGION` / `AWS_DEFAULT_REGION` | AWS API 区域。SSM 命令必须用 resolver 返回的 `ssm_region`，不能拿 hcloud `fsn1` 或旧 EC2 region 代替；QA/S3 仍按各自存储区域 |
-| `AWS_OIDC_ROLE_ARN` / `AWS_SHARED_CREDENTIALS_FILE` | 仍用于 Hybrid 控制面与现存 AWS 数据依赖；凭据内容不可打印 |
+| `AWS_OIDC_ROLE_ARN` / `AWS_SHARED_CREDENTIALS_FILE` | 仍用于 Hybrid 控制面与现有 AWS 计算及数据依赖；凭据内容不可打印 |
 | `PROD_STACK_NAME` / `STACK_NAME` | 旧 AWS standby 或仍在使用的 QA/备份 CFN，不是 hcloud 主机身份 |
 | `HCLOUD_TOKEN` | hcloud 资源管理；普通镜像升级走 SSM，不重新 provision |
 | `HCLOUD_S3_Access_Key` / `HCLOUD_S3_Secret_Key` | 本机受保护的对象存储凭据；不输出、不入库 |

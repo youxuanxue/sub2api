@@ -12,6 +12,7 @@ import ipaddress
 import re
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import sys
@@ -233,7 +234,8 @@ def activate(node, receipt, caddy, caddy_sha, prod_ip=None):
         for name in ('migration-isolation.conf', 'migration-hold-stop.conf'):
             path = Path('/etc/systemd/system/tokenkey.service.d') / name
             if path.exists():
-                path.rename(state / name)
+                # /etc and /var/lib may be different devices on EC2; rename() fails with EXDEV.
+                shutil.move(str(path), str(state / name))
         run('systemctl', 'daemon-reload')
         hold.rename(state / 'DATA_SYNC_HOLD.completed')
         start_services(color, worker=node != 'prod')

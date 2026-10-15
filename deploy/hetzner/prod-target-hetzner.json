@@ -4,16 +4,20 @@
   "role": "prod",
   "approved_anchor": "docs/approved/hetzner-cloud-full-migration.md",
   "notes": [
-    "Live prod deployable=true; public IP / CIDR / GHCR path: deploy/hetzner/README.md (SSOT).",
+    "Historical prod; fresh AWS identity is deploy/aws/fresh-migration-20261015.json. Do not use this host for production writes.",
     "Data volume mandatory; root disk is not the PG/Redis truth.",
     "Live prod uses blue/green; ensure_legacy_cutover supports newly provisioned single-color hosts.",
     "staging_domain is matrix field only; live DNS is domain (no -hz A)."
   ],
-  "allowed_locations": ["fsn1"],
-  "allowed_server_types": ["cax21"],
+  "allowed_locations": [
+    "fsn1"
+  ],
+  "allowed_server_types": [
+    "cax21"
+  ],
   "required_architecture": "arm",
   "target": {
-    "deployable": true,
+    "deployable": false,
     "location": "fsn1",
     "server_type": "cax21",
     "architecture": "arm",
@@ -30,6 +34,6 @@
     "ssm_hybrid_role_name": "tokenkey-hetzner-ssm-hybrid-prod",
     "swap_gib": 2,
     "profile": "prod-hetzner-cax21",
-    "purpose": "live prod; deployable=true"
+    "purpose": "historical read-only prod; never resume production writes"
   }
 }

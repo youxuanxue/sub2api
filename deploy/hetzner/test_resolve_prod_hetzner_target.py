@@ -39,15 +39,17 @@ def run_resolver(
 
 
 class ResolveProdHetznerTargetTests(unittest.TestCase):
-    def test_matrix_is_deployable(self) -> None:
+    def test_historical_matrix_is_not_deployable(self) -> None:
         data = json.loads(MATRIX.read_text(encoding="utf-8"))
-        self.assertTrue(bool(data["target"].get("deployable")))
+        self.assertFalse(bool(data["target"].get("deployable")))
 
-    def test_live_resolves_without_allow_planned(self) -> None:
-        resolved = run_resolver(confirm_instance="tokenkey-prod-hz-cax21")
+    def test_historical_requires_explicit_allow_planned(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "not deployable"):
+            run_resolver(confirm_instance="tokenkey-prod-hz-cax21")
+        resolved = run_resolver(confirm_instance="tokenkey-prod-hz-cax21", allow_planned=True)
         self.assertEqual(resolved["role"], "prod")
         self.assertEqual(resolved["platform"], "hetzner")
-        self.assertEqual(resolved["deployable"], "true")
+        self.assertEqual(resolved["deployable"], "false")
         self.assertEqual(resolved["location"], "fsn1")
         self.assertEqual(resolved["server_type"], "cax21")
         self.assertEqual(resolved["architecture"], "arm")
@@ -79,6 +81,7 @@ class ResolveProdHetznerTargetTests(unittest.TestCase):
 
     def test_reject_non_fsn1_location(self) -> None:
         bad = json.loads(MATRIX.read_text(encoding="utf-8"))
+        bad["target"]["deployable"] = True
         bad["target"]["location"] = "ash"
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "matrix.json"
@@ -93,6 +96,7 @@ class ResolveProdHetznerTargetTests(unittest.TestCase):
 
     def test_reject_wrong_volume_mount(self) -> None:
         bad = json.loads(MATRIX.read_text(encoding="utf-8"))
+        bad["target"]["deployable"] = True
         bad["target"]["volume_mount"] = "/data"
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "matrix.json"
@@ -112,6 +116,7 @@ class ResolveProdHetznerTargetTests(unittest.TestCase):
                 str(RESOLVER),
                 "--confirm-instance",
                 "wrong-name",
+                "--allow-planned",
             ],
             capture_output=True,
             text=True,

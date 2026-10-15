@@ -73,10 +73,10 @@
     {
       "path": "ops/stage0/resolve_prod_ssm_target.py",
       "must_contain": [
-        "return \"hetzner\"",
+        "return \"aws-fresh\"",
         "expected exactly one Online Hybrid instance"
       ],
-      "rationale": "Live prod defaults to hcloud and ambiguous/offline Hybrid identities fail closed; AWS standby requires explicit selection."
+      "rationale": "Live prod defaults to fresh AWS with an exact Online identity; historical AWS and Hcloud require explicit selection."
     },
     {
       "path": "ops/stage0/edge_routing_matrix.py",

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Resolve Stage0 prod SSM control-plane target.
 
-``--target auto`` uses the live Hetzner fleet. ``PROD_SSM_TARGET`` may explicitly
+``--target auto`` uses the fresh AWS prod. ``PROD_SSM_TARGET`` may explicitly
 select ``aws`` for standby recovery; there is no remote cutover flag or silent
 fallback to EC2 when permissions, credentials or inventory are unavailable.
 
@@ -55,7 +55,7 @@ def resolve_mode(explicit: str) -> str:
         return env
     if env and env != "auto":
         fail(f"PROD_SSM_TARGET must be auto|aws|aws-fresh|hetzner (got {env!r})")
-    return "hetzner"
+    return "aws-fresh"
 
 
 def with_browser_origin(outputs: dict[str, str]) -> dict[str, str]:
@@ -207,7 +207,7 @@ def main() -> int:
         "--target",
         choices=("auto", "aws", "aws-fresh", "hetzner"),
         default="auto",
-        help="auto defaults to hetzner; PROD_SSM_TARGET=aws explicitly selects standby",
+        help="auto defaults to aws-fresh; PROD_SSM_TARGET=aws explicitly selects historical standby",
     )
     parser.add_argument("--stack", default=AWS_STACK)
     parser.add_argument("--matrix", default="")

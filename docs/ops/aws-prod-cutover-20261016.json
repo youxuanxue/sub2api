@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "node": "prod",
+  "batch": "aws-20261015",
+  "completed_at": "2026-10-15T18:54:06Z",
+  "source": {
+    "hostname": "tokenkey-prod-hz-cax21",
+    "instance_id": "mi-033c9569c7fb8b884",
+    "region": "eu-west-2",
+    "ip": "167.233.211.115",
+    "maintenance_started_at": "2026-10-15T18:38:42Z",
+    "frozen_at": "2026-10-15T18:40:10Z",
+    "forwarding_at": "2026-10-15T18:49:13Z",
+    "post_freeze_usage_count": 0,
+    "transaction_read_only": true
+  },
+  "candidate": {
+    "hostname": "tokenkey-prod-aws-20261015",
+    "instance_id": "i-022f2553503211775",
+    "region": "us-east-1",
+    "ip": "23.21.138.205",
+    "activation": "recovery-after-exdev-rename",
+    "activation_dir": "/var/lib/tokenkey/migration/activation-20261015T184643Z",
+    "first_activate_command_id": "bc1a7e8f-4d04-46f6-89d0-68ac71339025",
+    "first_activate_error": "OSError EXDEV renaming migration-isolation.conf across /etc and /var/lib",
+    "recovery_command_id": "2aa7cc2d-9cfc-4372-a696-4c14b8b0f2d7",
+    "service_restored_at": "2026-10-15T18:49:14.595369+00:00"
+  },
+  "final_sync": {
+    "receipt": "/tmp/prod-cutover-1016/final-sync.json",
+    "remote": "/var/lib/tokenkey/migration/sync-prod-20261015T183625Z-137769e3",
+    "final_freeze_verified": true,
+    "export_command_id": "0287158d-60e2-4555-8135-33b81948448c",
+    "apply_command_id": "6260b72b-a315-4948-b9be-b9b9bcf63086",
+    "verify_source_still_frozen_command_id": "07e2345f-1f85-4feb-a91e-bce23f07a81a",
+    "apply_precious_seconds": 160.47,
+    "apply_logs_seconds": 44.64
+  },
+  "dns": {
+    "tokenkey.dev": "23.21.138.205",
+    "api.tokenkey.dev": "23.21.138.205",
+    "callmodel.io": "23.21.138.205",
+    "api.callmodel.io": "23.21.138.205",
+    "ttl": 300,
+    "resolver_1_1_1_1": "23.21.138.205"
+  },
+  "control_plane": {
+    "PROD_SSM_TARGET": "aws-fresh",
+    "EDGE_MAIN_GATEWAY_ALLOWED_CIDR": "23.21.138.205/32"
+  },
+  "post_cutover": {
+    "new_endpoint_basic_checks": "passed",
+    "pgdump_timer": "enabled",
+    "pgdump_object": "tokenkey-20261015T185143Z.sql.gz",
+    "pgdump_uri_prefix": "s3://tokenkey-prod-pgdump-682751977094/prod/pgdump/",
+    "qa_timers": "remain disabled",
+    "usage_sample_5m_after_activation": 532
+  },
+  "followups": [
+    "merge control-plane git changes (resolver default aws-fresh, fleet README, rename fix)",
+    "after old-address traffic is zero, remove source forward trust and install edge prod-final Caddyfiles",
+    "decide when to re-enable QA timers on new prod",
+    "retain old Hcloud prod read-only >=7d before destroy"
+  ]
+}
