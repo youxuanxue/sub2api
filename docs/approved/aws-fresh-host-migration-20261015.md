@@ -343,3 +343,10 @@ CIDR。真实候选上的 check 与同步演练证据单独记录；未再次切
 真实 Docker 网络回归入口为 `ops/migration/check-fresh-host-network.sh <exact-candidate-hostname>`：
 只使用随机命名、无生产挂载的临时容器与 internal 网络，验证旧 network ID 启动失败、稳定名称
 重建后启动成功。退出后核对 PostgreSQL 原容器/挂载不变、候选仍仅 PG 运行。uk1 已完成此实验。
+
+本轮 uk1 在线预增量已通过：提前准备远端执行约 49.97 秒；连续导出与恢复/内容核验约
+150.35 秒，压缩差异约 20.34 MiB。源端持续服务，候选结束时仍只有 PG 运行。
+这些是不同数据尾差下的预同步实测，不是完整切流耗时；不能与旧轮次直接宣称提速比例。
+可确认提前准备的约 50 秒已移出后续停写路径，连续补数不再有每个 scope 的人工交接。
+证据见 [`aws-short-window-validation-20261015.json`](../ops/aws-short-window-validation-20261015.json)。
+prod 最新检查使用无 Gemini worker 的专用路径并通过；未启动 prod 候选业务栈。
