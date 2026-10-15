@@ -22,7 +22,7 @@ case "$cmd" in
     case "$fmt" in
       *Image*) cat "$STATE/image-$target" 2>/dev/null || echo "alpine/socat:1.8.0.0" ;;
       *Cmd*) cat "$STATE/cmd-$target" 2>/dev/null || echo '["TCP-LISTEN:8080,fork,reuseaddr","TCP:tokenkey-blue:8080"]' ;;
-      *Running*) echo true ;;
+      *Running*) cat "$STATE/running-$target" 2>/dev/null || echo true ;;
     esac
     ;;
   image) exit 0 ;;
@@ -40,7 +40,7 @@ case "$cmd" in
     echo "$name" >>"$STATE/containers"
     echo fakeid
     ;;
-  exec) echo "exec $*" >>"$STATE/actions"; exit 0 ;;
+  exec) echo "exec $*" >>"$STATE/actions"; exit "${TEST_EXEC_STATUS:-0}" ;;
   *) echo "unexpected docker $cmd $*" >&2; exit 1 ;;
 esac
 EOS
@@ -100,6 +100,21 @@ out="$(STATE="$STATE" PATH="$WORK/bin:$PATH" TK_DOCKER=docker \
 grep -q 'tk_gemini_web_control_alias: OK color=green' <<<"$out" \
   && grep -q 'TCP:tokenkey-green:8080' "$STATE/actions" \
   && pass caddyfile || fail caddyfile "$out / $(cat "$STATE/actions")"
+
+# A fresh worker is stopped until its control API is reachable. Probe through
+# the active gateway instead; a failed HTTP probe must fail alias preparation.
+for expected in 0 7; do
+  STATE="$WORK/stopped-$expected"; mkdir -p "$STATE"
+  printf 'tokenkey-blue\ntokenkey-gemini-web\n' >"$STATE/containers"
+  echo false >"$STATE/running-tokenkey-gemini-web"
+  : >"$STATE/actions"
+  status=0
+  out="$(STATE="$STATE" PATH="$WORK/bin:$PATH" TK_DOCKER=docker TK_ACTIVE_COLOR=blue \
+    TK_NETWORK=net TEST_EXEC_STATUS="$expected" bash "$TARGET" 2>&1)" || status=$?
+  [[ "$status" = "$expected" ]] && grep -q '^exec tokenkey-blue wget .*http://tokenkey:8080/health' "$STATE/actions" \
+    && ! grep -q '^exec tokenkey-gemini-web ' "$STATE/actions" \
+    && pass "stopped-worker-$expected" || fail "stopped-worker-$expected" "$out"
+done
 
 if [[ "$failures" -ne 0 ]]; then
   echo "test_sync_control_alias_on_host: FAIL ($failures)"

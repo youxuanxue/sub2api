@@ -1,0 +1,187 @@
+{
+  "batch": "aws-presync-20261015T090938Z",
+  "source_writers_stopped": false,
+  "cutover_performed": false,
+  "records": [
+    {
+      "node": "prod",
+      "scope": "logs",
+      "batch": "logs-prod-20261015T091604Z",
+      "uri": "s3://tokenkey-prod-pgdump-682751977094/prod/pgdump/migration-pre-sync/aws-20261015/logs-prod-20261015T091604Z",
+      "changed_units": 3,
+      "compressed_bytes": 9321159,
+      "baseline_seconds": 29.4,
+      "export_seconds": 49.88,
+      "apply_seconds": 35.34,
+      "content_verified_before_commit": true,
+      "final_freeze_verified": false,
+      "command_ids": [
+        "6e7791be-2f94-4923-935a-9ceb077016fc",
+        "a1b285eb-968c-43e5-9a14-68f40fa9646e",
+        "549cb755-eb27-4b11-bb54-2e0e3bfa750f"
+      ]
+    },
+    {
+      "node": "prod",
+      "scope": "precious",
+      "batch": "precious-prod-20261015T090938Z",
+      "uri": "s3://tokenkey-prod-pgdump-682751977094/prod/pgdump/migration-pre-sync/aws-20261015/precious-prod-20261015T090938Z",
+      "changed_units": 22,
+      "compressed_bytes": 21279374,
+      "baseline_seconds": 76.97,
+      "export_seconds": 122.2,
+      "apply_seconds": 162.15,
+      "content_verified_before_commit": true,
+      "final_freeze_verified": false,
+      "command_ids": [
+        "ad7c334a-ee98-4e19-a4f7-3754226e2d2d",
+        "907b99bf-a2de-4d61-813a-a835b9cb0e39",
+        "bbbd27db-551a-470d-a9ca-96884ff1ee64"
+      ]
+    },
+    {
+      "node": "uk1",
+      "scope": "logs",
+      "batch": "logs-uk1-20261015T091951Z",
+      "uri": "s3://tokenkey-prod-pgdump-682751977094/edge/uk1/pgdump/migration-pre-sync/aws-20261015/logs-uk1-20261015T091951Z",
+      "changed_units": 3,
+      "compressed_bytes": 16448363,
+      "baseline_seconds": 27.14,
+      "export_seconds": 23.06,
+      "apply_seconds": 50.39,
+      "content_verified_before_commit": true,
+      "final_freeze_verified": false,
+      "command_ids": [
+        "6fd54e86-aab5-4228-8704-6c579ca7435e",
+        "8348a7e7-3089-41b2-90a2-5a27548e4722",
+        "a099337e-6a22-41cc-be06-de3c0c183cd3"
+      ]
+    },
+    {
+      "node": "uk1",
+      "scope": "precious",
+      "batch": "precious-uk1-20261015T091820Z",
+      "uri": "s3://tokenkey-prod-pgdump-682751977094/edge/uk1/pgdump/migration-pre-sync/aws-20261015/precious-uk1-20261015T091820Z",
+      "changed_units": 20,
+      "compressed_bytes": 4506472,
+      "baseline_seconds": 18.58,
+      "export_seconds": 18.82,
+      "apply_seconds": 32.73,
+      "content_verified_before_commit": true,
+      "final_freeze_verified": false,
+      "command_ids": [
+        "8a30fd13-4c14-428c-9b31-3afd18b379ce",
+        "aa8a8604-ca4f-44a6-bcf7-21f49c179a99",
+        "bc644243-d474-41df-ad28-868c04092b64"
+      ]
+    },
+    {
+      "node": "uk2",
+      "scope": "logs",
+      "batch": "logs-uk2-20261015T092058Z",
+      "uri": "s3://tokenkey-prod-pgdump-682751977094/edge/uk2/pgdump/migration-pre-sync/aws-20261015/logs-uk2-20261015T092058Z",
+      "changed_units": 3,
+      "compressed_bytes": 19164260,
+      "baseline_seconds": 28.53,
+      "export_seconds": 25.34,
+      "apply_seconds": 52.11,
+      "content_verified_before_commit": true,
+      "final_freeze_verified": false,
+      "command_ids": [
+        "4d69c7b1-7976-4f3e-845c-7627abc1717a",
+        "7fe73620-ca27-4ea8-823e-fa1f54d1e5ee",
+        "7afa970f-c53b-479f-a04c-a302ef54e8c8"
+      ]
+    },
+    {
+      "node": "uk2",
+      "scope": "precious",
+      "batch": "precious-uk2-20261015T091919Z",
+      "uri": "s3://tokenkey-prod-pgdump-682751977094/edge/uk2/pgdump/migration-pre-sync/aws-20261015/precious-uk2-20261015T091919Z",
+      "changed_units": 20,
+      "compressed_bytes": 3680134,
+      "baseline_seconds": 23.87,
+      "export_seconds": 19.4,
+      "apply_seconds": 33.8,
+      "content_verified_before_commit": true,
+      "final_freeze_verified": false,
+      "command_ids": [
+        "f7eea95f-c99e-40e9-87b3-058f6c904e4a",
+        "785dc866-6908-42cc-85a2-1e672f3b66a3",
+        "5d178fcb-b338-4078-af6d-e09fff17fdf3"
+      ]
+    },
+    {
+      "node": "us4",
+      "scope": "logs",
+      "batch": "logs-us4-20261015T091201Z",
+      "uri": "s3://tokenkey-prod-pgdump-682751977094/edge/us4/pgdump/migration-pre-sync/aws-20261015/logs-us4-20261015T091201Z",
+      "changed_units": 3,
+      "compressed_bytes": 3782144,
+      "baseline_seconds": 46.76,
+      "export_seconds": 43.9,
+      "apply_seconds": 51.65,
+      "content_verified_before_commit": true,
+      "final_freeze_verified": false,
+      "command_ids": [
+        "181d0000-a6a8-4a39-adab-da186393c27d",
+        "307edc45-32cd-46e0-b67b-bb5552e1e69e",
+        "cde3b04d-905c-4d20-8108-866ce3669d4a"
+      ]
+    },
+    {
+      "node": "us4",
+      "scope": "precious",
+      "batch": "precious-us4-20261015T090938Z",
+      "uri": "s3://tokenkey-prod-pgdump-682751977094/edge/us4/pgdump/migration-pre-sync/aws-20261015/precious-us4-20261015T090938Z",
+      "changed_units": 20,
+      "compressed_bytes": 10931919,
+      "baseline_seconds": 30.3,
+      "export_seconds": 33.13,
+      "apply_seconds": 56.17,
+      "content_verified_before_commit": true,
+      "final_freeze_verified": false,
+      "command_ids": [
+        "54500e35-e889-49f3-b96f-b8037f70b56f",
+        "f8575a58-0558-4bfe-b9f6-48000fd973aa",
+        "e4d79ade-2481-4789-99b3-d1f94d0c3cbc"
+      ]
+    },
+    {
+      "node": "us5",
+      "scope": "logs",
+      "batch": "logs-us5-20261015T091643Z",
+      "uri": "s3://tokenkey-prod-pgdump-682751977094/edge/us5/pgdump/migration-pre-sync/aws-20261015/logs-us5-20261015T091643Z",
+      "changed_units": 3,
+      "compressed_bytes": 926760,
+      "baseline_seconds": 46.09,
+      "export_seconds": 42.9,
+      "apply_seconds": 47.99,
+      "content_verified_before_commit": true,
+      "final_freeze_verified": false,
+      "command_ids": [
+        "e93e4ffd-d512-4111-91a1-6a027edb7363",
+        "2f50c26a-7bed-413a-9cc9-2277fd149c77",
+        "c05b6a10-8693-4ed6-8027-7171bad47764"
+      ]
+    },
+    {
+      "node": "us5",
+      "scope": "precious",
+      "batch": "precious-us5-20261015T091447Z",
+      "uri": "s3://tokenkey-prod-pgdump-682751977094/edge/us5/pgdump/migration-pre-sync/aws-20261015/precious-us5-20261015T091447Z",
+      "changed_units": 20,
+      "compressed_bytes": 10112561,
+      "baseline_seconds": 23.93,
+      "export_seconds": 26.85,
+      "apply_seconds": 43.37,
+      "content_verified_before_commit": true,
+      "final_freeze_verified": false,
+      "command_ids": [
+        "8c202f8d-6fd0-43d6-9184-c216dab3321d",
+        "3a609456-cfc4-4d0d-979a-939395ec85d5",
+        "9a8696ab-bf8d-497c-87da-4ccc5e2a3197"
+      ]
+    }
+  ]
+}

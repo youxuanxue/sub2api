@@ -166,7 +166,7 @@ func TestApplyMoonshotThinkingShape_WritesParamError(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	_, err := applyMoonshotThinkingShape(c, "kimi-k3", []byte(`{"reasoning_effort":"banana"}`))
+	_, err := applyMoonshotThinkingShape(c, nil, "kimi-k3", []byte(`{"reasoning_effort":"banana"}`))
 	var inv *OpenAIInvalidParameterError
 	if !errors.As(err, &inv) {
 		t.Fatalf("want OpenAIInvalidParameterError, got %v", err)

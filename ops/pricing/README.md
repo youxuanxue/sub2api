@@ -120,7 +120,19 @@ service tests before opening a PR.
 a scope replacement, not an incremental patch.
 
 - Default post-release account checks are prod-only and read-only.
-- Edge empty mappings are expected in routine checks.
+- Native edge accounts may use empty mappings and platform defaults (including
+  the Antigravity runtime overlay). Newapi Ali Token Plan and VolcEngine Agent Plan
+  accounts keep explicit reviewed mappings on both prod and edges; their
+  property-selected bundle overrides share the same source. Do not clear those
+  mappings as an edge convention.
+- Plan alias withdrawals belong to the Go owner in
+  `tk_served_models_manifest_tk.go`, including its property-scoped forbidden keys.
+  Regenerate the bundle after editing it; removing only an alias would leave it
+  preserved as a compatible extra during account convergence.
+- Edge relay mirrors retain their explicitly reviewed mappings. A relay URL is
+  not the upstream Plan URL and does not select its property override; do not
+  apply a generic channel floor to a relay as a substitute for reviewing its
+  downstream pool.
 - `sync-runtime` and `clear-runtime` require one explicit `prod` or `edge:<id>`
   target. Without the fixed confirmation phrase they are dry-run only; fleet-wide
   runtime writes are not supported.

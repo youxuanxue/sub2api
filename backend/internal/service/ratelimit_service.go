@@ -2429,7 +2429,8 @@ func isOpenAIImageCapabilityLossError(statusCode int, body []byte) bool {
 	}
 	lower := strings.ToLower(string(body))
 	return strings.Contains(lower, "image_generation") &&
-		strings.Contains(lower, "not found in 'tools' parameter")
+		(strings.Contains(lower, "not found in 'tools' parameter") ||
+			strings.Contains(lower, "tool choice 'image_generation' must be specified with 'tools' parameter"))
 }
 
 func isOpenAIImageRateLimitError(statusCode int, body []byte) bool {

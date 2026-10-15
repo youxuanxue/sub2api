@@ -172,7 +172,12 @@ func supplyKnownNegativeForInputImage(account *Account, model string) bool {
 	case "glm-4.5-air", "glm-5.2", "glm-5.3":
 		// Probe 2026-10-08: Volc Agent Plan + china-edge relay
 		// "Model only support text input" for image_url.
-		// Note: same models are image-servable on Ali Token Plan.
+		// Probe 2026-10-15: Ali GLM-5.3 Responses explicitly rejects images;
+		// Chat returns 200 but sees no image (Qwen positive control passed).
+		// See the dated evidence in the multimodal supply SSOT.
+		if normalized == "glm-5.3" && isNewAPIAliTokenPlanAccount(account) {
+			return true
+		}
 		if isNewAPIVolcEngineAgentPlanAccount(account) || isNewAPIChinaEdgeRelayAccount(account) {
 			return true
 		}

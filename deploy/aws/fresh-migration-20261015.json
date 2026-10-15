@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "batch": "aws-20261015",
+  "state": "precutover-hold",
+  "prod": {
+    "instance_id": "i-022f2553503211775",
+    "instance_name": "tokenkey-prod-aws-20261015",
+    "region": "us-east-1",
+    "ip": "23.21.138.205",
+    "source_ip": "167.233.211.115",
+    "domain": "api.tokenkey.dev",
+    "domains": [
+      "tokenkey.dev",
+      "api.tokenkey.dev",
+      "callmodel.io",
+      "api.callmodel.io"
+    ]
+  },
+  "edges": {
+    "us4": {
+      "region": "us-west-2",
+      "ip": "44.254.243.147",
+      "instance_id": "mi-0e3bd48991983b1bd",
+      "instance_name": "tokenkey-edge-us4-aws-20261015",
+      "static_ip_name": "tokenkey-edge-us4-aws-20261015-ip",
+      "source_ip": "188.245.14.132",
+      "domain": "api-us4.tokenkey.dev",
+      "ssm_prefix": "/tokenkey/lightsail/us4"
+    },
+    "us5": {
+      "region": "us-west-2",
+      "ip": "35.164.198.30",
+      "instance_id": "mi-026a9e5d198bd0570",
+      "instance_name": "tokenkey-edge-us5-aws-20261015",
+      "static_ip_name": "tokenkey-edge-us5-aws-20261015-ip",
+      "source_ip": "91.98.83.56",
+      "domain": "api-us5.tokenkey.dev",
+      "ssm_prefix": "/tokenkey/lightsail/us5"
+    },
+    "uk1": {
+      "region": "eu-west-2",
+      "ip": "18.132.100.198",
+      "instance_id": "mi-039a529756d9add02",
+      "instance_name": "tokenkey-edge-uk1-aws-20261015",
+      "static_ip_name": "tokenkey-edge-uk1-aws-20261015-ip",
+      "source_ip": "188.245.112.147",
+      "domain": "api-uk1.tokenkey.dev",
+      "ssm_prefix": "/tokenkey/lightsail/uk1"
+    },
+    "uk2": {
+      "region": "eu-west-2",
+      "ip": "35.178.162.181",
+      "instance_id": "mi-022bedb939517c7f3",
+      "instance_name": "tokenkey-edge-uk2-aws-20261015",
+      "static_ip_name": "tokenkey-edge-uk2-aws-20261015-ip",
+      "source_ip": "2.31.27.73",
+      "domain": "api-uk2.tokenkey.dev",
+      "ssm_prefix": "/tokenkey/lightsail/uk2"
+    }
+  }
+}

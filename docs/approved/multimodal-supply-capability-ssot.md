@@ -6,7 +6,7 @@ approved_at: 2026-10-08
 created: 2026-10-08
 authors: [auto]
 risk: high
-revision_note: "v1.3: OAuth edge serial probe 2026-10-09 — OpenAI edge supply-wide input_video hard-negative + gpt-5.3-codex-spark image; anthropic edge no hard-neg."
+revision_note: "v1.4: feng 2026-10-15 会话批准 Ali Token Plan × glm-5.3 图片限制；双账号双协议实测修正旧图片支持结论，保留文本及视频原策略。"
 ---
 
 # Multimodal supply capability SSOT
@@ -35,12 +35,13 @@ revision_note: "v1.3: OAuth edge serial probe 2026-10-09 — OpenAI edge supply-
    | `glm-4.5-air` / `glm-5.2` / `glm-5.3` | video + image | china-edge relay（`api-*.tokenkey.dev` newapi stub） | 同上 |
    | `gpt-5` / `gpt-5-mini` / `gpt-5.1` / `gpt-5.2` | video | tokensea（`agent.tokensea.ai`） | `Invalid value: 'video_url'`（image 可） |
    | `deepseek-flash` / `deepseek-v4.1-flash` | video | Ali Token Plan | `does not support video input`（image 可；Volc 可视频） |
+   | `glm-5.3` | image | Ali Token Plan | 2026-10-15：Responses 明确拒绝图片；Chat 200 但未识图，见下方证据 |
    | `qwen3.7-max` | video + image | Ali Token Plan | `Unexpected item type in content` |
    | `deepseek-v4-flash-0731` / `deepseek-v4-pro` / `deepseek-v4-pro-0813` / `glm-4.5-air` / `glm-4.7` | video + image | Qianfan Token Plan | `Invalid content type. *_url is only supported by certain models` |
    | *（供应级）* | video | OpenAI edge mirror（`api-*.tokenkey.dev` + platform=openai） | Responses `Invalid value: 'input_video'`（image 普遍可） |
    | `gpt-5.3-codex-spark` | image | OpenAI edge mirror | `does not support image input` |
 
-   对照允许（不上负表）：`kimi-k3` video/image 在 Volc / china-edge；`glm-5.3-flash` video/image 在 Volc / china-edge；`glm-5.2`/`glm-5.3` video/image 在 Ali；`gpt-5.5+` video 在 tokensea；kimi-k3 image 在 NVIDIA；**Anthropic/Kiro edge** image+video 全系 gateway servable（无硬拒）；Ali 多数 `qwen*` video「does not meet the requirements」按素材问题处理。Gemini Web edge 探针组报 Unsupported model、Antigravity 多为 429 capacity——**不上** modality known-negative。
+   对照允许（不上负表）：`kimi-k3` video/image 在 Volc / china-edge；`glm-5.3-flash` video/image 在 Volc / china-edge；`glm-5.2` video/image 在 Ali（历史记录）；`glm-5.3` video 在 Ali 未因本次图片证据改变策略，旧 image 支持结论已由下方实测推翻；`gpt-5.5+` video 在 tokensea；kimi-k3 image 在 NVIDIA；**Anthropic/Kiro edge** image+video 全系 gateway servable（无硬拒）；Ali 多数 `qwen*` video「does not meet the requirements」按素材问题处理。Gemini Web edge 探针组报 Unsupported model、Antigravity 多为 429 capacity——**不上** modality known-negative。
 3. **准入**：`candidateSupportsRequest` 内与其它准入谓词求交（可在 Plan 前短路）；命中 known-negative → 该账号不是候选。
 4. **未知供应**：不在表内 → **仍准入**（LiteLLM 保守策略），待探针升级为已知。不把 v1 做成 known-positive 全表。
 
@@ -74,6 +75,24 @@ revision_note: "v1.3: OAuth edge serial probe 2026-10-09 — OpenAI edge supply-
 | `POST /v1/responses` | `input_video` + 供应侧可达 HTTPS | **servable**（此前同日探针） |
 
 Quickstart 客户示例 owner：`frontend/src/utils/kimiK3VideoExamples.tk.ts`（curl/python 附加块；密钥自检仍是文本 ping）。NVIDIA Build 对 `kimi-k3` 视频仍是 known-negative，不出现在客户「可用形态」表。
+
+## Ali GLM-5.3 图片证据更新（2026-10-15）
+
+批准：feng 在查看以下实测结论后回复「同意」，范围仅 Ali Token Plan × `glm-5.3` × 输入图片；复用现有能力门，不新增账号字段。纯文本继续准入，视频保持原策略；不把结论扩展到其它阿里模型或其它供应商。
+
+2026-10-15 19:58–19:59 北京时间（11:58–11:59 UTC），使用 cn-prod #27 / #28 账号凭证从运维本机直连 `https://token-plan.cn-beijing.maas.aliyuncs.com`。账号 ID 仅为证据锚点，策略按供应指纹识别。
+
+| 模型/输入 | `/compatible-mode/v1/chat/completions` | `/api/v2/apps/protocols/compatible-mode/v1/responses` |
+| --- | --- | --- |
+| GLM-5.3 纯文本，两账号 | 200，回答 OK | 200，回答 OK |
+| GLM-5.3 图片，两账号 | 200，但回答未收到图片，未完成识图 | 400，`The current model only supports text modality and does not support image input` |
+| Qwen3.7-plus 图片，#27 对照 | 200，正确回答 Red，image_tokens=66 | 200，正确回答 Red，image_tokens=66 |
+
+素材为生成的 128×128 红色 PNG，以 data URI 输入，问题不透露颜色。相同图片和协议格式的正向对照排除了素材/格式问题。HTTP 200 不等于图片能力可用；Chat 的成功状态不能抵消 Responses 的明确拒绝与 Chat 的识图失败。旧文档/测试中 Ali GLM-5.3 image-servable 结论撤销；本次不对视频作新能力断言。
+
+私有原始证据：`~/.local/share/tokenkey/ali-glm-image-check-20261015-195527/report.md` 及同目录 `results.json`、`control-results.json`。原线上请求锚点：`08489de4-1418-4f70-8561-748c819cc5e9`、`3eb7f182-9049-4970-ae55-dc2aa333ade8`，多账号 failover 后仍因图片不支持失败。线上包装为 502 的归因另查，不作为本次能力表修正的依赖。
+
+验收：`TestAliGLMImageCandidateAdmission` 覆盖 Chat/Responses 的 Direct 准入拒绝、Universal 图片空池、纯文本仍可选中及其它供应可接手；`TestSupplyKnownNegativeAliTokenPlan` 覆盖模型修饰后缀、其它阿里模型与视频策略不扩大。
 
 ## 与 Plan 的分工
 

@@ -42,6 +42,8 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 ## TokenKey SSOT 导航
 
+UCloud 国内单 prod 的授权范围、首次初始化和发布边界：[国内部署契约](design-domestic-cluster.md)。
+
 Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor-tool-gateway-compat.md)。
 
 本节只提供契约入口；规则、实现 owner 和验收状态在链接目标维护。
@@ -145,6 +147,8 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | [`design-edge-model-family-alert.md`](design-edge-model-family-alert.md) | Edge model-family alert |
 | [`edge-bluegreen-release-safety.md`](edge-bluegreen-release-safety.md) | Edge blue/green safety |
 | [`hetzner-cloud-full-migration.md`](hetzner-cloud-full-migration.md) | Hetzner 舰队决策锁（fsn1 / cax21；执行 SSOT：`deploy/hetzner/README.md`） |
+| [`aws-fresh-host-migration-20261015.md`](aws-fresh-host-migration-20261015.md) | 全新 AWS 迁移、预同步与已批准的 uk2 单节点切流 |
+| [`lightsail-existing-canary-registration.md`](lightsail-existing-canary-registration.md) | 已创建 Lightsail 迁移新机的受限 SSM 注册 |
 | [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
 | [`prod-component-release.md`](prod-component-release.md) | Independent prod component releases |
 
@@ -193,3 +197,5 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | [prod-component-release.md](prod-component-release.md) | archived：原组件发布设计，由 raw-only 替代 |
 
 网关 hcloud 蓝绿发布仍以 [hcloud-bluegreen-qa-migration.md](hcloud-bluegreen-qa-migration.md) 为基线，QA 部分以 raw-only 覆盖。
+
+- [Volc Agent Plan Kimi Chat compatibility](volc-kimi-chat-compatibility.md) — supplier-scoped thinking and tool selectors.

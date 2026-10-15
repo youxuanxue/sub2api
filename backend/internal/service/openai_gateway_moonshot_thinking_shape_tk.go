@@ -72,8 +72,14 @@ const (
 // applyMoonshotThinkingShape normalizes Moonshot/Kimi thinking-related fields
 // before upstream relay. On reject it writes a field-level OpenAI 400 (when c is
 // non-nil) and returns *OpenAIInvalidParameterError so callers stop failover.
-func applyMoonshotThinkingShape(c *gin.Context, model string, body []byte) ([]byte, error) {
-	shaped, err := NormalizeMoonshotThinking(model, body)
+func applyMoonshotThinkingShape(c *gin.Context, account *Account, model string, body []byte) ([]byte, error) {
+	var shaped []byte
+	var err error
+	if isNewAPIVolcEngineAgentPlanAccount(account) && resolveMoonshotThinkingFamily(model) == moonshotThinkingK3 {
+		shaped, err = normalizeVolcKimiChatRequest(body)
+	} else {
+		shaped, err = NormalizeMoonshotThinking(model, body)
+	}
 	if err == nil {
 		return shaped, nil
 	}

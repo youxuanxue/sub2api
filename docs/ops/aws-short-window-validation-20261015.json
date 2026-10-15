@@ -1,0 +1,160 @@
+{
+  "date": "2026-10-15",
+  "code_commit": "192568b47b7124342e8949ebf7c35ec55403aace",
+  "cutover_performed": false,
+  "prod_has_gemini_worker": false,
+  "node": "uk1",
+  "state": "synced",
+  "final_freeze_verified": false,
+  "source": {
+    "instance_name": "tokenkey-edge-uk1-hz-cax21",
+    "instance_id": "mi-05d6c85a068e08a3c",
+    "region": "eu-west-2"
+  },
+  "candidate": {
+    "region": "eu-west-2",
+    "ip": "18.132.100.198",
+    "instance_id": "mi-039a529756d9add02",
+    "instance_name": "tokenkey-edge-uk1-aws-20261015",
+    "static_ip_name": "tokenkey-edge-uk1-aws-20261015-ip",
+    "source_ip": "188.245.112.147",
+    "domain": "api-uk1.tokenkey.dev",
+    "ssm_prefix": "/tokenkey/lightsail/uk1"
+  },
+  "s3_uri": "s3://tokenkey-prod-pgdump-682751977094/edge/uk1/pgdump/migration-pre-sync/aws-20261015/sync-uk1-20261015T111224Z-100efc1e",
+  "code_sha256": {
+    "fresh_host_delta.py": "c6ad5bf72359740b32ddfe926580329cb5dd7a042acdc73b0b38177f13b58a34",
+    "standard_freeze_delta.py": "657b8f0a07da04d392d9d8dd861d40a81cb8d827e2ae145d9738c5870ad38d8e",
+    "oltp_foreign_keys.py": "66694be5aa537bda286e3ba259b801c3343a15e0495f08e3e7e1229e1cec151d",
+    "fresh_host_runtime.py": "fd48f71179c3ada00d01f1b21e56aa73300adabbf97f18094a84d69602f1272d",
+    "resolve_app_container.py": "c173121a459cd60e02adb7950282c0a740d71f45e7ba09d7b9729b33a2bd0817"
+  },
+  "phases": [
+    {
+      "phase": "prepare-candidate",
+      "target": "mi-039a529756d9add02",
+      "region": "eu-west-2",
+      "command_id": "3a9cc18d-4f49-432f-9708-2f14819add7f",
+      "status": "Success",
+      "elapsed": "PT46.371S",
+      "timings_seconds": {
+        "BASELINE_precious": 18.7,
+        "BASELINE_logs": 24.55
+      },
+      "data_results": []
+    },
+    {
+      "phase": "prepare-source",
+      "target": "mi-05d6c85a068e08a3c",
+      "region": "eu-west-2",
+      "command_id": "b9a9609b-e801-4872-8e0b-23905c4a05d6",
+      "status": "Success",
+      "elapsed": "PT3.599S",
+      "timings_seconds": {},
+      "data_results": []
+    },
+    {
+      "phase": "export",
+      "target": "mi-05d6c85a068e08a3c",
+      "region": "eu-west-2",
+      "command_id": "b4da758f-060a-4641-ad0f-bdc307b849c5",
+      "status": "Success",
+      "elapsed": "PT45.452S",
+      "timings_seconds": {
+        "EXPORT_precious": 18.37,
+        "EXPORT_logs": 22.29
+      },
+      "data_results": [
+        {
+          "changed_units": 22,
+          "compressed_bytes": 4654617
+        },
+        {
+          "changed_units": 3,
+          "compressed_bytes": 16674709
+        }
+      ]
+    },
+    {
+      "phase": "apply",
+      "target": "mi-039a529756d9add02",
+      "region": "eu-west-2",
+      "command_id": "78c19a66-7316-4d34-8943-2d87bddac4ac",
+      "status": "Success",
+      "elapsed": "PT1M44.902S",
+      "timings_seconds": {
+        "APPLY_precious": 41.11,
+        "APPLY_logs": 58.48
+      },
+      "data_results": [
+        {
+          "applied_units": 22,
+          "content_verified_before_commit": true,
+          "source_hostname": "tokenkey-edge-uk1-hz-cax21",
+          "final_freeze_verified": false
+        },
+        {
+          "applied_units": 3,
+          "content_verified_before_commit": true,
+          "source_hostname": "tokenkey-edge-uk1-hz-cax21",
+          "final_freeze_verified": false
+        }
+      ]
+    }
+  ],
+  "runtime_checks": [
+    {
+      "phase": "runtime-check-no-worker",
+      "target": "i-022f2553503211775",
+      "region": "us-east-1",
+      "command_id": "b935fc97-c189-467e-a0f8-0e87948f663a",
+      "status": "Success",
+      "elapsed": "PT0.465S"
+    },
+    {
+      "phase": "runtime-check",
+      "target": "mi-039a529756d9add02",
+      "region": "eu-west-2",
+      "command_id": "a29217da-1eed-416e-a4a1-fb3cb340574a",
+      "status": "Success",
+      "elapsed": "PT0.899S"
+    },
+    {
+      "phase": "runtime-check",
+      "target": "mi-0e3bd48991983b1bd",
+      "region": "us-west-2",
+      "command_id": "8b1327a7-9230-4ad7-9b4f-3efd3bb2ac64",
+      "status": "Success",
+      "elapsed": "PT0.865S"
+    },
+    {
+      "phase": "runtime-check",
+      "target": "mi-026a9e5d198bd0570",
+      "region": "us-west-2",
+      "command_id": "969ac167-9503-42f5-8d85-b751687cdf69",
+      "status": "Success",
+      "elapsed": "PT0.747S"
+    }
+  ],
+  "network_regression": {
+    "phase": "isolated-network-regression",
+    "target": "mi-039a529756d9add02",
+    "region": "eu-west-2",
+    "command_id": "5cc11008-8e00-4c4e-913d-915032e26c78",
+    "status": "Success",
+    "elapsed": "PT7.632S"
+  },
+  "summary": {
+    "preparation_remote_seconds": 49.97,
+    "sync_remote_seconds": 150.354,
+    "compressed_bytes": 21329326,
+    "candidate_held_only_postgres_after_apply": true,
+    "actual_full_cutover_seconds": null
+  },
+  "limits": [
+    "Runtime checks and disposable Docker regression do not replace a full business startup on the eventual cutover.",
+    "Pre-sync was online; source was not frozen.",
+    "Final sync still requires full content verification.",
+    "Old source is not a rollback writer; no other node routing was changed."
+  ]
+}

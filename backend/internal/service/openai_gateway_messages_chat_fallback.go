@@ -87,7 +87,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		chatBody = normalizedBody
 	}
 	var moonshotErr error
-	chatBody, moonshotErr = applyMoonshotThinkingShape(c, upstreamModel, chatBody)
+	chatBody, moonshotErr = applyMoonshotThinkingShape(c, account, upstreamModel, chatBody)
 	if moonshotErr != nil {
 		return nil, moonshotErr
 	}

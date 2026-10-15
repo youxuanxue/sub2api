@@ -17,7 +17,7 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'ops/stage0'))
-from edge_routing_matrix import live_deployable_edge_ids, load_lightsail_targets, resolve_route_tab
+from edge_routing_matrix import live_deployable_edge_ids, load_lightsail_targets, load_live_targets, resolve_route_tab
 
 
 def load(relative):
@@ -31,18 +31,23 @@ def load(relative):
 
 
 class HcloudOpsContractTest(unittest.TestCase):
-    def test_live_inventory_never_dispatches_aws_standby(self):
-        for edge in live_deployable_edge_ids(ROOT):
-            self.assertEqual(resolve_route_tab(ROOT, edge)[0], 'hetzner')
-        self.assertEqual([key for key, row in load_lightsail_targets(ROOT).items() if row.get('deployable')], [])
-        # Even an accidentally re-enabled AWS row cannot enter auto routing.
-        with mock.patch('edge_routing_matrix.load_lightsail_targets', return_value={
-            'old': {'deployable': True, 'lightsail_region': 'us-west-2', 'ssm_prefix': '/old'}
-        }), mock.patch('edge_routing_matrix.load_hetzner_targets', return_value={}):
-            self.assertEqual(live_deployable_edge_ids(ROOT), [])
+    def test_active_inventory_is_unambiguous(self):
+        targets = load_live_targets(ROOT)
+        self.assertEqual(sorted(targets), ['uk1', 'uk2', 'us4', 'us5'])
+        for edge, row in targets.items():
+            expected = 'hetzner' if row.get('location') else 'lightsail'
+            self.assertEqual(resolve_route_tab(ROOT, edge)[0], expected)
+        for edge in ['us3', 'us6']:
             with self.assertRaises(SystemExit):
-                resolve_route_tab(ROOT, 'old')
-            self.assertEqual(resolve_route_tab(ROOT, 'old', 'lightsail')[0], 'lightsail')
+                resolve_route_tab(ROOT, edge)
+        with mock.patch('edge_routing_matrix.load_lightsail_targets', return_value={
+            'x': {'deployable': True, 'lightsail_region': 'us-west-2', 'ssm_prefix': '/x'}
+        }), mock.patch('edge_routing_matrix.load_hetzner_targets', return_value={
+            'x': {'deployable': True, 'location': 'fsn1', 'server_type': 'cax21', 'instance_name': 'x', 'ssm_prefix': '/x'}}):
+            with self.assertRaisesRegex(SystemExit, 'ambiguous'):
+                live_deployable_edge_ids(ROOT)
+            with self.assertRaisesRegex(SystemExit, 'ambiguous'):
+                resolve_route_tab(ROOT, 'x')
 
     def test_account_import_and_model_probe_enumerate_same_live_fleet(self):
         relay = load('ops/accounts/edge_relay.py')
@@ -54,7 +59,7 @@ class HcloudOpsContractTest(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 probe.deployable_edges()
 
-    def test_worker_workflow_resolves_hcloud_before_dispatch(self):
+    def test_worker_workflow_resolves_active_platform_before_dispatch(self):
         workflow = yaml.safe_load((ROOT / '.github/workflows/deploy-gemini-web-worker.yml').read_text())
         steps = workflow['jobs']['worker']['steps']
         resolve = next(step for step in steps if step.get('id') == 'edge')
@@ -63,11 +68,11 @@ class HcloudOpsContractTest(unittest.TestCase):
                 output = pathlib.Path(tmp) / 'output'
                 result = subprocess.run(['bash', '-c', resolve['run']], cwd=ROOT, capture_output=True, text=True,
                     env={**os.environ, 'OIDC_ROLE_ARN': 'test-role', 'INPUT_EDGE_ID': edge,
-                         'INPUT_CONFIRM_INSTANCE': f'tokenkey-edge-{edge}-hz-cax21', 'GITHUB_OUTPUT': str(output)})
+                         'INPUT_CONFIRM_INSTANCE': load_live_targets(ROOT)[edge]['instance_name'], 'GITHUB_OUTPUT': str(output)})
                 self.assertEqual(result.returncode, 0, result.stderr)
                 values = dict(line.split('=', 1) for line in output.read_text().splitlines())
-                self.assertEqual(values['platform'], 'hetzner')
-                self.assertEqual(values['ssm_region'], 'eu-west-2')
+                self.assertEqual(values['platform'], resolve_route_tab(ROOT, edge)[0])
+                self.assertEqual(values['ssm_region'], load_live_targets(ROOT)[edge].get('lightsail_region', 'eu-west-2'))
                 for step in steps:
                     if 'AWS_REGION' in step.get('env', {}):
                         self.assertEqual(step['env']['AWS_REGION'], '${{ steps.edge.outputs.ssm_region }}')

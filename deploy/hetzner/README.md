@@ -1,4 +1,4 @@
-# TokenKey 舰队 · Hetzner Cloud（现网）
+# TokenKey 舰队 · Hcloud / AWS 分批迁移
 
 **SSOT：** 现网节点 / 公网 IP / CIDR / GHCR PAT 路径 / 发版入口 **只在本文件叙述**；其它文档与 skill 只留指针，勿复制数值。
 审批基线（决策锁，无 IP 表）：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
@@ -8,15 +8,18 @@
 | 节点 | 正式域名 | 公网 IP | SSM Hybrid | 备注 |
 |------|----------|---------|------------|------|
 | **prod** | `api.tokenkey.dev` | `167.233.211.115` | `mi-033c9569c7fb8b884` · Volume `tokenkey-prod-data` | ops 控制面 `PROD_SSM_TARGET=hetzner` |
-| **uk1** | `api-uk1.tokenkey.dev` | `188.245.112.147` | 见矩阵 `mi-*` | |
-| **uk2** | `api-uk2.tokenkey.dev` | `2.31.27.73` | 见矩阵 `mi-*` | |
-| **us4** | `api-us4.tokenkey.dev` | `188.245.14.132` | 见矩阵 `mi-*` | |
-| **us5** | `api-us5.tokenkey.dev` | `91.98.83.56` | 见矩阵 `mi-*` | |
+| **uk1** | `api-uk1.tokenkey.dev` | `18.132.100.198` | `mi-039a529756d9add02` | AWS Lightsail · tokenkey-edge-uk1-aws-20261015 |
+| **uk2** | `api-uk2.tokenkey.dev` | `35.178.162.181` | `mi-022bedb939517c7f3` | AWS Lightsail · tokenkey-edge-uk2-aws-20261015 |
+| **us4** | `api-us4.tokenkey.dev` | `44.254.243.147` | `mi-0e3bd48991983b1bd` | AWS Lightsail · tokenkey-edge-us4-aws-20261015 |
+| **us5** | `api-us5.tokenkey.dev` | `35.164.198.30` | `mi-026a9e5d198bd0570` | AWS Lightsail · tokenkey-edge-us5-aws-20261015 |
 
-- 矩阵：`edge-targets-hetzner.json` + `prod-target-hetzner.json`（`deployable=true`）
+- 活矩阵：Hcloud `edge-targets-hetzner.json` + AWS `../aws/lightsail/edge-targets-lightsail.json`；每个 edge 仅一个平台 deployable。prod 仍为 Hcloud。
 - fan-out / probe 默认：`resolve-edge-target.py --list-deployable` → 上表四边；prod 单独解析
-- 机型：`fsn1` · `cax21` · arm64；现网已在 1.8.284 完成蓝绿首发；后续升级使用既有 blue/green 状态机
+- Hcloud 机型：`fsn1` · `cax21` · arm64；AWS uk1/uk2/us4/us5：Lightsail `xlarge_3_0`（4 vCPU / 16 GiB）。后续升级使用既有 blue/green 状态机。
 - **不在舰队：** `us3` / `us6`（无正式 A、无 prod stub；矩阵空行 / LS `deployable=false`）。旧 LS 仅 gemini 会话 drain 前保留，勿当路由目标
+
+本轮 AWS 活节点：uk1, uk2, us4, us5。新边仅放行现网 Hcloud prod；旧 edge 的单地址转发信任只在 DNS 过渡期间保留。
+后续旧平台专用 provision、卷与告警操作仅适用于仍在 Hcloud 的节点，不能用于已切换 AWS 的 edge。
 
 ## 现网不变量
 
@@ -25,14 +28,14 @@
 | Edge `MAIN_GATEWAY_ALLOWED_CIDR` | `167.233.211.115/32`（与 GitHub `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 一致） |
 | Edge / prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
 | GHCR PAT（Hybrid） | SSM `/tokenkey/edge/fleet/ghcr/pat`（eu-west-2；`EDGE_GHCR_PAT_SSM_NAME`） |
-| 探针 / sync Caddy | 直投 Hybrid `mi-*`；`sync_caddyfile` **勿**设 `EDGE_ID=`；日常探针用 `run-probe --target edge:<id>`（共享解析器只选现网 HZ） |
+| 探针 / sync Caddy | 直投 Hybrid `mi-*`；`sync_caddyfile` **勿**设 `EDGE_ID=`；日常探针用 `run-probe --target edge:<id>`（共享解析器按活矩阵选择 Hcloud 或 AWS） |
 | prod stub `base_url` | 必须 `https://api-<edge>.tokenkey.dev` |
 | live HZ 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
 | Secrets | `/tokenkey/hetzner/…`；不进 git |
 
 Stage0 单后端 Caddy 只由 `/health` 主动检查决定摘除与恢复；禁止被动冷却，避免客户端上传断连或单次业务 5xx 让其他请求等待。正式 prod 的源是 `deploy/aws/stage0/Caddyfile`；新机 prod 和 edge 均使用 `Caddyfile.edge`。修改时同时重生成 Hetzner bootstrap，`scripts/checks/caddyfile-syntax.sh` 校验 Caddy 解析后的健康策略；运行中主机通过 `ops/stage0/sync_caddyfile_via_ssm.sh` 热更新，单纯发布应用镜像不会刷新 Caddyfile。
 
-AWS EIP `34.194.234.88` 与四边旧 Lightsail 仅为 ≥7d standby / 回滚，**不是**现网写路径。
+旧 AWS 与旧 Hcloud 节点保留历史数据，不作为回滚写库；全新 AWS 节点按上表逐台接流量。
 
 ## 文件
 
@@ -55,7 +58,7 @@ AWS EIP `34.194.234.88` 与四边旧 Lightsail 仅为 ≥7d standby / 回滚，*
 bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 # 或 deploy-stage0 → deploy_via_ssm_bluegreen.sh
 
-# edge（平台 auto → HZ）
+# edge（平台 auto → 当前活矩阵）
 bash scripts/stage0/dispatch-edge-deploy.sh \
   --edge-id uk1 --operation upgrade --tag X.Y.Z
 ```
@@ -89,7 +92,7 @@ bash ops/observability/run-probe.sh --target prod \
 `yes-hcloud-host-alerts`；只更新告警脚本，不同步 GHCR 或重启 timer。
 
 1. **蓝绿已验收**：1.8.284 已完成 prod + 活 Edge 的升级、排空及烟测；raw maintenance pin 的发布与存储切换仍独立。
-2. **gemini-web re-import**：uk1/uk2 上若干 gemini 账号 `error`/不可调度（出口 IP）；修好后再开对应 prod stub。
+2. **gemini-web 会话验收**：uk1/uk2 的 Gemini prod stub 继续停用。us4 切流后生成超时，边侧 gemini-web-491 进入 pending 保护，需浏览器核实/会话恢复后真实请求验收；us5 原有 blocked/pending 会话和 prod 镜像限流保持原样，未通过 Gemini 供应验收。详见 [迁移验收记录](../../docs/approved/aws-fresh-host-migration-20261015.md#未通过的-gemini-供应检查)。
 3. **边侧供应**：us4 anthropic / us4·us5 grok / uk CC 池按冒烟 200 再开 stub。
 4. **旧 LS / AWS prod**：≥7d 后可删实例；QA raw 的存储与资源退役条件独立，见下一项。
 5. **QA 新归档已切换 Hetzner**：定时归档与隔离恢复已验收；存量不搬，AWS 按原生命周期自然到期，期间保留恢复访问。实际归档小时分界、恢复坐标与到期边界见 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)；资源退役另行审批。
@@ -113,7 +116,7 @@ bash deploy/hetzner/render-prod-bootstrap.sh --check
 |---|---|---|
 | SSM Hybrid / Parameter Store / STS OIDC | hcloud 远程执行、参数与 GHCR 身份；`ops/stage0/{resolve_prod_ssm_target,edge_ssm_execution}.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
 | QA raw archive | 新归档已写入 Hetzner；AWS raw 栈仅保留旧数据恢复与审计，存量按原生命周期自然到期 | 按 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)核查实际到期与对象清单；AWS 桶、KMS 和恢复角色销毁另行审批 |
-| PG dump | prod 与活跃 Edge 已切换到私有 Hetzner 存储；AWS 旧备份保留恢复 | 切换均经过真实加密上传/下载/隔离恢复验收，不销毁旧数据 |
+| PG dump | prod 使用私有 Hetzner 存储；已切流 AWS edges 使用原 AWS 桶隔离前缀 | Hetzner 迁移已验收隔离恢复；本轮 AWS 已验收上传/下载哈希，证据见迁移记录；不销毁旧数据 |
 | env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
 | 历史 archive / dormant media 桶 | 历史数据与停用配置；媒体默认不启用 S3，只有显式 opt-in | 资产销毁另行审批，不能把停用 bucket 描述成现网迁移对象 |
 | 共享运行文件的旧目录名 | `deploy/aws/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 仍直接消费 | 是共享 owner，路径不代表部署在 AWS；迁路径必须同时更新引用、生成产物和 sentinel |
@@ -178,9 +181,9 @@ telemetry 已支持 Hetzner 存储。需要启用该能力时必须单独验收�
 迁移使用的专用私有桶为 `tokenkey-pgdump-fsn1-850a09b1c6de`（fsn1，七天生命周期）。
 上传 owner 仍是 `deploy/aws/stage0/tokenkey-pgdump.sh`；host-only 存储身份及加密参数
 由 `ops/stage0/pgdump_storage.py` 同时供上传和恢复使用。
-现网 prod、uk1、uk2、us4、us5 均已激活该身份，并逐节点完成真实 dump 的
+此前 Hcloud prod、uk1、uk2、us4、us5 均已激活该身份，并逐节点完成真实 dump 的
 下载哈希比对、完整 SQL 恢复、核心数据核对和临时数据清理。原两小时 timer 保持启用。
-切换后的五节点正常定时备份已核对实际新对象、大小与 SSE-C 状态，不仅是配置切换。
+此前五节点正常定时备份已核对实际新对象、大小与 SSE-C 状态。2026-10-15 uk1、uk2、us4、us5 迁至新 AWS 后，使用原私有 AWS 桶 `tokenkey-prod-pgdump-682751977094/edge/<id>/pgdump/`；均已验证新备份上传、下载哈希与 AES256，prod 继续使用 Hetzner 存储。旧 Hcloud 边节点的冻结整库归档隔离在各自 AWS 前缀下的 `archive-hcloud-20261015/`。
 主机告警共享实现已刷新，prod 监控实际 `/var/lib/tokenkey` Hetzner 数据卷；
 告警直接通知飞书，无需 S3。休眠 AWS 媒体默认值已从 prod host `.env` 清理，
 运行容器的旧变量随下次正常蓝绿发布更新；未启用的 offload 不产生媒体 S3 数据。

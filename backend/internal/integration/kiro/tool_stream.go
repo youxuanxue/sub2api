@@ -16,9 +16,11 @@ type toolUseState struct {
 	name        string
 	input       strings.Builder
 	objectInput bool
+	sawInput    bool
 }
 
 type toolUseDecoder struct {
+	tools     []KiroToolWrapper
 	pending   map[string]*toolUseState
 	completed map[string]bool
 }
@@ -71,6 +73,7 @@ func (d *toolUseDecoder) consume(payload []byte, callback *KiroStreamCallback) e
 		state.name = name
 	}
 	if raw, ok := event["input"]; ok {
+		state.sawInput = true
 		if state.objectInput {
 			return fmt.Errorf("%w: input after complete object", ErrInvalidToolUse)
 		}
@@ -93,6 +96,9 @@ func (d *toolUseDecoder) consume(payload []byte, callback *KiroStreamCallback) e
 	}
 	if strings.TrimSpace(state.name) == "" {
 		return fmt.Errorf("%w: missing tool name", ErrInvalidToolUse)
+	}
+	if !state.sawInput && toolAcceptsEmptyInput(d.tools, state.name) {
+		_, _ = state.input.WriteString("{}")
 	}
 	decoder := json.NewDecoder(strings.NewReader(state.input.String()))
 	decoder.UseNumber()

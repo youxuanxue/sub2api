@@ -2667,9 +2667,10 @@ if ! bash ./ops/stage0/test_backup_env_secrets_via_ssm.sh >/dev/null 2>&1 || \
    ! bash ./deploy/aws/lightsail/test_restore_edge_env_secrets.sh >/dev/null 2>&1 || \
    ! bash ./ops/lightsail/test_ensure_edge_ssm_role.sh >/dev/null 2>&1 || \
    ! bash ./ops/lightsail/test_reregister_edge_hybrid.sh >/dev/null 2>&1 || \
-   ! bash ./ops/lightsail/test_migrate_edge_ssm_roles.sh >/dev/null 2>&1; then
+   ! bash ./ops/lightsail/test_migrate_edge_ssm_roles.sh >/dev/null 2>&1 || \
+   ! python3 -m unittest discover -s ops/lightsail -p test_prepare_resize_identity.py >/dev/null 2>&1; then
     echo "  FAIL: env secret backup fail-closed contract test"
-    echo "        — run: bash ops/stage0/test_backup_env_secrets_via_ssm.sh && bash deploy/aws/lightsail/test_restore_edge_env_secrets.sh && bash ops/lightsail/test_ensure_edge_ssm_role.sh && bash ops/lightsail/test_reregister_edge_hybrid.sh && bash ops/lightsail/test_migrate_edge_ssm_roles.sh"
+    echo "        — run: bash ops/stage0/test_backup_env_secrets_via_ssm.sh && bash deploy/aws/lightsail/test_restore_edge_env_secrets.sh && bash ops/lightsail/test_ensure_edge_ssm_role.sh && bash ops/lightsail/test_reregister_edge_hybrid.sh && bash ops/lightsail/test_migrate_edge_ssm_roles.sh && python3 -m unittest discover -s ops/lightsail -p test_prepare_resize_identity.py"
     errors=$((errors + 1))
 else
     echo "  ok: rejected writes fail and verified backup/restore succeeds"
@@ -2954,7 +2955,7 @@ echo ""
 fi # preflight gate
 if _preflight_selected 'Wave B freeze-delta contract'; then
 echo "=== sub2api: Wave B freeze-delta contract ==="
-if ! python3 ./ops/stage0/test_wave_b_freeze_delta.py >/dev/null 2>&1; then
+if ! python3 -m unittest ops.stage0.test_wave_b_freeze_delta ops.migration.test_fresh_host_delta ops.migration.test_fresh_host_cutover >/dev/null 2>&1; then
     echo "  FAIL: Wave B freeze-delta contract test"
     echo "        — run: python3 ops/stage0/test_wave_b_freeze_delta.py"
     errors=$((errors + 1))
@@ -4545,7 +4546,7 @@ fi # preflight gate
 
 if _preflight_selected 'hcloud live-fleet routing and transport'; then
   echo "=== sub2api: hcloud live-fleet routing and transport ==="
-  if ! python3 -m unittest ops/stage0/test_hcloud_ops_contract.py ops/stage0/test_resolve_prod_ssm_target.py ops/stage0/test_edge_admin_resolve_target.py; then
+  if ! python3 -m unittest ops/stage0/test_hcloud_ops_contract.py ops/stage0/test_resolve_prod_ssm_target.py ops/stage0/test_edge_admin_resolve_target.py ops/stage0/test_edge_routing_matrix.py deploy/hetzner/test_resolve_edge_hetzner_target.py; then
     echo "  FAIL: hcloud routing/Ubuntu SSM regression"
     errors=$((errors + 1))
   fi

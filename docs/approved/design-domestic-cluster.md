@@ -1,7 +1,8 @@
 ---
 title: TokenKey UCloud 北京二单 prod 生产部署
-status: pending
-approved_by: pending
+status: approved
+approved_by: "feng (2026-10-15 conversation: 可以。继续。; review/merge before cn-prod release)"
+approved_at: 2026-10-15
 risk: high
 provider: ucloud
 ---
@@ -9,7 +10,8 @@ provider: ucloud
 # 已确认的交付范围
 
 用户在本会话确认正式生产资源、北京二、单 prod，并要求继续实施。本文记录该执行范围；
-PR 仍待人工合并，不把会话授权写成已完成上线或已合并审批。
+2026-10-15 用户同意先将 #2624 对齐 main、复审并合并，再发布 cn-prod。此授权不是
+部署完成证明；本文件的资源、供应与首客章节记录首次上线范围，不用于覆盖后续运营配置。
 
 公共入口 `https://api-cn.tokenkey.dev`。单节点运行共享 Stage0 Compose 的 Caddy、TokenKey、
 PostgreSQL、Redis；仅接入境内 Agent Plan / Token Plan，提供 API key、基础用量统计和 prod
@@ -96,11 +98,12 @@ QA 旧路径由应用、鉴权和退役状态裁决。
 4. 实际 Agent/Token 请求、流式输出、用量和计费正确；验证流量不消耗首客承诺的 $10 初始额度。
 5. 重复初始化不创建重复账号/用户、不重复充值。未验证项写入交付回执。
 
-# 当前状态
+# 首次上线记录（2026-10-14）
 
 用户最终确认保持 2 CPU / 4 GiB、5 Mbps，随后要求缩小空数据盘；现已换为 20 GiB。
 已创建主机 `uhost-1wgyn7gu2f6a`，运行中；EIP `eip-1wgywcyzw8bs`（`106.75.17.57`）已绑定。
-后续站点验收写入回执；资源创建不是客户可用证明。PR #2624 不自动合并。
+后续站点验收写入回执；资源创建不是客户可用证明。用户后续已授权带宽扩至 10 Mbps；
+上述 5 Mbps 和费用为首次部署记录，当前资源与账号状态须通过只读检查重新核实。
 
 部署、账号迁移和性能实测回执见 [国内 prod 运维入口](../../deploy/domestic/README.md)。
 用户追加确认沿用现有 prod 飞书群、标注 `cn-prod`，并允许一次测试告警。应用节点身份修复

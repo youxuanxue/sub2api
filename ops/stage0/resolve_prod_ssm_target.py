@@ -22,6 +22,7 @@ from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_MATRIX = REPO_ROOT / "deploy/hetzner/prod-target-hetzner.json"
+FRESH_MATRIX = REPO_ROOT / "deploy/aws/fresh-migration-20261015.json"
 AWS_REGION = "us-east-1"
 AWS_STACK = "tokenkey-prod-stage0"
 INSTANCE_RE = re.compile(r"^(?:i|mi)-[0-9a-f]{8,}$")
@@ -50,10 +51,10 @@ def resolve_mode(explicit: str) -> str:
     if explicit and explicit != "auto":
         return explicit
     env = (os.environ.get("PROD_SSM_TARGET") or "").strip().lower()
-    if env in ("aws", "hetzner"):
+    if env in ("aws", "aws-fresh", "hetzner"):
         return env
     if env and env != "auto":
-        fail(f"PROD_SSM_TARGET must be auto|aws|hetzner (got {env!r})")
+        fail(f"PROD_SSM_TARGET must be auto|aws|aws-fresh|hetzner (got {env!r})")
     return "hetzner"
 
 
@@ -105,6 +106,23 @@ def resolve_aws(stack: str) -> dict[str, str]:
             "platform": "aws",
         }
     )
+
+
+def resolve_fresh_aws() -> dict[str, str]:
+    """Explicit candidate identity; never resolve the old CloudFormation instance."""
+    inventory = json.loads(FRESH_MATRIX.read_text(encoding="utf-8"))
+    target = inventory["prod"]
+    region, iid = target["region"], target["instance_id"]
+    if not iid.startswith("i-") or not INSTANCE_RE.fullmatch(iid):
+        fail("fresh AWS prod inventory has an invalid EC2 identity")
+    online = [r for r in list_instance_information(region)
+              if r.get("InstanceId") == iid and r.get("PingStatus") == "Online"
+              and r.get("ComputerName") == target["instance_name"]]
+    if len(online) != 1:
+        fail("fresh AWS prod identity/hostname is not Online in SSM")
+    return with_browser_origin({"target": "aws-fresh", "instance_id": iid, "ssm_region": region,
+                                "api_url": "https://" + target["domain"], "deploy_profile": "prod",
+                                "platform": "aws", "computer_name": target["instance_name"]})
 
 
 def load_hetzner_matrix(path: pathlib.Path) -> dict[str, Any]:
@@ -187,7 +205,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Resolve Stage0 prod SSM target.")
     parser.add_argument(
         "--target",
-        choices=("auto", "aws", "hetzner"),
+        choices=("auto", "aws", "aws-fresh", "hetzner"),
         default="auto",
         help="auto defaults to hetzner; PROD_SSM_TARGET=aws explicitly selects standby",
     )
@@ -203,7 +221,9 @@ def main() -> int:
 
     mode = resolve_mode(args.target)
     matrix = pathlib.Path(args.matrix) if args.matrix else DEFAULT_MATRIX
-    if mode == "aws":
+    if mode == "aws-fresh":
+        outputs = resolve_fresh_aws()
+    elif mode == "aws":
         outputs = resolve_aws(args.stack)
     else:
         outputs = resolve_hetzner(matrix)

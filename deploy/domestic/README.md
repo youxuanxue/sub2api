@@ -3,7 +3,7 @@
 审批范围和费用见 [design-domestic-cluster.md](../../docs/approved/design-domestic-cluster.md)。
 这是独立 UCloud 目标，不使用 Hetzner dispatcher、现网 SSM 或现网数据库。
 
-## 当前目标
+## 首次部署目标（2026-10-14）
 
 | 项目 | 值 |
 |---|---|
@@ -16,6 +16,9 @@
 | 防火墙 | `firewall-pvx1loip`，80/443 公网，22 仅运维出口 /32 |
 | 管理员 | `admin@cn.tokenkey.dev` |
 | 客户 | `rt@tk.com`，初始 $10，仅 `china_deployed`，专属倍率 0.3 |
+
+此表及初始化回执记录首次上线状态。用户随后已授权 10 Mbps 带宽、更多客户和供应账号；
+部署前须读取现网，不按此历史表重建账号、充值、分组或资源。
 
 ## 首次安装与配置 owner
 

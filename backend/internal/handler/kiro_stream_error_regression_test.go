@@ -129,7 +129,9 @@ func TestGatewayHandlerMessages_InvalidKiroToolFailsOver(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 				require.Contains(t, rec.Body.String(), "recovered")
 				require.NotContains(t, rec.Body.String(), `"id":"bad"`)
-				require.Equal(t, []int64{1001, 1001, 1002}, upstream.accountIDs)
+				// Protocol-invalid tools advance to the next account without
+				// replaying the same request through the legacy Kiro endpoint.
+				require.Equal(t, []int64{1001, 1002}, upstream.accountIDs)
 				events, ok := c.Get(service.OpsUpstreamErrorsKey)
 				require.True(t, ok)
 				errors := events.([]*service.OpsUpstreamErrorEvent)
@@ -154,7 +156,7 @@ func TestGatewayHandlerMessages_InvalidKiroToolExhaustsPool(t *testing.T) {
 			require.Equal(t, http.StatusBadGateway, rec.Code)
 			require.Contains(t, rec.Body.String(), `"type":"upstream_error"`)
 			require.NotContains(t, rec.Body.String(), "message_stop")
-			require.Equal(t, []int64{1001, 1001}, upstream.accountIDs)
+			require.Equal(t, []int64{1001}, upstream.accountIDs)
 		})
 	}
 }

@@ -38,16 +38,15 @@ def build_prod_ops_matrix(data: dict, *, selector: str, prod_region: str, prod_s
     excluded = []
 
     def include_live_edge(edge_id: str) -> None:
-        # Auto resolution validates that the edge belongs to the live hcloud fleet.
-        _EDGE_ROUTING.resolve_route_tab(REPO_ROOT, edge_id, "auto")
-        target = hz_targets[edge_id]
+        transport, _, _ = _EDGE_ROUTING.resolve_route_tab(REPO_ROOT, edge_id, "auto")
+        target = hz_targets[edge_id] if transport == "hetzner" else lightsail_targets[edge_id]
         include.append(
             {
-                "target_id": f"edge-{edge_id}-hz",
+                "target_id": f"edge-{edge_id}-{'hz' if transport == 'hetzner' else 'ls'}",
                 "target_kind": "edge",
-                "platform": "hetzner",
+                "platform": transport,
                 "edge_id": edge_id,
-                "region": str(target.get("ssm_region") or "eu-west-2"),
+                "region": str(target.get("lightsail_region") or target.get("ssm_region") or "eu-west-2"),
                 "stack": "",
                 "domain": str(target.get("domain") or f"api-{edge_id}.tokenkey.dev"),
                 "ssm_prefix": str(target.get("ssm_prefix") or ""),
@@ -140,7 +139,7 @@ def main() -> int:
         "--list-deployable",
         action="store_true",
         help=(
-            "Print one live Hetzner edge id per line. "
+            "Print one active edge id per line. "
             "With a non-default --lightsail-matrix, lists Lightsail deployable "
             "from that file only (fixture override). "
             "Mutually exclusive with --prod-ops-matrix. "

@@ -92,16 +92,16 @@ log "starting ${PROXY_NAME} -> TCP:${target}:8080 on ${NETWORK}"
   TCP-LISTEN:8080,fork,reuseaddr "TCP:${target}:8080" >/dev/null
 
 # Prove Docker DNS name `tokenkey` answers on :8080 (Worker control URL).
-if "$DOCKER" inspect tokenkey-gemini-web >/dev/null 2>&1; then
+if [[ "$("$DOCKER" inspect tokenkey-gemini-web --format '{{.State.Running}}' 2>/dev/null || true)" == true ]]; then
   "$DOCKER" exec tokenkey-gemini-web python3 -c "
 import socket
 s = socket.create_connection(('${PROXY_NAME}', 8080), 5)
 s.close()
 " >/dev/null
 else
-  "$DOCKER" run --rm --network "${NETWORK}" "${SOCAT_IMAGE}" \
-    /bin/sh -c "timeout 5 sh -c 'echo >/dev/tcp/${PROXY_NAME}/8080'" >/dev/null 2>&1 \
-    || log "WARN: proxy started but TCP probe skipped (no Worker helper)"
+  # Fresh-host startup: the worker needs this alias to pass its startup check.
+  # Verify the real HTTP path from the already healthy gateway first.
+  "$DOCKER" exec "${target}" wget -q -T 5 -O /dev/null "http://${PROXY_NAME}:8080/health"
 fi
 log "OK ${PROXY_NAME} -> ${target}:8080"
 echo "tk_gemini_web_control_alias: OK color=${color} target=${target}"

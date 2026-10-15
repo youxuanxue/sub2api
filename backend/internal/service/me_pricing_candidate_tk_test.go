@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -48,21 +49,30 @@ func TestCandidatePricingMenuScopedPriceWithProductionFilter(t *testing.T) {
 }
 
 func TestCandidatePricingMenuDoesNotRestoreHiddenManifestRows(t *testing.T) {
-	const model = "minimax-m2.7"
-	require.True(t, isTkCuratedNewAPIModelListed(model))
-	require.False(t, isTkCuratedNewAPIModelDisplayed(model))
-	group := grp(10, PlatformOpenAI, 0, false)
-	account := globalCandidateAccount(1, 1, 10)
-	account.Credentials["model_mapping"] = map[string]any{model: "gpt-5.4"}
-	capabilities, key := candidateDiscoveryFixture([]Group{group}, []Account{account})
+	owner := loadTkServedModelsOwnerProjectionForTest(t)
 	catalog := NewPricingCatalogService(nil)
-	capabilities.modelFilter = NewModelListFilter(catalog, nil)
-	require.True(t, catalog.IsModelPriced(model, PlatformOpenAI))
-	svc := newServiceWithAccounts(&fakeKeyAccess{groups: []Group{group}, keys: []APIKey{*key}}, &fakeChannelLister{}, &fakeCatalogProvider{resp: catalog.BuildPublicCatalog(context.Background())}, &fakeAccountSource{})
-	svc.capabilities = capabilities
-	response, err := svc.BuildForUser(context.Background(), key.UserID, MePricingCatalogOptions{APIKeyID: &key.ID})
-	require.NoError(t, err)
-	require.Empty(t, response.Models)
+	var models []string
+	for model := range owner.listedIDs {
+		if _, displayed := owner.displayIDs[model]; !displayed && catalog.IsModelPriced(model, PlatformOpenAI) {
+			models = append(models, model)
+		}
+	}
+	sort.Strings(models)
+	require.NotEmpty(t, models, "fixture requires priced, hidden manifest rows")
+	for _, model := range models {
+		t.Run(model, func(t *testing.T) {
+			group := grp(10, PlatformOpenAI, 0, false)
+			account := globalCandidateAccount(1, 1, 10)
+			account.Credentials["model_mapping"] = map[string]any{model: "gpt-5.4"}
+			capabilities, key := candidateDiscoveryFixture([]Group{group}, []Account{account})
+			capabilities.modelFilter = NewModelListFilter(catalog, nil)
+			svc := newServiceWithAccounts(&fakeKeyAccess{groups: []Group{group}, keys: []APIKey{*key}}, &fakeChannelLister{}, &fakeCatalogProvider{resp: catalog.BuildPublicCatalog(context.Background())}, &fakeAccountSource{})
+			svc.capabilities = capabilities
+			response, err := svc.BuildForUser(context.Background(), key.UserID, MePricingCatalogOptions{APIKeyID: &key.ID})
+			require.NoError(t, err)
+			require.Empty(t, response.Models)
+		})
+	}
 }
 
 func TestCandidatePricingMenuUsesAuthorizedSupport(t *testing.T) {

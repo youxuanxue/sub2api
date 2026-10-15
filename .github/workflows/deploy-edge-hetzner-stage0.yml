@@ -49,6 +49,7 @@ on:
       - "deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml"
       - "deploy/aws/lightsail/restore-edge-env-secrets.sh"
       - "ops/stage0/edge_routing_matrix.py"
+      - "deploy/aws/lightsail/edge-targets-lightsail.json"
       - "ops/stage0/deploy_via_ssm_bluegreen.sh"
       - "scripts/stage0/resolve-edge-deploy-route.py"
       - "scripts/stage0/dispatch-edge-deploy.sh"
@@ -90,28 +91,7 @@ jobs:
       - name: Cutover matrix guard (live vs backlog)
         if: github.event_name == 'pull_request'
         run: |
-          python3 - <<'PY'
-          import json, sys
-          from pathlib import Path
-          LIVE = {"uk1", "uk2", "us4", "us5"}
-          BACKLOG = {"us3", "us6"}
-          data = json.loads(Path("deploy/hetzner/edge-targets-hetzner.json").read_text())
-          defaults = data.get("target_defaults") or {}
-          live_off, backlog_on, unknown = [], [], []
-          for k, t in (data.get("targets") or {}).items():
-              row = {**defaults, **(t or {})}
-              dep = row.get("deployable") is True
-              if k in LIVE and not dep:
-                  live_off.append(k)
-              elif k in BACKLOG and dep:
-                  backlog_on.append(k)
-              elif k not in LIVE | BACKLOG and dep:
-                  unknown.append(k)
-          if live_off or backlog_on or unknown:
-              print(f"::error::matrix guard failed live_off={live_off} backlog_on={backlog_on} unknown_deployable={unknown}")
-              sys.exit(1)
-          print("cutover_matrix_guard=ok")
-          PY
+          python3 ops/stage0/edge_routing_matrix.py
 
       - name: Hetzner bluegreen workflow contract
         if: github.event_name == 'pull_request'

@@ -85,7 +85,7 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 	}
 	body = applyNewAPIAliFixedSamplingShape(gjson.GetBytes(body, "model").String(), body)
 	var shapeErr error
-	body, shapeErr = applyMoonshotThinkingShape(c, gjson.GetBytes(body, "model").String(), body)
+	body, shapeErr = applyMoonshotThinkingShape(c, account, gjson.GetBytes(body, "model").String(), body)
 	if shapeErr != nil {
 		return nil, shapeErr
 	}

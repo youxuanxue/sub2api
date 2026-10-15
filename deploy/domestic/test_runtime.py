@@ -5,6 +5,7 @@ No production credentials, traffic, DNS, or upstream calls are involved.
 """
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -23,6 +24,54 @@ def run(*args, input=None):
     if result.returncode:
         raise RuntimeError(f"{args[0]} failed: {result.stderr}")
     return result.stdout
+
+
+class DomesticDiskGuardTest(unittest.TestCase):
+    def test_only_successful_empty_disk_probes_allow_formatting(self):
+        with tempfile.TemporaryDirectory(prefix="tk-domestic-disk-test-") as tmp:
+            fakebin = Path(tmp)
+            commands = {
+                "lsblk": '''#!/usr/bin/env bash
+case "$2" in
+  NAME) [[ "$PROBE_FAIL" != topology ]] || exit 23
+        printf '%s\\n' "$NAME_OUTPUT" ;;
+  MOUNTPOINTS) [[ "$PROBE_FAIL" != mounts ]] || exit 24
+              printf '%s\\n' "$MOUNTS_OUTPUT" ;;
+  *) exit 25 ;;
+esac
+''',
+                "wipefs": '''#!/usr/bin/env bash
+[[ "$PROBE_FAIL" != signatures ]] || exit 26
+printf '%s\\n' "$SIGNATURE_OUTPUT"
+''',
+            }
+            for name, source in commands.items():
+                command = fakebin / name
+                command.write_text(source)
+                command.chmod(0o700)
+            cases = (
+                ("empty", {}, True),
+                ("topology error", {"PROBE_FAIL": "topology"}, False),
+                ("mount probe error", {"PROBE_FAIL": "mounts"}, False),
+                ("signature probe error", {"PROBE_FAIL": "signatures"}, False),
+                ("missing topology", {"NAME_OUTPUT": ""}, False),
+                ("partitions", {"NAME_OUTPUT": "/dev/fixture\n/dev/fixture1"}, False),
+                ("mounted", {"MOUNTS_OUTPUT": "/srv/data"}, False),
+                ("existing filesystem", {"SIGNATURE_OUTPUT": "ext4"}, False),
+            )
+            for label, overrides, allowed in cases:
+                with self.subTest(case=label):
+                    env = dict(os.environ, PATH=str(fakebin) + os.pathsep + os.environ["PATH"],
+                               PROBE_FAIL="", NAME_OUTPUT="/dev/fixture",
+                               MOUNTS_OUTPUT="", SIGNATURE_OUTPUT="")
+                    env.update(overrides)
+                    result = subprocess.run(
+                        ["bash", "-c", 'source "$1"; require_empty_data_disk /dev/fixture; echo SAFE_TO_FORMAT',
+                         "disk-guard", str(ROOT / "deploy/domestic/bootstrap-host.sh")],
+                        env=env, capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                    self.assertEqual("SAFE_TO_FORMAT" in result.stdout, allowed)
 
 
 class DomesticRuntimeTest(unittest.TestCase):
@@ -56,8 +105,10 @@ class DomesticRuntimeTest(unittest.TestCase):
                     # The fixture backend is created by this same Caddy
                     # process. Active health checks add a startup race here;
                     # production keeps them in the shared template.
-                    for key in ("health_uri", "health_interval", "health_timeout"):
-                        obj.pop(key, None)
+                    health_checks = obj.get("health_checks", {})
+                    health_checks.pop("active", None)
+                    if not health_checks:
+                        obj.pop("health_checks", None)
                 for value in obj.values():
                     local_upstream(value)
             elif isinstance(obj, list):
