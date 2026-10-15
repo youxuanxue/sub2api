@@ -1120,7 +1120,10 @@ export default {
       expiresAtTimezoneHint: 'Input is interpreted in your browser time zone ({timezone}).',
       higherPriorityFirst: 'Lower value means higher priority',
       mixedScheduling: 'Use in /v1/messages',
-      mixedSchedulingHint: 'Enable to participate in Anthropic/Gemini group scheduling',
+      mixedSchedulingHint:
+        'Antigravity: Anthropic/Gemini groups; Kiro: Anthropic (Claude) groups only',
+      mixedSchedulingTooltipKiro:
+        'When enabled, this Kiro OAuth account can join Anthropic (Claude) groups and serve /v1/messages on-box. Not for Gemini groups; do not confuse with edge kiro-* Anthropic mirror stubs.',
       mixedSchedulingTooltip:
         '!! WARNING !! Antigravity Claude and Anthropic Claude cannot be used in the same context. If you have both Anthropic and Antigravity accounts, enabling this option will cause frequent 400 errors. When enabled, please use the group feature to isolate Antigravity accounts from Anthropic accounts. Make sure you understand this before enabling!!',
       aiCreditsBalance: 'AI Credits',

@@ -2083,6 +2083,16 @@ func TestAccount_IsMixedSchedulingEnabled(t *testing.T) {
 			expected: false,
 		},
 		{
+			name:     "kiro平台-无extra-返回false",
+			account:  Account{Platform: PlatformKiro},
+			expected: false,
+		},
+		{
+			name:     "kiro平台-mixed_scheduling=true-返回true",
+			account:  Account{Platform: PlatformKiro, Extra: map[string]any{"mixed_scheduling": true}},
+			expected: true,
+		},
+		{
 			name:     "antigravity平台-无extra-返回false",
 			account:  Account{Platform: PlatformAntigravity},
 			expected: false,

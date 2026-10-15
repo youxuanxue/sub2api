@@ -63,7 +63,12 @@ import GroupBadge from './GroupBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import type { Group, GroupPlatform } from '@/types'
 import { useAuthStore } from '@/stores/auth'
-import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI } from '@/constants/gatewayPlatforms'
+import {
+  PLATFORM_ANTHROPIC,
+  PLATFORM_ANTIGRAVITY,
+  PLATFORM_GEMINI,
+  PLATFORM_KIRO
+} from '@/constants/gatewayPlatforms'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -72,7 +77,7 @@ interface Props {
   modelValue: number[]
   groups: (Group & { account_count?: number })[]
   platform?: GroupPlatform // Optional platform filter
-  mixedScheduling?: boolean // For antigravity accounts: allow anthropic/gemini groups
+  mixedScheduling?: boolean // antigravity→anthropic/gemini; kiro→anthropic only
   searchable?: boolean | 'auto'
 }
 
@@ -96,13 +101,20 @@ const filteredGroups = computed(() => {
     ? props.groups.filter((g) => g.platform !== 'composite')
     : props.groups
   if (props.platform) {
-    // antigravity 账户启用混合调度后，可选择 anthropic/gemini 分组
+    // antigravity 启用混合调度后可选 anthropic/gemini；kiro 混合仅 anthropic（Claude）
     if (props.platform === PLATFORM_ANTIGRAVITY && props.mixedScheduling) {
       result = result.filter(
         (g) =>
           g.platform === PLATFORM_ANTIGRAVITY ||
           g.platform === PLATFORM_ANTHROPIC ||
           g.platform === PLATFORM_GEMINI ||
+          g.platform === 'composite'
+      )
+    } else if (props.platform === PLATFORM_KIRO && props.mixedScheduling) {
+      result = result.filter(
+        (g) =>
+          g.platform === PLATFORM_KIRO ||
+          g.platform === PLATFORM_ANTHROPIC ||
           g.platform === 'composite'
       )
     } else {

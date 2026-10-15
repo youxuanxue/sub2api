@@ -3612,8 +3612,11 @@
       </div>
 
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <!-- Mixed Scheduling (only for antigravity accounts) -->
-        <div v-if="form.platform === 'antigravity'" class="flex items-center gap-2">
+        <!-- Mixed Scheduling (antigravity → Anthropic/Gemini; kiro → Anthropic/Claude only) -->
+        <div
+          v-if="form.platform === 'antigravity' || form.platform === 'kiro'"
+          class="flex items-center gap-2"
+        >
           <label class="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
@@ -3634,7 +3637,11 @@
             <div
               class="pointer-events-none absolute left-0 top-full z-[100] mt-1.5 w-72 rounded bg-gray-900 px-3 py-2 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
             >
-              {{ t('admin.accounts.mixedSchedulingTooltip') }}
+              {{
+                form.platform === 'kiro'
+                  ? t('admin.accounts.mixedSchedulingTooltipKiro')
+                  : t('admin.accounts.mixedSchedulingTooltip')
+              }}
               <div
                 class="absolute bottom-full left-3 border-4 border-transparent border-b-gray-900 dark:border-b-gray-700"
               ></div>
@@ -4804,6 +4811,11 @@ function buildAntigravityExtra(): Record<string, unknown> | undefined {
   if (mixedScheduling.value) extra.mixed_scheduling = true
   if (allowOverages.value) extra.allow_overages = true
   return Object.keys(extra).length > 0 ? extra : undefined
+}
+
+function buildKiroExtra(): Record<string, unknown> | undefined {
+  if (!mixedScheduling.value) return undefined
+  return { mixed_scheduling: true }
 }
 
 const buildOpenAICompactModelMapping = () =>
@@ -6136,13 +6148,17 @@ const handleSubmit = async () => {
     }
     const bundle = kiro.buildSubmitBundle('create')
     if (!bundle) return
+    const kiroExtra = {
+      ...(buildAPIKeyOrBedrockExtra() || {}),
+      ...(buildKiroExtra() || {})
+    }
     await doCreateAccount({
       name: form.name,
       notes: form.notes,
       platform: 'kiro',
       type: 'oauth',
       credentials: bundle.credentials,
-      extra: buildAPIKeyOrBedrockExtra(),
+      extra: Object.keys(kiroExtra).length > 0 ? kiroExtra : undefined,
       proxy_id: form.proxy_id,
       concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,

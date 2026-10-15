@@ -920,7 +920,8 @@ export default {
         prevPage: 'Previous',
         nextPage: 'Next',
         addHintSamePlatform: 'Only platform = {platform}. Toggle to bind/unbind.',
-        addHintMixed: 'Same-platform accounts, or Antigravity with mixed_scheduling.',
+        addHintMixed:
+          'Same-platform accounts, or Antigravity with mixed_scheduling; Anthropic groups may also bind Kiro with mixed_scheduling.',
         addHintComposite: 'Any concrete platform account (routed by model).',
         boundOn: 'Bound (click to unbind)',
         boundOff: 'Not bound (click to bind)',

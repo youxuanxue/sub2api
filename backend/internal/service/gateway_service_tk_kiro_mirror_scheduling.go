@@ -16,17 +16,30 @@ func tkShouldClearStickyForKiroMirrorModelMismatch(account *Account, requestedMo
 	if account == nil || strings.TrimSpace(requestedModel) == "" {
 		return false
 	}
-	if !account.IsKiroMirrorStub() {
+	if !tkIsKiroMixedOrMirrorSupply(account) {
 		return false
 	}
 	return !kiroMirrorStubSupportsModel(requestedModel)
 }
 
+// tkIsKiroMixedOrMirrorSupply reports Kiro capacity that must not claim
+// native-only Anthropic SKUs inside an anthropic mixed group: mirror stubs and
+// mixed_scheduling Kiro OAuth.
+func tkIsKiroMixedOrMirrorSupply(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	if account.IsKiroMirrorStub() {
+		return true
+	}
+	return account.IsKiro() && account.IsMixedSchedulingEnabled()
+}
+
 // tkKiroMirrorStubSelectionPenalty returns a bounded ranking penalty for mirror
-// stubs on models outside the Kiro catalog when the model is otherwise valid on
-// native Anthropic relays.
+// stubs (and mixed Kiro OAuth) on models outside the Kiro catalog when the model
+// is otherwise valid on native Anthropic relays.
 func tkKiroMirrorStubSelectionPenalty(account *Account, requestedModel string) int {
-	if account == nil || !account.IsKiroMirrorStub() {
+	if account == nil || !tkIsKiroMixedOrMirrorSupply(account) {
 		return 0
 	}
 	requestedModel = strings.TrimSpace(requestedModel)

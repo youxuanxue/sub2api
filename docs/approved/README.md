@@ -58,6 +58,7 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | 请求输入模态 × 供应侧已知能力（ContentKinds ∩ known-negative）；kimi-k3 客户视频请求形态 | [多模态供应能力门](multimodal-supply-capability-ssot.md) |
 | Studio / Quickstart 生图参数与请求示例 | [生图能力与接入示例](image-generation-quickstart-studio.md)（GPT 精确画布见 [strict canvas](gpt-image-strict-canvas-postprocess.md)，已合并；OAuth 观感脚手架见 [perceived quality](gpt-image-oauth-perceived-quality.md)） |
 | Key 授权与计费归属 | [Universal key routing](universal-key-routing.md) |
+| Kiro OAuth 混入 Claude（anthropic）组 | [Kiro mixed_scheduling](kiro-mixed-scheduling-claude-groups.md) |
 | 推理响应 `usage.cost` 标准官方价出口 | [Response usage.cost](response-usage-cost.md) |
 | 官方价格注册表与热发布 | [Pricing registry](pricing-registry-hot-reload.md) |
 | 分组／渠道价目优先级与 alias | [价格与 alias](pricing-serving-single-source-of-truth.md#4-价格与-alias) |

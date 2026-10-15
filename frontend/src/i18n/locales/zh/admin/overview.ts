@@ -913,7 +913,8 @@ export default {
         prevPage: '上一页',
         nextPage: '下一页',
         addHintSamePlatform: '只能绑定 platform = {platform} 的账号；用开关直接绑定/解绑。',
-        addHintMixed: '可绑定同平台账号，或开启 mixed_scheduling 的 Antigravity 账号。',
+        addHintMixed:
+          '可绑定同平台账号，或开启 mixed_scheduling 的 Antigravity 账号；Anthropic 组还可绑定开启 mixed_scheduling 的 Kiro 账号。',
         addHintComposite: '可绑定任意具体平台账号（按模型路由到对应 platform）。',
         boundOn: '已绑定（点击解绑）',
         boundOff: '未绑定（点击绑定）',

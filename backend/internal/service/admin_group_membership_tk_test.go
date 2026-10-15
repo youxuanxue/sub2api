@@ -21,6 +21,10 @@ func TestAccountCompatibleWithGroupPlatform(t *testing.T) {
 	require.NoError(t, accountCompatibleWithGroupPlatform(PlatformAnthropic, PlatformAntigravity, true))
 	require.NoError(t, accountCompatibleWithGroupPlatform(PlatformGemini, PlatformAntigravity, true))
 
+	require.Error(t, accountCompatibleWithGroupPlatform(PlatformAnthropic, PlatformKiro, false))
+	require.NoError(t, accountCompatibleWithGroupPlatform(PlatformAnthropic, PlatformKiro, true))
+	require.Error(t, accountCompatibleWithGroupPlatform(PlatformGemini, PlatformKiro, true), "kiro mixed is anthropic-only")
+
 	require.NoError(t, accountCompatibleWithGroupPlatform(PlatformComposite, PlatformOpenAI, false))
 	require.NoError(t, accountCompatibleWithGroupPlatform(PlatformComposite, PlatformNewAPI, false))
 	require.Error(t, accountCompatibleWithGroupPlatform(PlatformComposite, PlatformComposite, false))

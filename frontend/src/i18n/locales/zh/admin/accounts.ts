@@ -1227,9 +1227,12 @@ export default {
       expiresAtTimezoneHint: '输入按浏览器本地时区（{timezone}）解释。',
       higherPriorityFirst: '数值越小优先级越高',
       mixedScheduling: '在 /v1/messages 中使用',
-      mixedSchedulingHint: '启用后可参与 Anthropic/Gemini 分组的调度',
+      mixedSchedulingHint:
+        'Antigravity：可进 Anthropic/Gemini 组；Kiro：仅可进 Anthropic（Claude）组',
       mixedSchedulingTooltip:
         '！！注意！！ Antigravity Claude 和 Anthropic Claude 无法在同个上下文中使用，如果你同时有 Anthropic 账号和 Antigravity 账号，开启此选项会导致经常 400 报错。开启后，请用分组功能做好 Antigravity 账号和 Anthropic 账号的隔离。一定要弄明白再开启！！',
+      mixedSchedulingTooltipKiro:
+        '启用后可将本 Kiro OAuth 账号挂入 Anthropic（Claude）分组，由同机 Kiro 路径服务 /v1/messages。不可进 Gemini 组；勿与 edge 上的 kiro-* anthropic 镜像 stub 混为一类。',
       aiCreditsBalance: 'AI Credits',
       allowOverages: '允许超量请求 (AI Credits)',
       allowOveragesTooltip:
