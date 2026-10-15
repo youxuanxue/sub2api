@@ -53,11 +53,17 @@ def edge_cidr(text, cidrs):
     return text
 
 
-def render(inventory, runtime, output):
+def render(inventory, runtime, output, *, nodes, prod_ip):
+    available = {'prod': inventory['prod'], **inventory['edges']}
+    if not nodes or not set(nodes) <= available.keys():
+        raise ValueError('select known migration nodes')
+    if prod_ip not in (inventory['prod']['ip'], inventory['prod']['source_ip']):
+        raise ValueError('prod IP must match an inspected migration identity')
     output.mkdir(mode=0o700)
-    receipt = {'batch': inventory['batch'], 'installed': False, 'nodes': {}}
-    prod_cidr = inventory['prod']['ip'] + '/32'
-    for name, node in [('prod', inventory['prod']), *inventory['edges'].items()]:
+    receipt = {'batch': inventory['batch'], 'installed': False, 'prod_ip': prod_ip, 'nodes': {}}
+    prod_cidr = prod_ip + '/32'
+    for name in sorted(set(nodes)):
+        node = available[name]
         source = (runtime / f'{name}-source.Caddyfile').read_text()
         candidate = (runtime / f'{name}-candidate.Caddyfile').read_text()
         candidate_input_sha = hashlib.sha256(candidate.encode()).hexdigest()
@@ -113,7 +119,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--runtime-dir', required=True, type=Path)
     parser.add_argument('--output-dir', required=True, type=Path)
+    parser.add_argument('--node', action='append', required=True, choices=['prod', 'uk1', 'uk2', 'us4', 'us5'])
+    parser.add_argument('--prod-ip', required=True, help='prod egress IP during this single-node transition')
     args = parser.parse_args()
     inv = json.loads((ROOT / 'deploy/aws/fresh-migration-20261015.json').read_text())
-    result = render(inv, args.runtime_dir, args.output_dir)
+    result = render(inv, args.runtime_dir, args.output_dir, nodes=args.node, prod_ip=args.prod_ip)
     print(json.dumps({'installed': False, 'domains': {n: r['domains'] for n, r in result['nodes'].items()}}))

@@ -280,3 +280,66 @@ prod 上计划临时暂停并在验收后恢复的原启用镜像账号仅为：
 过渡期旧地址继续转发，旧主机保留只读历史数据；新机仅信任旧 uk2 的单一代理地址。
 待旧地址流量归零再收紧到 candidate-final Caddy 配置，不强制断开客户长连接。
 其余四台保持切流前状态，后续切流需要另选窗口。
+
+## uk2 复盘与后续短窗口准备
+
+用户要求收敛 uk2 操作中暴露的问题、缩短余下节点切换；此授权不包含其余节点正式切流。
+uk2 维护响应窗口为 10:10:12–10:19:33 UTC（9 分 21 秒），镜像暂停操作至恢复为
+10:09:49–10:20:59（11 分 10 秒）。其他 edge 仍服务，不是全站同等时长停服。
+
+已识别的可避免成本：停写后才计算候选基线、手工逐次交接 SSM、网络重建后容器仍引用
+旧 network ID、systemd ExecStartPost 先于 Gemini worker 就绪，以及混合舰队检查漏项。
+源导出和候选完整内容核验仍是必要成本；继续保留日志、低 ID 晚提交、修改和删除的校验，
+不改成只按最大 ID 追加。prod 最近数据处理实测约 370 秒，不能据此承诺整体 3–5 分钟。
+
+### 版本化执行入口
+
+- `ops/migration/prepare-aws-control-plane.py`：候选补丁验证包含真实 Hcloud workflow 的矩阵、
+  bootstrap、备份角色与路由门；共享 live-fleet 门覆盖所有逐台迁移组合并拒绝双启用、缺边、
+  backlog 意外启用。合并后的主分支 CI 也必须在下一次停写前收敛。
+- `ops/migration/prepare-aws-traffic-transition.py`：必须选 `--node`，显式给出当时的 `--prod-ip`。
+  prod 未切换时使用旧 prod 出口；不会因候选 inventory 有新 prod 地址就自动使用它。
+- `ops/migration/fresh_host_runtime.py check --node <id>`：仅检查候选身份、hold、仅 PG 运行、
+  内部网络、镜像本地可用、active color，以及 PG 的镜像/Compose hash 与原容器一致。
+  旧 network ID 对 app/Caddy 在激活时强制重建；需要保留的 PG/worker 必须按稳定网络名启动。
+  prod 不要求 edge worker。检查通过不等于已经真实启动业务栈。
+- `ops/migration/fresh_host_sync.py prepare --node <id> --receipt /tmp/<batch>.json`：停写前完成代码
+  上传、runtime 检查、precious/logs 两份候选基线及源端准备；比对双方网关/worker 镜像引用。
+  全程源端不停写、候选仅 PG。回执 30 分钟内单次使用；代码或身份变化必须重新准备。
+- 同一入口 `sync --node <id> --receipt ...`：在线预增量；加 `--final` 只接受**已由换机流程排空并
+  停写**的源端。源端必须有 `<node>-cutover/FROZEN` 和 `ARCHIVAL_HOLD`、服务和备份 timer
+  inactive、数据库默认只读且无其他客户端、无业务容器运行。连续导出两范围、一次传输、
+  连续恢复，最后再次核查源端冻结。仍执行 apply 内完整候选基线/内容/外键/序列检查。
+  这不是停写控制器：不会自行暂停账号、停源服务、改 DNS、启动候选或恢复镜像。
+- `fresh_host_runtime.py activate`：仅消费刚完成（10 分钟内）的 final sync 回执和经审核的
+  Caddy 文件/hash；edge 还需 `--prod-ip`。保留原 PG 容器及全部挂载，重建网络后核对；
+  仅重建 Redis/Caddy/选定网关，不拉镜像；edge 先 worker ready，再启动 systemd。
+  Caddy active color 必须匹配，edge `.env` 同步当前 prod CIDR。失败恢复持久 hold、停候选
+  业务写入者；清理失败显式报错，不恢复旧机写入，不切 DNS。此入口在剩余真实业务栈上尚未
+  执行，正式窗口前仍需检查已准备配置及对应版本测试证据。
+
+SSM 使用独立 mktemp 脚本与每主机 flock，发送后立即持久化 CommandId。轮询超时不代表远端
+已结束；禁止盲目重发。失败回执不能自动复用；检查状态后重新准备。回执权限 0600，远端
+私密容器快照不进入 git。同步最终回执与 engine 的 `final_freeze_verified=false` 分工不同：
+engine 本身不证明源已冻结；仅编排器在源端冻结检查前后均通过后才给整体回执标记 true。
+
+### 下一台的窗口顺序
+
+1. 停写前：完成控制面候选补丁完整门禁、配置解析、运行时检查、镜像版本一致性、域名/CIDR/
+   备份验证；使用 admin 正式 origin `https://tokenkey.dev`。不要用会 301 跳转的 API 域名提交
+   admin POST（跳转会改变方法）。只恢复本轮实际暂停且原本启用的镜像账号。
+2. 根据客户流量得到单节点窗口授权；紧邻窗口再做预同步。预同步完成后执行一次 `prepare`，
+   把最终候选基线和所有上传放在停写前，而不是用已经消费的预同步回执进行最终补数。
+3. 窗口内仅做：暂停对应镜像 → 维护与排空 → 停源写入者及冻结 → `sync --final` →
+   激活与基本健康检查 → 旧地址转发 → 恢复原启用镜像。正式 DNS/SSM/矩阵切换按授权执行。
+   旧地址转发可覆盖 DNS 缓存过渡，不等待整个 TTL 才恢复供应。仍需最小真实请求验证。
+4. 恢复服务后做冻结整库归档、真实备份往返验证、持续新流量/旧库无写入核对；不会把这些
+   离线收尾算作继续停服。新机备份配置与权限必须在停写前已验收。
+
+复盘改进的验证：回归覆盖过期/已用基线、镜像/身份边界、补数失败短路、源端冻结复检、
+worker 就绪顺序、prod 无 worker 路径、激活失败恢复 hold 与停止写入者、单 edge 的当前 prod
+CIDR。真实候选上的 check 与同步演练证据单独记录；未再次切流前，不将估算写成实测停服时长。
+
+真实 Docker 网络回归入口为 `ops/migration/check-fresh-host-network.sh <exact-candidate-hostname>`：
+只使用随机命名、无生产挂载的临时容器与 internal 网络，验证旧 network ID 启动失败、稳定名称
+重建后启动成功。退出后核对 PostgreSQL 原容器/挂载不变、候选仍仅 PG 运行。uk1 已完成此实验。
