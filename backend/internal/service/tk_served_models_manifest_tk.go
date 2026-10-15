@@ -254,30 +254,36 @@ func newAPIVolcEngineAgentPlanModelAliases() map[string]string {
 	return map[string]string{
 		"deepseek-chat":           "deepseek-v4.1-flash",
 		"deepseek-flash":          "deepseek-v4.1-flash",
+		"deepseek-v4-flash-0731":  "deepseek-v4-flash",
 		"doubao-seedream-5.0-pro": "doubao-seedream-5-0-pro",
-		"glm-4.5-air":             "glm-5.3",
-		"glm-5.2":                 "glm-5.3",
-		"kimi-k2.6":               "kimi-k2.7-code",
 		"kimi-k2.8":               "kimi-k2.8-preview",
-		"minimax-m2.7":            "minimax-m3",
 	}
 }
 
-// volcEngineAgentPlanForbiddenModelMappingKeys are withdrawn from Agent Plan
-// serving (console 即将下线 / UnsupportedModel). apply-accounts must strip them.
+// volcEngineAgentPlanForbiddenModelMappingKeys include retired supply and
+// operator-withdrawn legacy aliases. apply-accounts must strip both from Plan
+// accounts without withdrawing the same names from other providers.
 var volcEngineAgentPlanForbiddenModelMappingKeys = []string{
 	"doubao-seed-2.0-code",
 	"doubao-seed-2.0-pro",
 	"doubao-seed-2.1-turbo",
 	"doubao-seedream-5.0-lite",
+	"glm-4.5-air",
+	"glm-5.2",
+	"kimi-k2.6",
+	"minimax-m2.7",
 }
 
-// aliTokenPlanForbiddenModelMappingKeys are withdrawn from Ali Token Plan
-// serving. They may remain on the generic ch17 PAYG floor for settlement, but
-// Token Plan live supply (2026-10-11 /models + peer mapping) does not include
-// them — apply-accounts must strip leftovers so new floors cannot reintroduce
-// empty-pool IDs.
+// aliTokenPlanForbiddenModelMappingKeys include unavailable Token Plan supply
+// and operator-withdrawn legacy aliases. Generic ch17 PAYG membership and billing
+// history remain independent; apply-accounts must not preserve these Plan extras.
 var aliTokenPlanForbiddenModelMappingKeys = []string{
+	"qwen-turbo",
+	"qwen3-235b-a22b",
+	"qwen3-32b",
+	"qwen3-8b",
+	"qwen3.6-27b",
+	"qwen3.7-flash",
 	"glm-4.5",
 	"glm-4.5-air",
 	"glm-4.6",
@@ -315,12 +321,6 @@ func newAPIAliTokenPlanModelAliases() map[string]string {
 		"deepseek-v4-pro-0813": "deepseek-v4-pro",
 		"qwen-plus":            "qwen3.7-plus",
 		"qwen-max":             "qwen3.8-max",
-		"qwen-turbo":           "qwen3.8-flash",
-		"qwen3-32b":            "qwen3.7-plus",
-		"qwen3-235b-a22b":      "qwen3.7-plus",
-		"qwen3-8b":             "qwen3.6-flash",
-		"qwen3.6-27b":          "qwen3.6-flash",
-		"qwen3.7-flash":        "qwen3.8-flash",
 	}
 }
 
