@@ -41,6 +41,30 @@
 `backend_mode_enabled`（否则普通客户不能登录），再启动 Caddy。后续升级必须走共享 drain
 与健康检查契约，不把首次安装步骤作为强制重启生产服务的升级脚本。
 
+## SSH 蓝绿升级
+
+`bluegreen.py` 是国内主机适配入口，只接受 `api-cn.tokenkey.dev` 的现有运行配置。
+通过 SSH 将该文件与同一源码版本的 `ops/stage0/deploy_via_ssm_bluegreen.sh` 投递到
+主机私有目录；前者从后者提取健康检查、Caddy 切流事务、观察与 drain 函数，未复制实现。
+先离线构建并校验镜像，image revision 必须等于已审源码 SHA，且架构为 amd64。
+
+```bash
+python3 bluegreen.py prepare --state /opt/tokenkey/releases/RELEASE \
+  --image LOCAL_IMMUTABLE_IMAGE --revision REVIEWED_SHA \
+  --shared-source deploy_via_ssm_bluegreen.sh
+python3 bluegreen.py promote --state /opt/tokenkey/releases/RELEASE \
+  --receipt PREPARED_RECEIPT_SHA256
+```
+
+prepare 只启动候选；复用当前应用环境、数据挂载和实际 Docker 网络，数据库/Redis 不重建。
+候选管理端口仅监听 loopback（blue 18081、green 18082），正式入口仍由 Caddy 决定。
+切流前实测候选，promote 对容器身份、配置和回执重新核验后热切；健康观察和旧容器
+`draining=true, in_flight=0` 验证通过才 stop 旧容器。失败保留新旧容器供诊断。
+旧容器和镜像保留，`rollback --state ... --receipt ...` 重启旧进程、确认健康、恢复原路由，
+再排空候选。两个入口均使用共享 host lock；运行文件和含环境变量的 Compose 为 0600。
+后续轮次若候选颜色名称已存在，先核对其是否仍承担回退义务；入口不会自动删除旧候选。
+Docker 的 `unless-stopped` 重启策略负责活动容器重启；原单容器 Compose 不再作为应用升级入口。
+
 ## 初始化与隔离
 
 上游来源为本机受保护导出，首批四个账号后按用户要求追加十个火山计划账号；使用 `ops/accounts/import-accounts.sh`
