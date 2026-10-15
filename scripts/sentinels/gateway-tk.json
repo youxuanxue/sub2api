@@ -12429,12 +12429,29 @@
     {
       "path": "backend/internal/service/openai_account_runtime_block_fastpath.go",
       "must_contain": [
+        "isOpenAIImagesSelfBuiltRequest(ctx) && isOpenAIImageCapabilityLossError(statusCode, responseBody)",
         "s.tkHandleOpenAIImageCapabilityLossFastpath(stateCtx, account, statusCode, responseBody)",
         "s.tkHandleOpenAIImageScope401Fastpath(stateCtx, account, statusCode, responseBody)",
         "tkCloudwiseSkipPermanentRuntimeBlock(account, statusCode, responseBody, canonicalModel)",
         "s.BlockAccountScheduling(account, time.Time{}, \"upstream_disable\")"
       ],
       "rationale": "P3 thin call sites: Gateway error fastpath must cool openai:image_generation on capability-loss 400 / image-scope 401 (tkHandleOpenAIImageCapabilityLossFastpath, tkHandleOpenAIImageScope401Fastpath) and skip permanent BlockAccountScheduling for CloudWise model-balance 402 / Provider 424 (tkCloudwiseSkipPermanentRuntimeBlock) while still returning shouldDisable=true so the current request fails over. Bodies live in openai_account_runtime_block_fastpath_tk_image_capability.go, openai_account_runtime_block_fastpath_tk_image_scope_401.go and openai_account_runtime_block_fastpath_tk_cloudwise.go."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "func isOpenAIImageCapabilityLossError(statusCode int, body []byte) bool",
+        "tool choice 'image_generation' must be specified with 'tools' parameter"
+      ],
+      "rationale": "Self-built Images requests declare tools and tool_choice together. Preserve recognition of ChatGPT's alternate capability-loss wording so the failing account's image scope cools and the request can fail over. The call-site self-built guard prevents client-authored Responses requests from cooling healthy accounts."
+    },
+    {
+      "path": "backend/internal/service/openai_images_tool_choice_capability_tk_test.go",
+      "must_contain": [
+        "TestForwardImages_ToolChoiceMustBeSpecifiedFailsOver",
+        "TestToolChoiceMustBeSpecified_ClientRequestsDoNotCoolOrFailover"
+      ],
+      "rationale": "Pin regressions for image generations/edits outbound tool declarations, capability-only cooldown, failover before writing the client response, and no cooldown/failover for client-authored tool-choice errors."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_account_capability_400.go",
