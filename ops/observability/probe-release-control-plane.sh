@@ -65,13 +65,14 @@ fi
 TARGETS="$(python3 - "$EDGE_IDS" "$MATRIX_DIR" <<'PYTARGETS'
 import pathlib, sys
 sys.path.insert(0, str(pathlib.Path.cwd() / "ops/stage0"))
-from edge_routing_matrix import live_deployable_edge_ids, load_hetzner_targets, resolve_route_tab
+from edge_routing_matrix import live_deployable_edge_ids, load_hetzner_targets, load_lightsail_targets, resolve_route_tab
 selector, matrix_dir = sys.argv[1:]
 root = pathlib.Path(matrix_dir).resolve().parent
 if selector == "none":
     raise SystemExit(0)
 try:
-    targets = load_hetzner_targets(root)
+    hz = load_hetzner_targets(root)
+    ls = load_lightsail_targets(root)
     ids = list(dict.fromkeys(selector.replace(",", " ").split())) if selector else live_deployable_edge_ids(root)
 except (ValueError, OSError, SystemExit) as exc:
     print(f"fleet target resolution failed: {exc}", file=sys.stderr)
@@ -82,8 +83,8 @@ for eid in ids:
     # without whitespace; never let malformed input change record structure.
     label = "edge:" + eid
     try:
-        resolve_route_tab(root, eid)
-        domain = targets[eid]["domain"]
+        platform, _, _ = resolve_route_tab(root, eid)
+        domain = (hz if platform == "hetzner" else ls)[eid]["domain"]
         if not isinstance(domain, str) or not domain or any(c.isspace() for c in domain):
             raise ValueError("invalid edge domain")
         print(f"{label} health https://{domain}/health")

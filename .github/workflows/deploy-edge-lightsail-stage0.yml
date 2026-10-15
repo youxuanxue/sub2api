@@ -39,6 +39,10 @@ on:
         description: "prepare-resize only: distinct replacement instance name. Creates a single-use SSM activation; does not resize or stop a host."
         required: false
         type: string
+      replacement_arn:
+        description: "prepare-resize only: exact ARN if the replacement already exists as a tagged migration canary."
+        required: false
+        type: string
       tag:
         description: "Image tag without v. Required for provision/upgrade/rollback."
         required: false
@@ -95,6 +99,7 @@ jobs:
       INPUT_RECREATE: ${{ inputs.recreate }}
       INPUT_SMOKE_PHASE: ${{ inputs.smoke_phase }}
       INPUT_REPLACEMENT_INSTANCE: ${{ inputs.replacement_instance }}
+      INPUT_REPLACEMENT_ARN: ${{ inputs.replacement_arn }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -108,9 +113,12 @@ jobs:
             echo "::error::AWS_OIDC_ROLE_ARN repo variable not set"
             exit 1
           fi
+          resolve_args=(--edge-id "$INPUT_EDGE_ID" --confirm-instance "$INPUT_CONFIRM_INSTANCE")
+          if [ "$INPUT_OPERATION" = prepare-resize ]; then
+            resolve_args+=(--allow-planned)
+          fi
           python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py \
-            --edge-id "$INPUT_EDGE_ID" \
-            --confirm-instance "$INPUT_CONFIRM_INSTANCE" \
+            "${resolve_args[@]}" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Validate operation inputs
@@ -169,7 +177,8 @@ jobs:
           python3 ops/lightsail/prepare_resize_identity.py \
             --edge-id "$INPUT_EDGE_ID" \
             --confirm-instance "$INPUT_CONFIRM_INSTANCE" \
-            --replacement-instance "$INPUT_REPLACEMENT_INSTANCE"
+            --replacement-instance "$INPUT_REPLACEMENT_INSTANCE" \
+            --replacement-arn "$INPUT_REPLACEMENT_ARN"
 
       - name: Provision Lightsail Edge
         id: provision

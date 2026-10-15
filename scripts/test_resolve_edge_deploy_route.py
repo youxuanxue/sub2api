@@ -12,7 +12,7 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts/stage0/resolve-edge-deploy-route.py"
 sys.path.insert(0, str(REPO_ROOT / "ops/stage0"))
-from edge_routing_matrix import load_lightsail_targets, resolve_route_tab
+from edge_routing_matrix import load_lightsail_targets, load_live_targets, resolve_route_tab
 
 LIGHTSAIL_MATRIX = REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
 
@@ -70,9 +70,9 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         route = json.loads(proc.stdout)
-        self.assertEqual(route["platform"], "hetzner")
-        self.assertEqual(route["workflow_file"], "deploy-edge-hetzner-stage0.yml")
-        self.assertEqual(route["confirm_value"], "tokenkey-edge-uk1-hz-cax21")
+        self.assertEqual(route["platform"], resolve_route_tab(REPO_ROOT, "uk1")[0])
+        self.assertEqual(route["workflow_file"], "deploy-edge-" + route["platform"] + "-stage0.yml")
+        self.assertEqual(route["confirm_value"], load_live_targets(REPO_ROOT)["uk1"]["instance_name"])
 
         # Backlog Hetzner (us3) still needs explicit platform + allow-planned.
         route_hz = self._route(
@@ -104,9 +104,8 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
             }}}))
             # Patch script's REPO_ROOT by running resolve_route_tab directly
             from edge_routing_matrix import resolve_route_tab
-            transport, loc, _ = resolve_route_tab(root, "canary", "auto")
-            self.assertEqual(transport, "hetzner")
-            self.assertEqual(loc, "fsn1")
+            with self.assertRaisesRegex(SystemExit, "ambiguous"):
+                resolve_route_tab(root, "canary", "auto")
 
 
 class EdgeRoutingBoundaryTest(unittest.TestCase):

@@ -81,10 +81,12 @@
     {
       "path": "ops/stage0/edge_routing_matrix.py",
       "must_contain": [
-        "Live fleet is Hetzner only",
-        "standby requires explicit --platform lightsail"
+        "if hz_ids & ls_ids:",
+        "ambiguous active edge inventory",
+        "def load_live_targets(",
+        "if edge_deployable(candidate):"
       ],
-      "rationale": "Legacy AWS inventory must not silently re-enter normal fleet fan-out or auto routing."
+      "rationale": "Only active edge rows may enter mixed Hcloud/AWS routing. Dual-active identity must fail closed; inactive historical AWS nodes must remain excluded."
     },
     {
       "path": ".github/workflows/deploy-gemini-web-worker.yml",
@@ -97,9 +99,9 @@
     {
       "path": "ops/stage0/test_hcloud_ops_contract.py",
       "must_contain": [
-        "test_live_inventory_never_dispatches_aws_standby",
+        "test_active_inventory_is_unambiguous",
         "test_post_release_transports_run_under_dash_and_propagate_failure",
-        "test_worker_workflow_resolves_hcloud_before_dispatch"
+        "test_worker_workflow_resolves_active_platform_before_dispatch"
       ],
       "rationale": "Execute the live routing, workflow resolve and Ubuntu transport regressions; path-only anchors are insufficient."
     },

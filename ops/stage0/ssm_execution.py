@@ -65,7 +65,9 @@ def resolve_prod_identity() -> tuple[str, str]:
     """Return ``(instance_id, ssm_region)`` via cutover-aware resolve_prod_ssm_target."""
     mod = _resolve_mod()
     mode = mod.resolve_mode("auto")
-    if mode == "aws":
+    if mode == "aws-fresh":
+        outputs = mod.resolve_fresh_aws()
+    elif mode == "aws":
         outputs = mod.resolve_aws(PROD_STACK)
     else:
         outputs = mod.resolve_hetzner(mod.DEFAULT_MATRIX)

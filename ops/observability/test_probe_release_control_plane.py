@@ -43,6 +43,8 @@ class ProbeReleaseControlPlaneTest(unittest.TestCase):
             tmp = pathlib.Path(td)
             matrix = tmp / "deploy"
             (matrix / "hetzner").mkdir(parents=True)
+            (matrix / "aws/lightsail").mkdir(parents=True)
+            (matrix / "aws/lightsail/edge-targets-lightsail.json").write_text(json.dumps({"targets": {}}))
             (matrix / "hetzner/edge-targets-hetzner.json").write_text(
                 json.dumps({
                     "targets": {

@@ -6,7 +6,7 @@ import argparse
 import pathlib
 
 from edge_ssm_execution import resolve_edge_execution_identity
-from resolve_prod_ssm_target import DEFAULT_MATRIX, resolve_aws, resolve_hetzner, resolve_mode, AWS_STACK
+from resolve_prod_ssm_target import DEFAULT_MATRIX, resolve_aws, resolve_fresh_aws, resolve_hetzner, resolve_mode, AWS_STACK
 
 
 def main() -> None:
@@ -19,8 +19,11 @@ def main() -> None:
         if args.platform == "lightsail":
             parser.error("prod has no Lightsail target")
         mode = resolve_mode("aws" if args.platform == "ec2" else args.platform)
-        target = resolve_aws(AWS_STACK) if mode == "aws" else resolve_hetzner(DEFAULT_MATRIX)
-        mode = "ec2" if mode == "aws" else mode
+        if mode == "aws-fresh":
+            target = resolve_fresh_aws()
+        else:
+            target = resolve_aws(AWS_STACK) if mode == "aws" else resolve_hetzner(DEFAULT_MATRIX)
+        mode = "ec2" if mode in ("aws", "aws-fresh") else mode
         print(f"{mode}\t{target['ssm_region']}\t{target['instance_id']}")
     else:
         target = resolve_edge_execution_identity(pathlib.Path(args.repo_root), args.edge_id, platform=args.platform)

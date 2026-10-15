@@ -32,8 +32,9 @@ class FleetChecksTest(unittest.TestCase):
     def snapshot_run(self, capture=None):
         with tempfile.TemporaryDirectory() as td, contextlib.ExitStack() as stack:
             path = pathlib.Path(td) / "snapshot.json"
-            stack.enter_context(mock.patch.object(mgr._EDGE_ROUTING, "load_lightsail_targets",
-                                                  side_effect=AssertionError("standby enumeration")))
+            ls = dict(mgr._EDGE_ROUTING.load_lightsail_targets(mgr.REPO_ROOT))
+            ls['retired-fixture'] = {'deployable': False, 'lightsail_region': 'eu-west-2', 'ssm_prefix': '/retired'}
+            stack.enter_context(mock.patch.object(mgr._EDGE_ROUTING, "load_lightsail_targets", return_value=ls))
             resolver = stack.enter_context(mock.patch.object(
                 mgr._EDGE_SSM, "resolve_edge_execution_identity",
                 side_effect=lambda root, eid: SimpleNamespace(
@@ -47,7 +48,7 @@ class FleetChecksTest(unittest.TestCase):
                                                      allow_planned=False, parallel_edges=2))
             return rc, json.loads(path.read_text()), resolver.call_args_list
 
-    def test_snapshot_queries_every_live_edge_without_reading_standby(self):
+    def test_snapshot_queries_every_live_edge_without_dispatching_standby(self):
         rc, snap, calls = self.snapshot_run()
         self.assertEqual(rc, 0)
         self.assertEqual(sorted(c.args[1] for c in calls), self.ids)

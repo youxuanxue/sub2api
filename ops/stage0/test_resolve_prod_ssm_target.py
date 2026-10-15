@@ -66,6 +66,20 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
         self.assertEqual(out["deploy_profile"], "prod")
         self.assertEqual(out["target"], "aws")
 
+    def test_explicit_fresh_candidate_never_uses_old_stack(self) -> None:
+        inventory = json.loads(self.mod.FRESH_MATRIX.read_text())
+        row = inventory["prod"]
+        with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "aws-fresh"}, clear=True):
+            self.assertEqual(self.mod.resolve_mode("auto"), "aws-fresh")
+        instance = {"InstanceId": row["instance_id"], "PingStatus": "Online", "ComputerName": row["instance_name"]}
+        with mock.patch.object(self.mod, "aws_json", side_effect=AssertionError("unexpected stack lookup")), \
+             mock.patch.object(self.mod, "list_instance_information", return_value=[instance]):
+            out = self.mod.resolve_fresh_aws()
+            self.assertEqual(out["instance_id"], row["instance_id"])
+            instance["InstanceId"] = "i-0e43099f831b03160"
+            with self.assertRaises(SystemExit):
+                self.mod.resolve_fresh_aws()
+
     def test_resolve_hetzner_by_computer_name(self) -> None:
         matrix = {
             "target": {
