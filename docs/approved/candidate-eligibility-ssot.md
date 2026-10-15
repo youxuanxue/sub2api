@@ -449,6 +449,7 @@ consume the same selected path, including retries and final slot checks.
 | --- | --- | --- |
 | Kiro request waiting budget | `kiro_wait_budget_tk.go` | Direct Kiro and prod mirror share fixed tier/deadline semantics; streaming commits on visible text/tool, non-streaming on complete JSON. |
 | Model mapping, native/converter legality | `protocolrouter.Router.Plan` via `protocol_routing_context.go` | Parse the actual request using `protocolrouter.ParseCanonicalRequest`; a valid converter is equally eligible. |
+| Codex supply model retirements | `openai_codex_model_support_tk.go` via shared account admission and resolved Plan checks | OAuth/SetupToken and OpenAI edge mirrors reject retired wire models; generic API suppliers retain their existing capability policy. |
 | Authorization paths and account selection | `candidate_request_tk.go`, `candidate_selection_tk.go` | HTTP auth, Responses WS, both schedulers and retries consume one request-local state. |
 | Native client-tool continuation | `integration/cursor/native_runs_tk.go` | Authenticated pending-tool ownership pins the original account before ordinary selection; current eligibility and Plan remain mandatory. Missing/expired/process-lost state fails closed. Approved in the Cursor tool gateway compatibility design. |
 | Empty-pool capacity selection diagnostics | `candidate_capacity_diag_tk.go` | Attaches account_total/supported/ready/reject_reasons to UniversalCapacityError so ingress can log why entitled pools had no ready path; does not change admission. |
@@ -546,3 +547,36 @@ invalidation must run after permission changes. Enable only the specifically
 approved production group through the admin API after the fix is deployed; verify
 readback and real gateway requests. Deployment and live enablement are evidence to
 record separately from this approval.
+
+## Codex GPT-5.5 supply retirement (2026-10-15)
+
+Approved by feng in conversation: “同意。请修复。开 pr”. This authorizes
+implementation and a PR; it is not deployment evidence.
+
+Live ChatGPT/Codex accounts behind all four OpenAI edge mirrors rejected
+`gpt-5.5` with `not supported when using Codex with a ChatGPT account`, while
+the API supplier continued serving that exact model. Treat this as a supply
+capability negative, not account-wide unavailability or global model retirement.
+The [OpenAI release notes](https://help.openai.com/en/articles/9624314-model-release-notes)
+search index also reports the October 14 ChatGPT/Codex retirement with API access
+unaffected; direct document retrieval was blocked, so live upstream responses
+are the operational evidence for this change.
+
+`openai_codex_model_support_tk.go` supplies the shared admission owner's
+known-negative for OpenAI OAuth, SetupToken, and the existing OpenAI edge mirror
+classification. Resolve ordinary account mappings and passthrough with the
+forwarding owner, then reuse the Codex wire alias owner to reject GPT-5.5 and
+aliases resolving to it. A configured remap to a supported model remains valid;
+this change does not install such a remap. Plan also checks its final resolved
+model so compact mappings cannot reintroduce GPT-5.5. Empty, stale identity,
+wildcard mappings and passthrough cannot override the capability negative.
+
+Direct and Universal selection, discovery, and pre-send Plan checks consume
+this same admission. Generic OpenAI API-key and newapi suppliers, including
+China edge relays, remain governed by their existing mappings and capabilities.
+Keep GPT-5.5 catalog/pricing available through those valid suppliers. An
+OAuth-only pool uses the existing unsupported-model result, not capacity 429.
+
+Validation: `TestCodexRetiredModelAdmission`,
+`TestCodexRetiredModelPlanAndSelection`, and
+`TestCodexRetiredModelCompactMapping`. Release and live acceptance remain separate.

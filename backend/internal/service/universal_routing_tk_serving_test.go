@@ -109,7 +109,7 @@ func TestUniversalGroupSupportsModel_OpenAICompatMatchesDirectScheduler(t *testi
 				Type:     AccountTypeOAuth,
 				Extra:    map[string]any{"openai_passthrough": true},
 				Credentials: map[string]any{
-					"model_mapping": map[string]any{"gpt-5.5": "gpt-5.5"},
+					"model_mapping": map[string]any{"gpt-5.4": "gpt-5.4"},
 				},
 			},
 		}},
@@ -119,7 +119,7 @@ func TestUniversalGroupSupportsModel_OpenAICompatMatchesDirectScheduler(t *testi
 	if !known || serves {
 		t.Fatalf("openai compat support must follow direct scheduler mapping check, got serves=%v known=%v", serves, known)
 	}
-	serves, known = svc.UniversalGroupSupportsModel(ctx, &groupID, PlatformOpenAI, "gpt5.5")
+	serves, known = svc.UniversalGroupSupportsModel(ctx, &groupID, PlatformOpenAI, "gpt5.4")
 	if !known || !serves {
 		t.Fatalf("openai compat alias should match mapped model, got serves=%v known=%v", serves, known)
 	}

@@ -285,7 +285,8 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	resolvedModel := protocolResolvedUpstreamModel(account, requestedModel, requireCompact)
 	customBaseURL, customBaseURLs, officialProfile := protocolAccountEndpoints(account)
 	geminiProfile := protocolGeminiEndpointProfile(account)
-	modelAdmitted := accountAdmitsRequestedModel(account, requestedModel, thinkingEnabled)
+	modelAdmitted := accountAdmitsRequestedModel(account, requestedModel, thinkingEnabled) &&
+		openAICodexSupportsResolvedModel(account, resolvedModel)
 	modelAllowed := make(map[protocolrouter.Protocol]bool, len(protocols))
 	for _, protocol := range protocols {
 		modelAllowed[protocol] = protocolResolvedModelAllowedForTargetWithAdmission(

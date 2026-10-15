@@ -437,6 +437,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_PassthroughLefto
 	ctx := context.Background()
 	groupID := int64(23)
 	account := leftoverPassthroughOpenAIWSAccount(81)
+	account.Credentials["model_mapping"] = map[string]any{"gpt-6-sol": "gpt-6-sol"}
 	cache := &stubGatewayCache{}
 	store := NewOpenAIWSStateStore(cache)
 	svc := &OpenAIGatewayService{
@@ -448,7 +449,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_PassthroughLefto
 	}
 	require.NoError(t, store.BindResponseAccount(ctx, groupID, "resp_prev_passthrough_hit", account.ID, time.Hour))
 
-	selection, err := svc.SelectAccountByPreviousResponseID(ctx, &groupID, "resp_prev_passthrough_hit", "gpt-5.5", nil, false)
+	selection, err := svc.SelectAccountByPreviousResponseID(ctx, &groupID, "resp_prev_passthrough_hit", "gpt-6-sol", nil, false)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)

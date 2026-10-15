@@ -25,7 +25,7 @@ func TestIsModelSupported_OpenAIOAuthEmptyMapping_ServableModels(t *testing.T) {
 		"gpt-5.4-high", // 推理后缀变体
 		"gpt-5.3-codex",
 		"gpt-5.1-codex-mini",
-		"gpt-5",
+		"gpt-6-sol", // GPT-5 aliases now resolve to the retired Codex GPT-5.5
 		"codex-mini-latest",
 		"gpt5.3codexspark",  // 别名拼写
 		"gpt-image-1",       // 图像生成模型

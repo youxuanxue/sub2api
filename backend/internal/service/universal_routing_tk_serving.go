@@ -172,6 +172,9 @@ func universalOpenAICompatAccountSupportsModel(ctx context.Context, s *GatewaySe
 	if account == nil {
 		return false
 	}
+	if !openAICodexSupportsRequestedModel(account, model) {
+		return false
+	}
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return true

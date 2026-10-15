@@ -17076,6 +17076,52 @@
         "TestIngressTiming_PreservesPartialReadError"
       ],
       "rationale": "Timing cannot consume unauthenticated uploads, double-count replay, or change read errors."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "!openAICodexSupportsRequestedModel(a, requestedModel)"
+      ],
+      "rationale": "Direct account model support must enforce Codex supply retirement before passthrough or stale mappings."
+    },
+    {
+      "path": "backend/internal/service/gateway_scheduling.go",
+      "must_contain": [
+        "!openAICodexSupportsRequestedModel(account, requestedModel)"
+      ],
+      "rationale": "Shared admission must enforce the same Codex supply retirement before its passthrough whitelist short circuit."
+    },
+    {
+      "path": "backend/internal/service/account_supported_protocols.go",
+      "must_contain": [
+        "openAICodexSupportsResolvedModel(account, resolvedModel)"
+      ],
+      "rationale": "Plan must check the final resolved model, including compact mappings, against Codex supply retirement."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_model_support_tk.go",
+      "must_contain": [
+        "!account.IsOpenAIOAuthLike() && !isOpenAIEdgeMirrorAccount(account)",
+        "normalizeKnownOpenAICodexModel(resolvedModel) != \"gpt-5.5\"",
+        "resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, false)"
+      ],
+      "rationale": "Retired GPT-5.5 is a Codex OAuth/setup-token and OpenAI edge supply negative; API suppliers remain eligible and aliases use the wire owner."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_model_support_tk_test.go",
+      "must_contain": [
+        "func TestCodexRetiredModelAdmission(",
+        "func TestCodexRetiredModelPlanAndSelection(",
+        "func TestCodexRetiredModelCompactMapping("
+      ],
+      "rationale": "Behavior regressions keep retired Codex routes out of selection while the API supplier serves the same model."
+    },
+    {
+      "path": "backend/internal/service/universal_routing_tk_serving.go",
+      "must_contain": [
+        "!openAICodexSupportsRequestedModel(account, model)"
+      ],
+      "rationale": "Native/media metadata mapping shortcuts must not revive the retired Codex model rejected by text Plan and selection."
     }
   ]
 }

@@ -169,7 +169,7 @@ func TestSelectBestAccount_WindowGuard_RoutesAwayFromHotAccount(t *testing.T) {
 		Extra: map[string]any{"codex_5h_used_percent": 10.0, "codex_usage_updated_at": now}}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{hot, cool}}, cfg: &config.Config{}}
 
-	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
+	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-6-sol", nil)
 	require.NoError(t, err)
 	require.NotNil(t, account)
 	require.Equal(t, int64(36002), account.ID, "the hot (99%) account must be skipped in favour of the cool one despite higher priority")
@@ -186,7 +186,7 @@ func TestSelectBestAccount_WindowGuard_NeverEmptiesPool(t *testing.T) {
 		Extra: map[string]any{"codex_5h_used_percent": 98.0, "codex_usage_updated_at": now}}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{hotter, lessHot}}, cfg: &config.Config{}}
 
-	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
+	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-6-sol", nil)
 	require.NoError(t, err)
 	require.NotNil(t, account)
 	require.Equal(t, int64(36102), account.ID, "never-empty-pool fallback must serve the coolest account, not error")
