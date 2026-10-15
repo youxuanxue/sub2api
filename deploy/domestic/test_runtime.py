@@ -138,7 +138,7 @@ class DomesticRuntimeTest(unittest.TestCase):
             try:
                 if cls.request("/health")[0] == 202:
                     break
-            except (urllib.error.URLError, TimeoutError):
+            except (urllib.error.URLError, TimeoutError, ConnectionError):
                 pass  # Bounded startup retry; fail below if Caddy never starts.
             time.sleep(0.1)
         else:

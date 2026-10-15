@@ -86,6 +86,10 @@ def _norm_tag(tag: str) -> str:
     tag = tag.strip()
     if not tag:
         raise ValueError("empty tag")
+    # Domestic offline images carry an exact source commit, without publishing
+    # a shared fleet release tag. Keep the same diff-derived check planner.
+    if re.fullmatch(r"[0-9a-fA-F]{40}", tag):
+        return tag
     return tag if tag.startswith("v") else f"v{tag}"
 
 
