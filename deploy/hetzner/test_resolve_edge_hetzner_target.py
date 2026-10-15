@@ -49,13 +49,9 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
     def test_matrix_cutover_live_vs_backlog(self) -> None:
         """Live cutover edges deployable; us3/us6 stay planned."""
         sys.path.insert(0, str(REPO_ROOT / "ops" / "stage0"))
-        from edge_routing_matrix import load_hetzner_targets
+        from edge_routing_matrix import validate_live_fleet
 
-        materialized = load_hetzner_targets(REPO_ROOT)
-        deployable = sorted(k for k, t in materialized.items() if t.get("deployable") is True)
-        self.assertEqual(deployable, ["uk1", "uk2", "us4", "us5"])
-        for backlog in ("us3", "us6"):
-            self.assertFalse(materialized[backlog].get("deployable"))
+        self.assertEqual(validate_live_fleet(REPO_ROOT), ["uk1", "uk2", "us4", "us5"])
 
     def test_planned_fails_without_allow_planned(self) -> None:
         backlog = "us3"
@@ -74,7 +70,13 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
         if live not in self.targets:
             self.skipTest("us4 missing from matrix")
         expected = f"tokenkey-edge-{live}-hz-cax21"
-        resolved = run_resolver(live, allow_planned=False, confirm_instance=expected)
+        # Resolver behavior must remain testable even after the entire fleet leaves Hcloud.
+        fixture = json.loads(MATRIX.read_text())
+        fixture["targets"][live]["deployable"] = True
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "matrix.json"
+            path.write_text(json.dumps(fixture))
+            resolved = run_resolver(live, confirm_instance=expected, matrix=path)
         self.assertEqual(resolved["edge_id"], live)
         self.assertEqual(resolved["platform"], "hetzner")
         self.assertEqual(resolved["deployable"], "true")

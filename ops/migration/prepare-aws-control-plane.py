@@ -4,6 +4,7 @@ import argparse
 import difflib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -55,8 +56,9 @@ def render(edges):
     text = text.replace('# edge（平台 auto → HZ）', '# edge（平台 auto → 当前活矩阵）')
     text = text.replace('AWS EIP `34.194.234.88` 与四边旧 Lightsail 仅为 ≥7d standby / 回滚，**不是**现网写路径。',
         '旧 AWS 与旧 Hcloud 节点保留历史数据，不作为回滚写库；全新 AWS 节点按上表逐台接流量。')
-    notice = ('\n本轮 AWS 活节点：' + ', '.join(edges) + '。新边仅放行现网 Hcloud prod；旧 edge 的单地址转发信任只在 DNS 过渡期间保留。\n'
+    notice = ('\n本轮 AWS 活节点：' + ', '.join(sorted(k for k, row in json.loads(after['deploy/aws/lightsail/edge-targets-lightsail.json'])['targets'].items() if row.get('deployable') is True)) + '。新边仅放行现网 Hcloud prod；旧 edge 的单地址转发信任只在 DNS 过渡期间保留。\n'
               '后续旧平台专用 provision、卷与告警操作仅适用于仍在 Hcloud 的节点，不能用于已切换 AWS 的 edge。\n')
+    text = re.sub(r'\n本轮 AWS 活节点：.*?后续旧平台专用 provision[^\n]*\n', '', text, flags=re.S)
     text = text.replace('## 现网不变量', notice + '\n## 现网不变量', 1)
     put(name, text)
     return inventory, before, after
@@ -68,7 +70,7 @@ def verify(inventory, files, edges):
         tracked = subprocess.check_output(['git', 'ls-files', 'ops', 'deploy', 'scripts', '.github'], cwd=ROOT, text=True)
         for name in tracked.splitlines():
             source = ROOT / name
-            if source.is_file() and source.suffix in {'.py', '.sh', '.json', '.yml', '.yaml'}:
+            if source.is_file() and True:
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
@@ -79,12 +81,19 @@ def verify(inventory, files, edges):
         env = dict(os.environ)
         env.pop('PROD_SSM_TARGET', None)
         subprocess.run([sys.executable, '-m', 'unittest',
+            'deploy.hetzner.test_resolve_edge_hetzner_target',
+            'deploy.hetzner.test_render_bootstrap',
             'ops.stage0.test_resolve_prod_ssm_target', 'ops.stage0.test_edge_routing_matrix',
             'ops.stage0.test_edge_ssm_execution', 'ops.stage0.test_hcloud_ops_contract',
             'deploy.aws.stage0.test_resolve_edge_target_prod_ops_matrix_lightsail',
             'deploy.aws.stage0.test_resolve_edge_target_list_deployable',
             'scripts.test_resolve_edge_deploy_route', 'ops.observability.test_probe_release_control_plane'],
             cwd=root, env=env, check=True)
+        subprocess.run([sys.executable, 'ops/stage0/edge_routing_matrix.py'], cwd=root, check=True)
+        subprocess.run(['bash', 'deploy/hetzner/render-bootstrap.sh', '--check'], cwd=root, check=True)
+        subprocess.run(['bash', 'deploy/aws/lightsail/test_restore_edge_env_secrets.sh'], cwd=root, check=True)
+        subprocess.run(['bash', 'ops/lightsail/test_migrate_edge_ssm_roles.sh'], cwd=root, check=True)
+        subprocess.run([sys.executable, 'scripts/checks/check-hetzner-edge-bluegreen-workflow.py'], cwd=root, check=True)
         for edge in inventory['edges']:
             raw = subprocess.check_output([sys.executable, 'scripts/stage0/resolve-edge-deploy-route.py',
                                            '--edge-id', edge, '--json'], cwd=root, text=True)
