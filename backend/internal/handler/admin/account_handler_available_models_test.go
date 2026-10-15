@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -264,7 +265,7 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthUsesExplicitModelMapping(t 
 			Status:   service.StatusActive,
 			Credentials: map[string]any{
 				"model_mapping": map[string]any{
-					"gpt-5": "gpt-5.1",
+					"gpt-5": "gpt-6-sol",
 				},
 			},
 		},
@@ -298,7 +299,7 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefau
 			Status:   service.StatusActive,
 			Credentials: map[string]any{
 				"model_mapping": map[string]any{
-					"gpt-5": "gpt-5.1",
+					"gpt-5": "gpt-6-sol",
 				},
 			},
 			Extra: map[string]any{
@@ -321,10 +322,13 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefau
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.Data)
+	defaults := service.ServableClientFacingIDs(context.Background(), service.PlatformOpenAI, nil, nil)
+	// GPT-5.5 remains in the API catalog but is retired on this Codex supply.
+	defaults = slices.DeleteFunc(defaults, func(id string) bool { return id == "gpt-5.5" })
 	require.ElementsMatch(t,
-		service.ServableClientFacingIDs(context.Background(), service.PlatformOpenAI, nil, nil),
+		defaults,
 		availableModelIDs(resp.Data),
-		"OpenAI admin defaults must mirror the shared CatalogPolicy projection")
+		"OpenAI admin defaults preserve the shared catalog except retired Codex supply")
 }
 
 func TestAccountHandlerGetAvailableModels_OpenAINoMappingDropsAdvertisedDead(t *testing.T) {
@@ -353,10 +357,13 @@ func TestAccountHandlerGetAvailableModels_OpenAINoMappingDropsAdvertisedDead(t *
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.Data)
+	defaults := service.ServableClientFacingIDs(context.Background(), service.PlatformOpenAI, nil, nil)
+	// GPT-5.5 remains in the API catalog but is retired on this Codex supply.
+	defaults = slices.DeleteFunc(defaults, func(id string) bool { return id == "gpt-5.5" })
 	require.ElementsMatch(t,
-		service.ServableClientFacingIDs(context.Background(), service.PlatformOpenAI, nil, nil),
+		defaults,
 		availableModelIDs(resp.Data),
-		"OpenAI admin defaults must mirror the shared CatalogPolicy projection")
+		"OpenAI admin defaults preserve the shared catalog except retired Codex supply")
 }
 
 func TestAccountHandlerGetAvailableModels_GeminiOAuthDropsAdvertisedDead(t *testing.T) {
@@ -1090,5 +1097,38 @@ func TestAccountHandlerGetAvailableModels_TypeSafeOnlyReturnsJev(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 		require.Len(t, resp.Data, 1)
 		require.Equal(t, "jev-latest", resp.Data[0].ID)
+	}
+}
+
+func TestAccountHandlerAvailableModelsExcludesRetiredCodexSupply(t *testing.T) {
+	for _, kind := range []string{service.AccountTypeOAuth, service.AccountTypeSetupToken, service.AccountTypeAPIKey, "edge"} {
+		for _, mapped := range []bool{false, true} {
+			account := service.Account{ID: 951, Platform: service.PlatformOpenAI, Type: kind, Credentials: map[string]any{}}
+			if kind == "edge" {
+				account.Type = service.AccountTypeAPIKey
+				account.Credentials["base_url"] = "https://api-us4.tokenkey.dev"
+			}
+			if mapped {
+				account.Credentials["model_mapping"] = map[string]any{"gpt-5.5": "gpt-5.5", "gpt-6-sol": "gpt-6-sol"}
+			}
+			svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
+			rec := httptest.NewRecorder()
+			setupAvailableModelsRouter(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/951/models", nil))
+			require.Equal(t, http.StatusOK, rec.Code)
+			var result struct {
+				Data []dto.AccountModelOption `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			ids := make([]string, 0, len(result.Data))
+			for _, model := range result.Data {
+				ids = append(ids, model.ID)
+			}
+			require.Contains(t, ids, "gpt-6-sol")
+			if kind == service.AccountTypeAPIKey {
+				require.Contains(t, ids, "gpt-5.5")
+			} else {
+				require.NotContains(t, ids, "gpt-5.5")
+			}
+		}
 	}
 }

@@ -35,13 +35,18 @@ func supplementUnmappedOpenAIModels(accounts []Account, models []string) []strin
 	if len(models) == 0 {
 		return models
 	}
+	var defaults []string
 	for i := range accounts {
 		account := &accounts[i]
 		if account.Platform == PlatformOpenAI && len(account.GetModelMapping()) == 0 {
-			return dedupeAndSortModelIDs(slices.Concat(models, openai.DefaultModelIDs()))
+			for _, id := range openai.DefaultModelIDs() {
+				if openAICodexSupportsRequestedModel(account, id) {
+					defaults = append(defaults, id)
+				}
+			}
 		}
 	}
-	return models
+	return dedupeAndSortModelIDs(slices.Concat(models, defaults))
 }
 
 // normalizeGroupModelAllowlist 归一化管理端提交的分组模型白名单：

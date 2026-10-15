@@ -842,6 +842,9 @@ func sortedModelMappingKeys(mapping map[string]string) []string {
 // 请求卡死在该账号上、无法 failover 到真正支持该模型的 API Key 账号（#3662）。
 // 未知/自定义别名仍保持允许（兼容渠道级映射），见 isOpenAIOAuthServableModel。
 func (a *Account) IsModelSupported(requestedModel string) bool {
+	if !openAICodexSupportsRequestedModel(a, requestedModel) {
+		return false
+	}
 	if a.Platform == PlatformAntigravity && (domain.IsGeminiProImageModel(requestedModel) || domain.IsGeminiProImageModel(a.GetMappedModel(requestedModel))) {
 		return false
 	}

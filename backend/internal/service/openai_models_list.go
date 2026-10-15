@@ -165,7 +165,8 @@ func standardOpenAIModelsBody(body []byte, fromManifest bool) ([]byte, error) {
 // representations while retaining the source entry's metadata. It never changes
 // the shared response and never synthesizes models absent from this account.
 func projectAccountModelsBody(body []byte, account *Account, group *Group, codex bool) ([]byte, error) {
-	if account.IsOpenAIPassthroughEnabled() || len(account.GetModelMapping()) == 0 {
+	applyMapping := !account.IsOpenAIPassthroughEnabled() && len(account.GetModelMapping()) > 0
+	if !applyMapping && !account.IsOpenAIOAuthLike() && !isOpenAIEdgeMirrorAccount(account) {
 		return body, nil
 	}
 	field, idField := "data", "id"
@@ -192,7 +193,7 @@ func projectAccountModelsBody(body []byte, account *Account, group *Group, codex
 			continue
 		}
 		// Apply the allowlist to public names after mapping, not upstream targets.
-		if codex {
+		if codex && applyMapping {
 			if isCodexDedicatedMediaModel(id) {
 				continue
 			}
@@ -206,12 +207,14 @@ func projectAccountModelsBody(body []byte, account *Account, group *Group, codex
 		}
 	}
 	aliases := make([]string, 0, len(account.GetModelMapping()))
-	for alias := range account.GetModelMapping() {
-		aliases = append(aliases, alias)
+	if applyMapping {
+		for alias := range account.GetModelMapping() {
+			aliases = append(aliases, alias)
+		}
 	}
 	sort.Strings(aliases)
 	candidates = append(candidates, aliases...)
-	if group.ModelAllowlistEnabled() {
+	if applyMapping && group.ModelAllowlistEnabled() {
 		candidates = append(candidates, group.ModelAllowlist.Models...)
 	}
 	projected := make([]json.RawMessage, 0, len(candidates))
@@ -224,7 +227,13 @@ func projectAccountModelsBody(body []byte, account *Account, group *Group, codex
 		if _, ok := seen[id]; ok {
 			continue
 		}
-		target, matched := account.ResolveMappedModel(id)
+		if !openAICodexSupportsRequestedModel(account, id) {
+			continue
+		}
+		target, matched := id, true
+		if applyMapping {
+			target, matched = account.ResolveMappedModel(id)
+		}
 		raw, available := byID[strings.TrimSpace(target)]
 		if !matched || !available {
 			continue

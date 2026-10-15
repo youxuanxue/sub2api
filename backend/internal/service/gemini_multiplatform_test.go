@@ -1032,7 +1032,7 @@ func TestGeminiMessagesCompatService_isModelSupportedByAccountWithContext_PlanRe
 	svc := &GeminiMessagesCompatService{}
 	account := officialOpenAIOAuthAccount(83)
 	account.Extra["openai_passthrough"] = true
-	account.Credentials["model_mapping"] = map[string]any{"gpt-5.5": "gpt-5.5"}
+	account.Credentials["model_mapping"] = map[string]any{"gpt-6-sol": "gpt-6-sol"}
 	require.True(t, account.IsModelSupported("gpt-5.6-sol"),
 		"precondition: IsModelSupported still admits leftover passthrough misses")
 
@@ -1051,14 +1051,14 @@ func TestGeminiMessagesCompatService_isModelSupportedByAccountWithContext_PlanRe
 
 	listed, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
 		InboundProtocol: protocolrouter.ProtocolResponses,
-		RequestedModel:  "gpt-5.5",
+		RequestedModel:  "gpt-6-sol",
 		ResponsesPath:   protocolrouter.ResponsesPathRoot,
 		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
-		Body:            []byte(`{"model":"gpt-5.5","input":"hello"}`),
+		Body:            []byte(`{"model":"gpt-6-sol","input":"hello"}`),
 	})
 	require.NoError(t, err)
 	ctx = WithProtocolRouting(context.Background(), NewProtocolRouter(), listed)
-	require.True(t, svc.isModelSupportedByAccountWithContext(ctx, account, "gpt-5.5"),
+	require.True(t, svc.isModelSupportedByAccountWithContext(ctx, account, "gpt-6-sol"),
 		"mapped leftover passthrough id must still be admitted")
 }
 

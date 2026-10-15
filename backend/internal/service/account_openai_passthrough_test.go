@@ -70,11 +70,11 @@ func TestGatewayService_IsModelSupportedByAccount_OpenAIPassthroughRejectsForeig
 			"openai_passthrough": true,
 		},
 		Credentials: map[string]any{
-			"model_mapping": map[string]any{"gpt-5.5": "gpt-5.5"},
+			"model_mapping": map[string]any{"gpt-5.4": "gpt-5.4"},
 		},
 	}
 	require.False(t, svc.isModelSupportedByAccount(mappedPassthrough, "gpt-5.4-mini"))
-	require.True(t, svc.isModelSupportedByAccount(mappedPassthrough, "gpt5.5"))
+	require.True(t, svc.isModelSupportedByAccount(mappedPassthrough, "gpt5.4"))
 }
 
 func TestAccount_OpenAICompatModelAliasSupport(t *testing.T) {

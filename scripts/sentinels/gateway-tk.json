@@ -1002,7 +1002,9 @@
       "path": "backend/internal/service/openai_codex_models_service.go",
       "must_contain": [
         "cached, state := s.openAIModelsCache.get(cacheKey, time.Now())",
-        "if state == openAIModelsCacheFresh {\n\t\t\treturn cached, nil\n\t\t}"
+        "if state == openAIModelsCacheFresh {\n\t\t\treturn cached, nil\n\t\t}",
+        "!openAICodexSupportsRequestedModel(account, modelID)",
+        "!openAICodexSupportsRequestedModel(account, selectedModel)"
       ],
       "rationale": "Recheck freshness inside the shared refresh flight so a caller with an earlier cache miss cannot refetch a catalog just filled by another caller. Stale entries must still revalidate."
     },
@@ -6878,7 +6880,8 @@
       "must_contain": [
         "TestAccountHandlerGetAvailableModels_AllPlatformsUseMinimalOptionDTO",
         "response must expose only id and display_name",
-        "require.Len(t, option, 2"
+        "require.Len(t, option, 2",
+        "func TestAccountHandlerAvailableModelsExcludesRetiredCodexSupply("
       ],
       "rationale": "Exact-shape regression across every first-class account platform. A compile-clean upstream merge that returns package-specific model structs again must fail this behavior test and sentinel."
     },
@@ -17099,6 +17102,77 @@
         "TestIngressTiming_PreservesPartialReadError"
       ],
       "rationale": "Timing cannot consume unauthenticated uploads, double-count replay, or change read errors."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "!openAICodexSupportsRequestedModel(a, requestedModel)"
+      ],
+      "rationale": "Direct account model support must enforce Codex supply retirement before passthrough or stale mappings."
+    },
+    {
+      "path": "backend/internal/service/gateway_scheduling.go",
+      "must_contain": [
+        "!openAICodexSupportsRequestedModel(account, requestedModel)"
+      ],
+      "rationale": "Shared admission must enforce the same Codex supply retirement before its passthrough whitelist short circuit."
+    },
+    {
+      "path": "backend/internal/service/account_supported_protocols.go",
+      "must_contain": [
+        "openAICodexSupportsResolvedModel(account, resolvedModel)"
+      ],
+      "rationale": "Plan must check the final resolved model, including compact mappings, against Codex supply retirement."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_model_support_tk.go",
+      "must_contain": [
+        "!account.IsOpenAIOAuthLike() && !isOpenAIEdgeMirrorAccount(account)",
+        "normalizeKnownOpenAICodexModel(resolvedModel) != \"gpt-5.5\"",
+        "resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, false)"
+      ],
+      "rationale": "Retired GPT-5.5 is a Codex OAuth/setup-token and OpenAI edge supply negative; API suppliers remain eligible and aliases use the wire owner."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_model_support_tk_test.go",
+      "must_contain": [
+        "func TestCodexRetiredModelAdmission(",
+        "func TestCodexRetiredModelPlanAndSelection(",
+        "func TestCodexRetiredModelCompactMapping(",
+        "func TestCodexRetiredModelCatalogProjection(",
+        "func TestCodexRetiredModelConfiguredCatalog("
+      ],
+      "rationale": "Behavior regressions keep retired Codex routes out of selection while the API supplier serves the same model."
+    },
+    {
+      "path": "backend/internal/service/universal_routing_tk_serving.go",
+      "must_contain": [
+        "!openAICodexSupportsRequestedModel(account, model)"
+      ],
+      "rationale": "Native/media metadata mapping shortcuts must not revive the retired Codex model rejected by text Plan and selection."
+    },
+    {
+      "path": "backend/internal/service/openai_models_list.go",
+      "must_contain": [
+        "!openAICodexSupportsRequestedModel(account, id)"
+      ],
+      "rationale": "Account catalog and admin picker must consume supply-scoped retirement admission without hiding valid API supply."
+    },
+    {
+      "path": "backend/internal/service/group_model_allowlist.go",
+      "must_contain": [
+        "openAICodexSupportsRequestedModel(account, id)"
+      ],
+      "rationale": "Account catalog and admin picker must consume supply-scoped retirement admission without hiding valid API supply."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler_tk_available_models.go",
+      "must_contain": [
+        "func tkOpenAIAdminModelsForAccount(",
+        "account.IsModelSupported(model.ID)",
+        "tkOpenAIAdminModelsForAccount(account, tkOpenAIAdminDefaultModels(c.Request.Context()))"
+      ],
+      "rationale": "Account catalog and admin picker must consume supply-scoped retirement admission without hiding valid API supply."
     }
   ]
 }

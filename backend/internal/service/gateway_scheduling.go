@@ -2250,6 +2250,9 @@ func accountAdmitsRequestedModel(account *Account, requestedModel string, thinki
 	if account == nil {
 		return false
 	}
+	if !openAICodexSupportsRequestedModel(account, requestedModel) {
+		return false
+	}
 	if isCloudwiseRelayAccount(account) {
 		return account.IsModelSupported(requestedModel)
 	}
