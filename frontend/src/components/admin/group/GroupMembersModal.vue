@@ -315,6 +315,11 @@ function isCandidateAllowed(acc: Row): boolean {
     const extra = (acc as Account).extra as Record<string, unknown> | null | undefined
     if (Boolean(extra?.mixed_scheduling) || boundIds.value.has(acc.id)) return true
   }
+  // Kiro mixed_scheduling is anthropic/Claude-only (not gemini).
+  if (groupPlatform === 'anthropic' && acc.platform === 'kiro') {
+    const extra = (acc as Account).extra as Record<string, unknown> | null | undefined
+    if (Boolean(extra?.mixed_scheduling) || boundIds.value.has(acc.id)) return true
+  }
   if (boundIds.value.has(acc.id)) return true
   return false
 }

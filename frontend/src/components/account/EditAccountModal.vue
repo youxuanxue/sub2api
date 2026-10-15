@@ -3079,14 +3079,21 @@
           <Select v-model="form.status" :options="statusOptions" />
         </div>
 
-        <!-- Mixed Scheduling (only for antigravity accounts, read-only in edit mode) -->
-        <div v-if="account?.platform === 'antigravity'" class="flex items-center gap-2">
-          <label class="flex cursor-not-allowed items-center gap-2 opacity-60">
+        <!-- Mixed Scheduling: antigravity read-only in edit; kiro editable (Claude/anthropic only) -->
+        <div
+          v-if="account?.platform === 'antigravity' || account?.platform === 'kiro'"
+          class="flex items-center gap-2"
+        >
+          <label
+            class="flex items-center gap-2"
+            :class="account?.platform === 'antigravity' ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'"
+          >
             <input
               type="checkbox"
               v-model="mixedScheduling"
-              disabled
-              class="h-4 w-4 cursor-not-allowed rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+              :disabled="account?.platform === 'antigravity'"
+              class="h-4 w-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+              :class="account?.platform === 'antigravity' ? 'cursor-not-allowed' : ''"
             />
             <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t('admin.accounts.mixedScheduling') }}
@@ -3102,7 +3109,11 @@
             <div
               class="pointer-events-none absolute left-0 top-full z-[100] mt-1.5 w-72 rounded bg-gray-900 px-3 py-2 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
             >
-              {{ t('admin.accounts.mixedSchedulingTooltip') }}
+              {{
+                account?.platform === 'kiro'
+                  ? t('admin.accounts.mixedSchedulingTooltipKiro')
+                  : t('admin.accounts.mixedSchedulingTooltip')
+              }}
               <div
                 class="absolute bottom-full left-3 border-4 border-transparent border-b-gray-900 dark:border-b-gray-700"
               ></div>
@@ -6026,8 +6037,11 @@ const handleSubmit = async () => {
       updatePayload.credentials = newCredentials
     }
 
-    // For antigravity accounts, handle mixed_scheduling and allow_overages in extra
-    if (props.account.platform === PLATFORM_ANTIGRAVITY) {
+    // antigravity: mixed_scheduling + allow_overages; kiro: mixed_scheduling only (Claude groups)
+    if (
+      props.account.platform === PLATFORM_ANTIGRAVITY ||
+      props.account.platform === PLATFORM_KIRO
+    ) {
       const currentExtra = (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
       if (mixedScheduling.value) {
@@ -6035,10 +6049,12 @@ const handleSubmit = async () => {
       } else {
         delete newExtra.mixed_scheduling
       }
-      if (allowOverages.value) {
-        newExtra.allow_overages = true
-      } else {
-        delete newExtra.allow_overages
+      if (props.account.platform === PLATFORM_ANTIGRAVITY) {
+        if (allowOverages.value) {
+          newExtra.allow_overages = true
+        } else {
+          delete newExtra.allow_overages
+        }
       }
       updatePayload.extra = newExtra
     }

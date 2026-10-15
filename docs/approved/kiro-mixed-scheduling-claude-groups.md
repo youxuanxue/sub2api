@@ -32,6 +32,8 @@ kiro 组；本决策补齐 **Claude 组直钥** 同机选到 prod Kiro OAuth。
 5. 模型门控：与 mirror stub 共用 `kiroMirrorStubSupportsModel` 降权/清粘性，避免 Fable 等
    非 Kiro catalog 模型粘在 kiro OAuth 上。
 6. 调度快照：kiro mixed 变更重建 anthropic mixed bucket；mixed load 含 kiro 并按 flag 过滤。
+7. Web：创建/编辑账号对 kiro 暴露 `mixed_scheduling`；GroupSelector / 组成员候选允许
+   kiro→anthropic（不含 gemini）。
 
 ## Out of scope
 

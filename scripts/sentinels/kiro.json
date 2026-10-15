@@ -1251,6 +1251,78 @@
         "TestCallKiroAPI_ToolInputOmissionAndInvalidInputDoNotAmplifyEndpoints"
       ],
       "rationale": "Pin real no-argument tool completion and one endpoint attempt for protocol-invalid tools."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "case PlatformAntigravity, PlatformKiro:",
+        "Extra[\"mixed_scheduling\"]"
+      ],
+      "rationale": "Kiro mixed_scheduling into Claude groups requires IsMixedSchedulingEnabled to accept platform=kiro with Extra.mixed_scheduling=true. Losing the PlatformKiro arm silently blocks membership and anthropic mixed selection for prod Kiro OAuth."
+    },
+    {
+      "path": "backend/internal/service/admin_group_membership_tk.go",
+      "must_contain": [
+        "groupPlatform == PlatformAnthropic && accountPlatform == PlatformKiro && mixedScheduling"
+      ],
+      "rationale": "Membership SSOT must allow anthropic groups to bind kiro accounts only when mixed_scheduling is on. Removing this exception restores GROUP_ACCOUNT_PLATFORM_MISMATCH and blocks the approved Claude-group path."
+    },
+    {
+      "path": "backend/internal/service/gateway_scheduling.go",
+      "must_contain": [
+        "platforms = append(platforms, PlatformKiro)",
+        "platform == PlatformAnthropic && account.Platform == PlatformKiro && account.IsMixedSchedulingEnabled()"
+      ],
+      "rationale": "Anthropic mixed scheduling must admit PlatformKiro candidates and filter/allow them via IsMixedSchedulingEnabled. Losing either arm drops prod Kiro OAuth from Claude-group selection while edge stubs remain."
+    },
+    {
+      "path": "backend/internal/service/scheduler_snapshot_service.go",
+      "must_contain": [
+        "func invalidateAnthropicMixedBucketSeen",
+        "platforms = append(platforms, PlatformKiro)",
+        "account.Platform == PlatformKiro && account.IsMixedSchedulingEnabled()"
+      ],
+      "rationale": "Anthropic mixed snapshot buckets must include kiro mixed accounts and rebuild when kiro mixed flags change. Without these anchors an upstream merge can silently drop kiro from mixed loads and leave stale anthropic mixed snapshots."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_kiro_mirror_scheduling.go",
+      "must_contain": [
+        "func tkIsKiroMixedOrMirrorSupply",
+        "account.IsKiro() && account.IsMixedSchedulingEnabled()"
+      ],
+      "rationale": "Mixed Kiro OAuth must share native-only model penalties/sticky clears with mirror stubs so Fable/Opus-4.1 do not stick on Kiro supply inside anthropic groups."
+    },
+    {
+      "path": "backend/internal/service/gateway_scheduling_kiro_mixed_test.go",
+      "must_contain": [
+        "TestSelectAccountWithMixedScheduling_KiroOAuthWithFlag",
+        "TestSelectAccountWithMixedScheduling_FiltersKiroWithoutFlag",
+        "TestIsAccountAllowedForPlatform_KiroMixedAnthropicOnly"
+      ],
+      "rationale": "Focused regression that Claude anthropic mixed selection admits flagged kiro OAuth, filters unflagged kiro, and rejects kiro on gemini mixed."
+    },
+    {
+      "path": "backend/internal/service/admin_group_membership_tk_test.go",
+      "must_contain": [
+        "accountCompatibleWithGroupPlatform(PlatformAnthropic, PlatformKiro, true)",
+        "kiro mixed is anthropic-only"
+      ],
+      "rationale": "Membership contract tests pin anthropic+kiro mixed allow and gemini+kiro deny."
+    },
+    {
+      "path": "frontend/src/components/common/GroupSelector.vue",
+      "must_contain": [
+        "props.platform === PLATFORM_KIRO && props.mixedScheduling",
+        "g.platform === PLATFORM_ANTHROPIC"
+      ],
+      "rationale": "Admin group picker must offer Anthropic groups when a Kiro account has mixed_scheduling; losing this branch leaves operators unable to bind Kiro OAuth into Claude groups from the UI."
+    },
+    {
+      "path": "frontend/src/components/admin/group/GroupMembersModal.vue",
+      "must_contain": [
+        "groupPlatform === 'anthropic' && acc.platform === 'kiro'"
+      ],
+      "rationale": "Claude group member picker must list Kiro accounts with mixed_scheduling; otherwise ops cannot attach supply from the group side."
     }
   ]
 }
