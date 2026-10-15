@@ -79,6 +79,18 @@ def candidate_compose(service, current, image, target):
     networks = current['NetworkSettings']['Networks']
     if len(networks) != 1:
         raise ValueError('expected one existing private application network')
+    configured_mounts = {
+        (v['type'], v.get('source'), v['target'], not v.get('read_only', False))
+        for v in service.get('volumes', [])
+    }
+    actual_mounts = {
+        (v['Type'], v['Source'], v['Destination'], v['RW'])
+        for v in current['Mounts']
+    }
+    if configured_mounts != actual_mounts:
+        raise ValueError('Compose mounts differ from the running application; refusing candidate')
+    if ('bind', str(DATA / 'app'), '/app/data', True) not in actual_mounts:
+        raise ValueError('application data must remain on the domestic data mount')
     candidate = copy.deepcopy(service)
     for key in ('depends_on', 'ports', 'container_name', 'networks', 'labels'):
         candidate.pop(key, None)
@@ -215,8 +227,16 @@ def rollback(args):
         actual = inspect(name)
         if any(actual[k] != receipt[key][k] for k in ('Id', 'Image')):
             raise ValueError('rollback container replaced')
-    # Starting the preserved process clears its SIGUSR1 drain state. Keep the
-    # new process available until the old route is confirmed healthy.
+    # A failed/interrupted promote can leave the old process running in drain
+    # mode. docker start is then a no-op: finish draining before restarting it.
+    # Keep the current public target available throughout this recovery.
+    if inspect(old)['State']['Running']:
+        inflight = json.loads(run('docker', 'exec', old, 'wget', '-q', '-T', '5',
+                                 '-O', '-', 'http://localhost:8080/health/inflight'))
+        if not isinstance(inflight.get('draining'), bool):
+            raise ValueError('cannot determine old process drain state')
+        if inflight['draining']:
+            shell(state, f'drain_container {old}\ndocker stop -t 180 {old} >/dev/null')
     run('docker', 'start', old)
     shell(state, f'wait_healthy {old}\nwait_ready {old}')
     current = caddy.read_text()
