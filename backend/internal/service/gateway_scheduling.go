@@ -1050,6 +1050,10 @@ func schedulablePlatformsForRequest(platform string, hasForcePlatform bool, requ
 	platforms := []string{platform}
 	if useMixed {
 		platforms = append(platforms, PlatformAntigravity)
+		// Kiro mixed is Claude/anthropic-only (not gemini).
+		if platform == PlatformAnthropic {
+			platforms = append(platforms, PlatformKiro)
+		}
 	}
 	allowClaudeCrossPlatform := claudeNewAPICrossPlatformRequested(platform, requestedModel, hasForcePlatform)
 	if allowClaudeCrossPlatform {
@@ -1115,7 +1119,7 @@ func filterMixedSchedulingAccounts(accounts []Account, useMixed bool) []Account 
 	}
 	filtered := make([]Account, 0, len(accounts))
 	for _, acc := range accounts {
-		if acc.Platform == PlatformAntigravity && !acc.IsMixedSchedulingEnabled() {
+		if (acc.Platform == PlatformAntigravity || acc.Platform == PlatformKiro) && !acc.IsMixedSchedulingEnabled() {
 			continue
 		}
 		filtered = append(filtered, acc)
@@ -1166,7 +1170,10 @@ func (s *GatewayService) isAccountAllowedForPlatform(account *Account, platform 
 		if account.Platform == platform {
 			return true
 		}
-		return account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled()
+		if account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled() {
+			return true
+		}
+		return platform == PlatformAnthropic && account.Platform == PlatformKiro && account.IsMixedSchedulingEnabled()
 	}
 	return account.Platform == platform
 }

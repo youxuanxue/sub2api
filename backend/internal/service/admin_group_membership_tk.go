@@ -11,10 +11,11 @@ import (
 )
 
 // accountCompatibleWithGroupPlatform enforces the membership platform policy:
-// concrete groups require same platform (anthropic/gemini may also take
-// antigravity accounts with mixed_scheduling); composite accepts any concrete
-// scheduling platform. This is the SSOT used by group-side bind — keep it
-// aligned with GroupSelector + gateway mixed scheduling.
+// concrete groups require same platform; anthropic/gemini may take antigravity
+// with mixed_scheduling; anthropic may also take kiro with mixed_scheduling
+// (see docs/approved/kiro-mixed-scheduling-claude-groups.md). Composite accepts
+// any concrete scheduling platform. Keep aligned with GroupSelector + gateway
+// mixed scheduling.
 func accountCompatibleWithGroupPlatform(groupPlatform, accountPlatform string, mixedScheduling bool) error {
 	groupPlatform = strings.TrimSpace(groupPlatform)
 	accountPlatform = strings.TrimSpace(accountPlatform)
@@ -35,6 +36,9 @@ func accountCompatibleWithGroupPlatform(groupPlatform, accountPlatform string, m
 	}
 	if (groupPlatform == PlatformAnthropic || groupPlatform == PlatformGemini) &&
 		accountPlatform == PlatformAntigravity && mixedScheduling {
+		return nil
+	}
+	if groupPlatform == PlatformAnthropic && accountPlatform == PlatformKiro && mixedScheduling {
 		return nil
 	}
 	return infraerrors.Newf(

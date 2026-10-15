@@ -601,8 +601,13 @@ func (s *SchedulerSnapshotService) handleBulkAccountEvent(ctx context.Context, p
 		}
 		accountGroupIDs := s.normalizeGroupIDs(account.GroupIDs)
 		switch account.Platform {
-		case PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformNewAPI, PlatformKiro, PlatformOpenCodeGo, PlatformTypeSafe:
+		case PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformNewAPI, PlatformOpenCodeGo, PlatformTypeSafe:
 			addPlatformGroups(account.Platform, accountGroupIDs)
+		case PlatformKiro:
+			addPlatformGroups(PlatformKiro, accountGroupIDs)
+			// Closing mixed_scheduling still needs anthropic mixed snapshot refresh.
+			addPlatformGroups(PlatformAnthropic, accountGroupIDs)
+			invalidateAnthropicMixedBucketSeen(seen, accountGroupIDs)
 		case PlatformAntigravity:
 			// 批量更新可能刚关闭 mixed_scheduling，仍需清理两个兼容平台的旧快照。
 			addPlatformGroups(PlatformAntigravity, accountGroupIDs)
@@ -622,6 +627,9 @@ func (s *SchedulerSnapshotService) handleBulkAccountEvent(ctx context.Context, p
 		}
 		if _, ok := platformGroupSets[PlatformAntigravity]; ok {
 			invalidateMixedBucketSeen(seen, preloadGroupIDs)
+		}
+		if _, ok := platformGroupSets[PlatformKiro]; ok {
+			invalidateAnthropicMixedBucketSeen(seen, preloadGroupIDs)
 		}
 	}
 
@@ -818,11 +826,17 @@ func (s *SchedulerSnapshotService) rebuildByAccount(ctx context.Context, account
 	if account.Platform == PlatformAntigravity {
 		invalidateMixedBucketSeen(seen, groupIDs)
 	}
+	if account.Platform == PlatformKiro {
+		invalidateAnthropicMixedBucketSeen(seen, groupIDs)
+	}
 
 	buckets := s.bucketsForPlatform(account.Platform, groupIDs, seen)
 	if account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled() {
 		buckets = append(buckets, s.bucketsForPlatform(PlatformAnthropic, groupIDs, seen)...)
 		buckets = append(buckets, s.bucketsForPlatform(PlatformGemini, groupIDs, seen)...)
+	}
+	if account.Platform == PlatformKiro && account.IsMixedSchedulingEnabled() {
+		buckets = append(buckets, s.bucketsForPlatform(PlatformAnthropic, groupIDs, seen)...)
 	}
 	return s.rebuildBuckets(ctx, buckets, reason)
 }
@@ -838,6 +852,18 @@ func invalidateMixedBucketSeen(seen map[batchSeenKey]struct{}, groupIDs []int64)
 		for _, platform := range []string{PlatformAnthropic, PlatformGemini} {
 			delete(seen, batchSeenKey{groupID: groupID, platform: platform, mixedOnly: true})
 		}
+	}
+}
+
+func invalidateAnthropicMixedBucketSeen(seen map[batchSeenKey]struct{}, groupIDs []int64) {
+	if seen == nil {
+		return
+	}
+	for _, groupID := range groupIDs {
+		if groupID <= 0 {
+			continue
+		}
+		delete(seen, batchSeenKey{groupID: groupID, platform: PlatformAnthropic, mixedOnly: true})
 	}
 }
 
@@ -1471,6 +1497,9 @@ func (s *SchedulerSnapshotService) loadAccountsFromDB(ctx context.Context, bucke
 
 	if useMixed {
 		platforms := []string{bucket.Platform, PlatformAntigravity}
+		if bucket.Platform == PlatformAnthropic {
+			platforms = append(platforms, PlatformKiro)
+		}
 		var accounts []Account
 		var err error
 		if groupID > 0 {
@@ -1485,7 +1514,7 @@ func (s *SchedulerSnapshotService) loadAccountsFromDB(ctx context.Context, bucke
 		}
 		filtered := make([]Account, 0, len(accounts))
 		for _, acc := range accounts {
-			if acc.Platform == PlatformAntigravity && !acc.IsMixedSchedulingEnabled() {
+			if (acc.Platform == PlatformAntigravity || acc.Platform == PlatformKiro) && !acc.IsMixedSchedulingEnabled() {
 				continue
 			}
 			filtered = append(filtered, acc)
