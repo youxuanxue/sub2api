@@ -34,7 +34,7 @@ on:
         required: true
         type: string
       confirm_instance:
-        description: "Must match instance_name from the Hetzner matrix (e.g. tokenkey-edge-uk1-hz-cax21)."
+        description: "Must match instance_name from the active edge matrix."
         required: true
         type: string
 
@@ -77,7 +77,7 @@ jobs:
               ;;
           esac
 
-      - name: Resolve Hetzner edge target
+      - name: Resolve active edge target
         id: edge
         run: |
           set -euo pipefail
@@ -85,10 +85,19 @@ jobs:
             echo "::error::AWS_OIDC_ROLE_ARN repo variable not set"
             exit 1
           fi
-          python3 deploy/hetzner/resolve-edge-hetzner-target.py \
-            --edge-id "$INPUT_EDGE_ID" \
-            --confirm-instance "$INPUT_CONFIRM_INSTANCE" \
-            --github-output "$GITHUB_OUTPUT"
+          ROUTE="$(python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$INPUT_EDGE_ID" --json)"
+          PLATFORM="$(jq -er .platform <<<"$ROUTE")"
+          case "$PLATFORM" in
+            hetzner) RESOLVER=deploy/hetzner/resolve-edge-hetzner-target.py ;;
+            lightsail) RESOLVER=deploy/aws/lightsail/resolve-edge-lightsail-target.py ;;
+            *) exit 1 ;;
+          esac
+          python3 "$RESOLVER" --edge-id "$INPUT_EDGE_ID" \
+            --confirm-instance "$INPUT_CONFIRM_INSTANCE" --github-output "$GITHUB_OUTPUT"
+          if [ "$PLATFORM" = lightsail ]; then
+            echo "platform=lightsail" >> "$GITHUB_OUTPUT"
+            echo "ssm_region=$(jq -er .region <<<"$ROUTE")" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v6
@@ -103,7 +112,7 @@ jobs:
           AWS_REGION: ${{ steps.edge.outputs.ssm_region }}
         run: |
           set -euo pipefail
-          IDENTITY="$(python3 ops/stage0/edge_ssm_execution.py --edge-id "$INPUT_EDGE_ID" --platform hetzner --format json)"
+          IDENTITY="$(python3 ops/stage0/edge_ssm_execution.py --edge-id "$INPUT_EDGE_ID" --platform auto --format json)"
           MID="$(jq -er .instance_id <<<"$IDENTITY")"
           if [ -z "$MID" ] || [ "$MID" = "None" ]; then
             echo "::error::could not resolve SSM managed instance id for $INPUT_EDGE_ID"

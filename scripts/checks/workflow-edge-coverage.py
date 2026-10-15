@@ -75,8 +75,8 @@ def main() -> int:
     sets = {
         "lightsail-deployable": lightsail,
         "hetzner-deployable": hetzner,
-        # Live fleet is Hetzner; AWS inventory is standby only.
-        "all-deployable": hetzner,
+        # Active rows from either platform must have workflow coverage.
+        "all-deployable": hetzner | lightsail,
     }
 
     failures: list[str] = []

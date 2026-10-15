@@ -16,7 +16,7 @@
     ".github/workflows/deploy-gemini-web-worker.yml": {
       "input": "edge_id",
       "option_prefix": "",
-      "required_set": "hetzner-deployable",
+      "required_set": "all-deployable",
       "opt_out_edges": []
     },
     ".github/workflows/ops-stage0-pg-dump-refresh.yml": {

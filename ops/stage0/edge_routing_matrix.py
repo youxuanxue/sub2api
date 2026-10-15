@@ -86,10 +86,15 @@ def live_deployable_edge_ids(
     lightsail_targets: dict[str, dict] | None = None,
     hetzner_targets: dict[str, dict] | None = None,
 ) -> list[str]:
-    """Live fleet is Hetzner only; AWS standby never enters automatic fan-out."""
+    """Only deployable rows enter automatic fan-out; dual activation fails closed."""
     root = pathlib.Path(repo_root).resolve()
     hz = hetzner_targets if hetzner_targets is not None else load_hetzner_targets(root)
-    return sorted(eid for eid, target in hz.items() if edge_hetzner_deployable(target))
+    ls = lightsail_targets if lightsail_targets is not None else load_lightsail_targets(root)
+    hz_ids = {eid for eid, target in hz.items() if edge_hetzner_deployable(target)}
+    ls_ids = {eid for eid, target in ls.items() if edge_deployable(target)}
+    if hz_ids & ls_ids:
+        raise SystemExit("ambiguous active edge inventory")
+    return sorted(hz_ids | ls_ids)
 
 
 def resolve_route_tab(
@@ -99,7 +104,7 @@ def resolve_route_tab(
 ) -> tuple[Transport, str, None]:
     """Return (transport, region_or_location, empty stack).
 
-    ``auto`` requires a deployable Hetzner row; it never falls back to standby.
+    ``auto`` requires exactly one deployable platform; it never selects inactive rows.
     Explicit ``lightsail`` / ``hetzner`` force that matrix (planned rows allowed).
     """
     if platform == "ec2":
@@ -117,9 +122,14 @@ def resolve_route_tab(
             if not hz.get("location"):
                 raise SystemExit(f"hetzner target {eid} missing location")
             return "hetzner", str(hz["location"]), None
+        if edge_hetzner_deployable(hz) and edge_deployable(load_lightsail_targets(root).get(eid)):
+            raise SystemExit("ambiguous active edge inventory")
         if edge_hetzner_deployable(hz):
             return "hetzner", str(hz["location"]), None
-        raise SystemExit(f"edge {eid} is not deployable in the live Hetzner fleet; standby requires explicit --platform lightsail")
+        candidate = load_lightsail_targets(root).get(eid)
+        if edge_deployable(candidate):
+            return "lightsail", str(candidate["lightsail_region"]), None
+        raise SystemExit(f"edge {eid} is not deployable in the active fleet")
 
     if platform not in ("auto", "lightsail"):
         raise SystemExit(f"unsupported platform preference: {platform}")
@@ -132,3 +142,10 @@ def resolve_route_tab(
     if platform == "auto" and not edge_deployable(target):
         raise SystemExit(f"edge {eid} is not deployable")
     return "lightsail", str(target["lightsail_region"]), None
+
+
+def load_live_targets(repo_root: pathlib.Path | str) -> dict[str, dict]:
+    hz = load_hetzner_targets(repo_root)
+    ls = load_lightsail_targets(repo_root)
+    ids = live_deployable_edge_ids(repo_root, hetzner_targets=hz, lightsail_targets=ls)
+    return {eid: (hz[eid] if edge_hetzner_deployable(hz.get(eid)) else ls[eid]) for eid in ids}

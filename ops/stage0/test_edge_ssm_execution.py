@@ -13,6 +13,7 @@ if str(STAGE0) not in sys.path:
     sys.path.insert(0, str(STAGE0))
 
 import edge_ssm_execution as ese  # noqa: E402
+from edge_routing_matrix import load_live_targets, resolve_route_tab
 
 
 class EdgeSsmExecutionTests(unittest.TestCase):
@@ -25,12 +26,13 @@ class EdgeSsmExecutionTests(unittest.TestCase):
             ident = ese.resolve_edge_execution_identity(
                 REPO_ROOT, "us4", platform="auto"
             )
-        self.assertEqual(ident.routing, "hetzner")
-        self.assertEqual(ident.region, "eu-west-2")
+        row = load_live_targets(REPO_ROOT)["us4"]
+        self.assertEqual(ident.routing, resolve_route_tab(REPO_ROOT, "us4")[0])
+        self.assertEqual(ident.region, row.get("lightsail_region", "eu-west-2"))
         self.assertEqual(ident.instance_id, "mi-hetzner-us4")
-        self.assertEqual(ident.ssm_prefix, "/tokenkey/hetzner/us4")
+        self.assertEqual(ident.ssm_prefix, row["ssm_prefix"])
         self.assertEqual(ident.domain, "api-us4.tokenkey.dev")
-        get_param.assert_called_once_with("eu-west-2", "/tokenkey/hetzner/us4")
+        get_param.assert_called_once_with(ident.region, row["ssm_prefix"])
 
     def test_explicit_lightsail_still_resolves_standby(self) -> None:
         with mock.patch.object(

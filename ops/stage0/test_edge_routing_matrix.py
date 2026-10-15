@@ -17,7 +17,7 @@ from edge_routing_matrix import (  # noqa: E402
 
 
 class LiveDeployableEdgeIdsTest(unittest.TestCase):
-    def test_prefers_hetzner_when_both_deployable(self) -> None:
+    def test_rejects_ambiguous_active_platforms(self) -> None:
         ls = {
             "uk1": {
                 "deployable": True,
@@ -46,10 +46,8 @@ class LiveDeployableEdgeIdsTest(unittest.TestCase):
                 "instance_name": "tokenkey-edge-us3-hz-cax21",
             },
         }
-        self.assertEqual(
-            live_deployable_edge_ids(".", lightsail_targets=ls, hetzner_targets=hz),
-            ["uk1"],
-        )
+        with self.assertRaisesRegex(SystemExit, "ambiguous"):
+            live_deployable_edge_ids(".", lightsail_targets=ls, hetzner_targets=hz)
         self.assertEqual(deployable_edge_ids(ls), ["uk1", "us3"])
 
     def test_omits_retired_lightsail_without_hetzner(self) -> None:
@@ -74,10 +72,8 @@ class LiveDeployableEdgeIdsTest(unittest.TestCase):
                 "instance_name": "tokenkey-edge-us4-hz-cax21",
             },
         }
-        self.assertEqual(
-            live_deployable_edge_ids(".", lightsail_targets=ls, hetzner_targets=hz),
-            ["us4"],
-        )
+        hz["us4"]["deployable"] = False
+        self.assertEqual(live_deployable_edge_ids(".", lightsail_targets=ls, hetzner_targets=hz), ["us4"])
 
 
 if __name__ == "__main__":

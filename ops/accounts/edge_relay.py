@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "ops/stage0"))
-from edge_routing_matrix import load_hetzner_targets  # noqa: E402
+from edge_routing_matrix import load_live_targets  # noqa: E402
 
 EDGE_STUB_BASE_URL_RE = re.compile(r"^https://api-([a-z0-9]+)\.tokenkey\.dev/?$", re.IGNORECASE)
 
@@ -52,7 +52,7 @@ def edge_id_from_base_url(base_url: str) -> str | None:
 
 
 def load_edge_targets() -> dict[str, Any]:
-    return {"targets": load_hetzner_targets(REPO_ROOT)}
+    return {"targets": load_live_targets(REPO_ROOT)}
 
 
 def list_deployable_edges() -> list[dict[str, str]]:

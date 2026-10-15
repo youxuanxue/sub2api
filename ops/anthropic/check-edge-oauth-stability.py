@@ -780,7 +780,9 @@ def main() -> int:
     default_tier = str(args.default_tier or "").strip().lower()
     matrix_path = pathlib.Path(args.matrix)
     baseline_path = pathlib.Path(args.baseline)
-    matrix = load_json(matrix_path)
+    matrix = ({"targets": _EDGE_ROUTING.load_live_targets(REPO_ROOT)}
+              if matrix_path.resolve() == DEFAULT_MATRIX.resolve() and not args.allow_planned
+              else load_json(matrix_path))
     baseline = load_json(baseline_path)
     if default_tier and default_tier not in (baseline.get("tiers") or {}):
         fail(f"--default-tier={default_tier} not found in baseline tiers")
