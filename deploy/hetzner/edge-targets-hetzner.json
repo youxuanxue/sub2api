@@ -6,10 +6,14 @@
   "notes": [
     "deployable=true rows are live HCloud edges; inventory/IP SSOT: deploy/hetzner/README.md.",
     "Empty rows (e.g. us3/us6): not in fleet.",
-    "auto / --list-deployable prefer deployable Hetzner over Lightsail standby."
+    "auto / --list-deployable use the unique deployable platform for each edge; duplicate live identities fail closed."
   ],
-  "allowed_locations": ["fsn1"],
-  "allowed_server_types": ["cax21"],
+  "allowed_locations": [
+    "fsn1"
+  ],
+  "allowed_server_types": [
+    "cax21"
+  ],
   "required_architecture": "arm",
   "target_defaults": {
     "deployable": false,
@@ -23,11 +27,23 @@
     "ssm_region": "eu-west-2"
   },
   "targets": {
-    "uk1": { "deployable": true, "purpose": "live" },
-    "uk2": { "deployable": true, "purpose": "live" },
+    "uk1": {
+      "deployable": true,
+      "purpose": "live"
+    },
+    "uk2": {
+      "deployable": false,
+      "purpose": "historical read-only data; traffic forwarded to fresh AWS"
+    },
     "us3": {},
-    "us4": { "deployable": true, "purpose": "live" },
-    "us5": { "deployable": true, "purpose": "live" },
+    "us4": {
+      "deployable": true,
+      "purpose": "live"
+    },
+    "us5": {
+      "deployable": true,
+      "purpose": "live"
+    },
     "us6": {}
   }
 }

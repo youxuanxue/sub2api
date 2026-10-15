@@ -1,4 +1,4 @@
-# TokenKey 舰队 · Hetzner Cloud（现网）
+# TokenKey 舰队 · Hcloud / AWS 分批迁移
 
 **SSOT：** 现网节点 / 公网 IP / CIDR / GHCR PAT 路径 / 发版入口 **只在本文件叙述**；其它文档与 skill 只留指针，勿复制数值。
 审批基线（决策锁，无 IP 表）：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
@@ -9,14 +9,18 @@
 |------|----------|---------|------------|------|
 | **prod** | `api.tokenkey.dev` | `167.233.211.115` | `mi-033c9569c7fb8b884` · Volume `tokenkey-prod-data` | ops 控制面 `PROD_SSM_TARGET=hetzner` |
 | **uk1** | `api-uk1.tokenkey.dev` | `188.245.112.147` | 见矩阵 `mi-*` | |
-| **uk2** | `api-uk2.tokenkey.dev` | `2.31.27.73` | 见矩阵 `mi-*` | |
+| **uk2** | `api-uk2.tokenkey.dev` | `35.178.162.181` | `mi-022bedb939517c7f3` | AWS Lightsail · tokenkey-edge-uk2-aws-20261015 |
 | **us4** | `api-us4.tokenkey.dev` | `188.245.14.132` | 见矩阵 `mi-*` | |
 | **us5** | `api-us5.tokenkey.dev` | `91.98.83.56` | 见矩阵 `mi-*` | |
 
-- 矩阵：`edge-targets-hetzner.json` + `prod-target-hetzner.json`（`deployable=true`）
+- 活矩阵：Hcloud `edge-targets-hetzner.json` + AWS `../aws/lightsail/edge-targets-lightsail.json`；每个 edge 仅一个平台 deployable。prod 仍为 Hcloud。
 - fan-out / probe 默认：`resolve-edge-target.py --list-deployable` → 上表四边；prod 单独解析
-- 机型：`fsn1` · `cax21` · arm64；现网已在 1.8.284 完成蓝绿首发；后续升级使用既有 blue/green 状态机
+- Hcloud 机型：`fsn1` · `cax21` · arm64；AWS uk2：Lightsail `xlarge_3_0`（4 vCPU / 16 GiB）。后续升级使用既有 blue/green 状态机。
 - **不在舰队：** `us3` / `us6`（无正式 A、无 prod stub；矩阵空行 / LS `deployable=false`）。旧 LS 仅 gemini 会话 drain 前保留，勿当路由目标
+
+
+本轮 AWS 活节点：uk2。新边仅放行现网 Hcloud prod；旧 edge 的单地址转发信任只在 DNS 过渡期间保留。
+后续旧平台专用 provision、卷与告警操作仅适用于仍在 Hcloud 的节点，不能用于已切换 AWS 的 edge。
 
 ## 现网不变量
 
@@ -25,14 +29,14 @@
 | Edge `MAIN_GATEWAY_ALLOWED_CIDR` | `167.233.211.115/32`（与 GitHub `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 一致） |
 | Edge / prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
 | GHCR PAT（Hybrid） | SSM `/tokenkey/edge/fleet/ghcr/pat`（eu-west-2；`EDGE_GHCR_PAT_SSM_NAME`） |
-| 探针 / sync Caddy | 直投 Hybrid `mi-*`；`sync_caddyfile` **勿**设 `EDGE_ID=`；日常探针用 `run-probe --target edge:<id>`（共享解析器只选现网 HZ） |
+| 探针 / sync Caddy | 直投 Hybrid `mi-*`；`sync_caddyfile` **勿**设 `EDGE_ID=`；日常探针用 `run-probe --target edge:<id>`（共享解析器按活矩阵选择 Hcloud 或 AWS） |
 | prod stub `base_url` | 必须 `https://api-<edge>.tokenkey.dev` |
 | live HZ 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
 | Secrets | `/tokenkey/hetzner/…`；不进 git |
 
 Stage0 单后端 Caddy 只由 `/health` 主动检查决定摘除与恢复；禁止被动冷却，避免客户端上传断连或单次业务 5xx 让其他请求等待。正式 prod 的源是 `deploy/aws/stage0/Caddyfile`；新机 prod 和 edge 均使用 `Caddyfile.edge`。修改时同时重生成 Hetzner bootstrap，`scripts/checks/caddyfile-syntax.sh` 校验 Caddy 解析后的健康策略；运行中主机通过 `ops/stage0/sync_caddyfile_via_ssm.sh` 热更新，单纯发布应用镜像不会刷新 Caddyfile。
 
-AWS EIP `34.194.234.88` 与四边旧 Lightsail 仅为 ≥7d standby / 回滚，**不是**现网写路径。
+旧 AWS 与旧 Hcloud 节点保留历史数据，不作为回滚写库；全新 AWS 节点按上表逐台接流量。
 
 ## 文件
 
@@ -55,7 +59,7 @@ AWS EIP `34.194.234.88` 与四边旧 Lightsail 仅为 ≥7d standby / 回滚，*
 bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 # 或 deploy-stage0 → deploy_via_ssm_bluegreen.sh
 
-# edge（平台 auto → HZ）
+# edge（平台 auto → 当前活矩阵）
 bash scripts/stage0/dispatch-edge-deploy.sh \
   --edge-id uk1 --operation upgrade --tag X.Y.Z
 ```
@@ -180,7 +184,7 @@ telemetry 已支持 Hetzner 存储。需要启用该能力时必须单独验收�
 由 `ops/stage0/pgdump_storage.py` 同时供上传和恢复使用。
 现网 prod、uk1、uk2、us4、us5 均已激活该身份，并逐节点完成真实 dump 的
 下载哈希比对、完整 SQL 恢复、核心数据核对和临时数据清理。原两小时 timer 保持启用。
-切换后的五节点正常定时备份已核对实际新对象、大小与 SSE-C 状态，不仅是配置切换。
+此前五节点正常定时备份已核对实际新对象、大小与 SSE-C 状态。2026-10-15 uk2 迁至新 AWS 后，使用原私有 AWS 桶 `tokenkey-prod-pgdump-682751977094/edge/uk2/pgdump/`；已验证新备份上传、下载哈希与 AES256，其他四节点保持 Hetzner 存储。旧 Hcloud uk2 的冻结整库归档隔离在同一 AWS 前缀下的 `archive-hcloud-20261015/`。
 主机告警共享实现已刷新，prod 监控实际 `/var/lib/tokenkey` Hetzner 数据卷；
 告警直接通知飞书，无需 S3。休眠 AWS 媒体默认值已从 prod host `.env` 清理，
 运行容器的旧变量随下次正常蓝绿发布更新；未启用的 offload 不产生媒体 S3 数据。

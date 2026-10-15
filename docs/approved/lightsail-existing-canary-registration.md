@@ -1,7 +1,8 @@
 ---
 title: 为已创建的 Lightsail 迁移新机补齐 SSM 身份
-status: pending
-approved_by: pending
+status: approved
+approved_by: "feng (2026-10-15 会话明确批准 PR #2643 推送和合并)"
+approved_at: 2026-10-15
 created: 2026-10-15
 owners: [tk-platform]
 scope: ops/lightsail/prepare_resize_identity.py + AWS Standby Edge Lightsail Deploy
@@ -12,7 +13,7 @@ scope: ops/lightsail/prepare_resize_identity.py + AWS Standby Edge Lightsail Dep
 用户已授权迁回 AWS，保留 prod、uk1、uk2、us4、us5 架构，prod 也独立新建；
 采用直接创建新机、从现网 Hcloud 恢复、基础服务验收，不进行负载压测。
 已创建的 canary 不能使用仅接受“新机尚不存在”的身份准备入口。
-本变更只补齐既有入口的身份校验分支，待合并确认；不改变迁移切流授权或现网目标矩阵。
+本变更只补齐既有入口的身份校验分支，已随 PR #2643 获准合并；不改变迁移切流授权或现网目标矩阵。
 
 ## 行为与边界
 

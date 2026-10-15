@@ -7,12 +7,12 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 mkdir -p "${tmp}/bin"
 
-# Historical AWS migration fixtures are independent of the live Hetzner fleet.
+# Exercise AWS recovery for both active and retained standby identities.
 python3 - "${ROOT}/deploy/aws/lightsail/edge-targets-lightsail.json" "${tmp}/matrix.json" <<'PYFIX'
 import json, sys
 data = json.load(open(sys.argv[1]))
 for row in data['targets'].values():
-    row['deployable'] = row.get('standby', False)
+    row['deployable'] = row.get('deployable', False) or row.get('standby', False)
 json.dump(data, open(sys.argv[2], 'w'))
 PYFIX
 export EDGE_LIGHTSAIL_MATRIX="${tmp}/matrix.json"
