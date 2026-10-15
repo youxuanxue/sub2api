@@ -305,6 +305,16 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 			Credentials: map[string]any{"model_mapping": map[string]any{alias: "gpt-5.6-sol"}},
 		},
 	}
+	// Derive defaults from this supply's admission owner. The mapped API sibling
+	// contributes its alias, not the API-wide default catalog.
+	codexDefaults := make([]string, 0)
+	for _, id := range openai.DefaultModelIDs() {
+		if accounts[0].IsModelSupported(id) {
+			codexDefaults = append(codexDefaults, id)
+		}
+	}
+	require.NotContains(t, codexDefaults, "gpt-5.5")
+	require.NotContains(t, codexDefaults, "gpt-5", "legacy alias resolves to retired Codex supply")
 	tests := []struct {
 		name     string
 		accounts []service.Account
@@ -312,9 +322,9 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 		want     []string
 	}{
 		{
-			name:     "unmapped parent and Spark shadow retain defaults and aliases",
+			name:     "unmapped parent and Spark shadow retain supported defaults and aliases",
 			accounts: accounts,
-			want:     append(openai.DefaultModelIDs(), alias),
+			want:     append(codexDefaults, alias),
 		},
 		{
 			name:     "unmapped API key account also contributes defaults",
