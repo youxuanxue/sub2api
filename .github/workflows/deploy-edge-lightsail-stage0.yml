@@ -1,14 +1,15 @@
-name: AWS Standby Edge Lightsail Deploy
+name: AWS Lightsail Edge Deploy
 
 # run-name carries the dispatch identity so automation (rollout-edges.sh
 # find_run) and the Actions UI can attribute a run to its edge without
 # opening logs — all edges share this one workflow file.
 run-name: "edge=${{ inputs.edge_id }} op=${{ inputs.operation }} tag=${{ inputs.tag || 'none' }}"
 
-# Legacy AWS standby only. Live fleet deploys through deploy-edge-hetzner-stage0.
-# Shares image manifest checks, SSM upgrade
-# primitive, and smoke scripts with deploy-stage0.yml.
-# See deploy/aws/lightsail/README.md and docs/spec-delta/edge-lightsail.md.
+# Live edge fleet path (dispatch-edge-deploy auto → Lightsail). Historical
+# Hetzner edges use deploy-edge-hetzner-stage0 only when that matrix is still
+# deployable. Shares image manifest checks, SSM upgrade primitive, and smoke
+# scripts with deploy-stage0.yml.
+# See deploy/hetzner/README.md, deploy/aws/lightsail/README.md.
 
 on:
   workflow_dispatch:

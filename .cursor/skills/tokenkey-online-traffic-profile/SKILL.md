@@ -18,7 +18,7 @@ description: >-
 
 - `minutes` 优先于 `hours`；拉日志时多取 2 分钟缓冲，再按 `completed_at` 过滤目标窗口。先确认容器启动时间与日志保留窗，缺失部分不能外推。
 - `account=all` 先列目标 platform 的可调度账号。`all-edges` 由 `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` 解析；planned edge 仅在显式允许时查询。
-- prod/Edge 通过共享身份 resolver 解析到现网 Hetzner Hybrid；AWS standby 必须显式选择。
+- prod 默认 `aws-fresh`（EC2）；edge 按活矩阵解析（现网为 Lightsail Hybrid `mi-*`）。历史 Hcloud / 旧 EC2 standby 必须显式 `PROD_SSM_TARGET` 或平台选择。
 - 桶固定为分钟；更粗粒度在分钟结果上 rollup，不能用 `strftime` 表达 5 分钟桶。
 
 ## 执行与判断

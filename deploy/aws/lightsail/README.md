@@ -1,10 +1,8 @@
-# Edge Stage0 on AWS Lightsail（standby / 回滚路径）
-
-> 历史 AWS / standby 资料。现网 hcloud 入口与保留依赖见 [Hetzner fleet](../../../deploy/hetzner/README.md)；不要将下文 EC2/Lightsail 步骤用于现网。
-
+# Edge Stage0 on AWS Lightsail（现网活边路径）
 
 > **现网活边 SSOT：** [`deploy/hetzner/README.md`](../../hetzner/README.md)（勿在此复制节点/IP/CIDR）。  
-> 本目录只服务 **Lightsail standby**（旧实例 ≥7d / 回滚 / 历史 provision）。EC2/CFN edge 路径已移除。
+> 本目录承载 **活 Lightsail 边** 的矩阵、bootstrap、provision 与升级原语；`dispatch-edge-deploy.sh --platform auto` 解析到 Lightsail 时走本路径。  
+> 历史 Hcloud 边与旧 standby 实例见 Hetzner README；EC2/CFN edge 路径已移除。
 
 Lightsail Edge 与 prod Stage0 **共用**：
 
@@ -105,7 +103,7 @@ aws ssm put-parameter --region <lightsail_region> \
 
 ### 3) GitHub Environment
 
-Environment 使用矩阵对应的 `edge-<edge_id>`，例如 standby 边 `us4` 使用 Environment `edge-us4`（现网发版走 Hetzner）。
+Environment 使用矩阵对应的 `edge-<edge_id>`，例如活边 `us4` 使用 Environment `edge-us4`。
 
 Variables：`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`、可选 `TK_SMOKE_EDGE_LOCAL_CHAT_MODELS`
 Secrets：`TK_SMOKE_API_KEY`
@@ -156,8 +154,8 @@ Lightsail Edge 启用后，沿用同一 **`edge_routing_matrix`/`edge_ssm_execut
 - **`python3 ops/stage0/edge_ssm_execution.py --repo-root . --edge-id us4 [--format env|json]`**
   输出 SSM **`REGION`** + **`INSTANCE_ID`**（`mi-*` 来自 Parameter Store；EC2 为 `i-*`）。与 **`ops/stage0/edge_admin_resolve_target.py` auto** 规则一致。
 - **`ops/observability/run-probe.sh --target edge:<id>`**（默认 `ALLOW_PLANNED` 未设置）走上述脚本；若要探 **planned 仅 EC2 矩阵条目**，仍可设 **`ALLOW_PLANNED=1`** 走 **`resolve-edge-target.py` + CFN**。
-- **`ops/anthropic/manage-anthropic-config.py`**、**`rebalance-anthropic-priority.py`**、`snapshot`/`apply`/`check` **与 `check-edge-oauth-stability.py`**：**snapshot** / **护栏**在多矩阵下按 Hetzner **`deployable=true` 优先**解析实例，缺失时才回退 Lightsail（与 **`edge_routing_matrix.py`** 一致）。
-- **`python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable`**：列出 **活边** edge id（Hetzner deployable 优先；无 HZ 行时才列 Lightsail deployable）。自定义 **`--lightsail-matrix`** 时仅列该文件的 Lightsail deployable（测试/fixture）。
+- **`ops/anthropic/manage-anthropic-config.py`**、**`rebalance-anthropic-priority.py`**、`snapshot`/`apply`/`check` **与 `check-edge-oauth-stability.py`**：按 **`edge_routing_matrix.py`** 解析活边（当前 Lightsail deployable；同 ID 禁止双平台启用）。
+- **`python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable`**：列出 **活边** edge id（按活矩阵；现网为 Lightsail deployable）。自定义 **`--lightsail-matrix`** 时仅列该文件的 Lightsail deployable（测试/fixture）。
 
 ## 升级 / 回滚
 

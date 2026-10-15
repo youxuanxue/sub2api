@@ -51,14 +51,14 @@ def render(edges):
         lines[matches[0]] = f'| **{edge}** | `{row["domain"]}` | `{row["ip"]}` | `{row["instance_id"]}` | AWS Lightsail · {row["instance_name"]} |'
     text = '\n'.join(lines) + '\n'
     text = text.replace('- 矩阵：`edge-targets-hetzner.json` + `prod-target-hetzner.json`（`deployable=true`）',
-        '- 活矩阵：Hcloud `edge-targets-hetzner.json` + AWS `../aws/lightsail/edge-targets-lightsail.json`；每个 edge 仅一个平台 deployable。prod 仍为 Hcloud。')
+        '- 活矩阵：Hcloud `edge-targets-hetzner.json` + AWS `../aws/lightsail/edge-targets-lightsail.json`；每个 edge 仅一个平台 deployable。prod 使用 fresh AWS 清单中的独立 EC2。')
     text = text.replace('（共享解析器只选现网 HZ）', '（共享解析器按活矩阵选择 Hcloud 或 AWS）')
     text = text.replace('# edge（平台 auto → HZ）', '# edge（平台 auto → 当前活矩阵）')
     text = text.replace('AWS EIP `34.194.234.88` 与四边旧 Lightsail 仅为 ≥7d standby / 回滚，**不是**现网写路径。',
         '旧 AWS 与旧 Hcloud 节点保留历史数据，不作为回滚写库；全新 AWS 节点按上表逐台接流量。')
-    notice = ('\n本轮 AWS 活节点：' + ', '.join(sorted(k for k, row in json.loads(after['deploy/aws/lightsail/edge-targets-lightsail.json'])['targets'].items() if row.get('deployable') is True)) + '。新边仅放行现网 Hcloud prod；旧 edge 的单地址转发信任只在 DNS 过渡期间保留。\n'
-              '后续旧平台专用 provision、卷与告警操作仅适用于仍在 Hcloud 的节点，不能用于已切换 AWS 的 edge。\n')
-    text = re.sub(r'\n本轮 AWS 活节点：.*?后续旧平台专用 provision[^\n]*\n', '', text, flags=re.S)
+    notice = ('\n本轮 AWS 活节点：prod、' + ', '.join(sorted(k for k, row in json.loads(after['deploy/aws/lightsail/edge-targets-lightsail.json'])['targets'].items() if row.get('deployable') is True)) + '。四边允许新 AWS prod；旧 edge 的单地址转发信任只在 DNS 过渡期间保留。\n'
+              '后续 Hcloud 专用 provision、卷与告警操作仅用于历史节点，不能用于已切换 AWS 的活舰队。\n')
+    text = re.sub(r'\n本轮 AWS 活节点：.*?后续 (?:旧平台|Hcloud) 专用 provision[^\n]*\n', '', text, flags=re.S)
     text = text.replace('## 现网不变量', notice + '\n## 现网不变量', 1)
     put(name, text)
     return inventory, before, after
