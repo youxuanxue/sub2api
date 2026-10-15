@@ -42,7 +42,7 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 		require.NotContains(t, want, stale)
 	}
 	// PAYG-only ch17 floor ids must not leak into Token Plan override.
-	for _, legacy := range []string{"qwen-plus", "qwen-max", "qwen-turbo"} {
+	for _, legacy := range []string{"qwen-plus", "qwen-max"} {
 		require.Contains(t, want, legacy, "legacy DashScope aliases must be routable on Token Plan")
 	}
 
@@ -73,7 +73,16 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 	require.Contains(t, paygMapping, "qwen3-8b")
 	require.Equal(t, "qwen3.7-plus", mapping["qwen-plus"])
 	require.Equal(t, "qwen3.8-max", mapping["qwen-max"])
-	require.Equal(t, "qwen3.8-flash", mapping["qwen-turbo"])
+	for _, retired := range aliTokenPlanForbiddenModelMappingKeys {
+		require.NotContains(t, mapping, retired)
+		require.NotContains(t, got, retired)
+	}
+	// Withdrawn Plan aliases retain their PAYG identities.
+	for _, retired := range aliTokenPlanForbiddenModelMappingKeys {
+		if _, exists := paygMapping[retired]; exists {
+			require.Equal(t, retired, paygMapping[retired])
+		}
+	}
 	for alias, target := range newAPIAliTokenPlanModelAliases() {
 		require.Equal(t, target, mapping[alias])
 		if strings.HasPrefix(alias, "qwen") {
