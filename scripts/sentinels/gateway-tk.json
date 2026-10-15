@@ -3230,6 +3230,35 @@
       "rationale": "Shared request support and the legacy group adapter retain support/error classification, including main Gemini and count-token fixes. Non-admitting peers must not surface capability-unknown as a platform routing fault. Production account selection is separately anchored. Multimodal supply admit is wired here but owned by candidate_multimodal_supply_tk.go."
     },
     {
+      "path": "backend/internal/service/volc_kimi_chat_constraints_tk.go",
+      "must_contain": [
+        "func normalizeVolcKimiChatRequest(",
+        "normalizeVolcKimiThinking(body)",
+        "normalizeVolcKimiAllowedTools(shaped)",
+        "normalizeChatToolConstraints(shaped)"
+      ],
+      "rationale": "Volc Kimi thinking switches and allowed/named tools retain supplier-specific semantics before forwarding."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_moonshot_thinking_shape_tk.go",
+      "must_contain": [
+        "isNewAPIVolcEngineAgentPlanAccount(account)",
+        "normalizeVolcKimiChatRequest(body)",
+        "NormalizeMoonshotThinking(model, body)"
+      ],
+      "rationale": "The selected supplier, not the public Kimi model name alone, chooses thinking normalization."
+    },
+    {
+      "path": "backend/internal/service/volc_kimi_chat_constraints_tk_test.go",
+      "must_contain": [
+        "func TestVolcKimiThinkingSwitchesAndSupplierScope(",
+        "func TestVolcKimiToolSelectionPreservesSemantics(",
+        "func TestVolcKimiChatAllowedToolsEnvelope(",
+        "func TestVolcKimiForwardKeepsThinkingAndToolConstraints("
+      ],
+      "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests."
+    },
+    {
       "path": "backend/internal/service/candidate_multimodal_supply_tk.go",
       "must_contain": [
         "ErrUnsupportedInputModality",
