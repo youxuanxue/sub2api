@@ -64,6 +64,9 @@ prepare 只启动候选；复用当前应用环境、数据挂载和实际 Docke
 再排空候选。两个入口均使用共享 host lock；运行文件和含环境变量的 Compose 为 0600。
 后续轮次若候选颜色名称已存在，先核对其是否仍承担回退义务；入口不会自动删除旧候选。
 Docker 的 `unless-stopped` 重启策略负责活动容器重启；原单容器 Compose 不再作为应用升级入口。
+发布后使用 `scripts/release_post_check.py plan`，live/new 传原镜像与新镜像的完整源码 SHA；
+通过 SSH 投递共享 `probe-post-release-tick.sh` 和 `resolve_app_container.py`，将聚合结果交
+同一 evaluator 分别检查切流后立即和至少五分钟的流量、5xx 与 panic。
 
 ## 初始化与隔离
 

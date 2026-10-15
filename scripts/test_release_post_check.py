@@ -86,6 +86,20 @@ class ReleasePostCheckPlanTest(unittest.TestCase):
         self.assertTrue(all("bump VERSION" not in c["subject"] for c in plan["changes"]))
         self.assertEqual(plan["range"], {"live": "v1.8.169", "new": "v1.8.170"})
 
+    def test_commit_pinned_domestic_images_derive_the_same_checks_as_tags(self) -> None:
+        live = _git(self.repo, "rev-parse", "HEAD").strip()
+        self._commit(
+            {"backend/internal/service/subscription_service.go": "package service\n"},
+            "fix(gateway): subscription fallback (#1781)",
+        )
+        new = _git(self.repo, "rev-parse", "HEAD").strip()
+        _git(self.repo, "tag", "v1.8.170")
+        by_commit = rpc.build_plan(self.repo, live, new)
+        by_tag = rpc.build_plan(self.repo, "1.8.169", "1.8.170")
+        self.assertEqual(by_commit["range"], {"live": live, "new": new})
+        self.assertEqual(by_commit["changes"], by_tag["changes"])
+        self.assertEqual(by_commit["checks"], by_tag["checks"])
+
     def test_plan_derives_added_failover_status(self) -> None:
         old = (
             "package service\n"
