@@ -572,11 +572,15 @@ model so compact mappings cannot reintroduce GPT-5.5. Empty, stale identity,
 wildcard mappings and passthrough cannot override the capability negative.
 
 Direct and Universal selection, discovery, and pre-send Plan checks consume
-this same admission. Generic OpenAI API-key and newapi suppliers, including
+this same admission. Account model pickers, mapped upstream catalogs, configured
+Codex catalogs, and unmapped default supplementation apply the same supply negative;
+a later generic API account in a mixed pool may still contribute GPT-5.5. Generic OpenAI API-key and newapi suppliers, including
 China edge relays, remain governed by their existing mappings and capabilities.
 Keep GPT-5.5 catalog/pricing available through those valid suppliers. An
 OAuth-only pool uses the existing unsupported-model result, not capacity 429.
 
 Validation: `TestCodexRetiredModelAdmission`,
-`TestCodexRetiredModelPlanAndSelection`, and
-`TestCodexRetiredModelCompactMapping`. Release and live acceptance remain separate.
+`TestCodexRetiredModelPlanAndSelection`, `TestCodexRetiredModelCompactMapping`,
+`TestCodexRetiredModelCatalogProjection`, `TestCodexRetiredModelConfiguredCatalog`,
+and `TestAccountHandlerAvailableModelsExcludesRetiredCodexSupply`.
+Release and live acceptance remain separate.

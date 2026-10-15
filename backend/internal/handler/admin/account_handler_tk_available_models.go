@@ -55,6 +55,17 @@ func tkOpenAIAdminModelsForIDs(ids []string) []dto.AccountModelOption {
 	})
 }
 
+// Account pickers share routing admission, including supply-scoped retirements.
+func tkOpenAIAdminModelsForAccount(account *service.Account, models []dto.AccountModelOption) []dto.AccountModelOption {
+	filtered := make([]dto.AccountModelOption, 0, len(models))
+	for _, model := range models {
+		if account.IsModelSupported(model.ID) {
+			filtered = append(filtered, model)
+		}
+	}
+	return filtered
+}
+
 func tkOpenAIAdminDefaultModels(ctx context.Context) []dto.AccountModelOption {
 	ids := service.ServableClientFacingIDs(ctx, service.PlatformOpenAI, nil, nil)
 	defaultModelID := openai.DefaultModels[0].ID
@@ -215,25 +226,25 @@ func (h *AccountHandler) tkRespondAvailableModels(c *gin.Context, account *servi
 	if account.IsOpenAI() {
 		if h.accountTestService != nil {
 			if models, fetchErr := h.accountTestService.FetchOpenAIAccountModels(c.Request.Context(), account); fetchErr == nil {
-				response.Success(c, tkAdminModelOptions(models, func(model openai.Model) (string, string) {
+				response.Success(c, tkOpenAIAdminModelsForAccount(account, tkAdminModelOptions(models, func(model openai.Model) (string, string) {
 					return model.ID, model.DisplayName
-				}))
+				})))
 				return
 			}
 		}
 		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
 		if account.IsOpenAIPassthroughEnabled() {
-			response.Success(c, tkOpenAIAdminDefaultModels(c.Request.Context()))
+			response.Success(c, tkOpenAIAdminModelsForAccount(account, tkOpenAIAdminDefaultModels(c.Request.Context())))
 			return
 		}
 
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, tkOpenAIAdminDefaultModels(c.Request.Context()))
+			response.Success(c, tkOpenAIAdminModelsForAccount(account, tkOpenAIAdminDefaultModels(c.Request.Context())))
 			return
 		}
 
-		response.Success(c, tkOpenAIAdminModelsForIDs(sortedModelMappingKeys(mapping)))
+		response.Success(c, tkOpenAIAdminModelsForAccount(account, tkOpenAIAdminModelsForIDs(sortedModelMappingKeys(mapping))))
 		return
 	}
 

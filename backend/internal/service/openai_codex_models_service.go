@@ -279,6 +279,9 @@ func openAIConfiguredCodexModelIDs(accounts []Account) []string {
 			if modelID == "" || strings.Contains(modelID, "*") {
 				continue
 			}
+			if !openAICodexSupportsRequestedModel(account, modelID) {
+				continue
+			}
 			if _, exists := seen[modelID]; exists {
 				continue
 			}
@@ -307,7 +310,7 @@ func openAIConfiguredCodexModelIDsForGroup(accounts []Account, group *Group) []s
 		}
 		for i := range accounts {
 			account := &accounts[i]
-			if account.Platform != PlatformOpenAI {
+			if account.Platform != PlatformOpenAI || !openAICodexSupportsRequestedModel(account, selectedModel) {
 				continue
 			}
 			mappedModel, matched := account.ResolveMappedModel(selectedModel)

@@ -138,3 +138,52 @@ func TestCodexRetiredModelCompactMapping(t *testing.T) {
 	_, _, err = protocolPlanForAccount(ctx, a, "gpt-6-sol")
 	require.ErrorIs(t, err, protocolrouter.ErrModelPolicyDenied, "compact mapping cannot reintroduce a retired Codex wire model")
 }
+
+func TestCodexRetiredModelCatalogProjection(t *testing.T) {
+	for _, codex := range []bool{false, true} {
+		body := []byte(`{"data":[{"id":"gpt-5.5","custom":1},{"id":"gpt-6-sol","custom":2}]}`)
+		if codex {
+			body = []byte(`{"models":[{"slug":"gpt-5.5","custom":1},{"slug":"gpt-6-sol","custom":2}]}`)
+		}
+		original := string(body)
+		for _, kind := range []string{AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey, "edge"} {
+			for _, mode := range []string{"empty", "identity", "passthrough", "remap"} {
+				a := &Account{Platform: PlatformOpenAI, Type: kind, Credentials: map[string]any{}, Extra: map[string]any{}}
+				if kind == "edge" {
+					a.Type = AccountTypeAPIKey
+					a.Credentials["base_url"] = "https://api-uk1.tokenkey.dev"
+				}
+				if mode != "empty" {
+					mapping := map[string]any{"gpt-5.5": "gpt-5.5", "gpt-6-sol": "gpt-6-sol"}
+					if mode == "remap" {
+						mapping["gpt-5.5"] = "gpt-6-sol"
+					}
+					a.Credentials["model_mapping"] = mapping
+				}
+				a.Extra["openai_passthrough"] = mode == "passthrough"
+				out, err := projectAccountModelsBody(body, a, nil, codex)
+				require.NoError(t, err)
+				require.Contains(t, string(out), "gpt-6-sol")
+				if kind == AccountTypeAPIKey || mode == "remap" {
+					require.Contains(t, string(out), "gpt-5.5", "%s %s", kind, mode)
+				} else {
+					require.NotContains(t, string(out), "gpt-5.5", "%s %s", kind, mode)
+				}
+				require.Equal(t, original, string(body), "projection must not modify cached upstream bytes")
+			}
+		}
+	}
+}
+
+func TestCodexRetiredModelConfiguredCatalog(t *testing.T) {
+	oauth := *officialOpenAIOAuthAccount(31)
+	oauth.Credentials["model_mapping"] = map[string]any{"gpt-5.5": "gpt-5.5", "gpt-6-sol": "gpt-6-sol", "legacy-*": "gpt-5.5"}
+	unmapped := *officialOpenAIOAuthAccount(32)
+	group := &Group{Platform: PlatformOpenAI, ModelAllowlist: GroupModelAllowlist{Enabled: true, Models: []string{"gpt-5.5", "legacy-model", "gpt-6-sol"}}}
+	models := openAIConfiguredCodexModelIDsForGroup([]Account{oauth, unmapped}, group)
+	require.NotContains(t, models, "gpt-5.5")
+	require.NotContains(t, models, "legacy-model")
+	require.Contains(t, models, "gpt-6-sol")
+	api := Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	require.Contains(t, openAIConfiguredCodexModelIDsForGroup([]Account{oauth, unmapped, api}, group), "gpt-5.5", "an API supply must retain the model")
+}
