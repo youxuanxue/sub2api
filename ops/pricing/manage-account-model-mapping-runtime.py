@@ -34,8 +34,9 @@ check. It compares live prod account mappings to the selected release bundle's
 required floor and fails closed when prod is behind that model surface. It is not a
 generic binary deploy or rollback prerequisite. Live prod may be ahead for
 preheating or rollback, but forbidden keys/prefixes from the selected bundle
-still fail the check. Edge accounts keep empty ``model_mapping`` and Antigravity
-empty rows serve the compiled default plus the runtime overlay. Do not
+still fail the check. Native edge accounts may keep empty ``model_mapping``;
+Antigravity empty rows serve the compiled default plus the runtime overlay.
+Newapi Plan accounts on prod and edges keep explicit reviewed mappings. Do not
 bulk-apply prod floors to edges. Edge-specific troubleshooting belongs to
 ``check-accounts --include-edges``; ``release-gate`` always checks prod only.
 See ``docs/global/agent-reference.md`` § Model serving SSOT.
@@ -2521,6 +2522,29 @@ def cmd_selftest(_args) -> int:
     )
     assert _runtime_setting_violation(None) is None
     effective_floor = _load_effective_floor(None)
+    # Real bundle policy, not a second model list: reconcile retired aliases,
+    # repair a stale target, preserve compatible extras, and reach a fixed point.
+    for override in effective_floor.get("account_overrides") or []:
+        scope = _BUNDLE.account_override_scope(override)
+        retired = (effective_floor.get("forbidden_model_mapping_keys") or {}).get(scope) or []
+        if not retired:
+            continue
+        wanted = override["model_mapping"]
+        sample = next(iter(wanted))
+        stale = {**wanted, **dict.fromkeys(retired, wanted[sample]),
+                 sample: "selftest-stale-target", "selftest-compatible-extra": wanted[sample]}
+        row = {**override, "id": 999, "type": "apikey", "model_mapping": stale}
+        plan = _account_plan(row, effective_floor)
+        assert plan["diff"]["forbidden_keys"] == sorted(retired)
+        assert plan["desired_model_mapping"] == {
+            **wanted, "selftest-compatible-extra": wanted[sample],
+        }
+        assert _account_plan({**row, "model_mapping": plan["desired_model_mapping"]}, effective_floor) is None
+        # A different endpoint must not inherit a property-scoped withdrawal.
+        other = {**row, "base_url": "https://selftest-other-provider.example"}
+        _, other_scope = _desired_mapping_for_account(other, effective_floor)
+        assert other_scope != scope
+        assert not set(retired) & set(_forbidden_mapping_entries(other_scope, stale, effective_floor))
     real_policy_samples: list[tuple[str, str]] = []
     for scope, keys in sorted((effective_floor.get("forbidden_model_mapping_keys") or {}).items()):
         if keys:

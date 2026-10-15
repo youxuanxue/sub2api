@@ -577,15 +577,6 @@
         }
       ]
     },
-    "minimax-m2.7": {
-      "display": false,
-      "scopes": [
-        {
-          "channel_type": 45,
-          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
-        }
-      ]
-    },
     "minimax-m3": {
       "display": true,
       "scopes": [

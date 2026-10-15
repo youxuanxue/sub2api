@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "fe04ac1a32dc09991c2caa31ca6b972e3ce3071521f7e93d6061e6da1271e2b9",
+  "floor_sha256": "f2ce7dfafb5b3fc827f48cc1c66be1cc0135aba61e57cf362ea55ac7b425c9b6",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -419,13 +419,7 @@
           "qwen-audio-3.0-tts-plus": "qwen-audio-3.0-tts-plus",
           "qwen-max": "qwen3.8-max",
           "qwen-plus": "qwen3.7-plus",
-          "qwen-turbo": "qwen3.8-flash",
-          "qwen3-235b-a22b": "qwen3.7-plus",
-          "qwen3-32b": "qwen3.7-plus",
-          "qwen3-8b": "qwen3.6-flash",
-          "qwen3.6-27b": "qwen3.6-flash",
           "qwen3.6-flash": "qwen3.6-flash",
-          "qwen3.7-flash": "qwen3.8-flash",
           "qwen3.7-max": "qwen3.7-max",
           "qwen3.7-plus": "qwen3.7-plus",
           "qwen3.8-flash": "qwen3.8-flash",
@@ -443,6 +437,7 @@
           "deepseek-chat": "deepseek-v4.1-flash",
           "deepseek-flash": "deepseek-v4.1-flash",
           "deepseek-v4-flash": "deepseek-v4-flash",
+          "deepseek-v4-flash-0731": "deepseek-v4-flash",
           "deepseek-v4-pro": "deepseek-v4-pro",
           "deepseek-v4.1-flash": "deepseek-v4.1-flash",
           "doubao-embedding-vision": "doubao-embedding-vision",
@@ -455,16 +450,12 @@
           "doubao-seed-tts-2.0": "doubao-seed-tts-2.0",
           "doubao-seedream-5-0-pro": "doubao-seedream-5-0-pro",
           "doubao-seedream-5.0-pro": "doubao-seedream-5-0-pro",
-          "glm-4.5-air": "glm-5.3",
-          "glm-5.2": "glm-5.3",
           "glm-5.3": "glm-5.3",
           "glm-5.3-flash": "glm-5.3-flash",
-          "kimi-k2.6": "kimi-k2.7-code",
           "kimi-k2.7-code": "kimi-k2.7-code",
           "kimi-k2.8": "kimi-k2.8-preview",
           "kimi-k2.8-preview": "kimi-k2.8-preview",
           "kimi-k3": "kimi-k3",
-          "minimax-m2.7": "minimax-m3",
           "minimax-m3": "minimax-m3"
         }
       },
@@ -597,8 +588,14 @@
         "glm-5.1",
         "glm-5.2-fast-preview",
         "qwen-audio-3.0-realtime-plus",
+        "qwen-turbo",
         "qwen3-14b",
+        "qwen3-235b-a22b",
+        "qwen3-32b",
+        "qwen3-8b",
         "qwen3-coder-plus",
+        "qwen3.6-27b",
+        "qwen3.7-flash",
         "qwen3.7-flash-2026-07-15",
         "qwen3.7-max-2026-05-17",
         "qwen3.7-max-2026-05-20",
@@ -620,7 +617,11 @@
         "doubao-seed-2.0-code",
         "doubao-seed-2.0-pro",
         "doubao-seed-2.1-turbo",
-        "doubao-seedream-5.0-lite"
+        "doubao-seedream-5.0-lite",
+        "glm-4.5-air",
+        "glm-5.2",
+        "kimi-k2.6",
+        "minimax-m2.7"
       ],
       "anthropic": [
         "claude-opus-5",

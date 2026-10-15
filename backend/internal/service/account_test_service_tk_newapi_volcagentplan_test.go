@@ -56,7 +56,9 @@ func TestNewAPIAvailableModelPresetIDs_AgentPlan(t *testing.T) {
 	require.ElementsMatch(t, tkServedModelsManifestDisplayPresetIDsForSelector(
 		account.Platform, account.ChannelType, account.GetBaseURL(),
 	), display)
-	require.Contains(t, got, "minimax-m2.7", "withdrawal must preserve API compatibility")
+	for _, retired := range volcEngineAgentPlanForbiddenModelMappingKeys {
+		require.NotContains(t, got, retired, "withdrawn Plan aliases must not return through presets")
+	}
 	require.NotContains(t, display, "minimax-m2.7", "withdrawn Agent Plan models must not be recommended")
 	require.Contains(t, display, "minimax-m3")
 }

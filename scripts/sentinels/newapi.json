@@ -1240,10 +1240,10 @@
       "path": "backend/internal/service/account_test_service_tk_newapi_volcagentplan_test.go",
       "must_contain": [
         "TestNewAPIAvailableModelPresetIDs_AgentPlan",
-        "withdrawal must preserve API compatibility",
+        "withdrawn Plan aliases must not return through presets",
         "withdrawn Agent Plan models must not be recommended"
       ],
-      "rationale": "Agent Plan capability membership survives recommendation withdrawal; admin display consumes the manifest lifecycle projection."
+      "rationale": "Agent Plan presets exclude explicitly withdrawn mapping aliases while admin display consumes the manifest lifecycle projection; retained aliases remain derived from the mapping owner."
     },
     {
       "path": "backend/internal/service/tk_served_models_manifest_tk.go",
