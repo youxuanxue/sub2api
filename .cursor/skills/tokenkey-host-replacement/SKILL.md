@@ -31,7 +31,7 @@ description: >-
 
 ## 不变量
 
-禁双写；live HZ **禁**旧机全量覆盖；Redis 不迁；旧机 ≥7d；stub 必须 `https://`；CIDR/IP/`mi-*` 见 Hetzner README；`API_DOMAIN` 单正式名。
+禁双写；活库禁旧机全量覆盖；Redis 不迁；旧机 ≥7d；stub `https://`；CIDR/SSM 见 Hetzner README 活舰队；`API_DOMAIN` 单正式名。
 
 ## 阶段
 
@@ -43,8 +43,8 @@ description: >-
 3. replicate — precious+logs→restore→对账；仅未上线目标可整库重灌  
 4. cutover — 正式 A；单域名；CIDR；prod pin+restart；stub `https://`  
 5. drain — 停旧 app；standby；源 usage→0  
-6. verify — dig；smoke；host units；gemini re-import；`mi-*`
+6. verify — dig；smoke；host units；gemini re-import；README 活身份
 
-Prod：卷在→Hetzner README 恢复入口；无卷/跨云先核验离机 dump。AWS DR §4.4 仅参考离机 S3 读取。骨架：[references/playbook.md](references/playbook.md)。
+Prod：现网 fresh AWS EC2；历史 Hcloud 卷见 Hetzner README；无卷/跨云先核离机 dump。骨架：[references/playbook.md](references/playbook.md)。
 
 报告：`target platform phase new_ip old_ip dump checks dns drain smoke followups`

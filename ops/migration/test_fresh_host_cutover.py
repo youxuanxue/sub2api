@@ -173,6 +173,61 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(stopped, ['tokenkey-blue','tokenkey-green','tokenkey-gemini-web','tokenkey-gemini-web-alias'])
             self.assertNotIn('tokenkey-postgres', stopped)
 
+    def test_activation_archives_systemd_dropins_with_shutil_move(self):
+        """EC2 /etc vs /var/lib can be EXDEV; drop-ins must use shutil.move, not Path.rename."""
+        moved = []
+
+        def run(*args):
+            if args[:3] == ('docker', 'ps', '-aq'):
+                return 'pg'
+            if args[:2] == ('docker', 'inspect'):
+                return json.dumps([{'Id': 'pg1', 'Mounts': [], 'Image': 'caddy:fixture'}])
+            return ''
+
+        def fake_move(src, dst):
+            moved.append((src, dst))
+            Path(dst).write_text('archived')
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'migration').mkdir()
+            (root / 'migration/DATA_SYNC_HOLD').touch()
+            (root / 'caddy').mkdir()
+            (root / 'caddy/Caddyfile').write_text('old\n')
+            (root / '.env').write_text('synthetic_only=yes\n')
+            caddy = root / 'prepared.Caddyfile'
+            caddy.write_text('reverse_proxy tokenkey-blue:8080 {\n}\n')
+            receipt = PreparedSyncTests().receipt()
+            receipt.update(
+                state='synced', final_freeze_verified=True, completed_at=100, node='prod',
+                candidate={'instance_name': runtime.expected_host('prod'), 'instance_id': 'new', 'region': 'r'},
+                commands=[{'phase': p, 'status': 'Success', 'target': t}
+                          for p, t in [('export', 'old'), ('apply', 'new'), ('verify-source-still-frozen', 'old')]],
+            )
+            orig_exists = Path.exists
+
+            def exists(self):
+                if str(self).endswith('migration-isolation.conf') or str(self).endswith('migration-hold-stop.conf'):
+                    return True
+                return orig_exists(self)
+
+            with (
+                patch.object(runtime, 'R', root),
+                patch.object(runtime, 'validate_final'),
+                patch.object(runtime, 'check', return_value=('blue', {'Id': 'net'}, {'Id': 'pg1', 'Mounts': []})),
+                patch.object(runtime, 'inspect', return_value={'Id': 'pg1', 'Mounts': [], 'Image': 'caddy:fixture'}),
+                patch.object(runtime, 'run', side_effect=run),
+                patch.object(runtime, 'replace_network'),
+                patch.object(runtime, 'start_services'),
+                patch.object(runtime, 'mounts', return_value=[]),
+                patch('ops.migration.fresh_host_runtime.shutil.move', side_effect=fake_move),
+                patch.object(Path, 'exists', exists),
+            ):
+                runtime.activate('prod', receipt, caddy, sync.digest(caddy))
+            self.assertTrue(any(src.endswith('migration-isolation.conf') for src, _ in moved))
+            self.assertTrue(any(src.endswith('migration-hold-stop.conf') for src, _ in moved))
+            self.assertTrue(list((root / 'migration').glob('activation-*/DATA_SYNC_HOLD.completed')))
+
     def test_prod_start_does_not_require_an_edge_worker(self):
         calls = []
         def run(*args):

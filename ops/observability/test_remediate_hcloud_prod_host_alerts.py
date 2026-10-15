@@ -20,6 +20,10 @@ class HostAlertsInstallerTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         # Exercise a Hcloud installation independently of the live migration phase.
+        self.prod_matrix = self.root / 'prod-target-hetzner.json'
+        prod_matrix = json.loads(MATRIX.read_text())
+        prod_matrix['target']['deployable'] = True
+        self.prod_matrix.write_text(json.dumps(prod_matrix))
         self.edge_matrix = self.root / 'edge-targets-hetzner.json'
         matrix = json.loads((ROOT / 'deploy/hetzner/edge-targets-hetzner.json').read_text())
         matrix['targets']['uk1']['deployable'] = True
@@ -73,7 +77,7 @@ esac''',
         # environment escape hatch for a different installation root or host.
         variables = {
             "ALERT_SOURCE": SOURCE,
-            "PROD_MATRIX": MATRIX,
+            "PROD_MATRIX": self.prod_matrix,
             "EDGE_MATRIX": self.edge_matrix,
             "ALERT_INSTALLED": self.installed,
             "DROPIN_DIR": self.dropin,

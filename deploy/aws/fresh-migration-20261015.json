@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "batch": "aws-20261015",
-  "state": "precutover-hold",
+  "state": "cutover-complete",
   "prod": {
     "instance_id": "i-022f2553503211775",
     "instance_name": "tokenkey-prod-aws-20261015",

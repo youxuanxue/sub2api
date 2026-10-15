@@ -1,7 +1,7 @@
-name: AWS Standby Host Mem-Guard Refresh
+name: AWS Prod Host Mem-Guard Refresh
 
-# One-shot ops workflow that pushes the host memory-pressure defenses into a
-# running Stage0 prod EC2 via SSM, WITHOUT rebuilding the instance:
+# One-shot ops workflow that pushes the host memory-pressure defenses into the
+# live Stage0 prod EC2 via SSM, WITHOUT rebuilding the instance:
 #   (1) /swapfile release valve + vm.swappiness/vfs_cache_pressure sysctl
 #   (2) root/data disk metrics plus memory/disk Feishu alerts in
 #       tokenkey-disk-metrics.sh
@@ -11,14 +11,15 @@ name: AWS Standby Host Mem-Guard Refresh
 # that bootstrap at run time — single source of truth, no second copy to drift.
 # A future stack rebuild remains the source of truth.
 #
-# AWS standby only: payloads depend on EC2 IMDS/CloudWatch/EBS.
-# Live hcloud host setup belongs to deploy/hetzner/.
+# Targets live aws-fresh prod (EC2 IMDS/CloudWatch/EBS). Do not use
+# PROD_SSM_TARGET=aws here — that resolves the historical EC2 standby, not
+# the cutover host. Historical Hcloud prod is out of scope.
 
 on:
   workflow_dispatch:
     inputs:
       target:
-        description: "AWS standby prod only; not the live hcloud fleet"
+        description: "Live aws-fresh prod EC2 only (not historical Hcloud / old standby)"
         required: true
         type: choice
         options:
@@ -61,7 +62,7 @@ jobs:
         id: instance
         env:
           STACK_NAME: ${{ env.STACK_NAME }}
-          PROD_SSM_TARGET: aws
+          PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
         run: |
           set -euo pipefail
           RESOLVED_JSON="$(python3 ops/stage0/resolve_prod_ssm_target.py \

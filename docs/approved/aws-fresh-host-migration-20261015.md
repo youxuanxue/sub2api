@@ -1,21 +1,22 @@
 ---
 title: 全新 AWS 主机迁移与逐台 edge 切流
 status: approved
-approved_by: "feng (2026-10-15 会话批准推送、合并及 uk2 切流；后续明确授权 uk1、us4 正式切流，以及 us4 验证正常后切流 us5；prod 不切流)"
+approved_by: "feng (2026-10-15 会话批准推送、合并及 uk2 切流；后续明确授权 uk1、us4 正式切流，以及 us4 验证正常后切流 us5；2026-10-16 会话明确批准 prod 停写切流)"
 approved_at: 2026-10-15
 created: 2026-10-15
 owners: [tk-platform]
-scope: fresh AWS recovery, precutover preparation, and sequentially approved edge cutovers; us5 conditional on us4 verification; prod excluded
+scope: fresh AWS recovery and individually approved edge and prod cutovers
 ---
 
 # Hcloud → 全新 AWS 节点迁移
 
-迁移准备已获用户授权；用户现已授权先选低流量 edge 正式切流，并明确批准相关代码推送和合并。uk2 已完成；用户随后明确授权“继续 uk1 的正式切流，请安全推进切流”。用户再次明确确认下一台为 us4（纠正 uk4 笔误）；用户随后授权 us4 验证正常后继续 us5；prod 明确不切流。候选身份唯一清单为
+迁移准备已获用户授权；用户现已授权先选低流量 edge 正式切流，并明确批准相关代码推送和合并。uk2 已完成；用户随后明确授权“继续 uk1 的正式切流，请安全推进切流”。用户再次明确确认下一台为 us4（纠正 uk4 笔误）；用户随后授权 us4 验证正常后继续 us5；2026-10-16 会话明确批准 prod 停写切流。候选身份唯一清单为
 `deploy/aws/fresh-migration-20261015.json`，现网仍以 `deploy/hetzner/README.md` 为准。
 
-**最新状态（2026-10-15）：uk1、uk2、us4、us5 均已切换全新 AWS；prod 仍在 Hcloud，未切流。**
+**最新状态（2026-10-15/16 UTC）：uk1、uk2、us4、us5 与 prod 均已切换全新 AWS。**
+prod 于 18:38Z 停写，18:46Z 左右完成最终补数；激活时因 `/etc`→`/var/lib` 跨设备 `rename` 失败后手工 `shutil.move` 恢复激活，18:49Z 旧入口转发，四域名 DNS 已切到 `23.21.138.205`，`PROD_SSM_TARGET=aws-fresh`。
 us4 常规请求、备份与新流量通过，Gemini Web 上游超时并触发会话暂停保护，尚未通过该供应验收。
-用户已确认 us4 的 gemini-web-491 保持不可调度、交运营处理；us5 已完成正式切流及基础服务验收，其 Gemini 原有会话限制保持原样。下文 edge 预同步与 hold 描述为准备阶段历史，只有 prod 候选继续保持隔离。
+用户已确认 us4 的 gemini-web-491 保持不可调度、交运营处理；us5 已完成正式切流及基础服务验收，其 Gemini 原有会话限制保持原样。下文 edge/prod 预同步与 hold 描述为准备阶段历史。
 
 ## 授权与停止线
 
@@ -132,13 +133,14 @@ prod 批次 `oltp-prod-20261015T0723`、`precious-prod-20261015T074216Z`、
 并观察旧地址访问趋零；仅等待 TTL 不是所有客户端都已更新的证明。
 
 `prepare-aws-control-plane.py` 生成并离线验证待切流 patch，未改现网默认值。
-当前 GitHub `PROD_SSM_TARGET=hetzner`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR=167.233.211.115/32`；
-GHCR PAT 参数路径不变。四边 `/tokenkey/lightsail/<id>/ssm_managed_instance_id` 仍指向历史 AWS
+**准备阶段当时** GitHub 仍为 `PROD_SSM_TARGET=hetzner`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR=167.233.211.115/32`
+（prod 切流完成后的现网值见文首最新状态与 `deploy/hetzner/README.md`）；
+GHCR PAT 参数路径不变。四边 `/tokenkey/lightsail/<id>/ssm_managed_instance_id` 在准备阶段仍指向历史 AWS
 身份，正式窗口必须与 instance_name、AWS 矩阵和 GitHub 变量一并切换；不能提前覆盖。
 共享代码已补齐混合舰队的 Gemini worker 发布、账号导入、OAuth 检查、健康探针和运维 fan-out；
 待切流 patch 只修改选定 edge 的活矩阵和舰队文档。47 项临时副本测试及 workflow 覆盖检查通过；
-同 ID 双平台启用会拒绝自动派发。当前工作树活矩阵仍全部 Hcloud，prod 默认值与 GitHub 变量
-不变。旧平台的显式历史查询仍可用；不再生成默认 prod 同时迁移的全舰队补丁。
+同 ID 双平台启用会拒绝自动派发。准备阶段工作树活矩阵仍全部 Hcloud，prod 默认值与 GitHub 变量
+当时不变。旧平台的显式历史查询仍可用；不再生成默认 prod 同时迁移的全舰队补丁。
 
 生成命令：`python3 ops/migration/prepare-aws-control-plane.py --edge uk2 --output /tmp/aws-uk2-cutover-pending.patch`。
 当前按选定 edge 生成 `.actions.json`，列出该边的 instance_name、static_ip_name、public_ip、
@@ -484,4 +486,30 @@ error/不可调度、pending=true。切前 12:56:05 的历史成功不能证明�
 本轮保留上述会话保护和原调度状态，不清除限流、不重置 blocked/pending，留待运营核实恢复。
 
 四边计算节点迁移已完成；旧地址在 DNS 过渡期间继续转发，后续确认无旧地址请求后再移除过渡信任。
-旧节点仅用于历史回查，不恢复写入；prod 正式切流继续等待用户单独选择时机。
+旧节点仅用于历史回查，不恢复写入。
+
+## prod 正式切流授权（2026-10-16）
+
+用户明确批准：“好的，停写切流。安全推进。”本节覆盖上文历史 prod 停止线。
+保留原定 us-east-1 独立新 EC2 c7g.xlarge，不改日本；候选身份以 inventory 为准。
+执行顺序：停写前新基线及门禁 → 维护排空与源端只读 → precious/logs 最终增量校验 →
+激活候选并基础验收 → 旧地址只转发、四个正式域名和控制面切换 → 备份与旧库归档。
+不压测、不启动 prod Gemini worker、不复制历史 QA raw；新 QA 生命周期继续有效。
+旧库不恢复生产写入，失败只向前修复新机。
+
+## prod 正式切流结果（2026-10-15 UTC，跨日会话）
+
+机器可读回执：[`aws-prod-cutover-20261016.json`](../ops/aws-prod-cutover-20261016.json)。
+
+- 18:38:42 源端进入维护；18:40:10 `FROZEN` + `ARCHIVAL_HOLD`，`transaction_read_only=on`，
+  `in_flight=0`。最终 precious/logs 补数 `final_freeze_verified=true`。
+- 首次 `activate` 在归档 systemd drop-in 时因 EXDEV（`/etc`→`/var/lib`）失败；网络已翻成
+  非 internal、Caddy/edge pins 已写入。手工 `shutil.move` 收尾后激活成功；代码已改为
+  `shutil.move`，避免再次跨设备 `rename`。
+- 18:49:13 旧入口改为只转发至 `23.21.138.205`；四域名 Porkbun A 均已切到新 IP，
+  1.1.1.1 解析一致。`PROD_SSM_TARGET=aws-fresh`；
+  `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 过渡值保留双地址。
+- 新机网关/Caddy/Redis/PG healthy，可写；采样近五分钟 usage 数百条。旧库冻结后新增 usage=0。
+- 新机 `tokenkey-pgdump.timer` 已 enable；`tokenkey-20261015T185143Z.sql.gz` 已实际上传
+  `s3://tokenkey-prod-pgdump-682751977094/prod/pgdump/`。QA timers 仍保持暂停（历史 raw 未搬）。
+- 旧 Hcloud prod 仅 PG/Caddy/Redis + 转发，不恢复写入。

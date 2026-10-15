@@ -44,13 +44,19 @@ case "$*" in
   *send-command*)                    echo "cmd-stub" ;;
   *get-command-invocation*Status*)   echo "Success" ;;
   *list-command-invocations*)        echo '{"CommandInvocations":[{"InstanceId":"mi-stub"}]}' ;;
-  # resolve_prod_ssm_target (sync-feishu prod): default live Hetzner Hybrid inventory
+  # Resolve the same fresh prod identity as the inventory, without reaching AWS.
   *get-parameter*)                   exit 1 ;;
   *describe-stacks*)
     echo '[{"OutputKey":"InstanceId","OutputValue":"i-0123456789abcdef0"},{"OutputKey":"ApiUrl","OutputValue":"https://api.tokenkey.dev"}]'
     ;;
   *describe-instance-information*)
-    echo '{"InstanceInformationList":[{"InstanceId":"mi-0123456789abcdef0","ComputerName":"tokenkey-prod-hz-cax21","PingStatus":"Online"}]}'
+    python3 - "$TEST_FRESH_PROD_MATRIX" <<'PY_STUB'
+import json, sys
+prod = json.load(open(sys.argv[1]))['prod']
+print(json.dumps({'InstanceInformationList': [
+    {'InstanceId': prod['instance_id'], 'ComputerName': prod['instance_name'], 'PingStatus': 'Online'},
+    {'InstanceId': 'mi-0123456789abcdef0', 'ComputerName': 'tokenkey-prod-hz-cax21', 'PingStatus': 'Online'}]}))
+PY_STUB
     ;;
   *)                                 echo "stub" ;;
 esac
@@ -66,6 +72,7 @@ check_one() {
   mkdir -p "${tmp}/${out}"
   # We only need the params file; the stub run may exit nonzero (no real AWS).
   # The missing-file case is handled explicitly below.
+  TEST_FRESH_PROD_MATRIX="${REPO_ROOT}/deploy/aws/fresh-migration-20261015.json" \
   PATH="${stub}:${PATH}" STAGE0_SSM_OUTPUT_DIR="${tmp}/${out}" AWS_REGION=us-east-1 \
     "$@" >/dev/null 2>"${tmp}/${out}/err" || true  # preflight-allow: swallow
   # Primitives name their params file differently (deploy: ssm-params.json,

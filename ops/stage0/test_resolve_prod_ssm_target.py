@@ -25,15 +25,15 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
     def setUp(self) -> None:
         self.mod = load_mod()
 
-    def test_auto_defaults_hetzner_without_cloud_lookup(self) -> None:
+    def test_auto_defaults_fresh_aws_without_cloud_lookup(self) -> None:
         with mock.patch.dict("os.environ", {}, clear=True), mock.patch.object(
             self.mod.subprocess, "check_output", side_effect=AssertionError("unexpected AWS lookup")
         ), mock.patch.object(self.mod.subprocess, "run", side_effect=AssertionError("unexpected cutover lookup")):
-            self.assertEqual(self.mod.resolve_mode("auto"), "hetzner")
+            self.assertEqual(self.mod.resolve_mode("auto"), "aws-fresh")
 
-    def test_auto_env_still_defaults_hetzner(self) -> None:
+    def test_auto_env_still_defaults_fresh_aws(self) -> None:
         with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "auto"}, clear=True):
-            self.assertEqual(self.mod.resolve_mode("auto"), "hetzner")
+            self.assertEqual(self.mod.resolve_mode("auto"), "aws-fresh")
 
     def test_explicit_standby_env(self) -> None:
         with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "aws"}, clear=True):

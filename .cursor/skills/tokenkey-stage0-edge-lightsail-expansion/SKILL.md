@@ -1,17 +1,13 @@
 ---
 name: tokenkey-stage0-edge-lightsail-expansion
 description: >-
-  Legacy AWS standby only: provision or recover an explicitly requested Lightsail host. Current prod/edges are Hetzner; for normal new edges and deployment use deploy/hetzner/README.md and tokenkey-stage0-release-rollout.
+  Provision/recover a TokenKey Lightsail edge (live fleet). Image upgrades use
+  tokenkey-stage0-release-rollout; Hetzner edge matrices are historical only.
 ---
 
-# TokenKey：Lightsail Edge（standby）全流程
+# TokenKey：Lightsail Edge 全流程
 
-> 仅用于明确指定的 AWS 旧机/standby 操作。现网与新节点入口为 `deploy/hetzner/README.md`。
-> 旧矩阵 `deployable=false` 是退出现网的事实，不要为执行本技能临时改为 true。
-
-
-适用于 TokenKey fork of sub2api。**现网活边 SSOT：** [`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)。本 skill 只服务 **Lightsail standby / 回滚 / 新建 LS 边**（EC2/CFN edge 已移除）。
-权威纪律以仓库根 `CLAUDE.md` 为准。历史 delta：`docs/spec-delta/edge-lightsail.md`。
+**现网活边 SSOT：** [`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)。日常升级走 release-rollout / `dispatch-edge-deploy.sh`（auto → Lightsail）。本 skill 只做 Lightsail **provision/重建/回滚**；`deployable=false` 勿临时改 true。权威纪律见根 `CLAUDE.md`。
 
 ## 执行 owner
 

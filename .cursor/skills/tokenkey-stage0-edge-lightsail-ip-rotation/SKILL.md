@@ -1,17 +1,13 @@
 ---
 name: tokenkey-stage0-edge-lightsail-ip-rotation
 description: >-
-  Legacy AWS standby only: rotate a Lightsail Static IP when that old platform is explicitly requested. Current fleet is Hetzner; do not use this skill for ordinary edge IP or deployment requests.
+  Rotate a live Lightsail edge Static IP (pollution recovery). Not for Hetzner
+  history or image deploys (use tokenkey-stage0-release-rollout).
 ---
 
 # TokenKey：Lightsail Edge 静态 IP 轮换（污染快速恢复）
 
-> 仅用于明确指定的 AWS 旧机/standby 操作。现网与新节点入口为 `deploy/hetzner/README.md`。
-> 旧矩阵 `deployable=false` 是退出现网的事实，不要为执行本技能临时改为 true。
-
-
-适用于通过 `deploy-edge-lightsail-stage0.yml` 部署的 Lightsail Edge（与 EC2 EIP 路径不通用）。
-Lightsail 路径**没有 CloudFormation**，所以**没有 drift IMPORT** 这一节。EC2/EIP edge 路径已删除。
+活边入口 [`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)。只轮换 Static IP / 登记污染；升级勿用。`deployable=false` 勿改 true。适用于 `deploy-edge-lightsail-stage0.yml`（无 CFN / 无 EIP drift IMPORT）。
 
 ## 确定性基线
 
