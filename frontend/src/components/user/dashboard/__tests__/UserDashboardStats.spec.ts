@@ -127,18 +127,19 @@ describe('UserDashboardStats 按平台拆分', () => {
 
   it('固定顺序之外的平台也产生卡片，并排在固定顺序之后', () => {
     const w = mountStats(
-      makeStats({ total_actual_cost: 0.5, today_actual_cost: 0, by_platform: [usage('kimi', 0.3), usage('anthropic', 0.2)] })
+      makeStats({ total_actual_cost: 0.5, today_actual_cost: 0, by_platform: [usage('unknown-test-platform', 0.3), usage('anthropic', 0.2)] })
     )
-    expect(cardPlatforms(w)).toEqual(['anthropic', 'kimi'])
-    expect(w.text()).toContain(getPublicPlatformLabel('kimi'))
+    expect(cardPlatforms(w)).toEqual(['anthropic', 'unknown-test-platform'])
+    expect(w.text()).toContain(getPublicPlatformLabel('unknown-test-platform'))
   })
 
-  it('TypeSafe 使用 Jev 标签并位于未知平台之前', () => {
+  it('历史供应平台使用公开标签 owner，不混入管理面别名', () => {
     const w = mountStats(
-      makeStats({ total_actual_cost: 0.5, today_actual_cost: 0, by_platform: [usage('kimi', 0.3), usage('typesafe', 0.2)] })
+      makeStats({ total_actual_cost: 0.5, today_actual_cost: 0, by_platform: [usage('unknown-test-platform', 0.3), usage('typesafe', 0.2)] })
     )
-    expect(cardPlatforms(w)).toEqual(['typesafe', 'kimi'])
-    expect(w.text()).toContain('TypeSafe / Jev')
+    expect(cardPlatforms(w)).toEqual(['typesafe', 'unknown-test-platform'])
+    expect(w.text()).toContain(getPublicPlatformLabel('typesafe'))
+    expect(w.text()).not.toContain('TypeSafe / Jev')
   })
 
   it('总值大于各平台之和时追加"其他"卡片，且不计入平台计数', () => {

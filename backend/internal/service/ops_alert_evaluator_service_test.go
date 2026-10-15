@@ -590,6 +590,7 @@ func TestIsEdgeNode(t *testing.T) {
 		{"edge us6", "https://api-us6.tokenkey.dev", true},
 		{"edge uk1", "https://api-uk1.tokenkey.dev", true},
 		{"prod", "https://api.tokenkey.dev", false},
+		{"domestic prod", "https://api-cn.tokenkey.dev", false},
 		{"unset frontend url", "", false},
 		{"non-edge custom host", "https://gateway.example.com", false},
 	}

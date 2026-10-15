@@ -661,6 +661,11 @@ func siteFromFrontendURL(frontendURL string) string {
 		return "unknown"
 	}
 	host := parsed.Hostname()
+	// The domestic gateway serves customers directly; its api-cn prefix is
+	// not a mirror-relay edge. Keep the exception in this shared role owner.
+	if strings.EqualFold(host, "api-cn.tokenkey.dev") {
+		return "cn-prod"
+	}
 	first := host
 	if idx := strings.IndexByte(host, '.'); idx > 0 {
 		first = host[:idx]

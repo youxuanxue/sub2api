@@ -190,6 +190,7 @@ for (const role of ['user', 'admin']) {
     await page.goto('/models')
     await expect(page.locator('aside').first()).toBeVisible()
     await expect(page.locator(`aside a[href="${role === 'admin' ? '/admin/users' : '/keys'}"]`)).toBeVisible()
+    await expect(page.locator('aside a[href="/studio"]')).toBeVisible()
     await expect(page.locator('[data-tk^="models-marketplace-card-"]')).toHaveCount(catalog.data.length)
     expect(errors).toEqual([])
   })
