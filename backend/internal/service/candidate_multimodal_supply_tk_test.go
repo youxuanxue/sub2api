@@ -157,8 +157,11 @@ func TestSupplyKnownNegativeAliTokenPlan(t *testing.T) {
 	require.True(t, supplyKnownNegativeForInputVideo(&ali, "qwen3.7-max"))
 	require.True(t, supplyKnownNegativeForInputImage(&ali, "qwen3.7-max"))
 	require.False(t, supplyKnownNegativeForInputVideo(&ali, "glm-5.3"),
-		"glm-5.3 video is servable on Ali — must not inherit Volc text-only negative")
-	require.False(t, supplyKnownNegativeForInputImage(&ali, "glm-5.3"))
+		"image evidence must not change the unverified Ali video policy")
+	require.True(t, supplyKnownNegativeForInputImage(&ali, "glm-5.3"))
+	require.True(t, supplyKnownNegativeForInputImage(&ali, "glm-5.3[thinking]"))
+	require.False(t, supplyKnownNegativeForInputImage(&ali, "glm-5.2"))
+	require.False(t, supplyKnownNegativeForInputImage(&ali, "qwen3.7-plus"))
 }
 
 func multimodalSupplyQianfanTokenPlanAccount(id int64, groups ...int64) Account {
@@ -411,4 +414,45 @@ func TestCandidateSelectionImageEmptyPoolNamesImage(t *testing.T) {
 	require.Equal(t, multimodalInputModalityImage, UnsupportedInputModalityFromError(err))
 	require.Equal(t, "No available endpoints support input image for model: glm-5.3",
 		TkUnsupportedInputModalityMessage("glm-5.3", UnsupportedInputModalityFromError(err)))
+}
+
+// Regression: Ali Responses rejects images, while Chat returns 200 without
+// seeing them. Both must be removed before selection, not retried as outages.
+func TestAliGLMImageCandidateAdmission(t *testing.T) {
+	for _, endpoint := range []string{"/v1/chat/completions", "/v1/responses"} {
+		t.Run(endpoint, func(t *testing.T) {
+			ali := multimodalSupplyAliTokenPlanAccount(27, 10)
+			attachTestProtocolCapability(&ali, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
+			groups := []Group{grp(10, PlatformNewAPI, 1, false)}
+			r, _, key := globalCandidateFixture(groups, []Account{ali})
+			imageBody := multimodalImageChatBody("glm-5.3")
+			textBody := multimodalTextChatBody("glm-5.3")
+			if endpoint == "/v1/responses" {
+				imageBody = []byte(`{"model":"glm-5.3","input":[{"role":"user","content":[{"type":"input_text","text":"describe"},{"type":"input_image","image_url":"https://example.com/a.png"}]}]}`)
+				textBody = []byte(`{"model":"glm-5.3","input":"hello"}`)
+			}
+			ctx := r.WithRequest(context.Background(), ShapeOpenAIChat, endpoint, "glm-5.3", imageBody)
+			require.Equal(t, openAICompatIneligibleInputModality+"(image)", openAIRequestEligibilityReason(ctx, &ali, "glm-5.3", false, ""))
+			_, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, endpoint, "glm-5.3", imageBody, "", "")
+			require.ErrorIs(t, err, ErrUnsupportedInputModality)
+			require.Equal(t, "image", UnsupportedInputModalityFromError(err))
+			require.Nil(t, state)
+
+			textCtx := r.WithRequest(context.Background(), ShapeOpenAIChat, endpoint, "glm-5.3", textBody)
+			require.Empty(t, openAIRequestEligibilityReason(textCtx, &ali, "glm-5.3", false, ""))
+			_, textState, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, endpoint, "glm-5.3", textBody, "", "")
+			require.NoError(t, err)
+			require.Equal(t, ali.ID, textState.current.account.ID)
+
+			// Unknown suppliers remain eligible; the Ali negative must not become a
+			// global model ban or prevent another authorized supplier from serving it.
+			other := multimodalSupplyNVIDIAAccount(138, 10)
+			other.Credentials["model_mapping"] = map[string]any{"glm-5.3": "glm-5.3"}
+			attachTestProtocolCapability(&other, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
+			mixed, _, mixedKey := globalCandidateFixture(groups, []Account{ali, other})
+			_, mixedState, err := mixed.PrepareCandidateRequest(context.Background(), mixedKey, ShapeOpenAIChat, endpoint, "glm-5.3", imageBody, "", "")
+			require.NoError(t, err)
+			require.Equal(t, other.ID, mixedState.current.account.ID)
+		})
+	}
 }
