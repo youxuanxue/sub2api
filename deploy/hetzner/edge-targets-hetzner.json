@@ -28,8 +28,8 @@
   },
   "targets": {
     "uk1": {
-      "deployable": true,
-      "purpose": "live"
+      "deployable": false,
+      "purpose": "historical read-only data; traffic forwarded to fresh AWS"
     },
     "uk2": {
       "deployable": false,

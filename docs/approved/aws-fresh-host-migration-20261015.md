@@ -1,20 +1,20 @@
 ---
-title: 全新 AWS 主机迁移与 uk2 首台切流
+title: 全新 AWS 主机迁移与英国 edge 切流
 status: approved
-approved_by: "feng (2026-10-15 会话明确批准推送、合并并执行 uk2 单节点切流)"
+approved_by: "feng (2026-10-15 会话批准推送、合并及 uk2 切流；后续明确授权 uk1 正式切流)"
 approved_at: 2026-10-15
 created: 2026-10-15
 owners: [tk-platform]
-scope: fresh AWS recovery, precutover preparation, and approved uk2-only cutover
+scope: fresh AWS recovery, precutover preparation, and sequentially approved uk2 and uk1 cutovers
 ---
 
 # Hcloud → 全新 AWS 节点迁移
 
-迁移准备已获用户授权；用户现已授权先选低流量 edge 正式切流，并明确批准相关代码推送和合并。本轮仅 uk2；prod 与其余 edge 继续暂停切流。候选身份唯一清单为
+迁移准备已获用户授权；用户现已授权先选低流量 edge 正式切流，并明确批准相关代码推送和合并。uk2 已完成；用户随后明确授权“继续 uk1 的正式切流，请安全推进切流”。prod、us4、us5 继续暂停切流。候选身份唯一清单为
 `deploy/aws/fresh-migration-20261015.json`，现网仍以 `deploy/hetzner/README.md` 为准。
 
-**最新状态（2026-10-15）：uk2 已切换全新 AWS；prod、uk1、us4、us5 仍在 Hcloud。**
-下文预同步、hold 与待执行描述为准备阶段记录，仅未切流四台继续适用。
+**最新状态（2026-10-15）：uk1、uk2 已切换全新 AWS；prod、us4、us5 仍在 Hcloud。**
+下文预同步、hold 与待执行描述为准备阶段记录，仅未切流三台继续适用。
 
 ## 授权与停止线
 
@@ -260,7 +260,8 @@ prod 上计划临时暂停并在验收后恢复的原启用镜像账号仅为：
   保留底层通用同步回执的 `final_freeze_verified=false`，不把预同步工具伪装为停写控制器。
 - 新机保留原 PG 卷，重建正常网络；PG 数据目录、账号数与日志数在启动业务前一致。
   首次启动遇到业务容器引用已删除隔离网络 ID，使用正式 Compose 强制重建网关/Caddy 后解决；
-  再启动时 Gemini control alias 要求 worker 已运行，因此先启动 worker 再启动 systemd unit。
+  当时网关及控制代理已经存在，先启动 worker 再启动 systemd unit 才成功；
+  全新节点还必须先启动网关并建立控制代理，完整顺序见下文 uk1 复盘。
   后续节点必须把这两步纳入解除隔离顺序，不能只连接新网络或删除 hold。
 - 10:19:33 旧入口改为只转发至新机，单 edge 维护响应窗口 **9 分 21 秒**；四镜像均于
   10:20:59 恢复，暂停操作窗口 **11 分 10 秒**。其他 edge 持续服务，不能把这两个窗口
@@ -313,7 +314,7 @@ uk2 维护响应窗口为 10:10:12–10:19:33 UTC（9 分 21 秒），镜像暂�
   这不是停写控制器：不会自行暂停账号、停源服务、改 DNS、启动候选或恢复镜像。
 - `fresh_host_runtime.py activate`：仅消费刚完成（10 分钟内）的 final sync 回执和经审核的
   Caddy 文件/hash；edge 还需 `--prod-ip`。保留原 PG 容器及全部挂载，重建网络后核对；
-  仅重建 Redis/Caddy/选定网关，不拉镜像；edge 先 worker ready，再启动 systemd。
+  仅重建 Redis/Caddy/选定网关，不拉镜像；edge 先网关健康，再建立控制代理、等待 worker ready，最后启动 systemd。
   Caddy active color 必须匹配，edge `.env` 同步当前 prod CIDR。失败恢复持久 hold、停候选
   业务写入者；清理失败显式报错，不恢复旧机写入，不切 DNS。此入口在剩余真实业务栈上尚未
   执行，正式窗口前仍需检查已准备配置及对应版本测试证据。
@@ -350,3 +351,37 @@ CIDR。真实候选上的 check 与同步演练证据单独记录；未再次切
 可确认提前准备的约 50 秒已移出后续停写路径，连续补数不再有每个 scope 的人工交接。
 证据见 [`aws-short-window-validation-20261015.json`](../ops/aws-short-window-validation-20261015.json)。
 prod 最新检查使用无 Gemini worker 的专用路径并通过；未启动 prod 候选业务栈。
+
+## uk1 正式切流（2026-10-15 UTC）
+
+本节依据用户后续明确的 uk1 切流授权，覆盖上文历史 uk2-only 停止线；prod、us4、us5
+继续在 Hcloud，prod 不需要 Gemini worker。本次不压测。
+
+- 预增量：压缩 21,390,269 字节；导出 45.092 秒、恢复与内容核验 78.660 秒。
+  最终候选基线在停写前完成；最终同步导出 45.244 秒、恢复与核验 76.099 秒，
+  precious/logs 压缩共 19,207,020 字节，源端冻结前后检查均通过。
+- 镜像暂停从 11:43:41 开始；11:43:50 进入维护，11:44:35 排空且冻结只读，
+  11:52:49 旧入口转发新机，11:54:33 四镜像全部恢复。
+  单 edge 维护响应窗口 **8 分 59 秒**；暂停操作至恢复 **10 分 52 秒**，不是全站停服。
+- 暂停及恢复仅包含原启用的 215/198/217/64；CC 40、Gemini 212 原本关闭且继续关闭。
+  所有启用类型存在其他 edge 同组供应，切前备用 uk2 小请求成功。
+- 首次激活因 worker 必须调用网关控制 API 而失败；只先启动网关仍缺少 `tokenkey` 控制代理。
+  修复为网关健康 → 控制代理 → worker ready → systemd，PG 原容器与全部挂载保持一致。
+  失败期间恢复候选 hold 并停业务写入者，旧机未恢复写入。两次失败均保留原始回执。
+- 旧入口恢复转发后，本地 Homebrew Node 因 simdutf 动态库缺失无法执行 admin CLI；
+  改用从 nodejs.org 下载并校验 SHA256 的独立 Node 运行同一 canonical CLI，恢复镜像成功。
+  未扩大凭证权限。后续窗口需要可用的固定运行时，并提前实测控制代理依赖。
+- 正式 DNS、四项 Lightsail SSM 参数和混合舰队矩阵已切换；prod 出口与其余未选节点不变。
+  新旧地址 `/health` 200，prod 至两地址 relay 未鉴权均 401；真实 prod 镜像 198 的
+  deepseek-v4-flash 请求为 servable，usage 归属正确。11:58:49 采样新机最近 5 分钟
+  4 条 usage（含 1 次探针，其余 3 条来自另一账号）；旧库冻结后新增 usage 为 0。
+- 旧库整库归档：
+  `s3://tokenkey-prod-pgdump-682751977094/edge/uk1/pgdump/archive-hcloud-20261015/frozen-full.dump`，
+  26,854,107 字节；上传后下载 SHA256 一致，AES256。新机 pgdump 实际备份、下载哈希
+  校验成功，备份/磁盘指标/GHCR 清理 timers 均 active。
+  沿用现有桶独立前缀，由用户决定清理；不承诺新前缀自动保留 400 天。
+
+控制面完整 preflight 在停写前通过。修复测试中 uk1 必须为 Hcloud 的假设，分别使用显式
+Hcloud/Lightsail 测试矩阵；将 admin 目标解析与主机告警测试加入切流补丁门禁。
+启动回归验证控制代理可在 worker 尚未启动时通过真实网关 HTTP 路径检查，worker 退出
+立即报错；prod 不启动 worker。旧地址继续转发，待流量归零后再移除过渡信任。

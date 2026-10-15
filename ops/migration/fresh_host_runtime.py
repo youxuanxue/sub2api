@@ -75,6 +75,10 @@ def check(node):
     for name in (('tokenkey-postgres',) if node == 'prod' else ('tokenkey-postgres', 'tokenkey-gemini-web')):
         if inspect(name)['HostConfig']['NetworkMode'] != NET:
             raise ValueError('immutable network ID requires precutover repair: ' + name)
+    if node != 'prod':
+        run('docker', 'image', 'inspect', 'alpine/socat:1.8.0.0')
+        if not Path(__file__).with_name('sync-control-alias-on-host.sh').is_file():
+            raise ValueError('control alias helper missing from prepared bundle')
     for file, names in (('docker-compose.yml', ('caddy', 'redis')),
                         ('docker-compose.bluegreen.yml', ('tokenkey-' + color,))):
         config = json.loads(compose(file, 'config', '--format', 'json'))
@@ -165,14 +169,20 @@ def start_services(color, *, worker=True):
     # Recreate only replaceable containers. NetworkMode may hold a deleted ID;
     # network connect alone cannot fix it. PostgreSQL must NEVER enter compose up.
     compose('docker-compose.yml', 'up', '-d', '--no-deps', '--force-recreate', '--pull', 'never', 'redis', 'caddy')
+    compose('docker-compose.bluegreen.yml', 'up', '-d', '--no-deps', '--force-recreate', '--pull', 'never', 'tokenkey-' + color)
+    wait_ready(lambda: bool(run('docker', 'exec', 'tokenkey-' + color, 'wget', '-q', '-T', '3', '-O', '-', 'http://localhost:8080/health')))
     if worker:
+        # The worker validates its control API at startup. Build the alias only
+        # after the gateway is healthy, before starting the worker or systemd.
+        run('bash', str(Path(__file__).with_name('sync-control-alias-on-host.sh')))
         run('docker', 'start', 'tokenkey-gemini-web')
         def worker_ready():
+            if not inspect('tokenkey-gemini-web')['State']['Running']:
+                raise ValueError('worker exited before readiness; inspect startup diagnostics')
             raw = run('docker', 'exec', 'tokenkey-gemini-web', 'python', '-c',
                       "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8091/readyz',timeout=3).read().decode())")
             return json.loads(raw).get('status') == 'ready'
         wait_ready(worker_ready)
-    compose('docker-compose.bluegreen.yml', 'up', '-d', '--no-deps', '--force-recreate', '--pull', 'never', 'tokenkey-' + color)
     run('systemctl', 'reset-failed', 'tokenkey.service')
     run('systemctl', 'start', 'tokenkey.service')  # ExecStartPost needs the ready worker.
     wait_ready(lambda: bool(run('docker', 'exec', 'tokenkey-' + color, 'wget', '-q', '-T', '3', '-O', '-', 'http://localhost:8080/health')))

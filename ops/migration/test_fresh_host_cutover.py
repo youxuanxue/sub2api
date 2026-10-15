@@ -114,10 +114,13 @@ api-uk1.tokenkey.dev {
 
 
 class RuntimeTests(unittest.TestCase):
-    def test_worker_ready_precedes_service_start_and_pg_never_recreated(self):
+    def test_gateway_and_control_alias_ready_before_worker_then_systemd(self):
         events = []
         def run(*args):
             events.append(args)
+            if args[:3] == ('docker', 'start', 'tokenkey-gemini-web'):
+                self.assertTrue(any(e[:3] == ('docker', 'exec', 'tokenkey-blue') for e in events))
+                self.assertTrue(any(e[0] == 'bash' and e[1].endswith('sync-control-alias-on-host.sh') for e in events))
             if args[:3] == ('docker', 'exec', 'tokenkey-gemini-web'):
                 return json.dumps({'status': 'ready'})
             if args[:2] == ('systemctl', 'is-active'):
@@ -125,7 +128,7 @@ class RuntimeTests(unittest.TestCase):
             return 'ok'
         def compose(file, *args):
             events.append(('compose', file, *args))
-        with patch.object(runtime, 'run', side_effect=run), patch.object(runtime, 'compose', side_effect=compose), patch.object(runtime, 'resolve', return_value=('tokenkey-blue', [])):
+        with patch.object(runtime, 'run', side_effect=run), patch.object(runtime, 'inspect', return_value={'State': {'Running': True}}), patch.object(runtime, 'compose', side_effect=compose), patch.object(runtime, 'resolve', return_value=('tokenkey-blue', [])):
             runtime.start_services('blue')
         worker = next(i for i, e in enumerate(events) if e[:3] == ('docker', 'exec', 'tokenkey-gemini-web'))
         service = events.index(('systemctl', 'start', 'tokenkey.service'))
@@ -133,14 +136,15 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual([e[-1] for e in events if e[0] == 'compose'], ['caddy', 'tokenkey-blue'])
         self.assertFalse(any('postgres' in e or 'tokenkey-postgres' in e for e in events))
 
-    def test_worker_failure_never_starts_gateway_or_systemd(self):
+    def test_exited_worker_fails_immediately_without_starting_systemd(self):
         events = []
         def run(*args):
             events.append(args)
-            return '{}'
-        with patch.object(runtime, 'run', side_effect=run), patch.object(runtime, 'compose'), patch.object(runtime, 'wait_ready', side_effect=RuntimeError('timeout')):
-            with self.assertRaisesRegex(RuntimeError, 'timeout'):
+            return '{"status":"ok"}'
+        with patch.object(runtime, 'run', side_effect=run), patch.object(runtime, 'compose'), patch.object(runtime, 'inspect', return_value={'State': {'Running': False}}), patch.object(runtime.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(ValueError, 'worker exited'):
                 runtime.start_services('blue')
+            sleep.assert_not_called()
         self.assertNotIn(('systemctl', 'start', 'tokenkey.service'), events)
 
     def test_activation_failure_restores_hold_and_stops_all_writers(self):

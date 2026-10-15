@@ -85,6 +85,8 @@ def verify(inventory, files, edges):
             'deploy.hetzner.test_render_bootstrap',
             'ops.stage0.test_resolve_prod_ssm_target', 'ops.stage0.test_edge_routing_matrix',
             'ops.stage0.test_edge_ssm_execution', 'ops.stage0.test_hcloud_ops_contract',
+            'ops.stage0.test_edge_admin_resolve_target',
+            'ops.observability.test_remediate_hcloud_prod_host_alerts',
             'deploy.aws.stage0.test_resolve_edge_target_prod_ops_matrix_lightsail',
             'deploy.aws.stage0.test_resolve_edge_target_list_deployable',
             'scripts.test_resolve_edge_deploy_route', 'ops.observability.test_probe_release_control_plane'],
