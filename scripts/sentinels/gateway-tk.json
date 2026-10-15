@@ -12043,19 +12043,21 @@
     {
       "path": "deploy/domestic/prepare-runtime.py",
       "must_contain": [
-        "@unavailable_live_sideband",
+        "@unavailable",
+        "provider-compatible paths stay application-owned",
         "refusing to omit domestic restrictions"
       ],
-      "rationale": "Domestic production must fail closed if the shared Caddy insertion point changes; provider media aliases and live sidebands remain excluded without blocking text API or administration. Real Caddy HTTP coverage in test_runtime.py owns the semantic boundary."
+      "rationale": "Domestic production must fail closed if the shared Caddy insertion point changes, while Caddy only rejects QA/internal QA. Media, realtime and provider-compatible paths remain application-owned so future model capability does not require an ingress configuration change."
     },
     {
       "path": "deploy/domestic/test_runtime.py",
       "must_contain": [
-        "def test_unavailable_features_never_reach_app(",
+        "def test_qa_features_never_reach_app(",
+        "def test_media_and_provider_paths_remain_application_owned(",
         "def test_text_api_and_management_still_reach_app(",
         "def test_prepare_preserves_secrets_and_private_permissions("
       ],
-      "rationale": "Execute rendered domestic ingress through real Caddy: forbidden aliases must return 404 before the upstream, supported text/management routes must reach it, and preparation must preserve private secrets on rerun."
+      "rationale": "Execute rendered domestic ingress through real Caddy: QA is rejected before the upstream, while media/provider/realtime paths and supported text/management routes reach the application; preparation preserves private secrets on rerun."
     },
     {
       "path": "scripts/checks/caddyfile-syntax.sh",

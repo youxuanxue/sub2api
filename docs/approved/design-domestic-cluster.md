@@ -68,18 +68,21 @@ RPO/RTO 按用户要求后续运维处理，本期不作恢复能力承诺，不
 不得格式化。部署前运行 preflight。后续升级须保留共享 drain 和健康检查契约，首次 bootstrap
 不作为可重复强制重启生产服务的升级命令。
 
-QA、媒体和其他工具不进入此次服务能力。验收须确认 QA capture 关闭、未创建相关依赖，
-公共入口拒绝未开放功能调用。现有镜像菜单能力如有缺口，明确记录并修复，不能仅写文档称已隔离。
+QA 和其他工具不进入此次一期服务承诺。验收须确认 QA capture 关闭、未创建相关依赖，
+并通过前端隐藏当前未发布工具。媒体、视频、音频、实时会话及 provider 兼容接口不在
+Caddy 层按路径永久封禁；应用根据鉴权、模型目录和供应账号能力决定是否可用，避免未来
+新增模型必须先改网关配置。
 
 ## Implementation / Owners
 
-国内站的界面限制以实际浏览器域名 `api-cn.tokenkey.dev` 判定，不增加管理开关；后端公共
-入口独立执行媒体/实时功能拒绝，界面隐藏不代替鉴权。修复发布前，现网旧镜像仍有工具菜单。
+国内站的界面限制以实际浏览器域名 `api-cn.tokenkey.dev` 判定，不增加管理开关；前端隐藏
+当前未发布工具，界面隐藏不代替鉴权。公网入口只在 Caddy 层拒绝 QA，媒体/实时/provider
+能力由应用和模型目录裁决。修复发布前，现网旧镜像仍有工具菜单。
 
 | 行为 | 共享 owner | 验证 |
 |---|---|---|
 | 菜单、快捷入口、SPA 直达统一限制 Studio/批量图像 | `frontend/src/utils/siteRouteAvailability.ts`；Sidebar、Router、Quickstart、`useBatchImageAccess` 只消费它 | `siteRouteAvailability.spec.ts`、`public-pages.e2e.ts` 国内 user/admin 与其他站点回归 |
-| 公网拒绝未开放接口及 provider/兼容别名 | `deploy/domestic/prepare-runtime.py` 渲染共享 Caddy 模板 | `deploy/domestic/test_runtime.py` 真实 Caddy 转发/拒绝测试，经 `caddyfile-syntax.sh` 进入 preflight |
+| 公网拒绝 QA，媒体/provider/实时路径保持应用所有权 | `deploy/domestic/prepare-runtime.py` 渲染共享 Caddy 模板 | `deploy/domestic/test_runtime.py` 真实 Caddy QA 拒绝与媒体/provider/实时转发测试，经 `caddyfile-syntax.sh` 进入 preflight |
 
 # DNS、TLS 与验收
 

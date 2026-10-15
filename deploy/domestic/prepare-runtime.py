@@ -66,29 +66,16 @@ caddy = (
     .replace("${ACME_EMAIL}", "admin@cn.tokenkey.dev")
     .replace("${MAIN_GATEWAY_ALLOWED_CIDR}", "0.0.0.0/0")
 )
-# Restrict unused product endpoints at the only public ingress. App 8080 is private.
+# Keep QA and internal QA endpoints out of the public ingress. Media and other
+# provider-compatible paths stay application-owned so future model capability
+# can be enabled without a Caddy change and reload. App 8080 is private.
 block = """
-\t@unavailable {
-\t\tpath /studio /studio/* /batch-image /batch-image/*
-\t\tpath /images /images/* /video /video/* /videos /videos/* /audio /audio/*
-\t\tpath /v1/images /v1/images/* /v1/video /v1/video/* /v1/videos /v1/videos/* /v1/audio /v1/audio/*
-\t\tpath /v1/live /v1/live/* /v1/realtime /v1/realtime/* /backend-api/codex/realtime/*
-\t\tpath /api/v3/contents/generations/tasks /api/v3/contents/generations/tasks/*
-\t\tpath /v3/contents/generations/tasks /v3/contents/generations/tasks/* /v1/contents/generations/tasks /v1/contents/generations/tasks/*
-\t\tpath /openrouter/v1/images /openrouter/v1/images/* /openrouter/v1/videos /openrouter/v1/videos/*
-\t\tpath /api/v1/qa* /api/v1/admin/qa* /api/v1/media* /api/v1/batch-image* /api/v1/batch-jobs* /api/v1/studio*
-\t}
-\thandle @unavailable {
-\t\trespond "This feature is unavailable on this site" 404
-\t}
-\t@unavailable_live_sideband {
-\t\tmethod GET
-\t\tpath_regexp domestic_live ^/backend-api/codex/[^/]+/?$
-\t\tnot path /backend-api/codex/models /backend-api/codex/responses
-\t}
-\thandle @unavailable_live_sideband {
-\t\trespond "This feature is unavailable on this site" 404
-\t}
+	@unavailable {
+		path /api/v1/qa* /api/v1/admin/qa*
+	}
+	handle @unavailable {
+		respond "This feature is unavailable on this site" 404
+	}
 """
 if caddy.count("\thandle @allowed_relay {") != 1:
     raise SystemExit("Shared Caddy ingress changed; refusing to omit domestic restrictions")

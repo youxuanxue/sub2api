@@ -107,8 +107,19 @@ class DomesticRuntimeTest(unittest.TestCase):
         with response:
             return response.status, response.read().decode()
 
-    def test_unavailable_features_never_reach_app(self):
-        # Aliases with distinct backend registrations, plus normalized paths.
+    def test_qa_features_never_reach_app(self):
+        paths = (
+            "/api/v1/qa", "/api/v1/qa/raw", "/api/v1/admin/qa/stats",
+        )
+        for path in paths:
+            for method in ("GET", "POST"):
+                with self.subTest(path=path, method=method):
+                    self.assertEqual(self.request(path, method),
+                                     (404, "This feature is unavailable on this site"))
+
+    def test_media_and_provider_paths_remain_application_owned(self):
+        # The application, model catalog and account capabilities own these
+        # decisions; ingress must not require a Caddy change for future models.
         paths = (
             "/v1/images/generations", "/images/generations",
             "/v1/video/generations", "/video/generations",
@@ -117,18 +128,15 @@ class DomesticRuntimeTest(unittest.TestCase):
             "/v1/contents/generations/tasks", "/openrouter/v1/images",
             "/openrouter/v1/videos/job", "/audio/speech", "/v1/audio/speech",
             "/v1/live", "/v1/live/call", "/backend-api/codex/realtime/calls",
-            "/v1/realtime",
+            "/backend-api/codex/call-id", "/v1/realtime",
             "/studio", "/studio/image", "/batch-image", "/api/v1/studio/models",
-            "/api/v1/qa", "/api/v1/admin/qa/stats", "/api/v1/media/upload",
+            "/api/v1/media/upload", "/api/v1/batch-image/jobs",
             "/v1/%76ideo/generations", "/v1//video/generations",
         )
         for path in paths:
             for method in ("GET", "POST"):
                 with self.subTest(path=path, method=method):
-                    self.assertEqual(self.request(path, method),
-                                     (404, "This feature is unavailable on this site"))
-        self.assertEqual(self.request("/backend-api/codex/call-id"),
-                         (404, "This feature is unavailable on this site"))
+                    self.assertEqual(self.request(path, method), (202, "app reached"))
 
     def test_text_api_and_management_still_reach_app(self):
         for path in (
