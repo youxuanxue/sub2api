@@ -24,9 +24,14 @@ class CaptureGeminiFingerprintTest(unittest.TestCase):
         _, pinned = mod.load_pinned_ua()
         if not pinned:
             self.skipTest("no pinned version")
-        # Same pin on both sides: asserts the diff helper, not a frozen release.
-        rows = mod.diff_rows(pinned, pinned)
-        self.assertFalse(mod.has_drift(rows))
+        installed = mod.installed_gemini_version()
+        if not installed:
+            self.skipTest("gemini CLI not installed")
+        rows = mod.diff_rows(pinned, installed)
+        self.assertFalse(
+            mod.has_drift(rows),
+            f"GeminiCLIUserAgent pin {pinned} != installed gemini {installed}",
+        )
 
 
 if __name__ == "__main__":
