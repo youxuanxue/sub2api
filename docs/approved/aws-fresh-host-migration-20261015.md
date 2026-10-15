@@ -1,20 +1,21 @@
 ---
-title: 全新 AWS 主机迁移与英国 edge 切流
+title: 全新 AWS 主机迁移与逐台 edge 切流
 status: approved
-approved_by: "feng (2026-10-15 会话批准推送、合并及 uk2 切流；后续明确授权 uk1 正式切流)"
+approved_by: "feng (2026-10-15 会话批准推送、合并及 uk2 切流；后续明确授权 uk1、us4 正式切流，以及 us4 验证正常后切流 us5；prod 不切流)"
 approved_at: 2026-10-15
 created: 2026-10-15
 owners: [tk-platform]
-scope: fresh AWS recovery, precutover preparation, and sequentially approved uk2 and uk1 cutovers
+scope: fresh AWS recovery, precutover preparation, and sequentially approved edge cutovers; us5 conditional on us4 verification; prod excluded
 ---
 
 # Hcloud → 全新 AWS 节点迁移
 
-迁移准备已获用户授权；用户现已授权先选低流量 edge 正式切流，并明确批准相关代码推送和合并。uk2 已完成；用户随后明确授权“继续 uk1 的正式切流，请安全推进切流”。prod、us4、us5 继续暂停切流。候选身份唯一清单为
+迁移准备已获用户授权；用户现已授权先选低流量 edge 正式切流，并明确批准相关代码推送和合并。uk2 已完成；用户随后明确授权“继续 uk1 的正式切流，请安全推进切流”。用户再次明确确认下一台为 us4（纠正 uk4 笔误）；用户随后授权 us4 验证正常后继续 us5；prod 明确不切流。候选身份唯一清单为
 `deploy/aws/fresh-migration-20261015.json`，现网仍以 `deploy/hetzner/README.md` 为准。
 
-**最新状态（2026-10-15）：uk1、uk2 已切换全新 AWS；prod、us4、us5 仍在 Hcloud。**
-下文预同步、hold 与待执行描述为准备阶段记录，仅未切流三台继续适用。
+**最新状态（2026-10-15）：uk1、uk2、us4、us5 均已切换全新 AWS；prod 仍在 Hcloud，未切流。**
+us4 常规请求、备份与新流量通过，Gemini Web 上游超时并触发会话暂停保护，尚未通过该供应验收。
+用户已确认 us4 的 gemini-web-491 保持不可调度、交运营处理；us5 已完成正式切流及基础服务验收，其 Gemini 原有会话限制保持原样。下文 edge 预同步与 hold 描述为准备阶段历史，只有 prod 候选继续保持隔离。
 
 ## 授权与停止线
 
@@ -385,3 +386,102 @@ prod 最新检查使用无 Gemini worker 的专用路径并通过；未启动 pr
 Hcloud/Lightsail 测试矩阵；将 admin 目标解析与主机告警测试加入切流补丁门禁。
 启动回归验证控制代理可在 worker 尚未启动时通过真实网关 HTTP 路径检查，worker 退出
 立即报错；prod 不启动 worker。旧地址继续转发，待流量归零后再移除过渡信任。
+
+## us4 正式切流与 us5 停止线（2026-10-15 UTC）
+
+用户明确确认 us4 为本轮目标，并授权其验证正常后继续 us5；prod 不切流。本轮不压测。
+
+- 在线预增量压缩 15,189,748 字节，导出 83.692 秒、恢复核验 111.269 秒。
+  最终候选准备 78.422 秒、源端准备 3.877 秒，均在停写前完成。
+- 12:25:02 开始暂停原启用的 62/152/69/68/200；51/65 原本停用且保持停用。
+  12:25:13 进入维护，12:26:36 冻结只读，12:30:44 旧入口转发新机，
+  12:30:54 全部原启用镜像恢复。单 edge 维护响应窗口 **5 分 31 秒**；
+  暂停操作至恢复 **5 分 52 秒**，不是全站停服时长。
+- 最终 precious/logs 压缩共 14,716,662 字节；导出 81.621 秒、恢复与核验 111.092 秒。
+  源端冻结前后检查均通过，旧库冻结后新增 usage 为 0。
+  网关 → 控制代理 → worker 的激活顺序首次成功，远端用时 23.610 秒；
+  PostgreSQL 原容器与挂载保持一致。
+- DNS、四项 SSM 参数及活矩阵已切换 us4；两台公共 DNS 解析均为新地址。
+  prod 到新旧地址 health 均 200，未鉴权 relay 均 401。
+  prod 镜像 152 的 deepseek-v4-flash 请求为 servable，HTTP 200，
+  usage 697060 归属正确，服务耗时 2,766 ms。
+  12:38:43 采样新机最近五分钟有 10 条 usage，网关未处于 draining。
+  后续只读采样确认切流后已有 antigravity 2、kiro 8、newapi 2、openai 34 条 usage；
+  Gemini 尚无成功 usage，不能以其他平台正常代替验收。
+- 旧库归档位于现有桶的 `edge/us4/pgdump/archive-hcloud-20261015/frozen-full.dump`，
+  235,804,821 字节；SHA256 `03ce9c54ea6d0b973e0b74b4bc33bf6e55777cda71ceda78568e6cc20af6db00`。
+  新机备份 `edge/us4/pgdump/tokenkey-20261015T123120Z.sql.gz`，162,090,443 字节；
+  SHA256 `8deca4ea0931470eac64a9505637b5f1aa0e6392fc07927fecb6306ddf44836b`。
+  两者均验证上传、下载哈希和 AES256，新备份另通过 gzip 完整性检查；备份、磁盘指标、
+  GHCR 清理 timers active。桶与清理边界沿用前文，旧库仅归档与转发。
+
+### 未通过的 Gemini 供应检查
+
+切流前 prod 镜像 200 的 gemini-3.8-flash 成功，耗时 71.545 秒；同模型的 us5
+备用镜像 209 当时已经超时，worker 日志为生成约 75 秒后 502，随后会话暂停。
+切流后 us4 常规文本正常，但 Gemini 探针 90 秒未收到响应；worker ready，
+生成阶段约 75 秒触发上游 Timeout。一次后续复核返回 429，无成功 usage，不能视为通过。
+
+只读对比确认 us4 边侧账号 40（gemini-web-491）的冻结旧库状态为 active/schedulable、
+`blocked=false`、`generation_pending=false`；新库变为 error/不可调度、
+`blocked=false`、`generation_pending=true`。因此不能仅以 us5 原有同类故障认定 us4
+无迁移回归，也不能把 worker ready 当作 Gemini 可用。Google 上游超时原因尚未证实。
+
+保留会话暂停保护，不清空 pending、不反复发生成请求。需核实对应浏览器会话及未完成生成，
+按 Gemini Web 会话 owner 的恢复/重导入流程处理，再以一次真实请求验收。
+此前因此暂停 us5 正式窗口，仅继续在线预增量。用户随后明确回复“先保持这个账号 false 即可，后续运营会处理”；账号 40 保持不可调度，不重置会话保护。该项作为已接受遗留问题后继续 us5，其余原本停用的账号也不自行启用。
+
+### us5 在线准备（未切流）
+
+本轮在线预增量已完成：precious 22 个变化单元、logs 3 个变化单元，
+压缩合计 11,317,158 字节（约 10.79 MiB）。远端准备 77.131 秒，
+导出 74.907 秒、恢复及内容核验 94.997 秒；源端持续服务，候选仍仅 PG 运行并保持 hold。
+双方网关 1.8.292、worker a700f3e98a35 一致，运行时依赖检查通过。
+
+已重新捕获两端 Caddy 配置，生成维护、旧地址转发、新机过渡与最终配置，
+配置已在两端暂存并通过 Caddy 解析，绑定现网 Hcloud prod CIDR。selected-edge 控制面补丁测试通过，补丁仍未应用；
+us5 的正式 DNS、SSM 指针、活矩阵、镜像可调度状态未修改。
+后续窗口必须重新核验配置和执行新 `prepare`；本次已消费的预同步回执不能用于最终补数。
+
+
+## us5 正式切流（2026-10-15 UTC）
+
+用户接受 us4 的 gemini-web-491 保持 false、留给运营处理后，本轮继续完成 us5 切流。
+prod 仍使用原 Hcloud 节点，未停写、未迁移其 QA 文件，也未启动 prod 候选业务栈。
+
+- 切流前完整 preflight 通过。修复备用身份测试依赖“现网 us5 永远是备用机”的前提：
+  在临时目录中运行真实 resolver 与明确的备用机样本，保留拒绝上线操作和身份不匹配的断言；
+  同时把该测试加入选定 edge 的控制面补丁验证。没有放宽生产门禁。
+- 最终候选基线准备 72.534 秒、源端准备 3.786 秒，均在停写前完成。
+  最终 precious/logs 分别有 19/3 个变化单元，压缩合计 11,244,532 字节；
+  导出 75.706 秒、恢复核验 95.397 秒，源端冻结前后校验均通过。
+- 13:20:14 开始暂停原启用的 154/153/71/149/209；50/79 原本停用且保持停用。
+  13:20:23 进入维护，13:21:13 排空并冻结只读，13:24:57 旧入口转发新机，
+  13:25:07 五个原启用镜像全部恢复。单 edge 维护响应窗口 **4 分 34 秒**，
+  暂停操作至全部恢复 **4 分 53 秒**；其他 edge 和 prod 持续服务。
+- 激活首次成功，用时 23.319 秒；网关健康、控制代理可达、worker ready（协议 1，
+  digest a700f3e98a35），PostgreSQL 原容器与挂载保持一致。
+  DNS、四项 Lightsail SSM 参数和舰队矩阵已切换；两台公共 DNS 均解析到新地址。
+  prod 到新旧地址 health 均 200、未鉴权 relay 均 401。
+- prod 镜像 153 的 deepseek-v4-flash 为 servable，HTTP 200，usage 699547 归属正确，
+  服务耗时 6,161 ms。旧库冻结后新增 usage 为 0，只有 Caddy/PG/Redis 运行，数据库默认只读。
+- 旧库归档 `edge/us5/pgdump/archive-hcloud-20261015/frozen-full.dump`，165,135,910 字节；
+  SHA256 `e13f5e1aa2cedefef71718de957376f77c00b77a767e40aeb4db18d4b1eac4c9`。
+  新机备份 `edge/us5/pgdump/tokenkey-20261015T132547Z.sql.gz`，91,193,451 字节；
+  SHA256 `a3e7ab4823625485202bf2539d5cd2f1843dd49f4bf4116f80a929a0efd8ef4d`。
+  均在既有 AWS 桶内隔离存储，上传/下载哈希及 AES256 已验证；新备份 gzip 完整性通过，
+  备份、磁盘指标与 GHCR 清理 timers 均 active。
+
+### us5 Gemini 既有状态
+
+切流后 prod 镜像 209 探针返回 429 `No available accounts`，未产生成功 usage，
+也未到达新机 worker，不能宣称 Gemini 供应验收成功。只读核对确认 prod 镜像早在
+12:19:01 已有 rate_limited_at，rate_limit_reset_at 为次日 07:00 UTC，早于本轮停写。
+
+冻结旧库与新库的 Gemini 会话状态完全一致：边侧账号 30（gemini-web-502）为
+active/schedulable，但 runtime blocked=true；27/28（gemini-web-503/504）为
+error/不可调度、pending=true。切前 12:56:05 的历史成功不能证明冻结时账号仍可生成。
+本轮保留上述会话保护和原调度状态，不清除限流、不重置 blocked/pending，留待运营核实恢复。
+
+四边计算节点迁移已完成；旧地址在 DNS 过渡期间继续转发，后续确认无旧地址请求后再移除过渡信任。
+旧节点仅用于历史回查，不恢复写入；prod 正式切流继续等待用户单独选择时机。

@@ -95,6 +95,8 @@ def verify(inventory, files, edges):
         subprocess.run(['bash', 'deploy/hetzner/render-bootstrap.sh', '--check'], cwd=root, check=True)
         subprocess.run(['bash', 'deploy/aws/lightsail/test_restore_edge_env_secrets.sh'], cwd=root, check=True)
         subprocess.run(['bash', 'ops/lightsail/test_migrate_edge_ssm_roles.sh'], cwd=root, check=True)
+        subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'ops/lightsail',
+                        '-p', 'test_prepare_resize_identity.py'], cwd=root, check=True)
         subprocess.run([sys.executable, 'scripts/checks/check-hetzner-edge-bluegreen-workflow.py'], cwd=root, check=True)
         for edge in inventory['edges']:
             raw = subprocess.check_output([sys.executable, 'scripts/stage0/resolve-edge-deploy-route.py',
