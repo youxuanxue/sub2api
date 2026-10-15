@@ -40,11 +40,18 @@ gh workflow run deploy-edge-lightsail-stage0.yml -R youxuanxue/sub2api \
   -f confirm_instance=<matrix-source-instance> -f replacement_instance=<new-name>
 ```
 
-本操作只验证源目标与新机不存在，生成四小时内有效、仅能注册一次的 Hybrid activation，
+默认验证源目标与新机不存在。若已直接创建新机，可追加
+`-f replacement_arn=<new-instance-arn>`：只接受 ARN、区域、名称及迁移标签全部匹配的
+running canary。标签须为 `Project=tokenkey`、`MigrationTarget=<edge>`、
+`MigrationBatch=aws-YYYYMMDD`、`Purpose=canary`，名称为
+`tokenkey-edge-<edge>-aws-YYYYMMDD`。任何已有注册或未过期 activation 都会拒绝重复准备。
+此分支只为已有新机补管理身份，不创建或重建实例。
+
+生成四小时内有效、仅能注册一次的 Hybrid activation，
 写入 job summary 指定的 `/tokenkey/lightsail/<edge>/resize-activation/<run_id>-<attempt>` SecureString。
 不停止/创建实例，不修改 IP、业务凭据、IAM 或活跃 SSM 指针，也不执行普通 provision/smoke。
 必须等本次 workflow 成功，再由已授权的迁移操作读取参数；验证其中的 edge、region、
-source/replacement、过期时间和 activation 注册次数后使用，禁止打印 code。
+source/replacement、已有新机的 ARN、过期时间和 activation 注册次数后使用，禁止打印 code。
 完成注册后删除本次临时 SecureString，避免长期保留凭据。
 
 完整冷快照、数据校验、逐台摘流与回退边界属于一次性运维执行记录，不落仓库；按既有 Edge 停写/校验流程执行，新机产生写入后禁止直接回切陈旧磁盘。

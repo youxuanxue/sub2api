@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Prepare a single-use Hybrid identity through the existing deployment role.
 
-The operator can create a replacement from a cold snapshot without acquiring
-iam:PassRole. This step never changes an instance, IP, routing, or IAM policy.
+The operator can register a fresh replacement without acquiring iam:PassRole.
+This step never changes an instance, IP, routing, or IAM policy.
 """
 from __future__ import annotations
 
@@ -35,28 +35,56 @@ def aws(region: str, *args: str) -> dict:
     return json.loads(result.stdout or "{}")
 
 
-def prepare(target: dict, replacement: str, run_id: str, call=aws) -> dict:
+def prepare(target: dict, replacement: str, run_id: str, call=aws, *, replacement_arn: str = "") -> dict:
     source = target["instance_name"]
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,254}", replacement) or replacement == source:
         raise ValueError("replacement must be a distinct valid Lightsail instance name")
     if not re.fullmatch(r"[0-9]+-[0-9]+", run_id):
         raise ValueError("run identity must be GitHub run_id-run_attempt")
     edge, region = target["edge_id"], target["lightsail_region"]
+    if replacement_arn and not re.fullmatch(
+        rf"arn:aws:lightsail:{re.escape(region)}:[0-9]{{12}}:Instance/[A-Za-z0-9-]+", replacement_arn
+    ):
+        raise ValueError("replacement ARN must identify a Lightsail instance in the target region")
     old = call(region, "lightsail", "get-instance", "--instance-name", source)["instance"]
     if old["name"] != source or old["location"]["regionName"] != region:
         raise ValueError("live source differs from confirmed matrix target")
     try:
-        call(region, "lightsail", "get-instance", "--instance-name", replacement)
+        existing = call(region, "lightsail", "get-instance", "--instance-name", replacement)["instance"]
     except AwsError as exc:
-        if "NotFoundException" not in str(exc):
+        if replacement_arn or "NotFoundException" not in str(exc):
             raise
     else:
-        raise ValueError("replacement already exists; inspect its identity before continuing")
+        tags = {tag["key"]: tag["value"] for tag in existing.get("tags", [])}
+        batch = tags.get("MigrationBatch", "")
+        if not replacement_arn or any((
+            existing.get("arn") != replacement_arn,
+            existing.get("name") != replacement,
+            existing.get("location", {}).get("regionName") != region,
+            existing.get("state", {}).get("name") != "running",
+            tags.get("Project") != "tokenkey",
+            tags.get("MigrationTarget") != edge,
+            tags.get("Purpose") != "canary",
+            not re.fullmatch(r"aws-[0-9]{8}", batch),
+            replacement != f"tokenkey-edge-{edge}-{batch}",
+        )):
+            raise ValueError("existing replacement requires its exact ARN and matching fresh migration canary identity")
+    # Also reject repeat preparation while a previous identity is usable, or
+    # after registration. Never mint a second identity for an enrolled host.
+    activations = call(region, "ssm", "describe-activations")["ActivationList"]
+    for activation in activations:
+        if activation.get("DefaultInstanceName") == replacement and (
+            activation.get("RegistrationsCount", 0) > 0 or not activation.get("Expired", False)
+        ):
+            raise ValueError("replacement already has a registered or unexpired activation")
+    managed = call(region, "ssm", "describe-instance-information")["InstanceInformationList"]
+    if any(row.get("ComputerName", "").split(".")[0] == replacement for row in managed):
+        raise ValueError("replacement is already managed by SSM")
     expires = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=4)).isoformat()
     activation = call(
         region, "ssm", "create-activation", "--iam-role", target["ssm_hybrid_role_name"],
         "--default-instance-name", replacement, "--registration-limit", "1",
-        "--expiration-date", expires, "--description", f"snapshot resize {edge} run {run_id}",
+        "--expiration-date", expires, "--description", f"host replacement {edge} run {run_id}",
         "--tags", "Key=Project,Value=tokenkey", f"Key=EdgeId,Value={edge}",
         "Key=Platform,Value=lightsail",
     )
@@ -65,6 +93,7 @@ def prepare(target: dict, replacement: str, run_id: str, call=aws) -> dict:
         "edge_id": edge, "region": region, "source_instance": source,
         "replacement_instance": replacement, "expires_at": expires,
         "activation_id": activation["ActivationId"], "activation_code": activation["ActivationCode"],
+        "replacement_arn": replacement_arn,
     }
     try:
         with tempfile.TemporaryDirectory(prefix="edge-resize-identity-") as directory:
@@ -86,6 +115,7 @@ def main() -> None:
     parser.add_argument("--edge-id", required=True)
     parser.add_argument("--confirm-instance", required=True)
     parser.add_argument("--replacement-instance", required=True)
+    parser.add_argument("--replacement-arn", default="", help="Exact ARN when registering an already-created migration canary")
     args = parser.parse_args()
     if os.environ.get("GITHUB_ACTIONS") != "true":
         raise SystemExit("Use the Edge deployment workflow with operation=prepare-resize")
@@ -93,9 +123,10 @@ def main() -> None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     target = module.resolve_target(module.load_matrix(str(module.DEFAULT_MATRIX)), args.edge_id,
-                                   confirm_instance=args.confirm_instance)
+                                   confirm_instance=args.confirm_instance, allow_planned=True)
     result = prepare(target, args.replacement_instance,
-                     f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}")
+                     f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}",
+                     replacement_arn=args.replacement_arn)
     print(json.dumps(result, sort_keys=True))
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
         summary.write(f"\nResize registration prepared for `{result['replacement_instance']}`. "
