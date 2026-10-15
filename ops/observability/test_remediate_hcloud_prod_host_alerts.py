@@ -19,6 +19,11 @@ class HostAlertsInstallerTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        # Exercise a Hcloud installation independently of the live migration phase.
+        self.edge_matrix = self.root / 'edge-targets-hetzner.json'
+        matrix = json.loads((ROOT / 'deploy/hetzner/edge-targets-hetzner.json').read_text())
+        matrix['targets']['uk1']['deployable'] = True
+        self.edge_matrix.write_text(json.dumps(matrix))
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.installed = self.root / "tokenkey-disk-metrics.sh"
@@ -69,7 +74,7 @@ esac''',
         variables = {
             "ALERT_SOURCE": SOURCE,
             "PROD_MATRIX": MATRIX,
-            "EDGE_MATRIX": ROOT / "deploy/hetzner/edge-targets-hetzner.json",
+            "EDGE_MATRIX": self.edge_matrix,
             "ALERT_INSTALLED": self.installed,
             "DROPIN_DIR": self.dropin,
             "BACKUP_ROOT": self.root / "backups",
@@ -128,7 +133,7 @@ esac''',
         import sys
         sys.path.insert(0, str(ROOT / "ops/stage0"))
         from edge_routing_matrix import materialize_hetzner_target
-        matrix = json.loads((ROOT / "deploy/hetzner/edge-targets-hetzner.json").read_text())
+        matrix = json.loads(self.edge_matrix.read_text())
         host = materialize_hetzner_target("uk1", matrix, matrix["targets"]["uk1"])["instance_name"]
         result = self.run_installer(ALERT_TARGET="edge:uk1", TEST_HOST=host,
                                     APPLY="yes-hcloud-host-alerts", TEST_MOUNT_FAILURE="1")

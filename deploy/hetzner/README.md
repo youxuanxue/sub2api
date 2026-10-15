@@ -8,18 +8,19 @@
 | 节点 | 正式域名 | 公网 IP | SSM Hybrid | 备注 |
 |------|----------|---------|------------|------|
 | **prod** | `api.tokenkey.dev` | `167.233.211.115` | `mi-033c9569c7fb8b884` · Volume `tokenkey-prod-data` | ops 控制面 `PROD_SSM_TARGET=hetzner` |
-| **uk1** | `api-uk1.tokenkey.dev` | `188.245.112.147` | 见矩阵 `mi-*` | |
+| **uk1** | `api-uk1.tokenkey.dev` | `18.132.100.198` | `mi-039a529756d9add02` | AWS Lightsail · tokenkey-edge-uk1-aws-20261015 |
 | **uk2** | `api-uk2.tokenkey.dev` | `35.178.162.181` | `mi-022bedb939517c7f3` | AWS Lightsail · tokenkey-edge-uk2-aws-20261015 |
 | **us4** | `api-us4.tokenkey.dev` | `188.245.14.132` | 见矩阵 `mi-*` | |
 | **us5** | `api-us5.tokenkey.dev` | `91.98.83.56` | 见矩阵 `mi-*` | |
 
 - 活矩阵：Hcloud `edge-targets-hetzner.json` + AWS `../aws/lightsail/edge-targets-lightsail.json`；每个 edge 仅一个平台 deployable。prod 仍为 Hcloud。
 - fan-out / probe 默认：`resolve-edge-target.py --list-deployable` → 上表四边；prod 单独解析
-- Hcloud 机型：`fsn1` · `cax21` · arm64；AWS uk2：Lightsail `xlarge_3_0`（4 vCPU / 16 GiB）。后续升级使用既有 blue/green 状态机。
+- Hcloud 机型：`fsn1` · `cax21` · arm64；AWS uk1/uk2：Lightsail `xlarge_3_0`（4 vCPU / 16 GiB）。后续升级使用既有 blue/green 状态机。
 - **不在舰队：** `us3` / `us6`（无正式 A、无 prod stub；矩阵空行 / LS `deployable=false`）。旧 LS 仅 gemini 会话 drain 前保留，勿当路由目标
 
 
-本轮 AWS 活节点：uk2。新边仅放行现网 Hcloud prod；旧 edge 的单地址转发信任只在 DNS 过渡期间保留。
+
+本轮 AWS 活节点：uk1, uk2。新边仅放行现网 Hcloud prod；旧 edge 的单地址转发信任只在 DNS 过渡期间保留。
 后续旧平台专用 provision、卷与告警操作仅适用于仍在 Hcloud 的节点，不能用于已切换 AWS 的 edge。
 
 ## 现网不变量

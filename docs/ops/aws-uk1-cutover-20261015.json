@@ -1,0 +1,232 @@
+{
+  "node": "uk1",
+  "date": "2026-10-15",
+  "authorization": "explicit uk1 cutover; prod/us4/us5 remain Hcloud",
+  "state": "cutover_verified",
+  "timestamps_utc": {
+    "pause_started": "11:43:41",
+    "maintenance": "11:43:50",
+    "frozen": "11:44:35",
+    "forwarding": "11:52:49",
+    "mirrors_restored": "11:54:33"
+  },
+  "maintenance_seconds": 539,
+  "mirror_pause_seconds": 652,
+  "final_freeze_verified": true,
+  "presync": [
+    {
+      "phase": "prepare-candidate",
+      "target": "mi-039a529756d9add02",
+      "region": "eu-west-2",
+      "command_id": "4e182f7e-efca-482c-aa53-dd6a4238ade8",
+      "status": "Success",
+      "elapsed": "PT43.318S"
+    },
+    {
+      "phase": "prepare-source",
+      "target": "mi-05d6c85a068e08a3c",
+      "region": "eu-west-2",
+      "command_id": "aa9c9fd4-360f-4954-a21b-008a0bb5740e",
+      "status": "Success",
+      "elapsed": "PT3.564S"
+    },
+    {
+      "phase": "export",
+      "target": "mi-05d6c85a068e08a3c",
+      "region": "eu-west-2",
+      "command_id": "843b4e17-d465-4a54-9100-5f0125df0cd8",
+      "status": "Success",
+      "elapsed": "PT45.092S"
+    },
+    {
+      "phase": "apply",
+      "target": "mi-039a529756d9add02",
+      "region": "eu-west-2",
+      "command_id": "e7c9315c-bd62-4830-8563-c95ffdc3521d",
+      "status": "Success",
+      "elapsed": "PT1M18.66S"
+    }
+  ],
+  "final_sync": [
+    {
+      "phase": "prepare-candidate",
+      "target": "mi-039a529756d9add02",
+      "region": "eu-west-2",
+      "command_id": "e9c7e9cc-55b6-42e9-af08-94b93df6c87d",
+      "status": "Success",
+      "elapsed": "PT51.802S"
+    },
+    {
+      "phase": "prepare-source",
+      "target": "mi-05d6c85a068e08a3c",
+      "region": "eu-west-2",
+      "command_id": "d4858a4f-fd6a-465b-b996-e6f6abc357ef",
+      "status": "Success",
+      "elapsed": "PT3.531S"
+    },
+    {
+      "phase": "export",
+      "target": "mi-05d6c85a068e08a3c",
+      "region": "eu-west-2",
+      "command_id": "77e228d5-b1ab-449a-af9d-c1bfe35b1d0a",
+      "status": "Success",
+      "elapsed": "PT45.244S"
+    },
+    {
+      "phase": "apply",
+      "target": "mi-039a529756d9add02",
+      "region": "eu-west-2",
+      "command_id": "808a947d-7966-44f0-9125-f2350b64704c",
+      "status": "Success",
+      "elapsed": "PT1M16.099S"
+    },
+    {
+      "phase": "verify-source-still-frozen",
+      "target": "mi-05d6c85a068e08a3c",
+      "region": "eu-west-2",
+      "command_id": "45bf6626-2219-4c7a-a8f6-9084efdf1029",
+      "status": "Success",
+      "elapsed": "PT0.29S"
+    }
+  ],
+  "window": [
+    {
+      "phase": "freeze",
+      "target": "mi-05d6c85a068e08a3c",
+      "region": "eu-west-2",
+      "command_id": "e4372a31-899c-472d-bd0b-ed91652cdd5f",
+      "status": "Success",
+      "elapsed": "PT45.416S"
+    },
+    {
+      "phase": "activate",
+      "target": "mi-039a529756d9add02",
+      "region": "eu-west-2",
+      "command_id": "fe33cea6-0ccd-4722-a4e3-b9906830aa89",
+      "status": "Failed",
+      "elapsed": "PT1M47.174S"
+    }
+  ],
+  "recovery_and_checks": [
+    {
+      "phase": "read-source-config",
+      "target": "mi-05d6c85a068e08a3c",
+      "region": "eu-west-2",
+      "command_id": "0d9a4395-99e8-4ec6-a324-6bd474437f89",
+      "status": "Success",
+      "elapsed": "PT0.178S"
+    },
+    {
+      "phase": "read-candidate-config",
+      "target": "mi-039a529756d9add02",
+      "region": "eu-west-2",
+      "command_id": "1b24f1ea-e985-404c-a105-2539c1ad89c6",
+      "status": "Success",
+      "elapsed": "PT0.195S"
+    },
+    {
+      "phase": "stage-source-config",
+      "target": "mi-05d6c85a068e08a3c",
+      "region": "eu-west-2",
+      "command_id": "2caeba7f-5052-4d0b-95d9-c90d20400145",
+      "status": "Success",
+      "elapsed": "PT0.834S"
+    },
+    {
+      "phase": "stage-candidate-config",
+      "target": "mi-039a529756d9add02",
+      "region": "eu-west-2",
+      "command_id": "3a1a9b69-978b-4b1c-bee5-65d63829956d",
+      "status": "Success",
+      "elapsed": "PT0.988S"
+    },
+    {
+      "phase": "final-readiness",
+      "target": "mi-039a529756d9add02",
+      "region": "eu-west-2",
+      "command_id": "1ab24cda-6ba4-4a55-99b5-ce10b11d9d19",
+      "status": "Success",
+      "elapsed": "PT0.091S"
+    },
+    {
+      "phase": "activation-diagnose",
+      "target": "mi-039a529756d9add02",
+      "region": "eu-west-2",
+      "command_id": "bb88b3dc-4859-464b-bcef-db06de59627c",
+      "status": "Success",
+      "elapsed": "PT0.204S"
+    },
+    {
+      "phase": "recover-activation",
+      "target": "mi-039a529756d9add02",
+      "region": "eu-west-2",
+      "command_id": "91d8576f-aebb-4b72-84f0-650210789195",
+      "status": "Failed",
+      "elapsed": "PT1M35.634S"
+    },
+    {
+      "phase": "recover-control-alias",
+      "target": "mi-039a529756d9add02",
+      "region": "eu-west-2",
+      "command_id": "1f919910-3fea-41c0-a79a-88d0f981ccc4",
+      "status": "Success",
+      "elapsed": "PT11.499S"
+    },
+    {
+      "phase": "forward",
+      "target": "mi-05d6c85a068e08a3c",
+      "region": "eu-west-2",
+      "command_id": "89287113-21c0-4778-b0d7-f2313f87d8f7",
+      "status": "Success",
+      "elapsed": "PT0.306S"
+    },
+    {
+      "phase": "postfreeze-check",
+      "target": "mi-05d6c85a068e08a3c",
+      "region": "eu-west-2",
+      "command_id": "3cdcc924-ee1c-460e-94a0-6165923a1f4f",
+      "status": "Success",
+      "elapsed": "PT0.221S"
+    },
+    {
+      "phase": "archive",
+      "target": "mi-05d6c85a068e08a3c",
+      "region": "eu-west-2",
+      "command_id": "389d2f67-a31f-4856-8f79-dd344a4aa679",
+      "status": "Success",
+      "elapsed": "PT15.519S"
+    },
+    {
+      "phase": "backup-verify",
+      "target": "mi-039a529756d9add02",
+      "region": "eu-west-2",
+      "command_id": "b616db85-6193-44fa-b8a3-6730aa2ab46f",
+      "status": "Success",
+      "elapsed": "PT10.047S"
+    }
+  ],
+  "real_probe": {
+    "account_id": 198,
+    "model": "deepseek-v4-flash",
+    "verdict": "servable",
+    "usage_id": 695545
+  },
+  "old_usage_after_freeze": 0,
+  "archive": {
+    "uri": "s3://tokenkey-prod-pgdump-682751977094/edge/uk1/pgdump/archive-hcloud-20261015/frozen-full.dump",
+    "bytes": 26854107,
+    "sha256": "b956ad1b21849166fe4c28fd3de5c30e4bc09e2faa61dc9fe771bb54448ec658"
+  },
+  "new_backup": {
+    "file": "tokenkey-20261015T115447Z.sql.gz",
+    "sha256": "47880d3e53a981f7dbabe4c89f114ded048ef756369374da1088b3957f18e65e",
+    "round_trip_verified": true
+  },
+  "remaining_transition": "old uk1 IP forwards only; remove proxy trust after old-address traffic drains",
+  "observation": {
+    "at_utc": "2026-10-15T11:58:49Z",
+    "requests_5m": 4,
+    "probe_requests": 1,
+    "other_account_requests": 3
+  }
+}

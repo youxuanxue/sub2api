@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORK = '/var/lib/tokenkey/migration'
 CODE = {n: ROOT / 'ops/migration' / n for n in ('fresh_host_delta.py', 'standard_freeze_delta.py', 'oltp_foreign_keys.py', 'fresh_host_runtime.py')}
 CODE['resolve_app_container.py'] = ROOT / 'ops/lib/resolve_app_container.py'
+CODE['sync-control-alias-on-host.sh'] = ROOT / 'ops/gemini-web/sync-control-alias-on-host.sh'
 FILES = tuple(CODE)
 SCOPES = ('precious', 'logs')
 
@@ -172,7 +173,8 @@ def prepare(receipt, path):
                f"printf '%s\\n' '{sha}  code.tar.gz' | sha256sum -c -\n"
                'tar xzf code.tar.gz\n'
                f"printf %s {shlex.quote(checks)} > code.sha256\nsha256sum -c code.sha256\n")
-    script = header(receipt['candidate']) + held() + install + f'python3 fresh_host_runtime.py check --node {receipt["node"]}\n' + image_report(receipt['node'])
+    alias_image = '' if receipt['node'] == 'prod' else 'docker image inspect alpine/socat:1.8.0.0 >/dev/null 2>&1 || docker pull alpine/socat:1.8.0.0 >/dev/null\n'
+    script = header(receipt['candidate']) + held() + install + alias_image + f'python3 fresh_host_runtime.py check --node {receipt["node"]}\n' + image_report(receipt['node'])
     for scope in SCOPES:
         script += (f'/usr/bin/time -f BASELINE_{scope}_SECONDS=%e python3 fresh_host_delta.py manifest '
                    f'--scope {scope} --output {scope}-base.json\n'
