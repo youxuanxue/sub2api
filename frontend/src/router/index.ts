@@ -18,7 +18,6 @@ import { adminRoutes } from './admin.tk'
 import { userRoutes } from './user.tk'
 import { resolveChromeBrand, resolveHomepageProfile } from '@/features/home/marketProfile.tk'
 import { isBackendModePublicRouteAllowed } from './backendModeAccess'
-import { isSiteRouteAvailable } from '@/utils/siteRouteAvailability'
 
 /**
  * Route definitions with lazy loading
@@ -286,11 +285,6 @@ let routePrefetch: ReturnType<typeof useRoutePrefetch> | null = null
 router.beforeEach(async (to, _from, next) => {
   // 开始导航加载状态
   navigationLoading.startNavigation()
-
-  if (!isSiteRouteAvailable(to.path)) {
-    next('/keys')
-    return
-  }
 
   // Dual-facade: stay on the current host. Cross-domain SPA kick removed.
 

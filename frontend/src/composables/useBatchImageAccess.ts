@@ -2,7 +2,6 @@ import { computed, ref } from 'vue'
 import { keysAPI } from '@/api/keys'
 import { useAuthStore } from '@/stores/auth'
 import type { ApiKey } from '@/types'
-import { isSiteRouteAvailable } from '@/utils/siteRouteAvailability'
 
 const loaded = ref(false)
 const loading = ref(false)
@@ -20,7 +19,7 @@ function keyAllowsBatchImage(key: ApiKey): boolean {
 
 async function loadBatchImageAccess(force = false): Promise<boolean> {
   const authStore = useAuthStore()
-  if (!authStore.isAuthenticated || !isSiteRouteAvailable('/batch-image')) {
+  if (!authStore.isAuthenticated) {
     loaded.value = true
     hasAllowedBatchImageKey.value = false
     return false
@@ -73,7 +72,7 @@ async function loadBatchImageAccess(force = false): Promise<boolean> {
 }
 
 export function useBatchImageAccess() {
-  const canUseBatchImage = computed(() => isSiteRouteAvailable('/batch-image') && hasAllowedBatchImageKey.value)
+  const canUseBatchImage = computed(() => hasAllowedBatchImageKey.value)
 
   return {
     canUseBatchImage,

@@ -3,36 +3,6 @@
   "rationale": "Load-bearing TokenKey-only frontend surfaces that anchor admin-UI behavior diverging from upstream defaults — sidebar geometry (TK uses a narrower w-44 rail vs upstream w-64), the fluid table mode used on /admin/accounts (no horizontal scroll, cells wrap), per-page sticky-edge-hints opt-out, and the control-plane login policy that does not depend on Turnstile. These are the kinds of small TK changes that get silently reverted by upstream merges precisely because they're small and local; the registry upgrades the rule from `agent must remember` to `merge will fail`. Source-of-truth read by both `scripts/preflight.sh` (frontend TK sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (frontend TK sentinels check, on `merge/upstream-*` PRs). Adding a new TK-only frontend surface that must survive upstream merges MUST add a sentinel here in the same commit. Sibling registries: `newapi-sentinels.json` (fifth-platform integration), `brand-sentinels.json` (outward TK brand surfaces). This file now also guards upstream payment-surface carry-ins that touch shared admin/i18n/style hotspots during upstream merges; updating those hotspots in merge PRs requires explicit sentinel-registry rationale refresh or a `sentinel-registry-reviewed` / `upstream-merge` commit marker to keep the gate mechanical.",
   "sentinels": [
     {
-      "path": "frontend/src/utils/siteRouteAvailability.ts",
-      "must_contain": ["isSiteRouteAvailable", "api-cn.tokenkey.dev"],
-      "rationale": "Domestic prod shares one tool-route policy across menus, quick actions and router guards; a frontend-only hide is never an API authorization boundary."
-    },
-    {
-      "path": "frontend/src/components/layout/AppSidebar.vue",
-      "must_contain": ["if (!isSiteRouteAvailable(item.path)) continue"],
-      "rationale": "Both customer and administrator personal navigation must hide unpublished domestic tools via the shared route policy."
-    },
-    {
-      "path": "frontend/src/router/index.ts",
-      "must_contain": ["if (!isSiteRouteAvailable(to.path))"],
-      "rationale": "Direct URLs and SPA navigation must use the same domestic tool restriction as the sidebar."
-    },
-    {
-      "path": "frontend/src/composables/useBatchImageAccess.ts",
-      "must_contain": ["isSiteRouteAvailable('/batch-image')"],
-      "rationale": "Cached batch-image entitlement must not expose dashboard shortcuts or menus on domestic prod."
-    },
-    {
-      "path": "frontend/src/views/user/QuickstartView.vue",
-      "must_contain": ["isSiteRouteAvailable('/studio')"],
-      "rationale": "The shared quickstart must not invite domestic customers into the unpublished Studio."
-    },
-    {
-      "path": "frontend/e2e/public-pages.e2e.ts",
-      "must_contain": ["sees API access without unpublished tool routes"],
-      "rationale": "Real browser checks cover domestic customer/admin menus and blocked direct links alongside global console regression coverage in the existing CI suite."
-    },
-    {
       "path": "frontend/src/components/account/EditAccountModal.vue",
       "must_contain": [
         "canImportGeminiWebSession",
@@ -102,17 +72,6 @@
         "new URLSearchParams({ client })"
       ],
       "rationale": "Authentication return paths preserve client choices without copying credential state."
-    },
-    {
-      "path": "frontend/src/views/user/QuickstartView.vue",
-      "must_contain": [
-        "RegistrationActionTk",
-        ":preview=\"preview\"",
-        "if (!authStore.isAuthenticated)",
-        "epoch !== keyLoadEpoch",
-        "keysAPI.create('Quick Start'"
-      ],
-      "rationale": "One public/authenticated guide; no visitor key calls, explicit creation, stale responses discarded on logout."
     },
     {
       "path": "frontend/src/components/keys/UseKeyGuide.vue",
@@ -386,23 +345,6 @@
       "rationale": "Single source of truth for TK sidebar geometry and admin-shell default zoom. AppSidebar.vue / AppLayout.vue import the sidebar constants so upstream-shaped layout files stay close to upstream; AdminShellView imports TK_ADMIN_UI_ZOOM for the ops default 80% scale. If either constant disappears, the import sites fail to compile (loud). The sentinel adds a second layer in case an upstream merge replaces the entire constants file."
     },
     {
-      "path": "frontend/src/components/layout/AppSidebar.vue",
-      "must_contain": [
-        "TK_SIDEBAR_WIDTH_CLASS"
-      ],
-      "rationale": "AppSidebar's expanded-rail width must reference the TK constant. Without this reference an upstream merge could silently restore the literal `w-64` and the sidebar visually reverts to upstream — compiles fine, no runtime error, just wrong-looking UI."
-    },
-    {
-      "path": "frontend/src/components/layout/AppSidebar.vue",
-      "must_contain": [
-        "resolveSiteLogo"
-      ],
-      "must_not_contain": [
-        "/logo.svg"
-      ],
-      "rationale": "Logged-in pages including /dashboard render the sidebar logo from AppSidebar. Production site_logo is empty, so the fallback is the visible brand mark. resolveSiteLogo must keep the TokenKey PNG; an upstream merge that restores `|| '/logo.svg'` silently puts the Sub2API interlocking-S back on every console page."
-    },
-    {
       "path": "frontend/src/utils/branding.ts",
       "must_contain": [
         "export const DEFAULT_SITE_LOGO = '/logo.png'",
@@ -414,13 +356,6 @@
       "rationale": "Single default-logo owner for every SPA surface. `/logo.png` is the TokenKey mark; `/logo.svg` is the upstream Sub2API asset left on disk to keep README/upstream merge surface small. Losing this helper lets page-local fallbacks drift back to /logo.svg."
     },
     {
-      "path": "frontend/src/components/layout/AppSidebar.vue",
-      "must_contain": [
-        "t('nav.studio')"
-      ],
-      "rationale": "The Media Studio (/studio) user-nav entry. Without this anchor an upstream merge to the nav builder could silently drop the Studio link, hiding the image/video generation surface from users while everything still compiles."
-    },
-    {
       "path": "frontend/src/views/user/studio/MediaStudioView.vue",
       "must_contain": [
         "data-testid=\"studio-mode-chat\"",
@@ -430,14 +365,6 @@
         "gen !== priceCatalogGen || selectedKeyId.value !== keyId"
       ],
       "rationale": "The Studio's EXPLICIT chat|image|video|bake-off modality tabs are the source of truth for which gateway endpoint a request hits — replacing the old modalityForModel() id-prefix guess that silently misrouted non-{seedance,veo,gpt-image,imagen,seedream} media model ids to /v1/chat/completions. Chat is the folded-in /playground surface (default landing); the bake-off tab opens the cross-model compare view (BakeOff.vue). Losing these tabs regresses to implicit-modality misrouting or hides a generation surface. Price results are published only for the latest selected-key request; late success or failure must not replace current prices."
-    },
-    {
-      "path": "frontend/src/router/index.ts",
-      "must_contain": [
-        "...userRoutes",
-        "...adminRoutes"
-      ],
-      "rationale": "TK route subtrees are isolated in router/user.tk.ts and router/admin.tk.ts and spread into index.ts via `...userRoutes` / `...adminRoutes` to keep index.ts close to upstream shape. An upstream merge that rewrites the route table could drop either spread, silently removing the entire user console or admin area. Anchor both spreads so neither guarantee regresses unnoticed."
     },
     {
       "path": "frontend/src/router/user.tk.ts",
@@ -1288,14 +1215,6 @@
       "rationale": "TK injection point (fetch short-circuit): when usageOverride is provided (even null), skip mount/lazy self-fetch and render injected usage verbatim. The explicit manual-refresh guard prevents Anthropic OAuth/SetupToken rows owned by the list batch loader from falling back to per-row /usage after a refresh token bump. Split from AccountUsageCell.vue (B6 perf) — dropping these guards would re-enable per-row /usage fetches on Edge Accounts overview or the admin accounts list and hammer prod."
     },
     {
-      "path": "frontend/src/components/layout/AppSidebar.vue",
-      "must_contain": [
-        "/admin/edge-accounts",
-        "nav.edgeAccounts"
-      ],
-      "rationale": "The Edge Accounts nav entry is a TK-only admin sidebar item. AppSidebar.vue is a large upstream-shaped file; an upstream merge could silently drop this single nav line while keeping the build green, hiding the page from operators. Anchors the path + label key."
-    },
-    {
       "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
         "\"edgeAccounts\": \"Edge Accounts\"",
@@ -1727,27 +1646,6 @@
         "function generateOpenCodeFile("
       ],
       "rationale": "Thin dialog wrapper delegating to UseKeyGuide.vue (quickstart SSOT). An upstream merge restoring a monolithic UseKeyModal can retain the shared guide while also restoring the legacy duplicate, so the negative anchors reject the old client-tab and snippet state machine as well as the positive anchors requiring routingMode forwarding."
-    },
-    {
-      "path": "frontend/src/views/user/QuickstartView.vue",
-      "must_contain": [
-        "UseKeyGuide",
-        "QuickstartConnectionHealth",
-        "parseKeyIdFromQuery",
-        "data-tk=\"quickstart-ccs-import\"",
-        "useCcSwitchImport",
-        "importSelectedClientToCcSwitch",
-        "resolveChromeBrand(",
-        "resolveFacadeApiBaseUrl(",
-        "data-tk=\"quickstart-config-workspace\"",
-        "data-tk=\"quickstart-advanced-options\"",
-        "recommendKeyForClient",
-        ":selected-client=\"selectedClient.guideId\"",
-        "data-tk=\"quickstart-transport-picker\"",
-        "data-tk=\"quickstart-protocol-picker\"",
-        "keyId: String(keyId)"
-      ],
-      "rationale": "TokenKey /quickstart is the canonical tool-first connection flow: tool picker first, auto key match, collapsible advanced key options, connection health CTA, Qwen protocol and Codex transport as secondary controls, and key/client state deep-linked without exposing the key. CCS providerName must come from resolveChromeBrand so callmodel.io imports show CallModel rather than Settings site_name. baseUrl must use resolveFacadeApiBaseUrl so tokenkey.dev cannot copy api.callmodel.io from Settings. Upstream QuickstartView is a separate static snippet page; a merge could silently restore that old flow or site_name-only branding while compiling green."
     },
     {
       "path": "frontend/src/views/user/KeysView.vue",

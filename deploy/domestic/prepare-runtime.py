@@ -66,22 +66,6 @@ caddy = (
     .replace("${ACME_EMAIL}", "admin@cn.tokenkey.dev")
     .replace("${MAIN_GATEWAY_ALLOWED_CIDR}", "0.0.0.0/0")
 )
-# Keep QA and internal QA endpoints out of the public ingress. Media and other
-# provider-compatible paths stay application-owned so future model capability
-# can be enabled without a Caddy change and reload. App 8080 is private.
-block = """
-	@unavailable {
-		path /api/v1/qa* /api/v1/admin/qa*
-	}
-	handle @unavailable {
-		respond "This feature is unavailable on this site" 404
-	}
-"""
-if caddy.count("\thandle @allowed_relay {") != 1:
-    raise SystemExit("Shared Caddy ingress changed; refusing to omit domestic restrictions")
-caddy = caddy.replace(
-    "\thandle @allowed_relay {", block + "\n\thandle @allowed_relay {"
-)
 (out / "Caddyfile").write_text(caddy)
 shutil.copyfile(root / "deploy/domestic/bootstrap-host.sh", out / "bootstrap-host.sh")
 shutil.copyfile(state / "images.json", out / "images.json")

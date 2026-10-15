@@ -18,51 +18,6 @@ const catalog = {
 }
 const ok = (data: unknown) => ({ code: 0, message: 'ok', data })
 
-for (const role of ['user', 'admin']) {
-  test(`domestic ${role} sees API access without unpublished tool routes`, async ({ page, context }, testInfo) => {
-    const user = { id: 7, role, email: 'domestic@example.test', username: 'domestic', balance: 10,
-      status: 'active', onboarding_tour_seen_at: '2026-09-01T00:00:00Z' }
-    await context.addInitScript(account => {
-      localStorage.setItem('auth_token', 'domestic-fixture-token')
-      localStorage.setItem('auth_user', JSON.stringify(account))
-      localStorage.setItem('admin_guide_7_admin_v4_interactive', 'true')
-    }, user)
-    // Preserve the production hostname seen by the app, but serve every asset
-    // from the isolated preview. No request is sent to the live domestic site.
-    await page.route('https://api-cn.tokenkey.dev/**', async route => {
-      const url = new URL(route.request().url())
-      if (url.pathname === '/setup/status') return route.fulfill({ json: ok({ needs_setup: false }) })
-      if (url.pathname.startsWith('/api/')) {
-        let data: unknown = {}
-        if (url.pathname === '/api/v1/auth/me') data = user
-        else if (url.pathname.endsWith('/settings/public') || url.pathname.endsWith('/admin/settings')) data = settings
-        else if (url.pathname.endsWith('/public/pricing')) data = catalog
-        else if (url.pathname.endsWith('/keys')) data = { items: [], total: 0, pages: 1 }
-        else if (url.pathname.endsWith('/compliance')) data = { required: false }
-        else if (url.pathname.endsWith('/api-keys-usage')) data = { stats: {} }
-        else if (url.pathname.endsWith('/available') || url.pathname.endsWith('/announcements') || url.pathname.endsWith('/active')) data = []
-        return route.fulfill({ json: ok(data) })
-      }
-      const response = await route.fetch({ url: `http://127.0.0.1:4189${url.pathname}${url.search}` })
-      return route.fulfill({ response })
-    })
-    const errors: string[] = []
-    page.on('pageerror', error => errors.push(error.message))
-    await page.goto('https://api-cn.tokenkey.dev/models')
-    await expect(page.locator('aside').first()).toBeVisible()
-    await expect(page.locator('aside a[href="/studio"]')).toHaveCount(0)
-    await expect(page.locator('aside a[href="/batch-image"]')).toHaveCount(0)
-    await expect(page.locator(`aside a[href="${role === 'admin' ? '/admin/users' : '/keys'}"]`)).toBeVisible()
-    await page.screenshot({ path: testInfo.outputPath(`domestic-${role}-navigation.png`) })
-    for (const path of ['/studio?mode=chat', '/playground', '/batch-image', '/docs/batch-image']) {
-      await page.goto(`https://api-cn.tokenkey.dev${path}`)
-      await expect(page).toHaveURL('https://api-cn.tokenkey.dev/keys')
-      await expect(page.getByRole('button', { name: /创建.*密钥|Create.*Key/i }).first()).toBeVisible()
-    }
-    expect(errors).toEqual([])
-  })
-}
-
 test.beforeEach(async ({ context }) => {
   await context.addInitScript(config => { window.__APP_CONFIG__ = config as typeof window.__APP_CONFIG__ }, settings)
   await context.route('**/*', async route => {

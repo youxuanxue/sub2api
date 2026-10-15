@@ -12041,25 +12041,6 @@
       "rationale": "The lifecycle policy connects this shared role helper to destructive retention cutoffs. Edge classification must require the canonical TokenKey domain. The exact api-cn.tokenkey.dev exception must stay a customer-facing prod: losing it silently suppresses prod-only failure notifications and relabels domestic alerts as edge-cn."
     },
     {
-      "path": "deploy/domestic/prepare-runtime.py",
-      "must_contain": [
-        "@unavailable",
-        "provider-compatible paths stay application-owned",
-        "refusing to omit domestic restrictions"
-      ],
-      "rationale": "Domestic production must fail closed if the shared Caddy insertion point changes, while Caddy only rejects QA/internal QA. Media, realtime and provider-compatible paths remain application-owned so future model capability does not require an ingress configuration change."
-    },
-    {
-      "path": "deploy/domestic/test_runtime.py",
-      "must_contain": [
-        "def test_qa_features_never_reach_app(",
-        "def test_media_and_provider_paths_remain_application_owned(",
-        "def test_text_api_and_management_still_reach_app(",
-        "def test_prepare_preserves_secrets_and_private_permissions("
-      ],
-      "rationale": "Execute rendered domestic ingress through real Caddy: QA is rejected before the upstream, while media/provider/realtime paths and supported text/management routes reach the application; preparation preserves private secrets on rerun."
-    },
-    {
       "path": "scripts/checks/caddyfile-syntax.sh",
       "must_contain": [
         "python3 -m unittest deploy/domestic/test_runtime.py"

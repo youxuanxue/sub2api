@@ -53,6 +53,11 @@ class DomesticRuntimeTest(unittest.TestCase):
             if isinstance(obj, dict):
                 if obj.get("handler") == "reverse_proxy":
                     obj["upstreams"] = [{"dial": "127.0.0.1:18081"}]
+                    # The fixture backend is created by this same Caddy
+                    # process. Active health checks add a startup race here;
+                    # production keeps them in the shared template.
+                    for key in ("health_uri", "health_interval", "health_timeout"):
+                        obj.pop(key, None)
                 for value in obj.values():
                     local_upstream(value)
             elif isinstance(obj, list):
@@ -107,19 +112,9 @@ class DomesticRuntimeTest(unittest.TestCase):
         with response:
             return response.status, response.read().decode()
 
-    def test_qa_features_never_reach_app(self):
-        paths = (
-            "/api/v1/qa", "/api/v1/qa/raw", "/api/v1/admin/qa/stats",
-        )
-        for path in paths:
-            for method in ("GET", "POST"):
-                with self.subTest(path=path, method=method):
-                    self.assertEqual(self.request(path, method),
-                                     (404, "This feature is unavailable on this site"))
-
-    def test_media_and_provider_paths_remain_application_owned(self):
-        # The application, model catalog and account capabilities own these
-        # decisions; ingress must not require a Caddy change for future models.
+    def test_public_paths_remain_shared_application_owned(self):
+        # The shared Caddy template forwards product and legacy paths to the
+        # application; capability and retired-service decisions stay there.
         paths = (
             "/v1/images/generations", "/images/generations",
             "/v1/video/generations", "/video/generations",
@@ -131,6 +126,7 @@ class DomesticRuntimeTest(unittest.TestCase):
             "/backend-api/codex/call-id", "/v1/realtime",
             "/studio", "/studio/image", "/batch-image", "/api/v1/studio/models",
             "/api/v1/media/upload", "/api/v1/batch-image/jobs",
+            "/api/v1/qa", "/api/v1/qa/raw", "/api/v1/admin/qa/stats",
             "/v1/%76ideo/generations", "/v1//video/generations",
         )
         for path in paths:

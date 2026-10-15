@@ -198,7 +198,6 @@ import { sanitizeSvg } from '@/utils/sanitize'
 import { resolveSiteLogo } from '@/utils/branding'
 import { resolveChromeBrand } from '@/features/home/marketProfile.tk'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
-import { isSiteRouteAvailable } from '@/utils/siteRouteAvailability'
 import { TK_SIDEBAR_WIDTH_CLASS } from '@/constants/layout'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
@@ -229,7 +228,6 @@ interface NavItem {
 function applyFeatureFlags(items: NavItem[]): NavItem[] {
   const out: NavItem[] = []
   for (const item of items) {
-    if (!isSiteRouteAvailable(item.path)) continue
     if (item.featureFlag && item.featureFlag() === false) continue
     if (item.children) {
       out.push({ ...item, children: applyFeatureFlags(item.children) })
