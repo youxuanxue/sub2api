@@ -18,7 +18,10 @@ spec.loader.exec_module(resolver)
 
 class PrepareResizeIdentityTest(unittest.TestCase):
     def setUp(self):
-        self.target = resolver.resolve_target(resolver.load_matrix(str(resolver.DEFAULT_MATRIX)), "us5", allow_planned=True)
+        self.matrix = resolver.load_matrix(str(resolver.DEFAULT_MATRIX))
+        # This contract exercises a standby source, independent of fleet cutovers.
+        self.matrix["targets"]["us5"].update(deployable=False, instance_name="us5-source-test")
+        self.target = resolver.resolve_target(self.matrix, "us5", allow_planned=True)
         self.calls = []
         self.replacement = "us5-resize-test"
         self.payload = None
@@ -138,6 +141,12 @@ class PrepareResizeIdentityTest(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-edge-lightsail-stage0.yml").read_text())
         step = next(row for row in workflow["jobs"]["edge"]["steps"] if row.get("id") == "edge")
         with tempfile.TemporaryDirectory() as directory:
+            fixture = pathlib.Path(directory) / "repo"
+            matrix_path = fixture / resolver.DEFAULT_MATRIX.relative_to(ROOT)
+            matrix_path.parent.mkdir(parents=True)
+            matrix_path.write_text(json.dumps(self.matrix))
+            resolver_path = pathlib.Path(resolver.__file__)
+            (fixture / resolver_path.relative_to(ROOT)).write_bytes(resolver_path.read_bytes())
             env = os.environ | {
                 "OIDC_ROLE_ARN": "test-role", "INPUT_EDGE_ID": self.target["edge_id"],
                 "INPUT_CONFIRM_INSTANCE": self.target["instance_name"],
@@ -145,7 +154,7 @@ class PrepareResizeIdentityTest(unittest.TestCase):
             }
             for operation in ["prepare-resize", "upgrade", "smoke", "rollback"]:
                 with self.subTest(operation=operation):
-                    result = subprocess.run(["bash", "-c", step["run"]], cwd=ROOT,
+                    result = subprocess.run(["bash", "-c", step["run"]], cwd=fixture,
                                             env=env | {"INPUT_OPERATION": operation}, capture_output=True, text=True)
                     if operation == "prepare-resize":
                         self.assertEqual(result.returncode, 0, result.stderr)

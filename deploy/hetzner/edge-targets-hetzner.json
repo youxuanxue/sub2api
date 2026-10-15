@@ -37,12 +37,12 @@
     },
     "us3": {},
     "us4": {
-      "deployable": true,
-      "purpose": "live"
+      "deployable": false,
+      "purpose": "historical read-only data; traffic forwarded to fresh AWS"
     },
     "us5": {
-      "deployable": true,
-      "purpose": "live"
+      "deployable": false,
+      "purpose": "historical read-only data; traffic forwarded to fresh AWS"
     },
     "us6": {}
   }
