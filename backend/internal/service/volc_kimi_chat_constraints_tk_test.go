@@ -102,25 +102,51 @@ func TestVolcKimiToolSelectionPreservesSemantics(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestVolcKimiChatAllowedToolsEnvelope(t *testing.T) {
+	for _, mode := range []string{"auto", "required"} {
+		// Chat SDKs nest mode/tools under allowed_tools. Reverse reference order
+		// must not reorder or lose the original full function definitions.
+		choice := `{"type":"allowed_tools","allowed_tools":{"mode":"` + mode + `","tools":[{"type":"function","function":{"name":"get_time"}},{"type":"function","function":{"name":"get_weather"}}]}}`
+		body := []byte(`{"tools":` + constraintTools + `,"tool_choice":` + choice + `}`)
+		original := bytes.Clone(body)
+		got, err := normalizeVolcKimiChatRequest(body)
+		require.NoError(t, err)
+		require.Equal(t, mode, gjson.GetBytes(got, "tool_choice").String())
+		require.JSONEq(t, constraintTools, gjson.GetBytes(got, "tools").Raw)
+		require.Equal(t, original, body)
+	}
+	for _, choice := range []string{
+		`{"type":"allowed_tools","allowed_tools":null}`,
+		`{"type":"allowed_tools","allowed_tools":[]}`,
+		`{"type":"allowed_tools","allowed_tools":{"mode":"required","tools":[]}}`,
+		`{"type":"allowed_tools","mode":"auto","allowed_tools":{"mode":"required","tools":[{"type":"function","name":"get_weather"}]}}`,
+		`{"type":"allowed_tools","tools":[],"allowed_tools":{"mode":"required","tools":[{"type":"function","name":"get_weather"}]}}`,
+	} {
+		_, err := normalizeVolcKimiChatRequest([]byte(`{"tools":` + constraintTools + `,"tool_choice":` + choice + `}`))
+		var invalid *OpenAIInvalidParameterError
+		require.ErrorAs(t, err, &invalid)
+	}
+}
+
 // Exercise the actual raw gateway forwarder and bridge boundary, not just the
 // shaping helper: the selected supplier receives the off switch and tool subset.
 func TestVolcKimiForwardKeepsThinkingAndToolConstraints(t *testing.T) {
-	for _, useBridge := range []bool{false, true} {
+	for _, route := range []string{"raw", "admin", "dispatch"} {
 		for _, stream := range []bool{false, true} {
-			t.Run(fmt.Sprintf("bridge=%v/stream=%v", useBridge, stream), func(t *testing.T) {
+			t.Run(fmt.Sprintf("route=%s/stream=%v", route, stream), func(t *testing.T) {
 				account := volcEnginePlanTestAccount()
 				account.ID = 42
 				account.Credentials["api_key"] = "test-key"
 				account.Credentials["api_protocol"] = APIProtocolChatCompletions
 				account.Extra = map[string]any{openai_compat.ExtraKeyResponsesSupported: false}
-				body := []byte(fmt.Sprintf(`{"model":"kimi-k3","stream":%v,"messages":[{"role":"user","content":"weather"}],"enable_thinking":false,"tools":%s,"tool_choice":{"type":"allowed_tools","mode":"required","tools":[{"type":"function","name":"get_weather"}]}}`, stream, constraintTools))
+				body := []byte(fmt.Sprintf(`{"model":"kimi-k3","stream":%v,"messages":[{"role":"user","content":"weather"}],"enable_thinking":false,"tools":%s,"tool_choice":{"type":"allowed_tools","allowed_tools":{"mode":"required","tools":[{"type":"function","function":{"name":"get_weather"}}]}}}`, stream, constraintTools))
 				transport := &chatConstraintTransport{}
 				svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: transport}
 				var wire []byte
 				rec := httptest.NewRecorder()
 				c, _ := gin.CreateTestContext(rec)
 				c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-				if useBridge {
+				if route == "admin" {
 					previous := dispatchNewAPIChatCompletions
 					t.Cleanup(func() { dispatchNewAPIChatCompletions = previous })
 					dispatchNewAPIChatCompletions = func(_ context.Context, c *gin.Context, _ bridge.ChannelContextInput, b []byte) (*bridge.DispatchOutcome, *newapitypes.NewAPIError) {
@@ -132,7 +158,14 @@ func TestVolcKimiForwardKeepsThinkingAndToolConstraints(t *testing.T) {
 					err := dispatchNewAPIAccountTestChatCompletions(context.Background(), c, account, body)
 					require.NoError(t, err)
 				} else {
-					_, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
+					var err error
+					if route == "dispatch" {
+						// Production dispatch deliberately bypasses the PAYG adaptor
+						// for Agent Plan. Capture its actual raw transport boundary.
+						_, err = svc.ForwardAsChatCompletionsDispatched(context.Background(), c, account, body, "", "")
+					} else {
+						_, err = svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
+					}
 					require.NoError(t, err)
 					wire = transport.lastBody
 				}

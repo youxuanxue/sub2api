@@ -3253,6 +3253,7 @@
       "must_contain": [
         "func TestVolcKimiThinkingSwitchesAndSupplierScope(",
         "func TestVolcKimiToolSelectionPreservesSemantics(",
+        "func TestVolcKimiChatAllowedToolsEnvelope(",
         "func TestVolcKimiForwardKeepsThinkingAndToolConstraints("
       ],
       "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests."

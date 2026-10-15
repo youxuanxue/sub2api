@@ -57,7 +57,9 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
   not silently become low effort. No response reasoning is hidden to fake success.
 - Named function selection is reduced to its validated single definition plus
   `required`, preserving forced-tool semantics and thinking.
-- `allowed_tools` accepts named function references and `auto` or `required`.
+- `allowed_tools` accepts the Chat nested `tool_choice.allowed_tools` object and
+  the flattened compatibility form, with named function references and `auto` or
+  `required`. Mixed nested/flat forms are rejected rather than choosing a policy.
   The outgoing definitions are restricted to exactly the allowed set; mode and
   tool result history are preserved. Missing/duplicate references, unsupported
   tool types, empty sets and legacy function API combinations fail explicitly.
@@ -70,8 +72,10 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
 conflicts, supplier/model scope, idempotence and precision/input preservation.
 `TestVolcKimiToolSelectionPreservesSemantics` exercises allowed subsets, forced
 function, mode preservation, invalid references and history preservation.
-`TestVolcKimiForwardKeepsThinkingAndToolConstraints` checks raw forwarding and the
-bridge boundary for streaming and buffered calls. Existing Moonshot and provider
+`TestVolcKimiChatAllowedToolsEnvelope` checks the Chat SDK envelope, multiple
+allowed tools, definition ordering and malformed/mixed envelopes.
+`TestVolcKimiForwardKeepsThinkingAndToolConstraints` checks raw forwarding, the
+customer dispatcher and admin probes for streaming and buffered calls. Existing Moonshot and provider
 tool constraint tests must still pass. The gateway sentinel registry anchors the
 supplier owner, selected-account routing and these regression tests.
 

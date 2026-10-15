@@ -111,7 +111,22 @@ func normalizeVolcKimiAllowedTools(body []byte) ([]byte, error) {
 		Mode  string            `json:"mode"`
 		Tools []json.RawMessage `json:"tools"`
 	}
-	if err := json.Unmarshal(root["tool_choice"], &choice); err != nil || (choice.Mode != "auto" && choice.Mode != "required") || len(choice.Tools) == 0 {
+	selection := root["tool_choice"]
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(selection, &envelope); err != nil {
+		return invalid("invalid allowed_tools selection")
+	}
+	if nested, ok := envelope["allowed_tools"]; ok {
+		// Chat Completions nests this policy; accept the existing flattened
+		// compatibility form only when the nested policy is absent.
+		_, hasMode := envelope["mode"]
+		_, hasTools := envelope["tools"]
+		if hasMode || hasTools {
+			return invalid("cannot combine nested and flattened allowed_tools fields")
+		}
+		selection = nested
+	}
+	if err := json.Unmarshal(selection, &choice); err != nil || (choice.Mode != "auto" && choice.Mode != "required") || len(choice.Tools) == 0 {
 		return invalid("allowed_tools requires mode auto or required and a non-empty function list")
 	}
 	allowed := make(map[string]bool, len(choice.Tools))
