@@ -449,7 +449,7 @@ consume the same selected path, including retries and final slot checks.
 | --- | --- | --- |
 | Kiro request waiting budget | `kiro_wait_budget_tk.go` | Direct Kiro and prod mirror share fixed tier/deadline semantics; streaming commits on visible text/tool, non-streaming on complete JSON. |
 | Model mapping, native/converter legality | `protocolrouter.Router.Plan` via `protocol_routing_context.go` | Parse the actual request using `protocolrouter.ParseCanonicalRequest`; a valid converter is equally eligible. |
-| Codex supply model retirements | `openai_codex_model_support_tk.go` via shared account admission and resolved Plan checks | OAuth/SetupToken and OpenAI edge mirrors reject retired wire models; generic API suppliers retain their existing capability policy. |
+| Codex supply model capability negatives | `openai_codex_model_support_tk.go` via shared account admission and resolved Plan checks | OAuth/SetupToken and OpenAI edge mirrors reject retired wire models and actual Claude upstream models; generic API suppliers retain their existing capability policy. |
 | Authorization paths and account selection | `candidate_request_tk.go`, `candidate_selection_tk.go` | HTTP auth, Responses WS, both schedulers and retries consume one request-local state. |
 | Native client-tool continuation | `integration/cursor/native_runs_tk.go` | Authenticated pending-tool ownership pins the original account before ordinary selection; current eligibility and Plan remain mandatory. Missing/expired/process-lost state fails closed. Approved in the Cursor tool gateway compatibility design. |
 | Empty-pool capacity selection diagnostics | `candidate_capacity_diag_tk.go` | Attaches account_total/supported/ready/reject_reasons to UniversalCapacityError so ingress can log why entitled pools had no ready path; does not change admission. |
@@ -584,3 +584,25 @@ Validation: `TestCodexRetiredModelAdmission`,
 `TestCodexRetiredModelCatalogProjection`, `TestCodexRetiredModelConfiguredCatalog`,
 and `TestAccountHandlerAvailableModelsExcludesRetiredCodexSupply`.
 Release and live acceptance remain separate.
+
+## Codex Claude model admission (2026-10-16)
+
+Approved by feng in conversation: “请修改。请修复”, following the live diagnosis
+of Claude requests reaching ChatGPT/Codex and receiving deterministic 400s.
+This authorizes the implementation; merge and production deployment remain separate.
+
+The existing Codex supply-negative owner also rejects the `claude-*` family after
+resolving the actual upstream model, including case-insensitive namespaced IDs.
+OAuth, SetupToken and OpenAI edge mirrors cannot override this fact through empty,
+identity, wildcard, passthrough or compact mappings. Explicit aliases resolving to
+supported GPT models retain their existing behavior. Direct group dispatch that
+already resolves a Claude client alias to GPT also retains its existing policy.
+Generic API-key/newapi suppliers are still evaluated using their own capabilities.
+The same Claude-family predicate is used by the existing empty-mapping/official
+Codex protocol admission helper, so the requested and resolved checks agree.
+
+Validation: `TestCodexClaudeModelAdmission`, `TestCodexClaudePlanAndSelection`,
+`TestCodexClaudeCompactMapping`, `TestCodexClaudeAliasMappedToGPTPlan`, and
+`TestCodexClaudeCatalogProjection`. No account status, model cooldown, Key binding,
+pricing, or curated catalog is changed by this fix. Existing cooldown entries expire
+normally; clearing them is not a substitute for preventing the invalid attempts.
