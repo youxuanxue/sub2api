@@ -7381,6 +7381,8 @@
         "func TestParseOpenAIImagesRequest_RejectsGPTImage2InputFidelity(",
         "func TestParseOpenAIImagesRequest_MultipartInputFidelity(",
         "func TestImagesNativeStreamingResponseStripsMultilineRevisedPrompt(",
+        "func TestImagesNativeStreamFrameLimitBoundsUpstreamReads(",
+        "func TestImagesNativeStreamFrameBudgetResetsAndAllowsExactLimit(",
         "require.False(t, gjson.GetBytes(body, \"data.0.revised_prompt\").Exists())"
       ],
       "rationale": "Behavioral regression for the Images response-contract owner: echo + truncate + strip revised_prompt, and parse-time 400 for gpt-image-2 input_fidelity. Existence-only greps are not enough — these assert response fields clients and SandBase check."
@@ -7390,7 +7392,8 @@
       "must_contain": [
         "if err := validateOpenAIImagesInputFidelity(req); err != nil {",
         "body = sanitizeOpenAIImagesResponseJSON(body, parsed)",
-        "writeNative(sanitizeOpenAIImagesSSEFrame(nativeFrame.Bytes(), native))"
+        "writeNative(sanitizeOpenAIImagesSSEFrame(nativeFrame.Bytes(), native))",
+        "if int64(len(fragment)) > fallbackLimit-frameReadBytes {"
       ],
       "rationale": "ParseOpenAIImagesRequest injection for input_fidelity reject-at-parse (gpt-image-2 family). Without this one-line hook, the Responses builder only omits the field and SandBase sees a silent success instead of official Images 400."
     },

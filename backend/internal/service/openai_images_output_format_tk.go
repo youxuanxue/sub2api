@@ -46,7 +46,7 @@ func coerceOpenAIImageB64ToOutputFormatWithQuality(encoded, wantFormat string, h
 		return "", "", fmt.Errorf("unrecognized image container for output_format=%s coerce", want)
 	}
 
-	// Same container and no quality/compression hint: keep upstream bytes.
+	// Same container and no explicit compression: keep upstream bytes.
 	if actual == want && !openAIImagesEncodeHintsActive(hints) {
 		return encoded, actual, nil
 	}

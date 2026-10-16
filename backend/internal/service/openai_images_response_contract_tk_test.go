@@ -4,6 +4,7 @@ package service
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -177,4 +178,58 @@ func TestImagesNativeStreamFrameLimitRejectsBeforeForwarding(t *testing.T) {
 	require.ErrorContains(t, err, "frame exceeds response read limit")
 	require.Equal(t, 0, count)
 	require.Equal(t, "", recorder.Body.String())
+}
+
+func TestImagesNativeStreamFrameLimitBoundsUpstreamReads(t *testing.T) {
+	for _, keepalive := range []int{0, 60} {
+		for _, prefix := range []string{"data: ", "data: {\n"} {
+			t.Run(fmt.Sprintf("keepalive=%d/prefix=%q", keepalive, prefix), func(t *testing.T) {
+				const limit = 32
+				upstream := strings.NewReader(prefix + strings.Repeat("x", 1<<20))
+				recorder := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(recorder)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+				cfg := &config.Config{}
+				cfg.Gateway.UpstreamResponseReadMaxBytes = limit
+				cfg.Gateway.ImageStreamKeepaliveInterval = keepalive
+				resp := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(upstream)}
+				_, count, _, _, err := (&OpenAIGatewayService{cfg: cfg}).handleOpenAIImagesStreamingResponse(resp, c, time.Now(), nil, &OpenAIImagesRequest{Model: "gpt-image-2"})
+				require.ErrorContains(t, err, "frame exceeds response read limit")
+				require.Equal(t, 0, count)
+				require.Empty(t, recorder.Body.String(), "never flush an incomplete oversized frame")
+				require.LessOrEqual(t, len(prefix)+(1<<20)-upstream.Len(), limit+4096, "stop reading at the limit, allowing one bufio read-ahead buffer")
+			})
+		}
+	}
+}
+
+func TestImagesNativeStreamFrameBudgetResetsAndAllowsExactLimit(t *testing.T) {
+	frame := "data: {\"type\":\"image_generation.completed\",\"b64_json\":\"" + strings.Repeat("a", 5000) + "\",\"usage\":{\"output_tokens\":196}}\n\n"
+	for _, keepalive := range []int{0, 60} {
+		for _, disconnected := range []bool{false, true} {
+			t.Run(fmt.Sprintf("keepalive=%d/disconnected=%t", keepalive, disconnected), func(t *testing.T) {
+				recorder := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(recorder)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+				if disconnected {
+					c.Writer = &failingOpenAIImageWriter{ResponseWriter: c.Writer, failAfter: 0}
+				}
+				cfg := &config.Config{}
+				cfg.Gateway.UpstreamResponseReadMaxBytes = int64(len(frame))
+				cfg.Gateway.ImageStreamKeepaliveInterval = keepalive
+				secondFrame := strings.Replace(frame, strings.Repeat("a", 5000), strings.Repeat("b", 5000), 1)
+				stream := frame + secondFrame + "data: [DONE]\n\n"
+				resp := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(stream))}
+				usage, count, _, _, err := (&OpenAIGatewayService{cfg: cfg}).handleOpenAIImagesStreamingResponse(resp, c, time.Now(), nil, &OpenAIImagesRequest{Model: "gpt-image-2"})
+				require.NoError(t, err)
+				require.Equal(t, 2, count)
+				require.Equal(t, 196, usage.OutputTokens)
+				if disconnected {
+					require.Empty(t, recorder.Body.String())
+				} else {
+					require.Equal(t, stream, recorder.Body.String())
+				}
+			})
+		}
+	}
 }

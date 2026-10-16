@@ -1330,16 +1330,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 		}
 		if !clientDisconnected && direct == nil {
 			if sanitizeNative {
-				if int64(nativeFrame.Len())+int64(len(line)) > fallbackLimit {
-					streamErr = fmt.Errorf("image stream frame exceeds response read limit")
-					nativeFrame.Reset()
-					sseData = openAISSEDataAccumulator{}
-					return
-				} else if streamErr == nil {
-					_, _ = nativeFrame.Write(line)
-					if len(bytes.TrimSpace(line)) == 0 {
-						flushNativeFrame()
-					}
+				_, _ = nativeFrame.Write(line)
+				if len(bytes.TrimSpace(line)) == 0 {
+					flushNativeFrame()
 				}
 			} else {
 				writeNative(line)
@@ -1379,10 +1372,38 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 
 	streamInterval := s.openAIImageStreamDataInterval()
 	keepaliveInterval := s.openAIImageStreamKeepaliveInterval()
-	if streamInterval <= 0 && keepaliveInterval <= 0 {
-		reader := bufio.NewReader(resp.Body)
+	reader := bufio.NewReader(resp.Body)
+	frameReadBytes := int64(0)
+	errFrameTooLarge := fmt.Errorf("image stream frame exceeds response read limit")
+	// Enforce the frame budget while reading, before an unterminated line can
+	// grow without bound. This also bounds usage parsing after client disconnect.
+	readLine := func() ([]byte, error) {
+		if !sanitizeNative {
+			return reader.ReadBytes('\n')
+		}
+		var line []byte
 		for {
-			line, err := reader.ReadBytes('\n')
+			fragment, err := reader.ReadSlice('\n')
+			if int64(len(fragment)) > fallbackLimit-frameReadBytes {
+				return nil, errFrameTooLarge
+			}
+			frameReadBytes += int64(len(fragment))
+			line = append(line, fragment...)
+			if err == bufio.ErrBufferFull {
+				continue
+			}
+			if len(bytes.TrimSpace(line)) == 0 {
+				frameReadBytes = 0
+			}
+			return line, err
+		}
+	}
+	if streamInterval <= 0 && keepaliveInterval <= 0 {
+		for {
+			line, err := readLine()
+			if err == errFrameTooLarge {
+				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, err
+			}
 			processLine(line)
 			if err == io.EOF {
 				break
@@ -1415,9 +1436,8 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	atomic.StoreInt64(&lastReadAt, time.Now().UnixNano())
 	go func() {
 		defer close(events)
-		reader := bufio.NewReader(resp.Body)
 		for {
-			line, err := reader.ReadBytes('\n')
+			line, err := readLine()
 			if len(line) > 0 {
 				atomic.StoreInt64(&lastReadAt, time.Now().UnixNano())
 			}
@@ -1464,7 +1484,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, finish()
 			}
 			if ev.err != nil {
-				flushSSEEvent()
+				if ev.err != errFrameTooLarge {
+					flushSSEEvent()
+				}
 				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, ev.err
 			}
 			processLine(ev.line)

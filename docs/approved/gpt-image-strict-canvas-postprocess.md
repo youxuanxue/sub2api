@@ -120,7 +120,7 @@ OAuth / Setup-Token 生图**一律**走：
 - `gpt-image-2` 的 `input_fidelity` 继续在统一请求解析处拒绝；覆盖 multipart edits，
   不扩大到 `gpt-image-1.5`。本轮线上 JSON 与 multipart 探针都已返回对应 400。
 - SSE 按完整帧处理，支持多行 data，保留 event/id/retry/comment 和 `[DONE]`；
-  缓冲受现有 upstream response read limit 约束。
+  读取阶段按现有 upstream response read limit 限制单帧；无换行的超长行及客户端断开后的读取同样受限。
 - 不新增凭据签发系统。原样字节测试仅证明元数据不被网关删除，不证明上游签名存在或可信。
 - Web impact: none；没有 UI 工件。验证是服务单元/集成测试及生产 HTTP 拒绝探针，不称 UI e2e。
 
@@ -132,6 +132,7 @@ OAuth / Setup-Token 生图**一律**走：
 | 必需格式/尺寸/压缩变换 | `TestImagesPostprocessStillTransformsRequestedFormatSizeAndCompression`：正确格式与像素、无旧凭据冒充 |
 | 原生 JSON / URL 回填 | `TestOpenAIGatewayServiceForwardImages_APIKeyBackfillsB64JSONFromURL`、`TestImagesNativeResponseSanitizerPreservesOtherModelsAndPayloads` |
 | 原生流、多行 data、DALL-E 回归 | `TestImagesNativeStreamingResponseStripsMultilineRevisedPrompt` |
+| SSE 超长行、帧边界、断开后的用量统计 | `TestImagesNativeStreamFrameLimitBoundsUpstreamReads`、`TestImagesNativeStreamFrameBudgetResetsAndAllowsExactLimit` |
 | multipart fidelity 正负向 | `TestParseOpenAIImagesRequest_MultipartInputFidelity` |
 
 逻辑与回归风险由以上测试覆盖；鉴权、租户与计费策略不变；运行时风险为 SSE 单帧缓冲，
