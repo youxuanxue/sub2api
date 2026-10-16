@@ -370,3 +370,22 @@ func TestOpsCoalesceRecoversFromCapacityWithTrailingRepeats(t *testing.T) {
 	require.False(t, c.admit(quotaRejectEntry(9999), "API_KEY_QUOTA_EXHAUSTED"),
 		"coalescing is live again, not permanently failed open")
 }
+
+func TestOpsCoalesceSeparatesAlertAttribution(t *testing.T) {
+	c, _ := newTestCoalescer(opsCoalesceCapacity)
+	first := quotaRejectEntry(362)
+	first.Model = "qwen3.8-max"
+	require.True(t, c.admit(first, opsCodeAPIKeyQuotaExhausted))
+	for _, change := range []func(*service.OpsInsertErrorLogInput){
+		func(e *service.OpsInsertErrorLogInput) { e.Model = "kimi-k3" },
+		func(e *service.OpsInsertErrorLogInput) { e.IsCountTokens = true },
+		func(e *service.OpsInsertErrorLogInput) { e.StatusCode = 403 },
+		func(e *service.OpsInsertErrorLogInput) { id := int64(99); e.GroupID = &id },
+	} {
+		entry := *first
+		change(&entry)
+		require.True(t, c.admit(&entry, opsCodeAPIKeyQuotaExhausted))
+		require.False(t, c.admit(&entry, opsCodeAPIKeyQuotaExhausted))
+	}
+	require.False(t, c.admit(first, opsCodeAPIKeyQuotaExhausted))
+}

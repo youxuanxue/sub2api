@@ -98,6 +98,7 @@ func TestEstimateOpsErrorLogJobBytesIncludesVariablePayloads(t *testing.T) {
 func resetOpsErrorLoggerStateForTest(t *testing.T) {
 	t.Helper()
 
+	opsErrorLogShutdownOnce.Do(func() { close(opsErrorLogShutdownCh) })
 	opsErrorLogMu.Lock()
 	ch := opsErrorLogQueue
 	opsErrorLogQueue = nil

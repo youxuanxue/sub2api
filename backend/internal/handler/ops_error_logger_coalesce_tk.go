@@ -1,6 +1,9 @@
 package handler
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,9 +32,8 @@ import (
 //     is queued, delayed or batched, so a genuine incident never waits.
 //   - Repeats inside the bucket are dropped, and their count is carried onto
 //     the next bucket's first row, so no occurrence is silently lost. A storm
-//     always ends, and the final bucket has no next occurrence to ride out on:
-//     that residue is added to the `dropped` counter when the entry is
-//     reclaimed, so it is accounted for rather than vanishing.
+//     may end before a next occurrence: a periodic body-free summary flushes
+//     that tail, including at graceful shutdown and capacity reclamation.
 //   - Buckets are per (api_key_id, code): another key, or another code on the
 //     same key, has its own bucket and is never suppressed by this one.
 //   - Memory is bounded and fails open: at capacity an unknown bucket is not
@@ -64,6 +66,10 @@ type opsCoalesceEntry struct {
 	// carried counts occurrences dropped in buckets already closed and not yet
 	// reported on a written row.
 	carried int64
+	// Retain only bounded, body-free attribution for the final suppressed tail.
+	// No request identifiers are copied into a summary row.
+	summary *service.OpsInsertErrorLogInput
+	ops     *service.OpsService
 }
 
 type opsCoalesceShard struct {
@@ -72,6 +78,7 @@ type opsCoalesceShard struct {
 }
 
 type opsCoalescer struct {
+	flushMu  sync.Mutex // serialize timer flush with the graceful-stop flush
 	bucket   time.Duration
 	capacity int64
 	shards   [opsCoalesceShardCount]opsCoalesceShard
@@ -87,10 +94,9 @@ type opsCoalescer struct {
 }
 
 // OpsErrorLogCoalesceHealth exposes the gate's counters for ops visibility.
-// suppressed is the row count this process did not write. dropped is the subset
-// of those that were never reported on any row, because the storm ended before
-// another occurrence could carry the count out; suppressed-minus-dropped is
-// what actually reached a row's `[repeated xN]` annotation.
+// suppressed counts original rows coalesced, whether carried, pending, or
+// flushed as a tail summary. dropped counts reclaimed residues without a sink;
+// queue/database delivery failures are tracked by the existing worker health.
 type OpsErrorLogCoalesceHealth struct {
 	Tracked      int64  `json:"tracked"`
 	Capacity     int64  `json:"capacity"`
@@ -135,11 +141,15 @@ func OpsErrorLogCoalesceHealthSnapshot() OpsErrorLogCoalesceHealth {
 // error_message column, because ops_error_logs has a declared==written column
 // contract (docs/approved/ops-error-logs-column-contract.md) and a new column
 // would need DDL plus a writer on a 18-index high-write partitioned table.
-func maybeCoalesceOpsErrorLogEntry(entry *service.OpsInsertErrorLogInput, code string) bool {
-	return opsErrorLogCoalescer.admit(entry, code)
+func maybeCoalesceOpsErrorLogEntry(ops *service.OpsService, entry *service.OpsInsertErrorLogInput, code string) bool {
+	return opsErrorLogCoalescer.admitForService(ops, entry, code)
 }
 
 func (c *opsCoalescer) admit(entry *service.OpsInsertErrorLogInput, code string) bool {
+	return c.admitForService(nil, entry, code)
+}
+
+func (c *opsCoalescer) admitForService(ops *service.OpsService, entry *service.OpsInsertErrorLogInput, code string) bool {
 	if c == nil || entry == nil {
 		return true
 	}
@@ -171,6 +181,10 @@ func (c *opsCoalescer) admit(entry *service.OpsInsertErrorLogInput, code string)
 		}
 		existing = &opsCoalesceEntry{bucketStart: now}
 		shard.entries[key] = existing
+	}
+	if ops != nil {
+		existing.ops = ops
+		existing.summary = opsCoalescedSummary(entry, now)
 	}
 	if existing.written {
 		// Inside an open bucket whose first occurrence is already written.
@@ -227,7 +241,18 @@ func opsCoalesceKey(entry *service.OpsInsertErrorLogInput, code string) (string,
 	if !isOpsLocalBusinessLimitError(bucketKey, strings.ToLower(entry.ErrorMessage)) {
 		return "", false
 	}
-	return strconv.FormatInt(*entry.APIKeyID, 10) + "\x00" + bucketKey, true
+	// Keep the attribution stable within a bucket: a model/group/status change
+	// or count_tokens probe on the same key must not borrow another's count.
+	// Hash the bounded summary so dimension cardinality cannot retain large text.
+	payload, err := json.Marshal(struct {
+		Code        string
+		Attribution *service.OpsInsertErrorLogInput
+	}{bucketKey, opsCoalescedSummary(entry, time.Time{})})
+	if err != nil {
+		return "", false // fail open; never suppress an unrepresentable identity
+	}
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:]), true
 }
 
 // opsCoalescedRepeatsPrefix marks an annotated row. Kept as a prefix so the
@@ -275,8 +300,8 @@ func (c *opsCoalescer) maybeCleanupAtCapacity(now time.Time) {
 // churn of briefly-rejected keys could then pin the map at capacity and leave
 // the gate permanently failed open — coalescing silently stops working.
 //
-// The residue is not discarded silently: it is added to `dropped`, so
-// suppressed == (reported on rows) + dropped always holds.
+// A production residue is queued as a summary. Without a service sink (isolated
+// coalescer users), it is accounted for in dropped rather than silently lost.
 func (c *opsCoalescer) reclaimIdle(now time.Time) {
 	nowUnixNano := now.UnixNano()
 	for {
@@ -292,18 +317,26 @@ func (c *opsCoalescer) reclaimIdle(now time.Time) {
 	shard := &c.shards[index%opsCoalesceShardCount]
 
 	var residue int64
+	var jobs []opsErrorLogJob
 	var reclaimed int64
 	shard.mu.Lock()
 	for key, entry := range shard.entries {
 		if !c.entryIdle(entry, now) {
 			continue
 		}
-		residue += entry.carried + entry.repeats
+		if job, ok := opsCoalescedTail(entry); ok {
+			jobs = append(jobs, job)
+		} else {
+			residue += entry.carried + entry.repeats
+		}
 		delete(shard.entries, key)
 		reclaimed++
 	}
 	shard.mu.Unlock()
 
+	for _, job := range jobs {
+		enqueueOpsErrorLog(job.ops, job.entry)
+	}
 	if reclaimed > 0 {
 		c.tracked.Add(-reclaimed)
 	}
@@ -345,5 +378,68 @@ func (c *opsCoalescer) health() OpsErrorLogCoalesceHealth {
 		Suppressed:   c.suppressed.Load(),
 		Dropped:      c.dropped.Load(),
 		OverCapacity: c.overCapacity.Load(),
+	}
+}
+
+// opsCoalescedSummary intentionally omits bodies, client IP/UA, key prefixes and
+// request/trajectory IDs. A summary represents several requests, never a replay.
+func opsCoalescedSummary(entry *service.OpsInsertErrorLogInput, now time.Time) *service.OpsInsertErrorLogInput {
+	bounded := func(s string, max int) string { return strings.Clone(truncateString(s, max)) }
+	return &service.OpsInsertErrorLogInput{
+		UserID: entry.UserID, APIKeyID: entry.APIKeyID, GroupID: entry.GroupID, AccountID: entry.AccountID,
+		Platform: bounded(entry.Platform, 64), Model: bounded(entry.Model, 256),
+		RequestedModel: bounded(entry.RequestedModel, 256),
+		RequestPath:    bounded(entry.RequestPath, 256), InboundEndpoint: bounded(entry.InboundEndpoint, 256),
+		Stream: entry.Stream, RequestType: entry.RequestType,
+		ErrorPhase: entry.ErrorPhase, ErrorType: entry.ErrorType, Severity: entry.Severity,
+		StatusCode: entry.StatusCode, IsBusinessLimited: entry.IsBusinessLimited, IsCountTokens: entry.IsCountTokens,
+		ErrorOwner: entry.ErrorOwner, ErrorSource: entry.ErrorSource,
+		ErrorMessage: bounded(entry.ErrorMessage, 512), CreatedAt: now,
+	}
+}
+
+func opsCoalescedTail(entry *opsCoalesceEntry) (opsErrorLogJob, bool) {
+	count := entry.carried + entry.repeats
+	if count == 0 || entry.ops == nil || entry.summary == nil {
+		return opsErrorLogJob{}, false
+	}
+	summary := *entry.summary
+	// Only suppressed requests: the bucket's first row is already persisted.
+	// count=1 needs no prefix; larger tails use the same count contract as carry.
+	annotateOpsCoalescedRepeats(&summary, count-1)
+	return opsErrorLogJob{ops: entry.ops, entry: &summary}, true
+}
+
+// flushClosed writes the tail even when the client stops retrying. Normal flush
+// happens once a minute after bucket close; graceful shutdown also flushes open
+// buckets. Rows retain the last occurrence time, not the flush time, so idle
+// clients never reappear as a new incident. Locks arbitrate flush vs next admit.
+func (c *opsCoalescer) flushClosed(all bool) {
+	if c == nil {
+		return
+	}
+	c.flushMu.Lock()
+	defer c.flushMu.Unlock()
+	now := c.now()
+	for i := range c.shards {
+		shard := &c.shards[i]
+		var jobs []opsErrorLogJob
+		shard.mu.Lock()
+		for key, entry := range shard.entries {
+			if !all && !c.entryIdle(entry, now) {
+				continue
+			}
+			if job, ok := opsCoalescedTail(entry); ok {
+				jobs = append(jobs, job)
+			} else if entry.carried+entry.repeats > 0 {
+				c.dropped.Add(uint64(entry.carried + entry.repeats))
+			}
+			delete(shard.entries, key)
+			c.tracked.Add(-1)
+		}
+		shard.mu.Unlock()
+		for _, job := range jobs {
+			enqueueOpsErrorLog(job.ops, job.entry)
+		}
 	}
 }

@@ -3787,7 +3787,10 @@
     {
       "path": "backend/internal/repository/ops_repo_user_visible_failure_tk.go",
       "must_contain": [
-        "AND user_id IS NOT NULL"
+        "AND user_id IS NOT NULL",
+        "const opsFailureOccurrenceSQL",
+        "SUM(` + opsFailureOccurrenceSQL + `)",
+        "const opsCoalescedPrefixSQL"
       ],
       "must_not_contain": [
         "l.deleted_key_owner_user_id",
@@ -16689,14 +16692,14 @@
     {
       "path": "backend/internal/handler/ops_error_logger.go",
       "must_contain": [
-        "if !maybeCoalesceOpsErrorLogEntry(entry, parsed.Code) {"
+        "if !maybeCoalesceOpsErrorLogEntry(ops, entry, parsed.Code) {"
       ],
       "rationale": "Injection point for ops_error_logs coalescing of client-owned, self-inflicted limit rejections. It must stay AFTER the api-key attribution block (the gate buckets on entry.APIKeyID) and immediately BEFORE enqueueOpsErrorLog, the only point that can suppress a row without losing its attribution. Measured 2026-10-11: one quota-exhausted key produced 29,731 of 30,318 rows in 24h (98%), burying 587 rows of real incidents, with that day's partition at 46 MB against 176 kB for an empty one and 18 indexes maintained per insert. Dropping this single line restores one indistinguishable row per repeat with a green build."
     },
     {
       "path": "backend/internal/handler/ops_error_logger_coalesce_tk.go",
       "must_contain": [
-        "func maybeCoalesceOpsErrorLogEntry(entry *service.OpsInsertErrorLogInput, code string) bool",
+        "func maybeCoalesceOpsErrorLogEntry(ops *service.OpsService, entry *service.OpsInsertErrorLogInput, code string) bool",
         "func opsCoalesceKey(entry *service.OpsInsertErrorLogInput, code string) (string, bool)",
         "if entry.ErrorOwner != \"client\" || !entry.IsBusinessLimited {",
         "if entry.UpstreamStatusCode != nil || entry.UpstreamErrorMessage != nil ||",
@@ -16704,9 +16707,11 @@
         "func annotateOpsCoalescedRepeats(entry *service.OpsInsertErrorLogInput, suppressed int64)",
         "c.overCapacity.Add(1)",
         "func (c *opsCoalescer) reclaimIdle(",
-        "c.dropped.Add(uint64(residue))"
+        "c.dropped.Add(uint64(residue))",
+        "func (c *opsCoalescer) flushClosed(all bool)",
+        "func opsCoalescedTail(entry *opsCoalesceEntry)"
       ],
-      "rationale": "TK owner of the ops_error_logs coalescing gate. Every pinned literal is a containment boundary, not decoration: the client/business-limited test and the upstream-attribution test keep the gate OFF any row carrying per-occurrence information (provider-owned rows, anything with an upstream status or event); the isOpsLocalBusinessLimitError reuse keeps the suppressed set identical to the existing classifier instead of a second hand-maintained list; annotateOpsCoalescedRepeats is what makes suppression lossless, carrying the repeat count onto the next written row; and the overCapacity path is the fail-open guarantee, so at capacity an untracked bucket is WRITTEN and memory pressure costs rows rather than signal. No new column is added: ops_error_logs has a declared==written column contract (docs/approved/ops-error-logs-column-contract.md), so the count rides in error_message and must stay a prefix, keeping the original text a contiguous substring for ILIKE / trigram search and strings.Contains classification. 回收条件必须只看 bucket 是否关闭，不得再要求 carried/repeats 为零：一场*已结束*风暴留下的恰好是非零计数且不会再有下一次 admit 来带出它，因此「有计数就不回收」会让这些条目永久不可回收——容量打满后 gate 永久 fail-open、合并静默失效，而只有没人看的 over_capacity 计数器会涨。残留计数必须计入 dropped，保证 suppressed == 已上报 + dropped 恒成立。"
+      "rationale": "TK owner of the ops_error_logs coalescing gate. Every pinned literal is a containment boundary, not decoration: the client/business-limited test and the upstream-attribution test keep the gate OFF any row carrying per-occurrence information (provider-owned rows, anything with an upstream status or event); the isOpsLocalBusinessLimitError reuse keeps the suppressed set identical to the existing classifier instead of a second hand-maintained list; annotateOpsCoalescedRepeats is what makes suppression lossless, carrying the repeat count onto the next written row; and the overCapacity path is the fail-open guarantee, so at capacity an untracked bucket is WRITTEN and memory pressure costs rows rather than signal. No new column is added: ops_error_logs has a declared==written column contract (docs/approved/ops-error-logs-column-contract.md), so the count rides in error_message and must stay a prefix, keeping the original text a contiguous substring for ILIKE / trigram search and strings.Contains classification. 回收条件必须只看 bucket 是否关闭，不得再要求 carried/repeats 为零：一场*已结束*风暴留下的恰好是非零计数且不会再有下一次 admit 来带出它，因此「有计数就不回收」会让这些条目永久不可回收——容量打满后 gate 永久 fail-open、合并静默失效，而只有没人看的 over_capacity 计数器会涨。生产残留计数必须经周期、正常停机和容量回收路径落为无 body 的汇总行；无 service sink 的隔离调用才计入 dropped。"
     },
     {
       "path": "backend/internal/handler/ops_error_logger_coalesce_tk_test.go",
@@ -16725,6 +16730,8 @@
     {
       "path": "backend/internal/handler/ops_error_logger_coalesce_middleware_tk_test.go",
       "must_contain": [
+        "TestOpsErrorLoggerCoalescedTailSurvivesClientStopping",
+        "TestOpsErrorLoggerCoalescedTailFlushesOpenBucketOnShutdown",
         "TestOpsErrorLoggerMiddlewareCoalescesQuotaRejectStorm",
         "TestOpsErrorLoggerMiddlewareStillRecordsDistinctKeys",
         "TestOpsErrorLoggerMiddlewareStillRecordsUpstreamFailuresEveryTime"
