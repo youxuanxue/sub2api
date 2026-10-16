@@ -309,15 +309,19 @@ func TestCandidateDiscoveryKeepsVerifiedModelsWhenDifferentModelIsUnknown(t *tes
 }
 
 func TestCandidateDiscoverySkipsProviderPrefixedIDsForGeminiShape(t *testing.T) {
-	// Prod 2026-10-16: universal /v1/models failed closed when ShapeGemini evaluated
+	// Prod 2026-10-16: universal /v1/models failed closed when any shape evaluated
 	// catalog id "grok/grok-4.20-0309-non-reasoning" against live gemini-web accounts
-	// (upstream path guard rejects "/"). Prefixed IDs must not abort discovery.
+	// (upstream path guard rejects "/"). Prefixed IDs must not abort discovery —
+	// including OpenAI-shape evaluation of Gemini accounts (1.8.295 residual).
 	prefixed := "grok/grok-4.20-0309-non-reasoning"
 	geminiGroup := grpNoImage(740, PlatformGemini, 0, false)
 	openaiGroup := grpNoImage(10, PlatformOpenAI, 0, false)
 	gemini := globalCandidateAccount(255, 1, 740)
 	gemini.Platform = PlatformGemini
-	gemini.Credentials["model_mapping"] = map[string]any{"gemini-3.8-flash": "gemini-web-flash"}
+	gemini.Credentials["model_mapping"] = map[string]any{
+		"gemini-3.8-flash": "gemini-web-flash",
+		prefixed:           "gemini-web-flash",
+	}
 	openai := globalCandidateAccount(1, 1, 10)
 	openai.Credentials["model_mapping"] = map[string]any{
 		"gpt-5.4": "gpt-5.4",
