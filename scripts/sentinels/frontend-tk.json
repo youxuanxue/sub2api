@@ -2145,7 +2145,7 @@
         "formData.universal = !formData.universal",
         "v-if=\"!formData.universal\"",
         "row.routing_mode === 'universal'",
-        "keys.universalBadge"
+        "UniversalKeyBadge"
       ],
       "rationale": "Universal Key (全能 Key) create/edit surface (docs/approved/universal-key-routing.md): the default-ON toggle that, when on, hides the group picker (v-if=\"!formData.universal\") and submits routing_mode='universal' with no group_id; and the key-table badge that shows row.routing_mode==='universal' instead of the change-group affordance. KeysView.vue is a large upstream-shaped file; an upstream merge that rewrites the create form or key card could silently drop the toggle or the badge while compiling green, regressing every new key back to mandatory single-group binding. These anchors turn that backward-drift into a merge-gate failure."
     },
@@ -2909,6 +2909,21 @@
         "void loadUsageStatsForKeys(apiKeys.value.map((k) => k.id))"
       ],
       "rationale": "/keys must clear the table loading spinner as soon as the key list returns, then asynchronously fill DateRangePicker window spend via loadUsageStatsForKeys/getDashboardApiKeysUsage and open KeyUsageTrendDialog for the curve. Date-range changes must refresh spend only (not reload the key list / re-spin the table). KeysView.vue is upstream-shaped and a merge can restore the old await-usage-before-clear order or drop the shared date window while tests for other features still pass."
+    },
+    {
+      "path": "frontend/src/components/keys/UniversalKeyBadge.vue",
+      "must_contain": [
+        "keys.universalBadge",
+        "keys.universalHint"
+      ],
+      "rationale": "Shared automatic-routing badge for user and admin key views; fixed group editing is a Direct-only surface."
+    },
+    {
+      "path": "frontend/src/components/admin/user/UserApiKeysModal.vue",
+      "must_contain": [
+        "<UniversalKeyBadge v-if=\"key.routing_mode === 'universal'\" />"
+      ],
+      "rationale": "Admin must not offer fixed group selection for a Universal key, including legacy rows with residual group IDs."
     }
   ]
 }

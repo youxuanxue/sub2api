@@ -159,16 +159,7 @@
 
           <template #cell-group="{ row }">
             <!-- 自动路由 Key 不绑定单一服务组。 -->
-            <span
-              v-if="row.routing_mode === 'universal'"
-              class="inline-flex items-center gap-1 rounded-md bg-primary-50 px-2 py-1 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
-              :title="t('keys.universalHint')"
-            >
-              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 100-18 9 9 0 000 18zm0 0c2.5-2.5 2.5-15.5 0-18m0 18c-2.5-2.5-2.5-15.5 0-18M3 12h18" />
-              </svg>
-              {{ t('keys.universalBadge') }}
-            </span>
+            <UniversalKeyBadge v-if="row.routing_mode === 'universal'" />
             <div v-else class="group/dropdown relative">
               <button
                 :ref="(el) => setGroupButtonRef(row.id, el)"
@@ -1297,6 +1288,7 @@ import KeyUsageTrendDialog from '@/components/keys/KeyUsageTrendDialog.vue'
 	import Icon from '@/components/icons/Icon.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
+import UniversalKeyBadge from '@/components/keys/UniversalKeyBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 	import type { ApiKey, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
 import type { Column } from '@/components/common/types'

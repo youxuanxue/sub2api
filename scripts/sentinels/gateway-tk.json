@@ -17193,6 +17193,37 @@
         "tkOpenAIAdminModelsForAccount(account, tkOpenAIAdminDefaultModels(c.Request.Context()))"
       ],
       "rationale": "Account catalog and admin picker must consume supply-scoped retirement admission without hiding valid API supply."
+    },
+    {
+      "path": "backend/internal/service/api_key_service.go",
+      "must_contain": [
+        "func apiKeyGroupIDForRoutingMode(",
+        "apiKeyGroupIDForRoutingMode(routingMode, req.GroupID)",
+        "apiKeyGroupIDForRoutingMode(apiKey.RoutingMode, req.GroupID)",
+        "apiKey.Group = nil\n\t\tfields.GroupID = true"
+      ],
+      "rationale": "Universal key create/update must ignore persistent group bindings and explicitly clear the partial-update column; request-scoped billing groups remain separate."
+    },
+    {
+      "path": "backend/internal/service/admin_group.go",
+      "must_contain": [
+        "apiKeyGroupIDForRoutingMode(apiKey.RoutingMode, groupID) == nil"
+      ],
+      "rationale": "Admin group mutation must honor universal routing before validating or auto-granting a supplied group."
+    },
+    {
+      "path": "backend/internal/service/api_key_service_update_fields_test.go",
+      "must_contain": [
+        "TestAPIKeyUpdate_UniversalGroupBinding"
+      ],
+      "rationale": "Regression covers direct-to-universal persistence, legacy cleanup, rebind prevention and direct compatibility without usage writes."
+    },
+    {
+      "path": "backend/internal/service/admin_service_apikey_test.go",
+      "must_contain": [
+        "TestAdminService_UniversalKeyGroupBinding"
+      ],
+      "rationale": "Universal admin mutations must clear only group binding, invalidate auth caches and never auto-grant group access."
     }
   ]
 }

@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -143,6 +144,7 @@ type apiKeyRepoStubForGroupUpdate struct {
 	getErr    error
 	updateErr error
 	updated   *APIKey // captures what was passed to Update
+	fields    APIKeyUpdateFields
 }
 
 func (s *apiKeyRepoStubForGroupUpdate) GetByID(_ context.Context, _ int64) (*APIKey, error) {
@@ -152,12 +154,13 @@ func (s *apiKeyRepoStubForGroupUpdate) GetByID(_ context.Context, _ int64) (*API
 	clone := *s.key
 	return &clone, nil
 }
-func (s *apiKeyRepoStubForGroupUpdate) Update(_ context.Context, key *APIKey, _ APIKeyUpdateFields) error {
+func (s *apiKeyRepoStubForGroupUpdate) Update(_ context.Context, key *APIKey, fields APIKeyUpdateFields) error {
 	if s.updateErr != nil {
 		return s.updateErr
 	}
 	clone := *key
 	s.updated = &clone
+	s.fields = fields
 	return nil
 }
 
@@ -311,6 +314,32 @@ func (s *userSubRepoStubForGroupUpdate) GetActiveByUserIDAndGroupID(_ context.Co
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+func TestAdminService_UniversalKeyGroupBinding(t *testing.T) {
+	for _, groupID := range []int64{0, 10} {
+		t.Run(fmt.Sprint(groupID), func(t *testing.T) {
+			repo := &apiKeyRepoStubForGroupUpdate{key: &APIKey{
+				ID: 1, UserID: 7, Key: "sk-test", RoutingMode: RoutingModeUniversal,
+				GroupID: int64Ptr(5), Group: &Group{ID: 5}, QuotaUsed: 30, Usage5h: 12,
+			}}
+			users := &userRepoStubForGroupUpdate{}
+			cache := &authCacheInvalidatorStub{}
+			// No group repository: an ignored universal binding must not validate
+			// or auto-grant the supplied group.
+			svc := &adminServiceImpl{apiKeyRepo: repo, userRepo: users, authCacheInvalidator: cache}
+			got, err := svc.AdminUpdateAPIKeyGroupID(context.Background(), 1, &groupID)
+			require.NoError(t, err)
+			require.Nil(t, got.APIKey.GroupID)
+			require.Nil(t, got.APIKey.Group)
+			require.Nil(t, repo.updated.GroupID)
+			require.Equal(t, RoutingModeUniversal, repo.updated.RoutingMode)
+			require.Equal(t, APIKeyUpdateFields{GroupID: true}, repo.fields)
+			require.False(t, users.addGroupCalled)
+			require.False(t, got.AutoGrantedGroupAccess)
+			require.Equal(t, []string{"sk-test"}, cache.keys)
+		})
+	}
+}
 
 func TestAdminService_AdminUpdateAPIKeyGroupID_KeyNotFound(t *testing.T) {
 	repo := &apiKeyRepoStubForGroupUpdate{getErr: ErrAPIKeyNotFound}

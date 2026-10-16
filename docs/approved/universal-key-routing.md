@@ -235,3 +235,18 @@ HTTP 在 auth 内建立候选和计费路径，再进入正常支付校验。Web
 候选验收与可执行命令见
 [`US-050`](../../.testing/user-stories/stories/US-050-candidate-eligibility-ssot.md)。
 key 交互与能力发现的验收由 discovery 契约维护；历史 PR 阶段拆分见 git 历史。
+
+## 持久化分组绑定修复（2026-10-16）
+
+用户在本轮对话确认“所有的全能 key 都不应该有分组绑定”，并同意修复更新缺口、
+备份后清理两条生产残留。此确认不含发布部署授权。
+
+创建和更新共用 `apiKeyGroupIDForRoutingMode`：Universal 忽略提交的固定分组；
+用户修改路由模式或分组时显式登记 `GroupID` 部分更新，清空持久化绑定和返回对象的
+分组关系。无关字段编辑不改分组。管理员显式改分组也遵循此规则，不因被忽略的绑定
+授予用户分组权限；省略分组字段仍为不修改。Direct 的权限校验和绑定语义保持。
+管理员 Key 列表对 Universal 显示既有自动路由标签，不提供固定组选择器。
+
+回归：`TestAPIKeyUpdate_UniversalGroupBinding`、
+`TestAdminService_UniversalKeyGroupBinding`。清理只涉及 Key 当前绑定，不删除 Key、
+不重置用量，不变更用户授权、订阅或历史用量计费来源。
