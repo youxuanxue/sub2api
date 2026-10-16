@@ -1,8 +1,13 @@
 package service
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // openAIImagesWantCount is the client-visible image count for the Images API
@@ -122,4 +127,61 @@ func validateOpenAIImagesInputFidelity(req *OpenAIImagesRequest) error {
 		value = "null"
 	}
 	return OpenAIImagesInputFidelityError{Model: model, Value: value}
+}
+
+// sanitizeOpenAIImagesResponseJSON applies the GPT Image field contract to
+// native Images envelopes and completed events without rebuilding image data,
+// usage or provider extensions. DALL-E still owns its revised_prompt field.
+func sanitizeOpenAIImagesResponseJSON(body []byte, parsed *OpenAIImagesRequest) []byte {
+	if parsed == nil || !IsGPTImageGenerationModel(parsed.Model) || !gjson.ValidBytes(body) {
+		return body
+	}
+	paths := []string{"revised_prompt"}
+	for i := range gjson.GetBytes(body, "data").Array() {
+		paths = append(paths, fmt.Sprintf("data.%d.revised_prompt", i))
+	}
+	for _, path := range paths {
+		if gjson.GetBytes(body, path).Exists() {
+			if updated, err := sjson.DeleteBytes(body, path); err == nil {
+				body = updated
+			}
+		}
+	}
+	return body
+}
+
+// Preserve event/id/retry/comment lines and untouched frames byte-for-byte.
+// Join data lines before editing: SSE JSON may span multiple data fields.
+func sanitizeOpenAIImagesSSEFrame(frame []byte, parsed *OpenAIImagesRequest) []byte {
+	lines := bytes.SplitAfter(frame, []byte("\n"))
+	var data []string
+	for _, line := range lines {
+		if value, ok := extractOpenAISSEDataLine(strings.TrimRight(string(line), "\r\n")); ok {
+			data = append(data, value)
+		}
+	}
+	payload := []byte(strings.Join(data, "\n"))
+	updated := sanitizeOpenAIImagesResponseJSON(payload, parsed)
+	if bytes.Equal(payload, updated) {
+		return frame
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, updated); err != nil {
+		return frame
+	}
+	var out bytes.Buffer
+	written := false
+	for _, line := range lines {
+		if _, ok := extractOpenAISSEDataLine(strings.TrimRight(string(line), "\r\n")); ok {
+			if !written {
+				_, _ = out.WriteString("data: ")
+				_, _ = out.Write(compact.Bytes())
+				_ = out.WriteByte('\n')
+				written = true
+			}
+		} else {
+			_, _ = out.Write(line)
+		}
+	}
+	return out.Bytes()
 }

@@ -338,7 +338,7 @@ func TestOpenAIGatewayServiceForwardImages_APIKeyBackfillsB64JSONFromURL(t *test
 	wantB64 := base64.StdEncoding.EncodeToString(b64BackfillPNGBytes)
 	require.Equal(t, wantB64, gjson.Get(rec.Body.String(), "data.0.b64_json").String())
 	require.Equal(t, "https://cdn.example.com/cat.png", gjson.Get(rec.Body.String(), "data.0.url").String())
-	require.Equal(t, "a cat", gjson.Get(rec.Body.String(), "data.0.revised_prompt").String())
+	require.False(t, gjson.Get(rec.Body.String(), "data.0.revised_prompt").Exists())
 	require.Equal(t, int64(1710000000), gjson.Get(rec.Body.String(), "created").Int())
 }
 

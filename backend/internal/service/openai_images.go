@@ -809,7 +809,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	imageCount := parsed.N
 	var firstTokenMs *int
 	if parsed.Stream && isEventStreamResponse(resp.Header) {
-		streamUsage, streamCount, streamSizes, ttft, err := s.handleOpenAIImagesStreamingResponse(resp, c, startTime, nil)
+		streamUsage, streamCount, streamSizes, ttft, err := s.handleOpenAIImagesStreamingResponse(resp, c, startTime, nil, parsed)
 		if err != nil {
 			if streamCount > 0 {
 				return &OpenAIForwardResult{
@@ -1143,6 +1143,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(
 		return OpenAIUsage{}, 0, nil, err
 	}
 	body = s.backfillOpenAIImagesB64JSON(ctx, account, parsed, body)
+	body = sanitizeOpenAIImagesResponseJSON(body, parsed)
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := "application/json"
 	if s.cfg != nil && !s.cfg.Security.ResponseHeaders.Enabled {
@@ -1163,6 +1164,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	c *gin.Context,
 	startTime time.Time,
 	direct *OpenAIImagesRequest,
+	native *OpenAIImagesRequest,
 ) (OpenAIUsage, int, []string, *int, error) {
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
@@ -1190,11 +1192,11 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	var sseData openAISSEDataAccumulator
 	var streamErr error
 	finish := func() error {
-		if direct == nil {
-			return nil
-		}
 		if streamErr != nil {
 			return streamErr
+		}
+		if direct == nil {
+			return nil
 		}
 		if !seenSSEData || imageCounter.Count() == 0 {
 			return newOpenAIUpstreamStreamReadError(ErrOpenAIUpstreamStreamTruncated)
@@ -1236,6 +1238,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 			streamErr = newOpenAIUpstreamStreamReadError(fmt.Errorf("invalid image stream JSON"))
 			return
 		}
+		dataBytes = sanitizeOpenAIImagesResponseJSON(dataBytes, direct)
 		eventType := gjson.GetBytes(dataBytes, "type").String()
 		if direct != nil && strings.HasSuffix(eventType, ".completed") {
 			b64 := gjson.GetBytes(dataBytes, "b64_json").String()
@@ -1289,12 +1292,36 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 		}
 	}
 
+	// Native GPT Image streams use the same field contract as JSON responses.
+	// Buffer only one SSE frame; image bytes and usage parsing remain untouched.
+	sanitizeNative := direct == nil && native != nil && IsGPTImageGenerationModel(native.Model) && strings.Contains(strings.ToLower(contentType), "text/event-stream")
+	var nativeFrame bytes.Buffer
+	writeNative := func(data []byte) {
+		if clientDisconnected || streamErr != nil {
+			return
+		}
+		if _, err := c.Writer.Write(data); err != nil {
+			clientDisconnected = true
+		} else {
+			flusher.Flush()
+			lastDownstreamWriteAt = time.Now()
+		}
+	}
+	flushNativeFrame := func() {
+		if nativeFrame.Len() == 0 {
+			return
+		}
+		writeNative(sanitizeOpenAIImagesSSEFrame(nativeFrame.Bytes(), native))
+		nativeFrame.Reset()
+	}
+
 	flushSSEEvent := func() {
 		sseData.Flush(processSSEData)
+		flushNativeFrame()
 	}
 
 	processLine := func(line []byte) {
-		if len(line) == 0 {
+		if streamErr != nil || len(line) == 0 {
 			return
 		}
 		if firstTokenMs == nil {
@@ -1302,12 +1329,20 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 			firstTokenMs = &ms
 		}
 		if !clientDisconnected && direct == nil {
-			if _, writeErr := c.Writer.Write(line); writeErr != nil {
-				clientDisconnected = true
-				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Images stream client disconnected, continue draining upstream for billing")
+			if sanitizeNative {
+				if int64(nativeFrame.Len())+int64(len(line)) > fallbackLimit {
+					streamErr = fmt.Errorf("image stream frame exceeds response read limit")
+					nativeFrame.Reset()
+					sseData = openAISSEDataAccumulator{}
+					return
+				} else if streamErr == nil {
+					_, _ = nativeFrame.Write(line)
+					if len(bytes.TrimSpace(line)) == 0 {
+						flushNativeFrame()
+					}
+				}
 			} else {
-				flusher.Flush()
-				lastDownstreamWriteAt = time.Now()
+				writeNative(line)
 			}
 		}
 
