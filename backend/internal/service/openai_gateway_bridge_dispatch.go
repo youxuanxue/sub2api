@@ -77,9 +77,11 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 		return nil, err
 	}
 	body = applyNewAPIQwenAccountShape(account, gjson.GetBytes(body, "model").String(), body)
-	body = applyNewAPIAliFixedSamplingShape(gjson.GetBytes(body, "model").String(), body)
+	bridgeModel := gjson.GetBytes(body, "model").String()
+	body = applyNewAPIAliFixedSamplingShape(bridgeModel, body)
+	body = applyMoonshotK3DynamicToolsShape(bridgeModel, body)
 	var shapeErr error
-	body, shapeErr = applyMoonshotThinkingShape(c, account, gjson.GetBytes(body, "model").String(), body)
+	body, shapeErr = applyMoonshotThinkingShape(c, account, bridgeModel, body)
 	if shapeErr != nil {
 		return nil, shapeErr
 	}
@@ -158,9 +160,11 @@ func dispatchNewAPIAccountTestChatCompletions(
 	body []byte,
 ) error {
 	body = rewriteNewAPIBridgeBodyModel(account, body, "")
-	body = applyNewAPIAliFixedSamplingShape(gjson.GetBytes(body, "model").String(), body)
+	bridgeModel := gjson.GetBytes(body, "model").String()
+	body = applyNewAPIAliFixedSamplingShape(bridgeModel, body)
+	body = applyMoonshotK3DynamicToolsShape(bridgeModel, body)
 	var shapeErr error
-	body, shapeErr = applyMoonshotThinkingShape(c, account, gjson.GetBytes(body, "model").String(), body)
+	body, shapeErr = applyMoonshotThinkingShape(c, account, bridgeModel, body)
 	if shapeErr != nil {
 		return shapeErr
 	}

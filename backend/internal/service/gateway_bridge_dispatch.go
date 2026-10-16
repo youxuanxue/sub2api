@@ -83,9 +83,11 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 	if !protocolExecutionBound(ctx) {
 		body = rewriteNewAPIBridgeBodyModel(account, body, "")
 	}
-	body = applyNewAPIAliFixedSamplingShape(gjson.GetBytes(body, "model").String(), body)
+	bridgeModel := gjson.GetBytes(body, "model").String()
+	body = applyNewAPIAliFixedSamplingShape(bridgeModel, body)
+	body = applyMoonshotK3DynamicToolsShape(bridgeModel, body)
 	var shapeErr error
-	body, shapeErr = applyMoonshotThinkingShape(c, account, gjson.GetBytes(body, "model").String(), body)
+	body, shapeErr = applyMoonshotThinkingShape(c, account, bridgeModel, body)
 	if shapeErr != nil {
 		return nil, shapeErr
 	}
