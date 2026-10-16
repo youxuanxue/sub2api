@@ -1833,6 +1833,12 @@ function generateOpenCodeConfig(
       modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
       options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
     },
+    'gemini-4-argon': {
+      name: 'Gemini 4 Argon',
+      limit: { context: 1048576, output: 65536 },
+      modalities: { input: ['text', 'image', 'video', 'audio', 'pdf'], output: ['text'] },
+      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
+    },
     'gemini-3-flash-preview': {
       name: 'Gemini 3 Flash Preview',
       limit: { context: 1048576, output: 65536 },

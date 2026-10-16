@@ -196,6 +196,7 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	"gemini-3.6-flash":               {},
 	"gemini-3.7-flash":               {},
 	"gemini-3.8-flash":               {},
+	"gemini-4-argon":                 {},
 	// Nano Banana 2 is Flash; Pro aliases belong to Gemini Web.
 	"nano-2":        {},
 	"nano-banana-2": {},

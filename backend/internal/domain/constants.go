@@ -129,10 +129,13 @@ const AntigravityGemini31ProAgentModel = "gemini-pro-agent"
 // 2026-09-22：补回 gemini-3-flash→3.8 高流量别名。
 // 2026-09-22：裸名默认 wire 锁 high（非 medium）；-{low,medium,high} 为非公开
 // wire 档位，由 AntigravityThinkingWireFloorEntries 注入 account floor。
+// 2026-10-16：gemini-4-argon 上游目录为 -low/-medium/-high（无 -tiered）；
+// 裸名同样锁 high，与 Flash 家族一致（官方 API 默认 medium 不覆盖 AG wire 约定）。
 var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3.6-flash":               "gemini-3.6-flash-tiered",
 	"gemini-3.7-flash":               "gemini-3.7-flash-high",
 	"gemini-3.8-flash":               "gemini-3.8-flash-high",
+	"gemini-4-argon":                 "gemini-4-argon-high",
 	"gemini-3-flash":                 "gemini-3.8-flash-high",
 	"gemini-3-flash-preview":         "gemini-3.8-flash-high",
 	"gemini-3.5-flash-lite":          "gemini-3.6-flash-tiered",
@@ -142,7 +145,7 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"nano-banana-2":                  "gemini-3.1-flash-image",
 }
 
-// antigravityThinkingWireBases lists public Flash families whose AG upstream
+// antigravityThinkingWireBases lists public Gemini families whose AG upstream
 // catalog exposes -low/-medium/-high (and for 3.6, -tiered) wire IDs. These
 // tier IDs are NOT public display names; they exist so explicit model requests
 // and generationConfig.thinkingConfig can select native AG depth.
@@ -150,6 +153,7 @@ var antigravityThinkingWireBases = []string{
 	"gemini-3.6-flash",
 	"gemini-3.7-flash",
 	"gemini-3.8-flash",
+	"gemini-4-argon",
 }
 
 // AntigravityThinkingWireFloorEntries returns identity mappings for non-public
