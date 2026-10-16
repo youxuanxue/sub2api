@@ -574,10 +574,7 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 	if routingMode != RoutingModeDirect && routingMode != RoutingModeUniversal {
 		return nil, ErrInvalidRoutingMode
 	}
-	effectiveGroupID := req.GroupID
-	if routingMode == RoutingModeUniversal {
-		effectiveGroupID = nil // 全能 Key 跨度由权限决定，不固定分组
-	}
+	effectiveGroupID := apiKeyGroupIDForRoutingMode(routingMode, req.GroupID)
 
 	// 验证分组权限（仅 direct 且指定了分组时）
 	if effectiveGroupID != nil {
@@ -854,6 +851,15 @@ func (s *APIKeyService) GetByKey(ctx context.Context, key string) (*APIKey, erro
 	return apiKey, nil
 }
 
+// apiKeyGroupIDForRoutingMode owns persistent group binding for key mutations.
+// Request-scoped billing groups are resolved separately by candidate selection.
+func apiKeyGroupIDForRoutingMode(mode string, groupID *int64) *int64 {
+	if mode == RoutingModeUniversal {
+		return nil
+	}
+	return groupID
+}
+
 // Update 更新API Key
 func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req UpdateAPIKeyRequest) (*APIKey, error) {
 	if err := validateUpdateAPIKeyRequest(req); err != nil {
@@ -896,14 +902,30 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		fields.Name = true
 	}
 
-	if req.GroupID != nil {
+	// Resolve the resulting mode before validating a fixed group, as Create does.
+	if req.RoutingMode != nil {
+		mode := strings.TrimSpace(*req.RoutingMode)
+		if mode != RoutingModeDirect && mode != RoutingModeUniversal {
+			return nil, ErrInvalidRoutingMode
+		}
+		apiKey.RoutingMode = mode
+		fields.RoutingMode = true
+	}
+
+	if apiKey.IsUniversal() && (req.RoutingMode != nil || req.GroupID != nil) {
+		apiKey.GroupID = nil
+		apiKey.Group = nil
+		fields.GroupID = true
+	}
+
+	if effectiveGroupID := apiKeyGroupIDForRoutingMode(apiKey.RoutingMode, req.GroupID); effectiveGroupID != nil {
 		// 验证分组权限
 		user, err := s.userRepo.GetByID(ctx, userID)
 		if err != nil {
 			return nil, fmt.Errorf("get user: %w", err)
 		}
 
-		group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
+		group, err := s.groupRepo.GetByID(ctx, *effectiveGroupID)
 		if err != nil {
 			return nil, fmt.Errorf("get group: %w", err)
 		}
@@ -912,21 +934,8 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 			return nil, ErrGroupNotAllowed
 		}
 
-		apiKey.GroupID = req.GroupID
+		apiKey.GroupID = effectiveGroupID
 		fields.GroupID = true
-	}
-
-	// 路由模式切换（universal 全能 Key 不固定分组，清空 group_id）。
-	if req.RoutingMode != nil {
-		mode := strings.TrimSpace(*req.RoutingMode)
-		if mode != RoutingModeDirect && mode != RoutingModeUniversal {
-			return nil, ErrInvalidRoutingMode
-		}
-		apiKey.RoutingMode = mode
-		fields.RoutingMode = true
-		if mode == RoutingModeUniversal {
-			apiKey.GroupID = nil
-		}
 	}
 
 	if req.Status != nil {

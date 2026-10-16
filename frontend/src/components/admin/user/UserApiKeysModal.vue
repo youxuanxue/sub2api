@@ -20,7 +20,9 @@
           <div class="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
             <div class="flex items-center gap-1">
               <span>{{ t('admin.users.group') }}:</span>
+              <UniversalKeyBadge v-if="key.routing_mode === 'universal'" />
               <button
+                v-else
                 :ref="(el) => setGroupButtonRef(key.id, el)"
                 @click="openGroupSelector(key)"
                 class="-mx-1 -my-0.5 flex cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-gray-100 dark:hover:bg-dark-700"
@@ -114,6 +116,7 @@ import { formatDateTime } from '@/utils/format'
 import type { AdminUser, AdminGroup, ApiKey } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
+import UniversalKeyBadge from '@/components/keys/UniversalKeyBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 
 const props = defineProps<{ show: boolean; user: AdminUser | null }>()
