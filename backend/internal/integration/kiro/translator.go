@@ -1,7 +1,6 @@
 package kiro
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -1676,31 +1675,25 @@ func parseDataURL(url string) *KiroImage {
 }
 
 func parseBase64Image(data, format string) *KiroImage {
-	format = strings.ToLower(format)
-	if format == "jpg" {
-		format = "jpeg"
+	raw, cleaned, err := decodeKiroImageBase64(data)
+	if err != nil {
+		return nil
 	}
-
-	// 验证 base64
-	if _, err := base64.StdEncoding.DecodeString(data); err != nil {
-		if _, errRaw := base64.RawStdEncoding.DecodeString(data); errRaw != nil {
-			if _, errURL := base64.URLEncoding.DecodeString(data); errURL != nil {
-				if _, errRawURL := base64.RawURLEncoding.DecodeString(data); errRawURL != nil {
-					return nil
-				}
-			}
+	normalized, normErr := normalizeKiroImageFormatAgainstBytes(format, raw)
+	if normErr != nil {
+		// Keep a non-empty format so ValidateKiroImages can return a clear 400
+		// instead of silently dropping the image and changing request meaning.
+		normalized = normalizeKiroImageFormat(format)
+		if normalized == "" {
+			normalized = "unknown"
 		}
 	}
 
-	if format == "" {
-		format = "png"
-	}
-
 	return &KiroImage{
-		Format: format,
+		Format: normalized,
 		Source: struct {
 			Bytes string `json:"bytes"`
-		}{Bytes: data},
+		}{Bytes: cleaned},
 	}
 }
 

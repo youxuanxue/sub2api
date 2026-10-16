@@ -261,6 +261,18 @@ func (s *KiroGatewayService) Forward(
 		(req.Thinking.Type == "enabled" || req.Thinking.Type == "adaptive")
 
 	payload := kiroproto.ClaudeToKiro(&req, thinking)
+	if err := kiroproto.ValidateKiroImages(payload); err != nil {
+		message := err.Error()
+		var unsupported *kiroproto.ErrUnsupportedKiroImage
+		if errors.As(err, &unsupported) && unsupported != nil && strings.TrimSpace(unsupported.Reason) != "" {
+			message = unsupported.Reason
+		}
+		return nil, &KiroInvalidRequestError{
+			StatusCode: http.StatusBadRequest,
+			Message:    message,
+			Body:       message,
+		}
+	}
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {

@@ -148,9 +148,33 @@
         "display := \"summarized\"",
         "additionalModelRequestFields",
         "func KiroToClaudeResponse",
-        "return claudeCodeBackendPrompt"
+        "return claudeCodeBackendPrompt",
+        "decodeKiroImageBase64(data)",
+        "normalizeKiroImageFormatAgainstBytes(format, raw)"
       ],
-      "rationale": "Translate only client instructions and tools; preserve tool history and failure semantics. No gateway-owned completion prompt or private tool. Recognized Claude Code system prompts must replace with claudeCodeBackendPrompt (not preserve full CC identity). Haiku must not emit additionalModelRequestFields even when thinking is requested."
+      "rationale": "Translate only client instructions and tools; preserve tool history and failure semantics. No gateway-owned completion prompt or private tool. Recognized Claude Code system prompts must replace with claudeCodeBackendPrompt (not preserve full CC identity). Haiku must not emit additionalModelRequestFields even when thinking is requested. parseBase64Image must decode then sniff MIME against bytes so MIME≠bytes / corrupt payloads fail closed before Bedrock."
+    },
+    {
+      "path": "backend/internal/integration/kiro/image_format.go",
+      "must_contain": [
+        "func ValidateKiroImages",
+        "func sniffKiroImageFormat",
+        "func normalizeKiroImageFormatAgainstBytes",
+        "func decodeKiroImageBase64",
+        "type ErrUnsupportedKiroImage",
+        "kiroAllowedImageFormats"
+      ],
+      "rationale": "Pre-upstream Kiro image gate: only jpeg/png/gif/webp, magic-byte sniff wins over declared MIME, corrupt/undecodable bytes reject as client 400. Losing ValidateKiroImages or sniffing restores pool-burning Bedrock 'Image format is not supported' / 'Could not process image' failover."
+    },
+    {
+      "path": "backend/internal/integration/kiro/image_format_test.go",
+      "must_contain": [
+        "TestValidateKiroImages_RejectsUnsupportedFormat",
+        "TestValidateKiroImages_AcceptsCorrectedPNG",
+        "TestSniffKiroImageFormat",
+        "TestParseBase64Image_CorrectsMIMEMismatch"
+      ],
+      "rationale": "Focused evidence that MIME≠bytes and unsupported containers reject before upstream while valid PNG/JPEG still pass."
     },
     {
       "path": "backend/internal/integration/kiro/tool_result_status_test.go",
@@ -441,9 +465,10 @@
         "publishKiroInternalThinkingSideChannel",
         "textBuf == \"\" && thinkingBuf == \"\" && len(toolUses) == 0",
         "rawAssistant",
-        "if callOutputCommitted"
+        "if callOutputCommitted",
+        "ValidateKiroImages(payload)"
       ],
-      "rationale": "Preserve authoritative turn outcomes, client tools, estimated usage/cache billing and internal reasoning signatures. Transport retries reset only uncommitted output. A normal END_TURN must never generate a gateway-authored user instruction; focused turn-boundary tests anchor that behavior. forwardStreaming is also the sole owner of Claude-Code-safe pre-content keepalive (message_start before ping) for every Kiro streaming caller."
+      "rationale": "Preserve authoritative turn outcomes, client tools, estimated usage/cache billing and internal reasoning signatures. Transport retries reset only uncommitted output. A normal END_TURN must never generate a gateway-authored user instruction; focused turn-boundary tests anchor that behavior. forwardStreaming is also the sole owner of Claude-Code-safe pre-content keepalive (message_start before ping) for every Kiro streaming caller. ValidateKiroImages must run before CallKiroAPI so bad image bytes never burn the account pool."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_tk_cache_billing.go",
@@ -512,9 +537,11 @@
         "discard me",
         "recovered",
         "TestKiroGatewayService_ImageFormatRejectionIsClientError",
-        "TestClassifyKiroImageValidationDoesNotMaskProviderFailure"
+        "TestClassifyKiroImageValidationDoesNotMaskProviderFailure",
+        "TestClassifyKiroForwardError_ImageFormatDoesNotFailover",
+        "TestIsKiroImageClientError"
       ],
-      "rationale": "Wire regression coverage for normal tool calls, client-owned tool names, stop reasons, content filtering, incomplete streams, retry integrity and thinking side channels."
+      "rationale": "Wire regression coverage for normal tool calls, client-owned tool names, stop reasons, content filtering, incomplete streams, retry integrity and thinking side channels. Image format must be request-owned (no pool burn) while provider failures that only echo image text still failover."
     },
     {
       "path": "backend/internal/service/kiro_sse_encoder.go",
@@ -749,9 +776,13 @@
         "errKiroEmptyResponse",
         "quota exhausted on",
         "INVALID_MODEL_ID",
-        "kiroproto.IsUnsupportedImageFormatError(body)"
+        "kiroproto.IsUnsupportedImageFormatError(body)",
+        "func classifyKiroImageClientRejection",
+        "func isKiroImageClientError",
+        "func isKiroProviderExceptionMessage",
+        "isExactUnsupportedImageFormatMessage"
       ],
-      "rationale": "TK-only typed errors + classifier for Kiro request rejections, including CONTENT_FILTERED, INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; CONTENT_FILTERED returns a typed client-owned error without creating upstream error context, while real transport/read/empty-response causes retain sanitized upstream evidence. The handler maps request-owned outcomes to 400 without cross-account failover. Losing this file makes Kiro policy/validation outcomes fall back to generic forwarding errors or restores opaque 502s with no recoverable root cause."
+      "rationale": "TK-only typed errors + classifier for Kiro request rejections, including CONTENT_FILTERED, INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; CONTENT_FILTERED returns a typed client-owned error without creating upstream error context, while real transport/read/empty-response causes retain sanitized upstream evidence. The handler maps request-owned outcomes to 400 without cross-account failover. Image-client classification must match the primary upstream message only and must not mask provider exceptions (InternalServerException) or non-400 HTTP that only echo 'Image format is not supported.'. Losing this file makes Kiro policy/validation outcomes fall back to generic forwarding errors or restores opaque 502s with no recoverable root cause."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_kiro.go",
