@@ -130,12 +130,26 @@ func startOpsErrorLogWorkers() {
 	opsErrorLogQueueLen.Store(0)
 	opsErrorLogQueueBytes.Store(0)
 
-	opsErrorLogWorkersWg.Add(workerCount)
+	opsErrorLogWorkersWg.Add(workerCount + 1)
+	coalescer, shutdown, queue := opsErrorLogCoalescer, opsErrorLogShutdownCh, opsErrorLogQueue
+	go func() {
+		defer opsErrorLogWorkersWg.Done()
+		ticker := time.NewTicker(opsCoalesceBucket)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-shutdown:
+				return
+			case <-ticker.C:
+				coalescer.flushClosed(false)
+			}
+		}
+	}()
 	for i := 0; i < workerCount; i++ {
 		go func() {
 			defer opsErrorLogWorkersWg.Done()
 			for {
-				job, ok := <-opsErrorLogQueue
+				job, ok := <-queue
 				if !ok {
 					return
 				}
@@ -148,7 +162,7 @@ func startOpsErrorLogWorkers() {
 			batchLoop:
 				for len(batch) < opsErrorLogBatchSize {
 					select {
-					case nextJob, ok := <-opsErrorLogQueue:
+					case nextJob, ok := <-queue:
 						if !ok {
 							if !timer.Stop() {
 								select {
@@ -275,6 +289,8 @@ func normalizeOpsPersistentUserAgent(value string) string {
 
 func StopOpsErrorLogWorkers() bool {
 	opsErrorLogStopOnce.Do(func() {
+		// Preserve the final suppressed counts before enqueue is shut down.
+		opsErrorLogCoalescer.flushClosed(true)
 		opsErrorLogShutdownOnce.Do(func() {
 			close(opsErrorLogShutdownCh)
 		})
@@ -1335,7 +1351,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		// of a day's rows and buried 587 real incidents. The first occurrence per
 		// (api_key_id, code) per bucket is always written; repeats are counted
 		// onto the next written row. See ops_error_logger_coalesce_tk.go.
-		if !maybeCoalesceOpsErrorLogEntry(entry, parsed.Code) {
+		if !maybeCoalesceOpsErrorLogEntry(ops, entry, parsed.Code) {
 			return
 		}
 

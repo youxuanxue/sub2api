@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -129,4 +130,121 @@ func TestOpsErrorLoggerMiddlewareStillRecordsUpstreamFailuresEveryTime(t *testin
 	}
 
 	require.Len(t, drainOpsErrorLogQueue(t), requests, "upstream failures are never coalesced")
+}
+
+func TestOpsErrorLoggerCoalescedTailSurvivesClientStopping(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 16)
+	clock := &fakeClock{now: time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)}
+	coalescer := newOpsCoalescer(time.Minute, 16, clock.Now)
+	t.Cleanup(swapOpsErrorLogCoalescer(coalescer))
+	ops := service.NewOpsService(&ingressRejectOpsRepo{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	key := &service.APIKey{ID: 362, User: &service.User{ID: 16}}
+	router := quotaRejectRouter(ops, key)
+	for i := 0; i < 8000; i++ {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+		require.Equal(t, http.StatusTooManyRequests, w.Code)
+	}
+	first := drainOpsErrorLogQueue(t)
+	require.Len(t, first, 1)
+	coalescer.flushClosed(false)
+	require.Empty(t, drainOpsErrorLogQueue(t), "open bucket stays coalesced")
+	lastAt := clock.Now()
+	clock.Advance(time.Minute)
+	coalescer.flushClosed(false)
+	tail := drainOpsErrorLogQueue(t)
+	require.Len(t, tail, 1)
+	require.Equal(t, "[repeated x7999 in the preceding 60s] API key 额度已用完", tail[0].ErrorMessage)
+	require.Equal(t, lastAt, tail[0].CreatedAt, "flush must not date an old failure as new")
+	require.Equal(t, int64(16), *tail[0].UserID)
+	require.Equal(t, int64(362), *tail[0].APIKeyID)
+	require.Empty(t, tail[0].RequestID)
+	require.Empty(t, tail[0].ErrorBody)
+	coalescer.flushClosed(true)
+	require.Empty(t, drainOpsErrorLogQueue(t), "a tail is emitted exactly once")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	restarted := drainOpsErrorLogQueue(t)
+	require.Len(t, restarted, 1)
+	require.Equal(t, "API key 额度已用完", restarted[0].ErrorMessage, "new bucket must not recount the flushed tail")
+}
+
+func TestOpsErrorLoggerCoalescedTailFlushesOpenBucketOnShutdown(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 16)
+	clock := &fakeClock{now: time.Now()}
+	c := newOpsCoalescer(time.Minute, 16, clock.Now)
+	ops := &service.OpsService{}
+	for i := 0; i < 3; i++ {
+		entry := quotaRejectEntry(362)
+		entry.ErrorBody = "private body"
+		entry.RequestID = "single-request-id"
+		c.admitForService(ops, entry, "API_KEY_QUOTA_EXHAUSTED")
+	}
+	c.flushClosed(true)
+	rows := drainOpsErrorLogQueue(t)
+	require.Len(t, rows, 1)
+	require.Equal(t, "[repeated x2 in the preceding 60s] API key 额度已用完", rows[0].ErrorMessage)
+	require.Empty(t, rows[0].ErrorBody)
+	require.Empty(t, rows[0].RequestID)
+}
+
+func TestOpsErrorLoggerCoalescedTailSurvivesCapacityReclamation(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 16)
+	clock := &fakeClock{now: time.Now()}
+	c := newOpsCoalescer(time.Minute, 1, clock.Now)
+	ops := &service.OpsService{}
+	for i := 0; i < 8; i++ {
+		c.admitForService(ops, quotaRejectEntry(362), "API_KEY_QUOTA_EXHAUSTED")
+	}
+	clock.Advance(time.Minute)
+	for i := 0; i < opsCoalesceShardCount; i++ {
+		clock.Advance(100 * time.Millisecond)
+		c.reclaimIdle(clock.Now())
+	}
+	rows := drainOpsErrorLogQueue(t)
+	require.Len(t, rows, 1)
+	require.Equal(t, "[repeated x7 in the preceding 60s] API key 额度已用完", rows[0].ErrorMessage)
+	require.Zero(t, c.health().Dropped)
+	require.Zero(t, c.health().Tracked)
+}
+
+// Real worker shutdown must persist the last suppressed requests before closing
+// enqueue, not just make flushClosed produce the right in-memory message.
+type coalescedShutdownRepo struct {
+	service.OpsRepository
+	rows chan *service.OpsInsertErrorLogInput
+}
+
+func (r *coalescedShutdownRepo) InsertErrorLog(_ context.Context, e *service.OpsInsertErrorLogInput) (int64, error) {
+	r.rows <- e
+	return 1, nil
+}
+func (r *coalescedShutdownRepo) BatchInsertErrorLogs(ctx context.Context, entries []*service.OpsInsertErrorLogInput) (int64, error) {
+	for _, e := range entries {
+		_, _ = r.InsertErrorLog(ctx, e)
+	}
+	return int64(len(entries)), nil
+}
+func TestOpsErrorLoggerShutdownPersistsCoalescedTail(t *testing.T) {
+	resetOpsErrorLoggerStateForTest(t)
+	t.Cleanup(func() { resetOpsErrorLoggerStateForTest(t) })
+	c := newOpsCoalescer(time.Minute, 16, time.Now)
+	t.Cleanup(swapOpsErrorLogCoalescer(c))
+	repo := &coalescedShutdownRepo{rows: make(chan *service.OpsInsertErrorLogInput, 8)}
+	ops := service.NewOpsService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ops.SetMonitoringEnabled(true)
+	for i := 0; i < 3; i++ {
+		e := quotaRejectEntry(362)
+		if c.admitForService(ops, e, opsCodeAPIKeyQuotaExhausted) {
+			enqueueOpsErrorLog(ops, e)
+		}
+	}
+	require.True(t, StopOpsErrorLogWorkers())
+	close(repo.rows)
+	var messages []string
+	for row := range repo.rows {
+		messages = append(messages, row.ErrorMessage)
+	}
+	require.ElementsMatch(t, []string{"API key 额度已用完", "[repeated x2 in the preceding 60s] API key 额度已用完"}, messages)
+	require.True(t, StopOpsErrorLogWorkers(), "shutdown remains idempotent")
 }

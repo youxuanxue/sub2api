@@ -121,3 +121,69 @@ func TestUserVisibleFailureCountAndBreakdown(t *testing.T) {
 	}
 	require.True(t, foundProviderUpstream, "breakdown roots should include the provider/upstream failure")
 }
+
+// Reproduce the cn-prod balance storm: thousands of real rejections occupy a
+// handful of rows. Alerts and every card facet must count the same occurrences.
+func TestUserVisibleFailureCoalescedOccurrences(t *testing.T) {
+	ctx := context.Background()
+	_, err := integrationDB.ExecContext(ctx, "TRUNCATE ops_error_logs RESTART IDENTITY CASCADE")
+	require.NoError(t, err)
+	repo := NewOpsRepository(integrationDB).(*opsRepository)
+	var userID, keyID int64
+	suffix := time.Now().UnixNano()
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`, fmt.Sprintf("storm-%d@example.com", suffix)).Scan(&userID))
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`INSERT INTO api_keys (user_id, key, name) VALUES ($1, $2, 'balance-storm') RETURNING id`, userID, fmt.Sprintf("storm-%d", suffix)).Scan(&keyID))
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM users WHERE id=$1", userID)
+	})
+	end := time.Now().UTC()
+	start := end.Add(-5 * time.Minute)
+	insert := func(owner string, upstream any, message string, at time.Time, status int) {
+		_, err := integrationDB.ExecContext(ctx, `INSERT INTO ops_error_logs
+		(user_id, api_key_id, error_phase, error_type, severity, status_code, error_owner,
+		 upstream_status_code, error_message, created_at, platform, requested_model)
+		VALUES ($1,$2,'request','api_error','error',$3,$4,$5,$6,$7,'newapi','qwen3.8-max')`,
+			userID, keyID, status, owner, upstream, message, at)
+		require.NoError(t, err)
+	}
+	insert("client", nil, "insufficient balance", start.Add(time.Second), 400)
+	insert("client", nil, "[repeated x8000 in the preceding 60s] insufficient balance", start.Add(time.Minute), 400)
+	insert("client", nil, "[repeated x9000 in the preceding 60s] insufficient balance", start.Add(2*time.Minute), 400)
+	filter := &service.OpsDashboardFilter{StartTime: start, EndTime: end}
+	n, err := repo.CountUserVisibleFailures(ctx, filter, "client")
+	require.NoError(t, err)
+	require.EqualValues(t, 17001, n, "not three rows, nor COUNT(*) plus 17000")
+	b, err := repo.GetUserVisibleFailureBreakdown(ctx, filter, "client", 3)
+	require.NoError(t, err)
+	require.EqualValues(t, 17001, b.Failures)
+	require.EqualValues(t, 17001, b.Users[0].Count)
+	require.EqualValues(t, 17001, b.Surfaces[0].Count)
+	require.Len(t, b.Roots, 1, "different repeat counts must not split one root cause")
+	require.Equal(t, "insufficient balance", b.Roots[0].Message)
+	require.EqualValues(t, 17001, b.Roots[0].Count)
+
+	// Malformed counts and unrelated upstream/client messages cannot amplify
+	// the metric or make SQL casts fail. Existing window/cancellation exclusions hold.
+	for _, msg := range []string{
+		"[repeated x0 in the preceding 60s] insufficient balance",
+		"[repeated x-7 in the preceding 60s] insufficient balance",
+		"[repeated x999999999999999999999999999 in the preceding 60s] insufficient balance",
+		"[repeated x80 in the preceding 30s] insufficient balance",
+	} {
+		insert("client", nil, msg, start.Add(time.Minute), 400)
+	}
+	insert("client", nil, "Invalid parameter: [repeated x8000 in the preceding 60s] other validation", start.Add(time.Minute), 400)
+	insert("client", 429, "[repeated x8000 in the preceding 60s] upstream error", start.Add(time.Minute), 400)
+	insert("provider", nil, "[repeated x8000 in the preceding 60s] provider text", start.Add(time.Minute), 502)
+	insert("client", nil, "[repeated x8000 in the preceding 60s] insufficient balance", start.Add(-time.Second), 400)
+	insert("client", nil, "[repeated x8000 in the preceding 60s] context canceled", start.Add(time.Minute), 499)
+	insert("client", nil, "[repeated x8000 in the preceding 60s] recovered", start.Add(time.Minute), 200)
+	n, err = repo.CountUserVisibleFailures(ctx, filter, "client")
+	require.NoError(t, err)
+	require.EqualValues(t, 17007, n)
+	n, err = repo.CountUserVisibleFailures(ctx, filter, "system")
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n, "provider/platform metrics retain single-row semantics")
+}

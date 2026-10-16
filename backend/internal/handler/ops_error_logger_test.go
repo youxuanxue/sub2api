@@ -98,6 +98,7 @@ func TestEstimateOpsErrorLogJobBytesIncludesVariablePayloads(t *testing.T) {
 func resetOpsErrorLoggerStateForTest(t *testing.T) {
 	t.Helper()
 
+	opsErrorLogShutdownOnce.Do(func() { close(opsErrorLogShutdownCh) })
 	opsErrorLogMu.Lock()
 	ch := opsErrorLogQueue
 	opsErrorLogQueue = nil
@@ -160,7 +161,7 @@ func TestEnqueueOpsErrorLog_EarlyReturnBranches(t *testing.T) {
 	require.Equal(t, int64(0), OpsErrorLogEnqueuedTotal())
 
 	// shutdown 分支
-	close(opsErrorLogShutdownCh)
+	opsErrorLogShutdownOnce.Do(func() { close(opsErrorLogShutdownCh) })
 	enqueueOpsErrorLog(ops, entry)
 	require.Equal(t, int64(0), OpsErrorLogEnqueuedTotal())
 

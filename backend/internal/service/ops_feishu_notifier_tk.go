@@ -390,6 +390,9 @@ func buildOpsFeishuUserVisibleFailureLines(dimensions map[string]any) string {
 	if root := opsFeishuDimensionString(dimensions, "user_visible_root"); root != "" {
 		lines += opsFeishuBreakdownField("根因在哪", root)
 	}
+	if action := opsFeishuDimensionString(dimensions, "user_visible_action"); action != "" {
+		lines += opsFeishuBreakdownField("余额重试提醒", action)
+	}
 	return lines
 }
 

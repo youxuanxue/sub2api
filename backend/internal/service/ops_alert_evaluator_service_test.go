@@ -707,3 +707,37 @@ func TestMaybeSendAlertNotificationsEdgeSuppression(t *testing.T) {
 		})
 	}
 }
+
+func TestBalanceRetryReminderUsesClientRoot(t *testing.T) {
+	for _, tt := range []struct {
+		name, owner, message string
+		accountID            int64
+		want                 bool
+	}{
+		{"balance", "client", "insufficient balance", 0, true},
+		{"reservation", "client", "Insufficient account balance to reserve this request", 0, true},
+		{"provider balance", "provider", "insufficient balance", 12, false},
+		{"ordinary validation", "client", "unsupported model", 0, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{userVisibleBreakdown: &OpsUserVisibleFailureBreakdown{
+				Failures: 8000, Roots: []*OpsUserVisibleFailureRoot{{Owner: tt.owner, Message: tt.message, AccountID: tt.accountID, Count: 8000}},
+			}}}
+			rule := &OpsAlertRule{MetricType: OpsAlertMetricClientVisibleFailureCount}
+			end := time.Now().UTC()
+			dims := svc.computeUserVisibleFailureDimensions(context.Background(), rule, end.Add(-5*time.Minute), end, "", nil)
+			if tt.want {
+				require.Contains(t, dims["user_visible_action"], "客户端收到余额不足后应暂停请求")
+				cardDims := map[string]any{}
+				for k, v := range dims {
+					cardDims[k] = v
+				}
+				card := buildOpsFeishuUserVisibleFailureLines(cardDims)
+				require.Contains(t, card, "**余额重试提醒**")
+				require.Contains(t, card, "费用预扣")
+			} else {
+				require.Empty(t, dims["user_visible_action"])
+			}
+		})
+	}
+}

@@ -225,6 +225,18 @@ func (s *OpsAlertEvaluatorService) computeUserVisibleFailureDimensions(ctx conte
 	if root := formatUserVisibleFailureRoot(breakdown.Roots); root != "" {
 		out["user_visible_root"] = root
 	}
+	if metricType == OpsAlertMetricClientVisibleFailureCount {
+		for _, root := range breakdown.Roots {
+			if root == nil || root.Owner != "client" || root.AccountID != 0 || root.Count <= 0 || float64(root.Count) < rule.Threshold {
+				continue
+			}
+			message := strings.ToLower(root.Message)
+			if strings.Contains(message, "insufficient balance") || strings.Contains(message, "insufficient account balance") {
+				out["user_visible_action"] = "余额不足持续重试：核对用户可用余额与费用预扣，必要时充值；客户端收到余额不足后应暂停请求，恢复余额后再继续。"
+				break
+			}
+		}
+	}
 	return out
 }
 

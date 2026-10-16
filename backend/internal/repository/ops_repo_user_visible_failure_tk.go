@@ -9,6 +9,21 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
+// The coalescer's prefix represents suppressed occurrences plus the current row,
+// not additional failures to add to COUNT(*). Restrict weights to local client
+// rejections; upstream/user-controlled messages must never amplify paging.
+// Limit the numeric capture before casting so malformed/oversized messages
+// cannot break evaluation. 18 digits fit int64; SUM(bigint) uses numeric.
+const opsCoalescedPrefixSQL = `^\[repeated x([1-9][0-9]{0,17}) in the preceding 60s\] `
+const opsFailureOccurrenceSQL = `CASE
+  WHEN error_owner = 'client'
+    AND error_phase IN ('request', 'auth') AND status_code >= 400
+    AND api_key_id IS NOT NULL AND upstream_status_code IS NULL
+    AND upstream_error_message IS NULL AND upstream_error_detail IS NULL
+    AND (upstream_errors IS NULL OR upstream_errors = '[]'::jsonb)
+  THEN COALESCE(substring(error_message FROM '` + opsCoalescedPrefixSQL + `')::bigint, 1)
+  ELSE 1 END`
+
 // CountUserVisibleFailures counts terminal failures that a real, attributable
 // customer request saw. It deliberately ignores recovered upstream rows
 // (status_code < 400) and count_tokens probes via buildErrorWhere.
@@ -20,7 +35,7 @@ func (r *opsRepository) CountUserVisibleFailures(ctx context.Context, filter *se
 		return 0, fmt.Errorf("nil filter")
 	}
 	where, args, _ := buildUserVisibleFailureWhere(filter, ownerScope, 1)
-	q := `SELECT COALESCE(COUNT(*), 0) FROM ops_error_logs ` + where
+	q := `SELECT COALESCE(SUM(` + opsFailureOccurrenceSQL + `), 0) FROM ops_error_logs ` + where
 
 	var n int64
 	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
@@ -106,7 +121,7 @@ SELECT
   COALESCE(ak.name, '') AS api_key_name,
   COALESCE(ak.routing_mode, '') AS api_key_routing_mode,
   COALESCE(g.name, '') AS group_name,
-  COUNT(*) AS n
+  SUM(` + opsFailureOccurrenceSQL + `) AS n
 FROM base l
 LEFT JOIN users u ON u.id = l.user_id
 LEFT JOIN api_keys ak ON ak.id = l.api_key_id AND ak.deleted_at IS NULL
@@ -145,7 +160,7 @@ SELECT
   COALESCE(status_code, 0) AS status_code,
   COALESCE(upstream_status_code, 0) AS upstream_status_code,
   COALESCE(error_type, '') AS error_type,
-  COUNT(*) AS n
+  SUM(` + opsFailureOccurrenceSQL + `) AS n
 FROM base
 GROUP BY 1, 2, 3
 ORDER BY n DESC, status_code ASC, upstream_status_code ASC
@@ -183,8 +198,8 @@ SELECT
   COALESCE(platform, '') AS platform,
   COALESCE(NULLIF(requested_model, ''), NULLIF(model, ''), '(unknown)') AS model,
   COALESCE(account_id, 0) AS account_id,
-  left(regexp_replace(COALESCE(upstream_error_message, error_message, ''), E'[\\n\\r]+', ' ', 'g'), 96) AS msg,
-  COUNT(*) AS n
+  left(regexp_replace(regexp_replace(COALESCE(upstream_error_message, error_message, ''), '` + opsCoalescedPrefixSQL + `', ''), E'[\\n\\r]+', ' ', 'g'), 96) AS msg,
+  SUM(` + opsFailureOccurrenceSQL + `) AS n
 FROM base
 GROUP BY 1, 2, 3, 4, 5, 6
 ORDER BY n DESC, platform ASC, model ASC
