@@ -35,7 +35,7 @@
 
 Stage0 单后端 Caddy 只由 `/health` 主动检查决定摘除与恢复；禁止被动冷却，避免客户端上传断连或单次业务 5xx 让其他请求等待。正式 prod 的源是 `deploy/aws/stage0/Caddyfile`；新机 prod 和 edge 均使用 `Caddyfile.edge`。修改时同时重生成 Hetzner bootstrap，`scripts/checks/caddyfile-syntax.sh` 校验 Caddy 解析后的健康策略；运行中主机通过 `ops/stage0/sync_caddyfile_via_ssm.sh` 热更新，单纯发布应用镜像不会刷新 Caddyfile。
 
-旧 AWS 与旧 Hcloud 节点保留历史数据，不作为回滚写库；全新 AWS 节点按上表逐台接流量。
+旧 AWS 与旧 Hcloud prod 保留历史数据，不作为回滚写库；四台旧 Hcloud edge 已回收，历史整库保留在 S3 独立归档前缀。全新 AWS 节点按上表接流量。
 
 ## 文件
 
@@ -93,7 +93,7 @@ PROD_SSM_TARGET=hetzner bash ops/observability/run-probe.sh --target prod \
 
 1. **新 AWS 舰队已接流量**：prod 与四个 edge 均完成迁移；当前镜像以 live SSM/container 为准，QA maintenance pin 独立发布。
 2. **账号策略已调整**：prod 原生账号（含从 edge 复制的账号）承接请求，旧中继与 edge 账号保留但停用。历史 Gemini pending/blocked 等账号问题由运营处理；本轮基础设施收尾不自动启用账号或中继。
-3. **旧主机保留**：四台旧 Hcloud edge 已完成回收准备，默认七天保留期后的销毁另行确认；旧 Hcloud prod 仍有真实请求转发，继续保留 transition Caddy 与旧信任。旧 AWS standby 仅作归档，已停备份与业务自启动入口。
+3. **旧主机收尾**：四台旧 Hcloud edge 已于 2026-10-16 回收，随附 Primary IP 已释放，专属 SSM 身份已注销；释放前已移除新 edge 对对应旧 IP 的过渡信任。冻结整库与校验清单保留在 S3 独立归档前缀，详见[收尾记录](../../docs/approved/aws-migration-closeout-20261016.md)。旧 Hcloud prod 仍有真实请求转发，继续保留 transition Caddy 与旧信任。旧 AWS standby 仅作归档，已停备份与业务自启动入口。
 4. **QA 维护**：新 prod capture 继续启用；按用户纠正，日常新增归档目标为同区域 AWS S3，独立 archive/boundary timer 与 pin 保留。存量 raw 不搬，两侧历史数据沿原生命周期到期，恢复权限保留。当前验收、未迁 raw 边界与资源退役条件见 [QA 运维入口](../../ops/qa/README.md#aws-新-prod-迁移后的维护恢复)。
 5. **灾备与告警**：新 prod 纳入每日 DLM；跨区域宿主 HTTPS watch 补足 GitHub schedule 延迟。首次快照及隔离备份恢复的验收状态见 [迁移收尾](../../docs/approved/aws-migration-closeout-20261016.md)。
 

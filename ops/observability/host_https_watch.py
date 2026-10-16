@@ -79,8 +79,12 @@ def probe_job(name: str) -> dict:
         result = subprocess.run(["systemctl", "show", unit, "--property=ActiveState,UnitFileState,Result,ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotonic"],
                                 capture_output=True, text=True, timeout=5, check=True)
         return dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
-    uptime = float(Path("/proc/uptime").read_text().split()[0])
-    return job_fact(properties(name + ".service"), properties(name + ".timer"), uptime, JOB_LIMITS[name])
+    service = properties(name + ".service")
+    timer = properties(name + ".timer")
+    # Read after systemd: the job may start while properties are collected.
+    # Linux monotonic() shares systemd's CLOCK_MONOTONIC; /proc/uptime is
+    # truncated to centiseconds and includes suspend time (CLOCK_BOOTTIME).
+    return job_fact(service, timer, time.monotonic(), JOB_LIMITS[name])
 
 
 def tick_jobs(jobs, previous, now, probe, send, node="unknown"):
