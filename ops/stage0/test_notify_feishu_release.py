@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+import json
+import tempfile
+from unittest.mock import patch
 import pathlib
 import subprocess
 import unittest
@@ -45,6 +48,37 @@ class NotifyFeishuReleaseTest(unittest.TestCase):
         self.assertIn("线上基线", proc.stdout)
         self.assertIn("v1.8.161", proc.stdout)
         self.assertIn("timezone worker startup", proc.stdout)
+
+    def test_domestic_card_uses_real_environment_and_cutover_time(self):
+        proc = self.run_script('1.8.300', 'https://106.75.29.139', '--previous-tag', '1.8.298',
+                               '--environment', 'cn-prod', '--deployed-at', '2026-10-16T12:51:11Z', '--dry-run')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        card = json.loads(proc.stdout[proc.stdout.index('{'):])['card']
+        self.assertIn('cn-prod', card['header']['title']['content'])
+        body = card['elements'][0]['text']['content']
+        self.assertIn('**环境**  cn-prod', body)
+        self.assertIn('2026-10-16 20:51 CST', body)
+        self.assertIn('https://106.75.29.139', body)
+
+    def test_delivery_receipt_requires_explicit_feishu_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            fake = root / 'curl'
+            fake.write_text('#!/usr/bin/env python3\nimport os,pathlib,sys\na=sys.argv\npathlib.Path(a[a.index("-o")+1]).write_text(os.environ["FAKE_BODY"])\nprint("200",end="")\n')
+            fake.chmod(0o755)
+            env = {'PATH': str(root) + os.pathsep + os.environ['PATH'],
+                   'TK_FEISHU_WEBHOOK_URL': 'https://example.invalid/SECRET_WEBHOOK',
+                   'TK_FEISHU_SIGNING_SECRET': 'SECRET_SIGNING'}
+            for body, expected in [('{"code":0}', 'sent'), ('{"code":19021}', 'failed'),
+                                   ('not-json', 'failed'), ('{}', 'failed'), ('{"code":false}', 'failed')]:
+                with self.subTest(body=body), patch.dict(os.environ, env | {'FAKE_BODY': body}):
+                    receipt = root / 'receipt.json'
+                    proc = self.run_script('1.8.300', 'https://106.75.29.139', '--previous-tag', '1.8.298',
+                                           '--environment', 'cn-prod', '--result-file', str(receipt))
+                    self.assertEqual(proc.returncode, 0, proc.stderr)  # best-effort deployment contract
+                    self.assertEqual(json.loads(receipt.read_text())['status'], expected)
+                    self.assertNotIn('SECRET_WEBHOOK', proc.stdout + proc.stderr)
+                    self.assertNotIn('SECRET_SIGNING', proc.stdout + proc.stderr)
 
     def test_previous_tag_is_required_for_rollout_notes(self) -> None:
         proc = self.run_script(

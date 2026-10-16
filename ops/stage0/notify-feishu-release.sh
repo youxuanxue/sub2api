@@ -25,7 +25,7 @@ set -euo pipefail
 # Usage:
 #   TK_FEISHU_WEBHOOK_URL=... [TK_FEISHU_SIGNING_SECRET=...] \
 #     bash ops/stage0/notify-feishu-release.sh <tag> <api_url> \
-#       --previous-tag TAG [--run-url URL] [--notes TEXT] [--component gateway|qa] [--dry-run]
+#       --previous-tag TAG [--run-url URL] [--notes TEXT] [--component gateway|qa] [--environment prod|cn-prod] [--deployed-at RFC3339] [--result-file PATH] [--dry-run]
 #
 #   <tag>      released image tag WITHOUT leading v (e.g. 1.7.83). A leading v is
 #              tolerated and stripped.
@@ -46,7 +46,7 @@ usage() {
 Usage:
   TK_FEISHU_WEBHOOK_URL=... [TK_FEISHU_SIGNING_SECRET=...] \
     bash ops/stage0/notify-feishu-release.sh <tag> <api_url> \
-      --previous-tag TAG [--run-url URL] [--notes TEXT] [--component gateway|qa] [--dry-run]
+      --previous-tag TAG [--run-url URL] [--notes TEXT] [--component gateway|qa] [--environment prod|cn-prod] [--deployed-at RFC3339] [--result-file PATH] [--dry-run]
 EOF
 }
 
@@ -57,6 +57,9 @@ RUN_URL=""
 NOTES=""
 DRY_RUN=0
 COMPONENT=gateway
+ENVIRONMENT=prod
+DEPLOYED_AT=""
+RESULT_FILE=""
 
 # Flags that take a value: require the value to be present so a trailing
 # `--run-url` (no arg) fails loudly instead of `shift 2` erroring under set -e.
@@ -64,6 +67,9 @@ need_val() { [ "$2" -ge 2 ] || { echo "[error] $1 needs a value" >&2; usage; exi
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --environment) need_val "$1" "$#"; ENVIRONMENT="$2"; shift 2 ;;
+    --deployed-at) need_val "$1" "$#"; DEPLOYED_AT="$2"; shift 2 ;;
+    --result-file) need_val "$1" "$#"; RESULT_FILE="$2"; shift 2 ;;
     --component) need_val "$1" "$#"; COMPONENT="$2"; shift 2 ;;
     --previous-tag) need_val "$1" "$#"; PREVIOUS_TAG="$2"; shift 2 ;;
     --previous-tag=*) PREVIOUS_TAG="${1#*=}"; shift ;;
@@ -105,11 +111,28 @@ fi
 TAG="${TAG#v}"
 PREVIOUS_TAG="${PREVIOUS_TAG#v}"
 
+case "$ENVIRONMENT" in
+  prod|cn-prod) ;;
+  *) echo "[error] --environment must be prod|cn-prod" >&2; exit 2 ;;
+esac
+write_result() {
+  [ -n "$RESULT_FILE" ] || return 0
+  python3 - "$RESULT_FILE" "$1" "$TAG" "$ENVIRONMENT" <<'PYRESULT'
+import json, os, pathlib, sys
+os.umask(0o077)
+p = pathlib.Path(sys.argv[1])
+tmp = p.with_suffix(p.suffix + '.new')
+tmp.write_text(json.dumps(dict(status=sys.argv[2], version=sys.argv[3], environment=sys.argv[4])))
+tmp.replace(p)
+PYRESULT
+}
+
 WEBHOOK="${TK_FEISHU_WEBHOOK_URL:-}"
 SECRET="${TK_FEISHU_SIGNING_SECRET:-}"
 
 if [ "$DRY_RUN" -ne 1 ] && [ -z "$WEBHOOK" ]; then
   # best-effort: a missing webhook is surfaced but never fails the deploy.
+  write_result missing_webhook
   echo "::warning::TK_FEISHU_WEBHOOK_URL empty; skipping release Feishu notification"
   exit 0
 fi
@@ -118,6 +141,8 @@ fi
 # the HMAC are byte-correct vs the Go canonical sender. python prints the JSON
 # payload to stdout (sanitized when NF_DRY_RUN=1).
 PAYLOAD_JSON="$(
+  NF_ENVIRONMENT="$ENVIRONMENT" \
+  NF_DEPLOYED_AT="$DEPLOYED_AT" \
   NF_TAG="$TAG" \
   NF_COMPONENT="$COMPONENT" \
   NF_PREVIOUS_TAG="$PREVIOUS_TAG" \
@@ -137,6 +162,8 @@ import time
 
 tag = os.environ["NF_TAG"]
 component = os.environ["NF_COMPONENT"]
+environment = os.environ["NF_ENVIRONMENT"]
+deployed_at = os.environ["NF_DEPLOYED_AT"]
 previous_tag = os.environ["NF_PREVIOUS_TAG"]
 api_url = os.environ["NF_API_URL"]
 run_url = os.environ.get("NF_RUN_URL", "").strip()
@@ -147,13 +174,18 @@ dry = os.environ.get("NF_DRY_RUN") == "1"
 
 ts = int(time.time())
 utc = datetime.datetime.fromtimestamp(ts, datetime.timezone.utc)
+if deployed_at:
+    utc = datetime.datetime.fromisoformat(deployed_at.replace("Z", "+00:00"))
+    if utc.tzinfo is None:
+        raise ValueError("--deployed-at requires an explicit timezone")
+    utc = utc.astimezone(datetime.timezone.utc)
 cst = utc + datetime.timedelta(hours=8)
 when = f"{utc:%Y-%m-%d %H:%M} UTC · {cst:%Y-%m-%d %H:%M} CST"
 
 lines = [
     f"**版本**  v{tag}",
     f"**线上基线**  v{previous_tag}",
-    "**环境**  prod",
+    f"**环境**  {environment}",
     f"**API**  {api_url}",
     f"**上线时间**  {when}",
     "**烟测**  ✅ 通过",
@@ -162,7 +194,7 @@ if component == "qa":
     lines = [
         f"**QA Raw Maintenance**  v{tag}",
         f"**维护基线**  {'v' + previous_tag if previous_tag else '首次安装'}",
-        "**环境**  prod",
+        f"**环境**  {environment}",
         f"**API**  {api_url}",
         f"**验收时间**  {when}",
         "**验收**  ✅ 维护健康检查与 raw archive 验证通过",
@@ -240,7 +272,7 @@ payload = {
     "card": {
         "header": {
             "template": "green",
-            "title": {"tag": "plain_text", "content": f"✅ TokenKey QA 验收通过 v{tag}" if component == "qa" else f"🚀 TokenKey 发版上线 v{tag}"},
+            "title": {"tag": "plain_text", "content": f"✅ TokenKey QA 验收通过 v{tag}" if component == "qa" else f"🚀 TokenKey {environment} 发版上线 v{tag}"},
         },
         "elements": elements,
     },
@@ -268,6 +300,7 @@ PY
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "[dry-run] feishu release card payload (sanitized; sign + webhook withheld):"
   echo "$PAYLOAD_JSON"
+  write_result dry_run
   exit 0
 fi
 
@@ -287,14 +320,17 @@ HTTP_CODE="$(
 CODE_FIELD="$(
   python3 -c 'import sys,json
 try:
-    print(json.load(open(sys.argv[1])).get("code", 0))
+    d=json.load(open(sys.argv[1]))
+    code=d.get("code")
+    print(code if type(code) is int else "invalid")
 except Exception:
-    print(0)' "$BODY_FILE" 2>/dev/null || echo 0
+    print("invalid")' "$BODY_FILE" 2>/dev/null || echo invalid
 )"
 
 case "$HTTP_CODE" in
   2??)
     if [ "$CODE_FIELD" = "0" ]; then
+      write_result sent
       echo "[ok] feishu release card posted (v$TAG, http=$HTTP_CODE)"
       exit 0
     fi
@@ -309,5 +345,6 @@ try:
 except Exception:
     print("<redacted-feishu-webhook>")' 2>/dev/null || echo "<redacted-feishu-webhook>"
 )"
+write_result failed
 echo "::warning::feishu release notification failed (http=$HTTP_CODE code=$CODE_FIELD endpoint=$SAFE_HOOK)"
 exit 0

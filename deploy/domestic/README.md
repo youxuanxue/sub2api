@@ -44,8 +44,10 @@
 ## SSH 蓝绿升级
 
 `bluegreen.py` 是国内主机适配入口，只接受 `api-cn.tokenkey.dev` 的现有运行配置。
-通过 SSH 将该文件与同一源码版本的 `ops/stage0/deploy_via_ssm_bluegreen.sh` 投递到
-主机私有目录；前者从后者提取健康检查、Caddy 切流事务、观察与 drain 函数，未复制实现。
+通过 SSH 投递已审的控制文件到主机私有目录：`bluegreen.py`、`post_release.py`、
+`ops/stage0/deploy_via_ssm_bluegreen.sh`、`scripts/release_post_check.py`、
+`ops/observability/probe-post-release-tick.sh`、`ops/lib/resolve_app_container.py` 和
+`ops/stage0/notify-feishu-release.sh`（保留 basename，放在同一目录）；前者从后者提取健康检查、Caddy 切流事务、观察与 drain 函数，未复制实现。
 先离线构建并校验镜像，image revision 必须等于已审源码 SHA，且架构为 amd64。
 
 ```bash
@@ -53,7 +55,10 @@ python3 bluegreen.py prepare --state /opt/tokenkey/releases/RELEASE \
   --image LOCAL_IMMUTABLE_IMAGE --revision REVIEWED_SHA \
   --shared-source deploy_via_ssm_bluegreen.sh
 python3 bluegreen.py promote --state /opt/tokenkey/releases/RELEASE \
-  --receipt PREPARED_RECEIPT_SHA256
+  --receipt PREPARED_RECEIPT_SHA256 \
+  --postcheck-plan /private/post-plan.json \
+  --smoke-report /private/candidate-smoke.json \
+  --public-url https://UCLOUD_STATIC_IP
 ```
 
 prepare 只启动候选；复用当前应用环境、数据挂载和实际 Docker 网络，数据库/Redis 不重建。
@@ -67,9 +72,40 @@ prepare 只启动候选；复用当前应用环境、数据挂载和实际 Docke
 避免 `docker start` 对运行中容器无效。所有操作均使用共享 host lock；运行文件和含环境变量的 Compose 为 0600。
 后续轮次若候选颜色名称已存在，先核对其是否仍承担回退义务；入口不会自动删除旧候选。
 Docker 的 `unless-stopped` 重启策略负责活动容器重启；原单容器 Compose 不再作为应用升级入口。
-发布后使用 `scripts/release_post_check.py plan`，live/new 传原镜像与新镜像的完整源码 SHA；
-通过 SSH 投递共享 `probe-post-release-tick.sh` 和 `resolve_app_container.py`，将聚合结果交
-同一 evaluator 分别检查切流后立即和至少五分钟的流量、5xx 与 panic。
+切流前用 `scripts/release_post_check.py plan --live OLD_SHA --new NEW_SHA` 生成计划，
+两端传实际镜像完整源码 SHA。将候选实测汇总为 JSON：
+
+```json
+{"revision":"候选完整SHA","container_id":"候选完整Docker ID","cases":[{"case":"实际用例名","passed":true}]}
+```
+
+`cases` 必须来自真实实测，失败或未执行用例不得删掉。计划和烟测报告通过 SSH 放到主机
+私有目录。`promote` 在切流前核对源码/容器身份及全部用例通过，并固化控制脚本与证据哈希。
+`--public-url` 必须是当前国内静态公网 IP 的 HTTPS origin；原国内域名已切往 AWS，不能用
+域名的健康响应代替 UCloud 验证。
+
+切流和 drain 完成后，`promote` 自动调用共享 probe/evaluator 做立即检查，并等待至真实
+切流后至少五分钟再检查累计流量、HTTP/带内最终 5xx 与 panic；同时核对当前活动容器及
+公网健康。两阶段 gate 通过后，自动复用 `notify-feishu-release.sh` 向现有 prod 飞书群发
+**cn-prod** 上线卡片。卡片中的环境、旧/新版本、静态 IP 入口和切流时间来自本次证据，
+补发不会把当前发送时间写成上线时间。通知密钥仅从本机 root-only
+`/opt/tokenkey/host-alerts.env` 读取，不经过远程投递参数、仓库或输出。
+
+验证结果和通知回执保存在 `STATE/post-release/`。通知失败只警告并记录失败状态，不回滚
+健康应用，也不伪装成发送成功。`notification.json` 的 `status=sent` 表示飞书 HTTP/API
+确认接收；不等同所有群成员已读。失败/缺配置可用同一状态重试：
+
+```bash
+python3 bluegreen.py notify --state /opt/tokenkey/releases/RELEASE \
+  --receipt PREPARED_RECEIPT_SHA256 \
+  --postcheck-plan /private/post-plan.json \
+  --smoke-report /private/candidate-smoke.json \
+  --public-url https://UCLOUD_STATIC_IP
+```
+
+`notify` 不切流或重启，拒绝对已非当前健康活动版本发成功通知；已确认成功的同次发布不再
+重复发送。网络超时可能存在“飞书已接收但本机没收到确认”的不确定性，人工补发前核对群。
+若 postcheck 本身失败，保留已切流现场并非零退出，不发成功通知；先排查再决定恢复或重试。
 
 ## 初始化与隔离
 
