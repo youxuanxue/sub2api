@@ -83,9 +83,8 @@
     {
       "vendor": "google",
       "model_id": "gemini-4-argon",
-      "source_url": "https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-4-argon/",
-      "watch_only": true,
-      "notes": "announced; no public API model id confirmed"
+      "source_url": "https://ai.google.dev/gemini-api/docs/models/gemini-4-argon",
+      "notes": "public API id confirmed; Antigravity wire ids gemini-4-argon-{low,medium,high}"
     },
     {
       "vendor": "doubao",

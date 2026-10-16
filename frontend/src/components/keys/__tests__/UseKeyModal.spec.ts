@@ -278,6 +278,7 @@ describe('UseKeyModal — preserved snippet correctness', () => {
     const geminiConfig = wrapper.findAll('pre code').map((c) => c.text()).find((c) => c.includes('"antigravity-gemini"'))
     const models = JSON.parse(geminiConfig!).provider['antigravity-gemini'].models
     expect(models['gemini-3.8-flash'].name).toBe('Gemini 3.8 Flash')
+    expect(models['gemini-4-argon'].name).toBe('Gemini 4 Argon')
     expect(models['gemini-3.1-flash-image']).toBeDefined()
     expect(models['gemini-pro-agent']).toBeUndefined()
     expect(models['gemini-2.5-flash']).toBeUndefined()

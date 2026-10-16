@@ -360,6 +360,7 @@ const antigravityPresetMappings = [
   { label: 'Opus→Opus', from: 'claude-opus-*', to: 'claude-opus-4-6-thinking', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
   { label: 'Haiku→Sonnet 4.6', from: 'claude-haiku-*', to: 'claude-sonnet-4-6', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
   // Converged Gemini public surface (+ traffic aliases).
+  { label: '4 Argon', from: 'gemini-4-argon', to: 'gemini-4-argon-high', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
   { label: '3.8 Flash', from: 'gemini-3.8-flash', to: 'gemini-3.8-flash-high', color: 'bg-lime-100 text-lime-700 hover:bg-lime-200 dark:bg-lime-900/30 dark:text-lime-400' },
   { label: '3.7 Flash', from: 'gemini-3.7-flash', to: 'gemini-3.7-flash-high', color: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400' },
   { label: '3.6 Flash', from: 'gemini-3.6-flash', to: 'gemini-3.6-flash-tiered', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' },

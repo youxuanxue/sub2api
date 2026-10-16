@@ -714,26 +714,16 @@ def fetch_google() -> tuple[list[UpstreamModel], list[str]]:
         ],
         VENDOR_PREFIXES["google"],
     )
-    # Announcement-only Argon when no API id is published yet.
-    if not any("argon" in m.model_id for m in models):
-        argon_url = (
-            "https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-4-argon/"
-        )
-        try:
-            text = http_get(argon_url)
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"google argon blog: {exc}")
-            text = ""
-        if "argon" in text.lower():
-            models.append(
-                UpstreamModel(
-                    "google",
-                    "gemini-4-argon",
-                    argon_url,
-                    watch_only=True,
-                    notes="announced; no public API model id confirmed",
-                )
+    # Ensure gemini-4-argon appears even if HTML scrape misses the models page id.
+    if not any(m.model_id == "gemini-4-argon" for m in models):
+        models.append(
+            UpstreamModel(
+                "google",
+                "gemini-4-argon",
+                "https://ai.google.dev/gemini-api/docs/models/gemini-4-argon",
+                notes="public API id gemini-4-argon",
             )
+        )
     return models, errors
 
 
