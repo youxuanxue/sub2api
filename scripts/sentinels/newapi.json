@@ -657,9 +657,10 @@
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_kimi_k3_dynamic_tools.go",
       "must_contain": [
         "func applyMoonshotK3DynamicToolsShape(",
-        "isMoonshotDynamicToolSystemMessage"
+        "isMoonshotDynamicToolSystemMessage",
+        "\"tool_choice\", \"required\""
       ],
-      "rationale": "Owner for Moonshot-style dynamic tool injection (system message with tools and no content). Volc Agent Plan rejects that shape with missing content; promote tools to top-level and drop those system messages so kimi-k3 Calculator admission probes succeed across K3 supplies."
+      "rationale": "Owner for Moonshot-style dynamic tool injection (system message with tools and no content). Volc Agent Plan rejects that shape with missing content; promote tools to top-level, drop those system messages, and set tool_choice=required when the client omitted it so kimi-k3 Calculator admission probes invoke the tool across K3 supplies."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_ali_fixed_sampling_test.go",
@@ -675,9 +676,10 @@
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_kimi_k3_dynamic_tools_test.go",
       "must_contain": [
         "TestApplyMoonshotK3DynamicToolsShape_PromotesSystemTools",
+        "TestApplyMoonshotK3DynamicToolsShape_KeepsExplicitToolChoice",
         "TestForwardAsChatCompletionsDispatched_PromotesKimiK3DynamicTools"
       ],
-      "rationale": "Focused regressions for kimi-k3 dynamic tool promotion: helper lifts system+tools into top-level tools, and chat bridge dispatch captures the promoted body."
+      "rationale": "Focused regressions for kimi-k3 dynamic tool promotion: helper lifts system+tools into top-level tools, sets tool_choice=required only when omitted, and chat bridge dispatch captures the promoted body."
     },
     {
       "path": "backend/internal/service/openai_gateway_moonshot_thinking_shape_tk.go",
