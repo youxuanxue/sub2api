@@ -183,6 +183,12 @@ func (s *UniversalCapabilityService) discoverCandidates(ctx context.Context, key
 				if !visibleByPlatform[accounts[i].Platform][model] {
 					continue
 				}
+				// Gemini upstream URLs embed the model id as a path segment. Prefixed
+				// catalog ids (grok/…, x-ai/…) fail the path guard; skip instead of
+				// recording ErrProtocolRouteUnavailable that fail-closes /v1/models.
+				if accounts[i].Platform == PlatformGemini && !isSafeUpstreamPathSegment(strings.TrimSpace(model)) {
+					continue
+				}
 				var subscriptions, balances []Group
 				for j := range groups {
 					candidate, err := request.evaluatePathWithPreparation(requestCtx, &accounts[i], &groups[j], preparePath)
@@ -232,11 +238,15 @@ func (s *UniversalCapabilityService) discoverCandidates(ctx context.Context, key
 			}
 			if selected == nil {
 				if failure != nil {
-					if !errors.Is(failure, ErrCandidatePolicyConflict) && !errors.Is(failure, ErrProtocolCapabilityUnknown) {
+					if !errors.Is(failure, ErrCandidatePolicyConflict) &&
+						!errors.Is(failure, ErrProtocolCapabilityUnknown) &&
+						!errors.Is(failure, ErrProtocolRouteUnavailable) {
 						return nil, nil, fmt.Errorf("discover %s: %w", model, failure)
 					}
 					// An unverified protocol must not hide a verified route for
 					// the same model. Preserve the error if every shape fails.
+					// RouteUnavailable (e.g. Gemini path-guard on grok/… ids) is
+					// soft: one dead account×shape must not fail-close the menu.
 					supportFailure = failure
 				}
 				continue
