@@ -7335,7 +7335,7 @@
         "logOpenAIImagesOAuthDispatch(account, requestModel, parsed.Endpoint, len(parsed.Uploads), dispatch)",
         "stampOpenAIImagesOAuthDispatch(result, dispatch)"
       ],
-      "rationale": "OAuth Codex Responses image path must omit input_fidelity for gpt-image-2 / gpt-image-2-codex (edge-uk1 2026-10-13: 400 invalid_input_fidelity_model) and must log plus stamp the sent reasoning effort onto the forward result. Dropping either call compiles if the helper file remains, but edits with input_fidelity hard-fail again and usage_logs effort columns go back to NULL."
+      "rationale": "OAuth Codex Responses image path must still omit input_fidelity for gpt-image-2 / gpt-image-2-codex as defense in depth (edge-uk1 2026-10-13: 400 invalid_input_fidelity_model) after ParseOpenAIImagesRequest rejects ExplicitInputFidelity with HTTP 400. Also must log plus stamp the sent reasoning effort onto the forward result. Dropping either call compiles if the helper file remains, but edits that bypass parse hard-fail again and usage_logs effort columns go back to NULL."
     },
     {
       "path": "backend/internal/service/openai_images_oauth_dispatch_tk_test.go",
@@ -7355,16 +7355,85 @@
         "result.ReasoningEffort = &effort",
         "openai_images.oauth_dispatch"
       ],
-      "rationale": "Owner for the OAuth image dispatch tuple (reasoning_effort, main_model, fallbacks, scaffold_on) and the Codex soft-model input_fidelity omit. gpt-image-2.5 and API-key Images must stay outside this predicate."
+      "rationale": "Owner for the OAuth image dispatch tuple (reasoning_effort, main_model, fallbacks, scaffold_on) and the Codex soft-model input_fidelity reject/omit predicate shared by parse validation and the Responses builder. gpt-image-2.5 and API-key Images must stay outside this predicate."
+    },
+    {
+      "path": "backend/internal/service/openai_images_response_contract_tk.go",
+      "must_contain": [
+        "func prepareOpenAIImagesAPIResponseResults(",
+        "func validateOpenAIImagesInputFidelity(req *OpenAIImagesRequest) error",
+        "func applyOpenAIImagesClientResponseEcho(",
+        "func stripOpenAIImagesRevisedPrompts(",
+        "type OpenAIImagesInputFidelityError struct",
+        "openAIImagesCodexSoftModelRejectsInputFidelity(model)"
+      ],
+      "rationale": "Images OAuth response-contract owner (SandBase gpt-image report): post-collection truncate to n, strip revised_prompt, echo client quality/model/size, and reject ExplicitInputFidelity on gpt-image-2 family. Upstream merge deleting this companion compiles if call sites vanish together and silently restores soft-serve envelope drift."
+    },
+    {
+      "path": "backend/internal/service/openai_images_response_contract_tk_test.go",
+      "must_contain": [
+        "func TestPrepareOpenAIImagesAPIResponseResults_EchoStripAndTruncate(",
+        "func TestValidateOpenAIImagesInputFidelity_RejectsGPTImage2(",
+        "func TestParseOpenAIImagesRequest_RejectsGPTImage2InputFidelity(",
+        "require.False(t, gjson.GetBytes(body, \"data.0.revised_prompt\").Exists())"
+      ],
+      "rationale": "Behavioral regression for the Images response-contract owner: echo + truncate + strip revised_prompt, and parse-time 400 for gpt-image-2 input_fidelity. Existence-only greps are not enough — these assert response fields clients and SandBase check."
+    },
+    {
+      "path": "backend/internal/service/openai_images.go",
+      "must_contain": [
+        "if err := validateOpenAIImagesInputFidelity(req); err != nil {"
+      ],
+      "rationale": "ParseOpenAIImagesRequest injection for input_fidelity reject-at-parse (gpt-image-2 family). Without this one-line hook, the Responses builder only omits the field and SandBase sees a silent success instead of official Images 400."
+    },
+    {
+      "path": "backend/internal/service/openai_images_responses.go",
+      "must_contain": [
+        "results = prepareOpenAIImagesAPIResponseResults(results, &firstMeta, parsed, fallbackModel)",
+        "finalResults = prepareOpenAIImagesAPIResponseResults(finalResults, &streamMeta, parsed, fallbackModel)",
+        "applyOpenAIImagesClientResponseEcho(&streamMeta, parsed, fallbackModel)"
+      ],
+      "rationale": "Injection points that apply the Images response-contract owner on OAuth non-streaming and streaming completed paths, and re-echo client envelope onto streamMeta after upstream soft-serve meta merges. Dropping these compiles if the helper remains but restores quality=auto / gpt-image-2-codex / revised_prompt drift on the public Images surface."
+    },
+    {
+      "path": "backend/internal/service/openai_images_oauth_multi_tk.go",
+      "must_contain": [
+        "results = prepareOpenAIImagesAPIResponseResults(results, &firstMeta, parsed, requestModel)"
+      ],
+      "rationale": "OAuth multi-fetch Images path must run the same post-collection contract owner (truncate/echo/strip) as the single-shot Responses builder. Losing this call leaves n>1 merges with soft-serve envelope fields."
+    },
+    {
+      "path": "backend/internal/handler/openai_images_unknown_model_tk.go",
+      "must_contain": [
+        "func openAIImagesUnknownModelNotFound(",
+        "gateway.TkImageModelUnpriced(model, group, size)",
+        "gateway.TkImageModelRegistryMissing(model)",
+        "http.StatusNotFound, \"invalid_request_error\"",
+        "The model '%s' does not exist"
+      ],
+      "rationale": "Owner that upgrades Images selection capacity failures to OpenAI-shaped 404 when the requested gpt-image-* id has no pricing registry row (group image prices can make Unpriced=false while the id is still unknown). Dropping this companion reverts SandBase protocol-error-model to 503."
+    },
+    {
+      "path": "backend/internal/handler/openai_images_unknown_model_tk_test.go",
+      "must_contain": [
+        "func TestOpenAIImagesUnknownModelNotFound_UpgradesCapacityTo404(",
+        "openAIImagesUnknownModelNotFound(",
+        "http.StatusServiceUnavailable",
+        "gpt-image-does-not-exist"
+      ],
+      "rationale": "Regression guard for openAIImagesUnknownModelNotFound fail-open paths (nil gateway, already-404, non gpt-image). Keeps the helper from being deleted as dead code during upstream merges of openai_images.go."
     },
     {
       "path": "backend/internal/service/openai_images_codex_direct_multi_tk.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingMulti(",
         "for len(results) < want {",
-        "func buildCodexDirectMergedImagesBody("
+        "func buildCodexDirectMergedImagesBody(",
+        "want := openAIImagesWantCount(parsed)",
+        "results = truncateOpenAIImagesResults(results, want)",
+        "clientQuality := \"\""
       ],
-      "rationale": "Codex Direct / ChatGPT Images OAuth silently returns one image for n>1 (prod 2026-09-29). TokenKey must multi-fetch and merge data[] so the public Images contract stays honest. Dropping this owner reverts to single-image lying."
+      "rationale": "Codex Direct / ChatGPT Images OAuth silently returns one image for n>1 (prod 2026-09-29). TokenKey must multi-fetch, truncate via openAIImagesWantCount, and merge data[] while echoing client quality/model/size and omitting revised_prompt so the public Images contract stays honest. Dropping this owner reverts to single-image lying / soft-serve envelope drift."
     },
     {
       "path": "backend/internal/service/gemini_responses_compat_service.go",
@@ -8029,9 +8098,12 @@
       "must_contain": [
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, clientRequestModel, err)",
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, clientRequestModel, nil)",
-        "TkImageModelUnpriced(requestModel, apiKey.Group, parsed.Size)"
+        "TkImageModelUnpriced(requestModel, apiKey.Group, parsed.Size)",
+        "openAIImagesUnknownModelNotFound(h.gatewayService, apiKey, clientRequestModel, parsed.Size, status, errType, msg)",
+        "TkImageModelRegistryMissing(requestModel)",
+        "fidelityErr.ClientMessage()"
       ],
-      "rationale": "Images first-selection failure must route through openAICompatFirstAttemptSelectionFailure (SSOT) for both err and selection==nil branches — 429 on empty pool, 404 on mapping gap, not 503 (PR #723, #575 parity). An upstream merge restoring bare tkSelectFailureStatusMessage or hard-coded PlatformOpenAI classify compiles clean but regresses misclassification on newapi groups."
+      "rationale": "Images first-selection failure must route through openAICompatFirstAttemptSelectionFailure (SSOT) for both err and selection==nil branches — 429 on empty pool, 404 on mapping gap, not 503 (PR #723, #575 parity). Unknown gpt-image-* ids with no pricing registry row must upgrade to OpenAI-shaped 404 via openAIImagesUnknownModelNotFound (and the pre-select registry-missing branch). Parse-time OpenAIImagesInputFidelityError must surface ClientMessage() as HTTP 400. An upstream merge restoring bare tkSelectFailureStatusMessage or hard-coded PlatformOpenAI classify compiles clean but regresses misclassification on newapi groups."
     },
     {
       "path": "backend/internal/service/openai_account_scheduler_tk_errors.go",
@@ -9314,9 +9386,10 @@
         "resolveGroupPricing(PricingInput",
         "func (s *BillingService) tkResolvedImagePricingChargeable(",
         "s.tkResolvedImagePricingChargeable(resolved, resolver, size)",
-        "s.calculatePerRequestCost(resolved, CostInput{"
+        "s.calculatePerRequestCost(resolved, CostInput{",
+        "TkImageModelRegistryMissing"
       ],
-      "rationale": "Media unpriced-reject policy (operator decision 2026-06-12): image/video gateway surfaces refuse to serve models with no usable price — the pre-spend 400 replaces the post-spend served_zero_cost P0 for media, where one task is real upstream money (video up to ~$22) and image otherwise falls back to a blind hardcoded $0.134. Also the safety premise that lets new upstream channels auto-enable: their models arrive unpriced and are rejected until the human pricing act. Removing this file silently reverts media to serve-unpriced."
+      "rationale": "Media unpriced-reject policy (operator decision 2026-06-12): image/video gateway surfaces refuse to serve models with no usable price — the pre-spend 400 replaces the post-spend served_zero_cost P0 for media, where one task is real upstream money (video up to ~$22) and image otherwise falls back to a blind hardcoded $0.134. TkImageModelRegistryMissing distinguishes unknown gpt-image-* ids (OpenAI-shaped 404) from known-but-unpriced models (400). Also the safety premise that lets new upstream channels auto-enable: their models arrive unpriced and are rejected until the human pricing act. Removing this file silently reverts media to serve-unpriced."
     },
     {
       "path": "backend/internal/handler/openai_gateway_embeddings_images.go",

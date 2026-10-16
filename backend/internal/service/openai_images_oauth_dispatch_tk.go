@@ -29,15 +29,13 @@ type openAIImagesOAuthDispatchFacts struct {
 }
 
 // openAIImagesCodexSoftModelRejectsInputFidelity reports image tool models that
-// ChatGPT Codex Responses executes as gpt-image-2-codex.
+// ChatGPT Codex Responses executes as gpt-image-2-codex and that the official
+// Images API also refuse for input_fidelity.
 //
-// edge-uk1 (2026-10-13) sent edits with input_fidelity=high and low on
-// model=gpt-image-2. Upstream answered 400 invalid_input_fidelity_model:
-// model gpt-image-2-codex does not support input_fidelity. Omitting the field
-// returned 200. gpt-image-2 is the tool name that soft-serves as that model;
-// gpt-image-2-codex is the name in the error. gpt-image-2.5-* and gpt-image-1*
-// are not that soft model: the Responses builder still forwards fidelity, and
-// the API-key Images passthrough never calls this predicate.
+// ParseOpenAIImagesRequest rejects ExplicitInputFidelity for these models so
+// clients see 400 (SandBase / official contract) instead of a silent success.
+// The Responses builder still omits the field as defense in depth if a caller
+// bypasses parse. gpt-image-2.5-* and gpt-image-1* keep forwarding fidelity.
 func openAIImagesCodexSoftModelRejectsInputFidelity(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
 	return model == "gpt-image-2" || model == "gpt-image-2-codex" || strings.HasPrefix(model, "gpt-image-2-codex-")

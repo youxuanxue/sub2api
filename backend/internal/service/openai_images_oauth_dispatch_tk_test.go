@@ -97,13 +97,13 @@ func TestOpenAIImagesOAuthDispatchFacts_RecordsEffortMainModelAndScaffold(t *tes
 	require.False(t, overridden.ScaffoldOn)
 }
 
-func TestForwardOpenAIImagesOAuth_PersistsDispatchEffortAndStripsCodexFidelity(t *testing.T) {
+func TestForwardOpenAIImagesOAuth_PersistsDispatchEffortWithoutCodexFidelity(t *testing.T) {
 	t.Setenv(openAIImagesReasoningEffortEnv, "")
 	t.Setenv(openAIImagesPromptScaffoldEnv, "")
 	t.Setenv("SUB2API_IMAGES_MAIN_MODEL", "")
 	t.Setenv("SUB2API_IMAGES_MAIN_MODEL_FALLBACKS", "")
 
-	body := []byte(`{"model":"gpt-image-2","prompt":"draw a red square","size":"1024x1024","output_format":"png","input_fidelity":"low"}`)
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw a red square","size":"1024x1024","output_format":"png"}`)
 	c, _ := newOpenAIImagesTestContext(t, body)
 	upstream := &httpUpstreamRecorder{resp: openAIImagesResponsesSSEFixture()}
 	svc := newOpenAIImagesTestService(upstream)
@@ -147,7 +147,7 @@ func TestForwardOpenAIImagesOAuth_EnvEffortAndScaffoldOffAreWhatGetsSent(t *test
 	t.Setenv("SUB2API_IMAGES_MAIN_MODEL", "gpt-5.6-sol")
 	t.Setenv("SUB2API_IMAGES_MAIN_MODEL_FALLBACKS", "")
 
-	body := []byte(`{"model":"gpt-image-2","prompt":"draw a red square","size":"1024x1024","output_format":"png","input_fidelity":"high"}`)
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw a red square","size":"1024x1024","output_format":"png"}`)
 	c, _ := newOpenAIImagesTestContext(t, body)
 	upstream := &httpUpstreamRecorder{resp: openAIImagesResponsesSSEFixture()}
 	svc := newOpenAIImagesTestService(upstream)
@@ -167,7 +167,7 @@ func TestForwardOpenAIImagesOAuth_EnvEffortAndScaffoldOffAreWhatGetsSent(t *test
 }
 
 func TestForwardOpenAIImagesAPIKey_KeepsInputFidelityAndLeavesEffortUnset(t *testing.T) {
-	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat","input_fidelity":"high","response_format":"b64_json"}`)
+	body := []byte(`{"model":"gpt-image-1.5","prompt":"draw a cat","input_fidelity":"high","response_format":"b64_json"}`)
 	c, _ := newOpenAIImagesTestContext(t, body)
 	recorder := &httpUpstreamRecorder{resp: openAIImagesJSONResponse()}
 	svc := newOpenAIImagesTestService(recorder)
@@ -179,4 +179,12 @@ func TestForwardOpenAIImagesAPIKey_KeepsInputFidelityAndLeavesEffortUnset(t *tes
 	require.Nil(t, result.ReasoningEffort)
 	require.Equal(t, "high", gjson.GetBytes(recorder.lastBody, "input_fidelity").String())
 	require.False(t, strings.Contains(string(recorder.lastBody), "reasoning"))
+}
+
+func TestParseOpenAIImagesRequest_GPTImage2InputFidelityIsRejected(t *testing.T) {
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat","input_fidelity":"high","response_format":"b64_json"}`)
+	c, _ := newOpenAIImagesTestContext(t, body)
+	_, err := (&OpenAIGatewayService{}).ParseOpenAIImagesRequest(c, body)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "input_fidelity")
 }

@@ -30,13 +30,7 @@ func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingMulti(
 	upstreamModel string,
 	targetURL string,
 ) (OpenAIUsage, int, []string, error) {
-	want := parsed.N
-	if want < 1 {
-		want = 1
-	}
-	if want > 4 {
-		want = 4
-	}
+	want := openAIImagesWantCount(parsed)
 
 	firstBody, err := ReadUpstreamResponseBody(firstResp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
@@ -74,9 +68,7 @@ func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingMulti(
 		results = append(results, extraResults...)
 		usage = mergeOpenAIImagesUsage(usage, extraUsage)
 	}
-	if len(results) > want {
-		results = results[:want]
-	}
+	results = truncateOpenAIImagesResults(results, want)
 
 	if err := applyOpenAIImagesClientFidelityPostprocess(results, parsed); err != nil {
 		return OpenAIUsage{}, 0, nil, err
@@ -180,23 +172,47 @@ func buildCodexDirectMergedImagesBody(template []byte, results []openAIResponses
 	if parsed != nil {
 		clientModel = strings.TrimSpace(parsed.Model)
 	}
+	clientQuality := ""
+	clientBackground := ""
+	clientOutputFormat := ""
+	clientSize := ""
+	if parsed != nil {
+		clientQuality = strings.TrimSpace(parsed.Quality)
+		clientBackground = strings.TrimSpace(parsed.Background)
+		clientOutputFormat = strings.TrimSpace(parsed.OutputFormat)
+		clientSize = strings.TrimSpace(parsed.Size)
+	}
 	for _, img := range results {
 		item := []byte(`{}`)
 		item, _ = sjson.SetBytes(item, "b64_json", img.Result)
-		if img.RevisedPrompt != "" {
-			item, _ = sjson.SetBytes(item, "revised_prompt", img.RevisedPrompt)
+		// Official gpt-image Images responses omit revised_prompt.
+		size := clientSize
+		if size == "" {
+			size = img.Size
 		}
-		if img.Size != "" {
-			item, _ = sjson.SetBytes(item, "size", img.Size)
+		if size != "" {
+			item, _ = sjson.SetBytes(item, "size", size)
 		}
-		if img.OutputFormat != "" {
-			item, _ = sjson.SetBytes(item, "output_format", img.OutputFormat)
+		outputFormat := clientOutputFormat
+		if outputFormat == "" {
+			outputFormat = img.OutputFormat
 		}
-		if img.Quality != "" {
-			item, _ = sjson.SetBytes(item, "quality", img.Quality)
+		if outputFormat != "" {
+			item, _ = sjson.SetBytes(item, "output_format", outputFormat)
 		}
-		if img.Background != "" {
-			item, _ = sjson.SetBytes(item, "background", img.Background)
+		quality := clientQuality
+		if quality == "" {
+			quality = img.Quality
+		}
+		if quality != "" {
+			item, _ = sjson.SetBytes(item, "quality", quality)
+		}
+		background := clientBackground
+		if background == "" {
+			background = img.Background
+		}
+		if background != "" {
+			item, _ = sjson.SetBytes(item, "background", background)
 		}
 		model := clientModel
 		if model == "" {
@@ -217,19 +233,36 @@ func buildCodexDirectMergedImagesBody(template []byte, results []openAIResponses
 	}
 	if len(results) > 0 {
 		first := results[0]
-		if first.Background != "" {
-			out, _ = sjson.SetBytes(out, "background", first.Background)
+		background := clientBackground
+		if background == "" {
+			background = first.Background
 		}
-		if first.OutputFormat != "" {
-			out, _ = sjson.SetBytes(out, "output_format", first.OutputFormat)
-		} else if parsed != nil && parsed.ExplicitOutputFormat {
-			out, _ = sjson.SetBytes(out, "output_format", strings.ToLower(strings.TrimSpace(parsed.OutputFormat)))
+		if background != "" {
+			out, _ = sjson.SetBytes(out, "background", background)
 		}
-		if first.Quality != "" {
-			out, _ = sjson.SetBytes(out, "quality", first.Quality)
+		outputFormat := clientOutputFormat
+		if outputFormat == "" {
+			outputFormat = first.OutputFormat
 		}
-		if first.Size != "" {
-			out, _ = sjson.SetBytes(out, "size", first.Size)
+		if outputFormat == "" && parsed != nil && parsed.ExplicitOutputFormat {
+			outputFormat = strings.ToLower(strings.TrimSpace(parsed.OutputFormat))
+		}
+		if outputFormat != "" {
+			out, _ = sjson.SetBytes(out, "output_format", outputFormat)
+		}
+		quality := clientQuality
+		if quality == "" {
+			quality = first.Quality
+		}
+		if quality != "" {
+			out, _ = sjson.SetBytes(out, "quality", quality)
+		}
+		size := clientSize
+		if size == "" {
+			size = first.Size
+		}
+		if size != "" {
+			out, _ = sjson.SetBytes(out, "size", size)
 		}
 	}
 	// Prefer merged usage across all per-image fetches so client-visible usage
