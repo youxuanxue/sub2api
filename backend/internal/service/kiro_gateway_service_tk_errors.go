@@ -175,30 +175,10 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 			Body:       msg,
 		}
 	}
-	// Image format / MIME / corrupt-bytes rejections are properties of the
-	// caller's request. Retrying another Kiro account only amplifies 502s
-	// (prod pattern: Image format is not supported across the pool).
-	if isKiroImageClientError(msg) {
-		message := strings.TrimSpace(extractUpstreamErrorMessage([]byte(msg)))
-		if message == "" {
-			message = strings.TrimSpace(msg)
-		}
-		if message == "" {
-			message = "Image format is not supported"
-		}
-		return nil, &KiroInvalidRequestError{
-			StatusCode: http.StatusBadRequest,
-			Message:    message,
-			Body:       msg,
-		}
-	}
 	if statusCode, body, ok := parseKiroHTTPError(msg); ok {
-		if isKiroImageClientError(string(body)) || isKiroImageClientError(msg) {
-			message := strings.TrimSpace(extractUpstreamErrorMessage(body))
-			if message == "" {
-				message = "Image format is not supported"
-			}
-			return nil, &KiroInvalidRequestError{StatusCode: http.StatusBadRequest, Message: message, Body: msg}
+		if invalid, matched := classifyKiroImageClientRejection(statusCode, body, false); matched {
+			invalid.Body = msg
+			return nil, invalid
 		}
 		if statusCode == http.StatusBadRequest && isKiroValidationErrorBody(body) && !isKiroProfileArnError(msg) {
 			message := strings.TrimSpace(extractUpstreamErrorMessage(body))
@@ -213,12 +193,9 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 		}
 	}
 	if statusCode, body, ok := parseKiroEventStreamError(msg); ok {
-		if isKiroImageClientError(string(body)) || isKiroImageClientError(msg) {
-			message := strings.TrimSpace(extractUpstreamErrorMessage(body))
-			if message == "" {
-				message = "Image format is not supported"
-			}
-			return nil, &KiroInvalidRequestError{StatusCode: http.StatusBadRequest, Message: message, Body: msg}
+		if invalid, matched := classifyKiroImageClientRejection(statusCode, body, true); matched {
+			invalid.Body = msg
+			return nil, invalid
 		}
 		if statusCode == http.StatusBadRequest && strings.Contains(strings.ToUpper(msg), "INVALID_MODEL_ID") {
 			return nil, &KiroInvalidModelError{
@@ -331,6 +308,41 @@ func isKiroProfileArnError(msg string) bool {
 		strings.Contains(lower, "profilearn is required")
 }
 
+// classifyKiroImageClientRejection maps request-shaped image rejections to a
+// non-failover client error. Matching uses the primary upstream message only
+// (never echo/other JSON fields). Exact "Image format is not supported." on
+// non-400 HTTP must still failover so provider outages are not masked.
+func classifyKiroImageClientRejection(statusCode int, body []byte, fromEventStream bool) (*KiroInvalidRequestError, bool) {
+	primary := strings.TrimSpace(extractUpstreamErrorMessage(body))
+	candidate := primary
+	if candidate == "" {
+		// Bedrock sometimes wraps as plain text after "HTTP 502 ...: Bedrock error message: ..."
+		candidate = strings.TrimSpace(string(body))
+	}
+	if !isKiroImageClientError(candidate) {
+		return nil, false
+	}
+	if !fromEventStream && statusCode != http.StatusBadRequest && isExactUnsupportedImageFormatMessage(candidate) {
+		return nil, false
+	}
+	message := primary
+	if message == "" {
+		message = candidate
+	}
+	if message == "" {
+		message = "Image format is not supported"
+	}
+	return &KiroInvalidRequestError{
+		StatusCode: http.StatusBadRequest,
+		Message:    message,
+	}, true
+}
+
+func isExactUnsupportedImageFormatMessage(msg string) bool {
+	return strings.EqualFold(strings.TrimSpace(msg), "Image format is not supported.") ||
+		strings.EqualFold(strings.TrimSpace(msg), "Image format is not supported")
+}
+
 // isKiroImageClientError reports request-shaped image rejections from Kiro /
 // Bedrock. These must not failover: every account rejects the same bytes.
 func isKiroImageClientError(msg string) bool {
@@ -347,7 +359,6 @@ func isKiroImageClientError(msg string) bool {
 		"unsupported image format",
 		"unsupported media type",
 		"media type is not supported",
-		"image media type",
 	}
 	for _, marker := range markers {
 		if strings.Contains(lower, marker) {
