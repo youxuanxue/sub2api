@@ -5,7 +5,10 @@ The checker deliberately does not own a model-to-group catalog. For each explici
 client model, it derives the established groups from other healthy, schedulable
 accounts in the same snapshot and capability scope. Gemini Web's restricted
 contract is separate from general providers, even for identical client aliases.
-This keeps new models and operator-created groups out of a second policy table.
+Model overlap does not establish authorization intent: independently authorized
+groups are valid even for identical models. Disjoint peer groups are advisory
+evidence only; missing active bindings remain actionable findings. This keeps
+new models and operator-created groups out of a second policy table.
 """
 from __future__ import annotations
 
@@ -114,6 +117,7 @@ def evaluate_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
                 model_group_accounts[(account["peer_scope"], model_id)][group_id].add(account["id"])
 
     findings: list[dict[str, Any]] = []
+    advisories: list[dict[str, Any]] = []
     evaluated_ids: list[int] = []
     inconclusive_model_count = 0
     inconclusive: list[dict[str, Any]] = []
@@ -190,7 +194,7 @@ def evaluate_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
 
         candidate_group_ids = set(candidate_models)
         if candidate_group_ids and active_group_ids.isdisjoint(candidate_group_ids):
-            findings.append(
+            advisories.append(
                 {**base, "code": "model_group_peer_mismatch"}
             )
 
@@ -199,7 +203,7 @@ def evaluate_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     )
     mismatch_count = sum(
         1
-        for finding in findings
+        for finding in advisories
         if finding["code"] == "model_group_peer_mismatch"
     )
     return {
@@ -220,6 +224,7 @@ def evaluate_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
             "skipped_no_explicit_mapping_account_ids": sorted(skipped_ids),
         },
         "findings": findings,
+        "advisories": advisories,
         "inconclusive": inconclusive,
     }
 
