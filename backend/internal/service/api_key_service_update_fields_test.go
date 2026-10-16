@@ -17,6 +17,7 @@ type updateFieldsAPIKeyRepoStub struct {
 	quotaBaseAPIKeyRepoStub
 	key          *APIKey
 	updateFields []APIKeyUpdateFields
+	updated      *APIKey
 }
 
 // IncrementQuotaUsed 模拟计费热路径上的原子递增：只动 quota_used。
@@ -30,9 +31,52 @@ func (s *updateFieldsAPIKeyRepoStub) GetByID(context.Context, int64) (*APIKey, e
 	return &clone, nil
 }
 
-func (s *updateFieldsAPIKeyRepoStub) Update(_ context.Context, _ *APIKey, fields APIKeyUpdateFields) error {
+func (s *updateFieldsAPIKeyRepoStub) Update(_ context.Context, key *APIKey, fields APIKeyUpdateFields) error {
 	s.updateFields = append(s.updateFields, fields)
+	clone := *key
+	s.updated = &clone
 	return nil
+}
+
+func TestAPIKeyUpdate_UniversalGroupBinding(t *testing.T) {
+	universal, direct, invalid := RoutingModeUniversal, RoutingModeDirect, "invalid"
+	groupID := int64(5)
+	for _, tt := range []struct {
+		name       string
+		mode       string
+		req        UpdateAPIKeyRequest
+		wantFields APIKeyUpdateFields
+		wantGroup  bool
+		wantErr    error
+	}{
+		{"switch without group field", direct, UpdateAPIKeyRequest{RoutingMode: &universal}, APIKeyUpdateFields{RoutingMode: true, GroupID: true}, false, nil},
+		{"switch ignores supplied group", direct, UpdateAPIKeyRequest{RoutingMode: &universal, GroupID: &groupID}, APIKeyUpdateFields{RoutingMode: true, GroupID: true}, false, nil},
+		{"repair existing universal", universal, UpdateAPIKeyRequest{RoutingMode: &universal}, APIKeyUpdateFields{RoutingMode: true, GroupID: true}, false, nil},
+		{"universal cannot rebind", universal, UpdateAPIKeyRequest{GroupID: &groupID}, APIKeyUpdateFields{GroupID: true}, false, nil},
+		{"direct preserves binding", direct, UpdateAPIKeyRequest{RoutingMode: &direct}, APIKeyUpdateFields{RoutingMode: true}, true, nil},
+		{"invalid mode does not write", direct, UpdateAPIKeyRequest{RoutingMode: &invalid}, APIKeyUpdateFields{}, true, ErrInvalidRoutingMode},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, repo := newUpdateFieldsAPIKeyService(&APIKey{ID: 1, UserID: 7, Key: "sk-test", Status: StatusActive,
+				RoutingMode: tt.mode, GroupID: &groupID, Group: &Group{ID: groupID}, QuotaUsed: 30, Usage5h: 12})
+			got, err := svc.Update(context.Background(), 1, 7, tt.req)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				require.Empty(t, repo.updateFields)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, []APIKeyUpdateFields{tt.wantFields}, repo.updateFields)
+			if tt.wantGroup {
+				require.Equal(t, &groupID, repo.updated.GroupID)
+			} else {
+				require.Nil(t, repo.updated.GroupID)
+				require.Nil(t, got.Group)
+			}
+			require.Equal(t, float64(30), repo.updated.QuotaUsed)
+			require.Equal(t, float64(12), repo.updated.Usage5h)
+		})
+	}
 }
 
 func newUpdateFieldsAPIKeyService(key *APIKey) (*APIKeyService, *updateFieldsAPIKeyRepoStub) {

@@ -140,6 +140,15 @@ func (s *BillingService) tkInitFallbackPricingTables() {
 		CacheReadPricePerToken: 0.075e-6,
 		SupportsCacheBreakdown: false,
 	}
+	s.fallbackPrices["gemini-4-argon"] = &ModelPricing{
+		InputPricePerToken:             2e-6,    // $2 per MTok intro through 2026-11-30
+		InputPricePerTokenPriority:     3.6e-6,  // $3.60 per MTok
+		OutputPricePerToken:            10e-6,   // $10 per MTok
+		OutputPricePerTokenPriority:    18e-6,   // $18 per MTok
+		CacheReadPricePerToken:         0.1e-6,  // $0.10 per MTok
+		CacheReadPricePerTokenPriority: 0.18e-6, // $0.18 per MTok
+		SupportsCacheBreakdown:         false,
+	}
 
 	// OpenAI GPT-5.4（业务指定价格）
 	s.fallbackPrices["gpt-5.4"] = &ModelPricing{
@@ -493,6 +502,9 @@ func (s *BillingService) tkResolveFallbackTableFamilyPricing(modelLower string) 
 	}
 	if strings.Contains(modelLower, "gemini-3.1-pro") || strings.Contains(modelLower, "gemini-3-1-pro") {
 		return s.fallbackPrices["gemini-3.1-pro"]
+	}
+	if strings.Contains(modelLower, "gemini-4-argon") {
+		return s.fallbackPrices["gemini-4-argon"]
 	}
 	if strings.Contains(modelLower, "gemini-3.8-flash") || strings.Contains(modelLower, "gemini-3-8-flash") {
 		return s.fallbackPrices["gemini-3.8-flash"]

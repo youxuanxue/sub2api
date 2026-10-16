@@ -41,10 +41,7 @@ func (s *APIKeyService) CreateAsAdmin(ctx context.Context, userID int64, req Cre
 		return nil, ErrInvalidRoutingMode
 	}
 
-	effectiveGroupID := req.GroupID
-	if routingMode == RoutingModeUniversal {
-		effectiveGroupID = nil
-	}
+	effectiveGroupID := apiKeyGroupIDForRoutingMode(routingMode, req.GroupID)
 
 	if effectiveGroupID != nil {
 		group, err := s.groupRepo.GetByID(ctx, *effectiveGroupID)
