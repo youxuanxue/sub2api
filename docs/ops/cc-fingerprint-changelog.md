@@ -23,6 +23,7 @@ re-document it per patch — note "A/B unchanged" in the row instead.
 
 | cc version | date (UTC) | type | note |
 |---|---|---|---|
+| 2.1.301 | 2026-10-16 | pure UA | Local `claude --version` ground truth; sync via check-cc-version-sync --write. Closes #2659. |
 | 2.1.267 | 2026-09-10 | pure UA | 2.1.266→2.1.267, TLS/beta 未变 |
 | 2.1.266 | 2026-09-09 | pure UA | 2.1.261→2.1.266, TLS/beta 未变 |
 | 2.1.261 | 2026-09-05 | pure UA | 2.1.260→2.1.261, TLS/beta 未变 |
