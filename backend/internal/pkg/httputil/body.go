@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"compress/zlib"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -109,7 +110,14 @@ func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
 // Content-Encoding value. It is shared by handlers and QA capture so evidence is
 // sanitized from the same semantic bytes that gateway handlers process.
 func DecodeContentEncodedBody(encoding string, raw []byte) ([]byte, error) {
-	return DecodeContentEncodedBodyPrefix(encoding, raw, maxDecompressedBodySize)
+	body, err := decodeContentEncodedBodyPrefix(encoding, raw, maxDecompressedBodySize+1)
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxDecompressedBodySize {
+		return nil, &http.MaxBytesError{Limit: maxDecompressedBodySize}
+	}
+	return body, nil
 }
 
 // Read bounded chunks as bytes arrive, then assemble the exact-size result.
@@ -169,7 +177,27 @@ func ReadLenientJSONRequestBodyWithPrealloc(req *http.Request, maxNormalizedByte
 	if err != nil {
 		return nil, err
 	}
-	return NormalizeLenientJSONRequestBody(body, maxNormalizedBytes)
+	return NormalizeLenientJSONRequestBodyForRequest(req, body, maxNormalizedBytes)
+}
+
+type requestBodyLimitKey struct{}
+
+// WithRequestBodyLimit carries the ingress route's configured limit through
+// request clones, so candidate preparation and forwarding normalize identically.
+func WithRequestBodyLimit(req *http.Request, limit int64) *http.Request {
+	return req.WithContext(context.WithValue(req.Context(), requestBodyLimitKey{}, limit))
+}
+
+// NormalizeLenientJSONRequestBodyForRequest uses the route's limit when present.
+// Standalone callers retain their explicit fallback (or the safe default).
+// Content-Encoding decompression has its own independent safety ceiling.
+func NormalizeLenientJSONRequestBodyForRequest(req *http.Request, body []byte, fallback int64) ([]byte, error) {
+	if req != nil {
+		if limit, ok := req.Context().Value(requestBodyLimitKey{}).(int64); ok && limit > 0 {
+			fallback = limit
+		}
+	}
+	return NormalizeLenientJSONRequestBody(body, fallback)
 }
 
 // DecodeContentEncodedBodyPrefix bounds a secondary observability copy without
@@ -178,6 +206,10 @@ func DecodeContentEncodedBodyPrefix(encoding string, raw []byte, limit int64) ([
 	if limit <= 0 || limit > maxDecompressedBodySize {
 		limit = maxDecompressedBodySize
 	}
+	return decodeContentEncodedBodyPrefix(encoding, raw, limit)
+}
+
+func decodeContentEncodedBodyPrefix(encoding string, raw []byte, limit int64) ([]byte, error) {
 	switch encoding {
 	case "zstd":
 		dec, err := zstd.NewReader(bytes.NewReader(raw))

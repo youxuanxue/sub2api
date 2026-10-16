@@ -82,6 +82,9 @@ func (s *defaultOpenAIAccountScheduler) openAICandidatesBeforeWindow(ctx context
 		}
 		if compatible, reason := s.isAccountRequestCompatibleReason(ctx, account, req); !compatible {
 			filterStats.exclude(reason)
+			if reason == openAICompatIneligibleInputModality && filterStats.inputModality == "" {
+				filterStats.inputModality = accountInputModalityRejection(ctx, account, req.RequestedModel)
+			}
 			continue
 		}
 		if !s.isAccountTransportCompatible(account, req.RequiredTransport) {

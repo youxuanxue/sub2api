@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"compress/zlib"
+	"github.com/stretchr/testify/require"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -139,5 +141,44 @@ func TestReadRequestBodyWithPrealloc_RespectsIdentityEncoding(t *testing.T) {
 	}
 	if string(got) != samplePayload {
 		t.Fatalf("body mismatch: got %q", got)
+	}
+}
+
+func TestDecodeContentEncodedBodyRejectsOversizeWithoutTruncation(t *testing.T) {
+	for _, encoding := range []string{"gzip", "deflate", "zstd"} {
+		for _, size := range []int{maxDecompressedBodySize, maxDecompressedBodySize + 1} {
+			payload := bytes.Repeat([]byte(" "), size)
+			// A valid JSON prefix must not turn an oversized full body into success.
+			copy(payload, []byte(`{"model":"kimi-k3"}`))
+			var compressed bytes.Buffer
+			var writer io.WriteCloser
+			switch encoding {
+			case "gzip":
+				writer = gzip.NewWriter(&compressed)
+			case "deflate":
+				writer = zlib.NewWriter(&compressed)
+			case "zstd":
+				var err error
+				writer, err = zstd.NewWriter(&compressed)
+				require.NoError(t, err)
+			}
+			_, err := writer.Write(payload)
+			require.NoError(t, err)
+			require.NoError(t, writer.Close())
+			req := newRequestWithBody(t, compressed.Bytes(), encoding)
+			got, err := ReadRequestBodyWithPrealloc(req)
+			if size > maxDecompressedBodySize {
+				var maxErr *http.MaxBytesError
+				require.ErrorAs(t, err, &maxErr, encoding)
+				require.EqualValues(t, maxDecompressedBodySize, maxErr.Limit)
+				require.Nil(t, got)
+			} else {
+				require.NoError(t, err, encoding)
+				require.True(t, bytes.Equal(payload, got))
+			}
+			prefix, err := DecodeContentEncodedBodyPrefix(encoding, compressed.Bytes(), 32)
+			require.NoError(t, err)
+			require.Equal(t, payload[:32], prefix, "observability prefix remains deliberately truncated")
+		}
 	}
 }

@@ -1391,6 +1391,9 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 type openAISelectionFilterStats struct {
 	pool    int
 	reasons map[string]int
+	// Preserve an actual rejection: a video+audio request may support video
+	// but fail on audio, so the request's preferred modality is insufficient.
+	inputModality string
 }
 
 func (s *openAISelectionFilterStats) exclude(reason string) {
@@ -1457,7 +1460,11 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		// Pure multimodal known-negative empty pool → 400, not capacity 429.
 		// docs/approved/multimodal-supply-capability-ssot.md
 		if openAIFilterOnlyReason(filterStats, openAICompatIneligibleInputModality) {
-			return nil, 0, 0, 0, wrapUnsupportedInputModality(req.RequestedModel, requestInputModalityPreference(ctx))
+			modality := filterStats.inputModality
+			if modality == "" {
+				modality = requestInputModalityPreference(ctx)
+			}
+			return nil, 0, 0, 0, wrapUnsupportedInputModality(req.RequestedModel, modality)
 		}
 		return nil, 0, 0, 0, s.service.tkGroupUnsupportedModelRecordErr(req.GroupID, req.RequestedModel, openAICompatNoCandidateError(req.RequestedModel, req.GroupPlatform, false, accounts, req.ExcludedIDs, &openAICompatNoCandidateEval{
 			ctx:                ctx,

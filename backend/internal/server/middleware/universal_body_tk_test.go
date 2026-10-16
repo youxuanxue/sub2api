@@ -7,12 +7,16 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,7 +75,7 @@ func TestMaybeResolveUniversal_RejectsIncompleteBody(t *testing.T) {
 					require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
 					message := "Failed to read request body"
 					if failure == "oversize" {
-						message = "Request body too large"
+						message = fmt.Sprintf("Request body too large (stage=read, limit_bytes=%d)", len(body))
 					}
 					require.Equal(t, message, response.Error.Message)
 					require.Zero(t, span.calls, "failed bodies must not reach authorization candidate lookup")
@@ -128,4 +132,73 @@ func TestUniversalBodyPeek_PreservesFailureForDirectConsumer(t *testing.T) {
 	MaybeRewriteOpenRouterProviderChatBody(c, key, &service.SettingService{})
 	_, err := io.ReadAll(c.Request.Body)
 	require.ErrorIs(t, err, readErr)
+}
+
+// The same route limit must reach candidate preparation and the direct reader.
+// The 100 MB fixture is a gateway byte-boundary check, not a supplier media probe.
+func TestUniversalBodyConfiguredLimitParity(t *testing.T) {
+	const limit = 100_000_000
+	prefix := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":[{"type":"video_url","video_url":{"url":"data:video/mp4;base64,`)
+	suffix := []byte(`"}}]}]}`)
+	for _, size := range []int{65 << 20, limit, limit + 1} {
+		payload := bytes.Repeat([]byte("A"), size)
+		copy(payload, prefix)
+		copy(payload[len(payload)-len(suffix):], suffix)
+		for _, mode := range []string{service.RoutingModeDirect, service.RoutingModeUniversal} {
+			t.Run(fmt.Sprintf("%s/%d", mode, size), func(t *testing.T) {
+				span := &stubSpanLister{groups: []service.Group{activeGroup(20, service.PlatformOpenAI)}}
+				key := &service.APIKey{ID: 1, UserID: 1, RoutingMode: mode}
+				router := gin.New()
+				router.Use(RequestBodyLimit(limit))
+				consumed := false
+				router.POST("/v1/chat/completions", func(c *gin.Context) {
+					if MaybeResolveUniversal(c, key, service.NewUniversalRoutingResolver(span)) {
+						return
+					}
+					// A conflicting fallback must not overwrite the actual route limit.
+					got, err := pkghttputil.ReadLenientJSONRequestBodyWithPrealloc(c.Request, 64<<20)
+					if size > limit {
+						var maxErr *http.MaxBytesError
+						require.ErrorAs(t, err, &maxErr)
+						require.EqualValues(t, limit, maxErr.Limit)
+						c.AbortWithStatus(http.StatusRequestEntityTooLarge)
+						return
+					}
+					require.NoError(t, err)
+					require.True(t, bytes.Equal(payload, got), "media bytes must survive routing unchanged")
+					consumed = true
+					c.Status(http.StatusNoContent)
+				})
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(payload)))
+				if size > limit {
+					require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+					require.False(t, consumed)
+					require.Zero(t, span.calls)
+					if mode == service.RoutingModeUniversal {
+						require.Contains(t, rec.Body.String(), "stage=read, limit_bytes=100000000")
+					}
+				} else {
+					require.Equal(t, http.StatusNoContent, rec.Code)
+					require.True(t, consumed)
+				}
+			})
+		}
+	}
+}
+
+func TestUniversalBodyNormalizationExpansionLimit(t *testing.T) {
+	body := []byte("{\"model\":\"gpt-5\",\"messages\":[{\"role\":\"user\",\"content\":\"a\nb\"}]}")
+	span := &stubSpanLister{groups: []service.Group{activeGroup(20, service.PlatformOpenAI)}}
+	key := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+	router := gin.New()
+	router.Use(RequestBodyLimit(int64(len(body))))
+	router.POST("/v1/chat/completions", func(c *gin.Context) {
+		require.True(t, MaybeResolveUniversal(c, key, service.NewUniversalRoutingResolver(span)))
+	})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body)))
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	require.Contains(t, rec.Body.String(), fmt.Sprintf("stage=normalize, limit_bytes=%d", len(body)))
+	require.Zero(t, span.calls)
 }

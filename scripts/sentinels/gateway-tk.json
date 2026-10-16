@@ -3004,7 +3004,7 @@
       "path": "backend/internal/server/middleware/universal_routing_tk.go",
       "must_contain": [
         "type universalBodyReplay struct",
-        "writeUniversalBodyReadError(c, shape, readErr)",
+        "writeUniversalBodyReadError(c, shape, readErr, \"read\", -1)",
         "return body.raw, body.readErr"
       ],
       "rationale": "Pre-reading must preserve terminal body errors and reject incomplete input before Universal candidate lookup or billing binding."
@@ -3261,11 +3261,38 @@
       "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests."
     },
     {
+      "path": "backend/internal/pkg/httputil/body.go",
+      "must_contain": [
+        "func WithRequestBodyLimit(",
+        "func NormalizeLenientJSONRequestBodyForRequest(",
+        "return NormalizeLenientJSONRequestBodyForRequest(req, body, maxNormalizedBytes)",
+        "decodeContentEncodedBodyPrefix(encoding, raw, maxDecompressedBodySize+1)"
+      ],
+      "rationale": "Gateway normalization shares the configured route limit; full decompression must detect oversize instead of silently accepting a truncated prefix."
+    },
+    {
+      "path": "backend/internal/server/middleware/request_body_limit.go",
+      "must_contain": ["pkghttputil.WithRequestBodyLimit(c.Request, maxBytes)"],
+      "rationale": "Carry the actual ingress byte limit into both routing preparation and forwarding."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk.go",
+      "must_contain": ["pkghttputil.NormalizeLenientJSONRequestBodyForRequest(c.Request, body, 0)"],
+      "rationale": "Universal Chat must not reintroduce a hidden default 64 MiB normalization limit."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_body_tk_test.go",
+      "must_contain": ["func TestUniversalBodyConfiguredLimitParity(", "func TestUniversalBodyNormalizationExpansionLimit("],
+      "rationale": "Exercise the actual routing and forwarding path at media byte boundaries and after JSON escaping expansion."
+    },
+    {
       "path": "backend/internal/service/candidate_multimodal_supply_tk.go",
       "must_contain": [
         "ErrUnsupportedInputModality",
         "func accountInputModalityRejection(",
         "func supplyKnownNegativeForInputVideo(",
+        "func supplyKnownNegativeForInputAudio(",
+        "protocolrouter.ContentAudio",
         "TkUnsupportedInputModalityMessage",
         "openAIFilterOnlyReason",
         "protocolrouter.ContentVideo",
@@ -3278,6 +3305,8 @@
       "path": "backend/internal/service/candidate_multimodal_supply_tk_test.go",
       "must_contain": [
         "func TestSupplyKnownNegativeForInputVideoKimiK3NVIDIA(",
+        "func TestVolcKimiAudioCandidateAdmission(",
+        "func TestVolcKimiAudioDirectEmptyPoolNamesActualRejection(",
         "func TestAccountAdmitsRequestInputModalitiesVideoGate(",
         "func TestCandidateSupportsRequestRejectsNVIDIAKimiK3Video(",
         "func TestCandidateSelectionPrefersVolcForKimiK3Video(",

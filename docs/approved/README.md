@@ -200,3 +200,5 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 网关 hcloud 蓝绿发布仍以 [hcloud-bluegreen-qa-migration.md](hcloud-bluegreen-qa-migration.md) 为基线，QA 部分以 raw-only 覆盖。
 
 - [Volc Agent Plan Kimi Chat compatibility](volc-kimi-chat-compatibility.md) — supplier-scoped thinking and tool selectors.
+
+- [Kimi 请求错误修复与请求体边界](kimi-input-error-remediation.md) — Direct/Universal 共享路由上限、解压完整性与客户端参数改法。
