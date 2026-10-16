@@ -164,6 +164,13 @@ func (s *UniversalCapabilityService) discoverCandidates(ctx context.Context, key
 				continue
 			}
 			path, body := candidateDiscoveryRequest(model, spec)
+			// ShapeGemini embeds model into /v1beta/models/{model}:generateContent.
+			// Provider-prefixed catalog IDs (e.g. grok/grok-4.20-…) are not path-safe;
+			// evaluating them against live Gemini accounts fail-closed the whole
+			// /v1/models menu (ErrProtocolRouteUnavailable from upstream path guard).
+			if spec.shape == ShapeGemini && !isSafeUpstreamPathSegment(strings.TrimSpace(model)) {
+				continue
+			}
 			request.shape, request.path, request.model, request.body, request.forcePlatform = spec.shape, path, model, body, spec.forcedPlatform
 			requestCtx := s.resolver.WithRequest(ctx, spec.shape, path, model, body)
 			preparePath := candidateDiscoveryPathPreparer(request)
