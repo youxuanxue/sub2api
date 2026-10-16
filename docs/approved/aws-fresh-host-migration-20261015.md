@@ -10,6 +10,9 @@ scope: fresh AWS recovery and individually approved edge and prod cutovers
 
 # Hcloud → 全新 AWS 节点迁移
 
+2026-10-16 后续备份、QA timer、监控与旧机保留状态见 [迁移收尾](aws-migration-closeout-20261016.md)；下文各次切流时的快照不代表当前运维状态。
+原冻结整库副本所在 pgdump 桶实际只有七天保留期；长期回查归档已另补至既有归档桶，恢复坐标以迁移收尾记录为准。
+
 迁移准备已获用户授权；用户现已授权先选低流量 edge 正式切流，并明确批准相关代码推送和合并。uk2 已完成；用户随后明确授权“继续 uk1 的正式切流，请安全推进切流”。用户再次明确确认下一台为 us4（纠正 uk4 笔误）；用户随后授权 us4 验证正常后继续 us5；2026-10-16 会话明确批准 prod 停写切流。候选身份唯一清单为
 `deploy/aws/fresh-migration-20261015.json`，现网仍以 `deploy/hetzner/README.md` 为准。
 
