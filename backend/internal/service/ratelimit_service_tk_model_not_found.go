@@ -36,6 +36,8 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	var cooldown time.Duration
 	var reason string
 	switch {
+	case account.Platform == PlatformAntigravity && account.IsOAuth() && isAntigravityModelUnavailableError(statusCode, responseBody):
+		cooldown, reason = upstreamModelNotFoundCooldown, upstreamModelNotFoundReason
 	case isUpstreamModelRetiredError(statusCode, responseBody):
 		cooldown, reason = upstreamModelRetiredCooldown, upstreamModelRetiredReason
 	case isUpstreamModelNotFoundError(statusCode, responseBody):

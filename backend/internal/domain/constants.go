@@ -132,13 +132,11 @@ const AntigravityGemini31ProAgentModel = "gemini-pro-agent"
 // 2026-10-16：gemini-4-argon 上游目录为 -low/-medium/-high（无 -tiered）；
 // 裸名同样锁 high，与 Flash 家族一致（官方 API 默认 medium 不覆盖 AG wire 约定）。
 var DefaultAntigravityModelMapping = map[string]string{
-	"gemini-3.6-flash":               "gemini-3.6-flash-tiered",
 	"gemini-3.7-flash":               "gemini-3.7-flash-high",
 	"gemini-3.8-flash":               "gemini-3.8-flash-high",
 	"gemini-4-argon":                 "gemini-4-argon-high",
 	"gemini-3-flash":                 "gemini-3.8-flash-high",
 	"gemini-3-flash-preview":         "gemini-3.8-flash-high",
-	"gemini-3.5-flash-lite":          "gemini-3.6-flash-tiered",
 	"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
 	"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
 	"nano-2":                         "gemini-3.1-flash-image",
@@ -146,7 +144,7 @@ var DefaultAntigravityModelMapping = map[string]string{
 }
 
 // antigravityThinkingWireBases lists public Gemini families whose AG upstream
-// catalog exposes -low/-medium/-high (and for 3.6, -tiered) wire IDs. These
+// catalog exposes -low/-medium/-high wire IDs. These
 // tier IDs are NOT public display names; they exist so explicit model requests
 // and generationConfig.thinkingConfig can select native AG depth.
 var antigravityThinkingWireBases = []string{
@@ -163,9 +161,6 @@ func AntigravityThinkingWireFloorEntries() map[string]string {
 	out := make(map[string]string)
 	for _, base := range antigravityThinkingWireBases {
 		suffixes := []string{"-low", "-medium", "-high"}
-		if base == "gemini-3.6-flash" {
-			suffixes = append(suffixes, "-tiered")
-		}
 		for _, suffix := range suffixes {
 			id := base + suffix
 			out[id] = id
@@ -182,6 +177,11 @@ func IsAntigravityThinkingWireModel(id string) bool {
 }
 
 var antigravityStructuralDeadModelMappingKeys = map[string]struct{}{
+	// 2026-10-16: the tiered wire is absent from serving catalogs and returns
+	// native NOT_FOUND. Withdraw its default aliases; keep native Gemini intact.
+	"gemini-3.6-flash-tiered": {},
+	"gemini-3.6-flash":        {},
+	"gemini-3.5-flash-lite":   {},
 	// PR #921 inventory + 2026-06-22 live snapshot: these are stale request aliases
 	// in persisted antigravity account mappings. Keep them in this deadlist, not
 	// in DefaultAntigravityModelMapping or canonical account mappings.

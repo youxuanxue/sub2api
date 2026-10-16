@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "a2bc11c6602072ecba2db7f1bbe3961cd42fdf425867645316ea49ae47ff9e17",
+  "floor_sha256": "6af1710af3d87da5f96e0461fecac6f34122b4fd8f540e7915a131ed429b4019",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -50,12 +50,6 @@
         "gemini-3-flash-preview": "gemini-3.8-flash-high",
         "gemini-3.1-flash-image": "gemini-3.1-flash-image",
         "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
-        "gemini-3.5-flash-lite": "gemini-3.6-flash-tiered",
-        "gemini-3.6-flash": "gemini-3.6-flash-tiered",
-        "gemini-3.6-flash-high": "gemini-3.6-flash-high",
-        "gemini-3.6-flash-low": "gemini-3.6-flash-low",
-        "gemini-3.6-flash-medium": "gemini-3.6-flash-medium",
-        "gemini-3.6-flash-tiered": "gemini-3.6-flash-tiered",
         "gemini-3.7-flash": "gemini-3.7-flash-high",
         "gemini-3.7-flash-high": "gemini-3.7-flash-high",
         "gemini-3.7-flash-low": "gemini-3.7-flash-low",
@@ -642,6 +636,9 @@
         "gemini-3-pro-preview",
         "gemini-3.1-pro-high",
         "gemini-3.1-pro-preview",
+        "gemini-3.5-flash-lite",
+        "gemini-3.6-flash",
+        "gemini-3.6-flash-tiered",
         "gemini-web-nano-banana-pro",
         "nano-banana-pro",
         "nano-banana-pro-preview",

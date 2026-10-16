@@ -66,7 +66,7 @@ func (f *AntigravityQuotaFetcher) FetchQuota(ctx context.Context, account *Accou
 	}
 
 	// 调用 API 获取配额
-	modelsResp, modelsRaw, err := client.FetchAvailableModels(ctx, accessToken, projectID, resolveModelsListReadLimit(f.cfg))
+	modelsResp, modelsRaw, err := client.FetchAvailableModelsAt(ctx, accessToken, projectID, resolveModelsListReadLimit(f.cfg), resolveAntigravityForwardBaseURL(account))
 	if err != nil {
 		// 403 Forbidden: 不报错，返回 is_forbidden 标记
 		var forbiddenErr *antigravity.ForbiddenError

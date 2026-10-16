@@ -189,8 +189,10 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
-		// 模型兜底：模型不存在且开启 fallback 时，自动用 fallback 模型重试一次
+		// Account-specific capability failures must try another account for the
+		// requested model, not silently substitute a different model.
 		if s.settingService != nil && s.settingService.IsModelFallbackEnabled(ctx) &&
+			!isAntigravityModelUnavailableError(resp.StatusCode, respBody) &&
 			isModelNotFoundError(resp.StatusCode, respBody) {
 			fallbackModel := s.settingService.GetFallbackModel(ctx, PlatformAntigravity)
 			if fallbackModel != "" && fallbackModel != mappedModel {
@@ -353,12 +355,12 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		// Always record upstream context for Ops error logs, even when we will failover.
 		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 
-		// 精确匹配服务端配置类 400 错误，触发同账号重试 + failover
-		googleSemantic := googleGatewayFailureSemantic(resp.StatusCode, strings.ToLower(upstreamMsg))
+		// Configuration and model capability failures use shared bounded failover.
+		googleSemantic := antigravityGatewayFailureSemantic(resp.StatusCode, unwrappedForOps)
 		if googleSemantic != gatewayFailureSemanticUnclassified && classifyGatewayFailover(gatewayFailoverObservation{
 			Profile: gatewayFailoverProfileGoogle, Semantic: googleSemantic, StatusCode: resp.StatusCode,
 		}).RetryNextAccount {
-			log.Printf("%s status=400 google_config_error failover=true upstream_message=%q account=%d", prefix, upstreamMsg, account.ID)
+			log.Printf("%s status=%d google_account_fault failover=true upstream_message=%q account=%d", prefix, resp.StatusCode, upstreamMsg, account.ID)
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				ProxyID:            opsUpstreamProxyID(account),
 				ProxyName:          opsUpstreamProxyName(account),
@@ -373,7 +375,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			})
 			return nil, applyGatewayFailoverSemantic(&UpstreamFailoverError{
 				StatusCode: resp.StatusCode, ResponseBody: unwrappedForOps,
-				RetryableOnSameAccount: !isModelCapabilityFailureMessage(upstreamMsg),
+				RetryableOnSameAccount: resp.StatusCode == http.StatusBadRequest && !isModelCapabilityFailureMessage(upstreamMsg),
 			}, gatewayFailoverProfileGoogle, googleSemantic)
 		}
 

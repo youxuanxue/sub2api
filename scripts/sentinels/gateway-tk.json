@@ -13741,7 +13741,7 @@
     {
       "path": "backend/internal/service/antigravity_gateway_gemini.go",
       "must_contain": [
-        "googleGatewayFailureSemantic(resp.StatusCode, strings.ToLower(upstreamMsg))",
+        "antigravityGatewayFailureSemantic(resp.StatusCode, unwrappedForOps)",
         "classifyGatewayFailover(gatewayFailoverObservation{"
       ],
       "rationale": "Antigravity Gemini's body-aware Google project compatibility error must be normalized and submitted to the global failover owner."
@@ -13749,7 +13749,7 @@
     {
       "path": "backend/internal/service/antigravity_gateway_claude.go",
       "must_contain": [
-        "googleGatewayFailureSemantic(resp.StatusCode, msg)",
+        "antigravityGatewayFailureSemantic(resp.StatusCode, respBody)",
         "classifyGatewayFailover(gatewayFailoverObservation{"
       ],
       "rationale": "Antigravity Claude compatibility uses the same Google project semantic and global failover owner as Gemini rather than a local boolean branch."
@@ -17508,6 +17508,25 @@
         "validateOAuthProxyBinding(account)"
       ],
       "rationale": "Model discovery must preserve pinned OAuth egress when the configured proxy is unavailable."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_retry.go",
+      "must_contain": [
+        "func antigravityGatewayFailureSemantic(",
+        "HandleUpstreamError(ctx, account, statusCode, headers, body, requestedModel)",
+        "modelUnavailable := p.account.antigravityModelCapabilityUnavailable"
+      ],
+      "rationale": "Keep exact native model-unavailable failures on existing per-model cooldown and global failover owners. Credits and single-account retry must not reopen a known unavailable model."
+    },
+    {
+      "path": "backend/internal/service/antigravity_model_capability_tk_test.go",
+      "must_contain": [
+        "func TestAntigravityModelUnavailableAdapters(",
+        "func TestAntigravityDiscoveryUsesAccountServingEndpoint(",
+        "func TestAntigravityModelUnavailableAdminTestDoesNotCoolAccount(",
+        "func TestAntigravityCatalogWithdrawalPreservesOtherSupplies("
+      ],
+      "rationale": "Regression coverage for model-only cooldown, bounded uncommitted failover across AG adapters, same-endpoint discovery, read-only account tests and platform-local catalog withdrawal."
     }
   ]
 }

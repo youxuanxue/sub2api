@@ -43,12 +43,29 @@ func (a *Account) IsSchedulableForModelWithContext(ctx context.Context, requeste
 	}
 	if a.isModelRateLimitedWithContext(ctx, requestedModel) {
 		// Antigravity + overages 启用 + 积分未耗尽 → 放行（有积分可用）
-		if a.Platform == PlatformAntigravity && a.IsOveragesEnabled() && !a.isCreditsExhausted() {
+		if a.Platform == PlatformAntigravity && a.IsOveragesEnabled() && !a.isCreditsExhausted() && !a.antigravityModelCapabilityUnavailable(ctx, requestedModel) {
 			return true
 		}
 		return false
 	}
 	return true
+}
+
+// Credits can bypass quota exhaustion, never an unavailable model. Read the
+// existing cooldown reason instead of introducing another capability store.
+func (a *Account) antigravityModelCapabilityUnavailable(ctx context.Context, requestedModel string) bool {
+	if a == nil || a.Platform != PlatformAntigravity {
+		return false
+	}
+	limits, _ := a.Extra[modelRateLimitsKey].(map[string]any)
+	for _, key := range a.modelRateLimitKeysForRequest(ctx, requestedModel) {
+		limit, _ := limits[key].(map[string]any)
+		reason, _ := limit["reason"].(string)
+		if (reason == upstreamModelNotFoundReason || reason == upstreamModelRetiredReason) && a.isRateLimitActiveForKey(key) {
+			return true
+		}
+	}
+	return false
 }
 
 // GetRateLimitRemainingTime 获取限流剩余时间（模型级限流）

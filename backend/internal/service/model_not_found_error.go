@@ -1,9 +1,31 @@
 package service
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 )
+
+// isAntigravityModelUnavailableError recognizes the native Google generation
+// response observed when a model is disabled on an account's serving endpoint.
+// Keep the opaque envelope scoped to Antigravity callers; an arbitrary HTTP 404
+// (or a missing project/route) must not become a model capability verdict.
+func isAntigravityModelUnavailableError(statusCode int, body []byte) bool {
+	if statusCode != http.StatusNotFound {
+		return false
+	}
+	var envelope struct {
+		Error struct {
+			Code    int    `json:"code"`
+			Status  string `json:"status"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	return json.Unmarshal(body, &envelope) == nil &&
+		envelope.Error.Code == http.StatusNotFound &&
+		envelope.Error.Status == "NOT_FOUND" &&
+		strings.TrimSpace(envelope.Error.Message) == "Requested entity was not found."
+}
 
 var upstreamModelNotFoundKeywords = []string{"model not found", "unknown model", "not found"}
 

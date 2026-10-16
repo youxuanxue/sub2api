@@ -850,7 +850,7 @@ func antigravityAccountModelMappingFloor(ctx context.Context, pricing *PricingCa
 }
 
 // mergeAntigravityThinkingWireFloor injects non-public -low/-medium/-high
-// (and 3.6 -tiered) identity keys when the corresponding public Flash family
+// identity keys when the corresponding public Flash family
 // is already on the floor. These keys are not display/catalog members.
 func mergeAntigravityThinkingWireFloor(out map[string]string, displaySet map[string]struct{}) {
 	if out == nil {

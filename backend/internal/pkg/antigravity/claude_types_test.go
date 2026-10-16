@@ -32,13 +32,11 @@ func TestDefaultModels_StructuralMetadata(t *testing.T) {
 
 	// Converged Google public request surface advertised by /antigravity models.
 	for _, id := range []string{
-		"gemini-3.6-flash",
 		"gemini-3.7-flash",
 		"gemini-3.8-flash",
 		"gemini-4-argon",
 		"gemini-3-flash",
 		"gemini-3-flash-preview",
-		"gemini-3.5-flash-lite",
 		"gemini-3.1-flash-image",
 		"nano-2",
 		"nano-banana-2",
@@ -49,6 +47,8 @@ func TestDefaultModels_StructuralMetadata(t *testing.T) {
 		}
 	}
 	for _, retired := range []string{
+		"gemini-3.6-flash",
+		"gemini-3.5-flash-lite",
 		"gemini-3-pro-image",
 		"nano-pro",
 		"gemini-2.5-flash",

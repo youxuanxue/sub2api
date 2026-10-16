@@ -24,8 +24,8 @@ func TestAntigravityEffectiveDefaultModelMapping_EmptyRuntimeUsesCompiledDefault
 
 	account := &Account{Platform: PlatformAntigravity}
 	mapping := account.GetModelMapping()
-	if mapping["gemini-3.6-flash"] != domain.DefaultAntigravityModelMapping["gemini-3.6-flash"] {
-		t.Fatalf("compiled gemini-3.6-flash mapping = %q", mapping["gemini-3.6-flash"])
+	if mapping["gemini-3.8-flash"] != domain.DefaultAntigravityModelMapping["gemini-3.8-flash"] {
+		t.Fatalf("compiled gemini-3.8-flash mapping = %q", mapping["gemini-3.8-flash"])
 	}
 	if mapping["gemini-3.8-flash-low"] != "gemini-3.8-flash-low" {
 		t.Fatalf("thinking wire floor missing: gemini-3.8-flash-low = %q", mapping["gemini-3.8-flash-low"])
@@ -33,7 +33,7 @@ func TestAntigravityEffectiveDefaultModelMapping_EmptyRuntimeUsesCompiledDefault
 	if mapping["gemini-3.8-flash"] != "gemini-3.8-flash-high" {
 		t.Fatalf("bare default must lock high, got %q", mapping["gemini-3.8-flash"])
 	}
-	if !account.IsModelSupported("gemini-3.6-flash") {
+	if !account.IsModelSupported("gemini-3.8-flash") {
 		t.Fatal("compiled default must keep existing models servable")
 	}
 	if mapAntigravityModel(account, "gemini-9.9-flash") != "" {
@@ -65,24 +65,24 @@ func TestAntigravityEffectiveDefaultModelMapping_RuntimeOverlaysCompiledDefault(
 	if got := mapAntigravityModel(account, "gemini-9.9-flash"); got != "gemini-9.9-flash-medium" {
 		t.Fatalf("runtime overlay mapped %q, want gemini-9.9-flash-medium", got)
 	}
-	if !account.IsModelSupported("gemini-3.6-flash") {
+	if !account.IsModelSupported("gemini-3.8-flash") {
 		t.Fatal("partial runtime overlay must not drop compiled models")
 	}
-	if mapAntigravityModel(account, "gemini-3.6-flash") == "" {
-		t.Fatal("compiled gemini-3.6-flash must remain mapped after overlay")
+	if mapAntigravityModel(account, "gemini-3.8-flash") == "" {
+		t.Fatal("compiled gemini-3.8-flash must remain mapped after overlay")
 	}
 }
 
 func TestOverlayAntigravityDefaultModelMapping_RuntimeOverrideWinsOnConflict(t *testing.T) {
-	compiled := domain.DefaultAntigravityModelMapping["gemini-3.6-flash"]
+	compiled := domain.DefaultAntigravityModelMapping["gemini-3.8-flash"]
 	if compiled == "" {
-		t.Fatal("compiled default must contain gemini-3.6-flash")
+		t.Fatal("compiled default must contain gemini-3.8-flash")
 	}
 	got := overlayAntigravityDefaultModelMapping(map[string]string{
-		"gemini-3.6-flash": "gemini-3.6-flash-override",
+		"gemini-3.8-flash": "gemini-3.8-flash-override",
 	})
-	if got["gemini-3.6-flash"] != "gemini-3.6-flash-override" {
-		t.Fatalf("runtime override mapped %q", got["gemini-3.6-flash"])
+	if got["gemini-3.8-flash"] != "gemini-3.8-flash-override" {
+		t.Fatalf("runtime override mapped %q", got["gemini-3.8-flash"])
 	}
 	if got["gemini-3.5-flash"] != domain.DefaultAntigravityModelMapping["gemini-3.5-flash"] {
 		t.Fatal("override of one key must keep other compiled keys")
@@ -113,14 +113,14 @@ func TestAntigravityEffectiveDefaultModelMapping_ExplicitAccountMappingWins(t *t
 		Platform: PlatformAntigravity,
 		Credentials: map[string]any{
 			"model_mapping": map[string]any{
-				"gemini-3.6-flash": "gemini-3.6-flash-tiered",
+				"gemini-3.8-flash": "gemini-3.8-flash-high",
 			},
 		},
 	}
 	if account.IsModelSupported("gemini-9.9-flash") {
 		t.Fatal("non-empty account mapping must not inherit runtime extras")
 	}
-	if !account.IsModelSupported("gemini-3.6-flash") {
+	if !account.IsModelSupported("gemini-3.8-flash") {
 		t.Fatal("explicit account mapping must stay authoritative")
 	}
 	if account.IsModelSupported("gemini-3.5-flash") {
@@ -189,7 +189,7 @@ func TestAntigravityEffectiveDefaultModelMapping_ClearRuntimeReturnsCompiledDefa
 	if _, ok := second["gemini-9.9-flash"]; ok {
 		t.Fatal("clear-runtime must drop overlay keys and return to compiled default")
 	}
-	if !account.IsModelSupported("gemini-3.6-flash") {
+	if !account.IsModelSupported("gemini-3.8-flash") {
 		t.Fatal("compiled default must remain after clear-runtime")
 	}
 }

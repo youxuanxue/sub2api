@@ -58,7 +58,7 @@ func TestGatewayService_isModelSupportedByAccount_AntigravityNoMapping(t *testin
 	require.True(t, svc.isModelSupportedByAccount(account, "gemini-3.8-flash"))
 	require.True(t, svc.isModelSupportedByAccount(account, "gemini-3-flash"))
 	require.True(t, svc.isModelSupportedByAccount(account, "gemini-3-flash-preview"))
-	require.True(t, svc.isModelSupportedByAccount(account, "gemini-3.5-flash-lite"))
+	require.False(t, svc.isModelSupportedByAccount(account, "gemini-3.5-flash-lite"))
 	require.True(t, svc.isModelSupportedByAccount(account, "gemini-3.1-flash-image"))
 
 	// 不在默认映射中的模型不被支持
