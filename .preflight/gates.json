@@ -269,6 +269,10 @@
       "ops/accounts/*"
     ],
     "qa": [
+      "backend/internal/observability/trajectory*",
+      "backend/internal/observability/qa/*",
+      "backend/cmd/server/qa_*",
+      "docs/approved/qa-raw-only.md",
       "deploy/*",
       "ops/qa/*",
       "ops/archive/*",

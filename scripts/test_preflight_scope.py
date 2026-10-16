@@ -113,6 +113,13 @@ class SelectionTest(unittest.TestCase):
         ):
             self.assertNotIn(gate, selected['gates'])
 
+    def test_trajectory_backend_edit_still_selects_qa_ssot_gates(self):
+        selected = self.choose('backend/internal/observability/trajectory/capture.go')
+        self.assertFalse(selected['full'])
+        for gate in ('QA raw capture SSOT', 'QA lifecycle SSOT'):
+            self.assertIn(gate, selected['gates'])
+        self.assertNotIn('phase1 production activation safety contracts', selected['gates'])
+
     def test_anchored_backend_path_still_selects_its_sentinel(self):
         gate = 'gateway TK sentinel registry'
         path = next(p for p in self.data['gates'][gate] if p.startswith('backend/'))
