@@ -30,7 +30,7 @@
 | GHCR PAT（Hybrid） | SSM `/tokenkey/edge/fleet/ghcr/pat`（eu-west-2；`EDGE_GHCR_PAT_SSM_NAME`） |
 | 探针 / sync Caddy | prod 解析至 EC2 `i-*`，edge 直投 Hybrid `mi-*`；`sync_caddyfile` **勿**设 `EDGE_ID=`；日常探针用 `run-probe --target edge:<id>`（共享解析器按活矩阵选择 Hcloud 或 AWS） |
 | prod stub `base_url` | 必须 `https://api-<edge>.tokenkey.dev` |
-| live HZ 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
+| live 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
 | Secrets | `/tokenkey/hetzner/…`；不进 git |
 
 Stage0 单后端 Caddy 只由 `/health` 主动检查决定摘除与恢复；禁止被动冷却，避免客户端上传断连或单次业务 5xx 让其他请求等待。正式 prod 的源是 `deploy/aws/stage0/Caddyfile`；新机 prod 和 edge 均使用 `Caddyfile.edge`。修改时同时重生成 Hetzner bootstrap，`scripts/checks/caddyfile-syntax.sh` 校验 Caddy 解析后的健康策略；运行中主机通过 `ops/stage0/sync_caddyfile_via_ssm.sh` 热更新，单纯发布应用镜像不会刷新 Caddyfile。
@@ -73,10 +73,10 @@ bash scripts/stage0/dispatch-edge-deploy.sh \
 
 ## 开放运维项（非过程史）
 
-存量 prod 的主机告警脚本不随应用镜像发版更新。更新共享脚本与数据卷绑定使用版本化入口：
+主机告警脚本不随应用镜像发版更新。以下安装器仅用于历史 Hcloud 主机，必须显式选择对应历史 SSM 身份；不能对默认新 AWS prod 执行。新 AWS prod 监控 `/var/lib/tokenkey` EBS 数据盘，迁移收尾见 [验收记录](../../docs/approved/aws-migration-closeout-20261016.md)。
 
 ```bash
-bash ops/observability/run-probe.sh --target prod \
+PROD_SSM_TARGET=hetzner bash ops/observability/run-probe.sh --target prod \
   --script ops/observability/remediate-hcloud-prod-host-alerts.sh \
   --with deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh \
   --with deploy/hetzner/prod-target-hetzner.json
@@ -91,11 +91,11 @@ bash ops/observability/run-probe.sh --target prod \
 `--with ops/stage0/edge_routing_matrix.py` 与 `--env ALERT_TARGET=edge:<id>`，apply 值为
 `yes-hcloud-host-alerts`；只更新告警脚本，不同步 GHCR 或重启 timer。
 
-1. **蓝绿已验收**：1.8.284 已完成 prod + 活 Edge 的升级、排空及烟测；raw maintenance pin 的发布与存储切换仍独立。
-2. **gemini-web 会话验收**：uk1/uk2 的 Gemini prod stub 继续停用。us4 切流后生成超时，边侧 gemini-web-491 进入 pending 保护，需浏览器核实/会话恢复后真实请求验收；us5 原有 blocked/pending 会话和 prod 镜像限流保持原样，未通过 Gemini 供应验收。详见 [迁移验收记录](../../docs/approved/aws-fresh-host-migration-20261015.md#未通过的-gemini-供应检查)。
-3. **边侧供应**：us4 anthropic / us4·us5 grok / uk CC 池按冒烟 200 再开 stub。
-4. **旧 LS / AWS prod**：≥7d 后可删实例；QA raw 的存储与资源退役条件独立，见下一项。
-5. **QA 新归档已切换 Hetzner**：定时归档与隔离恢复已验收；存量不搬，AWS 按原生命周期自然到期，期间保留恢复访问。实际归档小时分界、恢复坐标与到期边界见 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)；资源退役另行审批。
+1. **新 AWS 舰队已接流量**：prod 与四个 edge 均完成迁移；当前镜像以 live SSM/container 为准，QA maintenance pin 独立发布。
+2. **账号策略已调整**：prod 原生账号（含从 edge 复制的账号）承接请求，旧中继与 edge 账号保留但停用。历史 Gemini pending/blocked 等账号问题由运营处理；本轮基础设施收尾不自动启用账号或中继。
+3. **旧主机保留**：四台旧 Hcloud edge 已完成回收准备，默认七天保留期后的销毁另行确认；旧 Hcloud prod 仍有真实请求转发，继续保留 transition Caddy 与旧信任。旧 AWS standby 仅作归档，已停备份与业务自启动入口。
+4. **QA 维护已恢复**：新 prod capture 继续启用，归档仍写 Hetzner；已恢复独立 archive/boundary timer 并实测归档及恢复验证。存量 raw 不搬，AWS 历史存储沿原生命周期到期，恢复权限保留。当前验收、未迁 raw 边界与资源退役条件见 [QA 运维入口](../../ops/qa/README.md#aws-新-prod-迁移后的维护恢复)。
+5. **灾备与告警**：新 prod 纳入每日 DLM；跨区域宿主 HTTPS watch 补足 GitHub schedule 延迟。首次快照及隔离备份恢复的验收状态见 [迁移收尾](../../docs/approved/aws-migration-closeout-20261016.md)。
 
 ## 校验
 
@@ -114,9 +114,9 @@ bash deploy/hetzner/render-prod-bootstrap.sh --check
 
 | 类别 | 当前用途 / owner | 清理条件 |
 |---|---|---|
-| SSM Hybrid / Parameter Store / STS OIDC | hcloud 远程执行、参数与 GHCR 身份；`ops/stage0/{resolve_prod_ssm_target,edge_ssm_execution}.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
+| SSM Hybrid / Parameter Store / STS OIDC | Lightsail / 历史 Hcloud 远程执行、参数与 GHCR 身份；`ops/stage0/{resolve_prod_ssm_target,edge_ssm_execution}.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
 | QA raw archive | 新归档已写入 Hetzner；AWS raw 栈仅保留旧数据恢复与审计，存量按原生命周期自然到期 | 按 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)核查实际到期与对象清单；AWS 桶、KMS 和恢复角色销毁另行审批 |
-| PG dump | prod 使用私有 Hetzner 存储；已切流 AWS edges 使用原 AWS 桶隔离前缀 | Hetzner 迁移已验收隔离恢复；本轮 AWS 已验收上传/下载哈希，证据见迁移记录；不销毁旧数据 |
+| PG dump | 五台现役 AWS 节点使用原 AWS 私有桶，prod 与 edge 前缀隔离；旧 Hcloud 存储保留历史恢复 | 当前节点的隔离恢复与定时任务验收见 [收尾记录](../../docs/approved/aws-migration-closeout-20261016.md)；不销毁旧数据 |
 | env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
 | 历史 archive / dormant media 桶 | 历史数据与停用配置；媒体默认不启用 S3，只有显式 opt-in | 资产销毁另行审批，不能把停用 bucket 描述成现网迁移对象 |
 | 共享运行文件的旧目录名 | `deploy/aws/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 仍直接消费 | 是共享 owner，路径不代表部署在 AWS；迁路径必须同时更新引用、生成产物和 sentinel |
@@ -183,8 +183,8 @@ telemetry 已支持 Hetzner 存储。需要启用该能力时必须单独验收�
 由 `ops/stage0/pgdump_storage.py` 同时供上传和恢复使用。
 此前 Hcloud prod、uk1、uk2、us4、us5 均已激活该身份，并逐节点完成真实 dump 的
 下载哈希比对、完整 SQL 恢复、核心数据核对和临时数据清理。原两小时 timer 保持启用。
-此前五节点正常定时备份已核对实际新对象、大小与 SSE-C 状态。2026-10-15 uk1、uk2、us4、us5 迁至新 AWS 后，使用原私有 AWS 桶 `tokenkey-prod-pgdump-682751977094/edge/<id>/pgdump/`；均已验证新备份上传、下载哈希与 AES256，prod 继续使用 Hetzner 存储。旧 Hcloud 边节点的冻结整库归档隔离在各自 AWS 前缀下的 `archive-hcloud-20261015/`。
-主机告警共享实现已刷新，prod 监控实际 `/var/lib/tokenkey` Hetzner 数据卷；
+此前五节点正常定时备份已核对实际新对象、大小与 SSE-C 状态。2026-10-15 五节点迁至新 AWS 后，均使用原私有 AWS 桶 `tokenkey-prod-pgdump-682751977094`：prod 前缀 `prod/pgdump/`，四边前缀 `edge/<id>/pgdump/`；使用桶默认 AES256。旧 Hcloud 边节点的冻结整库归档隔离在各自 AWS 前缀下的 `archive-hcloud-20261015/`。
+主机告警共享实现已刷新，新 prod 监控实际 `/var/lib/tokenkey` EBS 数据卷；
 告警直接通知飞书，无需 S3。休眠 AWS 媒体默认值已从 prod host `.env` 清理，
 运行容器的旧变量随下次正常蓝绿发布更新；未启用的 offload 不产生媒体 S3 数据。
 
@@ -219,10 +219,12 @@ prepare 上传最近已有的真实 dump。用既有 canary 的 `--storage-confi
 
 先用 `resolve_prod_ssm_target.py --format json` 或 `edge_ssm_execution.py` 核实身份，
 再用 `run-probe.sh` 读取主机/容器状态。镜像回滚走原 dispatcher 部署 previous tag。
-prod 的 `/var/lib/tokenkey` 是 Hetzner Volume；换机必须保留/核对该卷并通过 Volume mount
-门禁，不能执行 AWS EC2/EBS/DLM 命令。整机恢复沿用 `tokenkey-host-replacement` 与
-`hetzner-cloud-full-migration.md` 的备份、恢复对账和切流门禁。
+现网 prod 的 `/var/lib/tokenkey` 是独立 EBS 数据卷；每日 DLM 对实例的根盘和数据盘建立
+一致时间点的多卷快照，按既有策略保留七份。pg_dump 每两小时备份核心数据，明确排除
+使用明细、运维日志和 QA raw，不能代替全盘快照；使用明细灾备 RPO 约 24 小时。
+旧 Hcloud prod 的 Hetzner Volume 仅保留历史数据，不是现网挂载。
 
-[`AWS DR`](../aws/RUNBOOK-disaster-recovery.md) 仅保留旧机恢复和 AWS 离机备份读取步骤；
-其中 EBS/DLM/CFN 实例替换不能用于现网 hcloud。先确认当前 dump、密钥备份和实际恢复点，
-不要沿用旧 AWS 文档的 RPO 数字。旧机磁盘停写后的数据不能整库覆盖活库。
+整机恢复先核对当前实例、卷、最近完成快照和当前主机的备份来源，再沿用
+`tokenkey-host-replacement` 与 [AWS DR](../aws/RUNBOOK-disaster-recovery.md) 中适用的恢复步骤；
+旧 CFN/实例身份不作为新机默认目标。旧机磁盘停写后的数据不能整库覆盖活库。
+迁移收尾、QA 当前验收与旧机回收边界见 [收尾记录](../../docs/approved/aws-migration-closeout-20261016.md)。

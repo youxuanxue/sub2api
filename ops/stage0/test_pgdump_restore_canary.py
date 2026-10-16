@@ -144,6 +144,19 @@ class FakeCommands:
 
 
 class PgdumpRestoreCanaryTest(unittest.TestCase):
+    def test_partitioned_nvme_disk_keeps_its_own_io_limit(self):
+        def lsblk(args, **kwargs):
+            # lsblk's default tree also prints PKNAME for every child partition.
+            output = "\n" if "-d" in args else "\nnvme0n1\nnvme0n1\n"
+            return subprocess.CompletedProcess(args, 0, stdout=output)
+
+        with mock.patch.object(pathlib.Path, "stat", return_value=mock.Mock(st_mode=stat.S_IFBLK)):
+            self.assertEqual(
+                canary._io_limits(lsblk, "/dev/nvme0n1"),
+                ["--device-read-bps", "/dev/nvme0n1:10485760",
+                 "--device-write-bps", "/dev/nvme0n1:10485760"],
+            )
+
     def test_io_limits_use_whole_disk_and_reject_non_block_device(self):
         with mock.patch.object(pathlib.Path, "stat", return_value=mock.Mock(st_mode=stat.S_IFBLK)):
             run = mock.Mock(return_value=subprocess.CompletedProcess([], 0, stdout="sda\n"))

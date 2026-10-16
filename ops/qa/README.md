@@ -46,6 +46,16 @@ AWS 最后一次已核实写入为 `2026-10-13T09:18:49Z`，最后小时 commit 
 为 **`2026-10-21T00:00:00Z`**。这是已观测对象的到期边界，不是删桶时间：到期删除异步进行，
 之后须重新只读核查对象清单、版本及未完成上传，并确认无新写入和其他依赖，再另行审批资源退役。
 
+## AWS 新 prod 迁移后的维护恢复
+
+2026-10-16 在现役 AWS prod 上恢复了原 boundary 与 maintenance timer，继续使用上述
+Hetzner raw 存储和独立 maintenance pin（1.8.288），没有搬运旧主机 QA raw，也未启动退役 worker。
+首次 GetObject 遇 503；再次执行在 02:28 UTC 完成新 `2026-10-16T00:00Z` 小时归档，
+2,333 条记录、9,332 个 blob 引用，缺失 0，恢复验证通过；补偿旧小时也通过。
+之后解除本次临时 DROP pause 并恢复 hourly timer；boundary 已验证未来 72 小时覆盖。
+源端未迁入的原始文件不因恢复 timer 而补齐；历史 terminal gap 保留，不能宣称整个 QA 历史无缺口。
+主机身份、备份验收及后续状态见 [AWS 迁移收尾](../../docs/approved/aws-migration-closeout-20261016.md)。
+
 ## QA 与备份锁冲突
 
 宿主脚本升级后，boundary、archive 与 pg_dump 共享生命周期 host.lock，排队规则和

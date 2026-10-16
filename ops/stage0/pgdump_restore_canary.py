@@ -82,7 +82,9 @@ def _io_limits(run: RunCommand, device: str) -> list[str]:
     if not device.startswith("/dev/") or not stat.S_ISBLK(pathlib.Path(device).stat().st_mode):
         raise CanaryError("canary IO device must be a block device")
     # Linux cgroup io.max accepts the whole disk, not its mounted partition.
-    parent = _run(run, ["lsblk", "-n", "-o", "PKNAME", device])
+    # Query only the requested device. A whole NVMe disk otherwise includes
+    # each child partition's parent, producing a multiline false parent.
+    parent = _run(run, ["lsblk", "-d", "-n", "-o", "PKNAME", device])
     if parent:
         if re.fullmatch(r"[a-zA-Z0-9_-]+", parent) is None:
             raise CanaryError("invalid parent block device")

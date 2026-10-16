@@ -2514,9 +2514,10 @@ echo "=== sub2api: edge model-unit health alert tests ==="
 if ! python3 -m unittest \
     ops.observability.test_edge_model_health_alert \
     ops.observability.test_edge_health_delivery \
+    ops.observability.test_host_https_watch \
     ops.observability.test_probe_edge_health >/dev/null 2>&1; then
     echo "  FAIL: edge model-unit alert or structured delivery tests"
-    echo "        — run: python3 -m unittest ops.observability.test_edge_model_health_alert ops.observability.test_edge_health_delivery ops.observability.test_probe_edge_health"
+    echo "        — run: python3 -m unittest ops.observability.test_edge_model_health_alert ops.observability.test_edge_health_delivery ops.observability.test_host_https_watch ops.observability.test_probe_edge_health"
     errors=$((errors + 1))
 else
     echo "  ok: terminal thresholds, dynamic models, state, and delivery fixtures pass"
