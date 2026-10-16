@@ -223,7 +223,7 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn("data_layer_snapshot_signal.sh", snapshot_block)
         self.assertIn("DATA_LAYER_SNAPSHOT_APPLICABLE=false", snapshot_block)
         self.assertIn('INSTANCE_ID" == mi-*', snapshot_block)
-        self.assertIn("PROD_STACK_REGION:-us-east-1", snapshot_block)
+        self.assertIn('"$TARGET_REGION" "$STACK_NAME" "$INSTANCE_ID"', snapshot_block)
         self.assertNotIn("describe-instances", snapshot_block)
         self.assertNotIn("BlockDeviceMappings[0]", snapshot_block)
         self.assertNotIn("describe-snapshots", snapshot_block)

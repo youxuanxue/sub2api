@@ -295,8 +295,6 @@ assert_qa_provider_unchanged() {
 
 assert_live_qa_archive_coordinates() {
   [[ "${DEPLOY_PROFILE}" = prod ]] || return 0
-  # EC2 standby keeps its explicit historical recovery configuration.
-  [[ "${HYBRID_PROD:-false}" = true ]] || return 0
   [[ "$(env_get QA_ARCHIVE_ENABLED)" = true ]] || return 0
 
   local key expected actual
@@ -310,10 +308,10 @@ assert_live_qa_archive_coordinates() {
     expected="${!expected}"
     actual="$(env_get "${key}")"
     [[ -n "${actual}" ]] || die "missing live QA archive coordinate: ${key}"
-    [[ "${actual}" = "${expected}" ]] || die "live QA archive coordinate differs from Hetzner contract: ${key}"
+    [[ "${actual}" = "${expected}" ]] || die "live QA archive coordinate differs from current storage contract: ${key}"
   done
-  [[ -n "$(env_get QA_ARCHIVE_STORAGE_CREDENTIALS_FILE)" ]] ||
-    die "missing live QA archive credential file: QA_ARCHIVE_STORAGE_CREDENTIALS_FILE"
+  [[ -z "$(env_get QA_ARCHIVE_STORAGE_CREDENTIALS_FILE)" ]] ||
+    die "live QA archive requires EC2 instance-role authentication"
 }
 
 ensure_profile_environment() {

@@ -8,6 +8,7 @@ import fcntl
 import json
 import os
 import sys
+import subprocess
 from pathlib import Path
 import time
 from urllib.parse import urlparse
@@ -44,6 +45,62 @@ def tick(targets: dict, previous: dict, now: int, probe, send) -> dict:
     return state
 
 
+# Allowlisted local jobs share the HTTPS watch's delivery and dedup state.
+# (max age between completions, maximum normal execution time), in seconds.
+JOB_LIMITS = {
+    "tokenkey-pgdump": (3 * 3600, 45 * 60),
+    "tokenkey-disk-metrics": (15 * 60, 60),
+    "tokenkey-ghcr-prune-daily": (30 * 3600, 15 * 60),
+    "tokenkey-qa-maintenance": (2 * 3600, 40 * 60 + 60),
+    "tokenkey-qa-boundary": (2 * 3600, 40 * 60 + 60),
+}
+
+
+def job_fact(service: dict, timer: dict, uptime: float, limits: tuple) -> dict:
+    healthy, reason = False, "job has no successful completion"
+    def age(key):
+        stamp = int(service.get(key, "0") or 0) / 1_000_000
+        return uptime - stamp if 0 < stamp <= uptime else float("inf")
+    if timer.get("ActiveState") != "active" or timer.get("UnitFileState") != "enabled":
+        reason = "timer disabled or inactive"
+    elif service.get("ActiveState") == "failed" or service.get("Result") not in ("success", ""):
+        reason = "service failed: " + service.get("Result", "unknown")
+    elif service.get("ActiveState") in ("activating", "active"):
+        healthy = age("ExecMainStartTimestampMonotonic") <= limits[1]
+        reason = "running" if healthy else "execution overdue"
+    else:
+        healthy = age("ExecMainExitTimestampMonotonic") <= limits[0]
+        reason = "recent completion" if healthy else "completion stale or missing"
+    return {"healthy": healthy, "reason": reason}
+
+
+def probe_job(name: str) -> dict:
+    def properties(unit):
+        result = subprocess.run(["systemctl", "show", unit, "--property=ActiveState,UnitFileState,Result,ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotonic"],
+                                capture_output=True, text=True, timeout=5, check=True)
+        return dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+    uptime = float(Path("/proc/uptime").read_text().split()[0])
+    return job_fact(properties(name + ".service"), properties(name + ".timer"), uptime, JOB_LIMITS[name])
+
+
+def tick_jobs(jobs, previous, now, probe, send, node="unknown"):
+
+    state = dict(previous)
+    for name in jobs:
+        try:
+            fact = probe(name)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            fact = {"healthy": False, "reason": "probe failed: " + type(exc).__name__}
+        key = "job:" + name
+        updated, action = next_state(previous.get(key, {}), fact["healthy"], now)
+        updated["reason"] = fact["reason"]
+        if action:
+            send(f"TokenKey host job {action}: {node}/{name}; {fact['reason']}.")
+            updated.update(active=action == "unhealthy", sent_at=now)
+        state[key] = updated
+    return state
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -52,8 +109,12 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     os.umask(0o077)
-    targets = json.loads(args.config.read_text())["targets"]
-    if not isinstance(targets, dict) or not 1 <= len(targets) <= 5:
+    config = json.loads(args.config.read_text())
+    targets = config["targets"]
+    jobs = config.get("jobs", [])
+    if not isinstance(jobs, list) or any(name not in JOB_LIMITS for name in jobs):
+        raise ValueError("unknown host job")
+    if not isinstance(targets, dict) or len(targets) > 5 or not (targets or jobs):
         raise ValueError("watch requires one to five targets")
     for name, url in targets.items():
         parsed = urlparse(url)
@@ -80,6 +141,7 @@ def main() -> None:
                             signing_secret=env["TOKENKEY_FEISHU_WEBHOOK_SECRET"])
 
         result = tick(targets, previous, int(time.time()), probe_health, send)
+        result = tick_jobs(jobs, result, int(time.time()), probe_job, send, config.get("node", os.uname().nodename))
         if not args.dry_run:
             _atomic_write(args.state, json.dumps(result, sort_keys=True) + "\n")
         print(json.dumps({"dry_run": args.dry_run, "targets": result, "notifications": len(actions)}))

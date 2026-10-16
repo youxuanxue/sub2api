@@ -377,9 +377,13 @@ PY
 
 finalize_maintenance() {
   local runner_exit="$?"
-  trap - EXIT
+  trap - EXIT TERM INT
   local finished_at
   finished_at="$(qa_now)"
+  if [ "${runner_exit}" -eq 0 ] && [ "${CHILD_EXIT_CODE}" -ne 0 ]; then
+    runner_exit=70
+    ERROR_CODE=child_incomplete
+  fi
   if [ "${runner_exit}" -ne 0 ] && [ -z "${ERROR_CODE}" ]; then
     ERROR_CODE=runner_failed
   fi
@@ -409,6 +413,8 @@ run_qa_maintenance() {
   CHILD_STDOUT=""
   CHILD_STDERR=""
   trap finalize_maintenance EXIT
+  trap 'ERROR_CODE=terminated; exit 143' TERM
+  trap 'ERROR_CODE=interrupted; exit 130' INT
 
   acquire_qa_lifecycle_lock 600 || return $?
   load_app_runtime

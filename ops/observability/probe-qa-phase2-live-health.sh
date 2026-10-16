@@ -11,6 +11,7 @@ BOUNDARY_RECEIPT="${QA_BOUNDARY_RECEIPT:-/var/lib/tokenkey/qa-boundary-last-run.
 python3 - <<'PY'
 import json
 import subprocess
+from pathlib import Path
 
 try:
     result = subprocess.run(
@@ -25,8 +26,23 @@ try:
         "QA_ARCHIVE_STORAGE_REGION", "QA_ARCHIVE_STORAGE_BUCKET",
         "QA_ARCHIVE_STORAGE_ENDPOINT", "QA_ARCHIVE_STORAGE_PREFIX",
     )
+    # Test IMDSv2 from the same bridge as QA, without emitting a token or credentials.
+    # A host-only check would miss an EC2 hop-limit of one blocking containers.
+    instance_role_available = False
+    if not env.get("QA_ARCHIVE_STORAGE_CREDENTIALS_FILE") and not Path("/var/lib/tokenkey/aws/credentials").exists():
+        probe = """import urllib.request
+r=urllib.request.Request('http://169.254.169.254/latest/api/token',method='PUT',headers={'X-aws-ec2-metadata-token-ttl-seconds':'60'})
+t=urllib.request.urlopen(r,timeout=2).read().decode()
+r=urllib.request.Request('http://169.254.169.254/latest/meta-data/iam/security-credentials/',headers={'X-aws-ec2-metadata-token':t})
+assert urllib.request.urlopen(r,timeout=2).read().strip()
+"""
+        pid = subprocess.check_output(["docker", "inspect", "--format", "{{.State.Pid}}", "tokenkey-postgres"], text=True, timeout=5).strip()
+        if pid.isdigit() and int(pid) > 0:
+            checked = subprocess.run(["nsenter", "-t", pid, "-n", "python3", "-c", probe], capture_output=True, timeout=7)
+            instance_role_available = checked.returncode == 0
     payload = {
         "status": "ok",
+        "instance_role_available": instance_role_available,
         "runtime_contract": (config.get("Labels") or {}).get("dev.tokenkey.qa-runtime"),
         "runtime_stopped": facts["State"]["Running"] is False,
         "environment": {key: env.get(key, "") for key in keys},

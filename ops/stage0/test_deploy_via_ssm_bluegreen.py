@@ -917,7 +917,7 @@ printf accepted
                     if not success:
                         self.assertIn("separate migration", result.stderr)
 
-    def test_live_qa_coordinates_are_hcloud_and_complete(self) -> None:
+    def test_live_qa_coordinates_are_aws_and_complete(self) -> None:
         proc, _, remote = _render()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         assert remote is not None
@@ -931,7 +931,7 @@ HYBRID_PROD=true
 env_get() {{
   case "$1" in
     QA_ARCHIVE_ENABLED) printf true ;;
-    QA_ARCHIVE_STORAGE_CREDENTIALS_FILE) printf /run/secrets/tokenkey-qa/raw.json ;;
+    QA_ARCHIVE_STORAGE_CREDENTIALS_FILE) printf %s "" ;;
     *) key="${{1/QA_ARCHIVE_/QA_LIVE_ARCHIVE_}}"; printf '%s' "${{!key}}" ;;
   esac
 }}
@@ -944,10 +944,10 @@ printf accepted
         self.assertEqual(result.stdout, "accepted")
 
         for key, value in {
-            "QA_ARCHIVE_STORAGE_REGION": "us-east-1",
+            "QA_ARCHIVE_STORAGE_REGION": "fsn1",
             "QA_ARCHIVE_STORAGE_BUCKET": "legacy-aws-raw",
             "QA_ARCHIVE_STORAGE_ENDPOINT": "",
-            "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE": "",
+            "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE": "/run/secrets/tokenkey-qa/raw.json",
         }.items():
             with self.subTest(key=key):
                 bad_script = script.replace(
@@ -957,9 +957,8 @@ printf accepted
                 failed = subprocess.run(["bash"], input=bad_script, text=True, capture_output=True)
                 self.assertEqual(failed.returncode, 42)
                 self.assertIn("live QA archive", failed.stderr)
-                # The same historical configuration remains valid for an
-                # explicitly selected EC2 standby or a non-capturing edge.
-                for override in ("HYBRID_PROD=false", "DEPLOY_PROFILE=edge"):
+                # Non-capturing edges do not own the prod archive contract.
+                for override in ("DEPLOY_PROFILE=edge",):
                     legacy = bad_script.replace("assert_live_qa_archive_coordinates\nprintf", override + "\nassert_live_qa_archive_coordinates\nprintf")
                     result = subprocess.run(["bash"], input=legacy, text=True, capture_output=True)
                     self.assertEqual(result.returncode, 0, result.stderr)
@@ -995,9 +994,9 @@ printf accepted
         self.assertIn("QA_ARCHIVE_STORAGE_BUCKET_SET=false", joined)
         self.assertIn("QA_ARCHIVE_ENABLED='true'", joined)
         self.assertIn("QA_ARCHIVE_STORAGE_DRIVER='s3'", joined)
-        self.assertIn("QA_ARCHIVE_STORAGE_REGION='fsn1'", joined)
-        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-qa-raw-fsn1-dd2ca9019b22'", joined)
-        self.assertNotIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-prod-qa-raw-archive-682751977094'", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_REGION='us-east-1'", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-prod-qa-raw-archive-682751977094'", joined)
+        self.assertNotIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-qa-raw-fsn1-dd2ca9019b22'", joined)
         self.assertIn("TELEMETRY_ARCHIVE_ENABLED=''", joined)
         self.assertIn("TELEMETRY_ARCHIVE_BUCKET=''", joined)
         self.assertIn("TELEMETRY_ARCHIVE_REGION=''", joined)

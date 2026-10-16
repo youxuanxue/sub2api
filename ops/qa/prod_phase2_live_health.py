@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect prod QA Phase 2 live facts and evaluate the Hetzner archive contract."""
+"""Collect prod QA Phase 2 live facts and evaluate the current archive contract."""
 from __future__ import annotations
 
 import argparse
@@ -51,8 +51,10 @@ def evaluate_storage(storage: Any) -> dict[str, Any]:
     for key, expected in live_archive_coordinates().items():
         if environment.get(key) != expected:
             failures.append("qa_archive_coordinate_drift:" + key)
-    if storage.get("credentials_file_present") is not True:
-        failures.append("qa_archive_credentials_file_missing")
+    if storage.get("credentials_file_present") is not False:
+        failures.append("qa_archive_static_credentials_unexpected")
+    if storage.get("instance_role_available") is not True:
+        failures.append("qa_archive_instance_role_unavailable")
     return {"ok": not failures, "failures": failures}
 
 
@@ -183,12 +185,12 @@ def main() -> int:
         "--legacy-aws",
         dest="legacy_aws",
         action="store_true",
-        help="also verify the historical AWS raw archive IAM contract",
+        help="also verify the AWS raw archive IAM contract (legacy flag name)",
     )
     iam_mode.add_argument(
         "--skip-iam",
         action="store_true",
-        help="deprecated compatibility alias; live checks already skip AWS IAM",
+        help="skip the optional control-plane IAM policy audit",
     )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()

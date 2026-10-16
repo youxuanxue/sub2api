@@ -39,7 +39,7 @@ def _fresh_snapshot() -> tuple[dict, dt.datetime]:
     snapshot["storage"] = {
         "status": "ok", "runtime_contract": "independent-v1", "runtime_stopped": True,
         "environment": {"QA_ARCHIVE_ENABLED": "true", **live_health.live_archive_coordinates()},
-        "credentials_file_present": True,
+        "credentials_file_present": False, "instance_role_available": True,
     }
     snapshot.setdefault("qa_records", {"partition_owner": "partitioned", "hourly_cutover_active": False})
     finished = now - dt.timedelta(seconds=30)
@@ -156,7 +156,7 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         payload = json.loads(proc.stdout)
         self.assertEqual(payload["health"]["status"], "healthy")
 
-    def test_cli_defaults_to_live_hetzner_check_without_aws_iam(self) -> None:
+    def test_cli_defaults_to_live_storage_check_without_control_plane_iam(self) -> None:
         proc = subprocess.run(
             [
                 sys.executable,
@@ -176,20 +176,22 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         with mock.patch.object(baseline, "_account_id", side_effect=AssertionError("AWS must be opt-in")):
             account_id, bucket = baseline._archive_bucket_status(legacy_aws=False)
         self.assertIsNone(account_id)
-        self.assertEqual(bucket, {"status": "skipped", "reason": "live archive is Hetzner"})
+        self.assertEqual(bucket, {"status": "skipped", "reason": "control-plane bucket audit not requested"})
 
     def test_live_storage_fails_on_missing_facts_aws_and_invalid_pin(self) -> None:
-        for mutation in ("missing", "aws", "credentials", "running", "label"):
+        for mutation in ("missing", "hetzner", "credentials", "role", "running", "label"):
             with self.subTest(mutation=mutation):
                 snapshot, now = _fresh_snapshot()
                 storage = snapshot["storage"]
                 if mutation == "missing":
                     del snapshot["storage"]
-                elif mutation == "aws":
+                elif mutation == "hetzner":
                     storage["environment"]["QA_ARCHIVE_STORAGE_ENDPOINT"] = ""
-                    storage["environment"]["QA_ARCHIVE_STORAGE_REGION"] = "us-east-1"
+                    storage["environment"]["QA_ARCHIVE_STORAGE_REGION"] = "fsn1"
                 elif mutation == "credentials":
-                    storage["credentials_file_present"] = False
+                    storage["credentials_file_present"] = True
+                elif mutation == "role":
+                    storage["instance_role_available"] = False
                 elif mutation == "running":
                     storage["runtime_stopped"] = False
                 else:
@@ -242,7 +244,10 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         resolved = json.loads(result.stdout)["services"]["runtime"]["environment"]
         for key, value in live_health.live_archive_coordinates().items():
             self.assertEqual(resolved[key], value)
-        for key in (*live_health.live_archive_coordinates(), "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE"):
+        native = subprocess.run(command, env={k: v for k, v in env.items() if k != "QA_ARCHIVE_STORAGE_CREDENTIALS_FILE"}, text=True, capture_output=True)
+        self.assertEqual(native.returncode, 0, native.stderr)
+        self.assertEqual(json.loads(native.stdout)["services"]["runtime"]["environment"]["QA_ARCHIVE_STORAGE_CREDENTIALS_FILE"], "")
+        for key in live_health.live_archive_coordinates():
             with self.subTest(missing=key):
                 missing = {name: value for name, value in env.items() if name != key}
                 failed = subprocess.run(command, env=missing, text=True, capture_output=True)
@@ -286,7 +291,7 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     storage = live_health._parse_probe_output(result.stdout)["storage"]
                     self.assertEqual(storage, {"status": "unknown", "reason": "qa_runtime_storage_unavailable"}
-                                     if missing else snapshot["storage"])
+                                     if missing else {**snapshot["storage"], "credentials_file_present": True, "instance_role_available": False})
                     for secret in ("/private/secret.json", "do-not-print-password", "do-not-print-key"):
                         self.assertNotIn(secret, result.stdout + result.stderr)
 

@@ -10,9 +10,10 @@ product API or user interface.
 
 The approved contract is
 [`docs/approved/qa-raw-only.md`](../../docs/approved/qa-raw-only.md). Production
-switched new archive hours to Hetzner on 2026-10-13 and completed scheduled-archive
-and isolated-restore acceptance. Existing AWS raw data was not migrated; it expires
-under its original seven-day lifecycle with recovery access preserved.
+switched new archive hours to Hetzner on 2026-10-13. Following the AWS host
+replacement, the user authorized returning new daily archives to AWS S3 on
+2026-10-16. Historical QA is not migrated; both stores keep their original
+seven-day lifecycle and recovery access.
 AWS resource destruction requires separate approval.
 
 ## 生产存储与恢复分界
@@ -22,7 +23,9 @@ AWS resource destruction requires separate approval.
 | 归档小时 | 存储 | 恢复坐标 |
 | --- | --- | --- |
 | 截至 `2026-10-13T08:00:00Z` | AWS 旧 raw | bucket `tokenkey-prod-qa-raw-archive-682751977094`，region `us-east-1`，prefix `raw/v1` |
-| 从 `2026-10-13T09:00:00Z` 起 | Hetzner 新 raw | bucket `tokenkey-qa-raw-fsn1-dd2ca9019b22`，region `fsn1`，endpoint `https://fsn1.your-objectstorage.com`，prefix `raw/v1` |
+| 已在 Hetzner 提交的小时：`2026-10-13T09:00:00Z` 起，最后为 `2026-10-16T03:00:00Z` | Hetzner 历史 raw | bucket `tokenkey-qa-raw-fsn1-dd2ca9019b22`，region `fsn1`，endpoint `https://fsn1.your-objectstorage.com`，prefix `raw/v1` |
+
+新 AWS prod 的未提交及新增小时使用上述 AWS 桶；以实际 committed 回执确认，不能将表中的区间理解为小时完整性承诺。历史 terminal gaps 保留。
 
 AWS 恢复沿用 `backend/cmd/qa-archive/` 的 `--workstation` 入口，显式传旧 bucket、region、
 raw 栈输出 `QaRawArchiveRecoveryRoleArn` 和 `--recovery-run-id`；旧 KMS 与恢复角色须保留。
@@ -42,9 +45,9 @@ Hetzner 恢复使用同一 CLI 的 `verify` / `restore` 与 Hetzner storage 配�
 - DROP pause 已解除，原 boundary timer 已恢复。QA 操作未重启或切换 gateway、Caddy、
   主 PostgreSQL/Redis；同期独立网关发布的验收不由 QA 存储验收代替。
 
-AWS 最后一次已核实写入为 `2026-10-13T09:18:49Z`，最后小时 commit 的 S3 `Expiration`
+本次回切前，AWS 最后一次已核实写入为 `2026-10-13T09:18:49Z`，最后小时 commit 的 S3 `Expiration`
 为 **`2026-10-21T00:00:00Z`**。这是已观测对象的到期边界，不是删桶时间：到期删除异步进行，
-之后须重新只读核查对象清单、版本及未完成上传，并确认无新写入和其他依赖，再另行审批资源退役。
+本次日常归档重新使用该桶，旧对象到期不再构成退役依据。任何未来销毁仍需确认无新写入、恢复和其他依赖后另行审批。
 
 ## AWS 新 prod 迁移后的维护恢复
 
@@ -55,6 +58,16 @@ Hetzner raw 存储和独立 maintenance pin（1.8.288），没有搬运旧主机
 之后解除本次临时 DROP pause 并恢复 hourly timer；boundary 已验证未来 72 小时覆盖。
 源端未迁入的原始文件不因恢复 timer 而补齐；历史 terminal gap 保留，不能宣称整个 QA 历史无缺口。
 主机身份、备份验收及后续状态见 [AWS 迁移收尾](../../docs/approved/aws-migration-closeout-20261016.md)。
+
+### 日常归档回归 AWS S3
+
+用户明确不迁历史 QA。2026-10-16 09:00:31 UTC 已将独立 pin 的日常目标改为 AWS S3，仍用 1.8.288 原镜像；采用 EC2 实例角色，IMDSv2 required、hop limit 2。私有 raw 桶、KMS 和七天生命周期复用已有配置；已从容器网络实际验证 Put/Get、内容 SHA 和 KMS 解密。
+
+用户要求停止 Hetzner 任务后，已停 maintenance service/timer，确认无上传容器残留。停止时 `07:00 UTC` 分片已 verified 但尚未提交（旧桶 commit HEAD=404）；保存完整控制行后仅将这一未提交尝试标为 orphaned，旧对象、源记录和身份关联保留。同一小时从新 prod 本地 raw 重新归档到 AWS，不复制历史对象、不伪造完成或改变 forward cutover。旧 `00:00/02:00/03:00` 已提交小时没有未覆盖源记录。
+
+原 pin/env/runner 备份及切换回执在 prod `/var/lib/tokenkey/qa-aws-storage-cutover-20261016/`；未提交分片备份在 `/var/lib/tokenkey/qa-storage-abandoned-segment-20261016/`。安装脚本回滚不得自行恢复 Hetzner 上传。新增 `2026-10-16T07:00Z` 小时于 09:03:32 UTC 在 AWS 提交并通过恢复校验：4,167 条记录、16,668 个 blob 引用、缺失 0；整轮约 2 分 18 秒。随后独立目录恢复通过，耗时约 47 秒，回执 `isolated-restore.json`。这些结果证明新存储可写可恢复，不代表 QA 整体健康。
+
+整轮维护仍因历史空窗口 `2026-10-15T09:00Z` 的 `commit_existence_unknown` 返回失败：本地源记录和分片均为 0，应用角色无 ListBucket 权限，对缺失 commit 的 HEAD 返回 403，不能据此证明对象不存在。保留失败事实，不扩大 app IAM、不迁旧 raw、不改变 immutable forward cutover。合法历史缺口分类应使用现有 `gap-decision` 的只读恢复角色证据、保留期门禁与计划确认；本次未执行。后续 `08:00Z` 小时也由 timer 完成 AWS 归档与恢复校验：2,947 条记录、11,788 个 blob 引用、缺失 0，整轮约 2 分 19 秒。09:21:27 UTC 已通过既有 release-state owner 记录**仅存储切换验收**，其中明确保留历史补偿失败；解除本次 DROP pause 并恢复 boundary timer，原有逐小时 seal、归档及 restore 门禁继续生效。验收副本为 `qa-aws-storage-cutover-20261016/storage-accepted.json`。旧 Hcloud prod 的两个 QA timer 均已 disabled/inactive，旧 pin 未运行。本次隔离恢复临时目录已清理，恢复回执和对象保留。
 
 ## QA 与备份锁冲突
 
@@ -79,16 +92,16 @@ pending/inflight 为 0、新完成小时已有 seal。历史警告仍保留，�
 恢复。Phase 2 的 `catchup_terminal_gaps_present` 则是已接受的旧补归档缺口，与这七个采集警告是两类事实。
 
 ```bash
-# 现行归档、分区及维护健康；默认只检查 Hetzner，不访问旧 AWS IAM。
+# 现行归档、分区及维护健康；包含容器网络中的 EC2 实例角色可达性。
 python3 ops/qa/prod_phase2_live_health.py --json
-# 需要审计历史 AWS raw 权限时显式追加：
+# 同时审计 AWS raw 桶/KMS/IAM 策略（兼容保留的 flag 名）：
 python3 ops/qa/prod_phase2_live_health.py --legacy-aws --json
 bash ops/observability/probe-release-control-plane.sh
 ```
 
 上述检查从独立、停止的 maintenance pin 读取存储坐标并对照
-`ops/stage0/qa-runtime-environment.sh` 的现行 Hetzner 契约；pin 缺失、坐标漂移或
-未配置凭据文件时失败。凭据字段仅报告是否配置，不输出路径或密钥。
+`ops/stage0/qa-runtime-environment.sh` 的现行 AWS 契约；pin 缺失、坐标漂移、意外配置静态凭据或
+容器网络无法取得 IMDSv2 角色身份时失败。只报告可用性，不输出 token、凭据路径或密钥。
 存储检查不执行上传或恢复；归档成功与恢复校验由维护回执和数据库记录证明。
 仍须只读核对主机验收回执及 capture ledger 与批准基线。
 新增 failure、过时快照、捕获积压、缺少 seal 或归档/恢复失败按 raw-only 契约处理，不能清除旧警告

@@ -359,12 +359,12 @@ jobs:
             esac
 
             SAFETY_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-safety.sh --with ops/observability/data-layer-partition-coverage.sql --with ops/lib/resolve-app-container.sh --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
-            # EBS DataVolumeId lives on the AWS CFN stack (us-east-1). Hybrid mi-*
-            # prod has no EBS volume — pgdump_restore_canary owns backup freshness.
+            # Resolve EBS from the actual prod instance; the legacy CFN stack
+            # does not own the fresh host. Hybrid prod has no EBS volume.
             if [[ "$INSTANCE_ID" == mi-* ]] || [ "$CONTROL_PLANE_TARGET" = "hetzner" ]; then
               SNAPSHOT_SIGNAL="$(DATA_LAYER_SNAPSHOT_APPLICABLE=false bash ops/observability/data_layer_snapshot_signal.sh unused unused 2>>"$STDERR" || echo '{"latest_snapshot_at":null,"probe_ok":true,"probe_error":null,"applicable":false}')" # preflight-allow: swallow — N/A signal must not fail the run
             else
-              SNAPSHOT_SIGNAL="$(bash ops/observability/data_layer_snapshot_signal.sh "${PROD_STACK_REGION:-us-east-1}" "$STACK_NAME" 2>>"$STDERR" || echo '{"latest_snapshot_at":null,"probe_ok":false,"probe_error":"snapshot signal helper failed","applicable":true}')" # preflight-allow: swallow — helper failures become an explicit probe_ok=false signal
+              SNAPSHOT_SIGNAL="$(bash ops/observability/data_layer_snapshot_signal.sh "$TARGET_REGION" "$STACK_NAME" "$INSTANCE_ID" 2>>"$STDERR" || echo '{"latest_snapshot_at":null,"probe_ok":false,"probe_error":"snapshot signal helper failed","applicable":true}')" # preflight-allow: swallow — helper failures become an explicit probe_ok=false signal
             fi
             ARCHIVE_SIGNAL="$(python3 ops/observability/data_layer_archive_health.py 2>>"$STDERR" || echo 'ARCHIVESTATS {}')"
             SAFETY_VERDICT="$(printf '%s\nSNAPSHOTSTATS %s\n%s\n' "$SAFETY_OUT" "$SNAPSHOT_SIGNAL" "$ARCHIVE_SIGNAL" | python3 ops/observability/data_layer_safety_verdict.py 2>>"$STDERR" || echo '{"verdict":"unsafe","findings":[{"kind":"data_layer_safety_probe","status":"issue_candidate","severity":"error","summary":"data-layer safety verdict failed"}]}')"

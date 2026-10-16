@@ -8,25 +8,31 @@ root=pathlib.Path('/tmp')
 fresh=json.loads((root/'fresh-migration-20261015.json').read_text())
 matrix=json.loads((root/'edge-targets-lightsail.json').read_text())['targets']
 role=os.environ.get('WATCH_ROLE','')
-if role not in ('prod','us5'):raise SystemExit('WATCH_ROLE must be prod or us5')
-expected=fresh['prod'] if role=='prod' else matrix['us5']
+if role not in ('prod', *matrix):raise SystemExit('WATCH_ROLE must be prod or a live edge')
+if role!='prod' and not matrix[role].get('deployable'):raise SystemExit('edge not live')
+expected=fresh['prod'] if role=='prod' else matrix[role]
 if socket.gethostname()!=expected['instance_name']:raise SystemExit('host identity mismatch')
 live={key:row for key,row in matrix.items() if row.get('deployable') is True}
 if role=='prod':
     if 'us5' not in live:raise SystemExit('us5 is not live')
     targets={'us5':'https://'+live['us5']['domain']+'/health'}
-else:
+elif role=='us5':
     targets={'prod':'https://'+fresh['prod']['domain']+'/health'}
     targets.update({key:'https://'+row['domain']+'/health' for key,row in live.items()})
+else:
+    targets={}
+jobs=['tokenkey-pgdump','tokenkey-disk-metrics','tokenkey-ghcr-prune-daily']
+if role=='prod':jobs+=['tokenkey-qa-maintenance','tokenkey-qa-boundary']
+config={'node':role,'targets':targets,'jobs':jobs}
 files=['host_https_watch.py','edge_https_health.py','edge_health_delivery.py','edge_model_health_alert.py']
 for file in files:
     if not (root/file).is_file():raise SystemExit('missing companion: '+file)
-print(json.dumps({'role':role,'targets':targets,'apply':os.environ.get('APPLY')=='yes-host-https-watch'}))
+print(json.dumps({'role':role,**config,'apply':os.environ.get('APPLY')=='yes-host-https-watch'}))
 if os.environ.get('APPLY')!='yes-host-https-watch':raise SystemExit(0)
 os.umask(0o077)
 # Immutable bundles keep an existing timer on its previous complete code until
 # the validated unit is reloaded; never overwrite modules under a running job.
-bundle_hash=hashlib.sha256(json.dumps(targets,sort_keys=True).encode())
+bundle_hash=hashlib.sha256(json.dumps(config,sort_keys=True).encode())
 for file in files:bundle_hash.update((root/file).read_bytes())
 base=pathlib.Path('/usr/local/lib/tokenkey/https-watch')/bundle_hash.hexdigest()[:16]
 unit=pathlib.Path('/etc/systemd/system/tokenkey-https-watch.service')
@@ -44,15 +50,15 @@ if subprocess.run(['systemctl','is-active','--quiet',unit.name]).returncode==0:
     raise SystemExit('watcher busy; retry when idle')
 base.mkdir(parents=True,exist_ok=True,mode=0o700)
 for file in files:shutil.copy2(root/file,base/file)
-(base/'config.json').write_text(json.dumps({'targets':targets})+'\n')
+(base/'config.json').write_text(json.dumps(config)+'\n')
 command=['/usr/bin/python3',str(base/'host_https_watch.py'),'--config',str(base/'config.json'),'--state','/var/lib/tokenkey/https-watch/state.json']
 # Validate credentials and probe every target without sending a test message.
 check=subprocess.run(command+['--dry-run'],capture_output=True,text=True)
 if check.returncode:raise SystemExit('dry-run failed; timer not enabled')
 result=json.loads(check.stdout)
-if any(item['failures'] for item in result['targets'].values()):raise SystemExit('target unhealthy; timer not enabled')
+if any(item['failures'] for key,item in result['targets'].items() if not key.startswith('job:')):raise SystemExit('HTTPS target unhealthy; timer not enabled')
 unit.write_text('''[Unit]
-Description=TokenKey independent HTTPS health watch
+Description=TokenKey HTTPS and local job health watch
 After=network-online.target
 Wants=network-online.target
 
@@ -72,7 +78,7 @@ PrivateTmp=true
 ReadWritePaths=/var/lib/tokenkey/https-watch
 ''')
 timer.write_text('''[Unit]
-Description=TokenKey HTTPS health check every two minutes
+Description=TokenKey HTTPS and job health check every two minutes
 
 [Timer]
 OnBootSec=90

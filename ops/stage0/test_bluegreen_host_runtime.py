@@ -15,6 +15,24 @@ from ops.stage0.test_deploy_via_ssm_bluegreen import _render, _extract_shell_fun
 
 
 class HostRuntimeTest(unittest.TestCase):
+    def test_redis_startup_passes_persistence_flags_and_literal_password(self):
+        source = Path(__file__).resolve().parents[2] / 'deploy/aws/stage0/docker-compose.yml'
+        command = yaml.safe_load(source.read_text())['services']['redis']['command']
+        # Compose unescapes $$ before invoking the shell; never interpolate secrets into its source.
+        command = [part.replace('$$', '$') for part in command]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = root / 'redis-server'
+            fake.write_text('#!/usr/bin/env python3\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n')
+            fake.chmod(0o755)
+            for password in ('', 'literal $value " quote; $(false)'):
+                result = subprocess.run(command, capture_output=True, text=True,
+                    env={**os.environ, 'PATH': str(root) + ':' + os.environ['PATH'], 'REDISCLI_AUTH': password})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                expected = ['--save', '60', '1', '--appendonly', 'yes', '--appendfsync', 'everysec']
+                if password: expected += ['--requirepass', password]
+                self.assertEqual(json.loads(result.stdout), expected)
+
     def test_both_colors_receive_readonly_identity_without_secret_contents(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

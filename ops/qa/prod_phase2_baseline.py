@@ -47,7 +47,7 @@ def _raw_bucket_status(account_id: str) -> dict[str, str]:
 def _archive_bucket_status(*, legacy_aws: bool) -> tuple[str | None, dict[str, str]]:
     """Inspect the historical AWS bucket only when explicitly requested."""
     if not legacy_aws:
-        return None, {"status": "skipped", "reason": "live archive is Hetzner"}
+        return None, {"status": "skipped", "reason": "control-plane bucket audit not requested"}
     account_id = _account_id()
     return account_id, _raw_bucket_status(account_id)
 

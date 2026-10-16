@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import stat
+import signal
 import subprocess
 import tempfile
 import time
@@ -215,6 +216,29 @@ esac
             ),
         }
         return env, receipt, docker_log, scratch, systemd
+
+    def test_sigterm_cannot_write_success_receipt(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            env, receipt, _, _, _ = self._sandbox(root)
+            # Signal while acquiring the lock, as systemd does to the cgroup.
+            flock = root / "bin/flock"
+            ready = root / "lock-ready"
+            flock.write_text("#!/bin/bash\ntouch \"" + str(ready) + "\"\nexec sleep 30\n")
+            with subprocess.Popen(["bash", str(RUNNER), "--trigger=timer"], env=env,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  start_new_session=True, text=True) as proc:
+                deadline = time.monotonic() + 5
+                while not ready.exists() and proc.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(ready.exists())
+                os.killpg(proc.pid, signal.SIGTERM)
+                proc.communicate(timeout=5)
+                self.assertNotEqual(proc.returncode, 0)
+            result = json.loads(receipt.read_text())
+            self.assertEqual(result["runner_exit_code"], 143)
+            self.assertEqual(result["error_code"], "terminated")
+            self.assertIsNone(result["normal"])
 
     def _install_activation_host_fakes(self, root: Path, env: dict[str, str]) -> Path:
         fake_bin = root / "bin"

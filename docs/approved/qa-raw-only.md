@@ -62,3 +62,11 @@ QA 基础设施部署权限由 `deploy/aws/cloudformation/cicd-oidc.yaml` 管理
 raw 凭据只挂载给 maintenance 子容器；网关两种颜色不挂载 raw 文件。网关发布只接受 `raw_archive_v1` 目标；缺失、旧 Bundle 和未知契约在触碰主机前拒绝。历史版本回滚须另行验证 raw capture/maintenance 兼容性与 DROP pause，不能由普通发布绕过。
 
 测试入口：[凭据隔离](../../ops/stage0/test_bluegreen_host_runtime.py)、[组件发布](../../ops/stage0/test_prod_component_release.py)、[退役路由](../../backend/internal/server/routes/qa_retired_routes_test.go)、[真实 UI](../../frontend/e2e/qa-retirement.e2e.ts)。
+
+## 2026-10-16 AWS prod 日常归档修正（用户授权）
+
+用户明确：历史 QA 不迁移；新 AWS prod 的日常 QA 应归档 AWS S3。此决策替代上文“新增归档写 Hetzner”的当前目标，历史验收及恢复坐标仍有效。复用同区域原 raw 桶、KMS 和原七天生命周期；仅 QA 独立 pin 改用 EC2 实例角色，不添加长期密钥。新机 IMDSv2 继续 required，response hop limit 调整为 2 以供 QA Docker bridge 使用。
+
+切换须排空维护任务，持 host/deploy 锁并保存原 pin/env/脚本，保护 DROP；检查历史已提交小时无未覆盖源记录及待提交 verified segments。未完成且无已提交数据的新机小时按现有 reconciler 补至 AWS，不迁旧主机 raw，不复制历史对象，不改 forward cutover。按真实完成结果记录小时归属（可能包含切换前积压的小时），不能只按墙钟时间推断。切换后验证 AWS 真实提交与隔离恢复，接受后恢复 boundary/DROP；capture、网关、账单和主数据服务不重启。
+
+用户随后明确要求立即停止 Hetzner QA 任务，本次不等待旧上传自然结束。若停止留下已 verified 但未 committed 的旧目标分片，先保存原控制行并核实对象提交状态及本地源计数；仅将该未提交尝试标为 orphaned，保留对象和源数据，再由新目标正常重建归档。不得将旧目标的 verified 分片直接当作新目标对象，也不得标记虚假的完成。

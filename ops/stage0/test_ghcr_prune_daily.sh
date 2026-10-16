@@ -10,6 +10,7 @@ PROD_SYNC="${ROOT}/ops/stage0/sync-ghcr-prune-timer-via-ssm.sh"
 CFN="${ROOT}/deploy/aws/cloudformation/stage0-single-ec2.yaml"
 
 fail=0
+python3 "${ROOT}/ops/stage0/test_prune_dotenv.py"
 
 # Exported functions shadow host commands in the child bash, so this test never
 # reaches the developer machine's Docker daemon. Both missing tag-prune logic

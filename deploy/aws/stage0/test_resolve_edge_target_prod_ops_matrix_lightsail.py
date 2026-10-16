@@ -57,13 +57,16 @@ class ProdOpsMatrixLiveFleetTests(unittest.TestCase):
             else:
                 self.assertNotIn(f"edge-{edge_id}-ls", excluded)
 
-    def test_prod_uses_live_hetzner_coordinates(self):
+    def test_prod_uses_fresh_aws_coordinates(self):
         proc = _run("--prod-ops-matrix", "--target-selector", "all")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         include = json.loads(proc.stdout)["matrix"]["include"]
-        self.assertEqual({t["platform"] for t in include}, {"hetzner"} | {resolve_route_tab(REPO_ROOT, edge)[0] for edge in live_deployable_edge_ids(REPO_ROOT)})
+        self.assertEqual({t["platform"] for t in include}, {"aws"} | {resolve_route_tab(REPO_ROOT, edge)[0] for edge in live_deployable_edge_ids(REPO_ROOT)})
         prod = next(t for t in include if t["target_id"] == "prod")
-        self.assertEqual(prod["region"], "eu-west-2")
+        fresh = json.loads((REPO_ROOT / "deploy/aws/fresh-migration-20261015.json").read_text())["prod"]
+        self.assertEqual(prod["region"], fresh["region"])
+        self.assertEqual(prod["domain"], fresh["domain"])
+        self.assertEqual(prod["platform"], "aws")
         self.assertEqual(prod["stack"], "")
 
     def test_explicit_live_edge_selector(self):

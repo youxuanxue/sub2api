@@ -55,17 +55,17 @@ def build_prod_ops_matrix(data: dict, *, selector: str, prod_region: str, prod_s
         )
 
     if selector in ("all", "prod"):
-        prod = json.loads((REPO_ROOT / "deploy/hetzner/prod-target-hetzner.json").read_text())["target"]
+        prod = json.loads((REPO_ROOT / "deploy/aws/fresh-migration-20261015.json").read_text())["prod"]
         include.append(
             {
                 "target_id": "prod",
                 "target_kind": "prod",
-                "platform": "hetzner",
+                "platform": "aws",
                 "edge_id": "",
-                "region": prod["ssm_region"],
+                "region": prod["region"],
                 "stack": "",
                 "domain": prod["domain"],
-                "ssm_prefix": prod["ssm_prefix"],
+                "ssm_prefix": "",
                 "purpose": "primary-prod",
             }
         )
