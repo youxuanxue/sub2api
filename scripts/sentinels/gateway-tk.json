@@ -6483,9 +6483,10 @@
         "AccountWideModelRateLimitThreshold = 3",
         "func AccountWideRateLimitResetAt(",
         "func countedActiveModelRateLimits(",
-        "creditsExhaustedKey"
+        "creditsExhaustedKey",
+        "cooldown.Reason == AntigravityModelUnavailableCooldownReason"
       ],
-      "rationale": "Account-wide rate-limit SSOT: more than three still-active model_rate_limits scopes (AICredits excluded) cascade into an account-wide block for every platform/account type. IsSchedulable/IsRateLimited, admin/edge DTO projections, and SQL list filters must consume AccountWideRateLimitResetAt / accountWideRateLimitBlocks rather than inventing a second threshold."
+      "rationale": "Account-wide rate-limit SSOT: more than three still-active model_rate_limits scopes (AICredits and explicit Antigravity model-capability failures excluded) cascade into an account-wide block for every platform/account type. IsSchedulable/IsRateLimited, admin/edge DTO projections, and SQL list filters must consume AccountWideRateLimitResetAt / accountWideRateLimitBlocks rather than inventing a second threshold."
     },
     {
       "path": "backend/internal/service/edge_accounts_aggregator_tk.go",
@@ -17524,9 +17525,18 @@
         "func TestAntigravityModelUnavailableAdapters(",
         "func TestAntigravityDiscoveryUsesAccountServingEndpoint(",
         "func TestAntigravityModelUnavailableAdminTestDoesNotCoolAccount(",
-        "func TestAntigravityCatalogWithdrawalPreservesOtherSupplies("
+        "func TestAntigravityCatalogWithdrawalPreservesOtherSupplies(",
+        "func TestAntigravityModelUnavailableCannotCascadeToWholeAccount("
       ],
       "rationale": "Regression coverage for model-only cooldown, bounded uncommitted failover across AG adapters, same-endpoint discovery, read-only account tests and platform-local catalog withdrawal."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_tk_volc_window_lock.go",
+      "must_contain": [
+        "service.AntigravityModelUnavailableCooldownReason",
+        "COALESCE(btrim(m.value->>'reason'), '')"
+      ],
+      "rationale": "Repository scheduling and capacity SQL must exclude the same model-capability reason as the service cascade; otherwise several unavailable AG models silently remove the whole account from database candidates."
     }
   ]
 }

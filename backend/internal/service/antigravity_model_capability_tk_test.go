@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -81,7 +82,7 @@ func TestAntigravityModelUnavailableAdapters(t *testing.T) {
 			call := repo.modelRateLimitCalls[0]
 			require.Equal(t, account.ID, call.accountID)
 			require.Equal(t, resolved, call.scope)
-			require.Equal(t, upstreamModelNotFoundReason, call.reason)
+			require.Equal(t, AntigravityModelUnavailableCooldownReason, call.reason)
 			require.Zero(t, repo.tempCalls)
 			require.Equal(t, StatusActive, account.Status)
 			// Rehydrate the persisted cooldown as the scheduler does; credits must not
@@ -160,4 +161,22 @@ func TestAntigravityCatalogWithdrawalPreservesOtherSupplies(t *testing.T) {
 		require.True(t, isPublicCatalogModelSupported(PlatformGemini, model))
 	}
 	require.True(t, isPublicCatalogModelSupported(PlatformAntigravity, "gemini-4-argon"))
+}
+
+func TestAntigravityModelUnavailableCannotCascadeToWholeAccount(t *testing.T) {
+	account := newAntigravityCompatAccount(AccountTypeOAuth)
+	account.Schedulable = true
+	now := time.Now()
+	for i := 0; i <= AccountWideModelRateLimitThreshold; i++ {
+		// Synthetic independent models isolate the cascade from catalog policy.
+		setAccountModelRateLimitSnapshot(account, fmt.Sprintf("unavailable-%d", i), now.Add(time.Hour), AntigravityModelUnavailableCooldownReason, now)
+	}
+	require.True(t, account.IsSchedulableForModel("gemini-3.8-flash"))
+	require.Nil(t, AccountWideRateLimitResetAt(account, now))
+	// Actual quota cooldowns still obey the existing account-wide threshold.
+	for i := 0; i <= AccountWideModelRateLimitThreshold; i++ {
+		setAccountModelRateLimitSnapshot(account, fmt.Sprintf("quota-%d", i), now.Add(time.Hour), "quota_exhausted", now)
+	}
+	require.False(t, account.IsSchedulable())
+	require.NotNil(t, AccountWideRateLimitResetAt(account, now))
 }

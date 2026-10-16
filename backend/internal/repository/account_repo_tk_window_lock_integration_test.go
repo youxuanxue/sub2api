@@ -111,6 +111,16 @@ func TestModelRateLimitCascadeSQLMatchesSchedulingAndCapacity(t *testing.T) {
 		Name: "cascade-over", Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth,
 		Status: service.StatusActive, Schedulable: true, Extra: mkLimits(service.AccountWideModelRateLimitThreshold + 1),
 	})
+	capabilityExtra := mkLimits(service.AccountWideModelRateLimitThreshold + 1)
+	for _, limit := range capabilityExtra["model_rate_limits"].(map[string]any) {
+		limit.(map[string]any)["reason"] = service.AntigravityModelUnavailableCooldownReason
+	}
+	capability := mustCreateAccount(t, client, &service.Account{
+		Name: "model-capability-only", Platform: service.PlatformAntigravity, Type: service.AccountTypeOAuth,
+		Status: service.StatusActive, Schedulable: true, Extra: capabilityExtra,
+	})
+	require.True(t, capability.IsSchedulable())
+	mustBindAccountToGroup(t, client, capability.ID, group.ID, 3)
 	mustBindAccountToGroup(t, client, under.ID, group.ID, 1)
 	mustBindAccountToGroup(t, client, over.ID, group.ID, 2)
 
@@ -121,7 +131,7 @@ func TestModelRateLimitCascadeSQLMatchesSchedulingAndCapacity(t *testing.T) {
 
 	grouped, err := repo.ListSchedulableByGroupID(ctx, group.ID)
 	require.NoError(t, err)
-	require.ElementsMatch(t, []int64{under.ID}, idsOfAccounts(grouped))
+	require.ElementsMatch(t, []int64{under.ID, capability.ID}, idsOfAccounts(grouped))
 
 	all, err := repo.ListSchedulable(ctx)
 	require.NoError(t, err)
@@ -134,7 +144,7 @@ func TestModelRateLimitCascadeSQLMatchesSchedulingAndCapacity(t *testing.T) {
 
 	batch, err := repo.ListSchedulableByGroupIDs(ctx, []int64{group.ID})
 	require.NoError(t, err)
-	require.ElementsMatch(t, []int64{under.ID}, idsOfAccounts(batch[group.ID]))
+	require.ElementsMatch(t, []int64{under.ID, capability.ID}, idsOfAccounts(batch[group.ID]))
 
 	capacity, err := repo.ListSchedulableCapacityByGroupIDs(ctx, []int64{group.ID})
 	require.NoError(t, err)
@@ -144,11 +154,11 @@ func TestModelRateLimitCascadeSQLMatchesSchedulingAndCapacity(t *testing.T) {
 			capacityIDs = append(capacityIDs, row.AccountID)
 		}
 	}
-	require.ElementsMatch(t, []int64{under.ID}, capacityIDs)
+	require.ElementsMatch(t, []int64{under.ID, capability.ID}, capacityIDs)
 
 	active, _, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 100}, "", "", service.StatusActive, "", group.ID, "", 0)
 	require.NoError(t, err)
-	require.ElementsMatch(t, []int64{under.ID}, idsOfAccounts(active))
+	require.ElementsMatch(t, []int64{under.ID, capability.ID}, idsOfAccounts(active))
 
 	limited, _, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 100}, "", "", "rate_limited", "", group.ID, "", 0)
 	require.NoError(t, err)

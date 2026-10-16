@@ -61,7 +61,7 @@ func (a *Account) antigravityModelCapabilityUnavailable(ctx context.Context, req
 	for _, key := range a.modelRateLimitKeysForRequest(ctx, requestedModel) {
 		limit, _ := limits[key].(map[string]any)
 		reason, _ := limit["reason"].(string)
-		if (reason == upstreamModelNotFoundReason || reason == upstreamModelRetiredReason) && a.isRateLimitActiveForKey(key) {
+		if (reason == AntigravityModelUnavailableCooldownReason || reason == upstreamModelNotFoundReason || reason == upstreamModelRetiredReason) && a.isRateLimitActiveForKey(key) {
 			return true
 		}
 	}

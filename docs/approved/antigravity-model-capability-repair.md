@@ -16,6 +16,8 @@ with message `Requested entity was not found.` is an account/path capability
 failure. Reuse the existing account × resolved-wire-model 30-minute cooldown and
 bounded candidate failover. Do not retry that account immediately, disable the
 whole account, broaden authorization, or alter protocol Plan / billing owners.
+Capability cooldowns do not count toward the existing account-wide quota
+cascade; both in-memory scheduling and repository SQL must honor this exclusion.
 Generic route/project 404 responses are not this verdict. Admin tests remain
 read-only with respect to account health.
 
