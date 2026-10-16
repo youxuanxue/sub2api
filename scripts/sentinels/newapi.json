@@ -1954,6 +1954,13 @@
         "accountWideRateLimitNotBlockingSQL(\"a\")"
       ],
       "rationale": "Group available/temporarily-limited account counts must share the same account-wide rate-limit admission twin as ListSchedulable, including the model-count cascade."
+    },
+    {
+      "path": "frontend/src/composables/useModelWhitelist.ts",
+      "must_not_contain": [
+        "to: 'gemini-3.6-flash-tiered'"
+      ],
+      "rationale": "Antigravity quick-add presets must not restore the withdrawn tiered upstream path or its Lite alias. Native Gemini presets are independent and remain available."
     }
   ]
 }

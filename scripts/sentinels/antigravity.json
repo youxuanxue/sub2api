@@ -65,6 +65,37 @@
         "EnabledCreditTypes: AgentEnabledCreditTypes(requestType),"
       ],
       "rationale": "Agent envelopes must declare enabledCreditTypes GOOGLE_ONE_AI on the first Claude→Gemini request. Upstream has no credits field; a merge that drops this assignment silently returns to 429-then-inject and burns a failed round trip. Pairs with AgentEnabledCreditTypes in request_type.go and the native wrap sentinel in gateway-tk.json."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/client.go",
+      "must_contain": [
+        "func (c *Client) FetchAvailableModelsAt(",
+        "model discovery redirect changed serving endpoint"
+      ],
+      "rationale": "Account discovery must bind to its inference endpoint: a paid daily Argon-disabled catalog must not be replaced by prod capability via fallback or redirect."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/client_endpoint_test.go",
+      "must_contain": [
+        "func TestFetchAvailableModelsAtBindsServingEndpoint(",
+        "func TestFetchAvailableModelsAtRejectsForeignEndpointBeforeAuth("
+      ],
+      "rationale": "Regression coverage for endpoint isolation across success, 404/429/503 and redirects; arbitrary endpoints must never receive the OAuth token."
+    },
+    {
+      "path": "backend/internal/service/upstream_models.go",
+      "must_contain": [
+        "client.FetchAvailableModelsAt(",
+        "resolveAntigravityForwardBaseURL(account)"
+      ],
+      "rationale": "Admin model discovery must use the same account endpoint selector as inference rather than the legacy prod-first model list."
+    },
+    {
+      "path": "backend/internal/service/antigravity_quota_fetcher.go",
+      "must_contain": [
+        "client.FetchAvailableModelsAt(ctx, accessToken, projectID, resolveModelsListReadLimit(f.cfg), resolveAntigravityForwardBaseURL(account))"
+      ],
+      "rationale": "Quota model visibility must reflect the actual serving endpoint so disabled Argon is not advertised using a different endpoint."
     }
   ]
 }
