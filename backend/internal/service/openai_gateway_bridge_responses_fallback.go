@@ -283,6 +283,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 	}
 	chatBody = applyNewAPIResponsesChatFallbackShape(upstreamModel, chatBody)
 	chatBody = applyNewAPIAliFixedSamplingShape(upstreamModel, chatBody)
+	chatBody = applyMoonshotK3DynamicToolsShape(upstreamModel, chatBody)
 	var shapeErr error
 	chatBody, shapeErr = applyMoonshotThinkingShape(c, account, upstreamModel, chatBody)
 	if shapeErr != nil {

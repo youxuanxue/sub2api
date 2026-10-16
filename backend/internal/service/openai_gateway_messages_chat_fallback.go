@@ -86,6 +86,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(chatBody, upstreamModel); normalized {
 		chatBody = normalizedBody
 	}
+	chatBody = applyMoonshotK3DynamicToolsShape(upstreamModel, chatBody)
 	var moonshotErr error
 	chatBody, moonshotErr = applyMoonshotThinkingShape(c, account, upstreamModel, chatBody)
 	if moonshotErr != nil {
