@@ -14,9 +14,46 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 const antigravityDisabledModelBody = `{"error":{"code":404,"message":"Requested entity was not found.","status":"NOT_FOUND"}}`
+
+func TestAntigravityModelUnavailableNativeThinkingScope(t *testing.T) {
+	for _, level := range []string{"low", "medium"} {
+		t.Run(level, func(t *testing.T) {
+			repo := &modelNotFoundAccountRepoStub{}
+			upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{{StatusCode: 404, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(antigravityDisabledModelBody))}}}
+			svc := newAntigravityCompatService(config.GatewayConfig{}, upstream)
+			svc.accountRepo = repo
+			svc.rateLimitService = &RateLimitService{accountRepo: repo}
+			account := newAntigravityCompatAccount(AccountTypeOAuth)
+			account.Schedulable = true
+			account.Credentials["model_mapping"] = map[string]any{"gemini-4-argon": "gemini-4-argon-high", "gemini-4-argon-low": "gemini-4-argon-low", "gemini-4-argon-medium": "gemini-4-argon-medium", "gemini-4-argon-high": "gemini-4-argon-high"}
+			body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"thinkingConfig":{"thinkingLevel":"` + level + `"}}}`)
+			c, _ := newAntigravityCompatContext(http.MethodPost, "/v1beta/models/gemini-4-argon:generateContent", body)
+			_, err := svc.ForwardGemini(context.Background(), c, account, "gemini-4-argon", "generateContent", false, body, false)
+			var failure *UpstreamFailoverError
+			require.ErrorAs(t, err, &failure)
+			require.Len(t, upstream.requestBodies, 1)
+			wire := gjson.GetBytes(upstream.requestBodies[0], "model").String()
+			require.Equal(t, "gemini-4-argon-"+level, wire)
+			require.Len(t, repo.modelRateLimitCalls, 1)
+			call := repo.modelRateLimitCalls[0]
+			require.Equal(t, wire, call.scope, "cool only the model actually sent upstream")
+			setAccountModelRateLimitSnapshot(account, call.scope, call.resetAt, call.reason, time.Now())
+			account.Extra["allow_overages"] = true
+			resolver, _, _, _ := candidateGoogleFixture(t)
+			ctx := resolver.WithRequest(context.Background(), ShapeGemini, "/v1beta/models/gemini-4-argon:generateContent", "gemini-4-argon", body)
+			require.False(t, account.IsSchedulableForModelWithContext(ctx, "gemini-4-argon"))
+			require.True(t, account.IsSchedulableForModel("gemini-4-argon-high"))
+			c, _ = newAntigravityCompatContext(http.MethodPost, "/v1beta/models/gemini-4-argon:generateContent", body)
+			_, err = svc.ForwardGemini(WithSingleAccountRetry(context.Background(), true, false), c, account, "gemini-4-argon", "generateContent", false, body, false)
+			require.Error(t, err)
+			require.Equal(t, 1, upstream.callCount, "credits and single-account retry cannot bypass the actual wire cooldown")
+		})
+	}
+}
 
 func TestAntigravityModelUnavailableClassification(t *testing.T) {
 	for _, tc := range []struct {

@@ -17526,7 +17526,8 @@
         "func TestAntigravityDiscoveryUsesAccountServingEndpoint(",
         "func TestAntigravityModelUnavailableAdminTestDoesNotCoolAccount(",
         "func TestAntigravityCatalogWithdrawalPreservesOtherSupplies(",
-        "func TestAntigravityModelUnavailableCannotCascadeToWholeAccount("
+        "func TestAntigravityModelUnavailableCannotCascadeToWholeAccount(",
+        "func TestAntigravityModelUnavailableNativeThinkingScope("
       ],
       "rationale": "Regression coverage for model-only cooldown, bounded uncommitted failover across AG adapters, same-endpoint discovery, read-only account tests and platform-local catalog withdrawal."
     },
@@ -17537,6 +17538,27 @@
         "COALESCE(btrim(m.value->>'reason'), '')"
       ],
       "rationale": "Repository scheduling and capacity SQL must exclude the same model-capability reason as the service cascade; otherwise several unavailable AG models silently remove the whole account from database candidates."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": [
+        "ctx = withAntigravityNativeThinking(ctx, body)"
+      ],
+      "rationale": "Native forwarding and cooldown handling must resolve the same explicit thinking tier, never cool the default high wire after a low/medium failure."
+    },
+    {
+      "path": "backend/internal/service/universal_candidate_eligibility.go",
+      "must_contain": [
+        "ctx = withAntigravityNativeThinking(ctx, body)"
+      ],
+      "rationale": "Candidate cooldown eligibility must retain native thinking preferences before account selection; failover resolves each account mapping independently."
+    },
+    {
+      "path": "backend/internal/service/model_rate_limit.go",
+      "must_contain": [
+        "resolveNativeGeminiThinkingVariant(account, requestedModel, preferred)"
+      ],
+      "rationale": "Model cooldown reads and writes must reuse native forwarding variant resolution for explicit low/medium requests."
     }
   ]
 }

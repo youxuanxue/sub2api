@@ -135,6 +135,8 @@ func (r *UniversalRoutingResolver) withRequestProfile(ctx context.Context, shape
 	}
 	if shape != ShapeGemini {
 		ctx = WithThinkingEnabled(ctx, gatewayRequestThinkingEnabled(metadata, string(inbound)), false)
+	} else {
+		ctx = withAntigravityNativeThinking(ctx, body)
 	}
 	return WithProtocolRouting(ctx, router, request)
 }

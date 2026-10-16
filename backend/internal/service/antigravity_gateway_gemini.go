@@ -87,8 +87,9 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		return nil, s.writeGoogleError(c, http.StatusNotFound, "Unsupported action: "+action)
 	}
 
-	// 裸模型名（gemini-3.8-flash）按 thinkingConfig 解析到 -low/-medium/-high 变体；
-	// 裸名有显式映射时保持原行为。
+	// Forwarding, retry prechecks and cooldown writes share the actual native
+	// thinking tier; a low/medium failure must never cool the default high wire.
+	ctx = withAntigravityNativeThinking(ctx, body)
 	mappedModel, variantResolved := resolveGeminiThinkingVariant(account, originalModel, body)
 	if !variantResolved {
 		mappedModel = s.getMappedModel(account, originalModel)

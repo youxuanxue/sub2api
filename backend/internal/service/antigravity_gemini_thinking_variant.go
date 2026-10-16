@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 
@@ -13,13 +14,13 @@ import (
 // gemini-3.8-flash-low / -medium / -high / -tiered 这类带后缀的变体，裸名直接转发会被上游
 // 以 404 "Requested entity was not found." 拒绝。
 //
-// 这里在账号 model_mapping 没有为裸名配置显式条目、但配置了它的后缀变体时，
-// 按 thinkingConfig 自动挑一个变体：
+// Gemini 原生请求显式携带 thinkingConfig 时，从账号映射选择对应变体：
 //   - thinkingLevel: "low" / "medium" / "high" → 同名后缀
 //   - thinkingBudget: -1（动态）→ high；0 → low；1..1024 → low；1025..8192 → medium；>8192 → high
-//   - 未携带 thinkingConfig → high（与 Gemini 3 系列默认开启动态思考一致）
+//   - 未携带 thinkingConfig → 保留账号的裸名映射
 // 选中的后缀在映射表里不存在时按 high → medium → low → tiered 的顺序降级到存在的变体。
-// 显式映射（裸名本身在 model_mapping 里）始终优先，行为与现在完全一致。
+// 原生请求允许在已映射的思考档位之间切换；非档位映射与显式自映射保持优先。
+// Claude/OpenAI 兼容请求由 resolveGeminiThinkingVariantForLevel 保留显式映射。
 
 var geminiThinkingVariantSuffixes = []string{"-low", "-medium", "-high", "-tiered"}
 
@@ -59,7 +60,7 @@ func stripGeminiThinkingVariantSuffix(model string) string {
 
 // geminiThinkingPreferenceFromBody 解析 Gemini 原生请求体中的 thinkingConfig，返回
 // 客户端期望的思考档位和是否显式设置了 thinkingConfig。不携带 thinkingConfig 时
-// explicit=false，调用方应保留账号的 bare→floor 映射（如 3.6 → -tiered）。
+// explicit=false，调用方应保留账号的 bare→floor 映射。
 func geminiThinkingPreferenceFromBody(body []byte) (level string, explicit bool) {
 	if len(body) == 0 {
 		return "", false
@@ -79,7 +80,7 @@ func geminiThinkingPreferenceFromBody(body []byte) (level string, explicit bool)
 	}
 	if tc.ThinkingBudget == nil {
 		// thinkingConfig present but neither level nor budget: leave the bare
-		// floor remap alone (keeps gemini-3.6-flash → -tiered).
+		// floor remap alone.
 		return "", false
 	}
 	budget, err := tc.ThinkingBudget.Float64()
@@ -172,9 +173,25 @@ func accountRawModelMappingHasKey(account *Account, key string) bool {
 
 // resolveGeminiThinkingVariant 为裸 Gemini 模型名挑选账号映射表里存在的思考深度变体。
 // 返回 (映射后的上游模型名, 是否命中)。未命中时调用方应回退到常规 getMappedModel 流程。
-// Bare requests without thinkingConfig leave the account floor remap untouched,
-// preserving the R-001 invariant (gemini-3.6-flash → -tiered floor).
+// Bare requests without thinkingConfig leave the account floor remap untouched.
 func resolveGeminiThinkingVariant(account *Account, requestedModel string, body []byte) (string, bool) {
+	preferred, explicit := geminiThinkingPreferenceFromBody(body)
+	if !explicit {
+		return "", false
+	}
+	return resolveNativeGeminiThinkingVariant(account, requestedModel, preferred)
+}
+
+type antigravityNativeThinkingContextKey struct{}
+
+// Preserve only the native preference, not an account's resolved model: each
+// failover candidate must resolve its own mapping using the same forwarding rule.
+func withAntigravityNativeThinking(ctx context.Context, body []byte) context.Context {
+	preferred, _ := geminiThinkingPreferenceFromBody(body)
+	return context.WithValue(ctx, antigravityNativeThinkingContextKey{}, preferred)
+}
+
+func resolveNativeGeminiThinkingVariant(account *Account, requestedModel, preferred string) (string, bool) {
 	if account == nil {
 		return "", false
 	}
@@ -182,8 +199,7 @@ func resolveGeminiThinkingVariant(account *Account, requestedModel string, body 
 	if !strings.HasPrefix(model, "gemini-") || hasGeminiThinkingVariantSuffix(model) {
 		return "", false
 	}
-	preferred, explicit := geminiThinkingPreferenceFromBody(body)
-	if !explicit {
+	if preferred == "" {
 		return "", false
 	}
 	mapping := account.GetModelMapping()
