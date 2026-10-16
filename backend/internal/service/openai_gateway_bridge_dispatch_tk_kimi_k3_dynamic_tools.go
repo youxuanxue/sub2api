@@ -14,7 +14,8 @@ import (
 // Official Moonshot accepts that message shape. Volc Agent Plan (china kimi-k3
 // supply) rejects it with missing `*.content`. Promoting keeps Calculator-style
 // admission probes working across K3 supplies without requiring clients to
-// change payload shape.
+// change payload shape. When the client omitted tool_choice, set "required" so
+// the promoted tools are actually invoked instead of the model answering inline.
 func applyMoonshotK3DynamicToolsShape(model string, body []byte) []byte {
 	if len(body) == 0 || !isNewAPIAliFixedSamplingModel(model) {
 		return body
@@ -53,6 +54,12 @@ func applyMoonshotK3DynamicToolsShape(model string, body []byte) []byte {
 	}
 	if next, err := sjson.SetBytes(shaped, "tools", allTools); err == nil {
 		shaped = next
+	}
+	choice := gjson.GetBytes(shaped, "tool_choice")
+	if !choice.Exists() || choice.Type == gjson.Null {
+		if next, err := sjson.SetBytes(shaped, "tool_choice", "required"); err == nil {
+			shaped = next
+		}
 	}
 	return shaped
 }
