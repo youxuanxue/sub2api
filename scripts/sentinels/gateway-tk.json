@@ -15867,25 +15867,36 @@
       "must_contain": [
         "func NativeDeclaredProtocolContract(",
         "NativeDeclaration",
-        "gemini_web_single_turn_v1"
+        "gemini_web_single_turn_v1",
+        "GeminiEndpointAntigravityCloudCode"
       ],
-      "rationale": "Lifecycle native declaration is explicit and scoped to the native Gemini identity, distinct from empirical probe evidence and provider request limits."
+      "rationale": "Lifecycle native declaration is explicit for Gemini native and Antigravity Cloud Code single-hop identities, distinct from empirical probe evidence and multi-hop edge relays."
+    },
+    {
+      "path": "backend/internal/service/protocol_endpoint_identity_test.go",
+      "must_contain": [
+        "func TestNativeDeclaredProtocolContractAntigravityCloudCode("
+      ],
+      "rationale": "Regression covers Cloud Code OAuth native seed and keeps multi-hop edge relay identities measured-only."
     },
     {
       "path": "backend/internal/repository/protocol_endpoint_capability_repo.go",
       "must_contain": [
         "service.NativeDeclaredProtocolContract(identity)",
         "ON CONFLICT (capability_key) DO NOTHING",
-        "evidence.NativeDeclaration = current.ProbeEvidence.NativeDeclaration"
+        "evidence.NativeDeclaration = current.ProbeEvidence.NativeDeclaration",
+        "evidence.NativeDeclaration = true",
+        "!evidence.InitialProbeCompleted"
       ],
-      "rationale": "Only a newly created capability receives the platform native declaration; linking must preserve existing denied or conflicted capability decisions."
+      "rationale": "New capabilities receive the platform native declaration; EnsureAccountLink also re-seeds incomplete empty protocol sets, while completed denials and identity conflicts stay authoritative."
     },
     {
       "path": "backend/internal/repository/protocol_endpoint_capability_repo_test.go",
       "must_contain": [
-        "func TestGeminiNativeDeclarationSeedsOnlyNewCapabilityAndPreservesProbeDenial("
+        "func TestGeminiNativeDeclarationSeedsOnlyNewCapabilityAndPreservesProbeDenial(",
+        "func TestAntigravityCloudCodeNativeDeclarationHealsIncompleteEmptyCapability("
       ],
-      "rationale": "Executed capability lifecycle regression covers native seed availability and authoritative persisted denial."
+      "rationale": "Executed capability lifecycle regression covers native seed availability, incomplete empty-row heal, and authoritative persisted denial."
     },
     {
       "path": "backend/internal/engine/protocolrouter/request_capabilities.go",
