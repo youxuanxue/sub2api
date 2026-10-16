@@ -73,7 +73,7 @@ class AccountGroupBindingCheckTest(unittest.TestCase):
             ["claude-opus", "claude-sonnet"],
         )
 
-    def test_disjoint_binding_reports_ranked_peer_evidence(self) -> None:
+    def test_disjoint_binding_is_advisory_not_missing_authorization(self) -> None:
         report = self.evaluate(
             [
                 self.account(20, ["claude-opus"], [self.group(2, "other")]),
@@ -81,7 +81,9 @@ class AccountGroupBindingCheckTest(unittest.TestCase):
             ]
         )
 
-        finding = next(item for item in report["findings"] if item["account_id"] == 20)
+        self.assertEqual(report["verdict"], "aligned")
+        self.assertEqual(report["findings"], [])
+        finding = next(item for item in report["advisories"] if item["account_id"] == 20)
         self.assertEqual(finding["code"], "model_group_peer_mismatch")
         self.assertEqual(finding["candidate_groups"][0]["group_id"], 1)
 
@@ -146,18 +148,32 @@ class AccountGroupBindingCheckTest(unittest.TestCase):
         }])
         self.assertEqual(report["summary"]["inconclusive_model_count"], 1)
 
-    def test_web_same_contract_disjoint_groups_still_warn(self) -> None:
+    def test_web_same_contract_disjoint_groups_are_advisory(self) -> None:
         report = self.evaluate([
             self.account(1, ["shared-model"], [self.group(1, "web-a")], gemini_web=True),
             self.account(2, ["shared-model"], [self.group(2, "web-b")], gemini_web=True),
             self.account(3, ["shared-model"], [self.group(1, "web-a")]),
         ])
-        self.assertEqual(report["verdict"], "review")
-        self.assertEqual([f["account_id"] for f in report["findings"]], [1, 2])
-        for finding in report["findings"]:
+        self.assertEqual(report["verdict"], "aligned")
+        self.assertEqual(report["findings"], [])
+        self.assertEqual([f["account_id"] for f in report["advisories"]], [1, 2])
+        for finding in report["advisories"]:
             self.assertEqual(finding["code"], "model_group_peer_mismatch")
             self.assertEqual(finding["peer_scope"], "gemini_web")
             self.assertEqual(finding["candidate_groups"][0]["peer_account_count"], 1)
+
+    def test_cross_provider_disjoint_authorized_groups_do_not_need_rebinding(self) -> None:
+        # Synthetic overlap reproduces Vertex/Antigravity's independent groups.
+        report = self.evaluate([
+            self.account(1, ["shared-model"], [self.group(1, "vertex")]),
+            self.account(2, ["shared-model"], [self.group(2, "antigravity")], platform="antigravity"),
+            self.account(3, ["shared-model"], []),
+        ])
+        self.assertEqual(report["verdict"], "review")
+        self.assertEqual([(f["account_id"], f["code"]) for f in report["findings"]], [(3, "no_active_group")])
+        self.assertEqual([a["account_id"] for a in report["advisories"]], [1, 2])
+        self.assertEqual(report["summary"]["finding_account_count"], 1)
+        self.assertEqual(report["summary"]["peer_mismatch_account_count"], 2)
 
     def test_lone_web_account_is_inconclusive_not_capability_verified(self) -> None:
         report = self.evaluate([

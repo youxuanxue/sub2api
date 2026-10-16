@@ -13466,17 +13466,17 @@
       "must_contain": [
         "test_shared_model_and_group_is_aligned",
         "test_ungrouped_account_reports_ranked_peer_candidates",
-        "test_disjoint_binding_reports_ranked_peer_evidence",
+        "test_disjoint_binding_is_advisory_not_missing_authorization",
         "test_one_peer_group_overlap_allows_intentional_model_subset",
         "test_account_never_self_certifies_its_group",
         "test_empty_mapping_is_accounted_for_but_not_compared",
         "test_inactive_binding_counts_as_no_active_group",
         "test_web_and_general_same_model_are_not_group_peers",
-        "test_web_same_contract_disjoint_groups_still_warn",
+        "test_web_same_contract_disjoint_groups_are_advisory",
         "test_lone_web_account_is_inconclusive_not_capability_verified",
         "test_web_without_active_group_still_warns"
       ],
-      "rationale": "Behavior tests pin aligned, ungrouped, mismatched, no-peer, no-mapping and inactive-group outcomes without duplicating a production model or group catalog."
+      "rationale": "Behavior tests pin aligned, ungrouped, advisory peer differences, no-peer, no-mapping and inactive-group outcomes without duplicating a production model or group catalog."
     },
     {
       "path": "ops/observability/test_check_account_group_bindings.py",
