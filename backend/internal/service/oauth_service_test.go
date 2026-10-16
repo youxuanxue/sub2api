@@ -532,6 +532,8 @@ func TestOAuthService_RefreshAccountToken_WithProxy(t *testing.T) {
 	proxyRepo := &mockProxyRepoForOAuth{
 		getByIDFunc: func(ctx context.Context, id int64) (*Proxy, error) {
 			return &Proxy{
+				ID:       id,
+				Status:   StatusActive,
 				Protocol: "socks5",
 				Host:     "socks.example.com",
 				Port:     1080,

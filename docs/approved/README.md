@@ -7,6 +7,8 @@ revised_at: 2026-09-03
 
 # Approved docs index
 
+- [OAuth 集中后的网关安全](oauth-consolidation-gateway-safety.md)：固定代理、请求错误语义、流式巡检和数据处置边界。
+
 - [AWS 迁移收尾](aws-migration-closeout-20261016.md)：备份、QA timer、独立健康监控与旧 Hcloud edge 回收边界。
 
 `docs/approved/` is the approval baseline for high-risk work. These files are

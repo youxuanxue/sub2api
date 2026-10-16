@@ -251,6 +251,12 @@ func classifyGrokCredentialFailure(account *Account, err error) grokCredentialFa
 	var containmentErr *providerCycleContainmentRefreshError
 
 	switch {
+	case errors.Is(err, errOAuthProxyLookup):
+		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, semantic: gatewayFailureSemanticSharedFault, message: "Grok OAuth proxy lookup is temporarily unavailable"}
+	case errors.Is(err, errOAuthProxyRepository):
+		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderConfig, semantic: gatewayFailureSemanticSharedFault, message: "Grok OAuth proxy repository is unavailable"}
+	case errors.Is(err, ErrOAuthProxyUnavailable):
+		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonRefreshTransient, semantic: gatewayFailureSemanticAccountFault, transient: true, message: "Grok OAuth configured proxy is unavailable"}
 	case errors.Is(err, errGrokOAuthRefreshTokenMissing), errors.Is(err, errGrokOAuthAccessTokenMissing), errors.Is(err, errGrokOAuthAccessTokenExpired):
 		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonMissing, semantic: gatewayFailureSemanticAccountFault, permanent: true, message: "Grok OAuth credentials are missing or expired"}
 	case contains("invalid_grant", "invalid_refresh_token", "token_expired", "refresh_token_reused", "refresh_token_invalidated", "app_session_terminated"):
@@ -472,7 +478,17 @@ func (s *OpenAIGatewayService) validateCurrentGrokCredentialFailure(
 		}
 		return "", fmt.Errorf("%w: %v", errOAuthRefreshAccountRereadFailed, err)
 	}
-	if latest == nil || !latest.IsGrokOAuth() || !latest.IsSchedulable() || s.isOpenAIAccountRuntimeBlocked(latest) {
+	if latest == nil || !latest.IsGrokOAuth() || s.isOpenAIAccountRuntimeBlocked(latest) {
+		return "", errOAuthRefreshAccountStateChanged
+	}
+	readiness := *latest
+	if class.reason == GrokCredentialReasonProxyInvalid {
+		// This is mutation validation, never dispatch: a still-missing proxy
+		// must remain eligible for its existing quarantine CAS. The exact proxy
+		// identity is checked below; all other readiness checks still apply.
+		readiness.ProxyID = nil
+	}
+	if !readiness.IsSchedulable() {
 		return "", errOAuthRefreshAccountStateChanged
 	}
 	latestSnapshot := grokCredentialMutationSnapshot(latest)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -1034,6 +1035,9 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	if account == nil || !account.IsOAuth() {
 		return nil, nil
 	}
+	if err := validateOAuthProxyBinding(account); err != nil {
+		return nil, err
+	}
 	accessToken := ""
 	if !account.IsOpenAIAgentIdentity() {
 		accessToken = account.GetOpenAIAccessToken()
@@ -1270,9 +1274,11 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 		fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer fetchCancel()
 
-		proxyURL := s.antigravityQuotaFetcher.GetProxyURL(fetchCtx, account)
-		fetchResult, err := s.antigravityQuotaFetcher.FetchQuota(fetchCtx, account, proxyURL)
+		fetchResult, err := s.antigravityQuotaFetcher.FetchQuota(fetchCtx, account, "")
 		if err != nil {
+			if errors.Is(err, ErrOAuthProxyUnavailable) {
+				return nil, err
+			}
 			degraded := buildAntigravityDegradedUsage(err)
 			enrichUsageWithAccountError(degraded, account)
 			s.cache.antigravityCache.Store(account.ID, &antigravityUsageCache{
@@ -1694,6 +1700,9 @@ func (s *AccountUsageService) GetAccountUsageStats(ctx context.Context, accountI
 // 如果账号开启了 TLS 指纹，则使用 TLS 指纹伪装
 // 如果有缓存的 Fingerprint，则使用缓存的 User-Agent 等信息
 func (s *AccountUsageService) fetchOAuthUsageRaw(ctx context.Context, account *Account) (*ClaudeUsageResponse, error) {
+	if err := validateOAuthProxyBinding(account); err != nil {
+		return nil, err
+	}
 	accessToken := account.GetCredential("access_token")
 	if accessToken == "" {
 		return nil, fmt.Errorf("no access token available")

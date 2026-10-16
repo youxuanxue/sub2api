@@ -317,6 +317,9 @@ def parse_tick_stdout(stdout: str) -> dict[str, Any]:
             traffic = {
                 "completed_total": int(obj.get("completed_total") or 0),
                 "status_5xx": obj.get("status_5xx") or {},
+                "inband_5xx": obj.get("inband_5xx") or {},
+                "final_status_available": obj.get("final_status_available"),
+                "final_status_note": obj.get("final_status_note"),
                 "top_paths": obj.get("top_paths") or [],
                 "path_counts": obj.get("path_counts") or {},
             }
@@ -325,6 +328,9 @@ def parse_tick_stdout(stdout: str) -> dict[str, Any]:
         "hooks": hooks,
         "panic": panic,
         "status_5xx": traffic["status_5xx"],
+        "inband_5xx": traffic.get("inband_5xx", {}),
+        "final_status_available": traffic.get("final_status_available"),
+        "final_status_note": traffic.get("final_status_note"),
         "completed_total": traffic["completed_total"],
         "top_paths": traffic["top_paths"],
         "path_counts": traffic["path_counts"],
@@ -405,6 +411,16 @@ def evaluate(
 
     status_5xx = tick.get("status_5xx") or {}
     if phase == "delayed":
+        # Older artifacts did not include semantic outcomes. Absence is unknown,
+        # never evidence of zero stream failures.
+        if tick.get("final_status_available") is not True:
+            results.append({"id": "final-status-evidence", "source": "baseline",
+                            "verdict": "inconclusive", "observed": {"available": False,
+                            "note": tick.get("final_status_note")}})
+            bump("yellow")
+        inband_5xx = tick.get("inband_5xx") or {}
+        if sum(int(n or 0) for n in inband_5xx.values()) > 0:
+            bump("yellow")
         status_5xx_total = sum(int(count or 0) for count in status_5xx.values())
         status_5xx_verdict = (
             "fail" if status_5xx_total >= ERROR_STORM_THRESHOLD else "observe"
@@ -416,6 +432,7 @@ def evaluate(
                 "verdict": status_5xx_verdict,
                 "observed": {
                     "status_5xx": status_5xx,
+                    "inband_5xx": tick.get("inband_5xx") or {},
                     "total": status_5xx_total,
                     "storm_threshold": ERROR_STORM_THRESHOLD,
                 },

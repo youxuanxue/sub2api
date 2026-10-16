@@ -428,6 +428,7 @@ func TestGrokQuotaServiceProbeUsageLoadsProxyWhenAccountEdgeMissing(t *testing.T
 		proxies: map[int64]*Proxy{
 			proxyID: {
 				ID:       proxyID,
+				Status:   StatusActive,
 				Protocol: "http",
 				Host:     "proxy.test",
 				Port:     3128,

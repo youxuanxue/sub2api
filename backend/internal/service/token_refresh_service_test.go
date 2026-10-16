@@ -129,8 +129,17 @@ func (r *tokenRefreshAccountRepo) SetGrokCredentialErrorIfMatch(
 		hook()
 	}
 	account := r.accountsByID[id]
-	if !grokCredentialSnapshotMatchesAccount(account, snapshot) ||
-		(errorMsg == string(GrokCredentialReasonProxyInvalid) && account.Proxy != nil) {
+	matched := grokCredentialSnapshotMatchesAccount(account, snapshot)
+	if account != nil && errorMsg == string(GrokCredentialReasonProxyInvalid) {
+		// Production CAS intentionally admits a missing proxy for quarantine;
+		// scheduler transport readiness must not hide that row from this fake.
+		readiness := *account
+		readiness.ProxyID = nil
+		matched = readiness.IsGrokOAuth() && readiness.IsSchedulable() &&
+			grokCredentialMutationSnapshot(account).CredentialsJSON == snapshot.CredentialsJSON &&
+			grokCredentialProxyIDsEqual(account.ProxyID, snapshot.ProxyID)
+	}
+	if !matched || (errorMsg == string(GrokCredentialReasonProxyInvalid) && account.Proxy != nil) {
 		return false, nil
 	}
 	r.setErrorCalls++
@@ -1399,6 +1408,7 @@ func TestPathA_GrokPermanentFailureCASLetsConcurrentAccountRepairWin(t *testing.
 				Status:      StatusActive,
 				Schedulable: true,
 				ProxyID:     &proxyID,
+				Proxy:       &Proxy{ID: proxyID, Status: StatusActive},
 				Credentials: map[string]any{
 					"access_token":   "attempted-access",
 					"refresh_token":  "attempted-refresh",
@@ -1468,6 +1478,7 @@ func TestPathA_GrokTransientFailureCASLetsConcurrentAccountRepairWin(t *testing.
 				Status:      StatusActive,
 				Schedulable: true,
 				ProxyID:     &proxyID,
+				Proxy:       &Proxy{ID: proxyID, Status: StatusActive},
 				Credentials: map[string]any{
 					"access_token":   "attempted-access",
 					"refresh_token":  "attempted-refresh",

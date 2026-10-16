@@ -276,7 +276,8 @@
         "q.us-east-1.amazonaws.com",
         "doer = requestContextDoer{ctx: ctx, doer: doer}",
         "parseEventStream(resp.Body, callback, tools...)",
-        "!errors.Is(err, ErrInvalidToolUse)"
+        "!errors.Is(err, ErrInvalidToolUse)",
+        "IsUnsupportedImageFormatError(errBody)"
       ],
       "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for prod QA raw capture without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
     },
@@ -509,7 +510,9 @@
         "client cancellation must not be recorded as a Kiro upstream failure",
         "committed stream must not be retried",
         "discard me",
-        "recovered"
+        "recovered",
+        "TestKiroGatewayService_ImageFormatRejectionIsClientError",
+        "TestClassifyKiroImageValidationDoesNotMaskProviderFailure"
       ],
       "rationale": "Wire regression coverage for normal tool calls, client-owned tool names, stop reasons, content filtering, incomplete streams, retry integrity and thinking side channels."
     },
@@ -745,7 +748,8 @@
         "func isKiroTransportError",
         "errKiroEmptyResponse",
         "quota exhausted on",
-        "INVALID_MODEL_ID"
+        "INVALID_MODEL_ID",
+        "kiroproto.IsUnsupportedImageFormatError(body)"
       ],
       "rationale": "TK-only typed errors + classifier for Kiro request rejections, including CONTENT_FILTERED, INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; CONTENT_FILTERED returns a typed client-owned error without creating upstream error context, while real transport/read/empty-response causes retain sanitized upstream evidence. The handler maps request-owned outcomes to 400 without cross-account failover. Losing this file makes Kiro policy/validation outcomes fall back to generic forwarding errors or restores opaque 502s with no recoverable root cause."
     },

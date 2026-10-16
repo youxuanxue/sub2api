@@ -287,12 +287,9 @@ func (s *AntigravityOAuthService) RefreshAccountToken(ctx context.Context, accou
 		return nil, fmt.Errorf("无可用的 refresh_token")
 	}
 
-	var proxyURL string
-	if account.ProxyID != nil {
-		proxy, err := s.proxyRepo.GetByID(ctx, *account.ProxyID)
-		if err == nil && proxy != nil {
-			proxyURL = proxy.URL()
-		}
+	proxyURL, err := resolveOAuthAccountProxyURL(ctx, account, s.proxyRepo)
+	if err != nil {
+		return nil, err
 	}
 
 	tokenInfo, err := s.RefreshToken(ctx, refreshToken, proxyURL)
@@ -443,13 +440,11 @@ func resolveDefaultTierID(loadRaw map[string]any) string {
 
 // FillProjectID 仅获取 project_id，不刷新 OAuth token
 func (s *AntigravityOAuthService) FillProjectID(ctx context.Context, account *Account, accessToken string) (string, error) {
-	var proxyURL string
-	if account.ProxyID != nil {
-		proxy, err := s.proxyRepo.GetByID(ctx, *account.ProxyID)
-		if err == nil && proxy != nil {
-			proxyURL = proxy.URL()
-		}
+	proxyURL, err := resolveOAuthAccountProxyURL(ctx, account, s.proxyRepo)
+	if err != nil {
+		return "", err
 	}
+
 	result, err := s.loadProjectIDWithRetry(ctx, accessToken, proxyURL, 3)
 	if result != nil {
 		return result.ProjectID, err

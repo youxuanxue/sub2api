@@ -404,6 +404,9 @@ func (s *AccountTestService) testAccountConnectionWithAccount(c *gin.Context, ac
 		return nil
 	}
 	bindAccountTestPlatform(c, account)
+	if err := validateOAuthProxyBinding(account); err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
 
 	// Route to platform-specific test method
 	if account.IsCNProvider() {

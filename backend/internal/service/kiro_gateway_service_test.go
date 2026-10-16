@@ -829,6 +829,7 @@ func TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailove
 // The vendored Kiro client reads the body into its error string, so both
 // endpoints in the supported fallback list see the same rejection.
 type kiroStatusUpstream struct {
+	calls  int
 	status int
 	body   string
 }
@@ -838,6 +839,7 @@ func (u *kiroStatusUpstream) Do(*http.Request, string, int64, int) (*http.Respon
 }
 
 func (u *kiroStatusUpstream) DoWithTLS(_ *http.Request, _ string, _ int64, _ int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	u.calls++
 	return &http.Response{
 		StatusCode: u.status,
 		Header:     make(http.Header),
@@ -1158,4 +1160,41 @@ func TestGatewayService_Forward_Kiro401TriggersRateLimitRefresh(t *testing.T) {
 	require.Equal(t, 0, repo.setErrorCalls)
 	require.Equal(t, 1, repo.clearErrorCalls)
 	require.Equal(t, 1, repo.setSchedulableCalls)
+}
+
+// A plain upstream 400 has no AWS ValidationException marker. It must not
+// become generic 502 or retry the same invalid image against other accounts.
+func TestKiroGatewayService_ImageFormatRejectionIsClientError(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			upstream := &kiroStatusUpstream{status: http.StatusBadRequest, body: `{"message":"Image format is not supported."}`}
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			body, _ := json.Marshal(map[string]any{"model": "claude-opus-5-5", "stream": stream,
+				"messages": []map[string]any{{"role": "user", "content": "image request fixture"}}})
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				&ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-5-5", Stream: stream}, time.Now())
+			require.Nil(t, result)
+			var invalid *KiroInvalidRequestError
+			require.ErrorAs(t, err, &invalid)
+			require.Equal(t, http.StatusBadRequest, invalid.StatusCode)
+			require.Equal(t, "Image format is not supported.", invalid.ClientMessage())
+			var retry *UpstreamFailoverError
+			require.NotErrorAs(t, err, &retry)
+			require.Empty(t, rec.Body.String())
+			require.Equal(t, 1, upstream.calls, "invalid image must not retry another endpoint")
+		})
+	}
+}
+
+func TestClassifyKiroImageValidationDoesNotMaskProviderFailure(t *testing.T) {
+	for _, message := range []string{
+		`HTTP 503 from CodeWhisperer: {"message":"Image format is not supported."}`,
+		`HTTP 400 from CodeWhisperer: {"message":"provider failed", "echo":"Image format is not supported."}`,
+	} {
+		_, err := classifyKiroForwardError(errors.New(message), "claude-opus-5-5")
+		var retry *UpstreamFailoverError
+		require.ErrorAs(t, err, &retry)
+	}
 }

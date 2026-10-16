@@ -27,10 +27,11 @@ func TestIsModelSupported_OpenAIOAuthEmptyMapping_ServableModels(t *testing.T) {
 		"gpt-5.1-codex-mini",
 		"gpt-6-sol", // GPT-5 aliases now resolve to the retired Codex GPT-5.5
 		"codex-mini-latest",
-		"gpt5.3codexspark", // 别名拼写
-		"gpt-image-1",      // 图像生成模型
-		"gpt-4o",           // 保守 fail-open：非黑名单模型保持允许
-		"my-custom-alias",  // 自定义别名可能由渠道级映射在转发前改写，保持允许
+		"gpt5.3codexspark",  // 别名拼写
+		"gpt-image-1",       // 图像生成模型
+		"gpt-4o",            // 保守 fail-open：非黑名单模型保持允许
+		"qwen3custom-alias", // not a delimited vendor model
+		"my-custom-alias",   // 自定义别名可能由渠道级映射在转发前改写，保持允许
 	}
 	for _, model := range servable {
 		require.True(t, account.IsModelSupported(model), "expected %q to be servable by empty-mapping OpenAI OAuth account", model)
@@ -57,6 +58,9 @@ func TestIsModelSupported_OpenAIOAuthEmptyMapping_RejectsForeignModels(t *testin
 		"gemini-3.0-pro",
 		"grok-4",
 		"qwen3-max",
+		"qwen3.8-flash",
+		"Qwen/QWEN2.5-Coder-32B",
+		"qwen4.1-plus",
 		"minimax-m2.5",
 		"llama-3.3-70b",
 		"provider/deepseek-v4", // vendor/model 形式取最后一段判定
@@ -70,14 +74,16 @@ func TestIsModelSupported_OpenAIOAuthExplicitMappingUnchanged(t *testing.T) {
 	account := newOpenAIOAuthAccountForModelTest()
 	account.Credentials = map[string]any{
 		"model_mapping": map[string]any{
-			"deepseek-v4": "gpt-5.4",
-			"k3":          "gpt-5.4", // 显式映射优先：bare k3 仍可被账号声明支持
+			"deepseek-v4":   "gpt-5.4",
+			"qwen3.8-flash": "gpt-5.4",
+			"k3":            "gpt-5.4", // 显式映射优先：bare k3 仍可被账号声明支持
 		},
 	}
 
 	// 显式映射沿用原有语义：命中映射即支持，未命中即不支持。
 	require.True(t, account.IsModelSupported("deepseek-v4"))
 	require.True(t, account.IsModelSupported("k3"))
+	require.True(t, account.IsModelSupported("qwen3.8-flash"))
 	require.False(t, account.IsModelSupported("glm-4.7"))
 }
 

@@ -302,7 +302,8 @@ func isKiroProfileArnError(msg string) bool {
 
 func isKiroValidationErrorBody(body []byte) bool {
 	lower := strings.ToLower(string(body))
-	return strings.Contains(lower, "validationexception") ||
+	return kiroproto.IsUnsupportedImageFormatError(body) ||
+		strings.Contains(lower, "validationexception") ||
 		strings.Contains(lower, "invalidrequestexception") ||
 		isKiroInputTooLongError(lower)
 }

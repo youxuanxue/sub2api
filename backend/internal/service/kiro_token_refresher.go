@@ -48,6 +48,9 @@ func (r *KiroTokenRefresher) NeedsRefresh(account *Account, refreshWindow time.D
 // "invalid_grant"，由 isNonRetryableRefreshError 识别并标 error 移出调度，
 // 因此这里直接透传 error，不做额外失败处理。
 func (r *KiroTokenRefresher) Refresh(ctx context.Context, account *Account) (map[string]any, error) {
+	if err := validateOAuthProxyBinding(account); err != nil {
+		return nil, err
+	}
 	kiroAcct := account.toKiroProtoAccount()
 	access, refresh, expiresAt, profileArn, err := kiroproto.RefreshToken(kiroAcct)
 	if err != nil {

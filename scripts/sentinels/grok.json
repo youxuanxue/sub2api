@@ -698,7 +698,11 @@
       "path": "backend/internal/service/grok_token_provider.go",
       "must_contain": [
         "func GrokTokenCacheKey",
-        "grok:account:"
+        "grok:account:",
+        "func grokOAuthRequestAccountEligibilityError(",
+        "account.ProxyID != nil && account.Proxy == nil",
+        "return errGrokOAuthConfiguredProxyMiss",
+        "!account.IsSchedulable()"
       ],
       "rationale": "Grok token cache-key namespace (grok:account:<id>). Relocated here from grok_token_refresher.go during the 2026-06-27 reconciliation; a drift in this prefix silently breaks grok token cache invalidation."
     },
@@ -725,6 +729,57 @@
         "CommitProbeResult"
       ],
       "rationale": "Grok accounts with the same canonical endpoint identity share one capability row; account IDs are probe witnesses, not fact owners. Candidate discovery and capability-key coordination enter one endpoint-scoped probe, while the repository lease, generation/revision CAS, and one capability commit prevent duplicate work and stale writes; legacy account extra is rollback projection only."
+    },
+    {
+      "path": "backend/internal/service/grok_credential_failure.go",
+      "must_contain": [
+        "errors.Is(err, errOAuthProxyLookup)",
+        "errors.Is(err, errOAuthProxyRepository)",
+        "errors.Is(err, ErrOAuthProxyUnavailable)",
+        "class.reason == GrokCredentialReasonProxyInvalid",
+        "readiness.ProxyID = nil"
+      ],
+      "rationale": "Pinned OAuth proxy readiness must preserve Grok shared-fault attribution and conditional quarantine without bypassing execution readiness."
+    },
+    {
+      "path": "backend/internal/service/oauth_proxy_binding_test.go",
+      "must_contain": [
+        "TestOAuthProxyFailureScopePreservesSharedInfrastructure"
+      ],
+      "rationale": "Pinned OAuth proxy readiness must preserve Grok shared-fault attribution and conditional quarantine without bypassing execution readiness."
+    },
+    {
+      "path": "backend/internal/service/grok_credential_failure_test.go",
+      "must_contain": [
+        "TestGetRequestCredentialWarmCachedAccessWithMissingConfiguredProxyPermanentlyFailsOver",
+        "TestCredentialFailureConditionalMutationLosesToSameIDProxyRestoration"
+      ],
+      "rationale": "Pinned OAuth proxy readiness must preserve Grok shared-fault attribution and conditional quarantine without bypassing execution readiness."
+    },
+    {
+      "path": "backend/internal/service/grok_quota_service.go",
+      "must_contain": [
+        "validateOAuthProxyBinding(account)",
+        "resolveOAuthAccountProxy(ctx, account, s.proxyRepo)"
+      ],
+      "rationale": "Pinned OAuth egress must also protect admin tests and credential-bearing quota/model queries; cached usage remains readable."
+    },
+    {
+      "path": "backend/internal/service/grok_observed_models.go",
+      "must_contain": [
+        "s.resolveProxyURL(ctx, account)"
+      ],
+      "rationale": "Pinned OAuth egress must also protect admin tests and credential-bearing quota/model queries; cached usage remains readable."
+    },
+    {
+      "path": "backend/internal/service/oauth_proxy_admin_test.go",
+      "must_contain": [
+        "TestOAuthAdminTestRejectsUnavailableProxyBeforeNetwork",
+        "TestOAuthAnthropicUsageRejectsUnavailableProxyBeforeNetwork",
+        "TestOAuthQuotaRejectsUnavailableProxyBeforeNetwork",
+        "TestOAuthUnavailableProxyKeepsCachedUsageReadable"
+      ],
+      "rationale": "Pinned OAuth egress must also protect admin tests and credential-bearing quota/model queries; cached usage remains readable."
     }
   ]
 }

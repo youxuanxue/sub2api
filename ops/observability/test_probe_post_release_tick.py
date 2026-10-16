@@ -39,10 +39,16 @@ if [ "$1" = inspect ]; then
     *) exit 1 ;;
   esac
 fi
+if [ "$1" = exec ]; then
+  if [ "${OPS_QUERY_FAIL:-0}" = 1 ]; then exit 1; fi
+  printf '%s' "${OPS_ROWS:-}"
+  exit 0
+fi
 if [ "$1" = logs ]; then
+  if [ -n "${ACCESS_ROWS:-}" ]; then printf '%s' "$ACCESS_ROWS"; exit 0; fi
   cat <<'LOGS'
-2026-06-24T05:00:00Z INFO http request completed {"request_id":"r1","path":"/v1/messages","status_code":200}
-2026-06-24T05:00:00Z INFO http request completed {"request_id":"r2","path":"/admin/users/42","status_code":200}
+2026-06-24T05:00:00Z INFO http request completed {"request_id":"r1","path":"/v1/messages","status_code":200,"completed_at":"2026-06-24T05:00:00Z"}
+2026-06-24T05:00:00Z INFO http request completed {"request_id":"r2","path":"/admin/users/42","status_code":200,"completed_at":"2026-06-24T05:00:00Z"}
 2026-06-24T05:00:01Z INFO anthropic_downstream_kiro_oauth_403_skip_penalty
 LOGS
   exit 0
@@ -58,6 +64,7 @@ class ProbePostReleaseTickTest(unittest.TestCase):
         states: dict[str, str],
         active_color: str | None,
         traffic_paths: str = "/v1/messages",
+        extra_env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as td:
             tmp = pathlib.Path(td)
@@ -78,6 +85,7 @@ class ProbePostReleaseTickTest(unittest.TestCase):
                 "HOOK_PATTERNS": "anthropic_downstream_kiro_oauth_403_skip_penalty",
                 "TRAFFIC_PATHS": traffic_paths,
             }
+            env.update(extra_env or {})
             for name, state in states.items():
                 env[f"STATE_{name.replace('-', '_').upper()}"] = state
 
@@ -95,6 +103,75 @@ class ProbePostReleaseTickTest(unittest.TestCase):
             if line.startswith("{") and '"container_resolution"' in line:
                 return json.loads(line)
         return None
+
+    def traffic_of(self, proc):
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return next(json.loads(line) for line in proc.stdout.splitlines()
+                    if line.startswith("{") and '"completed_total"' in line)
+
+    def test_sse_final_failure_counts_once_and_unrelated_request_does_not(self):
+        rows = [
+            {"request_id": "r1", "status_code": 503},
+            {"request_id": "r1", "status_code": 503},
+            {"request_id": "outside-window", "status_code": 502},
+        ]
+        traffic = self.traffic_of(self.run_probe(
+            states={"tokenkey-green": "running"}, active_color="green",
+            extra_env={"OPS_ROWS": "\n".join(json.dumps(row) for row in rows)},
+        ))
+        self.assertEqual(traffic["http_status_5xx"], {})
+        self.assertEqual(traffic["inband_5xx"], {"503": 1})
+        self.assertEqual(traffic["status_5xx"], {"503": 1})
+        self.assertTrue(traffic["final_status_available"])
+
+    def test_wire_failure_is_not_double_counted_with_ops_final_failure(self):
+        line = 'INFO http request completed ' + json.dumps({
+            "request_id": "failed", "status_code": 502, "path": "/v1/messages",
+            "completed_at": "2026-06-24T05:00:00Z",
+        })
+        traffic = self.traffic_of(self.run_probe(
+            states={"tokenkey-green": "running"}, active_color="green",
+            extra_env={"ACCESS_ROWS": line,
+                       "OPS_ROWS": json.dumps({"request_id": "failed", "status_code": 502})},
+        ))
+        self.assertEqual(traffic["status_5xx"], {"502": 1})
+        self.assertEqual(traffic["inband_5xx"], {})
+
+    def test_unavailable_semantic_query_is_unknown(self):
+        for extra in ({"OPS_QUERY_FAIL": "1"}, {"OPS_ROWS": "malformed"}):
+            with self.subTest(extra=extra):
+                traffic = self.traffic_of(self.run_probe(
+                    states={"tokenkey-green": "running"}, active_color="green", extra_env=extra,
+                ))
+                self.assertFalse(traffic["final_status_available"])
+                self.assertEqual(traffic["status_5xx"], {})
+
+    def test_missing_or_naive_correlation_metadata_cannot_report_healthy(self):
+        for incomplete in ({"request_id": "old", "status_code": 200},
+                           {"status_code": 200},
+                           {"request_id": "naive", "status_code": 200,
+                            "completed_at": "2026-06-24T05:00:00"}):
+            complete = {"request_id": "r1", "status_code": 200,
+                        "completed_at": "2026-06-24T05:00:00Z"}
+            with self.subTest(incomplete=incomplete):
+                traffic = self.traffic_of(self.run_probe(
+                    states={"tokenkey-green": "running"}, active_color="green",
+                    extra_env={"ACCESS_ROWS": "\n".join(
+                        'INFO http request completed ' + json.dumps(row)
+                        for row in [complete, incomplete])},
+                ))
+                self.assertFalse(traffic["final_status_available"])
+
+    def test_unparseable_completion_record_is_unknown_not_empty_healthy_window(self):
+        for line in ('INFO http request completed {"request_id":"r1",broken',
+                     'INFO http request completed without JSON'):
+            with self.subTest(line=line):
+                traffic = self.traffic_of(self.run_probe(
+                    states={"tokenkey-green": "running"}, active_color="green",
+                    extra_env={"ACCESS_ROWS": line},
+                ))
+                self.assertFalse(traffic["final_status_available"])
+                self.assertEqual(traffic["completed_total"], 0)
 
     def test_syntax_clean(self) -> None:
         proc = subprocess.run(

@@ -470,6 +470,17 @@ func (s *OpenAIQuotaService) prepareUpstreamCall(ctx context.Context, accountID 
 		}
 		account = resolved
 	}
+	if account.ProxyID != nil && account.Proxy != nil {
+		if err := validateOAuthProxyBinding(account); err != nil {
+			return "", "", "", false, err
+		}
+		proxyURL = account.Proxy.URL()
+	} else {
+		proxyURL, err = resolveOAuthAccountProxyURL(ctx, account, s.proxyRepo)
+		if err != nil {
+			return "", "", "", false, err
+		}
+	}
 
 	chatGPTAccountID = strings.TrimSpace(account.GetCredential("chatgpt_account_id"))
 	if chatGPTAccountID == "" {
@@ -493,22 +504,6 @@ func (s *OpenAIQuotaService) prepareUpstreamCall(ctx context.Context, accountID 
 		}
 	}
 	fedRAMP = account.IsChatGPTAccountFedRAMP()
-
-	// account.Proxy is eager-loaded by accountRepo.GetByID (see
-	// repository.accountsToService), so we can read the proxy URL directly
-	// instead of round-tripping the DB again. Fall back to proxyRepo only
-	// when Proxy isn't pre-populated (defensive — e.g. callers that built
-	// the Account by hand).
-	if account.ProxyID != nil {
-		switch {
-		case account.Proxy != nil:
-			proxyURL = account.Proxy.URL()
-		case s.proxyRepo != nil:
-			if proxy, perr := s.proxyRepo.GetByID(ctx, *account.ProxyID); perr == nil && proxy != nil {
-				proxyURL = proxy.URL()
-			}
-		}
-	}
 
 	return accessToken, chatGPTAccountID, proxyURL, fedRAMP, nil
 }

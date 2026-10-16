@@ -704,7 +704,8 @@
     {
       "path": "backend/internal/service/account.go",
       "must_contain": [
-        "a.Type != AccountTypeAPIKey && !a.IsNewAPIVertexServiceAccount()"
+        "a.Type != AccountTypeAPIKey && !a.IsNewAPIVertexServiceAccount()",
+        "validateOAuthProxyBinding(a)"
       ],
       "rationale": "Vertex embedding service accounts must survive the same scheduler capability gate as discovery, without admitting other OAuth/service-account shapes."
     },
@@ -1566,7 +1567,8 @@
       "must_contain": [
         "freshPlan, err := planProtocolRoute(ctx, router, request, fresh)",
         "protocolrouter.AdapterGeminiToChat:",
-        "protocolExecutorsFromContext(ctx).GeminiToChat"
+        "protocolExecutorsFromContext(ctx).GeminiToChat",
+        "validateOAuthProxyBinding(freshAccount)"
       ],
       "rationale": "Send-time freshness must enforce the same native-only route policy as admission."
     },
@@ -17346,6 +17348,166 @@
         "TestAdminService_UniversalKeyGroupBinding"
       ],
       "rationale": "Universal admin mutations must clear only group binding, invalidate auth caches and never auto-grant group access."
+    },
+    {
+      "path": "backend/internal/service/oauth_proxy_binding.go",
+      "must_contain": [
+        "func validateOAuthProxyBinding(",
+        "func resolveOAuthAccountProxyURL(",
+        "ErrOAuthProxyUnavailable"
+      ],
+      "rationale": "OAuth consolidation safety: preserve shared route readiness, request error classification and final stream failure observation."
+    },
+    {
+      "path": "backend/internal/service/oauth_refresh_api.go",
+      "must_contain": [
+        "validateOAuthProxyBinding(freshAccount)"
+      ],
+      "rationale": "OAuth consolidation safety: preserve shared route readiness, request error classification and final stream failure observation."
+    },
+    {
+      "path": "backend/internal/service/openai_model_mapping.go",
+      "must_contain": [
+        "openAIOAuthQwenVersion.MatchString(model)"
+      ],
+      "rationale": "OAuth consolidation safety: preserve shared route readiness, request error classification and final stream failure observation."
+    },
+    {
+      "path": "ops/observability/probe-post-release-tick.sh",
+      "must_contain": [
+        "FROM ops_error_logs",
+        "final_status_available",
+        "inband_5xx"
+      ],
+      "rationale": "OAuth consolidation safety: preserve shared route readiness, request error classification and final stream failure observation."
+    },
+    {
+      "path": "backend/internal/service/oauth_proxy_binding_test.go",
+      "must_contain": [
+        "TestOAuthProviderRefreshRejectsUnavailableProxyBeforeNetwork",
+        "TestOAuthRefreshRereadsProxyBeforeExecutor",
+        "TestExecuteSelectedProtocolRejectsLostOAuthProxyBeforeExecutor"
+      ],
+      "rationale": "OAuth refresh must use the shared pinned proxy readiness gate before any credential-bearing request."
+    },
+    {
+      "path": "backend/internal/service/kiro_token_refresher.go",
+      "must_contain": [
+        "validateOAuthProxyBinding(account)"
+      ],
+      "rationale": "OAuth refresh must use the shared pinned proxy readiness gate before any credential-bearing request."
+    },
+    {
+      "path": "backend/internal/service/oauth_service.go",
+      "must_contain": [
+        "resolveOAuthAccountProxyURL(ctx, account, s.proxyRepo)"
+      ],
+      "rationale": "OAuth refresh must use the shared pinned proxy readiness gate before any credential-bearing request."
+    },
+    {
+      "path": "backend/internal/service/openai_oauth_service.go",
+      "must_contain": [
+        "resolveOAuthAccountProxyURL(ctx, account, s.proxyRepo)"
+      ],
+      "rationale": "OAuth refresh must use the shared pinned proxy readiness gate before any credential-bearing request."
+    },
+    {
+      "path": "backend/internal/service/antigravity_oauth_service.go",
+      "must_contain": [
+        "resolveOAuthAccountProxyURL(ctx, account, s.proxyRepo)"
+      ],
+      "rationale": "OAuth refresh must use the shared pinned proxy readiness gate before any credential-bearing request."
+    },
+    {
+      "path": "backend/internal/service/gemini_oauth_service.go",
+      "must_contain": [
+        "resolveOAuthAccountProxyURL(ctx, account, s.proxyRepo)"
+      ],
+      "rationale": "OAuth refresh must use the shared pinned proxy readiness gate before any credential-bearing request."
+    },
+    {
+      "path": "backend/internal/service/grok_oauth_service.go",
+      "must_contain": [
+        "resolveOAuthAccountProxyURL(ctx, account, s.proxyRepo)"
+      ],
+      "rationale": "OAuth refresh must use the shared pinned proxy readiness gate before any credential-bearing request."
+    },
+    {
+      "path": "backend/internal/service/token_refresh_service.go",
+      "must_contain": [
+        "resolveOAuthAccountProxyURL(ctx, account, s.proxyRepo)"
+      ],
+      "rationale": "OAuth refresh must use the shared pinned proxy readiness gate before any credential-bearing request."
+    },
+    {
+      "path": "backend/internal/service/account_test_service.go",
+      "must_contain": [
+        "validateOAuthProxyBinding(account)"
+      ],
+      "rationale": "Pinned OAuth egress must also protect admin tests and credential-bearing quota/model queries; cached usage remains readable."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service.go",
+      "must_contain": [
+        "validateOAuthProxyBinding(account)"
+      ],
+      "rationale": "Pinned OAuth egress must also protect admin tests and credential-bearing quota/model queries; cached usage remains readable."
+    },
+    {
+      "path": "backend/internal/service/antigravity_quota_fetcher.go",
+      "must_contain": [
+        "resolveOAuthAccountProxyURL(ctx, account, f.proxyRepo)"
+      ],
+      "rationale": "Pinned OAuth egress must also protect admin tests and credential-bearing quota/model queries; cached usage remains readable."
+    },
+    {
+      "path": "backend/internal/service/openai_quota_service.go",
+      "must_contain": [
+        "validateOAuthProxyBinding(account)",
+        "resolveOAuthAccountProxyURL(ctx, account, s.proxyRepo)"
+      ],
+      "rationale": "Pinned OAuth egress must also protect admin tests and credential-bearing quota/model queries; cached usage remains readable."
+    },
+    {
+      "path": "backend/internal/service/grok_quota_service.go",
+      "must_contain": [
+        "validateOAuthProxyBinding(account)",
+        "resolveOAuthAccountProxy(ctx, account, s.proxyRepo)"
+      ],
+      "rationale": "Pinned OAuth egress must also protect admin tests and credential-bearing quota/model queries; cached usage remains readable."
+    },
+    {
+      "path": "backend/internal/service/grok_observed_models.go",
+      "must_contain": [
+        "s.resolveProxyURL(ctx, account)"
+      ],
+      "rationale": "Pinned OAuth egress must also protect admin tests and credential-bearing quota/model queries; cached usage remains readable."
+    },
+    {
+      "path": "backend/internal/service/oauth_proxy_admin_test.go",
+      "must_contain": [
+        "TestOAuthAdminTestRejectsUnavailableProxyBeforeNetwork",
+        "TestOAuthAnthropicUsageRejectsUnavailableProxyBeforeNetwork",
+        "TestOAuthQuotaRejectsUnavailableProxyBeforeNetwork",
+        "TestOAuthUnavailableProxyKeepsCachedUsageReadable",
+        "TestOAuthAntigravityProxyFailureDoesNotClearCredentialError",
+        "TestOAuthModelsRejectsUnavailableProxyBeforeNetwork"
+      ],
+      "rationale": "Pinned OAuth egress must also protect admin tests and credential-bearing quota/model queries; cached usage remains readable."
+    },
+    {
+      "path": "backend/internal/service/upstream_models.go",
+      "must_contain": [
+        "validateOAuthProxyBinding(account)"
+      ],
+      "rationale": "Model discovery must preserve pinned OAuth egress when the configured proxy is unavailable."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_models_service.go",
+      "must_contain": [
+        "validateOAuthProxyBinding(account)"
+      ],
+      "rationale": "Model discovery must preserve pinned OAuth egress when the configured proxy is unavailable."
     }
   ]
 }

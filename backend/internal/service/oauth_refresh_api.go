@@ -261,6 +261,10 @@ func (api *OAuthRefreshAPI) refresh(
 		return &OAuthRefreshResult{Account: freshAccount}, nil
 	}
 
+	if err := validateOAuthProxyBinding(freshAccount); err != nil {
+		return nil, err
+	}
+
 	// 3. 二次检查是否仍需刷新（另一条路径可能已刷新）。force=true 时跳过，
 	// 用于已经收到上游 401 的当前 token。
 	if !force && !executor.NeedsRefresh(freshAccount, refreshWindow) {

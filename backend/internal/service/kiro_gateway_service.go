@@ -247,6 +247,9 @@ func (s *KiroGatewayService) Forward(
 		return nil, fmt.Errorf("kiro forward: empty request")
 	}
 
+	if err := validateOAuthProxyBinding(account); err != nil {
+		return nil, err
+	}
 	kiroAcct := account.toKiroProtoAccount()
 
 	var req kiroproto.ClaudeRequest

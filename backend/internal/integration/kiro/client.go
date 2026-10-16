@@ -491,6 +491,10 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			lastErr = fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, ep.Name, string(errBody))
+			// A rejected image is request-scoped; another endpoint cannot fix it.
+			if resp.StatusCode == http.StatusBadRequest && IsUnsupportedImageFormatError(errBody) {
+				return lastErr
+			}
 			// Auth/payment errors normally aren't retried across endpoints (the same
 			// token would be rejected everywhere). EXCEPTION: runtime.kiro.dev is a
 			// different gateway/entitlement domain than the transitional q host, so

@@ -715,7 +715,7 @@ func TestGetRequestCredentialMapsTransientAndProviderFailuresSeparately(t *testi
 		account := expiredGrokOAuthAccountForCredentialTest(711)
 		proxyID := int64(43)
 		account.ProxyID = &proxyID
-		account.Proxy = &Proxy{}
+		account.Proxy = &Proxy{ID: *account.ProxyID, Status: StatusActive}
 		repo := &tokenRefreshAccountRepo{}
 		repo.accountsByID = map[int64]*Account{account.ID: account}
 		cache := &grokTokenCacheForProviderTest{lockResult: true}
@@ -742,7 +742,7 @@ func TestGetRequestCredentialMapsTransientAndProviderFailuresSeparately(t *testi
 		account := expiredGrokOAuthAccountForCredentialTest(709)
 		proxyID := int64(41)
 		account.ProxyID = &proxyID
-		account.Proxy = &Proxy{}
+		account.Proxy = &Proxy{ID: *account.ProxyID, Status: StatusActive}
 		repo := &tokenRefreshAccountRepo{}
 		repo.accountsByID = map[int64]*Account{account.ID: account}
 		cache := &grokTokenCacheForProviderTest{lockResult: true}
@@ -1433,7 +1433,7 @@ func TestCredentialFailureConditionalMutationLosesToConcurrentProxyRepair(t *tes
 			account := expiredGrokOAuthAccountForCredentialTest(int64(780 + index))
 			oldProxyID := int64(10)
 			account.ProxyID = &oldProxyID
-			account.Proxy = &Proxy{}
+			account.Proxy = &Proxy{ID: *account.ProxyID, Status: StatusActive}
 			repo := &tokenRefreshAccountRepo{}
 			repo.accountsByID = map[int64]*Account{account.ID: account}
 			repo.beforeConditionalState = func() {

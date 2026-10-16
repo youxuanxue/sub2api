@@ -93,7 +93,11 @@ func TestGrokQuotaBillingStillRejectsUnavailableCredentialsDuringCooldown(t *tes
 			upstream := &grokHybridUpstream{}
 			svc := NewGrokQuotaService(repo, nil, NewGrokTokenProvider(repo, nil), upstream, nil)
 			_, err := svc.ProbeBilling(context.Background(), account.ID)
-			require.ErrorContains(t, err, "GROK_QUOTA_TOKEN_UNAVAILABLE")
+			if account.ProxyID != nil {
+				require.ErrorIs(t, err, ErrOAuthProxyUnavailable)
+			} else {
+				require.ErrorContains(t, err, "GROK_QUOTA_TOKEN_UNAVAILABLE")
+			}
 			requests, _ := upstream.snapshot()
 			require.Empty(t, requests)
 		})

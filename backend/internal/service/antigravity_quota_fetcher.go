@@ -48,6 +48,15 @@ func (f *AntigravityQuotaFetcher) CanFetch(account *Account) bool {
 
 // FetchQuota 获取 Antigravity 账户额度信息
 func (f *AntigravityQuotaFetcher) FetchQuota(ctx context.Context, account *Account, proxyURL string) (*QuotaResult, error) {
+	if account.Type == AccountTypeOAuth || account.Type == AccountTypeSetupToken {
+		resolved, err := resolveOAuthAccountProxyURL(ctx, account, f.proxyRepo)
+		if err != nil {
+			return nil, err
+		}
+		proxyURL = resolved
+	} else if proxyURL == "" {
+		proxyURL = f.GetProxyURL(ctx, account)
+	}
 	accessToken := account.GetCredential("access_token")
 	projectID := account.GetCredential("project_id")
 
