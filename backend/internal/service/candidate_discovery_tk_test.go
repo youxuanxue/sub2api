@@ -307,3 +307,29 @@ func TestCandidateDiscoveryKeepsVerifiedModelsWhenDifferentModelIsUnknown(t *tes
 		})
 	}
 }
+
+func TestCandidateDiscoverySkipsProviderPrefixedIDsForGeminiShape(t *testing.T) {
+	// Prod 2026-10-16: universal /v1/models failed closed when ShapeGemini evaluated
+	// catalog id "grok/grok-4.20-0309-non-reasoning" against live gemini-web accounts
+	// (upstream path guard rejects "/"). Prefixed IDs must not abort discovery.
+	prefixed := "grok/grok-4.20-0309-non-reasoning"
+	geminiGroup := grpNoImage(740, PlatformGemini, 0, false)
+	openaiGroup := grpNoImage(10, PlatformOpenAI, 0, false)
+	gemini := globalCandidateAccount(255, 1, 740)
+	gemini.Platform = PlatformGemini
+	gemini.Credentials["model_mapping"] = map[string]any{"gemini-3.8-flash": "gemini-web-flash"}
+	openai := globalCandidateAccount(1, 1, 10)
+	openai.Credentials["model_mapping"] = map[string]any{
+		"gpt-5.4": "gpt-5.4",
+		prefixed:  "grok-4.20-0309-non-reasoning",
+	}
+	attachTestProtocolCapability(&openai, protocolrouter.ProtocolChatCompletions)
+	svc, key := candidateDiscoveryFixture([]Group{openaiGroup, geminiGroup}, []Account{openai, gemini})
+	models, _, err := svc.DiscoverCandidates(context.Background(), key, UniversalProtocolOpenAI)
+	require.NoError(t, err, "provider-prefixed id must not fail-close /v1/models")
+	ids := make([]string, 0, len(models))
+	for _, m := range models {
+		ids = append(ids, m.ID)
+	}
+	require.Contains(t, ids, "gpt-5.4")
+}
