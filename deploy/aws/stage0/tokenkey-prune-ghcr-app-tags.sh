@@ -1,26 +1,32 @@
 #!/bin/bash
-# TokenKey Stage0 — prune local GHCR app image tags after each compose pull (inner script).
-# Served from SSM .../ghcr-prune.b64 (base64); loader at /usr/local/bin/tokenkey-prune-ghcr-app-tags.sh
-# fetches and execs this file. Keeps the most recent KEEP_N tags by image Created time, plus every
-# tag for the image running in container "tokenkey".
-#
-# Source: deploy/aws/stage0/tokenkey-prune-ghcr-app-tags.sh — refresh via deploy/aws/stage0/build-cfn.sh.
-# Optional: TOKENKEY_GHCR_KEEP_TAGS in /var/lib/tokenkey/.env (default 10).
+# Prune GHCR tags; SSM core owned here. Regenerate via build-cfn.sh.
+# TOKENKEY_GHCR_KEEP_TAGS defaults to 10.
 
 set -euo pipefail
 
 KEEP_N="${TOKENKEY_GHCR_KEEP_TAGS:-10}"
-ENV_FILE="/var/lib/tokenkey/.env"
+ENV_FILE="${TOKENKEY_PRUNE_ENV_FILE:-/var/lib/tokenkey/.env}"
 
 if [ ! -f "${ENV_FILE}" ]; then
   echo "tokenkey-prune-ghcr-app-tags: missing ${ENV_FILE}" >&2
   exit 0
 fi
 
-# shellcheck disable=SC1090
-set -a
-. "${ENV_FILE}"
-set +a
+# Dotenv is data, not shell: migration CIDRs contain spaces and credentials
+# may contain shell syntax. Read only the image reference needed by this job.
+TOKENKEY_IMAGE="$(python3 - "${ENV_FILE}" <<'PYENV'
+from pathlib import Path
+import sys
+value = ""
+for line in Path(sys.argv[1]).read_text().splitlines():
+    key, sep, candidate = line.partition("=")
+    if sep and key.strip() == "TOKENKEY_IMAGE":
+        value = candidate.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+print(value)
+PYENV
+)"
 
 if [ -z "${TOKENKEY_IMAGE:-}" ]; then
   echo "tokenkey-prune-ghcr-app-tags: TOKENKEY_IMAGE empty" >&2

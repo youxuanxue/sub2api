@@ -94,7 +94,7 @@ PROD_SSM_TARGET=hetzner bash ops/observability/run-probe.sh --target prod \
 1. **新 AWS 舰队已接流量**：prod 与四个 edge 均完成迁移；当前镜像以 live SSM/container 为准，QA maintenance pin 独立发布。
 2. **账号策略已调整**：prod 原生账号（含从 edge 复制的账号）承接请求，旧中继与 edge 账号保留但停用。历史 Gemini pending/blocked 等账号问题由运营处理；本轮基础设施收尾不自动启用账号或中继。
 3. **旧主机保留**：四台旧 Hcloud edge 已完成回收准备，默认七天保留期后的销毁另行确认；旧 Hcloud prod 仍有真实请求转发，继续保留 transition Caddy 与旧信任。旧 AWS standby 仅作归档，已停备份与业务自启动入口。
-4. **QA 维护已恢复**：新 prod capture 继续启用，归档仍写 Hetzner；已恢复独立 archive/boundary timer 并实测归档及恢复验证。存量 raw 不搬，AWS 历史存储沿原生命周期到期，恢复权限保留。当前验收、未迁 raw 边界与资源退役条件见 [QA 运维入口](../../ops/qa/README.md#aws-新-prod-迁移后的维护恢复)。
+4. **QA 维护**：新 prod capture 继续启用；按用户纠正，日常新增归档目标为同区域 AWS S3，独立 archive/boundary timer 与 pin 保留。存量 raw 不搬，两侧历史数据沿原生命周期到期，恢复权限保留。当前验收、未迁 raw 边界与资源退役条件见 [QA 运维入口](../../ops/qa/README.md#aws-新-prod-迁移后的维护恢复)。
 5. **灾备与告警**：新 prod 纳入每日 DLM；跨区域宿主 HTTPS watch 补足 GitHub schedule 延迟。首次快照及隔离备份恢复的验收状态见 [迁移收尾](../../docs/approved/aws-migration-closeout-20261016.md)。
 
 ## 校验
@@ -115,7 +115,7 @@ bash deploy/hetzner/render-prod-bootstrap.sh --check
 | 类别 | 当前用途 / owner | 清理条件 |
 |---|---|---|
 | SSM Hybrid / Parameter Store / STS OIDC | Lightsail / 历史 Hcloud 远程执行、参数与 GHCR 身份；`ops/stage0/{resolve_prod_ssm_target,edge_ssm_execution}.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
-| QA raw archive | 新归档已写入 Hetzner；AWS raw 栈仅保留旧数据恢复与审计，存量按原生命周期自然到期 | 按 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)核查实际到期与对象清单；AWS 桶、KMS 和恢复角色销毁另行审批 |
+| QA raw archive | 新增日常归档回归 AWS S3；Hetzner 仅保留历史小时恢复，存量按原生命周期自然到期 | 按 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)核查实际到期与对象清单；AWS 桶、KMS 和恢复角色销毁另行审批 |
 | PG dump | 五台现役 AWS 节点使用原 AWS 私有桶，prod 与 edge 前缀隔离；旧 Hcloud 存储保留历史恢复 | 当前节点的隔离恢复与定时任务验收见 [收尾记录](../../docs/approved/aws-migration-closeout-20261016.md)；不销毁旧数据 |
 | env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
 | 历史 archive / dormant media 桶 | 历史数据与停用配置；媒体默认不启用 S3，只有显式 opt-in | 资产销毁另行审批，不能把停用 bucket 描述成现网迁移对象 |
@@ -132,7 +132,7 @@ bash deploy/hetzner/render-prod-bootstrap.sh --check
 | `HCLOUD_TOKEN` | hcloud 资源管理；普通镜像升级走 SSM，不重新 provision |
 | `HCLOUD_S3_Access_Key` / `HCLOUD_S3_Secret_Key` | 本机受保护的对象存储凭据；不输出、不入库 |
 | `QA_*` | QA 独立迁移契约；不得因网关迁完而直接切换默认值 |
-| `QA_LIVE_ARCHIVE_*`（脚本内部常量） | 现行 QA raw 坐标由 `ops/stage0/qa-runtime-environment.sh` 统一持有；HCloud prod 蓝绿发布缺失或偏离这些坐标时直接失败。旧 AWS IAM/raw 检查仅显式传 `--legacy-aws` |
+| `QA_LIVE_ARCHIVE_*`（脚本内部常量） | 现行 QA raw 坐标由 `ops/stage0/qa-runtime-environment.sh` 统一持有；prod 蓝绿发布缺失或偏离这些坐标、意外配置静态凭据时直接失败。AWS IAM/raw 策略检查兼容保留 `--legacy-aws` 参数 |
 | `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` / `EDGE_GHCR_PAT_SSM_NAME` | 仍由现网发布使用，值见本文件现网不变量 |
 
 媒体默认 AWS 坐标清理：`ops/stage0/retire_dormant_media_storage.py` 默认 plan；

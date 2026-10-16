@@ -17009,19 +17009,19 @@
       "path": "ops/stage0/qa-runtime-environment.sh",
       "must_contain": [
         "QA_LIVE_ARCHIVE_STORAGE_DRIVER=\"s3\"",
-        "QA_LIVE_ARCHIVE_STORAGE_REGION=\"fsn1\"",
-        "QA_LIVE_ARCHIVE_STORAGE_BUCKET=\"tokenkey-qa-raw-fsn1-dd2ca9019b22\"",
-        "QA_LIVE_ARCHIVE_STORAGE_ENDPOINT=\"https://fsn1.your-objectstorage.com\"",
+        "QA_LIVE_ARCHIVE_STORAGE_REGION=\"us-east-1\"",
+        "QA_LIVE_ARCHIVE_STORAGE_BUCKET=\"tokenkey-prod-qa-raw-archive-682751977094\"",
+        "QA_LIVE_ARCHIVE_STORAGE_ENDPOINT=\"https://s3.us-east-1.amazonaws.com\"",
         "QA_LIVE_ARCHIVE_STORAGE_PREFIX=\"raw/v1\""
       ],
-      "rationale": "Live QA raw storage coordinates are owned here and shared with the delivered deployment script and health evaluator. Ordinary releases must not silently restore AWS raw defaults."
+      "rationale": "Live QA raw storage coordinates are owned here and shared with the delivered deployment script and health evaluator. Ordinary releases must not silently change the explicitly approved AWS raw coordinates."
     },
     {
       "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
       "must_contain": [
         "assert_live_qa_archive_coordinates() {",
         "  assert_live_qa_archive_coordinates",
-        "[[ \"${HYBRID_PROD:-false}\" = true ]] || return 0",
+        "live QA archive requires EC2 instance-role authentication",
         "DELIVER_QA_ARCHIVE_REGION=\"${QA_ARCHIVE_STORAGE_REGION:-${QA_LIVE_ARCHIVE_STORAGE_REGION}}\"",
         "env_default TELEMETRY_ARCHIVE_BUCKET \"${TELEMETRY_ARCHIVE_BUCKET:-}\"",
         "DELIVER_TELEMETRY_BUCKET=\"${TELEMETRY_ARCHIVE_BUCKET:-}\""
@@ -17029,7 +17029,7 @@
       "must_not_contain": [
         "tokenkey-prod-qa-raw-archive-682751977094"
       ],
-      "rationale": "HCloud prod deploys validate existing raw coordinates before preparing a gateway; missing settings fail instead of changing buckets. Explicit EC2 standby is preserved. Disabled telemetry also has no implicit AWS storage destination."
+      "rationale": "Prod deploys validate existing raw coordinates and EC2 role authentication before preparing a gateway; missing settings fail instead of changing buckets. Disabled telemetry also has no implicit AWS storage destination."
     },
     {
       "path": "deploy/aws/stage0/qa-runtime-compose.yml",
@@ -17037,10 +17037,10 @@
         "${QA_ARCHIVE_STORAGE_DRIVER:?QA_ARCHIVE_STORAGE_DRIVER is required}",
         "${QA_ARCHIVE_STORAGE_REGION:?QA_ARCHIVE_STORAGE_REGION is required}",
         "${QA_ARCHIVE_STORAGE_ENDPOINT:?QA_ARCHIVE_STORAGE_ENDPOINT is required}",
-        "${QA_ARCHIVE_STORAGE_CREDENTIALS_FILE:?QA_ARCHIVE_STORAGE_CREDENTIALS_FILE is required}",
+        "${QA_ARCHIVE_STORAGE_CREDENTIALS_FILE:-}",
         "${QA_ARCHIVE_STORAGE_PREFIX:?QA_ARCHIVE_STORAGE_PREFIX is required}"
       ],
-      "rationale": "The HCloud maintenance pin consumes this shared template. Omitted storage configuration must not silently fall back to AWS credentials or endpoints."
+      "rationale": "The independent maintenance pin requires explicit storage coordinates. An empty private credential path permits EC2 instance-role authentication."
     },
     {
       "path": "ops/observability/probe-qa-phase2-live-health.sh",
@@ -17060,16 +17060,16 @@
         "\"qa_runtime_storage_unavailable\"",
         "skip_iam = not args.legacy_aws"
       ],
-      "rationale": "Live QA health validates the maintenance pin against the shared Hetzner contract, fails on missing evidence, and keeps historical AWS IAM explicit."
+      "rationale": "Live QA health validates the maintenance pin against the shared AWS contract, fails on missing evidence, and keeps historical AWS IAM explicit."
     },
     {
       "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
       "must_contain": [
-        "def test_live_qa_coordinates_are_hcloud_and_complete(",
-        "for override in (\"HYBRID_PROD=false\", \"DEPLOY_PROFILE=edge\")",
+        "def test_live_qa_coordinates_are_aws_and_complete(",
+        "for override in (\"DEPLOY_PROFILE=edge\",)",
         "test_telemetry_defaults_are_empty_and_explicit_storage_survives"
       ],
-      "rationale": "Executable guard regressions cover valid HCloud coordinates, AWS drift, missing credentials and historical standby/edge isolation."
+      "rationale": "Executable guard regressions cover valid AWS coordinates, Hetzner drift, unexpected static credentials and edge isolation."
     },
     {
       "path": "ops/qa/test_prod_phase2_live_health.py",
@@ -17080,14 +17080,14 @@
         "def test_runtime_compose_requires_each_storage_coordinate(",
         "def test_baseline_checks_pin_and_fails_when_storage_is_unknown("
       ],
-      "rationale": "Behavior tests prevent false healthy output when HCloud pin evidence is absent, secrets leaking through probe output, and template fallback to AWS."
+      "rationale": "Behavior tests prevent false healthy output when independent pin or instance-role evidence is absent, secrets leaking through probe output, and missing storage coordinates."
     },
     {
       "path": ".github/workflows/ops-daily-diagnostics.yml",
       "must_contain": [
         "prod_phase2_live_health.py --from-probe-stdin --legacy-aws --json"
       ],
-      "rationale": "Daily diagnostics explicitly retain the historical AWS IAM audit while old objects retain recovery access; default live health uses HCloud."
+      "rationale": "Daily diagnostics explicitly retain the historical AWS IAM audit while old objects retain recovery access; live health uses AWS instance-role evidence."
     },
     {
       "path": "deploy/aws/stage0/tokenkey-qa-maintenance.sh",

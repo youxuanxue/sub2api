@@ -48,5 +48,49 @@ class HostHTTPSWatchTest(unittest.TestCase):
         self.assertEqual(sent, [])
 
 
+class HostJobWatchTest(unittest.TestCase):
+    def test_job_failure_alert_and_recovery_are_deduplicated(self):
+        name = "tokenkey-pgdump"
+        sent = []
+        bad = lambda _: {"healthy": False, "reason": "service failed: exit-code"}
+        good = lambda _: {"healthy": True, "reason": "recent completion"}
+        state = watch.tick_jobs([name], {}, 1000, bad, sent.append)
+        self.assertEqual(sent, [])
+        state = watch.tick_jobs([name], state, 1120, bad, sent.append)
+        self.assertEqual(len(sent), 1)
+        state = watch.tick_jobs([name], state, 1240, bad, sent.append)
+        self.assertEqual(len(sent), 1)
+        state = watch.tick_jobs([name], state, 1360, good, sent.append)
+        self.assertIn("recovered", sent[-1])
+        self.assertFalse(state["job:" + name]["active"])
+
+    def test_probe_failure_alert_names_node_and_does_not_hide_other_jobs(self):
+        names = ["tokenkey-pgdump", "tokenkey-disk-metrics"]
+        def probe(name):
+            if name == names[0]:
+                raise OSError("synthetic private detail")
+            return {"healthy": True, "reason": "recent completion"}
+        sent = []
+        state = watch.tick_jobs(names, {}, 1000, probe, sent.append, "uk1")
+        state = watch.tick_jobs(names, state, 1120, probe, sent.append, "uk1")
+        self.assertEqual(len(sent), 1)
+        self.assertIn("uk1/tokenkey-pgdump", sent[0])
+        self.assertIn("OSError", sent[0])
+        self.assertNotIn("private detail", sent[0])
+        self.assertEqual(state["job:" + names[1]]["failures"], 0)
+
+    def test_failed_stale_disabled_and_running_jobs(self):
+        timer = {"ActiveState": "active", "UnitFileState": "enabled"}
+        service = {"ActiveState": "inactive", "Result": "success", "ExecMainExitTimestampMonotonic": "1000000000"}
+        self.assertTrue(watch.job_fact(service, timer, 1100, (300, 60))["healthy"])
+        self.assertFalse(watch.job_fact(service, timer, 1500, (300, 60))["healthy"])
+        self.assertFalse(watch.job_fact(service, {**timer, "UnitFileState": "disabled"}, 1100, (300, 60))["healthy"])
+        self.assertFalse(watch.job_fact({**service, "Result": "timeout"}, timer, 1100, (300, 60))["healthy"])
+        running = {**service, "ActiveState": "activating", "ExecMainStartTimestampMonotonic": "1080000000"}
+        self.assertTrue(watch.job_fact(running, timer, 1100, (300, 60))["healthy"])
+        self.assertFalse(watch.job_fact(running, timer, 1200, (300, 60))["healthy"])
+        self.assertFalse(watch.job_fact({"ActiveState": "inactive", "Result": "success"}, timer, 1100, (300, 60))["healthy"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -149,13 +149,13 @@ services:
         hard: 100000
     volumes:
       - /var/lib/tokenkey/redis:/data
-    command: >
-      sh -c '
-        redis-server
-        --save 60 1
-        --appendonly yes
-        --appendfsync everysec
-        ${REDIS_PASSWORD:+--requirepass "$REDIS_PASSWORD"}'
+    command:
+      - sh
+      - -ec
+      - >-
+        set -- redis-server --save 60 1 --appendonly yes --appendfsync everysec;
+        if [ -n "$${REDISCLI_AUTH:-}" ]; then set -- "$$@" --requirepass "$$REDISCLI_AUTH"; fi;
+        exec "$$@"
     environment:
       - TZ=${TZ:-UTC}
       - REDISCLI_AUTH=${REDIS_PASSWORD:-}
