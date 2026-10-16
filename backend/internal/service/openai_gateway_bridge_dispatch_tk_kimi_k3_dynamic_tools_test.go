@@ -40,6 +40,9 @@ func TestApplyMoonshotK3DynamicToolsShape_PromotesSystemTools(t *testing.T) {
 	if tools[0].Get("function.name").String() != "Calculator" {
 		t.Fatalf("tool name=%q want Calculator", tools[0].Get("function.name").String())
 	}
+	if gjson.GetBytes(got, "tool_choice").String() != "required" {
+		t.Fatalf("tool_choice=%s want required", gjson.GetBytes(got, "tool_choice").Raw)
+	}
 	for _, msg := range msgs {
 		if msg.Get("tools").Exists() {
 			t.Fatalf("message-level tools must be stripped, got %s", msg.Raw)
@@ -76,6 +79,27 @@ func TestApplyMoonshotK3DynamicToolsShape_MergesExistingTopLevelTools(t *testing
 	}
 	if len(names) != 2 || names[0] != "Weather" || names[1] != "Calculator" {
 		t.Fatalf("tools=%v want [Weather Calculator]", names)
+	}
+	if gjson.GetBytes(got, "tool_choice").String() != "required" {
+		t.Fatalf("tool_choice=%s want required", gjson.GetBytes(got, "tool_choice").Raw)
+	}
+}
+
+func TestApplyMoonshotK3DynamicToolsShape_KeepsExplicitToolChoice(t *testing.T) {
+	body := []byte(`{
+		"model":"kimi-k3",
+		"tool_choice":"auto",
+		"messages":[
+			{"role":"user","content":"hi"},
+			{"role":"system","tools":[{"type":"function","function":{"name":"Calculator"}}]}
+		]
+	}`)
+	got := applyMoonshotK3DynamicToolsShape("kimi-k3", body)
+	if gjson.GetBytes(got, "tool_choice").String() != "auto" {
+		t.Fatalf("explicit tool_choice must stay, got %s", gjson.GetBytes(got, "tool_choice").Raw)
+	}
+	if gjson.GetBytes(got, "tools.0.function.name").String() != "Calculator" {
+		t.Fatalf("tools not promoted: %s", got)
 	}
 }
 
@@ -128,6 +152,9 @@ func TestForwardAsChatCompletionsDispatched_PromotesKimiK3DynamicTools(t *testin
 	}
 	if gjson.GetBytes(capturedBody, "tools.0.function.name").String() != "Calculator" {
 		t.Fatalf("tool=%q want Calculator", gjson.GetBytes(capturedBody, "tools.0.function.name").String())
+	}
+	if gjson.GetBytes(capturedBody, "tool_choice").String() != "required" {
+		t.Fatalf("tool_choice=%s want required", gjson.GetBytes(capturedBody, "tool_choice").Raw)
 	}
 	if gjson.GetBytes(capturedBody, "messages.#").Int() != 2 {
 		t.Fatalf("messages len=%d want 2", gjson.GetBytes(capturedBody, "messages.#").Int())
