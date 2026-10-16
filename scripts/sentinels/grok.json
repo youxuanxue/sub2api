@@ -755,6 +755,31 @@
         "TestCredentialFailureConditionalMutationLosesToSameIDProxyRestoration"
       ],
       "rationale": "Pinned OAuth proxy readiness must preserve Grok shared-fault attribution and conditional quarantine without bypassing execution readiness."
+    },
+    {
+      "path": "backend/internal/service/grok_quota_service.go",
+      "must_contain": [
+        "validateOAuthProxyBinding(account)",
+        "resolveOAuthAccountProxy(ctx, account, s.proxyRepo)"
+      ],
+      "rationale": "Pinned OAuth egress must also protect admin tests and credential-bearing quota/model queries; cached usage remains readable."
+    },
+    {
+      "path": "backend/internal/service/grok_observed_models.go",
+      "must_contain": [
+        "s.resolveProxyURL(ctx, account)"
+      ],
+      "rationale": "Pinned OAuth egress must also protect admin tests and credential-bearing quota/model queries; cached usage remains readable."
+    },
+    {
+      "path": "backend/internal/service/oauth_proxy_admin_test.go",
+      "must_contain": [
+        "TestOAuthAdminTestRejectsUnavailableProxyBeforeNetwork",
+        "TestOAuthAnthropicUsageRejectsUnavailableProxyBeforeNetwork",
+        "TestOAuthQuotaRejectsUnavailableProxyBeforeNetwork",
+        "TestOAuthUnavailableProxyKeepsCachedUsageReadable"
+      ],
+      "rationale": "Pinned OAuth egress must also protect admin tests and credential-bearing quota/model queries; cached usage remains readable."
     }
   ]
 }

@@ -14,7 +14,7 @@
 ## Acceptance Criteria
 
 1. AC-001 (正向): Given 可用代理或显式无代理 When 刷新 OAuth Then 使用指定出口或有意直连；API-key 就绪策略不变。
-2. AC-002 (负向): Given 配置代理失效或查库失败 When 调度、权威发送或刷新 Then 拒绝且不调用上游；共享 DB 故障不能隔离账号凭据。
+2. AC-002 (负向): Given 配置代理失效或查库失败 When 调度、权威发送、刷新、管理测试或主动配额查询 Then 拒绝且不调用上游；共享 DB 故障不能隔离账号凭据；缓存用量仍可读取。
 3. AC-003 (回归): Given Qwen 小数版本或显式映射 When 检查 Codex 能力 Then 拒绝外厂原始模型，保留映射到可用模型的行为。
 4. AC-004 (负向): Given Kiro 精确图片格式 400 When 流式/非流式执行 Then 保留 400、只调用一个端点、不先写响应；同文案 503/echo 保留供应故障归属。
 5. AC-005 (回归): Given SSE 最终 5xx、HTTP 5xx 或缺失元数据 When 巡检 Then 最终失败去重且不能 double count，缺证据为 unknown/yellow。
@@ -24,6 +24,14 @@
 观察实际 executor/HTTP factory 调用次数、错误类型、选中出口、HTTP 响应写入和巡检计数与 verdict；不以字符串存在作为行为证据。
 
 ## Linked Tests
+
+- `backend/internal/service/oauth_proxy_admin_test.go`::`TestOAuthAntigravityProxyFailureDoesNotClearCredentialError` (AC-002)
+- `backend/internal/service/oauth_proxy_admin_test.go`::`TestOAuthModelsRejectsUnavailableProxyBeforeNetwork` (AC-002)
+
+- `backend/internal/service/oauth_proxy_admin_test.go`::`TestOAuthAdminTestRejectsUnavailableProxyBeforeNetwork` (AC-002)
+- `backend/internal/service/oauth_proxy_admin_test.go`::`TestOAuthAnthropicUsageRejectsUnavailableProxyBeforeNetwork` (AC-002)
+- `backend/internal/service/oauth_proxy_admin_test.go`::`TestOAuthQuotaRejectsUnavailableProxyBeforeNetwork` (AC-002)
+- `backend/internal/service/oauth_proxy_admin_test.go`::`TestOAuthUnavailableProxyKeepsCachedUsageReadable` (AC-002)
 
 - `backend/internal/service/oauth_proxy_binding_test.go`::`TestOAuthProxyBindingScheduling` (AC-001/002)
 - `backend/internal/service/oauth_proxy_binding_test.go`::`TestOAuthProviderRefreshRejectsUnavailableProxyBeforeNetwork` (AC-002)

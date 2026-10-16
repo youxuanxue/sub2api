@@ -15,7 +15,7 @@ scope: verified OAuth consolidation gateway defects; merge, deployment and produ
 
 | 触发 | 原行为 | 修复后的契约 |
 | --- | --- | --- |
-| OAuth/setup-token 账号配置 ProxyID，但代理缺失、停用、过期或不匹配 | 多个路径可能使用空 proxy URL 直连 | 不可调度；发送前权威重读复核；刷新及后台隐私/订阅请求在网络前拒绝。查库失败不能判凭据失效。 |
+| OAuth/setup-token 账号配置 ProxyID，但代理缺失、停用、过期或不匹配 | 多个路径可能使用空 proxy URL 直连 | 不可调度；发送前权威重读复核；刷新、管理测试及后台隐私/订阅/配额/模型查询在网络前拒绝；已有缓存用量仍可读取。查库失败不能判凭据失效。 |
 | 空映射 Codex 账号遇到 `qwen3.8-flash` | 外厂模型前缀漏判，向 ChatGPT 上游发送后 400 | 共享模型能力判断识别带小数版本的 Qwen 家族；显式模型映射和无关自定义别名保留原语义。 |
 | Kiro HTTP 400，JSON message 精确为 `Image format is not supported.` | 重试其他端点后按供应故障处理，最终 502 | 返回 typed invalid request 400；不重试端点/账号，不先输出成功流。不把同文案的 503 或 echo 字段误归类。 |
 | SSE HTTP 200 已提交，后续出现最终 5xx | 发布巡检只数 HTTP 5xx，可能报告 green | 关联已完成请求的 ops 最终状态，逐 request_id 去重；恢复为 200 的尝试不算最终失败；缺证据为 unknown/yellow。 |

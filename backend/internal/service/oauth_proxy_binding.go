@@ -33,26 +33,36 @@ func validateOAuthProxyBinding(account *Account) error {
 // that do not load an account through the scheduler repository. Lookup errors
 // deliberately do not include credentials or proxy URLs in the returned error.
 func resolveOAuthAccountProxyURL(ctx context.Context, account *Account, repo ProxyRepository) (string, error) {
+	proxy, err := resolveOAuthAccountProxy(ctx, account, repo)
+	if err != nil || proxy == nil {
+		return "", err
+	}
+	return proxy.URL(), nil
+}
+
+// Return the validated object as well for callers whose token provider needs
+// the loaded binding. Do not mutate shared account snapshots during lookup.
+func resolveOAuthAccountProxy(ctx context.Context, account *Account, repo ProxyRepository) (*Proxy, error) {
 	if account.ProxyID == nil {
-		return "", nil
+		return nil, nil
 	}
 	if repo == nil {
-		return "", errors.Join(ErrOAuthProxyUnavailable, errOAuthProxyRepository)
+		return nil, errors.Join(ErrOAuthProxyUnavailable, errOAuthProxyRepository)
 	}
 	proxy, err := repo.GetByID(ctx, *account.ProxyID)
 	if err != nil {
 		if errors.Is(err, ErrProxyNotFound) {
-			return "", ErrOAuthProxyUnavailable
+			return nil, ErrOAuthProxyUnavailable
 		}
-		return "", errors.Join(ErrOAuthProxyUnavailable, errOAuthProxyLookup)
+		return nil, errors.Join(ErrOAuthProxyUnavailable, errOAuthProxyLookup)
 	}
 	fresh := *account
 	fresh.Proxy = proxy
 	if err := validateOAuthProxyBinding(&fresh); err != nil {
-		return "", err
+		return nil, err
 	}
 	if proxy == nil {
-		return "", ErrOAuthProxyUnavailable
+		return nil, ErrOAuthProxyUnavailable
 	}
-	return proxy.URL(), nil
+	return proxy, nil
 }

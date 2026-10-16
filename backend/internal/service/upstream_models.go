@@ -1168,6 +1168,9 @@ func (s *AccountTestService) fetchOpenAICodexOAuthUpstreamModels(ctx context.Con
 }
 
 func (s *AccountTestService) doUpstreamModelsRequest(req *http.Request, proxyURL string, account *Account) (*http.Response, error) {
+	if err := validateOAuthProxyBinding(account); err != nil {
+		return nil, err
+	}
 	if s.tlsFPProfileService == nil {
 		return s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, nil)
 	}
