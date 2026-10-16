@@ -145,8 +145,9 @@ FOR UPDATE`, key)
 		return nil, errors.New("capability key collision or identity mismatch")
 	}
 
+	declared := service.NativeDeclaredProtocolContract(identity)
 	seedProtocols := normalizedHistorical
-	if len(service.NativeDeclaredProtocolContract(identity)) > 0 {
+	if len(declared) > 0 {
 		// Legacy compatibility ingress projections are not native endpoint facts.
 		seedProtocols = nil
 	}
@@ -161,6 +162,17 @@ FOR UPDATE`, key)
 	if officialSeed {
 		evidence.OfficialSeed = true
 		evidence.InitialProbeCompleted = true
+	}
+	// Re-seed native contracts that never finished an initial probe and still
+	// have an empty protocol set. Completed denials keep empty protocols with
+	// InitialProbeCompleted=true and must not be rewritten here.
+	if len(declared) > 0 &&
+		len(capability.SupportedProtocols) == 0 &&
+		!evidence.InitialProbeCompleted &&
+		!capability.IdentityConflict &&
+		!evidence.IdentityConflict {
+		merged = append([]protocolrouter.Protocol(nil), declared...)
+		evidence.NativeDeclaration = true
 	}
 	protocolsChanged := !protocolSlicesEqual(capability.SupportedProtocols, merged)
 	evidenceChanged := !reflect.DeepEqual(evidence, capability.ProbeEvidence)

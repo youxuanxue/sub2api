@@ -141,6 +141,61 @@ func TestCommitPreparedProbeResultPersistsCapabilityWithoutPublishingLegacyState
 	}
 }
 
+func TestAntigravityCloudCodeNativeDeclarationHealsIncompleteEmptyCapability(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	account := &service.Account{
+		ID:       291,
+		Platform: service.PlatformAntigravity,
+		Type:     service.AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token": "fixture-token",
+			"project_id":   "project-a",
+		},
+	}
+	identity, governed, err := service.BuildProtocolEndpointIdentity(account)
+	if err != nil || !governed {
+		t.Fatalf("identity: governed=%v err=%v", governed, err)
+	}
+	encoded, err := identity.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	// Existing row: first probe left inconclusive (LastProbedAt set) with an empty
+	// protocol set and without completing the initial probe — the 2026-10-16 prod shape.
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO protocol_endpoint_capabilities`).
+		WithArgs(identity.Key(), string(encoded), `["gemini_generate_content"]`, `{"native_declaration":true}`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`(?s)FROM protocol_endpoint_capabilities.*FOR UPDATE`).WithArgs(identity.Key()).WillReturnRows(sqlmock.NewRows([]string{
+		"id", "capability_key", "identity", "supported_protocols", "probe_evidence", "revision", "last_probed_at", "probe_lease_owner", "probe_lease_until", "probe_generation", "identity_conflict", "created_at", "updated_at",
+	}).AddRow(int64(18533), identity.Key(), string(encoded), `[]`, `{"verdicts":{"gemini_generate_content":"inconclusive"},"official_seed":false,"identity_conflict":false,"initial_probe_completed":false}`, int64(1), now, nil, nil, int64(1), false, now, now))
+	mock.ExpectExec(`UPDATE protocol_endpoint_capabilities`).
+		WithArgs(int64(18533), `["gemini_generate_content"]`, sqlmock.AnyArg(), 1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE accounts`).WithArgs(account.ID, int64(18533)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM accounts`).WithArgs(int64(18533)).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectCommit()
+
+	capability, err := newProtocolEndpointCapabilityRepositoryWithDB(db).EnsureAccountLink(context.Background(), account, identity, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !capability.ProbeEvidence.NativeDeclaration || capability.ProbeEvidence.InitialProbeCompleted || capability.ProbeEvidence.OfficialSeed {
+		t.Fatalf("incorrect healed evidence: %+v", capability.ProbeEvidence)
+	}
+	if got, want := capability.SupportedProtocols, []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}; len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("SupportedProtocols = %v, want %v", got, want)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGeminiNativeDeclarationSeedsOnlyNewCapabilityAndPreservesProbeDenial(t *testing.T) {
 	for _, denied := range []bool{false, true} {
 		t.Run(fmt.Sprintf("denied=%t", denied), func(t *testing.T) {

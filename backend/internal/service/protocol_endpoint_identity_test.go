@@ -303,6 +303,54 @@ func TestBuildProtocolEndpointIdentityAntigravityEdgeRelayKeepsTextAndGeminiHops
 	}
 }
 
+func TestNativeDeclaredProtocolContractAntigravityCloudCode(t *testing.T) {
+	account := &Account{
+		ID:       291,
+		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token": "fixture-token",
+			"project_id":   "project-a",
+			"model_mapping": map[string]any{
+				"gemini-4-argon": "gemini-4-argon-high",
+			},
+		},
+	}
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+	if err != nil || !governed {
+		t.Fatalf("BuildProtocolEndpointIdentity = governed %t, err %v", governed, err)
+	}
+	if identity.EndpointProfile != string(protocolrouter.GeminiEndpointAntigravityCloudCode) {
+		t.Fatalf("EndpointProfile = %q", identity.EndpointProfile)
+	}
+	got := NativeDeclaredProtocolContract(identity)
+	want := []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
+	if !protocolListsEqual(got, want) {
+		t.Fatalf("NativeDeclaredProtocolContract = %v, want %v", got, want)
+	}
+
+	// Multi-hop edge relay identities stay measured; they are not a single-hop
+	// native Cloud Code contract.
+	relay := &Account{
+		Platform: PlatformAntigravity,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://api-us3.tokenkey.dev",
+		},
+	}
+	relayIdentity, relayGoverned, relayErr := BuildProtocolEndpointIdentity(relay)
+	if relayErr != nil || !relayGoverned {
+		t.Fatalf("edge relay identity = governed %t, err %v", relayGoverned, relayErr)
+	}
+	if len(relayIdentity.ProtocolEndpoints) < 2 {
+		t.Fatalf("edge relay endpoints = %#v, want multi-hop", relayIdentity.ProtocolEndpoints)
+	}
+	if got := NativeDeclaredProtocolContract(relayIdentity); len(got) != 0 {
+		t.Fatalf("edge relay NativeDeclaredProtocolContract = %v, want empty", got)
+	}
+}
+
 func cloneMap(input map[string]any) map[string]any {
 	result := make(map[string]any, len(input))
 	for key, value := range input {

@@ -479,17 +479,30 @@ func canonicalGeminiIdentityEndpoint(account *Account, profile protocolrouter.Ge
 }
 
 // NativeDeclaredProtocolContract is the existing platform's native wire
-// contract, independent of measured endpoint evidence. It is used only when a
-// capability row is first created; existing negative/conflicted rows win.
+// contract, independent of measured endpoint evidence. It is used when a
+// capability row is first created, and to re-seed rows that never completed an
+// initial probe; existing negative/conflicted rows win.
 func NativeDeclaredProtocolContract(identity ProtocolEndpointIdentity) []protocolrouter.Protocol {
-	if identity.Platform != PlatformGemini || identity.EndpointProfile != string(protocolrouter.GeminiEndpointNativeAPIKey) ||
-		(identity.UpstreamRequestProfile != string(protocolrouter.GeminiEndpointNativeAPIKey) && identity.UpstreamRequestProfile != "gemini_web_single_turn_v1") || len(identity.ProtocolEndpoints) != 1 {
+	endpoint, ok := identity.ProtocolEndpoints[protocolrouter.ProtocolGeminiGenerateContent]
+	if !ok || strings.TrimSpace(endpoint.URL) == "" || len(identity.ProtocolEndpoints) != 1 {
 		return nil
 	}
-	if endpoint, ok := identity.ProtocolEndpoints[protocolrouter.ProtocolGeminiGenerateContent]; !ok || endpoint.URL == "" {
+	switch {
+	case identity.Platform == PlatformGemini &&
+		identity.EndpointProfile == string(protocolrouter.GeminiEndpointNativeAPIKey) &&
+		(identity.UpstreamRequestProfile == string(protocolrouter.GeminiEndpointNativeAPIKey) ||
+			identity.UpstreamRequestProfile == "gemini_web_single_turn_v1"):
+		return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
+	case identity.Platform == PlatformAntigravity &&
+		identity.EndpointProfile == string(protocolrouter.GeminiEndpointAntigravityCloudCode):
+		// Cloud Code OAuth exposes a single Gemini generateContent hop. Seed it
+		// as a native contract so an inconclusive first probe cannot leave
+		// supported_protocols empty and empty-pool every AG gemini request
+		// (prod 2026-10-16 capability rows 8126/18533).
+		return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
+	default:
 		return nil
 	}
-	return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
 }
 
 func protocolCapabilityHasNativeDeclaration(capability *ProtocolEndpointCapability) bool {
