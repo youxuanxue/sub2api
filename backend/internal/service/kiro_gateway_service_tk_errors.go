@@ -176,7 +176,7 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 		}
 	}
 	if statusCode, body, ok := parseKiroHTTPError(msg); ok {
-		if invalid, matched := classifyKiroImageClientRejection(statusCode, body, false); matched {
+		if invalid, matched := classifyKiroImageClientRejection(statusCode, body, msg, false); matched {
 			invalid.Body = msg
 			return nil, invalid
 		}
@@ -193,7 +193,7 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 		}
 	}
 	if statusCode, body, ok := parseKiroEventStreamError(msg); ok {
-		if invalid, matched := classifyKiroImageClientRejection(statusCode, body, true); matched {
+		if invalid, matched := classifyKiroImageClientRejection(statusCode, body, msg, true); matched {
 			invalid.Body = msg
 			return nil, invalid
 		}
@@ -310,9 +310,9 @@ func isKiroProfileArnError(msg string) bool {
 
 // classifyKiroImageClientRejection maps request-shaped image rejections to a
 // non-failover client error. Matching uses the primary upstream message only
-// (never echo/other JSON fields). Exact "Image format is not supported." on
-// non-400 HTTP must still failover so provider outages are not masked.
-func classifyKiroImageClientRejection(statusCode int, body []byte, fromEventStream bool) (*KiroInvalidRequestError, bool) {
+// (never echo/other JSON fields). Provider-class exceptions / non-400 HTTP that
+// only echo the exact unsupported-format string must still failover.
+func classifyKiroImageClientRejection(statusCode int, body []byte, rawMsg string, fromEventStream bool) (*KiroInvalidRequestError, bool) {
 	primary := strings.TrimSpace(extractUpstreamErrorMessage(body))
 	candidate := primary
 	if candidate == "" {
@@ -320,6 +320,11 @@ func classifyKiroImageClientRejection(statusCode int, body []byte, fromEventStre
 		candidate = strings.TrimSpace(string(body))
 	}
 	if !isKiroImageClientError(candidate) {
+		return nil, false
+	}
+	// Mirror input-too-long: InternalServerException (etc.) wins over echoed
+	// request-shaped text so provider outages are not masked as client 400s.
+	if isKiroProviderExceptionMessage(rawMsg) {
 		return nil, false
 	}
 	if !fromEventStream && statusCode != http.StatusBadRequest && isExactUnsupportedImageFormatMessage(candidate) {
@@ -343,6 +348,24 @@ func isExactUnsupportedImageFormatMessage(msg string) bool {
 		strings.EqualFold(strings.TrimSpace(msg), "Image format is not supported")
 }
 
+// isKiroProviderExceptionMessage reports AWS exception frames that are account/
+// infrastructure failures rather than request validation.
+func isKiroProviderExceptionMessage(msg string) bool {
+	lower := strings.ToLower(msg)
+	for _, marker := range []string{
+		"internalserverexception",
+		"serviceunavailableexception",
+		"dependencyfailedexception",
+		"throttlingexception",
+		"servicequotaexceededexception",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // isKiroImageClientError reports request-shaped image rejections from Kiro /
 // Bedrock. These must not failover: every account rejects the same bytes.
 func isKiroImageClientError(msg string) bool {
@@ -357,13 +380,16 @@ func isKiroImageClientError(msg string) bool {
 		"appears to be a image/",
 		"appears to be an image/",
 		"unsupported image format",
-		"unsupported media type",
-		"media type is not supported",
 	}
 	for _, marker := range markers {
 		if strings.Contains(lower, marker) {
 			return true
 		}
+	}
+	// Generic media-type wording must also mention image (avoid Content-Type false positives).
+	if strings.Contains(lower, "image") &&
+		(strings.Contains(lower, "unsupported media type") || strings.Contains(lower, "media type is not supported")) {
+		return true
 	}
 	// Bedrock MIME mismatch: "...image/png media type, but the image appears..."
 	if strings.Contains(lower, "media type") && strings.Contains(lower, "image") &&

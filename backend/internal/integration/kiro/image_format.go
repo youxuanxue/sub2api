@@ -146,12 +146,8 @@ func validateKiroImage(img *KiroImage) error {
 	if err != nil {
 		return err
 	}
-	sniffed := sniffKiroImageFormat(raw)
-	if sniffed != "" && sniffed != format {
-		return &ErrUnsupportedKiroImage{
-			Reason: fmt.Sprintf("image was specified as %s but bytes are %s", format, sniffed),
-		}
-	}
+	// normalizeKiroImageFormatAgainstBytes already prefers sniffed bytes; when
+	// sniffing fails it only returns an allowlisted declared format.
 	if !isKiroAllowedImageFormat(format) {
 		return &ErrUnsupportedKiroImage{
 			Reason: fmt.Sprintf("image format %q is not supported (supported: jpeg, png, gif, webp)", format),

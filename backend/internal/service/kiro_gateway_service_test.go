@@ -972,6 +972,8 @@ func TestIsKiroImageClientError(t *testing.T) {
 	require.True(t, isKiroImageClientError("Image format is not supported."))
 	require.True(t, isKiroImageClientError("Could not process image"))
 	require.True(t, isKiroImageClientError("The image was specified using the image/png media type, but the image appears to be a image/webp image"))
+	require.True(t, isKiroImageClientError("unsupported media type for image bytes"))
+	require.False(t, isKiroImageClientError("unsupported media type"))
 	require.False(t, isKiroImageClientError("ThrottlingException: slow down"))
 	require.False(t, isKiroImageClientError("connection refused"))
 }
@@ -1261,9 +1263,13 @@ func TestClassifyKiroImageValidationDoesNotMaskProviderFailure(t *testing.T) {
 	for _, message := range []string{
 		`HTTP 503 from CodeWhisperer: {"message":"Image format is not supported."}`,
 		`HTTP 400 from CodeWhisperer: {"message":"provider failed", "echo":"Image format is not supported."}`,
+		// Mirror input-too-long: provider exception type wins over echoed format text.
+		`kiro event stream error: InternalServerException: {"message":"Image format is not supported."}`,
 	} {
 		_, err := classifyKiroForwardError(errors.New(message), "claude-opus-5-5")
 		var retry *UpstreamFailoverError
-		require.ErrorAs(t, err, &retry)
+		require.ErrorAs(t, err, &retry, message)
+		var invalid *KiroInvalidRequestError
+		require.NotErrorAs(t, err, &invalid, message)
 	}
 }
