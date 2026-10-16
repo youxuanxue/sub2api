@@ -161,7 +161,7 @@ func TestEnqueueOpsErrorLog_EarlyReturnBranches(t *testing.T) {
 	require.Equal(t, int64(0), OpsErrorLogEnqueuedTotal())
 
 	// shutdown 分支
-	close(opsErrorLogShutdownCh)
+	opsErrorLogShutdownOnce.Do(func() { close(opsErrorLogShutdownCh) })
 	enqueueOpsErrorLog(ops, entry)
 	require.Equal(t, int64(0), OpsErrorLogEnqueuedTotal())
 
