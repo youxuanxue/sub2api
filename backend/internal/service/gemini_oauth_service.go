@@ -416,10 +416,9 @@ func (s *GeminiOAuthService) RefreshAccountGoogleOneTier(
 		return "", nil, nil, fmt.Errorf("missing access_token")
 	}
 
-	// 获取 proxy URL
-	var proxyURL string
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	proxyURL, err := resolveOAuthAccountProxyURL(ctx, account, s.proxyRepo)
+	if err != nil {
+		return "", nil, nil, err
 	}
 
 	// 调用 Drive API
@@ -756,12 +755,9 @@ func (s *GeminiOAuthService) RefreshAccountToken(ctx context.Context, account *A
 		oauthType = "code_assist"
 	}
 
-	var proxyURL string
-	if account.ProxyID != nil {
-		proxy, err := s.proxyRepo.GetByID(ctx, *account.ProxyID)
-		if err == nil && proxy != nil {
-			proxyURL = proxy.URL()
-		}
+	proxyURL, err := resolveOAuthAccountProxyURL(ctx, account, s.proxyRepo)
+	if err != nil {
+		return nil, err
 	}
 
 	tokenInfo, err := s.RefreshToken(ctx, oauthType, refreshToken, proxyURL)

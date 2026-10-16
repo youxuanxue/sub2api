@@ -311,6 +311,7 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         tick = {
             "hooks": {"Status=424": 0, "WEEKLY_LIMIT_EXCEEDED": 0, "[Forward] Upstream error (failover)": 0},
             "panic": 0,
+            "final_status_available": True,
             "status_5xx": {},
             "completed_total": 20,
         }
@@ -324,6 +325,7 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         tick = {
             "hooks": {"Status=424": 4, "[Forward] Upstream error (failover)": 0},
             "panic": 0,
+            "final_status_available": True,
             "status_5xx": {},
             "completed_total": 20,
         }
@@ -336,6 +338,7 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         tick = {
             "hooks": {"WEEKLY_LIMIT_EXCEEDED": 12, "Status=424": 0, "NEW_LIMIT_CODE": 0},
             "panic": 0,
+            "final_status_available": True,
             "status_5xx": {"500": 2},
             "completed_total": 20,
         }
@@ -350,6 +353,7 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         tick = {
             "hooks": {},
             "panic": 0,
+            "final_status_available": True,
             "status_5xx": {"502": 21},
             "completed_total": 125,
         }
@@ -363,10 +367,24 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
             rpc.ERROR_STORM_THRESHOLD,
         )
 
+    def test_semantic_failures_and_missing_evidence_cannot_be_green(self):
+        plan = {"changes": [], "checks": []}
+        tick = {"completed_total": 100, "status_5xx": {"503": 1},
+                "inband_5xx": {"503": 1}, "final_status_available": True}
+        result = rpc.evaluate(plan, tick, control_plane_ok=True)
+        self.assertEqual(result["verdict"], "yellow")
+        tick.update(status_5xx={}, inband_5xx={}, final_status_available=False)
+        result = rpc.evaluate(plan, tick, control_plane_ok=True)
+        self.assertEqual(result["verdict"], "yellow")
+        self.assertEqual(next(c for c in result["checks"] if c["id"] == "final-status-evidence")["verdict"], "inconclusive")
+        tick["final_status_available"] = True
+        self.assertEqual(rpc.evaluate(plan, tick, control_plane_ok=True)["verdict"], "green")
+
     def test_evaluate_5xx_storm_threshold_is_inclusive_across_statuses(self) -> None:
         tick = {
             "hooks": {},
             "panic": 0,
+            "final_status_available": True,
             "status_5xx": {"500": 9, "502": 10, "503": 1},
             "completed_total": 40,
         }
@@ -379,6 +397,7 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         tick = {
             "hooks": {"NEW_LIMIT_CODE": 20, "WEEKLY_LIMIT_EXCEEDED": 0, "Status=424": 0},
             "panic": 0,
+            "final_status_available": True,
             "status_5xx": {},
             "completed_total": 20,
         }
@@ -403,6 +422,7 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         base_tick = {
             "hooks": {"Incorrect API key provided": 0},
             "panic": 0,
+            "final_status_available": True,
             "status_5xx": {},
             "completed_total": 10,
         }
@@ -457,6 +477,7 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         tick = {
             "hooks": {"Status=424": 0, "WEEKLY_LIMIT_EXCEEDED": 0, "NEW_LIMIT_CODE": 0},
             "panic": 0,
+            "final_status_available": True,
             "status_5xx": {"502": 20},
             "completed_total": 20,
             "top_paths": [{"path": "/v1/messages", "n": 4}],
@@ -517,6 +538,7 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
             ],
             "traffic": {
                 "completed_total": 145,
+                "final_status_available": True,
                 "status_5xx": {"502": 2},
                 "top_paths": [
                     {"path": "/responses", "n": 37},
@@ -647,9 +669,9 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
     def test_evaluate_red_on_panic_or_control_plane_not_sparse_5xx(self) -> None:
         tick = {"hooks": {}, "panic": 1, "status_5xx": {}, "completed_total": 1}
         self.assertEqual(rpc.evaluate(self._plan(), tick, control_plane_ok=True)["verdict"], "red")
-        tick = {"hooks": {}, "panic": 0, "status_5xx": {"500": 2}, "completed_total": 1}
+        tick = {"final_status_available": True, "hooks": {}, "panic": 0, "status_5xx": {"500": 2}, "completed_total": 1}
         self.assertEqual(rpc.evaluate(self._plan(), tick, control_plane_ok=True)["verdict"], "green")
-        tick = {"hooks": {}, "panic": 0, "status_5xx": {}, "completed_total": 1}
+        tick = {"final_status_available": True, "hooks": {}, "panic": 0, "status_5xx": {}, "completed_total": 1}
         self.assertEqual(rpc.evaluate(self._plan(), tick, control_plane_ok=False)["verdict"], "red")
 
     def test_parse_tick_stdout(self) -> None:
@@ -662,7 +684,7 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
 === panic ===
 {"count": 0}
 === traffic ===
-{"completed_total": 9, "top_paths": [{"path": "/v1/messages", "n": 9}], "status_5xx": {}}
+{"completed_total": 9, "top_paths": [{"path": "/v1/messages", "n": 9}], "status_5xx": {}, "final_status_available": true}
 """
         parsed = rpc.parse_tick_stdout(stdout)
         self.assertEqual(parsed["hooks"]["Status=424"], 2)
@@ -750,6 +772,7 @@ class DeployStage0PostReleaseJobTest(unittest.TestCase):
             tick = {
                 "hooks": {"WEEKLY_LIMIT_EXCEEDED": 0},
                 "panic": 0,
+                "final_status_available": True,
                 "status_5xx": {"502": 20},
                 "completed_total": 4,
             }
@@ -831,6 +854,7 @@ class DeployStage0PostReleaseJobTest(unittest.TestCase):
             tick = {
                 "hooks": {"WEEKLY_LIMIT_EXCEEDED": 0},
                 "panic": 0,
+                "final_status_available": True,
                 "status_5xx": {},
                 "completed_total": 4,
             }

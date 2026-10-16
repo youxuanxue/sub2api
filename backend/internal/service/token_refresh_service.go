@@ -1467,11 +1467,9 @@ func (s *TokenRefreshService) ensureOpenAIPrivacy(ctx context.Context, account *
 		return
 	}
 
-	var proxyURL string
-	if account.ProxyID != nil && s.proxyRepo != nil {
-		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
-			proxyURL = p.URL()
-		}
+	proxyURL, err := resolveOAuthAccountProxyURL(ctx, account, s.proxyRepo)
+	if err != nil {
+		return
 	}
 
 	mode := disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)
@@ -1526,11 +1524,9 @@ func (s *TokenRefreshService) ensureOpenAISubscriptionExpiry(ctx context.Context
 		return
 	}
 
-	var proxyURL string
-	if account.ProxyID != nil && s.proxyRepo != nil {
-		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
-			proxyURL = p.URL()
-		}
+	proxyURL, err := resolveOAuthAccountProxyURL(ctx, account, s.proxyRepo)
+	if err != nil {
+		return
 	}
 
 	orgID := account.GetCredential("organization_id")
@@ -1589,11 +1585,9 @@ func (s *TokenRefreshService) ensureAntigravityPrivacy(ctx context.Context, acco
 
 	projectID, _ := account.Credentials["project_id"].(string)
 
-	var proxyURL string
-	if account.ProxyID != nil && s.proxyRepo != nil {
-		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
-			proxyURL = p.URL()
-		}
+	proxyURL, err := resolveOAuthAccountProxyURL(ctx, account, s.proxyRepo)
+	if err != nil {
+		return
 	}
 
 	mode := setAntigravityPrivacy(ctx, token, projectID, proxyURL)

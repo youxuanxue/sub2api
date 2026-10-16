@@ -650,7 +650,8 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 
 		// Prefer the preloaded proxy edge when available, but only attach an
 		// active proxy — disabled proxies must not surface as account.Proxy so
-		// outbound forwarding skips them. See upstream #2159.
+		// API-key forwarding skips them; pinned OAuth accounts fail closed in
+		// their shared transport readiness gate. See upstream #2159.
 		if entAcc.Edges.Proxy != nil && entAcc.Edges.Proxy.Status == service.StatusActive {
 			out.Proxy = proxyEntityToService(entAcc.Edges.Proxy)
 		}
@@ -4119,12 +4120,10 @@ func notExpiredPredicate(now time.Time) dbpredicate.Account {
 
 // loadProxies attaches proxy records to accounts, but only when the proxy is
 // currently active. Disabled proxies are silently dropped from the returned map,
-// so callers see account.Proxy == nil and skip outbound routing through the
-// disabled proxy (fall back to direct upstream). This matches operator intent
-// when toggling a proxy off — disabled means "stop using this route".
-//
-// Operators that want hard-fail on disabled proxies (instead of fallback to
-// direct) should mark the bound accounts inactive separately.
+// so callers see account.Proxy == nil. API-key accounts retain the legacy
+// direct fallback; pinned OAuth/setup-token accounts fail closed through the
+// shared service transport readiness gate. Explicit OAuth fallback must first
+// persist a replacement ProxyID (or nil for operator-selected direct).
 //
 // See upstream #2159.
 func (r *accountRepository) loadProxies(ctx context.Context, proxyIDs []int64) (map[int64]*service.Proxy, error) {

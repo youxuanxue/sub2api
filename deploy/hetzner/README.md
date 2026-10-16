@@ -97,6 +97,21 @@ PROD_SSM_TARGET=hetzner bash ops/observability/run-probe.sh --target prod \
 4. **QA 维护已恢复**：新 prod capture 继续启用，归档仍写 Hetzner；已恢复独立 archive/boundary timer 并实测归档及恢复验证。存量 raw 不搬，AWS 历史存储沿原生命周期到期，恢复权限保留。当前验收、未迁 raw 边界与资源退役条件见 [QA 运维入口](../../ops/qa/README.md#aws-新-prod-迁移后的维护恢复)。
 5. **灾备与告警**：新 prod 纳入每日 DLM；跨区域宿主 HTTPS watch 补足 GitHub schedule 延迟。首次快照及隔离备份恢复的验收状态见 [迁移收尾](../../docs/approved/aws-migration-closeout-20261016.md)。
 
+## OAuth 账号回滚到 edge
+
+冻结副本不刷新；prod 可能已轮换 refresh token，不能直接重新启用旧副本。
+按 [集中后审计与修复](../../docs/approved/oauth-consolidation-gateway-safety.md) 核对残留风险。
+回滚是独立生产操作，先给出具体源/目标账号映射及目标代理，再按此顺序执行：
+
+1. 保留目标 edge inactive、schedulable=false。先导出目标旧状态到私有文件，禁止将凭据打印到工单/PR。
+2. 暂停对应 prod 账号的新调度，等待在途请求及 refresh 结束；将源设为 inactive，确认刷新任务不再写入后才取最终凭据快照。只设 schedulable=false 不阻止后台刷新。
+3. 用现有账号导入/管理流程更新目标副本的最新凭据、模型映射和必要健康状态，保持目标禁用；不能复制 prod 本地 ProxyID 到另一数据库，按真实出口重新解析绑定。
+4. 私有比较凭据版本和源/目标映射，确认来源仅有一个刷新者。若 prod 已不可读，只能先验证备份凭据或重新授权，不能假定 edge 冻结 token 有效。
+5. 单个目标先启用并做有界文本/工具/图片/多轮验证，再恢复对应路由；源 prod 保持 inactive。任何阶段失败，先停目标并取回其最新轮换凭据，才恢复源，避免双刷新者。
+
+代理名称是逻辑账号池，不作为停机依据。维护代理主机前，从管理 API 读实际 endpoint、
+所绑定账号及活舰队矩阵；逻辑 us4/us5 与物理节点存在历史交叉，不能按名字互换出口。
+
 ## 校验
 
 ```bash

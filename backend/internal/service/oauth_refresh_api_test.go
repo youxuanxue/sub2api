@@ -373,6 +373,7 @@ func TestRefreshIfNeeded_GrokSuccessCASLetsConcurrentReauthorizationWin(t *testi
 		Type:     AccountTypeOAuth,
 		Status:   StatusActive,
 		ProxyID:  &proxyID,
+		Proxy:    &Proxy{ID: proxyID, Status: StatusActive},
 		Credentials: map[string]any{
 			"access_token":   "attempted-access",
 			"refresh_token":  "attempted-refresh",

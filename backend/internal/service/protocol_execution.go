@@ -407,6 +407,9 @@ func ExecuteSelectedProtocol(
 			GatewayFailureScopeAccount,
 		)
 	}
+	if err := validateOAuthProxyBinding(freshAccount); err != nil {
+		return nil, protocolExecutionPreSendFailure(err, GatewayFailureScopeAccount)
+	}
 	if err := validateEndpoint(ctx, freshAccount, plan.Endpoint()); err != nil {
 		return nil, protocolExecutionPreSendFailure(
 			fmt.Errorf("%w: validate selected endpoint: %v", ErrProtocolRouteUnavailable, err),

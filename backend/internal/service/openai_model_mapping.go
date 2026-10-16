@@ -1,6 +1,9 @@
 package service
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // resolveOpenAIForwardModel 解析 OpenAI 兼容转发使用的模型。
 // messagesDispatchMappedModel 是调用方已为 /v1/messages 解析的显式调度结果；
@@ -44,9 +47,6 @@ var openAIOAuthForeignModelPrefixes = []string{
 	"kimi-",
 	"moonshot-",
 	"qwen-",
-	"qwen2-",
-	"qwen3-",
-	"qwen4-",
 	"qwq-",
 	"minimax-",
 	"gemini-",
@@ -67,6 +67,10 @@ var openAIOAuthForeignModelPrefixes = []string{
 	"yi-",
 }
 
+// Qwen uses both major and dotted versions (qwen3-*, qwen3.8-*).
+// Require a numeric version and family delimiter, preserving unrelated aliases.
+var openAIOAuthQwenVersion = regexp.MustCompile(`^qwen[0-9]+(?:\.[0-9]+)*-`)
+
 // isOpenAIOAuthServableModel 判断「空 model_mapping 的 OpenAI OAuth 账号」能否
 // 服务请求模型。空映射默认仍是「允许」，仅排除明确属于其他厂商家族的模型
 // （deepseek-*/glm-*、以及 Kimi Code 官方 bare ID k3 / k3-256k 等）——这类
@@ -83,7 +87,7 @@ func isOpenAIOAuthServableModel(requestedModel string) bool {
 		return true // 空模型交由上层必填校验处理
 	}
 	// Kimi Code 官方 bare model ID：无厂商前缀，prefix 黑名单挡不住。
-	if model == "k3" || model == "k3-256k" {
+	if model == "k3" || model == "k3-256k" || openAIOAuthQwenVersion.MatchString(model) {
 		return false
 	}
 	for _, prefix := range openAIOAuthForeignModelPrefixes {

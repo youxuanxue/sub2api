@@ -43,6 +43,7 @@ TK_PROBE_DIR="$(cd "$(dirname "$0")" && pwd)"
 export TK_PROBE_DIR
 python3 - "$SINCE" "$CONTAINER" "$HOOK_PATTERNS" "$ACTIVE_COLOR_FILE" "$TRAFFIC_PATHS" <<'PY'
 import json
+import datetime
 import pathlib
 import re
 import subprocess
@@ -145,16 +146,21 @@ json_re = re.compile(r"\{.*\}\s*$")
 seen_request_ids = set()
 total = 0
 by_path = {}
-status_5xx = {}
+http_status_5xx = {}
+request_statuses = {}
+completed_at = []
+complete_metadata = True
 for ln in lines:
     if marker not in ln:
         continue
     m = json_re.search(ln)
     if not m:
+        complete_metadata = False
         continue
     try:
         obj = json.loads(m.group(0))
     except json.JSONDecodeError:
+        complete_metadata = False
         continue
     rid = obj.get("request_id")
     if rid:
@@ -165,8 +171,68 @@ for ln in lines:
     path = str(obj.get("path", "<none>"))
     by_path[path] = by_path.get(path, 0) + 1
     status = obj.get("status_code")
-    if isinstance(status, int) and status >= 500:
-        status_5xx[str(status)] = status_5xx.get(str(status), 0) + 1
+    if isinstance(status, int):
+        if rid:
+            request_statuses[str(rid)] = status
+        if status >= 500:
+            http_status_5xx[str(status)] = http_status_5xx.get(str(status), 0) + 1
+    if isinstance(obj.get("completed_at"), str):
+        try:
+            instant = datetime.datetime.fromisoformat(obj["completed_at"].replace("Z", "+00:00"))
+            if instant.tzinfo is None:
+                raise ValueError("completion timestamp has no timezone")
+            completed_at.append(instant)
+        except ValueError:
+            complete_metadata = False
+    else:
+        complete_metadata = False
+    if not rid or not isinstance(status, int):
+        complete_metadata = False
+
+# HTTP 200 only commits SSE headers. The existing ops owner records final
+# in-band failures separately from recovered attempts (whose status remains 200).
+# Join only completed request IDs; retries and duplicate ops rows count once.
+final_status_available = False
+final_status_note = "completion timestamps unavailable"
+inband_5xx = {}
+if total == 0:
+    final_status_available = complete_metadata
+    final_status_note = ("no completed requests" if complete_metadata
+                         else "completion log records could not be parsed")
+elif completed_at:
+    lower = (min(completed_at) - datetime.timedelta(minutes=1)).isoformat()
+    upper = (max(completed_at) + datetime.timedelta(minutes=1)).isoformat()
+    query = f"""SELECT json_build_object('request_id',request_id,'status_code',max(status_code))
+FROM ops_error_logs WHERE created_at >= '{lower}'::timestamptz
+AND created_at <= '{upper}'::timestamptz AND status_code >= 500
+GROUP BY request_id;"""
+    try:
+        result = subprocess.run(
+            ["docker", "exec", "-e", "PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=15000",
+             "tokenkey-postgres", "psql", "-XAt", "-v", "ON_ERROR_STOP=1",
+             "-U", "tokenkey", "-d", "tokenkey", "-c", query],
+            capture_output=True, text=True, timeout=20, check=True,
+        )
+        failures = {}
+        for raw in result.stdout.splitlines():
+            if not raw.strip():
+                continue
+            row = json.loads(raw)
+            rid, status = row["request_id"], row["status_code"]
+            if not isinstance(status, int) or status < 500:
+                raise ValueError("invalid final status")
+            if rid in request_statuses and request_statuses[rid] < 500:
+                failures[rid] = max(status, failures.get(rid, 0))
+        for status in failures.values():
+            inband_5xx[str(status)] = inband_5xx.get(str(status), 0) + 1
+        final_status_available = complete_metadata
+        final_status_note = ("ops final status joined by request_id" if complete_metadata
+                             else "some completed requests lack correlation metadata")
+    except (subprocess.SubprocessError, OSError, ValueError, KeyError, TypeError):
+        final_status_note = "ops final status query failed"
+status_5xx = dict(http_status_5xx)
+for status, count in inband_5xx.items():
+    status_5xx[status] = status_5xx.get(status, 0) + count
 
 print("=== traffic ===")
 top = sorted(by_path.items(), key=lambda kv: (-kv[1], kv[0]))[:10]
@@ -178,5 +244,9 @@ print(json.dumps({
     "path_counts": {path: by_path.get(path, 0) for path in requested_paths},
     "top_paths": [{"path": p, "n": n} for p, n in top],
     "status_5xx": status_5xx,
+    "http_status_5xx": http_status_5xx,
+    "inband_5xx": inband_5xx,
+    "final_status_available": final_status_available,
+    "final_status_note": final_status_note,
 }))
 PY

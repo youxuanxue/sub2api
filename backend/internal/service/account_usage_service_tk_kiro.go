@@ -96,6 +96,10 @@ func (s *AccountUsageService) getKiroUsage(ctx context.Context, account *Account
 		return passive, nil
 	}
 
+	if err := validateOAuthProxyBinding(account); err != nil {
+		return s.degradedKiroUsage(passive, account, err), nil
+	}
+
 	flightKey := fmt.Sprintf("kiro-usage:%d", account.ID)
 	result, flightErr, _ := s.cache.kiroFlight.Do(flightKey, func() (any, error) {
 		usageAccount := account
