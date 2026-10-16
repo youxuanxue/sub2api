@@ -1,6 +1,15 @@
 package service
 
-// openAICodexSupportsResolvedModel owns supply-scoped model retirements. The
+import "strings"
+
+// isOpenAICodexClaudeModel identifies the known foreign family rejected by
+// ChatGPT/Codex. Both empty-mapping admission and resolved Plan checks use it;
+// explicit aliases must be resolved before applying the supply negative.
+func isOpenAICodexClaudeModel(model string) bool {
+	return strings.HasPrefix(strings.ToLower(lastOpenAIModelSegment(model)), "claude-")
+}
+
+// openAICodexSupportsResolvedModel owns supply-scoped capability negatives. The
 // 2026-10-15 live Codex and OpenAI edge responses reject GPT-5.5 with "not
 // supported when using Codex with a ChatGPT account"; API suppliers still
 // serve it. See docs/approved/candidate-eligibility-ssot.md.
@@ -11,7 +20,7 @@ func openAICodexSupportsResolvedModel(account *Account, resolvedModel string) bo
 	if account == nil || (!account.IsOpenAIOAuthLike() && !isOpenAIEdgeMirrorAccount(account)) {
 		return true
 	}
-	return normalizeKnownOpenAICodexModel(resolvedModel) != "gpt-5.5"
+	return !isOpenAICodexClaudeModel(resolvedModel) && normalizeKnownOpenAICodexModel(resolvedModel) != "gpt-5.5"
 }
 
 // Match the forwarding owner's mapping/passthrough behavior, rather than

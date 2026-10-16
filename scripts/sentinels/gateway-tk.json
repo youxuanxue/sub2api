@@ -17136,9 +17136,22 @@
       "must_contain": [
         "!account.IsOpenAIOAuthLike() && !isOpenAIEdgeMirrorAccount(account)",
         "normalizeKnownOpenAICodexModel(resolvedModel) != \"gpt-5.5\"",
-        "resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, false)"
+        "resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, false)",
+        "!isOpenAICodexClaudeModel(resolvedModel)",
+        "func isOpenAICodexClaudeModel("
       ],
-      "rationale": "Retired GPT-5.5 is a Codex OAuth/setup-token and OpenAI edge supply negative; API suppliers remain eligible and aliases use the wire owner."
+      "rationale": "Codex OAuth/setup-token and OpenAI edges reject retired GPT-5.5 and actual Claude wire models; supported remaps and API suppliers remain eligible."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_claude_admission_tk_test.go",
+      "must_contain": [
+        "func TestCodexClaudeModelAdmission(",
+        "func TestCodexClaudePlanAndSelection(",
+        "func TestCodexClaudeCompactMapping(",
+        "func TestCodexClaudeAliasMappedToGPTPlan(",
+        "func TestCodexClaudeCatalogProjection("
+      ],
+      "rationale": "Prevent Claude-to-Codex misrouting across candidate selection, final Plan and catalog projection without blocking valid suppliers or GPT remaps."
     },
     {
       "path": "backend/internal/service/openai_codex_model_support_tk_test.go",
