@@ -102,6 +102,24 @@ func (s *OpenAIGatewayService) TkImageModelUnpriced(model string, group *Group, 
 	return s.billingService.TkImageModelUnpriced(model, group, size)
 }
 
+// TkImageModelRegistryMissing is true when the pricing registry has no row for
+// the model. Used by Images to return OpenAI-shaped 404 for unknown gpt-image-*
+// ids (e.g. gpt-image-does-not-exist) instead of a capacity 503.
+func (s *BillingService) TkImageModelRegistryMissing(model string) bool {
+	model = strings.TrimSpace(model)
+	if model == "" || s == nil || s.pricingService == nil {
+		return false
+	}
+	return s.pricingService.GetModelPricing(model) == nil
+}
+
+func (s *OpenAIGatewayService) TkImageModelRegistryMissing(model string) bool {
+	if s == nil {
+		return false
+	}
+	return s.billingService.TkImageModelRegistryMissing(model)
+}
+
 // TkTTSModelUnpriced reports whether the requested model has no character-priced
 // TTS rate and no group audio_tts_price_per_million_chars override.
 func (s *BillingService) TkTTSModelUnpriced(model string, group *Group) bool {

@@ -1084,9 +1084,8 @@ func buildOpenAIImagesAPIResponse(
 		} else {
 			item, _ = sjson.SetBytes(item, "b64_json", img.Result)
 		}
-		if img.RevisedPrompt != "" {
-			item, _ = sjson.SetBytes(item, "revised_prompt", img.RevisedPrompt)
-		}
+		// Official gpt-image Images responses omit revised_prompt; Codex often
+		// includes it. Stripping is owned by prepareOpenAIImagesAPIResponseResults.
 		out, _ = sjson.SetRawBytes(out, "data.-1", item)
 	}
 	if firstMeta.Background != "" {
@@ -1425,6 +1424,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 	if len(results) > 0 && results[0].OutputFormat != "" {
 		firstMeta.OutputFormat = results[0].OutputFormat
 	}
+	results = prepareOpenAIImagesAPIResponseResults(results, &firstMeta, parsed, fallbackModel)
 
 	responseBody, err := buildOpenAIImagesAPIResponse(results, createdAt, usageRaw, firstMeta, responseFormat)
 	if err != nil {
@@ -1462,6 +1462,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 	if format == "" {
 		format = "b64_json"
 	}
+	wantImages := openAIImagesWantCount(parsed)
 
 	usage := OpenAIUsage{}
 	imageCount := 0
@@ -1471,6 +1472,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 	pendingResults := make([]openAIResponsesImageResult, 0, 1)
 	pendingSeen := make(map[string]struct{})
 	streamMeta := openAIResponsesImageResult{Model: strings.TrimSpace(fallbackModel)}
+	applyOpenAIImagesClientResponseEcho(&streamMeta, parsed, fallbackModel)
 	var fallbackText strings.Builder
 	appendFallbackText := func(text string) {
 		if text == "" || fallbackText.Len() >= 600 {
@@ -1580,6 +1582,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 				return
 			}
 			reconcileOpenAIResponsesImageResultSizes(finalResults, nil)
+			finalResults = prepareOpenAIImagesAPIResponseResults(finalResults, &streamMeta, parsed, fallbackModel)
 			if len(finalResults) == 0 {
 				textFallbackErr := openAIImagesTextFallbackErrorForText(fallbackText.String())
 				if textFallbackErr == nil {
@@ -1604,10 +1607,15 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 			}
 			eventName := streamPrefix + ".completed"
 			for _, img := range finalResults {
+				if len(emitted) >= wantImages {
+					break
+				}
 				key := openAIResponsesImageResultKey("", img)
 				if _, exists := emitted[key]; exists {
 					continue
 				}
+				mergeOpenAIResponsesImageMeta(&img, streamMeta)
+				img.RevisedPrompt = ""
 				payload := buildOpenAIImagesStreamCompletedPayload(eventName, img, format, createdAt, usageRaw)
 				emitted[key] = struct{}{}
 				s.tryWriteOpenAIImagesStreamEvent(c, flusher, &clientDisconnected, &lastDownstreamWriteAt, eventName, payload)
@@ -1663,11 +1671,17 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 				return err
 			}
 			reconcileOpenAIResponsesImageResultSizes(finalResults, nil)
+			finalResults = prepareOpenAIImagesAPIResponseResults(finalResults, &streamMeta, parsed, fallbackModel)
 			for _, img := range finalResults {
+				if len(emitted) >= wantImages {
+					break
+				}
 				key := openAIResponsesImageResultKey("", img)
 				if _, exists := emitted[key]; exists {
 					continue
 				}
+				mergeOpenAIResponsesImageMeta(&img, streamMeta)
+				img.RevisedPrompt = ""
 				payload := buildOpenAIImagesStreamCompletedPayload(eventName, img, format, createdAt, nil)
 				emitted[key] = struct{}{}
 				s.tryWriteOpenAIImagesStreamEvent(c, flusher, &clientDisconnected, &lastDownstreamWriteAt, eventName, payload)

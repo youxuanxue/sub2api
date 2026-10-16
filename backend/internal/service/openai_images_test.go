@@ -345,7 +345,7 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_MultipartEditWithMaskAndNa
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	require.NoError(t, writer.WriteField("model", "gpt-image-2"))
+	require.NoError(t, writer.WriteField("model", "gpt-image-1.5"))
 	require.NoError(t, writer.WriteField("prompt", "replace foreground"))
 	require.NoError(t, writer.WriteField("output_format", "png"))
 	require.NoError(t, writer.WriteField("input_fidelity", "high"))
@@ -468,7 +468,7 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_AllowsGrokImageModels(t *t
 func TestOpenAIGatewayServiceParseOpenAIImagesRequest_JSONEditURLs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{
-		"model":"gpt-image-2",
+		"model":"gpt-image-1.5",
 		"prompt":"replace the background",
 		"images":[{"image_url":"https://example.com/source.png"}],
 		"mask":{"image_url":"https://example.com/mask.png"},
@@ -994,8 +994,8 @@ func TestOpenAIGatewayServiceForwardImages_OAuthPassesNAndReturnsAllImages(t *te
 	require.Equal(t, "1024x1024", detectOpenAIImageResultSize(gjson.Get(rec.Body.String(), "data.0.b64_json").String()))
 	require.Equal(t, "1024x1024", detectOpenAIImageResultSize(gjson.Get(rec.Body.String(), "data.1.b64_json").String()))
 	require.Equal(t, "1024x1024", detectOpenAIImageResultSize(gjson.Get(rec.Body.String(), "data.2.b64_json").String()))
-	require.Equal(t, "draw a cat 1", gjson.Get(rec.Body.String(), "data.0.revised_prompt").String())
-	require.Equal(t, "draw a cat 3", gjson.Get(rec.Body.String(), "data.2.revised_prompt").String())
+	require.False(t, gjson.Get(rec.Body.String(), "data.0.revised_prompt").Exists())
+	require.False(t, gjson.Get(rec.Body.String(), "data.2.revised_prompt").Exists())
 }
 
 func TestOpenAIGatewayServiceForwardImages_OAuthRejectsStreamWithNGreaterThanOne(t *testing.T) {
@@ -2041,7 +2041,7 @@ func TestOpenAIGatewayServiceForwardImages_OAuthEditsMultipartUsesResponsesAPI(t
 	raw, err := base64.StdEncoding.DecodeString(outB64)
 	require.NoError(t, err)
 	require.Equal(t, "webp", sniffOpenAIImageFormat(raw))
-	require.Equal(t, "replace background with aurora", gjson.Get(rec.Body.String(), "data.0.revised_prompt").String())
+	require.False(t, gjson.Get(rec.Body.String(), "data.0.revised_prompt").Exists())
 }
 
 func TestOpenAIGatewayServiceForwardImages_OAuthEditsStreamingTransformsEvents(t *testing.T) {

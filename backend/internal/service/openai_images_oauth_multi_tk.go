@@ -28,13 +28,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingMulti(
 	upstreamModel string,
 	requestModel string,
 ) (OpenAIUsage, int, []string, error) {
-	want := parsed.N
-	if want < 1 {
-		want = 1
-	}
-	if want > 4 {
-		want = 4
-	}
+	want := openAIImagesWantCount(parsed)
 
 	firstBody, err := ReadUpstreamResponseBody(firstResp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
@@ -96,10 +90,6 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingMulti(
 			firstMeta.Model = extraMeta.Model
 		}
 	}
-	if len(results) > want {
-		results = results[:want]
-	}
-
 	if err := applyOpenAIImagesClientFidelityPostprocess(results, parsed); err != nil {
 		return OpenAIUsage{}, 0, nil, err
 	}
@@ -110,6 +100,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingMulti(
 	if len(results) > 0 && results[0].OutputFormat != "" {
 		firstMeta.OutputFormat = results[0].OutputFormat
 	}
+	results = prepareOpenAIImagesAPIResponseResults(results, &firstMeta, parsed, requestModel)
 
 	responseFormat := ""
 	if parsed != nil {
