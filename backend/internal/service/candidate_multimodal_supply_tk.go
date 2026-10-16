@@ -25,6 +25,7 @@ const (
 	openAICompatIneligibleInputModality = "input_modality_unsupported"
 	multimodalInputModalityVideo        = "video"
 	multimodalInputModalityImage        = "image"
+	multimodalInputModalityAudio        = "audio"
 )
 
 // TkUnsupportedInputModalityMessage is the client-facing OpenRouter-aligned copy.
@@ -37,7 +38,7 @@ func TkUnsupportedInputModalityMessage(model, modality string) string {
 	return fmt.Sprintf("No available endpoints support input %s for model: %s", modality, model)
 }
 
-// UnsupportedInputModalityFromError extracts "video" / "image" from a wrapped
+// UnsupportedInputModalityFromError extracts "video" / "image" / "audio" from a wrapped
 // ErrUnsupportedInputModality. Unknown or missing tokens default to video so
 // legacy callers keep the OpenRouter-aligned shape.
 func UnsupportedInputModalityFromError(err error) string {
@@ -72,6 +73,9 @@ func requestInputModalityPreference(ctx context.Context) string {
 	if kinds&protocolrouter.ContentImage != 0 {
 		return multimodalInputModalityImage
 	}
+	if kinds&protocolrouter.ContentAudio != 0 {
+		return multimodalInputModalityAudio
+	}
 	return multimodalInputModalityVideo
 }
 
@@ -79,13 +83,15 @@ func normalizeUnsupportedInputModality(modality string) string {
 	switch strings.ToLower(strings.TrimSpace(modality)) {
 	case multimodalInputModalityImage:
 		return multimodalInputModalityImage
+	case multimodalInputModalityAudio:
+		return multimodalInputModalityAudio
 	default:
 		return multimodalInputModalityVideo
 	}
 }
 
 // accountInputModalityRejection returns the blocked modality name ("video" /
-// "image") when this account is a known-negative for the request's input
+// "image" / "audio") when this account is a known-negative for the request's input
 // modalities, else "". Video is checked before image when both are present so
 // the empty-pool message names a concrete modality. Empty string means admit
 // (unknown supplies stay eligible).
@@ -104,7 +110,18 @@ func accountInputModalityRejection(ctx context.Context, account *Account, model 
 	if kinds&protocolrouter.ContentImage != 0 && supplyKnownNegativeForInputImage(account, model) {
 		return multimodalInputModalityImage
 	}
+	if kinds&protocolrouter.ContentAudio != 0 && supplyKnownNegativeForInputAudio(account, model) {
+		return multimodalInputModalityAudio
+	}
 	return ""
+}
+
+// cn-prod 2026-10-16, two Volc accounts: input_audio returns
+// "audio input is not supported by this model". Scope this evidence to the
+// actual supplier, not every Kimi endpoint or an opaque edge relay.
+func supplyKnownNegativeForInputAudio(account *Account, model string) bool {
+	return normalizeMultimodalSupplyModelID(model) == "kimi-k3" &&
+		isNewAPIVolcEngineAgentPlanAccount(account)
 }
 
 // supplyKnownNegativeForInputVideo reports evidence-backed "this supply cannot

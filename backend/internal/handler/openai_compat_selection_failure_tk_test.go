@@ -84,6 +84,26 @@ func TestOpenAICompatFirstAttemptSelectionFailure(t *testing.T) {
 		assert.Equal(t, service.TkUnsupportedInputModalityMessage("kimi-k3", "video"), body.Error.Message)
 	})
 
+	t.Run("unsupported input modality audio -> 400 invalid_request_error, no Retry-After", func(t *testing.T) {
+		c, w := newCtx(t)
+		groupID := int64(18)
+		apiKey := &service.APIKey{
+			GroupID: &groupID,
+			Group:   &service.Group{ID: groupID, Platform: service.PlatformNewAPI},
+		}
+		err := fmt.Errorf("%w: audio model=kimi-k3", service.ErrUnsupportedInputModality)
+
+		status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, nil, apiKey, "kimi-k3", "kimi-k3", err)
+		writeJSON(t, w, status, errType, msg)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Empty(t, w.Header().Get("Retry-After"))
+		var body errorBody
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		assert.Equal(t, service.TkUnsupportedInputModalityErrType, body.Error.Type)
+		assert.Equal(t, service.TkUnsupportedInputModalityMessage("kimi-k3", "audio"), body.Error.Message)
+	})
+
 	t.Run("unsupported input modality image -> 400 names image not video", func(t *testing.T) {
 		c, w := newCtx(t)
 		groupID := int64(18)

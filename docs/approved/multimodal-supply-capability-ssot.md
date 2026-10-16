@@ -6,7 +6,7 @@ approved_at: 2026-10-08
 created: 2026-10-08
 authors: [auto]
 risk: high
-revision_note: "v1.4: feng 2026-10-15 会话批准 Ali Token Plan × glm-5.3 图片限制；双账号双协议实测修正旧图片支持结论，保留文本及视频原策略。"
+revision_note: "v1.5: feng 2026-10-16 会话批准 Volc Agent Plan × kimi-k3 原生音频限制；复用共享能力门。v1.4: feng 2026-10-15 会话批准 Ali Token Plan × glm-5.3 图片限制；双账号双协议实测修正旧图片支持结论，保留文本及视频原策略。"
 ---
 
 # Multimodal supply capability SSOT
@@ -30,6 +30,7 @@ revision_note: "v1.4: feng 2026-10-15 会话批准 Ali Token Plan × glm-5.3 图
    | 模型 | 模态 | 供应指纹 | 证据摘要 |
    | --- | --- | --- | --- |
    | `kimi-k3` | video | NVIDIA Build | `At most 0 video(s)` |
+   | `kimi-k3` | audio | Volc Agent Plan | 2026-10-16 cn-prod 两账号返回 `audio input is not supported by this model`，见下方证据 |
    | `glm-5.3-flash` | video | NVIDIA Build | `At most 0 video(s)` |
    | `glm-4.5-air` / `glm-5.2` / `glm-5.3` | video + image | Volc Agent Plan | `Model only support text input` |
    | `glm-4.5-air` / `glm-5.2` / `glm-5.3` | video + image | china-edge relay（`api-*.tokenkey.dev` newapi stub） | 同上 |
@@ -94,6 +95,25 @@ Quickstart 客户示例 owner：`frontend/src/utils/kimiK3VideoExamples.tk.ts`�
 
 验收：`TestAliGLMImageCandidateAdmission` 覆盖 Chat/Responses 的 Direct 准入拒绝、Universal 图片空池、纯文本仍可选中及其它供应可接手；`TestSupplyKnownNegativeAliTokenPlan` 覆盖模型修饰后缀、其它阿里模型与视频策略不扩大。
 
+## Volc Kimi K3 音频证据更新（2026-10-16）
+
+批准：feng 在本轮线上错误排查后要求“火山 kimi-k3 的‘不支持音频输入’加入共享能力约束，提前给出清晰提示”。仅约束实际 Volc Agent Plan 供应指纹 × `kimi-k3` × `ContentAudio`；文本、图片、视频保持现有准入，不推断不透明 edge relay 或其它供应商。
+
+cn-prod 两条真实 `POST /v1/chat/completions` 请求均被上游以 HTTP 400 明确拒绝：
+
+| 北京时间 | 账号（仅证据锚点） | 网关 Request ID | 火山 Request ID |
+| --- | --- | --- | --- |
+| 2026-10-16 09:59:06 | #4 | `76bf378a-8703-4ba5-b2de-eca42617a186` | `021792115946701152c08225118e3e35cb95e4b33922c1cd62a6b` |
+| 2026-10-16 10:00:01 | #15 | `492561a9-6b90-4718-b7ba-0e5a2f4378ff` | `021792116000927fe72bfc0272752ca5305ae414c6616a387fcc9` |
+
+上游错误字段为 `messages.content.input_audio`，消息为 `audio input is not supported by this model`。私有排查回执：`~/.local/share/tokenkey/cn-rt-errors-20261016/report.md`；不在仓库保存凭据或客户请求正文。
+
+全池因音频被排除时，复用 HTTP 400 `invalid_request_error`，提示 `No available endpoints support input audio for model: kimi-k3`，无 Retry-After。Direct 空池必须保留实际被拒的模态：视频＋音频请求在 Volc 上应提示 audio，不能按请求中含 video 误报视频不支持。若授权池中仍有未知供应，继续原有准入策略；若混有冷却等原因，仍按既有空池分类。
+
+验收：`TestVolcKimiAudioCandidateAdmission` 覆盖 Chat/Responses、Direct 谓词、Universal 空池与替代供应、文本/图片/视频回归；`TestVolcKimiAudioDirectEmptyPoolNamesActualRejection` 覆盖真实 Direct scheduler 的纯音频与视频＋音频；handler selection-failure 测试覆盖 audio 400 文案。
+
+Moonshot 文档核对（2026-10-16）：[官方 Chat API](https://platform.kimi.com/docs/api/chat) 的内容类型枚举仅 `text`、`image_url`、`video_url`，未提供 `input_audio`；[K3 指南](https://platform.kimi.com/docs/guide/kimi-k3-quickstart) 声明原生视觉能力。本轮没有 Moonshot 直连实测，不将文档范围外的音频能力视为可用，也不借火山证据扩写 Moonshot 的运行时负表。
+
 ## 与 Plan 的分工
 
 - `Router.Plan`：协议/converter **能否表达**该请求（含 ContentKinds）。
@@ -106,11 +126,11 @@ Quickstart 客户示例 owner：`frontend/src/utils/kimiK3VideoExamples.tk.ts`�
 
 - 哨兵：`ErrUnsupportedInputModality`（消息**不含** `no available accounts`）
 - 客户端：HTTP **400** `invalid_request_error`，文案对齐 OpenRouter：  
-  `No available endpoints support input <modality> for model: <id>`（`<modality>` 为请求实际被拒的 `video` / `image`，不得硬编码成 video）
+  `No available endpoints support input <modality> for model: <id>`（`<modality>` 为请求实际被拒的 `video` / `image` / `audio`，不得硬编码成 video）
 - **不是** capacity 429，也不是 `Unsupported model`（模型名合法，缺的是模态供应）
 - 接线：
   - Universal：`candidateSupportsRequest` → `PrepareCandidateRequest`
-  - Direct OpenAI/newapi：`openAIRequestEligibilityReason` → filter reason `input_modality_unsupported` → `openAIFilterOnlyReason` 空池升级（升级时用 `requestInputModalityPreference`）
+  - Direct OpenAI/newapi：`openAIRequestEligibilityReason` → filter reason `input_modality_unsupported` → `openAIFilterOnlyReason` 空池升级（升级时优先使用实际候选拒绝的模态）
   - Handler / Universal middleware：从 wrapped error 解析 modality 再调 `TkUnsupportedInputModalityMessage`
 
 混有冷却/容量等原因时仍走既有 empty-pool 429；有合格供应时静默剔除负例。
@@ -131,6 +151,6 @@ Sentinel：`scripts/sentinels/gateway-tk.json` 锚定 owner 调用。
 
 ## 后续
 
-- audio known-negative 扩表；Cursor Agent 直连路径仍失败；Gemini Web / Antigravity 在探针组 mapping 与容量恢复后可再采 modality 硬证。
+- 其它供应/模型的 audio known-negative 按证据扩表；Cursor Agent 直连路径仍失败；Gemini Web / Antigravity 在探针组 mapping 与容量恢复后可再采 modality 硬证。
 - 能力投影进 discovery / `/models` modalities（可选）。
 - `/models` 或 capabilities 暴露 per-supply input modalities（可选，非选号正确性必需）。

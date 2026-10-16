@@ -49,6 +49,76 @@ func multimodalImageChatBody(model string) []byte {
 	return []byte(`{"model":"` + model + `","messages":[{"role":"user","content":[{"type":"text","text":"describe"},{"type":"image_url","image_url":{"url":"https://example.com/a.png"}}]}]}`)
 }
 
+func multimodalAudioChatBody(model string) []byte {
+	return []byte(`{"model":"` + model + `","messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"UklGRg==","format":"wav"}}]}]}`)
+}
+
+func TestVolcKimiAudioCandidateAdmission(t *testing.T) {
+	for _, endpoint := range []string{"/v1/chat/completions", "/v1/responses"} {
+		t.Run(endpoint, func(t *testing.T) {
+			volc := multimodalSupplyVolcAccount(42, 10)
+			attachTestProtocolCapability(&volc, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
+			groups := []Group{grp(10, PlatformNewAPI, 1, false)}
+			r, _, key := globalCandidateFixture(groups, []Account{volc})
+			body := multimodalAudioChatBody("kimi-k3")
+			if endpoint == "/v1/responses" {
+				body = []byte(`{"model":"kimi-k3","input":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"UklGRg==","format":"wav"}}]}]}`)
+			}
+			ctx := r.WithRequest(context.Background(), ShapeOpenAIChat, endpoint, "kimi-k3", body)
+			require.Equal(t, openAICompatIneligibleInputModality+"(audio)", openAIRequestEligibilityReason(ctx, &volc, "kimi-k3", false, ""))
+			_, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, endpoint, "kimi-k3", body, "", "")
+			require.ErrorIs(t, err, ErrUnsupportedInputModality)
+			require.Equal(t, "audio", UnsupportedInputModalityFromError(err))
+			require.Nil(t, state)
+			require.Equal(t, "No available endpoints support input audio for model: kimi-k3", TkUnsupportedInputModalityMessage("kimi-k3", UnsupportedInputModalityFromError(err)))
+
+			// Unknown suppliers retain the existing conservative policy. This is
+			// eligibility, not a claim that Moonshot accepts input_audio.
+			other := multimodalSupplyNVIDIAAccount(138, 10)
+			other.Credentials["base_url"] = "https://api.moonshot.cn/v1"
+			other.Credentials["model_mapping"] = map[string]any{"kimi-k3": "kimi-k3"}
+			attachTestProtocolCapability(&other, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
+			mixed, _, mixedKey := globalCandidateFixture(groups, []Account{volc, other})
+			_, chosen, err := mixed.PrepareCandidateRequest(context.Background(), mixedKey, ShapeOpenAIChat, endpoint, "kimi-k3", body, "", "")
+			require.NoError(t, err)
+			require.Equal(t, other.ID, chosen.current.account.ID)
+		})
+	}
+
+	volc := multimodalSupplyVolcAccount(42, 10)
+	for _, model := range []string{"kimi-k3", " KIMI-K3[high] "} {
+		require.True(t, supplyKnownNegativeForInputAudio(&volc, model))
+	}
+	require.False(t, supplyKnownNegativeForInputAudio(&volc, "kimi-k2.6"))
+	require.False(t, supplyKnownNegativeForInputAudio(nil, "kimi-k3"))
+	china := multimodalSupplyChinaEdgeAccount(152)
+	require.False(t, supplyKnownNegativeForInputAudio(&china, "kimi-k3"), "opaque relays may host other audio suppliers")
+	r, _, key := globalCandidateFixture([]Group{grp(10, PlatformNewAPI, 1, false)}, []Account{volc})
+	for _, body := range [][]byte{multimodalTextChatBody("kimi-k3"), multimodalImageChatBody("kimi-k3"), multimodalVideoChatBody("kimi-k3")} {
+		_, chosen, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, "/v1/chat/completions", "kimi-k3", body, "", "")
+		require.NoError(t, err)
+		require.Equal(t, volc.ID, chosen.current.account.ID)
+	}
+}
+
+func TestVolcKimiAudioDirectEmptyPoolNamesActualRejection(t *testing.T) {
+	groupID := int64(10)
+	volc := multimodalSupplyVolcAccount(42, groupID)
+	_, scheduler := newAPISchedFixture(t, groupID, PlatformNewAPI, []*Account{&volc})
+	for _, body := range [][]byte{
+		multimodalAudioChatBody("kimi-k3"),
+		[]byte(`{"model":"kimi-k3","messages":[{"role":"user","content":[{"type":"video_url","video_url":{"url":"https://example.com/a.mp4"}},{"type":"input_audio","input_audio":{"data":"UklGRg==","format":"wav"}}]}]}`),
+	} {
+		req, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathNone, "kimi-k3", false, body)
+		require.NoError(t, err)
+		ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), req)
+		selection, _, _, _, err := scheduler.selectByLoadBalance(ctx, OpenAIAccountScheduleRequest{GroupID: &groupID, GroupPlatform: PlatformNewAPI, RequestedModel: "kimi-k3"})
+		require.Nil(t, selection)
+		require.ErrorIs(t, err, ErrUnsupportedInputModality)
+		require.Equal(t, "audio", UnsupportedInputModalityFromError(err), "video is supported; the blocked input is audio")
+	}
+}
+
 func multimodalSupplyChinaEdgeAccount(id int64, groups ...int64) Account {
 	a := Account{
 		ID: id, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, Status: StatusActive,

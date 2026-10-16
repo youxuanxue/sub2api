@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -84,7 +85,7 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 
 	raw, readErr := readAndRestoreUniversalBody(c)
 	if readErr != nil {
-		writeUniversalBodyReadError(c, shape, readErr)
+		writeUniversalBodyReadError(c, shape, readErr, "read", -1)
 		return true
 	}
 	model := peekUniversalModel(c, shape)
@@ -96,13 +97,14 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 		copyRequest.Body = io.NopCloser(bytes.NewReader(raw))
 		body, decodeErr := pkghttputil.ReadRequestBodyWithPrealloc(copyRequest)
 		if decodeErr != nil {
-			writeUniversalBodyReadError(c, shape, decodeErr)
+			writeUniversalBodyReadError(c, shape, decodeErr, "decode", len(raw))
 			return true
 		}
 		if shape == service.ShapeOpenAIChat {
-			body, decodeErr = pkghttputil.NormalizeLenientJSONRequestBody(body, 0)
+			inputBytes := len(body)
+			body, decodeErr = pkghttputil.NormalizeLenientJSONRequestBodyForRequest(c.Request, body, 0)
 			if decodeErr != nil {
-				writeUniversalBodyReadError(c, shape, decodeErr)
+				writeUniversalBodyReadError(c, shape, decodeErr, "normalize", inputBytes)
 				return true
 			}
 		}
@@ -464,11 +466,15 @@ func readAndRestoreUniversalBody(c *gin.Context) ([]byte, error) {
 	return raw, err
 }
 
-func writeUniversalBodyReadError(c *gin.Context, shape service.UniversalShape, err error) {
+func writeUniversalBodyReadError(c *gin.Context, shape service.UniversalShape, err error, stage string, inputBytes int) {
 	status, message := http.StatusBadRequest, "Failed to read request body"
 	var tooLarge *http.MaxBytesError
 	if errors.As(err, &tooLarge) {
-		status, message = http.StatusRequestEntityTooLarge, "Request body too large"
+		status = http.StatusRequestEntityTooLarge
+		message = fmt.Sprintf("Request body too large (stage=%s, limit_bytes=%d)", stage, tooLarge.Limit)
+		logger.FromContext(c.Request.Context()).Info("gateway request body limit exceeded",
+			zap.String("stage", stage), zap.Int64("limit_bytes", tooLarge.Limit),
+			zap.Int("stage_input_bytes", inputBytes), zap.Int64("content_length", c.Request.ContentLength))
 	} else if IsClientClosedRequestError(c, err) {
 		writeUniversalClientClosedRequest(c, shape)
 		return
