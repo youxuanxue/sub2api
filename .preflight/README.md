@@ -17,10 +17,17 @@ Section times measure foreground execution/wait time; independent jobs overlap.
 
 Missing Git baselines and invalid manifests fail rather than produce an empty
 selection. Empty changes, unknown input paths, shared dependency pins, rules,
-checkers and preflight changes select full validation. The initial declared
-surfaces cover backend/frontend/deploy and the listed ops domains; other inputs
-remain full until their dependencies are declared. Local full lint is selected
-only for backend inputs or full validation; CI retains its dedicated lint job.
+checkers and preflight changes select full validation. Sentinel registry JSON
+under `scripts/sentinels/` is a known input: it selects the matching sentinel
+gate(s), not the whole suite. Blanket `scripts/*` is intentionally not a
+full-suite trigger; only preflight/plan/checkers and other declared machinery
+are. Ops-heavy deploy/observability/stage0 suites no longer select on every
+`backend/*` edit — they follow their own trees; CI `--full` / main push still
+covers the cross-cut. The QA suite keeps targeted backend globs for
+trajectory / observability/qa owners (not blanket `backend/*`). The initial declared surfaces cover backend/frontend/deploy
+and the listed ops domains; other inputs remain full until their dependencies
+are declared. Local full lint is selected only for backend inputs or full
+validation; CI retains its dedicated lint job.
 
 `input_sets` groups dependencies, `gates` binds section names to those groups,
 `backgrounds` binds jobs to the same gates, and `requires` keeps dependent sections

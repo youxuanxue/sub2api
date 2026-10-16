@@ -59,7 +59,7 @@ class SelectionTest(unittest.TestCase):
             self.assertNotIn(gate, selected['gates'])
 
     def test_unknown_and_gate_machinery_changes_fall_back_to_full(self):
-        for path in ('unknown/new.file', 'scripts/preflight.sh', '.preflight/gates.json', 'scripts/preflight/plan.py', 'dev-rules', 'backend/go.mod'):
+        for path in ('unknown/new.file', 'scripts/preflight.sh', '.preflight/gates.json', 'scripts/preflight/plan.py', 'scripts/checks/gofmt-changed-go.py', 'dev-rules', 'backend/go.mod'):
             with self.subTest(path=path):
                 selected = self.choose(path)
                 self.assertTrue(selected['full'])
@@ -84,6 +84,48 @@ class SelectionTest(unittest.TestCase):
         path = next(p for p in self.data['gates'][gate] if p.startswith('ops/'))
         self.assertIn(gate, self.choose(path)['gates'])
         self.assertNotIn(gate, self.choose(BILL)['gates'])
+
+    def test_sentinel_registry_edit_does_not_force_full_suite(self):
+        selected = self.choose('scripts/sentinels/gateway-tk.json')
+        self.assertFalse(selected['full'], selected['reason'])
+        self.assertIn('gateway TK sentinel registry', selected['gates'])
+        for gate in (
+            'phase1 production activation safety contracts',
+            'migration immutability',
+            'SSM host command script parse',
+            'hcloud live-fleet routing and transport',
+        ):
+            self.assertNotIn(gate, selected['gates'])
+
+    def test_unrelated_backend_edit_skips_ops_heavy_and_unanchored_sentinels(self):
+        selected = self.choose('backend/internal/service/unrelated_fixture.go')
+        self.assertFalse(selected['full'])
+        self.assertNotIn('gateway TK sentinel registry', selected['gates'])
+        for gate in (
+            'phase1 production activation safety contracts',
+            'migration immutability',
+            'SSM host command script parse',
+            'env secret backup fail-closed contract',
+            'observability test suite',
+            'stage0 test suite',
+            'scripts test suite',
+            'QA raw capture SSOT',
+        ):
+            self.assertNotIn(gate, selected['gates'])
+
+    def test_trajectory_backend_edit_still_selects_qa_ssot_gates(self):
+        selected = self.choose('backend/internal/observability/trajectory/capture.go')
+        self.assertFalse(selected['full'])
+        for gate in ('QA raw capture SSOT', 'QA lifecycle SSOT'):
+            self.assertIn(gate, selected['gates'])
+        self.assertNotIn('phase1 production activation safety contracts', selected['gates'])
+
+    def test_anchored_backend_path_still_selects_its_sentinel(self):
+        gate = 'gateway TK sentinel registry'
+        path = next(p for p in self.data['gates'][gate] if p.startswith('backend/'))
+        selected = self.choose(path)
+        self.assertIn(gate, selected['gates'])
+        self.assertFalse(selected['full'])
 
     def test_every_guard_has_manifest_entry_and_background_owner(self):
         import re

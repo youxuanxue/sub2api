@@ -15,10 +15,15 @@
     "ops/accounts/*",
     "backend/*",
     "frontend/*",
-    "deploy/*"
+    "deploy/*",
+    "scripts/sentinels/*"
   ],
   "full_inputs": [
-    "scripts/*",
+    "scripts/preflight.sh",
+    "scripts/preflight/*",
+    "scripts/test_preflight_scope.py",
+    "scripts/test_preflight_*.py",
+    "scripts/checks/*",
     ".preflight/*",
     "dev-rules",
     "dev-rules/*",
@@ -264,7 +269,10 @@
       "ops/accounts/*"
     ],
     "qa": [
-      "backend/*",
+      "backend/internal/observability/trajectory*",
+      "backend/internal/observability/qa/*",
+      "backend/cmd/server/qa_*",
+      "docs/approved/qa-raw-only.md",
       "deploy/*",
       "ops/qa/*",
       "ops/archive/*",
@@ -272,7 +280,6 @@
       "ops/migration/*"
     ],
     "deploy": [
-      "backend/*",
       "deploy/*",
       "ops/stage0/*",
       "ops/lightsail/*",
@@ -306,8 +313,7 @@
       "ops/archive/*",
       "ops/qa/*",
       "ops/pricing/*",
-      "deploy/*",
-      "backend/*"
+      "deploy/*"
     ],
     "billing-watch": [
       "ops/observability/probe-user-billing-watch.sh",
@@ -315,12 +321,10 @@
     ],
     "stage0-tests": [
       "ops/*",
-      "deploy/*",
-      "backend/*"
+      "deploy/*"
     ],
     "script-tests": [
       "scripts/*",
-      "backend/*",
       "frontend/*",
       "deploy/*",
       "ops/stage0/*",

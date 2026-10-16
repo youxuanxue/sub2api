@@ -84,8 +84,10 @@ def load_manifest(root: Path) -> dict:
         inputs = list(registry_paths(json.loads((root / registry).read_text())))
         if not inputs:
             raise ValueError(f'no dependency paths in sentinel registry: {registry}')
-        # Custom sentinel checks also sweep backend Go callers.
-        data['gates'][gate] = [registry, 'backend/*', *inputs]
+        # Select only the registry file and its declared anchors — not all of
+        # backend/*. Blanket backend matching forced every Go edit through every
+        # sentinel suite (~6s each) without improving coverage of unlisted paths.
+        data['gates'][gate] = [registry, *inputs]
     for key, gate in data['backgrounds'].items():
         if gate not in data['gates']:
             raise ValueError(f'background {key} has no gate: {gate}')
