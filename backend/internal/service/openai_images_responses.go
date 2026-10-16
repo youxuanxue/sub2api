@@ -1506,6 +1506,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 		}
 		if meta, eventCreatedAt, ok := extractOpenAIResponsesImageMetaFromLifecycleEvent(dataBytes); ok {
 			mergeOpenAIResponsesImageMeta(&streamMeta, meta)
+			// Upstream soft-serve meta (quality=auto, gpt-image-2-codex) must not
+			// displace the client echo already applied to streamMeta.
+			applyOpenAIImagesClientResponseEcho(&streamMeta, parsed, fallbackModel)
 			if eventCreatedAt > 0 {
 				createdAt = eventCreatedAt
 			}
@@ -1546,6 +1549,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 				return
 			}
 			mergeOpenAIResponsesImageMeta(&streamMeta, img)
+			applyOpenAIImagesClientResponseEcho(&streamMeta, parsed, fallbackModel)
 			mergeOpenAIResponsesImageMeta(&img, streamMeta)
 			key := openAIResponsesImageResultKey(itemID, img)
 			if _, exists := emitted[key]; exists {
