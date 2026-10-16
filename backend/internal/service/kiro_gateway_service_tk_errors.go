@@ -175,7 +175,31 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 			Body:       msg,
 		}
 	}
+	// Image format / MIME / corrupt-bytes rejections are properties of the
+	// caller's request. Retrying another Kiro account only amplifies 502s
+	// (prod pattern: Image format is not supported across the pool).
+	if isKiroImageClientError(msg) {
+		message := strings.TrimSpace(extractUpstreamErrorMessage([]byte(msg)))
+		if message == "" {
+			message = strings.TrimSpace(msg)
+		}
+		if message == "" {
+			message = "Image format is not supported"
+		}
+		return nil, &KiroInvalidRequestError{
+			StatusCode: http.StatusBadRequest,
+			Message:    message,
+			Body:       msg,
+		}
+	}
 	if statusCode, body, ok := parseKiroHTTPError(msg); ok {
+		if isKiroImageClientError(string(body)) || isKiroImageClientError(msg) {
+			message := strings.TrimSpace(extractUpstreamErrorMessage(body))
+			if message == "" {
+				message = "Image format is not supported"
+			}
+			return nil, &KiroInvalidRequestError{StatusCode: http.StatusBadRequest, Message: message, Body: msg}
+		}
 		if statusCode == http.StatusBadRequest && isKiroValidationErrorBody(body) && !isKiroProfileArnError(msg) {
 			message := strings.TrimSpace(extractUpstreamErrorMessage(body))
 			if message == "" {
@@ -189,6 +213,13 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 		}
 	}
 	if statusCode, body, ok := parseKiroEventStreamError(msg); ok {
+		if isKiroImageClientError(string(body)) || isKiroImageClientError(msg) {
+			message := strings.TrimSpace(extractUpstreamErrorMessage(body))
+			if message == "" {
+				message = "Image format is not supported"
+			}
+			return nil, &KiroInvalidRequestError{StatusCode: http.StatusBadRequest, Message: message, Body: msg}
+		}
 		if statusCode == http.StatusBadRequest && strings.Contains(strings.ToUpper(msg), "INVALID_MODEL_ID") {
 			return nil, &KiroInvalidModelError{
 				StatusCode: statusCode,
@@ -298,6 +329,37 @@ func isKiroProfileArnError(msg string) bool {
 	lower := strings.ToLower(msg)
 	return strings.Contains(lower, "invalid profilearn") ||
 		strings.Contains(lower, "profilearn is required")
+}
+
+// isKiroImageClientError reports request-shaped image rejections from Kiro /
+// Bedrock. These must not failover: every account rejects the same bytes.
+func isKiroImageClientError(msg string) bool {
+	lower := strings.ToLower(strings.TrimSpace(msg))
+	if lower == "" {
+		return false
+	}
+	markers := []string{
+		"image format is not supported",
+		"could not process image",
+		"the image was specified using the",
+		"appears to be a image/",
+		"appears to be an image/",
+		"unsupported image format",
+		"unsupported media type",
+		"media type is not supported",
+		"image media type",
+	}
+	for _, marker := range markers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	// Bedrock MIME mismatch: "...image/png media type, but the image appears..."
+	if strings.Contains(lower, "media type") && strings.Contains(lower, "image") &&
+		(strings.Contains(lower, "appears to be") || strings.Contains(lower, "but the image")) {
+		return true
+	}
+	return false
 }
 
 func isKiroValidationErrorBody(body []byte) bool {

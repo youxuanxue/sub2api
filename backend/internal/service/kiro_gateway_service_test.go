@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -949,6 +950,32 @@ func TestClassifyKiroForwardError_EventStreamValidationDoesNotFailover(t *testin
 	require.NotErrorAs(t, err, &failoverErr)
 }
 
+func TestClassifyKiroForwardError_ImageFormatDoesNotFailover(t *testing.T) {
+	cases := []string{
+		`kiro event stream error: ModelStreamErrorException: {"message":"Image format is not supported."}`,
+		`HTTP 502 from CodeWhisperer: Bedrock error message: The model returned the following errors: Could not process image`,
+		`HTTP 400 from CodeWhisperer: {"message":"messages.0.content.1.image.source.bytes: The image was specified using the image/png media type, but the image appears to be a image/webp image"}`,
+	}
+	for _, msg := range cases {
+		_, err := classifyKiroForwardError(fmt.Errorf("%s", msg), "claude-opus-5-5")
+		var invalidRequestErr *KiroInvalidRequestError
+		require.ErrorAs(t, err, &invalidRequestErr, msg)
+		require.Equal(t, http.StatusBadRequest, invalidRequestErr.StatusCode, msg)
+		require.NotEmpty(t, invalidRequestErr.ClientMessage(), msg)
+
+		var failoverErr *UpstreamFailoverError
+		require.NotErrorAs(t, err, &failoverErr, "image format must not burn the account pool: %s", msg)
+	}
+}
+
+func TestIsKiroImageClientError(t *testing.T) {
+	require.True(t, isKiroImageClientError("Image format is not supported."))
+	require.True(t, isKiroImageClientError("Could not process image"))
+	require.True(t, isKiroImageClientError("The image was specified using the image/png media type, but the image appears to be a image/webp image"))
+	require.False(t, isKiroImageClientError("ThrottlingException: slow down"))
+	require.False(t, isKiroImageClientError("connection refused"))
+}
+
 func TestClassifyKiroForwardError_EventStreamInputTooLongDoesNotFailover(t *testing.T) {
 	_, err := classifyKiroForwardError(
 		fmt.Errorf(`kiro event stream error: CONTENT_LENGTH_EXCEEDS_THRESHOLD: {"message":"Your input exceeds the context window of this model. Please adjust your input and try again."}`),
@@ -1000,6 +1027,48 @@ func TestKiroGatewayService_Forward_NonStreaming_InvalidModel(t *testing.T) {
 	var invalidModelErr *KiroInvalidModelError
 	require.ErrorAs(t, err, &invalidModelErr)
 	require.Equal(t, "claude-haiku-4.5", invalidModelErr.Model)
+}
+
+func TestKiroGatewayService_Forward_UnsupportedImageRejectedBeforeUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	upstream := &kiroStatusUpstream{status: http.StatusOK, body: "should-not-be-called"}
+	svc := NewKiroGatewayService(upstream, nil, nil)
+
+	// Opaque bytes labeled heic: cannot sniff, not in Kiro allowlist.
+	heicB64 := base64.StdEncoding.EncodeToString([]byte("not-a-real-heic-container"))
+	body, _ := json.Marshal(map[string]any{
+		"model": "claude-haiku-4.5",
+		"messages": []map[string]any{{
+			"role": "user",
+			"content": []map[string]any{
+				{
+					"type": "image",
+					"source": map[string]any{
+						"type":       "base64",
+						"media_type": "image/heic",
+						"data":       heicB64,
+					},
+				},
+				{"type": "text", "text": "what is this?"},
+			},
+		}},
+		"max_tokens": 16,
+		"stream":     false,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-haiku-4.5", Stream: false}
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.Error(t, err)
+	require.Nil(t, result)
+	var invalidRequestErr *KiroInvalidRequestError
+	require.ErrorAs(t, err, &invalidRequestErr)
+	require.Equal(t, http.StatusBadRequest, invalidRequestErr.StatusCode)
+	require.Contains(t, invalidRequestErr.ClientMessage(), "heic")
+	var failoverErr *UpstreamFailoverError
+	require.NotErrorAs(t, err, &failoverErr)
 }
 
 func TestClassifyKiroForwardError(t *testing.T) {
