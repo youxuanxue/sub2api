@@ -29,20 +29,20 @@
   "targets": {
     "uk1": {
       "deployable": false,
-      "purpose": "historical read-only data; traffic forwarded to fresh AWS"
+      "purpose": "retired 2026-10-16; frozen database retained in AWS S3 legacy-node archive"
     },
     "uk2": {
       "deployable": false,
-      "purpose": "historical read-only data; traffic forwarded to fresh AWS"
+      "purpose": "retired 2026-10-16; frozen database retained in AWS S3 legacy-node archive"
     },
     "us3": {},
     "us4": {
       "deployable": false,
-      "purpose": "historical read-only data; traffic forwarded to fresh AWS"
+      "purpose": "retired 2026-10-16; frozen database retained in AWS S3 legacy-node archive"
     },
     "us5": {
       "deployable": false,
-      "purpose": "historical read-only data; traffic forwarded to fresh AWS"
+      "purpose": "retired 2026-10-16; frozen database retained in AWS S3 legacy-node archive"
     },
     "us6": {}
   }

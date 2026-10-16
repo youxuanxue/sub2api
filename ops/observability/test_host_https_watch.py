@@ -1,6 +1,8 @@
 import pathlib
 import sys
 import unittest
+from unittest.mock import patch
+from types import SimpleNamespace
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import host_https_watch as watch
@@ -78,6 +80,29 @@ class HostJobWatchTest(unittest.TestCase):
         self.assertIn("OSError", sent[0])
         self.assertNotIn("private detail", sent[0])
         self.assertEqual(state["job:" + names[1]]["failures"], 0)
+
+    def test_job_starting_during_sampling_is_not_overdue(self):
+        # A job starts after probing begins, within one /proc/uptime tick.
+        # The clock must be read after systemd and retain sub-centisecond precision.
+        clock = [1000.0]
+        def show(command, **kwargs):
+            clock[0] = 1000.002
+            if command[2].endswith(".service"):
+                return SimpleNamespace(stdout="ActiveState=activating\nResult=success\nExecMainStartTimestampMonotonic=1000001000\n")
+            return SimpleNamespace(stdout="ActiveState=active\nUnitFileState=enabled\n")
+        with patch.object(watch.subprocess, "run", side_effect=show), \
+             patch.object(watch.time, "monotonic", side_effect=lambda: clock[0]), \
+             patch.object(watch.Path, "read_text", return_value="1000.00 0.00"):
+            self.assertEqual(watch.probe_job("tokenkey-disk-metrics"),
+                             {"healthy": True, "reason": "running"})
+
+    def test_probe_still_rejects_real_execution_timeout(self):
+        replies = [SimpleNamespace(stdout="ActiveState=activating\nResult=success\nExecMainStartTimestampMonotonic=1000000000\n"),
+                   SimpleNamespace(stdout="ActiveState=active\nUnitFileState=enabled\n")]
+        with patch.object(watch.subprocess, "run", side_effect=replies), \
+             patch.object(watch.time, "monotonic", return_value=1061.0):
+            self.assertEqual(watch.probe_job("tokenkey-disk-metrics"),
+                             {"healthy": False, "reason": "execution overdue"})
 
     def test_failed_stale_disabled_and_running_jobs(self):
         timer = {"ActiveState": "active", "UnitFileState": "enabled"}
