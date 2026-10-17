@@ -37,7 +37,7 @@
 ## 镜像发布之外的入口
 
 - `.github/workflows/ops-stage0-pg-dump-refresh.yml` + `ops/stage0/pg_dump_refresh_via_ssm.sh` — in-place 同步共享 `tokenkey-pgdump.sh` 与该脚本的 timer 到 resolver 选择的 prod 主机；下次有类似 user-data 模板改动可参考此形状写一个 one-shot ops workflow。
-- `.github/workflows/ops-stage0-host-mem-guard.yml` / `sync-host-mem-guard-via-ssm.sh` — EC2 standby 专用的旧 host payload；不得下发给 hcloud。现网 host 配置由 Hetzner renderer 拥有。
+- `.github/workflows/ops-stage0-host-mem-guard.yml` / `sync-host-mem-guard-via-ssm.sh` — 当前 `aws-fresh` prod 的宿主内存保护同步入口；由共享 prod resolver 选择实例和区域，不面向已退役 Hcloud。
 
 Gateway verification owners: `gateway_capability_host.py` (prepared candidate requests),
 `gateway_capability_matrix.py` (account-supply plan/report), `gateway_capability_scenarios.py`

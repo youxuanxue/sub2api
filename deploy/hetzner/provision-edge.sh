@@ -45,6 +45,12 @@ if [[ -z "$EDGE_ID" ]]; then
   exit 2
 fi
 
+# Paid create is a false door while the fleet is deployable=false (2026-10-17).
+# Dry-run resolve still works; --confirm-paid requires CONFIRM_EDGE_RESTORE.
+if [[ "$CONFIRM_PAID" -eq 1 ]]; then
+  python3 "${ROOT}/ops/stage0/require_edge_restore_approval.py"
+fi
+
 ARGS=(--edge-id "$EDGE_ID")
 if [[ "$ALLOW_PLANNED" -eq 1 ]]; then
   ARGS+=(--allow-planned)

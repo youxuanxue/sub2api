@@ -17,10 +17,10 @@ Examples:
   bash ops/stage0/reset-edge-admin-password.sh prod            # prod main gateway (live hcloud prod; identity/region from shared resolver)
 
 Behavior:
-  - Target is an edge id (e.g. uk1, us4) or the literal "prod" (prod Stage0 gateway).
+  - Target is a currently deployable edge id or the literal "prod" (prod Stage0 gateway).
   - Uses the shared prod/edge identity resolvers:
       * Platform "auto": live Hetzner target + SSM Hybrid identity.
-      * "lightsail": explicit Lightsail resolution, including planned targets.
+      * "lightsail": explicit Lightsail resolution; planned/retired rows are rejected.
       * "ec2": rejected for edges (retired).
       * "prod": shared prod resolver; default Hetzner, explicit ec2 selects standby.
   - Reads ADMIN_EMAIL from /var/lib/tokenkey/.env on the instance (shared runtime layout).

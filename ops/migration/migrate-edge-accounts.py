@@ -17,20 +17,20 @@ SchedulerSnapshotService.triggerFullRebuild); the gateway also full-rebuilds eve
 gateway.scheduling.full_rebuild_interval_seconds (default 300s) as a backstop.
 
 Flow (run as discrete, reviewable steps):
-  extract  --from edge:us1 --account-ids 5,6,7         # us1 -> S3 -> local .cache (data + live column types)
-  extract  --from edge:us4 --all --include-api-keys    # full edge clone (accounts+groups+keys+PEC)
-  build    --rename kiro-us1-real=kiro-us6-real \
-           --rename-group kiro-us1=kiro-us6            # local: generate migrate.sql, print sanitized summary
+  extract  --from edge:<source-id> --account-ids <ids> # historical live edge -> S3 -> local .cache
+  extract  --from edge:<source-id> --all --include-api-keys
+  build    --rename <old>=<new> \
+           --rename-group <old-group>=<new-group>      # local: generate migrate.sql, print sanitized summary
   build    --preserve-schedulable --replace-target     # full clone: keep schedulable; wipe target rows first
-  load     --to edge:us6 [--execute]                   # local migrate.sql -> S3 -> us6 psql (dry-run unless --execute)
-  load     --to hetzner:us4 --execute                  # Hetzner Hybrid mi-* via SSM param
+  load     --to edge:<target-id> [--execute]           # local migrate.sql -> S3 -> target psql
+  load     --to hetzner:uk1 --execute                  # live Hetzner Hybrid edge only
 
 Full clone also copies protocol_endpoint_capabilities by capability_key and relinks
 accounts (PEC ids are host-local; copying bare ids would leave support_error).
 
 Helper write-ops (used during smoke + teardown; small UPDATEs, no secrets):
-  set-schedulable --to edge:us6 --account-name kiro-us6-real --value true|false
-  soft-delete     --from edge:us1 --account-ids 5,6,7 [--execute]
+  set-schedulable --to edge:<target-id> --account-name <name> --value true|false
+  soft-delete     --from edge:<source-id> --account-ids <ids> [--execute]
 
 All write subcommands default to dry-run; pass --execute to apply.
 """
@@ -89,7 +89,8 @@ def resolve_edge(target: str) -> tuple[str, str]:
     """target = 'edge:<id>' | 'hetzner:<id>' | 'prod' -> (region, instance_id).
 
     ``edge:`` and ``prod`` resolve the live fleet through shared target owners.
-    ``hetzner:`` remains an explicit selector for planned migration targets.
+    ``hetzner:`` is still accepted for compatibility, but resolves through the
+    shared live-edge owner and therefore rejects retired/planned rows.
     """
     if target == "prod":
         out = run([
@@ -102,15 +103,13 @@ def resolve_edge(target: str) -> tuple[str, str]:
         edge_id = target.split(":", 1)[1]
         if not edge_id:
             die("hetzner: requires an edge id")
-        region = "eu-west-2"
-        name = f"/tokenkey/hetzner/{edge_id}/ssm_managed_instance_id"
         out = run([
-            "aws", "ssm", "get-parameter", "--region", region,
-            "--name", name, "--query", "Parameter.Value", "--output", "text",
-        ]).stdout.strip()
-        if not out or out == "None":
-            die(f"no Hetzner managed instance for {edge_id} ({name})")
-        return region, out
+            sys.executable, str(REPO_ROOT / "ops/stage0/edge_ssm_execution.py"),
+            "--repo-root", str(REPO_ROOT), "--edge-id", edge_id,
+            "--platform", "hetzner", "--format", "json",
+        ]).stdout
+        obj = json.loads(out)
+        return obj["region"], obj["instance_id"]
     if not target.startswith("edge:"):
         die("--from/--to must be 'edge:<id>', 'hetzner:<id>', or 'prod'")
     edge_id = target.split(":", 1)[1]

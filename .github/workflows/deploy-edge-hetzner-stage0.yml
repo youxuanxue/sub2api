@@ -1,8 +1,9 @@
 name: Edge Hetzner Stage0 (recovery only)
 
 # Retained only for an explicitly re-approved non-US recovery. The routine
-# edge fleet is retired; provision (ignition) + upgrade/rollback/smoke via shared
-# deploy_via_ssm_bluegreen.sh (same primitive as Lightsail / prod).
+# edge fleet is retired (deployable=false). workflow_dispatch requires
+# confirm_edge_restore=I_APPROVE_EDGE_RESTORE (ops/stage0/require_edge_restore_approval.py);
+# --allow-planned alone is not enough. pull_request contract jobs do not need it.
 # Anchor: docs/approved/hetzner-cloud-full-migration.md
 # Secrets: HCLOUD_TOKEN (paid provision). AWS via OIDC. Never commit tokens.
 
@@ -11,6 +12,10 @@ run-name: "edge=${{ inputs.edge_id }} op=${{ inputs.operation }} platform=hetzne
 on:
   workflow_dispatch:
     inputs:
+      confirm_edge_restore:
+        description: "Required. Type exactly I_APPROVE_EDGE_RESTORE (2026-10-17 prod-only)."
+        required: true
+        type: string
       edge_id:
         description: "Edge id from deploy/hetzner/edge-targets-hetzner.json"
         required: true
@@ -79,6 +84,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Require edge restore approval (dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: python3 ops/stage0/require_edge_restore_approval.py --token "${{ inputs.confirm_edge_restore }}"
 
       - name: Unit tests + bootstrap drift
         run: |
@@ -210,6 +219,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Require edge restore approval
+        run: python3 ops/stage0/require_edge_restore_approval.py --token "${{ inputs.confirm_edge_restore }}"
+
       - name: Normalize tag
         if: inputs.operation == 'upgrade' || inputs.operation == 'rollback'
         id: tag
@@ -269,7 +281,9 @@ jobs:
         run: |
           set -euo pipefail
           IDENTITY="$(python3 ops/stage0/edge_ssm_execution.py \
-            --edge-id "$EDGE_ID" --platform hetzner --format json)"
+            --edge-id "$EDGE_ID" --platform hetzner \
+            ${{ inputs.allow_planned == 'true' && '--allow-planned' || '' }} \
+            --format json)"
           MID="$(jq -r .instance_id <<<"$IDENTITY")"
           REGION="$(jq -r .region <<<"$IDENTITY")"
           if [[ -z "$MID" || "$MID" == "null" ]]; then

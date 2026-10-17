@@ -143,7 +143,7 @@ class EdgeRoutingBoundaryTest(unittest.TestCase):
             hz.write_text(json.dumps({"targets": {}}))
             with self.assertRaisesRegex(SystemExit, "not deployable"):
                 resolve_route_tab(root, "pilot")
-            self.assertEqual(resolve_route_tab(root, "pilot", "lightsail"),
+            self.assertEqual(resolve_route_tab(root, "pilot", "lightsail", allow_planned=True),
                              ("lightsail", "us-east-1", None))
             with self.assertRaisesRegex(SystemExit, "retired"):
                 resolve_route_tab(root, "pilot", "ec2")

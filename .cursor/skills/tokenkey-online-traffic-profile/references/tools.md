@@ -4,7 +4,7 @@
 
 | 步骤 | 类型 | 承载 |
 |---|---|---|
-| 解析 target（region / instance_id） | 机械 | `ops/stage0/edge_admin_resolve_target.py`（prod/edge 共享 resolver；现网 Hetzner Hybrid） |
+| 解析 target（region / instance_id） | 机械 | `ops/stage0/edge_admin_resolve_target.py`（prod/edge 共享 resolver；现役身份见舰队清单） |
 | SSM base64 投递 + send + poll（probe-caps.sh / probe-traffic-logs.sh / profile-traffic.py 都通过它发） | 机械 | `ops/observability/run-probe.sh` |
 | caps + 不可调度证据 + Redis 快照 + 近 2h 错误聚类 | 机械 | `ops/observability/probe-caps.sh`（输出每行一 JSON，`row_to_json`） |
 | 拉 access log + sticky.scheduler_entry → /tmp/acc.txt / /tmp/sse.txt | 机械 | `ops/observability/probe-traffic-logs.sh` |

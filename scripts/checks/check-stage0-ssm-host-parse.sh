@@ -18,8 +18,8 @@
 #
 # Scope (explicit, not silent): covers the prod/edge MUTATION primitives
 # (deploy image, sync Caddyfile, sync docs, sync Feishu config, sync edge host
-# units, sync host mem-guard) plus the read-only warm-image primitive (same
-# jq-host-command shape, same blind spot).
+# units, sync host mem-guard, sync host BBR) plus the read-only warm-image
+# primitive (same jq-host-command shape, same blind spot).
 # edge_post_deploy_smoke.sh also builds an SSM `commands` array, but is left out
 # on purpose — its array is assembled inside functions behind many runtime env
 # vars (no clean "args -> params file" entrypoint to stub), and an unparseable
@@ -131,6 +131,8 @@ check_one "sync-ghcr-prune-timer-via-ssm.sh" sync-ghcr-prune \
   bash "${OPS}/sync-ghcr-prune-timer-via-ssm.sh" i-0stub
 check_one "sync-host-mem-guard-via-ssm.sh"  sync-mem-guard \
   bash "${OPS}/sync-host-mem-guard-via-ssm.sh" i-0stub
+check_one "sync-host-bbr-via-ssm.sh"        sync-bbr \
+  bash "${OPS}/sync-host-bbr-via-ssm.sh" i-0stub
 check_one "sync-container-log-policy-via-ssm.sh" sync-log-policy \
   env STAGE0_RENDER_ONLY=1 bash "${OPS}/sync-container-log-policy-via-ssm.sh" i-0stub
 

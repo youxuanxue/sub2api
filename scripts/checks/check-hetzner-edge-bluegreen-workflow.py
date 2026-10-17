@@ -22,6 +22,8 @@ def main() -> int:
     # PyYAML turns bare key `on:` into boolean True.
     on = data.get("on") or data.get(True) or {}
     inputs = (on.get("workflow_dispatch") or {}).get("inputs") or {}
+    if "confirm_edge_restore" not in inputs:
+        return fail("workflow_dispatch missing confirm_edge_restore input")
     ops = (inputs.get("operation") or {}).get("options") or []
     for required in ("upgrade", "rollback", "smoke", "provision", "validate"):
         if required not in ops:
@@ -34,6 +36,8 @@ def main() -> int:
 
     dump = yaml.safe_dump(upgrade)
     runs = "\n".join(str(step.get("run") or "") for step in (upgrade.get("steps") or []))
+    if "require_edge_restore_approval.py" not in runs:
+        return fail("dispatch-upgrade missing require_edge_restore_approval.py gate")
     if "deploy_via_ssm_bluegreen.sh" not in runs:
         return fail("dispatch-upgrade does not call deploy_via_ssm_bluegreen.sh")
     if "bluegreen-migration-safety.py" not in runs:
@@ -52,6 +56,10 @@ def main() -> int:
     dispatch_text = DISPATCH.read_text(encoding="utf-8")
     if "hetzner ${OPERATION} not wired yet" in dispatch_text:
         return fail("dispatch-edge-deploy.sh still blocks hetzner upgrade/rollback/smoke")
+    if "require_edge_restore_approval.py" not in dispatch_text:
+        return fail("dispatch-edge-deploy.sh missing require_edge_restore_approval.py")
+    if "confirm_edge_restore=" not in dispatch_text:
+        return fail("dispatch-edge-deploy.sh must pass confirm_edge_restore to gh")
 
     print("check-hetzner-edge-bluegreen-workflow: ok")
     return 0

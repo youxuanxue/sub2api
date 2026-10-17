@@ -1,4 +1,8 @@
-# 专属分组 + Passthrough 配置手册
+# 专属分组 + Passthrough 配置手册（Edge 部分已退役）
+
+> **已退役（2026-10-17）。** 本页中的 Edge OAuth 账号池和 prod mirror
+> stub 配置不再是现网操作路径；只保留历史行为说明。当前请使用 prod-only
+> 账号/分组流程，禁止为 `api-*.tokenkey.dev` 创建新的 relay。
 
 面向运营：在 Admin UI 上为**单个用户**独占一组账号，并开启**透传**（尽量保留客户端请求头/指纹，TK 只替换认证）。
 

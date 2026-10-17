@@ -8,7 +8,7 @@
 # Usage:
 #   bash ops/stage0/ensure-edge-admin-credentials.sh [--platform auto|ec2|lightsail|hetzner] <edge_id|prod>
 #
-# Target is an edge id (e.g. uk1, us4) or the literal "prod" (live hcloud prod).
+# Target is a currently deployable edge id or the literal "prod" (live hcloud prod).
 # For prod the bootstrap log is usually rotated, so capture misses and this falls
 # straight through to reset (rotate) — saved as tokenkey-prod-admin-password.txt.
 #
@@ -27,7 +27,7 @@ Usage:
   bash ops/stage0/ensure-edge-admin-credentials.sh [--platform auto|ec2|lightsail|hetzner] <id>
   bash ops/stage0/ensure-edge-admin-credentials.sh prod
 
-Target is an edge id (e.g. uk1, us4) or the literal "prod" (live hcloud prod; identity/region from shared resolver).
+Target is a currently deployable edge id or the literal "prod" (live hcloud prod; identity/region from shared resolver).
 Writes: $HOME/Codes/keys/tokenkey-<edge_id>-admin-password.txt (chmod 600; prod -> tokenkey-prod-admin-password.txt)
 Never prints the password.
 EOF

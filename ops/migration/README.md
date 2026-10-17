@@ -8,6 +8,10 @@
 
 # usage_logs 日分区切换
 
+> **Edge targets retired (2026-10-17).** 当前只维护 `prod`。本页中的
+> `edge:<id>` 示例是历史 receipt/replay 资料；共享 resolver 会拒绝 retired
+> 或 planned edge，禁止把它们作为现网迁移目标。
+
 `usage_logs_daily_partition.py` 是 prod 与 Edge 共用的唯一 operator。它不会由应用启动或
 migration runner 自动执行，也不会复制历史明细。每个命令都必须显式指定 `--target prod` 或
 `--target edge:<id>`；confirmation、远端 receipt 和本地 receipt 均与同一 target 绑定，不能跨节点复用。

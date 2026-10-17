@@ -3,10 +3,15 @@ name: tokenkey-kiro-reauth
 description: TokenKey Kiro OAuth re-authorization and refresh troubleshooting workflow. Use when a Kiro edge account shows OAuth 401, Invalid bearer token, grant revoked upstream, repeated manual re-oauth, Kiro refresh failures, or when copying freshly logged-in local Kiro credentials onto an edge and verifying Kiro Claude traffic.
 ---
 
-# TokenKey: Kiro Re-OAuth Runbook
+# TokenKey: Kiro Re-OAuth Runbook (retired edge path)
 
-This skill repairs a Kiro OAuth account on a TokenKey edge and proves the edge
-can still serve real Kiro traffic.
+> **Retired since 2026-10-17.** Edge Kiro OAuth reauth/apply/verify is not a
+> current operation because the live edge fleet is empty. Keep this runbook for
+> audit or a separately approved recovery only; all edge targets fail closed by
+> the shared resolver.
+
+Historically, this skill repaired a Kiro OAuth account on a TokenKey edge and
+proved the edge could serve real Kiro traffic.
 
 Use `tokenkey-online-log-troubleshooting` and
 `tokenkey-online-traffic-profile` for generic logs/traffic windows. This skill
@@ -42,8 +47,8 @@ python3 .cursor/skills/tokenkey-kiro-reauth/scripts/run_kiro_reauth_flow.py \
   --apply --ensure-schedulable --verify-real-request
 ```
 
-Example: `kiro-us6-real edge-us6` resolves to edge `us6`, account id `2`, and
-`~/Codes/keys/tokenkey-us6-admin-password.txt` when present.
+Historical examples must use a separately approved edge id and credentials
+file; do not copy retired `us*` targets into a live operation.
 
 ## Ground Rules
 

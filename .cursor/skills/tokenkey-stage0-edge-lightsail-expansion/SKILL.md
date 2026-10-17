@@ -7,7 +7,7 @@ description: >-
 
 # TokenKey：Lightsail Edge 全流程
 
-**退役默认：** 勿 provision；恢复须改矩阵 + `EXPECTED_LIVE_EDGE_IDS` + [fleet README](../../../deploy/hetzner/README.md)。本 skill 只做 Lightsail provision/重建/回滚。
+**退役默认：** 勿 provision；`provision-edge.sh` / edge deploy workflow 硬拒绝，除非 `CONFIRM_EDGE_RESTORE=I_APPROVE_EDGE_RESTORE`（`ops/stage0/require_edge_restore_approval.py`）。恢复还须改矩阵 + `EXPECTED_LIVE_EDGE_IDS` + [fleet README](../../../deploy/hetzner/README.md)。
 
 ## 执行 owner
 
@@ -23,7 +23,7 @@ description: >-
 
 | 参数 | 语义 |
 |---|---|
-| `edge_id` | 新 Lightsail edge，如 `uk1`、`us1`、`fra1`、`sg1`。**必须**与 EC2 `edge_id` 不同名空间（同 id 不同栈不要并存活跑）。 |
+| `edge_id` | 重新批准后的新 Lightsail edge `<edge_id>`。**必须**与 EC2 `edge_id` 不同名空间（同 id 不同栈不要并存活跑）。 |
 | `region` | Lightsail API region（`eu-west-2` / `us-west-2` / `eu-central-1` / `ap-southeast-1` 等）。Paris 无 Lightsail，`fra1` 必须映射到 `eu-central-1`。 |
 | `operation=prepare` | 仅做注册 + 一次性 IAM/SSM/PAT 配置，**不**创建实例。 |
 | `operation=provision` | 创建 Lightsail 实例 + 分配 Static IP + 等 SSM Hybrid 注册完成。默认 fail-if-exists；要销毁重建须 `recreate=true`（destructive）。 |
