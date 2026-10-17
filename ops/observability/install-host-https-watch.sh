@@ -3,27 +3,15 @@
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 python3 - <<'PY'
-import datetime,hashlib,json,os,pathlib,shutil,socket,subprocess
-root=pathlib.Path('/tmp')
+import datetime,hashlib,json,os,pathlib,shutil,socket,subprocess,sys
+root=pathlib.Path(os.environ.get('WATCH_BUNDLE_DIR','/tmp')).resolve()
+sys.path.insert(0,str(root))
+from host_https_watch import build_config
 fresh=json.loads((root/'fresh-migration-20261015.json').read_text())
 matrix=json.loads((root/'edge-targets-lightsail.json').read_text())['targets']
+domestic=json.loads((root/'prod-target.json').read_text())
 role=os.environ.get('WATCH_ROLE','')
-if role not in ('prod', *matrix):raise SystemExit('WATCH_ROLE must be prod or a live edge')
-if role!='prod' and not matrix[role].get('deployable'):raise SystemExit('edge not live')
-expected=fresh['prod'] if role=='prod' else matrix[role]
-if socket.gethostname()!=expected['instance_name']:raise SystemExit('host identity mismatch')
-live={key:row for key,row in matrix.items() if row.get('deployable') is True}
-if role=='prod':
-    if 'us5' not in live:raise SystemExit('us5 is not live')
-    targets={'us5':'https://'+live['us5']['domain']+'/health'}
-elif role=='us5':
-    targets={'prod':'https://'+fresh['prod']['domain']+'/health'}
-    targets.update({key:'https://'+row['domain']+'/health' for key,row in live.items()})
-else:
-    targets={}
-jobs=['tokenkey-pgdump','tokenkey-disk-metrics','tokenkey-ghcr-prune-daily']
-if role=='prod':jobs+=['tokenkey-qa-maintenance','tokenkey-qa-boundary']
-config={'node':role,'targets':targets,'jobs':jobs}
+config=build_config(role,socket.gethostname(),fresh,matrix,domestic)
 files=['host_https_watch.py','edge_https_health.py','edge_health_delivery.py','edge_model_health_alert.py']
 for file in files:
     if not (root/file).is_file():raise SystemExit('missing companion: '+file)
@@ -52,6 +40,7 @@ base.mkdir(parents=True,exist_ok=True,mode=0o700)
 for file in files:shutil.copy2(root/file,base/file)
 (base/'config.json').write_text(json.dumps(config)+'\n')
 command=['/usr/bin/python3',str(base/'host_https_watch.py'),'--config',str(base/'config.json'),'--state','/var/lib/tokenkey/https-watch/state.json']
+if role=='cn-prod':command+=['--env-file','/opt/tokenkey/host-alerts.env']
 # Validate credentials and probe every target without sending a test message.
 check=subprocess.run(command+['--dry-run'],capture_output=True,text=True)
 if check.returncode:raise SystemExit('dry-run failed; timer not enabled')

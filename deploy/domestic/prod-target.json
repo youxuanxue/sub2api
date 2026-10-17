@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "instance_id": "uhost-1wgyn7gu2f6a",
+  "instance_name": "10-9-53-136",
+  "region": "cn-bj2",
+  "public_origin": "https://106.75.29.139",
+  "fallback_domain": "api-cn.tokenkey.dev"
+}

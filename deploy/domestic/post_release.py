@@ -15,6 +15,7 @@ import time
 from urllib.parse import urlsplit
 
 ASSETS = {
+    'prod-target.json': 'deploy/domestic/prod-target.json',
     'release_post_check.py': 'scripts/release_post_check.py',
     'probe-post-release-tick.sh': 'ops/observability/probe-post-release-tick.sh',
     'resolve_app_container.py': 'ops/lib/resolve_app_container.py',
@@ -52,6 +53,11 @@ def timestamp(value):
     return parsed.timestamp()
 
 
+def asset_source(name):
+    adjacent = Path(__file__).with_name(name)
+    return adjacent if adjacent.is_file() else Path(__file__).resolve().parents[2] / ASSETS[name]
+
+
 def configure(args, receipt, inspect):
     """Validate and pin all inputs BEFORE touching the public route."""
     url = urlsplit(args.public_url)
@@ -61,6 +67,9 @@ def configure(args, receipt, inspect):
     # green overseas health response cannot stand in for domestic validation.
     if not ipaddress.ip_address(url.hostname).is_global or url.port not in (None, 443):
         raise ValueError('domestic public-url must use its public static IP on 443')
+    domestic = read_json(asset_source('prod-target.json'))
+    if args.public_url.rstrip('/') != domestic['public_origin'].rstrip('/'):
+        raise ValueError('public-url does not match the domestic target manifest')
     old, target = inspect(receipt['old']), inspect(receipt['target'])
     labels = [item['Config']['Labels'] for item in (old, target)]
     versions = [item['org.opencontainers.image.version'].removeprefix('v') for item in labels]
@@ -85,10 +94,8 @@ def configure(args, receipt, inspect):
             raise ValueError('release notification context changed')
         verify_assets(directory, previous)
         return previous
-    for name, source in ASSETS.items():
-        adjacent = Path(__file__).with_name(name)
-        source = adjacent if adjacent.is_file() else Path(__file__).resolve().parents[2] / source
-        shutil.copyfile(source, directory / name)
+    for name in ASSETS:
+        shutil.copyfile(asset_source(name), directory / name)
     save(directory / 'plan.json', plan)
     save(directory / 'smoke.json', smoke)
     context['hashes'] = {name: sha(directory / name) for name in (*ASSETS, 'plan.json', 'smoke.json')}

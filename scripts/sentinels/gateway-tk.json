@@ -3,6 +3,45 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "ops/observability/host_https_watch.py",
+      "must_contain": [
+        "def build_config(role: str, hostname: str, fresh: dict, matrix: dict, domestic: dict) -> dict:",
+        "elif role in (\"us5\", \"cn-prod\"):",
+        "targets[\"cn-prod\"] = domestic[\"public_origin\"].rstrip(\"/\") + \"/health\"",
+        "if not healthy and state[\"failures\"] >= 2:",
+        "result = tick(targets, previous, int(time.time()), probe_health, send, config.get(\"node\", os.uname().nodename))"
+      ],
+      "rationale": "Keep independent mainland and AWS coverage, two-failure alerting and observer attribution; the AWS fallback domain cannot replace the UCloud static-IP probe."
+    },
+    {
+      "path": "ops/observability/edge_https_health.py",
+      "must_contain": [
+        "payload = json.loads(body)",
+        "valid_health = isinstance(payload, dict) and payload.get(\"status\") == \"ok\"",
+        "\"healthy\": code == 200 and valid_health"
+      ],
+      "rationale": "A public interception page may return HTTP 200; only the gateway health body can prove readiness."
+    },
+    {
+      "path": "ops/observability/install-host-https-watch.sh",
+      "must_contain": [
+        "config=build_config(role,socket.gethostname(),fresh,matrix,domestic)",
+        "if role=='cn-prod':command+=['--env-file','/opt/tokenkey/host-alerts.env']",
+        "OnUnitActiveSec=2min"
+      ],
+      "rationale": "The installer must consume the tested coverage owner and existing host-local credentials, including UCloud."
+    },
+    {
+      "path": "ops/observability/test_host_https_watch.py",
+      "must_contain": [
+        "def test_both_observers_cover_cn_ip_and_all_customer_domains(",
+        "def test_200_interception_pages_and_degraded_json_are_not_healthy(",
+        "def test_two_failures_then_recovery_and_cooldown(",
+        "def test_delivery_failure_keeps_previous_state_for_retry("
+      ],
+      "rationale": "Keep executable coverage, body validation, alert/recovery and retry regressions in the existing host watch test owner."
+    },
+    {
       "path": "deploy/aws/stage0/tokenkey-pgdump.sh",
       "must_contain": [
         "python3 /usr/local/lib/tokenkey/pgdump_storage.py --upload",
@@ -12227,6 +12266,8 @@
       "path": "deploy/domestic/post_release.py",
       "must_contain": [
         "def configure(args, receipt, inspect):",
+        "domestic = read_json(asset_source('prod-target.json'))",
+        "if args.public_url.rstrip('/') != domestic['public_origin'].rstrip('/'):",
         "def finish(args, receipt, context, *, data, inspect, active_container):",
         "verify_assets(directory, context)",
         "timestamp(cutover_at) + 300 - time.time()",
@@ -12243,7 +12284,9 @@
         "def test_red_evaluation_never_sends(",
         "def test_failed_delivery_can_be_retried_without_cutover(",
         "def test_rejects_wrong_revision_failed_smoke_or_wrong_candidate_before_mutation(",
-        "def test_rejects_inactive_release_and_pinned_evidence_drift("
+        "def test_rejects_inactive_release_and_pinned_evidence_drift(",
+        "def test_rejects_other_public_ip_before_pinning_release(",
+        "def test_rejects_pinned_target_manifest_drift_before_probing_or_sending("
       ],
       "rationale": "Keep executable release notification contracts in the domestic preflight gate: verify before sending, retry failed delivery, suppress duplicates and reject stale or failed evidence."
     },

@@ -47,7 +47,8 @@
 通过 SSH 投递已审的控制文件到主机私有目录：`bluegreen.py`、`post_release.py`、
 `ops/stage0/deploy_via_ssm_bluegreen.sh`、`scripts/release_post_check.py`、
 `ops/observability/probe-post-release-tick.sh`、`ops/lib/resolve_app_container.py` 和
-`ops/stage0/notify-feishu-release.sh`（保留 basename，放在同一目录）；前者从后者提取健康检查、Caddy 切流事务、观察与 drain 函数，未复制实现。
+`ops/stage0/notify-feishu-release.sh` 及本目录的 `prod-target.json`（保留 basename，放在同一目录）；
+`bluegreen.py` 从共享蓝绿脚本提取健康检查、Caddy 切流事务、观察与 drain 函数，未复制实现。
 先离线构建并校验镜像，image revision 必须等于已审源码 SHA，且架构为 amd64。
 
 ```bash
@@ -81,7 +82,8 @@ Docker 的 `unless-stopped` 重启策略负责活动容器重启；原单容器 
 
 `cases` 必须来自真实实测，失败或未执行用例不得删掉。计划和烟测报告通过 SSH 放到主机
 私有目录。`promote` 在切流前核对源码/容器身份及全部用例通过，并固化控制脚本与证据哈希。
-`--public-url` 必须是当前国内静态公网 IP 的 HTTPS origin；原国内域名已切往 AWS，不能用
+`--public-url` 必须与 `prod-target.json` 中的 `public_origin` 一致，该清单也供公网监控使用，
+并随发布证据固化哈希；填入其他公网 IP 会在切流前拒绝。原国内域名已切往 AWS，不能用
 域名的健康响应代替 UCloud 验证。
 
 切流和 drain 完成后，`promote` 自动调用共享 probe/evaluator 做立即检查，并等待至真实
@@ -177,8 +179,26 @@ owner 中显式识别为 `cn-prod`，避免被 `api-*` 的 edge 推断抑制 pro
 单次告警，低于 80% 恢复。凭据放在系统盘 `/opt/tokenkey/host-alerts.env`（0600），
 通过 `TOKENKEY_HOST_ALERT_ENV_FILE` 指定，数据盘失挂时仍能通知；节点标识为 `cn-prod`。
 
-整机掉线、网络断开时本机告警不能发出；UCloud 云告警和站外探测尚未验收，不能将本机
-健康检查描述为完整的外部可用性监控。备份/恢复仍按用户要求延后。
+公网可用性由共享 `ops/observability/host_https_watch.py` 承担：cn-prod 提供境内视角，AWS us5
+提供独立站外视角。两处分别检查 UCloud 静态 IP、当前转到 AWS 的国内域名、AWS prod
+清单中的客户域名；us5 继续检查现役 edge。当前国内主机身份与入口见
+[`prod-target.json`](prod-target.json)，AWS 目标仍从现有 fleet 清单生成，不能用域名的绿色结果
+替代 UCloud 静态 IP。探针每两分钟执行，连续两次失败发 P0 飞书，持续失败每三十分钟提醒，
+首次恢复发送恢复消息；健康要求可信 TLS、HTTP 200 且 JSON `status=ok`，拦截页不算健康。
+告警标明探测节点和目标 URL；发送失败不推进去重状态，下次重试。
+
+这覆盖公网入口、DNS、TLS、Caddy 和应用就绪状态，不代替模型调用成功率/延迟告警。
+境内观察点与 cn-prod 共机，整机失联由 AWS 观察点兜底，不能代表所有国内运营商。
+UCloud 云告警、备份/恢复不在此安装器范围内。
+
+安装复用 `ops/observability/install-host-https-watch.sh`，`WATCH_ROLE=cn-prod`，将该脚本及
+`host_https_watch.py`、`edge_https_health.py`、`edge_health_delivery.py`、
+`edge_model_health_alert.py`、本目录的 `prod-target.json`、
+`deploy/aws/fresh-migration-20261015.json` 和 `deploy/aws/lightsail/edge-targets-lightsail.json`
+按 basename 放入主机私有目录。`WATCH_BUNDLE_DIR` 指向该目录；不传 `APPLY` 时只核对身份
+并输出配置，`APPLY=yes-host-https-watch` 才安装。cn-prod 读取现有
+`/opt/tokenkey/host-alerts.env`；AWS 沿用现有 `.env`，不另复制密钥。安装前备份 unit，使用
+内容寻址的代码目录；可恢复备份 unit 后 daemon-reload 回退。不会重启应用、数据库或 Caddy。
 
 节点身份修复以 `1.8.292-cn-prod` 本地 amd64 补丁镜像部署，仅替换 UCloud 应用容器。
 镜像基于原已校验发布镜像，附源码差异 SHA-256 与二进制 SHA-256；构建记录保存在受保护

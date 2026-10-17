@@ -1,4 +1,5 @@
 import pathlib
+import json
 import sys
 import unittest
 from unittest.mock import patch
@@ -6,9 +7,85 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import host_https_watch as watch
+from edge_https_health import probe_health
+
+
+class CoveragePlanTest(unittest.TestCase):
+    def setUp(self):
+        root = pathlib.Path(__file__).resolve().parents[2]
+        self.fresh = json.loads((root / 'deploy/aws/fresh-migration-20261015.json').read_text())
+        self.matrix = json.loads((root / 'deploy/aws/lightsail/edge-targets-lightsail.json').read_text())['targets']
+        self.domestic = json.loads((root / 'deploy/domestic/prod-target.json').read_text())
+
+    def config(self, role, hostname):
+        return watch.build_config(role, hostname, self.fresh, self.matrix, self.domestic)
+
+    def test_both_observers_cover_cn_ip_and_all_customer_domains(self):
+        for role, host in [('cn-prod', self.domestic['instance_name']), ('us5', self.matrix['us5']['instance_name'])]:
+            with self.subTest(role=role):
+                config = self.config(role, host)
+                targets = config['targets']
+                self.assertEqual(targets['cn-prod'], self.domestic['public_origin'] + '/health')
+                self.assertEqual(targets['prod:cn-domain'], 'https://' + self.domestic['fallback_domain'] + '/health')
+                for domain in self.fresh['prod']['domains']:
+                    self.assertIn('https://' + domain + '/health', targets.values())
+        cn = self.config('cn-prod', self.domestic['instance_name'])
+        self.assertEqual(cn['jobs'], ['tokenkey-disk-metrics'])
+        us5 = self.config('us5', self.matrix['us5']['instance_name'])
+        for edge, row in self.matrix.items():
+            if row.get('deployable'):
+                self.assertEqual(us5['targets'][edge], 'https://' + row['domain'] + '/health')
+
+    def test_refuses_wrong_host_and_retains_prod_monitor_peer(self):
+        with self.assertRaisesRegex(ValueError, 'host identity'):
+            self.config('cn-prod', 'some-other-host')
+        prod = self.config('prod', self.fresh['prod']['instance_name'])
+        self.assertEqual(prod['targets'], {'us5': 'https://' + self.matrix['us5']['domain'] + '/health'})
+        self.assertIn('tokenkey-qa-maintenance', prod['jobs'])
+
+
+class HealthBodyTest(unittest.TestCase):
+    def test_flat_ssm_bundle_can_load_probe_without_repository_ancestors(self):
+        # SSM stages companion files directly in /tmp, unlike a repo checkout
+        # or the final content-addressed installation directory.
+        source = pathlib.Path(watch.__file__).with_name('edge_https_health.py').read_text()
+        namespace = {'__file__': '/tmp/edge_https_health.py', '__name__': 'flat_probe'}
+        exec(compile(source, namespace['__file__'], 'exec'), namespace)
+        fact = namespace['probe_health']('https://example.invalid/health',
+                                        opener=lambda *a, **kw: (_ for _ in ()).throw(TimeoutError()))
+        self.assertFalse(fact['healthy'])
+        self.assertEqual(fact['http_code'], 0)
+
+    def test_200_interception_pages_and_degraded_json_are_not_healthy(self):
+        class Response:
+            status = 200
+            def __init__(self, body): self.body = body
+            def read(self, size): return self.body[:size]
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+        for body, healthy in [(b'{"status":"ok"}', True), (b'<html>blocked</html>', False),
+                              (b'{"status":"draining"}', False), (b'{}', False), (b'[]', False)]:
+            with self.subTest(body=body):
+                fact = probe_health('https://example.invalid/health', opener=lambda *a, **kw: Response(body))
+                self.assertEqual(fact['healthy'], healthy)
+                self.assertTrue(fact['reachable'])
+                self.assertEqual(fact['http_code'], 200)
 
 
 class HostHTTPSWatchTest(unittest.TestCase):
+    def test_alert_identifies_observer_endpoint_and_bad_health_body(self):
+        sent = []
+        targets = {'cn-prod': 'https://example.invalid/health'}
+        probe = lambda _: {'healthy': False, 'http_code': 200, 'error': 'unexpected health response'}
+        state = watch.tick(targets, {}, 1000, probe, sent.append, 'us5')
+        state = watch.tick(targets, state, 1120, probe, sent.append, 'us5')
+        self.assertEqual(len(sent), 1)
+        self.assertIn('探测节点：us5', sent[0])
+        self.assertIn(targets['cn-prod'], sent[0])
+        self.assertIn('unexpected health response', sent[0])
+        self.assertEqual(state['cn-prod']['http_code'], 200)
+        self.assertTrue(state['cn-prod']['active'])
+
     def test_two_failures_then_recovery_and_cooldown(self):
         sent = []
         targets = {"prod": "https://api.tokenkey.dev/health"}

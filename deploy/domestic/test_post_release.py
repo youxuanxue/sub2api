@@ -23,8 +23,9 @@ class PostReleaseTest(unittest.TestCase):
         self.old = self.container('old', '1.8.298', self.old_sha)
         self.new = self.container('new', '1.8.300', self.new_sha)
         self.receipt = {'old': 'tokenkey-blue', 'target': 'tokenkey-green', 'image_id': 'sha256:new', 'revision': self.new_sha}
+        public_origin = pr.read_json(pr.asset_source('prod-target.json'))['public_origin']
         self.args = SimpleNamespace(state=self.state, postcheck_plan=self.root / 'plan.json',
-                                    smoke_report=self.root / 'smoke.json', public_url='https://106.75.29.139')
+                                    smoke_report=self.root / 'smoke.json', public_url=public_origin)
         self.plan = {'range': {'live': self.old_sha, 'new': self.new_sha}, 'changes': [], 'checks': []}
         pr.save(self.args.postcheck_plan, self.plan)
         self.smoke = {'revision': self.new_sha, 'container_id': 'new', 'cases': [{'passed': True}]}
@@ -128,6 +129,19 @@ class PostReleaseTest(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 self.args.public_url = url
                 self.configure()
+
+    def test_rejects_other_public_ip_before_pinning_release(self):
+        self.args.public_url = 'https://8.8.8.8'  # valid global IP, not this deployment
+        with self.assertRaisesRegex(ValueError, 'domestic target'):
+            self.configure()
+        self.assertFalse((self.state / 'post-release').exists())
+
+    def test_rejects_pinned_target_manifest_drift_before_probing_or_sending(self):
+        context = self.configure()
+        pr.save(self.state / 'post-release/prod-target.json', {'public_origin': 'https://8.8.8.8'})
+        with self.assertRaisesRegex(ValueError, 'pinned post-release input changed'):
+            self.finish(context)
+        self.assertEqual(self.events, [])
 
 
 if __name__ == '__main__':
