@@ -246,6 +246,13 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(run.call_args.args[-1], runtime.sequence_guard_sql())
             replace_network.assert_not_called()
 
+    def test_activation_rejects_standby_before_accessing_candidate_state(self):
+        for hostname in ('tokenkey-prod-aws-20261015', 'unrelated-host'):
+            with self.subTest(hostname=hostname), patch.object(runtime, 'validate_final'), patch.object(runtime.socket, 'gethostname', return_value=hostname), patch.object(Path, 'is_file', side_effect=AssertionError('must reject host before reading hold')), patch.object(runtime, 'run') as run:
+                with self.assertRaisesRegex(ValueError, 'wrong candidate hostname'):
+                    runtime.activate('prod', {}, Path('/unused-caddy'), 'unused')
+                run.assert_not_called()
+
     def test_activation_archives_systemd_dropins_with_shutil_move(self):
         """EC2 /etc vs /var/lib can be EXDEV; drop-ins must use shutil.move, not Path.rename."""
         moved = []

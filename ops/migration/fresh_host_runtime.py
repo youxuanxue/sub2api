@@ -33,10 +33,8 @@ except ModuleNotFoundError:
 
 R = Path('/var/lib/tokenkey')
 NET = 'tokenkey_tokenkey-network'
-# Live prod hostname after 2026-10-17 Tokyo cutover. Keep the prior AWS hostname
-# as a read-only alias only for inventory receipts that still name the standby.
+# The same exact candidate identity protects both check and activation.
 PROD_HOST = 'tokenkey-prod-tokyo-20261017'
-PROD_HOST_STANDBY_ALIASES = frozenset({'tokenkey-prod-aws-20261015'})
 COMPOSE_NET_LABELS = {
     'com.docker.compose.network': 'tokenkey-network',
     'com.docker.compose.project': 'tokenkey',
@@ -84,7 +82,7 @@ def require_compose_network_labels(network):
 def check(node):
     host = socket.gethostname()
     expected = expected_host(node)
-    if host != expected and not (node == 'prod' and host in PROD_HOST_STANDBY_ALIASES):
+    if host != expected:
         raise ValueError('wrong candidate hostname')
     if not (R / 'migration/DATA_SYNC_HOLD').is_file():
         raise ValueError('candidate hold missing')

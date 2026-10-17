@@ -15,6 +15,7 @@
 #   GEMINI_CHATIMAGE_MODELS  -> POST <prod>/v1/chat/completions  (gemini-*-image via chat/generateContent)
 #   GEMINI_IMAGE_MODELS      -> POST <prod>/v1/images/generations  (imagen-* predict API)
 #   GEMINI_VIDEO_MODELS      -> POST <prod>/v1/video/generations (async submit; 200-on-submit=servable, best-effort)
+#   Legacy Grok edge inputs (inactive in the prod-only fleet):
 #   GROK_CHAT_MODELS         -> POST app:8080/v1/chat/completions  (native grok, edge-internal)
 #   GROK_IMAGE_MODELS        -> POST app:8080/v1/images/generations (native grok, edge-internal)
 #   GROK_VIDEO_MODELS        -> POST app:8080/v1/video/generations (native grok, edge-internal; async submit)
@@ -22,10 +23,9 @@
 #                               (native antigravity text, PROD gateway; env name kept for compatibility)
 #   ANTIGRAVITY_IMAGE_MODELS -> POST <prod>/v1/chat/completions
 #                               (Studio gemini-native image path through the antigravity account pool)
-#     NB grok lives on its native edge pool (currently edge-us4). Like gemini,
-#     the edge-local probe hits the app container directly instead of the public
-#     Caddy path. Use run-probe with --target edge:us4 and a key bound to the
-#     edge-side grok group.
+#     These inputs require a separately re-approved deployable edge and its
+#     native Grok group. They target that host's app container directly; no edge
+#     target is active by default after the Tokyo prod-only cutover.
 #   DASHSCOPE_CHAT_MODELS    -> POST <prod>/v1/chat/completions  (newapi channel_type=17, qwen3 dense)
 #     This family routes through the normal prod TK gateway
 #     with a TK api_key BOUND TO the current newapi/qwen group/pool.

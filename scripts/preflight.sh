@@ -2956,7 +2956,7 @@ echo ""
 fi # preflight gate
 if _preflight_selected 'Wave B freeze-delta contract'; then
 echo "=== sub2api: Wave B freeze-delta contract ==="
-if ! python3 -m unittest ops.stage0.test_wave_b_freeze_delta ops.migration.test_fresh_host_delta ops.migration.test_fresh_host_cutover >/dev/null 2>&1; then
+if ! python3 -m unittest ops.stage0.test_wave_b_freeze_delta ops.migration.test_standard_freeze_delta ops.migration.test_fresh_host_delta ops.migration.test_fresh_host_cutover ops.stage0.test_retarget_prod_oidc >/dev/null 2>&1; then
     echo "  FAIL: Wave B freeze-delta contract test"
     echo "        — run: python3 ops/stage0/test_wave_b_freeze_delta.py"
     errors=$((errors + 1))
