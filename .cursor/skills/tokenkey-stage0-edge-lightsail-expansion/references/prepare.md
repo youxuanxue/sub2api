@@ -118,9 +118,9 @@ aws iam get-role --role-name tokenkey-gha-us-east-1-error-clustering \
 
 新 edge **若不跑 smoke**，可跳过 `TK_SMOKE_API_KEY`（见 §1.5 说明）。
 
-#### 1.3b Lightsail standby edge：**不要**加 EC2 CFN execution role
+#### 1.3b 新建 Lightsail edge：**不要**加 EC2 CFN execution role
 
-现网活边在 Hetzner（`deploy/hetzner/README.md`）。对本 skill 操作的 Lightsail 边：
+当前无活 edge，现网身份见 `deploy/hetzner/README.md`。以下仅适用于另行批准的新 Lightsail 身份：
 
 - OIDC 只需 `cicd-oidc.yaml` → `AllowedSubjects` 含 `environment:edge-<id>`（§1.5a）。
 - **不要**在 `cicd-oidc.yaml` 新增 `Edge<PascalCase>CloudFormationExecutionRoleArn` / `EdgeXTargetInstanceId` / 区域 SSM `ssm:SendCommand` 到 EC2 instance ARN——EC2/CFN edge 已退役，不要复活。

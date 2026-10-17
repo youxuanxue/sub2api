@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib.util
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -67,9 +69,16 @@ def _fresh_snapshot() -> tuple[dict, dt.datetime]:
     return snapshot, now
 
 
+def _pause_maintenance(snapshot):
+    snapshot["systemd"].update(timer_enabled=False, timer_active=False,
+        timer_active_state="inactive", timer_unit_file_state="disabled",
+        service_active_state="inactive")
+
+
 class ProdPhase2LiveHealthTest(unittest.TestCase):
     def _healthy_probe_text(self) -> str:
         snapshot, _ = _fresh_snapshot()
+        _pause_maintenance(snapshot)
         return "\n".join(
             [
                 "PHASE2SYSTEMD " + json.dumps(snapshot["systemd"], sort_keys=True),
@@ -83,6 +92,43 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
                 "PHASE2QARECORDS " + json.dumps(snapshot["qa_records"], sort_keys=True),
             ]
         )
+
+    def test_pause_ignores_old_archive_but_preserves_boundary_and_storage(self):
+        snapshot, now = _fresh_snapshot()
+        _pause_maintenance(snapshot)
+        for key in ("host_receipt", "database_heartbeat", "archive_control"):
+            snapshot.pop(key)
+        def evaluate():
+            return live_health.evaluate_snapshot(snapshot, now=now,
+                maintenance_pause_reason="operator paused uploads")["health"]
+        self.assertEqual(evaluate()["status"], "healthy")
+        snapshot["boundary_systemd"]["timer_active"] = False
+        self.assertIn("boundary_timer_not_active", evaluate()["reasons"])
+        snapshot["boundary_systemd"]["timer_active"] = True
+        snapshot["qa_records"]["current_hour_partition_missing"] = True
+        self.assertIn("qa_records_current_partition_missing", evaluate()["reasons"])
+        snapshot["qa_records"]["current_hour_partition_missing"] = False
+        snapshot["storage"]["runtime_stopped"] = False
+        self.assertIn("qa_runtime_pin_invalid", evaluate()["reasons"])
+
+    def test_pause_rejects_resumed_or_unknown_systemd_states(self):
+        for key, value in (("timer_active_state", "active"),
+                           ("timer_unit_file_state", "enabled"),
+                           ("service_active_state", "activating"),
+                           ("service_active_state", "active"),
+                           ("service_active_state", "deactivating"),
+                           ("timer_active_state", "")):
+            with self.subTest(key=key, value=value):
+                snapshot, now = _fresh_snapshot()
+                _pause_maintenance(snapshot)
+                snapshot["systemd"][key] = value
+                result = live_health.evaluate_snapshot(snapshot, now=now,
+                    maintenance_pause_reason="operator paused uploads")
+                self.assertIn("paused_maintenance_not_stopped", result["health"]["reasons"])
+        snapshot, now = _fresh_snapshot()
+        _pause_maintenance(snapshot)
+        result = live_health.evaluate_snapshot(snapshot, now=now)
+        self.assertIn("timer_not_active", result["health"]["reasons"])
 
     def test_parse_probe_output_builds_snapshot(self) -> None:
         snapshot = live_health._parse_probe_output(self._healthy_probe_text())
@@ -277,7 +323,12 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
                 '  [ "$2" = tokenkey-qa-runtime ] || exit 2\n'
                 '  cat "$TEST_PIN_FIXTURE"\nelse cat >/dev/null; fi\n'
             )
-            (root / "systemctl").write_text("#!/bin/sh\nexit 1\n")
+            (root / "systemctl").write_text(
+                '#!/bin/sh\ncase "$*" in\n'
+                '  "show tokenkey-qa-maintenance.timer -p UnitFileState --value") echo disabled ;;\n'
+                '  "show tokenkey-qa-maintenance.timer -p ActiveState --value"|"show tokenkey-qa-maintenance.service -p ActiveState --value") echo inactive ;;\n'
+                '  *) exit 1 ;;\nesac\n'
+            )
             for binary in ("docker", "systemctl"):
                 (root / binary).chmod(0o755)
             env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}",
@@ -289,7 +340,11 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
                         fixture.unlink()
                     result = subprocess.run(["bash", str(live_health.PROBE)], env=env, text=True, capture_output=True)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    storage = live_health._parse_probe_output(result.stdout)["storage"]
+                    parsed = live_health._parse_probe_output(result.stdout)
+                    self.assertEqual(parsed["systemd"]["timer_unit_file_state"], "disabled")
+                    self.assertEqual(parsed["systemd"]["timer_active_state"], "inactive")
+                    self.assertEqual(parsed["systemd"]["service_active_state"], "inactive")
+                    storage = parsed["storage"]
                     self.assertEqual(storage, {"status": "unknown", "reason": "qa_runtime_storage_unavailable"}
                                      if missing else {**snapshot["storage"], "credentials_file_present": True, "instance_role_available": False})
                     for secret in ("/private/secret.json", "do-not-print-password", "do-not-print-key"):
@@ -316,21 +371,13 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
                 "PHASE2QARECORDS " + json.dumps(snapshot.get("qa_records", {"partition_owner": "partitioned"}), sort_keys=True),
             ]
         )
-        proc = subprocess.run(
-            [
-                sys.executable,
-                str(ROOT / "ops/qa/prod_phase2_live_health.py"),
-                "--from-probe-stdin",
-                "--skip-iam",
-            ],
-            input=probe_text,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        payload = json.loads(proc.stdout)
-        self.assertEqual(payload["health"]["status"], "degraded")
+        stdout = io.StringIO()
+        with mock.patch.object(live_health, "load_maintenance_pause_reason", return_value=""), \
+             mock.patch.object(sys, "argv", ["health", "--from-probe-stdin", "--skip-iam"]), \
+             mock.patch.object(sys, "stdin", io.StringIO(probe_text)), contextlib.redirect_stdout(stdout):
+            code = live_health.main()
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(stdout.getvalue())["health"]["status"], "degraded")
 
     def test_cli_nonwhitelisted_degraded_exit_nonzero(self) -> None:
         snapshot, _ = _fresh_snapshot()

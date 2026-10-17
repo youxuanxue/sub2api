@@ -4,7 +4,7 @@
 > 「部署侧产品身份」（stack 名、容器名、`/var/lib/tokenkey/`、systemd 单元、CW namespace、PG 用户/库默认）统一用 `tokenkey`；
 > 应用环境变量名（`DATABASE_*`/`REDIS_*`/`JWT_*`）与 GHCR 镜像名 `sub2api`（`ghcr.io/<owner>/sub2api:<tag>`）是代码侧约定，**保持不变**。
 
-本目录维护 **AWS 侧** Stage0 IaC、共用 compose/Caddy、以及 Lightsail/EC2 **standby** 操作入口。
+本目录维护 **AWS 侧** Stage0 IaC、共用 compose/Caddy、以及 历史 Lightsail/EC2 操作模板。
 
 > **现网活舰队（2026-10-17 起 prod-only）** — Tokyo EC2；节点 / IP / CIDR / 发版 SSOT：[`deploy/hetzner/README.md`](../hetzner/README.md)。  
 > Edge Lightsail 行均为 `deployable=false`；`dispatch-edge-deploy` / `rollout-edges` 默认无活目标。  
@@ -26,7 +26,7 @@ deploy/aws/
     ├── docker-compose.yml            源真：Caddy + tokenkey + PostgreSQL + Redis（主站与 Edge 共用）
     ├── Caddyfile                     主站/test Caddy：LE 自动签证书 + 反代到 tokenkey:8080
     ├── Caddyfile.edge                Edge Caddy：/v1/*、/api/* 默认只允许主网关出口；Lightsail edge 复用
-    ├── resolve-edge-target.py        共享 workflow 目标解析（现网 Hetzner；AWS 矩阵仅 standby）
+    ├── resolve-edge-target.py        共享 workflow 目标解析（当前 prod-only；退役 edge 拒绝）
     ├── .env.example                  环境变量模板（生产 .env 由 Cloud-Init 自动生成；本地调试可复制使用）
     └── build-cfn.sh                  把 compose/Caddy + QA 生命周期 / GHCR prune 等 payload 注入 CFN（含 SSM 段）
 ```
@@ -259,8 +259,8 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 ## Edge Stage 0（Lightsail 退役恢复）
 
 > **现网活舰队 SSOT：** [`deploy/hetzner/README.md`](../hetzner/README.md)。  
-> 本节只讲 **Lightsail standby / 回滚**（`deploy/aws/lightsail/`）。EC2/CFN edge 路径已移除。  
-> AWS `tokenkey-prod-stage0` 仅为 standby，不是现网 prod。
+> 本节保留历史 **Lightsail 建机模板**，不能用于已退役身份（`deploy/aws/lightsail/`）。EC2/CFN edge 路径已移除。
+> 旧 AWS prod 已退役；`tokenkey-prod-stage0` 不可作为恢复实例来源。
 
 Edge 子网关不是第二个用户入口。美国节点和入口已释放；历史域名只留在审计材料中，默认 API 路径仅使用 Tokyo prod。
 
@@ -989,7 +989,7 @@ GitHub Actions 不再用长期 AWS 凭证，**OIDC 临时换 STS** → `ssm:Send
 ### Workflow 行为
 
 - 触发：每天 02:00 UTC cron + 手动 `workflow_dispatch`。
-- 默认 operation：`diagnostics`，覆盖现役 HCloud prod 与 Hetzner 矩阵中 `deployable=true` 的 Edge；现网入口见 [`deploy/hetzner/README.md`](../hetzner/README.md)。
+- 默认 operation：`diagnostics`，覆盖共享 resolver 选择的当前 prod；当前 edge 集合为空；现网入口见 [`deploy/hetzner/README.md`](../hetzner/README.md)。
 - 手动 target selector：`all`、`prod`、`edge:*`、`edge:<id>`；`deployable=false` 的 Edge 只进入 excluded summary。
 - 输出：每个目标上传 `prod-ops-target-<target>-<run_id>` artifact，汇总上传 `prod-ops-report-<run_id>`。
 - Issue 决策：账号容量与 provider health 异常保留在日报并由现有飞书链路告警，不创建 GitHub Issue；Caddy error-level access 粗计数仅作 report-only 证据，由 canonical daily ledger 负责可行动错误分类；其余 `issue_candidate` / `manual_ops` findings 才创建或更新 Issue，并使用 `ops-sig:*`、`target:*`、`finding:*` label 去重。开放签名追加评论，最近 7 天内已关闭的签名处于冷却期，不重新建单。

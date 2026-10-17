@@ -1,141 +1,44 @@
 ---
 name: tokenkey-stage0-edge-lightsail-ip-rotation
 description: >-
-  Rotate a standby Lightsail edge Static IP (pollution recovery; edge deploy
-  retired 2026-10-17). Not for image deploys (tokenkey-stage0-release-rollout).
+  Rotate a reviewed, deployable Lightsail edge Static IP after pollution.
+  The current edge fleet is retired; retired and planned targets are rejected.
+  Japanese egress proxies are not edge gateways.
 ---
 
-# TokenKey：Lightsail Edge 静态 IP 轮换（污染快速恢复）
+# Lightsail Edge 静态 IP 轮换
 
-[fleet README](../../../deploy/hetzner/README.md)（prod-only）。只轮换 standby Static IP；`deployable=false` 勿改 true。走 edge deploy workflow / `dispatch-edge-deploy` 时仍须 `I_APPROVE_EDGE_RESTORE`。
+当前无可用 edge 目标，身份见 [舰队清单](../../../deploy/hetzner/README.md)。
+旧 edge 已退役，日本出口代理不属于本工具。只有另行批准的新身份进入活矩阵后才适用；
+不要修改退役行或用 `--allow-planned` 绕过。镜像部署走 `tokenkey-stage0-release-rollout`。
 
-## 确定性基线
+## Plan
 
-| 步骤 | 类型 | 承载 |
-|---|---|---|
-| 解析 edge → region / instance / static IP name / domain | 机械 | `ops/lightsail/rotate-static-ip.sh`（jq 读 `edge-targets-lightsail.json`） |
-| 计划输出（dry run） | 机械 | 同上脚本默认行为（无 `--apply`） |
-| 三步 swap（allocate → detach → attach → release） | 机械 | 同上脚本 `--apply` |
-| 候选 IP 撞 exclusion registry 时重试 | 机械 | 同上脚本（默认最多 5 次） |
-| 释放旧 IP 后写入 exclusion registry | 机械 | [`deploy/aws/stage0/record-polluted-ip.py`](../../../deploy/aws/stage0/record-polluted-ip.py)（由 rotate 脚本调用） |
-| 把 ssm_prefix/public_ip 改成新 IP | 机械 | 同上脚本 |
-| Porkbun DNS A 记录更新 | 真判断 | `ops/dns/porkbun-upsert-a.sh`（`PORKBUN_*` env + 人批 `--apply`）；否则控制台 |
-| 外部干净出口验证 | 真判断 | prompt（选择哪个 observation host 取决于运营当时态势） |
-
-## 调用参数
-
-```text
-/tokenkey-stage0-edge-lightsail-ip-rotation edge_id=<id> [step=plan|swap|verify|all]
-```
-
-- `step=plan`（默认）— `ops/lightsail/rotate-static-ip.sh <edge_id>` 打印计划，无 AWS 变更。
-- `step=swap` — `ops/lightsail/rotate-static-ip.sh <edge_id> --apply`，**销毁旧 IP**。
-- `step=verify` — 用上一步产生的 new_ip 做 SNI 验证 + smoke。
-- `step=all` — 串起 plan → 等用户确认 → swap → 提示 DNS → verify。
-
-## 0) 前置
-
-```bash
-git fetch origin main && git checkout main && git pull --ff-only
-bash scripts/preflight.sh
-aws sts get-caller-identity   # 确认目标账户
-```
-
-确认 edge 已经在 `deploy/aws/lightsail/edge-targets-lightsail.json` 里 `deployable=true`，且 `ssm_prefix/public_ip` 与 `aws lightsail get-static-ip` 报告的 ipAddress 一致；不一致先用 `aws ssm put-parameter` 把 SSM 修对，再开始轮换。
-
-**Adopt 命名**：`instance_name` / `static_ip_name` 以 matrix 为准（如 `us2` → `tokenkey-edge-us-va1-ls` / `StaticIp-2`），不要假设 `tokenkey-edge-<edge_id>-ls-ip`。
-
-## 1) Plan
+用 git-worktree-submodule 技能准备与主线一致的独立工作区，再运行：
 
 ```bash
 bash ops/lightsail/rotate-static-ip.sh <edge_id>
 ```
 
-输出形如：
+脚本通过共享 Lightsail resolver 检查退役状态、可部署性及完整身份，在任何 AWS 调用前
+拒绝无效目标。默认只读，输出实际旧 IP 和操作计划。核对账户、实例、旧 IP 及污染证据。
 
-```text
-=== Lightsail Edge IP rotation plan ===
-edge_id           : uk1
-lightsail_region  : eu-west-2
-instance_name     : tokenkey-edge-uk1-ls
-domain            : api-uk1.tokenkey.dev
-old_static_ip_name: tokenkey-edge-uk1-ls-ip
-old_ip            : 18.x.x.x
-new_static_ip_name: tokenkey-edge-uk1-ls-ip-rot-<ts>
-ssm_prefix        : /tokenkey/lightsail/uk1
-```
+## Swap
 
-用户确认 `old_ip` 确实被污染，再进入 swap。
-
-## 2) Swap
+用户批准计划后执行（旧 IP 最终会释放，不能保证重新取回）：
 
 ```bash
-bash ops/lightsail/rotate-static-ip.sh <edge_id> --apply --reason 'upstream-api-risk-block-YYYY-MM-DD'
+bash ops/lightsail/rotate-static-ip.sh <edge_id> --apply --reason '<污染证据>'
 ```
 
-脚本顺序：
+脚本负责申请候选 IP、排除已污染地址、切换绑定、更新 SSM public_ip、释放旧 IP、登记污染记录。
+失败先核对当前绑定，不盲目重复。同步矩阵中的 `static_ip_name` / `porkbun_a_ipv4`，
+通过 `scripts/edge-ip-status.sh --check` 后提交。
 
-1. `aws lightsail allocate-static-ip` 新名字（若候选 IP 已在 [`edge-polluted-ips.json`](../../../deploy/aws/stage0/edge-polluted-ips.json) 则 release 并重试）
-2. `aws lightsail detach-static-ip` 旧名字
-3. `aws lightsail attach-static-ip` 新名字到 instance
-4. `aws lightsail get-static-ip` 读出 NEW ip
-5. `aws ssm put-parameter` 写 `${ssm_prefix}/public_ip = <new_ip>`
-6. `aws lightsail release-static-ip` 旧名字（**该 IP 进入 AWS pool**）
-7. `record-polluted-ip.py append` 把旧 IP 写入 exclusion registry（**记得更新 matrix `static_ip_name` / `porkbun_a_ipv4`、commit JSON + 跑 `scripts/edge-ip-status.sh --check`**）
+## DNS 与验证
 
-输出最后会打印 NEW ip 和 DNS / smoke 提示。
-
-> **同账户 IP 池注意**：Lightsail 在同账户同 region 复用 IP 池。rotate 脚本会查
-> [`edge-polluted-ips.json`](../../../deploy/aws/stage0/edge-polluted-ips.json) 并在候选 IP
-> 已登记时自动重试；释放的旧 IP 也会自动 append 进 registry，避免再次撞回。
-
-## 3) DNS 与 Caddy
-
-A 记录改 NEW ip：`bash ops/dns/porkbun-upsert-a.sh api-<edge_id>.tokenkey.dev <new_ip> [--apply]`（需本机 `PORKBUN_*`；无 env 用控制台；凭证不进 git）。等 `dig +short @1.1.1.1` 指向 NEW ip（常见约 1 分钟）。Prod 走 AWS VPC DNS（`10.0.0.2`），可能在 Porkbun TTL 内仍解析旧 IP，表现为 `/api/v1/edge/accounts` `context deadline exceeded`；公网 `/health` 绿不能单独当作 prod 已切过去。
-
-IP 变更后重启 Caddy 以刷新 ACME / 绑定：
-
-```bash
-bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> --renew-cert
-```
-
-## 4) Verify（独立观察点）
-
-不要用刚改 DNS 的本地，去 `tk_post_deploy_smoke.sh` 或者任意干净出口：
-
-```bash
-curl -sS --resolve api-<edge_id>.tokenkey.dev:443:<new_ip> \
-  https://api-<edge_id>.tokenkey.dev/health
-```
-
-应当 200。然后跑一次 workflow smoke：
-
-```bash
-CONFIRM=$(python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py \
-  --edge-id <edge_id> | awk -F= '/^instance_name=/{print $2}')
-gh workflow run deploy-edge-lightsail-stage0.yml \
-  -f edge_id=<edge_id> -f operation=smoke \
-  -f confirm_instance="$CONFIRM"
-gh run watch --exit-status $(gh run list -w deploy-edge-lightsail-stage0.yml -L 1 --json databaseId -q '.[0].databaseId')
-```
-
-最后用 `tokenkey-online-traffic-profile` 或 `tokenkey-online-log-troubleshooting` 看 5 分钟内 Anthropic upstream 是否回到正常 2xx 比例。
-
-## 5) Acceptance（机械化输出）
-
-```text
-edge_id : <id>
-old_ip  : <old_ip>
-new_ip  : <new_ip>
-domain  : api-<id>.tokenkey.dev
-verify  : curl <new_ip>:443 → 200; smoke run → green
-```
-
-## 6) 失败模式
-
-| 现象 | 解读 | 应对 |
-|---|---|---|
-| `allocate-static-ip` 报 `ServiceQuotaExceededException` | 该 region 还有未释放的 Static IP（默认 quota=5） | `aws lightsail get-static-ips` 看清单，释放无主的 |
-| `attach-static-ip` 报 `OperationFailureException` | instance 处于非 `running` 状态 | `aws lightsail get-instance` 查 state，等到 `running` 再重试 |
-| 切完 NEW ip 仍被污染 | 撞回同 region 老 IP，或同 ASN 被整段封 | 立刻重跑一次 swap；如再次撞回考虑跨 region 增设新 edge |
-| DNS 没改但 smoke 通过 | 漏掉 verify 的 `--resolve` | 必须显式 `--resolve` 强制 SNI 到新 IP |
+按已批准范围使用 `ops/dns/porkbun-upsert-a.sh` 更新 DNS；检查公网解析并用
+`curl --resolve <domain>:443:<new_ip> https://<domain>/health` 验证指定出口。
+需要证书/端口检查时使用 `ops/stage0/verify-edge-lightsail-network.sh`。
+发布 smoke 使用 `scripts/stage0/dispatch-edge-deploy.sh`，遵循恢复确认门禁；
+不能从 DNS 解析成功推断上游账号已恢复，最后以真实请求日志核对效果。

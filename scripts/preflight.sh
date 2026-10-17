@@ -2573,21 +2573,21 @@ else
 fi
 
 # The helper tests can remain green after someone deletes or bypasses the actual
-# schedule. Anchor the load-bearing workflow trigger and scan/delivery call sites.
+# trigger. Anchor manual-only dispatch and scan/delivery call sites.
 echo ""
 
 fi # preflight gate
 if _preflight_selected 'edge-health watch workflow contract'; then
 echo "=== sub2api: edge-health watch workflow contract ==="
-if ! python3 ./scripts/checks/edge-health-watch-contract.py >/dev/null 2>&1; then
+if ! python3 ./scripts/checks/edge-health-watch-contract.py >/dev/null 2>&1 || ! python3 -m unittest ops.observability.test_edge_health_watch_workflow; then
     echo "  FAIL: edge-health watch workflow contract"
     echo "        — run: python3 scripts/checks/edge-health-watch-contract.py"
     errors=$((errors + 1))
 else
-    echo "  ok: edge-health schedule, scan, delivery, and state call sites anchored"
+    echo "  ok: edge-health manual trigger, discovery, scan, delivery, and state call sites anchored"
 fi
 
-# The Worker deploys on its own cadence (prod runs none, four edges do), so a
+# The historical Worker template deploys independently (prod runs none), so a
 # control-plane change can reach the edges before the Worker that understands it.
 # Cadence stays decoupled; compatibility is coupled here.
 echo ""

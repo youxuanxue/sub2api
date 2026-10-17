@@ -605,6 +605,7 @@ def evaluate(
     *,
     now: dt.datetime | None = None,
     catchup_gap_policy: str = DEFAULT_CATCHUP_GAP_POLICY,
+    maintenance_paused: bool = False,
 ) -> dict[str, Any]:
     now = (now or dt.datetime.now(dt.timezone.utc)).astimezone(dt.timezone.utc)
     forward_reasons: list[str] = []
@@ -624,129 +625,141 @@ def evaluate(
     database = _mapping(snapshot.get("database_heartbeat"))
     archive = _mapping(snapshot.get("archive_control"))
     qa_records = _mapping(snapshot.get("qa_records"))
-    heartbeat = _last_result(database.get("last_result")) if database is not None else {}
-    terminal_catchup_attempt = _is_correlatable_terminal_catchup_attempt(receipt, heartbeat)
-    if systemd is None:
-        forward_reasons.append("systemd_missing")
-    else:
-        if systemd.get("timer_enabled") is not True:
-            forward_reasons.append("timer_not_enabled")
-        if systemd.get("timer_active") is not True:
-            forward_reasons.append("timer_not_active")
-        if systemd.get("service_result") != "success" and not terminal_catchup_attempt:
-            forward_reasons.append("systemd_service_failed")
-            failed = True
-    if receipt is None:
-        forward_reasons.append("host_receipt_missing")
-    if database is None:
-        forward_reasons.append("database_heartbeat_missing")
-    if archive is None:
-        forward_reasons.append("archive_control_missing")
-
-    if receipt is not None:
-        if receipt.get("schema_version") != "qa-maintenance-runner-v1":
-            forward_reasons.append("host_receipt_schema_invalid")
-        if not isinstance(receipt.get("run_id"), str) or not receipt.get("run_id"):
-            forward_reasons.append("host_receipt_run_id_missing")
-        if receipt.get("trigger") != "timer":
-            forward_reasons.append("host_receipt_trigger_not_timer")
-        if not isinstance(receipt.get("active_container"), str) or not receipt.get("active_container"):
-            forward_reasons.append("host_receipt_container_missing")
-        if not isinstance(receipt.get("image"), str) or not receipt.get("image", "").startswith("sha256:"):
-            forward_reasons.append("host_receipt_image_invalid")
-        if receipt.get("runner_uid") != 1000 or receipt.get("runner_gid") != 1000:
-            forward_reasons.append("host_receipt_runner_identity_invalid")
-        if receipt.get("deletion_authorized") is not False:
-            forward_reasons.append("host_receipt_deletion_not_denied")
-        started = _timestamp(receipt.get("started_at"))
-        if started is None:
-            forward_reasons.append("host_receipt_started_at_invalid")
-        finished = _timestamp(receipt.get("finished_at"))
-        if finished is None:
-            forward_reasons.append("host_receipt_finished_at_invalid")
-        elif finished > now or now - finished > MAX_RECEIPT_AGE:
-            forward_reasons.append("host_receipt_stale")
-        elif started is not None and started > finished:
-            forward_reasons.append("host_receipt_time_order_invalid")
-        if receipt.get("runner_exit_code") != 0 and not terminal_catchup_attempt:
-            forward_reasons.append("host_runner_failed")
-            failed = True
-        if receipt.get("child_exit_code") != 0 and not terminal_catchup_attempt:
-            forward_reasons.append("maintenance_child_failed")
-            failed = True
-        if receipt.get("error_code") not in {None, ""} and not terminal_catchup_attempt:
-            forward_reasons.append("host_receipt_success_has_error")
-            failed = True
-    else:
-        started = None
-        finished = None
-
-    if database is not None:
-        if heartbeat.get("status") != "committed" and not terminal_catchup_attempt:
-            forward_reasons.append("database_heartbeat_not_committed")
-            failed = True
-        if heartbeat.get("deletion_authorized") != "false":
-            forward_reasons.append("database_heartbeat_deletion_not_denied")
-        if receipt is not None and heartbeat.get("run_id") != receipt.get("run_id"):
-            forward_reasons.append("run_id_mismatch")
-            failed = True
-        if receipt is not None and heartbeat.get("trigger") != receipt.get("trigger"):
-            forward_reasons.append("trigger_mismatch")
-            failed = True
-        heartbeat_run = _timestamp(database.get("last_run_at"))
-        if heartbeat_run is None:
-            forward_reasons.append("database_last_run_invalid")
-        elif started is not None and abs(started - heartbeat_run) > MAX_CORRELATION_SKEW:
-            forward_reasons.append("receipt_heartbeat_run_time_mismatch")
-            failed = True
-        heartbeat_success = _timestamp(database.get("last_success_at"))
-        if heartbeat_success is None:
-            forward_reasons.append("database_last_success_invalid")
-        elif (
-            finished is not None
-            and not terminal_catchup_attempt
-            and abs(finished - heartbeat_success) > MAX_CORRELATION_SKEW
+    if maintenance_paused:
+        # Historical archive receipts need not advance during an operator pause.
+        # Raw systemd states distinguish a stopped unit from a failed probe.
+        if systemd is None:
+            forward_reasons.append("systemd_missing")
+        elif not (
+            systemd.get("timer_active_state") == "inactive"
+            and systemd.get("timer_unit_file_state") in {"disabled", "masked"}
+            and systemd.get("service_active_state") in {"inactive", "failed"}
         ):
-            forward_reasons.append("receipt_heartbeat_time_mismatch")
-            failed = True
-        last_error = _timestamp(database.get("last_error_at"))
-        if terminal_catchup_attempt:
-            if last_error is None or finished is None or abs(finished - last_error) > MAX_CORRELATION_SKEW:
-                forward_reasons.append("terminal_catchup_failure_time_mismatch")
-                failed = True
-        elif last_error is not None and (heartbeat_success is None or last_error > heartbeat_success):
-            forward_reasons.append("database_has_newer_failure")
-            failed = True
-
-    if systemd is not None and _correlate_systemd_receipt(
-        forward_reasons,
-        "",
-        systemd,
-        started,
-        finished,
-    ):
-        failed = True
-
-    if receipt is not None and archive is not None:
-        normal = _mapping(receipt.get("normal"))
-        if normal is None:
-            forward_reasons.append("normal_receipt_missing")
-            failed = True
+            forward_reasons.append("paused_maintenance_not_stopped")
+    else:
+        heartbeat = _last_result(database.get("last_result")) if database is not None else {}
+        terminal_catchup_attempt = _is_correlatable_terminal_catchup_attempt(receipt, heartbeat)
+        if systemd is None:
+            forward_reasons.append("systemd_missing")
         else:
-            _same_fact(forward_reasons, "normal", normal, heartbeat, _mapping(archive.get("normal")))
-            if any(reason.startswith("normal_") for reason in forward_reasons):
+            if systemd.get("timer_enabled") is not True:
+                forward_reasons.append("timer_not_enabled")
+            if systemd.get("timer_active") is not True:
+                forward_reasons.append("timer_not_active")
+            if systemd.get("service_result") != "success" and not terminal_catchup_attempt:
+                forward_reasons.append("systemd_service_failed")
                 failed = True
-        if _evaluate_catchup(
-            catchup_reasons,
-            receipt=receipt,
-            heartbeat=heartbeat,
-            archive=archive,
-            catchup_gap_policy=catchup_gap_policy,
+        if receipt is None:
+            forward_reasons.append("host_receipt_missing")
+        if database is None:
+            forward_reasons.append("database_heartbeat_missing")
+        if archive is None:
+            forward_reasons.append("archive_control_missing")
+
+        if receipt is not None:
+            if receipt.get("schema_version") != "qa-maintenance-runner-v1":
+                forward_reasons.append("host_receipt_schema_invalid")
+            if not isinstance(receipt.get("run_id"), str) or not receipt.get("run_id"):
+                forward_reasons.append("host_receipt_run_id_missing")
+            if receipt.get("trigger") != "timer":
+                forward_reasons.append("host_receipt_trigger_not_timer")
+            if not isinstance(receipt.get("active_container"), str) or not receipt.get("active_container"):
+                forward_reasons.append("host_receipt_container_missing")
+            if not isinstance(receipt.get("image"), str) or not receipt.get("image", "").startswith("sha256:"):
+                forward_reasons.append("host_receipt_image_invalid")
+            if receipt.get("runner_uid") != 1000 or receipt.get("runner_gid") != 1000:
+                forward_reasons.append("host_receipt_runner_identity_invalid")
+            if receipt.get("deletion_authorized") is not False:
+                forward_reasons.append("host_receipt_deletion_not_denied")
+            started = _timestamp(receipt.get("started_at"))
+            if started is None:
+                forward_reasons.append("host_receipt_started_at_invalid")
+            finished = _timestamp(receipt.get("finished_at"))
+            if finished is None:
+                forward_reasons.append("host_receipt_finished_at_invalid")
+            elif finished > now or now - finished > MAX_RECEIPT_AGE:
+                forward_reasons.append("host_receipt_stale")
+            elif started is not None and started > finished:
+                forward_reasons.append("host_receipt_time_order_invalid")
+            if receipt.get("runner_exit_code") != 0 and not terminal_catchup_attempt:
+                forward_reasons.append("host_runner_failed")
+                failed = True
+            if receipt.get("child_exit_code") != 0 and not terminal_catchup_attempt:
+                forward_reasons.append("maintenance_child_failed")
+                failed = True
+            if receipt.get("error_code") not in {None, ""} and not terminal_catchup_attempt:
+                forward_reasons.append("host_receipt_success_has_error")
+                failed = True
+        else:
+            started = None
+            finished = None
+
+        if database is not None:
+            if heartbeat.get("status") != "committed" and not terminal_catchup_attempt:
+                forward_reasons.append("database_heartbeat_not_committed")
+                failed = True
+            if heartbeat.get("deletion_authorized") != "false":
+                forward_reasons.append("database_heartbeat_deletion_not_denied")
+            if receipt is not None and heartbeat.get("run_id") != receipt.get("run_id"):
+                forward_reasons.append("run_id_mismatch")
+                failed = True
+            if receipt is not None and heartbeat.get("trigger") != receipt.get("trigger"):
+                forward_reasons.append("trigger_mismatch")
+                failed = True
+            heartbeat_run = _timestamp(database.get("last_run_at"))
+            if heartbeat_run is None:
+                forward_reasons.append("database_last_run_invalid")
+            elif started is not None and abs(started - heartbeat_run) > MAX_CORRELATION_SKEW:
+                forward_reasons.append("receipt_heartbeat_run_time_mismatch")
+                failed = True
+            heartbeat_success = _timestamp(database.get("last_success_at"))
+            if heartbeat_success is None:
+                forward_reasons.append("database_last_success_invalid")
+            elif (
+                finished is not None
+                and not terminal_catchup_attempt
+                and abs(finished - heartbeat_success) > MAX_CORRELATION_SKEW
+            ):
+                forward_reasons.append("receipt_heartbeat_time_mismatch")
+                failed = True
+            last_error = _timestamp(database.get("last_error_at"))
+            if terminal_catchup_attempt:
+                if last_error is None or finished is None or abs(finished - last_error) > MAX_CORRELATION_SKEW:
+                    forward_reasons.append("terminal_catchup_failure_time_mismatch")
+                    failed = True
+            elif last_error is not None and (heartbeat_success is None or last_error > heartbeat_success):
+                forward_reasons.append("database_has_newer_failure")
+                failed = True
+
+        if systemd is not None and _correlate_systemd_receipt(
+            forward_reasons,
+            "",
+            systemd,
+            started,
+            finished,
         ):
             failed = True
+
+        if receipt is not None and archive is not None:
+            normal = _mapping(receipt.get("normal"))
+            if normal is None:
+                forward_reasons.append("normal_receipt_missing")
+                failed = True
+            else:
+                _same_fact(forward_reasons, "normal", normal, heartbeat, _mapping(archive.get("normal")))
+                if any(reason.startswith("normal_") for reason in forward_reasons):
+                    failed = True
+            if _evaluate_catchup(
+                catchup_reasons,
+                receipt=receipt,
+                heartbeat=heartbeat,
+                archive=archive,
+                catchup_gap_policy=catchup_gap_policy,
+            ):
+                failed = True
 
     lifecycle_failed, lifecycle_phase = _evaluate_qa_records_lifecycle(
-        forward_reasons, qa_records, archive, now
+        forward_reasons, qa_records, None if maintenance_paused else archive, now
     )
     if lifecycle_failed:
         failed = True

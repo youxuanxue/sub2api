@@ -71,7 +71,8 @@ Stage0 单后端 Caddy 只由 `/health` 主动检查决定摘除与恢复；禁�
 bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 ```
 
-日常发版仅 prod，健康检查中的 `edge-health-watch --with-prod` 仍监测 prod，保留。
+日常发版仅 prod。`edge-health-watch` 仅保留手动诊断，空 edge 集合会退出；
+prod 日常监控由宿主 watcher 和 daily diagnostics 承担。
 Hcloud 建机、edge 发布和 Gemini Web Worker workflow 属历史/待建模板：
 当前已退役身份一律拒绝；prod 不运行 Gemini worker。共享 compose、Caddy、pgdump、
 QA 和 SSM 实现仍由现网使用，不按目录名批量删除。
@@ -83,7 +84,8 @@ QA 和 SSM 实现仍由现网使用，不按目录名批量删除。
    `paused_jobs`，只包含 `tokenkey-qa-maintenance`。boundary、备份与 capture 不随之停用。
    历史 raw 不搬，恢复见 [QA 运维入口](../../ops/qa/README.md)。
 3. **监控**：东京 DLM 与 CPU/磁盘告警保留。宿主 HTTPS/job watcher 读取暂停 owner，
-   要求归档 timer 停用且 service 不在运行；意外恢复会告警。其他任务仍按成功时效监控。
+   要求归档 timer 停用且 service 不在运行；意外恢复会告警。daily diagnostics 复用同一暂停清单，
+   暂停期不要求归档回执刷新，boundary 与存储检查保留。其他任务仍按成功时效监控.
    主机脚本不随网关镜像自动更新；安装/刷新独立 watcher 后才生效，仓库合并不代表已部署。
 4. **资源**：临时 node1 reader/入口在独立任务验收后回收；日本代理保留；
    新加坡其它项目资源不纳入 TokenKey 批量清理。详见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。

@@ -1,4 +1,6 @@
 import os
+import json
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -12,6 +14,50 @@ WORKFLOW = REPO_ROOT / ".github/workflows/deploy-edge-lightsail-stage0.yml"
 
 
 class EdgeRecoverySafetyTests(unittest.TestCase):
+    def test_ip_rotation_rejects_retired_and_planned_before_aws(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = root / "aws"
+            fake.write_text("#!/bin/sh\necho unexpected-cloud-call >&2\nexit 99\n")
+            fake.chmod(0o755)
+            matrix = json.loads((REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json").read_text())
+            for edge, row in matrix["targets"].items():
+                if row.get("deployable") and not row.get("retired"):
+                    continue
+                for flags in ([], ["--apply"]):
+                    with self.subTest(edge=edge, flags=flags):
+                        result = subprocess.run(["bash", str(REPO_ROOT / "ops/lightsail/rotate-static-ip.sh"), edge, *flags],
+                            env={**os.environ, "PATH": directory + ":" + os.environ["PATH"]},
+                            capture_output=True, text=True)
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("retired" if row.get("retired") else "not deployable", result.stderr)
+                        self.assertNotIn("unexpected-cloud-call", result.stderr)
+
+    def test_ip_rotation_plan_uses_resolved_new_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = ("ops/lightsail/rotate-static-ip.sh",
+                     "deploy/aws/lightsail/resolve-edge-lightsail-target.py",
+                     "ops/stage0/edge_routing_matrix.py")
+            for name in paths:
+                target = root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(REPO_ROOT / name, target)
+            matrix = json.loads((REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json").read_text())
+            row = next(iter(matrix["targets"].values()))
+            row.update(retired=False, deployable=True, instance_name="new-reviewed-edge")
+            matrix["targets"] = {"zz1": row}
+            (root / "deploy/aws/lightsail/edge-targets-lightsail.json").write_text(json.dumps(matrix))
+            fake = root / "aws"
+            fake.write_text('#!/bin/sh\n[ "$1 $2" = "lightsail get-static-ip" ] || exit 99\necho 192.0.2.10\n')
+            fake.chmod(0o755)
+            result = subprocess.run(["bash", str(root / paths[0]), "zz1"],
+                env={**os.environ, "PATH": directory + ":" + os.environ["PATH"]}, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("instance_name     : new-reviewed-edge", result.stdout)
+            self.assertIn("old_ip            : 192.0.2.10", result.stdout)
+            self.assertIn("dry run", result.stdout)
+
     def run_provision_guard(
         self,
         *,
