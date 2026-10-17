@@ -433,6 +433,25 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn("DIAGNOSE_TARGETS_RESULT", text)
         self.assertIn('diagnose_result not in ("cancelled", "skipped")', text)
 
+        text = workflow_text()
+        init = text.index("RUNTIME_SSM_TRANSPORT_OK=false")
+        send_success = text.index("RUNTIME_SSM_TRANSPORT_OK=true", init)
+        suppress = text.index('elif [ "$RUNTIME_SSM_TRANSPORT_OK" != "true" ]; then', send_success)
+        hybrid = text.index(
+            'elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ] || [ "${TARGET_PLATFORM:-}" = "hetzner" ]; then',
+            suppress,
+        )
+        binary_check = text.index("error_clustering_binary_check", hybrid)
+
+        self.assertLess(init, send_success)
+        self.assertLess(send_success, suppress)
+        self.assertLess(suppress, hybrid)
+        self.assertLess(hybrid, binary_check)
+        self.assertIn(
+            "Runtime SSM SendCommand failed; suppressing downstream error_clustering SSM checks",
+            text,
+        )
+
     def test_aggregate_finds_single_artifact_flat_target_report(self) -> None:
         """download-artifact flattens when artifacts.length===1; rglob must find it.
 
@@ -464,25 +483,6 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
                 [p.relative_to(root).as_posix() for p in sorted(root.glob("*/target-report.json"))],
                 ["prod-ops-target-prod-1/target-report.json"],
             )
-
-        text = workflow_text()
-        init = text.index("RUNTIME_SSM_TRANSPORT_OK=false")
-        send_success = text.index("RUNTIME_SSM_TRANSPORT_OK=true", init)
-        suppress = text.index('elif [ "$RUNTIME_SSM_TRANSPORT_OK" != "true" ]; then', send_success)
-        hybrid = text.index(
-            'elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ] || [ "${TARGET_PLATFORM:-}" = "hetzner" ]; then',
-            suppress,
-        )
-        binary_check = text.index("error_clustering_binary_check", hybrid)
-
-        self.assertLess(init, send_success)
-        self.assertLess(send_success, suppress)
-        self.assertLess(suppress, hybrid)
-        self.assertLess(hybrid, binary_check)
-        self.assertIn(
-            "Runtime SSM SendCommand failed; suppressing downstream error_clustering SSM checks",
-            text,
-        )
 
     def test_runtime_diagnostics_resolve_active_blue_green_container(self) -> None:
         commands = extract_runtime_params_commands()
