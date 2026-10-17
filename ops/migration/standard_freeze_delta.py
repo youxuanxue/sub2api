@@ -45,6 +45,7 @@ SELF_CHECK_EXEMPT = {
     "append_only_guard_sql": "requires a real cutover watermark",
     "dedup_delta_sql": "COPY transport fragment; covered by plan tests",
     "dedup_full_reload_sql": "destructive candidate-only reload fragment",
+    "sequence_guard_sql": "held-candidate full restore validation; real partition fixture in test_tokyo_usage_repair",
 }
 
 
@@ -82,6 +83,31 @@ WHERE n.nspname='public' AND c.relkind='r'
   AND c.relname !~ '{OLTP_EXCLUDE_REGEX}'
   AND c.relname NOT IN ('{APPEND_ONLY_TABLE}', '{ARCHIVE_TABLE}')
 ORDER BY c.relname;"""
+
+
+def sequence_guard_sql() -> str:
+    """Fail before activation if any ordinary/partition-parent sequence collides."""
+    return """DO $guard$
+DECLARE r record; last_id bigint; called boolean; highest bigint; step bigint;
+BEGIN
+  FOR r IN
+    SELECT n.nspname, c.relname, a.attname,
+           pg_get_serial_sequence(format('%I.%I',n.nspname,c.relname),a.attname) AS seq
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
+    WHERE n.nspname='public' AND c.relkind IN ('r','p')
+      AND c.relname NOT LIKE 'qa_%'
+      AND pg_get_serial_sequence(format('%I.%I',n.nspname,c.relname),a.attname) IS NOT NULL
+  LOOP
+    SELECT seqincrement INTO step FROM pg_sequence WHERE seqrelid=r.seq::regclass;
+    IF step <> 1 THEN RAISE EXCEPTION 'unsupported sequence increment: %', r.seq; END IF;
+    EXECUTE format('SELECT last_value,is_called FROM %s',r.seq) INTO last_id,called;
+    EXECUTE format('SELECT max(%I) FROM %I.%I',r.attname,r.nspname,r.relname) INTO highest;
+    IF highest IS NOT NULL AND last_id + called::int <= highest THEN
+      RAISE EXCEPTION 'sequence behind restored data: %', r.seq;
+    END IF;
+  END LOOP;
+END $guard$;"""
 
 
 def append_only_guard_sql(watermark_id: int, expected_prefix_count: int | None = None,
@@ -202,10 +228,12 @@ def plan(source_schema: str, candidate_schema: str, watermark: dict[str, Any], *
             "full refresh all non-log OLTP tables from frozen source dump",
             *dedup_steps,
             "reconcile core rows, ledger count/max ID and application health",
+            "assert sequence next values exceed restored maxima, including partition parents",
             "start candidate and perform minimal real-request smoke",
         ],
         "commands": {
             "schema_check": schema_check_sql(),
+            "sequence_guard": sequence_guard_sql(),
             "list_oltp_tables": list_oltp_tables_sql(),
             "watermark": watermark_sql(),
             "oltp_dump": pg_dump_oltp_args(),

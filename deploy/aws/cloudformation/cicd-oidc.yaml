@@ -41,6 +41,11 @@ Parameters:
       Optional prod EC2 instance the role is allowed to send SSM commands to.
       Empty suppresses the prod SSM statement, which lets a regional OIDC stack
       bootstrap before the target Stage0 instance exists.
+  TargetInstanceRegion:
+    Type: String
+    Default: ""
+    AllowedPattern: "^([a-z]{2}(-[a-z]+)+-[0-9]+)?$"
+    Description: Prod EC2 region; empty uses this stack's region. Supports cross-region host replacement.
 
   CreateOIDCProvider:
     Type: String
@@ -58,6 +63,7 @@ Parameters:
 Conditions:
   ShouldCreateOIDC: !Equals [!Ref CreateOIDCProvider, "true"]
   HasProdInstance: !Not [!Equals [!Ref TargetInstanceId, ""]]
+  HasProdRegion: !Not [!Equals [!Ref TargetInstanceRegion, ""]]
 
 Resources:
   GitHubOIDCProvider:
@@ -122,8 +128,12 @@ Resources:
                   Action:
                     - ssm:SendCommand
                   Resource:
-                    - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${TargetInstanceId}"
-                    - !Sub "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
+                    - !Sub
+                      - "arn:aws:ec2:${ProdRegion}:${AWS::AccountId}:instance/${TargetInstanceId}"
+                      - ProdRegion: !If [HasProdRegion, !Ref TargetInstanceRegion, !Ref AWS::Region]
+                    - !Sub
+                      - "arn:aws:ssm:${ProdRegion}::document/AWS-RunShellScript"
+                      - ProdRegion: !If [HasProdRegion, !Ref TargetInstanceRegion, !Ref AWS::Region]
                 - !Ref AWS::NoValue
               - Sid: ReadCommandResult
                 Effect: Allow
@@ -134,7 +144,7 @@ Resources:
                 Resource: "*"
               - Sid: DescribeInstanceInformationForSsmReadiness
                 # SSM readiness poll (PingStatus=Online). The action requires
-                # "*" resource per IAM docs; gate on this stack's region only.
+                # "*" resource per IAM docs; allow the stack and prod regions.
                 Effect: Allow
                 Action:
                   - ssm:DescribeInstanceInformation
@@ -143,6 +153,7 @@ Resources:
                   StringEquals:
                     "aws:RequestedRegion":
                       - !Ref AWS::Region
+                      - !If [HasProdRegion, !Ref TargetInstanceRegion, !Ref AWS::Region]
               - Sid: DescribeStackForInstanceLookup
                 Effect: Allow
                 Action:
@@ -170,6 +181,7 @@ Resources:
                   StringEquals:
                     "aws:RequestedRegion":
                       - !Ref AWS::Region
+                      - !If [HasProdRegion, !Ref TargetInstanceRegion, !Ref AWS::Region]
               - Sid: ReadEbsSnapshotsForDiagnostics
                 # ops-daily-diagnostics data_layer_snapshot_signal.sh runs on the
                 # GHA runner (OIDC creds), not via SSM — needs direct EC2 read.
@@ -181,6 +193,7 @@ Resources:
                   StringEquals:
                     "aws:RequestedRegion":
                       - !Ref AWS::Region
+                      - !If [HasProdRegion, !Ref TargetInstanceRegion, !Ref AWS::Region]
       Tags:
         - Key: Project
           Value: tokenkey
