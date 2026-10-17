@@ -14,13 +14,12 @@ import (
 )
 
 type openAIImagesEncodeHints struct {
-	Quality           string
 	OutputCompression *int
 }
 
 // coerceOpenAIImageB64ToOutputFormatWithQuality re-encodes image bytes when the
 // client explicitly requested jpeg/jpg/png/webp but Codex Direct / OAuth returned
-// a different container. Optional quality/compression hints adjust encoder settings.
+// a different container. Explicit output_compression adjusts encoder settings; generation quality does not.
 // Upstream ChatGPT Images frequently ignores tools.output_format and emits PNG while
 // still acknowledging the request; without this step client format contracts lie.
 //
@@ -47,7 +46,7 @@ func coerceOpenAIImageB64ToOutputFormatWithQuality(encoded, wantFormat string, h
 		return "", "", fmt.Errorf("unrecognized image container for output_format=%s coerce", want)
 	}
 
-	// Same container and no quality/compression hint: keep upstream bytes.
+	// Same container and no explicit compression: keep upstream bytes.
 	if actual == want && !openAIImagesEncodeHintsActive(hints) {
 		return encoded, actual, nil
 	}
@@ -87,14 +86,7 @@ func coerceOpenAIImageB64ToOutputFormatWithQuality(encoded, wantFormat string, h
 }
 
 func openAIImagesEncodeHintsActive(hints *openAIImagesEncodeHints) bool {
-	if hints == nil {
-		return false
-	}
-	if hints.OutputCompression != nil {
-		return true
-	}
-	q := strings.ToLower(strings.TrimSpace(hints.Quality))
-	return q != "" && q != "auto"
+	return hints != nil && hints.OutputCompression != nil
 }
 
 func openAIImagesJPEGQuality(hints *openAIImagesEncodeHints) int {
@@ -108,18 +100,7 @@ func openAIImagesJPEGQuality(hints *openAIImagesEncodeHints) int {
 		}
 		return c
 	}
-	switch strings.ToLower(strings.TrimSpace(hintQuality(hints))) {
-	case "low":
-		return 45
-	case "medium":
-		return 72
-	case "high":
-		return 88
-	case "xhigh", "max":
-		return 95
-	default:
-		return 92
-	}
+	return 92
 }
 
 func openAIImagesWebPCompression(hints *openAIImagesEncodeHints) nativewebp.CompressionLevel {
@@ -134,21 +115,7 @@ func openAIImagesWebPCompression(hints *openAIImagesEncodeHints) nativewebp.Comp
 			return nativewebp.DefaultCompression
 		}
 	}
-	switch strings.ToLower(strings.TrimSpace(hintQuality(hints))) {
-	case "low":
-		return nativewebp.BestSpeed
-	case "high", "xhigh", "max":
-		return nativewebp.BestCompression
-	default:
-		return nativewebp.DefaultCompression
-	}
-}
-
-func hintQuality(hints *openAIImagesEncodeHints) string {
-	if hints == nil {
-		return ""
-	}
-	return hints.Quality
+	return nativewebp.DefaultCompression
 }
 
 func decodeOpenAIImageB64(encoded string) ([]byte, error) {
@@ -194,7 +161,7 @@ func applyOpenAIImagesOutputFormatCoercionWithHints(results []openAIResponsesIma
 		if !explicitFormat {
 			raw, err := decodeOpenAIImageB64(results[i].Result)
 			if err != nil {
-				// Quality-only re-encode cannot proceed without decodable bytes;
+				// Compression-only re-encode cannot proceed without decodable bytes;
 				// leave upstream payload untouched rather than fail the request.
 				continue
 			}
@@ -221,7 +188,9 @@ func applyOpenAIImagesOutputFormatCoercionWithHints(results []openAIResponsesIma
 }
 
 // applyOpenAIImagesClientFidelityPostprocess applies codex2api-style local fidelity:
-// exact requested canvas first, then output_format / compression / quality re-encode.
+// exact requested canvas first, then output_format / explicit compression.
+// Generation quality belongs to the upstream request. Re-encoding solely for
+// quality discards provenance metadata even when the image already matches.
 func applyOpenAIImagesClientFidelityPostprocess(results []openAIResponsesImageResult, parsed *OpenAIImagesRequest) error {
 	if err := applyOpenAIImagesStrictCanvas(results, parsed); err != nil {
 		return err
@@ -231,9 +200,6 @@ func applyOpenAIImagesClientFidelityPostprocess(results []openAIResponsesImageRe
 	if parsed != nil {
 		if parsed.ExplicitOutputFormat {
 			wantFormat = parsed.OutputFormat
-		}
-		if parsed.ExplicitQuality {
-			hints.Quality = parsed.Quality
 		}
 		hints.OutputCompression = parsed.OutputCompression
 	}

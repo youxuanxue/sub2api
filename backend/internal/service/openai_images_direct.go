@@ -300,6 +300,7 @@ func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingResponse(resp 
 			contentType = upstreamType
 		}
 	}
+	body = sanitizeOpenAIImagesResponseJSON(body, parsed)
 	c.Data(resp.StatusCode, contentType, body)
 	return usage, len(results), openAIResponsesImageResultSizes(results), nil
 }

@@ -37,7 +37,7 @@ edge-us3 OAuth 实测（2026-09-29，account `gpt125` / `gpt-image-2`）：
 | `size=1024x1024` `output_format=jpeg` `quality=high` | 200 | jpeg | `1254x1254` | call_meta.quality=`low`（请求 high）；size 不兑现 |
 
 结论：format/background 在 Responses 路径明显好于 Direct；**字面 size 仍需本地 pad**；
-quality/compression 仍需本地体积可区分后处理。`3840x2176` 继续本地 400（总像素超 `8294400`）。
+此前将 quality/compression 都用于本地后处理；quality 的处理已由下方 2026-10-16 修订替代。`3840x2176` 继续本地 400（总像素超 `8294400`）。
 
 ## 决策（已确认）
 
@@ -47,7 +47,7 @@ quality/compression 仍需本地体积可区分后处理。`3840x2176` 继续本
 2. 显式 `size=WxH`：上游发 ceil-16 合法尺寸；响应经本地 **pad** 落到请求画布（cover/crop 非目标）。
    内容需要放大时：本地 **渐进 CatmullRom**（每跳 ≤2×），减轻大画布一次拉满发糊。
    **不**引入 `-2k/-4k` 模型别名；**不**接 Real-ESRGAN 外挂（可后续独立评估）。
-3. 显式 `output_format` / `quality` / `output_compression`：本地 coerce 兜底（Responses 上 jpeg/webp 多数已原生兑现）。
+3. 显式 `output_format` 不符或指定 `output_compression` 时本地 coerce；`quality` 只影响上游生成，不单独触发重编码（见 2026-10-16 修订）。
 4. 非目标：不把字面 size 押在上游 Responses 行为上；不引入 `-2k/-4k` 超分别名。
 5. 废弃 `tk_image_contract`：本地精确画布/format 后处理为默认行为；字段若传入则忽略并在转发前剥离。
 6. Studio/Quickstart：GPT Image 芯片发送 `size=WxH`（由 Go `openAIImagesKnownSizeTable` 的 `StudioChip` 行生成 `GPT_IMAGE_SIZES`），与本契约共用同一尺寸表。
@@ -90,8 +90,10 @@ OAuth / Setup-Token 生图**一律**走：
 
 - 上游容器不符时，网关解码后重编码；魔数必须与声明一致（fail-closed）。
 - `webp` 使用纯 Go lossless 编码器（`CGO_ENABLED=0` 兼容）。
-- `output_compression`（0–100）与 `quality` 映射到 JPEG quality / WebP
-  compression effort，使质量/压缩档在文件体积上可区分（客户判定阈值 >10%）。
+- `output_compression`（0–100）继续映射到 JPEG quality / WebP compression effort。
+- `quality` 是生成质量，继续传给上游；不再映射到本地编码参数。
+- 格式和尺寸已满足请求、没有显式压缩时，返回原始图片字节，保留上游附带的 C2PA 等元数据。
+- 格式转换、尺寸调整或显式压缩会生成衍生图片；不复制原图签名到变更后的字节，也不伪造 OpenAI 签名。
 
 ### 3. `background`
 
@@ -105,6 +107,36 @@ OAuth / Setup-Token 生图**一律**走：
 - 不引入 `-2k/-4k` 模型别名超分；大画布清晰度靠显式 `size` + 本地渐进放大（暂不接 Real-ESRGAN）。
 - 不改变 API-key 官方 Images 硬 `size` 语义（仅 OAuth/Codex 路径做 ceil+本地精确画布）。
 - 不把色键去背景当作默认透明实现。
+
+
+## 2026-10-16：图片凭据保留与原生响应契约修复
+
+审批依据：本会话用户在收到「定位 fidelity/revised_prompt 路径，避免不必要重编码」建议后明确回复：
+「同意，1 已经让 tokensea 去查了。2 和 3 请继续排查、核实和修复。」
+该授权覆盖本节实现；合并和部署仍走项目出口门禁。本节状态为实现待合并，不表示已上线。
+
+- GPT Image 的原生 API-key JSON / SSE 和 Codex Direct 响应复用字段清理 owner；
+  移除 `revised_prompt`，保留图像字节、usage、provider 扩展字段。DALL-E 的该字段保持原义。
+- `gpt-image-2` 的 `input_fidelity` 继续在统一请求解析处拒绝；覆盖 multipart edits，
+  不扩大到 `gpt-image-1.5`。本轮线上 JSON 与 multipart 探针都已返回对应 400。
+- SSE 按完整帧处理，支持多行 data，保留 event/id/retry/comment 和 `[DONE]`；
+  读取阶段按现有 upstream response read limit 限制单帧；无换行的超长行及客户端断开后的读取同样受限。
+- 不新增凭据签发系统。原样字节测试仅证明元数据不被网关删除，不证明上游签名存在或可信。
+- Web impact: none；没有 UI 工件。验证是服务单元/集成测试及生产 HTTP 拒绝探针，不称 UI e2e。
+
+### 验收与风险覆盖
+
+| 场景 | 行为证据 |
+| --- | --- |
+| quality-only / 同格式同尺寸 | `TestImagesPostprocessPreservesUpstreamBytesForGenerationQuality`：带 caBX 的 PNG 字节完全一致 |
+| 必需格式/尺寸/压缩变换 | `TestImagesPostprocessStillTransformsRequestedFormatSizeAndCompression`：正确格式与像素、无旧凭据冒充 |
+| 原生 JSON / URL 回填 | `TestOpenAIGatewayServiceForwardImages_APIKeyBackfillsB64JSONFromURL`、`TestImagesNativeResponseSanitizerPreservesOtherModelsAndPayloads` |
+| 原生流、多行 data、DALL-E 回归 | `TestImagesNativeStreamingResponseStripsMultilineRevisedPrompt` |
+| SSE 超长行、帧边界、断开后的用量统计 | `TestImagesNativeStreamFrameLimitBoundsUpstreamReads`、`TestImagesNativeStreamFrameBudgetResetsAndAllowsExactLimit` |
+| multipart fidelity 正负向 | `TestParseOpenAIImagesRequest_MultipartInputFidelity` |
+
+逻辑与回归风险由以上测试覆盖；鉴权、租户与计费策略不变；运行时风险为 SSE 单帧缓冲，
+以既有读限制拒绝超大帧。原报告具体失败请求尚未取得服务端关联 ID，不能据此宣称客户全链路已通过。
 
 ## Owners
 
