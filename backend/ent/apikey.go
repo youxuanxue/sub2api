@@ -38,6 +38,8 @@ type APIKey struct {
 	Status string `json:"status,omitempty"`
 	// API Key 路由模式：direct 绑定固定分组 | universal 全能 Key 按模型实时解析后端组
 	RoutingMode apikey.RoutingMode `json:"routing_mode,omitempty"`
+	// API Key 供应偏好：default 默认调度 | tokensea_first 优先 tokensea Anthropic
+	RoutingPreference apikey.RoutingPreference `json:"routing_preference,omitempty"`
 	// Last usage time of this API key
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 	// Allowed IPs/CIDRs, e.g. ["192.168.1.100", "10.0.0.0/8"]
@@ -129,7 +131,7 @@ func (*APIKey) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case apikey.FieldID, apikey.FieldUserID, apikey.FieldGroupID:
 			values[i] = new(sql.NullInt64)
-		case apikey.FieldKey, apikey.FieldName, apikey.FieldStatus, apikey.FieldRoutingMode:
+		case apikey.FieldKey, apikey.FieldName, apikey.FieldStatus, apikey.FieldRoutingMode, apikey.FieldRoutingPreference:
 			values[i] = new(sql.NullString)
 		case apikey.FieldCreatedAt, apikey.FieldUpdatedAt, apikey.FieldDeletedAt, apikey.FieldLastUsedAt, apikey.FieldExpiresAt, apikey.FieldWindow5hStart, apikey.FieldWindow1dStart, apikey.FieldWindow7dStart:
 			values[i] = new(sql.NullTime)
@@ -209,6 +211,12 @@ func (_m *APIKey) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field routing_mode", values[i])
 			} else if value.Valid {
 				_m.RoutingMode = apikey.RoutingMode(value.String)
+			}
+		case apikey.FieldRoutingPreference:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field routing_preference", values[i])
+			} else if value.Valid {
+				_m.RoutingPreference = apikey.RoutingPreference(value.String)
 			}
 		case apikey.FieldLastUsedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -390,6 +398,9 @@ func (_m *APIKey) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("routing_mode=")
 	builder.WriteString(fmt.Sprintf("%v", _m.RoutingMode))
+	builder.WriteString(", ")
+	builder.WriteString("routing_preference=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RoutingPreference))
 	builder.WriteString(", ")
 	if v := _m.LastUsedAt; v != nil {
 		builder.WriteString("last_used_at=")

@@ -103,3 +103,27 @@ func TestAPIKeyService_CreateAsAdmin_GroupNotActive(t *testing.T) {
 	require.ErrorAs(t, err, &appErr)
 	require.Equal(t, "GROUP_NOT_ACTIVE", appErr.Reason)
 }
+
+func TestAPIKeyService_CreateAsAdmin_PreservesRoutingPreference(t *testing.T) {
+	user := &User{ID: 1, Status: StatusActive}
+	svc, repo := newAdminCreateAPIKeyService(t, user, nil)
+	preference := RoutingPreferenceTokenseaFirst
+
+	key, err := svc.CreateAsAdmin(context.Background(), user.ID, CreateAPIKeyRequest{
+		Name:              "tokensea-first",
+		RoutingPreference: &preference,
+	})
+	require.NoError(t, err)
+	require.Equal(t, RoutingPreferenceTokenseaFirst, key.RoutingPreference)
+	require.Equal(t, RoutingPreferenceTokenseaFirst, repo.created.RoutingPreference)
+}
+
+func TestAPIKeyService_CreateAsAdmin_RejectsInvalidRoutingPreference(t *testing.T) {
+	user := &User{ID: 1, Status: StatusActive}
+	svc, repo := newAdminCreateAPIKeyService(t, user, nil)
+	invalid := "kiro_first"
+
+	_, err := svc.CreateAsAdmin(context.Background(), user.ID, CreateAPIKeyRequest{RoutingPreference: &invalid})
+	require.ErrorIs(t, err, ErrInvalidRoutingPreference)
+	require.Nil(t, repo.created)
+}

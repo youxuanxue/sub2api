@@ -34,6 +34,8 @@ const (
 	FieldStatus = "status"
 	// FieldRoutingMode holds the string denoting the routing_mode field in the database.
 	FieldRoutingMode = "routing_mode"
+	// FieldRoutingPreference holds the string denoting the routing_preference field in the database.
+	FieldRoutingPreference = "routing_preference"
 	// FieldLastUsedAt holds the string denoting the last_used_at field in the database.
 	FieldLastUsedAt = "last_used_at"
 	// FieldIPWhitelist holds the string denoting the ip_whitelist field in the database.
@@ -107,6 +109,7 @@ var Columns = []string{
 	FieldGroupID,
 	FieldStatus,
 	FieldRoutingMode,
+	FieldRoutingPreference,
 	FieldLastUsedAt,
 	FieldIPWhitelist,
 	FieldIPBlacklist,
@@ -200,6 +203,32 @@ func RoutingModeValidator(rm RoutingMode) error {
 	}
 }
 
+// RoutingPreference defines the type for the "routing_preference" enum field.
+type RoutingPreference string
+
+// RoutingPreferenceDefault is the default value of the RoutingPreference enum.
+const DefaultRoutingPreference = RoutingPreferenceDefault
+
+// RoutingPreference values.
+const (
+	RoutingPreferenceDefault       RoutingPreference = "default"
+	RoutingPreferenceTokenseaFirst RoutingPreference = "tokensea_first"
+)
+
+func (rp RoutingPreference) String() string {
+	return string(rp)
+}
+
+// RoutingPreferenceValidator is a validator for the "routing_preference" field enum values. It is called by the builders before save.
+func RoutingPreferenceValidator(rp RoutingPreference) error {
+	switch rp {
+	case RoutingPreferenceDefault, RoutingPreferenceTokenseaFirst:
+		return nil
+	default:
+		return fmt.Errorf("apikey: invalid enum value for routing_preference field: %q", rp)
+	}
+}
+
 // OrderOption defines the ordering options for the APIKey queries.
 type OrderOption func(*sql.Selector)
 
@@ -251,6 +280,11 @@ func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 // ByRoutingMode orders the results by the routing_mode field.
 func ByRoutingMode(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRoutingMode, opts...).ToFunc()
+}
+
+// ByRoutingPreference orders the results by the routing_preference field.
+func ByRoutingPreference(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRoutingPreference, opts...).ToFunc()
 }
 
 // ByLastUsedAt orders the results by the last_used_at field.

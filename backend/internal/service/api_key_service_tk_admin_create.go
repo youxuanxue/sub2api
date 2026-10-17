@@ -40,6 +40,15 @@ func (s *APIKeyService) CreateAsAdmin(ctx context.Context, userID int64, req Cre
 	if routingMode != RoutingModeDirect && routingMode != RoutingModeUniversal {
 		return nil, ErrInvalidRoutingMode
 	}
+	routingPreference := RoutingPreferenceDefault
+	if req.RoutingPreference != nil {
+		if err := validateRoutingPreference(*req.RoutingPreference); err != nil {
+			return nil, err
+		}
+		if value := strings.TrimSpace(*req.RoutingPreference); value != "" {
+			routingPreference = value
+		}
+	}
 
 	effectiveGroupID := apiKeyGroupIDForRoutingMode(routingMode, req.GroupID)
 
@@ -75,19 +84,20 @@ func (s *APIKeyService) CreateAsAdmin(ctx context.Context, userID int64, req Cre
 	}
 
 	apiKey := &APIKey{
-		UserID:      userID,
-		Key:         key,
-		Name:        html.EscapeString(req.Name),
-		GroupID:     effectiveGroupID,
-		RoutingMode: routingMode,
-		Status:      StatusActive,
-		IPWhitelist: req.IPWhitelist,
-		IPBlacklist: req.IPBlacklist,
-		Quota:       req.Quota,
-		QuotaUsed:   0,
-		RateLimit5h: req.RateLimit5h,
-		RateLimit1d: req.RateLimit1d,
-		RateLimit7d: req.RateLimit7d,
+		UserID:            userID,
+		Key:               key,
+		Name:              html.EscapeString(req.Name),
+		GroupID:           effectiveGroupID,
+		RoutingMode:       routingMode,
+		RoutingPreference: routingPreference,
+		Status:            StatusActive,
+		IPWhitelist:       req.IPWhitelist,
+		IPBlacklist:       req.IPBlacklist,
+		Quota:             req.Quota,
+		QuotaUsed:         0,
+		RateLimit5h:       req.RateLimit5h,
+		RateLimit1d:       req.RateLimit1d,
+		RateLimit7d:       req.RateLimit7d,
 	}
 
 	if req.ExpiresInDays != nil && *req.ExpiresInDays > 0 {
