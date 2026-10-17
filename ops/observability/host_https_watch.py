@@ -27,7 +27,7 @@ def build_config(role: str, hostname: str, fresh: dict, matrix: dict, domestic: 
     targets = {}
     if role == "prod":
         # The host watcher is a prod/cn-prod service. Edge health belongs to the
-        # retired fleet scanner and must never recreate the former us5 alert.
+        # retired fleet scanner and must never recreate a retired edge alert.
         targets["cn-prod"] = domestic["public_origin"].rstrip("/") + "/health"
     elif role == "cn-prod":
         prod = fresh["prod"]
