@@ -2229,7 +2229,7 @@ func TestNewModelPricingRequiresRegistryOwner(t *testing.T) {
 			require.NoError(t, err, "%s must use the overlay registry owner", model)
 			require.Greater(t, cost.TotalCost, 0.0, model)
 		}
-		// Published Cursor Opus 5.5 owner must settle once the registry is active.
+		// Published Opus 5.5 pricing must settle once the registry is active.
 		cost, err := billing.CalculateCost("claude-opus-5-5", UsageTokens{InputTokens: 1000, OutputTokens: 100}, 1)
 		require.NoError(t, err, "claude-opus-5-5 must use the overlay registry owner")
 		require.Greater(t, cost.TotalCost, 0.0)

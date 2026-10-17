@@ -430,14 +430,12 @@ The 120s / 20.32s-sample profile on 1.8.259 then showed:
 - `gjson.parseSquash` remains the top flat cost at 12.70%, but 60.5% of it is
   that single per-request derivation. The rest is a long tail of roughly twenty
   independent functions each walking the same body again (about 0.4s of 20.32s);
-- `cursorProtocolContentSupported` rose from 7.17% to 8.56% and became the
-  largest business hotspot — not a regression, but the share left standing once
-  the surrounding work was removed.
+- The retired supplier's content projection accounted for 8.56% of samples.
+  That historical hotspot no longer exists; see section 9.4.
 
 Two things this changes. First, parser convergence gains a second argument
 beyond correctness: with no single owner for "parse this body once", the
-scattered read sites are a structural source of long-tail CPU. It stays behind
-the Cursor work at about 2% of samples. Second, and more important for section
+scattered read sites are a structural source of long-tail CPU. It accounted for about 2% of samples in that historical profile. Second, and more important for section
 10, CPU is not the tail-latency story. `gateway_latency_ms` correlates weakly
 with body size — a 460-token request measured 457ms while a 217k-token request
 measured 461ms — and the >64KiB bucket shows p50 55ms against p95 380ms, a
@@ -447,61 +445,11 @@ profile accounts for only 16.93% of wall time. Any work on that tail needs its
 own plan measured in `gateway_latency_ms` percentiles; it is not covered by this
 document and must not be folded into it.
 
-### 9.4 Cursor content admission: one projection per body (2026-09-26)
+### 9.4 Retired supplier profiling
 
-> Historical profiling evidence only. Cursor content admission and its cache were
-> removed under [Cursor retirement](cursor-retirement.md).
-
-`cursorProtocolContentSupported` was cached on `{digest, resolvedModel}`, and
-`resolvedModel` comes from each account's own model mapping, so one request
-evaluated against accounts mapping to different upstream models re-ran the
-entire projection per distinct model. The production profile showed 1.75s
-entering the cache and 1.74s (99.4%) passing through it, spent on
-`ResponsesToAnthropicRequest` (43.1%), `cursor.ValidateMessagesContent` (19.0%),
-`adaptResponsesClientToolsForAnthropic` (17.2%) and the `json.Unmarshal` /
-`json.Marshal` pair — full codec work, not `gjson` scanning.
-
-The model's entire influence on that decision is one bool. It reaches the filter
-only through `ResolveThinkingProtocol(mappedModel) ==
-ThinkingProtocolPassbackRequired`, now named `WebSearchHistoryStripsAllBlocks`,
-and `StripEmptyTextBlocks` does not read the model at all. So the decision splits
-the same way section 9.2's did: `cursorExecutionWire` derives the Messages wire
-from body and inbound protocol alone, while `cursorWireContentSupported` applies
-the per-route half. The cache keys the outcome on `stripAll` instead of the model
-string, because models that agree on it cannot disagree on the answer.
-Anthropic-strict models — which is what a Cursor account maps to — all collapse
-to one entry, so the wire is derived once no matter how many models are judged.
-
-That single outcome key is the whole mechanism. A first version also memoized the
-projection itself in a `wires` map, described as what let distinct models share
-one projection. It was not: with the outcome cache in place, an instrumented
-build derived the wire exactly once at 1, 4 and 16 models, and `wires` never took
-a second hit. It could only earn one when a single body met both a
-passback-required and an anthropic-strict model, and to serve that it retained
-whole projected bodies — 1,632,592 bytes measured across 8 groups at 205KiB,
-where the pre-change cache held only bools. Removing it left the timings
-indistinguishable (interleaved in one process: -0.47%, -2.95%, +3.45% at 1, 4 and
-16 models, inconsistent in sign) while dropping one map and one allocation per
-request. A cross-session comparison had first reported +10.84% on `models_1` for
-the removal, which is impossible — that path does strictly less work and its
-allocation count falls — and was section 9.2's between-run bias again.
-
-Measured at `n=8`, against a baseline re-measured on unmodified code:
-
-- `models_4` -75.5%, `models_16` -93.0%, both `p=0.000`; `ns/eval` falls from a
-  flat ~136µs (the signature of a cache that never helps) to 4.8µs at 16 models;
-- across production-bracketed body sizes, 8KiB -74.1%, 49KiB -75.8%,
-  205KiB -73.5%, all `p=0.000`;
-- allocations -72.8% geomean, and flat at 46/op regardless of model count;
-- `models_1` is -3.6% (`p=0.050`), i.e. no material change: a single evaluation
-  has no duplicate to remove.
-
-A first comparison here reported -53.5% on `models_1` and -87.4% geomean. That
-baseline was invalid: the benchmark ran in the background while the source was
-already edited, so the "before" binary was partly the "after" code. The figures
-above come from a baseline measured with the changes stashed. Section 9.2's
-noise finding still applies — two runs of one binary differed by 7.3% geomean on
-this host — so `models_1` at -3.6% is inside noise and is reported as unchanged.
+The supplier-specific content-admission implementation and benchmarks were removed
+under [Cursor retirement](cursor-retirement.md). Their measurements remain in Git
+history and are not an implementation plan for current candidate routing.
 
 ### 9.5 Unknown-format accounting, the remaining §8 privacy debt (2026-09-26)
 

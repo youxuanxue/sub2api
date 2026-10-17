@@ -1113,7 +1113,7 @@
     "cache_read_input_token_cost_priority": 4e-07,
     "input_cost_per_token_batches": 2e-06,
     "output_cost_per_token_batches": 1e-05,
-    "source": "Anthropic list price via litellm model_prices_and_context_window.json (input $4/M, output $20/M, cache write $5/M, cache read $0.20/M); Cursor scope added 2026-09-24"
+    "source": "Anthropic list price via litellm model_prices_and_context_window.json (input $4/M, output $20/M, cache write $5/M, cache read $0.20/M)"
   },
   "claude-sonnet-5-5": {
     "cache_creation_input_token_cost": 2.5e-06,

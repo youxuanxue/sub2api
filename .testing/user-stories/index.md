@@ -63,7 +63,6 @@
 
 | US-059 | Antigravity OpenAI Images 协议适配 | InTest | `.testing/user-stories/stories/US-059-antigravity-images-generations.md` |
 
-| US-060 | Cursor Agent client-only tool execution | Archived | `.testing/user-stories/stories/US-060-cursor-client-only-tools.md` |
 | US-066 | Cursor retirement | InTest | `.testing/user-stories/stories/US-066-cursor-retirement.md` |
 
 | US-061 | 充值资格与 Studio 媒体错误提示 | Done | `.testing/user-stories/stories/US-061-trial-media-recharge.md` |

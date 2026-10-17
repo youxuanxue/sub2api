@@ -9,7 +9,7 @@ import (
 
 // EstimatedBillingTier stamps usage logs when Gemini Web Worker returns no
 // usageMetadata and TokenKey settles from the shared cl100k tokenizer
-// (same stack as Cursor handoff / Kiro estimate).
+// (same stack as Kiro estimates).
 const EstimatedBillingTier = "gemini-web-estimated"
 
 // Usage is the prompt/completion split fed into CalculateCostUnified.
@@ -34,7 +34,7 @@ func EstimateUsage(requestBody []byte, responseBody []byte, outputText string) U
 
 // EstimateInputTokens counts systemInstruction, contents text parts, and tool
 // declarations — mirroring what the Worker prompt actually sees. Binary/inline
-// image parts are skipped (same as Kiro/Cursor).
+// image parts are skipped (same as Kiro).
 func EstimateInputTokens(requestBody []byte) int {
 	if len(requestBody) == 0 {
 		return 0

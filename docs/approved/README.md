@@ -52,7 +52,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 UCloud 国内单 prod 的授权范围、首次初始化和发布边界：[国内部署契约](design-domestic-cluster.md)。
 
-Cursor 已按[退役契约](cursor-retirement.md)移除；[工具网关兼容契约](design-cursor-tool-gateway-compat.md)仅保留历史设计。
+Cursor 已按[退役契约](cursor-retirement.md)移除；旧设计和操作记录从 Git 历史查阅，不再作为当前实现或运维入口。
 
 本节只提供契约入口；规则、实现 owner 和验收状态在链接目标维护。
 
@@ -119,7 +119,6 @@ Cursor 已按[退役契约](cursor-retirement.md)移除；[工具网关兼容契
 | [`discovery-require-live-account.md`](discovery-require-live-account.md) | 无活账号则不展示（精简 B；瞬时限流不进菜单） |
 | [`grok-relay-first-class-platform.md`](grok-relay-first-class-platform.md) | Grok relay platform |
 | [`cursor-retirement.md`](cursor-retirement.md) | Cursor 账号、授权、转发与客户端连接能力退役；历史账号禁止恢复供应 |
-| [`cursor-oauth-service.md`](cursor-oauth-service.md) | Archived：原 Cursor OAuth、续期与计费设计 |
 | [`continuation-gemini-repair.md`](continuation-gemini-repair.md) | Responses continuation and Gemini Chat tools repair |
 | [`gemini-chat-conversion.md`](gemini-chat-conversion.md) | Gemini generateContent → Chat conversion edge and its capability contract |
 | [`gemini-messages-conversion.md`](gemini-messages-conversion.md) | Gemini → Messages conversion, native Edge routing and capability follow-up |

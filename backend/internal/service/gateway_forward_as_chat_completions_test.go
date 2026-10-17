@@ -544,8 +544,7 @@ func TestForwardAsChatCompletions_TransportErrorPersistsOpsEvent(t *testing.T) {
 	require.True(t, errors.As(err, &failoverErr), "transport errors must enter shared UpstreamFailoverError owner, got %T: %v", err, err)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.True(t, failoverErr.ShouldRetryNextAccount(), "handler must be able to switch accounts")
-	// Handler owns the client response; writing here would block failover
-	// (prod Cursor #150 /v1/chat/completions 2026-09-20).
+	// Handler owns the client response; writing here would block failover.
 	require.False(t, c.Writer.Written(), "service must not commit the CC error body before failover")
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Empty(t, rec.Body.String())

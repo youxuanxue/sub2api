@@ -25,8 +25,7 @@ restores the file and removes the entry in the same change.
 
 ## Cursor capability retirement
 
-- **Deletion commit + PR:** `feat: retire Cursor accounts and integrations`
-  (the commit introducing this section), [Cursor retirement PR](https://github.com/youxuanxue/sub2api/pulls?q=is%3Apr+head%3Achore%2Fcursor1017).
+- **Deletion commit + PR:** `a1843854ac`, [Cursor retirement #2690](https://github.com/youxuanxue/sub2api/pull/2690).
 - **Reason:** the user explicitly retired Cursor accounts, native inference and
   client connection support under `docs/approved/cursor-retirement.md`. Keeping
   the implementation behind a flag would preserve an unwanted credential and
@@ -38,11 +37,23 @@ restores the file and removes the entry in the same change.
   US-066 replaces the retired feature suites with account admission/scheduling,
   route 404 and real browser retirement regressions, including supported-client
   configuration. Historical usage and billing rows remain intact.
+- **Post-merge documentation cleanup:** obsolete design, recovery instructions
+  and US-060 were removed from the working tree to prevent agent reactivation.
+  Git history retains them; the still-active output-limit contract moved to
+  `docs/approved/protocol-routing-ssot.md#output-limit-compatibility`.
 - **Re-adopt when:** only after a new explicit product approval to restore Cursor,
   followed by a new credential/protocol review and restored behavioral coverage;
   an upstream merge alone must not reactivate this supply.
 - **Deleted paths:**
 
+  - `docs/approved/cursor-oauth-service.md`
+  - `docs/approved/design-cursor-tool-gateway-compat.md`
+  - `docs/task-breakdown-cursor-tool-gateway-compat.md`
+  - `docs/spec-delta-cursor-fable-display.md`
+  - `docs/ops/cursor-errors-ssot-20260915.md`
+  - `docs/ops/cursor-messages-validation-20260914.md`
+  - `docs/ops/cursor-upstream-revalidation-20260916.md`
+  - `.testing/user-stories/stories/US-060-cursor-client-only-tools.md`
   - `backend/internal/handler/admin/account_handler_tk_cursor.go`
   - `backend/internal/handler/gateway_handler_tk_cursor_messages_identity_test.go`
   - `backend/internal/integration/cursor/agent.go`

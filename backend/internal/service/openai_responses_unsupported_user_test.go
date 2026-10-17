@@ -73,7 +73,7 @@ func TestOpenAIGatewayService_Forward_StripsUserFieldFromAPIKeyResponsesPassthro
 // (isResponsesShape) raw forwarding path: when a Responses-shape body is POSTed
 // to /v1/chat/completions, the same fields must be filtered before reaching the
 // Responses upstream. This list is kept semantically in sync with the
-// unsupportedFields list in openai_gateway_service.go; the symmetry is enforced
+// compatibility filtering in openai_gateway_forward.go; the symmetry is enforced
 // by upstream #1264.
 func TestResponsesShapeUnsupportedFields_IncludesUser(t *testing.T) {
 	found := false

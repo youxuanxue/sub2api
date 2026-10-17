@@ -38,7 +38,7 @@ Layering: `handler → service → repository → ent`. Key paths:
 - **upstream-output-limits-ssot:**
   `backend/internal/service/upstream_output_limits_tk.go` — omit at dispatch, never
   during candidate admission. Contract:
-  [`docs/approved/cursor-oauth-service.md`](docs/approved/cursor-oauth-service.md#output-limit-compatibility).
+  [`docs/approved/protocol-routing-ssot.md`](docs/approved/protocol-routing-ssot.md#output-limit-compatibility).
 - **candidate-eligibility-ssot:** owners only in
   [`docs/approved/candidate-eligibility-ssot.md`](docs/approved/candidate-eligibility-ssot.md)
   §Implementation/Owners (+ `scripts/sentinels/gateway-tk.json`). Do not copy the

@@ -465,3 +465,24 @@ Approval of this document authorizes planning only — not production migration,
 deploy, or merge.
 
 high-risk-anchor: protocol-routing-ssot
+
+## Output limit compatibility
+
+The shared compatibility contract approved on 2026-09-09 remains in force for
+ChatGPT/Codex OAuth transports, including setup tokens using that transport.
+They omit unsupported top-level `max_tokens`, `max_output_tokens` and
+`max_completion_tokens`; they do not promise a generation or spending cap.
+TokenKey does not truncate output or estimate extra billing to simulate a cap.
+Existing usage and settlement owners remain authoritative.
+
+`backend/internal/service/upstream_output_limits_tk.go` owns the field list and
+map/raw JSON omission. The shared OAuth transform and HTTP passthrough/WebSocket
+normalization reuse it. Subsequent alias normalization must not restore an
+omitted limit. Tool schemas and input content remain unchanged.
+
+Other supplies retain their native policies: Kiro sends `inferenceConfig.maxTokens`;
+Antigravity sends `generationConfig.maxOutputTokens` with its existing thinking
+budget and model bounds; OpenAI API keys retain their existing Responses limits.
+Sending these fields does not prove that every upstream model enforces them.
+This is transport compatibility, not candidate eligibility or billing policy.
+Call sites and behavioral tests are protected by `scripts/sentinels/gateway-tk.json`.

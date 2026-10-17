@@ -29,7 +29,7 @@ import (
 // The normal Chat Completions → Responses conversion path is unaffected
 // because ChatCompletionsRequest has no fields for these parameters — unknown
 // fields are dropped naturally by json.Unmarshal. Kept semantically in sync
-// with the unsupportedFields list in openai_gateway_service.go used by the
+// with the compatibility filtering in openai_gateway_forward.go used by the
 // /v1/responses passthrough path. `user` is included per upstream
 // Wei-Shaw/sub2api#1264 — API clients that POST Responses-shape bodies
 // to /v1/chat/completions can carry `user`, which the Responses upstream rejects.
