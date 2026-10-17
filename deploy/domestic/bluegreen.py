@@ -16,6 +16,11 @@ import re
 import shlex
 import subprocess
 
+try:
+    from . import post_release
+except ImportError:  # standalone host bundle
+    import post_release
+
 
 ROOT = Path('/opt/tokenkey')
 DATA = Path('/var/lib/tokenkey')
@@ -195,6 +200,7 @@ def verify_receipt(state, expected):
 def promote(args):
     state = args.state
     receipt = verify_receipt(state, args.receipt)
+    context = post_release.configure(args, receipt, inspect)
     target, old = receipt['target'], receipt['old']
     color = target.removeprefix('tokenkey-')
     # The shared validation primitive uses this local image name. Bind it to
@@ -204,8 +210,20 @@ def promote(args):
           f'commit_cutover {color}\nobserve_routed_health {color}\n'
           f'drain_container {old}\ndocker stop -t 180 {old} >/dev/null')
     write_private(state / 'completed.json', receipt | {'stage': 'complete'})
+    post_release.finish(args, receipt, context, data=DATA, inspect=inspect, active_container=active_container)
     print(json.dumps({'stage': 'complete', 'active': target, 'previous': old,
                       'revision': receipt['revision']}))
+
+
+def notify(args):
+    if digest(args.state / 'prepared.json') != args.receipt:
+        raise ValueError('prepared receipt changed')
+    receipt = json.loads((args.state / 'prepared.json').read_text())
+    completed = json.loads((args.state / 'completed.json').read_text())
+    if completed != receipt | {'stage': 'complete'}:
+        raise ValueError('release has not completed cutover/drain')
+    context = post_release.configure(args, receipt, inspect)
+    post_release.finish(args, receipt, context, data=DATA, inspect=inspect, active_container=active_container)
 
 
 def rollback(args):
@@ -258,12 +276,15 @@ def rollback(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('prepare', 'promote', 'rollback'))
+    parser.add_argument('action', choices=('prepare', 'promote', 'rollback', 'notify'))
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--image')
     parser.add_argument('--revision')
     parser.add_argument('--shared-source', type=Path)
     parser.add_argument('--receipt')
+    parser.add_argument('--postcheck-plan', type=Path)
+    parser.add_argument('--smoke-report', type=Path)
+    parser.add_argument('--public-url')
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('run only on cn-prod as root')
@@ -272,13 +293,15 @@ def main():
         parser.error('state must be one release directory under /opt/tokenkey/releases')
     if args.action == 'prepare' and not all((args.image, args.revision, args.shared_source)):
         parser.error('prepare requires image, revision and shared-source')
-    if args.action in ('promote', 'rollback') and not re.fullmatch(r'[a-f0-9]{64}', args.receipt or ''):
-        parser.error('promote/rollback requires exact prepared receipt SHA256')
+    if args.action in ('promote', 'notify') and not all((args.postcheck_plan, args.smoke_report, args.public_url)):
+        parser.error('promote/notify requires postcheck-plan, smoke-report and public-url')
+    if args.action in ('promote', 'rollback', 'notify') and not re.fullmatch(r'[a-f0-9]{64}', args.receipt or ''):
+        parser.error('promote/rollback/notify requires exact prepared receipt SHA256')
     os.umask(0o077)
     run('mountpoint', '-q', str(DATA))
     with (DATA / 'bluegreen-deploy.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        {'prepare': prepare, 'promote': promote, 'rollback': rollback}[args.action](args)
+        {'prepare': prepare, 'promote': promote, 'rollback': rollback, 'notify': notify}[args.action](args)
 
 
 if __name__ == '__main__':

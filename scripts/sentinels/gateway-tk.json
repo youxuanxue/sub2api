@@ -12252,7 +12252,7 @@
     {
       "path": "scripts/checks/caddyfile-syntax.sh",
       "must_contain": [
-        "python3 -m unittest deploy/domestic/test_runtime.py deploy/domestic/test_bluegreen.py"
+        "python3 -m unittest deploy/domestic/test_runtime.py deploy/domestic/test_bluegreen.py deploy/domestic/test_post_release.py"
       ],
       "rationale": "Keep domestic ingress and blue/green runtime regressions in the existing Docker/Caddy preflight and CI gate; syntax-only adaptation misses alias bypasses and interrupted-drain rollback failures."
     },
@@ -12261,23 +12261,54 @@
       "must_contain": [
         "shared_library(args.shared_source)",
         "receipt = verify_receipt(state, args.receipt)",
+        "context = post_release.configure(args, receipt, inspect)",
+        "post_release.finish(args, receipt, context, data=DATA, inspect=inspect, active_container=active_container)",
         "if configured_mounts != actual_mounts:",
         "if inflight['draining']:",
         "commit_cutover {color}",
         "drain_container {old}",
         "fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)"
       ],
-      "rationale": "Domestic SSH release must retain the shared cutover/drain owner, receipt verification, mount isolation and host serialization; upstream/refactors must not replace this with a destructive Compose restart."
+      "rationale": "Domestic SSH release must retain shared cutover/drain, receipt verification, mount isolation, host serialization and the verified release notification call; upstream/refactors must not replace it with a Compose restart or silently omit notifications."
     },
     {
       "path": "deploy/domestic/test_bluegreen.py",
       "must_contain": [
         "def test_candidate_rejects_mount_drift_before_starting(",
+        "def test_invalid_smoke_context_prevents_any_cutover(",
         "def test_rollback_recovers_running_old_after_interrupted_drain(",
         "def test_failed_reload_restores_candidate_route_without_stopping_either(",
         "def test_promote_executes_shared_cutover_and_verified_drain("
       ],
       "rationale": "Execute the shared shell with deterministic Docker/Caddy state to cover actual promotion, drain recovery and failed reload; mocked shell ordering alone cannot prove the lifecycle contract."
+    },
+    {
+      "path": "deploy/domestic/post_release.py",
+      "must_contain": [
+        "def configure(args, receipt, inspect):",
+        "domestic = read_json(asset_source('prod-target.json'))",
+        "if args.public_url.rstrip('/') != domestic['public_origin'].rstrip('/'):",
+        "def finish(args, receipt, context, *, data, inspect, active_container):",
+        "verify_assets(directory, context)",
+        "timestamp(cutover_at) + 300 - time.time()",
+        "execute(planner + ['gate', *evaluations])",
+        "read_json(notice).get('status') == 'sent'",
+        "str(directory / 'notify-feishu-release.sh')"
+      ],
+      "rationale": "Domestic promotion must keep pinned evidence, delayed shared verification and the shared Feishu sender, with acknowledged-delivery deduplication. These anchors pair with behavioral regressions; they do not replace runtime checks."
+    },
+    {
+      "path": "deploy/domestic/test_post_release.py",
+      "must_contain": [
+        "def test_notifies_only_after_both_checks_and_five_minutes_then_deduplicates(",
+        "def test_red_evaluation_never_sends(",
+        "def test_failed_delivery_can_be_retried_without_cutover(",
+        "def test_rejects_wrong_revision_failed_smoke_or_wrong_candidate_before_mutation(",
+        "def test_rejects_inactive_release_and_pinned_evidence_drift(",
+        "def test_rejects_other_public_ip_before_pinning_release(",
+        "def test_rejects_pinned_target_manifest_drift_before_probing_or_sending("
+      ],
+      "rationale": "Keep executable release notification contracts in the domestic preflight gate: verify before sending, retry failed delivery, suppress duplicates and reject stale or failed evidence."
     },
     {
       "path": "backend/internal/service/data_lifecycle_policy_tk_test.go",

@@ -115,6 +115,16 @@ class DomesticBluegreenTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     bg.verify_receipt(state, expected)
 
+    def test_invalid_smoke_context_prevents_any_cutover(self):
+        args = SimpleNamespace(state=Path('/unused'), receipt='hash')
+        with patch.object(bg, 'verify_receipt', return_value={}), \
+                patch.object(bg.post_release, 'configure', side_effect=ValueError('failed smoke')), \
+                patch.object(bg, 'run') as run, patch.object(bg, 'shell') as shell:
+            with self.assertRaises(ValueError):
+                bg.promote(args)
+            run.assert_not_called()
+            shell.assert_not_called()
+
     def test_promote_uses_shared_cutover_before_drain_and_keeps_old_on_failure(self):
         from types import SimpleNamespace
         with tempfile.TemporaryDirectory() as tmp:
@@ -126,7 +136,8 @@ class DomesticBluegreenTest(unittest.TestCase):
                 commands.append(body)
                 raise subprocess.CalledProcessError(1, 'shared-cutover')
 
-            with patch.object(bg, 'verify_receipt', return_value=receipt), \
+            with patch.object(bg.post_release, 'configure', return_value={}), \
+                    patch.object(bg, 'verify_receipt', return_value=receipt), \
                     patch.object(bg, 'inspect', return_value={'Image': 'pinned-caddy'}), \
                     patch.object(bg, 'run') as run, patch.object(bg, 'shell', side_effect=shell):
                 with self.assertRaises(subprocess.CalledProcessError):
@@ -292,7 +303,10 @@ sys.exit(code)
                        compose_hash=bg.digest(self.state / 'compose.json'))
         bg.write_private(self.state / 'prepared.json', receipt)
         self.args.receipt = bg.digest(self.state / 'prepared.json')
-        bg.promote(self.args)
+        with patch.object(bg.post_release, 'configure', return_value={}), \
+                patch.object(bg.post_release, 'finish') as finish:
+            bg.promote(self.args)
+        finish.assert_called_once()
         host = json.loads(self.host_file.read_text())
         self.assertEqual(host['route'], 'tokenkey-blue')
         self.assertFalse(host['containers']['tokenkey']['State']['Running'])
