@@ -25,6 +25,11 @@ def verify(target, require_runtime=False):
         raise ValueError("Runtime is not bound to the verified data disk")
     if root.exists() and any(root.iterdir()) and not root.samefile(backing):
         raise ValueError("Refusing an unrelated existing runtime")
+    if target.get('ingress') == 'ucloud-wireguard':
+        # Public ownership can only be installed in the approved cutover window.
+        # Reuse the migration's approval + exact PG bind guard on every deploy/probe.
+        subprocess.run(['python3', '/usr/local/lib/tokenkey/node1_runtime_guard.py'],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return {"host_verified": True, "disk_verified": True, "runtime_mounted": root.is_mount()}
 
 

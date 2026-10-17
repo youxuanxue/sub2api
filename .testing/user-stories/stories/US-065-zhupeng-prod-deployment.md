@@ -21,6 +21,7 @@
 6. AC-006 (数据): Given 冻结的用户日用量清单 When 缺行、租户错位、费用/token/内容变化 Then 对账失败；空清单不能通过。
 7. AC-007 (隔离): Given 恢复库或历史页面演练容器 When 使用外网、公开端口、额外权限或错误数据挂载 Then 拒绝继续。
 8. AC-008 (探针): Given 显式 Node1 探针目标 When 投递共享探针 Then 验证 SSH 主机身份且不调用 AWS；错误主机或 AWS instance override 在投递前拒绝。
+9. AC-009 (接管): Given 新域名正式目标 When 渲染待接管库存 Then 当前库存不变；正式 bootstrap 被拒绝，部署/探针缺审批或候选挂载检查时也拒绝。
 
 ## Assertions
 
@@ -41,6 +42,8 @@
 - `ops/migration/test_node1_candidate.py`::`HistoryIsolationTest.test_only_owned_namespace_and_mounts_are_accepted` (AC-007)
 - `deploy/domestic/test_ssh_deploy.py`::`SSHDeployTests.test_shared_probe_dispatches_ssh_without_aws_or_instance_override` (AC-008)
 - `deploy/domestic/test_ssh_deploy.py`::`SSHDeployTests.test_probe_host_guard_fails_before_delivery` (AC-008)
+- `deploy/domestic/test_ssh_deploy.py`::`SSHDeployTests.test_production_inventory_is_render_only_and_cannot_bootstrap` (AC-009)
+- `deploy/domestic/test_ssh_deploy.py`::`SSHDeployTests.test_public_host_checks_require_the_approval_and_candidate_mount_guard` (AC-009)
 - Run: `python3 -m unittest deploy/domestic/test_ssh_deploy.py deploy/domestic/test_runtime.py`
 - Run: `python3 -m unittest ops/migration/test_node1_candidate.py`
 

@@ -29,6 +29,35 @@ with patch.dict(sys.modules, {"target": target_module}):
 
 
 class SSHDeployTests(unittest.TestCase):
+    def test_production_inventory_is_render_only_and_cannot_bootstrap(self):
+        before = target_module.INVENTORY.read_bytes()
+        data = target_module.production_inventory('zhupeng-prod', 'api.galaxywaveai.com')
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'pending.json'
+            path.write_text(json.dumps(data))
+            target = target_module.load_target('zhupeng-prod', path)
+            self.assertEqual(target['frontend_url'], 'https://api.galaxywaveai.com')
+            self.assertEqual(target['ingress'], 'ucloud-wireguard')
+            with patch.object(ssh_module, 'probe') as probe, patch.object(ssh_module, 'ssh') as ssh:
+                with self.assertRaisesRegex(ValueError, 'fresh bootstrap is forbidden'):
+                    ssh_module.bootstrap(target, '1.8.302', Path(directory))
+                probe.assert_not_called()
+                ssh.assert_not_called()
+        self.assertEqual(target_module.INVENTORY.read_bytes(), before)
+
+    def test_public_host_checks_require_the_approval_and_candidate_mount_guard(self):
+        target = target_module.production_inventory('zhupeng-prod', 'api.galaxywaveai.com')['targets']['zhupeng-prod']
+        disk = json.dumps({'filesystems': [{'uuid': target['data_uuid'], 'fstype': 'ext4'}]})
+        with patch.object(Path, 'read_text', return_value=target['machine_id']), \
+                patch.object(Path, 'is_symlink', return_value=False), \
+                patch.object(Path, 'exists', return_value=False), \
+                patch.object(subprocess, 'check_output', return_value=disk), \
+                patch.object(subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'guard')) as guard:
+            with self.assertRaises(subprocess.CalledProcessError):
+                host_module.verify(target)
+            self.assertEqual(guard.call_args.args[0],
+                             ['python3', '/usr/local/lib/tokenkey/node1_runtime_guard.py'])
+
     def test_probe_host_guard_fails_before_delivery(self):
         with patch.object(sys, 'argv', ['probe', '--target', 'zhupeng-prod', '--timeout-seconds', '60']), \
                 patch.object(sys, 'stdin', io.StringIO('{"commands":["true"]}')), \
