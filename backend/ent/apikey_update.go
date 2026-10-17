@@ -148,6 +148,20 @@ func (_u *APIKeyUpdate) SetNillableRoutingMode(v *apikey.RoutingMode) *APIKeyUpd
 	return _u
 }
 
+// SetRoutingPreference sets the "routing_preference" field.
+func (_u *APIKeyUpdate) SetRoutingPreference(v apikey.RoutingPreference) *APIKeyUpdate {
+	_u.mutation.SetRoutingPreference(v)
+	return _u
+}
+
+// SetNillableRoutingPreference sets the "routing_preference" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableRoutingPreference(v *apikey.RoutingPreference) *APIKeyUpdate {
+	if v != nil {
+		_u.SetRoutingPreference(*v)
+	}
+	return _u
+}
+
 // SetLastUsedAt sets the "last_used_at" field.
 func (_u *APIKeyUpdate) SetLastUsedAt(v time.Time) *APIKeyUpdate {
 	_u.mutation.SetLastUsedAt(v)
@@ -579,6 +593,11 @@ func (_u *APIKeyUpdate) check() error {
 			return &ValidationError{Name: "routing_mode", err: fmt.Errorf(`ent: validator failed for field "APIKey.routing_mode": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.RoutingPreference(); ok {
+		if err := apikey.RoutingPreferenceValidator(v); err != nil {
+			return &ValidationError{Name: "routing_preference", err: fmt.Errorf(`ent: validator failed for field "APIKey.routing_preference": %w`, err)}
+		}
+	}
 	if _u.mutation.UserCleared() && len(_u.mutation.UserIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "APIKey.user"`)
 	}
@@ -617,6 +636,9 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.RoutingMode(); ok {
 		_spec.SetField(apikey.FieldRoutingMode, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.RoutingPreference(); ok {
+		_spec.SetField(apikey.FieldRoutingPreference, field.TypeEnum, value)
 	}
 	if value, ok := _u.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)
@@ -953,6 +975,20 @@ func (_u *APIKeyUpdateOne) SetRoutingMode(v apikey.RoutingMode) *APIKeyUpdateOne
 func (_u *APIKeyUpdateOne) SetNillableRoutingMode(v *apikey.RoutingMode) *APIKeyUpdateOne {
 	if v != nil {
 		_u.SetRoutingMode(*v)
+	}
+	return _u
+}
+
+// SetRoutingPreference sets the "routing_preference" field.
+func (_u *APIKeyUpdateOne) SetRoutingPreference(v apikey.RoutingPreference) *APIKeyUpdateOne {
+	_u.mutation.SetRoutingPreference(v)
+	return _u
+}
+
+// SetNillableRoutingPreference sets the "routing_preference" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableRoutingPreference(v *apikey.RoutingPreference) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetRoutingPreference(*v)
 	}
 	return _u
 }
@@ -1401,6 +1437,11 @@ func (_u *APIKeyUpdateOne) check() error {
 			return &ValidationError{Name: "routing_mode", err: fmt.Errorf(`ent: validator failed for field "APIKey.routing_mode": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.RoutingPreference(); ok {
+		if err := apikey.RoutingPreferenceValidator(v); err != nil {
+			return &ValidationError{Name: "routing_preference", err: fmt.Errorf(`ent: validator failed for field "APIKey.routing_preference": %w`, err)}
+		}
+	}
 	if _u.mutation.UserCleared() && len(_u.mutation.UserIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "APIKey.user"`)
 	}
@@ -1456,6 +1497,9 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if value, ok := _u.mutation.RoutingMode(); ok {
 		_spec.SetField(apikey.FieldRoutingMode, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.RoutingPreference(); ok {
+		_spec.SetField(apikey.FieldRoutingPreference, field.TypeEnum, value)
 	}
 	if value, ok := _u.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)

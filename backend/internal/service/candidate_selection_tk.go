@@ -369,15 +369,7 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 		sort.Slice(pool, func(i, j int) bool { return pool[i].account.ID < pool[j].account.ID })
 		rand.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
 		sort.SliceStable(pool, func(i, j int) bool {
-			a, b := pool[i], pool[j]
-			if candidateCompatibilityRank(a) != candidateCompatibilityRank(b) {
-				return candidateCompatibilityRank(a) < candidateCompatibilityRank(b)
-			}
-			pa, pb := candidateSelectionEffectivePriority(a.account, counts, failureCounts), candidateSelectionEffectivePriority(b.account, counts, failureCounts)
-			if pa != pb {
-				return pa < pb
-			}
-			return a.sticky && !b.sticky
+			return candidatePathLess(r.key, counts, failureCounts, pool[i], pool[j])
 		})
 		var waiting []*candidateExecutionPath
 		for _, path := range pool {
@@ -441,6 +433,20 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 		r.capacityDiag.reject("selection_exhausted")
 	}
 	return nil, err
+}
+
+func candidatePathLess(key *APIKey, counts, failureCounts map[int64]int64, a, b *candidateExecutionPath) bool {
+	if candidateCompatibilityRank(a) != candidateCompatibilityRank(b) {
+		return candidateCompatibilityRank(a) < candidateCompatibilityRank(b)
+	}
+	if candidatePreferenceRank(key, a.account, a.model) != candidatePreferenceRank(key, b.account, b.model) {
+		return candidatePreferenceRank(key, a.account, a.model) < candidatePreferenceRank(key, b.account, b.model)
+	}
+	pa, pb := candidateSelectionEffectivePriority(a.account, counts, failureCounts), candidateSelectionEffectivePriority(b.account, counts, failureCounts)
+	if pa != pb {
+		return pa < pb
+	}
+	return a.sticky && !b.sticky
 }
 
 func candidateCompatibilityRank(path *candidateExecutionPath) int {

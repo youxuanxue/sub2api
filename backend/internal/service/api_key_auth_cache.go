@@ -16,11 +16,12 @@ type APIKeyAuthSnapshot struct {
 	Status   string `json:"status"`
 	// RoutingMode carries the universal/direct flag on the hot auth path so the
 	// resolver reads it with zero extra DB round-trips. Empty == "direct".
-	RoutingMode string                   `json:"routing_mode,omitempty"`
-	IPWhitelist []string                 `json:"ip_whitelist,omitempty"`
-	IPBlacklist []string                 `json:"ip_blacklist,omitempty"`
-	User        APIKeyAuthUserSnapshot   `json:"user"`
-	Group       *APIKeyAuthGroupSnapshot `json:"group,omitempty"`
+	RoutingMode       string                   `json:"routing_mode,omitempty"`
+	RoutingPreference string                   `json:"routing_preference,omitempty"`
+	IPWhitelist       []string                 `json:"ip_whitelist,omitempty"`
+	IPBlacklist       []string                 `json:"ip_blacklist,omitempty"`
+	User              APIKeyAuthUserSnapshot   `json:"user"`
+	Group             *APIKeyAuthGroupSnapshot `json:"group,omitempty"`
 
 	// Quota fields for API Key independent quota feature
 	Quota     float64 `json:"quota"`      // Quota limit in USD (0 = unlimited)

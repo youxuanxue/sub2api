@@ -24,17 +24,18 @@ import (
 )
 
 var (
-	ErrAPIKeyNotFound       = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
-	ErrGroupNotAllowed      = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
-	ErrAPIKeyExists         = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
-	ErrAPIKeyTooShort       = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
-	ErrAPIKeyInvalidChars   = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
-	ErrAPIKeyRateLimited    = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
-	ErrAPIKeyCreateLimited  = infraerrors.TooManyRequests("API_KEY_CREATE_RATE_LIMITED", "too many api keys created recently, please try again later")
-	ErrAPIKeyCountExceeded  = infraerrors.Forbidden("API_KEY_COUNT_EXCEEDED", "api key count limit reached, please delete unused keys first")
-	ErrAPIKeyAuthOverloaded = infraerrors.ServiceUnavailable("API_KEY_AUTH_OVERLOADED", "api key authentication is temporarily overloaded")
-	ErrInvalidIPPattern     = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
-	ErrInvalidRoutingMode   = infraerrors.BadRequest("INVALID_ROUTING_MODE", "routing_mode must be 'direct' or 'universal'")
+	ErrAPIKeyNotFound           = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
+	ErrGroupNotAllowed          = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
+	ErrAPIKeyExists             = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
+	ErrAPIKeyTooShort           = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
+	ErrAPIKeyInvalidChars       = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
+	ErrInvalidRoutingPreference = infraerrors.BadRequest("INVALID_ROUTING_PREFERENCE", "routing_preference must be 'default' or 'tokensea_first'")
+	ErrAPIKeyRateLimited        = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
+	ErrAPIKeyCreateLimited      = infraerrors.TooManyRequests("API_KEY_CREATE_RATE_LIMITED", "too many api keys created recently, please try again later")
+	ErrAPIKeyCountExceeded      = infraerrors.Forbidden("API_KEY_COUNT_EXCEEDED", "api key count limit reached, please delete unused keys first")
+	ErrAPIKeyAuthOverloaded     = infraerrors.ServiceUnavailable("API_KEY_AUTH_OVERLOADED", "api key authentication is temporarily overloaded")
+	ErrInvalidIPPattern         = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
+	ErrInvalidRoutingMode       = infraerrors.BadRequest("INVALID_ROUTING_MODE", "routing_mode must be 'direct' or 'universal'")
 	// ErrAPIKeyExpired        = infraerrors.Forbidden("API_KEY_EXPIRED", "api key has expired")
 	ErrAPIKeyExpired = infraerrors.Forbidden("API_KEY_EXPIRED", "api key 已过期")
 	// ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key quota exhausted")
@@ -81,6 +82,8 @@ type APIKeyUpdateFields struct {
 	IPRules bool
 	// RoutingMode 覆盖 routing_mode（direct / universal）。
 	RoutingMode bool
+	// RoutingPreference 覆盖 routing_preference。
+	RoutingPreference bool
 }
 
 // IsEmpty 报告该次 Update 是否不写任何列。
@@ -213,12 +216,13 @@ type APIKeyAuthCacheInvalidator interface {
 
 // CreateAPIKeyRequest 创建API Key请求
 type CreateAPIKeyRequest struct {
-	Name        string   `json:"name"`
-	GroupID     *int64   `json:"group_id"`
-	RoutingMode *string  `json:"routing_mode"` // "direct" | "universal"; nil = 按默认推断（见 Create）
-	CustomKey   *string  `json:"custom_key"`   // 可选的自定义key
-	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单
-	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单
+	Name              string   `json:"name"`
+	GroupID           *int64   `json:"group_id"`
+	RoutingMode       *string  `json:"routing_mode"`       // "direct" | "universal"; nil = 按默认推断（见 Create）
+	RoutingPreference *string  `json:"routing_preference"` // "default" | "tokensea_first"
+	CustomKey         *string  `json:"custom_key"`         // 可选的自定义key
+	IPWhitelist       []string `json:"ip_whitelist"`       // IP 白名单
+	IPBlacklist       []string `json:"ip_blacklist"`       // IP 黑名单
 
 	// Quota fields
 	Quota         float64 `json:"quota"`           // Quota limit in USD (0 = unlimited)
@@ -232,12 +236,13 @@ type CreateAPIKeyRequest struct {
 
 // UpdateAPIKeyRequest 更新API Key请求
 type UpdateAPIKeyRequest struct {
-	Name        *string   `json:"name"`
-	GroupID     *int64    `json:"group_id"`
-	RoutingMode *string   `json:"routing_mode"` // nil = 不变；"direct" | "universal"
-	Status      *string   `json:"status"`
-	IPWhitelist *[]string `json:"ip_whitelist"` // IP 白名单（nil 不修改，空数组清空）
-	IPBlacklist *[]string `json:"ip_blacklist"` // IP 黑名单（nil 不修改，空数组清空）
+	Name              *string   `json:"name"`
+	GroupID           *int64    `json:"group_id"`
+	RoutingMode       *string   `json:"routing_mode"`       // nil = 不变；"direct" | "universal"
+	RoutingPreference *string   `json:"routing_preference"` // nil = 不变
+	Status            *string   `json:"status"`
+	IPWhitelist       *[]string `json:"ip_whitelist"` // IP 白名单（nil 不修改，空数组清空）
+	IPBlacklist       *[]string `json:"ip_blacklist"` // IP 黑名单（nil 不修改，空数组清空）
 
 	// Quota fields
 	Quota           *float64   `json:"quota"`       // Quota limit in USD (nil = no change, 0 = unlimited)
@@ -259,7 +264,21 @@ func validateAPIKeyLimit(v float64) error {
 	return nil
 }
 
+func validateRoutingPreference(value string) error {
+	switch strings.TrimSpace(value) {
+	case "", RoutingPreferenceDefault, RoutingPreferenceTokenseaFirst:
+		return nil
+	default:
+		return ErrInvalidRoutingPreference
+	}
+}
+
 func validateCreateAPIKeyRequest(req CreateAPIKeyRequest) error {
+	if req.RoutingPreference != nil {
+		if err := validateRoutingPreference(*req.RoutingPreference); err != nil {
+			return err
+		}
+	}
 	for _, v := range []float64{req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d} {
 		if err := validateAPIKeyLimit(v); err != nil {
 			return err
@@ -272,6 +291,11 @@ func validateCreateAPIKeyRequest(req CreateAPIKeyRequest) error {
 }
 
 func validateUpdateAPIKeyRequest(req UpdateAPIKeyRequest) error {
+	if req.RoutingPreference != nil {
+		if err := validateRoutingPreference(*req.RoutingPreference); err != nil {
+			return err
+		}
+	}
 	for _, v := range []*float64{req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d} {
 		if v != nil {
 			if err := validateAPIKeyLimit(*v); err != nil {
@@ -574,6 +598,10 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 	if routingMode != RoutingModeDirect && routingMode != RoutingModeUniversal {
 		return nil, ErrInvalidRoutingMode
 	}
+	routingPreference := RoutingPreferenceDefault
+	if req.RoutingPreference != nil && strings.TrimSpace(*req.RoutingPreference) != "" {
+		routingPreference = strings.TrimSpace(*req.RoutingPreference)
+	}
 	effectiveGroupID := apiKeyGroupIDForRoutingMode(routingMode, req.GroupID)
 
 	// 验证分组权限（仅 direct 且指定了分组时）
@@ -630,19 +658,20 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 
 	// 创建API Key记录
 	apiKey := &APIKey{
-		UserID:      userID,
-		Key:         key,
-		Name:        html.EscapeString(req.Name),
-		GroupID:     effectiveGroupID,
-		RoutingMode: routingMode,
-		Status:      StatusActive,
-		IPWhitelist: req.IPWhitelist,
-		IPBlacklist: req.IPBlacklist,
-		Quota:       req.Quota,
-		QuotaUsed:   0,
-		RateLimit5h: req.RateLimit5h,
-		RateLimit1d: req.RateLimit1d,
-		RateLimit7d: req.RateLimit7d,
+		UserID:            userID,
+		Key:               key,
+		Name:              html.EscapeString(req.Name),
+		GroupID:           effectiveGroupID,
+		RoutingMode:       routingMode,
+		RoutingPreference: routingPreference,
+		Status:            StatusActive,
+		IPWhitelist:       req.IPWhitelist,
+		IPBlacklist:       req.IPBlacklist,
+		Quota:             req.Quota,
+		QuotaUsed:         0,
+		RateLimit5h:       req.RateLimit5h,
+		RateLimit1d:       req.RateLimit1d,
+		RateLimit7d:       req.RateLimit7d,
 	}
 
 	// Set expiration time if specified
@@ -910,6 +939,14 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		}
 		apiKey.RoutingMode = mode
 		fields.RoutingMode = true
+	}
+	if req.RoutingPreference != nil {
+		preference := strings.TrimSpace(*req.RoutingPreference)
+		if preference == "" {
+			preference = RoutingPreferenceDefault
+		}
+		apiKey.RoutingPreference = preference
+		fields.RoutingPreference = true
 	}
 
 	if apiKey.IsUniversal() && (req.RoutingMode != nil || req.GroupID != nil) {

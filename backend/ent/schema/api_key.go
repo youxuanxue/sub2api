@@ -55,6 +55,10 @@ func (APIKey) Fields() []ent.Field {
 			Values("direct", "universal").
 			Default("direct").
 			Comment("API Key 路由模式：direct 绑定固定分组 | universal 全能 Key 按模型实时解析后端组"),
+		field.Enum("routing_preference").
+			Values("default", "tokensea_first").
+			Default("default").
+			Comment("API Key 供应偏好：default 默认调度 | tokensea_first 优先 tokensea Anthropic"),
 		field.Time("last_used_at").
 			Optional().
 			Nillable().

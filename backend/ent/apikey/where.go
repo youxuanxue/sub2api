@@ -555,6 +555,26 @@ func RoutingModeNotIn(vs ...RoutingMode) predicate.APIKey {
 	return predicate.APIKey(sql.FieldNotIn(FieldRoutingMode, vs...))
 }
 
+// RoutingPreferenceEQ applies the EQ predicate on the "routing_preference" field.
+func RoutingPreferenceEQ(v RoutingPreference) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldRoutingPreference, v))
+}
+
+// RoutingPreferenceNEQ applies the NEQ predicate on the "routing_preference" field.
+func RoutingPreferenceNEQ(v RoutingPreference) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldRoutingPreference, v))
+}
+
+// RoutingPreferenceIn applies the In predicate on the "routing_preference" field.
+func RoutingPreferenceIn(vs ...RoutingPreference) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldRoutingPreference, vs...))
+}
+
+// RoutingPreferenceNotIn applies the NotIn predicate on the "routing_preference" field.
+func RoutingPreferenceNotIn(vs ...RoutingPreference) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldRoutingPreference, vs...))
+}
+
 // LastUsedAtEQ applies the EQ predicate on the "last_used_at" field.
 func LastUsedAtEQ(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldLastUsedAt, v))

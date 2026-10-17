@@ -127,6 +127,20 @@ func (_c *APIKeyCreate) SetNillableRoutingMode(v *apikey.RoutingMode) *APIKeyCre
 	return _c
 }
 
+// SetRoutingPreference sets the "routing_preference" field.
+func (_c *APIKeyCreate) SetRoutingPreference(v apikey.RoutingPreference) *APIKeyCreate {
+	_c.mutation.SetRoutingPreference(v)
+	return _c
+}
+
+// SetNillableRoutingPreference sets the "routing_preference" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableRoutingPreference(v *apikey.RoutingPreference) *APIKeyCreate {
+	if v != nil {
+		_c.SetRoutingPreference(*v)
+	}
+	return _c
+}
+
 // SetLastUsedAt sets the "last_used_at" field.
 func (_c *APIKeyCreate) SetLastUsedAt(v time.Time) *APIKeyCreate {
 	_c.mutation.SetLastUsedAt(v)
@@ -405,6 +419,10 @@ func (_c *APIKeyCreate) defaults() error {
 		v := apikey.DefaultRoutingMode
 		_c.mutation.SetRoutingMode(v)
 	}
+	if _, ok := _c.mutation.RoutingPreference(); !ok {
+		v := apikey.DefaultRoutingPreference
+		_c.mutation.SetRoutingPreference(v)
+	}
 	if _, ok := _c.mutation.Quota(); !ok {
 		v := apikey.DefaultQuota
 		_c.mutation.SetQuota(v)
@@ -481,6 +499,14 @@ func (_c *APIKeyCreate) check() error {
 	if v, ok := _c.mutation.RoutingMode(); ok {
 		if err := apikey.RoutingModeValidator(v); err != nil {
 			return &ValidationError{Name: "routing_mode", err: fmt.Errorf(`ent: validator failed for field "APIKey.routing_mode": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.RoutingPreference(); !ok {
+		return &ValidationError{Name: "routing_preference", err: errors.New(`ent: missing required field "APIKey.routing_preference"`)}
+	}
+	if v, ok := _c.mutation.RoutingPreference(); ok {
+		if err := apikey.RoutingPreferenceValidator(v); err != nil {
+			return &ValidationError{Name: "routing_preference", err: fmt.Errorf(`ent: validator failed for field "APIKey.routing_preference": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.Quota(); !ok {
@@ -564,6 +590,10 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.RoutingMode(); ok {
 		_spec.SetField(apikey.FieldRoutingMode, field.TypeEnum, value)
 		_node.RoutingMode = value
+	}
+	if value, ok := _c.mutation.RoutingPreference(); ok {
+		_spec.SetField(apikey.FieldRoutingPreference, field.TypeEnum, value)
+		_node.RoutingPreference = value
 	}
 	if value, ok := _c.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)
@@ -832,6 +862,18 @@ func (u *APIKeyUpsert) SetRoutingMode(v apikey.RoutingMode) *APIKeyUpsert {
 // UpdateRoutingMode sets the "routing_mode" field to the value that was provided on create.
 func (u *APIKeyUpsert) UpdateRoutingMode() *APIKeyUpsert {
 	u.SetExcluded(apikey.FieldRoutingMode)
+	return u
+}
+
+// SetRoutingPreference sets the "routing_preference" field.
+func (u *APIKeyUpsert) SetRoutingPreference(v apikey.RoutingPreference) *APIKeyUpsert {
+	u.Set(apikey.FieldRoutingPreference, v)
+	return u
+}
+
+// UpdateRoutingPreference sets the "routing_preference" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateRoutingPreference() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldRoutingPreference)
 	return u
 }
 
@@ -1273,6 +1315,20 @@ func (u *APIKeyUpsertOne) SetRoutingMode(v apikey.RoutingMode) *APIKeyUpsertOne 
 func (u *APIKeyUpsertOne) UpdateRoutingMode() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateRoutingMode()
+	})
+}
+
+// SetRoutingPreference sets the "routing_preference" field.
+func (u *APIKeyUpsertOne) SetRoutingPreference(v apikey.RoutingPreference) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetRoutingPreference(v)
+	})
+}
+
+// UpdateRoutingPreference sets the "routing_preference" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateRoutingPreference() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateRoutingPreference()
 	})
 }
 
@@ -1925,6 +1981,20 @@ func (u *APIKeyUpsertBulk) SetRoutingMode(v apikey.RoutingMode) *APIKeyUpsertBul
 func (u *APIKeyUpsertBulk) UpdateRoutingMode() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateRoutingMode()
+	})
+}
+
+// SetRoutingPreference sets the "routing_preference" field.
+func (u *APIKeyUpsertBulk) SetRoutingPreference(v apikey.RoutingPreference) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetRoutingPreference(v)
+	})
+}
+
+// UpdateRoutingPreference sets the "routing_preference" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateRoutingPreference() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateRoutingPreference()
 	})
 }
 
