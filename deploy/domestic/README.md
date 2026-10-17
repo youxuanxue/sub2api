@@ -190,9 +190,9 @@ owner 中显式识别为 `cn-prod`，避免被 `api-*` 的 edge 推断抑制 pro
 单次告警，低于 80% 恢复。凭据放在系统盘 `/opt/tokenkey/host-alerts.env`（0600），
 通过 `TOKENKEY_HOST_ALERT_ENV_FILE` 指定，数据盘失挂时仍能通知；节点标识为 `cn-prod`。
 
-公网可用性由共享 `ops/observability/host_https_watch.py` 承担：cn-prod 提供境内视角，AWS us5
+公网可用性由共享 `ops/observability/host_https_watch.py` 承担：cn-prod 提供境内视角，prod
 提供独立站外视角。两处分别检查 UCloud 静态 IP、当前转到 AWS 的国内域名、AWS prod
-清单中的客户域名；us5 继续检查现役 edge。当前国内主机身份与入口见
+清单中的客户域名。美国 edge 已退役，不再配置独立 edge watcher。当前国内主机身份与入口见
 [`prod-target.json`](prod-target.json)，AWS 目标仍从现有 fleet 清单生成，不能用域名的绿色结果
 替代 UCloud 静态 IP。探针每两分钟执行，连续两次失败发 P0 飞书，持续失败每三十分钟提醒，
 首次恢复发送恢复消息；健康要求可信 TLS、HTTP 200 且 JSON `status=ok`，拦截页不算健康。

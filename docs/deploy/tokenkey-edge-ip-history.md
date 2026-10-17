@@ -17,10 +17,6 @@ Rotation：[`tokenkey-stage0-edge-lightsail-ip-rotation`](../../.cursor/skills/t
 | --- | --- | --- | --- | --- |
 | `uk1` | eu-west-2 | `api-uk1.tokenkey.dev` | `tokenkey-edge-uk1-aws-20261015-ip` | `18.132.100.198` |
 | `uk2` | eu-west-2 | `api-uk2.tokenkey.dev` | `tokenkey-edge-uk2-aws-20261015-ip` | `35.178.162.181` |
-| `us3` | us-east-2 | `api-us3.tokenkey.dev` | `vless-oh-fresh-1-rot-20260828T122454Z` | `18.216.113.132` |
-| `us4` | us-west-2 | `api-us4.tokenkey.dev` | `tokenkey-edge-us4-aws-20261015-ip` | `44.254.243.147` |
-| `us5` | us-west-2 | `api-us5.tokenkey.dev` | `tokenkey-edge-us5-aws-20261015-ip` | `35.164.198.30` |
-| `us6` | us-east-2 | `api-us6.tokenkey.dev` | `StaticIp-oh-3-rot-20260828T121745Z` | `3.147.98.112` |
 <!-- END edge-ip-status:standby -->
 
 2026-10-17 起 uk1/uk2/us4/us5 亦为 standby（`deployable=false`）；`us3`/`us6` 仍仅 gemini drain 前保留。

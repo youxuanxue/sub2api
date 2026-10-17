@@ -767,7 +767,7 @@ func (s *AccountUsageService) getPassiveUsageForAccount(ctx context.Context, acc
 // buildPassiveOpenAIUsage 从 OpenAI OAuth（codex）账号 Extra 里的被动采样
 // （codex_5h/7d_used_percent + reset）重建 5h/7d 用量窗口，绝不调用上游
 // /responses 探测——这正是它与 getOpenAIUsage 的区别：后者会按条件主动探测，
-// 而被动列表端点（edge accounts overview）跨全部账号扇出，渲染概览时不能打上游。
+// 而被动列表端点跨全部账号扇出，渲染概览时不能打上游。
 //
 // 当上游 codex 快照过期（窗口已 roll 但未收到新 x-codex 头）时，used% 会被丢弃，
 // 改由本地 usage 日志的 rolling 5h/7d WindowStats 让运营仍能看到近期 TokenKey 侧

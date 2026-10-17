@@ -19,9 +19,8 @@ type edgeCapacityKeyLookup interface {
 
 // EdgeCallerAPIKeyCtxKey is the gin context key under which this middleware stashes
 // the authenticated caller *service.APIKey. A downstream edge handler reads it to
-// scope a read to exactly that key's group (the per-stub panel's precise
-// correspondence — see EdgeAccountsHandler.ListAccounts group_scope=caller) without
-// re-looking-up the key. Read-only; the key never leaves the edge.
+// scope a capacity read to that key's group without looking up the key again.
+// Read-only; the key never leaves the edge.
 const EdgeCallerAPIKeyCtxKey = "edge_caller_apikey"
 
 // NewEdgeCapacityAuthMiddleware authenticates the TokenKey edge capacity endpoint

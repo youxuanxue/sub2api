@@ -35,7 +35,6 @@ import affiliatesAPI from './affiliates'
 import riskControlAPI from './riskControl'
 import adminComplianceAPI from './compliance'
 import tierAPI from './tier'
-import edgeAccountsAPI from './edgeAccounts'
 import inviteTrialAPI from './inviteTrial'
 import auditAPI from './audit'
 import supplierSourcesAPI from './supplierSources'
@@ -78,7 +77,6 @@ export const adminAPI = {
   riskControl: riskControlAPI,
   compliance: adminComplianceAPI,
   tiers: tierAPI,
-  edgeAccounts: edgeAccountsAPI,
   inviteTrial: inviteTrialAPI,
   audit: auditAPI,
   supplierSources: supplierSourcesAPI
@@ -118,7 +116,6 @@ export {
   riskControlAPI,
   adminComplianceAPI,
   tierAPI,
-  edgeAccountsAPI,
   inviteTrialAPI,
   auditAPI,
   supplierSourcesAPI
@@ -157,10 +154,3 @@ export type {
   InviteTrialRequest,
   TrialCredential
 } from './inviteTrial'
-export type {
-  EdgeAccountSummary,
-  EdgeTodayStats,
-  EdgeAccountsResult,
-  EdgeAccountsAggregate,
-  EdgeAccountsListParams
-} from './edgeAccounts'

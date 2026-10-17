@@ -10,7 +10,8 @@ from copy import deepcopy
 from typing import Any
 
 # Production naming differs from edge_relay.DEFAULT_PROD_RELAY_NAMES ("ag-{edge}").
-# Live stubs are antigravity-us3/us4/us5/us6 — keep that shape here.
+# Historical stub names remain in the profile for replay/audit; the current
+# prod-only fleet has no deployable edge relay targets.
 
 PROFILES: dict[str, dict[str, Any]] = {
     "antigravity": {

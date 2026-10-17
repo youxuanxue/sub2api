@@ -62,7 +62,7 @@ def mounts(container):
 
 
 def expected_host(node):
-    if node not in ('prod', 'us4', 'us5', 'uk1', 'uk2'):
+    if node not in ('prod', 'uk1', 'uk2'):
         raise ValueError('unknown node')
     return PROD_HOST if node == 'prod' else f'tokenkey-edge-{node}-aws-20261015'
 
@@ -321,7 +321,7 @@ def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('operation', choices=('check', 'activate'))
-    parser.add_argument('--node', required=True, choices=('prod', 'uk1', 'uk2', 'us4', 'us5'))
+    parser.add_argument('--node', required=True, choices=('prod', 'uk1', 'uk2'))
     parser.add_argument('--final-sync', type=Path)
     parser.add_argument('--caddy', type=Path)
     parser.add_argument('--caddy-sha256')

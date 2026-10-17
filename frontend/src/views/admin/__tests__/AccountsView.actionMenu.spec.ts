@@ -12,8 +12,7 @@ const {
   getUpstreamBillingProbeSettings,
   getAllProxies,
   getAllGroups,
-  getAllIncludingInactive,
-  listEdgeAccounts
+  getAllIncludingInactive
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
@@ -23,7 +22,6 @@ const {
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
   getAllIncludingInactive: vi.fn(),
-  listEdgeAccounts: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -41,7 +39,6 @@ vi.mock('@/api/admin', () => ({
     },
     proxies: { getAll: getAllProxies },
     groups: { getAll: getAllGroups, getAllIncludingInactive },
-    edgeAccounts: { listWithEtag: listEdgeAccounts, adminSession: vi.fn() }
   }
 }))
 
@@ -147,8 +144,7 @@ describe('admin AccountsView — 行内「更多」菜单', () => {
       getUpstreamBillingProbeSettings,
       getAllProxies,
       getAllGroups,
-      getAllIncludingInactive,
-      listEdgeAccounts
+      getAllIncludingInactive
     ]) {
       fn.mockReset()
     }
@@ -160,11 +156,6 @@ describe('admin AccountsView — 行内「更多」菜单', () => {
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
     getAllIncludingInactive.mockResolvedValue([])
-    listEdgeAccounts.mockResolvedValue({
-      notModified: false,
-      etag: null,
-      data: { platform: '__by_stub__', edges: [], ts: 1 }
-    })
   })
 
   afterEach(() => {

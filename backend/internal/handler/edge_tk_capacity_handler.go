@@ -120,7 +120,7 @@ func (h *EdgeCapacityHandler) GetSchedulingCapacity(c *gin.Context) {
 	})
 }
 
-// edgeCapacityCallerGroupID mirrors EdgeAccountsHandler's group_scope=caller filter:
+// edgeCapacityCallerGroupID scopes capacity reads to the caller's relay group:
 // direct caller keys narrow to their group; universal / absent keys → 0 (no filter).
 func edgeCapacityCallerGroupID(c *gin.Context) int64 {
 	if !strings.EqualFold(strings.TrimSpace(c.Query("group_scope")), "caller") {

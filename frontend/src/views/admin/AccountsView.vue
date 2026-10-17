@@ -18,17 +18,6 @@
             @create="showCreate = true"
           >
             <template #after>
-              <!-- TK: expand/collapse all edge panels (only shown when the current
-                   page has cc-<edge> mirror stubs). -->
-              <button
-                v-if="hasEdgeStubs"
-                class="btn btn-secondary px-2 md:px-3"
-                :title="t('admin.accounts.edgePanel.expandHint')"
-                @click="hasCollapsedEdges ? expandAllEdges() : collapseAllEdges()"
-              >
-                <Icon :name="hasCollapsedEdges ? 'chevronDown' : 'chevronUp'" size="sm" />
-                <span class="ml-1 hidden md:inline">{{ hasCollapsedEdges ? t('admin.accounts.edgePanel.expandAll') : t('admin.accounts.edgePanel.collapseAll') }}</span>
-              </button>
               <!-- Auto Refresh Dropdown -->
               <div class="relative" ref="autoRefreshDropdownRef">
                 <button
@@ -207,8 +196,7 @@
         <!-- TK(防闪烁): overscan = 当前 page_size,使账号页(行数天然受 page_size 上界约束)始终渲染
              整页行,等价于不开窗。fluid 模式走 table-auto——列宽由「当前已渲染的行」内容决定,虚拟化下
              可见行集随滚动/测量变化会让换行单元格的高度抖动,打破 @tanstack/vue-virtual 的测量自收敛
-             假设,在变高 edge 明细行场景下出现「偶发的页面持续闪烁」。整页渲染后列宽对每帧恒定(与非虚拟化
-             的 /edge-accounts 页同样稳定),根除该抖动;edge 明细行仍按需展开,DOM 量受 page_size 约束。 -->
+             假设,整页渲染后列宽对每帧恒定。 -->
         <DataTable
           ref="dataTableRef"
           fluid
@@ -224,22 +212,7 @@
           :sort-storage-key="ACCOUNT_SORT_STORAGE_KEY"
           :estimate-row-height="76"
           :overscan="pagination.page_size"
-          :expandable="isEdgeExpandable"
-          :expanded-keys="edgeExpandedKeys"
         >
-          <!-- TK: default-expanded edge panel under each cc-<edge> mirror-stub row —
-               query + manage that edge's real accounts inline (unified governance). -->
-          <template #row-detail="{ row }">
-            <EdgeAccountPanelTk
-              :stub="row"
-              :edge="edgePanelForStub(row)"
-              :loading="edgePanelsLoading"
-              :error="edgePanelsError"
-              :refresh-kiro-token="kiroRefreshToken"
-              @mutated="(acc) => { if (row.edge_id) { applyEdgeAccountUpdate(row.edge_id, acc); setEdgeExpanded(row.id, true) } }"
-              @retry="() => refreshEdges({ force: true })"
-            />
-          </template>
           <template #header-select>
             <input
               type="checkbox"
@@ -257,37 +230,9 @@
           </template>
           <template #cell-name="{ row, value }">
             <div class="flex items-start gap-1.5">
-              <!-- TK: per-row chevron for edge mirror-stub rows (any platform). The
-                   panel default-expands; this lets the operator fold/unfold ONE stub. -->
-              <button
-                v-if="isEdgeExpandable(row)"
-                type="button"
-                class="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700 dark:hover:text-gray-300"
-                :title="edgeExpandedKeys.has(row.id) ? t('admin.accounts.edgePanel.collapseOne') : t('admin.accounts.edgePanel.expandOne')"
-                @click.stop="toggleEdgePanel(row)"
-              >
-                <Icon :name="edgeExpandedKeys.has(row.id) ? 'chevronDown' : 'chevronRight'" size="sm" />
-              </button>
               <div class="flex min-w-0 flex-col">
                 <HelpTooltip
-                  v-if="isEdgeExpandable(row)"
-                  :content="t('admin.accounts.edgePanel.manageWholeEdge')"
-                  width-class="w-max max-w-sm break-all"
-                  class="-ml-1 self-start"
-                >
-                  <template #trigger>
-                    <button
-                      type="button"
-                      class="border-b border-dotted border-gray-300 font-medium text-gray-900 dark:border-dark-600 dark:text-white"
-                      :disabled="managingEdgeId === row.edge_id"
-                      @click.stop="openStubEdgeManage(row)"
-                    >
-                      {{ value }}
-                    </button>
-                  </template>
-                </HelpTooltip>
-                <HelpTooltip
-                  v-else-if="accountHomepageUrl(row)"
+                  v-if="accountHomepageUrl(row)"
                   :content="accountHomepageUrl(row)"
                   width-class="w-max max-w-sm break-all"
                   class="-ml-1 self-start"
@@ -318,21 +263,6 @@
                   class="mt-0.5 max-w-[10rem] whitespace-pre-wrap break-words text-xs text-gray-400 dark:text-gray-500"
                   :title="row.notes"
                 >{{ row.notes }}</span>
-                <!-- TK: collapsed-state summary so a folded stub still shows what's
-                     inside (the #885 invisible-collapsed bug). -->
-                <span
-                  v-if="isEdgeExpandable(row) && !edgeExpandedKeys.has(row.id)"
-                  class="mt-0.5 inline-flex flex-wrap items-center gap-1.5 text-xs"
-                >
-                  <template v-if="edgePanelSummary(row).discovered">
-                    <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.edgePanel.summary', { total: edgePanelSummary(row).total, schedulable: edgePanelSummary(row).schedulable }) }}</span>
-                    <span
-                      v-if="edgePanelSummary(row).abnormal"
-                      class="inline-flex items-center rounded bg-red-100 px-1 font-medium text-red-700 dark:bg-red-900/40 dark:text-red-300"
-                    >⚠ {{ edgePanelSummary(row).abnormal }}</span>
-                  </template>
-                  <span v-else class="text-gray-400 dark:text-gray-500">{{ t('admin.accounts.edgePanel.summaryLoading') }}</span>
-                </span>
               </div>
             </div>
           </template>
@@ -602,7 +532,6 @@ defineOptions({ name: 'AdminAccountsView' })
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
-import { openEdgeAdminHandoff } from '@/utils/openEdgeAdminHandoff.tk'
 import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
@@ -622,10 +551,6 @@ const BulkEditAccountModal = defineAsyncComponent(() => import('@/components/acc
 const SyncFromCrsModal = defineAsyncComponent(() => import('@/components/account/SyncFromCrsModal.vue'))
 const TempUnschedStatusModal = defineAsyncComponent(() => import('@/components/account/TempUnschedStatusModal.vue'))
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
-// TK: inline edge-account panels (unified prod+edge governance) — see
-// useTkAccountsEdgePanels.ts / EdgeAccountPanelTk.vue.
-import EdgeAccountPanelTk from '@/components/admin/account/EdgeAccountPanelTk.vue'
-import { useTkAccountsEdgePanels } from '@/composables/useTkAccountsEdgePanels'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import { STATUS_ACTIVE } from '@/constants/channel'
 import { PLATFORM_ANTIGRAVITY, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
@@ -918,10 +843,6 @@ const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
-// Bumped only by handleManualRefresh → tells each expanded EdgeAccountPanelTk to pull
-// live kiro credits once (kiro has no organic passive refresh). Never bumped on the
-// auto-refresh tick, so kiro upstream calls stay bounded to operator 刷新 clicks.
-const kiroRefreshToken = ref(0)
 
 // TK: batch passive-usage for the list, replacing the per-row /usage fan-out for
 // Anthropic / OpenAI OAuth / Kiro rows. The cell renders usageOverrideFor(row) and
@@ -1189,30 +1110,6 @@ const {
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
   }
-})
-
-// TK: inline edge-account panels under each cc-<edge> mirror-stub row. Owns the
-// edge data (fetched + ETag auto-refreshed eagerly so anomaly-driven default
-// expansion works) and the expand-state machine. Driven by the CURRENT prod page
-// rows + the search box: only anomalous edges default-expand; searching
-// auto-expands matches; explicit per-row toggles persist.
-const {
-  isExpandable: isEdgeExpandable,
-  panelForStub: edgePanelForStub,
-  panelSummary: edgePanelSummary,
-  expandedKeys: edgeExpandedKeys,
-  toggle: toggleEdgePanel,
-  setExpanded: setEdgeExpanded,
-  applyAccountUpdate: applyEdgeAccountUpdate,
-  refreshEdges,
-  expandAll: expandAllEdges,
-  collapseAll: collapseAllEdges,
-  hasCollapsedVisible: hasCollapsedEdges,
-  hasAnyStub: hasEdgeStubs,
-  edgeLoading: edgePanelsLoading,
-  edgeError: edgePanelsError
-} = useTkAccountsEdgePanels({
-  prodAccounts: () => accounts.value
 })
 
 const {
@@ -1635,16 +1532,10 @@ const refreshAccountsIncrementally = async () => {
 const handleManualRefresh = async () => {
   lastFetchedAt = Date.now()
   await refreshAccountPage()
-  await refreshEdges({ force: true })
   // load() already starts the batch passive-usage refresh for Anthropic/OpenAI/Kiro
   // rows (override path). Bump the token so the residual self-fetch platforms
   // (gemini/antigravity cells) also refresh on explicit user refresh.
   usageManualRefreshToken.value += 1
-  // Edge kiro accounts have no organic passive refresh (credits come only from an
-  // explicit CodeWhisperer call), so an explicit user refresh also pulls live kiro
-  // credits once per kiro account in the expanded edge panels. Bumped ONLY here (not
-  // on the auto-refresh tick) so upstream calls stay bounded to operator clicks.
-  kiroRefreshToken.value += 1
   await Promise.all([load(), loadUpstreamBillingProbeGlobalState()])
   // Force usage cells to refetch /usage on explicit user refresh.
   usageManualRefreshToken.value += 1
@@ -1886,21 +1777,6 @@ function accountHomepageUrl(row: Account): string {
   if (row.type !== 'apikey' || typeof row.credentials?.base_url !== 'string') return ''
   const baseUrl = sanitizeUrl(row.credentials.base_url)
   return baseUrl ? new URL(baseUrl).origin : ''
-}
-
-const managingEdgeId = ref<string | null>(null)
-
-async function openStubEdgeManage(row: Account) {
-  const edgeId = row.edge_id?.trim()
-  if (!edgeId || managingEdgeId.value) return
-  managingEdgeId.value = edgeId
-  try {
-    await openEdgeAdminHandoff(edgeId)
-  } catch {
-    appStore.showError(t('admin.edgeAccounts.manageFailed'))
-  } finally {
-    managingEdgeId.value = null
-  }
 }
 
 type OpenAICompactBadgeState = 'active' | 'blocked' | 'auto'

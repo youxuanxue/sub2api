@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""edge_https_health.py — external HTTPS /health probe for Stage0 edges/prod.
+"""edge_https_health.py — external HTTPS /health probe for Stage0 prod/approved recovery hosts.
 
-Why (2026-08-03 edge-us6): a Lightsail guest hang left SSM ConnectionLost and
-NetworkOut=0 for ~16h. App-local Feishu alerts cannot fire when the box is
-wedged, and prod failover masks single-edge death. An outside GET /health is the
-cheap leading signal that does not depend on the guest agent.
+The probe is read-only and does not depend on the guest agent. The routine fleet
+is prod-only; retired edge names remain accepted only for historical replay with
+an explicitly supplied matrix.
 
 Deterministic helpers (no AWS). Used by scan-edge-health.sh before SSM, and by
 unit tests via --selftest.
@@ -117,8 +116,6 @@ def _selftest() -> int:
             print(f"  FAIL: {name}", file=sys.stderr)
             failures += 1
 
-    url = resolve_health_url("edge:us6")
-    check("us6 domain resolves", url == "https://api-us6.tokenkey.dev/health")
     check("prod domain resolves", resolve_health_url("prod") == "https://api.tokenkey.dev/health")
     try:
         resolve_health_url("edge:does-not-exist-zz")

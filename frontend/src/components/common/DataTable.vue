@@ -84,7 +84,7 @@
             <div v-if="hasActionsColumn" class="border-t border-gray-200 pt-3 dark:border-dark-700" @click.stop>
               <slot name="cell-actions" :row="row" :value="row['actions']" :expanded="actionsExpanded"></slot>
             </div>
-          <!-- TK: mobile parity for the default-expanded detail (edge panel). Not
+          <!-- TK: mobile parity for the default-expanded detail row. Not
                virtualized here, so a simple conditional render after the card. -->
           <div v-if="isRowExpanded(row, index)" class="mt-2">
             <slot name="row-detail" :row="row"></slot>
@@ -798,7 +798,7 @@ const toggleAllVisible = (checked: boolean) => {
   emitSelection(next)
 }
 
-// --- TK: expandable detail rows (default-expanded edge panels) ---
+// --- TK: expandable detail rows ---
 // flatItems interleaves the sorted rows with a synthetic 'detail' item after each
 // expanded, expandable row. The virtualizer iterates THIS list, so a tall detail
 // row is just another measured virtual item. Detail items are injected AFTER sort

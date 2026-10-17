@@ -129,65 +129,6 @@ test(`virtualized groups remain usable across pages and filters at ${viewport.wi
 })
 }
 
-test('edge Grok queries remain isolated and refresh replaces queried usage', async ({ page }) => {
-  await page.setViewportSize({ width: 1360, height: 900 })
-  const state = await prepare(page)
-  const queries: string[] = []
-  let snapshots = 0
-  const mainQueries: string[] = []
-  page.on('request', request => {
-    if (/\/admin\/(grok\/)?accounts\/99\//.test(request.url())) mainQueries.push(request.url())
-  })
-  await page.route('**/api/v1/admin/edge-accounts**', async route => {
-    const path = new URL(route.request().url()).pathname
-    if (path.endsWith('/usage')) {
-      queries.push(path)
-      if (path.includes('/edge-b/')) {
-        await route.fulfill({ status: 502, json: { code: 502, message: 'edge unavailable' } })
-        return
-      }
-      await route.fulfill({ json: { code: 0, data: { grok_billing: { prepaid_balance: 12.5 } } } })
-      return
-    }
-    snapshots++
-    await route.fulfill({ json: { code: 0, data: {
-      platform: 'all', ts: snapshots,
-      edges: ['edge-a', 'edge-b'].map(edge_id => ({
-        edge_id, base_url: `https://${edge_id}.example.test`, ok: true, stub_schedulable: true,
-        accounts: [{
-          id: 99, name: `${edge_id} Grok`, platform: 'grok', type: 'oauth', status: 'active',
-          schedulable: true, is_schedulable: true, concurrency: 1, priority: 1, rate_multiplier: 1,
-          created_at: '2026-09-10T00:00:00Z',
-          usage: { source: 'passive', updated_at: `2026-09-10T00:00:0${snapshots}Z`,
-            upstream_quota: { provider: 'grok', state: 'observed', dimensions: [{ key: 'grok_tokens', label: 'Tokens', remaining: 300 - snapshots, limit: 500 }] },
-          },
-        }],
-      })),
-    } } })
-  })
-  await page.goto('/admin/edge-accounts')
-  const first = page.getByRole('row').filter({ hasText: 'edge-a Grok' })
-  const second = page.getByRole('row').filter({ hasText: 'edge-b Grok' })
-  await expect(first).toBeVisible()
-  expect(queries).toEqual([])
-  await first.getByRole('button', { name: 'Query', exact: true }).click()
-  await expect(first).toContainText('$12.50')
-  await second.getByRole('button', { name: 'Query', exact: true }).click()
-  await expect(second).toContainText('edge unavailable')
-  await expect(second).not.toContainText('$12.50')
-  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
-  await expect.poll(() => snapshots).toBe(2)
-  await expect(first).toContainText('298/500')
-  await expect(first).not.toContainText('$12.50')
-  expect(queries).toEqual([
-    '/api/v1/admin/edge-accounts/edge-a/accounts/99/usage',
-    '/api/v1/admin/edge-accounts/edge-b/accounts/99/usage',
-  ])
-  expect(mainQueries).toEqual([])
-  expect(state.errors).toEqual([])
-  await page.screenshot({ path: 'e2e/artifacts/maintenance-edge-grok.png', fullPage: true })
-})
-
 test('Codex reset patches account state without duplicate reset or usage requests', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 })
   const state = await prepare(page)

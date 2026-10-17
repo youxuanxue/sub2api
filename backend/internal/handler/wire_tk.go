@@ -17,13 +17,8 @@ var TKProviderSet = wire.NewSet(
 	NewMePricingCatalogHandler,
 	ProvideTKGatewayHandlerModelList,
 	ProvideEdgeCapacityHandler,
-	ProvideEdgeAccountsHandler,
-	ProvideEdgeAdminSessionHandler,
-	ProvideEdgeAccountOpsHandler,
 	NewGeminiWebSessionHandler,
 	admin.NewTierHandler,
-	ProvideTKEdgeAccountsAdminHandler,
-	ProvideTKEdgeAccountOpsAdminHandler,
 	ProvideTrialProvisionHandler,
 )
 
@@ -85,61 +80,6 @@ func ProvideTKPricingCatalogHandler(
 // the unexported interface and keeps NewEdgeCapacityHandler unit-test friendly.
 func ProvideEdgeCapacityHandler(accountRepo service.AccountRepository) *EdgeCapacityHandler {
 	return NewEdgeCapacityHandler(accountRepo)
-}
-
-// ProvideEdgeAccountsHandler adapts the wire-provided account repository plus the
-// live-gauge services (concurrency / session-limit / rpm / usage — the same set
-// admin AccountHandler uses) to the edge accounts read handler. The gauge readers
-// let the edge endpoint surface per-edge capacity/today figures that align with
-// the per-edge admin accounts page. Mirrors ProvideEdgeCapacityHandler in shape.
-func ProvideEdgeAccountsHandler(
-	adminService service.AdminService,
-	concurrencyService *service.ConcurrencyService,
-	sessionLimitCache service.SessionLimitCache,
-	rpmCache service.RPMCache,
-	accountUsageService *service.AccountUsageService,
-) *EdgeAccountsHandler {
-	return NewEdgeAccountsHandler(adminService, concurrencyService, sessionLimitCache, rpmCache, accountUsageService)
-}
-
-// ProvideEdgeAdminSessionHandler adapts the wire-provided concrete services
-// (which satisfy the handler's narrow lookup/minter interfaces) to the edge
-// admin-session mint handler. A dedicated provider avoids wire.Bind for the
-// unexported interfaces; mirrors ProvideEdgeAccountsHandler in shape.
-func ProvideEdgeAdminSessionHandler(
-	apiKeyService *service.APIKeyService,
-	userService *service.UserService,
-	authService *service.AuthService,
-) *EdgeAdminSessionHandler {
-	return NewEdgeAdminSessionHandler(apiKeyService, userService, authService)
-}
-
-// ProvideEdgeAccountOpsHandler adapts the wire-provided concrete services (which
-// satisfy the handler's narrow rate-limit / admin / usage interfaces) to the edge
-// account least-privilege WRITE ops handler. A dedicated provider avoids wire.Bind
-// for the unexported interfaces; mirrors ProvideEdgeAdminSessionHandler in shape.
-func ProvideEdgeAccountOpsHandler(
-	rateLimitService *service.RateLimitService,
-	adminService service.AdminService,
-	accountUsageService *service.AccountUsageService,
-) *EdgeAccountOpsHandler {
-	return NewEdgeAccountOpsHandler(rateLimitService, adminService, accountUsageService)
-}
-
-// ProvideTKEdgeAccountsAdminHandler adapts the wire-provided concrete
-// *service.EdgeAccountsAggregator (which satisfies the admin handler's narrow
-// interface) to the prod-side cross-edge account overview handler. A dedicated
-// provider avoids a wire.Bind for the unexported interface.
-func ProvideTKEdgeAccountsAdminHandler(agg *service.EdgeAccountsAggregator) *admin.EdgeAccountsHandler {
-	return admin.NewEdgeAccountsHandler(agg)
-}
-
-// ProvideTKEdgeAccountOpsAdminHandler adapts the wire-provided concrete
-// *service.EdgeAccountsAggregator (which satisfies the proxy handler's narrow
-// forwarder interface via ForwardAccountOp) to the prod-side edge account ops
-// proxy. A dedicated provider avoids a wire.Bind for the unexported interface.
-func ProvideTKEdgeAccountOpsAdminHandler(agg *service.EdgeAccountsAggregator) *admin.EdgeAccountOpsHandler {
-	return admin.NewEdgeAccountOpsHandler(agg)
 }
 
 // ProvideTrialProvisionHandler constructs the Invite-to-Trial service from

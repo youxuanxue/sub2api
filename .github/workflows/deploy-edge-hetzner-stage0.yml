@@ -1,6 +1,7 @@
-name: Edge Hetzner Stage0
+name: Edge Hetzner Stage0 (recovery only)
 
-# Hetzner edge: provision (ignition) + upgrade/rollback/smoke via shared
+# Retained only for an explicitly re-approved non-US recovery. The routine
+# edge fleet is retired; provision (ignition) + upgrade/rollback/smoke via shared
 # deploy_via_ssm_bluegreen.sh (same primitive as Lightsail / prod).
 # Anchor: docs/approved/hetzner-cloud-full-migration.md
 # Secrets: HCLOUD_TOKEN (paid provision). AWS via OIDC. Never commit tokens.
@@ -14,7 +15,7 @@ on:
         description: "Edge id from deploy/hetzner/edge-targets-hetzner.json"
         required: true
         type: choice
-        options: [uk1, uk2, us3, us4, us5, us6]
+        options: [uk1, uk2]
       operation:
         description: "validate | provision | upgrade | rollback | smoke"
         required: true

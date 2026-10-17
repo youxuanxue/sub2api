@@ -1157,7 +1157,7 @@
         "accountUsageWindowAdapterSupportsPassive",
         "accountUsageWindowAdapterKiro"
       ],
-      "rationale": "The SSOT usage-window adapter must classify kiro before the Anthropic OAuth adapter and mark it passive-capable. Kiro is type=oauth, so if it falls through to Anthropic its token hits /api/oauth/usage and 401s; if passive support is dropped, prod/edge overview blanks kiro credits/到期 even after active 查询 populated Extra."
+      "rationale": "The SSOT usage-window adapter must classify kiro before the Anthropic OAuth adapter and mark it passive-capable. Kiro is type=oauth, so if it falls through to Anthropic its token hits /api/oauth/usage and 401s; if passive support is dropped, admin account list blanks kiro credits/到期 even after active 查询 populated Extra."
     },
     {
       "path": "backend/internal/service/account_usage_service_tk_kiro.go",
@@ -1198,17 +1198,6 @@
         "Key:         \"kiro_trial\""
       ],
       "rationale": "Unified upstream_quota adapter for Kiro credits/subscription/trial. Kiro has no 5h/7d upstream window; its upstream capacity is CodeWhisperer credits + monthly reset + trial expiry. Losing this projection leaves UsageInfo.KiroUsage present but the shared upstream quota UI blank."
-    },
-    {
-      "path": "backend/internal/handler/edge_tk_accounts_handler.go",
-      "must_contain": [
-        "type edgeKiroUsage struct",
-        "type edgeSubscription struct",
-        "func toEdgeSubscription",
-        "w.Kiro = &edgeKiroUsage{",
-        "UpstreamQuota  *service.UpstreamQuotaInfo"
-      ],
-      "rationale": "The edge DTO's credential-free 订阅 projection (edgeSubscription = plan_type + subscription_expires_at, projected by toEdgeSubscription from credentials), the kiro credits window (edgeKiroUsage), and the unified upstream_quota passthrough. These carry openai's subscription 到期 + kiro's credits/重置/试用 across the edge→prod boundary so the overview's PlatformTypeBadge, KiroUsageCell, and shared upstream quota summary can render them. Losing them blanks openai subscription 到期 and kiro credits on every prod-side edge account row."
     },
     {
       "path": "backend/internal/service/account_usage_service_tk_kiro_test.go",

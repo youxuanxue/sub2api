@@ -223,7 +223,7 @@ func TestAccountUsageService_GetOpenAIUsage_DoesNotPromoteCodexExtraToRateLimit(
 
 // GetPassiveUsage must rebuild OpenAI OAuth (codex) 5h/7d windows from the
 // passive codex_*_used_percent samples in Extra, WITHOUT probing upstream — this
-// is the source the prod cross-edge overview reads to render OpenAI usage windows.
+// is the source the admin account list reads to render OpenAI usage windows.
 func TestAccountUsageService_GetPassiveUsage_OpenAIOAuthRebuildsCodexWindows(t *testing.T) {
 	t.Parallel()
 

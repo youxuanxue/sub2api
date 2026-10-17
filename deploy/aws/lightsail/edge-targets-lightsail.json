@@ -6,7 +6,7 @@
   "notes": [
     "Mixed live/standby AWS inventory. Active fleet: deploy/hetzner/README.md (prod-only after 2026-10-17).",
     "2026-10-17: all edges set deployable=false — no routine edge deploy/fan-out; prod edge-relay stubs soft-deleted.",
-    "Only deployable=true rows are eligible for normal deploy and automatic fan-out; historical hosts remain archival only.",
+    "Only deployable=true rows are eligible for normal deploy and automatic fan-out; rows with retired are historical identities only and cannot be dispatched.",
     "Paris (fra1) has no Lightsail region; map to eu-central-1 (Frankfurt) for PoC only.",
     "bundle_id suffix varies by Lightsail region; resolve script picks bundle_id from matrix."
   ],
@@ -127,8 +127,9 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 44,
       "ssm_prefix": "/tokenkey/lightsail/us3",
-      "purpose": "account-decommissioned 2026-10-11 (accounts\u2192uk1; prod stubs cut/soft-deleted); instance still up for gemini-web session drain; deployable=false excludes ops fan-out; explicit --platform lightsail still reaches standby",
-      "standby": true
+      "purpose": "retired 2026-10-17: instance, Static IP, SSM managed instance, parameters, DNS, and prod mirror account removed; retained only as historical identity",
+      "standby": false,
+      "retired": "2026-10-17"
     },
     "us4": {
       "deployable": false,
@@ -145,8 +146,9 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 84,
       "ssm_prefix": "/tokenkey/lightsail/us4",
-      "purpose": "retired-from-deploy 2026-10-17: edge fan-out stopped; prod stubs soft-deleted; instance may remain for drain/standby only",
-      "standby": true
+      "purpose": "retired 2026-10-17: instance, Static IP, SSM managed instance, parameters, DNS, and prod mirror account removed; retained only as historical identity",
+      "standby": false,
+      "retired": "2026-10-17"
     },
     "us5": {
       "deployable": false,
@@ -163,8 +165,9 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 84,
       "ssm_prefix": "/tokenkey/lightsail/us5",
-      "purpose": "retired-from-deploy 2026-10-17: edge fan-out stopped; prod stubs soft-deleted; instance may remain for drain/standby only",
-      "standby": true
+      "purpose": "retired 2026-10-17: instance, Static IP, SSM managed instance, parameters, DNS, and prod mirror account removed; retained only as historical identity",
+      "standby": false,
+      "retired": "2026-10-17"
     },
     "us6": {
       "deployable": false,
@@ -181,8 +184,9 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 44,
       "ssm_prefix": "/tokenkey/lightsail/us6",
-      "purpose": "account-decommissioned 2026-10-11 (accounts\u2192uk2; prod stubs cut/soft-deleted); instance still up for gemini-web session drain; deployable=false excludes ops fan-out; explicit --platform lightsail still reaches standby",
-      "standby": true
+      "purpose": "retired 2026-10-17: instance, Static IP, SSM managed instance, parameters, DNS, and prod mirror account removed; retained only as historical identity",
+      "standby": false,
+      "retired": "2026-10-17"
     },
     "us7": {
       "deployable": false,

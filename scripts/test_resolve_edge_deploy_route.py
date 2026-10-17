@@ -72,13 +72,14 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("not deployable", proc.stderr)
 
-        # Backlog Hetzner (us3) still needs explicit platform + allow-planned.
-        route_hz = self._route(
-            "--edge-id", "us3", "--platform", "hetzner", "--allow-planned"
+        retired = subprocess.run(
+            [sys.executable, str(SCRIPT), "--edge-id", "us3", "--platform", "hetzner", "--allow-planned"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
         )
-        self.assertEqual(route_hz["platform"], "hetzner")
-        self.assertEqual(route_hz["workflow_file"], "deploy-edge-hetzner-stage0.yml")
-        self.assertEqual(route_hz["confirm_value"], "tokenkey-edge-us3-hz-cax21")
+        self.assertNotEqual(retired.returncode, 0)
+        self.assertIn("retired", retired.stderr)
     def test_hetzner_deployable_wins_auto(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)

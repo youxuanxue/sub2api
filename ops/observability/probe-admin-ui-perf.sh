@@ -100,13 +100,6 @@ def norm_path(path: str) -> str:
     if not path:
         return ""
     path = urlsplit(path).path
-    if path.startswith("/api/v1/admin/edge-accounts/"):
-        parts = path.split("/")
-        if len(parts) >= 7:
-            parts[5] = ":edge"
-            if len(parts) >= 8 and parts[6] == "accounts":
-                parts[7] = ":account"
-            return "/".join(parts)
     patterns = [
         (r"/api/v1/admin/users/\d+/api-keys$", "/api/v1/admin/users/:id/api-keys"),
         (r"/api/v1/admin/users/\d+/usage$", "/api/v1/admin/users/:id/usage"),

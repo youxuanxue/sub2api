@@ -5,27 +5,21 @@ name: AWS Lightsail Edge Deploy
 # opening logs — all edges share this one workflow file.
 run-name: "edge=${{ inputs.edge_id }} op=${{ inputs.operation }} tag=${{ inputs.tag || 'none' }}"
 
-# Live edge fleet path (dispatch-edge-deploy auto → Lightsail). Historical
-# Hetzner edges use deploy-edge-hetzner-stage0 only when that matrix is still
-# deployable. Shares image manifest checks, SSM upgrade primitive, and smoke
-# scripts with deploy-stage0.yml.
+# Retained as an explicit-reapproval recovery path. The routine edge fleet is
+# retired; only the remaining non-US standby rows are exposed for a reviewed
+# recovery operation.
 # See deploy/hetzner/README.md, deploy/aws/lightsail/README.md.
 
 on:
   workflow_dispatch:
     inputs:
       edge_id:
-        description: "Edge target id from deploy/aws/lightsail/edge-targets-lightsail.json (provision may target a deployable=false edge; upgrade/smoke expect it live)."
+        description: "Reviewed standby edge target; US edge targets were retired and are no longer dispatchable."
         required: true
         type: choice
         options:
           - uk1
           - uk2
-          - us1
-          - us3
-          - us4
-          - us5
-          - us6
       operation:
         description: "provision creates an instance; prepare-resize prepares its replacement identity; upgrade/rollback use SSM; smoke verifies."
         required: true
@@ -302,7 +296,7 @@ jobs:
         # Inject the shared Feishu webhook/secret into this node's
         # ops_email_notification_config and enable alerting (idempotent). The
         # script verifies the write and exits non-zero if not applied, so a node
-        # that cannot alert FAILS the deploy (gate for the us7 silent-mute gap).
+        # that cannot alert FAILS the reviewed recovery deploy.
         if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
         env:
           TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}

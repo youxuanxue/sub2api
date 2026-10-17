@@ -14,8 +14,8 @@ Environment:
   TOKENKEY_EDGE_ADMIN_API_KEY                 edge admin key (edge_oauth_relay)
 
 Examples:
-  ./import-accounts.sh validate examples/edge-oauth-relay-antigravity-us6.json
-  ./import-accounts.sh import examples/edge-oauth-relay-antigravity-us6.json --dry-run
+  ./import-accounts.sh validate examples/anthropic-apikey.json
+  ./import-accounts.sh import examples/anthropic-apikey.json --dry-run
   ./import-accounts.sh import examples/newapi-deepseek-apikey.json --dry-run
   ./import-accounts.sh import path/to/dir/ --yes
   ./import-accounts.sh list-channel-types
@@ -35,9 +35,11 @@ from pathlib import Path
 from typing import Any
 
 from edge_relay import (
+    edge_id_from_base_url,
     ensure_edge_relay_api_key,
     list_deployable_edges,
     plan_edge_oauth_relay,
+    require_deployable_edge,
     validate_edge_oauth_relay,
 )
 
@@ -566,9 +568,18 @@ def dispatch_import(
 
 def resolve_edge_base_url(doc: dict[str, Any], fallback: str) -> str:
     explicit = str(doc.get("edge_base_url") or os.environ.get("TOKENKEY_EDGE_BASE_URL") or "").strip()
-    if explicit:
-        return explicit.rstrip("/")
     edge_id = str(doc.get("edge_id") or "").strip()
+    if edge_id:
+        edge_id = require_deployable_edge(edge_id)
+    if explicit:
+        explicit = explicit.rstrip("/")
+        explicit_edge_id = edge_id_from_base_url(explicit)
+        if explicit_edge_id != edge_id:
+            die(
+                "edge_oauth_relay 的 edge_base_url 必须是当前 edge_id 的规范地址 "
+                f"（期望 api-{edge_id}.tokenkey.dev）"
+            )
+        return explicit
     if edge_id:
         from edge_relay import edge_base_url as _edge_base_url
 

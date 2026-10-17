@@ -256,15 +256,15 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 # 期望 200；首次若 503 是 LE 还在签证书，等 1–2 min
 ```
 
-## Edge Stage 0（Lightsail standby）
+## Edge Stage 0（Lightsail 退役恢复）
 
 > **现网活舰队 SSOT：** [`deploy/hetzner/README.md`](../hetzner/README.md)。  
 > 本节只讲 **Lightsail standby / 回滚**（`deploy/aws/lightsail/`）。EC2/CFN edge 路径已移除。  
 > AWS `tokenkey-prod-stage0` 仅为 standby，不是现网 prod。
 
-Edge 子网关不是第二个用户入口。区域域名（如 `api-us4.tokenkey.dev`）只作为 `api.tokenkey.dev` 背后的区域资源节点，默认 API 路径只允许主网关出口访问。
+Edge 子网关不是第二个用户入口。美国节点和入口已释放；历史域名只留在审计材料中，默认 API 路径仅使用 Tokyo prod。
 
-Lightsail 矩阵：`deploy/aws/lightsail/edge-targets-lightsail.json`，workflow `deploy-edge-lightsail-stage0.yml`（standby）。日常发版走 `scripts/stage0/dispatch-edge-deploy.sh`（**auto → Hetzner**）。
+Lightsail 矩阵：`deploy/aws/lightsail/edge-targets-lightsail.json`，workflow `deploy-edge-lightsail-stage0.yml`（退役恢复专用）。日常发版只走 prod；`scripts/stage0/dispatch-edge-deploy.sh` 对美国 retired id 硬拒绝。
 
 新增 / 重建 Lightsail edge、IP 轮换见
 [`.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md)
@@ -319,8 +319,8 @@ prod 跨区域迁移时，OIDC 栈区域可以保留，但必须同时更新 `Ta
 
 ### 新增 / 初次创建 edge（Lightsail）
 
-所有 edge 的 provision / DNS / smoke / 升级 / 回滚都走 `deploy-edge-lightsail-stage0.yml` +
-`edge-targets-lightsail.json`。一次性 IAM addon、GHCR PAT 路径（`/tokenkey/lightsail/<edge_id>/ghcr/pat`）、
+历史 edge 的 provision / DNS / smoke / 升级 / 回滚才走 `deploy-edge-lightsail-stage0.yml` +
+`edge-targets-lightsail.json`，且必须重新批准。一次性 IAM addon、GHCR PAT 路径（`/tokenkey/lightsail/<edge_id>/ghcr/pat`）、
 端口放行（edge：**TCP 443 + 8443 + UDP 34567**，见下「公网端口收窄」）、Static IP / DNS 核对、Anthropic OAuth 重建等完整步骤见
 [`deploy/aws/lightsail/README.md`](lightsail/README.md) 与
 [`.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md)（`operation=full`）。
@@ -1142,7 +1142,7 @@ Edge 根盘告警后，先用以下命令预览目标；需要实际应急回收
 规则的数据，保留 SSM 不可用时的 Lightsail SSH 恢复路径。
 
 ```bash
-bash ops/stage0/remediate-edge-disk-via-ssm.sh --edge-id us4 --dry-run
+bash ops/stage0/remediate-edge-disk-via-ssm.sh --edge-id <approved-edge> --dry-run
 ```
 
 ### 手动触发 QA maintenance
