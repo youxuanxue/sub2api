@@ -54,12 +54,17 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
         self.backups = _load_template(BACKUPS_TEMPLATE)
         self.addon = _load_template(ADDON_TEMPLATE)
 
-    def deployable_edges(self) -> dict[str, dict]:
+    def recovery_role_edges(self) -> dict[str, dict]:
         matrix = json.loads(EDGE_TARGETS.read_text(encoding="utf-8"))
+        retained_roles = {
+            resource["Properties"]["RoleName"]
+            for resource in self.addon["Resources"].values()
+            if resource.get("Type") == "AWS::IAM::Role"
+        }
         deployable = {
             edge_id: target
             for edge_id, target in matrix["targets"].items()
-            if target.get("standby") is True or target["deployable"] is True
+            if f"{EDGE_ROLE_PREFIX}{edge_id}" in retained_roles
         }
         self.assertTrue(deployable)
         self.assertTrue(
@@ -67,8 +72,8 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
         )
         return deployable
 
-    def test_deployable_fleet_has_one_isolated_ssm_hybrid_role_per_edge(self) -> None:
-        deployable = self.deployable_edges()
+    def test_retained_recovery_roles_remain_isolated_per_edge(self) -> None:
+        deployable = self.recovery_role_edges()
         matrix = json.loads(EDGE_TARGETS.read_text(encoding="utf-8"))
         matrix_ids = set(matrix["targets"])
         roles = {
@@ -77,10 +82,9 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
             if resource.get("Type") == "AWS::IAM::Role"
             and str(resource["Properties"]["RoleName"]).startswith(EDGE_ROLE_NAME)
         }
-        # Every retained standby edge must keep its isolated recovery role. Standby /
-        # recently-retired matrix rows (deployable=false) may keep IAM until
-        # instance drain — those extras are allowed if the edge id is still in
-        # the Lightsail matrix.
+        # Retirement removes compute, not recovery permissions. Validate every
+        # retained per-edge role, including archived identities, without requiring
+        # any live/standby instance. Unknown matrix identities are still rejected.
         required_names = {EDGE_ROLE_NAME} | {
             f"{EDGE_ROLE_PREFIX}{edge_id}" for edge_id in deployable
         }

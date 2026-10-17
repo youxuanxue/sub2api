@@ -61,12 +61,12 @@ esac
                 env["CONFIRM_EDGE_RESTORE"] = "I_APPROVE_EDGE_RESTORE"
             proc = subprocess.run(
                 [
-                    "bash", str(PROVISION), "us3", "1.8.160", "us-east-2",
-                    "tokenkey-edge-us3", "tokenkey-edge-us3-ip", "us-east-2a",
-                    "small_3_0", "amazon_linux_2023", "us3.example.com",
+                    "bash", str(PROVISION), "sg1", "1.8.160", "ap-southeast-1",
+                    "tokenkey-edge-sg1-ls", "tokenkey-edge-sg1-ls-ip", "ap-southeast-1a",
+                    "small_3_0", "amazon_linux_2023", "api-sg1.tokenkey.dev",
                     "ops@example.com", "192.0.2.1/32", "example", "",
-                    "/tokenkey/lightsail/us3", "tokenkey-ls-us3",
-                    "tokenkey-lightsail-ssm-hybrid-us3",
+                    "/tokenkey/lightsail/sg1", "tokenkey-ls-sg1",
+                    "tokenkey-lightsail-ssm-hybrid-sg1",
                 ],
                 cwd=REPO_ROOT,
                 env=env,
@@ -104,6 +104,19 @@ esac
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("secret generation is forbidden for an existing Edge identity", proc.stderr)
         self.assertNotIn("create-activation", aws_log)
+
+    def test_retired_direct_provision_refuses_before_any_aws_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "aws"
+            fake.write_text("#!/bin/sh\necho unexpected-cloud-call >&2\nexit 99\n")
+            fake.chmod(0o755)
+            result = subprocess.run(["bash", str(PROVISION), "uk1", "1.8.160", "eu-west-2",
+                                     "tokenkey-edge-uk1-aws-20261015"],
+                                    env={**os.environ, "PATH": tmp + ":" + os.environ["PATH"]},
+                                    capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("retired", result.stderr)
+            self.assertNotIn("unexpected-cloud-call", result.stderr)
 
     def test_workflow_orders_recreate_backup_and_role_checks(self):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))

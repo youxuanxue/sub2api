@@ -10,6 +10,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "ops" / "stage0"))
 
 from edge_routing_matrix import (  # noqa: E402
+    reject_retired_target,
     load_hetzner_matrix,
     load_matrix,
     materialize_hetzner_target,
@@ -44,6 +45,7 @@ def resolve_target(
         fail(f"unknown edge_id {edge_id}; known: {', '.join(sorted(targets))}")
 
     target = materialize_hetzner_target(edge_id, data, targets[edge_id])
+    reject_retired_target(target, f"hetzner edge {edge_id}")
     deployable = bool(target.get("deployable"))
     if not deployable and not allow_planned:
         fail(

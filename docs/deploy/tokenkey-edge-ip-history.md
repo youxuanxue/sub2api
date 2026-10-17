@@ -1,7 +1,7 @@
 # Edge egress IP registry
 
-**现网流量出口：** Hcloud / AWS 分批迁移舰队见 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。
-本文件登记 **Lightsail 残留 Static IP**（standby / 污染排除），不是现网路由表。
+**现网流量出口：** Tokyo prod 与日本代理见 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。
+本文件保留历史污染排除信息；旧 Lightsail edge Static IP 均已释放，不是现网路由表。
 
 - **LS 矩阵 IP：** [`deploy/aws/lightsail/edge-targets-lightsail.json`](../../deploy/aws/lightsail/edge-targets-lightsail.json)
 - **Exclusion registry：** [`deploy/aws/stage0/edge-polluted-ips.json`](../../deploy/aws/stage0/edge-polluted-ips.json)
@@ -15,11 +15,9 @@ Rotation：[`tokenkey-stage0-edge-lightsail-ip-rotation`](../../.cursor/skills/t
 <!-- BEGIN edge-ip-status:standby (generated from deploy/aws/lightsail/edge-targets-lightsail.json) -->
 | Edge | Region | Domain | Static IP name | IPv4 |
 | --- | --- | --- | --- | --- |
-| `uk1` | eu-west-2 | `api-uk1.tokenkey.dev` | `tokenkey-edge-uk1-aws-20261015-ip` | `18.132.100.198` |
-| `uk2` | eu-west-2 | `api-uk2.tokenkey.dev` | `tokenkey-edge-uk2-aws-20261015-ip` | `35.178.162.181` |
 <!-- END edge-ip-status:standby -->
 
-2026-10-17 起 uk1/uk2/us4/us5 亦为 standby（`deployable=false`）；`us3`/`us6` 仍仅 gemini drain 前保留。
+2026-10-17 旧 edge 已全部回收；standby 表为空。历史身份已标记 `retired=true`，不能复用已释放 IP。
 
 ## Polluted IPs (do not re-use)
 

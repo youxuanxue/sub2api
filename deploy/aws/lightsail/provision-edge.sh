@@ -36,6 +36,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 # Mutating Lightsail provision is retired by default (2026-10-17 prod-only).
 python3 "${REPO_ROOT}/ops/stage0/require_edge_restore_approval.py"
 
+# Local invocations must pass the same retirement/identity gate as workflow dispatch.
+python3 "${REPO_ROOT}/deploy/aws/lightsail/resolve-edge-lightsail-target.py" \
+  --edge-id "$EDGE_ID" --confirm-instance "$INSTANCE_NAME" --allow-planned >/dev/null
+
 identity_error="$(mktemp)"
 trap 'rm -f "${identity_error}"' EXIT
 existing=""

@@ -21,7 +21,11 @@
       "instance_name": "tokenkey-prod-aws-20261015",
       "region": "us-east-1",
       "ip": "23.21.138.205",
-      "note": "frozen standby after Tokyo cutover; PROD_SSM_TARGET=aws selects historical CFN standby, not this inventory"
+      "note": "deleted 2026-10-17; frozen data retained in S3 legacy-node archive; not a standby",
+      "retired": true
+    },
+    "paused_jobs": {
+      "tokenkey-qa-maintenance": "User requested pause of QA uploads to S3; capture and boundary policy are separate."
     }
   },
   "edges": {
@@ -33,7 +37,8 @@
       "static_ip_name": "tokenkey-edge-us4-aws-20261015-ip",
       "source_ip": "188.245.14.132",
       "domain": "api-us4.tokenkey.dev",
-      "ssm_prefix": "/tokenkey/lightsail/us4"
+      "ssm_prefix": "/tokenkey/lightsail/us4",
+      "retired": true
     },
     "us5": {
       "region": "us-west-2",
@@ -43,7 +48,8 @@
       "static_ip_name": "tokenkey-edge-us5-aws-20261015-ip",
       "source_ip": "91.98.83.56",
       "domain": "api-us5.tokenkey.dev",
-      "ssm_prefix": "/tokenkey/lightsail/us5"
+      "ssm_prefix": "/tokenkey/lightsail/us5",
+      "retired": true
     },
     "uk1": {
       "region": "eu-west-2",
@@ -53,7 +59,8 @@
       "static_ip_name": "tokenkey-edge-uk1-aws-20261015-ip",
       "source_ip": "188.245.112.147",
       "domain": "api-uk1.tokenkey.dev",
-      "ssm_prefix": "/tokenkey/lightsail/uk1"
+      "ssm_prefix": "/tokenkey/lightsail/uk1",
+      "retired": true
     },
     "uk2": {
       "region": "eu-west-2",
@@ -63,7 +70,8 @@
       "static_ip_name": "tokenkey-edge-uk2-aws-20261015-ip",
       "source_ip": "2.31.27.73",
       "domain": "api-uk2.tokenkey.dev",
-      "ssm_prefix": "/tokenkey/lightsail/uk2"
+      "ssm_prefix": "/tokenkey/lightsail/uk2",
+      "retired": true
     }
   }
 }

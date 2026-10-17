@@ -1,8 +1,8 @@
 name: Stage0 pg_dump Refresh
 
-# Refresh live HCloud prod via SSM Hybrid without restarting the gateway.
+# Refresh current Tokyo prod via the shared SSM resolver without restarting the gateway.
 # Shared script owner: deploy/aws/stage0/tokenkey-pgdump.sh; host bootstrap
-# consumers: deploy/hetzner/render-{prod-,}bootstrap.sh. EC2 is standby only.
+# consumers include historical Hetzner bootstrap; the path does not identify the live cloud.
 
 on:
   workflow_dispatch:

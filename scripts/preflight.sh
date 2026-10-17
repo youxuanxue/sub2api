@@ -2907,6 +2907,7 @@ elif ! command -v python3 >/dev/null 2>&1; then
 elif [ "$_preflight_fast" = "1" ]; then
     echo "  skip: main-ancestry anchor (preflight-fast; main-ancestry-guard covers PRs with full history)"
 elif ! python3 ./scripts/checks/main-ancestry-anchor.py; then
+    echo "  FAIL: main ancestry anchor check (see diagnostics above)"
     errors=$((errors + 1))
 fi
 

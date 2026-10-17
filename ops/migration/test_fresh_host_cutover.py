@@ -17,6 +17,7 @@ class PreparedSyncTests(unittest.TestCase):
         inventory = json.loads((sync.ROOT / 'deploy/aws/fresh-migration-20261015.json').read_text())
         inventory['state'] = 'prepared'
         source = inventory['prod']['standby_us_east_20261015']
+        source['retired'] = False
         online = {'InstanceInformationList': [{'InstanceId': source['instance_id'], 'PingStatus': 'Online'}]}
         with patch.object(Path, 'read_text', return_value=json.dumps(inventory)), patch.object(sync, 'aws', return_value=online) as aws:
             candidate, resolved = sync.resolve('prod')
@@ -31,6 +32,25 @@ class PreparedSyncTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'already active'):
                 sync.resolve('prod')
             aws.assert_not_called()
+
+    def test_retired_sources_and_edges_refuse_before_aws(self):
+        inventory = json.loads((sync.ROOT / 'deploy/aws/fresh-migration-20261015.json').read_text())
+        inventory['state'] = 'prepared'
+        with patch.object(Path, 'read_text', return_value=json.dumps(inventory)), patch.object(sync, 'aws') as aws:
+            for node in ('prod', 'uk1'):
+                with self.subTest(node=node), self.assertRaisesRegex(ValueError, 'retired'):
+                    sync.resolve(node)
+            aws.assert_not_called()
+
+    def test_retired_edge_pins_refuse_before_host_or_docker_access(self):
+        spec = importlib.util.spec_from_file_location('edge_pins', Path(__file__).with_name('prepare-prod-edge-pins.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        inventory = json.loads((sync.ROOT / 'deploy/aws/fresh-migration-20261015.json').read_text())
+        with patch.object(module.subprocess, 'check_output') as remote:
+            with self.assertRaisesRegex(SystemExit, 'legacy IP pins'):
+                module.prepare(inventory, Path('/nonexistent'), Path('/nonexistent'))
+            remote.assert_not_called()
 
     def receipt(self):
         return {'node': 'uk1', 'state': 'prepared', 'prepared_at': 100,
@@ -149,6 +169,10 @@ class TrafficPreparationTests(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         inventory = json.loads((sync.ROOT / 'deploy/aws/fresh-migration-20261015.json').read_text())
+        with self.assertRaisesRegex(ValueError, 'already completed'):
+            module.render(inventory, Path('/nonexistent'), Path('/nonexistent'), nodes=['prod'], prod_ip=inventory['prod']['ip'])
+        inventory['state'] = 'prepared'
+        inventory['edges']['uk1']['retired'] = False
         config = """# fixture
 {
 }
