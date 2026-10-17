@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -204,6 +205,30 @@ class BuildFullCloneTests(unittest.TestCase):
         self.assertIn("prod-kiro-key", out)
         self.assertNotIn("sk-secret-do-not-print", out)
         self.assertNotIn("SECRET", out)
+
+
+class ResolveTargetTests(unittest.TestCase):
+    def test_hetzner_target_uses_live_edge_resolver(self) -> None:
+        with mock.patch.object(mig, "run") as run_mock:
+            run_mock.return_value = mock.Mock(stdout=json.dumps({
+                "region": "eu-west-2",
+                "instance_id": "mi-live",
+            }))
+            self.assertEqual(mig.resolve_edge("hetzner:uk1"), ("eu-west-2", "mi-live"))
+            command = run_mock.call_args.args[0]
+        self.assertIn("edge_ssm_execution.py", command[1])
+        self.assertIn("--platform", command)
+        self.assertEqual(command[command.index("--platform") + 1], "hetzner")
+
+    def test_retired_hetzner_target_is_rejected_before_ssm_lookup(self) -> None:
+        def reject_direct_aws(command, **_kwargs):
+            self.assertIn("edge_ssm_execution.py", command[1])
+            self.assertNotIn("aws", command[:2])
+            raise subprocess.CalledProcessError(2, command)
+
+        with mock.patch.object(mig, "run", side_effect=reject_direct_aws):
+            with self.assertRaises(subprocess.CalledProcessError):
+                mig.resolve_edge("hetzner:us4")
 
 
 if __name__ == "__main__":
