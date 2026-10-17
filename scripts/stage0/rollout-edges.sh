@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # rollout-edges.sh — fail-stop Edge rollout for a released tag.
 #
+# 2026-10-17: --list-deployable is empty (edge deploy retired). Default run
+# exits with no work; do not pass --edges unless a human re-approved an edge.
+#
 # Mechanizes the tokenkey-stage0-release-rollout skill step "其余 deployable
 # Edge upgrade（infra only）": for each deployable edge (minus --skip, normally
 # the canary already upgraded), dispatch an upgrade via dispatch-edge-deploy.sh,

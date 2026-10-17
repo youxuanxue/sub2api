@@ -21,9 +21,12 @@ class CoveragePlanTest(unittest.TestCase):
         return watch.build_config(role, hostname, self.fresh, self.matrix, self.domestic)
 
     def test_both_observers_cover_cn_ip_and_all_customer_domains(self):
-        for role, host in [('cn-prod', self.domestic['instance_name']), ('us5', self.matrix['us5']['instance_name'])]:
+        # Edge roles require deployable=true; fixture a live us5 for peer coverage.
+        matrix = json.loads(json.dumps(self.matrix))
+        matrix['us5']['deployable'] = True
+        for role, host in [('cn-prod', self.domestic['instance_name']), ('us5', matrix['us5']['instance_name'])]:
             with self.subTest(role=role):
-                config = self.config(role, host)
+                config = watch.build_config(role, host, self.fresh, matrix, self.domestic)
                 targets = config['targets']
                 self.assertEqual(targets['cn-prod'], self.domestic['public_origin'] + '/health')
                 self.assertEqual(targets['prod:cn-domain'], 'https://' + self.domestic['fallback_domain'] + '/health')
@@ -31,8 +34,8 @@ class CoveragePlanTest(unittest.TestCase):
                     self.assertIn('https://' + domain + '/health', targets.values())
         cn = self.config('cn-prod', self.domestic['instance_name'])
         self.assertEqual(cn['jobs'], ['tokenkey-disk-metrics'])
-        us5 = self.config('us5', self.matrix['us5']['instance_name'])
-        for edge, row in self.matrix.items():
+        us5 = watch.build_config('us5', matrix['us5']['instance_name'], self.fresh, matrix, self.domestic)
+        for edge, row in matrix.items():
             if row.get('deployable'):
                 self.assertEqual(us5['targets'][edge], 'https://' + row['domain'] + '/health')
 
@@ -40,8 +43,11 @@ class CoveragePlanTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'host identity'):
             self.config('cn-prod', 'some-other-host')
         prod = self.config('prod', self.fresh['prod']['instance_name'])
-        self.assertEqual(prod['targets'], {'us5': 'https://' + self.matrix['us5']['domain'] + '/health'})
+        # 2026-10-17 prod-only: no live edge peer → watch cn-prod.
+        self.assertEqual(prod['targets'], {'cn-prod': self.domestic['public_origin'].rstrip('/') + '/health'})
         self.assertIn('tokenkey-qa-maintenance', prod['jobs'])
+        with self.assertRaisesRegex(ValueError, 'edge not live'):
+            self.config('us5', self.matrix['us5']['instance_name'])
 
 
 class HealthBodyTest(unittest.TestCase):

@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "status": "tokyo_serving_source_standby_frozen",
+  "window": "20261017T025258Z",
+  "generated_at_utc": "2026-10-17T03:13:30Z",
+  "approval": {
+    "text": "批准顺序开切流，直到东京节点提供服务。",
+    "approved_at_utc": "2026-10-17T02:52:58Z",
+    "scope": [
+      "source_prod_stop_write_or_drain",
+      "final_delta_and_reconciliation",
+      "candidate_hold_release_and_public_listener_enablement",
+      "DNS_or_route_cutover",
+      "edge_CIDR_repin_to_tokyo"
+    ],
+    "not_in_scope": [
+      "source_drain_or_shutdown"
+    ],
+    "operator": "cursor-agent"
+  },
+  "source_standby": {
+    "instance_id": "i-022f2553503211775",
+    "region": "us-east-1",
+    "public_ip": "23.21.138.205",
+    "frozen": true,
+    "archival_hold": true,
+    "transaction_read_only": "on",
+    "listeners": [],
+    "containers": [
+      "tokenkey-postgres",
+      "tokenkey-redis"
+    ],
+    "rollback_dns_target": "23.21.138.205",
+    "note": "Keep frozen/recoverable until separate source drain approval; do not dual-write."
+  },
+  "tokyo": {
+    "instance_id": "i-045f062ce33e1a5af",
+    "region": "ap-northeast-1",
+    "public_ip": "3.114.187.250",
+    "hostname": "tokenkey-prod-tokyo-20261017",
+    "stack": "tokenkey-prod-tokyo-precutover-20261017",
+    "active_color": "blue",
+    "service": "active",
+    "hold": false,
+    "network_internal": false,
+    "pgdump_timer": "active",
+    "image_blue": "ghcr.io/youxuanxue/sub2api:1.8.301"
+  },
+  "frozen_watermark": {
+    "captured_at_utc": "2026-10-17T02:54:43.473757+00:00",
+    "usage_max_id": 14727151,
+    "usage_count": 6788015,
+    "dedup_max_id": 15538078,
+    "dedup_count": 15494289,
+    "accounts": 326,
+    "users": 65,
+    "api_keys": 465,
+    "groups": 93,
+    "settings": 320
+  },
+  "final_delta": {
+    "s3_prefix": "s3://tokenkey-prod-pgdump-682751977094/prod/pgdump/migration-pre-sync/aws-tokyo-20261017/final-delta-20261017T025258Z",
+    "usage_delta_rows": 2214,
+    "dedup_delta_rows": 2214,
+    "precious_bytes": 1114821430,
+    "reconcile": "RECONCILE_OK at apply time; candidate matched frozen watermark"
+  },
+  "dns": {
+    "tokenkey.dev": "3.114.187.250",
+    "api.tokenkey.dev": "3.114.187.250",
+    "callmodel.io": "3.114.187.250",
+    "api.callmodel.io": "3.114.187.250",
+    "ttl": 300,
+    "verified_at_utc": "2026-10-17T03:10:46Z",
+    "health_all_200": true
+  },
+  "edge_cidr": {
+    "main_gateway_allowed_cidr": "3.114.187.250/32",
+    "updated_edges": [
+      "uk1",
+      "uk2",
+      "us4",
+      "us5"
+    ]
+  },
+  "activation_notes": [
+    "Initial systemctl start failed: network lacked com.docker.compose.* labels; recreated labeled non-internal network and patched docker-compose.yml network to external.",
+    "Formal archived Caddy reverse_proxy tokenkey was not used; runtime uses tokenkey-blue.",
+    "Caddy certs copied from US source before DNS flip."
+  ],
+  "ssm_command_ids": {
+    "freeze": "2436717e-756e-4f37-b42b-6f0562f4c457",
+    "export_delta": "15333df6-8287-4a35-b99a-1efffc5bc664",
+    "apply_activate_failed_then_fixed": "b6a487f3-af13-40fa-9e2a-12c2c0590051",
+    "fix_activate_labels": "80e606df-bea9-4bdb-92ca-7f8e8c1417f8",
+    "enable_pgdump_timer": "ceac736f-9f00-48fd-82d1-a6f8868c2d7c"
+  },
+  "followups": [
+    "Update GitHub secret EDGE_MAIN_GATEWAY_ALLOWED_CIDR to 3.114.187.250/32 if still pointing at US.",
+    "Separate approval required before US source drain/shutdown.",
+    "Observe error/latency; keep US frozen standby for rollback window."
+  ]
+}

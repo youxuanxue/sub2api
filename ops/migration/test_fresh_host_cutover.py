@@ -77,6 +77,53 @@ class PreparedSyncTests(unittest.TestCase):
         self.assertEqual(receipt['state'], 'synced')
 
 
+class ComposeNetworkLabelTests(unittest.TestCase):
+    def test_require_compose_network_labels_rejects_bare_create(self):
+        with self.assertRaisesRegex(ValueError, 'compose network label'):
+            runtime.require_compose_network_labels({'Labels': {}})
+        runtime.require_compose_network_labels({
+            'Labels': dict(runtime.COMPOSE_NET_LABELS),
+        })
+
+    def test_replace_network_merges_compose_labels_when_opening_public(self):
+        calls = []
+
+        def run(*args):
+            calls.append(args)
+            if args[:3] == ('docker', 'network', 'inspect'):
+                return json.dumps([{
+                    'Internal': False,
+                    'Labels': dict(runtime.COMPOSE_NET_LABELS),
+                }])
+            if args[:2] == ('docker', 'inspect'):
+                return json.dumps([{
+                    'State': {'Health': {'Status': 'healthy'}},
+                    'Id': 'pg1',
+                    'Mounts': [],
+                }])
+            return ''
+
+        network = {
+            'Driver': 'bridge',
+            'Internal': True,
+            'Labels': {},  # bare create — must be repaired
+            'Options': {},
+            'IPAM': {'Options': {}, 'Config': [{'Subnet': '172.28.0.0/16'}]},
+            'EnableIPv6': False,
+        }
+        containers = [{
+            'Id': 'pg1',
+            'NetworkSettings': {'Networks': {runtime.NET: {'Aliases': ['postgres']}}},
+        }]
+        with patch.object(runtime, 'run', side_effect=run), patch.object(runtime, 'wait_ready'):
+            runtime.replace_network(network, containers, internal=False)
+        create = next(c for c in calls if c[:3] == ('docker', 'network', 'create'))
+        self.assertNotIn('--internal', create)
+        joined = ' '.join(create)
+        self.assertIn('com.docker.compose.network=tokenkey-network', joined)
+        self.assertIn('com.docker.compose.project=tokenkey', joined)
+
+
 class TrafficPreparationTests(unittest.TestCase):
     def test_single_edge_uses_current_prod_and_preserves_other_nodes(self):
         spec = importlib.util.spec_from_file_location('transition', Path(__file__).with_name('prepare-aws-traffic-transition.py'))

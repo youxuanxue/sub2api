@@ -108,6 +108,16 @@ class PlanTests(unittest.TestCase):
                     prod_key="admin-test",
                 )
 
+    def test_empty_deployable_fleet_rejected(self) -> None:
+        with mock.patch.object(mod, "list_deployable_edges", return_value=[]):
+            with self.assertRaises(SystemExit):
+                mod.build_plan(
+                    platform="antigravity",
+                    edge_ids=["uk1"],
+                    prod_base="https://api.tokenkey.dev",
+                    prod_key="admin-test",
+                )
+
 
 class CapabilitySQLTests(unittest.TestCase):
     def test_sql_uses_profile_platform_and_filters_deleted(self) -> None:

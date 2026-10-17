@@ -3,33 +3,37 @@
 **SSOT：** 现网节点 / 公网 IP / CIDR / GHCR PAT 路径 / 发版入口 **只在本文件叙述**；其它文档与 skill 只留指针，勿复制数值。
 审批基线（决策锁，无 IP 表）：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
 
-## 活舰队（五节点）
+## 活舰队（prod-only，2026-10-17 起）
 
 | 节点 | 正式域名 | 公网 IP | SSM 身份 | 备注 |
 |------|----------|---------|------------|------|
-| **prod** | `api.tokenkey.dev` | `23.21.138.205` | `i-022f2553503211775` · us-east-1 | EC2 c7g.xlarge · tokenkey-prod-aws-20261015 · `PROD_SSM_TARGET=aws-fresh` |
-| **uk1** | `api-uk1.tokenkey.dev` | `18.132.100.198` | `mi-039a529756d9add02` | AWS Lightsail · tokenkey-edge-uk1-aws-20261015 |
-| **uk2** | `api-uk2.tokenkey.dev` | `35.178.162.181` | `mi-022bedb939517c7f3` | AWS Lightsail · tokenkey-edge-uk2-aws-20261015 |
-| **us4** | `api-us4.tokenkey.dev` | `44.254.243.147` | `mi-0e3bd48991983b1bd` | AWS Lightsail · tokenkey-edge-us4-aws-20261015 |
-| **us5** | `api-us5.tokenkey.dev` | `35.164.198.30` | `mi-026a9e5d198bd0570` | AWS Lightsail · tokenkey-edge-us5-aws-20261015 |
+| **prod** | `api.tokenkey.dev` | `3.114.187.250` | `i-045f062ce33e1a5af` · ap-northeast-1 | EC2 c7g.xlarge · tokenkey-prod-tokyo-20261017；旧美东 `i-022f2553503211775`/`23.21.138.205` 冻结 standby |
 
-- 活矩阵：Hcloud `edge-targets-hetzner.json` + AWS `../aws/lightsail/edge-targets-lightsail.json`；每个 edge 仅一个平台 deployable。prod 使用 fresh AWS 清单中的独立 EC2。
-- fan-out / probe 默认：`resolve-edge-target.py --list-deployable` → 上表四边；prod 单独解析
-- 历史 Hcloud 机型：`fsn1` · `cax21` · arm64；当前 prod 为 EC2 c7g.xlarge，AWS uk1/uk2/us4/us5：Lightsail `xlarge_3_0`（4 vCPU / 16 GiB）。后续升级使用既有 blue/green 状态机。
-- **不在舰队：** `us3` / `us6`（无正式 A、无 prod stub；矩阵空行 / LS `deployable=false`）。旧 LS 仅 gemini 会话 drain 前保留，勿当路由目标
+**Edge 不再部署 / 不再 fan-out。** Lightsail 矩阵 `uk1`/`uk2`/`us4`/`us5` 已 `deployable=false`（standby）；prod 侧全部 `api-<edge>.tokenkey.dev` 中继 stub 已软删（见 [`docs/ops/edge-relay-soft-delete-20261017.json`](../../docs/ops/edge-relay-soft-delete-20261017.json)）。`resolve-edge-target.py --list-deployable` 应为空；`dispatch-edge-deploy` / `rollout-edges` / edge relay onboard 默认拒绝，除非单独批准恢复。
 
-本轮 AWS 活节点：prod、uk1、uk2、us4、us5。四边允许新 AWS prod；旧 edge 的单地址转发信任只在 DNS 过渡期间保留。
-后续 Hcloud 专用 provision、卷与告警操作仅用于历史节点，不能用于已切换 AWS 的活舰队。
+历史身份（仅 standby / 排障，非活路由）：
+
+| 节点 | 域名 | IP | SSM |
+|------|------|-----|-----|
+| uk1 | `api-uk1.tokenkey.dev` | `18.132.100.198` | `mi-039a529756d9add02` |
+| uk2 | `api-uk2.tokenkey.dev` | `35.178.162.181` | `mi-022bedb939517c7f3` |
+| us4 | `api-us4.tokenkey.dev` | `44.254.243.147` | `mi-0e3bd48991983b1bd` |
+| us5 | `api-us5.tokenkey.dev` | `35.164.198.30` | `mi-026a9e5d198bd0570` |
+
+- 矩阵：AWS `../aws/lightsail/edge-targets-lightsail.json`（全 `deployable=false`）+ 历史 Hcloud `edge-targets-hetzner.json`。
+- 发版默认只打 prod；edge 镜像升级 / expansion 需显式批准并临时改矩阵。
+- 切流硬坑：[`tokenkey-host-replacement` playbook](../../.cursor/skills/tokenkey-host-replacement/references/playbook.md)。
 
 ## 现网不变量
 
 | 项 | 值 |
 |----|-----|
-| Edge `MAIN_GATEWAY_ALLOWED_CIDR` | `23.21.138.205/32`（与 GitHub `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 一致） |
-| Edge / prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
-| GHCR PAT（Hybrid） | SSM `/tokenkey/edge/fleet/ghcr/pat`（eu-west-2；`EDGE_GHCR_PAT_SSM_NAME`） |
-| 探针 / sync Caddy | prod 解析至 EC2 `i-*`，edge 直投 Hybrid `mi-*`；`sync_caddyfile` **勿**设 `EDGE_ID=`；日常探针用 `run-probe --target edge:<id>`（共享解析器按活矩阵选择 Hcloud 或 AWS） |
-| prod stub `base_url` | 必须 `https://api-<edge>.tokenkey.dev` |
+| 活入口 | 仅 Tokyo prod `3.114.187.250`；四正式域名 A 指向该 IP |
+| Edge 部署 | **关闭**（矩阵 `deployable=false`；无 prod→edge stub） |
+| Edge `MAIN_GATEWAY_ALLOWED_CIDR`（历史机若仍开机） | `3.114.187.250/32` |
+| prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
+| GHCR PAT（Hybrid） | SSM `/tokenkey/edge/fleet/ghcr/pat`（eu-west-2；仅历史 edge 排障） |
+| 探针 / sync Caddy | prod 解析至 EC2 `i-*`；edge 仅显式 standby 排障时直投 `mi-*` |
 | live 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
 | Secrets | `/tokenkey/hetzner/…`；不进 git |
 

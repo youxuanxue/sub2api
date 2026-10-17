@@ -48,8 +48,7 @@ def main() -> int:
         cwd=ROOT,
         text=True,
     ).splitlines()
-    if not deployable:
-        return fail("canonical resolver returned no deployable edges")
+    # 2026-10-17: prod-only fleet — empty discover matrix is valid (no edge fan-out).
 
     workflow_text = WORKFLOW.read_text(encoding="utf-8")
     if "instance_id: mi-" in workflow_text:

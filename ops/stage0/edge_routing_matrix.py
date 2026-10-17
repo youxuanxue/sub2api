@@ -152,10 +152,14 @@ def load_live_targets(repo_root: pathlib.Path | str) -> dict[str, dict]:
 
 
 def validate_live_fleet(repo_root):
-    """Require every contracted edge on exactly one platform, including raw flags."""
+    """Require the contracted live edge set (empty since 2026-10-17 prod-only).
+
+    Any matrix row with deployable=true is rejected until the contract is
+    explicitly expanded again — there is no silent half-fleet.
+    """
     hz = load_hetzner_targets(repo_root)
     ls = load_lightsail_targets(repo_root)
-    expected = {"uk1", "uk2", "us4", "us5"}
+    expected: set[str] = set()
     for platform, rows in (("hetzner", hz), ("lightsail", ls)):
         predicate = edge_hetzner_deployable if platform == "hetzner" else edge_deployable
         for eid, row in rows.items():

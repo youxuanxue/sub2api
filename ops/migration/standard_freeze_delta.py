@@ -5,6 +5,13 @@ The formal cutover path deliberately uses a small, reviewable set of operations:
 schema check, a refresh of all non-log OLTP tables, and a ledger reconciliation.
 This module emits a plan and guarded commands; it never stops the source or edits
 DNS. Large-table row fingerprints remain an offline audit tool only.
+
+Freeze SQL owner (do not invent alternatives in ad-hoc cutover scripts):
+
+  ALTER DATABASE tokenkey SET default_transaction_read_only = on;
+
+Never use ALTER SYSTEM for this — it cannot run inside a transaction block and
+already aborted a prod freeze window (2026-10-17 Tokyo cutover).
 """
 from __future__ import annotations
 

@@ -663,10 +663,8 @@ def deployable_edges() -> list[str]:
         [sys.executable, str(REPO / "deploy/aws/stage0/resolve-edge-target.py"), "--list-deployable"],
         text=True, capture_output=True, check=True,
     )
-    edges = proc.stdout.split()
-    if not edges:
-        raise SystemExit("FATAL: no deployable Hetzner edges")
-    return edges
+    # 2026-10-17: live fleet is prod-only; empty list is valid (skip edge probes).
+    return proc.stdout.split()
 
 
 def _run_probe_batch(env_args: list[str], target: str = "prod") -> str:

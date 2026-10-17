@@ -6,8 +6,9 @@
 
 本目录维护 **AWS 侧** Stage0 IaC、共用 compose/Caddy、以及 Lightsail/EC2 **standby** 操作入口。
 
-> **现网活舰队（prod + edges）在 Hetzner** — 节点 / IP / CIDR / 发版 SSOT：[`deploy/hetzner/README.md`](../hetzner/README.md)。  
-> 下文大量 `tokenkey-prod-stage0` / EC2 内容仅适用于 **AWS standby 或历史 CFN**，勿当作现网写路径。
+> **现网活舰队（2026-10-17 起 prod-only）** — Tokyo EC2；节点 / IP / CIDR / 发版 SSOT：[`deploy/hetzner/README.md`](../hetzner/README.md)。  
+> Edge Lightsail 行均为 `deployable=false`；`dispatch-edge-deploy` / `rollout-edges` 默认无活目标。  
+> 下文大量历史 CFN / standby edge 内容勿当作现网写路径。
 
 首次 AWS bootstrap 考古见 [部署入口](../../docs/deploy/aws-us-openai-gateway-deployment.md)；
 应用发布行为以 [审批契约](../../docs/approved/deploy-stage0-workflow.md) 为准；

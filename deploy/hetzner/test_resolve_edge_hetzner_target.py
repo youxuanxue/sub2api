@@ -47,11 +47,11 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
         cls.any_id = sorted(cls.targets)[0] if cls.targets else None
 
     def test_matrix_cutover_live_vs_backlog(self) -> None:
-        """Live cutover edges deployable; us3/us6 stay planned."""
+        """2026-10-17: live edge set is empty (prod-only); standby rows stay false."""
         sys.path.insert(0, str(REPO_ROOT / "ops" / "stage0"))
         from edge_routing_matrix import validate_live_fleet
 
-        self.assertEqual(validate_live_fleet(REPO_ROOT), ["uk1", "uk2", "us4", "us5"])
+        self.assertEqual(validate_live_fleet(REPO_ROOT), [])
 
     def test_planned_fails_without_allow_planned(self) -> None:
         backlog = "us3"

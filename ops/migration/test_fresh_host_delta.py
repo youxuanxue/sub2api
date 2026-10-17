@@ -42,7 +42,7 @@ class DeltaPlanTests(unittest.TestCase):
     def test_live_source_can_never_be_apply_target(self):
         with patch('ops.migration.fresh_host_delta.socket.gethostname', return_value='tokenkey-prod-hz-cax21'):
             with self.assertRaisesRegex(RuntimeError, "exact fresh AWS candidate"):
-                candidate_guard('tokenkey-prod-aws-20261015')
+                candidate_guard('tokenkey-prod-tokyo-20261017')
 
     def test_all_table_scope_cannot_export_or_apply(self):
         for operation in ('export', 'apply'):

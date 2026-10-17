@@ -1,22 +1,33 @@
-# Host replacement — 命令骨架
+# Host replacement — 命令骨架与切流踩坑
 
-现网与卷恢复入口：`deploy/hetzner/README.md`；AWS DR 仅用于 standby / AWS 离机备份读取。纪律见上级 `SKILL.md`。
+现网：`deploy/hetzner/README.md`。回执：`docs/ops/aws-tokyo-cutover-20261017.json`。
 
-## Edge → Hetzner
+## Prod → 新 EC2
 
-**Provision：** `deploy/hetzner` render → cloud-init → SSM Hybrid → dispatch。
+**控制面：** 独立 AWS SSM；CommandId 先落盘再询.
 
-**Replicate：** 源 `tokenkey-pgdump.sh`（precious）+ logs data-only → S3；目标 restore；对账 `accounts` / `usage_billing_dedup` / `usage_logs`。
+**Hold：** `DATA_SYNC_HOLD` + 仅 postgres + 网络 `Internal=true`，至 final delta 与激活批准。
 
-**Cutover：** Porkbun A→NEW_IP；单域名 `API_DOMAIN`；CIDR 取 Hetzner README；sync caddy；stub `https://`；prod pin+restart。
+**冻结：** `ALTER DATABASE tokenkey SET default_transaction_read_only = on;`（禁 `ALTER SYSTEM`/事务块）。停 app/Caddy/`tokenkey.service`/pgdump·QA timers，`pg_terminate_backend`，断言 `transaction_read_only=on`。
 
-**Drain：** 旧机停 app（+ gemini-web）；留 PG/Caddy/Redis ≥7d。
+**补数：** 新 S3 前缀；precious data-only + usage/dedup 尾差；hold 下 DELETE→`pg_restore --disable-triggers`→COPY→`setval`→对账。
 
-**Verify：** `dig +short <host> @8.8.8.8`；`/health`；smoke；disk-metrics/Feishu/ghcr-prune。
+**激活：** bluegreen compose=源端；`active-color` ↔ Caddy `tokenkey-(blue|green)`（禁裸 `tokenkey:`）；systemd helpers + `migration-hold.conf`；DNS 前同步 `caddy/data`；网络见硬坑 1。
 
-## Prod / AWS standby recreate
+**DNS：** `porkbun-upsert-a.sh`；`dig @8.8.8.8` + `curl --resolve`。**Edge：** 不部署；`deployable=false`；stub 已软删。Drain 单独审批。
 
-- hcloud prod：按 Hetzner README 的恢复入口核对并保留 Volume；无卷/跨云先核验离机 dump 和密钥恢复点。
-- AWS standby：仅显式恢复旧机时使用 AWS DR 的 EBS/CFN 或 Lightsail expansion；不得对现网套用。
+## 硬坑
 
-**回滚：** 正式 A（及 prod pin）改回旧 IP；勿双写。
+1. **网络 label：** 缺 `com.docker.compose.network=tokenkey-network` / `project=tokenkey` → bluegreen 起不来。`replace_network` 须复制 Labels；开公网时 `Internal=false` 不得丢 label；compose 宜 `external: true`+固定 `name`。
+2. **冻结：** 只用 `ALTER DATABASE … read_only`。
+3. **Caddy：** upstream 必须匹配 blue/green `active-color`。
+4. **Schema：** QA 小时分区漂移勿当失败（已排除 `qa_records%`）。
+5. **DNS：** 公共 resolver；本机可能仍解析旧 IP（假失败）；SG 放行 443/80。
+6. **Edge CIDR：** instance-id 直投（勿靠 `EDGE_ID=` 标签）；改 `.env` 用 sed/python，勿 `source .env`。
+7. **Hostname：** `expected_host('prod')` = 活主机名（现 `tokenkey-prod-tokyo-20261017`）。
+
+## Edge 退役
+
+`deployable=false` + 软删全部 `api-<edge>.tokenkey.dev` stub + 发版默认 prod-only。DELETE 可能 301→宿主机 admin CLI。回执：`docs/ops/edge-relay-soft-delete-20261017.json`。
+
+**回滚：** A 改回旧 IP；解冻旧源；勿双写；勿新库覆盖旧源。
