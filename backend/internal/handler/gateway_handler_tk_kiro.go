@@ -43,15 +43,7 @@ func (h *GatewayHandler) tkHandleMessagesNonFailoverForwardError(c *gin.Context,
 
 	var kiroInvalidRequestErr *service.KiroInvalidRequestError
 	if errors.As(err, &kiroInvalidRequestErr) {
-		statusCode := kiroInvalidRequestErr.StatusCode
-		if statusCode == 0 {
-			statusCode = http.StatusBadRequest
-		}
-		errorType := "invalid_request_error"
-		if statusCode == http.StatusRequestEntityTooLarge {
-			errorType = "request_too_large"
-		}
-		h.errorResponse(c, statusCode, errorType, kiroInvalidRequestErr.ClientMessage())
+		h.errorResponse(c, kiroInvalidRequestErr.ClientStatusCode(), kiroInvalidRequestErr.ClientErrorType(), kiroInvalidRequestErr.ClientMessage())
 		return true
 	}
 

@@ -59,8 +59,9 @@ const toolResultImagePlaceholder = "[Tool returned an image; the image is attach
 // payload exceeds this size we drop the oldest history turns (keeping the
 // system priming, the most recent turns, the active tool turn, and the current
 // message) and insert a placeholder note so the model knows context was elided.
-// The limit is kept conservatively below the observed upstream threshold to
-// leave room for headers and minor serialization overhead.
+// The limit is kept conservatively below the observed upstream rejection
+// boundary so small upstream protocol changes do not turn accepted local
+// requests into provider-side validation failures.
 const maxPayloadBytes = 900 * 1024
 
 // PayloadTooLargeError reports a translated request that remains above Kiro's
