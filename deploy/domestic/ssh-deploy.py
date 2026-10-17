@@ -55,6 +55,8 @@ def render_environment(directory):
 
 
 def bootstrap(target, tag, state):
+    if target['ingress'] != 'ssh-tunnel':
+        raise ValueError('Production must adopt the reconciled candidate; fresh bootstrap is forbidden')
     probe(target)
     verify_release(tag)
     images_file = state / "images.json"

@@ -18,6 +18,8 @@ parser.add_argument(
 parser.add_argument("--target", help="Explicit isolated SSH target; omitted preserves UCloud configuration")
 args = parser.parse_args()
 target = load_target(args.target) if args.target else None
+if target and target['ingress'] != 'ssh-tunnel':
+    parser.error('Production must adopt the reconciled candidate; fresh runtime generation is forbidden')
 root = Path(__file__).resolve().parents[2]
 state = args.state_dir.expanduser().resolve()
 if state == root or root in state.parents:

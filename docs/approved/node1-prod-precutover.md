@@ -46,6 +46,19 @@ instance override。省略该显式目标仍使用原 prod/edge SSM 路径。
 现有库存 target 仍代表隔离测试栈；正式域名、入口及候选数据的启用不能由普通测试 deploy
 隐式完成。共享 Caddy 切换用运行中二进制验证，保留其 PROXY protocol 模块和证书挂载。
 
+正式目标只生成待接管库存，不在准备期替换 `deploy/domestic/targets.json` 或主机
+`/opt/tokenkey/target.json`：
+
+```bash
+python3 deploy/domestic/target.py --target zhupeng-prod \
+  --production-domain api.galaxywaveai.com --admin-email admin@tokenkey.dev
+```
+
+批准窗口内安装同一目标到库存与主机 ownership，并安装已暂存的运行时 guard 后，继续
+使用同一 SSH dispatcher。正式模式的每次部署/探针都复用 `node1_runtime_guard.py`，
+检查批准标记和候选 PG bind；缺任一条件即拒绝。正式模式禁止 bootstrap 或生成空库运行时，
+只能接管已经最终对账的候选。准备期渲染不会改库存、安装 ownership、移除 HOLD 或接流量。
+
 ## 网络与运维验收
 
 独立 UCloud EIP 按流量计费，经 WireGuard 到 Node1；现有 api-cn 入口不变。
@@ -127,8 +140,10 @@ Story：US-065。运行证据保存私有运维目录，交付时报告真实完
 
 ## 2026-10-17 Tokyo prod 基线证据
 
-主线已对齐 `origin/main`：`3ca8406eac`。运行时单独固定为源端 `1.8.302`，不把
-主线已新增的 `tk_103_api_key_routing_preference.sql` 当作线上已应用的迁移；本轮不升级线上。
+主线已对齐 `origin/main`：`cd7ba80777`（含 edge 退役与代理告警变更）。运行时单独固定为
+源端 `1.8.302`；再次只读核查确认应用仍健康、routing_preference 列尚不存在。主线已新增的
+SQL 迁移不等于线上已应用；本轮不升级线上。最终窗口前需重新核对源版本与 schema，
+若有变化先更新隔离基线和候选镜像，不以旧回执放行。
 本轮迁移源是日本 Tokyo
 AWS prod（`i-045f062ce33e1a5af`，`ap-northeast-1`，`3.114.187.250`），不是已冻结的
 旧美东 standby。Tokyo 源只做只读核对，未停止、重启、冻结、改 DNS、改账号或刷新 OAuth。
