@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # probe-user-billing-watch.sh — read-only per-user 盯盘 for active user_ids:
 # requests, errors, metering/billing, plus an image/video breakout — all in one
-# SSM round-trip. Runs INSIDE the TokenKey host (prod or edge) via run-probe.sh.
+# SSM/SSH round-trip. Runs INSIDE the TokenKey host (AWS prod, edge, or UCloud
+# cn-prod) via run-probe.sh.
 # Output is row_to_json so parsing is field-named, not column-index.
 #
-#   bash ops/observability/run-probe.sh --target prod \
+#   bash ops/observability/run-probe.sh --target prod|cn-prod \
 #     --script ops/observability/probe-user-billing-watch.sh \
 #     --env WINDOW_MINUTES=30 [--env USER_IDS=1,6,16,38]
 #
