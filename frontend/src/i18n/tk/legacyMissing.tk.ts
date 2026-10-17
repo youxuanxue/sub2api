@@ -660,10 +660,12 @@ const en: LocaleOverlay = {
       "alertRules": {
         "metrics": {
           "poolLoadRate": "Account Pool Load Rate (%)",
+          "proxyUnreachableCount": "Unreachable Egress Proxies",
           "routingCapacityRejectionCount": "No-Available-Account Rejections"
         },
         "metricDescriptions": {
           "poolLoadRate": "Per-pool concurrency load: (in-flight + queued) / total seats. Pools split by platform/group/channel; the most saturated pool wins. ≥100% means queuing. Leading capacity-ceiling signal; ≥90% recommended to trigger adding accounts.",
+          "proxyUnreachableCount": "Count of active proxies that still bind schedulable accounts and fail a short TCP dial to host:port from this node (SOCKS/HTTP egress IP reachability). Does not count idle or fully unschedulable proxies. ≥1 sustained 2 minutes recommended as P0 so network/ops can fix the exit IP before user-facing 502 storms.",
           "routingCapacityRejectionCount": "Count of \"no available accounts\" routing rejections in the window (empty-pool fast-fail 429 + relayed mirror-edge downstream-capacity rejections, error_phase=routing). These client-visible 429s are excluded from error/success rates and cool no account, so this is the only signal that sees a thin-pool-race rejection storm. An absolute count (not a rate); ≥50 over 5 minutes recommended to trigger adding accounts / scaling."
         }
       },
@@ -1516,10 +1518,12 @@ const zh: LocaleOverlay = {
       "alertRules": {
         "metrics": {
           "poolLoadRate": "账号池负载率 (%)",
+          "proxyUnreachableCount": "代理出口不可达数",
           "routingCapacityRejectionCount": "无可用账号拒绝数"
         },
         "metricDescriptions": {
           "poolLoadRate": "调度池并发负载率：(在途+排队)/总席位。按平台/分组/渠道分池取最饱和值，≥100% 表示已排队。容量触顶前瞻信号，建议 ≥90% 触发补号。",
+          "proxyUnreachableCount": "仍绑定可调度账号的 active 代理中，从本节点对 host:port 短 TCP 拨号失败的数量（SOCKS/HTTP 出口 IP 可达性）。不统计闲置或已全部下调度的代理。建议 ≥1 且持续 2 分钟作 P0，便于网络/运维在用户侧 502 风暴前修出口。",
           "routingCapacityRejectionCount": "统计窗口内\"无可用账号\"路由拒绝累计次数（空池快速失败 429 + 镜像 edge 下游容量拒绝，error_phase=routing）。这类客户端可见 429 被排除在错误率/成功率之外、也不冷却账号，是唯一能看见薄池瞬时抢空拒绝风暴的信号；为绝对计数（非比率），建议 5 分钟内 ≥50 触发补号/扩容。"
         }
       },

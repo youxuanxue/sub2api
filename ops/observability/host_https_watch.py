@@ -43,7 +43,8 @@ def build_config(role: str, hostname: str, fresh: dict, matrix: dict, domestic: 
         "tokenkey-pgdump", "tokenkey-disk-metrics", "tokenkey-ghcr-prune-daily"]
     if role == "prod":
         jobs += ["tokenkey-qa-maintenance", "tokenkey-qa-boundary"]
-    return {"node": role, "targets": targets, "jobs": jobs}
+    paused = dict(fresh["prod"].get("paused_jobs", {})) if role == "prod" else {}
+    return {"node": role, "targets": targets, "jobs": jobs, "paused_jobs": paused}
 
 
 def next_state(previous: dict, healthy: bool, now: int) -> tuple[dict, str]:
@@ -89,7 +90,12 @@ JOB_LIMITS = {
 }
 
 
-def job_fact(service: dict, timer: dict, uptime: float, limits: tuple) -> dict:
+def job_fact(service: dict, timer: dict, uptime: float, limits: tuple, *, expected_paused=False) -> dict:
+    if expected_paused:
+        healthy = (timer.get("ActiveState") == "inactive"
+                   and timer.get("UnitFileState") in ("disabled", "masked")
+                   and service.get("ActiveState") in ("inactive", "failed"))
+        return {"healthy": healthy, "reason": "intentionally paused" if healthy else "paused job unexpectedly enabled or running"}
     healthy, reason = False, "job has no successful completion"
     def age(key):
         stamp = int(service.get(key, "0") or 0) / 1_000_000
@@ -107,7 +113,7 @@ def job_fact(service: dict, timer: dict, uptime: float, limits: tuple) -> dict:
     return {"healthy": healthy, "reason": reason}
 
 
-def probe_job(name: str) -> dict:
+def probe_job(name: str, *, expected_paused=False) -> dict:
     def properties(unit):
         result = subprocess.run(["systemctl", "show", unit, "--property=ActiveState,UnitFileState,Result,ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotonic"],
                                 capture_output=True, text=True, timeout=5, check=True)
@@ -117,7 +123,7 @@ def probe_job(name: str) -> dict:
     # Read after systemd: the job may start while properties are collected.
     # Linux monotonic() shares systemd's CLOCK_MONOTONIC; /proc/uptime is
     # truncated to centiseconds and includes suspend time (CLOCK_BOOTTIME).
-    return job_fact(service, timer, time.monotonic(), JOB_LIMITS[name])
+    return job_fact(service, timer, time.monotonic(), JOB_LIMITS[name], expected_paused=expected_paused)
 
 
 def tick_jobs(jobs, previous, now, probe, send, node="unknown"):
@@ -149,8 +155,11 @@ def main() -> None:
     config = json.loads(args.config.read_text())
     targets = config["targets"]
     jobs = config.get("jobs", [])
+    paused = config.get("paused_jobs", {})
     if not isinstance(jobs, list) or any(name not in JOB_LIMITS for name in jobs):
         raise ValueError("unknown host job")
+    if not isinstance(paused, dict) or any(name not in jobs or not isinstance(reason, str) or not reason.strip() for name, reason in paused.items()):
+        raise ValueError("paused jobs require a monitored job and an explicit reason")
     if not isinstance(targets, dict) or len(targets) > 16 or not (targets or jobs):
         raise ValueError("watch requires at most sixteen targets and at least one target or job")
     for name, url in targets.items():
@@ -178,7 +187,9 @@ def main() -> None:
                             signing_secret=env["TOKENKEY_FEISHU_WEBHOOK_SECRET"])
 
         result = tick(targets, previous, int(time.time()), probe_health, send, config.get("node", os.uname().nodename))
-        result = tick_jobs(jobs, result, int(time.time()), probe_job, send, config.get("node", os.uname().nodename))
+        result = tick_jobs(jobs, result, int(time.time()),
+                           lambda name: probe_job(name, expected_paused=name in paused),
+                           send, config.get("node", os.uname().nodename))
         if not args.dry_run:
             _atomic_write(args.state, json.dumps(result, sort_keys=True) + "\n")
         print(json.dumps({"dry_run": args.dry_run, "targets": result, "notifications": len(actions)}))

@@ -433,6 +433,10 @@ func (s *proxyRepoStub) SweepExpiredProxies(_ context.Context, _ time.Time) (int
 func (s *proxyRepoStub) ListAllForFallback(_ context.Context) ([]Proxy, error) {
 	return nil, nil
 }
+func (s *proxyRepoStub) CountSchedulableActiveByProxyIDs(context.Context, []int64) (map[int64]int64, error) {
+	return map[int64]int64{}, nil
+}
+
 func (s *proxyRepoStub) CountExpired(_ context.Context) (int64, error) {
 	return 0, nil
 }

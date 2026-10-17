@@ -4,9 +4,9 @@
   "default_profile": "edge-lightsail-minimal",
   "max_monthly_budget_usd": 84,
   "notes": [
-    "Mixed live/standby AWS inventory. Active fleet: deploy/hetzner/README.md (prod-only after 2026-10-17).",
-    "2026-10-17: all edges set deployable=false — no routine edge deploy/fan-out; prod edge-relay stubs soft-deleted.",
-    "Only deployable=true rows are eligible for normal deploy and automatic fan-out; rows with retired are historical identities only and cannot be dispatched.",
+    "Historical and planned templates only; active service is Tokyo prod plus Japanese egress proxies (deploy/hetzner/README.md).",
+    "retired=true forbids dispatch/provision/SSM even with allow-planned. Rebuild requires a new reviewed identity.",
+    "All former serving edges were deleted; retained coordinates are historical evidence, not deploy targets.",
     "Paris (fra1) has no Lightsail region; map to eu-central-1 (Frankfurt) for PoC only.",
     "bundle_id suffix varies by Lightsail region; resolve script picks bundle_id from matrix."
   ],
@@ -26,8 +26,8 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 84,
       "ssm_prefix": "/tokenkey/lightsail/uk1",
-      "purpose": "retired-from-deploy 2026-10-17: edge fan-out stopped; prod stubs soft-deleted; instance may remain for drain/standby only",
-      "standby": true
+      "purpose": "deleted 2026-10-17; frozen data archived; no standby or deploy target",
+      "retired": true
     },
     "uk2": {
       "deployable": false,
@@ -44,8 +44,8 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 84,
       "ssm_prefix": "/tokenkey/lightsail/uk2",
-      "purpose": "retired-from-deploy 2026-10-17: edge fan-out stopped; prod stubs soft-deleted; instance may remain for drain/standby only",
-      "standby": true
+      "purpose": "deleted 2026-10-17; frozen data archived; no standby or deploy target",
+      "retired": true
     },
     "us1": {
       "deployable": false,
@@ -110,7 +110,8 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us2",
-      "purpose": "retired 2026-06-23: Lightsail instance, Static IP, SSM managed instance, SSM params, DNS, and prod mirror account removed; had adopted StaticIp-oh-2 after us-east-1 100.48.129.133 pollution"
+      "purpose": "retired 2026-06-23: Lightsail instance, Static IP, SSM managed instance, SSM params, DNS, and prod mirror account removed; had adopted StaticIp-oh-2 after us-east-1 100.48.129.133 pollution",
+      "retired": true
     },
     "us3": {
       "deployable": false,
@@ -203,7 +204,8 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us7",
-      "purpose": "retired 2026-06-23: Lightsail instance, Static IP, SSM managed instance, SSM params, DNS, and prod mirror account removed; had been rehomed 2026-06-05 to adopted console-created edge-ls-us-oh-4"
+      "purpose": "retired 2026-06-23: Lightsail instance, Static IP, SSM managed instance, SSM params, DNS, and prod mirror account removed; had been rehomed 2026-06-05 to adopted console-created edge-ls-us-oh-4",
+      "retired": true
     }
   }
 }

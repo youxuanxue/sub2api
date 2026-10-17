@@ -138,6 +138,21 @@ func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *Op
 		}
 		return formatPoolLoadCause(pools, rule, platform, groupID), "", ""
 	}
+	// proxy_unreachable_count 的主因来自同一次 TCP 探测快照（哪几个出口
+	// IP:port 连不上），不是 ops_error_logs；详见 ops_proxy_unreachable_tk.go。
+	if metricType == OpsAlertMetricProxyUnreachableCount {
+		unreachable := s.loadProxyUnreachableSnapshot()
+		if len(unreachable) == 0 {
+			// Metric path normally populates the snapshot first; fall back to a
+			// fresh probe so standalone cause formatting still works in tests.
+			var ok bool
+			unreachable, ok = s.probeUnreachableProxies(ctx)
+			if !ok {
+				return "", "", ""
+			}
+		}
+		return formatProxyUnreachableCause(unreachable), "", ""
+	}
 	if s.opsRepo == nil {
 		return "", "", ""
 	}

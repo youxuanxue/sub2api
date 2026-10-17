@@ -29,11 +29,13 @@
   "targets": {
     "uk1": {
       "deployable": false,
-      "purpose": "retired 2026-10-16; frozen database retained in AWS S3 legacy-node archive"
+      "purpose": "retired 2026-10-16; frozen database retained in AWS S3 legacy-node archive",
+      "retired": true
     },
     "uk2": {
       "deployable": false,
-      "purpose": "retired 2026-10-16; frozen database retained in AWS S3 legacy-node archive"
+      "purpose": "retired 2026-10-16; frozen database retained in AWS S3 legacy-node archive",
+      "retired": true
     },
     "us3": {
       "retired": "2026-10-17",
@@ -41,11 +43,13 @@
     },
     "us4": {
       "deployable": false,
-      "purpose": "retired 2026-10-16; frozen database retained in AWS S3 legacy-node archive"
+      "purpose": "retired 2026-10-16; frozen database retained in AWS S3 legacy-node archive",
+      "retired": true
     },
     "us5": {
       "deployable": false,
-      "purpose": "retired 2026-10-16; frozen database retained in AWS S3 legacy-node archive"
+      "purpose": "retired 2026-10-16; frozen database retained in AWS S3 legacy-node archive",
+      "retired": true
     },
     "us6": {
       "retired": "2026-10-17",

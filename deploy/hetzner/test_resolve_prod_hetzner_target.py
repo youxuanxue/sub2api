@@ -43,31 +43,24 @@ class ResolveProdHetznerTargetTests(unittest.TestCase):
         data = json.loads(MATRIX.read_text(encoding="utf-8"))
         self.assertFalse(bool(data["target"].get("deployable")))
 
-    def test_historical_requires_explicit_allow_planned(self) -> None:
-        with self.assertRaisesRegex(RuntimeError, "not deployable"):
-            run_resolver(confirm_instance="tokenkey-prod-hz-cax21")
-        resolved = run_resolver(confirm_instance="tokenkey-prod-hz-cax21", allow_planned=True)
-        self.assertEqual(resolved["role"], "prod")
-        self.assertEqual(resolved["platform"], "hetzner")
-        self.assertEqual(resolved["deployable"], "false")
-        self.assertEqual(resolved["location"], "fsn1")
-        self.assertEqual(resolved["server_type"], "cax21")
-        self.assertEqual(resolved["architecture"], "arm")
-        self.assertEqual(resolved["instance_name"], "tokenkey-prod-hz-cax21")
-        self.assertEqual(resolved["domain"], "api.tokenkey.dev")
-        self.assertEqual(resolved["staging_domain"], "api-hz.tokenkey.dev")
-        self.assertEqual(resolved["ssm_prefix"], "/tokenkey/hetzner/prod")
-        self.assertEqual(resolved["volume_name"], "tokenkey-prod-data")
+    def test_retired_cannot_be_reenabled_with_allow_planned(self) -> None:
+        for allowed in (False, True):
+            with self.subTest(allowed=allowed), self.assertRaisesRegex(RuntimeError, "retired"):
+                run_resolver(allow_planned=allowed)
+
+    def test_new_planned_identity_resolves(self) -> None:
+        data = json.loads(MATRIX.read_text())
+        data["target"].update(retired=False, instance_name="new-recovery-host")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "matrix.json"
+            path.write_text(json.dumps(data))
+            resolved = run_resolver(allow_planned=True, confirm_instance="new-recovery-host", matrix=path)
+        self.assertEqual(resolved["instance_name"], "new-recovery-host")
         self.assertEqual(resolved["volume_mount"], "/var/lib/tokenkey")
-        self.assertGreaterEqual(int(resolved["volume_size_gb"]), 40)
-        self.assertEqual(
-            resolved["ssm_hybrid_role_name"],
-            "tokenkey-hetzner-ssm-hybrid-prod",
-        )
 
     def test_planned_fails_without_allow_planned(self) -> None:
         data = json.loads(MATRIX.read_text(encoding="utf-8"))
-        data["target"]["deployable"] = False
+        data["target"].update(deployable=False, retired=False)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "matrix.json"
             path.write_text(json.dumps(data), encoding="utf-8")
@@ -81,7 +74,7 @@ class ResolveProdHetznerTargetTests(unittest.TestCase):
 
     def test_reject_non_fsn1_location(self) -> None:
         bad = json.loads(MATRIX.read_text(encoding="utf-8"))
-        bad["target"]["deployable"] = True
+        bad["target"].update(deployable=True, retired=False)
         bad["target"]["location"] = "ash"
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "matrix.json"
@@ -96,7 +89,7 @@ class ResolveProdHetznerTargetTests(unittest.TestCase):
 
     def test_reject_wrong_volume_mount(self) -> None:
         bad = json.loads(MATRIX.read_text(encoding="utf-8"))
-        bad["target"]["deployable"] = True
+        bad["target"].update(deployable=True, retired=False)
         bad["target"]["volume_mount"] = "/data"
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "matrix.json"
@@ -110,19 +103,13 @@ class ResolveProdHetznerTargetTests(unittest.TestCase):
         self.assertIn("volume_mount", proc.stderr)
 
     def test_confirm_instance_mismatch_fails(self) -> None:
-        proc = subprocess.run(
-            [
-                sys.executable,
-                str(RESOLVER),
-                "--confirm-instance",
-                "wrong-name",
-                "--allow-planned",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("confirm_instance mismatch", proc.stderr)
+        data = json.loads(MATRIX.read_text())
+        data["target"]["retired"] = False
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "matrix.json"
+            path.write_text(json.dumps(data))
+            with self.assertRaisesRegex(RuntimeError, "confirm_instance mismatch"):
+                run_resolver(confirm_instance="wrong-name", allow_planned=True, matrix=path)
 
 
 if __name__ == "__main__":

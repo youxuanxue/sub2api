@@ -33,6 +33,10 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
+# Local invocations must pass the same retirement/identity gate as workflow dispatch.
+python3 "${REPO_ROOT}/deploy/aws/lightsail/resolve-edge-lightsail-target.py" \
+  --edge-id "$EDGE_ID" --confirm-instance "$INSTANCE_NAME" --allow-planned >/dev/null
+
 identity_error="$(mktemp)"
 trap 'rm -f "${identity_error}"' EXIT
 existing=""

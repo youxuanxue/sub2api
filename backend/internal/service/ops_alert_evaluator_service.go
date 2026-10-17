@@ -63,6 +63,13 @@ type OpsAlertEvaluatorService struct {
 	// SetAnthropicUpstreamErrorCounterCache so unit tests can drive the
 	// metric without spinning up Redis.
 	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache
+
+	// Optional TCP dialer for proxy_unreachable_count (test seam). Production
+	// leaves this nil and uses net.Dialer via defaultProxyTCPDial.
+	proxyTCPDialFn proxyTCPDialFunc
+
+	proxyUnreachableMu   sync.Mutex
+	proxyUnreachableSnap proxyUnreachableSnapshot
 }
 
 // SetAnthropicUpstreamErrorCounterCache attaches the anthropic upstream-error
@@ -370,7 +377,8 @@ func isProdOnlyAlertRule(rule *OpsAlertRule) bool {
 		return false
 	}
 	switch strings.TrimSpace(rule.MetricType) {
-	case OpsAlertMetricUserVisibleFailureCount, OpsAlertMetricClientVisibleFailureCount:
+	case OpsAlertMetricUserVisibleFailureCount, OpsAlertMetricClientVisibleFailureCount,
+		OpsAlertMetricProxyUnreachableCount:
 		return true
 	default:
 		return false
@@ -709,6 +717,10 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 			return 0, false
 		}
 		return float64(n), true
+	case OpsAlertMetricProxyUnreachableCount:
+		// Live TCP reachability of active proxies that still bind accounts.
+		// Count metric (self-flooring); see ops_proxy_unreachable_tk.go.
+		return s.computeProxyUnreachableCount(ctx)
 	case OpsAlertMetricRoutingCapacityRejectionCount:
 		// Count of routing/scheduling-phase capacity rejections over the rule
 		// window — the client-visible "no available accounts" empty-pool fast-fail

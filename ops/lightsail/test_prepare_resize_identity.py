@@ -20,7 +20,7 @@ class PrepareResizeIdentityTest(unittest.TestCase):
     def setUp(self):
         self.matrix = resolver.load_matrix(str(resolver.DEFAULT_MATRIX))
         # This contract exercises a standby source, independent of fleet cutovers.
-        self.matrix["targets"]["us5"].update(deployable=False, instance_name="us5-source-test")
+        self.matrix["targets"]["us5"].update(deployable=False, retired=False, instance_name="us5-source-test")
         self.target = resolver.resolve_target(self.matrix, "us5", allow_planned=True)
         self.calls = []
         self.replacement = "us5-resize-test"
@@ -147,6 +147,9 @@ class PrepareResizeIdentityTest(unittest.TestCase):
             matrix_path.write_text(json.dumps(self.matrix))
             resolver_path = pathlib.Path(resolver.__file__)
             (fixture / resolver_path.relative_to(ROOT)).write_bytes(resolver_path.read_bytes())
+            routing = pathlib.Path("ops/stage0/edge_routing_matrix.py")
+            (fixture / routing).parent.mkdir(parents=True, exist_ok=True)
+            (fixture / routing).write_bytes((ROOT / routing).read_bytes())
             env = os.environ | {
                 "OIDC_ROLE_ARN": "test-role", "INPUT_EDGE_ID": self.target["edge_id"],
                 "INPUT_CONFIRM_INSTANCE": self.target["instance_name"],
