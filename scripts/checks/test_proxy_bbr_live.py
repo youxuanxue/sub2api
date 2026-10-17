@@ -74,6 +74,42 @@ not-json
         self.assertIn("cc='cubic'", errors[0])
         self.assertIn("want cc='bbr'", errors[0])
 
+    def test_resolve_falls_back_to_prod_hop_on_direct_timeout(self) -> None:
+        calls: list[str] = []
+
+        def direct(_name: str):
+            calls.append("direct")
+            raise RuntimeError(
+                "ssh to jp-proxy-03-micro (54.178.200.15) failed rc=255: "
+                "Operation timed out"
+            )
+
+        def hop(_name: str):
+            calls.append("hop")
+            return ("bbr", "fq")
+
+        cc, qdisc, path = self.mod.resolve_proxy_sysctl(
+            "jp-proxy-03-micro",
+            "ap-northeast-1",
+            direct=direct,
+            via_prod=hop,
+        )
+        self.assertEqual((cc, qdisc, path), ("bbr", "fq", "prod-hop"))
+        self.assertEqual(calls, ["direct", "hop"])
+
+    def test_resolve_does_not_hop_on_non_ssh_errors(self) -> None:
+        def direct(_name: str):
+            raise RuntimeError("incomplete Lightsail access details for x")
+
+        with self.assertRaises(RuntimeError) as ctx:
+            self.mod.resolve_proxy_sysctl(
+                "x",
+                "ap-northeast-1",
+                direct=direct,
+                via_prod=lambda _n: ("bbr", "fq"),
+            )
+        self.assertIn("incomplete Lightsail", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

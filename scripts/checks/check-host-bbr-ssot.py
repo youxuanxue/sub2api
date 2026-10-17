@@ -143,6 +143,8 @@ def check_static(quiet: bool = False) -> list[str]:
             "tcp_congestion_control",
             "bbr",
             "map_hosts_to_lightsail",
+            "lightsail_ssh_sysctl_via_prod",
+            "prod-hop",
         ):
             if needle not in live_src:
                 errors.append(f"{_rel(PROXY_LIVE)} missing required token: {needle}")

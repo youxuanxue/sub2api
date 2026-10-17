@@ -5,7 +5,8 @@
 # deploy-stage0 is an image hot-swap and does NOT re-run bootstrap, so this
 # heal brings a pre-BBR instance in sync without replacing the host.
 #
-# Proxy/egress BBR is owned by network ops — not this script.
+# admin/proxies egress BBR is verified by scripts/checks/proxy_bbr_live.py
+# (not this sync path).
 #
 # Usage:
 #   ops/stage0/sync-host-bbr-via-ssm.sh <instance_id> [comment]

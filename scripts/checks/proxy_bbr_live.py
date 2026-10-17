@@ -5,6 +5,10 @@ Reads active proxy rows from prod (via run-probe + probe-list-proxies.sh),
 maps each host IP to a Lightsail instance in the proxy region, then verifies
 tcp_congestion_control=bbr and default_qdisc=fq over temporary Lightsail SSH.
 
+When direct SSH from the operator workstation times out (observed for some
+egress hosts), fall back to the same sysctl probe via Tokyo prod SSM hop —
+prod can reach proxy :22 even when the laptop path cannot.
+
 This is intentionally separate from the static repo wiring check so CI/preflight
 never needs Lightsail credentials or network path to egress proxies.
 """
@@ -12,6 +16,7 @@ never needs Lightsail credentials or network path to egress proxies.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import pathlib
@@ -19,6 +24,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_REGION = "ap-northeast-1"
@@ -154,8 +160,7 @@ def fetch_proxies_via_run_probe(timeout_seconds: int = 90) -> list[dict]:
     return proxies
 
 
-def lightsail_ssh_sysctl(instance_name: str, region: str) -> tuple[str | None, str | None, str]:
-    """Return (cc, qdisc, raw_stdout) via temporary Lightsail SSH credentials."""
+def _lightsail_access(instance_name: str, region: str) -> dict:
     details = aws_json(
         [
             "lightsail",
@@ -175,23 +180,39 @@ def lightsail_ssh_sysctl(instance_name: str, region: str) -> tuple[str | None, s
     cert_key = access.get("certKey")
     if not (user and ip and private_key and cert_key):
         raise RuntimeError(f"incomplete Lightsail access details for {instance_name}")
+    return {
+        "username": user,
+        "ipAddress": ip,
+        "privateKey": private_key,
+        "certKey": cert_key,
+    }
 
+
+def _write_pem_key_material(tmp: pathlib.Path, access: dict) -> tuple[pathlib.Path, pathlib.Path]:
+    key_path = tmp / "lightsail_key"
+    cert_path = tmp / "lightsail_key-cert.pub"
+    key_path.write_text(access["privateKey"], encoding="utf-8")
+    key_path.chmod(0o600)
+    # Lightsail returns PKCS#8; convert so OpenSSH can sign the cert.
+    subprocess.run(
+        ["ssh-keygen", "-p", "-N", "", "-m", "PEM", "-f", str(key_path)],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    cert_key = access["certKey"]
+    cert_path.write_text(
+        cert_key if cert_key.endswith("\n") else cert_key + "\n", encoding="utf-8"
+    )
+    cert_path.chmod(0o600)
+    return key_path, cert_path
+
+
+def lightsail_ssh_sysctl(instance_name: str, region: str) -> tuple[str | None, str | None, str]:
+    """Return (cc, qdisc, raw_stdout) via temporary Lightsail SSH credentials."""
+    access = _lightsail_access(instance_name, region)
     with tempfile.TemporaryDirectory(prefix="proxy-bbr-") as tmp:
-        key_path = pathlib.Path(tmp) / "lightsail_key"
-        cert_path = pathlib.Path(tmp) / "lightsail_key-cert.pub"
-        key_path.write_text(private_key, encoding="utf-8")
-        key_path.chmod(0o600)
-        # Lightsail returns PKCS#8; convert so OpenSSH can sign the cert.
-        subprocess.run(
-            ["ssh-keygen", "-p", "-N", "", "-m", "PEM", "-f", str(key_path)],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        cert_path.write_text(
-            cert_key if cert_key.endswith("\n") else cert_key + "\n", encoding="utf-8"
-        )
-        cert_path.chmod(0o600)
+        key_path, cert_path = _write_pem_key_material(pathlib.Path(tmp), access)
         remote = (
             "sysctl -n net.ipv4.tcp_congestion_control; "
             "sysctl -n net.core.default_qdisc"
@@ -210,17 +231,113 @@ def lightsail_ssh_sysctl(instance_name: str, region: str) -> tuple[str | None, s
             "UserKnownHostsFile=/dev/null",
             "-o",
             "ConnectTimeout=20",
-            f"{user}@{ip}",
+            f"{access['username']}@{access['ipAddress']}",
             remote,
         ]
         proc = subprocess.run(cmd, text=True, capture_output=True, check=False)
         if proc.returncode != 0:
             raise RuntimeError(
-                f"ssh to {instance_name} ({ip}) failed rc={proc.returncode}: "
-                f"{(proc.stderr or proc.stdout)[-400:]}"
+                f"ssh to {instance_name} ({access['ipAddress']}) failed "
+                f"rc={proc.returncode}: {(proc.stderr or proc.stdout)[-400:]}"
             )
         cc, qdisc = interpret_sysctl_output(proc.stdout)
         return cc, qdisc, proc.stdout
+
+
+def _is_direct_ssh_transport_error(exc: BaseException) -> bool:
+    msg = str(exc)
+    return "ssh to " in msg and "failed" in msg
+
+
+def lightsail_ssh_sysctl_via_prod(
+    instance_name: str, region: str, *, timeout_seconds: int = 90
+) -> tuple[str | None, str | None]:
+    """Probe sysctl by SSHing from Tokyo prod (run-probe hop)."""
+    access = _lightsail_access(instance_name, region)
+    with tempfile.TemporaryDirectory(prefix="proxy-bbr-hop-") as tmp:
+        tmp_path = pathlib.Path(tmp)
+        key_path, cert_path = _write_pem_key_material(tmp_path, access)
+        key_b64 = base64.b64encode(key_path.read_bytes()).decode()
+        cert_b64 = base64.b64encode(cert_path.read_bytes()).decode()
+        script = textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            TMP=$(mktemp -d)
+            trap 'rm -rf "$TMP"' EXIT
+            printf '%s' '{key_b64}' | base64 -d > "$TMP/key"
+            printf '%s' '{cert_b64}' | base64 -d > "$TMP/key-cert.pub"
+            chmod 600 "$TMP/key" "$TMP/key-cert.pub"
+            ssh -i "$TMP/key" -o "CertificateFile=$TMP/key-cert.pub" -o IdentitiesOnly=yes \\
+              -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 \\
+              {access['username']}@{access['ipAddress']} \\
+              'sysctl -n net.ipv4.tcp_congestion_control; sysctl -n net.core.default_qdisc'
+            """
+        )
+        script_path = tmp_path / "probe-via-prod.sh"
+        script_path.write_text(script, encoding="utf-8")
+        script_path.chmod(0o700)
+        proc = subprocess.run(
+            [
+                "bash",
+                str(RUN_PROBE),
+                "--target",
+                "prod",
+                "--script",
+                str(script_path),
+                "--timeout-seconds",
+                str(timeout_seconds),
+                "--comment",
+                f"proxy-bbr-live via-prod {instance_name}",
+            ],
+            cwd=str(REPO),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"prod-hop ssh to {instance_name} failed rc={proc.returncode}: "
+            f"{(proc.stderr or proc.stdout)[-400:]}"
+        )
+    body_lines = [
+        ln.strip()
+        for ln in proc.stdout.splitlines()
+        if ln.strip()
+        and not ln.startswith("[")
+        and "Warning:" not in ln
+        and "Permanently added" not in ln
+    ]
+    cc, qdisc = interpret_sysctl_output("\n".join(body_lines[-2:]))
+    if not cc or not qdisc:
+        raise RuntimeError(
+            f"prod-hop ssh to {instance_name} returned unparseable sysctl: "
+            f"{proc.stdout[-400:]!r}"
+        )
+    return cc, qdisc
+
+
+def resolve_proxy_sysctl(
+    instance_name: str,
+    region: str,
+    *,
+    direct=None,
+    via_prod=None,
+) -> tuple[str | None, str | None, str]:
+    """Try direct Lightsail SSH; on transport failure, fall back to prod hop.
+
+    Returns (cc, qdisc, path) where path is 'direct' or 'prod-hop'.
+    """
+    direct_fn = direct or (lambda name: lightsail_ssh_sysctl(name, region)[:2])
+    hop_fn = via_prod or (lambda name: lightsail_ssh_sysctl_via_prod(name, region))
+    try:
+        cc, qdisc = direct_fn(instance_name)
+        return cc, qdisc, "direct"
+    except Exception as exc:  # noqa: BLE001 — classify transport vs other
+        if not _is_direct_ssh_transport_error(exc):
+            raise
+        cc, qdisc = hop_fn(instance_name)
+        return cc, qdisc, "prod-hop"
 
 
 def check_proxies_live(
@@ -229,10 +346,12 @@ def check_proxies_live(
     proxies: list[dict] | None = None,
     instances: list[dict] | None = None,
     ssh_sysctl=None,
+    resolve_sysctl=None,
 ) -> list[str]:
     """Return human-readable failure strings; empty list means all proxies OK.
 
-    Injectable proxies/instances/ssh_sysctl keep unit tests offline.
+    Injectable proxies/instances/ssh_sysctl/resolve_sysctl keep unit tests offline.
+    Prefer resolve_sysctl (direct+hop). ssh_sysctl remains for older tests.
     """
     errors: list[str] = []
     if proxies is None:
@@ -242,9 +361,13 @@ def check_proxies_live(
     mapping, map_errors = map_hosts_to_lightsail(proxies, instances)
     errors.extend(map_errors)
 
-    checker = ssh_sysctl or (
-        lambda name: lightsail_ssh_sysctl(name, region)[:2]
-    )
+    def _default_resolve(name: str) -> tuple[str | None, str | None, str]:
+        if ssh_sysctl is not None:
+            cc, qdisc = ssh_sysctl(name)
+            return cc, qdisc, "direct"
+        return resolve_proxy_sysctl(name, region)
+
+    resolver = resolve_sysctl or _default_resolve
 
     for p in proxies:
         host = p["host"]
@@ -252,7 +375,7 @@ def check_proxies_live(
         if not name:
             continue
         try:
-            cc, qdisc = checker(name)
+            cc, qdisc, path = resolver(name)
         except Exception as exc:  # noqa: BLE001 — surface per-host failure
             errors.append(
                 f"proxy id={p.get('id')} name={p.get('name')!r} host={host} "
@@ -262,7 +385,7 @@ def check_proxies_live(
         if not bbr_ok(cc, qdisc):
             errors.append(
                 f"proxy id={p.get('id')} name={p.get('name')!r} host={host} "
-                f"instance={name}: cc={cc!r} qdisc={qdisc!r} "
+                f"instance={name} via={path}: cc={cc!r} qdisc={qdisc!r} "
                 f"want cc={WANTED_CC!r} qdisc={WANTED_QDISC!r}"
             )
     return errors

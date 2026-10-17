@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ensure-tokenkey-bbr.sh — idempotent TokenKey host BBR enablement.
 #
-# SSOT for prod host TCP congestion control. Consumed by:
-#   - deploy/aws/stage0/stage0-ec2-bootstrap.sh (new EC2 prod hosts)
+# SSOT for TokenKey host TCP congestion control (bbr + fq). Consumed by:
+#   - deploy/aws/stage0/stage0-ec2-bootstrap.sh (new EC2 prod hosts; compact inline)
 #   - deploy/hetzner/render-prod-bootstrap.sh (new Hetzner prod hosts)
 #   - ops/stage0/sync-host-bbr-via-ssm.sh (live EC2 prod heal)
-#
-# Proxy/egress hosts are out of scope here (owned by network ops).
+#   - admin/proxies egress hosts (apply by ops; verified by
+#     scripts/checks/proxy_bbr_live.py / check-host-bbr-ssot.py --live)
 #
 # Usage:
 #   ensure-tokenkey-bbr.sh           # apply + verify

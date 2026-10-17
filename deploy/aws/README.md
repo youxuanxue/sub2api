@@ -216,7 +216,7 @@ SSOT：`deploy/host/ensure-tokenkey-bbr.sh`（`net.ipv4.tcp_congestion_control=b
 - **立刻生效（live EC2 prod）**：`bash ops/stage0/sync-host-bbr-via-ssm.sh <instance-id>`。
 - **防漏配**：`scripts/checks/check-host-bbr-ssot.py`（preflight `host BBR SSOT wiring`）。EC2 bootstrap 只保留 compact sysctl/modprobe，避免撑破 3-part SSM 上限；完整脚本由 sync / Hetzner 安装。
 - **admin/proxies 出口 BBR**：静态门禁要求 `proxy_bbr_live.py` + `probe-list-proxies.sh` 在位；活体核对用  
-  `python3 scripts/checks/check-host-bbr-ssot.py --live`（读 prod `proxies` 表 → Lightsail SSH 验 `bbr`+`fq`）。开启仍可由网络运维执行，检查失败即漏配。
+  `python3 scripts/checks/check-host-bbr-ssot.py --live`（读 prod `proxies` 表 → Lightsail SSH 验 `bbr`+`fq`；直连 22 超时则经 Tokyo prod SSM hop 复检）。可用同一 SSOT 脚本在出口机上 `--apply`。
 
 ## Quick Start
 
