@@ -12,8 +12,8 @@ from edge_routing_matrix import load_live_targets  # noqa: E402
 
 EDGE_STUB_BASE_URL_RE = re.compile(r"^https://api-([a-z0-9]+)\.tokenkey\.dev/?$", re.IGNORECASE)
 
-# Mirrors backend/internal/service/edge_accounts_aggregator_tk.go edgeStubPlatforms
-# (gemini has no edge relay path).
+# Keep this pool list aligned with the retained edge relay identity contract
+# (Gemini has no edge relay path).
 RELAY_POOL_PLATFORMS = (
     "anthropic",
     "openai",
