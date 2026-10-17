@@ -77,6 +77,7 @@
     "candidate still held / only postgres until separate activation approval"
   ],
   "rollback_receipt_template": {
+    "review_correction": "PR #2687 review supersedes the original DNS-only rollback instructions: after Tokyo writes, follow aws-tokyo-cutover-handoff-20261017.md. Historical plan metadata above is unchanged; this is not execution approval.",
     "trigger_examples": [
       "candidate data validation failure",
       "Caddy/TLS unavailable after activation",
@@ -84,9 +85,9 @@
       "DNS not converging as expected"
     ],
     "actions": {
-      "dns_not_switched": "keep US source live; Tokyo remains on DATA_SYNC_HOLD; do not write back to source DB",
-      "dns_switched_tokyo_bad": "restore four A records to 23.21.138.205; confirm source health; then diagnose Tokyo",
-      "tokyo_activation_failed": "recreate DATA_SYNC_HOLD; stop candidate business containers; keep diagnostics and final delta receipt"
+      "dns_not_switched": "if Tokyo has never written, retain its hold and restore the source only under the approved abort plan; if Tokyo has written, treat it as authoritative and require reconciliation before any writer reversal",
+      "dns_switched_tokyo_bad": "retain Tokyo as authoritative; prefer in-place application rollback. US forwarding-only entry or database reverse migration requires separate approval, single-writer fencing and target readiness before DNS",
+      "tokyo_activation_failed": "preserve diagnostics and final delta receipt; fence candidate writers under the approved abort plan; do not revive the old source without proving Tokyo never wrote or completing reverse reconciliation"
     },
     "forbidden": [
       "dual-write",

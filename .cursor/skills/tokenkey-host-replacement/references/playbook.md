@@ -30,4 +30,4 @@
 
 `deployable=false` + 软删全部 `api-<edge>.tokenkey.dev` stub + 发版默认 prod-only。DELETE 可能 301→宿主机 admin CLI。回执：`docs/ops/edge-relay-soft-delete-20261017.json`。
 
-**回滚：** A 改回旧 IP；解冻旧源；勿双写；勿新库覆盖旧源。
+**回滚：** 新机接写后禁止 DNS 直切并解冻旧库。详见 [交接回滚](../../../../docs/ops/aws-tokyo-cutover-handoff-20261017.md#回滚dns-已切)。

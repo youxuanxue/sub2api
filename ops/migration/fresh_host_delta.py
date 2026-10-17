@@ -24,7 +24,7 @@ WIDTH = 100_000
 # Live prod candidate hostname (Tokyo 2026-10-17). Keep the prior AWS name so
 # older receipts/guards still resolve during standby windows.
 CANDIDATES = {
-    "tokenkey-prod-tokyo-20261017": "tokenkey-prod-hz-cax21",
+    "tokenkey-prod-tokyo-20261017": "tokenkey-prod-aws-20261015",
     "tokenkey-prod-aws-20261015": "tokenkey-prod-hz-cax21",
 }
 CANDIDATES.update({f"tokenkey-edge-{edge}-aws-20261015": f"tokenkey-edge-{edge}-hz-cax21"

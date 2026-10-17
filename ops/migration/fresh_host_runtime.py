@@ -19,6 +19,11 @@ import sys
 import time
 
 try:
+    from .fresh_host_delta import CANDIDATES as MIGRATION_SOURCES
+except ImportError:
+    from fresh_host_delta import CANDIDATES as MIGRATION_SOURCES
+
+try:
     from ops.lib.resolve_app_container import CANDIDATES, resolve
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
@@ -133,7 +138,7 @@ def check(node):
 
 
 def validate_final(receipt, node, now):
-    expected_source = 'tokenkey-prod-hz-cax21' if node == 'prod' else f'tokenkey-edge-{node}-hz-cax21'
+    expected_source = MIGRATION_SOURCES[expected_host(node)]
     if (receipt.get('state') != 'synced' or receipt.get('final_freeze_verified') is not True or
         receipt.get('node') != node or receipt['candidate']['instance_name'] != expected_host(node) or
         receipt['source']['instance_name'] != expected_source or

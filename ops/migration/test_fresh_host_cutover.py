@@ -13,6 +13,25 @@ from ops.migration import fresh_host_sync as sync
 
 
 class PreparedSyncTests(unittest.TestCase):
+    def test_tokyo_sync_uses_us_source_and_refuses_serving_candidate(self):
+        inventory = json.loads((sync.ROOT / 'deploy/aws/fresh-migration-20261015.json').read_text())
+        inventory['state'] = 'prepared'
+        source = inventory['prod']['standby_us_east_20261015']
+        online = {'InstanceInformationList': [{'InstanceId': source['instance_id'], 'PingStatus': 'Online'}]}
+        with patch.object(Path, 'read_text', return_value=json.dumps(inventory)), patch.object(sync, 'aws', return_value=online) as aws:
+            candidate, resolved = sync.resolve('prod')
+            self.assertEqual(candidate, inventory['prod'])
+            self.assertEqual(resolved, {key: source[key] for key in ('instance_name', 'instance_id', 'region')})
+            self.assertEqual(aws.call_args.args[0], 'us-east-1')
+            aws.return_value = {'InstanceInformationList': []}
+            with self.assertRaisesRegex(ValueError, 'Online source'):
+                sync.resolve('prod')
+        inventory['state'] = 'tokyo-serving-edges-retired-20261017'
+        with patch.object(Path, 'read_text', return_value=json.dumps(inventory)), patch.object(sync, 'aws') as aws:
+            with self.assertRaisesRegex(ValueError, 'already active'):
+                sync.resolve('prod')
+            aws.assert_not_called()
+
     def receipt(self):
         return {'node': 'uk1', 'state': 'prepared', 'prepared_at': 100,
                 'candidate': {'instance_name': runtime.expected_host('uk1'), 'instance_id': 'new', 'region': 'r'},
@@ -298,6 +317,18 @@ class RuntimeTests(unittest.TestCase):
         bad['candidate']['instance_name'] = 'tokenkey-edge-uk1-hz-cax21'
         with self.assertRaises(ValueError):
             runtime.validate_final(bad, 'uk1', 101)
+
+    def test_tokyo_final_receipt_requires_us_source(self):
+        receipt = PreparedSyncTests().receipt()
+        receipt.update(state='synced', final_freeze_verified=True, completed_at=100, node='prod',
+                       candidate={'instance_name': runtime.expected_host('prod'), 'instance_id': 'new'},
+                       source={'instance_name': 'tokenkey-prod-aws-20261015', 'instance_id': 'old'},
+                       commands=[{'phase': phase, 'status': 'Success', 'target': target} for phase, target in
+                                 [('export', 'old'), ('apply', 'new'), ('verify-source-still-frozen', 'old')]])
+        runtime.validate_final(receipt, 'prod', 101)
+        receipt['source']['instance_name'] = 'tokenkey-prod-hz-cax21'
+        with self.assertRaisesRegex(ValueError, 'matching final-freeze'):
+            runtime.validate_final(receipt, 'prod', 101)
 
 
 if __name__ == '__main__':
