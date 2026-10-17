@@ -7,6 +7,9 @@ import pathlib
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT / "ops/stage0"))
+from edge_routing_matrix import reject_retired_target
+
 DEFAULT_MATRIX = REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
 
 
@@ -38,6 +41,7 @@ def resolve_target(
     if target is None:
         fail(f"unknown edge_id {edge_id}; known: {', '.join(sorted(targets))}")
 
+    reject_retired_target(target, f"lightsail edge {edge_id}")
     deployable = bool(target.get("deployable"))
     if not deployable and not allow_planned:
         fail(

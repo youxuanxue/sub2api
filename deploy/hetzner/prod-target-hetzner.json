@@ -34,6 +34,7 @@
     "ssm_hybrid_role_name": "tokenkey-hetzner-ssm-hybrid-prod",
     "swap_gib": 2,
     "profile": "prod-hetzner-cax21",
-    "purpose": "historical read-only prod; never resume production writes"
+    "purpose": "deleted; historical identity only; recover from isolated archive, never resume production writes",
+    "retired": true
   }
 }

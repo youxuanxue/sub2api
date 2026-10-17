@@ -22,6 +22,7 @@ class EdgeAdminResolveTargetTest(unittest.TestCase):
                                    ('lightsail', 'deploy/aws/lightsail/edge-targets-lightsail.json')]:
                 matrix = json.loads((ROOT / name).read_text())
                 matrix['targets']['uk1']['deployable'] = platform == edge_platform
+                matrix['targets']['uk1']['retired'] = False
                 target = fixture / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(json.dumps(matrix))

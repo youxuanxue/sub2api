@@ -52,19 +52,12 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
         with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "hetzner"}):
             self.assertEqual(self.mod.resolve_mode("aws"), "aws")
 
-    def test_resolve_aws_shape(self) -> None:
-        rows = [
-            {"OutputKey": "InstanceId", "OutputValue": "i-0e43099f831b03160"},
-            {"OutputKey": "ApiUrl", "OutputValue": "https://api.tokenkey.dev"},
-        ]
-        with mock.patch.object(self.mod, "aws_json", return_value=rows):
-            out = self.mod.resolve_aws("tokenkey-prod-stage0")
-        self.assertEqual(out["instance_id"], "i-0e43099f831b03160")
-        self.assertEqual(out["id"], "i-0e43099f831b03160")
-        self.assertEqual(out["browser_origin"], "https://tokenkey.dev")
-        self.assertEqual(out["ssm_region"], "us-east-1")
-        self.assertEqual(out["deploy_profile"], "prod")
-        self.assertEqual(out["target"], "aws")
+    def test_retired_prod_modes_never_query_cloud(self) -> None:
+        with mock.patch.object(self.mod, "aws_json", side_effect=AssertionError("must reject before AWS")):
+            with self.assertRaises(SystemExit):
+                self.mod.resolve_aws("tokenkey-prod-stage0")
+            with self.assertRaisesRegex(SystemExit, "retired"):
+                self.mod.resolve_hetzner(self.mod.DEFAULT_MATRIX)
 
     def test_explicit_fresh_candidate_never_uses_old_stack(self) -> None:
         inventory = json.loads(self.mod.FRESH_MATRIX.read_text())
@@ -151,7 +144,7 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
         target = self.mod.load_hetzner_matrix(self.mod.DEFAULT_MATRIX)
         row = {"ComputerName": target["instance_name"], "InstanceId": "mi-0123456789abcdef0", "PingStatus": "Online"}
         for rows in ([], [{**row, "PingStatus": "ConnectionLost"}], [row, row]):
-            with self.subTest(rows=rows), mock.patch.object(self.mod, "list_instance_information", return_value=rows):
+            with self.subTest(rows=rows), mock.patch.object(self.mod, "load_hetzner_matrix", return_value={**target, "retired": False}), mock.patch.object(self.mod, "list_instance_information", return_value=rows):
                 with self.assertRaises(SystemExit):
                     self.mod.resolve_hetzner(self.mod.DEFAULT_MATRIX)
 

@@ -97,6 +97,10 @@ tests cover redaction, duplicate reset, both gateway entry points, edge auth and
 
 ## Deployment after authorization
 
+Current fleet: prod-only, with no deployable edge or Gemini Web Worker target.
+The workflow rejects retired identities. The procedure below is a template for
+a separately approved new worker host; it does not authorize installation on prod.
+
 Images come from CI only. `gemini-web-worker.yml` builds a multi-arch
 (`linux/amd64` + `linux/arm64`) image per content change on push to main (or
 `workflow_dispatch`) and tags it with the build digest, verifying each arch
@@ -109,7 +113,7 @@ Deploy an edge with `deploy-gemini-web-worker.yml` (SSM pull + recreate under th
 container limits below), one edge per dispatch:
 
 ```text
-edge_id           deployable Hetzner edge from deploy/hetzner/edge-targets-hetzner.json (prod runs no Worker)
+edge_id           a newly approved deployable edge from the active fleet resolver (none currently; prod runs no Worker)
 build_digest      the 12-hex tag the publish job printed as gemini_web_build_digest
 confirm_instance  instance_name from deploy/hetzner/resolve-edge-hetzner-target.py
 ```

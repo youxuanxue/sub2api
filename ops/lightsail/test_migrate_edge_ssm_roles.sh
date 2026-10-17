@@ -7,12 +7,15 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 mkdir -p "${tmp}/bin"
 
-# Exercise AWS recovery for both active and retained standby identities.
+# Fixture new unretired hosts for the still-retained per-edge recovery roles.
 python3 - "${ROOT}/deploy/aws/lightsail/edge-targets-lightsail.json" "${tmp}/matrix.json" <<'PYFIX'
-import json, sys
+import json, sys, pathlib, re
 data = json.load(open(sys.argv[1]))
-for row in data['targets'].values():
-    row['deployable'] = row.get('deployable', False) or row.get('standby', False)
+addon = pathlib.Path(sys.argv[1]).parents[1] / 'cloudformation/cicd-oidc-lightsail-addon.yaml'
+role_ids = set(re.findall(r'RoleName: tokenkey-lightsail-ssm-hybrid-([a-z0-9]+)', addon.read_text()))
+for edge, row in data['targets'].items():
+    row['deployable'] = edge in role_ids
+    row['retired'] = False
 json.dump(data, open(sys.argv[2], 'w'))
 PYFIX
 export EDGE_LIGHTSAIL_MATRIX="${tmp}/matrix.json"

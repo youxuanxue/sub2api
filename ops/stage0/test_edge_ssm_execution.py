@@ -52,20 +52,12 @@ class EdgeSsmExecutionTests(unittest.TestCase):
         self.assertEqual(ident.domain, "api-us4.tokenkey.dev")
         get_param.assert_called_once_with(ident.region, hz_row["ssm_prefix"])
 
-    def test_explicit_lightsail_still_resolves_standby(self) -> None:
-        with mock.patch.object(
-            ese,
-            "ssm_parameter_managed_instance_id",
-            return_value="mi-lightsail-us4",
-        ) as get_param:
-            ident = ese.resolve_edge_execution_identity(
-                REPO_ROOT, "us4", platform="lightsail"
-            )
-        self.assertEqual(ident.routing, "lightsail")
-        self.assertEqual(ident.instance_id, "mi-lightsail-us4")
-        self.assertTrue(ident.ssm_prefix.startswith("/tokenkey/lightsail/"))
-        get_param.assert_called_once()
-        self.assertEqual(get_param.call_args.args[1], ident.ssm_prefix)
+    def test_retired_identity_never_reads_ssm_parameters(self) -> None:
+        for platform in ("lightsail", "hetzner"):
+            with self.subTest(platform=platform), mock.patch.object(ese, "ssm_parameter_managed_instance_id") as get_param:
+                with self.assertRaisesRegex(SystemExit, "retired"):
+                    ese.resolve_edge_execution_identity(REPO_ROOT, "us4", platform=platform)
+                get_param.assert_not_called()
 
 
 if __name__ == "__main__":
