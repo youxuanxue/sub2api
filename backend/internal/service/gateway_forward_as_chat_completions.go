@@ -192,7 +192,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		// SSOT: same transport-failover owner as /v1/messages and
 		// ForwardAsResponses. Do NOT write the client body here — that would
 		// set upstream_error_response_already_written and block the handler
-		// failover loop (prod 2026-09-20 Cursor #150 chat/completions 502s).
+		// failover loop before another supplier can be selected.
 		upstreamURL := ""
 		if upstreamReq != nil && upstreamReq.URL != nil {
 			upstreamURL = upstreamReq.URL.String()

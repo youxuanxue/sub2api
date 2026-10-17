@@ -38,7 +38,7 @@ related_stories: [US-006]
 
 | Gap | 当前行为 | 用户可感知影响 |
 |---|---|---|
-| **G1** Codex Responses 路径不自动注入 body `prompt_cache_key` | 客户端不送时仅做账号粘性，不送给上游 → 上游 LB 不知道这是同会话 | Cursor/Codex CLI 长任务命中率低 |
+| **G1** Codex Responses 路径不自动注入 body `prompt_cache_key` | 客户端不送时仅做账号粘性，不送给上游 → 上游 LB 不知道这是同会话 | Codex CLI 长任务命中率低 |
 | **G2** OpenAI passthrough 模式下完全不补 sticky 头 | 完全裸透 | passthrough 用户拿不到优化 |
 | **G3** Compat 自动注入白名单太窄 | 仅 `gpt-5.4` / `gpt-5.3-codex` | 其它 GPT 系列同样能受益但被排除 |
 | **G4** 真 Claude Code → OpenAI 翻译路径 | handler 仅在客户端送了 `metadata.user_id` 时才合成 cache key | 多数 Claude Code 用户没显式送 metadata.user_id |

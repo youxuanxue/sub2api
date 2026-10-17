@@ -71,24 +71,7 @@ Decision 5 与 Capability Contract：
 `TestUS050_CandidateDiscoverySeparatesPaymentTiersAndIgnoresRuntimeCapacity`、
 `TestAccountIsLiveForDiscovery`。
 
-## 止血记录（C，已执行）
+## 退役供应的历史记录
 
-- UTC 2026-09-18：prod 账号 **91**（bedrock-2）、**150**（Cursor-93321020@qq.com）
-  的 `credentials.model_mapping` 删除键 `claude-fable-5-1`；保留 `claude-fable-5`。
-- 一次性止血脚本已随 Cursor 退役删除，历史操作可从 git 追溯。
-
-## 历史恢复记录（已被 Cursor 退役取代）
-
-> 下述为历史验证记录，不再作为操作指引。账号 150 已按
-> [Cursor 退役基线](cursor-retirement.md)停用，不再恢复 mapping 或调度。
-
-- Cursor 官方入口已对 Claude Fable 5 / 5.1 完成 Data Policy Acknowledgement（一次确认覆盖两模型）。
-- Go mapping floor：`bedrock` platform 仍要求 `claude-fable-5-1`；Cursor channel 14
-  `account_override` 已随本跟进 PR 收敛为 5 键（claude-opus-5-5 / composer-2.5 /
-  grok-4.5 / grok-4.6 / muse-spark-1.3），不再要求 `claude-fable-5-1`。精简 B 合入后，
-  paused holder 不再把空池模型挂到菜单。
-- 生产验收探针（2026-09-18）：临时打开 150 调度后 `claude-fable-5` /
-  `claude-haiku-4-5` / `claude-sonnet-5` 为 `servable`；`claude-fable-5-1` 因 live
-  mapping 缺键返回网关 `Unsupported model`（未打到上游）。
-- 恢复 live mapping：合并本跟进 PR 后，对 91/150 执行 targeted
-  `apply-accounts`（不要手写 SQL 回滚止血脚本）。是否 `schedulable=true` 仍单独授权。
+旧账号止血和恢复操作从 Git 历史查阅。当前 Cursor 账号的处理以
+[退役基线](cursor-retirement.md)为准，不再恢复 mapping 或调度。

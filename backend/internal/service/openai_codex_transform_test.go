@@ -1827,7 +1827,7 @@ func TestExtractSystemMessagesFromInput(t *testing.T) {
 }
 
 // TestApplyCodexOAuthTransform_StripsPromptCacheRetention is a regression
-// test: some clients (e.g. Cursor cloud via the Responses-shape compat path)
+// test: some clients using the Responses-shape compatibility path
 // send prompt_cache_retention, but the ChatGPT internal Codex endpoint
 // rejects it with "Unsupported parameter: prompt_cache_retention".
 func TestApplyCodexOAuthTransform_StripsPromptCacheRetention(t *testing.T) {
