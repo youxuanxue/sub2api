@@ -15,11 +15,6 @@ func GatewayFailoverClientMessage(upstreamStatusCode int) string {
 	return TkEnrichClaudeIncidentMessage(gatewayFailoverClientMessage, upstreamStatusCode)
 }
 
-// IsGatewayFailoverMessage identifies TokenKey's failover-terminal envelope.
-// The legacy message remains accepted while prod and edge gateways may run
-// different versions. Matching is exact after extracting the JSON message; the
-// only accepted suffix is the incident context added by
-// TkEnrichClaudeIncidentMessage.
 func IsGatewayFailoverMessage(upstreamMsg string, responseBody []byte) bool {
 	if isGatewayFailoverClientMessage(upstreamMsg) {
 		return true

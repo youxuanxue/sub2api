@@ -6,7 +6,7 @@
 #   VERSION / GHCR / deploy+warm workflow inputs → X.Y.Z
 #
 # Workflows checkout refs/tags/v${tag}, so inputs must stay bare. Local dispatch
-# scripts (dispatch-prod-deploy / dispatch-edge-deploy / rollout-edges) call this
+# scripts (dispatch-prod-deploy) call this
 # helper so agents may pass either form; validate-deploy-tag.sh still rejects a
 # leading v on the workflow side.
 #

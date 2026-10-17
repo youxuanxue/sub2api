@@ -45,14 +45,11 @@ type ChannelMonitorDailyRollup struct {
 	// CountPingLatency holds the value of the "count_ping_latency" field.
 	CountPingLatency int `json:"count_ping_latency,omitempty"`
 	// ComputedAt holds the value of the "computed_at" field.
-	ComputedAt time.Time `json:"computed_at,omitempty"`
-	// Edges holds the relations/edges for other nodes in the graph.
-	// The values are being populated by the ChannelMonitorDailyRollupQuery when eager-loading is set.
+	ComputedAt   time.Time                      `json:"computed_at,omitempty"`
 	Edges        ChannelMonitorDailyRollupEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
-// ChannelMonitorDailyRollupEdges holds the relations/edges for other nodes in the graph.
 type ChannelMonitorDailyRollupEdges struct {
 	// Monitor holds the value of the monitor edge.
 	Monitor *ChannelMonitor `json:"monitor,omitempty"`

@@ -20,7 +20,7 @@ func TestHandleGeminiFailoverExhaustedUsesCapacityClientMetadata(t *testing.T) {
 	(&GatewayHandler{}).handleGeminiFailoverExhausted(c, &service.UpstreamFailoverError{
 		StatusCode:       http.StatusServiceUnavailable,
 		ClientStatusCode: http.StatusTooManyRequests,
-		ClientMessage:    service.AntigravityRelayCapacityClientMessage,
+		ClientMessage:    "No available accounts",
 		ResponseHeaders: http.Header{
 			"Retry-After": []string{service.NoAvailableAccountsRetryAfterSeconds},
 		},

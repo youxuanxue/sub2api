@@ -19,9 +19,9 @@ def valid_receipt() -> dict:
     return {
         "schema_version": 2,
         "mode": "pgdump_restore_canary",
-        "target": "edge:us3",
+        "target": "prod",
         "completed_at": "2026-08-11T09:00:00Z",
-        "source_s3_uri": "s3://bucket/edge/us3/pgdump/tokenkey-20260811T070000Z.sql.gz",
+        "source_s3_uri": "s3://bucket/prod/pgdump/tokenkey-20260811T070000Z.sql.gz",
         "source_last_modified": "2026-08-11T07:02:00Z",
         "compressed_bytes": 100,
         "uncompressed_bytes": 1000,
@@ -52,8 +52,8 @@ def valid_receipt() -> dict:
 
 
 class PgdumpRestoreCanaryVerdictTest(unittest.TestCase):
-    def evaluate(self, raw: str) -> dict:
-        return evaluate_receipt(raw, "edge:us3", "us3", now=NOW)
+    def evaluate(self, raw: str, expected_target: str = "prod") -> dict:
+        return evaluate_receipt(raw, expected_target, "prod", now=NOW)
 
     def test_fresh_complete_receipt_is_healthy(self) -> None:
         finding = self.evaluate(json.dumps(valid_receipt()))
@@ -88,8 +88,8 @@ class PgdumpRestoreCanaryVerdictTest(unittest.TestCase):
 
     def test_wrong_target_is_actionable(self) -> None:
         receipt = valid_receipt()
-        receipt["target"] = "prod"
-        finding = self.evaluate(json.dumps(receipt))
+        receipt["target"] = "edge"
+        finding = self.evaluate(json.dumps(receipt), expected_target="prod")
         self.assertEqual(finding["status"], "issue_candidate")
         self.assertIn("wrong target", finding["summary"])
 

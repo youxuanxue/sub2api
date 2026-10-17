@@ -253,7 +253,6 @@ func (_u *ProxyUpdate) AddAccountIDs(ids ...int64) *ProxyUpdate {
 	return _u
 }
 
-// AddAccounts adds the "accounts" edges to the Account entity.
 func (_u *ProxyUpdate) AddAccounts(v ...*Account) *ProxyUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -268,7 +267,6 @@ func (_u *ProxyUpdate) AddPrimaryProxyIDs(ids ...int64) *ProxyUpdate {
 	return _u
 }
 
-// AddPrimaryProxies adds the "primary_proxies" edges to the Proxy entity.
 func (_u *ProxyUpdate) AddPrimaryProxies(v ...*Proxy) *ProxyUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -287,7 +285,6 @@ func (_u *ProxyUpdate) Mutation() *ProxyMutation {
 	return _u.mutation
 }
 
-// ClearAccounts clears all "accounts" edges to the Account entity.
 func (_u *ProxyUpdate) ClearAccounts() *ProxyUpdate {
 	_u.mutation.ClearAccounts()
 	return _u
@@ -299,7 +296,6 @@ func (_u *ProxyUpdate) RemoveAccountIDs(ids ...int64) *ProxyUpdate {
 	return _u
 }
 
-// RemoveAccounts removes "accounts" edges to Account entities.
 func (_u *ProxyUpdate) RemoveAccounts(v ...*Account) *ProxyUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -308,7 +304,6 @@ func (_u *ProxyUpdate) RemoveAccounts(v ...*Account) *ProxyUpdate {
 	return _u.RemoveAccountIDs(ids...)
 }
 
-// ClearPrimaryProxies clears all "primary_proxies" edges to the Proxy entity.
 func (_u *ProxyUpdate) ClearPrimaryProxies() *ProxyUpdate {
 	_u.mutation.ClearPrimaryProxies()
 	return _u
@@ -320,7 +315,6 @@ func (_u *ProxyUpdate) RemovePrimaryProxyIDs(ids ...int64) *ProxyUpdate {
 	return _u
 }
 
-// RemovePrimaryProxies removes "primary_proxies" edges to Proxy entities.
 func (_u *ProxyUpdate) RemovePrimaryProxies(v ...*Proxy) *ProxyUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -846,7 +840,6 @@ func (_u *ProxyUpdateOne) AddAccountIDs(ids ...int64) *ProxyUpdateOne {
 	return _u
 }
 
-// AddAccounts adds the "accounts" edges to the Account entity.
 func (_u *ProxyUpdateOne) AddAccounts(v ...*Account) *ProxyUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -861,7 +854,6 @@ func (_u *ProxyUpdateOne) AddPrimaryProxyIDs(ids ...int64) *ProxyUpdateOne {
 	return _u
 }
 
-// AddPrimaryProxies adds the "primary_proxies" edges to the Proxy entity.
 func (_u *ProxyUpdateOne) AddPrimaryProxies(v ...*Proxy) *ProxyUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -880,7 +872,6 @@ func (_u *ProxyUpdateOne) Mutation() *ProxyMutation {
 	return _u.mutation
 }
 
-// ClearAccounts clears all "accounts" edges to the Account entity.
 func (_u *ProxyUpdateOne) ClearAccounts() *ProxyUpdateOne {
 	_u.mutation.ClearAccounts()
 	return _u
@@ -892,7 +883,6 @@ func (_u *ProxyUpdateOne) RemoveAccountIDs(ids ...int64) *ProxyUpdateOne {
 	return _u
 }
 
-// RemoveAccounts removes "accounts" edges to Account entities.
 func (_u *ProxyUpdateOne) RemoveAccounts(v ...*Account) *ProxyUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -901,7 +891,6 @@ func (_u *ProxyUpdateOne) RemoveAccounts(v ...*Account) *ProxyUpdateOne {
 	return _u.RemoveAccountIDs(ids...)
 }
 
-// ClearPrimaryProxies clears all "primary_proxies" edges to the Proxy entity.
 func (_u *ProxyUpdateOne) ClearPrimaryProxies() *ProxyUpdateOne {
 	_u.mutation.ClearPrimaryProxies()
 	return _u
@@ -913,7 +902,6 @@ func (_u *ProxyUpdateOne) RemovePrimaryProxyIDs(ids ...int64) *ProxyUpdateOne {
 	return _u
 }
 
-// RemovePrimaryProxies removes "primary_proxies" edges to Proxy entities.
 func (_u *ProxyUpdateOne) RemovePrimaryProxies(v ...*Proxy) *ProxyUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {

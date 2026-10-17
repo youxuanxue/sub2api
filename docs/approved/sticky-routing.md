@@ -416,5 +416,4 @@ anthropic 主网关路径**不动**（上游已在 `wait_queue_full` 时逃逸�
 |---|---|
 | NewAPI 分组无显式 session 时，用 **stable prefix**（system/tools/instructions）+ `api_key_id`+model 派生 sticky seed | `openai_gateway_scheduling_tk_newapi_prompt_cache.go` + `GenerateSessionHash` |
 
-不区分直连 vs `china-us*` edge mirror：镜像侧同样「同 session 粘账号」，二跳本身不额外打散。
 万能 key / 非 NewAPI 分组语义不变。槽满逃逸（§11.5）仍适用。

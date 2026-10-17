@@ -1,0 +1,44 @@
+name: Prod Feishu Config Sync
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: prod-feishu-config-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: prod
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'ap-northeast-1' }}
+      PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
+      TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+      TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate alert configuration
+        run: |
+          set -euo pipefail
+          for key in OIDC_ROLE_ARN TK_FEISHU_WEBHOOK_URL TK_FEISHU_SIGNING_SECRET; do
+            if [ -z "${!key}" ]; then
+              echo "::error::$key is not configured"
+              exit 1
+            fi
+          done
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Sync and verify production alert configuration
+        run: bash ops/stage0/sync-feishu-config.sh prod

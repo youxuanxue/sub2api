@@ -88,13 +88,10 @@ type Account struct {
 	ParentAccountID *int64 `json:"parent_account_id,omitempty"`
 	// 'global' (default) or 'spark' (shadow reads codex_bengalfox).
 	QuotaDimension account.QuotaDimension `json:"quota_dimension,omitempty"`
-	// Edges holds the relations/edges for other nodes in the graph.
-	// The values are being populated by the AccountQuery when eager-loading is set.
-	Edges        AccountEdges `json:"edges"`
-	selectValues sql.SelectValues
+	Edges          AccountEdges           `json:"edges"`
+	selectValues   sql.SelectValues
 }
 
-// AccountEdges holds the relations/edges for other nodes in the graph.
 type AccountEdges struct {
 	// Groups holds the value of the groups edge.
 	Groups []*Group `json:"groups,omitempty"`

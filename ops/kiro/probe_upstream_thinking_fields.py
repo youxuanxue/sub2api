@@ -3,7 +3,7 @@
 
 Reads OAuth credentials JSON (TokenKey account.credentials shape or CLI cache),
 calls generateAssistantResponse with thinking enabled, and reports event types +
-payload keys + signature lengths. Safe to run on edge via SSM.
+payload keys + signature lengths. Safe to run on prod via SSM.
 """
 from __future__ import annotations
 

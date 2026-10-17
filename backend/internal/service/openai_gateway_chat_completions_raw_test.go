@@ -459,7 +459,7 @@ func TestForwardAsRawChatCompletions_GrokAPIKeyRelayUsesEdgeKeyAndBaseURL(t *tes
 		Credentials: map[string]any{
 			"api_key":      "edge-grok-key",
 			"access_token": "must-not-be-used",
-			"base_url":     "https://api-us4.tokenkey.dev",
+			"base_url":     "https://upstream.example.test",
 		},
 	}
 
@@ -467,7 +467,7 @@ func TestForwardAsRawChatCompletions_GrokAPIKeyRelayUsesEdgeKeyAndBaseURL(t *tes
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, upstream.lastReq)
-	require.Equal(t, "https://api-us4.tokenkey.dev/v1/chat/completions", upstream.lastReq.URL.String())
+	require.Equal(t, "https://upstream.example.test/v1/chat/completions", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer edge-grok-key", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, "grok-4", gjson.GetBytes(upstream.lastBody, "model").String())
 }

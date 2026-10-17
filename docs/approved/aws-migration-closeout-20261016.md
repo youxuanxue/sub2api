@@ -30,12 +30,12 @@ scope: repair approved post-migration backup, timer and monitoring gaps; retire 
 ## 宿主 HTTPS 监控
 
 Owner：`ops/observability/host_https_watch.py`、`install-host-https-watch.sh`。
-安装器接受 prod、cn-prod 与现役 edge 角色，核对目标清单的主机名；先 dry-run，HTTPS 目标必须健康，本地任务的已有失败允许安装以便及时告警。
+安装器接受 prod、cn-prod 角色，核对目标清单的主机名；先 dry-run，HTTPS 目标必须健康，本地任务的已有失败允许安装以便及时告警。
 更新使用内容寻址的独立代码目录，避免覆盖仍可能被旧 timer 读取的模块。
-传入现有 probe/delivery 三个 companion、fresh prod 清单、Lightsail 活矩阵及 `deploy/domestic/prod-target.json`；
+传入现有 probe/delivery 三个 companion、fresh prod 清单及 `deploy/domestic/prod-target.json`；
 AWS 凭据仅从主机现有 `.env` 读取，cn-prod 使用现有 `/opt/tokenkey/host-alerts.env`，不通过传输工具投递密钥。
-`APPLY=yes-host-https-watch` 是安装 opt-in，`WATCH_ROLE=prod|cn-prod|uk1|uk2|us4|us5` 选择职责。
-cn-prod 与 us5 分别提供境内、境外观察，覆盖两套生产入口；国内入口的当前目标与覆盖边界见 `deploy/domestic/README.md`。
+`APPLY=yes-host-https-watch` 是安装 opt-in，`WATCH_ROLE=prod|cn-prod` 选择职责。
+prod 与 cn-prod 互相监测生产入口；国内入口的当前目标与覆盖边界见 `deploy/domestic/README.md`。
 状态文件为 `/var/lib/tokenkey/https-watch/state.json`；systemd service 最长 110 秒、10% CPU、128 MiB。
 通知成功后持久化状态；多目标中途通知失败允许下次重复先前已投递的通知，避免漏报。
 回退先停用 `tokenkey-https-watch.timer`，待 service 空闲后恢复安装输出的备份文件并 daemon-reload；

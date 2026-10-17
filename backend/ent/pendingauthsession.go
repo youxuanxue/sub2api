@@ -61,14 +61,11 @@ type PendingAuthSession struct {
 	// ExpiresAt holds the value of the "expires_at" field.
 	ExpiresAt time.Time `json:"expires_at,omitempty"`
 	// ConsumedAt holds the value of the "consumed_at" field.
-	ConsumedAt *time.Time `json:"consumed_at,omitempty"`
-	// Edges holds the relations/edges for other nodes in the graph.
-	// The values are being populated by the PendingAuthSessionQuery when eager-loading is set.
+	ConsumedAt   *time.Time              `json:"consumed_at,omitempty"`
 	Edges        PendingAuthSessionEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
-// PendingAuthSessionEdges holds the relations/edges for other nodes in the graph.
 type PendingAuthSessionEdges struct {
 	// TargetUser holds the value of the target_user edge.
 	TargetUser *User `json:"target_user,omitempty"`

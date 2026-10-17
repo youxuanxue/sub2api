@@ -135,7 +135,6 @@ func (_u *ChannelMonitorRequestTemplateUpdate) AddMonitorIDs(ids ...int64) *Chan
 	return _u
 }
 
-// AddMonitors adds the "monitors" edges to the ChannelMonitor entity.
 func (_u *ChannelMonitorRequestTemplateUpdate) AddMonitors(v ...*ChannelMonitor) *ChannelMonitorRequestTemplateUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -149,7 +148,6 @@ func (_u *ChannelMonitorRequestTemplateUpdate) Mutation() *ChannelMonitorRequest
 	return _u.mutation
 }
 
-// ClearMonitors clears all "monitors" edges to the ChannelMonitor entity.
 func (_u *ChannelMonitorRequestTemplateUpdate) ClearMonitors() *ChannelMonitorRequestTemplateUpdate {
 	_u.mutation.ClearMonitors()
 	return _u
@@ -161,7 +159,6 @@ func (_u *ChannelMonitorRequestTemplateUpdate) RemoveMonitorIDs(ids ...int64) *C
 	return _u
 }
 
-// RemoveMonitors removes "monitors" edges to ChannelMonitor entities.
 func (_u *ChannelMonitorRequestTemplateUpdate) RemoveMonitors(v ...*ChannelMonitor) *ChannelMonitorRequestTemplateUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -449,7 +446,6 @@ func (_u *ChannelMonitorRequestTemplateUpdateOne) AddMonitorIDs(ids ...int64) *C
 	return _u
 }
 
-// AddMonitors adds the "monitors" edges to the ChannelMonitor entity.
 func (_u *ChannelMonitorRequestTemplateUpdateOne) AddMonitors(v ...*ChannelMonitor) *ChannelMonitorRequestTemplateUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -463,7 +459,6 @@ func (_u *ChannelMonitorRequestTemplateUpdateOne) Mutation() *ChannelMonitorRequ
 	return _u.mutation
 }
 
-// ClearMonitors clears all "monitors" edges to the ChannelMonitor entity.
 func (_u *ChannelMonitorRequestTemplateUpdateOne) ClearMonitors() *ChannelMonitorRequestTemplateUpdateOne {
 	_u.mutation.ClearMonitors()
 	return _u
@@ -475,7 +470,6 @@ func (_u *ChannelMonitorRequestTemplateUpdateOne) RemoveMonitorIDs(ids ...int64)
 	return _u
 }
 
-// RemoveMonitors removes "monitors" edges to ChannelMonitor entities.
 func (_u *ChannelMonitorRequestTemplateUpdateOne) RemoveMonitors(v ...*ChannelMonitor) *ChannelMonitorRequestTemplateUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {

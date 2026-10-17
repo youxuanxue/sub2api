@@ -1041,8 +1041,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			return nil, policyErr
 		}
 
-		// ErrorPolicyNone → 原有逻辑
-		if !tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
+		{
 			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 		// 精确匹配服务端配置类 400 错误，触发 failover + 临时封禁
@@ -1103,7 +1102,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				Message:            upstreamMsg,
 				Detail:             upstreamDetail,
 			})
-			return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, respBody)
+			return nil, newUpstreamFailoverError(resp.StatusCode, resp.Header, respBody)
 		}
 		return nil, s.writeGeminiMappedError(c, account, resp.StatusCode, upstreamReqID, respBody)
 	}
@@ -1597,8 +1596,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			return nil, policyErr
 		}
 
-		// ErrorPolicyNone → 原有逻辑
-		if !tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
+		{
 			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 		// 精确匹配服务端配置类 400 错误，触发 failover + 临时封禁
@@ -1661,7 +1659,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				Message:            upstreamMsg,
 				Detail:             upstreamDetail,
 			})
-			return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, evBody)
+			return nil, newUpstreamFailoverError(resp.StatusCode, resp.Header, evBody)
 		}
 
 		return nil, s.writeGeminiNativeUpstreamError(c, account, resp, respBody, requestID, isOAuth)

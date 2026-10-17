@@ -92,19 +92,6 @@ func (s *RateLimitService) tkPlatformPoolExhaustedCheck(ctx context.Context, pla
 	if len(accounts) > 0 {
 		return
 	}
-	// 「瞬时 vs 持续」降噪(承接 2026-06-18 决策:瞬时去掉、连续保留)。判别用本次冷却
-	// 的剩余时长:单次 529/503 走 tier-0(~30s)秒级自愈——单账号 edge 上这种 drain 是
-	// 拓扑保证会反复响的噪声(实测 edge-us7 2026-06-18: 30s 冷却、857:1 服务比、1 请求
-	// 受影响,prod→edge 镜像中继已 failover 同级兄弟 edge 承接),不该 P0。**持续** 529/503
-	// 才会经 3/3 阶梯升级进 tier-1(2m)/tier-2(10m),届时剩余时长 > 60s = 账号因连续错误
-	// 升级 = 真持续故障(含 2026-06-11 七号同倒的 10min 全池崩塌),必须 P0。
-	// until 缺失(零值)= 无法判定瞬时 → 保守 P0(宁可多报不可漏报)。
-	//
-	// 不变量(降噪安全性依据):until 是**触发本次空池的那个账号**的冷却终点,而正是
-	// 这个账号会在 until 时刻把池重新填上——所以剩余短 ⇒ 池近期必自愈,抑制安全;池里
-	// 若还有别的账号在更长冷却也不延长空窗(本账号先回来扛流量)。若本账号到点又立刻
-	// 失败,error_count 累加触发阶梯升级,下一次触发的 until 就 > 60s → 照常 P0。即使别的
-	// 账号反而更早到点(本账号冷却长),那也只是 until 高估空窗 → 偏向多报,不会漏报。
 	remaining := time.Until(until)
 	if !until.IsZero() && remaining <= tkPoolExhaustedTransientCooldown {
 		slog.Warn("platform_pool_transient_drain",

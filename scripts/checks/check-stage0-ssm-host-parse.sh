@@ -16,8 +16,8 @@
 # This guard closes the gap: run each script with a stubbed `aws` so it emits
 # its params file WITHOUT touching AWS, then `bash -n` the joined commands.
 #
-# Scope (explicit, not silent): covers the prod/edge MUTATION primitives
-# (deploy image, sync Caddyfile, sync docs, sync Feishu config, sync edge host
+# Scope (explicit, not silent): covers the prod MUTATION primitives
+# (deploy image, sync Caddyfile, sync docs, sync Feishu config, sync prod host
 # units, sync host mem-guard, sync host BBR) plus the read-only warm-image
 # primitive (same jq-host-command shape, same blind spot).
 # edge_post_deploy_smoke.sh also builds an SSM `commands` array, but is left out
@@ -117,7 +117,6 @@ check_one "deploy_via_ssm.sh"               deploy    bash "${OPS}/deploy_via_ss
 check_one "deploy_via_ssm_bluegreen.sh"     bgdeploy  bash "${OPS}/deploy_via_ssm_bluegreen.sh" 1.0.0 i-0stub probe
 check_one "warm_pull_via_ssm.sh"            warm      bash "${OPS}/warm_pull_via_ssm.sh" 1.0.0 i-0stub probe
 check_one "sync_caddyfile_via_ssm.sh prod"  sync-prod bash "${OPS}/sync_caddyfile_via_ssm.sh" prod i-0stub probe
-check_one "sync_caddyfile_via_ssm.sh edge"  sync-edge bash "${OPS}/sync_caddyfile_via_ssm.sh" edge i-0stub probe
 check_one "sync_docs_pages.sh"              sync-docs bash "${OPS}/sync_docs_pages.sh" i-0stub ops/stage0/fixtures/sync_docs_page_sample.md
 # sync-feishu-config.sh requires the shared webhook/secret in env; pass dummies so
 # it reaches params emission (the stubbed aws makes the later verify exit nonzero,
@@ -125,8 +124,6 @@ check_one "sync_docs_pages.sh"              sync-docs bash "${OPS}/sync_docs_pag
 check_one "sync-feishu-config.sh"           sync-feishu \
   env TK_FEISHU_WEBHOOK_URL=https://example.test/hook TK_FEISHU_SIGNING_SECRET=dummy \
   bash "${OPS}/sync-feishu-config.sh" prod
-check_one "sync-edge-host-units-via-ssm.sh" sync-host-units \
-  bash "${OPS}/sync-edge-host-units-via-ssm.sh" mi-0stub
 check_one "sync-ghcr-prune-timer-via-ssm.sh" sync-ghcr-prune \
   bash "${OPS}/sync-ghcr-prune-timer-via-ssm.sh" i-0stub
 check_one "sync-host-mem-guard-via-ssm.sh"  sync-mem-guard \

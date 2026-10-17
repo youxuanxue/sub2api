@@ -68,9 +68,7 @@ def account_matches(account, cls, case):
     if not endpoint:
         endpoint = next((v for v in (creds.get('api_base_urls') or {}).values() if isinstance(v, str)), '')
     host = (urlsplit(endpoint).hostname or '').lower()
-    if host.endswith('.tokenkey.dev'):
-        dialect = 'edge-' + (creds.get('mirror_platform') or account['platform'])
-    elif host == 'integrate.api.nvidia.com':
+    if host == 'integrate.api.nvidia.com':
         dialect = 'nvidia-build'
     elif host == 'token-plan.cn-beijing.maas.aliyuncs.com':
         dialect = 'dashscope-token-plan'

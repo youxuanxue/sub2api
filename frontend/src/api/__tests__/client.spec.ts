@@ -266,7 +266,7 @@ describe('API Client', () => {
       // "[object Object]" (the bug this fixes at the source). One representative path
       // (HTTP error response) is enough; all reject points share createApiError.
       const adapter = vi.fn().mockRejectedValue({
-        response: { status: 500, data: { code: 'INTERNAL', message: 'edge fan-out failed' } },
+        response: { status: 500, data: { code: 'INTERNAL', message: 'upstream request failed' } },
         config: { url: '/test' },
         code: 'ERR_BAD_REQUEST',
       })
@@ -275,7 +275,7 @@ describe('API Client', () => {
       await expect(apiClient.get('/test')).rejects.toBeInstanceOf(Error)
       const err = await apiClient.get('/test').catch((e) => e)
       expect(err).toBeInstanceOf(Error)
-      expect(err.message).toBe('edge fan-out failed')
+      expect(err.message).toBe('upstream request failed')
       expect(String(err)).not.toBe('[object Object]')
     })
 

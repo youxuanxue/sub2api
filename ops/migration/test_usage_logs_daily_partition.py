@@ -23,8 +23,8 @@ import usage_logs_daily_partition as control  # noqa: E402
 import usage_logs_daily_partition_remote as remote  # noqa: E402
 
 
-_TARGET = "edge:us3"
-_INSTANCE = "mi-0123456789abcdef0"
+_TARGET = "prod"
+_INSTANCE = "i-0123456789abcdef0"
 _UPPER = "2026-08-05T00:00:00Z"
 _CONFIRM = remote.cutover_confirmation_prefix(_TARGET) + _UPPER
 
@@ -122,13 +122,13 @@ class UsageLogsDailyPartitionTest(unittest.TestCase):
                 )
         psql.assert_not_called()
 
-    def test_edge_confirmation_cannot_authorize_prod_prepare(self) -> None:
+    def test_incorrect_confirmation_cannot_authorize_prepare(self) -> None:
         with mock.patch.object(remote, "status") as status:
             with self.assertRaisesRegex(remote.UsagePartitionError, "confirmation"):
-                remote.prepare("prod", remote.prepare_confirmation(_TARGET))
+                remote.prepare("prod", "incorrect-confirmation")
         status.assert_not_called()
 
-    def test_edge_remote_receipt_binds_managed_instance_and_target(self) -> None:
+    def test_remote_receipt_binds_instance_and_target(self) -> None:
         payload = {
             "mode": "usage_logs_daily_partition_status",
             "target": _TARGET,
@@ -156,9 +156,9 @@ class UsageLogsDailyPartitionTest(unittest.TestCase):
     def test_prepare_receipt_cannot_cross_targets(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             receipt = pathlib.Path(temp) / "prepare.json"
-            receipt.write_text(json.dumps(_prepare_receipt()), encoding="utf-8")
+            receipt.write_text(json.dumps(_prepare_receipt(target="wrong-target")), encoding="utf-8")
             with self.assertRaisesRegex(control.UsagePartitionControlError, "validation"):
-                control._load_prepare_receipt(receipt, "edge:us4")
+                control._load_prepare_receipt(receipt, _TARGET)
 
     def test_cutover_refuses_confirmation_not_bound_to_upper(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

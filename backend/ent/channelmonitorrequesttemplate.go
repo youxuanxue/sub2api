@@ -35,14 +35,11 @@ type ChannelMonitorRequestTemplate struct {
 	// BodyOverrideMode holds the value of the "body_override_mode" field.
 	BodyOverrideMode string `json:"body_override_mode,omitempty"`
 	// BodyOverride holds the value of the "body_override" field.
-	BodyOverride map[string]interface{} `json:"body_override,omitempty"`
-	// Edges holds the relations/edges for other nodes in the graph.
-	// The values are being populated by the ChannelMonitorRequestTemplateQuery when eager-loading is set.
+	BodyOverride map[string]interface{}             `json:"body_override,omitempty"`
 	Edges        ChannelMonitorRequestTemplateEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
-// ChannelMonitorRequestTemplateEdges holds the relations/edges for other nodes in the graph.
 type ChannelMonitorRequestTemplateEdges struct {
 	// Monitors holds the value of the monitors edge.
 	Monitors []*ChannelMonitor `json:"monitors,omitempty"`

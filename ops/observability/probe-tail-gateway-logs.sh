@@ -9,10 +9,6 @@
 #   REQUEST_IDS comma-separated request_id / client_request_id pins
 #   PATH_FILTER optional exact JSON path filter (e.g. /v1/chat/completions)
 #   STATUS_CODE optional exact status_code filter
-#   CONNECT_HOSTS optional comma-separated api-<id>.tokenkey.dev hosts
-#               to DNS+GET from the host and the app container
-#               (GET /health + /v1/messages; host also POSTs empty JSON
-#               over HTTP/1.1 and HTTP/2 to /v1/messages?beta=true; no auth)
 #   CONTAINER   gateway container (default auto). auto resolves
 #               /var/lib/tokenkey/active-color to tokenkey-blue/green and
 #               falls back to the legacy tokenkey container.
@@ -28,7 +24,6 @@ REQUEST_IDS="${REQUEST_IDS:-}"
 PATH_FILTER="${PATH_FILTER:-}"
 STATUS_CODE="${STATUS_CODE:-}"
 MESSAGE_CONTAINS="${MESSAGE_CONTAINS:-}"
-CONNECT_HOSTS="${CONNECT_HOSTS:-}"
 CONTAINER="${CONTAINER:-auto}"
 ACTIVE_COLOR_FILE="${ACTIVE_COLOR_FILE:-/var/lib/tokenkey/active-color}"
 
@@ -45,12 +40,6 @@ if [ -n "$REQUEST_IDS" ]; then
     *[!0-9a-fA-F,-]*) echo "[probe-tail-gateway-logs] ERROR: REQUEST_IDS must be comma-separated hex/UUID" >&2; exit 2 ;;
   esac
 fi
-if [ -n "$CONNECT_HOSTS" ]; then
-  case "$CONNECT_HOSTS" in
-    *[!a-zA-Z0-9.,-]*) echo "[probe-tail-gateway-logs] ERROR: CONNECT_HOSTS must be comma-separated hostnames" >&2; exit 2 ;;
-  esac
-fi
-
 # Where the canonical resolver lives. run-probe.sh uploads
 # resolve_app_container.py next to this probe (/tmp); a repo checkout has it
 # under ops/lib. Exported so the python heredoc below resolves the same owner.
@@ -58,7 +47,7 @@ TK_LIB_DIR="${TK_LIB_DIR:-$(cd "$(dirname "$0")" && pwd)}"
 export TK_LIB_DIR
 
 TK_PROBE_DIR="$(cd "$(dirname "$0")" && pwd)"
-export TK_PROBE_DIR UNTIL REQUEST_IDS PATH_FILTER STATUS_CODE MESSAGE_CONTAINS CONNECT_HOSTS
+export TK_PROBE_DIR UNTIL REQUEST_IDS PATH_FILTER STATUS_CODE MESSAGE_CONTAINS
 python3 - "$LIMIT" "$SINCE" "$CONTAINER" "$ACTIVE_COLOR_FILE" <<'PY'
 import json
 import os
@@ -66,7 +55,6 @@ import pathlib
 import re
 import subprocess
 import sys
-import time
 
 limit = int(sys.argv[1])
 since = sys.argv[2]
@@ -78,15 +66,6 @@ status_code_filter = os.environ.get("STATUS_CODE", "").strip()
 request_ids = [x.strip() for x in os.environ.get("REQUEST_IDS", "").split(",") if x.strip()]
 request_id_set = set(request_ids)
 message_contains = os.environ.get("MESSAGE_CONTAINS", "").strip()
-connect_hosts = [x.strip().lower() for x in os.environ.get("CONNECT_HOSTS", "").split(",") if x.strip()]
-connect_host_re = re.compile(r"^api-[a-z0-9]+\.tokenkey\.dev$")
-rejected_hosts = [h for h in connect_hosts if not connect_host_re.match(h)]
-if rejected_hosts:
-    print(json.dumps({
-        "error": "CONNECT_HOSTS not allowlisted (api-<id>.tokenkey.dev only)",
-        "rejected": rejected_hosts,
-    }))
-    sys.exit(2)
 
 marker = "http request completed"
 json_re = re.compile(r"\{.*\}\s*$")
@@ -330,152 +309,6 @@ if request_ids:
         ),
     }
 
-def _run_cmd(cmd, timeout=8):
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=timeout)
-    out = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
-    return proc.returncode, out[:400]
-
-
-def _resolve_ips(host, via_container=None):
-    cmd = ["getent", "ahosts", host]
-    if via_container:
-        cmd = ["docker", "exec", via_container] + cmd
-    try:
-        rc, text = _run_cmd(cmd)
-    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-        return {"error": str(exc)[:160]}
-    ips = []
-    for line in text.splitlines():
-        parts = line.split()
-        if parts and parts[0] not in ips:
-            ips.append(parts[0])
-    return {"rc": rc, "ips": ips[:8], "error": None if ips else text[:160]}
-
-
-def _http_get(url, via_container=None):
-    return _http_probe("GET", url, via_container=via_container)
-
-
-def _http_probe(method, url, via_container=None, http_version=None):
-    method = method.upper()
-    if via_container:
-        cmd = [
-            "docker", "exec", via_container,
-            "wget", "-S", "-O", "/dev/null", "--timeout=5",
-        ]
-        if method == "POST":
-            cmd += [
-                "--post-data={}",
-                "--header=Content-Type: application/json",
-            ]
-        cmd.append(url)
-    else:
-        cmd = [
-            "curl", "-sS", "-o", "/dev/null",
-            "-w", "%{http_code} %{time_total} %{errormsg} %{http_version}",
-            "--max-time", "5", "-X", method,
-        ]
-        if http_version == "1.1":
-            cmd.append("--http1.1")
-        elif http_version == "2":
-            cmd.append("--http2")
-        if method == "POST":
-            cmd += ["-H", "content-type: application/json", "--data", "{}"]
-        cmd.append(url)
-    started = time.monotonic()
-    try:
-        rc, text = _run_cmd(cmd, timeout=8)
-    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-        return {"error": str(exc)[:160]}
-    elapsed_ms = int((time.monotonic() - started) * 1000)
-    http_code = None
-    errormsg = ""
-    negotiated = None
-    if via_container:
-        codes = re.findall(r"HTTP/\S+\s+(\d{3})\b", text)
-        if codes:
-            http_code = int(codes[-1])
-        if rc != 0:
-            errormsg = text.splitlines()[-1][:160] if text else "wget failed"
-    else:
-        parts = text.split()
-        if parts and parts[0].isdigit():
-            http_code = int(parts[0])
-        if len(parts) >= 4:
-            negotiated = parts[-1]
-            errormsg = " ".join(parts[2:-1]).strip()
-        elif len(parts) >= 3:
-            errormsg = " ".join(parts[2:]).strip()
-    row = {
-        "rc": rc,
-        "http_code": http_code,
-        "elapsed_ms": elapsed_ms,
-        "error": errormsg or None,
-    }
-    if negotiated:
-        row["http_version"] = negotiated
-    return row
-
-
-connect = None
-if connect_hosts:
-    connect = {"hosts": []}
-    for host in connect_hosts:
-        connect["hosts"].append({
-            "host": host,
-            "dns_host": _resolve_ips(host),
-            "dns_container": _resolve_ips(host, via_container=container),
-            "gets": {
-                path: {
-                    "host": _http_get(f"https://{host}{path}"),
-                    "container": _http_get(f"https://{host}{path}", via_container=container),
-                }
-                for path in ("/health", "/v1/messages")
-            },
-            "posts": {
-                spec: _http_probe(
-                    "POST",
-                    f"https://{host}{path}",
-                    http_version=ver,
-                )
-                for spec, path, ver in (
-                    ("http1_messages", "/v1/messages", "1.1"),
-                    ("http2_messages", "/v1/messages", "2"),
-                    ("http1_messages_beta", "/v1/messages?beta=true", "1.1"),
-                    ("http2_messages_beta", "/v1/messages?beta=true", "2"),
-                )
-            },
-            "container_post_beta": _http_probe(
-                "POST",
-                f"https://{host}/v1/messages?beta=true",
-                via_container=container,
-            ),
-        })
-    base_urls = ",".join("'" + ("https://" + h).replace("'", "") + "'" for h in connect_hosts)
-    sibling = _psql_json_rows(
-        "SELECT row_to_json(t) FROM ("
-        "SELECT a.id, a.name, a.platform, a.type, a.status, a.schedulable, "
-        "left(COALESCE(a.credentials->>'base_url',''), 80) AS base_url, "
-        "(SELECT count(*) FROM usage_logs ul "
-        " WHERE ul.account_id=a.id AND ul.created_at >= now() - interval '6 hours') AS usage_6h, "
-        "(SELECT max(ul.created_at) FROM usage_logs ul "
-        " WHERE ul.account_id=a.id AND ul.created_at >= now() - interval '6 hours') AS last_usage_6h, "
-        "(SELECT count(*) FROM ops_error_logs el "
-        " WHERE el.account_id=a.id AND el.created_at >= now() - interval '6 hours' "
-        "   AND el.status_code=502) AS err502_6h, "
-        "(SELECT max(el.created_at) FROM ops_error_logs el "
-        " WHERE el.account_id=a.id AND el.created_at >= now() - interval '6 hours' "
-        "   AND el.status_code=502) AS last_err502_6h "
-        "FROM accounts a "
-        "WHERE a.deleted_at IS NULL "
-        f"AND left(COALESCE(a.credentials->>'base_url',''), 80) IN ({base_urls}) "
-        "ORDER BY a.id"
-        ") t"
-    )
-    if db is None:
-        db = {}
-    db["sibling_accounts"] = sibling
-
 out = {
     "meta": {
         "container_input": container_arg,
@@ -487,7 +320,6 @@ out = {
         "message_contains": message_contains or None,
         "path_filter": path_filter or None,
         "status_code": status_code_filter or None,
-        "connect_hosts": connect_hosts or None,
         "limit": limit,
         "matched_total": len(rows),
         "returned": len(tail),
@@ -500,7 +332,5 @@ if related:
     out["meta"]["related_returned"] = len(out["related"])
 if db is not None:
     out["db"] = db
-if connect is not None:
-    out["connect"] = connect
 print(json.dumps(out, indent=2, sort_keys=True))
 PY

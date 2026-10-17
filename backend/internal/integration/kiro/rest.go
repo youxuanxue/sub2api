@@ -11,15 +11,7 @@ import (
 )
 
 const (
-	kiroRestAPIBase = "https://codewhisperer.us-east-1.amazonaws.com"
-	// kiroManagementAPIBase is the go-forward *.kiro.dev control-plane host
-	// (configuration / lifecycle / access management). It replaces the legacy
-	// codewhisperer.* base, which Kiro's docs no longer list at all. Used (via
-	// kiroRestFetchWithDoer, management-first with codewhisperer fallback) by the calls
-	// edge-us6 smoke-validated equivalent on management: ListAvailableProfiles
-	// (same profileArn), ListAvailableModels (same model set), Get-Usage-Limits (all
-	// fields UsageLimitsResponse reads). User identity is returned inside
-	// Get-Usage-Limits (userInfo{email,userId}).
+	kiroRestAPIBase       = "https://codewhisperer.us-east-1.amazonaws.com"
 	kiroManagementAPIBase = "https://management.us-east-1.kiro.dev"
 )
 

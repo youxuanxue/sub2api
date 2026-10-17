@@ -43,7 +43,7 @@ func candidateGoogleFixture(t *testing.T) (*UniversalRoutingResolver, *GatewaySe
 			ID: 62, GroupIDs: []int64{21}, Platform: PlatformAntigravity,
 			Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true,
 			Credentials: map[string]any{
-				"base_url": "https://api-us4.tokenkey.dev", "api_key": "test-only",
+				"base_url": "https://upstream.example.test", "api_key": "test-only",
 				"model_mapping": map[string]any{model: model + "-medium"},
 			},
 		},
@@ -126,7 +126,7 @@ func TestCandidateEligibilityCapacityIsNotEntitlement(t *testing.T) {
 }
 
 func TestCandidateEligibilityNativeAndConverterEqual(t *testing.T) {
-	accounts := []Account{*protocolRoutingOpenAIAccount(101, "chat_completions"), *protocolRoutingOpenAIAccount(102, "responses")}
+	accounts := []Account{*officialOpenAIOAuthAccount(101), *officialOpenAIOAuthAccount(102)}
 	for i := range accounts {
 		accounts[i].GroupIDs = []int64{int64(i + 1)}
 	}
@@ -384,16 +384,16 @@ func TestCandidateEligibilitySaturationPreservesBillingTier(t *testing.T) {
 	}{
 		{"healthy", false, nil, 1},
 		{"transient", false, map[int64]int64{101: 2}, 1},
-		{"saturated", false, map[int64]int64{101: edgeMirrorStubSaturationThreshold}, 2},
-		{"all_saturated", false, map[int64]int64{101: edgeMirrorStubSaturationThreshold, 102: edgeMirrorStubSaturationThreshold}, 1},
-		{"subscription_before_soft_health", true, map[int64]int64{101: edgeMirrorStubSaturationThreshold}, 1},
+		{"saturated", false, map[int64]int64{101: saturationThreshold}, 2},
+		{"all_saturated", false, map[int64]int64{101: saturationThreshold, 102: saturationThreshold}, 1},
+		{"subscription_before_soft_health", true, map[int64]int64{101: saturationThreshold}, 1},
 		{"expired", false, nil, 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			accounts := []Account{*protocolRoutingOpenAIAccount(101, "chat_completions"), *protocolRoutingOpenAIAccount(102, "responses")}
+			accounts := []Account{*officialOpenAIOAuthAccount(101), *officialOpenAIOAuthAccount(102)}
 			for i := range accounts {
 				accounts[i].GroupIDs = []int64{int64(i + 1)}
-				accounts[i].Credentials["base_url"] = "https://api-us4.tokenkey.dev"
+				accounts[i].Credentials["model_mapping"] = map[string]any{"gpt-5.4": "gpt-6-sol"}
 				attachTestProtocolCapability(&accounts[i], protocolrouter.ProtocolResponses)
 			}
 			resolver := NewUniversalRoutingResolver(&stubSpanLister{groups: []Group{
@@ -461,7 +461,7 @@ func TestCandidateEligibilityThinkingModelReadiness(t *testing.T) {
 				accounts[i].ID = int64(101 + i)
 				accounts[i].GroupIDs = []int64{int64(i + 1)}
 				accounts[i].Credentials = map[string]any{
-					"base_url": "https://api-us4.tokenkey.dev", "api_key": "test-only",
+					"base_url": "https://upstream.example.test", "api_key": "test-only",
 					"model_mapping": map[string]any{"claude-sonnet-4-5": "claude-sonnet-4-5", "claude-sonnet-4-5-thinking": "claude-sonnet-4-5-thinking"},
 				}
 				attachTestProtocolCapability(&accounts[i], protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
@@ -479,16 +479,6 @@ func TestCandidateEligibilityThinkingModelReadiness(t *testing.T) {
 			require.Equal(t, int64(2), group.ID, "the thinking model cooldown must apply before billing binds a group")
 
 			accounts[0].Extra = nil
-			gateway.rateLimitService = &RateLimitService{antigravitySaturationCounter: &candidateAntigravityCounter{
-				counts: map[AntigravitySaturationScope]int64{{accounts[0].ID, "claude-sonnet-4-5-thinking"}: edgeMirrorStubSaturationThreshold},
-			}}
-			wireCandidateTestResolver(resolver, gateway, accounts)
-			ctx = resolver.WithRequest(context.Background(), test.shape, test.path, "claude-sonnet-4-5", []byte(test.body))
-			group, err = resolver.Resolve(ctx, universalKey(1), test.shape, "claude-sonnet-4-5", "")
-			require.NoError(t, err)
-			require.Equal(t, int64(2), group.ID, "saturation must use the same thinking model scope")
-
-			gateway.rateLimitService = nil
 			accounts[0].Credentials["model_mapping"] = map[string]any{"claude-sonnet-4-5": "claude-sonnet-4-5"}
 			wireCandidateTestResolver(resolver, gateway, accounts)
 			ctx = resolver.WithRequest(context.Background(), test.shape, test.path, "claude-sonnet-4-5", []byte(test.body))
@@ -496,64 +486,6 @@ func TestCandidateEligibilityThinkingModelReadiness(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, int64(2), group.ID, "Plan must reject the account without thinking-model admission")
 		})
-	}
-}
-
-type candidateAntigravityCounter struct {
-	counts map[AntigravitySaturationScope]int64
-}
-
-func (c *candidateAntigravityCounter) IncrementSaturation(_ context.Context, id int64, model string, _ int) (int64, error) {
-	scope := AntigravitySaturationScope{id, model}
-	c.counts[scope]++
-	return c.counts[scope], nil
-}
-
-func (c *candidateAntigravityCounter) GetSaturationBatch(_ context.Context, scopes []AntigravitySaturationScope, _ int) (map[AntigravitySaturationScope]int64, error) {
-	out := make(map[AntigravitySaturationScope]int64)
-	for _, scope := range scopes {
-		out[scope] = c.counts[scope]
-	}
-	return out, nil
-}
-
-func TestCandidateEligibilityAntigravitySaturationScopeAndParity(t *testing.T) {
-	resolver, gateway, accounts, request := candidateGoogleFixture(t)
-	resolver.lister = &stubSpanLister{groups: []Group{grp(16, PlatformNewAPI, 40, false), grp(21, PlatformAntigravity, 0, false)}}
-	cache := &candidateAntigravityCounter{counts: map[AntigravitySaturationScope]int64{}}
-	gateway.rateLimitService = &RateLimitService{antigravitySaturationCounter: cache}
-	for _, test := range []struct {
-		name, model string
-		wantGroup   int64
-		penalized   bool
-	}{
-		{"different_model", "gemini-2.5-flash", 21, false},
-		{"public_name_is_not_scope", "gemini-3.8-flash", 21, false},
-		{"resolved_model", "gemini-3.8-flash-medium", 16, true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			cache.counts = map[AntigravitySaturationScope]int64{{accounts[1].ID, test.model}: edgeMirrorStubSaturationThreshold}
-			group, err := resolveCandidateTest(resolver, request, "")
-			require.NoError(t, err)
-			require.Equal(t, test.wantGroup, group.ID)
-			candidates := []accountWithLoad{{account: &accounts[1]}}
-			gateway.computeAnthropicSaturationPenalties(context.Background(), candidates, request.RequestedModel())
-			require.Equal(t, test.penalized, candidates[0].saturationPenalty > 0)
-			require.Equal(t, test.penalized, gateway.tkShouldClearStickyForSaturation(context.Background(), &accounts[1], "session", request.RequestedModel()))
-			require.True(t, accounts[1].IsSchedulableForModelWithContext(context.Background(), request.RequestedModel()), "preference cannot become a cooldown")
-		})
-	}
-	group, err := resolveCandidateTest(resolver, request, PlatformAntigravity)
-	require.NoError(t, err)
-	require.Equal(t, int64(21), group.ID, "a saturated pool remains a forced last resort")
-}
-
-func TestCandidateEligibilityEmptyPoolClassificationIncludesCompatPlatforms(t *testing.T) {
-	for _, platform := range OpenAICompatPlatforms() {
-		account := &Account{Platform: platform, Type: AccountTypeAPIKey,
-			Credentials: map[string]any{"base_url": "https://api-us4.tokenkey.dev", "api_key": "test-only"}}
-		require.True(t, tkSkipOpenAIDownstreamCapacityPenalty(account, 429, "No available accounts", nil), platform)
-		require.False(t, tkSkipOpenAIDownstreamCapacityPenalty(account, 429, "Quota exceeded", nil), platform)
 	}
 }
 

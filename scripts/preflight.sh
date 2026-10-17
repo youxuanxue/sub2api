@@ -414,16 +414,15 @@ _qa_phase2_gate_run() {
         ./ops/qa/verify_raw_archive_iam_contract.py \
         ./ops/qa/qa_phase2_health.py \
         ./deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py \
-        ./deploy/aws/cloudformation/test_stage0_edge_qa_s3_boundary.py &&
+        ./deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py &&
         python3 -m unittest \
             deploy.aws.cloudformation.test_stage0_qa_raw_archive_contract \
-            deploy.aws.cloudformation.test_stage0_edge_qa_s3_boundary \
             ops.qa.test_qa_archive_recovery_gate \
             ops.qa.test_prod_qa_archive_closeout \
             ops.qa.test_prod_phase2_live_health
 }
 _qa_phase_ops_gate_run() {
-    python3 -m py_compile ./ops/qa/edge_phase1_closeout.py ./ops/qa/prod_phase2_baseline.py &&
+    python3 -m py_compile ./ops/qa/prod_phase2_baseline.py &&
         python3 ./ops/qa/test_qa_phase_ops.py
 }
 _qa_phase_ops_spawn_if_needed() {
@@ -435,9 +434,10 @@ if [ "$_preflight_skip_go_contracts" -ne 1 ] && [ "$_preflight_skip_slow_ops" -n
     _bg_spawn qa_raw_archive _qa_raw_archive_gate_run
 fi
 if command -v python3 >/dev/null 2>&1; then
+    _archive_rehearsal_spawn_if_needed
     _bg_spawn anthropic_unittest \
         python3 -m unittest discover -s ops/anthropic -p 'test_*.py' -t ops/anthropic
-    for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/aws/lightsail; do
+    for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/aws/lightsail deploy/hetzner; do
         _bg_spawn "det_$(echo "$_det_dir" | tr '/' '_')" \
             env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR \
             python3 ./scripts/preflight/discover.py "$_det_dir"
@@ -457,7 +457,7 @@ if command -v python3 >/dev/null 2>&1; then
     _bg_spawn newapi_sibling_test bash ./scripts/checks/ensure-new-api-sibling_test.sh
     _bg_spawn redactor_test bash ./scripts/agent/redact-stream_test.sh
     _bg_spawn smoke_unittest python3 -m unittest scripts.test_smoke_suite \
-        scripts.test_edge_smoke_phase_contract scripts.test_smoke_env \
+        scripts.test_smoke_env \
         scripts.test_smoke_lib scripts.test_load_smoke_github_env -q
     _bg_spawn protocol_routing _protocol_routing_gate_run
     _bg_spawn pricing_serving _pricing_serving_gate_run
@@ -465,8 +465,6 @@ if command -v python3 >/dev/null 2>&1; then
     _bg_spawn qa_phase2 _qa_phase2_gate_run
     _qa_phase_ops_spawn_if_needed
 fi
-_bg_spawn ssm_parse bash ./scripts/checks/check-stage0-ssm-host-parse.sh
-
 # Compatibility shims until the dev-rules template carries the project-needed
 # deleted-ref base and scans colocated Python tests outside tests/ directories.
 _dev_preflight_template="./dev-rules/templates/preflight.sh"
@@ -1389,13 +1387,6 @@ else
     echo "  ok: GPT Image size chips match the Go owner"
 fi
 
-# ---- sub2api: frontend TK sentinel registry ---------------------------------
-# Source of truth: scripts/sentinels/frontend-tk.json. Verifies that load-bearing
-# TokenKey-only frontend surfaces (sidebar geometry, fluid table mode, sticky
-# edge-hints opt-out on the admin accounts page) are still present. These are
-# small, additive divergences from upstream that compile cleanly with or
-# without the TK touches, so without a literal-content guard a bad upstream
-# merge can silently revert them and the regression only shows up visually.
 echo ""
 
 fi # preflight gate
@@ -1449,13 +1440,6 @@ else
     echo "  ok: every gateway route declares one terminal policy"
 fi
 
-# ---- sub2api: handler DI/Wire sentinel registry ----------------------------
-# Source of truth: scripts/sentinels/handler-di-wire.json. Verifies that TK
-# handler struct fields (in handler.go) and Wire provider functions (in wire.go)
-# are still present. These are the sole compile-time link between TK handler
-# implementations and the app — dropping them compiles cleanly but silently
-# deregisters entire TK surfaces (admin tiers, edge accounts, pricing catalog,
-# trial provisioning, compliance gate).
 echo ""
 
 fi # preflight gate
@@ -1650,38 +1634,6 @@ else
     echo "  ok: prompt surface drift tooling"
 fi
 
-# ---- sub2api: oauth mimic edge aggregate self-test -------------------------
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'oauth mimic edge aggregate'; then
-echo "=== sub2api: oauth mimic edge aggregate ==="
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required for oauth mimic aggregate check)"
-    errors=$((errors + 1))
-elif ! bash -n ./ops/observability/scan-oauth-mimic-chain.sh; then
-    echo "  FAIL: scan-oauth-mimic-chain.sh syntax"
-    errors=$((errors + 1))
-elif ! bash -n ./ops/stage0/edge_anthropic_oauth_schedulable_probe.sh; then
-    echo "  FAIL: edge_anthropic_oauth_schedulable_probe.sh syntax"
-    errors=$((errors + 1))
-elif ! python3 ./ops/observability/oauth_mimic_aggregate.py --selftest >/dev/null; then
-    echo "  FAIL: oauth_mimic_aggregate.py selftest"
-    errors=$((errors + 1))
-elif ! python3 -m unittest ops.observability.test_scan_oauth_mimic_chain -q; then
-    echo "  FAIL: scan oauth mimic chain tests"
-    errors=$((errors + 1))
-elif ! python3 -m unittest ops.observability.test_open_oauth_mimic_watch_issues -q; then
-    echo "  FAIL: open oauth mimic watch issue tests"
-    errors=$((errors + 1))
-elif ! python3 -m unittest ops.observability.test_probe_oauth_mimicry_chain -q; then
-    echo "  FAIL: probe oauth mimicry chain tests"
-    errors=$((errors + 1))
-else
-    echo "  ok: oauth mimic edge watch tooling"
-fi
-
-# ---- sub2api: user billing watch probe ------------------------------------
 echo ""
 
 fi # preflight gate
@@ -1991,12 +1943,10 @@ elif ! python3 -m py_compile \
     ./ops/qa/prod_phase2_live_health.py \
     ./ops/qa/verify_raw_archive_iam_contract.py \
     ./ops/qa/qa_phase2_health.py \
-    ./deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py \
-    ./deploy/aws/cloudformation/test_stage0_edge_qa_s3_boundary.py; then
+    ./deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py; then
     errors=$((errors + 1))
 elif ! python3 -m unittest \
     deploy.aws.cloudformation.test_stage0_qa_raw_archive_contract \
-    deploy.aws.cloudformation.test_stage0_edge_qa_s3_boundary \
     ops.qa.test_qa_archive_recovery_gate \
     ops.qa.test_prod_qa_archive_closeout \
     ops.qa.test_prod_phase2_live_health; then
@@ -2004,59 +1954,6 @@ elif ! python3 -m unittest \
 else
     echo "  ok: exact QA IAM sets and approval-bound workstation recovery gate pass"
 fi
-
-# ---- sub2api: QA Phase 1 edge baseline probe (read-only ops) ---------------
-# Owner: ops/qa/edge_phase1_baseline.py — soak verification for edge capture=false.
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'QA Phase 1 edge baseline probe'; then
-echo "=== sub2api: QA Phase 1 edge baseline probe ==="
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required by edge_phase1_baseline.py)"
-    errors=$((errors + 1))
-elif ! python3 -m py_compile ./ops/qa/edge_phase1_baseline.py; then
-    echo "  FAIL: edge_phase1_baseline.py does not compile"
-    errors=$((errors + 1))
-else
-    echo "  ok: edge_phase1_baseline.py present (Phase 1 soak probe wired)"
-fi
-
-# Start the Docker-backed archive rehearsal here instead of at preflight startup:
-# the following QA baseline and lightweight contracts provide enough overlap,
-# while avoiding extra Docker pressure during the initial Caddy/template fanout.
-_archive_rehearsal_spawn_if_needed
-
-# ---- sub2api: QA Phase 1 closeout + Phase 2 baseline ops -------------------
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'QA Phase 1 closeout + Phase 2 baseline'; then
-echo "=== sub2api: QA Phase 1 closeout + Phase 2 baseline ==="
-if [ "$_preflight_skip_slow_ops" -eq 1 ]; then
-    echo "  skip: unchanged CI surface; required preflight gate not needed"
-elif ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required by QA phase ops scripts)"
-    errors=$((errors + 1))
-elif _bg_spawned qa_phase_ops; then
-    _bg_join qa_phase_ops replay-on-failure
-    if [ "$_bg_rc" -ne 0 ]; then
-        echo "  FAIL: QA phase ops scripts do not compile or regression tests failed"
-        errors=$((errors + 1))
-    else
-        echo "  ok: Phase 1 closeout + Phase 2 baseline artifacts compile and regression tests pass"
-    fi
-elif ! python3 -m py_compile ./ops/qa/edge_phase1_closeout.py ./ops/qa/prod_phase2_baseline.py; then
-    echo "  FAIL: QA phase ops scripts do not compile"
-    errors=$((errors + 1))
-elif ! python3 ./ops/qa/test_qa_phase_ops.py; then
-    errors=$((errors + 1))
-else
-    echo "  ok: Phase 1 closeout + Phase 2 baseline artifacts compile and regression tests pass"
-fi
-
-# ---- sub2api: QA raw archive contract --------------------------------------------
-echo ""
 
 fi # preflight gate
 if _preflight_selected 'QA raw archive contract'; then
@@ -2168,39 +2065,12 @@ echo ""
 fi # preflight gate
 if _preflight_selected 'post-deploy smoke script syntax'; then
 echo "=== sub2api: post-deploy smoke script syntax ==="
-_smoke_syntax_ok=true
-for _smoke_script in \
-  ./ops/stage0/smoke_env.sh \
-  ./ops/stage0/load_smoke_github_env.sh \
-  ./ops/stage0/smoke_lib.sh \
-  ./ops/stage0/probe_account_model.sh \
-  ./ops/stage0/probe_kiro_claude_models.sh \
-  ./ops/stage0/edge_native_anthropic_smoke.sh \
-  ./ops/stage0/post_deploy_smoke.sh \
-  ./ops/stage0/edge_post_deploy_smoke.sh \
-  ./ops/observability/probe-ssot-recent-success.sh \
-  ./scripts/stage0/dispatch-edge-deploy.sh \
-  ./scripts/stage0/dispatch-prod-deploy.sh; do
-  if ! bash -n "${_smoke_script}"; then
-    echo "  FAIL: ${_smoke_script} has bash syntax errors"
+for _smoke_script in ./ops/stage0/post_deploy_smoke.sh ./ops/stage0/gateway_smoke.sh ./ops/stage0/smoke_lib.sh; do
+  if ! bash -n "$_smoke_script"; then
+    echo "  FAIL: $_smoke_script has shell syntax errors"
     errors=$((errors + 1))
-    _smoke_syntax_ok=false
   fi
 done
-if [[ "${_smoke_syntax_ok}" == "true" ]]; then
-  echo "  ok: stage0 smoke scripts parse"
-fi
-
-# ---- sub2api: standalone host script syntax (tokenkey-*.sh) ------------------
-# The tokenkey-*.sh host scripts (pgdump, QA boundary/cutover drain, prune, disk-metrics)
-# ship to prod/edge boxes either embedded in the CFN/Lightsail bootstrap or
-# base64-pushed by the *_via_ssm.sh refresh primitives. In the base64 path the
-# SSM host-parse guard below only sees the OPAQUE base64 blob, so a syntax error
-# in the decoded script would slip every local gate and only surface at runtime
-# on the box — and for the disk-full alert that means a SILENTLY broken safety
-# net (the exact #778 failure mode). bash -n them as standalone files here.
-# Glob (not an enumerated list) so a new tokenkey-*.sh is covered on day one.
-echo ""
 
 fi # preflight gate
 if _preflight_selected 'standalone host script syntax (tokenkey-*.sh)'; then
@@ -2227,23 +2097,10 @@ echo ""
 fi # preflight gate
 if _preflight_selected 'SSM host command script parse'; then
 echo "=== sub2api: SSM host command script parse ==="
-_bg_rc=1
-if _bg_spawned ssm_parse; then
-    _bg_join ssm_parse
-    cat "$_preflight_bg_dir/ssm_parse.out"
-fi
-if [ "$_bg_rc" -ne 0 ]; then
-  echo "  FAIL: an SSM host command script has a shell syntax error"
+if ! bash ./scripts/checks/check-stage0-ssm-host-parse.sh; then
+  echo "  FAIL: SSM host command script parse"
   errors=$((errors + 1))
-elif ! python3 ./ops/stage0/test_sync_caddyfile_via_ssm.py >/dev/null 2>&1; then
-  echo "  FAIL: sync_caddyfile_via_ssm render contract"
-  echo "        — run: python3 ops/stage0/test_sync_caddyfile_via_ssm.py"
-  errors=$((errors + 1))
-else
-  echo "  ok: SSM host command scripts parse; Caddyfile sync render tests pass"
 fi
-
-echo ""
 
 fi # preflight gate
 if _preflight_selected 'gateway smoke suite unit tests'; then
@@ -2356,15 +2213,16 @@ elif ! python3 ./ops/stage0/test_qa_backup_host_lock.py >/dev/null 2>&1; then
     echo "  FAIL: QA and pg_dump host lock behavior"
     echo "        - run: python3 ops/stage0/test_qa_backup_host_lock.py"
     errors=$((errors + 1))
+elif ! python3 ./ops/stage0/test_install_hcloud_pgdump_storage.py >/dev/null 2>&1; then
+    echo "  FAIL: Hcloud pg_dump storage installer contract"
+    echo "        - run: python3 ops/stage0/test_install_hcloud_pgdump_storage.py"
+    errors=$((errors + 1))
 elif ! python3 ./ops/stage0/test_retire_aws_standby_timers.py >/dev/null 2>&1; then
     echo "  FAIL: AWS standby timer identity and rollback safety"
     echo "        - run: python3 ops/stage0/test_retire_aws_standby_timers.py"
     errors=$((errors + 1))
 elif ! python3 ./ops/stage0/test_pgdump_storage.py >/dev/null 2>&1; then
     echo "  FAIL: pgdump private storage identity and encryption contracts"
-    errors=$((errors + 1))
-elif ! python3 ./ops/stage0/test_install_hcloud_pgdump_storage.py >/dev/null 2>&1; then
-    echo "  FAIL: pgdump guarded storage cutover/rollback contracts"
     errors=$((errors + 1))
 elif ! python3 ./ops/stage0/test_provision_hcloud_pgdump_bucket.py >/dev/null 2>&1; then
     echo "  FAIL: private pgdump bucket and active retention contracts"
@@ -2461,193 +2319,8 @@ else
     echo "  ok: bounded Docker logging and Redis AOF drift fixtures pass"
 fi
 
-# ---- sub2api: edge-health verdict selftest ---------------------------------
-# The edge-health threshold logic (healthy/thin/degraded/down) lives in
-# edge_health_verdict.py and turns probe-edge-health.sh output into the one signal
-# that can tell a dead edge from a healthy one (prod's upstream-429 cannot — see the
-# 2026-06-06 yace burst). Its fixtures pin the six real edges + boundaries, so a
-# threshold/logic regression fails preflight instead of silently mis-verdicting edge
-# health. Read-only, no AWS.
+# ---- sub2api: disable image concurrency remediate contract ------------------
 echo ""
-
-fi # preflight gate
-if _preflight_selected 'edge-health verdict selftest'; then
-echo "=== sub2api: edge-health verdict selftest ==="
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required for edge-health verdict selftest)"
-    errors=$((errors + 1))
-elif ! python3 ./ops/observability/edge_health_verdict.py --selftest >/dev/null 2>&1; then
-    echo "  FAIL: edge-health verdict selftest"
-    echo "        — run: python3 ops/observability/edge_health_verdict.py --selftest"
-    errors=$((errors + 1))
-else
-    echo "  ok: edge-health verdict healthy/thin/degraded/down fixtures pass"
-fi
-
-# ---- sub2api: edge-health alert decision selftest --------------------------
-# The edge-health alert decision logic (actionable-set + state-diff dedup) lives in
-# edge-health-alert.py; scheduled edge-health-watch GHA posts Feishu on change.
-# Fixtures pin the 2026-06-07 incident shapes + dedup behavior.
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'edge-health alert decision selftest'; then
-echo "=== sub2api: edge-health alert decision selftest ==="
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required for edge-health alert selftest)"
-    errors=$((errors + 1))
-elif ! python3 ./ops/observability/edge-health-alert.py --selftest >/dev/null 2>&1; then
-    echo "  FAIL: edge-health alert decision selftest"
-    echo "        — run: python3 ops/observability/edge-health-alert.py --selftest"
-    errors=$((errors + 1))
-else
-    echo "  ok: edge-health alert decision/dedup fixtures pass"
-fi
-
-# Complete terminal buckets drive model-family and dynamic exact-model alerts.
-# Unknown models only become candidates after a real final empty-pool 429.
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'edge model-unit health alert tests'; then
-echo "=== sub2api: edge model-unit health alert tests ==="
-if ! python3 -m unittest \
-    ops.observability.test_edge_model_health_alert \
-    ops.observability.test_edge_health_delivery \
-    ops.observability.test_host_https_watch \
-    ops.observability.test_probe_edge_health >/dev/null 2>&1; then
-    echo "  FAIL: edge model-unit alert or structured delivery tests"
-    echo "        — run: python3 -m unittest ops.observability.test_edge_model_health_alert ops.observability.test_edge_health_delivery ops.observability.test_host_https_watch ops.observability.test_probe_edge_health"
-    errors=$((errors + 1))
-else
-    echo "  ok: terminal thresholds, dynamic models, state, and delivery fixtures pass"
-fi
-
-# ---- sub2api: edge HTTPS health probe selftest -----------------------------
-# External /health resolver+probe (scan-edge-health.sh leading signal for host
-# hang / blackhole). Pure unit fixtures — no network.
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'edge HTTPS health probe selftest'; then
-echo "=== sub2api: edge HTTPS health probe selftest ==="
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required for edge HTTPS health selftest)"
-    errors=$((errors + 1))
-elif ! python3 ./ops/observability/edge_https_health.py --selftest >/dev/null 2>&1; then
-    echo "  FAIL: edge HTTPS health probe selftest"
-    echo "        — run: python3 ops/observability/edge_https_health.py --selftest"
-    errors=$((errors + 1))
-else
-    echo "  ok: edge HTTPS health resolve/probe fixtures pass"
-fi
-
-# The scan integration fixtures pin transport-only unreachable classification,
-# HTTP non-200 SSM fallback, and hard failure for helper/resolver errors.
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'edge-health scan integration selftest'; then
-echo "=== sub2api: edge-health scan integration selftest ==="
-if ! bash ./ops/observability/test_scan_edge_health.sh >/dev/null 2>&1; then
-    echo "  FAIL: edge-health scan integration selftest"
-    echo "        — run: bash ops/observability/test_scan_edge_health.sh"
-    errors=$((errors + 1))
-else
-    echo "  ok: edge-health scan transport/error fixtures pass"
-fi
-
-# Delivery owns the alert acknowledgment boundary: rejected/missing Feishu
-# delivery must never advance the cached structured state.
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'edge-health delivery selftest'; then
-echo "=== sub2api: edge-health delivery selftest ==="
-if ! python3 ./ops/observability/edge_health_delivery.py --selftest >/dev/null 2>&1; then
-    echo "  FAIL: edge-health delivery selftest"
-    echo "        — run: python3 ops/observability/edge_health_delivery.py --selftest"
-    errors=$((errors + 1))
-else
-    echo "  ok: edge-health delivery acknowledgment fixtures pass"
-fi
-
-# The helper tests can remain green after someone deletes or bypasses the actual
-# trigger. Anchor manual-only dispatch and scan/delivery call sites.
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'edge-health watch workflow contract'; then
-echo "=== sub2api: edge-health watch workflow contract ==="
-if ! python3 ./scripts/checks/edge-health-watch-contract.py >/dev/null 2>&1 || ! python3 -m unittest ops.observability.test_edge_health_watch_workflow; then
-    echo "  FAIL: edge-health watch workflow contract"
-    echo "        — run: python3 scripts/checks/edge-health-watch-contract.py"
-    errors=$((errors + 1))
-else
-    echo "  ok: edge-health manual trigger, discovery, scan, delivery, and state call sites anchored"
-fi
-
-# The historical Worker template deploys independently (prod runs none), so a
-# control-plane change can reach the edges before the Worker that understands it.
-# Cadence stays decoupled; compatibility is coupled here.
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'gemini web worker fleet verdict selftest'; then
-echo "=== sub2api: gemini web worker fleet verdict selftest ==="
-# The boundary this pins: an edge answering "no Worker container" is the worst
-# fleet state there is, and reporting it as setup_error made it read as "the check
-# could not run". A failed deploy whose restore also failed leaves exactly that.
-if ! bash ./ops/observability/check-gemini-web-worker-fleet.sh --selftest >/dev/null 2>&1; then
-    echo "  FAIL: gemini web worker fleet verdict selftest"
-    echo "        — run: bash ops/observability/check-gemini-web-worker-fleet.sh --selftest"
-    errors=$((errors + 1))
-else
-    echo "  ok: absent worker is a review finding; only an unobservable fleet is setup_error"
-fi
-
-fi # preflight gate
-if _preflight_selected 'gemini web control protocol parity'; then
-echo "=== sub2api: gemini web control protocol parity ==="
-if ! python3 ./scripts/checks/gemini-web-control-protocol.py >/dev/null 2>&1; then
-    echo "  FAIL: gemini web control protocol parity"
-    echo "        — run: python3 scripts/checks/gemini-web-control-protocol.py"
-    errors=$((errors + 1))
-else
-    echo "  ok: gemini web control protocol agreed between backend handler and worker"
-fi
-
-# ---- sub2api: edge disk/memory host-alert script selftest ------------------
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'edge disk/memory host-alert selftest'; then
-echo "=== sub2api: edge disk/memory host-alert selftest ==="
-if ! bash ./deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh --selftest >/dev/null 2>&1; then
-    echo "  FAIL: tokenkey-disk-metrics-edge.sh --selftest"
-    errors=$((errors + 1))
-else
-    echo "  ok: edge disk/memory alert awk fixtures pass"
-fi
-if ! python3 ./ops/observability/test_remediate_hcloud_prod_host_alerts.py >/dev/null 2>&1; then
-    echo "  FAIL: existing HCloud prod host-alert installer behavior tests"
-    errors=$((errors + 1))
-else
-    echo "  ok: HCloud prod alert plan/apply, identity, backup, and failure behavior"
-fi
-
-
-fi # preflight gate
-if _preflight_selected 'edge disk remediation script contract'; then
-echo "=== sub2api: edge disk remediation script contract ==="
-if ! bash ./ops/stage0/test_remediate_edge_disk.sh >/dev/null 2>&1; then
-    echo "  FAIL: remediate-edge-disk-via-ssm contract test"
-    echo "        — run: bash ops/stage0/test_remediate_edge_disk.sh"
-    errors=$((errors + 1))
-else
-    echo "  ok: edge disk remediation + recovery anchors pass"
-fi
-
 
 fi # preflight gate
 if _preflight_selected 'disable image concurrency remediate contract'; then
@@ -2658,23 +2331,6 @@ if ! python3 ./ops/observability/test_remediate_disable_image_concurrency.py >/d
     errors=$((errors + 1))
 else
     echo "  ok: image-concurrency disable drain/timeout/ENABLED=false fail-closed"
-fi
-
-
-fi # preflight gate
-if _preflight_selected 'env secret backup fail-closed contract'; then
-echo "=== sub2api: env secret backup fail-closed contract ==="
-if ! bash ./ops/stage0/test_backup_env_secrets_via_ssm.sh >/dev/null 2>&1 || \
-   ! bash ./deploy/aws/lightsail/test_restore_edge_env_secrets.sh >/dev/null 2>&1 || \
-   ! bash ./ops/lightsail/test_ensure_edge_ssm_role.sh >/dev/null 2>&1 || \
-   ! bash ./ops/lightsail/test_reregister_edge_hybrid.sh >/dev/null 2>&1 || \
-   ! bash ./ops/lightsail/test_migrate_edge_ssm_roles.sh >/dev/null 2>&1 || \
-   ! python3 -m unittest discover -s ops/lightsail -p test_prepare_resize_identity.py >/dev/null 2>&1; then
-    echo "  FAIL: env secret backup fail-closed contract test"
-    echo "        — run: bash ops/stage0/test_backup_env_secrets_via_ssm.sh && bash deploy/aws/lightsail/test_restore_edge_env_secrets.sh && bash ops/lightsail/test_ensure_edge_ssm_role.sh && bash ops/lightsail/test_reregister_edge_hybrid.sh && bash ops/lightsail/test_migrate_edge_ssm_roles.sh && python3 -m unittest discover -s ops/lightsail -p test_prepare_resize_identity.py"
-    errors=$((errors + 1))
-else
-    echo "  ok: rejected writes fail and verified backup/restore succeeds"
 fi
 
 
@@ -2707,26 +2363,28 @@ fi
 
 
 fi # preflight gate
-if _preflight_selected 'ghcr-prune-daily timer contract'; then
-echo "=== sub2api: ghcr-prune-daily timer contract ==="
-if ! bash ./deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh --selftest >/dev/null 2>&1; then
-    echo "  FAIL: tokenkey-ghcr-prune-daily.sh --selftest"
-    errors=$((errors + 1))
-elif ! bash ./ops/stage0/test_ghcr_prune_daily.sh >/dev/null 2>&1; then
-    echo "  FAIL: ghcr-prune-daily timer contract test"
-    echo "        — run: bash ops/stage0/test_ghcr_prune_daily.sh"
-    errors=$((errors + 1))
-else
-    echo "  ok: ghcr-prune-daily timer anchors pass"
+if _preflight_selected 'gemini web control protocol parity'; then
+echo "=== sub2api: gemini web control protocol parity ==="
+if ! python3 ./scripts/checks/gemini-web-control-protocol.py; then
+  echo "  FAIL: Gemini Web control protocol parity"
+  errors=$((errors + 1))
 fi
 
-# live-host state drift verdict (ops/stage0/live_host_state_verdict.py): the logic
-# half of assert-live-host-state.sh (the read-only SSM probe wired into
-# deploy-stage0.yml post-deploy + ops-daily-diagnostics.yml). Fixtures pin the
-# drift cases that have bitten — a silent image-tag rollback and a missing
-# deploy_via_ssm-injected env key (the 2026-06 "3× repeat") — so a logic
-# regression fails preflight instead of going silent. Read-only, no AWS.
-echo ""
+fi # preflight gate
+if _preflight_selected 'env secret backup fail-closed contract'; then
+echo "=== sub2api: env secret backup fail-closed contract ==="
+if ! bash ./ops/stage0/test_backup_env_secrets_via_ssm.sh; then
+  echo "  FAIL: production secret backup contract"
+  errors=$((errors + 1))
+fi
+
+fi # preflight gate
+if _preflight_selected 'ghcr-prune-daily timer contract'; then
+echo "=== sub2api: ghcr-prune-daily timer contract ==="
+if ! bash ./deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh --selftest || ! bash ./ops/stage0/test_ghcr_prune_daily.sh; then
+  echo "  FAIL: production GHCR prune timer contract"
+  errors=$((errors + 1))
+fi
 
 fi # preflight gate
 if _preflight_selected 'host BBR SSOT wiring'; then
@@ -2827,7 +2485,7 @@ fi # preflight gate
 if _preflight_selected 'pgdump timer cadence parity'; then
 echo "=== sub2api: pgdump timer cadence parity ==="
 _pgdump_reference="$(grep -m1 'OnCalendar=' ops/stage0/pg_dump_refresh_via_ssm.sh 2>/dev/null)"
-for _pgdump_source in deploy/aws/stage0/stage0-ec2-bootstrap.sh deploy/hetzner/render-bootstrap.sh deploy/hetzner/render-prod-bootstrap.sh; do
+for _pgdump_source in deploy/aws/stage0/stage0-ec2-bootstrap.sh deploy/hetzner/render-prod-bootstrap.sh; do
     _pgdump_calendar="$(awk '/tokenkey-pgdump\.timer/{f=1} f&&/OnCalendar=/{print; exit}' "$_pgdump_source" 2>/dev/null)"
     if [ -z "$_pgdump_reference" ] || [ "$_pgdump_calendar" != "$_pgdump_reference" ]; then
         echo "  FAIL: pgdump timer cadence drift in $_pgdump_source"
@@ -2859,14 +2517,6 @@ else
     echo "  ok: no env references in job-level if expressions"
 fi
 
-# ---- sub2api: release.yml simple_release default = false --------------------
-# Mechanizes CLAUDE.md §9.1. prod (api.tokenkey.dev) and Edge Stage0 hosts run
-# on AWS Graviton (arm64). simple_release=true builds linux/amd64 only and
-# overwrites the shared :latest / :X / :X.Y / :X.Y.Z tags — any ARM host
-# pulling those tags crashes immediately with `exec format error`. The prose
-# rule has been "depends on human memory" until this check; now flipping the
-# at-rest default fails preflight + CI before merge. One-off amd64 releases
-# still work via manual `gh workflow run release.yml -f simple_release=true`.
 echo ""
 
 fi # preflight gate
@@ -2881,12 +2531,6 @@ else
     echo "  ok: release.yml simple_release default = false (Graviton-safe)"
 fi
 
-# ---- sub2api: GoReleaser Docker config is Graviton-safe + v2 ---------------
-# Keeps release.yml on the faster dockers_v2 path. The legacy `dockers` +
-# `docker_manifests` split pushes per-arch intermediate tags and then creates
-# shared manifests afterward; it is extra registry work on the slowest release
-# path. Default/full releases must also keep linux/arm64 because prod + Edge
-# Stage0 hosts are Graviton.
 echo ""
 
 fi # preflight gate
@@ -2927,10 +2571,6 @@ elif ! python3 ./scripts/checks/main-ancestry-anchor.py; then
     errors=$((errors + 1))
 fi
 
-# ---- sub2api: Caddyfile syntax gate ------------------------------------------
-# Stage0 deploy path treats deploy/aws/stage0/Caddyfile(.edge) as source of
-# truth for CloudFormation-embedded payloads. Parse failures here should block
-# before merge rather than surfacing during deploy.
 echo ""
 
 fi # preflight gate
@@ -2973,7 +2613,7 @@ echo ""
 fi # preflight gate
 if _preflight_selected 'Wave B freeze-delta contract'; then
 echo "=== sub2api: Wave B freeze-delta contract ==="
-if ! python3 -m unittest ops.stage0.test_wave_b_freeze_delta ops.migration.test_standard_freeze_delta ops.migration.test_fresh_host_delta ops.migration.test_fresh_host_cutover ops.stage0.test_retarget_prod_oidc >/dev/null 2>&1; then
+if ! python3 -m unittest ops.stage0.test_wave_b_freeze_delta ops.migration.test_standard_freeze_delta ops.migration.test_fresh_host_delta ops.stage0.test_retarget_prod_oidc >/dev/null 2>&1; then
     echo "  FAIL: Wave B freeze-delta contract test"
     echo "        — run: python3 ops/stage0/test_wave_b_freeze_delta.py"
     errors=$((errors + 1))
@@ -2981,70 +2621,6 @@ else
     echo "  ok: wave_b_freeze_delta watermark/plan/estimate"
 fi
 
-
-# ---- sub2api: edge-ip-status doc / live AWS drift ---------------------------
-# Source of truth: edge-polluted-ips.json + lightsail matrix porkbun_a_ipv4.
-# --check reconciles polluted and current tables in tokenkey-edge-ip-history.md.
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'edge-ip-status doc / live AWS drift'; then
-echo "=== sub2api: edge-ip-status doc / live AWS drift ==="
-if [ ! -x ./scripts/edge-ip-status.sh ]; then
-    echo "  FAIL: scripts/edge-ip-status.sh missing or not executable"
-    errors=$((errors + 1))
-elif ! ./scripts/edge-ip-status.sh --check; then
-    errors=$((errors + 1))
-fi
-
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'Stage0 deployment primitive sharing'; then
-echo "=== sub2api: Stage0 deployment primitive sharing ==="
-# Prod + Lightsail Edge + Hetzner Edge share one blue/green SSM primitive.
-# None may inline compose deploy commands or call the legacy owner.
-_stage0_bg_wfs=(
-  .github/workflows/deploy-stage0.yml
-  .github/workflows/deploy-edge-lightsail-stage0.yml
-  .github/workflows/deploy-edge-hetzner-stage0.yml
-)
-if ! grep -q 'ops/stage0/deploy_via_ssm_bluegreen.sh' .github/workflows/deploy-stage0.yml; then
-    echo "  FAIL: deploy-stage0.yml must use ops/stage0/deploy_via_ssm_bluegreen.sh"
-    errors=$((errors + 1))
-elif ! grep -q 'ops/stage0/deploy_via_ssm_bluegreen.sh' .github/workflows/deploy-edge-lightsail-stage0.yml; then
-    echo "  FAIL: deploy-edge-lightsail-stage0.yml must use ops/stage0/deploy_via_ssm_bluegreen.sh"
-    errors=$((errors + 1))
-elif ! grep -q 'ops/stage0/deploy_via_ssm_bluegreen.sh' .github/workflows/deploy-edge-hetzner-stage0.yml; then
-    echo "  FAIL: deploy-edge-hetzner-stage0.yml must use ops/stage0/deploy_via_ssm_bluegreen.sh"
-    errors=$((errors + 1))
-elif grep -q 'ops/stage0/deploy_via_ssm\.sh' "${_stage0_bg_wfs[@]}"; then
-    echo "  FAIL: Stage0 workflows must not call the legacy single-app deploy primitive"
-    errors=$((errors + 1))
-elif grep -q 'docker compose --env-file .* up -d --no-deps tokenkey' "${_stage0_bg_wfs[@]}"; then
-    echo "  FAIL: Stage0 workflows must not inline tokenkey SSM deploy commands; use the shared blue/green primitive"
-    errors=$((errors + 1))
-elif ! grep -q 'python3 scripts/checks/bluegreen-migration-safety.py --release-tag' .github/workflows/deploy-stage0.yml \
-    || ! grep -q 'python3 scripts/checks/bluegreen-migration-safety.py --release-tag' .github/workflows/deploy-edge-lightsail-stage0.yml \
-    || ! grep -q 'python3 scripts/checks/bluegreen-migration-safety.py --release-tag' .github/workflows/deploy-edge-hetzner-stage0.yml; then
-    echo "  FAIL: prod and Edge (Lightsail + Hetzner) must call bluegreen-migration-safety.py --release-tag"
-    errors=$((errors + 1))
-elif [ ! -f ops/stage0/bluegreen-capacity-policy.env ]; then
-    echo "  FAIL: missing ops/stage0/bluegreen-capacity-policy.env"
-    errors=$((errors + 1))
-elif ! grep -q 'bluegreen-capacity-policy.env' ops/stage0/deploy_via_ssm_bluegreen.sh \
-    || ! grep -q 'bluegreen-capacity-policy.env' ops/stage0/edge_release_canary_probe.sh; then
-    echo "  FAIL: deploy primitive and Edge release probe must consume bluegreen-capacity-policy.env"
-    errors=$((errors + 1))
-elif grep -E '335544320|134217728|5368709120|335_544_320|134_217_728|5_368_709_120' scripts/stage0/pick_release_canary_edge.py >/dev/null; then
-    echo "  FAIL: pick_release_canary_edge.py must not reimplement capacity policy literals"
-    errors=$((errors + 1))
-elif ! python3 ./scripts/checks/check-hetzner-edge-bluegreen-workflow.py; then
-    echo "  FAIL: Hetzner edge blue/green workflow contract"
-    errors=$((errors + 1))
-else
-    echo "  ok: prod + Lightsail + Hetzner Edge share blue/green SSM primitive, migration entry, capacity policy"
-fi
 
 echo ""
 
@@ -3104,11 +2680,11 @@ fi # preflight gate
 if _preflight_selected 'Stage0 deploy tag-validation sharing'; then
 echo "=== sub2api: Stage0 deploy tag-validation sharing ==="
 # The X.Y.Z(-rc.N/-beta.N) release-tag gate is a single shared script so the
-# three deploy workflows never grow divergent copies (the Lightsail copy had
-# already drifted to a shorter error message). This sentinel fails closed if any
+# the deploy workflow does not grow a divergent inline copy. This sentinel fails
+# closed if the workflow stops calling it or re-inlines the regex.
 # deploy workflow stops calling it or re-inlines the regex.
 _tag_script="ops/stage0/validate-deploy-tag.sh"
-_tag_files=".github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-lightsail-stage0.yml"
+_tag_files=".github/workflows/deploy-stage0.yml"
 _tag_ok=1
 if [ ! -x "$_tag_script" ]; then
     echo "  FAIL: $_tag_script missing or not executable (shared tag-format gate)"
@@ -3150,9 +2726,7 @@ elif [ "$(bash "$_norm_script" v1.2.3 2>/dev/null)" != "1.2.3" ] \
     errors=$((errors + 1)); _tag_ok=0
 fi
 for _dispatch in \
-  scripts/stage0/dispatch-edge-deploy.sh \
   scripts/stage0/dispatch-prod-deploy.sh \
-  scripts/stage0/rollout-edges.sh \
   scripts/stage0/replay-prod-release.py
 do
     if ! grep -q "normalize-deploy-tag.sh" "$_dispatch"; then
@@ -3160,7 +2734,7 @@ do
         errors=$((errors + 1)); _tag_ok=0
     fi
 done
-[ "$_tag_ok" = 1 ] && echo "  ok: prod + Edge deploy workflows share the tag-format gate ($_tag_script); local dispatch normalizes v-prefix"
+[ "$_tag_ok" = 1 ] && echo "  ok: prod deploy workflow uses the tag-format gate ($_tag_script); local dispatch normalizes v-prefix"
 unset _tag_script _tag_files _tag_ok _f _norm_script _dispatch
 
 echo ""
@@ -3168,11 +2742,8 @@ echo ""
 fi # preflight gate
 if _preflight_selected 'Stage0 deploy job timeouts'; then
 echo "=== sub2api: Stage0 deploy job timeouts ==="
-# Every Stage0 deploy job has cancel-in-progress:false concurrency, so a hung
-# step (describe-stacks / health-poll) would hold the prod/edge lock to the 6h
-# GHA default without a job-level timeout-minutes. Assert the cap stays present.
 _dt_ok=1
-for _df in .github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-lightsail-stage0.yml; do
+for _df in .github/workflows/deploy-stage0.yml; do
     [ -f "$_df" ] || continue
     if ! grep -q '^    timeout-minutes:' "$_df"; then
         echo "  FAIL: $_df job is missing timeout-minutes (a hang would hold the deploy concurrency lock up to the 6h GHA default)"
@@ -3203,11 +2774,7 @@ else
     echo "  ok: tier baseline values live only in the JSON source of truth"
 fi
 
-# Ops/Anthropic orchestrator coverage (stdlib only; no AWS / pytest).
-# Runs one `unittest discover -s ops/anthropic`; pin set includes:
-#   · manage-anthropic-config.py plan-edge-account-tier (fields_match noop,
-#     --force-template-rewrite hatch; snapshot/verify don’t exercise those)
-#   · rebalance-anthropic-priority.py plan/scoring exits + SQL name guard
+# Ops/Anthropic contract coverage (stdlib only; no AWS / pytest).
 echo ""
 
 fi # preflight gate
@@ -3387,14 +2954,13 @@ probe = Path("ops/pricing/probe-servable-models.sh").read_text(encoding="utf-8")
 errors = []
 expected_source_ids = {
     "openai": 2,
-    "anthropic_edge": 1,
-    "anthropic_mirror": 1,
+    "anthropic": 1,
     "gemini_vertex": 16,
     "dashscope": 18,
     "glm_dashscope": 18,
     "zhipu": 18,
     "volcengine": 5,
-    "grok_edge": 4,
+    "grok": 4,
     "antigravity": 21,
 }
 fn = re.search(r'^probe_source_group_id\(\).*?^}', probe, flags=re.M | re.S)
@@ -3408,13 +2974,12 @@ else:
 
 required_defaults = {
     "PROBE_OPENAI_SOURCE_GROUP_ID": "openai",
-    "PROBE_ANTHROPIC_SOURCE_GROUP_ID": "anthropic_edge",
-    "PROBE_ANTHROPIC_MIRROR_GROUP_ID": "anthropic_mirror",
+    "PROBE_ANTHROPIC_SOURCE_GROUP_ID": "anthropic",
     "PROBE_GEMINI_SOURCE_GROUP_ID": "gemini_vertex",
     "PROBE_DASHSCOPE_SOURCE_GROUP_ID": "dashscope",
     "PROBE_ZHIPU_SOURCE_GROUP_ID": "glm_dashscope",
     "PROBE_VOLCENGINE_SOURCE_GROUP_ID": "volcengine",
-    "PROBE_GROK_SOURCE_GROUP_ID": "grok_edge",
+    "PROBE_GROK_SOURCE_GROUP_ID": "grok",
     "PROBE_ANTIGRAVITY_SOURCE_GROUP_ID": "antigravity",
 }
 for name, key in required_defaults.items():
@@ -3425,7 +2990,6 @@ for name, key in required_defaults.items():
 legacy_names = [
     "PROBE_OPENAI_SOURCE_GROUP",
     "PROBE_ANTHROPIC_SOURCE_GROUP",
-    "PROBE_ANTHROPIC_MIRROR_GROUP",
     "PROBE_GEMINI_SOURCE_GROUP",
     "PROBE_DASHSCOPE_SOURCE_GROUP",
     "PROBE_ZHIPU_SOURCE_GROUP",
@@ -3481,7 +3045,7 @@ else
     # CalledProcessError. The background spawn strips these vars at the boundary
     # so the suites behave identically inside the hook and standalone.
     _det_baseline_failed=0
-    for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/aws/lightsail; do
+    for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/aws/lightsail deploy/hetzner; do
         _det_key="det_$(echo "$_det_dir" | tr '/' '_')"
         if ! _preflight_selected "bg:$_det_key"; then continue; fi
         _bg_rc=1
@@ -3503,9 +3067,7 @@ fi
 # AWS only accepts a single literal value for AWSTemplateFormatVersion. A typo
 # (e.g. 2010-10-09 vs the canonical 2010-09-09) parses as valid YAML, passes
 # local lint, but surfaces only at `aws cloudformation deploy / validate-template`
-# time with a misleading "is not a supported value" error. Real incident:
-# cicd-oidc-lightsail-addon.yaml shipped with 2010-10-09 in PR #380 and bypassed
-# two review rounds; the typo only blocked the actual migration setup days later.
+# time with a misleading "is not a supported value" error.
 echo ""
 
 fi # preflight gate
@@ -3533,26 +3095,6 @@ elif ! python3 ./deploy/aws/stage0/cfn-resource-dependencies.py; then
     errors=$((errors + 1))
 fi
 
-# ---- sub2api: Lightsail OIDC perm coverage -----------------------------------
-# Discover-by-failure on AWS implicit permission contracts is the OPC
-# anti-pattern that PRs #397/#398/#399 each fixed in isolation. This gate
-# text-checks the addon + base OIDC policies against the action list the
-# Lightsail edge workflow actually issues. Any drift (workflow gains a new
-# `aws <service> <command>` call without a matching policy update) fails
-# preflight before a workflow dispatch can hit AccessDenied at runtime.
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'Lightsail OIDC perm coverage'; then
-echo "=== sub2api: Lightsail OIDC perm coverage ==="
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required for OIDC perm coverage check)"
-    errors=$((errors + 1))
-elif ! python3 ./scripts/checks/lightsail-oidc-perm-coverage.py --quiet; then
-    errors=$((errors + 1))
-fi
-
-# ---- sub2api: diagnostics OIDC perm coverage -------------------------------
 echo ""
 
 fi # preflight gate
@@ -3720,60 +3262,6 @@ else
         errors=$((errors + 1))
     fi
 fi
-
-# ---- sub2api: workflow edge coverage ----------------------------------------
-# Gate C. Per-edge workflows carry hardcoded choice option lists (GitHub Actions
-# cannot compute them dynamically); a new deployable edge in the matrices would
-# silently become un-covered. Source: scripts/checks/workflow-edge-coverage.py
-# + workflow-edge-coverage.json (registry + opt-outs).
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'workflow edge coverage'; then
-echo "=== sub2api: workflow edge coverage ==="
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required for workflow edge coverage check)"
-    errors=$((errors + 1))
-elif ! python3 ./scripts/checks/workflow-edge-coverage.py; then
-    # workflow-edge-coverage.py already printed the actionable failure.
-    errors=$((errors + 1))
-fi
-
-# ---- sub2api: lightsail edge launch-script drift ----------------------------
-# Source of truth: deploy/aws/lightsail/render-bootstrap.sh + the four Stage0
-# inputs it embeds (docker-compose.yml, Caddyfile.edge, two ops shell scripts).
-# render-bootstrap --check fails if the committed generated-launch-script.sh
-# drifts from those sources, so an editor touching compose/Caddyfile cannot
-# accidentally ship a Lightsail Edge instance running yesterday's bytes.
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'lightsail edge launch-script drift'; then
-echo "=== sub2api: lightsail edge launch-script drift ==="
-if [ ! -x ./deploy/aws/lightsail/render-bootstrap.sh ]; then
-    echo "  FAIL: deploy/aws/lightsail/render-bootstrap.sh missing or not executable"
-    errors=$((errors + 1))
-elif ! bash ./deploy/aws/lightsail/render-bootstrap.sh --check >/dev/null 2>&1; then
-    echo "  FAIL: deploy/aws/lightsail/generated-launch-script.sh is missing or out of sync"
-    echo "        — run: bash deploy/aws/lightsail/render-bootstrap.sh && git add"
-    errors=$((errors + 1))
-else
-    echo "  ok: lightsail launch script in sync with Stage0 sources"
-fi
-
-# ---- sub2api: stage0 CFN base64 drift ---------------------------------------
-# Source of truth: deploy/aws/stage0/build-cfn.sh + its inputs
-# (docker-compose.yml, Caddyfile, Caddyfile.edge, QA boundary/cutover-drain/helper,
-# tokenkey-prune-ghcr-app-tags.sh). build-cfn.sh --check fails if the
-# embedded SSM blobs or thin UserData launcher drift. Also run
-# python3 deploy/aws/stage0/test_build_cfn.py for the 16 KiB UserData gate.
-# committed gzip|base64 segments in stage0-single-ec2.yaml and
-# stage0-edge-ec2.yaml drift from those sources, so an editor touching
-# compose/Caddyfile cannot accidentally ship a fresh EC2 stack running
-# yesterday's bytes. Mirrors the lightsail launch-script drift gate above —
-# deploy/aws/README.md §3.5 explicitly mandates this as the mechanical
-# enforcement of "编辑后必须运行 build-cfn.sh".
-echo ""
 
 fi # preflight gate
 if _preflight_selected 'stage0 CFN base64 drift'; then
@@ -4176,19 +3664,6 @@ else
     echo "  ok: frontend security workflows share the bounded, fail-closed audit owner"
 fi
 
-# ---- sub2api: retired Cursor deployment ------------------------------------
-echo ""
-
-fi # preflight gate
-if _preflight_selected 'Cursor deployment isolation'; then
-echo "=== sub2api: Cursor deployment isolation ==="
-if ! python3 -m unittest scripts.checks.test_cursor_deployment; then
-    echo "  FAIL: Cursor must not introduce a separate runtime or bridge credentials"
-    errors=$((errors + 1))
-else
-    echo "  ok: no dedicated Cursor runtime or bridge credentials"
-fi
-
 # ---- sub2api: gh CLI repository context ---------------------------------------
 # `gh` resolves its target repo from git remotes, so a job with no checkout must
 # pass GH_REPO or every repo-scoped gh subcommand dies on "fatal: not a git
@@ -4356,11 +3831,6 @@ else
     fi
 fi
 
-# ---- sub2api: Ent generation staleness ----------------------------------------
-# Ent ORM code under backend/ent/ is generated from backend/ent/schema/. If a
-# developer changes a schema but forgets `go generate ./ent`, stale generated
-# code may ship with wrong fields, edges, or predicates. This check regenerates
-# and diffs to catch drift. Non-destructive: restores the directory after.
 echo ""
 
 fi # preflight gate
@@ -4555,6 +4025,7 @@ elif ! python3 ./scripts/checks/host-auto-upgrade-disabled.py --selftest >/dev/n
     echo "  FAIL: host-auto-upgrade-disabled.py self-test failed"
     errors=$((errors + 1))
 elif ! python3 ./scripts/checks/host-auto-upgrade-disabled.py --quiet; then
+    echo "  FAIL: host bootstrap auto-upgrade policy"
     errors=$((errors + 1))
 else
     echo "  ok: fleet bootstraps mask apt-daily-upgrade.timer and pin Unattended-Upgrade 0"
@@ -4562,13 +4033,6 @@ fi
 
 fi # preflight gate
 
-if _preflight_selected 'hcloud live-fleet routing and transport'; then
-  echo "=== sub2api: hcloud live-fleet routing and transport ==="
-  if ! python3 -m unittest ops/stage0/test_hcloud_ops_contract.py ops/stage0/test_resolve_prod_ssm_target.py ops/stage0/test_edge_admin_resolve_target.py ops/stage0/test_edge_routing_matrix.py deploy/hetzner/test_resolve_edge_hetzner_target.py; then
-    echo "  FAIL: hcloud routing/Ubuntu SSM regression"
-    errors=$((errors + 1))
-  fi
-fi # preflight gate
 
 echo ""
 if [ "$errors" -eq 0 ]; then

@@ -4,7 +4,7 @@
 # Variables (plaintext) are fetched via gh API. Secrets are write-only on GitHub —
 # this script verifies they exist on the Environment but cannot read their values.
 # Export secret values yourself (same TK_SMOKE_* names) before sourcing, or run
-# smoke via deploy-stage0 / deploy-edge-lightsail-stage0 workflows.
+# smoke via deploy-stage0 workflow.
 #
 # Usage:
 #   eval "$(bash ops/stage0/load_smoke_github_env.sh prod)"
@@ -33,7 +33,7 @@ done
 
 if [[ -z "${ENV_NAME}" ]]; then
   echo "usage: load_smoke_github_env.sh [--check] <github-environment>" >&2
-  echo "  e.g. prod | edge-uk1 | edge-us1" >&2
+  echo "  e.g. prod" >&2
   exit 1
 fi
 
@@ -58,11 +58,11 @@ gh auth status >/dev/null 2>&1 || {
 
 required_secrets_for_env() {
   case "$1" in
-    prod|edge-*)
+    prod)
       printf '%s\n' TK_SMOKE_API_KEY
       ;;
     *)
-      echo "tk_load_smoke_github_env: unsupported environment '${1}' (want prod or edge-<id>)" >&2
+      echo "tk_load_smoke_github_env: unsupported environment '${1}' (want prod)" >&2
       return 1
       ;;
   esac

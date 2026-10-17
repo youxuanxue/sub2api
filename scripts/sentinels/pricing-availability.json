@@ -641,7 +641,7 @@
         "https://qianfan.baidubce.com/v2/tokenplan/personal",
         "https://api.xrtoken.net"
       ],
-      "rationale": "Cursor-specific behavior is retired under docs/approved/cursor-retirement.md. These remaining anchors preserve the shared provider behavior in this owner."
+      "rationale": "Provider-specific behavior is retired; these anchors preserve the shared provider behavior in this owner."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay.go",
@@ -912,7 +912,7 @@
       "must_contain": [
         "\"nano-banana-2\":"
       ],
-      "rationale": "Cursor-specific behavior is retired under docs/approved/cursor-retirement.md. These remaining anchors preserve the shared provider behavior in this owner."
+      "rationale": "Provider-specific behavior is retired; these anchors preserve the shared provider behavior in this owner."
     },
     {
       "path": "backend/internal/service/account_model_mapping_ssot_tk_test.go",
@@ -920,7 +920,7 @@
         "func TestAccountModelMappingFloorForOps_ExportsAccountOverrides(t *testing.T) {",
         "require.Equal(t, \"gemini-3.1-flash-image\", mapping[\"nano-banana-2\"])"
       ],
-      "rationale": "Cursor-specific behavior is retired under docs/approved/cursor-retirement.md. These remaining anchors preserve the shared provider behavior in this owner."
+      "rationale": "Provider-specific behavior is retired; these anchors preserve the shared provider behavior in this owner."
     },
     {
       "path": "backend/internal/service/account_model_mapping_ssot_tk.go",

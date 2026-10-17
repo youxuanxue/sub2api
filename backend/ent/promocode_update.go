@@ -172,7 +172,6 @@ func (_u *PromoCodeUpdate) AddUsageRecordIDs(ids ...int64) *PromoCodeUpdate {
 	return _u
 }
 
-// AddUsageRecords adds the "usage_records" edges to the PromoCodeUsage entity.
 func (_u *PromoCodeUpdate) AddUsageRecords(v ...*PromoCodeUsage) *PromoCodeUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -186,7 +185,6 @@ func (_u *PromoCodeUpdate) Mutation() *PromoCodeMutation {
 	return _u.mutation
 }
 
-// ClearUsageRecords clears all "usage_records" edges to the PromoCodeUsage entity.
 func (_u *PromoCodeUpdate) ClearUsageRecords() *PromoCodeUpdate {
 	_u.mutation.ClearUsageRecords()
 	return _u
@@ -198,7 +196,6 @@ func (_u *PromoCodeUpdate) RemoveUsageRecordIDs(ids ...int64) *PromoCodeUpdate {
 	return _u
 }
 
-// RemoveUsageRecords removes "usage_records" edges to PromoCodeUsage entities.
 func (_u *PromoCodeUpdate) RemoveUsageRecords(v ...*PromoCodeUsage) *PromoCodeUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -517,7 +514,6 @@ func (_u *PromoCodeUpdateOne) AddUsageRecordIDs(ids ...int64) *PromoCodeUpdateOn
 	return _u
 }
 
-// AddUsageRecords adds the "usage_records" edges to the PromoCodeUsage entity.
 func (_u *PromoCodeUpdateOne) AddUsageRecords(v ...*PromoCodeUsage) *PromoCodeUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -531,7 +527,6 @@ func (_u *PromoCodeUpdateOne) Mutation() *PromoCodeMutation {
 	return _u.mutation
 }
 
-// ClearUsageRecords clears all "usage_records" edges to the PromoCodeUsage entity.
 func (_u *PromoCodeUpdateOne) ClearUsageRecords() *PromoCodeUpdateOne {
 	_u.mutation.ClearUsageRecords()
 	return _u
@@ -543,7 +538,6 @@ func (_u *PromoCodeUpdateOne) RemoveUsageRecordIDs(ids ...int64) *PromoCodeUpdat
 	return _u
 }
 
-// RemoveUsageRecords removes "usage_records" edges to PromoCodeUsage entities.
 func (_u *PromoCodeUpdateOne) RemoveUsageRecords(v ...*PromoCodeUsage) *PromoCodeUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {

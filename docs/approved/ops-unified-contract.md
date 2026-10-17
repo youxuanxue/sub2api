@@ -42,11 +42,11 @@ Compatibility rule:
 
 - API changes must not break existing online callers.
 
-## 3. Core Capability B: Prod/Edge OpsToIssue
+## 3. Core Capability B: Prod OpsToIssue
 
 Required outcomes:
 
-- `Prod Ops` runs daily diagnostics for prod plus every deployable Edge target from `deploy/aws/lightsail/edge-targets-lightsail.json`.
+- `Prod Ops` runs daily diagnostics for prod.
 - Runtime findings are normalized into `ops-report.{json,md}` and can create/update GitHub issue signals.
 - A sanitized `daily-error-report.{json,md}` combines SLA-equivalent totals from
   `usage_logs` and `ops_error_logs`, separates final failures from recovered
@@ -91,7 +91,7 @@ Hard guardrails:
 
 Transport (since 2026-05-13):
 
-- Workflow discovers targets as prod + deployable Edge matrix entries. Planned Edge targets remain excluded until `deployable=true` and IAM/SSM setup are complete.
+- Workflow resolves the live prod target from the production target owner.
 - Per-target diagnostics use GitHub OIDC → AWS STS → SSM Run-Command. PostgreSQL is **not** exposed to the public internet; error clustering still connects to `tokenkey-postgres` via the target's docker network from a transient `alpine:3.21` container.
 - IaC: `deploy/aws/cloudformation/cicd-oidc.yaml`. Setup SOP:
   `deploy/aws/README.md` § "CI 通过 OIDC 调度 SSM".
@@ -121,7 +121,7 @@ Branch is aligned when:
 
 - Existing online/upstream capabilities remain available.
 - QA workflows degrade safely when `qa_records` is absent.
-- Prod/Edge diagnostics route each anomaly to one owner: Feishu for account or
+- Prod diagnostics route each anomaly to one owner: Feishu for account or
   provider capacity, GitHub Issue for actionable anomalies not covered by
   Feishu, or the isolated Draft PR path for high-confidence code-owned failures.
 - A high-confidence code-owned report can flow to an isolated Draft PR with

@@ -13,21 +13,19 @@ from pathlib import Path
 import time
 from urllib.parse import urlparse
 
-from edge_https_health import probe_health
-from edge_health_delivery import _atomic_write, post_feishu
+from https_health import probe_health
+from feishu_delivery import _atomic_write, post_feishu
 
 
-def build_config(role: str, hostname: str, fresh: dict, matrix: dict, domestic: dict) -> dict:
+def build_config(role: str, hostname: str, fresh: dict, domestic: dict) -> dict:
     """One coverage plan for the mainland observer and independent AWS watch."""
     if role not in ("prod", "cn-prod"):
-        raise ValueError("WATCH_ROLE must be prod or cn-prod; edge watchers are retired")
-    expected = domestic if role == "cn-prod" else fresh["prod"] if role == "prod" else matrix[role]
+        raise ValueError("WATCH_ROLE must be prod or cn-prod")
+    expected = domestic if role == "cn-prod" else fresh["prod"]
     if hostname != expected["instance_name"]:
         raise ValueError("host identity mismatch")
     targets = {}
     if role == "prod":
-        # The host watcher is a prod/cn-prod service. Edge health belongs to the
-        # retired fleet scanner and must never recreate a retired edge alert.
         targets["cn-prod"] = domestic["public_origin"].rstrip("/") + "/health"
     elif role == "cn-prod":
         prod = fresh["prod"]

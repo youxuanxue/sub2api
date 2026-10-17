@@ -14,22 +14,12 @@ func TestShouldClearOpenAIStickyForSaturation_ThresholdBoundary(t *testing.T) {
 	resetOpenAISatCache()
 	svc := &OpenAIGatewayService{}
 	svc.SetOpenAISaturationCounter(&fakeSaturationCache{counts: map[int64]int64{
-		63: openAIEdgeMirrorStubSaturationThreshold - 1,
-		64: openAIEdgeMirrorStubSaturationThreshold,
+		63: saturationThreshold - 1,
+		64: saturationThreshold,
 	}})
 
-	require.False(t, svc.tkShouldClearOpenAIStickyForSaturation(context.Background(), openAIEdgeStub(63), "sess"))
-	require.True(t, svc.tkShouldClearOpenAIStickyForSaturation(context.Background(), openAIEdgeStub(64), "sess"))
-}
-
-func TestShouldClearOpenAIStickyForSaturation_GrokRelayStub(t *testing.T) {
-	resetOpenAISatCache()
-	svc := &OpenAIGatewayService{}
-	svc.SetOpenAISaturationCounter(&fakeSaturationCache{counts: map[int64]int64{
-		80: openAIEdgeMirrorStubSaturationThreshold,
-	}})
-
-	require.True(t, svc.tkShouldClearOpenAIStickyForSaturation(context.Background(), grokEdgeStub(80), "sess"))
+	require.False(t, svc.tkShouldClearOpenAIStickyForSaturation(context.Background(), officialOpenAIOAuthAccount(63), "sess"))
+	require.True(t, svc.tkShouldClearOpenAIStickyForSaturation(context.Background(), officialOpenAIOAuthAccount(64), "sess"))
 }
 
 func TestShouldClearOpenAIStickyForSaturation_OpenAIOAuthIncluded(t *testing.T) {
@@ -52,6 +42,6 @@ func TestShouldClearOpenAIStickyForSaturation_KillSwitchOff(t *testing.T) {
 		}},
 		&config.Config{},
 	)
-	require.False(t, svc.tkShouldClearOpenAIStickyForSaturation(context.Background(), openAIEdgeStub(63), "sess"))
+	require.False(t, svc.tkShouldClearOpenAIStickyForSaturation(context.Background(), officialOpenAIOAuthAccount(63), "sess"))
 	resetOpenAISatCache()
 }

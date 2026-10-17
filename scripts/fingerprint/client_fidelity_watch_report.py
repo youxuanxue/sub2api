@@ -36,12 +36,6 @@ ROUTING_TABLE = [
         "next_command": "bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-prompt-surface-fingerprints.sh --env SINCE=24h --env LIMIT=40",
     },
     {
-        "signal_type": "oauth-mimic-drift",
-        "label": "oauth-mimic:edge-drift",
-        "skill": "tokenkey-cc-fingerprint-alignment",
-        "next_command": "bash ops/observability/scan-oauth-mimic-chain.sh --since 24h",
-    },
-    {
         "signal_type": "kiro-production-config-drift",
         "label": "client-fidelity-watch",
         "skill": "tokenkey-kiro-fingerprint-alignment",
@@ -97,16 +91,13 @@ def collect_signals(
     *,
     release_report: dict[str, Any] | None,
     prompt_prod_report: dict[str, Any] | None,
-    oauth_mimic_report: dict[str, Any] | None,
     kiro_profile_report: dict[str, Any] | None,
     tracking_links: list[dict[str, Any]],
     release_scan_result: str,
     registry_gate_result: str,
     prod_aggregate_result: str,
-    edge_oauth_mimic_result: str,
     kiro_profile_result: str,
     prod_observation_status: str = "unknown",
-    edge_oauth_mimic_observation_status: str = "unknown",
     kiro_profile_observation_status: str = "unknown",
 ) -> list[dict[str, Any]]:
     signals: list[dict[str, Any]] = []
@@ -152,7 +143,6 @@ def collect_signals(
                 signals.append(sig)
 
     prod_observation_status = _normalize_observation_status(prod_observation_status)
-    edge_oauth_mimic_observation_status = _normalize_observation_status(edge_oauth_mimic_observation_status)
     kiro_profile_observation_status = _normalize_observation_status(kiro_profile_observation_status)
 
     if prompt_prod_report:
@@ -176,29 +166,6 @@ def collect_signals(
             "status": "actionable",
             "observer": "prod-aggregate",
             "detail": "prod observer failed before producing a usable aggregate report",
-        })
-
-    if oauth_mimic_report:
-        summary = oauth_mimic_report.get("summary") or {}
-        if summary.get("has_actionable_drift"):
-            sig = {
-                "signal_type": "oauth-mimic-drift",
-                "status": "actionable",
-                "alerts": summary.get("alerts") or [],
-                "eligible_edges": summary.get("eligible_edges") or [],
-            }
-            link = find_link(tracking_links, signal_type="oauth-mimic-drift", kind="issue")
-            if link:
-                sig["tracking"] = link
-            signals.append(sig)
-    elif edge_oauth_mimic_observation_status == "observer_failed" or (
-        edge_oauth_mimic_result == "failure" and registry_gate_result == "success"
-    ):
-        signals.append({
-            "signal_type": "observer-failure",
-            "status": "actionable",
-            "observer": "edge-oauth-mimic",
-            "detail": "edge OAuth mimic observer failed before producing a usable aggregate report",
         })
 
     if kiro_profile_report and kiro_profile_report.get("status") == "drift":
@@ -228,22 +195,18 @@ def derive_pipeline_health(
     release_scan_result: str,
     registry_gate_result: str,
     prod_aggregate_result: str,
-    edge_oauth_mimic_result: str,
     kiro_profile_result: str,
     prod_observation_status: str,
-    edge_oauth_mimic_observation_status: str,
     kiro_profile_observation_status: str,
 ) -> dict[str, Any]:
     job_results = {
         "release-scan": release_scan_result,
         "registry-gate": registry_gate_result,
         "prod-aggregate": prod_aggregate_result,
-        "edge-oauth-mimic": edge_oauth_mimic_result,
         "kiro-production-configured": kiro_profile_result,
     }
     observations = {
         "prod-aggregate": _normalize_observation_status(prod_observation_status),
-        "edge-oauth-mimic": _normalize_observation_status(edge_oauth_mimic_observation_status),
         "kiro-production-configured": _normalize_observation_status(kiro_profile_observation_status),
     }
     failed_jobs = [name for name, result in job_results.items() if result == "failure"]
@@ -271,12 +234,10 @@ def derive_fidelity_verdict(
     *,
     release_report: dict[str, Any] | None,
     prompt_prod_report: dict[str, Any] | None,
-    oauth_mimic_report: dict[str, Any] | None,
     kiro_profile_report: dict[str, Any] | None,
     release_scan_result: str,
     registry_gate_result: str,
     prod_observation_status: str,
-    edge_oauth_mimic_observation_status: str,
     kiro_profile_observation_status: str,
 ) -> dict[str, Any]:
     observations: list[dict[str, Any]] = []
@@ -317,7 +278,6 @@ def derive_fidelity_verdict(
 
     for name, status, report in (
         ("prod-aggregate", _normalize_observation_status(prod_observation_status), prompt_prod_report),
-        ("edge-oauth-mimic", _normalize_observation_status(edge_oauth_mimic_observation_status), oauth_mimic_report),
     ):
         if status == "observer_failed":
             candidates.add("observer_failed")
@@ -412,14 +372,6 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 lines.append(f"- **prod-drift**: {', '.join(alerts)}{tracking_text}")
             else:
                 lines.append(f"- **prod-drift**: {sig.get('detail', 'actionable drift')}{tracking_text}")
-        elif st == "oauth-mimic-drift":
-            alerts = sig.get("alerts") or []
-            edges = sig.get("eligible_edges") or []
-            if alerts:
-                edge_hint = f" edges={edges}" if edges else ""
-                lines.append(f"- **oauth-mimic-drift**: {', '.join(alerts)}{edge_hint}{tracking_text}")
-            else:
-                lines.append(f"- **oauth-mimic-drift**: {sig.get('detail', 'actionable drift')}{tracking_text}")
         elif st == "kiro-production-config-drift":
             fields = sorted((sig.get("field_diffs") or {}).keys())
             lines.append(
@@ -450,9 +402,6 @@ def render_markdown(payload: dict[str, Any]) -> str:
     prompt_md = payload.get("sections", {}).get("prompt_prod_markdown")
     if prompt_md:
         lines.extend(["## Prompt surface prod aggregate (detail)", "", prompt_md.strip(), ""])
-    oauth_md = payload.get("sections", {}).get("oauth_mimic_markdown")
-    if oauth_md:
-        lines.extend(["## OAuth mimic edge aggregate (detail)", "", oauth_md.strip(), ""])
     return "\n".join(lines) + "\n"
 
 
@@ -463,17 +412,13 @@ def build_payload(
     release_markdown: str | None,
     prompt_prod_report: dict[str, Any] | None,
     prompt_prod_markdown: str | None,
-    oauth_mimic_report: dict[str, Any] | None,
-    oauth_mimic_markdown: str | None,
     kiro_profile_report: dict[str, Any] | None,
     tracking_links: list[dict[str, Any]],
     release_scan_result: str,
     registry_gate_result: str,
     prod_aggregate_result: str,
-    edge_oauth_mimic_result: str,
     kiro_profile_result: str,
     prod_observation_status: str = "unknown",
-    edge_oauth_mimic_observation_status: str = "unknown",
     kiro_profile_observation_status: str = "unknown",
 ) -> dict[str, Any]:
     from datetime import datetime, timezone
@@ -481,16 +426,13 @@ def build_payload(
     signals = collect_signals(
         release_report=release_report,
         prompt_prod_report=prompt_prod_report,
-        oauth_mimic_report=oauth_mimic_report,
         kiro_profile_report=kiro_profile_report,
         tracking_links=tracking_links,
         release_scan_result=release_scan_result,
         registry_gate_result=registry_gate_result,
         prod_aggregate_result=prod_aggregate_result,
-        edge_oauth_mimic_result=edge_oauth_mimic_result,
         kiro_profile_result=kiro_profile_result,
         prod_observation_status=prod_observation_status,
-        edge_oauth_mimic_observation_status=edge_oauth_mimic_observation_status,
         kiro_profile_observation_status=kiro_profile_observation_status,
     )
     pipeline_health = derive_pipeline_health(
@@ -498,21 +440,17 @@ def build_payload(
         release_scan_result=release_scan_result,
         registry_gate_result=registry_gate_result,
         prod_aggregate_result=prod_aggregate_result,
-        edge_oauth_mimic_result=edge_oauth_mimic_result,
         kiro_profile_result=kiro_profile_result,
         prod_observation_status=prod_observation_status,
-        edge_oauth_mimic_observation_status=edge_oauth_mimic_observation_status,
         kiro_profile_observation_status=kiro_profile_observation_status,
     )
     fidelity_verdict = derive_fidelity_verdict(
         release_report=release_report,
         prompt_prod_report=prompt_prod_report,
-        oauth_mimic_report=oauth_mimic_report,
         kiro_profile_report=kiro_profile_report,
         release_scan_result=release_scan_result,
         registry_gate_result=registry_gate_result,
         prod_observation_status=prod_observation_status,
-        edge_oauth_mimic_observation_status=edge_oauth_mimic_observation_status,
         kiro_profile_observation_status=kiro_profile_observation_status,
     )
     workflow_should_fail = any(
@@ -520,13 +458,12 @@ def build_payload(
             "release-scan-failure",
             "registry-failure",
             "prod-drift",
-            "oauth-mimic-drift",
             "kiro-production-config-drift",
             "observer-failure",
         }
         and sig.get("status") == "actionable"
         for sig in signals
-    ) or release_scan_result == "failure" or registry_gate_result == "failure" or prod_aggregate_result == "failure" or edge_oauth_mimic_result == "failure" or kiro_profile_result == "failure"
+    ) or release_scan_result == "failure" or registry_gate_result == "failure" or prod_aggregate_result == "failure" or kiro_profile_result == "failure"
 
     return {
         "schema_version": 1,
@@ -539,12 +476,10 @@ def build_payload(
             "release-scan": release_scan_result,
             "registry-gate": registry_gate_result,
             "prod-aggregate": prod_aggregate_result,
-            "edge-oauth-mimic": edge_oauth_mimic_result,
             "kiro-production-configured": kiro_profile_result,
         },
         "observation_statuses": {
             "prod-aggregate": _normalize_observation_status(prod_observation_status),
-            "edge-oauth-mimic": _normalize_observation_status(edge_oauth_mimic_observation_status),
             "kiro-production-configured": _normalize_observation_status(kiro_profile_observation_status),
         },
         "signals": signals,
@@ -553,11 +488,9 @@ def build_payload(
         "sections": {
             "release_markdown": release_markdown,
             "prompt_prod_markdown": prompt_prod_markdown,
-            "oauth_mimic_markdown": oauth_mimic_markdown,
         },
         "release_summary": (release_report or {}).get("summary"),
         "prompt_prod_summary": (prompt_prod_report or {}).get("summary") if prompt_prod_report else None,
-        "oauth_mimic_summary": (oauth_mimic_report or {}).get("summary") if oauth_mimic_report else None,
         "kiro_production_configured": kiro_profile_report,
     }
 
@@ -568,19 +501,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--release-report-md", type=Path)
     ap.add_argument("--prompt-prod-report-json", type=Path)
     ap.add_argument("--prompt-prod-report-md", type=Path)
-    ap.add_argument("--oauth-mimic-report-json", type=Path)
-    ap.add_argument("--oauth-mimic-report-md", type=Path)
     ap.add_argument("--kiro-profile-report-json", type=Path)
     ap.add_argument("--release-links-json", type=Path)
     ap.add_argument("--prompt-links-json", type=Path)
-    ap.add_argument("--oauth-mimic-links-json", type=Path)
     ap.add_argument("--release-scan-result", default="success")
     ap.add_argument("--registry-gate-result", default="unknown")
     ap.add_argument("--prod-aggregate-result", default="unknown")
-    ap.add_argument("--edge-oauth-mimic-result", default="unknown")
     ap.add_argument("--kiro-profile-result", default="unknown")
     ap.add_argument("--prod-observation-status", default="unknown")
-    ap.add_argument("--edge-oauth-mimic-observation-status", default="unknown")
     ap.add_argument("--kiro-profile-observation-status", default="unknown")
     ap.add_argument("--run-url", default="")
     ap.add_argument("--report-json", type=Path, default=DEFAULT_OUT_DIR / "report.json")
@@ -601,8 +529,6 @@ def main(argv: list[str] | None = None) -> int:
                 "release_markdown": None,
                 "prompt_prod_report": {"summary": {"has_actionable_drift": False, "alerts": [], "count": 1}},
                 "prompt_prod_markdown": None,
-                "oauth_mimic_report": {"summary": {"has_actionable_drift": False, "alerts": [], "eligible_edges": ["us3"]}},
-                "oauth_mimic_markdown": None,
                 "kiro_profile_report": {
                     "status": "healthy",
                     "evidence_level": "production_configured",
@@ -612,10 +538,8 @@ def main(argv: list[str] | None = None) -> int:
                 "release_scan_result": "success",
                 "registry_gate_result": "success",
                 "prod_aggregate_result": "success",
-                "edge_oauth_mimic_result": "success",
                 "kiro_profile_result": "success",
                 "prod_observation_status": "observed",
-                "edge_oauth_mimic_observation_status": "observed",
                 "kiro_profile_observation_status": "observed",
             }
             values.update(overrides)
@@ -682,8 +606,8 @@ def main(argv: list[str] | None = None) -> int:
         assert oidc_skipped["fidelity_verdict"]["status"] == "incomplete"
 
         missing_report = fixture(
-            edge_oauth_mimic_observation_status="missing_report",
-            oauth_mimic_report=None,
+            prod_observation_status="missing_report",
+            prompt_prod_report=None,
         )
         assert missing_report["fidelity_verdict"]["status"] == "incomplete"
 
@@ -732,13 +656,10 @@ def main(argv: list[str] | None = None) -> int:
             release_scan_result="failure",
             registry_gate_result="skipped",
             prod_aggregate_result="skipped",
-            edge_oauth_mimic_result="skipped",
             prod_observation_status="skipped",
-            edge_oauth_mimic_observation_status="skipped",
             kiro_profile_result="skipped",
             kiro_profile_observation_status="skipped",
             prompt_prod_report=None,
-            oauth_mimic_report=None,
             kiro_profile_report=None,
         )
         assert failed_release["workflow_should_fail"] is True
@@ -764,16 +685,13 @@ def main(argv: list[str] | None = None) -> int:
 
     release_report = load_json(args.release_report_json)
     prompt_prod_report = load_json(args.prompt_prod_report_json)
-    oauth_mimic_report = load_json(args.oauth_mimic_report_json)
     kiro_profile_report = load_json(args.kiro_profile_report_json)
     tracking_links = [
         *load_links(args.release_links_json),
         *load_links(args.prompt_links_json),
-        *load_links(args.oauth_mimic_links_json),
     ]
     release_md = args.release_report_md.read_text(encoding="utf-8") if args.release_report_md and args.release_report_md.is_file() else None
     prompt_md = args.prompt_prod_report_md.read_text(encoding="utf-8") if args.prompt_prod_report_md and args.prompt_prod_report_md.is_file() else None
-    oauth_md = args.oauth_mimic_report_md.read_text(encoding="utf-8") if args.oauth_mimic_report_md and args.oauth_mimic_report_md.is_file() else None
 
     payload = build_payload(
         run_url=args.run_url,
@@ -781,17 +699,13 @@ def main(argv: list[str] | None = None) -> int:
         release_markdown=release_md,
         prompt_prod_report=prompt_prod_report,
         prompt_prod_markdown=prompt_md,
-        oauth_mimic_report=oauth_mimic_report,
-        oauth_mimic_markdown=oauth_md,
         kiro_profile_report=kiro_profile_report,
         tracking_links=tracking_links,
         release_scan_result=args.release_scan_result,
         registry_gate_result=args.registry_gate_result,
         prod_aggregate_result=args.prod_aggregate_result,
-        edge_oauth_mimic_result=args.edge_oauth_mimic_result,
         kiro_profile_result=args.kiro_profile_result,
         prod_observation_status=args.prod_observation_status,
-        edge_oauth_mimic_observation_status=args.edge_oauth_mimic_observation_status,
         kiro_profile_observation_status=args.kiro_profile_observation_status,
     )
     args.report_json.parent.mkdir(parents=True, exist_ok=True)

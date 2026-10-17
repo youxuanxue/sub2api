@@ -171,15 +171,7 @@ func (m *sessionWindowMockRepo) ResetQuotaUsedAndClearRateLimitCooldown(context.
 func (m *sessionWindowMockRepo) SumConcurrencyAnthropic(context.Context) (int64, error) {
 	panic("unexpected")
 }
-func (m *sessionWindowMockRepo) SumConcurrencyAnthropicByGroup(context.Context, string) (int64, error) {
-	panic("unexpected")
-}
-func (m *sessionWindowMockRepo) SumConcurrencyByPlatform(context.Context, string) (int64, error) {
-	panic("unexpected")
-}
-func (m *sessionWindowMockRepo) SumConcurrencyByPlatformAndGroupID(context.Context, string, int64) (int64, error) {
-	panic("unexpected")
-}
+
 func (m *sessionWindowMockRepo) RevertProxyFallback(context.Context, int64) error {
 	panic("unexpected")
 }

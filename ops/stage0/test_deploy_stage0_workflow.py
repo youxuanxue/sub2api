@@ -1,19 +1,14 @@
-#!/usr/bin/env python3
 """Security and behavior contract tests for deploy-stage0 workflow modes."""
 from __future__ import annotations
 
 import pathlib
-import os
 import re
-import subprocess
-import tempfile
 import unittest
-import yaml
 
+import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy-stage0.yml"
-EDGE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy-edge-lightsail-stage0.yml"
 BLUEGREEN_DEPLOY = REPO_ROOT / "ops" / "stage0" / "deploy_via_ssm_bluegreen.sh"
 
 
@@ -97,31 +92,6 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertEqual(by_name[ordered[0]]["env"]["STAGE0_BLUEGREEN_WAIT_PHASE"], "cutover")
         self.assertEqual(by_name[ordered[3]]["if"], "always() && steps.ssm.outputs.command_id != ''")
         self.assertNotIn("continue-on-error", by_name[ordered[3]])
-
-    def test_prod_and_edge_share_bluegreen_deploy_owner(self) -> None:
-        prod = WORKFLOW.read_text(encoding="utf-8")
-        edge = EDGE_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("ops/stage0/deploy_via_ssm_bluegreen.sh", prod)
-        self.assertIn("ops/stage0/deploy_via_ssm_bluegreen.sh", edge)
-        self.assertNotIn("ops/stage0/deploy_via_ssm.sh", prod)
-        self.assertNotIn("ops/stage0/deploy_via_ssm.sh", edge)
-
-    def test_edge_lightsail_dispatch_requires_restore_approval(self) -> None:
-        edge = EDGE_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("confirm_edge_restore:", edge)
-        self.assertIn("I_APPROVE_EDGE_RESTORE", edge)
-        self.assertIn("ops/stage0/require_edge_restore_approval.py", edge)
-
-    def test_prod_and_edge_share_one_migration_safety_entry(self) -> None:
-        prod = WORKFLOW.read_text(encoding="utf-8")
-        edge = EDGE_WORKFLOW.read_text(encoding="utf-8")
-        entry = 'python3 scripts/checks/bluegreen-migration-safety.py --release-tag'
-        self.assertIn(entry, prod)
-        self.assertIn(entry, edge)
-        self.assertNotIn("git ls-remote --tags origin", prod)
-        self.assertNotIn("git ls-remote --tags origin", edge)
-        self.assertEqual(prod.count(entry), 2)
-        self.assertEqual(edge.count(entry), 1)
 
     def test_operation_choice_preserves_deploy_default(self) -> None:
         text = workflow_text()

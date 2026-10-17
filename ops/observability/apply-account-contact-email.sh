@@ -2,7 +2,7 @@
 # apply-account-contact-email.sh — Set OAuth contact email on one account (extra + credentials).
 #
 # Mirrors backend ApplyAccountEmail canonical keys. Use via run-probe.sh:
-#   bash ops/observability/run-probe.sh --target edge:us5 \
+#   bash ops/observability/run-probe.sh --target prod \
 #     --env ACCOUNT_NAME=kiro-us5 \
 #     --env ACCOUNT_EMAIL=user@example.com \
 #     --script ops/observability/apply-account-contact-email.sh

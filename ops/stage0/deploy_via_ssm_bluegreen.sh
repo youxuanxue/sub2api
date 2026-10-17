@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Stage0 prod/Edge blue/green SSM deploy primitive.
+# Stage0 prod blue/green SSM deploy primitive.
 #
 # Scope:
-#   - Prod EC2 (i-*) and Lightsail Edge managed instances (mi-*).
+#   - Prod EC2 (i-*).
 #   - Single data layer: postgres/redis/caddy stay on the existing host/network.
 #   - Two app colors: tokenkey-blue and tokenkey-green share the same data layer.
 #   - First run migrates the requested tag directly from legacy tokenkey to blue.
@@ -73,9 +73,7 @@ if [[ -z "${INSTANCE_ID}" ]]; then
   echo "stage0_deploy_via_ssm_bluegreen: instance id is required" >&2
   exit 1
 fi
-# Prefix default: i-* → prod, mi-* → edge. Hetzner prod Hybrid is mi-* but must
-# keep the prod profile (raw archive, blue/green stages). Operators/workflows set
-# STAGE0_DEPLOY_PROFILE=prod after Wave B control-plane cutover.
+# Both AWS and managed-instance prod hosts use the same prod profile.
 case "${INSTANCE_ID}" in
   i-* | mi-*) ;;
   *)
@@ -83,39 +81,16 @@ case "${INSTANCE_ID}" in
     exit 1
     ;;
 esac
-if [[ -n "${STAGE0_DEPLOY_PROFILE:-}" ]]; then
-  case "${STAGE0_DEPLOY_PROFILE}" in
-    prod | edge) DEPLOY_PROFILE="${STAGE0_DEPLOY_PROFILE}" ;;
-    *)
-      echo "stage0_deploy_via_ssm_bluegreen: STAGE0_DEPLOY_PROFILE must be prod or edge" >&2
-      exit 1
-      ;;
-  esac
-else
-  case "${INSTANCE_ID}" in
-    i-*) DEPLOY_PROFILE=prod ;;
-    mi-*) DEPLOY_PROFILE=edge ;;
-  esac
-fi
-if [[ "${STAGE}" != deploy && "${DEPLOY_PROFILE}" != prod ]]; then
-  echo "staged blue/green preparation is prod-only" >&2
+if [[ -n "${STAGE0_DEPLOY_PROFILE:-}" && "${STAGE0_DEPLOY_PROFILE}" != prod ]]; then
+  echo "stage0_deploy_via_ssm_bluegreen: only the prod profile is supported" >&2
   exit 1
 fi
+DEPLOY_PROFILE=prod
 if [[ ! "${TIMEOUT_SECONDS}" =~ ^[0-9]+$ || ! "${EXECUTION_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]] \
   || (( TIMEOUT_SECONDS <= 0 || EXECUTION_TIMEOUT_SECONDS <= 0 )); then
   echo "stage0_deploy_via_ssm_bluegreen: timeout values must be positive integers" >&2
   exit 1
 fi
-
-CAPACITY_POLICY="$(cd "$(dirname "$0")" && pwd)/bluegreen-capacity-policy.env"
-# shellcheck source=bluegreen-capacity-policy.env
-source "${CAPACITY_POLICY}"
-for key in EDGE_MIN_MEM_AVAILABLE_BYTES EDGE_ACTIVE_APP_HEADROOM_BYTES EDGE_MIN_ROOT_DISK_AVAILABLE_BYTES; do
-  if [[ ! "${!key:-}" =~ ^[0-9]+$ ]]; then
-    echo "stage0_deploy_via_ssm_bluegreen: ${key} missing or invalid in ${CAPACITY_POLICY}" >&2
-    exit 1
-  fi
-done
 
 ssm_region_args=()
 if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
@@ -263,25 +238,7 @@ cleanup_on_exit() {
 }
 trap cleanup_on_exit EXIT
 
-clear_edge_profile_overrides() {
-  [[ "${DEPLOY_PROFILE}" = edge ]] || return 0
-  local key
-  for key in "${QA_RUNTIME_KEYS[@]}"; do unset "${key}" "${key}_SET"; done
-  unset \
-    QA_ARCHIVE_ENABLED QA_ARCHIVE_STORAGE_DRIVER QA_ARCHIVE_STORAGE_REGION \
-    QA_ARCHIVE_STORAGE_BUCKET QA_ARCHIVE_STORAGE_PREFIX \
-    TELEMETRY_ARCHIVE_ENABLED TELEMETRY_ARCHIVE_REGION TELEMETRY_ARCHIVE_BUCKET \
-    TELEMETRY_ARCHIVE_PREFIX TELEMETRY_ARCHIVE_QUEUE_SIZE \
-    TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES TELEMETRY_ARCHIVE_MAX_EVENT_BYTES \
-    TELEMETRY_ARCHIVE_BATCH_SIZE TELEMETRY_ARCHIVE_WORKER_COUNT \
-    TELEMETRY_ARCHIVE_FLUSH_INTERVAL_SECONDS TELEMETRY_ARCHIVE_PUT_TIMEOUT_SECONDS \
-    MEDIA_STORAGE_DRIVER MEDIA_STORAGE_REGION MEDIA_STORAGE_BUCKET \
-    GATEWAY_IMAGE_CONCURRENCY_ENABLED GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS \
-    GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE
-}
-
 assert_qa_provider_unchanged() {
-  [[ "${DEPLOY_PROFILE}" = prod ]] || return 0
   local key flag
   # A normal gateway release must not redirect archive writes. The frozen raw
   # migration updates maintenance coordinates before any gateway release.
@@ -294,7 +251,6 @@ assert_qa_provider_unchanged() {
 }
 
 assert_live_qa_archive_coordinates() {
-  [[ "${DEPLOY_PROFILE}" = prod ]] || return 0
   [[ "$(env_get QA_ARCHIVE_ENABLED)" = true ]] || return 0
 
   local key expected actual
@@ -317,14 +273,11 @@ assert_live_qa_archive_coordinates() {
 ensure_profile_environment() {
   [[ -f "${ENV_FILE}" ]] || die "missing ${ENV_FILE}; is this a Stage0 host?"
   assert_qa_provider_unchanged
-  clear_edge_profile_overrides
-  if [[ "${DEPLOY_PROFILE}" = prod ]]; then
-    local runtime_key runtime_set
-    for runtime_key in "${QA_RUNTIME_KEYS[@]}"; do
-      runtime_set="${runtime_key}_SET"
-      env_apply_if_supplied "${runtime_key}" "${!runtime_key:-}" "${!runtime_set:-false}"
-    done
-  fi
+  local runtime_key runtime_set
+  for runtime_key in "${QA_RUNTIME_KEYS[@]}"; do
+    runtime_set="${runtime_key}_SET"
+    env_apply_if_supplied "${runtime_key}" "${!runtime_key:-}" "${!runtime_set:-false}"
+  done
 
   local api_domain
   api_domain="$(env_get API_DOMAIN)"
@@ -336,15 +289,6 @@ ensure_profile_environment() {
   fi
 
   env_default TOKENKEY_GHCR_KEEP_TAGS 3
-
-  if [[ "${DEPLOY_PROFILE}" = edge ]]; then
-    # Edge must never inherit the prod-only QA capture path. Keep this
-    # explicit in the durable host env so both colors and post-deploy smoke
-    # observe the same fail-closed policy.
-    env_set QA_CAPTURE_ENABLED false
-    log "edge profile: enforced QA_CAPTURE_ENABLED=false; preserving archive/media/concurrency host values"
-    return 0
-  fi
 
   # Target: ops/qa/policy.yaml prod.archive.enabled. Rollout gate default true
   # after Phase 2 recovery closeout: ops/qa/deploy_rollout.yaml (SSOT).
@@ -455,48 +399,6 @@ wait_ready() {
   return 1
 }
 
-bytes_from_docker_mem() {
-  local raw="$1" number unit multiplier
-  raw="${raw// /}"
-  number="$(printf '%s' "${raw}" | sed -nE 's/^([0-9]+([.][0-9]+)?).*/\1/p')"
-  unit="${raw#"${number}"}"
-  case "${unit}" in
-    B|'') multiplier=1 ;;
-    kB|KB) multiplier=1000 ;;
-    KiB) multiplier=1024 ;;
-    MB) multiplier=1000000 ;;
-    MiB) multiplier=1048576 ;;
-    GB) multiplier=1000000000 ;;
-    GiB) multiplier=1073741824 ;;
-    *) return 1 ;;
-  esac
-  [[ -n "${number}" ]] || return 1
-  awk -v number="${number}" -v multiplier="${multiplier}" 'BEGIN { printf "%.0f\n", number * multiplier }'
-}
-
-admit_edge_candidate() {
-  local active_container="$1" mem_available_bytes active_usage active_working_set_bytes
-  local memory_floor_bytes="${EDGE_MIN_MEM_AVAILABLE_BYTES:?}" memory_required_bytes
-  local memory_headroom_bytes="${EDGE_ACTIVE_APP_HEADROOM_BYTES:?}"
-  local disk_floor_bytes="${EDGE_MIN_ROOT_DISK_AVAILABLE_BYTES:?}" disk_available_bytes
-  [[ "${DEPLOY_PROFILE}" = edge ]] || return 0
-
-  mem_available_bytes="$(awk '/^MemAvailable:/ {printf "%.0f\n", $2 * 1024; exit}' /proc/meminfo)"
-  active_usage="$(sudo docker stats --no-stream --format '{{.MemUsage}}' "${active_container}" | cut -d/ -f1)"
-  active_working_set_bytes="$(bytes_from_docker_mem "${active_usage}")" || die "could not parse active app working set: ${active_usage:-<empty>}"
-  memory_required_bytes=$((active_working_set_bytes + memory_headroom_bytes))
-  if (( memory_required_bytes < memory_floor_bytes )); then memory_required_bytes=${memory_floor_bytes}; fi
-  disk_available_bytes="$(df -B1 --output=avail / | awk 'NR==2 {print $1}')"
-
-  # Hard contract comes from ops/stage0/bluegreen-capacity-policy.env.
-  log "edge admission: mem_available_bytes=${mem_available_bytes:-invalid} active_working_set_bytes=${active_working_set_bytes} memory_required_bytes=${memory_required_bytes} disk_available_bytes=${disk_available_bytes:-invalid}"
-  log "edge admission audit: swap_free_kib=$(awk '/^SwapFree:/ {print $2; exit}' /proc/meminfo) load=$(cut -d' ' -f1-3 /proc/loadavg) recent_oom=$(sudo dmesg --since '24 hours ago' 2>/dev/null | grep -ciE 'out of memory|oom-kill' || true)"
-  [[ "${mem_available_bytes}" =~ ^[0-9]+$ ]] || die "invalid MemAvailable"
-  [[ "${disk_available_bytes}" =~ ^[0-9]+$ ]] || die "invalid root filesystem availability"
-  (( mem_available_bytes >= memory_required_bytes )) || die "Edge memory admission failed: available=${mem_available_bytes} required=${memory_required_bytes}"
-  (( disk_available_bytes >= disk_floor_bytes )) || die "Edge disk admission failed: available=${disk_available_bytes} required=${disk_floor_bytes}"
-}
-
 drain_container() {
   local container="$1" status body n d i
   status="$(container_health "${container}")"
@@ -601,8 +503,6 @@ services:
       - TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY:?TOTP_ENCRYPTION_KEY is required}
       - TZ=${TZ:-UTC}
       - TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS=${TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS:-150}
-      - GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_CONCURRENCY_MIRROR_ENABLED=${GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_CONCURRENCY_MIRROR_ENABLED:-true}
-      - GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED=${GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED:-false}
       # first-output-timeout-ssot:begin
       - GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-120}
       - GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-600}
@@ -699,8 +599,6 @@ services:
       - TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY:?TOTP_ENCRYPTION_KEY is required}
       - TZ=${TZ:-UTC}
       - TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS=${TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS:-150}
-      - GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_CONCURRENCY_MIRROR_ENABLED=${GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_CONCURRENCY_MIRROR_ENABLED:-true}
-      - GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED=${GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED:-false}
       # first-output-timeout-ssot:begin
       - GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-120}
       - GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS:-600}
@@ -1116,7 +1014,6 @@ ensure_legacy_cutover() {
   write_bluegreen_compose
 
   TARGET_CONTAINER=tokenkey-blue
-  admit_edge_candidate tokenkey
   compose_bg pull tokenkey-blue
   compose_bg up -d --no-deps --force-recreate tokenkey-blue
   wait_healthy tokenkey-blue
@@ -1166,7 +1063,6 @@ deploy_target_color() {
   if [[ "${STAGE:-deploy}" != prepare ]]; then env_set TOKENKEY_IMAGE "${new_img}"; fi
   write_bluegreen_compose
 
-  admit_edge_candidate "${active_container}"
   compose_bg pull "${target_container}"
   compose_bg up -d --no-deps --force-recreate "${target_container}"
   wait_healthy "${target_container}"
@@ -1433,9 +1329,6 @@ jq -n \
   --arg image_enabled "${DELIVER_IMAGE_ENABLED}" \
   --arg image_max "${DELIVER_IMAGE_MAX}" \
   --arg image_overflow "${DELIVER_IMAGE_OVERFLOW}" \
-  --arg edge_min_mem "${EDGE_MIN_MEM_AVAILABLE_BYTES}" \
-  --arg edge_app_headroom "${EDGE_ACTIVE_APP_HEADROOM_BYTES}" \
-  --arg edge_min_disk "${EDGE_MIN_ROOT_DISK_AVAILABLE_BYTES}" \
   --argjson chunks "${chunks_json}" '{
   commands: ([
     "set -euo pipefail",
@@ -1477,9 +1370,6 @@ jq -n \
       + " GATEWAY_IMAGE_CONCURRENCY_ENABLED=" + ($image_enabled|@sh)
       + " GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS=" + ($image_max|@sh)
       + " GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE=" + ($image_overflow|@sh)
-      + " EDGE_MIN_MEM_AVAILABLE_BYTES=" + ($edge_min_mem|@sh)
-      + " EDGE_ACTIVE_APP_HEADROOM_BYTES=" + ($edge_app_headroom|@sh)
-      + " EDGE_MIN_ROOT_DISK_AVAILABLE_BYTES=" + ($edge_min_disk|@sh)
       + " /tmp/tokenkey-bluegreen-deploy.sh"
     )
   ]),

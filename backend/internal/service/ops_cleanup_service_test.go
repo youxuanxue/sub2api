@@ -128,7 +128,7 @@ func TestOpsCleanupServiceRunCleanupOnceUsageFailureStopsBeforeOpsTables(t *test
 
 	dashboardRepo := &dashboardAggregationRepoTestStub{cleanupUsageErr: errors.New("usage unavailable")}
 	cfg := &config.Config{
-		Server: config.ServerConfig{FrontendURL: "https://api-us1.tokenkey.dev"},
+		Server: config.ServerConfig{FrontendURL: "https://upstream.example.test"},
 		Ops: config.OpsConfig{Cleanup: config.OpsCleanupConfig{
 			SystemLogRetentionDays:     7,
 			ErrorLogRetentionDays:      30,

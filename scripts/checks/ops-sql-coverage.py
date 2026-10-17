@@ -63,7 +63,7 @@ def _shaped_symbols(tree: ast.Module) -> set[str]:
 
 
 def _import_module(path: pathlib.Path):
-    # ops modules import siblings by bare name (e.g. edge_routing_matrix);
+    # ops modules import siblings by bare name (e.g. ssm_execution);
     # make every ops subpackage dir importable, like the runtime callers do.
     for sub in sorted(p for p in OPS_DIR.iterdir() if p.is_dir()):
         if str(sub) not in sys.path:

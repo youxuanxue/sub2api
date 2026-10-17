@@ -5,27 +5,6 @@ import (
 	"log/slog"
 )
 
-// TK — anthropic saturated mirror-stub de-prioritization (increment side).
-//
-// Problem (prod): prod reaches Anthropic ONLY through per-edge api-key mirror
-// "stub" accounts (cc-us2 / cc-uk1 / …) that forward to the matching Edge
-// gateway, where a SINGLE OAuth account is common (SPOF). When that edge's one
-// account is upstream-rate-limited (~47-min window), the edge returns TokenKey's
-// own "No available accounts" 429 (or its failover-terminal envelope).
-// tkSkipDownstreamNoAvailableAccountsPenalty / ...FailoverExhaustedPenalty
-// correctly SKIP hard penalty + fail over (so users see no failures) but
-// DELIBERATELY keep the stub fully schedulable — counting these toward the
-// anthropic_upstream_error ladder once caused the 2026-05-31 "503 amplifier"
-// that collapsed the whole prod pool.
-//
-// Consequence: prod keeps selecting the dead stub FIRST and paying a wasted
-// failover hop on EVERY request for the whole window. This counter feeds a
-// soft scheduler preference (gateway_service_tk_saturation_penalty.go /
-// candidate_saturation.go) that routes AWAY from a SUSTAINEDLY saturated stub
-// using the rolling window/threshold in edge_mirror_stub_saturation_tk.go —
-// a preference, NOT a cooldown: it never SetTempUnschedulable / advances the
-// ladder / SetRateLimited.
-
 // SetAnthropicSaturationCounter wires the Redis-backed saturation counter into
 // RateLimitService (optional dependency). Nil-safe: when unset, the increment
 // helper is a no-op and the feature is inert.
@@ -47,7 +26,7 @@ func (s *RateLimitService) recordAnthropicStubSaturation(ctx context.Context, ac
 	if s == nil || s.anthropicSaturationCounter == nil {
 		return 0
 	}
-	count, err := s.anthropicSaturationCounter.IncrementSaturation(ctx, accountID, edgeMirrorStubSaturationWindowSeconds)
+	count, err := s.anthropicSaturationCounter.IncrementSaturation(ctx, accountID, saturationWindowSeconds)
 	if err != nil {
 		slog.Warn("anthropic_stub_saturation_increment_failed",
 			"account_id", accountID,
@@ -62,7 +41,7 @@ func (s *RateLimitService) recordAnthropicStubSaturation(ctx context.Context, ac
 			"account_id", accountID,
 			"recent_count", count,
 			"threshold", anthropicSaturationThreshold,
-			"window_seconds", edgeMirrorStubSaturationWindowSeconds,
+			"window_seconds", saturationWindowSeconds,
 			"status_code", statusCode,
 			"reason", reason)
 	}

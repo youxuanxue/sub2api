@@ -8,15 +8,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// openAIImagesOAuthDispatchFacts is the OAuth / Codex Responses image dispatch
-// that edge-uk1 could not see on 2026-10-13: usage_logs effort columns were
-// NULL, and main_model / scaffold had no column and no log field.
-//
-// usage_logs already has reasoning_effort and requested_reasoning_effort.
-// main_model and scaffold_on do not; those stay on the dispatch log.
-// The Images API has no client reasoning_effort field, so the recorded effort
-// is the value TokenKey writes to reasoning.effort (env override or the
-// existing auto tier). Requested and effective columns therefore match.
 type openAIImagesOAuthDispatchFacts struct {
 	ReasoningEffort      string
 	EffortSource         string

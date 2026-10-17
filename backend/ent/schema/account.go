@@ -220,7 +220,6 @@ func (Account) Fields() []ent.Field {
 	}
 }
 
-// Edges 定义账户实体的关联关系。
 func (Account) Edges() []ent.Edge {
 	return []ent.Edge{
 		// groups: 账户所属的分组（多对多关系）

@@ -103,7 +103,7 @@ Safety invariants:
 - local `Unsupported model` or empty-pool results do not prove upstream inability;
 - automatic splice coverage is defined by the script. Other platform results stay review
   evidence until the script explicitly supports them;
-- source groups, accounts and deployable edges are resolved from live/machine owners, not
+- source groups and accounts are resolved from live/machine owners, not
   copied into runbooks.
 
 The reprobe ledger separates durable `probe_candidates` from time-bounded `watchlist`
@@ -120,22 +120,14 @@ service tests before opening a PR.
 a scope replacement, not an incremental patch.
 
 - Default post-release account checks are prod-only and read-only.
-- Native edge accounts may use empty mappings and platform defaults (including
-  the Antigravity runtime overlay). Newapi Ali Token Plan and VolcEngine Agent Plan
-  accounts keep explicit reviewed mappings on both prod and edges; their
-  property-selected bundle overrides share the same source. Do not clear those
-  mappings as an edge convention.
+- Native accounts may use empty mappings and platform defaults, including the
+  Antigravity runtime overlay. Newapi Plan accounts keep explicit reviewed mappings.
 - Plan alias withdrawals belong to the Go owner in
   `tk_served_models_manifest_tk.go`, including its property-scoped forbidden keys.
   Regenerate the bundle after editing it; removing only an alias would leave it
   preserved as a compatible extra during account convergence.
-- Edge relay mirrors retain their explicitly reviewed mappings. A relay URL is
-  not the upstream Plan URL and does not select its property override; do not
-  apply a generic channel floor to a relay as a substitute for reviewing its
-  downstream pool.
-- `sync-runtime` and `clear-runtime` require one explicit `prod` or `edge:<id>`
-  target. Without the fixed confirmation phrase they are dry-run only; fleet-wide
-  runtime writes are not supported.
+- `sync-runtime` and `clear-runtime` require explicit `--target prod` and remain
+  dry-run without the fixed confirmation phrase.
 - Persistent account changes require an explicit reviewed apply.
 - `release-gate` belongs only to deliberate model activation.
 - A live runtime replacement that shadows the target bundle blocks activation.

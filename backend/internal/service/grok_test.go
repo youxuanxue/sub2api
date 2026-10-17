@@ -64,7 +64,7 @@ func TestAccountGrokHelpers(t *testing.T) {
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
 			"api_key":  "edge-key",
-			"base_url": "https://api-us4.tokenkey.dev",
+			"base_url": "https://upstream.example.test",
 		},
 	}
 	if !relay.IsGrokAPIKey() {
@@ -73,7 +73,7 @@ func TestAccountGrokHelpers(t *testing.T) {
 	if got := relay.GetOpenAIApiKey(); got != "edge-key" {
 		t.Fatalf("grok apikey relay GetOpenAIApiKey = %q, want edge-key", got)
 	}
-	if got := relay.GetOpenAIBaseURL(); got != "https://api-us4.tokenkey.dev" {
+	if got := relay.GetOpenAIBaseURL(); got != "https://upstream.example.test" {
 		t.Fatalf("grok apikey relay GetOpenAIBaseURL = %q, want edge base URL", got)
 	}
 	if relay.IsGrokOAuth() {

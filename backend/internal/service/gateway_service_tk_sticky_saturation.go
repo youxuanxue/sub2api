@@ -25,7 +25,7 @@ func (s *GatewayService) tkShouldClearStickyForSaturation(ctx context.Context, a
 		return true
 	}
 	slog.Info("anthropic_sticky_cleared_saturated_stub", "account_id", account.ID, "recent_count", count,
-		"threshold", edgeMirrorStubSaturationThreshold, "window_seconds", edgeMirrorStubSaturationWindowSeconds,
+		"threshold", saturationThreshold, "window_seconds", saturationWindowSeconds,
 		"session", shortSessionHash(sessionHash))
 	return true
 }

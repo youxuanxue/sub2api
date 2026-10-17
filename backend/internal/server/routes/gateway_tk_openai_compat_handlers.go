@@ -411,19 +411,6 @@ func registerTKOpenAICompatImagePresignRoutesNoPrefix(routes terminalRouteRegist
 	routes.Register(http.MethodPost, "/images/presign", Excluded("presign"), chain...)
 }
 
-// registerTKOpenAICompatVideoRoutes wires the async video task routes: POST
-// submit at `/video/generations`, the OpenAI-compat alias `/videos`, and the
-// xAI-shaped alias `/videos/generations` (needed for the prod→edge grok relay,
-// see below); GET fetch at `/video/generations/:task_id` and `/videos/:task_id`.
-// Called once per scope from gateway.go so the upstream-shape file holds a
-// single helper invocation per scope instead of inline route registrations +
-// comments — keeps `gateway.go` close to upstream and makes "add another video
-// alias" a single-file change here. The two scopes behave identically;
-// gateway.go passes its own pre-built middleware chain for the no-prefix scope.
-//
-// Supported channel types are auto-derived from `relay.GetTaskAdaptor`
-// (currently 45 = VolcEngine / Doubao Seedance, 54 = DoubaoVideo); adding a
-// new task adapter upstream lights up automatically — no route changes here.
 func registerTKOpenAICompatVideoRoutes(routes terminalRouteRegistrar, h *handler.Handlers) {
 	submit := tkOpenAICompatVideoSubmitHandler(h)
 	fetch := tkOpenAICompatVideoFetchHandler(h)
@@ -432,15 +419,6 @@ func registerTKOpenAICompatVideoRoutes(routes terminalRouteRegistrar, h *handler
 	routes.Register(http.MethodPost, "/videos", AsyncSubmission, submit)
 	routes.Register(http.MethodGet, "/videos/:task_id", Excluded("status"), fetch)
 	routes.Register(http.MethodGet, "/videos/:task_id/content", Excluded("content_fetch"), tkOpenAICompatVideoContentHandler(h))
-	// `/videos/generations` is xAI's exact video-submit path shape (grok's
-	// native arm POSTs `{base}/videos/generations`). Registering it makes the
-	// gateway accept that shape too, which is REQUIRED for the prod→edge grok
-	// relay: a prod grok mirror account (platform=grok) forwards a video submit
-	// to `api-<edge>.tokenkey.dev/v1/videos/generations`, and the edge gateway
-	// must route it (grok chat/image relay works only because their xAI paths —
-	// /chat/completions, /images/generations — already coincide with gateway
-	// routes; the video path did not). Same submit handler; GET fetch already
-	// matches `/videos/:task_id`, so no fetch alias is needed.
 	routes.Register(http.MethodPost, "/videos/generations", AsyncSubmission, submit)
 	routes.Register(http.MethodPost, "/videos/edits", AsyncSubmission, tkOpenAICompatGrokVideoEditHandler(h))
 	routes.Register(http.MethodPost, "/videos/extensions", AsyncSubmission, tkOpenAICompatGrokVideoExtensionHandler(h))
@@ -470,8 +448,6 @@ func registerTKOpenAICompatVideoRoutesNoPrefix(routes terminalRouteRegistrar, h 
 	routes.Register(http.MethodPost, "/videos", AsyncSubmission, chain(submit)...)
 	routes.Register(http.MethodGet, "/videos/:task_id", Excluded("status"), chain(fetch)...)
 	routes.Register(http.MethodGet, "/videos/:task_id/content", Excluded("content_fetch"), chain(tkOpenAICompatVideoContentHandler(h))...)
-	// xAI-shaped submit alias — see registerTKOpenAICompatVideoRoutes (required
-	// for the prod→edge grok video relay).
 	routes.Register(http.MethodPost, "/videos/generations", AsyncSubmission, chain(submit)...)
 	routes.Register(http.MethodPost, "/videos/edits", AsyncSubmission, chain(tkOpenAICompatGrokVideoEditHandler(h))...)
 	routes.Register(http.MethodPost, "/videos/extensions", AsyncSubmission, chain(tkOpenAICompatGrokVideoExtensionHandler(h))...)

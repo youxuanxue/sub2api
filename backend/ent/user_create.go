@@ -402,7 +402,6 @@ func (_c *UserCreate) AddAPIKeyIDs(ids ...int64) *UserCreate {
 	return _c
 }
 
-// AddAPIKeys adds the "api_keys" edges to the APIKey entity.
 func (_c *UserCreate) AddAPIKeys(v ...*APIKey) *UserCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -417,7 +416,6 @@ func (_c *UserCreate) AddRedeemCodeIDs(ids ...int64) *UserCreate {
 	return _c
 }
 
-// AddRedeemCodes adds the "redeem_codes" edges to the RedeemCode entity.
 func (_c *UserCreate) AddRedeemCodes(v ...*RedeemCode) *UserCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -432,7 +430,6 @@ func (_c *UserCreate) AddSubscriptionIDs(ids ...int64) *UserCreate {
 	return _c
 }
 
-// AddSubscriptions adds the "subscriptions" edges to the UserSubscription entity.
 func (_c *UserCreate) AddSubscriptions(v ...*UserSubscription) *UserCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -447,7 +444,6 @@ func (_c *UserCreate) AddAssignedSubscriptionIDs(ids ...int64) *UserCreate {
 	return _c
 }
 
-// AddAssignedSubscriptions adds the "assigned_subscriptions" edges to the UserSubscription entity.
 func (_c *UserCreate) AddAssignedSubscriptions(v ...*UserSubscription) *UserCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -462,7 +458,6 @@ func (_c *UserCreate) AddAnnouncementReadIDs(ids ...int64) *UserCreate {
 	return _c
 }
 
-// AddAnnouncementReads adds the "announcement_reads" edges to the AnnouncementRead entity.
 func (_c *UserCreate) AddAnnouncementReads(v ...*AnnouncementRead) *UserCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -477,7 +472,6 @@ func (_c *UserCreate) AddAllowedGroupIDs(ids ...int64) *UserCreate {
 	return _c
 }
 
-// AddAllowedGroups adds the "allowed_groups" edges to the Group entity.
 func (_c *UserCreate) AddAllowedGroups(v ...*Group) *UserCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -492,7 +486,6 @@ func (_c *UserCreate) AddUsageLogIDs(ids ...int64) *UserCreate {
 	return _c
 }
 
-// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
 func (_c *UserCreate) AddUsageLogs(v ...*UsageLog) *UserCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -507,7 +500,6 @@ func (_c *UserCreate) AddAttributeValueIDs(ids ...int64) *UserCreate {
 	return _c
 }
 
-// AddAttributeValues adds the "attribute_values" edges to the UserAttributeValue entity.
 func (_c *UserCreate) AddAttributeValues(v ...*UserAttributeValue) *UserCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -522,7 +514,6 @@ func (_c *UserCreate) AddPromoCodeUsageIDs(ids ...int64) *UserCreate {
 	return _c
 }
 
-// AddPromoCodeUsages adds the "promo_code_usages" edges to the PromoCodeUsage entity.
 func (_c *UserCreate) AddPromoCodeUsages(v ...*PromoCodeUsage) *UserCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -537,7 +528,6 @@ func (_c *UserCreate) AddPaymentOrderIDs(ids ...int64) *UserCreate {
 	return _c
 }
 
-// AddPaymentOrders adds the "payment_orders" edges to the PaymentOrder entity.
 func (_c *UserCreate) AddPaymentOrders(v ...*PaymentOrder) *UserCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -552,7 +542,6 @@ func (_c *UserCreate) AddAuthIdentityIDs(ids ...int64) *UserCreate {
 	return _c
 }
 
-// AddAuthIdentities adds the "auth_identities" edges to the AuthIdentity entity.
 func (_c *UserCreate) AddAuthIdentities(v ...*AuthIdentity) *UserCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -567,7 +556,6 @@ func (_c *UserCreate) AddPendingAuthSessionIDs(ids ...int64) *UserCreate {
 	return _c
 }
 
-// AddPendingAuthSessions adds the "pending_auth_sessions" edges to the PendingAuthSession entity.
 func (_c *UserCreate) AddPendingAuthSessions(v ...*PendingAuthSession) *UserCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -582,7 +570,6 @@ func (_c *UserCreate) AddPlatformQuotaIDs(ids ...int64) *UserCreate {
 	return _c
 }
 
-// AddPlatformQuotas adds the "platform_quotas" edges to the UserPlatformQuota entity.
 func (_c *UserCreate) AddPlatformQuotas(v ...*UserPlatformQuota) *UserCreate {
 	ids := make([]int64, len(v))
 	for i := range v {

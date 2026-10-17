@@ -8,14 +8,6 @@ import "time"
 // (admin_service_tk_grok_save.go).
 const grokDefaultExpiresIn = 3600
 
-// TokenKey-unique Grok (seventh platform) account helpers. The base grok
-// predicates and credential getters (IsGrok / IsGrokOAuth / GetGrokBaseURL /
-// GetGrokAccessToken / GetGrokRefreshToken) live in account.go; this companion
-// only adds the helpers TokenKey needs on top of them (edge-relay API-key
-// detection + the refresh-token endpoint/expiry getters used by the
-// stdlib-only pkg/xai refresh path in admin_service_tk_grok_save.go).
-
-// IsGrokAPIKey reports a grok edge-relay stub account (platform=grok, type=apikey).
 func (a *Account) IsGrokAPIKey() bool {
 	return a.IsGrok() && a.Type == AccountTypeAPIKey
 }

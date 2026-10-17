@@ -4,7 +4,7 @@
 # dashboard tables (usage_dashboard_daily / hourly) are under-covered relative
 # to raw usage_logs, and reports the aggregation watermark.
 #
-# Runs INSIDE the TokenKey host (prod or edge) via run-probe.sh. Read-only.
+# Runs INSIDE the TokenKey host (prod) via run-probe.sh. Read-only.
 # Output is row_to_json so downstream parsing is field-named, not column-index.
 set -u
 

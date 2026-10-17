@@ -223,7 +223,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 			return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "Missing Gemini Web account reference")
 		}
 		policy := ErrorPolicyNone
-		if s.rateLimitService != nil && !tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
+		if s.rateLimitService != nil {
 			policy = s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel)
 		}
 		// 与 messages 兼容层一致：只有 None / Matched 才走账号状态处理。
@@ -246,7 +246,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
-			failoverErr := newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, evBody)
+			failoverErr := newUpstreamFailoverError(resp.StatusCode, resp.Header, evBody)
 			failoverErr.RetryableOnSameAccount = tkRetryableOnSameAccount(account, resp, evBody)
 			return nil, failoverErr
 		}

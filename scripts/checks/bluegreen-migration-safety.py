@@ -246,7 +246,7 @@ def previous_release_tag(target: str, tag_lines: list[str]) -> str | None:
 
 
 def prepare_release_range(tag: str) -> tuple[str, str, bool]:
-    """Resolve the current prod/Edge release comparison range.
+    """Resolve the current prod release comparison range.
 
     Semantics are unchanged from the previous workflow-inline preparation:
     prefer previous-release-tag..vTAG when the target tag can be fetched,
@@ -362,7 +362,7 @@ def main() -> int:
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument(
         "--release-tag",
-        help="prepare the current prod/Edge release comparison range from this X.Y.Z tag",
+        help="prepare the current prod release comparison range from this X.Y.Z tag",
     )
     args = ap.parse_args()
 

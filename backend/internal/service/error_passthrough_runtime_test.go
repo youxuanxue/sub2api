@@ -63,12 +63,6 @@ func TestGatewayHandleErrorResponse_NoRuleKeepsDefault(t *testing.T) {
 	assert.Equal(t, "Upstream request failed", errField["message"])
 }
 
-// TK (prod P0 2026-06-06, edge us5): an Anthropic upstream 404 model-not-found
-// (bare "opus" on an empty-mapping passthrough account) must surface to the client
-// as the unified 400 invalid_request_error "Unsupported model: X" (path B), the
-// same contract as the scheduler path A — NOT the generic 502 "Upstream request
-// failed". nil rateLimitService here mirrors the post-fix shouldDisable=false path
-// (HandleUpstreamModelNotFound/handle404 skip the Anthropic penalty).
 func TestGatewayHandleErrorResponse_Anthropic404ModelNotFoundReturns400Unsupported(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

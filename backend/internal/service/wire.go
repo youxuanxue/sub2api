@@ -576,7 +576,6 @@ func ProvideSchedulerRateLimitReaper(
 func ProvideAnthropicConfigReconciler(
 	accountRepo AccountRepository,
 	userRepo UserRepository,
-	adminSvc AdminService,
 	tierSvc *TierService,
 	tierApplier *AccountTierService,
 	tlsSvc *TLSFingerprintProfileService,
@@ -584,7 +583,7 @@ func ProvideAnthropicConfigReconciler(
 	cfg *config.Config,
 	redisClient *redis.Client,
 ) *AnthropicConfigReconciler {
-	rec := NewAnthropicConfigReconciler(accountRepo, userRepo, adminSvc, tierSvc, tierApplier, tlsSvc, settingSvc, cfg, redisClient)
+	rec := NewAnthropicConfigReconciler(accountRepo, userRepo, tierSvc, tierApplier, tlsSvc, settingSvc, cfg, redisClient)
 	rec.Start()
 	return rec
 }

@@ -108,7 +108,7 @@ def main(argv: list[str]) -> int:
     )
     print("", flush=True)
     print(
-        "  Why this matters (CLAUDE.md §9.1): prod + all Edge Stage0 hosts run on AWS",
+        "  Why this matters (CLAUDE.md §9.1): prod Stage0 hosts run on AWS",
         flush=True,
     )
     print(

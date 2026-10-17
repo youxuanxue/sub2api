@@ -147,7 +147,6 @@ func (_c *PromoCodeCreate) AddUsageRecordIDs(ids ...int64) *PromoCodeCreate {
 	return _c
 }
 
-// AddUsageRecords adds the "usage_records" edges to the PromoCodeUsage entity.
 func (_c *PromoCodeCreate) AddUsageRecords(v ...*PromoCodeUsage) *PromoCodeCreate {
 	ids := make([]int64, len(v))
 	for i := range v {

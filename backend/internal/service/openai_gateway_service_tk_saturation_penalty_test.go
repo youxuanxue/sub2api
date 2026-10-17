@@ -12,7 +12,7 @@ import (
 
 func openAIEdgeCandidate(id int64, score float64) openAIAccountCandidateScore {
 	return openAIAccountCandidateScore{
-		account: openAIEdgeStub(id),
+		account: officialOpenAIOAuthAccount(id),
 		score:   score,
 	}
 }
@@ -28,8 +28,8 @@ func TestComputeOpenAISaturationPenalties_DeprioritizesSaturatedStub(t *testing.
 	resetOpenAISatCache()
 	svc := &OpenAIGatewayService{}
 	svc.SetOpenAISaturationCounter(&fakeSaturationCache{counts: map[int64]int64{
-		63: openAIEdgeMirrorStubSaturationThreshold,
-		68: openAIEdgeMirrorStubSaturationThreshold - 1,
+		63: saturationThreshold,
+		68: saturationThreshold - 1,
 	}})
 
 	candidates := []openAIAccountCandidateScore{
@@ -37,24 +37,7 @@ func TestComputeOpenAISaturationPenalties_DeprioritizesSaturatedStub(t *testing.
 		openAIEdgeCandidate(68, 2.0),
 	}
 	svc.computeOpenAISaturationPenalties(context.Background(), candidates)
-	require.Equal(t, openAISaturationScorePenalty+float64(openAIEdgeMirrorStubSaturationThreshold), candidates[0].saturationScorePenalty)
-	require.Equal(t, 0.0, candidates[1].saturationScorePenalty)
-	require.Less(t, candidates[0].score-candidates[0].saturationScorePenalty, candidates[1].score)
-}
-
-func TestComputeOpenAISaturationPenalties_DeprioritizesGrokRelayStub(t *testing.T) {
-	resetOpenAISatCache()
-	svc := &OpenAIGatewayService{}
-	svc.SetOpenAISaturationCounter(&fakeSaturationCache{counts: map[int64]int64{
-		80: openAIEdgeMirrorStubSaturationThreshold,
-	}})
-
-	candidates := []openAIAccountCandidateScore{
-		grokEdgeCandidate(80, 3.0),
-		grokEdgeCandidate(81, 2.0),
-	}
-	svc.computeOpenAISaturationPenalties(context.Background(), candidates)
-	require.Equal(t, openAISaturationScorePenalty+float64(openAIEdgeMirrorStubSaturationThreshold), candidates[0].saturationScorePenalty)
+	require.Equal(t, openAISaturationScorePenalty+float64(saturationThreshold), candidates[0].saturationScorePenalty)
 	require.Equal(t, 0.0, candidates[1].saturationScorePenalty)
 	require.Less(t, candidates[0].score-candidates[0].saturationScorePenalty, candidates[1].score)
 }
@@ -75,8 +58,6 @@ func TestComputeOpenAISaturationPenalties_KillSwitchOff(t *testing.T) {
 	resetOpenAISatCache()
 }
 
-// Chat/completions historically force UseUpstreamTokenCost=true. Saturation
-// preference must still sink a saturated edge stub behind a healthy peer.
 func TestBuildOpenAIAccountLoadPlan_SaturationAppliesWithUpstreamTokenCost(t *testing.T) {
 	resetOpenAISatCache()
 	cfg := &config.Config{}
@@ -86,14 +67,14 @@ func TestBuildOpenAIAccountLoadPlan_SaturationAppliesWithUpstreamTokenCost(t *te
 	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Load = 1
 	svc := &OpenAIGatewayService{cfg: cfg}
 	svc.SetOpenAISaturationCounter(&fakeSaturationCache{counts: map[int64]int64{
-		63: openAIEdgeMirrorStubSaturationThreshold,
+		63: saturationThreshold,
 	}})
 	scheduler := &defaultOpenAIAccountScheduler{service: svc}
 
-	saturated := openAIEdgeStub(63)
+	saturated := officialOpenAIOAuthAccount(63)
 	saturated.Concurrency = 30
 	saturated.Priority = 1
-	healthy := openAIEdgeStub(68)
+	healthy := officialOpenAIOAuthAccount(68)
 	healthy.Concurrency = 80
 	healthy.Priority = 1
 

@@ -7,7 +7,7 @@ The compiled floor lives in Go:
   - aliases: DefaultAntigravityModelMapping / xai.DefaultModelMapping
 
 This tool writes an optional runtime replacement layer to settings key
-``tk_account_model_mapping_runtime`` across prod/deployable edges. A present
+``tk_account_model_mapping_runtime`` on prod. A present
 scope REPLACES the compiled floor for that platform or newapi channel_type
 when generating apply-accounts / check-accounts desired mappings; absent
 scopes keep the compiled floor. Writing the setting does not mutate
@@ -34,11 +34,9 @@ check. It compares live prod account mappings to the selected release bundle's
 required floor and fails closed when prod is behind that model surface. It is not a
 generic binary deploy or rollback prerequisite. Live prod may be ahead for
 preheating or rollback, but forbidden keys/prefixes from the selected bundle
-still fail the check. Native edge accounts may keep empty ``model_mapping``;
+still fail the check. Native accounts may keep empty ``model_mapping``;
 Antigravity empty rows serve the compiled default plus the runtime overlay.
-Newapi Plan accounts on prod and edges keep explicit reviewed mappings. Do not
-bulk-apply prod floors to edges. Edge-specific troubleshooting belongs to
-``check-accounts --include-edges``; ``release-gate`` always checks prod only.
+Newapi Plan accounts keep explicit reviewed mappings.
 See ``docs/global/agent-reference.md`` § Model serving SSOT.
 
 Compiled ``account_overrides`` take precedence over platform and newapi
@@ -102,14 +100,13 @@ VERTEX_PROFILE_ASSIGN_CONFIRM = "yes-assign-vertex-capability-profiles"
 VERTEX_PROFILE_CREDENTIAL_KEY = "vertex_capability_profile"
 DEFAULT_BUNDLE_PATH = _BUNDLE.DEFAULT_BUNDLE_PATH
 BUNDLE_SCHEMA_VERSION = _BUNDLE.SCHEMA_VERSION
-DEFAULT_RUNTIME_TARGET = "all-deployable-and-prod"
+DEFAULT_RUNTIME_TARGET = "prod"
 
 _ACCOUNT_MAPPING_PROPERTIES_SQL = {
     "name": "a.name",
     "platform": "a.platform",
     "type": "a.type",
     "channel_type": "a.channel_type",
-    "mirror_platform": "a.credentials->>'mirror_platform'",
     "base_url": "a.credentials->>'base_url'",
     "auth_mode": "a.credentials->>'auth_mode'",
     "vertex_capability_profile": "a.credentials->>'vertex_capability_profile'",
@@ -169,18 +166,6 @@ _ssm_spec = importlib.util.spec_from_file_location(
     "tk_ssm_execution", REPO_ROOT / "ops" / "stage0" / "ssm_execution.py")
 _SSM = importlib.util.module_from_spec(_ssm_spec)
 _ssm_spec.loader.exec_module(_SSM)
-
-_edge_ssm_spec = importlib.util.spec_from_file_location(
-    "tk_edge_ssm_execution", REPO_ROOT / "ops" / "stage0" / "edge_ssm_execution.py")
-_EDGE_SSM = importlib.util.module_from_spec(_edge_ssm_spec)
-sys.modules.setdefault(_edge_ssm_spec.name, _EDGE_SSM)
-_edge_ssm_spec.loader.exec_module(_EDGE_SSM)
-
-_routing_spec = importlib.util.spec_from_file_location(
-    "tk_edge_routing_matrix", REPO_ROOT / "ops" / "stage0" / "edge_routing_matrix.py")
-_ROUTING = importlib.util.module_from_spec(_routing_spec)
-sys.modules.setdefault(_routing_spec.name, _ROUTING)
-_routing_spec.loader.exec_module(_ROUTING)
 
 
 def fail(msg: str) -> NoReturn:
@@ -329,23 +314,9 @@ def _resolve_prod_target(prod_instance_id: str | None = None) -> tuple[str, str,
 
 
 def _resolve_check_targets(
-    skip_prod: bool,
-    include_edges: bool = False,
     prod_instance_id: str | None = None,
 ) -> list[tuple[str, str, str]]:
-    targets: list[tuple[str, str, str]] = []
-    if not skip_prod:
-        targets.append(_resolve_prod_target(prod_instance_id))
-    if skip_prod or include_edges:
-        for eid in _ROUTING.live_deployable_edge_ids(REPO_ROOT):
-            ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
-            targets.append((f"edge:{eid}", ident.region, ident.instance_id))
-    return targets
-
-
-def _resolve_single_edge_target(edge_id: str) -> tuple[str, str, str]:
-    ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, edge_id)
-    return (f"edge:{edge_id}", ident.region, ident.instance_id)
+    return [_resolve_prod_target(prod_instance_id)]
 
 
 def _resolve_apply_targets(
@@ -358,14 +329,7 @@ def _resolve_apply_targets(
         return [_resolve_prod_target(pinned_prod_instance)]
     if pinned_prod_instance:
         fail("--prod-instance-id is only valid with --target prod")
-    if target.startswith("edge:"):
-        edge_id = target.split(":", 1)[1].strip()
-        if not edge_id:
-            fail("--target edge:<id> requires an edge id")
-        return [_resolve_single_edge_target(edge_id)]
-    if target in {"all", "all-deployable-and-prod"}:
-        return _resolve_check_targets(skip_prod=False, include_edges=True)
-    fail("--target must be prod, edge:<id>, or all-deployable-and-prod")
+    fail("--target must be prod")
 
 
 def _resolve_runtime_mutation_target(
@@ -373,7 +337,7 @@ def _resolve_runtime_mutation_target(
 ) -> tuple[str, str, str]:
     normalized = target.strip().lower()
     if normalized in {"all", "all-deployable-and-prod"}:
-        fail("runtime writes require one explicit --target: prod or edge:<id>")
+        fail("runtime writes require one explicit --target: prod")
     targets = _resolve_apply_targets(normalized)
     if len(targets) != 1:
         fail("runtime writes require exactly one resolved target")
@@ -446,20 +410,7 @@ def _model_mapping(row: dict[str, Any]) -> tuple[dict[str, str], str | None]:
 
 
 def _is_kiro_scope(row: dict[str, Any]) -> bool:
-    platform = str(row.get("platform") or "").strip().lower()
-    if platform == "kiro":
-        return True
-    if platform != "anthropic" or str(row.get("type") or "") != "apikey":
-        return False
-    if str(row.get("mirror_platform") or "").strip().lower() == "kiro":
-        return True
-    name = str(row.get("name") or "").strip().lower()
-    base_url = str(row.get("base_url") or "").strip().lower().rstrip("/")
-    return (
-        name.startswith("kiro-")
-        and base_url.startswith("https://api-")
-        and base_url.endswith(".tokenkey.dev")
-    )
+    return str(row.get("platform") or "").strip().lower() == "kiro"
 
 
 def _is_openai_ainzy_relay(row: dict[str, Any]) -> bool:
@@ -1489,15 +1440,11 @@ def cmd_check(args) -> int:
 
 def _account_check_report(
     *,
-    skip_prod: bool,
-    include_edges: bool,
     parallel: int,
     prod_instance_id: str | None = None,
 ) -> dict[str, Any]:
     targets = _resolve_check_targets(
-        skip_prod,
-        include_edges=include_edges,
-        prod_instance_id=_normalize_instance_id(prod_instance_id, "--prod-instance-id"),
+                prod_instance_id=_normalize_instance_id(prod_instance_id, "--prod-instance-id"),
     )
     violations: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
@@ -1590,9 +1537,7 @@ def _print_runtime_setting_remediation(report: dict[str, Any]) -> None:
 def cmd_check_accounts(args) -> int:
     _set_bundle_path(getattr(args, "bundle", None))
     report = _account_check_report(
-        skip_prod=args.skip_prod,
-        include_edges=args.include_edges,
-        parallel=args.parallel,
+                parallel=args.parallel,
         prod_instance_id=getattr(args, "prod_instance_id", None),
     )
     target_count = report["target_count"]
@@ -1692,9 +1637,7 @@ def _print_release_gate_human(report: dict[str, Any]) -> None:
 def cmd_release_gate(args) -> int:
     _set_bundle_path(getattr(args, "bundle", None))
     report = _account_check_report(
-        skip_prod=False,
-        include_edges=False,
-        parallel=args.parallel,
+                parallel=args.parallel,
         prod_instance_id=args.prod_instance_id,
     )
     status = _release_gate_status(report)
@@ -1734,9 +1677,9 @@ def cmd_apply_accounts(args) -> int:
             account_ids = _parse_account_ids(account_ids_raw)
         except ValueError as e:
             fail(str(e))
-        # Reject all-deployable-and-prod in targeted mode
+        # Reject fleet-wide targets in targeted mode
         if args.target.strip().lower() in {"all", "all-deployable-and-prod"}:
-            fail("--account-ids requires a single explicit target (prod or edge:<id>), not all-deployable-and-prod")
+            fail("--account-ids requires a single explicit target (prod), not all-deployable-and-prod")
 
     targets = _resolve_apply_targets(
         args.target,
@@ -2256,13 +2199,6 @@ def cmd_selftest(_args) -> int:
     assert native_anthropic_plan
     assert native_anthropic_plan["diff"]["forbidden_keys"] == ["claude-opus-5"]
     assert _account_plan({
-        "name": "kiro-us3",
-        "platform": "anthropic",
-        "type": "apikey",
-        "mirror_platform": "kiro",
-        "model_mapping": dict(floor["platforms"]["kiro"]),
-    }, floor) is None
-    assert _account_plan({
         "platform": "openai",
         "type": "oauth",
         "model_mapping": {},
@@ -2640,22 +2576,10 @@ def cmd_selftest(_args) -> int:
         "type": "apikey",
         "base_url": "https://relay.example.com/v1",
     })
-    original_load_matrix = _ROUTING.load_matrix
-    original_load_lightsail_targets = _ROUTING.load_lightsail_targets
-    _ROUTING.load_matrix = lambda *_args, **_kwargs: (_ for _ in ()).throw(
-        AssertionError("prod-only target resolution touched the EC2 edge registry"))
-    _ROUTING.load_lightsail_targets = lambda *_args, **_kwargs: (_ for _ in ()).throw(
-        AssertionError("prod-only target resolution touched the Lightsail edge registry"))
-    try:
-        prod_only = _resolve_check_targets(
-            skip_prod=False,
-            include_edges=False,
-            prod_instance_id="i-00000000000000000",
-        )
-        assert len(prod_only) == 1 and prod_only[0][0] == "prod"
-    finally:
-        _ROUTING.load_matrix = original_load_matrix
-        _ROUTING.load_lightsail_targets = original_load_lightsail_targets
+    prod_only = _resolve_check_targets(
+                prod_instance_id="i-00000000000000000",
+    )
+    assert len(prod_only) == 1 and prod_only[0][0] == "prod"
     violation_report = {"violation_count": 1, "error_count": 0, "violations": [{"kind": "account"}]}
     runtime_violation_report = {
         "violation_count": 1,
@@ -2735,14 +2659,6 @@ def cmd_selftest(_args) -> int:
             raise AssertionError("bundle with a required/forbidden conflict was accepted")
     globals()["_BUNDLE_PATH"] = original_bundle_path
     parser = _build_parser()
-    with contextlib.redirect_stderr(io.StringIO()):
-        try:
-            parser.parse_args(["release-gate", "--include-edges"])
-        except SystemExit as e:
-            assert e.code == 2
-        else:
-            raise AssertionError("release-gate accepted edge scope")
-    assert parser.parse_args(["check-accounts", "--include-edges"]).include_edges
     profile_args = parser.parse_args([
         "assign-vertex-profiles", "--file", "profiles.json", "--dry-run",
     ])
@@ -2754,8 +2670,8 @@ def cmd_selftest(_args) -> int:
         "sync-runtime", "--file", "runtime.json", "--target", "prod", *selected_bundle_args,
     ])
     assert sync_args.bundle and sync_args.confirm is None
-    clear_args = parser.parse_args(["clear-runtime", "--target", "edge:us3"])
-    assert clear_args.target == "edge:us3" and clear_args.confirm is None
+    clear_args = parser.parse_args(["clear-runtime", "--target", "prod"])
+    assert clear_args.target == "prod" and clear_args.confirm is None
     with contextlib.redirect_stderr(io.StringIO()):
         try:
             parser.parse_args(["sync-runtime", "--file", "runtime.json"])
@@ -2824,7 +2740,7 @@ def cmd_selftest(_args) -> int:
                     raise AssertionError("clear-runtime accepted an invalid confirmation")
             assert len(runtime_target_resolutions) == resolutions_before_bad_confirm
             assert cmd_check_accounts(argparse.Namespace(
-                skip_prod=False, include_edges=True, parallel=1,
+                parallel=1,
                 prod_instance_id="i-00000000000000000",
                 json=False, bundle="check-bundle")) == 0
             assert cmd_release_gate(argparse.Namespace(
@@ -2836,8 +2752,6 @@ def cmd_selftest(_args) -> int:
     assert command_bundle_calls == ["validate-bundle", "sync-bundle", "check-bundle", "release-bundle"]
     assert len(account_report_calls) == 2
     check_call, release_call = account_report_calls
-    assert check_call["include_edges"] is True
-    assert release_call["include_edges"] is False
     assert runtime_target_resolutions == ["prod", "prod"]
     with contextlib.redirect_stderr(io.StringIO()):
         try:
@@ -3284,13 +3198,11 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--bundle", help="generated model-surface bundle to validate against")
     sp = sub.add_parser("check", help="compare runtime settings to a JSON file")
     sp.add_argument("--file", type=Path, required=True)
-    sp.add_argument("--target", default=DEFAULT_RUNTIME_TARGET, help="prod, edge:<id>, or all-deployable-and-prod")
+    sp.add_argument("--target", default=DEFAULT_RUNTIME_TARGET, help="prod")
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
     sp = sub.add_parser("check-accounts", help="post-release read-only account model_mapping SSOT diff (prod only by default)")
     sp.add_argument("--json", action="store_true", help="machine-readable output")
-    sp.add_argument("--skip-prod", action="store_true", help="check deployable edges only")
-    sp.add_argument("--include-edges", action="store_true", help="also check deployable edges (default: prod only)")
     sp.add_argument("--prod-instance-id", help="use this prod EC2 instance id instead of resolving the prod stack")
     sp.add_argument("--bundle", help="generated model-surface bundle to check against")
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
@@ -3303,7 +3215,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--bundle", help="generated model-surface bundle to check against")
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
     sp = sub.add_parser("apply-accounts", help="explicitly apply reviewed SSOT diffs to live accounts")
-    sp.add_argument("--target", required=True, help="prod, edge:<id>, or all-deployable-and-prod")
+    sp.add_argument("--target", required=True, help="prod")
     sp.add_argument("--account-ids", help="comma-separated positive account IDs for targeted apply (single explicit target only)")
     sp.add_argument("--expected-plan-sha256", help="required in targeted mode for non-dry-run; must match recomputed plan digest")
     sp.add_argument("--confirm", help=f"required for writes: {APPLY_CONFIRM}")
@@ -3323,11 +3235,11 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--bundle", help="generated model-surface bundle whose profile names are allowed")
     sp = sub.add_parser("sync-runtime", help="plan or explicitly write one target runtime setting")
     sp.add_argument("--file", type=Path, required=True)
-    sp.add_argument("--target", required=True, help="one target: prod or edge:<id>")
+    sp.add_argument("--target", required=True, help="one target: prod")
     sp.add_argument("--confirm", help=f"write instead of dry-run: {RUNTIME_MUTATION_CONFIRM}")
     sp.add_argument("--bundle", help="generated model-surface bundle to validate against")
     sp = sub.add_parser("clear-runtime", help="plan or explicitly delete one target runtime setting")
-    sp.add_argument("--target", required=True, help="one target: prod or edge:<id>")
+    sp.add_argument("--target", required=True, help="one target: prod")
     sp.add_argument("--confirm", help=f"write instead of dry-run: {RUNTIME_MUTATION_CONFIRM}")
     sub.add_parser("example", help="print an example runtime JSON")
     return ap

@@ -318,7 +318,7 @@
                   : account.platform === 'antigravity'
                     ? 'sk-...'
                   : account.platform === 'grok'
-                      ? 'tk-edge-...'
+                      ? 'sk-...'
                       : 'sk-ant-...'
             "
           />
@@ -348,16 +348,6 @@
           </p>
         </div>
 
-        <!-- TK: edge mirror-stub pool selector (anthropic apikey only) -->
-        <div v-if="account.platform === 'anthropic'">
-          <label class="input-label">{{ t('admin.accounts.anthropic.mirrorPlatform') }}</label>
-          <select v-model="editMirrorPlatform" class="input">
-            <option v-for="opt in MIRROR_PLATFORM_OPTIONS" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </option>
-          </select>
-          <p class="input-hint">{{ t('admin.accounts.anthropic.mirrorPlatformHint') }}</p>
-        </div>
         </template>
 
         <!--
@@ -559,18 +549,14 @@
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.poolModeHint') }}
               </p>
-              <p v-if="isSystemManagedAnthropicStub" class="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">
-                {{ t('admin.accounts.poolModeSystemManaged') }}
-              </p>
             </div>
             <button
               type="button"
               data-testid="pool-mode-toggle"
-              :disabled="isSystemManagedAnthropicStub"
-              @click="!isSystemManagedAnthropicStub && (poolModeEnabled = !poolModeEnabled)"
+              @click="poolModeEnabled = !poolModeEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                isSystemManagedAnthropicStub ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                'cursor-pointer',
                 poolModeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
               ]"
             >
@@ -597,7 +583,6 @@
               :max="MAX_POOL_MODE_RETRY_COUNT"
               step="1"
               class="input"
-              :disabled="isSystemManagedAnthropicStub"
             />
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {{
@@ -614,7 +599,6 @@
               v-model="poolModeRetryStatusCodesInput"
               type="text"
               class="input"
-              :disabled="isSystemManagedAnthropicStub"
               :placeholder="DEFAULT_POOL_MODE_RETRY_STATUS_CODES.join(', ')"
             />
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -3308,11 +3292,6 @@ import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import VertexServiceAccountFields from './VertexServiceAccountFields.vue'
 import { useVertexServiceAccountFields } from '@/composables/useVertexServiceAccountFields'
 import {
-  MIRROR_PLATFORM_OPTIONS,
-  normalizeMirrorPlatform,
-  type MirrorPlatform
-} from '@/constants/mirrorPlatformOptions.tk'
-import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
   OPENAI_WS_MODE_PASSTHROUGH,
@@ -3625,18 +3604,6 @@ onBeforeUnmount(invalidateGeminiWebSessionImport)
 const geminiWebSessionFileInput = ref<HTMLInputElement | null>(null)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
-// TK: edge mirror-stub pool selector (anthropic + apikey only). See
-// constants/mirrorPlatformOptions.tk.ts.
-const editMirrorPlatform = ref<MirrorPlatform>('anthropic')
-const INTERNAL_EDGE_STUB_BASE_URL_RE = /^https:\/\/api-[a-z0-9-]+\.tokenkey\.dev\/?$/i
-const isSystemManagedAnthropicStub = computed(() => {
-  if (props.account?.platform !== PLATFORM_ANTHROPIC || props.account?.type !== 'apikey') {
-    return false
-  }
-  const storedBaseURL = (props.account.credentials as Record<string, unknown> | undefined)?.base_url
-  const baseURL = (editBaseUrl.value || (typeof storedBaseURL === 'string' ? storedBaseURL : '')).trim()
-  return INTERNAL_EDGE_STUB_BASE_URL_RE.test(baseURL)
-})
 // 第五平台 newapi：表单状态 + 副作用统一收口在 composable。
 // EditModal 多传一个 storedAccount，让「获取模型列表」在用户没重新输入 api_key 时走 stored
 // credential 路径——与上游 new-api 的 channel 编辑体验一致。
@@ -4841,9 +4808,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editBaseUrl.value = isCNApiKeyAccount.value && editApiProtocol.value === 'adaptive'
       ? editAdaptiveBaseUrls.value.chat_completions
       : (credentials.base_url as string) || platformDefaultUrl
-    // TK: edge mirror-stub pool (default anthropic for non-stub accounts).
-    editMirrorPlatform.value = normalizeMirrorPlatform(credentials.mirror_platform)
-
     // 第五平台 newapi：把现有账号的 channel_type / credentials 一次性灌进
     // composable，模式（whitelist / mapping）由 composable 自行推断。
     if (newAccount.platform === PLATFORM_NEWAPI) {
@@ -5715,12 +5679,6 @@ const handleSubmit = async () => {
           appStore.showError(t('admin.accounts.apiKeyIsRequired'))
           return
         }
-        // TK: edge mirror-stub pool selector (surface-C). anthropic apikey only.
-        if (props.account.platform === PLATFORM_ANTHROPIC) {
-          newCredentials.mirror_platform = editMirrorPlatform.value
-        } else if (props.account.platform === PLATFORM_GROK) {
-          newCredentials.mirror_platform = 'grok'
-        }
         if (shouldApplyModelMapping) {
           // Persist BOTH whitelist passthrough entries and real remaps. The mode
           // toggle is only a view switch; an account holding both (e.g. a gpt-5.2
@@ -5749,23 +5707,19 @@ const handleSubmit = async () => {
         applyOpenAIEndpointCapabilities(newCredentials)
       }
 
-      // Internal edge stubs are reconciler-managed for pool mode; keep the
-      // stored credentials untouched so a generic account save cannot clear them.
-      if (!isSystemManagedAnthropicStub.value) {
-        if (poolModeEnabled.value) {
-          newCredentials.pool_mode = true
-          newCredentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)
-          const parsedRetryStatusCodes = parsePoolModeRetryStatusCodes(poolModeRetryStatusCodesInput.value)
-          if (parsedRetryStatusCodes.length > 0) {
-            newCredentials.pool_mode_retry_status_codes = parsedRetryStatusCodes
-          } else {
-            delete newCredentials.pool_mode_retry_status_codes
-          }
+      if (poolModeEnabled.value) {
+        newCredentials.pool_mode = true
+        newCredentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)
+        const parsedRetryStatusCodes = parsePoolModeRetryStatusCodes(poolModeRetryStatusCodesInput.value)
+        if (parsedRetryStatusCodes.length > 0) {
+          newCredentials.pool_mode_retry_status_codes = parsedRetryStatusCodes
         } else {
-          delete newCredentials.pool_mode
-          delete newCredentials.pool_mode_retry_count
           delete newCredentials.pool_mode_retry_status_codes
         }
+      } else {
+        delete newCredentials.pool_mode
+        delete newCredentials.pool_mode_retry_count
+        delete newCredentials.pool_mode_retry_status_codes
       }
 
       // Add custom error codes if enabled

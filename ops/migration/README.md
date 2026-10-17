@@ -1,23 +1,18 @@
 # 迁移工具边界
 
 当前身份与恢复入口见 [舰队清单](../../deploy/hetzner/README.md)。
-`fresh_host_*`、`hold-fresh-candidate.sh`、`prepare-aws-*`、`prepare-prod-edge-pins.py` 与 `repair-tokyo-usage-20261017.sh`
-属于 2026-10 的一次性迁移/修复工具，不是日常运维入口。历史实例已删除，不能重放旧回执；
-当前 Tokyo prod 也不是候选机。新的整机替换须按 host-replacement 技能准备新身份与回执。
+`fresh_host_delta.py`、`hold-fresh-candidate.sh` 与 `repair-tokyo-usage-20261017.sh`
+属于一次性迁移/修复工具，不是日常运维入口。新的整机替换按 host-replacement 技能准备新身份与回执。
 通用分区维护工具仍可用，不因目录名 migration 而删除。
 
 # usage_logs 日分区切换
 
-> **Edge targets retired (2026-10-17).** 当前只维护 `prod`。本页中的
-> `edge:<id>` 示例是历史 receipt/replay 资料；共享 resolver 会拒绝 retired
-> 或 planned edge，禁止把它们作为现网迁移目标。
-
-`usage_logs_daily_partition.py` 是 prod 与 Edge 共用的唯一 operator。它不会由应用启动或
-migration runner 自动执行，也不会复制历史明细。每个命令都必须显式指定 `--target prod` 或
-`--target edge:<id>`；confirmation、远端 receipt 和本地 receipt 均与同一 target 绑定，不能跨节点复用。
+`usage_logs_daily_partition.py` 是 prod 的分区维护入口。它不会由应用启动或
+migration runner 自动执行，也不会复制历史明细。命令显式指定 `--target prod`；
+confirmation、远端 receipt 和本地 receipt 均与目标绑定。
 
 先读取目标状态，再并发创建普通 `(request_id, api_key_id)` 查询索引，并在线准备及验证固定上界
-CHECK。以下以当前 `prod` 为例（旧 edge 已退役）：
+CHECK。以下以当前 `prod` 为例：
 
 ```bash
 python3 ops/migration/usage_logs_daily_partition.py status \

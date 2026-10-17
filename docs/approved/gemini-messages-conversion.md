@@ -7,7 +7,7 @@ created: 2026-09-13
 
 # Gemini → Messages 与历史失败修复
 
-用户授权按算术校验、Edge 能力冲突、Gemini→Messages、视觉代表、历史失败复测的顺序修复。
+用户授权按算术校验、Gemini→Messages、视觉代表、历史失败复测的顺序修复。
 授权覆盖实现、本地验证及低并发定向实测；本变更没有部署或切流动作。
 
 ## 协议契约
@@ -32,12 +32,7 @@ Gemini Schema 只转换已定义的公共子集；parametersJsonSchema 原样保
 必须收到 message_stop 才发布完成标志；错误安全化，输出后不重试，已知部分用量仍结算。
 Messages 没有独立 reasoning token 计数时不捏造 thoughtsTokenCount。
 
-## Edge 与测试修复
-
-`routingSupportedProtocols` 是已有路由投影 owner：当 Antigravity 镜像已验证原生 Gemini
-通道时，Plan 使用该通道，在 prod 完成可保留语义的转换，不再依赖 Edge 兼容入口或放宽
-中转 key 的转换权限。未验证原生通道的历史 Chat 镜像以及外部供应商保持原声明。
-原始探测声明保留，不写账号配置；不支持的思考/图片转换仍需选择其他合法账号。
+## 测试修复
 
 算术 fixture 已要求“仅最终整数”，判定改为完整答案匹配，拒绝否定句和多答案。
 视觉分支按实际验证的模型家族选代表，保留旧失败证据。NVIDIA Build 的有效

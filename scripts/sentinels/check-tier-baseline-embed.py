@@ -133,8 +133,8 @@ def effective_tiers_from_json(doc: dict) -> dict[str, dict]:
 
     NOTE: this is the LIVE-tier source of truth (it equals what
     ensureSeededFromBaseline UPSERTs into the tiers table on boot). It is used by
-    ops/anthropic/manage-anthropic-config.py (_load_expected_tiers) for live
-    tiers-TABLE drift detection — NOT for the frozen tk_012 migration seed, which
+    the runtime reconciliation owner for live tiers-TABLE drift detection — NOT
+    for the frozen tk_012 migration seed, which
     is immutable and guarded against FROZEN_TK012_SEED above.
     """
     shared = doc.get("shared_baseline") or {}

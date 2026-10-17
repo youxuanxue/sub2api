@@ -6,7 +6,6 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
 STAGE0="${REPO_ROOT}/deploy/aws/stage0"
-LIGHTSAIL="${REPO_ROOT}/deploy/aws/lightsail"
 OUT="${OUT:-${HERE}/generated-prod-user-data.sh}"
 
 mode="apply"
@@ -14,17 +13,15 @@ if [[ "${1:-}" == "--check" ]]; then
   mode="check"
 fi
 
-# Bootstrap Caddy uses Caddyfile.edge (single API host). Formal prod Caddy
-# (apex / CallModel) is applied later via sync_caddyfile; do not derive
-# SITE_DOMAIN from a staging hostname under render-prod-caddyfile.
+# Bootstrap uses the canonical prod Caddyfile.
 for f in \
   "${STAGE0}/docker-compose.yml" \
-  "${STAGE0}/Caddyfile.edge" \
+  "${STAGE0}/Caddyfile" \
   "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh" \
   "${STAGE0}/tokenkey-ghcr-prune-daily.sh" \
   "${STAGE0}/tokenkey-pgdump.sh" \
-  "${LIGHTSAIL}/restore-edge-env-secrets.sh" \
-  "${LIGHTSAIL}/tokenkey-disk-metrics-edge.sh" \
+  "${HERE}/restore-prod-env-secrets.sh" \
+  "${HERE}/tokenkey-disk-metrics-prod.sh" \
   "${REPO_ROOT}/deploy/host/ensure-tokenkey-bbr.sh"; do
   [[ -f "$f" ]] || { echo "missing $f" >&2; exit 1; }
 done
@@ -45,14 +42,14 @@ PY
 }
 
 compose_b64="$(b64_gzip "${STAGE0}/docker-compose.yml")"
-caddy_b64="$(b64_gzip "${STAGE0}/Caddyfile.edge")"
+caddy_b64="$(b64_gzip "${STAGE0}/Caddyfile")"
 prune_b64="$(b64_gzip "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh")"
 ghcr_daily_b64="$(b64_gzip "${STAGE0}/tokenkey-ghcr-prune-daily.sh")"
 pgdump_b64="$(b64_gzip "${STAGE0}/tokenkey-pgdump.sh")"
 pgdump_storage_b64="$(b64_gzip "${REPO_ROOT}/ops/stage0/pgdump_storage.py")"
-disk_metrics_b64="$(b64_gzip "${LIGHTSAIL}/tokenkey-disk-metrics-edge.sh")"
+disk_metrics_b64="$(b64_gzip "${HERE}/tokenkey-disk-metrics-prod.sh")"
+restore_secrets_b64="$(b64_gzip "${HERE}/restore-prod-env-secrets.sh")"
 bbr_b64="$(b64_gzip "${REPO_ROOT}/deploy/host/ensure-tokenkey-bbr.sh")"
-restore_secrets_b64="$(b64_gzip "${LIGHTSAIL}/restore-edge-env-secrets.sh")"
 cat >"${OUT}.tmp" <<'LAUNCH_HEAD'
 #!/bin/bash
 # tokenkey Prod Hetzner bootstrap — generated; do not hand-edit.
@@ -331,8 +328,8 @@ RandomizedDelaySec=2min
 WantedBy=timers.target
 PTEOF
 
-printf '%s' "$RESTORE_SECRETS_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-restore-edge-env-secrets.sh
-chmod 0755 /usr/local/bin/tokenkey-restore-edge-env-secrets.sh
+printf '%s' "$RESTORE_SECRETS_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-restore-prod-env-secrets.sh
+chmod 0755 /usr/local/bin/tokenkey-restore-prod-env-secrets.sh
 
 SECRET_FILE=/var/lib/tokenkey/.env.secret
 restore_secret_args=(
@@ -342,7 +339,7 @@ restore_secret_args=(
 if [ "${ALLOW_SECRET_GENERATE}" = true ]; then
   restore_secret_args+=(--allow-generate)
 fi
-AWS_REGION="${SSM_REGION}" /usr/local/bin/tokenkey-restore-edge-env-secrets.sh \
+AWS_REGION="${SSM_REGION}" /usr/local/bin/tokenkey-restore-prod-env-secrets.sh \
   "${restore_secret_args[@]}"
 set -a; . "$SECRET_FILE"; set +a
 
@@ -371,7 +368,6 @@ ADMIN_PASSWORD=
 JWT_SECRET=${JWT_SECRET}
 JWT_EXPIRE_HOUR=1
 TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY}
-GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED=true
 QA_CAPTURE_ENABLED=false
 TOKENKEY_PGDUMP_S3_URI=${TOKENKEY_PGDUMP_S3_URI}
 ENVEOF
@@ -423,7 +419,7 @@ UNITEOF
 
 systemctl daemon-reload
 systemctl enable --now tokenkey.service
-# Host parity with AWS prod / edge HZ: dump + disk/mem Feishu + ghcr prune.
+# Host parity with production: dump + disk/mem Feishu + ghcr prune.
 # QA maintenance/boundary + live QA_ARCHIVE_* stay off until ops enables them
 # (staging must not archive an empty DB into the live raw bucket). Feishu webhook env still
 # comes from post-boot sync (copy from AWS prod .env or sync-feishu-config).

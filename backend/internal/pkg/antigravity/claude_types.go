@@ -9,21 +9,17 @@ import (
 
 // ClaudeRequest Claude Messages API 请求
 type ClaudeRequest struct {
-	Model       string          `json:"model"`
-	Messages    []ClaudeMessage `json:"messages"`
-	MaxTokens   int             `json:"max_tokens,omitempty"`
-	System      json.RawMessage `json:"system,omitempty"` // string 或 []SystemBlock
-	Stream      bool            `json:"stream,omitempty"`
-	Temperature *float64        `json:"temperature,omitempty"`
-	TopP        *float64        `json:"top_p,omitempty"`
-	TopK        *int            `json:"top_k,omitempty"`
-	Tools       []ClaudeTool    `json:"tools,omitempty"`
-	Thinking    *ThinkingConfig `json:"thinking,omitempty"`
-	Metadata    *ClaudeMetadata `json:"metadata,omitempty"`
-	// ImageConfig is the TK gemini-native image-config carrier. The OpenAI-compat
-	// inbound (extra_body.google.image_config.{aspect_ratio,image_size}) threads it onto
-	// the Anthropic /v1/messages body across the prod→edge relay; buildGenerationConfig
-	// reads it and emits generationConfig.imageConfig to cloudcode-pa. Not a Claude-spec field.
+	Model       string             `json:"model"`
+	Messages    []ClaudeMessage    `json:"messages"`
+	MaxTokens   int                `json:"max_tokens,omitempty"`
+	System      json.RawMessage    `json:"system,omitempty"` // string 或 []SystemBlock
+	Stream      bool               `json:"stream,omitempty"`
+	Temperature *float64           `json:"temperature,omitempty"`
+	TopP        *float64           `json:"top_p,omitempty"`
+	TopK        *int               `json:"top_k,omitempty"`
+	Tools       []ClaudeTool       `json:"tools,omitempty"`
+	Thinking    *ThinkingConfig    `json:"thinking,omitempty"`
+	Metadata    *ClaudeMetadata    `json:"metadata,omitempty"`
 	ImageConfig *ClaudeImageConfig `json:"image_config,omitempty"`
 }
 

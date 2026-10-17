@@ -14,22 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Prod + edge-us4-ls, 2026-09-10: Antigravity 5xx on gemini-2.5-flash-image
-// (503, 4→22) and claude-opus-4-6 (502, 2→7) were booked as owner=platform /
-// phase=internal, i.e. OUR bug, and became `code_owned` + confidence=high +
-// repair_eligible in daily_error_report.py — queueing an automated code-repair
-// Draft PR against code that is not at fault, while the real provider capacity
-// signal never reached upstream_error_rate.
-//
-// Cause: handleSmartRetry's terminal exits emitted no ops upstream event, unlike
-// every other exit from the Antigravity retry loop. The account-switch signal is
-// converted to an UpstreamFailoverError before any handler sees an HTTP status,
-// so hasOpsUpstreamErrorContext stayed false and classifyOpsErrorLog fell
-// through to phase="internal" => owner="platform".
-//
-// These tests pin that each terminal exit records the provider verdict. The
-// handler-side consequence (phase=upstream, owner=provider) is pinned in
-// handler/ops_error_logger_tk_antigravity_smart_retry_test.go.
 func antigravitySmartRetryOpsEvents(t *testing.T, c *gin.Context) []*OpsUpstreamErrorEvent {
 	t.Helper()
 	value, ok := c.Get(OpsUpstreamErrorsKey)

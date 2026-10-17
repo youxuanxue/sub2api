@@ -3,7 +3,6 @@
   "known_inputs": [
     "ops/observability/*",
     "ops/stage0/*",
-    "ops/lightsail/*",
     "ops/dns/*",
     "ops/qa/*",
     "ops/archive/*",
@@ -88,7 +87,6 @@
     "anthropic prompt surface registry": "anthropic",
     "cc geo-stego static anchors": "anthropic",
     "prompt surface drift aggregate": "observability",
-    "oauth mimic edge aggregate": "observability",
     "user billing watch probe": "billing-watch",
     "codex fingerprint pin consistency": "client",
     "client release watch": "client",
@@ -102,7 +100,6 @@
     "engine facade registry": "base",
     "QA lifecycle SSOT": "qa",
     "QA Phase 2 recovery and IAM contracts": "qa",
-    "QA Phase 1 edge baseline probe": "qa",
     "QA Phase 1 closeout + Phase 2 baseline": "qa",
     "QA raw archive contract": "qa",
     "frontend release asset contract": "frontend",
@@ -120,15 +117,6 @@
     "single app-container resolver owner": "deploy",
     "nonprod archive/restore rehearsal": "qa",
     "runtime resource config verdict selftest": "observability",
-    "edge-health verdict selftest": "observability",
-    "edge-health alert decision selftest": "observability",
-    "edge model-unit health alert tests": "observability",
-    "edge HTTPS health probe selftest": "observability",
-    "edge-health scan integration selftest": "observability",
-    "edge-health delivery selftest": "observability",
-    "edge-health watch workflow contract": "observability",
-    "edge disk/memory host-alert selftest": "deploy",
-    "edge disk remediation script contract": "deploy",
     "disable image concurrency remediate contract": "observability",
     "env secret backup fail-closed contract": "deploy",
     "QA single-owner SSM operator contract": "qa",
@@ -146,7 +134,6 @@
     "Caddyfile syntax gate": "deploy",
     "Porkbun A upsert contract": "deploy",
     "Wave B freeze-delta contract": "deploy",
-    "edge-ip-status doc / live AWS drift": "deploy",
     "Stage0 deployment primitive sharing": "deploy",
     "blue/green migration safety": "deploy",
     "migration immutability": "deploy",
@@ -172,8 +159,6 @@
     "ops_error_logs read-vs-write columns": "base",
     "local aws/pyexpat helper selftest": "build",
     "ops tool orphan check": "base",
-    "workflow edge coverage": "deploy",
-    "lightsail edge launch-script drift": "deploy",
     "stage0 CFN base64 drift": "deploy",
     "agent stream redactor self-test": "build",
     "headless-agent composite sharing": "deploy",
@@ -191,7 +176,6 @@
     "backend-ci routing and base-ref contract": "build",
     "Docker action Node runtime": "build",
     "pnpm audit owner contract": "build",
-    "Cursor deployment isolation": "build",
     "host auto-upgrade disabled": "deploy",
     "gh CLI repository context": "deploy",
     "Node version alignment": "build",
@@ -213,9 +197,7 @@
     "deployment test suite": "deploy-tests",
     "backend lint": "backend",
     "changed script syntax": "base",
-    "gemini web control protocol parity": "gemini-web",
-    "gemini web worker fleet verdict selftest": "gemini-web",
-    "hcloud live-fleet routing and transport": "hcloud-live-ops"
+    "gemini web control protocol parity": "gemini-web"
   },
   "backgrounds": {
     "qa_raw_archive": "QA raw archive contract",
@@ -225,6 +207,7 @@
     "det_scripts": "scripts test suite",
     "det_deploy_aws_stage0": "deployment test suite",
     "det_deploy_aws_lightsail": "deployment test suite",
+    "det_deploy_hetzner": "deployment test suite",
     "caddyfile": "Caddyfile syntax gate",
     "script_ref": "script ref existence",
     "script_ref_test": "script ref existence",
@@ -283,7 +266,6 @@
     "deploy": [
       "deploy/*",
       "ops/stage0/*",
-      "ops/lightsail/*",
       "ops/dns/*",
       "ops/qa/*",
       "ops/archive/*",
@@ -336,7 +318,6 @@
     "deploy-tests": [
       "deploy/*",
       "ops/stage0/*",
-      "ops/lightsail/*",
       "ops/dns/*"
     ],
     "backend": [
@@ -361,9 +342,7 @@
     ],
     "gemini-web": [
       "ops/gemini-web/*",
-      "backend/internal/handler/gemini_web_session_handler.go",
-      "ops/observability/check-gemini-web-worker-fleet.sh",
-      "ops/observability/probe-gemini-web-worker-build.sh"
+      "backend/internal/handler/gemini_web_session_handler.go"
     ],
     "hcloud-live-ops": [
       "ops/qa/prod_qa_maintenance.py",
@@ -372,10 +351,7 @@
       "ops/anthropic/*",
       "ops/accounts/*",
       "ops/pricing/*",
-      "deploy/hetzner/*",
-      "deploy/aws/lightsail/edge-targets-lightsail.json",
-      "deploy/aws/stage0/resolve-edge-target.py",
-      ".github/workflows/deploy-gemini-web-worker.yml"
+      "deploy/hetzner/*"
     ]
   },
   "isolated_inputs": {
@@ -383,18 +359,10 @@
       "supplier projection post-release check",
       "account group-binding post-release check",
       "prompt surface drift aggregate",
-      "oauth mimic edge aggregate",
       "data-layer capacity verdict selftest",
       "capacity-first safety contracts",
       "phase1 production activation safety contracts",
       "runtime resource config verdict selftest",
-      "edge-health verdict selftest",
-      "edge-health alert decision selftest",
-      "edge model-unit health alert tests",
-      "edge HTTPS health probe selftest",
-      "edge-health scan integration selftest",
-      "edge-health delivery selftest",
-      "edge-health watch workflow contract",
       "live-host state verdict selftest",
       "live-host detector ↔ deploy injector env sync",
       "first-output timeout SSOT sync",
@@ -404,7 +372,6 @@
   },
   "requires": {
     "nonprod archive/restore rehearsal": [
-      "QA Phase 1 edge baseline probe"
     ],
     "model-family alert artifact drift": [
       "generated model-surface bundle drift"

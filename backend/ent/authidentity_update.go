@@ -150,7 +150,6 @@ func (_u *AuthIdentityUpdate) AddChannelIDs(ids ...int64) *AuthIdentityUpdate {
 	return _u
 }
 
-// AddChannels adds the "channels" edges to the AuthIdentityChannel entity.
 func (_u *AuthIdentityUpdate) AddChannels(v ...*AuthIdentityChannel) *AuthIdentityUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -165,7 +164,6 @@ func (_u *AuthIdentityUpdate) AddAdoptionDecisionIDs(ids ...int64) *AuthIdentity
 	return _u
 }
 
-// AddAdoptionDecisions adds the "adoption_decisions" edges to the IdentityAdoptionDecision entity.
 func (_u *AuthIdentityUpdate) AddAdoptionDecisions(v ...*IdentityAdoptionDecision) *AuthIdentityUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -185,7 +183,6 @@ func (_u *AuthIdentityUpdate) ClearUser() *AuthIdentityUpdate {
 	return _u
 }
 
-// ClearChannels clears all "channels" edges to the AuthIdentityChannel entity.
 func (_u *AuthIdentityUpdate) ClearChannels() *AuthIdentityUpdate {
 	_u.mutation.ClearChannels()
 	return _u
@@ -197,7 +194,6 @@ func (_u *AuthIdentityUpdate) RemoveChannelIDs(ids ...int64) *AuthIdentityUpdate
 	return _u
 }
 
-// RemoveChannels removes "channels" edges to AuthIdentityChannel entities.
 func (_u *AuthIdentityUpdate) RemoveChannels(v ...*AuthIdentityChannel) *AuthIdentityUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -206,7 +202,6 @@ func (_u *AuthIdentityUpdate) RemoveChannels(v ...*AuthIdentityChannel) *AuthIde
 	return _u.RemoveChannelIDs(ids...)
 }
 
-// ClearAdoptionDecisions clears all "adoption_decisions" edges to the IdentityAdoptionDecision entity.
 func (_u *AuthIdentityUpdate) ClearAdoptionDecisions() *AuthIdentityUpdate {
 	_u.mutation.ClearAdoptionDecisions()
 	return _u
@@ -218,7 +213,6 @@ func (_u *AuthIdentityUpdate) RemoveAdoptionDecisionIDs(ids ...int64) *AuthIdent
 	return _u
 }
 
-// RemoveAdoptionDecisions removes "adoption_decisions" edges to IdentityAdoptionDecision entities.
 func (_u *AuthIdentityUpdate) RemoveAdoptionDecisions(v ...*IdentityAdoptionDecision) *AuthIdentityUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -583,7 +577,6 @@ func (_u *AuthIdentityUpdateOne) AddChannelIDs(ids ...int64) *AuthIdentityUpdate
 	return _u
 }
 
-// AddChannels adds the "channels" edges to the AuthIdentityChannel entity.
 func (_u *AuthIdentityUpdateOne) AddChannels(v ...*AuthIdentityChannel) *AuthIdentityUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -598,7 +591,6 @@ func (_u *AuthIdentityUpdateOne) AddAdoptionDecisionIDs(ids ...int64) *AuthIdent
 	return _u
 }
 
-// AddAdoptionDecisions adds the "adoption_decisions" edges to the IdentityAdoptionDecision entity.
 func (_u *AuthIdentityUpdateOne) AddAdoptionDecisions(v ...*IdentityAdoptionDecision) *AuthIdentityUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -618,7 +610,6 @@ func (_u *AuthIdentityUpdateOne) ClearUser() *AuthIdentityUpdateOne {
 	return _u
 }
 
-// ClearChannels clears all "channels" edges to the AuthIdentityChannel entity.
 func (_u *AuthIdentityUpdateOne) ClearChannels() *AuthIdentityUpdateOne {
 	_u.mutation.ClearChannels()
 	return _u
@@ -630,7 +621,6 @@ func (_u *AuthIdentityUpdateOne) RemoveChannelIDs(ids ...int64) *AuthIdentityUpd
 	return _u
 }
 
-// RemoveChannels removes "channels" edges to AuthIdentityChannel entities.
 func (_u *AuthIdentityUpdateOne) RemoveChannels(v ...*AuthIdentityChannel) *AuthIdentityUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -639,7 +629,6 @@ func (_u *AuthIdentityUpdateOne) RemoveChannels(v ...*AuthIdentityChannel) *Auth
 	return _u.RemoveChannelIDs(ids...)
 }
 
-// ClearAdoptionDecisions clears all "adoption_decisions" edges to the IdentityAdoptionDecision entity.
 func (_u *AuthIdentityUpdateOne) ClearAdoptionDecisions() *AuthIdentityUpdateOne {
 	_u.mutation.ClearAdoptionDecisions()
 	return _u
@@ -651,7 +640,6 @@ func (_u *AuthIdentityUpdateOne) RemoveAdoptionDecisionIDs(ids ...int64) *AuthId
 	return _u
 }
 
-// RemoveAdoptionDecisions removes "adoption_decisions" edges to IdentityAdoptionDecision entities.
 func (_u *AuthIdentityUpdateOne) RemoveAdoptionDecisions(v ...*IdentityAdoptionDecision) *AuthIdentityUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {

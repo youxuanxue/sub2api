@@ -116,9 +116,6 @@ func accountInputModalityRejection(ctx context.Context, account *Account, model 
 	return ""
 }
 
-// cn-prod 2026-10-16, two Volc accounts: input_audio returns
-// "audio input is not supported by this model". Scope this evidence to the
-// actual supplier, not every Kimi endpoint or an opaque edge relay.
 func supplyKnownNegativeForInputAudio(account *Account, model string) bool {
 	return normalizeMultimodalSupplyModelID(model) == "kimi-k3" &&
 		isNewAPIVolcEngineAgentPlanAccount(account)
@@ -128,29 +125,18 @@ func supplyKnownNegativeForInputAudio(account *Account, model string) bool {
 // consume input video for this client model". Absence from the table is not a
 // negative — callers must keep unknown supplies eligible.
 func supplyKnownNegativeForInputVideo(account *Account, model string) bool {
-	// Probe 2026-10-09 OpenAI edge mirrors (Responses): Invalid value
-	// 'input_video' for every sampled model (gpt-5.4…gpt-6.1, image-2.5,
-	// codex-auto-review). Image remains eligible except model-specific rows.
-	if isOpenAIEdgeMirrorAccount(account) {
-		return true
-	}
 	normalized := normalizeMultimodalSupplyModelID(model)
 	if normalized == "" {
 		return false
 	}
 	switch normalized {
 	case "kimi-k3":
-		// Probe 2026-10-08: NVIDIA Build rejects video_url ("At most 0 video(s)");
-		// Volc Agent Plan / china-edge relay servable with video.
 		return isNewAPINVIDIABuildAccount(account)
 	case "glm-5.3-flash":
-		// Probe 2026-10-08 direct upstream: NVIDIA Build "At most 0 video(s)";
-		// Volc / china-edge servable with video.
 		return isNewAPINVIDIABuildAccount(account)
 	case "glm-4.5-air", "glm-5.2", "glm-5.3":
-		// Probe 2026-10-08: Volc Agent Plan + china-edge relay
-		// "Model only support text input" for video (and image).
-		if isNewAPIVolcEngineAgentPlanAccount(account) || isNewAPIChinaEdgeRelayAccount(account) {
+		// Probe 2026-10-08: Volc Agent Plan "Model only support text input".
+		if isNewAPIVolcEngineAgentPlanAccount(account) {
 			return true
 		}
 		// Qianfan: glm-4.5-air only among this set (glm-5.2/5.3 not hard-proven there).
@@ -159,8 +145,6 @@ func supplyKnownNegativeForInputVideo(account *Account, model string) bool {
 		// Probe 2026-10-08 tokensea: Invalid value 'video_url' (image_url OK).
 		return isNewAPITokenseaRelayAccount(account)
 	case "deepseek-flash", "deepseek-v4.1-flash":
-		// Probe 2026-10-08 Ali Token Plan: "does not support video input"
-		// (same models accept video on Volc / china-edge).
 		return isNewAPIAliTokenPlanAccount(account)
 	case "qwen3.7-max":
 		// Probe 2026-10-08 Ali Token Plan: Unexpected item type in content
@@ -184,10 +168,9 @@ func supplyKnownNegativeForInputImage(account *Account, model string) bool {
 	}
 	switch normalized {
 	case "gpt-5.3-codex-spark":
-		// Probe 2026-10-09 OpenAI edge: model does not support image input.
-		return isOpenAIEdgeMirrorAccount(account)
+		return false
 	case "glm-4.5-air", "glm-5.2", "glm-5.3":
-		// Probe 2026-10-08: Volc Agent Plan + china-edge relay
+		// Probe 2026-10-08: Volc Agent Plan
 		// "Model only support text input" for image_url.
 		// Probe 2026-10-15: Ali GLM-5.3 Responses explicitly rejects images;
 		// Chat returns 200 but sees no image (Qwen positive control passed).
@@ -195,7 +178,7 @@ func supplyKnownNegativeForInputImage(account *Account, model string) bool {
 		if normalized == "glm-5.3" && isNewAPIAliTokenPlanAccount(account) {
 			return true
 		}
-		if isNewAPIVolcEngineAgentPlanAccount(account) || isNewAPIChinaEdgeRelayAccount(account) {
+		if isNewAPIVolcEngineAgentPlanAccount(account) {
 			return true
 		}
 		return normalized == "glm-4.5-air" && isNewAPIQianfanTokenPlanAccount(account)
@@ -219,29 +202,12 @@ func normalizeMultimodalSupplyModelID(model string) string {
 	return strings.TrimSpace(model)
 }
 
-// isNewAPIChinaEdgeRelayAccount reports prod→edge newapi mirror stubs
-// (china-us*) whose credentials.base_url is api-<edge>.tokenkey.dev.
-// Same GLM text-only known-negatives as Volc Agent Plan on those models.
-func isNewAPIChinaEdgeRelayAccount(account *Account) bool {
-	return account != nil &&
-		account.Platform == PlatformNewAPI &&
-		MirrorStubEdgeID(account) != ""
-}
-
 // isNewAPITokenseaRelayAccount reports newapi accounts whose upstream host is
 // agent.tokensea.ai (prod inventory uses PlatformNewAPI, not PlatformOpenAI).
 func isNewAPITokenseaRelayAccount(account *Account) bool {
 	return account != nil &&
 		account.Platform == PlatformNewAPI &&
 		isTokenseaRelayBaseURL(account.GetBaseURL())
-}
-
-// isOpenAIEdgeMirrorAccount reports prod→edge OpenAI/Codex mirror stubs
-// (openai-us*) whose credentials.base_url is api-<edge>.tokenkey.dev.
-func isOpenAIEdgeMirrorAccount(account *Account) bool {
-	return account != nil &&
-		account.Platform == PlatformOpenAI &&
-		MirrorStubEdgeID(account) != ""
 }
 
 // wrapUnsupportedInputModality builds the stable sentinel + modality + model.

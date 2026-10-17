@@ -2,14 +2,14 @@
 name: tokenkey-stage0-release-rollout
 description: >-
   Drive TokenKey Stage0 release, prod deploy, smoke, rollback, and release-risk
-  checks. Default target is prod-only (2026-10-17: edge deploy retired). Use for
+  checks. The target is prod-only. Use for
   release tagging, deploy-stage0, structured smoke, or post-release OAuth checks.
 ---
 
 # TokenKey：Stage0 release → prod rollout → 真实测试
 
 适用于本仓库（TokenKey fork of sub2api）。权威纪律见根目录 `CLAUDE.md`。  
-现网舰队 / 发版入口：[`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)（**prod-only**；Lightsail edge `deployable=false`，`target=all` / edge canary 默认无活目标）。
+现网舰队 / 发版入口：[`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)（**prod-only**）。
 
 ## 确定性基线（机械化 vs 真判断）
 
@@ -17,41 +17,32 @@ release、目标解析、canary 选择、rollout、smoke/post-check verdict 均�
 
 ## 调用参数
 
-“发版/deploy 最新”默认 `target=prod operation=release`；“全部/prod+edge”用 `target=all`；检查影响用只读 `operation=check`，不 bump/tag/deploy。单 edge 默认复用已有 tag。回放用 `operation=replay target=prod`，只准备 inactive color，任何结果都停在 `approval_pending=true`；禁止自动 promote/切流/edge rollout。执行 replay/rollback、修改可选检查或需要完整参数时必须先读细则。release 后默认只读 Anthropic snapshot/check 与 prod model_mapping check；配置漂移/SSM 失败记 yellow，不据此 rollback 镜像。 见 [操作细则](references/operations.md)。
+“发版/deploy 最新”默认 `target=prod operation=release`；检查影响用只读 `operation=check`，不 bump/tag/deploy。回放用 `operation=replay target=prod`，只准备 inactive color，任何结果都停在 `approval_pending=true`；禁止自动 promote/切流。执行 replay/rollback、修改可选检查或需要完整参数时必须先读细则。release 后默认只读 Anthropic snapshot/check 与 prod model_mapping check；配置漂移/SSM 失败记 yellow，不据此 rollback 镜像。见 [操作细则](references/operations.md)。
 
 ## 执行顺序（细节在脚本，不在本 skill 复述）
 
 1. `operation=check`：只读对比 prev release tag → HEAD（`git log/diff` + deploy 契约文件），不 bump/tag/deploy。
-2. `operation=release` + `target=prod|all`：`bash scripts/release-bump-and-tag.sh`（worktree 隔离）→
+2. `operation=release` + `target=prod`：`bash scripts/release-bump-and-tag.sh`（worktree 隔离）→
    watch `release.yml` → warm（可选：`dispatch-prod-deploy.sh --operation warm`）→
    `dispatch-prod-deploy.sh --operation deploy` → CI `tk_post_deploy_smoke: OK`。
-3. `target=all`：**仅在人类重新批准 edge 矩阵 `deployable=true` 后**才走 canary /
-   `rollout-edges.sh`；默认 `--list-deployable` 为空，等同 `target=prod`。
-4. 当前无可部署 edge；`retired=true` 即使 `--allow-planned` 也拒绝。新建须先有独立批准的新身份，勿复用旧 IP/实例。
-5. 两阶段实测：`ops/observability/run-post-release-check.sh` + `scripts/release_post_check.py`
+3. 两阶段实测：`ops/observability/run-post-release-check.sh` + `scripts/release_post_check.py`
    （`--phase immediate` / `--phase delayed`；禁止模型自造 verdict）。
    Workflow 步骤名与 Summary 标题必须对齐：`Check PR hooks immediately`、
    `Check traffic and 5xx after 5 minutes`、`### Traffic / 5xx (+5 min)`（含
    completed requests / top paths）。
-6. Prod smoke 后 advisory：`check-account-group-bindings.sh` 只读检查每个健康、可调度且有显式 `model_mapping` 的账号；无 active group 或与同模型 peer 分组完全不相交时输出 `review`，无 peer 的新模型只记 inconclusive。workflow 必须保持 `continue-on-error`。
+4. Prod smoke 后 advisory：`check-account-group-bindings.sh` 只读检查每个健康、可调度且有显式 `model_mapping` 的账号；无 active group 或与同模型 peer 分组完全不相交时输出 `review`，无 peer 的新模型只记 inconclusive。workflow 必须保持 `continue-on-error`。
 
-Tag 域 SSOT：git / `release.yml` 用 `vX.Y.Z`；deploy/warm/edge 镜像 input 用裸 `X.Y.Z`。本地入口经 `normalize-deploy-tag.sh`，可传两种形态。
+Tag 域 SSOT：git / `release.yml` 用 `vX.Y.Z`；deploy/warm 镜像 input 用裸 `X.Y.Z`。本地入口经 `normalize-deploy-tag.sh`，可传两种形态。
 
 Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci 字面标记（见 `CLAUDE.md` §9）。
 
 ## Jobs / OPC 默认部署顺序
 
-**默认 `target=prod`（2026-10-17 起）：** release build → prod upgrade + full smoke → post-release checks。无 edge canary / `rollout-edges`。
-
-历史 `target=all`（仅矩阵重新 `deployable=true` 后）：
-
-1. **release build 一次**：同一 multi-arch GHCR tag。
-2. **Edge canary** → **prod** → **`rollout-edges.sh` infra**（细节见 `references/tools.md`）。
+**默认 `target=prod`：** release build → prod upgrade + full smoke → post-release checks。
 
 例外：
 
 - `target=prod`：只发版/部署 prod（**默认路径**）。
-- `target=edge-<edge_id>`：已退役身份一律拒绝；仅另行批准并纳入矩阵的新身份可部署。
 
 ## 故障速查
 

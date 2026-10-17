@@ -523,7 +523,7 @@ export type GroupUsageSummaryResponse = {
 
 /**
  * Get usage summary (today + yesterday + retained-window cost) for all groups.
- * retained_days is the effective usage_logs window (prod ≤90, edge ≤7).
+ * retained_days is the effective usage_logs window (prod ≤90).
  */
 export async function getUsageSummary(): Promise<GroupUsageSummaryResponse> {
   const { data } = await apiClient.get<GroupUsageSummaryResponse>('/admin/groups/usage-summary')

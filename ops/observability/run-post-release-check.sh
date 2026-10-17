@@ -110,9 +110,6 @@ echo "[run-post-release-check] phase=$PHASE since=$SINCE plan=$PLAN_FILE changes
 
 CP_OK="${CONTROL_PLANE_OK:-true}"
 if [ "$SKIP_PROBE" -eq 0 ]; then
-  if [ "$TARGET" = "prod" ]; then
-    export EDGE_IDS="${EDGE_IDS:-none}"
-  fi
   if ! bash "$ROOT/ops/observability/probe-release-control-plane.sh" | tee "$OUT_DIR/control-plane.jsonl"; then
     CP_OK="false"
   else

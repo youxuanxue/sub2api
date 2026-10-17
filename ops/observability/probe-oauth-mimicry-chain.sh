@@ -1,9 +1,9 @@
 #!/bin/bash
-# probe-oauth-mimicry-chain.sh — correlate ingress SDK UA with edge OAuth mimicry
+# probe-oauth-mimicry-chain.sh — correlate ingress SDK UA with OAuth mimicry
 # egress (HTTP headers + system prompt fingerprint). Read-only via SSM.
 #
 # Topology under test:
-#   User OpenAI/Python → prod anthropic apikey passthrough → edge anthropic oauth
+#   User OpenAI/Python → prod anthropic oauth
 #   mimicry (shouldMimicClaudeCode=true) → api.anthropic.com
 #
 # Env:

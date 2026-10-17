@@ -246,7 +246,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	// Forward that shape as-is, only rewriting `model`
 	// to the resolved upstream model. The downstream codex OAuth transform will
 	// still normalize store/stream/instructions/etc.
-	requestModel := antigravityRelayRequestModel(account, originalModel, upstreamModel)
+	requestModel := upstreamModel
 	var (
 		responsesReq  *apicompat.ResponsesRequest
 		responsesBody []byte

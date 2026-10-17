@@ -10,12 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The reason string and the bool predicate must agree for every input: the bool
-// delegates to the reason function, so a disagreement would mean the diagnostic
-// log names a gate that did not actually reject the account (or stays silent
-// about one that did). 2026-08-25: the absence of any such reason is what made
-// the edge us6 outage take a day to attribute — every branch reported the same
-// bare "unschedulable".
 func TestEligibilityReasonAgreesWithPredicate(t *testing.T) {
 	ctx := context.Background()
 

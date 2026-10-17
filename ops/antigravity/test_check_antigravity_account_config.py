@@ -69,17 +69,6 @@ class AccountViolationTest(unittest.TestCase):
         self.assertIsNotNone(CHK._account_violation({"model_mapping": {}}))
         self.assertIsNotNone(CHK._account_violation({}))
 
-    def test_edge_passthrough_empty_mapping_is_not_drift(self):
-        self.assertIsNone(CHK._account_violation({"model_mapping": None}, allow_empty_mapping=True))
-        self.assertIsNotNone(CHK._account_violation({
-            "model_mapping": None,
-            "status": "active", "schedulable": True, "bound": False,
-        }, allow_empty_mapping=True))
-        self.assertIsNotNone(CHK._account_violation({
-            "model_mapping": {"test-edge-nonempty-boundary": "test-edge-nonempty-boundary"},
-        }, allow_empty_mapping=True))
-        self.assertIsNotNone(CHK._account_violation({"model_mapping": "malformed"}, allow_empty_mapping=True))
-
     def test_each_go_forbidden_prefix_is_violation(self):
         for prefix in self._policy()["forbidden_prefixes"]:
             with self.subTest(prefix=prefix):
@@ -187,34 +176,6 @@ class GroupViolationTest(unittest.TestCase):
         r = CHK._group_violation({"scopes": scopes + ["unexpected_scope"]})
         self.assertIsNotNone(r)
         self.assertIn("unexpected: unexpected_scope", r)
-
-
-class TargetScopeTest(unittest.TestCase):
-    def test_edge_target_allows_only_empty_mapping_while_prod_enforces_floor(self):
-        account_mapping = None
-
-        def fake_sql(_region, _instance_id, _sql, comment):
-            if "account-check" in comment:
-                return json.dumps([{
-                    "id": 1,
-                    "name": "boundary",
-                    "model_mapping": account_mapping,
-                    "status": "inactive",
-                    "schedulable": False,
-                    "bound": False,
-                }])
-            return "[]"
-
-        with mock.patch.object(CHK, "ssm_run_sql", side_effect=fake_sql):
-            self.assertEqual(CHK._check_target("edge:test", "region", "instance"), [])
-            account_mapping = {"test-edge-nonempty-boundary": "test-edge-nonempty-boundary"}
-            edge_violations = CHK._check_target("edge:test", "region", "instance")
-            account_mapping = None
-            prod_violations = CHK._check_target(CHK.PROD_TARGET["label"], "region", "instance")
-        self.assertEqual(len(edge_violations), 1)
-        self.assertIn("edge model_mapping must remain empty passthrough", edge_violations[0]["reason"])
-        self.assertEqual(len(prod_violations), 1)
-        self.assertIn("empty/missing prod model_mapping", prod_violations[0]["reason"])
 
 
 class SelfCheckSqlEnumerationTest(unittest.TestCase):

@@ -16,7 +16,6 @@ var TKProviderSet = wire.NewSet(
 	ProvideTKPricingCatalogHandler,
 	NewMePricingCatalogHandler,
 	ProvideTKGatewayHandlerModelList,
-	ProvideEdgeCapacityHandler,
 	NewGeminiWebSessionHandler,
 	admin.NewTierHandler,
 	ProvideTrialProvisionHandler,
@@ -72,14 +71,6 @@ func ProvideTKPricingCatalogHandler(
 	h := NewPricingCatalogHandler(catalog, gate)
 	h.SetAvailabilityService(avail)
 	return h
-}
-
-// ProvideEdgeCapacityHandler adapts the wire-provided service.AccountRepository
-// (which satisfies the handler's narrow schedulingCapacityReader interface) to
-// the edge capacity handler. A dedicated provider avoids needing a wire.Bind for
-// the unexported interface and keeps NewEdgeCapacityHandler unit-test friendly.
-func ProvideEdgeCapacityHandler(accountRepo service.AccountRepository) *EdgeCapacityHandler {
-	return NewEdgeCapacityHandler(accountRepo)
 }
 
 // ProvideTrialProvisionHandler constructs the Invite-to-Trial service from

@@ -19,7 +19,7 @@ import (
 func TestGeminiForwardAsResponses_FailedAttemptRequestIDDoesNotLeak(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"gemini-3-flash","input":"hi"}`)
-	account := geminiCompatAntigravityRelayStub(85)
+	account := geminiCompatAntigravityAPIKey(85)
 	account.Credentials["api_key"] = "relay-key"
 
 	for _, tt := range []struct {

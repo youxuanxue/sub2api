@@ -159,14 +159,11 @@ type Group struct {
 	// 最低毛利率，小数（0.30=30%）；账号准入条件为 U <= D*(1-margin-buffer)
 	ProfitMinMargin float64 `json:"profit_min_margin,omitempty"`
 	// 安全缓冲，小数；与 margin 相加后从下游倍率中扣除，默认 0
-	ProfitSafetyBuffer float64 `json:"profit_safety_buffer,omitempty"`
-	// Edges holds the relations/edges for other nodes in the graph.
-	// The values are being populated by the GroupQuery when eager-loading is set.
-	Edges        GroupEdges `json:"edges"`
-	selectValues sql.SelectValues
+	ProfitSafetyBuffer float64    `json:"profit_safety_buffer,omitempty"`
+	Edges              GroupEdges `json:"edges"`
+	selectValues       sql.SelectValues
 }
 
-// GroupEdges holds the relations/edges for other nodes in the graph.
 type GroupEdges struct {
 	// APIKeys holds the value of the api_keys edge.
 	APIKeys []*APIKey `json:"api_keys,omitempty"`

@@ -32,7 +32,7 @@ class InstallerTests(unittest.TestCase):
         (self.data / "pgdump").mkdir(parents=True)
         self.dump = self.data / "pgdump/tokenkey-20261013T120000Z.sql.gz"
         self.dump.write_bytes(b"synthetic existing dump")
-        (self.data / ".env").write_text("TOKENKEY_PGDUMP_S3_URI=s3://old-aws/edge/uk1/pgdump\nUNRELATED=original\n")
+        (self.data / ".env").write_text("TOKENKEY_PGDUMP_S3_URI=s3://old-aws/prod/pgdump\nUNRELATED=original\n")
         self.installed = self.root / "pgdump.sh"
         self.installed.write_text("old script")
         self.helper = self.root / "helper.py"
@@ -51,14 +51,14 @@ class InstallerTests(unittest.TestCase):
                             INSTALLED=self.installed, HELPER=self.helper), \
                 patch.object(installer, "identity"), patch.object(installer, "command", side_effect=command), \
                 patch.object(installer, "os", types.SimpleNamespace(geteuid=lambda: 0, close=os.close, replace=os.replace)), \
-                patch.object(sys, "argv", ["installer", "--target", "edge:uk1", "--bundle", str(self.bundle),
+                patch.object(sys, "argv", ["installer", "--target", "prod", "--bundle", str(self.bundle),
                                             "--release", "test-release", "--operation", operation]), \
-                patch("pgdump_storage.Storage.upload", return_value=f"s3://tokenkey-pgdump-test/edge/uk1/pgdump/{self.dump.name}"):
+                patch("pgdump_storage.Storage.upload", return_value=f"s3://tokenkey-pgdump-test/prod/pgdump/{self.dump.name}"):
             return installer.main()
 
     def receipt(self, **changes):
         artifact = json.loads((self.releases / "test-release/artifact.json").read_text())
-        value = {"target": "edge:uk1", "source_s3_uri": artifact["s3_uri"],
+        value = {"target": "prod", "source_s3_uri": artifact["s3_uri"],
                  "source_endpoint": self.fixture.values["endpoint"], "artifact_sha256": artifact["sha256"],
                  "cleanup_verified": True, "source_mutated": False, "s3_round_trip_verified": True,
                  "completed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
@@ -80,7 +80,7 @@ class InstallerTests(unittest.TestCase):
 
     def test_invalid_restore_receipt_rejects_activation_without_live_mutation(self):
         self.run_operation("prepare")
-        for change in [{"target": "prod"}, {"cleanup_verified": False}, {"artifact_sha256": "wrong"},
+        for change in [{"target": "staging"}, {"cleanup_verified": False}, {"artifact_sha256": "wrong"},
                        {"source_mutated": True}, {"s3_round_trip_verified": False},
                        {"source_endpoint": "https://wrong"}, {"completed_at": "2020-01-01T00:00:00Z"}]:
             with self.subTest(change=change):
@@ -94,8 +94,8 @@ class InstallerTests(unittest.TestCase):
         self.run_operation("prepare")
         self.receipt()
         self.run_operation("activate")
-        self.assertEqual(json.loads(self.config.read_text())["target"], "edge:uk1")
-        self.assertIn("s3://tokenkey-pgdump-test/edge/uk1/pgdump", (self.data / ".env").read_text())
+        self.assertEqual(json.loads(self.config.read_text())["target"], "prod")
+        self.assertIn("s3://tokenkey-pgdump-test/prod/pgdump", (self.data / ".env").read_text())
         self.assertEqual(self.installed.read_bytes(), (self.bundle / "tokenkey-pgdump.sh").read_bytes())
         self.assertEqual(self.config.stat().st_mode & 0o777, 0o600)
         (self.data / ".env").write_text((self.data / ".env").read_text().replace("UNRELATED=original", "UNRELATED=later"))
@@ -104,7 +104,7 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse(self.helper.exists())
         self.assertEqual(self.installed.read_text(), "old script")
         self.assertIn("UNRELATED=later", (self.data / ".env").read_text())
-        self.assertIn("s3://old-aws/edge/uk1/pgdump", (self.data / ".env").read_text())
+        self.assertIn("s3://old-aws/prod/pgdump", (self.data / ".env").read_text())
         self.assertFalse(any("systemctl" in args[:1] and any(v in args for v in ["start", "stop", "restart"]) for args in self.calls))
         self.assertFalse((self.data / "pgdump-canary/latest.json").exists())
 
@@ -126,7 +126,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(self.installed.read_text(), "old script")
         self.assertFalse(self.config.exists())
         self.assertFalse(self.helper.exists())
-        self.assertIn("s3://old-aws/edge/uk1/pgdump", (self.data / ".env").read_text())
+        self.assertIn("s3://old-aws/prod/pgdump", (self.data / ".env").read_text())
         self.assertEqual(previous.read_text(), '{"previous":"AWS"}\n')
 
 

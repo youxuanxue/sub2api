@@ -2,7 +2,6 @@
 # TokenKey manual spot-check against TOKENKEY_BASE_URL (never prints API keys).
 #
 # Canonical runner: ops/stage0/post_deploy_smoke.sh (GATEWAY_SMOKE_SUITE=quick).
-# Edge infra SSM: ops/stage0/edge_post_deploy_smoke.sh
 #
 # Usage against prod (GitHub Environment prod — vars auto-loaded when set):
 #   export TOKENKEY_BASE_URL=https://api.tokenkey.dev

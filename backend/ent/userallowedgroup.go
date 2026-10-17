@@ -22,14 +22,11 @@ type UserAllowedGroup struct {
 	// GroupID holds the value of the "group_id" field.
 	GroupID int64 `json:"group_id,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
-	CreatedAt time.Time `json:"created_at,omitempty"`
-	// Edges holds the relations/edges for other nodes in the graph.
-	// The values are being populated by the UserAllowedGroupQuery when eager-loading is set.
+	CreatedAt    time.Time             `json:"created_at,omitempty"`
 	Edges        UserAllowedGroupEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
-// UserAllowedGroupEdges holds the relations/edges for other nodes in the graph.
 type UserAllowedGroupEdges struct {
 	// User holds the value of the user edge.
 	User *User `json:"user,omitempty"`

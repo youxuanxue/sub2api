@@ -10,24 +10,17 @@
 | main bump 路由探测（direct-push / bump-via-pr） | 机械 | `bash scripts/release-main-push-route.sh`（读 protection + 当前 gh 用户 bypass 能力） |
 | VERSION/tag 三态决策（tag-only / bump-and-tag / skip-bump-skip-tag） | 机械 | `scripts/release-decide-version.sh [--emit-suggested-bump]`（被上行脚本消费；单独跑仅用于诊断） |
 | 打 tag（含 skip-ci / VERSION 一致 / HEAD==origin/main 校验） | 机械 | `scripts/release-tag.sh vX.Y.Z`（被上行脚本调用；**git 侧必须带 `v`**） |
-| 读取活边 edge 矩阵 | 机械 | `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable`（**空列表 = 现网 prod-only；`target=all` 坍缩为 prod**） |
-| **canary Edge 选择（仅矩阵有 deployable 时）** | 机械 | `python3 scripts/stage0/pick_release_canary_edge.py`（`--list-deployable` 为空则跳过；有活 edge 时 SSM 探测，硬门禁为内存/磁盘，按近 30 分钟完成请求数和内存余量排序） |
-| Edge dispatch 路由（历史 / 重新批准后） | 机械 | `scripts/stage0/resolve-edge-deploy-route.py --edge-id <id> --json` |
-| Edge upgrade/smoke/rollback dispatch（历史 / 重新批准后） | 机械 | `bash scripts/stage0/dispatch-edge-deploy.sh --edge-id … --operation … --tag X.Y.Z\|vX.Y.Z`（入口剥 `v`） |
-| **其余 Edge rollout（仅有活 edge 时）** | 机械 | `bash scripts/stage0/rollout-edges.sh --tag X.Y.Z\|vX.Y.Z --skip <canary>`（空 deployable 时入口应跳过；**默认 `--parallel 1`**）
 | **prod deploy / replay / smoke-only / warm dispatch** | 机械 | `bash scripts/stage0/dispatch-prod-deploy.sh --operation deploy\|replay\|smoke-only\|warm --tag X.Y.Z\|vX.Y.Z`（入口剥 `v`；不要手写 `gh workflow run deploy-stage0.yml` / `warm-image-stage0.yml`） |
 | release.yml 恢复 dispatch（skip-ci 误伤等） | 机械 | `gh workflow run release.yml -f tag=vX.Y.Z -f simple_release=false`（**git tag 形态，带 `v`**）+ `gh run watch --exit-status` |
 | watch workflow run | 机械 | `gh run watch --exit-status` |
 | **prod pricing registry runtime audit** | 机械 | `ops-daily-diagnostics.yml` 经 `ops/observability/prod-config-audit.sh` 只读执行 `ops/pricing/manage-overlay-runtime.py check`；价格发布独立由 registry 合并到 protected main 后触发 `pricing-registry-publish.yml` |
 | prod / warm Environment approval | 机械 | `bash scripts/stage0/approve-github-run-env.sh --run-id <id> --comment "…"`（批不批、何时批是判断） |
 | prod 完整 smoke（CI 唯一验收源） | 机械 | `deploy-stage0.yml` job log 内 `tk_post_deploy_smoke: OK`（`GATEWAY_SMOKE_SUITE=full`） |
-| Edge smoke 分阶段（infra / edge-native-oauth / main-via-edge / full） | 机械 | `ops/stage0/edge_post_deploy_smoke.sh` + workflow `smoke_phase`；**upgrade/rollback 默认 infra**；canary 显式 **full**（infra + 容器内 per-account OAuth 拟真 `probe_account_model`）；`main-via-edge` 为可选 prod 中转链路 |
 | 发版前 smoke 模型校验 | 机械 | `python3 scripts/stage0/check_smoke_config.py`（`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS` 均 ∈ `TK_SMOKE_API_KEY` 的 `/v1/models`）。**完整校验需要 smoke key，只在 CI 可跑**；本地降级为 `bash ops/stage0/load_smoke_github_env.sh --check prod`（只验 secret/vars 已配置） |
 | 发版后跟进档位（skip / single） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier`（是否值得人工再跟；**实测检查不走这里**） |
-| 发版后控制面探活（prod + deployable edge） | 机械 | `bash ops/observability/probe-release-control-plane.sh`（prod `/health` + `/api/v1/settings/public`，deployable Edge `/health`，JSON lines + summary） |
+| 发版后控制面探活（prod） | 机械 | `bash ops/observability/probe-release-control-plane.sh`（prod `/health` + `/api/v1/settings/public`，JSON lines + summary） |
 | **prod replay（只准备 inactive color，不切流）** | 机械 | `scripts/stage0/replay-prod-release.py --tag X.Y.Z\|vX.Y.Z`（入口剥 `v`）→ prod SSM 正常蓝绿 `prepare` → `ops/stage0/gateway_capability_host.py` 用现有测试 universal key 直连候选，串行执行完整短合成请求；核对响应、测试 usage 和线上路由 → 脱敏 receipt/results（不读取历史 capture） |
 | **发版后两阶段实测（live tag→本次 tag 的全部 PR）** | 机械 | `deploy-stage0.yml` 同一 `deploy` job：蓝绿脚本在 Caddy reload 成功的真实切流点输出 `cutover_at`；`Check PR hooks immediately` 查该时刻起的 PR observables，workflow 只补足到 `cutover_at + 300s`，再由 `Check traffic and 5xx after 5 minutes` 查累计流量/5xx；两阶段复用 `plan.json` 与已批的 prod Environment |
-| **发版后 Anthropic OAuth 配置检查（snapshot → check）** | 机械 | `python3 ops/anthropic/manage-anthropic-config.py snapshot` + `check --snapshot`（canonical：`tokenkey-anthropic-oauth-config`） |
 | **发版后健康账号分组合理性检查（只读 advisory）** | 机械 | `bash ops/observability/check-account-group-bindings.sh --target prod`；从健康、可调度账号的显式 `model_mapping` 与 peer 分组证据派生，不硬编码模型→分组表；`review` / 探针失败均不阻塞 rollout |
 | rollout 摘要（git log / diff stat / sentinel / deletion） | 机械 | `bash scripts/release-rollout-summary.sh --mode release` |
 | prod approval 时机、smoke 模型回退 | 判断 | prompt（爆炸半径、用户入口顺序） |

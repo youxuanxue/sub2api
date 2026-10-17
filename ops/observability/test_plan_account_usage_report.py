@@ -81,8 +81,6 @@ class PlanAccountUsageReportTest(unittest.TestCase):
                 period_start=end,
                 period_end=start,
                 raw_dir=Path("/tmp/unused-plan-usage-raw"),
-                include_prod=False,
-                edges=[],
             )
 
     def test_format_psql_timestamptz(self) -> None:
@@ -151,7 +149,7 @@ class PlanAccountUsageReportTest(unittest.TestCase):
             "period_start": start.isoformat(),
             "period_end": end.isoformat(),
             "sampled_at_utc": "2026-10-08T12:00:00Z",
-            "targets": ["prod", "edge:us3"],
+            "targets": ["prod"],
         }
         documents = [
             {
@@ -172,19 +170,6 @@ class PlanAccountUsageReportTest(unittest.TestCase):
                     ),
                 ],
             },
-            {
-                "target": "edge:us3",
-                "accounts": [
-                    _account(
-                        plan_kind="volcengine_agent_plan",
-                        account_id=21,
-                        name="volcengine-agent-plan",
-                        target="edge:us3",
-                        month_cost=36.15,
-                        peak_tpm=0,
-                    )
-                ],
-            },
         ]
         md = REPORT.render_markdown(manifest=manifest, documents=documents)
         self.assertNotIn("$", md)
@@ -193,7 +178,7 @@ class PlanAccountUsageReportTest(unittest.TestCase):
         self.assertIn("| 4.82 |", md)
         self.assertIn("非重叠", md)
         self.assertIn("| prod | Ali Token Plan | 1 | 10.00 |", md)
-        self.assertIn("| edge | VolcEngine Agent Plan | 1 | 36.15 |", md)
+        self.assertIn("| prod | VolcEngine Agent Plan | 1 | 204.14 |", md)
 
     def test_load_raw_dir_roundtrip(self) -> None:
         start, end = REPORT.parse_month("2026-09")

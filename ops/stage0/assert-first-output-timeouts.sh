@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Advisory first-output timeout env check for prod|edge:<id> via run-probe.
-# Drift → ::warning::; exit 0 always (except usage). Edges lacked this; prod
-# also has assert-live-host-state.sh for the broader injection set.
+# Advisory first-output timeout env check for prod via run-probe.
+# Drift → ::warning::; exit 0 always (except usage).
 #
-# Usage: ops/stage0/assert-first-output-timeouts.sh --target prod|edge:<id> [--comment ...]
+# Usage: ops/stage0/assert-first-output-timeouts.sh --target prod [--comment ...]
 set -euo pipefail
 
 TARGET=""
@@ -18,16 +17,16 @@ while [[ $# -gt 0 ]]; do
       exit 0
       ;;
     *)
-      echo "usage: $0 --target prod|edge:<id> [--comment ...]" >&2
+      echo "usage: $0 --target prod [--comment ...]" >&2
       exit 2
       ;;
   esac
 done
 
-[[ -n "$TARGET" ]] || { echo "usage: $0 --target prod|edge:<id> [--comment ...]" >&2; exit 2; }
+[[ -n "$TARGET" ]] || { echo "usage: $0 --target prod [--comment ...]" >&2; exit 2; }
 case "$TARGET" in
-  prod|edge:*) ;;
-  *) echo "unsupported --target $TARGET (expected prod or edge:<id>)" >&2; exit 2 ;;
+  prod) ;;
+  *) echo "unsupported --target $TARGET (expected prod)" >&2; exit 2 ;;
 esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

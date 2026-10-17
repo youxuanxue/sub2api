@@ -81,7 +81,6 @@ SCRIPT_HOMES = (
     "scripts/ci",
     "backend/scripts",
     "skills/sub2api-admin/scripts",
-    ".cursor/skills/tokenkey-kiro-reauth/scripts",
 )
 
 # A plausible new-tooling filename per home: what an agent would actually add.

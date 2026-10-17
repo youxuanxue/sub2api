@@ -968,7 +968,6 @@ func (_c *GroupCreate) AddAPIKeyIDs(ids ...int64) *GroupCreate {
 	return _c
 }
 
-// AddAPIKeys adds the "api_keys" edges to the APIKey entity.
 func (_c *GroupCreate) AddAPIKeys(v ...*APIKey) *GroupCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -983,7 +982,6 @@ func (_c *GroupCreate) AddRedeemCodeIDs(ids ...int64) *GroupCreate {
 	return _c
 }
 
-// AddRedeemCodes adds the "redeem_codes" edges to the RedeemCode entity.
 func (_c *GroupCreate) AddRedeemCodes(v ...*RedeemCode) *GroupCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -998,7 +996,6 @@ func (_c *GroupCreate) AddSubscriptionIDs(ids ...int64) *GroupCreate {
 	return _c
 }
 
-// AddSubscriptions adds the "subscriptions" edges to the UserSubscription entity.
 func (_c *GroupCreate) AddSubscriptions(v ...*UserSubscription) *GroupCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1013,7 +1010,6 @@ func (_c *GroupCreate) AddUsageLogIDs(ids ...int64) *GroupCreate {
 	return _c
 }
 
-// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
 func (_c *GroupCreate) AddUsageLogs(v ...*UsageLog) *GroupCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1028,7 +1024,6 @@ func (_c *GroupCreate) AddAccountIDs(ids ...int64) *GroupCreate {
 	return _c
 }
 
-// AddAccounts adds the "accounts" edges to the Account entity.
 func (_c *GroupCreate) AddAccounts(v ...*Account) *GroupCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1043,7 +1038,6 @@ func (_c *GroupCreate) AddAllowedUserIDs(ids ...int64) *GroupCreate {
 	return _c
 }
 
-// AddAllowedUsers adds the "allowed_users" edges to the User entity.
 func (_c *GroupCreate) AddAllowedUsers(v ...*User) *GroupCreate {
 	ids := make([]int64, len(v))
 	for i := range v {

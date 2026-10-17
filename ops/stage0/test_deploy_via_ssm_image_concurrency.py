@@ -26,7 +26,6 @@ import unittest
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "deploy_via_ssm.sh"
 _PROD_IID = "i-0prod000000000000"
-_EDGE_IID = "mi-0edge000000000000"
 
 
 def _render(instance_id: str, tag: str = "1.8.99", env_extra: dict | None = None):
@@ -69,11 +68,6 @@ class ImageConcurrencyInjectionRenderTest(unittest.TestCase):
         self.assertNotIn("/^      - TZ=/a\\", compose_cmd)
         self.assertIn("image-concurrency-before-1.8.99", compose_cmd)
         self.assertIn('grep -q "${key}=" "$CF"', compose_cmd)
-
-    def test_edge_gets_no_image_concurrency_injection(self) -> None:
-        proc, commands = _render(_EDGE_IID, env_extra={"EDGE_ID": "us2"})
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        self.assertEqual(_ic_cmds(commands), [])
 
     def test_values_are_env_overridable(self) -> None:
         proc, commands = _render(_PROD_IID, env_extra={

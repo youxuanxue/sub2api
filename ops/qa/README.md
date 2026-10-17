@@ -11,9 +11,8 @@ QA is raw-only. When explicitly enabled, production capture is sealed, archived 
 store, restore-verified, and cleaned by `tokenkey-qa-maintenance.timer`. Uploads are currently paused.
 
 The lifecycle owner is `deploy/aws/stage0/tokenkey-qa-maintenance.sh`; policy is
-`ops/qa/policy.yaml` and rollout state is `ops/qa/deploy_rollout.yaml`. Edge
-capture and archive remain disabled. Raw records are never exposed through the
-product API or user interface.
+`ops/qa/policy.yaml` and rollout state is `ops/qa/deploy_rollout.yaml`. Raw
+records are never exposed through the product API or user interface.
 
 The approved contract is
 [`docs/approved/qa-raw-only.md`](../../docs/approved/qa-raw-only.md). Production
@@ -91,8 +90,8 @@ Hetzner raw 存储和独立 maintenance pin（1.8.288），没有搬运旧主机
 
 2026-10-13 的后续只读复查确认：新 `12:00 UTC` 小时定时归档成功、恢复校验通过、缺失 blob 为 0；
 maintenance 与 boundary timer 正常，未来分区覆盖完整、无过期分区残留及热文件清理积压。
-prod 与四个现役 edge 的 `/health`、prod 公开设置入口均为 200；各节点活动网关 healthy、重启计数为 0。
-Edge capture 关闭，未发现 QA worker/queue 容器或退役的导出环境变量。
+prod `/health` 与公开设置入口均为 200；活动网关 healthy、重启计数为 0。
+未发现 QA worker/queue 容器或退役的导出环境变量。
 
 七个历史 `runtime_discontinuity` 与批准基线完全一致，无新增；当前 capture runtime 快照新鲜、
 pending/inflight 为 0、新完成小时已有 seal。历史警告仍保留，不能据此宣称全局 capture hard-health
@@ -112,8 +111,7 @@ bash ops/observability/probe-release-control-plane.sh
 存储检查不执行上传或恢复；归档成功与恢复校验由维护回执和数据库记录证明。
 仍须只读核对主机验收回执及 capture ledger 与批准基线。
 新增 failure、过时快照、捕获积压、缺少 seal 或归档/恢复失败按 raw-only 契约处理，不能清除旧警告
-来获取绿灯。`scan-edge-health.sh` 默认只看 Anthropic 账号池，空直连池不能代表整个 edge 宕机；
-供应渠道状态与网关进程健康分别解释。
+来获取绿灯；供应渠道状态与网关进程健康分别解释。
 
 Useful checks:
 

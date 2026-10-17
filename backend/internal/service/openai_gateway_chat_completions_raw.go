@@ -97,7 +97,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		return nil, err
 	}
 	// 3. Rewrite model in body (no protocol conversion)
-	requestModel := antigravityRelayRequestModel(account, originalModel, upstreamModel)
+	requestModel := upstreamModel
 	upstreamBody := body
 	if requestModel != originalModel {
 		upstreamBody = ReplaceModelInBody(body, requestModel)

@@ -14,10 +14,6 @@ type applyTierRequest struct {
 	Tier string `json:"tier" binding:"required"`
 }
 
-// ApplyTier applies an embedded tier baseline to a single anthropic account on
-// THIS deployment (concurrency/priority/extra + canonical TLS binding + operator
-// Σ sync). It does NOT propagate to other edges/prod — fleet fan-out stays with
-// the ops/anthropic pipeline.
 func (h *AccountHandler) ApplyTier(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)

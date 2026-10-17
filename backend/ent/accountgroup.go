@@ -24,14 +24,11 @@ type AccountGroup struct {
 	// Priority holds the value of the "priority" field.
 	Priority int `json:"priority,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
-	CreatedAt time.Time `json:"created_at,omitempty"`
-	// Edges holds the relations/edges for other nodes in the graph.
-	// The values are being populated by the AccountGroupQuery when eager-loading is set.
+	CreatedAt    time.Time         `json:"created_at,omitempty"`
 	Edges        AccountGroupEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
-// AccountGroupEdges holds the relations/edges for other nodes in the graph.
 type AccountGroupEdges struct {
 	// Account holds the value of the account edge.
 	Account *Account `json:"account,omitempty"`

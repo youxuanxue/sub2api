@@ -158,14 +158,8 @@ func SeedOfficialSupportedProtocols(account *Account) bool {
 	return true
 }
 
-// routingSupportedProtocols is the Plan() view of capability.supported_protocols.
-// Kiro mirror stubs expose only their native Messages hop; public ingress
-// compatibility is handled by protocol conversion before prod calls edge.
-// OpenAI mirror stubs similarly hide their compatibility-only Messages ingress.
-// Antigravity edge relays stay Gemini-only so Claude/convertible OpenAI ingress
-// converts at prod; Chat/Responses widen to verified chat hops only when
-// Chat→Gemini / Responses→Gemini cannot preserve (identity must stay eligible).
-// Restrictions may only remove protocols from the persisted capability owner.
+// routingSupportedProtocols derives routing targets from persisted capabilities.
+// Gemini-compatible API-key accounts prefer native Gemini when conversion preserves the request.
 func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {
 	return routingSupportedProtocolsForInbound(account, "", nil)
 }
@@ -180,15 +174,8 @@ func routingSupportedProtocolsForInbound(account *Account, inbound protocolroute
 		}
 		return nil
 	}
-	if account.IsKiroMirrorStub() {
-		for _, protocol := range protocols {
-			if protocol == protocolrouter.ProtocolMessages {
-				return []protocolrouter.Protocol{protocol}
-			}
-		}
-		return nil
-	}
-	if tkIsAntigravityEdgeRelayStub(account) {
+
+	if isAntigravityAPIKeyAccount(account) {
 		hasGemini := false
 		for _, protocol := range protocols {
 			if protocol == protocolrouter.ProtocolGeminiGenerateContent {
@@ -217,24 +204,7 @@ func routingSupportedProtocolsForInbound(account *Account, inbound protocolroute
 			return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
 		}
 	}
-	if !tkIsOpenAIEdgeMirrorStub(account) {
-		return protocols
-	}
-	filtered := make([]protocolrouter.Protocol, 0, len(protocols))
-	hasOpenAINative := false
-	for _, protocol := range protocols {
-		if protocol == protocolrouter.ProtocolMessages {
-			continue
-		}
-		filtered = append(filtered, protocol)
-		if protocol == protocolrouter.ProtocolResponses || protocol == protocolrouter.ProtocolChatCompletions {
-			hasOpenAINative = true
-		}
-	}
-	if !hasOpenAINative {
-		return protocols
-	}
-	return filtered
+	return protocols
 }
 
 func ProtocolAccountSnapshot(account *Account, requestedModel string) (protocolrouter.AccountSnapshot, error) {
@@ -306,12 +276,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 			modelAllowed[protocolrouter.ProtocolGeminiGenerateContent] = false
 		}
 	}
-	// Edge-relay hops keep the public client model in the URL; mapped provider
-	// ids stay on ResolvedModel for billing/upstream attribution.
 	exactModel := resolvedModel
-	if geminiProfile == protocolrouter.GeminiEndpointAntigravityEdgeRelay {
-		exactModel = requestedModel
-	}
 	exactEndpoints, err := protocolExactEndpoints(account, exactModel, geminiProfile, stream)
 	if err != nil {
 		return protocolrouter.AccountSnapshot{}, err
@@ -512,8 +477,8 @@ func protocolGeminiEndpointProfile(account *Account) protocolrouter.GeminiEndpoi
 	if account.Platform == PlatformAntigravity && account.Type == AccountTypeOAuth {
 		return protocolrouter.GeminiEndpointAntigravityCloudCode
 	}
-	if tkIsAntigravityEdgeRelayStub(account) {
-		return protocolrouter.GeminiEndpointAntigravityEdgeRelay
+	if isAntigravityAPIKeyAccount(account) {
+		return protocolrouter.GeminiEndpointAntigravityAPIKey
 	}
 	if account.IsNewAPIVertexServiceAccount() {
 		return protocolrouter.GeminiEndpointVertexServiceAccount
@@ -536,10 +501,10 @@ func protocolGeminiExactEndpoint(
 		return buildGeminiAIStudioModelActionURL(account.GetGeminiBaseURL(geminicli.AIStudioBaseURL), resolvedModel, action, false)
 	case protocolrouter.GeminiEndpointAntigravityCloudCode:
 		return strings.TrimRight(resolveAntigravityForwardBaseURL(account), "/") + "/v1internal:streamGenerateContent", nil
-	case protocolrouter.GeminiEndpointAntigravityEdgeRelay:
+	case protocolrouter.GeminiEndpointAntigravityAPIKey:
 		baseURL := strings.TrimRight(account.GetGeminiBaseURL(""), "/")
 		if baseURL == "" {
-			return "", errors.New("antigravity edge relay missing base_url")
+			return "", errors.New("antigravity API-key account missing base_url")
 		}
 		action := "generateContent"
 		if stream {

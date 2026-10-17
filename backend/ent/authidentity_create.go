@@ -122,7 +122,6 @@ func (_c *AuthIdentityCreate) AddChannelIDs(ids ...int64) *AuthIdentityCreate {
 	return _c
 }
 
-// AddChannels adds the "channels" edges to the AuthIdentityChannel entity.
 func (_c *AuthIdentityCreate) AddChannels(v ...*AuthIdentityChannel) *AuthIdentityCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -137,7 +136,6 @@ func (_c *AuthIdentityCreate) AddAdoptionDecisionIDs(ids ...int64) *AuthIdentity
 	return _c
 }
 
-// AddAdoptionDecisions adds the "adoption_decisions" edges to the IdentityAdoptionDecision entity.
 func (_c *AuthIdentityCreate) AddAdoptionDecisions(v ...*IdentityAdoptionDecision) *AuthIdentityCreate {
 	ids := make([]int64, len(v))
 	for i := range v {

@@ -78,24 +78,6 @@ def default_output_path(period_start: dt.datetime) -> Path:
     return Path(f"docs/ops/plan-account-usage-{stamp}.md")
 
 
-def list_deployable_edges(repo_root: Path | None = None) -> list[str]:
-    root = repo_root or _repo_root()
-    cmd = [
-        sys.executable,
-        str(root / "deploy/aws/stage0/resolve-edge-target.py"),
-        "--list-deployable",
-    ]
-    proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True, check=False)
-    if proc.returncode != 0:
-        raise PlanUsageReportError(
-            f"resolve-edge-target failed: {proc.stderr.strip() or proc.stdout.strip()}"
-        )
-    edges = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
-    if not edges:
-        raise PlanUsageReportError("no deployable edges returned")
-    return edges
-
-
 def parse_probe_rows(stdout: str, *, target: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for line in stdout.splitlines():
@@ -148,16 +130,13 @@ def collect(
     period_start: dt.datetime,
     period_end: dt.datetime,
     raw_dir: Path,
-    include_prod: bool = True,
-    edges: Sequence[str] | None = None,
     repo_root: Path | None = None,
     timeout_seconds: int = 600,
 ) -> dict[str, Any]:
     if period_end <= period_start:
         raise PlanUsageReportError("period_end must be after period_start")
     root = repo_root or _repo_root()
-    edge_ids = list(edges) if edges is not None else list_deployable_edges(root)
-    targets = (["prod"] if include_prod else []) + [f"edge:{edge}" for edge in edge_ids]
+    targets = ["prod"]
 
     raw_dir.mkdir(parents=True, exist_ok=True)
     documents: list[dict[str, Any]] = []
@@ -311,7 +290,7 @@ def render_markdown(
         f"{period_end.strftime('%Y-%m-%d %H:%M')}（Asia/Shanghai，含头不含尾）"
     )
     a(f"- **采样时间**：{sampled}")
-    a("- **覆盖环境**：prod + deployable edges（由 `resolve-edge-target.py --list-deployable` 解析）")
+    a("- **覆盖环境**：prod")
     a(
         "- **账号类型**：VolcEngine Agent Plan / Ali Token Plan / "
         "Qianfan Token Plan / NVIDIA Build"
@@ -354,8 +333,7 @@ def render_markdown(
     a("")
     a("### 其他注意")
     a("")
-    a("- Edge 与 Prod 是各自本地账本，同名账号不能直接加总（ID 也不共用）。")
-    a("- 某环境无匹配账号时明细为空，汇总计 0。")
+    a("- 某类型无匹配账号时明细为空，汇总计 0。")
     a("- 只纳入 **创建时间早于 period_end** 的账号；周期结束后新建的账号不进表。")
     a("")
     a("## 二、汇总")
@@ -367,13 +345,13 @@ def render_markdown(
         lambda: {"n": 0.0, "month": 0.0}
     )
     for row in rows:
-        env = "prod" if row.get("target") == "prod" else "edge"
+        env = "prod"
         kind = str(row.get("plan_kind") or "")
         bucket = agg[(env, kind)]
         bucket["n"] += 1
         bucket["month"] += float((row.get("month_period") or {}).get("total_cost") or 0)
 
-    for env in ("prod", "edge"):
+    for env in ("prod",):
         for kind in KIND_ORDER:
             bucket = agg.get((env, kind))
             if not bucket:
@@ -476,18 +454,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    collect_p = sub.add_parser("collect", help="Probe prod+edges and write markdown")
+    collect_p = sub.add_parser("collect", help="Probe prod and write markdown")
     collect_p.add_argument("--month", help="YYYY-MM Asia/Shanghai calendar month")
     collect_p.add_argument("--period-start", help="Inclusive start (Asia/Shanghai default)")
     collect_p.add_argument("--period-end", help="Exclusive end (Asia/Shanghai default)")
     collect_p.add_argument("--raw-dir", type=Path, default=Path(DEFAULT_RAW_DIR))
     collect_p.add_argument("--output", type=Path, help="Markdown output path")
-    collect_p.add_argument(
-        "--edges",
-        default="auto",
-        help="Comma-separated edge ids, or 'auto' (default)",
-    )
-    collect_p.add_argument("--skip-prod", action="store_true")
     collect_p.add_argument("--timeout-seconds", type=int, default=600)
 
     render_p = sub.add_parser("render", help="Render markdown from cached raw JSON")
@@ -504,19 +476,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "collect":
         period_start, period_end = _resolve_period(args)
-        edges: list[str] | None
-        if args.edges == "auto":
-            edges = None
-        else:
-            edges = [part.strip() for part in args.edges.split(",") if part.strip()]
         result = collect(
             period_start=period_start,
             period_end=period_end,
             raw_dir=(root / args.raw_dir).resolve()
             if not args.raw_dir.is_absolute()
             else args.raw_dir,
-            include_prod=not args.skip_prod,
-            edges=edges,
             repo_root=root,
             timeout_seconds=args.timeout_seconds,
         )

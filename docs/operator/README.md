@@ -7,8 +7,6 @@
 | 手册 | 用途 |
 |------|------|
 | [subscription-and-balance-ops.md](./subscription-and-balance-ops.md) | 订阅 vs 余额、客服话术、后台配置 |
-| [exclusive-group-passthrough.md](./exclusive-group-passthrough.md) | 专属分组 + Passthrough 透传（单用户独占池） |
-| [anthropic-prod-edge-relay.md](./anthropic-prod-edge-relay.md) | 历史：Prod → Edge OAuth 中继（已退役，不可按此操作） |
 | [kiro-account-onboarding.md](./kiro-account-onboarding.md) | Kiro 账号接入 |
 | [gcp-trial-vertex-onboarding.md](./gcp-trial-vertex-onboarding.md) | GCP 试用 Vertex 媒体账号 |
 | [async-image-tasks.md](./async-image-tasks.md) | 异步图片任务 API |

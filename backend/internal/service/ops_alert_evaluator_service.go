@@ -308,7 +308,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 			// TK: first-screen breakdown — see ops_alert_evaluator_service_tk_dimensions.go
 			dimensions = s.tkAttachAlertCardDimensions(ctx, rule, windowStart, windowEnd, scopePlatform, scopeGroupID, dimensions)
 
-			pageSeverity := effectiveOpsAlertPageSeverity(rule, s.isEdgeNode())
+			pageSeverity := effectiveOpsAlertPageSeverity(rule)
 			firedEvent := &OpsAlertEvent{
 				RuleID:         rule.ID,
 				Severity:       pageSeverity,
@@ -366,30 +366,13 @@ func (s *OpsAlertEvaluatorService) shouldEvaluateAlertRuleOnNode(rule *OpsAlertR
 	if s == nil || rule == nil {
 		return true
 	}
-	if s.isEdgeNode() {
-		return !isProdOnlyAlertRule(rule)
-	}
-	return !isEdgeOnlyAlertRule(rule)
+
+	return !isProviderHealthAlertRule(rule)
 }
 
-func isProdOnlyAlertRule(rule *OpsAlertRule) bool {
-	if rule == nil {
-		return false
-	}
-	switch strings.TrimSpace(rule.MetricType) {
-	case OpsAlertMetricUserVisibleFailureCount, OpsAlertMetricClientVisibleFailureCount,
-		OpsAlertMetricProxyUnreachableCount:
-		return true
-	default:
-		return false
-	}
-}
-
-// isEdgeOnlyAlertRule reports whether a rule is local provider-health noise on
-// prod (the user-facing terminus already pages via user_visible_failure_count).
-// After tk_087 the only remaining upstream_error_rate default is the 20% edge
-// P1; prod must not evaluate it.
-func isEdgeOnlyAlertRule(rule *OpsAlertRule) bool {
+// isProviderHealthAlertRule identifies upstream-only noise; user-visible
+// failure rules own production paging.
+func isProviderHealthAlertRule(rule *OpsAlertRule) bool {
 	if rule == nil {
 		return false
 	}
@@ -547,11 +530,6 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 	if rule == nil {
 		return 0, false
 	}
-	// Sample floor for ratio metrics: a window with fewer than this many
-	// SLA-counted requests is too sparse to yield a trustworthy rate, so the
-	// rule is skipped (ok=false) instead of firing on a misleading 100% (false
-	// P0 on low-traffic edges, 2026-06-06 us2/us5). Always at least 1 so the
-	// >0 denominator guard still holds when the floor is unset.
 	rateSampleFloor := int64(rateRuleMinSamples)
 	if rateSampleFloor < 1 {
 		rateSampleFloor = 1

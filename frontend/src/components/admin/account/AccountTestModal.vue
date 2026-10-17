@@ -392,7 +392,7 @@ import { buildApiUrl } from '@/api/client'
 import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { adminAPI } from '@/api/admin'
 import type { Account, AccountModelOption } from '@/types'
-import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_KIRO, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
+import { PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_KIRO, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
@@ -705,14 +705,7 @@ const canStartTest = computed(() => {
   return Boolean(selectedModelId.value)
 })
 
-const isKiroTestAccount = computed(() => (
-  props.account?.platform === PLATFORM_KIRO ||
-  (
-    props.account?.platform === PLATFORM_ANTHROPIC &&
-    props.account?.type === 'apikey' &&
-    String(props.account?.credentials?.mirror_platform || '').trim().toLowerCase() === PLATFORM_KIRO
-  )
-))
+const isKiroTestAccount = computed(() => props.account?.platform === PLATFORM_KIRO)
 
 const pickDefaultModelForMode = () => {
   const options = modelOptionsForMode.value

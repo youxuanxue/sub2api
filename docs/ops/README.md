@@ -8,7 +8,11 @@
 |------|------|
 | [cc-fingerprint-changelog.md](./cc-fingerprint-changelog.md) | Claude Code 指纹对齐 changelog（skill 追加） |
 | [antigravity-fingerprint-changelog.md](./antigravity-fingerprint-changelog.md) | Antigravity 指纹对齐 changelog（skill 追加） |
-| [edge-capacity-report-20260720-c1.md](./edge-capacity-report-20260720-c1.md) | Edge 容量报告（skill `tokenkey-edge-capacity-report` 刷新） |
-| [plan-account-usage-202609.md](./plan-account-usage-202609.md) | Plan 账号周期计量（skill `tokenkey-plan-account-usage-report` 刷新） |
 
 命名约定：带日期后缀的报告由对应 skill / 脚本刷新；不要把一次性排障笔记堆回本目录。
+
+## Prod-only operator utilities
+
+以下入口只服务当前 prod 主机或一次性迁移/审计：
+
+`export_adspower_session.py`, `check-fresh-host-delta-postgres.py`, `check-fresh-host-network.sh`, `check-oltp-refresh-postgres.py`, `apply-account-contact-email.sh`, `probe-account-emails.sh`, `probe-alert-config.sh`, `probe-data-layer-retention-inventory.sh`, `probe-fleet-traffic-window.sh`, `probe-ssot-recent-success.sh`, `probe-traffic-logs.sh`, `probe-user-traffic-window.sh`, `profile-traffic.py`, `fetch-error-clusters.sh`, `fetch-logs.sh`, `prod_qa_maintenance.py`, `check-cfn-live-drift.sh`, `retire-aws-standby-timers-remote.sh`, `retire_dormant_media_storage_remote.sh`, `sync-instance-cpu-alarm.sh`, `sync-instance-root-disk-alarm.sh`, `sync-prod-pg-tuning-via-ssm.sh`。

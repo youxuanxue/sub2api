@@ -8,16 +8,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// NewAPI / Volc prompt-cache sticky affinity.
-//
-// Account sticky already exists for NewAPI groups, but GenerateSessionHash's
-// default content seed includes the first user turn. Independent prompts that
-// share a long system/tool prefix (Agent / acceptance "repeat group") therefore
-// hash differently and load-balance across pool members, destroying upstream
-// prefix cache. Grok already scopes cache identity by stable prefix; NewAPI
-// groups reuse that idea for *account* sticky so the same session keeps one
-// upstream account (prod or edge mirror — mirrors apply the same sticky rule).
-
 func newAPIGroupPromptCacheStickyEnabled(c *gin.Context) bool {
 	if c == nil {
 		return false

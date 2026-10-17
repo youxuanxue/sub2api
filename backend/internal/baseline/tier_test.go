@@ -143,7 +143,7 @@ func TestLoadStubPoolBaseline(t *testing.T) {
 	if doc.Policy.PoolModeRetryCount != 3 {
 		t.Fatalf("pool_mode_retry_count = %d want 3", doc.Policy.PoolModeRetryCount)
 	}
-	if !re.MatchString("https://api-us1.tokenkey.dev") {
+	if !re.MatchString("https://upstream.example.test") {
 		t.Fatalf("expected base_url regexp to match api-us1.tokenkey.dev")
 	}
 	if re.MatchString("https://api.openai.com") {

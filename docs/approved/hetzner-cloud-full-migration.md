@@ -11,7 +11,6 @@ scope: >-
 related_prs: [2517, 2532, 2550, 2551, 2556]
 related_designs:
   - docs/approved/deploy-stage0-workflow.md
-  - docs/approved/edge-bluegreen-release-safety.md
   - docs/approved/design-fleet-pgdump-restore-canary.md
 ---
 
@@ -21,7 +20,7 @@ related_designs:
 
 ## 现网范围
 
-**活拓扑（2026-10-17 起）：** 仅 Tokyo prod EC2；edge `deployable=false`；细节与 IP 只在 README。  
+**活拓扑（2026-10-17 起）：** 仅 Tokyo prod EC2；细节与 IP 只在 README。
 **本文件锁定的历史决策：** 曾将舰队收敛到 Hetzner `fsn1` / `cax21` / SSM Hybrid（当时五节点 prod+uk1+uk2+us4+us5）；后续 AWS/Tokyo 切流不改写下列已锁不变量（蓝绿、单正式名、活库禁覆盖等）。
 
 ## 已锁定
@@ -30,8 +29,8 @@ related_designs:
 |---|---|
 | 去哪 | Hetzner **`fsn1`**，机型 **`cax21`**（4c/8G **arm64**） |
 | 控面 | **SSM Hybrid**；蓝绿经 AWS SSM → `deploy_via_ssm_bluegreen.sh`（首发单色 `tokenkey` → blue） |
-| 身份 | 逻辑 edge id / 正式域名不变；稳态 `API_DOMAIN` 单正式名 |
-| 数据 | 换机整库复刻用 precious-class `pg_dump` + logs data-only；**禁止**只靠 `migrate-edge-accounts` 当全量 |
+| 身份 | 正式域名不变；稳态 `API_DOMAIN` 单正式名 |
+| 数据 | 换机整库复刻用 precious-class `pg_dump` + logs data-only |
 | live 库 | **禁止**用旧机全量 dump 覆盖已在服务的 HZ |
 | 双写 | 禁止业务库双活双写；Redis 不热迁 |
 | Secrets | `/tokenkey/hetzner/…`；不进 git |

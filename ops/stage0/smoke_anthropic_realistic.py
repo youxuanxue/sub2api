@@ -3,7 +3,7 @@
 
 Mirrors backend account_test_service.createTestPayload (random metadata.user_id,
 canonical system prompt, cache_control blocks). Used by post_deploy_smoke,
-probe_account_model, probe-servable-models, and edge native oauth smoke.
+probe_account_model, probe-servable-models, and native OAuth smoke.
 """
 from __future__ import annotations
 

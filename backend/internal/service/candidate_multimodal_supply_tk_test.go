@@ -91,8 +91,6 @@ func TestVolcKimiAudioCandidateAdmission(t *testing.T) {
 	}
 	require.False(t, supplyKnownNegativeForInputAudio(&volc, "kimi-k2.6"))
 	require.False(t, supplyKnownNegativeForInputAudio(nil, "kimi-k3"))
-	china := multimodalSupplyChinaEdgeAccount(152)
-	require.False(t, supplyKnownNegativeForInputAudio(&china, "kimi-k3"), "opaque relays may host other audio suppliers")
 	r, _, key := globalCandidateFixture([]Group{grp(10, PlatformNewAPI, 1, false)}, []Account{volc})
 	for _, body := range [][]byte{multimodalTextChatBody("kimi-k3"), multimodalImageChatBody("kimi-k3"), multimodalVideoChatBody("kimi-k3")} {
 		_, chosen, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, "/v1/chat/completions", "kimi-k3", body, "", "")
@@ -117,21 +115,6 @@ func TestVolcKimiAudioDirectEmptyPoolNamesActualRejection(t *testing.T) {
 		require.ErrorIs(t, err, ErrUnsupportedInputModality)
 		require.Equal(t, "audio", UnsupportedInputModalityFromError(err), "video is supported; the blocked input is audio")
 	}
-}
-
-func multimodalSupplyChinaEdgeAccount(id int64, groups ...int64) Account {
-	a := Account{
-		ID: id, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, Status: StatusActive,
-		Schedulable: true, Concurrency: 10, Priority: 1, GroupIDs: groups,
-		ChannelType: newapiconstant.ChannelTypeOpenAI,
-		Credentials: map[string]any{
-			"base_url":      "https://api-us4.tokenkey.dev",
-			"api_key":       "test-china-edge",
-			"model_mapping": map[string]any{"glm-5.3": "glm-5.3", "kimi-k3": "kimi-k3"},
-		},
-	}
-	attachTestProtocolCapability(&a, protocolrouter.ProtocolChatCompletions)
-	return a
 }
 
 func multimodalSupplyTokenseaAccount(id int64, groups ...int64) Account {
@@ -168,16 +151,13 @@ func TestSupplyKnownNegativeForInputVideoKimiK3NVIDIA(t *testing.T) {
 	require.False(t, supplyKnownNegativeForInputVideo(&nvidia, ""))
 }
 
-func TestSupplyKnownNegativeGLMTextOnlyVolcAndChinaEdge(t *testing.T) {
+func TestSupplyKnownNegativeGLMTextOnlyVolc(t *testing.T) {
 	t.Parallel()
 	volc := multimodalSupplyVolcAccount(88)
-	china := multimodalSupplyChinaEdgeAccount(152)
 	nvidia := multimodalSupplyNVIDIAAccount(138)
 	for _, model := range []string{"glm-4.5-air", "glm-5.2", "glm-5.3"} {
 		require.True(t, supplyKnownNegativeForInputVideo(&volc, model), model)
 		require.True(t, supplyKnownNegativeForInputImage(&volc, model), model)
-		require.True(t, supplyKnownNegativeForInputVideo(&china, model), model)
-		require.True(t, supplyKnownNegativeForInputImage(&china, model), model)
 		require.False(t, supplyKnownNegativeForInputImage(&nvidia, model), model)
 	}
 	require.False(t, supplyKnownNegativeForInputImage(&volc, "glm-5.3-flash"))
@@ -264,38 +244,6 @@ func TestSupplyKnownNegativeQianfanTokenPlan(t *testing.T) {
 		"Volc deepseek-v4-pro video is servable — Qianfan negative must stay supply-scoped")
 }
 
-func multimodalSupplyOpenAIEdgeAccount(id int64, groups ...int64) Account {
-	a := Account{
-		ID: id, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive,
-		Schedulable: true, Concurrency: 10, Priority: 1, GroupIDs: groups,
-		Credentials: map[string]any{
-			"base_url": "https://api-us6.tokenkey.dev",
-			"api_key":  "test-openai-edge",
-			"model_mapping": map[string]any{
-				"gpt-5.5": "gpt-5.5", "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
-			},
-		},
-	}
-	attachTestProtocolCapability(&a, protocolrouter.ProtocolResponses)
-	return a
-}
-
-func TestSupplyKnownNegativeOpenAIEdgeMirror(t *testing.T) {
-	t.Parallel()
-	oai := multimodalSupplyOpenAIEdgeAccount(63)
-	nvidia := multimodalSupplyNVIDIAAccount(138)
-	require.True(t, isOpenAIEdgeMirrorAccount(&oai))
-	require.True(t, supplyKnownNegativeForInputVideo(&oai, "gpt-5.5"),
-		"OpenAI edge rejects input_video supply-wide")
-	require.True(t, supplyKnownNegativeForInputVideo(&oai, "gpt-6.1"))
-	require.True(t, supplyKnownNegativeForInputVideo(&oai, "codex-auto-review"))
-	require.False(t, supplyKnownNegativeForInputImage(&oai, "gpt-5.5"),
-		"gpt-5.5 image is servable on OpenAI edge")
-	require.True(t, supplyKnownNegativeForInputImage(&oai, "gpt-5.3-codex-spark"))
-	require.False(t, supplyKnownNegativeForInputVideo(&nvidia, "gpt-5.5"),
-		"OpenAI edge video negative must not apply to NVIDIA")
-}
-
 func TestAccountAdmitsRequestInputModalitiesVideoGate(t *testing.T) {
 	t.Parallel()
 	nvidia := multimodalSupplyNVIDIAAccount(138)
@@ -328,7 +276,6 @@ func TestAccountAdmitsRequestInputModalitiesVideoGate(t *testing.T) {
 func TestAccountAdmitsRequestInputModalitiesImageGate(t *testing.T) {
 	t.Parallel()
 	volc := multimodalSupplyVolcAccount(88)
-	china := multimodalSupplyChinaEdgeAccount(152)
 	router := NewProtocolRouter()
 
 	imageReq, err := protocolrouter.ParseCanonicalRequest(
@@ -339,7 +286,6 @@ func TestAccountAdmitsRequestInputModalitiesImageGate(t *testing.T) {
 	require.NotZero(t, imageReq.Profile().ContentKinds&protocolrouter.ContentImage)
 	imageCtx := WithProtocolRouting(context.Background(), router, imageReq)
 	require.Equal(t, multimodalInputModalityImage, accountInputModalityRejection(imageCtx, &volc, "glm-5.3"))
-	require.Equal(t, multimodalInputModalityImage, accountInputModalityRejection(imageCtx, &china, "glm-5.3"))
 
 	flashReq, err := protocolrouter.ParseCanonicalRequest(
 		protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathNone,
@@ -470,14 +416,14 @@ func TestRequestInputModalityPreference(t *testing.T) {
 }
 
 func TestCandidateSelectionImageEmptyPoolNamesImage(t *testing.T) {
-	china := multimodalSupplyChinaEdgeAccount(152, 10)
+	volc := multimodalSupplyVolcAccount(152, 10)
 	groups := []Group{grp(10, PlatformNewAPI, 1, false)}
-	r, _, key := globalCandidateFixture(groups, []Account{china})
+	r, _, key := globalCandidateFixture(groups, []Account{volc})
 	_, state, err := r.PrepareCandidateRequest(
 		context.Background(), key, ShapeOpenAIChat, "/v1/chat/completions",
 		"glm-5.3", multimodalImageChatBody("glm-5.3"), "", "",
 	)
-	require.ErrorIs(t, err, ErrUnsupportedInputModality, "china-edge-only glm-5.3 image pool must be modality 400")
+	require.ErrorIs(t, err, ErrUnsupportedInputModality, "Volc-only glm-5.3 image pool must be modality 400")
 	require.Contains(t, err.Error(), "image")
 	require.NotContains(t, err.Error(), "video")
 	require.Nil(t, state)

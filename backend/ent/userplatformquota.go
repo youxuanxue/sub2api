@@ -45,14 +45,11 @@ type UserPlatformQuota struct {
 	// WeeklyWindowStart holds the value of the "weekly_window_start" field.
 	WeeklyWindowStart *time.Time `json:"weekly_window_start,omitempty"`
 	// MonthlyWindowStart holds the value of the "monthly_window_start" field.
-	MonthlyWindowStart *time.Time `json:"monthly_window_start,omitempty"`
-	// Edges holds the relations/edges for other nodes in the graph.
-	// The values are being populated by the UserPlatformQuotaQuery when eager-loading is set.
-	Edges        UserPlatformQuotaEdges `json:"edges"`
-	selectValues sql.SelectValues
+	MonthlyWindowStart *time.Time             `json:"monthly_window_start,omitempty"`
+	Edges              UserPlatformQuotaEdges `json:"edges"`
+	selectValues       sql.SelectValues
 }
 
-// UserPlatformQuotaEdges holds the relations/edges for other nodes in the graph.
 type UserPlatformQuotaEdges struct {
 	// User holds the value of the user edge.
 	User *User `json:"user,omitempty"`

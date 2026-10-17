@@ -378,7 +378,6 @@ func (_u *ChannelMonitorUpdate) AddHistoryIDs(ids ...int64) *ChannelMonitorUpdat
 	return _u
 }
 
-// AddHistory adds the "history" edges to the ChannelMonitorHistory entity.
 func (_u *ChannelMonitorUpdate) AddHistory(v ...*ChannelMonitorHistory) *ChannelMonitorUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -393,7 +392,6 @@ func (_u *ChannelMonitorUpdate) AddDailyRollupIDs(ids ...int64) *ChannelMonitorU
 	return _u
 }
 
-// AddDailyRollups adds the "daily_rollups" edges to the ChannelMonitorDailyRollup entity.
 func (_u *ChannelMonitorUpdate) AddDailyRollups(v ...*ChannelMonitorDailyRollup) *ChannelMonitorUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -426,7 +424,6 @@ func (_u *ChannelMonitorUpdate) Mutation() *ChannelMonitorMutation {
 	return _u.mutation
 }
 
-// ClearHistory clears all "history" edges to the ChannelMonitorHistory entity.
 func (_u *ChannelMonitorUpdate) ClearHistory() *ChannelMonitorUpdate {
 	_u.mutation.ClearHistory()
 	return _u
@@ -438,7 +435,6 @@ func (_u *ChannelMonitorUpdate) RemoveHistoryIDs(ids ...int64) *ChannelMonitorUp
 	return _u
 }
 
-// RemoveHistory removes "history" edges to ChannelMonitorHistory entities.
 func (_u *ChannelMonitorUpdate) RemoveHistory(v ...*ChannelMonitorHistory) *ChannelMonitorUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -447,7 +443,6 @@ func (_u *ChannelMonitorUpdate) RemoveHistory(v ...*ChannelMonitorHistory) *Chan
 	return _u.RemoveHistoryIDs(ids...)
 }
 
-// ClearDailyRollups clears all "daily_rollups" edges to the ChannelMonitorDailyRollup entity.
 func (_u *ChannelMonitorUpdate) ClearDailyRollups() *ChannelMonitorUpdate {
 	_u.mutation.ClearDailyRollups()
 	return _u
@@ -459,7 +454,6 @@ func (_u *ChannelMonitorUpdate) RemoveDailyRollupIDs(ids ...int64) *ChannelMonit
 	return _u
 }
 
-// RemoveDailyRollups removes "daily_rollups" edges to ChannelMonitorDailyRollup entities.
 func (_u *ChannelMonitorUpdate) RemoveDailyRollups(v ...*ChannelMonitorDailyRollup) *ChannelMonitorUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1169,7 +1163,6 @@ func (_u *ChannelMonitorUpdateOne) AddHistoryIDs(ids ...int64) *ChannelMonitorUp
 	return _u
 }
 
-// AddHistory adds the "history" edges to the ChannelMonitorHistory entity.
 func (_u *ChannelMonitorUpdateOne) AddHistory(v ...*ChannelMonitorHistory) *ChannelMonitorUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1184,7 +1177,6 @@ func (_u *ChannelMonitorUpdateOne) AddDailyRollupIDs(ids ...int64) *ChannelMonit
 	return _u
 }
 
-// AddDailyRollups adds the "daily_rollups" edges to the ChannelMonitorDailyRollup entity.
 func (_u *ChannelMonitorUpdateOne) AddDailyRollups(v ...*ChannelMonitorDailyRollup) *ChannelMonitorUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1217,7 +1209,6 @@ func (_u *ChannelMonitorUpdateOne) Mutation() *ChannelMonitorMutation {
 	return _u.mutation
 }
 
-// ClearHistory clears all "history" edges to the ChannelMonitorHistory entity.
 func (_u *ChannelMonitorUpdateOne) ClearHistory() *ChannelMonitorUpdateOne {
 	_u.mutation.ClearHistory()
 	return _u
@@ -1229,7 +1220,6 @@ func (_u *ChannelMonitorUpdateOne) RemoveHistoryIDs(ids ...int64) *ChannelMonito
 	return _u
 }
 
-// RemoveHistory removes "history" edges to ChannelMonitorHistory entities.
 func (_u *ChannelMonitorUpdateOne) RemoveHistory(v ...*ChannelMonitorHistory) *ChannelMonitorUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1238,7 +1228,6 @@ func (_u *ChannelMonitorUpdateOne) RemoveHistory(v ...*ChannelMonitorHistory) *C
 	return _u.RemoveHistoryIDs(ids...)
 }
 
-// ClearDailyRollups clears all "daily_rollups" edges to the ChannelMonitorDailyRollup entity.
 func (_u *ChannelMonitorUpdateOne) ClearDailyRollups() *ChannelMonitorUpdateOne {
 	_u.mutation.ClearDailyRollups()
 	return _u
@@ -1250,7 +1239,6 @@ func (_u *ChannelMonitorUpdateOne) RemoveDailyRollupIDs(ids ...int64) *ChannelMo
 	return _u
 }
 
-// RemoveDailyRollups removes "daily_rollups" edges to ChannelMonitorDailyRollup entities.
 func (_u *ChannelMonitorUpdateOne) RemoveDailyRollups(v ...*ChannelMonitorDailyRollup) *ChannelMonitorUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {

@@ -36,14 +36,11 @@ type AuthIdentity struct {
 	// Issuer holds the value of the "issuer" field.
 	Issuer *string `json:"issuer,omitempty"`
 	// Metadata holds the value of the "metadata" field.
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
-	// Edges holds the relations/edges for other nodes in the graph.
-	// The values are being populated by the AuthIdentityQuery when eager-loading is set.
-	Edges        AuthIdentityEdges `json:"edges"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+	Edges        AuthIdentityEdges      `json:"edges"`
 	selectValues sql.SelectValues
 }
 
-// AuthIdentityEdges holds the relations/edges for other nodes in the graph.
 type AuthIdentityEdges struct {
 	// User holds the value of the user edge.
 	User *User `json:"user,omitempty"`

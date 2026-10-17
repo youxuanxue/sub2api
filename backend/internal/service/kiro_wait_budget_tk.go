@@ -3,18 +3,14 @@ package service
 import (
 	"context"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
 )
 
 const kiroWaitBudgetKey = "tk_kiro_wait_budget"
-const kiroWaitDeadlineHeader = "X-Tk-Kiro-Wait-Deadline-Ms"
-const kiroWaitExhaustedOutcome = "wait_budget_exhausted"
 const kiroWaitBudgetClientMessage = "Kiro request waiting budget exhausted"
 
 type kiroWaitBudget struct {
@@ -53,13 +49,6 @@ func getKiroWaitBudget(c *gin.Context, cfg *config.Config, req *kiroproto.Claude
 	budget := resolveKiroWaitTimeout(cfg, high)
 	b := kiroWaitBudget{deadline: start.Add(budget), budget: budget, high: high}
 	if c != nil {
-		if c.Request != nil {
-			if millis, err := strconv.ParseInt(c.GetHeader(kiroWaitDeadlineHeader), 10, 64); err == nil && millis > 0 {
-				if inherited := time.UnixMilli(millis); inherited.Before(b.deadline) {
-					b.deadline = inherited
-				}
-			}
-		}
 		c.Set(kiroWaitBudgetKey, b)
 	}
 	return b
@@ -82,9 +71,6 @@ func armKiroWaitBudget(parent context.Context, c *gin.Context, cfg *config.Confi
 }
 
 func kiroWaitBudgetExhausted(c *gin.Context) error {
-	if c != nil && c.Writer != nil && !c.Writer.Written() {
-		c.Header(KiroOutcomeHeader, kiroWaitExhaustedOutcome)
-	}
 	recordOpsStreamFirstOutputTimeout(c)
 	return &UpstreamFailoverError{
 		StatusCode:               http.StatusGatewayTimeout,
@@ -104,31 +90,4 @@ func kiroWaitBudgetError(c *gin.Context, guard *streamFirstOutputGuard, guarded,
 		return kiroWaitBudgetExhausted(c)
 	}
 	return nil
-}
-
-// Only Kiro mirror hops emit the deadline. Replace any inbound header so a
-// caller cannot buy a longer wait; direct edge requests also clamp it locally.
-func setKiroWaitDeadlineHeader(c *gin.Context, req *http.Request, account *Account) {
-	req.Header.Del(kiroWaitDeadlineHeader)
-	if c == nil || account == nil || !account.IsKiroMirrorStub() {
-		return
-	}
-	if value, ok := c.Get(kiroWaitBudgetKey); ok {
-		if budget, valid := value.(kiroWaitBudget); valid {
-			req.Header.Set(kiroWaitDeadlineHeader, strconv.FormatInt(budget.deadline.UnixMilli(), 10))
-		}
-	}
-}
-
-// Kiro reasoning stays internal. Synthetic message_start/ping and empty deltas
-// must not disarm the prod relay guard before real text/tool output arrives.
-func kiroPassthroughUsefulOutput(data string) bool {
-	event := gjson.Parse(data)
-	switch event.Get("type").String() {
-	case "content_block_start":
-		return event.Get("content_block.type").String() == "tool_use" || event.Get("content_block.text").String() != ""
-	case "content_block_delta":
-		return event.Get("delta.text").String() != "" || event.Get("delta.partial_json").String() != ""
-	}
-	return false
 }

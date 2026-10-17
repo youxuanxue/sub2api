@@ -180,19 +180,19 @@ Playwright 真实 UI 完成管理员登录、账号/用户页、客户登录、A
 ## 监控与通知
 
 应用监控和实时指标开启，复用现有 prod 飞书群。`api-cn.tokenkey.dev` 在共享节点身份
-owner 中显式识别为 `cn-prod`，避免被 `api-*` 的 edge 推断抑制 prod 用户失败告警。
+owner 中显式识别为 `cn-prod`，沿用 prod 用户失败告警规则。
 通知策略保持现有 prod 的分级规则，并非所有启用规则都会发送飞书：P0 与指定 P1 用户失败
 走飞书，普通 CPU/P1 内存等规则仍保留在运维面。邮件 SMTP 未配置，不宣称邮件可达。
 
 `install-host-alerts.sh SHARED_SCRIPT` 安装共享
-`deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh`，每五分钟独立于 Docker/Postgres 检查
+`deploy/hetzner/tokenkey-disk-metrics-prod.sh`，每五分钟独立于 Docker/Postgres 检查
 系统盘、数据盘和内存。磁盘达到 85% 告警、低于 80% 恢复；内存 90% 连续两次或 96%
 单次告警，低于 80% 恢复。凭据放在系统盘 `/opt/tokenkey/host-alerts.env`（0600），
 通过 `TOKENKEY_HOST_ALERT_ENV_FILE` 指定，数据盘失挂时仍能通知；节点标识为 `cn-prod`。
 
 公网可用性由共享 `ops/observability/host_https_watch.py` 承担：cn-prod 提供境内视角，prod
 提供独立站外视角。两处分别检查 UCloud 静态 IP、当前转到 AWS 的国内域名、AWS prod
-清单中的客户域名。美国 edge 已退役，不再配置独立 edge watcher。当前国内主机身份与入口见
+清单中的客户域名。当前国内主机身份与入口见
 [`prod-target.json`](prod-target.json)，AWS 目标仍从现有 fleet 清单生成，不能用域名的绿色结果
 替代 UCloud 静态 IP。探针每两分钟执行，连续两次失败发 P0 飞书，持续失败每三十分钟提醒，
 首次恢复发送恢复消息；健康要求可信 TLS、HTTP 200 且 JSON `status=ok`，拦截页不算健康。
@@ -203,9 +203,9 @@ owner 中显式识别为 `cn-prod`，避免被 `api-*` 的 edge 推断抑制 pro
 UCloud 云告警、备份/恢复不在此安装器范围内。
 
 安装复用 `ops/observability/install-host-https-watch.sh`，`WATCH_ROLE=cn-prod`，将该脚本及
-`host_https_watch.py`、`edge_https_health.py`、`edge_health_delivery.py`、
-`edge_model_health_alert.py`、本目录的 `prod-target.json`、
-`deploy/aws/fresh-migration-20261015.json` 和 `deploy/aws/lightsail/edge-targets-lightsail.json`
+`host_https_watch.py`、`https_health.py`、`feishu_delivery.py`、
+本目录的 `prod-target.json`、
+`deploy/aws/fresh-migration-20261015.json`
 按 basename 放入主机私有目录。`WATCH_BUNDLE_DIR` 指向该目录；不传 `APPLY` 时只核对身份
 并输出配置，`APPLY=yes-host-https-watch` 才安装。cn-prod 读取现有
 `/opt/tokenkey/host-alerts.env`；AWS 沿用现有 `.env`，不另复制密钥。安装前备份 unit，使用

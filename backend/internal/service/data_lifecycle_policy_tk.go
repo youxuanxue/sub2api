@@ -6,12 +6,6 @@ const (
 	prodUsageLogRetentionDays  = 90
 	prodErrorLogRetentionDays  = 30
 	prodSystemLogRetentionDays = 7
-	// Edge hot-layer retention matches prod: usage 90d / error 30d / system 7d.
-	// (Previously capped at 7/14/3 for small Lightsail disks; current ~60GiB
-	// edges have headroom, and short windows broke cross-edge billing audits.)
-	edgeUsageLogRetentionDays  = 90
-	edgeErrorLogRetentionDays  = 30
-	edgeSystemLogRetentionDays = 7
 	billingDedupRetentionDays  = 365
 )
 
@@ -33,12 +27,7 @@ func resolveDataLifecyclePolicy(cfg *config.Config, cleanup config.OpsCleanupCon
 	}
 	if cfg != nil {
 		policy.usageLogRetentionDays = capLifecycleRetention(cfg.DashboardAgg.Retention.UsageLogsDays, prodUsageLogRetentionDays)
-		if IsEdgeFrontendURL(cfg.Server.FrontendURL) {
-			policy.role = "edge"
-			policy.usageLogRetentionDays = capLifecycleRetention(cfg.DashboardAgg.Retention.UsageLogsDays, edgeUsageLogRetentionDays)
-			policy.errorLogRetentionDays = capLifecycleRetention(cleanup.ErrorLogRetentionDays, edgeErrorLogRetentionDays)
-			policy.systemLogRetentionDays = capLifecycleRetention(cleanup.SystemLogRetentionDays, edgeSystemLogRetentionDays)
-		}
+
 	}
 	return policy
 }
@@ -50,8 +39,6 @@ func capLifecycleRetention(configured, upperBound int) int {
 	return configured
 }
 
-// UsageLogRetentionDays 返回当前节点 usage_logs 的有效保留天数。
-// prod/edge 上限均为 90；配置更短时用配置值。展示用，0 或负值回落到 prod 默认。
 func UsageLogRetentionDays(cfg *config.Config) int {
 	days := resolveDataLifecyclePolicy(cfg, config.OpsCleanupConfig{}).usageLogRetentionDays
 	if days <= 0 {
@@ -62,5 +49,5 @@ func UsageLogRetentionDays(cfg *config.Config) int {
 
 func dataLifecycleRoleKnown(frontendURL string) bool {
 	site := siteFromFrontendURL(frontendURL)
-	return site == "prod" || site == "cn-prod" || IsEdgeFrontendURL(frontendURL)
+	return site == "prod" || site == "cn-prod"
 }

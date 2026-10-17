@@ -349,7 +349,7 @@
         <AccountKiroPlatformFields :fields="kiro.fields" variant="create" />
       </div>
 
-      <!-- grok (7th platform): OAuth account or prod→edge first-class relay stub. -->
+      <!-- grok (7th platform): OAuth or API-key account. -->
       <div v-if="form.platform === 'grok'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
@@ -405,10 +405,10 @@
               </div>
               <div>
                 <span class="block text-sm font-medium text-gray-900 dark:text-white">
-                  {{ t('admin.accounts.grokPlatform.relayMode') }}
+                  {{ t('admin.accounts.grokPlatform.apiKeyMode') }}
                 </span>
                 <span class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.accounts.grokPlatform.relayModeHint') }}
+                  {{ t('admin.accounts.grokPlatform.apiKeyModeHint') }}
                 </span>
               </div>
             </button>
@@ -1567,17 +1567,6 @@
             <option value="aistudio_paid">{{ t('admin.accounts.gemini.tier.aiStudio.paid') }}</option>
           </select>
           <p class="input-hint">{{ t('admin.accounts.gemini.tier.aiStudioHint') }}</p>
-        </div>
-
-        <!-- TK: edge mirror-stub pool selector (anthropic apikey only) -->
-        <div v-if="form.platform === 'anthropic'">
-          <label class="input-label">{{ t('admin.accounts.anthropic.mirrorPlatform') }}</label>
-          <select v-model="mirrorPlatform" class="input">
-            <option v-for="opt in MIRROR_PLATFORM_OPTIONS" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </option>
-          </select>
-          <p class="input-hint">{{ t('admin.accounts.anthropic.mirrorPlatformHint') }}</p>
         </div>
 
         <!-- Model Restriction Section (Antigravity 已在上层条件排除) -->
@@ -4126,7 +4115,6 @@ import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { isNewApiVertexServiceAccountChannelType } from '@/constants/newApiChannelTypes.tk'
 import VertexServiceAccountFields from './VertexServiceAccountFields.vue'
 import { useVertexServiceAccountFields } from '@/composables/useVertexServiceAccountFields'
-import { MIRROR_PLATFORM_OPTIONS, type MirrorPlatform } from '@/constants/mirrorPlatformOptions.tk'
 import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
@@ -4325,9 +4313,6 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
-// TK: edge mirror-stub pool selector (anthropic + apikey only). See
-// constants/mirrorPlatformOptions.tk.ts.
-const mirrorPlatform = ref<MirrorPlatform>('anthropic')
 const upstreamBillingAutoProbeEnabled = ref(true)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）账号类型、API 协议与端点 ──
@@ -5150,7 +5135,7 @@ watch(
       form.type = 'oauth'
       return
     }
-    // grok (7th platform): OAuth refresh_token or first-class API-key relay stub.
+    // grok (7th platform): OAuth refresh_token.
     if (form.platform === PLATFORM_GROK) {
       form.type = category === 'apikey' ? 'apikey' : 'oauth'
       return
@@ -5229,8 +5214,7 @@ watch(
       antigravityModelMappings.value = []
       antigravityModelRestrictionMode.value = 'mapping'
     } else if (newPlatform === PLATFORM_GROK) {
-      // 第七平台 grok 默认创建 OAuth 账号；需要 prod→edge relay stub 时可切到
-      // API Key，提交 platform=grok,type=apikey。
+      // 第七平台 grok 默认创建 OAuth 账号。
       accountCategory.value = 'oauth-based'
       allowOverages.value = false
       antigravityWhitelistModels.value = []
@@ -5695,7 +5679,6 @@ const resetForm = () => {
   adaptiveBaseUrls.value = { chat_completions: '', anthropic: '', responses: '' }
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
-  mirrorPlatform.value = 'anthropic'
   upstreamBillingAutoProbeEnabled.value = true
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
@@ -6171,8 +6154,7 @@ const handleSubmit = async () => {
     return
   }
 
-  // 第七平台 grok：OAuth 账号粘 refresh_token；prod→edge relay stub 走
-  // first-class platform=grok,type=apikey。
+  // 第七平台 grok：OAuth 账号粘 refresh_token。
   if (form.platform === PLATFORM_GROK) {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
@@ -6192,7 +6174,6 @@ const handleSubmit = async () => {
       const credentials: Record<string, unknown> = {
         base_url: baseURL,
         api_key: apiKey,
-        mirror_platform: 'grok',
       }
       await createAccountAndFinish('grok', 'apikey', credentials, buildAPIKeyOrBedrockExtra())
       return
@@ -6293,12 +6274,6 @@ const handleSubmit = async () => {
   if (form.platform === PLATFORM_GEMINI) {
     credentials.tier_id = geminiTierAIStudio.value
   }
-  // TK: edge mirror-stub pool selector (surface-C). Only anthropic apikey stubs
-  // participate; default 'anthropic' keeps non-stub accounts unaffected.
-  if (form.platform === PLATFORM_ANTHROPIC) {
-    credentials.mirror_platform = mirrorPlatform.value
-  }
-
   // 国产供应商：账号模式 + 协议 + 对应端点写入凭据；后端按 account_mode 路由
   // 额度/余额探测，按 api_protocol 路由转发端点与格式。注意 CN apikey 走本函数
   // 的通用路径（直接 doCreateAccount），不经过 createAccountAndFinish。

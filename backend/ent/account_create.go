@@ -468,7 +468,6 @@ func (_c *AccountCreate) AddGroupIDs(ids ...int64) *AccountCreate {
 	return _c
 }
 
-// AddGroups adds the "groups" edges to the Group entity.
 func (_c *AccountCreate) AddGroups(v ...*Group) *AccountCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -512,7 +511,6 @@ func (_c *AccountCreate) AddChildIDs(ids ...int64) *AccountCreate {
 	return _c
 }
 
-// AddChildren adds the "children" edges to the Account entity.
 func (_c *AccountCreate) AddChildren(v ...*Account) *AccountCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -527,7 +525,6 @@ func (_c *AccountCreate) AddUsageLogIDs(ids ...int64) *AccountCreate {
 	return _c
 }
 
-// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
 func (_c *AccountCreate) AddUsageLogs(v ...*UsageLog) *AccountCreate {
 	ids := make([]int64, len(v))
 	for i := range v {

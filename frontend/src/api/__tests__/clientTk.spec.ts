@@ -17,11 +17,11 @@ describe('ApiError', () => {
   })
 
   it('renders its message (never "[object Object]") through String() and the Error contract', () => {
-    const e = createApiError({ status: 502, code: 'BAD_GATEWAY', message: 'edge fan-out failed' })
+    const e = createApiError({ status: 502, code: 'BAD_GATEWAY', message: 'upstream request failed' })
     // The exact failure mode that produced the bug: String(e) on the old plain object.
     expect(String(e)).not.toBe('[object Object]')
-    expect(String(e)).toContain('edge fan-out failed')
-    expect((e as Error).message).toBe('edge fan-out failed')
+    expect(String(e)).toContain('upstream request failed')
+    expect((e as Error).message).toBe('upstream request failed')
   })
 
   it('keeps fields enumerable so spread / JSON.stringify retain them (incl. message)', () => {

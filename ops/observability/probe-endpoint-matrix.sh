@@ -31,7 +31,7 @@ PROD="${PROD_BASE:-https://api.tokenkey.dev}"
 probe_source_group_id() { # $1=logical source pool
 	case "$1" in
 	openai) echo 2 ;;
-	anthropic_mirror) echo 1 ;;
+	anthropic) echo 1 ;;
 	gemini_vertex) echo 16 ;;
 	dashscope) echo 18 ;;
 	grok_prod) echo 25 ;;
@@ -44,12 +44,12 @@ probe_source_group_id() { # $1=logical source pool
 }
 
 declare -A SOURCE_GROUP_ID=(
-	[anthropic]="${PROBE_ANTHROPIC_MIRROR_GROUP_ID:-$(probe_source_group_id anthropic_mirror)}"
+	[anthropic]="${PROBE_ANTHROPIC_SOURCE_GROUP_ID:-$(probe_source_group_id anthropic)}"
 	[openai]="${PROBE_OPENAI_SOURCE_GROUP_ID:-$(probe_source_group_id openai)}"
 	[gemini]="${PROBE_GEMINI_SOURCE_GROUP_ID:-$(probe_source_group_id gemini_vertex)}"
 	[antigravity]="${PROBE_ANTIGRAVITY_SOURCE_GROUP_ID:-$(probe_source_group_id antigravity)}"
 	[newapi]="${PROBE_NEWAPI_SOURCE_GROUP_ID:-${PROBE_DASHSCOPE_SOURCE_GROUP_ID:-$(probe_source_group_id dashscope)}}"
-	[kiro]="${PROBE_KIRO_SOURCE_GROUP_ID:-$(probe_source_group_id anthropic_mirror)}"
+	[kiro]="${PROBE_KIRO_SOURCE_GROUP_ID:-$(probe_source_group_id anthropic)}"
 	[grok]="${PROBE_GROK_SOURCE_GROUP_ID:-$(probe_source_group_id grok_prod)}"
 )
 

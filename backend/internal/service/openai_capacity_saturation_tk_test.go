@@ -30,23 +30,6 @@ func TestIsOpenAINativeCapacityUnavailable(t *testing.T) {
 	require.False(t, isOpenAINativeCapacityUnavailable(http.StatusBadGateway, "", tkWrap))
 }
 
-func TestShouldRecordOpenAICapacitySaturation_StubSeesSanitizedEnvelope(t *testing.T) {
-	t.Parallel()
-
-	stub := openAIEdgeStub(63)
-	oauth := &Account{ID: 7, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
-	tkWrap := []byte(`{"error":{"type":"upstream_error","message":"Upstream service temporarily unavailable"}}`)
-
-	require.True(t, shouldRecordOpenAICapacitySaturation(stub, http.StatusBadGateway, "", tkWrap),
-		"prod stub must soft-penalize sanitized edge capacity failures")
-	require.False(t, shouldRecordOpenAICapacitySaturation(oauth, http.StatusBadGateway, "", tkWrap),
-		"OAuth must ignore TokenKey sanitized envelope")
-
-	overloaded := []byte(`{"error":{"message":"Our servers are currently overloaded. Please try again later."}}`)
-	require.True(t, shouldRecordOpenAICapacitySaturation(oauth, http.StatusServiceUnavailable, "", overloaded))
-	require.True(t, shouldRecordOpenAICapacitySaturation(stub, http.StatusServiceUnavailable, "", overloaded))
-}
-
 func TestHandleOpenAIAccountUpstreamError_NativeCapacityIncrementsSaturationNoCooldown(t *testing.T) {
 	repo := &capacityShedAccountRepoStub{}
 	sat := &fakeOpenAISaturationCounterRL{}
@@ -63,15 +46,6 @@ func TestHandleOpenAIAccountUpstreamError_NativeCapacityIncrementsSaturationNoCo
 			context.Background(), account, http.StatusServiceUnavailable, nil, payload, "gpt-5.5"))
 		require.Zero(t, repo.tempUnschedCalls)
 		require.Equal(t, []int64{7}, sat.incrementIDs)
-	})
-
-	t.Run("stub_sanitized_envelope", func(t *testing.T) {
-		*sat = fakeOpenAISaturationCounterRL{}
-		wrap := []byte(`{"error":{"type":"upstream_error","message":"Upstream service temporarily unavailable"}}`)
-		require.False(t, gateway.handleOpenAIAccountUpstreamError(
-			context.Background(), openAIEdgeStub(63), http.StatusBadGateway, nil, wrap, "gpt-5.5"))
-		require.Zero(t, repo.tempUnschedCalls)
-		require.Equal(t, []int64{63}, sat.incrementIDs)
 	})
 
 	t.Run("oauth_ignores_sanitized_envelope", func(t *testing.T) {
@@ -106,15 +80,6 @@ func TestHandleOpenAIStreamTerminalAccountSideEffects_CapacityIncrementsSaturati
 			"stream capacity must feed the same saturation SSOT as HTTP 503 even when failover is blocked")
 	})
 
-	t.Run("stub_response_failed", func(t *testing.T) {
-		*sat = fakeOpenAISaturationCounterRL{}
-		status, disabled := gateway.handleOpenAIStreamTerminalAccountSideEffects(
-			nil, openAIEdgeStub(63), payload, message, nil, "gpt-5.6-terra")
-		require.Equal(t, http.StatusServiceUnavailable, status)
-		require.False(t, disabled)
-		require.Equal(t, []int64{63}, sat.incrementIDs)
-	})
-
 	t.Run("non_capacity_stream_failure_skips", func(t *testing.T) {
 		*sat = fakeOpenAISaturationCounterRL{}
 		ctxWin := []byte(`{"type":"response.failed","response":{"error":{"code":"invalid_request_error","message":"Your input exceeds the context window of this model."}}}`)
@@ -131,7 +96,7 @@ func TestComputeOpenAISaturationPenalties_DeprioritizesOAuthAccount(t *testing.T
 	resetOpenAISatCache()
 	svc := &OpenAIGatewayService{}
 	svc.SetOpenAISaturationCounter(&fakeSaturationCache{counts: map[int64]int64{
-		7: openAIEdgeMirrorStubSaturationThreshold,
+		7: saturationThreshold,
 		8: 0,
 	}})
 
@@ -140,7 +105,7 @@ func TestComputeOpenAISaturationPenalties_DeprioritizesOAuthAccount(t *testing.T
 		{account: &Account{ID: 8, Platform: PlatformOpenAI, Type: AccountTypeOAuth}},
 	}
 	svc.computeOpenAISaturationPenalties(context.Background(), candidates)
-	require.Equal(t, openAISaturationScorePenalty+float64(openAIEdgeMirrorStubSaturationThreshold), candidates[0].saturationScorePenalty)
+	require.Equal(t, openAISaturationScorePenalty+float64(saturationThreshold), candidates[0].saturationScorePenalty)
 	require.Zero(t, candidates[1].saturationScorePenalty)
 	resetOpenAISatCache()
 }
