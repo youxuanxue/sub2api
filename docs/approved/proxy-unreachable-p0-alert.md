@@ -15,12 +15,12 @@ scope: "ops_alert_rules seed + prod TCP probe for egress proxy IP:port reachabil
 在 prod ops alert evaluator 中增加默认开启的 P0 规则 **代理出口不可达**
 （`metric_type=proxy_unreachable_count`）：
 
-- 对 `status=active` 且仍绑定未删除账号的代理，从本节点对 `host:port` 做短 TCP
-  dial（不握手）。
-- 任一不可达 → 计数 ≥1 → P0（持续 1 分钟，冷却 10 分钟，飞书）。
+- 对 `status=active` 且仍绑定 **status=active 且 schedulable=true** 账号的代理，
+  从本节点对 `host:port` 做短 TCP dial（不握手；dial 超时独立于 evaluator 总预算）。
+- 任一不可达 → 计数 ≥1 → P0（**持续 2 分钟** / 连续两个评估周期，冷却 10 分钟，飞书）。
 - 飞书主因行给出代理名与 `IP:port` 及 dial 错误，便于网络/运维对号。
 - **仅 prod 评估**；edge 跳过（现网出口由 prod 拨号）。
-- 不统计未绑定账号的闲置代理。
+- 不统计闲置代理；账号全部下调度后停止对该出口拨号/告警。
 
 ## Why
 
@@ -34,7 +34,7 @@ prod 2026-10-17：`jp-us5` / `52.68.182.0:1080` SOCKS 出口宕机时，绑定�
 | --- | --- |
 | 探测与主因 | `backend/internal/service/ops_proxy_unreachable_tk.go` |
 | Evaluator / prod-only | `ops_alert_evaluator_service.go`、`ops_alert_notifications_tk_feishu.go` |
-| 种子规则 | `backend/migrations/tk_103_seed_proxy_unreachable_alert.sql` |
+| 种子规则 | `backend/migrations/tk_104_seed_proxy_unreachable_alert.sql` |
 
 ## Non-goals
 

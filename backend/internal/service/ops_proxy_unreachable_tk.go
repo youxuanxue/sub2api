@@ -18,9 +18,10 @@ import (
 // 既有 user_visible_failure_count / upstream_error_rate 要等流量砸上去才看见，
 // 且文案被收成通用上游故障，网络/运维无法立刻对上「哪台代理 IP」。
 //
-// 本指标在 ops_alert_evaluator 节拍里对「status=active 且仍绑定未删除账号」的
-// 代理做 TCP dial（只验端口可达，不做 SOCKS/HTTP 握手）。任一不可达 → 计数 +1；
-// 飞书主因行直接打出 name host:port 与 dial 错误，方便网络工程师对号入座。
+// 本指标在 ops_alert_evaluator 节拍里对「status=active 且仍绑定
+// active+schedulable 账号」的代理做 TCP dial（只验端口可达，不做 SOCKS/HTTP
+// 握手；dial 超时独立于 evaluator 总预算）。任一不可达 → 计数 +1；飞书主因行
+// 直接打出 name host:port 与 dial 错误，方便网络工程师对号入座。
 //
 // 仅在 prod 评估（见 isProdOnlyAlertRule）：现网 SOCKS 出口由 prod 拨号；
 // edge 退役后在 edge 上探测会得到错误网络路径的假信号。
@@ -104,15 +105,35 @@ func (s *OpsAlertEvaluatorService) probeUnreachableProxies(ctx context.Context) 
 		return nil, true
 	}
 
-	dial := s.proxyTCPDial()
-	outCh := make(chan proxyUnreachableInfo, len(targets))
-	var wg sync.WaitGroup
+	// Only probe exits that still feed the live scheduling path. After ops
+	// unschedules every account on a dead proxy (the natural first response to
+	// this P0), keep paging only while schedulable+active bindings remain.
+	schedulableCounts, err := s.proxyRepo.CountSchedulableActiveByProxyIDs(ctx, proxyIDs(targets))
+	if err != nil {
+		return nil, false
+	}
+	live := make([]ProxyWithAccountCount, 0, len(targets))
 	for _, p := range targets {
+		if schedulableCounts[p.ID] > 0 {
+			live = append(live, p)
+		}
+	}
+	if len(live) == 0 {
+		return nil, true
+	}
+
+	dial := s.proxyTCPDial()
+	outCh := make(chan proxyUnreachableInfo, len(live))
+	var wg sync.WaitGroup
+	for _, p := range live {
 		wg.Add(1)
 		go func(p ProxyWithAccountCount) {
 			defer wg.Done()
 			addr := net.JoinHostPort(strings.TrimSpace(p.Host), fmt.Sprintf("%d", p.Port))
-			dialCtx, cancel := context.WithTimeout(ctx, proxyUnreachableDialTimeout)
+			// Dial timeout must NOT inherit evaluateOnce's 45s budget: a late
+			// rule in a heavy cycle would otherwise cancel every dial and page
+			// a false all-proxy-down P0.
+			dialCtx, cancel := context.WithTimeout(context.Background(), proxyUnreachableDialTimeout)
 			defer cancel()
 			if err := dial(dialCtx, "tcp", addr); err != nil {
 				outCh <- proxyUnreachableInfo{
@@ -202,4 +223,12 @@ func truncateProxyDialErr(err error) string {
 		return msg[:117] + "..."
 	}
 	return msg
+}
+
+func proxyIDs(proxies []ProxyWithAccountCount) []int64 {
+	ids := make([]int64, 0, len(proxies))
+	for _, p := range proxies {
+		ids = append(ids, p.ID)
+	}
+	return ids
 }

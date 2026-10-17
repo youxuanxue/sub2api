@@ -9671,6 +9671,41 @@
       "rationale": "pool_load_rate is the leading pool-level capacity-saturation P0 signal (2026-06). Its correctness rests on three invariants that a future 'simplify'/upstream merge must NOT silently drop: (1) the pool key includes acc.ChannelType, so the fifth platform newapi is split by upstream (deepseek/qwen/volcengine non-substitutable) instead of averaged into one lying number; (2) the >= poolLoadMinAccounts floor keeps single-account-ceiling noise out of the pool-level signal (explicit operator requirement '非单个账号触顶噪音'); (3) the (in-flight+queued)/Σseats formula is the normalized ratio (immune to over/under-provisioning) that beats absolute QPS thresholds. Removing any anchor regresses the metric to either a misleading blended average or single-account noise. Seeded default-on rule lives in migrations/tk_031_seed_pool_load_rate_alert.sql; the evaluator case + card breakdown are in ops_alert_evaluator_service.go / ops_alert_top_cause_tk.go."
     },
     {
+      "path": "backend/internal/service/ops_proxy_unreachable_tk.go",
+      "must_contain": [
+        "func (s *OpsAlertEvaluatorService) computeProxyUnreachableCount(ctx context.Context) (float64, bool) {",
+        "func (s *OpsAlertEvaluatorService) probeUnreachableProxies(ctx context.Context) ([]proxyUnreachableInfo, bool) {",
+        "CountSchedulableActiveByProxyIDs",
+        "context.WithTimeout(context.Background(), proxyUnreachableDialTimeout)"
+      ],
+      "rationale": "proxy_unreachable_count P0 (prod 2026-10-17 jp-us5 / 52.68.182.0:1080): TCP-probe in-use egress proxies from prod so network/ops learn WHICH exit IP died before failover exhaustion becomes user-facing 502. Anchors: compute/probe entrypoints, schedulable+active binding filter (drained proxies stop paging), and dial timeout independent of evaluateOnce's 45s budget (parent-ctx inheritance would false-P0 every proxy late in a heavy cycle). Pairs with evaluator metric case + prod-only gate + tk_104 seed sentinels."
+    },
+    {
+      "path": "backend/internal/service/ops_alert_evaluator_service.go",
+      "must_contain": [
+        "case OpsAlertMetricProxyUnreachableCount:",
+        "return s.computeProxyUnreachableCount(ctx)",
+        "OpsAlertMetricUserVisibleFailureCount, OpsAlertMetricClientVisibleFailureCount,\n\t\tOpsAlertMetricProxyUnreachableCount:"
+      ],
+      "rationale": "Evaluator wiring for proxy_unreachable_count: the metric case must call computeProxyUnreachableCount, and isProdOnlyAlertRule must list OpsAlertMetricProxyUnreachableCount alongside the other prod-only experience rules so edges never dial SOCKS exits on the wrong network path. Dropping either re-blinds the P0 or pages from retired edges."
+    },
+    {
+      "path": "backend/migrations/tk_104_seed_proxy_unreachable_alert.sql",
+      "must_contain": [
+        "proxy_unreachable_count",
+        "代理出口不可达",
+        ", 2, 'P0'"
+      ],
+      "rationale": "Default-on P0 seed for proxy_unreachable_count (tk_104; tk_103 is api_key routing_preference). sustained_minutes=2 (values ..., 2, 'P0') requires two consecutive evaluator ticks before paging. If an upstream merge or 'cleanup unused alerts' deletes the INSERT, prod loses the egress-IP reachability page with no code compile failure."
+    },
+    {
+      "path": "backend/internal/service/ops_alert_models.go",
+      "must_contain": [
+        "OpsAlertMetricProxyUnreachableCount         = \"proxy_unreachable_count\""
+      ],
+      "rationale": "Canonical metric_type constant for the proxy unreachable P0. Renames without updating seed/evaluator/UI drift the rule into a dead metric_type."
+    },
+    {
       "path": "backend/internal/service/ratelimit_service_tk_anthropic_org_ban_403.go",
       "must_contain": [
         "var tkAnthropicOrgBan403Keywords = []string{",

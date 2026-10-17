@@ -109,6 +109,9 @@ func (m *mockProxyRepoForOAuth) CountExpired(ctx context.Context) (int64, error)
 func (m *mockProxyRepoForOAuth) CountExpiringSoon(ctx context.Context, now time.Time) (int64, error) {
 	panic("CountExpiringSoon not implemented")
 }
+func (m *mockProxyRepoForOAuth) CountSchedulableActiveByProxyIDs(context.Context, []int64) (map[int64]int64, error) {
+	panic("CountSchedulableActiveByProxyIDs not implemented")
+}
 
 // =====================
 // 测试用例

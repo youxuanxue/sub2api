@@ -15,8 +15,10 @@ import (
 )
 
 type stubProxyRepoForUnreachable struct {
-	proxies []ProxyWithAccountCount
-	err     error
+	proxies             []ProxyWithAccountCount
+	schedulableCounts   map[int64]int64
+	err                 error
+	schedulableCountErr error
 }
 
 var _ ProxyRepository = (*stubProxyRepoForUnreachable)(nil)
@@ -26,6 +28,27 @@ func (s *stubProxyRepoForUnreachable) ListActiveWithAccountCount(context.Context
 		return nil, s.err
 	}
 	return append([]ProxyWithAccountCount(nil), s.proxies...), nil
+}
+
+func (s *stubProxyRepoForUnreachable) CountSchedulableActiveByProxyIDs(_ context.Context, proxyIDs []int64) (map[int64]int64, error) {
+	if s.schedulableCountErr != nil {
+		return nil, s.schedulableCountErr
+	}
+	out := make(map[int64]int64, len(proxyIDs))
+	for _, id := range proxyIDs {
+		if s.schedulableCounts != nil {
+			out[id] = s.schedulableCounts[id]
+			continue
+		}
+		// Default: treat AccountCount as the schedulable binding count.
+		for _, p := range s.proxies {
+			if p.ID == id {
+				out[id] = p.AccountCount
+				break
+			}
+		}
+	}
+	return out, nil
 }
 
 // Satisfy unused interface methods that panic if accidentally called.
@@ -70,6 +93,28 @@ func (s *stubProxyRepoForUnreachable) CountExpired(context.Context) (int64, erro
 }
 func (s *stubProxyRepoForUnreachable) CountExpiringSoon(context.Context, time.Time) (int64, error) {
 	panic("unused")
+}
+
+func TestComputeProxyUnreachableCount_SkipsUnschedulableOnlyBindings(t *testing.T) {
+	t.Parallel()
+
+	repo := &stubProxyRepoForUnreachable{
+		proxies: []ProxyWithAccountCount{
+			{Proxy: Proxy{ID: 5, Name: "jp-us5", Host: "52.68.182.0", Port: 1080, Status: StatusActive}, AccountCount: 10},
+		},
+		schedulableCounts: map[int64]int64{5: 0},
+	}
+	svc := &OpsAlertEvaluatorService{proxyRepo: repo}
+	dialed := 0
+	svc.SetProxyTCPDialForTest(func(context.Context, string, string) error {
+		dialed++
+		return errors.New("should not dial")
+	})
+
+	n, ok := svc.computeProxyUnreachableCount(context.Background())
+	require.True(t, ok)
+	require.Equal(t, 0.0, n)
+	require.Equal(t, 0, dialed)
 }
 
 func TestComputeProxyUnreachableCount_CountsDialFailuresOnlyForBoundProxies(t *testing.T) {
