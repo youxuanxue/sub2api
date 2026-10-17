@@ -46,7 +46,7 @@ topology, Studio SSOT, model-delivery nav, or PR gate navigation.
 
 ## Disaster recovery / 数据重建从哪找
 
-prod 数据层恢复/重建先读 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md#恢复入口)。现网使用 Hetzner Volume；AWS DR 的 EBS/DLM/CFN 步骤仅适用于旧机，离机备份须单独核验。
+prod 数据层恢复/重建先读 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md#恢复入口)。现网 prod 为 Tokyo EC2；历史 Hetzner Volume / AWS DR 步骤仅适用于旧机或 standby，离机备份须单独核验。
 
 ## Current Gateway Flow
 
@@ -69,9 +69,11 @@ menus enrich the same candidate support projection with catalog prices and metad
 
 ## prod ↔ Edge mirror relay topology
 
-Production (`api.tokenkey.dev`) is **not** where the upstream Anthropic OAuth capacity lives. prod holds `cc-<edge>` / platform mirror accounts (`type=apikey`) whose `credentials.base_url = https://api-<edge>.tokenkey.dev`; they relay to **live edges** that hold real OAuth/setup-token pools. **Live fleet / IPs / deploy：** [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)（唯一叙述源）。Blue/green：`deploy_via_ssm_bluegreen.sh`（现网已完成首发蓝绿）。Failover across `cc-<edge>` is across *edges*, not local prod OAuth.
+**2026-10-17 起：** 活入口仅 Tokyo prod；edge 部署关闭；prod 上全部 `api-<edge>.tokenkey.dev` 中继 stub 已软删（见 [`docs/ops/edge-relay-soft-delete-20261017.json`](../ops/edge-relay-soft-delete-20261017.json)）。OAuth/供应账号在 prod 本机调度，不再 fan-out 到 edge。
 
-**Attribution discipline:** a prod `cc-<edge>` cooldown (`temp_unschedulable_reason.matched_keyword='anthropic_upstream_error'`) is almost never prod-local — the real cause is on that edge. prod's `upstream-429 by account` / `recovered-200` are polluted by client-cancel tagging + failover smear and **cannot tell a dead edge from a healthy one** (a dead single-account edge and a healthy multi-account edge can both read ~1300 upstream-429). The reliable signal is each edge's OWN access-log `served_200 : no_available_429` ratio + schedulable-account count — run `ops/observability/scan-edge-health.sh`. See skills `tokenkey-online-log-troubleshooting` (§0 trap 9, §6.1 D) and `tokenkey-online-traffic-profile` (§4.1).
+**历史拓扑（考古）：** prod 曾持 `cc-<edge>` mirror（`type=apikey` → `https://api-<edge>.tokenkey.dev`），真 OAuth 在边端。**Live fleet / IPs / deploy SSOT：** [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。Blue/green：`deploy_via_ssm_bluegreen.sh`。
+
+**Attribution（仅当恢复 edge 中继后）：** prod `cc-<edge>` cooldown 几乎总是边端根因；可靠信号是各 edge 自身 access-log `served_200 : no_available_429` — `ops/observability/scan-edge-health.sh`。见 `tokenkey-online-log-troubleshooting` / `tokenkey-online-traffic-profile`。
 
 ## Model serving SSOT / 模型交付 SSOT
 

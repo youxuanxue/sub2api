@@ -4,7 +4,7 @@ set -euo pipefail
 umask 077
 EXPECTED=${1:?expected fresh candidate hostname required}
 case "$EXPECTED" in
-  tokenkey-prod-aws-20261015|tokenkey-edge-us4-aws-20261015|tokenkey-edge-us5-aws-20261015|tokenkey-edge-uk1-aws-20261015|tokenkey-edge-uk2-aws-20261015) ;;
+  tokenkey-prod-tokyo-20261017|tokenkey-prod-aws-20261015|tokenkey-edge-us4-aws-20261015|tokenkey-edge-us5-aws-20261015|tokenkey-edge-uk1-aws-20261015|tokenkey-edge-uk2-aws-20261015) ;;
   *) exit 20 ;;
 esac
 [[ $(hostname) == "$EXPECTED" ]]

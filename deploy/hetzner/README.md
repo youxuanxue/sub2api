@@ -9,7 +9,7 @@
 |------|----------|---------|------------|------|
 | **prod** | `api.tokenkey.dev` | `3.114.187.250` | `i-045f062ce33e1a5af` · ap-northeast-1 | EC2 c7g.xlarge · tokenkey-prod-tokyo-20261017；旧美东 `i-022f2553503211775`/`23.21.138.205` 冻结 standby |
 
-**Edge 不再部署 / 不再 fan-out。** Lightsail 矩阵 `uk1`/`uk2`/`us4`/`us5` 已 `deployable=false`（standby）；prod 侧全部 `api-<edge>.tokenkey.dev` 中继 stub 已软删（见 [`docs/ops/edge-relay-soft-delete-20261017.json`](../../docs/ops/edge-relay-soft-delete-20261017.json)）。`resolve-edge-target.py --list-deployable` 应为空；`dispatch-edge-deploy` / `rollout-edges` / edge relay onboard 默认拒绝，除非单独批准恢复。
+**Edge 不再部署 / 不再 fan-out。** Lightsail 矩阵 `uk1`/`uk2`/`us4`/`us5` 已 `deployable=false`（standby）；prod 侧全部 `api-<edge>.tokenkey.dev` 中继 stub 已软删（见 [`docs/ops/edge-relay-soft-delete-20261017.json`](../../docs/ops/edge-relay-soft-delete-20261017.json)）。`resolve-edge-target.py --list-deployable` 应为空；代码契约 `ops/stage0/edge_routing_matrix.EXPECTED_LIVE_EDGE_IDS` 同为空。`dispatch-edge-deploy` / `rollout-edges` / edge relay onboard 默认拒绝。恢复 edge 须**同时**改矩阵 `deployable`、该常量与本表。
 
 历史身份（仅 standby / 排障，非活路由）：
 

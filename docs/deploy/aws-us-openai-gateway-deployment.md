@@ -1,7 +1,6 @@
 # TokenKey AWS 部署入口（standby / 考古）
 
-> 历史 AWS / standby 资料。现网 hcloud 入口与保留依赖见 [Hetzner fleet](../../deploy/hetzner/README.md)；不要将下文 EC2/Lightsail 步骤用于现网。
-
+> 历史 AWS / standby 资料。现网入口见 [fleet README](../../deploy/hetzner/README.md)（2026-10-17 起 Tokyo prod-only）；不要将下文旧 Lightsail/CFN 步骤用于现网。
 
 > **现网活舰队 / 发版 SSOT：** [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。  
 > 本页只保留 **AWS 首次 bootstrap 与 standby** 说明；勿当作现网拓扑。

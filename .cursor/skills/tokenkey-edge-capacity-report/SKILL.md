@@ -1,6 +1,8 @@
 ---
 name: tokenkey-edge-capacity-report
-description: Read-only TokenKey edge capacity report refresh from retained access, usage, and error logs. Use when recalculating sustained clean account concurrency (C1/C10), grouping accounts by platform+channel_type, explaining F/H evidence, or updating docs/ops/edge-capacity-report-20260720-c1.md across deployable edges.
+description: >-
+  Read-only TokenKey edge capacity report (C1/C10). Needs --list-deployable
+  edges; N/A under 2026-10-17 prod-only unless an edge is re-approved.
 ---
 
 # TokenKey Edge 容量报告

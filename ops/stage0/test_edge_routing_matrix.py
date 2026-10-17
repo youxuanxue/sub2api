@@ -13,6 +13,7 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 from edge_routing_matrix import (  # noqa: E402
+    EXPECTED_LIVE_EDGE_IDS,
     deployable_edge_ids,
     live_deployable_edge_ids,
     validate_live_fleet,
@@ -22,6 +23,7 @@ from edge_routing_matrix import (  # noqa: E402
 class LiveDeployableEdgeIdsTest(unittest.TestCase):
     def test_shipped_matrices_are_prod_only_empty_edges(self):
         root = _HERE.parents[1]
+        self.assertEqual(EXPECTED_LIVE_EDGE_IDS, frozenset())
         self.assertEqual(validate_live_fleet(root), [])
         self.assertEqual(live_deployable_edge_ids(root), [])
 
