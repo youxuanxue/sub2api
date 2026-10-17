@@ -2,17 +2,22 @@
 """Tests for ops/observability/run-probe.sh without live AWS calls.
 
 Argument validation runs directly. Polling tests replace aws/date/sleep on PATH
-to cover the SSM lifecycle deterministically; live delivery remains an operator
-integration check.
+to cover the SSM lifecycle deterministically; UCloud tests replace ssh to cover
+the domestic transport without a live connection. Live delivery remains an
+operator integration check.
 
 stdlib-only.
 """
 from __future__ import annotations
 
+import base64
+import gzip
+import hashlib
 import json
 import os
 import pathlib
 import re
+import shlex
 import subprocess
 import tempfile
 import textwrap
@@ -145,6 +150,174 @@ class RunProbeValidationTest(unittest.TestCase):
         proc = _run("--script", str(existing), "--describe-script")
         self.assertEqual(proc.returncode, 1)
         self.assertIn("no registered contract", proc.stderr)
+
+
+class RunProbeUCloudTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.temporary.name)
+        self.bin_dir = self.root / "bin"
+        self.bin_dir.mkdir()
+        self.key = self.root / "cn-prod-ssh"
+        self.key.write_text("test-key\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def _write_executable(self, name: str, content: str) -> None:
+        path = self.bin_dir / name
+        path.write_text(content, encoding="utf-8")
+        path.chmod(0o755)
+
+    def _run_ssh(self, body: str) -> subprocess.CompletedProcess[str]:
+        self._write_executable(
+            "ssh",
+            "#!/usr/bin/env bash\n"
+            "cat >/dev/null\n"
+            + body,
+        )
+        env = os.environ.copy()
+        env.update(
+            {
+                "PATH": f"{self.bin_dir}{os.pathsep}{env['PATH']}",
+                "UCLOUD_SSH_KEY": str(self.key),
+                "UCLOUD_SSH_HOST": "cn.example",
+                "UCLOUD_SSH_STRICT_HOST_KEY_CHECKING": "no",
+                "UCLOUD_SSH_KNOWN_HOSTS": "",
+                "UCLOUD_SSM_INSTANCE_ID": "",
+            }
+        )
+        probe = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
+        return _run(
+            "--target",
+            "cn-prod",
+            "--script",
+            str(probe),
+            "--expected-instance-id",
+            "uhost-1wgyn7gu2f6a",
+            env=env,
+        )
+
+    def test_cn_prod_runs_probe_over_ssh_and_returns_stdout(self) -> None:
+        proc = self._run_ssh("printf 'ucloud-result\\n'\n")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, "ucloud-result\n")
+        self.assertIn("resolved target=cn-prod host=cn.example", proc.stderr)
+        self.assertIn("status=Success", proc.stderr)
+
+    def test_cn_prod_ssh_transport_failure_has_no_partial_result(self) -> None:
+        proc = self._run_ssh("printf 'partial\\n'\nexit 255\n")
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.stdout, "")
+        self.assertIn("UCloud SSH transport failed", proc.stderr)
+
+    def test_cn_prod_compressed_output_is_decoded_and_verified(self) -> None:
+        data = b"ucloud-compressed\\n"
+        frame = "TK_PROBE_GZIP_V1 {} {} {}".format(
+            len(data),
+            hashlib.sha256(data).hexdigest(),
+            base64.b64encode(gzip.compress(data, mtime=0)).decode("ascii"),
+        )
+        self._write_executable(
+            "ssh",
+            "#!/usr/bin/env bash\ncat >/dev/null\nprintf '%s\\n' "
+            + shlex.quote(frame)
+            + "\n",
+        )
+        env = os.environ.copy()
+        env.update(
+            {
+                "PATH": f"{self.bin_dir}{os.pathsep}{env['PATH']}",
+                "UCLOUD_SSH_KEY": str(self.key),
+                "UCLOUD_SSH_HOST": "cn.example",
+                "UCLOUD_SSH_STRICT_HOST_KEY_CHECKING": "no",
+                "UCLOUD_SSH_KNOWN_HOSTS": "",
+                "UCLOUD_SSM_INSTANCE_ID": "",
+            }
+        )
+        probe = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
+        proc = _run(
+            "--target",
+            "cn-prod",
+            "--script",
+            str(probe),
+            "--compressed-output",
+            env=env,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, data.decode())
+
+
+class RunProbeUCloudSSMTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.temporary.name)
+        self.bin_dir = self.root / "bin"
+        self.bin_dir.mkdir()
+        self._write_executable(
+            "aws",
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env bash
+                set -euo pipefail
+                args="$*"
+                if [[ "$args" == *"describe-instance-information"* ]]; then
+                  if [[ "$args" == *"OFFLINE"* ]]; then
+                    printf '%s\\n' '{"InstanceInformationList":[{"PingStatus":"ConnectionLost","Name":"cn-prod","PlatformType":"Linux"}]}'
+                  else
+                    printf '%s\\n' '{"InstanceInformationList":[{"PingStatus":"Online","Name":"cn-prod","PlatformType":"Linux"}]}'
+                  fi
+                elif [[ "$args" == *"send-command"* ]]; then
+                  printf '%s\\n' 'command-ucloud-test'
+                elif [[ "$args" == *"get-command-invocation"* ]]; then
+                  printf '%s\\n' '{"Status":"Success","StandardOutputContent":"ucloud-ssm-result\\n","StandardErrorContent":""}'
+                else
+                  echo "unexpected fake aws call: $args" >&2
+                  exit 1
+                fi
+                """
+            ),
+        )
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def _write_executable(self, name: str, content: str) -> None:
+        path = self.bin_dir / name
+        path.write_text(content, encoding="utf-8")
+        path.chmod(0o755)
+
+    def _run_ssm(self, expected_instance_id: str = "uhost-1wgyn7gu2f6a") -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env.update(
+            {
+                "PATH": f"{self.bin_dir}{os.pathsep}{env['PATH']}",
+                "UCLOUD_SSM_INSTANCE_ID": "mi-0123456789abcdef0",
+                "UCLOUD_SSM_REGION": "eu-west-2",
+            }
+        )
+        probe = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
+        return _run(
+            "--target",
+            "cn-prod",
+            "--script",
+            str(probe),
+            "--expected-instance-id",
+            expected_instance_id,
+            env=env,
+        )
+
+    def test_cn_prod_prefers_ssm_hybrid_and_returns_stdout(self) -> None:
+        proc = self._run_ssm()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, "ucloud-ssm-result\n")
+        self.assertIn("resolved target=cn-prod ssm_region=eu-west-2", proc.stderr)
+        self.assertIn("instance_id=mi-0123456789abcdef0", proc.stderr)
+
+    def test_cn_prod_expected_ucloud_instance_mismatch_stops_before_ssm(self) -> None:
+        proc = self._run_ssm("uhost-other")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("UCloud instance does not match --expected-instance-id", proc.stderr)
 
 
 class RunProbePollingTest(unittest.TestCase):

@@ -1,7 +1,7 @@
 # UCloud domestic prod
 
 审批范围和费用见 [design-domestic-cluster.md](../../docs/approved/design-domestic-cluster.md)。
-这是独立 UCloud 目标，不使用 Hetzner dispatcher、现网 SSM 或现网数据库。
+这是独立 UCloud 目标，不使用 Hetzner dispatcher 或现网数据库；只读观测通过独立注册的 AWS SSM Hybrid agent 下发。
 
 ## 首次部署目标（2026-10-14）
 
@@ -13,7 +13,7 @@
 | 系统盘 / 数据盘 | 40 GiB / 20 GiB SSD |
 | 数据盘 | `bsm-1wgz3hm0c0jb`，挂载 `/var/lib/tokenkey` |
 | 公网 | `eip-1wgywcyzw8bs`，`106.75.17.57`，5 Mbps BGP |
-| 防火墙 | `firewall-pvx1loip`，80/443 公网，22 仅运维出口 /32 |
+| 防火墙 | `firewall-pvx1loip`，80/443 公网，SSH 22 关闭；运维走 AWS SSM Hybrid / UHost 控制台 |
 | 管理员 | `admin@cn.tokenkey.dev` |
 | 客户 | `rt@tk.com`，初始 $10，仅 `china_deployed`，专属倍率 0.3 |
 
@@ -40,6 +40,17 @@
 首次 `up -d tokenkey` 后，通过受限 SSH tunnel 初始化管理员、关闭公开注册、关闭
 `backend_mode_enabled`（否则普通客户不能登录），再启动 Caddy。后续升级必须走共享 drain
 与健康检查契约，不把首次安装步骤作为强制重启生产服务的升级脚本。
+
+## 远程运维入口
+
+`cn-prod` 已注册为 AWS SSM Hybrid managed instance `mi-0efdf781205cff512`，区域为
+`eu-west-2`，使用仅附加 `AmazonSSMManagedInstanceCore` 的现有 agent 角色。agent 由主机
+主动通过 HTTPS 连接 AWS SSM；billing/usage/error probe 通过 `run-probe.sh --target cn-prod`
+下发，不依赖运维机公网 IP，也不需要开放公网 SSH 22。
+
+SSH 只用于一次性 agent bootstrap 或 UHost 控制台不可用时的恢复。需要临时 SSH 时只放行
+当前出口 `/32`，完成操作立即移除；不得把动态运维出口固化为长期防火墙规则。日常 probe
+不得回退到 SSH。
 
 ## SSH 蓝绿升级
 
