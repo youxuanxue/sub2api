@@ -273,6 +273,22 @@ func (s *KiroGatewayService) Forward(
 			Body:       message,
 		}
 	}
+	if err := kiroproto.ValidatePayloadSize(payload); err != nil {
+		var tooLarge *kiroproto.PayloadTooLargeError
+		if errors.As(err, &tooLarge) {
+			message := fmt.Sprintf(
+				"Request is too large for Kiro after conversation history truncation (%d bytes; limit %d bytes)",
+				tooLarge.Size,
+				tooLarge.Limit,
+			)
+			return nil, &KiroInvalidRequestError{
+				StatusCode: http.StatusRequestEntityTooLarge,
+				Message:    message,
+				Body:       message,
+			}
+		}
+		return nil, fmt.Errorf("kiro forward: validate payload size: %w", err)
+	}
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {

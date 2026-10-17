@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -392,6 +393,55 @@ func TestForwardAsChatCompletions_KiroAccountBridgesViaKiroGateway(t *testing.T)
 	require.Equal(t, "KIRO-CC-OK", gjson.GetBytes(rec.Body.Bytes(), "choices.0.message.content").String())
 	require.Equal(t, "stop", gjson.GetBytes(rec.Body.Bytes(), "choices.0.finish_reason").String())
 	require.True(t, gjson.GetBytes(rec.Body.Bytes(), "usage").Exists())
+}
+
+func TestUS065_ForwardAsChatCompletions_KiroOversizedPayloadReturns413WithoutUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body, err := json.Marshal(map[string]any{
+		"model":    "claude-opus-5.5",
+		"messages": []map[string]any{{"role": "user", "content": "preserve this current message"}},
+		"tools": []map[string]any{{
+			"type": "function",
+			"function": map[string]any{
+				"name": "oversized_tool",
+				"parameters": map[string]any{
+					"type":        "object",
+					"description": strings.Repeat("x", 930*1024),
+				},
+			},
+		}},
+		"max_tokens": 16,
+		"stream":     false,
+	})
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &kiroCCUpstreamRecorder{}
+	kiroGW := NewKiroGatewayService(upstream, nil, nil)
+	svc := &GatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: upstream,
+		kiroGateway:  kiroGW,
+	}
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, newKiroAccountForTest(), body, nil)
+	require.Nil(t, result)
+	var invalidRequestErr *KiroInvalidRequestError
+	require.ErrorAs(t, err, &invalidRequestErr)
+	require.Equal(t, http.StatusRequestEntityTooLarge, invalidRequestErr.ClientStatusCode())
+	require.Equal(t, "request_too_large", invalidRequestErr.ClientErrorType())
+	var failoverErr *UpstreamFailoverError
+	require.NotErrorAs(t, err, &failoverErr)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	require.Equal(t, "request_too_large", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+	require.Contains(t, gjson.GetBytes(rec.Body.Bytes(), "error.message").String(), "too large")
+	require.Nil(t, upstream.lastReq, "oversized payload must not reach Kiro upstream")
 }
 
 func TestTkCCPreservesKiroUpstreamStream(t *testing.T) {

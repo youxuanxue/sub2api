@@ -67,9 +67,9 @@ type KiroInvalidModelError struct {
 	Body       string
 }
 
-// KiroInvalidRequestError is an upstream validation rejection carried inside
-// an EventStream response. It is a property of the caller's translated
-// request, so retrying another Kiro account cannot change the result.
+// KiroInvalidRequestError is a local or upstream validation rejection for the
+// caller's translated request. Retrying another Kiro account cannot change the
+// result.
 type KiroInvalidRequestError struct {
 	StatusCode int
 	Message    string
@@ -119,6 +119,25 @@ func (e *KiroInvalidRequestError) ClientMessage() string {
 		return "Kiro rejected the request"
 	}
 	return sanitizeUpstreamErrorMessage(e.Message)
+}
+
+// ClientStatusCode returns the public status for a Kiro request-validation
+// failure. Upstream validation errors historically omit a status and remain
+// ordinary 400s; the local wire-size guard uses 413.
+func (e *KiroInvalidRequestError) ClientStatusCode() int {
+	if e == nil || e.StatusCode == 0 {
+		return http.StatusBadRequest
+	}
+	return e.StatusCode
+}
+
+// ClientErrorType keeps Messages and Chat Completions adapters aligned on the
+// caller-owned overflow classification.
+func (e *KiroInvalidRequestError) ClientErrorType() string {
+	if e.ClientStatusCode() == http.StatusRequestEntityTooLarge {
+		return "request_too_large"
+	}
+	return "invalid_request_error"
 }
 
 // classifyKiroForwardError applies the Kiro error policy at the boundary between

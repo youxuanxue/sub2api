@@ -122,6 +122,7 @@ Cursor 工具协议与供应商隔离：[工具网关兼容契约](design-cursor
 | [`gemini-messages-conversion.md`](gemini-messages-conversion.md) | Gemini → Messages conversion, native Edge routing and capability follow-up |
 | [`kiro-claude-code-completion-continuity.md`](kiro-claude-code-completion-continuity.md) | Kiro Claude Code completion |
 | [`kiro-content-filter-outcome.md`](kiro-content-filter-outcome.md) | Kiro content-filter outcome |
+| [`kiro-payload-overflow.md`](kiro-payload-overflow.md) | Kiro translated-payload overflow and current-turn preservation |
 | [`kiro-turn-boundary.md`](kiro-turn-boundary.md) | Kiro client-owned turn boundary |
 | [`volcengine-plan-asr.md`](volcengine-plan-asr.md) | VolcEngine Agent Plan speech recognition |
 | [`anthropic-window-util-sched.md`](anthropic-window-util-sched.md) | Upstream window-util scheduling |

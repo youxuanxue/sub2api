@@ -48,6 +48,19 @@ func TestTkHandleMessagesNonFailoverForwardError_Matrix(t *testing.T) {
 		require.Equal(t, err.ClientMessage(), gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
 	})
 
+	t.Run("request_too_large", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		err := &service.KiroInvalidRequestError{
+			StatusCode: http.StatusRequestEntityTooLarge,
+			Message:    "Request is too large for Kiro after conversation history truncation",
+		}
+		require.True(t, h.tkHandleMessagesNonFailoverForwardError(c, err))
+		require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+		require.Equal(t, "request_too_large", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+		require.Equal(t, err.ClientMessage(), gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+	})
+
 	t.Run("quota_exhausted", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)

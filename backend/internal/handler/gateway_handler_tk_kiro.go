@@ -43,7 +43,7 @@ func (h *GatewayHandler) tkHandleMessagesNonFailoverForwardError(c *gin.Context,
 
 	var kiroInvalidRequestErr *service.KiroInvalidRequestError
 	if errors.As(err, &kiroInvalidRequestErr) {
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", kiroInvalidRequestErr.ClientMessage())
+		h.errorResponse(c, kiroInvalidRequestErr.ClientStatusCode(), kiroInvalidRequestErr.ClientErrorType(), kiroInvalidRequestErr.ClientMessage())
 		return true
 	}
 

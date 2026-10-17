@@ -275,6 +275,41 @@ func TestKiroGatewayService_Forward_NonStreaming(t *testing.T) {
 	require.Equal(t, "end_turn", resp["stop_reason"])
 }
 
+func TestKiroGatewayService_Forward_OversizedPayloadRejectedBeforeUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	upstream := &kiroFakeUpstream{}
+	svc := NewKiroGatewayService(upstream, nil, nil)
+
+	body, err := json.Marshal(map[string]any{
+		"model":      "claude-opus-5.5",
+		"messages":   []map[string]any{{"role": "user", "content": "preserve this current message"}},
+		"max_tokens": 16,
+		"stream":     false,
+		"tools": []map[string]any{{
+			"name": "oversized_tool",
+			"input_schema": map[string]any{
+				"type":        "object",
+				"description": strings.Repeat("x", 930*1024),
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), &ParsedRequest{
+		Body: NewRequestBodyRef(body), Model: "claude-opus-5.5", Stream: false,
+	}, time.Now())
+	require.Nil(t, result)
+	var invalidRequestErr *KiroInvalidRequestError
+	require.ErrorAs(t, err, &invalidRequestErr)
+	require.Equal(t, http.StatusRequestEntityTooLarge, invalidRequestErr.StatusCode)
+	require.Contains(t, invalidRequestErr.ClientMessage(), "too large")
+	var failoverErr *UpstreamFailoverError
+	require.NotErrorAs(t, err, &failoverErr)
+	require.False(t, upstream.gotRequest, "oversized payload must not reach Kiro upstream")
+}
+
 func TestKiroGatewayService_ClientInstructionsRoundTrip(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	const answer = "RELEASE_OK_7291"
