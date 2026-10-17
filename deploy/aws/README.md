@@ -302,6 +302,8 @@ ops/stage0/sync-feishu-config.sh
 
 **IAM**：prod 的 OIDC/SSM/CFN 权限仍在 `deploy/aws/cloudformation/cicd-oidc.yaml`（**`tokenkey-cicd-oidc`**，部署区域须与仓库变量 **`AWS_OIDC_STACK_REGION`** 一致；未设置时 workflow 使用 `vars.AWS_REGION`，再没有则用 `us-east-1`，与 `docs/approved/deploy-stage0-workflow.md` 默认一致）。**所有 Lightsail edge** 走独立一次性 addon（`cicd-oidc-lightsail-addon.yaml`，Lightsail API + SSM Hybrid Activation 权限），不再有按 edge 的 CFN execution role。
 
+prod 跨区域迁移时，OIDC 栈区域可以保留，但必须同时更新 `TargetInstanceId` 和 `TargetInstanceRegion`（空值才回退到栈区域）。以 [现网入口](../hetzner/README.md) 为准；live 模板存在无关策略漂移时，使用 `ops/stage0/retarget_prod_oidc.py` 渲染最小变更并审查 change set，避免整份旧模板覆盖 live 权限。同区域换机须保留已有 `TargetInstanceRegion`。
+
 > **live==repo 漂移检查（IAM/OIDC CFN stack 非自动部署，手工 deploy 易漏）。** `cicd-oidc.yaml` / `cicd-oidc-lightsail-addon.yaml` 由人工 `aws cloudformation deploy`，git 改了模板若忘了重新部署，live 就会落后（2026-06-07 addon 的 `lightsail:OpenInstancePublicPorts` 即因此缺失，导致 provision 开 443 被拒、edge 防火墙关着）。用 `ops/stage0/check-cfn-live-drift.sh` 拿 repo 模板对 live stack 建 no-execute changeset、断言无变更来抓这类漂移（需 PowerUserAccess 等带 `cloudformation:CreateChangeSet` 的凭证；退出码 0 同步 / 1 漂移 / 2 出错）：
 >
 > ```bash
@@ -493,6 +495,7 @@ aws cloudformation update-stack --region "$REGION" --stack-name "$OIDC_STACK" \
   --use-previous-template --capabilities CAPABILITY_NAMED_IAM \
   --parameters \
     ParameterKey=TargetInstanceId,ParameterValue="$NEW_ID" \
+    ParameterKey=TargetInstanceRegion,UsePreviousValue=true \
     ParameterKey=CreateOIDCProvider,UsePreviousValue=true \
     ParameterKey=AllowedSubjects,UsePreviousValue=true \
     ParameterKey=GitHubRepo,UsePreviousValue=true

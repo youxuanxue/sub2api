@@ -239,6 +239,13 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(stopped, ['tokenkey-blue','tokenkey-green','tokenkey-gemini-web','tokenkey-gemini-web-alias'])
             self.assertNotIn('tokenkey-postgres', stopped)
 
+    def test_activation_rejects_sequence_drift_before_opening_network(self):
+        with patch.object(runtime, 'validate_final'), patch.object(runtime, 'check', return_value=('blue', {}, {})), patch.object(runtime, 'run', side_effect=RuntimeError('sequence behind restored data')) as run, patch.object(runtime, 'replace_network') as replace_network:
+            with self.assertRaisesRegex(RuntimeError, 'sequence behind restored data'):
+                runtime.activate('prod', {}, Path('/unused-prepared-caddy'), 'unused')
+            self.assertEqual(run.call_args.args[-1], runtime.sequence_guard_sql())
+            replace_network.assert_not_called()
+
     def test_activation_archives_systemd_dropins_with_shutil_move(self):
         """EC2 /etc vs /var/lib can be EXDEV; drop-ins must use shutil.move, not Path.rename."""
         moved = []

@@ -20,8 +20,10 @@ import time
 
 try:
     from .fresh_host_delta import CANDIDATES as MIGRATION_SOURCES
+    from .standard_freeze_delta import sequence_guard_sql
 except ImportError:
     from fresh_host_delta import CANDIDATES as MIGRATION_SOURCES
+    from standard_freeze_delta import sequence_guard_sql
 
 try:
     from ops.lib.resolve_app_container import CANDIDATES, resolve
@@ -240,6 +242,12 @@ def start_services(color, *, worker=True):
 def activate(node, receipt, caddy, caddy_sha, prod_ip=None):
     validate_final(receipt, node, time.time())
     color, network, pg = check(node)
+    # Candidate is still held: reject an omitted partition-parent sequence
+    # before opening its network or enabling any writer.
+    run('docker', 'exec', '-e',
+        'PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=120000 -c lock_timeout=1000',
+        'tokenkey-postgres', 'psql', '-Xq', '-v', 'ON_ERROR_STOP=1',
+        '-U', 'tokenkey', '-d', 'tokenkey', '-c', sequence_guard_sql())
     if hashlib.sha256(caddy.read_bytes()).hexdigest() != caddy_sha:
         raise ValueError('prepared Caddy checksum mismatch')
     if set(re.findall(r'reverse_proxy (tokenkey-(?:blue|green)):8080', caddy.read_text())) != {'tokenkey-' + color}:
