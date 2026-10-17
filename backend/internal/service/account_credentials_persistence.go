@@ -23,9 +23,6 @@ func persistAccountCredentials(ctx context.Context, repo AccountRepository, acco
 		return nil
 	}
 
-	if account.IsCursor() {
-		return persistCursorOAuthCredentials(ctx, repo, account, credentials)
-	}
 	account.Credentials = FinalizeAccountCredentials(shallowCopyMap(credentials), account.ChannelType)
 	if updater, ok := any(repo).(accountCredentialsUpdater); ok {
 		return updater.UpdateCredentials(ctx, account.ID, account.Credentials)

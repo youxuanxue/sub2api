@@ -108,6 +108,11 @@ type ProtocolEndpointCapabilityRepository interface {
 }
 
 func BuildProtocolEndpointCapabilityLinkInput(account *Account) (ProtocolEndpointCapabilityLinkInput, error) {
+	// Operators may still disable legacy rows. Remove their capability link
+	// without treating retirement as a new probe or allowing an active import.
+	if account.IsRetiredSupplier() && !account.IsActive() {
+		return ProtocolEndpointCapabilityLinkInput{}, nil
+	}
 	identity, governed, err := BuildProtocolEndpointIdentity(account)
 	if err != nil || !governed {
 		return ProtocolEndpointCapabilityLinkInput{Identity: identity, Governed: governed}, err
@@ -164,6 +169,9 @@ func (i ProtocolEndpointIdentity) Key() string {
 }
 
 func BuildProtocolEndpointIdentity(account *Account) (ProtocolEndpointIdentity, bool, error) {
+	if account.IsRetiredSupplier() {
+		return ProtocolEndpointIdentity{}, true, ErrSupplierRetired
+	}
 	if !protocolRoutingGovernsAccount(account) {
 		return ProtocolEndpointIdentity{}, false, nil
 	}
@@ -264,9 +272,7 @@ func protocolEndpointProfile(account *Account) string {
 	if account == nil {
 		return ""
 	}
-	if account.IsCursor() {
-		return "cursor_oauth_messages"
-	}
+
 	if account.Platform == PlatformOpenAI && account.IsOpenAIOAuthLike() {
 		return "openai_codex_official"
 	}
@@ -295,9 +301,7 @@ func protocolUpstreamRequestProfile(account *Account) string {
 	if isGeminiWebAccount(account) {
 		return "gemini_web_single_turn_v1"
 	}
-	if account.IsCursor() {
-		return "cursor_oauth_v1"
-	}
+
 	if account.Platform == PlatformOpenAI && account.IsOpenAIOAuthLike() {
 		return "openai_codex_responses_v1"
 	}

@@ -1,4 +1,4 @@
-"""Cursor runs inside the Go gateway, with no SDK process or inference store."""
+"""Retired Cursor support must not leave a dedicated runtime or bridge secrets."""
 
 from copy import deepcopy
 from pathlib import Path
@@ -10,20 +10,31 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def retired_contract_errors(sources):
-    retired = ("cursor_sdk_messages", "cursor-sdk-service.md")
+    retired = ("cursor_sdk_messages", "cursor_oauth_messages", "cursor-sdk-service.md")
     return [
         f"{path}: retired Cursor contract {marker}"
         for path, content in sources.items()
+        if not is_archived(content)
         for marker in retired
         if marker in content
     ]
 
 
+def is_archived(content):
+    if not content.startswith("---\n"):
+        return False
+    sections = content.split("---", 2)
+    if len(sections) != 3:
+        return False
+    metadata = yaml.safe_load(sections[1])
+    return isinstance(metadata, dict) and metadata.get("status") == "archived"
+
+
 def deployment_errors(services):
     errors = []
     for name, service in services.items():
-        if "cursor" in name.lower() and name != "tokenkey":
-            errors.append("Cursor must not require a separate runtime")
+        if "cursor" in name.lower():
+            errors.append("Retired Cursor runtime must not be deployed")
         environment = service.get("environment", {})
         names = environment if isinstance(environment, dict) else [
             value.split("=", 1)[0] for value in environment
@@ -40,18 +51,28 @@ class CursorDeploymentTest(unittest.TestCase):
         self.assertEqual([], retired_contract_errors(sources))
 
     def test_retired_contract_references_are_rejected(self):
-        current = "Use cursor_oauth_messages; see cursor-oauth-service.md"
+        current = "Use the shared protocol router; see cursor-retirement.md"
         self.assertEqual([], retired_contract_errors({"design.md": current}))
-        for before, after in [
-            ("cursor_oauth_messages", "cursor_sdk_messages"),
-            ("cursor-oauth-service.md", "cursor-sdk-service.md"),
-        ]:
-            with self.subTest(retired=after):
-                self.assertTrue(retired_contract_errors({"design.md": current.replace(before, after)}))
+        for marker in ("cursor_oauth_messages", "cursor_sdk_messages", "cursor-sdk-service.md"):
+            with self.subTest(retired=marker):
+                source = f"Use {marker}"
+                self.assertEqual(
+                    [f"design.md: retired Cursor contract {marker}"],
+                    retired_contract_errors({"design.md": source}),
+                )
+                self.assertEqual([], retired_contract_errors({
+                    "history.md": f"---\nstatus: archived\n---\n{source}",
+                }))
+                self.assertEqual(
+                    [f"design.md: retired Cursor contract {marker}"],
+                    retired_contract_errors({
+                        "design.md": f"---\nstatus: approved\n---\n{source}",
+                    }),
+                )
 
     def test_release_services_have_no_cursor_runtime_dependency(self):
-        for path in sorted((ROOT / "deploy/aws/stage0").glob("docker-compose*.yml")):
-            with self.subTest(path=path.name):
+        for path in sorted((ROOT / "deploy").rglob("docker-compose*.yml")):
+            with self.subTest(path=path.relative_to(ROOT)):
                 with path.open() as source:
                     document = yaml.safe_load(source)
                 self.assertEqual([], deployment_errors(document.get("services", {})))

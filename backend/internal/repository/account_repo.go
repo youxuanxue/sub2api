@@ -305,6 +305,9 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 	if account == nil {
 		return service.ErrAccountNilInput
 	}
+	if account.IsRetiredSupplier() {
+		return service.ErrSupplierRetired
+	}
 	client := clientFromContext(ctx, r.client)
 	tx, err := client.Tx(ctx)
 	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
@@ -762,6 +765,9 @@ func (r *accountRepository) ListCRSAccountIDs(ctx context.Context) (map[string]i
 }
 
 func (r *accountRepository) Update(ctx context.Context, account *service.Account) error {
+	if account.IsRetiredSupplier() && account.IsActive() {
+		return service.ErrSupplierRetired
+	}
 	return r.updateAccount(ctx, account, nil, nil, account.RateMultiplier)
 }
 
@@ -1924,9 +1930,6 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 	// NOT (a AND b) 在 PG 三值逻辑下会把 a 或 b 为 NULL 的行（即绝大多数
 	// 健康账号：temp_unschedulable_until=NULL）也排除，导致后台 token
 	// 刷新工作器漏掉所有正常账号 → access_token 到期后请求开始 401。
-	// Platform scope comes from the registered refreshers. Cursor retains its
-	// newapi/apikey account representation; only its explicit provider marker
-	// admits it alongside OAuth rows, never ordinary API keys.
 	query := `
 		SELECT id
 		FROM accounts
@@ -1939,15 +1942,14 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 	}
 	if options.IncludeSetupToken {
 		query += `
-			AND (type IN ('oauth', 'setup-token') OR ` + cursorOAuthAccountSQL + `)`
+			AND type IN ('oauth', 'setup-token')`
 	} else {
 		query += `
-			AND (type = 'oauth' OR ` + cursorOAuthAccountSQL + `)`
+			AND type = 'oauth'`
 	}
 	if options.RequireRefreshToken {
 		query += `
-			AND ((credentials ? 'refresh_token' AND btrim(credentials->>'refresh_token') <> '')
-				OR (` + cursorOAuthAccountSQL + ` AND btrim(credentials->>'api_key') <> ''))`
+			AND credentials ? 'refresh_token' AND btrim(credentials->>'refresh_token') <> ''`
 	}
 	if options.ExcludeRetryCooldown {
 		query += `

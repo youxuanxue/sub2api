@@ -4,8 +4,8 @@
 
 `client-release-watch` discovers CLI pin drift. TokenKey also needs timely discovery of
 vendor model launches (OpenAI / Anthropic / Google / GLM / Kimi / DeepSeek / Doubao) so
-operators can triage onboarding. Anthropic supply is multi-channel (OAuth, Kiro, Cursor
-ct14, Tokensea, CloudWise, Bedrock), so absence from the native Anthropic OAuth allowlist
+operators can triage onboarding. Anthropic supply is multi-channel (OAuth, Kiro,
+Tokensea, CloudWise, Bedrock), so absence from the native Anthropic OAuth allowlist
 alone is not “not served”.
 
 ## Delta
@@ -37,7 +37,7 @@ alone is not “not served”.
 - MODIFIED: “served” means an **explicit** requestable key on any supply surface **and** a
   price owner. Wildcard mappings (e.g. CloudWise `claude-*`) do not count.
 - MODIFIED: Primary surfaces for full coverage include anthropic / openai / gemini /
-  antigravity / kiro / tokensea / cloudwise (explicit) / cursor ct14 / curated manifest /
+  antigravity / kiro / tokensea / cloudwise (explicit) / curated manifest /
   native allowlists. Bedrock-only priced mappings classify as `narrow`.
 
 ## Scenarios

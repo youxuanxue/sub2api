@@ -1,10 +1,12 @@
 ---
 title: Cursor tool gateway compatibility implementation
-status: approved-for-implementation
+status: archived
 approved_by: "feng (conversation approval, 2026-10-01)"
 ---
 
 ## Goal
+
+> 已按 [Cursor 退役基线](approved/cursor-retirement.md)退役；下文仅保留历史任务。
 
 Keep Cursor as an internal model supply while exposing a provider-neutral model
 gateway. The gateway never executes workspace tools.

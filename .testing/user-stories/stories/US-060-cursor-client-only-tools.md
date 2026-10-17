@@ -112,4 +112,4 @@ unschedulable, and this candidate was not deployed. SSM evidence command:
 
 ## Status
 
-- InTest
+- Archived — Cursor 能力由 `docs/approved/cursor-retirement.md` 全部退役，历史验证不再是当前验收要求。

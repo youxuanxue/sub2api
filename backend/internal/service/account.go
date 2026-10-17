@@ -193,11 +193,11 @@ func (a *Account) EffectiveLoadFactor() int {
 }
 
 func (a *Account) IsSchedulable() bool {
-	if !a.IsActive() || !a.Schedulable || validateOAuthProxyBinding(a) != nil {
+	if a.IsRetiredSupplier() || !a.IsActive() || !a.Schedulable || validateOAuthProxyBinding(a) != nil {
 		return false
 	}
 	now := time.Now()
-	if (a.AutoPauseOnExpired || a.IsCursor()) && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) {
+	if a.AutoPauseOnExpired && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) {
 		return false
 	}
 	if a.OverloadUntil != nil && now.Before(*a.OverloadUntil) {
@@ -228,11 +228,11 @@ func (a *Account) IsSchedulable() bool {
 // 手动 Schedulable 开关:spark 影子拥有独立 spark 配额窗口,母账号 global 429(走 RateLimitResetAt)
 // 不应连坐 spark(否则重新耦合影子架构本应解耦的两条 429 道)。nil receiver 返回 false。
 func (a *Account) IsCredentialUsableForShadow() bool {
-	if a == nil || !a.IsActive() || validateOAuthProxyBinding(a) != nil {
+	if a == nil || a.IsRetiredSupplier() || !a.IsActive() || validateOAuthProxyBinding(a) != nil {
 		return false
 	}
 	now := time.Now()
-	if (a.AutoPauseOnExpired || a.IsCursor()) && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) {
+	if a.AutoPauseOnExpired && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) {
 		return false
 	}
 	if a.TempUnschedulableUntil != nil && now.Before(*a.TempUnschedulableUntil) {

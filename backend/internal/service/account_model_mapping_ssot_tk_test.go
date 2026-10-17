@@ -288,16 +288,7 @@ func TestAccountModelMappingFloorForOps_ExportsAccountOverrides(t *testing.T) {
 			override.ModelMapping,
 			"account override must remain narrower than its shared channel floor",
 		)
-		if account.IsCursor() {
-			for _, id := range []string{"claude-fable-5", "claude-fable-5-1", "composer-2.5", "grok-4.5", "grok-4.6", "muse-spark-1.3"} {
-				require.Equal(t, id, override.ModelMapping[id], "Cursor override must keep %s", id)
-			}
-			require.NotContains(t, override.ModelMapping, "claude-opus-5-5")
-			require.NotContains(t, override.ModelMapping, "claude-sonnet-5-5")
-			require.NotContains(t, override.ModelMapping, "claude-sonnet-5")
-		}
 	}
-
 }
 
 func TestAccountModelMappingFloorForOps_RuntimeDoesNotShadowVertexProfiles(t *testing.T) {

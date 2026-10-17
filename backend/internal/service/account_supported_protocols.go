@@ -238,7 +238,7 @@ func routingSupportedProtocolsForInbound(account *Account, inbound protocolroute
 }
 
 func ProtocolAccountSnapshot(account *Account, requestedModel string) (protocolrouter.AccountSnapshot, error) {
-	return protocolAccountSnapshot(account, requestedModel, false, false, nil, nil, nil)
+	return protocolAccountSnapshot(account, requestedModel, false, false, nil, nil)
 }
 
 func protocolAccountSnapshotForRequest(account *Account, request protocolrouter.CanonicalRequest) (protocolrouter.AccountSnapshot, error) {
@@ -251,11 +251,10 @@ func protocolAccountSnapshotForRouting(
 	request protocolrouter.CanonicalRequest,
 ) (protocolrouter.AccountSnapshot, error) {
 	requireCompact := request.InboundProtocol() == protocolrouter.ProtocolResponses && request.ResponsesPath() == protocolrouter.ResponsesPathCompact
-	routing, _ := ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue)
-	return protocolAccountSnapshot(account, request.RequestedModel(), requireCompact, request.Profile().Stream, thinkingEnabledFromCtx(ctx), &request, routing.content)
+	return protocolAccountSnapshot(account, request.RequestedModel(), requireCompact, request.Profile().Stream, thinkingEnabledFromCtx(ctx), &request)
 }
 
-func protocolAccountSnapshot(account *Account, requestedModel string, requireCompact bool, stream bool, thinkingEnabled *bool, request *protocolrouter.CanonicalRequest, content *cursorRequestContentCache) (protocolrouter.AccountSnapshot, error) {
+func protocolAccountSnapshot(account *Account, requestedModel string, requireCompact bool, stream bool, thinkingEnabled *bool, request *protocolrouter.CanonicalRequest) (protocolrouter.AccountSnapshot, error) {
 	if account == nil {
 		return protocolrouter.AccountSnapshot{}, errors.New("account is required")
 	}
@@ -324,7 +323,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 			protocols = nil
 		}
 	}
-	if !protocolRequestParametersSupported(account, resolvedModel, request, content) {
+	if !protocolRequestParametersSupported(account, resolvedModel, request) {
 		// Keep stored capability evidence intact. Plan rejects this request's
 		// unsupported paths before selection, billing admission or transport.
 		protocols = nil
@@ -380,9 +379,7 @@ func protocolResolvedModelAllowedForTargetWithAdmission(
 	if !modelAdmitted {
 		return false
 	}
-	if account.IsCursor() {
-		return target == protocolrouter.ProtocolMessages && cursorMappedModelAllowed(account, requestedModel, resolvedModel)
-	}
+
 	switch profile {
 	case protocolrouter.OfficialEndpointOpenAICodex:
 		return target == protocolrouter.ProtocolResponses && isOpenAIOAuthServableModel(resolvedModel)

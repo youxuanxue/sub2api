@@ -297,15 +297,6 @@
         "backend/internal/service/candidate_thinking_tools_tk_test.go::TestCandidateThinkingToolsSlotRecheckPreservesConversionPermission"
       ]
     },
-    "AC-042": {
-      "status": "contract-tested",
-      "evidence": [
-        "backend/internal/integration/cursor/messages_test.go::TestValidateMessagesContentSharesNativeParser",
-        "backend/internal/service/candidate_cursor_ssot_test.go::TestCursorPlanRejectsUnsupportedNativeContent",
-        "backend/internal/service/candidate_cursor_ssot_test.go::TestCursorNativeContentFailureDoesNotWinCandidateSelection",
-        "backend/internal/service/cursor_content_consistency_tk_test.go::TestCursorNativeHistoryPlanAndForwardAgree"
-      ]
-    },
     "AC-043": {
       "status": "contract-tested",
       "evidence": [
@@ -326,13 +317,6 @@
       "evidence": [
         "backend/internal/service/pricing_scope_consistency_tk_test.go::TestPricingScopeImageRequestedSizeMatchesSettlement",
         "backend/internal/handler/openai_images_controls_test.go::TestOpenAIImageHandlersRejectUnpricedRequestedSize"
-      ]
-    },
-    "AC-046": {
-      "status": "contract-tested",
-      "evidence": [
-        "backend/internal/service/cursor_content_consistency_tk_test.go::TestCursorContentCacheKeepsRequestModelAndAccountBoundaries",
-        "backend/internal/service/cursor_content_consistency_tk_test.go::TestCursorCachedContentDoesNotCopyLongRequest"
       ]
     }
   },

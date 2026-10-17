@@ -269,7 +269,7 @@ func prerenderPricingHTML(host string) string {
 func prerenderQuickstartHTML(host string) string {
 	brand, origin, ogImage := prerenderProductOrigin(host)
 	title := "Quick Start - " + brand + " AI API Gateway"
-	desc := "2 分钟开始使用 " + brand + " AI API。获取 API Key，配置 Claude Code / Cursor / Codex / Cline，立即调用所有主流 AI 模型。"
+	desc := "2 分钟开始使用 " + brand + " AI API。获取 API Key，配置 Claude Code / Codex / Cline，立即调用所有主流 AI 模型。"
 	ogDesc := "Get started in 2 minutes. One API key for Claude, GPT, Gemini, Qwen, and more."
 	head := prerenderHead(title, desc, ogDesc, storefrontENTwitterDescription, origin+"/quickstart", ogImage)
 	return fmt.Sprintf(`<!DOCTYPE html>
@@ -285,7 +285,6 @@ func prerenderQuickstartHTML(host string) string {
 <h2>Works With</h2>
 <ul>
 <li>Claude Code</li>
-<li>Cursor</li>
 <li>OpenAI Codex CLI</li>
 <li>Cline (VS Code)</li>
 <li>Python / Node.js OpenAI SDK</li>

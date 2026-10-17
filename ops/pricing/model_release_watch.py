@@ -62,7 +62,6 @@ PRIMARY_SURFACES = frozenset({
     "catalog:openai_tokensea_relay",
     "catalog:anthropic_tokensea_relay",
     "manifest",
-    "override:newapi:14:https://agentn.global.api5.cursor.sh",
 })
 
 # Vendor → accepted upstream id prefixes (chat/coding/agent main surface).
@@ -487,7 +486,7 @@ def classify(
     hits = baseline.surfaces_for(upstream.model_id)
     surfaces = sorted({h.surface for h in hits})
     priced = baseline.is_priced(upstream.model_id)
-    primary = any(s in PRIMARY_SURFACES or s.startswith("override:newapi:14:") for s in surfaces)
+    primary = any(s in PRIMARY_SURFACES for s in surfaces)
     scoped = in_candidate_scope(upstream.vendor, upstream.model_id)
 
     if upstream.watch_only:
@@ -1056,7 +1055,6 @@ def run_selftest() -> None:
         explicit_keys={
             "claude-opus-5-5": [SupplyHit("platform:kiro", "claude-opus-5-5")],
             "claude-fable-5-1": [
-                SupplyHit("override:newapi:14:https://agentn.global.api5.cursor.sh", "claude-fable-5-1"),
                 SupplyHit("platform:bedrock", "anthropic.claude-fable-5-1"),
             ],
             "claude-sonnet-5-5": [SupplyHit("platform:bedrock", "global.anthropic.claude-sonnet-5-5")],
@@ -1067,7 +1065,7 @@ def run_selftest() -> None:
     )
     cases = [
         (UpstreamModel("anthropic", "claude-opus-5-5", "u"), "served"),
-        (UpstreamModel("anthropic", "claude-fable-5-1", "u"), "served"),
+        (UpstreamModel("anthropic", "claude-fable-5-1", "u"), "narrow"),
         (UpstreamModel("anthropic", "claude-sonnet-5-5", "u"), "unpriced"),
         (UpstreamModel("anthropic", "claude-mythos-5-1", "u"), "missing"),
         (UpstreamModel("anthropic", "claude-haiku-5-5", "u"), "narrow"),

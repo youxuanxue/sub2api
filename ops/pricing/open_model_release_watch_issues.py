@@ -91,7 +91,7 @@ def build_body(item: dict, report: dict) -> str:
         "## Expected follow-up",
         "",
         "1. Read-only plan: `python3 ops/pricing/modelops.py plan` (or hub skill `tokenkey-modelops-planner`)",
-        "2. Choose supply channel (kiro / cursor / tokensea / cloudwise / bedrock / native / curated)",
+        "2. Choose supply channel (kiro / tokensea / cloudwise / bedrock / native / curated)",
         "3. Onboard/activate via `tokenkey-onboard-model` or catalog refresh — do not edit allowlists from announcement text alone.",
         "4. Wildcard supplier mappings do not count as served.",
     ]

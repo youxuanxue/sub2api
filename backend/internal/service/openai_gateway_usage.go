@@ -381,9 +381,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageSizeSource:          optionalTrimmedStringPtr(result.ImageSizeSource),
 		ImageSizeBreakdown:       result.ImageSizeBreakdown,
 	}
-	if account.IsCursor() {
-		usageLog.BillingTier = optionalTrimmedStringPtr(cursorBillingTier(result.BillingTier))
-	}
+
 	isVideoUsage := isOpenAIVideoUsageResult(result)
 	if isVideoUsage {
 		usageLog.VideoCount = result.VideoCount
@@ -672,9 +670,7 @@ func (s *OpenAIGatewayService) settleOpenAICustomerFacingCost(
 		return nil, errors.New("openai customer cost input is nil")
 	}
 	prepared := s.prepareOpenAICustomerFacingCostInputs(ctx, in)
-	if cursorDeferredBilling(in.Account, in.Result.BillingTier) {
-		return &openAICustomerFacingCostSettlement{Cost: &CostBreakdown{BillingMode: string(BillingModeToken)}, openAICustomerFacingCostPrepared: prepared}, nil
-	}
+
 	pricingAt := in.PricingAt
 	if pricingAt.IsZero() {
 		pricingAt = timezone.Now()

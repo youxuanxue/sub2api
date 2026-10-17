@@ -1,11 +1,13 @@
 ---
 title: Cursor Stateless OAuth Model Service
-status: approved
+status: archived
 approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push, shared unsupported-output-limit compatibility and automatic credential renewal instruction, 2026-09-09; Messages completion and Chat/Responses converter repair, shared usage/cyber policy no-retry SSOT, 2026-09-14; Cursor serving-family allowlist Claude/Grok/Composer/Muse and Opus 5.5 Cursor scope, 2026-09-24; TurnEnded.input=total → Anthropic disjoint buckets before settlement, Jobs review approval 2026-09-25; RunAgent frame-idle timeout replaces 2m wall-clock cap, conversation approval 2026-10-01)"
 created: 2026-09-07
 ---
 
 # Cursor Stateless OAuth Model Service
+
+> 此能力已按 [Cursor 退役基线](cursor-retirement.md)退役；本文仅保留历史设计。
 
 ## Approved architecture
 

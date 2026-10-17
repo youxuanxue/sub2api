@@ -474,6 +474,9 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 }
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	if (&Account{Extra: accountExtra, Credentials: input.Credentials}).IsRetiredSupplier() {
+		return nil, ErrSupplierRetired
+	}
 	if input.Platform == PlatformTypeSafe && input.Type != AccountTypeAPIKey {
 		return nil, errors.New("typesafe accounts only support apikey credentials")
 	}

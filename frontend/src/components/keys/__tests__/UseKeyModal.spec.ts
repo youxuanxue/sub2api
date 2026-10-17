@@ -377,24 +377,6 @@ describe('UseKeyGuide — tool-first Quickstart contracts', () => {
     expect(wrapper.text()).not.toContain('keys.useKeyModal.cliTabs.codexCli')
   })
 
-  it('renders Cursor IDE Override Base URL fields and excludes Agent CLI', async () => {
-    getAPIKeyCapabilities.mockResolvedValue({
-      api_key_id: 42,
-      routing_mode: 'universal',
-      models: [{ id: 'gpt-5.5', protocols: ['openai'], modalities: ['chat'], routes: [] }],
-    })
-    const wrapper = mountQuickstartGuide({ selectedClient: 'cursor' })
-    await flushPromises()
-    const fields = wrapper.find('pre code').text()
-    expect(fields).toContain('Cursor Settings → Models')
-    expect(fields).toContain('OpenAI API Key: sk-test')
-    expect(fields).toContain('Override OpenAI Base URL: enabled')
-    expect(fields).toContain('Base URL: https://example.com/v1')
-    expect(fields).toContain('Add Custom Model: gpt-5.5')
-    expect(wrapper.text()).toContain('quickstart.cursorConfigNote')
-    expect(wrapper.text()).toContain('quickstart.cursorSecretHint')
-    expect(wrapper.find('[data-tk="quickstart-environment-picker"]').exists()).toBe(false)
-  })
 
   it.each([
     {

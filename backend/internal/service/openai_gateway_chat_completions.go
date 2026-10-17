@@ -22,7 +22,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// cursorResponsesUnsupportedFields are top-level Responses API parameters that
+// responsesShapeUnsupportedFields are top-level Responses API parameters that
 // Codex upstreams reject with "Unsupported parameter: ...". They must be
 // stripped when forwarding a raw client body through the Responses-shape
 // short-circuit in ForwardAsChatCompletions (see isResponsesShape branch).
@@ -31,9 +31,9 @@ import (
 // fields are dropped naturally by json.Unmarshal. Kept semantically in sync
 // with the unsupportedFields list in openai_gateway_service.go used by the
 // /v1/responses passthrough path. `user` is included per upstream
-// Wei-Shaw/sub2api#1264 — Cursor-like clients that POST Responses-shape bodies
+// Wei-Shaw/sub2api#1264 — API clients that POST Responses-shape bodies
 // to /v1/chat/completions can carry `user`, which the Responses upstream rejects.
-var cursorResponsesUnsupportedFields = []string{
+var responsesShapeUnsupportedFields = []string{
 	"prompt_cache_retention",
 	"safety_identifier",
 	"metadata",
@@ -122,7 +122,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 
-	// Cursor compatibility: some clients send a Responses-shaped body to the
+	// Some clients send a Responses-shaped body to the
 	// /v1/chat/completions URL. Detect it before adaptive routing so adaptive
 	// accounts never forward the body unchanged to a Chat Completions endpoint.
 	isResponsesShape := !gjson.GetBytes(body, "messages").Exists() && gjson.GetBytes(body, "input").Exists()
@@ -236,10 +236,10 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 
 	// 3. Build the upstream (Responses API) body.
 	//
-	// Cursor compatibility: some clients (notably Cursor cloud) send Responses
+	// Some clients send Responses
 	// API shaped bodies — `input: [...]` with no `messages` field — to the
 	// /v1/chat/completions URL. Running those through ChatCompletionsToResponses
-	// would silently drop Cursor's `input` array (the struct has no Input field)
+	// would silently drop the client's `input` array (the struct has no Input field)
 	// and produce `input: null`, which Codex upstreams reject with
 	// "Invalid type for 'input': expected a string, but got an object".
 	//
@@ -262,7 +262,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		// it from ChatCompletionsRequest and drops unknown fields naturally),
 		// we must filter these fields explicitly here — otherwise the upstream
 		// rejects the request with "Unsupported parameter: ...".
-		for _, field := range cursorResponsesUnsupportedFields {
+		for _, field := range responsesShapeUnsupportedFields {
 			if stripped, derr := sjson.DeleteBytes(responsesBody, field); derr == nil {
 				responsesBody = stripped
 			}

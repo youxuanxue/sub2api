@@ -477,7 +477,7 @@ func discoverStubTargets(accounts []Account, re *regexp.Regexp) []edgeTarget {
 		if !isEdgeMirrorStub(acct, re) {
 			continue
 		}
-		if acct.Status == StatusDisabled {
+		if acct.Status == StatusDisabled || acct.IsRetiredSupplier() {
 			continue
 		}
 		baseURL := normalizeEdgeBaseURL(acct.GetCredential("base_url"))
@@ -541,9 +541,7 @@ func edgeStubPoolPlatform(acct *Account) string {
 	if acct == nil {
 		return ""
 	}
-	if acct.IsCursor() {
-		return PlatformNewAPI
-	}
+
 	if mp := strings.ToLower(strings.TrimSpace(acct.GetCredential("mirror_platform"))); mp != "" {
 		return mp
 	}
@@ -595,7 +593,7 @@ func discoverEdgeTargets(accounts []Account, re *regexp.Regexp) []edgeTarget {
 		// blackholes — neither is useful on a read-only overview. 'error' (a
 		// transient runtime state) is intentionally NOT skipped: the edge may
 		// still be reachable, and another stub for the same base_url may cover it.
-		if acct.Status == StatusDisabled {
+		if acct.Status == StatusDisabled || acct.IsRetiredSupplier() {
 			continue
 		}
 		baseURL := normalizeEdgeBaseURL(acct.GetCredential("base_url"))

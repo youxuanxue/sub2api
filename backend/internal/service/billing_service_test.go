@@ -1392,11 +1392,6 @@ func TestGetModelPricing_GrokCatalogFallbacks(t *testing.T) {
 			cacheRead: 0.2e-6,
 			output:    2e-6,
 		},
-		{
-			name:   "Cursor Composer regular speed",
-			models: []string{"composer-2.5"},
-			input:  0.5e-6, cacheRead: 0.2e-6, output: 2.5e-6,
-		},
 	}
 
 	for _, tt := range tests {

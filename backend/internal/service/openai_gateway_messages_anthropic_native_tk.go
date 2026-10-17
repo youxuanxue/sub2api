@@ -98,9 +98,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	var releaseUpstreamCtx context.CancelFunc
 	if clientStream {
 		base := context.WithoutCancel(ctx)
-		if account.IsCursor() {
-			base = ctx
-		}
+
 		budget := resolveStreamFirstOutputTimeout(s.cfg, anthropicBodyStreamFirstOutputHighEffort(body))
 		RecordOpsFirstOutputBudget(c, account, budget, streamFirstOutputBudgetReason(anthropicBodyStreamFirstOutputHighEffort(body)))
 		streamAttemptCtx, firstOutputGuard = armStreamFirstOutputGuard(base, budget)
@@ -108,9 +106,6 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 		releaseUpstreamCtx = func() {}
 	} else {
 		upstreamCtx, releaseUpstreamCtx = detachStreamUpstreamContext(ctx, false)
-		if account.IsCursor() {
-			upstreamCtx = ctx
-		}
 	}
 	upstreamReq, wireBody, err := s.buildNativeAnthropicUpstreamRequest(upstreamCtx, c, account, body, apiKey, targetURL)
 	releaseUpstreamCtx()
@@ -128,7 +123,6 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	defer func() { cursorResponseOutcome(account, resp, &result, &forwardErr) }()
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
@@ -138,9 +132,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 				ctx, c, account, upstreamModel, wireBody, resp, respBody, upstreamMsg,
 				func(body []byte) (*http.Response, error) {
 					retryCtx, releaseRetryCtx := detachStreamUpstreamContext(ctx, clientStream)
-					if account.IsCursor() {
-						retryCtx = ctx
-					}
+
 					retryReq, _, buildErr := s.buildNativeAnthropicUpstreamRequest(retryCtx, c, account, body, apiKey, targetURL)
 					releaseRetryCtx()
 					if buildErr != nil {
@@ -203,7 +195,7 @@ func (s *OpenAIGatewayService) nativeAnthropicTargetURL(ctx context.Context, acc
 	if baseURL == "" {
 		return "", fmt.Errorf("account %d has no anthropic protocol base url", account.ID)
 	}
-	validatedURL, err := validateCursorBaseURL(account, baseURL, s.validateUpstreamBaseURL)
+	validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
@@ -223,9 +215,6 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	targetURL string,
 	sessionBodies ...[]byte,
 ) (*http.Request, []byte, error) {
-	if account.IsCursor() && c != nil && c.Request != nil {
-		ctx = c.Request.Context()
-	}
 	targetURL = protocolExecutionEndpoint(ctx, targetURL)
 	// 能力维度 body sanitize：与 Anthropic 平台 passthrough 相同，按 beta
 	// header 决定是否保留 body 中的 beta 能力字段，避免客户端"body 带字段但
@@ -292,9 +281,6 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	filterSonnet55ToolsetBetaHeader(req.Header, body, gjson.GetBytes(body, "model").String())
 	payloads := append([][]byte{body}, sessionBodies...)
 	applyOpenCodeSessionHeader(c, account, targetURL, req.Header, payloads...)
-	if err := prepareCursorUpstreamRequest(req, c, account); err != nil {
-		return nil, nil, err
-	}
 
 	return req, body, nil
 }
@@ -394,7 +380,6 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	firstOutputGuard *streamFirstOutputGuard,
 	streamAttemptCtx context.Context,
 ) (result *OpenAIForwardResult, forwardErr error) {
-	defer func() { cursorResponseOutcome(account, resp, &result, &forwardErr) }()
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
@@ -436,7 +421,6 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	sawTerminalEvent := false
 	terminalErrorWritten := false
 	policyBlocked := false
-	var upstreamErr *tkAnthropicBufferedUpstreamError
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -546,9 +530,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				if policyBlocked {
 					return nil, errOpenAICyberPolicyForwarded
 				}
-				if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
-					return nil, nativeErr
-				}
+
 				if !clientDisconnected {
 					flusher.Flush()
 				}
@@ -590,7 +572,6 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				observer.ObserveAnthropic([]byte(trimmed))
 				if gjson.Get(trimmed, "type").String() == "error" {
 					terminalErrorWritten = true
-					upstreamErr, _ = tkParseAnthropicBufferedSSEError([]byte(trimmed), s.cfg)
 					u := claudeUsageToOpenAIUsage(usage)
 					policyBlocked = markOpenAISafetyPolicyEvent(c, []byte(trimmed), resp.StatusCode, &u) != ""
 				}
@@ -637,11 +618,6 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 
 			if line == "" && policyBlocked {
 				return nil, errOpenAICyberPolicyForwarded
-			}
-			if line == "" && terminalErrorWritten {
-				if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
-					return nil, nativeErr
-				}
 			}
 
 		case <-intervalCh:

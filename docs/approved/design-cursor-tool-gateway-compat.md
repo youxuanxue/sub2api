@@ -1,11 +1,13 @@
 ---
 title: Provider-neutral Cursor tool gateway compatibility
-status: approved
+status: archived
 approved_by: "feng (conversation approval, 2026-10-01; Agent/client-only bridge and revised continuation design approved 2026-10-04; client Shell routing revision approved in conversation 2026-10-07; metadata/schema refinement and fixed MCP allowlist authorized by subsequent conversation approvals; tool-free MCP allowlist authorized 2026-10-07)"
 created: 2026-10-01
 ---
 
 # Provider-neutral Cursor tool gateway compatibility
+
+> 此能力已按 [Cursor 退役基线](cursor-retirement.md)退役；本文仅保留历史设计。
 
 ## Contract
 

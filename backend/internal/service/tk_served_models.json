@@ -907,60 +907,6 @@
         }
       ]
     },
-    "grok-4.5": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
-    "grok-4.6": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
-    "composer-2.5": {
-      "display": false,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
-    "claude-fable-5": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
-    "claude-fable-5-1": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
-    "muse-spark-1.3": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
     "happyhorse-1.1-t2v": {
       "display": true,
       "scopes": [

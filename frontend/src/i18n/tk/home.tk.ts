@@ -222,7 +222,7 @@ const en: HomeLocaleOverlay = {
       subtitle: 'Start free. Scale to production.',
       aiCoding: {
         title: 'AI Coding Agent',
-        desc: 'Power Claude Code, Cursor, Codex, and Cline with one key. No per-seat license, pay by actual usage.',
+        desc: 'Power Claude Code, Codex, and Cline with one key. No per-seat license, pay by actual usage.',
       },
       creativeStudio: {
         title: 'Creative Studio',
@@ -249,7 +249,7 @@ const en: HomeLocaleOverlay = {
           a: 'Subscription-based quota (daily/weekly/monthly). Predictable costs, auto-stop on limit — no surprise bills.',
         },
         tools: {
-          q: 'Can I use TokenKey with Claude Code / Cursor / Codex?',
+          q: 'Can I use TokenKey with Claude Code / Codex?',
           a: 'Yes — set ANTHROPIC_BASE_URL and you are ready. Native support for sticky sessions, extended thinking, and streaming.',
         },
         trial: {
@@ -364,7 +364,7 @@ const zh: HomeLocaleOverlay = {
       subtitle: '免费开始，按需扩展。',
       aiCoding: {
         title: 'AI 编程助手',
-        desc: '一个 Key 驱动 Claude Code、Cursor、Codex、Cline。无需按席位付费，按实际用量计费。',
+        desc: '一个 Key 驱动 Claude Code、Codex、Cline。无需按席位付费，按实际用量计费。',
       },
       creativeStudio: {
         title: '创意工作室',
@@ -391,7 +391,7 @@ const zh: HomeLocaleOverlay = {
           a: '订阅配额制（按日/周/月），费用可预测，超限自动暂停——不会有意外账单。',
         },
         tools: {
-          q: '可以用 TokenKey 接入 Claude Code / Cursor / Codex 吗？',
+          q: '可以用 TokenKey 接入 Claude Code / Codex 吗？',
           a: '可以——设置 ANTHROPIC_BASE_URL 即可。原生支持会话保持、扩展思考和流式输出。',
         },
         trial: {

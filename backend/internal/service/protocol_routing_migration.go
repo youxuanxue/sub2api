@@ -79,7 +79,7 @@ func evaluateProtocolRoutingSSOT(
 	}
 	for i := range accounts {
 		account := &accounts[i]
-		if !protocolRoutingGovernsAccount(account) {
+		if account.IsRetiredSupplier() || !protocolRoutingGovernsAccount(account) {
 			continue
 		}
 		report.ActiveGoverned++

@@ -56,7 +56,7 @@ func TestResolveMessagesDispatchModel_UnknownNewAPIGroupDoesNotFallbackToGPT(t *
 }
 
 func TestNativeMixedModelGroupAllowsMessagesWithoutFamilyRemapping(t *testing.T) {
-	g := &Group{Name: "Cursor", Platform: PlatformNewAPI, AllowMessagesDispatch: true}
+	g := &Group{Name: "Native Messages", Platform: PlatformNewAPI, AllowMessagesDispatch: true}
 	require.NoError(t, validateGroupMessagesDispatchModelConfig(g))
 	for _, model := range []string{"claude-opus-5", "gpt-5.6-sol", "gemini-3.8-flash", "composer-2.5"} {
 		require.Empty(t, g.ResolveMessagesDispatchModel(model))

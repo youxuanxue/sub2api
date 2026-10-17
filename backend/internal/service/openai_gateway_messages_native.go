@@ -35,7 +35,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 	startTime := time.Now()
 	selectedModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	selectedModel = protocolExecutionResolvedModel(ctx, selectedModel)
-	if !tkIsForwardableAnthropicModelName(selectedModel) && !cursorMappedModelAllowed(account, gjson.GetBytes(body, "model").String(), selectedModel) {
+	if !tkIsForwardableAnthropicModelName(selectedModel) {
 		return nil, fmt.Errorf("native anthropic messages requires a Claude model")
 	}
 
@@ -82,7 +82,6 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	defer func() { cursorResponseOutcome(account, resp, &result, &forwardErr) }()
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
@@ -127,7 +126,7 @@ func (s *OpenAIGatewayService) nativeAnthropicMessagesTargetURL(account *Account
 		}
 		baseURL = "https://api.openai.com"
 	}
-	validatedURL, err := validateCursorBaseURL(account, baseURL, s.validateUpstreamBaseURL)
+	validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
@@ -182,9 +181,7 @@ func (s *OpenAIGatewayService) doNativeAnthropicMessagesHTTP(
 	bearerToken string,
 ) (*http.Response, error) {
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
-	if account.IsCursor() {
-		upstreamCtx = ctx
-	}
+
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	releaseUpstreamCtx()
 	if err != nil {
@@ -210,9 +207,6 @@ func (s *OpenAIGatewayService) doNativeAnthropicMessagesHTTP(
 		upstreamReq.Header.Set("user-agent", ua)
 	}
 	account.ApplyHeaderOverrides(upstreamReq.Header)
-	if err := prepareCursorUpstreamRequest(upstreamReq, c, account); err != nil {
-		return nil, err
-	}
 
 	hwka := s.beginAnthropicClientHeaderWaitKeepalive(c, stream)
 	resp, err := s.doNativeMessagesRequest(upstreamReq, account)
@@ -308,20 +302,14 @@ func (s *OpenAIGatewayService) streamNativeAnthropicMessages(
 
 	terminalError := false
 	policyBlocked := false
-	streamCompleted := false
-	var upstreamErr *tkAnthropicBufferedUpstreamError
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "data:") {
 			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if payload != "" && payload != "[DONE]" {
 				parseSSEUsagePassthrough(payload, &usage)
-				if gjson.Get(payload, "type").String() == "message_stop" {
-					streamCompleted = true
-				}
 				if gjson.Get(payload, "type").String() == "error" {
 					terminalError = true
-					upstreamErr, _ = tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg)
 					u := claudeUsageToOpenAIUsage(&usage)
 					policyBlocked = markOpenAISafetyPolicyEvent(c, []byte(payload), resp.StatusCode, &u) != ""
 				}
@@ -342,20 +330,9 @@ func (s *OpenAIGatewayService) streamNativeAnthropicMessages(
 		if line == "" && policyBlocked {
 			return nil, errOpenAICyberPolicyForwarded
 		}
-		if line == "" && terminalError {
-			if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
-				return nil, nativeErr
-			}
-		}
 	}
 	if policyBlocked {
 		return nil, errOpenAICyberPolicyForwarded
-	}
-	if !streamCompleted && upstreamErr == nil {
-		upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_incomplete", "Upstream stream ended before response completion")
-	}
-	if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
-		return nil, nativeErr
 	}
 
 	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {

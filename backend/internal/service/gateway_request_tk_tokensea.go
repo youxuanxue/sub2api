@@ -9,7 +9,7 @@ import (
 
 // TokenKey: tokensea (agent.tokensea.ai) pre-send body strips.
 //
-// Account-gated only — not model-gated. Official Anthropic / Cursor keep the
+// Account-gated only — not model-gated. Other Anthropic endpoints keep the
 // original fields; tokensea's stricter schema 400s them as
 // "Extra inputs are not permitted" on every Claude model seen in prod.
 // Callers go through tkPrepareAnthropicMessagesWireBody so native Messages,
@@ -38,7 +38,7 @@ func isTokenseaRelayUpstream(account *Account) bool {
 //   - 2026-09-26 user1: account 136 × claude-opus-5 (ops_error 5275273+)
 //
 // The earlier fable-only gate (tkStripTokenseaFableContextManagement) let
-// Opus variants keep recurring. Cursor accepts the same client payload; strip
+// Opus variants keep recurring. Other suppliers accept the same client payload; strip
 // is account-gated only so non-tokensea upstreams keep context_management.
 func tkStripTokenseaContextManagement(account *Account, body []byte) []byte {
 	if len(body) == 0 || !isTokenseaRelayUpstream(account) {

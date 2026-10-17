@@ -4159,7 +4159,7 @@ else
     echo "  ok: frontend security workflows share the bounded, fail-closed audit owner"
 fi
 
-# ---- sub2api: stateless Cursor deployment ----------------------------------
+# ---- sub2api: retired Cursor deployment ------------------------------------
 echo ""
 
 fi # preflight gate
@@ -4169,7 +4169,7 @@ if ! python3 -m unittest scripts.checks.test_cursor_deployment; then
     echo "  FAIL: Cursor must not introduce a separate runtime or bridge credentials"
     errors=$((errors + 1))
 else
-    echo "  ok: Cursor uses the existing Go gateway runtime"
+    echo "  ok: no dedicated Cursor runtime or bridge credentials"
 fi
 
 # ---- sub2api: gh CLI repository context ---------------------------------------

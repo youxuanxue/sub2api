@@ -7,7 +7,6 @@ import "context"
 type HTTPUpstreamProfile string
 
 const (
-	HTTPUpstreamProfileCursor     HTTPUpstreamProfile = "cursor"
 	HTTPUpstreamProfileDefault    HTTPUpstreamProfile = ""
 	HTTPUpstreamProfileOpenAI     HTTPUpstreamProfile = "openai"
 	HTTPUpstreamProfileGrok       HTTPUpstreamProfile = "grok"
@@ -40,7 +39,7 @@ func HTTPUpstreamProfileFromContext(ctx context.Context) HTTPUpstreamProfile {
 		return HTTPUpstreamProfileDefault
 	}
 	switch profile {
-	case HTTPUpstreamProfileKiro, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileGrok, HTTPUpstreamProfileLongStream, HTTPUpstreamProfileCursor:
+	case HTTPUpstreamProfileKiro, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileGrok, HTTPUpstreamProfileLongStream:
 		return profile
 	default:
 		return HTTPUpstreamProfileDefault
