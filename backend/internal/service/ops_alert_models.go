@@ -17,6 +17,7 @@ const (
 	OpsAlertMetricUserVisibleFailureCount       = "user_visible_failure_count"
 	OpsAlertMetricClientVisibleFailureCount     = "client_visible_failure_count"
 	OpsAlertMetricRoutingCapacityRejectionCount = "routing_capacity_rejection_count"
+	OpsAlertMetricProxyUnreachableCount         = "proxy_unreachable_count"
 )
 
 const (
