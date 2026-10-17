@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 )
@@ -132,6 +133,56 @@ func TestClaudeToKiro_ToolHistoryTruncation(t *testing.T) {
 			require.Contains(t, payload.ConversationState.History[0].UserInputMessage.Content, "Keep the fixtures")
 		})
 	}
+}
+
+func TestClaudeToKiro_HistoryTruncationPreservesCurrentUserContent(t *testing.T) {
+	const current = "请继续处理最新请求：保留这段 UTF-8 内容"
+	req := &ClaudeRequest{
+		Model:    "claude-opus-5.5",
+		Messages: []ClaudeMessage{{Role: "user", Content: "start"}},
+	}
+	for i := 0; i < 8; i++ {
+		req.Messages = append(req.Messages,
+			ClaudeMessage{Role: "assistant", Content: strings.Repeat("a", 180*1024)},
+			ClaudeMessage{Role: "user", Content: strings.Repeat("u", 180*1024)},
+		)
+	}
+	req.Messages = append(req.Messages,
+		ClaudeMessage{Role: "assistant", Content: "ready for the next request"},
+		ClaudeMessage{Role: "user", Content: current},
+	)
+
+	payload := ClaudeToKiro(req, false)
+	require.NoError(t, ValidatePayloadSize(payload))
+	require.Less(t, len(payload.ConversationState.History), len(req.Messages)-1)
+	require.Equal(t, current, payload.ConversationState.CurrentMessage.UserInputMessage.Content)
+	require.True(t, utf8.ValidString(payload.ConversationState.CurrentMessage.UserInputMessage.Content))
+	require.Contains(t, payload.ConversationState.History[0].UserInputMessage.Content, truncationPlaceholder)
+}
+
+func TestClaudeToKiro_OversizedFixedPayloadPreservesCurrentUserContent(t *testing.T) {
+	const current = "最新消息不能被替换成点号。"
+	req := &ClaudeRequest{
+		Model:    "claude-opus-5.5",
+		Messages: []ClaudeMessage{{Role: "user", Content: current}},
+		Tools: []ClaudeTool{{
+			Name: "oversized_tool",
+			InputSchema: map[string]any{
+				"type":        "object",
+				"description": strings.Repeat("x", maxPayloadBytes),
+			},
+		}},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	require.Equal(t, current, payload.ConversationState.CurrentMessage.UserInputMessage.Content)
+	require.True(t, utf8.ValidString(payload.ConversationState.CurrentMessage.UserInputMessage.Content))
+
+	var tooLarge *PayloadTooLargeError
+	err := ValidatePayloadSize(payload)
+	require.ErrorAs(t, err, &tooLarge)
+	require.Greater(t, tooLarge.Size, tooLarge.Limit)
+	require.Equal(t, maxPayloadBytes, tooLarge.Limit)
 }
 
 func wireKiroPayload(t *testing.T, payload *KiroPayload) *KiroPayload {
