@@ -9,7 +9,7 @@
 |------|----------|---------|------------|------|
 | **prod** | `api.tokenkey.dev` | `3.114.187.250` | `i-045f062ce33e1a5af` · ap-northeast-1 | EC2 c7g.xlarge · tokenkey-prod-tokyo-20261017；旧美东 `i-022f2553503211775`/`23.21.138.205` 冻结 standby |
 
-**Edge 不再部署 / 不再 fan-out。** prod 侧全部 `api-<edge>.tokenkey.dev` 中继 stub 已软删（见 [`docs/ops/edge-relay-soft-delete-20261017.json`](../../docs/ops/edge-relay-soft-delete-20261017.json)）。美国 Lightsail/Hcloud edge 的实例、Static IP、SSM 身份、参数和 DNS 已释放；矩阵只保留不可执行的历史身份。`resolve-edge-target.py --list-deployable` 应为空；代码契约 `ops/stage0/edge_routing_matrix.EXPECTED_LIVE_EDGE_IDS` 同为空。`dispatch-edge-deploy` 对美国 retired id 硬拒绝；恢复 edge 须**同时**改矩阵 `deployable`、该常量、workflow 选项与本表。
+**Edge 不再部署 / 不再 fan-out。** prod 侧全部 `api-<edge>.tokenkey.dev` 中继 stub 已软删（见 [`docs/ops/edge-relay-soft-delete-20261017.json`](../../docs/ops/edge-relay-soft-delete-20261017.json)）。美国 Lightsail/Hcloud edge 的实例、Static IP、SSM 身份、参数和 DNS 已释放；矩阵只保留不可执行的历史身份。`resolve-edge-target.py --list-deployable` 应为空；代码契约 `ops/stage0/edge_routing_matrix.EXPECTED_LIVE_EDGE_IDS` 同为空。`dispatch-edge-deploy` / edge deploy workflow / 付费 `provision-edge` 对美国 retired id 硬拒绝，并另需字面量 `I_APPROVE_EDGE_RESTORE`（`ops/stage0/require_edge_restore_approval.py`；`--allow-planned` 不够）。恢复 edge 须**同时**改矩阵 `deployable`、该常量、workflow 选项与本表。
 
 历史身份（仅 standby / 排障，非活路由）：
 

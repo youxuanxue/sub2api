@@ -7,7 +7,7 @@ description: >-
 
 # TokenKey：Lightsail Edge 静态 IP 轮换（污染快速恢复）
 
-[fleet README](../../../deploy/hetzner/README.md)（prod-only）。只轮换 standby Static IP；`deployable=false` 勿改 true。
+[fleet README](../../../deploy/hetzner/README.md)（prod-only）。只轮换 standby Static IP；`deployable=false` 勿改 true。走 edge deploy workflow / `dispatch-edge-deploy` 时仍须 `I_APPROVE_EDGE_RESTORE`。
 
 ## 确定性基线
 

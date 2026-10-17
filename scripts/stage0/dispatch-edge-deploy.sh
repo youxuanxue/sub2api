@@ -2,17 +2,20 @@
 # Canonical Edge deploy dispatch — Lightsail + Hetzner paths.
 #
 # 2026-10-17: routine edge deploy is OFF. Retired US identities are rejected
-# even with --allow-planned; only a reviewed non-US recovery row can proceed.
+# even with --allow-planned. Any dispatch also requires
+# --confirm-edge-restore I_APPROVE_EDGE_RESTORE (workflow hard gate).
 #
 # Usage:
 #   bash scripts/stage0/dispatch-edge-deploy.sh \
 #     --edge-id uk1 --operation upgrade --tag 1.2.3 \
+#     --confirm-edge-restore I_APPROVE_EDGE_RESTORE \
 #     [--platform auto|lightsail|hetzner] [--allow-planned] \
 #     [--smoke-phase infra|full|edge-native-oauth|main-via-edge] [--ref REF]
 #
 # Phase-1 Hetzner validate (no paid create, no DNS):
 #   bash scripts/stage0/dispatch-edge-deploy.sh \
-#     --edge-id uk1 --operation validate --platform hetzner --allow-planned
+#     --edge-id uk1 --operation validate --platform hetzner --allow-planned \
+#     --confirm-edge-restore I_APPROVE_EDGE_RESTORE
 #
 # --tag accepts X.Y.Z or vX.Y.Z; a leading v is stripped before workflow_dispatch.
 set -euo pipefail
@@ -28,9 +31,10 @@ WORKFLOW_REF=""
 PLATFORM_PREF="auto"
 ALLOW_PLANNED=0
 CONFIRM_PAID=0
+CONFIRM_EDGE_RESTORE="${CONFIRM_EDGE_RESTORE:-}"
 
 usage() {
-  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
@@ -44,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     --platform) PLATFORM_PREF="${2:-}"; shift 2 ;;
     --allow-planned) ALLOW_PLANNED=1; shift ;;
     --confirm-paid) CONFIRM_PAID=1; shift ;;
+    --confirm-edge-restore) CONFIRM_EDGE_RESTORE="${2:-}"; shift 2 ;;
     -h|--help) usage ;;
     *)
       echo "dispatch-edge-deploy: unknown argument: $1" >&2
@@ -56,6 +61,8 @@ if [[ -z "${EDGE_ID}" || -z "${OPERATION}" ]]; then
   echo "dispatch-edge-deploy: --edge-id and --operation are required" >&2
   usage
 fi
+
+python3 ops/stage0/require_edge_restore_approval.py --token "${CONFIRM_EDGE_RESTORE}"
 
 case "${PLATFORM_PREF}" in
   auto|lightsail|hetzner) ;;
@@ -134,6 +141,7 @@ fi
 
 GH_ARGS=(
   workflow run "${WORKFLOW}"
+  -f "confirm_edge_restore=${CONFIRM_EDGE_RESTORE}"
   -f "edge_id=${EDGE_ID}"
   -f "operation=${OPERATION}"
   -f "${CONFIRM_FLAG}=${CONFIRM_VALUE}"

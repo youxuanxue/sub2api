@@ -7,7 +7,7 @@ description: >-
 
 # TokenKey：Lightsail Edge 全流程
 
-**退役默认：** 勿 provision；恢复须改矩阵 + `EXPECTED_LIVE_EDGE_IDS` + [fleet README](../../../deploy/hetzner/README.md)。本 skill 只做 Lightsail provision/重建/回滚。
+**退役默认：** 勿 provision；`provision-edge.sh` / edge deploy workflow 硬拒绝，除非 `CONFIRM_EDGE_RESTORE=I_APPROVE_EDGE_RESTORE`（`ops/stage0/require_edge_restore_approval.py`）。恢复还须改矩阵 + `EXPECTED_LIVE_EDGE_IDS` + [fleet README](../../../deploy/hetzner/README.md)。
 
 ## 执行 owner
 

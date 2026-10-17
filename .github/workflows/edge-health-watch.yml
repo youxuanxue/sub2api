@@ -14,6 +14,10 @@ name: Edge Health Watch
 # Cadence caveat: GitHub scheduled workflows are best-effort and can run late or skip
 # under load — this is detection-latency insurance, not a hard SLA. If a tighter SLA
 # is needed later, move the loop to the in-cluster reconciler.
+#
+# 2026-10-17 prod-only: --list-deployable is empty. Schedule/dispatch idle with
+# exit 0 (no OIDC / Feishu) until a deployable edge returns — avoids burning
+# Actions minutes on a retired fleet. Local standby scans use scan-edge-health.sh --edges.
 
 on:
   schedule:
@@ -55,7 +59,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Idle when deployable edge fleet is empty
+        id: fleet
+        run: |
+          set -euo pipefail
+          edges="$(python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable || true)"
+          if [ -n "${edges//[[:space:]]/}" ]; then
+            echo "active=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "active=false" >> "$GITHUB_OUTPUT"
+          echo "No deployable edges (2026-10-17 prod-only); edge-health-watch idle."
+
       - name: Check required configuration
+        if: steps.fleet.outputs.active == 'true'
         run: |
           set -euo pipefail
           if [ -z "${OIDC_ROLE_ARN:-}" ]; then
@@ -68,6 +85,7 @@ jobs:
           fi
 
       - name: Restore previous state key
+        if: steps.fleet.outputs.active == 'true'
         uses: actions/cache/restore@v6
         with:
           path: .edge-health-state
@@ -76,12 +94,14 @@ jobs:
             edge-health-watch-state-
 
       - name: Configure AWS credentials via OIDC
+        if: steps.fleet.outputs.active == 'true'
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Scan fleet edge health (read-only SSM)
+        if: steps.fleet.outputs.active == 'true'
         id: scan
         run: |
           set -uo pipefail
