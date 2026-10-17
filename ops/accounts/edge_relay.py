@@ -72,6 +72,22 @@ def list_deployable_edges() -> list[dict[str, str]]:
     return out
 
 
+def require_deployable_edge(edge_id: str, *, path_hint: str = "") -> str:
+    """Return a normalized edge id only when it is in the current live fleet."""
+    normalized = normalize_edge_id(edge_id)
+    prefix = f"{path_hint}: " if path_hint else ""
+    if not normalized:
+        raise ValueError(f"{prefix}edge_id 不能为空")
+    live_ids = {row["edge_id"] for row in list_deployable_edges()}
+    if normalized not in live_ids:
+        live = ", ".join(sorted(live_ids)) or "无"
+        raise ValueError(
+            f"{prefix}edge_id {normalized!r} 不在当前可部署 edge 舰队中（当前：{live}）；"
+            "退役 edge 不允许导入或签发中继 key"
+        )
+    return normalized
+
+
 def prod_stub_pool_platform(account: dict[str, Any]) -> str:
     """Which edge pool a prod mirror stub represents (mirror_platform wins)."""
     creds = account.get("credentials") if isinstance(account.get("credentials"), dict) else {}
@@ -304,7 +320,7 @@ def ensure_edge_relay_api_key(
             "或 edge_api_key_issue.user_id / prod_relay.edge_api_key_user_id"
         )
     user_id = int(user_id)
-    edge_id = normalize_edge_id(str(doc.get("edge_id") or ""))
+    edge_id = require_deployable_edge(str(doc.get("edge_id") or ""))
     pool_platform = str(doc.get("pool_platform") or doc.get("relay_pool") or "").strip().lower()
     name = str(issue.get("name") or prod_relay.get("edge_api_key_name") or "").strip()
     if not name:
@@ -368,9 +384,7 @@ def ensure_edge_relay_api_key(
 
 def validate_edge_oauth_relay(doc: dict[str, Any], *, path_hint: str = "") -> None:
     prefix = f"{path_hint}: " if path_hint else ""
-    edge_id = normalize_edge_id(str(doc.get("edge_id") or ""))
-    if not edge_id:
-        raise ValueError(f"{prefix}edge_oauth_relay 需要 edge_id（如 us6）")
+    require_deployable_edge(str(doc.get("edge_id") or ""), path_hint=path_hint)
 
     pool_platform = str(doc.get("pool_platform") or doc.get("relay_pool") or "").strip().lower()
     if pool_platform not in RELAY_POOL_PLATFORMS:
@@ -459,7 +473,7 @@ def plan_edge_oauth_relay(
     list_prod_accounts: Callable[[], list[dict[str, Any]]],
 ) -> dict[str, Any]:
     validate_edge_oauth_relay(doc)
-    edge_id = normalize_edge_id(str(doc["edge_id"]))
+    edge_id = require_deployable_edge(str(doc["edge_id"]))
     pool_platform = str(doc.get("pool_platform") or doc.get("relay_pool")).strip().lower()
     skip_prod_if_exists = doc.get("skip_prod_relay_if_exists", True) is not False
     prod_relay_cfg = doc.get("prod_relay") if isinstance(doc.get("prod_relay"), dict) else {}

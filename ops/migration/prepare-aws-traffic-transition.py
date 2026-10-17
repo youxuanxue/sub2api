@@ -119,7 +119,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--runtime-dir', required=True, type=Path)
     parser.add_argument('--output-dir', required=True, type=Path)
-    parser.add_argument('--node', action='append', required=True, choices=['prod', 'uk1', 'uk2', 'us4', 'us5'])
+    parser.add_argument('--node', action='append', required=True, choices=['prod'])
     parser.add_argument('--prod-ip', required=True, help='prod egress IP during this single-node transition')
     args = parser.parse_args()
     inv = json.loads((ROOT / 'deploy/aws/fresh-migration-20261015.json').read_text())

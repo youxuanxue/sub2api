@@ -2,26 +2,54 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 import edge_relay as er
 
 
 class EdgeRelayTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.live_edges = mock.patch.object(
+            er,
+            "load_edge_targets",
+            return_value={
+                "targets": {
+                    "edge1": {
+                        "deployable": True,
+                        "domain": "api-edge1.tokenkey.dev",
+                        "purpose": "synthetic test edge",
+                    }
+                }
+            },
+        )
+        self.live_edges.start()
+        self.addCleanup(self.live_edges.stop)
+
+    def test_retired_edge_is_rejected(self) -> None:
+        doc = {
+            "import_profile": "edge_oauth_relay",
+            "edge_id": "us4",
+            "pool_platform": "anthropic",
+            "edge_oauth": {"platform": "anthropic", "type": "oauth"},
+        }
+        with self.assertRaisesRegex(ValueError, "不在当前可部署 edge 舰队"):
+            er.validate_edge_oauth_relay(doc)
+
     def test_retired_cursor_relay_is_rejected(self) -> None:
         self.assertFalse(er.is_prod_mirror_stub({
             "type": "apikey", "platform": "newapi",
             "extra": {"upstream_provider": "cursor"},
-            "credentials": {"base_url": "https://api-us6.tokenkey.dev"},
+            "credentials": {"base_url": "https://api-edge1.tokenkey.dev"},
         }))
         with self.assertRaises(ValueError):
             er.build_prod_relay_create_spec(
-                edge_id="us6", pool_platform="newapi",
+                edge_id="edge1", pool_platform="newapi",
                 prod_relay={"extra": {"upstream_provider": "cursor"}}, edge_api_key="synthetic"
             )
 
     def test_edge_id_from_base_url(self) -> None:
-        self.assertEqual(er.edge_id_from_base_url("https://api-us6.tokenkey.dev"), "us6")
-        self.assertEqual(er.edge_id_from_base_url("https://api-us6.tokenkey.dev/"), "us6")
+        self.assertEqual(er.edge_id_from_base_url("https://api-edge1.tokenkey.dev"), "edge1")
+        self.assertEqual(er.edge_id_from_base_url("https://api-edge1.tokenkey.dev/"), "edge1")
         self.assertIsNone(er.edge_id_from_base_url("https://api.anthropic.com"))
 
     def test_find_prod_relay_stub_by_edge_and_pool(self) -> None:
@@ -38,32 +66,32 @@ class EdgeRelayTest(unittest.TestCase):
             },
             {
                 "id": 2,
-                "name": "ag-us6",
+                "name": "ag-edge1",
                 "platform": "antigravity",
                 "type": "apikey",
                 "credentials": {
-                    "base_url": "https://api-us6.tokenkey.dev",
+                    "base_url": "https://api-edge1.tokenkey.dev",
                     "api_key": "tk_b",
                 },
             },
             {
                 "id": 3,
-                "name": "kiro-us6",
+                "name": "kiro-edge1",
                 "platform": "anthropic",
                 "type": "apikey",
                 "credentials": {
-                    "base_url": "https://api-us6.tokenkey.dev",
+                    "base_url": "https://api-edge1.tokenkey.dev",
                     "api_key": "tk_c",
                     "mirror_platform": "kiro",
                 },
             },
         ]
-        self.assertIsNone(er.find_prod_relay_stub(accounts, edge_id="us6", pool_platform="anthropic"))
-        hit = er.find_prod_relay_stub(accounts, edge_id="us6", pool_platform="antigravity")
+        self.assertIsNone(er.find_prod_relay_stub(accounts, edge_id="edge1", pool_platform="anthropic"))
+        hit = er.find_prod_relay_stub(accounts, edge_id="edge1", pool_platform="antigravity")
         self.assertIsNotNone(hit)
         assert hit is not None
         self.assertEqual(hit["id"], 2)
-        kiro = er.find_prod_relay_stub(accounts, edge_id="us6", pool_platform="kiro")
+        kiro = er.find_prod_relay_stub(accounts, edge_id="edge1", pool_platform="kiro")
         self.assertIsNotNone(kiro)
         assert kiro is not None
         self.assertEqual(kiro["id"], 3)
@@ -71,7 +99,7 @@ class EdgeRelayTest(unittest.TestCase):
     def test_plan_skips_prod_when_stub_exists(self) -> None:
         doc = {
             "import_profile": "edge_oauth_relay",
-            "edge_id": "us6",
+            "edge_id": "edge1",
             "pool_platform": "antigravity",
             "edge_oauth": {
                 "platform": "antigravity",
@@ -85,11 +113,11 @@ class EdgeRelayTest(unittest.TestCase):
             return [
                 {
                     "id": 9,
-                    "name": "ag-us6",
+                    "name": "ag-edge1",
                     "platform": "antigravity",
                     "type": "apikey",
                     "credentials": {
-                        "base_url": "https://api-us6.tokenkey.dev",
+                        "base_url": "https://api-edge1.tokenkey.dev",
                         "api_key": "tk_existing",
                     },
                 }
@@ -102,7 +130,7 @@ class EdgeRelayTest(unittest.TestCase):
     def test_plan_requires_edge_api_key_source_for_new_stub(self) -> None:
         doc = {
             "import_profile": "edge_oauth_relay",
-            "edge_id": "us6",
+            "edge_id": "edge1",
             "pool_platform": "anthropic",
             "edge_oauth": {
                 "platform": "anthropic",
@@ -118,7 +146,7 @@ class EdgeRelayTest(unittest.TestCase):
     def test_plan_allows_auto_issue_user_id(self) -> None:
         doc = {
             "import_profile": "edge_oauth_relay",
-            "edge_id": "us6",
+            "edge_id": "edge1",
             "pool_platform": "antigravity",
             "edge_oauth": {
                 "platform": "antigravity",
@@ -134,14 +162,14 @@ class EdgeRelayTest(unittest.TestCase):
 
     def test_build_prod_relay_create_spec_kiro(self) -> None:
         spec = er.build_prod_relay_create_spec(
-            edge_id="us6",
+            edge_id="edge1",
             pool_platform="kiro",
-            prod_relay={"name": "kiro-us6", "group_ids": [2]},
+            prod_relay={"name": "kiro-edge1", "group_ids": [2]},
             edge_api_key="tk_edge",
         )
         self.assertEqual(spec["platform"], "anthropic")
         self.assertEqual(spec["credentials"]["mirror_platform"], "kiro")
-        self.assertEqual(spec["credentials"]["base_url"], "https://api-us6.tokenkey.dev")
+        self.assertEqual(spec["credentials"]["base_url"], "https://api-edge1.tokenkey.dev")
         self.assertTrue(spec["credentials"]["pool_mode"])
 
 

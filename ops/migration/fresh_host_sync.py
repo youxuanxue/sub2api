@@ -247,7 +247,7 @@ def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('operation', choices=('prepare', 'sync'))
-    parser.add_argument('--node', choices=('prod', 'uk1', 'uk2', 'us4', 'us5'), required=True)
+    parser.add_argument('--node', choices=('prod',), required=True)
     parser.add_argument('--receipt', type=Path, required=True)
     parser.add_argument('--final', action='store_true')
     args = parser.parse_args()

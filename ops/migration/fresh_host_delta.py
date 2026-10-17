@@ -27,6 +27,8 @@ CANDIDATES = {
     "tokenkey-prod-tokyo-20261017": "tokenkey-prod-aws-20261015",
     "tokenkey-prod-aws-20261015": "tokenkey-prod-hz-cax21",
 }
+# Historical edge identities remain only so archived receipts and replay tests
+# can verify their source/candidate pairing; the active CLI has no edge target.
 CANDIDATES.update({f"tokenkey-edge-{edge}-aws-20261015": f"tokenkey-edge-{edge}-hz-cax21"
                    for edge in ("uk1", "uk2", "us4", "us5")})
 
