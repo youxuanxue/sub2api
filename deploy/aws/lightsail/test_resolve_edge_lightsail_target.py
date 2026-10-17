@@ -39,7 +39,7 @@ class ResolveEdgeLightsailTargetTests(unittest.TestCase):
             edge_id for edge_id, t in targets.items() if t.get("deployable") is True
         )
         planned = sorted(
-            edge_id for edge_id, t in targets.items() if t.get("deployable") is False
+            edge_id for edge_id, t in targets.items() if t.get("deployable") is False and not t.get("retired")
         )
         cls.deployable_id = deployable[0] if deployable else None
         cls.planned_id = planned[0] if planned else None
@@ -94,6 +94,12 @@ class ResolveEdgeLightsailTargetTests(unittest.TestCase):
         proc = subprocess.run(args, capture_output=True, text=True)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("confirm_instance mismatch", proc.stderr)
+
+    def test_retired_identity_rejects_allow_planned(self):
+        for key, row in self.data["targets"].items():
+            if row.get("retired"):
+                with self.subTest(edge=key), self.assertRaisesRegex(RuntimeError, "retired"):
+                    run_resolver(key, allow_planned=True)
 
     def test_unknown_edge_id_fails(self):
         proc = subprocess.run(

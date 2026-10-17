@@ -44,7 +44,15 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.data = json.loads(MATRIX.read_text(encoding="utf-8"))
         cls.targets = cls.data.get("targets") or {}
-        cls.any_id = sorted(cls.targets)[0] if cls.targets else None
+        cls.any_id = "zz1"
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.fixture = json.loads(MATRIX.read_text())
+        self.fixture["targets"][self.any_id] = {"deployable": False}
+        self.matrix = Path(self.tmp.name) / "matrix.json"
+        self.matrix.write_text(json.dumps(self.fixture))
 
     def test_matrix_cutover_live_vs_backlog(self) -> None:
         """2026-10-17: live edge set is empty (prod-only); standby rows stay false."""
@@ -54,11 +62,9 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
         self.assertEqual(validate_live_fleet(REPO_ROOT), [])
 
     def test_planned_fails_without_allow_planned(self) -> None:
-        backlog = "us3"
-        if backlog not in self.targets:
-            self.skipTest("us3 missing from matrix")
+        backlog = self.any_id
         proc = subprocess.run(
-            [sys.executable, str(RESOLVER), "--edge-id", backlog],
+            [sys.executable, str(RESOLVER), "--edge-id", backlog, "--matrix", str(self.matrix)],
             capture_output=True,
             text=True,
         )
@@ -72,7 +78,7 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
         expected = f"tokenkey-edge-{live}-hz-cax21"
         # Resolver behavior must remain testable even after the entire fleet leaves Hcloud.
         fixture = json.loads(MATRIX.read_text())
-        fixture["targets"][live]["deployable"] = True
+        fixture["targets"][live].update(deployable=True, retired=False)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "matrix.json"
             path.write_text(json.dumps(fixture))
@@ -90,11 +96,9 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
         self.assertEqual(resolved["ssm_region"], "eu-west-2")
 
     def test_planned_resolves_with_allow_planned(self) -> None:
-        backlog = "us3"
-        if backlog not in self.targets:
-            self.skipTest("us3 missing from matrix")
+        backlog = self.any_id
         expected = f"tokenkey-edge-{backlog}-hz-cax21"
-        resolved = run_resolver(backlog, allow_planned=True, confirm_instance=expected)
+        resolved = run_resolver(backlog, allow_planned=True, confirm_instance=expected, matrix=self.matrix)
         self.assertEqual(resolved["edge_id"], backlog)
         self.assertEqual(resolved["platform"], "hetzner")
         self.assertEqual(resolved["deployable"], "false")
@@ -111,6 +115,12 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
             f"tokenkey-hetzner-ssm-hybrid-{backlog}",
         )
 
+    def test_retired_identity_rejects_allow_planned(self):
+        for key, row in self.targets.items():
+            if row.get("retired"):
+                with self.subTest(edge=key), self.assertRaisesRegex(RuntimeError, "retired"):
+                    run_resolver(key, allow_planned=True)
+
     def test_unknown_edge_id_fails(self) -> None:
         proc = subprocess.run(
             [sys.executable, str(RESOLVER), "--edge-id", "zz9", "--allow-planned"],
@@ -121,9 +131,7 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
         self.assertIn("unknown edge_id", proc.stderr)
 
     def test_reject_non_fsn1_location(self) -> None:
-        if not self.any_id:
-            self.skipTest("matrix empty")
-        bad = json.loads(MATRIX.read_text(encoding="utf-8"))
+        bad = self.fixture
         bad["targets"][self.any_id] = {
             **bad["targets"][self.any_id],
             "deployable": True,
@@ -141,9 +149,7 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
         self.assertIn("location", proc.stderr)
 
     def test_reject_non_cax21_server_type(self) -> None:
-        if not self.any_id:
-            self.skipTest("matrix empty")
-        bad = json.loads(MATRIX.read_text(encoding="utf-8"))
+        bad = self.fixture
         bad["targets"][self.any_id] = {
             **bad["targets"][self.any_id],
             "deployable": True,
@@ -161,9 +167,7 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
         self.assertIn("server_type", proc.stderr)
 
     def test_reject_amd64_architecture(self) -> None:
-        if not self.any_id:
-            self.skipTest("matrix empty")
-        bad = json.loads(MATRIX.read_text(encoding="utf-8"))
+        bad = self.fixture
         bad["targets"][self.any_id] = {
             **bad["targets"][self.any_id],
             "deployable": True,
@@ -181,8 +185,6 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
         self.assertIn("architecture", proc.stderr)
 
     def test_confirm_instance_mismatch_fails(self) -> None:
-        if not self.any_id:
-            self.skipTest("matrix empty")
         proc = subprocess.run(
             [
                 sys.executable,
@@ -192,6 +194,8 @@ class ResolveEdgeHetznerTargetTests(unittest.TestCase):
                 "--allow-planned",
                 "--confirm-instance",
                 "wrong-name",
+                "--matrix",
+                str(self.matrix),
             ],
             capture_output=True,
             text=True,

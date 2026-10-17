@@ -13,7 +13,12 @@ WORKFLOW = REPO_ROOT / ".github/workflows/deploy-edge-lightsail-stage0.yml"
 
 class EdgeRecoverySafetyTests(unittest.TestCase):
     def run_provision_guard(
-        self, *, instance_exists: bool, marker_exists: bool, allow_generate: bool
+        self,
+        *,
+        instance_exists: bool,
+        marker_exists: bool,
+        allow_generate: bool,
+        restore_approved: bool = True,
     ):
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)
@@ -39,6 +44,7 @@ esac
             )
             fake_aws.chmod(0o755)
             env = os.environ.copy()
+            env.pop("CONFIRM_EDGE_RESTORE", None)
             env.update(
                 {
                     "PATH": f"{fake_bin}:{env['PATH']}",
@@ -51,21 +57,35 @@ esac
                     "GHCR_OWNER": "example",
                 }
             )
+            if restore_approved:
+                env["CONFIRM_EDGE_RESTORE"] = "I_APPROVE_EDGE_RESTORE"
             proc = subprocess.run(
                 [
-                    "bash", str(PROVISION), "us3", "1.8.160", "us-east-2",
-                    "tokenkey-edge-us3", "tokenkey-edge-us3-ip", "us-east-2a",
-                    "small_3_0", "amazon_linux_2023", "us3.example.com",
+                    "bash", str(PROVISION), "sg1", "1.8.160", "ap-southeast-1",
+                    "tokenkey-edge-sg1-ls", "tokenkey-edge-sg1-ls-ip", "ap-southeast-1a",
+                    "small_3_0", "amazon_linux_2023", "api-sg1.tokenkey.dev",
                     "ops@example.com", "192.0.2.1/32", "example", "",
-                    "/tokenkey/lightsail/us3", "tokenkey-ls-us3",
-                    "tokenkey-lightsail-ssm-hybrid-us3",
+                    "/tokenkey/lightsail/sg1", "tokenkey-ls-sg1",
+                    "tokenkey-lightsail-ssm-hybrid-sg1",
                 ],
                 cwd=REPO_ROOT,
                 env=env,
                 capture_output=True,
                 text=True,
             )
-            return proc, aws_log.read_text(encoding="utf-8")
+            aws_text = aws_log.read_text(encoding="utf-8") if aws_log.exists() else ""
+            return proc, aws_text
+
+    def test_refuses_without_edge_restore_approval(self):
+        proc, aws_log = self.run_provision_guard(
+            instance_exists=True,
+            marker_exists=True,
+            allow_generate=False,
+            restore_approved=False,
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("retired", proc.stderr)
+        self.assertEqual(aws_log, "")
 
     def test_recreate_without_verified_backup_aborts_before_activation_or_delete(self):
         proc, aws_log = self.run_provision_guard(
@@ -85,15 +105,30 @@ esac
         self.assertIn("secret generation is forbidden for an existing Edge identity", proc.stderr)
         self.assertNotIn("create-activation", aws_log)
 
+    def test_retired_direct_provision_refuses_before_any_aws_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "aws"
+            fake.write_text("#!/bin/sh\necho unexpected-cloud-call >&2\nexit 99\n")
+            fake.chmod(0o755)
+            result = subprocess.run(["bash", str(PROVISION), "uk1", "1.8.160", "eu-west-2",
+                                     "tokenkey-edge-uk1-aws-20261015"],
+                                    env={**os.environ, "PATH": tmp + ":" + os.environ["PATH"]},
+                                    capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("retired", result.stderr)
+            self.assertNotIn("unexpected-cloud-call", result.stderr)
+
     def test_workflow_orders_recreate_backup_and_role_checks(self):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         steps = workflow["jobs"]["edge"]["steps"]
         names = [step.get("name", "") for step in steps]
+        approve = names.index("Require edge restore approval")
         prepare = names.index("Prepare safe Lightsail provision")
         provision = names.index("Provision Lightsail Edge")
         resolve = names.index("Resolve SSM managed instance + API URL")
         verify_role = names.index("Verify Edge SSM role")
         backup = names.index("Backup Edge env secrets off-box")
+        self.assertLess(approve, prepare)
         self.assertLess(prepare, provision)
         self.assertLess(resolve, verify_role)
         self.assertLess(verify_role, backup)

@@ -12,7 +12,8 @@
 
 ## 当前导入流程
 
-现网只使用单端 `create_account` 或平台快捷格式：
+现网只使用单端 `create_account` 或平台快捷格式，按实际出口需求绑定日本代理；
+现役代理身份见 [舰队清单](../../deploy/hetzner/README.md#日本出口代理现役)。
 
 ```bash
 cd ops/accounts

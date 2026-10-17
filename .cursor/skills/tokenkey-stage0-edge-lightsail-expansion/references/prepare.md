@@ -37,7 +37,7 @@ python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py \
 
 规则：
 
-- `edge_id`（调度/DNS 语义，如 `us2`）可以与 `instance_name`（如 `tokenkey-edge-us-va1-ls`）**不同**。
+- `edge_id`（调度/DNS 语义）可以与 `instance_name`（真实 Lightsail 名称）**不同**。
 - `confirm_instance` workflow 输入 **必须等于** matrix 的 `instance_name`，不是 `tokenkey-edge-<edge_id>-ls` 的机械推导。
 - 已有 bare instance → provision 时 **`recreate=true`**（见 §2）。`provision-edge.sh` 在 recreate 时
   **只 detach、不 release** Static IP，保留已分配的 IP 地址（2026-05-28 起）。
@@ -80,7 +80,7 @@ aws ssm put-parameter --region "<lightsail_region>" \
 - `EDGE_ACME_EMAIL`
 - `EDGE_MAIN_GATEWAY_ALLOWED_CIDR`（current prod main-gateway egress；**workflow 没有默认值**）
 - `TK_SMOKE_API_KEY`（secret）— **仅**计划跑 `operation=smoke` 且显式 `smoke_phase=main-via-edge` 的 edge 需要。
-  当前 prod 惯例：**只**在 `edge-uk1` / `edge-us1` 配置即可；其它 edge（如 us2/us3/us4）
+  当前 prod 惯例：只在计划运行 main-via-edge smoke 的 environment 配置；其它 edge
   **可不配**——缺 secret 时 `edge_post_deploy_smoke.sh` 跳过 main-via-edge 段；upgrade/rollback
   默认 upgrade/rollback 走 **infra**；显式 `--smoke-phase full` 才跑容器内 edge-native OAuth 探针，不依赖该 key。GitHub secret 只写不可读，无法从 uk1 机械复制。
 
@@ -89,7 +89,7 @@ Smoke base URL 与 Edge 本机默认 model 清单在代码内固定（`https://a
 **飞书告警:不要按 edge 配。** webhook/secret 是**仓库级** secrets `TK_FEISHU_WEBHOOK_URL` / `TK_FEISHU_SIGNING_SECRET`(配一次,对所有 `edge-*` / `prod` Environment 可见),部署时由 `ops/stage0/sync-feishu-config.sh` 自动注入新边并启用 + 写后回读自验(配不齐则部署红)。别在 `edge-<id>` Environment 建同名密钥(会覆盖 repo 级)。新边 provision/upgrade 后即具备账号失效 / P0 告警能力,无手工步骤。详见 `deploy/aws/README.md` §「飞书告警自动接入」。
 
 **US 多 region edge**（`us-east-1` / `us-east-2` / `us-west-2`）：Environment 的 `AWS_OIDC_ROLE_ARN`
-与 `edge-us1` 相同（`tokenkey-gha-us-east-1-error-clustering`）；Lightsail API region 由 matrix
+与现有同区域 environment 相同（由组织的 OIDC role 配置决定）；Lightsail API region 由 matrix
 `lightsail_region` 决定，与 OIDC role region 无关。
 
 ### 1.5a OIDC trust：新 `edge-<id>` Environment 必做
@@ -116,7 +116,7 @@ aws iam get-role --role-name tokenkey-gha-us-east-1-error-clustering \
 
 `AssumeRoleWithWebIdentity` / `Not authorized` 且 provision 步骤未开始 → 先查此 trust，不要猜 Lightsail 权限。
 
-新 edge **若不跑 smoke**，可跳过 `TK_SMOKE_API_KEY`（见 §1.5 说明；uk1/us1 以外的 edge 默认不配）。
+新 edge **若不跑 smoke**，可跳过 `TK_SMOKE_API_KEY`（见 §1.5 说明）。
 
 #### 1.3b Lightsail standby edge：**不要**加 EC2 CFN execution role
 

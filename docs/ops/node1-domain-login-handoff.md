@@ -4,7 +4,14 @@
 用户确认由运营管理第三方配置。此清单只授权准备；**不开放新站业务、不影响 AWS prod，
 正式切流仍须独立审批**。迁移状态与边界见 [准备记录](../approved/node1-prod-precutover.md)。
 
-## 运营现在可以准备
+## 当前交接状态
+
+运营已确认 Turnstile 允许域名及新 GitHub OAuth App 配置完成。新应用凭证已私有交接、
+以 0600 暂存到 Node1；GitHub 凭证对照检查及 Node1 到 GitHub/Turnstile 的服务端验证
+均通过。控制台配置的具体值和真实登录仍须浏览器验收，不能仅凭 Secret 有效视为通过。
+用户要求暂缓该项，以下验收复选框保留待验收状态，不开放公网登录、不修改 AWS。
+
+## 运营配置参考
 
 ### Cloudflare Turnstile
 

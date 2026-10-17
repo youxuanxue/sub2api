@@ -17,6 +17,8 @@ _SCRIPT = pathlib.Path(__file__).resolve().parent / "dispatch-edge-deploy.sh"
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _NORMALIZE = _REPO_ROOT / "ops/stage0/normalize-deploy-tag.sh"
 _VALIDATE = _REPO_ROOT / "ops/stage0/validate-deploy-tag.sh"
+_RESTORE = _REPO_ROOT / "ops/stage0/require_edge_restore_approval.py"
+_TOKEN = "I_APPROVE_EDGE_RESTORE"
 
 
 class DispatchEdgeDeploySmokePhaseTest(unittest.TestCase):
@@ -32,6 +34,8 @@ class DispatchEdgeDeploySmokePhaseTest(unittest.TestCase):
         (self.repo / "ops/stage0/normalize-deploy-tag.sh").chmod(0o755)
         shutil.copy(_VALIDATE, self.repo / "ops/stage0/validate-deploy-tag.sh")
         (self.repo / "ops/stage0/validate-deploy-tag.sh").chmod(0o755)
+        shutil.copy(_RESTORE, self.repo / "ops/stage0/require_edge_restore_approval.py")
+        (self.repo / "ops/stage0/require_edge_restore_approval.py").chmod(0o755)
         self.fakebin = self.repo / "fakebin"
         self.fakebin.mkdir()
         self.gh_log = self.repo / "gh-args.log"
@@ -63,10 +67,14 @@ class DispatchEdgeDeploySmokePhaseTest(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def _run(self, *args: str) -> subprocess.CompletedProcess:
+    def _run(self, *args: str, with_restore: bool = True) -> subprocess.CompletedProcess:
         env = {**os.environ, "PATH": f"{self.fakebin}:{os.environ.get('PATH', '')}"}
+        env.pop("CONFIRM_EDGE_RESTORE", None)
+        argv = ["bash", "scripts/stage0/dispatch-edge-deploy.sh", *args]
+        if with_restore:
+            argv.extend(["--confirm-edge-restore", _TOKEN])
         return subprocess.run(
-            ["bash", "scripts/stage0/dispatch-edge-deploy.sh", *args],
+            argv,
             cwd=self.repo,
             env=env,
             capture_output=True,
@@ -77,11 +85,21 @@ class DispatchEdgeDeploySmokePhaseTest(unittest.TestCase):
     def _gh_args(self) -> str:
         return self.gh_log.read_text()
 
+    def test_refuses_without_restore_approval(self) -> None:
+        proc = self._run(
+            "--edge-id", "uk1", "--operation", "upgrade", "--tag", "1.2.3",
+            with_restore=False,
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("retired", proc.stderr)
+        self.assertFalse(self.gh_log.exists())
+
     def test_upgrade_defaults_smoke_phase_infra(self) -> None:
         proc = self._run("--edge-id", "uk1", "--operation", "upgrade", "--tag", "1.2.3")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
         self.assertIn("smoke_phase=infra", proc.stdout)
         self.assertIn("smoke_phase=infra", self._gh_args())
+        self.assertIn(f"confirm_edge_restore={_TOKEN}", self._gh_args())
 
     def test_rollback_defaults_smoke_phase_infra(self) -> None:
         proc = self._run("--edge-id", "uk1", "--operation", "rollback", "--tag", "1.2.2")

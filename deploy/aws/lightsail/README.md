@@ -1,6 +1,9 @@
-# Edge Stage0 on AWS Lightsail（退役恢复路径）
+# Edge Stage0 on AWS Lightsail（历史与待建模板）
 
-> **现网 SSOT：** [`deploy/hetzner/README.md`](../../hetzner/README.md)。当前只运行 Tokyo prod；美国 Lightsail edge 已释放。本目录保留矩阵、bootstrap 和恢复原语，任何恢复都必须先更新矩阵、workflow 和审批记录。
+> 现网仅 Tokyo prod 与日本出口代理，见 [舰队清单](../../hetzner/README.md)。
+> 原 edge 已回收，矩阵 `retired=true` 不允许 `--allow-planned` 绕过。
+> 本目录保留共享 bootstrap/provision 实现；新建须提供独立的新身份，不能复用旧坐标。
+> 日本代理不是 edge 网关，不走这里的网关部署流程。
 
 Lightsail Edge 与 prod Stage0 **共用**：
 

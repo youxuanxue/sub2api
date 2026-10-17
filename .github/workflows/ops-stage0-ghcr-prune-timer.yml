@@ -144,7 +144,7 @@ jobs:
         id: instance
         run: |
           set -euo pipefail
-          # auto → live Hetzner Hybrid when deployable; Lightsail only as standby fallback.
+          # auto selects a deployable edge only; the current prod-only fleet has no edge targets.
           IDENTITY="$(python3 ops/stage0/edge_ssm_execution.py \
             --edge-id "$EDGE_ID" --platform auto --format json)"
           INSTANCE_ID="$(jq -r .instance_id <<<"$IDENTITY")"

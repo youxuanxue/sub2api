@@ -1,20 +1,32 @@
+# 迁移工具边界
+
+当前身份与恢复入口见 [舰队清单](../../deploy/hetzner/README.md)。
+`fresh_host_*`、`hold-fresh-candidate.sh`、`prepare-aws-*`、`prepare-prod-edge-pins.py` 与 `repair-tokyo-usage-20261017.sh`
+属于 2026-10 的一次性迁移/修复工具，不是日常运维入口。历史实例已删除，不能重放旧回执；
+当前 Tokyo prod 也不是候选机。新的整机替换须按 host-replacement 技能准备新身份与回执。
+通用分区维护工具仍可用，不因目录名 migration 而删除。
+
 # usage_logs 日分区切换
+
+> **Edge targets retired (2026-10-17).** 当前只维护 `prod`。本页中的
+> `edge:<id>` 示例是历史 receipt/replay 资料；共享 resolver 会拒绝 retired
+> 或 planned edge，禁止把它们作为现网迁移目标。
 
 `usage_logs_daily_partition.py` 是 prod 与 Edge 共用的唯一 operator。它不会由应用启动或
 migration runner 自动执行，也不会复制历史明细。每个命令都必须显式指定 `--target prod` 或
 `--target edge:<id>`；confirmation、远端 receipt 和本地 receipt 均与同一 target 绑定，不能跨节点复用。
 
 先读取目标状态，再并发创建普通 `(request_id, api_key_id)` 查询索引，并在线准备及验证固定上界
-CHECK。以下以 `edge:us3` 为例：
+CHECK。以下以当前 `prod` 为例（旧 edge 已退役）：
 
 ```bash
 python3 ops/migration/usage_logs_daily_partition.py status \
-  --target edge:us3
+  --target prod
 
 python3 ops/migration/usage_logs_daily_partition.py prepare \
-  --target edge:us3 \
+  --target prod \
   --receipt /path/to/usage-prepare-receipt.json \
-  --confirm tokenkey-edge-us3-usage-daily-prepare-v1
+  --confirm tokenkey-prod-usage-daily-prepare-v1
 ```
 
 如果 receipt 写入失败或决定取消 cutover，使用与 target 和 receipt 上界精确绑定的确认串撤销
@@ -22,10 +34,10 @@ CHECK：
 
 ```bash
 python3 ops/migration/usage_logs_daily_partition.py abort \
-  --target edge:us3 \
+  --target prod \
   --receipt /path/to/usage-abort-receipt.json \
   --legacy-upper-exclusive '<legacy_upper_exclusive>' \
-  --confirm 'tokenkey-edge-us3-usage-daily-abort-v1:<legacy_upper_exclusive>'
+  --confirm 'tokenkey-prod-usage-daily-abort-v1:<legacy_upper_exclusive>'
 ```
 
 `abort` 只允许在尚未 cutover、且 CHECK 带有 operator ownership 标记时执行；普通查询索引保留。
@@ -35,13 +47,13 @@ prepare receipt 会给出绑定 target 与上界的 `required_cutover_confirmati
 
 ```bash
 python3 ops/migration/usage_logs_daily_partition.py cutover \
-  --target edge:us3 \
+  --target prod \
   --prepare-receipt /path/to/usage-prepare-receipt.json \
   --cutover-receipt /path/to/usage-cutover-receipt.json \
   --confirm '<required_cutover_confirmation>'
 
 python3 ops/migration/usage_logs_daily_partition.py verify \
-  --target edge:us3 \
+  --target prod \
   --prepare-receipt /path/to/usage-prepare-receipt.json
 ```
 
@@ -51,7 +63,7 @@ closed。账务幂等仍由 `usage_billing_dedup` 负责。
 
 ## 分区维护一次性入口
 
-`data_layer_partition_maintenance.py` 只面向固定的 `us-east-1` / `tokenkey-prod-stage0`，
+`data_layer_partition_maintenance.py` 通过共享 prod resolver 选择当前实例与 SSM 区域，
 不接受 target、instance、script 或 command 参数。steady state 下日常分区维护由
 `OpsCleanupService` 负责；本入口仅在 cutover 后补洞或覆盖漂移时使用，每次仍须显式确认串与
 独立审批。

@@ -28,7 +28,7 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as fh:
     data = json.load(fh)
 for edge_id, target in sorted(data.get("targets", {}).items()):
-    if target.get("deployable") is True:
+    if target.get("deployable") is True and not target.get("retired"):
         print(edge_id, target["lightsail_region"], target["ssm_prefix"], sep="\t")
 PY
 )"

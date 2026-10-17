@@ -1,4 +1,4 @@
-# TokenKey 舰队 · Hcloud / AWS 分批迁移
+# TokenKey 现网舰队 · Tokyo prod 与日本出口代理
 
 **SSOT：** 现网节点 / 公网 IP / CIDR / GHCR PAT 路径 / 发版入口 **只在本文件叙述**；其它文档与 skill 只留指针，勿复制数值。
 审批基线（决策锁，无 IP 表）：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
@@ -7,38 +7,49 @@
 
 | 节点 | 正式域名 | 公网 IP | SSM 身份 | 备注 |
 |------|----------|---------|------------|------|
-| **prod** | `api.tokenkey.dev` | `3.114.187.250` | `i-045f062ce33e1a5af` · ap-northeast-1 | EC2 c7g.xlarge · tokenkey-prod-tokyo-20261017；旧美东 `i-022f2553503211775`/`23.21.138.205` 冻结 standby |
+| **prod** | `api.tokenkey.dev` | `3.114.187.250` | `i-045f062ce33e1a5af` · ap-northeast-1 | EC2 c7g.xlarge · tokenkey-prod-tokyo-20261017 |
 
-**Edge 不再部署 / 不再 fan-out。** prod 侧全部 `api-<edge>.tokenkey.dev` 中继 stub 已软删（见 [`docs/ops/edge-relay-soft-delete-20261017.json`](../../docs/ops/edge-relay-soft-delete-20261017.json)）。美国 Lightsail/Hcloud edge 的实例、Static IP、SSM 身份、参数和 DNS 已释放；矩阵只保留不可执行的历史身份。`resolve-edge-target.py --list-deployable` 应为空；代码契约 `ops/stage0/edge_routing_matrix.EXPECTED_LIVE_EDGE_IDS` 同为空。`dispatch-edge-deploy` 对美国 retired id 硬拒绝；恢复 edge 须**同时**改矩阵 `deployable`、该常量、workflow 选项与本表。
+**Edge 已退役并回收。** prod 直接使用原生账号（含原 edge 复制账号），旧中继 stub 已软删。
+AWS / Hcloud 旧主机与公网 IP 不能用作回滚目标；历史数据从 S3 隔离归档读取。
+退役验收与归档入口见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
+`dispatch-edge-deploy` / edge deploy workflow / 付费 `provision-edge` 另需字面量 `I_APPROVE_EDGE_RESTORE`（`ops/stage0/require_edge_restore_approval.py`；`--allow-planned` 不够）。
 
-历史身份（仅 standby / 排障，非活路由）：
+### 日本出口代理（现役）
 
-| 节点 | 域名 | IP | SSM |
-|------|------|-----|-----|
-| uk1 | `api-uk1.tokenkey.dev` | `18.132.100.198` | `mi-039a529756d9add02` |
-| uk2 | `api-uk2.tokenkey.dev` | `35.178.162.181` | `mi-022bedb939517c7f3` |
-| us4/us5 | 已退役 | 已释放 | 已注销 |
+这些 Lightsail 机器仅提供账号出口，不能作为 edge 网关部署或退役：
 
-- 矩阵：AWS `../aws/lightsail/edge-targets-lightsail.json` 与历史 Hcloud `edge-targets-hetzner.json`；retired 行仅供审计。
-- 发版只打 prod；edge workflow 仅保留经过评审的非美国恢复入口。
-- 切流硬坑：[`tokenkey-host-replacement` playbook](../../.cursor/skills/tokenkey-host-replacement/references/playbook.md)。
+| prod 代理名 | Lightsail 实例 | 公网 IP | 区域 |
+|---|---|---|---|
+| jp-uk1 | Ubuntu-1-1 | 46.51.238.48 | ap-northeast-1 |
+| jp-uk2 | Ubuntu-1-2 | 52.68.179.121 | ap-northeast-1 |
+| jp-us4 | Ubuntu-3-1 | 35.77.89.227 | ap-northeast-1 |
+| jp-us5 | Ubuntu-3-2 | 52.68.182.0 | ap-northeast-1 |
+
+账号绑定以 prod 管理 API 的实际 endpoint 为准；名称含 uk/us 不代表物理地域。
+
+- 活 prod 身份：`../aws/fresh-migration-20261015.json` 的 `prod`；其旧源与 `edges` 坐标仅供历史取证。
+- 旧 edge 矩阵：`../aws/lightsail/edge-targets-lightsail.json` 与 `edge-targets-hetzner.json`。
+  `retired=true` 在 dispatch、provision 和 SSM 解析时拒绝，`--allow-planned` 不能覆盖。
+- `resolve-edge-target.py --list-deployable` 与 `EXPECTED_LIVE_EDGE_IDS` 均为空。
+  新建 edge 是独立架构决策：提供新身份、更新矩阵及契约；不能重新启用已删除实例或已释放 IP。
+- 换机流程：[host replacement](../../.cursor/skills/tokenkey-host-replacement/SKILL.md)。
 
 ## 现网不变量
 
 | 项 | 值 |
 |----|-----|
 | 活入口 | 仅 Tokyo prod `3.114.187.250`；四正式域名 A 指向该 IP |
-| Edge 部署 | **关闭**（矩阵 `deployable=false`；无 prod→edge stub） |
+| Edge 部署 | **关闭**（退役行 `retired=true`；无 prod→edge stub） |
 | Edge `MAIN_GATEWAY_ALLOWED_CIDR`（历史机若仍开机） | `3.114.187.250/32` |
 | prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
 | GHCR PAT（Hybrid） | SSM `/tokenkey/edge/fleet/ghcr/pat`（eu-west-2；仅历史 edge 排障） |
-| 探针 / sync Caddy | prod 解析至 EC2 `i-*`；edge 仅显式 standby 排障时直投 `mi-*` |
+| 探针 / sync Caddy | prod 解析至当前 EC2 `i-*`；已退役 edge 身份拒绝执行 |
 | live 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
 | Secrets | `/tokenkey/hetzner/…`；不进 git |
 
 Stage0 单后端 Caddy 只由 `/health` 主动检查决定摘除与恢复；禁止被动冷却，避免客户端上传断连或单次业务 5xx 让其他请求等待。正式 prod 的源是 `deploy/aws/stage0/Caddyfile`；新机 prod 和 edge 均使用 `Caddyfile.edge`。修改时同时重生成 Hetzner bootstrap，`scripts/checks/caddyfile-syntax.sh` 校验 Caddy 解析后的健康策略；运行中主机通过 `ops/stage0/sync_caddyfile_via_ssm.sh` 热更新，单纯发布应用镜像不会刷新 Caddyfile。
 
-旧 AWS 与旧 Hcloud prod 保留历史数据，不作为回滚写库；四台旧 Hcloud edge 已回收，历史整库保留在 S3 独立归档前缀。全新 AWS 节点按上表接流量。
+旧主机均不再提供服务或回滚写库；历史整库保留在 S3 独立归档前缀。只有上表 prod 接收网关流量。
 
 ## 文件
 
@@ -57,50 +68,29 @@ Stage0 单后端 Caddy 只由 `/health` 主动检查决定摘除与恢复；禁�
 ## 日常发版
 
 ```bash
-# prod
 bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
-# 或 deploy-stage0 → deploy_via_ssm_bluegreen.sh
-
-# edge recovery（必须先完成评审并更新矩阵/workflow）
-bash scripts/stage0/dispatch-edge-deploy.sh \
-  --edge-id <approved-edge> --operation upgrade --tag X.Y.Z
 ```
 
-新边 / 重建（付费，需单独批准）：
-
-```bash
-bash scripts/stage0/dispatch-edge-deploy.sh \
-  --edge-id <id> --operation provision --platform hetzner \
-  --allow-planned --confirm-paid --tag X.Y.Z
-```
+日常发版仅 prod，健康检查中的 `edge-health-watch --with-prod` 仍监测 prod，保留。
+Hcloud 建机、edge 发布和 Gemini Web Worker workflow 属历史/待建模板：
+当前已退役身份一律拒绝；prod 不运行 Gemini worker。共享 compose、Caddy、pgdump、
+QA 和 SSM 实现仍由现网使用，不按目录名批量删除。
 
 ## 开放运维项（非过程史）
 
-主机告警脚本不随应用镜像发版更新。以下安装器仅用于历史 Hcloud 主机，必须显式选择对应历史 SSM 身份；不能对默认新 AWS prod 执行。新 AWS prod 监控 `/var/lib/tokenkey` EBS 数据盘，迁移收尾见 [验收记录](../../docs/approved/aws-migration-closeout-20261016.md)。
-
-```bash
-PROD_SSM_TARGET=hetzner bash ops/observability/run-probe.sh --target prod \
-  --script ops/observability/remediate-hcloud-prod-host-alerts.sh \
-  --with deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh \
-  --with deploy/hetzner/prod-target-hetzner.json
-```
-
-默认只校验主机身份、Hetzner 卷挂载和现有 timer 并输出 plan；执行安装时追加
-`--env APPLY=yes-hcloud-prod-host-alerts`。安装前自测共享脚本并备份旧脚本/全部 drop-ins，
-输出备份目录后原子替换脚本与 volume drop-in、reload 并验证生效绑定；失败非零退出。
-不主动执行告警服务，沿用现有 timer。回退时从输出的备份恢复脚本和原 drop-ins，再
-`systemctl daemon-reload`。已退役 edge 不再安装告警；历史主机如需取证才附加
-`--with deploy/hetzner/edge-targets-hetzner.json`、
-`--with ops/stage0/edge_routing_matrix.py` 与 `--env ALERT_TARGET=edge:<id>`，apply 值为
-`yes-hcloud-host-alerts`；只更新告警脚本，不同步 GHCR 或重启 timer。
-
-1. **现网已收敛到 prod**：Tokyo prod 承担全部流量；美国 edge 资源已释放，当前镜像以 live SSM/container 为准。
-2. **账号策略已调整**：prod 原生账号（含从 edge 复制的账号）承接请求，旧中继与 edge 账号保留但停用。历史 Gemini pending/blocked 等账号问题由运营处理；本轮基础设施收尾不自动启用账号或中继。
-3. **旧主机收尾**：四台旧 Hcloud edge 已于 2026-10-16 回收，随附 Primary IP 已释放，专属 SSM 身份已注销；释放前已移除新 edge 对对应旧 IP 的过渡信任。冻结整库与校验清单保留在 S3 独立归档前缀，详见[收尾记录](../../docs/approved/aws-migration-closeout-20261016.md)。旧 Hcloud prod 仍有真实请求转发，继续保留 transition Caddy 与旧信任。旧 AWS standby 仅作归档，已停备份与业务自启动入口。
-4. **QA 维护**：新 prod capture 继续启用；按用户纠正，日常新增归档目标为同区域 AWS S3，独立 archive/boundary timer 与 pin 保留。存量 raw 不搬，两侧历史数据沿原生命周期到期，恢复权限保留。当前验收、未迁 raw 边界与资源退役条件见 [QA 运维入口](../../ops/qa/README.md#aws-新-prod-迁移后的维护恢复)。
-5. **灾备与告警**：新 prod 纳入每日 DLM；跨区域宿主 HTTPS watch 补足 GitHub schedule 延迟。首次快照及隔离备份恢复的验收状态见 [迁移收尾](../../docs/approved/aws-migration-closeout-20261016.md)。
+1. **账号**：prod 原生账号承接请求；错误、不可调度状态由运营处理，不自动恢复中继或旧副本。
+2. **QA**：capture 沿现有配置；用户已暂停向 S3 上传。暂停 owner 为当前 prod 清单的
+   `paused_jobs`，只包含 `tokenkey-qa-maintenance`。boundary、备份与 capture 不随之停用。
+   历史 raw 不搬，恢复见 [QA 运维入口](../../ops/qa/README.md)。
+3. **监控**：东京 DLM 与 CPU/磁盘告警保留。宿主 HTTPS/job watcher 读取暂停 owner，
+   要求归档 timer 停用且 service 不在运行；意外恢复会告警。其他任务仍按成功时效监控。
+   主机脚本不随网关镜像自动更新；安装/刷新独立 watcher 后才生效，仓库合并不代表已部署。
+4. **资源**：临时 node1 reader/入口在独立任务验收后回收；日本代理保留；
+   新加坡其它项目资源不纳入 TokenKey 批量清理。详见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
 
 ## 历史 OAuth 账号回滚记录
+
+历史恢复说明：现已没有可直接回滚的旧 edge。以下凭据纪律仅适用于另行批准的新建隔离节点。
 
 冻结副本不刷新；prod 可能已轮换 refresh token，不能直接重新启用旧副本。
 按 [集中后审计与修复](../../docs/approved/oauth-consolidation-gateway-safety.md) 核对残留风险。
@@ -133,20 +123,20 @@ bash deploy/hetzner/render-prod-bootstrap.sh --check
 | 类别 | 当前用途 / owner | 清理条件 |
 |---|---|---|
 | SSM Hybrid / Parameter Store / STS OIDC | Lightsail / 历史 Hcloud 远程执行、参数与 GHCR 身份；`ops/stage0/{resolve_prod_ssm_target,edge_ssm_execution}.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
-| QA raw archive | 新增日常归档回归 AWS S3；Hetzner 仅保留历史小时恢复，存量按原生命周期自然到期 | 按 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)核查实际到期与对象清单；AWS 桶、KMS 和恢复角色销毁另行审批 |
-| PG dump | 五台现役 AWS 节点使用原 AWS 私有桶，prod 与 edge 前缀隔离；旧 Hcloud 存储保留历史恢复 | 当前节点的隔离恢复与定时任务验收见 [收尾记录](../../docs/approved/aws-migration-closeout-20261016.md)；不销毁旧数据 |
+| QA raw archive | 存储配置为 AWS S3，当前上传已暂停；历史恢复按小时来源选择 | 按 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)核查实际到期与对象清单；AWS 桶、KMS 和恢复角色销毁另行审批 |
+| PG dump | 仅 Tokyo prod 定时备份；旧 edge/prod 全量冻结库保留独立 S3 归档 | 当前节点的隔离恢复与定时任务验收见 [收尾记录](../../docs/approved/aws-migration-closeout-20261016.md)；不销毁旧数据 |
 | env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
 | 历史 archive / dormant media 桶 | 历史数据与停用配置；媒体默认不启用 S3，只有显式 opt-in | 资产销毁另行审批，不能把停用 bucket 描述成现网迁移对象 |
 | 共享运行文件的旧目录名 | `deploy/aws/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 仍直接消费 | 是共享 owner，路径不代表部署在 AWS；迁路径必须同时更新引用、生成产物和 sentinel |
-| AWS standby 脚手架 | `deploy/aws/lightsail/`、EC2 bootstrap/CFN、`ops/lightsail/`、AWS DR 与 IP 历史 | 不进现网自动 fan-out；仅明确指定旧机恢复时使用，资产退役单独授权 |
+| 历史 AWS 脚手架 | `deploy/aws/lightsail/`、EC2 bootstrap/CFN、`ops/lightsail/`、AWS DR 与 IP 历史 | 不进现网自动 fan-out；旧身份已拒绝，新建恢复节点需独立清单 |
 | 第三方 AWS 协议 | Kiro/Bedrock 的 AWS endpoint、SDK/SigV4、S3 兼容客户端 | 属模型供应商/协议能力，不能随基础设施迁移删除 |
 
 | 变量 | 语义 |
 |---|---|
-| `PROD_SSM_TARGET` | `auto`/未设置默认 aws-fresh；`hetzner` 仅显式选择历史 Hcloud，`aws` 仅显式选择旧 EC2 standby。旧 `/tokenkey/prod/control-plane-ssm-target` 参数不再参与默认解析 |
+| `PROD_SSM_TARGET` | `auto`/未设置默认 aws-fresh；`hetzner` / `aws` 的已退役 prod 身份直接拒绝。旧 `/tokenkey/prod/control-plane-ssm-target` 参数不再参与默认解析 |
 | `AWS_REGION` / `AWS_DEFAULT_REGION` | AWS API 区域。SSM 命令必须用 resolver 返回的 `ssm_region`，不能拿 hcloud `fsn1` 或旧 EC2 region 代替；QA/S3 仍按各自存储区域 |
 | `AWS_OIDC_ROLE_ARN` / `AWS_SHARED_CREDENTIALS_FILE` | 仍用于 Hybrid 控制面与现有 AWS 计算及数据依赖；凭据内容不可打印 |
-| `PROD_STACK_NAME` / `STACK_NAME` | 旧 AWS standby 或仍在使用的 QA/备份 CFN，不是 hcloud 主机身份 |
+| `PROD_STACK_NAME` / `STACK_NAME` | 历史 AWS 或仍在使用的 QA/备份 CFN；不能代替当前 prod 身份 |
 | `HCLOUD_TOKEN` | hcloud 资源管理；普通镜像升级走 SSM，不重新 provision |
 | `HCLOUD_S3_Access_Key` / `HCLOUD_S3_Secret_Key` | 本机受保护的对象存储凭据；不输出、不入库 |
 | `QA_*` | QA 独立迁移契约；不得因网关迁完而直接切换默认值 |
@@ -172,22 +162,11 @@ archive 持独占锁；备份完成本地文件后立即解锁，上传不阻塞
 回退同样在任务空闲且持排他锁时恢复原文件，随后观察下一轮 timer 的回执与备份产物。
 仅更新宿主脚本，不发布网关镜像或重启 gateway、Caddy、PostgreSQL/Redis。
 
-旧 AWS prod standby 上的 QA/告警 timer 可独立停用；实例和数据继续保留。
-入口默认只读 plan，必须明确旧 EC2 ID（禁止 Hybrid/HCloud）：
+旧主机已经删除，停用旧机 timer 的脚本只作为历史实现保留；不得向当前 prod 套用旧退役步骤。
+历史取证入口 `ops/stage0/retire-aws-standby-timers-remote.sh` 保留其旧机身份/空闲门禁；
+`ops/observability/remediate-hcloud-prod-host-alerts.sh` 保留 Hcloud 专属卷/主机门禁。
+这些工具用于解释旧安装/回退回执，不是当前 prod 的安装或清理命令。
 
-```bash
-PROD_SSM_TARGET=aws bash ops/observability/run-probe.sh --target prod \
-  --expected-instance-id <旧EC2-ID> \
-  --script ops/stage0/retire-aws-standby-timers-remote.sh \
-  --with ops/stage0/retire_aws_standby_timers.py \
-  --env EXPECTED_STANDBY_INSTANCE_ID=<旧EC2-ID>
-```
-
-核实 plan 后同一命令追加 `--env OPERATION=apply`。入口核对 IMDSv2 身份、无运行中的
-TokenKey gateway/worker、相关 service 空闲，只 disable/stop 三个 allowlist timer：
-QA maintenance、QA boundary、disk metrics；不操作 PG/Redis 或删除资源。apply 输出
-root-only 状态备份路径，失败尝试恢复原 timer 状态；回退用 `--env OPERATION=rollback`
-及 `--env BACKUP=<输出的备份路径>`，仍须通过旧机身份与空闲检查。
 
 普通蓝绿发布不再注入 telemetry 的 AWS 桶/region 默认值，telemetry 默认关闭。
 显式 opt-in 和主机已有配置继续保留；此变更不等于已清理运行容器中的休眠变量，也不表示
@@ -195,52 +174,19 @@ telemetry 已支持 Hetzner 存储。需要启用该能力时必须单独验收�
 
 ## 数据库备份迁移入口
 
-审批边界：[host-only pgdump](../../docs/approved/hcloud-pgdump-storage.md)。
-迁移使用的专用私有桶为 `tokenkey-pgdump-fsn1-850a09b1c6de`（fsn1，七天生命周期）。
-上传 owner 仍是 `deploy/aws/stage0/tokenkey-pgdump.sh`；host-only 存储身份及加密参数
-由 `ops/stage0/pgdump_storage.py` 同时供上传和恢复使用。
-此前 Hcloud prod、uk1、uk2、us4、us5 均已激活该身份，并逐节点完成真实 dump 的
-下载哈希比对、完整 SQL 恢复、核心数据核对和临时数据清理。原两小时 timer 保持启用。
-此前五节点正常定时备份已核对实际新对象、大小与 SSE-C 状态。2026-10-15 五节点迁至新 AWS 后，均使用原私有 AWS 桶 `tokenkey-prod-pgdump-682751977094`：prod 前缀 `prod/pgdump/`，四边前缀 `edge/<id>/pgdump/`；使用桶默认 AES256。旧 Hcloud 边节点的冻结整库归档隔离在各自 AWS 前缀下的 `archive-hcloud-20261015/`。
-主机告警共享实现已刷新，新 prod 监控实际 `/var/lib/tokenkey` EBS 数据卷；
-告警直接通知飞书，无需 S3。休眠 AWS 媒体默认值已从 prod host `.env` 清理，
-运行容器的旧变量随下次正常蓝绿发布更新；未启用的 offload 不产生媒体 S3 数据。
-
-`ops/stage0/provision_hcloud_pgdump_bucket.py --bucket <专用桶> --apply` 校验私有桶、
-TLS、七天生命周期及普通/multipart SSE-C 往返。脚本读取本机受保护的
-`HCLOUD_S3_Access_Key` / `HCLOUD_S3_Secret_Key`，不打印凭据。
-
-现有主机切换用 `ops/stage0/install_hcloud_pgdump_storage.py`，提供 `--target prod|edge:<id>`、
-`--bundle <root-only SSH bundle>`、`--release <id>` 和 `--operation plan|prepare|activate|rollback`。
-bundle 包含共享 pgdump/helper/canary/contract、现网矩阵与 `edge_routing_matrix.py`，
-并包含 `pgdump-storage.json`、`credentials`、独立的 32-byte `sse-c.key`。
-私密文件用验证 host key 的 SSH 传送，**禁止**用 run-probe `--with` 或 `--env` 传密钥。
-
-JSON schema v1 字段为 `schema_version`、`target`、`s3_uri`、`endpoint`、`region`、
-`credentials_file`、`sse_c_key_file`。region 为 `fsn1`，endpoint 为
-`https://fsn1.your-objectstorage.com`；URI 前缀必须为 `prod/pgdump` 或 `edge/<id>/pgdump`。
-凭据文件只含 `[pgdump]` 的 `aws_access_key_id` 与 `aws_secret_access_key`；所有私密文件
-必须属调用者且为 0600，安装目录在 `/etc/tokenkey/pgdump/<release>/`，网关不挂载。
-
-prepare 上传最近已有的真实 dump。用既有 canary 的 `--storage-config <候选 storage.json>`、
-`--expected-source <prepare 输出的本地文件>`、`--receipt-root /var/lib/tokenkey/pgdump-canary/<release>`
-核对 SHA-256 并隔离恢复。低优先级宿主任务、内存余量至少 2GiB；设置
-`TOKENKEY_PGDUMP_CANARY_IO_DEVICE` 为实际数据盘以限制恢复容器读写各 10MiB/s。
-未通过磁盘容量门禁或恢复/清理失败不得 activate。activate 校验匹配回执，安装并保存回滚材料；
-遇到任务运行或 timer 即将触发则等本轮结束再执行。切换后核对新备份产物：可观察正常 timer，或在容量门禁通过后低优先级执行一次同一备份脚本，
-并核对远端对象。不要为验证重启任何应用/数据库 unit。
-
-新主机 bootstrap 只装共享任务，不推断 AWS 桶；正式接流量前必须安装并验收存储配置。
-灾难恢复必须取回对应节点 SSE-C 密钥；丢失该密钥的备份不可读。AWS 旧数据不会被该入口删除。
+当前 prod 使用 AWS 私有 pgdump 桶，源配置与权限以主机验收为准；归档回查见
+[资源收尾](../../docs/ops/aws-retirement-20261017.md)。历史 Hcloud 存储迁移过程见
+[审批记录](../../docs/approved/hcloud-pgdump-storage.md)，不再作为现网安装流程。
+历史密钥、SSM 路径与共享存储实现不能按 `hetzner` 字样删除，须先核对恢复依赖。
 
 ## 恢复入口
 
-先用 `resolve_prod_ssm_target.py --format json` 或 `edge_ssm_execution.py` 核实身份，
+先用 `resolve_prod_ssm_target.py --format json` 核实当前 prod 身份，
 再用 `run-probe.sh` 读取主机/容器状态。镜像回滚走原 dispatcher 部署 previous tag。
 现网 prod 的 `/var/lib/tokenkey` 是独立 EBS 数据卷；每日 DLM 对实例的根盘和数据盘建立
 一致时间点的多卷快照，按既有策略保留七份。pg_dump 每两小时备份核心数据，明确排除
 使用明细、运维日志和 QA raw，不能代替全盘快照；使用明细灾备 RPO 约 24 小时。
-旧 Hcloud prod 的 Hetzner Volume 仅保留历史数据，不是现网挂载。
+已回收旧主机的数据从私有 S3 归档恢复到隔离库；不能再引用旧机挂载卷。
 
 整机恢复先核对当前实例、卷、最近完成快照和当前主机的备份来源，再沿用
 `tokenkey-host-replacement` 与 [AWS DR](../aws/RUNBOOK-disaster-recovery.md) 中适用的恢复步骤；

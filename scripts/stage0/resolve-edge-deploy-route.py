@@ -59,7 +59,12 @@ def main() -> int:
     if platform_pref == "auto" and args.allow_planned:
         _fail("--allow-planned requires explicit --platform lightsail|hetzner")
 
-    transport, region, _ = resolve_route_tab(REPO_ROOT, edge_id, platform_pref)
+    transport, region, _ = resolve_route_tab(
+        REPO_ROOT,
+        edge_id,
+        platform_pref,
+        allow_planned=args.allow_planned,
+    )
 
     if transport == "hetzner":
         target = load_hetzner_targets(REPO_ROOT).get(edge_id)

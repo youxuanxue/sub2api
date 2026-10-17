@@ -54,9 +54,13 @@ def edge_cidr(text, cidrs):
 
 
 def render(inventory, runtime, output, *, nodes, prod_ip):
+    if inventory.get('state', '').startswith('tokyo-serving'):
+        raise ValueError('migration already completed; do not regenerate legacy forwarding trust')
     available = {'prod': inventory['prod'], **inventory['edges']}
     if not nodes or not set(nodes) <= available.keys():
         raise ValueError('select known migration nodes')
+    if any(available[name].get('retired') for name in nodes):
+        raise ValueError('migration target is retired')
     if prod_ip not in (inventory['prod']['ip'], inventory['prod']['source_ip']):
         raise ValueError('prod IP must match an inspected migration identity')
     output.mkdir(mode=0o700)

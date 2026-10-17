@@ -22,6 +22,7 @@ class EdgeAdminResolveTargetTest(unittest.TestCase):
                                    ('lightsail', 'deploy/aws/lightsail/edge-targets-lightsail.json')]:
                 matrix = json.loads((ROOT / name).read_text())
                 matrix['targets']['uk1']['deployable'] = platform == edge_platform
+                matrix['targets']['uk1']['retired'] = False
                 target = fixture / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(json.dumps(matrix))
@@ -69,6 +70,16 @@ else:
         proc = self.resolve('us3')
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn('not deployable', proc.stderr)
+
+    def test_retired_edge_rejects_explicit_lightsail_without_query(self):
+        proc = self.resolve('us3', 'lightsail')
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn('retired', proc.stderr)
+
+    def test_retired_edge_rejects_explicit_hetzner_without_query(self):
+        proc = self.resolve('us3', 'hetzner')
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn('retired', proc.stderr)
 
 
 if __name__ == '__main__':

@@ -53,10 +53,17 @@ def load_hetzner_targets(repo_root: pathlib.Path | str) -> dict[str, dict]:
     }
 
 
+def reject_retired_target(target: dict, label: str) -> None:
+    """Retirement is terminal for this identity; allow-planned is not an override."""
+    if target.get("retired"):
+        raise SystemExit(f"{label} is retired; create a new reviewed identity instead of reusing archived coordinates")
+
+
 def edge_deployable(target: dict | None) -> bool:
     """Lightsail deployable predicate (historical name kept for callers)."""
     return bool(
         target
+        and not target.get("retired")
         and target.get("deployable") is True
         and target.get("lightsail_region")
         and target.get("ssm_prefix")
@@ -67,6 +74,7 @@ def edge_hetzner_deployable(target: dict | None) -> bool:
     """Expects a materialized Hetzner row (defaults already applied)."""
     return bool(
         target
+        and not target.get("retired")
         and target.get("deployable") is True
         and target.get("location")
         and target.get("server_type")
@@ -101,11 +109,15 @@ def resolve_route_tab(
     repo_root: pathlib.Path | str,
     edge_id: str,
     platform: Platform = "auto",
+    *,
+    allow_planned: bool = False,
 ) -> tuple[Transport, str, None]:
     """Return (transport, region_or_location, empty stack).
 
     ``auto`` requires exactly one deployable platform; it never selects inactive rows.
-    Explicit ``lightsail`` / ``hetzner`` force that matrix (planned rows allowed).
+    Explicit ``lightsail`` / ``hetzner`` select that matrix, but planned rows require
+    the caller to opt into ``allow_planned``. Operational scripts leave this false;
+    only reviewed deployment/recovery workflows may enable it.
     """
     if platform == "ec2":
         raise SystemExit("EC2 edge routing is retired; edges use Lightsail or Hetzner")
@@ -119,8 +131,11 @@ def resolve_route_tab(
         if platform == "hetzner":
             if hz is None:
                 raise SystemExit(f"unknown Hetzner edge_id: {eid}")
+            reject_retired_target(hz, f"hetzner edge {eid}")
             if not hz.get("location"):
                 raise SystemExit(f"hetzner target {eid} missing location")
+            if not allow_planned and not edge_hetzner_deployable(hz):
+                raise SystemExit(f"edge {eid} is not deployable in the Hetzner matrix")
             return "hetzner", str(hz["location"]), None
         if edge_hetzner_deployable(hz) and edge_deployable(load_lightsail_targets(root).get(eid)):
             raise SystemExit("ambiguous active edge inventory")
@@ -137,10 +152,11 @@ def resolve_route_tab(
     target = load_lightsail_targets(root).get(eid)
     if target is None:
         raise SystemExit(f"unknown Lightsail edge_id: {eid}")
+    reject_retired_target(target, f"lightsail edge {eid}")
     if not target.get("lightsail_region"):
         raise SystemExit(f"lightsail target {eid} missing lightsail_region")
-    if platform == "auto" and not edge_deployable(target):
-        raise SystemExit(f"edge {eid} is not deployable")
+    if not allow_planned and not edge_deployable(target):
+        raise SystemExit(f"edge {eid} is not deployable in the Lightsail matrix")
     return "lightsail", str(target["lightsail_region"]), None
 
 

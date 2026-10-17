@@ -31,7 +31,7 @@ Usage:
   bash ops/stage0/capture-edge-admin-credentials.sh [--platform auto|ec2|lightsail|hetzner] <id>
   bash ops/stage0/capture-edge-admin-credentials.sh prod
 
-Target is an edge id (e.g. uk1, us4) or the literal "prod" (live hcloud prod; identity/region from shared resolver).
+Target is a currently deployable edge id or the literal "prod" (live hcloud prod; identity/region from shared resolver).
 Lightsail probes also try /var/log/tokenkey-lightsail-bootstrap.log (EC2 bootstrap uses tokenkey-edge-bootstrap.log).
 prod's bootstrap log is typically long rotated, so capture exits 3 there and ensure-edge-admin-credentials
 falls back to reset-edge-admin-password (rotate). To rotate prod directly use reset-edge-admin-password.sh prod.

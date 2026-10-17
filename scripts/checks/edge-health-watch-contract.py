@@ -34,6 +34,11 @@ def main() -> int:
     checks = {
         "scheduled trigger": re.search(r"(?m)^\s+schedule:\s*$", text) is not None,
         "thirty-minute cadence": WATCH_CRON in text,
+        "idle when deployable fleet empty": (
+            "resolve-edge-target.py --list-deployable" in text
+            and "edge-health-watch idle" in text
+            and "steps.fleet.outputs.active == 'true'" in text
+        ),
         "OIDC credentials": "aws-actions/configure-aws-credentials@" in text,
         "fleet scan call site": "bash ops/observability/scan-edge-health.sh --with-prod" in text,
         "structured terminal scan": "--alert-json > terminal-buckets.jsonl" in text,

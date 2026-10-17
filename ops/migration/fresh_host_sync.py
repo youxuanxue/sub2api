@@ -92,14 +92,16 @@ def execute(receipt, path, phase, host, script):
 def resolve(node):
     inventory = json.loads((ROOT / 'deploy/aws/fresh-migration-20261015.json').read_text())
     candidate = inventory['prod'] if node == 'prod' else inventory['edges'][node]
+    if candidate.get('retired'):
+        raise ValueError('candidate identity is retired')
     if node == 'prod':
         if inventory.get('state', '').startswith('tokyo-serving'):
             raise ValueError('candidate is already active; sync forbidden')
         if candidate['instance_name'] == 'tokenkey-prod-tokyo-20261017':
-            # Tokyo is the current writer.  The Node1 replacement uses the
-            # domestic SSH path and a full dump from Tokyo; this AWS-only
-            # synchronizer must fail closed instead of silently selecting the
-            # historical us-east standby.
+            if candidate['standby_us_east_20261015'].get('retired'):
+                raise ValueError('source identity is retired')
+            # Tokyo is the current writer. The Node1 replacement uses SSH;
+            # never select an old AWS standby even if its metadata is stale.
             raise ValueError('Tokyo prod is active; use the Node1 SSH migration path')
     if node != 'prod':
         import sys

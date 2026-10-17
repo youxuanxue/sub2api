@@ -8,7 +8,7 @@ description: >-
 
 # TokenKey：Edge 池 + Prod 中继全链路打通
 
-**退役（2026-10-17）：** 默认勿 `apply`/`all`（prod-only；edge `deployable=false`；stub 已软删，见 `docs/ops/edge-relay-soft-delete-20261017.json`）。恢复 edge 须人类批准。
+**退役（2026-10-17）：** 默认勿 `apply`/`all`（prod-only；edge `deployable=false`；stub 已软删，见 `docs/ops/edge-relay-soft-delete-20261017.json`）。空 deployable 时脚本硬拒绝；workflow / `dispatch-edge-deploy` 另需字面量 `I_APPROVE_EDGE_RESTORE`（`ops/stage0/require_edge_restore_approval.py`）。
 
 **行为 SSOT**：`ops/accounts/edge-prod-relay-onboard.sh` + `relay_onboard_profiles.py`。
 

@@ -8,6 +8,9 @@ import subprocess
 
 
 def prepare(inventory, compose, output):
+    if inventory.get('state', '').startswith('tokyo-serving') or any(
+            row.get('retired') for row in inventory['edges'].values()):
+        raise SystemExit('migration completed or edges retired; legacy IP pins are forbidden')
     if subprocess.check_output(['hostname'], text=True).strip() != inventory['prod']['instance_name']:
         raise SystemExit('not the fresh prod host')
     if not Path('/var/lib/tokenkey/migration/DATA_SYNC_HOLD').is_file():

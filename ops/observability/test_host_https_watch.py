@@ -53,6 +53,32 @@ class CoveragePlanTest(unittest.TestCase):
             {'cn-prod': self.domestic['public_origin'].rstrip('/') + '/health'},
         )
 
+    def test_prod_pause_does_not_silence_other_observers_or_jobs(self):
+        prod = self.config('prod', self.fresh['prod']['instance_name'])
+        self.assertEqual(prod['paused_jobs'], self.fresh['prod']['paused_jobs'])
+        self.assertEqual(set(prod['paused_jobs']), {'tokenkey-qa-maintenance'})
+        self.assertEqual(self.config('cn-prod', self.domestic['instance_name'])['paused_jobs'], {})
+        self.assertIn('tokenkey-pgdump', prod['jobs'])
+
+    def test_pause_checks_disabled_state_and_alerts_on_accidental_resume(self):
+        inactive = {'ActiveState': 'inactive', 'Result': 'exit-code'}
+        disabled = {'ActiveState': 'inactive', 'UnitFileState': 'disabled'}
+        limit = watch.JOB_LIMITS['tokenkey-qa-maintenance']
+        self.assertTrue(watch.job_fact(inactive, disabled, 1000, limit, expected_paused=True)['healthy'])
+        self.assertFalse(watch.job_fact(inactive, disabled, 1000, limit)['healthy'])
+        for service, timer in ((inactive, {**disabled, 'UnitFileState': 'enabled'}),
+                               ({**inactive, 'ActiveState': 'active'}, disabled),
+                               (inactive, {**disabled, 'ActiveState': 'active'})):
+            with self.subTest(service=service, timer=timer):
+                fact = watch.job_fact(service, timer, 1000, limit, expected_paused=True)
+                self.assertFalse(fact['healthy'])
+                sent = []
+                probe = lambda name: fact
+                state = watch.tick_jobs(['tokenkey-qa-maintenance'], {}, 1000, probe, sent.append)
+                watch.tick_jobs(['tokenkey-qa-maintenance'], state, 1120, probe, sent.append)
+                self.assertEqual(len(sent), 1)
+                self.assertIn('unexpectedly enabled or running', sent[0])
+
 
 class HealthBodyTest(unittest.TestCase):
     def test_flat_ssm_bundle_can_load_probe_without_repository_ancestors(self):

@@ -1,10 +1,16 @@
 ---
 name: tokenkey-anthropic-oauth-config
 description: >-
-  TokenKey Anthropic OAuth read/check/remediation workflow. Use for manage-anthropic-config snapshot/check/sync-runtime, tk_canonical_cc_oauth TLS template drift, Claude Code UA/http mimicry sync, or OAuth stability guard checks across prod/edges.
+  TokenKey Anthropic OAuth read/check/remediation workflow. Prod is the current
+  target; edge checks/remediation are historical and remain fail-closed until an
+  edge is explicitly re-approved.
 ---
 
 # TokenKey：Anthropic OAuth 配置流水线（check 联查 + TLS 模板 + HTTP UA）
+
+> **Edge retired (2026-10-17).** 当前 live fleet 只有 prod。文档中的 edge
+> snapshot/check/apply 示例仅供历史审计；不要对 retired/planned edge 做账号、
+> tier、OAuth 或 relay 变更。
 
 适用于 TokenKey Anthropic OAuth 的只读 snapshot/check、TLS/HTTP 指纹同步、已合并 tier 值实时下发和账号 email 审计/补全。执行 owner：`ops/anthropic/manage-anthropic-config.py`；email 操作用 `ops/observability/run-probe.sh` 投递现有 probe。按下面操作条件读取参考文件，不全量加载。
 

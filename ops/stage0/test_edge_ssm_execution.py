@@ -13,6 +13,7 @@ if str(STAGE0) not in sys.path:
     sys.path.insert(0, str(STAGE0))
 
 import edge_ssm_execution as ese  # noqa: E402
+import edge_routing_matrix as routing_matrix  # noqa: E402
 from edge_routing_matrix import load_live_targets, resolve_route_tab
 
 
@@ -52,17 +53,32 @@ class EdgeSsmExecutionTests(unittest.TestCase):
         self.assertEqual(ident.domain, "api-us4.tokenkey.dev")
         get_param.assert_called_once_with(ident.region, hz_row["ssm_prefix"])
 
-    def test_explicit_lightsail_still_resolves_standby(self) -> None:
-        with mock.patch.object(
-            ese,
-            "ssm_parameter_managed_instance_id",
-            return_value="mi-lightsail-us4",
-        ) as get_param:
+    def test_retired_identity_never_reads_ssm_parameters(self) -> None:
+        for platform in ("lightsail", "hetzner"):
+            with self.subTest(platform=platform), mock.patch.object(ese, "ssm_parameter_managed_instance_id") as get_param:
+                with self.assertRaisesRegex(SystemExit, "retired"):
+                    ese.resolve_edge_execution_identity(REPO_ROOT, "us4", platform=platform)
+                get_param.assert_not_called()
+
+    def test_explicit_lightsail_can_resolve_planned_target_only_when_opted_in(self) -> None:
+        planned = {
+            "deployable": False,
+            "lightsail_region": "us-west-2",
+            "ssm_prefix": "/tokenkey/lightsail/planned",
+            "domain": "api-planned.tokenkey.dev",
+        }
+        with mock.patch.object(ese, "load_lightsail_targets", return_value={"planned": planned}), \
+             mock.patch.object(routing_matrix, "load_lightsail_targets", return_value={"planned": planned}), \
+             mock.patch.object(
+                 ese,
+                 "ssm_parameter_managed_instance_id",
+                 return_value="mi-lightsail-planned",
+             ) as get_param:
             ident = ese.resolve_edge_execution_identity(
-                REPO_ROOT, "us4", platform="lightsail"
+                REPO_ROOT, "planned", platform="lightsail", allow_planned=True
             )
         self.assertEqual(ident.routing, "lightsail")
-        self.assertEqual(ident.instance_id, "mi-lightsail-us4")
+        self.assertEqual(ident.instance_id, "mi-lightsail-planned")
         self.assertTrue(ident.ssm_prefix.startswith("/tokenkey/lightsail/"))
         get_param.assert_called_once()
         self.assertEqual(get_param.call_args.args[1], ident.ssm_prefix)
