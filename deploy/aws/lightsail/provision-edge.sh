@@ -27,11 +27,14 @@ if [[ -z "$EDGE_ID" || -z "$TAG" || -z "$LIGHTSAIL_REGION" || -z "$INSTANCE_NAME
   echo "provision-edge: missing required args" >&2
   exit 1
 fi
+
 [[ "${SSM_HYBRID_ROLE_NAME}" == "tokenkey-lightsail-ssm-hybrid-${EDGE_ID}" ]] || { echo "provision-edge: invalid per-Edge SSM role" >&2; exit 1; }
 [[ "${ALLOW_SECRET_GENERATE}" == true || "${ALLOW_SECRET_GENERATE}" == false ]] || { echo "provision-edge: ALLOW_SECRET_GENERATE must be true or false" >&2; exit 1; }
 [[ "${RECREATE_BACKUP_VERIFIED}" == true || "${RECREATE_BACKUP_VERIFIED}" == false ]] || { echo "provision-edge: RECREATE_BACKUP_VERIFIED must be true or false" >&2; exit 1; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+# Mutating Lightsail provision is retired by default (2026-10-17 prod-only).
+python3 "${REPO_ROOT}/ops/stage0/require_edge_restore_approval.py"
 
 # Local invocations must pass the same retirement/identity gate as workflow dispatch.
 python3 "${REPO_ROOT}/deploy/aws/lightsail/resolve-edge-lightsail-target.py" \

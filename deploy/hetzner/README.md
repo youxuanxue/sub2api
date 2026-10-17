@@ -12,6 +12,7 @@
 **Edge 已退役并回收。** prod 直接使用原生账号（含原 edge 复制账号），旧中继 stub 已软删。
 AWS / Hcloud 旧主机与公网 IP 不能用作回滚目标；历史数据从 S3 隔离归档读取。
 退役验收与归档入口见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
+`dispatch-edge-deploy` / edge deploy workflow / 付费 `provision-edge` 另需字面量 `I_APPROVE_EDGE_RESTORE`（`ops/stage0/require_edge_restore_approval.py`；`--allow-planned` 不够）。
 
 ### 日本出口代理（现役）
 

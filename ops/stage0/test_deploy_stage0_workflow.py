@@ -106,6 +106,12 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertNotIn("ops/stage0/deploy_via_ssm.sh", prod)
         self.assertNotIn("ops/stage0/deploy_via_ssm.sh", edge)
 
+    def test_edge_lightsail_dispatch_requires_restore_approval(self) -> None:
+        edge = EDGE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("confirm_edge_restore:", edge)
+        self.assertIn("I_APPROVE_EDGE_RESTORE", edge)
+        self.assertIn("ops/stage0/require_edge_restore_approval.py", edge)
+
     def test_prod_and_edge_share_one_migration_safety_entry(self) -> None:
         prod = WORKFLOW.read_text(encoding="utf-8")
         edge = EDGE_WORKFLOW.read_text(encoding="utf-8")
