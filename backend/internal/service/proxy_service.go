@@ -35,6 +35,10 @@ type ProxyRepository interface {
 	ListAllForFallback(ctx context.Context) ([]Proxy, error)
 	CountExpired(ctx context.Context) (int64, error)
 	CountExpiringSoon(ctx context.Context, now time.Time) (int64, error)
+	// CountSchedulableActiveByProxyIDs returns, per proxy id, how many
+	// non-deleted accounts are status=active AND schedulable=true. Used by
+	// proxy_unreachable_count so drained (unschedulable) exits stop paging.
+	CountSchedulableActiveByProxyIDs(ctx context.Context, proxyIDs []int64) (map[int64]int64, error)
 }
 
 // CreateProxyRequest 创建代理请求

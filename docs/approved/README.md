@@ -168,6 +168,7 @@ Cursor 已按[退役契约](cursor-retirement.md)移除；旧设计和操作记�
 | --- | --- |
 | [`ops-unified-contract.md`](ops-unified-contract.md) | Ops unified contract |
 | [`ops-sla-error-owner-scope.md`](ops-sla-error-owner-scope.md) | Ops SLA owner scope |
+| [`proxy-unreachable-p0-alert.md`](proxy-unreachable-p0-alert.md) | 代理出口 IP:port 不可达 P0 告警 |
 | [`admin-dashboard-rollup-performance.md`](admin-dashboard-rollup-performance.md) | Admin dashboard rollups |
 | [`admin-ui-performance-rollups.md`](admin-ui-performance-rollups.md) | Admin UI rollup performance |
 | [`user-cold-start.md`](user-cold-start.md) | New-user cold start |

@@ -14,8 +14,8 @@ import (
 // retires routing_capacity_rejection_count (replaced by user_visible_failure_count),
 // tk_087 deletes the 8% upstream_error_rate P1 and keeps the 20% rule as an
 // edge-only Feishu P1, tk_088 tightens client failure thresholds while retaining P1 notifications,
-// and tk_036 latency rules ship disabled — every enabled
-// rule has a working path.
+// tk_104 seeds proxy_unreachable_count P0 for egress IP reachability, and tk_036
+// latency rules ship disabled — every enabled rule has a working path.
 func TestSeededAlertRuleStateAfterMigrations(t *testing.T) {
 	ctx := context.Background()
 
@@ -71,6 +71,16 @@ func TestSeededAlertRuleStateAfterMigrations(t *testing.T) {
 	require.Equal(t, 50.0, clientRule.threshold)
 	require.Equal(t, 5, clientRule.windowMinutes)
 	require.Equal(t, 5, clientRule.sustainedMinutes)
+
+	// tk_103: egress proxy IP:port TCP reachability P0 (prod-only).
+	proxyUnreachable := ruleFor("proxy_unreachable_count")
+	require.True(t, proxyUnreachable.enabled, "tk_104 proxy_unreachable_count must be enabled")
+	require.Equal(t, "P0", proxyUnreachable.severity)
+	require.True(t, proxyUnreachable.notifyEmail, "proxy unreachable must page Feishu via notify_email")
+	require.Equal(t, 1.0, proxyUnreachable.threshold)
+	require.Equal(t, 1, proxyUnreachable.windowMinutes)
+	require.Equal(t, 2, proxyUnreachable.sustainedMinutes,
+		"two consecutive ticks absorb a single transient dial blip")
 
 	// tk_087: delete the 8% early-warning rate rule. Keep the 20% rule enabled
 	// as P1; the evaluator skips it on prod and pages it on edges.

@@ -609,16 +609,18 @@ func TestIsEdgeNode(t *testing.T) {
 }
 
 // TestIsEdgeSuppressedAlertRule pins WHICH rules are silenced on a mirror-relay
-// edge. The retired routing-capacity rule stays defensively suppressed, and both
-// real-user experience rules (P0 user-visible + P1 client-visible) are prod-only.
-// Capacity/error signals that ARE meaningful on an edge must still page;
-// upstream_error_rate is demoted to P1 rather than suppressed.
+// edge. The retired routing-capacity rule stays defensively suppressed; both
+// real-user experience rules (P0 user-visible + P1 client-visible) and the
+// proxy_unreachable_count egress probe are prod-only. Capacity/error signals
+// that ARE meaningful on an edge must still page; upstream_error_rate is
+// demoted to P1 rather than suppressed.
 func TestIsEdgeSuppressedAlertRule(t *testing.T) {
 	t.Parallel()
 	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "routing_capacity_rejection_count"}))
 	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "  routing_capacity_rejection_count  "}))
 	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: OpsAlertMetricUserVisibleFailureCount}))
 	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: OpsAlertMetricClientVisibleFailureCount}))
+	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: OpsAlertMetricProxyUnreachableCount}))
 	require.False(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "pool_load_rate"}))
 	require.False(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "upstream_error_rate"}))
 	require.False(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "group_available_accounts"}))
@@ -655,18 +657,21 @@ func TestShouldEvaluateAlertRuleOnNode(t *testing.T) {
 
 	userVisibleRule := &OpsAlertRule{MetricType: OpsAlertMetricUserVisibleFailureCount}
 	clientVisibleRule := &OpsAlertRule{MetricType: OpsAlertMetricClientVisibleFailureCount}
+	proxyUnreachableRule := &OpsAlertRule{MetricType: OpsAlertMetricProxyUnreachableCount}
 	routingRule := &OpsAlertRule{MetricType: OpsAlertMetricRoutingCapacityRejectionCount}
 	upstreamRate := &OpsAlertRule{Name: "上游错误率极高", MetricType: "upstream_error_rate", Severity: "P1", Threshold: 20}
 
 	edge := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api-us6.tokenkey.dev"}}}
 	require.False(t, edge.shouldEvaluateAlertRuleOnNode(userVisibleRule), "user-visible P0 is prod-only")
 	require.False(t, edge.shouldEvaluateAlertRuleOnNode(clientVisibleRule), "client-visible P1 is prod-only")
+	require.False(t, edge.shouldEvaluateAlertRuleOnNode(proxyUnreachableRule), "proxy unreachable P0 is prod-only")
 	require.True(t, edge.shouldEvaluateAlertRuleOnNode(routingRule), "retired routing rule is not changed at evaluator level")
 	require.True(t, edge.shouldEvaluateAlertRuleOnNode(upstreamRate), "20% upstream_error_rate is edge-only P1")
 
 	prod := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api.tokenkey.dev"}}}
 	require.True(t, prod.shouldEvaluateAlertRuleOnNode(userVisibleRule))
 	require.True(t, prod.shouldEvaluateAlertRuleOnNode(clientVisibleRule))
+	require.True(t, prod.shouldEvaluateAlertRuleOnNode(proxyUnreachableRule))
 	require.False(t, prod.shouldEvaluateAlertRuleOnNode(upstreamRate), "prod must not evaluate upstream_error_rate")
 	require.True(t, isEdgeOnlyAlertRule(upstreamRate))
 	require.False(t, isEdgeOnlyAlertRule(userVisibleRule))

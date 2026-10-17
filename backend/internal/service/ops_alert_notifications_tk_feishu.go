@@ -79,7 +79,8 @@ func isEdgeSuppressedAlertRule(rule *OpsAlertRule) bool {
 	switch strings.TrimSpace(rule.MetricType) {
 	case OpsAlertMetricRoutingCapacityRejectionCount,
 		OpsAlertMetricUserVisibleFailureCount,
-		OpsAlertMetricClientVisibleFailureCount:
+		OpsAlertMetricClientVisibleFailureCount,
+		OpsAlertMetricProxyUnreachableCount:
 		return true
 	default:
 		return false
