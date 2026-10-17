@@ -16,16 +16,20 @@ AWS / Hcloud 旧主机与公网 IP 不能用作回滚目标；历史数据从 S3
 
 ### 日本出口代理（现役）
 
-这些 Lightsail 机器仅提供账号出口，不能作为 edge 网关部署或退役：
+这些 Lightsail 机器仅提供账号出口，不能作为 edge 网关部署或退役。
 
-| prod 代理名 | Lightsail 实例 | 公网 IP | 区域 |
-|---|---|---|---|
-| jp-uk1 | Ubuntu-1-1 | 46.51.238.48 | ap-northeast-1 |
-| jp-uk2 | Ubuntu-1-2 | 52.68.179.121 | ap-northeast-1 |
-| jp-us4 | Ubuntu-3-1 | 35.77.89.227 | ap-northeast-1 |
-| jp-us5 | Ubuntu-3-2 | 52.68.182.0 | ap-northeast-1 |
+**活公网 IP / 绑定以 prod `proxies` 表为准**（Web：`https://tokenkey.dev/admin/proxies`；
+探针：`ops/observability/probe-list-proxies.sh`）。下表只记逻辑名与常见 Lightsail 名，
+避免第二份 IP 清单漂移：
 
-账号绑定以 prod 管理 API 的实际 endpoint 为准；名称含 uk/us 不代表物理地域。
+| prod 代理名 | Lightsail 实例（常见） | 区域 |
+|---|---|---|
+| jp-uk1 | jp-proxy-01-micro | ap-northeast-1 |
+| jp-uk2 | jp-proxy-02-micro | ap-northeast-1 |
+| jp-us4 | jp-proxy-03-micro | ap-northeast-1 |
+| jp-us5 | jp-proxy-04-micro | ap-northeast-1 |
+
+名称含 uk/us 不代表物理地域。BBR 验收：`python3 scripts/checks/check-host-bbr-ssot.py --live`。
 
 - 活 prod 身份：`../aws/fresh-migration-20261015.json` 的 `prod`；其旧源与 `edges` 坐标仅供历史取证。
 - 旧 edge 矩阵：`../aws/lightsail/edge-targets-lightsail.json` 与 `edge-targets-hetzner.json`。

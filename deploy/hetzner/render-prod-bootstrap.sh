@@ -24,7 +24,8 @@ for f in \
   "${STAGE0}/tokenkey-ghcr-prune-daily.sh" \
   "${STAGE0}/tokenkey-pgdump.sh" \
   "${LIGHTSAIL}/restore-edge-env-secrets.sh" \
-  "${LIGHTSAIL}/tokenkey-disk-metrics-edge.sh"; do
+  "${LIGHTSAIL}/tokenkey-disk-metrics-edge.sh" \
+  "${REPO_ROOT}/deploy/host/ensure-tokenkey-bbr.sh"; do
   [[ -f "$f" ]] || { echo "missing $f" >&2; exit 1; }
 done
 
@@ -50,6 +51,7 @@ ghcr_daily_b64="$(b64_gzip "${STAGE0}/tokenkey-ghcr-prune-daily.sh")"
 pgdump_b64="$(b64_gzip "${STAGE0}/tokenkey-pgdump.sh")"
 pgdump_storage_b64="$(b64_gzip "${REPO_ROOT}/ops/stage0/pgdump_storage.py")"
 disk_metrics_b64="$(b64_gzip "${LIGHTSAIL}/tokenkey-disk-metrics-edge.sh")"
+bbr_b64="$(b64_gzip "${REPO_ROOT}/deploy/host/ensure-tokenkey-bbr.sh")"
 restore_secrets_b64="$(b64_gzip "${LIGHTSAIL}/restore-edge-env-secrets.sh")"
 cat >"${OUT}.tmp" <<'LAUNCH_HEAD'
 #!/bin/bash
@@ -164,6 +166,9 @@ if [ "${SWAP_SIZE_GIB}" -gt 0 ] && [ ! -f /swapfile ]; then
   grep -q '^/swapfile ' /etc/fstab 2>/dev/null || echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 
+# BBR is installed after embeds are decoded (see LAUNCH_TAIL); marker for checks.
+# SSOT: deploy/host/ensure-tokenkey-bbr.sh
+
 # Mandatory Hetzner Volume → /var/lib/tokenkey (attach before first boot).
 vol_dev="/dev/disk/by-id/scsi-0HC_Volume_${VOLUME_ID}"
 echo "waiting for volume device ${vol_dev}"
@@ -235,6 +240,7 @@ GHCR_DAILY_B64='${ghcr_daily_b64}'
 PGDUMP_B64='${pgdump_b64}'
 PGDUMP_STORAGE_B64='${pgdump_storage_b64}'
 DISK_METRICS_B64='${disk_metrics_b64}'
+BBR_GZB64='${bbr_b64}'
 RESTORE_SECRETS_B64='${restore_secrets_b64}'
 LAUNCH_EMBED
 
@@ -262,6 +268,11 @@ mkdir -p /var/lib/tokenkey/pgdump
 printf '%s' "$DISK_METRICS_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-disk-metrics.sh
 chmod +x /usr/local/bin/tokenkey-disk-metrics.sh
 /usr/local/bin/tokenkey-disk-metrics.sh --selftest
+
+printf '%s' "$BBR_GZB64" | base64 -d | gunzip > /usr/local/bin/ensure-tokenkey-bbr.sh
+chmod +x /usr/local/bin/ensure-tokenkey-bbr.sh
+/usr/local/bin/ensure-tokenkey-bbr.sh --apply
+/usr/local/bin/ensure-tokenkey-bbr.sh --check
 
 cat > /etc/systemd/system/tokenkey-disk-metrics.service <<'DMSEOF'
 [Unit]
