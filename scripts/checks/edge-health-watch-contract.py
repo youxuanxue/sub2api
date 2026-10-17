@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guard the load-bearing scheduled edge-health scan and delivery call sites."""
+"""Guard the load-bearing manual edge-health scan and delivery call sites."""
 from __future__ import annotations
 
 import pathlib
@@ -12,8 +12,7 @@ REPO = pathlib.Path(__file__).resolve().parents[2]
 WORKFLOW = REPO / ".github" / "workflows" / "edge-health-watch.yml"
 EVALUATOR = REPO / "ops" / "observability" / "edge_model_health_alert.py"
 RESOLVE = REPO / "deploy" / "aws" / "stage0" / "resolve-edge-target.py"
-# Declared GHA cadence and evaluator watch-slot width must stay coupled.
-WATCH_CRON = 'cron: "7,37 * * * *"'
+# Manual scans retain the existing terminal-evidence window.
 WATCH_SLOT_ANCHOR = "WATCH_SLOT = dt.timedelta(minutes=30)"
 
 
@@ -32,8 +31,9 @@ def main() -> int:
         return 1
 
     checks = {
-        "scheduled trigger": re.search(r"(?m)^\s+schedule:\s*$", text) is not None,
-        "thirty-minute cadence": WATCH_CRON in text,
+        "manual trigger": "workflow_dispatch:" in text,
+        "retired schedule removed": re.search(r"(?m)^\s+schedule:\s*$", text) is None,
+        "resolver failure propagated": "--list-deployable ||" not in text,
         "idle when deployable fleet empty": (
             "resolve-edge-target.py --list-deployable" in text
             and "edge-health-watch idle" in text
@@ -65,7 +65,7 @@ def main() -> int:
         print(f"FAIL: edge-health evaluator unavailable: {exc}", file=sys.stderr)
         return 1
     if WATCH_SLOT_ANCHOR not in evaluator:
-        failures.append("evaluator WATCH_SLOT matches thirty-minute cadence")
+        failures.append("evaluator WATCH_SLOT keeps thirty-minute evidence window")
     if failures:
         for name in failures:
             print(f"FAIL: edge-health-watch contract missing {name}", file=sys.stderr)

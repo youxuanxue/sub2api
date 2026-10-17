@@ -17,8 +17,8 @@ description: >-
 ```
 
 - `minutes` 优先于 `hours`；拉日志时多取 2 分钟缓冲，再按 `completed_at` 过滤目标窗口。先确认容器启动时间与日志保留窗，缺失部分不能外推。
-- `account=all` 先列目标 platform 的可调度账号。`all-edges` 由 `--list-deployable` 解析（2026-10-17 起通常为空）；planned/standby 仅显式允许时查询。
-- prod 默认 `aws-fresh`（EC2）；edge 按活矩阵解析（现网为 Lightsail Hybrid `mi-*`）。历史 Hcloud / 旧 EC2 standby 必须显式 `PROD_SSM_TARGET` 或平台选择。
+- `account=all` 先列目标 platform 的可调度账号。`all-edges` 由 `--list-deployable` 解析（2026-10-17 起通常为空）；已退役身份即使显式指定也拒绝查询。
+- prod 默认 `aws-fresh`，实际实例与区域由共享 resolver 返回；当前没有活 edge。现网身份见 [舰队清单](../../../deploy/hetzner/README.md)，不使用历史 Hcloud / 旧 EC2 身份。
 - 桶固定为分钟；更粗粒度在分钟结果上 rollup，不能用 `strftime` 表达 5 分钟桶。
 
 ## 执行与判断

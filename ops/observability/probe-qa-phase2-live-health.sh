@@ -67,6 +67,9 @@ service_finished="$(systemctl show tokenkey-qa-maintenance.service -p ExecMainEx
 if [ -z "${service_result}" ]; then
   service_result=unknown
 fi
+export TK_TIMER_ACTIVE_STATE="$(systemctl show tokenkey-qa-maintenance.timer -p ActiveState --value 2>/dev/null || true)"
+export TK_TIMER_UNIT_FILE_STATE="$(systemctl show tokenkey-qa-maintenance.timer -p UnitFileState --value 2>/dev/null || true)"
+export TK_SERVICE_ACTIVE_STATE="$(systemctl show tokenkey-qa-maintenance.service -p ActiveState --value 2>/dev/null || true)"
 export TK_TIMER_ENABLED="${timer_enabled}"
 export TK_TIMER_ACTIVE="${timer_active}"
 export TK_TIMER_LAST_TRIGGER="${timer_last_trigger}"
@@ -148,6 +151,9 @@ def _systemd_timestamp(name):
 payload = {
     "timer_enabled": os.environ.get("TK_TIMER_ENABLED") == "true",
     "timer_active": os.environ.get("TK_TIMER_ACTIVE") == "true",
+    "timer_active_state": os.environ.get("TK_TIMER_ACTIVE_STATE", ""),
+    "timer_unit_file_state": os.environ.get("TK_TIMER_UNIT_FILE_STATE", ""),
+    "service_active_state": os.environ.get("TK_SERVICE_ACTIVE_STATE", ""),
     "last_trigger_at": _systemd_timestamp("TK_TIMER_LAST_TRIGGER"),
     "service_result": os.environ.get("TK_SERVICE_RESULT", "unknown"),
     "finished_at": _systemd_timestamp("TK_SERVICE_FINISHED"),

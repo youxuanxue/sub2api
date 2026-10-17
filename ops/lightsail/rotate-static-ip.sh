@@ -66,30 +66,17 @@ if [[ -z "$EDGE_ID" ]]; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && cd .. && pwd)"
-MATRIX="${REPO_ROOT}/deploy/aws/lightsail/edge-targets-lightsail.json"
 REGISTRY="${REPO_ROOT}/deploy/aws/stage0/edge-polluted-ips.json"
 RECORD_PY="${REPO_ROOT}/deploy/aws/stage0/record-polluted-ip.py"
 
-if [[ ! -f "$MATRIX" ]]; then
-  echo "lightsail matrix not found: $MATRIX" >&2
-  exit 1
-fi
-
-if ! command -v jq >/dev/null 2>&1; then
-  echo "jq is required for ops/lightsail/rotate-static-ip.sh" >&2
-  exit 1
-fi
-
-region="$(jq -r --arg id "$EDGE_ID" '.targets[$id].lightsail_region // empty' "$MATRIX")"
-instance_name="$(jq -r --arg id "$EDGE_ID" '.targets[$id].instance_name // empty' "$MATRIX")"
-static_ip_name="$(jq -r --arg id "$EDGE_ID" '.targets[$id].static_ip_name // empty' "$MATRIX")"
-domain="$(jq -r --arg id "$EDGE_ID" '.targets[$id].domain // empty' "$MATRIX")"
-ssm_prefix="$(jq -r --arg id "$EDGE_ID" '.targets[$id].ssm_prefix // empty' "$MATRIX")"
-
-if [[ -z "$region" || -z "$instance_name" || -z "$static_ip_name" || -z "$domain" ]]; then
-  echo "edge_id ${EDGE_ID} not fully defined in matrix" >&2
-  exit 1
-fi
+# Resolve once through the same retirement/deployability gate as deployment.
+identity="$(python3 "${REPO_ROOT}/deploy/aws/lightsail/resolve-edge-lightsail-target.py" --edge-id "$EDGE_ID")"
+field() { printf '%s\n' "$identity" | awk -F= -v key="$1" '$1 == key {print substr($0, index($0, "=") + 1)}'; }
+region="$(field lightsail_region)"
+instance_name="$(field instance_name)"
+static_ip_name="$(field static_ip_name)"
+domain="$(field domain)"
+ssm_prefix="$(field ssm_prefix)"
 
 is_excluded_ip() {
   local ip="$1" rc

@@ -39,7 +39,7 @@ SSH 仅用于 SSM agent 的一次性 bootstrap 或显式恢复；SSH、SSM、远
 
 - 默认盯 `users.status='active' AND deleted_at IS NULL` 全量；固定子集才加 `--env USER_IDS=1,6,16`。
 - `--compressed-output` 防 SSM/SSH 截断；校验失败不用部分结果。
-- `--target prod` 经 `resolve_prod_ssm_target.py` 解析（默认 `aws-fresh` → 现网 EC2 `i-*` / `us-east-1`；见 `deploy/hetzner/README.md`）。显式 `PROD_SSM_TARGET=hetzner` 才打历史 Hcloud；`aws` 是旧 EC2 standby，不是现网。
+- `--target prod` 经 `resolve_prod_ssm_target.py` 解析当前 EC2 与区域，身份见 [舰队清单](../../../deploy/hetzner/README.md)。`auto` / `aws-fresh` 选择现役 prod；已退役的 `aws` / `hetzner` 身份拒绝执行。
 - `--target cn-prod` 指向 UCloud 独立节点，只读取 UCloud 自己的数据库；通过 AWS SSM Hybrid 下发，不读取 AWS 数据库。
 - 本机 `aws/pyexpat` 启动失败（macOS 常见）：先 `python3 scripts/checks/check-local-aws-pyexpat.py --apply`。
 - **失败如实报告**：`status!=Success` / 非零退出 / 传输错误 → 报失败与原因，绝不编数。

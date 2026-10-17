@@ -47,7 +47,7 @@ ls -l "$HOME/Codes/keys/tokenkey-<edge_id>-admin-password.txt"   # chmod 600，�
 
 验收：`email=admin@api-<edge_id>.tokenkey.dev` 与当前 prod 文件格式一致。**禁止**在 PR、GHA log、聊天里粘贴 `password=` 行。
 
-**prod 同脚本**：目标传字面量 `prod`（经 `resolve_prod_ssm_target`；现网 Hetzner `mi-*`，见 [`deploy/hetzner/README.md`](../../../../deploy/hetzner/README.md)），落盘 `tokenkey-prod-admin-password.txt`。bootstrap 日志常已滚动时 `ensure prod` 会 fallback reset；直接轮换用 `bash ops/stage0/reset-edge-admin-password.sh prod`。
+**prod 同脚本**：目标传字面量 `prod`（经 `resolve_prod_ssm_target`；当前 EC2 与区域由 resolver 返回，见 [`deploy/hetzner/README.md`](../../../../deploy/hetzner/README.md)），落盘 `tokenkey-prod-admin-password.txt`。bootstrap 日志常已滚动时 `ensure prod` 会 fallback reset；直接轮换用 `bash ops/stage0/reset-edge-admin-password.sh prod`。
 
 ### 2.2 防火墙 TCP 443（provision 后必验）
 

@@ -2,7 +2,7 @@
 
 | 现象 | 处理 |
 |---|---|
-| snapshot 失败 / SSM 拒绝（edge 或 prod） | 校验现网 Hetzner Hybrid `mi-*` 在线 / 共享 prod 与 edge resolver / OIDC 权限。**仅排障 edge** 跑 `snapshot --skip-prod` 临时绕开 prod 失败 |
+| snapshot 失败 / SSM 拒绝（edge 或 prod） | 先用共享 prod resolver 核对现役 EC2 与区域，再核对 SSM 在线状态及 OIDC 权限；已退役 edge 拒绝查询，不能用 `--skip-prod` 绕过目标错误 |
 | `apply --confirm` 拒绝 | 必须精确 `yes-apply-anthropic-config-cascade` |
 | `tls_profile` drift（`/tls_profile/...` 或 UK 模式：启用 TLS 却无 profile） | 用 **`plan-guard-drift-fix`** 或 **`remediate-guard-drift`**（含 `apply --sync-runtime`）force-template-rewrite，不要手工拼 SQL |
 | check guard 报 `status: drift` 且 `diffs[].path` 含 `/credentials/temp_unschedulable_rules`，但数值字段全等 | guard-drift force-template-rewrite 会重写 credentials 端字段；apply 完跑一次 `check` 当真值 |

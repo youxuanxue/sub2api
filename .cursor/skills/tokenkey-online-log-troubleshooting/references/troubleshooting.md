@@ -13,6 +13,6 @@
 | `probe-gateway-ua-tls-compare` DB 窗太宽 | 未设 `WINDOW_MINUTES`，outage 证据被 LIMIT 稀释 | 根据 issue 换算分钟数， `--env WINDOW_MINUTES=N`。 |
 | `fetch-gateway-debug-log` SSM Failed | debug 文件不存在或 env 未开 | 远端 `docker exec tokenkey test -f /app/data/gateway_debug.log`；无文件则勿拉 body。 |
 | S3 presign / curl PUT 失败 | 实例无外网或桶策略 | 读 SSM stderr；检查 `SSM_OUTPUT_S3_BUCKET` 与 IAM；勿改线上只为 bypass。 |
-| 公网 `curl https://api-<edge>.tokenkey.dev` **连接超时** | 活边 Lightsail 网络 / Caddy 监听 / DNS 不一致 | 先由现网 resolver 核对目标 IP 与 `mi-*`，再查 Lightsail 防火墙与主机监听；历史 Hcloud 边勿当活目标 |
+| 公网 `curl https://api-<edge>.tokenkey.dev` **连接超时** | 旧 edge 地址或已退役目标 | 先查舰队清单；当前排障目标是 prod，不能将日本出口代理视为 edge 网关。新建节点另行批准后才检查其网络 |
 | DNS 已指 Static IP 但 **TLS handshake 失败** / 证书错误 | provision 早于 DNS → ACME NXDOMAIN；Caddy 未续签 | DNS 生效后 `verify-edge-lightsail-network.sh <id> --renew-cert` |
 | Edge SSM 找不到 instance | 目标/区域漂移或 Hybrid 离线 | `edge_ssm_execution.py --edge-id <id> --format json`；使用返回的 SSM region 与 `mi-*` |
