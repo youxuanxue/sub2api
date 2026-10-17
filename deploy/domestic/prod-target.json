@@ -4,5 +4,7 @@
   "instance_name": "10-9-53-136",
   "region": "cn-bj2",
   "public_origin": "https://106.75.29.139",
-  "fallback_domain": "api-cn.tokenkey.dev"
+  "fallback_domain": "api-cn.tokenkey.dev",
+  "ssm_region": "eu-west-2",
+  "ssm_instance_id": "mi-0efdf781205cff512"
 }

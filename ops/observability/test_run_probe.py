@@ -184,6 +184,7 @@ class RunProbeUCloudTest(unittest.TestCase):
                 "UCLOUD_SSH_HOST": "cn.example",
                 "UCLOUD_SSH_STRICT_HOST_KEY_CHECKING": "no",
                 "UCLOUD_SSH_KNOWN_HOSTS": "",
+                "UCLOUD_SSM_INSTANCE_ID": "",
             }
         )
         probe = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
@@ -231,6 +232,7 @@ class RunProbeUCloudTest(unittest.TestCase):
                 "UCLOUD_SSH_HOST": "cn.example",
                 "UCLOUD_SSH_STRICT_HOST_KEY_CHECKING": "no",
                 "UCLOUD_SSH_KNOWN_HOSTS": "",
+                "UCLOUD_SSM_INSTANCE_ID": "",
             }
         )
         probe = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
@@ -244,6 +246,78 @@ class RunProbeUCloudTest(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout, data.decode())
+
+
+class RunProbeUCloudSSMTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.temporary.name)
+        self.bin_dir = self.root / "bin"
+        self.bin_dir.mkdir()
+        self._write_executable(
+            "aws",
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env bash
+                set -euo pipefail
+                args="$*"
+                if [[ "$args" == *"describe-instance-information"* ]]; then
+                  if [[ "$args" == *"OFFLINE"* ]]; then
+                    printf '%s\\n' '{"InstanceInformationList":[{"PingStatus":"ConnectionLost","Name":"cn-prod","PlatformType":"Linux"}]}'
+                  else
+                    printf '%s\\n' '{"InstanceInformationList":[{"PingStatus":"Online","Name":"cn-prod","PlatformType":"Linux"}]}'
+                  fi
+                elif [[ "$args" == *"send-command"* ]]; then
+                  printf '%s\\n' 'command-ucloud-test'
+                elif [[ "$args" == *"get-command-invocation"* ]]; then
+                  printf '%s\\n' '{"Status":"Success","StandardOutputContent":"ucloud-ssm-result\\n","StandardErrorContent":""}'
+                else
+                  echo "unexpected fake aws call: $args" >&2
+                  exit 1
+                fi
+                """
+            ),
+        )
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def _write_executable(self, name: str, content: str) -> None:
+        path = self.bin_dir / name
+        path.write_text(content, encoding="utf-8")
+        path.chmod(0o755)
+
+    def _run_ssm(self, expected_instance_id: str = "uhost-1wgyn7gu2f6a") -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env.update(
+            {
+                "PATH": f"{self.bin_dir}{os.pathsep}{env['PATH']}",
+                "UCLOUD_SSM_INSTANCE_ID": "mi-0123456789abcdef0",
+                "UCLOUD_SSM_REGION": "eu-west-2",
+            }
+        )
+        probe = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
+        return _run(
+            "--target",
+            "cn-prod",
+            "--script",
+            str(probe),
+            "--expected-instance-id",
+            expected_instance_id,
+            env=env,
+        )
+
+    def test_cn_prod_prefers_ssm_hybrid_and_returns_stdout(self) -> None:
+        proc = self._run_ssm()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, "ucloud-ssm-result\n")
+        self.assertIn("resolved target=cn-prod ssm_region=eu-west-2", proc.stderr)
+        self.assertIn("instance_id=mi-0123456789abcdef0", proc.stderr)
+
+    def test_cn_prod_expected_ucloud_instance_mismatch_stops_before_ssm(self) -> None:
+        proc = self._run_ssm("uhost-other")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("UCloud instance does not match --expected-instance-id", proc.stderr)
 
 
 class RunProbePollingTest(unittest.TestCase):

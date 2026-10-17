@@ -23,11 +23,9 @@ bash ops/observability/run-probe.sh \
   --compressed-output
 ```
 
-UCloud `cn-prod` 不走 SSM，同一 probe 通过 SSH 执行；主机默认取 `deploy/domestic/prod-target.json`，用户默认为 `root`：
+UCloud `cn-prod` 通过 AWS SSM Hybrid 执行同一 probe；managed instance、区域和 UHost 身份默认取 `deploy/domestic/prod-target.json`，不依赖运维机公网 IP，也不需要开放公网 SSH 22：
 
 ```bash
-UCLOUD_SSH_KEY="$HOME/.local/share/tokenkey/domestic-onboard/cn-prod-ssh" \
-UCLOUD_SSH_KNOWN_HOSTS="$HOME/.local/share/tokenkey/domestic-onboard/known_hosts" \
 bash ops/observability/run-probe.sh \
   --target cn-prod \
   --script ops/observability/probe-user-billing-watch.sh \
@@ -37,12 +35,12 @@ bash ops/observability/run-probe.sh \
   --compressed-output
 ```
 
-已核对指纹后可显式设 `UCLOUD_SSH_STRICT_HOST_KEY_CHECKING=accept-new`；SSH、远端或压缩帧失败均不使用部分结果。
+SSH 仅用于 SSM agent 的一次性 bootstrap 或显式恢复；SSH、SSM、远端或压缩帧失败均不使用部分结果。
 
 - 默认盯 `users.status='active' AND deleted_at IS NULL` 全量；固定子集才加 `--env USER_IDS=1,6,16`。
 - `--compressed-output` 防 SSM/SSH 截断；校验失败不用部分结果。
 - `--target prod` 经 `resolve_prod_ssm_target.py` 解析（默认 `aws-fresh` → 现网 EC2 `i-*` / `us-east-1`；见 `deploy/hetzner/README.md`）。显式 `PROD_SSM_TARGET=hetzner` 才打历史 Hcloud；`aws` 是旧 EC2 standby，不是现网。
-- `--target cn-prod` 指向 UCloud 独立节点，不读取 AWS 数据库，也不经过 SSM。
+- `--target cn-prod` 指向 UCloud 独立节点，只读取 UCloud 自己的数据库；通过 AWS SSM Hybrid 下发，不读取 AWS 数据库。
 - 本机 `aws/pyexpat` 启动失败（macOS 常见）：先 `python3 scripts/checks/check-local-aws-pyexpat.py --apply`。
 - **失败如实报告**：`status!=Success` / 非零退出 / 传输错误 → 报失败与原因，绝不编数。
 

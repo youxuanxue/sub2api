@@ -39,9 +39,10 @@
 #                        hetzner mi-* after control-plane cutover)
 #   --target edge:<id>   resolves the live Hetzner managed instance first via
 #                        ops/stage0/edge_ssm_execution.py and Parameter Store.
-#   --target cn-prod     runs the same probe over SSH on the independent UCloud
-#                        domestic host. Set UCLOUD_SSH_KEY; host/user/port may be
-#                        overridden with UCLOUD_SSH_HOST/UCLOUD_SSH_USER/UCLOUD_SSH_PORT.
+#   --target cn-prod     runs the same probe through the registered SSM Hybrid
+#                        managed instance. Set UCLOUD_SSM_INSTANCE_ID and
+#                        UCLOUD_SSM_REGION to override the domestic manifest;
+#                        UCLOUD_SSH_* remains the one-time/bootstrap fallback.
 #
 #   --timeout-seconds    30..2592000; passed to the remote transport and also
 #                        used as the local polling budget. Polling never
@@ -311,9 +312,75 @@ PY
 )
 
 if [ "$TARGET" = "cn-prod" ]; then
-  # UCloud cn-prod is an independent Docker/Postgres host and is not enrolled
-  # in the AWS SSM control plane. Keep its SSH transport explicit and read-only.
+  # UCloud cn-prod is an independent Docker/Postgres host. Prefer its outbound
+  # AWS SSM Hybrid agent so a changing operator IP never becomes a probe input.
   UCLOUD_MANIFEST="$REPO_ROOT/deploy/domestic/prod-target.json"
+  if [ -n "$EXPECTED_INSTANCE_ID" ] && [ -f "$UCLOUD_MANIFEST" ]; then
+    UCLOUD_INSTANCE_ID=$(python3 - "$UCLOUD_MANIFEST" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    print(str(json.load(handle).get("instance_id") or ""))
+PY
+    )
+    if [ "$UCLOUD_INSTANCE_ID" != "$EXPECTED_INSTANCE_ID" ]; then
+      echo "[run-probe] ERROR: UCloud instance does not match --expected-instance-id" >&2
+      exit 1
+    fi
+  fi
+  UCLOUD_SSM_INSTANCE_ID="${UCLOUD_SSM_INSTANCE_ID-__manifest__}"
+  UCLOUD_SSM_REGION="${UCLOUD_SSM_REGION-__manifest__}"
+  if [ -f "$UCLOUD_MANIFEST" ] && { [ "$UCLOUD_SSM_INSTANCE_ID" = "__manifest__" ] || [ "$UCLOUD_SSM_REGION" = "__manifest__" ]; }; then
+    read -r MANIFEST_SSM_REGION MANIFEST_SSM_INSTANCE_ID < <(python3 - "$UCLOUD_MANIFEST" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    target = json.load(handle)
+print(str(target.get("ssm_region") or ""), str(target.get("ssm_instance_id") or ""))
+PY
+    )
+    [ "$UCLOUD_SSM_REGION" != "__manifest__" ] || UCLOUD_SSM_REGION="$MANIFEST_SSM_REGION"
+    [ "$UCLOUD_SSM_INSTANCE_ID" != "__manifest__" ] || UCLOUD_SSM_INSTANCE_ID="$MANIFEST_SSM_INSTANCE_ID"
+  fi
+  if [ -n "$UCLOUD_SSM_INSTANCE_ID" ]; then
+    if [[ ! "$UCLOUD_SSM_INSTANCE_ID" =~ ^mi-[0-9a-f]{17}$ ]]; then
+      echo "[run-probe] ERROR: UCloud SSM instance id is invalid: $UCLOUD_SSM_INSTANCE_ID" >&2
+      exit 1
+    fi
+    if [[ ! "$UCLOUD_SSM_REGION" =~ ^[a-z0-9-]+$ ]]; then
+      echo "[run-probe] ERROR: UCloud SSM region is invalid: $UCLOUD_SSM_REGION" >&2
+      exit 1
+    fi
+    SSM_INFO=""
+    if ! SSM_INFO=$(aws ssm describe-instance-information \
+      --region "$UCLOUD_SSM_REGION" \
+      --filters "Key=InstanceIds,Values=$UCLOUD_SSM_INSTANCE_ID" \
+      --output json 2>&1); then
+      echo "[run-probe] ERROR: UCloud SSM managed instance lookup failed" >&2
+      printf '%s\n' "$SSM_INFO" >&2
+      exit 2
+    fi
+    SSM_STATE=$(printf '%s' "$SSM_INFO" | python3 -c '
+import json, sys
+items = json.load(sys.stdin).get("InstanceInformationList", [])
+if len(items) != 1:
+    raise SystemExit(1)
+item = items[0]
+print("\t".join(str(item.get(k) or "") for k in ("PingStatus", "Name", "PlatformType")))
+' 2>/dev/null || true)
+    IFS=$'\t' read -r SSM_PING_STATUS SSM_NAME SSM_PLATFORM <<<"$SSM_STATE"
+    if [ "$SSM_PING_STATUS" != "Online" ] || [ "$SSM_NAME" != "cn-prod" ] || [ "$SSM_PLATFORM" != "Linux" ]; then
+      echo "[run-probe] ERROR: UCloud SSM identity is not ready (name=${SSM_NAME:-<empty>} status=${SSM_PING_STATUS:-<empty>} platform=${SSM_PLATFORM:-<empty>})" >&2
+      exit 2
+    fi
+    REGION="$UCLOUD_SSM_REGION"
+    INSTANCE_ID="$UCLOUD_SSM_INSTANCE_ID"
+    echo "[run-probe] resolved target=cn-prod ssm_region=$REGION instance_id=$INSTANCE_ID" >&2
+  else
+    # SSH remains available for one-time bootstrap or explicit recovery. It is
+    # never used when the manifest contains a healthy SSM identity.
   UCLOUD_HOST="${UCLOUD_SSH_HOST:-}"
   if [ -z "$UCLOUD_HOST" ]; then
     if [ -f "$UCLOUD_MANIFEST" ]; then
@@ -341,20 +408,6 @@ PY
   if [[ ! "$UCLOUD_HOST" =~ ^[A-Za-z0-9._:-]+$ ]]; then
     echo "[run-probe] ERROR: UCLOUD_SSH_HOST contains invalid characters" >&2
     exit 1
-  fi
-  if [ -n "$EXPECTED_INSTANCE_ID" ] && [ -f "$UCLOUD_MANIFEST" ]; then
-    UCLOUD_INSTANCE_ID=$(python3 - "$UCLOUD_MANIFEST" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    print(str(json.load(handle).get("instance_id") or ""))
-PY
-    )
-    if [ "$UCLOUD_INSTANCE_ID" != "$EXPECTED_INSTANCE_ID" ]; then
-      echo "[run-probe] ERROR: UCloud instance does not match --expected-instance-id" >&2
-      exit 1
-    fi
   fi
   if [ ! -r "$UCLOUD_KEY" ]; then
     echo "[run-probe] ERROR: UCloud SSH key is not readable: $UCLOUD_KEY" >&2
@@ -426,6 +479,7 @@ EOF
     cat "$SSH_STDOUT"
   fi
   exit 0
+  fi
 fi
 
 echo "[run-probe] resolved region=$REGION instance_id=$INSTANCE_ID" >&2
