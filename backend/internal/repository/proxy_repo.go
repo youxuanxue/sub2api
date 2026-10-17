@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	entsql "entgo.io/ent/dialect/sql"
+	"github.com/lib/pq"
 )
 
 // sqlQuerier 已替换为 sqlExecutor（定义在 group_repo.go），
@@ -550,6 +551,39 @@ func (r *proxyRepository) GetAccountCountsForProxies(ctx context.Context) (count
 		return nil, err
 	}
 	return counts, nil
+}
+
+// CountSchedulableActiveByProxyIDs returns per-proxy counts of accounts that are
+// still on the live scheduling path (active + schedulable, not soft-deleted).
+func (r *proxyRepository) CountSchedulableActiveByProxyIDs(ctx context.Context, proxyIDs []int64) (map[int64]int64, error) {
+	out := make(map[int64]int64, len(proxyIDs))
+	if len(proxyIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT proxy_id, COUNT(*) AS count
+		FROM accounts
+		WHERE proxy_id = ANY($1)
+		  AND deleted_at IS NULL
+		  AND status = $2
+		  AND schedulable = true
+		GROUP BY proxy_id
+	`, pq.Array(proxyIDs), service.StatusActive)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var proxyID, count int64
+		if err := rows.Scan(&proxyID, &count); err != nil {
+			return nil, err
+		}
+		out[proxyID] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // ListActiveWithAccountCount returns all active proxies with account count, sorted by creation time descending

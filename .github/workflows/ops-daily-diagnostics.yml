@@ -860,7 +860,11 @@ jobs:
 
           root = pathlib.Path("target-artifacts")
           reports = []
-          for path in sorted(root.glob("*/target-report.json")):
+          # download-artifact extracts a single matching artifact flat into
+          # path/ (artifacts.length === 1), but nests multi-artifact downloads
+          # under path/<artifact-name>/. rglob covers both layouts so prod-only
+          # runs do not false-positive missing_target_reports (#2689).
+          for path in sorted(root.rglob("target-report.json")):
               reports.append(json.loads(path.read_text(encoding="utf-8")))
           excluded = json.loads(os.environ.get("EXCLUDED_TARGETS") or "[]")
           discover_result = os.environ.get("DISCOVER_TARGETS_RESULT") or ""

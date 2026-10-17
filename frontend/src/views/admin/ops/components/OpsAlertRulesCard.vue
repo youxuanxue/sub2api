@@ -180,6 +180,14 @@ const metricDefinitions = computed(() => {
       unit: '%'
     },
     {
+      type: 'proxy_unreachable_count',
+      group: 'system',
+      label: t('admin.ops.alertRules.metrics.proxyUnreachableCount'),
+      description: t('admin.ops.alertRules.metricDescriptions.proxyUnreachableCount'),
+      recommendedOperator: '>=',
+      recommendedThreshold: 1
+    },
+    {
       type: 'routing_capacity_rejection_count',
       group: 'system',
       label: t('admin.ops.alertRules.metrics.routingCapacityRejectionCount'),

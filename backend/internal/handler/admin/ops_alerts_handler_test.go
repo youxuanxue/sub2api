@@ -32,6 +32,19 @@ func TestValidateOpsAlertRulePayloadPoolLoadRateAccepted(t *testing.T) {
 	require.Equal(t, "pool_load_rate", got.MetricType)
 }
 
+func TestValidateOpsAlertRulePayloadProxyUnreachableAccepted(t *testing.T) {
+	raw := map[string]json.RawMessage{
+		"name":        opsAlertRawMsg(t, "代理出口不可达"),
+		"metric_type": opsAlertRawMsg(t, "proxy_unreachable_count"),
+		"operator":    opsAlertRawMsg(t, ">="),
+		"threshold":   opsAlertRawMsg(t, 1.0),
+	}
+	got, err := validateOpsAlertRulePayload(raw)
+	require.NoError(t, err)
+	require.Equal(t, "proxy_unreachable_count", got.MetricType)
+	require.False(t, isPercentOrRateMetric("proxy_unreachable_count"))
+}
+
 // TestIsPercentOrRateMetricClassifications pins the threshold-bounding contract:
 // pool_load_rate is a % gauge (bounded 0-100), while
 // routing_capacity_rejection_count is a COUNT and must NOT be clamped to 0-100

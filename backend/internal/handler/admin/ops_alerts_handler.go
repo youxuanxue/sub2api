@@ -38,6 +38,7 @@ var validOpsAlertMetricTypes = []string{
 	"overload_account_count",
 	"proxy_expired_count",
 	"proxy_expiring_soon_count",
+	"proxy_unreachable_count",
 	"routing_capacity_rejection_count",
 }
 
