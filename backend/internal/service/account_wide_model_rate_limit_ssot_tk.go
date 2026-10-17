@@ -9,7 +9,8 @@ import (
 // per-model cooldowns into an account-wide rate-limit block.
 //
 // Policy (conversation approval 2026-09-22): when an account has more than this
-// many still-active model_rate_limits scopes (AICredits excluded), the whole
+// many still-active model_rate_limits scopes (AICredits and Antigravity model
+// capability failures excluded), the whole
 // account is treated as rate-limited for scheduling, admin/edge status, and
 // list filters — every platform and account type. Read-time only; no write to
 // accounts.rate_limit_reset_at is required for the cascade to take effect.
@@ -25,7 +26,7 @@ func countedActiveModelRateLimits(account *Account, now time.Time) map[string]Ac
 	}
 	out := make(map[string]ActiveModelCooldown, len(active))
 	for scope, cooldown := range active {
-		if scope == creditsExhaustedKey {
+		if scope == creditsExhaustedKey || cooldown.Reason == AntigravityModelUnavailableCooldownReason {
 			continue
 		}
 		out[scope] = cooldown

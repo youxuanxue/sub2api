@@ -664,8 +664,23 @@ type FetchAvailableModelsResponse struct {
 }
 
 // FetchAvailableModels 获取可用模型和配额信息，返回解析后的结构体和原始 JSON
-// 支持 URL fallback：sandbox → daily → prod
+// Supports the legacy prod -> daily fallback for callers without a serving account.
 func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectID string, bodyLimit int64) (*FetchAvailableModelsResponse, map[string]any, error) {
+	return c.fetchAvailableModels(ctx, accessToken, projectID, bodyLimit, BaseURLs, false)
+}
+
+// FetchAvailableModelsAt reads the catalog of the account's actual serving
+// endpoint. A successful catalog from another endpoint says nothing about the
+// selected endpoint's model availability, so neither fallback nor redirects
+// may cross endpoints.
+func (c *Client) FetchAvailableModelsAt(ctx context.Context, accessToken, projectID string, bodyLimit int64, baseURL string) (*FetchAvailableModelsResponse, map[string]any, error) {
+	if baseURL != ProdBaseURL() && baseURL != DailyBaseURL() {
+		return nil, nil, errors.New("unsupported antigravity model discovery endpoint")
+	}
+	return c.fetchAvailableModels(ctx, accessToken, projectID, bodyLimit, []string{baseURL}, true)
+}
+
+func (c *Client) fetchAvailableModels(ctx context.Context, accessToken, projectID string, bodyLimit int64, availableURLs []string, bindEndpoint bool) (*FetchAvailableModelsResponse, map[string]any, error) {
 	if c == nil || c.httpClient == nil {
 		return nil, nil, errors.New("antigravity client is not configured")
 	}
@@ -679,10 +694,19 @@ func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectI
 		return nil, nil, fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	// 固定顺序：prod -> daily
-	availableURLs := BaseURLs
-
 	fetchClient := c.fetchAvailableModelsHTTPClient()
+	if bindEndpoint {
+		endpoint, _ := url.Parse(availableURLs[0]) // validated by FetchAvailableModelsAt
+		fetchClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if err := checkFetchAvailableModelsRedirect(req, via); err != nil {
+				return err
+			}
+			if req.URL.Scheme != endpoint.Scheme || req.URL.Host != endpoint.Host {
+				return errors.New("model discovery redirect changed serving endpoint")
+			}
+			return nil
+		}
+	}
 	var lastErr error
 	for urlIdx, baseURL := range availableURLs {
 		apiURL := baseURL + "/v1internal:fetchAvailableModels"

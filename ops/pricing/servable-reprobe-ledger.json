@@ -98,6 +98,16 @@
       "platform": "grok",
       "model": "grok-imagine-image-pro",
       "reason": "Retired upstream; replaced by grok-imagine-image-quality."
+    },
+    {
+      "platform": "antigravity",
+      "model": "gemini-3.6-flash",
+      "reason": "Reviewed withdrawal of the default gemini-3.6-flash-tiered path: native generation NOT_FOUND on paid daily endpoint; tiered absent from all active serving catalogs. Free prod 429 is inconclusive, not retirement evidence. Native Gemini and explicit non-tiered AG wires are unchanged. See docs/approved/antigravity-model-capability-repair.md."
+    },
+    {
+      "platform": "antigravity",
+      "model": "gemini-3.5-flash-lite",
+      "reason": "Reviewed withdrawal of the default gemini-3.6-flash-tiered path: native generation NOT_FOUND on paid daily endpoint; tiered absent from all active serving catalogs. Free prod 429 is inconclusive, not retirement evidence. Native Gemini and explicit non-tiered AG wires are unchanged. See docs/approved/antigravity-model-capability-repair.md."
     }
   ],
   "probe_candidates": [

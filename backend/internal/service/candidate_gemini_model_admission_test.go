@@ -38,12 +38,20 @@ func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 					}}
 					ids, _, err := discovery.GetAvailableModelsForDiscovery(context.Background(), groupID, accounts[i].Platform)
 					require.NoError(t, err)
-					require.Contains(t, ids, model, "discovery and candidate evaluation must share the admitted model")
+					if accounts[i].Platform == PlatformAntigravity && model == "gemini-3.5-flash-lite" {
+						require.NotContains(t, ids, model)
+					} else {
+						require.Contains(t, ids, model, "discovery and candidate evaluation must share the admitted model")
+					}
 				}
 				ctx := resolver.WithRequest(context.Background(), inbound.shape, inbound.path, model, []byte(inbound.body))
 				for i := range accounts {
 					plan, governed, err := protocolPlanForAccount(ctx, &accounts[i], model)
 					require.True(t, governed)
+					if accounts[i].Platform == PlatformAntigravity && model == "gemini-3.5-flash-lite" {
+						require.Error(t, err)
+						continue
+					}
 					require.NoError(t, err, "account %d", accounts[i].ID)
 					require.Equal(t, protocolrouter.ProtocolGeminiGenerateContent, plan.TargetProtocol())
 					if i == 0 {
@@ -54,11 +62,7 @@ func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 						require.Equal(t, want, plan.ResolvedModel())
 						require.Contains(t, plan.Endpoint(), "/locations/global/")
 					} else {
-						want := map[string]string{
-							"gemini-3-flash-preview": "gemini-3.8-flash-high",
-							"gemini-3.5-flash-lite":  "gemini-3.6-flash-tiered",
-						}[model]
-						require.Equal(t, want, plan.ResolvedModel())
+						require.Equal(t, "gemini-3.8-flash-high", plan.ResolvedModel())
 					}
 				}
 				group, err := resolver.Resolve(ctx, universalKey(334), inbound.shape, model, "")
@@ -67,8 +71,12 @@ func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 				accounts[0].Schedulable = false
 				wireCandidateTestResolver(resolver, gateway, accounts)
 				group, err = resolver.Resolve(ctx, universalKey(334), inbound.shape, model, "")
-				require.NoError(t, err)
-				require.Equal(t, int64(21), group.ID, "Antigravity remains a legal fallback")
+				if model == "gemini-3.5-flash-lite" {
+					require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
+				} else {
+					require.NoError(t, err)
+					require.Equal(t, int64(21), group.ID, "Antigravity remains a legal fallback")
+				}
 				accounts[1].Schedulable = false
 				wireCandidateTestResolver(resolver, gateway, accounts)
 				_, err = resolver.Resolve(ctx, universalKey(334), inbound.shape, model, "")
@@ -86,7 +94,7 @@ func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T) {
 		require.NotNil(t, entry)
 		require.False(t, tkIsEffectivelyUnpriced(entry))
 		require.True(t, isPublicCatalogModelSupported("gemini", model))
-		require.True(t, isPublicCatalogModelSupported(PlatformAntigravity, model))
+		require.Equal(t, model != "gemini-3.5-flash-lite", isPublicCatalogModelSupported(PlatformAntigravity, model))
 		require.Equal(t, "gemini", presentationVendorForServable(model, "gemini"))
 		require.Contains(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), model)
 	}
@@ -115,7 +123,11 @@ func TestCandidateEligibilityGeminiNativeActivationScope(t *testing.T) {
 		for profile, mapping := range floor.VertexCapabilityProfiles {
 			require.Equal(t, wantVertex[model], mapping[model], "profile %s", profile)
 		}
-		require.NotEmpty(t, floor.Platforms[PlatformAntigravity][model])
+		if model == "gemini-3.5-flash-lite" {
+			require.NotContains(t, floor.Platforms[PlatformAntigravity], model)
+		} else {
+			require.Equal(t, "gemini-3.8-flash-high", floor.Platforms[PlatformAntigravity][model])
+		}
 		// Converged Google text aliases are also on the Gemini floor (traffic aliases).
 		require.Equal(t, wantVertex[model], floor.Platforms[PlatformGemini][model])
 		require.Contains(t, AccountModelMappingPresetIDs(context.Background(), PlatformGemini, 0, nil), model)
@@ -133,6 +145,10 @@ func TestCandidateEligibilityGeminiNativeEdgeMapping(t *testing.T) {
 				[]byte(`{"contents":[{"role":"user","parts":[{"text":"OK"}]}]}`))
 			plan, governed, err := protocolPlanForAccount(ctx, account, model)
 			require.True(t, governed)
+			if model == "gemini-3.5-flash-lite" {
+				require.Error(t, err)
+				return
+			}
 			require.NoError(t, err)
 			require.Equal(t, protocolrouter.ProtocolGeminiGenerateContent, plan.TargetProtocol())
 			require.Equal(t, MapAntigravityModel(account, model), plan.ResolvedModel())

@@ -7,6 +7,8 @@ revised_at: 2026-09-03
 
 # Approved docs index
 
+- [Antigravity 模型能力修复](antigravity-model-capability-repair.md)：保留 Argon、统一发现入口、模型级冷却与已确认无效映射清理。
+
 - [OAuth 集中后的网关安全](oauth-consolidation-gateway-safety.md)：固定代理、请求错误语义、流式巡检和数据处置边界。
 
 - [AWS 迁移收尾](aws-migration-closeout-20261016.md)：备份、QA timer、独立健康监控与旧 Hcloud edge 回收边界。

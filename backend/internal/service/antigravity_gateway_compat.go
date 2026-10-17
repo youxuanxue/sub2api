@@ -477,7 +477,7 @@ func (s *AntigravityGatewayService) handleAntigravityCompatHTTPError(
 		false,
 	)
 	message := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractAntigravityErrorMessage(body)))
-	googleSemantic := googleGatewayFailureSemantic(resp.StatusCode, strings.ToLower(message))
+	googleSemantic := antigravityGatewayFailureSemantic(resp.StatusCode, body)
 	shouldFailover := s.shouldFailoverUpstreamError(resp.StatusCode)
 	if googleSemantic != gatewayFailureSemanticUnclassified {
 		shouldFailover = classifyGatewayFailover(gatewayFailoverObservation{
@@ -511,7 +511,7 @@ func (s *AntigravityGatewayService) handleAntigravityCompatHTTPError(
 			ResponseHeaders: resp.Header.Clone(),
 		}
 		if googleSemantic != gatewayFailureSemanticUnclassified {
-			failure.RetryableOnSameAccount = !isModelCapabilityFailureMessage(strings.ToLower(message))
+			failure.RetryableOnSameAccount = resp.StatusCode == http.StatusBadRequest && !isModelCapabilityFailureMessage(strings.ToLower(message))
 			return applyGatewayFailoverSemantic(failure, gatewayFailoverProfileGoogle, googleSemantic)
 		}
 		return failure

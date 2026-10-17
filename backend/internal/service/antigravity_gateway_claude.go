@@ -404,33 +404,31 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 
 			s.handleUpstreamError(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, originalModel, 0, "", isStickySession)
 
-			// 精确匹配服务端配置类 400 错误，触发同账号重试 + failover
-			if resp.StatusCode == http.StatusBadRequest {
-				msg := strings.ToLower(strings.TrimSpace(extractAntigravityErrorMessage(respBody)))
-				semantic := googleGatewayFailureSemantic(resp.StatusCode, msg)
-				if semantic != gatewayFailureSemanticUnclassified && classifyGatewayFailover(gatewayFailoverObservation{
-					Profile: gatewayFailoverProfileGoogle, Semantic: semantic, StatusCode: resp.StatusCode,
-				}).RetryNextAccount {
-					upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractAntigravityErrorMessage(respBody)))
-					upstreamDetail := s.getUpstreamErrorDetail(respBody)
-					log.Printf("%s status=400 google_config_error failover=true upstream_message=%q account=%d", prefix, upstreamMsg, account.ID)
-					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-						ProxyID:            opsUpstreamProxyID(account),
-						ProxyName:          opsUpstreamProxyName(account),
-						Platform:           account.Platform,
-						AccountID:          account.ID,
-						AccountName:        account.Name,
-						UpstreamStatusCode: resp.StatusCode,
-						UpstreamRequestID:  resp.Header.Get("x-request-id"),
-						Kind:               "failover",
-						Message:            upstreamMsg,
-						Detail:             upstreamDetail,
-					})
-					return nil, applyGatewayFailoverSemantic(&UpstreamFailoverError{
-						StatusCode: resp.StatusCode, ResponseBody: respBody,
-						RetryableOnSameAccount: !isModelCapabilityFailureMessage(msg),
-					}, gatewayFailoverProfileGoogle, semantic)
-				}
+			// Account configuration and model capability failures use the shared failover policy.
+			msg := strings.ToLower(strings.TrimSpace(extractAntigravityErrorMessage(respBody)))
+			semantic := antigravityGatewayFailureSemantic(resp.StatusCode, respBody)
+			if semantic != gatewayFailureSemanticUnclassified && classifyGatewayFailover(gatewayFailoverObservation{
+				Profile: gatewayFailoverProfileGoogle, Semantic: semantic, StatusCode: resp.StatusCode,
+			}).RetryNextAccount {
+				upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractAntigravityErrorMessage(respBody)))
+				upstreamDetail := s.getUpstreamErrorDetail(respBody)
+				log.Printf("%s status=%d google_account_fault failover=true upstream_message=%q account=%d", prefix, resp.StatusCode, upstreamMsg, account.ID)
+				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+					ProxyID:            opsUpstreamProxyID(account),
+					ProxyName:          opsUpstreamProxyName(account),
+					Platform:           account.Platform,
+					AccountID:          account.ID,
+					AccountName:        account.Name,
+					UpstreamStatusCode: resp.StatusCode,
+					UpstreamRequestID:  resp.Header.Get("x-request-id"),
+					Kind:               "failover",
+					Message:            upstreamMsg,
+					Detail:             upstreamDetail,
+				})
+				return nil, applyGatewayFailoverSemantic(&UpstreamFailoverError{
+					StatusCode: resp.StatusCode, ResponseBody: respBody,
+					RetryableOnSameAccount: resp.StatusCode == http.StatusBadRequest && !isModelCapabilityFailureMessage(msg),
+				}, gatewayFailoverProfileGoogle, semantic)
 			}
 
 			if s.shouldFailoverUpstreamError(resp.StatusCode) {

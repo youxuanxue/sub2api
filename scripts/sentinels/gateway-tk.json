@@ -6522,9 +6522,10 @@
         "AccountWideModelRateLimitThreshold = 3",
         "func AccountWideRateLimitResetAt(",
         "func countedActiveModelRateLimits(",
-        "creditsExhaustedKey"
+        "creditsExhaustedKey",
+        "cooldown.Reason == AntigravityModelUnavailableCooldownReason"
       ],
-      "rationale": "Account-wide rate-limit SSOT: more than three still-active model_rate_limits scopes (AICredits excluded) cascade into an account-wide block for every platform/account type. IsSchedulable/IsRateLimited, admin/edge DTO projections, and SQL list filters must consume AccountWideRateLimitResetAt / accountWideRateLimitBlocks rather than inventing a second threshold."
+      "rationale": "Account-wide rate-limit SSOT: more than three still-active model_rate_limits scopes (AICredits and explicit Antigravity model-capability failures excluded) cascade into an account-wide block for every platform/account type. IsSchedulable/IsRateLimited, admin/edge DTO projections, and SQL list filters must consume AccountWideRateLimitResetAt / accountWideRateLimitBlocks rather than inventing a second threshold."
     },
     {
       "path": "backend/internal/service/edge_accounts_aggregator_tk.go",
@@ -13799,7 +13800,7 @@
     {
       "path": "backend/internal/service/antigravity_gateway_gemini.go",
       "must_contain": [
-        "googleGatewayFailureSemantic(resp.StatusCode, strings.ToLower(upstreamMsg))",
+        "antigravityGatewayFailureSemantic(resp.StatusCode, unwrappedForOps)",
         "classifyGatewayFailover(gatewayFailoverObservation{"
       ],
       "rationale": "Antigravity Gemini's body-aware Google project compatibility error must be normalized and submitted to the global failover owner."
@@ -13807,7 +13808,7 @@
     {
       "path": "backend/internal/service/antigravity_gateway_claude.go",
       "must_contain": [
-        "googleGatewayFailureSemantic(resp.StatusCode, msg)",
+        "antigravityGatewayFailureSemantic(resp.StatusCode, respBody)",
         "classifyGatewayFailover(gatewayFailoverObservation{"
       ],
       "rationale": "Antigravity Claude compatibility uses the same Google project semantic and global failover owner as Gemini rather than a local boolean branch."
@@ -17566,6 +17567,56 @@
         "validateOAuthProxyBinding(account)"
       ],
       "rationale": "Model discovery must preserve pinned OAuth egress when the configured proxy is unavailable."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_retry.go",
+      "must_contain": [
+        "func antigravityGatewayFailureSemantic(",
+        "HandleUpstreamError(ctx, account, statusCode, headers, body, requestedModel)",
+        "modelUnavailable := p.account.antigravityModelCapabilityUnavailable"
+      ],
+      "rationale": "Keep exact native model-unavailable failures on existing per-model cooldown and global failover owners. Credits and single-account retry must not reopen a known unavailable model."
+    },
+    {
+      "path": "backend/internal/service/antigravity_model_capability_tk_test.go",
+      "must_contain": [
+        "func TestAntigravityModelUnavailableAdapters(",
+        "func TestAntigravityDiscoveryUsesAccountServingEndpoint(",
+        "func TestAntigravityModelUnavailableAdminTestDoesNotCoolAccount(",
+        "func TestAntigravityCatalogWithdrawalPreservesOtherSupplies(",
+        "func TestAntigravityModelUnavailableCannotCascadeToWholeAccount(",
+        "func TestAntigravityModelUnavailableNativeThinkingScope("
+      ],
+      "rationale": "Regression coverage for model-only cooldown, bounded uncommitted failover across AG adapters, same-endpoint discovery, read-only account tests and platform-local catalog withdrawal."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_tk_volc_window_lock.go",
+      "must_contain": [
+        "service.AntigravityModelUnavailableCooldownReason",
+        "COALESCE(btrim(m.value->>'reason'), '')"
+      ],
+      "rationale": "Repository scheduling and capacity SQL must exclude the same model-capability reason as the service cascade; otherwise several unavailable AG models silently remove the whole account from database candidates."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": [
+        "ctx = withAntigravityNativeThinking(ctx, body)"
+      ],
+      "rationale": "Native forwarding and cooldown handling must resolve the same explicit thinking tier, never cool the default high wire after a low/medium failure."
+    },
+    {
+      "path": "backend/internal/service/universal_candidate_eligibility.go",
+      "must_contain": [
+        "ctx = withAntigravityNativeThinking(ctx, body)"
+      ],
+      "rationale": "Candidate cooldown eligibility must retain native thinking preferences before account selection; failover resolves each account mapping independently."
+    },
+    {
+      "path": "backend/internal/service/model_rate_limit.go",
+      "must_contain": [
+        "resolveNativeGeminiThinkingVariant(account, requestedModel, preferred)"
+      ],
+      "rationale": "Model cooldown reads and writes must reuse native forwarding variant resolution for explicit low/medium requests."
     }
   ]
 }

@@ -53,7 +53,8 @@ func newAPIFalseWindowLockPredicate(s *entsql.Selector) *entsql.Predicate {
 
 // activeModelRateLimitCountNotOverflowingSQL admits rows whose counted active
 // model_rate_limits scopes are at most AccountWideModelRateLimitThreshold.
-// AICredits is excluded to match service.countedActiveModelRateLimits.
+// Credits metadata and model capability failures are excluded to match
+// service.countedActiveModelRateLimits.
 //
 // nowPlaceholder is replaced with a timestamptz literal when now is non-zero;
 // pass "NOW()" and time.Time{} to bind wall clock in raw SQL fragments.
@@ -66,10 +67,11 @@ func activeModelRateLimitCountNotOverflowingSQL(extraCol, nowPlaceholder string,
 		SELECT COUNT(*)::int
 		FROM jsonb_each(COALESCE(%s->'model_rate_limits', '{}'::jsonb)) AS m(key, value)
 		WHERE m.key <> 'AICredits'
+			AND COALESCE(btrim(m.value->>'reason'), '') <> '%s'
 			AND NULLIF(btrim(m.value->>'rate_limit_reset_at'), '') IS NOT NULL
 			AND pg_input_is_valid(m.value->>'rate_limit_reset_at', 'timestamptz')
 			AND (m.value->>'rate_limit_reset_at')::timestamptz > %s
-	) <= %d`, extraCol, nowExpr, service.AccountWideModelRateLimitThreshold)
+	) <= %d`, extraCol, service.AntigravityModelUnavailableCooldownReason, nowExpr, service.AccountWideModelRateLimitThreshold)
 }
 
 // accountWideRateLimitNotBlockingSQL is the raw-SQL twin of

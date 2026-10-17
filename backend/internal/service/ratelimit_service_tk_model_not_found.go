@@ -10,6 +10,10 @@ import (
 
 const upstreamModelNotFoundCooldown = 30 * time.Minute
 const upstreamModelNotFoundReason = "upstream_404_model_not_found"
+
+// AntigravityModelUnavailableCooldownReason identifies a capability failure,
+// which credits cannot bypass and which must never cascade to account-wide quota.
+const AntigravityModelUnavailableCooldownReason = "antigravity_404_model_unavailable"
 const upstreamModelNotFound401Reason = "upstream_401_model_not_found"
 const upstreamOpaqueProvider404Cooldown = 10 * time.Minute
 const upstreamOpaqueProvider404Reason = "upstream_404_opaque_provider"
@@ -36,6 +40,8 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	var cooldown time.Duration
 	var reason string
 	switch {
+	case account.Platform == PlatformAntigravity && account.IsOAuth() && isAntigravityModelUnavailableError(statusCode, responseBody):
+		cooldown, reason = upstreamModelNotFoundCooldown, AntigravityModelUnavailableCooldownReason
 	case isUpstreamModelRetiredError(statusCode, responseBody):
 		cooldown, reason = upstreamModelRetiredCooldown, upstreamModelRetiredReason
 	case isUpstreamModelNotFoundError(statusCode, responseBody):

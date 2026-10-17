@@ -165,6 +165,13 @@ func OpenAIImagesEndpointFromContext(ctx context.Context) bool {
 }
 
 func resolveFinalAntigravityModelKey(ctx context.Context, account *Account, requestedModel string) string {
+	if ctx != nil {
+		if preferred, ok := ctx.Value(antigravityNativeThinkingContextKey{}).(string); ok {
+			if model, resolved := resolveNativeGeminiThinkingVariant(account, requestedModel, preferred); resolved {
+				return model
+			}
+		}
+	}
 	modelKey := mapAntigravityModel(account, requestedModel)
 	if modelKey == "" {
 		return ""

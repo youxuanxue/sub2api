@@ -504,7 +504,9 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 
 	// 预检查：模型限流 + overages 启用 + 积分未耗尽 → 直接注入 AI Credits
 	overagesInjected := false
+	modelUnavailable := p.account.antigravityModelCapabilityUnavailable(p.ctx, p.requestedModel)
 	if p.requestedModel != "" && p.account.Platform == PlatformAntigravity &&
+		!modelUnavailable &&
 		p.account.IsOveragesEnabled() && !p.account.isCreditsExhausted() &&
 		p.account.isModelRateLimitedWithContext(p.ctx, p.requestedModel) {
 		if creditsBody := injectEnabledCreditTypes(p.body); creditsBody != nil {
@@ -523,7 +525,7 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 			if overagesInjected {
 				logger.LegacyPrintf("service.antigravity_gateway", "%s pre_check: credits_injected_ignore_rate_limit remaining=%v model=%s account=%d",
 					p.prefix, remaining.Truncate(time.Millisecond), p.requestedModel, p.account.ID)
-			} else if isSingleAccountRetry(p.ctx) {
+			} else if isSingleAccountRetry(p.ctx) && !modelUnavailable {
 				// 单账号 503 退避重试模式：跳过限流预检查，直接发请求。
 				// 首次请求设的限流是为了多账号调度器跳过该账号，在单账号模式下无意义。
 				// 如果上游确实还不可用，handleSmartRetry → handleSingleAccountRetryInPlace
@@ -852,6 +854,13 @@ func googleGatewayFailureSemantic(statusCode int, lowerMsg string) gatewayFailur
 		return gatewayFailureSemanticAccountFault
 	}
 	return gatewayFailureSemanticUnclassified
+}
+
+func antigravityGatewayFailureSemantic(statusCode int, body []byte) gatewayFailureSemantic {
+	if isAntigravityModelUnavailableError(statusCode, body) {
+		return gatewayFailureSemanticAccountFault
+	}
+	return googleGatewayFailureSemantic(statusCode, strings.ToLower(extractAntigravityErrorMessage(body)))
 }
 
 // googleConfigErrorCooldown 服务端配置类 400 错误的临时封禁时长
@@ -1328,9 +1337,9 @@ func (s *AntigravityGatewayService) handleUpstreamError(
 	if s.rateLimitService == nil {
 		return nil
 	}
-	shouldDisable := s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, headers, body)
-	if shouldDisable {
-		logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d marked_error", prefix, statusCode)
+	handled := s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, headers, body, requestedModel)
+	if handled {
+		logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d upstream_error_handled", prefix, statusCode)
 	}
 	return nil
 }
