@@ -216,6 +216,9 @@ elif a[0] == 'stop':
     h['containers'][a[-1]]['State']['Status'] = 'exited'
 elif a[0] == 'kill':
     h['draining'][a[-1]] = True
+elif a[:5] == ['exec', '-i', 'tokenkey-caddy', 'caddy', 'validate']:
+    text = sys.stdin.read()
+    code = int(re.search(r'reverse_proxy (\S+):8080', text) is None)
 elif a[0] == 'exec' and a[1] == 'tokenkey-caddy':
     if h['fail_reload']:
         h['fail_reload'] = False

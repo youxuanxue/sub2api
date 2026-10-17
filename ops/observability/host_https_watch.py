@@ -82,6 +82,7 @@ def tick(targets: dict, previous: dict, now: int, probe, send, node="unknown") -
 # (max age between completions, maximum normal execution time), in seconds.
 JOB_LIMITS = {
     "tokenkey-pgdump": (3 * 3600, 45 * 60),
+    "tokenkey-full-history-backup": (26 * 3600, 3 * 3600),
     "tokenkey-disk-metrics": (15 * 60, 60),
     "tokenkey-ghcr-prune-daily": (30 * 3600, 15 * 60),
     "tokenkey-qa-maintenance": (2 * 3600, 40 * 60 + 60),

@@ -6,6 +6,8 @@
 #     --operation deploy|replay|smoke-only|warm --tag 1.2.3 \
 #     [--replay-receipt SHA] [--replace-receipt SHA] [--ssot-models IDS] \
 #     [--simple-release-override true|false] [--ref REF]
+#   SSH isolated prod: --target zhupeng-prod --operation plan|bootstrap|deploy|smoke-only --tag 1.2.3
+#   Omitted --target selects the existing prod GitHub workflow.
 #
 # --tag accepts X.Y.Z or vX.Y.Z; a leading v is stripped before workflow_dispatch
 # (prod workflows require the bare image tag; they checkout refs/tags/v${tag}).
@@ -26,9 +28,10 @@ REPLACE_RECEIPT=""
 SSOT_MODELS=""
 SIMPLE_OVERRIDE=""
 WORKFLOW_REF=""
+TARGET="prod"
 
 usage() {
-  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
@@ -41,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     --ssot-models) SSOT_MODELS="${2:-}"; shift 2 ;;
     --simple-release-override) SIMPLE_OVERRIDE="${2:-}"; shift 2 ;;
     --ref) WORKFLOW_REF="${2:?--ref requires a Git ref}"; shift 2 ;;
+    --target) TARGET="${2:?--target requires a target name}"; shift 2 ;;
     -h|--help) usage ;;
     *)
       echo "dispatch-prod-deploy: unknown argument: $1" >&2
@@ -48,6 +52,14 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "${TARGET}" != prod ]]; then
+  if [[ -n "${REPLAY_RECEIPT}${REPLACE_RECEIPT}${SSOT_MODELS}${SIMPLE_OVERRIDE}${WORKFLOW_REF}" ]]; then
+    echo "Explicit SSH targets do not accept GitHub/replay overrides" >&2
+    exit 1
+  fi
+  exec python3 deploy/domestic/ssh-deploy.py --target "${TARGET}" --operation "${OPERATION}" --tag "${TAG}"
+fi
 
 if [[ -z "${OPERATION}" || -z "${TAG}" ]]; then
   echo "dispatch-prod-deploy: --operation and --tag are required" >&2

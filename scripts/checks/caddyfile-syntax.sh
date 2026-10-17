@@ -163,5 +163,6 @@ if [ "$failures" -ne 0 ]; then
 fi
 
 python3 -m unittest deploy/domestic/test_runtime.py deploy/domestic/test_bluegreen.py deploy/domestic/test_post_release.py
+python3 -m unittest deploy/domestic/test_ssh_deploy.py
 
 echo "ok: Caddyfile syntax checks passed (${#FILES[@]} files)"

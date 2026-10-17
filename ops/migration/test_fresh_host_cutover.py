@@ -13,19 +13,13 @@ from ops.migration import fresh_host_sync as sync
 
 
 class PreparedSyncTests(unittest.TestCase):
-    def test_tokyo_sync_uses_us_source_and_refuses_serving_candidate(self):
+    def test_tokyo_sync_refuses_aws_only_path_and_cannot_select_old_standby(self):
         inventory = json.loads((sync.ROOT / 'deploy/aws/fresh-migration-20261015.json').read_text())
         inventory['state'] = 'prepared'
-        source = inventory['prod']['standby_us_east_20261015']
-        online = {'InstanceInformationList': [{'InstanceId': source['instance_id'], 'PingStatus': 'Online'}]}
-        with patch.object(Path, 'read_text', return_value=json.dumps(inventory)), patch.object(sync, 'aws', return_value=online) as aws:
-            candidate, resolved = sync.resolve('prod')
-            self.assertEqual(candidate, inventory['prod'])
-            self.assertEqual(resolved, {key: source[key] for key in ('instance_name', 'instance_id', 'region')})
-            self.assertEqual(aws.call_args.args[0], 'us-east-1')
-            aws.return_value = {'InstanceInformationList': []}
-            with self.assertRaisesRegex(ValueError, 'Online source'):
+        with patch.object(Path, 'read_text', return_value=json.dumps(inventory)), patch.object(sync, 'aws') as aws:
+            with self.assertRaisesRegex(ValueError, 'Node1 SSH migration path'):
                 sync.resolve('prod')
+            aws.assert_not_called()
         inventory['state'] = 'tokyo-serving-edges-retired-20261017'
         with patch.object(Path, 'read_text', return_value=json.dumps(inventory)), patch.object(sync, 'aws') as aws:
             with self.assertRaisesRegex(ValueError, 'already active'):
