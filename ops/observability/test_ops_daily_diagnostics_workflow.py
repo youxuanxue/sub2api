@@ -405,17 +405,15 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
             "PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}",
             text[job_env:first_step],
         )
-        # Live-host (prod) + first-output (edges) + config audit; no CFN-only prod path.
+        # Live-host and config audit are both prod-only; no edge target path remains.
         audit = text.index("Assert live-host state (prod daily audit)")
-        fot = text.index("Assert first-output timeouts (edge daily audit)")
         config = text.index("Audit prod configuration independently of deployment")
         diagnose = text.index("- name: Run target diagnostics")
-        self.assertLess(audit, fot)
-        self.assertLess(fot, config)
+        self.assertLess(audit, config)
         self.assertLess(config, diagnose)
-        self.assertIn("resolve_prod_ssm_target.py", text[audit:fot + 200])
-        self.assertIn("assert-first-output-timeouts.sh", text[fot:config])
-        self.assertIn('TARGET_KIND != \'prod\'', text[fot:config])
+        self.assertIn("resolve_prod_ssm_target.py", text[audit:config])
+        self.assertNotIn("assert-first-output-timeouts.sh", text[audit:config])
+        self.assertNotIn("TARGET_KIND != 'prod'", text[audit:config])
         self.assertIn("resolve_prod_ssm_target.py", text[config:diagnose + 600])
         self.assertIn(
             'if [ "$TARGET_KIND" = "prod" ]; then',
@@ -437,16 +435,11 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         init = text.index("RUNTIME_SSM_TRANSPORT_OK=false")
         send_success = text.index("RUNTIME_SSM_TRANSPORT_OK=true", init)
         suppress = text.index('elif [ "$RUNTIME_SSM_TRANSPORT_OK" != "true" ]; then', send_success)
-        hybrid = text.index(
-            'elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ] || [ "${TARGET_PLATFORM:-}" = "hetzner" ]; then',
-            suppress,
-        )
-        binary_check = text.index("error_clustering_binary_check", hybrid)
+        binary_check = text.index("error_clustering_binary_check", suppress)
 
         self.assertLess(init, send_success)
         self.assertLess(send_success, suppress)
-        self.assertLess(suppress, hybrid)
-        self.assertLess(hybrid, binary_check)
+        self.assertLess(suppress, binary_check)
         self.assertIn(
             "Runtime SSM SendCommand failed; suppressing downstream error_clustering SSM checks",
             text,

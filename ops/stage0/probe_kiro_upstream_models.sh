@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Direct, read-only Kiro account/model probe for an edge host.
+# Direct, read-only Kiro account/model probe for an prod host.
 # Credentials stay in a mode-600 temp file and are never written to stdout.
 set -euo pipefail
 

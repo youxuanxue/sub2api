@@ -63,8 +63,6 @@
 
 | US-059 | Antigravity OpenAI Images 协议适配 | InTest | `.testing/user-stories/stories/US-059-antigravity-images-generations.md` |
 
-| US-066 | Cursor retirement | InTest | `.testing/user-stories/stories/US-066-cursor-retirement.md` |
-
 | US-061 | 充值资格与 Studio 媒体错误提示 | Done | `.testing/user-stories/stories/US-061-trial-media-recharge.md` |
 
 | US-062 | Claude context error recovery | Done | `.testing/user-stories/stories/US-062-claude-context-error-recovery.md` |

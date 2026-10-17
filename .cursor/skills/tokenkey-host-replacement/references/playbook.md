@@ -14,7 +14,7 @@
 
 **激活：** bluegreen compose=源端；`active-color` ↔ Caddy `tokenkey-(blue|green)`（禁裸 `tokenkey:`）；systemd helpers + `migration-hold.conf`；DNS 前同步 `caddy/data`；网络见硬坑 1。
 
-**DNS：** `porkbun-upsert-a.sh`；`dig @8.8.8.8` + `curl --resolve`。**Edge：** 不部署；`deployable=false`；stub 已软删。Drain 单独审批。
+**DNS：** `porkbun-upsert-a.sh`；`dig @8.8.8.8` + `curl --resolve`。
 
 ## 硬坑
 
@@ -23,11 +23,6 @@
 3. **Caddy：** upstream 必须匹配 blue/green `active-color`。
 4. **Schema：** QA 小时分区漂移勿当失败（已排除 `qa_records%`）。
 5. **DNS：** 公共 resolver；本机可能仍解析旧 IP（假失败）；SG 放行 443/80。
-6. **Edge CIDR：** instance-id 直投（勿靠 `EDGE_ID=` 标签）；改 `.env` 用 sed/python，勿 `source .env`。
-7. **Hostname：** `expected_host('prod')` = 活主机名（现 `tokenkey-prod-tokyo-20261017`）。
-
-## Edge 退役
-
-`deployable=false` + 软删全部 `api-<edge>.tokenkey.dev` stub + 发版默认 prod-only。DELETE 可能 301→宿主机 admin CLI。回执：`docs/ops/edge-relay-soft-delete-20261017.json`。
+6. **Hostname：** `expected_host('prod')` = 活主机名（现 `tokenkey-prod-tokyo-20261017`）。
 
 **回滚：** 新机接写后禁止 DNS 直切并解冻旧库。详见 [交接回滚](../../../../docs/ops/aws-tokyo-cutover-handoff-20261017.md#回滚dns-已切)。

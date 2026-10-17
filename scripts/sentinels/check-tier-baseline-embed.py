@@ -18,8 +18,6 @@ Why this exists (CLAUDE.md §10, memory "anthropic tier baseline 单一源"):
 Compared pairs (semantic JSON equality — key order / whitespace ignored):
   deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json
     == backend/internal/baseline/anthropic-oauth-stability-baselines-tiered.json
-  deploy/aws/stage0/anthropic-stub-pool-baselines.json
-    == backend/internal/baseline/anthropic-stub-pool-baselines.json
   deploy/aws/stage0/anthropic-http-mimicry-baselines.json
     == backend/internal/baseline/anthropic-http-mimicry-baselines.json
 
@@ -63,7 +61,6 @@ TIER_BASELINE_NAME = "anthropic-oauth-stability-baselines-tiered.json"
 # (filename, deploy source, embedded copy)
 PAIRS = [
     "anthropic-oauth-stability-baselines-tiered.json",
-    "anthropic-stub-pool-baselines.json",
     # HTTP mimicry baseline (UA version + per-model betas) — embedded so the
     # config reconciler self-heals settings.claude_code_user_agent_version /
     # claude_code_http_mimicry_manifest toward it without an operator sync-runtime.
@@ -133,8 +130,8 @@ def effective_tiers_from_json(doc: dict) -> dict[str, dict]:
 
     NOTE: this is the LIVE-tier source of truth (it equals what
     ensureSeededFromBaseline UPSERTs into the tiers table on boot). It is used by
-    ops/anthropic/manage-anthropic-config.py (_load_expected_tiers) for live
-    tiers-TABLE drift detection — NOT for the frozen tk_012 migration seed, which
+    the runtime reconciliation owner for live tiers-TABLE drift detection — NOT
+    for the frozen tk_012 migration seed, which
     is immutable and guarded against FROZEN_TK012_SEED above.
     """
     shared = doc.get("shared_baseline") or {}

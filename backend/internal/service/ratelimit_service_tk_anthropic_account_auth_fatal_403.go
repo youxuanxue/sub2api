@@ -11,10 +11,6 @@ var tkAnthropicAccountAuthFatal403Keywords = []string{
 	"oauth token lacks required scopes",
 }
 
-// tkIsAnthropicAccountAuthFatal403 reports whether an Anthropic 403 (after org-ban,
-// bodyless, TLS, and mirror-boundary skips) should permanently disable via
-// handleAuthError. Model-level permission denials and edge relay wrappers must
-// fail over only.
 func tkIsAnthropicAccountAuthFatal403(upstreamMsg string, responseBody []byte) bool {
 	haystack := strings.ToLower(strings.TrimSpace(upstreamMsg) + " " + string(responseBody))
 	if haystack == "" {
@@ -27,7 +23,6 @@ func tkIsAnthropicAccountAuthFatal403(upstreamMsg string, responseBody []byte) b
 	if strings.Contains(haystack, "is not allowed for this organization") {
 		return false
 	}
-	// Prod mirror stub relaying edge upstream_error — not prod stub auth health.
 	if strings.Contains(haystack, `"type":"upstream_error"`) ||
 		strings.Contains(haystack, "upstream request failed") {
 		return false

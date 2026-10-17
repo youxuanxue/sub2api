@@ -8,7 +8,7 @@ PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
 MODE="${MODE:-}"
 
 case "$MODE" in
-  edge-oauth-pool)
+  anthropic-oauth-pool)
     echo "=== before ==="
     $PSQL -c "
 SELECT row_to_json(t) FROM (
@@ -54,43 +54,8 @@ SELECT row_to_json(t) FROM (
   ORDER BY id
 ) t;"
     ;;
-  prod-mirror-cooldown)
-    echo "=== before ==="
-    $PSQL -c "
-SELECT row_to_json(t) FROM (
-  SELECT id, name, schedulable, status, rate_limited_at, temp_unschedulable_until,
-         left(coalesce(temp_unschedulable_reason::text,''),120) AS reason
-  FROM accounts
-  WHERE platform='anthropic' AND type='apikey'
-    AND name ~ '^(cc-|kiro-)'
-    AND deleted_at IS NULL
-  ORDER BY id
-) t;"
-    echo "=== apply ==="
-    $PSQL -c "
-UPDATE accounts SET
-  temp_unschedulable_until = NULL,
-  temp_unschedulable_reason = NULL,
-  rate_limited_at = NULL,
-  rate_limit_reset_at = NULL
-WHERE platform = 'anthropic'
-  AND type = 'apikey'
-  AND name ~ '^(cc-|kiro-)'
-  AND deleted_at IS NULL;
-"
-    echo "=== after ==="
-    $PSQL -c "
-SELECT row_to_json(t) FROM (
-  SELECT id, name, schedulable, status, rate_limited_at, temp_unschedulable_until
-  FROM accounts
-  WHERE platform='anthropic' AND type='apikey'
-    AND name ~ '^(cc-|kiro-)'
-    AND deleted_at IS NULL
-  ORDER BY id
-) t;"
-    ;;
   *)
-    echo "MODE must be edge-oauth-pool or prod-mirror-cooldown" >&2
+    echo "MODE must be anthropic-oauth-pool" >&2
     exit 2
     ;;
 esac

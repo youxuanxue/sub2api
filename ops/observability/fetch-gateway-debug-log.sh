@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# fetch-gateway-debug-log.sh — pull SUB2API_DEBUG_GATEWAY_BODY log from prod/edge to local.
+# fetch-gateway-debug-log.sh — pull SUB2API_DEBUG_GATEWAY_BODY log from prod to local.
 #
 # Remote path default: /app/data/gateway_debug.log (inside tokenkey container).
 # Flow: SSM gzip on instance → presigned S3 PUT (curl) → local download + gunzip.
 #
 # Usage:
-#   bash ops/observability/fetch-gateway-debug-log.sh --target edge:us1
-#   bash ops/observability/fetch-gateway-debug-log.sh --target edge:uk1 --out ./.cache/gateway-debug
+#   bash ops/observability/fetch-gateway-debug-log.sh --target prod
 #
 # Env:
 #   SSM_OUTPUT_S3_BUCKET   default: layer-zip-repro-682751977094-us-east-1
@@ -46,7 +45,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$TARGET" ]; then
-  echo "[fetch-gateway-debug-log] ERROR: --target is required (prod | edge:<id>)" >&2
+  echo "[fetch-gateway-debug-log] ERROR: --target is required (prod)" >&2
   exit 1
 fi
 
@@ -59,21 +58,15 @@ command -v jq >/dev/null 2>&1 || { err "jq required"; exit 1; }
 
 REGION=""
 INSTANCE_ID=""
-EDGE_LABEL="$TARGET"
+EDGE_LABEL="prod"
 if [ "$TARGET" = "prod" ]; then
   RESOLVED_JSON="$(python3 "$REPO_ROOT/ops/stage0/resolve_prod_ssm_target.py" \
     --target "${PROD_SSM_TARGET:-auto}" \
     --format json)"
   INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$RESOLVED_JSON")"
   REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"$RESOLVED_JSON")"
-elif [[ "$TARGET" == edge:* ]]; then
-  EDGE_ID="${TARGET#edge:}"
-  RES_LINES=$(python3 "$REPO_ROOT/ops/stage0/edge_ssm_execution.py" \
-    --repo-root "$REPO_ROOT" --edge-id "$EDGE_ID" --platform auto --format env)
-  eval "$RES_LINES"
-  EDGE_LABEL="edge-${EDGE_ID}"
 else
-  err "--target must be prod or edge:<id>"
+  err "--target must be prod"
   exit 1
 fi
 

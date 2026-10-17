@@ -1,6 +1,6 @@
 #!/bin/bash
 # Daily GHCR app-tag prune + dangling Docker image cleanup.
-# Invoked by tokenkey-ghcr-prune-daily.timer on prod EC2 and Lightsail edges.
+# Invoked by tokenkey-ghcr-prune-daily.timer on the prod host.
 # SSOT: deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh
 set -euo pipefail
 

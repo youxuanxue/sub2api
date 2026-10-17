@@ -3,19 +3,15 @@
 本 skill 默认按用户语义解析；用户未写完整参数时，先按下面语义补全，仍有歧义再问。
 
 ```text
-/tokenkey-stage0-release-rollout target=<prod|edge-<edge_id>|all> [tag=X.Y.Z] [operation=<check|release|replay|deploy|smoke|rollback>] [replay_receipt=SHA256] [previous_tag=X.Y.Z] [anthropic_config_check=false] [account_model_mapping_check=false] [main_via_edge=false]
+/tokenkey-stage0-release-rollout target=<prod> [tag=X.Y.Z] [operation=<check|release|replay|deploy|smoke|rollback>] [replay_receipt=SHA256] [previous_tag=X.Y.Z] [account_model_mapping_check=false]
 ```
 
 | 参数 | 语义 |
 |---|---|
-| `operation=check` | 只做预发布风险检查：对比上一个 release tag 到待发布 HEAD 的代码事实，判断上线 prod/Edge 的潜在影响；不 bump、不 tag、不 dispatch deploy。 |
-| `operation=replay` | **仅允许 `target=prod`**：以 `STAGE0_BLUEGREEN_STAGE=prepare` 部署 inactive color，再用测试 universal key 对该候选执行完整用例。请求并发与间隔由 host runner 固定；每条用例均生成结果，停止时保留剩余义务。不得调用 promote、Caddy reload 或 edge rollout；回执交用户审核，不是切流授权。 |
-| `target=prod` | release（必要时 bump/tag/build）→ `bash scripts/stage0/dispatch-prod-deploy.sh --operation deploy --tag …`（绑定 **`prod`** Environment）→ prod smoke → **默认** Anthropic OAuth snapshot/check + Account model_mapping check。 |
-| `target=edge-<edge_id>` | 当前无活目标，退役身份拒绝。仅新身份获批并更新舰队契约后，使用 **`bash scripts/stage0/dispatch-edge-deploy.sh`**，按其要求提供恢复确认，再 watch / smoke；不手选云平台 workflow。 |
-| `target=all` | **2026-10-17 起默认等同 `target=prod`**：`--list-deployable` 为空时不做 canary / `rollout-edges`。仅当人类重新批准 edge 矩阵 `deployable=true` 后，才走历史路径：canary **upgrade (full)** → prod deploy（CI smoke）→ **默认跳过** canary `main-via-edge` → 其余 Edge **infra rollout** → followup → **默认** Anthropic OAuth snapshot/check + Account model_mapping check。`main_via_edge=true` 才跑可选段。 |
-| `main_via_edge` | 默认 **false**。有活 edge 且 `target=all` 时不跑 prod→Edge 中转 smoke；缺 key 或 by-design 503 不得据此 rollback。产线无 edge 时本开关无效果。 |
-| `anthropic_config_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `/tokenkey-anthropic-oauth-config` 的 **Stage 1–2 only**（snapshot + check，只读）。`anthropic_config_check=false` 跳过。`operation=check/smoke/rollback` 默认不跑。 |
-| `account_model_mapping_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `manage-account-model-mapping-runtime.py check-accounts --json`（默认 prod only），只读 diff prod 显式 `model_mapping` 与 Go SSOT floor/policy metadata。violation 或 SSM/OIDC 失败记 **yellow**，不 rollback 镜像。`account_model_mapping_check=false` 跳过。edge 空 mapping 不纳入 post-release 检查；需显式 `--include-edges` 才查 edge。 |
+| `operation=check` | 只做预发布风险检查：对比上一个 release tag 到待发布 HEAD 的代码事实，判断上线 prod 的潜在影响；不 bump、不 tag、不 dispatch deploy。 |
+| `operation=replay` | **仅允许 `target=prod`**：以 `STAGE0_BLUEGREEN_STAGE=prepare` 部署 inactive color，再用测试 universal key 对该候选执行完整用例。请求并发与间隔由 host runner 固定；每条用例均生成结果，停止时保留剩余义务。不得调用 promote、Caddy reload；回执交用户审核，不是切流授权。 |
+| `target=prod` | release（必要时 bump/tag/build）→ `bash scripts/stage0/dispatch-prod-deploy.sh --operation deploy --tag …`（绑定 **`prod`** Environment）→ prod smoke → **默认** Account model_mapping check。 |
+| `account_model_mapping_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `manage-account-model-mapping-runtime.py check-accounts --json`（默认 prod only），只读 diff prod 显式 `model_mapping` 与 Go SSOT floor/policy metadata。violation 或 SSM/OIDC 失败记 **yellow**，不 rollback 镜像。`account_model_mapping_check=false` 跳过。|
 
 ### 回放与审核
 
@@ -39,6 +35,6 @@ workflow 上传 `replay-receipt.json` 与 `replay-results.json`；本地入口�
 
 替换不同 tag 候选必须传当前 prepared fingerprint（`--replace-receipt` / workflow
 `replace_receipt`），走 bluegreen owner 的替换门禁。验证结束向用户交付结果、覆盖限制、
-账号类命中、测试 key usage 与线上指纹对比；禁止自动继续 prod deploy、smoke 或 edge rollout。
+账号类命中、测试 key usage 与线上指纹对比；禁止自动继续 prod deploy、smoke。
 
-如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“全部 / 所有网关 / prod + edge / all”，默认 `target=all operation=release`（**当前矩阵无 deployable edge 时机械坍缩为 prod-only**）。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=prod`（无活 edge 时不要假装检查 edge 面）。
+如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=prod`。

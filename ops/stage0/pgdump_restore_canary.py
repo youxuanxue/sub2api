@@ -26,7 +26,7 @@ from pgdump_restore_canary_contract import PRECIOUS_TABLES, precious_counts_vali
 from pgdump_storage import Storage, StorageError, CONFIG_PATH
 
 
-TARGET_RE = re.compile(r"(?:prod|edge:[a-z][a-z0-9]{1,15})")
+TARGET_RE = re.compile(r"prod")
 OBJECT_RE = re.compile(r"tokenkey-\d{8}T\d{6}Z\.sql\.gz")
 LIVE_POSTGRES = "tokenkey-postgres"
 FRESHNESS = dt.timedelta(hours=4)
@@ -356,7 +356,7 @@ def run_canary(
     disk_usage: Callable[[pathlib.Path], Any] = shutil.disk_usage,
 ) -> dict[str, Any]:
     if TARGET_RE.fullmatch(target) is None:
-        raise CanaryError("target must be prod or edge:<id>")
+        raise CanaryError("target must be prod")
     try:
         storage = Storage(target=target, env_path=env_path, config_path=storage_config)
     except StorageError as exc:
@@ -547,7 +547,7 @@ def run_fresh_dump_canary(
     disk_usage: Callable[[pathlib.Path], Any] = shutil.disk_usage,
 ) -> dict[str, Any]:
     if TARGET_RE.fullmatch(target) is None:
-        raise CanaryError("target must be prod or edge:<id>")
+        raise CanaryError("target must be prod")
     _s3_location(target, env_path)
     dump_dir = dump_dir.expanduser().resolve()
     if not dump_dir.is_dir():
@@ -615,12 +615,11 @@ def main(argv: Iterable[str] | None = None) -> int:
             except StaleDumpError as exc:
                 if args.storage_config != CONFIG_PATH or args.expected_source is not None:
                     raise
-                # Hourly dumps can gap after edge IP rotation / timer drift.
+                # Hourly dumps can gap after timer drift.
                 # Prefer restoring the newest S3 object when it is fresh; otherwise
                 # self-heal by creating one dump and proving its round-trip restore
                 # so daily diagnostics stop filing missing-receipt issues for a week.
-                # Stamp the receipt so verdict can warn: edges have no separate
-                # pgdump_freshness gate, and a silent healthy receipt would hide a
+                # Stamp the receipt so the verdict can warn instead of hiding a
                 # broken tokenkey-pgdump.timer until the next weekly run.
                 print(
                     f"pgdump restore canary: existing dump unusable ({exc}); "

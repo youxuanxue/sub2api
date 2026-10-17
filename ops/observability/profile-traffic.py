@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """profile-traffic.py — TokenKey read-only per-minute traffic rebuild from gateway logs.
 
-Designed to run INSIDE the TokenKey host (prod or edge), after `docker logs tokenkey
+Designed to run INSIDE the TokenKey prod host, after `docker logs tokenkey
 --since <window>` has been pre-filtered into:
 
     /tmp/acc.txt   lines containing  "http request completed"  AND  the configured path

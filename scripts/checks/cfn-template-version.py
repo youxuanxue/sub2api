@@ -13,11 +13,8 @@ This is a particularly nasty failure mode because:
   3. The error message is misleading (suggests the version field is "weird"
      rather than telling you "use 2010-09-09 exactly").
 
-Real incident: PR #380's `cicd-oidc-lightsail-addon.yaml` shipped with the
-typo `2010-10-09` (off by one month). It was missed in two /xj-review
-rounds. The bug only surfaced during the Phase 1 migration setup when
-`aws cloudformation deploy` was first run. This check makes the typo a
-preflight FAIL so future templates cannot ship the same regression.
+The check keeps this failure at preflight time so future templates cannot ship
+an unsupported version string.
 
 stdlib-only.
 """

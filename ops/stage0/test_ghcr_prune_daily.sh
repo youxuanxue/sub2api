@@ -5,7 +5,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DAILY="${ROOT}/deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh"
 BOOTSTRAP="${ROOT}/deploy/aws/stage0/stage0-ec2-bootstrap.sh"
-EDGE_SYNC="${ROOT}/ops/stage0/sync-edge-host-units-via-ssm.sh"
 PROD_SYNC="${ROOT}/ops/stage0/sync-ghcr-prune-timer-via-ssm.sh"
 CFN="${ROOT}/deploy/aws/cloudformation/stage0-single-ec2.yaml"
 
@@ -91,7 +90,7 @@ if ! grep -q 'docker image prune -af' "${DAILY}"; then
   fail=1
 fi
 
-for consumer in "${BOOTSTRAP}" "${EDGE_SYNC}" "${PROD_SYNC}"; do
+for consumer in "${BOOTSTRAP}" "${PROD_SYNC}"; do
   if ! grep -q -- '--install-units' "${consumer}"; then
     echo "FAIL: ${consumer} does not delegate unit rendering to the canonical installer" >&2
     fail=1
@@ -114,9 +113,6 @@ if [ -z "${daily_b64}" ] || ! printf '%s' "${daily_b64}" | base64 -d 2>/dev/null
   fail=1
 fi
 
-if ! python3 "${ROOT}/scripts/checks/check-ghcr-prune-workflow.py"; then
-  fail=1
-fi
 
 if [ "${fail}" -ne 0 ]; then
   exit 1

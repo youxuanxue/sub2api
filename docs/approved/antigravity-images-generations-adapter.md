@@ -9,7 +9,7 @@ created: 2026-09-30
 
 ## 目标与契约
 
-现有 Antigravity OAuth 和 prod→edge relay 已能通过 Gemini 原生请求生图，但
+现有 Antigravity OAuth 和通用 API-key 上游 已能通过 Gemini 原生请求生图，但
 `POST /v1/images/generations` 在路由层返回 404。本次为这一入口增加协议适配，
 让 OpenAI Images 客户端得到标准 `created` + `data[].b64_json`。
 

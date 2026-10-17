@@ -100,9 +100,6 @@ func TestBuildOpsFeishuAlertTextTopCauseLine(t *testing.T) {
 		require.Contains(t, out, "anthropic ×339\n**模型**：")
 	})
 
-	// No top_cause_users dimension (non-rejection rules, or a degraded user query)
-	// => no 用户 line. (Edge nodes never reach this renderer at all — the whole
-	// routing-rejection alert is suppressed upstream in maybeSendAlertNotifications.)
 	t.Run("omits 用户 line when top_cause_users absent", func(t *testing.T) {
 		ev := &OpsAlertEvent{
 			MetricValue: &mv,

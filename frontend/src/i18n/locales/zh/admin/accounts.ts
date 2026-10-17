@@ -637,10 +637,10 @@ export default {
       forbidden: '已封禁',
       forbiddenValidation: '需要验证',
       forbiddenViolation: '违规封禁',
-      verificationLinkHint: '来自最近一次 Google 403。请在登录该账号、使用所属 Edge 出口的指纹浏览器中打开；验证完成后仍需测试确认恢复。',
+      verificationLinkHint: '来自最近一次 Google 403。请在登录该账号、使用该账号的代理出口的指纹浏览器中打开；验证完成后仍需测试确认恢复。',
       antigravityAuthorizationLink: 'OAuth 授权链接',
       antigravityAuthExpired: '授权链接已过期，请重新生成后再授权。',
-      antigravityAuthBrowserHint: '复制链接到登录该账号的指纹浏览器，使用该账号所属 Edge 的出口 IP 完成授权。请保持此弹窗打开，30 分钟内将完整回调地址粘贴回来并完成授权；链接过期或服务重启后需重新生成。Google 验证链接用于解除验证挑战，OAuth 授权链接用于重新获取凭据，两者不能互相替代。',
+      antigravityAuthBrowserHint: '复制链接到登录该账号的指纹浏览器，使用该账号的代理出口 IP 完成授权。请保持此弹窗打开，30 分钟内将完整回调地址粘贴回来并完成授权；链接过期或服务重启后需重新生成。Google 验证链接用于解除验证挑战，OAuth 授权链接用于重新获取凭据，两者不能互相替代。',
       openVerification: '打开验证链接',
       copyLink: '复制链接',
       linkCopied: '链接已复制',
@@ -979,7 +979,6 @@ export default {
       modelCount: '{count} 个模型',
       poolMode: '池模式',
       poolModeHint: '上游为账号池时启用，错误不标记本地账号状态',
-      poolModeSystemManaged: '系统托管：内部 Edge Stub 由 Reconciler 自动维护',
       poolModeInfo:
         '启用后，上游 429/403/401 错误将自动重试而不标记账号限流或错误，适用于上游指向另一个 sub2api 实例的场景。',
       poolModeRetryCount: '同账号重试次数',
@@ -1224,7 +1223,7 @@ export default {
       mixedSchedulingTooltip:
         '！！注意！！ Antigravity Claude 和 Anthropic Claude 无法在同个上下文中使用，如果你同时有 Anthropic 账号和 Antigravity 账号，开启此选项会导致经常 400 报错。开启后，请用分组功能做好 Antigravity 账号和 Anthropic 账号的隔离。一定要弄明白再开启！！',
       mixedSchedulingTooltipKiro:
-        '启用后可将本 Kiro OAuth 账号挂入 Anthropic（Claude）分组，由同机 Kiro 路径服务 /v1/messages。不可进 Gemini 组；勿与 edge 上的 kiro-* anthropic 镜像 stub 混为一类。',
+        '启用后可将本 Kiro OAuth 账号挂入 Anthropic（Claude）分组，由同机 Kiro 路径服务 /v1/messages。不可进 Gemini 组。',
       aiCreditsBalance: 'AI Credits',
       allowOverages: '允许超量请求 (AI Credits)',
       allowOveragesTooltip:
@@ -1534,7 +1533,7 @@ export default {
         baseUrlHint: '留空使用官方 Gemini API',
         apiKeyHint: '您的 Gemini API Key（以 AIza 开头）',
         webSessionImportTitle: { initialize: '初始化 Gemini Web Worker 会话', replace: '替换 Gemini Web 浏览器会话' },
-        webSessionImportHint: '在实际运行 Worker 的 edge 后台，选择总指纹浏览器导出的 JSON（最大 2 MiB）。仅更新此账号的浏览器会话，保持当前调度状态；若账号因会话失效处于错误状态，导入成功会自动恢复为可用（不开启调度）。导入成功不代表已通过 Google 登录验证。',
+        webSessionImportHint: '在实际运行 Worker 的后台，选择总指纹浏览器导出的 JSON（最大 2 MiB）。仅更新此账号的浏览器会话，保持当前调度状态；若账号因会话失效处于错误状态，导入成功会自动恢复为可用（不开启调度）。导入成功不代表已通过 Google 登录验证。',
         webSessionImportInvalid: 'Gemini Web 会话 JSON 无效',
         webSessionImportTooLarge: '会话文件超过 2 MiB，请重新导出',
         webSessionImportConflict: '会话已更新或 Worker 正在使用，请稍后重新导入',

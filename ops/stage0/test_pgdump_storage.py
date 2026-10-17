@@ -23,8 +23,8 @@ class StorageTests(unittest.TestCase):
         self.key.write_bytes(b"x" * 32)
         self.key.chmod(0o600)
         self.config = self.root / "config.json"
-        self.values = {"schema_version": 1, "target": "edge:uk1",
-                       "s3_uri": "s3://tokenkey-pgdump-test/edge/uk1/pgdump",
+        self.values = {"schema_version": 1, "target": "prod",
+                       "s3_uri": "s3://tokenkey-pgdump-test/prod/pgdump",
                        "endpoint": "https://fsn1.your-objectstorage.com", "region": "fsn1",
                        "credentials_file": str(self.credentials), "sse_c_key_file": str(self.key)}
         self.write_config()
@@ -36,7 +36,7 @@ class StorageTests(unittest.TestCase):
         self.config.chmod(0o600)
 
     def load(self):
-        return Storage(target="edge:uk1", config_path=self.config, env_path=self.env)
+        return Storage(target="prod", config_path=self.config, env_path=self.env)
 
     def test_encrypted_upload_and_read_use_private_identity_despite_ambient_aws(self):
         with patch.dict(os.environ, {"AWS_ACCESS_KEY_ID": "wrong", "AWS_PROFILE": "wrong",
@@ -44,7 +44,7 @@ class StorageTests(unittest.TestCase):
             storage = self.load()
             command = storage.command(["s3", "cp", "source", "dest"], encrypted=True)
         self.assertEqual(storage.bucket, "tokenkey-pgdump-test")
-        self.assertEqual(storage.prefix, "edge/uk1/pgdump")
+        self.assertEqual(storage.prefix, "prod/pgdump")
         self.assertIn("AWS_PROFILE=pgdump", command)
         for name in ["AWS_ACCESS_KEY_ID", "AWS_PROFILE", "AWS_ENDPOINT_URL", "AWS_CONTAINER_CREDENTIALS_FULL_URI"]:
             self.assertIn(name, command[:command.index("aws")])
@@ -54,14 +54,14 @@ class StorageTests(unittest.TestCase):
         dump.write_bytes(b"synthetic")
         with patch("pgdump_storage.subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run:
             uri = storage.upload(dump)
-        self.assertEqual(uri, f"s3://tokenkey-pgdump-test/edge/uk1/pgdump/{dump.name}")
+        self.assertEqual(uri, f"s3://tokenkey-pgdump-test/prod/pgdump/{dump.name}")
         self.assertIn(uri, run.call_args.args[0])
         self.assertIn("--sse-c-key", run.call_args.args[0])
 
     def test_invalid_explicit_config_never_falls_back_to_valid_aws_env(self):
         for change in [{"endpoint": "http://fsn1.your-objectstorage.com"},
-                       {"endpoint": "https://attacker.invalid"}, {"target": "prod"},
-                       {"s3_uri": "s3://tokenkey-pgdump-test/prod/pgdump"},
+                       {"endpoint": "https://attacker.invalid"},
+                       {"s3_uri": "s3://tokenkey-pgdump-test/prod/not-pgdump"},
                        {"credentials_file": "relative"}, {"schema_version": 2}, {"schema_version": True}]:
             with self.subTest(change=change):
                 original = self.values.copy()

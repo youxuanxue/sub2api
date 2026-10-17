@@ -11,7 +11,7 @@ import (
 )
 
 func TestCodexClaudeModelAdmission(t *testing.T) {
-	for _, kind := range []string{AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey, "edge"} {
+	for _, kind := range []string{AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey} {
 		for _, tc := range []struct {
 			name, requested, mapped        string
 			wildcard, passthrough, allowed bool
@@ -30,10 +30,6 @@ func TestCodexClaudeModelAdmission(t *testing.T) {
 		} {
 			t.Run(kind+"/"+tc.name, func(t *testing.T) {
 				a := &Account{ID: 1, Platform: PlatformOpenAI, Type: kind, Credentials: map[string]any{}, Extra: map[string]any{}}
-				if kind == "edge" {
-					a.Type = AccountTypeAPIKey
-					a.Credentials["base_url"] = "https://api-uk1.tokenkey.dev"
-				}
 				if tc.mapped != "" {
 					key := tc.requested
 					if tc.wildcard {
@@ -57,8 +53,9 @@ func TestCodexClaudePlanAndSelection(t *testing.T) {
 	const model = "claude-sonnet-4-6"
 	oauth := *officialOpenAIOAuthAccount(11)
 	oauth.GroupIDs, oauth.Concurrency, oauth.Priority = []int64{10}, 10, 1
-	edge := multimodalSupplyOpenAIEdgeAccount(12, 10)
-	edge.Credentials["model_mapping"] = map[string]any{model: model}
+	secondOAuth := *officialOpenAIOAuthAccount(12)
+	secondOAuth.GroupIDs, secondOAuth.Concurrency, secondOAuth.Priority = []int64{10}, 10, 1
+	secondOAuth.Credentials["model_mapping"] = map[string]any{model: model}
 	api := multimodalSupplyTokenseaAccount(13, 10)
 	api.Credentials["model_mapping"] = map[string]any{model: model}
 	api.Priority = 100
@@ -67,7 +64,7 @@ func TestCodexClaudePlanAndSelection(t *testing.T) {
 			req, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{InboundProtocol: protocol, RequestedModel: model, Profile: protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText}, Body: multimodalTextChatBody(model)})
 			require.NoError(t, err)
 			ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), req)
-			for _, a := range []*Account{&oauth, &edge} {
+			for _, a := range []*Account{&oauth, &secondOAuth} {
 				_, governed, err := protocolPlanForAccount(ctx, a, model)
 				require.True(t, governed)
 				require.ErrorIs(t, err, protocolrouter.ErrModelPolicyDenied)
@@ -85,7 +82,7 @@ func TestCodexClaudePlanAndSelection(t *testing.T) {
 	for _, mode := range []string{RoutingModeDirect, RoutingModeUniversal} {
 		for _, includeAPI := range []bool{false, true} {
 			t.Run(mode+map[bool]string{false: "/codex-only", true: "/valid-supplier"}[includeAPI], func(t *testing.T) {
-				accounts := []Account{oauth, edge}
+				accounts := []Account{oauth, secondOAuth}
 				if includeAPI {
 					accounts = append(accounts, api)
 				}
@@ -137,13 +134,9 @@ func TestCodexClaudeAliasMappedToGPTPlan(t *testing.T) {
 
 func TestCodexClaudeCatalogProjection(t *testing.T) {
 	const model = "claude-fable-5-1"
-	for _, kind := range []string{AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey, "edge"} {
+	for _, kind := range []string{AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey} {
 		t.Run(kind, func(t *testing.T) {
 			a := &Account{Platform: PlatformOpenAI, Type: kind, Credentials: map[string]any{}}
-			if kind == "edge" {
-				a.Type = AccountTypeAPIKey
-				a.Credentials["base_url"] = "https://api-uk1.tokenkey.dev"
-			}
 			for _, codex := range []bool{false, true} {
 				body := []byte(`{"data":[{"id":"claude-fable-5-1"},{"id":"gpt-6-sol"}]}`)
 				if codex {

@@ -8,11 +8,10 @@ root=pathlib.Path(os.environ.get('WATCH_BUNDLE_DIR','/tmp')).resolve()
 sys.path.insert(0,str(root))
 from host_https_watch import build_config
 fresh=json.loads((root/'fresh-migration-20261015.json').read_text())
-matrix=json.loads((root/'edge-targets-lightsail.json').read_text())['targets']
 domestic=json.loads((root/'prod-target.json').read_text())
 role=os.environ.get('WATCH_ROLE','')
-config=build_config(role,socket.gethostname(),fresh,matrix,domestic)
-files=['host_https_watch.py','edge_https_health.py','edge_health_delivery.py','edge_model_health_alert.py']
+config=build_config(role,socket.gethostname(),fresh,domestic)
+files=['host_https_watch.py','https_health.py','feishu_delivery.py']
 for file in files:
     if not (root/file).is_file():raise SystemExit('missing companion: '+file)
 print(json.dumps({'role':role,**config,'apply':os.environ.get('APPLY')=='yes-host-https-watch'}))

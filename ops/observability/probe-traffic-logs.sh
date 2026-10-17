@@ -2,7 +2,7 @@
 # probe-traffic-logs.sh — pre-filter TokenKey gateway docker logs into the two
 # files consumed by profile-traffic.py: /tmp/acc.txt and /tmp/sse.txt.
 #
-# Runs INSIDE the TokenKey host (prod or edge), typically via SSM. Read-only.
+# Runs INSIDE the TokenKey prod host, typically via SSM. Read-only.
 #
 # Env:
 #   SINCE       docker logs --since window. Default 1h. Accepts "30m", "2h", etc.

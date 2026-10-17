@@ -78,8 +78,6 @@ func TestApplyOpenAIImagesStrictCanvasExactPixels(t *testing.T) {
 	require.Equal(t, 48, cfg.Height)
 }
 
-// Upstream OAuth softens tools[].size to auto and returns drifted pixels (edge-us3:
-// 1024x1024 → 1254x1254). Local pad must still land on the client canvas.
 func TestApplyOpenAIImagesStrictCanvasPadsUpstreamSoftSize(t *testing.T) {
 	src := image.NewRGBA(image.Rect(0, 0, 50, 50))
 	for y := 0; y < 50; y++ {

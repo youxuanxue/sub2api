@@ -11,7 +11,7 @@ func TestResolveGovernedOpenAIShapeMode(t *testing.T) {
 		Platform: PlatformAntigravity,
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
-			"base_url": "https://api-us4.tokenkey.dev",
+			"base_url": "https://upstream.example.test",
 			"api_key":  "sk-edge-stub",
 		},
 	}
@@ -25,13 +25,13 @@ func TestResolveGovernedOpenAIShapeMode(t *testing.T) {
 		want    GovernedOpenAIShapeMode
 	}{
 		{
-			name:    "antigravity edge relay gemini chat uses gemini compat hop",
+			name:    "antigravity API-key upstream gemini chat uses gemini compat hop",
 			account: agRelay,
 			model:   "gemini-3.8-flash",
 			want:    GovernedOpenAIShapeGeminiCompat,
 		},
 		{
-			name:    "antigravity edge relay claude chat uses gateway messages relay",
+			name:    "antigravity API-key upstream claude chat uses gateway messages relay",
 			account: agRelay,
 			model:   "claude-sonnet-4-6",
 			want:    GovernedOpenAIShapeAntigravityClaudeRelay,

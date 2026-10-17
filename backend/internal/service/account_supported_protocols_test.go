@@ -591,18 +591,11 @@ func TestProtocolRoutingGovernsStableGeminiAccountShapes(t *testing.T) {
 			want:    true,
 		},
 		{
-			name: "antigravity edge relay remains governed as a configurable upstream",
+			name: "antigravity API-key upstream remains governed as a configurable upstream",
 			account: &Account{Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
-				"base_url": "https://api-us3.tokenkey.dev",
+				"base_url": "https://upstream.example.test",
 			}},
 			want: true,
-		},
-		{
-			name: "arbitrary antigravity apikey account remains outside the stable relay shape",
-			account: &Account{Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
-				"base_url": "https://relay.example.test",
-			}},
-			want: false,
 		},
 		{
 			name: "exact newapi vertex service account remains governed without current credentials",
@@ -673,22 +666,22 @@ func TestProtocolAccountSnapshotDerivesGeminiEndpointProfile(t *testing.T) {
 			wantEndpoint: "https://us-central1-aiplatform.googleapis.com/v1/projects/project-v/locations/us-central1/publishers/google/models/gemini-2.5-pro:generateContent",
 		},
 		{
-			name: "antigravity edge relay uses public hop model",
+			name: "antigravity API-key upstream uses mapped model",
 			account: &Account{
 				ID:       85,
 				Platform: PlatformAntigravity,
 				Type:     AccountTypeAPIKey,
 				Credentials: map[string]any{
 					"api_key":  "secret",
-					"base_url": "https://api-us3.tokenkey.dev",
+					"base_url": "https://upstream.example.test",
 					"model_mapping": map[string]any{
 						"client-model": "gemini-3.8-flash-medium",
 					},
 				},
 				Extra: map[string]any{SupportedProtocolsExtraKey: []any{"gemini_generate_content"}},
 			},
-			wantProfile:  protocolrouter.GeminiEndpointAntigravityEdgeRelay,
-			wantEndpoint: "https://api-us3.tokenkey.dev/antigravity/v1beta/models/client-model:generateContent",
+			wantProfile:  protocolrouter.GeminiEndpointAntigravityAPIKey,
+			wantEndpoint: "https://upstream.example.test/v1beta/models/gemini-3.8-flash-medium:generateContent",
 		},
 	}
 
@@ -712,11 +705,10 @@ func TestProtocolAccountSnapshotDerivesGeminiEndpointProfile(t *testing.T) {
 				t.Fatalf("GeminiProfile = %q, want %q", snapshot.GeminiProfile(), tt.wantProfile)
 			}
 			exactModel := snapshot.ResolvedModel()
-			if tt.wantProfile == protocolrouter.GeminiEndpointAntigravityEdgeRelay {
+			if tt.wantProfile == protocolrouter.GeminiEndpointAntigravityAPIKey {
 				if exactModel != "gemini-3.8-flash-medium" {
 					t.Fatalf("ResolvedModel = %q, want mapped provider model", exactModel)
 				}
-				exactModel = request.RequestedModel()
 			}
 			endpoint, err := protocolGeminiExactEndpoint(tt.account, exactModel, snapshot.GeminiProfile(), request.Profile().Stream)
 			if err != nil {
@@ -894,175 +886,9 @@ func TestAdminUpdateExtraCannotWriteSupportedProtocols(t *testing.T) {
 	}
 }
 
-func TestRoutingSupportedProtocolsStripsMessagesOnOpenAIEdgeMirror(t *testing.T) {
-	stub := &Account{
-		ID:       68,
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key":  "secret",
-			"base_url": "https://api-us4.tokenkey.dev",
-		},
-	}
-	attachTestProtocolCapability(stub,
-		protocolrouter.ProtocolMessages,
-		protocolrouter.ProtocolChatCompletions,
-		protocolrouter.ProtocolResponses,
-	)
-	got := routingSupportedProtocols(stub)
-	want := []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("routingSupportedProtocols(stub) = %v, want %v", got, want)
-	}
-	if !reflect.DeepEqual(stub.SupportedProtocols(), []protocolrouter.Protocol{
-		protocolrouter.ProtocolMessages,
-		protocolrouter.ProtocolChatCompletions,
-		protocolrouter.ProtocolResponses,
-	}) {
-		t.Fatalf("capability owner list was rewritten: %v", stub.SupportedProtocols())
-	}
-
-	external := protocolRoutingOpenAIAccount(70,
-		string(protocolrouter.ProtocolMessages),
-		string(protocolrouter.ProtocolResponses),
-	)
-	if got := routingSupportedProtocols(external); !reflect.DeepEqual(got, []protocolrouter.Protocol{
-		protocolrouter.ProtocolMessages,
-		protocolrouter.ProtocolResponses,
-	}) {
-		t.Fatalf("external OpenAI relay lost native messages: %v", got)
-	}
-
-	messagesOnly := &Account{
-		ID:       71,
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key":  "secret",
-			"base_url": "https://api-us4.tokenkey.dev",
-		},
-	}
-	attachTestProtocolCapability(messagesOnly, protocolrouter.ProtocolMessages)
-	if got := routingSupportedProtocols(messagesOnly); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolMessages}) {
-		t.Fatalf("messages-only stub fallback = %v, want messages kept", got)
-	}
-}
-
-func TestRoutingSupportedProtocolsClampsKiroMirrorToMessages(t *testing.T) {
-	stub := &Account{
-		ID:       66,
-		Name:     "kiro-us6",
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key":         "secret",
-			"base_url":        "https://api-us6.tokenkey.dev",
-			"mirror_platform": PlatformKiro,
-		},
-	}
-	stored := []protocolrouter.Protocol{
-		protocolrouter.ProtocolMessages,
-		protocolrouter.ProtocolChatCompletions,
-		protocolrouter.ProtocolResponses,
-	}
-	attachTestProtocolCapability(stub, stored...)
-
-	if got, want := routingSupportedProtocols(stub), []protocolrouter.Protocol{protocolrouter.ProtocolMessages}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("routingSupportedProtocols(Kiro stub) = %v, want %v", got, want)
-	}
-	if got := stub.SupportedProtocols(); !reflect.DeepEqual(got, stored) {
-		t.Fatalf("capability owner list was rewritten: %v", got)
-	}
-}
-
-func TestKiroMirrorPlanRequiresPersistedMessages(t *testing.T) {
-	request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolMessages, protocolrouter.ResponsesPathNone,
-		"claude-sonnet-4-6", false, []byte(`{"model":"claude-sonnet-4-6","max_tokens":32,"messages":[{"role":"user","content":"hello"}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	router := NewProtocolRouter()
-	for _, native := range protocolrouter.AllProtocols() {
-		t.Run(string(native), func(t *testing.T) {
-			account := &Account{ID: 66, Name: "kiro-us6", Platform: PlatformAnthropic, Type: AccountTypeAPIKey,
-				Credentials: map[string]any{"api_key": "test", "base_url": "https://api-us6.tokenkey.dev", "mirror_platform": PlatformKiro}}
-			attachTestProtocolCapability(account, native)
-			snapshot, err := protocolAccountSnapshotForRequest(account, request)
-			if err != nil {
-				t.Fatal(err)
-			}
-			plan, err := router.Plan(request, snapshot)
-			if native != protocolrouter.ProtocolMessages {
-				if !errors.Is(err, protocolrouter.ErrNoLegalRoute) {
-					t.Fatalf("persisted %v must reject Messages, got plan=%v err=%v", native, plan, err)
-				}
-				return
-			}
-			if err != nil || plan.TargetProtocol() != native {
-				t.Fatalf("persisted Messages must remain usable: plan=%v err=%v", plan, err)
-			}
-
-			// Revoking Messages after selection must also stop authoritative pre-send validation.
-			attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions)
-			calls := 0
-			_, err = ExecuteSelectedProtocol(WithProtocolRouting(context.Background(), router, request), router,
-				&AccountSelectionResult{Account: account, ProtocolPlan: &plan}, account,
-				func(context.Context, *Account, string) error { return nil }, protocolExecutionAccountLoaderForTest(account),
-				protocolExecutorsForTest(plan, func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
-					calls++
-					return nil, nil
-				}))
-			if err == nil || calls != 0 {
-				t.Fatalf("revoked Messages reached transport: calls=%d err=%v", calls, err)
-			}
-		})
-	}
-}
-
-func TestAntigravityMirrorConvertsBeforeNativeOnlyEdge(t *testing.T) {
+func TestAntigravityAPIKeyKeepsChatWhenGeminiConversionCannotPreserve(t *testing.T) {
 	account := &Account{ID: 62, Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
-		"base_url": "https://api-us4.tokenkey.dev", "api_key": "test", "model_mapping": map[string]any{"claude-opus-4-6": "claude-opus-4-6-thinking"},
-	}}
-	stored := []protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolGeminiGenerateContent}
-	attachTestProtocolCapability(account, stored...)
-	for index, body := range []string{
-		`{"model":"claude-opus-4-6","messages":[{"role":"user","content":"hello"}]}`,
-		`{"model":"claude-opus-4-6","messages":[{"role":"user","content":"hello"}],"thinking":{"type":"enabled","budget_tokens":1024}}`,
-	} {
-		request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolMessages, protocolrouter.ResponsesPathNone, "claude-opus-4-6", false, []byte(body))
-		if err != nil {
-			t.Fatal(err)
-		}
-		snapshot, err := protocolAccountSnapshotForRequest(account, request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		plan, err := NewProtocolRouter().Plan(request, snapshot)
-		if index == 1 {
-			if err == nil {
-				t.Fatalf("thinking must not bypass converter admission: %v", plan.AdapterID())
-			}
-		} else {
-			if err != nil {
-				t.Fatal(err)
-			}
-			if plan.AdapterID() != protocolrouter.AdapterMessagesToGemini {
-				t.Fatalf("adapter = %s", plan.AdapterID())
-			}
-		}
-	}
-	if !reflect.DeepEqual(account.SupportedProtocols(), stored) {
-		t.Fatal("stored probe evidence changed")
-	}
-	account.Credentials["base_url"] = "https://external.example"
-	if got := routingSupportedProtocols(account); !reflect.DeepEqual(got, stored) {
-		t.Fatalf("external provider protocols changed: %v", got)
-	}
-}
-
-func TestAntigravityEdgeRelayKeepsChatWhenGeminiConversionCannotPreserve(t *testing.T) {
-	account := &Account{ID: 62, Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
-		"base_url": "https://api-us4.tokenkey.dev",
+		"base_url": "https://upstream.example.test",
 		"api_key":  "test",
 		"model_mapping": map[string]any{
 			"gemini-3.7-flash": "gemini-3.7-flash-high",
@@ -1090,8 +916,6 @@ func TestAntigravityEdgeRelayKeepsChatWhenGeminiConversionCannotPreserve(t *test
 		t.Fatalf("capability owner list was rewritten: %v", account.SupportedProtocols())
 	}
 
-	// prompt_cache_key is OpenAI sticky metadata; Gemini conversion drops it and
-	// must stay conversion-first so Gemini-only edge OAuth pools remain eligible.
 	cacheBody := `{"model":"gemini-3.7-flash","messages":[{"role":"user","content":"hi"}],"prompt_cache_key":"session-1","max_tokens":16}`
 	cacheReq, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathNone, "gemini-3.7-flash", false, []byte(cacheBody))
 	if err != nil {

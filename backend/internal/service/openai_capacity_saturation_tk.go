@@ -8,31 +8,11 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// OpenAI account capacity failures feed the same rolling soft scheduling
-// preference as prod edge-mirror empty-pool saturation: IncrementSaturation on
-// the selected account, never hard cooldown.
-//
-// Writers (same shouldRecordOpenAICapacitySaturation gate):
-//   - HTTP upstream errors: openai_account_runtime_block_fastpath.go (http_capacity)
-//   - Stream terminal response.failed / error with semantic 503 capacity:
-//     openai_gateway_passthrough.go handleOpenAIStreamTerminalAccountSideEffects
-//     (stream_capacity) — still recorded when failover is blocked by committed output
-//
-//   - Edge OAuth / setup-token: deprioritize the unhealthy OAuth among peers
-//   - Prod edge-mirror stub: deprioritize the usN relay so traffic prefers other edges
-//
-// TokenKey's sanitized envelope "Upstream service temporarily unavailable" is
-// only treated as a capacity signal on mirror stubs (edge already collapsed the
-// native upstream status). OAuth paths require native HTTP 503 overloaded or
-// temporary/service-unavailable wording; non-503 request-scoped model capacity
-// and generic 5xx sanitization do not punish healthy accounts.
-
+// Native OpenAI account capacity failures feed rolling scheduling preference
+// without imposing a hard cooldown. HTTP and stream-terminal failures share this gate.
 func eligibleForOpenAICapacitySaturationPreference(account *Account) bool {
 	if account == nil {
 		return false
-	}
-	if tkIsOpenAICompatEdgeMirrorStub(account) {
-		return true
 	}
 	return account.Platform == PlatformOpenAI && account.IsOpenAIOAuthLike()
 }
@@ -92,24 +72,6 @@ func isOpenAINativeCapacityUnavailable(statusCode int, upstreamMsg string, upstr
 	return false
 }
 
-func isOpenAITokenKeyUpstreamUnavailableEnvelope(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
-	if statusCode != http.StatusBadGateway && statusCode != http.StatusServiceUnavailable {
-		return false
-	}
-	match := func(text string) bool {
-		return strings.EqualFold(strings.TrimSpace(text), "Upstream service temporarily unavailable")
-	}
-	if match(upstreamMsg) {
-		return true
-	}
-	for _, path := range []string{"error.message", "message"} {
-		if match(gjson.GetBytes(upstreamBody, path).String()) {
-			return true
-		}
-	}
-	return false
-}
-
 func shouldRecordOpenAICapacitySaturation(account *Account, statusCode int, upstreamMsg string, upstreamBody []byte) bool {
 	if !eligibleForOpenAICapacitySaturationPreference(account) {
 		return false
@@ -117,9 +79,7 @@ func shouldRecordOpenAICapacitySaturation(account *Account, statusCode int, upst
 	if isOpenAINativeCapacityUnavailable(statusCode, upstreamMsg, upstreamBody) {
 		return true
 	}
-	// Prod stub observing an edge-sanitized capacity failure.
-	return tkIsOpenAICompatEdgeMirrorStub(account) &&
-		isOpenAITokenKeyUpstreamUnavailableEnvelope(statusCode, upstreamMsg, upstreamBody)
+	return false
 }
 
 func (s *OpenAIGatewayService) maybeRecordOpenAICapacitySaturation(

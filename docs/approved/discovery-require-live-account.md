@@ -70,8 +70,3 @@ Decision 5 与 Capability Contract：
 测试：`TestUS050_CandidateDiscoveryRequiresLiveAccount`、
 `TestUS050_CandidateDiscoverySeparatesPaymentTiersAndIgnoresRuntimeCapacity`、
 `TestAccountIsLiveForDiscovery`。
-
-## 退役供应的历史记录
-
-旧账号止血和恢复操作从 Git 历史查阅。当前 Cursor 账号的处理以
-[退役基线](cursor-retirement.md)为准，不再恢复 mapping 或调度。

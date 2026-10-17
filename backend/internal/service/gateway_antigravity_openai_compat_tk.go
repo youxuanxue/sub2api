@@ -2,7 +2,7 @@ package service
 
 import "net/http"
 
-const antigravityOpenAICompatMessagesRelayUnavailableBody = `{"error":{"type":"server_error","message":"Antigravity OpenAI-compatible Claude routing requires an API-key edge relay account"},"type":"error"}`
+const antigravityOpenAICompatMessagesRelayUnavailableBody = `{"error":{"type":"server_error","message":"Antigravity OpenAI-compatible Claude routing requires an API-key account with a configured upstream"},"type":"error"}`
 
 func antigravityOpenAICompatMessagesRelayFailover(account *Account) *UpstreamFailoverError {
 	if account == nil || account.Platform != PlatformAntigravity {

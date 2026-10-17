@@ -32,25 +32,6 @@ func TestTkTryHandleUpstreamErrorPrelude_ForeignCredentialSkipsDisable(t *testin
 	require.False(t, shouldDisable)
 }
 
-// Mirror-stub "no available accounts" capacity must be handled by the prelude
-// (and still return shouldDisable=true for request failover) without writing
-// account error / temp-unschedulable state.
-func TestTkTryHandleUpstreamErrorPrelude_OpenAIDownstreamCapacity(t *testing.T) {
-	sat := &fakeOpenAISaturationCounterRL{}
-	repo := &rateLimitAccountRepoStub{}
-	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-	svc.SetOpenAISaturationCounter(sat)
-	body := []byte(`{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`)
-
-	handled, shouldDisable := svc.tkTryHandleUpstreamErrorPrelude(
-		context.Background(), openAIEdgeStub(63), http.StatusTooManyRequests, nil, body, "")
-	require.True(t, handled)
-	require.True(t, shouldDisable)
-	require.Equal(t, []int64{63}, sat.incrementIDs)
-	require.Zero(t, repo.setErrorCalls)
-	require.Zero(t, repo.tempCalls)
-}
-
 func TestTkTryHandleUpstreamErrorPrelude_UnhandledContinues(t *testing.T) {
 	svc := NewRateLimitService(&rateLimitAccountRepoStub{}, nil, &config.Config{}, nil, nil)
 	account := &Account{ID: 7, Platform: PlatformAnthropic, Type: AccountTypeOAuth}

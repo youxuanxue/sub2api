@@ -22,14 +22,14 @@ const (
 	GeminiEndpointNone                 GeminiEndpointProfile = ""
 	GeminiEndpointNativeAPIKey         GeminiEndpointProfile = "gemini_native_api_key"
 	GeminiEndpointAntigravityCloudCode GeminiEndpointProfile = "antigravity_cloudcode"
-	GeminiEndpointAntigravityEdgeRelay GeminiEndpointProfile = "antigravity_edge_relay"
+	GeminiEndpointAntigravityAPIKey    GeminiEndpointProfile = "antigravity_api_key"
 	GeminiEndpointVertexServiceAccount GeminiEndpointProfile = "vertex_service_account"
 )
 
 func (p GeminiEndpointProfile) Valid() bool {
 	switch p {
 	case GeminiEndpointNativeAPIKey, GeminiEndpointAntigravityCloudCode,
-		GeminiEndpointAntigravityEdgeRelay,
+		GeminiEndpointAntigravityAPIKey,
 		GeminiEndpointVertexServiceAccount:
 		return true
 	default:

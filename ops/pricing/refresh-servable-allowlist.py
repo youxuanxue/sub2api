@@ -640,7 +640,7 @@ def chunk(items: list[str], size: int) -> list[list[str]]:
 
 
 # ----- live probe -----
-# anthropic is handled separately (edge rotation), not in this single-target table.
+# Anthropic uses the prod gateway like every other active family.
 ENV_BY_FAMILY = (
     ("OPENAI_CHAT_MODELS", "openai_chat", "prod"),
     ("OPENAI_RESPONSES_MODELS", "openai_responses", "prod"),
@@ -650,21 +650,6 @@ ENV_BY_FAMILY = (
     ("GEMINI_IMAGE_MODELS", "gemini_image", GEMINI_TARGET),
     ("GEMINI_VIDEO_MODELS", "gemini_video", GEMINI_TARGET),
 )
-
-# ----- anthropic: native probe (edge rotation when live edges exist) -----
-# Historical topology: Claude OAuth lived on edges; prod held cc-* mirrors, so
-# probes hit edges (prod gateway empty-pooled when mirrors were cold).
-# 2026-10-17 prod-only: no deployable edges / stubs soft-deleted — probe prod
-# native OAuth via the public gateway. When edges return, keep rotate-across-edges.
-def deployable_edges() -> list[str]:
-    """Use the shared live-fleet resolver; never probe retired fallback edges."""
-    proc = subprocess.run(
-        [sys.executable, str(REPO / "deploy/aws/stage0/resolve-edge-target.py"), "--list-deployable"],
-        text=True, capture_output=True, check=True,
-    )
-    # Empty list is valid (prod-only fleet); live_probe falls back to prod native.
-    return proc.stdout.split()
-
 
 def _run_probe_batch(env_args: list[str], target: str = "prod") -> str:
     cmd = [
@@ -690,110 +675,24 @@ def _servable_tag(tsv: str, tag: str) -> set[str]:
     return out
 
 
-# Prod mirror sub-pools (warning-only relay check): name prefix -> (emit tag, label).
-ANTHROPIC_PROD_MIRRORS = (
-    ("anthropic_prodmirror_cc", "prod cc-* (anthropic-OAuth) relay"),
-    ("anthropic_prodmirror_kiro", "prod kiro-* (Kiro) relay"),
-)
-
-
 def live_probe(candidates: dict[str, list[str]], skip_video: bool = False) -> str:
     if not RUN_PROBE.exists() or not PROBE.exists():
         raise SystemExit("FATAL: run-probe.sh or probe-servable-models.sh missing")
     rows: list[str] = []
 
-    # anthropic: with deployable edges, rotate across them (servable if ANY serves).
-    # With an empty edge list (prod-only fleet), probe prod native OAuth via the
-    # public gateway (ANTHROPIC_PROBE_TRANSPORT=public) so blue/green container
-    # names do not matter. 0-servable still leaves the allowlist untouched.
+    # Anthropic OAuth is probed on the prod gateway through the public path.
     anth = candidates.get("anthropic", [])
     if anth:
-        edges = deployable_edges()
         abatches = chunk(anth, BATCH_SIZE)
-        edge_rows: list[str] = []
-        if not edges:
-            print(
-                f"[refresh] anthropic: {len(anth)} models via prod native "
-                f"(no deployable edges; public gateway) …",
-                file=sys.stderr,
+        print(f"[refresh] anthropic: {len(anth)} models via prod (public) …", file=sys.stderr)
+        for ci, c in enumerate(abatches, 1):
+            print(f"[refresh] anthropic batch {ci}/{len(abatches)} via prod ({len(c)} models) …", file=sys.stderr)
+            out = _run_probe_batch(
+                ["--env", f"ANTHROPIC_MODELS={' '.join(c)}"],
+                target="prod",
             )
-            for ci, c in enumerate(abatches, 1):
-                print(
-                    f"[refresh] anthropic batch {ci}/{len(abatches)} via prod "
-                    f"(public; {len(c)} models) …",
-                    file=sys.stderr,
-                )
-                out = _run_probe_batch(
-                    [
-                        "--env",
-                        f"ANTHROPIC_MODELS={' '.join(c)}",
-                        "--env",
-                        "ANTHROPIC_PROBE_TRANSPORT=public",
-                    ],
-                    target="prod",
-                )
-                if out:
-                    edge_rows.append(out)
-            rows.extend(edge_rows)
-        else:
-            print(
-                f"[refresh] anthropic: {len(anth)} models × up to {len(edges)} "
-                f"edge(s) {edges} (servable if ANY serves) …",
-                file=sys.stderr,
-            )
-            for ci, c in enumerate(abatches, 1):
-                served: set[str] = set()
-                for ei, edge in enumerate(edges, 1):
-                    print(
-                        f"[refresh] anthropic batch {ci}/{len(abatches)} via "
-                        f"edge:{edge} ({ei}/{len(edges)}; {len(served)}/{len(c)} served) …",
-                        file=sys.stderr,
-                    )
-                    out = _run_probe_batch(
-                        ["--env", f"ANTHROPIC_MODELS={' '.join(c)}"],
-                        target=f"edge:{edge}",
-                    )
-                    if out:
-                        edge_rows.append(out)
-                        served |= _servable_tag(out, "anthropic")
-                    if len(served) >= len(c):
-                        break
-                if len(served) < len(c):
-                    print(
-                        f"[refresh] anthropic batch {ci}: {len(served)}/{len(c)} "
-                        f"served after all edges (rest inconclusive)",
-                        file=sys.stderr,
-                    )
-            rows.extend(edge_rows)
-
-            # Prod relay-health (warning-only) only when edges are the truth source.
-            edge_servable = _servable_tag("\n".join(edge_rows), "anthropic")
-            if edge_servable:
-                mrows: list[str] = []
-                for mb in chunk(sorted(edge_servable), max(1, BATCH_SIZE // 2)):
-                    out = _run_probe_batch(
-                        ["--env", f"ANTHROPIC_PROD_MIRROR_MODELS={' '.join(mb)}"],
-                        target="prod",
-                    )
-                    if out:
-                        rows.append(out)
-                        mrows.append(out)
-                mtxt = "\n".join(mrows)
-                for tag, label in ANTHROPIC_PROD_MIRRORS:
-                    missing = sorted(edge_servable - _servable_tag(mtxt, tag))
-                    if missing:
-                        print(
-                            f"[refresh] WARNING: {len(missing)}/{len(edge_servable)} "
-                            f"edge-servable model(s) NOT served via {label} "
-                            f"(edge OK, prod relay not): {', '.join(missing)}",
-                            file=sys.stderr,
-                        )
-                    else:
-                        print(
-                            f"[refresh] {label}: all {len(edge_servable)} "
-                            f"edge-servable models OK",
-                            file=sys.stderr,
-                        )
+            if out:
+                rows.append(out)
 
     # Other families: one run-probe invocation per family-batch at a fixed target
     # (a single command spanning the whole catalog would exceed the SSM waiter window).
@@ -1024,8 +923,6 @@ def selftest() -> int:
         "gemini\tgemini-2.5-pro\t200\tservable\ngemini\tgemma-4-31b-it\t400\tunsupported\n"
         # prod-mirror relay-health rows carry distinct tags and MUST NOT enter the allowlist
         # (the exact-dict assertion below fails if parse_results ever stops ignoring them).
-        "anthropic_prodmirror_cc\tclaude-sonnet-4-6\t200\tservable\n"
-        "anthropic_prodmirror_kiro\tclaude-sonnet-4-6\t429\tnot_allowlisted\n"
         "grok\tgrok-4.3\t200\tservable\ngrok\tgrok-4-0709\t429\tinconclusive"
     )
     p = parse_results(tsv)
@@ -1288,14 +1185,9 @@ def selftest() -> int:
         "anthropic": {"claude-opus-4-8"}, "openai": {"gpt-5.4"}, "gemini": set(), "grok": set()
     }, tsv
 
-    # prod-only fleet: empty --list-deployable must probe anthropic on prod with
-    # ANTHROPIC_PROBE_TRANSPORT=public (not edge rotation / mirror warn path).
+    # Anthropic probes use the prod public gateway.
     recorded: list[tuple[list[str], str]] = []
-    real_deployable = deployable_edges
     real_run = _run_probe_batch
-
-    def _fake_edges() -> list[str]:
-        return []
 
     def _fake_run(env_args: list[str], target: str = "prod") -> str:
         recorded.append((list(env_args), target))
@@ -1306,19 +1198,13 @@ def selftest() -> int:
                 break
         return "\n".join(f"anthropic\t{m}\t200\tservable" for m in models.split() if m)
 
-    try:
-        globals()["deployable_edges"] = _fake_edges  # type: ignore[assignment]
-        globals()["_run_probe_batch"] = _fake_run  # type: ignore[assignment]
-        out = live_probe({"anthropic": ["claude-opus-4-8", "claude-sonnet-4-6"]}, skip_video=True)
-    finally:
-        globals()["deployable_edges"] = real_deployable  # type: ignore[assignment]
-        globals()["_run_probe_batch"] = real_run  # type: ignore[assignment]
-    assert recorded, "empty-edge anthropic path must invoke a probe batch"
+    globals()["_run_probe_batch"] = _fake_run  # type: ignore[assignment]
+    out = live_probe({"anthropic": ["claude-opus-4-8", "claude-sonnet-4-6"]}, skip_video=True)
+    globals()["_run_probe_batch"] = real_run  # type: ignore[assignment]
+    assert recorded, "prod anthropic path must invoke a probe batch"
     env_joined = " ".join(recorded[0][0])
     assert recorded[0][1] == "prod", recorded
-    assert "ANTHROPIC_PROBE_TRANSPORT=public" in env_joined, env_joined
     assert "ANTHROPIC_MODELS=" in env_joined, env_joined
-    assert "ANTHROPIC_PROD_MIRROR_MODELS=" not in env_joined, env_joined
     assert "claude-opus-4-8" in out and "claude-sonnet-4-6" in out, out
 
     print("refresh-servable-allowlist selftest: PASS")

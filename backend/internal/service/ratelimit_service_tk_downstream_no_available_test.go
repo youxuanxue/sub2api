@@ -12,7 +12,6 @@ import (
 )
 
 func TestTkIsDownstreamNoAvailableAccounts(t *testing.T) {
-	// Edge mirror-stub 503 body (our own gateway error envelope).
 	require.True(t, tkIsDownstreamNoAvailableAccounts("", []byte(`{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`)))
 	// Already-parsed upstream message.
 	require.True(t, tkIsDownstreamNoAvailableAccounts("No available accounts: no available accounts", nil))
@@ -31,64 +30,6 @@ func TestTkSkipDownstreamNoAvailableAccountsPenalty(t *testing.T) {
 	require.False(t, tkSkipDownstreamNoAvailableAccountsPenalty(http.StatusTooManyRequests, "", []byte(`{"error":{"type":"rate_limit_error","message":"slow down"}}`)))
 }
 
-func TestTkSkipDownstreamKiroOAuthAuthRejectPenalty(t *testing.T) {
-	stub := &Account{
-		ID:       66,
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"mirror_platform": "kiro",
-		},
-	}
-	body := []byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"},"type":"error"}`)
-
-	require.True(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(stub, http.StatusUnauthorized, "", body))
-	require.True(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(stub, http.StatusUnauthorized, "Invalid bearer token", nil))
-	require.False(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(stub, http.StatusForbidden, "", body))
-	require.True(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(stub, http.StatusForbidden, "Invalid bearer token", nil))
-	require.False(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(stub, http.StatusBadRequest, "Invalid bearer token", nil))
-
-	plainAnthropic := &Account{ID: 67, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
-	require.False(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(plainAnthropic, http.StatusUnauthorized, "Invalid bearer token", nil))
-	require.False(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(plainAnthropic, http.StatusForbidden, "Invalid bearer token", nil))
-
-	openaiMirror := &Account{
-		ID:       68,
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"mirror_platform": "openai",
-		},
-	}
-	require.False(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(openaiMirror, http.StatusUnauthorized, "Invalid bearer token", nil))
-	require.False(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(openaiMirror, http.StatusForbidden, "Invalid bearer token", nil))
-}
-
-func TestTkSkipDownstreamKiroServiceUnavailablePenalty(t *testing.T) {
-	stub := &Account{
-		ID:       66,
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"mirror_platform": "kiro",
-		},
-	}
-	body := []byte(`{"error":{"message":"Upstream service temporarily unavailable","type":"upstream_error"}}`)
-
-	require.True(t, tkSkipDownstreamKiroServiceUnavailablePenalty(stub, http.StatusBadGateway, "", body))
-	require.True(t, tkSkipDownstreamKiroServiceUnavailablePenalty(stub, http.StatusBadGateway, "UPSTREAM SERVICE TEMPORARILY UNAVAILABLE", nil))
-	require.False(t, tkSkipDownstreamKiroServiceUnavailablePenalty(stub, http.StatusServiceUnavailable, "Upstream service temporarily unavailable", nil))
-	require.False(t, tkSkipDownstreamKiroServiceUnavailablePenalty(stub, http.StatusBadGateway, "", []byte(`<html>502 Bad Gateway</html>`)))
-
-	plainAnthropic := &Account{ID: 67, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
-	require.False(t, tkSkipDownstreamKiroServiceUnavailablePenalty(plainAnthropic, http.StatusBadGateway, "", body))
-}
-
-// prod incident 2026-05-31: a downstream edge stub returning 503 "no available
-// accounts" (a transient edge pool-capacity blip) must fail the request over to
-// the next stub WITHOUT advancing the per-account cooldown counter or cooling the
-// stub — otherwise a 3-503 edge burst trips the 3/3 ladder and blacks out the
-// whole edge stub for 10 minutes, collapsing the prod pool.
 func TestRateLimitService_HandleUpstreamError_DownstreamNoAvailable_DoesNotPenalizeStub(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1, 2, 3, 4, 5}}
@@ -107,8 +48,6 @@ func TestRateLimitService_HandleUpstreamError_DownstreamNoAvailable_DoesNotPenal
 	require.Empty(t, counter.incrementIDs, "downstream no-available 503 must NOT advance the cooldown counter")
 }
 
-// prod 2026-06: empty-pool fast-fail now returns 429+Retry-After (not 503). The
-// prod mirror stub must fail over without handle429 cooldown or Feishu "限流冷却".
 func TestRateLimitService_HandleUpstreamError_DownstreamNoAvailable429_DoesNotPenalizeStub(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1, 2, 3, 4, 5}}
@@ -234,114 +173,6 @@ func TestRateLimitService_AnthropicMirrorGenuine502_LegacyPath_NoClassCooldown(t
 	require.Empty(t, repo.modelRateLimitCalls)
 	require.Equal(t, 0, repo.setRateLimitedCalls)
 	require.Equal(t, 0, repo.tempCalls)
-}
-
-func TestRateLimitService_HandleUpstreamError_KiroMirrorOAuth401_DoesNotSetError(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
-	sat := &fakeSaturationCounterRL{}
-	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-	service.SetAnthropicSaturationCounter(sat)
-	account := &Account{
-		ID:       66,
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"mirror_platform": "kiro",
-			"pool_mode":       true,
-		},
-	}
-	body := []byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"},"type":"error"}`)
-
-	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusUnauthorized, http.Header{}, body)
-
-	require.True(t, shouldDisable, "in-flight request must fail over / let pool-mode retry, but stub health stays untouched")
-	require.Equal(t, 0, repo.setErrorCalls, "downstream Kiro OAuth 401 must not permanently disable the prod relay stub")
-	require.Equal(t, 0, repo.tempCalls, "downstream Kiro OAuth 401 must not ladder-cool the prod relay stub")
-	require.Equal(t, 0, repo.setRateLimitedCalls)
-	require.Equal(t, []int64{66}, sat.incrementIDs, "transient downstream auth blip should feed bounded de-prioritization")
-}
-
-func TestRateLimitService_HandleUpstreamError_KiroMirrorOAuth403_DoesNotSetError(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
-	ladder := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1, 2, 3}}
-	sat := &fakeSaturationCounterRL{}
-	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-	service.SetAnthropicUpstreamErrorCounterCache(ladder)
-	service.SetAnthropicSaturationCounter(sat)
-	account := &Account{
-		ID:       66,
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"mirror_platform": "kiro",
-			"pool_mode":       true,
-		},
-	}
-	body := []byte(`{"error":{"message":"Invalid bearer token","type":"upstream_error"},"type":"error"}`)
-
-	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, body)
-
-	require.True(t, shouldDisable, "in-flight request must fail over / let pool-mode retry, but stub health stays untouched")
-	require.Equal(t, 0, repo.setErrorCalls, "downstream Kiro OAuth 403 must not permanently disable the prod relay stub")
-	require.Equal(t, 0, repo.tempCalls, "downstream Kiro OAuth 403 must not ladder-cool the prod relay stub")
-	require.Equal(t, 0, repo.setRateLimitedCalls)
-	require.Empty(t, ladder.incrementIDs, "downstream Kiro OAuth 403 must not advance the 3/3 ladder")
-	require.Equal(t, []int64{66}, sat.incrementIDs, "transient downstream auth blip should feed bounded de-prioritization")
-}
-
-func TestRateLimitService_HandleUpstreamError_KiroMirrorGeneric403_FailoverOnly(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
-	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{3}, tierCounts: []int64{1}}
-	sat := &fakeSaturationCounterRL{}
-	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-	service.SetAnthropicUpstreamErrorCounterCache(counter)
-	service.SetAnthropicSaturationCounter(sat)
-	account := &Account{
-		ID:       66,
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"mirror_platform": "kiro",
-			"pool_mode":       true,
-		},
-	}
-	body := []byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"},"type":"error"}`)
-
-	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, body)
-
-	require.True(t, shouldDisable)
-	require.Equal(t, 0, repo.setErrorCalls, "generic Kiro mirror 403 must not permanently disable the relay stub")
-	require.Equal(t, 0, repo.tempCalls, "403 must not enter the stub-health 3/3 fuse")
-	require.Empty(t, counter.incrementIDs)
-	require.Equal(t, []int64{66}, sat.incrementIDs, "transient relay blip feeds bounded de-prioritization")
-}
-
-func TestRateLimitService_HandleUpstreamError_KiroMirrorServiceUnavailable_DoesNotCoolRelay(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
-	ladder := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1, 2, 3, 4}}
-	sat := &fakeSaturationCounterRL{}
-	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-	service.SetAnthropicUpstreamErrorCounterCache(ladder)
-	service.SetAnthropicSaturationCounter(sat)
-	account := &Account{
-		ID:       69,
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"mirror_platform": "kiro",
-			"pool_mode":       true,
-		},
-	}
-	body := []byte(`{"error":{"message":"Upstream service temporarily unavailable","type":"upstream_error"}}`)
-
-	for i := 0; i < 4; i++ {
-		require.True(t, service.HandleUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, body))
-	}
-
-	require.Equal(t, 0, repo.tempCalls, "downstream Kiro 502 must not temp-unschedule the prod relay")
-	require.Equal(t, 0, repo.setErrorCalls)
-	require.Empty(t, ladder.incrementIDs, "downstream Kiro 502 must not advance the Anthropic 3/3 fuse")
-	require.Equal(t, []int64{69, 69, 69, 69}, sat.incrementIDs, "failed Kiro edge still receives bounded de-prioritization")
 }
 
 func TestRateLimitService_HandleUpstreamError_PlainAnthropicServiceUnavailable_StillCounts(t *testing.T) {

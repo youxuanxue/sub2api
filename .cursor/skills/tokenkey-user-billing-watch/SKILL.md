@@ -70,7 +70,7 @@ SSH 仅用于 SSM agent 的一次性 bootstrap 或显式恢复；SSH、SSM、远
 | `status_code=200` + msg 仅 `cc_environment_stripped`/`cc_geo_stego_normalized`/`request_normalized` | Anthropic CC prompt normalize 预期改写 | 不推送 |
 | `status_code=499`，或 msg 含 `context cancel` | 调用方自己挂断（`client-closed-499-ssot.md`）的两种形态，非网关故障 | 不推送；已在 probe 侧按 owner 判据过滤 |
 | `error_phase=routing` + `account_id=null` + `error_owner=client` | 错组 key 误投等客户端路由过错 | 客户端侧，不推送 |
-| `error_phase=routing` + `error_owner=platform` | 空池 / 镜像 edge 容量拒绝 | 容量侧；少量不推，**突升**按系统异常推 |
+| `error_phase=routing` + `error_owner=platform` | 账号池容量拒绝 | 容量侧；少量不推，**突升**按系统异常推 |
 | `error_phase∈{request,upstream}` 4xx（内容审核 / 退役模型 / prompt 超长 / 参数错） | 客户端输入或用法问题 | 不推送 |
 | `status_code>=500` 真失败 / 空池 429 绝对量突升 / 流量归零 / 成本飙升 / 新指纹 | 疑似系统异常 | **推送**并简述模型+账号+根因 |
 

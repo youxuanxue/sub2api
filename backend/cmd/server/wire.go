@@ -133,7 +133,6 @@ func provideCleanup(
 	channelMonitorRunner *service.ChannelMonitorRunner,
 	channelMonitorV2Aggregator *service.ChannelMonitorV2Aggregator,
 	terminalOutcomeRecorder *service.TerminalOutcomeRecorder,
-	// TokenKey cleanup / force-eval edges — see wire_tk_cleanup.go.
 	tkHooks tkCleanupHooks,
 	quotaFlusher *service.UserPlatformQuotaUsageFlusher,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,

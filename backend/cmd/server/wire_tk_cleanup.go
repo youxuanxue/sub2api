@@ -17,8 +17,6 @@ type tkCleanupHooks struct {
 	pricingMissingNotifier    *service.TKPricingMissingNotifier
 }
 
-// provideTKCleanupHooks is the Wire provider that collapses TK cleanup /
-// force-eval edges into a single injectable value for provideCleanup.
 func provideTKCleanupHooks(
 	schedulerRateLimitReaper *service.SchedulerRateLimitReaper,
 	anthropicConfigReconciler *service.AnthropicConfigReconciler,
@@ -32,7 +30,6 @@ func provideTKCleanupHooks(
 	_ service.TKGatewayAnthropicSigPreemptReady,
 	_ service.TKAnthropicSaturationReady,
 	_ service.TKOpenAISaturationReady,
-	_ service.TKAntigravitySaturationReady,
 	_ handler.TKGatewayHandlerModelListReady,
 	_ service.TKUniversalModelsProviderReady,
 	_ service.TKGroupUnsupportedModelCacheReady,

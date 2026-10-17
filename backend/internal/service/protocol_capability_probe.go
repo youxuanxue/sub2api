@@ -73,9 +73,7 @@ func protocolProbeRelayCapacityVerdict(
 	statusCode int,
 	body []byte,
 ) (ProtocolProbeVerdict, bool) {
-	if tkIsAntigravityRelayCapacityResponse(account, statusCode, body) {
-		return ProtocolProbePositive, true
-	}
+
 	return "", false
 }
 
@@ -593,16 +591,13 @@ func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {
 	if !protocolRoutingGovernsAccount(account) || len(officialSupportedProtocols(account)) > 0 {
 		return nil
 	}
-	if account.IsKiroMirrorStub() {
-		return []protocolrouter.Protocol{protocolrouter.ProtocolMessages}
-	}
+
 	geminiProfile := protocolGeminiEndpointProfile(account)
 	switch geminiProfile {
 	case protocolrouter.GeminiEndpointAntigravityCloudCode,
 		protocolrouter.GeminiEndpointVertexServiceAccount:
 		return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
-	case protocolrouter.GeminiEndpointAntigravityEdgeRelay:
-		// Edge stubs also expose OpenAI-shape text hops; continue collecting below.
+	case protocolrouter.GeminiEndpointAntigravityAPIKey:
 	default:
 		if geminiProfile.Valid() {
 			return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
@@ -620,14 +615,12 @@ func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {
 	candidates := make([]protocolrouter.Protocol, 0, len(protocolrouter.AllProtocols()))
 	for _, protocol := range protocolrouter.AllProtocols() {
 		if protocol == protocolrouter.ProtocolGeminiGenerateContent {
-			if geminiProfile == protocolrouter.GeminiEndpointAntigravityEdgeRelay {
+			if geminiProfile == protocolrouter.GeminiEndpointAntigravityAPIKey {
 				candidates = append(candidates, protocol)
 			}
 			continue
 		}
-		if protocol == protocolrouter.ProtocolMessages && tkIsOpenAIEdgeMirrorStub(account) {
-			continue
-		}
+
 		if strings.TrimSpace(protocolProbeBaseURL(account, protocol)) != "" {
 			candidates = append(candidates, protocol)
 		}

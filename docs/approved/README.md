@@ -52,8 +52,6 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 UCloud 国内单 prod 的授权范围、首次初始化和发布边界：[国内部署契约](design-domestic-cluster.md)。
 
-Cursor 已按[退役契约](cursor-retirement.md)移除；旧设计和操作记录从 Git 历史查阅，不再作为当前实现或运维入口。
-
 本节只提供契约入口；规则、实现 owner 和验收状态在链接目标维护。
 
 | 要判断的事实 | 契约入口 |
@@ -117,11 +115,10 @@ Cursor 已按[退役契约](cursor-retirement.md)移除；旧设计和操作记�
 | [`candidate-request-policy-convergence.md`](candidate-request-policy-convergence.md) | Direct/Universal model mapping boundary and continuation migration impact |
 | [`universal-key-capability-discovery.md`](universal-key-capability-discovery.md) | Per-key protocol/operation discovery |
 | [`discovery-require-live-account.md`](discovery-require-live-account.md) | 无活账号则不展示（精简 B；瞬时限流不进菜单） |
-| [`grok-relay-first-class-platform.md`](grok-relay-first-class-platform.md) | Grok relay platform |
-| [`cursor-retirement.md`](cursor-retirement.md) | Cursor 账号、授权、转发与客户端连接能力退役；历史账号禁止恢复供应 |
+| [`grok-accounts.md`](grok-accounts.md) | Grok accounts |
 | [`continuation-gemini-repair.md`](continuation-gemini-repair.md) | Responses continuation and Gemini Chat tools repair |
 | [`gemini-chat-conversion.md`](gemini-chat-conversion.md) | Gemini generateContent → Chat conversion edge and its capability contract |
-| [`gemini-messages-conversion.md`](gemini-messages-conversion.md) | Gemini → Messages conversion, native Edge routing and capability follow-up |
+| [`gemini-messages-conversion.md`](gemini-messages-conversion.md) | Gemini → Messages conversion and capability contract |
 | [`kiro-claude-code-completion-continuity.md`](kiro-claude-code-completion-continuity.md) | Kiro Claude Code completion |
 | [`kiro-content-filter-outcome.md`](kiro-content-filter-outcome.md) | Kiro content-filter outcome |
 | [`kiro-payload-overflow.md`](kiro-payload-overflow.md) | Kiro translated-payload overflow and current-turn preservation |
@@ -153,12 +150,7 @@ Cursor 已按[退役契约](cursor-retirement.md)移除；旧设计和操作记�
 | [`qa-redaction-identified-formats-only.md`](qa-redaction-identified-formats-only.md) | QA 脱敏已识别格式边界与性能优化 |
 | [`design-fleet-pgdump-restore-canary.md`](design-fleet-pgdump-restore-canary.md) | Fleet pgdump restore canary |
 | [`hcloud-pgdump-storage.md`](hcloud-pgdump-storage.md) | Hetzner host-only pgdump identity, encryption and cutover |
-| [`design-edge-env-secrets-recovery.md`](design-edge-env-secrets-recovery.md) | Edge env secrets recovery |
-| [`design-edge-model-family-alert.md`](design-edge-model-family-alert.md) | Edge model-family alert |
-| [`edge-bluegreen-release-safety.md`](edge-bluegreen-release-safety.md) | Edge blue/green safety |
 | [`hetzner-cloud-full-migration.md`](hetzner-cloud-full-migration.md) | Hetzner 舰队决策锁（fsn1 / cax21；执行 SSOT：`deploy/hetzner/README.md`） |
-| [`aws-fresh-host-migration-20261015.md`](aws-fresh-host-migration-20261015.md) | 全新 AWS 迁移、预同步与已批准的 uk2 单节点切流 |
-| [`lightsail-existing-canary-registration.md`](lightsail-existing-canary-registration.md) | 已创建 Lightsail 迁移新机的受限 SSM 注册 |
 | [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
 | [`prod-component-release.md`](prod-component-release.md) | Independent prod component releases |
 
@@ -190,7 +182,7 @@ Cursor 已按[退役契约](cursor-retirement.md)移除；旧设计和操作记�
 
 ## Pending baselines
 
-- [Gemini Web 新通路](gemini-web-channel.md) — 数据库会话、共享 edge 鉴权、官方响应与单 owner 契约；后台导入 UI 和本次部署验收尚未完成。
+- [Gemini Web 新通路](gemini-web-channel.md) — 数据库会话、worker 鉴权、官方响应与单 owner 契约。
 
 - [Gateway capability verification](prod-replay-capability-matrix.md) — offline matrix planning and explicit isolated checks, independent of deployment.
 

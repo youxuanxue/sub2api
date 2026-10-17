@@ -63,14 +63,6 @@ func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool
 		combined := strings.ToLower(strings.TrimSpace(msg + "\n" + body))
 		return !tkOpsIsAccountLevel4xx(combined)
 	}
-	// TK (prod P0 2026-06-06, edge us5): an upstream 404 model-not-found is
-	// caller-fault — the client asked for a model name that does not exist (e.g.
-	// the bare alias "opus" on an empty-mapping passthrough account, forwarded and
-	// rejected by Anthropic with not_found_error). The gateway now returns a 400
-	// "Unsupported model" to the client (handleErrorResponse), but the captured
-	// upstream status is still 404, so it must be classified client-owned HERE or
-	// it keeps counting toward upstream_error_rate (the us5 P0 driver: 5×502 over a
-	// tiny SLA denominator = 100%). Mirrors the 400 invalid_request case below.
 	if status == 404 {
 		body, msg := tkOpsUpstreamErrorText(c)
 		combined := strings.ToLower(strings.TrimSpace(msg + "\n" + body))
@@ -113,17 +105,6 @@ func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool
 		// service.TkRecordBridgeUpstreamError (text/embedding/image/responses relays).
 		return service.IsAnthropicModelNotFound404([]byte(body), msg) ||
 			service.IsOpenAICompatModelNotFound404([]byte(body), msg)
-	}
-	// TK (PR #691 cc-only canary prep): a 403 carrying TokenKey's own
-	// canonical-ingress rejection phrase is a downstream strict-mode edge
-	// rejecting the END CLIENT's identity — caller-fault, not provider health.
-	// Without this, a canary edge's strict rejections relayed through the prod
-	// mirror stub would count toward upstream_error_rate and could fire the
-	// provider-health P0 alert. Matches ONLY the TokenKey phrase; genuine
-	// Anthropic 403s (org disabled, bot challenge) stay provider-owned below.
-	if status == 403 {
-		body, msg := tkOpsUpstreamErrorText(c)
-		return service.IsCanonicalIngressUARejectMessage([]byte(body), msg)
 	}
 	// Only request-validation 4xx are caller-fault. 401 (and non-TK 403) and any
 	// 5xx stay provider-owned (account auth / availability / genuine upstream

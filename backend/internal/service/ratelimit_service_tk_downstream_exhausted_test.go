@@ -28,9 +28,6 @@ func TestTkSkipDownstreamFailoverExhaustedPenalty(t *testing.T) {
 	require.False(t, tkSkipDownstreamFailoverExhaustedPenalty(http.StatusTooManyRequests, "", []byte(`{"error":{"type":"rate_limit_error"}}`)))
 }
 
-// G2 (narrow): a forwarded TokenKey failover-terminal 502 reaching an Anthropic
-// mirror stub is a downstream-owned failure, not forwarding-stub health.
-// Repeated hits must fail over without advancing the 3/3 ladder.
 func TestRateLimitService_HandleUpstreamError_DownstreamFailoverExhausted_DoesNotPenalizeStub(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1, 2, 3, 4, 5}}

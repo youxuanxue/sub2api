@@ -462,7 +462,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	if c != nil {
 		c.Header("x-request-id", requestID)
 		stashThinking := kiroproto.ResolveStashThinking(rawAssistant, thinkingBuf, thinkingSigBuf)
-		publishKiroInternalThinkingSideChannel(c, nil, c.Writer.Header(), stashThinking, thinkingSigBuf)
+		captureKiroInternalThinking(c, stashThinking, thinkingSigBuf)
 		c.JSON(http.StatusOK, resp)
 	}
 
@@ -750,7 +750,7 @@ func (s *KiroGatewayService) forwardStreaming(
 	enc.writeMessageDelta(inputTokens, outputToks, cacheReadTokens, cacheCreationTokens, mappedStopReason)
 	enc.writeMessageStop()
 	stashThinking := kiroproto.ResolveStashThinking(rawAssistant, thinkingBuf, thinkingSigBuf)
-	publishKiroInternalThinkingSideChannel(c, w, nil, stashThinking, thinkingSigBuf)
+	captureKiroInternalThinking(c, stashThinking, thinkingSigBuf)
 	flusher.Flush()
 
 	s.commitKiroCacheFingerprints(ctx, cacheSessionKey, req, rawBody, cacheBillingEnabled)

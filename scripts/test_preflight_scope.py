@@ -47,9 +47,8 @@ class SelectionTest(unittest.TestCase):
             self.assertIn(gate, selected['gates'])
 
     def test_mixed_changes_do_not_get_billing_only_exemption(self):
-        selected = self.choose(BILL, 'ops/observability/edge_health_verdict.py')
+        selected = self.choose(BILL, 'ops/observability/https_health.py')
         self.assertIn('observability test suite', selected['gates'])
-        self.assertIn('edge-health verdict selftest', selected['gates'])
 
     def test_frontend_change_skips_ops_and_go_artifact_jobs(self):
         selected = self.choose('frontend/src/views/HomeView.vue')
@@ -77,7 +76,6 @@ class SelectionTest(unittest.TestCase):
     def test_archive_launch_dependency_is_selected(self):
         selected = self.choose('ops/archive/data_layer_archive_cleanup_hold.py')
         self.assertIn('nonprod archive/restore rehearsal', selected['gates'])
-        self.assertIn('QA Phase 1 edge baseline probe', selected['gates'])
 
     def test_sentinel_paths_come_from_the_registry(self):
         gate = 'gateway TK sentinel registry'

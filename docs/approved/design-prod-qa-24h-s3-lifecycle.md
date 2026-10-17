@@ -116,12 +116,6 @@ prod:
   disk_monitor:
     automatic_cleanup: false
     pause_capture: false
-edge:
-  capture_enabled: false
-  archive_enabled: false
-  cleanup_enabled: false
-  export_enabled: false
-  s3_access: false
 ```
 
 数值、路径、schedule 和 rollout state 只在 policy/rollout 中各有一个机器可读 owner。

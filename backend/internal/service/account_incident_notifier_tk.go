@@ -120,9 +120,6 @@ func classifyIncident(reason string, until time.Time, kind AccountIncidentKind) 
 		// purchased/enabled the model. Immediate P0, no auto-recovery.
 		return incidentClass{true, IncidentKindPermanentDisable, tkStandingUnpurchasedIncidentReason, "上游模型未开通", "上游返回 AccessDenied.Unpurchased,账号未开通该模型;在阿里云百炼/Token Plan 控制台开通或更换已开通凭证后;" + tkUpstreamStandingDisableRecoveryAdvice}
 	case "kiro_quota_limit":
-		// TK (prod 2026-06-25, edge-us4 account 9): Kiro OAuth subscription quota
-		// exhaustion is HTTP 402 + "You have reached the limit." — not an auth
-		// failure. Route through the immediate P0 card with quota-specific advice.
 		return incidentClass{true, IncidentKindPermanentDisable, "kiro_quota_limit", "Kiro 订阅用量额度耗尽", "AWS Kiro/CodeWhisperer 订阅额度已用尽(402 reached the limit);等待额度重置或升级 Kiro 订阅;账号已停调度,恢复后需手动清除 error 并重测"}
 	case "429_model_class":
 		// G4(#600)模型维度 cooldown：单模型类(如 opus)打穿 5h/7d 用量窗口,只冷却该模型类,
@@ -626,31 +623,6 @@ func accountIncidentDedupeKey(site string, accountID int64, reasonClass string) 
 	return fmt.Sprintf("%s|%d|%s", site, accountID, reasonClass)
 }
 
-func isEdgeSiteID(site string) bool {
-	return strings.HasPrefix(strings.TrimSpace(site), "edge-")
-}
-
-// IsEdgeFrontendURL reports whether server.frontend_url identifies a TokenKey
-// mirror-relay edge. Empty/unparseable/custom hosts are treated as non-edge so
-// prod does not silently lose global checks when config is incomplete.
-func IsEdgeFrontendURL(frontendURL string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(frontendURL))
-	if err != nil || !strings.HasSuffix(strings.ToLower(parsed.Hostname()), ".tokenkey.dev") {
-		return false
-	}
-	return isEdgeSiteID(siteFromFrontendURL(frontendURL))
-}
-
-func (n *TKAccountIncidentNotifier) isEdgeSite() bool {
-	return n != nil && isEdgeSiteID(n.siteID)
-}
-
-// siteFromFrontendURL 从 server.frontend_url 域名提取节点名:
-//
-//	api.tokenkey.dev      -> prod
-//	api-us1.tokenkey.dev  -> edge-us1
-//
-// 无法解析时返回 "unknown"。
 func siteFromFrontendURL(frontendURL string) string {
 	raw := strings.TrimSpace(frontendURL)
 	if raw == "" {
@@ -661,8 +633,6 @@ func siteFromFrontendURL(frontendURL string) string {
 		return "unknown"
 	}
 	host := parsed.Hostname()
-	// The domestic gateway serves customers directly; its api-cn prefix is
-	// not a mirror-relay edge. Keep the exception in this shared role owner.
 	if strings.EqualFold(host, "api-cn.tokenkey.dev") {
 		return "cn-prod"
 	}
@@ -670,13 +640,11 @@ func siteFromFrontendURL(frontendURL string) string {
 	if idx := strings.IndexByte(host, '.'); idx > 0 {
 		first = host[:idx]
 	}
-	switch {
-	case first == "":
+	switch first {
+	case "":
 		return "unknown"
-	case first == "api":
+	case "api":
 		return "prod"
-	case strings.HasPrefix(first, "api-"):
-		return "edge-" + strings.TrimPrefix(first, "api-")
 	default:
 		return first
 	}

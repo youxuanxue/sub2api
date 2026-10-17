@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # probe-studio-image-request-audit.sh - read-only Studio image request audit:
 # prompt/source/size/model body fingerprints for Image Studio and BakeOff.
-# Runs INSIDE the TokenKey host (prod or edge) via run-probe.sh. Output is
+# Runs INSIDE the TokenKey host (prod) via run-probe.sh. Output is
 # row_to_json so parsing is field-named, not column-index.
 #
 #   bash ops/observability/run-probe.sh --target prod \

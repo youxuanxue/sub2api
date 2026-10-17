@@ -405,11 +405,6 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		Detail:             upstreamDetail,
 	})
 
-	if len(requestedModel) > 0 {
-		if rejection := candidateEdgeModelRejection(ctx, account, resp.StatusCode, resp.Header, body, requestedModel[0]); rejection != nil {
-			return nil, rejection
-		}
-	}
 	if isModelCapabilityFailure(resp.StatusCode, body) {
 		return nil, applyGatewayFailoverSemantic(&UpstreamFailoverError{
 			StatusCode: resp.StatusCode, ResponseBody: body,
@@ -1090,13 +1085,6 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			line := ev.line
 			trimmed := strings.TrimSpace(line)
 
-			if strings.HasPrefix(trimmed, strings.TrimSpace(kiroInternalThinkingSSECommentPfx)) {
-				if blocks, ok := parseKiroInternalThinkingSSECommentLine(line); ok {
-					applyKiroInternalThinkingBlocks(c, blocks)
-				}
-				continue
-			}
-
 			if trimmed == "" {
 				if len(pendingEventLines) == 0 {
 					continue
@@ -1193,9 +1181,6 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 				resetKeepaliveTimer()
 				continue
 			}
-			// Claude Code requires message_start before ping on pre-content stalls
-			// (prod→edge Kiro thinking). Noop-delta keepalive for affected CC builds
-			// stays on the open content block and must not inject message_start.
 			keepaliveBlock := anthropicStreamIdleKeepaliveSSE(c, originalModel)
 			if useNoopDeltaKeepalive && noopDeltaKeepaliveBlockIndex >= 0 {
 				if block, ok := buildClaudeCodeNoopDeltaKeepalive(noopDeltaKeepaliveBlockIndex, noopDeltaKeepaliveDeltaType); ok {

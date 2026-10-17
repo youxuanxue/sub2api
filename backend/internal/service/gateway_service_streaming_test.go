@@ -96,8 +96,6 @@ func TestGatewayService_StreamingKeepaliveEmitsMessageStartBeforePingOnPreConten
 
 	go func() {
 		defer func() { _ = pw.Close() }()
-		// Stall past one keepalive tick with no upstream bytes — mirrors prod→edge
-		// Kiro thinking where in-stream keepalive used to emit ping-only first.
 		time.Sleep(1100 * time.Millisecond)
 		_, _ = pw.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":9}}}\n\n"))
 		_, _ = pw.Write([]byte("event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"))

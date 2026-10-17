@@ -182,30 +182,6 @@ func TestBeginHeaderWaitKeepalive_NonStreamReturnsNil(t *testing.T) {
 	}
 }
 
-func TestBeginAnthropicMessagesHeaderWaitKeepalive_KiroMirrorUsesMessageStart(t *testing.T) {
-	c, rec := newKeepaliveTestContext(t)
-	svc := &GatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}}}
-	stub := &Account{
-		Platform:    PlatformAnthropic,
-		Type:        AccountTypeAPIKey,
-		Name:        "kiro-us5",
-		Credentials: map[string]any{"mirror_platform": "kiro", "base_url": "https://api-us5.tokenkey.dev"},
-	}
-	k := svc.beginAnthropicMessagesHeaderWaitKeepalive(c, true, stub, "claude-sonnet-4-6")
-	if k == nil {
-		t.Fatal("expected non-nil Kiro mirror header-wait keepalive")
-	}
-	time.Sleep(1100 * time.Millisecond)
-	k.stop()
-	body := rec.Body.String()
-	if !strings.Contains(body, "event: message_start") {
-		t.Fatalf("Kiro mirror header-wait must emit message_start, got %q", body)
-	}
-	if strings.Index(body, "event: message_start") > strings.Index(body, "event: ping") {
-		t.Fatalf("message_start must precede ping on Kiro mirror header-wait, got %q", body)
-	}
-}
-
 // The OpenAI/Codex passthrough heartbeat must be a bare SSE comment (":\n\n"),
 // never a typed event frame — the strict Codex/Responses SDK rejects unknown
 // events. This pins the frame and the same pre-headers behavior.

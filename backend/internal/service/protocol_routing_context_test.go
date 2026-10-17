@@ -192,7 +192,7 @@ func TestOpenAIEdgeMirrorPlansClaudeCodeMessagesAsResponses(t *testing.T) {
 		Schedulable: true,
 		Credentials: map[string]any{
 			"api_key":  "secret",
-			"base_url": "https://api-us4.tokenkey.dev",
+			"base_url": "https://upstream.example.test",
 		},
 	}
 	attachTestProtocolCapability(account,

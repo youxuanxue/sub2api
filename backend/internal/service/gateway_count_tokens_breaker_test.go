@@ -142,18 +142,6 @@ func TestGatewayService_ForwardCountTokens_Wrapped404ReturnsLocalEstimate(t *tes
 	require.Equal(t, 0, repo.tempCalls, "端点不支持不应 temp_unschedulable 账号")
 }
 
-// TestGatewayService_ForwardCountTokens_CapacityErrorsFailoverNoBreaker
-// 契约更新（count_tokens failover 修复，见 gateway_handler_tk_count_tokens_failover.go）：
-// count_tokens 是请求前预检端点，其 429/529 容量类错误现在
-//
-//	(a) **不再**计入 anthropic_upstream_error breaker（不熔断主力账号——一次预检的
-//	    529 把主力账号 temp_unschedulable/overload 10 分钟会拖垮整组；现场 edge us1
-//	    acct1 因单次 count_tokens 529 被罚下、acct4 空闲）；
-//	(b) 返回 *UpstreamFailoverError 且**不写客户端响应**，交由 handler 的 failover
-//	    loop 换号 / 池内轮换。
-//
-// 这反转了旧测试 “429StillTripsUpstreamErrorBreaker” 的契约：轮换交给 failover，
-// 状态写入交给真正的 /v1/messages 路径。
 func TestGatewayService_ForwardCountTokens_CapacityErrorsFailoverNoBreaker(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -164,8 +152,6 @@ func TestGatewayService_ForwardCountTokens_CapacityErrorsFailoverNoBreaker(t *te
 	}{
 		{name: "429 rate limit", status: http.StatusTooManyRequests, respMsg: "rate_limit_error"},
 		{name: "529 overloaded", status: 529, respMsg: "overloaded_error"},
-		// 503（pool stub prod→edge 透回的 no-available-accounts）与主路径口径对齐：
-		// transient 容量错误交 failover 轮换，不熔断主力账号。
 		{name: "503 unavailable", status: http.StatusServiceUnavailable, respMsg: "overloaded_error"},
 	}
 
@@ -296,7 +282,7 @@ func TestGatewayService_ForwardCountTokens_PoolModeRetryableStatus(t *testing.T)
 		Concurrency: 1,
 		Credentials: map[string]any{
 			"api_key":                      "k",
-			"base_url":                     "https://api-us1.tokenkey.dev",
+			"base_url":                     "https://upstream.example.test",
 			"pool_mode":                    true,
 			"pool_mode_retry_status_codes": []any{float64(529), float64(503)},
 		},

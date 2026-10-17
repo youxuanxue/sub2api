@@ -46,7 +46,7 @@ chmod +x "${local_bin}/aws"
 PATH="${local_bin}:${PATH}" \
   STAGE0_SSM_OUTPUT_DIR="${output_dir}" \
   TK_ENV_SECRETS_SOURCE="${secret_file}" \
-  TK_ENV_SECRETS_PARAM="/tokenkey/edge/us3/stage0/env-secrets-backup" \
+  TK_ENV_SECRETS_PARAM="/tokenkey/prod/stage0/env-secrets-backup" \
   AWS_REGION=us-east-2 \
   bash "${SCRIPT}" mi-test rendered-payload-test >"${tmp}/outer.out"
 

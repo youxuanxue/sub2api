@@ -2,15 +2,6 @@
 
 package qa
 
-// Bundle session export via cc-edges（非 passthrough 网关路径）：转发前的请求侧改写
-//（normalize / alias strip / signature-preempt 剥 thinking 等）会让「捕获的
-// 客户端请求」≠「产生该响应的真实上游请求」。本文件钉住失真捕获契约：
-//   - captureUpstreamRequestBody 仅在 opt-in 且字节真不等时取值（零误标）
-//   - buildBlob 把 divergent 上游体落进 request.upstream_body（同套脱敏 +
-//     thinking signature 保留）并标 request.upstream_divergent
-//   - gin context key 字面量与 service.OpsUpstreamRequestBodyKey 一致
-//（双保险：scripts/sentinels/trajectory.json required_file_hooks 同样钉此项）
-
 import (
 	"encoding/json"
 	"net/http/httptest"

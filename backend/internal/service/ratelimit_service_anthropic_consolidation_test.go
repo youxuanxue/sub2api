@@ -87,14 +87,6 @@ func TestRateLimitService_HandleUpstreamError_Anthropic429PreciseResetSuppresses
 		"3/3 short-window counter advanced on every 429")
 }
 
-// A 429 carrying NO anthropic-ratelimit-* header is non-authoritative (真窗口限流
-// 一定带头): it is the edge's capacity / failover envelope ("Upstream rate limit
-// exceeded …", "No available accounts", …) relayed to a mirror stub, NOT a
-// failing-account signal. It must fail over WITHOUT a fallback cooldown or 3/3
-// ladder advance — cooling a healthy stub here is what locked cc-us7 (2026-06-13
-// 23:11, tier-0 30s). See ratelimit_service_tk_nonauthoritative_429.go. (A
-// header-FUL genuine window-limit still ladders — see
-// TestRateLimitService_HandleUpstreamError_Genuine429_StillPenalizes.)
 func TestRateLimitService_HandleUpstreamError_Anthropic429NoResetHeaderIsNonAuthoritative(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{

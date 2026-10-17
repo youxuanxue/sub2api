@@ -3,7 +3,7 @@
 
 The Worker deploys on its own cadence and its image tags are hand-typed, so a
 tag is a claim, not evidence. This module derives identity from the bytes the
-image actually ships, which lets a fleet check prove every edge runs one build
+image actually ships, which lets an operator verify the deployed build
 even when the tags disagree.
 
 Imported by worker.py at runtime and run standalone by CI to tag the image, so

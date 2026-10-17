@@ -970,10 +970,6 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	}
 	plan.loadSkew = calcLoadSkewByMoments(loadRateSum, loadRateSumSquares, len(candidates))
 
-	// Saturation preference is orthogonal to upstream-token-cost scoring. Chat /
-	// responses paths historically set UseUpstreamTokenCost=true; gating the
-	// penalty on !UseUpstreamTokenCost left saturated edge stubs preferred under
-	// load (prod GPT专线 / gpt-5.6-luna after 1.8.236).
 	s.service.computeOpenAISaturationPenalties(ctx, candidates, req.RequestedModel)
 
 	weights := s.service.openAIWSSchedulerWeightsForRequest(ctx)

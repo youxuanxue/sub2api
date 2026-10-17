@@ -82,8 +82,6 @@ func TestSeededAlertRuleStateAfterMigrations(t *testing.T) {
 	require.Equal(t, 2, proxyUnreachable.sustainedMinutes,
 		"two consecutive ticks absorb a single transient dial blip")
 
-	// tk_087: delete the 8% early-warning rate rule. Keep the 20% rule enabled
-	// as P1; the evaluator skips it on prod and pages it on edges.
 	type namedRule struct {
 		enabled    bool
 		severity   string

@@ -9,27 +9,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// TK：持续「空 body / 非结构化」Anthropic 403 的终局升级。
-//
-// 背景（handle403 gap, 2026-06-16 edge us6 后续）：#810 的
-// tkTryDisableAnthropicOrgBan403 在**结构化 body** 命中 org-ban 短语时首次即永久禁用。
-// 但 org 封禁也会以**空 body**（或 HTML / Cloudflare 错误页 / 非结构化 JSON）形态返回
-// 403——id=1 历史上即如此（failover_loop.go 注释里的 “10 次 403 全部 ResponseBody 空”）。
-// 空 body 无短语可匹配，于是逃过 #810，落回 handleAnthropicUpstreamError 的 count-based
-// 3/3 阶梯（30s/2m/10m，自动恢复），永久 flap——正是 #810 本要消灭的失败模式。
-//
-// 本文件补这个缺口：用一个**独立、仅空 body 403** 的窗口计数器累计；在一个窗口内累计到
-// 阈值即判定该账号被上游持续拒绝（org-ban 或基础设施层 WAF/指纹失效，二者都需 ops 介入、
-// 都必须停止打上游），永久禁用（handleAuthError → SetError，停调度 + 停后台刷新）+ 告警。
-//
-// 设计要点：
-//   - **仅空 body / 非结构化**（tkIsUnstructuredAnthropicErrorBody）。model-level 403
-//     （“you do not have access to this model”）带结构化 body，永不计入——杜绝 #810 注释
-//     里警告的「一个坏 model 请求误禁健康账号」。
-//   - **独立计数器**（IncrementAnthropicBodyless403Count，独立 Redis key），不与 429/5xx
-//     混——避免误把限流/过载账号永久禁用。
-//   - **fail-open**：计数器未注入 / 出错 / 未达阈值 → 返回 false，落回既有阶梯，行为不变。
-
 const (
 	// anthropic403BodylessDisableThresholdDefault：达多少个**独立冷却 EPISODE**(经
 	// debounce 折叠并发突发后)的空 body 403 即判持续拒绝并永久禁用。永久禁用不可自愈

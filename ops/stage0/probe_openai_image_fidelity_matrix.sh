@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Responses + local exact-canvas/format fidelity matrix.
-# Post-process runs in docker.io/library/python:3.12-slim + Pillow on the edge host.
+# Post-process runs in docker.io/library/python:3.12-slim + Pillow on the prod host.
 # STRICT: never logs tokens.
 set -euo pipefail
 

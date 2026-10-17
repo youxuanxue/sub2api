@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Couple the Gemini Web Worker to the backend by protocol, not by release.
 
-The Worker has its own deploy cadence: prod runs none, four edges do, and nothing
-ties a Worker deploy to a gateway release. That independence is deliberate, but it
-means a backend change to the control plane can reach the edges hours before or
-after the Worker that understands it.
+The Worker is built independently from the gateway release, so a backend change
+to the control plane can reach a Worker hours before or after the image that
+understands it.
 
 So couple the one thing that must not drift. The Worker refuses a control response
 whose protocol_version it does not recognise (worker.py check_control), which
@@ -14,15 +13,8 @@ check makes that drift fail preflight instead of failing in production:
   backend  handler.GeminiWebControlProtocolVersion
   worker   ops/gemini-web/worker.py CONTROL_PROTOCOL_VERSION
 
-Bumping either alone fails. Bumping both is the signal that this release must be
-paired: ship the backend, then deploy every edge Worker (or the reverse), and do
-not leave the fleet half-converged.
-
-This check sees source, not the fleet. It passes the moment both constants move in
-one commit — which is before any edge has been deployed. The fleet side of the same
-contract is check-gemini-web-worker-fleet.sh, which compares what each Worker
-reports against this backend constant and calls a uniformly stale fleet drift
-rather than convergence.
+Bumping either alone fails. Bumping both is the signal that the image and backend
+must be released as one reviewed change. This check covers source compatibility.
 """
 from __future__ import annotations
 
@@ -105,10 +97,7 @@ def main() -> int:
         print(
             "FAIL: Gemini Web control protocol drift — backend serves "
             f"{backend_version}, worker speaks {worker_version}.\n"
-            "      Both sides must move together, and that release must be paired: "
-            "ship the backend and deploy every edge Worker\n"
-            "      (deploy-gemini-web-worker.yml per edge), then confirm with "
-            "ops/observability/check-gemini-web-worker-fleet.sh.",
+            "      Both sides must move together in one reviewed release.",
             file=sys.stderr,
         )
         failed = True

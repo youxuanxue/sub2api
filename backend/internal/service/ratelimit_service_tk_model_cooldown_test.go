@@ -18,17 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// G4 — model-dimension cooldown for Anthropic per-class sub-bucket 429s.
-//
-// Corrected semantics (edge-us3 upstream probe, 2026-06-06): the account-wide
-// unified 5h/7d windows (anthropic-ratelimit-unified-{5h,7d}-*, no class
-// suffix) are SHARED across all model classes — exhausting one 429s every
-// class even when that class's own sub-bucket is allowed. So an account-wide
-// window exhaustion (anthropic429Result.window == "5h"/"7d") cools the WHOLE
-// account (account-level SetRateLimited); model-scoping is reserved for a
-// genuine per-class sub-bucket limit (window == "", neither overall window
-// surpassed) so siblings stay schedulable only when they truly have capacity.
-
 func tkModelClassScope(class string) string {
 	return anthropicModelClassRateLimitPrefix + class
 }
@@ -108,9 +97,6 @@ func newG4RateLimitService(repo *rateLimitAccountRepoStub) *RateLimitService {
 }
 
 func TestG4_OverallWindow429_CoolsAccountNotModelClass(t *testing.T) {
-	// An account-wide 5h window exhaustion blocks every model class (the shared
-	// window is rejected regardless of per-class sub-bucket headroom — edge-us3
-	// upstream probe). It MUST cool the whole account, not just opus.
 	repo := &rateLimitAccountRepoStub{}
 	svc := newG4RateLimitService(repo)
 	account := &Account{ID: 901, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
@@ -582,8 +568,6 @@ func TestCodex429_NonSparkModel_GeneralHealthy_WholeAccount(t *testing.T) {
 }
 
 func TestCodexSpark429_MirrorApikeyAccount_WholeAccount(t *testing.T) {
-	// prod→edge mirror accounts are type=apikey (the real spark window lives at
-	// the edge). They must keep whole-account behaviour.
 	repo := &rateLimitAccountRepoStub{}
 	svc := newG4RateLimitService(repo)
 	account := newOpenAICodexAccount(1005, AccountTypeAPIKey)

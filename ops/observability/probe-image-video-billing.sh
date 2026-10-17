@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # probe-image-video-billing.sh — read-only prod盯盘 for image/video generation
 # traffic: volume, errors, and metering/billing. Runs INSIDE the TokenKey host
-# (prod or edge) via run-probe.sh. Output is row_to_json so parsing is
+# (prod) via run-probe.sh. Output is row_to_json so parsing is
 # field-named, not column-index.
 #
 #   bash ops/observability/run-probe.sh --target prod \

@@ -10,38 +10,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
-// Request-owned Anthropic 429 classification + same-text failover circuit
-// breaker.
-//
-// Incident (prod 2026-06-11 06:44–06:59 UTC): a single >200k long-context
-// request on a no-credits subscription account drew a DETERMINISTIC policy 429
-// from Anthropic — "Usage credits are required for long context requests." —
-// which is a property of the REQUEST, not of any account. Failover fanned the
-// same request across all 7 cc-<edge> mirror accounts, every hop fed the
-// anthropic 3/3 error ladder, and within 4 minutes the whole mirror pool was
-// locked in tier-2 10-minute cooldowns while the edges themselves were already
-// healthy again. Two layers of defense, both implemented here:
-//
-//  1. Known-phrase classifier (tkIsAnthropicRequestOwned429Message): a policy
-//     429 is short-circuited on the FIRST hop — the original upstream body is
-//     passed through to the caller (so a prod mirror hop can re-classify the
-//     same phrase), no account penalty, no failover.
-//  2. Same-text circuit breaker (tkAnthropic429SameTextThreshold): for
-//     deterministic error variants we cannot enumerate, identical upstream
-//     message text from N distinct accounts within ONE request is judged
-//     request-owned — stop the fan-out, skip side effects from that hop on.
-//     Legitimate per-account rate limits rarely repeat the exact same body
-//     text N times in a single failover chain; genuine multi-account burn is
-//     surfaced to the client as the error it is (with the real upstream text)
-//     instead of poisoning the remaining pool. The breaker is status-
-//     generalized to 429 AND 529 (see tkHandleAnthropicRequestOwned429): the
-//     06:44 UTC 429 incident recurred on 529 during the 16:42–17:03 UTC
-//     Anthropic-wide overload event because this breaker was 429-only.
-//
-// Body passthrough is load-bearing: the prod ↔ edge mirror topology relays the
-// edge's response body to prod, so preserving the original phrase is what lets
-// the SAME classifier fire again on the prod hop (the edge→prod boundary used
-// to rewrite 429s to a generic text the exemption predicates cannot see).
 var tkAnthropicRequestOwned429Markers = []string{
 	"usage credits are required",
 }
@@ -126,14 +94,6 @@ func (s *GatewayService) tkHandleAnthropicRequestOwned429(c *gin.Context, accoun
 
 	known := tkIsAnthropicRequestOwned429Message(upstreamMsg, respBody)
 	if !known {
-		// TK capacity envelopes are exempt from the same-text breaker: a prod
-		// mirror hop receiving "No available accounts" (#575 fast-fail) or the
-		// failover-exhausted rewrite "Upstream rate limit exceeded, please
-		// retry later" from several edges is seeing EDGE-scoped capacity
-		// signals — cross-edge failover is the designed remedy there, and the
-		// texts are identical by construction, not because the request is
-		// poisoned. The breaker stays focused on provider-originated
-		// deterministic texts.
 		if tkSkipDownstreamNoAvailableAccountsPenalty(resp.StatusCode, upstreamMsg, respBody) ||
 			tkSkipDownstreamFailoverExhaustedPenalty(resp.StatusCode, upstreamMsg, respBody) ||
 			strings.Contains(normalized, "upstream rate limit exceeded") {

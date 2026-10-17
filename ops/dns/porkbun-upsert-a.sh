@@ -235,4 +235,3 @@ case "$action" in
 esac
 
 echo "NEXT: dig +short @1.1.1.1 ${FQDN}  # expect ${IPV4}"
-echo "      update matrix porkbun_a_ipv4 if this host is a managed edge"

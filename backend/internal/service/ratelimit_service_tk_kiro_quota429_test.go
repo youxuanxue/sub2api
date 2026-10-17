@@ -38,27 +38,3 @@ func TestHandleUpstreamError_KiroEndpointQuotaExhausted_Uses10sCooldownNotLadder
 	require.Empty(t, counter.incrementIDs, "must not advance anthropic_upstream_error 3/3 ladder")
 	require.Contains(t, repo.lastTempReason, tkKiroEndpointQuotaExhaustedReason)
 }
-
-func TestHandleUpstreamError_KiroMirrorStubQuotaExhausted429_SkipsAnthropicLadder(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
-	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1, 2, 3}}
-	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-	svc.SetAnthropicUpstreamErrorCounterCache(counter)
-
-	stub := &Account{
-		ID:       71,
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"mirror_platform": "kiro",
-		},
-	}
-	msg := tkKiroEndpointQuotaExhaustedClient
-	for i := 0; i < 3; i++ {
-		shouldDisable := svc.HandleUpstreamError(context.Background(), stub, http.StatusTooManyRequests, nil, []byte(msg))
-		require.True(t, shouldDisable, "iteration %d", i)
-	}
-
-	require.Equal(t, 3, repo.tempCalls)
-	require.Empty(t, counter.incrementIDs, "kiro mirror stub must not use anthropic 3/3 ladder on quota exhaustion")
-}

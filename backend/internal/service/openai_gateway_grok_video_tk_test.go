@@ -40,55 +40,16 @@ func TestResolveGrokVideoCredential(t *testing.T) {
 			Platform: PlatformGrok,
 			Type:     AccountTypeAPIKey,
 			Credentials: map[string]any{
-				"api_key":  "edge-relay-key",
-				"base_url": "https://api-us4.tokenkey.dev",
+				"api_key":  "upstream-api-key",
+				"base_url": "https://upstream.example.test",
 			},
 		}
 		token, base, err := resolveGrokVideoCredential(acct)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if token != "edge-relay-key" || base != "https://api-us4.tokenkey.dev" {
+		if token != "upstream-api-key" || base != "https://upstream.example.test" {
 			t.Fatalf("got token=%q base=%q", token, base)
-		}
-	})
-
-	t.Run("legacy newapi edge relay stub uses api_key", func(t *testing.T) {
-		acct := &Account{
-			ID:          65,
-			Platform:    PlatformNewAPI,
-			Type:        AccountTypeAPIKey,
-			ChannelType: 1,
-			Credentials: map[string]any{
-				"api_key":  "grok-bridge-key",
-				"base_url": "https://api-us4.tokenkey.dev",
-			},
-		}
-		if !UsesGrokNativeVideoArm(acct) {
-			t.Fatal("legacy grok bridge stub must use grok native video arm")
-		}
-		token, base, err := resolveGrokVideoCredential(acct)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if token != "grok-bridge-key" || base != "https://api-us4.tokenkey.dev" {
-			t.Fatalf("got token=%q base=%q", token, base)
-		}
-	})
-
-	t.Run("kiro anthropic edge mirror is not grok video relay", func(t *testing.T) {
-		acct := &Account{
-			ID:       8,
-			Platform: PlatformAnthropic,
-			Type:     AccountTypeAPIKey,
-			Credentials: map[string]any{
-				"api_key":         "kiro-edge-key",
-				"base_url":        "https://api-us4.tokenkey.dev",
-				"mirror_platform": "kiro",
-			},
-		}
-		if UsesGrokNativeVideoArm(acct) {
-			t.Fatal("kiro mirror stub must not route to grok native video arm")
 		}
 	})
 
@@ -106,7 +67,7 @@ func TestResolveGrokVideoCredential(t *testing.T) {
 			Platform: PlatformGrok,
 			Type:     AccountTypeAPIKey,
 			Credentials: map[string]any{
-				"base_url": "https://api-us4.tokenkey.dev",
+				"base_url": "https://upstream.example.test",
 			},
 		}
 		_, _, err := resolveGrokVideoCredential(acct)
@@ -228,9 +189,9 @@ func TestBuildGrokVideoV1URLs(t *testing.T) {
 	}{
 		{
 			name:   "edge root base",
-			base:   "https://api-us4.tokenkey.dev",
-			submit: "https://api-us4.tokenkey.dev/v1/videos/generations",
-			fetch:  "https://api-us4.tokenkey.dev/v1/videos/req-123",
+			base:   "https://upstream.example.test",
+			submit: "https://upstream.example.test/v1/videos/generations",
+			fetch:  "https://upstream.example.test/v1/videos/req-123",
 		},
 		{
 			name:   "v1 base",

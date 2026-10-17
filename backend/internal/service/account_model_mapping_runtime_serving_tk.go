@@ -15,17 +15,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
-// Empty-mapping Antigravity serving overlay.
-//
-// The compiled DefaultAntigravityModelMapping is the last-known-good allowlist
-// for accounts that do not persist credentials.model_mapping. The ops setting
-// tk_account_model_mapping_runtime is also a desired floor for apply-accounts;
-// until this file existed, settings fan-out never reached GetModelMapping, so
-// empty Antigravity accounts (typical edge OAuth rows) could not hot-add a
-// model. Overlay semantics keep compiled keys and let runtime keys add or
-// override, so a partial platforms.antigravity blob cannot drop live models.
-// Non-empty account mappings stay authoritative.
-
 var (
 	accountModelMappingRuntimeServing     atomic.Pointer[accountModelMappingRuntime]
 	accountModelMappingRuntimeServingVer  atomic.Uint64

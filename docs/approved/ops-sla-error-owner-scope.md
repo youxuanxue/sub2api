@@ -64,11 +64,9 @@ Antigravity retry loop that emitted no event.
 
 Owner: `backend/internal/service/antigravity_gateway_tk_smart_retry_attribution.go`
 (consumed at every terminal `handleSmartRetry` exit). The existing TK narrowings
-still take precedence over the restored provider attribution, since all three
+still take precedence over the restored provider attribution, since they
 read the same captured verdict:
 
-- `tkUpstreamDownstreamCapacity` — a relayed TokenKey edge's own pool-empty
-  envelope stays `routing` / `platform`, not provider health.
 - `tkUpstreamClientCanceled` — a client cancel stays `request` / `client`.
 
 ## Public contract deltas

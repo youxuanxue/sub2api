@@ -12,7 +12,7 @@
 #
 # Usage:
 #   bash ops/observability/run-probe.sh \
-#       --target prod | --target edge:<id> | --target cn-prod \
+#       --target prod | --target cn-prod \
 #       --script ops/observability/probe-caps.sh \
 #       [--env KEY=VAL ...] \
 #       [--with PATH ...]   upload additional local files to /tmp/<basename> on remote
@@ -37,8 +37,6 @@
 #   --target prod        resolves region+instance via
 #                        ops/stage0/resolve_prod_ssm_target.py (aws i-* or
 #                        hetzner mi-* after control-plane cutover)
-#   --target edge:<id>   resolves the live Hetzner managed instance first via
-#                        ops/stage0/edge_ssm_execution.py and Parameter Store.
 #   --target cn-prod     runs the same probe through the registered SSM Hybrid
 #                        managed instance. Set UCLOUD_SSM_INSTANCE_ID and
 #                        UCLOUD_SSM_REGION to override the domestic manifest;
@@ -126,8 +124,8 @@ if [ ! -f "$SCRIPT_PATH" ]; then
   exit 1
 fi
 
-if [ "$DESCRIBE_SCRIPT" = "0" ] && [ "$TARGET" != "prod" ] && [ "$TARGET" != "cn-prod" ] && [[ "$TARGET" != edge:* ]]; then
-  echo "[run-probe] ERROR: --target must be 'prod', 'cn-prod', or 'edge:<id>', got: $TARGET" >&2
+if [ "$DESCRIBE_SCRIPT" = "0" ] && [ "$TARGET" != "prod" ] && [ "$TARGET" != "cn-prod" ]; then
+	echo "[run-probe] ERROR: --target must be 'prod' or 'cn-prod', got: $TARGET" >&2
   exit 1
 fi
 
@@ -234,22 +232,6 @@ if [ "$TARGET" = "prod" ]; then
     echo "[run-probe] ERROR: resolve_prod_ssm_target returned empty ssm_region" >&2
     exit 2
   fi
-elif [[ "$TARGET" == edge:* ]]; then
-  EDGE_ID="${TARGET#edge:}"
-  if [ -z "$EDGE_ID" ]; then
-    echo "[run-probe] ERROR: --target edge: requires an edge id" >&2
-    exit 1
-  fi
-  PYERR=$(mktemp)
-  if ! RES_LINES=$(python3 "$REPO_ROOT/ops/stage0/edge_ssm_execution.py" \
-      --repo-root "$REPO_ROOT" --edge-id "$EDGE_ID" --format env 2>"$PYERR"); then
-    echo "[run-probe] ERROR: edge_ssm_execution.py failed for edge_id=$EDGE_ID" >&2
-    cat "$PYERR" >&2
-    rm -f "$PYERR"
-    exit 1
-  fi
-  rm -f "$PYERR"
-  eval "$RES_LINES"
 fi
 
 if [ "$TARGET" != "cn-prod" ] && { [ -z "${INSTANCE_ID:-}" ] || [ "$INSTANCE_ID" = "None" ]; }; then

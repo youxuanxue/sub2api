@@ -34,7 +34,7 @@ Usage:
   bash ops/observability/endpoint-compat-audit.sh --all [--skip-paid] [--with-extras]
 
 Environment:
-  TK_ENDPOINT_AUDIT_TARGET=prod|edge      target for run-probe.sh (default: prod)
+  TK_ENDPOINT_AUDIT_TARGET=prod      target for run-probe.sh (default: prod)
   TK_FULLTEST_KEY=sk-...                  universal key for --universal-matrix/--all
   TK_FULLTEST_KIRO_KEY=sk-...             optional direct Kiro key for Kiro matrix row
   TK_FULLTEST_BASE_URL=https://...        optional base URL for universal matrix

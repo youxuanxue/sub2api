@@ -113,7 +113,7 @@ func TestAccountTestService_GrokAPIKeyRoutesToResponses(t *testing.T) {
 		Concurrency: 1,
 		Credentials: map[string]any{
 			"api_key":  "edge-grok-key",
-			"base_url": "https://api-us4.tokenkey.dev",
+			"base_url": "https://upstream.example.test",
 		},
 	}
 
@@ -122,7 +122,7 @@ func TestAccountTestService_GrokAPIKeyRoutesToResponses(t *testing.T) {
 	require.Len(t, upstream.requests, 1)
 	req := upstream.requests[0]
 	require.Equal(t, http.MethodPost, req.Method)
-	require.Equal(t, "https://api-us4.tokenkey.dev/v1/responses", req.URL.String())
+	require.Equal(t, "https://upstream.example.test/v1/responses", req.URL.String())
 	require.Equal(t, "Bearer edge-grok-key", req.Header.Get("Authorization"))
 	require.Equal(t, defaultGrokTestModelID, gjson.GetBytes(readRequestBodyForTest(t, req), "model").String())
 	body := rec.Body.String()

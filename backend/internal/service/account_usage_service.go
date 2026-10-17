@@ -543,8 +543,6 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
 	case accountUsageWindowAdapterAntigravity:
-		// Antigravity OAuth 平台：使用 AntigravityQuotaFetcher 获取额度。
-		// Antigravity edge-relay apikey stubs 走 local adapter。
 		usage, err = s.getAntigravityUsage(ctx, account)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
@@ -575,10 +573,6 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 
 func (s *AccountUsageService) getAnthropicOAuthUsage(ctx context.Context, account *Account, forceProbe bool) (*UsageInfo, error) {
 	accountID := account.ID
-	// TK (handle403 gap, 2026-06-16 edge us6): 被上游封禁的账号(status=error 且 forbidden
-	// 类错误)不再实时打上游 usage 端点——否则运维查看/前端轮询会给已封 org 又加一次 403。
-	// 改回 passive(纯 DB)+ 存储错误。可恢复 token 错误不在此 scope,仍走实时拉取以保留自愈。
-	// 见 account_usage_service_tk_banned_shortcircuit.go。
 	if account.Status == StatusError && tkIsForbiddenAccountError(account.ErrorMessage) {
 		if passive, perr := s.getPassiveUsageForAccount(ctx, account); perr == nil && passive != nil {
 			enrichUsageWithAccountError(passive, account)
@@ -731,10 +725,6 @@ func (s *AccountUsageService) getPassiveUsageForAccount(ctx context.Context, acc
 		attachUpstreamQuotaForAccount(account, info)
 		return info, nil
 	case accountUsageWindowAdapterLocal:
-		// NewAPI / Grok / Antigravity edge stubs do not expose a common upstream
-		// percentage-quota protocol. Surface TokenKey account billing windows so
-		// operators still see activity from the same passive endpoint. NewAPI may
-		// also carry a recoverable weekly/5h/7d Extra snapshot from 429 text.
 		info := s.buildLocalWindowUsage(ctx, account)
 		applyNewAPIUsageWindowSnapshot(account, info)
 		attachUpstreamQuotaForAccount(account, info)

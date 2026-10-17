@@ -560,12 +560,11 @@ Generated from live Gin route registrations; do not edit this section.
 - `GET /api/v1/channel-monitors` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/channel-monitors/:id/status` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/channels/available` from `backend/internal/server/routes/user.go`
-- `DELETE /api/v1/edge/gemini-web/accounts/:id/lease` from `backend/internal/server/routes/edge_tk_routes.go`
-- `POST /api/v1/edge/gemini-web/accounts/:id/lease` from `backend/internal/server/routes/edge_tk_routes.go`
-- `PUT /api/v1/edge/gemini-web/accounts/:id/runtime` from `backend/internal/server/routes/edge_tk_routes.go`
-- `GET /api/v1/edge/gemini-web/accounts/:id/session` from `backend/internal/server/routes/edge_tk_routes.go`
-- `GET /api/v1/edge/gemini-web/warm-accounts` from `backend/internal/server/routes/edge_tk_routes.go`
-- `GET /api/v1/edge/scheduling-capacity` from `backend/internal/server/routes/edge_tk_routes.go`
+- `DELETE /api/v1/edge/gemini-web/accounts/:id/lease` from `backend/internal/server/routes/gemini_web_routes.go`
+- `POST /api/v1/edge/gemini-web/accounts/:id/lease` from `backend/internal/server/routes/gemini_web_routes.go`
+- `PUT /api/v1/edge/gemini-web/accounts/:id/runtime` from `backend/internal/server/routes/gemini_web_routes.go`
+- `GET /api/v1/edge/gemini-web/accounts/:id/session` from `backend/internal/server/routes/gemini_web_routes.go`
+- `GET /api/v1/edge/gemini-web/warm-accounts` from `backend/internal/server/routes/gemini_web_routes.go`
 - `GET /api/v1/groups/available` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/groups/rates` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/keys` from `backend/internal/server/routes/user.go`
@@ -823,7 +822,7 @@ validate and print canonical JSON
 compare runtime settings to a JSON file
 
 - `--file` (required):
-- `--target` (default: `all-deployable-and-prod`): prod, edge:<id>, or all-deployable-and-prod
+- `--target` (default: `prod`): prod
 - `--json`: machine-readable output
 - `--parallel` (default: `6`): parallel SSM workers
 
@@ -832,8 +831,6 @@ compare runtime settings to a JSON file
 post-release read-only account model_mapping SSOT diff (prod only by default)
 
 - `--json`: machine-readable output
-- `--skip-prod`: check deployable edges only
-- `--include-edges`: also check deployable edges (default: prod only)
 - `--prod-instance-id`: use this prod EC2 instance id instead of resolving the prod stack
 - `--bundle`: generated model-surface bundle to check against
 - `--parallel` (default: `6`): parallel SSM workers
@@ -851,7 +848,7 @@ explicit model-activation check: prod account model_mapping must cover the selec
 
 explicitly apply reviewed SSOT diffs to live accounts
 
-- `--target` (required): prod, edge:<id>, or all-deployable-and-prod
+- `--target` (required): prod
 - `--account-ids`: comma-separated positive account IDs for targeted apply (single explicit target only)
 - `--expected-plan-sha256`: required in targeted mode for non-dry-run; must match recomputed plan digest
 - `--confirm`: required for writes: yes-apply-account-model-mapping
@@ -875,7 +872,7 @@ guardedly assign ch41 capability profiles on prod without changing model_mapping
 plan or explicitly write one target runtime setting
 
 - `--file` (required):
-- `--target` (required): one target: prod or edge:<id>
+- `--target` (required): one target: prod
 - `--confirm`: write instead of dry-run: yes-change-account-model-mapping-runtime
 - `--bundle`: generated model-surface bundle to validate against
 
@@ -883,7 +880,7 @@ plan or explicitly write one target runtime setting
 
 plan or explicitly delete one target runtime setting
 
-- `--target` (required): one target: prod or edge:<id>
+- `--target` (required): one target: prod
 - `--confirm`: write instead of dry-run: yes-change-account-model-mapping-runtime
 
 #### `manage-account-model-mapping-runtime.py example`
@@ -1065,7 +1062,7 @@ group MUST set `platform` to exactly one of:
 | `antigravity` | `GET /antigravity/models`, the `/antigravity/v1` and `/antigravity/v1beta` subtrees | Antigravity-native surface; admin endpoints under `/admin/antigravity/*`. |
 | `newapi` | Same OpenAI-compat surface as `openai` (`/v1/chat/completions`, `/v1/messages`, `/v1/responses`, `/v1/images/generations`, `POST /v1/audio/speech` where the account mapping + pricing overlay serve TTS) | First-class fifth platform — see next section. |
 | `kiro` | `POST /v1/messages` through the Anthropic-shaped client surface | Kiro-native scheduling pool backed by the vendored CodeWhisperer/EventStream protocol layer. |
-| `grok` | Same OpenAI-compat surface as `openai` (`/v1/chat/completions`, `/v1/messages`, `/v1/responses`, embeddings/images/video where enabled) | First-class Grok/xAI platform. Edge capacity is `type=oauth`; prod edge relay stubs may be `type=apikey` with an edge `base_url`. |
+| `grok` | Same OpenAI-compat surface as `openai` (`/v1/chat/completions`, `/v1/messages`, `/v1/responses`, embeddings/images/video where enabled) | First-class Grok/xAI platform. Native OAuth and API-key credentials use their configured upstream. |
 
 ## Admin account model options
 

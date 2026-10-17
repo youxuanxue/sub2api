@@ -21,7 +21,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
 
-	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 	"github.com/gin-gonic/gin"
 )
 
@@ -101,32 +100,8 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 	callerCtx := ctx
 	var firstOutputGuard *streamFirstOutputGuard
 	streamAttemptCtx := ctx
-	kiroMirror := account.IsKiroMirrorStub()
-	if kiroMirror {
-		var req kiroproto.ClaudeRequest
-		if err := json.Unmarshal(input.Body, &req); err != nil {
-			return nil, err
-		}
-		req.Model = input.RequestModel
-		var releaseBudget func()
-		streamAttemptCtx, firstOutputGuard, releaseBudget, err = armKiroWaitBudget(ctx, c, s.cfg, &req, input.StartTime)
-		if err != nil {
-			return nil, err
-		}
-		b := getKiroWaitBudget(c, s.cfg, &req, input.StartTime)
-		RecordOpsFirstOutputBudget(c, account, b.budget, streamFirstOutputBudgetReason(b.high))
-		defer releaseBudget()
-		defer func() {
-			var terminal *UpstreamFailoverError
-			if errors.As(forwardErr, &terminal) && terminal.Reason == "kiro_wait_budget_exhausted" {
-				return
-			}
-			if budgetErr := kiroWaitBudgetError(c, firstOutputGuard, streamAttemptCtx, callerCtx); budgetErr != nil {
-				result, forwardErr = nil, budgetErr
-			}
-		}()
-		ctx = streamAttemptCtx
-	} else if input.RequestStream {
+
+	if input.RequestStream {
 		// Detach client cancel first, then arm first-output so WithoutCancel
 		// cannot strip the budget cancel (see detachStreamUpstreamContext).
 		// Full per-attempt budget (SSOT: attempt start → Commit), not remaining
@@ -143,7 +118,7 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
 		upstreamCtx := streamAttemptCtx
 		releaseUpstreamCtx := func() {}
-		if !input.RequestStream && !kiroMirror {
+		if !input.RequestStream {
 			upstreamCtx, releaseUpstreamCtx = detachStreamUpstreamContext(ctx, false)
 		}
 		upstreamReq, wireBody, err := s.buildAnthropicPassthroughUpstreamRequest(upstreamCtx, c, account, input.Body, token, authKind)
@@ -164,11 +139,7 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
 			}
-			if kiroMirror {
-				if budgetErr := kiroWaitBudgetError(c, firstOutputGuard, streamAttemptCtx, callerCtx); budgetErr != nil {
-					return nil, budgetErr
-				}
-			}
+
 			if foErr := streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx); foErr != nil {
 				return nil, foErr
 			}
@@ -176,19 +147,6 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 				UpstreamURL: safeUpstreamURL(upstreamReq.URL.String()),
 				Passthrough: true,
 			})
-		}
-
-		if kiroMirror {
-			if resp.Header.Get(KiroOutcomeHeader) == kiroWaitExhaustedOutcome {
-				_ = resp.Body.Close()
-				return nil, kiroWaitBudgetExhausted(c)
-			}
-			if budgetErr := kiroWaitBudgetError(c, firstOutputGuard, streamAttemptCtx, callerCtx); budgetErr != nil {
-				_ = resp.Body.Close()
-				return nil, budgetErr
-			}
-			body := resp.Body
-			context.AfterFunc(streamAttemptCtx, func() { _ = body.Close() })
 		}
 
 		if resp.StatusCode == http.StatusBadRequest {
@@ -338,7 +296,6 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 		return s.handleErrorResponse(ctx, resp, c, account, input.RequestModel)
 	}
 
-	applyKiroInternalThinkingFromUpstream(c, resp.Header)
 	var usage *ClaudeUsage
 	var firstTokenMs *int
 	var clientDisconnect bool
@@ -452,7 +409,6 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 	// 账号级请求头覆写（最终生效，覆盖上面所有来源的同名头）
 	account.ApplyHeaderOverrides(req.Header)
 	filterSonnet55ToolsetBetaHeader(req.Header, body, gjson.GetBytes(body, "model").String())
-	setKiroWaitDeadlineHeader(c, req, account)
 
 	return req, body, nil
 }
@@ -599,9 +555,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 		budgetCh = streamAttemptCtx.Done()
 	}
 	firstOutputFailover := func() error {
-		if account.IsKiroMirrorStub() {
-			return kiroWaitBudgetError(c, firstOutputGuard, streamAttemptCtx, callerCtx)
-		}
+
 		return streamFirstOutputFailoverIfBudgetFired(c, firstOutputGuard, streamAttemptCtx, callerCtx)
 	}
 
@@ -662,10 +616,6 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 
 			line := ev.line
 			trimmedLine := strings.TrimSpace(line)
-			if blocks, ok := parseKiroInternalThinkingSSECommentLine(line); ok {
-				applyKiroInternalThinkingBlocks(c, blocks)
-				continue
-			}
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
 				observer.ObserveAnthropic([]byte(trimmed))
@@ -676,9 +626,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 					sawTerminalEvent = true
 				}
 				useful := trimmed != "" && trimmed != "[DONE]"
-				if account.IsKiroMirrorStub() {
-					useful = kiroPassthroughUsefulOutput(trimmed)
-				}
+
 				if firstTokenMs == nil && useful {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
@@ -772,8 +720,6 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				resetKeepaliveTimer()
 				continue
 			}
-			// Match convert-path Claude Code contract: message_start before ping
-			// on pre-content stalls (shared with prod→edge Kiro mirrors).
 			if _, err := fmt.Fprint(w, anthropicStreamIdleKeepaliveSSE(c, model)); err != nil {
 				clientDisconnected = true
 				logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during keepalive ping, continue draining upstream for usage: account=%d", account.ID)
@@ -1041,9 +987,6 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, anthropicTooLargeError)
 	if err != nil {
 		return nil, err
-	}
-	if account.IsKiroMirrorStub() && ctx.Err() != nil {
-		return nil, ctx.Err()
 	}
 
 	observer := upstreamResponseModelObserverFromContext(c)

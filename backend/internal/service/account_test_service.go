@@ -388,9 +388,7 @@ func (s *AccountTestService) testAccountConnectionWithAccount(c *gin.Context, ac
 	if account == nil {
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
-	if account.IsRetiredSupplier() {
-		return s.sendErrorAndEnd(c, ErrSupplierRetired.Error())
-	}
+
 	testOpts := firstAccountTestOptions(opts)
 
 	// Synthetic UI load-test accounts exercise the real SSE parsing and modal
@@ -646,16 +644,10 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	if testModelID == "" {
 		testModelID = claude.DefaultTestModel
 	}
-	if account.IsKiroMirrorStub() {
-		testModelID = normalizeKiroAdminTestModel(testModelID)
-	}
 
 	// API Key 账号测试连接时也需要应用通配符模型映射。
 	if account.Type == AccountTypeAPIKey {
 		testModelID = account.GetMappedModel(testModelID)
-	}
-	if account.IsKiroMirrorStub() {
-		testModelID = normalizeKiroAdminTestModel(testModelID)
 	}
 
 	// Bedrock accounts use a separate test path
@@ -1423,9 +1415,6 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 		requestedModelID = geminicli.DefaultTestModel
 	}
 
-	// Keep the client-facing ID across a prod -> Edge Antigravity relay hop.
-	// The Edge owns the final public-to-wire mapping; direct static upstream
-	// accounts still receive the mapped provider ID.
 	mappedModelID, requestModelID := resolveGeminiForwardModels(account, requestedModelID)
 
 	// Set SSE headers

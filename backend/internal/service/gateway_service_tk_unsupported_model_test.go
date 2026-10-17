@@ -268,7 +268,7 @@ func TestDiagnoseSelectionFailure_ModelUnsupportedPrecedesUnschedulable(t *testi
 		Status:      StatusActive,
 		Schedulable: false,
 		Credentials: map[string]any{
-			"mirror_platform": PlatformKiro,
+			"model_mapping": map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"},
 		},
 	}
 	got := svc.diagnoseSelectionFailure(nil, unsupportedUnsched, "claude-fable-5", PlatformAnthropic, nil, false)
@@ -283,7 +283,7 @@ func TestDiagnoseSelectionFailure_ModelUnsupportedPrecedesUnschedulable(t *testi
 		Status:      StatusActive,
 		Schedulable: false,
 		Credentials: map[string]any{
-			"base_url": "https://api-us3.tokenkey.dev",
+			"base_url": "https://upstream.example.test",
 		},
 	}
 	got = svc.diagnoseSelectionFailure(nil, supportingUnsched, "claude-opus-4-8", PlatformAnthropic, nil, false)
@@ -292,12 +292,6 @@ func TestDiagnoseSelectionFailure_ModelUnsupportedPrecedesUnschedulable(t *testi
 	}
 }
 
-// Tk cross-vendor dirty-model guard (prod 2026-06-16, edge us3 oh1-ls-b ID 4):
-// a passthrough anthropic OAuth account forwarded non-claude names
-// (deepseek-v4-flash) to api.anthropic.com → 404 + abuse fingerprint. The guard
-// converts those to a local Path A 400 (selection miss) while leaving same-family
-// names (claude-haiku-4-6, tolerated upstream) and all non-anthropic platforms
-// untouched.
 func TestTkIsForwardableAnthropicModelName(t *testing.T) {
 	forwardable := []string{
 		"claude-opus-4-8",

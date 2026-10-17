@@ -482,7 +482,7 @@ describe('CreateAccountModal — NewAPI Vertex (channel_type 41)', () => {
   })
 })
 
-describe('CreateAccountModal — Grok relay stub', () => {
+describe('CreateAccountModal — Grok API-key account', () => {
   beforeEach(() => {
     listChannelTypesMock.mockReset()
     fetchUpstreamModelsMock.mockReset()
@@ -494,7 +494,7 @@ describe('CreateAccountModal — Grok relay stub', () => {
     createAccountMock.mockResolvedValue({ id: 953 })
   })
 
-  it('creates Grok relay stubs as first-class grok apikey accounts', async () => {
+  it('creates Grok API-key accounts as first-class grok apikey accounts', async () => {
     const wrapper = mountModal()
     await nextTick()
 
@@ -503,38 +503,37 @@ describe('CreateAccountModal — Grok relay stub', () => {
     await nextTick()
 
     const relayButton = wrapper.findAll('button').find((b) =>
-      b.text().includes('admin.accounts.grokPlatform.relayMode')
+      b.text().includes('admin.accounts.grokPlatform.apiKeyMode')
     )
     expect(relayButton).toBeTruthy()
     await relayButton!.trigger('click')
     await nextTick()
     await nextTick()
 
-    await wrapper.find('input[data-tour="account-form-name"]').setValue('grok-us4')
+    await wrapper.find('input[data-tour="account-form-name"]').setValue('grok-upstream')
     const baseUrlInput = wrapper.find('input[placeholder="https://api.x.ai/v1"]')
     const apiKeyInput = wrapper.find('input[placeholder="xai-..."]')
     expect(baseUrlInput.exists()).toBe(true)
     expect(apiKeyInput.exists()).toBe(true)
-    await baseUrlInput.setValue('https://api-us4.tokenkey.dev')
-    await apiKeyInput.setValue('edge-tokenkey-key')
+    await baseUrlInput.setValue('https://upstream.example.test')
+    await apiKeyInput.setValue('upstream-test-key')
 
     await wrapper.find('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'grok-us4',
+      name: 'grok-upstream',
       platform: 'grok',
       type: 'apikey',
       credentials: {
-        base_url: 'https://api-us4.tokenkey.dev',
-        api_key: 'edge-tokenkey-key',
-        mirror_platform: 'grok'
+        base_url: 'https://upstream.example.test',
+        api_key: 'upstream-test-key'
       }
     }))
   })
 
-  it('does not create a Grok relay stub without an edge base URL', async () => {
+  it('does not create a Grok API-key account without an upstream base URL', async () => {
     const wrapper = mountModal()
     await nextTick()
 
@@ -543,16 +542,16 @@ describe('CreateAccountModal — Grok relay stub', () => {
     await nextTick()
 
     const relayButton = wrapper.findAll('button').find((b) =>
-      b.text().includes('admin.accounts.grokPlatform.relayMode')
+      b.text().includes('admin.accounts.grokPlatform.apiKeyMode')
     )
     expect(relayButton).toBeTruthy()
     await relayButton!.trigger('click')
     await nextTick()
     await nextTick()
 
-    await wrapper.find('input[data-tour="account-form-name"]').setValue('grok-us4')
+    await wrapper.find('input[data-tour="account-form-name"]').setValue('grok-upstream')
     await wrapper.find('input[placeholder="https://api.x.ai/v1"]').setValue('')
-    await wrapper.find('input[placeholder="xai-..."]').setValue('edge-tokenkey-key')
+    await wrapper.find('input[placeholder="xai-..."]').setValue('upstream-test-key')
 
     await wrapper.find('form#create-account-form').trigger('submit.prevent')
     await flushPromises()

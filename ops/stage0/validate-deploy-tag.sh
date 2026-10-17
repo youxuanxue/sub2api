@@ -4,7 +4,6 @@
 # Shared by all three deploy workflows so the tag-format rule never grows
 # divergent copies:
 #   - .github/workflows/deploy-stage0.yml            (prod)
-#   - .github/workflows/deploy-edge-lightsail-stage0.yml (Lightsail edge)
 #
 # History: the regex was inlined in all three; the Lightsail copy had already
 # dropped the "(optionally -rc.N / -beta.N)" note from its error message — the
@@ -13,7 +12,7 @@
 # sentinel (scripts/preflight.sh).
 #
 # Scope: FORMAT only. The "tag is required for operation=X" empty-check stays in
-# the edge workflows (its wording is operation-contextual, which this script has
+# the deployment workflow (its wording is operation-contextual, which this script has
 # no business knowing). Prod always requires a tag, so it calls this directly.
 #
 # Usage: validate-deploy-tag.sh <tag>   (falls back to $INPUT_TAG)

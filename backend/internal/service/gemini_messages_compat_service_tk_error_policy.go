@@ -35,8 +35,7 @@ func (s *GeminiMessagesCompatService) tkApplyGeminiErrorPolicy(
 	isOAuth bool,
 	clientWrite geminiErrorPolicyClientWrite,
 ) (err error, handled bool) {
-	if s.rateLimitService == nil ||
-		tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
+	if s.rateLimitService == nil {
 		return nil, false
 	}
 	switch s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody) {
@@ -89,7 +88,7 @@ func (s *GeminiMessagesCompatService) tkApplyGeminiErrorPolicy(
 			Message:            upstreamMsg,
 			Detail:             upstreamDetail,
 		})
-		return newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, respBody), true
+		return newUpstreamFailoverError(resp.StatusCode, resp.Header, respBody), true
 	}
 	return nil, false
 }
@@ -113,19 +112,7 @@ func (s *GeminiMessagesCompatService) checkErrorPolicyInLoop(
 		Header:     resp.Header.Clone(),
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
-	if strings.TrimSpace(requestedModel) != "" &&
-		tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, body) {
-		if s.rateLimitService != nil {
-			s.rateLimitService.handleAntigravityRelayCapacity(
-				ctx,
-				account,
-				resp.StatusCode,
-				body,
-				requestedModel,
-			)
-		}
-		return true, rebuilt
-	}
+
 	if s.rateLimitService == nil {
 		return false, rebuilt
 	}

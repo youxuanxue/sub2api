@@ -66,18 +66,17 @@
 #   - It does NOT wholesale-refresh /var/lib/tokenkey/docker-compose.yml.
 #     (Exception: it DOES self-heal one specific, additive line — the
 #     `SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}` env mapping in the tokenkey
-#     service — when absent. Edges provisioned before that mapping was added to
+#     service — when absent. Hosts provisioned before that mapping was added to
 #     the compose template carried a stale compose: the .env backfill below set
 #     SERVER_FRONTEND_URL, but with no compose mapping the var never reached the
 #     container, so alert cards showed node=unknown on us1/us2/us3/us4/us5/uk1
 #     [2026-06-06]. The insert is guarded by `! grep -q SERVER_FRONTEND_URL`, so
-#     it is a no-op on already-correct edges, and additive [one env line after
+#     it is a no-op on already-correct hosts, and additive [one env line after
 #     the TZ line], so it cannot break an otherwise-valid compose.)
 #   - It does NOT refresh /var/lib/tokenkey/caddy/Caddyfile.
 #   Both files are written once at instance launch by UserData (gzip+base64
-#   decoded from SSM Parameter Store; see stage0-{single,edge}-ec2.yaml +
-#   build-cfn.sh). After editing the source files in this repo, existing
-#   prod/edge hosts still run the OLD copies on disk until the operator
+#   decoded from SSM Parameter Store.
+#   prod hosts still run the OLD copies on disk until the operator
 #   either re-provisions the instance OR runs a manual sync. The image-tag
 #   bump in step 1 alone is NOT enough to apply new compose/Caddy directives.
 #   For Caddyfile directive changes (e.g. lb_try_duration) the deterministic
@@ -89,9 +88,6 @@
 
 set -euo pipefail
 
-# Shared SSM "resolve managed-instance after tag-targeted send" helper.
-# shellcheck source=ssm_resolve_invocation_mi.inc.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ssm_resolve_invocation_mi.inc.sh"
 
 TAG="${1:-${INPUT_TAG:-}}"
 INSTANCE_ID="${2:-${INSTANCE_ID:-}}"
@@ -162,7 +158,7 @@ fi
 # DELIBERATELY left unset here so generated images pass through inline (no S3 rehost,
 # no on-request PutObject pin, no per-Studio-mount presign fan-out). Do NOT add the
 # flag back without re-deciding that trade-off.
-# Prod-only (EC2 `i-*`); edges (Lightsail `mi-*`) get [] and never offload media
+# Prod-only (EC2 `i-*`)
 # (they passthrough base64 — same byte-identical command list as before). Safe to
 # enable before the CFN media bucket exists: the store degrades to base64
 # passthrough on any S3 error. The media/ key prefix matches the bucket lifecycle.
@@ -201,31 +197,7 @@ fi
 # mem-guard). The cliff is auth-gated (apiKeyAuth + group binding), so this is a
 # pre-emptive bound, not a fix for an open exploit; it pairs with media offload
 # going live, when sustained large-body generation traffic becomes likely. All
-# three knobs are env-overridable. Prod-only (EC2 `i-*`); edges (Lightsail `mi-*`)
-# never serve generation and get [] (byte-identical command list as before).
-# --- Edge QA capture off (Lightsail mi-* only) -------------------------------
-# Phase 1 of docs/approved/design-prod-qa-24h-s3-lifecycle.md: edges must not
-# capture, archive, export, or retain QA. Prod-only blocks above stay gated to
-# EC2 i-*; this block is the symmetric edge gate. Values derive from ops/qa/policy.yaml.
-edge_qa_capture_cmds='[]'
-if [[ "${INSTANCE_ID}" == mi-* ]]; then
-  edge_qa_capture_cmds="$(jq -n \
-    --arg tag "${TAG}" '
-    [
-      ( "if grep -q '\''^QA_CAPTURE_ENABLED='\'' /var/lib/tokenkey/.env; then"
-        + " sudo sed -i '\''s|^QA_CAPTURE_ENABLED=.*|QA_CAPTURE_ENABLED=false|'\'' /var/lib/tokenkey/.env; echo ensured-QA_CAPTURE_ENABLED=false;"
-        + " else echo QA_CAPTURE_ENABLED=false | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo ensured-QA_CAPTURE_ENABLED=false; fi" ),
-      ( "CF=/var/lib/tokenkey/docker-compose.yml; if [ -f \"$CF\" ]; then"
-        + " if ! grep -q \"QA_CAPTURE_ENABLED=\" \"$CF\"; then"
-        + " sudo cp -a \"$CF\" \"$CF.edge-qa-capture-before-" + $tag + "\";"
-        + " sudo sed -i '\''/^      - SERVER_FRONTEND_URL=/a\\      - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-}'\'' \"$CF\";"
-        + " fi;"
-        + " if grep -q \"QA_CAPTURE_ENABLED=\" \"$CF\"; then echo ensured-compose-QA_CAPTURE_ENABLED-mapping;"
-        + " else echo '\''::warning::failed to insert compose QA_CAPTURE_ENABLED mapping'\''; fi;"
-        + " else echo compose-file-missing-skip-QA_CAPTURE_ENABLED; fi" )
-    ]')"
-fi
-
+# three knobs are env-overridable. Prod-only (EC2 `i-*`).
 image_concurrency_cmds='[]'
 if [[ "${INSTANCE_ID}" == i-* ]]; then
   image_concurrency_cmds="$(jq -n \
@@ -252,7 +224,7 @@ if [[ "${INSTANCE_ID}" == i-* ]]; then
     ]')"
 fi
 
-jq -n --arg tag "${TAG}" --argjson qa_archive_cmds "${qa_archive_cmds}" --argjson media_cmds "${media_storage_cmds}" --argjson ic_cmds "${image_concurrency_cmds}" --argjson edge_qa_cmds "${edge_qa_capture_cmds}" '{
+jq -n --arg tag "${TAG}" --argjson qa_archive_cmds "${qa_archive_cmds}" --argjson media_cmds "${media_storage_cmds}" --argjson ic_cmds "${image_concurrency_cmds}" '{
   commands: ([
     "set -euo pipefail",
     ("echo === deploy stage0 to tag=" + $tag + " ==="),
@@ -268,7 +240,7 @@ jq -n --arg tag "${TAG}" --argjson qa_archive_cmds "${qa_archive_cmds}" --argjso
     "if ! grep -q '\''^SERVER_FRONTEND_URL='\'' /var/lib/tokenkey/.env; then d=$(sed -n '\''s/^API_DOMAIN=//p'\'' /var/lib/tokenkey/.env | head -1); if [ -n \"$d\" ]; then echo \"SERVER_FRONTEND_URL=https://$d\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured SERVER_FRONTEND_URL=https://$d\"; else echo \"API_DOMAIN empty; skip SERVER_FRONTEND_URL backfill\"; fi; else echo \"SERVER_FRONTEND_URL already present\"; fi",
     "if ! grep -q '\''^TOKENKEY_GHCR_KEEP_TAGS='\'' /var/lib/tokenkey/.env; then echo '\''TOKENKEY_GHCR_KEEP_TAGS=3'\'' | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo '\''ensured TOKENKEY_GHCR_KEEP_TAGS=3'\''; else echo '\''TOKENKEY_GHCR_KEEP_TAGS already present'\''; fi",
     ("if [ -f /var/lib/tokenkey/docker-compose.yml ] && ! grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then sudo cp -a /var/lib/tokenkey/docker-compose.yml /var/lib/tokenkey/docker-compose.yml.compose-before-" + $tag + "; sudo sed -i '\''/^      - TZ=/a\\      - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}'\'' /var/lib/tokenkey/docker-compose.yml; if grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then echo ensured-compose-SERVER_FRONTEND_URL-mapping; else echo '\''::warning::failed to insert compose SERVER_FRONTEND_URL mapping'\''; fi; else echo compose-SERVER_FRONTEND_URL-mapping-present-or-no-compose; fi")
-  ] + $qa_archive_cmds + $media_cmds + $ic_cmds + $edge_qa_cmds + [
+  ] + $qa_archive_cmds + $media_cmds + $ic_cmds + [
     "echo \"=== pull new image BEFORE drain (old container keeps serving 100% traffic) ===\"",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
     "echo \"=== pre-drain: SIGUSR1 + wait in_flight=0 (only when outgoing container healthy) ===\"",
@@ -287,7 +259,7 @@ jq -n --arg tag "${TAG}" --argjson qa_archive_cmds "${qa_archive_cmds}" --argjso
 }' > "${params_file}"
 
 # Render-only seam: write the SSM command document and exit before any AWS call.
-# Lets the prod-vs-edge raw archive injection be asserted deterministically in tests
+# Lets the prod raw archive injection be asserted deterministically in tests
 # (see ops/stage0/test_deploy_via_ssm_bluegreen.py) without touching live infra.
 if [[ -n "${STAGE0_RENDER_ONLY:-}" ]]; then
   echo "stage0_deploy_via_ssm: STAGE0_RENDER_ONLY set; wrote ${params_file} and exiting" >&2
@@ -301,28 +273,12 @@ fi
 python3 "$(dirname "${BASH_SOURCE[0]}")/ssm_wrap_bash_commands.py" "${params_file}"
 
 eff_instance_id="${INSTANCE_ID}"
-if [[ "${INSTANCE_ID}" == mi-* && -n "${EDGE_ID:-}" ]]; then
-  # Hybrid managed nodes minted via create-activation carry tags EdgeId + Platform
-  # (see deploy/aws/lightsail/provision-edge.sh). Targeting by tag reaches the
-  # live registration even when Parameter Store ssm_managed_instance_id lags.
-  cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
-    --targets "Key=tag:EdgeId,Values=${EDGE_ID}" "Key=tag:Platform,Values=lightsail" \
-    --document-name AWS-RunShellScript \
-    --comment "${COMMENT} tag=${TAG}" \
-    --parameters "file://${params_file}" \
-    --query 'Command.CommandId' --output text)"
-  eff_instance_id="$(ssm_resolve_invocation_mi "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" "${cmd_id}")"
-  if [[ "${eff_instance_id}" != "${INSTANCE_ID}" ]]; then
-    echo "::warning::SSM send resolved instance ${eff_instance_id}; caller passed ${INSTANCE_ID} (check SSM parameter /ssm_managed_instance_id)"
-  fi
-else
   cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
     --instance-ids "${INSTANCE_ID}" \
     --document-name AWS-RunShellScript \
     --comment "${COMMENT} tag=${TAG}" \
     --parameters "file://${params_file}" \
     --query 'Command.CommandId' --output text)"
-fi
 
 echo "ssm command-id=${cmd_id}"
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then

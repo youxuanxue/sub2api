@@ -10,15 +10,12 @@ from typing import Final
 # Keep in sync with required_secrets_for_env() in ops/stage0/load_smoke_github_env.sh.
 SMOKE_SECRETS: Final[tuple[str, ...]] = ("TK_SMOKE_API_KEY",)
 PROD_SECRETS: Final[tuple[str, ...]] = SMOKE_SECRETS
-EDGE_SECRETS: Final[tuple[str, ...]] = SMOKE_SECRETS
 
 
 def required_secrets(env_name: str) -> tuple[str, ...]:
     if env_name == "prod":
         return PROD_SECRETS
-    if env_name.startswith("edge-"):
-        return EDGE_SECRETS
-    raise ValueError(f"unsupported GitHub Environment: {env_name!r} (want prod or edge-<id>)")
+    raise ValueError(f"unsupported GitHub Environment: {env_name!r} (want prod)")
 
 
 def _gh_json(args: list[str]) -> object:

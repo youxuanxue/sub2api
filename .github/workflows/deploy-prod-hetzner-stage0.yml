@@ -35,9 +35,6 @@ on:
   pull_request:
     paths:
       - "deploy/hetzner/**"
-      - "deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml"
-      - "deploy/aws/lightsail/restore-edge-env-secrets.sh"
-      - "deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh"
       - "deploy/aws/stage0/tokenkey-pgdump.sh"
       - "deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh"
       - ".github/workflows/deploy-prod-hetzner-stage0.yml"
@@ -63,7 +60,6 @@ jobs:
           python3 -m unittest deploy/hetzner/test_resolve_prod_hetzner_target.py -v
           python3 -m unittest deploy/hetzner/test_render_prod_bootstrap.py -v
           bash deploy/hetzner/render-prod-bootstrap.sh --check
-          bash deploy/aws/lightsail/test_restore_edge_env_secrets.sh
 
   dispatch-prod:
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'provision'

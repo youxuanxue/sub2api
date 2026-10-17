@@ -6,7 +6,7 @@ name: Ops Payment Billing Watch
 #   - Monday 01:00 UTC (~09:00 Asia/Shanghai): weekly Feishu report covering
 #     last 7d / prev calendar month / current calendar month / all-time
 #
-# Cadence is best-effort GitHub Actions scheduling (same caveat as edge-health-watch).
+# Cadence is best-effort GitHub Actions scheduling.
 
 on:
   schedule:

@@ -258,7 +258,7 @@ def selftest() -> int:
         # spellings honest -- the docstring claims both, and a regex that only
         # matched the file start silently classified this as a stub.
         (root / "docs" / "spec-delta-english.md").write_text(
-            "# Edge model rejection\n\n## Owners\n\n| Behavior | Owner | Consumer |\n"
+            "# Upstream model rejection\n\n## Owners\n\n| Behavior | Owner | Consumer |\n"
             "| --- | --- | --- |\n| verdict | `backend/also-gone.go` | gateway |\n",
             encoding="utf-8",
         )

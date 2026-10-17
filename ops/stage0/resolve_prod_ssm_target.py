@@ -22,7 +22,6 @@ from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "ops/stage0"))
-from edge_routing_matrix import reject_retired_target
 DEFAULT_MATRIX = REPO_ROOT / "deploy/hetzner/prod-target-hetzner.json"
 FRESH_MATRIX = REPO_ROOT / "deploy/aws/fresh-migration-20261015.json"
 AWS_STACK = "tokenkey-prod-stage0"
@@ -127,7 +126,8 @@ def list_instance_information(region: str) -> list[dict[str, Any]]:
 
 def resolve_hetzner(matrix_path: pathlib.Path) -> dict[str, str]:
     target = load_hetzner_matrix(matrix_path)
-    reject_retired_target(target, "hetzner prod")
+    if target.get("deployable") is not True:
+        fail("prod Hetzner target is not deployable")
     name = str(target.get("instance_name") or "")
     region = str(target.get("ssm_region") or "eu-west-2")
     domain = str(target.get("domain") or "api.tokenkey.dev")

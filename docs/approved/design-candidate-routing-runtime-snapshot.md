@@ -447,9 +447,8 @@ document and must not be folded into it.
 
 ### 9.4 Retired supplier profiling
 
-The supplier-specific content-admission implementation and benchmarks were removed
-under [Cursor retirement](cursor-retirement.md). Their measurements remain in Git
-history and are not an implementation plan for current candidate routing.
+The supplier-specific content-admission implementation and benchmarks were removed.
+Their measurements are no longer part of the current candidate-routing plan.
 
 ### 9.5 Unknown-format accounting, the remaining §8 privacy debt (2026-09-26)
 

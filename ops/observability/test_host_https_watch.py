@@ -7,23 +7,22 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import host_https_watch as watch
-from edge_https_health import probe_health
+from https_health import probe_health
 
 
 class CoveragePlanTest(unittest.TestCase):
     def setUp(self):
         root = pathlib.Path(__file__).resolve().parents[2]
         self.fresh = json.loads((root / 'deploy/aws/fresh-migration-20261015.json').read_text())
-        self.matrix = json.loads((root / 'deploy/aws/lightsail/edge-targets-lightsail.json').read_text())['targets']
         self.domestic = json.loads((root / 'deploy/domestic/prod-target.json').read_text())
 
     def config(self, role, hostname):
-        return watch.build_config(role, hostname, self.fresh, self.matrix, self.domestic)
+        return watch.build_config(role, hostname, self.fresh, self.domestic)
 
     def test_both_observers_cover_cn_ip_and_all_customer_domains(self):
         for role, host in [('cn-prod', self.domestic['instance_name'])]:
             with self.subTest(role=role):
-                config = watch.build_config(role, host, self.fresh, self.matrix, self.domestic)
+                config = watch.build_config(role, host, self.fresh, self.domestic)
                 targets = config['targets']
                 self.assertEqual(targets['cn-prod'], self.domestic['public_origin'] + '/health')
                 self.assertEqual(targets['prod:cn-domain'], 'https://' + self.domestic['fallback_domain'] + '/health')
@@ -39,20 +38,6 @@ class CoveragePlanTest(unittest.TestCase):
         # 2026-10-17 prod-only: no live edge peer → watch cn-prod.
         self.assertEqual(prod['targets'], {'cn-prod': self.domestic['public_origin'].rstrip('/') + '/health'})
         self.assertIn('tokenkey-qa-maintenance', prod['jobs'])
-        with self.assertRaisesRegex(ValueError, 'edge watchers are retired'):
-            self.config('us5', self.matrix['us5']['instance_name'])
-
-    def test_prod_watch_never_reintroduces_retired_edge_alert_target(self):
-        matrix = json.loads(json.dumps(self.matrix))
-        matrix['us5']['deployable'] = True
-        config = watch.build_config(
-            'prod', self.fresh['prod']['instance_name'], self.fresh, matrix, self.domestic
-        )
-        self.assertEqual(
-            config['targets'],
-            {'cn-prod': self.domestic['public_origin'].rstrip('/') + '/health'},
-        )
-
     def test_prod_pause_does_not_silence_other_observers_or_jobs(self):
         prod = self.config('prod', self.fresh['prod']['instance_name'])
         self.assertEqual(prod['paused_jobs'], self.fresh['prod']['paused_jobs'])
@@ -84,8 +69,8 @@ class HealthBodyTest(unittest.TestCase):
     def test_flat_ssm_bundle_can_load_probe_without_repository_ancestors(self):
         # SSM stages companion files directly in /tmp, unlike a repo checkout
         # or the final content-addressed installation directory.
-        source = pathlib.Path(watch.__file__).with_name('edge_https_health.py').read_text()
-        namespace = {'__file__': '/tmp/edge_https_health.py', '__name__': 'flat_probe'}
+        source = pathlib.Path(watch.__file__).with_name('https_health.py').read_text()
+        namespace = {'__file__': '/tmp/https_health.py', '__name__': 'flat_probe'}
         exec(compile(source, namespace['__file__'], 'exec'), namespace)
         fact = namespace['probe_health']('https://example.invalid/health',
                                         opener=lambda *a, **kw: (_ for _ in ()).throw(TimeoutError()))

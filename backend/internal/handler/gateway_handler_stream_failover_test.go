@@ -115,12 +115,12 @@ func TestHandleFailoverExhausted_ClassifiedRelayCapacityUsesClientContract(t *te
 		ResponseBody:     []byte(`{"type":"error","error":{"message":"No available accounts"}}`),
 		ResponseHeaders:  http.Header{"Retry-After": []string{"5"}},
 		ClientStatusCode: http.StatusTooManyRequests,
-		ClientMessage:    service.AntigravityRelayCapacityClientMessage,
+		ClientMessage:    "No available accounts",
 	}, service.PlatformAntigravity, false)
 
 	require.Equal(t, http.StatusTooManyRequests, w.Code)
 	require.Equal(t, "5", w.Header().Get("Retry-After"))
-	require.Contains(t, w.Body.String(), service.AntigravityRelayCapacityClientMessage)
+	require.Contains(t, w.Body.String(), "No available accounts")
 	require.NotContains(t, w.Body.String(), "passthrough override")
 }
 

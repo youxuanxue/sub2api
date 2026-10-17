@@ -788,7 +788,7 @@ func TestResolve_KiroDoesNotClaimFableOrOpus41ForUniversal(t *testing.T) {
 		if gid == nil || platform != PlatformKiro {
 			return false, true
 		}
-		return kiroMirrorStubSupportsModel(model), true
+		return kiroSupportsModel(model), true
 	})
 	for _, model := range []string{"claude-fable-5", "claude-opus-4-1"} {
 		g, err := r.Resolve(ctx, universalKey(1), ShapeAnthropicMessages, model, "")

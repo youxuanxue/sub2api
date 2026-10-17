@@ -60,7 +60,7 @@ data: {"type":"message_stop"}
 		Concurrency: 1,
 		Credentials: map[string]any{
 			"api_key":  "edge-key",
-			"base_url": "https://edge.example.com",
+			"base_url": "https://upstream.example.test",
 		},
 	}
 
@@ -69,7 +69,7 @@ data: {"type":"message_stop"}
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, upstream.lastReq)
-	require.Equal(t, "https://edge.example.com/antigravity/v1/messages?beta=true", upstream.lastReq.URL.String())
+	require.Equal(t, "https://upstream.example.test/v1/messages?beta=true", upstream.lastReq.URL.String())
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 

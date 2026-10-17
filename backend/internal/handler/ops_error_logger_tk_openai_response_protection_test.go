@@ -13,21 +13,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-// edge-uk2-hz daily_error_report (#2587): 31× gpt-6-astra 502 with
-// message="response protection is unavailable" landed as
-// owner=platform / phase=internal / type=api_error. That combination is
-// exactly daily_error_report's code_owned gate (confidence=high,
-// repair_eligible), while the real signal is an OpenAI SharedFault that
-// already stops account amplification.
-//
-// Cause: streaming /v1/responses flushed the terminal response.failed without
-// recording an ops upstream event. Middleware StreamFailure parsing then
-// normalized nested type=internal_error → api_error → internal/platform, and
-// only afterwards filled upstream_* columns from the SSE payload.
-//
-// service/openai_gateway_codex_stream_tk.go now records the verdict on the
-// non-failover fallthrough. These tests pin classification with that context,
-// and the StreamFailure safety net when context is still missing.
 func TestOpenAIResponseProtectionVerdictIsProviderOwned(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())

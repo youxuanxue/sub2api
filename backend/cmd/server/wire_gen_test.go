@@ -67,7 +67,6 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		service.TKGatewayAnthropicSigPreemptReady{},
 		service.TKAnthropicSaturationReady{},
 		service.TKOpenAISaturationReady{},
-		service.TKAntigravitySaturationReady{},
 		handler.TKGatewayHandlerModelListReady{},
 		service.TKUniversalModelsProviderReady{},
 		service.TKGroupUnsupportedModelCacheReady{},

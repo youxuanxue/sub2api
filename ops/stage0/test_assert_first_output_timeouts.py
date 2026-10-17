@@ -95,8 +95,8 @@ class AssertFirstOutputTimeoutsTransportTest(unittest.TestCase):
         )
         return proc
 
-    def test_clean_edge_target_ok(self) -> None:
-        proc = self._run(target="edge:uk1", probe_stdout=_expected_env_lines())
+    def test_clean_prod_target_ok(self) -> None:
+        proc = self._run(target="prod", probe_stdout=_expected_env_lines())
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
         self.assertIn("OK: live host matches intended state", proc.stdout)
         self.assertNotIn("::warning::first-output drift", proc.stdout)
@@ -106,10 +106,10 @@ class AssertFirstOutputTimeoutsTransportTest(unittest.TestCase):
             'GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"120"',
             'GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS","value":"15"',
         )
-        proc = self._run(target="edge:us4", probe_stdout=bad)
+        proc = self._run(target="prod", probe_stdout=bad)
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
         self.assertIn("DRIFT:", proc.stdout)
-        self.assertIn("::warning::first-output drift target=edge:us4:", proc.stdout)
+        self.assertIn("::warning::first-output drift target=prod:", proc.stdout)
         self.assertIn("GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS", proc.stdout)
 
     def test_missing_all_keys_is_drift_not_transport_skip(self) -> None:
@@ -118,10 +118,10 @@ class AssertFirstOutputTimeoutsTransportTest(unittest.TestCase):
             'APPCONTAINER {"name":"tokenkey-blue"}\n'
             'RUNIMAGE {"image":"ghcr.io/o/sub2api:1.0.0"}\n'
         )
-        proc = self._run(target="edge:uk2", probe_stdout=empty)
+        proc = self._run(target="prod", probe_stdout=empty)
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
         self.assertIn("DRIFT:", proc.stdout)
-        self.assertIn("::warning::first-output drift target=edge:uk2:", proc.stdout)
+        self.assertIn("::warning::first-output drift target=prod:", proc.stdout)
         self.assertNotIn("transport failed", proc.stdout)
 
     def test_transport_failure_warns_and_skips(self) -> None:
@@ -137,20 +137,6 @@ class AssertFirstOutputTimeoutsTransportTest(unittest.TestCase):
             check=False,
         )
         self.assertEqual(proc.returncode, 2)
-
-
-class DeployEdgeFirstOutputAssertWiringTest(unittest.TestCase):
-    def test_hetzner_upgrade_rollback_wires_assert(self) -> None:
-        path = _STAGE0.parents[1] / ".github" / "workflows" / "deploy-edge-hetzner-stage0.yml"
-        text = path.read_text(encoding="utf-8")
-        step = text.index("Assert first-output timeouts (advisory)")
-        self.assertIn("assert-first-output-timeouts.sh", text[step : step + 600])
-        self.assertIn(
-            "inputs.operation == 'upgrade' || inputs.operation == 'rollback'",
-            text[step - 200 : step + 200],
-        )
-        self.assertLess(text.index("Upgrade or rollback via shared SSM"), step)
-
 
 if __name__ == "__main__":
     unittest.main()
