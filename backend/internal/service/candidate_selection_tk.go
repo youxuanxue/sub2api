@@ -439,8 +439,8 @@ func candidatePathLess(key *APIKey, counts, failureCounts map[int64]int64, a, b 
 	if candidateCompatibilityRank(a) != candidateCompatibilityRank(b) {
 		return candidateCompatibilityRank(a) < candidateCompatibilityRank(b)
 	}
-	if candidatePreferenceRank(key, a.account) != candidatePreferenceRank(key, b.account) {
-		return candidatePreferenceRank(key, a.account) < candidatePreferenceRank(key, b.account)
+	if candidatePreferenceRank(key, a.account, a.model) != candidatePreferenceRank(key, b.account, b.model) {
+		return candidatePreferenceRank(key, a.account, a.model) < candidatePreferenceRank(key, b.account, b.model)
 	}
 	pa, pb := candidateSelectionEffectivePriority(a.account, counts, failureCounts), candidateSelectionEffectivePriority(b.account, counts, failureCounts)
 	if pa != pb {

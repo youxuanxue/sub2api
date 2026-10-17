@@ -8,8 +8,8 @@ const (
 	tokenseaAnthropicAccount218 int64 = 218
 )
 
-func candidatePreferenceRank(key *APIKey, account *Account) int {
-	if key == nil || account == nil {
+func candidatePreferenceRank(key *APIKey, account *Account, model string) int {
+	if key == nil || account == nil || account.Platform != PlatformAnthropic || !tkIsForwardableAnthropicModelName(model) {
 		return 1
 	}
 	switch key.RoutingPreference {
