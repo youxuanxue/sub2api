@@ -2739,7 +2739,7 @@ elif ! python3 ./scripts/checks/check-host-bbr-ssot.py --quiet; then
     echo "        — run: python3 scripts/checks/check-host-bbr-ssot.py"
     errors=$((errors + 1))
 else
-    echo "  ok: host BBR SSOT wired (EC2 compact bootstrap + Hetzner prod + sync heal)"
+    echo "  ok: host BBR SSOT wired (EC2/Hetzner/sync + admin/proxies live checker)"
 fi
 
 echo ""

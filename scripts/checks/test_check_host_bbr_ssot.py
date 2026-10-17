@@ -28,6 +28,13 @@ class HostBbrSsotTests(unittest.TestCase):
     def test_repo_wiring_is_green(self) -> None:
         self.assertEqual(self.mod.check(quiet=True), 0)
 
+    def test_static_requires_proxy_live_checker(self) -> None:
+        errors = self.mod.check_static(quiet=True)
+        self.assertEqual(errors, [])
+        # Wiring must keep admin/proxies live checker in the static contract.
+        self.assertTrue((REPO / "scripts/checks/proxy_bbr_live.py").is_file())
+        self.assertTrue((REPO / "ops/observability/probe-list-proxies.sh").is_file())
+
     def test_ec2_section_is_compact_not_full_script(self) -> None:
         body = (REPO / "deploy/aws/stage0/stage0-ec2-bootstrap.sh").read_text(encoding="utf-8")
         section = self.mod._ec2_bbr_section(body)
