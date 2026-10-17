@@ -1,8 +1,6 @@
-# Edge Stage0 on AWS Lightsail（现网活边路径）
+# Edge Stage0 on AWS Lightsail（退役恢复路径）
 
-> **现网活边 SSOT：** [`deploy/hetzner/README.md`](../../hetzner/README.md)（勿在此复制节点/IP/CIDR）。  
-> 本目录承载 **活 Lightsail 边** 的矩阵、bootstrap、provision 与升级原语；`dispatch-edge-deploy.sh --platform auto` 解析到 Lightsail 时走本路径。  
-> 历史 Hcloud 边与旧 standby 实例见 Hetzner README；EC2/CFN edge 路径已移除。
+> **现网 SSOT：** [`deploy/hetzner/README.md`](../../hetzner/README.md)。当前只运行 Tokyo prod；美国 Lightsail edge 已释放。本目录保留矩阵、bootstrap 和恢复原语，任何恢复都必须先更新矩阵、workflow 和审批记录。
 
 Lightsail Edge 与 prod Stage0 **共用**：
 
@@ -28,7 +26,7 @@ Addon IAM：`deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml`
 
 Workflow：`.github/workflows/deploy-edge-lightsail-stage0.yml`
 
-## 保留原机的快照迁移准备
+## 历史主机恢复准备（需重新批准）
 
 普通 IAM operator 没有 `iam:PassRole`。在摘流前，通过既有 OIDC 部署角色准备新机身份：
 
@@ -103,7 +101,7 @@ aws ssm put-parameter --region <lightsail_region> \
 
 ### 3) GitHub Environment
 
-Environment 使用矩阵对应的 `edge-<edge_id>`，例如活边 `us4` 使用 Environment `edge-us4`。
+Environment 使用矩阵对应的 `edge-<edge_id>`，例如经批准的恢复目标使用对应的 `edge-<id>` Environment。
 
 Variables：`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`、可选 `TK_SMOKE_EDGE_LOCAL_CHAT_MODELS`
 Secrets：`TK_SMOKE_API_KEY`
@@ -113,7 +111,7 @@ Secrets：`TK_SMOKE_API_KEY`
 ```bash
 TAG=X.Y.Z
 gh workflow run deploy-edge-lightsail-stage0.yml \
-  -f edge_id=us4 \
+  -f edge_id=<approved-edge> \
   -f operation=provision \
   -f tag=$TAG \
   -f confirm_instance=<lightsail-instance-name>
@@ -123,7 +121,7 @@ Workflow summary 会输出 Static IP → 手工配置 DNS A 记录 → 再 smoke
 
 ```bash
 gh workflow run deploy-edge-lightsail-stage0.yml \
-  -f edge_id=us4 \
+  -f edge_id=<approved-edge> \
   -f operation=smoke \
   -f confirm_instance=<lightsail-instance-name>
 ```
@@ -151,7 +149,7 @@ Lightsail **实例控制台「Networking」防火墙**的硬化基线是**放行
 
 Lightsail Edge 启用后，沿用同一 **`edge_routing_matrix`/`edge_ssm_execution` 路由**：
 
-- **`python3 ops/stage0/edge_ssm_execution.py --repo-root . --edge-id us4 [--format env|json]`**
+- **`python3 ops/stage0/edge_ssm_execution.py --repo-root . --edge-id <approved-edge> [--format env|json]`**
   输出 SSM **`REGION`** + **`INSTANCE_ID`**（`mi-*` 来自 Parameter Store；EC2 为 `i-*`）。与 **`ops/stage0/edge_admin_resolve_target.py` auto** 规则一致。
 - **`ops/observability/run-probe.sh --target edge:<id>`**（默认 `ALLOW_PLANNED` 未设置）走上述脚本；若要探 **planned 仅 EC2 矩阵条目**，仍可设 **`ALLOW_PLANNED=1`** 走 **`resolve-edge-target.py` + CFN**。
 - **`ops/anthropic/manage-anthropic-config.py`**、**`rebalance-anthropic-priority.py`**、`snapshot`/`apply`/`check` **与 `check-edge-oauth-stability.py`**：按 **`edge_routing_matrix.py`** 解析活边（当前 Lightsail deployable；同 ID 禁止双平台启用）。
@@ -161,7 +159,7 @@ Lightsail Edge 启用后，沿用同一 **`edge_routing_matrix`/`edge_ssm_execut
 
 ```bash
 gh workflow run deploy-edge-lightsail-stage0.yml \
-  -f edge_id=us4 \
+  -f edge_id=<approved-edge> \
   -f operation=upgrade \
   -f tag=$TAG \
   -f confirm_instance=<lightsail-instance-name>

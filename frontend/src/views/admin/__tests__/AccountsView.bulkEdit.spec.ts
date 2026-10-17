@@ -14,7 +14,6 @@ const {
   getAllProxies,
   getAllGroups,
   getAllIncludingInactive,
-  listEdgeAccounts,
   probeUpstreamBilling,
   probeUpstreamBillingBatch,
   showError,
@@ -29,7 +28,6 @@ const {
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
   getAllIncludingInactive: vi.fn(),
-  listEdgeAccounts: vi.fn(),
   probeUpstreamBilling: vi.fn(),
   probeUpstreamBillingBatch: vi.fn(),
   showError: vi.fn(),
@@ -59,10 +57,6 @@ vi.mock('@/api/admin', () => ({
       getAll: getAllGroups,
       getAllIncludingInactive
     },
-    edgeAccounts: {
-      listWithEtag: listEdgeAccounts,
-      adminSession: vi.fn()
-    }
   }
 }))
 
@@ -221,7 +215,6 @@ describe('admin AccountsView bulk edit scope', () => {
     getAllProxies.mockReset()
     getAllGroups.mockReset()
     getAllIncludingInactive.mockReset()
-    listEdgeAccounts.mockReset()
     probeUpstreamBilling.mockReset()
     probeUpstreamBillingBatch.mockReset()
     showError.mockReset()
@@ -250,7 +243,6 @@ describe('admin AccountsView bulk edit scope', () => {
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
     getAllIncludingInactive.mockResolvedValue([])
-    listEdgeAccounts.mockResolvedValue({ notModified: false, etag: null, data: { platform: '__by_stub__', edges: [], ts: 1 } })
     probeUpstreamBilling.mockResolvedValue({})
     probeUpstreamBillingBatch.mockResolvedValue([])
   })
@@ -420,37 +412,6 @@ describe('admin AccountsView bulk edit scope', () => {
       'notes'
     ])
     expect(localStorage.getItem('account-column-settings-version')).toBe('3')
-  })
-
-  it('manual refresh also force-refreshes inline edge panels', async () => {
-    listAccounts.mockResolvedValue({
-      items: [
-        {
-          id: 69,
-          name: 'kiro-us4',
-          platform: 'anthropic',
-          type: 'apikey',
-          status: 'active',
-          schedulable: true,
-          edge_id: 'us4',
-          created_at: '2026-03-07T10:00:00Z',
-          updated_at: '2026-03-07T10:00:00Z'
-        }
-      ],
-      total: 1,
-      page: 1,
-      page_size: 20,
-      pages: 1
-    })
-
-    const wrapper = mountAccountsView()
-
-    await flushPromises()
-    listEdgeAccounts.mockClear()
-    await wrapper.get('[data-test="refresh-accounts"]').trigger('click')
-    await flushPromises()
-
-    expect(listEdgeAccounts).toHaveBeenCalledWith({ view: 'by-stub' }, { force: true })
   })
 
   it('updates the current page locally after a batch probe', async () => {

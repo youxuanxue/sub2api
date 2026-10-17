@@ -271,10 +271,6 @@ requests = [
     ("groups.capacity-summary", "GET", "/admin/groups/capacity-summary" + q({
         "timezone": "Asia/Shanghai",
     }), None),
-    ("edge-accounts", "GET", "/admin/edge-accounts" + q({
-        "platform": "all",
-        "timezone": "Asia/Shanghai",
-    }), None),
     ("users.list", "GET", "/admin/users" + q({
         "page": "1",
         "page_size": "20",

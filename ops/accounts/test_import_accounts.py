@@ -59,6 +59,26 @@ class ImportAccountsTest(unittest.TestCase):
         }
         self.assertEqual(MOD.detect_route(doc), "edge_oauth_relay")
 
+    def test_process_document_rejects_retired_edge_before_dispatch(self) -> None:
+        doc = {
+            "import_profile": "edge_oauth_relay",
+            "edge_id": "us4",
+            "pool_platform": "anthropic",
+            "edge_oauth": {"platform": "anthropic", "type": "oauth", "name": "x"},
+        }
+        with self.assertRaisesRegex(ValueError, "不在当前可部署 edge 舰队"):
+            MOD.process_document(
+                "https://api.tokenkey.dev",
+                "admin-test",
+                doc,
+                dry_run=True,
+                source="retired.json",
+                prod_base_url="https://api.tokenkey.dev",
+                edge_base_url_override="https://api-us4.tokenkey.dev",
+                prod_api_key="admin-test",
+                edge_api_key="admin-test",
+            )
+
     def test_validate_newapi_requires_channel_type(self) -> None:
         doc = {
             "name": "n",
@@ -129,7 +149,8 @@ class ImportAccountsTest(unittest.TestCase):
             if route == "create_account":
                 MOD.validate_create_account(doc, path_hint=path.name)
             elif route == "edge_oauth_relay":
-                MOD.validate_edge_oauth_relay(doc, path_hint=path.name)
+                with self.assertRaisesRegex(ValueError, "不在当前可部署 edge 舰队"):
+                    MOD.validate_edge_oauth_relay(doc, path_hint=path.name)
             elif route == "batch_bundle":
                 for index, item in enumerate(doc.get("accounts") or [], start=1):
                     item_route = MOD.detect_route(item)

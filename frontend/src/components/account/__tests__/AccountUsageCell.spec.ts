@@ -1676,7 +1676,7 @@ describe('AccountUsageCell', () => {
     expect(wrapper.find('[data-testid="usage-quota-row"]').exists()).toBe(false)
   })
 
-  it('Grok queries edge-local account IDs only through the injected loader', async () => {
+  it('Grok queries separate account IDs only through the injected loader', async () => {
     const activeUsageLoader = vi.fn().mockResolvedValue({
       grok_billing: { prepaid_balance: 12.5 }
     })

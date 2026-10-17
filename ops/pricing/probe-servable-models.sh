@@ -6,8 +6,8 @@
 #
 # Inputs (env, space-separated model-id lists; any may be empty):
 #   ANTHROPIC_MODELS         -> POST /v1/messages (Claude-Code shape)
-#     transport: ANTHROPIC_PROBE_TRANSPORT=internal (default, edge docker exec)
-#                 or public (prod gateway curl; used when fleet has no edges)
+#     transport: ANTHROPIC_PROBE_TRANSPORT=public (default, prod gateway curl)
+#                 or internal (historical re-approved edge only)
 #   OPENAI_CHAT_MODELS       -> POST <prod>/v1/chat/completions
 #   OPENAI_RESPONSES_MODELS  -> POST <prod>/v1/responses   (codex family)
 #   OPENAI_IMAGE_MODELS      -> POST <prod>/v1/images/generations (best-effort)
@@ -15,17 +15,13 @@
 #   GEMINI_CHATIMAGE_MODELS  -> POST <prod>/v1/chat/completions  (gemini-*-image via chat/generateContent)
 #   GEMINI_IMAGE_MODELS      -> POST <prod>/v1/images/generations  (imagen-* predict API)
 #   GEMINI_VIDEO_MODELS      -> POST <prod>/v1/video/generations (async submit; 200-on-submit=servable, best-effort)
-#   Legacy Grok edge inputs (inactive in the prod-only fleet):
-#   GROK_CHAT_MODELS         -> POST app:8080/v1/chat/completions  (native grok, edge-internal)
-#   GROK_IMAGE_MODELS        -> POST app:8080/v1/images/generations (native grok, edge-internal)
-#   GROK_VIDEO_MODELS        -> POST app:8080/v1/video/generations (native grok, edge-internal; async submit)
+#   GROK_* inputs            -> POST <prod>/v1/* (native Grok; historical edge source groups are no longer active)
 #   ANTIGRAVITY_CHAT_MODELS  -> POST <prod>/antigravity/v1beta/models/{model}:generateContent
 #                               (native antigravity text, PROD gateway; env name kept for compatibility)
 #   ANTIGRAVITY_IMAGE_MODELS -> POST <prod>/v1/chat/completions
 #                               (Studio gemini-native image path through the antigravity account pool)
-#     These inputs require a separately re-approved deployable edge and its
-#     native Grok group. They target that host's app container directly; no edge
-#     target is active by default after the Tokyo prod-only cutover.
+#     These inputs use the prod gateway; no edge target is active after the Tokyo
+#     prod-only cutover.
 #   DASHSCOPE_CHAT_MODELS    -> POST <prod>/v1/chat/completions  (newapi channel_type=17, qwen3 dense)
 #     This family routes through the normal prod TK gateway
 #     with a TK api_key BOUND TO the current newapi/qwen group/pool.
@@ -81,12 +77,11 @@
 #                            api.ainzy.net/v1 relay account/scope.
 #   PROBE_OPENAI_SOURCE_GROUP optional legacy override by group name
 #   PROBE_ANTHROPIC_SOURCE_GROUP_ID defaults via probe_source_group_id anthropic_edge
-#     (group_id=1 native OAuth; edge-internal by default, or prod public when
-#      ANTHROPIC_PROBE_TRANSPORT=public — see refresh-servable-allowlist live_probe)
+#     (group_id=1 native OAuth; served through the prod gateway by default)
 #   PROBE_ANTHROPIC_SOURCE_GROUP optional legacy override by group name
-#   ANTHROPIC_PROBE_TRANSPORT  internal (default) | public
-#   ANTHROPIC_APP_CONTAINER  default tokenkey-caddy (edge app; internal transport only)
-#   ANTHROPIC_APP_URL        default http://tokenkey:8080 (edge app; internal transport only)
+#   ANTHROPIC_PROBE_TRANSPORT  public (default) | internal (historical edge only)
+#   ANTHROPIC_APP_CONTAINER  default tokenkey-caddy (historical edge only)
+#   ANTHROPIC_APP_URL        default http://tokenkey:8080 (historical edge only)
 #   PROBE_ANTHROPIC_MIRROR_GROUP_ID defaults via probe_source_group_id anthropic_mirror
 #   PROBE_ANTHROPIC_MIRROR_GROUP optional legacy override by group name
 #   PROBE_GEMINI_SOURCE_GROUP_ID defaults via probe_source_group_id gemini_vertex
@@ -100,8 +95,6 @@
 #   PROBE_VOLCENGINE_SOURCE_GROUP optional legacy override by group name
 #   PROBE_GROK_SOURCE_GROUP_ID defaults via probe_source_group_id grok_edge
 #   PROBE_GROK_SOURCE_GROUP optional legacy override by group name
-#   GROK_APP_CONTAINER       default tokenkey-caddy
-#   GROK_APP_URL             default http://tokenkey:8080
 #   PROBE_ANTIGRAVITY_SOURCE_GROUP_ID defaults via probe_source_group_id antigravity
 #   PROBE_ANTIGRAVITY_SOURCE_GROUP optional legacy override by group name
 #   REQ_SLEEP                default 2  (seconds between requests; avoids pool exhaustion)
@@ -175,13 +168,11 @@ probe_source_group_id() { # $1=logical source pool
 
 PROBE_OPENAI_SOURCE_GROUP_ID="${PROBE_OPENAI_SOURCE_GROUP_ID:-$(probe_source_group_id openai)}"
 PROBE_OPENAI_SOURCE_GROUP="${PROBE_OPENAI_SOURCE_GROUP:-}"
-# anthropic native OAuth (group_id=1). Default transport is edge-internal docker
-# exec (historical: prod held cc-* mirrors that false-empty-pooled). When the
-# live fleet has no deployable edges, refresh-servable-allowlist sets
-# ANTHROPIC_PROBE_TRANSPORT=public and probes prod native OAuth via the gateway.
+# anthropic native OAuth (group_id=1). The prod-only fleet probes through the
+# public gateway; internal transport remains an explicit historical diagnostic.
 PROBE_ANTHROPIC_SOURCE_GROUP_ID="${PROBE_ANTHROPIC_SOURCE_GROUP_ID:-$(probe_source_group_id anthropic_edge)}"
 PROBE_ANTHROPIC_SOURCE_GROUP="${PROBE_ANTHROPIC_SOURCE_GROUP:-}"
-ANTHROPIC_PROBE_TRANSPORT="${ANTHROPIC_PROBE_TRANSPORT:-internal}"
+ANTHROPIC_PROBE_TRANSPORT="${ANTHROPIC_PROBE_TRANSPORT:-public}"
 ANTHROPIC_APP_CONTAINER="${ANTHROPIC_APP_CONTAINER:-tokenkey-caddy}"
 ANTHROPIC_APP_URL="${ANTHROPIC_APP_URL:-http://tokenkey:8080}"
 # Prod relay-health probe (ANTHROPIC_PROD_MIRROR_MODELS, warning-only — does NOT feed
@@ -206,10 +197,8 @@ PROBE_GROK_SOURCE_GROUP="${PROBE_GROK_SOURCE_GROUP:-}"
 # display name is operator-editable, so the default binding is by id, not name). The
 # probe goes through the PROD public gateway with external curl like the other newapi
 # families — no edge-internal wget hop is needed (prod's Caddy is not CIDR-restricted).
-GROK_APP_CONTAINER="${GROK_APP_CONTAINER:-tokenkey-caddy}"
-GROK_APP_URL="${GROK_APP_URL:-http://tokenkey:8080}"
-# antigravity accounts (e.g. antigravity-us3/us4 in prod group_id=21) live in
-# the PROD DB and are scheduled from prod. Text probes use the PROD public
+# antigravity accounts in the prod source group live in the PROD DB and are
+# scheduled from prod. Text probes use the PROD public
 # /antigravity/v1beta surface; Studio gemini-native IMAGE probes intentionally use
 # /v1/chat/completions because that is the customer UI path for image generation.
 PROBE_ANTIGRAVITY_SOURCE_GROUP_ID="${PROBE_ANTIGRAVITY_SOURCE_GROUP_ID:-$(probe_source_group_id antigravity)}"
@@ -413,8 +402,8 @@ probe_edge_internal_compat() { # $1=tag $2=container $3=app-url $4=key $5=endpoi
 	done
 }
 
-probe_grok_internal() { # $1=key $2=endpoint $3=models $4=jsonbody-template-fn (back-compat wrapper)
-	probe_edge_internal_compat grok "$GROK_APP_CONTAINER" "$GROK_APP_URL" "$1" "$2" "$3" "$4"
+probe_grok_internal() { # compatibility wrapper; all current probes use the prod gateway
+	probe_compat_endpoint grok "$PROD" "$1" "$2" "$3" "$4"
 }
 
 body_chat() { printf '{"model":"%s","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}' "$1"; }
@@ -625,9 +614,8 @@ main() {
 			cfgerr volcengine "failed to prepare __tk_probe_newapi_volcengine_* ($REPLY_BIND_LABEL)"
 		fi
 	fi
-	# Grok family: native xAI OAuth pool on the edge (currently us4). Probe key is
-	# a TK api_key BOUND TO the edge-side grok group_id=4; never printed. The probe runs
-	# on the edge host and hits the app container directly, bypassing edge Caddy.
+	# Grok family: native xAI OAuth pool. Probe through the prod gateway; the former
+	# edge-side group is retained only as a historical source-group name.
 	if [ -n "${GROK_CHAT_MODELS:-}${GROK_IMAGE_MODELS:-}${GROK_VIDEO_MODELS:-}" ]; then
 		probe_bind_source "$PROBE_GROK_SOURCE_GROUP_ID" "$PROBE_GROK_SOURCE_GROUP"
 		if tk_probe_catalog_key grok grok "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
@@ -639,7 +627,7 @@ main() {
 			cfgerr grok "failed to prepare __tk_probe_grok_* ($REPLY_BIND_LABEL)"
 		fi
 	fi
-	# Antigravity family: accounts (e.g. antigravity-us3/us4 in prod group_id=21)
+	# Antigravity family: accounts in the prod source group
 	# live in the PROD DB and schedule from prod. Text/capability probes use the native
 	# /antigravity/v1beta Gemini surface. Studio image generation is different: the UI
 	# goes through /v1/chat/completions, where the gateway adapts gemini-*-image models
@@ -655,8 +643,8 @@ main() {
 			cfgerr antigravity "failed to prepare __tk_probe_antigravity_* ($REPLY_BIND_LABEL — the prod antigravity source group has no schedulable antigravity account)"
 		fi
 	fi
-	# Gemini family: newapi/Vertex models. Live Vertex capacity moved from edge us6
-	# to the PROD Vertex group_id=16 (account ids 47/57/58/59/74), so gemini now probes
+	# Gemini family: newapi/Vertex models. Capacity is served by the PROD Vertex
+	# group_id=16, so gemini probes
 	# the PROD public gateway with external curl — identical transport to the other
 	# newapi families (dashscope/GLM legacy alias), NOT the edge-internal wget hop (that was only
 	# needed to bypass an edge Caddy /v1/* CIDR restriction; prod's gateway is public).

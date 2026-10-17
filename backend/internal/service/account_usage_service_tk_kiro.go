@@ -289,7 +289,7 @@ func kiroBonusQuotaKey(code string) string {
 }
 
 // syncKiroActiveToPassive persists the active kiro snapshot to Account.Extra so the
-// next passive load (and the edge overview's GetPassiveUsageBatch) sees it without a
+// next passive load (and the accounts list's batch loader) sees it without a
 // fresh upstream call. Mirrors syncActiveToPassive's contract.
 func (s *AccountUsageService) syncKiroActiveToPassive(ctx context.Context, accountID int64, usage *UsageInfo) {
 	if usage == nil || usage.KiroUsage == nil {
@@ -345,7 +345,7 @@ func (s *AccountUsageService) buildPassiveKiroUsage(account *Account) *UsageInfo
 	// A passive Kiro response has a meaningful timestamp only when an active
 	// GetUsageLimits call has persisted a sample. Do not stamp an empty/degraded
 	// response with the current time; that would make a missing snapshot look
-	// freshly sampled in the edge overview.
+	// freshly sampled in the accounts list.
 	usage := &UsageInfo{Source: "passive"}
 	if account == nil || account.Extra == nil {
 		return usage

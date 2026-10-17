@@ -109,7 +109,7 @@
         "accountUsageWindowAdapterSupportsPassive",
         "accountUsageWindowAdapterLocal"
       ],
-      "rationale": "NewAPI accounts, including Vertex service_account channel_type=41, do not expose a common upstream percentage-quota protocol. They must stay in the shared local-window adapter so admin accounts and edge overview show TokenKey 5h/7d billing windows from usage_logs instead of '-'. Dropping this adapter branch recreates the empty-window operator bug."
+      "rationale": "NewAPI accounts, including Vertex service_account channel_type=41, do not expose a common upstream percentage-quota protocol. They must stay in the shared local-window adapter so the admin accounts list show TokenKey 5h/7d billing windows from usage_logs instead of '-'. Dropping this adapter branch recreates the empty-window operator bug."
     },
     {
       "path": "backend/internal/service/account_usage_service_tk_upstream_quota.go",

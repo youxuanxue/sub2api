@@ -2,6 +2,7 @@
   "schema_version": 1,
   "batch": "aws-20261015",
   "state": "tokyo-serving-edges-retired-20261017",
+  "edges_note": "Historical migration identities only; all US edge resources were released on 2026-10-17. Runtime resolvers must use prod and the live fleet matrices, never this edges map.",
   "prod": {
     "instance_id": "i-045f062ce33e1a5af",
     "instance_name": "tokenkey-prod-tokyo-20261017",

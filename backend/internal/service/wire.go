@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"database/sql"
-	"net/http"
 	"os"
 	"time"
 
@@ -616,14 +615,6 @@ func ProvideUpstreamBalanceSentinel(
 	s := NewUpstreamBalanceSentinel(accountRepo, httpUpstream, notifier, cfgProvider, recharge, opsRepo, redisClient)
 	s.Start()
 	return s
-}
-
-// ProvideEdgeAccountsAggregator creates the prod-side cross-edge read-only
-// account aggregator. It owns its own short-timeout HTTP client (constructed
-// here rather than wired) to avoid colliding with other *http.Client providers
-// in the type graph. accountRepo satisfies the narrow edgeAccountsStore.
-func ProvideEdgeAccountsAggregator(accountRepo AccountRepository) *EdgeAccountsAggregator {
-	return NewEdgeAccountsAggregator(accountRepo, &http.Client{Timeout: edgeAccountsHTTPTO})
 }
 
 // ProvideRateLimitService creates RateLimitService with optional dependencies.

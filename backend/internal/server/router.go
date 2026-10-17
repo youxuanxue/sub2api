@@ -138,7 +138,7 @@ func registerRoutes(
 	routes.RegisterModelPlazaRoutes(v1, h, optionalJWTAuth, settingService, panelRateLimiter)
 	routes.RegisterAdminRoutes(v1, h, adminAuth, auditLog, stepUpAuth, settingService, panelRateLimiter)
 	// TK: internal edge capacity read (surface C) — prod reconciler ↔ edge over HTTP.
-	// userService backs the admin-owner gate on the edge account WRITE ops subgroup.
+	// userService backs the admin-owner gate on retained internal edge control routes.
 	routes.RegisterTKEdgeRoutes(v1, h, apiKeyService, userService)
 	routes.RegisterGatewayRoutes(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, terminalOutcomeRecorder, cfg)
 	routes.RegisterPaymentRoutes(v1, h.Payment, h.PaymentWebhook, h.Admin.Payment, jwtAuth, adminAuth, auditLog, settingService, panelRateLimiter, redisClient)

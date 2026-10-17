@@ -12,10 +12,9 @@
 #   TRAFFIC {"since":"2h","served_200":..,"all_429":..,"no_available_429":..,
 #            "wait_timeout":..,"client_cancel":..,"total_completed":..}
 #
-# WHY (2026-06-06 yace load test): prod's "upstream-429 by account" could not tell a
-# dead edge (us3: 0x200, 33748x"no available"429) from a healthy one (us5: 2251x200,
-# 77x429) — both read ~1300 upstream-429 on prod. The edge's OWN served_200 :
-# no_available_429 ratio + schedulable-account count is the only reliable signal.
+# Historical rationale: prod's aggregate upstream errors could not distinguish a
+# dead edge from a healthy one. The routine fleet is now prod-only; this probe is
+# retained for explicitly re-approved recovery hosts and incident replay.
 # This probe collects exactly that; the verdict (healthy/thin/degraded/down) is the
 # Python sibling so the threshold logic stays unit-testable (--selftest in preflight).
 #

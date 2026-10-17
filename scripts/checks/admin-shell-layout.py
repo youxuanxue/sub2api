@@ -33,7 +33,8 @@ ADMIN_VIEWS_REL = "frontend/src/views/admin"
 # Match only a RENDERED opening tag <AppLayout> / <AppLayout ...> / <AppLayout/>.
 # That is the exact regression we guard (an admin view re-rendering its own
 # layout). Deliberately NOT matching imports or bare "AppLayout.vue" text: those
-# appear in comments (e.g. EdgeHandoffView's "...no AppLayout. Consumes...") and
+# appear in comments (for example, a chrome-less admin view mentioning
+# "no AppLayout") and
 # would false-fail CI without indicating a real double-layout. `</AppLayout>` is
 # not matched because `<` is not immediately followed by `AppLayout` there.
 APPLAYOUT_RE = re.compile(r"<AppLayout(?=[\s/>])")
@@ -77,7 +78,7 @@ def _selftest() -> int:
         shell.write_text("<template>\n  <component :is=\"AppLayout\" />\n</template>\n")
         (root / ADMIN_VIEWS_REL / "GoodView.vue").write_text("<template>\n  <div/>\n</template>\n")
         # a view that only MENTIONS AppLayout in a comment / closing tag must NOT trip
-        # the guard (regression must be a rendered opening tag), mirroring EdgeHandoffView.
+        # the guard (regression must be a rendered opening tag).
         (root / ADMIN_VIEWS_REL / "CommentView.vue").write_text(
             "<template>\n  <!-- chrome-less: no AppLayout, see AppLayout.vue -->\n  <div/>\n</template>\n"
         )

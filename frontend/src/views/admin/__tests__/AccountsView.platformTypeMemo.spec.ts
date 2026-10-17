@@ -48,7 +48,6 @@ vi.mock('@/api/admin', () => ({
       getAll: getAllGroups,
       getAllIncludingInactive
     },
-    edgeAccounts: { listWithEtag: vi.fn(), adminSession: vi.fn() }
   }
 }))
 

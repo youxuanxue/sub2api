@@ -92,10 +92,10 @@ describe('buildAuthErrorMessage', () => {
 describe('unknownToErrorMessage', () => {
   // Regression: the axios response interceptor (api/client.ts) rejects with a
   // *flattened plain object* { status, code, message } — NOT an Error instance.
-  // Callers that did `String(e)` rendered "[object Object]" (Edge Accounts banner).
+  // Callers that did `String(e)` rendered "[object Object]" in admin error banners.
   it('extracts message from the interceptor-flattened error object', () => {
-    const flattened = { status: 500, code: 'INTERNAL', message: 'edge fan-out failed' }
-    expect(unknownToErrorMessage(flattened, 'fallback')).toBe('edge fan-out failed')
+    const flattened = { status: 500, code: 'INTERNAL', message: 'request failed' }
+    expect(unknownToErrorMessage(flattened, 'fallback')).toBe('request failed')
     expect(unknownToErrorMessage(flattened, 'fallback')).not.toBe('[object Object]')
   })
 

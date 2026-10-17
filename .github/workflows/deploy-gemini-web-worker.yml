@@ -4,9 +4,9 @@ name: Gemini Web Worker Deploy
 # and to the build it shipped without opening logs — all edges share this file.
 run-name: "gemini-web edge=${{ inputs.edge_id }} digest=${{ inputs.build_digest }}"
 
-# Sole deploy path for the Gemini Web Worker container. The Worker runs on Edge
-# Hetzner hosts only; prod runs no Worker by design, so there is no prod
-# target here (see ops/gemini-web/README.md#build-identity-and-fleet-convergence).
+# Historical recovery path for the Gemini Web Worker container. The routine
+# edge fleet is retired; prod runs no Worker by design. A dispatch requires a
+# separately approved non-US edge identity.
 #
 # Cadence is deliberately decoupled from the gateway release: this workflow is
 # dispatched on its own, never from rollout. Compatibility is coupled instead,
@@ -21,14 +21,12 @@ on:
   workflow_dispatch:
     inputs:
       edge_id:
-        description: "Edge target id. Only deployable Hetzner edges run a Worker."
+        description: "Approved non-US recovery edge. Retired US identities are not dispatchable."
         required: true
         type: choice
         options:
           - uk1
           - uk2
-          - us4
-          - us5
       build_digest:
         description: "12-hex build digest from ops/gemini-web/build_digest.py (the GHCR image tag published by Gemini Web Worker CI)."
         required: true

@@ -164,3 +164,46 @@ Deletion commit: `9e0bf73e092e99e0b7251d5b938a16c36357c137`, reviewed in
 - **Regression cost:** future upstream additions to this standalone per-account verdict suite will not merge automatically. Upstream-merge review must map any new response classification into `openai_apikey_responses_probe_test.go` and any persistence/history invariant into `protocol_capability_probe_test.go`, without restoring account-owned protocol facts.
 - **Upstream tests lost:** the standalone `runResponsesProbe` account-`extra` fixture and its two persistence tests were removed because that storage path no longer exists. `TestResponsesProbeVerdictIsConclusive` remains under `openai_apikey_responses_probe_test.go`; equivalent endpoint-scoped preservation and commit behavior is covered by `TestApplyProtocolProbeVerdictsUpdatesOnlyConclusiveEndpointFacts`, `TestResolveProtocolProbeGenerationKeepsConclusiveHistoryAcrossInconclusiveGeneration`, and `TestProbeAccountProtocolCapabilitiesEvaluatesCandidateSetAndPersistsOnce`.
 - **Re-adopt when:** upstream adopts the endpoint-capability SSOT and rewrites this file to exercise a distinct behavior not covered by the classifier and endpoint-scoped probe suites. Restore the file and remove this entry in the same change; never re-adopt the account-owned `extra` writer fixture.
+
+## Deletion ledger: retired edge account console and admin-session relay
+
+- **Deletion commit + PR:** pending this chore commit and its pull request from `chore/edge1016`.
+- **Reason:** the AWS US edge fleet and the `/admin/edge-accounts` inventory, mutation, and handoff surfaces were retired together. The retained edge route only serves the internal scheduling-capacity and Gemini Web control contracts; proxy records and generic relay identity compatibility remain in place.
+- **Regression cost / upstream tests lost:** the deleted handlers, aggregators, admin session service, Vue API/page/panel/composables/utilities, and their focused tests no longer receive upstream changes automatically. Runtime coverage moves to the retained capacity/Gemini Web suites, ordinary `/admin/accounts` coverage, and the route/sentinel checks; historical edge behavior remains in the dated operations evidence.
+- **Re-adopt when:** a reviewed edge fleet restoration reintroduces the edge account API contract, an approved deployable edge matrix, and a replacement operator workflow. Restore only the needed file plus its tests and remove this ledger entry in the same change; do not restore the retired AWS US resources by implication.
+- **Deleted upstream paths:**
+  - `backend/internal/handler/admin/edge_account_ops_handler_tk.go`
+  - `backend/internal/handler/admin/edge_accounts_handler_tk.go`
+  - `backend/internal/handler/admin/edge_accounts_handler_tk_test.go`
+  - `backend/internal/handler/edge_tk_account_ops_handler.go`
+  - `backend/internal/handler/edge_tk_account_ops_handler_test.go`
+  - `backend/internal/handler/edge_tk_accounts_handler.go`
+  - `backend/internal/handler/edge_tk_accounts_handler_test.go`
+  - `backend/internal/handler/edge_tk_admin_session_handler.go`
+  - `backend/internal/handler/edge_tk_admin_session_handler_test.go`
+  - `backend/internal/server/routes/admin_tk_edge_accounts_routes.go`
+  - `backend/internal/server/routes/edge_tk_routes_smoke_test.go`
+  - `backend/internal/service/auth_service_tk_edge_session.go`
+  - `backend/internal/service/auth_service_tk_edge_session_test.go`
+  - `backend/internal/service/edge_accounts_aggregator_tk.go`
+  - `backend/internal/service/edge_accounts_aggregator_tk_test.go`
+  - `backend/internal/service/edge_accounts_ops_tk.go`
+  - `backend/internal/service/edge_accounts_ops_tk_test.go`
+  - `frontend/src/api/__tests__/admin.edgeAccounts.spec.ts`
+  - `frontend/src/api/admin/edgeAccounts.ts`
+  - `frontend/src/components/admin/account/EdgeAccountActionMenuTk.vue`
+  - `frontend/src/components/admin/account/EdgeAccountPanelTk.vue`
+  - `frontend/src/components/admin/account/__tests__/EdgeAccountPanelTk.spec.ts`
+  - `frontend/src/composables/__tests__/useTkEdgeAccounts.spec.ts`
+  - `frontend/src/composables/useTkAccountsEdgePanels.ts`
+  - `frontend/src/composables/useTkEdgeAccounts.ts`
+  - `frontend/src/utils/__tests__/accountsEdgePanelsTk.spec.ts`
+  - `frontend/src/utils/__tests__/edgeAccountsTk.spec.ts`
+  - `frontend/src/utils/__tests__/openEdgeAdminHandoff.tk.spec.ts`
+  - `frontend/src/utils/accountsEdgePanels.tk.ts`
+  - `frontend/src/utils/edgeAccounts.tk.ts`
+  - `frontend/src/utils/openEdgeAdminHandoff.tk.ts`
+  - `frontend/src/views/admin/EdgeAccountsView.vue`
+  - `frontend/src/views/admin/EdgeHandoffView.vue`
+  - `frontend/src/views/admin/__tests__/EdgeAccountsView.usageLoader.spec.ts`
+  - `frontend/src/views/admin/__tests__/EdgeHandoffView.spec.ts`

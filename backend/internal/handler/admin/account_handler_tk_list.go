@@ -83,7 +83,7 @@ func ifNoneMatchMatched(ifNoneMatch, etag string) bool {
 }
 
 // tkBuildAccountListRow projects one service.Account into the list DTO with lite
-// shallow mapping, concurrency/RPM/session gauges, and TK mirror-stub EdgeID.
+// shallow mapping, concurrency/RPM/session gauges.
 func (h *AccountHandler) tkBuildAccountListRow(
 	acc *service.Account,
 	lite bool,
@@ -114,9 +114,6 @@ func (h *AccountHandler) tkBuildAccountListRow(
 		CurrentConcurrency: concurrencyCounts[acc.ID],
 		SchedulerScore:     schedulerScores[acc.ID],
 		SchedulerScores:    schedulerGroupScores[acc.ID],
-		// TK: tag anthropic mirror-stub rows with their edge id so the accounts
-		// UI can expand them into that edge's accounts inline ("" for non-stubs).
-		EdgeID: service.MirrorStubEdgeID(acc),
 	}
 
 	// 添加活跃会话数（仅当启用时）
