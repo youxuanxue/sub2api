@@ -37,6 +37,10 @@ class RenderProdBootstrapTests(unittest.TestCase):
         self.assertIn("tokenkey-ghcr-prune-daily.timer", body)
         self.assertIn("TOKENKEY_PGDUMP_S3_URI", body)
         self.assertIn("QA_CAPTURE_ENABLED=false", body)
+        self.assertIn("BBR_GZB64=", body)
+        self.assertIn("ensure-tokenkey-bbr.sh", body)
+        self.assertIn("ensure-tokenkey-bbr.sh --apply", body)
+        self.assertIn("ensure-tokenkey-bbr.sh --check", body)
 
     def test_disk_unit_requires_prod_volume_but_edges_only_check_root(self) -> None:
         # Evaluate the service configuration emitted by each renderer: the

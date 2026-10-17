@@ -209,6 +209,14 @@ OAuth / 支付 webhook URL **保持** `api.tokenkey.dev`（与 Caddy `@machine` 
 - **下次重建生效**：换机 / CFN 更新时 bootstrap 自动装上（#804 已 pin AMI，换机不退版）。
 - **立刻生效（live host，prod-only）**：dispatch `ops-stage0-host-mem-guard.yml -f target=prod`（或本地 `bash ops/stage0/sync-host-mem-guard-via-ssm.sh <instance-id>`）。原语在运行中的实例上 fallocate swap + 写 sysctl + 刷新 `tokenkey-disk-metrics.sh`，**两段 payload 都从 `stage0-ec2-bootstrap.sh` 运行时抽取**（单一源、无副本漂移）；幂等（swap 已在则跳过、disk-metrics 原地覆盖由 5min timer 复跑）。edge 是 Lightsail 中继、另一套 bootstrap、无此 timer，故不覆盖。
 
+### 把 host BBR 落到「已经在跑」的 prod（不重建实例）
+
+SSOT：`deploy/host/ensure-tokenkey-bbr.sh`（`net.ipv4.tcp_congestion_control=bbr` + `net.core.default_qdisc=fq`）。新机由 EC2 bootstrap / Hetzner prod renderer 安装；`deploy-stage0` 不会重跑 bootstrap。
+
+- **立刻生效（live EC2 prod）**：`bash ops/stage0/sync-host-bbr-via-ssm.sh <instance-id>`。
+- **防漏配**：`scripts/checks/check-host-bbr-ssot.py`（preflight `host BBR SSOT wiring`）。EC2 bootstrap 只保留 compact sysctl/modprobe，避免撑破 3-part SSM 上限；完整脚本由 sync / Hetzner 安装。
+- **代理/出口 BBR**：网络运维负责，不在本 SSOT 范围。
+
 ## Quick Start
 
 完整步骤在主文档 §3.5。最小操作如下：
