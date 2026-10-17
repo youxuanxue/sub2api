@@ -1,4 +1,9 @@
-# TokenKey 运营手册：prod cc-uk1-oauth → edge-uk1 配置
+# TokenKey 运营手册：prod → edge relay（历史）
+
+> **已退役（2026-10-17）。** Edge 节点、edge 账号管理和 prod→edge relay
+> onboarding 已关闭，当前 live matrix 为空。本页只保留历史配置背景；不要
+> 按本页创建 edge 账号、API key 或 relay 分组。恢复 edge 必须先重新批准矩阵，
+> 再由对应部署流程生成新的操作说明。
 
 > 适用：在 prod admin UI 上配置 `cc-uk1-oauth` 分组、对接 edge-uk1 节点。
 
@@ -112,4 +117,4 @@ edge 上挂的账号（如 `cc-en-ld-ec2-16-1-a`）是真要把流量送到 Anth
 
 - 网关调度 / sticky / sentinel 实现细节（以代码与 `docs/approved/` 为准，不另维护一次性审计笔记）
 - new-api / OpenAI / Gemini 等其他平台的分组配置
-- edge-us1 / sg1（当前未部署）；fra1（法国巴黎，`api-fra1.tokenkey.dev`）见 `deploy/aws/README.md` Edge 小节
+- 其它历史 edge 名称与地址仅用于归档，不代表当前可部署节点。

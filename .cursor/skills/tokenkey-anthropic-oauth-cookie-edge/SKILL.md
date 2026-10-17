@@ -1,11 +1,17 @@
 ---
 name: tokenkey-anthropic-oauth-cookie-edge
-description: TokenKey Anthropic OAuth account creation from local Claude Desktop/web cookies with edge-only Anthropic egress. Use when a user asks to turn local `~/Library/Application Support/Claude/Cookies` into TokenKey Anthropic OAuth credentials, create or verify an edge account such as `edge-or-2-c`, compare web-cookie auth with TokenKey OAuth credentials, or explicitly says local direct Claude/Anthropic access is forbidden because the IP must be the edge IP.
+description: Historical TokenKey Anthropic OAuth edge-account workflow. Edge account creation is retired while the live edge matrix is empty; use only for audit/replay or after an edge is explicitly re-approved.
 ---
 
-# TokenKey: Anthropic OAuth From Claude Cookies On Edge
+# TokenKey: Anthropic OAuth From Claude Cookies On Edge (retired)
 
-Create a TokenKey Anthropic OAuth account by reading local Claude Desktop
+> **Retired since 2026-10-17.** Edge deployment, edge OAuth account creation,
+> and prod→edge relay onboarding are disabled. Do not run `create`, target an
+> `edge:<id>`, or create a new edge account. The shared resolver fails closed;
+> this document remains only as historical reference for a separately approved
+> recovery.
+
+Historically, this workflow created a TokenKey Anthropic OAuth account by reading local Claude Desktop
 cookies only on the operator machine while doing every Claude/Anthropic network
 request from the target edge.
 
@@ -38,22 +44,15 @@ Check local cookie availability without network or secrets:
 python3 ops/anthropic/edge-cookie-oauth-account.py local-summary
 ```
 
-Create a new account on an edge:
-
-```bash
-python3 ops/anthropic/edge-cookie-oauth-account.py create \
-  --edge-id us6 \
-  --account-name edge-or-2-c \
-  --tier l3 \
-  --confirm yes-create-anthropic-oauth-edge-account
-```
+The historical `create` command is intentionally omitted. Use a prod-only
+account import path for current operations.
 
 Useful options:
 
 ```bash
-# Accept edge-us6 / edge:us6 / us6; default admin file is:
+# Historical aliases accepted by the retired script; no live edge is selected.
 # ~/Codes/keys/tokenkey-<edge-id>-admin-password.txt
---admin-credentials-file ~/Codes/keys/tokenkey-us6-admin-password.txt
+  --admin-credentials-file ~/Codes/keys/tokenkey-<edge-id>-admin-password.txt
 
 # Force a specific Claude organization when cookies see multiple orgs.
 --org-uuid <uuid>
@@ -74,12 +73,12 @@ Expected safe success output includes only:
 
 ## Verification
 
-Run the stability guard after creation:
+Historical verification (only after explicit edge re-approval):
 
 ```bash
 python3 ops/anthropic/check-edge-oauth-stability.py \
-  --edge-id us6 \
-  --account-name edge-or-2-c \
+  --edge-id <edge-id> \
+  --account-name <account-name> \
   --json
 ```
 

@@ -64,6 +64,7 @@ def resolve_edge_execution_identity(
     edge_id: str,
     *,
     platform: str = "auto",
+    allow_planned: bool = False,
 ) -> EdgeExecutionIdentity:
     root = pathlib.Path(repo_root).resolve()
     eid = edge_id.strip()
@@ -71,6 +72,7 @@ def resolve_edge_execution_identity(
         root,
         eid,
         platform=platform,  # type: ignore[arg-type]
+        allow_planned=allow_planned,
     )
     if mode == "hetzner":
         target = load_hetzner_targets(root).get(eid)
@@ -122,6 +124,11 @@ def main() -> int:
         choices=("auto", "ec2", "lightsail", "hetzner"),
     )
     ap.add_argument(
+        "--allow-planned",
+        action="store_true",
+        help="Allow an explicit non-deployable matrix row (reviewed recovery only).",
+    )
+    ap.add_argument(
         "--format",
         choices=("env", "json"),
         default="env",
@@ -133,6 +140,7 @@ def main() -> int:
             ns.repo_root,
             ns.edge_id,
             platform=ns.platform,
+            allow_planned=ns.allow_planned,
         )
     except SystemExit as exc:
         print(f"::error::{exc}", file=sys.stderr)

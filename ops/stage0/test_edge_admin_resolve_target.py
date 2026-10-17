@@ -71,6 +71,16 @@ else:
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn('not deployable', proc.stderr)
 
+    def test_retired_edge_rejects_explicit_lightsail_without_query(self):
+        proc = self.resolve('us3', 'lightsail')
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn('retired', proc.stderr)
+
+    def test_retired_edge_rejects_explicit_hetzner_without_query(self):
+        proc = self.resolve('us3', 'hetzner')
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn('retired', proc.stderr)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -32,7 +32,8 @@ gh workflow run deploy-edge-lightsail-stage0.yml \
 workflow 仍打印 “Static IP will be DESTROYED” 警告语，但 `provision-edge.sh` 实际 **detach-only**（不 release）。
 默认 `recreate=false` → 实例已存在则 `::error::` 直接挂；不会被静默销毁。
 
-**批量 US edge**（如 us2/us3/us4）：按 edge 顺序逐个 dispatch + watch（concurrency 按 edge_id 分组，可并行，但 prepare/OIDC 未完成前不要并发）。
+**批量 US edge（历史）**：US edge 已退役，不得 dispatch。只有矩阵重新批准并
+恢复 `deployable=true` 后，才可按 edge 顺序逐个 dispatch + watch。
 
 ### 2.1 Admin 账密落盘（provision 后必做，禁止打印密码）
 
@@ -44,7 +45,7 @@ bash ops/stage0/ensure-edge-admin-credentials.sh --platform lightsail <edge_id>
 ls -l "$HOME/Codes/keys/tokenkey-<edge_id>-admin-password.txt"   # chmod 600，含 email= / password=
 ```
 
-验收：`email=admin@api-<edge_id>.tokenkey.dev` 与 uk1/us1 文件格式一致。**禁止**在 PR、GHA log、聊天里粘贴 `password=` 行。
+验收：`email=admin@api-<edge_id>.tokenkey.dev` 与当前 prod 文件格式一致。**禁止**在 PR、GHA log、聊天里粘贴 `password=` 行。
 
 **prod 同脚本**：目标传字面量 `prod`（经 `resolve_prod_ssm_target`；现网 Hetzner `mi-*`，见 [`deploy/hetzner/README.md`](../../../../deploy/hetzner/README.md)），落盘 `tokenkey-prod-admin-password.txt`。bootstrap 日志常已滚动时 `ensure prod` 会 fallback reset；直接轮换用 `bash ops/stage0/reset-edge-admin-password.sh prod`。
 
@@ -64,15 +65,17 @@ bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> --enforce-ports
 
 DNS cutover 且 admin 可登录后，按 `tokenkey-anthropic-oauth-config` 对新 edge 跑 tier baseline + concurrency mirror verify（Lightsail 矩阵 `deployable=true` 的 edge 已纳入双矩阵 domain 链接）。
 
-**从既有 edge 搬账号（凭据 admin UI 进不去时）：** 新 edge 需要的 OAuth/setup-token 若是从旧 edge 迁移而非重新授权——尤其 kiro OAuth grant 这类 admin UI 无法重新录入的 live credential blob——用 `ops/migration/migrate-edge-accounts.py`，按 `extract`→`build`→`load` 三步离散执行：
+**从既有 edge 搬账号（历史）：** Edge 账号迁移已退役。只有恢复 edge
+并重新批准矩阵后，才可使用 `ops/migration/migrate-edge-accounts.py`；当前
+resolver 会拒绝 retired/planned 目标。
 
 ```bash
 # 旧 edge → 本机 .cache（含列类型，永不打印 secret 值，只列 KEY 名）
-python3 ops/migration/migrate-edge-accounts.py extract --from edge:us1 --account-ids 5,6,7
+python3 ops/migration/migrate-edge-accounts.py extract --from edge:<source-id> --account-ids <ids>
 # 本机生成 migrate.sql + 改名（账号/组），打印脱敏摘要
-python3 ops/migration/migrate-edge-accounts.py build --rename kiro-us1-real=kiro-us6-real --rename-group kiro-us1=kiro-us6
+python3 ops/migration/migrate-edge-accounts.py build --rename <old>=<new> --rename-group <old-group>=<new-group>
 # 默认 dry-run；--execute 才落地到新 edge
-python3 ops/migration/migrate-edge-accounts.py load --to edge:us6 [--execute]
+python3 ops/migration/migrate-edge-accounts.py load --to edge:<target-id> [--execute]
 ```
 
 raw SQL insert 绕过了 repo 层的 Redis 快照写 + scheduler_outbox 入队，脚本会自动插一条 `full_rebuild` outbox 行重建快照（gateway 也每 `full_rebuild_interval_seconds` 默认 300s 兜底）。`tier_id`/`proxy_id` 是宿主机特异、不可移植，已在脚本里 reset。烟测/拆机用的 `set-schedulable` / `soft-delete` 子命令同样默认 dry-run。

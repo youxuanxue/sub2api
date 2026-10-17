@@ -269,7 +269,9 @@ jobs:
         run: |
           set -euo pipefail
           IDENTITY="$(python3 ops/stage0/edge_ssm_execution.py \
-            --edge-id "$EDGE_ID" --platform hetzner --format json)"
+            --edge-id "$EDGE_ID" --platform hetzner \
+            ${{ inputs.allow_planned == 'true' && '--allow-planned' || '' }} \
+            --format json)"
           MID="$(jq -r .instance_id <<<"$IDENTITY")"
           REGION="$(jq -r .region <<<"$IDENTITY")"
           if [[ -z "$MID" || "$MID" == "null" ]]; then
