@@ -12,7 +12,7 @@
 #
 # Usage:
 #   bash ops/observability/run-probe.sh \
-#       --target prod | --target cn-prod \
+#       --target prod | --target cn-prod | --target zhupeng-prod \
 #       --script ops/observability/probe-caps.sh \
 #       [--env KEY=VAL ...] \
 #       [--with PATH ...]   upload additional local files to /tmp/<basename> on remote
@@ -124,8 +124,8 @@ if [ ! -f "$SCRIPT_PATH" ]; then
   exit 1
 fi
 
-if [ "$DESCRIBE_SCRIPT" = "0" ] && [ "$TARGET" != "prod" ] && [ "$TARGET" != "cn-prod" ]; then
-	echo "[run-probe] ERROR: --target must be 'prod' or 'cn-prod', got: $TARGET" >&2
+if [ "$DESCRIBE_SCRIPT" = "0" ] && [ "$TARGET" != "prod" ] && [ "$TARGET" != "cn-prod" ] && [ "$TARGET" != "zhupeng-prod" ]; then
+  echo "[run-probe] ERROR: --target must be 'prod', 'cn-prod', or 'zhupeng-prod', got: $TARGET" >&2
   exit 1
 fi
 
@@ -199,7 +199,7 @@ done
 # Local macOS/Homebrew preflight: catch the known aws/pyexpat loader breakage
 # before the first real AWS call. Diagnose only; repair stays explicit in the
 # helper's --apply mode so this wrapper remains read-only.
-if [ "$TARGET" != "cn-prod" ] && [ "$(uname -s)" = "Darwin" ]; then
+if [ "$TARGET" != "cn-prod" ] && [ "$TARGET" != "zhupeng-prod" ] && [ "$(uname -s)" = "Darwin" ]; then
   AWS_PYEXPAT_HELPER="$REPO_ROOT/scripts/checks/check-local-aws-pyexpat.py"
   if [ -f "$AWS_PYEXPAT_HELPER" ] && ! python3 "$AWS_PYEXPAT_HELPER" --quiet; then
     echo "[run-probe] ERROR: local aws bootstrap check failed" >&2
@@ -209,6 +209,7 @@ if [ "$TARGET" != "cn-prod" ] && [ "$(uname -s)" = "Darwin" ]; then
 fi
 
 # Resolve REGION + INSTANCE_ID per target shape
+if [ "$TARGET" != "zhupeng-prod" ]; then
 REGION=""
 INSTANCE_ID=""
 if [ "$TARGET" = "prod" ]; then
@@ -234,7 +235,7 @@ if [ "$TARGET" = "prod" ]; then
   fi
 fi
 
-if [ "$TARGET" != "cn-prod" ] && { [ -z "${INSTANCE_ID:-}" ] || [ "$INSTANCE_ID" = "None" ]; }; then
+if [ "$TARGET" != "cn-prod" ] && [ "$TARGET" != "zhupeng-prod" ] && { [ -z "${INSTANCE_ID:-}" ] || [ "$INSTANCE_ID" = "None" ]; }; then
   echo "[run-probe] ERROR: could not resolve instance id for target $TARGET" >&2
   exit 2
 fi
@@ -243,10 +244,12 @@ if [ -n "$EXPECTED_INSTANCE_ID" ]; then
     echo "[run-probe] ERROR: --expected-instance-id must be an EC2, SSM-managed, or UHost instance id" >&2
     exit 1
   fi
-  if [ "$TARGET" != "cn-prod" ] && [ "$INSTANCE_ID" != "$EXPECTED_INSTANCE_ID" ]; then
+  if [ "$TARGET" != "cn-prod" ] && [ "$TARGET" != "zhupeng-prod" ] && [ "$INSTANCE_ID" != "$EXPECTED_INSTANCE_ID" ]; then
     echo "[run-probe] ERROR: resolved instance does not match --expected-instance-id for target $TARGET" >&2
     exit 1
   fi
+fi
+
 fi
 
 # Build env prefix (e.g. "PLATFORM=anthropic ERR_HOURS=2")
@@ -292,6 +295,19 @@ import json, sys
 print(json.dumps({"commands": ["set -u", sys.argv[1]]}))
 PY
 )
+
+if [ "$TARGET" = "zhupeng-prod" ]; then
+  if [ -n "$EXPECTED_INSTANCE_ID" ]; then
+    echo "[run-probe] ERROR: SSH targets do not accept an AWS instance override" >&2
+    exit 1
+  fi
+  SSH_ARGS=(--target "$TARGET" --timeout-seconds "$TIMEOUT_SECONDS")
+  if [ "$COMPRESSED_OUTPUT" = "1" ]; then
+    SSH_ARGS+=(--compressed-output)
+  fi
+  printf '%s' "$PARAMS" | python3 "$REPO_ROOT/deploy/domestic/ssh-probe.py" "${SSH_ARGS[@]}"
+  exit $?
+fi
 
 if [ "$TARGET" = "cn-prod" ]; then
   # UCloud cn-prod is an independent Docker/Postgres host. Prefer its outbound

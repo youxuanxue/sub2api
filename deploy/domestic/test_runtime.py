@@ -4,6 +4,7 @@ Run via scripts/checks/caddyfile-syntax.sh (requires Docker and caddy:2-alpine).
 No production credentials, traffic, DNS, or upstream calls are involved.
 """
 
+import http.client
 import json
 import os
 from pathlib import Path
@@ -75,6 +76,7 @@ printf '%s\\n' "$SIGNATURE_OUTPUT"
 
 
 class DomesticRuntimeTest(unittest.TestCase):
+    domain = "api-cn.tokenkey.dev"
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory(prefix="tk-domestic-test-")
@@ -154,7 +156,7 @@ class DomesticRuntimeTest(unittest.TestCase):
         request = urllib.request.Request(
             cls.base + path, method=method,
             data=b"{}" if method == "POST" else None,
-            headers={"Host": "api-cn.tokenkey.dev"},
+            headers={"Host": cls.domain},
         )
         try:
             response = urllib.request.urlopen(request, timeout=2)
@@ -206,6 +208,33 @@ class DomesticRuntimeTest(unittest.TestCase):
             self.assertNotIn(secret, output)
         self.assertEqual(self.state.stat().st_mode & 0o777, 0o700)
         self.assertEqual((self.state / "runtime/.env").stat().st_mode & 0o777, 0o600)
+
+
+class SSHTunnelRuntimeTest(DomesticRuntimeTest):
+    domain = "ub1.tokenkey.dev"
+
+    @classmethod
+    def prepare(cls):
+        return run(sys.executable, str(ROOT / "deploy/domestic/prepare-runtime.py"),
+                   str(cls.state), "--target", "zhupeng-prod")
+
+    def test_tunnel_bindings_and_isolated_runtime(self):
+        config = json.loads(run(
+            "docker", "compose", "--env-file", str(self.state / "runtime/.env"),
+            "-f", str(self.state / "runtime/compose.yml"),
+            "-f", str(self.state / "runtime/compose.override.yml"),
+            "-f", str(self.state / "runtime/compose.local.yml"),
+            "-f", str(self.state / "runtime/compose.tunnel.yml"),
+            "config", "--format", "json",
+        ))
+        for port in config["services"]["caddy"]["ports"]:
+            self.assertEqual(port["host_ip"], "127.0.0.1")
+        app = config["services"]["tokenkey"]["environment"]
+        self.assertEqual(app["ADMIN_EMAIL"], "admin@ub1.tokenkey.dev")
+        self.assertEqual(app["QA_CAPTURE_ENABLED"], "false")
+        self.assertEqual(app["QA_ARCHIVE_ENABLED"], "false")
+        self.assertEqual(app["TELEMETRY_ARCHIVE_ENABLED"], "false")
+        self.assertNotEqual(app["SERVER_FRONTEND_URL"], "https://api-cn.tokenkey.dev")
 
 
 if __name__ == "__main__":
