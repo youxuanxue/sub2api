@@ -125,7 +125,6 @@ func isNewAPIXRTokenAccount(account *Account) bool {
 // whose serving intent is narrower than their shared platform/channel floor.
 func accountModelMappingOverrideAccounts() []*Account {
 	return []*Account{
-		{Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 14, Extra: map[string]any{CursorSourceExtraKey: "cursor"}, Credentials: map[string]any{"base_url": "https://agentn.global.api5.cursor.sh"}},
 		{
 			Platform:    PlatformNewAPI,
 			Type:        AccountTypeAPIKey,
@@ -191,10 +190,7 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 	if account == nil {
 		return nil
 	}
-	if account.IsCursor() {
-		return filterCursorServingModelIDs(tkServedModelsManifestPresetIDsForSelector(
-			PlatformNewAPI, 14, "https://agentn.global.api5.cursor.sh"))
-	}
+
 	if isNewAPINVIDIABuildAccount(account) {
 		return tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
 	}
@@ -243,10 +239,7 @@ func NewAPIModelDisplayIDsForAccount(account *Account) []string {
 	if account == nil {
 		return nil
 	}
-	if account.IsCursor() {
-		return filterCursorServingModelIDs(tkServedModelsManifestDisplayPresetIDsForSelector(
-			PlatformNewAPI, 14, "https://agentn.global.api5.cursor.sh"))
-	}
+
 	if isNewAPINVIDIABuildAccount(account) {
 		return tkServedModelsManifestDisplayPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
 	}

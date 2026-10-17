@@ -1,11 +1,13 @@
 ---
 title: Cursor Stateless OAuth Model Service
-status: approved
+status: archived
 approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push, shared unsupported-output-limit compatibility and automatic credential renewal instruction, 2026-09-09; Messages completion and Chat/Responses converter repair, shared usage/cyber policy no-retry SSOT, 2026-09-14; Cursor serving-family allowlist Claude/Grok/Composer/Muse and Opus 5.5 Cursor scope, 2026-09-24; TurnEnded.input=total → Anthropic disjoint buckets before settlement, Jobs review approval 2026-09-25; RunAgent frame-idle timeout replaces 2m wall-clock cap, conversation approval 2026-10-01)"
 created: 2026-09-07
 ---
 
 # Cursor Stateless OAuth Model Service
+
+> 此能力已按 [Cursor 退役基线](cursor-retirement.md)退役；本文仅保留历史设计。
 
 ## Approved architecture
 
@@ -161,28 +163,11 @@ the model source; availability must still pass the shared serving gates above.
 
 ## Validation and maintenance
 
-`backend/internal/integration/cursor/` owns native protocol and authorization
-tests. Service tests cover actual protocol dispatch, settlement, expiry and
-background renewal; repository integration tests cover atomic imports and
-credential updates. `scripts/checks/test_cursor_deployment.py` rejects obsolete
-runtime dependencies and retired integration contracts through preflight.
-
-| Local entry | Purpose |
-| --- | --- |
-| `node scripts/cursor/local-dev.mjs prepare\|start\|stop` | Isolated PostgreSQL/Redis and Go/frontend processes; requires Docker, Go and installed frontend dependencies |
-| `node frontend/e2e/cursor-live.tk.mjs authorize\|chat\|chat-all` | Real Playwright UI authorization/import and model calls; run against that local stack |
-| `node scripts/cursor/client-probe.mjs tools\|parallel\|text` | Client protocol/tool checks; requires the local gateway key from UI Chat and OpenAI/Anthropic SDKs installed under `.cache/cursor-dev/clients` |
-| `node scripts/cursor/billing-audit.mjs tools\|parallel\|text` | Match the corresponding local client probe to persisted usage and prices |
-| `node scripts/cursor/claude-code-probe.mjs` | Local Claude Code Read tool acceptance; requires the local gateway key and installed CLI |
-
-Direct live Go probes consume an explicitly supplied JSON file containing
-`access_token` via `TOKENKEY_CURSOR_CREDENTIALS_FILE`; keep it outside version
-control. Select `-run '^TestAgentLive$'` for text/tool continuation,
-`-run '^TestAgentLiveCatalog$'` for the authenticated catalog, or
-`-run '^TestOAuthRefreshLiveChainAndInference$'` for chained renewal and inference.
-These probes contact the real provider and are not UI e2e tests. Local artifacts
-under `.cache/cursor-dev/` are evidence from a particular run, not runtime config
-or a source of model availability.
+The native integration, feature tests, local stack and live probe commands have
+been removed under [Cursor retirement](cursor-retirement.md). Their historical
+implementation remains in git. Current retirement coverage belongs to US-066;
+`scripts/checks/test_cursor_deployment.py` rejects retired runtime dependencies
+and active integration contracts through preflight.
 
 At PR #2036 commit `c22f5c8d0`, isolated live acceptance passed official browser
 authorization, UI model calls, tool continuation, billing reconciliation and

@@ -23,6 +23,92 @@ restores the file and removes the entry in the same change.
 
 ---
 
+## Cursor capability retirement
+
+- **Deletion commit + PR:** `feat: retire Cursor accounts and integrations`
+  (the commit introducing this section), [Cursor retirement PR](https://github.com/youxuanxue/sub2api/pulls?q=is%3Apr+head%3Achore%2Fcursor1017).
+- **Reason:** the user explicitly retired Cursor accounts, native inference and
+  client connection support under `docs/approved/cursor-retirement.md`. Keeping
+  the implementation behind a flag would preserve an unwanted credential and
+  execution path.
+- **Regression cost / tests lost:** Cursor OAuth, refresh transactions, native
+  Agent framing, tool continuation, usage estimation, content caching and live
+  provider probes are intentionally no longer supported or tested. Shared
+  protocol conversions, billing and other suppliers retain their own suites.
+  US-066 replaces the retired feature suites with account admission/scheduling,
+  route 404 and real browser retirement regressions, including supported-client
+  configuration. Historical usage and billing rows remain intact.
+- **Re-adopt when:** only after a new explicit product approval to restore Cursor,
+  followed by a new credential/protocol review and restored behavioral coverage;
+  an upstream merge alone must not reactivate this supply.
+- **Deleted paths:**
+
+  - `backend/internal/handler/admin/account_handler_tk_cursor.go`
+  - `backend/internal/handler/gateway_handler_tk_cursor_messages_identity_test.go`
+  - `backend/internal/integration/cursor/agent.go`
+  - `backend/internal/integration/cursor/agent_compare_live_tk_test.go`
+  - `backend/internal/integration/cursor/agent_error_tk.go`
+  - `backend/internal/integration/cursor/agent_error_tk_test.go`
+  - `backend/internal/integration/cursor/agent_test.go`
+  - `backend/internal/integration/cursor/agent_timeout_repro_tk_test.go`
+  - `backend/internal/integration/cursor/agentpb/VENDORED_FROM.md`
+  - `backend/internal/integration/cursor/agentpb/agent.pb.go`
+  - `backend/internal/integration/cursor/agentpb/agent.proto`
+  - `backend/internal/integration/cursor/client.go`
+  - `backend/internal/integration/cursor/client_shell_routing_tk.go`
+  - `backend/internal/integration/cursor/client_shell_routing_tk_test.go`
+  - `backend/internal/integration/cursor/client_test.go`
+  - `backend/internal/integration/cursor/client_tool_metadata_tk.go`
+  - `backend/internal/integration/cursor/client_tool_metadata_tk_test.go`
+  - `backend/internal/integration/cursor/estimate.go`
+  - `backend/internal/integration/cursor/messages.go`
+  - `backend/internal/integration/cursor/messages_agentrun_tk.go`
+  - `backend/internal/integration/cursor/messages_agentrun_tk_test.go`
+  - `backend/internal/integration/cursor/messages_retry_tk_test.go`
+  - `backend/internal/integration/cursor/messages_test.go`
+  - `backend/internal/integration/cursor/native_boundary_tk_test.go`
+  - `backend/internal/integration/cursor/native_client_results_tk.go`
+  - `backend/internal/integration/cursor/native_client_tools_tk.go`
+  - `backend/internal/integration/cursor/native_client_tools_tk_test.go`
+  - `backend/internal/integration/cursor/native_continuation_close_tk_test.go`
+  - `backend/internal/integration/cursor/native_runs_tk.go`
+  - `backend/internal/integration/cursor/native_runs_tk_test.go`
+  - `backend/internal/integration/cursor/oauth.go`
+  - `backend/internal/integration/cursor/oauth_refresh.go`
+  - `backend/internal/integration/cursor/oauth_refresh_live_test.go`
+  - `backend/internal/integration/cursor/oauth_refresh_test.go`
+  - `backend/internal/integration/cursor/oauth_test.go`
+  - `backend/internal/integration/cursor/tool_compat_tk_test.go`
+  - `backend/internal/repository/account_repo_cursor_refresh_integration_test.go`
+  - `backend/internal/repository/account_repo_cursor_refresh_tk.go`
+  - `backend/internal/repository/account_repo_cursor_transaction_integration_test.go`
+  - `backend/internal/server/routes/admin_tk_cursor_routes.go`
+  - `backend/internal/service/account_model_mapping_cursor_tk_test.go`
+  - `backend/internal/service/account_tk_cursor.go`
+  - `backend/internal/service/account_tk_cursor_test.go`
+  - `backend/internal/service/candidate_content_reuse_tk_test.go`
+  - `backend/internal/service/candidate_cursor_ssot_test.go`
+  - `backend/internal/service/cursor_buffered_failure_regression_test.go`
+  - `backend/internal/service/cursor_content_consistency_tk_test.go`
+  - `backend/internal/service/cursor_content_fanout_cost_bench_tk_test.go`
+  - `backend/internal/service/cursor_content_split_equivalence_tk_test.go`
+  - `backend/internal/service/cursor_messages_live_tk_test.go`
+  - `backend/internal/service/cursor_native_transport_regression_test.go`
+  - `backend/internal/service/cursor_relay_billing_regression_test.go`
+  - `backend/internal/service/cursor_rollout_regression_test.go`
+  - `backend/internal/service/cursor_token_refresher_tk.go`
+  - `backend/internal/service/cursor_token_refresher_tk_test.go`
+  - `backend/internal/service/gateway_cursor_tool_json_test.go`
+  - `backend/internal/service/gateway_tk_cursor.go`
+  - `backend/internal/service/gateway_tk_cursor_test.go`
+  - `backend/internal/service/openai_cursor_warmup_pipeline_test.go`
+  - `frontend/e2e/cursor-authorization-recovery.e2e.ts`
+  - `frontend/e2e/cursor-live.tk.mjs`
+  - `frontend/src/api/admin/cursor.tk.ts`
+  - `frontend/src/components/account/CursorConnectModal.tk.vue`
+  - `frontend/src/composables/__tests__/useCursorAuthorization.tk.spec.ts`
+  - `frontend/src/composables/useCursorAuthorization.tk.ts`
+
 ## Upstream import: PR #2062
 
 Deletion commit: `9e0bf73e092e99e0b7251d5b938a16c36357c137`, reviewed in

@@ -45,26 +45,26 @@ func TestTkStripTokenseaContextManagement_StripsOnTokenseaModels(t *testing.T) {
 
 func TestTkStripTokenseaContextManagement_NoTouch(t *testing.T) {
 	tokensea := tokenseaNewAPIAccount(136)
-	cursor := &Account{
-		ID:       150,
+	ordinaryAnthropic := &Account{
+		ID:       2,
 		Platform: PlatformNewAPI,
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
-			"base_url": "https://agentn.global.api5.cursor.sh",
+			"base_url": "https://anthropic.example.test",
 			"api_key":  "sk-test",
 		},
-		Extra: map[string]any{"upstream_provider": "cursor"},
+		Extra: map[string]any{"upstream_provider": "other"},
 	}
 	cmBody := `{"model":"claude-fable-5","context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"max_tokens":100}`
 	opusCM := `{"model":"claude-opus-5","context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"max_tokens":100}`
 	noCM := `{"model":"claude-fable-5","thinking":{"type":"adaptive"},"max_tokens":100}`
 
-	t.Run("cursor+fable keeps CM", func(t *testing.T) {
-		got := tkStripTokenseaContextManagement(cursor, []byte(cmBody))
+	t.Run("ordinaryAnthropic+fable keeps CM", func(t *testing.T) {
+		got := tkStripTokenseaContextManagement(ordinaryAnthropic, []byte(cmBody))
 		require.Equal(t, cmBody, string(got))
 	})
-	t.Run("cursor+opus keeps CM", func(t *testing.T) {
-		got := tkStripTokenseaContextManagement(cursor, []byte(opusCM))
+	t.Run("ordinaryAnthropic+opus keeps CM", func(t *testing.T) {
+		got := tkStripTokenseaContextManagement(ordinaryAnthropic, []byte(opusCM))
 		require.Equal(t, opusCM, string(got))
 	})
 	t.Run("tokensea without CM is no-op", func(t *testing.T) {
@@ -97,7 +97,7 @@ func TestIsTokenseaRelayUpstream_NewAPIChannel(t *testing.T) {
 	require.True(t, isTokenseaRelayUpstream(tokenseaNewAPIAccount(136)))
 	require.False(t, isTokenseaRelayUpstream(&Account{
 		Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
-		Credentials: map[string]any{"base_url": "https://agentn.global.api5.cursor.sh"},
+		Credentials: map[string]any{"base_url": "https://anthropic.example.test"},
 	}))
 }
 
@@ -123,21 +123,21 @@ func TestTkStripTokenseaCacheControlScope_StripsSystemMessagesTools(t *testing.T
 
 func TestTkStripTokenseaCacheControlScope_NoTouch(t *testing.T) {
 	tokensea := tokenseaNewAPIAccount(136)
-	cursor := &Account{
-		ID:       150,
+	ordinaryAnthropic := &Account{
+		ID:       2,
 		Platform: PlatformNewAPI,
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
-			"base_url": "https://agentn.global.api5.cursor.sh",
+			"base_url": "https://anthropic.example.test",
 			"api_key":  "sk-test",
 		},
-		Extra: map[string]any{"upstream_provider": "cursor"},
+		Extra: map[string]any{"upstream_provider": "other"},
 	}
 	scoped := `{"model":"claude-opus-5","system":[{"type":"text","text":"project","cache_control":{"type":"ephemeral","scope":"org"}}],"max_tokens":32}`
 	noScope := `{"model":"claude-opus-5","system":[{"type":"text","text":"project","cache_control":{"type":"ephemeral","ttl":"1h"}}],"max_tokens":32}`
 
-	t.Run("cursor keeps scope", func(t *testing.T) {
-		got := tkStripTokenseaCacheControlScope(cursor, []byte(scoped))
+	t.Run("ordinaryAnthropic keeps scope", func(t *testing.T) {
+		got := tkStripTokenseaCacheControlScope(ordinaryAnthropic, []byte(scoped))
 		require.Equal(t, scoped, string(got))
 	})
 	t.Run("nil account keeps scope", func(t *testing.T) {

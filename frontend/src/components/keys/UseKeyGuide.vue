@@ -907,9 +907,6 @@ const platformNote = computed(() => {
   if (selectedClientEntry.value?.guideMode === 'codebuddy-models') {
     return t('quickstart.codebuddyModelsConfigNote')
   }
-  if (selectedClientEntry.value?.id === 'cursor') {
-    return t('quickstart.cursorConfigNote')
-  }
   if (selectedClientEntry.value?.id === 'qoder') {
     return t('quickstart.qoderConfigNote')
   }
@@ -1393,15 +1390,6 @@ function generateCompatibleClientFields(
   let fields: string[]
 
   switch (client) {
-    case 'cursor':
-      fields = [
-        'Cursor Settings → Models',
-        `OpenAI API Key: ${apiKey}`,
-        'Override OpenAI Base URL: enabled',
-        `Base URL: ${apiBase}`,
-        `Add Custom Model: ${model}`,
-      ]
-      break
     case 'trae':
       fields = [
         'Settings → Models → Add model',
@@ -1466,9 +1454,6 @@ function generateCompatibleClientFields(
     content: fields.join('\n'),
     hint: t('quickstart.secretUiHint'),
   }]
-  if (client === 'cursor') {
-    files[0].hint = t('quickstart.cursorSecretHint')
-  }
   if (client === 'qoder') {
     files[0].hint = t('quickstart.qoderSecretHint')
   }

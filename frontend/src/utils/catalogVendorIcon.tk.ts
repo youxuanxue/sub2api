@@ -60,7 +60,6 @@ export function formatCatalogVendorLabel(vendor: string): string {
   const slug = normalizeCatalogVendorSlug(vendor)
   const labels: Record<string, string> = {
     openai: 'OpenAI',
-    cursor: 'Composer',
     anthropic: 'Anthropic',
     volcengine: 'VolcEngine',
     xai: 'xAI',

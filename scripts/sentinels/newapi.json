@@ -1541,6 +1541,8 @@
     {
       "path": "backend/internal/service/openai_apikey_native_messages_probe.go",
       "must_contain": [
+        "baseURL := protocolProbeBaseURL(account, protocolrouter.ProtocolMessages)",
+        "if baseURL == \"\" {",
         "protocolProbeModelCandidates(account)",
         "ProtocolMessages",
         "ProtocolProbePositive",
@@ -1791,6 +1793,7 @@
     {
       "path": "backend/internal/service/protocol_routing_migration.go",
       "must_contain": [
+        "if account.IsRetiredSupplier() || !protocolRoutingGovernsAccount(account) {",
         "MigrateProtocolRoutingSSOT",
         "ProtocolRoutingRemediationProbeRequired",
         "ProtocolRoutingRemediationNoLegalRoute",
@@ -1799,7 +1802,7 @@
         "protocolRoutingMigrationModels",
         "CutoverReady"
       ],
-      "rationale": "NewAPI accounts are custom endpoints and must never inherit official protocol capabilities. The additive migration reports them for per-account probes, preserves wildcard served-model rules when checking legal paths, distinguishes probe attempts from resolved accounts, and blocks cutover readiness when remediation remains."
+      "rationale": "NewAPI accounts are custom endpoints and must never inherit official protocol capabilities. The additive migration reports them for per-account probes, preserves wildcard served-model rules when checking legal paths, distinguishes probe attempts from resolved accounts, and blocks cutover readiness when remediation remains. Retired supplier rows are excluded so they cannot block startup for active supply; US-066 pins this behavior."
     },
     {
       "path": "backend/internal/service/protocol_routing_migration_test.go",

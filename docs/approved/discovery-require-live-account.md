@@ -75,10 +75,12 @@ Decision 5 与 Capability Contract：
 
 - UTC 2026-09-18：prod 账号 **91**（bedrock-2）、**150**（Cursor-93321020@qq.com）
   的 `credentials.model_mapping` 删除键 `claude-fable-5-1`；保留 `claude-fable-5`。
-- 脚本：`ops/observability/remediate-drop-fable-5-1-mapping.sh`
-  （`CONFIRM=drop-fable-5-1-mapping`）。
+- 一次性止血脚本已随 Cursor 退役删除，历史操作可从 git 追溯。
 
-## 恢复路径（政策确认后）
+## 历史恢复记录（已被 Cursor 退役取代）
+
+> 下述为历史验证记录，不再作为操作指引。账号 150 已按
+> [Cursor 退役基线](cursor-retirement.md)停用，不再恢复 mapping 或调度。
 
 - Cursor 官方入口已对 Claude Fable 5 / 5.1 完成 Data Policy Acknowledgement（一次确认覆盖两模型）。
 - Go mapping floor：`bedrock` platform 仍要求 `claude-fable-5-1`；Cursor channel 14

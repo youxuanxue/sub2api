@@ -151,6 +151,6 @@ Sentinel：`scripts/sentinels/gateway-tk.json` 锚定 owner 调用。
 
 ## 后续
 
-- 其它供应/模型的 audio known-negative 按证据扩表；Cursor Agent 直连路径仍失败；Gemini Web / Antigravity 在探针组 mapping 与容量恢复后可再采 modality 硬证。
+- 其它供应/模型的 audio known-negative 按证据扩表；Cursor 已退役，历史探针结果仅保留作证据；Gemini Web / Antigravity 在探针组 mapping 与容量恢复后可再采 modality 硬证。
 - 能力投影进 discovery / `/models` modalities（可选）。
 - `/models` 或 capabilities 暴露 per-supply input modalities（可选，非选号正确性必需）。

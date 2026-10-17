@@ -17,7 +17,6 @@ SCHEMA_VERSION = 3
 ENTRY_FIELDS = {"channel_type", "scopes", "price_owner", "display"}
 SCOPE_FIELDS = {"channel_type", "base_url"}
 ALLOWED_SCOPES = {
-    (14, "https://agentn.global.api5.cursor.sh"),
     (1, "https://integrate.api.nvidia.com"),
     (17, "https://token-plan.cn-beijing.maas.aliyuncs.com"),
     (45, "https://ark.cn-beijing.volces.com/api/plan/v3"),
@@ -77,7 +76,7 @@ class ServedModelsManifest:
         return {entry.model_id for entry in self.entries if entry.display}
 
 
-def _scope_errors(label: str, scope: Any) -> list[str]:
+def _scope_errors(label: str, scope: Any, *, validate_supported_scopes: bool) -> list[str]:
     if not isinstance(scope, dict):
         return [f"{label} must be an object"]
     if set(scope) != SCOPE_FIELDS:
@@ -87,15 +86,17 @@ def _scope_errors(label: str, scope: Any) -> list[str]:
     if (
         not isinstance(channel_type, int)
         or isinstance(channel_type, bool)
+        or channel_type <= 0
         or not isinstance(base_url, str)
-        or (channel_type, base_url) not in ALLOWED_SCOPES
+        or not base_url
+        or (validate_supported_scopes and (channel_type, base_url) not in ALLOWED_SCOPES)
     ):
         return [f"{label} is not a supported normalized newapi property scope"]
     return []
 
 
 def parse_manifest_document(
-    data: Any, *, source: str = "tk_served_models.json"
+    data: Any, *, source: str = "tk_served_models.json", validate_supported_scopes: bool = True
 ) -> ServedModelsManifest:
     errors: list[str] = []
     if not isinstance(data, dict):
@@ -147,7 +148,10 @@ def parse_manifest_document(
             entry_errors.append(f"{label}: scopes must be a list")
         else:
             for index, scope in enumerate(raw_scopes):
-                scope_errors = _scope_errors(f"{label} scopes[{index}]", scope)
+                scope_errors = _scope_errors(
+                    f"{label} scopes[{index}]", scope,
+                    validate_supported_scopes=validate_supported_scopes,
+                )
                 entry_errors.extend(scope_errors)
                 if not scope_errors:
                     scopes.append(dict(scope))
@@ -193,13 +197,15 @@ def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def parse_manifest_text(
-    text: str, *, source: str = "tk_served_models.json"
+    text: str, *, source: str = "tk_served_models.json", validate_supported_scopes: bool = True
 ) -> ServedModelsManifest:
     try:
         data = json.loads(text, object_pairs_hook=_unique_json_object)
     except json.JSONDecodeError as exc:
         raise ManifestError([f"{source}: invalid JSON: {exc}"]) from exc
-    return parse_manifest_document(data, source=source)
+    return parse_manifest_document(
+        data, source=source, validate_supported_scopes=validate_supported_scopes,
+    )
 
 
 def load_manifest(path: Path = DEFAULT_MANIFEST_PATH) -> ServedModelsManifest:

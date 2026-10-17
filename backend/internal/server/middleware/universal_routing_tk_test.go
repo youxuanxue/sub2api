@@ -19,7 +19,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
-	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -429,7 +428,6 @@ func TestMaybeResolveUniversal_ContinuationUnavailableIs400(t *testing.T) {
 		status int
 	}{
 		{"missing_owner", service.ErrCandidateContinuationUnavailable, http.StatusBadRequest},
-		{"native_tool_owner", cursor.ErrContinuationUnavailable, http.StatusBadRequest},
 		{"wrapped_owner", fmt.Errorf("lookup: %w", service.ErrCandidateContinuationUnavailable), http.StatusBadRequest},
 		{"redis_failure", errors.New("redis unavailable"), http.StatusInternalServerError},
 	} {

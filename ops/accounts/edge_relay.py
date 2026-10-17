@@ -20,7 +20,6 @@ RELAY_POOL_PLATFORMS = (
     "antigravity",
     "grok",
     "kiro",
-    "newapi",
 )
 
 DEFAULT_PROD_RELAY_NAMES: dict[str, str] = {
@@ -29,7 +28,6 @@ DEFAULT_PROD_RELAY_NAMES: dict[str, str] = {
     "antigravity": "ag-{edge_id}",
     "grok": "grok-{edge_id}",
     "kiro": "kiro-{edge_id}",
-    "newapi": "cursor-{edge_id}",
 }
 
 
@@ -82,14 +80,14 @@ def prod_stub_pool_platform(account: dict[str, Any]) -> str:
         return mirror
     platform = str(account.get("platform") or "").strip().lower()
     if platform == "newapi":
-        if (account.get("extra") or {}).get("upstream_provider") == "cursor":
-            return "newapi"
         # Legacy grok bridge before platform=grok convergence.
         return "grok"
     return platform
 
 
 def is_prod_mirror_stub(account: dict[str, Any]) -> bool:
+    if (account.get("extra") or {}).get("upstream_provider") == "cursor":
+        return False
     if str(account.get("type") or "").strip().lower() != "apikey":
         return False
     creds = account.get("credentials") if isinstance(account.get("credentials"), dict) else {}
@@ -141,6 +139,8 @@ def build_prod_relay_create_spec(
     edge_api_key: str,
 ) -> dict[str, Any]:
     pool = str(pool_platform or "").strip().lower()
+    if pool not in RELAY_POOL_PLATFORMS:
+        raise ValueError(f"unsupported edge relay pool: {pool}")
     mirror_platform = str(prod_relay.get("mirror_platform") or "").strip().lower()
     if pool == "kiro" and not mirror_platform:
         mirror_platform = "kiro"
@@ -183,24 +183,6 @@ def build_prod_relay_create_spec(
     ):
         if key in prod_relay:
             spec[key] = prod_relay[key]
-    if pool == "newapi":
-        extra = dict(spec.get("extra") or {})
-        if extra.get("upstream_provider") != "cursor":
-            raise ValueError("newapi edge relay requires extra.upstream_provider=cursor")
-        mapping = prod_relay.get("model_mapping")
-        parameters = prod_relay.get("cursor_model_parameters")
-        if not isinstance(mapping, dict) or not mapping or not isinstance(parameters, dict):
-            raise ValueError("Cursor relay requires the authorized account model mapping and parameters")
-        if any(model not in parameters for model in mapping.values()):
-            raise ValueError("Cursor relay model parameters are incomplete")
-        credentials.update({
-            "model_mapping": dict(mapping), "cursor_model_parameters": dict(parameters),
-            "api_base_urls": {"anthropic": edge_base_url(edge_id)},
-            "protocol_endpoints_exclusive": True, "pool_mode": False,
-        })
-        credentials.pop("pool_mode_retry_count", None)
-        spec["channel_type"] = 14
-        spec["extra"] = extra
     return spec
 
 
@@ -436,12 +418,7 @@ def extract_edge_oauth_spec(doc: dict[str, Any]) -> dict[str, Any]:
     edge_oauth.setdefault("update_existing", doc.get("update_existing", True))
     pool = str(doc.get("pool_platform") or doc.get("relay_pool") or "").strip().lower()
     edge_oauth.setdefault("platform", pool)
-    edge_oauth.setdefault("type", "apikey" if pool == "newapi" else "oauth")
-    if pool == "newapi":
-        edge_oauth.setdefault("channel_type", 14)
-        extra = dict(edge_oauth.get("extra") or {})
-        extra["upstream_provider"] = "cursor"
-        edge_oauth["extra"] = extra
+    edge_oauth.setdefault("type", "oauth")
     return edge_oauth
 
 

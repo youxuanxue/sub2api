@@ -12,7 +12,7 @@ import (
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
+
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
@@ -136,10 +136,6 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 		return nil, false
 	}
 	if scope == PlatformNewAPI {
-		if account.IsCursor() {
-			ids := NewAPIModelMappingPresetIDsForAccount(account)
-			return identityModelMapping(ids), len(ids) > 0
-		}
 		if isNewAPINVIDIABuildAccount(account) {
 			mapping := nvidiaBuildModelMapping(account)
 			return mapping, len(mapping) > 0
@@ -401,9 +397,6 @@ func normalizeAccountModelMappingOverrideBaseURL(raw string) string {
 func accountModelMappingForbiddenKeysByScope() map[string][]string {
 	return map[string][]string{
 		"account_override:" + normalizeAccountModelMappingOverrideScope(
-			PlatformNewAPI, newapiconstant.ChannelTypeAnthropic, cursor.AgentBaseURL,
-		): {cursorRetiredComposerModel},
-		"account_override:" + normalizeAccountModelMappingOverrideScope(
 			PlatformNewAPI, newapiconstant.ChannelTypeOpenAI, newapiintegration.NVIDIABuildBaseURL,
 		): append([]string(nil), nvidiaBuildForbiddenModelMappingKeys...),
 		"account_override:" + normalizeAccountModelMappingOverrideScope(
@@ -436,9 +429,6 @@ func accountModelMappingForbiddenPrefixesByScope() map[string][]string {
 		// no longer list imagen-*. Forbid the prefix so leftover keys cannot
 		// survive as compatible extras and reappear in Studio entitlement pools.
 		PlatformNewAPI: {"imagen-"},
-		"account_override:" + normalizeAccountModelMappingOverrideScope(
-			PlatformNewAPI, newapiconstant.ChannelTypeAnthropic, cursor.AgentBaseURL,
-		): append([]string(nil), cursorForbiddenModelMappingPrefixes...),
 	}
 }
 

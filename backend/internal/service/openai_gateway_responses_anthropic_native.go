@@ -126,7 +126,6 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	defer func() { cursorResponseOutcome(account, resp, &result, &forwardErr) }()
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
@@ -283,10 +282,7 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 	if !streamCompleted && upstreamErr == nil {
 		upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_incomplete", "Upstream stream ended before response completion")
 	}
-	if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
-		tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)
-		return nil, nativeErr
-	}
+
 	if upstreamErr != nil {
 		if !tkAnthropicBufferedHasUsableContent(finalResp) {
 			return nil, s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, upstreamModel, upstreamErr)
@@ -425,9 +421,7 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 			zap.String("request_id", requestID),
 			zap.Duration("interval", streamInterval),
 		)
-		if nativeErr := cursorMessagesResponseError(account, resp, tkAnthropicBufferedSyntheticFailure("stream_timeout", "Upstream stream data interval timeout")); nativeErr != nil {
-			return nil, nativeErr
-		}
+
 		return resultWithUsage(), fmt.Errorf("stream data interval timeout")
 	}
 
@@ -522,13 +516,6 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 		}
 
 		processAnthropicEvent(&event)
-	}
-
-	if !state.CompletedSent && upstreamErr == nil && account != nil && account.IsCursor() {
-		upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_incomplete", "Upstream stream ended before response completion")
-	}
-	if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
-		return nil, nativeErr
 	}
 
 	if upstreamErr != nil {

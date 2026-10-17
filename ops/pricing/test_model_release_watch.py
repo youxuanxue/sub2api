@@ -19,7 +19,7 @@ class ModelReleaseWatchClassifyTest(unittest.TestCase):
                 "claude-opus-5-5": [mrw.SupplyHit("platform:kiro", "claude-opus-5-5")],
                 "claude-fable-5-1": [
                     mrw.SupplyHit(
-                        "override:newapi:14:https://agentn.global.api5.cursor.sh",
+                        "override:newapi:14:https://retired.example.test",
                         "claude-fable-5-1",
                     )
                 ],
@@ -43,12 +43,13 @@ class ModelReleaseWatchClassifyTest(unittest.TestCase):
         self.assertEqual(finding.status, "served")
         self.assertTrue(finding.primary_coverage)
 
-    def test_cursor_override_counts_as_primary(self) -> None:
+    def test_legacy_channel_override_is_not_primary(self) -> None:
         finding = mrw.classify(
             mrw.UpstreamModel("anthropic", "claude-fable-5-1", "https://example"),
             self.baseline,
         )
-        self.assertEqual(finding.status, "served")
+        self.assertEqual(finding.status, "narrow")
+        self.assertFalse(finding.primary_coverage)
 
     def test_unpriced_bedrock_mapping(self) -> None:
         finding = mrw.classify(

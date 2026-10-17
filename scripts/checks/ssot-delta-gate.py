@@ -99,10 +99,14 @@ def _read_at(base: str, rel: str) -> str:
         return ""
 
 
-def _load_manifest(text: str) -> dict[str, object]:
+def _load_manifest(text: str, *, historical: bool = False) -> dict[str, object]:
     if not text.strip():
         return {}
-    return _MANIFEST.parse_manifest_text(text).by_model()
+    # A base revision can contain suppliers retired by HEAD. Keep structural
+    # validation, but apply today's supported-scope policy only to HEAD.
+    return _MANIFEST.parse_manifest_text(
+        text, validate_supported_scopes=not historical,
+    ).by_model()
 
 
 def _overlay_priced(entry: object) -> bool:
@@ -156,7 +160,11 @@ def overlay_delta_models_from_payloads(
 def manifest_delta_models(base: str) -> set[str]:
     base_text = _read_at(base, MANIFEST_REL)
     head_text = (REPO / MANIFEST_REL).read_text(encoding="utf-8")
-    base_entries = _load_manifest(base_text)
+    return manifest_delta_models_from_texts(base_text, head_text)
+
+
+def manifest_delta_models_from_texts(base_text: str, head_text: str) -> set[str]:
+    base_entries = _load_manifest(base_text, historical=True)
     head_entries = _load_manifest(head_text)
     out: set[str] = set()
     for model_id, head in head_entries.items():
@@ -408,6 +416,27 @@ def cmd_selftest(_args) -> int:
         pass
     else:
         raise AssertionError("invalid manifest must fail closed")
+
+    retired = json.loads(base_manifest)
+    retired["entries"]["retired-model"] = {
+        "display": True,
+        "scopes": [{"channel_type": 14, "base_url": "https://retired.example.test"}],
+    }
+    retired_text = json.dumps(retired)
+    assert manifest_delta_models_from_texts(retired_text, base_manifest) == set()
+    assert manifest_delta_models_from_texts(retired_text, head_manifest) == {"qwen3-8b"}
+    try:
+        manifest_delta_models_from_texts(base_manifest, retired_text)
+    except _MANIFEST.ManifestError:
+        pass
+    else:
+        raise AssertionError("HEAD must reject retired scopes")
+    try:
+        _load_manifest(invalid_manifest, historical=True)
+    except _MANIFEST.ManifestError:
+        pass
+    else:
+        raise AssertionError("historical manifests still require a valid schema")
 
     line = '+                "glm-4.7-flash": "glm-4.7-flash",'
     m = MIGRATION_ADDED_MODEL_RE.match(line)

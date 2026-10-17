@@ -1,4 +1,10 @@
+---
+status: archived
+---
+
 # Cursor Fable Model Display
+
+> 已按 [Cursor 退役基线](approved/cursor-retirement.md)退役；下文仅保留历史变更。
 
 ## Background
 

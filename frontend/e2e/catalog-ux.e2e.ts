@@ -330,7 +330,6 @@ test.describe('catalog UX — models / pricing / quickstart', () => {
       'gemini-cli',
       'opencode',
       'cline',
-      'cursor',
       'trae',
       'roo-code',
       'kilo-code',

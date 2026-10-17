@@ -7,7 +7,7 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// Native Cursor and ChatGPT/Codex transports cannot enforce these limits.
+// ChatGPT/Codex transports cannot enforce these limits.
 // Call only at those transport boundaries; other supplies retain native limits.
 var unsupportedOutputLimitFields = [...]string{"max_tokens", "max_output_tokens", "max_completion_tokens"}
 

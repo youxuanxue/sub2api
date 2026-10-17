@@ -41,7 +41,6 @@ func candidatePathContextPreparer(request *CandidateRequest) func(context.Contex
 func candidateDiscoveryPathPreparer(request *CandidateRequest) func(context.Context, *Group) (context.Context, string, ChannelMappingResult, error) {
 	// Discovery reuses CandidateRequest for many synthetic model/shape pairs.
 	// Keep immutable content outcomes bounded to the current synthetic request.
-	request.cursorContent = nil
 	prepare := candidatePathContextPreparer(request)
 	prepared := make(map[int64]candidatePreparedPath)
 	return func(ctx context.Context, group *Group) (context.Context, string, ChannelMappingResult, error) {

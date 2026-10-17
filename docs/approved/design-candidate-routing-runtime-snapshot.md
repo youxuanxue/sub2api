@@ -449,6 +449,9 @@ document and must not be folded into it.
 
 ### 9.4 Cursor content admission: one projection per body (2026-09-26)
 
+> Historical profiling evidence only. Cursor content admission and its cache were
+> removed under [Cursor retirement](cursor-retirement.md).
+
 `cursorProtocolContentSupported` was cached on `{digest, resolvedModel}`, and
 `resolvedModel` comes from each account's own model mapping, so one request
 evaluated against accounts mapping to different upstream models re-ran the

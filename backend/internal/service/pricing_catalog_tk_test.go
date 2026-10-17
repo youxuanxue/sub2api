@@ -505,7 +505,6 @@ func TestUS043_CatalogRejectsCacheWriteFromSupersededSnapshot(t *testing.T) {
 // stale litellm USD guesses for manifest-listed GLM models do not win over the
 // BigModel-sourced overlay (prod symptom: glm-5.2 at $1.4/$4.4 per Mtok).
 func TestPricingCatalogService_GLMLitellmMirrorOverriddenByBigModelOverlay(t *testing.T) {
-
 	s := &PricingCatalogService{}
 
 	resp := s.BuildPublicCatalog(context.Background())
@@ -530,7 +529,6 @@ func TestPricingCatalogService_GLMLitellmMirrorOverriddenByBigModelOverlay(t *te
 // left untouched as the first-tier base. doubao-seed-2-0-pro-260215 carries a 3-tier
 // ladder in the compiled-in overlay.
 func TestPricingCatalogService_AttachesOverlayTiers(t *testing.T) {
-
 	s := &PricingCatalogService{}
 
 	resp := s.BuildPublicCatalog(context.Background())
@@ -566,7 +564,6 @@ func TestPricingCatalogService_AttachesOverlayTiers(t *testing.T) {
 }
 
 func TestPricingCatalogService_AntigravityConvergedSurfaceSurfaces(t *testing.T) {
-
 	s := &PricingCatalogService{}
 
 	resp := FilterPublicCatalogToServable(s.BuildPublicCatalog(context.Background()))
@@ -630,7 +627,6 @@ func TestPublicCatalog_ManifestDisplayAliasesInheritOwner(t *testing.T) {
 // unknown-zero source row is replaced by the complete registry row, including
 // its catalog metadata.
 func TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice(t *testing.T) {
-
 	s := &PricingCatalogService{}
 
 	resp := s.BuildPublicCatalog(context.Background())
@@ -737,14 +733,8 @@ func TestPublicCatalog_RetiredNativeIDsRequireAnotherDeclaredSupply(t *testing.T
 	}
 	for _, retired := range []string{"gpt-5.2", "gpt-5.2-codex", "gpt-5.2-pro", "gpt-5.4", "gpt-5.4-mini"} {
 		_, native := supportedOpenAICatalogModels[retired]
-		assert.False(t, native, "Cursor must not restore retired IDs to the native OpenAI pool")
-		cursorDeclared := false
-		for _, id := range tkServedModelsManifestDisplayPresetIDsForSelector(PlatformNewAPI, 14, "https://agentn.global.api5.cursor.sh") {
-			if id == retired {
-				cursorDeclared = true
-			}
-		}
-		assert.Equal(t, cursorDeclared, got[retired], "retired native id %q needs a separate declared supply", retired)
+		assert.False(t, native, "retired IDs must not return to the native OpenAI pool")
+		assert.False(t, got[retired], "retired native id %q must not be displayed", retired)
 	}
 	assert.False(t, got["gpt-5.5"], "operator display=false hides gpt-5.5")
 	assert.True(t, s.IsModelPriced("gpt-5.5", PlatformOpenAI), "display withdrawal preserves settlement pricing")

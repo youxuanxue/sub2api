@@ -388,6 +388,9 @@ func (s *AccountTestService) testAccountConnectionWithAccount(c *gin.Context, ac
 	if account == nil {
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
+	if account.IsRetiredSupplier() {
+		return s.sendErrorAndEnd(c, ErrSupplierRetired.Error())
+	}
 	testOpts := firstAccountTestOptions(opts)
 
 	// Synthetic UI load-test accounts exercise the real SSE parsing and modal

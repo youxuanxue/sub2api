@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "6af1710af3d87da5f96e0461fecac6f34122b4fd8f540e7915a131ed429b4019",
+  "floor_sha256": "703143628174672344a693b2738bac3a9366e12c6417ae5cd8347e746121315f",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -386,19 +386,6 @@
       },
       {
         "platform": "newapi",
-        "channel_type": 14,
-        "base_url": "https://agentn.global.api5.cursor.sh",
-        "model_mapping": {
-          "claude-fable-5": "claude-fable-5",
-          "claude-fable-5-1": "claude-fable-5-1",
-          "composer-2.5": "composer-2.5",
-          "grok-4.5": "grok-4.5",
-          "grok-4.6": "grok-4.6",
-          "muse-spark-1.3": "muse-spark-1.3"
-        }
-      },
-      {
-        "platform": "newapi",
         "channel_type": 17,
         "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com",
         "model_mapping": {
@@ -572,9 +559,6 @@
       "gemini_image"
     ],
     "forbidden_model_mapping_keys": {
-      "account_override:newapi:14:https://agentn.global.api5.cursor.sh": [
-        "composer-2"
-      ],
       "account_override:newapi:17:https://token-plan.cn-beijing.maas.aliyuncs.com": [
         "auto",
         "decision-model-preview",
@@ -677,13 +661,6 @@
       ]
     },
     "forbidden_model_mapping_prefixes": {
-      "account_override:newapi:14:https://agentn.global.api5.cursor.sh": [
-        "gpt-",
-        "gemini-",
-        "glm-",
-        "kimi-",
-        "deepseek-"
-      ],
       "antigravity": [
         "gpt-oss-"
       ],

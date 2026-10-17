@@ -15,7 +15,6 @@ type protocolRoutingContextValue struct {
 	router            *protocolrouter.Router
 	request           protocolrouter.CanonicalRequest
 	plans             *protocolPlanCache
-	content           *cursorRequestContentCache
 	nativeOnly        bool
 	immutableAccounts bool
 }
@@ -84,7 +83,6 @@ func WithProtocolRouting(
 		router:  router,
 		request: request,
 		plans:   newProtocolPlanCache(),
-		content: &cursorRequestContentCache{},
 	})
 }
 

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
-	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -48,9 +47,6 @@ type CandidateRequest struct {
 	bodyModelsResolved    bool
 	requestProfile        protocolrouter.RequestProfile
 	requestProfileValid   bool
-	// Only immutable content outcomes cross group preparation and reselection;
-	// account snapshots and permission-specific plans retain their own lifetime.
-	cursorContent *cursorRequestContentCache
 }
 
 type candidateRequestContextKey struct{}
@@ -208,14 +204,6 @@ func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, 
 		}
 		state.continuationAccountID = owner
 	}
-	if owner, err := cursor.ContinuationAccount(key.UserID, key.ID, body); err != nil {
-		return ctx, nil, cursor.ErrContinuationUnavailable
-	} else if owner > 0 {
-		if state.continuationAccountID > 0 && state.continuationAccountID != owner {
-			return ctx, nil, ErrCandidateContinuationUnavailable
-		}
-		state.continuationAccountID = owner
-	}
 
 	_, err := state.selectAccount(ctx, candidateSelectOptions{})
 	if err != nil {
@@ -242,7 +230,6 @@ func (r *CandidateRequest) RevalidateTurn(ctx context.Context, accountID int64, 
 	r.model, r.body = model, append([]byte(nil), body...)
 	r.bodyModelsResolved = false
 	r.bodyModelCandidates = nil
-	r.cursorContent = nil
 	r.requestProfile, r.requestProfileValid = candidateRequestProfile(r.shape, r.path, model, body)
 	ctx = r.withRequest(ctx, model, body)
 	_, err := r.selectAccount(ctx, candidateSelectOptions{})
@@ -388,18 +375,7 @@ func (r *CandidateRequest) withRequest(ctx context.Context, model string, body [
 	} else {
 		ctx = r.resolver.WithRequest(ctx, r.shape, r.path, model, body)
 	}
-	routing, ok := ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue)
-	if !ok {
-		return ctx
-	}
-	if r.cursorContent == nil {
-		r.cursorContent = &cursorRequestContentCache{}
-	}
-	if routing.content == r.cursorContent {
-		return ctx
-	}
-	routing.content = r.cursorContent
-	return context.WithValue(ctx, protocolRoutingContextKey{}, routing)
+	return ctx
 }
 
 func candidateAccountInGroup(account *Account, groupID int64) bool {

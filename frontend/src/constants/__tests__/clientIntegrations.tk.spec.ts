@@ -205,7 +205,6 @@ describe('TokenKey client catalog', () => {
       'codebuddy',
       'codex-cli',
       'curl',
-      'cursor',
       'dify',
       'gemini-cli',
       'hermes',

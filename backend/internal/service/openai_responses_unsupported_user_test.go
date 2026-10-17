@@ -69,19 +69,19 @@ func TestOpenAIGatewayService_Forward_StripsUserFieldFromAPIKeyResponsesPassthro
 		"safety_identifier should remain stripped (existing behavior)")
 }
 
-// TestCursorResponsesUnsupportedFields_IncludesUser pins the Cursor-style
+// TestResponsesShapeUnsupportedFields_IncludesUser pins the Responses-shaped
 // (isResponsesShape) raw forwarding path: when a Responses-shape body is POSTed
 // to /v1/chat/completions, the same fields must be filtered before reaching the
 // Responses upstream. This list is kept semantically in sync with the
 // unsupportedFields list in openai_gateway_service.go; the symmetry is enforced
 // by upstream #1264.
-func TestCursorResponsesUnsupportedFields_IncludesUser(t *testing.T) {
+func TestResponsesShapeUnsupportedFields_IncludesUser(t *testing.T) {
 	found := false
-	for _, f := range cursorResponsesUnsupportedFields {
+	for _, f := range responsesShapeUnsupportedFields {
 		if f == "user" {
 			found = true
 			break
 		}
 	}
-	require.True(t, found, "cursorResponsesUnsupportedFields must include `user` (upstream #1264)")
+	require.True(t, found, "responsesShapeUnsupportedFields must include `user` (upstream #1264)")
 }
