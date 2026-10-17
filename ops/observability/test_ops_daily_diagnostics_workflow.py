@@ -433,6 +433,38 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn("DIAGNOSE_TARGETS_RESULT", text)
         self.assertIn('diagnose_result not in ("cancelled", "skipped")', text)
 
+    def test_aggregate_finds_single_artifact_flat_target_report(self) -> None:
+        """download-artifact flattens when artifacts.length===1; rglob must find it.
+
+        Prod-only fleets upload one target artifact. With merge-multiple=false the
+        action still extracts that single match directly into path/, so
+        */target-report.json misses and falsely opens missing_target_reports (#2689).
+        """
+        text = workflow_text()
+        aggregate = text.index("Aggregate target reports")
+        window = text[aggregate : aggregate + 2500]
+        self.assertIn('root.rglob("target-report.json")', window)
+        self.assertNotIn('root.glob("*/target-report.json")', window)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flat = root / "target-report.json"
+            nested = root / "prod-ops-target-prod-1" / "target-report.json"
+            nested.parent.mkdir()
+            payload = {"target": {"target_id": "prod"}, "findings": []}
+            flat.write_text(json.dumps(payload), encoding="utf-8")
+            nested.write_text(json.dumps({**payload, "target": {"target_id": "nested"}}), encoding="utf-8")
+            found = sorted(p.relative_to(root).as_posix() for p in root.rglob("target-report.json"))
+            self.assertEqual(
+                found,
+                ["prod-ops-target-prod-1/target-report.json", "target-report.json"],
+            )
+            # Old one-level glob only sees the nested layout — the prod-only failure mode.
+            self.assertEqual(
+                [p.relative_to(root).as_posix() for p in sorted(root.glob("*/target-report.json"))],
+                ["prod-ops-target-prod-1/target-report.json"],
+            )
+
         text = workflow_text()
         init = text.index("RUNTIME_SSM_TRANSPORT_OK=false")
         send_success = text.index("RUNTIME_SSM_TRANSPORT_OK=true", init)
