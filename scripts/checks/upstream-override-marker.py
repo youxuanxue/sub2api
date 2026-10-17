@@ -334,7 +334,6 @@ def run_selftest() -> int:
     cls = [
         ("frontend/src/i18n/locales/en.ts", False),
         ("frontend/src/views/admin/AccountsView.vue", True),
-        ("frontend/src/views/admin/EdgeAccountsView.vue", True),
         ("backend/internal/service/foo_tk_bar.go", False),
         ("backend/internal/service/foo.go", True),
     ]

@@ -5,7 +5,7 @@
   "approved_anchor": "docs/approved/hetzner-cloud-full-migration.md",
   "notes": [
     "deployable=true rows are live HCloud edges; inventory/IP SSOT: deploy/hetzner/README.md.",
-    "Empty rows (e.g. us3/us6): not in fleet.",
+    "Retired rows are historical identities only and cannot be dispatched.",
     "auto / --list-deployable use the unique deployable platform for each edge; duplicate live identities fail closed."
   ],
   "allowed_locations": [
@@ -35,7 +35,10 @@
       "deployable": false,
       "purpose": "retired 2026-10-16; frozen database retained in AWS S3 legacy-node archive"
     },
-    "us3": {},
+    "us3": {
+      "retired": "2026-10-17",
+      "purpose": "retired 2026-10-17; retained only as historical identity"
+    },
     "us4": {
       "deployable": false,
       "purpose": "retired 2026-10-16; frozen database retained in AWS S3 legacy-node archive"
@@ -44,6 +47,9 @@
       "deployable": false,
       "purpose": "retired 2026-10-16; frozen database retained in AWS S3 legacy-node archive"
     },
-    "us6": {}
+    "us6": {
+      "retired": "2026-10-17",
+      "purpose": "retired 2026-10-17; retained only as historical identity"
+    }
   }
 }

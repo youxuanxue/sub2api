@@ -17,16 +17,6 @@ import type { RouteRecordRaw } from 'vue-router'
 
 export const adminRoutes: RouteRecordRaw[] = [
   {
-    // TK: edge admin-session handoff — chrome-less, establishes session on edge origin.
-    path: '/admin/edge-handoff',
-    name: 'AdminEdgeHandoff',
-    component: () => import('@/views/admin/EdgeHandoffView.vue'),
-    meta: {
-      requiresAuth: false,
-      title: 'Signing in…'
-    }
-  },
-  {
     path: '/admin',
     component: () => import('@/views/admin/AdminShellView.vue'),
     meta: {
@@ -133,16 +123,6 @@ export const adminRoutes: RouteRecordRaw[] = [
         meta: {
           title: 'Supplier Sources',
           titleKey: 'admin.supplierSources.title'
-        }
-      },
-      {
-        path: 'edge-accounts',
-        name: 'AdminEdgeAccounts',
-        component: () => import('@/views/admin/EdgeAccountsView.vue'),
-        meta: {
-          title: 'Edge Accounts',
-          titleKey: 'admin.edgeAccounts.title',
-          descriptionKey: 'admin.edgeAccounts.description'
         }
       },
       {

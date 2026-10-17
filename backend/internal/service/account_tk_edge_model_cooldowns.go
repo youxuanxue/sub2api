@@ -8,14 +8,10 @@ import (
 // ActiveModelCooldown is a service-internal projection of one still-active
 // per-model-class rate-limit entry stored in account.Extra["model_rate_limits"].
 //
-// TK fifth-edge visibility: an Anthropic unified-window 429 (e.g. sonnet 5h/7d
-// exhausted) is recorded on the EDGE OAuth account at scope
-// "anthropic:class:sonnet" by ratelimit_service_tk_model_cooldown.go and read by
-// model_rate_limit.go. That cooldown is INVISIBLE to the prod mirror account, so
-// an all-green prod snapshot masks a 100%-failing sonnet class on a single-account
-// edge. ActiveModelRateLimits exposes the still-active entries so the Edge Accounts
-// overview (handler.toEdgeAccountDTO) can surface a per-class 限流 badge — read
-// path only; it never writes or mutates Extra.
+// An Anthropic unified-window 429 (e.g. sonnet 5h/7d exhausted) is recorded at
+// scope "anthropic:class:sonnet" by ratelimit_service_tk_model_cooldown.go and
+// consumed by scheduler and failover policy. ActiveModelRateLimits exposes the
+// still-active entries for those policy owners; it never writes or mutates Extra.
 type ActiveModelCooldown struct {
 	RateLimitedAt    time.Time
 	RateLimitResetAt time.Time

@@ -9,7 +9,7 @@
 |------|----------|---------|------------|------|
 | **prod** | `api.tokenkey.dev` | `3.114.187.250` | `i-045f062ce33e1a5af` · ap-northeast-1 | EC2 c7g.xlarge · tokenkey-prod-tokyo-20261017；旧美东 `i-022f2553503211775`/`23.21.138.205` 冻结 standby |
 
-**Edge 不再部署 / 不再 fan-out。** Lightsail 矩阵 `uk1`/`uk2`/`us4`/`us5` 已 `deployable=false`（standby）；prod 侧全部 `api-<edge>.tokenkey.dev` 中继 stub 已软删（见 [`docs/ops/edge-relay-soft-delete-20261017.json`](../../docs/ops/edge-relay-soft-delete-20261017.json)）。`resolve-edge-target.py --list-deployable` 应为空；代码契约 `ops/stage0/edge_routing_matrix.EXPECTED_LIVE_EDGE_IDS` 同为空。`dispatch-edge-deploy` / `rollout-edges` / edge relay onboard 默认拒绝。恢复 edge 须**同时**改矩阵 `deployable`、该常量与本表。
+**Edge 不再部署 / 不再 fan-out。** prod 侧全部 `api-<edge>.tokenkey.dev` 中继 stub 已软删（见 [`docs/ops/edge-relay-soft-delete-20261017.json`](../../docs/ops/edge-relay-soft-delete-20261017.json)）。美国 Lightsail/Hcloud edge 的实例、Static IP、SSM 身份、参数和 DNS 已释放；矩阵只保留不可执行的历史身份。`resolve-edge-target.py --list-deployable` 应为空；代码契约 `ops/stage0/edge_routing_matrix.EXPECTED_LIVE_EDGE_IDS` 同为空。`dispatch-edge-deploy` 对美国 retired id 硬拒绝；恢复 edge 须**同时**改矩阵 `deployable`、该常量、workflow 选项与本表。
 
 历史身份（仅 standby / 排障，非活路由）：
 
@@ -17,11 +17,10 @@
 |------|------|-----|-----|
 | uk1 | `api-uk1.tokenkey.dev` | `18.132.100.198` | `mi-039a529756d9add02` |
 | uk2 | `api-uk2.tokenkey.dev` | `35.178.162.181` | `mi-022bedb939517c7f3` |
-| us4 | `api-us4.tokenkey.dev` | `44.254.243.147` | `mi-0e3bd48991983b1bd` |
-| us5 | `api-us5.tokenkey.dev` | `35.164.198.30` | `mi-026a9e5d198bd0570` |
+| us4/us5 | 已退役 | 已释放 | 已注销 |
 
-- 矩阵：AWS `../aws/lightsail/edge-targets-lightsail.json`（全 `deployable=false`）+ 历史 Hcloud `edge-targets-hetzner.json`。
-- 发版默认只打 prod；edge 镜像升级 / expansion 需显式批准并临时改矩阵。
+- 矩阵：AWS `../aws/lightsail/edge-targets-lightsail.json` 与历史 Hcloud `edge-targets-hetzner.json`；retired 行仅供审计。
+- 发版只打 prod；edge workflow 仅保留经过评审的非美国恢复入口。
 - 切流硬坑：[`tokenkey-host-replacement` playbook](../../.cursor/skills/tokenkey-host-replacement/references/playbook.md)。
 
 ## 现网不变量
@@ -62,12 +61,12 @@ Stage0 单后端 Caddy 只由 `/health` 主动检查决定摘除与恢复；禁�
 bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 # 或 deploy-stage0 → deploy_via_ssm_bluegreen.sh
 
-# edge（平台 auto → 当前活矩阵）
+# edge recovery（必须先完成评审并更新矩阵/workflow）
 bash scripts/stage0/dispatch-edge-deploy.sh \
-  --edge-id uk1 --operation upgrade --tag X.Y.Z
+  --edge-id <approved-edge> --operation upgrade --tag X.Y.Z
 ```
 
-新边 / 重建（付费）：
+新边 / 重建（付费，需单独批准）：
 
 ```bash
 bash scripts/stage0/dispatch-edge-deploy.sh \
@@ -90,18 +89,18 @@ PROD_SSM_TARGET=hetzner bash ops/observability/run-probe.sh --target prod \
 `--env APPLY=yes-hcloud-prod-host-alerts`。安装前自测共享脚本并备份旧脚本/全部 drop-ins，
 输出备份目录后原子替换脚本与 volume drop-in、reload 并验证生效绑定；失败非零退出。
 不主动执行告警服务，沿用现有 timer。回退时从输出的备份恢复脚本和原 drop-ins，再
-`systemctl daemon-reload`。edges 继续用既有
-同一安装器，附加 `--with deploy/hetzner/edge-targets-hetzner.json`、
+`systemctl daemon-reload`。已退役 edge 不再安装告警；历史主机如需取证才附加
+`--with deploy/hetzner/edge-targets-hetzner.json`、
 `--with ops/stage0/edge_routing_matrix.py` 与 `--env ALERT_TARGET=edge:<id>`，apply 值为
 `yes-hcloud-host-alerts`；只更新告警脚本，不同步 GHCR 或重启 timer。
 
-1. **新 AWS 舰队已接流量**：prod 与四个 edge 均完成迁移；当前镜像以 live SSM/container 为准，QA maintenance pin 独立发布。
+1. **现网已收敛到 prod**：Tokyo prod 承担全部流量；美国 edge 资源已释放，当前镜像以 live SSM/container 为准。
 2. **账号策略已调整**：prod 原生账号（含从 edge 复制的账号）承接请求，旧中继与 edge 账号保留但停用。历史 Gemini pending/blocked 等账号问题由运营处理；本轮基础设施收尾不自动启用账号或中继。
 3. **旧主机收尾**：四台旧 Hcloud edge 已于 2026-10-16 回收，随附 Primary IP 已释放，专属 SSM 身份已注销；释放前已移除新 edge 对对应旧 IP 的过渡信任。冻结整库与校验清单保留在 S3 独立归档前缀，详见[收尾记录](../../docs/approved/aws-migration-closeout-20261016.md)。旧 Hcloud prod 仍有真实请求转发，继续保留 transition Caddy 与旧信任。旧 AWS standby 仅作归档，已停备份与业务自启动入口。
 4. **QA 维护**：新 prod capture 继续启用；按用户纠正，日常新增归档目标为同区域 AWS S3，独立 archive/boundary timer 与 pin 保留。存量 raw 不搬，两侧历史数据沿原生命周期到期，恢复权限保留。当前验收、未迁 raw 边界与资源退役条件见 [QA 运维入口](../../ops/qa/README.md#aws-新-prod-迁移后的维护恢复)。
 5. **灾备与告警**：新 prod 纳入每日 DLM；跨区域宿主 HTTPS watch 补足 GitHub schedule 延迟。首次快照及隔离备份恢复的验收状态见 [迁移收尾](../../docs/approved/aws-migration-closeout-20261016.md)。
 
-## OAuth 账号回滚到 edge
+## 历史 OAuth 账号回滚记录
 
 冻结副本不刷新；prod 可能已轮换 refresh token，不能直接重新启用旧副本。
 按 [集中后审计与修复](../../docs/approved/oauth-consolidation-gateway-safety.md) 核对残留风险。
@@ -113,8 +112,8 @@ PROD_SSM_TARGET=hetzner bash ops/observability/run-probe.sh --target prod \
 4. 私有比较凭据版本和源/目标映射，确认来源仅有一个刷新者。若 prod 已不可读，只能先验证备份凭据或重新授权，不能假定 edge 冻结 token 有效。
 5. 单个目标先启用并做有界文本/工具/图片/多轮验证，再恢复对应路由；源 prod 保持 inactive。任何阶段失败，先停目标并取回其最新轮换凭据，才恢复源，避免双刷新者。
 
-代理名称是逻辑账号池，不作为停机依据。维护代理主机前，从管理 API 读实际 endpoint、
-所绑定账号及活舰队矩阵；逻辑 us4/us5 与物理节点存在历史交叉，不能按名字互换出口。
+代理名称是逻辑账号池，不作为停机依据。维护历史代理记录前，从管理 API 读实际 endpoint、
+所绑定账号及历史矩阵；已退役美国逻辑名不能重新作为出口使用。
 
 ## 校验
 

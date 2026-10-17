@@ -19,7 +19,6 @@ const {
   getAllProxies,
   getAllGroups,
   getAllIncludingInactive,
-  listEdgeAccounts,
   duplicateAccount,
   createSparkShadow,
   showSuccess,
@@ -33,7 +32,6 @@ const {
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
   getAllIncludingInactive: vi.fn(),
-  listEdgeAccounts: vi.fn(),
   duplicateAccount: vi.fn(),
   createSparkShadow: vi.fn(),
   showSuccess: vi.fn(),
@@ -57,7 +55,6 @@ vi.mock('@/api/admin', () => ({
     },
     proxies: { getAll: getAllProxies },
     groups: { getAll: getAllGroups, getAllIncludingInactive },
-    edgeAccounts: { listWithEtag: listEdgeAccounts, adminSession: vi.fn() }
   }
 }))
 
@@ -154,7 +151,7 @@ async function openActionMenu(wrapper: ReturnType<typeof mountView>) {
 describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
   beforeEach(() => {
     localStorage.clear()
-    for (const fn of [listAccounts, listWithEtag, getBatchTodayStats, getBatchPassiveUsage, getUpstreamBillingProbeSettings, getAllProxies, getAllGroups, getAllIncludingInactive, listEdgeAccounts, duplicateAccount, createSparkShadow, showSuccess, showError]) {
+    for (const fn of [listAccounts, listWithEtag, getBatchTodayStats, getBatchPassiveUsage, getUpstreamBillingProbeSettings, getAllProxies, getAllGroups, getAllIncludingInactive, duplicateAccount, createSparkShadow, showSuccess, showError]) {
       fn.mockReset()
     }
     listAccounts.mockResolvedValue({ items: [parentAccount], total: 1, page: 1, page_size: 20, pages: 1 })
@@ -165,7 +162,6 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
     getAllIncludingInactive.mockResolvedValue([])
-    listEdgeAccounts.mockResolvedValue({ notModified: false, etag: null, data: { platform: '__by_stub__', edges: [], ts: 1 } })
     duplicateAccount.mockResolvedValue([{ id: 998, name: 'parent-acc-1' }])
     createSparkShadow.mockResolvedValue({ id: 999, name: 'parent-acc (Spark)' })
   })
@@ -320,7 +316,7 @@ const mountViewWithRow = () =>
 describe('admin AccountsView — 账号行展示', () => {
   beforeEach(() => {
     localStorage.clear()
-    for (const fn of [listAccounts, listWithEtag, getBatchTodayStats, getBatchPassiveUsage, getUpstreamBillingProbeSettings, getAllProxies, getAllGroups, getAllIncludingInactive, listEdgeAccounts, duplicateAccount, createSparkShadow, showSuccess, showError]) {
+    for (const fn of [listAccounts, listWithEtag, getBatchTodayStats, getBatchPassiveUsage, getUpstreamBillingProbeSettings, getAllProxies, getAllGroups, getAllIncludingInactive, duplicateAccount, createSparkShadow, showSuccess, showError]) {
       fn.mockReset()
     }
     listWithEtag.mockResolvedValue({ notModified: true, etag: null, data: null })
@@ -330,7 +326,6 @@ describe('admin AccountsView — 账号行展示', () => {
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
     getAllIncludingInactive.mockResolvedValue([])
-    listEdgeAccounts.mockResolvedValue({ notModified: false, etag: null, data: { platform: '__by_stub__', edges: [], ts: 1 } })
     vi.stubGlobal('confirm', vi.fn(() => true))
   })
 

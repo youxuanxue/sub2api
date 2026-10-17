@@ -13,7 +13,6 @@ const {
   getAllProxies,
   getAllGroups,
   getAllIncludingInactive,
-  listEdgeAccounts,
   listSupplierSources,
   duplicateAccount,
   setSchedulable,
@@ -30,7 +29,6 @@ const {
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
   getAllIncludingInactive: vi.fn(),
-  listEdgeAccounts: vi.fn(),
   listSupplierSources: vi.fn(),
   duplicateAccount: vi.fn(),
   setSchedulable: vi.fn(),
@@ -60,7 +58,6 @@ vi.mock('@/api/admin', () => ({
     },
     proxies: { getAll: getAllProxies },
     groups: { getAll: getAllGroups, getAllIncludingInactive },
-    edgeAccounts: { listWithEtag: listEdgeAccounts, adminSession: vi.fn() }
   }
 }))
 
@@ -158,8 +155,7 @@ function mountView() {
         AccountActionMenu: AccountActionMenuStub,
         EditAccountModal: EditAccountModalStub,
         AccountBulkActionsBar: false,
-        RouterLink: true,
-        Teleport: true
+        RouterLink: true
       }
     }
   })
@@ -200,7 +196,6 @@ describe('AccountsView supplier-managed accounts', () => {
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
     getAllIncludingInactive.mockResolvedValue([])
-    listEdgeAccounts.mockResolvedValue({ platform: '__by_stub__', edges: [], ts: 1 })
     listSupplierSources.mockResolvedValue([
       {
         id: 7,

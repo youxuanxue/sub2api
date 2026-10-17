@@ -19,7 +19,6 @@ var TKProviderSet = wire.NewSet(
 	NewMePricingCatalogService,
 	ProvideSchedulerRateLimitReaper,
 	ProvideAnthropicConfigReconciler,
-	ProvideEdgeAccountsAggregator,
 	NewTierService,
 	wire.Bind(new(TierExtraResolver), new(*TierService)),
 	NewAccountTierService,

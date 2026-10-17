@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Canonical Edge deploy dispatch — Lightsail + Hetzner paths.
 #
-# 2026-10-17: routine edge deploy is OFF (all Lightsail rows deployable=false).
-# auto platform resolution fails until a human re-approves a matrix row and
-# passes --platform lightsail|hetzner --allow-planned for standby work only.
+# 2026-10-17: routine edge deploy is OFF. Retired US identities are rejected
+# even with --allow-planned; only a reviewed non-US recovery row can proceed.
 #
 # Usage:
 #   bash scripts/stage0/dispatch-edge-deploy.sh \

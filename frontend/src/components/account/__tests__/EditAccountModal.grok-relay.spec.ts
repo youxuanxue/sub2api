@@ -167,7 +167,7 @@ describe('EditAccountModal — Grok relay stub', () => {
   it('blocks save when the edge base URL is cleared', async () => {
     const wrapper = mountModal()
 
-    await wrapper.get('input[placeholder="https://api-us4.tokenkey.dev"]').setValue('')
+    await wrapper.get('input[placeholder="https://api.x.ai"]').setValue('')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).not.toHaveBeenCalled()
@@ -177,7 +177,7 @@ describe('EditAccountModal — Grok relay stub', () => {
   it('saves the explicit relay destination while preserving the redacted key', async () => {
     updateAccountMock.mockResolvedValue(buildGrokRelayStubAccount())
     const wrapper = mountModal()
-    await wrapper.get('input[placeholder="https://api-us4.tokenkey.dev"]').setValue(' https://relay.example.test ')
+    await wrapper.get('input[placeholder="https://api.x.ai"]').setValue(' https://relay.example.test ')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
     expect(updateAccountMock).toHaveBeenCalledWith(7, expect.objectContaining({

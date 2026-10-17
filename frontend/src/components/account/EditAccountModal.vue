@@ -138,7 +138,7 @@
                   : account.platform === 'antigravity'
                     ? 'https://cloudcode-pa.googleapis.com'
                     : account.platform === 'grok'
-                      ? 'https://api-us4.tokenkey.dev'
+                      ? 'https://api.x.ai'
                       : 'https://api.anthropic.com'
             "
           />

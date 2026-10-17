@@ -3,18 +3,17 @@
 # edge (and optionally prod), compute each one's verdict, and print one truth-telling
 # table: schedulable accounts + served_200 : no_available_429 + verdict.
 #
-# This is the LOCAL orchestrator half of the edge-health triad:
+# This is the LOCAL orchestrator half of the historical edge-health triad:
 #   probe-edge-health.sh    (remote read-only probe, run via run-probe.sh)
 #   edge_health_verdict.py  (pure verdict logic + --selftest)
 #   scan-edge-health.sh     (this — fan-out over the deployable-edge matrix)
 #
-# WHY: prod's "upstream-429 by account" reads ~1300 across ALL mirror edges whether an
-# edge is fully healthy (us5) or 100% dead for hours (us3, 2026-06-06). This scan reads
-# each edge's OWN access log + roster so a silently-dead edge shows verdict=down at a
-# glance instead of being masked by prod failover.
+# Historical rationale: prod's aggregate upstream errors could mask a dead edge.
+# The routine fleet is now prod-only, so this scanner is retained for explicitly
+# re-approved recovery hosts and old incident replay.
 #
 # External HTTPS /health (edge_https_health.py) runs BEFORE SSM: a guest hang
-# (2026-08-03 us6: SSM ConnectionLost + NetworkOut=0) must page as unreachable
+# must page as unreachable
 # without waiting on Undeliverable SSM. Read-only: HTTPS GET + run-probe.sh
 # (docker logs + psql SELECT). No writes, no AWS mutations.
 #
@@ -22,7 +21,7 @@
 #   bash ops/observability/scan-edge-health.sh                 # all deployable edges
 #   bash ops/observability/scan-edge-health.sh --with-prod     # + prod
 #   bash ops/observability/scan-edge-health.sh --since 15h     # widen traffic window
-#   bash ops/observability/scan-edge-health.sh --edges us3,us6 # subset
+#   bash ops/observability/scan-edge-health.sh --edges <approved-edge> # historical recovery only
 #
 # Exit codes: 0 when every intended target produced a valid verdict. Remote probe
 # failures are represented as verdict=unreachable; local helper/resolver failures or

@@ -615,10 +615,6 @@ test('US048 accounts UI marks supplier-managed accounts and allows ordinary edit
       await fulfillSuccess(route, [])
       return true
     }
-    if (path === '/api/v1/admin/edge-accounts' && request.method() === 'GET') {
-      await fulfillSuccess(route, { platform: '__by_stub__', edges: [], ts: 1 })
-      return true
-    }
     if (path === '/api/v1/admin/supplier-sources' && request.method() === 'GET') {
       await fulfillSuccess(route, [source()])
       return true
@@ -731,10 +727,6 @@ test('Admin account edit reloads Token Plan detail and preserves endpoint identi
     }
     if (path === '/api/v1/admin/groups/all' && request.method() === 'GET') {
       await fulfillSuccess(route, [])
-      return true
-    }
-    if (path === '/api/v1/admin/edge-accounts' && request.method() === 'GET') {
-      await fulfillSuccess(route, { platform: '__by_stub__', edges: [], ts: 1 })
       return true
     }
     if (path === '/api/v1/admin/supplier-sources' && request.method() === 'GET') {

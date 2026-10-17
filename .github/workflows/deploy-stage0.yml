@@ -334,7 +334,7 @@ jobs:
         # Inject the shared Feishu webhook/secret into prod's
         # ops_email_notification_config and enable alerting (idempotent). The
         # script verifies the write and exits non-zero if not applied, so a node
-        # that cannot alert FAILS the deploy (gate for the us7 silent-mute gap).
+        # that cannot alert FAILS the deploy.
         env:
           TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
           TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}

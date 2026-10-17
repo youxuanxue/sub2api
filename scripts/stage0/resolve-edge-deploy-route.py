@@ -49,6 +49,12 @@ def main() -> int:
     if not edge_id:
         _fail("edge-id is required")
 
+    # Retired US identities remain in historical matrices for audit/replay, but
+    # the canonical dispatch path must never turn them back into a workflow run.
+    retired_ids = {"us1", "us2", "us3", "us4", "us5", "us6", "us7"}
+    if edge_id in retired_ids:
+        _fail(f"edge_id {edge_id} is retired and cannot be dispatched")
+
     platform_pref = args.platform
     if platform_pref == "auto" and args.allow_planned:
         _fail("--allow-planned requires explicit --platform lightsail|hetzner")

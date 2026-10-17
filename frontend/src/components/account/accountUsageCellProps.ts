@@ -7,7 +7,7 @@ export interface AccountUsageCellProps {
   manualRefreshToken?: number
   /** When provided (even null), skip self-fetch and render this usage verbatim. */
   usageOverride?: AccountUsageInfo | null
-  /** Override active usage transport, e.g. for an account whose ID is edge-local. */
+  /** Override active usage transport when an account uses a separate ID namespace. */
   activeUsageLoader?: () => Promise<AccountUsageInfo>
 }
 

@@ -47,11 +47,6 @@ type AdminHandlers struct {
 	TKChannel              *admin.TKChannelAdminHandler
 	// TK: anthropic-oauth stability tier reference table CRUD — see tier_handler_tk.go.
 	Tier *admin.TierHandler
-	// TK: prod-side cross-edge read-only account overview — see edge_accounts_handler_tk.go.
-	EdgeAccounts *admin.EdgeAccountsHandler
-	// TK: prod-side thin proxy for inline edge-account WRITE ops (forwards to each
-	// edge's least-privilege ops endpoint) — see edge_account_ops_handler_tk.go.
-	EdgeAccountOps *admin.EdgeAccountOpsHandler
 	// TK: Invite-to-Trial batch provisioning + 试用方案 presets — see user_handler_tk_provision.go.
 	TrialProvision *admin.TrialProvisionHandler
 	AuditLog       *admin.AuditLogHandler
@@ -84,16 +79,7 @@ type Handlers struct {
 	// TK: per-user "your menu" view backing GET /api/v1/me/pricing-catalog.
 	MePricingCatalog *MePricingCatalogHandler
 	// TK: internal edge capacity read (surface C) — see edge_tk_capacity_handler.go.
-	EdgeCapacity *EdgeCapacityHandler
-	// TK: internal edge read-only account inventory — see edge_tk_accounts_handler.go.
-	EdgeAccounts *EdgeAccountsHandler
-	// TK: edge admin-session mint for the prod→edge "manage accounts" handoff —
-	// see edge_tk_admin_session_handler.go.
-	EdgeAdminSession *EdgeAdminSessionHandler
-	// TK: edge least-privilege account WRITE ops (clear-rate-limit / reset-quota /
-	// temp-unschedulable / schedulable / usage) the prod /accounts page proxies to
-	// for inline edge-account management — see edge_tk_account_ops_handler.go.
-	EdgeAccountOps   *EdgeAccountOpsHandler
+	EdgeCapacity     *EdgeCapacityHandler
 	GeminiWebSession *GeminiWebSessionHandler
 	AsyncImage       *AsyncImageHandler
 	BatchImage       *BatchImageHandler

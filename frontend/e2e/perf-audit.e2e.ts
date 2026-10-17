@@ -90,7 +90,6 @@ const ADMIN_PAGES = [
   '/admin/settings',
   '/admin/ops',
   '/admin/channels/monitor',
-  '/admin/edge-accounts',
   '/admin/orders',
   '/admin/orders/dashboard',
   '/admin/orders/plans',

@@ -6,12 +6,12 @@
       "path": "ops/observability/host_https_watch.py",
       "must_contain": [
         "def build_config(role: str, hostname: str, fresh: dict, matrix: dict, domestic: dict) -> dict:",
-        "elif role in (\"us5\", \"cn-prod\"):",
+        "if role == \"cn-prod\":",
         "targets[\"cn-prod\"] = domestic[\"public_origin\"].rstrip(\"/\") + \"/health\"",
         "if not healthy and state[\"failures\"] >= 2:",
         "result = tick(targets, previous, int(time.time()), probe_health, send, config.get(\"node\", os.uname().nodename))"
       ],
-      "rationale": "Keep independent mainland and AWS coverage, two-failure alerting and observer attribution; the AWS fallback domain cannot replace the UCloud static-IP probe."
+      "rationale": "Keep prod/cn-prod coverage, two-failure alerting and observer attribution; retired edge roles must not recreate the former us5 DNS alerts, and the AWS fallback domain cannot replace the UCloud static-IP probe."
     },
     {
       "path": "ops/observability/edge_https_health.py",
@@ -6134,35 +6134,9 @@
       "must_contain": [
         "func RegisterTKEdgeRoutes(",
         "edge.GET(\"/scheduling-capacity\", h.EdgeCapacity.GetSchedulingCapacity)",
-        "edge.GET(\"/accounts\", h.EdgeAccounts.ListAccounts)",
-        "edge.POST(\"/admin-session\", h.EdgeAdminSession.Mint)",
-        "NewEdgeAdminOwnerMiddleware",
-        "h.EdgeAccountOps.ClearRateLimit"
+        "NewEdgeAdminOwnerMiddleware"
       ],
-      "rationale": "Mounts the edge capacity endpoint, the read-only edge accounts endpoint, AND the admin-session mint endpoint behind the same lightweight api-key middleware, called once from router.go. Silent upstream-merge deletion of any call site would unregister the surface-C concurrency-mirror read (/scheduling-capacity), the cross-edge account-overview read (/accounts), or the prod→edge 'manage accounts' handoff mint (/admin-session)."
-    },
-    {
-      "path": "backend/internal/handler/edge_tk_admin_session_handler.go",
-      "must_contain": [
-        "func (h *EdgeAdminSessionHandler) Mint(",
-        "user.IsAdmin()",
-        "GenerateEdgeAdminSessionTokenPair("
-      ],
-      "rationale": "Edge admin-session mint endpoint (POST /api/v1/edge/admin-session): turns the read-only cross-edge overview into a jump-and-manage console. Prod holds this edge's mirror-stub api-key and POSTs here to mint a RENEWABLE admin session (access + refresh), then opens the edge's own /admin/accounts already logged in — so account create/edit/delete + OAuth run natively on the edge (prod re-implements nothing). The renewable session (GenerateEdgeAdminSessionTokenPair) is intentional: a single short-lived token hard-expired mid-task and bounced the operator to the edge login page. LOAD-BEARING SECURITY: this endpoint ELEVATES the edge api-key group (read-only for capacity/accounts) into one that can obtain an admin session, so the `user.IsAdmin()` gate is the irreducible guard — a plain relay key must NOT mint a session. Dropping the IsAdmin check is a privilege-escalation regression that must be caught (the session being renewable does not widen WHO can obtain it; the refresh token rides the URL fragment, scrubbed on load, same exposure as the OAuth login callbacks)."
-    },
-    {
-      "path": "backend/internal/handler/edge_tk_accounts_handler.go",
-      "must_contain": [
-        "func (h *EdgeAccountsHandler) ListAccounts(",
-        "func toEdgeAccountDTO(",
-        "edgeAccountsSupportedPlatforms",
-        "func edgeAccountsListFilter(",
-        "func (h *EdgeAccountsHandler) collectRuntimeGauges(",
-        "h.usage.GetPassiveUsageBatch(",
-        "a.ActiveModelRateLimits(",
-        "func toEdgeModelRateLimits("
-      ],
-      "rationale": "Edge read-only account inventory endpoint: GET /api/v1/edge/accounts returns each edge's accounts (with live capacity/today gauges + passive 5h/7d usage windows) so prod's admin Edge Accounts overview can mirror the per-edge /admin/accounts page. The GetPassiveUsageBatch call reads persisted Extra samples (source=passive, NO upstream API) for the 5h/7d windows in one batch (prefetching window stats per window-start bucket; byte-identical to the old per-account GetPassiveUsage loop) — dropping it removes the usage bars. Credential-free by construction — toEdgeAccountDTO builds an allowlist edgeAccountDTO with NO Credentials/Proxy member; the only Extra read is the CURATED active-only model_rate_limits projection (a.ActiveModelRateLimits → toEdgeModelRateLimits → edgeAccountDTO.ModelRateLimits), which copies ONLY scope keys (e.g. anthropic:class:sonnet) + reset timestamps + an upstream reason string — never a credential substring (the raw-bytes leak assertion seeds a cooldown and still forbids api_key/access_token/refresh_token/base_url/credentials). This makes the EDGE's per-class unified-window 429 (sonnet 5h/7d exhausted) visible to prod, which otherwise reads an all-green snapshot while a single-account edge fails 100% of sonnet — dropping a.ActiveModelRateLimits / toEdgeModelRateLimits silently re-buries that signal. The one other operator-text field it carries is Notes, the non-credential 备注 the admin accounts page shows. Three other load-bearing properties: (1) it lists via adminService.ListAccounts with an EMPTY status filter — NOT the repository ListByPlatform which pins status=active and would silently hide disabled/errored accounts, making the overview show fewer rows than the edge's own admin page (the bug fixed alongside the gauge work); (2) collectRuntimeGauges batch-reads current_concurrency/window_cost/active_sessions/current_rpm + today_stats from this edge's local Redis/DB, mirroring admin AccountHandler.List — dropping it regresses the overview to static-only fields; (3) the 'all' platform sentinel (edgeAccountsListFilter maps it to an EMPTY ListAccounts platform filter) returns every platform's accounts in one read — the overview's default — and edgeAccountsSupportedPlatforms allows all six platforms (anthropic/openai/gemini/antigravity/newapi/kiro); a silent merge that re-pins this to anthropic-only would regress the cross-platform overview. Mounted behind the lightweight edge api-key auth, off the gateway billing/concurrency chain."
+      "rationale": "Mounts the retained internal edge capacity and Gemini Web control routes behind the dedicated edge API-key/admin-owner gates."
     },
     {
       "path": "backend/internal/service/account_tk_edge_model_cooldowns.go",
@@ -6170,7 +6144,7 @@
         "func (a *Account) ActiveModelRateLimits(",
         "type ActiveModelCooldown struct"
       ],
-      "rationale": "TK fifth-edge visibility companion: ActiveModelRateLimits enumerates the STILL-active per-model-class cooldowns stored in account.Extra[\"model_rate_limits\"] (written at scope anthropic:class:<class> by ratelimit_service_tk_model_cooldown.go on an Anthropic unified-window 429; read by model_rate_limit.go for scheduler filtering). It mirrors modelRateLimitResetAt's RFC3339 parse contract (nil-on-error, reset_at strictly in the future) so a lapsed cooldown never produces a phantom badge, and returns nil (not an empty map) when none are active so the edge DTO field omits cleanly. The edge accounts handler (toEdgeAccountDTO → toEdgeModelRateLimits) is the SOLE consumer: it projects these onto edgeAccountDTO.ModelRateLimits so prod's Edge Accounts overview can surface the edge's per-class sonnet 5h/7d window that sits null on the prod mirror account. Pure read path — never writes or mutates Extra; deleting it (or weakening the future-only filter) re-buries the per-class window from prod operators."
+      "rationale": "TK fifth-edge visibility companion: ActiveModelRateLimits enumerates the STILL-active per-model-class cooldowns stored in account.Extra[\"model_rate_limits\"] (written at scope anthropic:class:<class> by ratelimit_service_tk_model_cooldown.go on an Anthropic unified-window 429; read by model_rate_limit.go for scheduler filtering). It mirrors modelRateLimitResetAt's RFC3339 parse contract (nil-on-error, reset_at strictly in the future) so a lapsed cooldown never produces a phantom badge, and returns nil (not an empty map) when none are active so the optional result omits cleanly. The scheduler policy owner is the SOLE consumer: it projects these onto the scheduler can make per-class cooldown decisions consistently. Pure read path — never writes or mutates Extra; deleting it (or weakening the future-only filter) re-buries the per-class window from prod operators."
     },
     {
       "path": "backend/internal/service/account_wide_model_rate_limit_ssot_tk.go",
@@ -6184,68 +6158,7 @@
       "rationale": "Account-wide rate-limit SSOT: more than three still-active model_rate_limits scopes (AICredits and explicit Antigravity model-capability failures excluded) cascade into an account-wide block for every platform/account type. IsSchedulable/IsRateLimited, admin/edge DTO projections, and SQL list filters must consume AccountWideRateLimitResetAt / accountWideRateLimitBlocks rather than inventing a second threshold."
     },
     {
-      "path": "backend/internal/service/edge_accounts_aggregator_tk.go",
-      "must_contain": [
-        "func (a *EdgeAccountsAggregator) Aggregate(",
-        "func (a *EdgeAccountsAggregator) AggregateByStub(",
-        "func (a *EdgeAccountsAggregator) MintAdminSession(",
-        "func (a *EdgeAccountsAggregator) resolveTarget(",
-        "stubs, err := a.loadEdgeStubCandidates(ctx)",
-        "func isEdgeMirrorStub(",
-        "func discoverStubTargets(",
-        "func edgeStubAPIKey(",
-        "apiKey := edgeStubAPIKey(acct)",
-        "if key := strings.TrimSpace(acct.GetCredential(\"api_key\")); key != \"\" {",
-        "group_scope=caller",
-        "req.Header.Set(\"x-api-key\", t.apiKey)",
-        "never a failed aggregate",
-        "if acct.Status == StatusDisabled || acct.IsRetiredSupplier() {",
-        "StubSchedulable:",
-        "func stubGroupNames(",
-        "stubGroupNames(acct)",
-        "json:\"stub_groups\"",
-        "return results[i].StubSchedulable // schedulable (true) before paused (false)",
-        "edgeAccountsSoftTTL = 15 * time.Second",
-        "func (a *EdgeAccountsAggregator) refreshAsync(platform string) {",
-        "if stale && !a.refreshing[platform] {",
-        "func (a *EdgeAccountsAggregator) AggregateFresh(",
-        "func (a *EdgeAccountsAggregator) AggregateByStubFresh(",
-        "return a.AggregateFresh(ctx, byStubCacheKey)",
-        "func MirrorStubEdgeID",
-        "PlatformNewAPI,",
-        "func edgeStubPoolPlatform(",
-        "if acct.Platform == PlatformNewAPI {",
-        "const edgeStubAllPoolsPlatform = \"all\"",
-        "return edgeStubAllPoolsPlatform"
-      ],
-      "rationale": "Prod-side cross-edge aggregator (consumer of GET /api/v1/edge/accounts). Discovers edges via local mirror stubs ({base_url, api_key} pairs surface-C uses — zero new secret) and fans out concurrently. Load-bearing properties: (1) per-edge failure isolation — a timeout/non-2xx/decode error on one edge yields {ok:false,error} and never fails the whole aggregate; (2) it authenticates each edge with the stub's x-api-key; (3) operator-disabled mirror stubs are skipped so a decommissioned edge cannot drag every refresh into timeout; (4) each edge result carries StubSchedulable so the overview can flag a 关调度 stub; (5) results are ordered scheduling-state-first; (6) SWR cache + single-flight refresh prevents passive polling from re-fanning out, while AggregateFresh / AggregateByStubFresh are the explicit operator-refresh escape hatch that synchronously replaces the cache so recovered edge errors, usage windows, and last-used gauges do not wait behind the soft TTL; (7) prod stub group/cooldown snapshots ride with unreachable edges so filters key off PROD organization, not edge-local accounts; (8) AggregateByStub fans out one result PER prod mirror stub with group_scope=caller so inline /accounts shows exactly what that key schedules; (9) edgeStubAPIKey is the single key resolver used by both per-edge and per-stub discovery. Long-term converged relay stubs, including grok, prefer credentials.api_key; grok access_token is only a legacy fallback so old stubs do not disappear during migration. Reverting to bare GetCredential(\"api_key\") in one discovery path or preferring access_token over api_key breaks the first-class grok API-key relay shape; (10) PlatformNewAPI remains in edgeStubPlatforms only for legacy edge-host bridge stubs and maps to the all-pools sentinel unless mirror_platform is set, because the edge has no newapi pool; (11) resolveTarget (used by MintAdminSession and ForwardAccountOp) MUST load candidates via loadEdgeStubCandidates, not anthropic-only ListByPlatform — operators jump manage-on-edge from gemini/openai/grok stubs, and anthropic-only discovery 404s edges that still have an active non-anthropic mirror."
-    },
-    {
-      "path": "backend/internal/handler/admin/edge_accounts_handler_tk.go",
-      "must_contain": [
-        "func (h *EdgeAccountsHandler) List(",
-        "func (h *EdgeAccountsHandler) MintAdminSession(",
-        "func buildEdgeHandoffURL(",
-        "func NewEdgeAccountsHandler(",
-        "func buildEdgeAccountsETag(",
-        "if ifNoneMatchMatched(c.GetHeader(\"If-None-Match\"), etag) {",
-        "force := truthyQuery(c.Query(\"force\"))",
-        "agg, err = h.aggregator.AggregateByStubFresh(ctx)",
-        "agg, err = h.aggregator.AggregateFresh(ctx, platform)",
-        "func truthyQuery(v string) bool"
-      ],
-      "rationale": "Prod admin handler for GET /api/v1/admin/edge-accounts (overview) and POST /api/v1/admin/edge-accounts/:edge/admin-session (manage-accounts handoff). Sits behind the admin JWT (the /admin group), NOT the lightweight edge api-key: the broad cross-fleet view + the jump-to-manage mint are admin-only. Credentials never traverse the read path (the aggregator only decodes the edges' already-sanitized DTOs). buildEdgeHandoffURL is load-bearing: the short-lived token MUST ride in the URL FRAGMENT (after #) so it never reaches an edge access log / Referer — moving it to a query param is a token-leak regression. The List ETag/304 path is also load-bearing: buildEdgeAccountsETag hashes Platform+Edges but DELIBERATELY EXCLUDES the per-fan-out EdgeAccountsAggregate.TS, so an unchanged inventory keeps a stable ETag and the page's periodic auto-refresh gets a cheap 304 (via the same-package ifNoneMatchMatched) instead of a full re-render; reintroducing TS into the hash would silently defeat the 304 path. The force query is the explicit manual-refresh path: normal polling still uses Aggregate/AggregateByStub, but force routes overview and by-stub inline panels to AggregateFresh/AggregateByStubFresh so the operator button is not delayed by stale cache. Silent upstream-merge deletion would remove the prod overview backend, the manage handoff, the ETag/304 fast-path, or the manual fresh path."
-    },
-    {
-      "path": "backend/internal/server/routes/admin_tk_edge_accounts_routes.go",
-      "must_contain": [
-        "func registerTKEdgeAccountsRoutes(",
-        "admin.GET(\"/edge-accounts\", h.Admin.EdgeAccounts.List)",
-        "admin.POST(\"/edge-accounts/:edge/admin-session\", h.Admin.EdgeAccounts.MintAdminSession)"
-      ],
-      "rationale": "Registers the prod admin cross-edge account overview route AND the manage-accounts handoff mint route (admin JWT inherited from the /admin group), called once from admin.go. Silent upstream-merge deletion of this helper or either call site would unregister the overview or the jump-to-manage handoff."
-    },
-    {
+
       "path": "backend/internal/service/anthropic_config_reconciler.go",
       "must_contain": [
         "func (r *AnthropicConfigReconciler) reconcileConcurrencyMirror(",
@@ -7247,7 +7160,7 @@
         "func parseExtraSampledAt(",
         "if found && account.SessionWindowStart != nil {"
       ],
-      "rationale": "Passive 5h-window staleness guard in estimateSetupTokenUsage: session_window_utilization is a passive sample from the last upstream response; if it was sampled BEFORE the current SessionWindowStart (window rolled but not yet re-sampled — the writer's clear-on-roll only fires on expiry-driven init, not header-driven window changes), it belongs to a prior window and would show a misleading high % on a fresh window (observed live: a just-rolled 5h window showing 99%). The guard drops such samples and falls back to status-based estimation. Load-bearing for BOTH the per-edge /admin/accounts page and the cross-edge Edge Accounts overview (both read GetPassiveUsage→estimateSetupTokenUsage); an upstream merge that removes the guard or parseExtraSampledAt silently reintroduces the stale-99% display."
+      "rationale": "Passive 5h-window staleness guard in estimateSetupTokenUsage: session_window_utilization is a passive sample from the last upstream response; if it was sampled BEFORE the current SessionWindowStart (window rolled but not yet re-sampled — the writer's clear-on-roll only fires on expiry-driven init, not header-driven window changes), it belongs to a prior window and would show a misleading high % on a fresh window (observed live: a just-rolled 5h window showing 99%). The guard drops such samples and falls back to status-based estimation. Load-bearing for BOTH the admin account surfaces (both read GetPassiveUsage→estimateSetupTokenUsage); an upstream merge that removes the guard or parseExtraSampledAt silently reintroduces the stale-99% display."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
@@ -10430,40 +10343,13 @@
       "rationale": "RequireGroupAssignment must let universal keys through: resolvable endpoints already swapped a backing group (GroupID != nil); metadata endpoints (/v1/models GET etc.) intentionally leave GroupID nil but the key IS authorized (its span is resolved per request). Without the IsUniversal() clause, universal keys 403 on metadata endpoints. An upstream merge restoring the original two-condition guard would regress this."
     },
     {
-      "path": "backend/internal/handler/edge_tk_account_ops_handler.go",
-      "must_contain": [
-        "type EdgeAccountOpsHandler struct",
-        "func (h *EdgeAccountOpsHandler) GetActiveUsage",
-        "toEdgeAccountDTO(acc)"
-      ],
-      "rationale": "Edge-side least-privilege account WRITE ops the prod /accounts page proxies to (clear-rate-limit / reset-quota / temp-unschedulable / schedulable / active usage). A WHITELIST of status-class mutations that NEVER touch credentials; each re-emits the same credential-free edgeAccountDTO the read endpoint produces (toEdgeAccountDTO). Mounted behind the active-key middleware PLUS NewEdgeAdminOwnerMiddleware. Guards against silent upstream-merge/refactor deletion of the inline-management write surface."
-    },
-    {
       "path": "backend/internal/server/middleware/edge_admin_owner_tk.go",
       "must_contain": [
         "func NewEdgeAdminOwnerMiddleware",
         "IsAdmin()",
         "IsActive()"
       ],
-      "rationale": "Reusable admin-ownership gate layered on the lightweight edge api-key check: the key OWNER must be an active admin. Required for the edge account WRITE ops (a plain relay key can read inventory but only an admin-owned key may mutate) and reused to tighten the edge read endpoints. Mirrors the inline check in edge_tk_admin_session_handler.go. Guards the elevation gate against silent deletion that would let any active key mutate edge accounts."
-    },
-    {
-      "path": "backend/internal/service/edge_accounts_ops_tk.go",
-      "must_contain": [
-        "func (a *EdgeAccountsAggregator) ForwardAccountOp",
-        "edgeAccountOpSpecs",
-        "ErrUnsupportedEdgeAccountOp"
-      ],
-      "rationale": "Prod-side WRITE proxy: forwards a WHITELISTED edge account op (edgeAccountOpSpecs — a fixed op->method/path map, never caller free text) to the target edge's least-privilege endpoint using the mirror-stub x-api-key, mirroring the read aggregator's fetchEdgeAccounts fan-out (same discovery, timeout, per-edge isolation). Stateless, credential-free. Guards the prod->edge write path + its op whitelist against silent deletion or an op-allowlist widening."
-    },
-    {
-      "path": "backend/internal/handler/admin/edge_account_ops_handler_tk.go",
-      "must_contain": [
-        "type EdgeAccountOpsHandler struct",
-        "ForwardAccountOp",
-        "service.EdgeAccountOpClearRateLimit"
-      ],
-      "rationale": "Prod admin thin-proxy handler mapping POST|DELETE|GET /admin/edge-accounts/:edge/accounts/:id/<op> onto the aggregator's ForwardAccountOp (admin-JWT gated, inherited from /admin). Relays the edge's credential-free response verbatim; unknown edge -> 404, unreachable -> 502. Guards the prod proxy entry against silent deletion that would break inline edge-account management."
+      "rationale": "Reusable admin-ownership gate layered on the lightweight edge api-key check: the key OWNER must be an active admin. Required for the retained internal capacity and Gemini Web control routes, and reused to tighten their read surface. Mirrors the inline checks in the retained route guards. Guards the elevation gate against silent removal that would let any active key invoke internal controls."
     },
     {
       "path": "backend/internal/service/openai_account_scheduler_tk_window_sched.go",
@@ -15182,14 +15068,6 @@
         "h.rateLimitService.ClearObservedUsageWindows(c.Request.Context(), accountID)"
       ],
       "rationale": "Admin RecoverState and ClearRateLimit must clear ObservedUsageWindowExtraKeys so operators wait for fresh upstream evidence after unblock."
-    },
-    {
-      "path": "backend/internal/handler/edge_tk_account_ops_handler.go",
-      "must_contain": [
-        "ClearObservedUsageWindows(ctx context.Context, id int64) error",
-        "h.rateLimit.ClearObservedUsageWindows(c.Request.Context(), id)"
-      ],
-      "rationale": "Edge clear-rate-limit must clear ObservedUsageWindowExtraKeys in lockstep with admin, otherwise edge/prod recover semantics diverge."
     },
     {
       "path": "backend/internal/repository/usage_log_repo_stats.go",

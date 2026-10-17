@@ -19,26 +19,17 @@ from edge_health_delivery import _atomic_write, post_feishu
 
 def build_config(role: str, hostname: str, fresh: dict, matrix: dict, domestic: dict) -> dict:
     """One coverage plan for the mainland observer and independent AWS watch."""
-    if role not in ("prod", "cn-prod", *matrix):
-        raise ValueError("WATCH_ROLE must be prod, cn-prod or a live edge")
-    if role not in ("prod", "cn-prod") and not matrix[role].get("deployable"):
-        raise ValueError("edge not live")
+    if role not in ("prod", "cn-prod"):
+        raise ValueError("WATCH_ROLE must be prod or cn-prod; edge watchers are retired")
     expected = domestic if role == "cn-prod" else fresh["prod"] if role == "prod" else matrix[role]
     if hostname != expected["instance_name"]:
         raise ValueError("host identity mismatch")
-    live = {key: row for key, row in matrix.items() if row.get("deployable") is True}
     targets = {}
     if role == "prod":
-        # Prefer a live edge peer when any remain; otherwise watch cn-prod
-        # (2026-10-17 prod-only: no deployable edges).
-        if "us5" in live:
-            targets["us5"] = "https://" + live["us5"]["domain"] + "/health"
-        elif live:
-            peer = sorted(live)[0]
-            targets[peer] = "https://" + live[peer]["domain"] + "/health"
-        else:
-            targets["cn-prod"] = domestic["public_origin"].rstrip("/") + "/health"
-    elif role in ("us5", "cn-prod"):
+        # The host watcher is a prod/cn-prod service. Edge health belongs to the
+        # retired fleet scanner and must never recreate the former us5 alert.
+        targets["cn-prod"] = domestic["public_origin"].rstrip("/") + "/health"
+    elif role == "cn-prod":
         prod = fresh["prod"]
         targets["prod"] = "https://" + prod["domain"] + "/health"
         for domain in prod["domains"]:
@@ -48,8 +39,6 @@ def build_config(role: str, hostname: str, fresh: dict, matrix: dict, domestic: 
         # never stand in for the independent UCloud static IP endpoint.
         targets["prod:cn-domain"] = "https://" + domestic["fallback_domain"] + "/health"
         targets["cn-prod"] = domestic["public_origin"].rstrip("/") + "/health"
-        if role == "us5":
-            targets.update({key: "https://" + row["domain"] + "/health" for key, row in live.items()})
     jobs = ["tokenkey-disk-metrics"] if role == "cn-prod" else [
         "tokenkey-pgdump", "tokenkey-disk-metrics", "tokenkey-ghcr-prune-daily"]
     if role == "prod":

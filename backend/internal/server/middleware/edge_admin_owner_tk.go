@@ -26,17 +26,12 @@ type edgeAdminOwnerUserLookup interface {
 // which MUST run first for the active-status check), the key's OWNER must be an
 // admin user on this deployment.
 //
-// It is the reusable form of the admin-ownership gate inlined in the edge
-// admin-session mint handler (handler/edge_tk_admin_session_handler.go) — same
-// irreducible guard (user.IsAdmin() && user.IsActive()), here layered onto the
-// edge account WRITE ops (POST/DELETE /api/v1/edge/accounts/:id/<op>) so a plain
-// relay key can READ the credential-free inventory but only an admin-owned key
-// may MUTATE an account. The same gate is what lets §P3 optionally tighten the
-// read endpoints without a second auth mechanism.
+// It applies the same irreducible guard (user.IsAdmin() && user.IsActive()) to
+// retained internal edge control routes. The same gate can tighten read and
+// write endpoints without introducing a second auth mechanism.
 //
-// It re-extracts the key via extractEdgeCapacityKey (the capacity middleware sets
-// no context identity), mirroring the admin-session handler which re-reads the
-// key the middleware already validated.
+// It re-extracts the key via extractEdgeCapacityKey because the capacity
+// middleware does not set a context identity; both gates validate the same key.
 func NewEdgeAdminOwnerMiddleware(keys edgeAdminOwnerKeyLookup, users edgeAdminOwnerUserLookup) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if keys == nil || users == nil {
@@ -62,7 +57,7 @@ func NewEdgeAdminOwnerMiddleware(keys edgeAdminOwnerKeyLookup, users edgeAdminOw
 			return
 		}
 
-		// The elevation gate: only an admin-owned, active key may mutate.
+		// The elevation gate: only an admin-owned, active key may reach the control route.
 		if !user.IsAdmin() || !user.IsActive() {
 			AbortWithError(c, http.StatusForbidden, "ADMIN_REQUIRED", "API key owner must be an active admin")
 			return

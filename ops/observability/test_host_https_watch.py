@@ -21,12 +21,9 @@ class CoveragePlanTest(unittest.TestCase):
         return watch.build_config(role, hostname, self.fresh, self.matrix, self.domestic)
 
     def test_both_observers_cover_cn_ip_and_all_customer_domains(self):
-        # Edge roles require deployable=true; fixture a live us5 for peer coverage.
-        matrix = json.loads(json.dumps(self.matrix))
-        matrix['us5']['deployable'] = True
-        for role, host in [('cn-prod', self.domestic['instance_name']), ('us5', matrix['us5']['instance_name'])]:
+        for role, host in [('cn-prod', self.domestic['instance_name'])]:
             with self.subTest(role=role):
-                config = watch.build_config(role, host, self.fresh, matrix, self.domestic)
+                config = watch.build_config(role, host, self.fresh, self.matrix, self.domestic)
                 targets = config['targets']
                 self.assertEqual(targets['cn-prod'], self.domestic['public_origin'] + '/health')
                 self.assertEqual(targets['prod:cn-domain'], 'https://' + self.domestic['fallback_domain'] + '/health')
@@ -34,10 +31,6 @@ class CoveragePlanTest(unittest.TestCase):
                     self.assertIn('https://' + domain + '/health', targets.values())
         cn = self.config('cn-prod', self.domestic['instance_name'])
         self.assertEqual(cn['jobs'], ['tokenkey-disk-metrics'])
-        us5 = watch.build_config('us5', matrix['us5']['instance_name'], self.fresh, matrix, self.domestic)
-        for edge, row in matrix.items():
-            if row.get('deployable'):
-                self.assertEqual(us5['targets'][edge], 'https://' + row['domain'] + '/health')
 
     def test_refuses_wrong_host_and_retains_prod_monitor_peer(self):
         with self.assertRaisesRegex(ValueError, 'host identity'):
@@ -46,8 +39,19 @@ class CoveragePlanTest(unittest.TestCase):
         # 2026-10-17 prod-only: no live edge peer → watch cn-prod.
         self.assertEqual(prod['targets'], {'cn-prod': self.domestic['public_origin'].rstrip('/') + '/health'})
         self.assertIn('tokenkey-qa-maintenance', prod['jobs'])
-        with self.assertRaisesRegex(ValueError, 'edge not live'):
+        with self.assertRaisesRegex(ValueError, 'edge watchers are retired'):
             self.config('us5', self.matrix['us5']['instance_name'])
+
+    def test_prod_watch_never_reintroduces_retired_edge_alert_target(self):
+        matrix = json.loads(json.dumps(self.matrix))
+        matrix['us5']['deployable'] = True
+        config = watch.build_config(
+            'prod', self.fresh['prod']['instance_name'], self.fresh, matrix, self.domestic
+        )
+        self.assertEqual(
+            config['targets'],
+            {'cn-prod': self.domestic['public_origin'].rstrip('/') + '/health'},
+        )
 
 
 class HealthBodyTest(unittest.TestCase):
@@ -83,10 +87,10 @@ class HostHTTPSWatchTest(unittest.TestCase):
         sent = []
         targets = {'cn-prod': 'https://example.invalid/health'}
         probe = lambda _: {'healthy': False, 'http_code': 200, 'error': 'unexpected health response'}
-        state = watch.tick(targets, {}, 1000, probe, sent.append, 'us5')
-        state = watch.tick(targets, state, 1120, probe, sent.append, 'us5')
+        state = watch.tick(targets, {}, 1000, probe, sent.append, 'cn-prod')
+        state = watch.tick(targets, state, 1120, probe, sent.append, 'cn-prod')
         self.assertEqual(len(sent), 1)
-        self.assertIn('探测节点：us5', sent[0])
+        self.assertIn('探测节点：cn-prod', sent[0])
         self.assertIn(targets['cn-prod'], sent[0])
         self.assertIn('unexpected health response', sent[0])
         self.assertEqual(state['cn-prod']['http_code'], 200)
