@@ -130,6 +130,7 @@ type APIKeyMutation struct {
 	name               *string
 	status             *string
 	routing_mode       *apikey.RoutingMode
+	routing_preference *apikey.RoutingPreference
 	last_used_at       *time.Time
 	ip_whitelist       *[]string
 	appendip_whitelist []string
@@ -614,6 +615,42 @@ func (m *APIKeyMutation) OldRoutingMode(ctx context.Context) (v apikey.RoutingMo
 // ResetRoutingMode resets all changes to the "routing_mode" field.
 func (m *APIKeyMutation) ResetRoutingMode() {
 	m.routing_mode = nil
+}
+
+// SetRoutingPreference sets the "routing_preference" field.
+func (m *APIKeyMutation) SetRoutingPreference(ap apikey.RoutingPreference) {
+	m.routing_preference = &ap
+}
+
+// RoutingPreference returns the value of the "routing_preference" field in the mutation.
+func (m *APIKeyMutation) RoutingPreference() (r apikey.RoutingPreference, exists bool) {
+	v := m.routing_preference
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRoutingPreference returns the old "routing_preference" field's value of the APIKey entity.
+// If the APIKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *APIKeyMutation) OldRoutingPreference(ctx context.Context) (v apikey.RoutingPreference, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRoutingPreference is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRoutingPreference requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRoutingPreference: %w", err)
+	}
+	return oldValue.RoutingPreference, nil
+}
+
+// ResetRoutingPreference resets all changes to the "routing_preference" field.
+func (m *APIKeyMutation) ResetRoutingPreference() {
+	m.routing_preference = nil
 }
 
 // SetLastUsedAt sets the "last_used_at" field.
@@ -1581,7 +1618,7 @@ func (m *APIKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *APIKeyMutation) Fields() []string {
-	fields := make([]string, 0, 24)
+	fields := make([]string, 0, 25)
 	if m.created_at != nil {
 		fields = append(fields, apikey.FieldCreatedAt)
 	}
@@ -1608,6 +1645,9 @@ func (m *APIKeyMutation) Fields() []string {
 	}
 	if m.routing_mode != nil {
 		fields = append(fields, apikey.FieldRoutingMode)
+	}
+	if m.routing_preference != nil {
+		fields = append(fields, apikey.FieldRoutingPreference)
 	}
 	if m.last_used_at != nil {
 		fields = append(fields, apikey.FieldLastUsedAt)
@@ -1680,6 +1720,8 @@ func (m *APIKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.Status()
 	case apikey.FieldRoutingMode:
 		return m.RoutingMode()
+	case apikey.FieldRoutingPreference:
+		return m.RoutingPreference()
 	case apikey.FieldLastUsedAt:
 		return m.LastUsedAt()
 	case apikey.FieldIPWhitelist:
@@ -1737,6 +1779,8 @@ func (m *APIKeyMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldStatus(ctx)
 	case apikey.FieldRoutingMode:
 		return m.OldRoutingMode(ctx)
+	case apikey.FieldRoutingPreference:
+		return m.OldRoutingPreference(ctx)
 	case apikey.FieldLastUsedAt:
 		return m.OldLastUsedAt(ctx)
 	case apikey.FieldIPWhitelist:
@@ -1838,6 +1882,13 @@ func (m *APIKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetRoutingMode(v)
+		return nil
+	case apikey.FieldRoutingPreference:
+		v, ok := value.(apikey.RoutingPreference)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRoutingPreference(v)
 		return nil
 	case apikey.FieldLastUsedAt:
 		v, ok := value.(time.Time)
@@ -2175,6 +2226,9 @@ func (m *APIKeyMutation) ResetField(name string) error {
 		return nil
 	case apikey.FieldRoutingMode:
 		m.ResetRoutingMode()
+		return nil
+	case apikey.FieldRoutingPreference:
+		m.ResetRoutingPreference()
 		return nil
 	case apikey.FieldLastUsedAt:
 		m.ResetLastUsedAt()

@@ -11353,7 +11353,7 @@
     {
       "path": "backend/internal/service/api_key_auth_cache_impl.go",
       "must_contain": [
-        "apiKeyAuthSnapshotVersion = 24",
+        "apiKeyAuthSnapshotVersion = 25",
         "apiKey.Group.StickyRoutingMode",
         "apiKey.Group.MessagesCompactionEnabled",
         "apiKey.Group.MessagesCompactionInputTokensThreshold",

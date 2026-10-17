@@ -24,6 +24,14 @@ const (
 	RoutingModeUniversal = "universal"
 )
 
+// RoutingPreference controls candidate ordering only. Eligibility, health,
+// capacity and billing gates remain authoritative, and every preference has
+// the normal candidate pool as fallback.
+const (
+	RoutingPreferenceDefault       = "default"
+	RoutingPreferenceTokenseaFirst = "tokensea_first"
+)
+
 // Rate limit window durations
 const (
 	RateLimitWindow5h = 5 * time.Hour
@@ -47,8 +55,10 @@ type APIKey struct {
 	// RoutingMode: "direct" (bound to GroupID) | "universal" (全能 Key, resolve
 	// backing group per request). Empty string is treated as "direct".
 	RoutingMode string
-	IPWhitelist []string
-	IPBlacklist []string
+	// RoutingPreference controls candidate ordering only. Empty means default.
+	RoutingPreference string
+	IPWhitelist       []string
+	IPBlacklist       []string
 	// 预编译的 IP 规则，用于认证热路径避免重复 ParseIP/ParseCIDR。
 	CompiledIPWhitelist *ip.CompiledIPRules `json:"-"`
 	CompiledIPBlacklist *ip.CompiledIPRules `json:"-"`

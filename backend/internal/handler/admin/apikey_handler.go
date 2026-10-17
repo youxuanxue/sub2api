@@ -15,10 +15,15 @@ type adminUserAPIKeyCreator interface {
 	CreateAsAdmin(ctx context.Context, userID int64, req service.CreateAPIKeyRequest) (*service.APIKey, error)
 }
 
+type adminAPIKeyUpdater interface {
+	Update(ctx context.Context, id int64, userID int64, req service.UpdateAPIKeyRequest) (*service.APIKey, error)
+}
+
 // AdminAPIKeyHandler handles admin API key management
 type AdminAPIKeyHandler struct {
 	adminService  service.AdminService
 	apiKeyCreator adminUserAPIKeyCreator
+	apiKeyUpdater adminAPIKeyUpdater
 }
 
 // NewAdminAPIKeyHandler creates a new admin API key handler
@@ -26,28 +31,31 @@ func NewAdminAPIKeyHandler(adminService service.AdminService, apiKeyService *ser
 	return &AdminAPIKeyHandler{
 		adminService:  adminService,
 		apiKeyCreator: apiKeyService,
+		apiKeyUpdater: apiKeyService,
 	}
 }
 
 // AdminCreateUserAPIKeyRequest is the admin payload for issuing a user API key.
 type AdminCreateUserAPIKeyRequest struct {
-	Name          string   `json:"name" binding:"required"`
-	GroupID       *int64   `json:"group_id"`
-	RoutingMode   *string  `json:"routing_mode" binding:"omitempty,oneof=direct universal"`
-	CustomKey     *string  `json:"custom_key"`
-	IPWhitelist   []string `json:"ip_whitelist"`
-	IPBlacklist   []string `json:"ip_blacklist"`
-	Quota         *float64 `json:"quota"`
-	ExpiresInDays *int     `json:"expires_in_days"`
-	RateLimit5h   *float64 `json:"rate_limit_5h"`
-	RateLimit1d   *float64 `json:"rate_limit_1d"`
-	RateLimit7d   *float64 `json:"rate_limit_7d"`
+	Name              string   `json:"name" binding:"required"`
+	GroupID           *int64   `json:"group_id"`
+	RoutingMode       *string  `json:"routing_mode" binding:"omitempty,oneof=direct universal"`
+	CustomKey         *string  `json:"custom_key"`
+	IPWhitelist       []string `json:"ip_whitelist"`
+	IPBlacklist       []string `json:"ip_blacklist"`
+	Quota             *float64 `json:"quota"`
+	ExpiresInDays     *int     `json:"expires_in_days"`
+	RateLimit5h       *float64 `json:"rate_limit_5h"`
+	RateLimit1d       *float64 `json:"rate_limit_1d"`
+	RateLimit7d       *float64 `json:"rate_limit_7d"`
+	RoutingPreference *string  `json:"routing_preference" binding:"omitempty,oneof=default tokensea_first"`
 }
 
 // AdminUpdateAPIKeyGroupRequest represents the request to update an API key.
 type AdminUpdateAPIKeyGroupRequest struct {
-	GroupID             *int64 `json:"group_id"`               // nil=不修改, 0=解绑, >0=绑定到目标分组
-	ResetRateLimitUsage *bool  `json:"reset_rate_limit_usage"` // true=重置 5h/1d/7d 限速用量
+	GroupID             *int64  `json:"group_id"`               // nil=不修改, 0=解绑, >0=绑定到目标分组
+	ResetRateLimitUsage *bool   `json:"reset_rate_limit_usage"` // true=重置 5h/1d/7d 限速用量
+	RoutingPreference   *string `json:"routing_preference" binding:"omitempty,oneof=default tokensea_first"`
 }
 
 // UpdateGroup handles updating an API key's admin-managed fields.
@@ -82,6 +90,20 @@ func (h *AdminAPIKeyHandler) UpdateGroup(c *gin.Context) {
 	if resetKey != nil && req.GroupID == nil {
 		result.APIKey = resetKey
 	}
+	if req.RoutingPreference != nil {
+		if h.apiKeyUpdater == nil || result.APIKey == nil {
+			response.InternalError(c, "API key updater is not configured")
+			return
+		}
+		updated, updateErr := h.apiKeyUpdater.Update(c.Request.Context(), keyID, result.APIKey.UserID, service.UpdateAPIKeyRequest{
+			RoutingPreference: req.RoutingPreference,
+		})
+		if updateErr != nil {
+			response.ErrorFrom(c, updateErr)
+			return
+		}
+		result.APIKey = updated
+	}
 
 	resp := struct {
 		APIKey                 *dto.APIKey `json:"api_key"`
@@ -113,13 +135,14 @@ func (h *AdminAPIKeyHandler) CreateForUser(c *gin.Context) {
 	}
 
 	svcReq := service.CreateAPIKeyRequest{
-		Name:          req.Name,
-		GroupID:       req.GroupID,
-		RoutingMode:   req.RoutingMode,
-		CustomKey:     req.CustomKey,
-		IPWhitelist:   req.IPWhitelist,
-		IPBlacklist:   req.IPBlacklist,
-		ExpiresInDays: req.ExpiresInDays,
+		Name:              req.Name,
+		GroupID:           req.GroupID,
+		RoutingMode:       req.RoutingMode,
+		RoutingPreference: req.RoutingPreference,
+		CustomKey:         req.CustomKey,
+		IPWhitelist:       req.IPWhitelist,
+		IPBlacklist:       req.IPBlacklist,
+		ExpiresInDays:     req.ExpiresInDays,
 	}
 	if req.Quota != nil {
 		svcReq.Quota = *req.Quota
@@ -135,10 +158,11 @@ func (h *AdminAPIKeyHandler) CreateForUser(c *gin.Context) {
 	}
 
 	idempotencyPayload := map[string]any{
-		"user_id":      userID,
-		"name":         req.Name,
-		"group_id":     req.GroupID,
-		"routing_mode": req.RoutingMode,
+		"user_id":            userID,
+		"name":               req.Name,
+		"group_id":           req.GroupID,
+		"routing_mode":       req.RoutingMode,
+		"routing_preference": req.RoutingPreference,
 	}
 
 	executeAdminIdempotentJSON(c, "admin.users.api_keys.create", idempotencyPayload, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {

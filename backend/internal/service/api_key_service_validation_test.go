@@ -44,3 +44,10 @@ func TestValidateUpdateAPIKeyRequestNumericLimits(t *testing.T) {
 		require.Error(t, validateUpdateAPIKeyRequest(req))
 	}
 }
+
+func TestValidateRoutingPreference(t *testing.T) {
+	valid := RoutingPreferenceTokenseaFirst
+	require.NoError(t, validateUpdateAPIKeyRequest(UpdateAPIKeyRequest{RoutingPreference: &valid}))
+	invalid := "kiro_first"
+	require.ErrorIs(t, validateUpdateAPIKeyRequest(UpdateAPIKeyRequest{RoutingPreference: &invalid}), ErrInvalidRoutingPreference)
+}
