@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fcntl
+import fnmatch
 import gzip
 import json
 import os
@@ -117,7 +118,7 @@ class HostLockTests(unittest.TestCase):
         script = self.root / "pgdump.sh"
         script.write_text(body)
         docker = self.root / "bin/docker"
-        docker.write_text('#!/bin/bash\nprintf dump > "$TEST_DOCKER_LOG"\nhead -c 50000 /dev/urandom\n')
+        docker.write_text('#!/bin/bash\nprintf "%s\\0" "$@" > "$TEST_DOCKER_LOG"\nhead -c 50000 /dev/urandom\n')
         docker.chmod(0o755)
         return script, dumps
 
@@ -148,6 +149,29 @@ class HostLockTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(uploaded.read_text(), "upload under exclusive QA lease")
         self.assertEqual(len(list(dumps.glob("*.sql.gz"))), 1)
+
+    def test_dump_includes_reconciliation_detail_and_excludes_operational_rows(self):
+        script, _ = self.dump_script()
+        result = subprocess.run(["bash", str(script)], env=self.env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = self.docker_log.read_bytes().decode().rstrip("\0").split("\0")
+        # Inspect the effective pg_dump invocation, including argument quoting.
+        dump_args = args[args.index("-U"):]
+        excluded = [arg.split("=", 1)[1] for arg in dump_args if arg.startswith("--exclude-table-data=")]
+        self.assertEqual(dump_args, ["-U", "tokenkey", "-d", "tokenkey", "--format=plain", "--no-owner",
+                                     *[f"--exclude-table-data={pattern}" for pattern in excluded]])
+        cases = {
+            "usage_billing_dedup": True,
+            "usage_logs": True,
+            "usage_logs_20261017": True,
+            "usage_logs_default": True,
+            "ops_system_logs": False,
+            "ops_error_logs_20261017": False,
+            "qa_records_default": False,
+        }
+        for table, included in cases.items():
+            with self.subTest(table=table):
+                self.assertEqual(not any(fnmatch.fnmatchcase(table, glob) for glob in excluded), included)
 
     def test_dump_lock_timeout_does_not_prune_existing_backup(self):
         script, dumps = self.dump_script()

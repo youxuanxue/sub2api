@@ -1,7 +1,8 @@
 #!/bin/bash
 # Shared host pg_dump (every 2 hours): Hetzner renderers; EC2 bootstrap is standby.
 # PRECIOUS-CLASS dump: schema for all tables + data for everything EXCEPT the
-# bulky reconstructible log tables (see EXCLUDE_DATA_GLOBS below). A restore is
+# operational logs and QA raw (see EXCLUDE_DATA_GLOBS below). Usage detail is
+# included for user reconciliation alongside the billing ledger. A restore is
 # structurally complete; the excluded log tables come back empty and refill from
 # live traffic. Recovery owner: deploy/hetzner/README.md.
 # Off-box: private /etc/tokenkey/pgdump-storage.json on Hetzner; standby uses
@@ -48,21 +49,17 @@ find "${DUMP_DIR}" -maxdepth 1 -type f -name 'pre-*.dump' -delete 2>/dev/null ||
 # Prune BEFORE dumping so a near-full volume frees space first (dead-lock fix).
 prune_rolling
 
-# Precious-class dump. This periodic dump exists to protect the IRREPLACEABLE data
-# (the billing ledger usage_billing_dedup + all OLTP/config) — NOT the bulky,
-# reconstructible time-series LOG tables. Pre-tiering the full-DB dump dragged
-# ~8GB of logs (ops_system_logs 4.3G + usage_logs 2.3G + ops_error_logs 1.4G +
-# qa_records ~0.8G) into each periodic copy, and the dump's own footprint was the
-# disk-full fuse (2026-06-15 prod P0). We use --exclude-table-data (NOT
-# --exclude-table) so the table SCHEMA is still dumped and a restore stays
-# structurally complete — only the rows are dropped; these tables refill from
-# live traffic and carry their own DELETE/partition retention. New tables are
-# dumped by default (precious-safe — a new ledger table is never silently
-# missed); if a new BULKY table appears it just needs adding here, and disk
-# growth is already covered by the >=85% data-volume alert.
+# Back up the billing ledger, OLTP/config and all retained usage_logs rows,
+# including daily/default partitions, in the same pg_dump snapshot. The ledger
+# alone cannot reconstruct the per-request detail needed for user reconciliation.
+# Keep operational logs and separately archived QA raw out of periodic copies.
+# --exclude-table-data preserves their schema so a restore stays structurally
+# complete. New tables and usage partitions are included by default.
+# Usage detail increases dump size and duration: verify local rolling-copy space,
+# off-box upload and isolated restore before claiming the two-hour usage RPO.
+# Retention/pruning and the data-volume alert remain the disk-growth safeguards.
 EXCLUDE_DATA_GLOBS=(
   'ops_system_logs*'   # ~4.3G operational system logs (own retention)
-  'usage_logs*'        # ~2.3G per-request usage detail (NOT billing SoT post-071; 90d retention)
   'ops_error_logs*'    # ~1.4G operational error logs (own retention)
   'qa_records*'        # QA row data is excluded; only the dedicated raw-QA archive is its history backup
 )
