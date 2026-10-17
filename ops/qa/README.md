@@ -1,7 +1,14 @@
 # QA Operations
 
-QA is raw-only. Production capture is sealed, archived to the private raw object
-store, restore-verified, and cleaned by `tokenkey-qa-maintenance.timer`.
+**当前运行策略（2026-10-17）：** 用户已暂停向 AWS S3 上传 QA。当前 prod 清单
+`deploy/aws/fresh-migration-20261015.json` 的 `paused_jobs` 是暂停 owner；
+`tokenkey-qa-maintenance` 应 disabled/inactive，capture 与 boundary 独立保留。
+配置中的 AWS S3 坐标代表恢复/未来归档能力，不代表允许上传。普通发布和宿主脚本更新
+应保持原 timer 状态；恢复上传须明确授权并同步暂停 owner 与 watcher 配置。
+以下带日期的存储验收是历史记录，不证明当前归档任务在运行。
+
+QA is raw-only. When explicitly enabled, production capture is sealed, archived to the private raw object
+store, restore-verified, and cleaned by `tokenkey-qa-maintenance.timer`. Uploads are currently paused.
 
 The lifecycle owner is `deploy/aws/stage0/tokenkey-qa-maintenance.sh`; policy is
 `ops/qa/policy.yaml` and rollout state is `ops/qa/deploy_rollout.yaml`. Edge

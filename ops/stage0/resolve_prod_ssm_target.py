@@ -2,7 +2,7 @@
 """Resolve Stage0 prod SSM control-plane target.
 
 ``--target auto`` uses the fresh AWS prod. ``PROD_SSM_TARGET`` may explicitly
-select ``aws`` for standby recovery; there is no remote cutover flag or silent
+select historical modes, which reject retired identities; there is no remote cutover flag or silent
 fallback to EC2 when permissions, credentials or inventory are unavailable.
 
 Hetzner instance id is resolved from SSM inventory by ComputerName matching
@@ -21,9 +21,10 @@ import sys
 from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "ops/stage0"))
+from edge_routing_matrix import reject_retired_target
 DEFAULT_MATRIX = REPO_ROOT / "deploy/hetzner/prod-target-hetzner.json"
 FRESH_MATRIX = REPO_ROOT / "deploy/aws/fresh-migration-20261015.json"
-AWS_REGION = "us-east-1"
 AWS_STACK = "tokenkey-prod-stage0"
 INSTANCE_RE = re.compile(r"^(?:i|mi)-[0-9a-f]{8,}$")
 
@@ -71,45 +72,11 @@ def with_browser_origin(outputs: dict[str, str]) -> dict[str, str]:
 
 
 def resolve_aws(stack: str) -> dict[str, str]:
-    rows = aws_json(
-        [
-            "cloudformation",
-            "describe-stacks",
-            "--region",
-            AWS_REGION,
-            "--stack-name",
-            stack,
-            "--query",
-            "Stacks[0].Outputs",
-        ]
-    )
-    if not isinstance(rows, list):
-        fail(f"no outputs for stack {stack}")
-    mapping = {
-        str(r.get("OutputKey")): str(r.get("OutputValue") or "")
-        for r in rows
-        if isinstance(r, dict)
-    }
-    instance_id = mapping.get("InstanceId", "")
-    api_url = mapping.get("ApiUrl", "")
-    if not INSTANCE_RE.match(instance_id) or not instance_id.startswith("i-"):
-        fail(f"invalid AWS InstanceId for {stack}: {instance_id!r}")
-    if not api_url.startswith("https://"):
-        fail(f"invalid ApiUrl for {stack}: {api_url!r}")
-    return with_browser_origin(
-        {
-            "target": "aws",
-            "instance_id": instance_id,
-            "ssm_region": AWS_REGION,
-            "api_url": api_url,
-            "deploy_profile": "prod",
-            "platform": "aws",
-        }
-    )
+    fail("target=aws is retired: old US prod instances were deleted; use auto/aws-fresh for current prod")
 
 
 def resolve_fresh_aws() -> dict[str, str]:
-    """Explicit candidate identity; never resolve the old CloudFormation instance."""
+    """Current prod identity; never resolve the retired CloudFormation instance."""
     inventory = json.loads(FRESH_MATRIX.read_text(encoding="utf-8"))
     target = inventory["prod"]
     region, iid = target["region"], target["instance_id"]
@@ -160,6 +127,7 @@ def list_instance_information(region: str) -> list[dict[str, Any]]:
 
 def resolve_hetzner(matrix_path: pathlib.Path) -> dict[str, str]:
     target = load_hetzner_matrix(matrix_path)
+    reject_retired_target(target, "hetzner prod")
     name = str(target.get("instance_name") or "")
     region = str(target.get("ssm_region") or "eu-west-2")
     domain = str(target.get("domain") or "api.tokenkey.dev")
@@ -207,7 +175,7 @@ def main() -> int:
         "--target",
         choices=("auto", "aws", "aws-fresh", "hetzner"),
         default="auto",
-        help="auto defaults to aws-fresh; PROD_SSM_TARGET=aws explicitly selects historical standby",
+        help="auto defaults to aws-fresh; historical aws/hetzner identities are retired",
     )
     parser.add_argument("--stack", default=AWS_STACK)
     parser.add_argument("--matrix", default="")

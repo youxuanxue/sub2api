@@ -51,6 +51,16 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
         self.assertEqual(route["confirm_value"], expected_instance)
         self.assertTrue(expected_instance)
 
+    def test_retired_dispatch_cannot_use_allow_planned(self):
+        for platform in ("lightsail", "hetzner"):
+            with self.subTest(platform=platform):
+                proc = subprocess.run([sys.executable, str(SCRIPT), "--edge-id", "uk1",
+                                       "--platform", platform, "--allow-planned", "--json"],
+                                      capture_output=True, text=True)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn("retired", proc.stderr)
+                self.assertEqual(proc.stdout, "")
+
     def test_non_deployable_edge_fails(self) -> None:
         proc = subprocess.run(
             [sys.executable, str(SCRIPT), "--edge-id", "fra1", "--json"],

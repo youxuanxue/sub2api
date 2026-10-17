@@ -27,7 +27,7 @@ release、目标解析、canary 选择、rollout、smoke/post-check verdict 均�
    `dispatch-prod-deploy.sh --operation deploy` → CI `tk_post_deploy_smoke: OK`。
 3. `target=all`：**仅在人类重新批准 edge 矩阵 `deployable=true` 后**才走 canary /
    `rollout-edges.sh`；默认 `--list-deployable` 为空，等同 `target=prod`。
-4. 单 edge（standby）：须 `--platform lightsail|hetzner --allow-planned`，勿手选 workflow。
+4. 当前无可部署 edge；`retired=true` 即使 `--allow-planned` 也拒绝。新建须先有独立批准的新身份，勿复用旧 IP/实例。
 5. 两阶段实测：`ops/observability/run-post-release-check.sh` + `scripts/release_post_check.py`
    （`--phase immediate` / `--phase delayed`；禁止模型自造 verdict）。
    Workflow 步骤名与 Summary 标题必须对齐：`Check PR hooks immediately`、
@@ -51,7 +51,7 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 例外：
 
 - `target=prod`：只发版/部署 prod（**默认路径**）。
-- `target=edge-<edge_id>`：standby 显式批准后才升级；默认矩阵拒绝。
+- `target=edge-<edge_id>`：已退役身份一律拒绝；仅另行批准并纳入矩阵的新身份可部署。
 
 ## 故障速查
 
