@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Prepare a selected-edge cutover patch and actions; never change live pointers."""
+"""HISTORICAL (2026-10-15 AWS edge cutover helper).
+
+Do **not** use after 2026-10-17 prod-only retirement to rewrite live fleet
+docs/matrices. Edit `deploy/hetzner/README.md`, Lightsail/Hetzner JSON, and
+`ops/stage0/edge_routing_matrix.EXPECTED_LIVE_EDGE_IDS` together instead.
+Pass ``--force-historical`` only when replaying the 2026-10-15 cutover patch.
+"""
 import argparse
 import difflib
 import json
@@ -129,7 +135,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--edge', action='append', required=True, choices=['us4', 'us5', 'uk1', 'uk2'])
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument(
+        '--force-historical',
+        action='store_true',
+        help='Required: this helper is retired for live fleet edits after 2026-10-17.',
+    )
     args = parser.parse_args()
+    if not args.force_historical:
+        raise SystemExit(
+            'prepare-aws-control-plane is historical (2026-10-15). '
+            'Do not rewrite live fleet matrices/README with it. '
+            'Pass --force-historical only to replay that cutover patch.'
+        )
     edges = sorted(set(args.edge))
     inventory, before, after = render(edges)
     verify(inventory, after, edges)

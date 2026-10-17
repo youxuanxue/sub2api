@@ -422,11 +422,20 @@ def build_plan(
 ) -> dict[str, Any]:
     profile = require_implemented(platform)
     deployable = {e["edge_id"] for e in list_deployable_edges()}
+    if not deployable:
+        die(
+            "no deployable edges (retired 2026-10-17: Lightsail deployable=false; "
+            "prod edge-relay stubs soft-deleted). Re-approve an edge matrix row "
+            "before onboard apply"
+        )
     edges_out: list[dict[str, Any]] = []
     for raw in edge_ids:
         eid = normalize_edge_id(raw)
         if eid not in deployable:
-            die(f"edge_id {eid!r} not in deployable Hetzner targets")
+            die(
+                f"edge_id {eid!r} not in deployable edge targets "
+                "(edge deploy retired; resolve-edge-target --list-deployable is empty)"
+            )
         edges_out.append(
             {
                 "edge_id": eid,

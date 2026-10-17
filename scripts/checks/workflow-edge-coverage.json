@@ -23,24 +23,7 @@
       "input": "target",
       "option_prefix": "edge-",
       "required_set": "all-deployable",
-      "opt_out_edges": [
-        {
-          "id": "uk1",
-          "reason": "This maintenance workflow targets prod only; Edge timers are installed by the Hetzner bootstrap."
-        },
-        {
-          "id": "uk2",
-          "reason": "This maintenance workflow targets prod only; Edge timers are installed by the Hetzner bootstrap."
-        },
-        {
-          "id": "us4",
-          "reason": "This maintenance workflow targets prod only; Edge timers are installed by the Hetzner bootstrap."
-        },
-        {
-          "id": "us5",
-          "reason": "This maintenance workflow targets prod only; Edge timers are installed by the Hetzner bootstrap."
-        }
-      ]
+      "opt_out_edges": []
     }
   }
 }

@@ -29,7 +29,15 @@ def build_config(role: str, hostname: str, fresh: dict, matrix: dict, domestic: 
     live = {key: row for key, row in matrix.items() if row.get("deployable") is True}
     targets = {}
     if role == "prod":
-        targets["us5"] = "https://" + live["us5"]["domain"] + "/health"
+        # Prefer a live edge peer when any remain; otherwise watch cn-prod
+        # (2026-10-17 prod-only: no deployable edges).
+        if "us5" in live:
+            targets["us5"] = "https://" + live["us5"]["domain"] + "/health"
+        elif live:
+            peer = sorted(live)[0]
+            targets[peer] = "https://" + live[peer]["domain"] + "/health"
+        else:
+            targets["cn-prod"] = domestic["public_origin"].rstrip("/") + "/health"
     elif role in ("us5", "cn-prod"):
         prod = fresh["prod"]
         targets["prod"] = "https://" + prod["domain"] + "/health"

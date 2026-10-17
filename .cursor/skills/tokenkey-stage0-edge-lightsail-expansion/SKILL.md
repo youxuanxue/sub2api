@@ -1,13 +1,13 @@
 ---
 name: tokenkey-stage0-edge-lightsail-expansion
 description: >-
-  Provision/recover a TokenKey Lightsail edge (live fleet). Image upgrades use
-  tokenkey-stage0-release-rollout; Hetzner edge matrices are historical only.
+  RETIRED default (2026-10-17 prod-only): provision/recover Lightsail edge only
+  after human re-approval. Image upgrades: tokenkey-stage0-release-rollout.
 ---
 
 # TokenKey：Lightsail Edge 全流程
 
-**现网活边 SSOT：** [`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)。日常升级走 release-rollout / `dispatch-edge-deploy.sh`（auto → Lightsail）。本 skill 只做 Lightsail **provision/重建/回滚**；`deployable=false` 勿临时改 true。权威纪律见根 `CLAUDE.md`。
+**退役默认：** 勿 provision；恢复须改矩阵 + `EXPECTED_LIVE_EDGE_IDS` + [fleet README](../../../deploy/hetzner/README.md)。本 skill 只做 Lightsail provision/重建/回滚。
 
 ## 执行 owner
 

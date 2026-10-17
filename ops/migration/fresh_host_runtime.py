@@ -19,6 +19,13 @@ import sys
 import time
 
 try:
+    from .fresh_host_delta import CANDIDATES as MIGRATION_SOURCES
+    from .standard_freeze_delta import sequence_guard_sql
+except ImportError:
+    from fresh_host_delta import CANDIDATES as MIGRATION_SOURCES
+    from standard_freeze_delta import sequence_guard_sql
+
+try:
     from ops.lib.resolve_app_container import CANDIDATES, resolve
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
@@ -26,6 +33,12 @@ except ModuleNotFoundError:
 
 R = Path('/var/lib/tokenkey')
 NET = 'tokenkey_tokenkey-network'
+# The same exact candidate identity protects both check and activation.
+PROD_HOST = 'tokenkey-prod-tokyo-20261017'
+COMPOSE_NET_LABELS = {
+    'com.docker.compose.network': 'tokenkey-network',
+    'com.docker.compose.project': 'tokenkey',
+}
 
 
 def run(*args):
@@ -51,11 +64,25 @@ def mounts(container):
 def expected_host(node):
     if node not in ('prod', 'us4', 'us5', 'uk1', 'uk2'):
         raise ValueError('unknown node')
-    return 'tokenkey-prod-aws-20261015' if node == 'prod' else f'tokenkey-edge-{node}-aws-20261015'
+    return PROD_HOST if node == 'prod' else f'tokenkey-edge-{node}-aws-20261015'
+
+
+def require_compose_network_labels(network):
+    """Compose refuses networks that exist without its ownership labels.
+
+    Tokyo 2026-10-17: bare `docker network create` left Internal=false but
+    empty com.docker.compose.* labels; bluegreen systemd start failed immediately.
+    """
+    labels = network.get('Labels') or {}
+    for key, value in COMPOSE_NET_LABELS.items():
+        if labels.get(key) != value:
+            raise ValueError('compose network label missing or wrong: ' + key)
 
 
 def check(node):
-    if socket.gethostname() != expected_host(node):
+    host = socket.gethostname()
+    expected = expected_host(node)
+    if host != expected:
         raise ValueError('wrong candidate hostname')
     if not (R / 'migration/DATA_SYNC_HOLD').is_file():
         raise ValueError('candidate hold missing')
@@ -64,6 +91,7 @@ def check(node):
     network = json.loads(run('docker', 'network', 'inspect', NET))[0]
     if network['Internal'] is not True:
         raise ValueError('candidate network is not internal')
+    require_compose_network_labels(network)
     for unit in ('tokenkey.service', 'tokenkey-pgdump.timer', 'tokenkey-pgdump.service'):
         if run('systemctl', 'show', unit, '-p', 'ActiveState', '--value') != 'inactive':
             raise ValueError('candidate unit not inactive: ' + unit)
@@ -110,7 +138,7 @@ def check(node):
 
 
 def validate_final(receipt, node, now):
-    expected_source = 'tokenkey-prod-hz-cax21' if node == 'prod' else f'tokenkey-edge-{node}-hz-cax21'
+    expected_source = MIGRATION_SOURCES[expected_host(node)]
     if (receipt.get('state') != 'synced' or receipt.get('final_freeze_verified') is not True or
         receipt.get('node') != node or receipt['candidate']['instance_name'] != expected_host(node) or
         receipt['source']['instance_name'] != expected_source or
@@ -137,26 +165,41 @@ def wait_ready(check_fn, seconds=90):
     raise RuntimeError('runtime readiness deadline exceeded')
 
 
-def replace_network(network, containers):
+def replace_network(network, containers, *, internal=None):
+    """Recreate the compose-owned network. Preserve/force compose labels.
+
+    internal=None keeps the previous Internal flag; False opens public listeners
+    for activation. Labels are always merged with COMPOSE_NET_LABELS so a bare
+    create cannot strand the bluegreen unit.
+    """
     run('docker', 'stop', '--time', '60', 'tokenkey-postgres')
     attached = [c for c in containers if NET in c['NetworkSettings']['Networks']]
     for c in attached:
         run('docker', 'network', 'disconnect', '-f', NET, c['Id'])
     run('docker', 'network', 'rm', NET)
     cmd = ['docker', 'network', 'create', '--driver', network['Driver']]
+    want_internal = network.get('Internal') if internal is None else bool(internal)
+    if want_internal:
+        cmd.append('--internal')
     for k, v in network.get('Options', {}).items():
         cmd += ['--opt', k + '=' + v]
     if network.get('EnableIPv6'):
         cmd += ['--ipv6']
     for k, v in (network['IPAM'].get('Options') or {}).items():
         cmd += ['--ipam-opt', k + '=' + v]
-    for k, v in network.get('Labels', {}).items():
+    labels = dict(network.get('Labels') or {})
+    labels.update(COMPOSE_NET_LABELS)
+    for k, v in labels.items():
         cmd += ['--label', k + '=' + v]
     for row in network['IPAM']['Config']:
         cmd += ['--subnet', row['Subnet']]
         if row.get('Gateway'):
             cmd += ['--gateway', row['Gateway']]
     run(*cmd, NET)
+    created = json.loads(run('docker', 'network', 'inspect', NET))[0]
+    require_compose_network_labels(created)
+    if created.get('Internal') is not want_internal:
+        raise RuntimeError('network Internal flag drift after recreate')
     for c in attached:
         cmd = ['docker', 'network', 'connect']
         for alias in c['NetworkSettings']['Networks'][NET].get('Aliases') or []:
@@ -197,6 +240,12 @@ def start_services(color, *, worker=True):
 def activate(node, receipt, caddy, caddy_sha, prod_ip=None):
     validate_final(receipt, node, time.time())
     color, network, pg = check(node)
+    # Candidate is still held: reject an omitted partition-parent sequence
+    # before opening its network or enabling any writer.
+    run('docker', 'exec', '-e',
+        'PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=120000 -c lock_timeout=1000',
+        'tokenkey-postgres', 'psql', '-Xq', '-v', 'ON_ERROR_STOP=1',
+        '-U', 'tokenkey', '-d', 'tokenkey', '-c', sequence_guard_sql())
     if hashlib.sha256(caddy.read_bytes()).hexdigest() != caddy_sha:
         raise ValueError('prepared Caddy checksum mismatch')
     if set(re.findall(r'reverse_proxy (tokenkey-(?:blue|green)):8080', caddy.read_text())) != {'tokenkey-' + color}:
@@ -222,7 +271,8 @@ def activate(node, receipt, caddy, caddy_sha, prod_ip=None):
     (state / 'env.before.private').write_bytes((R / '.env').read_bytes())
     hold = R / 'migration/DATA_SYNC_HOLD'
     try:
-        replace_network(network, containers)
+        # Open listeners: Internal=false, but keep compose ownership labels.
+        replace_network(network, containers, internal=False)
         after = inspect('tokenkey-postgres')
         if pg['Id'] != after['Id'] or mounts(pg) != mounts(after):
             raise RuntimeError('PostgreSQL identity or volume changed')

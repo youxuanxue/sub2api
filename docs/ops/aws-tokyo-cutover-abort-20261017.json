@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "status": "cutover_aborted_source_restored",
+  "generated_at_utc": "2026-10-17T01:46:00Z",
+  "reason": "Partial freeze left prod down; Tokyo candidate not activation-ready (no bluegreen compose/caddy/redis images/active-color; API_DOMAIN placeholder).",
+  "timeline_utc": {
+    "precutover_ready": "2026-10-17T01:22:02Z",
+    "freeze_attempt_failed": "2026-10-17T01:39:18Z",
+    "freeze_failure": "ALTER SYSTEM cannot run inside a transaction block; writers already stopped",
+    "handoff_discovered_outage": "2026-10-17T01:43:00Z approx",
+    "freeze_completed": "2026-10-17T01:44:31Z",
+    "source_restored": "2026-10-17T01:45:30Z approx"
+  },
+  "source": {
+    "instance_id": "i-022f2553503211775",
+    "region": "us-east-1",
+    "public_ip": "23.21.138.205",
+    "hostname": "tokenkey-prod-aws-20261015",
+    "post_restore": {
+      "health": "https://api.tokenkey.dev/health -> 200",
+      "active_color": "blue",
+      "dns_unchanged": true
+    },
+    "freeze_watermark_before_restore": {
+      "usage_max_id": 14725828,
+      "dedup_max_id": 15536755,
+      "schema_md5": "677cad71aa7ba8bcd3a2e5acff56088c"
+    },
+    "ssm": {
+      "freeze_failed": "2f039594-88c7-473f-a4c0-7346841c42a9",
+      "freeze_completed": "b396a908-e857-4694-a98b-6d63e021043d",
+      "restore": "9124675a-b9f9-4b9a-8ae9-7e9117f054d8"
+    }
+  },
+  "candidate": {
+    "instance_id": "i-045f062ce33e1a5af",
+    "region": "ap-northeast-1",
+    "public_ip": "3.114.187.250",
+    "stack": "tokenkey-prod-tokyo-precutover-20261017",
+    "still_held": true,
+    "activation_blockers": [
+      "missing docker-compose.bluegreen.yml",
+      "caddy/redis images not pulled",
+      "active-color unset",
+      "API_DOMAIN=api-tokyo-precutover-20261017.invalid",
+      "hostname is default AWS internal name",
+      "image pin 1.8.300 while source active blue was 1.8.301 at freeze inventory"
+    ],
+    "data_at_precutover_watermark": {
+      "usage_max_id": 14724937,
+      "dedup_max_id": 15535864
+    },
+    "delta_at_completed_freeze": {
+      "usage_rows": 891,
+      "dedup_rows": 891
+    }
+  },
+  "not_executed": [
+    "final_delta_apply_to_tokyo",
+    "candidate_hold_release",
+    "DNS_or_route_cutover",
+    "edge_CIDR_repin_to_tokyo",
+    "source_drain_or_shutdown"
+  ],
+  "followups_before_retry": [
+    "Finish Tokyo activation scaffolding (bluegreen compose, caddy/redis/socat images, active-color, real API_DOMAIN + certs)",
+    "Align image pin with intended cutover tag",
+    "Rehearse activate on held candidate without DNS",
+    "New cutover window: freeze with ALTER DATABASE (not ALTER SYSTEM), final delta (~900 rows class), activate, porkbun A -> 3.114.187.250, control-plane CIDR"
+  ]
+}

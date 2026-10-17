@@ -1,15 +1,15 @@
 ---
 name: tokenkey-stage0-release-rollout
 description: >-
-  Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, rollback,
-  and release-risk checks. Use for release tagging, deploy-stage0, live
-  edge rollout (auto → Lightsail), structured smoke, or post-release OAuth checks.
+  Drive TokenKey Stage0 release, prod deploy, smoke, rollback, and release-risk
+  checks. Default target is prod-only (2026-10-17: edge deploy retired). Use for
+  release tagging, deploy-stage0, structured smoke, or post-release OAuth checks.
 ---
 
-# TokenKey：Stage0 release → prod/Edge rollout → 真实测试
+# TokenKey：Stage0 release → prod rollout → 真实测试
 
 适用于本仓库（TokenKey fork of sub2api）。权威纪律见根目录 `CLAUDE.md`。  
-现网舰队 / 发版入口：[`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)（prod 默认 `aws-fresh`；edge dispatch **auto → 活矩阵 Lightsail**）。
+现网舰队 / 发版入口：[`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)（**prod-only**；Lightsail edge `deployable=false`，`target=all` / edge canary 默认无活目标）。
 
 ## 确定性基线（机械化 vs 真判断）
 
@@ -25,9 +25,9 @@ release、目标解析、canary 选择、rollout、smoke/post-check verdict 均�
 2. `operation=release` + `target=prod|all`：`bash scripts/release-bump-and-tag.sh`（worktree 隔离）→
    watch `release.yml` → warm（可选：`dispatch-prod-deploy.sh --operation warm`）→
    `dispatch-prod-deploy.sh --operation deploy` → CI `tk_post_deploy_smoke: OK`。
-3. `target=all`：canary `pick_release_canary_edge.py` + `dispatch-edge-deploy.sh`（full）→ prod →
-   `rollout-edges.sh`（默认 `--parallel 1`，infra）→ post-release checks。
-4. 单 edge：`dispatch-edge-deploy.sh --edge-id …`（不要手选 workflow）。
+3. `target=all`：**仅在人类重新批准 edge 矩阵 `deployable=true` 后**才走 canary /
+   `rollout-edges.sh`；默认 `--list-deployable` 为空，等同 `target=prod`。
+4. 单 edge（standby）：须 `--platform lightsail|hetzner --allow-planned`，勿手选 workflow。
 5. 两阶段实测：`ops/observability/run-post-release-check.sh` + `scripts/release_post_check.py`
    （`--phase immediate` / `--phase delayed`；禁止模型自造 verdict）。
    Workflow 步骤名与 Summary 标题必须对齐：`Check PR hooks immediately`、
@@ -41,19 +41,17 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 
 ## Jobs / OPC 默认部署顺序
 
-`all` 不是并行全量推送。默认采用顺序化 canary rollout：
+**默认 `target=prod`（2026-10-17 起）：** release build → prod upgrade + full smoke → post-release checks。无 edge canary / `rollout-edges`。
 
-1. **release build 一次**：只构建一个 multi-arch GHCR tag，所有目标复用同一 image，避免两套产物。
-2. **Edge canary：容量合格后选择近 30 分钟流量最低、内存余量最高的 deployable Edge upgrade + full smoke（显式 `--smoke-phase full`）**：用 `python3 scripts/stage0/pick_release_canary_edge.py` 探测全 fleet 后选 canary；native OAuth/Kiro 账号数只决定该 smoke 子段是否适用，不参与 eligibility 或排序。**其余 Edge 一律 infra only**（`rollout-edges.sh`）。
-3. **prod 主网关 upgrade + 完整 prod smoke**：Edge canary 过后再升级 prod。
-4. **（可选）main gateway via Edge smoke**：仅当需要验证 prod→Edge 中转调度时，`smoke_phase=main-via-edge`；缺 `TK_SMOKE_API_KEY` 记 partial，不 rollback。
-5. **其余 deployable Edge bounded-parallel rollout**：prod full smoke 绿后，`rollout-edges.sh` 对每个 edge dispatch upgrade（**infra only**，验 log 含 `tk_edge_post_deploy_smoke: OK phase=infra`）。
+历史 `target=all`（仅矩阵重新 `deployable=true` 后）：
+
+1. **release build 一次**：同一 multi-arch GHCR tag。
+2. **Edge canary** → **prod** → **`rollout-edges.sh` infra**（细节见 `references/tools.md`）。
 
 例外：
 
-- `target=prod`：只发版/部署 prod，不自动部署 Edge。
-- `target=edge-<edge_id>`：只升级/烟测对应 Edge，不发新 release，除非用户显式要求先 release。
-- 用户强指定“prod 先”时照做，但在摘要中标出与默认 canary 顺序的差异。
+- `target=prod`：只发版/部署 prod（**默认路径**）。
+- `target=edge-<edge_id>`：standby 显式批准后才升级；默认矩阵拒绝。
 
 ## 故障速查
 

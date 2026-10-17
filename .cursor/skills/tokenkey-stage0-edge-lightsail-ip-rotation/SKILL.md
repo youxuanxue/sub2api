@@ -1,13 +1,13 @@
 ---
 name: tokenkey-stage0-edge-lightsail-ip-rotation
 description: >-
-  Rotate a live Lightsail edge Static IP (pollution recovery). Not for Hetzner
-  history or image deploys (use tokenkey-stage0-release-rollout).
+  Rotate a standby Lightsail edge Static IP (pollution recovery; edge deploy
+  retired 2026-10-17). Not for image deploys (tokenkey-stage0-release-rollout).
 ---
 
 # TokenKey：Lightsail Edge 静态 IP 轮换（污染快速恢复）
 
-活边入口 [`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)。只轮换 Static IP / 登记污染；升级勿用。`deployable=false` 勿改 true。适用于 `deploy-edge-lightsail-stage0.yml`（无 CFN / 无 EIP drift IMPORT）。
+[fleet README](../../../deploy/hetzner/README.md)（prod-only）。只轮换 standby Static IP；`deployable=false` 勿改 true。
 
 ## 确定性基线
 

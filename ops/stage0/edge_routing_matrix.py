@@ -151,11 +151,21 @@ def load_live_targets(repo_root: pathlib.Path | str) -> dict[str, dict]:
     return {eid: (hz[eid] if edge_hetzner_deployable(hz.get(eid)) else ls[eid]) for eid in ids}
 
 
+# Contracted live edge ids for fan-out / canary / validate_live_fleet.
+# SSOT with deploy/hetzner/README.md「活舰队」: empty since 2026-10-17 (prod-only).
+# Expanding requires updating this constant, matrix deployable flags, and README together.
+EXPECTED_LIVE_EDGE_IDS: frozenset[str] = frozenset()
+
+
 def validate_live_fleet(repo_root):
-    """Require every contracted edge on exactly one platform, including raw flags."""
+    """Require the contracted live edge set (see EXPECTED_LIVE_EDGE_IDS).
+
+    Any matrix row with deployable=true outside the contract is rejected —
+    there is no silent half-fleet.
+    """
     hz = load_hetzner_targets(repo_root)
     ls = load_lightsail_targets(repo_root)
-    expected = {"uk1", "uk2", "us4", "us5"}
+    expected = set(EXPECTED_LIVE_EDGE_IDS)
     for platform, rows in (("hetzner", hz), ("lightsail", ls)):
         predicate = edge_hetzner_deployable if platform == "hetzner" else edge_deployable
         for eid, row in rows.items():

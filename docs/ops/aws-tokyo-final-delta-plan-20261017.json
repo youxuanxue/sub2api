@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "status": "final_delta_plan_only_not_executed",
+  "generated_at_utc": "2026-10-17T02:47:51Z",
+  "approval_boundary": {
+    "requires_separate_approval_before_any_of": [
+      "source_prod_stop_write_or_drain",
+      "final_delta_export_transfer_or_apply",
+      "candidate_hold_release_and_public_listener_enablement",
+      "DNS_or_route_cutover",
+      "source_drain_or_shutdown"
+    ],
+    "executed": false
+  },
+  "freeze_method_required": {
+    "owner": "ALTER DATABASE tokenkey SET default_transaction_read_only = on",
+    "forbidden": "ALTER SYSTEM ... (cannot run inside a transaction block; prior abort root cause)",
+    "also": [
+      "stop/restart=no for tokenkey-blue/green/tokenkey/caddy writers",
+      "disable tokenkey.service and backup/QA timers during freeze window",
+      "pg_terminate_backend client backends; assert session count 0 and SHOW transaction_read_only=on"
+    ]
+  },
+  "snapshot_watermark": {
+    "usage_max_id": 14724937,
+    "dedup_max_id": 15535864
+  },
+  "source_live_watermark": {
+    "captured_at_utc": "2026-10-17T02:47:44.003497+00:00",
+    "usage_max_id": 14727038,
+    "usage_count": 6787902,
+    "dedup_max_id": 15537965,
+    "dedup_count": 15494176,
+    "dedup_archive_count": 0,
+    "users": 65,
+    "api_keys": 465,
+    "accounts": 326,
+    "groups": 93,
+    "settings": 320,
+    "transaction_read_only": "off"
+  },
+  "candidate_watermark": {
+    "captured_at_utc": "2026-10-17T11:47:48.375002+09:00",
+    "usage_max_id": 14724937,
+    "usage_count": 6785801,
+    "dedup_max_id": 15535864,
+    "dedup_count": 15492075,
+    "users": 65,
+    "api_keys": 465,
+    "accounts": 326,
+    "groups": 93
+  },
+  "planned_delta_class_vs_snapshot": {
+    "usage_id_gap": 2101,
+    "dedup_id_gap": 2101,
+    "note": "Live gaps are upper bounds for planning only; final freeze must re-read watermarks and regenerate manifests."
+  },
+  "s3_staging": {
+    "planned_prefix": "s3://tokenkey-prod-pgdump-682751977094/prod/pgdump/migration-pre-sync/aws-tokyo-20261017/final-delta-planned",
+    "required_objects_after_approved_export": [
+      "meta.json",
+      "precious.dump",
+      "usage-delta.csv.gz",
+      "dedup-delta.csv.gz",
+      "SHA256SUMS"
+    ],
+    "stale_aborted_prefix_do_not_reuse": "s3://tokenkey-prod-pgdump-682751977094/prod/pgdump/migration-pre-sync/aws-tokyo-20261017/final-delta",
+    "stale_reason": "Produced during aborted freeze window; source was restored and continued writing."
+  },
+  "validation_checklist_after_approved_apply": [
+    "schema columns digest for non-QA public tables matches frozen source",
+    "users/api_keys/accounts/groups/settings counts match",
+    "usage_logs max(id)/count match frozen source",
+    "usage_billing_dedup max(id)/count and full-content fingerprint match",
+    "sequences restarted to max(id)+1 for touched tables",
+    "FK validation including partition inheritance",
+    "candidate still held / only postgres until separate activation approval"
+  ],
+  "rollback_receipt_template": {
+    "review_correction": "PR #2687 review supersedes the original DNS-only rollback instructions: after Tokyo writes, follow aws-tokyo-cutover-handoff-20261017.md. Historical plan metadata above is unchanged; this is not execution approval.",
+    "trigger_examples": [
+      "candidate data validation failure",
+      "Caddy/TLS unavailable after activation",
+      "health or minimal real request failure",
+      "DNS not converging as expected"
+    ],
+    "actions": {
+      "dns_not_switched": "if Tokyo has never written, retain its hold and restore the source only under the approved abort plan; if Tokyo has written, treat it as authoritative and require reconciliation before any writer reversal",
+      "dns_switched_tokyo_bad": "retain Tokyo as authoritative; prefer in-place application rollback. US forwarding-only entry or database reverse migration requires separate approval, single-writer fencing and target readiness before DNS",
+      "tokyo_activation_failed": "preserve diagnostics and final delta receipt; fence candidate writers under the approved abort plan; do not revive the old source without proving Tokyo never wrote or completing reverse reconciliation"
+    },
+    "forbidden": [
+      "dual-write",
+      "overwrite US source from Tokyo full dump",
+      "delete source data/resources during observation window"
+    ]
+  },
+  "post_activation_restore_checklist_template": [
+    "enable/start tokenkey-pgdump.timer after activation approval",
+    "confirm disk-metrics / https-watch / Feishu alert paths",
+    "confirm DLM / snapshot retention still covers Tokyo data volume",
+    "confirm edge CIDR / control-plane pins only after DNS approval"
+  ],
+  "window_metadata_pending_human": {
+    "estimated_write_freeze_minutes": "pending owner estimate after approved window",
+    "operator": "pending",
+    "approver": "pending",
+    "rollback_deadline_utc": "pending"
+  },
+  "ssm_command_ids": {
+    "plan_wm_source": "afade5a1-ea1a-4aa5-9123-1044de9da0ae",
+    "plan_wm_tokyo": "ca64fdee-cfb4-4dbf-ac03-c86921f7c8a4",
+    "install_s4_runtime": "189a347c-5736-4485-b1c6-e6485a8c7693",
+    "readonly_source": "3f661d5a-fbe3-4fbc-b35e-7bdc297d984a",
+    "readonly_tokyo": "d624d2f6-1d56-40ad-89d6-ad4eb452e881"
+  }
+}

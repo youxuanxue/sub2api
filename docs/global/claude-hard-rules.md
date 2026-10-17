@@ -97,10 +97,11 @@ Forward-looking history, merge modes, and mechanical gates:
 
 ## §9 Release discipline (ARM + tag triggers)
 
-Production (`api.tokenkey.dev`) runs on **Hetzner `cax21` (`arm64`)**；活舰队
-见 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。Release
-workflow is triggered by `tags: v*`. Operator-facing copy:
-`deploy/aws/README.md` § "发版纪律（两条铁律）"（镜像仍须 multi-arch arm64）。
+Production (`api.tokenkey.dev`) runs on **AWS Tokyo EC2 `c7g.xlarge` (`arm64`)**
+（2026-10-17 起；旧美东 / Hcloud 仅为 standby）。活舰队 SSOT：
+[`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)（prod-only；edge
+`deployable=false`）。Release workflow is triggered by `tags: v*`。Operator-facing
+copy：`deploy/aws/README.md` § "发版纪律（两条铁律）"（镜像仍须 multi-arch arm64）。
 
 ### §9.1 `simple_release` MUST stay `false`
 

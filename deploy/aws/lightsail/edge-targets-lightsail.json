@@ -4,14 +4,15 @@
   "default_profile": "edge-lightsail-minimal",
   "max_monthly_budget_usd": 84,
   "notes": [
-    "Mixed live/standby AWS inventory. Active fleet: deploy/hetzner/README.md.",
+    "Mixed live/standby AWS inventory. Active fleet: deploy/hetzner/README.md (prod-only after 2026-10-17).",
+    "2026-10-17: all edges set deployable=false — no routine edge deploy/fan-out; prod edge-relay stubs soft-deleted.",
     "Only deployable=true rows are eligible for normal deploy and automatic fan-out; historical hosts remain archival only.",
     "Paris (fra1) has no Lightsail region; map to eu-central-1 (Frankfurt) for PoC only.",
     "bundle_id suffix varies by Lightsail region; resolve script picks bundle_id from matrix."
   ],
   "targets": {
     "uk1": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "eu-west-2",
@@ -25,11 +26,11 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 84,
       "ssm_prefix": "/tokenkey/lightsail/uk1",
-      "purpose": "fresh AWS active edge; historical hosts are archival only",
-      "standby": false
+      "purpose": "retired-from-deploy 2026-10-17: edge fan-out stopped; prod stubs soft-deleted; instance may remain for drain/standby only",
+      "standby": true
     },
     "uk2": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "eu-west-2",
@@ -43,8 +44,8 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 84,
       "ssm_prefix": "/tokenkey/lightsail/uk2",
-      "purpose": "fresh AWS active edge; historical hosts are archival only",
-      "standby": false
+      "purpose": "retired-from-deploy 2026-10-17: edge fan-out stopped; prod stubs soft-deleted; instance may remain for drain/standby only",
+      "standby": true
     },
     "us1": {
       "deployable": false,
@@ -130,7 +131,7 @@
       "standby": true
     },
     "us4": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "us-west-2",
@@ -144,11 +145,11 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 84,
       "ssm_prefix": "/tokenkey/lightsail/us4",
-      "purpose": "fresh AWS active edge; historical hosts are archival only",
-      "standby": false
+      "purpose": "retired-from-deploy 2026-10-17: edge fan-out stopped; prod stubs soft-deleted; instance may remain for drain/standby only",
+      "standby": true
     },
     "us5": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "us-west-2",
@@ -162,8 +163,8 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 84,
       "ssm_prefix": "/tokenkey/lightsail/us5",
-      "purpose": "fresh AWS active edge; historical hosts are archival only",
-      "standby": false
+      "purpose": "retired-from-deploy 2026-10-17: edge fan-out stopped; prod stubs soft-deleted; instance may remain for drain/standby only",
+      "standby": true
     },
     "us6": {
       "deployable": false,

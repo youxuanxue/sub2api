@@ -1,0 +1,142 @@
+{
+  "status": "cutover_completed_see_aws_tokyo_cutover_20261017",
+  "generated_at_utc": "2026-10-17T01:22:02Z",
+  "updated_at_utc": "2026-10-17T03:13:30Z",
+  "cutover_receipt": "docs/ops/aws-tokyo-cutover-20261017.json",
+  "source": {
+    "instance_id": "i-022f2553503211775",
+    "region": "us-east-1",
+    "public_ip": "23.21.138.205",
+    "hostname": "tokenkey-prod-aws-20261015",
+    "service_state": "active_gateway_live_ok",
+    "postgres": "healthy",
+    "redis": "healthy",
+    "no_source_stop_or_dns_change": true,
+    "live_watermark_utc": "2026-10-17T02:47:44Z",
+    "live_usage_max_id": 14727038,
+    "live_dedup_max_id": 15537965
+  },
+  "candidate": {
+    "stack": "tokenkey-prod-tokyo-precutover-20261017",
+    "instance_id": "i-045f062ce33e1a5af",
+    "region": "ap-northeast-1",
+    "az": "ap-northeast-1a",
+    "public_ip": "3.114.187.250",
+    "private_ip": "10.20.1.23",
+    "instance_type": "c7g.xlarge",
+    "hostname": "tokenkey-prod-tokyo-20261017",
+    "api_domain": "api.tokenkey.dev",
+    "data_volume_gib": 150,
+    "image": "ghcr.io/youxuanxue/sub2api:1.8.301",
+    "image_blue": "ghcr.io/youxuanxue/sub2api:1.8.301",
+    "image_green": "ghcr.io/youxuanxue/sub2api:1.8.300",
+    "postgres": "healthy",
+    "containers_running": [
+      "tokenkey-postgres"
+    ],
+    "data_sync_hold": true,
+    "active_color": "blue",
+    "bluegreen_compose_present": true,
+    "bluegreen_compose_sha256": "caa88456c1e3122c941cff2e6895c90f3e178decae6e9e9000f8ca6fa45460bc",
+    "systemd_condition_result": "no",
+    "network_internal": true,
+    "public_listeners": [],
+    "canonical_secret_assignments": 3,
+    "secret_fingerprint_sha256": "72aa0280b98b1f4c0a9d0090909e10d18931a94f9e059178de9d228056c0856c"
+  },
+  "snapshot": {
+    "dump_uri": "s3://tokenkey-prod-pgdump-682751977094/prod/pgdump/migration-pre-sync/aws-tokyo-20261017/migration-tokyo-20261017-full.dump",
+    "dump_bytes": 2159523309,
+    "dump_sha256": "6f623341fc8de584aa1ae7e87a7419ad792241a2bed5bbd33b2dcdd0437234fa",
+    "usage_manifest_uri": "s3://tokenkey-prod-pgdump-682751977094/prod/pgdump/migration-pre-sync/aws-tokyo-20261017/migration-tokyo-20261017-usage-manifest.json",
+    "usage_manifest_bytes": 56266,
+    "usage_manifest_sha256": "f463b42b8458656c3271718a90bac6625393e27973da7222928e48636f3c2418",
+    "snapshot_watermark": {
+      "usage_logs_max_id": 14724937,
+      "usage_logs_max_created_at_utc": "2026-10-17T00:59:24.868044Z",
+      "dedup_max_id": 15535864
+    }
+  },
+  "usage_window": {
+    "start": "2026-09-01T00:00:00+08:00",
+    "source_manifest_end": "2026-10-17T01:01:01.981329Z",
+    "source_manifest_rows": 6785825,
+    "source_manifest_input_tokens": 33574695327,
+    "source_manifest_output_tokens": 2459633715,
+    "source_manifest_cache_creation_tokens": 2071924963,
+    "source_manifest_cache_read_tokens": 124047504101,
+    "source_manifest_total_cost": 202349.4833276264,
+    "source_manifest_actual_cost": 48466.0049167914,
+    "snapshot_rows": 6785801,
+    "snapshot_input_tokens": 33573806701,
+    "snapshot_output_tokens": 2459596921,
+    "snapshot_cache_creation_tokens": 2071924963,
+    "snapshot_cache_read_tokens": 124045733441,
+    "snapshot_total_cost": 202343.3661653637,
+    "snapshot_actual_cost": 48465.4913660287,
+    "core_csv_sha256_utc": "3473d8a6cf337c115cf0ae39d4303681f237f04c75a2b2bbbd5a757c350834e2"
+  },
+  "integrity": {
+    "users": 65,
+    "api_keys": 465,
+    "accounts": 326,
+    "groups": 93,
+    "usage_billing_dedup_rows_at_watermark": 15492075,
+    "usage_billing_dedup_archive_rows": 0,
+    "schema_columns_sha256": "00b12e196612cf346a2608622cc4b6094a7dd7582ba5c4e16e608e2c3d0924e6",
+    "source_target_schema_lines_identical": true,
+    "source_target_usage_totals_identical_at_watermark": true,
+    "source_target_core_usage_hash_identical_at_watermark": true
+  },
+  "dedup_artifact": {
+    "uri": "s3://tokenkey-prod-pgdump-682751977094/prod/pgdump/migration-pre-sync/aws-tokyo-20261017/migration-tokyo-20261017-dedup.csv.gz",
+    "bytes": 1135103914,
+    "sha256": "8f8250b37ce8519a4f05fd9a30b65fa90eeacf1a07adce77bb00c9c53a4ae3ec",
+    "source_rows_at_watermark": 15492075,
+    "source_target_core_csv_sha256_utc": "0923d5e136ed2022c8b279a74d615ca84ca76ad7c0ce454d5d6a4f8ddf702f39",
+    "candidate_import_verified": true
+  },
+  "precutover_preparation": {
+    "formal_activation_bundle_path": "/var/lib/tokenkey/migration/activation-scaffold/formal",
+    "formal_caddy_sha256": "9a602d40dbb90114ecf3108fb8a571c4b790f8d02937fe8d9f44a801b36b8374",
+    "formal_bluegreen_compose_sha256": "caa88456c1e3122c941cff2e6895c90f3e178decae6e9e9000f8ca6fa45460bc",
+    "formal_env_sha256": "9406c5e0dda7f3d6d56c5bf22a7592a0ee6fd4bbdebe03054a31c75371c3ad9f",
+    "formal_domains": [
+      "tokenkey.dev",
+      "api.tokenkey.dev",
+      "callmodel.io",
+      "api.callmodel.io"
+    ],
+    "formal_caddy_note": "archived formal reverse_proxy targets tokenkey; runtime uses source-aligned tokenkey-blue",
+    "runtime_install_receipt": "docs/ops/aws-tokyo-s4-runtime-install-20261017.json",
+    "runtime_caddy_sha256": "d8f616f618331afd9fc61d8c139423c105f0e15832c50c8d4fe302563b74ff4e",
+    "runtime_bluegreen_installed": true,
+    "runtime_active_color": "blue",
+    "compose_config_validated": true,
+    "caddy_adapt_validated": true,
+    "candidate_hold_preserved": true,
+    "candidate_business_containers_started": false,
+    "source_gateway_touched": false,
+    "final_delta_plan": "docs/ops/aws-tokyo-final-delta-plan-20261017.json",
+    "final_delta_plan_s3": "s3://tokenkey-prod-pgdump-682751977094/prod/pgdump/migration-pre-sync/aws-tokyo-20261017/final-delta-planned/final-delta-plan-20261017.json"
+  },
+  "approval_boundary": {
+    "requires_separate_approval": [
+      "source_prod_stop_write_or_drain",
+      "final_delta_and_reconciliation",
+      "DNS_or_route_cutover",
+      "candidate_hold_release_and_public_listener_enablement",
+      "source_drain_or_shutdown"
+    ],
+    "not_executed": true
+  },
+  "cutover_attempt": {
+    "aborted_at_utc": "2026-10-17T01:45:30Z",
+    "receipt": "docs/ops/aws-tokyo-cutover-abort-20261017.json",
+    "source_restored": true,
+    "dns_unchanged": true
+  },
+  "schema_read_only_check_utc": "2026-10-17T02:45:00Z",
+  "schema_non_qa_columns_identical": true,
+  "schema_qa_partition_drift_only": true
+}

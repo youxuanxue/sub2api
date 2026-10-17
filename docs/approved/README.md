@@ -13,6 +13,8 @@ revised_at: 2026-09-03
 
 - [AWS 迁移收尾](aws-migration-closeout-20261016.md)：备份、QA timer、独立健康监控与旧 Hcloud edge 回收边界。
 
+- [东京切流复审修复](tokyo-cutover-review-repair-20261017.md)：用量 ID 冲突、分区序列门禁与跨区域 OIDC SSM 权限修复。
+
 `docs/approved/` is the approval baseline for high-risk work. These files are
 load-bearing: code comments, sentinels, migrations, and preflight checks refer
 to their paths. Prefer status changes and short index notes over moving files.

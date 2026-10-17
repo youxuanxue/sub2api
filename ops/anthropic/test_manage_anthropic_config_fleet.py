@@ -21,7 +21,14 @@ SPEC.loader.exec_module(mgr)
 
 class FleetChecksTest(unittest.TestCase):
     def setUp(self):
-        self.ids = mgr._EDGE_ROUTING.live_deployable_edge_ids(mgr.REPO_ROOT)
+        # Shipped matrices are prod-only (empty deployable edges). Fixture a
+        # two-edge fleet so coverage/failure paths stay exercisable.
+        self.ids = ["uk1", "uk2"]
+        self._live_patch = mock.patch.object(
+            mgr._EDGE_ROUTING, "live_deployable_edge_ids", return_value=self.ids
+        )
+        self._live_patch.start()
+        self.addCleanup(self._live_patch.stop)
         self.edge = {"deployable": True, "oauth_accounts": [], "tiers": [],
                      "operator_user_exists": True, "operator_user_balance": 9999999}
         self.prod = {"anthropic_stubs": [], "tiers": []}

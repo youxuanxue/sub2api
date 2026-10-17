@@ -99,7 +99,7 @@ cd ops/accounts
 
 ## 3) 情形 A — 全新 edge OAuth + prod 中继（推荐自动签发 key）
 
-模板：`examples/edge-oauth-relay-<pool>-us6.json`（占位；改成活边 `uk1`/`uk2`/`us4`/`us5`）。
+模板：`examples/edge-oauth-relay-<pool>-us6.json`（历史）。默认勿新建 prod→edge 中继（2026-10-17 stub 已软删）。
 
 JSON 要点：
 

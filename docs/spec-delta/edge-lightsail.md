@@ -1,9 +1,8 @@
 # Edge Lightsail 部署路径（spec delta · 历史）
 
-> 历史 AWS / standby 资料。现网 hcloud 入口与保留依赖见 [Hetzner fleet](../../deploy/hetzner/README.md)；不要将下文 EC2/Lightsail 步骤用于现网。
+> 历史 AWS / standby 资料。现网入口见 [fleet README](../../deploy/hetzner/README.md)；不要将下文 EC2/Lightsail 步骤用于现网。
 
-
-> **现网（2026-10）：** 活舰队在 Hetzner — [`deploy/hetzner/README.md`](../deploy/hetzner/README.md)。Lightsail 仅为 standby。  
+> **现网（2026-10-17）：** 活舰队 **prod-only**（Tokyo EC2）；Lightsail edge 全 `deployable=false`。  
 > **本文件保留 2026-06 的 Lightsail 收敛 delta（相对 EC2 edge）作考古；勿当现网拓扑。**
 
 ## Background

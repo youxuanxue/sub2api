@@ -1,20 +1,27 @@
 {
   "schema_version": 1,
   "batch": "aws-20261015",
-  "state": "cutover-complete",
+  "state": "tokyo-serving-edges-retired-20261017",
   "prod": {
-    "instance_id": "i-022f2553503211775",
-    "instance_name": "tokenkey-prod-aws-20261015",
-    "region": "us-east-1",
-    "ip": "23.21.138.205",
-    "source_ip": "167.233.211.115",
+    "instance_id": "i-045f062ce33e1a5af",
+    "instance_name": "tokenkey-prod-tokyo-20261017",
+    "region": "ap-northeast-1",
+    "ip": "3.114.187.250",
+    "source_ip": "23.21.138.205",
     "domain": "api.tokenkey.dev",
     "domains": [
       "tokenkey.dev",
       "api.tokenkey.dev",
       "callmodel.io",
       "api.callmodel.io"
-    ]
+    ],
+    "standby_us_east_20261015": {
+      "instance_id": "i-022f2553503211775",
+      "instance_name": "tokenkey-prod-aws-20261015",
+      "region": "us-east-1",
+      "ip": "23.21.138.205",
+      "note": "frozen standby after Tokyo cutover; PROD_SSM_TARGET=aws selects historical CFN standby, not this inventory"
+    }
   },
   "edges": {
     "us4": {

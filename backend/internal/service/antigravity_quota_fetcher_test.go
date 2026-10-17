@@ -5,10 +5,10 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
-	"net/http/httptest"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -396,20 +396,21 @@ func TestBuildUsageInfo_AICredits(t *testing.T) {
 }
 
 func TestFetchQuotaUsesConfiguredModelsListBodyLimit(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"models":{"model-a":{}}}`))
-	}))
-	defer server.Close()
-
-	oldBaseURLs := append([]string(nil), antigravity.BaseURLs...)
-	oldAvailability := antigravity.DefaultURLAvailability
-	t.Cleanup(func() {
-		antigravity.BaseURLs = oldBaseURLs
-		antigravity.DefaultURLAvailability = oldAvailability
+	original := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = original })
+	calls := 0
+	// FetchQuota pins the account's serving endpoint; changing BaseURLs no longer
+	// redirects this call. Intercept transport so the unit test cannot use the network.
+	http.DefaultTransport = antigravityDiscoveryTransportFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		require.Equal(t, "/v1internal:fetchAvailableModels", r.URL.Path)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"models":{"model-a":{}}}`)),
+			Request:    r,
+		}, nil
 	})
-	antigravity.BaseURLs = []string{server.URL}
-	antigravity.DefaultURLAvailability = antigravity.NewURLAvailability(time.Minute)
 
 	cfg := &config.Config{}
 	cfg.Gateway.ModelsListReadMaxBytes = 8
@@ -423,6 +424,7 @@ func TestFetchQuotaUsesConfiguredModelsListBodyLimit(t *testing.T) {
 		},
 	}, "")
 	require.ErrorContains(t, err, "响应超过 8 字节")
+	require.Equal(t, 1, calls)
 }
 
 func TestFetchQuota_ForbiddenReturnsIsForbidden(t *testing.T) {

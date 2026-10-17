@@ -3,11 +3,11 @@ title: TokenKey 全线 Hetzner Cloud 舰队（prod + edge · 德区 · cax21）
 status: approved
 approved_by: "feng (merge #2517, 2026-10-09)"
 created: 2026-10-09
-revised: 2026-10-11
+revised: 2026-10-17
 owners: [tk-platform]
 scope: >-
   deploy/hetzner/* + deploy-*-hetzner*.yml + Stage0 dispatch 路由；
-  现网执行见 deploy/hetzner/README.md
+  现网执行见 deploy/hetzner/README.md（2026-10-17 起 prod-only Tokyo）
 related_prs: [2517, 2532, 2550, 2551, 2556]
 related_designs:
   - docs/approved/deploy-stage0-workflow.md
@@ -21,8 +21,8 @@ related_designs:
 
 ## 现网范围
 
-活舰队五节点：**prod + uk1 + uk2 + us4 + us5**（Hetzner `fsn1` / `cax21` / arm64 / SSM Hybrid）。  
-`us3` / `us6` **不在舰队**（不重建、无正式 DNS）。IP / `mi-*` / 发版入口见 README。
+**活拓扑（2026-10-17 起）：** 仅 Tokyo prod EC2；edge `deployable=false`；细节与 IP 只在 README。  
+**本文件锁定的历史决策：** 曾将舰队收敛到 Hetzner `fsn1` / `cax21` / SSM Hybrid（当时五节点 prod+uk1+uk2+us4+us5）；后续 AWS/Tokyo 切流不改写下列已锁不变量（蓝绿、单正式名、活库禁覆盖等）。
 
 ## 已锁定
 

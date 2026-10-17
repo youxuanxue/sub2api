@@ -1,0 +1,26 @@
+{
+  "status": "s4_runtime_installed_hold_preserved",
+  "generated_at_utc": "2026-10-17T02:47:23Z",
+  "backup_dir": "/var/lib/tokenkey/migration/runtime-install-backup-20261017T024722Z",
+  "stage_dir": "/var/lib/tokenkey/migration/runtime-install-stage-20261017T024722Z",
+  "active_color": "blue",
+  "files": {
+    "docker-compose.bluegreen.yml": "caa88456c1e3122c941cff2e6895c90f3e178decae6e9e9000f8ca6fa45460bc",
+    "Caddyfile": "d8f616f618331afd9fc61d8c139423c105f0e15832c50c8d4fe302563b74ff4e",
+    "tokenkey-bluegreen-systemd-start.sh": "fbc8d9396cfc31bf761ea8eba51fc36b2819a5e7a1260baadc3c210428e433cf",
+    "tokenkey-bluegreen-systemd-stop.sh": "80eff1a8ae043fa329968e88bbc26b7bc01c09434d16df995622f3a98f73c861"
+  },
+  "expected_bluegreen_sha256": "caa88456c1e3122c941cff2e6895c90f3e178decae6e9e9000f8ca6fa45460bc",
+  "hold_present": true,
+  "containers": [
+    "tokenkey-postgres"
+  ],
+  "network_internal": true,
+  "tokenkey_service": "inactive",
+  "condition_result": "no",
+  "formal_caddy_note": "formal scaffold reverse_proxy was tokenkey; runtime uses source-aligned tokenkey-blue",
+  "unit_dropins": [
+    "migration-hold.conf",
+    "tokenkey-volume.conf"
+  ]
+}

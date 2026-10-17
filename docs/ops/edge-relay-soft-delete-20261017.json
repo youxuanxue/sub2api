@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "status": "edge_relay_stubs_soft_deleted",
+  "generated_at_utc": "2026-10-17T03:19:50Z",
+  "reason": "Edge deploy path retired after Tokyo prod cutover; remove prod→edge mirror stubs so traffic cannot fan out to edges.",
+  "count": 26,
+  "ok_count": 26,
+  "method": "DELETE /api/v1/admin/accounts/:id (Ent SoftDeleteMixin)",
+  "accounts": [
+    {"id": 215, "name": "antigravity-uk1"},
+    {"id": 216, "name": "antigravity-uk2"},
+    {"id": 62, "name": "antigravity-us4"},
+    {"id": 154, "name": "antigravity-us5"},
+    {"id": 40, "name": "cc-uk1"},
+    {"id": 214, "name": "cc-uk2"},
+    {"id": 51, "name": "cc-us4"},
+    {"id": 50, "name": "cc-us5"},
+    {"id": 198, "name": "china-uk1"},
+    {"id": 199, "name": "china-uk2"},
+    {"id": 152, "name": "china-us4"},
+    {"id": 153, "name": "china-us5"},
+    {"id": 212, "name": "gemini-uk1"},
+    {"id": 213, "name": "gemini-uk2"},
+    {"id": 200, "name": "gemini-us4"},
+    {"id": 209, "name": "gemini-us5"},
+    {"id": 65, "name": "grok-us4"},
+    {"id": 79, "name": "grok-us5"},
+    {"id": 217, "name": "kiro-uk1"},
+    {"id": 66, "name": "kiro-uk2"},
+    {"id": 69, "name": "kiro-us4"},
+    {"id": 71, "name": "kiro-us5"},
+    {"id": 64, "name": "openai-uk1"},
+    {"id": 63, "name": "openai-uk2"},
+    {"id": 68, "name": "openai-us4"},
+    {"id": 149, "name": "openai-us5"}
+  ],
+  "remaining_in_default_list": [],
+  "related": [
+    "deploy/aws/lightsail/edge-targets-lightsail.json deployable=false for uk1/uk2/us4/us5",
+    "deploy/hetzner/README.md prod-only live fleet",
+    ".cursor/skills/tokenkey-host-replacement hard-pit notes from Tokyo cutover"
+  ]
+}

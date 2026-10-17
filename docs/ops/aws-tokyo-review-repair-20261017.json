@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "status": "scoped_production_repairs_verified",
+  "authorization": "User: 修复剩下的缺口",
+  "source_instance": "i-022f2553503211775",
+  "target_instance": "i-045f062ce33e1a5af",
+  "usage_id_repair": {
+    "command_id": "e90ab3bf-c504-47ee-b031-fb22831369da",
+    "rekeyed_rows": 2214,
+    "remaining_old_interval_duplicates": 0,
+    "non_id_content_verified_in_transaction": true,
+    "backup_prefix": "s3://tokenkey-prod-pgdump-682751977094/prod/pgdump/repair/tokyo-usage-id-20261017/run-PDmIrxKZ/",
+    "preimages_sha256": "a7a3aba1ae1bcda562d635b1a1b2a988ef44949e86a04bd95795ee7931213c52",
+    "id_map_sha256": "7a13baa7e6e637f149a0c0c9256084d3aa2aa547660b3c69235c8851ef44687f",
+    "verification_command_id": "f9fed7db-93d7-4f73-9cb7-1a836280b396",
+    "post_cutover_request_duplicates": 0,
+    "post_cutover_missing_billing_dedup": 0,
+    "initial_attempt": {
+      "command_id": "160ea8cb-a64b-4486-97e1-ee858e432c47",
+      "result": "Aborted at S3 backup upload before row rekey because the Tokyo role lacked bucket access. Sequence may only have advanced; no usage rows changed in this attempt."
+    },
+    "final_verification": {
+      "command_id": "fe5b690d-8330-4617-9fbd-06ea6ba401d4",
+      "at_utc": "2026-10-17T05:40:38.991935Z",
+      "old_interval_duplicates": 0,
+      "post_freeze_rows": 5535,
+      "post_freeze_min_id": 14727152,
+      "post_freeze_max_id": 14732686,
+      "post_freeze_ids_at_or_below_frozen_max": 0,
+      "post_freeze_request_duplicates": 0,
+      "post_freeze_missing_billing_dedup": 0,
+      "sequence_last_value": 14732686,
+      "sequence_is_called": true,
+      "billing_ledger_rows": 0
+    }
+  },
+  "historical_usage": {
+    "from_utc": "2026-09-01T00:00:00Z",
+    "through_utc": "2026-10-17T02:54:43.473757Z",
+    "rows": 6767705,
+    "windows": 128,
+    "all_source_target_content_sha256_equal": true,
+    "fingerprint_method": "SHA256 of concatenated per-row SHA256(canonical PostgreSQL jsonb text) ordered by id, created_at, api_key_id, request_id; UTC sessions; bounded date windows",
+    "source_commands": [
+      "a7a5cf1f-caaa-45f9-a452-2f3ac0913a23",
+      "0a0479c8-1684-4a6d-a570-05a9878e2f17",
+      "c84d0b45-27f1-428b-9d73-57744ff8a19b"
+    ],
+    "tokyo_commands": [
+      "9d8abd2d-394d-427a-a6ae-2b08f58e0f87",
+      "94e6fdf5-d76f-40b3-9837-34d7816d4b8e",
+      "c42cd5c9-bbdf-4dd5-a903-cc0e2fa82941"
+    ],
+    "note": "First two commands timed out on a large next window; only complete emitted windows are used. Remaining smaller windows completed. No omitted windows.",
+    "earlier_than_september_utc": {
+      "rows": 20310,
+      "min_created_at": "2026-08-31T16:00:03.252688Z",
+      "max_created_at": "2026-08-31T23:59:57.687535Z",
+      "matching_source_tokyo_sha256": "e35d6ccaa1b80d9038b9d8e615fb91402366ad2db4fca72fa4bdd588528cd783",
+      "source_command_id": "c93e7d96-ddc6-49b1-ad65-6005d4d83a4e",
+      "tokyo_command_id": "e9ce06f7-964f-4586-87b3-fbefc9d86075"
+    },
+    "all_frozen_rows_verified": 6788015,
+    "windows_note": "128 emitted windows: 125 cover the requested period; 3 later windows are empty under the frozen-cutoff filter.",
+    "artifact": "aws-tokyo-history-verification-20261017.csv"
+  },
+  "oidc": {
+    "stack": "tokenkey-cicd-oidc",
+    "stack_region": "us-east-1",
+    "change_set": "tokyo-review-fix-20261017",
+    "target_region": "ap-northeast-1",
+    "status": "UPDATE_COMPLETE",
+    "trust_policy_changed": false,
+    "gha_run_url": "https://github.com/youxuanxue/sub2api/actions/runs/39003765692",
+    "gha_command_id": "40e5c581-4045-49e1-95a8-0999f1cb7cbe",
+    "gha_ssm_status": "Success",
+    "gha_operation": "warm already-running image 1.8.301; no deployment"
+  },
+  "backup": {
+    "initial_defect": "timer active but ExecStart=/usr/bin/true; script absent; bucket role still old host",
+    "policy_stack": "tokenkey-stage0-backups",
+    "policy_change_set": "tokyo-backup-role-20261017",
+    "policy_changed_resource": "PgdumpBackupBucketPolicy only; no replacement",
+    "unit_backup": "/var/lib/tokenkey/migration/pgdump-unit-repair-20261017",
+    "unit_install_command_id": "74ed1d1b-ff2c-4c6f-adbe-7cd9711f5d5b",
+    "object": "s3://tokenkey-prod-pgdump-682751977094/prod/pgdump/tokenkey-20261017T044944Z.sql.gz",
+    "bytes": 1421603926,
+    "encryption": "AES256",
+    "service_exit_status": 0,
+    "restore_command_id": "50db324c-3d29-4100-a9c9-da7eb05c2de1",
+    "scope": "Precious OLTP dump; usage/ops/QA row data excluded by the canonical backup contract. EBS snapshots protect retained usage data; snapshot restoration was not tested in this task.",
+    "restore_status": "Success",
+    "restore_duration_seconds": 2803,
+    "restore_receipt": {
+      "artifact_sha256": "077c116400962ea39937a9f3bc45c6ff4490b6661813c3b3f179831b96d5fa71",
+      "cleanup_verified": true,
+      "completed_at": "2026-10-17T05:39:38.043447Z",
+      "compressed_bytes": 1421603926,
+      "deletion_authorized": false,
+      "live_counts": {
+        "accounts": 326,
+        "api_keys": 465,
+        "groups": 93,
+        "settings": 320,
+        "usage_billing_dedup": 15497184,
+        "users": 65
+      },
+      "mode": "pgdump_restore_canary",
+      "observed_free_bytes": 120893243392,
+      "required_free_bytes": 8542341082,
+      "restore_image": "postgres:18-alpine",
+      "restored_counts": {
+        "accounts": 326,
+        "api_keys": 465,
+        "groups": 93,
+        "settings": 320,
+        "usage_billing_dedup": 15497015,
+        "users": 65
+      },
+      "s3_round_trip_verified": true,
+      "schema_version": 2,
+      "source_encryption": "AWS-bucket-default",
+      "source_endpoint": null,
+      "source_last_modified": "2026-10-17T04:52:18+00:00",
+      "source_local_sha256": "077c116400962ea39937a9f3bc45c6ff4490b6661813c3b3f179831b96d5fa71",
+      "source_mutated": false,
+      "source_s3_uri": "s3://tokenkey-prod-pgdump-682751977094/prod/pgdump/tokenkey-20261017T044944Z.sql.gz",
+      "target": "prod",
+      "uncompressed_bytes": 3023497666
+    },
+    "counts_note": "The five core tables match the live sample. The restored billing-dedup snapshot has 15497015 rows, versus 15497184 in the later live sample. Online writes continued; these are not a simultaneous consistency comparison.",
+    "timer_next_run_utc": "2026-10-17T06:00:43Z",
+    "timer_active": true,
+    "restore_verdict": "ok: real S3 pg_dump restore and cleanup evidence are current"
+  },
+  "dlm": {
+    "policy_id": "policy-089492d7a5b78d21a",
+    "enabled": true,
+    "daily_retention_count": 7,
+    "completed_snapshots": [
+      "snap-0cf8d29799b0ce908",
+      "snap-0007f6c9e63b7f243"
+    ],
+    "snapshot_started_at": "2026-10-17T03:30:25.046Z"
+  },
+  "gateway": {
+    "image": "1.8.301",
+    "blue_started_at": "2026-10-17T03:08:55.244154873Z",
+    "caddy_started_at": "2026-10-17T03:08:55.692019185Z",
+    "postgres_started_at": "2026-10-17T03:08:53.643289933Z",
+    "restart_counts": {
+      "blue": 0,
+      "caddy": 0,
+      "postgres": 0
+    },
+    "health": "ok",
+    "dns_changed": false,
+    "final_verification_command_id": "fe5b690d-8330-4617-9fbd-06ea6ba401d4",
+    "verified_at_utc": "2026-10-17T05:40:38.991935Z"
+  },
+  "validation": {
+    "focused_tests_passed": 38,
+    "preflight": "PASS: full preflight, 108s; final receipt committed through the required hook",
+    "implementation_commit": "20cef36688",
+    "activation_guard": "Actual read-only PostgreSQL sequence check runs before opening network or enabling candidate writers; negative regression passed in the 38-test suite."
+  },
+  "remaining_scope_limits": [
+    "No QA raw pipeline or alert delivery acceptance in this repair task.",
+    "No old US host drain/shutdown/deletion.",
+    "No DNS change, application deploy, gateway restart, git push, or PR merge."
+  ]
+}

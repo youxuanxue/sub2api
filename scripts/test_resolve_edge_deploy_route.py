@@ -62,17 +62,15 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
         self.assertIn("not deployable", proc.stderr)
 
     def test_live_hetzner_wins_auto(self) -> None:
+        # 2026-10-17: shipped matrices have no deployable edges; auto rejects.
         proc = subprocess.run(
             [sys.executable, str(SCRIPT), "--edge-id", "uk1", "--json"],
             cwd=REPO_ROOT,
             capture_output=True,
             text=True,
         )
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        route = json.loads(proc.stdout)
-        self.assertEqual(route["platform"], resolve_route_tab(REPO_ROOT, "uk1")[0])
-        self.assertEqual(route["workflow_file"], "deploy-edge-" + route["platform"] + "-stage0.yml")
-        self.assertEqual(route["confirm_value"], load_live_targets(REPO_ROOT)["uk1"]["instance_name"])
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("not deployable", proc.stderr)
 
         # Backlog Hetzner (us3) still needs explicit platform + allow-planned.
         route_hz = self._route(

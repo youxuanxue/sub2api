@@ -193,6 +193,28 @@ jobs:
           else
             ./dev-rules/templates/preflight.sh
           fi
+      - name: Migration PostgreSQL regression
+        if: needs.changes.outputs.all == 'true' || needs.changes.outputs.ops == 'true'
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          test_container="tokenkey-tokyo-repair-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-test"
+          container_id=$(docker run --detach --name "$test_container" \
+            --network none --cpus 1 --memory 256m \
+            --tmpfs /var/lib/postgresql:rw,size=256m \
+            --env POSTGRES_HOST_AUTH_METHOD=trust postgres:18-alpine)
+          trap 'docker rm -f "$container_id" >/dev/null' EXIT
+          ready=0
+          for attempt in {1..30}; do
+            if docker exec "$container_id" pg_isready -h 127.0.0.1 -U postgres; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = 1
+          TOKYO_REPAIR_TEST_CONTAINER="$test_container" \
+            python3 -m unittest ops.migration.test_tokyo_usage_repair
 
   ssot-delta-gate:
     # Offline SSOT delta guard for catalog diffs. It intentionally does not hit

@@ -18,21 +18,39 @@ from edge_routing_matrix import load_live_targets, resolve_route_tab
 
 class EdgeSsmExecutionTests(unittest.TestCase):
     def test_auto_prefers_deployable_hetzner(self) -> None:
-        with mock.patch.object(
-            ese,
-            "ssm_parameter_managed_instance_id",
-            return_value="mi-hetzner-us4",
-        ) as get_param:
+        # Shipped matrices are prod-only; fixture a live Hetzner us4 for routing.
+        hz_row = {
+            "deployable": True,
+            "location": "fsn1",
+            "server_type": "cax21",
+            "instance_name": "tokenkey-edge-us4-hz-cax21",
+            "ssm_prefix": "/tokenkey/hetzner/us4",
+            "domain": "api-us4.tokenkey.dev",
+            "lightsail_region": "eu-west-2",
+        }
+        ls_row = {
+            "deployable": False,
+            "lightsail_region": "us-west-2",
+            "ssm_prefix": "/tokenkey/lightsail/us4",
+            "domain": "api-us4.tokenkey.dev",
+        }
+        with mock.patch.object(ese, "resolve_route_tab", return_value=("hetzner", "eu-west-2", None)), \
+             mock.patch.object(ese, "load_hetzner_targets", return_value={"us4": hz_row}), \
+             mock.patch.object(ese, "load_lightsail_targets", return_value={"us4": ls_row}), \
+             mock.patch.object(
+                 ese,
+                 "ssm_parameter_managed_instance_id",
+                 return_value="mi-hetzner-us4",
+             ) as get_param:
             ident = ese.resolve_edge_execution_identity(
                 REPO_ROOT, "us4", platform="auto"
             )
-        row = load_live_targets(REPO_ROOT)["us4"]
-        self.assertEqual(ident.routing, resolve_route_tab(REPO_ROOT, "us4")[0])
-        self.assertEqual(ident.region, row.get("lightsail_region", "eu-west-2"))
+        self.assertEqual(ident.routing, "hetzner")
+        self.assertEqual(ident.region, "eu-west-2")
         self.assertEqual(ident.instance_id, "mi-hetzner-us4")
-        self.assertEqual(ident.ssm_prefix, row["ssm_prefix"])
+        self.assertEqual(ident.ssm_prefix, hz_row["ssm_prefix"])
         self.assertEqual(ident.domain, "api-us4.tokenkey.dev")
-        get_param.assert_called_once_with(ident.region, row["ssm_prefix"])
+        get_param.assert_called_once_with(ident.region, hz_row["ssm_prefix"])
 
     def test_explicit_lightsail_still_resolves_standby(self) -> None:
         with mock.patch.object(

@@ -1,15 +1,16 @@
 ---
 name: tokenkey-edge-prod-relay-onboard
 description: >-
-  TokenKey full-chain edge OAuth pool + prod mirror stub onboard (create, capability
-  repair, gateway probe). Use when wiring a new edge into prod relay for antigravity
-  (implemented) or planning gemini-web/kiro/openai/anthropic placeholders.
+  RETIRED default path (2026-10-17): edge deploy + prod mirror stubs are off.
+  Historical skill for edge OAuth pool + prod mirror stub onboard. Do not run
+  apply unless a human explicitly re-approves restoring an edge.
 ---
 
 # TokenKey：Edge 池 + Prod 中继全链路打通
 
-**行为 SSOT**：`ops/accounts/edge-prod-relay-onboard.sh` + `relay_onboard_profiles.py`。  
-本 skill 只做路由与检查清单，不在 prose 里重写实现。
+**退役（2026-10-17）：** 默认勿 `apply`/`all`（prod-only；edge `deployable=false`；stub 已软删，见 `docs/ops/edge-relay-soft-delete-20261017.json`）。恢复 edge 须人类批准。
+
+**行为 SSOT**：`ops/accounts/edge-prod-relay-onboard.sh` + `relay_onboard_profiles.py`。
 
 与 `tokenkey-account-import` 的分工：
 

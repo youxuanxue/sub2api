@@ -45,6 +45,13 @@ Parameters:
       require an identity-based policy, which we deliberately avoid (no prod
       instance-stack update). Naming the role ARN directly makes the bucket policy
       alone sufficient (same-account resource-based grant).
+  PgdumpInstanceRoleArn:
+    Type: String
+    Default: ''
+    Description: Optional current prod backup role after host replacement; does not change media access.
+
+Conditions:
+  HasPgdumpRole: !Not [!Equals [!Ref PgdumpInstanceRoleArn, '']]
 
 Resources:
   PgdumpBackupBucket:
@@ -100,7 +107,7 @@ Resources:
           - Sid: AllowAppInstanceRolePutGet
             Effect: Allow
             Principal:
-              AWS: !Ref AppInstanceRoleArn
+              AWS: !If [HasPgdumpRole, !Ref PgdumpInstanceRoleArn, !Ref AppInstanceRoleArn]
             Action:
               - 's3:PutObject'
               - 's3:GetObject'
@@ -108,7 +115,7 @@ Resources:
           - Sid: AllowAppInstanceRoleList
             Effect: Allow
             Principal:
-              AWS: !Ref AppInstanceRoleArn
+              AWS: !If [HasPgdumpRole, !Ref PgdumpInstanceRoleArn, !Ref AppInstanceRoleArn]
             Action: 's3:ListBucket'
             Resource: !GetAtt PgdumpBackupBucket.Arn
 

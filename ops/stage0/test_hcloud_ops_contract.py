@@ -33,11 +33,8 @@ def load(relative):
 class HcloudOpsContractTest(unittest.TestCase):
     def test_active_inventory_is_unambiguous(self):
         targets = load_live_targets(ROOT)
-        self.assertEqual(sorted(targets), ['uk1', 'uk2', 'us4', 'us5'])
-        for edge, row in targets.items():
-            expected = 'hetzner' if row.get('location') else 'lightsail'
-            self.assertEqual(resolve_route_tab(ROOT, edge)[0], expected)
-        for edge in ['us3', 'us6']:
+        self.assertEqual(sorted(targets), [])
+        for edge in ['uk1', 'uk2', 'us4', 'us5', 'us3', 'us6']:
             with self.assertRaises(SystemExit):
                 resolve_route_tab(ROOT, edge)
         with mock.patch('edge_routing_matrix.load_lightsail_targets', return_value={

@@ -5,7 +5,9 @@
 # per model and reading the HTTP status.
 #
 # Inputs (env, space-separated model-id lists; any may be empty):
-#   ANTHROPIC_MODELS         -> POST <edge>/v1/messages  (Claude-Code shape)
+#   ANTHROPIC_MODELS         -> POST /v1/messages (Claude-Code shape)
+#     transport: ANTHROPIC_PROBE_TRANSPORT=internal (default, edge docker exec)
+#                 or public (prod gateway curl; used when fleet has no edges)
 #   OPENAI_CHAT_MODELS       -> POST <prod>/v1/chat/completions
 #   OPENAI_RESPONSES_MODELS  -> POST <prod>/v1/responses   (codex family)
 #   OPENAI_IMAGE_MODELS      -> POST <prod>/v1/images/generations (best-effort)
@@ -13,6 +15,7 @@
 #   GEMINI_CHATIMAGE_MODELS  -> POST <prod>/v1/chat/completions  (gemini-*-image via chat/generateContent)
 #   GEMINI_IMAGE_MODELS      -> POST <prod>/v1/images/generations  (imagen-* predict API)
 #   GEMINI_VIDEO_MODELS      -> POST <prod>/v1/video/generations (async submit; 200-on-submit=servable, best-effort)
+#   Legacy Grok edge inputs (inactive in the prod-only fleet):
 #   GROK_CHAT_MODELS         -> POST app:8080/v1/chat/completions  (native grok, edge-internal)
 #   GROK_IMAGE_MODELS        -> POST app:8080/v1/images/generations (native grok, edge-internal)
 #   GROK_VIDEO_MODELS        -> POST app:8080/v1/video/generations (native grok, edge-internal; async submit)
@@ -20,10 +23,9 @@
 #                               (native antigravity text, PROD gateway; env name kept for compatibility)
 #   ANTIGRAVITY_IMAGE_MODELS -> POST <prod>/v1/chat/completions
 #                               (Studio gemini-native image path through the antigravity account pool)
-#     NB grok lives on its native edge pool (currently edge-us4). Like gemini,
-#     the edge-local probe hits the app container directly instead of the public
-#     Caddy path. Use run-probe with --target edge:us4 and a key bound to the
-#     edge-side grok group.
+#     These inputs require a separately re-approved deployable edge and its
+#     native Grok group. They target that host's app container directly; no edge
+#     target is active by default after the Tokyo prod-only cutover.
 #   DASHSCOPE_CHAT_MODELS    -> POST <prod>/v1/chat/completions  (newapi channel_type=17, qwen3 dense)
 #     This family routes through the normal prod TK gateway
 #     with a TK api_key BOUND TO the current newapi/qwen group/pool.
@@ -79,10 +81,12 @@
 #                            api.ainzy.net/v1 relay account/scope.
 #   PROBE_OPENAI_SOURCE_GROUP optional legacy override by group name
 #   PROBE_ANTHROPIC_SOURCE_GROUP_ID defaults via probe_source_group_id anthropic_edge
-#                            probe runs ON an edge, NOT prod — see refresh-allowlist ANTHROPIC_EDGES)
+#     (group_id=1 native OAuth; edge-internal by default, or prod public when
+#      ANTHROPIC_PROBE_TRANSPORT=public — see refresh-servable-allowlist live_probe)
 #   PROBE_ANTHROPIC_SOURCE_GROUP optional legacy override by group name
-#   ANTHROPIC_APP_CONTAINER  default tokenkey-caddy (edge app container; busybox wget, bypass Caddy)
-#   ANTHROPIC_APP_URL        default http://tokenkey:8080 (edge app, reached internally)
+#   ANTHROPIC_PROBE_TRANSPORT  internal (default) | public
+#   ANTHROPIC_APP_CONTAINER  default tokenkey-caddy (edge app; internal transport only)
+#   ANTHROPIC_APP_URL        default http://tokenkey:8080 (edge app; internal transport only)
 #   PROBE_ANTHROPIC_MIRROR_GROUP_ID defaults via probe_source_group_id anthropic_mirror
 #   PROBE_ANTHROPIC_MIRROR_GROUP optional legacy override by group name
 #   PROBE_GEMINI_SOURCE_GROUP_ID defaults via probe_source_group_id gemini_vertex
@@ -171,14 +175,13 @@ probe_source_group_id() { # $1=logical source pool
 
 PROBE_OPENAI_SOURCE_GROUP_ID="${PROBE_OPENAI_SOURCE_GROUP_ID:-$(probe_source_group_id openai)}"
 PROBE_OPENAI_SOURCE_GROUP="${PROBE_OPENAI_SOURCE_GROUP:-}"
-# anthropic probes an EDGE's native OAuth pool directly (group_id=1 on deployable edges),
-# not the prod cc-* mirror accounts: the mirrors relay prod->edge and cool down on any
-# edge upstream blip, so a prod-gateway probe empty-pools (429 not_allowlisted) whenever
-# the mirror pool is exhausted — a false "unservable". One healthy edge is enough to
-# confirm a model; the orchestrator rotates across deployable edges (refresh-servable-
-# allowlist.py ANTHROPIC_EDGES) and a model is servable if ANY edge serves it.
-PROBE_ANTHROPIC_SOURCE_GROUP_ID="${PROBE_ANTHROPIC_SOURCE_GROUP_ID:-$(probe_source_group_id anthropic_edge)}"  # edge native OAuth group id
+# anthropic native OAuth (group_id=1). Default transport is edge-internal docker
+# exec (historical: prod held cc-* mirrors that false-empty-pooled). When the
+# live fleet has no deployable edges, refresh-servable-allowlist sets
+# ANTHROPIC_PROBE_TRANSPORT=public and probes prod native OAuth via the gateway.
+PROBE_ANTHROPIC_SOURCE_GROUP_ID="${PROBE_ANTHROPIC_SOURCE_GROUP_ID:-$(probe_source_group_id anthropic_edge)}"
 PROBE_ANTHROPIC_SOURCE_GROUP="${PROBE_ANTHROPIC_SOURCE_GROUP:-}"
+ANTHROPIC_PROBE_TRANSPORT="${ANTHROPIC_PROBE_TRANSPORT:-internal}"
 ANTHROPIC_APP_CONTAINER="${ANTHROPIC_APP_CONTAINER:-tokenkey-caddy}"
 ANTHROPIC_APP_URL="${ANTHROPIC_APP_URL:-http://tokenkey:8080}"
 # Prod relay-health probe (ANTHROPIC_PROD_MIRROR_MODELS, warning-only — does NOT feed
@@ -308,6 +311,31 @@ probe_anthropic_internal() { # $1=key  (models from $ANTHROPIC_MODELS)
 		[ -z "$code" ] && code=000
 		emit anthropic "$m" "$code" "$(verdict "$code" "$bf")"
 		rm -f "$hf" "$bf"
+		sleep "$REQ_SLEEP"
+	done
+}
+
+# probe_anthropic_public: prod-native (or any host with public gateway) allowlist
+# probe. Same Claude-Code /v1/messages shape as internal, but curl through $PROD
+# so blue/green container names do not matter. Emits platform tag `anthropic`
+# (feeds the allowlist). Used when the fleet has no deployable edges.
+probe_anthropic_public() { # $1=key  (models from $ANTHROPIC_MODELS)
+	local key="$1" m f code realistic_py payload
+	realistic_py="${SCRIPT_DIR}/../stage0/smoke_anthropic_realistic.py"
+	for m in $ANTHROPIC_MODELS; do
+		f="$(mktemp)"
+		if [[ -f "$realistic_py" ]]; then
+			payload="$(python3 "$realistic_py" --model "$m" --max-tokens 32 --prompt hi)"
+		else
+			payload="{\"model\":\"$m\",\"max_tokens\":32,\"system\":[{\"type\":\"text\",\"text\":\"$SYS\"}],\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"metadata\":{\"user_id\":\"servable-probe\"}}"
+		fi
+		code="$(curl -s -o "$f" -w '%{http_code}' -m 75 -X POST "$PROD/v1/messages" \
+			-H "x-api-key: $key" -H 'anthropic-version: 2023-06-01' \
+			-H 'anthropic-beta: claude-code-20250219' -H 'X-App: cli' \
+			-H "User-Agent: $UA" -H 'content-type: application/json' \
+			--data-binary "$payload")"
+		emit anthropic "$m" "$code" "$(verdict "$code" "$f")"
+		rm -f "$f"
 		sleep "$REQ_SLEEP"
 	done
 }
@@ -483,9 +511,19 @@ main() {
 		probe_bind_source "$PROBE_ANTHROPIC_SOURCE_GROUP_ID" "$PROBE_ANTHROPIC_SOURCE_GROUP"
 		if tk_probe_catalog_key anthropic anthropic "$REPLY_BIND_KIND" "$REPLY_BIND_VAL"; then
 			reply_key="$REPLY_KEY"
-			probe_anthropic_internal "$reply_key"
+			case "${ANTHROPIC_PROBE_TRANSPORT:-internal}" in
+			public)
+				probe_anthropic_public "$reply_key"
+				;;
+			internal)
+				probe_anthropic_internal "$reply_key"
+				;;
+			*)
+				cfgerr anthropic "ANTHROPIC_PROBE_TRANSPORT must be internal|public (got '${ANTHROPIC_PROBE_TRANSPORT}')"
+				;;
+			esac
 		else
-			cfgerr anthropic "failed to prepare __tk_probe_anthropic_* ($REPLY_BIND_LABEL — this edge has no schedulable native OAuth account; rotate to another edge)"
+			cfgerr anthropic "failed to prepare __tk_probe_anthropic_* ($REPLY_BIND_LABEL — no schedulable native OAuth account for this target)"
 		fi
 	fi
 	# Prod relay-health probe (warning-only): probe each prod mirror sub-pool (cc-* and
