@@ -70,11 +70,14 @@ type User struct {
 	// RpmLimit holds the value of the "rpm_limit" field.
 	RpmLimit int `json:"rpm_limit,omitempty"`
 	// TrajExportEnabled holds the value of the "traj_export_enabled" field.
-	TrajExportEnabled bool      `json:"traj_export_enabled,omitempty"`
-	Edges             UserEdges `json:"edges"`
-	selectValues      sql.SelectValues
+	TrajExportEnabled bool `json:"traj_export_enabled,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the UserQuery when eager-loading is set.
+	Edges        UserEdges `json:"edges"`
+	selectValues sql.SelectValues
 }
 
+// UserEdges holds the relations/edges for other nodes in the graph.
 type UserEdges struct {
 	// APIKeys holds the value of the api_keys edge.
 	APIKeys []*APIKey `json:"api_keys,omitempty"`

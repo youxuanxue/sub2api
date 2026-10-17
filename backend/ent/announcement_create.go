@@ -168,6 +168,7 @@ func (_c *AnnouncementCreate) AddReadIDs(ids ...int64) *AnnouncementCreate {
 	return _c
 }
 
+// AddReads adds the "reads" edges to the AnnouncementRead entity.
 func (_c *AnnouncementCreate) AddReads(v ...*AnnouncementRead) *AnnouncementCreate {
 	ids := make([]int64, len(v))
 	for i := range v {

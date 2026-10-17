@@ -185,6 +185,7 @@ func (UsageLog) Fields() []ent.Field {
 	}
 }
 
+// Edges 定义使用日志实体的关联关系。
 func (UsageLog) Edges() []ent.Edge {
 	return []ent.Edge{
 		edge.From("user", User.Type).

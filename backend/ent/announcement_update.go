@@ -212,6 +212,7 @@ func (_u *AnnouncementUpdate) AddReadIDs(ids ...int64) *AnnouncementUpdate {
 	return _u
 }
 
+// AddReads adds the "reads" edges to the AnnouncementRead entity.
 func (_u *AnnouncementUpdate) AddReads(v ...*AnnouncementRead) *AnnouncementUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -225,6 +226,7 @@ func (_u *AnnouncementUpdate) Mutation() *AnnouncementMutation {
 	return _u.mutation
 }
 
+// ClearReads clears all "reads" edges to the AnnouncementRead entity.
 func (_u *AnnouncementUpdate) ClearReads() *AnnouncementUpdate {
 	_u.mutation.ClearReads()
 	return _u
@@ -236,6 +238,7 @@ func (_u *AnnouncementUpdate) RemoveReadIDs(ids ...int64) *AnnouncementUpdate {
 	return _u
 }
 
+// RemoveReads removes "reads" edges to AnnouncementRead entities.
 func (_u *AnnouncementUpdate) RemoveReads(v ...*AnnouncementRead) *AnnouncementUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -615,6 +618,7 @@ func (_u *AnnouncementUpdateOne) AddReadIDs(ids ...int64) *AnnouncementUpdateOne
 	return _u
 }
 
+// AddReads adds the "reads" edges to the AnnouncementRead entity.
 func (_u *AnnouncementUpdateOne) AddReads(v ...*AnnouncementRead) *AnnouncementUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -628,6 +632,7 @@ func (_u *AnnouncementUpdateOne) Mutation() *AnnouncementMutation {
 	return _u.mutation
 }
 
+// ClearReads clears all "reads" edges to the AnnouncementRead entity.
 func (_u *AnnouncementUpdateOne) ClearReads() *AnnouncementUpdateOne {
 	_u.mutation.ClearReads()
 	return _u
@@ -639,6 +644,7 @@ func (_u *AnnouncementUpdateOne) RemoveReadIDs(ids ...int64) *AnnouncementUpdate
 	return _u
 }
 
+// RemoveReads removes "reads" edges to AnnouncementRead entities.
 func (_u *AnnouncementUpdateOne) RemoveReads(v ...*AnnouncementRead) *AnnouncementUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {

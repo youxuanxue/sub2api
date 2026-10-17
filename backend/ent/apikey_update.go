@@ -482,6 +482,7 @@ func (_u *APIKeyUpdate) AddUsageLogIDs(ids ...int64) *APIKeyUpdate {
 	return _u
 }
 
+// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
 func (_u *APIKeyUpdate) AddUsageLogs(v ...*UsageLog) *APIKeyUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -507,6 +508,7 @@ func (_u *APIKeyUpdate) ClearGroup() *APIKeyUpdate {
 	return _u
 }
 
+// ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
 func (_u *APIKeyUpdate) ClearUsageLogs() *APIKeyUpdate {
 	_u.mutation.ClearUsageLogs()
 	return _u
@@ -518,6 +520,7 @@ func (_u *APIKeyUpdate) RemoveUsageLogIDs(ids ...int64) *APIKeyUpdate {
 	return _u
 }
 
+// RemoveUsageLogs removes "usage_logs" edges to UsageLog entities.
 func (_u *APIKeyUpdate) RemoveUsageLogs(v ...*UsageLog) *APIKeyUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1310,6 +1313,7 @@ func (_u *APIKeyUpdateOne) AddUsageLogIDs(ids ...int64) *APIKeyUpdateOne {
 	return _u
 }
 
+// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
 func (_u *APIKeyUpdateOne) AddUsageLogs(v ...*UsageLog) *APIKeyUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1335,6 +1339,7 @@ func (_u *APIKeyUpdateOne) ClearGroup() *APIKeyUpdateOne {
 	return _u
 }
 
+// ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
 func (_u *APIKeyUpdateOne) ClearUsageLogs() *APIKeyUpdateOne {
 	_u.mutation.ClearUsageLogs()
 	return _u
@@ -1346,6 +1351,7 @@ func (_u *APIKeyUpdateOne) RemoveUsageLogIDs(ids ...int64) *APIKeyUpdateOne {
 	return _u
 }
 
+// RemoveUsageLogs removes "usage_logs" edges to UsageLog entities.
 func (_u *APIKeyUpdateOne) RemoveUsageLogs(v ...*UsageLog) *APIKeyUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {

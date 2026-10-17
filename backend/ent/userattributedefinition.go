@@ -43,11 +43,14 @@ type UserAttributeDefinition struct {
 	// DisplayOrder holds the value of the "display_order" field.
 	DisplayOrder int `json:"display_order,omitempty"`
 	// Enabled holds the value of the "enabled" field.
-	Enabled      bool                         `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the UserAttributeDefinitionQuery when eager-loading is set.
 	Edges        UserAttributeDefinitionEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
+// UserAttributeDefinitionEdges holds the relations/edges for other nodes in the graph.
 type UserAttributeDefinitionEdges struct {
 	// Values holds the value of the values edge.
 	Values []*UserAttributeValue `json:"values,omitempty"`

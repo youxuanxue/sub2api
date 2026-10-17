@@ -339,6 +339,7 @@ func (_u *UserSubscriptionUpdate) AddUsageLogIDs(ids ...int64) *UserSubscription
 	return _u
 }
 
+// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
 func (_u *UserSubscriptionUpdate) AddUsageLogs(v ...*UsageLog) *UserSubscriptionUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -370,6 +371,7 @@ func (_u *UserSubscriptionUpdate) ClearAssignedByUser() *UserSubscriptionUpdate 
 	return _u
 }
 
+// ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
 func (_u *UserSubscriptionUpdate) ClearUsageLogs() *UserSubscriptionUpdate {
 	_u.mutation.ClearUsageLogs()
 	return _u
@@ -381,6 +383,7 @@ func (_u *UserSubscriptionUpdate) RemoveUsageLogIDs(ids ...int64) *UserSubscript
 	return _u
 }
 
+// RemoveUsageLogs removes "usage_logs" edges to UsageLog entities.
 func (_u *UserSubscriptionUpdate) RemoveUsageLogs(v ...*UsageLog) *UserSubscriptionUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -982,6 +985,7 @@ func (_u *UserSubscriptionUpdateOne) AddUsageLogIDs(ids ...int64) *UserSubscript
 	return _u
 }
 
+// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
 func (_u *UserSubscriptionUpdateOne) AddUsageLogs(v ...*UsageLog) *UserSubscriptionUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1013,6 +1017,7 @@ func (_u *UserSubscriptionUpdateOne) ClearAssignedByUser() *UserSubscriptionUpda
 	return _u
 }
 
+// ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
 func (_u *UserSubscriptionUpdateOne) ClearUsageLogs() *UserSubscriptionUpdateOne {
 	_u.mutation.ClearUsageLogs()
 	return _u
@@ -1024,6 +1029,7 @@ func (_u *UserSubscriptionUpdateOne) RemoveUsageLogIDs(ids ...int64) *UserSubscr
 	return _u
 }
 
+// RemoveUsageLogs removes "usage_logs" edges to UsageLog entities.
 func (_u *UserSubscriptionUpdateOne) RemoveUsageLogs(v ...*UsageLog) *UserSubscriptionUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {

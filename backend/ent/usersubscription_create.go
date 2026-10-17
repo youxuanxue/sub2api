@@ -266,6 +266,7 @@ func (_c *UserSubscriptionCreate) AddUsageLogIDs(ids ...int64) *UserSubscription
 	return _c
 }
 
+// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
 func (_c *UserSubscriptionCreate) AddUsageLogs(v ...*UsageLog) *UserSubscriptionCreate {
 	ids := make([]int64, len(v))
 	for i := range v {

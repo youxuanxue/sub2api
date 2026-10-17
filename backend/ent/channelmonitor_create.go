@@ -273,6 +273,7 @@ func (_c *ChannelMonitorCreate) AddHistoryIDs(ids ...int64) *ChannelMonitorCreat
 	return _c
 }
 
+// AddHistory adds the "history" edges to the ChannelMonitorHistory entity.
 func (_c *ChannelMonitorCreate) AddHistory(v ...*ChannelMonitorHistory) *ChannelMonitorCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -287,6 +288,7 @@ func (_c *ChannelMonitorCreate) AddDailyRollupIDs(ids ...int64) *ChannelMonitorC
 	return _c
 }
 
+// AddDailyRollups adds the "daily_rollups" edges to the ChannelMonitorDailyRollup entity.
 func (_c *ChannelMonitorCreate) AddDailyRollups(v ...*ChannelMonitorDailyRollup) *ChannelMonitorCreate {
 	ids := make([]int64, len(v))
 	for i := range v {

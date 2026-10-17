@@ -1299,6 +1299,7 @@ func (_u *GroupUpdate) AddAPIKeyIDs(ids ...int64) *GroupUpdate {
 	return _u
 }
 
+// AddAPIKeys adds the "api_keys" edges to the APIKey entity.
 func (_u *GroupUpdate) AddAPIKeys(v ...*APIKey) *GroupUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1313,6 +1314,7 @@ func (_u *GroupUpdate) AddRedeemCodeIDs(ids ...int64) *GroupUpdate {
 	return _u
 }
 
+// AddRedeemCodes adds the "redeem_codes" edges to the RedeemCode entity.
 func (_u *GroupUpdate) AddRedeemCodes(v ...*RedeemCode) *GroupUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1327,6 +1329,7 @@ func (_u *GroupUpdate) AddSubscriptionIDs(ids ...int64) *GroupUpdate {
 	return _u
 }
 
+// AddSubscriptions adds the "subscriptions" edges to the UserSubscription entity.
 func (_u *GroupUpdate) AddSubscriptions(v ...*UserSubscription) *GroupUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1341,6 +1344,7 @@ func (_u *GroupUpdate) AddUsageLogIDs(ids ...int64) *GroupUpdate {
 	return _u
 }
 
+// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
 func (_u *GroupUpdate) AddUsageLogs(v ...*UsageLog) *GroupUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1355,6 +1359,7 @@ func (_u *GroupUpdate) AddAccountIDs(ids ...int64) *GroupUpdate {
 	return _u
 }
 
+// AddAccounts adds the "accounts" edges to the Account entity.
 func (_u *GroupUpdate) AddAccounts(v ...*Account) *GroupUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1369,6 +1374,7 @@ func (_u *GroupUpdate) AddAllowedUserIDs(ids ...int64) *GroupUpdate {
 	return _u
 }
 
+// AddAllowedUsers adds the "allowed_users" edges to the User entity.
 func (_u *GroupUpdate) AddAllowedUsers(v ...*User) *GroupUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1382,6 +1388,7 @@ func (_u *GroupUpdate) Mutation() *GroupMutation {
 	return _u.mutation
 }
 
+// ClearAPIKeys clears all "api_keys" edges to the APIKey entity.
 func (_u *GroupUpdate) ClearAPIKeys() *GroupUpdate {
 	_u.mutation.ClearAPIKeys()
 	return _u
@@ -1393,6 +1400,7 @@ func (_u *GroupUpdate) RemoveAPIKeyIDs(ids ...int64) *GroupUpdate {
 	return _u
 }
 
+// RemoveAPIKeys removes "api_keys" edges to APIKey entities.
 func (_u *GroupUpdate) RemoveAPIKeys(v ...*APIKey) *GroupUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1401,6 +1409,7 @@ func (_u *GroupUpdate) RemoveAPIKeys(v ...*APIKey) *GroupUpdate {
 	return _u.RemoveAPIKeyIDs(ids...)
 }
 
+// ClearRedeemCodes clears all "redeem_codes" edges to the RedeemCode entity.
 func (_u *GroupUpdate) ClearRedeemCodes() *GroupUpdate {
 	_u.mutation.ClearRedeemCodes()
 	return _u
@@ -1412,6 +1421,7 @@ func (_u *GroupUpdate) RemoveRedeemCodeIDs(ids ...int64) *GroupUpdate {
 	return _u
 }
 
+// RemoveRedeemCodes removes "redeem_codes" edges to RedeemCode entities.
 func (_u *GroupUpdate) RemoveRedeemCodes(v ...*RedeemCode) *GroupUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1420,6 +1430,7 @@ func (_u *GroupUpdate) RemoveRedeemCodes(v ...*RedeemCode) *GroupUpdate {
 	return _u.RemoveRedeemCodeIDs(ids...)
 }
 
+// ClearSubscriptions clears all "subscriptions" edges to the UserSubscription entity.
 func (_u *GroupUpdate) ClearSubscriptions() *GroupUpdate {
 	_u.mutation.ClearSubscriptions()
 	return _u
@@ -1431,6 +1442,7 @@ func (_u *GroupUpdate) RemoveSubscriptionIDs(ids ...int64) *GroupUpdate {
 	return _u
 }
 
+// RemoveSubscriptions removes "subscriptions" edges to UserSubscription entities.
 func (_u *GroupUpdate) RemoveSubscriptions(v ...*UserSubscription) *GroupUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1439,6 +1451,7 @@ func (_u *GroupUpdate) RemoveSubscriptions(v ...*UserSubscription) *GroupUpdate 
 	return _u.RemoveSubscriptionIDs(ids...)
 }
 
+// ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
 func (_u *GroupUpdate) ClearUsageLogs() *GroupUpdate {
 	_u.mutation.ClearUsageLogs()
 	return _u
@@ -1450,6 +1463,7 @@ func (_u *GroupUpdate) RemoveUsageLogIDs(ids ...int64) *GroupUpdate {
 	return _u
 }
 
+// RemoveUsageLogs removes "usage_logs" edges to UsageLog entities.
 func (_u *GroupUpdate) RemoveUsageLogs(v ...*UsageLog) *GroupUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1458,6 +1472,7 @@ func (_u *GroupUpdate) RemoveUsageLogs(v ...*UsageLog) *GroupUpdate {
 	return _u.RemoveUsageLogIDs(ids...)
 }
 
+// ClearAccounts clears all "accounts" edges to the Account entity.
 func (_u *GroupUpdate) ClearAccounts() *GroupUpdate {
 	_u.mutation.ClearAccounts()
 	return _u
@@ -1469,6 +1484,7 @@ func (_u *GroupUpdate) RemoveAccountIDs(ids ...int64) *GroupUpdate {
 	return _u
 }
 
+// RemoveAccounts removes "accounts" edges to Account entities.
 func (_u *GroupUpdate) RemoveAccounts(v ...*Account) *GroupUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1477,6 +1493,7 @@ func (_u *GroupUpdate) RemoveAccounts(v ...*Account) *GroupUpdate {
 	return _u.RemoveAccountIDs(ids...)
 }
 
+// ClearAllowedUsers clears all "allowed_users" edges to the User entity.
 func (_u *GroupUpdate) ClearAllowedUsers() *GroupUpdate {
 	_u.mutation.ClearAllowedUsers()
 	return _u
@@ -1488,6 +1505,7 @@ func (_u *GroupUpdate) RemoveAllowedUserIDs(ids ...int64) *GroupUpdate {
 	return _u
 }
 
+// RemoveAllowedUsers removes "allowed_users" edges to User entities.
 func (_u *GroupUpdate) RemoveAllowedUsers(v ...*User) *GroupUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -3576,6 +3594,7 @@ func (_u *GroupUpdateOne) AddAPIKeyIDs(ids ...int64) *GroupUpdateOne {
 	return _u
 }
 
+// AddAPIKeys adds the "api_keys" edges to the APIKey entity.
 func (_u *GroupUpdateOne) AddAPIKeys(v ...*APIKey) *GroupUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -3590,6 +3609,7 @@ func (_u *GroupUpdateOne) AddRedeemCodeIDs(ids ...int64) *GroupUpdateOne {
 	return _u
 }
 
+// AddRedeemCodes adds the "redeem_codes" edges to the RedeemCode entity.
 func (_u *GroupUpdateOne) AddRedeemCodes(v ...*RedeemCode) *GroupUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -3604,6 +3624,7 @@ func (_u *GroupUpdateOne) AddSubscriptionIDs(ids ...int64) *GroupUpdateOne {
 	return _u
 }
 
+// AddSubscriptions adds the "subscriptions" edges to the UserSubscription entity.
 func (_u *GroupUpdateOne) AddSubscriptions(v ...*UserSubscription) *GroupUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -3618,6 +3639,7 @@ func (_u *GroupUpdateOne) AddUsageLogIDs(ids ...int64) *GroupUpdateOne {
 	return _u
 }
 
+// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
 func (_u *GroupUpdateOne) AddUsageLogs(v ...*UsageLog) *GroupUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -3632,6 +3654,7 @@ func (_u *GroupUpdateOne) AddAccountIDs(ids ...int64) *GroupUpdateOne {
 	return _u
 }
 
+// AddAccounts adds the "accounts" edges to the Account entity.
 func (_u *GroupUpdateOne) AddAccounts(v ...*Account) *GroupUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -3646,6 +3669,7 @@ func (_u *GroupUpdateOne) AddAllowedUserIDs(ids ...int64) *GroupUpdateOne {
 	return _u
 }
 
+// AddAllowedUsers adds the "allowed_users" edges to the User entity.
 func (_u *GroupUpdateOne) AddAllowedUsers(v ...*User) *GroupUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -3659,6 +3683,7 @@ func (_u *GroupUpdateOne) Mutation() *GroupMutation {
 	return _u.mutation
 }
 
+// ClearAPIKeys clears all "api_keys" edges to the APIKey entity.
 func (_u *GroupUpdateOne) ClearAPIKeys() *GroupUpdateOne {
 	_u.mutation.ClearAPIKeys()
 	return _u
@@ -3670,6 +3695,7 @@ func (_u *GroupUpdateOne) RemoveAPIKeyIDs(ids ...int64) *GroupUpdateOne {
 	return _u
 }
 
+// RemoveAPIKeys removes "api_keys" edges to APIKey entities.
 func (_u *GroupUpdateOne) RemoveAPIKeys(v ...*APIKey) *GroupUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -3678,6 +3704,7 @@ func (_u *GroupUpdateOne) RemoveAPIKeys(v ...*APIKey) *GroupUpdateOne {
 	return _u.RemoveAPIKeyIDs(ids...)
 }
 
+// ClearRedeemCodes clears all "redeem_codes" edges to the RedeemCode entity.
 func (_u *GroupUpdateOne) ClearRedeemCodes() *GroupUpdateOne {
 	_u.mutation.ClearRedeemCodes()
 	return _u
@@ -3689,6 +3716,7 @@ func (_u *GroupUpdateOne) RemoveRedeemCodeIDs(ids ...int64) *GroupUpdateOne {
 	return _u
 }
 
+// RemoveRedeemCodes removes "redeem_codes" edges to RedeemCode entities.
 func (_u *GroupUpdateOne) RemoveRedeemCodes(v ...*RedeemCode) *GroupUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -3697,6 +3725,7 @@ func (_u *GroupUpdateOne) RemoveRedeemCodes(v ...*RedeemCode) *GroupUpdateOne {
 	return _u.RemoveRedeemCodeIDs(ids...)
 }
 
+// ClearSubscriptions clears all "subscriptions" edges to the UserSubscription entity.
 func (_u *GroupUpdateOne) ClearSubscriptions() *GroupUpdateOne {
 	_u.mutation.ClearSubscriptions()
 	return _u
@@ -3708,6 +3737,7 @@ func (_u *GroupUpdateOne) RemoveSubscriptionIDs(ids ...int64) *GroupUpdateOne {
 	return _u
 }
 
+// RemoveSubscriptions removes "subscriptions" edges to UserSubscription entities.
 func (_u *GroupUpdateOne) RemoveSubscriptions(v ...*UserSubscription) *GroupUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -3716,6 +3746,7 @@ func (_u *GroupUpdateOne) RemoveSubscriptions(v ...*UserSubscription) *GroupUpda
 	return _u.RemoveSubscriptionIDs(ids...)
 }
 
+// ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
 func (_u *GroupUpdateOne) ClearUsageLogs() *GroupUpdateOne {
 	_u.mutation.ClearUsageLogs()
 	return _u
@@ -3727,6 +3758,7 @@ func (_u *GroupUpdateOne) RemoveUsageLogIDs(ids ...int64) *GroupUpdateOne {
 	return _u
 }
 
+// RemoveUsageLogs removes "usage_logs" edges to UsageLog entities.
 func (_u *GroupUpdateOne) RemoveUsageLogs(v ...*UsageLog) *GroupUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -3735,6 +3767,7 @@ func (_u *GroupUpdateOne) RemoveUsageLogs(v ...*UsageLog) *GroupUpdateOne {
 	return _u.RemoveUsageLogIDs(ids...)
 }
 
+// ClearAccounts clears all "accounts" edges to the Account entity.
 func (_u *GroupUpdateOne) ClearAccounts() *GroupUpdateOne {
 	_u.mutation.ClearAccounts()
 	return _u
@@ -3746,6 +3779,7 @@ func (_u *GroupUpdateOne) RemoveAccountIDs(ids ...int64) *GroupUpdateOne {
 	return _u
 }
 
+// RemoveAccounts removes "accounts" edges to Account entities.
 func (_u *GroupUpdateOne) RemoveAccounts(v ...*Account) *GroupUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -3754,6 +3788,7 @@ func (_u *GroupUpdateOne) RemoveAccounts(v ...*Account) *GroupUpdateOne {
 	return _u.RemoveAccountIDs(ids...)
 }
 
+// ClearAllowedUsers clears all "allowed_users" edges to the User entity.
 func (_u *GroupUpdateOne) ClearAllowedUsers() *GroupUpdateOne {
 	_u.mutation.ClearAllowedUsers()
 	return _u
@@ -3765,6 +3800,7 @@ func (_u *GroupUpdateOne) RemoveAllowedUserIDs(ids ...int64) *GroupUpdateOne {
 	return _u
 }
 
+// RemoveAllowedUsers removes "allowed_users" edges to User entities.
 func (_u *GroupUpdateOne) RemoveAllowedUsers(v ...*User) *GroupUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {

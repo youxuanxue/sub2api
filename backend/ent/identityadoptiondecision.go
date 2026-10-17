@@ -32,11 +32,14 @@ type IdentityAdoptionDecision struct {
 	// AdoptAvatar holds the value of the "adopt_avatar" field.
 	AdoptAvatar bool `json:"adopt_avatar,omitempty"`
 	// DecidedAt holds the value of the "decided_at" field.
-	DecidedAt    time.Time                     `json:"decided_at,omitempty"`
+	DecidedAt time.Time `json:"decided_at,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the IdentityAdoptionDecisionQuery when eager-loading is set.
 	Edges        IdentityAdoptionDecisionEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
+// IdentityAdoptionDecisionEdges holds the relations/edges for other nodes in the graph.
 type IdentityAdoptionDecisionEdges struct {
 	// PendingAuthSession holds the value of the pending_auth_session edge.
 	PendingAuthSession *PendingAuthSession `json:"pending_auth_session,omitempty"`

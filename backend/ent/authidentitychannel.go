@@ -36,11 +36,14 @@ type AuthIdentityChannel struct {
 	// ChannelSubject holds the value of the "channel_subject" field.
 	ChannelSubject string `json:"channel_subject,omitempty"`
 	// Metadata holds the value of the "metadata" field.
-	Metadata     map[string]interface{}   `json:"metadata,omitempty"`
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the AuthIdentityChannelQuery when eager-loading is set.
 	Edges        AuthIdentityChannelEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
+// AuthIdentityChannelEdges holds the relations/edges for other nodes in the graph.
 type AuthIdentityChannelEdges struct {
 	// Identity holds the value of the identity edge.
 	Identity *AuthIdentity `json:"identity,omitempty"`

@@ -206,7 +206,6 @@
     "det_ops_stage0": "stage0 test suite",
     "det_scripts": "scripts test suite",
     "det_deploy_aws_stage0": "deployment test suite",
-    "det_deploy_aws_lightsail": "deployment test suite",
     "det_deploy_hetzner": "deployment test suite",
     "caddyfile": "Caddyfile syntax gate",
     "script_ref": "script ref existence",

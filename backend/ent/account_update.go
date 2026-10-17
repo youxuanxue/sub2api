@@ -639,6 +639,7 @@ func (_u *AccountUpdate) AddGroupIDs(ids ...int64) *AccountUpdate {
 	return _u
 }
 
+// AddGroups adds the "groups" edges to the Group entity.
 func (_u *AccountUpdate) AddGroups(v ...*Group) *AccountUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -682,6 +683,7 @@ func (_u *AccountUpdate) AddChildIDs(ids ...int64) *AccountUpdate {
 	return _u
 }
 
+// AddChildren adds the "children" edges to the Account entity.
 func (_u *AccountUpdate) AddChildren(v ...*Account) *AccountUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -696,6 +698,7 @@ func (_u *AccountUpdate) AddUsageLogIDs(ids ...int64) *AccountUpdate {
 	return _u
 }
 
+// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
 func (_u *AccountUpdate) AddUsageLogs(v ...*UsageLog) *AccountUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -709,6 +712,7 @@ func (_u *AccountUpdate) Mutation() *AccountMutation {
 	return _u.mutation
 }
 
+// ClearGroups clears all "groups" edges to the Group entity.
 func (_u *AccountUpdate) ClearGroups() *AccountUpdate {
 	_u.mutation.ClearGroups()
 	return _u
@@ -720,6 +724,7 @@ func (_u *AccountUpdate) RemoveGroupIDs(ids ...int64) *AccountUpdate {
 	return _u
 }
 
+// RemoveGroups removes "groups" edges to Group entities.
 func (_u *AccountUpdate) RemoveGroups(v ...*Group) *AccountUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -746,6 +751,7 @@ func (_u *AccountUpdate) ClearParent() *AccountUpdate {
 	return _u
 }
 
+// ClearChildren clears all "children" edges to the Account entity.
 func (_u *AccountUpdate) ClearChildren() *AccountUpdate {
 	_u.mutation.ClearChildren()
 	return _u
@@ -757,6 +763,7 @@ func (_u *AccountUpdate) RemoveChildIDs(ids ...int64) *AccountUpdate {
 	return _u
 }
 
+// RemoveChildren removes "children" edges to Account entities.
 func (_u *AccountUpdate) RemoveChildren(v ...*Account) *AccountUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -765,6 +772,7 @@ func (_u *AccountUpdate) RemoveChildren(v ...*Account) *AccountUpdate {
 	return _u.RemoveChildIDs(ids...)
 }
 
+// ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
 func (_u *AccountUpdate) ClearUsageLogs() *AccountUpdate {
 	_u.mutation.ClearUsageLogs()
 	return _u
@@ -776,6 +784,7 @@ func (_u *AccountUpdate) RemoveUsageLogIDs(ids ...int64) *AccountUpdate {
 	return _u
 }
 
+// RemoveUsageLogs removes "usage_logs" edges to UsageLog entities.
 func (_u *AccountUpdate) RemoveUsageLogs(v ...*UsageLog) *AccountUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1893,6 +1902,7 @@ func (_u *AccountUpdateOne) AddGroupIDs(ids ...int64) *AccountUpdateOne {
 	return _u
 }
 
+// AddGroups adds the "groups" edges to the Group entity.
 func (_u *AccountUpdateOne) AddGroups(v ...*Group) *AccountUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1936,6 +1946,7 @@ func (_u *AccountUpdateOne) AddChildIDs(ids ...int64) *AccountUpdateOne {
 	return _u
 }
 
+// AddChildren adds the "children" edges to the Account entity.
 func (_u *AccountUpdateOne) AddChildren(v ...*Account) *AccountUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1950,6 +1961,7 @@ func (_u *AccountUpdateOne) AddUsageLogIDs(ids ...int64) *AccountUpdateOne {
 	return _u
 }
 
+// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
 func (_u *AccountUpdateOne) AddUsageLogs(v ...*UsageLog) *AccountUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -1963,6 +1975,7 @@ func (_u *AccountUpdateOne) Mutation() *AccountMutation {
 	return _u.mutation
 }
 
+// ClearGroups clears all "groups" edges to the Group entity.
 func (_u *AccountUpdateOne) ClearGroups() *AccountUpdateOne {
 	_u.mutation.ClearGroups()
 	return _u
@@ -1974,6 +1987,7 @@ func (_u *AccountUpdateOne) RemoveGroupIDs(ids ...int64) *AccountUpdateOne {
 	return _u
 }
 
+// RemoveGroups removes "groups" edges to Group entities.
 func (_u *AccountUpdateOne) RemoveGroups(v ...*Group) *AccountUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -2000,6 +2014,7 @@ func (_u *AccountUpdateOne) ClearParent() *AccountUpdateOne {
 	return _u
 }
 
+// ClearChildren clears all "children" edges to the Account entity.
 func (_u *AccountUpdateOne) ClearChildren() *AccountUpdateOne {
 	_u.mutation.ClearChildren()
 	return _u
@@ -2011,6 +2026,7 @@ func (_u *AccountUpdateOne) RemoveChildIDs(ids ...int64) *AccountUpdateOne {
 	return _u
 }
 
+// RemoveChildren removes "children" edges to Account entities.
 func (_u *AccountUpdateOne) RemoveChildren(v ...*Account) *AccountUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -2019,6 +2035,7 @@ func (_u *AccountUpdateOne) RemoveChildren(v ...*Account) *AccountUpdateOne {
 	return _u.RemoveChildIDs(ids...)
 }
 
+// ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
 func (_u *AccountUpdateOne) ClearUsageLogs() *AccountUpdateOne {
 	_u.mutation.ClearUsageLogs()
 	return _u
@@ -2030,6 +2047,7 @@ func (_u *AccountUpdateOne) RemoveUsageLogIDs(ids ...int64) *AccountUpdateOne {
 	return _u
 }
 
+// RemoveUsageLogs removes "usage_logs" edges to UsageLog entities.
 func (_u *AccountUpdateOne) RemoveUsageLogs(v ...*UsageLog) *AccountUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {

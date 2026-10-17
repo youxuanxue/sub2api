@@ -35,11 +35,14 @@ type ChannelMonitorHistory struct {
 	// Quota holds the value of the "quota" field.
 	Quota *domain.MonitorQuotaSnapshot `json:"quota,omitempty"`
 	// CheckedAt holds the value of the "checked_at" field.
-	CheckedAt    time.Time                  `json:"checked_at,omitempty"`
+	CheckedAt time.Time `json:"checked_at,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the ChannelMonitorHistoryQuery when eager-loading is set.
 	Edges        ChannelMonitorHistoryEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
+// ChannelMonitorHistoryEdges holds the relations/edges for other nodes in the graph.
 type ChannelMonitorHistoryEdges struct {
 	// Monitor holds the value of the monitor edge.
 	Monitor *ChannelMonitor `json:"monitor,omitempty"`

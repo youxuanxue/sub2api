@@ -351,6 +351,7 @@ func (_c *APIKeyCreate) AddUsageLogIDs(ids ...int64) *APIKeyCreate {
 	return _c
 }
 
+// AddUsageLogs adds the "usage_logs" edges to the UsageLog entity.
 func (_c *APIKeyCreate) AddUsageLogs(v ...*UsageLog) *APIKeyCreate {
 	ids := make([]int64, len(v))
 	for i := range v {

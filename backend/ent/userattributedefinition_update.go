@@ -199,6 +199,7 @@ func (_u *UserAttributeDefinitionUpdate) AddValueIDs(ids ...int64) *UserAttribut
 	return _u
 }
 
+// AddValues adds the "values" edges to the UserAttributeValue entity.
 func (_u *UserAttributeDefinitionUpdate) AddValues(v ...*UserAttributeValue) *UserAttributeDefinitionUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -212,6 +213,7 @@ func (_u *UserAttributeDefinitionUpdate) Mutation() *UserAttributeDefinitionMuta
 	return _u.mutation
 }
 
+// ClearValues clears all "values" edges to the UserAttributeValue entity.
 func (_u *UserAttributeDefinitionUpdate) ClearValues() *UserAttributeDefinitionUpdate {
 	_u.mutation.ClearValues()
 	return _u
@@ -223,6 +225,7 @@ func (_u *UserAttributeDefinitionUpdate) RemoveValueIDs(ids ...int64) *UserAttri
 	return _u
 }
 
+// RemoveValues removes "values" edges to UserAttributeValue entities.
 func (_u *UserAttributeDefinitionUpdate) RemoveValues(v ...*UserAttributeValue) *UserAttributeDefinitionUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -591,6 +594,7 @@ func (_u *UserAttributeDefinitionUpdateOne) AddValueIDs(ids ...int64) *UserAttri
 	return _u
 }
 
+// AddValues adds the "values" edges to the UserAttributeValue entity.
 func (_u *UserAttributeDefinitionUpdateOne) AddValues(v ...*UserAttributeValue) *UserAttributeDefinitionUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -604,6 +608,7 @@ func (_u *UserAttributeDefinitionUpdateOne) Mutation() *UserAttributeDefinitionM
 	return _u.mutation
 }
 
+// ClearValues clears all "values" edges to the UserAttributeValue entity.
 func (_u *UserAttributeDefinitionUpdateOne) ClearValues() *UserAttributeDefinitionUpdateOne {
 	_u.mutation.ClearValues()
 	return _u
@@ -615,6 +620,7 @@ func (_u *UserAttributeDefinitionUpdateOne) RemoveValueIDs(ids ...int64) *UserAt
 	return _u
 }
 
+// RemoveValues removes "values" edges to UserAttributeValue entities.
 func (_u *UserAttributeDefinitionUpdateOne) RemoveValues(v ...*UserAttributeValue) *UserAttributeDefinitionUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {

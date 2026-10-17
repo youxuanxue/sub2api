@@ -41,11 +41,14 @@ type CompositeModelRoute struct {
 	// Enabled holds the value of the "enabled" field.
 	Enabled bool `json:"enabled,omitempty"`
 	// Notes holds the value of the "notes" field.
-	Notes        *string                  `json:"notes,omitempty"`
+	Notes *string `json:"notes,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the CompositeModelRouteQuery when eager-loading is set.
 	Edges        CompositeModelRouteEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
+// CompositeModelRouteEdges holds the relations/edges for other nodes in the graph.
 type CompositeModelRouteEdges struct {
 	// Group holds the value of the group edge.
 	Group *Group `json:"group,omitempty"`

@@ -1487,6 +1487,9 @@ func (m *APIKeyMutation) UserCleared() bool {
 	return m.cleareduser
 }
 
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
 func (m *APIKeyMutation) UserIDs() (ids []int64) {
 	if id := m.user; id != nil {
 		ids = append(ids, *id)
@@ -1511,6 +1514,9 @@ func (m *APIKeyMutation) GroupCleared() bool {
 	return m.GroupIDCleared() || m.clearedgroup
 }
 
+// GroupIDs returns the "group" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// GroupID instead. It exists only for internal usage by the builders.
 func (m *APIKeyMutation) GroupIDs() (ids []int64) {
 	if id := m.group; id != nil {
 		ids = append(ids, *id)
@@ -4235,6 +4241,9 @@ func (m *AccountMutation) ProxyCleared() bool {
 	return m.ProxyIDCleared() || m.clearedproxy
 }
 
+// ProxyIDs returns the "proxy" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ProxyID instead. It exists only for internal usage by the builders.
 func (m *AccountMutation) ProxyIDs() (ids []int64) {
 	if id := m.proxy; id != nil {
 		ids = append(ids, *id)
@@ -4259,6 +4268,9 @@ func (m *AccountMutation) ProtocolEndpointCapabilityCleared() bool {
 	return m.ProtocolEndpointCapabilityIDCleared() || m.clearedprotocol_endpoint_capability
 }
 
+// ProtocolEndpointCapabilityIDs returns the "protocol_endpoint_capability" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ProtocolEndpointCapabilityID instead. It exists only for internal usage by the builders.
 func (m *AccountMutation) ProtocolEndpointCapabilityIDs() (ids []int64) {
 	if id := m.protocol_endpoint_capability; id != nil {
 		ids = append(ids, *id)
@@ -4296,6 +4308,9 @@ func (m *AccountMutation) ParentID() (id int64, exists bool) {
 	return
 }
 
+// ParentIDs returns the "parent" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ParentID instead. It exists only for internal usage by the builders.
 func (m *AccountMutation) ParentIDs() (ids []int64) {
 	if id := m.parent; id != nil {
 		ids = append(ids, *id)
@@ -5666,6 +5681,9 @@ func (m *AccountGroupMutation) AccountCleared() bool {
 	return m.clearedaccount
 }
 
+// AccountIDs returns the "account" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// AccountID instead. It exists only for internal usage by the builders.
 func (m *AccountGroupMutation) AccountIDs() (ids []int64) {
 	if id := m.account; id != nil {
 		ids = append(ids, *id)
@@ -5690,6 +5708,9 @@ func (m *AccountGroupMutation) GroupCleared() bool {
 	return m.clearedgroup
 }
 
+// GroupIDs returns the "group" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// GroupID instead. It exists only for internal usage by the builders.
 func (m *AccountGroupMutation) GroupIDs() (ids []int64) {
 	if id := m.group; id != nil {
 		ids = append(ids, *id)
@@ -7381,6 +7402,9 @@ func (m *AnnouncementReadMutation) AnnouncementCleared() bool {
 	return m.clearedannouncement
 }
 
+// AnnouncementIDs returns the "announcement" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// AnnouncementID instead. It exists only for internal usage by the builders.
 func (m *AnnouncementReadMutation) AnnouncementIDs() (ids []int64) {
 	if id := m.announcement; id != nil {
 		ids = append(ids, *id)
@@ -7405,6 +7429,9 @@ func (m *AnnouncementReadMutation) UserCleared() bool {
 	return m.cleareduser
 }
 
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
 func (m *AnnouncementReadMutation) UserIDs() (ids []int64) {
 	if id := m.user; id != nil {
 		ids = append(ids, *id)
@@ -8182,6 +8209,9 @@ func (m *AuthIdentityMutation) UserCleared() bool {
 	return m.cleareduser
 }
 
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
 func (m *AuthIdentityMutation) UserIDs() (ids []int64) {
 	if id := m.user; id != nil {
 		ids = append(ids, *id)
@@ -9171,6 +9201,9 @@ func (m *AuthIdentityChannelMutation) IdentityCleared() bool {
 	return m.clearedidentity
 }
 
+// IdentityIDs returns the "identity" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// IdentityID instead. It exists only for internal usage by the builders.
 func (m *AuthIdentityChannelMutation) IdentityIDs() (ids []int64) {
 	if id := m.identity; id != nil {
 		ids = append(ids, *id)
@@ -16264,6 +16297,9 @@ func (m *ChannelMonitorMutation) RequestTemplateID() (id int64, exists bool) {
 	return
 }
 
+// RequestTemplateIDs returns the "request_template" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// RequestTemplateID instead. It exists only for internal usage by the builders.
 func (m *ChannelMonitorMutation) RequestTemplateIDs() (ids []int64) {
 	if id := m.request_template; id != nil {
 		ids = append(ids, *id)
@@ -17844,6 +17880,9 @@ func (m *ChannelMonitorDailyRollupMutation) MonitorCleared() bool {
 	return m.clearedmonitor
 }
 
+// MonitorIDs returns the "monitor" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// MonitorID instead. It exists only for internal usage by the builders.
 func (m *ChannelMonitorDailyRollupMutation) MonitorIDs() (ids []int64) {
 	if id := m.monitor; id != nil {
 		ids = append(ids, *id)
@@ -18920,6 +18959,9 @@ func (m *ChannelMonitorHistoryMutation) MonitorCleared() bool {
 	return m.clearedmonitor
 }
 
+// MonitorIDs returns the "monitor" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// MonitorID instead. It exists only for internal usage by the builders.
 func (m *ChannelMonitorHistoryMutation) MonitorIDs() (ids []int64) {
 	if id := m.monitor; id != nil {
 		ids = append(ids, *id)
@@ -20816,6 +20858,9 @@ func (m *CompositeModelRouteMutation) GroupCleared() bool {
 	return m.clearedgroup
 }
 
+// GroupIDs returns the "group" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// GroupID instead. It exists only for internal usage by the builders.
 func (m *CompositeModelRouteMutation) GroupIDs() (ids []int64) {
 	if id := m.group; id != nil {
 		ids = append(ids, *id)
@@ -29960,6 +30005,9 @@ func (m *IdentityAdoptionDecisionMutation) PendingAuthSessionCleared() bool {
 	return m.clearedpending_auth_session
 }
 
+// PendingAuthSessionIDs returns the "pending_auth_session" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// PendingAuthSessionID instead. It exists only for internal usage by the builders.
 func (m *IdentityAdoptionDecisionMutation) PendingAuthSessionIDs() (ids []int64) {
 	if id := m.pending_auth_session; id != nil {
 		ids = append(ids, *id)
@@ -29984,6 +30032,9 @@ func (m *IdentityAdoptionDecisionMutation) IdentityCleared() bool {
 	return m.IdentityIDCleared() || m.clearedidentity
 }
 
+// IdentityIDs returns the "identity" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// IdentityID instead. It exists only for internal usage by the builders.
 func (m *IdentityAdoptionDecisionMutation) IdentityIDs() (ids []int64) {
 	if id := m.identity; id != nil {
 		ids = append(ids, *id)
@@ -34191,6 +34242,9 @@ func (m *PaymentOrderMutation) UserCleared() bool {
 	return m.cleareduser
 }
 
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
 func (m *PaymentOrderMutation) UserIDs() (ids []int64) {
 	if id := m.user; id != nil {
 		ids = append(ids, *id)
@@ -37229,6 +37283,9 @@ func (m *PendingAuthSessionMutation) TargetUserCleared() bool {
 	return m.TargetUserIDCleared() || m.clearedtarget_user
 }
 
+// TargetUserIDs returns the "target_user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// TargetUserID instead. It exists only for internal usage by the builders.
 func (m *PendingAuthSessionMutation) TargetUserIDs() (ids []int64) {
 	if id := m.target_user; id != nil {
 		ids = append(ids, *id)
@@ -37265,6 +37322,9 @@ func (m *PendingAuthSessionMutation) AdoptionDecisionID() (id int64, exists bool
 	return
 }
 
+// AdoptionDecisionIDs returns the "adoption_decision" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// AdoptionDecisionID instead. It exists only for internal usage by the builders.
 func (m *PendingAuthSessionMutation) AdoptionDecisionIDs() (ids []int64) {
 	if id := m.adoption_decision; id != nil {
 		ids = append(ids, *id)
@@ -39169,6 +39229,9 @@ func (m *PromoCodeUsageMutation) PromoCodeCleared() bool {
 	return m.clearedpromo_code
 }
 
+// PromoCodeIDs returns the "promo_code" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// PromoCodeID instead. It exists only for internal usage by the builders.
 func (m *PromoCodeUsageMutation) PromoCodeIDs() (ids []int64) {
 	if id := m.promo_code; id != nil {
 		ids = append(ids, *id)
@@ -39193,6 +39256,9 @@ func (m *PromoCodeUsageMutation) UserCleared() bool {
 	return m.cleareduser
 }
 
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
 func (m *PromoCodeUsageMutation) UserIDs() (ids []int64) {
 	if id := m.user; id != nil {
 		ids = append(ids, *id)
@@ -41514,6 +41580,9 @@ func (m *ProxyMutation) BackupProxyCleared() bool {
 	return m.BackupProxyIDCleared() || m.clearedbackup_proxy
 }
 
+// BackupProxyIDs returns the "backup_proxy" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// BackupProxyID instead. It exists only for internal usage by the builders.
 func (m *ProxyMutation) BackupProxyIDs() (ids []int64) {
 	if id := m.backup_proxy; id != nil {
 		ids = append(ids, *id)
@@ -49760,6 +49829,9 @@ func (m *RedeemCodeMutation) UserID() (id int64, exists bool) {
 	return
 }
 
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
 func (m *RedeemCodeMutation) UserIDs() (ids []int64) {
 	if id := m.user; id != nil {
 		ids = append(ids, *id)
@@ -49784,6 +49856,9 @@ func (m *RedeemCodeMutation) GroupCleared() bool {
 	return m.GroupIDCleared() || m.clearedgroup
 }
 
+// GroupIDs returns the "group" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// GroupID instead. It exists only for internal usage by the builders.
 func (m *RedeemCodeMutation) GroupIDs() (ids []int64) {
 	if id := m.group; id != nil {
 		ids = append(ids, *id)
@@ -58892,6 +58967,9 @@ func (m *UsageLogMutation) UserCleared() bool {
 	return m.cleareduser
 }
 
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
 func (m *UsageLogMutation) UserIDs() (ids []int64) {
 	if id := m.user; id != nil {
 		ids = append(ids, *id)
@@ -58916,6 +58994,9 @@ func (m *UsageLogMutation) APIKeyCleared() bool {
 	return m.clearedapi_key
 }
 
+// APIKeyIDs returns the "api_key" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// APIKeyID instead. It exists only for internal usage by the builders.
 func (m *UsageLogMutation) APIKeyIDs() (ids []int64) {
 	if id := m.api_key; id != nil {
 		ids = append(ids, *id)
@@ -58940,6 +59021,9 @@ func (m *UsageLogMutation) AccountCleared() bool {
 	return m.clearedaccount
 }
 
+// AccountIDs returns the "account" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// AccountID instead. It exists only for internal usage by the builders.
 func (m *UsageLogMutation) AccountIDs() (ids []int64) {
 	if id := m.account; id != nil {
 		ids = append(ids, *id)
@@ -58964,6 +59048,9 @@ func (m *UsageLogMutation) GroupCleared() bool {
 	return m.GroupIDCleared() || m.clearedgroup
 }
 
+// GroupIDs returns the "group" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// GroupID instead. It exists only for internal usage by the builders.
 func (m *UsageLogMutation) GroupIDs() (ids []int64) {
 	if id := m.group; id != nil {
 		ids = append(ids, *id)
@@ -58988,6 +59075,9 @@ func (m *UsageLogMutation) SubscriptionCleared() bool {
 	return m.SubscriptionIDCleared() || m.clearedsubscription
 }
 
+// SubscriptionIDs returns the "subscription" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// SubscriptionID instead. It exists only for internal usage by the builders.
 func (m *UsageLogMutation) SubscriptionIDs() (ids []int64) {
 	if id := m.subscription; id != nil {
 		ids = append(ids, *id)
@@ -63712,6 +63802,9 @@ func (m *UserAllowedGroupMutation) UserCleared() bool {
 	return m.cleareduser
 }
 
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
 func (m *UserAllowedGroupMutation) UserIDs() (ids []int64) {
 	if id := m.user; id != nil {
 		ids = append(ids, *id)
@@ -63736,6 +63829,9 @@ func (m *UserAllowedGroupMutation) GroupCleared() bool {
 	return m.clearedgroup
 }
 
+// GroupIDs returns the "group" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// GroupID instead. It exists only for internal usage by the builders.
 func (m *UserAllowedGroupMutation) GroupIDs() (ids []int64) {
 	if id := m.group; id != nil {
 		ids = append(ids, *id)
@@ -65450,6 +65546,9 @@ func (m *UserAttributeValueMutation) UserCleared() bool {
 	return m.cleareduser
 }
 
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
 func (m *UserAttributeValueMutation) UserIDs() (ids []int64) {
 	if id := m.user; id != nil {
 		ids = append(ids, *id)
@@ -65487,6 +65586,9 @@ func (m *UserAttributeValueMutation) DefinitionID() (id int64, exists bool) {
 	return
 }
 
+// DefinitionIDs returns the "definition" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// DefinitionID instead. It exists only for internal usage by the builders.
 func (m *UserAttributeValueMutation) DefinitionIDs() (ids []int64) {
 	if id := m.definition; id != nil {
 		ids = append(ids, *id)
@@ -66654,6 +66756,9 @@ func (m *UserPlatformQuotaMutation) UserCleared() bool {
 	return m.cleareduser
 }
 
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
 func (m *UserPlatformQuotaMutation) UserIDs() (ids []int64) {
 	if id := m.user; id != nil {
 		ids = append(ids, *id)
@@ -68110,6 +68215,9 @@ func (m *UserSubscriptionMutation) UserCleared() bool {
 	return m.cleareduser
 }
 
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
 func (m *UserSubscriptionMutation) UserIDs() (ids []int64) {
 	if id := m.user; id != nil {
 		ids = append(ids, *id)
@@ -68134,6 +68242,9 @@ func (m *UserSubscriptionMutation) GroupCleared() bool {
 	return m.clearedgroup
 }
 
+// GroupIDs returns the "group" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// GroupID instead. It exists only for internal usage by the builders.
 func (m *UserSubscriptionMutation) GroupIDs() (ids []int64) {
 	if id := m.group; id != nil {
 		ids = append(ids, *id)
@@ -68171,6 +68282,9 @@ func (m *UserSubscriptionMutation) AssignedByUserID() (id int64, exists bool) {
 	return
 }
 
+// AssignedByUserIDs returns the "assigned_by_user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// AssignedByUserID instead. It exists only for internal usage by the builders.
 func (m *UserSubscriptionMutation) AssignedByUserIDs() (ids []int64) {
 	if id := m.assigned_by_user; id != nil {
 		ids = append(ids, *id)

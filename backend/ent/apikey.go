@@ -69,11 +69,14 @@ type APIKey struct {
 	// Start time of the current 1d rate limit window
 	Window1dStart *time.Time `json:"window_1d_start,omitempty"`
 	// Start time of the current 7d rate limit window
-	Window7dStart *time.Time  `json:"window_7d_start,omitempty"`
-	Edges         APIKeyEdges `json:"edges"`
-	selectValues  sql.SelectValues
+	Window7dStart *time.Time `json:"window_7d_start,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the APIKeyQuery when eager-loading is set.
+	Edges        APIKeyEdges `json:"edges"`
+	selectValues sql.SelectValues
 }
 
+// APIKeyEdges holds the relations/edges for other nodes in the graph.
 type APIKeyEdges struct {
 	// User holds the value of the user edge.
 	User *User `json:"user,omitempty"`

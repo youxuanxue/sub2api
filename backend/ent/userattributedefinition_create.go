@@ -171,6 +171,7 @@ func (_c *UserAttributeDefinitionCreate) AddValueIDs(ids ...int64) *UserAttribut
 	return _c
 }
 
+// AddValues adds the "values" edges to the UserAttributeValue entity.
 func (_c *UserAttributeDefinitionCreate) AddValues(v ...*UserAttributeValue) *UserAttributeDefinitionCreate {
 	ids := make([]int64, len(v))
 	for i := range v {

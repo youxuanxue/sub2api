@@ -41,11 +41,14 @@ type ProtocolEndpointCapability struct {
 	// ProbeGeneration holds the value of the "probe_generation" field.
 	ProbeGeneration int64 `json:"probe_generation,omitempty"`
 	// IdentityConflict holds the value of the "identity_conflict" field.
-	IdentityConflict bool                            `json:"identity_conflict,omitempty"`
-	Edges            ProtocolEndpointCapabilityEdges `json:"edges"`
-	selectValues     sql.SelectValues
+	IdentityConflict bool `json:"identity_conflict,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the ProtocolEndpointCapabilityQuery when eager-loading is set.
+	Edges        ProtocolEndpointCapabilityEdges `json:"edges"`
+	selectValues sql.SelectValues
 }
 
+// ProtocolEndpointCapabilityEdges holds the relations/edges for other nodes in the graph.
 type ProtocolEndpointCapabilityEdges struct {
 	// Accounts holds the value of the accounts edge.
 	Accounts []*Account `json:"accounts,omitempty"`

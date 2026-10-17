@@ -28,11 +28,14 @@ type UserAttributeValue struct {
 	// AttributeID holds the value of the "attribute_id" field.
 	AttributeID int64 `json:"attribute_id,omitempty"`
 	// Value holds the value of the "value" field.
-	Value        string                  `json:"value,omitempty"`
+	Value string `json:"value,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the UserAttributeValueQuery when eager-loading is set.
 	Edges        UserAttributeValueEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
+// UserAttributeValueEdges holds the relations/edges for other nodes in the graph.
 type UserAttributeValueEdges struct {
 	// User holds the value of the user edge.
 	User *User `json:"user,omitempty"`

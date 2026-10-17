@@ -64,11 +64,14 @@ type ChannelMonitor struct {
 	// Kind holds the value of the "kind" field.
 	Kind channelmonitor.Kind `json:"kind,omitempty"`
 	// SeedSource holds the value of the "seed_source" field.
-	SeedSource   string              `json:"seed_source,omitempty"`
+	SeedSource string `json:"seed_source,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the ChannelMonitorQuery when eager-loading is set.
 	Edges        ChannelMonitorEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
+// ChannelMonitorEdges holds the relations/edges for other nodes in the graph.
 type ChannelMonitorEdges struct {
 	// History holds the value of the history edge.
 	History []*ChannelMonitorHistory `json:"history,omitempty"`

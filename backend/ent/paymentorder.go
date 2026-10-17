@@ -98,11 +98,14 @@ type PaymentOrder struct {
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// UpdatedAt holds the value of the "updated_at" field.
-	UpdatedAt    time.Time         `json:"updated_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the PaymentOrderQuery when eager-loading is set.
 	Edges        PaymentOrderEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
+// PaymentOrderEdges holds the relations/edges for other nodes in the graph.
 type PaymentOrderEdges struct {
 	// User holds the value of the user edge.
 	User *User `json:"user,omitempty"`

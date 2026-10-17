@@ -26,11 +26,14 @@ type PromoCodeUsage struct {
 	// 实际赠送金额
 	BonusAmount float64 `json:"bonus_amount,omitempty"`
 	// 使用时间
-	UsedAt       time.Time           `json:"used_at,omitempty"`
+	UsedAt time.Time `json:"used_at,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the PromoCodeUsageQuery when eager-loading is set.
 	Edges        PromoCodeUsageEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
+// PromoCodeUsageEdges holds the relations/edges for other nodes in the graph.
 type PromoCodeUsageEdges struct {
 	// PromoCode holds the value of the promo_code edge.
 	PromoCode *PromoCode `json:"promo_code,omitempty"`

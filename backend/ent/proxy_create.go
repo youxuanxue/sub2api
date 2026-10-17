@@ -193,6 +193,7 @@ func (_c *ProxyCreate) AddAccountIDs(ids ...int64) *ProxyCreate {
 	return _c
 }
 
+// AddAccounts adds the "accounts" edges to the Account entity.
 func (_c *ProxyCreate) AddAccounts(v ...*Account) *ProxyCreate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -207,6 +208,7 @@ func (_c *ProxyCreate) AddPrimaryProxyIDs(ids ...int64) *ProxyCreate {
 	return _c
 }
 
+// AddPrimaryProxies adds the "primary_proxies" edges to the Proxy entity.
 func (_c *ProxyCreate) AddPrimaryProxies(v ...*Proxy) *ProxyCreate {
 	ids := make([]int64, len(v))
 	for i := range v {

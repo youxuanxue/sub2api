@@ -123,6 +123,7 @@ func (_c *ChannelMonitorRequestTemplateCreate) AddMonitorIDs(ids ...int64) *Chan
 	return _c
 }
 
+// AddMonitors adds the "monitors" edges to the ChannelMonitor entity.
 func (_c *ChannelMonitorRequestTemplateCreate) AddMonitors(v ...*ChannelMonitor) *ChannelMonitorRequestTemplateCreate {
 	ids := make([]int64, len(v))
 	for i := range v {

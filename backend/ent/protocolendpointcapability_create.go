@@ -165,6 +165,7 @@ func (_c *ProtocolEndpointCapabilityCreate) AddAccountIDs(ids ...int64) *Protoco
 	return _c
 }
 
+// AddAccounts adds the "accounts" edges to the Account entity.
 func (_c *ProtocolEndpointCapabilityCreate) AddAccounts(v ...*Account) *ProtocolEndpointCapabilityCreate {
 	ids := make([]int64, len(v))
 	for i := range v {

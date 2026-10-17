@@ -114,11 +114,14 @@ type UsageLog struct {
 	// CacheTTLOverridden holds the value of the "cache_ttl_overridden" field.
 	CacheTTLOverridden bool `json:"cache_ttl_overridden,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
-	CreatedAt    time.Time     `json:"created_at,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the UsageLogQuery when eager-loading is set.
 	Edges        UsageLogEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
+// UsageLogEdges holds the relations/edges for other nodes in the graph.
 type UsageLogEdges struct {
 	// User holds the value of the user edge.
 	User *User `json:"user,omitempty"`

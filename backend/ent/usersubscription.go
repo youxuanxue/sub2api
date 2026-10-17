@@ -52,11 +52,14 @@ type UserSubscription struct {
 	// AssignedAt holds the value of the "assigned_at" field.
 	AssignedAt time.Time `json:"assigned_at,omitempty"`
 	// Notes holds the value of the "notes" field.
-	Notes        *string               `json:"notes,omitempty"`
+	Notes *string `json:"notes,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the UserSubscriptionQuery when eager-loading is set.
 	Edges        UserSubscriptionEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
+// UserSubscriptionEdges holds the relations/edges for other nodes in the graph.
 type UserSubscriptionEdges struct {
 	// User holds the value of the user edge.
 	User *User `json:"user,omitempty"`

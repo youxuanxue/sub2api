@@ -44,11 +44,14 @@ type Proxy struct {
 	// Backup proxy id when fallback_mode=proxy (self-reference).
 	BackupProxyID *int64 `json:"backup_proxy_id,omitempty"`
 	// Days before expiry to flag as expiring-soon (per proxy).
-	ExpiryWarnDays int        `json:"expiry_warn_days,omitempty"`
-	Edges          ProxyEdges `json:"edges"`
-	selectValues   sql.SelectValues
+	ExpiryWarnDays int `json:"expiry_warn_days,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the ProxyQuery when eager-loading is set.
+	Edges        ProxyEdges `json:"edges"`
+	selectValues sql.SelectValues
 }
 
+// ProxyEdges holds the relations/edges for other nodes in the graph.
 type ProxyEdges struct {
 	// Accounts holds the value of the accounts edge.
 	Accounts []*Account `json:"accounts,omitempty"`

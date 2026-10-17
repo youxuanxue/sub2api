@@ -93,6 +93,9 @@ func (ChannelMonitor) Fields() []ent.Field {
 
 		// ---- 自定义请求快照字段（来自模板 / 手动编辑） ----
 
+		// template_id: 关联的请求模板 ID（仅用于 UI 分组 + 一键应用）。
+		// 实际运行时 checker 只读下面 3 个快照字段，**不再回查模板表**。
+		// 模板被删除时此字段会被 SET NULL（见 Edges 的 OnDelete 注解）。
 		field.Int64("template_id").
 			Optional().
 			Nillable(),

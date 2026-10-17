@@ -1,4 +1,4 @@
-// Package baseline embeds the TokenKey Anthropic tier/stub baselines into the
+// Package baseline embeds the TokenKey Anthropic tier baselines into the
 // backend binary so the in-process tier-apply action and the config reconciler
 // can derive desired account config WITHOUT an operator laptop / SSM round-trip.
 //
@@ -13,9 +13,6 @@ import _ "embed"
 
 //go:embed anthropic-oauth-stability-baselines-tiered.json
 var tierBaselineJSON []byte
-
-//go:embed anthropic-stub-pool-baselines.json
-var stubPoolBaselineJSON []byte
 
 //go:embed anthropic-http-mimicry-baselines.json
 var httpMimicryBaselineJSON []byte

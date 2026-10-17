@@ -40,11 +40,14 @@ type RedeemCode struct {
 	// GroupID holds the value of the "group_id" field.
 	GroupID *int64 `json:"group_id,omitempty"`
 	// ValidityDays holds the value of the "validity_days" field.
-	ValidityDays int             `json:"validity_days,omitempty"`
+	ValidityDays int `json:"validity_days,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the RedeemCodeQuery when eager-loading is set.
 	Edges        RedeemCodeEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
+// RedeemCodeEdges holds the relations/edges for other nodes in the graph.
 type RedeemCodeEdges struct {
 	// User holds the value of the user edge.
 	User *User `json:"user,omitempty"`

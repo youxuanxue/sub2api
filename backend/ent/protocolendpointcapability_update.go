@@ -176,6 +176,7 @@ func (_u *ProtocolEndpointCapabilityUpdate) AddAccountIDs(ids ...int64) *Protoco
 	return _u
 }
 
+// AddAccounts adds the "accounts" edges to the Account entity.
 func (_u *ProtocolEndpointCapabilityUpdate) AddAccounts(v ...*Account) *ProtocolEndpointCapabilityUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -189,6 +190,7 @@ func (_u *ProtocolEndpointCapabilityUpdate) Mutation() *ProtocolEndpointCapabili
 	return _u.mutation
 }
 
+// ClearAccounts clears all "accounts" edges to the Account entity.
 func (_u *ProtocolEndpointCapabilityUpdate) ClearAccounts() *ProtocolEndpointCapabilityUpdate {
 	_u.mutation.ClearAccounts()
 	return _u
@@ -200,6 +202,7 @@ func (_u *ProtocolEndpointCapabilityUpdate) RemoveAccountIDs(ids ...int64) *Prot
 	return _u
 }
 
+// RemoveAccounts removes "accounts" edges to Account entities.
 func (_u *ProtocolEndpointCapabilityUpdate) RemoveAccounts(v ...*Account) *ProtocolEndpointCapabilityUpdate {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -529,6 +532,7 @@ func (_u *ProtocolEndpointCapabilityUpdateOne) AddAccountIDs(ids ...int64) *Prot
 	return _u
 }
 
+// AddAccounts adds the "accounts" edges to the Account entity.
 func (_u *ProtocolEndpointCapabilityUpdateOne) AddAccounts(v ...*Account) *ProtocolEndpointCapabilityUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {
@@ -542,6 +546,7 @@ func (_u *ProtocolEndpointCapabilityUpdateOne) Mutation() *ProtocolEndpointCapab
 	return _u.mutation
 }
 
+// ClearAccounts clears all "accounts" edges to the Account entity.
 func (_u *ProtocolEndpointCapabilityUpdateOne) ClearAccounts() *ProtocolEndpointCapabilityUpdateOne {
 	_u.mutation.ClearAccounts()
 	return _u
@@ -553,6 +558,7 @@ func (_u *ProtocolEndpointCapabilityUpdateOne) RemoveAccountIDs(ids ...int64) *P
 	return _u
 }
 
+// RemoveAccounts removes "accounts" edges to Account entities.
 func (_u *ProtocolEndpointCapabilityUpdateOne) RemoveAccounts(v ...*Account) *ProtocolEndpointCapabilityUpdateOne {
 	ids := make([]int64, len(v))
 	for i := range v {

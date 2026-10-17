@@ -18,8 +18,6 @@ Why this exists (CLAUDE.md §10, memory "anthropic tier baseline 单一源"):
 Compared pairs (semantic JSON equality — key order / whitespace ignored):
   deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json
     == backend/internal/baseline/anthropic-oauth-stability-baselines-tiered.json
-  deploy/aws/stage0/anthropic-stub-pool-baselines.json
-    == backend/internal/baseline/anthropic-stub-pool-baselines.json
   deploy/aws/stage0/anthropic-http-mimicry-baselines.json
     == backend/internal/baseline/anthropic-http-mimicry-baselines.json
 
@@ -63,7 +61,6 @@ TIER_BASELINE_NAME = "anthropic-oauth-stability-baselines-tiered.json"
 # (filename, deploy source, embedded copy)
 PAIRS = [
     "anthropic-oauth-stability-baselines-tiered.json",
-    "anthropic-stub-pool-baselines.json",
     # HTTP mimicry baseline (UA version + per-model betas) — embedded so the
     # config reconciler self-heals settings.claude_code_user_agent_version /
     # claude_code_http_mimicry_manifest toward it without an operator sync-runtime.

@@ -26,11 +26,14 @@ type AnnouncementRead struct {
 	// 用户首次已读时间
 	ReadAt time.Time `json:"read_at,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
-	CreatedAt    time.Time             `json:"created_at,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the AnnouncementReadQuery when eager-loading is set.
 	Edges        AnnouncementReadEdges `json:"edges"`
 	selectValues sql.SelectValues
 }
 
+// AnnouncementReadEdges holds the relations/edges for other nodes in the graph.
 type AnnouncementReadEdges struct {
 	// Announcement holds the value of the announcement edge.
 	Announcement *Announcement `json:"announcement,omitempty"`
