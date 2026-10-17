@@ -2729,6 +2729,22 @@ fi
 echo ""
 
 fi # preflight gate
+if _preflight_selected 'host BBR SSOT wiring'; then
+echo "=== sub2api: host BBR SSOT wiring ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for host BBR SSOT check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/check-host-bbr-ssot.py --quiet; then
+    echo "  FAIL: host BBR SSOT not wired into bootstrap/sync"
+    echo "        — run: python3 scripts/checks/check-host-bbr-ssot.py"
+    errors=$((errors + 1))
+else
+    echo "  ok: host BBR SSOT wired (EC2/Hetzner/sync + admin/proxies live checker)"
+fi
+
+echo ""
+
+fi # preflight gate
 if _preflight_selected 'live-host state verdict selftest'; then
 echo "=== sub2api: live-host state verdict selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then

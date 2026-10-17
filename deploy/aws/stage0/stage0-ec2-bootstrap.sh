@@ -88,6 +88,22 @@ vm.vfs_cache_pressure=50
 SYSCTLEOF
 sysctl --system >/dev/null 2>&1 || true                            # preflight-allow: swallow — best-effort sysctl reload; never abort bootstrap
 
+# --- 1c. bbr (TCP congestion control) ---
+# Compact apply only — full SSOT is deploy/host/ensure-tokenkey-bbr.sh
+# (sync-host-bbr-via-ssm.sh + Hetzner prod renderer). Keep this block small so
+# bootstrap stays within the 3-part SSM Standard limit (see build-cfn.sh).
+cat > /etc/modules-load.d/99-tokenkey-bbr.conf <<'BBMODEOF'
+# Owned by deploy/host/ensure-tokenkey-bbr.sh — load BBR at boot.
+tcp_bbr
+BBMODEOF
+cat > /etc/sysctl.d/91-tokenkey-bbr.conf <<'BBSYSEOF'
+# Owned by deploy/host/ensure-tokenkey-bbr.sh — BBR + fq pairing.
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+BBSYSEOF
+modprobe tcp_bbr 2>/dev/null || true  # preflight-allow: swallow — best-effort BBR module; never abort bootstrap
+sysctl -p /etc/sysctl.d/91-tokenkey-bbr.conf >/dev/null 2>&1 || true  # preflight-allow: swallow — best-effort BBR sysctl; never abort bootstrap
+
 # --- 2a. attach + mount persistent data volume --------------------------
 DATA_DEVICE='/dev/sdf'
 IMDS_TOKEN="$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")"

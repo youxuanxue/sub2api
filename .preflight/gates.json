@@ -134,6 +134,7 @@
     "QA single-owner SSM operator contract": "qa",
     "Feishu release notes collection": "deploy",
     "ghcr-prune-daily timer contract": "deploy",
+    "host BBR SSOT wiring": "deploy",
     "live-host state verdict selftest": "observability",
     "live-host detector ↔ deploy injector env sync": "observability",
     "first-output timeout SSOT sync": "observability",
