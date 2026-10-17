@@ -17,6 +17,38 @@ from edge_https_health import probe_health
 from edge_health_delivery import _atomic_write, post_feishu
 
 
+def build_config(role: str, hostname: str, fresh: dict, matrix: dict, domestic: dict) -> dict:
+    """One coverage plan for the mainland observer and independent AWS watch."""
+    if role not in ("prod", "cn-prod", *matrix):
+        raise ValueError("WATCH_ROLE must be prod, cn-prod or a live edge")
+    if role not in ("prod", "cn-prod") and not matrix[role].get("deployable"):
+        raise ValueError("edge not live")
+    expected = domestic if role == "cn-prod" else fresh["prod"] if role == "prod" else matrix[role]
+    if hostname != expected["instance_name"]:
+        raise ValueError("host identity mismatch")
+    live = {key: row for key, row in matrix.items() if row.get("deployable") is True}
+    targets = {}
+    if role == "prod":
+        targets["us5"] = "https://" + live["us5"]["domain"] + "/health"
+    elif role in ("us5", "cn-prod"):
+        prod = fresh["prod"]
+        targets["prod"] = "https://" + prod["domain"] + "/health"
+        for domain in prod["domains"]:
+            if domain != prod["domain"]:
+                targets["prod:" + domain] = "https://" + domain + "/health"
+        # The fallback domain currently routes to AWS; its green result must
+        # never stand in for the independent UCloud static IP endpoint.
+        targets["prod:cn-domain"] = "https://" + domestic["fallback_domain"] + "/health"
+        targets["cn-prod"] = domestic["public_origin"].rstrip("/") + "/health"
+        if role == "us5":
+            targets.update({key: "https://" + row["domain"] + "/health" for key, row in live.items()})
+    jobs = ["tokenkey-disk-metrics"] if role == "cn-prod" else [
+        "tokenkey-pgdump", "tokenkey-disk-metrics", "tokenkey-ghcr-prune-daily"]
+    if role == "prod":
+        jobs += ["tokenkey-qa-maintenance", "tokenkey-qa-boundary"]
+    return {"node": role, "targets": targets, "jobs": jobs}
+
+
 def next_state(previous: dict, healthy: bool, now: int) -> tuple[dict, str]:
     state = dict(previous)
     failures = int(state.get("failures", 0))
@@ -32,14 +64,18 @@ def next_state(previous: dict, healthy: bool, now: int) -> tuple[dict, str]:
     return state, ""
 
 
-def tick(targets: dict, previous: dict, now: int, probe, send) -> dict:
+def tick(targets: dict, previous: dict, now: int, probe, send, node="unknown") -> dict:
     state = dict(previous)
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
         facts = dict(zip(targets, pool.map(probe, targets.values())))
     for name, fact in facts.items():
         updated, action = next_state(previous.get(name, {}), fact["healthy"], now)
+        updated.update(url=targets[name], http_code=fact["http_code"],
+                       reason=fact.get("error", ""))
         if action:
-            send(f"TokenKey HTTPS {action}: {name}; HTTP {fact['http_code']}. Independent host watch.")
+            label = "🔴 P0 公网入口不可用" if action == "unhealthy" else "✅ 公网入口已恢复"
+            send(f"{label} ({action})\n探测节点：{node}\n目标：{name}\n地址：{targets[name]}\n"
+                 f"HTTP：{fact['http_code']}\n原因：{fact.get('error') or ('健康检查通过' if fact['healthy'] else '健康检查失败')}")
             updated.update(active=action == "unhealthy", sent_at=now)
         state[name] = updated
     return state
@@ -118,8 +154,8 @@ def main() -> None:
     jobs = config.get("jobs", [])
     if not isinstance(jobs, list) or any(name not in JOB_LIMITS for name in jobs):
         raise ValueError("unknown host job")
-    if not isinstance(targets, dict) or len(targets) > 5 or not (targets or jobs):
-        raise ValueError("watch requires one to five targets")
+    if not isinstance(targets, dict) or len(targets) > 16 or not (targets or jobs):
+        raise ValueError("watch requires at most sixteen targets and at least one target or job")
     for name, url in targets.items():
         parsed = urlparse(url)
         if not name or parsed.scheme != "https" or parsed.path != "/health" or parsed.query or parsed.fragment or not parsed.hostname or parsed.username or parsed.password:
@@ -144,7 +180,7 @@ def main() -> None:
                 post_feishu(message, webhook_url=env["TOKENKEY_FEISHU_WEBHOOK_URL"],
                             signing_secret=env["TOKENKEY_FEISHU_WEBHOOK_SECRET"])
 
-        result = tick(targets, previous, int(time.time()), probe_health, send)
+        result = tick(targets, previous, int(time.time()), probe_health, send, config.get("node", os.uname().nodename))
         result = tick_jobs(jobs, result, int(time.time()), probe_job, send, config.get("node", os.uname().nodename))
         if not args.dry_run:
             _atomic_write(args.state, json.dumps(result, sort_keys=True) + "\n")

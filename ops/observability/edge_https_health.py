@@ -20,7 +20,7 @@ import urllib.error
 import urllib.request
 
 _LIGHTSAIL_MATRIX = (
-    pathlib.Path(__file__).resolve().parents[2]
+    pathlib.Path(__file__).resolve().parent.parent.parent
     / "deploy"
     / "aws"
     / "lightsail"
@@ -58,21 +58,27 @@ def probe_health(
     including non-200. Only timeouts / connect failures set reachable=false
     and http_code=0 — that is the sole signal scan-edge-health uses to skip
     SSM. Deploy-time 502/503 must still fall through to SSM.
-    ``healthy`` is HTTP 200.
+    ``healthy`` requires HTTP 200 and the gateway's {"status":"ok"} body.
+    An interception page can also return 200 and must not count as healthy.
     """
     open_url = opener or urllib.request.urlopen
     try:
         req = urllib.request.Request(url, method="GET")
         with open_url(req, timeout=timeout_sec, context=ssl.create_default_context()) as resp:
             code = int(getattr(resp, "status", None) or resp.getcode())
-            body = resp.read(64)
+            body = resp.read(4096)
+            try:
+                payload = json.loads(body)
+                valid_health = isinstance(payload, dict) and payload.get("status") == "ok"
+            except (ValueError, UnicodeDecodeError):
+                valid_health = False
             return {
                 "url": url,
                 "reachable": True,
-                "healthy": code == 200,
+                "healthy": code == 200 and valid_health,
                 "http_code": code,
                 "body_prefix": body.decode("utf-8", errors="replace")[:64],
-                "error": "",
+                "error": "" if code == 200 and valid_health else "unexpected health response",
             }
     except urllib.error.HTTPError as exc:
         # urllib raises on 4xx/5xx — still a transport-level success.
