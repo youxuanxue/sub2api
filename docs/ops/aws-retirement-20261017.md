@@ -18,10 +18,22 @@ EBS 卷或公网静态 IP。旧 Hcloud 主机也已退役。当前服务身份�
 旧 Hcloud edge 的归档入口见 [原退役验收](../approved/aws-migration-closeout-20261016.md)。
 历史 QA raw 不在本次搬迁范围；已存在的原始回执保持不变。
 
-## 尚需独立验收的资源
+## node1 临时 reader 回收完成
 
-- node1 东京临时 reader、克隆盘、快照和入口：导出任务完成且验证成功后再回收；
-  两块克隆数据盘不会随 EC2 自动删除。不能把最后一条成功 SSM 命令当作完整任务验收。
+2026-10-17 14:33 UTC，按用户批准的最小核查路径完成回收，
+[云资源终态回执](tokyo-reader-cleanup-20261017.json)确认临时 reader 已 terminated，
+两块克隆盘与根盘均已删除，共释放 330 GiB；原始快照仍为 completed 并保留。
+
+两份整库导出与两份用户每日用量清单保留在归档桶的
+`prod/node1-precutover/20261017/tokyo-current/` 和 `tokyo-snapshot/`。
+文件大小、本地 MD5 与单段 SSE-S3 ETag 一致，另保存 SHA-256；
+详细导出校验与清理回执在同批 `reader-cleanup-verification/` 前缀。
+未执行完整 SQL 恢复或 EBS 灾备演练，不将文件校验表述为完整恢复验收。
+生产网关、Caddy、PostgreSQL、Redis 的容器身份与启动时间未变。
+此项已关闭，不再新建 reader 或重复执行删除；快照和导出继续保留。
+
+## 保留资源与后续边界
+
 - 新加坡其它项目机器：先核对归属，受保护的生产资源保留。
 - 历史快照：按来源和数据覆盖消重，保留最终恢复点与明确保护的快照。
 - 共享 SSM/IAM、S3 桶与旧路径名：先核对现网及历史恢复依赖，不能随计算节点批量删除。
@@ -33,5 +45,7 @@ EBS 卷或公网静态 IP。旧 Hcloud 主机也已退役。当前服务身份�
 现网仍由 `auto` / `aws-fresh` 解析。
 
 QA 上传暂停由 `fresh-migration-20261015.json` 中当前 prod 的 `paused_jobs` 持有。
-宿主监控会检查暂停任务保持停用，意外恢复则报警；不暂停 capture、boundary 或 pgdump。
+宿主监控会检查暂停任务保持停用，意外恢复则报警；capture 与 pgdump 继续运行。
+boundary 因独立的历史归档验收问题保持停用，DROP pause 保留；不能因暂停上传而掩盖该问题。
+暂停期巡检与当前验收见 [QA 运维入口](../../ops/qa/README.md#暂停期间的巡检)。
 修改仓库不会安装 watcher、启动任务或删除资源；宿主脚本安装仍需独立验证与相应授权。

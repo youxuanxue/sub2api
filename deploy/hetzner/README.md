@@ -85,13 +85,13 @@ QA 和 SSM 实现仍由现网使用，不按目录名批量删除。
 
 1. **账号**：prod 原生账号承接请求；错误、不可调度状态由运营处理，不自动恢复中继或旧副本。
 2. **QA**：capture 沿现有配置；用户已暂停向 S3 上传。暂停 owner 为当前 prod 清单的
-   `paused_jobs`，只包含 `tokenkey-qa-maintenance`。boundary、备份与 capture 不随之停用。
-   历史 raw 不搬，恢复见 [QA 运维入口](../../ops/qa/README.md)。
+   `paused_jobs`，只包含 `tokenkey-qa-maintenance`。capture 与备份继续运行；boundary 因独立的
+   历史归档验收问题保持停用，DROP pause 保留。暂停期巡检与恢复见 [QA 运维入口](../../ops/qa/README.md)。
 3. **监控**：东京 DLM 与 CPU/磁盘告警保留。宿主 HTTPS/job watcher 读取暂停 owner，
    要求归档 timer 停用且 service 不在运行；意外恢复会告警。daily diagnostics 复用同一暂停清单，
-   暂停期不要求归档回执刷新，boundary 与存储检查保留。其他任务仍按成功时效监控.
+   暂停期不要求归档回执刷新，boundary 与存储检查保留。其他任务仍按成功时效监控。
    主机脚本不随网关镜像自动更新；安装/刷新独立 watcher 后才生效，仓库合并不代表已部署。
-4. **资源**：临时 node1 reader/入口在独立任务验收后回收；日本代理保留；
+4. **资源**：临时 node1 reader 与克隆盘已完成最小核查并回收，原快照和导出保留；日本代理保留；
    新加坡其它项目资源不纳入 TokenKey 批量清理。详见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
 
 ## 历史 OAuth 账号回滚记录
