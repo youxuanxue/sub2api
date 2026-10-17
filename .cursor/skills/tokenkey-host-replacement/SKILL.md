@@ -1,10 +1,8 @@
 ---
 name: tokenkey-host-replacement
 description: >-
-  TokenKey fresh-host replacement (prod): new machine + dump-restore + DNS
-  cutover + old-host standby. Use for 换机/整机迁移/prod EC2 reprovision.
-  Edge deploy retired 2026-10-17 — not routine edge fan-out, image-only deploy,
-  or IP-only rotation.
+  TokenKey prod 换机/整机迁移/EC2 reprovision: dump-restore, DNS cutover,
+  old-host standby. Not image-only deploy or IP rotation; edges retired.
 ---
 
 # TokenKey：全新换机
@@ -15,22 +13,11 @@ description: >-
 
 ## 触发 / 勿用
 
-触发：prod 换机、整机迁移、reprovision。
-
 勿用→镜像 `stage0-release-rollout`；LS 换 IP→`lightsail-ip-rotation`；仅 accounts→`migrate-edge-accounts`；prod 卷在→HZ README 恢复。
 
 **Edge：** 默认不部署/不 fan-out（矩阵 `deployable=false`；prod stub 已软删）。恢复 edge 须单独批准。
 
-## 文档
-
-| 资产 | 职责 |
-|---|---|
-| 本 skill | 门禁/不变量 |
-| `references/playbook.md` | 切流 + 硬坑 |
-| `docs/approved/hetzner-cloud-full-migration.md` | 决策锁 |
-| `deploy/hetzner/README.md` | 舰队 + 发版 SSOT |
-| `deploy/aws/RUNBOOK-disaster-recovery.md` | standby / 离机 S3 |
-| `docs/ops/aws-tokyo-cutover-20261017.json` | 最近切流回执 |
+决策：`docs/approved/hetzner-cloud-full-migration.md`；灾备：`deploy/aws/RUNBOOK-disaster-recovery.md`；回执：`docs/ops/aws-tokyo-cutover-20261017.json`。
 
 ## 不变量
 
