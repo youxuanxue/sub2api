@@ -46,7 +46,7 @@ def table(name):
 class DB:
     def __init__(self, database="tokenkey", scope="all"):
         self.database = database
-        if scope not in {"all", "oltp", "precious", "logs"}:
+        if scope not in {"all", "oltp", "precious", "logs", "usage"}:
             raise ValueError("unsupported scope")
         self.scope = scope
         self.prefix = ["docker", "exec", "-i", "tokenkey-postgres"]
@@ -126,9 +126,10 @@ def scoped_names(db):
         from .standard_freeze_delta import list_oltp_tables_sql, APPEND_ONLY_TABLE, ARCHIVE_TABLE
     except ImportError:
         from standard_freeze_delta import list_oltp_tables_sql, APPEND_ONLY_TABLE, ARCHIVE_TABLE
-    if db.scope == 'logs':
+    if db.scope in ('logs', 'usage'):
+        relation_pattern = '^usage_logs' if db.scope == 'usage' else '^(usage_logs|ops_error_logs|ops_system_logs)'
         names = db.run("SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
-            "WHERE n.nspname='public' AND c.relkind='r' AND c.relname ~ '^(usage_logs|ops_error_logs|ops_system_logs)' ORDER BY c.relname").splitlines()
+            "WHERE n.nspname='public' AND c.relkind='r' AND c.relname ~ '" + relation_pattern + "' ORDER BY c.relname").splitlines()
     else:
         names = db.run(list_oltp_tables_sql()).splitlines()
     if db.scope == 'precious':
@@ -248,30 +249,44 @@ def candidate_guard(expected):
         raise RuntimeError("stop all candidate gateway/worker writers before applying")
 
 
-def apply_bundle(db, root, expected):
-    candidate_guard(expected)
+class CandidatePolicy:
+    """Legacy AWS policy; a different host supplies its own guarded identity."""
+    work = Path('/var/lib/tokenkey/migration')
+
+    def __init__(self, expected):
+        self.expected = expected
+        self.source = CANDIDATES.get(expected)
+
+    def guard(self, db):
+        candidate_guard(self.expected)
+        if db.scope != 'all':
+            if not (self.work / 'DATA_SYNC_HOLD').is_file():
+                raise RuntimeError('persistent candidate hold is required')
+            running = subprocess.check_output(['docker', 'ps', '--format', '{{.Names}}'], text=True).strip()
+            if running != 'tokenkey-postgres':
+                raise RuntimeError('OLTP refresh requires only PostgreSQL running')
+
+
+def apply_bundle(db, root, expected, *, policy=None):
+    policy = policy or CandidatePolicy(expected)
+    policy.guard(db)
     # Lock before reading the baseline, not just before writing tables. Otherwise
     # two bundles can validate the same base and subsequently overwrite each other.
-    with Path('/var/lib/tokenkey/migration/apply.lock').open('a') as lock:
+    with (policy.work / 'apply.lock').open('a') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError('another candidate refresh is running') from None
-        return _apply_bundle(db, root, expected)
+        return _apply_bundle(db, root, expected, policy=policy)
 
 
-def _apply_bundle(db, root, expected):
-    candidate_guard(expected)
-    if db.scope != "all":
-        if not Path('/var/lib/tokenkey/migration/DATA_SYNC_HOLD').is_file():
-            raise RuntimeError('persistent candidate hold is required')
-        running = subprocess.check_output(['docker', 'ps', '--format', '{{.Names}}'], text=True).strip()
-        if running != 'tokenkey-postgres':
-            raise RuntimeError('OLTP refresh requires only PostgreSQL running')
+def _apply_bundle(db, root, expected, *, policy=None):
+    policy = policy or CandidatePolicy(expected)
+    policy.guard(db)
     bundle = json.loads((root / "bundle.json").read_text())
     if db.scope != bundle["source"].get("scope", "all"):
         raise ValueError("apply scope mismatch")
-    if bundle["base"]["hostname"] != expected or bundle["source"]["hostname"] != CANDIDATES[expected]:
+    if bundle["base"]["hostname"] != expected or bundle["source"]["hostname"] != policy.source:
         raise ValueError("bundle source/candidate identity mismatch")
     diff = changes(bundle["base"], bundle["source"])
     if [{"table": c["table"], "bucket": c["bucket"]} for c in bundle["changes"]] != diff:
@@ -290,7 +305,7 @@ def _apply_bundle(db, root, expected):
     # One target transaction. DELETE respects excluded FK children with replica
     # triggers disabled; TRUNCATE would reject those children even in replica mode.
     script = root / "apply.sql"
-    candidate_guard(expected)
+    policy.guard(db)
     with script.open("wb") as out:
         out.write(b"BEGIN; SET LOCAL transaction_timeout='300s'; SET LOCAL statement_timeout='120s'; SET LOCAL lock_timeout='5s'; SET LOCAL idle_in_transaction_session_timeout='120s'; SET LOCAL timezone='UTC'; SET LOCAL datestyle='ISO, YMD'; SET LOCAL session_replication_role=replica;\n")
         if db.scope != "all":
@@ -339,7 +354,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=("manifest", "export", "apply"))
     parser.add_argument("--database", default="tokenkey")
-    parser.add_argument("--scope", choices=("all", "oltp", "precious", "logs"), default="precious")
+    parser.add_argument("--scope", choices=("all", "oltp", "precious", "logs", "usage"), default="precious")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--base", type=Path)
     parser.add_argument("--bundle", type=Path)

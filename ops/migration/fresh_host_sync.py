@@ -98,16 +98,11 @@ def resolve(node):
         if inventory.get('state', '').startswith('tokyo-serving'):
             raise ValueError('candidate is already active; sync forbidden')
         if candidate['instance_name'] == 'tokenkey-prod-tokyo-20261017':
-            source = candidate['standby_us_east_20261015']
-            if source.get('retired'):
+            if candidate['standby_us_east_20261015'].get('retired'):
                 raise ValueError('source identity is retired')
-            if source['instance_name'] != 'tokenkey-prod-aws-20261015':
-                raise ValueError('unexpected Tokyo source identity')
-            rows = aws(source['region'], 'ssm', 'describe-instance-information', '--filters',
-                       json.dumps([{'Key': 'InstanceIds', 'Values': [source['instance_id']]}]))['InstanceInformationList']
-            if len(rows) != 1 or rows[0]['InstanceId'] != source['instance_id'] or rows[0]['PingStatus'] != 'Online':
-                raise ValueError('expected exactly one Online source identity')
-            return candidate, {key: source[key] for key in ('instance_name', 'instance_id', 'region')}
+            # Tokyo is the current writer. The Node1 replacement uses SSH;
+            # never select an old AWS standby even if its metadata is stale.
+            raise ValueError('Tokyo prod is active; use the Node1 SSH migration path')
     if node != 'prod':
         import sys
         sys.path.insert(0, str(ROOT / 'ops/stage0'))
