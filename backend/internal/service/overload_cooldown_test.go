@@ -195,7 +195,7 @@ func TestSetOverloadCooldownSettings_AcceptsBoundaries(t *testing.T) {
 // RateLimitService: handle529 behaviour
 //
 // Incident 2026-06-11 16:50 UTC: a single provider-wide 529 used to flat-lock
-// the (often single-account) edge pool for OverloadCooldownMinutes (default 10).
+// the (often single-account) account pool for OverloadCooldownMinutes (default 10).
 // New semantics — single/transient 529 gets only the 30s tier-0 floor and the
 // CooldownMinutes duration role is superseded by the tier ladder; the upstream
 // Retry-After is honored when present (clamped to the ladder max). The Enabled

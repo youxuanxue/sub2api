@@ -46,7 +46,7 @@ func TestGeminiWebSessionHandlerRuntimeIsScopedAndVersioned(t *testing.T) {
 	h, store := geminiWebHandlerFixture(true)
 	r := gin.New()
 	auth := &geminiWebAuthStub{role: service.RoleAdmin}
-	r.Use(middleware.NewEdgeCapacityAuthMiddleware(auth), middleware.NewEdgeAdminOwnerMiddleware(auth, auth))
+	r.Use(middleware.NewGeminiWebControlAuthMiddleware(auth), middleware.NewGeminiWebAdminOwnerMiddleware(auth, auth))
 	r.GET("/edge/gemini-web/accounts/:id/session", h.Get)
 	r.PUT("/edge/gemini-web/accounts/:id/runtime", h.PutRuntime)
 
@@ -93,7 +93,7 @@ func TestGeminiWebControlRejectsInvalidAccessAndConflicts(t *testing.T) {
 	h, store := geminiWebHandlerFixture(true)
 	auth := &geminiWebAuthStub{role: service.RoleAdmin}
 	r := gin.New()
-	r.Use(middleware.NewEdgeCapacityAuthMiddleware(auth), middleware.NewEdgeAdminOwnerMiddleware(auth, auth))
+	r.Use(middleware.NewGeminiWebControlAuthMiddleware(auth), middleware.NewGeminiWebAdminOwnerMiddleware(auth, auth))
 	r.GET("/accounts/:id/session", h.Get)
 	r.PUT("/accounts/:id/runtime", h.PutRuntime)
 	r.POST("/accounts/:id/lease", h.Lease)

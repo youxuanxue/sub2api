@@ -1,7 +1,7 @@
 #!/bin/bash
 # probe-caps.sh — TokenKey read-only caps + 不可调度证据 + Redis 快照 + 近 2h 错误日志。
 #
-# Designed to run INSIDE the TokenKey host (prod or edge), via SSM `AWS-RunShellScript`
+# Designed to run INSIDE the TokenKey host (prod), via SSM `AWS-RunShellScript`
 # with base64 delivery (see the SKILL `tokenkey-online-traffic-profile`).
 # Pure read-only: psql SELECT + redis-cli ZCARD/GET/EVAL + docker ps.
 #

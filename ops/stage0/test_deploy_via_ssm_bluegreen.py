@@ -17,7 +17,6 @@ import unittest
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "deploy_via_ssm_bluegreen.sh"
 _PROD_IID = "i-0prod000000000000"
-_EDGE_IID = "mi-0edge000000000000"
 
 
 def _render(instance_id: str = _PROD_IID, tag: str = "1.8.99", env_extra: dict | None = None):
@@ -183,39 +182,6 @@ def _extract_shell_function(remote: str, name: str) -> str:
     start = remote.index(f"{name}() {{")
     end = remote.index("\n}\n\n", start) + len("\n}\n")
     return remote[start:end]
-
-
-def _run_bytes_from_docker_mem(remote: str, value: str) -> subprocess.CompletedProcess[str]:
-    function = _extract_shell_function(remote, "bytes_from_docker_mem")
-    return subprocess.run(
-        ["bash"],
-        input=f"{function}\nbytes_from_docker_mem {shlex.quote(value)}\n",
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-
-def _run_clear_edge_profile_overrides(
-    remote: str, profile: str
-) -> subprocess.CompletedProcess[str]:
-    function = _extract_shell_function(remote, "clear_edge_profile_overrides")
-    script = f"""{function}
-DEPLOY_PROFILE={shlex.quote(profile)}
-QA_ARCHIVE_ENABLED=host-qa
-TELEMETRY_ARCHIVE_BUCKET=host-telemetry
-MEDIA_STORAGE_BUCKET=host-media
-GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS=host-limit
-clear_edge_profile_overrides
-printf 'qa=%s telemetry=%s media=%s limit=%s\\n' \
-  "${{QA_ARCHIVE_ENABLED-unset}}" \
-  "${{TELEMETRY_ARCHIVE_BUCKET-unset}}" \
-  "${{MEDIA_STORAGE_BUCKET-unset}}" \
-  "${{GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS-unset}}"
-"""
-    return subprocess.run(
-        ["bash"], input=script, capture_output=True, text=True, check=False
-    )
 
 
 def _run_commit_cutover_record_failure(
@@ -425,7 +391,6 @@ observe_routed_health() { printf 'observe:%s\n' "$1"; }
 drain_container() { printf 'drain:%s\n' "$1"; }
 record_pending_drain() { printf 'pending:%s\n' "$1"; }
 PENDING_DRAIN=/unused/pending
-admit_edge_candidate() { :; }
 assert_active_route_consistent() { :; }
 write_prepared_receipt() { printf 'prepared:%s:%s\n' "$1" "$2"; }
 TARGET_CONTAINER=""
@@ -515,7 +480,6 @@ install_bluegreen_systemd_unit() {{ :; }}
 commit_cutover() {{ printf 'commit:%s\\n' "$1"; }}
 observe_routed_health() {{ :; }}
 drain_container() {{ :; }}
-admit_edge_candidate() {{ :; }}
 container_image() {{ printf 'ghcr.io/youxuanxue/sub2api:1.8.98\\n'; }}
 image_repo() {{ printf 'ghcr.io/youxuanxue/sub2api\\n'; }}
 env_get() {{ printf 'ghcr.io/youxuanxue/sub2api:1.8.98\\n'; }}
@@ -538,11 +502,8 @@ TELEMETRY_ARCHIVE_ENABLED=""
 
 class BlueGreenRenderTest(unittest.TestCase):
     def test_ssm_transport_fits_limit_and_restores_exact_host_script(self) -> None:
-        for profile in ("edge", "prod"):
-            with self.subTest(profile=profile), tempfile.TemporaryDirectory() as tmp:
-                proc, params, remote = _render(
-                    _EDGE_IID, env_extra={"STAGE0_DEPLOY_PROFILE": profile},
-                )
+        with tempfile.TemporaryDirectory() as tmp:
+                proc, params, remote = _render()
                 self.assertEqual(proc.returncode, 0, proc.stderr)
                 path = pathlib.Path(tmp) / "params.json"
                 path.write_text(json.dumps(params))
@@ -632,7 +593,6 @@ echo STOP_ALLOWED
             ({"STAGE0_BLUEGREEN_STAGE": "promote"}, _PROD_IID),
             ({"STAGE0_BLUEGREEN_REPLACE_RECEIPT": "f" * 64}, _PROD_IID),
             ({"STAGE0_BLUEGREEN_STAGE": "prepare", "STAGE0_BLUEGREEN_REPLACE_RECEIPT": "invalid"}, _PROD_IID),
-            ({"STAGE0_BLUEGREEN_STAGE": "prepare"}, _EDGE_IID),
         ):
             with self.subTest(env=env, instance=instance):
                 proc, _, _ = _render(instance, env_extra=env)
@@ -782,39 +742,6 @@ validate_prepared_receipt blue green
                     result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
                     self.assertEqual(result.returncode == 0, mutation == "none", result.stdout + result.stderr)
 
-    def test_renders_lightsail_edge_profile_without_prod_defaults(self) -> None:
-        proc, params, remote = _render(_EDGE_IID, env_extra={"EDGE_ID": "us2"})
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        assert params is not None
-        assert remote is not None
-        joined = "\n".join(params["commands"])
-        self.assertIn("DEPLOY_PROFILE='edge'", joined)
-        self.assertIn("QA_ARCHIVE_ENABLED=''", joined)
-        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET=''", joined)
-        self.assertIn("TELEMETRY_ARCHIVE_BUCKET=''", joined)
-        self.assertIn("MEDIA_STORAGE_BUCKET=''", joined)
-        self.assertIn("EDGE_MIN_MEM_AVAILABLE_BYTES='335544320'", joined)
-        self.assertIn("EDGE_ACTIVE_APP_HEADROOM_BYTES='134217728'", joined)
-        self.assertIn("EDGE_MIN_ROOT_DISK_AVAILABLE_BYTES='5368709120'", joined)
-        self.assertIn('${EDGE_MIN_MEM_AVAILABLE_BYTES:?}', remote)
-        self.assertIn('${EDGE_ACTIVE_APP_HEADROOM_BYTES:?}', remote)
-        self.assertIn('${EDGE_MIN_ROOT_DISK_AVAILABLE_BYTES:?}', remote)
-        self.assertNotIn('memory_floor_bytes=335544320', remote)
-        self.assertIn('ops/stage0/bluegreen-capacity-policy.env', remote)
-        cleared = _run_clear_edge_profile_overrides(remote, "edge")
-        self.assertEqual(cleared.returncode, 0, msg=cleared.stderr)
-        self.assertEqual(
-            cleared.stdout.strip(),
-            "qa=unset telemetry=unset media=unset limit=unset",
-        )
-
-        preserved = _run_clear_edge_profile_overrides(remote, "prod")
-        self.assertEqual(preserved.returncode, 0, msg=preserved.stderr)
-        self.assertEqual(
-            preserved.stdout.strip(),
-            "qa=host-qa telemetry=host-telemetry media=host-media limit=host-limit",
-        )
-
     def test_telemetry_defaults_are_empty_and_explicit_storage_survives(self) -> None:
         for bucket, region in [("", ""), ("explicit-archive", "us-west-2")]:
             with self.subTest(bucket=bucket):
@@ -843,7 +770,6 @@ TELEMETRY_ARCHIVE_REGION={shlex.quote(delivered['TELEMETRY_ARCHIVE_REGION'])}
 log() {{ :; }}
 assert_qa_provider_unchanged() {{ :; }}
 assert_live_qa_archive_coordinates() {{ :; }}
-clear_edge_profile_overrides() {{ :; }}
 env_get() {{ sed -n "s/^$1=//p" "$ENV_FILE"; }}
 env_set() {{ printf '%s=%s\n' "$1" "$2" >> "$ENV_FILE"; }}
 ensure_profile_environment
@@ -861,35 +787,6 @@ ensure_profile_environment
         self.assertIn("requires EC2 i-* or managed-instance mi-*", proc.stderr)
         self.assertIsNone(params)
         self.assertIsNone(remote)
-
-    def test_hetzner_prod_mi_uses_prod_profile_when_overridden(self) -> None:
-        proc, params, remote = _render(
-            _EDGE_IID,
-            env_extra={"STAGE0_DEPLOY_PROFILE": "prod"},
-        )
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        assert params is not None
-        joined = "\n".join(params["commands"])
-        self.assertIn("DEPLOY_PROFILE='prod'", joined)
-        self.assertNotIn("DEPLOY_PROFILE='edge'", joined)
-
-    def test_edge_profile_explicitly_disables_qa_capture_for_both_colors(self) -> None:
-        proc, _, remote = _render(_EDGE_IID, env_extra={"EDGE_ID": "us5"})
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        assert remote is not None
-
-        ensure_profile = _extract_shell_function(remote, "ensure_profile_environment")
-        edge_branch_start = ensure_profile.index(
-            'if [[ "${DEPLOY_PROFILE}" = edge ]]; then'
-        )
-        edge_branch_end = ensure_profile.index("  fi", edge_branch_start)
-        edge_branch = ensure_profile[edge_branch_start:edge_branch_end]
-        self.assertIn("env_set QA_CAPTURE_ENABLED false", edge_branch)
-        self.assertIn("enforced QA_CAPTURE_ENABLED=false", edge_branch)
-        self.assertEqual(
-            remote.count("- QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-}"),
-            2,
-        )
 
     def test_raw_coordinates_can_only_change_through_migration(self) -> None:
         proc, _, remote = _render()
@@ -957,12 +854,6 @@ printf accepted
                 failed = subprocess.run(["bash"], input=bad_script, text=True, capture_output=True)
                 self.assertEqual(failed.returncode, 42)
                 self.assertIn("live QA archive", failed.stderr)
-                # Non-capturing edges do not own the prod archive contract.
-                for override in ("DEPLOY_PROFILE=edge",):
-                    legacy = bad_script.replace("assert_live_qa_archive_coordinates\nprintf", override + "\nassert_live_qa_archive_coordinates\nprintf")
-                    result = subprocess.run(["bash"], input=legacy, text=True, capture_output=True)
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(result.stdout, "accepted")
 
     def test_remote_script_parses(self) -> None:
         proc, params, remote = _render()
@@ -1048,10 +939,6 @@ printf accepted
         self.assertIn('remained unhealthy for ${unhealthy_streak} consecutive checks', remote)
         self.assertNotIn('target_is_reusable()', remote)
         self.assertIn('compose_bg up -d --no-deps --force-recreate "${target_container}"', remote)
-        self.assertLess(
-            remote.index('admit_edge_candidate "${active_container}"'),
-            remote.index('compose_bg pull "${target_container}"'),
-        )
         self.assertNotIn('docker stop -t 30 "${active_container}" >/dev/null 2>&1 || true', remote)
         self.assertIn('removed failed target ${TARGET_CONTAINER}', remote)
         self.assertIn('trap cleanup_on_exit EXIT', remote)
@@ -1065,10 +952,7 @@ printf accepted
         self.assertIn("last-cutover-at", remote)
 
     def test_image_quality_env_reaches_both_colors_from_host_dotenv_only(self) -> None:
-        for instance_id, extra in (
-            (_PROD_IID, None),
-            (_EDGE_IID, {"EDGE_ID": "uk1"}),
-        ):
+        for instance_id, extra in ((_PROD_IID, None),):
             with self.subTest(instance_id=instance_id):
                 proc, params, remote = _render(instance_id, env_extra={
                     **(extra or {}),
@@ -1397,21 +1281,6 @@ finish_pending_drain
                 rc, calls, output = _run_wait_healthy(remote, statuses)
                 self.assertEqual(rc, expected_rc, msg=output)
                 self.assertEqual(calls, expected_calls, msg=output)
-
-    def test_docker_memory_units_parse_without_host_specific_numfmt(self) -> None:
-        proc, _, remote = _render()
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        assert remote is not None
-        cases = {
-            "213.4MiB": "223766118",
-            "1.5GiB": "1610612736",
-            "500MB": "500000000",
-        }
-        for raw, expected in cases.items():
-            with self.subTest(raw=raw):
-                parsed = _run_bytes_from_docker_mem(remote, raw)
-                self.assertEqual(parsed.returncode, 0, msg=parsed.stderr)
-                self.assertEqual(parsed.stdout.strip(), expected)
 
     def test_values_are_env_overridable(self) -> None:
         proc, params, _ = _render(env_extra={

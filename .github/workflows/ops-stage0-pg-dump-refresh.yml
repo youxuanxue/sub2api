@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: "Target: live prod; Edge timers are owned by their bootstrap"
+        description: "Target: live prod"
         required: true
         type: choice
         options:

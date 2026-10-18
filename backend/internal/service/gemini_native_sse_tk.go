@@ -8,9 +8,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 )
 
-// Both legacy comment heartbeats and whitespace from updated Edges carry
-// liveness. Translate them to whitespace instead of exposing SSE fields that
-// @google/genai cannot consume. Event/id/retry fields carry no heartbeat.
 func isGeminiNativeSSEKeepalive(line string) bool {
 	line = strings.TrimSpace(line)
 	return line == "" || strings.HasPrefix(line, ":")

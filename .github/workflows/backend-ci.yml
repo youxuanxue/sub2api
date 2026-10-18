@@ -399,9 +399,6 @@ jobs:
       - name: QA product retirement browser journeys
         working-directory: frontend
         run: pnpm exec playwright test --config playwright.qa-retirement.config.ts
-      - name: Cursor retirement browser journeys
-        working-directory: frontend
-        run: pnpm exec playwright test --config playwright.cursor-retirement.config.ts
       - name: Gemini Web admin import browser journeys
         working-directory: frontend
         run: pnpm exec playwright test --config playwright.gemini-import.config.ts

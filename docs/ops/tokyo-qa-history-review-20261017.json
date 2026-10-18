@@ -1,0 +1,52 @@
+{
+  "schema_version": "tokyo-qa-history-review-v1",
+  "decision": "reject_single_store_gap_plan",
+  "rejected_plan_hash": "6a9b764e235b203a619dfc1c3c99c3f30952c8da1bb3a6e4f7fa39ddc4bbbb15",
+  "gap_apply_executed": false,
+  "reason": "AWS absence does not establish a historical gap: the original Hetzner commit and all referenced blobs verify successfully.",
+  "historical_store": {
+    "provider": "hetzner_object_storage",
+    "bucket": "tokenkey-qa-raw-fsn1-dd2ca9019b22",
+    "region": "fsn1",
+    "endpoint": "https://fsn1.your-objectstorage.com",
+    "prefix": "raw/v1"
+  },
+  "commit": {
+    "schema_version": "qa-archive-commit-v2",
+    "window_start": "2026-10-15T09:00:00Z",
+    "window_end": "2026-10-15T10:00:00Z",
+    "generation": 0,
+    "segments": [
+      {
+        "segment_id": "fa5763fb-bff1-40dd-8ef4-2e3ce652c4a2",
+        "segment_kind": "base",
+        "manifest_key": "date=2026-10-15/hour=09/segments/fa5763fb-bff1-40dd-8ef4-2e3ce652c4a2/manifest.json",
+        "manifest_sha256": "a8654df1cb7c3c11a42f3d0b33100e387d4ca4a79de962b54b17ead1477e324b"
+      }
+    ],
+    "aggregate_sha256": "78a9b25fcbd5d59c2710af31e2eea43f9bc159dcf48ceb2aa4addd00597f824b",
+    "aggregate_record_count": 3070,
+    "aggregate_blob_ref_count": 12280,
+    "aggregate_blob_present_count": 12280,
+    "committed_at": "2026-10-15T10:18:12.867544562Z"
+  },
+  "verification": {
+    "blob_missing_count": 0,
+    "blob_present_count": 12280,
+    "blob_ref_count": 12280,
+    "cleanup_eligible": false,
+    "command": "verify",
+    "commit_etag": "\"5a49d077ed07d23e95d1dc1fbc63fb67\"",
+    "commit_key": "date=2026-10-15/hour=09/commit.json",
+    "deletion_authorized": false,
+    "ok": true,
+    "record_count": 3070,
+    "segment_count": 1,
+    "verified": true,
+    "window_end": "2026-10-15T10:00:00Z",
+    "window_start": "2026-10-15T09:00:00Z"
+  },
+  "control_repair_executed": false,
+  "deletion_authorized": false,
+  "remaining": "Reconcile historical storage ownership and Tokyo archive control metadata before accepting catchup or enabling boundary cleanup."
+}

@@ -39,7 +39,7 @@ func newAntigravityIngressHarness(t *testing.T, groupPlatform string, target pro
 		ID: 62, Platform: service.PlatformAntigravity, Type: service.AccountTypeAPIKey,
 		Status: service.StatusActive, Schedulable: true,
 		Credentials: map[string]any{
-			"base_url": "https://api-us4.tokenkey.dev", "api_key": "edge-test-key",
+			"base_url": "https://upstream.example.test", "api_key": "edge-test-key",
 			"model_mapping": map[string]any{"gemini-3.8-flash": "gemini-3.8-flash-medium"},
 		},
 	}
@@ -134,7 +134,7 @@ func TestGatewayResponsesIngressAntigravityGemini(t *testing.T) {
 				}
 				require.NotNil(t, upstream.request)
 				if target != protocolrouter.ProtocolGeminiGenerateContent {
-					require.Equal(t, model, gjson.GetBytes(upstream.body, "model").String())
+					require.Equal(t, "gemini-3.8-flash-medium", gjson.GetBytes(upstream.body, "model").String())
 				}
 				require.Len(t, usage.logs, 1)
 				require.Equal(t, int64(62), usage.logs[0].AccountID)

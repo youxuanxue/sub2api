@@ -11,9 +11,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 )
 
-// CreateAsAdmin creates an API key on behalf of a user, bypassing end-user group
-// permission checks while still validating user/group existence and group status.
-// Used by admin relay provisioning (prod→edge mirror stubs).
 func (s *APIKeyService) CreateAsAdmin(ctx context.Context, userID int64, req CreateAPIKeyRequest) (*APIKey, error) {
 	if _, err := s.userRepo.GetByID(ctx, userID); err != nil {
 		return nil, fmt.Errorf("get user: %w", err)

@@ -33,16 +33,15 @@ revision_note: "v1.5: feng 2026-10-16 会话批准 Volc Agent Plan × kimi-k3 �
    | `kimi-k3` | audio | Volc Agent Plan | 2026-10-16 cn-prod 两账号返回 `audio input is not supported by this model`，见下方证据 |
    | `glm-5.3-flash` | video | NVIDIA Build | `At most 0 video(s)` |
    | `glm-4.5-air` / `glm-5.2` / `glm-5.3` | video + image | Volc Agent Plan | `Model only support text input` |
-   | `glm-4.5-air` / `glm-5.2` / `glm-5.3` | video + image | china-edge relay（`api-*.tokenkey.dev` newapi stub） | 同上 |
    | `gpt-5` / `gpt-5-mini` / `gpt-5.1` / `gpt-5.2` | video | tokensea（`agent.tokensea.ai`） | `Invalid value: 'video_url'`（image 可） |
    | `deepseek-flash` / `deepseek-v4.1-flash` | video | Ali Token Plan | `does not support video input`（image 可；Volc 可视频） |
    | `glm-5.3` | image | Ali Token Plan | 2026-10-15：Responses 明确拒绝图片；Chat 200 但未识图，见下方证据 |
    | `qwen3.7-max` | video + image | Ali Token Plan | `Unexpected item type in content` |
    | `deepseek-v4-flash-0731` / `deepseek-v4-pro` / `deepseek-v4-pro-0813` / `glm-4.5-air` / `glm-4.7` | video + image | Qianfan Token Plan | `Invalid content type. *_url is only supported by certain models` |
-   | *（供应级）* | video | OpenAI edge mirror（`api-*.tokenkey.dev` + platform=openai） | Responses `Invalid value: 'input_video'`（image 普遍可） |
-   | `gpt-5.3-codex-spark` | image | OpenAI edge mirror | `does not support image input` |
+   | *（供应级）* | video | OpenAI OAuth / SetupToken | Responses `Invalid value: 'input_video'`（image 普遍可） |
+   | `gpt-5.3-codex-spark` | image | OpenAI OAuth / SetupToken | `does not support image input` |
 
-   对照允许（不上负表）：`kimi-k3` video/image 在 Volc / china-edge；`glm-5.3-flash` video/image 在 Volc / china-edge；`glm-5.2` video/image 在 Ali（历史记录）；`glm-5.3` video 在 Ali 未因本次图片证据改变策略，旧 image 支持结论已由下方实测推翻；`gpt-5.5+` video 在 tokensea；kimi-k3 image 在 NVIDIA；**Anthropic/Kiro edge** image+video 全系 gateway servable（无硬拒）；Ali 多数 `qwen*` video「does not meet the requirements」按素材问题处理。Gemini Web edge 探针组报 Unsupported model、Antigravity 多为 429 capacity——**不上** modality known-negative。
+   对照允许（不上负表）：`kimi-k3` video/image 在 Volc；`glm-5.3-flash` video/image 在 Volc；`glm-5.2` video/image 在 Ali（历史记录）；`glm-5.3` video 在 Ali 未因本次图片证据改变策略，旧 image 支持结论已由下方实测推翻；`gpt-5.5+` video 在 tokensea；kimi-k3 image 在 NVIDIA；**Anthropic/Kiro** image+video 全系 gateway servable（无硬拒）；Ali 多数 `qwen*` video「does not meet the requirements」按素材问题处理。Gemini Web edge 探针组报 Unsupported model、Antigravity 多为 429 capacity——**不上** modality known-negative。
 3. **准入**：`candidateSupportsRequest` 内与其它准入谓词求交（可在 Plan 前短路）；命中 known-negative → 该账号不是候选。
 4. **未知供应**：不在表内 → **仍准入**（LiteLLM 保守策略），待探针升级为已知。不把 v1 做成 known-positive 全表。
 
@@ -97,7 +96,7 @@ Quickstart 客户示例 owner：`frontend/src/utils/kimiK3VideoExamples.tk.ts`�
 
 ## Volc Kimi K3 音频证据更新（2026-10-16）
 
-批准：feng 在本轮线上错误排查后要求“火山 kimi-k3 的‘不支持音频输入’加入共享能力约束，提前给出清晰提示”。仅约束实际 Volc Agent Plan 供应指纹 × `kimi-k3` × `ContentAudio`；文本、图片、视频保持现有准入，不推断不透明 edge relay 或其它供应商。
+批准：feng 在本轮线上错误排查后要求“火山 kimi-k3 的‘不支持音频输入’加入共享能力约束，提前给出清晰提示”。仅约束实际 Volc Agent Plan 供应指纹 × `kimi-k3` × `ContentAudio`；文本、图片、视频保持现有准入，不推断其它供应商。
 
 cn-prod 两条真实 `POST /v1/chat/completions` 请求均被上游以 HTTP 400 明确拒绝：
 
@@ -144,13 +143,13 @@ Moonshot 文档核对（2026-10-16）：[官方 Chat API](https://platform.kimi.
 | R1 | `kimi-k3` 纯文本，池含 NVIDIA | NVIDIA 仍准入（不回归） |
 | R2 | 未建表的账号/模型 + video | 仍准入（未知保守） |
 | E1 | N1 的客户端 envelope | 400 + `No available endpoints support input video for model: kimi-k3`，无 Retry-After |
-| E2 | 仅 image known-negative 空池（如 china-edge `glm-5.3` + image） | 400 + message 含 `input image`，不得写成 `input video` |
+| E2 | 仅 image known-negative 空池（如 Volc `glm-5.3` + image） | 400 + message 含 `input image`，不得写成 `input video` |
 
 自动化：`candidate_multimodal_supply_tk_test.go` + parse ContentVideo 单测 + selection-failure handler 单测。  
 Sentinel：`scripts/sentinels/gateway-tk.json` 锚定 owner 调用。
 
 ## 后续
 
-- 其它供应/模型的 audio known-negative 按证据扩表；Cursor 已退役，历史探针结果仅保留作证据；Gemini Web / Antigravity 在探针组 mapping 与容量恢复后可再采 modality 硬证。
+- 其它供应/模型的 audio known-negative 按证据扩表；已退役供应不参与当前能力判定；Gemini Web / Antigravity 在探针组 mapping 与容量恢复后可再采 modality 硬证。
 - 能力投影进 discovery / `/models` modalities（可选）。
 - `/models` 或 capabilities 暴露 per-supply input modalities（可选，非选号正确性必需）。

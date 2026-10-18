@@ -13,22 +13,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-// Prod + edge-us4-ls daily error ledger, 2026-09-10: Antigravity
-// gemini-2.5-flash-image 503 (4→22) and claude-opus-4-6 502 (2→7) were reported
-// as owner=platform / phase=internal. daily_error_report.py derives
-// `code_owned = owner == "platform" and phase == "internal" and status >= 500`,
-// so both clusters became confidence=high, repair_eligible=true, and were
-// queued for an automated code-repair Draft PR — against code that is not at
-// fault. Meanwhile the genuine provider signal stayed out of
-// upstream_error_rate.
-//
-// The cause was upstream of classification: handleSmartRetry's terminal exits
-// recorded no ops upstream event, so hasOpsUpstreamErrorContext was false and
-// api_error defaulted to phase="internal" => owner="platform".
-//
-// service/antigravity_gateway_tk_smart_retry_attribution.go now records the
-// verdict. These tests pin the resulting classification, and that the existing
-// TK narrowings still take precedence over it.
 func TestAntigravitySmartRetryVerdictIsProviderOwned(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -74,10 +58,7 @@ func TestAntigravitySmartRetryVerdictIsProviderOwned(t *testing.T) {
 func TestAntigravitySmartRetryAttributionKeepsTKNarrowings(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	t.Run("relayed edge pool-empty envelope stays routing-owned", func(t *testing.T) {
-		// A prod→edge mirror account answering with TokenKey's own pool-empty
-		// envelope is our fleet capacity, not provider health
-		// (tkUpstreamDownstreamCapacity).
+	t.Run("upstream gateway pool-empty envelope stays routing-owned", func(t *testing.T) {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{{
 			UpstreamStatusCode: http.StatusServiceUnavailable,

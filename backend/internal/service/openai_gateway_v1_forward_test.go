@@ -31,7 +31,7 @@ func TestGrokAPIKeyRelayBuildsOpenAIV1TargetURLFromEdgeBaseURL(t *testing.T) {
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
 			"api_key":  "edge-grok-key",
-			"base_url": "https://api-us4.tokenkey.dev",
+			"base_url": "https://upstream.example.test",
 		},
 	}
 
@@ -42,7 +42,7 @@ func TestGrokAPIKeyRelayBuildsOpenAIV1TargetURLFromEdgeBaseURL(t *testing.T) {
 
 	url, err := svc.buildOpenAIV1TargetURL(account, "embeddings")
 	require.NoError(t, err)
-	require.Equal(t, "https://api-us4.tokenkey.dev/v1/embeddings", url)
+	require.Equal(t, "https://upstream.example.test/v1/embeddings", url)
 }
 
 func TestGrokAPIKeyRelayBuildOpenAIV1TargetURLRequiresBaseURL(t *testing.T) {

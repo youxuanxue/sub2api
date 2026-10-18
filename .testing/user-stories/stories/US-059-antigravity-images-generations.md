@@ -13,7 +13,7 @@
 
 ## Acceptance Criteria
 
-1. AC-001（positive）：Given 有效 AG OAuth 或 edge relay 账号 When 调用 Images Then 生成相同参数的原生 Gemini 请求，返回可解码 b64_json，并记录一次原入口用量。
+1. AC-001（positive）：Given 有效 AG OAuth 或 API-key 上游 账号 When 调用 Images Then 生成相同参数的原生 Gemini 请求，返回可解码 b64_json，并记录一次原入口用量。
 2. AC-002（negative）：Given n>1、url、stream 或冲突尺寸 When 接入 Then 返回 400，不绑定账号；Given 坏图/多图/空图/未完成输出 Then 返回 502，不扣费、不重放。
 3. AC-003（security）：Given 无权组、图片禁用或 capability 不合法 When 候选准入 Then 拒绝；Direct/Universal 均使用真实 AG 账号的原生 Plan，不根据计费组平台选择 handler。
 4. AC-004（regression）：Given 既有文本/图片协议或 OpenAI/Grok/newapi Images When 执行相关回归 Then 保持合法路由和响应。

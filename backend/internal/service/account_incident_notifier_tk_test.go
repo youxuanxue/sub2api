@@ -160,28 +160,15 @@ func TestFormatAlertTime(t *testing.T) {
 func TestSiteFromFrontendURL(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"https://api-cn.tokenkey.dev":       "cn-prod",
-		"https://API-CN.tokenkey.dev/":      "cn-prod",
-		"https://api.tokenkey.dev":          "prod",
-		"https://api-us1.tokenkey.dev":      "edge-us1",
-		"https://api-uk1.tokenkey.dev/":     "edge-uk1",
-		"https://api-us2.tokenkey.dev:8443": "edge-us2",
-		"":                                  "unknown",
-		"not a url":                         "unknown",
+		"https://api-cn.tokenkey.dev":  "cn-prod",
+		"https://API-CN.tokenkey.dev/": "cn-prod",
+		"https://api.tokenkey.dev":     "prod",
+		"":                             "unknown",
+		"not a url":                    "unknown",
 	}
 	for in, want := range cases {
 		require.Equal(t, want, siteFromFrontendURL(in), "input=%q", in)
 	}
-}
-
-func TestIsEdgeFrontendURL(t *testing.T) {
-	t.Parallel()
-	require.False(t, IsEdgeFrontendURL("https://api-cn.tokenkey.dev"))
-	require.True(t, IsEdgeFrontendURL("https://api-us3.tokenkey.dev"))
-	require.False(t, IsEdgeFrontendURL("https://api.tokenkey.dev"))
-	require.False(t, IsEdgeFrontendURL(""))
-	require.False(t, IsEdgeFrontendURL("https://gateway.example.com"))
-	require.False(t, IsEdgeFrontendURL("https://api-us3.example.com"))
 }
 
 func TestNotifyPermanentSendsImmediately(t *testing.T) {

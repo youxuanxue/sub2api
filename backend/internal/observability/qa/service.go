@@ -684,11 +684,6 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 		"path": input.InboundEndpoint,
 		"body": requestValue,
 	}
-	// 非 passthrough 网关路径（如 cc-edges）转发前可能改写请求体（normalize /
-	// alias strip / signature-preempt 剥 thinking 等）。改写发生时，「捕获的客户端
-	// 请求」≠「真正产生该响应的上游请求」——对 traj 样本这是静默失真。CaptureFromContext
-	// 只在 opt-in 且字节不等时才填 UpstreamRequestBody，这里原样落进 blob，导出侧
-	// 据此机械标记 divergent 记录。
 	if len(input.UpstreamRequestBody) > 0 {
 		requestPayload["upstream_body"] = redactionBodyValue(s.sanitizeQABodyMemo(input.UpstreamRequestBody, preserveThinking, redactionMemo))
 		requestPayload["upstream_divergent"] = true

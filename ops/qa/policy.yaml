@@ -33,10 +33,3 @@ prod:
     free_gib: 10
     automatic_cleanup: false
     pause_capture: false
-
-edge:
-  capture_enabled: false
-  archive_enabled: false
-  cleanup_enabled: false
-  export_enabled: false
-  s3_access: false

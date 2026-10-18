@@ -101,9 +101,6 @@ func TestTkHandleAnthropicRequestOwned429_DistinctTextsNeverTrip(t *testing.T) {
 	}
 }
 
-// TK capacity envelopes (#575 empty-pool fast-fail, failover-exhausted rewrite)
-// are EDGE-scoped signals where cross-edge failover is the designed remedy —
-// identical text from many edges must never trip the breaker.
 func TestTkHandleAnthropicRequestOwned429_CapacityEnvelopesExempt(t *testing.T) {
 	envelopes := []string{
 		`{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`,

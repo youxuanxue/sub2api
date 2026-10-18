@@ -19,7 +19,7 @@ scope: "ops_alert_rules seed + prod TCP probe for egress proxy IP:port reachabil
   从本节点对 `host:port` 做短 TCP dial（不握手；dial 超时独立于 evaluator 总预算）。
 - 任一不可达 → 计数 ≥1 → P0（**持续 2 分钟** / 连续两个评估周期，冷却 10 分钟，飞书）。
 - 飞书主因行给出代理名与 `IP:port` 及 dial 错误，便于网络/运维对号。
-- **仅 prod 评估**；edge 跳过（现网出口由 prod 拨号）。
+- **仅 prod 评估**（现网出口由 prod 拨号）。
 - 不统计闲置代理；账号全部下调度后停止对该出口拨号/告警。
 
 ## Why

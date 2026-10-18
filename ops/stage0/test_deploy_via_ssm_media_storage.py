@@ -4,8 +4,7 @@
 Checks that default deployment leaves media storage disabled and explicit
 opt-in injects MEDIA_STORAGE_DRIVER/REGION/BUCKET onto an AWS standby host,
 anchored to the tokenkey-unique SERVER_FRONTEND_URL
-compose line. Managed hcloud Edges are relay mirrors that never serve
-media generation, so the injection is gated to the prod EC2 (i-*) node. Credentials
+compose line. The injection is gated to the prod EC2 (i-*) node. Credentials
 are never written — the prod instance role + the media bucket policy grant S3
 access, so presigned links are signed by the instance role (no long-lived key).
 
@@ -23,7 +22,6 @@ import unittest
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "deploy_via_ssm.sh"
 _PROD_IID = "i-0prod000000000000"
-_EDGE_IID = "mi-0edge000000000000"
 
 
 def _render(instance_id: str, tag: str = "1.8.99", env_extra: dict | None = None):
@@ -70,11 +68,6 @@ class MediaStorageInjectionRenderTest(unittest.TestCase):
     def test_default_prod_does_not_inject_aws_media(self) -> None:
         proc, commands = _render(_PROD_IID)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(_media_cmds(commands), [])
-
-    def test_edge_gets_no_media_injection(self) -> None:
-        proc, commands = _render(_EDGE_IID, env_extra={"EDGE_ID": "us2"})
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertEqual(_media_cmds(commands), [])
 
     def test_bucket_is_env_overridable(self) -> None:

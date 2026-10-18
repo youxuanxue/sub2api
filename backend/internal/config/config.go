@@ -1065,7 +1065,7 @@ const (
 // UpstreamBodyGuardConfig TK: 上游大请求体软门禁规则（按 platform + model_prefix 匹配）。
 //
 // 背景：按客户端字节预拦是错误的代理指标。2026-06-13 复验 opus-4-7 与 opus-4-8 均能正常服务 >1MB 请求
-// （实测至 1.03MB / ~317K input tokens、HTTP 200），原 ~940KB 的 403 拐点（PR #322 / 2026-05-20 edge:us1
+// （实测至 1.03MB / ~317K input tokens、HTTP 200），原 ~940KB 的 403 拐点（PR #322 / 2026-05-20 OAuth
 // 单点观测）不再复现；Anthropic 侧超限是 413@32MB、403 属 permission/WAF 类，故旧 403 是 WAF/数据中心 IP
 // 的边缘条件而非稳定尺寸上限。**默认不再预填任何规则**（default off），改为依赖上游真实拒绝码（403/413）的
 // 反应式告警。本机制保留供运维按需配置（opt-in）：在 gateway.upstream_body_guards 显式配规则才生效。
@@ -1700,22 +1700,8 @@ type GatewaySchedulingConfig struct {
 	// 状态并使用 (lastTick, now] 精确扫描。0 使用默认 30 秒。
 	RateLimitReaperLookbackSeconds int `mapstructure:"rate_limit_reaper_lookback_seconds"`
 
-	// AnthropicConfigReconcilerIntervalSeconds 本机 Anthropic 配置自愈 reconciler 周期（秒）。
-	// 把 ops/anthropic 流水线的高频「安全项」写入下沉为每节点 in-process 自愈：operator Σ
-	// 并发对齐、prod 镜像 stub 的 pool_mode、edge operator 余额地板、surface-C 并发镜像；
-	// 单账号 tier 漂移仅 slog 上报不重写。<=0 禁用 reconciler goroutine；viper.SetDefault
-	// 提供 300 秒默认。仅写本部署自己的库。
+	// AnthropicConfigReconcilerIntervalSeconds controls local OAuth baseline and tier repair.
 	AnthropicConfigReconcilerIntervalSeconds int `mapstructure:"anthropic_config_reconciler_interval_seconds"`
-
-	// AnthropicConfigReconcilerConcurrencyMirrorEnabled 开启 surface-C 并发镜像消费端
-	// （prod：经 HTTP 实时拉每个镜像 stub 指向的 edge capacity，把 stub.concurrency 收敛为
-	// edge 的 live Σschedulable）。真实作用于 prod 的镜像 stub；edge 无匹配 stub 时天然空转，
-	// 故作全局默认安全（新 edge 自动继承，无需逐节点配）。默认 true。
-	AnthropicConfigReconcilerConcurrencyMirrorEnabled bool `mapstructure:"anthropic_config_reconciler_concurrency_mirror_enabled"`
-
-	// AnthropicConfigReconcilerBalanceFloorEnabled 开启 edge operator（users.id=1）余额地板
-	// 自愈（余额 < 阈值则重置为默认值）。仅在 edge 部署开启。默认 false。
-	AnthropicConfigReconcilerBalanceFloorEnabled bool `mapstructure:"anthropic_config_reconciler_balance_floor_enabled"`
 }
 
 func (s *ServerConfig) Address() string {
@@ -2175,12 +2161,6 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 		cfg.Gateway.OpenAIWS.StickyResponseIDTTLSeconds = cfg.Gateway.OpenAIWS.StickyPreviousResponseTTLSeconds
 	}
 
-	// TK: upstream body guards 默认 OFF——不再预填任何规则。
-	// 按客户端字节预拦是错误的代理指标：2026-06-13 复验 opus-4-7 与 opus-4-8 均能正常服务 >1MB 请求
-	// （实测至 1.03MB / ~317K input tokens、HTTP 200），原 ~940KB 的 403 拐点（PR #322 / 2026-05-20
-	// edge:us1 单点观测）不再复现；Anthropic 侧超限是 413@32MB、403 属 permission/WAF 类，故旧 403 是
-	// WAF/数据中心 IP 的边缘条件而非稳定尺寸上限。默认不再预拦，改为依赖上游真实拒绝码（403/413）的反应式
-	// 告警（见 ops_error_logs / edge-health）。机制保留供运维按需在 gateway.upstream_body_guards 配置。
 	for i := range cfg.Gateway.UpstreamBodyGuards {
 		cfg.Gateway.UpstreamBodyGuards[i].Platform = strings.TrimSpace(cfg.Gateway.UpstreamBodyGuards[i].Platform)
 		cfg.Gateway.UpstreamBodyGuards[i].ModelPrefix = strings.TrimSpace(cfg.Gateway.UpstreamBodyGuards[i].ModelPrefix)
@@ -2853,8 +2833,6 @@ func setDefaults() {
 	viper.SetDefault("gateway.scheduling.rate_limit_reaper_interval_seconds", 5)
 	viper.SetDefault("gateway.scheduling.rate_limit_reaper_lookback_seconds", 30)
 	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_interval_seconds", 300)
-	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_concurrency_mirror_enabled", true)
-	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_balance_floor_enabled", false)
 	viper.SetDefault("gateway.usage_record.worker_count", 128)
 	viper.SetDefault("gateway.usage_record.queue_size", 16384)
 	viper.SetDefault("gateway.usage_record.task_timeout_seconds", 5)

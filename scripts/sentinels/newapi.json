@@ -181,7 +181,7 @@
         "StickyKeySourceClientXSessionID",
         "X-Session-Id"
       ],
-      "rationale": "Shared sticky-key ingress parser for prod-to-edge NewAPI/Anthropic forwarding. Without this helper, prod-injected X-Session-Id can drift from DeriveStickyKey priority and edge falls back to volatile message-content hashes."
+      "rationale": "Client session headers retain their canonical sticky-key source attribution."
     },
     {
       "path": "backend/internal/service/gateway_request.go",
@@ -195,7 +195,7 @@
         "countTokensUnsupportedTopLevelFields",
         "\"context_management\""
       ],
-      "rationale": "ParsedRequest must preserve explicit sticky identity and top-level prompt_cache_key so the Anthropic edge ingress can consume prod-forwarded sticky signals without reparsing or falling back to message content; request correlation IDs are also load-bearing inputs for sticky-source evidence indexing. StripCountTokensUnsupportedFields + its declarative field list are TK defensive sanitize for the Anthropic count_tokens endpoint (strips temperature/top_p/top_k/stop_sequences/max_tokens/stream/metadata/service_tier/context_management that Anthropic rejects with `Extra inputs are not permitted`). `context_management` MUST stay in the list because the OAuth mimic path (normalizeClaudeOAuthRequestBody) actively injects it for Sonnet/Opus thinking on /v1/messages; without it, count_tokens 400s every OAuth request (2026-05-18 09:10:30 prod trace). Dropping any symbol regresses the 2026-05-18 prod incident where claude-cli leaked `temperature` into count_tokens and the resulting 400 burst tripped the per-account upstream-error breaker (see gateway_service.go sentinel for the matching call sites + 400 exemption + post-normalize final-strip)."
+      "rationale": "StripCountTokensUnsupportedFields + its declarative field list are TK defensive sanitize for the Anthropic count_tokens endpoint (strips temperature/top_p/top_k/stop_sequences/max_tokens/stream/metadata/service_tier/context_management that Anthropic rejects with `Extra inputs are not permitted`). `context_management` MUST stay in the list because the OAuth mimic path (normalizeClaudeOAuthRequestBody) actively injects it for Sonnet/Opus thinking on /v1/messages; without it, count_tokens 400s every OAuth request (2026-05-18 09:10:30 prod trace). Dropping any symbol regresses the 2026-05-18 prod incident where claude-cli leaked `temperature` into count_tokens and the resulting 400 burst tripped the per-account upstream-error breaker (see gateway_service.go sentinel for the matching call sites + 400 exemption + post-normalize final-strip)."
     },
     {
       "path": "backend/internal/service/gateway_service.go",
@@ -206,7 +206,7 @@
         "logger.WriteSinkEvent(\"info\", \"http.access.sticky\", \"sticky.hash_source\"",
         "\"client_request_id\":  parsed.ClientRequestID"
       ],
-      "rationale": "Anthropic GenerateSessionHash must prefer metadata.user_id, then explicit headers, then prompt_cache_key before the message-content fallback. Losing this priority recreates the max_sessions exhaustion incident on edge OAuth accounts. The sticky-source sink event emission is also load-bearing for request-id based production debugging."
+      "rationale": "Anthropic GenerateSessionHash must prefer metadata.user_id, then explicit headers, then prompt_cache_key before the message-content fallback. The sticky-source sink event emission is also load-bearing for request-id based production debugging."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_selection.go",
@@ -1502,7 +1502,6 @@
       "must_contain": [
         "func protocolProbeModelCandidates(account *Account) []string",
         "func selectProtocolProbeModel(account *Account) string",
-        "tkIsAntigravityEdgeRelayStub(account)",
         "upstream = strings.TrimSpace(requested)",
         "const protocolProbeMaxModels = 6",
         "func protocolProbeShouldTryNextModel(",
@@ -1555,13 +1554,12 @@
       "must_contain": [
         "protocolRoutingAccountHasNoTextModels(account)",
         "func protocolRoutingSupportsAntigravityAccount(account *Account) bool",
-        "account.Type == AccountTypeOAuth || tkIsAntigravityEdgeRelayStub(account)",
         "func protocolRoutingCanonicalRequest(ctx context.Context) (protocolrouter.CanonicalRequest, bool)",
         "if !ok || routing.router == nil {\n\t\treturn protocolrouter.CanonicalRequest{}, false",
         "func protocolRequestEligibilityReason(",
         "routing.plans.getOrPlan("
       ],
-      "rationale": "Text protocol governance excludes non-text-only accounts before scheduling and admits only the two stable Antigravity shapes: native OAuth or an exact TokenKey edge relay stub. The latter keeps per-account generic protocol evidence for prod relay accounts such as us3/us4 without broadening governance to arbitrary Antigravity API-key URLs. Cutover-disabled text requests retain the canonical body for legacy execution without making ProtocolRoutingRequest report routing enabled. Scheduler eligibility and plan cache must share one protocolrouter.Plan owner; a second planner or uncached Plan call recreates split model/protocol verdicts."
+      "rationale": "The latter keeps per-account generic protocol evidence for prod relay accounts such as us3/us4 without broadening governance to arbitrary Antigravity API-key URLs. Cutover-disabled text requests retain the canonical body for legacy execution without making ProtocolRoutingRequest report routing enabled. Scheduler eligibility and plan cache must share one protocolrouter.Plan owner; a second planner or uncached Plan call recreates split model/protocol verdicts."
     },
     {
       "path": "backend/internal/service/protocol_execution.go",
@@ -1577,7 +1575,6 @@
         "responsesToGeminiAdapter",
         "geminiIdentityAdapter",
         "func ExecuteGeminiProtocolProfile[T any](",
-        "protocolrouter.GeminiEndpointAntigravityEdgeRelay",
         "func protocolExecutionURL(ctx context.Context, fallback string) string",
         "func OpenAIForwardResultFromForward(result *ForwardResult) *OpenAIForwardResult",
         "RouteFacts",
@@ -1592,26 +1589,22 @@
       "must_contain": [
         "func protocolGeminiEndpointProfile(account *Account) protocolrouter.GeminiEndpointProfile",
         "protocolrouter.GeminiEndpointAntigravityCloudCode",
-        "tkIsAntigravityEdgeRelayStub(account)",
-        "protocolrouter.GeminiEndpointAntigravityEdgeRelay",
         "account.IsNewAPIVertexServiceAccount()",
         "protocolrouter.GeminiEndpointVertexServiceAccount",
         "resolveAntigravityForwardBaseURL(account)",
         "buildVertexGeminiURL(account.VertexProjectID(), account.VertexLocation(resolvedModel), resolvedModel, action, false)",
         "account.GetGeminiBaseURL(\"\")"
       ],
-      "rationale": "One account-shape owner derives the non-persisted Gemini endpoint profile and exact plan endpoint. Antigravity OAuth stays on CloudCode; Antigravity edge apikey stubs use EdgeRelay + GetGeminiBaseURL hop URLs; NewAPI Vertex requires the exact channel-41 service-account predicate and the canonical Vertex model/location URL builder. Losing these anchors can reintroduce account-class leakage or planner/transport host drift."
+      "rationale": "One account-shape owner derives the non-persisted Gemini endpoint profile and exact plan endpoint. Losing these anchors can reintroduce account-class leakage or planner/transport host drift."
     },
     {
       "path": "backend/internal/service/protocol_capability_probe.go",
       "must_contain": [
         "case protocolrouter.ProtocolGeminiGenerateContent:",
         "return s.probeGeminiGenerateContentSupport(ctx, account)",
-        "return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}",
-        "case protocolrouter.GeminiEndpointAntigravityEdgeRelay:",
-        "geminiProfile == protocolrouter.GeminiEndpointAntigravityEdgeRelay"
+        "return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}"
       ],
-      "rationale": "The aggregate per-account probe job dispatches Gemini for provider-specific CloudCode/Vertex candidates, and for Antigravity edge stubs also keeps OpenAI-shape text hops alongside native generateContent. Removing EdgeRelay dual-path collection or the Gemini dispatch leaves supported_protocols permanently empty or regresses #2029 text hops."
+      "rationale": "Removing API-key dual-path collection or the Gemini dispatch leaves supported_protocols permanently empty or regresses #2029 text hops."
     },
     {
       "path": "backend/internal/service/protocol_capability_probe_gemini.go",
@@ -1627,32 +1620,22 @@
         "func (s *AccountTestService) probeGeminiGenerateContentSupport(",
         "s.antigravityGatewayService.TestConnection(ctx, account, model)",
         "s.buildGeminiServiceAccountRequest(ctx, account, model, payload)",
-        "case protocolrouter.GeminiEndpointNativeAPIKey, protocolrouter.GeminiEndpointAntigravityEdgeRelay:",
         "s.buildGeminiAPIKeyRequest(ctx, account, requestModel, payload)",
         "protocolProbeRelayCapacityVerdict(account, resp.StatusCode, body)"
       ],
-      "rationale": "Provider-specific Gemini probes reuse production Antigravity and Vertex auth/transport owners, and EdgeRelay probes the public Gemini hop via buildGeminiAPIKeyRequest. Empty-pool capacity on edge stubs must count as positive endpoint evidence (same as text hops). A positive 2xx must carry a recognized Gemini response envelope; only structured unsupported-method 404/405 removes a prior capability."
-    },
-    {
-      "path": "backend/internal/service/protocol_capability_probe_test.go",
-      "must_contain": [
-        "func TestProbeGeminiEdgeRelayUsesPublicModelAndClassifiesWireResponse(t *testing.T)",
-        "func TestProbeAccountProtocolCapabilitiesTreatsEdgeRelayEmptyPoolAsEndpointEvidence(t *testing.T)"
-      ],
-      "rationale": "Edge Gemini probes must send the public model with edge API-key auth, classify success/unsupported/auth responses, and retain positive endpoint evidence when the edge pool is empty."
+      "rationale": "Provider-specific Gemini probes reuse production Antigravity and Vertex auth/transport owners, and API-key probes the public Gemini hop via buildGeminiAPIKeyRequest. A positive 2xx must carry a recognized Gemini response envelope; only structured unsupported-method 404/405 removes a prior capability."
     },
     {
       "path": "backend/internal/service/protocol_execution_target_test.go",
       "must_contain": [
         "func TestProtocolGeminiAntigravityPlanBindsExactWireEndpointAndBearer(t *testing.T)",
         "func TestProtocolGeminiVertexPlanBindsExactWireEndpointAndBearer(t *testing.T)",
-        "func TestProtocolGeminiEdgeRelayPlanBindsExactWireEndpointAndAPIKey(t *testing.T)",
         "want immutable plan endpoint",
         "want Antigravity bearer",
         "want Vertex bearer",
         "account.Credentials[\"location\"] = \"europe-west1\""
       ],
-      "rationale": "Behavioral wire contracts prove all three Gemini profiles keep the immutable planner host/path even if mutable account inputs change after selection, preserve required stream query semantics, bind the correct bearer or edge API-key credential, and exercise streaming plus non-streaming response paths."
+      "rationale": "Protocol execution uses the planned endpoint, mapped model and appropriate upstream authorization."
     },
     {
       "path": "backend/internal/handler/openai_gemini_protocol_execution.go",
@@ -1793,7 +1776,7 @@
     {
       "path": "backend/internal/service/protocol_routing_migration.go",
       "must_contain": [
-        "if account.IsRetiredSupplier() || !protocolRoutingGovernsAccount(account) {",
+        "if !protocolRoutingGovernsAccount(account) {",
         "MigrateProtocolRoutingSSOT",
         "ProtocolRoutingRemediationProbeRequired",
         "ProtocolRoutingRemediationNoLegalRoute",
@@ -1802,7 +1785,7 @@
         "protocolRoutingMigrationModels",
         "CutoverReady"
       ],
-      "rationale": "NewAPI accounts are custom endpoints and must never inherit official protocol capabilities. The additive migration reports them for per-account probes, preserves wildcard served-model rules when checking legal paths, distinguishes probe attempts from resolved accounts, and blocks cutover readiness when remediation remains. Retired supplier rows are excluded so they cannot block startup for active supply; US-066 pins this behavior."
+      "rationale": "NewAPI accounts are custom endpoints and must never inherit official protocol capabilities. The additive migration reports them for per-account probes, preserves wildcard served-model rules when checking legal paths, distinguishes probe attempts from resolved accounts, and blocks cutover readiness when remediation remains. Retired supplier rows are excluded so they cannot block startup for active supply."
     },
     {
       "path": "backend/internal/service/protocol_routing_migration_test.go",
@@ -1834,10 +1817,9 @@
         "protocolEndpointCapabilityKeySchemaVersion",
         "sha256.Sum256",
         "fillCustomTextProtocolEndpoints",
-        "GeminiEndpointAntigravityEdgeRelay",
         "/v1beta/models/{model}:{action}"
       ],
-      "rationale": "Protocol capability ownership is endpoint-scoped. One credential-free canonical identity builder must own platform + channel type + endpoint/profile + API-version normalization and stable key generation. Antigravity edge stubs must keep text hops alongside native Gemini in identity so PEC keys stay aligned with dual-path probes; duplicating or deleting this can split identical NewAPI endpoints into conflicting capability rows or wipe AG edge OpenAI-shape hops."
+      "rationale": "Protocol capability ownership is endpoint-scoped. One credential-free canonical identity builder must own platform + channel type + endpoint/profile + API-version normalization and stable key generation."
     },
     {
       "path": "backend/internal/repository/protocol_endpoint_capability_repo.go",
@@ -1884,7 +1866,7 @@
         "TestPlanGeminiConversionRejectsUnsupportedSemantics",
         "prompt_cache Messages→Gemini plan="
       ],
-      "rationale": "The Plan owner must distinguish explicit model denial, target route rejection and internal router failure; Universal consumes these facts without re-evaluating model policy. OpenAI prompt_cache is sticky metadata and must remain convertible to Gemini (Gemini-only edge OAuth cannot fall back to Chat identity)."
+      "rationale": "The Plan owner must distinguish explicit model denial, target route rejection and internal router failure; Universal consumes these facts without re-evaluating model policy."
     },
     {
       "path": "backend/internal/integration/newapi/discover_filter_tk.go",
@@ -1957,13 +1939,6 @@
         "accountWideRateLimitNotBlockingSQL(\"a\")"
       ],
       "rationale": "Group available/temporarily-limited account counts must share the same account-wide rate-limit admission twin as ListSchedulable, including the model-count cascade."
-    },
-    {
-      "path": "frontend/src/composables/useModelWhitelist.ts",
-      "must_not_contain": [
-        "to: 'gemini-3.6-flash-tiered'"
-      ],
-      "rationale": "Antigravity quick-add presets must not restore the withdrawn tiered upstream path or its Lite alias. Native Gemini presets are independent and remain available."
     }
   ]
 }

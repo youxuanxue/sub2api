@@ -10,7 +10,7 @@ created: 2026-09-09
 The user authorized repairing unavailable continuation error classification,
 Grok account 65 reconnect behavior, and Gemini Chat function-tool routing, then
 submitting and pushing one PR. This supplements candidate-eligibility-ssot.md and
-protocol-routing-ssot.md. Merge, production cutover and edge rollout remain
+protocol-routing-ssot.md. Merge, production cutover remain
 separate; production traffic must not switch without explicit user approval.
 
 Unavailable or unauthorized previous_response_id returns 400, while storage

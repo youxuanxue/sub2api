@@ -280,20 +280,6 @@ const (
 	// Wei-Shaw/sub2api#1981; default flipped ON for parity with the Anthropic clamp).
 	SettingKeyOpenAIMaxRateLimitCooldownSeconds = "tk_openai_max_rate_limit_cooldown_seconds"
 
-	// SettingKeyAnthropicMaxRateLimitCooldownSeconds caps how long an Anthropic
-	// account may stay rate-limited from a single upstream unified-window (5h/7d)
-	// 429 reset. Unlike its OpenAI twin this is DEFAULT-ON: when unset / blank /
-	// non-numeric / negative it falls back to defaultAnthropicMaxRateLimitCooldownSeconds
-	// (18000s / 5h). An explicit "0" disables it (trust the upstream reset verbatim).
-	//
-	// Rationale (prod 2026-06, edge-us6 account oh-3-a): Anthropic's unified 7d
-	// window is rolling — utilization that was >=1.0 at the moment of the 429
-	// decays below the limit hours later as old usage ages out, but the upstream
-	// reset header points at the conservative weekly boundary (days away). Trusting
-	// it verbatim benches a recovered account for days; on a thin/SPOF edge that is
-	// a full anthropic outage. Clamping lets natural traffic re-probe the account
-	// after the ceiling (a still-exhausted window simply 429s again and re-cools).
-	// See ratelimit_service_tk_anthropic_reset_clamp.go.
 	SettingKeyAnthropicMaxRateLimitCooldownSeconds = "tk_anthropic_max_rate_limit_cooldown_seconds"
 )
 
@@ -784,9 +770,7 @@ const (
 	// Redis 短窗计数 TTL 自行消散。为 false 时退回纯优先级/负载选择（无 saturation 项）。
 	// 详见 backend/internal/service/gateway_service_tk_saturation_penalty.go。
 	SettingKeyAnthropicSaturatedStubDeprioritizeEnabled = "gateway.anthropic_saturated_stub_deprioritize.enabled"
-	// SettingKeyOpenAISaturatedStubDeprioritizeEnabled (TK) mirrors the anthropic
-	// switch for OpenAI edge-mirror stubs (openai-us* → api-us*.tokenkey.dev).
-	SettingKeyOpenAISaturatedStubDeprioritizeEnabled = "gateway.openai_saturated_stub_deprioritize.enabled"
+	SettingKeyOpenAISaturatedStubDeprioritizeEnabled    = "gateway.openai_saturated_stub_deprioritize.enabled"
 	// SettingKeyEnableClaudeOAuthSystemPromptInjection 是否对 Claude OAuth mimic 路径注入 Claude Code system blocks（默认 true）
 	SettingKeyEnableClaudeOAuthSystemPromptInjection = "enable_claude_oauth_system_prompt_injection"
 	// SettingKeyClaudeOAuthSystemPrompt Claude OAuth mimic 路径注入的通用扩展 system prompt（空值使用内置默认）
@@ -822,16 +806,7 @@ const (
 	// UPSERTs this key on prod, the next release folds it into the embed (the
 	// floor catches up). Mirrors the claude_code_http_mimicry_manifest blob
 	// pattern. See pricing_service_tk_overlay_runtime.go.
-	SettingKeyTKPricingOverlayRuntime = "tk_pricing_overlay_runtime"
-	// SettingKeyTKAccountModelMappingRuntime is the runtime hot-pushable
-	// replacement layer for the account model_mapping SSOT. Empty/absent means
-	// use the compiled floor derived from supported*CatalogModels,
-	// tk_served_models.json, and compatibility aliases. When present, JSON
-	// scopes under "platforms" or "newapi_channel_types" REPLACE that compiled
-	// scope for apply-accounts / check-accounts. Empty-mapping Antigravity
-	// serving overlays platforms.antigravity onto DefaultAntigravityModelMapping
-	// on settings fan-out so edge OAuth rows can hot-add models without writing
-	// credentials.model_mapping. Non-empty account mappings stay authoritative.
+	SettingKeyTKPricingOverlayRuntime      = "tk_pricing_overlay_runtime"
 	SettingKeyTKAccountModelMappingRuntime = "tk_account_model_mapping_runtime"
 	// SettingKeyOpenAICodexUserAgent OpenAI Codex 完整 User-Agent（空值使用内置默认）
 	// 当客户端 UA 被识别为浏览器（Chrome/Firefox/Safari/Edge 等）时，转发给 OpenAI 上游前会替换为此值，

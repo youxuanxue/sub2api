@@ -2,7 +2,7 @@
 
 ## Background
 
-Long Kiro thinking stalls on thinking-relay edges died at ~90.8s with ~225B
+Long Kiro thinking stalls on native OAuth accounts died at ~90.8s with ~225B
 responses. Claude Code treats ping-only Anthropic SSE as idle; Kiro historically
 deferred `message_start` until visible text/tool. Caddy `encode` buffering of
 `text/event-stream` was a compounding factor and is owned by

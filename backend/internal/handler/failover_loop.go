@@ -267,10 +267,7 @@ func (s *FailoverState) HandleSelectionExhausted(ctx context.Context, thinPoolEx
 		return FailoverCanceled
 	}
 
-	classifiedCapacity := s.LastFailoverErr != nil &&
-		s.LastFailoverErr.Reason == service.AntigravityRelayCapacityReason
-	retryable := !classifiedCapacity && (thinPoolExcluded ||
-		(s.LastFailoverErr != nil && s.LastFailoverErr.StatusCode == http.StatusServiceUnavailable))
+	retryable := thinPoolExcluded || (s.LastFailoverErr != nil && s.LastFailoverErr.StatusCode == http.StatusServiceUnavailable)
 	if retryable && s.SwitchCount <= s.MaxSwitches {
 
 		if s.maybeExhaustByProfitVeto(ctx) {

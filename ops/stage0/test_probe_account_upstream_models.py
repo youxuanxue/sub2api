@@ -46,12 +46,10 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
     ) -> dict:
         if account is None:
             account = {
-                "name": "kiro-us3",
-                "platform": "anthropic",
-                "type": "apikey",
+                "name": "kiro-native",
+                "platform": "kiro",
+                "type": "oauth",
                 "channel_type": 0,
-                "mirror_platform": "kiro",
-                "base_url": "https://api-us3.tokenkey.dev",
             }
         bootstrap = json.dumps({"admin_key": "test-admin-key", "account": account})
         with tempfile.TemporaryDirectory() as tmp:
@@ -126,7 +124,7 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
             got = self.run_probe(base_url=server.base_url, targets="claude-opus-5")
         self.assertEqual(got["verdict"], "listed")
         self.assertEqual(got["models"], ["claude-opus-5", "control"])
-        self.assertEqual(got["account_platform"], "anthropic")
+        self.assertEqual(got["account_platform"], "kiro")
         self.assertEqual(got["account_scope"], "kiro")
         self.assertEqual(seen["key"], "test-admin-key")
         self.assertEqual(seen["path"], "/api/v1/admin/accounts/19/models/sync-upstream")
@@ -150,7 +148,6 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
             "platform": "newapi",
             "type": "apikey",
             "channel_type": 45,
-            "mirror_platform": "",
             "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3/",
         }
         with _Server(Handler) as server:
@@ -193,7 +190,6 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
                     "platform": "openai",
                     "type": "apikey",
                     "channel_type": 0,
-                    "mirror_platform": "",
                     "base_url": "https://agent.tokensea.ai/v1",
                 },
                 "openai_tokensea_relay",
@@ -204,7 +200,6 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
                     "platform": "anthropic",
                     "type": "apikey",
                     "channel_type": 0,
-                    "mirror_platform": "",
                     "base_url": "https://agent.tokensea.ai/v1/",
                 },
                 "anthropic_tokensea_relay",
@@ -240,7 +235,6 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
             "platform": "newapi",
             "type": "apikey",
             "channel_type": 45,
-            "mirror_platform": "",
             "base_url": "https://ark.cn-beijing.volces.com/api/v3/",
         }
         with _Server(Handler) as server:
@@ -273,7 +267,7 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
             got = self.run_probe(base_url=server.base_url, model="claude-opus-5")
         self.assertEqual(got["verdict"], "servable")
         self.assertEqual(got["probe"], "account_test")
-        self.assertEqual(got["account_platform"], "anthropic")
+        self.assertEqual(got["account_platform"], "kiro")
         self.assertEqual(got["account_scope"], "kiro")
         self.assertEqual(got["content_excerpt"], "OK")
 

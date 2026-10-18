@@ -292,7 +292,7 @@ func TestProtocolGeminiVertexPlanBindsExactWireEndpointAndBearer(t *testing.T) {
 	}
 }
 
-func TestProtocolGeminiEdgeRelayPlanBindsExactWireEndpointAndAPIKey(t *testing.T) {
+func TestProtocolGeminiAPIKeyPlanBindsExactWireEndpointAndAPIKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, inbound := range protocolrouter.AllProtocols() {
 		for _, stream := range []bool{false, true} {
@@ -314,7 +314,7 @@ func TestProtocolGeminiEdgeRelayPlanBindsExactWireEndpointAndAPIKey(t *testing.T
 				account := &Account{
 					ID: 912, Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Status: StatusActive, Concurrency: 1,
 					Credentials: map[string]any{
-						"api_key": "edge-key", "base_url": "https://api-us3.tokenkey.dev",
+						"api_key": "edge-key", "base_url": "https://upstream.example.test",
 						"model_mapping": map[string]any{"gemini-2.5-flash": "gemini-2.5-flash-medium"},
 					},
 				}
@@ -322,7 +322,7 @@ func TestProtocolGeminiEdgeRelayPlanBindsExactWireEndpointAndAPIKey(t *testing.T
 				var plan protocolrouter.Plan
 				value, err := protocolTargetTestExecution(t, inbound, body, account, func(ctx context.Context, account *Account, selected protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 					plan = selected
-					account.Credentials["base_url"] = "https://api-us4.tokenkey.dev"
+					account.Credentials["base_url"] = "https://upstream.example.test"
 					switch inbound {
 					case protocolrouter.ProtocolMessages:
 						return svc.Forward(ctx, c, account, request.Body())
@@ -400,7 +400,7 @@ func TestProtocolExecutionPlanOverridesLegacyChatRouting(t *testing.T) {
 	}
 }
 
-func TestProtocolChatIdentityAntigravityRelayPreservesPublicModelForHop(t *testing.T) {
+func TestProtocolChatIdentityAntigravityAPIKeyUsesMappedModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	const publicModel = "gemini-3.6-flash"
 	const providerModel = "gemini-3.6-flash-tiered"
@@ -418,7 +418,7 @@ func TestProtocolChatIdentityAntigravityRelayPreservesPublicModelForHop(t *testi
 	account := &Account{
 		ID: 62, Platform: PlatformAntigravity, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{
-			"api_key": "relay-key", "base_url": "https://api-us4.tokenkey.dev",
+			"api_key": "relay-key", "base_url": "https://upstream.example.test",
 			"model_mapping": map[string]any{publicModel: providerModel},
 		},
 		Extra: map[string]any{},
@@ -439,11 +439,11 @@ func TestProtocolChatIdentityAntigravityRelayPreservesPublicModelForHop(t *testi
 	if len(upstream.requests) != 1 {
 		t.Fatalf("upstream requests = %d, want 1", len(upstream.requests))
 	}
-	if got := upstream.requests[0].URL.String(); got != "https://api-us4.tokenkey.dev/v1/chat/completions" {
+	if got := upstream.requests[0].URL.String(); got != "https://upstream.example.test/v1/chat/completions" {
 		t.Fatalf("edge endpoint = %q", got)
 	}
-	if got := gjson.GetBytes(readProtocolTargetRequestBody(t, upstream.requests[0]), "model").String(); got != publicModel {
-		t.Fatalf("edge received %q, want public model %q", got, publicModel)
+	if got := gjson.GetBytes(readProtocolTargetRequestBody(t, upstream.requests[0]), "model").String(); got != providerModel {
+		t.Fatalf("upstream received %q, want mapped model %q", got, providerModel)
 	}
 	result, ok := value.(*OpenAIForwardResult)
 	if !ok || result == nil {
@@ -601,50 +601,6 @@ func TestProtocolMessagesIdentityUsesNativeAnthropicCredentialContractForCNAccou
 	request := upstream.requests[0]
 	if got := request.Header.Get("x-api-key"); got != "sk-protocol-target" {
 		t.Fatalf("x-api-key = %q, want native Anthropic credential", got)
-	}
-	if got := request.Header.Get("Authorization"); got != "" {
-		t.Fatalf("authorization = %q, want no OpenAI bearer credential", got)
-	}
-}
-
-func TestProtocolChatToMessagesUsesNativeAnthropicCredentialForKiroMirror(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hello"}],"stream":false}`)
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	route := protocolRouteSpecByAdapter(t, protocolrouter.AdapterChatToMessages)
-	upstream := &protocolTargetHTTPUpstream{responses: []*http.Response{protocolRouteContractResponse(route)}}
-	svc := protocolTargetTestService(upstream)
-	account := protocolTargetTestAccount(
-		protocolrouter.ProtocolMessages,
-		protocolrouter.ProtocolChatCompletions,
-		protocolrouter.ProtocolResponses,
-	)
-	account.Name = "kiro-us6"
-	account.Platform = PlatformAnthropic
-	account.Credentials["mirror_platform"] = PlatformKiro
-	account.Credentials["model_mapping"] = map[string]any{"claude-opus-4-8": "claude-opus-4-8"}
-
-	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
-		executionCtx context.Context,
-		account *Account,
-		_ protocolrouter.Plan,
-		request protocolrouter.CanonicalRequest,
-	) (any, error) {
-		return svc.ForwardAsChatCompletions(executionCtx, c, account, request.Body(), "", "")
-	})
-	if err != nil {
-		t.Fatalf("ExecuteSelectedProtocol: %v", err)
-	}
-	if len(upstream.requests) != 1 {
-		t.Fatalf("upstream requests = %d, want 1", len(upstream.requests))
-	}
-	request := upstream.requests[0]
-	if got, want := request.URL.String(), "http://upstream.example/v1/messages"; got != want {
-		t.Fatalf("upstream URL = %q, want Kiro native messages hop %q", got, want)
-	}
-	if got := request.Header.Get("x-api-key"); got != "sk-protocol-target" {
-		t.Fatalf("x-api-key = %q, want Kiro mirror credential", got)
 	}
 	if got := request.Header.Get("Authorization"); got != "" {
 		t.Fatalf("authorization = %q, want no OpenAI bearer credential", got)

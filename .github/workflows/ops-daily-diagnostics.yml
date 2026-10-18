@@ -1,7 +1,7 @@
 name: Ops Daily Diagnostics
 
-# Canonical production and Edge diagnostics entry point.
-# Diagnostics may reach prod/Edge through GHA → AWS STS (OIDC) → SSM. The only
+# Canonical production diagnostics entry point.
+# Diagnostics reaches prod through GHA → AWS STS (OIDC) → SSM. The only
 # This workflow is read-only: it checks gateway, database, and raw archive health.
 # Issue creation and repair dispatch are isolated from AWS
 # credentials. This workflow never deploys, rolls back, edits secrets, writes
@@ -24,9 +24,9 @@ on:
           - error_clustering
           - log_dump
       target_selector:
-        description: "Diagnostics target selector: all, prod, edge:*, or edge:<id>. log_dump supports prod only."
+        description: "Production diagnostics target selector (prod only)."
         required: false
-        default: all
+        default: prod
       since_hours:
         description: Daily error ledger and legacy clustering lookback window in hours
         required: false
@@ -88,7 +88,7 @@ jobs:
       excluded: ${{ steps.matrix.outputs.excluded }}
       has_targets: ${{ steps.matrix.outputs.has_targets }}
     env:
-      TARGET_SELECTOR: ${{ inputs.target_selector || 'all' }}
+      TARGET_SELECTOR: prod
       PROD_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       PROD_STACK: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
     steps:
@@ -98,12 +98,11 @@ jobs:
         id: matrix
         run: |
           set -euo pipefail
-          python3 deploy/aws/stage0/resolve-edge-target.py \
-            --prod-ops-matrix \
-            --target-selector "$TARGET_SELECTOR" \
-            --prod-region "$PROD_REGION" \
-            --prod-stack "$PROD_STACK" \
-            --github-output "$GITHUB_OUTPUT"
+          MATRIX="$(jq -cn --arg region "$PROD_REGION" --arg stack "$PROD_STACK" \
+            '{include:[{target_id:"prod",target_kind:"prod",platform:"prod",region:$region,stack:$stack,domain:"api.tokenkey.dev",ssm_prefix:""}]}')"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo 'excluded=[]' >> "$GITHUB_OUTPUT"
+          echo 'has_targets=true' >> "$GITHUB_OUTPUT"
 
       - name: Target summary
         run: |
@@ -137,7 +136,6 @@ jobs:
       TARGET_ID: ${{ matrix.target_id }}
       TARGET_KIND: ${{ matrix.target_kind }}
       TARGET_PLATFORM: ${{ matrix.platform }}
-      EDGE_ID: ${{ matrix.edge_id }}
       TARGET_REGION: ${{ matrix.region }}
       STACK_NAME: ${{ matrix.stack }}
       TARGET_DOMAIN: ${{ matrix.domain }}
@@ -153,12 +151,11 @@ jobs:
             --arg target_id "$TARGET_ID" \
             --arg target_kind "$TARGET_KIND" \
             --arg platform "$TARGET_PLATFORM" \
-            --arg edge_id "$EDGE_ID" \
             --arg region "$TARGET_REGION" \
             --arg stack "$STACK_NAME" \
             --arg domain "$TARGET_DOMAIN" \
             --arg ssm_prefix "$SSM_PREFIX" \
-            '{target_id:$target_id,target_kind:$target_kind,platform:$platform,edge_id:$edge_id,region:$region,stack:$stack,domain:$domain,ssm_prefix:$ssm_prefix}' \
+            '{target_id:$target_id,target_kind:$target_kind,platform:$platform,region:$region,stack:$stack,domain:$domain,ssm_prefix:$ssm_prefix}' \
             > "prod-ops-targets/$TARGET_ID/target.json"
           : > "prod-ops-targets/$TARGET_ID/findings.jsonl"
           : > "prod-ops-targets/$TARGET_ID/stdout.txt"
@@ -207,16 +204,6 @@ jobs:
           else
             echo "skip live-host audit: resolve_prod_ssm_target returned empty instance_id"
           fi
-
-      - name: Assert first-output timeouts (edge daily audit)
-        # ADVISORY — edges only. Prod already covered by assert-live-host-state.
-        if: steps.precheck.outputs.skip == 'false' && env.TARGET_KIND != 'prod'
-        continue-on-error: true
-        run: |
-          set -uo pipefail
-          bash ops/stage0/assert-first-output-timeouts.sh \
-            --target "edge:${EDGE_ID}" \
-            --comment "ops-daily-diagnostics first-output audit target=$TARGET_ID"
 
       - name: Audit prod configuration independently of deployment
         if: steps.precheck.outputs.skip == 'false' && env.TARGET_KIND == 'prod'
@@ -292,21 +279,6 @@ jobs:
                   '. + {instance_id:$instance_id, api_url:$api_url, api_url_source:"resolve_prod_ssm_target", region:$region}' \
                   "$OUT/target.json" > "$OUT/target.tmp" && mv "$OUT/target.tmp" "$OUT/target.json"
               fi
-            fi
-          elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ] || [ "${TARGET_PLATFORM:-}" = "hetzner" ]; then
-            # Hybrid edges (Lightsail or Hetzner) have no CloudFormation stack —
-            # INSTANCE_ID is the SSM `mi-*` under ssm_prefix; ApiUrl = https://<domain>.
-            INSTANCE_ID="$(aws ssm get-parameter --region "$TARGET_REGION" \
-              --name "${SSM_PREFIX}/ssm_managed_instance_id" \
-              --query 'Parameter.Value' --output text 2>>"$STDERR" || echo None)"
-            if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
-              add_finding "hybrid_managed_instance" "manual_ops" "error" "Hybrid managed instance id missing for $TARGET_ID" "${SSM_PREFIX}/ssm_managed_instance_id is empty — has $TARGET_ID been provisioned?" "hybrid-managed-instance|$TARGET_ID|$TARGET_PLATFORM"
-              INSTANCE_ID=""
-            else
-              API_URL="https://$TARGET_DOMAIN"
-              jq --arg instance_id "$INSTANCE_ID" --arg api_url "$API_URL" --arg src "${TARGET_PLATFORM}_domain" \
-                '. + {instance_id:$instance_id, api_url:$api_url, api_url_source:$src}' \
-                "$OUT/target.json" > "$OUT/target.tmp" && mv "$OUT/target.tmp" "$OUT/target.json"
             fi
           elif ! INSTANCE_ID="$(run_aws_text 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue')"; then
             add_finding "cloudformation_describe" "manual_ops" "error" "Could not describe stack $STACK_NAME" "CloudFormation describe-stacks failed in $TARGET_REGION for $STACK_NAME." "cloudformation|$STACK_NAME"
@@ -419,15 +391,6 @@ jobs:
 
           fi
 
-          if [ "$TARGET_KIND" = "edge" ] && [ -n "$API_URL" ]; then
-            BLOCKED_CODE="$(curl -sS -o "$OUT/edge-blocked.json" -w '%{http_code}' -H 'Authorization: Bearer tk_edge_smoke_should_not_work' "$API_URL/v1/models" 2>>"$STDERR" || echo 000)"
-            if [ "$BLOCKED_CODE" = "403" ]; then
-              add_finding "edge_public_api_block" "ok" "info" "Edge public API block passed for $TARGET_ID" "Public runner /v1/models probe returned HTTP 403." "edge-public-block|$TARGET_ID"
-            else
-              add_finding "edge_public_api_block" "issue_candidate" "error" "Edge public API block failed for $TARGET_ID" "Public runner /v1/models probe returned HTTP $BLOCKED_CODE instead of 403." "edge-public-block|$TARGET_ID|$BLOCKED_CODE"
-            fi
-          fi
-
           if [ -n "$INSTANCE_ID" ] && [ "$INSTANCE_ID" != "None" ]; then
             if ! printf '%s' "$DIAGNOSTICS_LOG_SINCE" | grep -Eq '^[0-9]+[smhd]$'; then
               add_finding "diagnostics_log_since_input" "manual_ops" "error" "Invalid diagnostics_log_since input" "diagnostics_log_since must match ^[0-9]+[smhd]$ (e.g. 20m, 2h, 1d), got: $DIAGNOSTICS_LOG_SINCE" "diagnostics-log-since-input|$DIAGNOSTICS_LOG_SINCE"
@@ -517,7 +480,6 @@ jobs:
               awk '/^===PGDUMP_RESTORE_CANARY_RECEIPT===$/{f=1;next} /^===END_PGDUMP_RESTORE_CANARY_RECEIPT===$/{f=0} f' \
                 "$OUT/runtime-stdout.txt" > "$OUT/pgdump-restore-canary-receipt.json"
               PROBE_TARGET=prod
-              if [ "$TARGET_KIND" = edge ]; then PROBE_TARGET="edge:$EDGE_ID"; fi
               if ! python3 ops/observability/pgdump_restore_canary_verdict.py \
                 --receipt "$OUT/pgdump-restore-canary-receipt.json" \
                 --expected-target "$PROBE_TARGET" \
@@ -610,10 +572,6 @@ jobs:
               add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "diagnostics_include_error_clustering=false; runtime/health-only lightweight diagnostics." "error-clustering|$TARGET_ID|lightweight-skip"
             elif [ "$RUNTIME_SSM_TRANSPORT_OK" != "true" ]; then
               add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "Runtime SSM SendCommand failed; suppressing downstream error_clustering SSM checks for the same transport root cause." "error-clustering|$TARGET_ID|runtime-ssm-send-failed"
-            elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ] || [ "${TARGET_PLATFORM:-}" = "hetzner" ]; then
-              # Error clustering installer is prod-oriented; Hybrid edges skip the
-              # binary path. Lightweight diagnostics already ran above via SSM.
-              add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID ($TARGET_PLATFORM)" "Hybrid edges skip error_clustering binary install; health + log signals ran via SSM Hybrid managed instance." "error-clustering|$TARGET_ID|$TARGET_PLATFORM-skip"
             elif ! printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$'; then
               add_finding "error_clustering_input" "manual_ops" "error" "Invalid since_hours input" "since_hours must be a positive integer, got: $SINCE_HOURS" "error-clustering-input|$SINCE_HOURS"
             else
@@ -726,9 +684,6 @@ jobs:
             # returns sanitized structured fields only.
             if printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$' && [ "$SINCE_HOURS" -ge 1 ] && [ "$SINCE_HOURS" -le 168 ]; then
               PROBE_TARGET=prod
-              if [ "$TARGET_KIND" = "edge" ]; then
-                PROBE_TARGET="edge:$EDGE_ID"
-              fi
               if bash ops/observability/run-probe.sh \
                 --target "$PROBE_TARGET" \
                 --script ops/observability/probe-daily-error-ledger.sh \

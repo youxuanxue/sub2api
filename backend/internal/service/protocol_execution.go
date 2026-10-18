@@ -42,7 +42,7 @@ func ExecuteGeminiProtocolProfile[T any](
 	case protocolrouter.GeminiEndpointAntigravityCloudCode:
 		execute = antigravity
 	case protocolrouter.GeminiEndpointVertexServiceAccount,
-		protocolrouter.GeminiEndpointAntigravityEdgeRelay,
+		protocolrouter.GeminiEndpointAntigravityAPIKey,
 		protocolrouter.GeminiEndpointNativeAPIKey:
 		// These profiles share native generateContent transport. Provider limits
 		// (including Gemini Web) are admitted by Plan, not selected here.

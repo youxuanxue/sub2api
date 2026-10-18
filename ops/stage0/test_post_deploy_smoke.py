@@ -155,7 +155,7 @@ class PostDeploySmokeTest(unittest.TestCase):
         self.assertEqual(calls.count("https://api.example.test/v1/responses"), 1)
 
     def test_non_full_suites_skip_responses(self) -> None:
-        for suite in ("quick", "main-via-edge"):
+        for suite in ("quick",):
             with self.subTest(suite=suite):
                 proc, calls = self._run(suite)
                 self.assertEqual(proc.returncode, 0, msg=proc.stdout + proc.stderr)

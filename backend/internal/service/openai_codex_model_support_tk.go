@@ -17,7 +17,7 @@ func isOpenAICodexClaudeModel(model string) bool {
 // Reuse the wire alias owner so dated/effort spellings and compatibility aliases
 // cannot revive the retired model. This is not a global catalog removal.
 func openAICodexSupportsResolvedModel(account *Account, resolvedModel string) bool {
-	if account == nil || (!account.IsOpenAIOAuthLike() && !isOpenAIEdgeMirrorAccount(account)) {
+	if account == nil || !account.IsOpenAIOAuthLike() {
 		return true
 	}
 	return !isOpenAICodexClaudeModel(resolvedModel) && normalizeKnownOpenAICodexModel(resolvedModel) != "gpt-5.5"
@@ -26,7 +26,7 @@ func openAICodexSupportsResolvedModel(account *Account, resolvedModel string) bo
 // Match the forwarding owner's mapping/passthrough behavior, rather than
 // rejecting the raw client alias before an explicit supported remap.
 func openAICodexSupportsRequestedModel(account *Account, requestedModel string) bool {
-	if account == nil || (!account.IsOpenAIOAuthLike() && !isOpenAIEdgeMirrorAccount(account)) {
+	if account == nil || !account.IsOpenAIOAuthLike() {
 		return true
 	}
 	resolved := resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, false)

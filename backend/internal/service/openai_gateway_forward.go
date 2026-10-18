@@ -379,7 +379,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", billingModel, account.Platform)
 	}
 	reqModel = billingModel
-	relayRequestModel := antigravityRelayRequestModel(account, requestedModel, upstreamModel)
+	relayRequestModel := upstreamModel
 	if relayRequestModel != requestedModel {
 		markPatchSet("model", relayRequestModel)
 	}

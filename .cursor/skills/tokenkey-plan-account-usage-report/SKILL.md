@@ -2,7 +2,7 @@
 name: tokenkey-plan-account-usage-report
 description: >-
   Read-only TokenKey plan-account metering for VolcEngine/Ali/Qianfan/NVIDIA
-  Build (prod; edges iff --list-deployable non-empty). Use for monthly usage,
+  Build (prod-only). Use for monthly usage,
   max 5h/7d tiles, peak RPM/TPM, or regenerating plan-account-usage-YYYYMM.md.
 ---
 
@@ -22,18 +22,18 @@ description: >-
 python3 -m unittest ops.observability.test_plan_account_usage_report -v
 
 python3 ops/observability/plan_account_usage_report.py collect \
-  --month 2026-09 \
+  --month 2026-10 \
   --raw-dir .cache/plan-account-usage-raw \
-  --output docs/ops/plan-account-usage-202609.md
+  --output docs/ops/plan-account-usage-202610.md
 ```
 
 自定义半开区间（Asia/Shanghai，`period-end` 不含）：
 
 ```bash
 python3 ops/observability/plan_account_usage_report.py collect \
-  --period-start 2026-09-01 \
-  --period-end 2026-10-01 \
-  --output docs/ops/plan-account-usage-202609.md
+  --period-start 2026-10-01 \
+  --period-end 2026-11-01 \
+  --output docs/ops/plan-account-usage-202610.md
 ```
 
 仅用已缓存 JSON 重绘：
@@ -41,7 +41,7 @@ python3 ops/observability/plan_account_usage_report.py collect \
 ```bash
 python3 ops/observability/plan_account_usage_report.py render \
   --raw-dir .cache/plan-account-usage-raw \
-  --output docs/ops/plan-account-usage-202609.md
+  --output docs/ops/plan-account-usage-202610.md
 ```
 
 本机 `aws/pyexpat` 启动失败时，先 `python3 scripts/checks/check-local-aws-pyexpat.py --apply`。
@@ -57,7 +57,7 @@ python3 ops/observability/plan_account_usage_report.py render \
 - **账号范围**：`created_at < period_end`；周期结束后新建的账号不进表。
 - **max5h / max7d**：从 `period_start` 起**非重叠步进**（5h / 7d），只保留完整格子，取 total_cost 最大格；不是 1h/1d 滚动窗。
 - **peak_rpm / peak_tpm**：周期内分钟桶峰值；报告里 TPM 用 **million**（/1e6）。
-- Edge 列表：`python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable`（2026-10-17 起通常为空 → 仅 prod）。
+- 报告范围：仅 prod。
 - Markdown **禁止美元符号**（预览会把美元符号当公式弄乱表格）。
 
 脚本已算完的数字，prompt 不要重算。失败（`status!=Success` / 非零退出）如实报告，绝不编数。
@@ -65,7 +65,7 @@ python3 ops/observability/plan_account_usage_report.py render \
 ## 完成检查
 
 1. unittest 全绿。
-2. 报告覆盖 prod + 当前 deployable edges（可为空）；无账号的环境允许 0 行。
+2. 报告覆盖 prod；无账号的环境允许 0 行。
 3. 抽查一档 max5h/max7d 窗口长度分别为 5h / 7d，且落在周期内。
 4. 若提交：按项目规则跑 `./scripts/preflight.sh`。
 

@@ -13,7 +13,7 @@ of the approximately 360-second cancellations.
 Policy and user approval: [Candidate Eligibility SSOT](approved/candidate-eligibility-ssot.md#kiro-fixed-request-waiting-budget-2621-conversation-approval).
 Replace progress renewal with independent Kiro ordinary/high fixed budgets.
 Reuse the existing guard and request-scoped terminal error contract. Cover
-streaming, complete non-streaming JSON, retries and prod→edge propagation.
+streaming, complete non-streaming JSON, and retries.
 
 ## Scenarios and validation
 

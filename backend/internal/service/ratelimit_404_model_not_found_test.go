@@ -34,12 +34,6 @@ func (r *anthropic404AccountRepoStub) SetRateLimited(_ context.Context, _ int64,
 	return nil
 }
 
-// TK (prod P0 2026-06-06, edge us5): an Anthropic 404 model-not-found is a
-// CLIENT error (a model name no account can serve — Anthropic's catalog is
-// global, not per-account), so it must NOT cool the account×model. Cooling a
-// thin pool on a bad model name drained it into "No available accounts" 429s and
-// amplified one misconfigured client into an edge-wide P0. This pins the
-// no-penalty behavior (was: SetModelRateLimit + shouldDisable=true).
 func TestHandleUpstreamError_Anthropic404ModelNotFoundSkipsPenalty(t *testing.T) {
 	repo := &anthropic404AccountRepoStub{}
 	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)

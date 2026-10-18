@@ -11,22 +11,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-// Mirror-edge metric pollution (2026-06-06 yace load test): prod relays to the edge
-// via cc-<edge> apikey mirror accounts; when the edge pool is empty it returns 429
-// with a "No available accounts" body (tkNoAvailableAccounts, PR #575). That 429 is
-// TokenKey fleet capacity, not Anthropic health, but because it carries a definitive
-// upstream status the classifier counted it phase=upstream / error_owner=provider —
-// so a dead single-account edge (us3: served_200=0, no_available_429=33748) and a
-// healthy edge (us5: 2251x200, 77x429) BOTH read ~1300 upstream-429 on prod, making
-// upstream_error_rate useless for telling a dead edge from a healthy one.
-//
-// These tests pin the corrected classification: a relayed downstream-capacity
-// verdict ("no available accounts" / gateway failover-terminal) is owned as
-// routing (phase=routing, error_owner=platform) so it stays out of
-// upstream_error_rate while still counting in SLA numerator; genuine provider 429
-// (rate_limit_error) and raw 5xx
-// keep counting. Setups mirror the relay forward site, which records an
-// appendOpsUpstreamError event carrying UpstreamStatusCode + UpstreamResponseBody.
+// Configured upstream gateway capacity failures remain routing-owned; genuine
+// provider rate limits and raw server failures remain provider-owned.
 func TestClassifyOpsDownstreamCapacityOwnedAsRouting(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -36,7 +22,7 @@ func TestClassifyOpsDownstreamCapacityOwnedAsRouting(t *testing.T) {
 		errMsg string
 	}{
 		{
-			name: "edge no-available 429 body",
+			name: "upstream gateway no-available 429 body",
 			event: &service.OpsUpstreamErrorEvent{
 				UpstreamStatusCode:   429,
 				Kind:                 "http_error",
@@ -45,11 +31,11 @@ func TestClassifyOpsDownstreamCapacityOwnedAsRouting(t *testing.T) {
 			errMsg: "No available accounts: no available accounts",
 		},
 		{
-			name: "edge no-available 429 then client cancel (the polluting shape)",
+			name: "upstream gateway no-available 429 then client cancel (the polluting shape)",
 			event: &service.OpsUpstreamErrorEvent{
 				UpstreamStatusCode:   429,
 				Kind:                 "request_error",
-				Message:              `Post "https://api-us3.tokenkey.dev/v1/messages": context canceled`,
+				Message:              `Post "https://upstream.example.test/v1/messages": context canceled`,
 				UpstreamResponseBody: `{"error":{"message":"No available accounts: no available accounts","type":"api_error"}}`,
 			},
 			errMsg: "Upstream request failed",

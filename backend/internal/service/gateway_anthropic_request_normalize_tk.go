@@ -12,53 +12,6 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// TokenKey: Anthropic native /v1/messages request-body normalization.
-//
-// Fixes two recurring client mistakes that previously surfaced as upstream
-// 400s (see edge-us1 / edge-uk1 incident on 2026-05-21):
-//
-//  1. tool_choice given as an OpenAI-style string. Anthropic rejects with
-//     "tool_choice: Input should be an object". We map the three OpenAI legal
-//     string values to their Anthropic object equivalent. Unknown strings are
-//     left untouched so the upstream still surfaces the client bug.
-//
-//  2. thinking.type=enabled together with tool_choice.type IN ("any","tool").
-//     Anthropic rejects with "Thinking may not be enabled when tool_choice
-//     forces tool use." Preserve thinking and relax forced tool choice to auto,
-//     using the same policy as protocol admission and candidate scheduling.
-//
-//  3. Claude Code prompt surfaces in system / system-reminder text: geo-stego
-//     date lines, # Environment (TZ/proxy), and client userEmail. Rewritten
-//     before US edge OAuth egress; userEmail is replaced with the scheduled
-//     account OAuth email when available. See gateway_request_tk_cc_prompt_surface.go.
-//
-// Scope: Anthropic-platform Forward + count_tokens (OAuth path). API-key
-// passthrough and Bedrock call tkApplyAnthropicCCPromptSurfaceNormalize at
-// their entry points. The hook runs once
-// per request before any other body rewrite so downstream code sees a
-// well-formed body.
-//
-// Original client body is preserved on the gin context (handler.setOpsRequestModelAndBody
-// via OpsRequestBodyKey) BEFORE this hook runs, so ops enrichment and RCA can still
-// read the pre-normalize payload when normalize fires.
-//
-// Observability:
-//   - Every successful normalization emits an INFO log
-//     "gateway.anthropic_request_normalized" with request_id + the list of
-//     changes applied. Use this to count total normalize hits.
-//   - Post-normalize prompt fingerprint (classes + surface_signature, no full
-//     system text) emits "gateway.anthropic_prompt_fingerprint" when normalize
-//     fired, unknown surfaces detected, or ~1% sampled. See
-//     gateway_request_tk_prompt_fingerprint.go + prompt_surface_registry.json.
-//   - Each change also appends an OpsUpstreamErrorEvent (kind="request_normalized")
-//     to the request's ops_error_logs.upstream_errors array. Combined with the
-//     INFO log this lets operators measure "save rate" = 1 - (rows-with-event
-//     / total-normalize-hits).
-//
-// Disable at runtime:
-//   UPDATE settings SET value='false'
-//    WHERE key='tk_anthropic_request_normalize_enabled';
-
 // tkAnthropicNormalizeChange identifies one normalization rule that was
 // applied to a request body.
 type tkAnthropicNormalizeChange string

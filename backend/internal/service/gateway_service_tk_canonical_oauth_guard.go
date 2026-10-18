@@ -7,22 +7,6 @@ import (
 	"strings"
 )
 
-// TokenKey canonical-OAuth ingress gates. When an Anthropic OAuth account binds
-// the canonical Claude Code TLS profile (tk_canonical_cc_oauth),
-// only the real claude-cli / claude-sdk identity is allowed to route through it,
-// and only models that the current Claude Code CLI release actually emits are
-// accepted upstream. Both gates collapse the cohort signal that triggered the
-// 2026-05-25 Anthropic hold on edge-uk1 account EN-LD-EC2-16-3:
-//   1. third-party SDK UAs (OpenAI/Python, httpx, requests, ...) silently
-//      draining a personal Claude Code subscription
-//   2. retired models (claude-opus-4-5* and older) routed alongside the
-//      current 4-7 default — a mix-pattern real cc clients no longer produce.
-//      (claude-opus-4-6 is deliberately excluded — see canonicalDeprecatedOpusPrefixes:
-//      it still serves upstream WITH plaintext thinking, so remapping it away is harmful.)
-//
-// Both gates are scoped to OAuth + canonical TLS only; API-key channels and
-// non-canonical OAuth accounts keep upstream-default behavior.
-
 // CanonicalIngressUARejectedError signals that an ingress request was rejected
 // because its User-Agent is not a real claude-cli / claude-sdk client on the
 // canonical Anthropic OAuth path. Handler converts this to HTTP 403.
@@ -30,29 +14,10 @@ type CanonicalIngressUARejectedError struct {
 	IngressUA string
 }
 
-// canonicalIngressRejectNeedle is the stable TokenKey-generated phrase carried
-// by every canonical-ingress UA rejection (Error() below). Real provider APIs
-// never emit it, so — like ErrNoAvailableAccounts — it doubles as the relay-hop
-// recognition signal: when a prod mirror stub receives this 403 from a strict-
-// mode edge, IsCanonicalIngressUARejectMessage matches it and the prod side
-// fails over without cooling the stub (see
-// ratelimit_service_tk_canonical_ingress_reject.go and
-// ops_error_logger_tk_client_induced_upstream.go). Changing this string breaks
-// that recognition across mixed prod/edge versions — treat it as a wire contract.
 const canonicalIngressRejectNeedle = "canonical claude oauth path rejects non-cc client"
 
 func (e *CanonicalIngressUARejectedError) Error() string {
 	return fmt.Sprintf("%s: ingress user_agent=%q (use claude-cli)", canonicalIngressRejectNeedle, e.IngressUA)
-}
-
-// IsCanonicalIngressUARejectMessage reports whether an upstream error body /
-// message is a TokenKey canonical-ingress UA rejection relayed from a
-// downstream strict-mode edge. Exported for the handler-layer ops classifier.
-func IsCanonicalIngressUARejectMessage(responseBody []byte, upstreamMsg string) bool {
-	if strings.Contains(strings.ToLower(upstreamMsg), canonicalIngressRejectNeedle) {
-		return true
-	}
-	return strings.Contains(strings.ToLower(string(responseBody)), canonicalIngressRejectNeedle)
 }
 
 // canonicalIngressUAForbiddenSubstrings lists case-insensitive substrings that
@@ -87,14 +52,6 @@ var canonicalIngressUAForbiddenSubstrings = []string{
 	"aiohttp",
 }
 
-// checkCanonicalIngressUA validates ingress User-Agent on the canonical OAuth
-// path. Returns nil to allow forwarding; returns *CanonicalIngressUARejectedError
-// to block with HTTP 403.
-//
-// Policy: deny-list-only. An empty UA is allowed (prod→edge relay may strip it
-// and we already pin canonical UA upstream). An unknown UA is allowed so that a
-// future Claude Code variant (e.g. claude-cli/2.2 IDE build) does not need a
-// code change to keep working. Only explicit third-party SDK substrings reject.
 func checkCanonicalIngressUA(headers http.Header) error {
 	ua := strings.TrimSpace(headers.Get("User-Agent"))
 	if ua == "" {
@@ -118,19 +75,6 @@ var canonicalIngressUAAllowedPrefixes = []string{
 	"claude-code/",
 }
 
-// checkCanonicalIngressUAStrict is the allow-list counterpart of
-// checkCanonicalIngressUA, used only when
-// SettingKeyAnthropicCanonicalIngressStrictEnabled is true. It returns nil only
-// when the trimmed, lower-cased User-Agent starts with one of
-// canonicalIngressUAAllowedPrefixes; an empty UA or any unknown UA returns
-// *CanonicalIngressUARejectedError (HTTP 403 at the handler).
-//
-// Rationale: with cc_only relaxed on a group, the canonical OAuth path is the
-// only client-identity gate left for a personal subscription's edge account. An
-// empty UA is a real passed-through client signal on the transparent prod→edge
-// relay (not a relay artifact), so strict mode must require an explicit CC
-// identity rather than tolerating anonymous traffic. The default deny-list path
-// (checkCanonicalIngressUA) is preserved unchanged for zero regression.
 func checkCanonicalIngressUAStrict(headers http.Header) error {
 	ua := strings.TrimSpace(headers.Get("User-Agent"))
 	lower := strings.ToLower(ua)

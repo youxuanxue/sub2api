@@ -181,15 +181,10 @@ func TestComputeProxyUnreachableCount_RepoErrorSkipsRule(t *testing.T) {
 	require.Equal(t, 0.0, n)
 }
 
-func TestProxyUnreachable_ProdOnlyAndEdgeSuppressed(t *testing.T) {
+func TestProxyUnreachable_EvaluatedOnProd(t *testing.T) {
 	t.Parallel()
 
 	rule := &OpsAlertRule{MetricType: OpsAlertMetricProxyUnreachableCount}
-	require.True(t, isProdOnlyAlertRule(rule))
-	require.True(t, isEdgeSuppressedAlertRule(rule))
-
-	edge := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api-us5.tokenkey.dev"}}}
-	require.False(t, edge.shouldEvaluateAlertRuleOnNode(rule))
 
 	prod := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api.tokenkey.dev"}}}
 	require.True(t, prod.shouldEvaluateAlertRuleOnNode(rule))

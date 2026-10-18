@@ -62,7 +62,7 @@ func TestProtocolPlannedAPIKeyUsesProtocolAuthorizationOwner(t *testing.T) {
 	account := &Account{
 		ID: 62, Name: "antigravity-us4", Platform: PlatformAntigravity, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{
-			"base_url": "https://api-us4.tokenkey.dev", "api_key": "edge-test-key",
+			"base_url": "https://upstream.example.test", "api_key": "edge-test-key",
 			"model_mapping": map[string]any{"gemini-3.8-flash": "gemini-3.8-flash"},
 		},
 	}
@@ -107,7 +107,7 @@ func TestExecuteGeminiProtocolProfileUsesOnlyPlannedProfile(t *testing.T) {
 	}{
 		{name: "antigravity", profile: protocolrouter.GeminiEndpointAntigravityCloudCode, wantAntigravity: 1, wantValue: "ag"},
 		{name: "vertex", profile: protocolrouter.GeminiEndpointVertexServiceAccount, wantVertex: 1, wantValue: "vertex"},
-		{name: "antigravity edge relay", profile: protocolrouter.GeminiEndpointAntigravityEdgeRelay, wantVertex: 1, wantValue: "vertex"},
+		{name: "antigravity API-key upstream", profile: protocolrouter.GeminiEndpointAntigravityAPIKey, wantVertex: 1, wantValue: "vertex"},
 		{name: "native API key", profile: protocolrouter.GeminiEndpointNativeAPIKey, wantVertex: 1, wantValue: "vertex"},
 	}
 	for _, tt := range tests {
@@ -207,7 +207,7 @@ func TestProtocolExecutionRouterInvokesGeminiIdentityExecutor(t *testing.T) {
 	}
 }
 
-func TestProtocolExecutionRouterPlansAntigravityEdgeRelayGeminiIdentity(t *testing.T) {
+func TestProtocolExecutionRouterPlansAntigravityAPIKeyGeminiIdentity(t *testing.T) {
 	router := NewProtocolRouter()
 	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
 		InboundProtocol: protocolrouter.ProtocolGeminiGenerateContent,
@@ -224,7 +224,7 @@ func TestProtocolExecutionRouterPlansAntigravityEdgeRelayGeminiIdentity(t *testi
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
 			"api_key":  "secret",
-			"base_url": "https://api-us3.tokenkey.dev",
+			"base_url": "https://upstream.example.test",
 			"model_mapping": map[string]any{
 				"gemini-3.7-flash": "gemini-3.7-flash-medium",
 			},
@@ -236,14 +236,14 @@ func TestProtocolExecutionRouterPlansAntigravityEdgeRelayGeminiIdentity(t *testi
 	if err != nil {
 		t.Fatalf("protocolAccountSnapshotForRequest: %v", err)
 	}
-	if snapshot.GeminiProfile() != protocolrouter.GeminiEndpointAntigravityEdgeRelay {
+	if snapshot.GeminiProfile() != protocolrouter.GeminiEndpointAntigravityAPIKey {
 		t.Fatalf("GeminiProfile = %q", snapshot.GeminiProfile())
 	}
 	plan, err := router.Plan(request, snapshot)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	wantEndpoint := "https://api-us3.tokenkey.dev/antigravity/v1beta/models/gemini-3.7-flash:generateContent"
+	wantEndpoint := "https://upstream.example.test/v1beta/models/gemini-3.7-flash-medium:generateContent"
 	if plan.Endpoint() != wantEndpoint {
 		t.Fatalf("Endpoint = %q, want %q", plan.Endpoint(), wantEndpoint)
 	}
@@ -254,7 +254,7 @@ func TestProtocolExecutionRouterPlansAntigravityEdgeRelayGeminiIdentity(t *testi
 			value, err := ExecuteGeminiProtocolProfile(
 				gotPlan.GeminiProfile(),
 				func() (any, error) {
-					t.Fatal("cloudcode arm must not run for edge relay")
+					t.Fatal("cloudcode arm must not run for configured upstream")
 					return nil, nil
 				},
 				func() (any, error) {

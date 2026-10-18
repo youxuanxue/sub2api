@@ -78,8 +78,6 @@ type Handlers struct {
 	PricingCatalog *PricingCatalogHandler
 	// TK: per-user "your menu" view backing GET /api/v1/me/pricing-catalog.
 	MePricingCatalog *MePricingCatalogHandler
-	// TK: internal edge capacity read (surface C) — see edge_tk_capacity_handler.go.
-	EdgeCapacity     *EdgeCapacityHandler
 	GeminiWebSession *GeminiWebSessionHandler
 	AsyncImage       *AsyncImageHandler
 	BatchImage       *BatchImageHandler

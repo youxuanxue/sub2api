@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
 # Detect drift between a repo CloudFormation template and its LIVE stack.
 #
-# Why: the cicd-oidc-lightsail-addon / cicd-oidc stacks are NOT auto-deployed by
-# any workflow — an operator deploys them by hand. So a template edit in git can
-# silently never reach the live stack. On 2026-06-07 the addon template already
-# carried `lightsail:OpenInstancePublicPorts` but the live stack was a stale
-# older deploy, so workflow provisions hit AccessDenied opening 80/443 and edges
-# came up firewall-closed. This check catches that class: "template edited in git
-# but never redeployed".
+# Why: hand-deployed CloudFormation stacks are not automatically updated by a
+# workflow. A template edit in git can silently never reach the live stack. This
+# check catches that class: "template edited in git but never redeployed".
 #
 # How: create a no-execute changeset from the repo template against the live
 # stack and assert it contains NO changes. This is CloudFormation's own diff, so

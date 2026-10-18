@@ -157,7 +157,7 @@ func TestBuildProtocolEndpointIdentityChangesForRoutingFacts(t *testing.T) {
 	}
 }
 
-func TestBuildProtocolEndpointIdentityRejectsCredentialedURLAndSkipsUngovernedShape(t *testing.T) {
+func TestBuildProtocolEndpointIdentityRejectsCredentialedURL(t *testing.T) {
 	credentialed := &Account{
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeAPIKey,
@@ -169,16 +169,6 @@ func TestBuildProtocolEndpointIdentityRejectsCredentialedURLAndSkipsUngovernedSh
 		t.Fatal("expected credentialed endpoint URL to be rejected")
 	}
 
-	ungoverned := &Account{
-		Platform: PlatformAntigravity,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"base_url": "https://arbitrary.example.test/v1",
-		},
-	}
-	if _, governed, err := BuildProtocolEndpointIdentity(ungoverned); err != nil || governed {
-		t.Fatalf("ungoverned shape = governed %t, err %v", governed, err)
-	}
 }
 
 func TestAccountSupportedProtocolsReadsLinkedCapabilityOnly(t *testing.T) {
@@ -270,27 +260,27 @@ func TestBuildProtocolEndpointCapabilityLinkInputSeedsOnlyOfficialProfile(t *tes
 	}
 }
 
-func TestBuildProtocolEndpointIdentityAntigravityEdgeRelayKeepsTextAndGeminiHops(t *testing.T) {
+func TestBuildProtocolEndpointIdentityAntigravityAPIKeyKeepsTextAndGeminiHops(t *testing.T) {
 	account := &Account{
 		Platform: PlatformAntigravity,
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
 			"api_key":  "secret",
-			"base_url": "https://api-us3.tokenkey.dev",
+			"base_url": "https://upstream.example.test",
 		},
 	}
 	identity, governed, err := BuildProtocolEndpointIdentity(account)
 	if err != nil || !governed {
 		t.Fatalf("BuildProtocolEndpointIdentity = governed %t, err %v", governed, err)
 	}
-	if identity.EndpointProfile != string(protocolrouter.GeminiEndpointAntigravityEdgeRelay) {
+	if identity.EndpointProfile != string(protocolrouter.GeminiEndpointAntigravityAPIKey) {
 		t.Fatalf("EndpointProfile = %q", identity.EndpointProfile)
 	}
 	wantURLs := map[protocolrouter.Protocol]string{
-		protocolrouter.ProtocolMessages:              "https://api-us3.tokenkey.dev/v1/messages",
-		protocolrouter.ProtocolChatCompletions:       "https://api-us3.tokenkey.dev/v1/chat/completions",
-		protocolrouter.ProtocolResponses:             "https://api-us3.tokenkey.dev/v1/responses",
-		protocolrouter.ProtocolGeminiGenerateContent: "https://api-us3.tokenkey.dev/antigravity/v1beta/models/{model}:{action}",
+		protocolrouter.ProtocolMessages:              "https://upstream.example.test/v1/messages",
+		protocolrouter.ProtocolChatCompletions:       "https://upstream.example.test/v1/chat/completions",
+		protocolrouter.ProtocolResponses:             "https://upstream.example.test/v1/responses",
+		protocolrouter.ProtocolGeminiGenerateContent: "https://upstream.example.test/v1beta/models/{model}:{action}",
 	}
 	if len(identity.ProtocolEndpoints) != len(wantURLs) {
 		t.Fatalf("ProtocolEndpoints = %#v", identity.ProtocolEndpoints)
@@ -329,25 +319,23 @@ func TestNativeDeclaredProtocolContractAntigravityCloudCode(t *testing.T) {
 		t.Fatalf("NativeDeclaredProtocolContract = %v, want %v", got, want)
 	}
 
-	// Multi-hop edge relay identities stay measured; they are not a single-hop
-	// native Cloud Code contract.
 	relay := &Account{
 		Platform: PlatformAntigravity,
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
 			"api_key":  "secret",
-			"base_url": "https://api-us3.tokenkey.dev",
+			"base_url": "https://upstream.example.test",
 		},
 	}
 	relayIdentity, relayGoverned, relayErr := BuildProtocolEndpointIdentity(relay)
 	if relayErr != nil || !relayGoverned {
-		t.Fatalf("edge relay identity = governed %t, err %v", relayGoverned, relayErr)
+		t.Fatalf("configured upstream identity = governed %t, err %v", relayGoverned, relayErr)
 	}
 	if len(relayIdentity.ProtocolEndpoints) < 2 {
-		t.Fatalf("edge relay endpoints = %#v, want multi-hop", relayIdentity.ProtocolEndpoints)
+		t.Fatalf("configured upstream endpoints = %#v, want multi-hop", relayIdentity.ProtocolEndpoints)
 	}
 	if got := NativeDeclaredProtocolContract(relayIdentity); len(got) != 0 {
-		t.Fatalf("edge relay NativeDeclaredProtocolContract = %v, want empty", got)
+		t.Fatalf("configured upstream NativeDeclaredProtocolContract = %v, want empty", got)
 	}
 }
 

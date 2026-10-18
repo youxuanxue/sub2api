@@ -36,7 +36,7 @@ de-duplication and Go-map splicing. Do not reproduce those algorithms in this sk
 - A local floor rejection is not an upstream verdict. Use the account-model probe or a
   provider-direct probe before changing the empirical set.
 - Platform-specific endpoints and reserved source groups are resolved by the scripts and
-  live configuration. Do not hard-code account IDs, group IDs, edge IDs or fleet snapshots
+  live configuration. Do not hard-code account IDs, group IDs or fleet snapshots
   in skill text.
 - Probe results for a platform that is not supported by the automatic splice remain
   review evidence; do not manually reinterpret them as an automatic catalog write.

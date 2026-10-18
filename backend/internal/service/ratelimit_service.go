@@ -28,7 +28,6 @@ type RateLimitService struct {
 	timeoutCounterCache                TimeoutCounterCache
 	openAI403CounterCache              OpenAI403CounterCache
 	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache
-	antigravitySaturationCounter       AntigravitySaturationCounterCache
 	antigravityValidationCounter       AntigravityValidationCounterCache
 	internal500Counter                 Internal500CounterCache
 	escalationSlots                    EscalationSlotCache

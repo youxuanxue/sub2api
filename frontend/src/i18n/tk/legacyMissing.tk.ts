@@ -490,7 +490,7 @@ const en: LocaleOverlay = {
         "applyButton": "Apply",
         "applySuccess": "Tier applied (this deployment only)",
         "applyFailed": "Failed to apply tier",
-        "localScopeWarning": "Applies only to this deployment’s database; other edges / prod still need the ops/anthropic pipeline fan-out."
+        "localScopeWarning": "Applies to this deployment’s database."
       },
       "capacity": {
         "rpm": {
@@ -514,8 +514,6 @@ const en: LocaleOverlay = {
       "anthropic": {
         "oauthPassthrough": "OAuth auto passthrough (auth only)",
         "oauthPassthroughDesc": "Only applies to Anthropic OAuth/setup-token accounts. When enabled, skips fingerprint/mimic/canonical rewrites and forwards messages/count_tokens with Authorization replacement only, while billing/concurrency/audit and safety filtering are preserved.",
-        "mirrorPlatform": "Mirror platform",
-        "mirrorPlatformHint": "Only for edge \"mirror stub\" accounts (base URL points at an internal api-<edge>.tokenkey.dev host). Declares which edge pool this stub mirrors its concurrency from: Anthropic (default) or Kiro. Leave Anthropic for normal API Key accounts."
       },
       "concurrencyZeroHint": "0 = unlimited (no concurrency limit)",
       "newApiPlatform": {
@@ -589,8 +587,8 @@ const en: LocaleOverlay = {
       "grokPlatform": {
         "oauthMode": "OAuth",
         "oauthModeHint": "xAI refresh token",
-        "relayMode": "Relay Stub",
-        "relayModeHint": "Edge API key",
+        "apiKeyMode": "API Key",
+        "apiKeyModeHint": "Configured upstream",
         "refreshToken": "Refresh Token",
         "refreshTokenPlaceholder": "xAI Grok OAuth refresh token",
         "refreshTokenHint": "On create, TokenKey immediately exchanges it for an access token — a failure here means the token is invalid or the account is not SuperGrok Heavy.",
@@ -598,7 +596,7 @@ const en: LocaleOverlay = {
         "baseUrl": "Base URL (optional)",
         "baseUrlHint": "Defaults to https://api.x.ai/v1. Override only for a self-hosted reverse proxy.",
         "relayBaseUrlHint": "Use the configured relay gateway URL.",
-        "relayApiKeyHint": "Use the TokenKey edge API key for this relay stub.",
+        "relayApiKeyHint": "Use the API key issued by the configured upstream.",
         "tokenEditHint": "Leave empty to keep the current value",
         "heavyNote": "xAI gates the OAuth API surface to SuperGrok Heavy. A standard / expired subscription returns HTTP 403 at request time.",
         "pleaseEnterRefreshToken": "Please enter the Grok refresh token"
@@ -666,7 +664,7 @@ const en: LocaleOverlay = {
         "metricDescriptions": {
           "poolLoadRate": "Per-pool concurrency load: (in-flight + queued) / total seats. Pools split by platform/group/channel; the most saturated pool wins. ≥100% means queuing. Leading capacity-ceiling signal; ≥90% recommended to trigger adding accounts.",
           "proxyUnreachableCount": "Count of active proxies that still bind schedulable accounts and fail a short TCP dial to host:port from this node (SOCKS/HTTP egress IP reachability). Does not count idle or fully unschedulable proxies. ≥1 sustained 2 minutes recommended as P0 so network/ops can fix the exit IP before user-facing 502 storms.",
-          "routingCapacityRejectionCount": "Count of \"no available accounts\" routing rejections in the window (empty-pool fast-fail 429 + relayed mirror-edge downstream-capacity rejections, error_phase=routing). These client-visible 429s are excluded from error/success rates and cool no account, so this is the only signal that sees a thin-pool-race rejection storm. An absolute count (not a rate); ≥50 over 5 minutes recommended to trigger adding accounts / scaling."
+          "routingCapacityRejectionCount": "Count of \"no available accounts\" routing rejections in the window (empty-pool fast-fail 429, error_phase=routing). These client-visible 429s are excluded from error/success rates and cool no account, so this is the only signal that sees a thin-pool-race rejection storm. An absolute count (not a rate); ≥50 over 5 minutes recommended to trigger adding accounts / scaling."
         }
       },
       "email": {
@@ -1345,7 +1343,7 @@ const zh: LocaleOverlay = {
         "applyButton": "应用",
         "applySuccess": "Tier 已应用（仅当前部署生效）",
         "applyFailed": "Tier 应用失败",
-        "localScopeWarning": "仅对当前部署的数据库生效；其它 edge / prod 仍需通过 ops/anthropic 流水线扇出。"
+        "localScopeWarning": "仅对当前部署的数据库生效。"
       },
       "capacity": {
         "rpm": {
@@ -1384,8 +1382,6 @@ const zh: LocaleOverlay = {
       "anthropic": {
         "oauthPassthrough": "OAuth 自动透传（仅替换认证）",
         "oauthPassthroughDesc": "仅对 Anthropic OAuth/setup-token 生效。开启后跳过 fingerprint、mimic、canonical 等改写，messages/count_tokens 仅替换 Authorization；保留计费/并发/审计及必要安全过滤。",
-        "mirrorPlatform": "镜像平台",
-        "mirrorPlatformHint": "仅用于对接 edge 的「镜像 stub」账号（base URL 指向内部 api-<edge>.tokenkey.dev）。声明该 stub 从 edge 的哪个池镜像并发：Anthropic（默认）或 Kiro。普通 API Key 账号保持 Anthropic 即可。"
       },
       "concurrencyZeroHint": "0 = 不限制（无并发上限）",
       "newApiPlatform": {
@@ -1459,8 +1455,8 @@ const zh: LocaleOverlay = {
       "grokPlatform": {
         "oauthMode": "OAuth",
         "oauthModeHint": "xAI refresh token",
-        "relayMode": "Relay Stub",
-        "relayModeHint": "Edge API key",
+        "apiKeyMode": "API Key",
+        "apiKeyModeHint": "自定义上游",
         "refreshToken": "Refresh Token",
         "refreshTokenPlaceholder": "xAI Grok OAuth refresh token",
         "refreshTokenHint": "创建时 TokenKey 会立刻用它换取 access token —— 这里若失败，说明 token 无效或该账号不是 SuperGrok Heavy。",
@@ -1468,7 +1464,7 @@ const zh: LocaleOverlay = {
         "baseUrl": "Base URL（可选）",
         "baseUrlHint": "默认 https://api.x.ai/v1，仅自建反代时覆盖。",
         "relayBaseUrlHint": "使用已配置的中继网关地址。",
-        "relayApiKeyHint": "填写该 relay stub 访问 edge 的 TokenKey API key。",
+        "relayApiKeyHint": "填写所配置上游的 API key。",
         "tokenEditHint": "留空表示保留当前值",
         "heavyNote": "xAI 把 OAuth API 面限定给 SuperGrok Heavy；标准 / 过期订阅会在请求时返回 HTTP 403。",
         "pleaseEnterRefreshToken": "请输入 Grok refresh token"
@@ -1524,7 +1520,7 @@ const zh: LocaleOverlay = {
         "metricDescriptions": {
           "poolLoadRate": "调度池并发负载率：(在途+排队)/总席位。按平台/分组/渠道分池取最饱和值，≥100% 表示已排队。容量触顶前瞻信号，建议 ≥90% 触发补号。",
           "proxyUnreachableCount": "仍绑定可调度账号的 active 代理中，从本节点对 host:port 短 TCP 拨号失败的数量（SOCKS/HTTP 出口 IP 可达性）。不统计闲置或已全部下调度的代理。建议 ≥1 且持续 2 分钟作 P0，便于网络/运维在用户侧 502 风暴前修出口。",
-          "routingCapacityRejectionCount": "统计窗口内\"无可用账号\"路由拒绝累计次数（空池快速失败 429 + 镜像 edge 下游容量拒绝，error_phase=routing）。这类客户端可见 429 被排除在错误率/成功率之外、也不冷却账号，是唯一能看见薄池瞬时抢空拒绝风暴的信号；为绝对计数（非比率），建议 5 分钟内 ≥50 触发补号/扩容。"
+          "routingCapacityRejectionCount": "统计窗口内\"无可用账号\"路由拒绝累计次数（空池快速失败 429，error_phase=routing）。这类客户端可见 429 被排除在错误率/成功率之外、也不冷却账号，是唯一能看见薄池瞬时抢空拒绝风暴的信号；为绝对计数（非比率），建议 5 分钟内 ≥50 触发补号/扩容。"
         }
       },
       "email": {

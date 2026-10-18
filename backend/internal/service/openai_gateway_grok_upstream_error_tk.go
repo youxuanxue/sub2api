@@ -42,9 +42,6 @@ func (s *OpenAIGatewayService) tkHandleGrok429UpstreamError(ctx context.Context,
 	}
 	stateCtx, cancel := openAIAccountStateContext(ctx)
 	defer cancel()
-	if s.handleOpenAICompatRelayDownstreamCapacityError(stateCtx, account, http.StatusTooManyRequests, responseBody) {
-		return true
-	}
 
 	now := time.Now()
 	snapshot := parseGrokQuotaSnapshot(headers, http.StatusTooManyRequests, now)

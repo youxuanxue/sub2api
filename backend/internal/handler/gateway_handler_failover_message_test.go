@@ -61,7 +61,7 @@ func TestFailoverExhaustedUsesCapacityClientMetadata(t *testing.T) {
 			failoverErr := &service.UpstreamFailoverError{
 				StatusCode:       http.StatusServiceUnavailable,
 				ClientStatusCode: http.StatusTooManyRequests,
-				ClientMessage:    service.AntigravityRelayCapacityClientMessage,
+				ClientMessage:    "No available accounts",
 				ResponseHeaders: http.Header{
 					"Retry-After": []string{service.NoAvailableAccountsRetryAfterSeconds},
 				},
@@ -71,7 +71,7 @@ func TestFailoverExhaustedUsesCapacityClientMetadata(t *testing.T) {
 
 			require.Equal(t, http.StatusTooManyRequests, recorder.Code)
 			require.Equal(t, service.NoAvailableAccountsRetryAfterSeconds, recorder.Header().Get("Retry-After"))
-			require.Contains(t, recorder.Body.String(), service.AntigravityRelayCapacityClientMessage)
+			require.Contains(t, recorder.Body.String(), "No available accounts")
 		})
 	}
 }

@@ -104,33 +104,7 @@ var anthropicCooldownEscalationSlotMaxSeconds = int(anthropicCooldownTierLadder[
 // in case 400, OAuth 401 refresh, 429 retry-after cooldown, 529 overload)
 // live outside this function and are unaffected.
 func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, account *Account, statusCode int, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
-	if tkIsKiroMirrorStub(account) && tkIsKiroEndpointQuotaExhausted(upstreamMsg, responseBody) {
-		return s.tkHandleKiroEndpointQuotaExhausted(ctx, account, upstreamMsg)
-	}
-	// TK (prod incident 2026-07-20): Kiro edges wrap their exhausted upstream
-	// request path in a stable TokenKey 502 "Upstream service temporarily
-	// unavailable" envelope. The prod Kiro account is only a relay stub, so
-	// advancing its Anthropic 3/3 health fuse duplicates the edge failure and
-	// can cool the entire Kiro mirror pool. Fail over and retain bounded
-	// saturation preference, but leave relay health untouched. Raw infra 502s
-	// do not match the parsed message and continue through the fuse below.
-	if tkSkipDownstreamKiroServiceUnavailablePenalty(account, statusCode, upstreamMsg, responseBody) {
-		slog.Info("anthropic_downstream_kiro_service_unavailable_skip_penalty",
-			"account_id", account.ID,
-			"status_code", statusCode)
-		s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "kiro_service_unavailable")
-		return true
-	}
-	// TK (prod incident 2026-05-31): a 503 whose body is the downstream gateway's
-	// own "no available accounts" pool-exhaustion signal is a transient capacity
-	// blip on the *forwarded-to* pool (e.g. a thin edge bursting on parallel haiku
-	// background requests), NOT a health problem with THIS forwarding stub account.
-	// Advancing the per-account anthropic_upstream_error counter would let a 3-503
-	// edge burst trip the 3/3 ladder and cool the whole edge stub for 10 minutes
-	// (tier=2), collapsing the prod pool — a self-inflicted 503 amplifier. Fail the
-	// in-flight request over to the next stub (return true) but leave stub health
-	// untouched: no counter advance, no SetTempUnschedulable. See
-	// tkIsDownstreamNoAvailableAccounts.
+
 	if tkSkipDownstreamNoAvailableAccountsPenalty(statusCode, upstreamMsg, responseBody) {
 		slog.Info("anthropic_downstream_no_available_accounts_skip_penalty",
 			"account_id", account.ID,
@@ -353,15 +327,6 @@ func (s *RateLimitService) handle404(ctx context.Context, account *Account, upst
 	if !IsAnthropicModelNotFound404(responseBody, upstreamMsg) {
 		return false
 	}
-	// TK (prod P0 2026-06-06, edge us5): an Anthropic 404 model-not-found is a
-	// CLIENT error (a model name no Anthropic account can serve — the catalog is
-	// global, not per-account), so cooling account×model only drains a thin pool
-	// into "No available accounts" 429s. Skip the penalty here too — this is the
-	// fall-through gate reached when HandleUpstreamModelNotFound is bypassed
-	// (no requestedModel at the call site). See the same rationale on
-	// HandleUpstreamModelNotFound; the gateway error mapping surfaces a 400
-	// invalid_request to the client. shouldDisable=false keeps the account
-	// schedulable and avoids wrapping the 404 as an UpstreamFailoverError.
 	slog.Info("anthropic_model_not_found_skip_penalty",
 		"account_id", account.ID,
 		"requested_model", strings.TrimSpace(extractAnthropicNotFoundModel(responseBody, upstreamMsg)))

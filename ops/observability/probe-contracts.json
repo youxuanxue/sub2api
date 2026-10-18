@@ -130,14 +130,6 @@
       "setup_error"
     ]
   },
-  "probe-gemini-web-worker-build.sh": {
-    "companions": [],
-    "verdicts": [
-      "ok",
-      "review",
-      "setup_error"
-    ]
-  },
   "probe-account-group-bindings.sh": {
     "companions": [
       "ops/observability/account_group_binding_check.py"

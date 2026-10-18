@@ -3,6 +3,7 @@ import json
 import os
 import secrets
 import shutil
+import subprocess
 from pathlib import Path
 
 parser = argparse.ArgumentParser(
@@ -60,13 +61,27 @@ shutil.copyfile(
     root / "deploy/domestic/compose.override.yml", out / "compose.override.yml"
 )
 shutil.copyfile(root / "deploy/domestic/compose.local.yml", out / "compose.local.yml")
-caddy = (root / "deploy/aws/stage0/Caddyfile.edge").read_text()
-caddy = (
-    caddy.replace("${API_DOMAIN}", "api-cn.tokenkey.dev")
-    .replace("${ACME_EMAIL}", "admin@cn.tokenkey.dev")
-    .replace("${MAIN_GATEWAY_ALLOWED_CIDR}", "0.0.0.0/0")
+render_env = dict(os.environ)
+render_env.update(
+    API_DOMAIN="api-cn.tokenkey.dev",
+    ACME_EMAIL="admin@cn.tokenkey.dev",
+    GLOBAL_SITE_PHASE="disabled",
+    SITE_DOMAIN="",
+    GLOBAL_SITE_DOMAIN="",
+    API_ALIAS_DOMAIN="",
 )
-(out / "Caddyfile").write_text(caddy)
+subprocess.run(
+    [
+        "bash",
+        str(root / "deploy/aws/stage0/render-prod-caddyfile.sh"),
+        str(root / "deploy/aws/stage0/Caddyfile"),
+        str(out / "Caddyfile"),
+    ],
+    check=True,
+    env=render_env,
+    capture_output=True,
+    text=True,
+)
 shutil.copyfile(root / "deploy/domestic/bootstrap-host.sh", out / "bootstrap-host.sh")
 shutil.copyfile(state / "images.json", out / "images.json")
 for artifact in out.iterdir():

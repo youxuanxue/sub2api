@@ -572,7 +572,7 @@ func shouldClearStickySession(account *Account, requestedModel string) bool {
 	if remaining := account.GetRateLimitRemainingTimeWithContext(context.Background(), requestedModel); remaining > 0 {
 		return true
 	}
-	if tkShouldClearStickyForKiroMirrorModelMismatch(account, requestedModel) {
+	if tkShouldClearStickyForKiroModelMismatch(account, requestedModel) {
 		return true
 	}
 	return false

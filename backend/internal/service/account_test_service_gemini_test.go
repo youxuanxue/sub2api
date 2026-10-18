@@ -79,7 +79,7 @@ func TestProcessGeminiStream_EmitsImageEvent(t *testing.T) {
 	require.Contains(t, body, "\"mime_type\":\"image/png\"")
 }
 
-func TestGeminiAccountConnection_UsesPublicModelOnlyForAntigravityRelayHop(t *testing.T) {
+func TestGeminiAccountConnection_UsesMappedModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	const (
@@ -92,9 +92,9 @@ func TestGeminiAccountConnection_UsesPublicModelOnlyForAntigravityRelayHop(t *te
 		wantPath string
 	}{
 		{
-			name:     "Antigravity Edge relay",
+			name:     "Antigravity API key",
 			platform: PlatformAntigravity,
-			wantPath: "/antigravity/v1beta/models/" + publicModel + ":streamGenerateContent",
+			wantPath: "/v1beta/models/" + wireModel + ":streamGenerateContent",
 		},
 		{
 			name:     "direct Gemini API key",
@@ -121,7 +121,7 @@ func TestGeminiAccountConnection_UsesPublicModelOnlyForAntigravityRelayHop(t *te
 				Concurrency: 1,
 				Credentials: map[string]any{
 					"api_key":  "test-key",
-					"base_url": "https://edge.example.com",
+					"base_url": "https://upstream.example.test",
 					"model_mapping": map[string]any{
 						publicModel: wireModel,
 					},

@@ -40,17 +40,16 @@ Protocol capability and route legality belong to `protocolrouter` and
 - New or retargeted mapping floors use a generated bundle plus fresh independent probe
   and pricing evidence through `modelops.py activate`. Do not hot-merge a single mapping
   key as a substitute for activation.
-- `sync-runtime` and `clear-runtime` accept one explicit `prod` or `edge:<id>` target.
+- `sync-runtime` and `clear-runtime` accept the explicit `prod` target.
   They default to dry-run and require the fixed CLI confirmation phrase to write.
   Persistent account changes require a separate reviewed `apply-accounts` diff.
-- Routine post-release checks target prod. Edge empty mappings are expected unless an
-  explicit troubleshooting task includes edges.
+- Routine post-release checks target prod.
 - Catalog/menu/pricing/mapping tests derive samples from their owners; do not maintain a
   second model list in tests or skills.
 
 ## Human judgment
 
-Pause for human approval before any repository merge or prod/edge write. Treat 401/403,
+Pause for human approval before any repository merge or prod write. Treat 401/403,
 429 and 5xx probe results as inconclusive until account, request shape and capacity have
 been separated from model capability.
 

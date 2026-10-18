@@ -18,7 +18,6 @@ var (
 
 const AccountListGroupUngrouped int64 = -1
 const AccountPrivacyModeUnsetFilter = "__unset__"
-const AccountListPlatformKiroStubFilter = "__kiro_stub__"
 
 // OAuthRefreshPageOptions describes one bounded, cursor-stable scan of OAuth
 // accounts. Candidate platforms are supplied by TokenRefreshService's refresher
@@ -113,21 +112,8 @@ type AccountRepository interface {
 	BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error)
 
 	// SumConcurrencyAnthropic returns Σ concurrency for all anthropic rows (oauth + apikey,
-	// excluding non-Anthropic platforms and soft-deleted accounts). Matches edge apply injection.
+	// excluding non-Anthropic platforms and soft-deleted accounts).
 	SumConcurrencyAnthropic(ctx context.Context) (int64, error)
-	// SumConcurrencyAnthropicByGroup returns Σ concurrency for schedulable anthropic
-	// accounts in the named group (surface-C: edge capacity counts only the default group).
-	SumConcurrencyAnthropicByGroup(ctx context.Context, groupName string) (int64, error)
-	// SumConcurrencyByPlatform returns Σ concurrency for schedulable accounts of the
-	// given platform across all groups (surface-C: edge capacity for non-anthropic
-	// pools — e.g. kiro — where the edge is single-pool-per-platform and the
-	// anthropic "default"-group scoping does not apply).
-	SumConcurrencyByPlatform(ctx context.Context, platform string) (int64, error)
-	// SumConcurrencyByPlatformAndGroupID returns Σ concurrency for schedulable
-	// accounts of the given platform in one group (surface-C: openai/grok/etc.
-	// mirror stubs query with group_scope=caller so prod mirrors the stub key's
-	// edge pool, not every row of that platform).
-	SumConcurrencyByPlatformAndGroupID(ctx context.Context, platform string, groupID int64) (int64, error)
 	// IncrementQuotaUsed 原子递增 API Key 账号的配额用量（总/日/周）
 	IncrementQuotaUsed(ctx context.Context, id int64, amount float64) error
 	// ResetQuotaUsedAndClearRateLimitCooldown atomically resets API Key quota usage

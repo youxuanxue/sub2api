@@ -130,7 +130,7 @@ describe('Antigravity authorization link lifecycle', () => {
     expect(oauth.error.value).toBe('admin.accounts.antigravityAuthExpired')
   })
 
-  it('keeps the legacy edge response usable for the existing 30-minute TTL', async () => {
+  it('keeps the legacy API response usable for the existing 30-minute TTL', async () => {
     vi.useFakeTimers()
     vi.mocked(adminAPI.antigravity.generateAuthUrl).mockResolvedValue(result)
     const oauth = useAntigravityOAuth()

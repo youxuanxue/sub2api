@@ -29,7 +29,6 @@ func (r *orgBan403AccountRepoStub) SetTempUnschedulable(_ context.Context, id in
 	return nil
 }
 
-// The canonical incident body (2026-06-16, edge us6 account edge-ls-oh-3-d).
 const tkOrgBan403IncidentBody = `{"type":"error","error":{"type":"permission_error","message":"OAuth authentication is currently not allowed for this organization."}}`
 
 func TestTryDisableAnthropicOrgBan403_MatchesOrgBan(t *testing.T) {

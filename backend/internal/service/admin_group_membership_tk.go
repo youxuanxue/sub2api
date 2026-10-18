@@ -147,7 +147,6 @@ func (s *adminServiceImpl) BindGroupAccounts(
 	return s.groupRepo.BindAccountsToGroup(ctx, groupID, uniqueIDs)
 }
 
-// UnbindGroupAccounts removes membership edges for the given accounts in one group.
 func (s *adminServiceImpl) UnbindGroupAccounts(ctx context.Context, groupID int64, accountIDs []int64) error {
 	if _, err := s.groupRepo.GetByIDLite(ctx, groupID); err != nil {
 		return err

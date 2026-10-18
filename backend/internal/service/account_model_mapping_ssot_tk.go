@@ -405,9 +405,6 @@ func accountModelMappingForbiddenKeysByScope() map[string][]string {
 		"account_override:" + normalizeAccountModelMappingOverrideScope(
 			PlatformNewAPI, newapiconstant.ChannelTypeAli, newapiintegration.AliTokenPlanBaseURL,
 		): append([]string(nil), aliTokenPlanForbiddenModelMappingKeys...),
-		// Kiro-backed Claude models remain public under the anthropic vendor,
-		// but native Anthropic accounts must not inherit Kiro-only capability.
-		// Kiro mirror stubs resolve to PlatformKiro before this policy applies.
 		PlatformAnthropic: kiroExclusiveModelIDs(),
 		PlatformAntigravity: append(
 			append(domain.AntigravityStructuralDeadModelMappingKeys(), domain.GeminiProImageModelIDs()...),
@@ -482,7 +479,7 @@ func accountModelMappingScopeForAccount(account *Account) string {
 		return ""
 	}
 	switch {
-	case account.IsKiroMirrorStub() || account.IsKiro():
+	case account.IsKiro():
 		return PlatformKiro
 	case account.IsBedrock():
 		return accountModelMappingPlatformBedrock

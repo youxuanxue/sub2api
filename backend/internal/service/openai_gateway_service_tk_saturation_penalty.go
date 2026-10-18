@@ -4,8 +4,6 @@ import (
 	"context"
 )
 
-// Threshold + penalty: edge_mirror_stub_saturation_tk.go (SSOT).
-
 func (s *OpenAIGatewayService) SetOpenAISaturationCounter(cache OpenAISaturationCounterCache) {
 	if s != nil {
 		s.tkOpenAISaturationCounter = cache

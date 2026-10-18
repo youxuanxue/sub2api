@@ -39,7 +39,7 @@ func (h *GeminiWebSessionHandler) authorize(c *gin.Context) bool {
 		c.Status(http.StatusNotFound)
 		return false
 	}
-	if _, ok := c.Get(middleware.EdgeCallerAPIKeyCtxKey); !ok {
+	if _, ok := c.Get(middleware.GeminiWebCallerAPIKeyCtxKey); !ok {
 		c.Status(http.StatusUnauthorized)
 		return false
 	}

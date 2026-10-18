@@ -30,12 +30,12 @@ scope: repair approved post-migration backup, timer and monitoring gaps; retire 
 ## 宿主 HTTPS 监控
 
 Owner：`ops/observability/host_https_watch.py`、`install-host-https-watch.sh`。
-安装器接受 prod、cn-prod 与现役 edge 角色，核对目标清单的主机名；先 dry-run，HTTPS 目标必须健康，本地任务的已有失败允许安装以便及时告警。
+安装器接受 prod、cn-prod 角色，核对目标清单的主机名；先 dry-run，HTTPS 目标必须健康，本地任务的已有失败允许安装以便及时告警。
 更新使用内容寻址的独立代码目录，避免覆盖仍可能被旧 timer 读取的模块。
-传入现有 probe/delivery 三个 companion、fresh prod 清单、Lightsail 活矩阵及 `deploy/domestic/prod-target.json`；
+传入现有 probe/delivery 三个 companion、fresh prod 清单及 `deploy/domestic/prod-target.json`；
 AWS 凭据仅从主机现有 `.env` 读取，cn-prod 使用现有 `/opt/tokenkey/host-alerts.env`，不通过传输工具投递密钥。
-`APPLY=yes-host-https-watch` 是安装 opt-in，`WATCH_ROLE=prod|cn-prod|uk1|uk2|us4|us5` 选择职责。
-cn-prod 与 us5 分别提供境内、境外观察，覆盖两套生产入口；国内入口的当前目标与覆盖边界见 `deploy/domestic/README.md`。
+`APPLY=yes-host-https-watch` 是安装 opt-in，`WATCH_ROLE=prod|cn-prod` 选择职责。
+prod 与 cn-prod 互相监测生产入口；国内入口的当前目标与覆盖边界见 `deploy/domestic/README.md`。
 状态文件为 `/var/lib/tokenkey/https-watch/state.json`；systemd service 最长 110 秒、10% CPU、128 MiB。
 通知成功后持久化状态；多目标中途通知失败允许下次重复先前已投递的通知，避免漏报。
 回退先停用 `tokenkey-https-watch.timer`，待 service 空闲后恢复安装输出的备份文件并 daemon-reload；
@@ -111,7 +111,7 @@ Primary IP 均 `auto_delete=true`，删除主机将同时释放这些地址。�
 
 ## 二次审计修复（2026-10-16，用户批准）
 
-- QA 超时根因是 AWS prod 仍沿用 Hetzner 归档目标；约 1.4 GB 的包经跨云连接仅约 6 Mbps。按用户纠正，只将日常新增归档改为同区域 AWS S3，不迁历史 QA，也不优化 Hetzner uploader。独立 pin 镜像保持 1.8.288。09:00:31 UTC 已切 AWS，`07:00Z` 小时 4,167 条记录完成真实归档与隔离恢复，缺失 blob 为 0。历史空窗口补偿仍报 `commit_existence_unknown`，不将存储验收写成整体 QA 健康。具体小时归属与验收见 QA 运维入口。宿主 runner 同时修正 TERM/INT 与未完成 child 的退出回执，不能再把超时记为成功。
+- QA 超时根因是 AWS prod 仍沿用 Hetzner 归档目标；约 1.4 GB 的包经跨云连接仅约 6 Mbps。按用户纠正，只将日常新增归档改为同区域 AWS S3，不迁历史 QA，也不优化 Hetzner uploader。独立 pin 镜像保持 1.8.288。09:00:31 UTC 已切 AWS，`07:00Z` 小时 4,167 条记录完成真实归档与隔离恢复，缺失 blob 为 0。历史小时补偿仍报 `commit_existence_unknown`（2026-10-17 已在原存储找到有效归档，撤回空窗口判断，见 QA 运维入口），不将存储验收写成整体 QA 健康。具体小时归属与验收见 QA 运维入口。宿主 runner 同时修正 TERM/INT 与未完成 child 的退出回执，不能再把超时记为成功。
 - 快照巡检从实际 EC2 ID 解析唯一已挂载非根 EBS，不能用旧 CFN 输出覆盖新机身份。目标矩阵的 prod 平台改为 AWS；已实查新数据盘的自动快照完成。
 - 四个 edge 的 prune 不能 source 整个 dotenv（双 CIDR 含空格）；改为只解析镜像值。四台均已安装并运行 daily service 成功，正在运行的容器未变化。
 - 本地 pgdump、磁盘指标、prune 及 prod QA job 纳入原两分钟宿主 watch，沿用连续失败、重复抑制与恢复通知；通知注明节点与任务。探针异常本身记失败，不吞掉其他任务检查。四边均已安装并通过无通知 dry-run；prod 于 09:22 UTC 安装，其他任务与 HTTPS 正常，QA maintenance 的历史补偿失败按真实状态纳入告警，不伪造绿灯。

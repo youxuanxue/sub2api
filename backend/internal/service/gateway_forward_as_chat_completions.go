@@ -83,12 +83,6 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		return nil, fmt.Errorf("convert chat completions to anthropic: %w", err)
 	}
 
-	// 3. Upstream streaming shape. Native Anthropic upstreams are forced to SSE
-	// even for non-streaming CC clients so handleCCBufferedFromAnthropic can
-	// assemble the response. Kiro (native + prod mirror stubs relaying to edge)
-	// and Bedrock must preserve stream=false — forced SSE on multi-turn agent
-	// payloads was timing out (~32s) with upstream 502 before any content arrived;
-	// Bedrock non-stream invoke returns JSON directly.
 	reqStream := clientStream
 	anthropicReq.Stream = clientStream
 	if !tkCCPreservesKiroUpstreamStream(account, clientStream) && !account.IsBedrock() {
@@ -205,12 +199,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	// 12. Handle error response with failover
 	if resp.StatusCode >= 400 {
-		if IsKiroContentFilteredRelayResponse(account, resp.Header) {
-			_ = resp.Body.Close()
-			MarkOpsClientContentFiltered(c)
-			writeGatewayCCError(c, http.StatusBadRequest, "content_filter_error", KiroContentFilteredClientMessage())
-			return nil, &KiroContentFilteredError{}
-		}
+
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))

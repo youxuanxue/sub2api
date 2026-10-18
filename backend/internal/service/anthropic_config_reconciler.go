@@ -1,15 +1,15 @@
 package service
 
 // AnthropicConfigReconciler is the per-node, in-process self-healer that drops
-// the high-frequency "safe item" writes of ops/anthropic/manage-anthropic-config.py
+// the high-frequency "safe item" writes of the operator reconciliation flow
 // down into the backend so a tier change / drift fix no longer needs an operator
-// laptop + SSM fan-out. See plan: docs reconciler notes.
+// laptop.
 //
 // Boundaries (held at every step):
 //   - It ONLY ever writes THIS deployment's own database. It never pretends to
-//     cover the fleet — fleet fan-out stays with the Python pipeline.
-//   - Safe items are self-healed (operator Σ, stub pool_mode, edge balance floor,
-//     surface-C concurrency mirror). A single account's tier NUMERIC field drift
+//     affect another deployment.
+//   - Safe items are self-healed (operator concurrency). A single
+//     account's tier NUMERIC field drift
 //     (base_rpm / max_sessions / window — overlaid at runtime from the tiers
 //     table) is REPORTED ONLY (slog.Warn) — never silently rewritten, because the
 //     tier NUMBER is set explicitly via the admin UI ApplyTier action.
@@ -17,22 +17,15 @@ package service
 //     baseline): the canonical TLS profile's existence + the account's binding to
 //     it, plus missing credentials self-protection template keys. It does not
 //     re-apply the full baseline, so normal admin UI edits are not overwritten.
-//   - surface C (concurrency mirror) NEVER writes 0 on a failed/timed-out/5xx
-//     edge read — it skips the stub and leaves the prior value intact.
 
 import (
 	"context"
-	"encoding/json"
-	"io"
 	"log/slog"
 	"math"
-	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/baseline"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/model"
 
@@ -44,26 +37,7 @@ const (
 	anthropicReconcilerLockKey = "anthropic:config:reconciler:leader"
 	anthropicReconcilerLockTTL = 4 * time.Minute
 	anthropicReconcilerRunTO   = 90 * time.Second
-	anthropicReconcilerHTTPTO  = 8 * time.Second
-
-	// Edge operator (users.id=1) balance floor policy. Mirrors
-	// deploy/aws/stage0/anthropic-edge-operator-balance-baselines.json — kept as
-	// constants (not embedded) because the reconciler writes the floor via the
-	// admin balance "set" path, and the two scalars rarely change. If they do,
-	// update both here and the deploy JSON.
-	anthropicEdgeBalanceFloorThreshold = 100.0
-	anthropicEdgeBalanceFloorDefault   = 9999999.0
 )
-
-// surfaceCCrossPlatformMirrorPlatforms lists native-platform prod mirror stubs whose
-// edge pool capacity is mirrored via group_scope=caller (the stub relay api-key's
-// group). Anthropic-transport stubs (cc-*, kiro-*) stay on isMirrorStub +
-// mirrorCapacityPlatform; newapi "all" stubs are excluded (no single platform sum).
-var surfaceCCrossPlatformMirrorPlatforms = []string{
-	PlatformOpenAI,
-	PlatformGrok,
-	PlatformAntigravity,
-}
 
 // anthropicReconcilerLockRelease is the compare-and-delete unlock script — only
 // the instance that holds the lock may delete it (mirrors the ops alert evaluator).
@@ -84,21 +58,10 @@ type reconcilerAccountStore interface {
 }
 
 // reconcilerUserStore is the narrow user dependency for the operator Σ sync and
-// the balance-floor read.
+// its current concurrency read.
 type reconcilerUserStore interface {
 	GetByID(ctx context.Context, id int64) (*User, error)
 	BatchSetConcurrency(ctx context.Context, userIDs []int64, value int) (int, error)
-}
-
-// reconcilerBalanceSetter sets an absolute balance and invalidates the billing
-// cache. *adminServiceImpl (AdminService) satisfies it via UpdateUserBalance.
-type reconcilerBalanceSetter interface {
-	UpdateUserBalance(ctx context.Context, userID int64, balance float64, operation string, notes string) (*User, error)
-}
-
-// httpDoer is the minimal HTTP client surface (so tests inject a fake).
-type httpDoer interface {
-	Do(req *http.Request) (*http.Response, error)
 }
 
 // reconcilerTierResolver resolves a tier's desired concurrency (Step T value-sync)
@@ -138,14 +101,12 @@ type reconcilerMimicrySettings interface {
 type AnthropicConfigReconciler struct {
 	accounts    reconcilerAccountStore
 	users       reconcilerUserStore
-	balance     reconcilerBalanceSetter
 	tiers       reconcilerTierResolver
 	repairer    reconcilerBaselineRepairer
 	tlsProfiles reconcilerTLSProfileResolver
 	mimicry     reconcilerMimicrySettings
 	cfg         *config.Config
 	redis       *redis.Client
-	http        httpDoer
 	instanceID  string
 
 	stopCh   chan struct{}
@@ -163,7 +124,6 @@ type AnthropicConfigReconciler struct {
 func NewAnthropicConfigReconciler(
 	accounts reconcilerAccountStore,
 	users reconcilerUserStore,
-	balance reconcilerBalanceSetter,
 	tiers reconcilerTierResolver,
 	repairer reconcilerBaselineRepairer,
 	tlsProfiles reconcilerTLSProfileResolver,
@@ -174,14 +134,12 @@ func NewAnthropicConfigReconciler(
 	return &AnthropicConfigReconciler{
 		accounts:    accounts,
 		users:       users,
-		balance:     balance,
 		tiers:       tiers,
 		repairer:    repairer,
 		tlsProfiles: tlsProfiles,
 		mimicry:     mimicry,
 		cfg:         cfg,
 		redis:       redisClient,
-		http:        &http.Client{Timeout: anthropicReconcilerHTTPTO},
 		instanceID:  uuid.NewString(),
 		stopCh:      make(chan struct{}),
 	}
@@ -293,9 +251,6 @@ func (r *AnthropicConfigReconciler) runOnce(ctx context.Context) {
 		return
 	}
 
-	// Step B: pool_mode self-heal on prod mirror stubs.
-	r.reconcileStubPoolMode(ctx, accounts)
-
 	// Step T: value-sync each tier-bound anthropic OAUTH account's concurrency
 	// column from its tier row (the reference-table write-source). Runs before
 	// Step A so the operator Σ reflects any concurrency it just re-asserted.
@@ -307,20 +262,9 @@ func (r *AnthropicConfigReconciler) runOnce(ctx context.Context) {
 	// priority, so ordinary admin UI edits remain operator-owned.
 	r.reconcileAccountBaselineDrift(ctx, accounts)
 
-	// Step C: surface-C concurrency mirror (prod). Runs before the operator Σ
-	// sync so the Σ reflects any concurrency it just wrote.
-	if r.cfg != nil && r.cfg.Gateway.Scheduling.AnthropicConfigReconcilerConcurrencyMirrorEnabled {
-		r.reconcileConcurrencyMirror(ctx, accounts)
-	}
-
 	// Step A: operator (users.id=1) Σ concurrency alignment. Always safe — a
-	// no-op when already aligned; covers any drift the mirror introduced.
+	// no-op when already aligned; covers local account concurrency drift.
 	r.reconcileOperatorConcurrency(ctx)
-
-	// Step E: edge operator balance floor (edge deployments only).
-	if r.cfg != nil && r.cfg.Gateway.Scheduling.AnthropicConfigReconcilerBalanceFloorEnabled {
-		r.reconcileBalanceFloor(ctx)
-	}
 
 	// Step tier-drift: REPORT ONLY.
 	r.reportTierDrift(accounts)
@@ -350,7 +294,7 @@ func (r *AnthropicConfigReconciler) reconcileClaudeCodeMimicry(ctx context.Conte
 // the scheduler hot path; the tier table is the write-source. BulkUpdate already
 // enqueues an outbox account_changed event → snapshot rebuild. It does NOT write
 // priority — anthropic priority is a dynamic runtime signal owned by the
-// window-rebalance pipeline (ops/anthropic/rebalance-anthropic-priority.py); the
+// window-rebalance pipeline; the
 // git baseline seeds it only on the operator-explicit ApplyTier path, and Step
 // baseline repair does NOT reconverge it.
 func (r *AnthropicConfigReconciler) reconcileTierConcurrency(ctx context.Context, accounts []Account) {
@@ -417,206 +361,6 @@ func (r *AnthropicConfigReconciler) reconcileOperatorConcurrency(ctx context.Con
 		"user_id", AnthropicOperatorConcurrencyUserID, "concurrency", total)
 }
 
-// reconcileStubPoolMode enforces the embedded stub-pool policy on every local
-// anthropic api-key account whose base_url matches an internal edge domain. Only
-// credentials.pool_mode / pool_mode_retry_count are touched (JSONB merge).
-func (r *AnthropicConfigReconciler) reconcileStubPoolMode(ctx context.Context, accounts []Account) {
-	doc, re, err := baseline.LoadStubPoolBaseline()
-	if err != nil {
-		slog.Warn("anthropic config reconciler: load stub-pool baseline failed", "err", err)
-		return
-	}
-	for i := range accounts {
-		a := &accounts[i]
-		if !r.isMirrorStub(a, re) {
-			continue
-		}
-		wantPool := doc.Policy.PoolModeEnabled
-		wantRetry := doc.Policy.PoolModeRetryCount
-		if a.IsPoolMode() == wantPool && a.GetPoolModeRetryCount() == wantRetry {
-			continue
-		}
-		updates := AccountBulkUpdate{Credentials: map[string]any{
-			"pool_mode":             wantPool,
-			"pool_mode_retry_count": wantRetry,
-		}}
-		if _, err := r.accounts.BulkUpdate(ctx, []int64{a.ID}, updates); err != nil {
-			slog.Warn("anthropic config reconciler: stub pool_mode self-heal write failed",
-				"account_id", a.ID, "account_name", a.Name, "err", err)
-			continue
-		}
-		slog.Info("anthropic config reconciler: stub pool_mode self-healed (local deployment only)",
-			"account_id", a.ID, "account_name", a.Name,
-			"pool_mode", wantPool, "pool_mode_retry_count", wantRetry)
-	}
-}
-
-// reconcileConcurrencyMirror is the surface-C consumer: for each local mirror
-// stub, fetch the live capacity from the edge its base_url points at and mirror
-// total_concurrency onto stub.concurrency. NEVER writes 0 on any failure.
-func (r *AnthropicConfigReconciler) reconcileConcurrencyMirror(ctx context.Context, accounts []Account) {
-	_, re, err := baseline.LoadStubPoolBaseline()
-	if err != nil {
-		slog.Warn("anthropic config reconciler: load stub-pool baseline failed (mirror)", "err", err)
-		return
-	}
-	for i := range accounts {
-		a := &accounts[i]
-		if !r.isMirrorStub(a, re) {
-			continue
-		}
-		platform := mirrorCapacityPlatform(a.GetCredential("mirror_platform"))
-		r.applyConcurrencyMirrorFromEdge(ctx, a, platform, false)
-	}
-	for _, platform := range surfaceCCrossPlatformMirrorPlatforms {
-		stubs, err := r.accounts.ListByPlatform(ctx, platform)
-		if err != nil {
-			slog.Warn("anthropic config reconciler: list mirror stubs failed",
-				"platform", platform, "err", err)
-			continue
-		}
-		for i := range stubs {
-			a := &stubs[i]
-			if a.Type != AccountTypeAPIKey || !isEdgeMirrorStub(a, re) {
-				continue
-			}
-			poolPlatform := edgeStubPoolPlatform(a)
-			if poolPlatform == edgeStubAllPoolsPlatform {
-				continue
-			}
-			r.applyConcurrencyMirrorFromEdge(ctx, a, poolPlatform, true)
-		}
-	}
-}
-
-func (r *AnthropicConfigReconciler) applyConcurrencyMirrorFromEdge(
-	ctx context.Context,
-	a *Account,
-	platform string,
-	groupScopeCaller bool,
-) {
-	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
-	apiKey := strings.TrimSpace(a.GetCredential("api_key"))
-	if baseURL == "" || apiKey == "" {
-		return
-	}
-	total, ok := r.fetchEdgeCapacity(ctx, baseURL, apiKey, platform, groupScopeCaller)
-	if !ok {
-		// Hard rule: failure/timeout/5xx/<1 → skip, never write 0.
-		return
-	}
-	if a.Concurrency == total {
-		return
-	}
-	want := total
-	if _, err := r.accounts.BulkUpdate(ctx, []int64{a.ID}, AccountBulkUpdate{Concurrency: &want}); err != nil {
-		slog.Warn("anthropic config reconciler: mirror concurrency write failed",
-			"account_id", a.ID, "account_name", a.Name, "want", want, "err", err)
-		return
-	}
-	slog.Info("anthropic config reconciler: stub concurrency mirrored from edge (local deployment only)",
-		"account_id", a.ID, "account_name", a.Name, "base_url", baseURL, "concurrency", want)
-}
-
-// mirrorCapacityPlatform normalizes a stub's credentials.mirror_platform into the
-// edge capacity platform query value. ONLY empty/whitespace maps to "anthropic"
-// (the historical default — every pre-existing mirror stub keeps mirroring the
-// anthropic pool). A non-empty value is passed through verbatim (lower/trimmed)
-// rather than coerced to a known platform: the edge endpoint is the authoritative
-// validator and rejects anything it does not support, so an unknown/typo'd value
-// (e.g. "kir0") makes fetchEdgeCapacity see a 4xx and skip — never write 0, never
-// silently mirror the wrong pool. Coercing unknowns to "anthropic" here would
-// reintroduce the exact silent-wrong-pool bug this surface exists to kill.
-func mirrorCapacityPlatform(raw string) string {
-	p := strings.ToLower(strings.TrimSpace(raw))
-	if p == "" {
-		return PlatformAnthropic
-	}
-	return p
-}
-
-// fetchEdgeCapacity GETs {base_url}/api/v1/edge/scheduling-capacity?platform={platform}
-// (and &group_scope=caller for native-platform mirror stubs) with x-api-key auth.
-// Returns (total, true) only on a 2xx with total_concurrency >= 1.
-func (r *AnthropicConfigReconciler) fetchEdgeCapacity(
-	ctx context.Context,
-	baseURL, apiKey, platform string,
-	groupScopeCaller bool,
-) (int, bool) {
-	if r.http == nil {
-		return 0, false
-	}
-	endpoint := strings.TrimRight(baseURL, "/") + "/api/v1/edge/scheduling-capacity?platform=" + url.QueryEscape(platform)
-	if groupScopeCaller {
-		endpoint += "&group_scope=caller"
-	}
-	reqCtx, cancel := context.WithTimeout(ctx, anthropicReconcilerHTTPTO)
-	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		slog.Warn("anthropic config reconciler: build capacity request failed", "base_url", baseURL, "err", err)
-		return 0, false
-	}
-	req.Header.Set("x-api-key", apiKey)
-	resp, err := r.http.Do(req)
-	if err != nil {
-		slog.Warn("anthropic config reconciler: capacity request failed", "base_url", baseURL, "err", err)
-		return 0, false
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		slog.Warn("anthropic config reconciler: capacity request non-2xx", "base_url", baseURL, "status", resp.StatusCode)
-		return 0, false
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
-	if err != nil {
-		slog.Warn("anthropic config reconciler: read capacity body failed", "base_url", baseURL, "err", err)
-		return 0, false
-	}
-	// The endpoint wraps the payload in the standard {code,message,data} envelope.
-	var env struct {
-		Data struct {
-			TotalConcurrency int `json:"total_concurrency"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &env); err != nil {
-		slog.Warn("anthropic config reconciler: decode capacity body failed", "base_url", baseURL, "err", err)
-		return 0, false
-	}
-	if env.Data.TotalConcurrency < 1 {
-		slog.Warn("anthropic config reconciler: edge reported capacity < 1; skipping (never writes 0)",
-			"base_url", baseURL, "total_concurrency", env.Data.TotalConcurrency)
-		return 0, false
-	}
-	return env.Data.TotalConcurrency, true
-}
-
-// reconcileBalanceFloor resets the edge operator (users.id=1) balance to the
-// default when it falls below the floor threshold. UpdateUserBalance("set", …)
-// also invalidates the billing balance cache.
-func (r *AnthropicConfigReconciler) reconcileBalanceFloor(ctx context.Context) {
-	if r.balance == nil {
-		return
-	}
-	user, err := r.users.GetByID(ctx, AnthropicOperatorConcurrencyUserID)
-	if err != nil {
-		slog.Warn("anthropic config reconciler: get operator user for balance floor failed", "err", err)
-		return
-	}
-	if user == nil || user.Balance >= anthropicEdgeBalanceFloorThreshold {
-		return
-	}
-	if _, err := r.balance.UpdateUserBalance(ctx, AnthropicOperatorConcurrencyUserID,
-		anthropicEdgeBalanceFloorDefault, "set",
-		"anthropic config reconciler: edge operator balance floor self-heal (local deployment only)"); err != nil {
-		slog.Warn("anthropic config reconciler: balance floor reset failed", "err", err)
-		return
-	}
-	slog.Info("anthropic config reconciler: edge operator balance floor self-healed (local deployment only)",
-		"user_id", AnthropicOperatorConcurrencyUserID,
-		"old_balance", user.Balance, "new_balance", anthropicEdgeBalanceFloorDefault)
-}
-
 // reportTierDrift is REPORT ONLY. In the reference-table model per-tier numeric
 // config is resolved at runtime (overlay) and concurrency is value-synced by Step
 // T, so per-field drift no longer exists. The remaining meaningful signal is a
@@ -639,17 +383,4 @@ func (r *AnthropicConfigReconciler) reportTierDrift(accounts []Account) {
 		slog.Warn("anthropic config reconciler: tier binding gap (REPORT ONLY — has stability_tier label but no tier_id; re-apply via admin UI or run backfill)",
 			"account_id", a.ID, "account_name", a.Name, "stability_tier", label)
 	}
-}
-
-// isMirrorStub reports whether the account is a prod mirror stub: an anthropic
-// api-key account whose base_url matches the embedded internal-edge pattern.
-func (r *AnthropicConfigReconciler) isMirrorStub(a *Account, re interface{ MatchString(string) bool }) bool {
-	if a == nil || re == nil {
-		return false
-	}
-	if a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey {
-		return false
-	}
-	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
-	return baseURL != "" && re.MatchString(baseURL)
 }

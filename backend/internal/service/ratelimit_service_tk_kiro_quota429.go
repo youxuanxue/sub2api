@@ -9,15 +9,6 @@ import (
 	"time"
 )
 
-// TK: Kiro upstream endpoint quota exhaustion (all fallback endpoints return 429).
-//
-// Prod incident 2026-07-01 (edge-us3/4/5 mirror stubs): when Runtime/IDE/CodeWhisperer/
-// AmazonQ all return 429, the edge gateway surfaced a generic 502 and prod kiro-us*
-// mirror stubs advanced the anthropic_upstream_error 3/3 ladder (30s→2m→10m), causing
-// frequent "临时不可调度" UI flicker even though edge Kiro OAuth accounts stayed healthy.
-// This path applies a fixed 10s temp_unschedulable instead — enough to fail over without
-// treating a subscription RPM blip as stub health failure.
-
 const (
 	tkKiroEndpointQuotaExhaustedCooldown = 10 * time.Second
 	tkKiroEndpointQuotaExhaustedReason   = "kiro_endpoint_quota_exhausted"
@@ -47,7 +38,7 @@ func (s *RateLimitService) tkMaybeHandleKiroEndpointQuotaExhausted(
 	if s == nil || account == nil || !tkIsKiroEndpointQuotaExhausted(upstreamMsg, responseBody) {
 		return false, false
 	}
-	if account.Platform != PlatformKiro && !tkIsKiroMirrorStub(account) {
+	if account.Platform != PlatformKiro {
 		return false, false
 	}
 	return true, s.tkHandleKiroEndpointQuotaExhausted(ctx, account, upstreamMsg)

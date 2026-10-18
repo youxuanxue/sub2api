@@ -37,10 +37,8 @@
 #
 # Suite matrix (GATEWAY_SMOKE_SUITE — one runner, deploy-intent driven):
 #   full (default)     prod deploy-stage0: all sections below
-#   main-via-edge      prod→edge canary: public + models + /v1/messages only
 #   quick              spot-check: public + models + chat only
 #
-# Edge infra SSM probes: ops/stage0/edge_post_deploy_smoke.sh (phase=infra)
 # Shared helpers: ops/stage0/smoke_lib.sh
 #
 # Never prints the full API key. Requires curl + jq on PATH.
@@ -150,9 +148,6 @@ fi
 echo "tk_post_deploy_smoke: /v1/models shape object=${models_object} count=${models_count}"
 
 anthropic_models_raw="${TK_SMOKE_ANTHROPIC_MODELS:-}"
-if [[ -z "${anthropic_models_raw}" && "${GATEWAY_SMOKE_SUITE:-}" == "main-via-edge" ]]; then
-  anthropic_models_raw="${TK_SMOKE_EDGE_LOCAL_CHAT_MODELS:-}"
-fi
 anthropic_models=()
 while IFS= read -r smoke_model; do
   [[ -n "${smoke_model}" ]] && anthropic_models+=("${smoke_model}")
@@ -197,7 +192,7 @@ echo "tk_post_deploy_smoke: /v1/chat/completions shape object=${chat_object} cho
 
 chat_body="$(jq -r '.choices[0].message.content // empty' "$tmpdir/chat.json")"
 if ! printf '%s' "${chat_body}" | grep -Fq "${expect_openai}"; then
-  # Universal smoke key: prod Claude often routes /v1/chat/completions via kiro mirror
+  # Universal smoke key: prod Claude often routes /v1/chat/completions via native Kiro
   # stubs (see smoke_assert_anthropic_model_listed_or_warn). Shape OK but upstream
   # persona won't echo the marker — /v1/messages is the canonical Anthropic probe.
   echo "::warning::tk_post_deploy_smoke: chat response missing expected marker '${expect_openai}' — deferring to /v1/messages probe (body below)" >&2

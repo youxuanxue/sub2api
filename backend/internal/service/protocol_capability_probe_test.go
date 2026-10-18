@@ -223,63 +223,7 @@ func (u *protocolProbeBarrierUpstream) DoWithTLS(
 	}, nil
 }
 
-func TestProbeAccountProtocolCapabilitiesTreatsEdgeRelayEmptyPoolAsEndpointEvidence(t *testing.T) {
-	account := &Account{
-		ID:          61,
-		Name:        "antigravity-us3",
-		Platform:    PlatformAntigravity,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Status:      StatusActive,
-		Schedulable: true,
-		Credentials: map[string]any{
-			"api_key":  "secret",
-			"base_url": "https://api-us3.tokenkey.dev",
-			"model_mapping": map[string]any{
-				"gemini-3-flash": "gemini-3-flash",
-			},
-		},
-		UpdatedAt: time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC),
-	}
-	repo := &protocolProbeCASRepo{account: cloneProtocolProbeAccount(account)}
-	upstream := &protocolProbeSetUpstream{
-		statusCode:   http.StatusTooManyRequests,
-		responseBody: `{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`,
-	}
-	svc := &AccountTestService{
-		accountRepo:  repo,
-		httpUpstream: upstream,
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
-			Enabled: false,
-		}}},
-	}
-
-	result, err := svc.ProbeAccountProtocolCapabilitiesNow(context.Background(), account.ID)
-	if err != nil {
-		t.Fatalf("ProbeAccountProtocolCapabilitiesNow: %v", err)
-	}
-	if result.Outcome != ProtocolProbeRunUpdated {
-		t.Fatalf("probe outcome = %q, want %q", result.Outcome, ProtocolProbeRunUpdated)
-	}
-	got, err := repo.GetByID(context.Background(), account.ID)
-	if err != nil {
-		t.Fatalf("GetByID: %v", err)
-	}
-	want := []protocolrouter.Protocol{
-		protocolrouter.ProtocolMessages,
-		protocolrouter.ProtocolChatCompletions,
-		protocolrouter.ProtocolResponses,
-		protocolrouter.ProtocolGeminiGenerateContent,
-	}
-	if !reflect.DeepEqual(got.SupportedProtocols(), want) {
-		t.Fatalf("supported protocols = %v, want %v", got.SupportedProtocols(), want)
-	}
-	if got.ProtocolEndpointCapability == nil || !got.ProtocolEndpointCapability.ProbeEvidence.InitialProbeCompleted {
-		t.Fatalf("empty-pool endpoint evidence remained inconclusive: %#v", got.ProtocolEndpointCapability)
-	}
-}
-
-func TestProbeGeminiEdgeRelayUsesPublicModelAndClassifiesWireResponse(t *testing.T) {
+func TestProbeGeminiAPIKeyUsesMappedModelAndClassifiesWireResponse(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		status int
@@ -294,7 +238,7 @@ func TestProbeGeminiEdgeRelayUsesPublicModelAndClassifiesWireResponse(t *testing
 			account := &Account{
 				ID: 61, Platform: PlatformAntigravity, Type: AccountTypeAPIKey,
 				Credentials: map[string]any{
-					"api_key": "edge-key", "base_url": "https://api-us3.tokenkey.dev",
+					"api_key": "edge-key", "base_url": "https://upstream.example.test",
 					"model_mapping": map[string]any{"gemini-2.5-flash": "gemini-2.5-flash-medium"},
 				},
 			}
@@ -310,7 +254,7 @@ func TestProbeGeminiEdgeRelayUsesPublicModelAndClassifiesWireResponse(t *testing
 				t.Fatalf("requests = %d, want 1", len(upstream.requests))
 			}
 			req := upstream.requests[0]
-			if got, want := req.URL.String(), "https://api-us3.tokenkey.dev/antigravity/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"; got != want {
+			if got, want := req.URL.String(), "https://upstream.example.test/v1beta/models/gemini-2.5-flash-medium:streamGenerateContent?alt=sse"; got != want {
 				t.Fatalf("probe URL = %q, want public model URL %q", got, want)
 			}
 			if req.Header.Get("x-goog-api-key") != "edge-key" || req.Header.Get("Authorization") != "" {
@@ -902,26 +846,9 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 			want: []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent},
 		},
 		{
-			name: "openai edge mirror does not probe ingress messages as a native target",
-			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{
-				"api_key": "secret", "base_url": "https://api-us4.tokenkey.dev",
-			}},
-			want: []protocolrouter.Protocol{
-				protocolrouter.ProtocolChatCompletions,
-				protocolrouter.ProtocolResponses,
-			},
-		},
-		{
-			name: "kiro edge mirror probes only its native messages hop",
-			account: &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Credentials: map[string]any{
-				"api_key": "secret", "base_url": "https://api-us6.tokenkey.dev", "mirror_platform": PlatformKiro,
-			}},
-			want: []protocolrouter.Protocol{protocolrouter.ProtocolMessages},
-		},
-		{
-			name: "antigravity edge relay probes text hops and native gemini",
+			name: "antigravity API-key upstream probes text hops and native gemini",
 			account: &Account{Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
-				"api_key": "secret", "base_url": "https://api-us3.tokenkey.dev",
+				"api_key": "secret", "base_url": "https://upstream.example.test",
 			}},
 			want: []protocolrouter.Protocol{
 				protocolrouter.ProtocolMessages,
@@ -929,13 +856,6 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 				protocolrouter.ProtocolResponses,
 				protocolrouter.ProtocolGeminiGenerateContent,
 			},
-		},
-		{
-			name: "arbitrary antigravity apikey endpoint is not a governed relay",
-			account: &Account{Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
-				"api_key": "secret", "base_url": "https://relay.example.test",
-			}},
-			want: nil,
 		},
 		{
 			name: "exact newapi vertex service account probes provider specific gemini only",

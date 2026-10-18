@@ -7,28 +7,6 @@ import (
 	"strings"
 )
 
-// TK: name the reason an OpenAI-compat account failed the scheduling gate.
-//
-// WHY (2026-08-25 incident): the edge us6 openai pool served
-// "no available accounts ... total=1 eligible=0 unschedulable=1" for five hours.
-// Every diagnostic field said the same thing — `unschedulable=1` — because the
-// eligibility predicate has SEVEN independent `return false` branches that all
-// collapsed into one bucket, and the one field that could have distinguished
-// them (`openAICompatSelectionFailureDiagnosis.Detail`, hard-coded to the
-// useless string "eligibility") was never emitted to any log at any level.
-//
-// Ruling that out cost a full day of probing: five separate hypotheses (5h
-// quota window, lapsed subscription, DB schedulable flags, redis cooldown,
-// model support) each had to be disproved by hand against prod and the upstream
-// API, because the log could not say which predicate had actually fired. The
-// real cause — ProtocolRouteLegal finding no legal route after protocol-routing
-// governance took over the account — is the LAST of the seven branches, and the
-// only one that was completely invisible.
-//
-// So: one reason string per branch, the route error text included verbatim, and
-// the bool predicate becomes a thin wrapper so there is exactly one copy of the
-// gate order. A future reader gets the answer from the log line instead of a
-// day of bisection.
 const (
 	openAICompatIneligibleAccountNil        = "account_nil"
 	openAICompatIneligibleNotPoolMember     = "not_pool_member"

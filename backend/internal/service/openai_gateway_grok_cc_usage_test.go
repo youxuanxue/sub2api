@@ -41,7 +41,7 @@ func TestForwardAsRawChatCompletions_GrokReasoningUsage(t *testing.T) {
 				svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: &httpUpstreamRecorder{resp: &http.Response{
 					StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {contentType}}, Body: io.NopCloser(strings.NewReader(payload)),
 				}}}
-				account := &Account{ID: 65, Platform: PlatformGrok, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-key", "base_url": "https://api-us4.tokenkey.dev"}}
+				account := &Account{ID: 65, Platform: PlatformGrok, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-key", "base_url": "https://upstream.example.test"}}
 				result, err := svc.forwardAsRawChatCompletions(context.Background(), c, account, body, "")
 				require.NoError(t, err)
 				require.Equal(t, 227, result.Usage.OutputTokens)

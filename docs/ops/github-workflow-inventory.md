@@ -1,72 +1,72 @@
-# GitHub Actions workflow inventory
+# GitHub Actions 消费关系与减负盘点
 
-这份清单基于本任务分叉点 `acb0e0425f` 的 workflow，远端 main 已继续演进（见末节）。
-2026-10-17 起网关为 Tokyo prod，Edge 身份的
-`deployable` 集合为空；历史代码、脚本和恢复入口仍可能被测试或审批基线引用。
-判断一个 workflow 是否“有后续消费”时，同时检查触发器、下游 job、现役主机和
-产物消费者，不能只看文件名。
+审计基线：main `ddb9eb1f433692735ba852f585ce1ac9efbe9e04`（2026-10-18）。
+以下是该快照的决策记录，不是持续维护的部署配置清单；现网身份仍以
+[舰队入口](../../deploy/hetzner/README.md) 为准。
+本 PR 仅交付盘点，不修改 workflow 或禁用远端任务，不宣称新增运行成本节省。
 
-## 已确认保留
+Edge 网关退役不等于 Gemini Web Worker 退役：用户明确确认 prod 将继续使用
+Worker，因此保留它的 PR 校验、main push 构建发布和手动入口。
 
-| Workflow | 现有消费 | 结论 |
+## 有明确消费者，保留
+
+文件均位于 `.github/workflows/`。表中的消费包括运行时产物、门禁和运维动作，
+不以“有历史运行”或“上传了 artifact”单独证明价值。
+
+| Workflow | 消费者 / 保留理由 |
+| --- | --- |
+| `backend-ci.yml` | PR/main 测试门禁；每周安全检查发现随漏洞库变化的新风险，weekly smoke 验证依赖可编译性 |
+| `release.yml` | GHCR 发布镜像与版本产物供 prod 部署使用 |
+| `deploy-stage0.yml` | prod deploy、replay 和 smoke-only |
+| `warm-image-stage0.yml` | prod 部署消费预拉取的镜像层；不是 Edge 专用任务 |
+| `warm-release-cache-main.yml` | CI/release 恢复共享 Go cache；是否降低每日预热频率应以命中与构建耗时证据决定 |
+| `gemini-web-worker.yml` | prod 继续消费 Worker 镜像；Edge 退役不能作为停发依据 |
+| `main-ancestry-guard.yml` | PR ancestry 与 main anchor 检查 |
+| `marker-acknowledgement-pr.yml` | PR 元数据中的 marker/覆写确认，单纯本地 preflight 无法替代 |
+| `upstream-conflict-surface.yml` | upstream 冲突、平台 registry 与侵入性检查 |
+| `upstream-merge-pr-shape.yml` | 仅 upstream merge PR 的结构与 sentinel 契约；条件 skipped 不代表无价值 |
+| `upstream-issue-watchdog.yml` | 上游 issue 扫描与显式修复模式，供缺陷跟踪消费 |
+| `upstream-merge-notify.yml` | 上游提交漂移提醒；与 issue watchdog 的问题来源不同 |
+| `pricing-registry-sensor.yml` | 价格变化生成审阅候选，不能替代发布动作 |
+| `pricing-registry-publish.yml` | 已合并价格配置的 runtime 发布，消费 sensor 经审阅后的变更 |
+| `client-fidelity-watch.yml` | 客户端版本、registry、prod 指纹与 Kiro parity 形成报告/issue 闭环；下节列出可合并的纯摘要 job |
+| `ops-daily-diagnostics.yml` | prod 诊断、issue、修复候选与手工日志下载；消费备份 canary 回执 |
+| `ops-payment-billing-watch.yml` | 支付/计费告警与周报，不因 Edge 退役降低异常检测频率 |
+| `ops-pgdump-restore-canary.yml` | 实际验证备份可恢复，与仅生成 dump 的任务不同 |
+| `ops-stage0-pg-dump-refresh.yml` | 手动刷新 prod pg_dump 宿主任务 |
+| `ops-stage0-host-mem-guard.yml` | 手动修复 prod 宿主内存配置 |
+| `ops-stage0-container-log-policy.yml` | 手动同步容器日志策略 |
+| `ops-stage0-ghcr-prune-timer.yml` | 手动刷新 prod 镜像清理 timer；已没有 Edge matrix |
+| `prod-feishu-config-sync.yml` | prod 告警配置自愈，替代旧 fleet 同步；不是远端孤儿 |
+| `ops-repair-draft.yml` | 消费 daily diagnostics 的脱敏产物生成修复 Draft PR |
+| `pr-repair-agent.yml` | 显式指定 PR 的修复入口，与 ops 诊断修复的输入不同 |
+| `sync-docs-to-pages.yml` | 手动将选定文档同步到自定义页面存储；公开 quickstart 不依赖它 |
+
+## 减负候选与证据边界
+
+| 优先项 | 证据 | 建议 |
 | --- | --- | --- |
-| `backend-ci.yml` | PR/main 门禁、每周安全和 smoke 任务 | 保留 |
-| `cla.yml` | job 仅允许 `Wei-Shaw/sub2api`，本 fork 的运行均 skipped | 清理候选；在 fork 无实际消费者 |
-| `deploy-stage0.yml` | Tokyo prod deploy、replay、smoke-only | 保留 |
-| `warm-image-stage0.yml` | 在 prod deploy 前预拉镜像；随后由 `deploy-stage0.yml` 消费 | 保留 |
-| `warm-release-cache-main.yml` | main push 后为 CI/release 预热 Go cache | 保留 |
-| `release.yml` | GHCR 镜像、版本和 release 产物 | 保留 |
-| `main-ancestry-guard.yml`、`marker-acknowledgement-pr.yml` | main/PR 纪律门禁 | 保留 |
-| `upstream-conflict-surface.yml`、`upstream-merge-pr-shape.yml` | upstream merge PR 的冲突和结构门禁 | 保留 |
-| `upstream-issue-watchdog.yml`、`upstream-merge-notify.yml` | upstream issue/drift 发现与提醒 | 保留 |
-| `model-release-watch.yml`、`pricing-registry-sensor.yml`、`pricing-registry-publish.yml` | 模型/价格目录发现、审阅和发布 | 保留 |
-| `client-fidelity-watch.yml` | prod 指纹、registry、Kiro parity 和 issue 追踪 | 保留；见下方 Edge 子任务 |
-| `gemini-web-worker.yml` | prod 继续消费 Gemini Web Worker 镜像；PR/main push 校验与构建发布 | 保留 |
-| `ops-daily-diagnostics.yml`、`ops-payment-billing-watch.yml` | prod 日常诊断、计费/支付告警 | 保留 |
-| `ops-pgdump-restore-canary.yml`、`ops-stage0-pg-dump-refresh.yml` | prod 备份恢复演练与 pg_dump 刷新 | 保留；Edge selector 是死分支候选 |
-| `ops-stage0-host-mem-guard.yml`、`ops-stage0-container-log-policy.yml` | prod 宿主机运行时修复 | 保留 |
-| `fleet-feishu-config-sync.yml` | prod 告警配置自愈；Edge 为空时只剩 prod | 保留，后续可删除 Edge fan-out 分支 |
-| `ops-repair-draft.yml`、`pr-repair-agent.yml` | 诊断产物到 draft PR 的人工修复闭环 | 保留 |
-| `sync-docs-to-pages.yml` | 手工文档发布 | 保留 |
+| `model-release-watch.yml` 日检报告消费不闭合 | schedule 不执行 issue sync；只有手动 `open_issues=true` 才同步。日检保存 novelty state 和三天 artifact，未在仓库找到自动下载该报告的下游；本地 `model-release-watch.sh issues` 是人工消费入口 | 不再标为“已确认有消费”。先确认报告使用方；无人使用时可暂停 schedule，有需求时应接通现有 issue 消费而非只持续产报。不能据仓库搜索断言没有外部人工读者 |
+| `client-fidelity-watch.yml` 的 `contract` job | 在 daily-report 之后仅 echo 结果，无断言、无发布输出；真正 verdict 已由 daily-report enforce | 将摘要并入 daily-report，保留 verdict 与故障状态；实施前确认远端 required checks 未引用该 job 名 |
+| `cla.yml` | job 条件仅允许 `Wei-Shaw/sub2api`；本 fork 不执行 CLA 动作 | 可删除 fork 的无效入口，收益是减少 skipped 运行噪声，不是大量 runner 分钟；上游同步时避免恢复 |
+| `deploy-prod-hetzner-stage0.yml` | 历史 Hcloud 建机模板，当前 prod 是 Tokyo；没有 schedule，但修改共享 pgdump/prune 脚本仍触发 PR 校验 | 将仍有价值的 bootstrap 校验纳入现有 CI 后可退役部署入口；不能直接删掉唯一验证路径 |
 
-## 已减负或已停止自动消费
+这些候选不是本 PR 已执行的清理。没有 runner 计费和 artifact 下载统计，
+不估算月度费用，也不将人工入口低调用量等同于零价值。
 
-| Workflow/部分 | 证据 | 处理 |
-| --- | --- | --- |
-| `edge-health-watch.yml` 的定时触发 | 当前文件只有 `workflow_dispatch`，空 Edge 集合会直接退出；prod 监控由宿主 watcher 和 daily diagnostics 承担 | 保持手动诊断，不产生定时 Actions 消耗 |
-| `client-fidelity-watch.yml` 的 `edge-oauth-mimic-aggregate` | Edge 集合为空，当前运行只做空扫描；prod/registry/Kiro 仍有消费 | 作为下一步低风险清理候选，删除前需同步 report 聚合参数和 issue 工具 |
-| `ops-stage0-ghcr-prune-timer.yml` 的 `all-deployable-edges` | resolver 当前返回空集合；`prod` 分支仍用于现役主机 | 保留 prod，后续删除 Edge matrix job |
+## 已由基线完成的 Edge 清理
 
-## 退役恢复入口（当前不产生定时负担）
-
-以下 workflow 都没有 schedule，且入口已经要求 `I_APPROVE_EDGE_RESTORE` 或由
-退役矩阵硬拒绝。它们仍被 preflight、sentinel、迁移测试或历史恢复文档引用，
-所以本次不直接删除文件，避免留下未同步的死引用：
-
-- `deploy-edge-hetzner-stage0.yml`
-- `deploy-edge-lightsail-stage0.yml`
-- `deploy-gemini-web-worker.yml`
-- `deploy-prod-hetzner-stage0.yml`（迁移/重建模板）
-
-若产品决策确认永久不恢复 Edge，应在同一个变更中一并移除这些 workflow、
-`workflow-edge-coverage.json`、对应 preflight/sentinel/tests 和恢复文档；只删
-YAML 会把 CI 变成“文件不存在”而不是减负。
-
-## 关于 `39091340351`
-
-该 run 的 workflow 是 **Stage0 Warm Image**。它在 prod 主机上执行只读的
-`docker pull`，紧接着的 `Stage0 Deploy` 会消费已缓存的镜像层；因此它不属于
-Edge 体系，也不应因 Edge 退役而删除。
-
-## 与远端 main 的差异
-
-本工作树落后于远端 main，不能将本地缺失误判为远端孤儿。
-远端已提供 `prod-feishu-config-sync.yml`，替代旧 fleet 同步入口；应保留它，
-不应因曾显示零次运行而禁用。远端 workflow 清单也已不再登记本地的
+下列文件在审计基线已经删除，不再作为待实施事项：
 `deploy-edge-hetzner-stage0.yml`、`deploy-edge-lightsail-stage0.yml`、
-`deploy-gemini-web-worker.yml` 和 `edge-health-watch.yml`。
-上面的 Edge 清理候选须先与最新 main 核对，避免重复实施已完成的退役。
+`deploy-gemini-web-worker.yml`、`edge-health-watch.yml`、`fleet-feishu-config-sync.yml`。
 
-用户明确确认 prod 将继续使用 Gemini Web Worker，因此构建发布 workflow
-必须保留。Edge 部署入口的退役不等于 Worker 产品能力退役。本 PR 仅交付盘点，
-不修改 workflow、不禁用远端任务，也不宣称已经实现新的运行成本节省。
+`client-fidelity-watch.yml` 的 Edge OAuth job、GHCR prune 的 Edge matrix
+以及 restore canary 的 Edge selector 也已移除。恢复 Edge 架构与 prod Worker
+的使用需求是不同决策，不应混在一项清理里。
+
+## 指定运行的核对
+
+[39091340351](https://github.com/youxuanxue/sub2api/actions/runs/39091340351)
+是 **Stage0 Warm Image**，在 prod 预拉镜像，后续部署复用层缓存。
+它没有切换运行容器，但会写入主机镜像缓存，不是严格的只读操作。
+保留它的理由是 prod 部署消费关系；单次运行成功不能证明预热总耗时一定更短。

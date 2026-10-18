@@ -41,7 +41,7 @@ func TestGeminiSelectedProtocolRepairsTransportSignature(t *testing.T) {
 				body := []byte(`{"contents":[{"role":"model","parts":[{"functionCall":{"name":"lookup","args":{"id":"123"}},"thoughtSignature":"old-account-signature"}]},{"role":"user","parts":[{"functionResponse":{"name":"lookup","response":{"result":"OK"}}},{"inlineData":{"mimeType":"image/png","data":"test-image"}}]}]}`)
 				account := &service.Account{ID: 47, Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey,
 					Status: service.StatusActive, Schedulable: true, Concurrency: 10, GroupIDs: []int64{10},
-					Credentials: map[string]any{"api_key": "test-key", "base_url": "https://api-us4.tokenkey.dev", "model_mapping": map[string]any{model: model}}}
+					Credentials: map[string]any{"api_key": "test-key", "base_url": "https://upstream.example.test", "model_mapping": map[string]any{model: model}}}
 				if transport != "native" {
 					account.Platform = service.PlatformAntigravity
 					if transport == "planned_vertex" {
@@ -118,7 +118,11 @@ func TestGeminiCountTokensBypassesGenerationPlanWithOriginalBody(t *testing.T) {
 			calls := 0
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
-				require.True(t, strings.HasSuffix(r.URL.Path, "/gemini-3.8-flash:countTokens"), r.URL.Path)
+				expectedModel := "gemini-3.8-flash"
+				if platform == service.PlatformAntigravity {
+					expectedModel = "gemini-3.8-flash-high"
+				}
+				require.True(t, strings.HasSuffix(r.URL.Path, "/"+expectedModel+":countTokens"), r.URL.Path)
 				raw, err := io.ReadAll(r.Body)
 				require.NoError(t, err)
 				require.Equal(t, "count this input", gjson.GetBytes(raw, "contents.0.parts.0.text").String())
@@ -130,7 +134,7 @@ func TestGeminiCountTokensBypassesGenerationPlanWithOriginalBody(t *testing.T) {
 			cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 			cfg.Security.URLAllowlist.AllowPrivateHosts = true
 			account := &service.Account{ID: 62, Platform: platform, Type: service.AccountTypeAPIKey,
-				Credentials: map[string]any{"base_url": "https://api-us4.tokenkey.dev", "api_key": "test-key"}}
+				Credentials: map[string]any{"base_url": "https://upstream.example.test", "api_key": "test-key"}}
 			if platform == service.PlatformAntigravity {
 				attachHandlerTestProtocolCapability(t, account, protocolrouter.ProtocolGeminiGenerateContent)
 			}

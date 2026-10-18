@@ -51,11 +51,6 @@ func TestTkPlatformPoolExhaustedCheck_FiresOnEmptyPool(t *testing.T) {
 	require.Equal(t, []string{PlatformAnthropic}, notifier.pools)
 }
 
-// Transient drain (edge-us7 2026-06-18): the edge's only anthropic account hits a
-// single upstream 529, gets a ~30s tier-0 overload cooldown, and the pool momentarily
-// reads 0 schedulable — but it self-heals in seconds (prod→edge mirror relay fails
-// over to sibling edges meanwhile). A short cooldown (<= 60s) means tier-0 transient,
-// not a sustained outage, so it must NOT page P0 — it downgrades to a WARN.
 func TestTkPlatformPoolExhaustedCheck_TransientCooldownDoesNotPage(t *testing.T) {
 	repo := &poolExhaustedRepoStub{schedulable: nil}
 	notifier := &poolExhaustedNotifierStub{}

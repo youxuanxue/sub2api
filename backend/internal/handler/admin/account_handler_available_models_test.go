@@ -599,7 +599,7 @@ func TestAccountHandlerGetAvailableModels_GrokUsesGrokCatalog(t *testing.T) {
 			Status:   service.StatusActive,
 			Credentials: map[string]any{
 				"api_key":  "edge-key",
-				"base_url": "https://api-us4.tokenkey.dev",
+				"base_url": "https://upstream.example.test",
 			},
 		},
 	}
@@ -668,41 +668,6 @@ func TestAccountHandlerGetAvailableModels_AntigravityUsesLiveCatalog(t *testing.
 		availableModelIDs(resp.Data),
 		"antigravity admin test must expose the current live catalog SSOT")
 	require.False(t, ids["gpt-oss-120b-medium"], "antigravity admin test must not offer gpt-oss")
-}
-
-func TestAccountHandlerGetAvailableModels_KiroMirrorStubUsesKiroCatalog(t *testing.T) {
-	svc := &availableModelsAdminService{
-		stubAdminService: newStubAdminService(),
-		account: service.Account{
-			ID:       602,
-			Name:     "kiro-us5",
-			Platform: service.PlatformAnthropic,
-			Type:     service.AccountTypeAPIKey,
-			Status:   service.StatusActive,
-			Credentials: map[string]any{
-				"api_key":         "edge-key",
-				"base_url":        "https://api-us5.tokenkey.dev",
-				"mirror_platform": "kiro",
-			},
-		},
-	}
-	router := setupAvailableModelsRouter(svc)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/602/models", nil)
-	router.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.ElementsMatch(t, idsFromKiroAdminTestModels(), availableModelIDs(resp.Data))
-	ids := modelIDSet(resp.Data)
-	require.False(t, ids["claude-sonnet-4-5-20250929"], "prod Kiro mirror stubs must not expose Anthropic dated test IDs")
 }
 
 func TestAccountHandlerGetAvailableModels_OpenAIAPIKeyDefaultsToConcreteGPT56Sol(t *testing.T) {
@@ -1101,13 +1066,9 @@ func TestAccountHandlerGetAvailableModels_TypeSafeOnlyReturnsJev(t *testing.T) {
 }
 
 func TestAccountHandlerAvailableModelsExcludesRetiredCodexSupply(t *testing.T) {
-	for _, kind := range []string{service.AccountTypeOAuth, service.AccountTypeSetupToken, service.AccountTypeAPIKey, "edge"} {
+	for _, kind := range []string{service.AccountTypeOAuth, service.AccountTypeSetupToken, service.AccountTypeAPIKey} {
 		for _, mapped := range []bool{false, true} {
 			account := service.Account{ID: 951, Platform: service.PlatformOpenAI, Type: kind, Credentials: map[string]any{}}
-			if kind == "edge" {
-				account.Type = service.AccountTypeAPIKey
-				account.Credentials["base_url"] = "https://api-us4.tokenkey.dev"
-			}
 			if mapped {
 				account.Credentials["model_mapping"] = map[string]any{"gpt-5.5": "gpt-5.5", "gpt-6-sol": "gpt-6-sol"}
 			}

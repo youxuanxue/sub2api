@@ -171,10 +171,6 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	return s.handleNativeAnthropicBufferedResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
 }
 
-// nativeAnthropicAPIKeyForAccount returns the credential for a request whose
-// selected wire protocol is Anthropic Messages. The selected protocol, not the
-// account's platform label, owns this choice: edge mirror stubs remain
-// platform=anthropic while OpenAI-compatible ingress reaches this transport.
 func nativeAnthropicAPIKeyForAccount(account *Account) string {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return ""

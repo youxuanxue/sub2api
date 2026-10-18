@@ -10,8 +10,6 @@ const (
 	// GovernedOpenAIShapeGeminiCompat hops via GeminiMessagesCompatService
 	// (Antigravity apikey → {base}/antigravity/v1beta/...; Gemini native).
 	GovernedOpenAIShapeGeminiCompat
-	// GovernedOpenAIShapeAntigravityClaudeRelay hops Claude chat/responses
-	// through GatewayService → {GetBaseURL()}/v1/messages on the edge stub.
 	GovernedOpenAIShapeAntigravityClaudeRelay
 	// GovernedOpenAIShapeAntigravityOAuthCloudCode hops via
 	// AntigravityGatewayService (Cloud Code generateContent).

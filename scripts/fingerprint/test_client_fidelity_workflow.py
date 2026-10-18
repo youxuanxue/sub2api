@@ -46,7 +46,6 @@ class ClientFidelityWorkflowContractTest(unittest.TestCase):
         self.assertIn("actions/upload-artifact@v7", self.text)
         self.assertIn("open_client_release_watch_issues.py", self.text)
         self.assertIn("open_prompt_surface_watch_issues.py", self.text)
-        self.assertIn("open_oauth_mimic_watch_issues.py", self.text)
 
     def test_registry_gate_reuses_rolling_go_cache_and_skips_duplicate_fixture(self) -> None:
         # Cost gate: daily registry-gate must restore the shared test family and

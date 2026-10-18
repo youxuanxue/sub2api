@@ -143,7 +143,6 @@ SELECT json_build_object(
       'platform', a.platform,
       'type', a.type,
       'channel_type', a.channel_type,
-      'mirror_platform', a.credentials->>'mirror_platform',
       'base_url', a.credentials->>'base_url'
     )
     FROM accounts a
@@ -175,18 +174,9 @@ if not isinstance(account, dict):
 def derive_account_scope(row):
     platform = str(row.get("platform") or "").strip().lower()
     account_type = str(row.get("type") or "").strip().lower()
-    mirror_platform = str(row.get("mirror_platform") or "").strip().lower()
-    name = str(row.get("name") or "").strip().lower()
     account_base_url = str(row.get("base_url") or "").strip().lower().rstrip("/")
     if platform == "kiro":
         return "kiro"
-    if platform == "anthropic" and account_type == "apikey":
-        if mirror_platform == "kiro" or (
-            name.startswith("kiro-")
-            and account_base_url.startswith("https://api-")
-            and account_base_url.endswith(".tokenkey.dev")
-        ):
-            return "kiro"
     if platform == "anthropic" and account_type == "bedrock":
         return "bedrock"
     if platform == "openai" and account_type == "apikey" and account_base_url in {

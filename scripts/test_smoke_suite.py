@@ -27,7 +27,7 @@ class SmokeSuiteTest(unittest.TestCase):
         )
 
     def test_normalize_aliases(self) -> None:
-        for alias, expected in (("prod", "full"), ("edge-via-prod", "main-via-edge"), ("minimal", "quick"), ("", "full")):
+        for alias, expected in (("prod", "full"), ("minimal", "quick"), ("", "full")):
             with self.subTest(alias=alias):
                 proc = self._run(alias)
                 self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -40,7 +40,6 @@ class SmokeSuiteTest(unittest.TestCase):
 
     def test_scoped_suites(self) -> None:
         for suite, allowed, blocked in (
-            ("main-via-edge", "messages", "chat"),
             ("quick", "chat", "messages"),
         ):
             with self.subTest(suite=suite):
@@ -97,14 +96,6 @@ class SoftDegradeOrExitTest(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("MARKER=softskip", out)
         self.assertIn("soft-skipped", out)
-
-    def test_main_via_edge_403_claude_code_only_hard_fails(self) -> None:
-        rc, out = self._run(
-            "main-via-edge", "403",
-            {"error": {"message": "This group is restricted to Claude Code clients (/v1/messages only)"}},
-        )
-        self.assertEqual(rc, 1, out)
-        self.assertNotIn("MARKER=continue", out)
 
     def test_full_503_no_available_accounts_soft_skips(self) -> None:
         rc, out = self._run(

@@ -18,17 +18,13 @@ func TestTkIsPoolModeRetryableStatus_Default(t *testing.T) {
 	}
 }
 
-// TestAccount_IsPoolModeRetryableStatus_TKDefaultIncludes503And529
-// 回归现场（edge us1 整体瞬时 529/503 → prod 单 stub 透出）：未显式配置
-// pool_mode_retry_status_codes 的 pool stub，其 503/529 现在默认触发同账号重试
-// （= 池内轮换），而 upstream 裸默认 {401,403,429} 不含这两个。
 func TestAccount_IsPoolModeRetryableStatus_TKDefaultIncludes503And529(t *testing.T) {
 	// 未配置 retry_status_codes 的转发 stub。
 	acc := &Account{
 		Type: AccountTypeAPIKey,
 		Credentials: map[string]any{
 			"api_key":   "k",
-			"base_url":  "https://api-us1.tokenkey.dev",
+			"base_url":  "https://upstream.example.test",
 			"pool_mode": true,
 		},
 	}

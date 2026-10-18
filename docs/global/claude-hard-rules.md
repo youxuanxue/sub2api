@@ -98,10 +98,8 @@ Forward-looking history, merge modes, and mechanical gates:
 ## §9 Release discipline (ARM + tag triggers)
 
 Production (`api.tokenkey.dev`) runs on **AWS Tokyo EC2 `c7g.xlarge` (`arm64`)**
-（2026-10-17 起；旧美东 / Hcloud 仅为 standby）。活舰队 SSOT：
-[`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)（prod-only；edge
-`deployable=false`）。Release workflow is triggered by `tags: v*`。Operator-facing
-copy：`deploy/aws/README.md` § "发版纪律（两条铁律）"（镜像仍须 multi-arch arm64）。
+（2026-10-17 起）。活舰队 SSOT：
+[`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)（prod-only）。Release workflow is triggered by `tags: v*`。镜像仍须 multi-arch arm64。
 
 ### §9.1 `simple_release` MUST stay `false`
 
@@ -166,7 +164,7 @@ Ubuntu 镜像出厂启用 `apt-daily-upgrade.timer`（`OnCalendar=*-*-* 6:00` +
    生产网关更糟），于是主机装了却从不激活：glibc 和内核在磁盘上已更新，长驻进程仍
    映射旧版本。**付了可用性代价，没拿到安全收益。**
 
-因此两个 bootstrap（`deploy/hetzner/render-bootstrap.sh`、`render-prod-bootstrap.sh`）
+因此生产 bootstrap（`deploy/hetzner/render-prod-bootstrap.sh`）
 在首次 apt 调用前 `mask` 掉该 timer，并用 `/etc/apt/apt.conf.d/99tokenkey-no-auto-upgrade`
 固定 `APT::Periodic::Unattended-Upgrade "0"`。用 `mask` 不用 `disable`——后者会被包升级和
 systemd preset 静默重开；写进 `99-` 新文件而不是改 `20auto-upgrades`——后者是装机器产物，
@@ -188,7 +186,7 @@ apt 按字典序后读者胜。改完必须重跑 renderer 让 generated user-da
 只读盘点每节点债务：
 
 ```bash
-bash ops/observability/run-probe.sh --target prod|edge:<id> \
+bash ops/observability/run-probe.sh --target prod \
   --script ops/observability/probe-host-patch-debt.sh
 ```
 

@@ -47,23 +47,6 @@ func (s *SettingService) AnthropicMaxRateLimitCooldownSeconds(ctx context.Contex
 	return v
 }
 
-// tkClampAnthropicWindowReset clamps an upstream-provided Anthropic unified-window
-// 429 reset time to now+ceiling.
-//
-// TK: Anthropic's unified 5h/7d windows are rolling — a 429 fired when utilization
-// momentarily hit >=1.0 carries a reset header pointing at the conservative window
-// boundary (a 7d reset can be days out), but the account's rolling utilization
-// often drops back below the limit well before then as old usage ages out. Trusting
-// the reset verbatim benches a recovered account until the boundary; on a thin/SPOF
-// edge that is a multi-day anthropic outage (prod 2026-06, edge-us6 oh-3-a). Clamping
-// the SCHEDULING cooldown lets natural request traffic re-probe the account after the
-// ceiling — a still-exhausted window simply 429s again and is re-cooled ("traffic as
-// the probe": no background prober, and overage=org_level_disabled means a re-probe
-// just 429s without consuming tokens).
-//
-// This only affects the cooldown reset passed to SetRateLimited. The passive usage
-// gauges (session_window / passive_usage_*) are written from the ORIGINAL upstream
-// window values by the callers, so the operator-facing utilization view is unchanged.
 func (s *RateLimitService) tkClampAnthropicWindowReset(ctx context.Context, accountID int64, resetAt time.Time) time.Time {
 	if s == nil || s.settingService == nil {
 		return resetAt

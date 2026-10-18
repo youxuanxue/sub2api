@@ -7,7 +7,6 @@ from scripts.stage0.load_smoke_github_env import apply_github_env
 
 DEFAULT_PROD_BASE_URL = "https://api.tokenkey.dev"
 DEFAULT_PROD_SITE_BASE_URL = "https://tokenkey.dev"
-DEFAULT_EDGE_LOCAL_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 
 
 def _ensure_github_env_loaded() -> None:
@@ -47,9 +46,6 @@ def _split_models(raw: str, default: list[str]) -> list[str]:
     return [part for part in value.replace(",", " ").split() if part]
 
 
-def edge_canary_base_url() -> str:
-    return _env("TK_SMOKE_EDGE_CANARY_BASE_URL") or DEFAULT_PROD_BASE_URL
-
 
 def human_base_url(gateway_base: str | None = None) -> str:
     explicit = (
@@ -65,13 +61,3 @@ def human_base_url(gateway_base: str | None = None) -> str:
             scheme = prefix.split("://", 1)[0]
             return f"{scheme}://{base[len(prefix):]}"
     return base
-
-
-def edge_local_chat_model() -> str:
-    models = edge_local_chat_models()
-    return models[0] if models else DEFAULT_EDGE_LOCAL_ANTHROPIC_MODEL
-
-
-def edge_local_chat_models() -> list[str]:
-    raw = _env("TK_SMOKE_EDGE_LOCAL_CHAT_MODELS")
-    return _split_models(raw, [DEFAULT_EDGE_LOCAL_ANTHROPIC_MODEL])

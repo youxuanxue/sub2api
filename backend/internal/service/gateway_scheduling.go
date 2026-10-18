@@ -685,7 +685,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 
 		s.computeAnthropicSaturationPenalties(ctx, available, requestedModel)
-		computeAnthropicKiroMirrorStubPenalties(available, requestedModel)
+		computeAnthropicKiroPenalties(available, requestedModel)
 
 		// 分层过滤选择：优先级 →（可选）最早重置 → 负载率 → LRU
 		for len(available) > 0 {
@@ -2038,26 +2038,21 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 }
 
 type selectionFailureStats struct {
-	Total                   int
-	Eligible                int
-	Excluded                int
-	Unschedulable           int
-	PlatformFiltered        int
-	ModelUnsupported        int
-	ModelRateLimited        int
-	ChannelRestricted       int
-	RuntimeBlocked          int
-	ProfitThreshold         int
-	ProfitInvalidRate       int
-	SamplePlatformIDs       []int64
-	SampleMappingIDs        []int64
-	SampleRateLimitIDs      []string
-	SampleRuntimeBlockedIDs []int64
-	// SampleUnschedulableReasons carries "<account_id>(<reason>)" samples for the
-	// unschedulable bucket. Without it that bucket is a bare count, and the
-	// scheduling gate has many independent branches that all land in it — which is
-	// exactly what made the 2026-08-25 edge us6 outage take a full day to
-	// attribute (see openai_gateway_scheduling_tk_eligibility_reason.go).
+	Total                      int
+	Eligible                   int
+	Excluded                   int
+	Unschedulable              int
+	PlatformFiltered           int
+	ModelUnsupported           int
+	ModelRateLimited           int
+	ChannelRestricted          int
+	RuntimeBlocked             int
+	ProfitThreshold            int
+	ProfitInvalidRate          int
+	SamplePlatformIDs          []int64
+	SampleMappingIDs           []int64
+	SampleRateLimitIDs         []string
+	SampleRuntimeBlockedIDs    []int64
 	SampleUnschedulableReasons []string
 }
 

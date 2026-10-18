@@ -9,8 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -135,7 +133,7 @@ func kiroBudgetContext(t *testing.T, budget time.Duration) (*gin.Context, *httpt
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-	c.Request.Header.Set(kiroWaitDeadlineHeader, strconv.FormatInt(time.Now().Add(budget).UnixMilli(), 10))
+	c.Set(kiroWaitBudgetKey, kiroWaitBudget{deadline: time.Now().Add(budget), budget: budget})
 	return c, rec
 }
 
@@ -232,75 +230,6 @@ func TestKiroNonStreamingCallerCancellation(t *testing.T) {
 	require.Empty(t, rec.Body.String())
 }
 
-func TestKiroRelayBudgetBoundsBothResponseModes(t *testing.T) {
-	for _, stream := range []bool{true, false} {
-		t.Run(fmt.Sprint(stream), func(t *testing.T) {
-			c, rec := kiroBudgetContext(t, 200*time.Millisecond)
-			reader, writer := io.Pipe()
-			t.Cleanup(func() { _ = reader.Close(); _ = writer.Close() })
-			go func() {
-				if stream {
-					_, _ = io.WriteString(writer, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{}}}\n\nevent: ping\ndata: {\"type\":\"ping\"}\n\n")
-				} else {
-					_, _ = io.WriteString(writer, `{"content":[`)
-				}
-			}()
-			upstream := &anthropicHTTPUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: reader}}
-			svc := &GatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}, httpUpstream: upstream}
-			account := newAnthropicAPIKeyAccountForTest()
-			account.Credentials["mirror_platform"] = PlatformKiro
-			body := []byte(fmt.Sprintf(`{"model":"claude-opus-5-5","stream":%v,"max_tokens":256,"messages":[{"role":"user","content":"review"}]}`, stream))
-			result, err := svc.Forward(c.Request.Context(), c, account, &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-5-5", Stream: stream})
-			require.Nil(t, result)
-			var terminal *UpstreamFailoverError
-			require.ErrorAs(t, err, &terminal)
-			require.False(t, terminal.ShouldRetryNextAccount())
-			require.Equal(t, GatewayFailureReason("kiro_wait_budget_exhausted"), terminal.Reason)
-			require.Equal(t, c.GetHeader(kiroWaitDeadlineHeader), upstream.lastReq.Header.Get(kiroWaitDeadlineHeader))
-			if stream {
-				require.Contains(t, rec.Body.String(), "event: ping")
-			} else {
-				require.Empty(t, rec.Body.String())
-			}
-		})
-	}
-}
-
-func TestKiroRelayBudgetHonorsEdgeExhaustion(t *testing.T) {
-	for _, passthrough := range []bool{true, false} {
-		t.Run(fmt.Sprint(passthrough), func(t *testing.T) {
-			c, _ := kiroBudgetContext(t, time.Second)
-			upstream := &anthropicHTTPUpstreamSequenceRecorder{resps: []*http.Response{{
-				StatusCode: http.StatusGatewayTimeout,
-				Header:     http.Header{http.CanonicalHeaderKey(KiroOutcomeHeader): []string{kiroWaitExhaustedOutcome}},
-				Body:       io.NopCloser(strings.NewReader(`{"type":"error","error":{"type":"api_error","message":"Kiro request waiting budget exhausted"}}`)),
-			}}}
-			svc := &GatewayService{cfg: &config.Config{}, httpUpstream: upstream}
-			account := newAnthropicAPIKeyAccountForTest()
-			account.Credentials["mirror_platform"] = PlatformKiro
-			account.Extra["anthropic_passthrough"] = passthrough
-			body := []byte(`{"model":"claude-opus-5-5","max_tokens":256,"messages":[{"role":"user","content":"review"}]}`)
-			result, err := svc.Forward(c.Request.Context(), c, account, &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-5-5"})
-			require.Nil(t, result)
-			var terminal *UpstreamFailoverError
-			require.ErrorAs(t, err, &terminal)
-			require.False(t, terminal.ShouldRetryNextAccount())
-			require.Equal(t, GatewayFailureReason("kiro_wait_budget_exhausted"), terminal.Reason)
-			require.Len(t, upstream.reqs, 1, "edge exhaustion cannot become a relay retry")
-			require.Equal(t, HTTPUpstreamProfileKiro, HTTPUpstreamProfileFromContext(upstream.reqs[0].Context()))
-		})
-	}
-}
-
-func TestKiroWaitBudgetRelayCannotExtendLocalDeadline(t *testing.T) {
-	c, _ := kiroBudgetContext(t, time.Hour)
-	start := time.Now()
-	b := getKiroWaitBudget(c, nil, &kiroproto.ClaudeRequest{Model: "claude-sonnet-4-5"}, start)
-	require.Equal(t, start.Add(defaultKiroFirstOutputTimeout), b.deadline)
-	c.Request.Header.Set(kiroWaitDeadlineHeader, "invalid")
-	require.Equal(t, b, getKiroWaitBudget(c, nil, &kiroproto.ClaudeRequest{Model: "claude-opus-5-5"}, time.Now()))
-}
-
 func TestKiroStreamingVisibleOutputStopsWaitBudget(t *testing.T) {
 	c, rec := kiroBudgetContext(t, 100*time.Millisecond)
 	reader, writer := io.Pipe()
@@ -336,25 +265,4 @@ func TestKiroWaitBudgetClosesStalledErrorBody(t *testing.T) {
 	require.False(t, terminal.ShouldRetryNextAccount())
 	require.EqualValues(t, 1, upstream.calls.Load())
 	require.Empty(t, rec.Body.String())
-}
-
-func TestKiroRelayBudgetSSETerminalPreservesTimeoutAttribution(t *testing.T) {
-	c, rec := kiroBudgetContext(t, time.Second)
-	data := `event: message_start
-` + `data: {"type":"message_start","message":{"usage":{}}}` + "\n\nevent: error\n" +
-		`data: {"type":"error","error":{"type":"api_error","message":"` + kiroWaitBudgetClientMessage + `"}}` + "\n\n"
-	upstream := &anthropicHTTPUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(data))}}
-	svc := &GatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}, httpUpstream: upstream}
-	account := newAnthropicAPIKeyAccountForTest()
-	account.Credentials["mirror_platform"] = PlatformKiro
-	body := []byte(`{"model":"claude-opus-5-5","stream":true,"max_tokens":256,"messages":[{"role":"user","content":"review"}]}`)
-	_, err := svc.Forward(c.Request.Context(), c, account, &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-5-5", Stream: true})
-	var terminal *sseStreamErrorEventError
-	require.ErrorAs(t, err, &terminal)
-	var failover *UpstreamFailoverError
-	require.NotErrorAs(t, err, &failover, "terminal error on the wire cannot replay")
-	require.Equal(t, 1, strings.Count(rec.Body.String(), "event: error"))
-	events, _ := c.Get(OpsUpstreamErrorsKey)
-	require.Len(t, events.([]*OpsUpstreamErrorEvent), 1)
-	require.Equal(t, "first_output_timeout", events.([]*OpsUpstreamErrorEvent)[0].Kind)
 }

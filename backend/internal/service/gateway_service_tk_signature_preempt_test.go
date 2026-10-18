@@ -218,13 +218,6 @@ func TestHasAnthropicSigPreemptCache_Setter(t *testing.T) {
 	require.True(t, s.HasAnthropicSigPreemptCache())
 }
 
-// TestApplyPreempt_Armed_PreservesToolUseThinking pins the end-to-end contract:
-// even when the per-account preempt is armed (300s cooldown), a request whose
-// assistant turn contains tool_use must NOT have its thinking blocks stripped —
-// stripping there orphans the tool_use and makes Claude Code report malformed
-// tool calls (live edge-us1: 139 signed thinking + 216 tool_use forwarded as 0).
-// Complements TestApplyPreempt_Armed_StripsThinkingBlocks (the no-tool case that
-// is still safely stripped).
 func TestApplyPreempt_Armed_PreservesToolUseThinking(t *testing.T) {
 	cache := &fakeSigPreemptCache{}
 	cache.armed.Store(true)

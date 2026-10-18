@@ -9,7 +9,6 @@
 | --- | --- |
 | 现网发版 / 活舰队 | [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md) |
 | AWS Prod CFN 首次创建（standby） | `deploy/aws/cloudformation/stage0-single-ec2.yaml`；下方 bootstrap |
-| Lightsail Edge standby | [`deploy/aws/lightsail/`](../../deploy/aws/lightsail/) 与 `tokenkey-stage0-edge-lightsail-expansion` skill |
 | AWS 侧操作百科 | [`deploy/aws/README.md`](../../deploy/aws/README.md)；契约见 [`deploy-stage0-workflow.md`](../approved/deploy-stage0-workflow.md) |
 | QA raw maintenance 与迁移 | [`qa-raw-only.md`](../approved/qa-raw-only.md) |
 | 备份、整机与数据恢复 | [`RUNBOOK-disaster-recovery.md`](../../deploy/aws/RUNBOOK-disaster-recovery.md) |

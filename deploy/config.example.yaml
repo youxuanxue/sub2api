@@ -538,7 +538,7 @@ gateway:
     # wait 模式当前进程允许排队等待的图片请求数，0=不限制
     max_waiting_requests: 100
   # Upstream body-size soft guards (TK): per-(platform, model_prefix) thresholds to warn or
-  # reject oversize requests before they hit upstream. Triggered by edge:us1 production data
+  # reject oversize requests before they hit upstream. Triggered by production request data
   # where anthropic claude-opus-4-7 upstream rejects body >= ~940 KB with raw 403 (no anthropic
   # error JSON), while body <= ~400 KB succeeds on the same account/model. Defaults below are
   # auto-injected when this list is empty (a yaml-level empty list `[]` counts as "absent" and

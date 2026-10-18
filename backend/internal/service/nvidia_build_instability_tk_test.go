@@ -27,8 +27,8 @@ func TestCandidateSaturatedFor_NVIDIAThresholdOne(t *testing.T) {
 	ordinary := newNewAPIBridgeAccount()
 	require.True(t, candidateSaturatedFor(nvidia, 1), "first NVIDIA error must deprioritize")
 	require.False(t, candidateSaturatedFor(ordinary, 1), "ordinary bridge keeps threshold-5")
-	require.False(t, candidateSaturatedFor(ordinary, edgeMirrorStubSaturationThreshold-1))
-	require.True(t, candidateSaturatedFor(ordinary, edgeMirrorStubSaturationThreshold))
+	require.False(t, candidateSaturatedFor(ordinary, saturationThreshold-1))
+	require.True(t, candidateSaturatedFor(ordinary, saturationThreshold))
 }
 
 func TestBridgeWrapRelayErrorAfterPenalty_NVIDIARecordsInstability(t *testing.T) {

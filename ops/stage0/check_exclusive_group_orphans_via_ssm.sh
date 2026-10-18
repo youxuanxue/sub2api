@@ -33,7 +33,7 @@
 #
 # Prod-only: api_keys/users/groups live on the prod control-plane DB. Edge
 # Stage0 stacks are anthropic-OAuth relays with no such tables, so this is NOT
-# wired into the edge deploy workflow.
+# run before production releases.
 #
 # Usage:
 #   ops/stage0/check_exclusive_group_orphans_via_ssm.sh <instance_id> [comment]

@@ -16,12 +16,6 @@ class LoadSmokeGithubEnvTest(unittest.TestCase):
             loader.PROD_SECRETS,
         )
 
-    def test_required_secrets_edge(self) -> None:
-        self.assertEqual(
-            loader.required_secrets("edge-uk1"),
-            loader.EDGE_SECRETS,
-        )
-
     def test_required_secrets_rejects_unknown(self) -> None:
         with self.assertRaises(ValueError):
             loader.required_secrets("staging")

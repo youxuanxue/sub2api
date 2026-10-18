@@ -8,7 +8,7 @@
 - Risk Focus:
   - 逻辑错误：位置编码帧解析、官方响应、原图与预览区分。
   - 行为回归：Messages/native 入口均传网关选中账号；普通 API 账号不受影响。
-  - 安全问题：edge 管理员鉴权、Worker 账号密钥、Cookie 脱敏和复制清理。
+  - 安全问题：Worker 控制面管理员鉴权、Worker 账号密钥、Cookie 脱敏和复制清理。
   - 运行时问题：数据库租约与 CAS、Cookie 删除、重启、下载失败不重复生图。
 
 ## Acceptance Criteria
@@ -59,7 +59,6 @@
 - AC-003: `backend/internal/service/gemini_web_tk_test.go`::`TestGeminiWebSelectedAccountHeaderBothEntryPoints`
 - AC-004: `ops/gemini-web/test_worker.py`::`WorkerTests.test_download_failure_does_not_regenerate_or_return_preview`
 - AC-004: `ops/gemini-web/test_worker.py`::`WorkerTests.test_auth_failure_persists_pause_and_transport_error_is_redacted`
-- AC-005: `backend/internal/handler/gemini_web_session_handler_test.go`::`TestGeminiWebControlRejectsInvalidAccessAndConflicts`
 - AC-005: `backend/internal/handler/dto/credentials_redact_test.go`::`TestRedactCredentials_StripsSensitiveKeysAndReportsStatus`
 - AC-005: `backend/internal/service/admin_service_duplicate_account_test.go`::`TestDuplicateAccountRemovesGeminiWebSession`
 - AC-006: `ops/gemini-web/test_worker.py`::`WorkerTests.test_control_lease_prevents_a_second_process_and_fences_stale_save`

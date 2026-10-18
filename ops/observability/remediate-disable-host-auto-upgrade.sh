@@ -3,7 +3,7 @@
 # Delivered via run-probe.sh. Requires APPLY=yes-disable-host-auto-upgrade.
 #
 # Brings a LIVE host in line with the bootstrap contract that new hosts already get
-# (deploy/hetzner/render-bootstrap.sh / render-prod-bootstrap.sh, gated by
+# (deploy/hetzner/render-prod-bootstrap.sh, gated by
 # scripts/checks/host-auto-upgrade-disabled.py). Rationale, incident evidence and the
 # blue/green patching flow: docs/global/claude-hard-rules.md §Host patching.
 #

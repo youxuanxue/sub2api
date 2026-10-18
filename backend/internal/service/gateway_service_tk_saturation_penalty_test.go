@@ -89,15 +89,15 @@ func resetSatCache() { satDeprioritizeCache.Store((*tkOptOutFlagCacheEntry)(nil)
 func TestEffectivePriority_FoldsPenalty(t *testing.T) {
 	a := anthropicAccWithLoad(1, 5, 0, nil)
 	require.Equal(t, 5, a.effectivePriority(), "no penalty => base priority")
-	a.saturationPenalty = anthropicSaturationPriorityPenalty
-	require.Equal(t, 5+anthropicSaturationPriorityPenalty, a.effectivePriority())
+	a.saturationPenalty = saturationPriorityPenalty
+	require.Equal(t, 5+saturationPriorityPenalty, a.effectivePriority())
 }
 
 func TestFilterByMinPriority_SaturatedSortsAfterFresh(t *testing.T) {
 	// Two equal-base-priority stubs; one carries the saturation penalty.
 	fresh := anthropicAccWithLoad(1, 0, 50, nil)
 	saturated := anthropicAccWithLoad(2, 0, 0, nil) // lower load, but saturated
-	saturated.saturationPenalty = anthropicSaturationPriorityPenalty
+	saturated.saturationPenalty = saturationPriorityPenalty
 
 	result := filterByMinPriority([]accountWithLoad{saturated, fresh})
 	require.Len(t, result, 1, "penalty must break the priority tie")
@@ -111,7 +111,7 @@ func TestFilterByMinPriority_AllSaturatedPreservesOrder(t *testing.T) {
 	b := anthropicAccWithLoad(2, 2, 0, nil)
 	c := anthropicAccWithLoad(3, 1, 0, nil)
 	for _, p := range []*accountWithLoad{&a, &b, &c} {
-		p.saturationPenalty = anthropicSaturationPriorityPenalty
+		p.saturationPenalty = saturationPriorityPenalty
 	}
 	result := filterByMinPriority([]accountWithLoad{a, b, c})
 	// Base min priority is 1 (ids 1,3); id 2 (priority 2) sorts after. Both
@@ -148,8 +148,8 @@ func TestComputePenalties_AtThresholdPenalized(t *testing.T) {
 		anthropicAccWithLoad(3, 0, 0, nil),
 	}
 	gw.computeAnthropicSaturationPenalties(context.Background(), cands)
-	require.Equal(t, anthropicSaturationPriorityPenalty+int(anthropicSaturationThreshold)*100, cands[0].saturationPenalty)
-	require.Equal(t, anthropicSaturationPriorityPenalty+int(anthropicSaturationThreshold+5)*100, cands[1].saturationPenalty)
+	require.Equal(t, saturationPriorityPenalty+int(anthropicSaturationThreshold)*100, cands[0].saturationPenalty)
+	require.Equal(t, saturationPriorityPenalty+int(anthropicSaturationThreshold+5)*100, cands[1].saturationPenalty)
 	require.Equal(t, 0, cands[2].saturationPenalty)
 }
 
@@ -206,7 +206,7 @@ func TestComputePenalties_KillSwitchDefaultOn(t *testing.T) {
 	gw.settingService = NewSettingService(&satSettingRepoStub{values: map[string]string{}}, &config.Config{})
 	cands := []accountWithLoad{anthropicAccWithLoad(1, 0, 0, nil)}
 	gw.computeAnthropicSaturationPenalties(context.Background(), cands)
-	require.Equal(t, anthropicSaturationPriorityPenalty+100*100, cands[0].saturationPenalty, "default ON => sustained penalty applied")
+	require.Equal(t, saturationPriorityPenalty+100*100, cands[0].saturationPenalty, "default ON => sustained penalty applied")
 	resetSatCache()
 }
 

@@ -52,11 +52,15 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
         with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "hetzner"}):
             self.assertEqual(self.mod.resolve_mode("aws"), "aws")
 
-    def test_retired_prod_modes_never_query_cloud(self) -> None:
+    def test_retired_aws_mode_never_queries_cloud(self) -> None:
         with mock.patch.object(self.mod, "aws_json", side_effect=AssertionError("must reject before AWS")):
             with self.assertRaises(SystemExit):
                 self.mod.resolve_aws("tokenkey-prod-stage0")
-            with self.assertRaisesRegex(SystemExit, "retired"):
+
+    def test_non_deployable_hetzner_matrix_fails_before_cloud_lookup(self) -> None:
+        with mock.patch.object(self.mod, "load_hetzner_matrix", return_value={"deployable": False}), \
+             mock.patch.object(self.mod, "aws_json", side_effect=AssertionError("must reject before AWS")):
+            with self.assertRaises(SystemExit):
                 self.mod.resolve_hetzner(self.mod.DEFAULT_MATRIX)
 
     def test_explicit_fresh_candidate_never_uses_old_stack(self) -> None:
@@ -76,6 +80,7 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
     def test_resolve_hetzner_by_computer_name(self) -> None:
         matrix = {
             "target": {
+                "deployable": True,
                 "instance_name": "tokenkey-prod-hz-cax21",
                 "ssm_region": "eu-west-2",
                 "domain": "api.tokenkey.dev",
@@ -105,6 +110,7 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
     def test_resolve_hetzner_paginates_instance_information(self) -> None:
         matrix = {
             "target": {
+                "deployable": True,
                 "instance_name": "tokenkey-prod-hz-cax21",
                 "ssm_region": "eu-west-2",
                 "domain": "api.tokenkey.dev",

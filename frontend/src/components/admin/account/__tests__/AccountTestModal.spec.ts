@@ -157,7 +157,7 @@ describe('AccountTestModal', () => {
   // account, which always returns the Claude default catalog when reachable)
   // means the getAvailableModels request FAILED — the modal must surface why
   // (404 unavailable / 401 session / generic) instead of a misleading empty
-  // "no options" picker. (2026-06-22 edge-us6 oh-3-e incident.)
+  // "no options" picker.
   function mountWith(account: Record<string, unknown>) {
     return mount(AccountTestModal, {
       props: { show: false, account } as any,
@@ -217,34 +217,6 @@ describe('AccountTestModal', () => {
     await flushPromises()
     expect(wrapper.find('.select-stub').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('admin.accounts.loadModelsFailed')
-  })
-
-  it('prefers short Kiro model IDs for prod mirror stubs', async () => {
-    getAvailableModels.mockResolvedValueOnce([
-      { id: 'claude-sonnet-4-5-20250929', display_name: 'Claude Sonnet 4.5 dated' },
-      { id: 'claude-sonnet-4-5', display_name: 'Claude Sonnet 4.5' }
-    ])
-    const wrapper = mountWith({
-      id: 12,
-      name: 'kiro-us5',
-      platform: 'anthropic',
-      type: 'apikey',
-      status: 'active',
-      credentials: { mirror_platform: 'kiro' }
-    })
-    await wrapper.setProps({ show: true })
-    await flushPromises()
-
-    const startButton = wrapper.findAll('button').find((button) => button.text().includes('admin.accounts.startTest'))
-    expect(startButton).toBeTruthy()
-    await startButton!.trigger('click')
-    await flushPromises()
-
-    expect(global.fetch).toHaveBeenCalledTimes(1)
-    const [, request] = (global.fetch as any).mock.calls[0]
-    expect(JSON.parse(request.body)).toMatchObject({
-      model_id: 'claude-sonnet-4-5'
-    })
   })
 
   it('defaults antigravity account test to first gemini model from admin catalog', async () => {
@@ -359,7 +331,7 @@ describe('AccountTestModal', () => {
     getAvailableModels.mockReset()
     getAvailableModels.mockResolvedValueOnce([{ id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6' }])
     const wrapper = mount(AccountTestModal, {
-      props: { show: true, account: { id: 2, name: 'tokenkey-edge-us-or1-ls-b', platform: 'anthropic', type: 'oauth', status: 'active' } } as any,
+      props: { show: true, account: { id: 2, name: 'native-oauth-fixture', platform: 'anthropic', type: 'oauth', status: 'active' } } as any,
       global: {
         stubs: {
           BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },

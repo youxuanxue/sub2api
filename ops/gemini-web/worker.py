@@ -62,7 +62,7 @@ Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 class NoControlRedirects(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        # A deployment URL mistake must not send the edge admin key elsewhere.
+        # A deployment URL mistake must not send the worker control API key elsewhere.
         return None
 
 
@@ -78,7 +78,7 @@ class SessionVersionConflict(Exception):
 
 
 class SessionControl:
-    """Narrow client for the edge-local Gemini Web session control plane."""
+    """Narrow client for the local Gemini Web session control plane."""
     def __init__(self, base_url, token):
         if not base_url.startswith('http://') and not base_url.startswith('https://'):
             raise ValueError('Invalid Gemini Web control URL')

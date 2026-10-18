@@ -1,13 +1,13 @@
 ---
 name: tokenkey-account-model-probe
-description: Probe one TokenKey prod or edge account against one model through the gateway or direct upstream path using reserved debug resources. Use to separate account capability, TokenKey routing, and usage attribution before modelops or scheduling changes.
+description: Probe one TokenKey prod account against one model through the gateway or direct upstream path using reserved debug resources. Use to separate account capability, TokenKey routing, and usage attribution before modelops or scheduling changes.
 ---
 
 # TokenKey account/model probe
 
 Run probes through `ops/observability/run-probe.sh`; do not SSH manually. Account IDs,
-names, groups and edge placement come from the current task or live snapshot and are
-identifiers only, never capability metadata.
+names and groups come from the current task or live snapshot and are identifiers only,
+never capability metadata.
 
 ## Choose the evidence path
 

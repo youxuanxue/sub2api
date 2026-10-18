@@ -42,22 +42,22 @@ func TestGetBaseURL(t *testing.T) {
 			expected: "https://custom.example.com",
 		},
 		{
-			name: "antigravity apikey auto-appends /antigravity",
+			name: "antigravity apikey preserves configured URL",
 			account: Account{
 				Type:        AccountTypeAPIKey,
 				Platform:    PlatformAntigravity,
 				Credentials: map[string]any{"base_url": "https://upstream.example.com"},
 			},
-			expected: "https://upstream.example.com/antigravity",
+			expected: "https://upstream.example.com",
 		},
 		{
-			name: "antigravity apikey trims trailing slash before appending",
+			name: "antigravity apikey preserves trailing slash",
 			account: Account{
 				Type:        AccountTypeAPIKey,
 				Platform:    PlatformAntigravity,
 				Credentials: map[string]any{"base_url": "https://upstream.example.com/"},
 			},
-			expected: "https://upstream.example.com/antigravity",
+			expected: "https://upstream.example.com/",
 		},
 		{
 			name: "antigravity non-apikey returns empty",
@@ -148,22 +148,22 @@ func TestGetGeminiBaseURL(t *testing.T) {
 			expected: "https://custom-gemini.example.com",
 		},
 		{
-			name: "antigravity apikey auto-appends /antigravity",
+			name: "antigravity apikey preserves configured URL",
 			account: Account{
 				Type:        AccountTypeAPIKey,
 				Platform:    PlatformAntigravity,
 				Credentials: map[string]any{"base_url": "https://upstream.example.com"},
 			},
-			expected: "https://upstream.example.com/antigravity",
+			expected: "https://upstream.example.com",
 		},
 		{
-			name: "antigravity apikey trims trailing slash",
+			name: "antigravity apikey preserves trailing slash",
 			account: Account{
 				Type:        AccountTypeAPIKey,
 				Platform:    PlatformAntigravity,
 				Credentials: map[string]any{"base_url": "https://upstream.example.com/"},
 			},
-			expected: "https://upstream.example.com/antigravity",
+			expected: "https://upstream.example.com/",
 		},
 		{
 			name: "antigravity oauth does NOT append /antigravity",

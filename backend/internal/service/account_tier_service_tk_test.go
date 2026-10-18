@@ -148,8 +148,6 @@ func TestApplyTier_RejectsNonAnthropic(t *testing.T) {
 }
 
 func TestApplyTier_RejectsApikeyStub(t *testing.T) {
-	// applying a tier to an anthropic apikey mirror stub must be rejected (it
-	// would otherwise wipe base_url/pool_mode).
 	svc := NewAccountTierService(
 		&stubAdminServiceForTier{getAccount: &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}},
 		tierServiceWithL4(t), nil)

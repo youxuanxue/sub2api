@@ -19,7 +19,7 @@ func tkCCPreservesKiroUpstreamStream(account *Account, clientStream bool) bool {
 	if clientStream || account == nil {
 		return clientStream
 	}
-	return account.IsKiro() || account.IsKiroMirrorStub()
+	return account.IsKiro()
 }
 
 // forwardAsChatCompletionsViaKiro routes CC→Anthropic converted bodies through
@@ -74,7 +74,6 @@ func (s *GatewayService) forwardAsChatCompletionsViaKiro(
 		var contentFilteredErr *KiroContentFilteredError
 		if errors.As(err, &contentFilteredErr) {
 			MarkOpsClientContentFiltered(c)
-			c.Header(KiroOutcomeHeader, KiroContentFilteredOutcome)
 			writeGatewayCCError(c, http.StatusBadRequest, "content_filter_error", KiroContentFilteredClientMessage())
 			return nil, contentFilteredErr
 		}

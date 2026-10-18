@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
-	"net/url"
 	"strings"
 	"unicode/utf8"
 
@@ -89,30 +88,7 @@ func (s *OpenAIGatewayService) validateUpstreamBaseURLForAccount(account *Accoun
 	if err == nil {
 		return normalized, nil
 	}
-	accountBaseURL := ""
-	if account != nil {
-		accountBaseURL = strings.TrimSpace(account.GetCredential("base_url"))
-	}
-	if accountBaseURL == "" || !isEdgeMirrorStub(account, edgeIDPattern) {
-		return "", err
-	}
-	parsed, parseErr := url.Parse(accountBaseURL)
-	if parseErr != nil || strings.TrimSpace(parsed.Hostname()) == "" {
-		return "", err
-	}
-	allowPrivate := false
-	if s != nil && s.cfg != nil {
-		allowPrivate = s.cfg.Security.URLAllowlist.AllowPrivateHosts
-	}
-	normalized, accountErr := urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
-		AllowedHosts:     []string{parsed.Hostname()},
-		RequireAllowlist: true,
-		AllowPrivate:     allowPrivate,
-	})
-	if accountErr != nil {
-		return "", fmt.Errorf("invalid base_url: %w", accountErr)
-	}
-	return normalized, nil
+	return "", err
 }
 
 // buildOpenAIResponsesURL 组装 OpenAI Responses 端点。

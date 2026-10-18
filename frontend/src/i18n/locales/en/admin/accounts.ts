@@ -869,7 +869,6 @@ export default {
       modelCount: '{count} models',
       poolMode: 'Pool Mode',
       poolModeHint: 'Enable when upstream is an account pool; errors won\'t mark local account status',
-      poolModeSystemManaged: 'System-managed: internal edge stubs are maintained by the reconciler',
       poolModeInfo:
         'When enabled, upstream 429/403/401 errors will auto-retry without marking the account as rate-limited or errored. Suitable for upstream pointing to another sub2api instance.',
       poolModeRetryCount: 'Same-Account Retries',
@@ -1115,7 +1114,7 @@ export default {
       mixedSchedulingHint:
         'Antigravity: Anthropic/Gemini groups; Kiro: Anthropic (Claude) groups only',
       mixedSchedulingTooltipKiro:
-        'When enabled, this Kiro OAuth account can join Anthropic (Claude) groups and serve /v1/messages on-box. Not for Gemini groups; do not confuse with edge kiro-* Anthropic mirror stubs.',
+        'When enabled, this Kiro OAuth account can join Anthropic (Claude) groups and serve /v1/messages on-box. Not for Gemini groups.',
       mixedSchedulingTooltip:
         '!! WARNING !! Antigravity Claude and Anthropic Claude cannot be used in the same context. If you have both Anthropic and Antigravity accounts, enabling this option will cause frequent 400 errors. When enabled, please use the group feature to isolate Antigravity accounts from Anthropic accounts. Make sure you understand this before enabling!!',
       aiCreditsBalance: 'AI Credits',
@@ -1438,7 +1437,7 @@ export default {
         baseUrlHint: 'Leave default for official Gemini API',
         apiKeyHint: 'Your Gemini API Key (starts with AIza)',
         webSessionImportTitle: { initialize: 'Initialize Gemini Web Worker session', replace: 'Replace Gemini Web browser session' },
-        webSessionImportHint: 'In the edge admin running the Worker, choose the exported browser JSON (up to 2 MiB). This updates only this account’s browser session and keeps scheduling unchanged. If the account is in error from an invalid session, a successful import restores it to active without enabling scheduling. Import success does not verify Google sign-in.',
+        webSessionImportHint: 'In the admin interface running the Worker, choose the exported browser JSON (up to 2 MiB). This updates only this account’s browser session and keeps scheduling unchanged. If the account is in error from an invalid session, a successful import restores it to active without enabling scheduling. Import success does not verify Google sign-in.',
         webSessionImportInvalid: 'Invalid Gemini Web session JSON',
         webSessionImportTooLarge: 'Session file exceeds 2 MiB. Export it again.',
         webSessionImportConflict: 'The session changed or the Worker is using it. Retry the import later.',
@@ -1782,10 +1781,10 @@ export default {
       forbidden: 'Forbidden',
       forbiddenValidation: 'Verification Required',
       forbiddenViolation: 'Violation Ban',
-      verificationLinkHint: 'From the last Google 403. Open in the fingerprint browser signed in to this account using its Edge egress IP; test the account after verification to confirm recovery.',
+      verificationLinkHint: 'From the last Google 403. Open in the fingerprint browser signed in to this account using the account proxy egress IP; test the account after verification to confirm recovery.',
       antigravityAuthorizationLink: 'OAuth authorization link',
       antigravityAuthExpired: 'The authorization link expired. Generate a new link to continue.',
-      antigravityAuthBrowserHint: 'Copy the link into the fingerprint browser signed in to this account, using its Edge egress IP. Keep this dialog open and paste the full callback URL here to complete authorization within 30 minutes. Generate a new link after expiry or a server restart. Google verification clears a verification challenge; OAuth authorization obtains new credentials.',
+      antigravityAuthBrowserHint: 'Copy the link into the fingerprint browser signed in to this account, using the account proxy egress IP. Keep this dialog open and paste the full callback URL here to complete authorization within 30 minutes. Generate a new link after expiry or a server restart. Google verification clears a verification challenge; OAuth authorization obtains new credentials.',
       openVerification: 'Open Verification Link',
       copyLink: 'Copy Link',
       linkCopied: 'Link Copied',

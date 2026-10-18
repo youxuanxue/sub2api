@@ -927,11 +927,9 @@ func (s *AccountTestService) buildAntigravityAPIKeyModelsRequest(ctx context.Con
 	if baseURL == "" {
 		return nil, newUpstreamModelSyncConfigError("Antigravity API-key base URL is required for upstream model sync", nil)
 	}
-	if !strings.HasSuffix(strings.ToLower(baseURL), "/antigravity") {
-		return nil, newUpstreamModelSyncUnsupportedError(
-			"Antigravity API-key upstream model sync requires a compatible gateway base URL ending in /antigravity; use Antigravity OAuth for official Cloud Code upstreams",
-			nil,
-		)
+	parsedURL, err := url.Parse(baseURL)
+	if err == nil && strings.HasSuffix(strings.ToLower(parsedURL.Hostname()), "cloudcode-pa.googleapis.com") {
+		return nil, newUpstreamModelSyncUnsupportedError("Official Cloud Code upstream requires Antigravity OAuth; API-key sync requires a compatible gateway", nil)
 	}
 	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
 	if err != nil {

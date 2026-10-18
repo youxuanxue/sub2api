@@ -17,7 +17,7 @@ from pgdump_restore_canary_contract import precious_counts_valid  # noqa: E402
 
 
 MAX_RECEIPT_AGE = dt.timedelta(days=8)
-OBJECT_URI_RE = re.compile(r"s3://[^/]+/(?:prod|edge/[a-z][a-z0-9]{1,15})/pgdump/tokenkey-\d{8}T\d{6}Z\.sql\.gz")
+OBJECT_URI_RE = re.compile(r"s3://[^/]+/prod/pgdump/tokenkey-\d{8}T\d{6}Z\.sql\.gz")
 REQUIRED_FIELDS = {
     "schema_version",
     "mode",
@@ -37,7 +37,7 @@ REQUIRED_FIELDS = {
     "source_mutated",
     "deletion_authorized",
 }
-TARGET_RE = re.compile(r"(?:prod|edge:[a-z][a-z0-9]{1,15})")
+TARGET_RE = re.compile(r"prod")
 
 
 def _parse_time(value: object) -> dt.datetime | None:
@@ -124,11 +124,7 @@ def receipt_problem(receipt: object, expected_target: str) -> str | None:
         and receipt.get("source_mutated") is False
         and receipt.get("deletion_authorized") is False
     )
-    expected_prefix = (
-        "/prod/pgdump/"
-        if expected_target == "prod"
-        else f"/edge/{expected_target.split(':', 1)[1]}/pgdump/"
-    )
+    expected_prefix = "/prod/pgdump/"
     if not evidence_valid or expected_prefix not in str(receipt.get("source_s3_uri", "")):
         return "restore canary receipt has incomplete or invalid evidence"
     return None

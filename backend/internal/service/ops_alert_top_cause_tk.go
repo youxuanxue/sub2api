@@ -108,19 +108,6 @@ func opsTopCauseApplies(metricType string) bool {
 	}
 }
 
-// computeTopCause returns the pre-formatted "主因" string(s) for the card — both
-// "" when the rule is not a rate metric, the query fails, or there is nothing to
-// show. `cause` is the primary line: the model/owner breakdown (error-rate
-// rules), the saturated pool(s) (pool_load_rate), or the empty platform pool(s)
-// (routing_capacity_rejection_count). `models` is the failed-request top model
-// breakdown for routing_capacity_rejection_count, rendered on its own line under
-// 主因. `users` is retained for already-stored historical event dimensions.
-// Best-effort: a failure here must never block firing the alert.
-//
-// This function is node-agnostic. Edge nodes suppress the WHOLE
-// routing_capacity_rejection_count alert at the notification layer
-// (maybeSendAlertNotifications → isEdgeNode), so there is no per-field edge
-// branching here.
 func (s *OpsAlertEvaluatorService) computeTopCause(ctx context.Context, rule *OpsAlertRule, start, end time.Time, platform string, groupID *int64) (cause string, users string, models string) {
 	if s == nil || rule == nil {
 		return "", "", ""

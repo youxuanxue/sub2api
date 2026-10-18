@@ -101,7 +101,7 @@ func TestClaudeOpus5ServingOwners(t *testing.T) {
 	require.Contains(t, supportedClaudeCatalogModels, modelID,
 		"Kiro-served models remain visible on the unified anthropic public catalog")
 	require.True(t, isPublicCatalogModelSupported(PlatformAnthropic, modelID))
-	require.True(t, kiroMirrorStubSupportsModel(modelID))
+	require.True(t, kiroSupportsModel(modelID))
 
 	nativeMapping, ok := accountModelMappingForAccount(context.Background(), &Account{
 		Platform: PlatformAnthropic,
@@ -110,17 +110,6 @@ func TestClaudeOpus5ServingOwners(t *testing.T) {
 	require.True(t, ok)
 	require.NotContains(t, nativeMapping, modelID)
 
-	kiroMirrorMapping, ok := accountModelMappingForAccount(context.Background(), &Account{
-		Name:     "kiro-us3",
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"mirror_platform": PlatformKiro,
-		},
-	}, nil, nil, nil)
-	require.True(t, ok)
-	require.Contains(t, kiroMirrorMapping, modelID,
-		"anthropic transport stubs must resolve their mapping scope through mirror_platform=kiro")
 }
 
 func kiroAdminTestModelIDsForPresetTest() []string {

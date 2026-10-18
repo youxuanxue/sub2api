@@ -62,7 +62,6 @@ activate 原子安装 helper/script 与 config，不启停 timer。rollback 恢�
 ## 测试与运行证据
 
 安全和失败行为见 `ops/stage0/test_pgdump_storage.py`；真实恢复契约见
-`ops/stage0/test_pgdump_restore_canary.py`；告警身份/卷/无重启行为见
-`ops/observability/test_remediate_hcloud_prod_host_alerts.py`。迁移验收对应 US-063。
+`ops/stage0/test_pgdump_restore_canary.py`。迁移验收对应 US-063。
 现场回执和敏感恢复文件只保存操作机受保护目录及主机，不提交临时审计报告。
 上线入口与存储坐标由 `deploy/hetzner/README.md` 单一维护。

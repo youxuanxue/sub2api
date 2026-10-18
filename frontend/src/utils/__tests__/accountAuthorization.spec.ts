@@ -8,9 +8,8 @@ describe('account authorization routing', () => {
     expect(accountAuthorizationAction({ platform, type: 'apikey' })).toBeNull()
     expect(accountAuthorizationAction({ platform, type: 'oauth', parent_account_id: 1 })).toBeNull()
   })
-  it('uses supported authorization actions and rejects retired accounts', () => {
+  it('uses supported authorization actions', () => {
     expect(accountAuthorizationAction({ platform: 'kiro', type: 'oauth' })).toBe('import')
-    expect(accountAuthorizationAction({ platform: 'newapi', type: 'apikey', extra: { upstream_provider: 'cursor' } })).toBe(null)
     expect(accountAuthorizationAction({ platform: 'anthropic', type: 'setup-token' })).toBe('oauth')
     expect(accountAuthorizationAction({ platform: 'unknown', type: 'oauth' } as Account)).toBeNull()
   })

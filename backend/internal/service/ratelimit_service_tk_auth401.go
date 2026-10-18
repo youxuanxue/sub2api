@@ -22,13 +22,6 @@ func (s *RateLimitService) tkHandleAuth401(
 	}
 	statusCode := 401
 
-	if tkSkipDownstreamKiroOAuthAuthRejectPenalty(account, statusCode, upstreamMsg, responseBody) {
-		slog.Info("anthropic_downstream_kiro_oauth_401_skip_penalty",
-			"account_id", account.ID,
-			"status_code", statusCode)
-		s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "kiro_oauth_401")
-		return true
-	}
 	if tkIsCapabilityScope401(statusCode, responseBody) {
 		slog.Info("capability_scope_401_skip_penalty",
 			"account_id", account.ID, "platform", account.Platform, "message", upstreamMsg)

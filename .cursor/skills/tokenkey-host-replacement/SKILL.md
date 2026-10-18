@@ -2,7 +2,7 @@
 name: tokenkey-host-replacement
 description: >-
   TokenKey prod 换机/整机迁移/EC2 reprovision: dump-restore, DNS cutover,
-  old-host standby. Not image-only deploy or IP rotation; edges retired.
+  old-host standby. Not image-only deploy or IP rotation.
 ---
 
 # TokenKey：全新换机
@@ -13,9 +13,8 @@ description: >-
 
 ## 触发 / 勿用
 
-勿用→镜像 `stage0-release-rollout`；LS 换 IP→`lightsail-ip-rotation`；仅 accounts→`migrate-edge-accounts`；prod 卷在→HZ README 恢复。
+勿用→镜像 `stage0-release-rollout`；仅账号操作使用账号导入工具；prod 卷在→HZ README 恢复。
 
-**Edge：** 默认不部署/不 fan-out（矩阵 `deployable=false`；prod stub 已软删）。恢复 edge 须单独批准。
 
 决策：`docs/approved/hetzner-cloud-full-migration.md`；灾备：`deploy/aws/RUNBOOK-disaster-recovery.md`；回执：`docs/ops/aws-tokyo-cutover-20261017.json`。
 

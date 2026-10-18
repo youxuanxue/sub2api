@@ -25,7 +25,6 @@ func TestTkHandleMessagesNonFailoverForwardError_Matrix(t *testing.T) {
 		c, _ := gin.CreateTestContext(rec)
 		require.True(t, h.tkHandleMessagesNonFailoverForwardError(c, &service.KiroContentFilteredError{}))
 		require.Equal(t, http.StatusBadRequest, rec.Code)
-		require.Equal(t, service.KiroContentFilteredOutcome, rec.Header().Get(service.KiroOutcomeHeader))
 		require.Equal(t, "invalid_request_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
 	})
 

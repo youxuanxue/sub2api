@@ -5,7 +5,6 @@ source_baseline: 75e38806d7f04202f3ee02148f10975b7d26871c
 pr_base: 6cfe353d765cf0f2868fcf56d1f22475e79785d3
 implementation_approval: user-explicit-database-only-admin-import-and-copy-initialization
 observed_on: 2026-09-21
-target: edge-us4
 ---
 
 # Gemini Web Cookie HTTP 通路
@@ -25,7 +24,7 @@ Antigravity Flash 生图参数，并明确「采用 tokenkey 里已有的精确�
   都不得返回 Pro 成功；沿用 pending 暂停，不重复生成，不伪造 Developer API modelVersion。
 - Antigravity 无真 Pro 证据，移除 Pro→Flash 默认/快捷配置；持久化、runtime、通配符
   映射亦不能让 Pro 被 AG 接纳。普通 Gemini/Vertex 真 Pro 供应源不被全局屏蔽。
-- 分辨率参数统一 `imageConfig.imageSize=1K/2K/4K`。Web 取得原生约 2K，edge
+- 分辨率参数统一 `imageConfig.imageSize=1K/2K/4K`。Web 取得原生约 2K，本地网关
   复用现有精确画布的渐进 CatmullRom / 等比 pad owner 输出目标尺寸；4K 是本地放大，
   不是原生 4K。GPT 现有尺寸限制保持原样，Gemini 使用自己的已定义画布上限。
   不缩放预览图；Google original RPC 和解码校验继续强制。
@@ -40,7 +39,7 @@ Antigravity Flash 生图参数，并明确「采用 tokenkey 里已有的精确�
   Images 省略 size/auto 不再在通用转换器强塞 2K：AG 已有 wire 默认仍为 2K；Web 默认保留原图。
   `size=1K/2K/4K` 和方形像素别名继续映射到相同 imageSize。
   system/tools/采样控制/多轮请求继续拒绝；不以丢参声称和 AG 完全等价。
-- 本地 Worker 账号前的网关消化分辨率并处理原图；prod relay 保留参数送往 edge，
+- 本地 Worker 账号前的网关消化分辨率并处理原图；远端 Worker 上游保留参数转发，
   不二次放大。输出成功后沿用原结算，按 Pro 价格及交付尺寸档计费；处理失败不结算图片、
   不自动再次生成。流式依旧缓冲，处理后返回同一 SSE 结果。
 
@@ -54,16 +53,9 @@ us4 `4:3` 返回 2400×1792；us3 `21:9` 返回 3168×1344；其他比例的脱�
 杯形和构图保留。官方 [Web 图片说明](https://support.google.com/gemini/answer/14286560?hl=en)
 说明付费下载为 2K；这些实测不证明原生 4K。
 
-上线按 Worker → edge backend → prod backend → 网关归因探测 → mappings 激活推进。
-代码合并不等于部署或启用账号。目标 prod relay 是 `gemini-us3/4/5/6`，它们是账号，
-不是路由分组；现有调度关闭状态在本次代码 PR 中不变。先核对 eligible edge Web runtime，
-逐账号直测与网关账号归因通过后，按现有 modelops 激活流程追加下列映射，并保留原映射：
-
-| 公共请求 | prod relay 目标 | edge Worker 目标 |
-| --- | --- | --- |
-| `gemini-3-pro-image` | 同名 | `gemini-web-nano-banana-pro` |
-| `nano-banana-pro` | `gemini-3-pro-image` | `gemini-web-nano-banana-pro` |
-| `nano-pro` | `gemini-3-pro-image` | `gemini-web-nano-banana-pro` |
+上线按 Worker → backend → 网关归因探测 → mappings 激活推进。
+代码合并不等于部署或启用账号。先核对 Web runtime，逐账号直测与网关归因通过后，
+按现有 modelops 流程把 Pro 别名映射到 `gemini-web-nano-banana-pro`。
 
 停用、报错或 pending 账号不随上新被恢复。rollback 先撤回 Pro 映射，再回滚 Worker；
 不能让新映射落到旧 Worker。需要同时发布 pricing registry 的新 alias，不以计费 family fallback 代替。
@@ -81,7 +73,7 @@ us4 `4:3` 返回 2400×1792；us3 `21:9` 返回 3168×1344；其他比例的脱�
 ## 当前授权与边界
 
 PR #2262 提供 Cookie＋纯 HTTP Worker，沿用 Gemini API-key 账号与官方
-GenerateContentResponse 格式。用户明确要求删除文件模式，控制接口沿用现有 edge
+GenerateContentResponse 格式。用户明确要求删除文件模式，控制接口沿用Gemini Web 管理员 API-key
 鉴权规范，并修复复审发现的问题。本文件定义当前实现契约；旧浏览器迁移、文件 canary
 操作步骤不再是实施指令，历史调查保存在
 [先前版本](https://github.com/youxuanxue/sub2api/blob/f48c07d3fb4799392ebe0b113238cd2d43a61267/docs/approved/gemini-web-channel.md)。
@@ -156,7 +148,7 @@ cleanup dry-run，并记录缺口。未部署时本地 HTTP fixture 测试仅称
 
 ## 数据与会话 SSOT
 
-唯一可执行会话为目标 edge 的 `accounts.credentials.gemini_web.runtime`：
+唯一可执行会话为目标网关 的 `accounts.credentials.gemini_web.runtime`：
 
 ```json
 {
@@ -178,8 +170,8 @@ runtime 是否存在仍是会话绑定 SSOT，不增加 extra 初始化标志。
 
 ## 控制接口与执行
 
-控制路由挂在 `/api/v1/edge/gemini-web`，复用现有 edge API-key 和活跃管理员 owner
-中间件，不新增 Gemini 专用私网限制或后端服务令牌。传输与部署遵循现有 edge API 规范。
+控制路由挂在 `/api/v1/edge/gemini-web`，使用 Gemini Web API-key 和活跃管理员 owner
+中间件，不新增 Gemini 专用私网限制或后端服务令牌。
 
 - `GET /accounts/:id/session`：读取该 active、已有 nonempty runtime 的 Gemini API-key 账号 runtime 和 Worker key。不要求 `schedulable`——调度只决定是否进入 fleet，不决定控制面能否读取会话。
 - `PUT /accounts/:id/runtime`：以 expected_version 和租约 owner 比较交换 runtime，服务端递增版本；同样只要求 active + 租约，不要求 schedulable。
@@ -233,7 +225,7 @@ Worker 每分钟只读维护元数据，只有到期账号才申请租约并执�
 初始化只接受已关闭调度的账号；SQL 重验，若并发编辑启用调度则返回 409。
 `gemini_web_relay` 或 `extra.relay_kind=gemini_web` 的 prod 中继、普通 API Key 均不可导入。
 UI 用 `has_gemini_web` 显示资格、用 `has_gemini_web_runtime` 区分初始化和替换，Handler
-与 SQL 再验证边界。不会自动向 prod 中继或其他 edge 转发 Cookie。
+与 SQL 再验证边界。不会自动向远端上游 转发 Cookie。
 
 - 前端读取文件前检查 2 MiB 限制，后端独立限制请求体；校验格式、UA、Cookie
   数量、域、字段类型与长度。域写入前规范化，缺少 path 使用 `/`；CDP 的
@@ -255,7 +247,7 @@ UI 用 `has_gemini_web` 显示资格、用 `has_gemini_web_runtime` 区分初始
 
 运营流程为：复制本地 Worker 账号 → 编辑副本 → 选择凭证 JSON 完成初始化 →
 核对导入回执 → 手动启用调度。响应 `session.mode` 为 `initialized` 或 `replaced`；
-替换保留原调度状态。一个 edge Worker 继续按账号 ID 隔离会话，无须为副本新建进程。
+替换保留原调度状态。一个 Worker 继续按账号 ID 隔离会话，无须为副本新建进程。
 升级前已复制且缺少声明的账号不能按名称或分组自动识别；需重新复制真实 Worker 账号。
 本轮不迁移旧副本、不修改线上数据。未初始化账号即使误开调度，候选准入也拒绝承接请求。
 
@@ -265,7 +257,7 @@ PostgreSQL 验证。两者均不代表线上部署或 Google 会话有效性验�
 普通账号编辑复用已有行锁查询判断会话绑定，无绑定的普通 Gemini 账号不执行额外会话查询。
 Worker 启动校验控制协议；只读 `--check` 检查账号绑定、密钥、runtime 和 concurrency=1，
 不申请租约或请求 Google，不能证明 Google 会话仍有效。控制请求拒绝重定向以避免转发管理员 key；
-该 key 仍继承现有 edge 管理权限，本轮不新增 Gemini 专用权限或网络规则。
+该 key 仍要求活跃管理员拥有，本轮不新增 Gemini 专用权限或网络规则。
 
 Worker 保留健康请求容量，生成最多四并发、图片操作最多一并发，过载返回 503 和 Retry-After。
 `/healthz` 表示进程存活；`/readyz` 要求最近控制检查成功且未排空，Docker 健康检查使用后者。
@@ -285,7 +277,7 @@ streamGenerateContent 返回生成及下载完成后的一条 SSE，不声明首
 
 Worker 输入契约保持不变；统一网关仅执行上文经用户批准的输出预算 best-effort。共享候选准入在计费、
 选槽及等待后刷新时排除 Worker 不支持的请求，继续在原授权范围选择其他兼容账号。
-edge 以 `credentials.gemini_web` 会话对象识别此能力边界；专用 prod 中继显式声明
+本地 Worker 以 `credentials.gemini_web` 会话对象识别此能力边界；远端 Worker 上游显式声明
 `credentials.gemini_web_relay=true`，不根据账号名、域名或公开模型别名推断。
 Gemini API-key 账号的 native 请求与兼容请求统一进入 Plan。现有账号启动准备与新账号
 生命周期通过已有 capability owner 创建原生协议记录，以 `native_declaration` 区分平台
@@ -337,7 +329,7 @@ prod 中继补入声明；映射、Cookie、并发和调度开关不随代码修
 | 本地 Worker 导入资格 | backend/internal/service/gemini_web_request_tk.go 的 CanImportGeminiWebSession；SQL 写入重验 |
 | 文件选择、大小限制与弹窗异步生命周期 | frontend/src/components/account/EditAccountModal.vue |
 | 会话生命周期及 HTTP 协议执行 | ops/gemini-web/worker.py 的 SessionOwner / Account |
-| edge 控制请求 | backend/internal/handler/gemini_web_session_handler.go |
+| Worker 控制请求 | backend/internal/handler/gemini_web_session_handler.go |
 | 数据库租约与 runtime CAS；导入成功时 error→active（保留 schedulable） | backend/internal/repository/account_gemini_web_tk.go |
 | 网关账号引用 | backend/internal/service/gemini_web_tk.go |
 | 凭据脱敏与留空保留 | backend/internal/service/account_credentials_redact.go |
@@ -347,12 +339,3 @@ prod 中继补入声明；映射、Cookie、并发和调度开关不随代码修
 DI、路由鉴权和关键调用/测试锚点由 scripts/sentinels/handler-di-wire.json 防回退。
 运行命令只放 [Worker README](../../ops/gemini-web/README.md)，验收映射只放
 [US-056](../../.testing/user-stories/stories/US-056-gemini-web-http.md)。
-
-## 历史在线证据（不证明本次数据库实现已部署）
-
-2026-09-21 06:41–06:43 UTC 的旧 canary 经 prod #200 / us4 #28：
-图片 HTTP 200、JPEG 2816×1536、2,778,476 bytes；
-SHA-256 `9c3ae23fde616a093502ac17d391ef3d09d99c50469f9ed8afac1fbbf3d09559`。
-prod request ID `3daa3f2c-9616-43c6-b813-489542e29a82`，edge request ID
-`39c15fb6-78c7-4fba-842c-fe12e8c4168e`。文本返回 `TK_133_RESTORED_OK`。
-当时 #29 / profile 483 仍暂停；不据此声称双号持续健康或长期 Cookie 有效。

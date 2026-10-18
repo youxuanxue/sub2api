@@ -105,12 +105,10 @@ class PreflightCIHandoffTest(unittest.TestCase):
             'if [ "$dev_status" -ne 0 ]; then', 1
         )[1].split('echo "=== sub2api: agent contract drift ==="', 1)[0]
         self.assertNotIn("_archive_rehearsal_spawn_if_needed", after_template)
-        phase1 = script.split(
-            'echo "=== sub2api: QA Phase 1 edge baseline probe ==="', 1
-        )[1].split(
-            'echo "=== sub2api: QA Phase 1 closeout + Phase 2 baseline ==="', 1
-        )[0]
-        self.assertIn("_archive_rehearsal_spawn_if_needed", phase1)
+        self.assertLess(
+            script.index("_archive_rehearsal_spawn_if_needed"),
+            template_idx,
+        )
 
 
 if __name__ == "__main__":

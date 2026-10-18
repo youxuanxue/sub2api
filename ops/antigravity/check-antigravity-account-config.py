@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 """TokenKey post-rollout antigravity config check (read-only).
 
-Verifies Antigravity account/group configuration across prod and all deployable
-edges. Model and scope policy is loaded from the generated model-surface bundle;
+Verifies Antigravity account/group configuration on prod. Model and scope policy is loaded from the generated model-surface bundle;
 this checker owns only the independent account-to-group binding invariant:
 
   1. **accounts** — prod accounts cover the complete bundle mapping floor
-     with correct targets and no bundle-forbidden key/prefix. On every target, any
-     active+schedulable account is bound to an antigravity group. Edge account
-     mappings remain passthrough-empty and are not treated as drift.
+     with correct targets and no bundle-forbidden key/prefix. Every active+schedulable account must be bound to an antigravity group.
   2. **groups** — every active ``platform=antigravity`` group carries exactly
      the bundle ``supported_model_scopes`` projection.
 
@@ -50,7 +47,6 @@ _bundle_spec.loader.exec_module(_BUNDLE)
 DEFAULT_BUNDLE_PATH = _BUNDLE.DEFAULT_BUNDLE_PATH
 _BUNDLE_PATH = DEFAULT_BUNDLE_PATH
 
-# prod is pinned (not an entry in the edge matrix), same as manage-anthropic-config.py.
 PROD_TARGET = {"region": "us-east-1", "stack": "tokenkey-prod-stage0", "label": "prod"}
 
 # Read-only snapshot of antigravity accounts and their model_mapping, aggregated
@@ -139,11 +135,6 @@ def _load(rel: str, name: str):
     return mod
 
 
-# edge_ssm_execution self-bootstraps ops/stage0 onto sys.path for its sibling
-# import of edge_routing_matrix, so loading it first is enough; routing is
-# boto-free and safe to importlib-load directly for the matrix helpers.
-_SSM = _load("ops/stage0/edge_ssm_execution.py", "tk_edge_ssm_execution")
-_ROUTING = _load("ops/stage0/edge_routing_matrix.py", "tk_edge_routing_matrix")
 _PROD_SSM = _load("ops/stage0/ssm_execution.py", "tk_ssm_execution")
 
 
@@ -186,7 +177,7 @@ def ssm_run_sql(region: str, instance_id: str, sql: str, comment: str) -> str:
     return (inv.get("StandardOutputContent") or "").strip()
 
 
-def _account_violation(row: dict, *, allow_empty_mapping: bool = False) -> str | None:
+def _account_violation(row: dict) -> str | None:
     """Return a human reason if the account is misconfigured, else None.
 
     Two independent checks (both reported if both fail):
@@ -202,38 +193,34 @@ def _account_violation(row: dict, *, allow_empty_mapping: bool = False) -> str |
     """
     reasons: list[str] = []
     mm = row.get("model_mapping")
-    if allow_empty_mapping:
-        if mm is not None and mm != {}:
-            reasons.append("edge model_mapping must remain empty passthrough")
-    else:
-        policy = _antigravity_policy()
-        expected_mapping = policy["mapping"]
-        forbidden_keys = policy["forbidden_keys"]
-        forbidden_prefixes = policy["forbidden_prefixes"]
+    policy = _antigravity_policy()
+    expected_mapping = policy["mapping"]
+    forbidden_keys = policy["forbidden_keys"]
+    forbidden_prefixes = policy["forbidden_prefixes"]
 
-        if not mm or not isinstance(mm, dict):
-            reasons.append("empty/missing prod model_mapping")
-        else:
-            missing_floor_keys = sorted(k for k in expected_mapping if k not in mm)
-            if missing_floor_keys:
-                reasons.append("missing bundle floor keys: " + ", ".join(missing_floor_keys))
-            bad_floor_targets = sorted(
-                k for k, v in expected_mapping.items()
-                if k in mm and mm.get(k) != v
-            )
-            if bad_floor_targets:
-                reasons.append("bad bundle floor remaps: " + ", ".join(
-                    f"{k}->{mm.get(k)!r} want {expected_mapping[k]!r}" for k in bad_floor_targets
-                ))
-            leaked = sorted(
-                k for k in mm
-                if any(k.startswith(prefix) for prefix in forbidden_prefixes)
-            )
-            if leaked:
-                reasons.append("serves unsupported models: " + ", ".join(leaked))
-            forbidden = sorted(k for k in mm if k in forbidden_keys)
-            if forbidden:
-                reasons.append("contains forbidden model_mapping keys from bundle: " + ", ".join(forbidden))
+    if not mm or not isinstance(mm, dict):
+        reasons.append("empty/missing prod model_mapping")
+    else:
+        missing_floor_keys = sorted(k for k in expected_mapping if k not in mm)
+        if missing_floor_keys:
+            reasons.append("missing bundle floor keys: " + ", ".join(missing_floor_keys))
+        bad_floor_targets = sorted(
+            k for k, v in expected_mapping.items()
+            if k in mm and mm.get(k) != v
+        )
+        if bad_floor_targets:
+            reasons.append("bad bundle floor remaps: " + ", ".join(
+                f"{k}->{mm.get(k)!r} want {expected_mapping[k]!r}" for k in bad_floor_targets
+            ))
+        leaked = sorted(
+            k for k in mm
+            if any(k.startswith(prefix) for prefix in forbidden_prefixes)
+        )
+        if leaked:
+            reasons.append("serves unsupported models: " + ", ".join(leaked))
+        forbidden = sorted(k for k in mm if k in forbidden_keys)
+        if forbidden:
+            reasons.append("contains forbidden model_mapping keys from bundle: " + ", ".join(forbidden))
 
     if row.get("status") == "active" and row.get("schedulable") and not row.get("bound"):
         reasons.append("active+schedulable but NOT bound to any antigravity group "
@@ -273,7 +260,7 @@ def _check_target(label: str, region: str, instance_id: str) -> list[dict]:
     bad: list[dict] = []
     acc_out = ssm_run_sql(region, instance_id, ANTIGRAVITY_ACCOUNTS_SQL, f"antigravity-account-check {label}")
     for r in _parse_rows(label, acc_out):
-        reason = _account_violation(r, allow_empty_mapping=(label != PROD_TARGET["label"]))
+        reason = _account_violation(r)
         if reason:
             bad.append({"target": label, "kind": "account", "id": r.get("id"), "name": r.get("name"), "reason": reason})
     grp_out = ssm_run_sql(region, instance_id, ANTIGRAVITY_GROUPS_SQL, f"antigravity-group-check {label}")
@@ -284,30 +271,21 @@ def _check_target(label: str, region: str, instance_id: str) -> list[dict]:
     return bad
 
 
-def _resolve_targets(skip_prod: bool) -> list[tuple[str, str, str]]:
-    edge_ids = _ROUTING.live_deployable_edge_ids(REPO_ROOT)
-    targets: list[tuple[str, str, str]] = []
-    for eid in edge_ids:
-        ident = _SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
-        targets.append((eid, ident.region, ident.instance_id))
-    if not skip_prod:
-        # Cutover-aware: Hybrid mi-* when control-plane param is hetzner.
-        prod_inst, prod_region = _PROD_SSM.resolve_prod_identity()
-        targets.append((PROD_TARGET["label"], prod_region, prod_inst))
-    return targets
+def _resolve_targets() -> list[tuple[str, str, str]]:
+    instance_id, region = _PROD_SSM.resolve_prod_identity()
+    return [(PROD_TARGET["label"], region, instance_id)]
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Post-rollout antigravity explicit model_mapping config check (read-only).")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
-    ap.add_argument("--skip-prod", action="store_true", help="check edges only")
     ap.add_argument("--bundle", help="generated model-surface bundle to check against")
     ap.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
     args = ap.parse_args()
 
     _set_bundle_path(args.bundle)
     policy = _antigravity_policy()  # Validate the bundle before target workers fan out.
-    targets = _resolve_targets(args.skip_prod)
+    targets = _resolve_targets()
     violations: list[dict] = []
     with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
         futs = {ex.submit(_check_target, *t): t for t in targets}
