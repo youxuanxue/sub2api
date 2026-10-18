@@ -4,7 +4,7 @@
 - Title: Universal and direct requests share authorization-scoped candidate scheduling
 - Priority: P0
 - As a / I want / So that: As a key user, I want eligible accounts to compete within my authorized scope and payment tier, so group display order and duplicate memberships do not change scheduling or bypass my billing rights.
-- Trace: `docs/approved/candidate-eligibility-ssot.md`
+- Trace: `../../../docs/approved/candidate-eligibility-ssot.md`
 - Risk Focus:
   - 逻辑错误: preserve complete authorization paths, deduplicate equivalent execution candidates, and keep model support separate from availability.
   - 行为回归: preserve native/media capability owners and subscription priority while removing group-order scheduling effects.
@@ -277,7 +277,7 @@ python3 .testing/user-stories/verify_quality.py
 
 ## Status
 
-逐 AC 的机器状态与测试引用见 [`ops/observability/candidate-eligibility-acceptance-ledger.json`](../../ops/observability/candidate-eligibility-acceptance-ledger.json)。检查器与本文 Acceptance Criteria 完整对账，并验证引用属于 Linked Tests 且测试符号仍有效；它不替代测试执行结果或人审证据语义。`contract-tested` 表示可重复的契约证据，`live-verified` 另需本文链接的独立线上 receipt，`blocked` 必须说明缺口。运营观察只通过 Coverage Boundaries 指针维护，不另设一个全局 blocked 状态；汇总 billing-watch 不得关闭单项 AC。
+逐 AC 的机器状态与测试引用见 [`ops/observability/candidate-eligibility-acceptance-ledger.json`](../../../ops/observability/candidate-eligibility-acceptance-ledger.json)。检查器与本文 Acceptance Criteria 完整对账，并验证引用属于 Linked Tests 且测试符号仍有效；它不替代测试执行结果或人审证据语义。`contract-tested` 表示可重复的契约证据，`live-verified` 另需本文链接的独立线上 receipt，`blocked` 必须说明缺口。运营观察只通过 Coverage Boundaries 指针维护，不另设一个全局 blocked 状态；汇总 billing-watch 不得关闭单项 AC。
 
 - [x] Done
 

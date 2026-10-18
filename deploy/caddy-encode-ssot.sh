@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Encode Content-Type whitelist SSOT helpers.
 #
-# Owner of the policy text: deploy/Caddyfile (see EDGE_SECURITY.md).
+# Owner of the policy text: deploy/Caddyfile.
 # This file never lists Content-Types — it only extracts/compares the owner's
 # encode block so stage0 / local-bootstrap cannot drift by hand edit.
 #

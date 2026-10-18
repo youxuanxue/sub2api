@@ -9,13 +9,13 @@
 |------|----------|---------|------------|------|
 | **prod** | `api.tokenkey.dev` | `3.114.187.250` | `i-045f062ce33e1a5af` · ap-northeast-1 | EC2 c7g.xlarge · tokenkey-prod-tokyo-20261017 |
 
-**Edge 已退役并回收。** prod 直接使用原生账号（含原 edge 复制账号），旧中继 stub 已软删。
+prod 直接使用原生账号；旧中继 stub 已软删。
 AWS / Hcloud 旧主机与公网 IP 不能用作回滚目标；历史数据从 S3 隔离归档读取。
 退役验收与归档入口见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
 
 ### 日本出口代理（现役）
 
-这些 Lightsail 机器仅提供账号出口，不能作为 edge 网关部署或退役。
+这些 Lightsail 机器仅提供账号出口。
 
 **活公网 IP / 绑定以 prod `proxies` 表为准**（Web：`https://tokenkey.dev/admin/proxies`；
 探针：`ops/observability/probe-list-proxies.sh`）。下表只记逻辑名与常见 Lightsail 名，
@@ -39,7 +39,7 @@ AWS / Hcloud 旧主机与公网 IP 不能用作回滚目标；历史数据从 S3
 |----|-----|
 | 活入口 | 仅 Tokyo prod `3.114.187.250`；四正式域名 A 指向该 IP |
 | prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
-| 探针 / sync Caddy | prod 解析至当前 EC2 `i-*`；已退役 edge 身份拒绝执行 |
+| 探针 / sync Caddy | prod 解析至当前 EC2 `i-*`；已退役身份拒绝执行 |
 | live 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
 | Secrets | `/tokenkey/hetzner/…`；不进 git |
 
@@ -82,7 +82,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 |---|---|---|
 | SSM Hybrid / Parameter Store / STS OIDC | Lightsail / 历史 Hcloud 远程执行、参数与 GHCR 身份；`ops/stage0/resolve_prod_ssm_target.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
 | QA raw archive | 存储配置为 AWS S3，当前上传已暂停；历史恢复按小时来源选择 | 按 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)核查实际到期与对象清单；AWS 桶、KMS 和恢复角色销毁另行审批 |
-| PG dump | 仅 Tokyo prod 定时备份；旧 edge/prod 全量冻结库保留独立 S3 归档 | 当前节点的隔离恢复与定时任务验收见 [收尾记录](../../docs/approved/aws-migration-closeout-20261016.md)；不销毁旧数据 |
+| PG dump | 仅 Tokyo prod 定时备份；旧主机全量冻结库保留独立 S3 归档 | 当前节点的隔离恢复与定时任务验收见 [收尾记录](../../docs/approved/aws-migration-closeout-20261016.md)；不销毁旧数据 |
 | env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
 | 历史 archive / dormant media 桶 | 历史数据与停用配置；媒体默认不启用 S3，只有显式 opt-in | 资产销毁另行审批，不能把停用 bucket 描述成现网迁移对象 |
 | 共享运行文件的旧目录名 | `deploy/aws/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 仍直接消费 | 是共享 owner，路径不代表部署在 AWS；迁路径必须同时更新引用、生成产物和 sentinel |

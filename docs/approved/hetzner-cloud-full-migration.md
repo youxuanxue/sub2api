@@ -1,5 +1,5 @@
 ---
-title: TokenKey 全线 Hetzner Cloud 舰队（prod + edge · 德区 · cax21）
+title: TokenKey Hetzner Cloud prod 迁移基线
 status: approved
 approved_by: "feng (merge #2517, 2026-10-09)"
 created: 2026-10-09
@@ -21,7 +21,7 @@ related_designs:
 ## 现网范围
 
 **活拓扑（2026-10-17 起）：** 仅 Tokyo prod EC2；细节与 IP 只在 README。
-**本文件锁定的历史决策：** 曾将舰队收敛到 Hetzner `fsn1` / `cax21` / SSM Hybrid（当时五节点 prod+uk1+uk2+us4+us5）；后续 AWS/Tokyo 切流不改写下列已锁不变量（蓝绿、单正式名、活库禁覆盖等）。
+**本文件锁定的历史决策：** 曾将生产控制面收敛到 Hetzner `fsn1` / `cax21` / SSM Hybrid；后续 AWS/Tokyo 切流不改写下列已锁不变量（蓝绿、单正式名、活库禁覆盖等）。
 
 ## 已锁定
 

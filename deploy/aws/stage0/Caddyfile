@@ -7,7 +7,7 @@
 #
 # 阶段二（canonical）：SITE_DOMAIN（如 tokenkey.dev）主 serving；API_DOMAIN 仅
 # gateway / health / 服务端 webhook（@machine allowlist），其余 301 → SITE_DOMAIN。
-# 无 SITE_DOMAIN 时（localhost / edge）API 块走全量 reverse_proxy。
+# 无 SITE_DOMAIN 时（localhost）API 块走全量 reverse_proxy。
 # -----------------------------------------------------------------------------
 
 {

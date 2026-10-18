@@ -11,7 +11,7 @@ revised_at: 2026-09-03
 
 - [OAuth 集中后的网关安全](oauth-consolidation-gateway-safety.md)：固定代理、请求错误语义、流式巡检和数据处置边界。
 
-- [AWS 迁移收尾](aws-migration-closeout-20261016.md)：备份、QA timer、独立健康监控与旧 Hcloud edge 回收边界。
+- [AWS 迁移收尾](aws-migration-closeout-20261016.md)：备份、QA timer、独立健康监控与旧主机资源收尾边界。
 
 - [东京切流复审修复](tokyo-cutover-review-repair-20261017.md)：用量 ID 冲突、分区序列门禁与跨区域 OIDC SSM 权限修复。
 
@@ -199,7 +199,7 @@ UCloud 国内单 prod 的授权范围、首次初始化和发布边界：[国内
 | [design-split-deploy-qa-bundle.md](design-split-deploy-qa-bundle.md) | archived：退役 Bundle worker 发布 |
 | [prod-component-release.md](prod-component-release.md) | archived：原组件发布设计，由 raw-only 替代 |
 
-网关 hcloud 蓝绿发布仍以 [hcloud-bluegreen-qa-migration.md](hcloud-bluegreen-qa-migration.md) 为基线，QA 部分以 raw-only 覆盖。
+网关生产蓝绿发布以 [deploy-stage0-workflow.md](deploy-stage0-workflow.md) 为基线，QA 部分以 raw-only 覆盖。
 
 - [Volc Agent Plan Kimi Chat compatibility](volc-kimi-chat-compatibility.md) — supplier-scoped thinking and tool selectors.
 
