@@ -14,7 +14,11 @@ from ops.observability.pgdump_restore_canary_alert import apply_key_decision, bu
 
 def valid_receipt(target: str = "prod") -> dict:
     return {
-        "schema_version": 2,
+        "schema_version": 3,
+        "usage_verification": {kind: {"usage_logs_legacy": {
+            "rows": 0, "total_cost": "0", "actual_cost": "0",
+            "min_created_at": None, "max_created_at": None,
+        }} for kind in ("source", "restored")},
         "mode": "pgdump_restore_canary",
         "target": target,
         "completed_at": "2026-08-18T08:00:00Z",

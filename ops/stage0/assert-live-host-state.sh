@@ -20,7 +20,7 @@
 #   - the deploy_via_ssm.sh-injected env keys are actually present + non-empty in
 #     the running container;
 #   - first-output timeout env values match first_output_timeout_ssot.py
-#     (stream 30/60 + OpenAI 120/300) unless EXPECT_ENV overrides.
+#     unless EXPECT_ENV overrides.
 #
 # Usage:
 #   ops/stage0/assert-live-host-state.sh <instance_id> [expected_tag] [comment]
@@ -62,6 +62,11 @@ aws_ssm() {
   fi
 }
 
+collection_args=()
+[[ -n "${REQUIRE_ENV+x}" ]] && collection_args+=(--require-env "$REQUIRE_ENV")
+[[ -n "${EXPECT_ENV+x}" ]] && collection_args+=(--expect-env "$EXPECT_ENV")
+ENV_FILTER="$(python3 "$SCRIPT_DIR/live_host_state_verdict.py" --print-collection-filter ${collection_args[@]+"${collection_args[@]}"})"
+
 # Read-only remote probe: emit tagged, field-named JSON the verdict parses. Only
 # emits ENV lines for keys actually present, so a missing required key yields no
 # line → the verdict flags it. base64-delivered to dodge SSM/JSON quoting.
@@ -83,7 +88,7 @@ printf 'APPCONTAINER {"name":"%s"}\n' "\$app_container"
 img=\$(docker inspect "\$app_container" --format '{{.Config.Image}}' 2>/dev/null)
 printf 'RUNIMAGE {"image":"%s"}\n' "\$img"
 docker exec "\$app_container" printenv 2>/dev/null \
-  | grep -E '^(SERVER_FRONTEND_URL|GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS|GATEWAY_STREAM_FIRST_OUTPUT_HIGH_EFFORT_TIMEOUT_SECONDS|GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS|GATEWAY_OPENAI_HIGH_EFFORT_FIRST_OUTPUT_TIMEOUT_SECONDS)=' \
+  | grep -E '${ENV_FILTER}' \
   | while IFS='=' read -r k v; do printf 'ENV {"key":"%s","value":"%s"}\n' "\$k" "\$v"; done
 PROBE
 
@@ -124,17 +129,11 @@ if [[ "${status}" != "Success" || -z "${probe_out}" ]]; then
   exit 0
 fi
 
-verdict_args=()
+verdict_args=(${collection_args[@]+"${collection_args[@]}"})
 [[ -n "${EXPECTED_TAG}" ]] && verdict_args+=(--expected-tag "${EXPECTED_TAG}")
-[[ -n "${REQUIRE_ENV:-}" ]] && verdict_args+=(--require-env "${REQUIRE_ENV}")
-[[ -n "${EXPECT_ENV:-}" ]] && verdict_args+=(--expect-env "${EXPECT_ENV}")
 
 set +e
-if [[ -n "${EXPECTED_TAG}" || -n "${REQUIRE_ENV:-}" || -n "${EXPECT_ENV:-}" ]]; then
-  verdict_out="$(printf '%s\n' "${probe_out}" | python3 "${SCRIPT_DIR}/live_host_state_verdict.py" "${verdict_args[@]}")"
-else
-  verdict_out="$(printf '%s\n' "${probe_out}" | python3 "${SCRIPT_DIR}/live_host_state_verdict.py")"
-fi
+verdict_out="$(printf '%s\n' "${probe_out}" | python3 "${SCRIPT_DIR}/live_host_state_verdict.py" ${verdict_args[@]+"${verdict_args[@]}"})"
 verdict_rc=$?
 set -e
 

@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import fcntl
-import gzip
 import hashlib
 import json
 import os
@@ -14,6 +14,7 @@ import pathlib
 import re
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -22,6 +23,7 @@ import time
 from collections.abc import Callable, Iterable
 from typing import Any
 
+import pgdump_usage_evidence as usage_evidence
 from pgdump_restore_canary_contract import PRECIOUS_TABLES, precious_counts_valid
 from pgdump_storage import Storage, StorageError, CONFIG_PATH
 
@@ -47,7 +49,21 @@ class StaleDumpError(CanaryError):
 
 
 def _default_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, **kwargs)
+    # Kill the entire restore pipeline on timeout. Killing only bash leaves
+    # gunzip/docker holding stdout pipes, blocking cleanup in communicate().
+    timeout = kwargs.pop("timeout", None)
+    kwargs.pop("check", None)  # _raw_run always checks the return code itself
+    if kwargs.pop("capture_output", False):
+        kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    with subprocess.Popen(args, start_new_session=True, **kwargs) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
+            raise
+        return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
 
 
 def _raw_run(
@@ -203,19 +219,6 @@ def _sha256(path: pathlib.Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def _uncompressed_size(path: pathlib.Path) -> int:
-    total = 0
-    try:
-        with gzip.open(path, "rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                total += len(chunk)
-    except (OSError, EOFError) as exc:
-        raise CanaryError("downloaded S3 object is not a valid gzip stream") from exc
-    if total <= 0:
-        raise CanaryError("downloaded S3 object has an empty SQL stream")
-    return total
 
 
 def _parse_time(value: object) -> dt.datetime:
@@ -424,7 +427,10 @@ def run_canary(
                 source_local_sha256 = _sha256(expected_source_path)
                 if source_local_sha256 != artifact_sha256:
                     raise CanaryError("S3 round-trip SHA-256 mismatch")
-            uncompressed_bytes = _uncompressed_size(dump_path)
+            try:
+                uncompressed_bytes, source_usage = usage_evidence.inspect_dump(dump_path)
+            except ValueError as exc:
+                raise CanaryError(str(exc)) from exc
             required_free_bytes = compressed_bytes + (2 * uncompressed_bytes) + CAPACITY_HEADROOM_BYTES
             observed_free_bytes = int(disk_usage(receipt_root).free)
             if observed_free_bytes < required_free_bytes:
@@ -469,10 +475,21 @@ def run_canary(
                 f"docker exec -i {shlex.quote(container)} psql -U tokenkey -d tokenkey "
                 "-v ON_ERROR_STOP=1"
             )
-            _run(run, ["bash", "-o", "pipefail", "-c", pipeline], timeout=3600)
+            _run(run, ["bash", "-o", "pipefail", "-c", pipeline], timeout=7200)
             restored_counts = _counts(run, container)
+            raw_usage = _run(run, ["docker", "exec", container, "psql", "-U", "tokenkey",
+                                  "-d", "tokenkey", "-XAt", "-v", "ON_ERROR_STOP=1",
+                                  "-c", usage_evidence.restored_sql()], timeout=600)
+            try:
+                restored_usage = usage_evidence.normalize(json.loads(raw_usage.splitlines()[-1]))
+            except (ValueError, TypeError, IndexError, ArithmeticError) as exc:
+                raise CanaryError("isolated usage aggregate result is invalid") from exc
+            usage = {"source": source_usage, "restored": restored_usage}
+            if not usage_evidence.verified(usage):
+                raise CanaryError("restored usage partitions/counts/times/costs differ from S3 dump")
             pending_receipt = {
-                "schema_version": 2,
+                "schema_version": 3,
+                "usage_verification": usage,
                 "mode": "pgdump_restore_canary",
                 "target": target,
                 "source_s3_uri": source_s3_uri,

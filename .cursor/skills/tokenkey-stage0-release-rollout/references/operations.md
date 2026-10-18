@@ -38,3 +38,15 @@ workflow 上传 `replay-receipt.json` 与 `replay-results.json`；本地入口�
 账号类命中、测试 key usage 与线上指纹对比；禁止自动继续 prod deploy、smoke。
 
 如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=prod`。
+
+### 原生 Anthropic 与探针覆盖边界
+
+旧 Anthropic snapshot/check CLI 已退役，不再作为发布默认检查。
+`prod-config-audit.sh` 和运行时 reconciler 均不提供该旧工具的完整替代覆盖。
+需要核验原生供应源时，沿 `tokenkey-online-log-troubleshooting` 只读检查当前 prod
+账号的类型、可调度状态及脱敏错误分类；没有可调度 OAuth/setup-token 时明确报告
+原生路径未覆盖，不用其他供应源的 Claude smoke 成功替代，也不自动恢复账号。
+
+SSOT canary 的 `reprobe_required` 必须保留模型、协议和原因。短预算超时应沿原模型和
+原入口用正常预算定点复测；上游重试错误与客户端完成结果分开报告，不能只凭 HTTP 200
+认定完整成功，也不能把其他协议成功当成该入口已验证。

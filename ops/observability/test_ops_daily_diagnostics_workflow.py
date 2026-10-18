@@ -155,7 +155,6 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
     def test_restore_canary_receipt_uses_existing_runtime_probe(self) -> None:
         commands = extract_runtime_params_commands()
         self.assertIn("echo ===PGDUMP_RESTORE_CANARY_RECEIPT===", commands)
-        self.assertIn("sudo cat /var/lib/tokenkey/pgdump-canary/latest.json 2>/dev/null || true", commands)  # preflight-allow: swallow (asserts actionable missing-receipt path)
         self.assertIn("echo ===END_PGDUMP_RESTORE_CANARY_RECEIPT===", commands)
 
         text = workflow_text()
@@ -165,6 +164,37 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         runtime_end = text.index("if [ \"$INCLUDE_ERROR_CLUSTERING\"", runtime_start)
         runtime_block = text[runtime_start:runtime_end]
         self.assertNotIn("run-probe.sh", runtime_block)
+
+    def test_large_restore_receipt_survives_runtime_ssm_transport(self) -> None:
+        from ops.observability.probe_output_transport import decode
+
+        commands = extract_runtime_params_commands()
+        start = commands.index("echo ===PGDUMP_RESTORE_CANARY_RECEIPT===") + 1
+        end = commands.index("echo ===END_PGDUMP_RESTORE_CANARY_RECEIPT===")
+        command = "\n".join(commands[start:end])
+        row = {"rows": 100000, "total_cost": "123.4567890123", "actual_cost": "12.3456789012",
+               "min_created_at": "2026-01-01T00:00:00.000000Z",
+               "max_created_at": "2026-01-31T23:59:59.123456Z"}
+        source = {f"usage_logs_{i}": row for i in range(100)}
+        receipt = json.dumps({"usage_verification": {"source": source, "restored": source}})
+        self.assertGreater(len(receipt), 24000)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = root / "receipt.json"
+            fixture.write_text(receipt)
+            sudo = root / "sudo"
+            sudo.write_text('#!/bin/sh\nexec cat "$TEST_RECEIPT"\n')
+            sudo.chmod(0o755)
+            env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"],
+                   "TEST_RECEIPT": str(fixture)}
+            result = subprocess.run(["bash", "-euo", "pipefail", "-c", command],
+                                    env=env, capture_output=True, text=True, check=True)
+            self.assertLess(len(result.stdout), 23000)
+            self.assertEqual(decode(result.stdout).decode(), receipt)
+            fixture.unlink()
+            missing = subprocess.run(["bash", "-euo", "pipefail", "-c", command],
+                                     env=env, capture_output=True, text=True, check=True)
+            self.assertEqual(decode(missing.stdout), b"")
 
     def test_runtime_ssm_params_wrap_pipefail_in_bash_c_for_hybrid_dash(self) -> None:
         """Hybrid RunShellScript starts under dash; pipefail must be inside bash -c."""

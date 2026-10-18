@@ -110,5 +110,50 @@ class AssertLiveHostStateTransportTest(unittest.TestCase):
         self.assertTrue(all(call.startswith("--region us-east-1 ssm ") for call in proc.calls))  # type: ignore[attr-defined]
 
 
+class LiveCollectorTest(unittest.TestCase):
+    def collect(self, changes):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            values = {**EXPECTED_ENV, 'SERVER_FRONTEND_URL': 'https://api.tokenkey.dev',
+                      'PRIVATE_SECRET': 'must-not-be-collected'}
+            values.update(changes)
+            (root / 'values.json').write_text(json.dumps(values))
+            (root / 'docker').write_text('''#!/usr/bin/env python3
+import json,os,sys
+if sys.argv[1] == 'inspect':
+ print('ghcr.io/youxuanxue/sub2api:1.8.40')
+else:
+ for k,v in json.load(open(os.environ['FIXTURE_ROOT']+'/values.json')).items():
+  if v is not None: print(k+'='+v)
+''')
+            (root / 'aws').write_text('''#!/usr/bin/env python3
+import json,os,subprocess,sys,pathlib
+args=sys.argv[1:]; out=pathlib.Path(os.environ['FIXTURE_ROOT'])/'facts'
+if 'send-command' in args:
+ commands=json.loads(args[args.index('--parameters')+1].split('=',1)[1])
+ result=subprocess.run(['bash','-c',commands[0]],capture_output=True,text=True,check=True)
+ out.write_text(result.stdout); print('cmd-123')
+elif args[args.index('--query')+1]=='Status': print('Success')
+else: print(out.read_text())
+''')
+            for name in ('aws','docker'):
+                (root / name).chmod(0o755)
+            env = {**os.environ, 'PATH': f'{root}:'+os.environ['PATH'],
+                   'FIXTURE_ROOT': str(root), 'APP_CONTAINER': 'tokenkey-blue'}
+            for key in ('REQUIRE_ENV','EXPECT_ENV'):
+                env.pop(key, None)
+            result = subprocess.run(['bash',str(_SCRIPT),'i-test','1.8.40'],
+                                    env=env,capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+            facts=(root/'facts').read_text()
+            self.assertNotIn('must-not-be-collected',facts)
+            return result.stdout
+
+    def test_actual_remote_collector_matches_verdict_and_detects_kiro_drift(self):
+        self.assertIn('OK: live host matches intended state',self.collect({}))
+        key='GATEWAY_KIRO_FIRST_OUTPUT_TIMEOUT_SECONDS'
+        self.assertIn('missing required env on host: '+key,self.collect({key:None}))
+        self.assertIn('required env value differs on host: '+key,self.collect({key:'1'}))
+
 if __name__ == "__main__":
     unittest.main()

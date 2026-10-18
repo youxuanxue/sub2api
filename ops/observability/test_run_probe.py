@@ -574,6 +574,14 @@ class RunProbePollingTest(unittest.TestCase):
         self.assertEqual(proc.stdout, "")
         self.assertIn("integrity check failed", proc.stderr)
 
+    def test_remote_execution_timeout_matches_requested_long_probe(self) -> None:
+        for requested, execution in ((30, 30), (10800, 10800), (2592000, 172800)):
+            with self.subTest(requested=requested):
+                proc = self._run_scenario("eventual-success", timeout_seconds=requested)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                params = json.loads(self.aws_params_log.read_text(encoding="utf-8"))
+                self.assertEqual(params["executionTimeout"], [str(execution)])
+
     def test_poll_deadline_does_not_resubmit_command(self) -> None:
         proc = self._run_scenario("timeout", timeout_seconds=30, date_step=15)
 

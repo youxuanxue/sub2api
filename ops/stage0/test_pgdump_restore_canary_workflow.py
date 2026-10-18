@@ -26,6 +26,7 @@ class PgdumpRestoreCanaryWorkflowTest(unittest.TestCase):
             if step.get("name") == "Run isolated pg_dump restore canary"
         )
         self.assertIn("run-probe.sh", command)
+        self.assertIn("--compressed-output", command)
         self.assertIn("pgdump_restore_canary_remote.sh", command)
         self.assertIn("pgdump_restore_canary.py", command)
         self.assertIn("pgdump_restore_canary_contract.py", command)
@@ -33,7 +34,7 @@ class PgdumpRestoreCanaryWorkflowTest(unittest.TestCase):
             step for step in restore["steps"]
             if step.get("name") == "Run isolated pg_dump restore canary"
         )
-        self.assertEqual(canary_step["continue-on-error"], "true")
+        self.assertNotIn("continue-on-error", canary_step)
         self.assertEqual(len(restore["steps"]), 3)
 
 

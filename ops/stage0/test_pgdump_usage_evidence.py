@@ -1,0 +1,83 @@
+"""Usage reconciliation must fail closed on missing data, cost drift and corruption."""
+import copy
+import gzip
+import pathlib
+import tempfile
+import unittest
+
+import pgdump_usage_evidence as evidence
+import test_pgdump_restore_canary as fixture
+from test_pgdump_restore_canary import USAGE, USAGE_SQL, FakeCommands
+
+
+class UsageEvidenceTest(unittest.TestCase):
+    def inspect(self, data):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory)/'dump.sql.gz'
+            path.write_bytes(data)
+            return evidence.inspect_dump(path)
+
+    def test_exact_costs_dates_and_empty_default_partition(self):
+        size, summary = self.inspect(gzip.compress(USAGE_SQL))
+        self.assertEqual(size, len(USAGE_SQL))
+        self.assertEqual(summary, USAGE)
+        same_in_japan = USAGE_SQL.replace(b'07:00:00+00', b'16:00:00+09')
+        self.assertEqual(self.inspect(gzip.compress(same_in_japan))[1], USAGE)
+
+    def test_postgres_variable_fraction_precision_and_short_timezone(self):
+        for digits in ('1', '12', '123', '1234', '12345', '123456'):
+            self.assertEqual(evidence.timestamp(f'2026-08-18 16:00:00.{digits}+09'),
+                             f"2026-08-18T07:00:00.{digits.ljust(6, '0')}Z")
+
+    def test_missing_rows_malformed_columns_and_gzip_corruption_fail(self):
+        cases = [gzip.compress(b'CREATE TABLE usage_logs(id bigint);\n'),
+                 gzip.compress(USAGE_SQL.replace(b'actual_cost',b'other_cost')),
+                 gzip.compress(USAGE_SQL)[:-4],
+                 gzip.compress(USAGE_SQL)[:10] + b"invalid deflate" + gzip.compress(USAGE_SQL)[10:],
+                 gzip.compress(USAGE_SQL.replace(b'0.1234567890',b'NaN')),
+                 gzip.compress(USAGE_SQL.replace(b'2026-08-18 07:00:00+00', b'9999-12-31 23:59:59-23')),
+                 gzip.compress(USAGE_SQL[:-3])]
+        for data in cases:
+            with self.subTest(data_length=len(data)), self.assertRaises(ValueError):
+                self.inspect(data)
+
+    def test_each_reconciliation_dimension_rejects_drift(self):
+        for field,value in [('rows',2),('total_cost','0.123456788'),('actual_cost','0'),
+                            ('max_created_at','2026-08-18T07:00:01Z')]:
+            actual=copy.deepcopy(USAGE)
+            actual['usage_logs_20260818'][field]=value
+            self.assertFalse(evidence.verified({'source':USAGE,'restored':actual}),field)
+        actual=copy.deepcopy(USAGE); del actual['usage_logs_legacy']
+        self.assertFalse(evidence.verified({'source':USAGE,'restored':actual}))
+        self.assertFalse(evidence.verified({'source':{},'restored':{}}))
+
+    def test_restore_mismatch_cleans_temporary_container_and_refuses_receipt(self):
+        fake=FakeCommands()
+        def run(args,**kwargs):
+            result=fake(args,**kwargs)
+            if 'canary_usage_evidence' in ' '.join(args):
+                result.stdout=result.stdout.replace('0.123456789','0.223456789')
+            return result
+        from pgdump_restore_canary import CanaryError
+        with self.assertRaisesRegex(CanaryError,'differ from S3 dump'):
+            fixture.PgdumpRestoreCanaryTest().run_case(run)
+        self.assertFalse(fake.container_present)
+
+    def test_overflowing_timestamp_is_rejected_with_download_cleanup(self):
+        fake = FakeCommands(downloaded=gzip.compress(USAGE_SQL.replace(
+            b'2026-08-18 07:00:00+00', b'9999-12-31 23:59:59-23')))
+        from pgdump_restore_canary import CanaryError
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            env = root / 'host.env'
+            env.write_text('TOKENKEY_PGDUMP_S3_URI=s3://bucket/prod/pgdump\n')
+            with self.assertRaisesRegex(CanaryError, 'malformed usage COPY'):
+                fixture.canary.run_canary('prod', env_path=env, receipt_root=root / 'receipts',
+                                         run=fake, now=lambda: fixture.NOW)
+            self.assertEqual(list((root / 'receipts').glob('.restore-*')), [])
+            self.assertFalse((root / 'receipts/latest.json').exists())
+            self.assertFalse(any(call[:2] == ['docker', 'run'] for call in fake.calls))
+
+
+if __name__ == '__main__':
+    unittest.main()

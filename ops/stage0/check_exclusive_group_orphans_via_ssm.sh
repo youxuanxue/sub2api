@@ -66,32 +66,10 @@ ssm_region_args=()
 _region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
 [[ -n "${_region}" ]] && ssm_region_args=(--region "${_region}")
 
-# Read-only orphan COUNT + detail. The orphan predicate (same as the backfill
-# remedy above) is repeated in both queries on purpose: a psql CTE scopes only to
-# the single statement it prefixes, so the count and detail must each carry it.
-# The two WHEREs sit adjacent here — keep them in sync. Piped in as base64 so no
-# shell/JSON quoting of the SQL literals ('subscription', 'orphans=', …) is needed.
-read -r -d '' ORPHAN_SQL <<'SQL' || true
-\pset pager off
-\set ON_ERROR_STOP on
-SELECT 'orphans=' || count(*)
-FROM api_keys k
-JOIN groups g ON g.id = k.group_id AND g.deleted_at IS NULL
-JOIN users  u ON u.id = k.user_id  AND u.deleted_at IS NULL
-WHERE k.deleted_at IS NULL AND k.group_id IS NOT NULL AND g.is_exclusive = true
-  AND g.subscription_type IS DISTINCT FROM 'subscription'
-  AND NOT EXISTS (SELECT 1 FROM user_allowed_groups a
-                  WHERE a.user_id = k.user_id AND a.group_id = k.group_id);
-SELECT 'orphan_detail|' || k.id || '|' || k.user_id || '|' || coalesce(u.email,'') || '|' || k.group_id || '|' || g.name
-FROM api_keys k
-JOIN groups g ON g.id = k.group_id AND g.deleted_at IS NULL
-JOIN users  u ON u.id = k.user_id  AND u.deleted_at IS NULL
-WHERE k.deleted_at IS NULL AND k.group_id IS NOT NULL AND g.is_exclusive = true
-  AND g.subscription_type IS DISTINCT FROM 'subscription'
-  AND NOT EXISTS (SELECT 1 FROM user_allowed_groups a
-                  WHERE a.user_id = k.user_id AND a.group_id = k.group_id)
-ORDER BY k.user_id, k.id LIMIT 50;
-SQL
+# Shared read-only query keeps the active-impact predicate identical in the
+# count and detail paths. Dormant historical resources are inventory only.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ORPHAN_SQL="$(cat "$SCRIPT_DIR/exclusive_group_orphans.sql")"
 
 B64="$(printf '%s' "${ORPHAN_SQL}" | base64 | tr -d '\n')"
 
@@ -144,6 +122,9 @@ if [[ -z "${orphans}" || ! "${orphans}" =~ ^[0-9]+$ ]]; then
   echo "::warning::exclusive-group orphan check: could not parse orphan count from psql output; skipped — NOT a deploy blocker."
   exit 0
 fi
+
+dormant_line="$(grep -E '^dormant_orphans=[0-9]+$' "${stdout_file}" | head -1 || true)"
+[[ -z "$dormant_line" ]] || echo "exclusive-group orphan inventory: $dormant_line (inactive user/key/group; no active-access finding)"
 
 if [[ "${orphans}" -eq 0 ]]; then
   echo "exclusive-group orphan check: ok (orphans=0)"

@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -39,6 +40,17 @@ RESTORED_COUNTS = {
 }
 
 
+USAGE_SQL = (b"COPY public.usage_logs_20260818 (id, created_at, total_cost, actual_cost) FROM stdin;\n"
+             b"1\t2026-08-18 07:00:00+00\t0.1234567890\t0.0123456789\n\\.\n"
+             b"COPY public.usage_logs_legacy (id, created_at, total_cost, actual_cost) FROM stdin;\n\\.\n")
+USAGE = {
+    "usage_logs_20260818": {"rows": 1, "total_cost": "0.123456789", "actual_cost": "0.0123456789",
+        "min_created_at": "2026-08-18T07:00:00.000000Z", "max_created_at": "2026-08-18T07:00:00.000000Z"},
+    "usage_logs_legacy": {"rows": 0, "total_cost": "0", "actual_cost": "0",
+        "min_created_at": None, "max_created_at": None},
+}
+
+
 class FakeCommands:
     def __init__(
         self,
@@ -62,7 +74,7 @@ class FakeCommands:
             }
         ]
         sql = b"CREATE TABLE users(id bigint);\n" + b"INSERT INTO users VALUES (1);\n" * 200
-        self.downloaded = downloaded if downloaded is not None else gzip.compress(sql)
+        self.downloaded = downloaded if downloaded is not None else gzip.compress(sql + USAGE_SQL)
         self.dump_dir = dump_dir
         self.dump_bytes = dump_bytes if dump_bytes is not None else self.downloaded
         if self.objects and self.objects[0].get("Size") == 0:
@@ -126,6 +138,9 @@ class FakeCommands:
                 stderr = 'FATAL:  database "tokenkey" does not exist'
             else:
                 stdout = "1\n"
+        elif "canary_usage_evidence" in joined:
+            assert args[2] != "tokenkey-postgres", "usage aggregates must never run against live DB"
+            stdout = json.dumps(USAGE) + "\n"
         elif args[:3] == ["docker", "exec", "tokenkey-postgres"] and "json_build_object" in joined:
             stdout = json.dumps(LIVE_COUNTS) + "\n"
         elif args[:2] == ["bash", "-o"] and "gunzip -c" in joined:
@@ -144,6 +159,36 @@ class FakeCommands:
 
 
 class PgdumpRestoreCanaryTest(unittest.TestCase):
+    def test_timeout_kills_pipeline_children_before_cleanup(self):
+        started = time.monotonic()
+        with self.assertRaisesRegex(canary.CanaryError, "command could not run"):
+            canary._raw_run(canary._default_run, ["bash", "-c", "sleep 30 & wait"], timeout=0.2)
+        self.assertLess(time.monotonic() - started, 5)
+
+    def test_restore_timeout_removes_container_and_preserves_previous_receipt(self):
+        fake = FakeCommands()
+        def timeout_restore(args, **kwargs):
+            if args[:2] == ["bash", "-o"]:
+                self.assertEqual(kwargs["timeout"], 7200)
+                raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+            return fake(args, **kwargs)
+        temp = tempfile.TemporaryDirectory()
+        root = pathlib.Path(temp.name)
+        env_path = root / "host.env"
+        env_path.write_text("TOKENKEY_PGDUMP_S3_URI=s3://bucket/prod/pgdump\n")
+        try:
+            receipt = root / "canary/latest.json"
+            receipt.parent.mkdir(exist_ok=True)
+            receipt.write_text("previous")
+            with self.assertRaisesRegex(canary.CanaryError, "command could not run"):
+                canary.run_canary("prod", receipt_root=root / "canary", env_path=env_path,
+                                  run=timeout_restore, now=lambda: NOW, sleep=lambda _: None)
+            self.assertFalse(fake.container_present)
+            self.assertEqual(receipt.read_text(), "previous")
+            self.assertEqual(list((root / "canary").glob(".restore-*")), [])
+        finally:
+            temp.cleanup()
+
     def test_partitioned_nvme_disk_keeps_its_own_io_limit(self):
         def lsblk(args, **kwargs):
             # lsblk's default tree also prints PKNAME for every child partition.
@@ -265,6 +310,7 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
         self.assertEqual(result["live_counts"], LIVE_COUNTS)
         self.assertEqual(result["restored_counts"], RESTORED_COUNTS)
         self.assertTrue(result["cleanup_verified"])
+        self.assertEqual(result["usage_verification"], {"source": USAGE, "restored": USAGE})
         self.assertGreater(result["uncompressed_bytes"], result["compressed_bytes"])
         self.assertEqual(len(result["artifact_sha256"]), 64)
         self.assertEqual(leftovers, ["canary.lock", "latest.json"])

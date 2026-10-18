@@ -17,7 +17,11 @@ NOW = dt.datetime(2026, 8, 18, 8, 0, tzinfo=dt.timezone.utc)
 
 def valid_receipt() -> dict:
     return {
-        "schema_version": 2,
+        "schema_version": 3,
+        "usage_verification": {kind: {"usage_logs_legacy": {
+            "rows": 0, "total_cost": "0", "actual_cost": "0",
+            "min_created_at": None, "max_created_at": None,
+        }} for kind in ("source", "restored")},
         "mode": "pgdump_restore_canary",
         "target": "prod",
         "completed_at": "2026-08-11T09:00:00Z",
@@ -68,6 +72,14 @@ class PgdumpRestoreCanaryVerdictTest(unittest.TestCase):
         self.assertEqual(finding["severity"], "warning")
         self.assertIn("self-healed", finding["summary"])
         self.assertIn("tokenkey-pgdump.timer", finding["summary"])
+
+    def test_legacy_core_only_or_mismatched_usage_receipt_is_not_healthy(self):
+        receipt = valid_receipt()
+        receipt["schema_version"] = 2
+        self.assertEqual(self.evaluate(json.dumps(receipt))["status"], "issue_candidate")
+        receipt = valid_receipt()
+        receipt["usage_verification"]["restored"] = {}
+        self.assertEqual(self.evaluate(json.dumps(receipt))["status"], "issue_candidate")
 
     def test_missing_receipt_is_actionable(self) -> None:
         finding = self.evaluate("")

@@ -55,9 +55,60 @@
       "path": "ops/stage0/pgdump_restore_canary.py",
       "must_contain": [
         "args = storage.command(args[1:], encrypted=args[1:3] == [\"s3\", \"cp\"])",
-        "source_local_sha256 != artifact_sha256"
+        "source_local_sha256 != artifact_sha256",
+        "source_usage = usage_evidence.inspect_dump(dump_path)",
+        "usage_evidence.restored_sql()",
+        "if not usage_evidence.verified(usage):",
+        "\"usage_verification\": usage,",
+        "start_new_session=True",
+        "os.killpg(process.pid, signal.SIGKILL)"
       ],
-      "rationale": "The recovery verifier must read using the same encrypted identity and compare the real local dump with its off-box copy."
+      "rationale": "The recovery verifier must read using the same encrypted identity and compare the real local dump with its off-box copy. Usage acceptance must compare the S3 COPY snapshot with the isolated restore before publishing a successful receipt."
+    },
+    {
+      "path": "ops/stage0/pgdump_usage_evidence.py",
+      "must_contain": [
+        "def inspect_dump(",
+        "def verified(",
+        "normalize(evidence['source']) == normalize(evidence['restored'])",
+        "'actual_cost',coalesce(sum(actual_cost),0)::text"
+      ],
+      "rationale": "Keep exact usage counts, time ranges and decimal costs under one dump/restore comparison owner."
+    },
+    {
+      "path": "ops/stage0/test_pgdump_usage_evidence.py",
+      "must_contain": [
+        "test_exact_costs_dates_and_empty_default_partition",
+        "test_each_reconciliation_dimension_rejects_drift",
+        "test_restore_mismatch_cleans_temporary_container_and_refuses_receipt",
+        "test_postgres_variable_fraction_precision_and_short_timezone",
+        "test_overflowing_timestamp_is_rejected_with_download_cleanup"
+      ],
+      "rationale": "Preserve executable recovery, mismatch rejection, cleanup and host Python timestamp compatibility coverage."
+    },
+    {
+      "path": "ops/stage0/test_pgdump_restore_postgres.py",
+      "must_contain": [
+        "test_real_restore_cost_mismatch_and_timeout_cleanup",
+        "canary.run_canary(",
+        "SELECT pg_sleep(30);"
+      ],
+      "rationale": "Keep real PostgreSQL recovery, exact usage reconciliation, corruption rejection and timeout cleanup under executable coverage."
+    },
+    {
+      "path": "ops/observability/run-probe.sh",
+      "must_contain": [
+        "\"executionTimeout\": [str(min(int(sys.argv[2]), 172800))]"
+      ],
+      "rationale": "Long recovery probes must set the SSM plugin execution timeout, not only the command delivery deadline."
+    },
+    {
+      "path": "ops/observability/test_run_probe.py",
+      "must_contain": [
+        "test_remote_execution_timeout_matches_requested_long_probe",
+        "params[\"executionTimeout\"]"
+      ],
+      "rationale": "Exercise emitted SSM parameters for ordinary probes, long restores and the AWS execution ceiling."
     },
     {
       "path": "ops/stage0/test_pgdump_storage.py",
