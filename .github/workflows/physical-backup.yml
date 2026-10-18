@@ -1,0 +1,51 @@
+name: Physical Backup Rehearsal
+on:
+  pull_request:
+    paths:
+      - 'ops/stage0/*postgres_backup*'
+      - 'ops/stage0/*physical*'
+      - 'ops/stage0/physical-backup-test/**'
+      - 'backend/cmd/backup-billing-check/**'
+      - 'deploy/aws/stage0/postgres-backup/**'
+      - '.github/workflows/physical-backup.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ops/stage0/*postgres_backup*'
+      - 'ops/stage0/*physical*'
+      - 'backend/cmd/backup-billing-check/**'
+      - 'deploy/aws/stage0/postgres-backup/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rehearsal:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/cache-and-checkout-new-api
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+      - name: Build actual billing acceptance binary
+        run: CGO_ENABLED=0 go -C backend build -trimpath -ldflags='-s -w' -o /tmp/backup-billing-check ./cmd/backup-billing-check
+      - name: Build pinned PostgreSQL and isolated S3 test images
+        run: |
+          docker build -t tokenkey-postgres-backup:dev deploy/aws/stage0/postgres-backup
+          docker build -t tokenkey-postgres-backup-test:dev ops/stage0/physical-backup-test
+      - name: Run behavior and real S3 recovery checks
+        run: |
+          python3 ops/stage0/test_postgres_backup.py
+          python3 ops/stage0/rehearse_postgres_backup.py --image tokenkey-postgres-backup-test:dev --storage s3 --billing-check /tmp/backup-billing-check --receipt /tmp/physical-backup-rehearsal.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: physical-backup-${{ matrix.runner }}
+          path: /tmp/physical-backup-rehearsal.json
+          retention-days: 7
+          if-no-files-found: error

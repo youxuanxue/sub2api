@@ -148,6 +148,7 @@ UCloud 国内单 prod 的授权范围、首次初始化和发布边界：[国内
 | [`design-prod-qa-24h-s3-lifecycle.md`](design-prod-qa-24h-s3-lifecycle.md) | QA 24h S3 lifecycle |
 | [`security-capture-and-ingress.md`](security-capture-and-ingress.md) | QA capture protection, trusted ingress and public image download boundary |
 | [`qa-redaction-identified-formats-only.md`](qa-redaction-identified-formats-only.md) | QA 脱敏已识别格式边界与性能优化 |
+| [`design-prod-physical-backup.md`](design-prod-physical-backup.md) | 每周全量、两小时块增量、WAL 连续归档及隔离验收 |
 | [`design-fleet-pgdump-restore-canary.md`](design-fleet-pgdump-restore-canary.md) | Fleet pgdump restore canary |
 | [`hcloud-pgdump-storage.md`](hcloud-pgdump-storage.md) | Hetzner host-only pgdump identity, encryption and cutover |
 | [`hetzner-cloud-full-migration.md`](hetzner-cloud-full-migration.md) | Hetzner 舰队决策锁（fsn1 / cax21；执行 SSOT：`deploy/hetzner/README.md`） |

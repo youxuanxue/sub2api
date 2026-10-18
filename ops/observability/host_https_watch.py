@@ -81,6 +81,9 @@ def tick(targets: dict, previous: dict, now: int, probe, send, node="unknown") -
 # (max age between completions, maximum normal execution time), in seconds.
 JOB_LIMITS = {
     "tokenkey-pgdump": (3 * 3600, 45 * 60),
+    "tokenkey-postgres-backup": (3 * 3600, 3670),
+    "tokenkey-postgres-archive-check": (15 * 60, 300),
+    "tokenkey-postgres-recovery": (15 * 60, 300),
     "tokenkey-disk-metrics": (15 * 60, 60),
     "tokenkey-ghcr-prune-daily": (30 * 3600, 15 * 60),
     "tokenkey-qa-maintenance": (2 * 3600, 40 * 60 + 60),
@@ -111,7 +114,21 @@ def job_fact(service: dict, timer: dict, uptime: float, limits: tuple, *, expect
     return {"healthy": healthy, "reason": reason}
 
 
+def physical_backup_fact(path: Path, now: float) -> dict:
+    try:
+        receipt = json.loads(path.read_text())
+        stamp = receipt.get("observed_at", 0)
+        if not isinstance(stamp, (int, float)) or not 0 <= now - stamp <= 900:
+            return {"healthy": False, "reason": "physical backup health missing/stale"}
+        return {"healthy": receipt.get("status") == "ok",
+                "reason": ", ".join(receipt.get("reasons", [])) or receipt.get("status", "invalid receipt")}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {"healthy": False, "reason": "physical backup health missing/invalid"}
+
+
 def probe_job(name: str, *, expected_paused=False) -> dict:
+    if name == "tokenkey-postgres-recovery":
+        return physical_backup_fact(Path("/var/lib/tokenkey/postgres-backup/health.json"), time.time())
     def properties(unit):
         result = subprocess.run(["systemctl", "show", unit, "--property=ActiveState,UnitFileState,Result,ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotonic"],
                                 capture_output=True, text=True, timeout=5, check=True)
@@ -152,7 +169,10 @@ def main() -> None:
     os.umask(0o077)
     config = json.loads(args.config.read_text())
     targets = config["targets"]
-    jobs = config.get("jobs", [])
+    jobs = list(config.get("jobs", []))
+    # Activation marker is written only by the separately approved installer.
+    if config.get("node") == "prod" and Path("/var/lib/tokenkey/postgres-backup/enabled.json").exists():
+        jobs += ["tokenkey-postgres-backup", "tokenkey-postgres-archive-check", "tokenkey-postgres-recovery"]
     paused = config.get("paused_jobs", {})
     if not isinstance(jobs, list) or any(name not in JOB_LIMITS for name in jobs):
         raise ValueError("unknown host job")

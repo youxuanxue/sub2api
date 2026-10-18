@@ -224,6 +224,10 @@ printf '%s' "${COMPOSE_B64}" | base64 -d | gunzip > docker-compose.yml
 cat > docker-compose.prod-pg.yml <<'PGEOF'
 services:
   postgres:
+    image: ${POSTGRES_IMAGE:-postgres:18-alpine}
+    pull_policy: ${POSTGRES_PULL_POLICY:-missing}
+    volumes:
+      - /var/lib/tokenkey/postgres-backup-config:/etc/pgbackrest:ro
     command:
       - postgres
       - -c
@@ -240,6 +244,12 @@ services:
       - max_parallel_workers=${POSTGRES_MAX_PARALLEL_WORKERS:-2}
       - -c
       - max_parallel_workers_per_gather=${POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER:-1}
+      - -c
+      - archive_mode=${POSTGRES_ARCHIVE_MODE:-off}
+      - -c
+      - archive_command=${POSTGRES_ARCHIVE_COMMAND:-}
+      - -c
+      - archive_timeout=${POSTGRES_ARCHIVE_TIMEOUT:-0}
 PGEOF
 # >>> PROD_PG_OVERLAY END <<<
 printf '%s' "${CADDY_B64}" | base64 -d | gunzip > caddy/Caddyfile.template
