@@ -421,6 +421,13 @@ jobs:
           _spec = importlib.util.spec_from_file_location("tk_resolve_app_container", _resolver_path)
           _tk = importlib.util.module_from_spec(_spec)
           _spec.loader.exec_module(_tk)
+          transport_source = pathlib.Path("ops/observability/probe_output_transport.py").read_text()
+          receipt_command = (
+              "python3 -c " + shlex.quote("exec(" + repr(transport_source) + ")")
+              + " encode -- bash -c " + shlex.quote(
+                  "sudo cat /var/lib/tokenkey/pgdump-canary/latest.json 2>/dev/null || true"
+              )  # preflight-allow: swallow (missing receipt becomes an actionable verdict)
+          )
           commands = [
               "set -euo pipefail",
               "echo ===DOCKER_PS===",
@@ -435,7 +442,7 @@ jobs:
               "if [ -z \"$APP_CONTAINER\" ]; then echo internal_health_status=failed exit=127; elif sudo docker exec \"$APP_CONTAINER\" wget -qO- http://localhost:8080/health/live; then echo; echo internal_health_status=ok; else rc=$?; echo internal_health_status=failed exit=$rc; fi",
               "echo ===END_INTERNAL_HEALTH===",
               "echo ===PGDUMP_RESTORE_CANARY_RECEIPT===",
-              "sudo cat /var/lib/tokenkey/pgdump-canary/latest.json 2>/dev/null || true",  # preflight-allow: swallow (missing receipt becomes an actionable verdict)
+              receipt_command,
               "echo ===END_PGDUMP_RESTORE_CANARY_RECEIPT===",
               "SIG_OUT=$(mktemp -d /tmp/prod-ops-runtime-signals.XXXXXX)",
               "if [ -n \"$APP_CONTAINER\" ]; then sudo docker logs \"$APP_CONTAINER\" --since " + quoted_since + " > \"$SIG_OUT/tokenkey.log\" 2>&1 || true; else : > \"$SIG_OUT/tokenkey.log\"; fi",
@@ -478,9 +485,11 @@ jobs:
               tail -c 8192 "$OUT/runtime-stdout.txt" >> "$STDOUT" || true
               tail -c 4096 "$OUT/runtime-stderr.txt" >> "$STDERR" || true
               awk '/^===PGDUMP_RESTORE_CANARY_RECEIPT===$/{f=1;next} /^===END_PGDUMP_RESTORE_CANARY_RECEIPT===$/{f=0} f' \
-                "$OUT/runtime-stdout.txt" > "$OUT/pgdump-restore-canary-receipt.json"
+                "$OUT/runtime-stdout.txt" > "$OUT/pgdump-restore-canary-receipt.frame"
               PROBE_TARGET=prod
-              if ! python3 ops/observability/pgdump_restore_canary_verdict.py \
+              if ! python3 ops/observability/probe_output_transport.py decode < "$OUT/pgdump-restore-canary-receipt.frame" > "$OUT/pgdump-restore-canary-receipt.json" 2>>"$STDERR"; then
+                add_finding "pgdump_restore_canary" "issue_candidate" "error" "pg_dump receipt transport failed for $TARGET_ID" "The complete host receipt could not be retrieved." "pgdump-restore-canary|$TARGET_ID|transport-failed"
+              elif ! python3 ops/observability/pgdump_restore_canary_verdict.py \
                 --receipt "$OUT/pgdump-restore-canary-receipt.json" \
                 --expected-target "$PROBE_TARGET" \
                 --target-id "$TARGET_ID" >> "$FINDINGS" 2>>"$STDERR"; then
