@@ -24,7 +24,8 @@
       "retired": true
     },
     "paused_jobs": {
-      "tokenkey-qa-maintenance": "User requested pause of QA uploads to S3; capture and boundary policy are separate."
+      "tokenkey-qa-maintenance": "User requested pause of QA uploads to S3; capture policy is separate.",
+      "tokenkey-qa-boundary": "Historical archive acceptance hold keeps boundary disabled (DROP pause retained); watcher expects disabled/inactive and alerts on accidental enable."
     }
   }
 }
