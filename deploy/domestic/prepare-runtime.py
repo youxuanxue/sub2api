@@ -78,10 +78,15 @@ shutil.copyfile(
 )
 shutil.copyfile(root / "deploy/domestic/compose.local.yml", out / "compose.local.yml")
 if target:
-    caddy = (root / "deploy/aws/stage0/Caddyfile.edge").read_text()
-    caddy = (caddy.replace("${API_DOMAIN}", target["domain"])
-             .replace("${ACME_EMAIL}", target["admin_email"])
-             .replace("${MAIN_GATEWAY_ALLOWED_CIDR}", "0.0.0.0/0"))
+    render_env = dict(os.environ)
+    render_env.update(API_DOMAIN=target["domain"], ACME_EMAIL=target["admin_email"],
+                      GLOBAL_SITE_PHASE="disabled", SITE_DOMAIN="", GLOBAL_SITE_DOMAIN="",
+                      API_ALIAS_DOMAIN="")
+    rendered = subprocess.run(
+        ["bash", str(root / "deploy/aws/stage0/render-prod-caddyfile.sh"),
+         str(root / "deploy/aws/stage0/Caddyfile"), "/dev/stdout"],
+        check=True, env=render_env, capture_output=True, text=True)
+    caddy = rendered.stdout
     caddy, count = re.subn(r"\ttls \{\n.*?^\t\}\n", "\ttls internal\n", caddy, flags=re.S | re.M)
     if count != 1:
         raise ValueError("Shared Caddy TLS block changed; refusing ambiguous override")
