@@ -125,7 +125,7 @@ def inspect_dump(path: pathlib.Path) -> tuple[int, dict]:
             for field in COSTS:
                 row[field] = str(row[field])
         return total, normalize(tables)
-    except (OSError, EOFError, ValueError, TypeError, InvalidOperation, UnicodeError, zlib.error):
+    except (OSError, EOFError, ValueError, TypeError, InvalidOperation, UnicodeError, OverflowError, zlib.error):
         raise ValueError('backup has invalid gzip or missing/malformed usage COPY evidence') from None
 
 

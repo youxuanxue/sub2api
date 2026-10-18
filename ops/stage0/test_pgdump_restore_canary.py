@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -158,6 +159,36 @@ class FakeCommands:
 
 
 class PgdumpRestoreCanaryTest(unittest.TestCase):
+    def test_timeout_kills_pipeline_children_before_cleanup(self):
+        started = time.monotonic()
+        with self.assertRaisesRegex(canary.CanaryError, "command could not run"):
+            canary._raw_run(canary._default_run, ["bash", "-c", "sleep 30 & wait"], timeout=0.2)
+        self.assertLess(time.monotonic() - started, 5)
+
+    def test_restore_timeout_removes_container_and_preserves_previous_receipt(self):
+        fake = FakeCommands()
+        def timeout_restore(args, **kwargs):
+            if args[:2] == ["bash", "-o"]:
+                self.assertEqual(kwargs["timeout"], 7200)
+                raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+            return fake(args, **kwargs)
+        temp = tempfile.TemporaryDirectory()
+        root = pathlib.Path(temp.name)
+        env_path = root / "host.env"
+        env_path.write_text("TOKENKEY_PGDUMP_S3_URI=s3://bucket/prod/pgdump\n")
+        try:
+            receipt = root / "canary/latest.json"
+            receipt.parent.mkdir(exist_ok=True)
+            receipt.write_text("previous")
+            with self.assertRaisesRegex(canary.CanaryError, "command could not run"):
+                canary.run_canary("prod", receipt_root=root / "canary", env_path=env_path,
+                                  run=timeout_restore, now=lambda: NOW, sleep=lambda _: None)
+            self.assertFalse(fake.container_present)
+            self.assertEqual(receipt.read_text(), "previous")
+            self.assertEqual(list((root / "canary").glob(".restore-*")), [])
+        finally:
+            temp.cleanup()
+
     def test_partitioned_nvme_disk_keeps_its_own_io_limit(self):
         def lsblk(args, **kwargs):
             # lsblk's default tree also prints PKNAME for every child partition.

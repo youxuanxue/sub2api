@@ -35,6 +35,7 @@ class UsageEvidenceTest(unittest.TestCase):
                  gzip.compress(USAGE_SQL)[:-4],
                  gzip.compress(USAGE_SQL)[:10] + b"invalid deflate" + gzip.compress(USAGE_SQL)[10:],
                  gzip.compress(USAGE_SQL.replace(b'0.1234567890',b'NaN')),
+                 gzip.compress(USAGE_SQL.replace(b'2026-08-18 07:00:00+00', b'9999-12-31 23:59:59-23')),
                  gzip.compress(USAGE_SQL[:-3])]
         for data in cases:
             with self.subTest(data_length=len(data)), self.assertRaises(ValueError):
@@ -61,6 +62,21 @@ class UsageEvidenceTest(unittest.TestCase):
         with self.assertRaisesRegex(CanaryError,'differ from S3 dump'):
             fixture.PgdumpRestoreCanaryTest().run_case(run)
         self.assertFalse(fake.container_present)
+
+    def test_overflowing_timestamp_is_rejected_with_download_cleanup(self):
+        fake = FakeCommands(downloaded=gzip.compress(USAGE_SQL.replace(
+            b'2026-08-18 07:00:00+00', b'9999-12-31 23:59:59-23')))
+        from pgdump_restore_canary import CanaryError
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            env = root / 'host.env'
+            env.write_text('TOKENKEY_PGDUMP_S3_URI=s3://bucket/prod/pgdump\n')
+            with self.assertRaisesRegex(CanaryError, 'malformed usage COPY'):
+                fixture.canary.run_canary('prod', env_path=env, receipt_root=root / 'receipts',
+                                         run=fake, now=lambda: fixture.NOW)
+            self.assertEqual(list((root / 'receipts').glob('.restore-*')), [])
+            self.assertFalse((root / 'receipts/latest.json').exists())
+            self.assertFalse(any(call[:2] == ['docker', 'run'] for call in fake.calls))
 
 
 if __name__ == '__main__':

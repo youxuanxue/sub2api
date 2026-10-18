@@ -11,7 +11,7 @@ permissions:
 jobs:
   restore-canary:
     runs-on: ubuntu-latest
-    timeout-minutes: 110
+    timeout-minutes: 190
     permissions:
       contents: read
       id-token: write
@@ -36,7 +36,7 @@ jobs:
             --with ops/stage0/pgdump_usage_evidence.py \
             --with ops/stage0/pgdump_storage.py \
             --compressed-output \
-            --timeout-seconds 6000 \
+            --timeout-seconds 10800 \
             --comment "weekly pgdump restore canary target=prod" \
             --env CANARY_TARGET=prod | tee restore-canary.json
           jq -e '.mode == "pgdump_restore_canary" and .target == "prod" and .source_mutated == false and .deletion_authorized == false' restore-canary.json >/dev/null

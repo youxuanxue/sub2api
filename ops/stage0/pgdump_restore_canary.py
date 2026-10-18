@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import fcntl
 import hashlib
@@ -13,6 +14,7 @@ import pathlib
 import re
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -47,7 +49,21 @@ class StaleDumpError(CanaryError):
 
 
 def _default_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, **kwargs)
+    # Kill the entire restore pipeline on timeout. Killing only bash leaves
+    # gunzip/docker holding stdout pipes, blocking cleanup in communicate().
+    timeout = kwargs.pop("timeout", None)
+    kwargs.pop("check", None)  # _raw_run always checks the return code itself
+    if kwargs.pop("capture_output", False):
+        kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    with subprocess.Popen(args, start_new_session=True, **kwargs) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
+            raise
+        return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
 
 
 def _raw_run(
@@ -459,7 +475,7 @@ def run_canary(
                 f"docker exec -i {shlex.quote(container)} psql -U tokenkey -d tokenkey "
                 "-v ON_ERROR_STOP=1"
             )
-            _run(run, ["bash", "-o", "pipefail", "-c", pipeline], timeout=3600)
+            _run(run, ["bash", "-o", "pipefail", "-c", pipeline], timeout=7200)
             restored_counts = _counts(run, container)
             raw_usage = _run(run, ["docker", "exec", container, "psql", "-U", "tokenkey",
                                   "-d", "tokenkey", "-XAt", "-v", "ON_ERROR_STOP=1",

@@ -287,9 +287,12 @@ for part in "${REMOTE_PARTS[@]}"; do
 done
 
 # Compose the SSM command JSON via python (avoids shell-quote hell)
-PARAMS=$(python3 - "$REMOTE_LINE" <<'PY'
+PARAMS=$(python3 - "$REMOTE_LINE" "$TIMEOUT_SECONDS" <<'PY'
 import json, sys
-print(json.dumps({"commands": ["set -u", sys.argv[1]]}))
+# send-command --timeout-seconds controls delivery, not script execution.
+# AWS-RunShellScript caps execution at two days.
+print(json.dumps({"commands": ["set -u", sys.argv[1]],
+                  "executionTimeout": [str(min(int(sys.argv[2]), 172800))]}))
 PY
 )
 
