@@ -300,7 +300,11 @@ class Restore:
             ]
             safe = self.sql(
                 name,
-                f"SELECT last_value >= coalesce((SELECT max({column}) FROM {table}),0) FROM {seq}",
+                # setval(..., false) returns last_value on the next nextval.
+                f"""SELECT CASE WHEN is_called
+                THEN last_value >= coalesce((SELECT max({column}) FROM {table}),0)
+                ELSE last_value > coalesce((SELECT max({column}) FROM {table}),0)
+                END FROM {seq}""",
             )
             if safe != "t":
                 raise BackupError("restored sequence could reuse an existing ID")

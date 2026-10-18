@@ -568,6 +568,34 @@ COMMIT;""",
                     "duplicate charge changed the restored balance/usage"
                 )
             self.audits[suffix] = Restore.audit(self, name)
+            if suffix == "latest":
+                saved_sequence = json.loads(
+                    self.pg(
+                        name,
+                        "SELECT json_build_array(last_value,is_called) FROM usage_logs_id_seq",
+                    )
+                )
+                try:
+                    self.pg(
+                        name,
+                        "SELECT setval('usage_logs_id_seq',(SELECT max(id) FROM usage_logs),false)",
+                    )
+                    try:
+                        Restore.audit(self, name)
+                    except BackupError as exc:
+                        if "sequence could reuse" not in str(exc):
+                            raise
+                    else:
+                        raise AssertionError(
+                            "uncalled sequence could reuse an existing ID"
+                        )
+                finally:
+                    value, called = saved_sequence
+                    self.pg(
+                        name,
+                        f"SELECT setval('usage_logs_id_seq',{int(value)},{str(bool(called)).lower()})",
+                    )
+                self.results["uncalled_sequence_rejected"] = True
             if self.billing_check:
                 copy_billing_check(name, self.billing_check)
                 result = json.loads(
