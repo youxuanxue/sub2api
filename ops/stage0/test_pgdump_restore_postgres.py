@@ -80,6 +80,11 @@ INSERT INTO usage_logs VALUES
             if args[:3] == ["aws", "s3", "cp"]:
                 pathlib.Path(args[4]).write_bytes(archive)
                 return subprocess.CompletedProcess(args, 0, "", "")
+            if args[:3] == ["docker", "rm", "-f"]:
+                # Production SSM is root; an unprivileged Linux test runner
+                # needs ownership of fixture files before host-side cleanup.
+                command(["docker", "exec", "--user", "0", recovered, "chown", "-R",
+                         f"{os.getuid()}:{os.getgid()}", "/var/lib/postgresql"])
             if args[:2] == ["bash", "-o"] and mode == "timeout":
                 kwargs["timeout"] = 0.5
             if "canary_usage_evidence" in args[-1] and mode == "mismatch":
