@@ -1,0 +1,74 @@
+name: Production Physical Restore
+on:
+  schedule:
+    - cron: '37 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      target_name:
+        description: Optional recorded named recovery point (full + incremental comparison)
+        type: string
+      target_time:
+        description: UTC timestamp recorded with the named recovery point
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: physical-production-restore
+  cancel-in-progress: false
+jobs:
+  restore:
+    # Enable only after the maintenance change and first acceptance are approved.
+    if: vars.PHYSICAL_BACKUP_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 125
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      BACKUP_BUCKET: ${{ vars.PHYSICAL_BACKUP_BUCKET }}
+      BUNDLE_SHA: ${{ vars.PHYSICAL_BACKUP_BUNDLE_SHA }}
+      IMAGE_ID: ${{ vars.PHYSICAL_BACKUP_IMAGE_ID }}
+      RESTORE_PROFILE: ${{ vars.PHYSICAL_BACKUP_RESTORE_PROFILE }}
+      TARGET_NAME: ${{ inputs.target_name }}
+      TARGET_TIME: ${{ inputs.target_time }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: ap-northeast-1
+      - name: Resolve current production network and run disposable recovery
+        run: |
+          set -euo pipefail
+          target=$(python3 ops/stage0/resolve_prod_ssm_target.py --target auto --format json)
+          region=$(jq -r .ssm_region <<<"$target")
+          instance=$(jq -r .instance_id <<<"$target")
+          subnet=$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" --query 'Reservations[0].Instances[0].SubnetId' --output text)
+          args=()
+          if [ -n "$TARGET_NAME" ]; then
+            args+=(--target-name "$TARGET_NAME" --target-time "$TARGET_TIME")
+          fi
+          python3 ops/stage0/run_physical_restore.py --region "$region" --bucket "$BACKUP_BUCKET" \
+            --key "artifacts/$BUNDLE_SHA.tar.gz" --sha256 "$BUNDLE_SHA" --image "$IMAGE_ID" \
+            --subnet "$subnet" --profile "$RESTORE_PROFILE" --receipt restore-receipt.json \
+            --apply "${args[@]}"
+      - name: Import acceptance into the existing source-host monitor
+        run: |
+          set -euo pipefail
+          cat > /tmp/physical-accept.sh <<'SH'
+          #!/bin/bash
+          set -euo pipefail
+          unit=$(systemctl show tokenkey-postgres-backup.service --property=ExecStart --value)
+          operator=$(printf '%s' "$unit" | sed -n 's@.*\(/usr/local/lib/tokenkey/postgres-backup/[a-f0-9]*/postgres_backup.py\).*@\1@p')
+          test -n "$operator"
+          python3 "$operator" accept --receipt /tmp/restore-receipt.json
+          SH
+          bash ops/observability/run-probe.sh --target prod --script /tmp/physical-accept.sh \
+            --with restore-receipt.json --timeout-seconds 180 --comment 'import isolated physical restore acceptance'
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: physical-restore-receipt
+          path: restore-receipt.json
+          retention-days: 7
+          if-no-files-found: warn

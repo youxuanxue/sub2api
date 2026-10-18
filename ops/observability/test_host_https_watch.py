@@ -77,6 +77,24 @@ class CoveragePlanTest(unittest.TestCase):
                 self.assertIn('unexpectedly enabled or running', sent[0])
 
 
+class PhysicalBackupWatchTest(unittest.TestCase):
+    def test_failed_or_stale_chain_alerts_despite_successful_backup_job(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            path = pathlib.Path(root) / 'health.json'
+            self.assertFalse(watch.physical_backup_fact(path, 1000)['healthy'])
+            path.write_text(json.dumps({'status':'ok','observed_at':990,'reasons':[]}))
+            self.assertTrue(watch.physical_backup_fact(path, 1000)['healthy'])
+            self.assertFalse(watch.physical_backup_fact(path, 2000)['healthy'])
+            path.write_text(json.dumps({'status':'failed','observed_at':990,'reasons':['WAL continuity gap']}))
+            fact = watch.physical_backup_fact(path, 1000)
+            sent = []
+            state = watch.tick_jobs(['tokenkey-postgres-recovery'], {}, 1000, lambda _: fact, sent.append)
+            watch.tick_jobs(['tokenkey-postgres-recovery'], state, 1120, lambda _: fact, sent.append)
+            self.assertEqual(len(sent), 1)
+            self.assertIn('WAL continuity gap', sent[0])
+
+
 class HealthBodyTest(unittest.TestCase):
     def test_flat_ssm_bundle_can_load_probe_without_repository_ancestors(self):
         # SSM stages companion files directly in /tmp, unlike a repo checkout
