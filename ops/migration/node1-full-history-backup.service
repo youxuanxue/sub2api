@@ -1,0 +1,16 @@
+[Unit]
+Description=Node1 full backup including user usage history
+After=docker.service network-online.target
+RequiresMountsFor=/var/lib/tokenkey
+ConditionPathExists=/etc/tokenkey/node1-prod-approved.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/tokenkey/node1_full_backup.py
+UMask=0077
+Nice=19
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUQuota=100%
+MemoryMax=1G
+TimeoutStartSec=3h

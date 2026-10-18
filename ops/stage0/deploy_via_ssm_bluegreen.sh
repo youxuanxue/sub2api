@@ -76,6 +76,14 @@ fi
 # Both AWS and managed-instance prod hosts use the same prod profile.
 case "${INSTANCE_ID}" in
   i-* | mi-*) ;;
+  ssh-*)
+    # SSH adapters consume the identical rendered host payload. Never send a
+    # non-SSM identity to AWS, and never infer its runtime role from its name.
+    [[ "${STAGE0_RENDER_ONLY:-}" = 1 && "${STAGE0_DEPLOY_PROFILE:-}" = prod ]] || {
+      echo "SSH targets require render-only and an explicit prod profile" >&2
+      exit 1
+    }
+    ;;
   *)
     echo "stage0_deploy_via_ssm_bluegreen: requires EC2 i-* or managed-instance mi-*, got ${INSTANCE_ID}" >&2
     exit 1
@@ -814,7 +822,9 @@ commit_cutover() {
     die "could not rewrite exactly one reverse_proxy upstream in ${LIVE_CADDY}"
   fi
 
-  if ! sudo docker run --rm -v "${tmp}:/tmp/Caddyfile:ro" caddy:2-alpine caddy validate --config /tmp/Caddyfile --adapter caddyfile; then
+  # Validate with the running binary and its certificate mounts. An unrelated
+  # stock image cannot validate a host using the PROXY protocol module.
+  if ! sudo docker exec -i tokenkey-caddy caddy validate --config - --adapter caddyfile < "${tmp}"; then
     sudo rm -f "${tmp}" >/dev/null 2>&1 || true
     return 1
   fi

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "targets": {
+    "zhupeng-prod": {
+      "enabled": true,
+      "role": "prod",
+      "transport": "ssh",
+      "ssh_host": "node1",
+      "machine_id": "c3312a1eec634d6cac597f41be19ed5a",
+      "data_mount": "/data",
+      "data_uuid": "ea97a943-8b3f-427d-9d6c-b81baddaff79",
+      "domain": "ub1.tokenkey.dev",
+      "admin_email": "admin@ub1.tokenkey.dev",
+      "frontend_url": "https://ub1.tokenkey.dev:18443",
+      "ingress": "ssh-tunnel",
+      "tls": "internal"
+    }
+  }
+}

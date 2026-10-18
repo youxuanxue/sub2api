@@ -15,6 +15,10 @@ revised_at: 2026-09-03
 
 - [东京切流复审修复](tokyo-cutover-review-repair-20261017.md)：用量 ID 冲突、分区序列门禁与跨区域 OIDC SSM 权限修复。
 
+- [Node1 prod 切流前准备](node1-prod-precutover.md)：UCloud 入口、隔离数据副本、历史 usage logs 与独立切流审批。
+
+- [Kiro Payload Overflow Contract](kiro-payload-overflow.md)：Kiro 请求体超限处理契约。
+
 `docs/approved/` is the approval baseline for high-risk work. These files are
 load-bearing: code comments, sentinels, migrations, and preflight checks refer
 to their paths. Prefer status changes and short index notes over moving files.

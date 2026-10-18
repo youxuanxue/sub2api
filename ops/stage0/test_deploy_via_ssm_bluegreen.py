@@ -231,7 +231,7 @@ sudo() {{
     if [ "$RESTORE_WRITE_FAILS" = 1 ] && [ "$SH_WRITE_COUNT" -eq 2 ]; then return 1; fi
   fi
   if [ "$1" = docker ]; then
-    if [ "$2" = exec ]; then
+    if [ "$2" = exec ] && [ "$3" = tokenkey-caddy ] && [ "$5" = reload ]; then
       RELOAD_COUNT=$((RELOAD_COUNT + 1))
       if [ "$TARGET_RELOAD_FAILS" = 1 ] && [ "$RELOAD_COUNT" -eq 1 ]; then return 1; fi
       if [ "$ROLLBACK_RELOAD_FAILS" = 1 ] && [ "$RELOAD_COUNT" -eq 2 ]; then return 1; fi
