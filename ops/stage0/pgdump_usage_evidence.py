@@ -21,9 +21,17 @@ FIELDS = {'rows', 'min_created_at', 'max_created_at', *COSTS}
 def timestamp(value: str) -> str:
     if not isinstance(value, str):
         raise ValueError('invalid usage timestamp')
-    value = value.replace('Z', '+00:00')
-    if re.search(r'[+-][0-9]{2}$', value):
-        value += ':00'  # PostgreSQL COPY uses +00; Python 3.9 requires +00:00.
+    match = re.fullmatch(
+        r"(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?([+-]\d{2}(?::\d{2})?|Z)", value)
+    if match is None:
+        raise ValueError('invalid usage timestamp')
+    date, clock, fraction, offset = match.groups()
+    offset = '+00:00' if offset == 'Z' else offset
+    if len(offset) == 3:
+        offset += ':00'
+    # pg_dump strips fractional trailing zeros and emits short timezone offsets.
+    # Python 3.9/3.10 only accept 3/6 fractional digits and full offsets.
+    value = f"{date}T{clock}.{(fraction or '').ljust(6, '0')}{offset}"
     parsed = dt.datetime.fromisoformat(value)
     if parsed.tzinfo is None:
         raise ValueError('usage timestamp has no timezone')

@@ -24,6 +24,11 @@ class UsageEvidenceTest(unittest.TestCase):
         same_in_japan = USAGE_SQL.replace(b'07:00:00+00', b'16:00:00+09')
         self.assertEqual(self.inspect(gzip.compress(same_in_japan))[1], USAGE)
 
+    def test_postgres_variable_fraction_precision_and_short_timezone(self):
+        for digits in ('1', '12', '123', '1234', '12345', '123456'):
+            self.assertEqual(evidence.timestamp(f'2026-08-18 16:00:00.{digits}+09'),
+                             f"2026-08-18T07:00:00.{digits.ljust(6, '0')}Z")
+
     def test_missing_rows_malformed_columns_and_gzip_corruption_fail(self):
         cases = [gzip.compress(b'CREATE TABLE usage_logs(id bigint);\n'),
                  gzip.compress(USAGE_SQL.replace(b'actual_cost',b'other_cost')),
