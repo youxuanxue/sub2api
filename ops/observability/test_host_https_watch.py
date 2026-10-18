@@ -47,8 +47,8 @@ class CoveragePlanTest(unittest.TestCase):
         )
         self.assertEqual(self.config('cn-prod', self.domestic['instance_name'])['paused_jobs'], {})
         self.assertIn('tokenkey-pgdump', prod['jobs'])
-        # Retired boundary must stay monitored as expected-paused so accidental
-        # re-enable still alerts; healthy when disabled+inactive.
+        # Held-disabled boundary must stay monitored as expected-paused so
+        # accidental re-enable still alerts; healthy when disabled+inactive.
         boundary_limit = watch.JOB_LIMITS['tokenkey-qa-boundary']
         inactive = {'ActiveState': 'inactive', 'Result': 'success'}
         disabled = {'ActiveState': 'inactive', 'UnitFileState': 'disabled'}
