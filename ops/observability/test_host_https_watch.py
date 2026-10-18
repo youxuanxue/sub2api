@@ -41,9 +41,21 @@ class CoveragePlanTest(unittest.TestCase):
     def test_prod_pause_does_not_silence_other_observers_or_jobs(self):
         prod = self.config('prod', self.fresh['prod']['instance_name'])
         self.assertEqual(prod['paused_jobs'], self.fresh['prod']['paused_jobs'])
-        self.assertEqual(set(prod['paused_jobs']), {'tokenkey-qa-maintenance'})
+        self.assertEqual(
+            set(prod['paused_jobs']),
+            {'tokenkey-qa-maintenance', 'tokenkey-qa-boundary'},
+        )
         self.assertEqual(self.config('cn-prod', self.domestic['instance_name'])['paused_jobs'], {})
         self.assertIn('tokenkey-pgdump', prod['jobs'])
+        # Held-disabled boundary must stay monitored as expected-paused so
+        # accidental re-enable still alerts; healthy when disabled+inactive.
+        boundary_limit = watch.JOB_LIMITS['tokenkey-qa-boundary']
+        inactive = {'ActiveState': 'inactive', 'Result': 'success'}
+        disabled = {'ActiveState': 'inactive', 'UnitFileState': 'disabled'}
+        self.assertTrue(
+            watch.job_fact(inactive, disabled, 1000, boundary_limit, expected_paused=True)['healthy']
+        )
+        self.assertFalse(watch.job_fact(inactive, disabled, 1000, boundary_limit)['healthy'])
 
     def test_pause_checks_disabled_state_and_alerts_on_accidental_resume(self):
         inactive = {'ActiveState': 'inactive', 'Result': 'exit-code'}
