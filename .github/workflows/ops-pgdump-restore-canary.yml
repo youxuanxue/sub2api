@@ -26,7 +26,6 @@ jobs:
           aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
       - name: Run isolated pg_dump restore canary
         id: canary
-        continue-on-error: true
         run: |
           set -euo pipefail
           bash ops/observability/run-probe.sh \
@@ -34,6 +33,7 @@ jobs:
             --script ops/stage0/pgdump_restore_canary_remote.sh \
             --with ops/stage0/pgdump_restore_canary.py \
             --with ops/stage0/pgdump_restore_canary_contract.py \
+            --with ops/stage0/pgdump_usage_evidence.py \
             --with ops/stage0/pgdump_storage.py \
             --timeout-seconds 6000 \
             --comment "weekly pgdump restore canary target=prod" \

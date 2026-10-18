@@ -50,6 +50,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import sys
 
 _STAGE0 = pathlib.Path(__file__).resolve().parent
@@ -237,6 +238,8 @@ def main():
     ap.add_argument("--print-expect-env", action="store_true",
                     help="print default KEY=VALUE first-output expectations "
                          "(from first_output_timeout_ssot.py)")
+    ap.add_argument("--print-collection-filter", action="store_true",
+                    help="print the allowlisted env filter used by the remote collector")
     args = ap.parse_args()
 
     if args.selftest:
@@ -266,6 +269,14 @@ def main():
                 if not separator or not key.strip():
                     raise SystemExit(f"invalid --expect-env item: {item!r}")
                 expected_env[key.strip()] = value
+
+    if args.print_collection_filter:
+        keys = set(DEFAULT_REQUIRED_ENV if required_env is None else required_env)
+        keys.update(DEFAULT_EXPECTED_ENV if expected_env is None else expected_env)
+        if any(re.fullmatch(r"[A-Z_][A-Z0-9_]*", key) is None for key in keys):
+            raise SystemExit("invalid environment variable name")
+        print("^(" + "|".join(sorted(keys)) + ")=" if keys else "^$")
+        return 0
 
     drifts = _verdict(sys.stdin.readlines(), expected_tag=args.expected_tag, required_env=required_env, expected_env=expected_env)
     if not drifts:

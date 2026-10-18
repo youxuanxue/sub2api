@@ -17,7 +17,7 @@ release、目标解析、canary 选择、rollout、smoke/post-check verdict 均�
 
 ## 调用参数
 
-“发版/deploy 最新”默认 `target=prod operation=release`；检查影响用只读 `operation=check`，不 bump/tag/deploy。回放用 `operation=replay target=prod`，只准备 inactive color，任何结果都停在 `approval_pending=true`；禁止自动 promote/切流。执行 replay/rollback、修改可选检查或需要完整参数时必须先读细则。release 后默认只读 Anthropic snapshot/check 与 prod model_mapping check；配置漂移/SSM 失败记 yellow，不据此 rollback 镜像。见 [操作细则](references/operations.md)。
+“发版/deploy 最新”默认 `target=prod operation=release`；检查影响用只读 `operation=check`，不 bump/tag/deploy。回放用 `operation=replay target=prod`，只准备 inactive color，任何结果都停在 `approval_pending=true`；禁止自动 promote/切流。执行 replay/rollback、修改可选检查或需要完整参数时必须先读细则。release 后默认只读 prod model_mapping check；原生 Anthropic 检查边界见操作细则，已退役的 snapshot/check 工具不再调用。配置漂移/SSM 失败记 yellow，不据此 rollback 镜像。见 [操作细则](references/operations.md)。
 
 ## 执行顺序（细节在脚本，不在本 skill 复述）
 
@@ -30,7 +30,7 @@ release、目标解析、canary 选择、rollout、smoke/post-check verdict 均�
    Workflow 步骤名与 Summary 标题必须对齐：`Check PR hooks immediately`、
    `Check traffic and 5xx after 5 minutes`、`### Traffic / 5xx (+5 min)`（含
    completed requests / top paths）。
-4. Prod smoke 后 advisory：`check-account-group-bindings.sh` 只读检查每个健康、可调度且有显式 `model_mapping` 的账号；无 active group 或与同模型 peer 分组完全不相交时输出 `review`，无 peer 的新模型只记 inconclusive。workflow 必须保持 `continue-on-error`。
+4. Prod smoke 后 advisory：`check-account-group-bindings.sh` 只读检查每个健康、可调度且有显式 `model_mapping` 的账号；无 active group 时输出 `review`；与同模型 peer 分组不相交及无 peer 的账号模型项只作提示，不能据此补授权或绑组。workflow 必须保持 `continue-on-error`。
 
 Tag 域 SSOT：git / `release.yml` 用 `vX.Y.Z`；deploy/warm 镜像 input 用裸 `X.Y.Z`。本地入口经 `normalize-deploy-tag.sh`，可传两种形态。
 

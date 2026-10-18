@@ -48,6 +48,14 @@ it. A successful restore must make every precious table queryable; live and
 restored row counts are recorded as evidence but are not required to be equal,
 because the tested S3 recovery point is older than live state.
 
+For usage reconciliation, schema v3 receipts additionally compare every usage
+COPY table (including empty/default partitions) in the downloaded dump with the
+isolated restored database: row count, UTC timestamp range, and exact decimal
+`total_cost` / `actual_cost` sums. The source dump owns this snapshot; live usage
+is not scanned for this comparison. Missing COPY evidence, corrupt gzip, missing
+partitions or differing aggregates fail before a successful receipt is published.
+Older core-only receipts do not satisfy usage recovery acceptance.
+
 ## Cleanup and receipt
 
 Cleanup is part of success, not best effort. The temporary container, downloaded

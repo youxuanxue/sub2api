@@ -13,6 +13,7 @@ import sys
 STAGE0 = pathlib.Path(__file__).resolve().parents[1] / "stage0"
 sys.path.insert(0, str(STAGE0))
 
+from pgdump_usage_evidence import verified as usage_verified
 from pgdump_restore_canary_contract import precious_counts_valid  # noqa: E402
 
 
@@ -20,6 +21,7 @@ MAX_RECEIPT_AGE = dt.timedelta(days=8)
 OBJECT_URI_RE = re.compile(r"s3://[^/]+/prod/pgdump/tokenkey-\d{8}T\d{6}Z\.sql\.gz")
 REQUIRED_FIELDS = {
     "schema_version",
+    "usage_verification",
     "mode",
     "target",
     "completed_at",
@@ -108,7 +110,8 @@ def receipt_problem(receipt: object, expected_target: str) -> str | None:
         for field in numeric_fields
     )
     evidence_valid = (
-        receipt.get("schema_version") == 2
+        receipt.get("schema_version") == 3
+        and usage_verified(receipt.get("usage_verification"))
         and receipt.get("mode") == "pgdump_restore_canary"
         and completed_at is not None
         and source_modified is not None
@@ -160,7 +163,7 @@ def evaluate_receipt(
             severity="warning",
             summary=(
                 "restore canary self-healed after a stale S3 dump; "
-                "verify tokenkey-pgdump.timer still publishes hourly objects"
+                "verify tokenkey-pgdump.timer still publishes two-hourly objects"
             ),
         )
     return _finding(

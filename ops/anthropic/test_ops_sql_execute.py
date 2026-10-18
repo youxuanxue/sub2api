@@ -35,6 +35,8 @@ OPS_DIR = OPS_ANTHROPIC.parent
 # RAISEs otherwise); tls_fingerprint_profiles.id auto-generates + name is unique
 # (generate_sql INSERT ... ON CONFLICT (name)).
 SCHEMA = """
+CREATE TABLE usage_logs(id bigint, created_at timestamptz, total_cost numeric(20,10), actual_cost numeric(20,10));
+INSERT INTO usage_logs VALUES (1,'2026-10-18T00:00:00Z',0.1000000001,0.0100000001);
 CREATE TABLE accounts(id bigint, name text, platform text, type text, status text, schedulable boolean,
   concurrency int, load_factor numeric, priority int, channel_type int, rate_multiplier numeric,
   auto_pause_on_expired boolean, proxy_id bigint, error_message text, last_used_at timestamptz,
@@ -64,6 +66,7 @@ INSERT INTO accounts(id,name,platform,type,status,schedulable,concurrency,priori
 
 _OPS_MODULES = [
     OPS_DIR / "antigravity" / "check-antigravity-account-config.py",
+    OPS_DIR / "stage0" / "pgdump_usage_evidence.py",
 ]
 
 

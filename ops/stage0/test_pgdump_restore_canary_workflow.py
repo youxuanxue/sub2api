@@ -33,7 +33,7 @@ class PgdumpRestoreCanaryWorkflowTest(unittest.TestCase):
             step for step in restore["steps"]
             if step.get("name") == "Run isolated pg_dump restore canary"
         )
-        self.assertEqual(canary_step["continue-on-error"], "true")
+        self.assertNotIn("continue-on-error", canary_step)
         self.assertEqual(len(restore["steps"]), 3)
 
 
