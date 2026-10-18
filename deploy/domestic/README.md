@@ -224,6 +224,6 @@ UCloud 云告警、备份/恢复不在此安装器范围内。
 备案、备份和恢复按用户决定后续处理；此回执仅记录当前实测可达性。
 
 Node1 隔离 SSH 目标与切流边界见 [切流前准备](../../docs/approved/node1-prod-precutover.md)。
-显式使用 `dispatch-prod-deploy.sh --target zhupeng-prod --operation plan --tag 1.8.300`；省略 target 仍为现网 AWS prod。
+显式使用 `dispatch-prod-deploy.sh --target zhupeng-prod --operation plan --tag 1.8.303`；省略 target 仍为现网 AWS prod。
 共享运维探针使用 `ops/observability/run-probe.sh --target zhupeng-prod --script <探针路径>`，
 只改 SSH 运输并核验 Node1 身份；不会调用 AWS SSM，也不允许 AWS instance override。
