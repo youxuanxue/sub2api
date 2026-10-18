@@ -14,9 +14,7 @@ truncating everything after the first psql call while still reporting Success (r
 Keeping this — plus the get-command-invocation guard and the stderr-capture limit — in ONE
 place means those fixes cannot regress per-tool.
 
-Distinct from ops/stage0/edge_ssm_execution.py (which resolves explicit non-retired EDGE targets
-via the edge routing matrix); this module is the prod-control-plane counterpart with no
-edge dependencies, so it importlib-loads cleanly from any ops tool.
+This module importlib-loads from any ops tool.
 
 Prod target resolution delegates to ``resolve_prod_ssm_target.py`` (same owner as
 run-probe / deploy-stage0): auto defaults to Tokyo AWS; historical ``aws`` / retired ``hetzner`` identities are rejected. ``resolve_prod_instance`` updates module ``PROD_REGION`` to the target's

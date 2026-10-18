@@ -132,7 +132,7 @@ describe('GrokQuotaProbeCell', () => {
     wrapper.unmount()
   })
 
-  it('bounds edge queries to explicit clicks and never falls back to a main account ID', async () => {
+  it('bounds custom queries to explicit clicks and never falls back to another account ID', async () => {
     let reject!: (error: Error) => void
     const activeUsageLoader = vi.fn().mockReturnValue(new Promise((_, fail) => { reject = fail }))
     const wrapper = mount(GrokQuotaProbeCell, {
@@ -142,10 +142,10 @@ describe('GrokQuotaProbeCell', () => {
     await wrapper.get('button').trigger('click')
     await wrapper.get('button').trigger('click')
     expect(activeUsageLoader).toHaveBeenCalledTimes(1)
-    reject(new Error('edge unavailable'))
+    reject(new Error('upstream unavailable'))
     await flushPromises()
     expect(getUsage).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('edge unavailable')
+    expect(wrapper.text()).toContain('upstream unavailable')
     expect(wrapper.text()).toContain('$9.00')
     expect(wrapper.get('button').attributes('disabled')).toBeUndefined()
     wrapper.unmount()

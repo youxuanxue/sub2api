@@ -19,7 +19,6 @@ import subprocess
 import tempfile
 
 from pgdump_storage import Storage, StorageError, private_file, OBJECT_RE
-from edge_routing_matrix import materialize_hetzner_target
 
 ROOT = Path("/var/lib/tokenkey")
 CONFIG = Path("/etc/tokenkey/pgdump-storage.json")
@@ -36,19 +35,13 @@ def command(args):
 
 
 def identity(target, bundle):
-    if target == "prod":
-        matrix = json.loads((bundle / "prod-target-hetzner.json").read_text())
-        assert matrix["platform"] == "hetzner" and matrix["target"]["deployable"] is True
-        expected = matrix["target"]["instance_name"]
-        if command(["findmnt", "-n", "-o", "TARGET", "--mountpoint", str(ROOT)]) != str(ROOT):
-            raise StorageError("prod data volume not mounted")
-    else:
-        edge = target.split(":", 1)[1]
-        matrix = json.loads((bundle / "edge-targets-hetzner.json").read_text())
-        assert matrix["platform"] == "hetzner"
-        row = materialize_hetzner_target(edge, matrix, matrix["targets"][edge])
-        assert row["deployable"] is True
-        expected = row["instance_name"]
+    if target != "prod":
+        raise StorageError("only the prod host is supported")
+    matrix = json.loads((bundle / "prod-target-hetzner.json").read_text())
+    assert matrix["platform"] == "hetzner" and matrix["target"]["deployable"] is True
+    expected = matrix["target"]["instance_name"]
+    if command(["findmnt", "-n", "-o", "TARGET", "--mountpoint", str(ROOT)]) != str(ROOT):
+        raise StorageError("prod data volume not mounted")
     if socket.gethostname() != expected:
         raise StorageError("host identity mismatch")
     if command(["systemctl", "is-active", "tokenkey-pgdump.timer"]) != "active":
@@ -98,7 +91,7 @@ def main():
     parser.add_argument("--release", required=True)
     parser.add_argument("--operation", choices=["plan", "prepare", "activate", "rollback"], default="plan")
     args = parser.parse_args()
-    if not re.fullmatch(r"[a-z0-9-]{1,64}", args.release) or not re.fullmatch(r"prod|edge:[a-z][a-z0-9]{1,15}", args.target):
+    if not re.fullmatch(r"[a-z0-9-]{1,64}", args.release) or args.target != "prod":
         raise StorageError("invalid release/target")
     if os.geteuid() != 0:
         raise StorageError("host installation requires root")

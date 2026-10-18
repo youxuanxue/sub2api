@@ -12,25 +12,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-// Issue #625 (prod + us2/us3/uk1 quad P0 2026-06-06T07:00-07:16Z): a single client
-// issuing non-streaming claude-opus-4-6 with a short client timeout cancels
-// mid-flight. The outbound request fails with `context canceled` and NO upstream
-// HTTP status (upstream_status_code=null, final 502), so the classifier relabeled
-// it phase=upstream / error_owner=provider and it counted toward upstream_error_rate.
-// Because prod relays the same request to edges, one client cancel lit up prod AND
-// every relayed edge at once.
-//
-// These tests pin the corrected classification: a client-cancel upstream transport
-// error is owned by the client (phase=request, error_owner=client) so it drops out
-// of the upstream_excl filter behind upstream_error_rate, while server-side
-// deadline-exceeded timeouts and genuine provider failures keep counting.
-//
-// Setups mirror the gateway forward-failure site (gateway_service.go), which records
-// BOTH setOpsUpstreamError(c, 0, safeErr, "") and an appendOpsUpstreamError event
-// with UpstreamStatusCode=0, Kind="request_error", Message=safeErr — where safeErr
-// is the sanitized Go error (sanitizeUpstreamErrorMessage preserves "context
-// canceled"). hasOpsUpstreamErrorContext keys off the events array, so the event is
-// what makes upstreamError=true.
 func TestClassifyOpsUpstreamClientCanceledOwnedByClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

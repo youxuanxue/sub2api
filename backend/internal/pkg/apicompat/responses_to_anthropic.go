@@ -892,11 +892,6 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 
 	var events []AnthropicStreamEvent
 	events = append(events, resToAnthEnsureMessageStart(state, evt)...)
-	// Codex / edge-mirror hops often buffer visible text into the terminal
-	// response.output after a long reasoning wait and omit output_text.delta.
-	// Backfill while the current thinking block is still open so reasoning
-	// text is not written after content_block_stop. Then close leftover
-	// blocks before the US-027 empty-text firewall.
 	events = append(events, resToAnthBackfillCompletedOutput(evt, state)...)
 	events = append(events, closeCurrentBlock(state)...)
 	events = append(events, resToAnthRecoverTerminalText(evt, state)...)

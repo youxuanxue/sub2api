@@ -42,13 +42,6 @@ func (s *RateLimitService) tkTryHandle429Extras(
 		s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "all_available_accounts_exhausted")
 		return true, true
 	}
-	if tkSkipDownstreamKiroServiceUnavailablePenalty(account, statusCode, upstreamMsg, responseBody) {
-		slog.Info("anthropic_downstream_kiro_service_unavailable_skip_penalty",
-			"account_id", account.ID,
-			"status_code", statusCode)
-		s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "kiro_service_unavailable")
-		return true, true
-	}
 	if account.Platform == PlatformAnthropic && tkIsAnthropicNonAuthoritative429(headers, responseBody) {
 		tkLogAnthropicNonAuthoritative429Skip(account, statusCode)
 		s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "non_authoritative_429")

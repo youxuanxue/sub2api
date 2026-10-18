@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Direct xAI upstream probe for one Grok OAuth account (bypasses TK gateway/catalog).
-# Use via run-probe on edge when account model_mapping is empty and gateway probes
+# Use via run-probe on prod when account model_mapping is empty and gateway probes
 # return gateway_rejected for models not yet in SSOT.
 set -euo pipefail
 

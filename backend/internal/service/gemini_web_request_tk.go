@@ -5,16 +5,13 @@ import (
 	"strings"
 )
 
-// GeminiWebRelayCredentialKey declares the restricted Worker contract on a
-// relay account. Session-bearing edge accounts already declare it via gemini_web.
-// Account names, public model aliases and edge hostnames are not capabilities.
+// GeminiWebRelayCredentialKey declares a remote upstream using the Worker contract.
 const GeminiWebRelayCredentialKey = "gemini_web_relay"
 
 // CanImportGeminiWebSession accepts local Gemini Web Worker declarations with
 // or without a runtime. An empty gemini_web object is the copied account's
 // explicit capability declaration; the runtime itself remains the binding SSOT.
-// Production relays reference an edge account; importing into their database
-// would not update that edge's session. Names, URLs and model aliases are not identity.
+// Remote upstream sessions are managed by that upstream, not the local database.
 func CanImportGeminiWebSession(account *Account) bool {
 	if account == nil || account.Platform != PlatformGemini || account.Type != AccountTypeAPIKey {
 		return false

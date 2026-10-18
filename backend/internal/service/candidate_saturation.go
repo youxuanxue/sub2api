@@ -9,17 +9,15 @@ import (
 // feedback. Redis owns rolling-window expiry; read failures preserve base order.
 // Group selection, account scoring and sticky eviction consume this same view.
 type candidateSaturationState struct {
-	anthropic   AnthropicSaturationCounterCache
-	openai      OpenAISaturationCounterCache
-	antigravity AntigravitySaturationCounterCache
-	settings    *SettingService
+	anthropic AnthropicSaturationCounterCache
+	openai    OpenAISaturationCounterCache
+	settings  *SettingService
 }
 
 func (s *GatewayService) candidateSaturationState() candidateSaturationState {
 	state := candidateSaturationState{anthropic: s.tkAnthropicSaturationCounter, settings: s.settingService}
 	if s.rateLimitService != nil {
 		state.openai = s.rateLimitService.openaiSaturationCounter
-		state.antigravity = s.rateLimitService.antigravitySaturationCounter
 	}
 	return state
 }
@@ -28,19 +26,12 @@ func (s *OpenAIGatewayService) candidateSaturationState() candidateSaturationSta
 	state := candidateSaturationState{openai: s.tkOpenAISaturationCounter, settings: s.settingService}
 	if s.rateLimitService != nil {
 		state.anthropic = s.rateLimitService.anthropicSaturationCounter
-		state.antigravity = s.rateLimitService.antigravitySaturationCounter
 	}
 	return state
 }
 
-func (s candidateSaturationState) counts(ctx context.Context, accounts []*Account, model string) map[int64]int64 {
-	if model == "" {
-		if request, ok := ProtocolRoutingRequest(ctx); ok {
-			model = request.RequestedModel()
-		}
-	}
+func (s candidateSaturationState) counts(ctx context.Context, accounts []*Account, _ string) map[int64]int64 {
 	var anthropicIDs, openaiIDs, nvidiaIDs []int64
-	var scopes []AntigravitySaturationScope
 	for _, account := range accounts {
 		if account == nil {
 			continue
@@ -49,11 +40,7 @@ func (s candidateSaturationState) counts(ctx context.Context, accounts []*Accoun
 		case account.Platform == PlatformAnthropic:
 			anthropicIDs = append(anthropicIDs, account.ID)
 		case isNewAPINVIDIABuildAccount(account):
-			// Always-on soft preference for unstable secondary capacity; do not
-			// share the OpenAI edge-mirror kill-switch or 600s/threshold-5 window.
 			nvidiaIDs = append(nvidiaIDs, account.ID)
-		case tkIsAntigravityEdgeRelayStub(account) && model != "":
-			scopes = append(scopes, AntigravitySaturationScope{account.ID, resolveFinalAntigravityModelKey(ctx, account, model)})
 		case eligibleForOpenAICapacitySaturationPreference(account):
 			openaiIDs = append(openaiIDs, account.ID)
 		}
@@ -69,36 +56,26 @@ func (s candidateSaturationState) counts(ctx context.Context, accounts []*Accoun
 		}
 	}
 	if len(anthropicIDs) > 0 && s.anthropic != nil && (s.settings == nil || s.settings.IsAnthropicSaturatedStubDeprioritizeEnabled(ctx)) {
-		merge(s.anthropic.GetSaturationBatch(ctx, anthropicIDs, edgeMirrorStubSaturationWindowSeconds))
+		merge(s.anthropic.GetSaturationBatch(ctx, anthropicIDs, saturationWindowSeconds))
 	}
 	if len(openaiIDs) > 0 && s.openai != nil && (s.settings == nil || s.settings.IsOpenAISaturatedStubDeprioritizeEnabled(ctx)) {
-		merge(s.openai.GetSaturationBatch(ctx, openaiIDs, edgeMirrorStubSaturationWindowSeconds))
+		merge(s.openai.GetSaturationBatch(ctx, openaiIDs, saturationWindowSeconds))
 	}
 	if len(nvidiaIDs) > 0 && s.openai != nil {
 		merge(s.openai.GetSaturationBatch(ctx, nvidiaIDs, nvidiaBuildInstabilityWindowSeconds))
-	}
-	if reader, ok := s.antigravity.(AntigravitySaturationReader); ok && len(scopes) > 0 {
-		counts, err := reader.GetSaturationBatch(ctx, scopes, edgeMirrorStubSaturationWindowSeconds)
-		if err != nil {
-			slog.Warn("candidate_saturation_read_failed", "error", err)
-		} else {
-			for scope, count := range counts {
-				result[scope.AccountID] = count
-			}
-		}
 	}
 	return result
 }
 
 func candidateSaturated(count int64) bool {
-	return count >= edgeMirrorStubSaturationThreshold
+	return count >= saturationThreshold
 }
 
 func candidateEffectivePriority(account *Account, counts map[int64]int64) int {
 	priority := account.Priority
 	count := counts[account.ID]
 	if candidateSaturatedFor(account, count) {
-		priority += anthropicSaturationPriorityPenalty + int(count)*100
+		priority += saturationPriorityPenalty + int(count)*100
 	}
 	return priority
 }
@@ -106,7 +83,7 @@ func candidateEffectivePriority(account *Account, counts map[int64]int64) int {
 func candidateSelectionEffectivePriority(account *Account, counts, failureCounts map[int64]int64) int {
 	priority := candidateEffectivePriority(account, counts)
 	if failureCounts[account.ID] >= candidateFailureThreshold {
-		priority += anthropicSaturationPriorityPenalty
+		priority += saturationPriorityPenalty
 	}
 	return priority
 }

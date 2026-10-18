@@ -13,7 +13,6 @@ _PROD_RESOLVE_WORKFLOWS = (
     "warm-image-stage0.yml",
     "ops-stage0-pg-dump-refresh.yml",
     "ops-stage0-host-mem-guard.yml",
-    "ops-stage0-ghcr-prune-timer.yml",
     "sync-docs-to-pages.yml",
 )
 

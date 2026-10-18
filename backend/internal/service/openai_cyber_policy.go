@@ -13,11 +13,6 @@ import (
 // handler 在 Forward 返回后读取以触发风控记录、邮件与 tokens=0 用量行。
 const opsCyberPolicyKey = "ops_cyber_policy"
 
-// OpenAI cyber / session-isolation error.code SSOT.
-// Upstream provider uses OpenAICyberPolicyErrorCode; TokenKey local session-block
-// responses use OpenAICyberSessionBlockedErrorCode. Both must share the same
-// detect → SharedFault / no-failover → mark → session-block write path so a
-// mirror/edge 403 cannot rotate the pool (prod→edge fanout gap).
 const (
 	OpenAICyberPolicyErrorCode         = "cyber_policy"
 	OpenAICyberSessionBlockedErrorCode = "session_blocked_by_cyber_policy"

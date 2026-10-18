@@ -41,7 +41,6 @@ class OpenModelReleaseWatchIssuesTest(unittest.TestCase):
         self.assertIn("platform:bedrock", body)
         self.assertIn("tokenkey-modelops-planner", body)
         self.assertIn("Wildcard supplier mappings do not count", body)
-        self.assertNotIn("cursor", body.lower())
 
     def test_sync_issues_skips_served_and_creates_actionable(self) -> None:
         report = {

@@ -6,41 +6,6 @@ import (
 	"strings"
 )
 
-// Non-authoritative Anthropic 429 classification.
-//
-// A genuine Anthropic account window-limit (5h/7d) ALWAYS carries the
-// anthropic-ratelimit-* response headers (per-window reset/utilization, or the
-// legacy aggregate anthropic-ratelimit-unified-reset) — that is exactly what
-// calculateAnthropic429ResetTime / handle429 read to write an authoritative,
-// precise cooldown. A 429 that carries NONE of those headers is therefore not an
-// authoritative account window-limit ("真窗口限流一定带头").
-//
-// In TokenKey's prod→edge mirror topology the header-less 429s are the edge's own
-// capacity / failover envelopes relayed back to a prod cc-<edge> stub:
-//
-//   - "No available accounts: no available accounts"      (empty-pool fast-fail, 429) → tkSkipDownstreamNoAvailableAccountsPenalty
-//   - TokenKey failover-terminal envelope                  (normally 502)              → tkSkipDownstreamFailoverExhaustedPenalty
-//   - "Upstream rate limit exceeded, please retry later"  (rate-limit failover-       → NEITHER needle matched → fell through and
-//                                                          exhausted, 429)               advanced the per-account anthropic_upstream_error
-//                                                                                        3/3 ladder, cooling a HEALTHY mirror stub
-//                                                                                        (cc-us7, 2026-06-13 23:11: tier-0 30s).
-//
-// The first two are caught by needle-based skips (ratelimit_service_tk_downstream_
-// no_available.go); the third (and any other header-less provider 429) slipped
-// through. Crucially pool_mode does NOT exempt anthropic from the cooldown — the
-// HandleUpstreamError pool-mode skip carries `&& Platform != PlatformAnthropic`, and
-// the pool-mode same-account retries (RetryableOnSameAccount) re-hit the same stub
-// each feeding the ladder, so one request can self-trip the 3/3 ladder.
-//
-// This header-presence classifier generalises the needle skips: no
-// anthropic-ratelimit-* headers ⇒ non-authoritative ⇒ fail over to the next stub
-// without a fallback cooldown or ladder advance. It is ALWAYS ON — same posture as
-// its two sibling capacity-envelope skips, which carry no setting either. A real
-// relayed window-limit still carries the headers and is unaffected. Retry-After is
-// deliberately NOT treated as authoritative: TokenKey's own capacity envelopes (and
-// the empty-pool fast-fail) set Retry-After:5, so keying on it would mis-classify
-// the very envelopes above.
-
 // tkIsAnthropicNonAuthoritative429 reports whether an Anthropic 429 lacks ANY
 // authoritative anthropic-ratelimit-* signal in its response headers. Pure; no
 // settings, no I/O. The caller must already have established statusCode==429 and

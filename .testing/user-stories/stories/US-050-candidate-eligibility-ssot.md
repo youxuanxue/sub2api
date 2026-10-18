@@ -4,7 +4,7 @@
 - Title: Universal and direct requests share authorization-scoped candidate scheduling
 - Priority: P0
 - As a / I want / So that: As a key user, I want eligible accounts to compete within my authorized scope and payment tier, so group display order and duplicate memberships do not change scheduling or bypass my billing rights.
-- Trace: `docs/approved/candidate-eligibility-ssot.md`
+- Trace: `../../../docs/approved/candidate-eligibility-ssot.md`
 - Risk Focus:
   - 逻辑错误: preserve complete authorization paths, deduplicate equivalent execution candidates, and keep model support separate from availability.
   - 行为回归: preserve native/media capability owners and subscription priority while removing group-order scheduling effects.
@@ -64,7 +64,7 @@
 
 45. AC-045 (regression): Given a group image card priced only for one size When either image handler receives another size Then admission evaluates that actual normalized size using settlement's tier/default precedence and rejects nonpositive cost; configured size and valid default prices remain usable.
 
-AC-042 and AC-046 were Cursor-only contracts and are retired under `docs/approved/cursor-retirement.md`; US-066 owns the retirement checks.
+AC-042 and AC-046 were supplier-specific contracts and are no longer part of the candidate-eligibility story.
 
 The Direct/Universal mapping boundary is approved in
 `docs/approved/candidate-request-policy-convergence.md`. Mapping isolation, global
@@ -81,7 +81,6 @@ AC-013 preserves existing applicable checks without requiring that expansion.
 
 - Native and converted routes compete by account policy without group rank.
 - Cooling and disabled accounts cannot turn supported capacity into a 403.
-- Antigravity saturation affects only its resolved model; expiry restores base priority.
 - Healthy balance capacity cannot displace a usable subscription due to saturation alone.
 - Request parsing precedes billing binding and restores compressed bytes exactly.
 - Thinking-dependent model admission, cooldown and saturation use the same request state before account selection and during execution.
@@ -100,7 +99,6 @@ mixed-pool test documents only the remaining legacy adapter's behavior.
 - `backend/internal/service/candidate_thinking_tools_tk_test.go`::`TestCandidateThinkingToolsRespectConversionPermission`
 - `backend/internal/service/candidate_thinking_tools_tk_test.go`::`TestExecuteSelectedProtocolRejectsChangedThinkingCapability`
 - `backend/internal/service/candidate_thinking_tools_tk_test.go`::`TestCandidateThinkingToolsPreferExactAndFallbackOnCapacity`
-- `backend/internal/service/account_supported_protocols_test.go`::`TestKiroMirrorPlanRequiresPersistedMessages`
 
 - `scripts/checks/test_protocol_routing_ssot.py`::`ProtocolRoutingSSOTTest.test_rejects_forward_bypass_outside_selected_protocol_execution`
 - `scripts/checks/test_protocol_routing_ssot.py`::`ProtocolRoutingSSOTTest.test_rejects_removed_owner`
@@ -139,11 +137,9 @@ mixed-pool test documents only the remaining legacy adapter's behavior.
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityNativeAndConverterEqual`
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityMixedPoolUsesSchedulerMembership`
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilitySaturationPreservesBillingTier`
-- `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityAntigravitySaturationScopeAndParity`
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityProductionWiring`
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityHardGatesPrecedeWindowRecovery`
 - `backend/internal/service/candidate_eligibility_tk_tokensea_test.go`::`TestCandidateEligibilityTokenseaUsesPlanAcrossEntrances`
-- `backend/internal/repository/antigravity_saturation_counter_cache_test.go`::`TestAntigravitySaturationCounterCache_RollingWindow`
 - `backend/internal/server/middleware/universal_routing_tk_test.go`::`TestMaybeResolveUniversal_CandidatePlanPrecedesBillingAndPreservesBody`
 - `backend/internal/server/middleware/universal_routing_tk_test.go`::`TestMaybeResolveUniversal_CapacityDoesNotDenyEntitlement`
 - `backend/internal/service/universal_subscription_fallback_test.go`::`TestResolve_SubscriptionReadErrorFallback`
@@ -281,7 +277,7 @@ python3 .testing/user-stories/verify_quality.py
 
 ## Status
 
-逐 AC 的机器状态与测试引用见 [`ops/observability/candidate-eligibility-acceptance-ledger.json`](../../ops/observability/candidate-eligibility-acceptance-ledger.json)。检查器与本文 Acceptance Criteria 完整对账，并验证引用属于 Linked Tests 且测试符号仍有效；它不替代测试执行结果或人审证据语义。`contract-tested` 表示可重复的契约证据，`live-verified` 另需本文链接的独立线上 receipt，`blocked` 必须说明缺口。运营观察只通过 Coverage Boundaries 指针维护，不另设一个全局 blocked 状态；汇总 billing-watch 不得关闭单项 AC。
+逐 AC 的机器状态与测试引用见 [`ops/observability/candidate-eligibility-acceptance-ledger.json`](../../../ops/observability/candidate-eligibility-acceptance-ledger.json)。检查器与本文 Acceptance Criteria 完整对账，并验证引用属于 Linked Tests 且测试符号仍有效；它不替代测试执行结果或人审证据语义。`contract-tested` 表示可重复的契约证据，`live-verified` 另需本文链接的独立线上 receipt，`blocked` 必须说明缺口。运营观察只通过 Coverage Boundaries 指针维护，不另设一个全局 blocked 状态；汇总 billing-watch 不得关闭单项 AC。
 
 - [x] Done
 

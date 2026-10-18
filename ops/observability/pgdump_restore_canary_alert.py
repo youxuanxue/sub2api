@@ -12,10 +12,10 @@ import sys
 from typing import Any
 
 if __package__:
-    from .edge_health_delivery import DeliveryError, _atomic_write, post_feishu
+    from .feishu_delivery import DeliveryError, _atomic_write, post_feishu
     from .pgdump_restore_canary_verdict import receipt_problem
 else:
-    from edge_health_delivery import DeliveryError, _atomic_write, post_feishu
+    from feishu_delivery import DeliveryError, _atomic_write, post_feishu
     from pgdump_restore_canary_verdict import receipt_problem
 
 

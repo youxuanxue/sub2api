@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # Shared helpers for Stage0 gateway smoke scripts.
-# Source from post_deploy_smoke.sh / edge_post_deploy_smoke.sh — do not execute directly.
+# Source from post_deploy_smoke.sh — do not execute directly.
 set -euo pipefail
 
 : "${GATEWAY_SMOKE_SUITE:=full}"
 
 # Canonical suite names (one runner, multiple deploy intents):
 #   full            — prod deploy-stage0: all gateway probes
-#   main-via-edge   — prod→edge canary: public + models + /v1/messages (claude-cli UA)
 #   quick           — manual gateway_smoke.sh equivalent: public + models + chat only
 if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
   _TK_SMOKE_LIB_LOADED=1
@@ -15,10 +14,9 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
   smoke_normalize_suite() {
     case "${1:-full}" in
       full|prod) echo "full" ;;
-      main-via-edge|edge-via-prod) echo "main-via-edge" ;;
       quick|minimal) echo "quick" ;;
       *)
-        echo "tk_smoke: unknown GATEWAY_SMOKE_SUITE='${1}' (want full|main-via-edge|quick)" >&2
+        echo "tk_smoke: unknown GATEWAY_SMOKE_SUITE='${1}' (want full|quick)" >&2
         return 1
         ;;
     esac
@@ -31,12 +29,6 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
     case "${GATEWAY_SMOKE_SUITE}" in
       full)
         return 0
-        ;;
-      main-via-edge)
-        case "${section}" in
-          public|models|messages) return 0 ;;
-          *) return 1 ;;
-        esac
         ;;
       quick)
         case "${section}" in
@@ -109,15 +101,14 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
   # TK_SMOKE_API_KEY is routing_mode=universal; GET /v1/models skips backing-group
   # resolution (docs/approved/universal-key-routing.md PR1: metadata fallback, PR3:
   # entitled-group union). The handler unions global account model_mapping keys, so
-  # newapi vendor ids appear while prod Claude capacity (kiro-us3/4/5/6 mirror stubs
-  # with empty native mapping) does not. /v1/messages is the canonical Anthropic probe.
+  # Native accounts may use empty model_mapping; /v1/messages is canonical.
   smoke_assert_anthropic_model_listed_or_warn() {
     local models_file="$1"
     local model="$2"
     if jq -e --arg m "${model}" '(.data // []) | any(.id == $m)' "${models_file}" >/dev/null 2>&1; then
       return 0
     fi
-    echo "::warning::tk_post_deploy_smoke: anthropic model '${model}' missing from /v1/models for universal smoke key — expected when prod Claude is only via kiro mirror stubs (empty model_mapping); deferring to /v1/messages probe" >&2
+    echo "::warning::tk_post_deploy_smoke: anthropic model '${model}' missing from /v1/models for universal smoke key — accounts may use empty model_mapping; deferring to /v1/messages probe" >&2
     return 0
   }
 
@@ -172,7 +163,7 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
           #                                    a hard smoke failure. /v1/messages
           #                                    stays the canonical signal for this key.
           # The old "All available accounts exhausted" wording remains accepted
-          # while prod and edge gateways can run different release versions.
+          # for compatibility with older gateway responses.
           *"no available accounts"*|*"Upstream request could not be completed"*|*"available accounts exhausted"*)
             echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} with a gateway capacity/failover message — runtime state, not a control-plane regression." >&2
             jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
@@ -202,7 +193,7 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
           *"No platform in your plan can serve"*|*universal_no_entitled*)
             # Universal key (TK_SMOKE_API_KEY): /v1/chat/completions may 403 when
             # groupServesModel filters to empty (PR #1122) while /v1/messages still
-            # routes via anthropic/kiro mirror. Same defer semantics as
+            # routes via native Anthropic/Kiro. Same defer semantics as
             # smoke_assert_anthropic_model_listed_or_warn — messages is canonical.
             echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} — universal key cannot route this model on chat shape; deferring to /v1/messages probe." >&2
             if [[ -n "${err_msg}" ]]; then
@@ -213,24 +204,7 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
             return 1
             ;;
           *"restricted to Claude Code clients"*|*"/v1/messages only"*)
-            # claude_code_only group policy: the configured Anthropic key is
-            # bound to a group that allows /v1/messages with a Claude Code UA
-            # only. Two cases:
-            #   main-via-edge suite — this branch should be unreachable
-            #     (smoke_suite_runs gates out non-messages sections), so a
-            #     claude_code_only hit here means the smoke runner itself is
-            #     misconfigured. Hard fail to surface the config bug.
-            #   full / quick suite — /v1/chat/completions against a
-            #     claude_code_only-restricted key is policy-correct rejection,
-            #     not a control-plane regression. The /v1/messages section
-            #     (Claude Code UA) still runs and is the canonical signal for
-            #     this key's group. Soft-skip with a warning.
-            if [[ "${GATEWAY_SMOKE_SUITE}" == "main-via-edge" ]]; then
-              echo "::error::tk_post_deploy_smoke: ${label} returned HTTP ${http} — main-via-edge must use /v1/messages with a Claude Code User-Agent, not /v1/chat/completions." >&2
-              echo "tk_post_deploy_smoke: ${label} failed" >&2
-              jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
-              exit 1
-            fi
+            # Claude Code-only policy rejects chat; messages remains canonical.
             echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} — configured key is bound to a Claude Code-only group (claude_code_only policy); /v1/messages section will cover this key. Soft-skipped." >&2
             if [[ -n "${err_msg}" ]]; then
               echo "  gateway message: ${err_msg}" >&2

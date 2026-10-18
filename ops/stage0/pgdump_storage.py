@@ -18,7 +18,7 @@ import sys
 import urllib.parse
 
 CONFIG_PATH = Path("/etc/tokenkey/pgdump-storage.json")
-TARGET_RE = re.compile(r"(?:prod|edge:[a-z][a-z0-9]{1,15})")
+TARGET_RE = re.compile(r"prod")
 OBJECT_RE = re.compile(r"tokenkey-\d{8}T\d{6}Z\.sql\.gz")
 
 
@@ -45,13 +45,12 @@ def location(raw: str, target: str | None = None) -> tuple[str, str]:
     if (parsed.scheme != "s3" or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", parsed.netloc)
             or parsed.params or parsed.query or parsed.fragment):
         raise StorageError("pgdump URI must be s3://bucket/prefix")
-    if not re.fullmatch(r"(?:prod|edge/[a-z][a-z0-9]{1,15})/pgdump", prefix):
+    if prefix != "prod/pgdump":
         raise StorageError("invalid pgdump prefix")
     if target is not None:
         if TARGET_RE.fullmatch(target) is None:
             raise StorageError("invalid pgdump target")
-        expected = "prod/pgdump" if target == "prod" else f"edge/{target.split(':', 1)[1]}/pgdump"
-        if prefix != expected:
+        if prefix != "prod/pgdump":
             raise StorageError("pgdump prefix does not match target")
     return parsed.netloc, prefix
 

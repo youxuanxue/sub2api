@@ -25,7 +25,7 @@
 # Idempotent: the swap block skips if /swapfile is already active; the disk-
 # metrics script is overwritten in place (its timer re-runs it every 5 min).
 #
-# The payload belongs to the legacy EC2 bootstrap. Current hcloud prod/edges
+# The payload belongs to the legacy EC2 bootstrap. Current hcloud prods
 # use deploy/hetzner renderers; this script rejects their managed instance IDs.
 #
 # Usage:

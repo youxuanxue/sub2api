@@ -8,7 +8,6 @@ cd "$REPO_ROOT"
 FILES=(
   "deploy/Caddyfile"
   "deploy/aws/stage0/Caddyfile"
-  "deploy/aws/stage0/Caddyfile.edge"
 )
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -64,6 +63,7 @@ fi
 export API_DOMAIN="api.example.com"
 export ACME_EMAIL="ops@example.com"
 export MAIN_GATEWAY_ALLOWED_CIDR="203.0.113.10/32"
+export GLOBAL_REDIRECT_STATUS="301"
 
 WORK_DIR="${CLAUDE_JOB_DIR:-$REPO_ROOT/.claude/tmp}"
 mkdir -p "$WORK_DIR"
@@ -76,6 +76,7 @@ render_template() {
     -e "s|\${API_DOMAIN}|$API_DOMAIN|g" \
     -e "s|\${ACME_EMAIL}|$ACME_EMAIL|g" \
     -e "s|\${MAIN_GATEWAY_ALLOWED_CIDR}|$MAIN_GATEWAY_ALLOWED_CIDR|g" \
+    -e "s|\${GLOBAL_REDIRECT_STATUS}|$GLOBAL_REDIRECT_STATUS|g" \
     "$src" > "$out"
 }
 
@@ -118,12 +119,6 @@ else
     failures=$((failures + 1))
   fi
 fi
-# Edge is an SSE relay and must not enable encode at all.
-if grep -nE '^[[:space:]]*encode[[:space:]]' "$REPO_ROOT/deploy/aws/stage0/Caddyfile.edge" >/dev/null; then
-  echo "FAIL: deploy/aws/stage0/Caddyfile.edge must not enable encode (SSE relay)" >&2
-  failures=$((failures + 1))
-fi
-
 # The three adapts are independent; run the containers concurrently — serial
 # `docker run` startup (~1-3s each) made this gate the preflight long pole.
 declare -a _adapt_pids=() _adapt_rels=()

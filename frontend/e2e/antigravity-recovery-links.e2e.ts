@@ -64,7 +64,7 @@ for (const width of [1440, 390]) {
     await expect(dialog.locator('input[readonly]')).toHaveValue(oauth.auth_url)
     await dialog.getByRole('button', { name: 'Copy URL', exact: true }).click()
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(oauth.auth_url)
-    await expect(dialog.getByTestId('antigravity-browser-hint')).toContainText('Edge egress IP')
+    await expect(dialog.getByTestId('antigravity-browser-hint')).toContainText('account proxy egress IP')
     await page.screenshot({ path: `e2e/artifacts/antigravity-recovery-${width}.png` })
     await dialog.locator('textarea').fill('http://localhost:8085/callback?state=fixture&code=fixture-code')
     await expect(dialog.locator('textarea')).toHaveValue('fixture-code')

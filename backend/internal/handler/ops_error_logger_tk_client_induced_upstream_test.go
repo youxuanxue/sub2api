@@ -196,10 +196,6 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 		require.Equal(t, "client", errorOwner)
 	})
 
-	// TK (prod P0 2026-06-06, edge us5): bare "opus" on empty-mapping passthrough
-	// accounts → upstream 404 not_found_error. The gateway returns a client 400
-	// "Unsupported model", but the captured upstream status is still 404; it must
-	// be owned by the client or it keeps driving upstream_error_rate.
 	t.Run("anthropic upstream 404 model-not-found is client-induced", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)

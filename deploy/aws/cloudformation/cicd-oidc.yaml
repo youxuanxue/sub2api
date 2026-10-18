@@ -9,12 +9,7 @@ Description: >-
   replacement.
 
   Region-agnostic: the ClusteringRole name embeds ${AWS::Region}, so the same
-  template serves the us-east-1 (prod) and eu-west-2 (uk-edge) OIDC stacks.
-  EC2 Edge CloudFormation execution roles + EIP-rotation / decommission
-  permissions were removed 2026-06-07 when the EC2 Edge path was retired —
-  edges are Lightsail-only and deploy via the separate
-  tokenkey-cicd-lightsail-addon stack, not a per-edge CFN execution role.
-  (prod itself remains EC2 and is unaffected.)
+  template serves the prod OIDC stack in any AWS region.
 
 Parameters:
   GitHubRepo:
@@ -24,16 +19,13 @@ Parameters:
     Description: GitHub <owner>/<repo> allowed to assume the role.
   AllowedSubjects:
     Type: CommaDelimitedList
-    Default: "repo:youxuanxue/sub2api:ref:refs/heads/main,repo:youxuanxue/sub2api:environment:prod,repo:youxuanxue/sub2api:environment:edge-uk1,repo:youxuanxue/sub2api:environment:edge-uk2,repo:youxuanxue/sub2api:environment:edge-uk3,repo:youxuanxue/sub2api:environment:edge-fra1"
+    Default: "repo:youxuanxue/sub2api:ref:refs/heads/main,repo:youxuanxue/sub2api:environment:prod"
     Description: >-
       Full OIDC sub claims (StringLike patterns) allowed to assume the role.
-      Default allows main (for ops-daily-diagnostics.yml),
-      environment:prod (for deploy-stage0.yml), and the Lightsail edge
-      environments (edge-uk1/uk2/uk3 and edge-fra1). The retired US edge
-      environments are intentionally absent. The Environment
-      binding is what makes reviewer gates load-bearing on the AWS side, not
-      just GitHub UI cosmetic. This is a union default across both regional
-      stacks; each live stack narrows it per region via --parameter-overrides.
+      Default allows main (for ops-daily-diagnostics.yml) and
+      environment:prod (for deploy-stage0.yml). The Environment binding is
+      what makes reviewer gates load-bearing on the AWS side, not just GitHub
+      UI cosmetic.
   TargetInstanceId:
     Type: String
     Default: ""

@@ -8,47 +8,6 @@ import (
 	"time"
 )
 
-// TK G4 — model-dimension cooldown for Anthropic per-class sub-bucket 429s.
-//
-// Background (prod 2026-06, edge us6, account edge-ls-oh-3-d): the original G4
-// belief was that an Anthropic "unified 5h / 7d" window 429 was tied to the
-// heaviest model class (typically opus) and that sonnet/haiku on the same
-// account stayed healthy — so it scoped the cooldown to (account × model
-// class) instead of pulling the whole account out of scheduling.
-//
-// CORRECTION (direct upstream probe, edge-us3 account a1, 2026-06-06): the
-// account-level `anthropic-ratelimit-unified-5h-*` / `-7d-*` headers (NO
-// model-class suffix) are ACCOUNT-WIDE SHARED windows. With
-// `unified-7d-status: rejected` (utilization 1.0, surpassed-threshold 1.0) the
-// account returned HTTP 429 rate_limit_error to a *sonnet* request even though
-// `unified-7d_sonnet-status: allowed` / utilization 0.0 — i.e. a sibling
-// class's own sub-bucket having headroom does NOT let it through when the
-// overall window is rejected (`unified-status: rejected`,
-// `representative-claim: seven_day`). So the original premise is FALSE for an
-// account-wide window: exhausting it 429s every class regardless of per-class
-// sub-bucket. Cooling only the requested class there leaves sibling classes
-// (e.g. haiku) falsely "schedulable" and never marks the account rate-limited.
-//
-// Corrected behaviour: model-scope the cooldown ONLY when the 429 is NOT an
-// account-wide window exhaustion — i.e. a genuine per-class sub-bucket limit
-// (anthropic-ratelimit-unified-7d_<class>-status rejected while the overall
-// 5h/7d window is still allowed). When an account-wide window (5h or 7d) is
-// the surpassed one (anthropic429Result.window == "5h"/"7d"), this helper
-// declines (returns false) and the caller falls through to account-level
-// SetRateLimited so ALL classes are cooled until reset — matching the upstream
-// `unified-status: rejected` semantics. Hard account failures (401/403 auth,
-// credit balance, org disabled, KYC, 529 overloaded, fallback no-reset 429)
-// are not model-related and keep their account-level behaviour unchanged.
-//
-// Convergence: model-scoping (when it does apply) reuses the existing
-// per-(account × scope) cooldown mechanism already in
-// account.Extra["model_rate_limits"] — the same store written by
-// SetModelRateLimit (404 model-not-found, antigravity credits, gemini
-// code-assist) and read by the scheduler's IsSchedulableForModelWithContext →
-// isModelRateLimitedWithContext gate. The store is durable (accounts.extra
-// JSONB + scheduler snapshot via outbox) and self-expiring (reads compare
-// time.Now() against rate_limit_reset_at).
-
 const (
 	// anthropicModelClassRateLimitPrefix namespaces the model-class cooldown
 	// scope keys so they never collide with exact-model-name scope keys
@@ -66,14 +25,6 @@ const (
 	// model-class cooldown from a 404 model-not-found cooldown.
 	tkAnthropicModelCooldownReason = "anthropic_unified_window_exceeded"
 
-	// anthropicUnifiedWindow5h / 7d are the account-wide (non-class-suffixed)
-	// unified window labels set on anthropic429Result.window by
-	// calculateAnthropic429ResetTime when the corresponding
-	// anthropic-ratelimit-unified-{5h,7d}-* header is surpassed. They mirror the
-	// literal strings that parser uses; an empty window means no account-wide
-	// window was surpassed (a genuine per-class sub-bucket limit), the only case
-	// where model-scoping is correct. See the package doc above for the
-	// edge-us3 upstream probe that established these are account-wide.
 	anthropicUnifiedWindow5h = "5h"
 	anthropicUnifiedWindow7d = "7d"
 )
@@ -120,26 +71,6 @@ func tkAnthropicModelClassScopeKeyForModel(model string) string {
 	return tkAnthropicModelClassScopeKey(tkAnthropicModelClass(model))
 }
 
-// tkTryAnthropicModelScopedCooldown attempts to write a (account × model
-// class) cooldown for a genuine per-class Anthropic sub-bucket 429 instead of
-// an account-level SetRateLimited.
-//
-// It returns true ONLY when the cooldown was written at model-class scope —
-// i.e. this is an Anthropic account, the 429 is NOT an account-wide unified
-// window exhaustion (result.window is empty, so a per-class sub-bucket is the
-// binding limit), AND the requested model resolves to a known class. In that
-// case the caller MUST NOT also call account-level SetRateLimited. It still
-// counts as an authoritative upstream cooldown for the purpose of suppressing
-// the 3/3 ladder write, so the caller treats a true return like the
-// account-level rate-limit path.
-//
-// It returns false in every other case — crucially including when an
-// ACCOUNT-WIDE unified window (5h or 7d) is the surpassed one
-// (result.window == "5h"/"7d"): such windows are shared across all model
-// classes (edge-us3 upstream probe, 2026-06-06 — see package doc), so the
-// caller MUST fall through to account-level SetRateLimited to cool every
-// class. Also returns false for non-Anthropic, unknown/absent model class, or
-// repo write failure.
 func (s *RateLimitService) tkTryAnthropicModelScopedCooldown(
 	ctx context.Context,
 	account *Account,

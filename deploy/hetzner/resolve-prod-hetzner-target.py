@@ -8,9 +8,6 @@ import pathlib
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "ops/stage0"))
-from edge_routing_matrix import reject_retired_target
-
 DEFAULT_MATRIX = REPO_ROOT / "deploy/hetzner/prod-target-hetzner.json"
 
 ALLOWED_LOCATIONS = frozenset({"fsn1"})
@@ -48,7 +45,8 @@ def resolve_target(
     allow_planned: bool = False,
 ) -> dict:
     target = dict(data["target"])
-    reject_retired_target(target, "hetzner prod")
+    if target.get("retired") is True:
+        fail("prod target is retired; provision a new recovery identity")
     deployable = bool(target.get("deployable"))
     if not deployable and not allow_planned:
         fail(

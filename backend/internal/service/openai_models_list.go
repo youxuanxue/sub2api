@@ -166,7 +166,7 @@ func standardOpenAIModelsBody(body []byte, fromManifest bool) ([]byte, error) {
 // the shared response and never synthesizes models absent from this account.
 func projectAccountModelsBody(body []byte, account *Account, group *Group, codex bool) ([]byte, error) {
 	applyMapping := !account.IsOpenAIPassthroughEnabled() && len(account.GetModelMapping()) > 0
-	if !applyMapping && !account.IsOpenAIOAuthLike() && !isOpenAIEdgeMirrorAccount(account) {
+	if !applyMapping && !account.IsOpenAIOAuthLike() {
 		return body, nil
 	}
 	field, idField := "data", "id"

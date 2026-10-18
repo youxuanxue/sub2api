@@ -46,7 +46,7 @@ topology, Studio SSOT, model-delivery nav, or PR gate navigation.
 
 ## Disaster recovery / 数据重建从哪找
 
-prod 数据层恢复/重建先读 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md#恢复入口)。现网 prod 为 Tokyo EC2；历史 Hetzner Volume / AWS DR 步骤仅适用于旧机或 standby，离机备份须单独核验。
+prod 数据层恢复/重建先读 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。现网 prod 为 Tokyo EC2；历史 Hetzner Volume / AWS DR 步骤仅适用于旧机或 standby，离机备份须单独核验。
 
 ## Current Gateway Flow
 
@@ -67,13 +67,9 @@ account's Plan. Legacy platform-pool helpers serve explicitly non-candidate call
 their group-platform partition is not the current candidate policy. User pricing
 menus enrich the same candidate support projection with catalog prices and metadata.
 
-## prod ↔ Edge mirror relay topology
+## Production topology
 
-**2026-10-17 起：** 活入口仅 Tokyo prod；edge 部署关闭；prod 上全部 `api-<edge>.tokenkey.dev` 中继 stub 已软删（见 [`docs/ops/edge-relay-soft-delete-20261017.json`](../ops/edge-relay-soft-delete-20261017.json)）。OAuth/供应账号在 prod 本机调度，不再 fan-out 到 edge。
-
-**历史拓扑（考古）：** prod 曾持 `cc-<edge>` mirror（`type=apikey` → `https://api-<edge>.tokenkey.dev`），真 OAuth 在边端。**Live fleet / IPs / deploy SSOT：** [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。Blue/green：`deploy_via_ssm_bluegreen.sh`。
-
-**Attribution（仅当恢复 edge 中继后）：** prod `cc-<edge>` cooldown 几乎总是边端根因；可靠信号是各 edge 自身 access-log `served_200 : no_available_429` — `ops/observability/scan-edge-health.sh`。见 `tokenkey-online-log-troubleshooting` / `tokenkey-online-traffic-profile`。
+OAuth 和供应账号在 prod 本机调度。现网身份与发布入口见 [运维 SSOT](../../deploy/hetzner/README.md)。
 
 ## Model serving SSOT / 模型交付 SSOT
 
@@ -86,7 +82,7 @@ menus enrich the same candidate support projection with catalog prices and metad
 [模型激活契约](../approved/model-surface-activation-contract.md) 与
 [供应源受管账号所有权](../approved/model-supplier-source-management.md)：
 受管账号由 Supplier Sync 拥有，不能按普通账号灌入 compiled floor。
-证据、Edge relay 与发布边界沿用上述契约。
+证据与发布边界沿用上述契约。
 
 ## PR Checklist
 

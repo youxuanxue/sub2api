@@ -226,7 +226,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 			})
 			return nil, s.writeResponsesCompatError(c, http.StatusBadRequest, "invalid_request_error", "Missing Gemini Web account reference")
 		}
-		if !tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
+		{
 			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 		evBody := unwrapIfNeeded(account.Type == AccountTypeOAuth, respBody)
@@ -242,7 +242,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
-			return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, evBody)
+			return nil, newUpstreamFailoverError(resp.StatusCode, resp.Header, evBody)
 		}
 
 		return nil, s.writeGeminiResponsesMappedError(c, account, resp.StatusCode, requestID, evBody)

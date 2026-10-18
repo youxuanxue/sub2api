@@ -324,7 +324,7 @@ func (h *AccountHandler) tkRespondAvailableModels(c *gin.Context, account *servi
 		return
 	}
 
-	if account.IsKiro() || account.IsKiroMirrorStub() {
+	if account.IsKiro() {
 		response.Success(c, tkClaudeModelsToAdminOptions(service.KiroAdminTestModels(), nil))
 		return
 	}

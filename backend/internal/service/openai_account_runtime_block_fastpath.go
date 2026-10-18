@@ -116,10 +116,6 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	stateCtx, cancel := openAIAccountStateContext(ctx)
 	defer cancel()
 
-	if s.handleOpenAICompatRelayDownstreamCapacityError(stateCtx, account, statusCode, responseBody) {
-		return true
-	}
-
 	if account != nil && account.Platform == PlatformOpenAI && isOpenAIContextWindowError("", responseBody) {
 		return false
 	}
@@ -388,19 +384,6 @@ func openAIOAuth429SameAccountRetryDelay(headers http.Header, deadline time.Time
 		return 0
 	}
 	return delay
-}
-
-func (s *OpenAIGatewayService) handleOpenAICompatRelayDownstreamCapacityError(ctx context.Context, account *Account, statusCode int, responseBody []byte) bool {
-	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(responseBody))
-	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-	if !tkSkipOpenAIDownstreamCapacityPenalty(account, statusCode, upstreamMsg, responseBody) {
-		return false
-	}
-	reason := tkOpenAICompatDownstreamCapacityReason(statusCode, upstreamMsg, responseBody)
-	if s != nil && s.rateLimitService != nil {
-		s.rateLimitService.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)
-	}
-	return true
 }
 
 func (s *OpenAIGatewayService) BlockAccountScheduling(account *Account, until time.Time, reason string) {

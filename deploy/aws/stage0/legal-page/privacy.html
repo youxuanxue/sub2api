@@ -80,7 +80,7 @@
         To operate the gateway we must process request content (including prompts and parameters) so it can be forwarded to the upstream provider you select and so usage can be metered.
       </p>
       <ul>
-        <li>The production gateway retains QA records and bounded content from successful and unsuccessful calls. Authorized operators process these internal archives for service operations. QA history viewing and export are not available through the product. Edge gateways do not separately capture QA history.</li>
+        <li>The production gateway retains QA records and bounded content from successful and unsuccessful calls. Authorized operators process these internal archives for service operations. QA history viewing and export are not available through the product.</li>
         <li>Capture applies size limits and automated credential redaction for recognized structured fields and credential patterns. Unrecognized formats are retained without redaction and may contain secrets. These controls do not remove all personal or confidential information. Avoid sending private keys, passwords or other unnecessary sensitive content. Operational error tooling may also retain bounded excerpts.</li>
         <li>Content is not used to train or fine-tune models (see §6).</li>
       </ul>

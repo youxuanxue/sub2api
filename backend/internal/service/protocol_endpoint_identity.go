@@ -108,11 +108,7 @@ type ProtocolEndpointCapabilityRepository interface {
 }
 
 func BuildProtocolEndpointCapabilityLinkInput(account *Account) (ProtocolEndpointCapabilityLinkInput, error) {
-	// Operators may still disable legacy rows. Remove their capability link
-	// without treating retirement as a new probe or allowing an active import.
-	if account.IsRetiredSupplier() && !account.IsActive() {
-		return ProtocolEndpointCapabilityLinkInput{}, nil
-	}
+
 	identity, governed, err := BuildProtocolEndpointIdentity(account)
 	if err != nil || !governed {
 		return ProtocolEndpointCapabilityLinkInput{Identity: identity, Governed: governed}, err
@@ -169,9 +165,7 @@ func (i ProtocolEndpointIdentity) Key() string {
 }
 
 func BuildProtocolEndpointIdentity(account *Account) (ProtocolEndpointIdentity, bool, error) {
-	if account.IsRetiredSupplier() {
-		return ProtocolEndpointIdentity{}, true, ErrSupplierRetired
-	}
+
 	if !protocolRoutingGovernsAccount(account) {
 		return ProtocolEndpointIdentity{}, false, nil
 	}
@@ -196,9 +190,7 @@ func BuildProtocolEndpointIdentity(account *Account) (ProtocolEndpointIdentity, 
 			return ProtocolEndpointIdentity{}, true, fmt.Errorf("unsupported official endpoint profile %q", officialProfile)
 		}
 	} else if geminiProfile := protocolGeminiEndpointProfile(account); geminiProfile.Valid() {
-		// Edge stubs also expose OpenAI-shape text hops; keep those endpoints in
-		// identity alongside native Gemini so CapabilityKey / probe / Plan stay aligned.
-		if geminiProfile == protocolrouter.GeminiEndpointAntigravityEdgeRelay {
+		if geminiProfile == protocolrouter.GeminiEndpointAntigravityAPIKey {
 			if err := fillCustomTextProtocolEndpoints(account, &identity, baseURL, protocolBaseURLs); err != nil {
 				return ProtocolEndpointIdentity{}, true, err
 			}
@@ -448,7 +440,7 @@ func canonicalGeminiIdentityEndpoint(account *Account, profile protocolrouter.Ge
 		}
 		base.Path = path.Clean(strings.TrimSuffix(base.Path, "/") + "/v1internal:streamGenerateContent")
 		return ProtocolEndpoint{URL: base.String()}, nil
-	case protocolrouter.GeminiEndpointNativeAPIKey, protocolrouter.GeminiEndpointAntigravityEdgeRelay:
+	case protocolrouter.GeminiEndpointNativeAPIKey, protocolrouter.GeminiEndpointAntigravityAPIKey:
 		defaultBaseURL := ""
 		if profile == protocolrouter.GeminiEndpointNativeAPIKey {
 			defaultBaseURL = geminicli.AIStudioBaseURL

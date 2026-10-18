@@ -2,27 +2,9 @@ package service
 
 import "net/http"
 
-// tkExtraPoolModeRetryableStatusCodes 是 TK 在 upstream 默认
-// pool-mode 同账号重试集 {401,403,429}（defaultPoolModeRetryableStatusCodes）
-// 之上**追加**的状态码。
-//
-// 503/529：TK 的 pool_mode 账号全部是 prod→edge（或 prod→兼容网关）转发 stub ——
-// edge 透回的**未分类** 529（上游过载）/ 503 再打同一上游 URL，会轮换到下个
-// 真实账号或等其 overload/session 窗恢复。因此这两类瞬时错误默认触发
-// **同账号重试 = 池内轮换**，而不是立刻换 prod 账号、把瞬时错误透给客户端
-// （现场：edge us1 整体瞬时 529/503 时 prod 单 stub 直接耗尽透出）。
-//
-// 例外（见 tkIsAccountCapacityFailure + docs/approved/rolling-capacity-saturation.md）：
-// 已分类的 account-capacity envelope（no available accounts、failover-exhausted、
-// OpenAI native capacity 503 等）必须立刻切 stub/账号，不再同账号重试。当前
-// empty-pool 快失败主路径是 429（非权威头），本来就会切号；本例外把 legacy 503
-// no-available 与其它平台容量分类对齐到同一语义。
-//
-// 为什么不直接改 upstream 的 defaultPoolModeRetryableStatusCodes：上游特意把
-// 502/503/504 排除在默认外（默认开启会改变所有 pool 部署行为）。这里以
-// upstream 默认为基、并集 TK 追加项，既保留上游常量/函数与其单测不变（零 merge
-// 冲突），又让 TK 部署的转发 stub 默认获得 503/529 池内轮换。per-account 的
-// pool_mode_retry_status_codes 显式配置仍然优先覆盖本默认（显式空列表可全关）。
+// tkExtraPoolModeRetryableStatusCodes allows pool-mode upstreams to retry
+// transient overloads. Explicit account retry codes override these defaults;
+// classified capacity exhaustion still switches accounts immediately.
 var tkExtraPoolModeRetryableStatusCodes = []int{503, 529}
 
 func tkIsAccountCapacityFailure(account *Account, statusCode int, upstreamMsg string, responseBody []byte) bool {
@@ -31,15 +13,10 @@ func tkIsAccountCapacityFailure(account *Account, statusCode int, upstreamMsg st
 	}
 	if account.Platform == PlatformAnthropic {
 		return tkSkipDownstreamNoAvailableAccountsPenalty(statusCode, upstreamMsg, responseBody) ||
-			tkSkipDownstreamFailoverExhaustedPenalty(statusCode, upstreamMsg, responseBody) ||
-			tkSkipDownstreamKiroServiceUnavailablePenalty(account, statusCode, upstreamMsg, responseBody)
-	}
-	if account.Platform == PlatformAntigravity {
-		return tkIsAntigravityRelayCapacityResponse(account, statusCode, responseBody)
+			tkSkipDownstreamFailoverExhaustedPenalty(statusCode, upstreamMsg, responseBody)
 	}
 	if IsOpenAICompatPlatform(account.Platform) {
-		return tkSkipOpenAIDownstreamCapacityPenalty(account, statusCode, upstreamMsg, responseBody) ||
-			shouldRecordOpenAICapacitySaturation(account, statusCode, upstreamMsg, responseBody)
+		return shouldRecordOpenAICapacitySaturation(account, statusCode, upstreamMsg, responseBody)
 	}
 	return false
 }
@@ -59,13 +36,8 @@ func tkIsPoolModeRetryableStatus(statusCode int) bool {
 	return false
 }
 
-// tkRetryableOnSameAccount 是 UpstreamFailoverError 构造点用的「同账号重试」判定，
-// 在 pool_mode 谓词基础上**减去** anthropic 非权威 429 一种情形：无 anthropic-ratelimit-*
-// 头的 429 是 edge 的 capacity/failover 信封（"Upstream rate limit exceeded …"、
-// "No available accounts" 等），在**同一**转发 stub 上重试不会变好（它转发到的 edge 只是
-// 瞬时干涸），应立刻换账号，而不是烧掉同账号重试预算 —— 这些重试此前每跳都会重跑
-// handleFailoverSideEffects→HandleUpstreamError，单个请求就能把 3/3 阶梯喂满。
-// 带权威头的真窗口限流仍照常 RetryableOnSameAccount。
+// tkRetryableOnSameAccount excludes exhausted pools and non-authoritative
+// Anthropic rate limits from retries against the same upstream.
 func tkRetryableOnSameAccount(account *Account, resp *http.Response, responseBody []byte) bool {
 	if account == nil || resp == nil {
 		return false

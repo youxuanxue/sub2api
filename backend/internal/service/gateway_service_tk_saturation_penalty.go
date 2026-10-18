@@ -4,12 +4,6 @@ import (
 	"context"
 )
 
-// Generic gateway load-aware scoring consumes candidate_saturation.go, including
-// mixed pools and model-scoped Antigravity relays. The bounded additive penalty
-// keeps saturated last resorts selectable and preserves all-saturated order.
-// Constants live in edge_mirror_stub_saturation_tk.go; counter scope, settings and
-// read-failure behavior belong to the shared state owner.
-
 // SetAnthropicSaturationCounter wires the Redis-backed saturation counter into
 // GatewayService post-construction (mirrors SetAnthropicSigPreemptCache). Nil-
 // safe: when unset, Anthropic counts are absent; other wired platform counters
@@ -42,7 +36,7 @@ func (s *GatewayService) computeAnthropicSaturationPenalties(ctx context.Context
 		}
 		count := counts[candidates[i].account.ID]
 		if candidateSaturatedFor(candidates[i].account, count) {
-			candidates[i].saturationPenalty = anthropicSaturationPriorityPenalty + int(count)*100
+			candidates[i].saturationPenalty = saturationPriorityPenalty + int(count)*100
 		}
 	}
 }

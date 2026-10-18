@@ -6,7 +6,7 @@ This is the *logic* half; the *transport* half is the read-only SSM orchestrator
 `assert-live-host-state.sh`. Keeping the verdict here (pure Python, no AWS) makes
 it unit-testable with fixtures (`--selftest`) and registerable in preflight,
 mirroring the determinism contract in dev-rules-convention.mdc §"skill / command
-确定性基线" and its siblings edge_health_verdict.py / data_layer_capacity_verdict.py.
+确定性基线" and its siblings data_layer_capacity_verdict.py.
 
 WHY THIS EXISTS:
     A Stage0 prod host's *running state* is deliberately decoupled from the

@@ -41,7 +41,7 @@ TokenKey 对外承认可选 `aspect_ratio`，在出站 prompt 注入该 marker�
 
 已有客户端 `marker AR=...` 时幂等，不再追加。
 
-### 3. 实测边界（edge OAuth，非契约保证）
+### 3. 实测边界（OAuth，非契约保证）
 
 - `marker AR=16:9` / `9:16`（及 `marker AR=16:9,4k` 合并写法）：比例命中观测像素。
 - `size=1k|2k|4k` / `marker size=1k|2k|4k`：**不能**拉出稳定 1K/2K/4K 分辨率阶梯。

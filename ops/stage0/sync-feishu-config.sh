@@ -1,154 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Sync the shared Feishu (飞书) webhook + signing secret into a node's
-# ops_email_notification_config and enable Feishu alerting — idempotently, via
-# SSM + `docker exec tokenkey-postgres psql`. Mirrors reset-edge-admin-password.sh.
-#
-# Why this exists (2026-06-06 us7 incident):
-#   The per-node Feishu webhook/secret live in each node's DB
-#   (settings.ops_email_notification_config.feishu); they are NOT in the image
-#   and (per repo rule §7) cannot live in git. New edges adopted via the console
-#   (us6/us7) skipped the one-off manual write and came up enabled=false /
-#   webhook="" → account-incident + P0 cards silently never delivered
-#   (TKAccountIncidentNotifier.sendNow short-circuits on !enabled || webhook=="").
-#
-#   This script is the deterministic injection: deploy workflows call it with the
-#   shared webhook/secret from GitHub Actions repo secrets, so every node born via
-#   a deploy is alert-capable. The write-back self-verify (below) makes a failed /
-#   missing injection FAIL the deploy step — the gate that turns "remember to run
-#   the manual step" into a stop-the-line check.
-#
-# Usage:
-#   TK_FEISHU_WEBHOOK_URL=... TK_FEISHU_SIGNING_SECRET=... \
-#     bash ops/stage0/sync-feishu-config.sh <edge-id|prod> [--platform auto|lightsail|hetzner]
-#
-# Examples:
-#   ... bash ops/stage0/sync-feishu-config.sh uk1        # auto → deployable Hetzner mi-*
-#   ... bash ops/stage0/sync-feishu-config.sh prod       # prod control plane (resolve_prod_ssm_target)
-#   ... bash ops/stage0/sync-feishu-config.sh --platform lightsail uk1  # LS standby
-#
-# Required env:
-#   TK_FEISHU_WEBHOOK_URL     shared incoming-webhook URL (https://...)
-#   TK_FEISHU_SIGNING_SECRET  shared HMAC-SHA256 signing secret
-#   Either empty -> exit 1 (a misconfigured workflow env is caught here, not silently skipped).
-#
-# Behavior:
-#   - Edges: edge_ssm_execution (auto prefers Hetzner Hybrid mi-*; explicit lightsail/hetzner).
-#   - prod: resolve_prod_ssm_target (cutover-aware aws i-* / hetzner mi-*).
-#   - Idempotent jsonb_set: sets feishu.{webhook_url,signing_secret,enabled,webhook_url_configured,
-#     signing_secret_configured}; PRESERVES rate_limit_per_hour / cooldown_seconds /
-#     account_incident_digest_seconds and every other existing field.
-#   - Reads back and asserts enabled=true + webhook present + secret present; exits 1 otherwise.
-#   - Never prints the webhook or secret.
-#
-# Requires: aws cli, jq, python3.
+# Idempotently enable the shared Feishu alert configuration on the production
+# control plane and verify the remote result.
 
-_OPS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${_OPS_DIR}/../.." && pwd)"
-
-usage() {
-  cat <<'EOF'
-Usage:
-  TK_FEISHU_WEBHOOK_URL=... TK_FEISHU_SIGNING_SECRET=... \
-    bash ops/stage0/sync-feishu-config.sh [--platform auto|lightsail|hetzner] <edge-id|prod>
-
-Sets the shared Feishu webhook+secret into the node's ops_email_notification_config
-and enables Feishu alerting (idempotent), then verifies the write. Never prints secrets.
-EOF
-}
-
-PLATFORM_PREF=auto
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -h | --help)
-      usage
-      exit 0
-      ;;
-    --platform=*)
-      PLATFORM_PREF="${1#*=}"
-      shift
-      ;;
-    --platform)
-      PLATFORM_PREF="${2:?--platform requires a value}"
-      shift 2
-      ;;
-    --)
-      shift
-      break
-      ;;
-    -*)
-      echo "[error] unknown flag: $1" >&2
-      usage >&2
-      exit 1
-      ;;
-    *)
-      break
-      ;;
-  esac
-done
-
-if [[ $# -ne 1 ]]; then
-  usage >&2
+if [[ "${1:-}" != "prod" || "$#" -ne 1 ]]; then
+  echo "usage: sync-feishu-config.sh prod" >&2
   exit 1
 fi
-
-INPUT_TARGET="$1"
-EDGE_ID="${INPUT_TARGET#edge-}"
-
-case "${PLATFORM_PREF}" in
-auto | lightsail | hetzner) ;;
-ec2)
-  echo "[error] --platform ec2 is retired for edges; use auto|lightsail|hetzner" >&2
-  exit 1
-  ;;
-*)
-  echo "[error] invalid --platform: ${PLATFORM_PREF} (use auto|lightsail|hetzner)" >&2
-  exit 1
-  ;;
-esac
-
-if [[ "$EDGE_ID" != "prod" && ! "$EDGE_ID" =~ ^[a-z]{2,4}[0-9]+$ ]]; then
-  echo "[error] target must be 'prod' or an edge id matching ^[a-z]{2,4}[0-9]+$: $EDGE_ID" >&2
-  exit 1
-fi
-
-# Required secrets — fail fast and loud (do NOT silently skip).
 if [[ -z "${TK_FEISHU_WEBHOOK_URL:-}" || -z "${TK_FEISHU_SIGNING_SECRET:-}" ]]; then
-  echo "[error] TK_FEISHU_WEBHOOK_URL and TK_FEISHU_SIGNING_SECRET must both be set (non-empty)." >&2
-  echo "[error] Set them as GitHub Actions repository secrets, or export them locally." >&2
+  echo "TK_FEISHU_WEBHOOK_URL and TK_FEISHU_SIGNING_SECRET are required" >&2
   exit 1
 fi
 
-INSTANCE_ID=""
-EC2_STACK=""
-if [[ "$EDGE_ID" == "prod" ]]; then
-  RESOLVED_JSON="$(python3 "${_OPS_DIR}/resolve_prod_ssm_target.py" --format json)"
-  INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"${RESOLVED_JSON}")"
-  REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"${RESOLVED_JSON}")"
-  RES_MODE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["target"])' <<<"${RESOLVED_JSON}")"
-  EC2_STACK="resolve_prod_ssm_target"
-  if [[ -z "${INSTANCE_ID:-}" || -z "${REGION:-}" ]]; then
-    echo "[error] resolve_prod_ssm_target returned empty instance_id/ssm_region" >&2
-    exit 1
-  fi
-else
-  RESOLVED_JSON="$(python3 "${_OPS_DIR}/edge_ssm_execution.py" \
-    --repo-root "${REPO_ROOT}" \
-    --edge-id "${EDGE_ID}" \
-    --platform "${PLATFORM_PREF}" \
-    --format json)"
-  RES_MODE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["routing"])' <<<"${RESOLVED_JSON}")"
-  REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["region"])' <<<"${RESOLVED_JSON}")"
-  INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"${RESOLVED_JSON}")"
-  if [[ -z "${RES_MODE:-}" || -z "${REGION:-}" || -z "${INSTANCE_ID:-}" ]]; then
-    echo "[error] edge_ssm_execution returned empty routing/region/instance_id" >&2
-    exit 1
-  fi
-fi
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+resolved="$(python3 "$ROOT/ops/stage0/resolve_prod_ssm_target.py" --format json)"
+INSTANCE_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_id"])' <<<"$resolved")"
+REGION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["ssm_region"])' <<<"$resolved")"
+[[ -n "$INSTANCE_ID" && -n "$REGION" ]] || { echo "prod resolver returned an incomplete identity" >&2; exit 1; }
 
-echo "[info] edge_id=${EDGE_ID} platform=${RES_MODE} region=${REGION} instance_id=${INSTANCE_ID}"
-echo "[info] syncing Feishu config via SSM (idempotent; secrets not printed)..."
+
+RES_MODE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["target"])' <<<"$resolved")"
 # Build the SSM command array in Python so the webhook/secret are embedded as
 # JSON literals inside a quoted heredoc (<<'EOSQL') — no shell expansion, no
 # quoting hell, and arbitrary characters in the values pass through untouched.
@@ -233,7 +105,7 @@ COMMAND_ID="$(aws ssm send-command \
   --region "$REGION" \
   --instance-ids "$INSTANCE_ID" \
   --document-name AWS-RunShellScript \
-  --comment "sync feishu config (${EDGE_ID} ${RES_MODE})" \
+  --comment "sync feishu config (prod ${RES_MODE})" \
   --parameters "file://${PARAM_BODY}" \
   --query 'Command.CommandId' \
   --output text)"
@@ -288,10 +160,9 @@ VERIFY_LINE="$(printf '%s\n' "$STDOUT_CONTENT" | grep '^FEISHU_ENABLED=' | tail 
 
 echo ""
 echo "[ok] feishu config sync complete"
-echo "EDGE_ID=${EDGE_ID}"
+echo "TARGET=prod"
 echo "SSM_ROUTING=${RES_MODE}"
 echo "REGION=${REGION}"
-[[ -n "${EC2_STACK:-}" ]] && echo "EC2_STACK=${EC2_STACK}"
 echo "SSM_PRIMARY_ID=${INSTANCE_ID_SSM}"
 echo "VERIFY=${VERIFY_LINE}"
 echo "[ok] feishu alerting enabled; webhook/secret were not printed"

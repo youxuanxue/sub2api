@@ -6,8 +6,6 @@ baseline references. Raw vendor pricing captures live under
 
 | File | Topic |
 | --- | --- |
-| [`anthropic-oauth-edge-guidelines.md`](anthropic-oauth-edge-guidelines.md) | Anthropic OAuth edge TLS and tier guidance |
-| [`anthropic-oauth-edge-stability-baseline-index.md`](anthropic-oauth-edge-stability-baseline-index.md) | Anthropic OAuth edge stability baseline index |
 
 Kiro TLS fingerprint alignment is owned by the
 `tokenkey-kiro-fingerprint-alignment` skill and

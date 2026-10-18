@@ -19,7 +19,6 @@ func (h *GatewayHandler) handleKiroContentFilteredError(c *gin.Context, err erro
 		return false
 	}
 	service.MarkOpsClientContentFiltered(c)
-	c.Header(service.KiroOutcomeHeader, service.KiroContentFilteredOutcome)
 	h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", service.KiroContentFilteredClientMessage())
 	return true
 }

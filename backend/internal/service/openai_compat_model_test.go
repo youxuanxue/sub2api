@@ -1059,8 +1059,8 @@ func TestForwardAsAnthropic_ReplaysWithoutContinuationWhenPreviousResponseOwnerM
 		Type:        AccountTypeAPIKey,
 		Concurrency: 1,
 		Credentials: map[string]any{
-			"api_key":  "sk-edge-relay",
-			"base_url": "https://api-us6.tokenkey.dev/v1",
+			"api_key":  "sk-upstream",
+			"base_url": "https://upstream.example.test/v1",
 		},
 	}
 

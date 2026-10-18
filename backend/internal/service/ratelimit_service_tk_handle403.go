@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 )
 
@@ -21,18 +20,7 @@ func (s *RateLimitService) tkHandleNonOpenAI403(
 		return true
 	}
 	if account.Platform == PlatformAnthropic {
-		if tkSkipDownstreamKiroOAuthAuthRejectPenalty(account, http.StatusForbidden, upstreamMsg, responseBody) {
-			slog.Info("anthropic_downstream_kiro_oauth_403_skip_penalty",
-				"account_id", account.ID,
-				"status_code", http.StatusForbidden)
-			s.recordAnthropicStubSaturation(ctx, account.ID, http.StatusForbidden, "kiro_oauth_403")
-			return true
-		}
-		if tkSkipRelayedCanonicalIngressRejectPenalty(http.StatusForbidden, upstreamMsg, responseBody) {
-			slog.Info("anthropic_downstream_canonical_ingress_reject_skip_penalty",
-				"account_id", account.ID)
-			return true
-		}
+
 		if s.tkTryDisableAnthropicOrgBan403(ctx, account, upstreamMsg, responseBody) {
 			return true
 		}

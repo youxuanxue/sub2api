@@ -72,7 +72,7 @@ describe('AccountActionMenu — 设置 Tier gating', () => {
     expect(hasTierItem(makeAccount({ platform: 'anthropic', type: 'setup-token' }))).toBe(true)
   })
 
-  it('hides tier action for anthropic api-key mirror stubs (e.g. prod cc-<edge>)', () => {
+  it('hides tier action for Anthropic API-key accounts', () => {
     // Backend AccountTierService.applyTier rejects api-key accounts; the menu
     // must not offer an action that always errors out.
     expect(hasTierItem(makeAccount({ platform: 'anthropic', type: 'apikey' }))).toBe(false)

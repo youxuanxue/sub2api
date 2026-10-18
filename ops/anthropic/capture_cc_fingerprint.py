@@ -567,7 +567,7 @@ def diff_baseline_vs_capture(
                     cap,
                     "mismatch",
                     critical=True,
-                    note="Update tk_canonical_cc_oauth + manage-anthropic-config apply",
+                    note="Update the canonical Claude Code OAuth fingerprint through the reviewed runtime owner",
                 )
             )
 
@@ -958,7 +958,7 @@ def format_diff_report(rows: list[DiffRow], *, capture_path: str = "") -> str:
     if tls_mismatch:
         lines.append("")
         lines.append("action_tls: ja3 changed — update deploy/aws/stage0/tk_canonical_cc_oauth.json")
-        lines.append("  then ops/anthropic/manage-anthropic-config.py plan/apply on edges.")
+        lines.append("  then apply the reviewed runtime fingerprint update on prod.")
     return "\n".join(lines)
 
 
@@ -1247,7 +1247,7 @@ def write_tls_drift_spec(
             "## Validation",
             "",
             "- `bash ops/anthropic/capture-cc-fingerprint.sh capture`",
-            "- `ops/anthropic/manage-anthropic-config.py plan/apply/verify` on deployable edges",
+            "- apply and verify the reviewed runtime fingerprint update on prod",
             "- `./scripts/preflight.sh`",
             "",
         ]

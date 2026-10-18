@@ -8,7 +8,7 @@ import (
 
 // AnthropicOperatorConcurrencyUserID is the admin/default operator user whose API
 // concurrency mirrors Σ concurrency of schedulable=true anthropic rows on this DB,
-// aligned with ops/anthropic/manage-anthropic-config.py operator-concurrency SQL.
+// aligned with the operator-concurrency SQL contract.
 const AnthropicOperatorConcurrencyUserID int64 = 1
 
 // SyncAnthropicOperatorConcurrency sets users AnthropicOperatorConcurrencyUserID concurrency

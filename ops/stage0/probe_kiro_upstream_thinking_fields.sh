@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Direct upstream Kiro thinking/signature field probe for one edge OAuth account.
+# Direct upstream Kiro thinking/signature field probe for one OAuth account.
 set -euo pipefail
 
 ACCOUNT_ID="${ACCOUNT_ID:-}"

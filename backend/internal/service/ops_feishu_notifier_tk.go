@@ -12,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -25,17 +24,7 @@ const opsFeishuWebhookTimeout = 5 * time.Second
 // alert card's deep-link.
 const opsDashboardPath = "/admin/ops"
 
-// opsNodeShortLabelRe extracts the edge id from a node's public host, e.g.
-// api-us1.tokenkey.dev -> us1. A bare api.<domain> (prod) has no edge id and
-// falls back to "prod".
-var opsNodeShortLabelRe = regexp.MustCompile(`^api-([a-z0-9]+)\.`)
-
-// deriveOpsNodeIdentity turns a node's public base URL (config.Server.FrontendURL,
-// e.g. https://api-us1.tokenkey.dev) into a short label + ops dashboard deep-link
-// for the alert card. TokenKey runs prod + multiple edges, each evaluating its
-// own local metrics and posting to the same Feishu group, so without this every
-// P0 card is indistinguishable. An empty/unparseable URL degrades to
-// ("overall", "") — the label is still shown, the link is omitted.
+// deriveOpsNodeIdentity builds the deployment label and dashboard link.
 func deriveOpsNodeIdentity(frontendURL string) (label string, dashboardURL string) {
 	raw := strings.TrimSpace(frontendURL)
 	if raw == "" {
@@ -49,8 +38,6 @@ func deriveOpsNodeIdentity(frontendURL string) (label string, dashboardURL strin
 	switch {
 	case siteFromFrontendURL(raw) == "cn-prod":
 		label = "cn-prod"
-	case opsNodeShortLabelRe.MatchString(host):
-		label = opsNodeShortLabelRe.FindStringSubmatch(host)[1]
 	case strings.HasPrefix(host, "api."):
 		label = "prod"
 	default:

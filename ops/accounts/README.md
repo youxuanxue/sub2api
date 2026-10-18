@@ -4,12 +4,6 @@
 
 **环境**：Python 3.10+，无需安装项目依赖。
 
-## 现网边界
-
-2026-10-17 起活跃舰队只有 prod，edge 部署和 prod edge relay stub 已退役。`edge_oauth_relay`、`edge-prod-relay-onboard.sh` 与旧 edge 模板仅保留历史实现；当前 live matrix 为空时，校验、规划和导入均 fail closed。不要为任何 `api-*.tokenkey.dev` 创建账号、中继或 API key。
-
-如果重新批准 edge，必须先更新 approved matrix、部署入口、健康门禁和运行时检查，再恢复 relay 文档和示例。手写 `edge_id` 或 `TOKENKEY_EDGE_BASE_URL` 不能绕过该门禁。
-
 ## 当前导入流程
 
 现网只使用单端 `create_account` 或平台快捷格式，按实际出口需求绑定日本代理；
@@ -27,13 +21,12 @@ export TOKENKEY_ADMIN_API_KEY="admin-REPLACE_ME"
 辅助命令：
 
 ```bash
-./import-accounts.sh list-edges          # 当前应为空
 ./import-accounts.sh list-platforms
 ./import-accounts.sh list-channel-types  # newapi channel_type 对照
 ./import-accounts.sh selftest
 ```
 
-禁止把 token、admin key 或 `tk_...` 写入 Git 或聊天。Gemini 不走 edge relay，直接使用单端导入。
+禁止把 token、admin key 或 `tk_...` 写入 Git 或聊天。
 
 ---
 

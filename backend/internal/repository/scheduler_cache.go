@@ -900,7 +900,7 @@ func buildSchedulerMetadataAccount(account service.Account) service.Account {
 		ExpiresAt:                    account.ExpiresAt,
 		UpdatedAt:                    account.UpdatedAt,
 		AutoPauseOnExpired:           account.AutoPauseOnExpired,
-		Schedulable:                  account.Schedulable && !account.IsRetiredSupplier(),
+		Schedulable:                  account.Schedulable,
 		RateLimitedAt:                account.RateLimitedAt,
 		RateLimitResetAt:             account.RateLimitResetAt,
 		OverloadUntil:                account.OverloadUntil,
@@ -997,7 +997,6 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 		"header_overrides",
 		"location",
 		"vertex_location",
-		"mirror_platform",
 		"pool_mode",
 		service.ProtocolEndpointsExclusiveCredentialKey,
 	}

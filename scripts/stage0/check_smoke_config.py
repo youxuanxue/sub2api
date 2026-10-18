@@ -77,7 +77,7 @@ def main() -> int:
     parser.add_argument(
         "--suite",
         default=os.environ.get("GATEWAY_SMOKE_SUITE", "full"),
-        choices=("full", "prod", "main-via-edge", "quick"),
+        choices=("full", "prod", "quick"),
         help="Smoke suite to validate model lists for.",
     )
     args = parser.parse_args()

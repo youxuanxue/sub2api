@@ -15,7 +15,7 @@ func (s *OpenAIGatewayService) tkShouldClearOpenAIStickyForSaturation(ctx contex
 	if !candidateSaturatedFor(account, count) {
 		return false
 	}
-	threshold, window := edgeMirrorStubSaturationThreshold, edgeMirrorStubSaturationWindowSeconds
+	threshold, window := saturationThreshold, saturationWindowSeconds
 	if isNewAPINVIDIABuildAccount(account) {
 		threshold, window = nvidiaBuildInstabilityThreshold, nvidiaBuildInstabilityWindowSeconds
 	}

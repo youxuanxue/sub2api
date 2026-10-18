@@ -90,7 +90,7 @@ func TestGatewayPlannedAntigravityOpenAIShapeKeepsPlannedWire(t *testing.T) {
 				ID: 62, Name: "antigravity-us4", Platform: service.PlatformAntigravity,
 				Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true,
 				Credentials: map[string]any{
-					"base_url": "https://api-us4.tokenkey.dev", "api_key": "edge-test-key",
+					"base_url": "https://upstream.example.test", "api_key": "upstream-test-key",
 					"model_mapping": map[string]any{model: upstreamModel},
 				},
 			}
@@ -146,12 +146,12 @@ func TestGatewayPlannedAntigravityOpenAIShapeKeepsPlannedWire(t *testing.T) {
 			require.NotNil(t, upstream.request)
 			require.Equal(t, plan.Endpoint(), upstream.request.URL.String())
 			if tc.target == protocolrouter.ProtocolGeminiGenerateContent {
-				require.Equal(t, "edge-test-key", upstream.request.Header.Get("x-goog-api-key"))
+				require.Equal(t, "upstream-test-key", upstream.request.Header.Get("x-goog-api-key"))
 				require.True(t, gjson.GetBytes(upstream.body, "contents").IsArray())
 			} else {
-				require.Equal(t, "Bearer edge-test-key", upstream.request.Header.Get("Authorization"))
+				require.Equal(t, "Bearer upstream-test-key", upstream.request.Header.Get("Authorization"))
 				require.Empty(t, upstream.request.Header.Get("x-goog-api-key"))
-				require.Equal(t, model, gjson.GetBytes(upstream.body, "model").String())
+				require.Equal(t, "gemini-3.8-flash-medium", gjson.GetBytes(upstream.body, "model").String())
 				require.False(t, gjson.GetBytes(upstream.body, "contents").Exists())
 				if tc.target == protocolrouter.ProtocolChatCompletions {
 					require.True(t, gjson.GetBytes(upstream.body, "messages").IsArray())

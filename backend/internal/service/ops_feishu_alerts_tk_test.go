@@ -186,16 +186,14 @@ func TestOpsFeishuNotifierIncludesNodeIdentityAndLink(t *testing.T) {
 	now := time.Unix(1700000000, 0).UTC()
 	notifier := &opsFeishuNotifier{now: func() time.Time { return now }}
 
-	// Configured edge node: label derived from host, card carries the deep-link
-	// and a node-suffixed header so it is distinguishable from other nodes.
-	payload, err := notifier.buildPayload(OpsFeishuAlertConfig{}, "https://api-us1.tokenkey.dev", testOpsFeishuRule(), testOpsFeishuEvent(1))
+	payload, err := notifier.buildPayload(OpsFeishuAlertConfig{}, "https://api.tokenkey.dev", testOpsFeishuRule(), testOpsFeishuEvent(1))
 	require.NoError(t, err)
 	body, err := json.Marshal(payload)
 	require.NoError(t, err)
-	require.Contains(t, string(body), "TokenKey P0 告警 · us1")
+	require.Contains(t, string(body), "TokenKey P0 告警 · prod")
 	require.Contains(t, string(body), "**节点**")
-	require.Contains(t, string(body), "us1")
-	require.Contains(t, string(body), "https://api-us1.tokenkey.dev/admin/ops")
+	require.Contains(t, string(body), "prod")
+	require.Contains(t, string(body), "https://api.tokenkey.dev/admin/ops")
 
 	// prod bare host -> "prod" label.
 	prodPayload, err := notifier.buildPayload(OpsFeishuAlertConfig{}, "https://api.tokenkey.dev", testOpsFeishuRule(), testOpsFeishuEvent(1))
@@ -279,66 +277,6 @@ func TestMaybeSendAlertFeishuP0AndClientVisibleP1Only(t *testing.T) {
 			require.Equal(t, 0, doer.calls)
 		})
 	}
-}
-
-func TestOpsAlertFeishuSeverityAllowedEdgeUpstreamErrorRateP1(t *testing.T) {
-	t.Parallel()
-
-	p0Upstream := &OpsAlertRule{Name: "上游错误率极高", MetricType: "upstream_error_rate", Severity: "P0", Threshold: 20, NotifyEmail: true}
-	p1Upstream20 := &OpsAlertRule{Name: "上游错误率极高", MetricType: "upstream_error_rate", Severity: "P1", Threshold: 20, NotifyEmail: true}
-	p1Upstream8 := &OpsAlertRule{Name: "上游错误率偏高", MetricType: "upstream_error_rate", Severity: "P1", Threshold: 8, NotifyEmail: true}
-	p0Event := &OpsAlertEvent{Severity: "P0", Status: OpsAlertStatusFiring}
-	p1Event := &OpsAlertEvent{Severity: "P1", Status: OpsAlertStatusFiring}
-
-	require.True(t, opsAlertFeishuSeverityAllowed(p1Upstream20, p1Event), "tk_087 20% rule pages Feishu as P1")
-	require.True(t, opsAlertFeishuSeverityAllowed(p0Upstream, p1Event), "leftover P0 20% copy remapped to P1 still reaches Feishu")
-	require.True(t, opsAlertFeishuSeverityAllowed(p0Upstream, p0Event), "generic P0+P0 still allowed")
-	require.False(t, opsAlertFeishuSeverityAllowed(p1Upstream8, p1Event), "deleted 8% early-warning P1 must stay off Feishu")
-	require.False(t, opsAlertFeishuSeverityAllowed(p1Upstream8, p0Event))
-	require.True(t, isEdgeUpstreamRatePageRule(p1Upstream20))
-	require.False(t, isEdgeUpstreamRatePageRule(p1Upstream8))
-}
-
-func TestMaybeSendAlertFeishuAllowsEdgeDemotedUpstreamErrorRateP1(t *testing.T) {
-	t.Parallel()
-
-	doer := &recordingFeishuHTTPDoer{body: `{"code":0}`}
-	svc := newOpsFeishuAlertEvaluatorForTest(t, OpsFeishuAlertConfig{Enabled: true, WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/token", RateLimitPerHour: 3, CooldownSeconds: 3600}, doer)
-	rule := testOpsFeishuRule()
-	rule.Name = "上游错误率极高"
-	rule.Severity = "P0"
-	rule.MetricType = "upstream_error_rate"
-	rule.Operator = ">"
-	rule.Threshold = 20
-	event := testOpsFeishuEvent(1)
-	event.Severity = "P1"
-	event.Dimensions = map[string]any{"top_cause": "gpt-5.6-sol ×28（upstream 502 / provider）"}
-
-	require.True(t, svc.maybeSendAlertFeishu(context.Background(), nil, rule, event))
-	require.Equal(t, 1, doer.calls)
-	require.Contains(t, doer.bodies[0], "TokenKey P1 告警")
-	require.Contains(t, doer.bodies[0], "orange")
-	require.NotContains(t, doer.bodies[0], "TokenKey P0 告警")
-}
-
-func TestMaybeSendAlertFeishuAllowsSeededUpstreamErrorRateP1(t *testing.T) {
-	t.Parallel()
-
-	doer := &recordingFeishuHTTPDoer{body: `{"code":0}`}
-	svc := newOpsFeishuAlertEvaluatorForTest(t, OpsFeishuAlertConfig{Enabled: true, WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/token", RateLimitPerHour: 3, CooldownSeconds: 3600}, doer)
-	rule := testOpsFeishuRule()
-	rule.Name = "上游错误率极高"
-	rule.Severity = "P1"
-	rule.MetricType = "upstream_error_rate"
-	rule.Operator = ">"
-	rule.Threshold = 20
-	event := testOpsFeishuEvent(1)
-	event.Severity = "P1"
-	event.Dimensions = map[string]any{"top_cause": "gpt-5.6-sol ×28（upstream 502 / provider）"}
-
-	require.True(t, svc.maybeSendAlertFeishu(context.Background(), nil, rule, event))
-	require.Equal(t, 1, doer.calls)
-	require.Contains(t, doer.bodies[0], "TokenKey P1 告警")
 }
 
 func TestMaybeSendAlertFeishuAllowsClientVisibleP1(t *testing.T) {

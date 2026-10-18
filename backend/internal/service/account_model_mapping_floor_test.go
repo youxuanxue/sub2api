@@ -149,14 +149,6 @@ func TestAccountModelMappingForAccount_KiroBedrockAndNewAPI(t *testing.T) {
 	requireIdentityMappingForIDs(t, kiro, kiroModelMappingPresetIDs())
 	require.NotContains(t, kiro, "claude-not-kiro-zzz")
 
-	kiroStub, ok := accountModelMappingForAccount(context.Background(), &Account{
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		Name:     "kiro-us6",
-	}, nil, nil, nil)
-	require.True(t, ok)
-	require.Equal(t, kiro, kiroStub)
-
 	bedrock, ok := accountModelMappingForAccount(context.Background(), &Account{
 		Platform: PlatformAnthropic,
 		Type:     AccountTypeBedrock,

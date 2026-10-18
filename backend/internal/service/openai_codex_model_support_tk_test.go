@@ -11,7 +11,7 @@ import (
 )
 
 func TestCodexRetiredModelAdmission(t *testing.T) {
-	for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey, "edge"} {
+	for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey} {
 		for _, tc := range []struct {
 			name, requested, mapped string
 			wildcard                bool
@@ -33,10 +33,6 @@ func TestCodexRetiredModelAdmission(t *testing.T) {
 		} {
 			t.Run(accountType+"/"+tc.name, func(t *testing.T) {
 				a := &Account{ID: 1, Platform: PlatformOpenAI, Type: accountType, Credentials: map[string]any{}, Extra: map[string]any{}}
-				if accountType == "edge" {
-					a.Type = AccountTypeAPIKey
-					a.Credentials["base_url"] = "https://api-us4.tokenkey.dev"
-				}
 				if tc.mapped != "" {
 					key := tc.requested
 					if tc.wildcard {
@@ -59,9 +55,10 @@ func TestCodexRetiredModelPlanAndSelection(t *testing.T) {
 	oauth := *officialOpenAIOAuthAccount(11)
 	oauth.GroupIDs, oauth.Concurrency, oauth.Priority = []int64{10}, 10, 1
 	oauth.Credentials["model_mapping"] = map[string]any{"gpt-5.5": "gpt-5.5"}
-	edge := multimodalSupplyOpenAIEdgeAccount(12, 10)
+	secondOAuth := *officialOpenAIOAuthAccount(12)
+	secondOAuth.GroupIDs, secondOAuth.Concurrency, secondOAuth.Priority = []int64{10}, 10, 1
 	api := multimodalSupplyTokenseaAccount(13, 10)
-	api.Priority = 100 // OAuth and the edge would win without the capability gate.
+	api.Priority = 100 // OAuth accounts would win without the capability gate.
 
 	for _, protocol := range []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses, protocolrouter.ProtocolMessages} {
 		t.Run(string(protocol), func(t *testing.T) {
@@ -72,7 +69,7 @@ func TestCodexRetiredModelPlanAndSelection(t *testing.T) {
 			})
 			require.NoError(t, err)
 			ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), req)
-			for _, rejected := range []*Account{&oauth, &edge} {
+			for _, rejected := range []*Account{&oauth, &secondOAuth} {
 				_, governed, err := protocolPlanForAccount(ctx, rejected, "gpt-5.5")
 				require.True(t, governed)
 				require.ErrorIs(t, err, protocolrouter.ErrModelPolicyDenied)
@@ -88,7 +85,7 @@ func TestCodexRetiredModelPlanAndSelection(t *testing.T) {
 	for _, mode := range []string{RoutingModeDirect, RoutingModeUniversal} {
 		t.Run(mode, func(t *testing.T) {
 			for _, includeAPI := range []bool{true, false} {
-				accounts := []Account{oauth, edge}
+				accounts := []Account{oauth, secondOAuth}
 				if includeAPI {
 					accounts = append(accounts, api)
 				}
@@ -146,13 +143,9 @@ func TestCodexRetiredModelCatalogProjection(t *testing.T) {
 			body = []byte(`{"models":[{"slug":"gpt-5.5","custom":1},{"slug":"gpt-6-sol","custom":2}]}`)
 		}
 		original := string(body)
-		for _, kind := range []string{AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey, "edge"} {
+		for _, kind := range []string{AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey} {
 			for _, mode := range []string{"empty", "identity", "passthrough", "remap"} {
 				a := &Account{Platform: PlatformOpenAI, Type: kind, Credentials: map[string]any{}, Extra: map[string]any{}}
-				if kind == "edge" {
-					a.Type = AccountTypeAPIKey
-					a.Credentials["base_url"] = "https://api-uk1.tokenkey.dev"
-				}
 				if mode != "empty" {
 					mapping := map[string]any{"gpt-5.5": "gpt-5.5", "gpt-6-sol": "gpt-6-sol"}
 					if mode == "remap" {

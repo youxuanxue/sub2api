@@ -3,36 +3,12 @@
   "rationale": "Load-bearing files and symbols that anchor TokenKey's sixth platform `kiro` (AWS Kiro / CodeWhisperer). Kiro rides on a vendored protocol layer (internal/integration/kiro, sourced from Quorinex/Kiro-Go under MIT) exposed through the native Anthropic /v1/messages path, plus thin TK-only injection points. If any sentinel below is missing, the platform either silently disappears from scheduling/UI or fails at runtime. Single source of truth read by both `scripts/preflight.sh` (kiro sentinel registry section) and `.github/workflows/upstream-merge-pr-shape.yml` (on `merge/upstream-*` PRs). Adding a new load-bearing surface for kiro MUST add a sentinel here in the same commit.",
   "sentinels": [
     {
-      "path": "backend/internal/handler/edge_tk_capacity_handler.go",
-      "must_contain": [
-        "case domain.PlatformKiro:",
-        "SumConcurrencyByPlatform"
-      ],
-      "rationale": "Surface-C edge capacity endpoint must report the kiro pool's live Σ (platform-wide schedulable sum) so prod's kiro mirror stub mirrors the right number. Losing the kiro dispatch arm makes a kiro stub's ?platform=kiro request 400, and surface-C falls back to leaving the stub's concurrency stale (or, if the prod default regressed, hands the kiro stub the anthropic number again — the exact bug this surface closes)."
-    },
-    {
-      "path": "backend/internal/service/anthropic_config_reconciler.go",
-      "must_contain": [
-        "func mirrorCapacityPlatform",
-        "mirror_platform"
-      ],
-      "rationale": "Prod side of surface-C: reads each mirror stub's credentials.mirror_platform (default anthropic) and queries the matching edge pool. Losing mirrorCapacityPlatform collapses the anthropic/kiro distinction so every mirror stub queries ?platform=anthropic again and a kiro stub silently mirrors the anthropic Σ."
-    },
-    {
       "path": "backend/internal/repository/account_repo.go",
       "must_contain": [
-        "func (r *accountRepository) SumConcurrencyByPlatform",
         "platform = ANY($1)",
         "pq.Array(options.Platforms)"
       ],
-      "rationale": "Two load-bearing Kiro anchors. (1) SumConcurrencyByPlatform backs the platform-wide Kiro edge capacity read. (2) ListOAuthRefreshCandidatePage MUST keep `platform = ANY($1)` bound from caller-owned `options.Platforms`, with no platform literal in SQL. TokenRefreshService derives the caller set from registered refreshers, and TestRegisteredRefreshers_MatchOAuthRefreshSourceOfTruth proves those registrations exactly match engine.OAuthRefreshPlatforms(), including Kiro. The repository must preserve narrower reconciliation requests rather than silently widening them to every OAuth platform. This two-layer contract blocks both R-001 (Kiro omitted and tokens expire) and the CI regression where a Grok-only page admitted OpenAI rows."
-    },
-    {
-      "path": "backend/internal/handler/edge_tk_capacity_handler_test.go",
-      "must_contain": [
-        "TestEdgeCapacityHandler_KiroUsesPlatformWideSum"
-      ],
-      "rationale": "Load-bearing QA evidence that the kiro capacity arm reads SumConcurrencyByPlatform(\"kiro\") and never the anthropic-group sum — the exact regression (kiro stub mirrors the anthropic number) this surface closes. Matches the *_tk_*_test.go hotspot-evidence rule."
+      "rationale": "Two load-bearing Kiro anchors. (2) ListOAuthRefreshCandidatePage MUST keep `platform = ANY($1)` bound from caller-owned `options.Platforms`, with no platform literal in SQL. TokenRefreshService derives the caller set from registered refreshers, and TestRegisteredRefreshers_MatchOAuthRefreshSourceOfTruth proves those registrations exactly match engine.OAuthRefreshPlatforms(), including Kiro. The repository must preserve narrower reconciliation requests rather than silently widening them to every OAuth platform. This two-layer contract blocks both R-001 (Kiro omitted and tokens expire) and the CI regression where a Grok-only page admitted OpenAI rows."
     },
     {
       "path": "backend/internal/domain/constants.go",
@@ -408,14 +384,13 @@
       "path": "backend/internal/service/account_tk_kiro.go",
       "must_contain": [
         "func (a *Account) IsKiro()",
-        "func kiroMirrorStubSupportsModel",
         "claude.DenormalizeModelID",
         "PersistKiroProfileArnIfChanged",
         "toKiroProtoAccount",
         "func (a *Account) isKiroTLSFingerprintEnabled()",
         "CanonicalKiroTLSProfileName"
       ],
-      "rationale": "Account-domain predicate + kiroMirrorStubSupportsModel (dated CC snapshot IDs must DenormalizeModelID before matching KiroAdminTestModels short IDs; prod 2026-07-06 P0 empty-pool if only NormalizeModelID) + the mapper that converts a TK account's credentials into the vendored kiroproto.Account, plus the default-on TLS-fingerprint gate (isKiroTLSFingerprintEnabled) and the canonical Kiro IDE profile name. Losing IsKiro() removes kiro from the Forward dispatch branch and the scheduling pool; losing toKiroProtoAccount breaks every upstream call; losing the TLS gate / CanonicalKiroTLSProfileName silently drops kiro back to a Go-default JA3 (ban risk)."
+      "rationale": "Account-domain predicate + kiroSupportsModel (dated CC snapshot IDs must DenormalizeModelID before matching KiroAdminTestModels short IDs; prod 2026-07-06 P0 empty-pool if only NormalizeModelID) + the mapper that converts a TK account's credentials into the vendored kiroproto.Account, plus the default-on TLS-fingerprint gate (isKiroTLSFingerprintEnabled) and the canonical Kiro IDE profile name. Losing IsKiro() removes kiro from the Forward dispatch branch and the scheduling pool; losing toKiroProtoAccount breaks every upstream call; losing the TLS gate / CanonicalKiroTLSProfileName silently drops kiro back to a Go-default JA3 (ban risk)."
     },
     {
       "path": "backend/internal/service/account.go",
@@ -462,7 +437,7 @@
         "OnReasoningContent: func(text, signature string)",
         "thinkingSigBuf",
         "ResolveStashThinking",
-        "publishKiroInternalThinkingSideChannel",
+        "captureKiroInternalThinking",
         "textBuf == \"\" && thinkingBuf == \"\" && len(toolUses) == 0",
         "rawAssistant",
         "if callOutputCommitted",
@@ -611,13 +586,10 @@
         "TestKiroWaitBudgetPolicy",
         "TestKiroWaitBudgetProgressDoesNotExtendDeadline",
         "TestKiroWaitBudgetRetriesShareDeadline",
-        "TestKiroRelayBudgetBoundsBothResponseModes",
         "TestKiroNonStreamingCallerCancellation",
-        "TestKiroRelayBudgetHonorsEdgeExhaustion",
-        "TestKiroRelayBudgetSSETerminalPreservesTimeoutAttribution",
         "TestKiroWaitBudgetClosesStalledErrorBody"
       ],
-      "rationale": "Kiro fixed tier/deadline behavior, nonstream partial output, relay keepalive, terminal edge outcome and cancellation must remain covered."
+      "rationale": "Kiro retries share one fixed deadline; reasoning and keepalive do not extend it."
     },
     {
       "path": "backend/internal/service/gateway_usage_billing.go",
@@ -630,41 +602,25 @@
     {
       "path": "backend/internal/service/kiro_internal_thinking_tk.go",
       "must_contain": [
-        "func publishKiroInternalThinkingSideChannel",
+        "func captureKiroInternalThinking",
         "func kiroInternalThinkingBlockJSON(thinking, signature string)",
         "kiroInternalThinkingBlocksFromCapture",
-        "block[\"signature\"]",
-        "kiroInternalThinkingMirrorHopRequestHeader",
-        "func setKiroInternalThinkingMirrorHopHeaderForAccount",
-        "IsKiroMirrorStub()",
-        "func setKiroInternalThinkingMirrorHopHeader",
-        "func parseKiroInternalThinkingSSECommentLine"
+        "block[\"signature\"]"
       ],
-      "rationale": "Kiro upstream thinking + signature side channel for prod mirror QA raw capture. Signature is included only when Kiro upstream sent it; synthetic placeholders are forbidden. setKiroInternalThinkingMirrorHopHeaderForAccount must gate on IsKiroMirrorStub(): only prod Anthropic API-key stubs with mirror_platform=kiro emit the hop header; native cc-us5/cc-us6 edge relays must omit it or edge treats Fable/Opus as Kiro-sidecar traffic and rejects. Edge emits the wire side channel only when the prod mirror hop header is present; direct edge clients get gin-context stash only. Losing publishKiroInternalThinkingSideChannel or the mirror-stub gate regresses to leaking plaintext thinking on edge direct SSE/headers or drops prod passthrough stash."
+      "rationale": "Kiro upstream thinking + signature side channel for prod mirror QA raw capture. Signature is included only when Kiro upstream sent it; synthetic placeholders are forbidden."
     },
     {
       "path": "backend/internal/service/kiro_internal_thinking_tk_test.go",
       "must_contain": [
-        "TestPublishKiroInternalThinkingSideChannel_DirectEdgeOmitsWire",
-        "TestPublishKiroInternalThinkingSideChannel_MirrorHopEmitsWire",
         "TestKiroInternalThinkingBlockJSON_OmitsSyntheticSignature",
-        "TestConsolidateKiroInternalThinkingBlocks_MergesSplitFrames",
-        "UPSTREAM_SIG_abc"
+        "TestConsolidateKiroInternalThinkingBlocks_MergesSplitFrames"
       ],
-      "rationale": "Regression guard for the mirror-hop gate and upstream signature capture: edge direct must not emit wire side channel; prod mirror hop must; blocks omit signature when upstream did not send one."
-    },
-    {
-      "path": "backend/internal/service/gateway_anthropic_apikey_passthrough_test.go",
-      "must_contain": [
-        "TestGatewayService_AnthropicAPIKeyPassthrough_StripsKiroInternalThinkingSSEComment"
-      ],
-      "rationale": "Regression guard for prod passthrough stripping Kiro internal-thinking SSE comments while stashing blocks for prod QA raw capture."
+      "rationale": "Local QA capture preserves upstream thinking and real signatures, merges split frames and never synthesizes signatures."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_kiro_validate.go",
       "must_contain": [
-        "func tkValidateKiroAccountCreate",
-        "tos_acknowledged"
+        "func tkValidateKiroAccountCreate"
       ],
       "rationale": "ToS gate: account creation is rejected unless credentials.tos_acknowledged is true. Losing this lets kiro accounts be created without explicit ToS acknowledgement (compliance regression)."
     },
@@ -697,17 +653,16 @@
         "RememberKiroSessionRecovery",
         "IsKiroPostOutputStreamDisconnect"
       ],
-      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit. handleKiroContentFilteredError maps Kiro's policy terminal outcome to 400 invalid_request_error and emits the trusted mirror outcome header without failover. The KiroInvalidModelError errors.As branch returns a clean 400 invalid_request_error (no cross-account failover) when the Kiro upstream rejects the model; losing it reverts to the silent empty-200 / failover-churn behavior. The KiroEndpointQuotaExhaustedError branch returns 429+Retry-After:10 instead of a generic 502 when all Kiro upstream endpoints hit quota exhaustion."
+      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit. handleKiroContentFilteredError maps Kiro's policy terminal outcome to 400 invalid_request_error and emits the client content-filter outcome without failover. The KiroInvalidModelError errors.As branch returns a clean 400 invalid_request_error (no cross-account failover) when the Kiro upstream rejects the model; losing it reverts to the silent empty-200 / failover-churn behavior. The KiroEndpointQuotaExhaustedError branch returns 429+Retry-After:10 instead of a generic 502 when all Kiro upstream endpoints hit quota exhaustion."
     },
     {
       "path": "backend/internal/handler/gateway_handler_kiro_content_filter_test.go",
       "must_contain": [
         "TestGatewayHandler_HandleKiroContentFilteredError",
         "service.HasOpsClientContentFiltered(c)",
-        "invalid_request_error",
-        "KiroOutcomeHeader"
+        "invalid_request_error"
       ],
-      "rationale": "Messages API wire-contract evidence for the Kiro content-filter outcome: HTTP 400 Anthropic error envelope plus the internal mirror header."
+      "rationale": "Messages API wire-contract evidence for the Kiro content-filter outcome: HTTP 400 Anthropic error envelope plus the client error envelope."
     },
     {
       "path": "backend/internal/service/kiro_session_recovery.go",
@@ -757,9 +712,6 @@
       "path": "backend/internal/service/kiro_gateway_service_tk_errors.go",
       "must_contain": [
         "type KiroContentFilteredError",
-        "KiroOutcomeHeader",
-        "KiroContentFilteredOutcome",
-        "func IsKiroContentFilteredRelayResponse",
         "type KiroInvalidModelError",
         "type KiroInvalidRequestError",
         "type KiroEndpointQuotaExhaustedError",
@@ -792,7 +744,6 @@
         "MarkOpsClientContentFiltered(c)",
         "origCommitted := IsResponseCommitted(c)",
         "c.Set(ResponseCommittedKey, origCommitted)",
-        "KiroOutcomeHeader",
         "failoverErr.Scope != GatewayFailureScopeRequest"
       ],
       "rationale": "Native Kiro Chat Completions mapping must turn the typed content-policy outcome into a committed HTTP 400 content_filter_error before rate-limit handling. Internal capture errors must restore the outer response commitment so the handler can report failures to the actual client."
@@ -808,29 +759,9 @@
       "rationale": "Behavioral regressions require captured stream failures to reach Chat Completions clients and invalid Kiro tools before output to reach bounded account failover with structured upstream evidence."
     },
     {
-      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
-      "must_contain": [
-        "IsKiroContentFilteredRelayResponse(account, resp.Header)",
-        "MarkOpsClientContentFiltered(c)",
-        "content_filter_error"
-      ],
-      "rationale": "Prod Kiro mirror Chat Completions mapping consumes the trusted edge outcome before generic failover/account-penalty logic."
-    },
-    {
-      "path": "backend/internal/service/gateway_forward_as_responses.go",
-      "must_contain": [
-        "IsKiroContentFilteredRelayResponse(account, resp.Header)",
-        "MarkOpsClientContentFiltered(c)",
-        "KiroContentFilteredClientMessage()"
-      ],
-      "rationale": "Prod Kiro mirror Responses mapping consumes the trusted edge outcome before generic failover/account-penalty logic and writes the Responses content_filter code."
-    },
-    {
       "path": "backend/internal/service/gateway_forward_kiro_content_filter_test.go",
       "must_contain": [
         "TestForwardAsChatCompletions_KiroContentFilteredReturns400",
-        "TestForwardAsChatCompletions_KiroMirrorContentFilteredReturns400WithoutFailover",
-        "TestForwardAsResponses_KiroMirrorContentFilteredReturns400WithoutFailover",
         "HasOpsClientContentFiltered(c)"
       ],
       "rationale": "Wire-contract evidence for native and mirrored Kiro content filtering across Chat Completions and Responses, including no UpstreamFailoverError and a single mirror attempt."
@@ -884,7 +815,7 @@
         "refreshAPI *OAuthRefreshAPI",
         "svc.SetOAuthRefreshAPI(refreshAPI)"
       ],
-      "rationale": "Production wiring for the Kiro valid-token 401 force-refresh path. RateLimitService.tkHandleKiroOAuth401OnValidToken needs OAuthRefreshAPI to refresh Kiro using the edge's existing refresh_token/client credentials before falling back to grant-revoked SetError. An upstream merge that drops this parameter or setter still compiles but leaves s.oauthRefreshAPI nil, silently reverting Kiro valid-token 401 to manual re-OAuth."
+      "rationale": "Production wiring for the Kiro valid-token 401 force-refresh path. An upstream merge that drops this parameter or setter still compiles but leaves s.oauthRefreshAPI nil, silently reverting Kiro valid-token 401 to manual re-OAuth."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_kiro_validate_test.go",
@@ -892,14 +823,6 @@
         "tkValidateKiroAccountCreate"
       ],
       "rationale": "Load-bearing QA evidence for the account-creation ToS gate (matches the *_tk_*.go hotspot rule). Losing it removes the regression guard around the first ToS acknowledgement check."
-    },
-    {
-      "path": "backend/internal/service/account_tk_kiro_model_test.go",
-      "must_contain": [
-        "TestKiroMirrorStubSupportsModel_DatedHaikuSnapshotID",
-        "TestGatewayService_KiroMirrorStubSupportsDatedHaiku"
-      ],
-      "rationale": "Regression guard for prod 2026-07-06 P0: claude-haiku-4-5-20251001 must pass kiroMirrorStubSupportsModel on prod Kiro mirror stubs; losing it reintroduces group1 empty-pool routing 429 while Kiro edge still has quota."
     },
     {
       "path": "backend/internal/service/account_tk_kiro_tls_test.go",
@@ -1021,32 +944,22 @@
       "rationale": "Kiro's brand label entry. Without it the kiro platform renders an untranslated key or is dropped from option lists."
     },
     {
-      "path": "frontend/src/components/account/CreateAccountModal.vue",
-      "must_contain": [
-        "AccountKiroPlatformFields",
-        "mirror_platform"
-      ],
-      "rationale": "The kiro branch + field component wiring in the account-create modal, plus the surface-C mirror-stub pool selector that writes credentials.mirror_platform. Losing AccountKiroPlatformFields makes operators unable to create kiro accounts; losing the mirror_platform injection means a new edge kiro stub silently defaults to the anthropic pool."
-    },
-    {
       "path": "frontend/src/components/account/EditAccountModal.vue",
       "must_contain": [
-        "editMirrorPlatform",
         "AccountKiroPlatformFields",
         "kiro.populateFromAccount",
         "kiro.buildSubmitBundle",
         "props.account.platform === PLATFORM_KIRO"
       ],
-      "rationale": "Two Kiro account-edit anchors. (1) Surface-C mirror-stub pool selector: the operator's only no-SQL way to set credentials.mirror_platform=kiro on an existing edge stub (e.g. kiro-edge-us1). Losing it strands the live fix: the kiro stub keeps mirroring the anthropic Σ. (2) Kiro OAuth credential edit wiring: AccountKiroPlatformFields + populate/submit bundle let operators rotate access_token/refresh_token, region/auth_method, IdC client_id/client_secret, Profile ARN, and ToS acknowledgement without delete+recreate. An upstream merge that rewrites EditAccountModal must preserve this branch or live Kiro accounts become unrepairable from the UI."
+      "rationale": "Kiro OAuth credential edit wiring lets operators rotate access_token/refresh_token, region/auth_method, IdC client_id/client_secret, Profile ARN, and ToS acknowledgement without delete+recreate."
     },
     {
       "path": "frontend/src/utils/accountPlatformFilters.ts",
       "must_contain": [
-        "isKiroRelayStubAccount",
-        "PLATFORM_KIRO",
-        "PLATFORM_ANTHROPIC"
+        "accountMatchesPlatformFilter",
+        "PLATFORM_KIRO"
       ],
-      "rationale": "Admin account platform filtering keeps native Kiro and Anthropic Kiro-mirror stubs under the Kiro option, and excludes those stubs from Anthropic. Losing this helper either hides live Kiro relay stubs from the Kiro filter or mixes them back into Anthropic after upstream-shaped account-filter UI rewrites."
+      "rationale": "Admin account platform filtering keeps native Kiro accounts under the Kiro option after upstream-shaped account-filter UI rewrites."
     },
     {
       "path": "frontend/src/components/admin/account/AccountTableFilters.vue",
@@ -1059,27 +972,11 @@
       "rationale": "Admin account list keeps the Extension Engine channel_type dropdown on the upstream-shaped filter bar. Losing this Select mixes Qwen/DeepSeek/Vertex into one newapi list after an upstream filter rewrite."
     },
     {
-      "path": "backend/internal/repository/account_repo_tk_kiro.go",
-      "must_contain": [
-        "accountKiroRelayStubPredicate",
-        "PlatformAnthropic"
-      ],
-      "rationale": "Account list filtering must keep native Kiro plus Anthropic Kiro-mirror stubs under Kiro, exclude those stubs from Anthropic, and apply channel_type for Extension Engine. An upstream rewrite of accountListFilteredQuery can drop either predicate while compile and unrelated sentinels still pass. P3: predicate lives in account_repo_tk_kiro companion."
-    },
-    {
       "path": "backend/internal/repository/account_repo.go",
       "must_contain": [
         "ChannelTypeEQ"
       ],
       "rationale": "Extension Engine channel_type filter remains in upstream-shaped accountListFilteredQuery; Kiro stub predicates live in account_repo_tk_kiro.go."
-    },
-    {
-      "path": "frontend/src/constants/mirrorPlatformOptions.tk.ts",
-      "must_contain": [
-        "MIRROR_PLATFORM_OPTIONS",
-        "normalizeMirrorPlatform"
-      ],
-      "rationale": "TK-only options + backend-aligned default normalizer for the surface-C mirror-stub pool selector (anthropic/kiro), consumed by both account modals. Losing it breaks the mirror_platform UI and the anthropic-default fallback."
     },
     {
       "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
@@ -1096,7 +993,7 @@
         "tkKiroQuotaLimitIncidentReason",
         "reached the limit"
       ],
-      "rationale": "Kiro OAuth subscription quota exhaustion surfaces as HTTP 402 + 'You have reached the limit.' (prod 2026-06-25 edge-us4 account 9). This companion maps that verdict to reason kiro_quota_limit + SetError stop-scheduling + immediate Feishu P0. Without it, operators either get a mislabeled auth_error card or no alert when reproducing via admin account-test."
+      "rationale": "This companion maps that verdict to reason kiro_quota_limit + SetError stop-scheduling + immediate Feishu P0. Without it, operators either get a mislabeled auth_error card or no alert when reproducing via admin account-test."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_kiro_quota429.go",
@@ -1107,15 +1004,14 @@
         "KiroEndpointQuotaExhaustedRetryAfterSeconds",
         "kiro_endpoint_quota_exhausted"
       ],
-      "rationale": "Kiro upstream endpoint RPM exhaustion (all fallback hosts return 429; prod 2026-07-01 kiro-us3/4/5 mirror flicker) must apply a fixed 10s temp_unschedulable on edge Kiro OAuth accounts and prod kiro mirror stubs instead of advancing the anthropic_upstream_error 3/3 ladder (30s→2m→10m). Without this companion, brief subscription quota blips mislabel healthy relay stubs as failing and the admin UI shows frequent 临时不可调度."
+      "rationale": "Without this companion, brief subscription quota blips mislabel healthy relay stubs as failing and the admin UI shows frequent 临时不可调度."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_kiro_quota429_test.go",
       "must_contain": [
-        "TestHandleUpstreamError_KiroEndpointQuotaExhausted_Uses10sCooldownNotLadder",
-        "TestHandleUpstreamError_KiroMirrorStubQuotaExhausted429_SkipsAnthropicLadder"
+        "TestHandleUpstreamError_KiroEndpointQuotaExhausted_Uses10sCooldownNotLadder"
       ],
-      "rationale": "Regression guard: Kiro all-endpoint 429 quota exhaustion writes only the 10s short cooldown and never increments anthropic_upstream_error counter — on edge Kiro OAuth and prod kiro mirror stubs alike."
+      "rationale": "Kiro all-endpoint quota exhaustion applies the short cooldown without advancing the Anthropic error ladder."
     },
     {
       "path": "backend/internal/service/account_test_service.go",
@@ -1241,18 +1137,9 @@
         "func getKiroWaitBudget(",
         "func armKiroWaitBudget(",
         "Scope:                    GatewayFailureScopeRequest,",
-        "func setKiroWaitDeadlineHeader(",
-        "func kiroPassthroughUsefulOutput(",
         "WithHTTPUpstreamProfile(parent, HTTPUpstreamProfileKiro)"
       ],
       "rationale": "Single Kiro request budget owner: latch deadline once, restrict relay inheritance, preserve caller cancel and stop account retries at exhaustion."
-    },
-    {
-      "path": "backend/internal/service/gateway_forward_tk_oauth_passthrough_dispatch.go",
-      "must_contain": [
-        "account.IsAnthropicAPIKeyPassthroughEnabled() || account.IsKiroMirrorStub()"
-      ],
-      "rationale": "Kiro mirrors always reach the relay budget lifecycle, including legacy accounts without the passthrough flag."
     },
     {
       "path": "backend/internal/repository/http_upstream.go",
@@ -1297,7 +1184,7 @@
         "platforms = append(platforms, PlatformKiro)",
         "platform == PlatformAnthropic && account.Platform == PlatformKiro && account.IsMixedSchedulingEnabled()"
       ],
-      "rationale": "Anthropic mixed scheduling must admit PlatformKiro candidates and filter/allow them via IsMixedSchedulingEnabled. Losing either arm drops prod Kiro OAuth from Claude-group selection while edge stubs remain."
+      "rationale": "Anthropic mixed scheduling must admit PlatformKiro candidates and filter/allow them via IsMixedSchedulingEnabled."
     },
     {
       "path": "backend/internal/service/scheduler_snapshot_service.go",
@@ -1309,12 +1196,12 @@
       "rationale": "Anthropic mixed snapshot buckets must include kiro mixed accounts and rebuild when kiro mixed flags change. Without these anchors an upstream merge can silently drop kiro from mixed loads and leave stale anthropic mixed snapshots."
     },
     {
-      "path": "backend/internal/service/gateway_service_tk_kiro_mirror_scheduling.go",
+      "path": "backend/internal/service/gateway_service_tk_kiro_scheduling.go",
       "must_contain": [
-        "func tkIsKiroMixedOrMirrorSupply",
+        "func tkIsKiroMixedSupply",
         "account.IsKiro() && account.IsMixedSchedulingEnabled()"
       ],
-      "rationale": "Mixed Kiro OAuth must share native-only model penalties/sticky clears with mirror stubs so Fable/Opus-4.1 do not stick on Kiro supply inside anthropic groups."
+      "rationale": "Mixed Kiro OAuth supply is constrained by the native Kiro model catalog."
     },
     {
       "path": "backend/internal/service/gateway_scheduling_kiro_mixed_test.go",

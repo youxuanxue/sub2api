@@ -23,8 +23,6 @@ var (
 )
 
 const (
-	KiroOutcomeHeader             = "X-TokenKey-Kiro-Outcome"
-	KiroContentFilteredOutcome    = "content_filtered"
 	kiroContentFilteredClientText = "Request was blocked by upstream content filtering"
 )
 
@@ -39,13 +37,6 @@ func (*KiroContentFilteredError) Error() string {
 
 func KiroContentFilteredClientMessage() string {
 	return kiroContentFilteredClientText
-}
-
-// IsKiroContentFilteredRelayResponse accepts the internal relay outcome only
-// from an account configured as a Kiro mirror stub.
-func IsKiroContentFilteredRelayResponse(account *Account, header http.Header) bool {
-	return account != nil && account.IsKiroMirrorStub() &&
-		strings.EqualFold(strings.TrimSpace(header.Get(KiroOutcomeHeader)), KiroContentFilteredOutcome)
 }
 
 // KiroInvalidModelError is a typed, status-carrying error raised when the Kiro

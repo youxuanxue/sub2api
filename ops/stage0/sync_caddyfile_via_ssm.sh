@@ -10,8 +10,7 @@
 #   lands on a RUNNING host only via instance replacement OR this script.
 #
 # What this script does (mirrors the CFN UserData render EXACTLY):
-#   1. base64 the canonical repo Caddyfile (deploy/aws/stage0/Caddyfile for
-#      prod, Caddyfile.edge for edge) — the same file build-cfn.sh embeds into
+#   1. base64 the canonical prod Caddyfile — the same file build-cfn.sh embeds into
 #      the CFN SSM Parameter, kept bit-identical by `build-cfn.sh --check`
 #      (preflight). Shipping the repo file (not re-reading the SSM Parameter)
 #      means the sync does not depend on a CFN stack update having already
@@ -21,17 +20,10 @@
 #      "envsubst < caddy/Caddyfile.template > caddy/Caddyfile" line:
 #        - API_DOMAIN / ACME_EMAIL: sourced from /var/lib/tokenkey/.env (the
 #          boot UserData persists both there).
-#        - MAIN_GATEWAY_ALLOWED_CIDR (edge only): NOT in .env — boot UserData
-#          holds it only transiently. Recovered from the live Caddyfile's
-#          `remote_ip` line so the relay allowlist is preserved verbatim, unless
-#          MAIN_GATEWAY_ALLOWED_CIDR is set on this invocation (console-adopted
-#          hosts may currently have 0.0.0.0/0). For prod the template has no
-#          such token, so the var stays empty/no-op.
-#      On ANY host carrying /var/lib/tokenkey/active-color — prod or edge, since
-#      edges run blue/green too — rewrite the rendered canonical upstream from
+#      On hosts carrying /var/lib/tokenkey/active-color, rewrite the rendered
+#      canonical upstream from
 #      tokenkey:8080 to tokenkey-${active}:8080 so directive hot-sync never
-#      disables the active color. Gating this on kind=prod used to point a
-#      blue/green edge at a tokenkey:8080 container that does not exist there.
+#      preserves the active color so hot-sync never disables blue/green.
 #      Hosts with no active-color keep the legacy tokenkey:8080 upstream.
 #   3. Validate the rendered config in a throwaway caddy:2-alpine container.
 #   4. Apply IN PLACE (`cat new > Caddyfile`, NOT mv): the compose mount binds
@@ -52,8 +44,7 @@
 # whatever the Parameter holds at that time.
 #
 # Usage:
-#   ops/stage0/sync_caddyfile_via_ssm.sh <prod|edge> <instance_id> [comment]
-#   EDGE_ID=<edge> ops/stage0/sync_caddyfile_via_ssm.sh edge <mi-id> [comment]
+#   ops/stage0/sync_caddyfile_via_ssm.sh prod <instance_id> [comment]
 #
 # Env:
 #   AWS_REGION / AWS_DEFAULT_REGION   region for SSM (optional)
@@ -63,15 +54,8 @@
 #                                     disabled, which clears the persisted value
 #   API_ALIAS_DOMAIN                  prod-only optional; set to persist/clear the
 #                                     second machine host (e.g. api.callmodel.io)
-#   EDGE_ID                           Lightsail Hybrid edge id; when set and
-#                                     instance_id is mi-*, targets by tag like
-#                                     deploy_via_ssm.sh.
-#   MAIN_GATEWAY_ALLOWED_CIDR         edge-only optional override for Caddy
-#                                     remote_ip (CIDR list; live value in
-#                                     deploy/hetzner/README.md). When
-#                                     unset, the live Caddyfile value is reused.
 #   ACME_EMAIL                        optional override when host .env has an
-#                                     empty ACME_EMAIL= (console-adopted edges).
+#                                     empty ACME_EMAIL= (console-adopted hosts).
 #   STAGE0_SSM_TIMEOUT_SECONDS        SSM poll timeout (default 240)
 #   STAGE0_SSM_OUTPUT_DIR             where to drop ssm-params/stdout/stderr
 
@@ -86,15 +70,11 @@ OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
 
-# Shared SSM "resolve managed-instance after tag-targeted send" helper.
-# shellcheck source=ssm_resolve_invocation_mi.inc.sh
-source "${HERE}/ssm_resolve_invocation_mi.inc.sh"
 
 case "${KIND}" in
   prod) CADDY_SRC="${REPO_ROOT}/deploy/aws/stage0/Caddyfile" ;;
-  edge) CADDY_SRC="${REPO_ROOT}/deploy/aws/stage0/Caddyfile.edge" ;;
   *)
-    echo "sync_caddyfile_via_ssm: first arg must be 'prod' or 'edge' (got '${KIND}')" >&2
+    echo "sync_caddyfile_via_ssm: first arg must be 'prod' (got '${KIND}')" >&2
     exit 1
     ;;
 esac
@@ -117,31 +97,6 @@ global_phase_is_set="${GLOBAL_SITE_PHASE+x}"
 global_domain_is_set="${GLOBAL_SITE_DOMAIN+x}"
 api_alias_is_set="${API_ALIAS_DOMAIN+x}"
 
-if [[ "${KIND}" == edge && ( -n "${global_phase_is_set}" || -n "${global_domain_is_set}" || -n "${api_alias_is_set}" ) ]]; then
-  echo "sync_caddyfile_via_ssm: GLOBAL_SITE_*/API_ALIAS are prod-only" >&2
-  exit 1
-fi
-TARGET_MAIN_GATEWAY_ALLOWED_CIDR=""
-if [[ -n "${MAIN_GATEWAY_ALLOWED_CIDR+x}" ]]; then
-  if [[ "${KIND}" != edge ]]; then
-    echo "sync_caddyfile_via_ssm: MAIN_GATEWAY_ALLOWED_CIDR is edge-only" >&2
-    exit 1
-  fi
-  TARGET_MAIN_GATEWAY_ALLOWED_CIDR="${MAIN_GATEWAY_ALLOWED_CIDR}"
-  if [[ -z "${TARGET_MAIN_GATEWAY_ALLOWED_CIDR}" || ! "${TARGET_MAIN_GATEWAY_ALLOWED_CIDR}" =~ ^[0-9A-Fa-f.:/[:space:]]+$ ]]; then
-    echo "sync_caddyfile_via_ssm: MAIN_GATEWAY_ALLOWED_CIDR must be a non-empty CIDR list" >&2
-    exit 1
-  fi
-  # Same rule the host-side recovery applies to a value read back off the live
-  # Caddyfile: a /0 of either family would make this edge an open relay, so it
-  # is refused here too rather than only when recovered.
-  for cidr_entry in ${TARGET_MAIN_GATEWAY_ALLOWED_CIDR}; do
-    if [[ "${cidr_entry}" != */* || "${cidr_entry#*/}" == "0" ]]; then
-      echo "sync_caddyfile_via_ssm: MAIN_GATEWAY_ALLOWED_CIDR entry must carry a non-zero prefix length (got '${cidr_entry}')" >&2
-      exit 1
-    fi
-  done
-fi
 TARGET_ACME_EMAIL=""
 if [[ -n "${ACME_EMAIL+x}" ]]; then
   TARGET_ACME_EMAIL="${ACME_EMAIL}"
@@ -235,11 +190,9 @@ jq -n \
   --arg global_site_domain "${TARGET_GLOBAL_SITE_DOMAIN}" \
   --arg apply_api_alias "${APPLY_API_ALIAS}" \
   --arg api_alias_domain "${TARGET_API_ALIAS_DOMAIN}" \
-  --arg main_gateway_cidr "${TARGET_MAIN_GATEWAY_ALLOWED_CIDR}" \
   --arg acme_email "${TARGET_ACME_EMAIL}" '{
-  # Hetzner/Ubuntu Hybrid SSM runs AWS-RunShellScript under /bin/sh (dash),
-  # which rejects `set -o pipefail`. Wrap the whole body in bash -c so edge
-  # and Lightsail hosts share one script (bash is present on both).
+          # Hetzner/Ubuntu Hybrid SSM runs AWS-RunShellScript under /bin/sh (dash),
+          # which rejects `set -o pipefail`.
   commands: [
     "bash -c " + (
       (
@@ -251,7 +204,6 @@ jq -n \
           ("TARGET_GLOBAL_SITE_DOMAIN=" + ($global_site_domain | @sh)),
           ("APPLY_API_ALIAS=" + ($apply_api_alias | @sh)),
           ("TARGET_API_ALIAS_DOMAIN=" + ($api_alias_domain | @sh)),
-          ("TARGET_MAIN_GATEWAY_ALLOWED_CIDR=" + ($main_gateway_cidr | @sh)),
           ("TARGET_ACME_EMAIL=" + ($acme_email | @sh)),
           "CADDY_DIR=/var/lib/tokenkey/caddy",
           "LIVE=$CADDY_DIR/Caddyfile",
@@ -284,59 +236,6 @@ jq -n \
           "  ACME_EMAIL=\"$(sed -n '\''s/^[[:space:]]*email[[:space:]][[:space:]]*\\(.*\\)$/\\1/p'\'' \"$LIVE\" | head -1)\"",
           "fi",
           "[ -n \"${ACME_EMAIL:-}\" ] || { echo \"::error::ACME_EMAIL empty in /var/lib/tokenkey/.env and live Caddyfile\"; exit 1; }",
-          "# MAIN_GATEWAY_ALLOWED_CIDR (edge only) is NOT in .env — it lives only in",
-          "# boot UserData. Recover the live value from the remote_ip line in the",
-          "# current rendered Caddyfile so the allowlist survives the re-render verbatim,",
-          "# unless this invocation supplied TARGET_MAIN_GATEWAY_ALLOWED_CIDR.",
-          "if [ -n \"$TARGET_MAIN_GATEWAY_ALLOWED_CIDR\" ]; then",
-          "  MAIN_GATEWAY_ALLOWED_CIDR=\"$TARGET_MAIN_GATEWAY_ALLOWED_CIDR\"",
-          "else",
-          "  MAIN_GATEWAY_ALLOWED_CIDR=\"$(sed -n '\''s/^[[:space:]]*remote_ip[[:space:]][[:space:]]*\\(.*\\)$/\\1/p'\'' \"$LIVE\" | head -1)\"",
-          "  MAIN_GATEWAY_ALLOWED_CIDR=\"$(printf '\''%s'\'' \"$MAIN_GATEWAY_ALLOWED_CIDR\" | sed -e '\''s/^[[:space:]]*//'\'' -e '\''s/[[:space:]]*$//'\'' -e '\''s/[[:space:]][[:space:]]*/ /g'\'')\"",
-          "  # The live file can itself be the product of an earlier bad write, so",
-          "  # validate every recovered entry rather than propagating it. A blank or",
-          "  # malformed remote_ip fails CLOSED in Caddy (the @allowed_relay matcher",
-          "  # stops matching, so /v1/* falls through to the 403 handler) — that is",
-          "  # how two edges lost relay on 2026-10-11, an outage, not an exposure.",
-          "  # An ALL-ADDRESSES entry is the dangerous direction: it silently turns a",
-          "  # host whose only job is to accept one prod IP into an open relay, so it",
-          "  # is refused even though it is a syntactically valid CIDR. Either way the",
-          "  # caller must pass MAIN_GATEWAY_ALLOWED_CIDR explicitly.",
-          "  if [ \"$KIND\" = edge ]; then",
-          "    if [ -z \"$MAIN_GATEWAY_ALLOWED_CIDR\" ]; then",
-          "      echo \"::error::live edge Caddyfile $LIVE has no readable remote_ip allowlist; pass MAIN_GATEWAY_ALLOWED_CIDR explicitly\"",
-          "      exit 1",
-          "    fi",
-          "    for cidr_entry in $MAIN_GATEWAY_ALLOWED_CIDR; do",
-          "      case \"$cidr_entry\" in",
-          "        */*) : ;;",
-          "        *) echo \"::error::recovered remote_ip allowlist entry has no prefix length: $cidr_entry\"; exit 1 ;;",
-          "      esac",
-          "      cidr_addr=\"${cidr_entry%/*}\"",
-          "      cidr_len=\"${cidr_entry#*/}\"",
-          "      case \"$cidr_addr\" in",
-          "        \"\"|*[!0-9A-Fa-f.:]*) echo \"::error::recovered remote_ip allowlist entry is not an IP address: $cidr_entry\"; exit 1 ;;",
-          "      esac",
-          "      case \"$cidr_len\" in",
-          "        \"\"|*[!0-9]*) echo \"::error::recovered remote_ip allowlist entry has a non-numeric prefix length: $cidr_entry\"; exit 1 ;;",
-          "      esac",
-          "      # A /0 of any family matches every address. Refusing it is the whole",
-          "      # point: this host must only ever accept the one prod gateway IP.",
-          "      if [ \"$cidr_len\" -eq 0 ]; then",
-          "        echo \"::error::recovered remote_ip allowlist entry opens the edge relay to every address ($cidr_entry); pass MAIN_GATEWAY_ALLOWED_CIDR explicitly\"",
-          "        exit 1",
-          "      fi",
-          "      case \"$cidr_addr\" in",
-          "        *:*) cidr_max=128 ;;",
-          "        *) cidr_max=32 ;;",
-          "      esac",
-          "      if [ \"$cidr_len\" -gt \"$cidr_max\" ]; then",
-          "        echo \"::error::recovered remote_ip allowlist entry has an out-of-range prefix length: $cidr_entry\"; exit 1",
-          "      fi",
-          "    done",
-          "  fi",
-          "fi",
-          "if [ \"$KIND\" = edge ] && [ -z \"$MAIN_GATEWAY_ALLOWED_CIDR\" ]; then echo \"::error::could not read remote_ip allowlist from live edge Caddyfile $LIVE\"; exit 1; fi",
           "echo \"render context loaded for kind=$KIND\"",
           ("printf '\''%s'\'' \"" + $b64 + "\" | base64 -d | sudo tee \"$CADDY_DIR/Caddyfile.template\" >/dev/null"),
           "if [ \"$KIND\" = prod ]; then",
@@ -347,8 +246,6 @@ jq -n \
           "  if [ \"$site_domain\" = \"$API_DOMAIN\" ]; then site_domain=; fi",
           "  export SITE_DOMAIN=\"$site_domain\"",
           "  bash /tmp/render-prod-caddyfile.sh \"$CADDY_DIR/Caddyfile.template\" \"$CADDY_DIR/Caddyfile.new\"",
-          "else",
-          "  envsubst '\''$API_DOMAIN $ACME_EMAIL $MAIN_GATEWAY_ALLOWED_CIDR'\'' < \"$CADDY_DIR/Caddyfile.template\" > \"$CADDY_DIR/Caddyfile.new\"",
           "fi",
           "if [ -r /var/lib/tokenkey/active-color ]; then ACTIVE_COLOR=\"$(sed -n '\''1p'\'' /var/lib/tokenkey/active-color | tr -d '\''[:space:]'\'')\"; case \"$ACTIVE_COLOR\" in blue|green) UPSTREAM=\"tokenkey-$ACTIVE_COLOR:8080\"; sudo awk -v upstream=\"$UPSTREAM\" '\''/^[[:space:]]*reverse_proxy[[:space:]]+/ && $0 ~ /\\{[[:space:]]*$/ { count += 1; if (count == 1) { match($0, /[^[:space:]]/); indent = RSTART > 1 ? substr($0, 1, RSTART - 1) : \"\"; print indent \"reverse_proxy \" upstream \" {\" } else { print }; next } { print } END { if (count != 1) exit 7 }'\'' \"$CADDY_DIR/Caddyfile.new\" | sudo tee \"$CADDY_DIR/Caddyfile.rewritten\" >/dev/null; sudo mv \"$CADDY_DIR/Caddyfile.rewritten\" \"$CADDY_DIR/Caddyfile.new\"; echo \"blue/green active upstream preserved ($KIND): $UPSTREAM\" ;; *) echo \"::error::invalid active-color for blue/green Caddy sync: ${ACTIVE_COLOR:-<empty>}\"; exit 1 ;; esac; fi",
           "echo === validate rendered config in throwaway caddy container ===",
@@ -380,12 +277,7 @@ jq -n \
           "sudo docker inspect tokenkey-caddy --format '\''caddy state={{.State.Status}} running={{.State.Running}}'\''",
           "grep -nE '\''lb_try_duration|handle /privacy|root \\* /data/legal|header Content-Type application/json'\'' \"$LIVE\" || true",
           "if grep -nE '\''^[[:space:]]*encode[[:space:]]+(zstd[[:space:]]+gzip|gzip[[:space:]]+zstd)[[:space:]]*$'\'' \"$LIVE\"; then echo \"::error::live Caddyfile still has shorthand encode (buffers SSE)\"; exit 1; fi",
-          "# prod SPA hosts keep whitelist encode; edge API relays omit encode entirely.",
-          "if [ \"$KIND\" = prod ]; then",
-          "  grep -q '\''header Content-Type application/json'\'' \"$LIVE\" || { echo \"::error::prod encode Content-Type whitelist missing after sync\"; exit 1; }",
-          "elif grep -nE '\''^[[:space:]]*encode[[:space:]]'\'' \"$LIVE\"; then",
-          "  echo \"::error::edge Caddyfile must not enable encode (SSE relay)\"; exit 1",
-          "fi",
+          "grep -q '\''header Content-Type application/json'\'' \"$LIVE\" || { echo \"::error::prod encode Content-Type whitelist missing after sync\"; exit 1; }",
           "trap - ERR",
           "echo === sync done ==="
         ]
@@ -394,26 +286,12 @@ jq -n \
   ]
 }' > "${params_file}"
 
-eff_instance_id="${INSTANCE_ID}"
-if [[ "${INSTANCE_ID}" == mi-* && -n "${EDGE_ID:-}" ]]; then
-  cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
-    --targets "Key=tag:EdgeId,Values=${EDGE_ID}" "Key=tag:Platform,Values=lightsail" \
-    --document-name AWS-RunShellScript \
-    --comment "${COMMENT} kind=${KIND}" \
-    --parameters "file://${params_file}" \
-    --query 'Command.CommandId' --output text)"
-  eff_instance_id="$(ssm_resolve_invocation_mi "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" "${cmd_id}")"
-  if [[ "${eff_instance_id}" != "${INSTANCE_ID}" ]]; then
-    echo "::warning::SSM send resolved instance ${eff_instance_id}; caller passed ${INSTANCE_ID}"
-  fi
-else
-  cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
+cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
     --instance-ids "${INSTANCE_ID}" \
     --document-name AWS-RunShellScript \
     --comment "${COMMENT} kind=${KIND}" \
     --parameters "file://${params_file}" \
     --query 'Command.CommandId' --output text)"
-fi
 
 echo "ssm command-id=${cmd_id}"
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
@@ -424,7 +302,7 @@ deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
 status="InProgress"
 while true; do
   status="$(aws "${ssm_region_args[@]}" ssm get-command-invocation \
-    --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
+    --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
     --query 'Status' --output text 2>/dev/null || echo InProgress)"
   case "${status}" in
     Success|Failed|TimedOut|Cancelled) break ;;
@@ -438,10 +316,10 @@ while true; do
 done
 
 aws "${ssm_region_args[@]}" ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
+  --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
   --query 'StandardOutputContent' --output text > "${stdout_file}"
 aws "${ssm_region_args[@]}" ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
+  --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
   --query 'StandardErrorContent' --output text > "${stderr_file}"
 
 echo '--- ssm stdout (last 8KB) ---'

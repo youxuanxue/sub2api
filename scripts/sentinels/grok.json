@@ -9,7 +9,7 @@
         ":usage=\"usageInfo\"",
         ":active-usage-loader=\"activeUsageLoader\""
       ],
-      "rationale": "Grok billing display must remain connected to parent snapshots and the Edge-specific transport."
+      "rationale": "Grok quota uses the shared quota component and active account usage loader."
     },
     {
       "path": "frontend/src/components/account/GrokQuotaProbeCell.vue",
@@ -26,9 +26,9 @@
       "must_contain": [
         "adopts a refreshed parent snapshot",
         "ignores a late query",
-        "never falls back to a main account ID"
+        "never falls back to another account ID"
       ],
-      "rationale": "Keep behavior coverage for refresh freshness, late queries and Edge transport failure isolation."
+      "rationale": "Quota loading adopts refreshed snapshots and ignores stale requests without switching account identity."
     },
     {
       "path": "backend/internal/service/grok_quota_service_test.go",
@@ -213,22 +213,13 @@
       "rationale": "Exercises the production pipeline for terminal entitlement denial and asserts no failover, cooldown, rate limit, account update, or runtime block."
     },
     {
-      "path": "backend/internal/service/openai_gateway_request_body.go",
-      "must_contain": [
-        "func (s *OpenAIGatewayService) validateUpstreamBaseURLForAccount(",
-        "isEdgeMirrorStub(account, edgeIDPattern)",
-        "AllowedHosts:     []string{parsed.Hostname()}"
-      ],
-      "rationale": "Prod→edge grok API-key relay stubs use TokenKey edge hosts such as api-us4.tokenkey.dev as their base_url. The global upstream allowlist should still reject arbitrary hosts, but a mirror-stub account must be allowed to call its own edge host; otherwise prod direct and universal Grok media/responses fail locally with `invalid base url: host is not allowed` before reaching the edge. This pins the account-aware validation seam and the narrow edge-mirror host derivation."
-    },
-    {
       "path": "backend/internal/service/ratelimit_service_tk_grok_entitlement_403.go",
       "must_contain": [
         "func tkIsGrokEntitlement403",
         "func tkGrokEntitlement403ClientMessage",
         "func (s *OpenAIGatewayService) tkHandleGrokEntitlement403AccountSideEffect"
       ],
-      "rationale": "The xAI Heavy-only entitlement-403 classifier + clean client message + canonical quarantine side-effect seam. Without it a grok 403 (standard/expired/downgraded Heavy) fails over pool-wide and is masked into a 502 — the single xAI policy change that would silently kill a thin grok pool (the marquee sharp edge)."
+      "rationale": "The xAI Heavy-only entitlement-403 classifier + clean client message + canonical quarantine side-effect seam."
     },
     {
       "path": "backend/internal/service/grok_upstream_errors.go",
@@ -237,16 +228,6 @@
         "tkIsGrokEntitlement403(statusCode, responseBody)"
       ],
       "rationale": "Grok failover must treat xAI OAuth entitlement 403 as terminal on every surface (responses/media/cc failover), not only chat pre-checks. Losing this line re-poisons the grok pool on /v1/responses entitlement failures."
-    },
-    {
-      "path": "backend/internal/service/ratelimit_service_tk_openai_downstream.go",
-      "must_contain": [
-        "func tkIsOpenAICompatEdgeMirrorStub(",
-        "IsOpenAICompatPlatform(account.Platform)",
-        "func tkIsDownstreamRateLimitEnvelope(",
-        "upstream rate limit exceeded"
-      ],
-      "rationale": "Grok prod relay stubs are OpenAI-compatible edge mirror API-key accounts. TokenKey downstream capacity envelopes from edge (including `Upstream rate limit exceeded`) must be classified as relay capacity, not xAI account health; otherwise prod writes temp_unschedulable on every grok relay stub and local routing collapses into `No available accounts`."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions.go",
@@ -263,7 +244,7 @@
         "shouldFailoverGrokUpstreamError(resp.StatusCode, respBody)",
         "handleGrokAccountUpstreamError(withGrokTeamRateLimitModel(ctx, upstreamModel), account, resp.StatusCode, resp.Header, respBody)"
       ],
-      "rationale": "The raw CC forwarder resolves the grok OAuth Bearer + api.x.ai base_url here; first-class grok API-key relay stubs intentionally use GetOpenAIApiKey/GetOpenAIBaseURL and the edge base_url. Entitlement 403 must route through the canonical grok account side-effect seam before any pool failover."
+      "rationale": "Entitlement 403 must route through the canonical grok account side-effect seam before any pool failover."
     },
     {
       "path": "backend/internal/service/openai_gateway_grok_chat_bridge.go",
@@ -282,7 +263,7 @@
         "validateUpstreamBaseURLForAccount(account, strings.TrimSpace(account.GetGrokBaseURL()))",
         "s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)"
       ],
-      "rationale": "The image/embeddings seam: buildOpenAIV1TargetURL hardcodes api.openai.com for the OAuth case; the grok OAuth arm redirects it to api.x.ai/v1. First-class grok API-key relay stubs use the API-key branch plus their edge base_url. Losing this arm points grok OAuth image requests at OpenAI; broadening it back to IsGrok() breaks grok API-key relay stubs. Failover path MUST route upstream errors through handleOpenAIAccountUpstreamError with upstreamModel (not bare HandleUpstreamError) so spark/model-scoped 429 cooldown semantics stay consistent with chat/responses paths."
+      "rationale": "The image/embeddings seam: buildOpenAIV1TargetURL hardcodes api.openai.com for the OAuth case; the grok OAuth arm redirects it to api.x.ai/v1. Losing this arm points grok OAuth image requests at OpenAI; broadening it back to IsGrok() breaks grok API-key relay stubs. Failover path MUST route upstream errors through handleOpenAIAccountUpstreamError with upstreamModel (not bare HandleUpstreamError) so spark/model-scoped 429 cooldown semantics stay consistent with chat/responses paths."
     },
     {
       "path": "backend/internal/service/tk_pricing_overlay.json",
@@ -348,7 +329,7 @@
         "normalizeGrokAccountTestMode(mode)",
         "grokDefaultResponsesModel"
       ],
-      "rationale": "Grok-specific admin test companion: API-key relay stubs use GetOpenAIApiKey/GetOpenAIBaseURL against the edge via /v1/responses; OAuth grok uses GetGrokAccessToken/GetGrokBaseURL against api.x.ai /responses; requested model is normalized to a chat-capable grok default. User-facing /v1/chat/completions and /v1/messages are separately enabled on grok groups; admin probe intentionally stays on /v1/responses for OAuth parity."
+      "rationale": "User-facing /v1/chat/completions and /v1/messages are separately enabled on grok groups; admin probe intentionally stays on /v1/responses for OAuth parity."
     },
     {
       "path": "frontend/src/constants/gatewayPlatforms.ts",
@@ -431,19 +412,10 @@
     {
       "path": "frontend/src/components/account/EditAccountModal.vue",
       "must_contain": [
-        "!submittedBaseUrl",
-        "admin.accounts.upstream.pleaseEnterBaseUrl",
-        "newCredentials.mirror_platform = 'grok'"
+        "AccountGrokPlatformFields",
+        "grokBuildSubmitBundle"
       ],
-      "rationale": "The first-class grok API-key relay stub edit guard. These accounts deliberately do not expose an api_key in admin, so clearing base_url would otherwise write an empty edge target and break relay forwarding. Losing this guard lets an innocuous edit silently disable a prod grok relay stub."
-    },
-    {
-      "path": "frontend/src/components/account/__tests__/EditAccountModal.grok-relay.spec.ts",
-      "must_contain": [
-        "blocks save when the edge base URL is cleared",
-        "expect(updateAccountMock).not.toHaveBeenCalled()"
-      ],
-      "rationale": "Focused regression evidence for the grok relay-stub edit guard. It pins the admin behavior that an existing grok+apikey relay stub cannot be saved after its edge base_url is cleared."
+      "rationale": "Grok OAuth credential rotation remains wired through the shared account editor."
     },
     {
       "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
@@ -523,7 +495,7 @@
         "validateUpstreamBaseURLForAccount(acc, freshBase)",
         "/videos/generations"
       ],
-      "rationale": "The grok-native video arm: submit (POST api.x.ai/v1/videos/generations -> request_id) + poll (GET api.x.ai/v1/videos/{id}) over the grok OAuth Bearer OR prod→edge relay api_key (resolveGrokVideoCredential mirrors chat raw), returning the same bridge.TaskSubmitOutcome/VideoFetchOutcome shapes the handler consumes so the vt_ public id, VideoTaskCache record, balance hold, per-second billing, terminal refund, direct video delivery and ownership-404 are all reused. Video has no new-api TaskAdaptor for xAI (GetTaskAdaptor has no xai entry), so this native arm is grok video's ONLY code path — losing it makes grok video fail outright."
+      "rationale": "Video has no new-api TaskAdaptor for xAI (GetTaskAdaptor has no xai entry), so this native arm is grok video's ONLY code path — losing it makes grok video fail outright."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",
@@ -559,7 +531,7 @@
         "TestBuildGrokVideoSubmitResponse",
         "TestGrokVideoUpstreamErrorEntitlement403QuarantinesAccount"
       ],
-      "rationale": "Load-bearing QA evidence for the grok-native video arm: resolveGrokVideoCredential pins OAuth vs prod→edge relay api_key (revert to access_token-only silently re-breaks prod grok-us4 video submit), the xAI status-enum -> videoTerminalOutcome mapping (drift would skip terminal-success retention or terminal-failure refund), and the submit acknowledgement shape (must carry TK's public task id, not the upstream request_id)."
+      "rationale": "Grok video credentials, status normalization and submission responses retain native provider semantics."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_grok_models.go",
@@ -599,7 +571,7 @@
       "must_contain": [
         ".Register(http.MethodPost, \"/videos/generations\", AsyncSubmission"
       ],
-      "rationale": "The xAI-shaped video submit alias POST /videos/generations (plural videos + /generations), registered in BOTH the /v1 group and the no-prefix scope. This is the path grok's native arm POSTs to ({base}/videos/generations); the gateway's canonical video routes are /video/generations (singular) + /videos (no suffix), which do NOT match it. Without this alias the prod->edge grok video relay 404s at submit: a prod grok mirror account forwards to api-<edge>.tokenkey.dev/v1/videos/generations and the edge gateway has no such route (grok chat/image relay works only because /chat/completions and /images/generations already coincide with gateway routes). Losing this alias silently re-breaks the relay while direct-to-xAI still works, so no other test would catch it."
+      "rationale": "The xAI-shaped video submit alias POST /videos/generations (plural videos + /generations), registered in BOTH the /v1 group and the no-prefix scope. This is the path grok's native arm POSTs to ({base}/videos/generations); the gateway's canonical video routes are /video/generations (singular) + /videos (no suffix), which do NOT match it. Losing this alias silently re-breaks the relay while direct-to-xAI still works, so no other test would catch it."
     },
     {
       "path": "backend/internal/service/grok_upstream_url.go",
@@ -609,7 +581,7 @@
         "GrokMediaEndpointVideosGenerations",
         "grokBaseURLValidator(account, cfg)"
       ],
-      "rationale": "Grok image/video OpenAI-compatible media forwarding must build /v1/images and /v1/videos URLs from the already validated account base_url. xAI's URL builder rejects TokenKey edge hosts, which made prod→edge Grok relay stubs fail locally before reaching edge. Losing the account-aware validation or reverting to xAI-only URL construction silently reopens the direct/universal Grok media 502."
+      "rationale": "Grok image/video OpenAI-compatible media forwarding must build /v1/images and /v1/videos URLs from the already validated account base_url. Losing the account-aware validation or reverting to xAI-only URL construction silently reopens the direct/universal Grok media 502."
     },
     {
       "path": "backend/internal/service/openai_gateway_grok.go",
@@ -626,7 +598,7 @@
         "validateUpstreamBaseURLForAccount(account, baseURL)",
         "buildOpenAIResponsesURL"
       ],
-      "rationale": "Grok /v1/responses forwarding must support both native OAuth (xai.BuildResponsesURL + GetAccessToken) and prod→edge apikey relay stubs (GetOpenAIApiKey + buildOpenAIResponsesURL on edge base_url). Reverting to OAuth-only silently re-breaks prod grok-us4 universal-key grok-4.3 with 502 while edge OAuth still works."
+      "rationale": "Grok Responses uses configured upstream credentials and validates the upstream URL."
     },
     {
       "path": "backend/internal/service/openai_gateway_count_tokens_tk_grok.go",
@@ -635,19 +607,14 @@
         "validateUpstreamBaseURLForAccount(account, baseURL)",
         "buildOpenAIResponsesInputTokensURL(validatedURL)"
       ],
-      "rationale": "Grok count_tokens uses the OpenAI Responses input_tokens endpoint. OAuth goes to xAI directly; prod→edge API-key relay stubs must validate and forward their TokenKey edge base_url just like responses/media. Losing the account-aware validation here re-breaks Claude Code token counting for grok relay stubs while chat still works."
+      "rationale": "Grok count_tokens uses the OpenAI Responses input_tokens endpoint. Losing the account-aware validation here re-breaks Claude Code token counting for grok relay stubs while chat still works."
     },
     {
       "path": "backend/internal/service/openai_gateway_grok_test.go",
       "must_contain": [
-        "TestForwardGrokMediaAllowsEdgeRelayBaseURLWithAllowlistEnabled",
-        "TestForwardGrokResponsesAPIKeyRelayUsesEdgeResponsesURL",
-        "TestResolveGrokResponsesUpstreamAPIKeyRelayUsesEdgeOpenAIResponses",
-        "TestForwardAsAnthropic_GrokAPIKeyRelayUsesEdgeChatCompletionsURL",
-        "TestHandleGrokAccountUpstreamError_DownstreamCapacitySkipsRelayCooldown",
         "TestForwardGrokResponsesEntitlement403QuarantinesWithoutFailover"
       ],
-      "rationale": "Load-bearing QA for grok apikey relay and Anthropic-shaped /v1/messages prod->edge path: native-catalog SKUs must forward to edge /v1/chat/completions with Bearer api_key (SSOT provision path), and TokenKey downstream capacity envelopes must not runtime-block/temp-unschedule relay stubs. Revert to OAuth-only, responses-first routing, or treating relay capacity as xAI account health passes other tests but breaks prod grok clients."
+      "rationale": "Revert to OAuth-only, responses-first routing, or treating relay capacity as xAI account health passes other tests but breaks prod grok clients."
     },
     {
       "path": "backend/internal/server/routes/gateway_test.go",
@@ -656,14 +623,7 @@
         "TestGatewayRoutesGrokAllowsMessages",
         "TestGatewayRoutesGrokCountTokensPathIsRegistered"
       ],
-      "rationale": "Route-table guards: grok groups must reach OpenAIGateway ChatCompletions, Messages, and count_tokens (prod→edge relay uses raw CC, Anthropic→Responses compat, and Claude Code token counting). Re-adding rejectGrokUnsupportedEndpoint or reverting tkOpenAICompatCountTokensPOST routing silently breaks grok clients while /v1/responses still works."
-    },
-    {
-      "path": "backend/internal/service/openai_gateway_chat_completions_raw_test.go",
-      "must_contain": [
-        "TestForwardAsRawChatCompletions_GrokAPIKeyRelayUsesEdgeKeyAndBaseURL"
-      ],
-      "rationale": "Service-layer guard for prod grok-us4 apikey relay on /v1/chat/completions: pins edge base_url + api_key Bearer to /chat/completions. Route enablement alone is insufficient if this forward path regresses."
+      "rationale": "Re-adding rejectGrokUnsupportedEndpoint or reverting tkOpenAICompatCountTokensPOST routing silently breaks grok clients while /v1/responses still works."
     },
     {
       "path": "backend/internal/service/openai_messages_dispatch_tk_grok.go",

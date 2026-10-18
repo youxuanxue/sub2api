@@ -8,17 +8,6 @@ import (
 	"time"
 )
 
-// TK: Kiro (sixth platform) upstream HTTP 402 "You have reached the limit."
-//
-// Prod incident 2026-06-25 (edge-us4, account id=9): Kiro OAuth subscription
-// quota exhaustion arrives as 402 + plain-text "You have reached the limit."
-// Generic case 402 already SetError + notifyAccountSchedulingBlocked, but it
-// used reason "auth_error" ("账号永久失效（认证失败）") — misleading for a quota
-// cap, and admin account-test bypassed HandleUpstreamError entirely (same class
-// of gap as newapi bridge #617 / #628). This companion narrows on the Kiro
-// quota marker and routes through reason "kiro_quota_limit" for an immediate,
-// actionable P0 Feishu card while keeping the same stop-scheduling semantics.
-
 const tkKiroQuotaLimitIncidentReason = "kiro_quota_limit"
 
 const tkKiroQuotaLimitMarker = "reached the limit"

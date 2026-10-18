@@ -38,7 +38,7 @@ const AccountTierExtraKey = "stability_tier"
 //     fingerprint / rpm_strategy / session_id_masking_enabled / ...);
 //   - (operator-explicit ApplyTier ONLY) seed priority from the tier baseline.
 //     priority is a DYNAMIC runtime signal owned by the window-rebalance pipeline
-//     (ops/anthropic/rebalance-anthropic-priority.py): git baseline wins only at
+//     the reviewed runtime priority reconciliation: git baseline wins only at
 //     the apply/发版 moment, and the reconciler self-heal path
 //     (ReapplyBaselineInfra) deliberately does NOT touch priority — reverting it
 //     every tick would flatten the window-aware ordering rebalance just computed.
@@ -201,13 +201,6 @@ func copyStringAnyMap(in map[string]any) map[string]any {
 	return out
 }
 
-// applyTier binds the given account to `tier`. Only anthropic OAUTH and
-// setup-token accounts are accepted — these are the two types subject to 5h
-// window + session control (see Account.IsAnthropicOAuthOrSetupToken). apikey
-// mirror stubs and other platforms are rejected — applying a tier to a stub
-// would wipe its base_url/pool_mode. syncPriority gates whether priority is
-// value-synced to the tier baseline (true on the operator path, false on the
-// reconciler self-heal path); see ApplyTier / ReapplyBaselineInfra.
 func (s *AccountTierService) applyTier(ctx context.Context, accountID int64, tier string, syncPriority bool) (*Account, error) {
 	if s == nil || s.adminSvc == nil || s.tierSvc == nil {
 		return nil, fmt.Errorf("account tier service unavailable")

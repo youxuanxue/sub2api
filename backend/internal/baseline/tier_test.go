@@ -134,19 +134,3 @@ func TestEffectiveBaselineForTier_Unknown(t *testing.T) {
 		t.Fatalf("expected error for unknown tier")
 	}
 }
-
-func TestLoadStubPoolBaseline(t *testing.T) {
-	doc, re, err := LoadStubPoolBaseline()
-	if err != nil {
-		t.Fatalf("LoadStubPoolBaseline: %v", err)
-	}
-	if doc.Policy.PoolModeRetryCount != 3 {
-		t.Fatalf("pool_mode_retry_count = %d want 3", doc.Policy.PoolModeRetryCount)
-	}
-	if !re.MatchString("https://api-us1.tokenkey.dev") {
-		t.Fatalf("expected base_url regexp to match api-us1.tokenkey.dev")
-	}
-	if re.MatchString("https://api.openai.com") {
-		t.Fatalf("base_url regexp should not match unrelated host")
-	}
-}

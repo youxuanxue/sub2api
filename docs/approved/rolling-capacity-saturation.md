@@ -39,7 +39,7 @@ existing model-scoped retry behavior.
 - Classified capacity failures no longer retry the same account.
 - Redis failures remain best-effort and do not break selection.
 
-## Deploy note (TokenKey prod/edge)
+## Deploy note (TokenKey prod)
 
 Rolling ZSET keys use the `:rolling-v2` suffix. Old releases retain the original
 STRING keys, so blue/green overlap and rollback never mix Redis value types.

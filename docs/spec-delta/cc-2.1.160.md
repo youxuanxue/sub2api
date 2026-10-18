@@ -67,5 +67,4 @@ majority.
 
 ## Runtime apply (post-merge)
 
-- `bash ops/anthropic/cc_fingerprint_apply_http_runtime.sh` (no release needed)
 - `constants.go` compile default catches up on next release

@@ -8,7 +8,7 @@ description: >-
 
 适用于本仓库（TokenKey fork of sub2api）。把 **真实 cc 流量** 当作 ground truth，**TokenKey 常量 + DB TLS profile** 当作待对齐对象。TLS 与 HTTP **分轨采集、分轨决策**——禁止从 UA 版本号推断 ja3 或 `X-Stainless-Package-Version`。
 
-**指纹范畴（OAuth mimic 路径）**：不仅是 `User-Agent` 版本。完整出站指纹 = **TLS JA3** + **HTTP 头**（`User-Agent`、`anthropic-beta` 全集、`x-stainless-*`、`x-app`）+ **system 表面**（`x-anthropic-billing-header` 块、identity anchor、geo-stego 类）。ingress `usage_logs.user_agent`（如 `OpenAI/Python`）≠ 上游所见；用 `gateway.anthropic_oauth_mimic_egress` 或 `probe-oauth-mimicry-chain.sh` 验证出站。见 `docs/spec-delta/cc-oauth-mimicry-fingerprint-scope.md`。
+**指纹范畴（OAuth mimic 路径）**：不仅是 `User-Agent` 版本。完整出站指纹 = **TLS JA3** + **HTTP 头**（`User-Agent`、`anthropic-beta` 全集、`x-stainless-*`、`x-app`）+ **system 表面**（`x-anthropic-billing-header` 块、identity anchor、geo-stego 类）。用 `gateway.anthropic_oauth_mimic_egress` 或 `probe-oauth-mimicry-chain.sh` 验证出站。
 
 **版本 ground truth** = 本机 **`claude` CLI**（`~/.local/bin/claude` 或 `claude update`）。`client-release-watch` 的 **仅版本漂移** 走静态对齐（类 Codex / Antigravity），**不需要** cc0-here / Claude Desktop / mitm。
 
@@ -42,7 +42,7 @@ python3 ops/anthropic/capture_cc_fingerprint.py classify-config \
 
 关联：本机 `cc0-here` / `claude0-here` launcher（抓包环境）、`tokenkey-anthropic-oauth-config`
 skill（ja3 变更时的 TLS profile apply）、
-`docs/spec-delta/cc-oauth-mimicry-fingerprint-scope.md` + `docs/ops/cc-fingerprint-changelog.md`。
+`docs/ops/cc-fingerprint-changelog.md`。
 
 ## 抓包 / 日更
 
@@ -73,7 +73,6 @@ TLS·HTTP·geo 抓包命令与 cohort 分类见 `ops/anthropic/capture-cc-finger
 ## 5) 验证与 PR
 
 按 `ops/anthropic/capture-cc-fingerprint.sh` / sentinel selftests / `./scripts/preflight.sh`；
-HTTP 合并后 `bash ops/anthropic/cc_fingerprint_apply_http_runtime.sh`；TLS 用
 `cc_fingerprint_open_tls_drift_pr.sh`（worktree 隔离）。
 
 

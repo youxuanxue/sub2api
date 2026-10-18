@@ -8,26 +8,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TK: Anthropic thinking-block signature_error preempt.
-//
-// Problem: when an Anthropic OAuth account starts returning 400 + signature_error
-// for thinking-block requests, the existing retry chain (gateway_service.go ~4621)
-// recovers each request by stripping thinking blocks and retrying — BUT the first
-// (original-body) upstream call is wasted on every request. On edge-us1 we observed
-// 12 such bursts in 4 minutes on a single account, each one paying for an
-// unnecessary upstream round trip.
-//
-// Strategy: keep a per-account fixed-window (120s TTL) counter of signature_error
-// occurrences. When the count crosses anthropicSigPreemptThreshold within the
-// window, arm a "preempt cooldown" flag with TTL anthropicSigPreemptCooldownSec.
-// While the flag is armed, requests routed to that account have their body
-// pre-filtered with FilterThinkingBlocksForRetry BEFORE the first upstream
-// attempt. The existing retry chain remains as a safety net.
-//
-// The retry chain (shouldRectifySignatureError) is the existing feature gate —
-// when it is disabled (rectifier setting off), arm/apply both become no-ops via
-// the call sites' surrounding conditionals.
-
 const (
 	anthropicSigPreemptThreshold   = 3
 	anthropicSigPreemptWindowSec   = 120

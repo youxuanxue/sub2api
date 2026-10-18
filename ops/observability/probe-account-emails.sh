@@ -2,7 +2,7 @@
 # probe-account-emails.sh — Read-only fleet audit: non-deleted account OAuth email
 # fields + tk_anthropic_request_normalize_enabled setting.
 #
-# Run via ops/observability/run-probe.sh on prod or edge:<id>.
+# Run via ops/observability/run-probe.sh on prod.
 # Output: row_to_json lines (field names embedded).
 set -u
 

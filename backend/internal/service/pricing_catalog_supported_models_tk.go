@@ -40,10 +40,6 @@ var supportedAnthropicCatalogModels = map[string]struct{}{
 	// servable-allowlist:end anthropic
 }
 
-// supportedClaudeCatalogModels is the public Claude surface: native Anthropic
-// models plus models served by Kiro edge accounts through anthropic kiro-us*
-// mirror stubs in prod Claude groups. It is derived from the two serving owners;
-// vendor remains anthropic because the public catalog has no Kiro vendor split.
 var supportedClaudeCatalogModels = func() map[string]struct{} {
 	out := make(map[string]struct{}, len(supportedAnthropicCatalogModels)+len(supportedKiroCatalogModels))
 	for id := range supportedAnthropicCatalogModels {

@@ -36,7 +36,6 @@ def _render(tag: str = "1.8.131", instance_id: str = _EDGE_IID):
             **os.environ,
             "STAGE0_RENDER_ONLY": "1",
             "STAGE0_SSM_OUTPUT_DIR": out_dir,
-            "EDGE_ID": "us6",
         },
         capture_output=True,
         text=True,

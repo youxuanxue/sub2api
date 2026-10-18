@@ -35,7 +35,7 @@ PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A
 
 # Shared prod SSM glue (resolve_prod_instance + run_shell_b64). importlib-loaded by path:
 # the module dir is not on sys.path when this script runs directly (mirrors how
-# audit-model-mapping.py loads edge_ssm_execution.py).
+# audit-model-mapping.py loads the shared prod SSM helper).
 _ssm_spec = importlib.util.spec_from_file_location(
     "tk_ssm_execution", REPO_ROOT / "ops" / "stage0" / "ssm_execution.py")
 _SSM = importlib.util.module_from_spec(_ssm_spec)

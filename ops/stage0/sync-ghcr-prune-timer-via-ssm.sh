@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # Push tokenkey-ghcr-prune-daily.{sh,service,timer} onto a running Stage0 host
-# (live Hetzner prod/edge or explicit AWS standby) via SSM Run-Command, WITHOUT rebuilding the instance.
+# (prod) via SSM Run-Command, WITHOUT rebuilding the instance.
 #
 # Why: deploy_via_ssm.sh prunes GHCR tags at deploy time only; without a daily timer
 # stale tags pile up between deploys (2026-08 disk-full incident on us3/us4/us6).
-# New prod boots get the timer from deploy/aws/stage0/stage0-ec2-bootstrap.sh; edges
-# get it from ops/stage0/sync-edge-host-units-via-ssm.sh (edge deploy workflow).
+# New prod boots get the timer from deploy/aws/stage0/stage0-ec2-bootstrap.sh.
 # This one-shot backfills LIVE hosts provisioned before the timer landed.
 #
 # SSOT for the script body: deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh

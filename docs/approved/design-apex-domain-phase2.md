@@ -25,7 +25,6 @@ depends_on:
 | 浏览器 / 邮件 / SEO | `https://tokenkey.dev` | SPA、Admin、登录、营销、`frontend_url` |
 | API 客户端 / CLI / SDK | `https://api.tokenkey.dev` | `/v1/*`、`/v1beta/*`、Codex `/backend-api/codex/*`、Antigravity `/antigravity/*`、OpenAI 根路径别名（`/responses` 等）、`api_base_url` |
 | 第三方服务端回调 | `https://api.tokenkey.dev` | OAuth callback、支付 webhook（**不改 host**） |
-| Edge 资源节点 | `https://api-<edge>.tokenkey.dev` | **本阶段不动** |
 
 ## Caddy 目标形态
 
@@ -79,7 +78,6 @@ Apex 块：删除阶段一的 `redir`，改为与 `api.*` 共享的同构 `rever
 | OAuth `*_redirect_url`（服务端） | 保持 `https://api.tokenkey.dev/api/v1/auth/oauth/.../callback` | 与 Caddy allowlist 一致 |
 | 支付 notify / return | 保持 `api.tokenkey.dev` | 第三方已登记 URL 零迁移 |
 
-**刻意不改**：Edge 账号 `base_url`、`cc-*` 镜像 stub、prod→edge relay 拓扑。
 
 ### Settings 拍板（已确认，2026-07-27）
 
@@ -108,7 +106,7 @@ api_base_url = https://api.tokenkey.dev   # 显式，不留空
 | `frontend/index.html` | `canonical`、`og:url`、社交图 → `tokenkey.dev` |
 | `deploy/aws/README.md` | 新增「阶段二」runbook（与阶段一对称） |
 
-**本 PR 不批量改**：`docs/public/*`、historical ops 笔记、Edge 文档里的 `api.tokenkey.dev` 示例（那些描述的是 **机器入口**，阶段二仍然正确）。单独 chore 可后续整理人类入口文案。
+**本 PR 不批量改**：`docs/public/*`、historical ops 笔记里的 `api.tokenkey.dev` 示例（那些描述的是 **机器入口**，阶段二仍然正确）。单独 chore 可后续整理人类入口文案。
 
 ## Rollout 顺序（严格单线，禁止跳步）
 
@@ -180,7 +178,6 @@ CI / 运维：`post_deploy_smoke.sh`、`PROD_BASE_URL=https://api.tokenkey.dev` 
 | 阶段二 PR 批量改 `docs/public/*`、ops 历史文档 | **否** | 那些文件里的 `api.tokenkey.dev` 描述的是 **API 地址**，阶段二仍然对；改文档不是改产品 |
 | 把 OAuth **前端** redirect 迁到 apex | **否** | 已用相对路径 `/auth/*/callback`；host 随用户落在哪。动 IdP 控制台只为美观 → 风险 > 收益 |
 | apex 与 api.* 长期双 full-serve | **否** | 301 负责旧书签；不要「兼容期」变成永久两套入口 |
-| Edge 域名 / prod→edge relay 任何改动 | **否** | 无关；混进 PR 必炸 |
 | Settings 先于 Caddy 切换 | **否** | 邮件链接先指 apex 而 apex 仍 301 → api → 荒谬链 |
 
 ### 已拍板：Settings `api_base_url`

@@ -56,7 +56,7 @@ class FakeCommands:
         self.calls: list[list[str]] = []
         self.objects = objects if objects is not None else [
             {
-                "Key": "edge/us3/pgdump/tokenkey-20260818T070000Z.sql.gz",
+                "Key": "prod/pgdump/tokenkey-20260818T070000Z.sql.gz",
                 "LastModified": "2026-08-18T07:02:00Z",
                 "Size": 0,
             }
@@ -184,8 +184,8 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
         fixture = StorageTests()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
-        fixture.values["target"] = "edge:us3"
-        fixture.values["s3_uri"] = "s3://tokenkey-pgdump-test/edge/us3/pgdump"
+        fixture.values["target"] = "prod"
+        fixture.values["s3_uri"] = "s3://tokenkey-pgdump-test/prod/pgdump"
         fixture.write_config()
         fake = FakeCommands()
         source = fixture.root / "tokenkey-20260818T070000Z.sql.gz"
@@ -198,7 +198,7 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
                 args = args[args.index("aws"):]
             return fake(args, **kwargs)
 
-        receipt = canary.run_canary("edge:us3", env_path=fixture.env, storage_config=fixture.config,
+        receipt = canary.run_canary("prod", env_path=fixture.env, storage_config=fixture.config,
                                    receipt_root=fixture.root / "canary", expected_source_path=source,
                                    run=run, sleep=lambda _: None, now=lambda: NOW,
                                    disk_usage=lambda _: shutil._ntuple_diskusage(20 * 1024**3, 0, 10 * 1024**3))
@@ -215,8 +215,8 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
         self,
         fake: FakeCommands,
         *,
-        target: str = "edge:us3",
-        s3_uri: str = "s3://tokenkey-prod-pgdump-123/edge/us3/pgdump",
+        target: str = "prod",
+        s3_uri: str = "s3://tokenkey-prod-pgdump-123/prod/pgdump",
         free_bytes: int = 10 * 1024**3,
         now=None,
         sleep=None,
@@ -244,9 +244,9 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
     def test_success_restores_newest_s3_object_and_publishes_after_cleanup(self) -> None:
         fake = FakeCommands(
             objects=[
-                {"Key": "edge/us3/pgdump/ignore.txt", "LastModified": "2026-08-18T07:59:00Z", "Size": 1},
-                {"Key": "edge/us3/pgdump/tokenkey-20260818T060000Z.sql.gz", "LastModified": "2026-08-18T06:01:00Z", "Size": 0},
-                {"Key": "edge/us3/pgdump/tokenkey-20260818T070000Z.sql.gz", "LastModified": "2026-08-18T07:02:00Z", "Size": 0},
+                {"Key": "prod/pgdump/ignore.txt", "LastModified": "2026-08-18T07:59:00Z", "Size": 1},
+                {"Key": "prod/pgdump/tokenkey-20260818T060000Z.sql.gz", "LastModified": "2026-08-18T06:01:00Z", "Size": 0},
+                {"Key": "prod/pgdump/tokenkey-20260818T070000Z.sql.gz", "LastModified": "2026-08-18T07:02:00Z", "Size": 0},
             ]
         )
         for obj in fake.objects:
@@ -260,7 +260,7 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
             temp.cleanup()
 
         self.assertEqual(result, receipt)
-        self.assertEqual(result["source_s3_uri"], "s3://tokenkey-prod-pgdump-123/edge/us3/pgdump/tokenkey-20260818T070000Z.sql.gz")
+        self.assertEqual(result["source_s3_uri"], "s3://tokenkey-prod-pgdump-123/prod/pgdump/tokenkey-20260818T070000Z.sql.gz")
         self.assertEqual(result["source_last_modified"], "2026-08-18T07:02:00Z")
         self.assertEqual(result["live_counts"], LIVE_COUNTS)
         self.assertEqual(result["restored_counts"], RESTORED_COUNTS)
@@ -271,7 +271,7 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
 
         joined = [" ".join(call) for call in fake.calls]
         self.assertTrue(any("s3api list-objects-v2" in call for call in joined))
-        self.assertTrue(any("s3 cp s3://tokenkey-prod-pgdump-123/edge/us3/pgdump/tokenkey-20260818T070000Z.sql.gz" in call for call in joined))
+        self.assertTrue(any("s3 cp s3://tokenkey-prod-pgdump-123/prod/pgdump/tokenkey-20260818T070000Z.sql.gz" in call for call in joined))
         self.assertTrue(any("gunzip -c" in call and "docker exec -i" in call and "ON_ERROR_STOP=1" in call for call in joined))
         self.assertTrue(any("--cpus=0.50" in call and "--memory=1024m" in call for call in joined))
         docker_run = next(call for call in fake.calls if call[:2] == ["docker", "run"])
@@ -305,18 +305,18 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
     def test_wrong_target_prefix_fails_before_s3_or_docker(self) -> None:
         fake = FakeCommands()
         with self.assertRaisesRegex(canary.CanaryError, "prefix"):
-            self.run_case(fake, s3_uri="s3://bucket/prod/pgdump")
+            self.run_case(fake, s3_uri="s3://bucket/prod/not-pgdump")
         self.assertEqual(fake.calls, [])
 
     def test_no_matching_object_fails(self) -> None:
-        fake = FakeCommands(objects=[{"Key": "edge/us3/pgdump/readme.txt", "LastModified": "2026-08-18T07:00:00Z", "Size": 12}])
+        fake = FakeCommands(objects=[{"Key": "prod/pgdump/readme.txt", "LastModified": "2026-08-18T07:00:00Z", "Size": 12}])
         with self.assertRaisesRegex(canary.CanaryError, "matching"):
             self.run_case(fake)
         self.assertFalse(any(call[:2] == ["docker", "run"] for call in fake.calls))
 
     def test_s3_last_modified_within_small_clock_skew_is_accepted(self) -> None:
         fake = FakeCommands(objects=[{
-            "Key": "edge/us3/pgdump/tokenkey-20260818T080000Z.sql.gz",
+            "Key": "prod/pgdump/tokenkey-20260818T080000Z.sql.gz",
             "LastModified": "2026-08-18T08:00:01Z",
             "Size": 0,
         }])
@@ -328,7 +328,7 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
             temp.cleanup()
 
     def test_stale_object_fails_before_download(self) -> None:
-        fake = FakeCommands(objects=[{"Key": "edge/us3/pgdump/tokenkey-20260818T010000Z.sql.gz", "LastModified": "2026-08-18T01:01:00Z", "Size": 2000}])
+        fake = FakeCommands(objects=[{"Key": "prod/pgdump/tokenkey-20260818T010000Z.sql.gz", "LastModified": "2026-08-18T01:01:00Z", "Size": 2000}])
         with self.assertRaisesRegex(canary.StaleDumpError, "stale"):
             self.run_case(fake)
         self.assertFalse(any(call[:3] == ["aws", "s3", "cp"] for call in fake.calls))
@@ -337,7 +337,7 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
         healed = {
             "schema_version": 2,
             "mode": "pgdump_restore_canary",
-            "target": "edge:us3",
+            "target": "prod",
             "completed_at": "2026-08-18T08:00:00Z",
             "s3_round_trip_verified": True,
         }
@@ -355,7 +355,7 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
                     canary, "run_fresh_dump_canary", return_value=healed
                 ) as create_dump:
                     code = canary.main(
-                        ["--target", "edge:us3", "--receipt-root", str(receipt_root)]
+                        ["--target", "prod", "--receipt-root", str(receipt_root)]
                     )
             written = json.loads((receipt_root / "latest.json").read_text(encoding="utf-8"))
         self.assertEqual(code, 0)
@@ -363,7 +363,7 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
         create_dump.assert_called_once()
         self.assertEqual(create_dump.call_args.kwargs["receipt_root"], receipt_root)
         self.assertTrue(written["healed_from_stale_dump"])
-        self.assertEqual(written["target"], "edge:us3")
+        self.assertEqual(written["target"], "prod")
 
     def test_main_does_not_fall_back_for_non_stale_failures(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -375,7 +375,7 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
             ):
                 with mock.patch.object(canary, "run_fresh_dump_canary") as create_dump:
                     code = canary.main(
-                        ["--target", "edge:us3", "--receipt-root", str(receipt_root)]
+                        ["--target", "prod", "--receipt-root", str(receipt_root)]
                     )
         self.assertEqual(code, 2)
         create_dump.assert_not_called()
@@ -400,13 +400,13 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
             dump_dir.mkdir()
             env_path = root / "host.env"
             env_path.write_text(
-                "TOKENKEY_PGDUMP_S3_URI=s3://bucket/edge/us3/pgdump\n",
+                "TOKENKEY_PGDUMP_S3_URI=s3://bucket/prod/pgdump\n",
                 encoding="utf-8",
             )
             fake = FakeCommands(dump_dir=dump_dir)
 
             receipt = canary.run_fresh_dump_canary(
-                "edge:us3",
+                "prod",
                 receipt_root=root / "canary",
                 env_path=env_path,
                 dump_dir=dump_dir,
@@ -426,7 +426,7 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
             root = pathlib.Path(raw)
             env_path = root / "host.env"
             env_path.write_text(
-                "TOKENKEY_PGDUMP_S3_URI=s3://bucket/edge/us3/pgdump\n",
+                "TOKENKEY_PGDUMP_S3_URI=s3://bucket/prod/pgdump\n",
                 encoding="utf-8",
             )
             local_dump = root / "tokenkey-20260818T070000Z.sql.gz"
@@ -435,7 +435,7 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
             local_dump.write_bytes(altered)
             with self.assertRaisesRegex(canary.CanaryError, "SHA-256"):
                 canary.run_canary(
-                    "edge:us3",
+                    "prod",
                     receipt_root=root / "canary",
                     env_path=env_path,
                     expected_source_path=local_dump,
@@ -455,10 +455,10 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
             receipt = canary_root / "latest.json"
             receipt.write_text('{"previous":true}\n', encoding="utf-8")
             env_path = root / "host.env"
-            env_path.write_text("TOKENKEY_PGDUMP_S3_URI=s3://bucket/edge/us3/pgdump\n", encoding="utf-8")
+            env_path.write_text("TOKENKEY_PGDUMP_S3_URI=s3://bucket/prod/pgdump\n", encoding="utf-8")
             with self.assertRaisesRegex(canary.CanaryError, "cleanup"):
                 canary.run_canary(
-                    "edge:us3", receipt_root=canary_root, env_path=env_path,
+                    "prod", receipt_root=canary_root, env_path=env_path,
                     run=fake, sleep=lambda _: None, now=lambda: NOW,
                     disk_usage=lambda _: shutil._ntuple_diskusage(10**10, 0, 10**10),
                 )
@@ -519,11 +519,11 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
             receipt = canary_root / "latest.json"
             receipt.write_text('{"previous":true}\n', encoding="utf-8")
             env_path = root / "host.env"
-            env_path.write_text("TOKENKEY_PGDUMP_S3_URI=s3://bucket/edge/us3/pgdump\n", encoding="utf-8")
+            env_path.write_text("TOKENKEY_PGDUMP_S3_URI=s3://bucket/prod/pgdump\n", encoding="utf-8")
             with mock.patch.object(canary, "_unlink_dump", side_effect=OSError("unlink denied")):
                 with self.assertRaisesRegex(canary.CanaryError, "unlink denied"):
                     canary.run_canary(
-                        "edge:us3", receipt_root=canary_root, env_path=env_path,
+                        "prod", receipt_root=canary_root, env_path=env_path,
                         run=fake, sleep=lambda _: None, now=lambda: NOW,
                         disk_usage=lambda _: shutil._ntuple_diskusage(10**10, 0, 10**10),
                     )

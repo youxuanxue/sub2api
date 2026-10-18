@@ -556,7 +556,7 @@ class OrchestrationTest(unittest.TestCase):
             self.assertEqual(json.loads((Path(tmp)/'replay-receipt.json').read_text())['verdict'], 'red')
 
     def test_cli_rejects_non_prod_before_aws(self):
-        proc = subprocess.run([sys.executable, str(ROOT/'scripts/stage0/replay-prod-release.py'), '--tag', '1.2.3', '--target', 'edge-us3'], capture_output=True, text=True)
+        proc = subprocess.run([sys.executable, str(ROOT/'scripts/stage0/replay-prod-release.py'), '--tag', '1.2.3', '--target', 'unsupported-target'], capture_output=True, text=True)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn('invalid choice', proc.stderr)
 
@@ -574,7 +574,6 @@ class OrchestrationTest(unittest.TestCase):
         runs = '\n'.join(step.get('run', '') for step in job['steps'])
         self.assertIn('replay-prod-release.py --target prod --tag', runs)
         self.assertNotIn('--help', runs)
-        self.assertNotIn('rollout-edges', runs)
         self.assertNotIn('promote', runs)
         steps = workflow['jobs']['deploy']['steps']
         deploy = next(s for s in steps if s.get('name') == 'Deploy via SSM Run-Command')

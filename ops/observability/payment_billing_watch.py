@@ -2,7 +2,7 @@
 """Build Feishu weekly payment reports and attack-pattern alert decisions.
 
 Consumes the JSON document emitted by probe-payment-billing-watch.sh.
-Delivery reuses edge_health_delivery.post_feishu (signed webhook).
+Delivery reuses feishu_delivery.post_feishu (signed webhook).
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ import sys
 from typing import Any
 
 if __package__:
-    from .edge_health_delivery import DeliveryError, _atomic_write, post_feishu, post_feishu_card
+    from .feishu_delivery import DeliveryError, _atomic_write, post_feishu, post_feishu_card
 else:
-    from edge_health_delivery import DeliveryError, _atomic_write, post_feishu, post_feishu_card
+    from feishu_delivery import DeliveryError, _atomic_write, post_feishu, post_feishu_card
 
 SCHEMA_VERSION = 1
 CREDIT_LABELS = {

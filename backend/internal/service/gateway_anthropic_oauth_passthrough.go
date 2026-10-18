@@ -148,7 +148,6 @@ func (s *GatewayService) buildUpstreamRequestAnthropicOAuthPassthrough(
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
-	setKiroInternalThinkingMirrorHopHeaderForAccount(req.Header, account)
 
 	return req, body, nil
 }
@@ -190,7 +189,6 @@ func (s *GatewayService) buildCountTokensRequestAnthropicOAuthPassthrough(
 	if req.Header.Get("anthropic-version") == "" {
 		req.Header.Set("anthropic-version", "2023-06-01")
 	}
-	setKiroInternalThinkingMirrorHopHeaderForAccount(req.Header, account)
 
 	return req, nil
 }

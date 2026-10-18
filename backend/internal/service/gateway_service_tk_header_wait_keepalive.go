@@ -76,31 +76,6 @@ func startAnthropicMessageStartKeepalive(c *gin.Context, interval time.Duration,
 	)
 }
 
-// beginHeaderWaitKeepalive starts a background SSE ping emitter for streaming
-// Anthropic requests. It is a no-op (returns nil) for non-streaming requests or
-// when keepalive is disabled (gateway.stream_keepalive_interval <= 0). The
-// returned handle MUST be stopped (k.stop()) the instant the upstream call
-// returns, before any other code writes to c.Writer.
-//
-// Why this exists (Wei-Shaw/sub2api#2121): the existing in-stream keepalive only
-// fires AFTER the upstream has produced its first SSE byte. While Forward blocks
-// in DoWithTLS waiting for the upstream response headers — which can take a long
-// time when the upstream is queueing under load or "thinking" before the first
-// token — the downstream connection is completely idle. Idle-sensitive
-// intermediaries (Cloudflare Tunnel, Caddy, client SDKs) then drop the
-// connection and a request that would have succeeded is lost. This is amplified
-// on the prod->edge mirror-relay topology, where the same header-wait window is
-// traversed on two hops.
-//
-// Failover safety: the FIRST ping is delayed by one full keepalive interval, so
-// any failover-eligible upstream outcome (429/503/5xx, empty-pool fast-fail,
-// fast network refusal) — all of which return within ~1-2s — is decided before
-// a single byte is written. The handler's c.Writer.Written() failover gate is
-// therefore preserved for the overwhelming majority of requests. Only an
-// upstream that stays silent past one full interval and THEN fails loses
-// transparent failover; that request is already pathologically slow, and the
-// pre-existing ensureForwardErrorResponse path still delivers a protocol-
-// compliant SSE terminal event to the downstream client.
 func (s *GatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive {
 	if s == nil || s.cfg == nil {
 		return nil
@@ -108,12 +83,6 @@ func (s *GatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool
 	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.cfg.Gateway.StreamKeepaliveInterval, anthropicSSEPingFrame)
 }
 
-// beginAnthropicMessagesHeaderWaitKeepalive is the /v1/messages header-wait
-// keepalive. Kiro mirror stubs (and any caller that already set the Anthropic
-// stream model) emit message_start before the first ping so Claude Code does
-// not treat the prod→edge stall as idle. Native Anthropic stays ping-only
-// unless the model was explicitly staged — upstream message_start arrives
-// quickly and a synthetic frame would duplicate without the in-stream skip.
 func (s *GatewayService) beginAnthropicMessagesHeaderWaitKeepalive(c *gin.Context, reqStream bool, account *Account, model string) *headerWaitKeepalive {
 	if s == nil || s.cfg == nil {
 		return nil
@@ -122,19 +91,13 @@ func (s *GatewayService) beginAnthropicMessagesHeaderWaitKeepalive(c *gin.Contex
 		return nil
 	}
 	interval := time.Duration(s.cfg.Gateway.StreamKeepaliveInterval) * time.Second
-	if account != nil && account.IsKiroMirrorStub() {
-		return startAnthropicMessageStartKeepalive(c, interval, model)
-	}
+
 	if anthropicStreamModelWasSet(c) {
 		return startAnthropicMessageStartKeepalive(c, interval, anthropicStreamModelFromContext(c))
 	}
 	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.cfg.Gateway.StreamKeepaliveInterval, anthropicSSEPingFrame)
 }
 
-// anthropicStreamIdleKeepaliveSSE returns Claude-Code-safe idle keepalive bytes
-// for Anthropic SSE: synthesize message_start once if the client has not seen
-// it yet, then emit the standard ping frame. Shared by convert and passthrough
-// in-stream keepalive paths (prod→edge Kiro thinking stalls).
 func anthropicStreamIdleKeepaliveSSE(c *gin.Context, model string) string {
 	var b strings.Builder
 	if !anthropicMessageStartAlreadySent(c) {

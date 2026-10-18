@@ -35,7 +35,6 @@ var TKProviderSet = wire.NewSet(
 	ProvideTKGatewayAnthropicSigPreempt,
 	ProvideTKAnthropicSaturation,
 	ProvideTKOpenAISaturation,
-	ProvideTKAntigravitySaturation,
 	ProvideTKAccountIncidentNotifier,
 	ProvideTKPricingMissingNotifier,
 	ProvideTKKiroCacheBilling,
@@ -266,10 +265,6 @@ func ProvideTKAnthropicSaturation(
 // forces SetOpenAISaturationCounter on OpenAIGatewayService + RateLimitService.
 type TKOpenAISaturationReady struct{}
 
-// ProvideTKOpenAISaturation wires the Redis-backed OpenAI edge-mirror saturation
-// counter into the OpenAI scheduler (read) and rate-limit skip-penalty path
-// (write). See openai_gateway_service_tk_saturation_penalty.go /
-// ratelimit_service_tk_openai_saturation.go.
 func ProvideTKOpenAISaturation(
 	openai *OpenAIGatewayService,
 	rl *RateLimitService,
@@ -284,30 +279,6 @@ func ProvideTKOpenAISaturation(
 	return TKOpenAISaturationReady{}
 }
 
-// TKAntigravitySaturationReady forces the write-side relay saturation counter
-// to be attached to RateLimitService at startup.
-type TKAntigravitySaturationReady struct{}
-
-func ProvideTKAntigravitySaturation(
-	rl *RateLimitService,
-	cache AntigravitySaturationCounterCache,
-) TKAntigravitySaturationReady {
-	if rl != nil {
-		rl.SetAntigravitySaturationCounter(cache)
-	}
-	return TKAntigravitySaturationReady{}
-}
-
-// ProvideTKAccountIncidentNotifier builds the account-incident Feishu notifier,
-// starts its background digest ticker, and wires it onto RateLimitService
-// post-construction. It returns the concrete instance (not a sentinel) so
-// provideCleanup can Stop() the ticker at shutdown — mirroring the
-// ChannelMonitorRunner lifecycle shape rather than the setter-only sentinel
-// pattern.
-//
-// Node identity (prod / edge-<id>) is derived from server.frontend_url so no new
-// env / deploy-template change is needed. Setter is nil-safe; if rl is nil the
-// notifier is still returned (and Stopped) without being attached.
 func ProvideTKAccountIncidentNotifier(
 	rl *RateLimitService,
 	ops *OpsService,
@@ -333,9 +304,8 @@ func ProvideTKAccountIncidentNotifier(
 	if rl != nil {
 		rl.SetAccountIncidentNotifier(n)
 	}
-	if isEdgeSiteID(site) {
-		SetClaudeAPIStatusNotifier(nil)
-	} else {
+
+	{
 		SetClaudeAPIStatusNotifier(n)
 	}
 	return n

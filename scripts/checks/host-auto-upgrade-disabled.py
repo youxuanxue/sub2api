@@ -62,17 +62,13 @@ from pathlib import Path
 
 # Host bootstraps that provision a long-lived fleet node from an Ubuntu image.
 # A new one must be added here, or it inherits the default and nobody notices.
-# AWS/Lightsail edges run Amazon Linux 2023 (dnf, no apt timer) and are
-# deliberately out of scope.
 BOOTSTRAPS = (
-    Path("deploy/hetzner/render-bootstrap.sh"),
     Path("deploy/hetzner/render-prod-bootstrap.sh"),
 )
 
 # Generated artifacts committed alongside the renderers; they are what cloud-init
 # actually executes, so drift between renderer and artifact must also fail.
 GENERATED = (
-    Path("deploy/hetzner/generated-user-data.sh"),
     Path("deploy/hetzner/generated-prod-user-data.sh"),
 )
 

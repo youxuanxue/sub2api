@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func geminiCompatAntigravityRelayStub(id int64) *Account {
+func geminiCompatAntigravityAPIKey(id int64) *Account {
 	return &Account{
 		ID:          id,
 		Platform:    PlatformAntigravity,
@@ -27,7 +27,7 @@ func geminiCompatAntigravityRelayStub(id int64) *Account {
 		Schedulable: true,
 		Credentials: map[string]any{
 			"api_key":   "relay-key",
-			"base_url":  "https://api-us6.tokenkey.dev",
+			"base_url":  "https://upstream.example.test",
 			"pool_mode": true,
 		},
 	}
@@ -35,20 +35,6 @@ func geminiCompatAntigravityRelayStub(id int64) *Account {
 
 func geminiCompatEmptyPoolBody() string {
 	return `{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`
-}
-
-type geminiCompatSaturationCounter struct {
-	modelKeys []string
-}
-
-func (c *geminiCompatSaturationCounter) IncrementSaturation(
-	_ context.Context,
-	_ int64,
-	modelKey string,
-	_ int,
-) (int64, error) {
-	c.modelKeys = append(c.modelKeys, modelKey)
-	return 1, nil
 }
 
 func geminiCompatResponse(statusCode int, requestID, body string) *http.Response {
@@ -90,7 +76,7 @@ func (s *geminiCompatHTTPUpstreamStub) DoWithTLS(req *http.Request, proxyURL str
 func TestGeminiForwardAsChatCompletions_FailedAttemptRequestIDDoesNotLeak(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"gemini-3-flash","messages":[{"role":"user","content":"hi"}]}`)
-	account := geminiCompatAntigravityRelayStub(85)
+	account := geminiCompatAntigravityAPIKey(85)
 	account.Credentials["api_key"] = "relay-key"
 
 	for _, tt := range []struct {
@@ -725,47 +711,6 @@ func TestGeminiHandleNativeStreamingResponse_DropsLeadingCommentHeartbeat(t *tes
 	require.NotContains(t, body, ":\n\n")
 	require.True(t, geminiCLISSEFullyDrained(body),
 		"Gemini CLI would throw Incomplete JSON segment at the end; body=%q", body)
-}
-
-func TestGeminiMessagesCompatServiceForward_GroupDispatchCapacityUsesFinalMappedModel(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-	c.Set(TKGeminiDispatchGroupContextKey, &Group{
-		Platform: PlatformGemini,
-		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
-			SonnetMappedModel: "gemini-3-flash",
-		},
-	})
-
-	counter := &geminiCompatSaturationCounter{}
-	rateLimitSvc := NewRateLimitService(nil, nil, &config.Config{}, nil, nil)
-	rateLimitSvc.SetAntigravitySaturationCounter(counter)
-	httpStub := &geminiCompatHTTPUpstreamStub{response: &http.Response{
-		StatusCode: http.StatusServiceUnavailable,
-		Header:     http.Header{"x-request-id": []string{"relay-capacity"}},
-		Body:       io.NopCloser(strings.NewReader(geminiCompatEmptyPoolBody())),
-	}}
-	svc := &GeminiMessagesCompatService{
-		httpUpstream:     httpStub,
-		rateLimitService: rateLimitSvc,
-		cfg:              &config.Config{},
-	}
-	account := geminiCompatAntigravityRelayStub(85)
-	account.Credentials["model_mapping"] = map[string]any{
-		"gemini-3-flash": "gemini-3-flash-tiered",
-	}
-	body := []byte(`{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`)
-
-	result, err := svc.Forward(context.Background(), c, account, body)
-	require.Nil(t, result)
-	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Equal(t, http.StatusTooManyRequests, failoverErr.ClientStatusCode)
-	require.Equal(t, []string{"gemini-3-flash-tiered"}, counter.modelKeys)
-	require.Equal(t, 1, httpStub.calls, "classified capacity must stop same-relay retries")
-	require.Contains(t, httpStub.lastReq.URL.String(), "/models/gemini-3-flash:")
 }
 
 func TestGeminiMessagesCompatServiceForward_UniversalKeepsAccountMapping(t *testing.T) {

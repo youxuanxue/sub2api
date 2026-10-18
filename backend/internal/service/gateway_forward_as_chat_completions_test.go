@@ -444,76 +444,10 @@ func TestUS065_ForwardAsChatCompletions_KiroOversizedPayloadReturns413WithoutUps
 	require.Nil(t, upstream.lastReq, "oversized payload must not reach Kiro upstream")
 }
 
-func TestTkCCPreservesKiroUpstreamStream(t *testing.T) {
-	t.Parallel()
-
-	kiro := &Account{Platform: PlatformKiro}
-	stub := &Account{
-		Platform:    PlatformAnthropic,
-		Type:        AccountTypeAPIKey,
-		Credentials: map[string]any{"mirror_platform": PlatformKiro},
-	}
-	oauth := &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth}
-
-	require.True(t, tkCCPreservesKiroUpstreamStream(kiro, false))
-	require.True(t, tkCCPreservesKiroUpstreamStream(stub, false))
-	require.False(t, tkCCPreservesKiroUpstreamStream(oauth, false))
-	require.True(t, tkCCPreservesKiroUpstreamStream(oauth, true))
-}
-
-func TestForwardAsChatCompletions_KiroMirrorStub_NonStreamingPreservesUpstreamStream(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		require.False(t, gjson.GetBytes(body, "stream").Bool())
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("x-request-id", "msg_mirror")
-		_, _ = w.Write([]byte(`{
-			"id":"msg_mirror",
-			"type":"message",
-			"role":"assistant",
-			"content":[{"type":"text","text":"MIRROR-OK"}],
-			"model":"claude-sonnet-4-5",
-			"stop_reason":"end_turn",
-			"usage":{"input_tokens":4,"output_tokens":5}
-		}`))
-	}))
-	t.Cleanup(upstream.Close)
-
-	body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}],"max_tokens":32,"stream":false}`)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	svc := &GatewayService{
-		cfg:          &config.Config{},
-		httpUpstream: &relayHTTPUpstream{client: upstream.Client()},
-	}
-	account := &Account{
-		ID:       66,
-		Name:     "kiro-us6",
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key":         "relay-key",
-			"base_url":        upstream.URL,
-			"mirror_platform": PlatformKiro,
-		},
-	}
-
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, nil)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, "MIRROR-OK", gjson.GetBytes(rec.Body.Bytes(), "choices.0.message.content").String())
-}
-
 func TestForwardAsChatCompletions_TransportErrorPersistsOpsEvent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	const transportErr = `Post "https://api-us6.tokenkey.dev/v1/messages?key=secret": http2: server sent GOAWAY`
+	const transportErr = `Post "https://upstream.example.test/v1/messages?key=secret": http2: server sent GOAWAY`
 	upstream := &failingOpenAIHTTPUpstream{err: errors.New(transportErr)}
 	body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}],"max_tokens":32,"stream":false}`)
 	rec := httptest.NewRecorder()
@@ -531,9 +465,8 @@ func TestForwardAsChatCompletions_TransportErrorPersistsOpsEvent(t *testing.T) {
 		Platform: PlatformAnthropic,
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
-			"api_key":         "relay-key",
-			"base_url":        "https://api-us6.tokenkey.dev",
-			"mirror_platform": PlatformKiro,
+			"api_key":  "relay-key",
+			"base_url": "https://upstream.example.test",
 		},
 	}
 
@@ -564,7 +497,7 @@ func TestForwardAsChatCompletions_TransportErrorPersistsOpsEvent(t *testing.T) {
 	require.Equal(t, "kiro-us6", events[0].AccountName)
 	require.Contains(t, events[0].Message, "http2: server sent GOAWAY")
 	require.NotContains(t, events[0].Message, "secret")
-	require.Equal(t, "https://api-us6.tokenkey.dev/v1/messages", events[0].UpstreamURL)
+	require.Equal(t, "https://upstream.example.test/v1/messages", events[0].UpstreamURL)
 }
 
 type failingReadCloser struct {
@@ -598,6 +531,15 @@ func TestHandleCCBufferedFromAnthropicJSON_ReadErrorReturnsFailoverUncommitted(t
 	require.True(t, failoverErr.ShouldRetryNextAccount())
 	require.False(t, c.Writer.Written(), "must not commit CC 502 before handler failover")
 	require.Empty(t, rec.Body.String())
+}
+
+func TestTkCCPreservesKiroUpstreamStream(t *testing.T) {
+	t.Parallel()
+	kiro := &Account{Platform: PlatformKiro}
+	oauth := &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth}
+	require.True(t, tkCCPreservesKiroUpstreamStream(kiro, false))
+	require.False(t, tkCCPreservesKiroUpstreamStream(oauth, false))
+	require.True(t, tkCCPreservesKiroUpstreamStream(oauth, true))
 }
 
 func TestHandleCCBufferedFromAnthropicJSON_InvalidJSONReturnsFailoverUncommitted(t *testing.T) {

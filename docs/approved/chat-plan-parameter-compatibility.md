@@ -36,8 +36,7 @@ Ali Token Plan 和 VolcEngine Agent Plan 的部分 Chat 供应路径接受工具
   JSON。json_schema/strict 不转换成 json_object，不剥围栏、不自行补生成结果。
   因此严格 schema 的原失败用例不会因本修复自动通过。
 - 只在实际官方 Plan 目的地应用工具约束与 token 归一；代理账号名称和模型名
-  不决定能力。远端 edge 转发由实际访问供应源的 edge 执行同一适配，需在对应
-  节点发布。
+  不决定能力。适配由实际访问供应源的网关执行。
 
 ## Owners / flow
 

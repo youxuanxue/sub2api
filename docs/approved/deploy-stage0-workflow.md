@@ -8,15 +8,13 @@ shipped_at: 2026-04-24
 owners: [tk-platform]
 related_prs: ["#53", "#976", "#978"]
 revised: 2026-08-28
-related_designs:
-  - docs/approved/edge-bluegreen-release-safety.md
 # First successful prod deploy via the new workflow:
 #   GHA run https://github.com/youxuanxue/sub2api/actions/runs/24872412714
 #   (env=prod, tag=1.6.0, no-op image hash, external /health 200).
 # Adversarial fail-closed gate also verified:
 #   GHA run https://github.com/youxuanxue/sub2api/actions/runs/24872388875
 #   (tag=99.99.99 → exited at GHCR manifest precheck before any AWS call).
-scope: ".github/workflows/deploy-stage0.yml + .github/workflows/deploy-edge-lightsail-stage0.yml + scripts/checks/bluegreen-migration-safety.py + ops/stage0/bluegreen-capacity-policy.env + ops/stage0/deploy_via_ssm_bluegreen.sh + scripts/stage0/pick_release_canary_edge.py + Stage0 smoke and rollout guards"
+scope: ".github/workflows/deploy-stage0.yml + scripts/checks/bluegreen-migration-safety.py + ops/stage0/deploy_via_ssm_bluegreen.sh + Stage0 smoke"
 ---
 
 # Cloud-Agent-Driven Stage0 Blue/Green Deployment Workflow
@@ -30,8 +28,7 @@ that command and preserves the five-minute observation.
 ## 1. Why this exists
 
 The release loop is now: tag → `release.yml` builds a multi-arch image →
-operator dispatches the Environment-gated prod workflow and the fleet Edge
-rollout → both use the same-host blue/green SSM owner, external health checks,
+operator dispatches the Environment-gated prod workflow → deploys use the same-host blue/green SSM owner, external health checks,
 and their canonical smoke suites.
 
 This document originally approved the cloud-agent wrapper around the old manual
@@ -74,7 +71,7 @@ gate, not a convention.
 
 | Field | Before | After |
 |---|---|---|
-| `AllowedSubjects` default | `repo:youxuanxue/sub2api:ref:refs/heads/main` | adds `environment:prod` (and Edge subjects when present in template) |
+| `AllowedSubjects` default | `repo:youxuanxue/sub2api:ref:refs/heads/main` | adds `environment:prod` |
 | `TargetInstanceId` (prod) | scalar, default `i-04a8afd18c997b8ac` | unchanged |
 | `cloudformation:DescribeStacks` resource | `tokenkey-prod-stage0/*` | unchanged for prod-only deploy |
 | `ssm:SendCommand` resource | `AWS-RunShellScript` only | unchanged (still no `ec2:`, `iam:`, `s3:`) |
@@ -114,18 +111,15 @@ Steps:
    role from `vars.AWS_OIDC_ROLE_ARN`. The job-level **`environment: prod`**
    binding (a) adds the subject the IAM trust requires, (b) pauses for any
    reviewer rule configured on the prod Environment (Section 5).
-4. **Blue/green migration safety gate** — prod and Edge call
+4. **Blue/green migration safety gate** — prod calls
    `scripts/checks/bluegreen-migration-safety.py` before app mutation. The
    checker absorbs the existing prod tag/range preparation as its release-mode
    entry. This centralizes the current gate without redesigning its comparison
    semantics; workflow YAML contains no second implementation.
 5. **Resolve target instance + api domain** from the stack's
    `InstanceId` / `ApiUrl` outputs.
-6. **Deploy via the shared SSM blue/green owner** — prod EC2 (`i-*`) and
-   Lightsail Edge (`mi-*`) both call
-   `ops/stage0/deploy_via_ssm_bluegreen.sh`. The managed-instance ID selects a
-   thin `prod` or `edge` environment profile; it does not select a second
-   deployment state machine.
+6. **Deploy via the SSM blue/green owner** — prod EC2 calls
+   `ops/stage0/deploy_via_ssm_bluegreen.sh`.
 
    First run performs one migration cutover while legacy `tokenkey` continues
    serving: `.env` backup → derive the image repository → write
@@ -171,30 +165,14 @@ Steps:
    legacy migration, and every later deploy remains blocked until an operator
    makes route and durable active state agree.
 
-   `ops/stage0/bluegreen-capacity-policy.env` is the single data owner of the
-   Edge memory and disk thresholds. Only the deploy primitive and the read-only
-   Edge release probe consume it. The canary picker consumes the probe verdict
-   and facts; it does not parse or recompute the policy. Edge starts a candidate
-   only when both hard admission rules pass:
-
-   - `MemAvailable >= max(EDGE_MIN_MEM_AVAILABLE_BYTES, active app working set + EDGE_ACTIVE_APP_HEADROOM_BYTES)`;
-   - root filesystem available space is at least
-     `EDGE_MIN_ROOT_DISK_AVAILABLE_BYTES`.
-
-   Swap pressure, load, and recent OOM history are audit fields only. Protocol
-   readiness is not reconstructed by deployment code: candidate `/health` is
-   the single target-version decision owner.
-
    PostgreSQL, Redis, Caddy, `/var/lib/tokenkey/app`, and the Docker network
-   remain the single shared data layer. EC2/Lightsail bootstrap owns the app
+   remain the single shared data layer. EC2 bootstrap owns the app
    bind-mount root as uid/gid 1000; Stage0 app containers set
    `SKIP_DATA_CHOWN=1`, and the entrypoint also auto-detects an already-owned
    bind mount, so startup never recursively walks large DLQ/blob trees. Other
    deployment shapes retain the compatibility recursive ownership repair. The
    generated blue/green compose only contains the two app services and points
-   them at `tokenkey-postgres` / `tokenkey-redis`. For the Edge profile, the
-   shared primitive durably writes `QA_CAPTURE_ENABLED=false` and maps it into
-   both colors; a missing or inherited prod capture setting must fail smoke.
+   them at `tokenkey-postgres` / `tokenkey-redis`.
 7. **External health-check** — `curl ${ApiUrl}/health`, three attempts
    spaced 10 s apart, require HTTP 200 within 5 s.
 8. **Post-deploy live-host advisory checks** — the workflow reads the active
@@ -247,21 +225,6 @@ receives `contents: write`. The post-release live check is a later step in
 `deploy`; it is read-only SSM plus git history and does not mutate host
 colors.
 
-### Edge release canary
-
-The canary selector probes every deployable Edge and emits a complete JSON
-audit. Missing or invalid memory, disk, or 30-minute completed-request facts
-make that Edge ineligible. Among eligible Edges it sorts by:
-
-1. lower completed requests in the prior 30 minutes;
-2. greater `MemAvailable` headroom;
-3. canonical Edge matrix order.
-
-Native OAuth/Kiro pool size remains an audit and smoke-applicability field; it
-does not affect eligibility or ordering. A fleet-wide empty pool is expected
-and does not fail canary selection. Transport failure for one Edge rejects that
-Edge; selection fails closed only when no eligible Edge remains.
-
 ## 5. Required pre-deploy operator setup
 
 After this PR merges, before the first dispatch:
@@ -275,7 +238,7 @@ After this PR merges, before the first dispatch:
      --capabilities CAPABILITY_NAMED_IAM
    ```
 
-   `AllowedSubjects` defaults include `environment:prod` and Edge environments as shipped in the template.
+   `AllowedSubjects` defaults include `environment:prod`.
 
 2. **Create GitHub Environment** in repo Settings → Environments:
 
@@ -363,17 +326,9 @@ gates fire correctly and the regression check holds:
 5. **One steady-state app**: successful routed observation drains and stops the
    old color; a post-commit observation failure leaves it running for explicit
    rollback.
-6. **Edge capacity is fail-closed**: insufficient/unknown required memory,
-   disk, or traffic facts reject only that Edge before candidate start.
-7. **Canary selection is deterministic**: eligible Edges sort by 30-minute
-   traffic, memory headroom, and matrix order; OAuth/Kiro pool size cannot make
-   selection fail.
-8. **Migration admission has one entry**: prod and Edge call
+6. **Migration admission has one entry**: prod calls
    `scripts/checks/bluegreen-migration-safety.py`; workflows do not copy its
    tag/range preparation or SQL scan.
-9. **Capacity policy has one owner**: only the deploy primitive and Edge probe
-   consume `ops/stage0/bluegreen-capacity-policy.env`; the canary picker uses
-   the probe verdict without reimplementing capacity policy.
 
 A successful deploy itself is not a separate acceptance bullet — that
 *is* the workflow's purpose, observed via job-summary HTTP 200 from
@@ -392,14 +347,6 @@ Step 6.
       restart to same-host blue/green, single data layer. PR #976 shipped the
       runtime change; PR #978 hardened the approved baseline, Caddy active
       upstream handling, SSM timeout, and migration-safety guard.
-- [x] 2026-08-28 Edge reuse design approved: one shared primitive, two hard
-      capacity gates, two-state cutover, and traffic-first canary selection.
-- [x] 2026-08-28 Edge reuse implementation merged and released. The shared
-      Lightsail deployment primitive and Edge workflow are live; production
-      diagnostics currently discover `edge-us3/4/5/6-ls` targets through the
-      Lightsail matrix. The current rollout entry is
-      `.github/workflows/deploy-edge-lightsail-stage0.yml`.
-
 ### Adversarial gate verified
 
 The fail-closed manifest precheck (Section 4 step 2 / Section 8 acceptance

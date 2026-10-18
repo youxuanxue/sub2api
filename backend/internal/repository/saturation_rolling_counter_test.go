@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,8 +16,6 @@ func TestSaturationRollingKeysCoexistWithLegacyCounters(t *testing.T) {
 	ctx := context.Background()
 	rdb := cache.rdb
 	openai := &openaiSaturationCounterCache{rdb: rdb}
-	ag := &antigravitySaturationCounterCache{rdb: rdb}
-	scope := service.AntigravitySaturationScope{AccountID: 7, ModelKey: "test-model"}
 	for _, tc := range []struct {
 		key       string
 		increment func() (int64, error)
@@ -26,10 +23,6 @@ func TestSaturationRollingKeysCoexistWithLegacyCounters(t *testing.T) {
 	}{
 		{anthropicSaturationKey(7), func() (int64, error) { return cache.IncrementSaturation(ctx, 7, 600) }, func() (int64, error) { m, e := cache.GetSaturationBatch(ctx, []int64{7}, 600); return m[7], e }},
 		{openaiSaturationKey(7), func() (int64, error) { return openai.IncrementSaturation(ctx, 7, 600) }, func() (int64, error) { m, e := openai.GetSaturationBatch(ctx, []int64{7}, 600); return m[7], e }},
-		{antigravitySaturationKey(7, "test-model"), func() (int64, error) { return ag.IncrementSaturation(ctx, 7, "test-model", 600) }, func() (int64, error) {
-			m, e := ag.GetSaturationBatch(ctx, []service.AntigravitySaturationScope{scope}, 600)
-			return m[scope], e
-		}},
 	} {
 		t.Run(tc.key, func(t *testing.T) {
 			// Explicit legacy format: deployment compatibility boundary, not new owner.

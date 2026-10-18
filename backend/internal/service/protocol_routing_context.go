@@ -237,7 +237,7 @@ func protocolRoutingSupportsAntigravityAccount(account *Account) bool {
 	if account == nil || account.Platform != PlatformAntigravity {
 		return false
 	}
-	return account.Type == AccountTypeOAuth || tkIsAntigravityEdgeRelayStub(account)
+	return account.Type == AccountTypeOAuth || isAntigravityAPIKeyAccount(account)
 }
 
 func attachProtocolPlan(

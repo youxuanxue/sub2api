@@ -42,19 +42,8 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertNotifications(ctx context.Conte
 	if s == nil {
 		return result
 	}
-	// Edge nodes are prod→edge mirror-relay targets, so a routing_capacity_rejection
-	// P0 there is just the prod relay being turned away — client-invisible (prod
-	// fails over to another edge), and the relay-探测 failover smears it across every
-	// thin edge it probes. Edge-local diagnostics are still persisted for the edge
-	// dashboard / scan-edge-health trail, but human paging is centralized on prod:
-	// prod is the relay terminus where the thin-pool-race blind spot is
-	// client-visible and where platform-pool exhaustion Feishu cards are allowed to
-	// page. So this rule is pure Feishu noise on an edge: suppress its notifications
-	// there.
-	if s.isEdgeNode() && isEdgeSuppressedAlertRule(rule) {
-		return result
-	}
-	if !s.isEdgeNode() && isEdgeOnlyAlertRule(rule) {
+
+	if isProviderHealthAlertRule(rule) {
 		return result
 	}
 	if s.maybeSendAlertEmail(ctx, runtimeCfg, rule, event) {
@@ -66,77 +55,13 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertNotifications(ctx context.Conte
 	return result
 }
 
-// isEdgeSuppressedAlertRule reports whether a rule's notifications are pure noise
-// on a prod→edge mirror-relay edge and should be silenced there. Real-user
-// experience rules (P0 user_visible + P1 client_visible) are prod-only; edge
-// local traffic must not page. Most prod-only rules are skipped earlier by the
-// evaluator; this predicate is the defensive notification-layer gate for any
-// event created by an older binary or manual path.
-func isEdgeSuppressedAlertRule(rule *OpsAlertRule) bool {
-	if rule == nil {
-		return false
-	}
-	switch strings.TrimSpace(rule.MetricType) {
-	case OpsAlertMetricRoutingCapacityRejectionCount,
-		OpsAlertMetricUserVisibleFailureCount,
-		OpsAlertMetricClientVisibleFailureCount,
-		OpsAlertMetricProxyUnreachableCount:
-		return true
-	default:
-		return false
-	}
-}
-
-// isEdgeNonUserFacingAlertRule reports whether a leftover P0 upstream_error_rate
-// copy is local provider-health noise on a mirror-relay edge: the edge recorded
-// a final upstream failure, but prod typically failovers to another edge and
-// the end user still gets 200 (us4 2026-08-19 gpt-5.6-sol 502 → prod
-// recovered-200). tk_087 stores the 20% rule as P1; this still remaps any
-// remaining P0 copy so it does not page as a user-visible outage.
-func isEdgeNonUserFacingAlertRule(rule *OpsAlertRule) bool {
-	if rule == nil {
-		return false
-	}
-	return strings.TrimSpace(rule.MetricType) == "upstream_error_rate" &&
-		strings.EqualFold(strings.TrimSpace(rule.Severity), "P0")
-}
-
-// isEdgeUpstreamRatePageRule is the 20% upstream_error_rate rule that may
-// reach Feishu as P1 on an edge. The deleted 8% early-warning rule (threshold
-// 8) must stay excluded even if an operator recreates it.
-func isEdgeUpstreamRatePageRule(rule *OpsAlertRule) bool {
-	if rule == nil {
-		return false
-	}
-	return strings.TrimSpace(rule.MetricType) == "upstream_error_rate" &&
-		rule.Threshold >= 20
-}
-
-// effectiveOpsAlertPageSeverity is the severity stored on the event and shown
-// on Feishu cards. Prod keeps the rule's configured severity. Edges demote
-// local-only provider-health P0s so they do not look like user-visible outages.
-func effectiveOpsAlertPageSeverity(rule *OpsAlertRule, isEdge bool) string {
+// effectiveOpsAlertPageSeverity preserves the configured rule severity.
+func effectiveOpsAlertPageSeverity(rule *OpsAlertRule) string {
 	if rule == nil {
 		return ""
 	}
-	if isEdge && isEdgeNonUserFacingAlertRule(rule) {
-		return "P1"
-	}
-	return strings.TrimSpace(rule.Severity)
-}
 
-// isEdgeNode reports whether this node is a prod→edge mirror-relay edge
-// (api-<id>.<domain>), derived from the configured frontend URL — the SAME source
-// the alert card's node label uses (deriveOpsNodeIdentity / siteFromFrontendURL),
-// so a card that would be titled "· us6" is exactly what this classifies as edge.
-// Prod (api.<domain>), an empty/unparseable URL, and any non-edge custom host are
-// treated as non-edge, so notifications are suppressed only where we positively
-// identify a relay edge.
-func (s *OpsAlertEvaluatorService) isEdgeNode() bool {
-	if s == nil || s.cfg == nil {
-		return false
-	}
-	return strings.HasPrefix(siteFromFrontendURL(s.cfg.Server.FrontendURL), "edge-")
+	return strings.TrimSpace(rule.Severity)
 }
 
 func (s *OpsAlertEvaluatorService) maybeSendAlertFeishu(ctx context.Context, runtimeCfg *OpsAlertRuntimeSettings, rule *OpsAlertRule, event *OpsAlertEvent) bool {
@@ -208,11 +133,8 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertFeishuRecovery(ctx context.Cont
 	if s == nil || s.opsService == nil || rule == nil || event == nil {
 		return false
 	}
-	if s.isEdgeNode() && isEdgeSuppressedAlertRule(rule) {
-		s.recordAlertFeishuDelivery(ctx, event, OpsAlertFeishuPhaseRecovery, false, "skip_severity_or_status", "", nil)
-		return false
-	}
-	if !s.isEdgeNode() && isEdgeOnlyAlertRule(rule) {
+
+	if isProviderHealthAlertRule(rule) {
 		s.recordAlertFeishuDelivery(ctx, event, OpsAlertFeishuPhaseRecovery, false, "skip_severity_or_status", "", nil)
 		return false
 	}
@@ -319,12 +241,7 @@ func opsAlertFeishuSeverityAllowed(rule *OpsAlertRule, event *OpsAlertEvent) boo
 	if ruleSeverity == "P0" && eventSeverity == "P0" {
 		return true
 	}
-	// Edge 20% upstream_error_rate pages as P1 (seeded severity after tk_087,
-	// or a leftover P0 copy remapped by effectiveOpsAlertPageSeverity). The
-	// deleted 8% early-warning rule stays excluded (threshold < 20).
-	if eventSeverity == "P1" && isEdgeUpstreamRatePageRule(rule) {
-		return true
-	}
+
 	return ruleSeverity == "P1" &&
 		eventSeverity == "P1" &&
 		strings.TrimSpace(rule.MetricType) == OpsAlertMetricClientVisibleFailureCount

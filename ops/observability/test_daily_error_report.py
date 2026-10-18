@@ -379,13 +379,13 @@ esac
 
     def test_issue_analysis_is_target_scoped_and_actionable(self) -> None:
         prod = build_report(probe_fixture(), "prod")
-        edge = build_report(probe_fixture(), "edge-us5-ls")
-        edge["issue_candidates"][0]["error_type"] = "edge_only_failure"
+        domestic = build_report(probe_fixture(), "cn-prod")
+        domestic["issue_candidates"][0]["error_type"] = "domestic_only_failure"
         aggregate = aggregate_reports([], "123", "https://example.test/runs/123")
         aggregate["issue_candidates"] = [
             {**item, "target_id": "prod"} for item in prod["issue_candidates"]
         ] + [
-            {**item, "target_id": "edge-us5-ls"} for item in edge["issue_candidates"]
+            {**item, "target_id": "cn-prod"} for item in domestic["issue_candidates"]
         ]
 
         markdown = issue_analysis_markdown(aggregate, "prod")
@@ -394,7 +394,7 @@ esac
         self.assertIn("platform / internal", markdown)
         self.assertIn("dashboard_query_failed", markdown)
         self.assertIn("7 / 0", markdown)
-        self.assertNotIn("edge_only_failure", markdown)
+        self.assertNotIn("domestic_only_failure", markdown)
 
     def test_issue_analysis_is_empty_for_unmatched_target(self) -> None:
         report = aggregate_reports([], "123", "https://example.test/runs/123")
@@ -402,22 +402,22 @@ esac
 
     def test_same_cluster_on_two_targets_has_unique_selectable_signatures(self) -> None:
         prod = build_report(probe_fixture(), "prod")
-        edge = build_report(probe_fixture(), "edge-us5-ls")
+        domestic = build_report(probe_fixture(), "cn-prod")
         prod_signature = prod["repair_candidates"][0]["signature"]
-        edge_signature = edge["repair_candidates"][0]["signature"]
-        self.assertNotEqual(prod_signature, edge_signature)
+        domestic_signature = domestic["repair_candidates"][0]["signature"]
+        self.assertNotEqual(prod_signature, domestic_signature)
 
         with tempfile.TemporaryDirectory() as tmp_raw:
             root = pathlib.Path(tmp_raw)
             paths = []
-            for name, report in (("prod", prod), ("edge", edge)):
+            for name, report in (("prod", prod), ("domestic", domestic)):
                 path = root / name / "daily-error-report.json"
                 path.parent.mkdir()
                 path.write_text(json.dumps(report), encoding="utf-8")
                 paths.append(path)
             aggregate = aggregate_reports(paths, "123", "https://example.test/runs/123")
             self.assertEqual(select_candidate(aggregate, prod_signature)["target_id"], "prod")
-            self.assertEqual(select_candidate(aggregate, edge_signature)["target_id"], "edge-us5-ls")
+            self.assertEqual(select_candidate(aggregate, domestic_signature)["target_id"], "cn-prod")
 
 
 if __name__ == "__main__":

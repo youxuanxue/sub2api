@@ -218,7 +218,7 @@ func buildLocalAdapterUpstreamQuota(account *Account, usage *UsageInfo) *Upstrea
 		return buildNewAPIUpstreamQuota(account, usage)
 	}
 	if account.Platform == PlatformAntigravity {
-		return unsupportedUpstreamQuota(PlatformAntigravity, usage, "relay_stub", "upstream quota is available on the edge OAuth account, not this relay stub")
+		return unsupportedUpstreamQuota(PlatformAntigravity, usage, "api_key", "upstream quota is unavailable for API-key accounts")
 	}
 	return nil
 }

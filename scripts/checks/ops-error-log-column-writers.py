@@ -39,7 +39,7 @@ undetected.)
 
 Scope, all of it hard-failing:
   - SCAN_DIRS (ops/ + deploy/) x SCAN_EXTS (.sh/.py/.sql) — hand-written SQL that runs
-    against a live prod/edge DB with no Go type-checking behind it. Both
+    against a live prod DB with no Go type-checking behind it. Both
     alias-qualified and unqualified reads are judged here (see `bare`).
   - backend/internal non-test .go — the SLA numerator lives there, so a dead read
     un-attributes failures rather than merely printing an empty probe column. Only

@@ -107,7 +107,7 @@ func TestUS059_GeminiImagesIngressGenerationAndSettlement(t *testing.T) {
 				if transport == "relay" {
 					account.Type = service.AccountTypeAPIKey
 					account.Credentials["api_key"] = "test-only"
-					account.Credentials["base_url"] = "https://api-us4.tokenkey.dev"
+					account.Credentials["base_url"] = "https://upstream.example.test"
 				}
 				attachHandlerTestProtocolCapability(t, &account, protocolrouter.ProtocolGeminiGenerateContent)
 				peer := account

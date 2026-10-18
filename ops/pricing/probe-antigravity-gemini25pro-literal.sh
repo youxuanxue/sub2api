@@ -70,7 +70,7 @@ hint_from_body() {
 	local f="$1" code="$2"
 	if [ "$code" = "000" ]; then echo "curl timeout or no response"; return; fi
 	if grep -qiE 'no available accounts' "$f" 2>/dev/null; then echo "TK scheduling empty pool"; return; fi
-	if grep -qiE '502|bad gateway|upstream' "$f" 2>/dev/null; then echo "prod->edge relay failure"; return; fi
+	if grep -qiE '502|bad gateway|upstream' "$f" 2>/dev/null; then echo "upstream failure"; return; fi
 	head -c 120 "$f" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g'
 }
 

@@ -363,8 +363,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		// 记录本次实际发送的 wire body；只有请求成功后才写回 ParsedRequest，避免 400 retry 基于已签名 CCH 再改写。
 		lastWireBody = wireBody
 
-		// 发送请求. Kiro mirror stubs use message_start-before-ping so Claude Code
-		// survives prod→edge header wait / thinking stalls (#2600 follow-up).
 		hwka := s.beginAnthropicMessagesHeaderWaitKeepalive(c, reqStream, account, reqModel)
 		upstreamStart := time.Now()
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
@@ -917,9 +915,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		}
 		return s.handleErrorResponse(ctx, resp, c, account, reqModel)
 	}
-
-	// 处理正常响应
-	applyKiroInternalThinkingFromUpstream(c, resp.Header)
 
 	if !bytes.Equal(lastWireBody, body) {
 		// 成功后再同步最终 wire body，避免失败重试从已签名 CCH 的 body 继续派生。

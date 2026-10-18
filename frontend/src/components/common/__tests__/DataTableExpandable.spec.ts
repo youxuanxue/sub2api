@@ -28,7 +28,7 @@ function mountTable(props: Record<string, unknown>) {
     props: { columns, data, ...props },
     slots: {
       'cell-name': '<template #cell-name="{ row }"><span>{{ row.name }}</span></template>',
-      'row-detail': '<template #row-detail="{ row }"><div class="edge-detail" :data-edge="row.id">detail-{{ row.id }}</div></template>'
+      'row-detail': '<template #row-detail="{ row }"><div class="row-detail" :data-row="row.id">detail-{{ row.id }}</div></template>'
     }
   })
 }
@@ -36,7 +36,7 @@ function mountTable(props: Record<string, unknown>) {
 describe('DataTable expandable detail rows', () => {
   it('renders NO detail rows when expandable is not provided (backward compatible)', () => {
     const wrapper = mountTable({})
-    expect(wrapper.findAll('.edge-detail')).toHaveLength(0)
+    expect(wrapper.findAll('.row-detail')).toHaveLength(0)
     wrapper.unmount()
   })
 
@@ -45,9 +45,9 @@ describe('DataTable expandable detail rows', () => {
       expandable: (row: { expandable?: boolean }) => row.expandable === true,
       expandedKeys: new Set([1, 3])
     })
-    const details = wrapper.findAll('.edge-detail')
+    const details = wrapper.findAll('.row-detail')
     expect(details).toHaveLength(2)
-    expect(details.map((d) => d.attributes('data-edge'))).toEqual(['1', '3'])
+    expect(details.map((d) => d.attributes('data-row'))).toEqual(['1', '3'])
     wrapper.unmount()
   })
 
@@ -56,7 +56,7 @@ describe('DataTable expandable detail rows', () => {
       expandable: (row: { expandable?: boolean }) => row.expandable === true,
       expandedKeys: new Set([2]) // row 2 is expandable:false
     })
-    expect(wrapper.findAll('.edge-detail')).toHaveLength(0)
+    expect(wrapper.findAll('.row-detail')).toHaveLength(0)
     wrapper.unmount()
   })
 
@@ -65,7 +65,7 @@ describe('DataTable expandable detail rows', () => {
       expandable: () => true,
       expandedKeys: new Set()
     })
-    expect(wrapper.findAll('.edge-detail')).toHaveLength(0)
+    expect(wrapper.findAll('.row-detail')).toHaveLength(0)
     wrapper.unmount()
   })
 })

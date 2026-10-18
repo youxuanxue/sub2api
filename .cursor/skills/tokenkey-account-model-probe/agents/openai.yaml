@@ -1,4 +1,4 @@
 interface:
   display_name: "TokenKey Account Probe"
   short_description: "Probe one TokenKey account and model safely"
-  default_prompt: "Use $tokenkey-account-model-probe to test whether account <id> on prod or edge:<id> can serve model <model>."
+  default_prompt: "Use $tokenkey-account-model-probe to test whether account <id> on prod can serve model <model>."

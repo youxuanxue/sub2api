@@ -305,9 +305,7 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 	if account == nil {
 		return service.ErrAccountNilInput
 	}
-	if account.IsRetiredSupplier() {
-		return service.ErrSupplierRetired
-	}
+
 	client := clientFromContext(ctx, r.client)
 	tx, err := client.Tx(ctx)
 	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
@@ -498,69 +496,6 @@ WHERE platform = $1 AND schedulable = true AND deleted_at IS NULL`
 	var sum sql.NullInt64
 	if err := scanSingleRow(ctx, r.sql, q, []any{domain.PlatformAnthropic}, &sum); err != nil {
 		return 0, fmt.Errorf("sum anthropic concurrency: %w", err)
-	}
-	if !sum.Valid {
-		return 0, nil
-	}
-	return sum.Int64, nil
-}
-
-// SumConcurrencyAnthropicByGroup returns Σ concurrency for schedulable anthropic
-// accounts that belong to the named group (e.g. "default"). Surface-C:
-// the edge capacity endpoint reports only the default-group pool so prod mirrors
-// the right number.
-func (r *accountRepository) SumConcurrencyAnthropicByGroup(ctx context.Context, groupName string) (int64, error) {
-	const q = `
-SELECT COALESCE(SUM(a.concurrency), 0)::bigint
-FROM accounts a
-JOIN account_groups ag ON ag.account_id = a.id
-JOIN groups g ON g.id = ag.group_id
-WHERE a.platform = $1 AND a.schedulable = true AND a.deleted_at IS NULL
-  AND g.name = $2 AND g.deleted_at IS NULL`
-	var sum sql.NullInt64
-	if err := scanSingleRow(ctx, r.sql, q, []any{domain.PlatformAnthropic, groupName}, &sum); err != nil {
-		return 0, fmt.Errorf("sum anthropic concurrency by group %q: %w", groupName, err)
-	}
-	if !sum.Valid {
-		return 0, nil
-	}
-	return sum.Int64, nil
-}
-
-// SumConcurrencyByPlatform returns Σ concurrency for schedulable accounts of the
-// given platform across all groups (no group join). Surface-C uses this for
-// non-anthropic edge pools (e.g. kiro), where every schedulable account of that
-// platform IS the operator pool, so the anthropic "default"-group scoping
-// (SumConcurrencyAnthropicByGroup) does not apply.
-func (r *accountRepository) SumConcurrencyByPlatform(ctx context.Context, platform string) (int64, error) {
-	const q = `
-SELECT COALESCE(SUM(concurrency), 0)::bigint
-FROM accounts
-WHERE platform = $1 AND schedulable = true AND deleted_at IS NULL`
-	var sum sql.NullInt64
-	if err := scanSingleRow(ctx, r.sql, q, []any{platform}, &sum); err != nil {
-		return 0, fmt.Errorf("sum concurrency by platform %q: %w", platform, err)
-	}
-	if !sum.Valid {
-		return 0, nil
-	}
-	return sum.Int64, nil
-}
-
-// SumConcurrencyByPlatformAndGroupID returns Σ concurrency for schedulable accounts
-// of the given platform in one group. Surface-C: native-platform mirror stubs
-// (openai/grok/…) query the edge with group_scope=caller so prod mirrors the
-// stub relay key's pool rather than every schedulable row of that platform.
-func (r *accountRepository) SumConcurrencyByPlatformAndGroupID(ctx context.Context, platform string, groupID int64) (int64, error) {
-	const q = `
-SELECT COALESCE(SUM(a.concurrency), 0)::bigint
-FROM accounts a
-JOIN account_groups ag ON ag.account_id = a.id
-WHERE a.platform = $1 AND a.schedulable = true AND a.deleted_at IS NULL
-  AND ag.group_id = $2`
-	var sum sql.NullInt64
-	if err := scanSingleRow(ctx, r.sql, q, []any{platform, groupID}, &sum); err != nil {
-		return 0, fmt.Errorf("sum concurrency by platform %q group %d: %w", platform, groupID, err)
 	}
 	if !sum.Valid {
 		return 0, nil
@@ -765,9 +700,7 @@ func (r *accountRepository) ListCRSAccountIDs(ctx context.Context) (map[string]i
 }
 
 func (r *accountRepository) Update(ctx context.Context, account *service.Account) error {
-	if account.IsRetiredSupplier() && account.IsActive() {
-		return service.ErrSupplierRetired
-	}
+
 	return r.updateAccount(ctx, account, nil, nil, account.RateMultiplier)
 }
 
@@ -1640,8 +1573,9 @@ func (r *accountRepository) List(ctx context.Context, params pagination.Paginati
 func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) *dbent.AccountQuery {
 	q := r.client.Account.Query()
 
-	// TK: Kiro stub / platform list filter — see account_repo_tk_kiro.go
-	q = r.tkApplyKiroPlatformListFilter(q, platform)
+	if platform != "" {
+		q = q.Where(dbaccount.PlatformEQ(platform))
+	}
 	if channelType > 0 {
 		q = q.Where(dbaccount.ChannelTypeEQ(channelType))
 	}

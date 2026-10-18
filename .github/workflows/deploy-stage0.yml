@@ -150,9 +150,7 @@ jobs:
         id: stack
         run: |
           set -euo pipefail
-          # Tag-format gate: single source of truth shared with the two Edge
-          # deploy workflows (prevents the regex/message drift that had already
-          # crept into deploy-edge-lightsail-stage0.yml).
+          # Tag-format gate: keep validation centralized in the shared script.
           bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
           if [ -z "${OIDC_ROLE_ARN:-}" ]; then
             echo "::error::AWS_OIDC_ROLE_ARN repo variable not set; configure per docs/approved/deploy-stage0-workflow.md §5"
@@ -185,8 +183,7 @@ jobs:
           fi
 
       - name: Verify GHCR multi-arch manifest
-        # Shared with deploy-edge-lightsail-stage0.yml so prod and Edge never
-        # grow divergent image-architecture gates.
+        # Keep the production image architecture gate close to the deploy.
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"

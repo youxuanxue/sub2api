@@ -853,7 +853,7 @@ describe('AccountUsageCell', () => {
           seven_day_sonnet: null,
           kiro_usage: { current: 3337, limit: 10_000, percent: 33.37 }
         },
-        activeUsageLoader: vi.fn().mockRejectedValue(new Error('edge unavailable'))
+        activeUsageLoader: vi.fn().mockRejectedValue(new Error('upstream unavailable'))
       },
       global: {
         stubs: {

@@ -38,10 +38,6 @@ func (s *RateLimitService) tkTryHandleUpstreamErrorPrelude(
 		return true, false
 	}
 
-	if s.handleOpenAICompatDownstreamCapacityPenalty(ctx, account, statusCode, responseBody) {
-		return true, true
-	}
-
 	// CloudWise model pools are independent. Handle their model-balance 402
 	// before pool-mode and custom-error-code early exits so every CloudWise
 	// account shape persists the same exact-model five-hour cooldown. If the

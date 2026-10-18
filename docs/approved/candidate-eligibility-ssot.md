@@ -256,12 +256,8 @@ seconds. Family matching respects model token boundaries, including dated IDs.
 
 The first Kiro attempt chooses a fixed deadline once per inbound request.
 Endpoint retries, backoff and account switches consume its remaining time.
-Prod Kiro mirror requests use the common Anthropic passthrough lifecycle and
-send `X-Tk-Kiro-Wait-Deadline-Ms`; edge may only shorten its own deadline.
-This internal header is an absolute Unix millisecond timestamp and assumes
-normal host clock synchronization. A caller-supplied value cannot extend the
-server budget. Both relay and edge enforce the deadline independently. The Kiro HTTP profile
-leaves header wait to this guard, avoiding an earlier generic transport cutoff.
+The Kiro HTTP profile leaves header wait to this guard, avoiding an earlier
+generic transport cutoff.
 
 Streaming stops this timer on client-visible text/tool output; non-streaming
 keeps it until the complete JSON response is ready. Thinking, local keepalive,
@@ -447,9 +443,9 @@ consume the same selected path, including retries and final slot checks.
 
 | Fact or decision | Unique owner | Consumer contract |
 | --- | --- | --- |
-| Kiro request waiting budget | `kiro_wait_budget_tk.go` | Direct Kiro and prod mirror share fixed tier/deadline semantics; streaming commits on visible text/tool, non-streaming on complete JSON. |
+| Kiro request waiting budget | `kiro_wait_budget_tk.go` | Kiro uses fixed tier/deadline semantics; streaming commits on visible text/tool, non-streaming on complete JSON. |
 | Model mapping, native/converter legality | `protocolrouter.Router.Plan` via `protocol_routing_context.go` | Parse the actual request using `protocolrouter.ParseCanonicalRequest`; a valid converter is equally eligible. |
-| Codex supply model capability negatives | `openai_codex_model_support_tk.go` via shared account admission and resolved Plan checks | OAuth/SetupToken and OpenAI edge mirrors reject retired wire models and actual Claude upstream models; generic API suppliers retain their existing capability policy. |
+| Codex supply model capability negatives | `openai_codex_model_support_tk.go` via shared account admission and resolved Plan checks | OAuth/SetupToken reject retired wire models and actual Claude upstream models; generic API suppliers retain their existing capability policy. |
 | Authorization paths and account selection | `candidate_request_tk.go`, `candidate_selection_tk.go` | HTTP auth, Responses WS, both schedulers and retries consume one request-local state. |
 | Empty-pool capacity selection diagnostics | `candidate_capacity_diag_tk.go` | Attaches account_total/supported/ready/reject_reasons to UniversalCapacityError so ingress can log why entitled pools had no ready path; does not change admission. |
 | Inference ingress into candidate state | `candidate_ingress_tk.go` (`PrepareCandidateIngress`) | The single HTTP entry: existing client and session parsers run before billing admission, when sticky-only eligibility already matters. A new ingress joins this owner instead of preparing its own state. |
@@ -466,13 +462,12 @@ consume the same selected path, including retries and final slot checks.
 | Attributable failure observation and deprioritization | `candidate_failure_tk.go` | One attribution rule per account and resolved model. Caller cancellation, credential faults, request-scoped transients, same-account retries and caller errors keep their dedicated owners; an observed failure must not also feed the legacy OpenAI health breaker. |
 | Per-turn RPM admission | `candidate_rpm_tk.go` | Peek before binding, count once after. Universal drops the auth snapshot's group override because it belongs to the original bound group. |
 | Replayable Chat attempt budget | `candidate_chat_attempt_tk.go` | Pre-output failover only, bounded by the shared attempt cap; handlers still own switching. Never replay or synthesize completion after content or tool output. |
-| Relay-scoped model rejection | `candidate_edge_model_rejection_tk.go` | A relay's own model verdict covers that path only, and must not exclude other authorized candidates at the main gateway. |
 | Discovery request/account snapshot | `candidate_discovery_snapshot_tk.go` | One immutable request and account set per discovery shape; prepare each group's request policy once while runtime selection keeps fresh account validation. |
 | Candidate static read snapshot | `candidate_read_snapshot_tk.go` and its provider/materializer | Materialized, complete, non-secret account/group/membership/capability facts may prefilter candidates; it never grants authorization, decides Plan legality, readiness or billing. Shadow parity and lag/gap state are observable; final selection/execution re-reads authoritative owners. |
 | Gemini / Antigravity Images operation adaptation | `gemini_images_adapter_tk.go` delegates to `apicompat/gemini_images.go`; ingress in `universal_candidate_eligibility.go`, execution facade in `handler/gemini_images_tk.go` | Images parameters convert once per canonical preparation to a native Gemini Plan; the existing handler owns selection and settlement. Contracts: [Antigravity Images](antigravity-images-generations-adapter.md), [Web Pro](gemini-web-channel.md). |
 | Image parameter projection | `candidate_image_capabilities_tk.go` | Projects complete image request profiles from authorized discovery paths; validates options through existing request admission. |
 | Model discovery | `candidate_discovery_tk.go` | Direct and Universal model/capability surfaces and `me_pricing_candidate_tk.go` project the same authorization and support paths without live payment or slot admission. |
-| Account-wide rate-limit admission (column lock + model-count cascade) | `account_wide_model_rate_limit_ssot_tk.go` via `accountWideRateLimitBlocks` / `AccountWideRateLimitResetAt`; SQL twin `accountNotBlockedByAccountWideRateLimit` | More than `AccountWideModelRateLimitThreshold` (3) active `model_rate_limits` scopes (excluding `AICredits` and the capability-only reason defined in [Antigravity capability repair](antigravity-model-capability-repair.md)) blocks the whole account for every platform and account type. Admin/edge DTOs project the effective reset; list/schedulable SQL must stay aligned. |
+| Account-wide rate-limit admission (column lock + model-count cascade) | `account_wide_model_rate_limit_ssot_tk.go` via `accountWideRateLimitBlocks` / `AccountWideRateLimitResetAt`; SQL twin `accountNotBlockedByAccountWideRateLimit` | More than `AccountWideModelRateLimitThreshold` (3) active `model_rate_limits` scopes (excluding `AICredits` and the capability-only reason defined in [Antigravity capability repair](antigravity-model-capability-repair.md)) blocks the whole account for every platform and account type. Admin DTOs project the effective reset; list/schedulable SQL must stay aligned. |
 
 ### Implemented behavior
 
@@ -499,7 +494,7 @@ consume the same selected path, including retries and final slot checks.
    shared owner. Universal settlement no longer uses billing-platform quotas.
 9. When more than three still-active per-model rate-limit scopes are present on
    an account (`AICredits` excluded), the account is account-wide rate-limited
-   for scheduling and admin/edge status. This cascade is read-time SSOT for
+   for scheduling and admin status. This cascade is read-time SSOT for
    every platform and account type (conversation approval 2026-09-22).
 
 ### Existing validation
@@ -553,7 +548,7 @@ record separately from this approval.
 Approved by feng in conversation: “同意。请修复。开 pr”. This authorizes
 implementation and a PR; it is not deployment evidence.
 
-Live ChatGPT/Codex accounts behind all four OpenAI edge mirrors rejected
+Live ChatGPT/Codex accounts rejected
 `gpt-5.5` with `not supported when using Codex with a ChatGPT account`, while
 the API supplier continued serving that exact model. Treat this as a supply
 capability negative, not account-wide unavailability or global model retirement.
@@ -563,8 +558,7 @@ unaffected; direct document retrieval was blocked, so live upstream responses
 are the operational evidence for this change.
 
 `openai_codex_model_support_tk.go` supplies the shared admission owner's
-known-negative for OpenAI OAuth, SetupToken, and the existing OpenAI edge mirror
-classification. Resolve ordinary account mappings and passthrough with the
+known-negative for OpenAI OAuth and SetupToken. Resolve ordinary account mappings and passthrough with the
 forwarding owner, then reuse the Codex wire alias owner to reject GPT-5.5 and
 aliases resolving to it. A configured remap to a supported model remains valid;
 this change does not install such a remap. Plan also checks its final resolved
@@ -574,8 +568,7 @@ wildcard mappings and passthrough cannot override the capability negative.
 Direct and Universal selection, discovery, and pre-send Plan checks consume
 this same admission. Account model pickers, mapped upstream catalogs, configured
 Codex catalogs, and unmapped default supplementation apply the same supply negative;
-a later generic API account in a mixed pool may still contribute GPT-5.5. Generic OpenAI API-key and newapi suppliers, including
-China edge relays, remain governed by their existing mappings and capabilities.
+a later generic API account in a mixed pool may still contribute GPT-5.5. Generic OpenAI API-key and newapi suppliers remain governed by their existing mappings and capabilities.
 Keep GPT-5.5 catalog/pricing available through those valid suppliers. An
 OAuth-only pool uses the existing unsupported-model result, not capacity 429.
 
@@ -593,7 +586,7 @@ This authorizes the implementation; merge and production deployment remain separ
 
 The existing Codex supply-negative owner also rejects the `claude-*` family after
 resolving the actual upstream model, including case-insensitive namespaced IDs.
-OAuth, SetupToken and OpenAI edge mirrors cannot override this fact through empty,
+OAuth and SetupToken cannot override this fact through empty,
 identity, wildcard, passthrough or compact mappings. Explicit aliases resolving to
 supported GPT models retain their existing behavior. Direct group dispatch that
 already resolves a Claude client alias to GPT also retains its existing policy.

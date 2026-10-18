@@ -42,13 +42,12 @@ class RenderProdBootstrapTests(unittest.TestCase):
         self.assertIn("ensure-tokenkey-bbr.sh --apply", body)
         self.assertIn("ensure-tokenkey-bbr.sh --check", body)
 
-    def test_disk_unit_requires_prod_volume_but_edges_only_check_root(self) -> None:
+    def test_disk_unit_requires_prod_volume(self) -> None:
         # Evaluate the service configuration emitted by each renderer: the
         # shared script's default is root-only, so omitting this binding recreates
         # the live prod blind spot even while its own selftest is green.
         for artifact, expected in [
             (OUT, {"TOKENKEY_DATA_VOLUME_PATH": "/var/lib/tokenkey"}),
-            (HERE / "generated-user-data.sh", {}),
         ]:
             body = artifact.read_text(encoding="utf-8")
             unit = body.split("tokenkey-disk-metrics.service <<'DMSEOF'", 1)[1].split("DMSEOF", 1)[0]

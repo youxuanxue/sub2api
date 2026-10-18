@@ -193,7 +193,7 @@ func (a *Account) EffectiveLoadFactor() int {
 }
 
 func (a *Account) IsSchedulable() bool {
-	if a.IsRetiredSupplier() || !a.IsActive() || !a.Schedulable || validateOAuthProxyBinding(a) != nil {
+	if !a.IsActive() || !a.Schedulable || validateOAuthProxyBinding(a) != nil {
 		return false
 	}
 	now := time.Now()
@@ -228,7 +228,7 @@ func (a *Account) IsSchedulable() bool {
 // 手动 Schedulable 开关:spark 影子拥有独立 spark 配额窗口,母账号 global 429(走 RateLimitResetAt)
 // 不应连坐 spark(否则重新耦合影子架构本应解耦的两条 429 道)。nil receiver 返回 false。
 func (a *Account) IsCredentialUsableForShadow() bool {
-	if a == nil || a.IsRetiredSupplier() || !a.IsActive() || validateOAuthProxyBinding(a) != nil {
+	if a == nil || !a.IsActive() || validateOAuthProxyBinding(a) != nil {
 		return false
 	}
 	now := time.Now()
@@ -866,8 +866,8 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 	if a.IsOpenAIPassthroughEnabled() {
 		return true
 	}
-	if a.IsKiroMirrorStub() || a.IsKiro() {
-		return kiroMirrorStubSupportsModel(requestedModel)
+	if a.IsKiro() {
+		return kiroSupportsModel(requestedModel)
 	}
 	if grokAccountServesNativeCatalogModel(a, requestedModel) {
 		return true
@@ -1031,21 +1031,14 @@ func (a *Account) GetBaseURL() string {
 		}
 		return ""
 	}
-	if a.Platform == PlatformAntigravity {
-		return strings.TrimRight(baseURL, "/") + "/antigravity"
-	}
 	return baseURL
 }
 
 // GetGeminiBaseURL 返回 Gemini 兼容端点的 base URL。
-// Antigravity 平台的 APIKey 账号自动拼接 /antigravity。
 func (a *Account) GetGeminiBaseURL(defaultBaseURL string) string {
 	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
 	if baseURL == "" {
 		return defaultBaseURL
-	}
-	if a.Platform == PlatformAntigravity && a.Type == AccountTypeAPIKey {
-		return strings.TrimRight(baseURL, "/") + "/antigravity"
 	}
 	return baseURL
 }

@@ -11,10 +11,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 class SmokeKeyRedactionTest(unittest.TestCase):
     def test_stage0_smoke_scripts_do_not_log_key_hints(self) -> None:
-        for relpath in (
-            "ops/stage0/post_deploy_smoke.sh",
-            "ops/stage0/edge_post_deploy_smoke.sh",
-        ):
+        for relpath in ("ops/stage0/post_deploy_smoke.sh",):
             body = (REPO_ROOT / relpath).read_text()
             with self.subTest(path=relpath):
                 self.assertNotIn("key_hint", body)

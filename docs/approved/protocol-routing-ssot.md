@@ -318,8 +318,7 @@ Completions. The upstream request is not `/v1/chat/completions`.
 
 On a non-`OfficialEndpointAnthropic` identity, native `messages` is legal only
 when the resolved upstream model is in the Claude family (`claude-*`). Retired
-suppliers are rejected before endpoint planning under
-[`cursor-retirement.md`](cursor-retirement.md). Dual-stack
+supplier identities are rejected before endpoint planning. Dual-stack
 OpenAI relays that advertise `messages` plus `chat_completions` and/or
 `responses` therefore convert inbound Claude Code `/v1/messages` for GPT and
 other non-Claude models instead of identity-forwarding onto a Claude-only
@@ -426,7 +425,7 @@ protocol-probe path may write that fail-closed transition.
 
 Governance is compile-time account shape. Governed profiles include configurable
 text/NewAPI endpoints, Antigravity OAuth (`antigravity_cloudcode`), exact Vertex
-service-account, and exact TokenKey Antigravity edge-relay stubs. Official seed only
+service-account, and Antigravity API-key accounts. Official seed only
 for immutable compile-time official endpoint profiles.
 
 The Gemini Web compatibility follow-up in [gemini-web-channel.md](gemini-web-channel.md)

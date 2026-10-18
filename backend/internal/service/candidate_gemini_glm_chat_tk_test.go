@@ -25,7 +25,7 @@ func TestCandidateEligibilityGeminiGLMChatIgnoresIrrelevantCapabilityUnknown(t *
 		ID: 62, GroupIDs: []int64{21}, Platform: PlatformAntigravity,
 		Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 10,
 		Credentials: map[string]any{
-			"base_url": "https://api-us4.tokenkey.dev", "api_key": "test-only",
+			"base_url": "https://upstream.example.test", "api_key": "test-only",
 			"model_mapping": map[string]any{"gemini-2.5-flash": "gemini-2.5-flash"},
 		},
 	}
@@ -64,7 +64,7 @@ func TestCandidateEligibilityGeminiGLMOnlyIrrelevantCapabilityUnknownIsUnsupport
 		ID: 62, GroupIDs: []int64{21}, Platform: PlatformAntigravity,
 		Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 10,
 		Credentials: map[string]any{
-			"base_url": "https://api-us4.tokenkey.dev", "api_key": "test-only",
+			"base_url": "https://upstream.example.test", "api_key": "test-only",
 			"model_mapping": map[string]any{"gemini-2.5-flash": "gemini-2.5-flash"},
 		},
 	}

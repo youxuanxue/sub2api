@@ -240,11 +240,6 @@ func preservesResponsesConversionOptions(req CanonicalRequest) bool {
 }
 
 func preservesToGemini(req CanonicalRequest) bool {
-	// prompt_cache_key / prompt_cache_retention are OpenAI sticky metadata.
-	// Gemini generateContent has no equivalent wire field; converters rebuild the
-	// body and drop them. Sticky affinity stays on the gateway session hash, so
-	// PromptCache must not refuse Chat/Responses/Messages→Gemini (edge OAuth
-	// pools are Gemini-only and cannot fall back to Chat identity).
 	return preservesTextOnlyWithoutTools(req) &&
 		(req.inboundProtocol != ProtocolResponses || req.responsesPath == ResponsesPathRoot) &&
 		req.profile.Continuation == ContinuationNone &&

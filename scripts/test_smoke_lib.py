@@ -71,7 +71,7 @@ class SmokeLibAnthropicModelListTest(unittest.TestCase):
         proc = _run_helper("smoke_assert_anthropic_model_listed_or_warn", models_path, "claude-sonnet-4-6")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("::warning::", proc.stderr)
-        self.assertIn("kiro mirror stubs", proc.stderr)
+        self.assertIn("accounts may use empty model_mapping", proc.stderr)
         self.assertNotIn("::error::", proc.stderr)
 
     def test_anthropic_passes_when_listed(self) -> None:

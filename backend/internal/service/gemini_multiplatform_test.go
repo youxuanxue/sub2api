@@ -198,18 +198,6 @@ func (m *mockAccountRepoForGemini) SumConcurrencyAnthropic(context.Context) (int
 	return 0, nil
 }
 
-func (m *mockAccountRepoForGemini) SumConcurrencyAnthropicByGroup(context.Context, string) (int64, error) {
-	return 0, nil
-}
-
-func (m *mockAccountRepoForGemini) SumConcurrencyByPlatform(context.Context, string) (int64, error) {
-	return 0, nil
-}
-
-func (m *mockAccountRepoForGemini) SumConcurrencyByPlatformAndGroupID(context.Context, string, int64) (int64, error) {
-	return 0, nil
-}
-
 func (m *mockAccountRepoForGemini) RevertProxyFallback(ctx context.Context, accountID int64) error {
 	return nil
 }
