@@ -1185,6 +1185,25 @@
       "rationale": "Provider-specific behavior is retired; these anchors preserve the shared provider behavior in this owner."
     },
     {
+      "path": "backend/internal/service/routing_preference.go",
+      "must_contain": [
+        "account.Platform != PlatformNewAPI",
+        "!tkIsForwardableAnthropicModelName(model)",
+        "case RoutingPreferenceTokenseaFirst:",
+        "account.ID == tokenseaAnthropicAccount136 || account.ID == tokenseaAnthropicAccount218"
+      ],
+      "rationale": "Tokensea Claude priority must recognize production NewAPI accounts while retaining explicit key, model and account boundaries."
+    },
+    {
+      "path": "backend/internal/service/routing_preference_test.go",
+      "must_contain": [
+        "func TestCandidateTokenseaNewAPIPreferenceAndFallback(",
+        "func TestCandidatePathLessDefaultKeepsGlobalPriority(",
+        "func TestCandidatePreferenceOnlyAppliesToNewAPIClaude("
+      ],
+      "rationale": "Preserve production-shaped candidate selection regressions for preference, default priority, health, capacity, retries and protocol compatibility."
+    },
+    {
       "path": "backend/internal/service/protocol_execution.go",
       "must_contain": [
         "freshPlan, err := planProtocolRoute(ctx, router, request, fresh)",
@@ -1257,6 +1276,8 @@
       "path": "backend/internal/service/candidate_selection_tk.go",
       "must_contain": [
         "candidateCompatibilityRank(a) < candidateCompatibilityRank(b)",
+        "return candidatePathLess(r.key, counts, failureCounts, pool[i], pool[j])",
+        "candidatePreferenceRank(key, a.account, a.model)",
         "candidateCompatibilityRank(paths[origin.ID])",
         "account, preferredOrigins, r.model",
         "planProtocolRoute(rebuilt.ctx, r.resolver.router, request, snapshot)"
