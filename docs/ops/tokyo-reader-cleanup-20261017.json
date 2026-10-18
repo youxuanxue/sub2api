@@ -1,0 +1,32 @@
+{
+  "verified_at": "2026-10-17T14:33:30.902656+00:00",
+  "instances": {
+    "i-0921ccf8a929458aa": "terminated",
+    "i-045f062ce33e1a5af": "running"
+  },
+  "deleted_volumes": [
+    "vol-0eddaab52a800b043",
+    "vol-05492b4a47c009e7a",
+    "vol-0a811216cef1e807f"
+  ],
+  "deleted_volume_gib": 330,
+  "retained_completed_snapshots": [
+    "snap-05ec45d6be0e08582",
+    "snap-0cf8d29799b0ce908"
+  ],
+  "public_health": {
+    "tokenkey.dev": "200",
+    "api.tokenkey.dev": "200",
+    "callmodel.io": "200",
+    "api.callmodel.io": "200"
+  },
+  "full_dr_rehearsal_performed": false,
+  "prod_services_unchanged": true,
+  "preserved_export_objects": [
+    "prod/node1-precutover/20261017/tokyo-current/full-with-usage.dump",
+    "prod/node1-precutover/20261017/tokyo-current/usage-by-user-day.jsonl",
+    "prod/node1-precutover/20261017/tokyo-snapshot/full-with-usage.dump",
+    "prod/node1-precutover/20261017/tokyo-snapshot/usage-by-user-day.jsonl"
+  ],
+  "export_verification_prefix": "s3://tokenkey-prod-archive-682751977094/prod/node1-precutover/20261017/reader-cleanup-verification/"
+}

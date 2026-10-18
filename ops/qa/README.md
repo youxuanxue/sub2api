@@ -2,7 +2,9 @@
 
 **当前运行策略（2026-10-17）：** 用户已暂停向 AWS S3 上传 QA。当前 prod 清单
 `deploy/aws/fresh-migration-20261015.json` 的 `paused_jobs` 是暂停 owner；
-`tokenkey-qa-maintenance` 应 disabled/inactive，capture 与 boundary 独立保留。
+`tokenkey-qa-maintenance` 应 disabled/inactive，capture 与 pgdump 继续运行。
+当前 boundary 因独立的历史归档验收问题也为 disabled/inactive，DROP pause 保留；
+它不属于 `paused_jobs`，不能借暂停上传把清理未验收标成正常。
 配置中的 AWS S3 坐标代表恢复/未来归档能力，不代表允许上传。普通发布和宿主脚本更新
 应保持原 timer 状态；恢复上传须明确授权并同步暂停 owner 与 watcher 配置。
 以下带日期的存储验收是历史记录，不证明当前归档任务在运行。
@@ -74,7 +76,52 @@ Hetzner raw 存储和独立 maintenance pin（1.8.288），没有搬运旧主机
 
 原 pin/env/runner 备份及切换回执在 prod `/var/lib/tokenkey/qa-aws-storage-cutover-20261016/`；未提交分片备份在 `/var/lib/tokenkey/qa-storage-abandoned-segment-20261016/`。安装脚本回滚不得自行恢复 Hetzner 上传。新增 `2026-10-16T07:00Z` 小时于 09:03:32 UTC 在 AWS 提交并通过恢复校验：4,167 条记录、16,668 个 blob 引用、缺失 0；整轮约 2 分 18 秒。随后独立目录恢复通过，耗时约 47 秒，回执 `isolated-restore.json`。这些结果证明新存储可写可恢复，不代表 QA 整体健康。
 
-整轮维护仍因历史空窗口 `2026-10-15T09:00Z` 的 `commit_existence_unknown` 返回失败：本地源记录和分片均为 0，应用角色无 ListBucket 权限，对缺失 commit 的 HEAD 返回 403，不能据此证明对象不存在。保留失败事实，不扩大 app IAM、不迁旧 raw、不改变 immutable forward cutover。合法历史缺口分类应使用现有 `gap-decision` 的只读恢复角色证据、保留期门禁与计划确认；本次未执行。后续 `08:00Z` 小时也由 timer 完成 AWS 归档与恢复校验：2,947 条记录、11,788 个 blob 引用、缺失 0，整轮约 2 分 19 秒。09:21:27 UTC 已通过既有 release-state owner 记录**仅存储切换验收**，其中明确保留历史补偿失败；解除本次 DROP pause 并恢复 boundary timer，原有逐小时 seal、归档及 restore 门禁继续生效。验收副本为 `qa-aws-storage-cutover-20261016/storage-accepted.json`。旧 Hcloud prod 的两个 QA timer 均已 disabled/inactive，旧 pin 未运行。本次隔离恢复临时目录已清理，恢复回执和对象保留。
+整轮维护因历史小时 `2026-10-15T09:00Z` 的 `commit_existence_unknown` 返回失败。
+当时只查新 AWS 目标，本地源记录和分片为 0、HEAD 返回 403，不能证明原归档不存在。
+2026-10-17 复核已在原 Hetzner 存储验证该小时的完整 commit、3,070 条记录及 12,280 个
+blob 引用，缺失 0，见 [历史归档复核回执](../../docs/ops/tokyo-qa-history-review-20261017.json)。
+因此撤回“空窗口”判断及单桶 gap 方案，未执行 gap-apply，未修写东京控制行，未授权删除。
+东京元数据仍报失败；恢复上传或启用清理前须对齐历史小时的存储归属，不能把原存储的有效归档
+分类成 terminal gap。该回执证明复核时对象完整，七天生命周期仍生效，不保证未来永久可读。
+
+后续 `08:00Z` 小时也由 timer 完成 AWS 归档与恢复校验：2,947 条记录、11,788 个 blob 引用、缺失 0，整轮约 2 分 19 秒。09:21:27 UTC 已通过既有 release-state owner 记录**仅存储切换验收**，其中明确保留历史补偿失败；解除本次 DROP pause 并恢复 boundary timer，原有逐小时 seal、归档及 restore 门禁继续生效。验收副本为 `qa-aws-storage-cutover-20261016/storage-accepted.json`。旧 Hcloud prod 的两个 QA timer 均已 disabled/inactive，旧 pin 未运行。本次隔离恢复临时目录已清理，恢复回执和对象保留。
+
+## 暂停期间的巡检
+
+复用已有监控入口，不另建一套 QA 定时任务：
+
+| 检查 | 已有执行入口 | 暂停期判读与处置 |
+| --- | --- | --- |
+| 数据盘与根盘容量 | 宿主 `tokenkey-disk-metrics.timer` 每五分钟；宿主 watcher 检查任务时效 | 核对真实挂载、用量与增长；磁盘压力不能靠删除未验收 QA 数据解决 |
+| 上传保持停用 | 宿主 `tokenkey-https-watch.timer` 每两分钟 | maintenance timer disabled/inactive，service 不运行；监控显示 `intentionally paused`，历史 failed 回执仍保留 |
+| 采集、当前及未来分区、过期分区 | `Ops Daily Diagnostics` 每日 UTC 02:00，复用下方 Phase 2 与 capture 检查 | 当前分区不得缺失，未来覆盖满足 owner 要求；暂停不豁免分区检查，也不代表允许清理 |
+| 数据库备份 | 既有 pgdump timer 与宿主 watcher | 核对最近成功回执；备份范围以实际安装脚本和恢复验收为准 |
+
+可重复执行的只读复核（仓库根目录运行）：
+
+```bash
+# 分区、暂停状态、存储身份；退出非零时保留并解释 reasons，不能写成整体健康。
+python3 ops/qa/prod_phase2_live_health.py --json
+# 数据卷空间与账本增长；unknown 表示证据不足，不是容量安全。
+set -o pipefail
+bash ops/observability/run-probe.sh --target prod \
+  --script ops/observability/probe-data-layer-capacity.sh --timeout-seconds 120 \
+  | python3 ops/observability/data_layer_capacity_verdict.py
+```
+
+账本增长预测不包含 QA raw 增长，不能拿它估算暂停上传后还能撑多久；需同时查看数据卷实际用量。
+已有 CloudWatch 磁盘 alarm 保留，但本次读取的 AlarmActions 为空，不能把状态 `OK` 当作
+告警消息送达证明。宿主脚本具备独立通知路径，凭据存在；本轮未发送合成测试通知。
+
+2026-10-17 14:49–14:52 UTC 只读基线：数据盘使用 25%，可用约 105 GiB；capture healthy、
+pending/inflight/unresolved 为 0；未来 72 小时分区无缺口。14 个过期分区仍保留，
+Phase 2 返回 `boundary_host_receipt_missing` 与 `qa_records_expired_partitions_attached`，
+不是因主动暂停上传而误报。宿主磁盘 timer 已 enabled/active，watcher 已识别上传暂停；
+每日 workflow 为 active，最新已完成轮次早于暂停感知代码合并，不能宣称新版每日任务已跑过。
+
+采集继续增长，所以暂停不代表可以无限期搁置。若当前/未来分区出现缺口、capture 堆积或磁盘
+逼近压力阈值，应保留失败证据并评估仅补建分区或扩容等独立操作；不要直接启动带清理能力的
+boundary，也不要自动恢复上传、解除 DROP pause 或删除旧 raw。恢复操作须另按其验收与授权边界执行。
 
 ## QA 与备份锁冲突
 
