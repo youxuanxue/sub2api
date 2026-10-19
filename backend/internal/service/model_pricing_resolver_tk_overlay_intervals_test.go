@@ -23,6 +23,36 @@ func overlayResolver(t *testing.T) *ModelPricingResolver {
 	return NewModelPricingResolver(nil, billing)
 }
 
+// overlayIntervalBoundarySamples derives ctx-token probes from overlay interval
+// boundaries (inclusive max, just above max, mid first tier, deep top tier).
+// No handwritten ¥ rates — only structural samples from the SSOT row.
+func overlayIntervalBoundarySamples(intervals []PricingInterval) []int {
+	seen := make(map[int]struct{})
+	var out []int
+	add := func(n int) {
+		if n < 0 {
+			return
+		}
+		if _, ok := seen[n]; ok {
+			return
+		}
+		seen[n] = struct{}{}
+		out = append(out, n)
+	}
+	for _, iv := range intervals {
+		if iv.MinTokens == 0 {
+			add(10_000)
+		}
+		if iv.MaxTokens != nil {
+			add(*iv.MaxTokens)
+			add(*iv.MaxTokens + 1)
+		} else {
+			add(iv.MinTokens + 100_000)
+		}
+	}
+	return out
+}
+
 // TestOverlayLoader_ParsesIntervals pins the loader: qwen3-coder-plus carries its
 // 4 input-token tiers with the right boundaries (min exclusive / max inclusive,
 // nil = unbounded top tier) and USD-per-token prices.
@@ -73,59 +103,66 @@ func TestOverlayLoader_ParsesIntervals(t *testing.T) {
 // TestOverlayIntervalPricing_CoderPlusWholeRequestTier verifies the end-to-end
 // resolver behaviour: overlay intervals land on ResolvedPricing.Intervals (no
 // channel), and GetIntervalPricing selects the whole-request tier by input-context
-// tokens — matching DashScope's "0<Token<=32K / ... / 256K<Token<=1M" model.
+// tokens. Expected rates are derived from overlay SSOT × base tax — not a
+// handwritten ¥/Mtok table.
 func TestOverlayIntervalPricing_CoderPlusWholeRequestTier(t *testing.T) {
+	const modelID = "qwen3-coder-plus"
+	overlayRow := loadTKPricingOverlay()[modelID]
+	require.NotNil(t, overlayRow, modelID)
+	require.Len(t, overlayRow.Intervals, 4)
+
 	r := overlayResolver(t)
-	resolved := r.Resolve(context.Background(), PricingInput{Model: "qwen3-coder-plus"})
+	resolved := r.Resolve(context.Background(), PricingInput{Model: modelID})
 	require.NotNil(t, resolved.BasePricing)
-	require.Len(t, resolved.Intervals, 4, "overlay intervals must populate ResolvedPricing.Intervals when no channel")
+	require.Len(t, resolved.Intervals, len(overlayRow.Intervals),
+		"overlay intervals must populate ResolvedPricing.Intervals when no channel")
 	require.Equal(t, PricingSourceLiteLLM, resolved.Source)
 
 	tax := tkOfficialListBaseTaxMultiplier()
-	withTax := func(cny float64) float64 {
-		return tax * tkCNYPerMTokToUSDPerToken(cny)
-	}
-	cases := []struct {
-		ctxTokens int
-		in, out   float64
-	}{
-		{10_000, withTax(4), withTax(16)},    // tier1 (0,32K] ¥4/¥16
-		{32_000, withTax(4), withTax(16)},    // 32K boundary stays tier1 (max inclusive)
-		{32_001, withTax(6), withTax(24)},    // tier2 (32K,128K] ¥6/¥24
-		{200_000, withTax(10), withTax(40)},  // tier3 (128K,256K] ¥10/¥40
-		{500_000, withTax(20), withTax(200)}, // tier4 (256K,inf) ¥20/¥200
-	}
-	for _, c := range cases {
-		p := r.GetIntervalPricing(resolved, c.ctxTokens)
-		require.NotNilf(t, p, "interval pricing @ %d ctx", c.ctxTokens)
-		require.InDeltaf(t, c.in, p.InputPricePerToken, 1e-15, "input @ %d ctx", c.ctxTokens)
-		require.InDeltaf(t, c.out, p.OutputPricePerToken, 1e-15, "output @ %d ctx", c.ctxTokens)
-		// Cache-read tokens must bill at the tier's full input rate ("用原价", no
-		// discount) — never $0. DashScope reports cached_tokens and the bridge maps
-		// them to CacheReadTokens (newapi_bridge_usage.go), so an unset cache price
-		// would silently bill cache hits free.
-		require.InDeltaf(t, c.in, p.CacheReadPricePerToken, 1e-15, "cache-read @ %d ctx must equal input rate", c.ctxTokens)
+	ctxSamples := overlayIntervalBoundarySamples(overlayRow.Intervals)
+	require.NotEmpty(t, ctxSamples)
+	for _, ctx := range ctxSamples {
+		want := FindMatchingInterval(overlayRow.Intervals, ctx)
+		require.NotNilf(t, want, "overlay interval @ %d ctx", ctx)
+		require.NotNil(t, want.InputPrice)
+		require.NotNil(t, want.OutputPrice)
+		require.NotNil(t, want.CacheReadPrice, "tier cache_read must be set in overlay SSOT")
+
+		p := r.GetIntervalPricing(resolved, ctx)
+		require.NotNilf(t, p, "interval pricing @ %d ctx", ctx)
+		require.InDeltaf(t, tax**want.InputPrice, p.InputPricePerToken, 1e-15, "input @ %d ctx", ctx)
+		require.InDeltaf(t, tax**want.OutputPrice, p.OutputPricePerToken, 1e-15, "output @ %d ctx", ctx)
+		require.InDeltaf(t, tax**want.CacheReadPrice, p.CacheReadPricePerToken, 1e-15,
+			"cache-read @ %d ctx must match overlay tier (never $0 / full input)", ctx)
+		require.Less(t, p.CacheReadPricePerToken, p.InputPricePerToken,
+			"cache-read @ %d ctx must stay below input", ctx)
 	}
 }
 
 // TestOverlayIntervalPricing_PlusFlashTwoTier covers the 2-tier (256K) models.
+// Rates come from overlay SSOT; ctx samples are interval boundaries only.
 func TestOverlayIntervalPricing_PlusFlashTwoTier(t *testing.T) {
 	r := overlayResolver(t)
-
-	plus := r.Resolve(context.Background(), PricingInput{Model: "qwen3.7-plus"})
-	require.Len(t, plus.Intervals, 2)
 	tax := tkOfficialListBaseTaxMultiplier()
-	withTax := func(cny float64) float64 {
-		return tax * tkCNYPerMTokToUSDPerToken(cny)
-	}
-	require.InDelta(t, withTax(2), r.GetIntervalPricing(plus, 100_000).InputPricePerToken, 1e-15)   // tier1 ¥2
-	require.InDelta(t, withTax(6), r.GetIntervalPricing(plus, 300_000).InputPricePerToken, 1e-15)   // tier2 ¥6
-	require.InDelta(t, withTax(24), r.GetIntervalPricing(plus, 300_000).OutputPricePerToken, 1e-15) // tier2 ¥24
 
-	flash := r.Resolve(context.Background(), PricingInput{Model: "qwen3.6-flash"})
-	require.Len(t, flash.Intervals, 2)
-	require.InDelta(t, withTax(1.2), r.GetIntervalPricing(flash, 100_000).InputPricePerToken, 1e-15)   // tier1 ¥1.2
-	require.InDelta(t, withTax(28.8), r.GetIntervalPricing(flash, 300_000).OutputPricePerToken, 1e-15) // tier2 ¥28.8
+	assertOverlayIntervalResolve := func(modelID string) {
+		t.Helper()
+		overlayRow := loadTKPricingOverlay()[modelID]
+		require.NotNil(t, overlayRow, modelID)
+		require.Len(t, overlayRow.Intervals, 2, modelID)
+		resolved := r.Resolve(context.Background(), PricingInput{Model: modelID})
+		require.Len(t, resolved.Intervals, 2, modelID)
+		for _, ctx := range overlayIntervalBoundarySamples(overlayRow.Intervals) {
+			want := FindMatchingInterval(overlayRow.Intervals, ctx)
+			require.NotNilf(t, want, "%s overlay interval @ %d", modelID, ctx)
+			p := r.GetIntervalPricing(resolved, ctx)
+			require.NotNilf(t, p, "%s interval pricing @ %d", modelID, ctx)
+			require.InDeltaf(t, tax**want.InputPrice, p.InputPricePerToken, 1e-15, "%s input @ %d", modelID, ctx)
+			require.InDeltaf(t, tax**want.OutputPrice, p.OutputPricePerToken, 1e-15, "%s output @ %d", modelID, ctx)
+		}
+	}
+	assertOverlayIntervalResolve("qwen3.7-plus")
+	assertOverlayIntervalResolve("qwen3.6-flash")
 }
 
 func TestOverlayIntervalPricing_GLM51UsesMigrationBaselineFlatPriceAndBaseTax(t *testing.T) {
@@ -146,18 +183,24 @@ func TestOverlayIntervalPricing_GLM51UsesMigrationBaselineFlatPriceAndBaseTax(t 
 
 // TestOverlayIntervals_FlatModelUnaffected guards the orthogonality: a flat overlay
 // model (qwen3.7-max) carries no intervals, so it resolves to plain flat pricing.
+// Expected rates are derived from overlay SSOT × base tax.
 func TestOverlayIntervals_FlatModelUnaffected(t *testing.T) {
+	const modelID = "qwen3.7-max"
+	overlayRow := loadTKPricingOverlay()[modelID]
+	require.NotNil(t, overlayRow, modelID)
+	require.Empty(t, overlayRow.Intervals, "fixture must be a flat overlay row")
+	require.Greater(t, overlayRow.CacheReadInputTokenCost, 0.0)
+	require.Less(t, overlayRow.CacheReadInputTokenCost, overlayRow.InputCostPerToken)
+
 	r := overlayResolver(t)
-	resolved := r.Resolve(context.Background(), PricingInput{Model: "qwen3.7-max"})
+	resolved := r.Resolve(context.Background(), PricingInput{Model: modelID})
 	require.Empty(t, resolved.Intervals, "flat overlay model must not gain intervals")
 	require.NotNil(t, resolved.BasePricing)
 	tax := tkOfficialListBaseTaxMultiplier()
-	withTax := func(cny float64) float64 {
-		return tax * tkCNYPerMTokToUSDPerToken(cny)
-	}
-	require.InDelta(t, withTax(12), resolved.BasePricing.InputPricePerToken, 1e-15)
-	// cache-read billed at full input rate ("用原价"), not $0.
-	require.InDelta(t, withTax(12), resolved.BasePricing.CacheReadPricePerToken, 1e-15)
+	require.InDelta(t, tax*overlayRow.InputCostPerToken, resolved.BasePricing.InputPricePerToken, 1e-15)
+	require.InDelta(t, tax*overlayRow.CacheReadInputTokenCost, resolved.BasePricing.CacheReadPricePerToken, 1e-15)
+	require.Less(t, resolved.BasePricing.CacheReadPricePerToken, resolved.BasePricing.InputPricePerToken,
+		"cache_read must stay below input (not $0 and not full input)")
 }
 
 func TestOverlayIntervals_ChannelFlatOverrideSuppressesRegistryTiers(t *testing.T) {
