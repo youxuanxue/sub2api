@@ -25,9 +25,21 @@ def fixture():
 
 
 class DomesticBluegreenTest(unittest.TestCase):
+    def _pool_env(self, **overrides):
+        values = {
+            'GOMEMLIMIT': '1GiB',
+            'DATABASE_MAX_OPEN_CONNS': '40',
+            'DATABASE_MAX_IDLE_CONNS': '10',
+            'REDIS_POOL_SIZE': '96',
+            'REDIS_MIN_IDLE_CONNS': '8',
+        }
+        values.update(overrides)
+        return values
+
     def test_candidate_preserves_runtime_and_reuses_only_private_network(self):
         current = fixture()
-        service = {'image': 'old', 'environment': {'JWT_SECRET': 'stale'},
+        service = {'image': 'old',
+                   'environment': {'JWT_SECRET': 'stale', **self._pool_env()},
                    'depends_on': {'postgres': {}}, 'ports': ['18080:8080'],
                    'networks': {'old': {}}, 'volumes': [{'source': '/var/lib/tokenkey/app',
                                                         'target': '/app/data', 'type': 'bind'}]}
@@ -46,23 +58,71 @@ class DomesticBluegreenTest(unittest.TestCase):
         self.assertEqual(set(actual['services']), {'tokenkey-blue'})
         self.assertEqual(service['image'], 'old')
 
+    def test_candidate_overlays_pool_env_from_compose_not_secrets(self):
+        current = fixture()
+        volumes = [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}]
+        service = {
+            'volumes': volumes,
+            'environment': {
+                **self._pool_env(GOMEMLIMIT='2GiB'),
+                'JWT_SECRET': 'stale-must-not-win',
+            },
+        }
+        app = bg.candidate_compose(service, current, 'sha256:new', 'tokenkey-green')[
+            'services']['tokenkey-green']
+        self.assertEqual(app['environment']['GOMEMLIMIT'], '2GiB')
+        self.assertEqual(app['environment']['DATABASE_MAX_OPEN_CONNS'], '40')
+        self.assertEqual(app['environment']['DATABASE_MAX_IDLE_CONNS'], '10')
+        self.assertEqual(app['environment']['REDIS_POOL_SIZE'], '96')
+        self.assertEqual(app['environment']['REDIS_MIN_IDLE_CONNS'], '8')
+        self.assertEqual(app['environment']['JWT_SECRET'], 'literal$${value}')
+        self.assertEqual(app['environment']['DATABASE_HOST'], 'postgres')
+        self.assertEqual(app['ports'][0]['published'], '18082')
+
+    def test_candidate_rejects_missing_or_blank_pool_env_keys(self):
+        volumes = [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}]
+        for broken in (
+            {},
+            self._pool_env(GOMEMLIMIT=''),
+            {k: v for k, v in self._pool_env().items() if k != 'REDIS_POOL_SIZE'},
+        ):
+            with self.subTest(environment=broken), self.assertRaisesRegex(
+                    ValueError, 'missing pool env keys'):
+                bg.candidate_compose({'volumes': volumes, 'environment': broken},
+                                     fixture(), 'sha256:new', 'tokenkey-blue')
+
+    def test_candidate_rejects_non_mapping_service_environment(self):
+        service = {
+            'volumes': [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}],
+            'environment': ['GOMEMLIMIT=2GiB'],
+        }
+        with self.assertRaises(ValueError):
+            bg.candidate_compose(service, fixture(), 'sha256:new', 'tokenkey-blue')
+
     def test_candidate_rejects_mount_drift_before_starting(self):
-        service = {'volumes': [{'type': 'bind', 'source': '/var/lib/tokenkey/app',
-                                'target': '/app/data'}]}
+        volume = {'type': 'bind', 'source': '/var/lib/tokenkey/app', 'target': '/app/data'}
         for change in ({'source': '/tmp/empty'}, {'target': '/other'},
                        {'read_only': True}, {'type': 'volume'}):
             with self.subTest(change=change), self.assertRaises(ValueError):
-                bg.candidate_compose({'volumes': [service['volumes'][0] | change]},
-                                     fixture(), 'sha256:new', 'tokenkey-blue')
+                bg.candidate_compose(
+                    {'volumes': [volume | change], 'environment': self._pool_env()},
+                    fixture(), 'sha256:new', 'tokenkey-blue')
         with self.assertRaises(ValueError):
-            bg.candidate_compose({}, fixture(), 'sha256:new', 'tokenkey-blue')
+            bg.candidate_compose({'environment': self._pool_env()}, fixture(),
+                                 'sha256:new', 'tokenkey-blue')
         current = fixture()
         current['Mounts'][0]['Source'] = '/tmp/empty'
         with self.assertRaises(ValueError):
-            bg.candidate_compose({'volumes': [service['volumes'][0] | {'source': '/tmp/empty'}]},
-                                 current, 'sha256:new', 'tokenkey-blue')
+            bg.candidate_compose(
+                {'volumes': [volume | {'source': '/tmp/empty'}],
+                 'environment': self._pool_env()},
+                current, 'sha256:new', 'tokenkey-blue')
 
     def test_candidate_refuses_overseas_or_changed_qa_boundary(self):
+        service = {
+            'volumes': [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}],
+            'environment': self._pool_env(),
+        }
         for replacement in ('SERVER_FRONTEND_URL=https://api.tokenkey.dev',
                             'QA_CAPTURE_ENABLED=true'):
             current = fixture()
@@ -70,7 +130,7 @@ class DomesticBluegreenTest(unittest.TestCase):
             current['Config']['Env'] = [replacement if v.startswith(name + '=') else v
                                          for v in current['Config']['Env']]
             with self.subTest(value=replacement), self.assertRaises(ValueError):
-                bg.candidate_compose({}, current, 'sha256:new', 'tokenkey-blue')
+                bg.candidate_compose(service, current, 'sha256:new', 'tokenkey-blue')
 
     def test_route_resolution_rejects_foreign_or_ambiguous_routes(self):
         caddy = 'api-cn.tokenkey.dev {\n reverse_proxy tokenkey:8080 {\n }\n}\n'

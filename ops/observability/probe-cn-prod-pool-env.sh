@@ -12,7 +12,7 @@ OVERRIDE="$ROOT/compose.override.yml"
 CADDY_FILE="${CADDY_FILE:-/var/lib/tokenkey/caddy/Caddyfile}"
 APPLY="${APPLY:-}"
 
-export WANT_GOMEM="1GiB"
+export WANT_GOMEM="2GiB"
 export WANT_DB_OPEN="40"
 export WANT_DB_IDLE="10"
 export WANT_REDIS_POOL="96"

@@ -76,12 +76,39 @@ def identity(container):
     }
 
 
+# Owned by deploy/domestic/compose.override.yml. Prepare must overlay these from
+# resolved compose config so pool/capacity bumps can land via blue/green without
+# force-recreating the publicly routed color. Secrets stay on the live container.
+POOL_ENV_KEYS = (
+    'GOMEMLIMIT',
+    'DATABASE_MAX_OPEN_CONNS',
+    'DATABASE_MAX_IDLE_CONNS',
+    'REDIS_POOL_SIZE',
+    'REDIS_MIN_IDLE_CONNS',
+)
+
+
 def candidate_compose(service, current, image, target):
     env = dict(item.split('=', 1) for item in current['Config']['Env'])
     if env.get('SERVER_FRONTEND_URL', '').rstrip('/') != 'https://' + DOMAIN:
         raise ValueError('refusing non-cn-prod application environment')
     if env.get('QA_CAPTURE_ENABLED', '').lower() != 'false':
         raise ValueError('domestic QA capture must remain disabled')
+    service_env = service.get('environment') or {}
+    if not isinstance(service_env, dict):
+        raise ValueError('compose service environment must be a mapping')
+    # Fail closed: incomplete override must not silently keep the live pool
+    # sizes, or prepare would look successful while capacity bumps never land.
+    missing = [
+        key for key in POOL_ENV_KEYS
+        if key not in service_env
+        or service_env[key] is None
+        or not str(service_env[key]).strip()
+    ]
+    if missing:
+        raise ValueError('compose service missing pool env keys: ' + ', '.join(missing))
+    for key in POOL_ENV_KEYS:
+        env[key] = str(service_env[key]).strip()
     networks = current['NetworkSettings']['Networks']
     if len(networks) != 1:
         raise ValueError('expected one existing private application network')
