@@ -16020,10 +16020,13 @@
         "normalizeStrictChatDeveloperRoles(account, targetURL, body)",
         "func coalescePlanChatTokenLimit(",
         "body = coalescePlanChatTokenLimit(body)",
+        "func clampVolcPlanChatSamplingBounds(",
+        "body = clampVolcPlanChatSamplingBounds(body)",
+        "volcPlanKimiK3MaxTokensMax",
         "func normalizeChatToolConstraints(",
         "delete(root, \"functions\")"
       ],
-      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role/token-limit owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role/token-limit owner across raw and adaptor paths; Volc Agent Plan sampling clamp + kimi-k3 max_tokens ceiling stay wired. See docs/approved/chat-plan-parameter-compatibility.md."
     },
     {
       "path": "backend/internal/service/openai_chat_roles.go",
@@ -16067,11 +16070,12 @@
         "func TestChatToolConstraints_InvalidAndUnconstrained(",
         "func TestChatProviderConstraints_DestinationAndRetryIsolation(",
         "func TestChatProviderConstraints_PlanTokenLimitCoalesce(",
+        "func TestChatProviderConstraints_VolcPlanSamplingBounds(",
         "func TestChatProviderConstraints_ForwardRawAndAliAdaptor(",
         "func TestChatProviderConstraints_InvalidSelectionDoesNotSend(",
         "func TestChatProviderConstraints_ResponsesFallback("
       ],
-      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role/token-limit owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role/token-limit owner across raw and adaptor paths; Volc sampling/kimi-k3 max_tokens regressions stay wired. See docs/approved/chat-plan-parameter-compatibility.md."
     },
     {
       "path": "backend/internal/server/routes/gateway_terminal_routes.go",
