@@ -114,8 +114,9 @@ Docker 的 `unless-stopped` 重启策略负责活动容器重启；原单容器 
 {"revision":"候选完整SHA","container_id":"候选完整Docker ID","cases":[{"case":"实际用例名","passed":true}]}
 ```
 
-`cases` 必须来自真实实测，失败或未执行用例不得删掉。计划和烟测报告通过 SSH 放到主机
-私有目录。`promote` 在切流前核对源码/容器身份及全部用例通过，并固化控制脚本与证据哈希。
+`cases` 必须来自真实实测，失败或未执行用例不得删掉。计划和烟测报告默认经 SSM
+（Run Command / Session Manager）写入主机私有目录；仅恢复路径才用受限 SSH。`promote`
+在切流前核对源码/容器身份及全部用例通过，并固化控制脚本与证据哈希。
 `--public-url` 必须与 `prod-target.json` 中的 `public_origin` 一致，该清单也供公网监控使用，
 并随发布证据固化哈希；填入其他公网 IP 会在切流前拒绝。原国内域名已切往 AWS，不能用
 域名的健康响应代替 UCloud 验证。

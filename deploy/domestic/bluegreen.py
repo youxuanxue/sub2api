@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""cn-prod SSH host adapter for the shared Stage0 cutover/drain primitives.
+"""cn-prod host adapter for the shared Stage0 cutover/drain primitives.
 
-Run on cn-prod as root. prepare never changes the public route. promote requires
-the exact private receipt hash, rechecks container/config identities, then uses
-the shared Caddy transaction and verified drain. No database or Redis recreation.
+Run on cn-prod as root (normally via AWS SSM Hybrid; SSH is recovery-only).
+prepare never changes the public route. promote requires the exact private
+receipt hash, rechecks container/config identities, then uses the shared Caddy
+transaction and verified drain. No database or Redis recreation.
 """
 import argparse
 import copy

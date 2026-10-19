@@ -22,8 +22,9 @@ PostgreSQL、Redis；仅接入境内 Agent Plan / Token Plan，提供 API key、
 - UCloud 项目 `org-bpx31r`，地域 `cn-bj2`，可用区 `cn-bj2-02`。
 - 一台 `cn-prod`：快杰 O 型，2 CPU / 4 GiB，Ubuntu 24.04 amd64。
 - 40 GiB SSD 系统盘、20 GiB SSD 数据盘；业务数据挂载 `/var/lib/tokenkey`。
-- 复用该项目北京二默认 VPC/subnet；独立防火墙，仅公网 TCP 80/443，SSH 22 仅运维出口 /32。
-  数据库、Redis 和应用 8080 不开放公网。SSH 仅密钥认证。
+- 复用该项目北京二默认 VPC/subnet；独立防火墙，仅公网 TCP 80/443；日常运维走 AWS SSM Hybrid，
+  不长期开放公网 SSH 22。数据库、Redis 和应用 8080 不开放公网。SSH 仅密钥认证，且只用于
+  一次性 agent bootstrap 或 GHCR/SSM 不可用时的恢复（临时放行运维出口 `/32`，完成即移除）。
 - 一枚 BGP EIP、5 Mbps 固定带宽。官方即时月付报价：主机与磁盘 ¥209，EIP 带宽 ¥125，
   合计 ¥334/月；最终扣款以订单为准。数量固定为一台，不开自动扩容。
 
@@ -63,8 +64,11 @@ RPO/RTO 按用户要求后续运维处理，本期不作恢复能力承诺，不
 完整导入结果只写本机 0700 目录下的 0600 文件，不写仓库、命令输出或 PR。
 
 复用 `deploy/aws/stage0/docker-compose.yml`，国内 override 关闭 QA capture 和 telemetry。
-发布采用已经发布的 amd64 镜像，固定 digest；若云主机不能直接拉取，运维机校验镜像后通过
-受限 SSH 传输 Docker archive，再校验加载结果。此路径不执行 Hetzner 发布 workflow。
+发布复用与 AWS prod 相同的已发布 amd64 GHCR 包（固定 digest / version label）。默认经
+AWS SSM Hybrid 在主机上 `docker pull`（入口 `deploy/domestic/deploy_via_ssm.sh`，身份读
+`deploy/domestic/prod-target.json`）；仅当 GHCR 拉取或 SSM 不可用时，才走运维机校验 archive
+→ 受限 SSH 传输 → `docker load` 的恢复路径。运维叙述唯一 owner 为
+`deploy/domestic/README.md`。此路径不执行 Hetzner / `deploy-stage0` workflow。
 
 数据盘初始化仅接受确认是新建、未挂载且无文件系统的数据盘；已有文件系统只能核验并挂载，
 不得格式化。部署前运行 preflight。后续升级须保留共享 drain 和健康检查契约，首次 bootstrap
@@ -84,6 +88,7 @@ QA 旧路径由应用、鉴权和退役状态裁决。
 | 行为 | 共享 owner | 验证 |
 |---|---|---|
 | cn-prod 与 prod 复用共享 Caddy，产品和旧路径保持应用所有权 | `deploy/domestic/prepare-runtime.py` 渲染共享 Caddy 模板 | `deploy/domestic/test_runtime.py` 真实 Caddy 产品、媒体/provider/实时/旧 QA 路径转发测试，经 `caddyfile-syntax.sh` 进入 preflight |
+| cn-prod 发版默认 SSM Hybrid + 主机 GHCR pull（离线 SSH 仅恢复） | `deploy/domestic/deploy_via_ssm.sh` + `deploy/domestic/prod-target.json`；叙述 `deploy/domestic/README.md` | `deploy/domestic/test_deploy_via_ssm.py`，经 `caddyfile-syntax.sh` 进入 preflight |
 
 # DNS、TLS 与验收
 
@@ -114,5 +119,7 @@ QA 旧路径由应用、鉴权和退役状态裁决。
 2026-10-15 用户明确要求“#2650 已合并。蓝绿发布部署 cn-prod。只部署 cn-prod 哈”。
 范围仅为 UCloud 国内节点：先启动同库候选并实测，使用共享 Caddy 切流和排空契约，
 保留旧容器/镜像供回退；不调用海外 prod/edge dispatcher，不改变用户、额度或供应配置。
-SSH 运维出口变化时只临时增加当前出口 /32，发布结束移除临时规则。国内 SSH 适配入口
-见 `deploy/domestic/bluegreen.py`；其运维说明统一放在 `deploy/domestic/README.md`。
+默认发版：`deploy_via_ssm.sh` `pull` → `sync-controls` → `prepare`，再主机侧候选实测与
+`bluegreen.py promote`（经 SSM Run Command / Session Manager）。日常不得为发版开放公网
+SSH 22；仅恢复路径临时放行运维出口 `/32` 并在结束后移除。主机适配入口见
+`deploy/domestic/bluegreen.py`；运维说明唯一 owner 为 `deploy/domestic/README.md`。

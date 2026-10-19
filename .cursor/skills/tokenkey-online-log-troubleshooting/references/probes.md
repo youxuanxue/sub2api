@@ -5,7 +5,8 @@
 | 步骤 | 类型 | 承载 |
 |---|---|---|
 | 解析 prod target（region / instance_id / domain） | 机械 | `ops/stage0/resolve_prod_ssm_target.py` |
-| SSM base64 投递 + send-command + poll | 机械 | `ops/observability/run-probe.sh --target prod --script <probe.sh>` |
+| 解析 cn-prod SSM 身份（region / managed instance） | 机械 | `deploy/domestic/prod-target.json`（由 `run-probe.sh --target cn-prod` 读取） |
+| SSM base64 投递 + send-command + poll | 机械 | `ops/observability/run-probe.sh --target prod\|cn-prod --script <probe.sh>`（cn-prod 走 Hybrid managed instance，不开放公网 SSH） |
 | `ops_error_logs` 标准聚合（schema + by_status + upstream_events，保留 reason/截断 message + 429-by-minute） | 机械 | `ops/observability/ops-error-triage.sh`（通过 run-probe.sh 投递） |
 | final-429 / 5xx 分类（config-cap vs 空池 #575 vs 真上游：by error_type/owner/phase + by group·model·account + 5min 桶） | 机械 | `ops/observability/probe-429-classify.sh`（通过 run-probe.sh 投递；`WINDOW_HOURS` 默认 3；triage 后的分类深挖） |
 | SLA Dashboard 等价拆解（success/error_total/error_sla/client_faults + by_status owner 口径 + top SLA messages） | 机械 | `ops/observability/probe-sla-breakdown.sh`（通过 run-probe.sh 投递；`WINDOW_HOURS` 默认 24；对齐 Admin Ops `error_owner` SLA 公式） |
