@@ -1912,13 +1912,27 @@
       "path": "frontend/src/views/admin/AccountsView.vue",
       "must_contain": [
         "useTkAccountUsageBatch",
+        "import AccountUsageCell from '@/components/account/AccountUsageCell.vue'",
         ":usage-override=\"accountUsageOverrideFor(row)\"",
         "const refreshAccountRowMetrics = (refreshTodayStats = true) => {",
         "refreshTodayStatsBatch().catch(",
         "refreshUsageBatch(rows).catch(",
         "refreshAccountRowMetrics()"
       ],
-      "rationale": "Injection points where the upstream-shaped accounts list wires the batch passive-usage composable: the cell usage-override binding (suppresses per-row self-fetch) and the refreshAccountRowMetrics helper that kicks today-stats and usage-batch loading after list load/reload/auto-refresh without serializing those background requests on the main list response. An upstream merge re-resolving AccountsView could drop the override binding (cells fall back to N self-fetches), restore serialized row metrics, or stop refreshing overrides after list changes. Pins the import, the cell binding, and the concurrent row-metric refresh helper/calls."
+      "must_not_contain": [
+        "defineAsyncComponent(() => import('@/components/account/AccountUsageCell.vue'))"
+      ],
+      "rationale": "Injection points where the upstream-shaped accounts list wires the batch passive-usage composable: the cell usage-override binding (suppresses per-row self-fetch) and the refreshAccountRowMetrics helper that kicks today-stats and usage-batch loading after list load/reload/auto-refresh without serializing those background requests on the main list response. AccountUsageCell must stay an eager import: under onlyExplicitManualChunks, async-loading it while sharing accountUsageBatch/GoogleVerificationLink with this view recreates an AccountsView ↔ AccountUsageCell cycle that leaves usesLocalUsageWindows undefined at cell setup and blanks the 用量窗口 column. An upstream merge re-resolving AccountsView could drop the override binding (cells fall back to N self-fetches), restore serialized row metrics, reintroduce the async cell import, or stop refreshing overrides after list changes. Pins the eager import, the cell binding, and the concurrent row-metric refresh helper/calls."
+    },
+    {
+      "path": "frontend/vite.config.ts",
+      "must_contain": [
+        "return 'admin-account-usage'",
+        "/utils/accountUsageBatch.tk",
+        "/components/account/AccountUsageCell.vue",
+        "/components/account/usage-cells/"
+      ],
+      "rationale": "Manual chunk that keeps account usage helpers/cells out of the AccountsView chunk under onlyExplicitManualChunks. Without it, shared modules land in AccountsView and an async AccountUsageCell imports them back, blanking the admin 用量窗口 column. Pins the chunk name and the load-bearing path filters."
     },
     {
       "path": "frontend/src/api/admin/accounts.ts",
