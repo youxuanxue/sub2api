@@ -206,7 +206,14 @@ func writeOpenAIResponsesInputTokensFallback(c *gin.Context, account *Account, p
 }
 
 func writeOpenAIResponsesInputTokensError(c *gin.Context, status int, errType, message string) {
+	orig := message
 	message, _ = TkSanitizeBusy429WireMessage(status, message)
+	if public, sanitized := TkSanitizeUpstreamProductWireMessage(message); sanitized {
+		TkAnnotateUpstreamProductOps(c, errType, status, orig)
+		message = public
+	} else {
+		message = public
+	}
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"type":    errType,
@@ -515,7 +522,14 @@ func (s *OpenAIGatewayService) buildInputTokensUpstreamRequest(
 }
 
 func writeAnthropicCountTokensError(c *gin.Context, status int, errType, message string) {
+	orig := message
 	message, _ = TkSanitizeBusy429WireMessage(status, message)
+	if public, sanitized := TkSanitizeUpstreamProductWireMessage(message); sanitized {
+		TkAnnotateUpstreamProductOps(c, errType, status, orig)
+		message = public
+	} else {
+		message = public
+	}
 	c.JSON(status, gin.H{
 		"type": "error",
 		"error": gin.H{

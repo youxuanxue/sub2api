@@ -36,6 +36,7 @@ func (e *NewAPIRelayError) ResponsesClientError() (newapitypes.OpenAIError, bool
 	}
 	payload := e.Err.ToOpenAIError()
 	payload.Message = sanitizeUpstreamErrorMessage(strings.TrimSpace(payload.Message))
+	payload.Message, _ = TkSanitizeUpstreamProductWireMessage(payload.Message)
 	payload.Type = sanitizeUpstreamErrorMessage(payload.Type)
 	payload.Param = sanitizeUpstreamErrorMessage(payload.Param)
 	if code, ok := payload.Code.(string); ok {

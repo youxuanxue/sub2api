@@ -22,17 +22,17 @@ func volcEnginePlanMultimodalEmbeddingInput(body []byte) bool {
 func normalizeVolcEnginePlanEmbeddingResponse(body []byte) ([]byte, error) {
 	var response map[string]json.RawMessage
 	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("invalid Agent Plan embedding response: %w", err)
+		return nil, fmt.Errorf("invalid embedding response: %w", err)
 	}
 	var item struct {
 		Embedding []float64 `json:"embedding"`
 	}
 	if err := json.Unmarshal(response["data"], &item); err != nil || len(item.Embedding) == 0 {
-		return nil, fmt.Errorf("agent plan embedding response missing vector")
+		return nil, fmt.Errorf("embedding response missing vector")
 	}
 	for _, value := range item.Embedding {
 		if math.IsNaN(value) || math.IsInf(value, 0) {
-			return nil, fmt.Errorf("agent plan embedding response contains non-finite value")
+			return nil, fmt.Errorf("embedding response contains non-finite value")
 		}
 	}
 	data, err := json.Marshal([]any{map[string]any{

@@ -2030,6 +2030,8 @@ func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, acc
 		}
 	}
 
+	errMsg, _ = TkSanitizeBusy429WireMessage(statusCode, errMsg)
+	errMsg, _ = TkSanitizeUpstreamProductWireMessage(errMsg)
 	c.JSON(statusCode, gin.H{
 		"type":  "error",
 		"error": gin.H{"type": errType, "message": errMsg},

@@ -66,7 +66,7 @@ func encodeVolcEngineASRFrame(kind byte, sequence int32, payload []byte) []byte 
 }
 
 func decodeVolcEngineASRFrame(frame []byte) (*volcEngineASRResult, bool, error) {
-	invalid := fmt.Errorf("invalid Agent Plan ASR frame")
+	invalid := fmt.Errorf("invalid ASR frame")
 	if len(frame) < 8 || len(frame) > volcEngineASRFrameLimit || frame[0] != 0x11 || frame[3] != 0 {
 		return nil, false, invalid
 	}
@@ -93,7 +93,7 @@ func decodeVolcEngineASRFrame(frame []byte) (*volcEngineASRResult, bool, error) 
 			return nil, false, invalid
 		}
 		// Provider error text can contain user data. Keep only the numeric code.
-		return nil, false, fmt.Errorf("agent plan ASR failed (code %d)", binary.BigEndian.Uint32(payload))
+		return nil, false, fmt.Errorf("ASR failed (code %d)", binary.BigEndian.Uint32(payload))
 	}
 	if len(payload) < 4 || uint64(binary.BigEndian.Uint32(payload)) != uint64(len(payload)-4) {
 		return nil, false, invalid
@@ -133,14 +133,14 @@ func runVolcEngineASR(ctx context.Context, conn volcEngineASRConn, pcm []byte, i
 			return nil, false, err
 		}
 		if kind != coderws.MessageBinary {
-			return nil, false, fmt.Errorf("agent plan ASR requires binary frames")
+			return nil, false, fmt.Errorf("ASR requires binary frames")
 		}
 		return decodeVolcEngineASRFrame(frame)
 	}
 	if _, terminal, err := read(); err != nil {
-		return nil, fmt.Errorf("agent plan ASR initial response: %w", err)
+		return nil, fmt.Errorf("ASR initial response: %w", err)
 	} else if terminal {
-		return nil, fmt.Errorf("agent plan ASR ended before audio")
+		return nil, fmt.Errorf("ASR ended before audio")
 	}
 	sent := make(chan error, 1)
 	var lastFrameStarted atomic.Bool
@@ -175,13 +175,13 @@ func runVolcEngineASR(ctx context.Context, conn volcEngineASRConn, pcm []byte, i
 	for count := 0; count < 2048; count++ {
 		result, terminal, err := read()
 		if err != nil {
-			return nil, fmt.Errorf("agent plan ASR audio response: %w", err)
+			return nil, fmt.Errorf("ASR audio response: %w", err)
 		}
 		if terminal {
 			// Joining the sender also prevents a premature provider terminal event
 			// from reporting a successful partial recording.
 			if !lastFrameStarted.Load() {
-				return nil, fmt.Errorf("agent plan ASR ended before upload completed")
+				return nil, fmt.Errorf("ASR ended before upload completed")
 			}
 			select {
 			case sendErr := <-sent:
@@ -194,17 +194,17 @@ func runVolcEngineASR(ctx context.Context, conn volcEngineASRConn, pcm []byte, i
 			}
 			expectedMS := int64(len(pcm)) * 1000 / audio.PCMBytesPerSecond
 			if result.AudioInfo.Duration <= 0 || result.AudioInfo.Duration > expectedMS+1 || result.AudioInfo.Duration < expectedMS-1 {
-				return nil, fmt.Errorf("agent plan ASR returned inconsistent audio duration")
+				return nil, fmt.Errorf("ASR returned inconsistent audio duration")
 			}
 			return result, nil
 		}
 	}
-	return nil, fmt.Errorf("agent plan ASR response limit exceeded")
+	return nil, fmt.Errorf("ASR response limit exceeded")
 }
 
 func (s *OpenAIGatewayService) ForwardNativeAudioTranscription(ctx context.Context, c *gin.Context, account *Account, request *AudioTranscriptionRequest) (*OpenAIForwardResult, error) {
 	if !SupportsNativeAudioTranscription(account) || request.Model != VolcEnginePlanASRModel || account.GetMappedModel(request.Model) != VolcEnginePlanASRModel || len(request.PCM) == 0 {
-		return nil, fmt.Errorf("unsupported Agent Plan transcription request")
+		return nil, fmt.Errorf("unsupported transcription request")
 	}
 	token, _, err := s.getRequestCredential(ctx, c, account)
 	if err != nil {
@@ -228,7 +228,7 @@ func (s *OpenAIGatewayService) ForwardNativeAudioTranscription(ctx context.Conte
 			s.handleOpenAIAccountUpstreamError(ctx, account, status, responseHeaders, nil, request.Model)
 			return nil, &UpstreamFailoverError{StatusCode: status}
 		}
-		return nil, fmt.Errorf("agent plan ASR connection failed")
+		return nil, fmt.Errorf("ASR connection failed")
 	}
 	defer func() { _ = conn.Close() }()
 	if native, ok := conn.(*coderOpenAIWSClientConn); ok {
@@ -236,7 +236,7 @@ func (s *OpenAIGatewayService) ForwardNativeAudioTranscription(ctx context.Conte
 	}
 	binaryConn, ok := conn.(volcEngineASRConn)
 	if !ok {
-		return nil, fmt.Errorf("agent plan ASR binary transport unavailable")
+		return nil, fmt.Errorf("ASR binary transport unavailable")
 	}
 	result, err := runVolcEngineASR(ctx, binaryConn, request.PCM, volcEngineASRChunkInterval)
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(started).Milliseconds())

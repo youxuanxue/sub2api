@@ -18,7 +18,9 @@ func TkTryWriteNewAPIRelayErrorJSON(c *gin.Context, err error, streamStarted boo
 		return false
 	}
 	if c.Writer.Size() == writerSizeBeforeForward && !streamStarted {
-		c.JSON(nre.Err.StatusCode, gin.H{"error": nre.Err.ToOpenAIError()})
+		payload := nre.Err.ToOpenAIError()
+		payload.Message = tkSanitizeUpstreamProductWireMessage(c, nre.Err.StatusCode, payload.Type, payload.Message)
+		c.JSON(nre.Err.StatusCode, gin.H{"error": payload})
 	}
 	return true
 }

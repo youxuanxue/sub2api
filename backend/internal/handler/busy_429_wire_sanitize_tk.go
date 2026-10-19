@@ -5,20 +5,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// tkSanitizeBusy429WireMessage is the handler-layer choke for public HTTP 429
-// capacity / upstream-limit copy. When a legacy pool/account phrase would hit
-// the wire, rewrite to service.TkClientFacingBusy429Message and ensure ops
-// still keeps the original detail (MarkOpsStreamError is first-wins).
+// tkSanitizeBusy429WireMessage is the handler-layer choke for public error copy.
+// It first rewrites legacy HTTP 429 pool/account phrases to
+// service.TkClientFacingBusy429Message, then strips upstream plan/product
+// branding (Agent Plan / Token Plan / vendor docs) via the unsupported SSOT.
+// Ops keeps original detail (MarkOpsStreamError is first-wins).
 func tkSanitizeBusy429WireMessage(c *gin.Context, status int, errType, message string) string {
 	public, sanitized := service.TkSanitizeBusy429WireMessage(status, message)
-	if !sanitized {
-		return public
+	if sanitized {
+		if errType == "" {
+			errType = "api_error"
+		}
+		service.TkAnnotateBusy429Ops(c, errType, message)
+		message = public
+	} else {
+		message = public
 	}
-	if errType == "" {
-		errType = "api_error"
-	}
-	service.TkAnnotateBusy429Ops(c, errType, message)
-	return public
+	return tkSanitizeUpstreamProductWireMessage(c, status, errType, message)
 }
 
 // tkSanitizeBusy429StatusMessage is for writers that only have status+message

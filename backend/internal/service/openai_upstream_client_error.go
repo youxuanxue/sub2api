@@ -51,6 +51,8 @@ func writeOpenAIUpstreamClientError(c *gin.Context, statusCode int, body []byte,
 	if message == "" {
 		message = openAIUpstreamClientErrorFallbackMessage
 	}
+	// Wire-only rewrite: ops already recorded the original via SetOpsUpstreamError.
+	message, _ = TkSanitizeUpstreamProductWireMessage(message)
 	errorPayload["message"] = message
 
 	c.JSON(statusCode, gin.H{"error": errorPayload})
