@@ -32,6 +32,9 @@
   （`GOMEMLIMIT=1GiB`、DB open/idle `40/10`、Redis pool/idle `96/8`）；现网核对/写入用
   `ops/observability/probe-cn-prod-pool-env.sh`（经 `run-probe.sh --target cn-prod`，
   写入需 `APPLY=yes-tune-cn-prod-pools`）；
+  同时注入 `SECURITY_PROXY_PROBE_PRESET=domestic`，让 Admin 代理「出站探测」走国内
+  优先链（ipip → ip9 → qq-ip2city → ipify），避免默认境外 `ip-api.com` 在国内 SOCKS
+  上出现数秒假延迟。显式 `security.proxy_probe.urls` 仍优先于 preset。
   `compose.local.yml` 只将管理端口绑定到主机 loopback。
 - 默认经 AWS SSM Hybrid 在主机上 `docker pull` 同一 GHCR 发布包（见下方「SSM 蓝绿升级」）。
   仅当 GHCR/SSM 不可用时才走运维机离线 archive：核验 SHA-256 → `docker load`。Docker 29

@@ -31,24 +31,13 @@ func NewProxyExitInfoProber(cfg *config.Config) service.ProxyExitInfoProber {
 	if insecure {
 		log.Printf("[ProxyProbe] Warning: insecure_skip_verify is not allowed and will cause probe failure.")
 	}
-	// 构建探测 URL 列表：配置存在时覆盖内置默认列表。
-	var configuredTargets []configuredProbeTarget
-	if cfg != nil && len(cfg.Security.ProxyProbe.URLs) > 0 {
-		configuredTargets = make([]configuredProbeTarget, 0, len(cfg.Security.ProxyProbe.URLs))
-		for _, u := range cfg.Security.ProxyProbe.URLs {
-			configuredTargets = append(configuredTargets, configuredProbeTarget{
-				url:    u.URL,
-				parser: u.Parser,
-			})
-		}
-	}
 
 	return &proxyProbeService{
 		insecureSkipVerify:  insecure,
 		allowPrivateHosts:   allowPrivate,
 		validateResolvedIP:  validateResolvedIP,
 		maxResponseBytes:    maxResponseBytes,
-		configuredProbeURLs: configuredTargets,
+		configuredProbeURLs: resolveProxyProbeTargets(cfg),
 	}
 }
 
@@ -57,14 +46,27 @@ const (
 	defaultProxyProbeResponseMaxBytes = int64(1024 * 1024)
 )
 
-// probeURLs 按优先级排列的内置探测 URL 列表。
-// 某些 AI API 专用代理只允许访问特定域名，因此需要多个备选。
-var probeURLs = []struct {
+type probeTarget struct {
 	url    string
 	parser string
-}{
+}
+
+// probeURLsDefault is the overseas builtin chain (global / Tokyo prod).
+// Some AI-only proxies allowlist specific hosts, so keep multiple fallbacks.
+var probeURLsDefault = []probeTarget{
 	{"http://ip-api.com/json/?lang=zh-CN", "ip-api"},
 	{"http://api64.ipify.org?format=json", "ipify"},
+}
+
+// probeURLsDomestic is the China-first builtin chain for cn-prod.
+// Order: dedicated IP DBs first (stable), then fast opportunistic, then overseas.
+// Evidence 2026-10-19 via cn-prod SOCKS: ipip ~80–200ms, ip9 http ~100ms,
+// qq-ip2city ~70ms, api64.ipify ~2–3s; ip-api often 4–8s or SOCKS-fail.
+var probeURLsDomestic = []probeTarget{
+	{"https://myip.ipip.net/json", "ipip-json"},
+	{"http://ip9.com.cn/get", "ip9"},
+	{"https://r.inews.qq.com/api/ip2city", "qq-ip2city"},
+	{"https://api64.ipify.org?format=json", "ipify"},
 }
 
 type configuredProbeTarget struct {
@@ -80,6 +82,26 @@ type proxyProbeService struct {
 	configuredProbeURLs []configuredProbeTarget
 }
 
+func resolveProxyProbeTargets(cfg *config.Config) []configuredProbeTarget {
+	if cfg != nil && len(cfg.Security.ProxyProbe.URLs) > 0 {
+		out := make([]configuredProbeTarget, 0, len(cfg.Security.ProxyProbe.URLs))
+		for _, u := range cfg.Security.ProxyProbe.URLs {
+			out = append(out, configuredProbeTarget{url: u.URL, parser: u.Parser})
+		}
+		return out
+	}
+
+	builtin := probeURLsDefault
+	if cfg != nil && strings.EqualFold(strings.TrimSpace(cfg.Security.ProxyProbe.Preset), "domestic") {
+		builtin = probeURLsDomestic
+	}
+	out := make([]configuredProbeTarget, 0, len(builtin))
+	for _, p := range builtin {
+		out = append(out, configuredProbeTarget(p))
+	}
+	return out
+}
+
 func (s *proxyProbeService) ProbeProxy(ctx context.Context, proxyURL string) (*service.ProxyExitInfo, int64, error) {
 	client, err := httpclient.GetClient(httpclient.Options{
 		ProxyURL:           proxyURL,
@@ -93,25 +115,16 @@ func (s *proxyProbeService) ProbeProxy(ctx context.Context, proxyURL string) (*s
 	}
 
 	var lastErr error
-	if len(s.configuredProbeURLs) > 0 {
-		for _, probe := range s.configuredProbeURLs {
-			exitInfo, latencyMs, err := s.probeWithURL(ctx, client, probe.url, probe.parser)
-			if err == nil {
-				return exitInfo, latencyMs, nil
-			}
-			lastErr = err
-		}
-		return nil, 0, fmt.Errorf("all probe URLs failed, last error: %w", lastErr)
-	}
-
-	for _, probe := range probeURLs {
+	for _, probe := range s.configuredProbeURLs {
 		exitInfo, latencyMs, err := s.probeWithURL(ctx, client, probe.url, probe.parser)
 		if err == nil {
 			return exitInfo, latencyMs, nil
 		}
 		lastErr = err
 	}
-
+	if lastErr == nil {
+		return nil, 0, fmt.Errorf("no proxy probe URLs configured")
+	}
 	return nil, 0, fmt.Errorf("all probe URLs failed, last error: %w", lastErr)
 }
 
@@ -153,6 +166,12 @@ func (s *proxyProbeService) probeWithURL(ctx context.Context, client *http.Clien
 		return s.parseIPify(body, latencyMs)
 	case "chatgpt-trace":
 		return s.parseChatGPTTrace(body, latencyMs)
+	case "ipip-json":
+		return s.parseIPIPJSON(body, latencyMs)
+	case "ip9":
+		return s.parseIP9(body, latencyMs)
+	case "qq-ip2city":
+		return s.parseQQIP2City(body, latencyMs)
 	default:
 		return nil, latencyMs, fmt.Errorf("unknown parser: %s", parser)
 	}
@@ -240,6 +259,123 @@ func (s *proxyProbeService) parseChatGPTTrace(body []byte, latencyMs int64) (*se
 	}
 	if loc != "" {
 		info.CountryCode = loc
+	}
+	return info, latencyMs, nil
+}
+
+// parseIPIPJSON parses https://myip.ipip.net/json
+// {"ret":"ok","data":{"ip":"...","location":["中国","北京","北京","","ISP"]}}
+func (s *proxyProbeService) parseIPIPJSON(body []byte, latencyMs int64) (*service.ProxyExitInfo, int64, error) {
+	var result struct {
+		Ret  string `json:"ret"`
+		Data struct {
+			IP       string   `json:"ip"`
+			Location []string `json:"location"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, latencyMs, fmt.Errorf("failed to parse ipip-json response: %w", err)
+	}
+	if !strings.EqualFold(result.Ret, "ok") {
+		return nil, latencyMs, fmt.Errorf("ipip-json request failed: ret=%q", result.Ret)
+	}
+	if strings.TrimSpace(result.Data.IP) == "" {
+		return nil, latencyMs, fmt.Errorf("ipip-json: no IP found in response")
+	}
+	info := &service.ProxyExitInfo{IP: strings.TrimSpace(result.Data.IP)}
+	if len(result.Data.Location) > 0 {
+		info.Country = strings.TrimSpace(result.Data.Location[0])
+	}
+	if len(result.Data.Location) > 1 {
+		info.Region = strings.TrimSpace(result.Data.Location[1])
+	}
+	if len(result.Data.Location) > 2 {
+		info.City = strings.TrimSpace(result.Data.Location[2])
+	}
+	if strings.EqualFold(info.Country, "中国") || strings.EqualFold(info.Country, "china") {
+		info.CountryCode = "CN"
+	}
+	return info, latencyMs, nil
+}
+
+// parseIP9 parses https://ip9.com.cn/get
+// {"ret":200,"data":{"ip":"...","country":"中国","country_code":"cn","prov":"北京","city":"北京"}}
+func (s *proxyProbeService) parseIP9(body []byte, latencyMs int64) (*service.ProxyExitInfo, int64, error) {
+	var result struct {
+		Ret  json.RawMessage `json:"ret"`
+		Data struct {
+			IP          string `json:"ip"`
+			Country     string `json:"country"`
+			CountryCode string `json:"country_code"`
+			Prov        string `json:"prov"`
+			City        string `json:"city"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, latencyMs, fmt.Errorf("failed to parse ip9 response: %w", err)
+	}
+	if !ip9RetOK(result.Ret) {
+		return nil, latencyMs, fmt.Errorf("ip9 request failed: ret=%s", string(result.Ret))
+	}
+	if strings.TrimSpace(result.Data.IP) == "" {
+		return nil, latencyMs, fmt.Errorf("ip9: no IP found in response")
+	}
+	return &service.ProxyExitInfo{
+		IP:          strings.TrimSpace(result.Data.IP),
+		Country:     strings.TrimSpace(result.Data.Country),
+		CountryCode: strings.ToUpper(strings.TrimSpace(result.Data.CountryCode)),
+		Region:      strings.TrimSpace(result.Data.Prov),
+		City:        strings.TrimSpace(result.Data.City),
+	}, latencyMs, nil
+}
+
+func ip9RetOK(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var asInt int
+	if err := json.Unmarshal(raw, &asInt); err == nil {
+		return asInt == 200
+	}
+	var asStr string
+	if err := json.Unmarshal(raw, &asStr); err == nil {
+		return asStr == "200" || strings.EqualFold(asStr, "ok")
+	}
+	return false
+}
+
+// parseQQIP2City parses https://r.inews.qq.com/api/ip2city
+// {"ret":0,"ip":"...","country":"中国","province":"北京市","city":"北京市"}
+func (s *proxyProbeService) parseQQIP2City(body []byte, latencyMs int64) (*service.ProxyExitInfo, int64, error) {
+	var result struct {
+		Ret      int    `json:"ret"`
+		ErrMsg   string `json:"errMsg"`
+		IP       string `json:"ip"`
+		Country  string `json:"country"`
+		Province string `json:"province"`
+		City     string `json:"city"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, latencyMs, fmt.Errorf("failed to parse qq-ip2city response: %w", err)
+	}
+	if result.Ret != 0 {
+		msg := result.ErrMsg
+		if msg == "" {
+			msg = fmt.Sprintf("ret=%d", result.Ret)
+		}
+		return nil, latencyMs, fmt.Errorf("qq-ip2city request failed: %s", msg)
+	}
+	if strings.TrimSpace(result.IP) == "" {
+		return nil, latencyMs, fmt.Errorf("qq-ip2city: no IP found in response")
+	}
+	info := &service.ProxyExitInfo{
+		IP:      strings.TrimSpace(result.IP),
+		Country: strings.TrimSpace(result.Country),
+		Region:  strings.TrimSpace(result.Province),
+		City:    strings.TrimSpace(result.City),
+	}
+	if strings.EqualFold(info.Country, "中国") || strings.EqualFold(info.Country, "china") {
+		info.CountryCode = "CN"
 	}
 	return info, latencyMs, nil
 }

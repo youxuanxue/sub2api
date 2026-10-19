@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -22,7 +23,8 @@ type ProxyProbeServiceSuite struct {
 func (s *ProxyProbeServiceSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.prober = &proxyProbeService{
-		allowPrivateHosts: true,
+		allowPrivateHosts:   true,
+		configuredProbeURLs: resolveProxyProbeTargets(nil),
 	}
 }
 
@@ -180,6 +182,92 @@ func (s *ProxyProbeServiceSuite) TestParseChatGPTTrace_NoIP() {
 	_, _, err := s.prober.parseChatGPTTrace(body, 100)
 	require.Error(s.T(), err)
 	require.ErrorContains(s.T(), err, "chatgpt-trace: no ip= found")
+}
+
+func (s *ProxyProbeServiceSuite) TestParseIPIPJSON_Success() {
+	body := []byte(`{"ret":"ok","data":{"ip":"106.75.24.120","location":["中国","北京","北京","","联通"]}}`)
+	info, latencyMs, err := s.prober.parseIPIPJSON(body, 90)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), int64(90), latencyMs)
+	require.Equal(s.T(), "106.75.24.120", info.IP)
+	require.Equal(s.T(), "中国", info.Country)
+	require.Equal(s.T(), "CN", info.CountryCode)
+	require.Equal(s.T(), "北京", info.Region)
+	require.Equal(s.T(), "北京", info.City)
+}
+
+func (s *ProxyProbeServiceSuite) TestParseIPIPJSON_NotOK() {
+	_, _, err := s.prober.parseIPIPJSON([]byte(`{"ret":"fail","data":{}}`), 10)
+	require.ErrorContains(s.T(), err, "ipip-json request failed")
+}
+
+func (s *ProxyProbeServiceSuite) TestParseIP9_Success() {
+	body := []byte(`{"ret":200,"data":{"ip":"106.75.24.120","country":"中国","country_code":"cn","prov":"上海","city":"杨浦"}}`)
+	info, latencyMs, err := s.prober.parseIP9(body, 110)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), int64(110), latencyMs)
+	require.Equal(s.T(), "106.75.24.120", info.IP)
+	require.Equal(s.T(), "中国", info.Country)
+	require.Equal(s.T(), "CN", info.CountryCode)
+	require.Equal(s.T(), "上海", info.Region)
+	require.Equal(s.T(), "杨浦", info.City)
+}
+
+func (s *ProxyProbeServiceSuite) TestParseIP9_BadRet() {
+	_, _, err := s.prober.parseIP9([]byte(`{"ret":500,"data":{"ip":"1.1.1.1"}}`), 10)
+	require.ErrorContains(s.T(), err, "ip9 request failed")
+}
+
+func (s *ProxyProbeServiceSuite) TestParseQQIP2City_Success() {
+	body := []byte(`{"ret":0,"errMsg":"","ip":"106.75.24.120","country":"中国","province":"上海市","city":"杨浦区"}`)
+	info, latencyMs, err := s.prober.parseQQIP2City(body, 70)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), int64(70), latencyMs)
+	require.Equal(s.T(), "106.75.24.120", info.IP)
+	require.Equal(s.T(), "中国", info.Country)
+	require.Equal(s.T(), "CN", info.CountryCode)
+	require.Equal(s.T(), "上海市", info.Region)
+	require.Equal(s.T(), "杨浦区", info.City)
+}
+
+func (s *ProxyProbeServiceSuite) TestParseQQIP2City_BadRet() {
+	_, _, err := s.prober.parseQQIP2City([]byte(`{"ret":1,"errMsg":"busy","ip":"1.1.1.1"}`), 10)
+	require.ErrorContains(s.T(), err, "busy")
+}
+
+func TestResolveProxyProbeTargets_PresetDomestic(t *testing.T) {
+	t.Parallel()
+	targets := resolveProxyProbeTargets(&config.Config{
+		Security: config.SecurityConfig{
+			ProxyProbe: config.ProxyProbeConfig{Preset: "domestic"},
+		},
+	})
+	require.NotEmpty(t, targets)
+	require.Equal(t, "ipip-json", targets[0].parser)
+	require.Contains(t, targets[0].url, "ipip.net")
+}
+
+func TestResolveProxyProbeTargets_ExplicitURLsWin(t *testing.T) {
+	t.Parallel()
+	targets := resolveProxyProbeTargets(&config.Config{
+		Security: config.SecurityConfig{
+			ProxyProbe: config.ProxyProbeConfig{
+				Preset: "domestic",
+				URLs: []config.ProbeURLConfig{
+					{URL: "https://example.com/ip", Parser: "ipify"},
+				},
+			},
+		},
+	})
+	require.Len(t, targets, 1)
+	require.Equal(t, "https://example.com/ip", targets[0].url)
+	require.Equal(t, "ipify", targets[0].parser)
+}
+
+func TestResolveProxyProbeTargets_DefaultOverseas(t *testing.T) {
+	t.Parallel()
+	targets := resolveProxyProbeTargets(nil)
+	require.Equal(t, "ip-api", targets[0].parser)
 }
 
 func TestProxyProbeServiceSuite(t *testing.T) {

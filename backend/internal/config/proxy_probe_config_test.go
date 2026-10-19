@@ -45,3 +45,27 @@ func TestNormalizeProxyProbeURLsRejectsInvalidEntries(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeProxyProbeURLsAcceptsDomesticParsers(t *testing.T) {
+	t.Parallel()
+	got, err := normalizeProxyProbeURLs([]ProbeURLConfig{
+		{URL: "https://myip.ipip.net/json", Parser: "ipip-json"},
+		{URL: "http://ip9.com.cn/get", Parser: "ip9"},
+		{URL: "https://r.inews.qq.com/api/ip2city", Parser: "qq-ip2city"},
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	require.Equal(t, "ipip-json", got[0].Parser)
+	require.Equal(t, "ip9", got[1].Parser)
+	require.Equal(t, "qq-ip2city", got[2].Parser)
+}
+
+func TestNormalizeProxyProbePreset(t *testing.T) {
+	t.Parallel()
+	got, err := normalizeProxyProbePreset(" Domestic ")
+	require.NoError(t, err)
+	require.Equal(t, "domestic", got)
+
+	_, err = normalizeProxyProbePreset("cn")
+	require.ErrorContains(t, err, "must be empty, default, or domestic")
+}

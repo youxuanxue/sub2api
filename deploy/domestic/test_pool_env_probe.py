@@ -50,6 +50,14 @@ class PoolEnvProbeSSOTTest(unittest.TestCase):
         self.assertIn("deploy/domestic/compose.override.yml", text)
         self.assertIn("SSOT", text)
 
+    def test_compose_override_sets_domestic_proxy_probe_preset(self):
+        text = OVERRIDE.read_text()
+        self.assertRegex(
+            text,
+            r'(?m)^\s*SECURITY_PROXY_PROBE_PRESET:\s*"domestic"\s*$',
+            "cn-prod must default proxy exit probes to the domestic builtin chain",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
