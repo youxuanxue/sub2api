@@ -48,7 +48,7 @@ func TestTkBridgeUpstreamShouldFailoverAfterPenalty_RequestScopedGatewayOutages(
 	}
 }
 
-func TestTkBridgeUpstreamShouldFailoverAfterPenalty_ClientAndOtherServerErrorsNeverMatch(t *testing.T) {
+func TestTkBridgeUpstreamShouldFailoverAfterPenalty_ClientTerminalErrorsNeverMatch(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name string
@@ -57,15 +57,32 @@ func TestTkBridgeUpstreamShouldFailoverAfterPenalty_ClientAndOtherServerErrorsNe
 		{"client 400", upstreamBridgeError(400, "The supported API model names are ...")},
 		{"generic 403", arrearsBridgeError(403, "Access forbidden by WAF", "access_denied", "AccessDenied")},
 		{"model not found 404", upstreamBridgeError(404, "model_not_found")},
-		{"server 500", upstreamBridgeError(500, "internal error")},
 		{"client forbidden envelope", upstreamBridgeError(400, "Upstream access forbidden, please contact administrator")},
-		{"unrelated forbidden", upstreamBridgeError(500, "content access forbidden by policy")},
-		{"server 501", upstreamBridgeError(501, "not implemented")},
+		{"shared fault policy 500", upstreamBridgeError(500, "content access forbidden by policy")},
 		{"nil", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			require.False(t, tkBridgeUpstreamShouldFailoverAfterPenalty(nil, tc.err))
+		})
+	}
+}
+
+func TestTkBridgeUpstreamShouldFailoverAfterPenalty_Unclassified5xxFailovers(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		err  *newapitypes.NewAPIError
+	}{
+		{"server 500", upstreamBridgeError(500, "internal error")},
+		{"bad_response_body 500", upstreamBridgeError(500, "invalid character '<' looking for beginning of value")},
+		{"server 501", upstreamBridgeError(501, "not implemented")},
+		{"bad gateway", upstreamBridgeError(502, "bad gateway")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.True(t, tkBridgeUpstreamShouldFailoverAfterPenalty(nil, tc.err),
+				"unclassified NewAPI 5xx must failover; SharedFault catalog stops only known request-scoped blocks")
 		})
 	}
 }

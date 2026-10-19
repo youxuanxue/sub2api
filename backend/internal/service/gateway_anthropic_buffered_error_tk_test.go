@@ -452,9 +452,8 @@ func TestTKAnthropicBufferedError_DetailRespectsUpstreamBodyLogging(t *testing.T
 }
 
 // R-001: message_start (and content) followed by a terminal error event leaves
-// finalResp non-nil. The partial content is still returned — those tokens were
-// really produced — but the provider fault must reach ops instead of being
-// booked as a clean success.
+// finalResp non-nil. Incomplete content must return a terminal error and retain
+// provider attribution instead of being booked as a clean success.
 func TestTKAnthropicBufferedError_PartialContentThenErrorIsAttributed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -476,13 +475,15 @@ func TestTKAnthropicBufferedError_PartialContentThenErrorIsAttributed(t *testing
 	svc := &GatewayService{}
 	result, err := svc.handleCCBufferedFromAnthropic(resp, c, bufferedAnthropicTestAccount(PlatformAnthropic), "gpt-5", "claude-opus-4-8", nil, time.Now())
 
-	// The partial answer is preserved rather than discarded.
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), "partial")
+	// The handler must render an error instead of a normal completion.
+	require.Error(t, err)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.NotErrorAs(t, err, &failoverErr)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, rec.Body.String())
 
-	// But the upstream fault is recorded, so ops does not see a clean success.
+	// The upstream fault retains its attribution.
 	requireUpstreamAttributed(t, c, statusAnthropicOverloaded)
 
 	raw, _ := c.Get(OpsUpstreamErrorsKey)
@@ -519,9 +520,11 @@ func TestTKAnthropicBufferedError_NativePartialContentThenErrorIsAttributed(t *t
 	result, err := svc.handleCCBufferedFromNativeAnthropic(
 		resp, c, bufferedAnthropicTestAccount(PlatformOpenAI), "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(),
 	)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Error(t, err)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.NotErrorAs(t, err, &failoverErr)
+	require.False(t, c.Writer.Written())
 
 	requireUpstreamAttributed(t, c, http.StatusTooManyRequests)
 
@@ -561,7 +564,7 @@ func TestUS047_MessageStartThenErrorReturnsFailover(t *testing.T) {
 	require.Equal(t, account.Name, events[0].AccountName)
 }
 
-func TestUS047_PartialContentThenErrorPreservesResponse(t *testing.T) {
+func TestUS047_PartialContentThenErrorReturnsTerminalFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -582,10 +585,12 @@ func TestUS047_PartialContentThenErrorPreservesResponse(t *testing.T) {
 	svc := &GatewayService{}
 	result, err := svc.handleCCBufferedFromAnthropic(resp, c, bufferedAnthropicTestAccount(PlatformAnthropic), "gpt-5", "claude-opus-4-8", nil, time.Now())
 
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), "partial")
+	require.Error(t, err)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.NotErrorAs(t, err, &failoverErr)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, rec.Body.String())
 	requireTruncationCountsTowardsSLA(t, c, http.StatusServiceUnavailable)
 }
 
@@ -608,7 +613,7 @@ func TestUS047_IncompleteEOFRoutesByContentAvailability(t *testing.T) {
 		require.False(t, c.Writer.Written())
 	})
 
-	t.Run("content before EOF is preserved and marked", func(t *testing.T) {
+	t.Run("content before EOF returns terminal failure and is marked", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
 		resp := newBufferedErrorUpstreamResponse(strings.Join([]string{
@@ -625,10 +630,12 @@ func TestUS047_IncompleteEOFRoutesByContentAvailability(t *testing.T) {
 			resp, c, bufferedAnthropicTestAccount(PlatformAnthropic), "gpt-5", "claude-opus-4-8", nil, time.Now(),
 		)
 
-		require.NoError(t, err)
-		require.NotNil(t, result)
-		require.Equal(t, http.StatusOK, rec.Code)
-		require.Contains(t, rec.Body.String(), "partial")
+		require.Error(t, err)
+		require.Nil(t, result)
+		var failoverErr *UpstreamFailoverError
+		require.NotErrorAs(t, err, &failoverErr)
+		require.False(t, c.Writer.Written())
+		require.Empty(t, rec.Body.String())
 		requireTruncationCountsTowardsSLA(t, c, http.StatusBadGateway)
 	})
 }
@@ -659,7 +666,7 @@ func TestUS047_ScannerReadErrorRoutesByContentAvailability(t *testing.T) {
 		require.Equal(t, "stream_read_error", events[0].Kind)
 	})
 
-	t.Run("content before read error is preserved and marked", func(t *testing.T) {
+	t.Run("content before read error returns terminal failure and is marked", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
 		resp := newBufferedReadErrorUpstreamResponse(strings.Join([]string{
@@ -676,10 +683,12 @@ func TestUS047_ScannerReadErrorRoutesByContentAvailability(t *testing.T) {
 			resp, c, bufferedAnthropicTestAccount(PlatformAnthropic), "gpt-5", "claude-opus-4-8", nil, time.Now(),
 		)
 
-		require.NoError(t, err)
-		require.NotNil(t, result)
-		require.Equal(t, http.StatusOK, rec.Code)
-		require.Contains(t, rec.Body.String(), "partial")
+		require.Error(t, err)
+		require.Nil(t, result)
+		var failoverErr *UpstreamFailoverError
+		require.NotErrorAs(t, err, &failoverErr)
+		require.False(t, c.Writer.Written())
+		require.Empty(t, rec.Body.String())
 		requireTruncationCountsTowardsSLA(t, c, http.StatusBadGateway)
 
 		raw, ok := c.Get(OpsUpstreamErrorsKey)

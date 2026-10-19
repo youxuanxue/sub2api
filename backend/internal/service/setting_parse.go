@@ -1343,8 +1343,15 @@ func normalizeTablePreferences(defaultPageSize int, options []int) (int, []int) 
 		defaultPageSize = fallbackPageSize
 	}
 
-	if len(normalizedOptions) == 0 {
-		normalizedOptions = []int{10, 20, 50}
+	// Canonical selectable sizes. Empty input and the pre-100 legacy default
+	// both upgrade to the current built-in set so existing deployments pick up 100.
+	defaultOptions := []int{10, 20, 50, 100}
+	if len(normalizedOptions) == 0 ||
+		(len(normalizedOptions) == 3 &&
+			normalizedOptions[0] == 10 &&
+			normalizedOptions[1] == 20 &&
+			normalizedOptions[2] == 50) {
+		normalizedOptions = append([]int(nil), defaultOptions...)
 	}
 
 	return defaultPageSize, normalizedOptions

@@ -7,13 +7,14 @@ package service
 // still fail through an `error` event, a read error, an idle timeout, or EOF
 // before message completion. Before any content exists those failures must
 // return UpstreamFailoverError so the existing handler loop can switch account.
-// Once a content block exists, replay would risk duplicate billing and answer
-// drift, so the partial response is preserved and marked as a truncated SLA
-// failure instead.
+// Thinking-only and empty text buffers are still pre-answer. Once answer/tool
+// content exists, replay risks duplicate execution: return a terminal error and
+// mark truncation, never serialize an incomplete buffer as a successful response.
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -112,7 +113,23 @@ func tkAnthropicErrorTypeUpstreamStatus(errType string) int {
 }
 
 func tkAnthropicBufferedHasUsableContent(finalResp *apicompat.AnthropicResponse) bool {
-	return finalResp != nil && len(finalResp.Content) > 0
+	if finalResp == nil {
+		return false
+	}
+	for _, block := range finalResp.Content {
+		switch block.Type {
+		case "thinking", "redacted_thinking":
+			continue
+		case "text":
+			if block.Text != "" {
+				return true
+			}
+		default:
+			// Tool and unknown/media blocks conservatively prohibit replay.
+			return true
+		}
+	}
+	return false
 }
 
 func tkAnthropicBufferedEventCompletesMessage(event *apicompat.AnthropicStreamEvent) bool {
@@ -249,9 +266,9 @@ func tkAnthropicBufferedPartialFailure(
 	account *Account,
 	requestID string,
 	upstreamErr *tkAnthropicBufferedUpstreamError,
-) {
+) error {
 	if upstreamErr == nil {
-		return
+		upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_incomplete", "Upstream stream ended before response completion")
 	}
 	tkRecordAnthropicBufferedUpstreamError(c, account, requestID, "stream_truncated", upstreamErr)
 	MarkOpsStreamFailure(
@@ -266,6 +283,7 @@ func tkAnthropicBufferedPartialFailure(
 		zap.String("upstream_error_type", upstreamErr.ErrType),
 		zap.Int("upstream_status", upstreamErr.UpstreamStatus),
 	)
+	return errors.New("upstream stream truncated before response completion")
 }
 
 func tkRecordAnthropicBufferedUpstreamError(

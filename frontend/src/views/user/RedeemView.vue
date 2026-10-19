@@ -344,7 +344,7 @@
                 :disabled="loadingHistory || submitting"
                 @change="fetchHistory(1)"
               >
-                <option v-for="size in [20, 50, 100]" :key="size" :value="size">{{ size }}</option>
+                <option v-for="size in DEFAULT_TABLE_PAGE_SIZE_OPTIONS" :key="size" :value="size">{{ size }}</option>
               </select>
             </label>
             <button
@@ -372,6 +372,7 @@ import { useSubscriptionStore } from '@/stores/subscriptions'
 import { redeemAPI, authAPI, type RedeemHistoryItem } from '@/api'
 import Icon from '@/components/icons/Icon.vue'
 import { formatDateTime } from '@/utils/format'
+import { DEFAULT_TABLE_PAGE_SIZE_OPTIONS } from '@/utils/tablePreferences'
 
 const { t } = useI18n()
 const authStore = useAuthStore()

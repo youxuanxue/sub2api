@@ -943,8 +943,13 @@ type ProxyFallbackConfig struct {
 
 type ProxyProbeConfig struct {
 	InsecureSkipVerify bool `mapstructure:"insecure_skip_verify"` // 已禁用：禁止跳过 TLS 证书验证
+	// Preset selects the builtin probe URL chain when urls is empty.
+	// ""/"default" = overseas geo-IP (ip-api → ipify).
+	// "domestic" = China-first chain (ipip → ip9 → qq-ip2city → ipify), for cn-prod.
+	// Explicit urls always win over preset.
+	Preset string `mapstructure:"preset"`
 	// URLs 按优先级排列的自定义探测 URL 列表。
-	// 留空时使用内置默认列表（ip-api → ipify）。
+	// 留空时使用 preset / 内置默认列表。
 	// 某些 AI API 专用代理只允许访问特定域名，配置多个备选可提高探测成功率。
 	URLs []ProbeURLConfig `mapstructure:"urls"`
 }
@@ -952,7 +957,27 @@ type ProxyProbeConfig struct {
 // ProbeURLConfig 描述一个探测端点及其响应解析方式。
 type ProbeURLConfig struct {
 	URL    string `mapstructure:"url"`
-	Parser string `mapstructure:"parser"` // "ip-api" / "ipify" / "chatgpt-trace"
+	Parser string `mapstructure:"parser"` // see supportedProxyProbeParsers
+}
+
+// supportedProxyProbeParsers is the allowlist for security.proxy_probe.urls[].parser.
+var supportedProxyProbeParsers = map[string]struct{}{
+	"ip-api":        {},
+	"ipify":         {},
+	"chatgpt-trace": {},
+	"ipip-json":     {},
+	"ip9":           {},
+	"qq-ip2city":    {},
+}
+
+func normalizeProxyProbePreset(raw string) (string, error) {
+	preset := strings.ToLower(strings.TrimSpace(raw))
+	switch preset {
+	case "", "default", "domestic":
+		return preset, nil
+	default:
+		return "", fmt.Errorf("must be empty, default, or domestic")
+	}
 }
 
 func normalizeProxyProbeURLs(targets []ProbeURLConfig) ([]ProbeURLConfig, error) {
@@ -970,9 +995,7 @@ func normalizeProxyProbeURLs(targets []ProbeURLConfig) ([]ProbeURLConfig, error)
 		if parser == "" {
 			return nil, fmt.Errorf("entry %d: parser is required", i)
 		}
-		switch parser {
-		case "ip-api", "ipify", "chatgpt-trace":
-		default:
+		if _, ok := supportedProxyProbeParsers[parser]; !ok {
 			return nil, fmt.Errorf("entry %d: unsupported parser %q", i, target.Parser)
 		}
 
@@ -2334,6 +2357,7 @@ func setDefaults() {
 	viper.SetDefault("security.csp.enabled", true)
 	viper.SetDefault("security.csp.policy", DefaultCSPPolicy)
 	viper.SetDefault("security.proxy_probe.insecure_skip_verify", false)
+	viper.SetDefault("security.proxy_probe.preset", "")
 	viper.SetDefault("security.trust_forwarded_ip_for_api_key_acl", true)
 
 	// Security - disable direct fallback on proxy error
@@ -2992,6 +3016,11 @@ func (c *Config) Validate() error {
 	}
 	c.Security.ForwardedClientIPHeaders = forwardedClientIPHeaders
 	c.SetForwardedClientIPSettings(c.Security.TrustForwardedIPForAPIKeyACL, forwardedClientIPHeaders)
+	proxyProbePreset, err := normalizeProxyProbePreset(c.Security.ProxyProbe.Preset)
+	if err != nil {
+		return fmt.Errorf("security.proxy_probe.preset: %w", err)
+	}
+	c.Security.ProxyProbe.Preset = proxyProbePreset
 	proxyProbeURLs, err := normalizeProxyProbeURLs(c.Security.ProxyProbe.URLs)
 	if err != nil {
 		return fmt.Errorf("security.proxy_probe.urls: %w", err)

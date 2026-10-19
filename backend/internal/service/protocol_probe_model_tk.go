@@ -186,7 +186,7 @@ func protocolProbeModelIsNonText(model string) bool {
 	if snapshot := loadTKPricingOverlaySnapshot(); snapshot != nil {
 		if pricing := snapshot.Models[normalized]; pricing != nil {
 			switch strings.ToLower(strings.TrimSpace(pricing.Mode)) {
-			case "embedding", "image", "video", "audio", "rerank":
+			case "embedding", "image", "video", "audio", "tts", "audio_speech", "audio_transcription", "rerank":
 				return true
 			}
 		}

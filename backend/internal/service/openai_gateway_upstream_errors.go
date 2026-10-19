@@ -286,12 +286,11 @@ func isOpenAINonRetryableClientError(upstreamMsg string, upstreamBody []byte) bo
 
 func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Account, statusCode int, upstreamMsg string, upstreamBody []byte) bool {
 	semantic := gatewayFailureSemanticUnclassified
-	// cyber_policy / usage_policy are request-scoped even when an intermediary
-	// wraps the provider response in a retryable 5xx status. Never punish or
-	// rotate the selected credential, and never auto-retry the same prompt.
-	if isOpenAIResponseProtectionUnavailable(upstreamMsg, upstreamBody) || isOpenAISafetySessionBlockFault(upstreamMsg, upstreamBody) {
-		semantic = gatewayFailureSemanticSharedFault
-	} else if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
+	// SharedFault catalog (content/policy/context-window/response_protection):
+	// request-scoped even when an intermediary wraps the provider response in a
+	// retryable 5xx. Never punish or rotate the selected credential.
+	// SSOT: docs/approved/gateway-failover-policy-ssot.md §SharedFault
+	if gatewayCompatSharedFault(upstreamMsg, upstreamBody) {
 		semantic = gatewayFailureSemanticSharedFault
 	} else if tkIsImageCapabilityScope401(statusCode, upstreamBody) {
 		// Missing image scope is account-local: cool image capability elsewhere and

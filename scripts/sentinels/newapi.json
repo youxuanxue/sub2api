@@ -790,9 +790,11 @@
         "bridgeWrapRelayErrorAfterPenalty",
         "applyGatewayFailoverSemantic",
         "tkIsBridgeUpstreamUnpurchased",
-        "gatewayFailureSemanticAccountFault"
+        "gatewayFailureSemanticAccountFault",
+        "gatewayNewAPIBridgeSharedFault",
+        "gatewayFailureSemanticSharedFault"
       ],
-      "rationale": "TK companion that converts penalized newapi bridge account-level faults (401/402/429 + upstream arrears 400/403 + Unpurchased 403) into UpstreamFailoverError for the existing handler failedAccountIDs loop. Client-induced 400/404 and generic 403s must stay on NewAPIRelayError to avoid the #617 pool-drain. Dropping this file or the Unpurchased semantic regresses prod ali-token-plan #129/#132 where a healthy sibling existed but the first selected account's 403 was returned immediately."
+      "rationale": "TK companion that converts penalized newapi bridge account-level faults (401/402/429 + upstream arrears 400/403 + Unpurchased 403) into UpstreamFailoverError for the existing handler failedAccountIDs loop. Client-induced 400/404 and generic 403s must stay on NewAPIRelayError to avoid the #617 pool-drain. Dropping this file or the Unpurchased semantic regresses prod ali-token-plan #129/#132 where a healthy sibling existed but the first selected account's 403 was returned immediately. gatewayNewAPIBridgeSharedFault must run before the unclassified >=500 matrix so content/policy/context-window/response_protection SharedFault never rotates the pool when a relay wraps a client block as 5xx."
     },
     {
       "path": "backend/internal/service/newapi_bridge_arrears_tk.go",
@@ -1510,14 +1512,14 @@
         "func protocolRoutingAccountHasNoTextModels(account *Account) bool",
         "func protocolProbeModelIsNonText(model string) bool",
         "loadTKPricingOverlaySnapshot()",
-        "case \"embedding\", \"image\", \"video\", \"audio\", \"rerank\":",
+        "case \"embedding\", \"image\", \"video\", \"audio\", \"tts\", \"audio_speech\", \"audio_transcription\", \"rerank\":",
         "newapiconstant.ChannelTypeAli",
         "isOpenAIImageGenerationModel(model)",
         "isGrokVideoGenerationModel(model)",
         "antigravity.IsImageModel(model)",
         "[]string{openai.DefaultTestModel}"
       ],
-      "rationale": "Single bounded representative text-model owner shared by all protocol capability probes and text-governance classification. It deterministically prefers qwen-* for Ali channels, excludes registry-classified embedding/image/video/audio/rerank models plus conservative private non-text aliases, caps model-specific fallback fanout, and prevents non-text-only accounts from blocking SSOT cutover readiness."
+      "rationale": "Single bounded representative text-model owner shared by all protocol capability probes and text-governance classification. It deterministically prefers qwen-* for Ali channels, excludes registry-classified embedding/image/video/audio/speech/transcription/rerank models plus conservative private non-text aliases, caps model-specific fallback fanout, and prevents non-text-only accounts from blocking SSOT cutover readiness."
     },
     {
       "path": "backend/internal/service/protocol_capability_probe_test.go",

@@ -315,9 +315,11 @@
         "recordNVIDIABuildInstability",
         "if isNewAPINVIDIABuildAccount(account) {\n\t\treturn true",
         "isNewAPINVIDIABuildAccount(account) && tkIsBridgeOpaqueBadResponse404(apiErr)",
-        "tkBridgeUpstreamShouldFailoverAfterPenalty(account, apiErr)"
+        "tkBridgeUpstreamShouldFailoverAfterPenalty(account, apiErr)",
+        "apiErr.GetErrorCode() == newapitypes.ErrorCodeBadResponseBody",
+        "upstream.Type == string(newapitypes.ErrorCodeBadResponseBody)"
       ],
-      "rationale": "Bridge retirement must both switch accounts and cool the executed model; opaque bad_response_status_code 404 cool+failover stays NVIDIA-only; account-level penalty statuses remain narrow."
+      "rationale": "Bridge retirement must both switch accounts and cool the executed model; opaque bad_response_status_code 404 cool+failover stays NVIDIA-only; account-level penalty statuses remain narrow. Output-recovery hooks must survive upstream merges; focused recovery tests cover their semantics."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
@@ -1108,27 +1110,30 @@
     {
       "path": "backend/internal/service/gateway_forward_as_tk_buffered_stream.go",
       "must_contain": [
-        "idx >= 0 && idx < len(a.FinalResp.Content)"
+        "idx >= 0 && idx < len(a.FinalResp.Content)",
+        "return nil, tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)"
       ],
-      "rationale": "Untrusted Messages content indices cannot panic the shared buffered assembly."
+      "rationale": "Untrusted Messages content indices cannot panic the shared buffered assembly. Output-recovery hooks must survive upstream merges; focused recovery tests cover their semantics."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",
       "must_contain": [
         "forwardNativeMessagesPolicy",
         "s.doNativeMessagesRequest(upstreamReq, account)",
-        "BillingTier:      usage.BillingTier"
+        "BillingTier:      usage.BillingTier",
+        "return nil, tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)"
       ],
-      "rationale": "Provider-specific behavior is retired; these anchors preserve the shared provider behavior in this owner."
+      "rationale": "Provider-specific behavior is retired; these anchors preserve the shared provider behavior in this owner. Output-recovery hooks must survive upstream merges; focused recovery tests cover their semantics."
     },
     {
       "path": "backend/internal/service/openai_gateway_responses_anthropic_native.go",
       "must_contain": [
         "forwardNativeMessagesPolicy",
         "s.doNativeMessagesRequest(upstreamReq, account)",
-        "BillingTier:      usage.BillingTier"
+        "BillingTier:      usage.BillingTier",
+        "return nil, tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)"
       ],
-      "rationale": "Provider-specific behavior is retired; these anchors preserve the shared provider behavior in this owner."
+      "rationale": "Provider-specific behavior is retired; these anchors preserve the shared provider behavior in this owner. Output-recovery hooks must survive upstream merges; focused recovery tests cover their semantics."
     },
     {
       "path": "backend/internal/engine/protocolrouter/registry.go",
@@ -1739,9 +1744,10 @@
       "must_contain": [
         "TestCandidateChatMessagesToolsPriorityAndSupplierFailover",
         "PrepareCandidateIngress",
-        "row.CacheReadTokens"
+        "row.CacheReadTokens",
+        "ordinary_500: unclassified NewAPI >=500 now failovers"
       ],
-      "rationale": "Real handler tests cover Messages account priority, supplier failover, tool responses and single settlement."
+      "rationale": "Real handler tests cover Messages account priority, supplier failover (including unclassified NewAPI ordinary_500), tool responses and single settlement."
     },
     {
       "path": "backend/internal/engine/protocolrouter/registry.go",
@@ -4791,9 +4797,9 @@
         "gateway.gatewayCandidates(",
         "resolver.Resolve(",
         "ErrUniversalCapacityUnavailable",
-        "ErrUniversalNoEntitledGroup"
+        "ErrProtocolRouteUnavailable"
       ],
-      "rationale": "Universal selection and direct scheduler candidates must agree with Plan for Tokensea GPT requests; disabled capacity stays distinct from absence of any legal protocol route."
+      "rationale": "Universal selection and direct scheduler candidates must agree with Plan for Tokensea GPT requests; mapped models without a legal protocol route must be reported as unavailable capacity, never missing entitlement."
     },
     {
       "path": "backend/internal/service/account.go",
@@ -5372,9 +5378,12 @@
     {
       "path": "backend/internal/service/openai_gateway_passthrough.go",
       "must_contain": [
-        "shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, canonicalModel)"
+        "shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, canonicalModel)",
+        "case \"response.created\", \"response.in_progress\", \"response.metadata\", \"keepalive\":",
+        "failoverErr.SafeToFailoverAfterWrite = streamHasOnlyKeepaliveOutput(c)",
+        "return c != nil && c.Writer != nil && c.Writer.Size() > 0 && OpenAICompactKeepaliveAdjustedWrittenSize(c) < 0"
       ],
-      "rationale": "openai_passthrough error handling (handleErrorResponsePassthrough) MUST propagate HandleUpstreamError's shouldDisable signal: when the rate-limit service decides the account must stop scheduling (temp-unsched rule match, 402 deactivated_workspace, OAuth 401, organization-disabled 400, ...) the current request must return UpstreamFailoverError so the handler retries on another account. Before upstream #1318, the signal was discarded with `_ =` and only the side effect on the account fired — the in-flight request was completed against the now-disabled account, surfacing to the client as the raw upstream error. After upstream cooldown-scheduling merge, the call site routes through handleOpenAIAccountUpstreamError (companion openai_account_runtime_block_fastpath.go) which still forwards shouldDisable from rateLimitService.HandleUpstreamError. Pinning the companion call (not `_ =`) catches passthrough regressions without bloating the hotspot file. Behavior is exercised end-to-end by TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover (which is pinned by its own sentinel below)."
+      "rationale": "openai_passthrough error handling (handleErrorResponsePassthrough) MUST propagate HandleUpstreamError's shouldDisable signal: when the rate-limit service decides the account must stop scheduling (temp-unsched rule match, 402 deactivated_workspace, OAuth 401, organization-disabled 400, ...) the current request must return UpstreamFailoverError so the handler retries on another account. Before upstream #1318, the signal was discarded with `_ =` and only the side effect on the account fired — the in-flight request was completed against the now-disabled account, surfacing to the client as the raw upstream error. After upstream cooldown-scheduling merge, the call site routes through handleOpenAIAccountUpstreamError (companion openai_account_runtime_block_fastpath.go) which still forwards shouldDisable from rateLimitService.HandleUpstreamError. Pinning the companion call (not `_ =`) catches passthrough regressions without bloating the hotspot file. Behavior is exercised end-to-end by TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover (which is pinned by its own sentinel below). Output-recovery hooks must survive upstream merges; focused recovery tests cover their semantics."
     },
     {
       "rationale": "openai_passthrough error handling (handleErrorResponsePassthrough) MUST propagate HandleUpstreamError's shouldDisable signal: when the rate-limit service decides the account must stop scheduling (temp-unsched rule match, 402 deactivated_workspace, OAuth 401, organization-disabled 400, ...) the current request must return UpstreamFailoverError so the handler retries on another account. Before upstream #1318, the signal was discarded with `_ =` and only the side effect on the account fired — the in-flight request was completed against the now-disabled account, surfacing to the client as the raw upstream error. After upstream cooldown-scheduling merge, the call site routes through handleOpenAIAccountUpstreamError (companion openai_account_runtime_block_fastpath.go) which still forwards shouldDisable from rateLimitService.HandleUpstreamError. Pinning the companion call (not `_ =`) catches passthrough regressions without bloating the hotspot file. Behavior is exercised end-to-end by TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover (which is pinned by its own sentinel below).",
@@ -8240,9 +8249,10 @@
       "path": "backend/internal/service/gateway_upstream_transport_error.go",
       "must_contain": [
         "errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled)",
-        "return err"
+        "return err",
+        "SafeToFailoverAfterWrite: streamHasOnlyKeepaliveOutput(c)"
       ],
-      "rationale": "The shared transport-error owner must preserve caller cancellation without account eviction or a 502 response; both production call sites and the Forward cancellation regression are separately anchored."
+      "rationale": "The shared transport-error owner must preserve caller cancellation without account eviction or a 502 response; both production call sites and the Forward cancellation regression are separately anchored. Output-recovery hooks must survive upstream merges; focused recovery tests cover their semantics."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
@@ -8316,9 +8326,11 @@
         "func (s *GeminiMessagesCompatService) beginHeaderWaitKeepalive",
         "func (s *GeminiMessagesCompatService) beginSSECommentHeaderWaitKeepalive",
         "func (s *GeminiMessagesCompatService) beginGeminiNativeHeaderWaitKeepalive",
-        "geminiNativeSSEKeepaliveFrame"
+        "geminiNativeSSEKeepaliveFrame",
+        "recordOpenAIStreamKeepaliveBytes(c, n)",
+        "firstFrame := \"\"\n\tif !anthropicMessageStartAlreadySent(c) {"
       ],
-      "rationale": "Pre-content / header-wait SSE keepalive (Wei-Shaw/sub2api#2121 generalized): emits platform-shaped ping frames while streaming Do waits for upstream headers so idle intermediaries do not drop slow thinking/header-wait. First ping is delayed one interval to preserve transparent failover. Shared bind/stop helpers are the single extension point for Anthropic, OpenAI, Kiro, Bedrock, Antigravity, and Gemini streaming Do entries. Gemini-native must use geminiNativeSSEKeepaliveFrame (whitespace), never openaiSSECommentFrame."
+      "rationale": "Pre-content / header-wait SSE keepalive (Wei-Shaw/sub2api#2121 generalized): emits platform-shaped ping frames while streaming Do waits for upstream headers so idle intermediaries do not drop slow thinking/header-wait. First ping is delayed one interval to preserve transparent failover. Shared bind/stop helpers are the single extension point for Anthropic, OpenAI, Kiro, Bedrock, Antigravity, and Gemini streaming Do entries. Gemini-native must use geminiNativeSSEKeepaliveFrame (whitespace), never openaiSSECommentFrame. Output-recovery hooks must survive upstream merges; focused recovery tests cover their semantics."
     },
     {
       "path": "backend/internal/service/gateway_forward.go",
@@ -12078,7 +12090,7 @@
         "ClientErrorType:  tkAnthropicBufferedClientErrType(upstreamErr.ErrType)",
         "MarkOpsStreamFailure("
       ],
-      "rationale": "Single owner for buffered Anthropic SSE completion and failure semantics. A HTTP 200 stream can still terminate through an error frame, read failure, idle timeout, or incomplete EOF. Before any content block this owner returns an account-aware UpstreamFailoverError without committing the response; after content it preserves the partial response and marks stream_truncated toward SLA to avoid replay and duplicate billing. Insufficient-balance payloads are normalized to semantic 402 inside the same owner so CloudWise can cool only the mapped model without reintroducing a parallel error path. Completion detection, client error type mapping, provider/account attribution, and both Gateway/OpenAI account-health wrappers must remain centralized or an upstream merge can silently restore empty 200s, gateway-owned SLA pollution, whole-account disablement, or missing failover."
+      "rationale": "Single owner for buffered Anthropic SSE completion and failure semantics. A HTTP 200 stream can still terminate through an error frame, read failure, idle timeout, or incomplete EOF. Before answer/tool content this owner returns an account-aware UpstreamFailoverError without committing the response; thinking-only and empty text buffers remain retryable. After answer/tool content it returns a terminal error and marks stream_truncated toward SLA, avoiding replay and false successful completions. Insufficient-balance payloads are normalized to semantic 402 inside the same owner so CloudWise can cool only the mapped model without reintroducing a parallel error path. Completion detection, client error type mapping, provider/account attribution, and both Gateway/OpenAI account-health wrappers must remain centralized or an upstream merge can silently restore empty 200s, gateway-owned SLA pollution, whole-account disablement, or missing failover."
     },
     {
       "path": "backend/internal/service/ratelimit_cn_providers.go",
@@ -12202,7 +12214,7 @@
       "path": "backend/internal/service/gateway_anthropic_buffered_error_tk_test.go",
       "must_contain": [
         "TestUS047_MessageStartThenErrorReturnsFailover",
-        "TestUS047_PartialContentThenErrorPreservesResponse",
+        "TestUS047_PartialContentThenErrorReturnsTerminalFailure",
         "TestUS047_IncompleteEOFRoutesByContentAvailability",
         "TestUS047_ScannerReadErrorRoutesByContentAvailability",
         "TestUS047_CompletionBeforeReadErrorRemainsSuccessful",
@@ -13029,13 +13041,46 @@
         "func classifyGatewayFailover(obs gatewayFailoverObservation) gatewayFailoverDecision",
         "func classifyGatewayFailoverError(failoverErr *UpstreamFailoverError) gatewayFailoverDecision",
         "func applyGatewayFailoverSemantic(",
+        "func newAPIBridgeFailoverStatus(statusCode int) bool",
+        "return statusCode >= 500",
         "gatewayFailoverProfileNewAPIBridge",
         "gatewayFailoverProfileOpenAIPassthrough",
         "gatewayFailureSemanticSharedFault",
         "gatewayFailureSemanticAccountFault",
         "gatewayFailureSemanticTransientFault"
       ],
-      "rationale": "Global gateway failover SSOT: platform/channel adapters may parse provider evidence, but this owner alone maps normalized semantic, status, account type and configured retry into RetryNextAccount. Losing a profile or semantic reintroduces platform-local policy drift."
+      "rationale": "Global gateway failover SSOT: platform/channel adapters may parse provider evidence, but this owner alone maps normalized semantic, status, account type and configured retry into RetryNextAccount. NewAPI bridge unclassified >=500 must failover like OpenAI/Google; SharedFault semantic still stops rotation. Losing a profile, semantic, or the >=500 default reintroduces the HTML/bad_response_body terminal-500 user-visible failure class."
+    },
+    {
+      "path": "backend/internal/service/gateway_failover_shared_fault_ssot_tk.go",
+      "must_contain": [
+        "func gatewayCompatSharedFault(message string, body []byte) bool",
+        "func gatewayNewAPIBridgeSharedFault(message string, body []byte) bool",
+        "isOpenAISafetySessionBlockFault(message, body)",
+        "isOpenAIResponseProtectionUnavailable(message, body)",
+        "isOpenAIContextWindowError(message, body)",
+        "isOpenAINonRetryableClientError(message, body)"
+      ],
+      "rationale": "SharedFault catalog owner for 'retrying another account cannot help'. Core catalog (safety/response_protection/context-window) is shared by OpenAI shouldFailover and NewAPI; NewAPI-only client-marker extension stays in gatewayNewAPIBridgeSharedFault because invalid_request* envelopes are reused for capacity/overloaded on OpenAI native."
+    },
+    {
+      "path": "backend/internal/service/gateway_failover_shared_fault_ssot_tk_test.go",
+      "must_contain": [
+        "TestGatewayCompatSharedFaultCatalog",
+        "TestGatewayNewAPIBridgeSharedFaultExtendsCore",
+        "TestGatewayCompatSharedFaultStopsNewAPI500Matrix",
+        "bad_response_body html parse is not shared",
+        "invalid_request_error capacity envelope is not core shared",
+        "response protection unavailable"
+      ],
+      "rationale": "Pins core SharedFault positives/negatives and the NewAPI-only client-marker extension so the 500-default flip cannot rotate same-prompt blocks or accidentally SharedFault OpenAI capacity envelopes."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_upstream_errors.go",
+      "must_contain": [
+        "if gatewayCompatSharedFault(upstreamMsg, upstreamBody) {"
+      ],
+      "rationale": "OpenAI shouldFailoverOpenAIUpstreamResponse must call the core SharedFault catalog before status-matrix failover so response_protection/safety/context-window stay request-scoped and cannot drift from NewAPI bridge."
     },
     {
       "path": "backend/internal/service/gateway_failover_policy_test.go",
@@ -13044,9 +13089,10 @@
         "TestUS049_SemanticOverridesStatusAndFailsClosed",
         "TestUS049_RuntimeFailoverChokePointUsesGlobalPolicy",
         "TestUS049_OpenAIPassthroughAccountMatrix",
-        "TestUS049_AdaptersDelegateWithoutBehaviorDrift"
+        "TestUS049_AdaptersDelegateWithoutBehaviorDrift",
+        "newapi generic server failovers"
       ],
-      "rationale": "Behavioral contract for the global failover matrix, semantic precedence, fail-closed unknown inputs, passthrough account differences and adapter compatibility."
+      "rationale": "Behavioral contract for the global failover matrix, semantic precedence, fail-closed unknown inputs, passthrough account differences and adapter compatibility. NewAPI unclassified 500 must stay failover after the 2026-10-19 SSOT amendment."
     },
     {
       "path": "backend/internal/service/gateway_service.go",
@@ -13124,9 +13170,11 @@
       "must_contain": [
         "classifyGatewayFailover(gatewayFailoverObservation{",
         "Profile:    gatewayFailoverProfileNewAPIBridge",
+        "gatewayNewAPIBridgeSharedFault(",
+        "gatewayFailureSemanticSharedFault",
         "semantic = gatewayFailureSemanticAccountFault"
       ],
-      "rationale": "NewAPI bridge may recognize account-standing arrears, but both that semantic and its narrow gateway-status matrix must be decided by the global failover owner rather than channel-specific booleans."
+      "rationale": "NewAPI bridge may recognize account-standing arrears and SharedFault catalog hits, but both those semantics and the >=500 status matrix must be decided by the global failover owner rather than channel-specific booleans. Dropping gatewayNewAPIBridgeSharedFault after the 500-default flip would rotate same-prompt policy blocks across the pool."
     },
     {
       "path": "backend/internal/service/grok_upstream_errors.go",
@@ -14170,10 +14218,10 @@
     {
       "path": "backend/internal/service/openai_gateway_upstream_errors.go",
       "must_contain": [
-        "isOpenAISafetySessionBlockFault(upstreamMsg, upstreamBody)",
+        "if gatewayCompatSharedFault(upstreamMsg, upstreamBody) {",
         "markOpenAISafetyPolicyEvent(c, body, resp.StatusCode, nil)"
       ],
-      "rationale": "HTTP OpenAI error paths must classify usage/cyber as SharedFault and mark both before early return; dropping either reintroduces account rotation on safety blocks."
+      "rationale": "HTTP OpenAI error paths must classify usage/cyber/response_protection/context-window via the SharedFault catalog and mark safety events before early return; dropping either reintroduces account rotation on safety blocks."
     },
     {
       "path": "backend/internal/service/openai_gateway_passthrough_tk_failover.go",
@@ -15578,9 +15626,9 @@
     {
       "path": "backend/internal/service/openai_gateway_upstream_errors.go",
       "must_contain": [
-        "isOpenAIResponseProtectionUnavailable(upstreamMsg, upstreamBody)"
+        "if gatewayCompatSharedFault(upstreamMsg, upstreamBody) {"
       ],
-      "rationale": "Converted HTTP errors preserve the same no-account-failover semantic as SSE errors."
+      "rationale": "Converted HTTP errors preserve the same no-account-failover SharedFault semantic as SSE errors via the core catalog (includes response_protection)."
     },
     {
       "path": "backend/internal/service/openai_oauth_web_search_history_tk_test.go",
@@ -16009,10 +16057,13 @@
         "normalizeStrictChatDeveloperRoles(account, targetURL, body)",
         "func coalescePlanChatTokenLimit(",
         "body = coalescePlanChatTokenLimit(body)",
+        "func clampVolcPlanChatSamplingBounds(",
+        "body = clampVolcPlanChatSamplingBounds(body)",
+        "volcPlanKimiK3MaxTokensMax",
         "func normalizeChatToolConstraints(",
         "delete(root, \"functions\")"
       ],
-      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role/token-limit owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role/token-limit owner across raw and adaptor paths; Volc Agent Plan sampling clamp + kimi-k3 max_tokens ceiling stay wired. See docs/approved/chat-plan-parameter-compatibility.md."
     },
     {
       "path": "backend/internal/service/openai_chat_roles.go",
@@ -16056,11 +16107,12 @@
         "func TestChatToolConstraints_InvalidAndUnconstrained(",
         "func TestChatProviderConstraints_DestinationAndRetryIsolation(",
         "func TestChatProviderConstraints_PlanTokenLimitCoalesce(",
+        "func TestChatProviderConstraints_VolcPlanSamplingBounds(",
         "func TestChatProviderConstraints_ForwardRawAndAliAdaptor(",
         "func TestChatProviderConstraints_InvalidSelectionDoesNotSend(",
         "func TestChatProviderConstraints_ResponsesFallback("
       ],
-      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role/token-limit owner across raw and adaptor paths; preserve strict JSON mode and retry input. See docs/approved/chat-plan-parameter-compatibility.md."
+      "rationale": "Plan Chat request compatibility must share the destination-scoped tool/role/token-limit owner across raw and adaptor paths; Volc sampling/kimi-k3 max_tokens regressions stay wired. See docs/approved/chat-plan-parameter-compatibility.md."
     },
     {
       "path": "backend/internal/server/routes/gateway_terminal_routes.go",
@@ -16673,6 +16725,79 @@
         "\"Upstream rate limit exceeded, please retry later\""
       ],
       "rationale": "OpenAI gateway 429 mapping and error writers consume the busy-429 SSOT; forbidding the legacy upstream-limit literal prevents merge regressions. Ops-only 'No available accounts' detail strings remain allowed via TkAnnotateBusy429Ops."
+    },
+    {
+      "path": "backend/internal/service/openai_upstream_transport_error.go",
+      "must_contain": [
+        "SafeToFailoverAfterWrite: streamHasOnlyKeepaliveOutput(c)"
+      ],
+      "rationale": "Preserve pre-output recovery wiring and reject truncated buffered success. Output-recovery hooks must survive upstream merges; focused recovery tests cover their semantics."
+    },
+    {
+      "path": "backend/internal/service/gemini_upstream_transport_error.go",
+      "must_contain": [
+        "SafeToFailoverAfterWrite: streamHasOnlyKeepaliveOutput(c)"
+      ],
+      "rationale": "Preserve pre-output recovery wiring and reject truncated buffered success. Output-recovery hooks must survive upstream merges; focused recovery tests cover their semantics."
+    },
+    {
+      "path": "backend/internal/service/upstream_output_recovery_tk_test.go",
+      "must_contain": [
+        "func TestResponsesMetadataBeforeOverloadAllowsFailover(t *testing.T)",
+        "func TestHeaderWaitTLSFailureAllowsOnlyKeepaliveReplay(t *testing.T)",
+        "func TestBufferedAnthropicTruncationNeverReturnsNormalCompletion(t *testing.T)",
+        "func TestBridgeMalformedUpstreamBodyFailsOverWithoutDisablingAccount(t *testing.T)",
+        "func TestResponsesMetadataPreservesSuccessfulOrderAndCommittedFailure(t *testing.T)",
+        "func TestHeaderWaitCanceledRequestDoesNotFailOver(t *testing.T)"
+      ],
+      "rationale": "Keep recovery and no-replay regressions: metadata after keepalive, TLS recovery/exhaustion, cancellation, buffered truncation, malformed supplier responses, and a single client lifecycle."
+    },
+    {
+      "path": "backend/internal/handler/header_wait_recovery_tk_test.go",
+      "must_contain": [
+        "func TestHeaderWaitTLSRecoveryKeepsSingleMessagesLifecycle(t *testing.T)"
+      ],
+      "rationale": "Keep recovery and no-replay regressions: metadata after keepalive, TLS recovery/exhaustion, cancellation, buffered truncation, malformed supplier responses, and a single client lifecycle."
+    },
+    {
+      "path": "backend/internal/repository/proxy_probe_service.go",
+      "must_contain": [
+        "var probeURLsDomestic = []probeTarget{",
+        "{\"https://myip.ipip.net/json\", \"ipip-json\"}",
+        "func resolveProxyProbeTargets(cfg *config.Config) []probeTarget {"
+      ],
+      "rationale": "cn-prod admin proxy exit probes must stay on the China-first builtin chain (ipip → ip9 → qq-ip2city → ipify). An upstream merge that restores overseas-only ip-api defaults reintroduces multi-second false latency on domestic SOCKS."
+    },
+    {
+      "path": "backend/internal/repository/proxy_probe_service_test.go",
+      "must_contain": [
+        "func TestResolveProxyProbeTargets_PresetDomestic(t *testing.T)",
+        "func TestResolveProxyProbeTargets_ExplicitURLsWin(t *testing.T)"
+      ],
+      "rationale": "Focused regressions that domestic preset selects ipip-json first and that explicit urls still win over preset."
+    },
+    {
+      "path": "deploy/domestic/compose.override.yml",
+      "must_contain": [
+        "SECURITY_PROXY_PROBE_PRESET: \"domestic\""
+      ],
+      "rationale": "Domestic compose must inject the proxy_probe preset so future cn sites inherit China-first exit probes without editing config.yaml by hand."
+    },
+    {
+      "path": "deploy/domestic/test_pool_env_probe.py",
+      "must_contain": [
+        "def test_compose_override_sets_domestic_proxy_probe_preset(self):"
+      ],
+      "rationale": "Mechanical guard that compose.override keeps SECURITY_PROXY_PROBE_PRESET=domestic."
+    },
+    {
+      "path": "backend/internal/config/config.go",
+      "must_contain": [
+        "viper.SetDefault(\"security.proxy_probe.preset\", \"\")",
+        "\"ipip-json\":",
+        "\"qq-ip2city\":"
+      ],
+      "rationale": "Proxy probe preset default and domestic parser allowlist must survive upstream config imports."
     }
   ]
 }

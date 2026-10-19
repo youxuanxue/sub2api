@@ -279,7 +279,7 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 		if !tkAnthropicBufferedHasUsableContent(finalResp) {
 			return nil, s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, upstreamModel, upstreamErr)
 		}
-		tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)
+		return nil, tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)
 	}
 	if finalResp == nil {
 		return nil, s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, upstreamModel, nil)

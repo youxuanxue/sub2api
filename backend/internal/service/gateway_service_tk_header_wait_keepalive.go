@@ -67,10 +67,14 @@ func startAnthropicMessageStartKeepalive(c *gin.Context, interval time.Duration,
 	if interval <= 0 {
 		return nil
 	}
+	firstFrame := ""
+	if !anthropicMessageStartAlreadySent(c) {
+		firstFrame = anthropicStreamMessageStartSSE(strings.TrimSpace(model), "")
+	}
 	return startHeaderWaitKeepaliveWithPrefix(
 		c,
 		interval,
-		anthropicStreamMessageStartSSE(strings.TrimSpace(model), ""),
+		firstFrame,
 		anthropicSSEPingFrame,
 		func() { markAnthropicMessageStartSent(c) },
 	)
@@ -319,12 +323,14 @@ func startHeaderWaitKeepaliveWithPrefix(
 				if !wroteFirst && firstFrame != "" {
 					toWrite = firstFrame + frame
 				}
-				if _, err := fmt.Fprint(c.Writer, toWrite); err != nil {
+				n, err := fmt.Fprint(c.Writer, toWrite)
+				if err != nil {
 					// Client is gone; stop emitting. The upstream read path will
 					// observe the disconnect via context cancellation or its own
 					// write failure once it takes over.
 					return
 				}
+				recordOpenAIStreamKeepaliveBytes(c, n)
 				if !wroteFirst {
 					wroteFirst = true
 					if afterFirstWrite != nil {

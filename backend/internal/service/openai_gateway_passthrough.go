@@ -942,6 +942,12 @@ func recordOpenAIStreamKeepaliveBytes(c *gin.Context, written int) {
 	c.Set(openAIStreamKeepaliveBytesKey, current+written)
 }
 
+// streamHasOnlyKeepaliveOutput must be read after stopping the keepalive writer.
+// Header-wait prefixes and heartbeats share the existing stream byte accounting.
+func streamHasOnlyKeepaliveOutput(c *gin.Context) bool {
+	return c != nil && c.Writer != nil && c.Writer.Size() > 0 && OpenAICompactKeepaliveAdjustedWrittenSize(c) < 0
+}
+
 func openAIStreamClientOutputStarted(c *gin.Context, localStarted bool) bool {
 	if localStarted {
 		return true
@@ -949,16 +955,15 @@ func openAIStreamClientOutputStarted(c *gin.Context, localStarted bool) bool {
 	if c == nil || c.Writer == nil {
 		return false
 	}
-	// compact keepalive comments commit the HTTP response as 200, but they are
-	// not semantic model output and therefore must not block a safe retry.
-	// Without a compact keepalive this is equivalent to checking Writer.Size().
+	// Header-wait and in-stream keepalives commit HTTP 200 without semantic
+	// model output. All use the existing adjusted byte count for replay gates.
 	return OpenAICompactKeepaliveAdjustedWrittenSize(c) >= 0
 }
 
 // Lifecycle metadata and transport heartbeats are not model output.
 func openAIStreamEventIsMetadata(eventType string) bool {
 	switch strings.TrimSpace(eventType) {
-	case "response.created", "response.in_progress", "keepalive":
+	case "response.created", "response.in_progress", "response.metadata", "keepalive":
 		return true
 	default:
 		return false
@@ -1596,6 +1601,7 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverErrorWithModel(
 		classificationHeaders = nil
 	}
 	failoverErr := s.newOpenAIAccountFailoverErrorWithClassificationHeaders(account, statusCode, headers, classificationHeaders, payload, message, shouldDisable, retryableOnSameAccount)
+	failoverErr.SafeToFailoverAfterWrite = streamHasOnlyKeepaliveOutput(c)
 	if statusCode == http.StatusServiceUnavailable && !shouldDisable && retryableOnSameAccount {
 		failoverErr.RetryableOnSameAccount = true
 		failoverErr.RequestScopedTransient = true

@@ -264,7 +264,7 @@ done
 
 # Compress before base64: native smoke and its companions exceed SSM's 97 KB
 # document limit uncompressed. -n keeps the payload independent of file timestamps.
-REMOTE_PARTS=()
+REMOTE_PARTS=("umask 077")
 for extra in "${WITH_FILES[@]+"${WITH_FILES[@]}"}"; do
   EB64=$(gzip -cn < "$extra" | base64 | tr -d '\n')
   EP="/tmp/$(basename "$extra")"

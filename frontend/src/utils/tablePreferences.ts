@@ -59,7 +59,7 @@ export const getConfiguredTablePageSizeOptions = (): number[] => {
     return [...DEFAULT_TABLE_PAGE_SIZE_OPTIONS]
   }
 
-  return unique.length > 0 ? unique : [...DEFAULT_TABLE_PAGE_SIZE_OPTIONS]
+  return unique
 }
 
 export const normalizeTablePageSize = (value: unknown): number => {

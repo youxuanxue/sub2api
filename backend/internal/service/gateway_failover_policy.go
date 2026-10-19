@@ -151,11 +151,14 @@ func googleGatewayFailoverStatus(statusCode int) bool {
 
 func newAPIBridgeFailoverStatus(statusCode int) bool {
 	switch statusCode {
-	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusTooManyRequests,
-		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, 529:
+	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusTooManyRequests, 529:
 		return true
 	default:
-		return false
+		// Align with Generic/OpenAI/Google: unclassified 5xx rotate to the next
+		// account. SharedFault (content/policy/context-window) still stops via
+		// semantic precedence — see gateway_failover_shared_fault_ssot_tk.go and
+		// docs/approved/gateway-failover-policy-ssot.md §SharedFault.
+		return statusCode >= 500
 	}
 }
 

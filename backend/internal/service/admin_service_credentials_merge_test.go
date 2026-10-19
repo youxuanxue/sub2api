@@ -178,7 +178,7 @@ func TestUpdateAccount_RejectsMissingProtocolEndpointWhenBaseURLCleared(t *testi
 		accountID,
 		&UpdateAccountInput{Credentials: map[string]any{
 			"base_url":      "",
-			"model_mapping": map[string]any{"qwen-audio-3.0-tts-plus": "qwen-audio-3.0-tts-plus"},
+			"model_mapping": map[string]any{"qwen3.8-flash": "qwen3.8-flash"},
 		}},
 	)
 
