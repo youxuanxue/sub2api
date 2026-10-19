@@ -87,9 +87,25 @@ func shouldEstimateCountTokensLocally(account *Account) bool {
 	switch account.Platform {
 	case PlatformAntigravity, PlatformGemini, PlatformKiro:
 		return true
-	default:
+	}
+	// NewAPI and tokensea relays serve Messages on their own transport.
+	// ForwardCountTokens otherwise POSTs {base}/v1/messages/count_tokens,
+	// and those hosts answer 405. Estimate instead of returning that 405.
+	return account.Platform == PlatformNewAPI || isTokenseaRelayUpstream(account)
+}
+
+// accountHasNativeAnthropicCountTokens reports accounts that can answer
+// count_tokens without the local NewAPI/tokensea estimate. Selection uses
+// this so a tokensea_first hint does not steal the request from an account
+// that implements the endpoint.
+func accountHasNativeAnthropicCountTokens(account *Account) bool {
+	if account == nil || account.Platform == PlatformNewAPI || isTokenseaRelayUpstream(account) {
 		return false
 	}
+	if shouldEstimateCountTokensLocally(account) {
+		return true
+	}
+	return account.Platform == PlatformAnthropic
 }
 
 func estimateTokensForAnthropicText(s string) int {

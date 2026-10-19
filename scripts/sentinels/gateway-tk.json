@@ -1327,7 +1327,8 @@
       "path": "backend/internal/service/candidate_selection_tk.go",
       "must_contain": [
         "candidateCompatibilityRank(a) < candidateCompatibilityRank(b)",
-        "return candidatePathLess(r.key, counts, failureCounts, pool[i], pool[j])",
+        "return candidatePathLess(r.key, r.shape, counts, failureCounts, pool[i], pool[j])",
+        "countTokensEndpointRank(shape, a.account)",
         "candidatePreferenceRank(key, a.account, a.model)",
         "candidateCompatibilityRank(paths[origin.ID])",
         "account, preferredOrigins, r.model",

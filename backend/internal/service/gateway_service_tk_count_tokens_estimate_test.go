@@ -28,6 +28,32 @@ func TestEstimateAnthropicCountTokensInput_EmptyBodyReturnsZero(t *testing.T) {
 	require.Equal(t, 0, estimateAnthropicCountTokensInput(nil))
 }
 
+func TestForwardCountTokens_NewAPITokenseaReturnsLocalEstimate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+
+	svc := &GatewayService{}
+	account := &Account{
+		ID:       136,
+		Platform: PlatformNewAPI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agent.tokensea.ai",
+		},
+	}
+	parsed := &ParsedRequest{
+		Model: "claude-sonnet-4-6",
+		Body:  mustNewRequestBodyRef([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`)),
+	}
+
+	err := svc.ForwardCountTokens(c.Request.Context(), c, account, parsed)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"input_tokens"`)
+}
+
 func TestForwardCountTokens_AntigravityReturnsLocalEstimate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
