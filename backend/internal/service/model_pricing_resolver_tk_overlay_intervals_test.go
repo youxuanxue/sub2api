@@ -86,25 +86,23 @@ func TestOverlayIntervalPricing_CoderPlusWholeRequestTier(t *testing.T) {
 		return tax * tkCNYPerMTokToUSDPerToken(cny)
 	}
 	cases := []struct {
-		ctxTokens int
-		in, out   float64
+		ctxTokens      int
+		in, out, cache float64
 	}{
-		{10_000, withTax(4), withTax(16)},    // tier1 (0,32K] ¥4/¥16
-		{32_000, withTax(4), withTax(16)},    // 32K boundary stays tier1 (max inclusive)
-		{32_001, withTax(6), withTax(24)},    // tier2 (32K,128K] ¥6/¥24
-		{200_000, withTax(10), withTax(40)},  // tier3 (128K,256K] ¥10/¥40
-		{500_000, withTax(20), withTax(200)}, // tier4 (256K,inf) ¥20/¥200
+		{10_000, withTax(4), withTax(16), withTax(0.8)},  // tier1 (0,32K] ¥4/¥16; cache-hit 20%
+		{32_000, withTax(4), withTax(16), withTax(0.8)},  // 32K boundary stays tier1 (max inclusive)
+		{32_001, withTax(6), withTax(24), withTax(1.2)},  // tier2 (32K,128K] ¥6/¥24
+		{200_000, withTax(10), withTax(40), withTax(2)},  // tier3 (128K,256K] ¥10/¥40
+		{500_000, withTax(20), withTax(200), withTax(4)}, // tier4 (256K,inf) ¥20/¥200
 	}
 	for _, c := range cases {
 		p := r.GetIntervalPricing(resolved, c.ctxTokens)
 		require.NotNilf(t, p, "interval pricing @ %d ctx", c.ctxTokens)
 		require.InDeltaf(t, c.in, p.InputPricePerToken, 1e-15, "input @ %d ctx", c.ctxTokens)
 		require.InDeltaf(t, c.out, p.OutputPricePerToken, 1e-15, "output @ %d ctx", c.ctxTokens)
-		// Cache-read tokens must bill at the tier's full input rate ("用原价", no
-		// discount) — never $0. DashScope reports cached_tokens and the bridge maps
-		// them to CacheReadTokens (newapi_bridge_usage.go), so an unset cache price
-		// would silently bill cache hits free.
-		require.InDeltaf(t, c.in, p.CacheReadPricePerToken, 1e-15, "cache-read @ %d ctx must equal input rate", c.ctxTokens)
+		// DashScope context-cache default: 输入（缓存命中）=20% of the tier input
+		// list (never $0 — unset cache would silently bill hits free).
+		require.InDeltaf(t, c.cache, p.CacheReadPricePerToken, 1e-15, "cache-read @ %d ctx must be 20%% of tier input", c.ctxTokens)
 	}
 }
 
@@ -156,8 +154,8 @@ func TestOverlayIntervals_FlatModelUnaffected(t *testing.T) {
 		return tax * tkCNYPerMTokToUSDPerToken(cny)
 	}
 	require.InDelta(t, withTax(12), resolved.BasePricing.InputPricePerToken, 1e-15)
-	// cache-read billed at full input rate ("用原价"), not $0.
-	require.InDelta(t, withTax(12), resolved.BasePricing.CacheReadPricePerToken, 1e-15)
+	// Official Beijing list: 输入（缓存命中）¥2.4/Mtok (=20% of ¥12), not $0 and not full input.
+	require.InDelta(t, withTax(2.4), resolved.BasePricing.CacheReadPricePerToken, 1e-15)
 }
 
 func TestOverlayIntervals_ChannelFlatOverrideSuppressesRegistryTiers(t *testing.T) {

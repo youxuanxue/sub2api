@@ -778,20 +778,35 @@ func TestTKPricingOverlay_DomesticChatCacheReadNotEqualInput(t *testing.T) {
 		if mode != "" && mode != "chat" && mode != "completion" {
 			continue
 		}
-		check := func(scope string, input, cacheRead float64) {
-			if input <= 0 || cacheRead <= 0 {
+		check := func(scope string, input, cacheRead float64, cacheDeclared bool) {
+			if input <= 0 {
+				return
+			}
+			// DashScope chat must declare a positive discounted cache_read; other
+			// domestic providers only fail when they declare cache_read >= input.
+			if strings.EqualFold(row.LiteLLMProvider, "dashscope") {
+				if !cacheDeclared || cacheRead <= 0 {
+					offenders = append(offenders, modelID+scope+":missing_cache_read")
+					return
+				}
+			} else if !cacheDeclared || cacheRead <= 0 {
 				return
 			}
 			if cacheRead >= input-1e-18 {
-				offenders = append(offenders, modelID+scope)
+				offenders = append(offenders, modelID+scope+":cache_ge_input")
 			}
 		}
-		check("", row.InputCostPerToken, row.CacheReadInputTokenCost)
+		check("", row.InputCostPerToken, row.CacheReadInputTokenCost, row.CacheReadInputTokenCost > 0)
 		for i, iv := range row.Intervals {
-			if iv.InputPrice == nil || iv.CacheReadPrice == nil {
+			if iv.InputPrice == nil {
 				continue
 			}
-			check(fmt.Sprintf("/interval[%d]", i), *iv.InputPrice, *iv.CacheReadPrice)
+			declared := iv.CacheReadPrice != nil
+			cr := 0.0
+			if declared {
+				cr = *iv.CacheReadPrice
+			}
+			check(fmt.Sprintf("/interval[%d]", i), *iv.InputPrice, cr, declared)
 		}
 	}
 	require.Empty(t, offenders,

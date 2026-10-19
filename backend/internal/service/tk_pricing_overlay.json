@@ -9990,7 +9990,7 @@
     "mode": "chat",
     "input_cost_per_token": 1.1940298507462688e-07,
     "output_cost_per_token": 9.55223880597015e-07,
-    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: input ¥0.0008–0.002 / output ¥0.0064–0.016 per 1k (tiers ≤128k/>128k); overlay intervals by input tokens; CNY/USD=6.7. Serving via account 90 ch46 only.",
+    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: input ¥0.0008–0.002 / output ¥0.0064–0.016 per 1k (tiers ≤128k/>128k); overlay intervals by input tokens; CNY/USD=6.7. Serving via account 90 ch46 only. Cache list refreshed 2026-10-19: DashScope default 输入（缓存命中）=20% of input, 显式缓存创建=125% of input (https://help.aliyun.com/zh/model-studio/context-cache) to avoid $0 cache-hit billing when upstream reports cached_tokens; model-page cache row not separately captured. Batch/promo not modeled.",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -10001,22 +10001,28 @@
         "min_tokens": 0,
         "max_tokens": 128000,
         "input_cost_per_token": 1.1940298507462688e-07,
-        "output_cost_per_token": 9.55223880597015e-07
+        "output_cost_per_token": 9.55223880597015e-07,
+        "cache_read_input_token_cost": 2.3880597014925377e-08,
+        "cache_creation_input_token_cost": 1.4925373134328363e-07
       },
       {
         "min_tokens": 128000,
         "max_tokens": null,
         "input_cost_per_token": 2.9850746268656716e-07,
-        "output_cost_per_token": 2.3880597014925373e-06
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 5.970149253731343e-08,
+        "cache_creation_input_token_cost": 3.7313432835820895e-07
       }
-    ]
+    ],
+    "cache_read_input_token_cost": 2.3880597014925377e-08,
+    "cache_creation_input_token_cost": 1.4925373134328363e-07
   },
   "qwen3.5-27b": {
     "litellm_provider": "dashscope",
     "mode": "chat",
     "input_cost_per_token": 8.955223880597014e-08,
     "output_cost_per_token": 7.164179104477611e-07,
-    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: input ¥0.0006–0.0018 / output ¥0.0048–0.0144 per 1k (tiers ≤128k/>128k); overlay intervals by input tokens; CNY/USD=6.7. Serving via account 90 ch46 only.",
+    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: input ¥0.0006–0.0018 / output ¥0.0048–0.0144 per 1k (tiers ≤128k/>128k); overlay intervals by input tokens; CNY/USD=6.7. Serving via account 90 ch46 only. Cache list refreshed 2026-10-19: DashScope default 输入（缓存命中）=20% of input, 显式缓存创建=125% of input (https://help.aliyun.com/zh/model-studio/context-cache) to avoid $0 cache-hit billing when upstream reports cached_tokens; model-page cache row not separately captured. Batch/promo not modeled.",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -10027,22 +10033,28 @@
         "min_tokens": 0,
         "max_tokens": 128000,
         "input_cost_per_token": 8.955223880597014e-08,
-        "output_cost_per_token": 7.164179104477611e-07
+        "output_cost_per_token": 7.164179104477611e-07,
+        "cache_read_input_token_cost": 1.7910447761194026e-08,
+        "cache_creation_input_token_cost": 1.119402985074627e-07
       },
       {
         "min_tokens": 128000,
         "max_tokens": null,
         "input_cost_per_token": 2.686567164179104e-07,
-        "output_cost_per_token": 2.1492537313432833e-06
+        "output_cost_per_token": 2.1492537313432833e-06,
+        "cache_read_input_token_cost": 5.373134328358208e-08,
+        "cache_creation_input_token_cost": 3.35820895522388e-07
       }
-    ]
+    ],
+    "cache_read_input_token_cost": 1.7910447761194026e-08,
+    "cache_creation_input_token_cost": 1.119402985074627e-07
   },
   "qwen3.5-35b-a3b": {
     "litellm_provider": "dashscope",
     "mode": "chat",
     "input_cost_per_token": 5.970149253731344e-08,
     "output_cost_per_token": 4.776119402985075e-07,
-    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: input ¥0.0004–0.0016 / output ¥0.0032–0.0128 per 1k (tiers ≤128k/>128k); overlay intervals by input tokens; CNY/USD=6.7. Serving via account 90 ch46 only.",
+    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: input ¥0.0004–0.0016 / output ¥0.0032–0.0128 per 1k (tiers ≤128k/>128k); overlay intervals by input tokens; CNY/USD=6.7. Serving via account 90 ch46 only. Cache list refreshed 2026-10-19: DashScope default 输入（缓存命中）=20% of input, 显式缓存创建=125% of input (https://help.aliyun.com/zh/model-studio/context-cache) to avoid $0 cache-hit billing when upstream reports cached_tokens; model-page cache row not separately captured. Batch/promo not modeled.",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -10053,22 +10065,28 @@
         "min_tokens": 0,
         "max_tokens": 128000,
         "input_cost_per_token": 5.970149253731344e-08,
-        "output_cost_per_token": 4.776119402985075e-07
+        "output_cost_per_token": 4.776119402985075e-07,
+        "cache_read_input_token_cost": 1.1940298507462688e-08,
+        "cache_creation_input_token_cost": 7.462686567164182e-08
       },
       {
         "min_tokens": 128000,
         "max_tokens": null,
         "input_cost_per_token": 2.3880597014925377e-07,
-        "output_cost_per_token": 1.91044776119403e-06
+        "output_cost_per_token": 1.91044776119403e-06,
+        "cache_read_input_token_cost": 4.7761194029850754e-08,
+        "cache_creation_input_token_cost": 2.9850746268656726e-07
       }
-    ]
+    ],
+    "cache_read_input_token_cost": 1.1940298507462688e-08,
+    "cache_creation_input_token_cost": 7.462686567164182e-08
   },
   "qwen3.5-397b-a17b": {
     "litellm_provider": "dashscope",
     "mode": "chat",
     "input_cost_per_token": 1.7910447761194027e-07,
     "output_cost_per_token": 1.0746268656716416e-06,
-    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: input ¥0.0012–0.003 / output ¥0.0072–0.018 per 1k (tiers ≤128k/>128k); overlay intervals by input tokens; CNY/USD=6.7. Serving via account 90 ch46 only.",
+    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: input ¥0.0012–0.003 / output ¥0.0072–0.018 per 1k (tiers ≤128k/>128k); overlay intervals by input tokens; CNY/USD=6.7. Serving via account 90 ch46 only. Cache list refreshed 2026-10-19: DashScope default 输入（缓存命中）=20% of input, 显式缓存创建=125% of input (https://help.aliyun.com/zh/model-studio/context-cache) to avoid $0 cache-hit billing when upstream reports cached_tokens; model-page cache row not separately captured. Batch/promo not modeled.",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -10079,15 +10097,21 @@
         "min_tokens": 0,
         "max_tokens": 128000,
         "input_cost_per_token": 1.7910447761194027e-07,
-        "output_cost_per_token": 1.0746268656716416e-06
+        "output_cost_per_token": 1.0746268656716416e-06,
+        "cache_read_input_token_cost": 3.582089552238805e-08,
+        "cache_creation_input_token_cost": 2.238805970149254e-07
       },
       {
         "min_tokens": 128000,
         "max_tokens": null,
         "input_cost_per_token": 4.4776119402985074e-07,
-        "output_cost_per_token": 2.686567164179104e-06
+        "output_cost_per_token": 2.686567164179104e-06,
+        "cache_read_input_token_cost": 8.955223880597016e-08,
+        "cache_creation_input_token_cost": 5.597014925373134e-07
       }
-    ]
+    ],
+    "cache_read_input_token_cost": 3.582089552238805e-08,
+    "cache_creation_input_token_cost": 2.238805970149254e-07
   },
   "grok-4.6": {
     "litellm_provider": "xai",
@@ -10301,16 +10325,22 @@
         "min_tokens": 0,
         "max_tokens": 128000,
         "input_cost_per_token": 5.970149253731344e-08,
-        "output_cost_per_token": 4.776119402985075e-07
+        "output_cost_per_token": 4.776119402985075e-07,
+        "cache_read_input_token_cost": 1.1940298507462688e-08,
+        "cache_creation_input_token_cost": 7.462686567164182e-08
       },
       {
         "min_tokens": 128000,
         "max_tokens": null,
         "input_cost_per_token": 2.388059701492537e-07,
-        "output_cost_per_token": 1.91044776119403e-06
+        "output_cost_per_token": 1.91044776119403e-06,
+        "cache_read_input_token_cost": 4.776119402985075e-08,
+        "cache_creation_input_token_cost": 2.9850746268656716e-07
       }
     ],
-    "source": "TEMPORARY owner cloned from qwen3.5-35b-a3b incl. input-tier intervals (same size class) for 2026-09-01 supplier hotfix. Replace with DashScope official qwen3.6-35b-a3b list when captured."
+    "source": "TEMPORARY owner cloned from qwen3.5-35b-a3b incl. input-tier intervals (same size class) for 2026-09-01 supplier hotfix. Replace with DashScope official qwen3.6-35b-a3b list when captured. Cache list refreshed 2026-10-19: DashScope default 输入（缓存命中）=20% of input, 显式缓存创建=125% of input (https://help.aliyun.com/zh/model-studio/context-cache) to avoid $0 cache-hit billing when upstream reports cached_tokens; model-page cache row not separately captured. Batch/promo not modeled.",
+    "cache_read_input_token_cost": 1.1940298507462688e-08,
+    "cache_creation_input_token_cost": 7.462686567164182e-08
   },
   "qwen3.6-max-preview": {
     "litellm_provider": "dashscope",
