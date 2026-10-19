@@ -567,7 +567,12 @@ import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountProtocolCapabilities from '@/components/account/AccountProtocolCapabilities.vue'
 import SupplierManagedBadge from '@/components/account/SupplierManagedBadge.vue'
-const AccountUsageCell = defineAsyncComponent(() => import('@/components/account/AccountUsageCell.vue'))
+// Eager import: async AccountUsageCell previously shared accountUsageBatch /
+// GoogleVerificationLink with this view's sync imports, so Rollup put those
+// helpers into the AccountsView chunk and AccountUsageCell imported them back
+// (AccountsView ↔ AccountUsageCell cycle). Under onlyExplicitManualChunks that
+// leaves usesLocalUsageWindows undefined at cell setup and blanks the column.
+import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
