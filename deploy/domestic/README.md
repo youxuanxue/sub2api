@@ -63,6 +63,7 @@ SSH 22 或从运维机 scp 离线 tar。入口脚本：
 # 1) 主机拉取与 AWS prod 相同的 GHCR 包，校验 amd64 + version label，打本地不可变 tag
 bash deploy/domestic/deploy_via_ssm.sh pull --tag 1.8.306
 # 可选：--digest sha256:… 钉死 amd64/index digest
+# 可选：CN_PROD_SSM_DRY_RUN=1 只打印将下发的 remote 脚本，不 SendCommand
 
 # 2) 同步 bluegreen 控制文件到 /opt/tokenkey/releases/artifacts-ssm/
 bash deploy/domestic/deploy_via_ssm.sh sync-controls

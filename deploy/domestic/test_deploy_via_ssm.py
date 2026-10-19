@@ -194,6 +194,76 @@ class DeployViaSsmTest(unittest.TestCase):
         self.assertIn("send-command", log)
         self.assertIn("cn-prod-deploy sync-controls", log)
 
+    def test_pull_dry_run_emits_amd64_and_label_checks(self) -> None:
+        env = {
+            **os.environ,
+            "PATH": f"{self.fakebin}:{os.environ.get('PATH', '')}",
+            "CN_PROD_SSM_DRY_RUN": "1",
+        }
+        proc = subprocess.run(
+            ["bash", "deploy/domestic/deploy_via_ssm.sh", "pull", "--tag", "v1.8.306"],
+            cwd=self.repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        remote = proc.stdout
+        self.assertIn('docker pull "$SOURCE"', remote)
+        self.assertIn("test \"$ARCH\" = amd64", remote)
+        self.assertIn('test "$VER" = "$EXPECT_TAG"', remote)
+        self.assertIn("--format '{{.Id}}'", remote)
+        self.assertIn(
+            '--format \'{{index .Config.Labels "org.opencontainers.image.revision"}}\'',
+            remote,
+        )
+        self.assertNotIn("send-command", self.aws_log.read_text())
+
+    def test_prepare_rejects_image_tag_mismatch(self) -> None:
+        proc = self._run(
+            "prepare",
+            "--tag",
+            "1.8.306",
+            "--revision",
+            "2d4b4cdbf8fbae7d1cf888d5c47b6a584ad6d2bd",
+            "--image",
+            "tokenkey-domestic/tokenkey:1.8.306-deadbeef0",
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("must be tokenkey-domestic/tokenkey:1.8.306-2d4b4cdbf", proc.stderr)
+
+    def test_prepare_dry_run_quotes_shared_source(self) -> None:
+        env = {
+            **os.environ,
+            "PATH": f"{self.fakebin}:{os.environ.get('PATH', '')}",
+            "CN_PROD_SSM_DRY_RUN": "1",
+        }
+        proc = subprocess.run(
+            [
+                "bash",
+                "deploy/domestic/deploy_via_ssm.sh",
+                "prepare",
+                "--tag",
+                "1.8.306",
+                "--revision",
+                "2d4b4cdbf8fbae7d1cf888d5c47b6a584ad6d2bd",
+                "--image",
+                "tokenkey-domestic/tokenkey:1.8.306-2d4b4cdbf",
+            ],
+            cwd=self.repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        self.assertIn(
+            "--shared-source '/opt/tokenkey/releases/artifacts-ssm/deploy_via_ssm_bluegreen.sh'",
+            proc.stdout,
+        )
+        self.assertIn("--revision '2d4b4cdbf8fbae7d1cf888d5c47b6a584ad6d2bd'", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

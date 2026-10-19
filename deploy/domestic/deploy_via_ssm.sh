@@ -106,6 +106,10 @@ run_ssm() {
   local comment="$1"
   local remote_script="$2"
   local params_file stdout_file stderr_file cmd_id status deadline
+  if [[ "${CN_PROD_SSM_DRY_RUN:-}" == "1" ]]; then
+    printf '%s\n' "${remote_script}"
+    return 0
+  fi
   params_file="$(mktemp)"
   stdout_file="$(mktemp)"
   stderr_file="$(mktemp)"
@@ -267,10 +271,16 @@ PY
       exit 1
     fi
     SHORT="$(printf '%s' "${REVISION}" | cut -c1-9)"
+    EXPECTED_LOCAL="tokenkey-domestic/tokenkey:${TAG}-${SHORT}"
+    if [[ "${IMAGE}" != "${EXPECTED_LOCAL}" ]]; then
+      echo "deploy_via_ssm prepare: --image must be ${EXPECTED_LOCAL} (got ${IMAGE})" >&2
+      exit 1
+    fi
     STATE_NAME="${TAG}-${SHORT}"
-    REMOTE="$(python3 - "${CONTROLS_DIR}" "${STATE_NAME}" "${IMAGE}" "${REVISION}" <<'PY'
+    SHARED_SOURCE="${CONTROLS_DIR}/deploy_via_ssm_bluegreen.sh"
+    REMOTE="$(python3 - "${CONTROLS_DIR}" "${STATE_NAME}" "${IMAGE}" "${REVISION}" "${SHARED_SOURCE}" <<'PY'
 import sys
-controls, state, image, revision = sys.argv[1:5]
+controls, state, image, revision, shared = sys.argv[1:6]
 print(f'''set -euo pipefail
 cd {controls!r}
 test -f bluegreen.py
@@ -279,7 +289,7 @@ python3 bluegreen.py prepare \\
   --state /opt/tokenkey/releases/{state} \\
   --image {image!r} \\
   --revision {revision!r} \\
-  --shared-source {controls}/deploy_via_ssm_bluegreen.sh
+  --shared-source {shared!r}
 ''')
 PY
 )"
