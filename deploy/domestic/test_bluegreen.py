@@ -17,7 +17,7 @@ def fixture():
             'State': {'StartedAt': 'start', 'Health': {'Status': 'healthy'}},
             'Config': {'Env': ['SERVER_FRONTEND_URL=https://api-cn.tokenkey.dev',
                                'QA_CAPTURE_ENABLED=false', 'JWT_SECRET=literal${value}',
-                               'GOMEMLIMIT=768MiB', 'DATABASE_HOST=postgres']},
+                               'GOMEMLIMIT=1GiB', 'DATABASE_HOST=postgres']},
             'HostConfig': {'RestartPolicy': {'Name': 'unless-stopped'}},
             'Mounts': [{'Type': 'bind', 'Source': '/var/lib/tokenkey/app',
                         'Destination': '/app/data', 'RW': True}],
@@ -34,7 +34,7 @@ class DomesticBluegreenTest(unittest.TestCase):
         actual = bg.candidate_compose(service, current, 'sha256:new', 'tokenkey-blue')
         app = actual['services']['tokenkey-blue']
         self.assertEqual(app['environment']['JWT_SECRET'], 'literal$${value}')
-        self.assertEqual(app['environment']['GOMEMLIMIT'], '768MiB')
+        self.assertEqual(app['environment']['GOMEMLIMIT'], '1GiB')
         self.assertEqual(app['volumes'], service['volumes'])
         self.assertEqual(app['image'], 'sha256:new')
         self.assertEqual(app['pull_policy'], 'never')

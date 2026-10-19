@@ -28,7 +28,10 @@
 - `prepare-runtime.py STATE_DIR` 从共享 Stage0 Compose/Caddy 模板生成本机受保护 bundle，
   重用已存在的 secrets，不在 stdout 输出配置或密钥。`STATE_DIR/images.json` 必须来自
   已校验的 amd64 镜像，包含各服务的 `source` digest、`config` digest、归档 `sha256` 与本地 `tag`。
-- `compose.override.yml` 关闭 QA capture/telemetry，限制应用连接池和 Go 内存目标；
+- `compose.override.yml` 关闭 QA capture/telemetry，并将应用池收在 2C/4G 上限
+  （`GOMEMLIMIT=1GiB`、DB open/idle `40/10`、Redis pool/idle `96/8`）；现网核对/写入用
+  `ops/observability/probe-cn-prod-pool-env.sh`（经 `run-probe.sh --target cn-prod`，
+  写入需 `APPLY=yes-tune-cn-prod-pools`）；
   `compose.local.yml` 只将管理端口绑定到主机 loopback。
 - 默认经 AWS SSM Hybrid 在主机上 `docker pull` 同一 GHCR 发布包（见下方「SSM 蓝绿升级」）。
   仅当 GHCR/SSM 不可用时才走运维机离线 archive：核验 SHA-256 → `docker load`。Docker 29
