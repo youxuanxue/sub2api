@@ -1,0 +1,38 @@
+name: cn-prod pg_dump Backup
+on:
+  schedule:
+    - cron: '17 */2 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: cn-prod-pgdump
+  cancel-in-progress: false
+jobs:
+  backup:
+    if: vars.CN_PGDUMP_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: us-east-1
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install boto3
+      - name: Backup and verify the remote object
+        env:
+          BACKUP_BUCKET: ${{ vars.CN_PGDUMP_BUCKET }}
+        run: python3 deploy/domestic/pgdump.py --bucket "$BACKUP_BUCKET" --receipt cn-pgdump-receipt.json --apply
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cn-pgdump-receipt
+          path: cn-pgdump-receipt.json
+          if-no-files-found: error
+          retention-days: 7
