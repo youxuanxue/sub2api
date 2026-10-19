@@ -369,7 +369,7 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 		sort.Slice(pool, func(i, j int) bool { return pool[i].account.ID < pool[j].account.ID })
 		rand.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
 		sort.SliceStable(pool, func(i, j int) bool {
-			return candidatePathLess(r.key, counts, failureCounts, pool[i], pool[j])
+			return candidatePathLess(r.key, r.shape, counts, failureCounts, pool[i], pool[j])
 		})
 		var waiting []*candidateExecutionPath
 		for _, path := range pool {
@@ -435,9 +435,15 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 	return nil, err
 }
 
-func candidatePathLess(key *APIKey, counts, failureCounts map[int64]int64, a, b *candidateExecutionPath) bool {
+func candidatePathLess(key *APIKey, shape UniversalShape, counts, failureCounts map[int64]int64, a, b *candidateExecutionPath) bool {
 	if candidateCompatibilityRank(a) != candidateCompatibilityRank(b) {
 		return candidateCompatibilityRank(a) < candidateCompatibilityRank(b)
+	}
+	// count_tokens must prefer an account that implements the endpoint.
+	// tokensea_first still orders Messages, but it must not outrank a native
+	// counter: NewAPI/tokensea relays answer that POST with 405.
+	if ra, rb := countTokensEndpointRank(shape, a.account), countTokensEndpointRank(shape, b.account); ra != rb {
+		return ra < rb
 	}
 	if candidatePreferenceRank(key, a.account, a.model) != candidatePreferenceRank(key, b.account, b.model) {
 		return candidatePreferenceRank(key, a.account, a.model) < candidatePreferenceRank(key, b.account, b.model)
@@ -447,6 +453,13 @@ func candidatePathLess(key *APIKey, counts, failureCounts map[int64]int64, a, b 
 		return pa < pb
 	}
 	return a.sticky && !b.sticky
+}
+
+func countTokensEndpointRank(shape UniversalShape, account *Account) int {
+	if shape != ShapeAnthropicCountTokens || accountHasNativeAnthropicCountTokens(account) {
+		return 0
+	}
+	return 1
 }
 
 func candidateCompatibilityRank(path *candidateExecutionPath) int {

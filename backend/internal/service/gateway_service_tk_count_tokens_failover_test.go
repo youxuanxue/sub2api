@@ -30,6 +30,13 @@ func TestCountTokensFailoverError_CarveOutWired(t *testing.T) {
 		return &http.Response{StatusCode: status, Header: h}
 	}
 
+	t.Run("405 switches accounts", func(t *testing.T) {
+		fe := gs.tkCountTokensFailoverError(poolStub, resp(http.StatusMethodNotAllowed, nil), []byte(`{"error":{"message":"method not allowed"}}`))
+		require.NotNil(t, fe)
+		require.Equal(t, http.StatusMethodNotAllowed, fe.StatusCode)
+		require.False(t, fe.RetryableOnSameAccount)
+	})
+
 	t.Run("header-less 429 => RetryableOnSameAccount=false (switch immediately)", func(t *testing.T) {
 		fe := gs.tkCountTokensFailoverError(poolStub, resp(http.StatusTooManyRequests, nil), body)
 		require.NotNil(t, fe, "429 is failover-eligible")

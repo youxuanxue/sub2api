@@ -16,7 +16,7 @@ func TestCandidatePathLessTokenseaPreferenceOverridesGlobalPriority(t *testing.T
 	tokensea := &candidateExecutionPath{account: &Account{ID: 136, Platform: PlatformNewAPI, Priority: 20}, model: "claude-sonnet-4-6"}
 	other := &candidateExecutionPath{account: &Account{ID: 300, Platform: PlatformNewAPI, Priority: 1}, model: "claude-sonnet-4-6"}
 
-	if !candidatePathLess(key, nil, nil, tokensea, other) {
+	if !candidatePathLess(key, ShapeAnthropicMessages, nil, nil, tokensea, other) {
 		t.Fatal("tokensea preference must outrank a lower global priority account")
 	}
 }
@@ -26,7 +26,7 @@ func TestCandidatePathLessDefaultKeepsGlobalPriority(t *testing.T) {
 	preferred := &candidateExecutionPath{account: &Account{ID: 136, Platform: PlatformNewAPI, Priority: 20}, model: "claude-sonnet-4-6"}
 	other := &candidateExecutionPath{account: &Account{ID: 300, Platform: PlatformNewAPI, Priority: 1}, model: "claude-sonnet-4-6"}
 
-	if candidatePathLess(key, nil, nil, preferred, other) {
+	if candidatePathLess(key, ShapeAnthropicMessages, nil, nil, preferred, other) {
 		t.Fatal("default preference must preserve global priority")
 	}
 }
@@ -41,6 +41,24 @@ func TestCandidatePreferenceOnlyMatchesConfiguredTokenseaAccounts(t *testing.T) 
 	}
 	if candidatePreferenceRank(key, &Account{ID: 219, Platform: PlatformNewAPI}, "claude-sonnet-4-6") != 1 {
 		t.Fatal("unconfigured account must remain in fallback tier")
+	}
+}
+
+func TestCandidatePathLessCountTokensPrefersNativeCounter(t *testing.T) {
+	key := &APIKey{RoutingPreference: RoutingPreferenceTokenseaFirst}
+	tokensea := &candidateExecutionPath{
+		account: &Account{ID: 136, Platform: PlatformNewAPI, Priority: 1, Credentials: map[string]any{"base_url": "https://agent.tokensea.ai"}},
+		model:   "claude-sonnet-4-6",
+	}
+	native := &candidateExecutionPath{
+		account: &Account{ID: 300, Platform: PlatformAnthropic, Priority: 20},
+		model:   "claude-sonnet-4-6",
+	}
+	if !candidatePathLess(key, ShapeAnthropicCountTokens, nil, nil, native, tokensea) {
+		t.Fatal("count_tokens must prefer a native counter over the tokensea preference")
+	}
+	if candidatePathLess(key, ShapeAnthropicMessages, nil, nil, native, tokensea) {
+		t.Fatal("messages must keep the tokensea preference ahead of a worse-priority native account")
 	}
 }
 
@@ -112,4 +130,26 @@ func TestCandidateTokenseaNewAPIPreferenceAndFallback(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestCandidateCountTokensPrefersNativeAccountOverTokensea(t *testing.T) {
+	preferred := globalCandidateAccount(136, 1, 1)
+	preferred.Platform, preferred.ChannelType = PlatformNewAPI, 14
+	preferred.Credentials["base_url"] = "https://agent.tokensea.ai"
+	preferred.Credentials["model_mapping"] = map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"}
+	attachTestProtocolCapability(&preferred, protocolrouter.ProtocolMessages)
+	fallback := globalCandidateAccount(300, 20, 1)
+	fallback.Platform = PlatformAnthropic
+	fallback.Credentials["model_mapping"] = map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"}
+	attachTestProtocolCapability(&fallback, protocolrouter.ProtocolMessages)
+	r, _, key := globalCandidateFixture([]Group{grp(1, PlatformAnthropic, 1, false)}, []Account{preferred, fallback})
+	key.RoutingPreference = RoutingPreferenceTokenseaFirst
+	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`)
+	ctx, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeAnthropicCountTokens, "/v1/messages/count_tokens", "claude-sonnet-4-6", body, "", "")
+	require.NoError(t, err)
+	selection, err := state.selectAccount(ctx, candidateSelectOptions{acquire: true})
+	require.NoError(t, err)
+	require.True(t, selection.Acquired)
+	defer selection.ReleaseFunc()
+	require.Equal(t, int64(300), selection.Account.ID)
 }

@@ -21,7 +21,13 @@ func tkCountTokensSkipBreaker(statusCode int) bool {
 // failover loop 决定换号 / 池内轮换 / 耗尽。pool_mode stub（prod cc-us1 → edge）
 // 透回的 529/503 经 RetryableOnSameAccount 命中时在同一 stub 上重试 = 池内轮换。
 func (s *GatewayService) tkCountTokensFailoverError(account *Account, resp *http.Response, respBody []byte) *UpstreamFailoverError {
-	if resp == nil || !s.shouldFailoverUpstreamError(resp.StatusCode) {
+	if resp == nil {
+		return nil
+	}
+	// 405 means this upstream has no count_tokens route. Switch accounts
+	// instead of writing that status to the client. Messages failover stays
+	// on the shared status matrix.
+	if resp.StatusCode != http.StatusMethodNotAllowed && !s.shouldFailoverUpstreamError(resp.StatusCode) {
 		return nil
 	}
 	return &UpstreamFailoverError{
