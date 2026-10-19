@@ -106,6 +106,9 @@ run_ssm() {
   local comment="$1"
   local remote_script="$2"
   local params_file stdout_file stderr_file cmd_id status deadline
+  # AWS-RunShellScript starts under /bin/sh (dash on cn-prod). Invoke Bash
+  # explicitly; a quoted heredoc preserves the generated script verbatim.
+  remote_script="$(printf "bash <<'TOKENKEY_CN_DEPLOY_SCRIPT'\n%s\nTOKENKEY_CN_DEPLOY_SCRIPT\n" "${remote_script}")"
   if [[ "${CN_PROD_SSM_DRY_RUN:-}" == "1" ]]; then
     printf '%s\n' "${remote_script}"
     return 0
