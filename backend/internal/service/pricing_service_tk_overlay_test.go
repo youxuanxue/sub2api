@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -598,7 +600,7 @@ func TestTKPricingOverlay_FillsRetiredQwen25Coder(t *testing.T) {
 	require.NotNil(t, c32, "overlay must inject qwen2.5-coder-32b")
 	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4), c32.InputCostPerToken, 1e-13)
 	require.InDelta(t, tkCNYPerMTokToUSDPerToken(16), c32.OutputCostPerToken, 1e-13)
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4), c32.CacheReadInputTokenCost, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.8), c32.CacheReadInputTokenCost, 1e-13)
 	require.Len(t, c32.Intervals, 4, "32b must carry the 4 input-token tiers")
 	top32 := c32.Intervals[len(c32.Intervals)-1]
 	require.Nil(t, top32.MaxTokens, "last 32b tier is unbounded (>256K)")
@@ -611,7 +613,7 @@ func TestTKPricingOverlay_FillsRetiredQwen25Coder(t *testing.T) {
 	require.NotNil(t, c7, "overlay must inject qwen2.5-coder-7b")
 	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1), c7.InputCostPerToken, 1e-13)
 	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4), c7.OutputCostPerToken, 1e-13)
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1), c7.CacheReadInputTokenCost, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.2), c7.CacheReadInputTokenCost, 1e-13)
 	require.Len(t, c7.Intervals, 4, "7b must carry the 4 input-token tiers")
 	base7 := c7.Intervals[0]
 	require.NotNil(t, base7.InputPrice)
@@ -641,7 +643,7 @@ func TestTKPricingOverlay_FillsQwenVisionFamily(t *testing.T) {
 	require.False(t, tkIsEffectivelyUnpriced(max))
 	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.6), max.InputCostPerToken, 1e-13)
 	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4), max.OutputCostPerToken, 1e-13)
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.6), max.CacheReadInputTokenCost, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.32), max.CacheReadInputTokenCost, 1e-13)
 	require.True(t, max.SupportsVision)
 
 	plus := data["qwen-vl-plus"]
@@ -680,6 +682,120 @@ func TestTKPricingOverlay_FillsQwenVisionFamily(t *testing.T) {
 
 func tkOfficialListBaseTaxMultiplier() float64 {
 	return loadTkOfficialListBaseTaxPolicy().Multiplier
+}
+
+// TestTKPricingOverlay_Qwen38FamilyCacheListRates pins DashScope Beijing
+// context-cache list prices (not promo): cache_read must be the listed
+// 输入（缓存命中） rate, and cache_creation the 显式缓存创建 rate — not
+// equal to plain input (the prior conservative overcharge).
+func TestTKPricingOverlay_Qwen38FamilyCacheListRates(t *testing.T) {
+	svc := &PricingService{}
+	body := []byte(`{
+		"gpt-5.4": {
+			"input_cost_per_token": 0.0000025,
+			"output_cost_per_token": 0.000015,
+			"litellm_provider": "openai",
+			"mode": "chat"
+		}
+	}`)
+	data, err := svc.parsePricingData(body)
+	require.NoError(t, err)
+
+	type want struct {
+		inputCNY, outputCNY, cacheReadCNY, cacheCreateCNY float64
+	}
+	cases := map[string]want{
+		"qwen3.8-max": {
+			inputCNY: 12, outputCNY: 36, cacheReadCNY: 1.5, cacheCreateCNY: 15,
+		},
+		"qwen3.8-2.4t-a95b": {
+			inputCNY: 12, outputCNY: 36, cacheReadCNY: 1.5, cacheCreateCNY: 15,
+		},
+		"qwen3.8-flash": {
+			inputCNY: 0.8, outputCNY: 2.7, cacheReadCNY: 0.1, cacheCreateCNY: 1.25,
+		},
+		"qwen3.6-max-preview": {
+			inputCNY: 12, outputCNY: 36, cacheReadCNY: 1.5, cacheCreateCNY: 15,
+		},
+		"qwen3.7-max": {
+			inputCNY: 12, outputCNY: 36, cacheReadCNY: 2.4, cacheCreateCNY: 15,
+		},
+		"qwen3.7-max-2026-05-20": {
+			inputCNY: 12, outputCNY: 36, cacheReadCNY: 2.4, cacheCreateCNY: 15,
+		},
+	}
+	for modelID, w := range cases {
+		row := data[modelID]
+		require.NotNil(t, row, modelID)
+		require.InDelta(t, tkCNYPerMTokToUSDPerToken(w.inputCNY), row.InputCostPerToken, 1e-15, modelID)
+		require.InDelta(t, tkCNYPerMTokToUSDPerToken(w.outputCNY), row.OutputCostPerToken, 1e-15, modelID)
+		require.InDelta(t, tkCNYPerMTokToUSDPerToken(w.cacheReadCNY), row.CacheReadInputTokenCost, 1e-15, modelID)
+		require.InDelta(t, tkCNYPerMTokToUSDPerToken(w.cacheCreateCNY), row.CacheCreationInputTokenCost, 1e-15, modelID)
+		require.Less(t, row.CacheReadInputTokenCost, row.InputCostPerToken,
+			"%s cache_read must be cheaper than input (official list)", modelID)
+	}
+
+	billing := NewBillingService(nil, nil)
+	const oneM = 1_000_000
+	cost, err := billing.CalculateCost("qwen3.8-max", UsageTokens{
+		InputTokens: oneM, OutputTokens: 0, CacheReadTokens: oneM,
+	}, 1.0)
+	require.NoError(t, err)
+	wantTotal := float64(oneM) * (tkCNYPerMTokToUSDPerToken(12) + tkCNYPerMTokToUSDPerToken(1.5))
+	require.InDelta(t, wantTotal, cost.TotalCost, 1e-9,
+		"1M input + 1M cache_read must bill at ¥12+¥1.5 list, not ¥12+¥12")
+	require.InDelta(t, float64(oneM)*tkCNYPerMTokToUSDPerToken(1.5), cost.CacheReadCost, 1e-9)
+
+	createCost, err := billing.CalculateCost("qwen3.8-max", UsageTokens{
+		InputTokens: 0, CacheCreationTokens: oneM,
+	}, 1.0)
+	require.NoError(t, err)
+	wantCreate := float64(oneM) * tkCNYPerMTokToUSDPerToken(15)
+	require.InDelta(t, wantCreate, createCost.CacheCreationCost, 1e-9)
+	require.InDelta(t, wantCreate, createCost.TotalCost, 1e-9)
+}
+
+// TestTKPricingOverlay_DomesticChatCacheReadNotEqualInput is the SSOT gate
+// against the historical DashScope mistake of billing cache_read at full input.
+// Official context-cache list (or family default %) must make cache_read cheaper
+// whenever the row declares a cache_read price. Empty allowlist: new regressions
+// fail closed instead of accumulating silent overcharge.
+func TestTKPricingOverlay_DomesticChatCacheReadNotEqualInput(t *testing.T) {
+	overlay := loadTKPricingOverlay()
+	providers := map[string]struct{}{
+		"dashscope": {}, "deepseek": {}, "moonshot": {}, "zhipu": {},
+		"volcengine": {}, "minimax": {}, "tencent": {},
+	}
+	var offenders []string
+	for modelID, row := range overlay {
+		if row == nil {
+			continue
+		}
+		if _, ok := providers[strings.ToLower(row.LiteLLMProvider)]; !ok {
+			continue
+		}
+		mode := strings.ToLower(row.Mode)
+		if mode != "" && mode != "chat" && mode != "completion" {
+			continue
+		}
+		check := func(scope string, input, cacheRead float64) {
+			if input <= 0 || cacheRead <= 0 {
+				return
+			}
+			if cacheRead >= input-1e-18 {
+				offenders = append(offenders, modelID+scope)
+			}
+		}
+		check("", row.InputCostPerToken, row.CacheReadInputTokenCost)
+		for i, iv := range row.Intervals {
+			if iv.InputPrice == nil || iv.CacheReadPrice == nil {
+				continue
+			}
+			check(fmt.Sprintf("/interval[%d]", i), *iv.InputPrice, *iv.CacheReadPrice)
+		}
+	}
+	require.Empty(t, offenders,
+		"domestic chat cache_read must be cheaper than input (official list or family %%); offenders=%v", offenders)
 }
 
 // Traffic aliases must share the complete owner, including future price tiers.
