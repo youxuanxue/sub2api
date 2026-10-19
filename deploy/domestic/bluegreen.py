@@ -97,10 +97,18 @@ def candidate_compose(service, current, image, target):
     service_env = service.get('environment') or {}
     if not isinstance(service_env, dict):
         raise ValueError('compose service environment must be a mapping')
+    # Fail closed: incomplete override must not silently keep the live pool
+    # sizes, or prepare would look successful while capacity bumps never land.
+    missing = [
+        key for key in POOL_ENV_KEYS
+        if key not in service_env
+        or service_env[key] is None
+        or not str(service_env[key]).strip()
+    ]
+    if missing:
+        raise ValueError('compose service missing pool env keys: ' + ', '.join(missing))
     for key in POOL_ENV_KEYS:
-        if key not in service_env or service_env[key] is None:
-            continue
-        env[key] = str(service_env[key])
+        env[key] = str(service_env[key]).strip()
     networks = current['NetworkSettings']['Networks']
     if len(networks) != 1:
         raise ValueError('expected one existing private application network')
