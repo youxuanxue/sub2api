@@ -1987,6 +1987,8 @@
         "ResolveBedrockModelID(account, model)",
         "kiroproto.MapModel(model)",
         "candidateFailureAttributable",
+        "candidateFailureSoftPriorityEligible",
+        "isOpenAIRequestScopedCapacityShed",
         "counter.IncrementCandidateFailure",
         "candidateTransportFailure",
         "errors.As(err, &observed)"
@@ -1994,7 +1996,7 @@
       "must_not_contain": [
         "PlatformNewAPI"
       ],
-      "rationale": "All account platforms share model-scoped failure feedback; native paths reuse forwarding model resolvers, transport attribution excludes caller cancellation, and observed errors cannot count twice."
+      "rationale": "All account platforms share model-scoped failure feedback; native paths reuse forwarding model resolvers, transport attribution excludes caller cancellation, observed errors cannot count twice, and OpenAI capacity-shed overload still feeds soft effective-priority demotion without hard unsched."
     },
     {
       "path": "backend/internal/service/protocol_execution.go",
@@ -2019,10 +2021,13 @@
         "TestCandidateFailurePriorityDirectUniversalAndModelIsolation",
         "TestCandidateFailureNativeExecutionUsesForwardModel",
         "TestCandidateTransportFailureAttribution",
+        "TestCandidateFailureAttributionSoftDeprioritizesOpenAICapacityShed",
+        "http_400_capacity_shed",
+        "selectAccount_demotes_after_threshold",
         "ExecuteSelectedProtocol",
         "classifyOpenAIAPIKeyHealthFailure(observed)"
       ],
-      "rationale": "Protect actual execution feedback, native mapped scopes, caller/transport attribution and legacy breaker deduplication across platforms and key modes."
+      "rationale": "Protect actual execution feedback, native mapped scopes, caller/transport attribution, OpenAI capacity-shed soft priority demotion (including HTTP 400 construction), and legacy breaker deduplication across platforms and key modes."
     },
     {
       "path": "backend/internal/service/gateway_forward.go",
