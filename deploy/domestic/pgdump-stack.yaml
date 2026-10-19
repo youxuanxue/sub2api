@@ -1,0 +1,82 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Dedicated cn-prod logical backups; no permanent cloud keys on UCloud.
+Parameters:
+  RunnerRoleName:
+    Type: String
+  RunnerRoleArn:
+    Type: String
+  ManagedInstanceId:
+    Type: String
+    AllowedPattern: 'mi-[a-f0-9]+'
+  SsmRegion:
+    Type: String
+Resources:
+  Repository:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'tokenkey-cn-prod-pgdump-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: seven-day-logical-backups
+            Status: Enabled
+            Prefix: cn-prod/pgdump/
+            ExpirationInDays: 7
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+  RepositoryPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref Repository
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt Repository.Arn, !Sub '${Repository.Arn}/*']
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+          - Effect: Allow
+            Principal:
+              AWS: !Ref RunnerRoleArn
+            Action: [s3:GetBucketLocation, s3:ListBucket]
+            Resource: !GetAtt Repository.Arn
+          - Effect: Allow
+            Principal:
+              AWS: !Ref RunnerRoleArn
+            Action: [s3:GetObject, s3:PutObject]
+            Resource: !Sub '${Repository.Arn}/cn-prod/pgdump/*'
+  DispatchPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: tokenkey-cn-pgdump-ssm
+      Roles: [!Ref RunnerRoleName]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: ssm:SendCommand
+            Resource:
+              - !Sub 'arn:aws:ssm:${SsmRegion}:${AWS::AccountId}:managed-instance/${ManagedInstanceId}'
+              - !Sub 'arn:aws:ssm:${SsmRegion}::document/AWS-RunShellScript'
+          - Effect: Allow
+            Action: [ssm:DescribeInstanceInformation, ssm:GetCommandInvocation]
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: !Ref SsmRegion
+Outputs:
+  BucketName:
+    Value: !Ref Repository
