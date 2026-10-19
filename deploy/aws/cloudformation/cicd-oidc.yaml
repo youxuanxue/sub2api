@@ -178,8 +178,11 @@ Resources:
               - Sid: ReadEbsSnapshotsForDiagnostics
                 # ops-daily-diagnostics data_layer_snapshot_signal.sh runs on the
                 # GHA runner (OIDC creds), not via SSM — needs direct EC2 read.
+                # DescribeInstances resolves the live data volume; DescribeSnapshots
+                # reads completed DLM snapshots (volume-id or Backup/Purpose tags).
                 Effect: Allow
                 Action:
+                  - ec2:DescribeInstances
                   - ec2:DescribeSnapshots
                 Resource: "*"
                 Condition:

@@ -186,6 +186,106 @@ class DataLayerSnapshotSignalTest(unittest.TestCase):
         self.assertFalse(body["probe_ok"])
         self.assertIn("AccessDenied", body["probe_error"])
 
+    def test_describe_instances_denied_falls_back_to_data_volume_tags(self) -> None:
+        # ops-daily OIDC historically granted DescribeSnapshots only; live
+        # instance resolve must not hard-fail the freshness gate.
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            fakebin = root / "bin"
+            fakebin.mkdir()
+            calls = root / "aws-calls.log"
+            aws = fakebin / "aws"
+            aws.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env bash
+                    set -u
+                    printf '%s\\n' "$*" >> "$FAKE_AWS_CALLS"
+                    if [ "$1 $2" = "ec2 describe-instances" ]; then
+                      echo "An error occurred (UnauthorizedOperation) when calling the DescribeInstances operation" >&2
+                      exit 254
+                    fi
+                    if [ "$1 $2" = "ec2 describe-snapshots" ]; then
+                      printf '%s\\n' "$FAKE_SNAPSHOT_AT"
+                      exit 0
+                    fi
+                    exit 2
+                    """
+                ),
+                encoding="utf-8",
+            )
+            aws.chmod(0o755)
+            proc = subprocess.run(
+                ["bash", str(_SCRIPT), "ap-northeast-1", "tokenkey-prod-stage0", "i-045f062ce33e1a5af"],
+                env={
+                    **os.environ,
+                    "PATH": f"{fakebin}:{os.environ.get('PATH', '')}",
+                    "FAKE_AWS_CALLS": str(calls),
+                    "FAKE_SNAPSHOT_AT": "2026-10-19T03:26:31.020000+00:00",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            captured = calls.read_text(encoding="utf-8").splitlines()
+        body = json.loads(proc.stdout)
+        self.assertTrue(body["probe_ok"], proc.stderr + proc.stdout)
+        self.assertEqual(body["latest_snapshot_at"], "2026-10-19T03:26:31.020000+00:00")
+        self.assertTrue(any("describe-instances" in c for c in captured), msg=captured)
+        tag_call = next(c for c in captured if c.startswith("ec2 describe-snapshots"))
+        self.assertIn("Name=tag:Backup,Values=stage0", tag_call)
+        self.assertIn(
+            "Name=tag:Purpose,Values=tokenkey-state-postgres-redis-caddy",
+            tag_call,
+        )
+        self.assertNotIn("Name=volume-id,", tag_call)
+
+    def test_describe_instances_not_found_stays_fail_closed(self) -> None:
+        # Non-IAM failures must not be greened by region-wide tag snapshots.
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            fakebin = root / "bin"
+            fakebin.mkdir()
+            calls = root / "aws-calls.log"
+            aws = fakebin / "aws"
+            aws.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env bash
+                    set -u
+                    printf '%s\\n' "$*" >> "$FAKE_AWS_CALLS"
+                    if [ "$1 $2" = "ec2 describe-instances" ]; then
+                      echo "An error occurred (InvalidInstanceID.NotFound) when calling the DescribeInstances operation" >&2
+                      exit 254
+                    fi
+                    if [ "$1 $2" = "ec2 describe-snapshots" ]; then
+                      printf '%s\\n' "2026-10-19T03:26:31.020000+00:00"
+                      exit 0
+                    fi
+                    exit 2
+                    """
+                ),
+                encoding="utf-8",
+            )
+            aws.chmod(0o755)
+            proc = subprocess.run(
+                ["bash", str(_SCRIPT), "ap-northeast-1", "tokenkey-prod-stage0", "i-deadbeef01"],
+                env={
+                    **os.environ,
+                    "PATH": f"{fakebin}:{os.environ.get('PATH', '')}",
+                    "FAKE_AWS_CALLS": str(calls),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            captured = calls.read_text(encoding="utf-8").splitlines()
+        body = json.loads(proc.stdout)
+        self.assertFalse(body["probe_ok"], proc.stderr + proc.stdout)
+        self.assertIsNone(body["latest_snapshot_at"])
+        self.assertIn("InvalidInstanceID.NotFound", body["probe_error"])
+        self.assertFalse(any("describe-snapshots" in c for c in captured), msg=captured)
+
 
 if __name__ == "__main__":
     unittest.main()
