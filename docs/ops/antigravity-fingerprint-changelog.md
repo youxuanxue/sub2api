@@ -17,6 +17,7 @@ Drift-fix recipe (see the `tokenkey-antigravity-fingerprint-alignment` skill):
 
 | date (UTC) | UA version | type | change | note |
 |---|---|---|---|---|
+| 2026-10-19 | **1.4.2** | pure UA | `DefaultUserAgentVersion` 1.4.0 → 1.4.2 | Local `agy --version` ground truth; HTTP UA format unchanged. Closes #2711. |
 | 2026-10-17 | **1.4.0** | pure UA | `DefaultUserAgentVersion` 1.3.6 → 1.4.0 | Local `agy --version` ground truth; HTTP UA format unchanged. Closes #2684. |
 | 2026-10-16 | **1.3.6** | pure UA | `DefaultUserAgentVersion` 1.3.5 → 1.3.6 | Local `agy --version` ground truth; HTTP UA format unchanged. Closes #2661. |
 | 2026-10-15 | **1.3.5** | pure UA | `DefaultUserAgentVersion` 1.3.4 → 1.3.5 | Local `agy --version` ground truth; HTTP UA format unchanged. Closes #2639. |
