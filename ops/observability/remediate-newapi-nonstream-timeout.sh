@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
-# Write-capable: raise NewAPI Chat non-stream first-output budget to 600s on a
+# Write-capable: raise NewAPI Chat non-stream first-output budget on a
 # blue/green host WITHOUT draining the live upstream first.
+# Default/max seconds: ops/stage0/first_output_timeout_ssot.py
+# (python3 scripts/checks/first-output-timeout-ssot.py --apply).
 #
 # Safe path (default):
 #   1) upsert .env + patch compose fallbacks
 #   2) recreate INACTIVE color on the same image as ACTIVE
 #   3) Caddy hot-cutover to inactive
-#   4) recreate previous color so both sides carry 600
+#   4) recreate previous color so both sides carry the new budget
 #
 # Delivered via run-probe.sh. Requires:
 #   APPLY=yes-newapi-nonstream-timeout
 #
 # Optional:
-#   WANT_TIMEOUT=600   (must be 1..900; default 600 — current prod/cn-prod pin)
+#   WANT_TIMEOUT=<seconds>  (range 1..NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX; default from SSOT)
 set -euo pipefail
 
 APPLY="${APPLY:-}"

@@ -24,8 +24,8 @@ const (
 	defaultStreamFirstOutputHighEffortTimeout = 600 * time.Second
 	defaultKiroFirstOutputTimeout             = 120 * time.Second
 	defaultKiroHighEffortFirstOutputTimeout   = 600 * time.Second
+	defaultNewAPIChatNonstreamFirstOutput     = 600 * time.Second
 	// first-output-timeout-ssot:end
-	defaultNewAPIChatNonstreamFirstOutput = 600 * time.Second
 )
 
 // ResolveGrokFirstByteHeaderTimeout is the Grok transport ResponseHeaderTimeout

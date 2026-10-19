@@ -4,10 +4,21 @@ from __future__ import annotations
 
 import pathlib
 import subprocess
+import sys
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "ops" / "observability" / "remediate-newapi-nonstream-timeout.sh"
+
+sys.path.insert(0, str(ROOT / "ops" / "stage0"))
+from first_output_timeout_ssot import (  # noqa: E402
+    EXPECTED_ENV_NEWAPI_NONSTREAM,
+    NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX,
+)
+
+NEWAPI_NONSTREAM_DEFAULT = EXPECTED_ENV_NEWAPI_NONSTREAM[
+    "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT"
+]
 
 
 class NewAPINonstreamTimeoutRemediateTest(unittest.TestCase):
@@ -19,7 +30,7 @@ class NewAPINonstreamTimeoutRemediateTest(unittest.TestCase):
         text = SCRIPT.read_text(encoding="utf-8")
         apply_at = text.index('APPLY" != "yes-newapi-nonstream-timeout"')
         backup_at = text.index("=== backup ===")
-        cutover_call = text.index("commit_cutover \"$INACTIVE\"")
+        cutover_call = text.index('commit_cutover "$INACTIVE"')
         self.assertLess(apply_at, backup_at)
         self.assertLess(backup_at, cutover_call)
 
@@ -33,12 +44,19 @@ class NewAPINonstreamTimeoutRemediateTest(unittest.TestCase):
         self.assertLess(cutover, drain)
         # No USR1 against the pre-cutover active path.
         pre = text[:cutover]
-        self.assertNotIn("docker kill -s USR1 \"$ACTIVE_CTR\"", pre)
-        self.assertIn("docker kill -s USR1 \"$name\"", text[drain:])
+        self.assertNotIn('docker kill -s USR1 "$ACTIVE_CTR"', pre)
+        self.assertIn('docker kill -s USR1 "$name"', text[drain:])
 
-    def test_want_timeout_capped_at_900(self) -> None:
+    def test_want_timeout_matches_ssot_default_and_max(self) -> None:
         text = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("WANT_TIMEOUT\" -gt 900", text)
+        self.assertIn(
+            f'WANT_TIMEOUT="${{WANT_TIMEOUT:-{NEWAPI_NONSTREAM_DEFAULT}}}"',
+            text,
+        )
+        self.assertIn(
+            f'WANT_TIMEOUT" -gt {NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX}',
+            text,
+        )
         self.assertIn("yes-newapi-nonstream-timeout", text)
 
     def test_cutover_syncs_gemini_web_control_alias(self) -> None:
@@ -46,7 +64,7 @@ class NewAPINonstreamTimeoutRemediateTest(unittest.TestCase):
         cutover = text.index("cutover_ok upstream=")
         sync_call = text.index('sync_gemini_web_control_alias "${color}"')
         self.assertLess(sync_call, cutover)
-        self.assertIn('TCP:${target}:8080', text)
+        self.assertIn("TCP:${target}:8080", text)
         self.assertIn("tokenkey-gemini-web", text)
 
 

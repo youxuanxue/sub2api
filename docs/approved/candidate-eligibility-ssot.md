@@ -280,9 +280,11 @@ A replayable NewAPI Chat request may immediately try another eligible account
 on its first pre-output failure; it does not wait for three cross-request failures.
 Streaming inherits the universal stream budget above (legacy
 `gateway.newapi_chat_first_output_timeout` overrides when >0). Non-streaming
-defaults to 600 seconds (`gateway.newapi_chat_nonstream_first_output_timeout`,
-zero also means 600, max 900; Stage0/bluegreen host inject fallback matches).
-Each mode allows no more than three attempts/two switches and a shared budget
+uses `gateway.newapi_chat_nonstream_first_output_timeout`; numeric default,
+host-inject fallback, Go fallback, and config max are owned only by
+`ops/stage0/first_output_timeout_ssot.py` (regenerate via
+`python3 scripts/checks/first-output-timeout-ssot.py --apply`; zero also means
+the SSOT default). Each mode allows no more than three attempts/two switches and a shared budget
 of three times that mode's per-attempt timeout. Started output is never replayed. Hard continuation,
 WebSocket, server-side tools and non-text modalities retain their existing
 owners. Partial output keeps known usage and cannot acquire a synthetic

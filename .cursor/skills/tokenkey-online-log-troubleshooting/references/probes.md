@@ -16,7 +16,7 @@
 | ⚠写侧：关闭进程级生图闸（`APPLY=yes-disable-image-concurrency`；`.env` upsert `GATEWAY_IMAGE_CONCURRENCY_ENABLED=false` 并 recreate 活动色容器） | 机械(写) | `ops/observability/remediate-disable-image-concurrency.sh`（经 run-probe 投递；须授权；会短暂重启 app） |
 | ⚠写侧：cn-prod 2C/4G 应用池上限（`APPLY=yes-tune-cn-prod-pools`；`GOMEMLIMIT`/`DATABASE_MAX_*`/`REDIS_POOL_*` 对齐 `deploy/domestic/compose.override.yml` 并 recreate 活动色） | 机械(写) | `ops/observability/probe-cn-prod-pool-env.sh`（经 `run-probe.sh --target cn-prod` 投递；默认只读；须授权） |
 | ⚠写侧：first-output 抬闸（`APPLY=yes-first-output-timeouts`；数字来自 `first_output_timeout_ssot.py`） | 机械(写) | `ops/observability/remediate-first-output-timeouts.sh` |
-| ⚠写侧：NewAPI Chat 非流 first-output 预算（`APPLY=yes-newapi-nonstream-timeout`；默认 600，校验上限 900；备色拉起 → Caddy 热切 → 排空旧色） | 机械(写) | `ops/observability/remediate-newapi-nonstream-timeout.sh`（经 `run-probe.sh --target prod\|cn-prod` 投递；须授权） |
+| ⚠写侧：NewAPI Chat 非流 first-output 预算（`APPLY=yes-newapi-nonstream-timeout`；default/max 见 `ops/stage0/first_output_timeout_ssot.py`；备色拉起 → Caddy 热切 → 排空旧色） | 机械(写) | `ops/observability/remediate-newapi-nonstream-timeout.sh`（经 `run-probe.sh --target prod\|cn-prod` 投递；须授权） |
 | ⚠写侧止血：tokensea Anthropic 受管账号补挂 `claude` 分组（`APPLY=1`；补 `account_groups` + `scheduler_outbox`） | 机械(写) | `ops/observability/remediate-tokensea-claude-group.sh`（经 run-probe 投递；仅当投影未自动入组的历史缺口） |
 | ⚠写侧止血：`groups.model_routing` JSON array→object（`APPLY=1`；可选 `CLEANUP_STICKY_PROBES=1` soft-delete `__tk_probe_sticky*`；否则 ListActiveGroups 反序列化失败 → 万能 key 全站 500） | 机械(写) | `ops/observability/remediate-model-routing-array.sh`（经 run-probe 投递） |
 | Docker access log 解析（status/model/minute/latency 直方图 + marker 计数） | 机械 | `ops/observability/parse-access-log.py --stdin\|--file\|--docker` |
