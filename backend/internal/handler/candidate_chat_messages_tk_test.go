@@ -148,12 +148,8 @@ func TestCandidateChatMessagesToolsPriorityAndSupplierFailover(t *testing.T) {
 						require.Empty(t, usage.created)
 						return
 					}
-					if first == "ordinary_500" {
-						require.GreaterOrEqual(t, response.Code, 500)
-						require.Equal(t, []string{"/v1/chat/completions"}, gotHits)
-						require.Empty(t, usage.created)
-						return
-					}
+					// ordinary_500: unclassified NewAPI >=500 now failovers to the
+					// messages sibling (SSOT gateway-failover-policy §NewAPI 500-default).
 					require.Equal(t, 200, response.Code, response.Body.String())
 					wantHits := []string{"/v1/messages"}
 					if first != "messages" {

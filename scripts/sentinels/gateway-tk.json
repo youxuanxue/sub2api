@@ -1744,9 +1744,10 @@
       "must_contain": [
         "TestCandidateChatMessagesToolsPriorityAndSupplierFailover",
         "PrepareCandidateIngress",
-        "row.CacheReadTokens"
+        "row.CacheReadTokens",
+        "ordinary_500: unclassified NewAPI >=500 now failovers"
       ],
-      "rationale": "Real handler tests cover Messages account priority, supplier failover, tool responses and single settlement."
+      "rationale": "Real handler tests cover Messages account priority, supplier failover (including unclassified NewAPI ordinary_500), tool responses and single settlement."
     },
     {
       "path": "backend/internal/engine/protocolrouter/registry.go",
