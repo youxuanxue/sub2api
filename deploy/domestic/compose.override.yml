@@ -6,11 +6,11 @@ services:
     environment:
       QA_CAPTURE_ENABLED: "false"
       TELEMETRY_ARCHIVE_ENABLED: "false"
-      GOMEMLIMIT: "768MiB"
-      DATABASE_MAX_OPEN_CONNS: "20"
-      DATABASE_MAX_IDLE_CONNS: "5"
-      REDIS_POOL_SIZE: "32"
-      REDIS_MIN_IDLE_CONNS: "2"
+      GOMEMLIMIT: "1GiB"
+      DATABASE_MAX_OPEN_CONNS: "40"
+      DATABASE_MAX_IDLE_CONNS: "10"
+      REDIS_POOL_SIZE: "96"
+      REDIS_MIN_IDLE_CONNS: "8"
     logging:
       options:
         max-size: "20m"
