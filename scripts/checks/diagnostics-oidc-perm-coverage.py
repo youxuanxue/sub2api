@@ -13,6 +13,10 @@ BASE_CFN = REPO_ROOT / "deploy/aws/cloudformation/cicd-oidc.yaml"
 # Actions issued on the GHA runner with OIDC creds (not via SSM).
 EXPECTED_BASE_ACTIONS: list[tuple[str, str]] = [
     (
+        "ec2:DescribeInstances",
+        "ops/observability/data_layer_snapshot_signal.sh live data-volume resolve (#2719)",
+    ),
+    (
         "ec2:DescribeSnapshots",
         "ops/observability/data_layer_snapshot_signal.sh on prod diagnostics (#1554)",
     ),
