@@ -50,7 +50,7 @@ func tkBridgeFailureSemantic(apiErr *newapitypes.NewAPIError) gatewayFailureSema
 	// SharedFault catalog (换了也没用): must run before status-matrix 5xx failover
 	// so content/policy/context-window blocks never rotate the pool.
 	// SSOT: docs/approved/gateway-failover-policy-ssot.md §SharedFault
-	if apiErr != nil && gatewayCompatSharedFault(tkBridgeUpstreamRelayMessage(apiErr), tkBridgeUpstreamErrorBody(apiErr)) {
+	if apiErr != nil && gatewayNewAPIBridgeSharedFault(tkBridgeUpstreamRelayMessage(apiErr), tkBridgeUpstreamErrorBody(apiErr)) {
 		return gatewayFailureSemanticSharedFault
 	}
 	if apiErr != nil {

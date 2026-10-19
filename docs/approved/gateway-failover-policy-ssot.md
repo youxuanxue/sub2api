@@ -24,10 +24,11 @@ backend/internal/service/gateway_failover_policy.go
 ```text
 docs/approved/gateway-failover-policy-ssot.md  §SharedFault
 backend/internal/service/gateway_failover_shared_fault_ssot_tk.go
-  gatewayCompatSharedFault(message, body) bool
+  gatewayCompatSharedFault(message, body) bool          # OpenAI + NewAPI core
+  gatewayNewAPIBridgeSharedFault(message, body) bool    # NewAPI core + client markers
 ```
 
-适配器只能调用该 catalog helper（或提交已归一的 `gatewayFailureSemanticSharedFault`），不得在各 channel 私自维护第二份「停换号」短语表。
+适配器只能调用上述 catalog helper（或提交已归一的 `gatewayFailureSemanticSharedFault`），不得在各 channel 私自维护第二份「停换号」短语表。
 
 协议适配器仍负责解析供应商 body、SSE event 和账号配置，因为这些输入具有真实协议差异；适配器只能将结果归一成事实型 failure semantic，不能用 retry / stop / failover 命名 semantic，也不能自行定义 semantic 或 status 对应的 failover 布尔值。handler 的 `FailoverState.HandleFailoverError` 继续独占执行循环，本设计不改变重试次数、账号处罚、sticky 清理、最终错误透传或已输出流的重放边界。
 
@@ -67,13 +68,17 @@ handler 消费的 `UpstreamFailoverError.ShouldRetryNextAccount` 也必须调用
 | 类别 | 判定入口（代码） | 说明 |
 | --- | --- | --- |
 | 内容安全 / usage policy / cyber policy | `isOpenAISafetySessionBlockFault`（经 `gatewayCompatSharedFault`） | 同 prompt 换号也会再炸 |
+| Response protection unavailable | `isOpenAIResponseProtectionUnavailable`（经 `gatewayCompatSharedFault`） | 同 prompt 换号无益；OpenAI/NewAPI 不得漂移 |
 | Context window 超限 | `isOpenAIContextWindowError`（经 `gatewayCompatSharedFault`） | 请求本身超窗，换号无益 |
-| OpenAI-compat 策略/安全/非法请求标记 | `isOpenAINonRetryableClientError`（经 `gatewayCompatSharedFault`） | 含 content_policy / safety / invalid_request 等；中继误标成 5xx 时仍停 |
+| OpenAI-compat 策略/安全/非法请求标记（NewAPI 扩展） | `isOpenAINonRetryableClientError`（经 `gatewayNewAPIBridgeSharedFault`） | 中继把 client block 误标成 5xx 时停换号；**不得**并入 OpenAI native——`invalid_request*` 信封被 capacity/overloaded 复用 |
 | Grok entitlement / content policy | Grok adapter → SharedFault | 保持既有 Grok body 分类，最终仍交全局 owner |
 | 通用 400「普通 invalid request」 | `gateway400FailureSemantic` → SharedFault | 与账号能力/模型不匹配（AccountFault）区分 |
 | 显式 scope Provider/Request | `UpstreamFailoverError` scope 映射 | legacy 空 scope 仍 retry |
 
-OpenAI-compat / NewAPI bridge 在提交 observation 前必须调用 `gatewayCompatSharedFault`；命中则 semantic=`SharedFault`，不得再依赖 status 矩阵误换号。
+强制接线点：
+- OpenAI：`shouldFailoverOpenAIUpstreamResponse` 必须调用 `gatewayCompatSharedFault`（core catalog）。
+- NewAPI bridge：`tkBridgeFailureSemantic` 必须调用 `gatewayNewAPIBridgeSharedFault`（core + client-marker 扩展）。
+命中则 semantic=`SharedFault`，不得再依赖 status 矩阵误换号。其他 OpenAI passthrough 路径可继续直接组合同一组 core detector，但不得另起短语表。
 
 ## 不做什么
 

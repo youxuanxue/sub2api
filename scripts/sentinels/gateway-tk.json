@@ -13054,21 +13054,32 @@
       "path": "backend/internal/service/gateway_failover_shared_fault_ssot_tk.go",
       "must_contain": [
         "func gatewayCompatSharedFault(message string, body []byte) bool",
+        "func gatewayNewAPIBridgeSharedFault(message string, body []byte) bool",
         "isOpenAISafetySessionBlockFault(message, body)",
+        "isOpenAIResponseProtectionUnavailable(message, body)",
         "isOpenAIContextWindowError(message, body)",
         "isOpenAINonRetryableClientError(message, body)"
       ],
-      "rationale": "SharedFault catalog owner for 'retrying another account cannot help'. OpenAI-compat and NewAPI bridge must route stop-retry evidence through this helper so content/policy/context-window blocks cannot drift into a second phrase table or get rotated after the NewAPI 500-default flip."
+      "rationale": "SharedFault catalog owner for 'retrying another account cannot help'. Core catalog (safety/response_protection/context-window) is shared by OpenAI shouldFailover and NewAPI; NewAPI-only client-marker extension stays in gatewayNewAPIBridgeSharedFault because invalid_request* envelopes are reused for capacity/overloaded on OpenAI native."
     },
     {
       "path": "backend/internal/service/gateway_failover_shared_fault_ssot_tk_test.go",
       "must_contain": [
         "TestGatewayCompatSharedFaultCatalog",
+        "TestGatewayNewAPIBridgeSharedFaultExtendsCore",
         "TestGatewayCompatSharedFaultStopsNewAPI500Matrix",
         "bad_response_body html parse is not shared",
-        "policy marker wrapped as 500-shaped message"
+        "invalid_request_error capacity envelope is not core shared",
+        "response protection unavailable"
       ],
-      "rationale": "Pins SharedFault catalog positives (policy/context-window) and negatives (opaque 500 / bad_response_body) so the NewAPI 500-default failover cannot silently rotate same-prompt blocks or re-terminalize HTML parse failures."
+      "rationale": "Pins core SharedFault positives/negatives and the NewAPI-only client-marker extension so the 500-default flip cannot rotate same-prompt blocks or accidentally SharedFault OpenAI capacity envelopes."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_upstream_errors.go",
+      "must_contain": [
+        "if gatewayCompatSharedFault(upstreamMsg, upstreamBody) {"
+      ],
+      "rationale": "OpenAI shouldFailoverOpenAIUpstreamResponse must call the core SharedFault catalog before status-matrix failover so response_protection/safety/context-window stay request-scoped and cannot drift from NewAPI bridge."
     },
     {
       "path": "backend/internal/service/gateway_failover_policy_test.go",
@@ -13158,11 +13169,11 @@
       "must_contain": [
         "classifyGatewayFailover(gatewayFailoverObservation{",
         "Profile:    gatewayFailoverProfileNewAPIBridge",
-        "gatewayCompatSharedFault(",
+        "gatewayNewAPIBridgeSharedFault(",
         "gatewayFailureSemanticSharedFault",
         "semantic = gatewayFailureSemanticAccountFault"
       ],
-      "rationale": "NewAPI bridge may recognize account-standing arrears and SharedFault catalog hits, but both those semantics and the >=500 status matrix must be decided by the global failover owner rather than channel-specific booleans. Dropping gatewayCompatSharedFault after the 500-default flip would rotate same-prompt policy blocks across the pool."
+      "rationale": "NewAPI bridge may recognize account-standing arrears and SharedFault catalog hits, but both those semantics and the >=500 status matrix must be decided by the global failover owner rather than channel-specific booleans. Dropping gatewayNewAPIBridgeSharedFault after the 500-default flip would rotate same-prompt policy blocks across the pool."
     },
     {
       "path": "backend/internal/service/grok_upstream_errors.go",
@@ -14206,10 +14217,10 @@
     {
       "path": "backend/internal/service/openai_gateway_upstream_errors.go",
       "must_contain": [
-        "isOpenAISafetySessionBlockFault(upstreamMsg, upstreamBody)",
+        "if gatewayCompatSharedFault(upstreamMsg, upstreamBody) {",
         "markOpenAISafetyPolicyEvent(c, body, resp.StatusCode, nil)"
       ],
-      "rationale": "HTTP OpenAI error paths must classify usage/cyber as SharedFault and mark both before early return; dropping either reintroduces account rotation on safety blocks."
+      "rationale": "HTTP OpenAI error paths must classify usage/cyber/response_protection/context-window via the SharedFault catalog and mark safety events before early return; dropping either reintroduces account rotation on safety blocks."
     },
     {
       "path": "backend/internal/service/openai_gateway_passthrough_tk_failover.go",
@@ -15614,9 +15625,9 @@
     {
       "path": "backend/internal/service/openai_gateway_upstream_errors.go",
       "must_contain": [
-        "isOpenAIResponseProtectionUnavailable(upstreamMsg, upstreamBody)"
+        "if gatewayCompatSharedFault(upstreamMsg, upstreamBody) {"
       ],
-      "rationale": "Converted HTTP errors preserve the same no-account-failover semantic as SSE errors."
+      "rationale": "Converted HTTP errors preserve the same no-account-failover SharedFault semantic as SSE errors via the core catalog (includes response_protection)."
     },
     {
       "path": "backend/internal/service/openai_oauth_web_search_history_tk_test.go",

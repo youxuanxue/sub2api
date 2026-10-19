@@ -25,7 +25,7 @@
 - `response.failed` 未知结构默认 failover，通用 SSE `error` 未知结构默认 terminal。
 - OAuth passthrough 普通 500 terminal；API key passthrough 500 failover；账号自定义 pool retry 可覆盖未列出的 status。
 - NewAPI bridge 未分类 `>=500` failover（含普通 500 / bad_response_body）；SharedFault catalog 仍停换号；arrears semantic 可让 400/403 failover。
-- SharedFault catalog owner：`gateway_failover_shared_fault_ssot_tk.go` + SSOT §SharedFault；NewAPI bridge 经 `gatewayCompatSharedFault` 提交。
+- SharedFault catalog owner：`gateway_failover_shared_fault_ssot_tk.go` + SSOT §SharedFault；OpenAI 经 `gatewayCompatSharedFault`，NewAPI bridge 经 `gatewayNewAPIBridgeSharedFault` 提交。
 - Grok body classifier 不再输出 failover 布尔字段。
 - 所有 handler 对 `UpstreamFailoverError` 的最终 retry/stop 判定都经过全局 owner；legacy 空 scope 仍 retry，未知 scope fail closed。
 
@@ -37,6 +37,7 @@
 - `backend/internal/service/gateway_failover_policy_test.go`::`TestUS049_OpenAIPassthroughAccountMatrix`
 - `backend/internal/service/gateway_failover_policy_test.go`::`TestUS049_AdaptersDelegateWithoutBehaviorDrift`
 - `backend/internal/service/gateway_failover_shared_fault_ssot_tk_test.go`::`TestGatewayCompatSharedFaultCatalog`
+- `backend/internal/service/gateway_failover_shared_fault_ssot_tk_test.go`::`TestGatewayNewAPIBridgeSharedFaultExtendsCore`
 - `backend/internal/service/gateway_failover_shared_fault_ssot_tk_test.go`::`TestGatewayCompatSharedFaultStopsNewAPI500Matrix`
 - `backend/internal/service/newapi_bridge_failover_tk_test.go`::`TestTkBridgeUpstreamShouldFailoverAfterPenalty_Unclassified5xxFailovers`
 - Run:

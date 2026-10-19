@@ -33,9 +33,15 @@ func TestGatewayCompatSharedFaultCatalog(t *testing.T) {
 			want: true,
 		},
 		{
-			name:    "policy marker wrapped as 500-shaped message",
-			message: "content access forbidden by policy",
+			name:    "response protection unavailable",
+			message: "response protection is unavailable",
 			want:    true,
+		},
+		{
+			name:    "invalid_request_error capacity envelope is not core shared",
+			message: "Selected model is at capacity. Please try a different model.",
+			body:    `{"error":{"message":"Selected model is at capacity. Please try a different model.","type":"invalid_request_error"}}`,
+			want:    false,
 		},
 		{
 			name:    "opaque internal error is not shared",
@@ -61,6 +67,19 @@ func TestGatewayCompatSharedFaultCatalog(t *testing.T) {
 			require.Equal(t, tc.want, gatewayCompatSharedFault(tc.message, []byte(tc.body)))
 		})
 	}
+}
+
+func TestGatewayNewAPIBridgeSharedFaultExtendsCore(t *testing.T) {
+	t.Parallel()
+	require.True(t, gatewayNewAPIBridgeSharedFault(
+		"content access forbidden by policy", nil,
+	), "NewAPI extension must stop on policy markers")
+	require.False(t, gatewayCompatSharedFault(
+		"content access forbidden by policy", nil,
+	), "core catalog must not use the broad client-marker matcher")
+	require.True(t, gatewayNewAPIBridgeSharedFault(
+		"response protection is unavailable", nil,
+	), "NewAPI extension includes core response_protection")
 }
 
 func TestGatewayCompatSharedFaultStopsNewAPI500Matrix(t *testing.T) {
