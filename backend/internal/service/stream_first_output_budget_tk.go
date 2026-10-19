@@ -24,8 +24,8 @@ const (
 	defaultStreamFirstOutputHighEffortTimeout = 600 * time.Second
 	defaultKiroFirstOutputTimeout             = 120 * time.Second
 	defaultKiroHighEffortFirstOutputTimeout   = 600 * time.Second
+	defaultNewAPIChatNonstreamFirstOutput     = 600 * time.Second
 	// first-output-timeout-ssot:end
-	defaultNewAPIChatNonstreamFirstOutput = 300 * time.Second
 )
 
 // ResolveGrokFirstByteHeaderTimeout is the Grok transport ResponseHeaderTimeout
@@ -89,7 +89,7 @@ func firstOutputHighEffortModel(model string) bool {
 // newAPIChatFirstOutputTimeoutWithEffort is the per-attempt useful-first-output
 // wait for replayable NewAPI Chat. Streaming inherits the universal stream SSOT
 // (legacy NewAPIChatFirstOutputTimeout overrides when >0). Non-stream keeps its
-// own whole-body budget (default 300s).
+// own whole-body budget (default 600s).
 func newAPIChatFirstOutputTimeoutWithEffort(cfg *config.Config, stream bool, highEffort bool) time.Duration {
 	if !stream {
 		if cfg != nil && cfg.Gateway.NewAPIChatNonstreamFirstOutputTimeout > 0 {

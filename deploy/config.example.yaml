@@ -249,12 +249,12 @@ gateway:
   kiro_high_effort_first_output_timeout_seconds: 600
   openai_first_output_timeout_seconds: 120
   openai_high_effort_first_output_timeout_seconds: 600
+  newapi_chat_nonstream_first_output_timeout: 600
   # first-output-timeout-ssot:end
   # Replayable NewAPI Chat streaming override (seconds, 0=inherit stream SSOT, max 60).
   newapi_chat_first_output_timeout: 0
-  # Replayable NewAPI Chat non-streaming: complete useful JSON wait per attempt
-  # (seconds, 0=default 300, max 600). Separate from response_header_timeout.
-  newapi_chat_nonstream_first_output_timeout: 300
+  # Non-stream NewAPI default lives in the SSOT block above; max bound is
+  # NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX in ops/stage0/first_output_timeout_ssot.py.
   # Grok text Responses first-byte timeout (seconds, 0=inherit stream_first_output SSOT, max 60)
   grok_response_header_timeout: 0
   # Max request body size in bytes (default: 256MB)

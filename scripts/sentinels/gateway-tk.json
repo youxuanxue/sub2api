@@ -15712,15 +15712,16 @@
         "viper.SetDefault(\"gateway.stream_first_output_timeout_seconds\", 120)",
         "viper.SetDefault(\"gateway.stream_first_output_high_effort_timeout_seconds\", 600)",
         "viper.SetDefault(\"gateway.newapi_chat_first_output_timeout\", 0)",
-        "viper.SetDefault(\"gateway.newapi_chat_nonstream_first_output_timeout\", 300)",
+        "viper.SetDefault(\"gateway.newapi_chat_nonstream_first_output_timeout\", 600)",
         "first-output-timeout-ssot:begin",
         "first-output-timeout-ssot:end",
         "gateway.stream_first_output_timeout_seconds must be between 0-600 seconds",
+        "gateway.newapi_chat_nonstream_first_output_timeout must be between 0-900 seconds",
         "gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)",
         "viper.SetDefault(\"gateway.grok_response_header_timeout\", 0)",
         "gateway.grok_response_header_timeout must be between 0-60 seconds"
       ],
-      "rationale": "First-output viper defaults are generated from ops/stage0/first_output_timeout_ssot.py via scripts/checks/first-output-timeout-ssot.py --apply. Markers pin the generate region; concrete seconds must not be hand-copied into sentinels."
+      "rationale": "First-output viper defaults (including NewAPI nonstream) are generated from ops/stage0/first_output_timeout_ssot.py via scripts/checks/first-output-timeout-ssot.py --apply. Markers pin the generate region; edit SSOT then --apply, never hand-edit seconds here."
     },
     {
       "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
@@ -15729,9 +15730,20 @@
         "first-output-timeout-ssot:end",
         "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-",
         "GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-",
-        "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}"
+        "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-600}"
       ],
-      "rationale": "Blue/green compose inject keeps first-output env lines inside the SSOT generate region; numbers come from first_output_timeout_ssot.py --apply, not sentinel literals."
+      "rationale": "Blue/green compose inject keeps stream + NewAPI nonstream first-output env lines inside the SSOT generate region; numbers come only from first_output_timeout_ssot.py --apply."
+    },
+    {
+      "path": "ops/stage0/first_output_timeout_ssot.py",
+      "must_contain": [
+        "EXPECTED_ENV_STREAM",
+        "EXPECTED_ENV_NEWAPI_NONSTREAM",
+        "NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX",
+        "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT",
+        "gateway.newapi_chat_nonstream_first_output_timeout"
+      ],
+      "rationale": "Single owner for first-output numeric defaults and NewAPI nonstream max; generated copies must not drift via hand edit."
     },
     {
       "path": "scripts/checks/first-output-timeout-ssot.py",
@@ -15740,9 +15752,11 @@
         "def drift_errors(",
         "--apply",
         "--check",
-        "OPENAI_FORCE_HIGH_BODY_BYTES"
+        "OPENAI_FORCE_HIGH_BODY_BYTES",
+        "NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX",
+        "check_newapi_nonstream_max_bound"
       ],
-      "rationale": "First-output timeout SSOT must generate writable owners (viper/compose/remediate/example/Go) and expose --check for preflight; do not regress to multi-copy hand sync."
+      "rationale": "First-output timeout SSOT must generate writable owners (viper/compose/remediate/example/Go) and expose --check for preflight including NewAPI nonstream max bound; do not regress to multi-copy hand sync."
     },
     {
       "path": "backend/internal/service/candidate_chat_attempt_tk_test.go",
@@ -15750,6 +15764,7 @@
         "TestCandidateChatStreamVersusNonstreamBudgets",
         "TestNewAPIChatFirstOutputTimeoutResolver",
         "non-stream must not use ResponseHeaderTimeout",
+        "non-stream default is 3×600s",
         "stream default is 3×120s"
       ],
       "rationale": "Focused unit tests lock stream vs nonstream first-output budgets and forbid ResponseHeaderTimeout from redefining either."
@@ -15758,9 +15773,9 @@
       "path": "deploy/aws/stage0/docker-compose.yml",
       "must_contain": [
         "GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT:-0}",
-        "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}"
+        "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-600}"
       ],
-      "rationale": "Stage0 compose (embedded in Lightsail user-data at the 14336-byte cap) cannot grow new STREAM_FIRST_OUTPUT_* lines. NewAPI stream override defaults to 0 so hosts inherit code SSOT 120s/600s; nonstream stays 300s. Universal env inject is owned by ops/stage0/deploy_via_ssm_bluegreen.sh + deploy/config.example.yaml + config viper defaults."
+      "rationale": "Stage0 compose (embedded in Lightsail user-data at the 14336-byte cap) cannot grow new STREAM_FIRST_OUTPUT_* lines. NewAPI stream override defaults to 0 so hosts inherit stream SSOT; nonstream fallback is rewritten from first_output_timeout_ssot.py --apply (ENV_FALLBACK_ONLY). Universal env inject is owned by ops/stage0/deploy_via_ssm_bluegreen.sh + deploy/config.example.yaml + config viper defaults."
     },
     {
       "path": "backend/internal/service/gateway_request.go",
