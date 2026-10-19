@@ -30,9 +30,11 @@
   已校验的 amd64 镜像，包含各服务的 `source` digest、`config` digest、归档 `sha256` 与本地 `tag`。
 - `compose.override.yml` 关闭 QA capture/telemetry，限制应用连接池和 Go 内存目标；
   `compose.local.yml` 只将管理端口绑定到主机 loopback。
-- 镜像经运维机离线传输；先核验 archive SHA-256，再 `docker load`。Docker 29 的 containerd
-  image ID 是加载后的 manifest digest，不能直接拿 config digest 当 image ID 查找；应核验
-  manifest 内的 `config.digest`，再绑定专用本地 tag。`pull_policy: never` 防止启动时漂移。
+- 默认经 AWS SSM Hybrid 在主机上 `docker pull` 同一 GHCR 发布包（见下方「SSM 蓝绿升级」）。
+  仅当 GHCR/SSM 不可用时才走运维机离线 archive：核验 SHA-256 → `docker load`。Docker 29
+  的 containerd image ID 是加载后的 manifest digest，不能直接拿 config digest 当 image ID
+  查找；应核验 manifest 内的 `config.digest`，再绑定专用本地 tag。`pull_policy: never`
+  防止启动时漂移。
 - 主机运行目录 `/opt/tokenkey`，Compose 文件依次为 `compose.yml`、`compose.override.yml`、
   `compose.local.yml`；环境文件 `.env` 权限 0600。Caddyfile 位于
   `/var/lib/tokenkey/caddy/Caddyfile`。
@@ -52,26 +54,47 @@ SSH 只用于一次性 agent bootstrap 或 UHost 控制台不可用时的恢复�
 当前出口 `/32`，完成操作立即移除；不得把动态运维出口固化为长期防火墙规则。日常 probe
 不得回退到 SSH。
 
-## SSH 蓝绿升级
+## SSM 蓝绿升级（默认）
 
-`bluegreen.py` 是国内主机适配入口，只接受 `api-cn.tokenkey.dev` 的现有运行配置。
-通过 SSH 投递已审的控制文件到主机私有目录：`bluegreen.py`、`post_release.py`、
-`ops/stage0/deploy_via_ssm_bluegreen.sh`、`scripts/release_post_check.py`、
-`ops/observability/probe-post-release-tick.sh`、`ops/lib/resolve_app_container.py` 和
-`ops/stage0/notify-feishu-release.sh` 及本目录的 `prod-target.json`（保留 basename，放在同一目录）；
-`bluegreen.py` 从共享蓝绿脚本提取健康检查、Caddy 切流事务、观察与 drain 函数，未复制实现。
-先离线构建并校验镜像，image revision 必须等于已审源码 SHA，且架构为 amd64。
+与 probe 相同：经 `prod-target.json` 的 SSM Hybrid 身份下发，**不要**为常规发版开放
+SSH 22 或从运维机 scp 离线 tar。入口脚本：
 
 ```bash
-python3 bluegreen.py prepare --state /opt/tokenkey/releases/RELEASE \
-  --image LOCAL_IMMUTABLE_IMAGE --revision REVIEWED_SHA \
-  --shared-source deploy_via_ssm_bluegreen.sh
-python3 bluegreen.py promote --state /opt/tokenkey/releases/RELEASE \
+# 1) 主机拉取与 AWS prod 相同的 GHCR 包，校验 amd64 + version label，打本地不可变 tag
+bash deploy/domestic/deploy_via_ssm.sh pull --tag 1.8.306
+# 可选：--digest sha256:… 钉死 amd64/index digest
+# 可选：CN_PROD_SSM_DRY_RUN=1 只打印将下发的 remote 脚本，不 SendCommand
+
+# 2) 同步 bluegreen 控制文件到 /opt/tokenkey/releases/artifacts-ssm/
+bash deploy/domestic/deploy_via_ssm.sh sync-controls
+
+# 3) prepare（不切公网流量）；revision 为已审完整源码 SHA
+bash deploy/domestic/deploy_via_ssm.sh prepare \
+  --tag 1.8.306 \
+  --revision REVIEWED_FULL_SHA \
+  --image tokenkey-domestic/tokenkey:1.8.306-SHORTSHA
+```
+
+`bluegreen.py` 仍是国内主机适配入口，只接受 `api-cn.tokenkey.dev` 的现有运行配置；
+从共享 `deploy_via_ssm_bluegreen.sh` 提取健康检查、Caddy 切流、观察与 drain，未复制实现。
+候选实测与 `promote` 仍在主机执行（可用 SSM Run Command / Session Manager），需要
+`--public-url` 与 `prod-target.json` 的 `public_origin` 一致（静态 IP，不能用已切往 AWS
+的域名冒充 UCloud 验证）：
+
+```bash
+python3 /opt/tokenkey/releases/artifacts-ssm/bluegreen.py promote \
+  --state /opt/tokenkey/releases/RELEASE \
   --receipt PREPARED_RECEIPT_SHA256 \
   --postcheck-plan /private/post-plan.json \
   --smoke-report /private/candidate-smoke.json \
   --public-url https://UCLOUD_STATIC_IP
 ```
+
+### 恢复：离线 tar + 受限 SSH（非默认）
+
+仅当主机无法 `docker pull` GHCR 或 SSM Hybrid 不可用时使用。临时放行运维出口 `/32`，
+scp 已校验的 amd64 archive → `docker load` → 绑定本地 tag，完成立即移除 SSH 规则。
+不得把动态运维出口固化为长期防火墙规则。
 
 prepare 只启动候选；复用当前应用环境、数据挂载和实际 Docker 网络，数据库/Redis 不重建。
 解析后的 Compose 挂载必须与现网实际源目录、目标和读写模式一致，且 `/app/data` 仍绑定
