@@ -12078,7 +12078,7 @@
         "ClientErrorType:  tkAnthropicBufferedClientErrType(upstreamErr.ErrType)",
         "MarkOpsStreamFailure("
       ],
-      "rationale": "Single owner for buffered Anthropic SSE completion and failure semantics. A HTTP 200 stream can still terminate through an error frame, read failure, idle timeout, or incomplete EOF. Before any content block this owner returns an account-aware UpstreamFailoverError without committing the response; after content it preserves the partial response and marks stream_truncated toward SLA to avoid replay and duplicate billing. Insufficient-balance payloads are normalized to semantic 402 inside the same owner so CloudWise can cool only the mapped model without reintroducing a parallel error path. Completion detection, client error type mapping, provider/account attribution, and both Gateway/OpenAI account-health wrappers must remain centralized or an upstream merge can silently restore empty 200s, gateway-owned SLA pollution, whole-account disablement, or missing failover."
+      "rationale": "Single owner for buffered Anthropic SSE completion and failure semantics. A HTTP 200 stream can still terminate through an error frame, read failure, idle timeout, or incomplete EOF. Before answer/tool content this owner returns an account-aware UpstreamFailoverError without committing the response; thinking-only and empty text buffers remain retryable. After answer/tool content it returns a terminal error and marks stream_truncated toward SLA, avoiding replay and false successful completions. Insufficient-balance payloads are normalized to semantic 402 inside the same owner so CloudWise can cool only the mapped model without reintroducing a parallel error path. Completion detection, client error type mapping, provider/account attribution, and both Gateway/OpenAI account-health wrappers must remain centralized or an upstream merge can silently restore empty 200s, gateway-owned SLA pollution, whole-account disablement, or missing failover."
     },
     {
       "path": "backend/internal/service/ratelimit_cn_providers.go",
@@ -12202,7 +12202,7 @@
       "path": "backend/internal/service/gateway_anthropic_buffered_error_tk_test.go",
       "must_contain": [
         "TestUS047_MessageStartThenErrorReturnsFailover",
-        "TestUS047_PartialContentThenErrorPreservesResponse",
+        "TestUS047_PartialContentThenErrorReturnsTerminalFailure",
         "TestUS047_IncompleteEOFRoutesByContentAvailability",
         "TestUS047_ScannerReadErrorRoutesByContentAvailability",
         "TestUS047_CompletionBeforeReadErrorRemainsSuccessful",

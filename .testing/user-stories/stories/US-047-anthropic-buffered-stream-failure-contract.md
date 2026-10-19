@@ -7,30 +7,33 @@
 - Trace: `docs/approved/anthropic-buffered-stream-failure-contract.md`
 - Risk Focus:
   - 逻辑错误：区分只有 `message_start`、已有可用 content block、完整终止三种状态。
-  - 行为回归：无内容失败走既有 failover；已有内容失败保留 HTTP 200。
+  - 行为回归：无内容失败走既有 failover；已有答案/工具内容失败返回终止错误。
   - 安全问题：错误 detail 继续受 `log_upstream_error_body` 控制，账号身份只进入既有 Ops 结构。
   - 运行时问题：覆盖 terminal error、未完整 EOF、scanner read error 和 native idle timeout。
 
 ## Acceptance Criteria
 
 1. AC-001 (正向): Given 完整 Anthropic SSE When 缓冲组装完成 Then 返回正常 HTTP 200，且没有 upstream failure 标记。
-2. AC-002 (负向): Given 尚无 content block When 收到 terminal `error`、超时、读错误或未完整 EOF Then service 返回 `UpstreamFailoverError`，未提前写客户端响应。
+2. AC-002 (负向): Given 尚无答案/工具内容（含只有 thinking 或空 text） When 收到 terminal `error`、超时、读错误或未完整 EOF Then service 返回 `UpstreamFailoverError`，未提前写客户端响应。
 3. AC-003 (负向): Given 只有 `message_start` When 随后收到 `error` Then 不得返回空 HTTP 200。
-4. AC-004 (回归): Given 已有 content block When 随后失败 Then 保留部分 HTTP 200，不 failover，并以 `stream_truncated` 计入 SLA。
+4. AC-004 (回归): Given 已有答案/工具 content block When 随后失败 Then 返回终止错误，不 failover，并以 `stream_truncated` 计入 SLA。
 5. AC-005 (契约): Given `not_found_error` 或 `request_too_large` When 最终对客 Then 分别使用 `not_found_error` 或 `request_too_large`，不得使用 `server_error`。
 6. AC-006 (可观测性): Given 任一 buffered upstream failure When 记录 Ops event Then event 包含 platform、account ID 和 account name。
 
 ## Assertions
 
-- 返回错误可通过 `errors.As(err, *UpstreamFailoverError)` 识别。
+- 尚无答案/工具内容的返回错误可通过 `errors.As(err, *UpstreamFailoverError)` 识别；已有答案/工具时不得返回可重试错误。
 - failover error 的 `ClientStatusCode`、`ClientErrorType`、`ClientMessage` 固定最终对客契约。
 - 部分内容路径 `GetOpsStreamErrors` 只有一个 `CountTowardsSLA=true` 的标记。
 - 完整路径没有 `OpsUpstreamErrorsKey` 和 stream failure。
 
 ## Linked Tests
 
+- `backend/internal/service/upstream_output_recovery_tk_test.go`::`TestBufferedAnthropicTruncationNeverReturnsNormalCompletion`
+- `backend/internal/handler/candidate_chat_messages_tk_test.go`::`TestCandidateChatMessagesToolsPriorityAndSupplierFailover`
+
 - `backend/internal/service/gateway_anthropic_buffered_error_tk_test.go`::`TestUS047_MessageStartThenErrorReturnsFailover`
-- `backend/internal/service/gateway_anthropic_buffered_error_tk_test.go`::`TestUS047_PartialContentThenErrorPreservesResponse`
+- `backend/internal/service/gateway_anthropic_buffered_error_tk_test.go`::`TestUS047_PartialContentThenErrorReturnsTerminalFailure`
 - `backend/internal/service/gateway_anthropic_buffered_error_tk_test.go`::`TestUS047_IncompleteEOFRoutesByContentAvailability`
 - `backend/internal/service/gateway_anthropic_buffered_error_tk_test.go`::`TestUS047_ScannerReadErrorRoutesByContentAvailability`
 - `backend/internal/service/gateway_anthropic_buffered_error_tk_test.go`::`TestUS047_CompletionBeforeReadErrorRemainsSuccessful`
@@ -50,6 +53,8 @@ python3 scripts/sentinels/check-gateway-tk.py
 ```
 
 ## Evidence
+
+- 2026-10-19 修订：四条缓冲路径的内容边界回归与 handler 最终 502/thinking 恢复/仅成功尝试计费已通过。以下是原基线验证记录。
 
 - `TestUS047_` service tests: PASS (`ok github.com/Wei-Shaw/sub2api/internal/service 3.211s`).
 - `TestUS047_` handler tests: PASS (`ok github.com/Wei-Shaw/sub2api/internal/handler 1.161s`).

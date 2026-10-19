@@ -54,7 +54,15 @@ func tkBridgeFailureSemantic(apiErr *newapitypes.NewAPIError) gatewayFailureSema
 		}
 	}
 	if apiErr != nil && apiErr.StatusCode == http.StatusInternalServerError {
+		// Explicit malformed supplier responses are account-scoped failures;
+		// generic 500 and client 400 errors retain their existing policy.
+		if apiErr.GetErrorCode() == newapitypes.ErrorCodeBadResponseBody {
+			return gatewayFailureSemanticAccountFault
+		}
 		if upstream, ok := tkBridgeUpstreamOpenAIError(apiErr); ok {
+			if upstream.Type == string(newapitypes.ErrorCodeBadResponseBody) {
+				return gatewayFailureSemanticAccountFault
+			}
 			message := strings.ToLower(strings.TrimSpace(tkBridgeDecodeSupplierMessage(upstream.Message)))
 			message, _, _ = strings.Cut(message, " (request id:")
 			// These envelopes describe the supplier's own unavailable upstream,

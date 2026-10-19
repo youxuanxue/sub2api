@@ -50,7 +50,8 @@ func (s *GeminiMessagesCompatService) handleUpstreamTransportError(ctx context.C
 	}
 
 	return &UpstreamFailoverError{
-		StatusCode:   http.StatusBadGateway,
-		ResponseBody: geminiTransportFailoverBody,
+		StatusCode:               http.StatusBadGateway,
+		ResponseBody:             geminiTransportFailoverBody,
+		SafeToFailoverAfterWrite: streamHasOnlyKeepaliveOutput(c),
 	}
 }
