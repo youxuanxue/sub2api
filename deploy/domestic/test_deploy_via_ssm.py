@@ -62,6 +62,7 @@ class DeployViaSsmTest(unittest.TestCase):
         self.fakebin = self.repo / "fakebin"
         self.fakebin.mkdir()
         self.aws_log = self.repo / "aws-args.log"
+        self.ssm_parameters = self.repo / "ssm-parameters.json"
         self.stdout_fixture = self.repo / "ssm-stdout.json"
         self.stdout_fixture.write_text(
             json.dumps(
@@ -102,6 +103,9 @@ class DeployViaSsmTest(unittest.TestCase):
                     cat "{describe_fixture}"
                     ;;
                   *send-command*)
+                    for arg in "$@"; do
+                      case "$arg" in file://*) cp "${{arg#file://}}" "{self.ssm_parameters}" ;; esac
+                    done
                     echo "cmd-test-1"
                     ;;
                   *get-command-invocation*Status*)
@@ -173,6 +177,40 @@ class DeployViaSsmTest(unittest.TestCase):
         proc = self._run("pull", "--tag", "1.8.306", "--digest", "not-a-digest")
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("digest", proc.stderr)
+
+    def test_ssm_pull_executes_under_posix_shell_and_enforces_architecture(self) -> None:
+        proc = self._run("pull", "--tag", "1.8.306")
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        remote = json.loads(self.ssm_parameters.read_text())["commands"][0]
+        docker = self.fakebin / "docker"
+        docker.write_text(textwrap.dedent("""\
+            #!/usr/bin/env bash
+            case "$*" in
+              pull*) exit 0 ;;
+              *Architecture*) echo "${TEST_ARCH:-amd64}" ;;
+              *image.revision*) echo 2d4b4cdbf8fbae7d1cf888d5c47b6a584ad6d2bd ;;
+              *image.version*) echo 1.8.306 ;;
+              *'.Id'*) echo sha256:test ;;
+              tag*) exit 0 ;;
+              *) exit 1 ;;
+            esac
+            """))
+        docker.chmod(0o755)
+        env = {**os.environ, "PATH": f"{self.fakebin}:{os.environ.get('PATH', '')}"}
+        for arch in ("amd64", "arm64"):
+            with self.subTest(arch=arch):
+                result = subprocess.run(
+                    [shutil.which("dash") or "/bin/sh", "-c", remote],
+                    env={**env, "TEST_ARCH": arch},
+                    capture_output=True, text=True, check=False,
+                )
+                if arch == "amd64":
+                    self.assertEqual(result.returncode, 0, msg=result.stderr)
+                    self.assertEqual(json.loads(result.stdout)["local_tag"],
+                                     "tokenkey-domestic/tokenkey:1.8.306-2d4b4cdbf")
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout, "")
 
     def test_prepare_requires_full_revision(self) -> None:
         proc = self._run(
