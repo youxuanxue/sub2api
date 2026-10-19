@@ -2280,7 +2280,8 @@ func (h *OpenAIGatewayHandler) handleOpenAIProfitVetoExhausted(
 ) {
 	reqLog.Warn("openai.profit_veto_attempts_exhausted", zap.Int("profit_veto_count", vetoCount))
 	markOpsRoutingCapacityLimited(c)
-	h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", profitVetoExhaustedMessage, streamStarted)
+	service.TkAnnotateBusy429Ops(c, "api_error", profitVetoExhaustedOpsDetail)
+	h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", service.TkClientFacingBusy429Message, streamStarted)
 }
 
 func (h *OpenAIGatewayHandler) acquireResponsesAccountSlot(

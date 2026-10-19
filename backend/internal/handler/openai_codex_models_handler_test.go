@@ -855,7 +855,7 @@ func TestCodexModelsPinnedAccountsPartialFailureStillSucceeds(t *testing.T) {
 	require.Equal(t, []string{"model-a"}, codexHandlerManifestSlugs(t, recorder))
 }
 
-func TestCodexModelsPinnedAccountsAllUnavailableReturns503ByDefault(t *testing.T) {
+func TestCodexModelsPinnedAccountsAllUnavailableReturnsBusy429(t *testing.T) {
 	accounts := []service.Account{
 		newPinnedCodexAccount(2, service.StatusActive, false, false),
 	}
@@ -871,7 +871,9 @@ func TestCodexModelsPinnedAccountsAllUnavailableReturns503ByDefault(t *testing.T
 	}
 
 	recorder := performPinnedCodexModelsRequest(t, handler, group, "")
-	require.Equal(t, http.StatusServiceUnavailable, recorder.Code, recorder.Body.String())
+	require.Equal(t, http.StatusTooManyRequests, recorder.Code, recorder.Body.String())
+	require.Contains(t, recorder.Body.String(), service.TkClientFacingBusy429Message)
+	require.NotContains(t, recorder.Body.String(), "No available OpenAI accounts")
 	require.Empty(t, upstream.accountIDs())
 }
 

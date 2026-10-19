@@ -171,7 +171,8 @@ func (h *GatewayHandler) tkMessagesGeminiPlatform(
 			if fs.RecordProfitVeto(account.ID) == FailoverExhausted {
 				reqLog.Warn("gateway.profit_veto_attempts_exhausted", zap.Int("profit_veto_count", fs.ProfitVetoCount()))
 				markOpsRoutingCapacityLimited(c)
-				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", profitVetoExhaustedMessage, streamStarted)
+				service.TkAnnotateBusy429Ops(c, "api_error", profitVetoExhaustedOpsDetail)
+				h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", service.TkClientFacingBusy429Message, streamStarted)
 				return
 			}
 			continue

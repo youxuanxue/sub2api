@@ -294,7 +294,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			reqLog.Debug("gateway.responses.account_slot_profit_vetoed", zap.Int64("account_id", account.ID), zap.String("reason", reason))
 			if fs.RecordProfitVeto(account.ID) == FailoverExhausted {
 				reqLog.Warn("gateway.responses.profit_veto_attempts_exhausted", zap.Int("profit_veto_count", fs.ProfitVetoCount()))
-				h.responsesErrorResponse(c, http.StatusServiceUnavailable, "api_error", profitVetoExhaustedMessage)
+				markOpsRoutingCapacityLimited(c)
+				service.TkAnnotateBusy429Ops(c, "api_error", profitVetoExhaustedOpsDetail)
+				h.responsesErrorResponse(c, tkNoAvailableAccounts(c), "api_error", service.TkClientFacingBusy429Message)
 				return
 			}
 			continue
@@ -423,8 +425,8 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 		service.SetOpsUpstreamError(c, statusCode, service.OpenAISilentRefusalClientMessage(), "")
 		status, code, message = http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage()
 	} else if lastErr != nil && statusCode == http.StatusTooManyRequests {
-		service.TkAnnotateBusy429Ops(c, "rate_limit_error", "All available accounts are currently rate-limited. Please retry later.")
-		status, code, message = http.StatusTooManyRequests, "rate_limit_error", service.TkClientFacingBusy429Message
+		service.TkAnnotateBusy429Ops(c, "api_error", "All available accounts are currently rate-limited. Please retry later.")
+		status, code, message = http.StatusTooManyRequests, "api_error", service.TkClientFacingBusy429Message
 	}
 	if lastErr != nil && lastErr.ClientStatusCode > 0 {
 		statusCode = lastErr.ClientStatusCode
