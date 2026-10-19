@@ -69,6 +69,9 @@ def publish(client, bucket, tag, revision, repository):
     with tempfile.TemporaryDirectory(prefix='cn-image-') as temp:
         archive = Path(temp) / 'image.tar'
         original = Path(temp) / 'original.tar'
+        # legacy = docker-save: uncompressed layer tars (diff_ids). Receipt still
+        # records the registry compressed manifest for provenance; verify_archive
+        # checks config digest + diff_ids, not registry layer blob sizes.
         subprocess.run(['crane', 'pull', f'{repository}@{digest}', str(original),
                         '--format=legacy'], check=True)
         retag_archive(original, archive, archive_tag)

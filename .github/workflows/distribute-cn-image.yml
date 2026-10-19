@@ -3,6 +3,14 @@ on:
   workflow_run:
     workflows: [Release]
     types: [completed]
+  # Backfill / retry after a failed publish (e.g. verify_archive bug on 1.8.310).
+  # Always runs default-branch code; only the release-run artifact supplies tag/revision.
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: Successful Release run id that uploaded cn-image-source
+        required: true
+        type: string
 permissions:
   contents: read
   actions: read
@@ -13,12 +21,13 @@ concurrency:
   cancel-in-progress: false
 jobs:
   prewarm:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      # workflow_run executes trusted default-branch code, never code from the
-      # triggering release ref. The downloaded artifact is validated data only.
+      # Trusted default-branch code only; the downloaded artifact is validated data.
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.repository.default_branch }}
@@ -27,7 +36,7 @@ jobs:
           name: cn-image-source
           path: release-source
           github-token: ${{ github.token }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ github.event_name == 'workflow_dispatch' && inputs.release_run_id || github.event.workflow_run.id }}
       - name: Validate release source against the git tag
         id: source
         run: |
