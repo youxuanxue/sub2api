@@ -40,9 +40,39 @@ from typing import Any, Sequence
 FORMAL_APPROVE_TOKEN = "yes-formal-tpm-loadtest"
 CALIBRATE_MAX_N = 9
 DEFAULT_TARGET_TPM = 20_000_000
-DEFAULT_POOL_SLOTS = 21 * 12  # cn-prod volc agent-plan after concurrency=12
+# Snapshot only — live cn-prod account×concurrency changes. Prefer
+# TPM_BURST_POOL_SLOTS (or POOL_SLOTS) = accounts * per-account concurrency.
+_LEGACY_POOL_SLOTS_SNAPSHOT = 21 * 12
 DEFAULT_FAILURE_OVERHEAD = 1.15
 DEFAULT_SAFETY_TPM_MARGIN = 1.05
+FORMAL_WALL_SLACK_S = 75.0
+
+
+def default_pool_slots() -> int:
+    """Resolve pool slots from env; fall back to a dated snapshot (not live SSOT)."""
+    for key in ("TPM_BURST_POOL_SLOTS", "POOL_SLOTS"):
+        raw = os.environ.get(key, "").strip()
+        if not raw:
+            continue
+        try:
+            n = int(raw)
+        except ValueError as e:
+            raise ValueError(f"{key} must be a positive int, got {raw!r}") from e
+        if n <= 0:
+            raise ValueError(f"{key} must be positive, got {n}")
+        return n
+    return _LEGACY_POOL_SLOTS_SNAPSHOT
+
+
+# Back-compat alias for tests/importers; prefer default_pool_slots() at call time.
+DEFAULT_POOL_SLOTS = _LEGACY_POOL_SLOTS_SNAPSHOT
+
+
+def resolve_pool_slots(cli_value: int | None) -> int:
+    """CLI --pool-slots wins; else env; else legacy snapshot."""
+    if cli_value is not None and int(cli_value) > 0:
+        return int(cli_value)
+    return default_pool_slots()
 
 
 @dataclass(frozen=True)
@@ -157,9 +187,21 @@ def estimate_plan(
         f"calibrate_n={len(tok_sorted)}: with n<10, percentiles are unstable; treat as directional.",
         "Do not exceed pool_slots in-flight; extra threads only buy InflightBatchsizeExceeded.",
         "Formal run requires APPROVE=yes-formal-tpm-loadtest.",
+        (
+            "pool_slots must be live accounts×concurrency "
+            f"(env TPM_BURST_POOL_SLOTS); default snapshot={_LEGACY_POOL_SLOTS_SNAPSHOT} is not SSOT."
+        ),
     ]
     if len(tok_sorted) < 5:
         notes.append("calibrate_n<5: prefer re-calibrating to 5–9 before approving formal.")
+    # Target-TPM sizing often uses << full pipe; that cannot measure pool/per-account ceilings.
+    if pool_slots > 0 and threads < int(math.ceil(pool_slots * 0.9)):
+        notes.append(
+            f"threads={threads} fills only {threads / pool_slots:.0%} of pool_slots={pool_slots}; "
+            "this plan is a target-TPM burst, not full-pool saturation or per-account TPM ceilings. "
+            "To probe pool ceiling set max_inflight≈pool_slots and total_requests≳rpm_ceiling; "
+            "per-account ceilings need pin-to-account traffic or per-account usage_logs."
+        )
 
     return Estimate(
         target_tpm=target_tpm,
@@ -379,7 +421,7 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
             samples_tok=[s.total_tokens for s in ok_samples],
             samples_duration_s=[s.duration_s for s in ok_samples],
             target_tpm=int(args.target_tpm),
-            pool_slots=int(args.pool_slots),
+            pool_slots=resolve_pool_slots(args.pool_slots),
             failure_overhead=float(args.failure_overhead),
         )
         report["estimate"] = asdict(est)
@@ -419,32 +461,63 @@ def cmd_estimate(args: argparse.Namespace) -> int:
         samples_tok=toks,
         samples_duration_s=durs,
         target_tpm=int(args.target_tpm),
-        pool_slots=int(args.pool_slots),
+        pool_slots=resolve_pool_slots(args.pool_slots),
         failure_overhead=float(args.failure_overhead),
     )
     print(json.dumps(asdict(est), ensure_ascii=False, indent=2))
     return 0 if est.feasible else 4
 
 
+def _estimate_from_report(
+    report: dict[str, Any],
+    *,
+    target_tpm: int,
+    pool_slots: int,
+    failure_overhead: float,
+) -> Estimate:
+    """Rebuild Estimate from ok samples so CLI pool/target overrides always apply."""
+    ok = [s for s in report.get("samples", []) if s.get("ok")]
+    if ok:
+        return estimate_plan(
+            samples_tok=[float(s["total_tokens"]) for s in ok],
+            samples_duration_s=[float(s["duration_s"]) for s in ok],
+            target_tpm=target_tpm,
+            pool_slots=pool_slots,
+            failure_overhead=failure_overhead,
+        )
+    est_raw = report.get("estimate")
+    if not est_raw:
+        raise ValueError("calibration report has no estimate/ok samples")
+    # No samples: reuse embedded estimate but force CLI capacity knobs.
+    return estimate_plan(
+        samples_tok=[float(est_raw["tok_per_req"])],
+        samples_duration_s=[float(est_raw["duration_s"])],
+        target_tpm=target_tpm,
+        pool_slots=pool_slots,
+        failure_overhead=failure_overhead,
+    )
+
+
 def cmd_plan(args: argparse.Namespace) -> int:
     with open(args.from_path, encoding="utf-8") as f:
         report = json.load(f)
-    est_raw = report.get("estimate")
-    if not est_raw:
-        # recompute from samples
-        ok = [s for s in report.get("samples", []) if s.get("ok")]
-        if not ok:
-            print("calibration report has no estimate/ok samples", file=sys.stderr)
-            return 2
-        est = estimate_plan(
-            samples_tok=[float(s["total_tokens"]) for s in ok],
-            samples_duration_s=[float(s["duration_s"]) for s in ok],
-            target_tpm=int(args.target_tpm or report.get("estimate", {}).get("target_tpm") or DEFAULT_TARGET_TPM),
-            pool_slots=int(args.pool_slots),
+    embedded = report.get("estimate") or {}
+    target_tpm = int(
+        args.target_tpm
+        or embedded.get("target_tpm")
+        or DEFAULT_TARGET_TPM
+    )
+    pool_slots = resolve_pool_slots(args.pool_slots)
+    try:
+        est = _estimate_from_report(
+            report,
+            target_tpm=target_tpm,
+            pool_slots=pool_slots,
             failure_overhead=float(args.failure_overhead),
         )
-    else:
-        est = Estimate(**est_raw)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
 
     plan = {
         "phase": "formal_plan_only",
@@ -466,7 +539,10 @@ def cmd_plan(args: argparse.Namespace) -> int:
                 f"cap total starts at n_plan_total={est.n_plan_total}; "
                 f"use ≤{est.threads} in-flight (pool_slots), not threads×per_thread_ceil"
             ),
-            "stop_when": "n_plan_total starts issued OR wall_clock > duration_p90 + 75s",
+            "stop_when": (
+                f"n_plan_total starts issued OR wall_clock > duration_p90 + {FORMAL_WALL_SLACK_S:g}s "
+                "(formal runner stops new submits at wall limit; in-flight finish)"
+            ),
             "metric": "rolling_60s_success_TPM from usage_logs / client success completions",
         },
         "accuracy": {
@@ -492,8 +568,10 @@ def _run_formal_load(
     total_requests: int,
     max_inflight: int,
     timeout_s: float,
+    wall_limit_s: float,
 ) -> dict[str, Any]:
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from collections import Counter
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
     messages = _build_messages(
         prompt_tokens_target=0,
@@ -514,6 +592,7 @@ def _run_formal_load(
                 "max_tokens": max_tokens,
                 "total_requests": total_requests,
                 "max_inflight": max_inflight,
+                "wall_limit_s": wall_limit_s,
             },
             ensure_ascii=False,
         ),
@@ -536,24 +615,49 @@ def _run_formal_load(
         )
         return s
 
-    with ThreadPoolExecutor(max_workers=max(1, max_inflight)) as pool:
-        futs = [pool.submit(one, i + 1) for i in range(total_requests)]
-        for fut in as_completed(futs):
-            results.append(fut.result())
+    workers = max(1, max_inflight)
+    planned = total_requests
+    submit_cap = planned
+    submitted = 0
+    stopped_early = False
+    stop_reason = ""
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        pending: set[Any] = set()
+        while submitted < submit_cap or pending:
+            # Stop issuing new work past wall limit; let in-flight finish.
+            if (
+                not stopped_early
+                and submitted < submit_cap
+                and (time.time() - t0) >= wall_limit_s
+            ):
+                stopped_early = True
+                stop_reason = f"wall_limit_s={wall_limit_s}"
+                submit_cap = submitted
+            while submitted < submit_cap and len(pending) < workers:
+                pending.add(pool.submit(one, submitted + 1))
+                submitted += 1
+            if not pending:
+                break
+            done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for fut in done:
+                results.append(fut.result())
 
     ok = [s for s in results if s.ok]
     wall = time.time() - t0
-    # Rolling peak TPM approximation: pack successes into 1s buckets by completion order wall clock
-    # We only have per-request duration, not absolute end timestamps shared across threads —
-    # use a conservative estimate from mean duration and throughput.
+    # Rolling peak TPM approximation: whole-run average only — use usage_logs for peaks.
     success_n = len(ok)
     tok_sum = sum(s.total_tokens for s in ok)
     rpm = success_n / wall * 60.0 if wall > 0 else 0.0
     tpm = tok_sum / wall * 60.0 if wall > 0 else 0.0
+    fail_hist = Counter(str(s.status_code) for s in results if not s.ok)
     return {
         "phase": "formal_summary",
         "wall_s": round(wall, 2),
-        "total_requests": total_requests,
+        "wall_limit_s": wall_limit_s,
+        "total_requests_planned": planned,
+        "submitted_n": submitted,
+        "stopped_early": stopped_early,
+        "stop_reason": stop_reason or None,
         "success_n": success_n,
         "fail_n": len(results) - success_n,
         "tok_sum_success": tok_sum,
@@ -563,7 +667,7 @@ def _run_formal_load(
             "approx_* are whole-run averages, not rolling-60s peaks; "
             "use cn-prod usage_logs for rolling peak TPM after the run"
         ),
-        "fail_status_hist": {},
+        "fail_status_hist": dict(fail_hist),
     }
 
 
@@ -588,11 +692,10 @@ def cmd_formal(args: argparse.Namespace) -> int:
 
     with open(args.from_path, encoding="utf-8") as f:
         report = json.load(f)
-    est_raw = report.get("estimate")
-    if not est_raw:
-        print("calibration report missing estimate", file=sys.stderr)
+    embedded = report.get("estimate") or {}
+    if not embedded and not any(s.get("ok") for s in report.get("samples", [])):
+        print("calibration report missing estimate/ok samples", file=sys.stderr)
         return 2
-    est = Estimate(**est_raw)
     prompt_file = args.prompt_file or report.get("prompt_file") or ""
     if not prompt_file:
         print("--prompt-file required for formal (repo explain pack)", file=sys.stderr)
@@ -601,10 +704,27 @@ def cmd_formal(args: argparse.Namespace) -> int:
         print(f"prompt file not found: {prompt_file}", file=sys.stderr)
         return 2
 
+    # Recompute with live pool slots so stale calibrate JSON (e.g. 21×12) cannot pin capacity.
+    pool_slots = resolve_pool_slots(getattr(args, "pool_slots", None))
+    target_tpm = int(embedded.get("target_tpm") or DEFAULT_TARGET_TPM)
+    try:
+        est = _estimate_from_report(
+            report,
+            target_tpm=target_tpm,
+            pool_slots=pool_slots,
+            failure_overhead=float(
+                getattr(args, "failure_overhead", None) or DEFAULT_FAILURE_OVERHEAD
+            ),
+        )
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
     api_key = args.api_key or os.environ.get("TOKENKEY_API_KEY") or os.environ.get("OPENAI_API_KEY")
     total = int(args.total_requests or est.n_plan_total)
     inflight = int(args.max_inflight or est.threads)
     max_tokens = int(args.max_tokens or report.get("max_tokens") or 1200)
+    wall_limit_s = float(est.duration_s_p90) + FORMAL_WALL_SLACK_S
     plan_preview = {
         "phase": "formal_plan_preview",
         "dry_run": dry,
@@ -615,6 +735,8 @@ def cmd_formal(args: argparse.Namespace) -> int:
         "max_tokens": max_tokens,
         "total_requests": total,
         "max_inflight": inflight,
+        "pool_slots": pool_slots,
+        "wall_limit_s": wall_limit_s,
         "estimate_feasible": est.feasible,
         "n_min_success": est.n_min_success,
         "tpm_ceiling_conservative": est.tpm_ceiling_conservative,
@@ -649,6 +771,7 @@ def cmd_formal(args: argparse.Namespace) -> int:
         total_requests=total,
         max_inflight=inflight,
         timeout_s=float(args.timeout_s),
+        wall_limit_s=wall_limit_s,
     )
     if args.out:
         Path(args.out).write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -676,7 +799,12 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--sleep-s", type=float, default=1.0)
     c.add_argument("--timeout-s", type=float, default=600.0)
     c.add_argument("--target-tpm", type=int, default=DEFAULT_TARGET_TPM)
-    c.add_argument("--pool-slots", type=int, default=DEFAULT_POOL_SLOTS)
+    c.add_argument(
+        "--pool-slots",
+        type=int,
+        default=None,
+        help="accounts×concurrency; default env TPM_BURST_POOL_SLOTS/POOL_SLOTS or legacy 21×12 snapshot",
+    )
     c.add_argument("--failure-overhead", type=float, default=DEFAULT_FAILURE_OVERHEAD)
     c.add_argument("--out", default="")
     c.set_defaults(func=cmd_calibrate)
@@ -686,14 +814,14 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--duration-s", type=float, default=33.0)
     e.add_argument("--from", dest="from_path", default="")
     e.add_argument("--target-tpm", type=int, default=DEFAULT_TARGET_TPM)
-    e.add_argument("--pool-slots", type=int, default=DEFAULT_POOL_SLOTS)
+    e.add_argument("--pool-slots", type=int, default=None)
     e.add_argument("--failure-overhead", type=float, default=DEFAULT_FAILURE_OVERHEAD)
     e.set_defaults(func=cmd_estimate)
 
     pl = sub.add_parser("plan", help="print formal plan from calibrate JSON; does not run load")
     pl.add_argument("--from", dest="from_path", required=True)
     pl.add_argument("--target-tpm", type=int, default=0)
-    pl.add_argument("--pool-slots", type=int, default=DEFAULT_POOL_SLOTS)
+    pl.add_argument("--pool-slots", type=int, default=None)
     pl.add_argument("--failure-overhead", type=float, default=DEFAULT_FAILURE_OVERHEAD)
     pl.set_defaults(func=cmd_plan)
 
@@ -706,6 +834,8 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--max-tokens", type=int, default=0)
     f.add_argument("--total-requests", type=int, default=0)
     f.add_argument("--max-inflight", type=int, default=0)
+    f.add_argument("--pool-slots", type=int, default=None)
+    f.add_argument("--failure-overhead", type=float, default=DEFAULT_FAILURE_OVERHEAD)
     f.add_argument("--timeout-s", type=float, default=600.0)
     f.add_argument("--out", default="")
     f.add_argument("--dry-run", action="store_true")

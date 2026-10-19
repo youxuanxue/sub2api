@@ -25,6 +25,8 @@ MAX_TOKENS="${MAX_TOKENS:-1200}"
 MONITOR_DURATION_S="${MONITOR_DURATION_S:-240}"
 MONITOR_INTERVAL_S="${MONITOR_INTERVAL_S:-2}"
 EXPECTED_INSTANCE_ID="${EXPECTED_INSTANCE_ID:-uhost-1wgyn7gu2f6a}"
+# Live capacity: accounts × per-account concurrency (not the recipe's 21×12 snapshot).
+POOL_SLOTS="${TPM_BURST_POOL_SLOTS:-${POOL_SLOTS:-}}"
 APPROVE_TOKEN="yes-formal-tpm-loadtest"
 
 usage() {
@@ -35,7 +37,14 @@ Env overrides:
   CALIBRATE_JSON PROMPT_FILE OUT_DIR TOKENKEY_API_KEY TOKENKEY_BASE_URL
   MODEL MAX_TOKENS MONITOR_DURATION_S MONITOR_INTERVAL_S EXPECTED_INSTANCE_ID
   TOTAL_REQUESTS MAX_INFLIGHT APPROVE
+  TPM_BURST_POOL_SLOTS|POOL_SLOTS  (accounts×concurrency; required for non-legacy pools)
 EOF
+}
+
+pool_slot_args() {
+  if [ -n "${POOL_SLOTS}" ]; then
+    printf '%s\n' --pool-slots "$POOL_SLOTS"
+  fi
 }
 
 need_files() {
@@ -52,17 +61,21 @@ need_files() {
 cmd_prepare() {
   need_files
   mkdir -p "$OUT_DIR"
+  # shellcheck disable=SC2046
   echo "=== plan ==="
   python3 ops/observability/tpm_burst_recipe1.py plan --from "$CALIBRATE_JSON" \
+    $(pool_slot_args) \
     | tee "$OUT_DIR/plan.json"
   echo
   echo "=== formal dry-run preview ==="
+  # shellcheck disable=SC2046
   python3 ops/observability/tpm_burst_recipe1.py formal \
     --from "$CALIBRATE_JSON" \
     --prompt-file "$PROMPT_FILE" \
     --base-url "$BASE_URL" \
     --model "$MODEL" \
     --max-tokens "$MAX_TOKENS" \
+    $(pool_slot_args) \
     --dry-run \
     | tee "$OUT_DIR/formal-dry-run.json"
   cat <<EOF
@@ -71,15 +84,17 @@ cmd_prepare() {
 Artifacts: $OUT_DIR
 Prompt:    $PROMPT_FILE
 Calibrate: $CALIBRATE_JSON
+PoolSlots: ${POOL_SLOTS:-"(legacy snapshot 21×12 — set TPM_BURST_POOL_SLOTS=accounts×concurrency)"}
 
 When you approve formal traffic, run:
 
   APPROVE=${APPROVE_TOKEN} \\
   TOKENKEY_API_KEY="\$TOKENKEY_API_KEY" \\
+  TPM_BURST_POOL_SLOTS=1464 \\
   bash ops/observability/tpm_burst_bundle.sh run
 
 Optional overrides on run:
-  TOTAL_REQUESTS=193 MAX_INFLIGHT=157 MONITOR_DURATION_S=240
+  TOTAL_REQUESTS=193 MAX_INFLIGHT=157 MONITOR_DURATION_S=240 TPM_BURST_POOL_SLOTS=1464
 EOF
 }
 
@@ -87,12 +102,14 @@ cmd_dry_run() {
   need_files
   mkdir -p "$OUT_DIR"
   echo "=== client dry-run (no traffic) ==="
+  # shellcheck disable=SC2046
   python3 ops/observability/tpm_burst_recipe1.py formal \
     --from "$CALIBRATE_JSON" \
     --prompt-file "$PROMPT_FILE" \
     --base-url "$BASE_URL" \
     --model "$MODEL" \
     --max-tokens "$MAX_TOKENS" \
+    $(pool_slot_args) \
     --dry-run \
     | tee "$OUT_DIR/formal-dry-run.json"
 
@@ -147,6 +164,7 @@ cmd_run() {
 
   echo "=== start formal client load ==="
   set +e
+  # shellcheck disable=SC2046
   APPROVE="$APPROVE_TOKEN" python3 ops/observability/tpm_burst_recipe1.py formal \
     --from "$CALIBRATE_JSON" \
     --prompt-file "$PROMPT_FILE" \
@@ -155,6 +173,7 @@ cmd_run() {
     --model "$MODEL" \
     --max-tokens "$MAX_TOKENS" \
     --out "$OUT_DIR/formal-summary.json" \
+    $(pool_slot_args) \
     "${TOTAL_ARGS[@]}" \
     2>"$OUT_DIR/formal.err" | tee "$OUT_DIR/formal.out"
   LOAD_RC=${PIPESTATUS[0]}

@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -18,6 +19,7 @@ SCRIPT = Path(__file__).resolve().parent / "tpm_burst_recipe1.py"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tpm_burst_recipe1 import (  # noqa: E402
     FORMAL_APPROVE_TOKEN,
+    _run_formal_load,
     estimate_plan,
 )
 
@@ -69,6 +71,20 @@ class EstimateMathTest(unittest.TestCase):
             failure_overhead=1.0,
         )
         self.assertEqual(est.threads, 10)
+
+    def test_target_plan_notes_when_not_saturating_pool(self) -> None:
+        # 20M target with 100k tok needs ~200 inflight threads; 1464 slots stay mostly idle.
+        est = estimate_plan(
+            samples_tok=[100000],
+            samples_duration_s=[50],
+            target_tpm=20_000_000,
+            pool_slots=1464,
+            failure_overhead=1.0,
+        )
+        self.assertLess(est.threads, int(1464 * 0.9))
+        joined = " ".join(est.accuracy_notes)
+        self.assertIn("per-account TPM ceilings", joined)
+        self.assertIn("target-TPM burst", joined)
 
 
 class CliGateTest(unittest.TestCase):
@@ -154,6 +170,108 @@ class CliGateTest(unittest.TestCase):
             check=False,
         )
         self.assertEqual(proc.returncode, 2)
+
+    def test_plan_recomputes_pool_slots_over_embedded_estimate(self) -> None:
+        """Stale calibrate JSON (21×12) must not pin plan when --pool-slots changes."""
+        samples = [
+            {
+                "ok": True,
+                "prompt_tokens": 100000,
+                "completion_tokens": 1200,
+                "total_tokens": 101200,
+                "duration_s": 50.0,
+                "status_code": 200,
+                "error": "",
+            }
+        ] * 5
+        stale_est = {
+            "target_tpm": 20_000_000,
+            "tok_per_req": 101200.0,
+            "tok_per_req_p10": 101200.0,
+            "tok_per_req_p90": 101200.0,
+            "duration_s": 50.0,
+            "duration_s_p90": 50.0,
+            "pool_slots": 252,
+            "n_min_success": 198,
+            "n_plan_total": 228,
+            "threads": 165,
+            "per_thread": 2,
+            "rpm_needed": 198.0,
+            "rpm_ceiling": 302.0,
+            "tpm_ceiling": 30_000_000.0,
+            "tpm_ceiling_conservative": 30_000_000.0,
+            "feasible": True,
+            "feasibility_reason": "stale",
+            "accuracy_notes": [],
+            "calibrate_n": 5,
+        }
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump({"estimate": stale_est, "samples": samples, "model": "kimi-k3"}, f)
+            path = f.name
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "plan",
+                "--from",
+                path,
+                "--pool-slots",
+                "1464",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        plan = json.loads(proc.stdout)
+        self.assertEqual(plan["estimate"]["pool_slots"], 1464)
+        self.assertGreater(plan["estimate"]["tpm_ceiling_conservative"], 100_000_000)
+
+
+class FormalRunnerTest(unittest.TestCase):
+    def test_wall_limit_stops_new_submits(self) -> None:
+        calls = {"n": 0}
+
+        def fake_chat(**kwargs):  # noqa: ANN003
+            from tpm_burst_recipe1 import Sample
+
+            calls["n"] += 1
+            time.sleep(0.05)
+            return Sample(
+                ok=True,
+                prompt_tokens=10,
+                completion_tokens=1,
+                total_tokens=11,
+                duration_s=0.05,
+                status_code=200,
+            )
+
+        import tpm_burst_recipe1 as mod
+
+        original = mod._chat_completion
+        mod._chat_completion = fake_chat  # type: ignore[assignment]
+        try:
+            with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as pf:
+                pf.write("tiny prompt")
+                prompt = pf.name
+            summary = _run_formal_load(
+                base_url="http://example.invalid",
+                api_key="dummy",
+                model="kimi-k3",
+                prompt_file=prompt,
+                max_tokens=16,
+                total_requests=40,
+                max_inflight=4,
+                timeout_s=5.0,
+                wall_limit_s=0.08,
+            )
+        finally:
+            mod._chat_completion = original  # type: ignore[assignment]
+
+        self.assertTrue(summary["stopped_early"])
+        self.assertLess(summary["submitted_n"], 40)
+        self.assertEqual(summary["submitted_n"], calls["n"])
+        self.assertEqual(summary["fail_status_hist"], {})
 
 
 if __name__ == "__main__":
