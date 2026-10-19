@@ -230,7 +230,7 @@ func TestCandidateChatStreamVersusNonstreamBudgets(t *testing.T) {
 	bodyNonStream := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"stream":false}`)
 	bodyStream := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"stream":true}`)
 
-	// Zero config → stream 120s × 3 = 6m deadline; non-stream 300s × 3 = 15m deadline.
+	// Zero config → stream 120s × 3 = 6m deadline; non-stream 600s × 3 = 30m deadline.
 	// Explicit ResponseHeaderTimeout must NOT bleed into either budget.
 	cfg := &config.Config{}
 	cfg.Gateway.ResponseHeaderTimeout = 600
@@ -244,8 +244,8 @@ func TestCandidateChatStreamVersusNonstreamBudgets(t *testing.T) {
 	_, finishNS, errNS := r.candidateOpenAI.beginCandidateChatAttempt(ctxNS, cNS, &a, bodyNonStream)
 	require.NoError(t, errNS)
 	require.NotNil(t, finishNS)
-	require.True(t, stateNS.chatDeadline.After(time.Now().Add(14*time.Minute)), "non-stream default is 3×300s")
-	require.True(t, stateNS.chatDeadline.Before(time.Now().Add(16*time.Minute)), "non-stream must not use ResponseHeaderTimeout")
+	require.True(t, stateNS.chatDeadline.After(time.Now().Add(29*time.Minute)), "non-stream default is 3×600s")
+	require.True(t, stateNS.chatDeadline.Before(time.Now().Add(31*time.Minute)), "non-stream must not use ResponseHeaderTimeout")
 	_, _ = finishNS(nil, nil)
 
 	ctxS, stateS := prepareGlobalCandidate(t, r, key)
@@ -263,7 +263,7 @@ func TestCandidateChatStreamVersusNonstreamBudgets(t *testing.T) {
 
 func TestNewAPIChatFirstOutputTimeoutResolver(t *testing.T) {
 	require.Equal(t, 120*time.Second, newAPIChatFirstOutputTimeoutWithEffort(nil, true, false))
-	require.Equal(t, 300*time.Second, newAPIChatFirstOutputTimeoutWithEffort(nil, false, false))
+	require.Equal(t, 600*time.Second, newAPIChatFirstOutputTimeoutWithEffort(nil, false, false))
 
 	cfg := &config.Config{}
 	cfg.Gateway.NewAPIChatFirstOutputTimeout = 7

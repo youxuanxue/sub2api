@@ -253,10 +253,10 @@ gateway:
   # Replayable NewAPI Chat streaming override (seconds, 0=inherit stream SSOT, max 60).
   newapi_chat_first_output_timeout: 0
   # Replayable NewAPI Chat non-streaming: complete useful JSON wait per attempt
-  # (seconds, 0=code default 300, max 900). Stage0/bluegreen compose inject
-  # fallback is 600 so prod/cn-prod hosts stay aligned when .env omits the key.
+  # (seconds, 0=code default 600, max 900). Stage0/bluegreen compose inject
+  # fallback is also 600 so hosts stay aligned when .env omits the key.
   # Separate from response_header_timeout.
-  newapi_chat_nonstream_first_output_timeout: 300
+  newapi_chat_nonstream_first_output_timeout: 600
   # Grok text Responses first-byte timeout (seconds, 0=inherit stream_first_output SSOT, max 60)
   grok_response_header_timeout: 0
   # Max request body size in bytes (default: 256MB)
