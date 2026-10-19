@@ -170,6 +170,59 @@ func TestChatProviderConstraints_PlanTokenLimitCoalesce(t *testing.T) {
 	require.Equal(t, foreign, got)
 }
 
+func TestChatProviderConstraints_VolcPlanSamplingBounds(t *testing.T) {
+	account := &Account{Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeVolcEngine,
+		Credentials: map[string]any{"base_url": newapiintegration.VolcEngineAgentPlanBaseURL}}
+	endpoint := newapiintegration.VolcEngineAgentPlanBaseURL + "/chat/completions"
+
+	// Customer cn-prod evidence: temperature 2.5 and max_tokens 1000000 → Volc 400.
+	over := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}],"temperature":2.5,"top_p":1.1,"max_tokens":1000000}`)
+	original := bytes.Clone(over)
+	got, err := normalizeChatProviderRequest(account, endpoint, over)
+	require.NoError(t, err)
+	require.Equal(t, original, over, "ingress for retry must stay untouched")
+	require.InDelta(t, 2.0, gjson.GetBytes(got, "temperature").Float(), 1e-9)
+	require.InDelta(t, 1.0, gjson.GetBytes(got, "top_p").Float(), 1e-9)
+	require.EqualValues(t, volcPlanChatMaxTokensMax, gjson.GetBytes(got, "max_tokens").Int())
+
+	// Dual output limits: coalesce to max_tokens first, then clamp the budget.
+	dual := []byte(`{"model":"kimi-k3","max_tokens":64,"max_completion_tokens":1000000,"temperature":99}`)
+	got, err = normalizeChatProviderRequest(account, endpoint, dual)
+	require.NoError(t, err)
+	require.EqualValues(t, volcPlanChatMaxTokensMax, gjson.GetBytes(got, "max_tokens").Int())
+	require.False(t, gjson.GetBytes(got, "max_completion_tokens").Exists())
+	require.InDelta(t, 2.0, gjson.GetBytes(got, "temperature").Float(), 1e-9)
+
+	// In-range values and missing fields stay unchanged.
+	ok := []byte(`{"model":"kimi-k3","temperature":1.2,"top_p":0.9,"max_tokens":4096}`)
+	got, err = normalizeChatProviderRequest(account, endpoint, ok)
+	require.NoError(t, err)
+	require.JSONEq(t, string(ok), string(got))
+
+	// Negative sampling floors to zero; non-numeric values are left alone.
+	neg := []byte(`{"temperature":-0.5,"top_p":-1,"max_tokens":"big"}`)
+	got, err = normalizeChatProviderRequest(account, endpoint, neg)
+	require.NoError(t, err)
+	require.InDelta(t, 0.0, gjson.GetBytes(got, "temperature").Float(), 1e-9)
+	require.InDelta(t, 0.0, gjson.GetBytes(got, "top_p").Float(), 1e-9)
+	require.Equal(t, "big", gjson.GetBytes(got, "max_tokens").String())
+
+	again, err := normalizeChatProviderRequest(account, endpoint, got)
+	require.NoError(t, err)
+	require.Equal(t, got, again, "clamp must be idempotent")
+
+	// Ali Plan and Volc pay-as-you-go keep prior behavior (no Volc Plan clamp).
+	ali := &Account{Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeAli,
+		Credentials: map[string]any{"base_url": newapiintegration.AliTokenPlanBaseURL}}
+	aliBody := []byte(`{"temperature":2.5,"top_p":1.1,"max_tokens":1000000}`)
+	got, err = normalizeChatProviderRequest(ali, newapiintegration.AliTokenPlanBaseURL+"/compatible-mode/v1/chat/completions", aliBody)
+	require.NoError(t, err)
+	require.JSONEq(t, string(aliBody), string(got))
+	got, err = normalizeChatProviderRequest(account, "https://ark.cn-beijing.volces.com/api/v3/chat/completions", aliBody)
+	require.NoError(t, err)
+	require.JSONEq(t, string(aliBody), string(got))
+}
+
 // Emulates the observed provider defect: ignore tool_choice and call every
 // advertised function. The gateway must constrain the actual outbound list.
 func chatConstraintSupplier(body []byte) (string, string) {

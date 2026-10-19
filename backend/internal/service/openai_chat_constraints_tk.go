@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"strconv"
 	"strings"
 
@@ -12,6 +13,16 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+)
+
+// Volc Agent Plan Chat rejects these sampling / output ceilings with
+// InvalidParameter 400 (cn-prod kimi-k3 evidence 2026-10-19).
+const (
+	volcPlanChatTemperatureMax = 2.0
+	volcPlanChatTemperatureMin = 0.0
+	volcPlanChatTopPMax        = 1.0
+	volcPlanChatTopPMin        = 0.0
+	volcPlanChatMaxTokensMax   = 131072
 )
 
 // normalizeChatProviderRequest runs at the selected Chat destination, including
@@ -26,11 +37,15 @@ func normalizeChatProviderRequest(account *Account, targetURL string, body []byt
 		return body, nil
 	}
 	base := strings.TrimSuffix(strings.TrimRight(targetURL, "/"), "/chat/completions")
-	if !newapiintegration.IsAliTokenPlanBaseURL(newapiconstant.ChannelTypeAli, base) &&
-		!newapiintegration.IsVolcEngineAgentPlanBaseURL(newapiconstant.ChannelTypeVolcEngine, base) {
+	isAli := newapiintegration.IsAliTokenPlanBaseURL(newapiconstant.ChannelTypeAli, base)
+	isVolc := newapiintegration.IsVolcEngineAgentPlanBaseURL(newapiconstant.ChannelTypeVolcEngine, base)
+	if !isAli && !isVolc {
 		return body, nil
 	}
 	body = coalescePlanChatTokenLimit(body)
+	if isVolc {
+		body = clampVolcPlanChatSamplingBounds(body)
+	}
 	return normalizeChatToolConstraints(body)
 }
 
@@ -53,6 +68,59 @@ func coalescePlanChatTokenLimit(body []byte) []byte {
 		return body
 	}
 	next, err = sjson.DeleteBytes(next, "max_completion_tokens")
+	if err != nil {
+		return body
+	}
+	return next
+}
+
+// clampVolcPlanChatSamplingBounds keeps Volc Agent Plan Chat requests inside
+// the supplier's evidenced numeric ceilings. Outbound copy only; ingress for
+// retry stays untouched. Non-numeric or absent fields are left alone.
+func clampVolcPlanChatSamplingBounds(body []byte) []byte {
+	shaped := clampJSONFloatField(body, "temperature", volcPlanChatTemperatureMin, volcPlanChatTemperatureMax)
+	shaped = clampJSONFloatField(shaped, "top_p", volcPlanChatTopPMin, volcPlanChatTopPMax)
+	shaped = clampJSONIntFieldMax(shaped, "max_tokens", volcPlanChatMaxTokensMax)
+	shaped = clampJSONIntFieldMax(shaped, "max_completion_tokens", volcPlanChatMaxTokensMax)
+	return shaped
+}
+
+func clampJSONFloatField(body []byte, path string, min, max float64) []byte {
+	value := gjson.GetBytes(body, path)
+	if !value.Exists() || value.Type != gjson.Number {
+		return body
+	}
+	current := value.Float()
+	if math.IsNaN(current) || math.IsInf(current, 0) {
+		return body
+	}
+	clamped := current
+	if clamped > max {
+		clamped = max
+	}
+	if clamped < min {
+		clamped = min
+	}
+	if clamped == current {
+		return body
+	}
+	next, err := sjson.SetBytes(body, path, clamped)
+	if err != nil {
+		return body
+	}
+	return next
+}
+
+func clampJSONIntFieldMax(body []byte, path string, max int64) []byte {
+	value := gjson.GetBytes(body, path)
+	if !value.Exists() || value.Type != gjson.Number {
+		return body
+	}
+	current, err := strconv.ParseInt(value.Raw, 10, 64)
+	if err != nil || current <= max {
+		return body
+	}
+	next, err := sjson.SetBytes(body, path, max)
 	if err != nil {
 		return body
 	}

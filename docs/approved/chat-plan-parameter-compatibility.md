@@ -1,8 +1,8 @@
 ---
 title: Plan Chat 工具与角色兼容
 status: approved
-approved_by: "user (2026-10-13 conversation: 请实现修复方案，指定函数仅提供该函数、none 移除 tools、阿里 developer 改 system、显式 json_object; 先把 max_tokens + max_completion_tokens 并存 → 400 修复)"
-approved_at: 2026-10-13
+approved_by: "user (2026-10-13 conversation: 请实现修复方案，指定函数仅提供该函数、none 移除 tools、阿里 developer 改 system、显式 json_object; 先把 max_tokens + max_completion_tokens 并存 → 400 修复); user (2026-10-19 conversation: 客户反馈 temperature/max_tokens 上游 400，请排查、定位、解决 — Volc Agent Plan sampling/max_tokens clamp)"
+approved_at: 2026-10-19
 risk: high
 ---
 
@@ -31,6 +31,11 @@ Ali Token Plan 和 VolcEngine Agent Plan 的部分 Chat 供应路径接受工具
   `max_completion_tokens`，避免 Volc/Ali Plan 因双字段并存返回 400。仅
   `max_tokens`、非法或非正 `max_completion_tokens` 保持原样。预算以
   `max_completion_tokens` 为准（与 Chat 转换器优先级一致）。
+- Volc Agent Plan 采样与输出上限（cn-prod `kimi-k3` InvalidParameter 证据）：
+  出站将数值型 `temperature` clamp 到 `[0, 2]`、`top_p` 到 `[0, 1]`，并将
+  `max_tokens` / 残留 `max_completion_tokens` 高于 `131072` 的值压到
+  `131072`。缺省或非数值字段不动。Ali Token Plan 与火山 pay-as-you-go 不套用
+  该 clamp（Ali kimi-k3 固定采样仍由既有 Ali owner 负责）。
 - 所有调整使用本次出站副本；换账号重试仍读取原始入站内容。
 - response_format 完整保留。json_object 仅由调用方显式选择，客户端仍须校验
   JSON。json_schema/strict 不转换成 json_object，不剥围栏、不自行补生成结果。
@@ -41,9 +46,10 @@ Ali Token Plan 和 VolcEngine Agent Plan 的部分 Chat 供应路径接受工具
 ## Owners / flow
 
 `openai_chat_constraints_tk.go::normalizeChatProviderRequest` 为请求约束入口，
-复用 `openai_chat_roles.go::normalizeStrictChatDeveloperRoles` 处理角色，并用
-`coalescePlanChatTokenLimit` 归一双输出长度字段。raw Chat 和 raw
-Responses→Chat 在发送前调用；NewAPI Chat、账号测试和 Responses→Chat 桥接经
+复用 `openai_chat_roles.go::normalizeStrictChatDeveloperRoles` 处理角色，用
+`coalescePlanChatTokenLimit` 归一双输出长度字段，并在 Volc Agent Plan 目的地
+调用 `clampVolcPlanChatSamplingBounds`。raw Chat 和 raw Responses→Chat 在发送前
+调用；NewAPI Chat、账号测试和 Responses→Chat 桥接经
 `normalizeBridgeChatProviderRequest` 使用 adaptor 解析的实际目的地调用。原有
 candidate/Plan 继续裁决账号与协议。
 
@@ -62,6 +68,9 @@ candidate/Plan 继续裁决账号与协议。
   非 Plan endpoint、模型别名、换账号隔离。
 - `TestChatProviderConstraints_PlanTokenLimitCoalesce`：双字段 / 仅 completion /
   仅 max_tokens / 非法值；官方 Plan 归一，非 Plan 与 pay-as-you-go 火山不变。
+- `TestChatProviderConstraints_VolcPlanSamplingBounds`：temperature/top_p/
+  max_tokens 超限 clamp、双字段预算先 coalesce 再 clamp、合法值与非数值保留、
+  幂等、入站不可变；Ali Plan 与 pay-as-you-go 火山不 clamp。
 - `TestChatProviderConstraints_ForwardRawAndAliAdaptor`：真实 Ali adaptor 对本地
   HTTP 供应端、火山 raw 发送；直连/万能 key × 流式/非流式，验证出站与客户端
   工具结果、角色、双 token 字段归一、用量以及显式 json_object/strict schema 无降级。
