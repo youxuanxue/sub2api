@@ -221,7 +221,7 @@ func TestCandidateEligibilityKnownRouteRejectionIsNotInternal(t *testing.T) {
 	require.NotErrorIs(t, err, protocolrouter.ErrModelPolicyDenied)
 	ok, err := gateway.candidateSupportsRequest(ctx, account, PlatformOpenAI, false, "gpt-5.4", ShapeOpenAIChat)
 	require.False(t, ok)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrProtocolRouteUnavailable)
 }
 
 func TestCandidateEligibilityErrorPrecedence(t *testing.T) {

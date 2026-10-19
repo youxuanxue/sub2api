@@ -38,7 +38,11 @@ func TestCandidateEligibilityTokenseaUsesPlanAcrossEntrances(t *testing.T) {
 			body := []byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hello"}],"max_tokens":32}`)
 			ctx := resolver.WithRequest(context.Background(), ShapeAnthropicMessages, "/v1/messages", model, body)
 			state, err := gateway.evaluateGroupCandidates(ctx, nil, group, model, ShapeAnthropicMessages)
-			require.NoError(t, err)
+			if tc.chat {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, ErrProtocolRouteUnavailable)
+			}
 			require.Equal(t, tc.chat, state.Supported)
 			require.Equal(t, tc.chat && tc.schedulable, state.Available)
 			candidates := gateway.gatewayCandidates(ctx, []Account{*account}, PlatformAnthropic, false, model, nil)
@@ -47,7 +51,7 @@ func TestCandidateEligibilityTokenseaUsesPlanAcrossEntrances(t *testing.T) {
 			case !tc.chat:
 				require.Empty(t, candidates)
 				require.Nil(t, selected)
-				require.ErrorIs(t, err, ErrUniversalNoEntitledGroup)
+				require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
 			case !tc.schedulable:
 				require.Empty(t, candidates)
 				require.Nil(t, selected)

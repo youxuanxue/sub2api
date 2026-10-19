@@ -1510,14 +1510,14 @@
         "func protocolRoutingAccountHasNoTextModels(account *Account) bool",
         "func protocolProbeModelIsNonText(model string) bool",
         "loadTKPricingOverlaySnapshot()",
-        "case \"embedding\", \"image\", \"video\", \"audio\", \"rerank\":",
+        "case \"embedding\", \"image\", \"video\", \"audio\", \"tts\", \"audio_speech\", \"audio_transcription\", \"rerank\":",
         "newapiconstant.ChannelTypeAli",
         "isOpenAIImageGenerationModel(model)",
         "isGrokVideoGenerationModel(model)",
         "antigravity.IsImageModel(model)",
         "[]string{openai.DefaultTestModel}"
       ],
-      "rationale": "Single bounded representative text-model owner shared by all protocol capability probes and text-governance classification. It deterministically prefers qwen-* for Ali channels, excludes registry-classified embedding/image/video/audio/rerank models plus conservative private non-text aliases, caps model-specific fallback fanout, and prevents non-text-only accounts from blocking SSOT cutover readiness."
+      "rationale": "Single bounded representative text-model owner shared by all protocol capability probes and text-governance classification. It deterministically prefers qwen-* for Ali channels, excludes registry-classified embedding/image/video/audio/speech/transcription/rerank models plus conservative private non-text aliases, caps model-specific fallback fanout, and prevents non-text-only accounts from blocking SSOT cutover readiness."
     },
     {
       "path": "backend/internal/service/protocol_capability_probe_test.go",

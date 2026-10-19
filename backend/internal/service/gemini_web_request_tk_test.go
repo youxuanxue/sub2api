@@ -43,7 +43,7 @@ func TestGeminiWebCandidateRejectsProductionChatWithoutPoisoningPeer(t *testing.
 		body := []byte(`{"model":"gemini-3-flash","messages":[{"role":"system","content":"Synthetic instruction"},{"role":"user","content":"first"},{"role":"user","content":"second"}]}`)
 		ctx := r.WithRequest(context.Background(), ShapeOpenAIChat, "/v1/chat/completions", "gemini-3-flash", body)
 		ok, err := r.candidateGateway.candidateSupportsRequest(ctx, &web, PlatformGemini, false, "gemini-3-flash", ShapeOpenAIChat)
-		require.NoError(t, err)
+		require.ErrorIs(t, err, ErrProtocolRouteUnavailable)
 		require.False(t, ok)
 		_, state, err := r.PrepareCandidateRequest(ctx, key, ShapeOpenAIChat, "/v1/chat/completions", "gemini-3-flash", body, "", "")
 		require.NoError(t, err)
