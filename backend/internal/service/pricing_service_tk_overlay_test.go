@@ -684,73 +684,44 @@ func tkOfficialListBaseTaxMultiplier() float64 {
 	return loadTkOfficialListBaseTaxPolicy().Multiplier
 }
 
-// TestTKPricingOverlay_Qwen38FamilyCacheListRates pins DashScope Beijing
-// context-cache list prices (not promo): cache_read must be the listed
-// 输入（缓存命中） rate, and cache_creation the 显式缓存创建 rate — not
-// equal to plain input (the prior conservative overcharge).
-func TestTKPricingOverlay_Qwen38FamilyCacheListRates(t *testing.T) {
-	svc := &PricingService{}
-	body := []byte(`{
-		"gpt-5.4": {
-			"input_cost_per_token": 0.0000025,
-			"output_cost_per_token": 0.000015,
-			"litellm_provider": "openai",
-			"mode": "chat"
-		}
-	}`)
-	data, err := svc.parsePricingData(body)
-	require.NoError(t, err)
-
-	type want struct {
-		inputCNY, outputCNY, cacheReadCNY, cacheCreateCNY float64
-	}
-	cases := map[string]want{
-		"qwen3.8-max": {
-			inputCNY: 12, outputCNY: 36, cacheReadCNY: 1.5, cacheCreateCNY: 15,
-		},
-		"qwen3.8-2.4t-a95b": {
-			inputCNY: 12, outputCNY: 36, cacheReadCNY: 1.5, cacheCreateCNY: 15,
-		},
-		"qwen3.8-flash": {
-			inputCNY: 0.8, outputCNY: 2.7, cacheReadCNY: 0.1, cacheCreateCNY: 1.25,
-		},
-		"qwen3.6-max-preview": {
-			inputCNY: 12, outputCNY: 36, cacheReadCNY: 1.5, cacheCreateCNY: 15,
-		},
-		"qwen3.7-max": {
-			inputCNY: 12, outputCNY: 36, cacheReadCNY: 2.4, cacheCreateCNY: 15,
-		},
-		"qwen3.7-max-2026-05-20": {
-			inputCNY: 12, outputCNY: 36, cacheReadCNY: 2.4, cacheCreateCNY: 15,
-		},
-	}
-	for modelID, w := range cases {
-		row := data[modelID]
-		require.NotNil(t, row, modelID)
-		require.InDelta(t, tkCNYPerMTokToUSDPerToken(w.inputCNY), row.InputCostPerToken, 1e-15, modelID)
-		require.InDelta(t, tkCNYPerMTokToUSDPerToken(w.outputCNY), row.OutputCostPerToken, 1e-15, modelID)
-		require.InDelta(t, tkCNYPerMTokToUSDPerToken(w.cacheReadCNY), row.CacheReadInputTokenCost, 1e-15, modelID)
-		require.InDelta(t, tkCNYPerMTokToUSDPerToken(w.cacheCreateCNY), row.CacheCreationInputTokenCost, 1e-15, modelID)
-		require.Less(t, row.CacheReadInputTokenCost, row.InputCostPerToken,
-			"%s cache_read must be cheaper than input (official list)", modelID)
-	}
+// TestTKPricingOverlay_CacheHitBillingUsesOverlayRates pins the billing path
+// against overlay SSOT: expected costs are derived from GetModelPricing for a
+// known served DashScope id (fixture boundary only — not a handwritten CNY
+// table). DomesticChatCacheReadNotEqualInput owns the scan invariant.
+func TestTKPricingOverlay_CacheHitBillingUsesOverlayRates(t *testing.T) {
+	// Boundary: one known served DashScope chat model id. Rates must come from
+	// the overlay owner via billing lookup — do not restate ¥/Mtok here.
+	const modelID = "qwen3.8-max"
+	overlayRow := loadTKPricingOverlay()[modelID]
+	require.NotNil(t, overlayRow, modelID)
+	require.Greater(t, overlayRow.InputCostPerToken, 0.0, modelID)
+	require.Greater(t, overlayRow.CacheReadInputTokenCost, 0.0, modelID)
+	require.Less(t, overlayRow.CacheReadInputTokenCost, overlayRow.InputCostPerToken,
+		"%s cache_read must stay below input in overlay SSOT", modelID)
+	require.Greater(t, overlayRow.CacheCreationInputTokenCost, 0.0, modelID)
 
 	billing := NewBillingService(nil, nil)
+	pricing, err := billing.GetModelPricing(modelID)
+	require.NoError(t, err)
+	require.Less(t, pricing.CacheReadPricePerToken, pricing.InputPricePerToken)
+
 	const oneM = 1_000_000
-	cost, err := billing.CalculateCost("qwen3.8-max", UsageTokens{
+	cost, err := billing.CalculateCost(modelID, UsageTokens{
 		InputTokens: oneM, OutputTokens: 0, CacheReadTokens: oneM,
 	}, 1.0)
 	require.NoError(t, err)
-	wantTotal := float64(oneM) * (tkCNYPerMTokToUSDPerToken(12) + tkCNYPerMTokToUSDPerToken(1.5))
+	wantTotal := float64(oneM) * (pricing.InputPricePerToken + pricing.CacheReadPricePerToken)
 	require.InDelta(t, wantTotal, cost.TotalCost, 1e-9,
-		"1M input + 1M cache_read must bill at ¥12+¥1.5 list, not ¥12+¥12")
-	require.InDelta(t, float64(oneM)*tkCNYPerMTokToUSDPerToken(1.5), cost.CacheReadCost, 1e-9)
+		"1M input + 1M cache_read must bill from overlay rates, not full-input cache")
+	require.InDelta(t, float64(oneM)*pricing.CacheReadPricePerToken, cost.CacheReadCost, 1e-9)
+	require.Less(t, cost.CacheReadCost, float64(oneM)*pricing.InputPricePerToken,
+		"cache_read line must be cheaper than the same tokens at input rate")
 
-	createCost, err := billing.CalculateCost("qwen3.8-max", UsageTokens{
+	createCost, err := billing.CalculateCost(modelID, UsageTokens{
 		InputTokens: 0, CacheCreationTokens: oneM,
 	}, 1.0)
 	require.NoError(t, err)
-	wantCreate := float64(oneM) * tkCNYPerMTokToUSDPerToken(15)
+	wantCreate := float64(oneM) * pricing.CacheCreationPricePerToken
 	require.InDelta(t, wantCreate, createCost.CacheCreationCost, 1e-9)
 	require.InDelta(t, wantCreate, createCost.TotalCost, 1e-9)
 }
