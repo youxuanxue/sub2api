@@ -210,6 +210,29 @@ export default defineConfig(({ mode }) => {
             return 'admin-shell'
           }
 
+          // Keep account usage helpers/cells out of the AccountsView chunk.
+          // onlyExplicitManualChunks otherwise places shared modules into the
+          // first dynamic importer (AccountsView), and an async AccountUsageCell
+          // then imports them back — a cycle that blanks the 用量窗口 column.
+          if (
+            id.includes('/utils/accountUsageBatch.tk') ||
+            id.includes('/utils/accountUsageRefresh') ||
+            id.includes('/composables/useTkAccountUsageBatch') ||
+            id.includes('/components/account/AccountUsageCell.vue') ||
+            id.includes('/components/account/accountUsageCellProps') ||
+            id.includes('/components/account/usage-cells/') ||
+            id.includes('/components/account/OpenAIQuotaResetCell') ||
+            id.includes('/components/account/OpenAIReferralCell') ||
+            id.includes('/components/account/GrokQuotaProbeCell') ||
+            id.includes('/components/account/UsageProgressBar') ||
+            id.includes('/components/account/UsageStatsRow') ||
+            id.includes('/components/account/GoogleVerificationLink') ||
+            id.includes('/components/account/OpenCodeGoUsageCell') ||
+            id.includes('/components/account/OllamaCloudUsageCell')
+          ) {
+            return 'admin-account-usage'
+          }
+
           // 应用代码：按入口点自动分包，不手动干预
           // 这样可以避免循环依赖，同时保持合理的 chunk 数量
         }
