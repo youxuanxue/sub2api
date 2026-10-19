@@ -72,12 +72,14 @@ describe('tablePreferences', () => {
     expect(getConfiguredTablePageSizeOptions()).toEqual([10, 20, 50, 100])
   })
 
-  it('upgrades the legacy 10/20/50 selectable set to include 100', () => {
+  it('trusts injected options without rewriting the legacy 10/20/50 set locally', () => {
     window.__APP_CONFIG__ = {
       table_default_page_size: 20,
       table_page_size_options: [10, 20, 50]
     } as any
 
-    expect(getConfiguredTablePageSizeOptions()).toEqual([10, 20, 50, 100])
+    // Backend normalizeTablePreferences owns the legacy upgrade; frontend
+    // must not maintain a second copy of that policy.
+    expect(getConfiguredTablePageSizeOptions()).toEqual([10, 20, 50])
   })
 })
