@@ -59,7 +59,18 @@ export const getConfiguredTablePageSizeOptions = (): number[] => {
     return [...DEFAULT_TABLE_PAGE_SIZE_OPTIONS]
   }
 
-  return unique.length > 0 ? unique : [...DEFAULT_TABLE_PAGE_SIZE_OPTIONS]
+  // Upgrade the pre-100 legacy default so existing deployments expose 100
+  // without waiting for an admin settings rewrite.
+  if (
+    unique.length === 3 &&
+    unique[0] === 10 &&
+    unique[1] === 20 &&
+    unique[2] === 50
+  ) {
+    return [...DEFAULT_TABLE_PAGE_SIZE_OPTIONS]
+  }
+
+  return unique
 }
 
 export const normalizeTablePageSize = (value: unknown): number => {

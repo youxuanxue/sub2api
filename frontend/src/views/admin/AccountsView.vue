@@ -1102,6 +1102,7 @@ const {
   handlePageSizeChange: baseHandlePageSizeChange
 } = useTableLoader<AccountListItem, any>({
   fetchFn: adminAPI.accounts.list,
+  pageSize: 100,
   initialParams: {
     platform: '',
     type: '',

@@ -144,6 +144,27 @@ func TestSettingService_GetPublicSettings_ExposesTablePreferences(t *testing.T) 
 	require.Equal(t, []int{20, 50, 100}, settings.TablePageSizeOptions)
 }
 
+func TestSettingService_GetPublicSettings_UpgradesLegacyTablePageSizeOptions(t *testing.T) {
+	repo := &settingPublicRepoStub{
+		values: map[string]string{
+			SettingKeyTableDefaultPageSize: "20",
+			SettingKeyTablePageSizeOptions: "[10,20,50]",
+		},
+	}
+	svc := NewSettingService(repo, &config.Config{})
+
+	settings, err := svc.GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 20, settings.TableDefaultPageSize)
+	require.Equal(t, []int{10, 20, 50, 100}, settings.TablePageSizeOptions)
+}
+
+func TestNormalizeTablePreferences_EmptyOptionsUseCanonicalDefaults(t *testing.T) {
+	defaultSize, options := normalizeTablePreferences(20, nil)
+	require.Equal(t, 20, defaultSize)
+	require.Equal(t, []int{10, 20, 50, 100}, options)
+}
+
 func TestSettingService_GetPublicSettings_ExposesCompactHomeEnabled(t *testing.T) {
 	repo := &settingPublicRepoStub{
 		values: map[string]string{
