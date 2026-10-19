@@ -46,6 +46,39 @@ class DomesticBluegreenTest(unittest.TestCase):
         self.assertEqual(set(actual['services']), {'tokenkey-blue'})
         self.assertEqual(service['image'], 'old')
 
+    def test_candidate_overlays_pool_env_from_compose_not_secrets(self):
+        current = fixture()
+        volumes = [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}]
+        service = {
+            'volumes': volumes,
+            'environment': {
+                'GOMEMLIMIT': '2GiB',
+                'DATABASE_MAX_OPEN_CONNS': '40',
+                'DATABASE_MAX_IDLE_CONNS': '10',
+                'REDIS_POOL_SIZE': '96',
+                'REDIS_MIN_IDLE_CONNS': '8',
+                'JWT_SECRET': 'stale-must-not-win',
+            },
+        }
+        app = bg.candidate_compose(service, current, 'sha256:new', 'tokenkey-green')[
+            'services']['tokenkey-green']
+        self.assertEqual(app['environment']['GOMEMLIMIT'], '2GiB')
+        self.assertEqual(app['environment']['DATABASE_MAX_OPEN_CONNS'], '40')
+        self.assertEqual(app['environment']['DATABASE_MAX_IDLE_CONNS'], '10')
+        self.assertEqual(app['environment']['REDIS_POOL_SIZE'], '96')
+        self.assertEqual(app['environment']['REDIS_MIN_IDLE_CONNS'], '8')
+        self.assertEqual(app['environment']['JWT_SECRET'], 'literal$${value}')
+        self.assertEqual(app['environment']['DATABASE_HOST'], 'postgres')
+        self.assertEqual(app['ports'][0]['published'], '18082')
+
+    def test_candidate_rejects_non_mapping_service_environment(self):
+        service = {
+            'volumes': [{'source': '/var/lib/tokenkey/app', 'target': '/app/data', 'type': 'bind'}],
+            'environment': ['GOMEMLIMIT=2GiB'],
+        }
+        with self.assertRaises(ValueError):
+            bg.candidate_compose(service, fixture(), 'sha256:new', 'tokenkey-blue')
+
     def test_candidate_rejects_mount_drift_before_starting(self):
         service = {'volumes': [{'type': 'bind', 'source': '/var/lib/tokenkey/app',
                                 'target': '/app/data'}]}
