@@ -183,6 +183,12 @@ func AnthropicErrorWriter(c *gin.Context, status int, message string) {
 	case http.StatusForbidden:
 		errorType = "permission_error"
 	}
+	if public, sanitized := service.TkSanitizeBusy429WireMessage(status, message); sanitized {
+		service.TkAnnotateBusy429Ops(c, errorType, message)
+		message = public
+	} else {
+		message = public
+	}
 	c.JSON(status, gin.H{
 		"type":  "error",
 		"error": gin.H{"type": errorType, "message": message},
@@ -191,6 +197,12 @@ func AnthropicErrorWriter(c *gin.Context, status int, message string) {
 
 // GoogleErrorWriter 按 Google API 规范输出错误
 func GoogleErrorWriter(c *gin.Context, status int, message string) {
+	if public, sanitized := service.TkSanitizeBusy429WireMessage(status, message); sanitized {
+		service.TkAnnotateBusy429Ops(c, "api_error", message)
+		message = public
+	} else {
+		message = public
+	}
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    status,

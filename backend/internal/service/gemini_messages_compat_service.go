@@ -1989,7 +1989,7 @@ func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, acc
 			errType = "rate_limit_error"
 		}
 		if errMsg == "" {
-			errMsg = "Upstream rate limit exceeded, please retry later"
+			errMsg = TkClientFacingBusy429Message
 		}
 	case 529:
 		if statusCode == 0 {

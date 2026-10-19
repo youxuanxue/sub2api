@@ -66,7 +66,8 @@ func (h *GatewayHandler) tkMessagesGeminiPlatform(
 					zap.String("platform", platform),
 					zap.Error(err),
 				)
-				h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts: "+err.Error(), streamStarted)
+				service.TkAnnotateBusy429Ops(c, "api_error", "No available accounts: "+err.Error())
+				h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", service.TkClientFacingBusy429Message, streamStarted)
 				return
 			}
 			action := fs.HandleSelectionExhausted(c.Request.Context(), errors.Is(err, service.ErrThinPoolAllExcluded))
@@ -116,7 +117,8 @@ func (h *GatewayHandler) tkMessagesGeminiPlatform(
 					zap.String("model", reqModel),
 					zap.String("platform", platform),
 				)
-				h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts", streamStarted)
+				service.TkAnnotateBusy429Ops(c, "api_error", "No available accounts")
+				h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", service.TkClientFacingBusy429Message, streamStarted)
 				return
 			}
 			accountWaitCounted := false

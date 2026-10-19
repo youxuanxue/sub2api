@@ -185,7 +185,7 @@ func TestOpenAICompatFirstAttemptSelectionFailure(t *testing.T) {
 		require.Equal(t, http.StatusTooManyRequests, status)
 		assert.Equal(t, tkNoAvailableAccountsRetryAfterSeconds, c.Writer.Header().Get("Retry-After"))
 		assert.Equal(t, "api_error", errType)
-		assert.Contains(t, msg, "No available accounts")
+		assert.Equal(t, service.TkClientFacingBusy429Message, msg)
 	})
 
 	t.Run("candidate capacity errors retain retry and ops routing semantics", func(t *testing.T) {
@@ -211,7 +211,7 @@ func TestOpenAICompatFirstAttemptSelectionFailure(t *testing.T) {
 				var body errorBody
 				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 				assert.Equal(t, "api_error", body.Error.Type)
-				assert.Equal(t, "No available accounts", body.Error.Message)
+				assert.Equal(t, service.TkClientFacingBusy429Message, body.Error.Message)
 				phase, limited, owner, source := classifyOpsErrorLog(c, errType, msg, "", status)
 				assert.Equal(t, "routing", phase)
 				assert.True(t, limited)
@@ -234,7 +234,7 @@ func TestOpenAICompatFirstAttemptSelectionFailure(t *testing.T) {
 		require.Equal(t, http.StatusTooManyRequests, w.Code)
 		assert.Equal(t, tkNoAvailableAccountsRetryAfterSeconds, w.Header().Get("Retry-After"))
 		assert.Equal(t, "api_error", errType)
-		assert.Equal(t, "No available accounts", msg)
+		assert.Equal(t, service.TkClientFacingBusy429Message, msg)
 		assert.Empty(t, fd.calls, "candidate capacity already establishes model support across authorized pools")
 		phase, limited, owner, source := classifyOpsErrorLog(c, errType, msg, "", status)
 		assert.Equal(t, "routing", phase)
@@ -277,7 +277,7 @@ func TestOpenAICompatFirstAttemptSelectionFailure(t *testing.T) {
 
 		require.Equal(t, http.StatusTooManyRequests, status)
 		assert.Equal(t, "api_error", errType)
-		assert.Equal(t, "No available accounts", msg)
+		assert.Equal(t, service.TkClientFacingBusy429Message, msg)
 		assert.Equal(t, tkNoAvailableAccountsRetryAfterSeconds, c.Writer.Header().Get("Retry-After"))
 		assert.True(t, isOpsRoutingCapacityLimited(c))
 	})

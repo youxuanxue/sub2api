@@ -120,7 +120,8 @@ func TestHandleFailoverExhausted_ClassifiedRelayCapacityUsesClientContract(t *te
 
 	require.Equal(t, http.StatusTooManyRequests, w.Code)
 	require.Equal(t, "5", w.Header().Get("Retry-After"))
-	require.Contains(t, w.Body.String(), "No available accounts")
+	require.Contains(t, w.Body.String(), service.TkClientFacingBusy429Message)
+	require.NotContains(t, w.Body.String(), "No available accounts")
 	require.NotContains(t, w.Body.String(), "passthrough override")
 }
 

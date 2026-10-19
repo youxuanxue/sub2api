@@ -12,7 +12,9 @@ import (
 const (
 	tkKiroEndpointQuotaExhaustedCooldown = 10 * time.Second
 	tkKiroEndpointQuotaExhaustedReason   = "kiro_endpoint_quota_exhausted"
-	tkKiroEndpointQuotaExhaustedClient   = "Kiro upstream quota exhausted, please retry later"
+	// Public wire copy is TkClientFacingBusy429Message (SSOT). This constant is
+	// the INTERNAL ops/detail phrase only.
+	tkKiroEndpointQuotaExhaustedClient = "Kiro upstream quota exhausted, please retry later"
 )
 
 // KiroEndpointQuotaExhaustedRetryAfterSeconds is the HTTP Retry-After value paired

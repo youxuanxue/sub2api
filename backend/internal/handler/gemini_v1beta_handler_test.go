@@ -31,7 +31,7 @@ func TestHandleGeminiFailoverExhaustedUsesCapacityClientMetadata(t *testing.T) {
 	require.JSONEq(t, `{
 		"error": {
 			"code": 429,
-			"message": "No available accounts",
+			"message": "`+service.TkClientFacingBusy429Message+`",
 			"status": "RESOURCE_EXHAUSTED"
 		}
 	}`, recorder.Body.String())

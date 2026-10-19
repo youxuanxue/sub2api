@@ -233,7 +233,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		if !selection.Acquired {
 			if selection.WaitPlan == nil {
 				markOpsRoutingCapacityLimited(c)
-				h.chatCompletionsErrorResponse(c, tkNoAvailableAccounts(c), "api_error", "No available accounts")
+				service.TkAnnotateBusy429Ops(c, "api_error", "No available accounts")
+				h.chatCompletionsErrorResponse(c, tkNoAvailableAccounts(c), "api_error", service.TkClientFacingBusy429Message)
 				return
 			}
 			accountReleaseFunc, err = h.concurrencyHelper.AcquireAccountSlotWithWaitTimeout(
@@ -357,6 +358,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 
 // chatCompletionsErrorResponse writes an error in OpenAI Chat Completions format.
 func (h *GatewayHandler) chatCompletionsErrorResponse(c *gin.Context, status int, errType, message string) {
+	message = tkSanitizeBusy429WireMessage(c, status, errType, message)
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"type":    errType,

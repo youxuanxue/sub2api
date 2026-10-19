@@ -738,7 +738,7 @@ func (s *AntigravityGatewayService) writeMappedClaudeError(c *gin.Context, accou
 	case 429:
 		statusCode = http.StatusTooManyRequests
 		errType = "rate_limit_error"
-		errMsg = "Upstream rate limit exceeded"
+		errMsg = TkClientFacingBusy429Message
 	case 529:
 		statusCode = http.StatusServiceUnavailable
 		errType = "overloaded_error"

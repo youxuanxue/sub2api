@@ -447,7 +447,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.Bool("fallback_used", fallbackUsed),
 						zap.Error(err),
 					)
-					h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts: "+err.Error(), streamStarted)
+					service.TkAnnotateBusy429Ops(c, "api_error", "No available accounts: "+err.Error())
+					h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", service.TkClientFacingBusy429Message, streamStarted)
 					return
 				}
 				action := fs.HandleSelectionExhausted(c.Request.Context(), errors.Is(err, service.ErrThinPoolAllExcluded))
@@ -497,7 +498,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.String("model", reqModel),
 						zap.String("platform", platform),
 					)
-					h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts", streamStarted)
+					service.TkAnnotateBusy429Ops(c, "api_error", "No available accounts")
+					h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", service.TkClientFacingBusy429Message, streamStarted)
 					return
 				}
 				accountWaitCounted := false
@@ -1488,7 +1490,15 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 
 	// 记录原始上游状态码，以便 ops 错误日志捕获真实的上游错误
 	upstreamMsg := service.ExtractUpstreamErrorMessage(responseBody)
-	service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
+	if statusCode == http.StatusTooManyRequests {
+		detail := upstreamMsg
+		if detail == "" {
+			detail = "upstream status 429"
+		}
+		service.TkAnnotateBusy429Ops(c, "rate_limit_error", detail)
+	} else {
+		service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
+	}
 
 	// 使用默认的错误映射
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
@@ -1500,7 +1510,11 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 func (h *GatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
 	errMsg = h.tkEnrichMappedUpstreamErrorMessage(c, "", statusCode, nil, errMsg)
-	service.SetOpsUpstreamError(c, statusCode, errMsg, "")
+	if statusCode == http.StatusTooManyRequests {
+		service.TkAnnotateBusy429Ops(c, errType, "upstream status 429")
+	} else {
+		service.SetOpsUpstreamError(c, statusCode, errMsg, "")
+	}
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
 
@@ -1511,7 +1525,7 @@ func (h *GatewayHandler) mapUpstreamError(statusCode int) (int, string, string) 
 	case 403:
 		return http.StatusBadGateway, "upstream_error", "Upstream access forbidden, please contact administrator"
 	case 429:
-		return http.StatusTooManyRequests, "rate_limit_error", "Upstream rate limit exceeded, please retry later"
+		return service.TkMapUpstreamStatusToClient429()
 	case 529:
 		return http.StatusServiceUnavailable, "overloaded_error", "Upstream service overloaded, please retry later"
 	case 500, 502, 503, 504:
@@ -1527,6 +1541,7 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 }
 
 func (h *GatewayHandler) handleStreamingAwareErrorWithCode(c *gin.Context, status int, errType, code, message string, streamStarted bool) {
+	message = tkSanitizeBusy429WireMessage(c, status, errType, message)
 	if streamStarted {
 		// 响应状态码已固化为 200（ping/部分数据已 flush），错误只能就地以 SSE 帧回传。
 		// 标记本次流内错误，供 ops_error_logger 补记——否则该中间件按 status>=400 采集，
@@ -1660,6 +1675,7 @@ func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, mess
 }
 
 func (h *GatewayHandler) errorResponseWithCode(c *gin.Context, status int, errType, code, message string) {
+	message = tkSanitizeBusy429WireMessage(c, status, errType, message)
 	errorObject := gin.H{"type": errType, "message": message}
 	if code != "" {
 		errorObject["code"] = code

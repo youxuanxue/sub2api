@@ -647,7 +647,8 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		if !selection.Acquired {
 			if selection.WaitPlan == nil {
 				markOpsRoutingCapacityLimited(c)
-				googleError(c, tkNoAvailableAccounts(c), "No available accounts")
+				service.TkAnnotateBusy429Ops(c, "api_error", "No available accounts")
+				googleError(c, tkNoAvailableAccounts(c), service.TkClientFacingBusy429Message)
 				return
 			}
 			accountWaitCounted := false
@@ -869,7 +870,7 @@ func mapGeminiUpstreamError(statusCode int) (int, string) {
 	case 403:
 		return http.StatusBadGateway, "Upstream access forbidden, please contact administrator"
 	case 429:
-		return http.StatusTooManyRequests, "Upstream rate limit exceeded, please retry later"
+		return http.StatusTooManyRequests, service.TkClientFacingBusy429Message
 	case 529:
 		return http.StatusServiceUnavailable, "Upstream service overloaded, please retry later"
 	case 500, 502, 503, 504:
@@ -884,6 +885,7 @@ type pathParseError struct{ msg string }
 func (e *pathParseError) Error() string { return e.msg }
 
 func googleError(c *gin.Context, status int, message string) {
+	message = tkSanitizeBusy429StatusMessage(c, status, message)
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    status,

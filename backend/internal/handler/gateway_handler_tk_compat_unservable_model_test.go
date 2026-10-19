@@ -87,7 +87,7 @@ func TestCompatHandlersUnservableModelEnvelope(t *testing.T) {
 		var body responsesBody
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 		assert.Equal(t, "api_error", body.Error.Code)
-		assert.Contains(t, body.Error.Message, "No available accounts")
+		assert.Equal(t, service.TkClientFacingBusy429Message, body.Error.Message)
 	})
 
 	t.Run("chat/completions unsupported model -> 400 invalid_request_error, no Retry-After", func(t *testing.T) {

@@ -70,6 +70,8 @@ func classifySelectionFailureError(err error, fallback noAccountErrorClassificat
 	return noAccountErrorClassification{
 		Status:  http.StatusTooManyRequests,
 		ErrType: "rate_limit_error",
+		// Public copy is sanitized at the write site via TkClientFacingBusy429Message;
+		// this Message is the INTERNAL ops detail (annotate before write).
 		Message: "All available accounts are currently rate-limited. Please retry later.",
 	}
 }
