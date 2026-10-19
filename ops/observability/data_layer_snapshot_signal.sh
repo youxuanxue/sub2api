@@ -3,9 +3,11 @@
 # A stack is accepted only for explicit legacy callers without an instance ID.
 #
 # Prefer instance → attached data volume → volume-id snapshots. When
-# DescribeInstances is unavailable (OIDC role historically had only
-# DescribeSnapshots), fall back to DLM data-volume tags in the target region:
-# Backup=stage0 + Purpose=tokenkey-state-postgres-redis-caddy.
+# DescribeInstances returns AccessDenied/UnauthorizedOperation (OIDC role
+# historically had only DescribeSnapshots), fall back to DLM data-volume
+# tags in the target region: Backup=stage0 + Purpose=
+# tokenkey-state-postgres-redis-caddy. Other describe-instances errors
+# stay fail-closed.
 set -u
 
 REGION="${1:-}"
@@ -111,8 +113,18 @@ if [ -n "$INSTANCE_ID" ]; then
     emit_latest_snapshot_for_volume "$data_volume_id"
     exit 0
   fi
-  # DescribeInstances missing/denied: fall back to DLM data-volume tags in-region.
-  emit_latest_snapshot_by_data_volume_tags
+  # Only IAM denials fall back to DLM tags (DescribeSnapshots-only OIDC).
+  # Other describe-instances failures stay fail-closed so a missing/wrong
+  # instance cannot be greened by region-wide Backup/Purpose snapshots.
+  describe_err="$(head -1 "$cfn_err" | tr -d '\n' | cut -c1-240)"
+  case "$describe_err" in
+    *AccessDenied*|*UnauthorizedOperation*)
+      emit_latest_snapshot_by_data_volume_tags
+      ;;
+    *)
+      emit_signal "" "${describe_err:-describe-instances failed}"
+      ;;
+  esac
   exit 0
 elif ! data_volume_id="$(aws cloudformation describe-stacks \
   --region "$REGION" \
