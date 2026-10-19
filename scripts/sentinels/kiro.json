@@ -514,9 +514,10 @@
         "TestKiroGatewayService_ImageFormatRejectionIsClientError",
         "TestClassifyKiroImageValidationDoesNotMaskProviderFailure",
         "TestClassifyKiroForwardError_ImageFormatDoesNotFailover",
-        "TestIsKiroImageClientError"
+        "TestIsKiroImageClientError",
+        "TkClientFacingBusy429Message, quotaErr.ClientMessage()"
       ],
-      "rationale": "Wire regression coverage for normal tool calls, client-owned tool names, stop reasons, content filtering, incomplete streams, retry integrity and thinking side channels. Image format must be request-owned (no pool burn) while provider failures that only echo image text still failover."
+      "rationale": "Wire regression coverage for normal tool calls, client-owned tool names, stop reasons, content filtering, incomplete streams, retry integrity and thinking side channels. Image format must be request-owned (no pool burn) while provider failures that only echo image text still failover. Quota-exhausted ClientMessage must assert the shared busy-429 SSOT."
     },
     {
       "path": "backend/internal/service/kiro_sse_encoder.go",
@@ -649,11 +650,13 @@
         "service.KiroInvalidRequestError",
         "service.KiroEndpointQuotaExhaustedError",
         "service.KiroEndpointQuotaExhaustedRetryAfterSeconds()",
+        "service.TkAnnotateBusy429Ops(c, \"rate_limit_error\"",
+        "service.TkClientFacingBusy429Message",
         "ConsumeKiroSessionRecovery",
         "RememberKiroSessionRecovery",
         "IsKiroPostOutputStreamDisconnect"
       ],
-      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit. handleKiroContentFilteredError maps Kiro's policy terminal outcome to 400 invalid_request_error and emits the client content-filter outcome without failover. The KiroInvalidModelError errors.As branch returns a clean 400 invalid_request_error (no cross-account failover) when the Kiro upstream rejects the model; losing it reverts to the silent empty-200 / failover-churn behavior. The KiroEndpointQuotaExhaustedError branch returns 429+Retry-After:10 instead of a generic 502 when all Kiro upstream endpoints hit quota exhaustion."
+      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit. handleKiroContentFilteredError maps Kiro's policy terminal outcome to 400 invalid_request_error and emits the client content-filter outcome without failover. The KiroInvalidModelError errors.As branch returns a clean 400 invalid_request_error (no cross-account failover) when the Kiro upstream rejects the model; losing it reverts to the silent empty-200 / failover-churn behavior. The KiroEndpointQuotaExhaustedError branch returns 429+Retry-After:10 with the shared busy-429 SSOT (ops annotate keeps the legacy quota detail) instead of a generic 502 when all Kiro upstream endpoints hit quota exhaustion."
     },
     {
       "path": "backend/internal/handler/gateway_handler_kiro_content_filter_test.go",
@@ -732,9 +735,10 @@
         "func classifyKiroImageClientRejection",
         "func isKiroImageClientError",
         "func isKiroProviderExceptionMessage",
-        "isExactUnsupportedImageFormatMessage"
+        "isExactUnsupportedImageFormatMessage",
+        "return TkClientFacingBusy429Message"
       ],
-      "rationale": "TK-only typed errors + classifier for Kiro request rejections, including CONTENT_FILTERED, INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; CONTENT_FILTERED returns a typed client-owned error without creating upstream error context, while real transport/read/empty-response causes retain sanitized upstream evidence. The handler maps request-owned outcomes to 400 without cross-account failover. Image-client classification must match the primary upstream message only and must not mask provider exceptions (InternalServerException) or non-400 HTTP that only echo 'Image format is not supported.'. Losing this file makes Kiro policy/validation outcomes fall back to generic forwarding errors or restores opaque 502s with no recoverable root cause."
+      "rationale": "TK-only typed errors + classifier for Kiro request rejections, including CONTENT_FILTERED, INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; CONTENT_FILTERED returns a typed client-owned error without creating upstream error context, while real transport/read/empty-response causes retain sanitized upstream evidence. The handler maps request-owned outcomes to 400 without cross-account failover. Image-client classification must match the primary upstream message only and must not mask provider exceptions (InternalServerException) or non-400 HTTP that only echo 'Image format is not supported.'. KiroEndpointQuotaExhaustedError.ClientMessage must return the shared busy-429 SSOT (not the legacy quota phrase) so wire bodies stay pool-agnostic. Losing this file makes Kiro policy/validation outcomes fall back to generic forwarding errors or restores opaque 502s with no recoverable root cause."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_kiro.go",
