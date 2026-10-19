@@ -1,7 +1,7 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls, 2026-10-12 OpenAI standard 120s + compact/large-body force high-effort 300s after medium compact mis-kills, 2026-10-13 universal ordinary/complex first-output budgets approved as 120s/600s; Kiro fixed ordinary/high-latency request budgets approved by feng in the #2621 conversation; 2026-10-19 NewAPI Chat nonstream first-output default/host inject raised to 600, config max 900)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls, 2026-10-12 OpenAI standard 120s + compact/large-body force high-effort 300s after medium compact mis-kills, 2026-10-13 universal ordinary/complex first-output budgets approved as 120s/600s; Kiro fixed ordinary/high-latency request budgets approved by feng in the #2621 conversation; 2026-10-19 NewAPI Chat nonstream first-output default/host inject raised to 600, config max 900; 2026-10-19 OpenAI capacity-shed soft effective-priority demotion)"
 created: 2026-09-07
 revised_at: 2026-10-19
 ---
@@ -209,7 +209,15 @@ in the follow-up conversation on 2026-09-09. Counter reads fail
 open to configured priority; fixed-window expiry restores preference without
 configuration writes. Existing credential, explicit quota and provider cooldown
 owners remain authoritative. Caller cancellation, invalid input, policy refusal
-and request-scoped failures do not create this account penalty. Multiple feedback
+and ordinary request-scoped failures do not create this account penalty.
+OpenAI provider capacity shed (`servers are currently overloaded` /
+`server_is_overloaded` / `slow_down`, and the same transient-processing
+capacity messages) remains request-scoped for hard cooldown purposes
+(`RequestScopedTransient` still forbids cascading `temp_unschedulable`), but
+**does** feed this soft effective-priority demotion so healthier accounts are
+preferred while the overloaded account stays schedulable. This carve-in was
+directed by feng on 2026-10-19 after prod evidence that uk2 OAuth overloaded
+502s left `priority`/`schedulable` unchanged. Multiple feedback
 owners combine by maximum count, never by adding duplicate penalties.
 One completed execution records at most one failure, including a native execution
 without a protocol Plan. Shared observations bypass the legacy OpenAI account-wide
@@ -461,7 +469,7 @@ consume the same selected path, including retries and final slot checks.
 | Profit admission | `candidate_profit_tk.go` delegates to the existing gateway profit owner | Actual billing origin and request pricing instant follow selection, slot checks and WS turns. |
 | Stable affinity and continuation | `candidate_identity_tk.go`, `candidate_ws_identity_tk.go`, `candidate_ws_authorization_tk.go` | User/key/session soft affinity; user-owned response continuation with authorized legacy lookup and dual writes. |
 | Supplier credential faults | `supplier_credential_fault.go`, `account_repo_supplier_fault.go` | Conditional updates share confirmed credential faults and preserve independent model limits, Plans and account concurrency. |
-| Attributable failure observation and deprioritization | `candidate_failure_tk.go` | One attribution rule per account and resolved model. Caller cancellation, credential faults, request-scoped transients, same-account retries and caller errors keep their dedicated owners; an observed failure must not also feed the legacy OpenAI health breaker. |
+| Attributable failure observation and deprioritization | `candidate_failure_tk.go` | One attribution rule per account and resolved model. Caller cancellation, credential faults, ordinary request-scoped transients, same-account retries and caller errors keep their dedicated owners; OpenAI capacity-shed overload still feeds soft effective-priority demotion without hard unsched; an observed failure must not also feed the legacy OpenAI health breaker. |
 | Per-turn RPM admission | `candidate_rpm_tk.go` | Peek before binding, count once after. Universal drops the auth snapshot's group override because it belongs to the original bound group. |
 | Replayable Chat attempt budget | `candidate_chat_attempt_tk.go` | Pre-output failover only, bounded by the shared attempt cap; handlers still own switching. Never replay or synthesize completion after content or tool output. |
 | Discovery request/account snapshot | `candidate_discovery_snapshot_tk.go` | One immutable request and account set per discovery shape; prepare each group's request policy once while runtime selection keeps fresh account validation. |

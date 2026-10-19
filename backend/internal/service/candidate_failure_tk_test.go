@@ -274,3 +274,37 @@ func TestCandidateFailureAttributionDoesNotPenalizeCallerOrDuplicateCooldown(t *
 	}
 	require.True(t, candidateFailureAttributable(&UpstreamFailoverError{StatusCode: 504, Scope: GatewayFailureScopeAccount}))
 }
+
+func TestCandidateFailureAttributionSoftDeprioritizesOpenAICapacityShed(t *testing.T) {
+	overloadedBody := []byte(`{"error":{"message":"Our servers are currently overloaded. Please try again later.","type":"server_error","code":"server_is_overloaded"}}`)
+	for _, flags := range []struct {
+		name string
+		err  *UpstreamFailoverError
+	}{
+		{"request_scoped", &UpstreamFailoverError{
+			StatusCode:             http.StatusBadGateway,
+			ResponseBody:           overloadedBody,
+			RequestScopedTransient: true,
+			Scope:                  GatewayFailureScopeAccount,
+		}},
+		{"same_account_retry", &UpstreamFailoverError{
+			StatusCode:             http.StatusServiceUnavailable,
+			ResponseBody:           overloadedBody,
+			RetryableOnSameAccount: true,
+			Scope:                  GatewayFailureScopeAccount,
+		}},
+		{"both_flags", &UpstreamFailoverError{
+			StatusCode:             http.StatusBadGateway,
+			ResponseBody:           overloadedBody,
+			RequestScopedTransient: true,
+			RetryableOnSameAccount: true,
+			Scope:                  GatewayFailureScopeAccount,
+		}},
+	} {
+		t.Run(flags.name, func(t *testing.T) {
+			require.True(t, flags.err.ShouldRetryNextAccount())
+			require.True(t, candidateFailureAttributable(flags.err),
+				"capacity shed must feed unified soft priority demotion without hard unsched")
+		})
+	}
+}

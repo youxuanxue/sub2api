@@ -99,11 +99,34 @@ func candidateFailureAttributable(err error) bool {
 		return true
 	}
 	var failure *UpstreamFailoverError
-	if !errors.As(err, &failure) || failure.IsCredentialFailure() || failure.RequestScopedTransient || failure.RetryableOnSameAccount || failure.Scope == GatewayFailureScopeRequest || failure.Scope == GatewayFailureScopeProvider {
+	if !errors.As(err, &failure) || failure.IsCredentialFailure() || failure.Scope == GatewayFailureScopeRequest || failure.Scope == GatewayFailureScopeProvider {
 		return false
 	}
 	// Auth, explicit quota limits and caller errors retain their dedicated owners.
-	return failure.ShouldRetryNextAccount() && failure.StatusCode >= http.StatusInternalServerError && failure.StatusCode != 529
+	if !failure.ShouldRetryNextAccount() || failure.StatusCode < http.StatusInternalServerError || failure.StatusCode == 529 {
+		return false
+	}
+	// RequestScopedTransient / RetryableOnSameAccount mean "no hard unsched; prefer
+	// same-account retry first". OpenAI capacity-shed overload still feeds the
+	// unified soft effective-priority demotion so healthier accounts rank first.
+	if failure.RequestScopedTransient || failure.RetryableOnSameAccount {
+		return candidateFailureSoftPriorityEligible(failure)
+	}
+	return true
+}
+
+// candidateFailureSoftPriorityEligible is the narrow carve-in for provider
+// capacity sheds that were historically excluded from the Redis failure counter
+// to avoid cascading temp_unschedulable. Soft priority (+1000 after threshold)
+// is safe: accounts stay schedulable, only ranking changes.
+func candidateFailureSoftPriorityEligible(failure *UpstreamFailoverError) bool {
+	if failure == nil {
+		return false
+	}
+	if isOpenAIRequestScopedCapacityShed("", failure.ResponseBody) {
+		return true
+	}
+	return isOpenAITransientProcessingError(failure.StatusCode, "", failure.ResponseBody)
 }
 
 func (r *CandidateRequest) observeFailure(ctx context.Context, account *Account, plan protocolrouter.Plan, err error) error {
