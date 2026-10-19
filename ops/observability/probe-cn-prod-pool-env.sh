@@ -2,6 +2,9 @@
 # Read cn-prod app pool env. Opt-in write: APPLY=yes-tune-cn-prod-pools
 # Updates compose.override.yml and the active bluegreen service compose env,
 # then force-recreates that service via docker compose (no secrets on argv).
+#
+# SSOT for target values: deploy/domestic/compose.override.yml (repo).
+# WANT_* below must stay identical; deploy/domestic/test_pool_env_probe.py guards drift.
 set -euo pipefail
 
 ROOT="${TOKENKEY_ROOT:-/opt/tokenkey}"
@@ -20,7 +23,7 @@ export OVERRIDE CADDY_FILE APPLY
 [[ -f "$CADDY_FILE" ]] || { echo "FATAL: missing $CADDY_FILE" >&2; exit 1; }
 
 python3 - <<'PY'
-import json, os, re, subprocess, sys, tempfile, time
+import json, os, re, shutil, subprocess, sys, tempfile, time
 from pathlib import Path
 
 override = Path(os.environ["OVERRIDE"])
@@ -81,6 +84,31 @@ def atomic_write(path: Path, content: str) -> None:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
 
+def compose_up(project: str, workdir: str, compose_path: Path, service: str) -> None:
+    subprocess.check_call([
+        "docker", "compose",
+        "-p", project,
+        "--project-directory", workdir,
+        "-f", str(compose_path),
+        "up", "-d", "--force-recreate", "--no-deps", service,
+    ])
+
+def wait_healthy(name: str, seconds: int = 120) -> bool:
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        st = subprocess.check_output(
+            ["docker", "inspect", "--format",
+             "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}", name],
+            text=True,
+        ).strip()
+        print(f"health={st}")
+        if st == "healthy":
+            return True
+        if st in ("exited", "dead"):
+            return False
+        time.sleep(3)
+    return False
+
 text = override.read_text()
 print("--- override before ---")
 for key in want:
@@ -101,7 +129,10 @@ if apply != "yes-tune-cn-prod-pools":
     print("status=would_change")
     raise SystemExit(0)
 
+override_backup = None
 if new_override != text:
+    override_backup = override.with_suffix(override.suffix + ".pre-pooltune")
+    shutil.copy2(override, override_backup)
     atomic_write(override, new_override)
     print("override_updated=true")
 else:
@@ -121,6 +152,10 @@ compose_path = Path(config_files.split(",")[0].strip())
 if not compose_path.is_file():
     raise SystemExit(f"FATAL: missing compose file {compose_path}")
 
+compose_backup = compose_path.with_suffix(compose_path.suffix + ".pre-pooltune")
+shutil.copy2(compose_path, compose_backup)
+print(f"compose_backup={compose_backup}")
+
 compose = json.loads(compose_path.read_text())
 svc = (compose.get("services") or {}).get(service)
 if not isinstance(svc, dict):
@@ -133,39 +168,35 @@ for key, value in want.items():
 atomic_write(compose_path, json.dumps(compose, indent=2) + "\n")
 print(f"compose_updated={compose_path}")
 
-cmd = [
-    "docker", "compose",
-    "-p", project,
-    "--project-directory", workdir,
-    "-f", str(compose_path),
-    "up", "-d", "--force-recreate", "--no-deps", service,
-]
 print(f"recreate_service={service} project={project}")
 # Do not print full command env; compose reads file.
-subprocess.check_call(cmd)
+compose_up(project, workdir, compose_path, service)
 
-deadline = time.time() + 120
-healthy = False
-while time.time() < deadline:
-    st = subprocess.check_output(
-        ["docker", "inspect", "--format",
-         "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}", active],
-        text=True,
-    ).strip()
-    print(f"health={st}")
-    if st == "healthy":
-        healthy = True
-        break
-    if st in ("exited", "dead"):
-        break
-    time.sleep(3)
-
-if not healthy:
-    raise SystemExit("FATAL: service unhealthy after recreate")
+if not wait_healthy(active):
+    print("FATAL: service unhealthy after recreate; rolling back", file=sys.stderr)
+    shutil.copy2(compose_backup, compose_path)
+    if override_backup is not None and override_backup.is_file():
+        shutil.copy2(override_backup, override)
+    try:
+        compose_up(project, workdir, compose_path, service)
+        wait_healthy(active)
+    except Exception as exc:  # noqa: BLE001 — best-effort restore then still fail
+        print(f"FATAL: rollback recreate failed: {exc}", file=sys.stderr)
+    raise SystemExit(1)
 
 after = container_pool_env(active)
 print_pool("--- container after ---", after)
 if after != want:
-    raise SystemExit(f"FATAL: env mismatch after apply: {after}")
+    print("FATAL: env mismatch after apply; rolling back", file=sys.stderr)
+    shutil.copy2(compose_backup, compose_path)
+    if override_backup is not None and override_backup.is_file():
+        shutil.copy2(override_backup, override)
+    compose_up(project, workdir, compose_path, service)
+    wait_healthy(active)
+    raise SystemExit(1)
+
 print("apply_ok=true")
+print(f"compose_backup_kept={compose_backup}")
+if override_backup is not None:
+    print(f"override_backup_kept={override_backup}")
 PY
