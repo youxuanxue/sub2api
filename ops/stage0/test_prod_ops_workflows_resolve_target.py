@@ -45,6 +45,22 @@ class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
         send_at = text.index("aws ssm send-command")
         self.assertLess(wrap_at, send_at)
 
+    def test_error_clustering_installer_go_image_matches_module(self) -> None:
+        # Official golang images set GOTOOLCHAIN=local; a stale image tag
+        # fails the build when tools/error_clustering/go.mod advances.
+        installer = (ROOT_SCRIPTS / "deploy-error-clustering-binary.sh").read_text(
+            encoding="utf-8"
+        )
+        go_mod = (ROOT / "tools" / "error_clustering" / "go.mod").read_text(
+            encoding="utf-8"
+        )
+        require = next(
+            line.split()[1]
+            for line in go_mod.splitlines()
+            if line.startswith("go ")
+        )
+        self.assertIn(f"golang:{require}-alpine", installer)
+
     def test_resolve_prod_running_tag_is_cutover_aware(self) -> None:
         text = (ROOT_SCRIPTS / "resolve-prod-running-tag-via-ssm.sh").read_text(
             encoding="utf-8"
