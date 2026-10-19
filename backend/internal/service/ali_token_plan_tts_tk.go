@@ -33,7 +33,7 @@ func (s *OpenAIGatewayService) ForwardAliTokenPlanTTS(
 	body []byte,
 ) (*OpenAIForwardResult, error) {
 	if s == nil || account == nil {
-		return nil, fmt.Errorf("ali token plan tts service/account is required")
+		return nil, fmt.Errorf("tts service/account is required")
 	}
 	if !isNewAPIAliTokenPlanAccount(account) {
 		return nil, fmt.Errorf("account is not an Ali Token Plan newapi account")
@@ -93,7 +93,7 @@ func (s *OpenAIGatewayService) ForwardAliTokenPlanTTS(
 
 	audioURL := strings.TrimSpace(gjson.GetBytes(respBody, "output.audio.url").String())
 	if audioURL == "" {
-		return nil, fmt.Errorf("ali token plan tts response missing output.audio.url")
+		return nil, fmt.Errorf("tts response missing output.audio.url")
 	}
 	chars := gjson.GetBytes(respBody, "usage.characters").Int()
 	if chars <= 0 {

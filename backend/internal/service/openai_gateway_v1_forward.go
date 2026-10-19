@@ -116,7 +116,7 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 		return nil, fmt.Errorf("model is required")
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) && gjson.GetBytes(body, "stream").Bool() {
-		writeOpenAIEmbeddingsError(c, http.StatusBadRequest, "invalid_request_error", "Agent Plan media streaming is not supported by this endpoint")
+		writeOpenAIEmbeddingsError(c, http.StatusBadRequest, "invalid_request_error", TkClientFacingUnsupportedMessage)
 		return nil, fmt.Errorf("agent plan media streaming is unsupported")
 	}
 	billingModel, upstreamModel := resolveOpenAICompatForwardModels(account, originalModel, defaultMappedModel)
@@ -134,7 +134,7 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 	if isNewAPIVolcEngineAgentPlanAccount(account) && urlSegment == "embeddings" &&
 		volcEnginePlanMultimodalEmbeddingInput(forwardBody) {
 		if encoding := gjson.GetBytes(body, "encoding_format").String(); encoding != "" && encoding != "float" {
-			writeOpenAIEmbeddingsError(c, http.StatusBadRequest, "invalid_request_error", "Agent Plan multimodal embeddings require float encoding")
+			writeOpenAIEmbeddingsError(c, http.StatusBadRequest, "invalid_request_error", "multimodal embeddings require float encoding")
 			return nil, fmt.Errorf("unsupported multimodal embedding encoding")
 		}
 		urlSegment = "embeddings/multimodal"
@@ -236,10 +236,10 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 		}
 		if urlSegment == "images/generations" {
 			if countOpenAIResponseImageOutputsFromJSONBytes(responseBody) == 0 {
-				return nil, fmt.Errorf("agent plan image response contains no images")
+				return nil, fmt.Errorf("image response contains no images")
 			}
 		} else if !gjson.GetBytes(responseBody, "data.0.embedding").Exists() || extractOpenAIEmbeddingsUsage(responseBody).InputTokens <= 0 {
-			return nil, fmt.Errorf("agent plan embedding response missing vector or usage")
+			return nil, fmt.Errorf("embedding response missing vector or usage")
 		}
 		resp.Body = io.NopCloser(bytes.NewReader(responseBody))
 		resp.ContentLength = int64(len(responseBody))

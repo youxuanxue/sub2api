@@ -28,11 +28,11 @@ func normalizeVolcEnginePlanEmbeddingResponse(body []byte) ([]byte, error) {
 		Embedding []float64 `json:"embedding"`
 	}
 	if err := json.Unmarshal(response["data"], &item); err != nil || len(item.Embedding) == 0 {
-		return nil, fmt.Errorf("agent plan embedding response missing vector")
+		return nil, fmt.Errorf("embedding response missing vector")
 	}
 	for _, value := range item.Embedding {
 		if math.IsNaN(value) || math.IsInf(value, 0) {
-			return nil, fmt.Errorf("agent plan embedding response contains non-finite value")
+			return nil, fmt.Errorf("embedding response contains non-finite value")
 		}
 	}
 	data, err := json.Marshal([]any{map[string]any{
