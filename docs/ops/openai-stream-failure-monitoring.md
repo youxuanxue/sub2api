@@ -43,7 +43,9 @@ LIMIT 50;
 
 ## Protection 回归边界
 
-OAuth Responses 历史含 `web_search_call`、无搜索声明且没有可执行工具（或显式 `tool_choice:none`）时，补只用于历史兼容的 cached-only 搜索声明并保持 `tool_choice:none`。Lite 使用 `additional_tools`，保留末尾 `compaction_trigger`；API-key 和 legacy `/responses/compact` 不应用此修复。已有活跃工具集合及强制工具选择保持原样。
+OAuth Responses 历史含 `web_search_call`、无搜索声明且没有可执行工具（或显式 `tool_choice:none`）时，补只用于历史兼容的 cached-only 搜索声明并保持 `tool_choice:none`。Lite 使用 `additional_tools`，保留末尾 `compaction_trigger`；API-key 和 legacy `/responses/compact` 不应用此修复。已有活跃工具集合在可安全构造选择引用时补相同声明，并用 `allowed_tools` 将可执行范围限制为原有工具，保留 `auto` / `required`；有效的显式选择与已有 allowed-tool 限制保持原样。namespace 下的 function/custom 成员在默认、`auto` 或 `required` 选择时，将已完成搜索记录的完整 JSON 转为历史 assistant 文字，保留原有工具、选择、推理与引用，不新增搜索声明；引用服务端历史、未知工具声明或不能保持权限的选择形状不改写。该权限边界及验收见 [批准方案](../approved/openai-search-history-tool-permissions.md)。
+
+精确 protection 流失败额外记录 `openai.response_protection`：入站/可用上游体的字节数、完整 SHA-256、搜索历史/工具计数、声明状态、选择类型、压缩标志及修复决策。不记录正文、工具名或 ciphertext；`repairable`（声明修复）或 `repairable_history_text`（namespace 历史转文字）表示该体符合修复条件，不证明某次改写实际执行。
 
 精确 `response protection is unavailable` 被视为跨账号共享故障，经既有 failover SSOT 停止换账号；保留上游 5xx/失败终态，不改成客户端 400。该修复消除服务端换号放大，不对客户端独立重复请求实施去重；QA 的截断脱敏哈希不可用作幂等键。
 

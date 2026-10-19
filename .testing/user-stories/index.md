@@ -74,3 +74,5 @@
 | US-065 | Kiro oversized requests preserve the current turn and fail clearly | InTest | `.testing/user-stories/stories/US-065-kiro-payload-overflow.md` |
 
 | US-066 | 物理增量备份与恢复 | InTest | `.testing/user-stories/stories/US-066-physical-backup-recovery.md` |
+
+| US-067 | OAuth 搜索历史补全保留工具权限 | InTest | `.testing/user-stories/stories/US-067-oauth-search-history-tool-permissions.md` |
