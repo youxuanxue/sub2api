@@ -1951,7 +1951,7 @@ func TestValidateConfigErrors(t *testing.T) {
 		},
 		{
 			name:    "gateway newapi chat nonstream first output timeout too large",
-			mutate:  func(c *Config) { c.Gateway.NewAPIChatNonstreamFirstOutputTimeout = 601 },
+			mutate:  func(c *Config) { c.Gateway.NewAPIChatNonstreamFirstOutputTimeout = 901 },
 			wantErr: "gateway.newapi_chat_nonstream_first_output_timeout",
 		},
 		{

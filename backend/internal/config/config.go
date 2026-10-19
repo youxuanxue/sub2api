@@ -3702,8 +3702,8 @@ func (c *Config) Validate() error {
 	if c.Gateway.NewAPIChatFirstOutputTimeout < 0 || c.Gateway.NewAPIChatFirstOutputTimeout > 60 {
 		return fmt.Errorf("gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)")
 	}
-	if c.Gateway.NewAPIChatNonstreamFirstOutputTimeout < 0 || c.Gateway.NewAPIChatNonstreamFirstOutputTimeout > 600 {
-		return fmt.Errorf("gateway.newapi_chat_nonstream_first_output_timeout must be between 0-600 seconds")
+	if c.Gateway.NewAPIChatNonstreamFirstOutputTimeout < 0 || c.Gateway.NewAPIChatNonstreamFirstOutputTimeout > 900 {
+		return fmt.Errorf("gateway.newapi_chat_nonstream_first_output_timeout must be between 0-900 seconds")
 	}
 	if c.Gateway.GrokResponseHeaderTimeout < 0 || c.Gateway.GrokResponseHeaderTimeout > 60 {
 		return fmt.Errorf("gateway.grok_response_header_timeout must be between 0-60 seconds")

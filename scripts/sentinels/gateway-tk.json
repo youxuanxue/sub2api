@@ -15716,11 +15716,12 @@
         "first-output-timeout-ssot:begin",
         "first-output-timeout-ssot:end",
         "gateway.stream_first_output_timeout_seconds must be between 0-600 seconds",
+        "gateway.newapi_chat_nonstream_first_output_timeout must be between 0-900 seconds",
         "gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)",
         "viper.SetDefault(\"gateway.grok_response_header_timeout\", 0)",
         "gateway.grok_response_header_timeout must be between 0-60 seconds"
       ],
-      "rationale": "First-output viper defaults are generated from ops/stage0/first_output_timeout_ssot.py via scripts/checks/first-output-timeout-ssot.py --apply. Markers pin the generate region; concrete seconds must not be hand-copied into sentinels."
+      "rationale": "First-output viper defaults are generated from ops/stage0/first_output_timeout_ssot.py via scripts/checks/first-output-timeout-ssot.py --apply. Markers pin the generate region; concrete seconds must not be hand-copied into sentinels. NewAPI nonstream config max is 900 (host inject fallback remains 600)."
     },
     {
       "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
@@ -15729,9 +15730,9 @@
         "first-output-timeout-ssot:end",
         "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-",
         "GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-",
-        "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}"
+        "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-600}"
       ],
-      "rationale": "Blue/green compose inject keeps first-output env lines inside the SSOT generate region; numbers come from first_output_timeout_ssot.py --apply, not sentinel literals."
+      "rationale": "Blue/green compose inject keeps first-output env lines inside the SSOT generate region; stream numbers come from first_output_timeout_ssot.py --apply. Nonstream host inject fallback is 600 (config max 900) so prod/cn-prod deploys stay aligned after the 2026-10-19 long-thinking ops raise."
     },
     {
       "path": "scripts/checks/first-output-timeout-ssot.py",
@@ -15758,9 +15759,9 @@
       "path": "deploy/aws/stage0/docker-compose.yml",
       "must_contain": [
         "GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT:-0}",
-        "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}"
+        "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-600}"
       ],
-      "rationale": "Stage0 compose (embedded in Lightsail user-data at the 14336-byte cap) cannot grow new STREAM_FIRST_OUTPUT_* lines. NewAPI stream override defaults to 0 so hosts inherit code SSOT 120s/600s; nonstream stays 300s. Universal env inject is owned by ops/stage0/deploy_via_ssm_bluegreen.sh + deploy/config.example.yaml + config viper defaults."
+      "rationale": "Stage0 compose (embedded in Lightsail user-data at the 14336-byte cap) cannot grow new STREAM_FIRST_OUTPUT_* lines. NewAPI stream override defaults to 0 so hosts inherit code SSOT 120s/600s; nonstream host inject fallback is 600 (config max 900). Universal env inject is owned by ops/stage0/deploy_via_ssm_bluegreen.sh + deploy/config.example.yaml + config viper defaults."
     },
     {
       "path": "backend/internal/service/gateway_request.go",
