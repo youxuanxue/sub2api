@@ -46,8 +46,11 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 
 - `target=prod`：只发版/部署 AWS prod（**默认路径**）。
 - `target=cn-prod`：复用同一 GHCR 包，经 `deploy/domestic/deploy_via_ssm.sh`
-  `pull` → `sync-controls` → `prepare`，再候选实测与 `bluegreen.py promote`。
-  **禁止**默认走运维机 `crane`/`docker save` + 开放 UCloud SSH 22；离线 tar 仅恢复。
+  `pull --tag X.Y.Z --revision FULL_SHA` → `sync-controls` → `prepare`，再候选实测与 `bluegreen.py promote`。
+  Release 成功后，等待对应 release run 触发的 `distribute-cn-image.yml` 成功（私有 S3 + SSM 预下载）；
+  不以 Release 构建绿灯代替分发绿灯。重复 pull 复用已验镜像，初始化权限与保留期见国内 README。
+  `--transport ghcr` 为显式备用路径，S3 缺失/失败不自动降级。
+  **禁止**默认走运维机 `crane`/`docker save` + 开放 UCloud SSH 22；运维机搬运离线 tar 仅恢复；CI 校验归档经私有 S3 + SSM 分发是默认路径。
 
 ## 故障速查
 

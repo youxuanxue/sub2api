@@ -16866,6 +16866,33 @@
         "\"qq-ip2city\":"
       ],
       "rationale": "Proxy probe preset default and domestic parser allowlist must survive upstream config imports."
+    },
+    {
+      "path": "scripts/test_cn_image_distribution.py",
+      "must_contain": [
+        "loader.loadTestsFromModule(test_image_distribution)",
+        "loader.loadTestsFromModule(test_deploy_via_ssm)"
+      ],
+      "rationale": "Keep corruption, immutable upload, host-lock and legacy fallback behavior in the CI preflight suite."
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "must_contain": [
+        "name: cn-image-source",
+        "name: Record verified cn-prod image source"
+      ],
+      "rationale": "Keep verified release identity exported for the default-branch cn-prod distribution workflow."
+    },
+    {
+      "path": ".github/workflows/distribute-cn-image.yml",
+      "must_contain": [
+        "workflows: [Release]",
+        "ref: ${{ github.event.repository.default_branch }}",
+        "run-id: ${{ github.event.workflow_run.id }}",
+        "python3 deploy/domestic/image_distribution.py publish",
+        "bash deploy/domestic/deploy_via_ssm.sh pull"
+      ],
+      "rationale": "Distribute only successful release artifacts using trusted main code and prewarm without promotion."
     }
   ]
 }

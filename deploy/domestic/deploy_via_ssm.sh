@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # cn-prod release image + control sync via AWS SSM Hybrid (default path).
 #
-# Prefer this over opening UCloud SSH 22 or scp'ing an offline docker archive.
-# Offline tar+SSH remains recovery-only when GHCR pull or SSM is unavailable
-# (see deploy/domestic/README.md).
+# Default: CI-verified private S3 archive. GHCR is an explicit fallback.
+# Neither path opens SSH or changes running containers.
 #
 # Usage:
-#   bash deploy/domestic/deploy_via_ssm.sh pull --tag 1.8.306|v1.8.306
+#   bash deploy/domestic/deploy_via_ssm.sh pull --tag 1.8.306|v1.8.306 --revision FULL_SHA
 #   bash deploy/domestic/deploy_via_ssm.sh sync-controls
 #   bash deploy/domestic/deploy_via_ssm.sh prepare --tag 1.8.306 --revision FULL_SHA \
 #        --image tokenkey-domestic/tokenkey:1.8.306-2d4b4cdbf
@@ -19,7 +18,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MANIFEST="${REPO_ROOT}/deploy/domestic/prod-target.json"
 CONTROLS_DIR="/opt/tokenkey/releases/artifacts-ssm"
 IMAGE_REPO="${CN_PROD_IMAGE_REPO:-ghcr.io/youxuanxue/sub2api}"
-TIMEOUT_SECONDS="${CN_PROD_SSM_TIMEOUT_SECONDS:-900}"
+TIMEOUT_SECONDS="${CN_PROD_SSM_TIMEOUT_SECONDS:-1260}"
 EXECUTION_TIMEOUT="${CN_PROD_SSM_EXECUTION_TIMEOUT:-1200}"
 COMMENT_PREFIX="${CN_PROD_SSM_COMMENT:-cn-prod-deploy}"
 
@@ -28,6 +27,7 @@ TAG=""
 REVISION=""
 IMAGE=""
 DIGEST=""
+TRANSPORT="s3"
 
 usage() {
   sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
@@ -43,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --tag) TAG="${2:-}"; shift 2 ;;
     --revision) REVISION="${2:-}"; shift 2 ;;
     --image) IMAGE="${2:-}"; shift 2 ;;
+    --transport) TRANSPORT="${2:-}"; shift 2 ;;
     --digest) DIGEST="${2:-}"; shift 2 ;;
     -h|--help) usage ;;
     *)
@@ -183,6 +184,24 @@ case "${ACTION}" in
       exit 1
     fi
     TAG="$(normalize_tag "${TAG}")"
+    if [[ "${TRANSPORT}" == "s3" ]]; then
+      if [[ ! "${REVISION}" =~ ^[a-f0-9]{40}$ ]]; then
+        echo "deploy_via_ssm pull: S3 requires --revision FULL_SHA" >&2
+        exit 1
+      fi
+      if [[ "${CN_PROD_SSM_DRY_RUN:-}" == "1" ]]; then
+        echo "deploy_via_ssm pull: S3 dry-run refuses to print signed URLs; use unit tests" >&2
+        exit 1
+      fi
+      REMOTE="$(python3 "${REPO_ROOT}/deploy/domestic/image_distribution.py" render \
+        --tag "${TAG}" --revision "${REVISION}" --digest "${DIGEST}")"
+      run_ssm "${COMMENT_PREFIX} prewarm ${TAG}" "${REMOTE}"
+      exit 0
+    fi
+    if [[ "${TRANSPORT}" != "ghcr" ]]; then
+      echo "deploy_via_ssm pull: --transport must be s3 or ghcr" >&2
+      exit 1
+    fi
     SOURCE="${IMAGE_REPO}:${TAG}"
     if [[ -n "${DIGEST}" ]]; then
       if [[ ! "${DIGEST}" =~ ^sha256:[a-f0-9]{64}$ ]]; then

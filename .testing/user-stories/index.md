@@ -76,3 +76,5 @@
 | US-066 | 物理增量备份与恢复 | InTest | `.testing/user-stories/stories/US-066-physical-backup-recovery.md` |
 
 | US-067 | OAuth 搜索历史补全保留工具权限 | InTest | `.testing/user-stories/stories/US-067-oauth-search-history-tool-permissions.md` |
+
+| US-068 | cn-prod 私有镜像预下载 | InTest | `.testing/user-stories/stories/US-068-cn-image-prewarm.md` |
