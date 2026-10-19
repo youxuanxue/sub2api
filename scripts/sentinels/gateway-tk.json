@@ -4791,9 +4791,9 @@
         "gateway.gatewayCandidates(",
         "resolver.Resolve(",
         "ErrUniversalCapacityUnavailable",
-        "ErrUniversalNoEntitledGroup"
+        "ErrProtocolRouteUnavailable"
       ],
-      "rationale": "Universal selection and direct scheduler candidates must agree with Plan for Tokensea GPT requests; disabled capacity stays distinct from absence of any legal protocol route."
+      "rationale": "Universal selection and direct scheduler candidates must agree with Plan for Tokensea GPT requests; mapped models without a legal protocol route must be reported as unavailable capacity, never missing entitlement."
     },
     {
       "path": "backend/internal/service/account.go",

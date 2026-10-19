@@ -71,7 +71,10 @@ func (s *GatewayService) candidateSupportsRequest(ctx context.Context, account *
 			}
 			return false, err
 		case errors.Is(err, protocolrouter.ErrNoLegalRoute):
-			return false, nil
+			// Plan admitted the model but cannot preserve this request on any
+			// recorded protocol. Keep this distinct from an unknown model so an
+			// incomplete capability record does not blame the caller.
+			return false, ErrProtocolRouteUnavailable
 		default:
 			return false, err
 		}
