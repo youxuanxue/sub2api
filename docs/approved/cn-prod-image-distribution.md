@@ -17,8 +17,10 @@ risk: high
 
 - `image-distribution.json` 持有现有私有桶和区域；`image-distribution-policy.yaml`
   只授予 CI 镜像目录读写及 cn-prod SSM 操作，不扩展 OIDC 信任域。
-  `distribute-cn-image.yml` 在 Release 成功后运行主分支代码，复用既有 main OIDC 信任。
-  只从指定成功 run 读取版本/revision 数据，并与 git tag 核对；不执行发布 ref 的代码。
+  `distribute-cn-image.yml` 默认在 Release `workflow_run` 成功后跑主分支代码，复用既有
+  main OIDC 信任；也允许 `workflow_dispatch` 传入已成功 Release 的 `release_run_id`
+  做回补/重试。两种触发都只 checkout default_branch，只从该成功 run 的
+  `cn-image-source` artifact 读 tag/revision 并与 git tag 核对；不执行发布 ref 的代码。
 - `image_distribution.py` 按源 amd64 manifest digest 用 `crane pull --format=legacy`
   下载（docker-save，便于主机 `docker load`），只将归档内加载标签改为专用 digest
   标签。receipt 保留 registry 压缩 manifest 作 provenance；legacy 归档内层是
