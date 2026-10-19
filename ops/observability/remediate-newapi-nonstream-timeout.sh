@@ -160,7 +160,55 @@ commit_cutover() {
     return 1
   fi
   printf '%s\n' "${color}" | sudo tee "${ACTIVE_FILE}" >/dev/null
+  # Keep Worker control DNS name `tokenkey` pointed at the active color
+  # (same contract as ops/stage0/deploy_via_ssm_bluegreen.sh commit_cutover).
+  if ! sync_gemini_web_control_alias "${color}"; then
+    if sudo docker inspect tokenkey-gemini-web >/dev/null 2>&1; then
+      echo "::error::gemini-web control alias sync failed while Worker is present"
+      return 1
+    fi
+    echo "::warning::gemini-web control alias sync failed color=${color}"
+  fi
   echo "cutover_ok upstream=${upstream} backup=${backup}"
+}
+
+sync_gemini_web_control_alias() {
+  local color="$1"
+  # Prefer co-located reviewed script when present (run-probe may upload it).
+  if [[ -x /tmp/sync-control-alias-on-host.sh ]]; then
+    TK_ACTIVE_COLOR="${color}" bash /tmp/sync-control-alias-on-host.sh
+    return $?
+  fi
+  TK_ACTIVE_COLOR="${color}" bash -s <<'ALIAS_SH'
+set -euo pipefail
+NETWORK="${TK_NETWORK:-tokenkey_tokenkey-network}"
+PROXY_NAME=tokenkey
+SOCAT_IMAGE="${TK_CONTROL_PROXY_IMAGE:-alpine/socat:1.8.0.0}"
+color="${TK_ACTIVE_COLOR:?}"
+target="tokenkey-${color}"
+sudo docker inspect "${target}" >/dev/null
+if sudo docker inspect "${PROXY_NAME}" >/dev/null 2>&1; then
+  image="$(sudo docker inspect "${PROXY_NAME}" --format '{{.Config.Image}}' 2>/dev/null || true)"
+  if [[ "${image}" == *sub2api* && "${image}" != *socat* && "${image}" != *gemini-web* ]]; then
+    echo "gemini-web-control-alias: legacy app container named tokenkey; leaving intact"
+    exit 0
+  fi
+  desired="TCP:${target}:8080"
+  current="$(sudo docker inspect "${PROXY_NAME}" --format '{{json .Config.Cmd}}' 2>/dev/null || true)"
+  running="$(sudo docker inspect "${PROXY_NAME}" --format '{{.State.Running}}' 2>/dev/null || true)"
+  if [[ "${running}" == "true" && "${current}" == *"${desired}"* ]]; then
+    echo "gemini-web-control-alias: already proxies ${desired}"
+    exit 0
+  fi
+  sudo docker rm -f "${PROXY_NAME}" >/dev/null
+fi
+sudo docker image inspect "${SOCAT_IMAGE}" >/dev/null 2>&1 || sudo docker pull "${SOCAT_IMAGE}" >/dev/null
+sudo docker run -d --name "${PROXY_NAME}" --restart unless-stopped \
+  --network "${NETWORK}" --user 65534:65534 --read-only --cap-drop ALL \
+  --security-opt no-new-privileges --memory 32m --memory-swap 32m --cpus 0.1 --pids-limit 32 \
+  "${SOCAT_IMAGE}" TCP-LISTEN:8080,fork,reuseaddr "TCP:${target}:8080" >/dev/null
+echo "tk_gemini_web_control_alias: OK color=${color} target=${target}"
+ALIAS_SH
 }
 
 echo "=== meta ==="

@@ -41,6 +41,14 @@ class NewAPINonstreamTimeoutRemediateTest(unittest.TestCase):
         self.assertIn("WANT_TIMEOUT\" -gt 900", text)
         self.assertIn("yes-newapi-nonstream-timeout", text)
 
+    def test_cutover_syncs_gemini_web_control_alias(self) -> None:
+        text = SCRIPT.read_text(encoding="utf-8")
+        cutover = text.index("cutover_ok upstream=")
+        sync_call = text.index('sync_gemini_web_control_alias "${color}"')
+        self.assertLess(sync_call, cutover)
+        self.assertIn('TCP:${target}:8080', text)
+        self.assertIn("tokenkey-gemini-web", text)
+
 
 if __name__ == "__main__":
     unittest.main()
