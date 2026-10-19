@@ -16721,6 +16721,46 @@
         "func TestHeaderWaitTLSRecoveryKeepsSingleMessagesLifecycle(t *testing.T)"
       ],
       "rationale": "Keep recovery and no-replay regressions: metadata after keepalive, TLS recovery/exhaustion, cancellation, buffered truncation, malformed supplier responses, and a single client lifecycle."
+    },
+    {
+      "path": "backend/internal/repository/proxy_probe_service.go",
+      "must_contain": [
+        "var probeURLsDomestic = []probeTarget{",
+        "{\"https://myip.ipip.net/json\", \"ipip-json\"}",
+        "func resolveProxyProbeTargets(cfg *config.Config) []probeTarget {"
+      ],
+      "rationale": "cn-prod admin proxy exit probes must stay on the China-first builtin chain (ipip → ip9 → qq-ip2city → ipify). An upstream merge that restores overseas-only ip-api defaults reintroduces multi-second false latency on domestic SOCKS."
+    },
+    {
+      "path": "backend/internal/repository/proxy_probe_service_test.go",
+      "must_contain": [
+        "func TestResolveProxyProbeTargets_PresetDomestic(t *testing.T)",
+        "func TestResolveProxyProbeTargets_ExplicitURLsWin(t *testing.T)"
+      ],
+      "rationale": "Focused regressions that domestic preset selects ipip-json first and that explicit urls still win over preset."
+    },
+    {
+      "path": "deploy/domestic/compose.override.yml",
+      "must_contain": [
+        "SECURITY_PROXY_PROBE_PRESET: \"domestic\""
+      ],
+      "rationale": "Domestic compose must inject the proxy_probe preset so future cn sites inherit China-first exit probes without editing config.yaml by hand."
+    },
+    {
+      "path": "deploy/domestic/test_pool_env_probe.py",
+      "must_contain": [
+        "def test_compose_override_sets_domestic_proxy_probe_preset(self):"
+      ],
+      "rationale": "Mechanical guard that compose.override keeps SECURITY_PROXY_PROBE_PRESET=domestic."
+    },
+    {
+      "path": "backend/internal/config/config.go",
+      "must_contain": [
+        "viper.SetDefault(\"security.proxy_probe.preset\", \"\")",
+        "\"ipip-json\":",
+        "\"qq-ip2city\":"
+      ],
+      "rationale": "Proxy probe preset default and domestic parser allowlist must survive upstream config imports."
     }
   ]
 }

@@ -69,37 +69,27 @@ var probeURLsDomestic = []probeTarget{
 	{"https://api64.ipify.org?format=json", "ipify"},
 }
 
-type configuredProbeTarget struct {
-	url    string
-	parser string
-}
-
 type proxyProbeService struct {
 	insecureSkipVerify  bool
 	allowPrivateHosts   bool
 	validateResolvedIP  bool
 	maxResponseBytes    int64
-	configuredProbeURLs []configuredProbeTarget
+	configuredProbeURLs []probeTarget
 }
 
-func resolveProxyProbeTargets(cfg *config.Config) []configuredProbeTarget {
+func resolveProxyProbeTargets(cfg *config.Config) []probeTarget {
 	if cfg != nil && len(cfg.Security.ProxyProbe.URLs) > 0 {
-		out := make([]configuredProbeTarget, 0, len(cfg.Security.ProxyProbe.URLs))
+		out := make([]probeTarget, 0, len(cfg.Security.ProxyProbe.URLs))
 		for _, u := range cfg.Security.ProxyProbe.URLs {
-			out = append(out, configuredProbeTarget{url: u.URL, parser: u.Parser})
+			out = append(out, probeTarget{url: u.URL, parser: u.Parser})
 		}
 		return out
 	}
 
-	builtin := probeURLsDefault
 	if cfg != nil && strings.EqualFold(strings.TrimSpace(cfg.Security.ProxyProbe.Preset), "domestic") {
-		builtin = probeURLsDomestic
+		return append([]probeTarget(nil), probeURLsDomestic...)
 	}
-	out := make([]configuredProbeTarget, 0, len(builtin))
-	for _, p := range builtin {
-		out = append(out, configuredProbeTarget(p))
-	}
-	return out
+	return append([]probeTarget(nil), probeURLsDefault...)
 }
 
 func (s *proxyProbeService) ProbeProxy(ctx context.Context, proxyURL string) (*service.ProxyExitInfo, int64, error) {

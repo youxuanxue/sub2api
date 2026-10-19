@@ -24,7 +24,7 @@ func (s *ProxyProbeServiceSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.prober = &proxyProbeService{
 		allowPrivateHosts:   true,
-		configuredProbeURLs: resolveProxyProbeTargets(nil),
+		configuredProbeURLs: append([]probeTarget(nil), probeURLsDefault...),
 	}
 }
 
