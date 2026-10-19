@@ -425,8 +425,11 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 		service.SetOpsUpstreamError(c, statusCode, service.OpenAISilentRefusalClientMessage(), "")
 		status, code, message = http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage()
 	} else if lastErr != nil && statusCode == http.StatusTooManyRequests {
-		service.TkAnnotateBusy429Ops(c, "api_error", "All available accounts are currently rate-limited. Please retry later.")
-		status, code, message = http.StatusTooManyRequests, "api_error", service.TkClientFacingBusy429Message
+		// Upstream-limit family: failover exhausted after account(s) returned 429.
+		// Keep rate_limit_error so nested stubs still cool; selection-time
+		// all-model-rate-limited uses classifySelectionFailureError → api_error.
+		service.TkAnnotateBusy429Ops(c, "rate_limit_error", "Upstream rate limit exceeded, please retry later")
+		status, code, message = http.StatusTooManyRequests, "rate_limit_error", service.TkClientFacingBusy429Message
 	}
 	if lastErr != nil && lastErr.ClientStatusCode > 0 {
 		statusCode = lastErr.ClientStatusCode
