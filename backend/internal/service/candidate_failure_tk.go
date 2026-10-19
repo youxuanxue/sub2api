@@ -103,16 +103,17 @@ func candidateFailureAttributable(err error) bool {
 		return false
 	}
 	// Auth, explicit quota limits and caller errors retain their dedicated owners.
-	if !failure.ShouldRetryNextAccount() || failure.StatusCode < http.StatusInternalServerError || failure.StatusCode == 529 {
+	if !failure.ShouldRetryNextAccount() || failure.StatusCode == 529 {
 		return false
 	}
 	// RequestScopedTransient / RetryableOnSameAccount mean "no hard unsched; prefer
-	// same-account retry first". OpenAI capacity-shed overload still feeds the
-	// unified soft effective-priority demotion so healthier accounts rank first.
+	// same-account retry first". OpenAI capacity-shed overload (often StatusCode
+	// 400 from newOpenAIUpstreamFailoverError, or 5xx from transport) still feeds
+	// the unified soft effective-priority demotion so healthier accounts rank first.
 	if failure.RequestScopedTransient || failure.RetryableOnSameAccount {
 		return candidateFailureSoftPriorityEligible(failure)
 	}
-	return true
+	return failure.StatusCode >= http.StatusInternalServerError
 }
 
 // candidateFailureSoftPriorityEligible is the narrow carve-in for provider
