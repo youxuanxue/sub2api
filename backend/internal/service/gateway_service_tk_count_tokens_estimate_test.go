@@ -28,6 +28,17 @@ func TestEstimateAnthropicCountTokensInput_EmptyBodyReturnsZero(t *testing.T) {
 	require.Equal(t, 0, estimateAnthropicCountTokensInput(nil))
 }
 
+func TestAccountHasNativeAnthropicCountTokens(t *testing.T) {
+	t.Parallel()
+	require.True(t, accountHasNativeAnthropicCountTokens(&Account{Platform: PlatformAnthropic}))
+	require.False(t, accountHasNativeAnthropicCountTokens(&Account{
+		Platform:    PlatformAnthropic,
+		Credentials: map[string]any{"base_url": "https://agent.tokensea.ai"},
+	}))
+	require.False(t, accountHasNativeAnthropicCountTokens(&Account{Platform: PlatformNewAPI}))
+	require.False(t, accountHasNativeAnthropicCountTokens(&Account{Platform: PlatformAntigravity}))
+}
+
 func TestForwardCountTokens_NewAPITokenseaReturnsLocalEstimate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

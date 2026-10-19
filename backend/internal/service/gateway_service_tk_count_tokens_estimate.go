@@ -94,18 +94,14 @@ func shouldEstimateCountTokensLocally(account *Account) bool {
 	return account.Platform == PlatformNewAPI || isTokenseaRelayUpstream(account)
 }
 
-// accountHasNativeAnthropicCountTokens reports accounts that can answer
-// count_tokens without the local NewAPI/tokensea estimate. Selection uses
-// this so a tokensea_first hint does not steal the request from an account
-// that implements the endpoint.
+// accountHasNativeAnthropicCountTokens reports Anthropic accounts whose
+// upstream implements /v1/messages/count_tokens. Tokensea-hosted Anthropic
+// relays are excluded — they 405 that path and estimate locally instead.
+// Selection uses this so tokensea_first cannot outrank a real counter.
 func accountHasNativeAnthropicCountTokens(account *Account) bool {
-	if account == nil || account.Platform == PlatformNewAPI || isTokenseaRelayUpstream(account) {
-		return false
-	}
-	if shouldEstimateCountTokensLocally(account) {
-		return true
-	}
-	return account.Platform == PlatformAnthropic
+	return account != nil &&
+		account.Platform == PlatformAnthropic &&
+		!isTokenseaRelayUpstream(account)
 }
 
 func estimateTokensForAnthropicText(s string) int {

@@ -1337,6 +1337,15 @@
       "rationale": "Full client intent precedes thinking-first fallback within each authorized payment tier."
     },
     {
+      "path": "backend/internal/service/gateway_service_tk_count_tokens_estimate.go",
+      "must_contain": [
+        "return account.Platform == PlatformNewAPI || isTokenseaRelayUpstream(account)",
+        "account.Platform == PlatformAnthropic &&",
+        "!isTokenseaRelayUpstream(account)"
+      ],
+      "rationale": "count_tokens must estimate on NewAPI/tokensea relays that 405 the Anthropic counter, and only treat non-tokensea Anthropic accounts as native counters for selection."
+    },
+    {
       "path": "backend/internal/service/protocol_execution.go",
       "must_contain": [
         "scheduled.EffectiveRequestDigest() == fresh.EffectiveRequestDigest()"
