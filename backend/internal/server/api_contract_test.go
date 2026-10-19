@@ -1327,7 +1327,8 @@ func TestAPIContracts(t *testing.T) {
 						"table_page_size_options": [
 							10,
 							20,
-							50
+							50,
+							100
 						],
 						"default_platform_quotas": {
 							"anthropic": {
