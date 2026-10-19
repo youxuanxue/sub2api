@@ -69,7 +69,7 @@ func buildVolcEnginePlanTTSRequest(body []byte) ([]byte, string, error) {
 	switch request.SampleRate {
 	case 8000, 16000, 22050, 24000, 32000, 44100, 48000:
 	default:
-		return nil, "", fmt.Errorf("unsupported Agent Plan TTS sample_rate")
+		return nil, "", fmt.Errorf("unsupported TTS sample_rate")
 	}
 	if request.Voice == "" {
 		request.Voice = "zh_female_vv_uranus_bigtts"
@@ -107,7 +107,7 @@ func decodeVolcEnginePlanTTSAudio(body []byte) ([]byte, int64, error) {
 			} `json:"usage"`
 		}
 		if err := decoder.Decode(&event); err != nil {
-			return nil, 0, fmt.Errorf("incomplete Agent Plan TTS response")
+			return nil, 0, fmt.Errorf("incomplete TTS response")
 		}
 		if event.Code == nil {
 			return nil, 0, fmt.Errorf("TTS response missing status")
@@ -116,7 +116,7 @@ func decodeVolcEnginePlanTTSAudio(body []byte) ([]byte, int64, error) {
 		case 0:
 			chunk, err := base64.StdEncoding.DecodeString(event.Data)
 			if err != nil {
-				return nil, 0, fmt.Errorf("invalid Agent Plan TTS audio encoding")
+				return nil, 0, fmt.Errorf("invalid TTS audio encoding")
 			}
 			_, _ = audio.Write(chunk)
 		case 20000000:
@@ -125,7 +125,7 @@ func decodeVolcEnginePlanTTSAudio(body []byte) ([]byte, int64, error) {
 			}
 			var extra any
 			if err := decoder.Decode(&extra); err != io.EOF {
-				return nil, 0, fmt.Errorf("unexpected data after Agent Plan TTS completion")
+				return nil, 0, fmt.Errorf("unexpected data after TTS completion")
 			}
 			return audio.Bytes(), event.Usage.TextWords, nil
 		default:
@@ -136,7 +136,7 @@ func decodeVolcEnginePlanTTSAudio(body []byte) ([]byte, int64, error) {
 
 func (s *OpenAIGatewayService) forwardVolcEnginePlanTTS(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
 	if !isNewAPIVolcEngineAgentPlanAccount(account) {
-		return nil, fmt.Errorf("agent plan TTS requires a VolcEngine Agent Plan account")
+		return nil, fmt.Errorf("TTS requires a VolcEngine plan account")
 	}
 	payload, contentType, err := buildVolcEnginePlanTTSRequest(body)
 	if err != nil {

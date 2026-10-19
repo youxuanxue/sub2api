@@ -183,8 +183,15 @@ func AnthropicErrorWriter(c *gin.Context, status int, message string) {
 	case http.StatusForbidden:
 		errorType = "permission_error"
 	}
+	orig := message
 	if public, sanitized := service.TkSanitizeBusy429WireMessage(status, message); sanitized {
-		service.TkAnnotateBusy429Ops(c, errorType, message)
+		service.TkAnnotateBusy429Ops(c, errorType, orig)
+		message = public
+	} else {
+		message = public
+	}
+	if public, sanitized := service.TkSanitizeUpstreamProductWireMessage(message); sanitized {
+		service.TkAnnotateUpstreamProductOps(c, errorType, status, orig)
 		message = public
 	} else {
 		message = public
@@ -197,8 +204,15 @@ func AnthropicErrorWriter(c *gin.Context, status int, message string) {
 
 // GoogleErrorWriter 按 Google API 规范输出错误
 func GoogleErrorWriter(c *gin.Context, status int, message string) {
+	orig := message
 	if public, sanitized := service.TkSanitizeBusy429WireMessage(status, message); sanitized {
-		service.TkAnnotateBusy429Ops(c, "api_error", message)
+		service.TkAnnotateBusy429Ops(c, "api_error", orig)
+		message = public
+	} else {
+		message = public
+	}
+	if public, sanitized := service.TkSanitizeUpstreamProductWireMessage(message); sanitized {
+		service.TkAnnotateUpstreamProductOps(c, "api_error", status, orig)
 		message = public
 	} else {
 		message = public
@@ -214,6 +228,13 @@ func GoogleErrorWriter(c *gin.Context, status int, message string) {
 
 // OpenAIErrorWriter 按 OpenAI API 规范输出模型级错误（model_not_found）。
 func OpenAIErrorWriter(c *gin.Context, status int, message string) {
+	orig := message
+	if public, sanitized := service.TkSanitizeUpstreamProductWireMessage(message); sanitized {
+		service.TkAnnotateUpstreamProductOps(c, "invalid_request_error", status, orig)
+		message = public
+	} else {
+		message = public
+	}
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"message": message,

@@ -36,7 +36,7 @@ func (s *OpenAIGatewayService) ForwardAliTokenPlanTTS(
 		return nil, fmt.Errorf("tts service/account is required")
 	}
 	if !isNewAPIAliTokenPlanAccount(account) {
-		return nil, fmt.Errorf("account is not an Ali Token Plan newapi account")
+		return nil, fmt.Errorf("account is not an Ali plan newapi account")
 	}
 
 	synthReq, model, inputText, err := buildAliTokenPlanSpeechSynthesizerRequest(body)

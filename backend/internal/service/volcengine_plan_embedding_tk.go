@@ -22,7 +22,7 @@ func volcEnginePlanMultimodalEmbeddingInput(body []byte) bool {
 func normalizeVolcEnginePlanEmbeddingResponse(body []byte) ([]byte, error) {
 	var response map[string]json.RawMessage
 	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("invalid Agent Plan embedding response: %w", err)
+		return nil, fmt.Errorf("invalid embedding response: %w", err)
 	}
 	var item struct {
 		Embedding []float64 `json:"embedding"`

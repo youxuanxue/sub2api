@@ -43,7 +43,7 @@ func (s *OpenAIGatewayService) buildOpenAIV1TargetURL(account *Account, segment 
 		case "embeddings", "embeddings/multimodal", "images/generations":
 			return newapiintegration.VolcEngineAgentPlanBaseURL + "/" + segment, nil
 		default:
-			return "", fmt.Errorf("unsupported Agent Plan media endpoint %q", segment)
+			return "", fmt.Errorf("unsupported media endpoint %q", segment)
 		}
 	}
 	switch account.Type {
@@ -117,7 +117,7 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) && gjson.GetBytes(body, "stream").Bool() {
 		writeOpenAIEmbeddingsError(c, http.StatusBadRequest, "invalid_request_error", TkClientFacingUnsupportedMessage)
-		return nil, fmt.Errorf("agent plan media streaming is unsupported")
+		return nil, fmt.Errorf("media streaming is unsupported")
 	}
 	billingModel, upstreamModel := resolveOpenAICompatForwardModels(account, originalModel, defaultMappedModel)
 	// Embeddings is a billed surface and must hit the priced-serving gate.
@@ -226,7 +226,7 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		responseBody := respBody
 		if !gjson.ValidBytes(responseBody) {
-			return nil, fmt.Errorf("invalid Agent Plan media response")
+			return nil, fmt.Errorf("invalid media response")
 		}
 		if urlSegment == "embeddings/multimodal" {
 			responseBody, err = normalizeVolcEnginePlanEmbeddingResponse(responseBody)

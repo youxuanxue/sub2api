@@ -40,8 +40,15 @@ func tkWriteAnthropicErrorResponse(c *gin.Context, statusCode int, errType, mess
 		message = "prompt is too long: " + message
 	}
 	if payload == nil {
+		orig := message
 		if public, sanitized := TkSanitizeBusy429WireMessage(statusCode, message); sanitized {
-			TkAnnotateBusy429Ops(c, errType, message)
+			TkAnnotateBusy429Ops(c, errType, orig)
+			message = public
+		} else {
+			message = public
+		}
+		if public, sanitized := TkSanitizeUpstreamProductWireMessage(message); sanitized {
+			TkAnnotateUpstreamProductOps(c, errType, statusCode, orig)
 			message = public
 		} else {
 			message = public

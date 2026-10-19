@@ -7997,9 +7997,18 @@
         "func tkShouldPassthroughOpenAINativeClientError(statusCode int, upstreamMsg string, body []byte) bool",
         "func tkWriteOpenAINativeClientError(c *gin.Context, statusCode int, body []byte, upstreamMsg string)",
         "isUpstreamModelNotFoundError(statusCode, body)",
-        "IsOpenAICompatModelNotFound404(body, upstreamMsg)"
+        "IsOpenAICompatModelNotFound404(body, upstreamMsg)",
+        "TkSanitizeUpstreamProductWireMessage(message)"
       ],
-      "rationale": "TK native OpenAI error passthrough companion: 422 always caller-owned; 404 only when model-not-found classifiers match. Prevents upstream merge from reverting TokenKey terminal-user DX on /v1/responses while preserving upstream 502 masking for base_url/ops 404."
+      "rationale": "TK native OpenAI error passthrough companion: 422 always caller-owned; 404 only when model-not-found classifiers match. Prevents upstream merge from reverting TokenKey terminal-user DX on /v1/responses while preserving upstream 502 masking for base_url/ops 404. Also pins upstream-product branding sanitize on the native client-error writer (cn-prod kimi-k3 404 Agent Plan leak path)."
+    },
+    {
+      "path": "backend/internal/service/openai_upstream_client_error.go",
+      "must_contain": [
+        "func writeOpenAIUpstreamClientError(c *gin.Context, statusCode int, body []byte, upstreamMsg string)",
+        "TkSanitizeUpstreamProductWireMessage(message)"
+      ],
+      "rationale": "Compat OpenAI upstream client-error writer must strip Agent Plan / Token Plan / vendor-docs prose before JSON write; anchors the evidenced cn-prod 404 branding-leak choke."
     },
     {
       "path": "backend/internal/service/openai_gateway_upstream_errors_tk_test.go",
@@ -16746,6 +16755,16 @@
         "payload.Message = tkSanitizeUpstreamProductWireMessage(c, nre.Err.StatusCode, payload.Type, payload.Message)"
       ],
       "rationale": "NewAPI relay JSON must not passthrough Agent Plan / Token Plan / vendor-docs prose on the wire."
+    },
+    {
+      "path": "backend/internal/server/middleware/middleware.go",
+      "must_contain": [
+        "service.TkSanitizeUpstreamProductWireMessage(message)",
+        "service.TkAnnotateUpstreamProductOps(c, errorType, status, orig)",
+        "service.TkAnnotateUpstreamProductOps(c, \"api_error\", status, orig)",
+        "service.TkAnnotateUpstreamProductOps(c, \"invalid_request_error\", status, orig)"
+      ],
+      "rationale": "Gateway protocol error writers (Anthropic/Google/OpenAI) must strip upstream plan/product branding, not only busy-429 phrases."
     },
     {
       "path": "backend/internal/handler/gateway_handler.go",

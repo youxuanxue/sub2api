@@ -66,7 +66,7 @@ func encodeVolcEngineASRFrame(kind byte, sequence int32, payload []byte) []byte 
 }
 
 func decodeVolcEngineASRFrame(frame []byte) (*volcEngineASRResult, bool, error) {
-	invalid := fmt.Errorf("invalid Agent Plan ASR frame")
+	invalid := fmt.Errorf("invalid ASR frame")
 	if len(frame) < 8 || len(frame) > volcEngineASRFrameLimit || frame[0] != 0x11 || frame[3] != 0 {
 		return nil, false, invalid
 	}
@@ -204,7 +204,7 @@ func runVolcEngineASR(ctx context.Context, conn volcEngineASRConn, pcm []byte, i
 
 func (s *OpenAIGatewayService) ForwardNativeAudioTranscription(ctx context.Context, c *gin.Context, account *Account, request *AudioTranscriptionRequest) (*OpenAIForwardResult, error) {
 	if !SupportsNativeAudioTranscription(account) || request.Model != VolcEnginePlanASRModel || account.GetMappedModel(request.Model) != VolcEnginePlanASRModel || len(request.PCM) == 0 {
-		return nil, fmt.Errorf("unsupported Agent Plan transcription request")
+		return nil, fmt.Errorf("unsupported transcription request")
 	}
 	token, _, err := s.getRequestCredential(ctx, c, account)
 	if err != nil {
