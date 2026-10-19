@@ -23,28 +23,37 @@ import (
 
 func TestResponsesMetadataBeforeOverloadAllowsFailover(t *testing.T) {
 	for _, passthrough := range []bool{false, true} {
-		c, rec := newOpenAITransportErrTestContext()
-		svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
-		stream := strings.Join([]string{
-			`data: {"type":"response.created","response":{"id":"resp_test"}}`, "",
-			`data: {"type":"response.in_progress","response":{"id":"resp_test"}}`, "",
-			`data: {"type":"response.metadata","metadata":{"model":"test"}}`, "",
-			`data: {"type":"response.failed","response":{"id":"resp_test","status":"failed","error":{"type":"service_unavailable_error","message":"Our servers are currently overloaded. Please try again later."}}}`, "", "",
-		}, "\n")
-		resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(stream))}
-		account := &Account{ID: 237, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
-		var err error
-		if passthrough {
-			_, err = svc.handleStreamingResponsePassthrough(context.Background(), resp, c, account, time.Now(), "test", "test")
-		} else {
-			_, err = svc.handleStreamingResponse(context.Background(), resp, c, account, time.Now(), "test", "test")
+		for _, keepalive := range []bool{false, true} {
+			t.Run(fmt.Sprintf("passthrough=%t/keepalive=%t", passthrough, keepalive), func(t *testing.T) {
+				c, rec := newOpenAITransportErrTestContext()
+				if keepalive {
+					emitRecoveryHeaderKeepalive(t, c)
+				}
+				preamble := rec.Body.String()
+				svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
+				stream := strings.Join([]string{
+					`data: {"type":"response.created","response":{"id":"resp_test"}}`, "",
+					`data: {"type":"response.in_progress","response":{"id":"resp_test"}}`, "",
+					`data: {"type":"response.metadata","metadata":{"model":"test"}}`, "",
+					`data: {"type":"response.failed","response":{"id":"resp_test","status":"failed","error":{"type":"service_unavailable_error","message":"Our servers are currently overloaded. Please try again later."}}}`, "", "",
+				}, "\n")
+				resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(stream))}
+				account := &Account{ID: 237, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+				var err error
+				if passthrough {
+					_, err = svc.handleStreamingResponsePassthrough(context.Background(), resp, c, account, time.Now(), "test", "test")
+				} else {
+					_, err = svc.handleStreamingResponse(context.Background(), resp, c, account, time.Now(), "test", "test")
+				}
+				var failover *UpstreamFailoverError
+				require.ErrorAs(t, err, &failover)
+				require.True(t, failover.ShouldRetryNextAccount())
+				require.Equal(t, http.StatusServiceUnavailable, failover.ClientStatusCode)
+				require.Equal(t, keepalive, failover.SafeToFailoverAfterWrite)
+				require.Equal(t, keepalive, c.Writer.Written())
+				require.Equal(t, preamble, rec.Body.String(), "failed attempt metadata must not leak into the next response")
+			})
 		}
-		var failover *UpstreamFailoverError
-		require.ErrorAs(t, err, &failover)
-		require.True(t, failover.ShouldRetryNextAccount())
-		require.Equal(t, http.StatusServiceUnavailable, failover.ClientStatusCode)
-		require.False(t, c.Writer.Written())
-		require.Empty(t, rec.Body.String(), "failed attempt metadata must not leak into the next response")
 	}
 }
 
