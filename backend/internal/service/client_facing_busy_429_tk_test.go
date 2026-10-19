@@ -50,10 +50,13 @@ func TestTkBodyLooksLikeGatewayCapacityBusy429(t *testing.T) {
 func TestTkLooksLikeLegacyCapacityAndUpstreamLimit(t *testing.T) {
 	require.True(t, TkLooksLikeLegacyCapacityClientMessage("No available accounts for this request. Please retry."))
 	require.True(t, TkLooksLikeLegacyCapacityClientMessage("All available accounts are currently rate-limited. Please retry later."))
+	require.True(t, TkLooksLikeLegacyCapacityClientMessage("No available Grok accounts"))
+	require.True(t, TkLooksLikeLegacyCapacityClientMessage("No eligible Seedance accounts"))
 	require.True(t, TkLooksLikeLegacyUpstreamLimitClientMessage("Upstream rate limit exceeded, please retry later"))
 	require.True(t, TkLooksLikeLegacyUpstreamLimitClientMessage("Kiro upstream quota exhausted, please retry later"))
 	require.False(t, TkLooksLikeLegacyCapacityClientMessage(TkClientFacingBusy429Message))
 	require.False(t, TkLooksLikeLegacyUpstreamLimitClientMessage(TkClientFacingBusy429Message))
+	require.False(t, TkLooksLikeLegacyCapacityClientMessage("No available endpoints support input audio"))
 }
 
 func TestTkSanitizeBusy429WireMessage(t *testing.T) {

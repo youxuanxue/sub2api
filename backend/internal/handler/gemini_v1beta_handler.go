@@ -92,8 +92,9 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		// A model-list request has no requested model to classify. Keep an
 		// empty Gemini pool as a service-unavailable response instead of the
 		// request-level 429 capacity hint used by generation endpoints.
-		service.TkAnnotateBusy429Ops(c, "api_error", "No available Gemini accounts: "+err.Error())
-		googleError(c, http.StatusServiceUnavailable, service.TkClientFacingBusy429Message)
+		// Busy429 SSOT is HTTP-429-only; 503 uses non-account generic copy.
+		service.SetOpsUpstreamError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error(), "")
+		googleError(c, http.StatusServiceUnavailable, "Service temporarily unavailable")
 		return
 	}
 

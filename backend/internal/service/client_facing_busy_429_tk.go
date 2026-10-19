@@ -71,6 +71,11 @@ func TkLooksLikeLegacyCapacityClientMessage(msg string) bool {
 		strings.Contains(low, tkLegacyUniversalCapacityNeedle),
 		strings.Contains(low, tkLegacyCompactAccountsNeedle):
 		return true
+	// Platform-specific variants ("No available Grok accounts", "No eligible
+	// Seedance accounts") share the same capacity leak class.
+	case strings.Contains(low, "no available") && strings.Contains(low, "account"),
+		strings.Contains(low, "no eligible") && strings.Contains(low, "account"):
+		return true
 	default:
 		return false
 	}

@@ -283,15 +283,25 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			if endpoint.IsGenerationRequest() && errors.Is(err, service.ErrNoAvailableAccounts) &&
 				(len(failedAccountIDs) == 0 || (mediaEligibilityRejected && lastFailoverErr == nil)) {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				h.errorResponse(c, http.StatusServiceUnavailable, noAccountCode, noAccountMessage)
+				service.TkAnnotateBusy429Ops(c, noAccountCode, noAccountMessage)
+				h.errorResponse(c, tkNoAvailableAccounts(c), "api_error", service.TkClientFacingBusy429Message)
 				return
 			}
 			if len(failedAccountIDs) == 0 {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, requestModel, routingModel, platform)
-				if !cls.ModelNotFound {
-					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+				if cls.ModelNotFound {
+					h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
+					return
 				}
-				h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
+				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+				service.TkAnnotateBusy429Ops(c, cls.ErrType, cls.Message)
+				status := cls.Status
+				if status != http.StatusTooManyRequests {
+					status = tkNoAvailableAccounts(c)
+				} else {
+					c.Header("Retry-After", tkNoAvailableAccountsRetryAfterSeconds)
+				}
+				h.errorResponse(c, status, "api_error", service.TkClientFacingBusy429Message)
 				return
 			}
 			if lastFailoverErr != nil {
@@ -304,14 +314,24 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		if selection == nil || selection.Account == nil {
 			if endpoint.IsGenerationRequest() {
 				markOpsRoutingCapacityLimited(c)
-				h.errorResponse(c, http.StatusServiceUnavailable, noAccountCode, noAccountMessage)
+				service.TkAnnotateBusy429Ops(c, noAccountCode, noAccountMessage)
+				h.errorResponse(c, tkNoAvailableAccounts(c), "api_error", service.TkClientFacingBusy429Message)
 				return
 			}
 			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, requestModel, routingModel, platform)
-			if !cls.ModelNotFound {
-				markOpsRoutingCapacityLimited(c)
+			if cls.ModelNotFound {
+				h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
+				return
 			}
-			h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
+			markOpsRoutingCapacityLimited(c)
+			service.TkAnnotateBusy429Ops(c, cls.ErrType, cls.Message)
+			status := cls.Status
+			if status != http.StatusTooManyRequests {
+				status = tkNoAvailableAccounts(c)
+			} else {
+				c.Header("Retry-After", tkNoAvailableAccountsRetryAfterSeconds)
+			}
+			h.errorResponse(c, status, "api_error", service.TkClientFacingBusy429Message)
 			return
 		}
 		if failoverClientGone(c) {

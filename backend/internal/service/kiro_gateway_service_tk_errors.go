@@ -84,7 +84,9 @@ func (e *KiroEndpointQuotaExhaustedError) Error() string {
 }
 
 func (e *KiroEndpointQuotaExhaustedError) ClientMessage() string {
-	return tkKiroEndpointQuotaExhaustedClient
+	// Public wire SSOT for upstream-limit 429; ops/detail keep
+	// tkKiroEndpointQuotaExhaustedClient via detectors and annotate paths.
+	return TkClientFacingBusy429Message
 }
 
 func (e *KiroInvalidModelError) Error() string {

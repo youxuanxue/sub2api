@@ -138,11 +138,20 @@ func (h *GatewayHandler) SystemOne(c *gin.Context) {
 			if len(fs.FailedAccountIDs) == 0 {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, model, model, service.PlatformTypeSafe)
 				cls = classifySelectionFailureError(err, cls)
-				if !cls.ModelNotFound {
-					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				}
 				reqLog.Warn("systemone.select_account_no_available", zap.Bool("model_not_found", cls.ModelNotFound), zap.Error(err))
-				h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
+				if cls.ModelNotFound {
+					h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
+					return
+				}
+				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+				service.TkAnnotateBusy429Ops(c, cls.ErrType, cls.Message)
+				status := cls.Status
+				if status != http.StatusTooManyRequests {
+					status = tkNoAvailableAccounts(c)
+				} else {
+					c.Header("Retry-After", tkNoAvailableAccountsRetryAfterSeconds)
+				}
+				h.errorResponse(c, status, "api_error", service.TkClientFacingBusy429Message)
 				return
 			}
 			switch fs.HandleSelectionExhausted(c.Request.Context(), errors.Is(err, service.ErrThinPoolAllExcluded)) {

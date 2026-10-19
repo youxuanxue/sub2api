@@ -49,7 +49,8 @@ func (h *GatewayHandler) tkHandleMessagesNonFailoverForwardError(c *gin.Context,
 	var kiroQuotaErr *service.KiroEndpointQuotaExhaustedError
 	if errors.As(err, &kiroQuotaErr) {
 		c.Header("Retry-After", strconv.Itoa(service.KiroEndpointQuotaExhaustedRetryAfterSeconds()))
-		h.errorResponse(c, http.StatusTooManyRequests, "rate_limit_error", kiroQuotaErr.ClientMessage())
+		service.TkAnnotateBusy429Ops(c, "rate_limit_error", "Kiro upstream quota exhausted, please retry later")
+		h.errorResponse(c, http.StatusTooManyRequests, "rate_limit_error", service.TkClientFacingBusy429Message)
 		return true
 	}
 
