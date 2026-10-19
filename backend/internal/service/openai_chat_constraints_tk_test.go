@@ -183,15 +183,23 @@ func TestChatProviderConstraints_VolcPlanSamplingBounds(t *testing.T) {
 	require.Equal(t, original, over, "ingress for retry must stay untouched")
 	require.InDelta(t, 2.0, gjson.GetBytes(got, "temperature").Float(), 1e-9)
 	require.InDelta(t, 1.0, gjson.GetBytes(got, "top_p").Float(), 1e-9)
-	require.EqualValues(t, volcPlanChatMaxTokensMax, gjson.GetBytes(got, "max_tokens").Int())
+	require.EqualValues(t, volcPlanKimiK3MaxTokensMax, gjson.GetBytes(got, "max_tokens").Int())
 
 	// Dual output limits: coalesce to max_tokens first, then clamp the budget.
 	dual := []byte(`{"model":"kimi-k3","max_tokens":64,"max_completion_tokens":1000000,"temperature":99}`)
 	got, err = normalizeChatProviderRequest(account, endpoint, dual)
 	require.NoError(t, err)
-	require.EqualValues(t, volcPlanChatMaxTokensMax, gjson.GetBytes(got, "max_tokens").Int())
+	require.EqualValues(t, volcPlanKimiK3MaxTokensMax, gjson.GetBytes(got, "max_tokens").Int())
 	require.False(t, gjson.GetBytes(got, "max_completion_tokens").Exists())
 	require.InDelta(t, 2.0, gjson.GetBytes(got, "temperature").Float(), 1e-9)
+
+	// Higher-output Volc Plan models keep sampling clamps but not the 128k token cap.
+	deepseek := []byte(`{"model":"deepseek-v4-pro","temperature":2.5,"top_p":1.1,"max_tokens":200000}`)
+	got, err = normalizeChatProviderRequest(account, endpoint, deepseek)
+	require.NoError(t, err)
+	require.InDelta(t, 2.0, gjson.GetBytes(got, "temperature").Float(), 1e-9)
+	require.InDelta(t, 1.0, gjson.GetBytes(got, "top_p").Float(), 1e-9)
+	require.EqualValues(t, 200000, gjson.GetBytes(got, "max_tokens").Int())
 
 	// In-range values and missing fields stay unchanged.
 	ok := []byte(`{"model":"kimi-k3","temperature":1.2,"top_p":0.9,"max_tokens":4096}`)

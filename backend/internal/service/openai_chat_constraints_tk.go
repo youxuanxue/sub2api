@@ -15,14 +15,15 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// Volc Agent Plan Chat rejects these sampling / output ceilings with
-// InvalidParameter 400 (cn-prod kimi-k3 evidence 2026-10-19).
+// Volc Agent Plan Chat rejects out-of-range sampling with InvalidParameter 400
+// (cn-prod evidence 2026-10-19). max_tokens ceiling is model-specific; only the
+// evidenced kimi-k3 family is clamped here (Agent Plan docs: 128k output).
 const (
 	volcPlanChatTemperatureMax = 2.0
 	volcPlanChatTemperatureMin = 0.0
 	volcPlanChatTopPMax        = 1.0
 	volcPlanChatTopPMin        = 0.0
-	volcPlanChatMaxTokensMax   = 131072
+	volcPlanKimiK3MaxTokensMax = 131072
 )
 
 // normalizeChatProviderRequest runs at the selected Chat destination, including
@@ -75,13 +76,17 @@ func coalescePlanChatTokenLimit(body []byte) []byte {
 }
 
 // clampVolcPlanChatSamplingBounds keeps Volc Agent Plan Chat requests inside
-// the supplier's evidenced numeric ceilings. Outbound copy only; ingress for
-// retry stays untouched. Non-numeric or absent fields are left alone.
+// supplier sampling ceilings. max_tokens is clamped only for the evidenced
+// kimi-k3 family (128k); other Agent Plan models keep native higher budgets.
+// Outbound copy only; ingress for retry stays untouched.
 func clampVolcPlanChatSamplingBounds(body []byte) []byte {
 	shaped := clampJSONFloatField(body, "temperature", volcPlanChatTemperatureMin, volcPlanChatTemperatureMax)
 	shaped = clampJSONFloatField(shaped, "top_p", volcPlanChatTopPMin, volcPlanChatTopPMax)
-	shaped = clampJSONIntFieldMax(shaped, "max_tokens", volcPlanChatMaxTokensMax)
-	shaped = clampJSONIntFieldMax(shaped, "max_completion_tokens", volcPlanChatMaxTokensMax)
+	if resolveMoonshotThinkingFamily(gjson.GetBytes(shaped, "model").String()) != moonshotThinkingK3 {
+		return shaped
+	}
+	shaped = clampJSONIntFieldMax(shaped, "max_tokens", volcPlanKimiK3MaxTokensMax)
+	shaped = clampJSONIntFieldMax(shaped, "max_completion_tokens", volcPlanKimiK3MaxTokensMax)
 	return shaped
 }
 
