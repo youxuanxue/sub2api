@@ -98,7 +98,15 @@ def find_create_mount_asset(
             errors.extend(check_account_asset(asset, asset_url))
             return asset, asset_path, errors
 
-        for dep_path in js_asset_paths_from_vite_asset(asset):
+        dependencies = js_asset_paths_from_vite_asset(asset)
+        # Follow known account chunks first once a shared router exposes them;
+        # retain every other dependency as a fallback for renamed chunks.
+        preferred = [path for path in dependencies
+                     if any(name in path for name in (*ACCOUNT_MODAL_CHUNK_NAMES, "CreateAccountModal"))]
+        queue[0:0] = [path for path in preferred if path not in seen]
+        for dep_path in dependencies:
+            if dep_path in preferred:
+                continue
             if dep_path not in seen:
                 queue.append(dep_path)
 
@@ -228,7 +236,9 @@ def check_url(base_url: str) -> list[str]:
             return [f"{base}: could not load Vite entry for AccountsView discovery: {exc}"]
         assets = account_assets_from_vite_entry(entry_js)
         if not assets:
-            return [f"{base}: Vite entry {entry_rel} does not reference an AccountsView chunk"]
+            # Vite can move the router into a shared chunk. Walk the entry's
+            # actual dependency graph instead of requiring a direct page edge.
+            assets = [entry_rel]
 
     account_asset, account_asset_path, errors = find_create_mount_asset(base, assets, read_url)
 
