@@ -7,8 +7,8 @@
 - Trace: `docs/approved/gateway-failover-policy-ssot.md`
 - Risk Focus:
   - 逻辑错误：profile 状态矩阵、semantic 覆盖顺序和 passthrough 账号配置必须保持既有差异。
-  - 行为回归：Generic、OpenAI HTTP/SSE、Google、Grok、NewAPI bridge、passthrough 和 Live 的既有结果不变。
-  - 安全问题：未知 profile/semantic fail closed，确定性 client/policy failure 不得轮换并消耗共享账号池。
+  - 行为回归：Generic、OpenAI HTTP/SSE、Google、Grok、passthrough 和 Live 的既有结果不变；NewAPI bridge 未分类 `>=500` 与 OpenAI/Google 对齐为 failover。
+  - 安全问题：未知 profile/semantic fail closed；SharedFault catalog（换了也没用）不得轮换并消耗共享账号池。
   - 运行时问题：本次只集中纯判定，不改变执行循环、同账号重试、退避、账号处罚或已输出流重放，避免扩大请求时延与副作用。
 
 ## Acceptance Criteria
@@ -24,7 +24,8 @@
 - semantic 先于 status，shared 503 不 failover，account fault 400 会 failover。
 - `response.failed` 未知结构默认 failover，通用 SSE `error` 未知结构默认 terminal。
 - OAuth passthrough 普通 500 terminal；API key passthrough 500 failover；账号自定义 pool retry 可覆盖未列出的 status。
-- NewAPI bridge 普通 500 terminal，而 502/503/504/529 failover；arrears semantic 可让 400/403 failover。
+- NewAPI bridge 未分类 `>=500` failover（含普通 500 / bad_response_body）；SharedFault catalog 仍停换号；arrears semantic 可让 400/403 failover。
+- SharedFault catalog owner：`gateway_failover_shared_fault_ssot_tk.go` + SSOT §SharedFault；NewAPI bridge 经 `gatewayCompatSharedFault` 提交。
 - Grok body classifier 不再输出 failover 布尔字段。
 - 所有 handler 对 `UpstreamFailoverError` 的最终 retry/stop 判定都经过全局 owner；legacy 空 scope 仍 retry，未知 scope fail closed。
 
@@ -35,23 +36,22 @@
 - `backend/internal/service/gateway_failover_policy_test.go`::`TestUS049_RuntimeFailoverChokePointUsesGlobalPolicy`
 - `backend/internal/service/gateway_failover_policy_test.go`::`TestUS049_OpenAIPassthroughAccountMatrix`
 - `backend/internal/service/gateway_failover_policy_test.go`::`TestUS049_AdaptersDelegateWithoutBehaviorDrift`
+- `backend/internal/service/gateway_failover_shared_fault_ssot_tk_test.go`::`TestGatewayCompatSharedFaultCatalog`
+- `backend/internal/service/gateway_failover_shared_fault_ssot_tk_test.go`::`TestGatewayCompatSharedFaultStopsNewAPI500Matrix`
+- `backend/internal/service/newapi_bridge_failover_tk_test.go`::`TestTkBridgeUpstreamShouldFailoverAfterPenalty_Unclassified5xxFailovers`
 - Run:
 
 ```bash
-cd backend && GOTOOLCHAIN=go1.26.6 go test -tags=unit ./internal/service -run 'TestUS049_' -count=1
-cd backend && GOTOOLCHAIN=go1.26.6 go test -tags=unit ./internal/service -count=1
-cd backend && GOTOOLCHAIN=go1.26.6 go test -tags=unit ./internal/handler -count=1
+cd backend && GOTOOLCHAIN=go1.26.6 go test -tags=unit ./internal/service -run 'TestUS049_|TestGatewayCompatSharedFault|TestTkBridgeUpstreamShouldFailoverAfterPenalty_' -count=1
 python3 scripts/sentinels/check-gateway-tk.py
 python3 .testing/user-stories/verify_quality.py
 ```
 
 ## Evidence
 
-- `TestUS049_`: PASS.
-- Full `internal/service` unit package: PASS (`ok github.com/Wei-Shaw/sub2api/internal/service 112.341s`).
-- Full `internal/handler` unit package: PASS (`ok github.com/Wei-Shaw/sub2api/internal/handler 10.559s`).
-- Gateway TK sentinel registry and global invariant: PASS (`855/855 intact`).
-- Story quality: PASS (`45 stories, 0 issues`).
+- `TestUS049_|TestGatewayCompatSharedFault|TestTkBridgeUpstreamShouldFailoverAfterPenalty_`: PASS (2026-10-19 NewAPI 500-default + SharedFault catalog amendment).
+- Gateway TK sentinel registry and global invariant: PASS (`1757/1757 intact`).
+- Story quality: PASS (`59 stories, 0 issues`).
 
 ## Status
 

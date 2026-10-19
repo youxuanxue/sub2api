@@ -158,7 +158,8 @@ func TestBridgeMalformedUpstreamBodyFailsOverWithoutDisablingAccount(t *testing.
 	require.Zero(t, repo.tempCalls)
 	require.Empty(t, blocker.reasons)
 	require.Empty(t, incidents.reasons)
-	require.False(t, tkBridgeUpstreamShouldFailoverAfterPenalty(nil, upstreamBridgeError(500, "internal error")))
+	require.True(t, tkBridgeUpstreamShouldFailoverAfterPenalty(nil, upstreamBridgeError(500, "internal error")),
+		"unclassified NewAPI 500 must failover after the 500-default SSOT amendment")
 	require.False(t, tkBridgeUpstreamShouldFailoverAfterPenalty(nil, newapitypes.NewOpenAIError(errors.New("invalid request"), newapitypes.ErrorCodeBadResponseBody, http.StatusBadRequest)))
 }
 

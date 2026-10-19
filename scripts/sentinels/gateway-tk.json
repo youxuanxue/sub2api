@@ -13040,13 +13040,35 @@
         "func classifyGatewayFailover(obs gatewayFailoverObservation) gatewayFailoverDecision",
         "func classifyGatewayFailoverError(failoverErr *UpstreamFailoverError) gatewayFailoverDecision",
         "func applyGatewayFailoverSemantic(",
+        "func newAPIBridgeFailoverStatus(statusCode int) bool",
+        "return statusCode >= 500",
         "gatewayFailoverProfileNewAPIBridge",
         "gatewayFailoverProfileOpenAIPassthrough",
         "gatewayFailureSemanticSharedFault",
         "gatewayFailureSemanticAccountFault",
         "gatewayFailureSemanticTransientFault"
       ],
-      "rationale": "Global gateway failover SSOT: platform/channel adapters may parse provider evidence, but this owner alone maps normalized semantic, status, account type and configured retry into RetryNextAccount. Losing a profile or semantic reintroduces platform-local policy drift."
+      "rationale": "Global gateway failover SSOT: platform/channel adapters may parse provider evidence, but this owner alone maps normalized semantic, status, account type and configured retry into RetryNextAccount. NewAPI bridge unclassified >=500 must failover like OpenAI/Google; SharedFault semantic still stops rotation. Losing a profile, semantic, or the >=500 default reintroduces the HTML/bad_response_body terminal-500 user-visible failure class."
+    },
+    {
+      "path": "backend/internal/service/gateway_failover_shared_fault_ssot_tk.go",
+      "must_contain": [
+        "func gatewayCompatSharedFault(message string, body []byte) bool",
+        "isOpenAISafetySessionBlockFault(message, body)",
+        "isOpenAIContextWindowError(message, body)",
+        "isOpenAINonRetryableClientError(message, body)"
+      ],
+      "rationale": "SharedFault catalog owner for 'retrying another account cannot help'. OpenAI-compat and NewAPI bridge must route stop-retry evidence through this helper so content/policy/context-window blocks cannot drift into a second phrase table or get rotated after the NewAPI 500-default flip."
+    },
+    {
+      "path": "backend/internal/service/gateway_failover_shared_fault_ssot_tk_test.go",
+      "must_contain": [
+        "TestGatewayCompatSharedFaultCatalog",
+        "TestGatewayCompatSharedFaultStopsNewAPI500Matrix",
+        "bad_response_body html parse is not shared",
+        "policy marker wrapped as 500-shaped message"
+      ],
+      "rationale": "Pins SharedFault catalog positives (policy/context-window) and negatives (opaque 500 / bad_response_body) so the NewAPI 500-default failover cannot silently rotate same-prompt blocks or re-terminalize HTML parse failures."
     },
     {
       "path": "backend/internal/service/gateway_failover_policy_test.go",
@@ -13055,9 +13077,10 @@
         "TestUS049_SemanticOverridesStatusAndFailsClosed",
         "TestUS049_RuntimeFailoverChokePointUsesGlobalPolicy",
         "TestUS049_OpenAIPassthroughAccountMatrix",
-        "TestUS049_AdaptersDelegateWithoutBehaviorDrift"
+        "TestUS049_AdaptersDelegateWithoutBehaviorDrift",
+        "newapi generic server failovers"
       ],
-      "rationale": "Behavioral contract for the global failover matrix, semantic precedence, fail-closed unknown inputs, passthrough account differences and adapter compatibility."
+      "rationale": "Behavioral contract for the global failover matrix, semantic precedence, fail-closed unknown inputs, passthrough account differences and adapter compatibility. NewAPI unclassified 500 must stay failover after the 2026-10-19 SSOT amendment."
     },
     {
       "path": "backend/internal/service/gateway_service.go",
@@ -13135,9 +13158,11 @@
       "must_contain": [
         "classifyGatewayFailover(gatewayFailoverObservation{",
         "Profile:    gatewayFailoverProfileNewAPIBridge",
+        "gatewayCompatSharedFault(",
+        "gatewayFailureSemanticSharedFault",
         "semantic = gatewayFailureSemanticAccountFault"
       ],
-      "rationale": "NewAPI bridge may recognize account-standing arrears, but both that semantic and its narrow gateway-status matrix must be decided by the global failover owner rather than channel-specific booleans."
+      "rationale": "NewAPI bridge may recognize account-standing arrears and SharedFault catalog hits, but both those semantics and the >=500 status matrix must be decided by the global failover owner rather than channel-specific booleans. Dropping gatewayCompatSharedFault after the 500-default flip would rotate same-prompt policy blocks across the pool."
     },
     {
       "path": "backend/internal/service/grok_upstream_errors.go",

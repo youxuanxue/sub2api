@@ -13,9 +13,10 @@ import (
 // tkBridgeUpstreamShouldFailoverAfterPenalty reports whether a bridge upstream
 // error should trigger the handler's existing failedAccountIDs failover loop
 // after any account-level penalty has been applied. Account-standing failures
-// qualify, as do gateway outage statuses that are safe to retry on another
-// provider without mutating account state. Client-induced 400/404 stay terminal
-// on non-NVIDIA accounts to avoid draining the pool (#617).
+// qualify, as do unclassified 5xx / gateway outages that are safe to retry on
+// another provider without mutating account state. Client-induced 400/404 stay
+// terminal on non-NVIDIA accounts to avoid draining the pool (#617). SharedFault
+// catalog (content/policy/context-window) stops rotation even on 5xx.
 //
 // NVIDIA Build is treated as unstable secondary capacity: any upstream error
 // from those accounts fails over so volcengine/qianfan siblings can absorb
@@ -46,6 +47,12 @@ func tkBridgeFailureSemantic(apiErr *newapitypes.NewAPIError) gatewayFailureSema
 	if apiErr != nil && isUpstreamModelRetiredError(apiErr.StatusCode, tkBridgeUpstreamErrorBody(apiErr), tkBridgeUpstreamRelayMessage(apiErr)) {
 		return gatewayFailureSemanticAccountFault
 	}
+	// SharedFault catalog (换了也没用): must run before status-matrix 5xx failover
+	// so content/policy/context-window blocks never rotate the pool.
+	// SSOT: docs/approved/gateway-failover-policy-ssot.md §SharedFault
+	if apiErr != nil && gatewayCompatSharedFault(tkBridgeUpstreamRelayMessage(apiErr), tkBridgeUpstreamErrorBody(apiErr)) {
+		return gatewayFailureSemanticSharedFault
+	}
 	if apiErr != nil {
 		if upstream, ok := tkBridgeUpstreamOpenAIError(apiErr); ok && tkSupplierThinkingToolPreflight(apiErr.StatusCode, upstream.Message) {
 			// A supplier preflight rejected this model/feature combination before
@@ -54,8 +61,9 @@ func tkBridgeFailureSemantic(apiErr *newapitypes.NewAPIError) gatewayFailureSema
 		}
 	}
 	if apiErr != nil && apiErr.StatusCode == http.StatusInternalServerError {
-		// Explicit malformed supplier responses are account-scoped failures;
-		// generic 500 and client 400 errors retain their existing policy.
+		// Malformed supplier bodies (HTML/bad_response_body) are account-scoped
+		// so candidate failure feedback can soft-deprioritize the bad relay while
+		// the global >=500 matrix (or AccountFault semantic) still failovers.
 		if apiErr.GetErrorCode() == newapitypes.ErrorCodeBadResponseBody {
 			return gatewayFailureSemanticAccountFault
 		}

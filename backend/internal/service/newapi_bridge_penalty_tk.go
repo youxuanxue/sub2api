@@ -151,8 +151,9 @@ func tkBridgeUpstreamOpenAIError(apiErr *newapitypes.NewAPIError) (newapitypes.O
 // tkWrapBridgeRelayErrorWithPenalty is the OpenAIGatewayService dispatch-site
 // chokepoint: apply the account penalty for real upstream bridge errors, then
 // return UpstreamFailoverError for account-level faults (401/402/429 + arrears)
-// and gateway outages/overload (502/503/504/529), or NewAPIRelayError for
-// other client/provider errors. Gateway outages do not mutate account state.
+// and gateway/server outages (unclassified >=500 including 502/503/504/529), or
+// NewAPIRelayError for SharedFault / other client-terminal errors. Gateway
+// outages do not mutate account state.
 // Use at every dispatch site that
 // wraps a REAL bridge upstream error and has the selected account in hand
 // (NOT for synthetic missing-credential / unsupported-channel errors, and NOT
