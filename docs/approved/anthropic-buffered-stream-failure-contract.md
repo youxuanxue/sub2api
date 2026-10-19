@@ -14,6 +14,8 @@ related_stories: [US-047]
 
 修复 OpenAI Chat Completions / Responses 转 Anthropic 上游时，非流式客户端由 SSE 缓冲组装响应的失败语义。上游虽然返回 HTTP 200，但可能在 SSE 内发送 `error`、中途 EOF、读错误或数据间隔超时；这些都必须进入既有账号健康、failover 和 Ops 归因链路，不能伪装成网关内部故障或干净成功。
 
+2026-10-19 修订授权与背景见 [输出前恢复与缓冲断流修正](gateway-failover-policy-ssot.md#输出前恢复与缓冲断流修正2026-10-19)。本契约更新原“部分 HTTP 200”行为，完整回答保持成功。
+
 ## 行为矩阵
 
 | 上游结果 | 客户端行为 | 调度与健康 | Ops |
@@ -21,10 +23,10 @@ related_stories: [US-047]
 | 完整终止事件 | 返回正常 HTTP 200 | 不 failover | 不记录失败 |
 | 尚无可用内容时出现 `error` | 当前账号尝试失败；failover 耗尽后返回映射后的真实错误 | 复用既有账号健康与 failover | 记录 provider、账号和事件原因 |
 | 尚无可用内容时超时、读错误或未完整 EOF | 当前账号尝试失败；failover 耗尽后返回 502 | 复用既有账号健康与 failover | 记录 provider、账号和中断类型 |
-| 已有可用内容后出现 `error`、超时、读错误或未完整 EOF | 保留部分 HTTP 200，不重放 | 不 failover，避免重复计费和回答漂移 | 标记 `stream_truncated`，计入 SLA |
+| 已有可用内容后出现 `error`、超时、读错误或未完整 EOF | 返回终止错误（handler 渲染 502），不重放 | 不 failover，避免重复计费和回答漂移 | 标记 `stream_truncated`，计入 SLA |
 | 只有 `message_start`、没有内容，随后失败 | 视为“尚无可用内容” | failover | 不得返回空 HTTP 200 |
 
-“可用内容”指已组装出至少一个 Anthropic content block；只有 `message_start` 不算可用内容。完整终止以 `message_delta.stop_reason` 或 `message_stop` 为准。
+“可用内容”指非空 text、tool 或未知/media content block；只有 `message_start`、thinking/redacted_thinking 或空 text 不算可用内容。完整终止以 `message_delta.stop_reason` 或 `message_stop` 为准。
 
 ## 错误映射
 
@@ -40,7 +42,7 @@ failover 耗尽后保留上游消息，并按现有 OpenAI-compatible 错误表�
 | `overloaded_error` | 503 | `overloaded_error` |
 | 未知服务端错误 | 502 | `server_error` |
 
-错误事件、超时和未完整 EOF 均不得在 service 层提前写响应；service 返回 `UpstreamFailoverError`，由现有 handler 在账号切换耗尽后统一写最终响应。部分内容路径除外：它已经产生可计费内容，仍返回单次尝试的部分结果。
+错误事件、超时和未完整 EOF 均不得在 service 层提前写响应；service 返回 `UpstreamFailoverError`，由现有 handler 在账号切换耗尽后统一写最终响应。已有可用部分内容时返回普通终止错误，由 handler 渲染失败，不进入 failover，也不把不完整缓冲区计作成功回答。
 
 ## Ops 与账号身份
 
@@ -65,7 +67,7 @@ failover 耗尽后保留上游消息，并按现有 OpenAI-compatible 错误表�
 
 - `message_start -> error` 必须进入 failover，不能返回空 200。
 - error-only、空流、未完整 EOF、读错误和 native idle timeout 在无内容时返回 `UpstreamFailoverError`。
-- 同类故障发生在已有 content block 之后时保留 200，并带 `CountTowardsSLA=true` 的 stream failure。
+- 同类故障发生在已有可用答案/工具内容之后时返回终止错误，并带 `CountTowardsSLA=true` 的 stream failure。
 - 404 / 413 的错误类型不再落成 `server_error`。
 - upstream event 带完整平台和账号身份。
 - 完整流不产生 upstream event 或 stream failure。

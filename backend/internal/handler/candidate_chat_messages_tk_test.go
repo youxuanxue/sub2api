@@ -28,7 +28,10 @@ func TestCandidateChatMessagesToolsPriorityAndSupplierFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, mode := range []string{service.RoutingModeDirect, service.RoutingModeUniversal} {
 		for _, stream := range []bool{false, true} {
-			for _, first := range []string{"messages", "supplier_forbidden", "supplier_empty", "ordinary_500", "thinking_forced", "implicit_thinking_forced", "supplier_capability"} {
+			for _, first := range []string{"messages", "supplier_forbidden", "supplier_empty", "ordinary_500", "thinking_forced", "implicit_thinking_forced", "supplier_capability", "supplier_bad_body", "truncated_answer", "truncated_thinking"} {
+				if stream && strings.HasPrefix(first, "truncated_") {
+					continue
+				}
 				t.Run(fmt.Sprintf("%s/stream=%t/%s", mode, stream, first), func(t *testing.T) {
 					var mu sync.Mutex
 					var hits []string
@@ -51,10 +54,24 @@ func TestCandidateChatMessagesToolsPriorityAndSupplierFailover(t *testing.T) {
 							}
 							w.Header().Set("Content-Type", "application/json")
 							w.WriteHeader(status)
-							_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"type": "unknown_error", "message": message}})
+							errType := "unknown_error"
+							if first == "supplier_bad_body" {
+								errType = "bad_response_body"
+								message = "invalid character '<' looking for beginning of value"
+							}
+							_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"type": errType, "message": message}})
 							return
 						}
 						require.Equal(t, "/v1/messages", r.URL.Path)
+						if strings.HasPrefix(first, "truncated_") && r.Header.Get("Authorization") == "Bearer chat-key" {
+							w.Header().Set("Content-Type", "text/event-stream")
+							block := `{"type":"text","text":"partial answer"}`
+							if first == "truncated_thinking" {
+								block = `{"type":"thinking","thinking":"partial reasoning"}`
+							}
+							_, _ = io.WriteString(w, "event: message_start\ndata: "+`{"type":"message_start","message":{"id":"msg_partial","type":"message","role":"assistant","content":[]}}`+"\n\nevent: content_block_start\ndata: "+`{"type":"content_block_start","index":0,"content_block":`+block+"}\n\n")
+							return
+						}
 						require.Equal(t, "Bearer messages-key", r.Header.Get("Authorization"))
 						require.Equal(t, "2023-06-01", r.Header.Get("Anthropic-Version"))
 						require.NoError(t, json.NewDecoder(r.Body).Decode(&forwarded))
@@ -70,6 +87,9 @@ func TestCandidateChatMessagesToolsPriorityAndSupplierFailover(t *testing.T) {
 						priority, channel, credential, protocol := 250, 1, "chat-key", protocolrouter.ProtocolChatCompletions
 						if id == 136 {
 							priority, channel, credential, protocol = 110, 14, "messages-key", protocolrouter.ProtocolMessages
+						}
+						if id == 115 && strings.HasPrefix(first, "truncated_") {
+							channel, protocol = 14, protocolrouter.ProtocolMessages
 						}
 						if id == 115 && first != "messages" {
 							priority = 1
@@ -121,6 +141,13 @@ func TestCandidateChatMessagesToolsPriorityAndSupplierFailover(t *testing.T) {
 					gotHits := append([]string(nil), hits...)
 					got := forwarded
 					mu.Unlock()
+					if first == "truncated_answer" {
+						require.Equal(t, http.StatusBadGateway, response.Code, response.Body.String())
+						require.NotContains(t, response.Body.String(), `"finish_reason":"stop"`)
+						require.Equal(t, []string{"/v1/messages"}, gotHits)
+						require.Empty(t, usage.created)
+						return
+					}
 					if first == "ordinary_500" {
 						require.GreaterOrEqual(t, response.Code, 500)
 						require.Equal(t, []string{"/v1/chat/completions"}, gotHits)
@@ -130,7 +157,11 @@ func TestCandidateChatMessagesToolsPriorityAndSupplierFailover(t *testing.T) {
 					require.Equal(t, 200, response.Code, response.Body.String())
 					wantHits := []string{"/v1/messages"}
 					if first != "messages" {
-						wantHits = append([]string{"/v1/chat/completions"}, wantHits...)
+						path := "/v1/chat/completions"
+						if first == "truncated_thinking" {
+							path = "/v1/messages"
+						}
+						wantHits = append([]string{path}, wantHits...)
 					}
 					require.Equal(t, wantHits, gotHits)
 					require.Len(t, got.Tools, 11)

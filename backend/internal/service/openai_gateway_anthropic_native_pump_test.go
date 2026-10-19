@@ -302,7 +302,7 @@ func TestUS047_NativeBufferedIdleRoutesByContentAvailability(t *testing.T) {
 		require.False(t, c.Writer.Written())
 	})
 
-	t.Run("partial content returns 200 and marks truncation", func(t *testing.T) {
+	t.Run("partial content returns terminal failure and marks truncation", func(t *testing.T) {
 		svc := newNativeAnthropicHangTestService(1)
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
@@ -325,10 +325,12 @@ func TestUS047_NativeBufferedIdleRoutesByContentAvailability(t *testing.T) {
 		_ = pw.Close()
 		_ = pr.Close()
 
-		require.NoError(t, err)
-		require.NotNil(t, result)
-		require.Equal(t, http.StatusOK, rec.Code)
-		require.Contains(t, rec.Body.String(), "partial")
+		require.Error(t, err)
+		require.Nil(t, result)
+		var failoverErr *UpstreamFailoverError
+		require.NotErrorAs(t, err, &failoverErr)
+		require.False(t, c.Writer.Written())
+		require.Empty(t, rec.Body.String())
 		requireNativeBufferedTruncationCountsTowardsSLA(t, c, http.StatusBadGateway)
 	})
 }
