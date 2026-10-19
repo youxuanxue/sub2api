@@ -92,7 +92,8 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		// A model-list request has no requested model to classify. Keep an
 		// empty Gemini pool as a service-unavailable response instead of the
 		// request-level 429 capacity hint used by generation endpoints.
-		googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error())
+		service.TkAnnotateBusy429Ops(c, "api_error", "No available Gemini accounts: "+err.Error())
+		googleError(c, http.StatusServiceUnavailable, service.TkClientFacingBusy429Message)
 		return
 	}
 
@@ -580,12 +581,11 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, modelName, modelName, service.PlatformGemini)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+					service.TkAnnotateBusy429Ops(c, "api_error", "No available Gemini accounts: "+err.Error())
+					googleError(c, tkNoAvailableAccounts(c), service.TkClientFacingBusy429Message)
+					return
 				}
-				message := cls.Message
-				if !cls.ModelNotFound {
-					message = "No available Gemini accounts: " + err.Error()
-				}
-				googleError(c, cls.Status, message)
+				googleError(c, cls.Status, cls.Message)
 				return
 			}
 			action := fs.HandleSelectionExhausted(c.Request.Context(), errors.Is(err, service.ErrThinPoolAllExcluded))
@@ -611,7 +611,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 				zap.Int64("account_id", account.ID),
 				zap.Int("channel_type", account.ChannelType),
 			)
-			googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts")
+			markOpsRoutingCapacityLimited(c)
+			service.TkAnnotateBusy429Ops(c, "api_error", "No available Gemini accounts")
+			googleError(c, tkNoAvailableAccounts(c), service.TkClientFacingBusy429Message)
 			return
 		}
 		setOpsSelectedAccountFrom(c, account)
