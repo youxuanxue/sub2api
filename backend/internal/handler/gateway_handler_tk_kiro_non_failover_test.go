@@ -67,6 +67,7 @@ func TestTkHandleMessagesNonFailoverForwardError_Matrix(t *testing.T) {
 		require.True(t, h.tkHandleMessagesNonFailoverForwardError(c, err))
 		require.Equal(t, http.StatusTooManyRequests, rec.Code)
 		require.Equal(t, "rate_limit_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+		require.Equal(t, service.TkClientFacingBusy429Message, gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
 		require.NotEmpty(t, rec.Header().Get("Retry-After"))
 	})
 

@@ -277,7 +277,10 @@ func writeUniversalRoutingUnsupportedInputModalityError(c *gin.Context, shape se
 
 func writeUniversalRoutingCapacityError(c *gin.Context, shape service.UniversalShape) {
 	const status = http.StatusTooManyRequests
-	const message = "No available accounts for this request. Please retry."
+	// Public copy is SSOT; keep code=no_available_accounts for clients/ops that
+	// key off the stable machine code. Internal detail stays in ops annotation.
+	service.TkAnnotateBusy429Ops(c, "rate_limit_error", "No available accounts for this request. Please retry.")
+	message := service.TkClientFacingBusy429Message
 	switch shape {
 	case service.ShapeGemini:
 		GoogleErrorWriter(c, status, message)

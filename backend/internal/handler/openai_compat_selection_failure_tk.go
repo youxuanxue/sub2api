@@ -43,5 +43,6 @@ func openAICompatFirstAttemptSelectionFailure(
 		return tkSelectFailureStatusMessage(c, err, displayModel)
 	}
 	markOpsRoutingCapacityLimited(c)
-	return tkNoAvailableAccounts(c), "api_error", "No available accounts"
+	service.TkAnnotateBusy429Ops(c, "api_error", "No available accounts")
+	return tkNoAvailableAccounts(c), "api_error", service.TkClientFacingBusy429Message
 }

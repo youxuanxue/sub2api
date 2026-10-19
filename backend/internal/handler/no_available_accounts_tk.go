@@ -106,17 +106,22 @@ func tkSelectFailureStatusMessage(c *gin.Context, err error, reqModel string) (i
 			ErrType: "api_error",
 			Message: "Service temporarily unavailable",
 		}); cls.Status == http.StatusTooManyRequests {
-			return cls.Status, cls.ErrType, cls.Message
+			service.TkAnnotateBusy429Ops(c, cls.ErrType, cls.Message)
+			return cls.Status, cls.ErrType, service.TkClientFacingBusy429Message
 		}
 		if _, replacement, ok := service.TkLookupDeprecatedAnthropicModel(reqModel); ok {
 			markOpsClientRequestRejected(c)
 			return http.StatusBadRequest, service.TkDeprecatedAnthropicErrorType,
 				service.TkBuildDeprecatedAnthropicMessage(reqModel, replacement)
 		}
+		var internal string
 		if errors.Is(err, service.ErrUniversalCapacityUnavailable) {
-			return tkNoAvailableAccounts(c), "api_error", "No available accounts"
+			internal = "No available accounts"
+		} else {
+			internal = "No available accounts: " + err.Error()
 		}
-		return tkNoAvailableAccounts(c), "api_error", "No available accounts: " + err.Error()
+		service.TkAnnotateBusy429Ops(c, "api_error", internal)
+		return tkNoAvailableAccounts(c), "api_error", service.TkClientFacingBusy429Message
 	}
 	return http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable"
 }

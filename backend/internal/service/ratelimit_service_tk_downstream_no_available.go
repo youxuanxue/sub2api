@@ -2,15 +2,13 @@ package service
 
 import (
 	"net/http"
-	"strings"
 )
 
 func tkIsDownstreamNoAvailableAccounts(upstreamMsg string, responseBody []byte) bool {
-	needle := ErrNoAvailableAccounts.Error() // "no available accounts"
-	if strings.Contains(strings.ToLower(upstreamMsg), needle) {
-		return true
-	}
-	return strings.Contains(strings.ToLower(string(responseBody)), needle)
+	// SSOT: service.TkBodyLooksLikeGatewayCapacityBusy429 — recognizes both the
+	// current public busy copy (api_error) and legacy "no available accounts"
+	// phrases. Upstream-limit busy 429s (rate_limit_error) must not match.
+	return TkBodyLooksLikeGatewayCapacityBusy429(upstreamMsg, responseBody)
 }
 
 // tkSkipDownstreamNoAvailableAccountsPenalty is true when an Anthropic upstream

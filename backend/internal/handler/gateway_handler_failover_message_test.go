@@ -71,7 +71,8 @@ func TestFailoverExhaustedUsesCapacityClientMetadata(t *testing.T) {
 
 			require.Equal(t, http.StatusTooManyRequests, recorder.Code)
 			require.Equal(t, service.NoAvailableAccountsRetryAfterSeconds, recorder.Header().Get("Retry-After"))
-			require.Contains(t, recorder.Body.String(), "No available accounts")
+			require.Contains(t, recorder.Body.String(), service.TkClientFacingBusy429Message)
+			require.NotContains(t, recorder.Body.String(), "No available accounts")
 		})
 	}
 }

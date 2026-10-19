@@ -502,9 +502,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		errType = "upstream_error"
 		errMsg = "Upstream access forbidden, please contact administrator"
 	case 429:
-		statusCode = http.StatusTooManyRequests
-		errType = "rate_limit_error"
-		errMsg = "Upstream rate limit exceeded, please retry later"
+		statusCode, errType, errMsg = TkMapUpstreamStatusToClient429()
 	case 529:
 		statusCode = http.StatusServiceUnavailable
 		errType = "overloaded_error"

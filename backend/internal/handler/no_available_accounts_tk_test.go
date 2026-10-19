@@ -35,7 +35,7 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 		require.Equal(t, http.StatusTooManyRequests, status)
 		assert.Equal(t, "api_error", errType)
 		assert.Equal(t, tkNoAvailableAccountsRetryAfterSeconds, w.Header().Get("Retry-After"))
-		assert.Contains(t, msg, "No available accounts")
+		assert.Equal(t, service.TkClientFacingBusy429Message, msg)
 	})
 
 	t.Run("channel_pricing_restriction_returns_400", func(t *testing.T) {

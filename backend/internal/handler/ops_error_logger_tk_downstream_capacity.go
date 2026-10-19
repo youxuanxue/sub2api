@@ -28,8 +28,10 @@ func tkUpstreamDownstreamCapacity(c *gin.Context) bool {
 	if combined == "" {
 		return false
 	}
-	// isOpsNoAvailableAccountMessage already lowercases; the second check uses the
-	// service-owned exact matcher for current and rolling-version failover envelopes.
+	// isOpsNoAvailableAccountMessage already lowercases; capacity busy SSOT covers
+	// the current public copy (api_error) plus legacy no-available phrases.
+	// Failover-exhausted envelopes keep the service-owned exact matcher.
 	return isOpsNoAvailableAccountMessage(combined) ||
+		service.TkBodyLooksLikeGatewayCapacityBusy429(msg, []byte(body)) ||
 		service.IsGatewayFailoverMessage(msg, []byte(body))
 }

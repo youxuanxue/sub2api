@@ -969,7 +969,7 @@ func (s *GeminiMessagesCompatService) writeGeminiChatCompletionsMappedError(
 			errType = "rate_limit_error"
 		}
 		if errMsg == "Upstream request failed" {
-			errMsg = "Upstream rate limit exceeded, please retry later"
+			errMsg = TkClientFacingBusy429Message
 		}
 	case 529:
 		statusCode = http.StatusServiceUnavailable

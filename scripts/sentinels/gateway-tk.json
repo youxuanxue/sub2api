@@ -4199,9 +4199,9 @@
         "func tkSkipDownstreamNoAvailableAccountsPenalty(statusCode int, upstreamMsg string, responseBody []byte) bool",
         "func tkSkipDownstreamFailoverExhaustedPenalty(statusCode int, upstreamMsg string, responseBody []byte) bool",
         "IsGatewayFailoverMessage(upstreamMsg, responseBody)",
-        "ErrNoAvailableAccounts.Error()"
+        "TkBodyLooksLikeGatewayCapacityBusy429(upstreamMsg, responseBody)"
       ],
-      "rationale": "'no available accounts' (429/503, empty downstream pool) and the service-owned failover-terminal envelope (G2 narrow, 429/5xx) are TokenKey-generated downstream signals; a healthy forwarding stub must fail over without advancing the 3/3 ladder. Raw proxy HTML 502s, plain Anthropic accounts, and other mirror platforms remain eligible for their existing health handling. Dropping either Kiro helper silently restores stale prod stub errors or whole-pool mirror cooldown from downstream-owned failures."
+      "rationale": "Empty-pool (429/503) and the service-owned failover-terminal envelope (G2 narrow, 429/5xx) are TokenKey-generated downstream signals; a healthy forwarding stub must fail over without advancing the 3/3 ladder. Capacity recognition is owned by TkBodyLooksLikeGatewayCapacityBusy429 (current busy copy + legacy no-available phrases). Raw proxy HTML 502s, plain Anthropic accounts, and other mirror platforms remain eligible for their existing health handling. Dropping either helper silently restores stale prod stub errors or whole-pool mirror cooldown from downstream-owned failures."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
@@ -16630,6 +16630,49 @@
         "func TestUS067_NativeResponsesRetainsFullDiagnosticInput("
       ],
       "rationale": "Real native Responses ingress retains the complete request for protection diagnostics."
+    },
+    {
+      "path": "backend/internal/service/client_facing_busy_429_tk.go",
+      "must_contain": [
+        "TkClientFacingBusy429Message = \"The service is temporarily busy. Please try again later.\"",
+        "func TkAnnotateBusy429Ops(",
+        "func TkSanitizeBusy429WireMessage(",
+        "func TkMapUpstreamStatusToClient429(",
+        "func TkBodyLooksLikeGatewayCapacityBusy429("
+      ],
+      "rationale": "SSOT for public HTTP 429 capacity/upstream-limit copy. Wire bodies must never expose pool/account wording; ops keeps internal detail via TkAnnotateBusy429Ops. Nested-stub penalty skip distinguishes empty-pool (api_error) from upstream-limit (rate_limit_error) after the public message is unified."
+    },
+    {
+      "path": "backend/internal/handler/busy_429_wire_sanitize_tk.go",
+      "must_contain": [
+        "func tkSanitizeBusy429WireMessage(",
+        "service.TkSanitizeBusy429WireMessage(status, message)",
+        "service.TkAnnotateBusy429Ops(c, errType, message)"
+      ],
+      "rationale": "Handler choke-point sanitize so ClientMessage / failover leaks cannot ship legacy no-available / upstream-rate-limit phrases on HTTP 429."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "message = tkSanitizeBusy429WireMessage(c, status, errType, message)",
+        "return service.TkMapUpstreamStatusToClient429()"
+      ],
+      "must_not_contain": [
+        "\"Upstream rate limit exceeded, please retry later\""
+      ],
+      "rationale": "Anthropic gateway mapUpstreamError 429 branch and streaming/JSON error writers must consume the busy-429 SSOT; forbidding the legacy upstream-limit literal prevents silent reintroduction."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "message = tkSanitizeBusy429WireMessage(c, status, errType, message)",
+        "return service.TkMapUpstreamStatusToClient429()",
+        "service.TkClientFacingBusy429Message"
+      ],
+      "must_not_contain": [
+        "\"Upstream rate limit exceeded, please retry later\""
+      ],
+      "rationale": "OpenAI gateway 429 mapping and error writers consume the busy-429 SSOT; forbidding the legacy upstream-limit literal prevents merge regressions. Ops-only 'No available accounts' detail strings remain allowed via TkAnnotateBusy429Ops."
     }
   ]
 }

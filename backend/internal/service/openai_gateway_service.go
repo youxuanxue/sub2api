@@ -833,6 +833,11 @@ func resolveOpenAIWSFallbackErrorResponse(err error) (statusCode int, errType st
 		}
 	}
 	clientMessage = upstreamMessage
+	// Public wire copy hides upstream/account wording; upstreamMessage stays
+	// detailed for ops (returned separately by this helper).
+	if statusCode == http.StatusTooManyRequests || reason == "upstream_rate_limited" {
+		clientMessage = TkClientFacingBusy429Message
+	}
 	return statusCode, errType, clientMessage, upstreamMessage, true
 }
 

@@ -2280,7 +2280,8 @@ func (h *OpenAIGatewayHandler) handleOpenAIProfitVetoExhausted(
 ) {
 	reqLog.Warn("openai.profit_veto_attempts_exhausted", zap.Int("profit_veto_count", vetoCount))
 	markOpsRoutingCapacityLimited(c)
-	h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", profitVetoExhaustedMessage, streamStarted)
+	service.TkAnnotateBusy429Ops(c, "api_error", profitVetoExhaustedOpsDetail)
+	h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", service.TkClientFacingBusy429Message, streamStarted)
 }
 
 func (h *OpenAIGatewayHandler) acquireResponsesAccountSlot(
@@ -2317,7 +2318,8 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 	}
 	if selection == nil || selection.Account == nil {
 		markOpsRoutingCapacityLimited(c)
-		writeError(http.StatusServiceUnavailable, "api_error", "", "No available accounts")
+		service.TkAnnotateBusy429Ops(c, "api_error", "No available accounts")
+		writeError(tkNoAvailableAccounts(c), "api_error", "", service.TkClientFacingBusy429Message)
 		return nil, openAISlotAcquireFailed
 	}
 
@@ -2347,7 +2349,8 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 	}
 	if selection.WaitPlan == nil {
 		markOpsRoutingCapacityLimited(c)
-		writeError(http.StatusServiceUnavailable, "api_error", "", "No available accounts")
+		service.TkAnnotateBusy429Ops(c, "api_error", "No available accounts")
+		writeError(tkNoAvailableAccounts(c), "api_error", "", service.TkClientFacingBusy429Message)
 		return nil, openAISlotAcquireFailed
 	}
 
@@ -3674,7 +3677,15 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 
 	// 记录原始上游状态码，以便 ops 错误日志捕获真实的上游错误
 	upstreamMsg := service.ExtractUpstreamErrorMessage(responseBody)
-	service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
+	if statusCode == http.StatusTooManyRequests {
+		detail := upstreamMsg
+		if detail == "" {
+			detail = "upstream status 429"
+		}
+		service.TkAnnotateBusy429Ops(c, "rate_limit_error", detail)
+	} else {
+		service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
+	}
 
 	// 使用默认的错误映射
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
@@ -3728,7 +3739,11 @@ func isSafeRetryAfter(value string) bool {
 // handleFailoverExhaustedSimple 简化版本，用于没有响应体的情况
 func (h *OpenAIGatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
-	service.SetOpsUpstreamError(c, statusCode, errMsg, "")
+	if statusCode == http.StatusTooManyRequests {
+		service.TkAnnotateBusy429Ops(c, errType, "upstream status 429")
+	} else {
+		service.SetOpsUpstreamError(c, statusCode, errMsg, "")
+	}
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
 
@@ -3739,7 +3754,7 @@ func (h *OpenAIGatewayHandler) mapUpstreamError(statusCode int) (int, string, st
 	case 403:
 		return http.StatusBadGateway, "upstream_error", "Upstream access forbidden, please contact administrator"
 	case 429:
-		return http.StatusTooManyRequests, "rate_limit_error", "Upstream rate limit exceeded, please retry later"
+		return service.TkMapUpstreamStatusToClient429()
 	case 529:
 		return http.StatusServiceUnavailable, "upstream_error", "Upstream service overloaded, please retry later"
 	case 500, 502, 503, 504:
@@ -3763,6 +3778,7 @@ func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCode(
 	streamStarted bool,
 	countTowardsSLA bool,
 ) {
+	message = tkSanitizeBusy429WireMessage(c, status, errType, message)
 	// body-signal compact 心跳可能已把响应头提交为 200：先停心跳（建立
 	// happens-before，接管 ResponseWriter），并升级为流内错误处理。
 	if service.StopOpenAICompactSSEKeepaliveCommitted(c) {
@@ -3967,6 +3983,7 @@ func openAIFirstOutputFailoverExhausted(failoverErr *service.UpstreamFailoverErr
 
 // errorResponse returns OpenAI API format error response
 func (h *OpenAIGatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
+	message = tkSanitizeBusy429WireMessage(c, status, errType, message)
 	// body-signal compact 心跳可能已把响应头提交为 200：JSON 错误体会与已
 	// 提交的 SSE 流交错，必须降级为 response.failed 终止事件（#3887）。
 	if service.StopOpenAICompactSSEKeepaliveCommitted(c) {

@@ -70,7 +70,7 @@ func TestClassifySelectionFailureError_RateLimitedPool(t *testing.T) {
 	)
 
 	require.Equal(t, http.StatusTooManyRequests, got.Status)
-	require.Equal(t, "rate_limit_error", got.ErrType)
+	require.Equal(t, "api_error", got.ErrType, "capacity-shaped all-rate-limited must stay api_error for nested stub skip")
 	require.Contains(t, got.Message, "rate-limited")
 	require.Equal(t, fallback, classifySelectionFailureError(fmt.Errorf("model_rate_limited=0"), fallback))
 	require.Equal(t, fallback, classifySelectionFailureError(fmt.Errorf("no available accounts"), fallback))
@@ -300,6 +300,11 @@ func TestClassifySelectionFailureError_StillUpgradesNonModelNotFoundFallback(t *
 	)
 
 	require.Equal(t, http.StatusTooManyRequests, got.Status)
-	require.Equal(t, "rate_limit_error", got.ErrType)
+	require.Equal(t, "api_error", got.ErrType)
 	require.False(t, got.ModelNotFound)
+
+	// Public wire after busy SSOT must still be recognized as gateway capacity
+	// so nested stubs skip cooling (R-001 / R-003).
+	wire := []byte(`{"type":"error","error":{"type":"` + got.ErrType + `","message":"` + service.TkClientFacingBusy429Message + `"}}`)
+	require.True(t, service.TkBodyLooksLikeGatewayCapacityBusy429(got.ErrType, wire))
 }

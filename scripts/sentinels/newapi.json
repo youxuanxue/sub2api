@@ -1332,9 +1332,11 @@
         "AccountShouldLocalEstimateCountTokens(account)",
         "AccountUsesOfficialOpenAIUpstream(account)",
         "nativeOpenAIBaseURLForAccount(account)",
-        "buildOpenAIResponsesInputTokensURL(validatedURL)"
+        "buildOpenAIResponsesInputTokensURL(validatedURL)",
+        "TkClientFacingBusy429Message",
+        "TkSanitizeBusy429WireMessage(status, message)"
       ],
-      "rationale": "Anthropic-compatible count_tokens must consult the official-OpenAI-host SSOT before any HTTP. Foreign credentials (newapi Ali/Qwen, CN providers, empty native URL) local-estimate. Agent Plan still uses nativeOpenAIBaseURLForAccount so Ark credentials go to /api/plan/v3/responses/input_tokens instead of api.openai.com."
+      "rationale": "Anthropic-compatible count_tokens must consult the official-OpenAI-host SSOT before any HTTP. Foreign credentials (newapi Ali/Qwen, CN providers, empty native URL) local-estimate. Agent Plan still uses nativeOpenAIBaseURLForAccount so Ark credentials go to /api/plan/v3/responses/input_tokens instead of api.openai.com. Nil-account / capacity error writers must emit the shared busy-429 SSOT (and sanitize at the write helper) so pool/account wording cannot leak on the wire."
     },
     {
       "path": "backend/internal/service/openai_gateway_count_tokens_fallback.go",

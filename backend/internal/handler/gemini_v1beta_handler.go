@@ -92,7 +92,9 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		// A model-list request has no requested model to classify. Keep an
 		// empty Gemini pool as a service-unavailable response instead of the
 		// request-level 429 capacity hint used by generation endpoints.
-		googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error())
+		// Busy429 SSOT is HTTP-429-only; 503 uses non-account generic copy.
+		service.SetOpsUpstreamError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error(), "")
+		googleError(c, http.StatusServiceUnavailable, "Service temporarily unavailable")
 		return
 	}
 
@@ -580,12 +582,11 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, modelName, modelName, service.PlatformGemini)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+					service.TkAnnotateBusy429Ops(c, "api_error", "No available Gemini accounts: "+err.Error())
+					googleError(c, tkNoAvailableAccounts(c), service.TkClientFacingBusy429Message)
+					return
 				}
-				message := cls.Message
-				if !cls.ModelNotFound {
-					message = "No available Gemini accounts: " + err.Error()
-				}
-				googleError(c, cls.Status, message)
+				googleError(c, cls.Status, cls.Message)
 				return
 			}
 			action := fs.HandleSelectionExhausted(c.Request.Context(), errors.Is(err, service.ErrThinPoolAllExcluded))
@@ -611,7 +612,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 				zap.Int64("account_id", account.ID),
 				zap.Int("channel_type", account.ChannelType),
 			)
-			googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts")
+			markOpsRoutingCapacityLimited(c)
+			service.TkAnnotateBusy429Ops(c, "api_error", "No available Gemini accounts")
+			googleError(c, tkNoAvailableAccounts(c), service.TkClientFacingBusy429Message)
 			return
 		}
 		setOpsSelectedAccountFrom(c, account)
@@ -647,7 +650,8 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		if !selection.Acquired {
 			if selection.WaitPlan == nil {
 				markOpsRoutingCapacityLimited(c)
-				googleError(c, tkNoAvailableAccounts(c), "No available accounts")
+				service.TkAnnotateBusy429Ops(c, "api_error", "No available accounts")
+				googleError(c, tkNoAvailableAccounts(c), service.TkClientFacingBusy429Message)
 				return
 			}
 			accountWaitCounted := false
@@ -700,7 +704,8 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			if fs.RecordProfitVeto(account.ID) == FailoverExhausted {
 				reqLog.Warn("gemini.profit_veto_attempts_exhausted", zap.Int("profit_veto_count", fs.ProfitVetoCount()))
 				markOpsRoutingCapacityLimited(c)
-				googleError(c, http.StatusServiceUnavailable, profitVetoExhaustedMessage)
+				service.TkAnnotateBusy429Ops(c, "api_error", profitVetoExhaustedOpsDetail)
+				googleError(c, tkNoAvailableAccounts(c), service.TkClientFacingBusy429Message)
 				return
 			}
 			continue
@@ -869,7 +874,7 @@ func mapGeminiUpstreamError(statusCode int) (int, string) {
 	case 403:
 		return http.StatusBadGateway, "Upstream access forbidden, please contact administrator"
 	case 429:
-		return http.StatusTooManyRequests, "Upstream rate limit exceeded, please retry later"
+		return http.StatusTooManyRequests, service.TkClientFacingBusy429Message
 	case 529:
 		return http.StatusServiceUnavailable, "Upstream service overloaded, please retry later"
 	case 500, 502, 503, 504:
@@ -884,6 +889,7 @@ type pathParseError struct{ msg string }
 func (e *pathParseError) Error() string { return e.msg }
 
 func googleError(c *gin.Context, status int, message string) {
+	message = tkSanitizeBusy429StatusMessage(c, status, message)
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    status,

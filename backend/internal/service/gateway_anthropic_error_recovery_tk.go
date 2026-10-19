@@ -40,6 +40,12 @@ func tkWriteAnthropicErrorResponse(c *gin.Context, statusCode int, errType, mess
 		message = "prompt is too long: " + message
 	}
 	if payload == nil {
+		if public, sanitized := TkSanitizeBusy429WireMessage(statusCode, message); sanitized {
+			TkAnnotateBusy429Ops(c, errType, message)
+			message = public
+		} else {
+			message = public
+		}
 		payload, _ = json.Marshal(gin.H{"type": "error", "error": gin.H{"type": errType, "message": message}})
 	}
 	MarkResponseCommitted(c)

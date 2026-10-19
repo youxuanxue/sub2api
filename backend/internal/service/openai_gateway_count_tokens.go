@@ -50,7 +50,8 @@ func (s *OpenAIGatewayService) ForwardResponsesInputTokens(
 	body []byte,
 ) error {
 	if account == nil {
-		writeOpenAIResponsesInputTokensError(c, http.StatusServiceUnavailable, "api_error", "No available OpenAI accounts")
+		TkAnnotateBusy429Ops(c, "api_error", "No available OpenAI accounts")
+		writeOpenAIResponsesInputTokensError(c, http.StatusTooManyRequests, "api_error", TkClientFacingBusy429Message)
 		return fmt.Errorf("responses input_tokens: missing account")
 	}
 
@@ -205,6 +206,7 @@ func writeOpenAIResponsesInputTokensFallback(c *gin.Context, account *Account, p
 }
 
 func writeOpenAIResponsesInputTokensError(c *gin.Context, status int, errType, message string) {
+	message, _ = TkSanitizeBusy429WireMessage(status, message)
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"type":    errType,
@@ -261,7 +263,8 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 	defaultMappedModel string,
 ) error {
 	if account == nil {
-		writeAnthropicCountTokensError(c, http.StatusServiceUnavailable, "api_error", "No available OpenAI accounts")
+		TkAnnotateBusy429Ops(c, "api_error", "No available OpenAI accounts")
+		writeAnthropicCountTokensError(c, http.StatusTooManyRequests, "api_error", TkClientFacingBusy429Message)
 		return fmt.Errorf("count_tokens: missing account")
 	}
 
@@ -512,6 +515,7 @@ func (s *OpenAIGatewayService) buildInputTokensUpstreamRequest(
 }
 
 func writeAnthropicCountTokensError(c *gin.Context, status int, errType, message string) {
+	message, _ = TkSanitizeBusy429WireMessage(status, message)
 	c.JSON(status, gin.H{
 		"type": "error",
 		"error": gin.H{

@@ -21,7 +21,6 @@ func (h *GatewayHandler) tkHandleFailoverClientStatus(
 	}
 	// 记录原始上游状态码，以便 ops 错误日志捕获真实的上游错误。
 	upstreamMsg := service.ExtractUpstreamErrorMessage(responseBody)
-	service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
 	if retryAfter := failoverErr.ResponseHeaders.Get("Retry-After"); retryAfter != "" {
 		c.Header("Retry-After", retryAfter)
 	}
@@ -32,6 +31,19 @@ func (h *GatewayHandler) tkHandleFailoverClientStatus(
 	errType := strings.TrimSpace(failoverErr.ClientErrorType)
 	if errType == "" {
 		errType = "api_error"
+	}
+	if failoverErr.ClientStatusCode == http.StatusTooManyRequests {
+		detail := message
+		if detail == "" {
+			detail = upstreamMsg
+		}
+		if detail == "" {
+			detail = "upstream status 429"
+		}
+		service.TkAnnotateBusy429Ops(c, errType, detail)
+		message = service.TkClientFacingBusy429Message
+	} else {
+		service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
 	}
 	h.handleStreamingAwareError(c, failoverErr.ClientStatusCode, errType, message, streamStarted)
 	return true

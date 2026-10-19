@@ -146,6 +146,7 @@ func (h *OpenAIGatewayHandler) tkRespondCompactNotSupported(
 		return false
 	}
 	markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-	h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "compact_not_supported", "No available OpenAI accounts support /responses/compact", streamStarted)
+	service.TkAnnotateBusy429Ops(c, "compact_not_supported", "No available OpenAI accounts support /responses/compact")
+	h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "compact_not_supported", service.TkClientFacingBusy429Message, streamStarted)
 	return true
 }

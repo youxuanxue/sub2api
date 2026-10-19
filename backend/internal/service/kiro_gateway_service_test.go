@@ -1177,7 +1177,7 @@ func TestClassifyKiroForwardError(t *testing.T) {
 	_, quota := classifyKiroForwardError(fmt.Errorf("quota exhausted on AmazonQ"), "claude-sonnet-4-5")
 	var quotaErr *KiroEndpointQuotaExhaustedError
 	require.ErrorAs(t, quota, &quotaErr)
-	require.Equal(t, tkKiroEndpointQuotaExhaustedClient, quotaErr.ClientMessage())
+	require.Equal(t, TkClientFacingBusy429Message, quotaErr.ClientMessage())
 }
 
 func TestClassifyKiroForwardError_TransportFailureTriggersFailover(t *testing.T) {

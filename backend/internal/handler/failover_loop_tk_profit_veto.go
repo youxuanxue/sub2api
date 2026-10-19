@@ -17,9 +17,10 @@ import (
 // 同时把整池越线时的无谓选号开销限制在常数级。
 const maxProfitVetoAttempts = 10
 
-// profitVetoExhaustedMessage 是利润否决次数耗尽时返回给客户端的文案。
-// 语义上等同于「无可用账号」：候选账号都不满足分组的利润约束。
-const profitVetoExhaustedMessage = "No available accounts: all candidates rejected by group profit control"
+// profitVetoExhaustedOpsDetail is the INTERNAL ops phrase when profit-veto
+// attempts are exhausted. Semantic equivalent of empty-pool capacity; the
+// client-facing body is service.TkClientFacingBusy429Message.
+const profitVetoExhaustedOpsDetail = "No available accounts: all candidates rejected by group profit control"
 
 // RecordProfitVeto 记录一次分组利润门终检否决：把账号加入排除列表（同时登记到
 // 利润否决集，使其不被 503 退避分支清掉）并递增否决计数。

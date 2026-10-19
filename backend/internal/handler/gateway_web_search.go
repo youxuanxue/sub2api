@@ -166,9 +166,10 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 		}
 		if selected == nil || selected.Account == nil {
 			if attempt == 0 {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{
+				service.TkAnnotateBusy429Ops(c, "scheduling_error", "No available accounts")
+				c.JSON(tkNoAvailableAccounts(c), gin.H{"error": gin.H{
 					"type":    "scheduling_error",
-					"message": "No available accounts",
+					"message": service.TkClientFacingBusy429Message,
 				}})
 				return
 			}
@@ -216,9 +217,10 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 		return
 	}
 	if account == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{
+		service.TkAnnotateBusy429Ops(c, "scheduling_error", "No available accounts")
+		c.JSON(tkNoAvailableAccounts(c), gin.H{"error": gin.H{
 			"type":    "scheduling_error",
-			"message": "No available accounts",
+			"message": service.TkClientFacingBusy429Message,
 		}})
 		return
 	}

@@ -264,7 +264,8 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		if !selection.Acquired {
 			if selection.WaitPlan == nil {
 				markOpsRoutingCapacityLimited(c)
-				h.responsesErrorResponse(c, tkNoAvailableAccounts(c), "api_error", "No available accounts")
+				service.TkAnnotateBusy429Ops(c, "api_error", "No available accounts")
+				h.responsesErrorResponse(c, tkNoAvailableAccounts(c), "api_error", service.TkClientFacingBusy429Message)
 				return
 			}
 			accountReleaseFunc, err = h.concurrencyHelper.AcquireAccountSlotWithWaitTimeout(
@@ -293,7 +294,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			reqLog.Debug("gateway.responses.account_slot_profit_vetoed", zap.Int64("account_id", account.ID), zap.String("reason", reason))
 			if fs.RecordProfitVeto(account.ID) == FailoverExhausted {
 				reqLog.Warn("gateway.responses.profit_veto_attempts_exhausted", zap.Int("profit_veto_count", fs.ProfitVetoCount()))
-				h.responsesErrorResponse(c, http.StatusServiceUnavailable, "api_error", profitVetoExhaustedMessage)
+				markOpsRoutingCapacityLimited(c)
+				service.TkAnnotateBusy429Ops(c, "api_error", profitVetoExhaustedOpsDetail)
+				h.responsesErrorResponse(c, tkNoAvailableAccounts(c), "api_error", service.TkClientFacingBusy429Message)
 				return
 			}
 			continue
@@ -390,6 +393,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 // responsesErrorResponse writes an error in OpenAI Responses API format.
 func (h *GatewayHandler) responsesErrorResponse(c *gin.Context, status int, code, message string) {
+	message = tkSanitizeBusy429WireMessage(c, status, code, message)
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    code,
@@ -421,7 +425,11 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 		service.SetOpsUpstreamError(c, statusCode, service.OpenAISilentRefusalClientMessage(), "")
 		status, code, message = http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage()
 	} else if lastErr != nil && statusCode == http.StatusTooManyRequests {
-		status, code, message = http.StatusTooManyRequests, "rate_limit_error", "All available accounts are currently rate-limited. Please retry later."
+		// Upstream-limit family: failover exhausted after account(s) returned 429.
+		// Keep rate_limit_error so nested stubs still cool; selection-time
+		// all-model-rate-limited uses classifySelectionFailureError → api_error.
+		service.TkAnnotateBusy429Ops(c, "rate_limit_error", "Upstream rate limit exceeded, please retry later")
+		status, code, message = http.StatusTooManyRequests, "rate_limit_error", service.TkClientFacingBusy429Message
 	}
 	if lastErr != nil && lastErr.ClientStatusCode > 0 {
 		statusCode = lastErr.ClientStatusCode
@@ -435,6 +443,7 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 	} else {
 		statusCode = status
 	}
+	message = tkSanitizeBusy429WireMessage(c, status, code, message)
 	if streamStarted {
 		// A slot-wait heartbeat commits HTTP 200 before any upstream response.
 		// In that case a terminal frame is still required; once any semantic or

@@ -68,8 +68,14 @@ func classifySelectionFailureError(err error, fallback noAccountErrorClassificat
 		return fallback
 	}
 	return noAccountErrorClassification{
-		Status:  http.StatusTooManyRequests,
-		ErrType: "rate_limit_error",
+		Status: http.StatusTooManyRequests,
+		// api_error (not rate_limit_error): this is gateway capacity — every
+		// model-capable account is cooled — same family as empty-pool. After
+		// the public busy-message SSOT, nested stubs distinguish capacity from
+		// upstream-limit by error.type (+ optional code=no_available_accounts).
+		ErrType: "api_error",
+		// Public copy is sanitized at the write site via TkClientFacingBusy429Message;
+		// this Message is the INTERNAL ops detail (annotate before write).
 		Message: "All available accounts are currently rate-limited. Please retry later.",
 	}
 }

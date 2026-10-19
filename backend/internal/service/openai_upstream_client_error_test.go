@@ -249,7 +249,7 @@ func TestHandleErrorResponse_NonDeterministicStatusesKeepGeneric502(t *testing.T
 			http.StatusBadGateway, "upstream_error", "Upstream access forbidden, please contact administrator"},
 		// 429 保持独立映射。
 		{"rate_limited", http.StatusTooManyRequests, `{"error":{"message":"Rate limit reached"}}`,
-			http.StatusTooManyRequests, "rate_limit_error", "Upstream rate limit exceeded, please retry later"},
+			http.StatusTooManyRequests, "rate_limit_error", TkClientFacingBusy429Message},
 	}
 
 	for _, tc := range cases {

@@ -96,7 +96,9 @@ func (s *GatewayService) tkHandleAnthropicRequestOwned429(c *gin.Context, accoun
 	if !known {
 		if tkSkipDownstreamNoAvailableAccountsPenalty(resp.StatusCode, upstreamMsg, respBody) ||
 			tkSkipDownstreamFailoverExhaustedPenalty(resp.StatusCode, upstreamMsg, respBody) ||
-			strings.Contains(normalized, "upstream rate limit exceeded") {
+			strings.Contains(normalized, "upstream rate limit exceeded") ||
+			TkLooksLikeLegacyUpstreamLimitClientMessage(upstreamMsg) ||
+			TkIsClientFacingBusy429Message(upstreamMsg) {
 			return nil, nil, false
 		}
 	}
@@ -150,7 +152,7 @@ func (s *GatewayService) tkHandleAnthropicRequestOwned429(c *gin.Context, accoun
 			"type": "error",
 			"error": gin.H{
 				"type":    "rate_limit_error",
-				"message": "Upstream rate limit exceeded, please retry later",
+				"message": TkClientFacingBusy429Message,
 			},
 		})
 	}
