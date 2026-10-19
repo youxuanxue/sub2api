@@ -45,7 +45,6 @@ func TestOAuthWebSearchHistoryPreservesNoToolsSemantics(t *testing.T) {
 
 func TestOAuthWebSearchHistoryDoesNotBroadenToolPermissions(t *testing.T) {
 	for _, fragment := range []string{
-		`"tools":[{"type":"function","name":"lookup"}],"tool_choice":"auto"`,
 		`"tools":[],"tool_choice":"required"`,
 		`"tools":[],"tool_choice":{"type":"function","name":"lookup"}`,
 		`"tools":{"invalid":"declaration"}`,
@@ -59,7 +58,7 @@ func TestOAuthWebSearchHistoryDoesNotBroadenToolPermissions(t *testing.T) {
 	}
 	for _, body := range []string{
 		`{"input":[{"role":"user","content":"web_search_call"}],"tools":[]}`,
-		`{"input":[{"type":"web_search_call"},{"type":"additional_tools","tools":[{"type":"function","name":"lookup"}]}]}`,
+		`{"input":[{"type":"web_search_call"},{"type":"additional_tools","tools":[{"type":"unknown"}]}]}`,
 	} {
 		next, changed, err := normalizeOpenAIOAuthWebSearchHistory([]byte(body), true)
 		require.NoError(t, err)

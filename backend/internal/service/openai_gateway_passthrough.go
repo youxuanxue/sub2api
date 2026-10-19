@@ -1496,6 +1496,10 @@ func (s *OpenAIGatewayService) recordOpenAIStreamUpstreamError(
 	payload []byte,
 	message string,
 ) string {
+	if isOpenAIResponseProtectionUnavailable(message, payload) {
+		recordOpenAIResponseProtectionDiagnostic(c, account)
+	}
+
 	message = sanitizeUpstreamErrorMessage(strings.TrimSpace(message))
 	if message == "" {
 		message = "OpenAI upstream response failed"

@@ -15544,9 +15544,12 @@
       "path": "backend/internal/service/openai_oauth_web_search_history_tk.go",
       "must_contain": [
         "func normalizeOpenAIOAuthWebSearchHistory(",
-        "func isOpenAIResponseProtectionUnavailable("
+        "func isOpenAIResponseProtectionUnavailable(",
+        "func openAIOAuthHistoryToolChoice(",
+        "func planOpenAIOAuthWebSearchHistory(",
+        "func textOpenAIOAuthSearchHistory("
       ],
-      "rationale": "OAuth no-tools history declaration repair and exact protection error recognition share one owner; active caller tool permissions remain unchanged."
+      "rationale": "OAuth search-history declarations, namespace text conversion and original executable-tool restrictions share one owner; unsupported selections remain unchanged."
     },
     {
       "path": "backend/internal/service/openai_gateway_forward.go",
@@ -15554,7 +15557,7 @@
         "normalizeOpenAIOAuthWebSearchHistory(body,",
         "account.IsOpenAIOAuthLike() && !isCompactRequest"
       ],
-      "rationale": "Converted Responses must repair no-tools hosted-search history after body reconstruction, excluding legacy compact."
+      "rationale": "Converted Responses must repair hosted-search history after body reconstruction, excluding legacy compact."
     },
     {
       "path": "backend/internal/service/openai_gateway_request_body.go",
@@ -15587,6 +15590,19 @@
         "func TestResponseProtectionStopsAccountAmplificationWithoutClient400("
       ],
       "rationale": "Regression tests cover actual Forward payloads, caller tool permission preservation and terminal failures without client-status reclassification."
+    },
+    {
+      "path": "backend/internal/service/us067_oauth_search_history_test.go",
+      "must_contain": [
+        "func TestUS067_PreservesActiveToolSelection(",
+        "func TestUS067_NeverAuthorizesUndeclaredTools(",
+        "func TestUS067_ForwardPreservesActiveTools(",
+        "func TestUS067_DiagnosticIsBoundedAndEmittedOnce(",
+        "func TestUS067_NamespaceHistoryTextPreservesContextAndPermissions(",
+        "func TestUS067_ForwardNamespaceHistoryText(",
+        "func TestUS067_NamespaceHistoryTextRejectsUnsupportedShapes("
+      ],
+      "rationale": "Active search-history repair preserves caller tool permissions, Forward payloads and bounded diagnostics."
     },
     {
       "path": "backend/internal/repository/http_upstream.go",
@@ -16583,6 +16599,37 @@
         "_evaluate_boundary(forward_reasons, snapshot, now)"
       ],
       "rationale": "Paused archive checks must retain boundary coverage and reject unexpected service activity."
+    },
+    {
+      "path": "backend/internal/service/openai_response_protection_diagnostic_tk.go",
+      "must_contain": [
+        "func recordOpenAIResponseProtectionDiagnostic(",
+        "func inspectOpenAIProtectionBody(",
+        "planOpenAIOAuthWebSearchHistory(body)",
+        "openai.response_protection"
+      ],
+      "rationale": "Protection failures retain only bounded structural evidence, reusing the normalization owner."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "must_contain": [
+        "recordOpenAIResponseProtectionDiagnostic(c, account)"
+      ],
+      "rationale": "The shared stream-failure recorder emits protection diagnostics for converted and passthrough requests."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "setOpsRequestModelAndBody(c, \"\", false, body)"
+      ],
+      "rationale": "Native Responses retains full diagnostic input before normalization, including content beyond the QA prefix."
+    },
+    {
+      "path": "backend/internal/handler/us067_oauth_search_history_test.go",
+      "must_contain": [
+        "func TestUS067_NativeResponsesRetainsFullDiagnosticInput("
+      ],
+      "rationale": "Real native Responses ingress retains the complete request for protection diagnostics."
     }
   ]
 }
