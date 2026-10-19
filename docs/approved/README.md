@@ -7,6 +7,8 @@ revised_at: 2026-09-03
 
 # Approved docs index
 
+- [cn-prod 私有镜像分发](cn-prod-image-distribution.md)：CI S3 中转、SSM 预下载和不中断网关的边界。
+
 - [OAuth 搜索历史与工具权限](openai-search-history-tool-permissions.md)：历史声明补全、原工具权限及保护错误诊断。
 
 - [Antigravity 模型能力修复](antigravity-model-capability-repair.md)：保留 Argon、统一发现入口、模型级冷却与已确认无效映射清理。

@@ -338,6 +338,24 @@ jobs:
           fi
           bash scripts/checks/release-image-binaries.sh "${IMAGE}" "${PLATFORMS}"
 
+      - name: Record verified cn-prod image source
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          python3 - <<'PY_SOURCE'
+          import json, os, subprocess
+          from pathlib import Path
+          source = {"tag": os.environ["RELEASE_TAG"].removeprefix("v"),
+                    "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()}
+          Path("cn-image-source.json").write_text(json.dumps(source) + "\n")
+          PY_SOURCE
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cn-image-source
+          path: cn-image-source.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload model surface bundle release asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
