@@ -16903,6 +16903,26 @@
       "rationale": "Distribute only successful release artifacts using trusted main code and prewarm without promotion; workflow_dispatch may backfill only from a successful Release run id."
     },
     {
+      "path": "backend/internal/service/candidate_selection_tk.go",
+      "must_contain": [
+        "r.orderAffinityFallback(pool, loads, counts, failureCounts)",
+        "r.hasSoftAffinity = false",
+        "r.hasSoftAffinity = true",
+        "float64(loads[a.ID].CurrentConcurrency)/float64(a.Concurrency) <"
+      ],
+      "rationale": "All-platform fallback compares occupied-capacity ratios only within equivalent bands, preserving usable soft affinity and required execution ownership."
+    },
+    {
+      "path": "backend/internal/service/candidate_affinity_fallback_tk_test.go",
+      "must_contain": [
+        "TestCandidateAffinityFallbackSelection",
+        "TestCandidateAffinityFallbackOrderingBoundaries",
+        "TestCandidateAffinityFallbackLoadFailureKeepsSticky",
+        "TestCandidateAffinityFallbackBindingLifecycle"
+      ],
+      "rationale": "Behavior regressions preserve warm affinity, fallback load selection, scope and binding lifecycle."
+    },
+    {
       "path": ".github/workflows/ops-daily-diagnostics.yml",
       "must_contain": [
         "/var/lib/tokenkey/postgres-backup/health.json",

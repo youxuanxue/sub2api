@@ -316,6 +316,15 @@
         "backend/internal/service/pricing_scope_consistency_tk_test.go::TestPricingScopeImageRequestedSizeMatchesSettlement",
         "backend/internal/handler/openai_images_controls_test.go::TestOpenAIImageHandlersRejectUnpricedRequestedSize"
       ]
+    },
+    "AC-047": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_affinity_fallback_tk_test.go::TestCandidateAffinityFallbackSelection",
+        "backend/internal/service/candidate_affinity_fallback_tk_test.go::TestCandidateAffinityFallbackOrderingBoundaries",
+        "backend/internal/service/candidate_affinity_fallback_tk_test.go::TestCandidateAffinityFallbackLoadFailureKeepsSticky",
+        "backend/internal/service/candidate_affinity_fallback_tk_test.go::TestCandidateAffinityFallbackBindingLifecycle"
+      ]
     }
   },
   "operational_observations": ".testing/user-stories/stories/US-050-candidate-eligibility-ssot.md#coverage-boundaries"

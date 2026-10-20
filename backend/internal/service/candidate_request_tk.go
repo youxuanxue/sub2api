@@ -29,6 +29,7 @@ type CandidateRequest struct {
 	websocket             bool
 	session               string
 	promptCacheSession    string
+	hasSoftAffinity       bool // Recomputed from the binding and account pool on each selection.
 	continuationAccountID int64
 	current               *candidateExecutionPath
 	subscription          *UserSubscription
