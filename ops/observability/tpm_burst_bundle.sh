@@ -19,7 +19,17 @@ shift || true
 CALIBRATE_JSON="${CALIBRATE_JSON:-/tmp/tpm-recipe1/calibrate-repo-explain-n5.json}"
 PROMPT_FILE="${PROMPT_FILE:-/tmp/tpm-recipe1/sub2api-explain-prompt.txt}"
 OUT_DIR="${OUT_DIR:-/tmp/tpm-recipe1/formal-$(date +%Y%m%d-%H%M%S)}"
-BASE_URL="${TOKENKEY_BASE_URL:-https://api-cn.tokenkey.dev}"
+# api-cn.tokenkey.dev DNS is cut over to AWS Tokyo — default to UCloud static IP.
+# shellcheck disable=SC2016
+read -r UCLOUD_ORIGIN HOST_HEADER_DEFAULT < <(
+  python3 -c "
+import json
+d=json.load(open('deploy/domestic/prod-target.json'))
+print(d['public_origin'].rstrip('/'), d.get('fallback_domain') or 'api-cn.tokenkey.dev')
+"
+)
+BASE_URL="${TOKENKEY_BASE_URL:-$UCLOUD_ORIGIN}"
+HOST_HEADER="${TOKENKEY_HOST_HEADER:-$HOST_HEADER_DEFAULT}"
 MODEL="${MODEL:-kimi-k3}"
 MAX_TOKENS="${MAX_TOKENS:-1200}"
 MONITOR_DURATION_S="${MONITOR_DURATION_S:-240}"
@@ -35,9 +45,13 @@ usage() {
 
 Env overrides:
   CALIBRATE_JSON PROMPT_FILE OUT_DIR TOKENKEY_API_KEY TOKENKEY_BASE_URL
+  TOKENKEY_HOST_HEADER (default prod-target fallback_domain when BASE_URL is UCloud IP)
   MODEL MAX_TOKENS MONITOR_DURATION_S MONITOR_INTERVAL_S EXPECTED_INSTANCE_ID
   TOTAL_REQUESTS MAX_INFLIGHT APPROVE
   TPM_BURST_POOL_SLOTS|POOL_SLOTS  (accounts×concurrency; required for non-legacy pools)
+
+Default BASE_URL=$UCLOUD_ORIGIN (UCloud static IP from prod-target.json).
+Do NOT use https://api-cn.tokenkey.dev — that DNS currently points at AWS Tokyo.
 EOF
 }
 
@@ -45,6 +59,19 @@ pool_slot_args() {
   if [ -n "${POOL_SLOTS}" ]; then
     printf '%s\n' --pool-slots "$POOL_SLOTS"
   fi
+}
+
+host_args() {
+  printf '%s\n' --host-header "$HOST_HEADER"
+}
+
+refuse_aws_domain_base_url() {
+  case "$BASE_URL" in
+    *api-cn.tokenkey.dev*)
+      echo "{\"phase\":\"bundle_refused\",\"error\":\"BASE_URL=$BASE_URL uses AWS-cutover DNS; set TOKENKEY_BASE_URL=$UCLOUD_ORIGIN\"}" >&2
+      exit 2
+      ;;
+  esac
 }
 
 need_files() {
@@ -60,6 +87,7 @@ need_files() {
 
 cmd_prepare() {
   need_files
+  refuse_aws_domain_base_url
   mkdir -p "$OUT_DIR"
   # shellcheck disable=SC2046
   echo "=== plan ==="
@@ -73,6 +101,7 @@ cmd_prepare() {
     --from "$CALIBRATE_JSON" \
     --prompt-file "$PROMPT_FILE" \
     --base-url "$BASE_URL" \
+    $(host_args) \
     --model "$MODEL" \
     --max-tokens "$MAX_TOKENS" \
     $(pool_slot_args) \
@@ -100,6 +129,7 @@ EOF
 
 cmd_dry_run() {
   need_files
+  refuse_aws_domain_base_url
   mkdir -p "$OUT_DIR"
   echo "=== client dry-run (no traffic) ==="
   # shellcheck disable=SC2046
@@ -107,6 +137,7 @@ cmd_dry_run() {
     --from "$CALIBRATE_JSON" \
     --prompt-file "$PROMPT_FILE" \
     --base-url "$BASE_URL" \
+    $(host_args) \
     --model "$MODEL" \
     --max-tokens "$MAX_TOKENS" \
     $(pool_slot_args) \
@@ -131,6 +162,7 @@ cmd_dry_run() {
 
 cmd_run() {
   need_files
+  refuse_aws_domain_base_url
   if [ "${APPROVE:-}" != "$APPROVE_TOKEN" ]; then
     echo "{\"phase\":\"bundle_blocked\",\"need\":\"APPROVE=$APPROVE_TOKEN\"}" >&2
     exit 10
@@ -140,6 +172,7 @@ cmd_run() {
     exit 2
   fi
   mkdir -p "$OUT_DIR"
+  echo "target_base_url=$BASE_URL host_header=$HOST_HEADER"
 
   TOTAL_ARGS=()
   if [ -n "${TOTAL_REQUESTS:-}" ]; then TOTAL_ARGS+=(--total-requests "$TOTAL_REQUESTS"); fi
@@ -165,16 +198,18 @@ cmd_run() {
   echo "=== start formal client load ==="
   set +e
   # shellcheck disable=SC2046
+  # "${TOTAL_ARGS[@]+"${TOTAL_ARGS[@]}"}" is set -u safe when the array is empty.
   APPROVE="$APPROVE_TOKEN" python3 ops/observability/tpm_burst_recipe1.py formal \
     --from "$CALIBRATE_JSON" \
     --prompt-file "$PROMPT_FILE" \
     --base-url "$BASE_URL" \
+    $(host_args) \
     --api-key "${TOKENKEY_API_KEY:-${OPENAI_API_KEY:-}}" \
     --model "$MODEL" \
     --max-tokens "$MAX_TOKENS" \
     --out "$OUT_DIR/formal-summary.json" \
     $(pool_slot_args) \
-    "${TOTAL_ARGS[@]}" \
+    ${TOTAL_ARGS[@]+"${TOTAL_ARGS[@]}"} \
     2>"$OUT_DIR/formal.err" | tee "$OUT_DIR/formal.out"
   LOAD_RC=${PIPESTATUS[0]}
   set -e

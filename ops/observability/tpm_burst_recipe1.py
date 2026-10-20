@@ -8,9 +8,10 @@ Examples:
   python3 ops/observability/tpm_burst_recipe1.py estimate \\
       --tok-per-req 40000 --duration-s 45 --pool-slots 252 --target-tpm 20000000
 
-  # ≤9 live calibrations against a gateway (writes JSON report)
+  # ≤9 live calibrations against UCloud cn-prod (writes JSON report).
+  # Do NOT use https://api-cn.tokenkey.dev — that DNS is cut over to AWS Tokyo.
   python3 ops/observability/tpm_burst_recipe1.py calibrate \\
-      --base-url https://api-cn.tokenkey.dev --api-key "$KEY" \\
+      --api-key "$KEY" \\
       --model kimi-k3 --prompt-tokens-target 35000 --max-tokens 5000 --n 5 \\
       --out /tmp/tpm-calibrate.json
 
@@ -24,6 +25,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import math
 import os
@@ -31,6 +33,7 @@ import statistics
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -46,6 +49,75 @@ _LEGACY_POOL_SLOTS_SNAPSHOT = 21 * 12
 DEFAULT_FAILURE_OVERHEAD = 1.15
 DEFAULT_SAFETY_TPM_MARGIN = 1.05
 FORMAL_WALL_SLACK_S = 75.0
+_DEFAULT_CN_HOST_HEADER = "api-cn.tokenkey.dev"
+_PROD_TARGET_JSON = Path(__file__).resolve().parents[2] / "deploy/domestic/prod-target.json"
+
+
+def _load_prod_target() -> dict[str, Any]:
+    try:
+        data = json.loads(_PROD_TARGET_JSON.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def cn_prod_host_header_default() -> str:
+    """Caddy vhost name from prod-target fallback_domain (not for TLS SNI)."""
+    domain = str(_load_prod_target().get("fallback_domain") or "").strip()
+    return domain or _DEFAULT_CN_HOST_HEADER
+
+
+def cn_prod_public_origin() -> str:
+    """UCloud static-IP origin from deploy/domestic/prod-target.json (not DNS)."""
+    raw = os.environ.get("TOKENKEY_BASE_URL", "").strip()
+    if raw:
+        return raw.rstrip("/")
+    origin = str(_load_prod_target().get("public_origin") or "").strip().rstrip("/")
+    if origin:
+        return origin
+    raise FileNotFoundError(
+        f"missing public_origin in {_PROD_TARGET_JSON}; set TOKENKEY_BASE_URL"
+    )
+
+
+def _hostname(url: str) -> str:
+    return (urllib.parse.urlparse(url).hostname or "").strip().lower()
+
+
+def _is_ip_host(host: str) -> bool:
+    if not host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+def resolve_host_header(base_url: str, explicit: str | None = None) -> str | None:
+    """When base_url is a bare IP, send Host for Caddy vhost (HTTP only; TLS uses IP SAN)."""
+    if explicit is not None and str(explicit).strip():
+        return str(explicit).strip()
+    env = os.environ.get("TOKENKEY_HOST_HEADER", "").strip()
+    if env:
+        return env
+    host = _hostname(base_url)
+    if _is_ip_host(host):
+        return cn_prod_host_header_default()
+    return None
+
+
+def refuse_aws_cutover_domain(base_url: str) -> str | None:
+    """api-cn.tokenkey.dev currently resolves to Tokyo AWS — not UCloud cn-prod."""
+    host = _hostname(base_url)
+    cutover = cn_prod_host_header_default().lower()
+    if host == cutover:
+        return (
+            f"base_url host {host!r} is cut over to AWS Tokyo DNS; "
+            f"use UCloud static IP from deploy/domestic/prod-target.json "
+            f"(public_origin) plus Host: {cutover}"
+        )
+    return None
 
 
 def default_pool_slots() -> int:
@@ -275,6 +347,7 @@ def _chat_completion(
     max_tokens: int,
     timeout_s: float,
     temperature: float = 0.7,
+    host_header: str | None = None,
 ) -> Sample:
     url = base_url.rstrip("/") + "/v1/chat/completions"
     body = {
@@ -285,15 +358,19 @@ def _chat_completion(
         "temperature": temperature,
     }
     data = json.dumps(body).encode("utf-8")
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "User-Agent": "tokenkey-tpm-burst-recipe1/1.0",
+    }
+    hh = resolve_host_header(base_url, host_header)
+    if hh:
+        headers["Host"] = hh
     req = urllib.request.Request(
         url,
         data=data,
         method="POST",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "User-Agent": "tokenkey-tpm-burst-recipe1/1.0",
-        },
+        headers=headers,
     )
     t0 = time.perf_counter()
     try:
@@ -355,6 +432,16 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     if not api_key:
         print("missing --api-key or TOKENKEY_API_KEY/OPENAI_API_KEY", file=sys.stderr)
         return 2
+    try:
+        base_url = str(args.base_url or cn_prod_public_origin())
+    except FileNotFoundError as e:
+        print(json.dumps({"phase": "calibrate_refused", "error": str(e)}, ensure_ascii=False), file=sys.stderr)
+        return 2
+    bad = refuse_aws_cutover_domain(base_url)
+    if bad:
+        print(json.dumps({"phase": "calibrate_refused", "error": bad}, ensure_ascii=False), file=sys.stderr)
+        return 2
+    host_header = resolve_host_header(base_url, getattr(args, "host_header", None))
 
     force_completion = not bool(args.no_force_completion)
     prompt_file = str(args.prompt_file or "")
@@ -379,7 +466,8 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
                 "force_completion": force_completion,
                 "prompt_file": prompt_file or None,
                 "prompt_chars": len(messages[0]["content"]),
-                "base_url": args.base_url,
+                "base_url": base_url,
+                "host_header": host_header,
             },
             ensure_ascii=False,
         ),
@@ -387,13 +475,14 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     )
     for i in range(n):
         s = _chat_completion(
-            base_url=args.base_url,
+            base_url=base_url,
             api_key=api_key,
             model=args.model,
             messages=messages,
             max_tokens=int(args.max_tokens),
             timeout_s=float(args.timeout_s),
             temperature=0.2 if prompt_file else 0.7,
+            host_header=host_header,
         )
         samples.append(s)
         print(json.dumps({"phase": "calibrate_sample", "i": i + 1, **asdict(s)}, ensure_ascii=False), flush=True)
@@ -405,7 +494,8 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
         "phase": "calibrate_report",
         "recipe": "1",
         "model": args.model,
-        "base_url": args.base_url,
+        "base_url": base_url,
+        "host_header": host_header,
         "prompt_tokens_target": args.prompt_tokens_target,
         "max_tokens": args.max_tokens,
         "force_completion": force_completion,
@@ -569,6 +659,7 @@ def _run_formal_load(
     max_inflight: int,
     timeout_s: float,
     wall_limit_s: float,
+    host_header: str | None = None,
 ) -> dict[str, Any]:
     from collections import Counter
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -587,6 +678,7 @@ def _run_formal_load(
                 "phase": "formal_start",
                 "model": model,
                 "base_url": base_url,
+                "host_header": host_header,
                 "prompt_file": prompt_file,
                 "prompt_chars": len(messages[0]["content"]),
                 "max_tokens": max_tokens,
@@ -608,6 +700,7 @@ def _run_formal_load(
             max_tokens=max_tokens,
             timeout_s=timeout_s,
             temperature=0.2,
+            host_header=host_header,
         )
         print(
             json.dumps({"phase": "formal_sample", "i": i, **asdict(s)}, ensure_ascii=False),
@@ -704,6 +797,17 @@ def cmd_formal(args: argparse.Namespace) -> int:
         print(f"prompt file not found: {prompt_file}", file=sys.stderr)
         return 2
 
+    try:
+        base_url = str(args.base_url or cn_prod_public_origin())
+    except FileNotFoundError as e:
+        print(json.dumps({"phase": "formal_refused_wrong_origin", "error": str(e)}, ensure_ascii=False), file=sys.stderr)
+        return 2
+    bad = refuse_aws_cutover_domain(base_url)
+    if bad:
+        print(json.dumps({"phase": "formal_refused_wrong_origin", "error": bad}, ensure_ascii=False), file=sys.stderr)
+        return 2
+    host_header = resolve_host_header(base_url, getattr(args, "host_header", None))
+
     # Recompute with live pool slots so stale calibrate JSON (e.g. 21×12) cannot pin capacity.
     pool_slots = resolve_pool_slots(getattr(args, "pool_slots", None))
     target_tpm = int(embedded.get("target_tpm") or DEFAULT_TARGET_TPM)
@@ -730,7 +834,8 @@ def cmd_formal(args: argparse.Namespace) -> int:
         "dry_run": dry,
         "approve_present": approve == FORMAL_APPROVE_TOKEN,
         "model": args.model or report.get("model") or "kimi-k3",
-        "base_url": args.base_url,
+        "base_url": base_url,
+        "host_header": host_header,
         "prompt_file": prompt_file,
         "max_tokens": max_tokens,
         "total_requests": total,
@@ -763,7 +868,7 @@ def cmd_formal(args: argparse.Namespace) -> int:
         return 4
 
     summary = _run_formal_load(
-        base_url=args.base_url,
+        base_url=base_url,
         api_key=api_key,
         model=str(args.model or report.get("model") or "kimi-k3"),
         prompt_file=prompt_file,
@@ -772,6 +877,7 @@ def cmd_formal(args: argparse.Namespace) -> int:
         max_inflight=inflight,
         timeout_s=float(args.timeout_s),
         wall_limit_s=wall_limit_s,
+        host_header=host_header,
     )
     if args.out:
         Path(args.out).write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -785,7 +891,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     c = sub.add_parser("calibrate", help=f"live calibrate with 1..{CALIBRATE_MAX_N} requests")
-    c.add_argument("--base-url", default=os.environ.get("TOKENKEY_BASE_URL", "https://api-cn.tokenkey.dev"))
+    c.add_argument(
+        "--base-url",
+        default="",
+        help="default: TOKENKEY_BASE_URL or deploy/domestic/prod-target.json public_origin (UCloud IP)",
+    )
+    c.add_argument("--host-header", default="", help="Host header when base-url is an IP")
     c.add_argument("--api-key", default="")
     c.add_argument("--model", default="kimi-k3")
     c.add_argument("--prompt-tokens-target", type=int, default=35000)
@@ -828,7 +939,12 @@ def build_parser() -> argparse.ArgumentParser:
     f = sub.add_parser("formal", help="formal load (blocked without APPROVE; --dry-run ok)")
     f.add_argument("--from", dest="from_path", required=True)
     f.add_argument("--prompt-file", default="")
-    f.add_argument("--base-url", default=os.environ.get("TOKENKEY_BASE_URL", "https://api-cn.tokenkey.dev"))
+    f.add_argument(
+        "--base-url",
+        default="",
+        help="default: TOKENKEY_BASE_URL or UCloud public_origin; refuses api-cn.tokenkey.dev DNS",
+    )
+    f.add_argument("--host-header", default="", help="Host header when base-url is an IP")
     f.add_argument("--api-key", default="")
     f.add_argument("--model", default="")
     f.add_argument("--max-tokens", type=int, default=0)

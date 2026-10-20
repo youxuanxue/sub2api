@@ -20,7 +20,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tpm_burst_recipe1 import (  # noqa: E402
     FORMAL_APPROVE_TOKEN,
     _run_formal_load,
+    cn_prod_host_header_default,
+    cn_prod_public_origin,
     estimate_plan,
+    refuse_aws_cutover_domain,
+    resolve_host_header,
 )
 
 
@@ -226,6 +230,37 @@ class CliGateTest(unittest.TestCase):
         plan = json.loads(proc.stdout)
         self.assertEqual(plan["estimate"]["pool_slots"], 1464)
         self.assertGreater(plan["estimate"]["tpm_ceiling_conservative"], 100_000_000)
+
+
+class OriginGuardTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._prev_base = os.environ.pop("TOKENKEY_BASE_URL", None)
+        self._prev_host = os.environ.pop("TOKENKEY_HOST_HEADER", None)
+
+    def tearDown(self) -> None:
+        if self._prev_base is None:
+            os.environ.pop("TOKENKEY_BASE_URL", None)
+        else:
+            os.environ["TOKENKEY_BASE_URL"] = self._prev_base
+        if self._prev_host is None:
+            os.environ.pop("TOKENKEY_HOST_HEADER", None)
+        else:
+            os.environ["TOKENKEY_HOST_HEADER"] = self._prev_host
+
+    def test_refuse_api_cn_domain(self) -> None:
+        origin = cn_prod_public_origin()
+        host = cn_prod_host_header_default()
+        self.assertIsNotNone(refuse_aws_cutover_domain(f"https://{host}"))
+        self.assertIsNone(refuse_aws_cutover_domain(origin))
+
+    def test_host_header_for_ip_origin(self) -> None:
+        origin = cn_prod_public_origin()
+        self.assertEqual(resolve_host_header(origin), cn_prod_host_header_default())
+        self.assertIsNone(resolve_host_header("https://example.com"))
+
+    def test_env_base_url_overrides_prod_target(self) -> None:
+        os.environ["TOKENKEY_BASE_URL"] = "https://127.0.0.1:8443"
+        self.assertEqual(cn_prod_public_origin(), "https://127.0.0.1:8443")
 
 
 class FormalRunnerTest(unittest.TestCase):
