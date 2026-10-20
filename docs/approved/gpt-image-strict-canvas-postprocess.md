@@ -61,7 +61,7 @@ OAuth / Setup-Token 生图**一律**走：
 `POST https://chatgpt.com/backend-api/codex/responses`
 
 请求体为 Responses + `tools[{type:image_generation,...}]` + `tool_choice=image_generation`，
-驱动模型默认 `gpt-5.6-luna`，图像模型在 `tools[0].model`。
+驱动模型默认 `gpt-5.6-terra`，图像模型在 `tools[0].model`。
 **不再**默认调用 `/backend-api/codex/images/generations` Direct 端点。
 
 ### 1. 尺寸准入（OAuth Responses 生图）
@@ -77,9 +77,11 @@ OAuth / Setup-Token 生图**一律**走：
 
 ### 1b. Responses 驱动主模型（main model）与 style
 
-- 驱动模型默认 `gpt-5.6-luna`（`SUB2API_IMAGES_MAIN_MODEL` 可覆盖）；图像模型仍在 `tools[0].model`。
+- 驱动模型默认 `gpt-5.6-terra`（`SUB2API_IMAGES_MAIN_MODEL` 可覆盖）；图像模型仍在 `tools[0].model`。
+  2026-10-20 OAuth 实测：ChatGPT Codex 拒 mini/nano/5.5；热门文本槽
+  （`gpt-6.1-sol` 等）移出默认链，减轻与聊天抢容量。
 - 上游以 plan-gated 400 拒绝当前驱动时，**同账号**按
-  `gpt-6.1-sol` → `gpt-5.6-terra` → `gpt-5.6-sol` → `gpt-6-astra` 重试
+  `gpt-6-sol` → `gpt-5.6-luna` → `gpt-6-luna` 重试
   （`SUB2API_IMAGES_MAIN_MODEL_FALLBACKS` 可覆盖整条链），不冷却生图容量。
 - 客户端 `style` **不写** `tools[].style`；折入 prompt 文本
   `Style guidance: <style>`（在 `marker AR=...` 之前），与 codex2api 一致。

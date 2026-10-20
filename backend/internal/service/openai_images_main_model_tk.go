@@ -7,14 +7,16 @@ import (
 )
 
 // Default Responses driver fallbacks when ChatGPT Codex rejects the preferred
-// main model (codex2api imagesMainModelFallbacks parity). Preferred model comes
-// from SUB2API_IMAGES_MAIN_MODEL or openAIImagesResponsesMainModel; this list
-// is tried next on the same account without cooling image capacity.
+// main model. Preferred model comes from SUB2API_IMAGES_MAIN_MODEL or
+// openAIImagesResponsesMainModel; this list is tried next on the same account
+// without cooling image capacity.
+// Prefer cooler Codex-supported drivers (prod 2026-10-20 upstream probe):
+// ChatGPT OAuth rejects mini/nano/5.5; hot text slots (6.1-sol/astra) stay out of
+// the default image-driver chain so image traffic does not amplify text overload.
 var openAIImagesMainModelFallbacks = []string{
-	"gpt-6.1-sol",
-	"gpt-5.6-terra",
-	"gpt-5.6-sol",
-	"gpt-6-astra",
+	"gpt-6-sol",
+	"gpt-5.6-luna",
+	"gpt-6-luna",
 }
 
 type openAIImagesMainModelOverrideKey struct{}

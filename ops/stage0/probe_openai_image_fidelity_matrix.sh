@@ -6,7 +6,7 @@ set -euo pipefail
 
 ACCOUNT_ID="${ACCOUNT_ID:?ACCOUNT_ID required}"
 IMAGE_MODEL="${IMAGE_MODEL:-gpt-image-2}"
-MAIN_MODEL="${MAIN_MODEL:-gpt-5.6-luna}"
+MAIN_MODEL="${MAIN_MODEL:-gpt-5.6-terra}"
 CASES="${CASES:-01,02,03,04,05,06,08,10}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-150}"
 UPSTREAM_URL="${UPSTREAM_URL:-https://chatgpt.com/backend-api/codex/responses}"
