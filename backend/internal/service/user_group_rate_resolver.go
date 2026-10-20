@@ -44,8 +44,20 @@ func newUserGroupRateResolver(repo UserGroupRateRepository, cache *gocache.Cache
 }
 
 func (r *userGroupRateResolver) Resolve(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
+	multiplier, err := r.ResolveForBilling(ctx, userID, groupID, groupDefaultMultiplier)
+	if err != nil {
+		// Legacy estimates/admission callers cannot return an error. Settlement
+		// must use ResolveForBilling and must never charge this estimate.
+		return 1
+	}
+	return multiplier
+}
+
+// ResolveForBilling only returns a multiplier confirmed by cache or repository.
+// A failed lookup is not evidence that the user has no negotiated discount.
+func (r *userGroupRateResolver) ResolveForBilling(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) (float64, error) {
 	if r == nil || userID <= 0 || groupID <= 0 {
-		return groupDefaultMultiplier
+		return groupDefaultMultiplier, nil
 	}
 
 	key := fmt.Sprintf("%d:%d", userID, groupID)
@@ -53,12 +65,12 @@ func (r *userGroupRateResolver) Resolve(ctx context.Context, userID, groupID int
 		if cached, ok := r.cache.Get(key); ok {
 			if multiplier, castOK := cached.(float64); castOK {
 				userGroupRateCacheHitTotal.Add(1)
-				return multiplier
+				return multiplier, nil
 			}
 		}
 	}
 	if r.repo == nil {
-		return groupDefaultMultiplier
+		return groupDefaultMultiplier, nil
 	}
 	userGroupRateCacheMissTotal.Add(1)
 
@@ -95,14 +107,14 @@ func (r *userGroupRateResolver) Resolve(ctx context.Context, userID, groupID int
 	}
 	if err != nil {
 		userGroupRateCacheFallbackTotal.Add(1)
-		logger.LegacyPrintf(r.logComponent, "get user group rate failed, fallback to multiplier 1: user=%d group=%d err=%v", userID, groupID, err)
-		return 1
+		logger.LegacyPrintf(r.logComponent, "get user group rate failed; billing rate unavailable: user=%d group=%d err=%v", userID, groupID, err)
+		return 0, fmt.Errorf("resolve billing rate user=%d group=%d: %w", userID, groupID, err)
 	}
 
 	multiplier, ok := value.(float64)
 	if !ok {
 		userGroupRateCacheFallbackTotal.Add(1)
-		return 1
+		return 0, fmt.Errorf("invalid billing rate user=%d group=%d", userID, groupID)
 	}
-	return multiplier
+	return multiplier, nil
 }

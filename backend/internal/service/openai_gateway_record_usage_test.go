@@ -671,7 +671,7 @@ func TestOpenAIGatewayServiceRecordUsage_IncludesEndpointMetadata(t *testing.T) 
 	require.Equal(t, "/v1/responses", *usageRepo.lastLog.UpstreamEndpoint)
 }
 
-func TestOpenAIGatewayServiceRecordUsage_FallsBackToOneOnResolverError(t *testing.T) {
+func TestOpenAIGatewayServiceRecordUsage_RejectsUnconfirmedRateOnResolverError(t *testing.T) {
 	groupID := int64(12)
 	groupRate := 1.6
 	usage := OpenAIUsage{InputTokens: 10, OutputTokens: 5, CacheReadInputTokens: 2}
@@ -701,13 +701,10 @@ func TestOpenAIGatewayServiceRecordUsage_FallsBackToOneOnResolverError(t *testin
 		Account: &Account{ID: 3002},
 	})
 
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "resolve billing rate")
 	require.Equal(t, 1, rateRepo.calls)
-	require.NotNil(t, usageRepo.lastLog)
-	require.Equal(t, 1.0, usageRepo.lastLog.RateMultiplier)
-
-	expected := expectedOpenAICost(t, svc, "gpt-5.1", usage, 1.0)
-	require.InDelta(t, expected.ActualCost, userRepo.lastAmount, 1e-12)
+	require.Zero(t, usageRepo.calls)
+	require.Zero(t, userRepo.deductCalls)
 }
 
 func TestOpenAIGatewayServiceRecordUsage_FallsBackToGroupDefaultRateWhenResolverMissing(t *testing.T) {

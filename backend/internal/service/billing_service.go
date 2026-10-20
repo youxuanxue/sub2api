@@ -210,6 +210,11 @@ type UsageTokens struct {
 
 // CostBreakdown 费用明细
 type CostBreakdown struct {
+	// Private settlement metadata travels with a previewed cost to the ledger.
+	// Keeping it on the same value prevents a second rate/model lookup.
+	openAISettlement *openAICustomerFacingCostPrepared
+	claudeSettlement *claudeCustomerFacingCostPrepared
+
 	InputCost                 float64 // 文本输入费用（不含图片输入，图片输入单独记入 ImageInputCost）
 	ImageInputCost            float64 // 图片输入 token 费用（如 gpt-image-2 图片编辑）
 	OutputCost                float64

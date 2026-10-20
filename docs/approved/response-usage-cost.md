@@ -1,7 +1,7 @@
 ---
 title: Response usage.cost（推理响应带回标准官方价）
 status: approved
-approved_by: "user (2026-09-30 conversation: cost 应为标准官方价格而非 actual_cost)"
+approved_by: "user (2026-09-30 conversation: cost 应为标准官方价格而非 actual_cost; 2026-10-20 conversation: 修复已确认的计费缺陷并开 PR)"
 approved_at: 2026-09-30
 created: 2026-09-29
 authors: [agent]
@@ -74,3 +74,15 @@ Universal Key / 直连 Key 的推理响应在已有 `usage` token 字段上，�
 - bridge 回归：真实 Ali adaptor 对本地供应端的流式/非流式请求验证缓存 token、
   `usage.cost == usage_logs.total_cost` 及倍率分离；分片 SSE、Flush、尾帧顺序、
   `usage:null`、无定价、断连及缓冲上限由 `response_usage_cost_bridge_tk_test.go` 验证。
+
+## 结算快照与倍率查询失败
+
+2026-10-20 用户要求修复 cn-prod 已确认的计费缺陷：客户倍率查询超时后按 `1` 计算费用，异步账单重查到 `0.3`，导致实际扣款和记录倍率分裂。本修复范围仅代码和 PR；不授权部署、退款或改写历史账单。
+
+OpenAI / Claude 的预计算费用携带同次结算的倍率、计费模型及所需 token 分类元数据。响应 `usage.cost`、扣费和账单复用该快照，禁止复用旧费用却重新查倍率或模型。没有可信元数据的旧裸费用不用于扣款，重新走结算 owner。正常管理员变价仍可影响尚未成功预计算的请求。
+
+正式结算使用 `ResolveForBilling`：仅成功缓存或成功查询得到的倍率可用于扣款；成功查询但无用户覆盖继续使用组默认倍率。查询错误向上传播，preview 不缓存错误费用，异步结算可在依赖恢复后重新查询。失败不扣款、不伪造零费用成功账单；OpenAI 的既有 deferred hold release 仍执行。准入、候选比较和余额预估保留原先的 `Resolve` 降级契约，本修复不新增请求拒绝条件。
+
+持续依赖故障沿用现有错误返回和 handler 错误日志；当前没有持久化待结算队列和自动重放，因此已服务请求可能需要人工核账，日志不是完整可追偿账本。本 PR 不把该限制包装成免费策略，也不扩建新的队列或追偿系统。
+
+验证：`TestResponseUsageCostSnapshotAndRateFailure` 覆盖两条结算主路径的超时不扣款、恢复后用户专属折扣、成功 preview 后缓存失效/组倍率变化时复用快照，以及长上下文缓存输入分项。既有 RecordUsage、Free Fast、response-model、强制缓存及扣费幂等测试必须继续通过。纯服务变更，无 Web surface。
