@@ -212,7 +212,9 @@ func anthropicToChatCompletionsBody(req *apicompat.AnthropicRequest, upstreamMod
 		"stream":   true,
 	}
 	if len(req.Metadata) > 0 && string(req.Metadata) != "null" {
-		chatReq["metadata"] = json.RawMessage(req.Metadata)
+		// Canonicalize before RawMessage splice: inbound json.RawMessage keeps
+		// duplicate object keys that encoding/json would otherwise leave intact.
+		chatReq["metadata"] = tkBridgeCanonicalJSON(req.Metadata)
 	}
 	if req.MaxTokens > 0 {
 		chatReq["max_tokens"] = req.MaxTokens
@@ -377,7 +379,12 @@ func tkBridgeConvertAssistantMsg(content json.RawMessage) ([]tkBridgeChatMsg, er
 		if b.Type == "tool_use" {
 			args := "{}"
 			if len(b.Input) > 0 {
-				args = string(b.Input)
+				// Collapse duplicate keys inside tool_use.input before embedding
+				// as the OpenAI arguments string.
+				canonical := tkBridgeCanonicalJSON(b.Input)
+				if len(canonical) > 0 && string(canonical) != "null" {
+					args = string(canonical)
+				}
 			}
 			msg.ToolCalls = append(msg.ToolCalls, tkBridgeTC{
 				ID: b.ID, Type: "function",
@@ -425,6 +432,10 @@ func tkBridgeConvertTools(tools []apicompat.AnthropicTool) []map[string]any {
 		params := t.InputSchema
 		if len(params) == 0 || string(params) == "null" {
 			params = json.RawMessage(`{"type":"object","properties":{}}`)
+		} else {
+			// input_schema is json.RawMessage; canonicalize so duplicate keys
+			// from the inbound Anthropic wire body do not survive egress.
+			params = tkBridgeCanonicalJSON(params)
 		}
 		out = append(out, map[string]any{
 			"type": "function",
@@ -436,6 +447,27 @@ func tkBridgeConvertTools(tools []apicompat.AnthropicTool) []map[string]any {
 		})
 	}
 	return out
+}
+
+// tkBridgeCanonicalJSON re-encodes raw JSON through encoding/json so duplicate
+// object keys preserved by json.RawMessage passthrough are collapsed (last
+// value wins). Defense-in-depth for Anthropic→Chat NewAPI egress: strict
+// upstreams may reject duplicate fields; a 2026-10-20 tokensea
+// TS_REQUEST_JSON_INVALID incident motivated the harden, but live A/B on
+// agent.tokensea.ai the same day accepted simple duplicate-key fixtures.
+func tkBridgeCanonicalJSON(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || string(raw) == "null" {
+		return raw
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return raw
+	}
+	out, err := json.Marshal(v)
+	if err != nil {
+		return raw
+	}
+	return json.RawMessage(out)
 }
 
 func tkBridgeConvertToolChoice(raw json.RawMessage) (any, error) {
