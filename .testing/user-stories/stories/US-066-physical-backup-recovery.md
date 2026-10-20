@@ -18,7 +18,7 @@
 3. AC-003 (正向): Given 恢复副本 When 重试真实计费/退款 Then 热表与归档幂等且余额不重复变化。
 4. AC-004 (回归): Given 旧数据库配置 When 准备新配置 Then 只修改备份变量，增量仍每两小时；安装器自身不切换 pgdump；退役由另一个显式授权入口执行。
 5. AC-005 (负向): Given 生产数据宿主或清理失败 When 恢复 Then 拒绝/失败，不发布成功回执。
-6. AC-006 (负向): Given 新备份但 WAL/恢复证据过期 When 监控 Then 告警，不把本地任务退出码当远端可恢复证据。
+6. AC-006 (负向): Given 新备份但 WAL 过期或恢复证据缺失/失败 When 监控 Then 故障告警；只有曾成功而过期的恢复/仓库验证降为每日提醒，不把旧证据当新验证。
 
 7. AC-007 (正向): Given 已验收最新/历史恢复和至少 30 天 S3 留存 When 退役 prod pgdump Then 只停旧 timer、阻止旧导出，数据保留且不重启生产容器。
 8. AC-008 (负向): Given 备份不健康、留存不足、dump 在跑、锁忙或上次操作未完成 When 退役 Then 拒绝，不宣称成功或终止在途任务。
@@ -36,6 +36,8 @@
 - `ops/stage0/test_postgres_backup.py`::`PhysicalBackupTests.test_restore_requires_prior_incremental_and_never_uses_live_volume` (AC-005)
 - `ops/stage0/test_postgres_backup.py`::`PhysicalBackupTests.test_restore_cleanup_failure_cannot_become_success` (AC-005)
 - `ops/observability/test_host_https_watch.py`::`PhysicalBackupWatchTest.test_failed_or_stale_chain_alerts_despite_successful_backup_job` (AC-006)
+- `ops/observability/test_host_https_watch.py`::`PhysicalBackupWatchTest.test_only_expired_successful_evidence_is_advisory` (AC-006)
+- `ops/observability/test_host_https_watch.py`::`PhysicalBackupWatchTest.test_validation_reminder_is_daily_and_never_masks_a_new_fault` (AC-006)
 - `ops/stage0/test_retire_pgdump.py`::`RetirementTests.test_plan_is_read_only_then_apply_and_recheck` (AC-007)
 - `ops/stage0/test_retire_pgdump.py`::`RetirementTests.test_running_dump_and_partial_attempt_refuse` (AC-008)
 - `ops/stage0/test_retire_pgdump.py`::`RetirementTests.test_lock_busy_cannot_change_timer` (AC-008)

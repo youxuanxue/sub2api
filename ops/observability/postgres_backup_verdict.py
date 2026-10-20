@@ -10,9 +10,10 @@ from host_https_watch import physical_backup_fact
 
 def evaluate(path: Path, target: str, now: float) -> dict:
     fact = physical_backup_fact(path, now)
+    severity = fact.get('severity', 'info' if fact['healthy'] else 'error')
     return {'target_id': target, 'kind': 'physical_backup',
-            'status': 'ok' if fact['healthy'] else 'issue_candidate',
-            'severity': 'info' if fact['healthy'] else 'error',
+            'status': ('warning' if severity == 'warning' else 'ok') if fact['healthy'] else 'issue_candidate',
+            'severity': severity,
             'title': f'Physical backup health: {target}',
             'summary': fact['reason'], 'signature': f'physical-backup|{target}'}
 

@@ -26,6 +26,8 @@
       "path": "ops/observability/test_host_https_watch.py",
       "must_contain": [
         "def test_both_observers_cover_cn_ip_and_all_customer_domains(",
+        "def test_only_expired_successful_evidence_is_advisory(",
+        "def test_validation_reminder_is_daily_and_never_masks_a_new_fault(",
         "def test_200_interception_pages_and_degraded_json_are_not_healthy(",
         "def test_two_failures_then_recovery_and_cooldown(",
         "def test_delivery_failure_keeps_previous_state_for_retry("
