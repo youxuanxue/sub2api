@@ -16887,12 +16887,15 @@
       "path": ".github/workflows/distribute-cn-image.yml",
       "must_contain": [
         "workflows: [Release]",
+        "workflow_dispatch:",
         "ref: ${{ github.event.repository.default_branch }}",
-        "run-id: ${{ github.event.workflow_run.id }}",
+        "Require referenced Release run succeeded",
+        "want .github/workflows/release.yml",
+        "run-id: ${{ github.event_name == 'workflow_dispatch' && inputs.release_run_id || github.event.workflow_run.id }}",
         "python3 deploy/domestic/image_distribution.py publish",
         "bash deploy/domestic/deploy_via_ssm.sh pull"
       ],
-      "rationale": "Distribute only successful release artifacts using trusted main code and prewarm without promotion."
+      "rationale": "Distribute only successful release artifacts using trusted main code and prewarm without promotion; workflow_dispatch may backfill only from a successful Release run id."
     }
   ]
 }

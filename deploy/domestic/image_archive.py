@@ -55,6 +55,14 @@ def validate_receipt(receipt, tag, revision, digest=''):
 
 
 def verify_archive(archive, receipt):
+    """Validate a crane --format=legacy (docker-save) archive.
+
+    Receipt keeps the registry OCI/docker *manifest* (compressed blob digests)
+    for provenance. Legacy archives store *uncompressed* layer tars whose
+    digests are config.rootfs.diff_ids — not the registry layer blob digests
+    or sizes. Comparing archive members to receipt.manifest.layers sizes was
+    the 1.8.310 distribute-cn-image failure mode.
+    """
     validate_receipt(receipt, receipt['tag'], receipt['revision'])
     if archive.stat().st_size != receipt['bytes']:
         raise ValueError('archive size mismatch')
@@ -80,13 +88,13 @@ def verify_archive(archive, receipt):
         if (config['architecture'], config['os'], labels['org.opencontainers.image.version'],
             labels['org.opencontainers.image.revision']) != ('amd64', 'linux', receipt['tag'], receipt['revision']):
             raise ValueError('archive architecture/version/revision mismatch')
-        layers = receipt['manifest']['layers']
-        if len(item['Layers']) != len(layers):
+        registry_layers = receipt['manifest']['layers']
+        diff_ids = config.get('rootfs', {}).get('diff_ids') or []
+        if len(item['Layers']) != len(registry_layers) or len(item['Layers']) != len(diff_ids):
             raise ValueError('layer count mismatch')
-        for name, layer in zip(item['Layers'], layers):
-            if bundle.getmember(name).size != layer['size']:
-                raise ValueError('layer size mismatch')
-            if 'sha256:' + sha256(bundle.extractfile(name)) != layer['digest']:
+        # Legacy/docker-save members are uncompressed; digests must equal diff_ids.
+        for name, diff_id in zip(item['Layers'], diff_ids):
+            if 'sha256:' + sha256(bundle.extractfile(name)) != diff_id:
                 raise ValueError('layer digest mismatch')
         # Never let docker load overwrite a mutable public or unrelated local tag.
         if item['RepoTags'] != [receipt['archive_tag']]:

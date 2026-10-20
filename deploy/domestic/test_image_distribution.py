@@ -26,23 +26,27 @@ def digest(raw):
 
 
 def make_archive(path, *, arch='amd64', revision=REV, version=TAG, corrupt_layer=False):
-    layer = b'fixture registry layer'
+    # Legacy/docker-save stores uncompressed layer bytes (diff_ids). Registry
+    # compressed blob digests/sizes intentionally differ — matching real crane output.
+    layer = b'fixture uncompressed layer tar'
+    compressed_blob = b'fixture-compressed-registry-blob-smaller'
     config = {'architecture': arch, 'os': 'linux', 'config': {'Labels': {
         'org.opencontainers.image.version': version, 'org.opencontainers.image.revision': revision}},
-        'rootfs': {'type': 'layers', 'diff_ids': [digest(b'expanded layer')]}}
+        'rootfs': {'type': 'layers', 'diff_ids': [digest(layer)]}}
     raw = json.dumps(config).encode()
     manifest = {'config': {'digest': digest(raw), 'size': len(raw)},
-                'layers': [{'digest': digest(layer), 'size': len(layer)}]}
+                'layers': [{'digest': digest(compressed_blob), 'size': len(compressed_blob)}]}
     manifest_raw = json.dumps(manifest)
     source_digest = digest(manifest_raw.encode())
     load_tag = 'tokenkey-domestic/archive:' + source_digest.removeprefix('sha256:')
-    docker_manifest = [{'Config': 'config.json', 'RepoTags': [load_tag], 'Layers': ['layer.tar.gz']}]
+    docker_manifest = [{'Config': 'config.json', 'RepoTags': [load_tag], 'Layers': ['layer.tar']}]
+    body = b'x' * len(layer) if corrupt_layer else layer
     with tarfile.open(path, 'w') as target:
-        for name, body in [('config.json', raw), ('manifest.json', json.dumps(docker_manifest).encode()),
-                           ('layer.tar.gz', b'x' * len(layer) if corrupt_layer else layer)]:
+        for name, content in [('config.json', raw), ('manifest.json', json.dumps(docker_manifest).encode()),
+                              ('layer.tar', body)]:
             info = tarfile.TarInfo(name)
-            info.size = len(body)
-            target.addfile(info, io.BytesIO(body))
+            info.size = len(content)
+            target.addfile(info, io.BytesIO(content))
     return {'schema_version': 1, 'tag': TAG, 'revision': REV, 'bytes': path.stat().st_size,
                 'archive_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
                 'archive_tag': load_tag, 'source_digest': source_digest, 'manifest': manifest, 'manifest_raw': manifest_raw}
@@ -63,6 +67,20 @@ class ArchiveTests(unittest.TestCase):
         receipt = {**self.receipt, 'bytes': target.stat().st_size,
                    'archive_sha256': hashlib.sha256(target.read_bytes()).hexdigest()}
         self.assertEqual(archive.verify_archive(target, receipt), config)
+
+    def test_legacy_layers_verify_diff_ids_not_registry_blob_sizes(self):
+        """Regression for distribute-cn-image 1.8.310: layer size mismatch.
+
+        Crane legacy archives expand layers; registry manifest.layers[].size is
+        the compressed blob. Verification must use config.rootfs.diff_ids.
+        """
+        with tarfile.open(self.path, 'r:') as bundle:
+            member_size = bundle.getmember('layer.tar').size
+            diff_id = json.loads(bundle.extractfile('config.json').read())['rootfs']['diff_ids'][0]
+        registry_layer = self.receipt['manifest']['layers'][0]
+        self.assertNotEqual(registry_layer['size'], member_size)
+        self.assertNotEqual(registry_layer['digest'], diff_id)
+        archive.verify_archive(self.path, self.receipt)
 
     def test_identity_and_tampered_archives_fail_closed(self):
         for mode in ('arch', 'revision', 'version', 'layer', 'checksum', 'manifest', 'load-tag'):
