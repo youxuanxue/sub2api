@@ -10,6 +10,7 @@ services:
       # Avoids overseas ip-api RTT on cn-prod admin proxy latency. Explicit
       # security.proxy_probe.urls in config.yaml still wins over this preset.
       SECURITY_PROXY_PROBE_PRESET: "domestic"
+      # Pool sized for cn-prod O 8C/8G (mem unchanged from 4C/8G era).
       GOMEMLIMIT: "2GiB"
       DATABASE_MAX_OPEN_CONNS: "40"
       DATABASE_MAX_IDLE_CONNS: "10"
