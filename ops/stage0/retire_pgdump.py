@@ -137,6 +137,12 @@ def main() -> None:
         shutil.copy2(args.watch_config, before / 'watch-config.json')
         shutil.copy2(EXPORTER, before / 'tokenkey-pgdump.sh')
         atomic_json(before / 'plan.json', result)
+        # Close the scheduled-start window before replacing the exporter. A
+        # service already queued on host.lock must finish naturally, not resume
+        # after we have declared retirement complete.
+        run(['systemctl', 'disable', '--now', 'tokenkey-pgdump.timer'])
+        if properties('tokenkey-pgdump.service').get('ActiveState') not in ('inactive', 'failed'):
+            raise BackupError('pgdump started before timer stopped; let it finish and inspect saved plan')
         atomic_json(MARKER, dict(result, status='retiring'))
         original = EXPORTER.read_text()
         temporary = EXPORTER.with_suffix('.retiring')
@@ -145,8 +151,6 @@ def main() -> None:
         temporary.replace(EXPORTER)
         DROPIN.parent.mkdir(parents=True, exist_ok=True)
         DROPIN.write_text('[Unit]\nConditionPathExists=!'+str(MARKER)+'\n')
-        # Stopping a timer never terminates its service; running dump was gated above.
-        run(['systemctl', 'disable', '--now', 'tokenkey-pgdump.timer'])
         run(['systemctl', 'daemon-reload'])
         config.setdefault('paused_jobs', {})['tokenkey-pgdump'] = 'Retired after pgBackRest latest and historical recovery acceptance; retained backups are not deleted.'
         atomic_json(args.watch_config, config)

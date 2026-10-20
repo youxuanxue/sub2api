@@ -47,6 +47,8 @@ python3 /tmp/retire_pgdump.py --expected-host "$EXPECTED_HOST" \
 、旧 exporter 原文件和退役回执；同时给现役 exporter 加拒绝标记，防止绕过 systemd 直接导出。
 已退役再次调用会验证 timer/service/drop-in/watcher，不能只看 marker 就宣称成功。
 若 status=retiring 或配置不一致，立即检查保存的计划及实际状态，不自动删除 marker 或反向恢复任务。
+停 timer 前若恰好启动了导出，工具保留已停的 timer 和 before 资料并退出，不写成功回执；
+让在途任务自然完成，再检查保存的计划处理这次未完成的退役。
 
 取消退役是独立操作：确认仍需旧导出、空间与时段，持相同 host.lock 核对服务空闲后，
 恢复 watcher 的旧配置和保存的 exporter 原文件、移除本次 drop-in/marker、daemon-reload 再恢复 timer。

@@ -106,6 +106,26 @@ class RetirementTests(unittest.TestCase):
         self.assertEqual(self.timer['UnitFileState'], 'enabled')
         self.assertFalse(self.marker.exists())
 
+    def test_dump_starting_before_timer_stop_cannot_complete_retirement(self):
+        original = self.exporter.read_text()
+
+        def timer_race(args):
+            result = self.run_command(args)
+            if args == ['systemctl', 'disable', '--now', 'tokenkey-pgdump.timer']:
+                # A scheduled service entered while retirement held host.lock.
+                # Stopping the timer leaves that service running.
+                self.service['ActiveState'] = 'active'
+            return result
+
+        with patch.object(retire, 'run', side_effect=timer_race):
+            with self.assertRaisesRegex(retire.BackupError, 'pgdump started'):
+                self.invoke(True)
+        self.assertEqual(self.service['ActiveState'], 'active')
+        self.assertEqual(self.timer['UnitFileState'], 'disabled')
+        self.assertFalse(self.marker.exists())
+        self.assertEqual(self.exporter.read_text(), original)
+        self.assertEqual((self.root / 'pgdump/old.sql.gz').read_bytes(), b'retained data')
+
     def test_retention_receipt_cannot_overwrite_saved_baseline(self):
         with patch('sys.argv', ['preserve', '--bucket', 'unused', '--receipt', str(self.receipt), '--apply']), \
                 patch.object(preserve, 'aws') as aws:
