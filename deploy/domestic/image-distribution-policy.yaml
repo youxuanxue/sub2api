@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Prefix-scoped CI access to the existing private cn-prod image transfer bucket.
+Parameters:
+  RunnerRoleName:
+    Type: String
+  BucketName:
+    Type: String
+  ManagedInstanceId:
+    Type: String
+    AllowedPattern: 'mi-[a-f0-9]{17}'
+  SsmRegion:
+    Type: String
+Resources:
+  DistributionPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: tokenkey-cn-image-distribution
+      Roles: [!Ref RunnerRoleName]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: [s3:GetObject, s3:PutObject]
+            Resource: !Sub 'arn:aws:s3:::${BucketName}/cn-prod/images/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'true'
+          - Effect: Allow
+            Action: ssm:SendCommand
+            Resource:
+              - !Sub 'arn:aws:ssm:${SsmRegion}:${AWS::AccountId}:managed-instance/${ManagedInstanceId}'
+              - !Sub 'arn:aws:ssm:${SsmRegion}::document/AWS-RunShellScript'
+          - Effect: Allow
+            Action: [ssm:DescribeInstanceInformation, ssm:GetCommandInvocation]
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: !Ref SsmRegion

@@ -45,8 +45,10 @@ def _purge_ssot_bytecode() -> None:
 _purge_ssot_bytecode()
 from first_output_timeout_ssot import (  # noqa: E402
     EXPECTED_ENV,
+    EXPECTED_ENV_STREAM,
     EXPECTED_GO_STREAM_SECONDS,
     EXPECTED_VIPER,
+    NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX,
     OPENAI_FORCE_HIGH_BODY_BYTES,
 )
 
@@ -63,7 +65,12 @@ OPENAI_FIRST_OUTPUT_GO = (
 COMPOSE_INJECT = STAGE0 / "deploy_via_ssm_bluegreen.sh"
 CONFIG_EXAMPLE = REPO_ROOT / "deploy" / "config.example.yaml"
 REMEDIATE = REPO_ROOT / "ops" / "observability" / "remediate-first-output-timeouts.sh"
+STAGE0_COMPOSE = REPO_ROOT / "deploy" / "aws" / "stage0" / "docker-compose.yml"
+NEWAPI_NONSTREAM_REMEDIATE = (
+    REPO_ROOT / "ops" / "observability" / "remediate-newapi-nonstream-timeout.sh"
+)
 
+# Marked regions + env-fallback rewrites.
 TARGETS = (
     CONFIG_GO,
     STREAM_GO,
@@ -72,6 +79,16 @@ TARGETS = (
     CONFIG_EXAMPLE,
     REMEDIATE,
 )
+
+# Env fallback only (no marked region); rewritten from EXPECTED_ENV.
+ENV_FALLBACK_ONLY = (
+    STAGE0_COMPOSE,
+    NEWAPI_NONSTREAM_REMEDIATE,
+)
+
+NEWAPI_NONSTREAM_VIPER = "gateway.newapi_chat_nonstream_first_output_timeout"
+NEWAPI_NONSTREAM_ENV = "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT"
+NEWAPI_NONSTREAM_DEFAULT = int(EXPECTED_ENV[NEWAPI_NONSTREAM_ENV])
 
 
 def _read(path: pathlib.Path) -> str:
@@ -138,6 +155,55 @@ def rewrite_env_fallbacks(text: str) -> str:
     return text
 
 
+def rewrite_newapi_nonstream_remediate(text: str) -> str:
+    """Pin WANT_TIMEOUT default + max range to SSOT (no marked region)."""
+    text = re.sub(
+        r'WANT_TIMEOUT="\$\{WANT_TIMEOUT:-\d+\}"',
+        f'WANT_TIMEOUT="${{WANT_TIMEOUT:-{NEWAPI_NONSTREAM_DEFAULT}}}"',
+        text,
+        count=1,
+    )
+    text = re.sub(
+        r'\[ "\$WANT_TIMEOUT" -lt 1 \] \|\| \[ "\$WANT_TIMEOUT" -gt \d+ \]',
+        f'[ "$WANT_TIMEOUT" -lt 1 ] || [ "$WANT_TIMEOUT" -gt {NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX} ]',
+        text,
+        count=1,
+    )
+    text = re.sub(
+        r"WANT_TIMEOUT out of allowed range 1\.\.\d+",
+        f"WANT_TIMEOUT out of allowed range 1..{NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX}",
+        text,
+        count=1,
+    )
+    return text
+
+
+def check_newapi_nonstream_max_bound(config_text: str) -> list[str]:
+    """Config validation upper bound must match SSOT max (not hand-copied)."""
+    errors: list[str] = []
+    field = "NewAPIChatNonstreamFirstOutputTimeout"
+    cmp_ok = (
+        f"{field} > {NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX}" in config_text
+        or f"{field} >{NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX}" in config_text
+    )
+    msg_ok = (
+        f"{NEWAPI_NONSTREAM_VIPER} must be between 0-{NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX} seconds"
+        in config_text
+    )
+    if not cmp_ok:
+        errors.append(
+            f"config.go: {field} upper bound must be "
+            f"{NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX} "
+            f"(from ops/stage0/first_output_timeout_ssot.py)"
+        )
+    if not msg_ok:
+        errors.append(
+            f"config.go: validation message must cite 0-{NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX} "
+            f"for {NEWAPI_NONSTREAM_VIPER}"
+        )
+    return errors
+
+
 def body_config_go() -> str:
     lines = [f'\tviper.SetDefault("{key}", {value})' for key, value in EXPECTED_VIPER.items()]
     return "\n".join(lines) + "\n"
@@ -177,8 +243,9 @@ def body_compose_env() -> str:
 
 
 def body_remediate_want() -> str:
-    keys = "\n".join(f"  {key}" for key in EXPECTED_ENV)
-    values = " ".join(EXPECTED_ENV.values())
+    # Stream remediatescript only — NewAPI nonstream has its own owner script.
+    keys = "\n".join(f"  {key}" for key in EXPECTED_ENV_STREAM)
+    values = " ".join(EXPECTED_ENV_STREAM.values())
     return (
         "# Generated — edit ops/stage0/first_output_timeout_ssot.py then:\n"
         "#   python3 scripts/checks/first-output-timeout-ssot.py --apply\n"
@@ -221,8 +288,17 @@ def render_path(path: pathlib.Path, text: str) -> str:
     raise ValueError(f"unknown target {path}")
 
 
+def render_env_fallback_only(path: pathlib.Path, text: str) -> str:
+    if path == NEWAPI_NONSTREAM_REMEDIATE:
+        return rewrite_newapi_nonstream_remediate(rewrite_env_fallbacks(text))
+    return rewrite_env_fallbacks(text)
+
+
 def render_all() -> dict[pathlib.Path, str]:
-    return {path: render_path(path, _read(path)) for path in TARGETS}
+    out = {path: render_path(path, _read(path)) for path in TARGETS}
+    for path in ENV_FALLBACK_ONLY:
+        out[path] = render_env_fallback_only(path, _read(path))
+    return out
 
 
 def drift_errors(rendered: dict[pathlib.Path, str]) -> list[str]:
@@ -234,6 +310,7 @@ def drift_errors(rendered: dict[pathlib.Path, str]) -> list[str]:
                 f"{path.relative_to(REPO_ROOT)} drifted — "
                 "run: python3 scripts/checks/first-output-timeout-ssot.py --apply"
             )
+    errors.extend(check_newapi_nonstream_max_bound(_read(CONFIG_GO)))
     return errors
 
 
@@ -328,7 +405,7 @@ def main() -> int:
     if args.selftest:
         return _selftest()
 
-    missing = [p for p in TARGETS if not p.is_file()]
+    missing = [p for p in (*TARGETS, *ENV_FALLBACK_ONLY) if not p.is_file()]
     if missing:
         for p in missing:
             print(f"FAIL: missing {p.relative_to(REPO_ROOT)}", file=sys.stderr)

@@ -274,3 +274,82 @@ func TestCandidateFailureAttributionDoesNotPenalizeCallerOrDuplicateCooldown(t *
 	}
 	require.True(t, candidateFailureAttributable(&UpstreamFailoverError{StatusCode: 504, Scope: GatewayFailureScopeAccount}))
 }
+
+func TestCandidateFailureAttributionSoftDeprioritizesOpenAICapacityShed(t *testing.T) {
+	overloadedBody := []byte(`{"error":{"message":"Our servers are currently overloaded. Please try again later.","type":"server_error","code":"server_is_overloaded"}}`)
+	for _, flags := range []struct {
+		name string
+		err  *UpstreamFailoverError
+	}{
+		{"http_400_capacity_shed", newOpenAIUpstreamFailoverError(
+			http.StatusBadRequest,
+			http.Header{"X-Request-Id": []string{"rid-http-capacity"}},
+			overloadedBody,
+			"Our servers are currently overloaded. Please try again later.",
+			false,
+		)},
+		{"request_scoped", &UpstreamFailoverError{
+			StatusCode:             http.StatusBadGateway,
+			ResponseBody:           overloadedBody,
+			RequestScopedTransient: true,
+			Scope:                  GatewayFailureScopeAccount,
+		}},
+		{"same_account_retry", &UpstreamFailoverError{
+			StatusCode:             http.StatusServiceUnavailable,
+			ResponseBody:           overloadedBody,
+			RetryableOnSameAccount: true,
+			Scope:                  GatewayFailureScopeAccount,
+		}},
+		{"both_flags", &UpstreamFailoverError{
+			StatusCode:             http.StatusBadGateway,
+			ResponseBody:           overloadedBody,
+			RequestScopedTransient: true,
+			RetryableOnSameAccount: true,
+			Scope:                  GatewayFailureScopeAccount,
+		}},
+	} {
+		t.Run(flags.name, func(t *testing.T) {
+			require.True(t, flags.err.RequestScopedTransient || flags.err.RetryableOnSameAccount)
+			require.True(t, flags.err.ShouldRetryNextAccount())
+			require.True(t, candidateFailureAttributable(flags.err),
+				"capacity shed must feed unified soft priority demotion without hard unsched")
+		})
+	}
+
+	t.Run("selectAccount_demotes_after_threshold", func(t *testing.T) {
+		group := grp(10, PlatformOpenAI, 1, false)
+		group.AllowMessagesDispatch = true
+		model, upstream := "gpt-5.4", "gpt-4o"
+		accounts := []Account{globalCandidateAccount(1, 1, 10), globalCandidateAccount(2, 2, 10)}
+		for i := range accounts {
+			accounts[i].Platform = PlatformOpenAI
+			accounts[i].ChannelType = 1
+			accounts[i].Credentials["model_mapping"] = map[string]any{model: upstream}
+			attachTestProtocolCapability(&accounts[i], protocolrouter.ProtocolChatCompletions)
+		}
+		accounts[0].Concurrency = 1000
+		r, _, key := globalCandidateFixture([]Group{group}, accounts)
+		counter := &candidateFailureTestCounter{counts: map[CandidateFailureScope]int64{}}
+		r.candidateGateway.rateLimitService = &RateLimitService{openaiSaturationCounter: counter}
+		body := []byte(`{"model":"gpt-5.4","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`)
+		ctx, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, "/v1/chat/completions", model, body, "", "")
+		require.NoError(t, err)
+		plan := *state.current.plan
+		failure := newOpenAIUpstreamFailoverError(
+			http.StatusBadRequest,
+			nil,
+			overloadedBody,
+			"Our servers are currently overloaded. Please try again later.",
+			false,
+		)
+		for range int(candidateFailureThreshold) {
+			observed := state.observeFailure(ctx, &accounts[0], plan, failure)
+			require.True(t, candidateFailureAttributable(failure))
+			_ = observed
+		}
+		require.Equal(t, candidateFailureThreshold, counter.counts[CandidateFailureScope{1, upstream}])
+		picked, err := state.selectAccount(ctx, candidateSelectOptions{})
+		require.NoError(t, err)
+		require.Equal(t, int64(2), picked.Account.ID, "HTTP 400 capacity shed must soft-demote after threshold")
+	})
+}

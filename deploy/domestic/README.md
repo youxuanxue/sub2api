@@ -28,19 +28,19 @@
 - `prepare-runtime.py STATE_DIR` 从共享 Stage0 Compose/Caddy 模板生成本机受保护 bundle，
   重用已存在的 secrets，不在 stdout 输出配置或密钥。`STATE_DIR/images.json` 必须来自
   已校验的 amd64 镜像，包含各服务的 `source` digest、`config` digest、归档 `sha256` 与本地 `tag`。
-- `compose.override.yml` 关闭 QA capture/telemetry，并将应用池收在 2C/4G 上限
-  （`GOMEMLIMIT=1GiB`、DB open/idle `40/10`、Redis pool/idle `96/8`）；现网核对/写入用
+- `compose.override.yml` 关闭 QA capture/telemetry，并将应用池对齐 4C/8G
+  （`GOMEMLIMIT=2GiB`、DB open/idle `40/10`、Redis pool/idle `96/8`）。蓝绿
+  `prepare` 会用该文件解析出的池参数覆盖候选容器 env（密钥仍取自线上容器），
+  因此容量 bump 可先起候选再切 Caddy。现网核对/写入还可用
   `ops/observability/probe-cn-prod-pool-env.sh`（经 `run-probe.sh --target cn-prod`，
-  写入需 `APPLY=yes-tune-cn-prod-pools`）；
+  写入需 `APPLY=yes-tune-cn-prod-pools`，会 recreate 当前色）；
   同时注入 `SECURITY_PROXY_PROBE_PRESET=domestic`，让 Admin 代理「出站探测」走国内
   优先链（ipip → ip9 → qq-ip2city → ipify），避免默认境外 `ip-api.com` 在国内 SOCKS
   上出现数秒假延迟。显式 `security.proxy_probe.urls` 仍优先于 preset。
   `compose.local.yml` 只将管理端口绑定到主机 loopback。
-- 默认经 AWS SSM Hybrid 在主机上 `docker pull` 同一 GHCR 发布包（见下方「SSM 蓝绿升级」）。
-  仅当 GHCR/SSM 不可用时才走运维机离线 archive：核验 SHA-256 → `docker load`。Docker 29
-  的 containerd image ID 是加载后的 manifest digest，不能直接拿 config digest 当 image ID
-  查找；应核验 manifest 内的 `config.digest`，再绑定专用本地 tag。`pull_policy: never`
-  防止启动时漂移。
+- 默认由 CI 上传同一 GHCR 构建的 amd64 归档到私有 S3，经 SSM 预下载并校验导入。
+  分发契约见 [cn-prod-image-distribution.md](../../docs/approved/cn-prod-image-distribution.md)。
+  `pull_policy: never` 防止启动时漂移；GHCR 直拉是显式备用路径。
 - 主机运行目录 `/opt/tokenkey`，Compose 文件依次为 `compose.yml`、`compose.override.yml`、
   `compose.local.yml`；环境文件 `.env` 权限 0600。Caddyfile 位于
   `/var/lib/tokenkey/caddy/Caddyfile`。
@@ -66,10 +66,13 @@ SSH 只用于一次性 agent bootstrap 或 UHost 控制台不可用时的恢复�
 SSH 22 或从运维机 scp 离线 tar。入口脚本：
 
 ```bash
-# 1) 主机拉取与 AWS prod 相同的 GHCR 包，校验 amd64 + version label，打本地不可变 tag
-bash deploy/domestic/deploy_via_ssm.sh pull --tag 1.8.306
-# 可选：--digest sha256:… 钉死 amd64/index digest
-# 可选：CN_PROD_SSM_DRY_RUN=1 只打印将下发的 remote 脚本，不 SendCommand
+# 1) Release 成功后 distribute-cn-image.yml 自动上传并预下载；重复调用复用已验证镜像
+# 运维机需 boto3 和现有 AWS 短期身份；revision 是已审完整源码 SHA
+bash deploy/domestic/deploy_via_ssm.sh pull --tag 1.8.306 --revision REVIEWED_FULL_SHA
+# 可选：--digest sha256:… 再校验 amd64 manifest digest（不是 multiarch index）
+# 显式备用路径；旧版本没有 S3 工件时也走此入口
+bash deploy/domestic/deploy_via_ssm.sh pull --transport ghcr --tag 1.8.306 --digest sha256:AMD64_OR_INDEX_DIGEST
+# GHCR 可用 CN_PROD_SSM_DRY_RUN=1 打印脚本；S3 不打印含签名 URL 的脚本
 
 # 2) 同步 bluegreen 控制文件到 /opt/tokenkey/releases/artifacts-ssm/
 bash deploy/domestic/deploy_via_ssm.sh sync-controls
@@ -95,6 +98,36 @@ python3 /opt/tokenkey/releases/artifacts-ssm/bluegreen.py promote \
   --smoke-report /private/candidate-smoke.json \
   --public-url https://UCLOUD_STATIC_IP
 ```
+
+### 私有 S3 分发初始化
+
+发布包含此变更的版本前执行一次。现有桶和地域以 `image-distribution.json` 为准；
+不得替换整个桶策略或删除其它生命周期规则。以下操作只管理分发目录权限/保留期限，
+不更新主机、数据库、网关或 Docker daemon。先跑 preflight。
+
+```bash
+bucket=$(python3 -c 'import json; print(json.load(open("deploy/domestic/image-distribution.json"))["bucket"])')
+region=$(python3 -c 'import json; print(json.load(open("deploy/domestic/image-distribution.json"))["region"])')
+role_arn=$(gh variable get AWS_OIDC_ROLE_ARN -R youxuanxue/sub2api)
+instance=$(python3 -c 'import json; print(json.load(open("deploy/domestic/prod-target.json"))["ssm_instance_id"])')
+ssm_region=$(python3 -c 'import json; print(json.load(open("deploy/domestic/prod-target.json"))["ssm_region"])')
+aws cloudformation deploy --region "$region" --stack-name tokenkey-cn-image-distribution \
+  --template-file deploy/domestic/image-distribution-policy.yaml --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides RunnerRoleName="${role_arn##*/}" BucketName="$bucket" \
+    ManagedInstanceId="$instance" SsmRegion="$ssm_region"
+python3 deploy/domestic/image_distribution_lifecycle.py
+python3 deploy/domestic/image_distribution_lifecycle.py --apply
+```
+
+独立 `distribute-cn-image.yml` 由成功 Release 的 workflow_run 触发，使用默认分支代码
+与已有 main OIDC 信任，不开放其它 tag/branch 信任。下载的版本/revision 仅作数据，
+先与当前 git tag 核对；不 checkout 或执行该标签的脚本。正式切流审批保持原流程。
+S3 对象保留 30 天，非当前版本 7 天；过期版本可显式 GHCR 直拉。
+CI 分发失败明确使独立分发 workflow 失败，但不撤销已构建镜像或操作正在服务的容器。
+归档下载限速 512 KiB/s；预下载复用主机部署锁。锁忙时任务失败可重试。
+预下载成功只表示镜像就绪，不表示候选烟测或线上发布成功。
+成功回执在 CI artifact 和主机 `/var/lib/tokenkey/image-distribution/`，均不含签名 URL。
+导入开销发生在 Docker daemon；下载进程 nice/ionice 不等于 daemon 资源限制。
 
 ### 恢复：离线 tar + 受限 SSH（非默认）
 

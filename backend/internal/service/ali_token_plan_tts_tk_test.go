@@ -55,5 +55,5 @@ func TestForwardAliTokenPlanTTS_RejectsNonTokenPlanAccount(t *testing.T) {
 	}
 	_, err := s.ForwardAliTokenPlanTTS(context.Background(), nil, account, []byte(`{"model":"qwen-audio-3.0-tts-plus","input":"hi"}`))
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not an Ali Token Plan")
+	require.Contains(t, err.Error(), "not an Ali plan")
 }

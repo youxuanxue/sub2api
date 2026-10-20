@@ -1987,6 +1987,8 @@
         "ResolveBedrockModelID(account, model)",
         "kiroproto.MapModel(model)",
         "candidateFailureAttributable",
+        "candidateFailureSoftPriorityEligible",
+        "isOpenAIRequestScopedCapacityShed",
         "counter.IncrementCandidateFailure",
         "candidateTransportFailure",
         "errors.As(err, &observed)"
@@ -1994,7 +1996,7 @@
       "must_not_contain": [
         "PlatformNewAPI"
       ],
-      "rationale": "All account platforms share model-scoped failure feedback; native paths reuse forwarding model resolvers, transport attribution excludes caller cancellation, and observed errors cannot count twice."
+      "rationale": "All account platforms share model-scoped failure feedback; native paths reuse forwarding model resolvers, transport attribution excludes caller cancellation, observed errors cannot count twice, and OpenAI capacity-shed overload still feeds soft effective-priority demotion without hard unsched."
     },
     {
       "path": "backend/internal/service/protocol_execution.go",
@@ -2019,10 +2021,13 @@
         "TestCandidateFailurePriorityDirectUniversalAndModelIsolation",
         "TestCandidateFailureNativeExecutionUsesForwardModel",
         "TestCandidateTransportFailureAttribution",
+        "TestCandidateFailureAttributionSoftDeprioritizesOpenAICapacityShed",
+        "http_400_capacity_shed",
+        "selectAccount_demotes_after_threshold",
         "ExecuteSelectedProtocol",
         "classifyOpenAIAPIKeyHealthFailure(observed)"
       ],
-      "rationale": "Protect actual execution feedback, native mapped scopes, caller/transport attribution and legacy breaker deduplication across platforms and key modes."
+      "rationale": "Protect actual execution feedback, native mapped scopes, caller/transport attribution, OpenAI capacity-shed soft priority demotion (including HTTP 400 construction), and legacy breaker deduplication across platforms and key modes."
     },
     {
       "path": "backend/internal/service/gateway_forward.go",
@@ -7997,9 +8002,18 @@
         "func tkShouldPassthroughOpenAINativeClientError(statusCode int, upstreamMsg string, body []byte) bool",
         "func tkWriteOpenAINativeClientError(c *gin.Context, statusCode int, body []byte, upstreamMsg string)",
         "isUpstreamModelNotFoundError(statusCode, body)",
-        "IsOpenAICompatModelNotFound404(body, upstreamMsg)"
+        "IsOpenAICompatModelNotFound404(body, upstreamMsg)",
+        "TkSanitizeUpstreamProductWireMessage(message)"
       ],
-      "rationale": "TK native OpenAI error passthrough companion: 422 always caller-owned; 404 only when model-not-found classifiers match. Prevents upstream merge from reverting TokenKey terminal-user DX on /v1/responses while preserving upstream 502 masking for base_url/ops 404."
+      "rationale": "TK native OpenAI error passthrough companion: 422 always caller-owned; 404 only when model-not-found classifiers match. Prevents upstream merge from reverting TokenKey terminal-user DX on /v1/responses while preserving upstream 502 masking for base_url/ops 404. Also pins upstream-product branding sanitize on the native client-error writer (cn-prod kimi-k3 404 Agent Plan leak path)."
+    },
+    {
+      "path": "backend/internal/service/openai_upstream_client_error.go",
+      "must_contain": [
+        "func writeOpenAIUpstreamClientError(c *gin.Context, statusCode int, body []byte, upstreamMsg string)",
+        "TkSanitizeUpstreamProductWireMessage(message)"
+      ],
+      "rationale": "Compat OpenAI upstream client-error writer must strip Agent Plan / Token Plan / vendor-docs prose before JSON write; anchors the evidenced cn-prod 404 branding-leak choke."
     },
     {
       "path": "backend/internal/service/openai_gateway_upstream_errors_tk_test.go",
@@ -15712,15 +15726,16 @@
         "viper.SetDefault(\"gateway.stream_first_output_timeout_seconds\", 120)",
         "viper.SetDefault(\"gateway.stream_first_output_high_effort_timeout_seconds\", 600)",
         "viper.SetDefault(\"gateway.newapi_chat_first_output_timeout\", 0)",
-        "viper.SetDefault(\"gateway.newapi_chat_nonstream_first_output_timeout\", 300)",
+        "viper.SetDefault(\"gateway.newapi_chat_nonstream_first_output_timeout\", 600)",
         "first-output-timeout-ssot:begin",
         "first-output-timeout-ssot:end",
         "gateway.stream_first_output_timeout_seconds must be between 0-600 seconds",
+        "gateway.newapi_chat_nonstream_first_output_timeout must be between 0-900 seconds",
         "gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)",
         "viper.SetDefault(\"gateway.grok_response_header_timeout\", 0)",
         "gateway.grok_response_header_timeout must be between 0-60 seconds"
       ],
-      "rationale": "First-output viper defaults are generated from ops/stage0/first_output_timeout_ssot.py via scripts/checks/first-output-timeout-ssot.py --apply. Markers pin the generate region; concrete seconds must not be hand-copied into sentinels."
+      "rationale": "First-output viper defaults (including NewAPI nonstream) are generated from ops/stage0/first_output_timeout_ssot.py via scripts/checks/first-output-timeout-ssot.py --apply. Markers pin the generate region; edit SSOT then --apply, never hand-edit seconds here."
     },
     {
       "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
@@ -15729,9 +15744,20 @@
         "first-output-timeout-ssot:end",
         "GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_STREAM_FIRST_OUTPUT_TIMEOUT_SECONDS:-",
         "GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS=${GATEWAY_OPENAI_FIRST_OUTPUT_TIMEOUT_SECONDS:-",
-        "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}"
+        "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-600}"
       ],
-      "rationale": "Blue/green compose inject keeps first-output env lines inside the SSOT generate region; numbers come from first_output_timeout_ssot.py --apply, not sentinel literals."
+      "rationale": "Blue/green compose inject keeps stream + NewAPI nonstream first-output env lines inside the SSOT generate region; numbers come only from first_output_timeout_ssot.py --apply."
+    },
+    {
+      "path": "ops/stage0/first_output_timeout_ssot.py",
+      "must_contain": [
+        "EXPECTED_ENV_STREAM",
+        "EXPECTED_ENV_NEWAPI_NONSTREAM",
+        "NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX",
+        "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT",
+        "gateway.newapi_chat_nonstream_first_output_timeout"
+      ],
+      "rationale": "Single owner for first-output numeric defaults and NewAPI nonstream max; generated copies must not drift via hand edit."
     },
     {
       "path": "scripts/checks/first-output-timeout-ssot.py",
@@ -15740,9 +15766,11 @@
         "def drift_errors(",
         "--apply",
         "--check",
-        "OPENAI_FORCE_HIGH_BODY_BYTES"
+        "OPENAI_FORCE_HIGH_BODY_BYTES",
+        "NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_MAX",
+        "check_newapi_nonstream_max_bound"
       ],
-      "rationale": "First-output timeout SSOT must generate writable owners (viper/compose/remediate/example/Go) and expose --check for preflight; do not regress to multi-copy hand sync."
+      "rationale": "First-output timeout SSOT must generate writable owners (viper/compose/remediate/example/Go) and expose --check for preflight including NewAPI nonstream max bound; do not regress to multi-copy hand sync."
     },
     {
       "path": "backend/internal/service/candidate_chat_attempt_tk_test.go",
@@ -15750,6 +15778,7 @@
         "TestCandidateChatStreamVersusNonstreamBudgets",
         "TestNewAPIChatFirstOutputTimeoutResolver",
         "non-stream must not use ResponseHeaderTimeout",
+        "non-stream default is 3×600s",
         "stream default is 3×120s"
       ],
       "rationale": "Focused unit tests lock stream vs nonstream first-output budgets and forbid ResponseHeaderTimeout from redefining either."
@@ -15758,9 +15787,9 @@
       "path": "deploy/aws/stage0/docker-compose.yml",
       "must_contain": [
         "GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_FIRST_OUTPUT_TIMEOUT:-0}",
-        "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-300}"
+        "GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT=${GATEWAY_NEWAPI_CHAT_NONSTREAM_FIRST_OUTPUT_TIMEOUT:-600}"
       ],
-      "rationale": "Stage0 compose (embedded in Lightsail user-data at the 14336-byte cap) cannot grow new STREAM_FIRST_OUTPUT_* lines. NewAPI stream override defaults to 0 so hosts inherit code SSOT 120s/600s; nonstream stays 300s. Universal env inject is owned by ops/stage0/deploy_via_ssm_bluegreen.sh + deploy/config.example.yaml + config viper defaults."
+      "rationale": "Stage0 compose (embedded in Lightsail user-data at the 14336-byte cap) cannot grow new STREAM_FIRST_OUTPUT_* lines. NewAPI stream override defaults to 0 so hosts inherit stream SSOT; nonstream fallback is rewritten from first_output_timeout_ssot.py --apply (ENV_FALLBACK_ONLY). Universal env inject is owned by ops/stage0/deploy_via_ssm_bluegreen.sh + deploy/config.example.yaml + config viper defaults."
     },
     {
       "path": "backend/internal/service/gateway_request.go",
@@ -16695,13 +16724,52 @@
       "rationale": "SSOT for public HTTP 429 capacity/upstream-limit copy. Wire bodies must never expose pool/account wording; ops keeps internal detail via TkAnnotateBusy429Ops. Nested-stub penalty skip distinguishes empty-pool (api_error) from upstream-limit (rate_limit_error) after the public message is unified."
     },
     {
+      "path": "backend/internal/service/client_facing_upstream_product_tk.go",
+      "must_contain": [
+        "TkClientFacingUnsupportedMessage = \"The requested model is not supported.\"",
+        "func TkSanitizeUpstreamProductWireMessage(",
+        "func TkLooksLikeUpstreamProductLeakMessage(",
+        "\"agent plan\"",
+        "\"token plan\"",
+        "\"volcengine.com/docs\""
+      ],
+      "rationale": "SSOT for public error copy that would expose upstream plan/product branding (Agent Plan, Token Plan, vendor docs). Wire bodies must never name supply SKUs; ops keeps internal detail."
+    },
+    {
       "path": "backend/internal/handler/busy_429_wire_sanitize_tk.go",
       "must_contain": [
         "func tkSanitizeBusy429WireMessage(",
         "service.TkSanitizeBusy429WireMessage(status, message)",
-        "service.TkAnnotateBusy429Ops(c, errType, message)"
+        "service.TkAnnotateBusy429Ops(c, errType, message)",
+        "tkSanitizeUpstreamProductWireMessage(c, status, errType, message)"
       ],
-      "rationale": "Handler choke-point sanitize so ClientMessage / failover leaks cannot ship legacy no-available / upstream-rate-limit phrases on HTTP 429."
+      "rationale": "Handler choke-point sanitize so ClientMessage / failover leaks cannot ship legacy no-available / upstream-rate-limit phrases on HTTP 429, and also strip plan/product branding via the unsupported SSOT."
+    },
+    {
+      "path": "backend/internal/handler/upstream_product_wire_sanitize_tk.go",
+      "must_contain": [
+        "func tkSanitizeUpstreamProductWireMessage(",
+        "service.TkSanitizeUpstreamProductWireMessage(message)",
+        "service.TkAnnotateUpstreamProductOps(c, errType, status, message)"
+      ],
+      "rationale": "Handler choke for plan/product branding; used by busy-429 combined sanitize and NewAPIRelayError JSON writers."
+    },
+    {
+      "path": "backend/internal/handler/tk_newapi_relay_error.go",
+      "must_contain": [
+        "payload.Message = tkSanitizeUpstreamProductWireMessage(c, nre.Err.StatusCode, payload.Type, payload.Message)"
+      ],
+      "rationale": "NewAPI relay JSON must not passthrough Agent Plan / Token Plan / vendor-docs prose on the wire."
+    },
+    {
+      "path": "backend/internal/server/middleware/middleware.go",
+      "must_contain": [
+        "service.TkSanitizeUpstreamProductWireMessage(message)",
+        "service.TkAnnotateUpstreamProductOps(c, errorType, status, orig)",
+        "service.TkAnnotateUpstreamProductOps(c, \"api_error\", status, orig)",
+        "service.TkAnnotateUpstreamProductOps(c, \"invalid_request_error\", status, orig)"
+      ],
+      "rationale": "Gateway protocol error writers (Anthropic/Google/OpenAI) must strip upstream plan/product branding, not only busy-429 phrases."
     },
     {
       "path": "backend/internal/handler/gateway_handler.go",
@@ -16798,6 +16866,36 @@
         "\"qq-ip2city\":"
       ],
       "rationale": "Proxy probe preset default and domestic parser allowlist must survive upstream config imports."
+    },
+    {
+      "path": "scripts/test_cn_image_distribution.py",
+      "must_contain": [
+        "loader.loadTestsFromModule(test_image_distribution)",
+        "loader.loadTestsFromModule(test_deploy_via_ssm)"
+      ],
+      "rationale": "Keep corruption, immutable upload, host-lock and legacy fallback behavior in the CI preflight suite."
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "must_contain": [
+        "name: cn-image-source",
+        "name: Record verified cn-prod image source"
+      ],
+      "rationale": "Keep verified release identity exported for the default-branch cn-prod distribution workflow."
+    },
+    {
+      "path": ".github/workflows/distribute-cn-image.yml",
+      "must_contain": [
+        "workflows: [Release]",
+        "workflow_dispatch:",
+        "ref: ${{ github.event.repository.default_branch }}",
+        "Require referenced Release run succeeded",
+        "want .github/workflows/release.yml",
+        "run-id: ${{ github.event_name == 'workflow_dispatch' && inputs.release_run_id || github.event.workflow_run.id }}",
+        "python3 deploy/domestic/image_distribution.py publish",
+        "bash deploy/domestic/deploy_via_ssm.sh pull"
+      ],
+      "rationale": "Distribute only successful release artifacts using trusted main code and prewarm without promotion; workflow_dispatch may backfill only from a successful Release run id."
     }
   ]
 }

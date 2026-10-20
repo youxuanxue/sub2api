@@ -48,7 +48,7 @@ func buildVolcEnginePlanTTSRequest(body []byte) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("invalid speech request")
 	}
 	if request.Model != volcEnginePlanTTSModel || strings.TrimSpace(request.Input) == "" {
-		return nil, "", fmt.Errorf("agent plan TTS requires model %s and nonempty input", volcEnginePlanTTSModel)
+		return nil, "", fmt.Errorf("TTS requires model %s and nonempty input", volcEnginePlanTTSModel)
 	}
 	if request.Format == "" {
 		request.Format = "mp3"
@@ -61,7 +61,7 @@ func buildVolcEnginePlanTTSRequest(body []byte) ([]byte, string, error) {
 	case "opus":
 		format, contentType = "ogg_opus", "audio/ogg"
 	default:
-		return nil, "", fmt.Errorf("agent plan TTS response_format must be mp3, pcm or opus")
+		return nil, "", fmt.Errorf("TTS response_format must be mp3, pcm or opus")
 	}
 	if request.SampleRate == 0 {
 		request.SampleRate = 24000
@@ -69,7 +69,7 @@ func buildVolcEnginePlanTTSRequest(body []byte) ([]byte, string, error) {
 	switch request.SampleRate {
 	case 8000, 16000, 22050, 24000, 32000, 44100, 48000:
 	default:
-		return nil, "", fmt.Errorf("unsupported Agent Plan TTS sample_rate")
+		return nil, "", fmt.Errorf("unsupported TTS sample_rate")
 	}
 	if request.Voice == "" {
 		request.Voice = "zh_female_vv_uranus_bigtts"
@@ -77,7 +77,7 @@ func buildVolcEnginePlanTTSRequest(body []byte) ([]byte, string, error) {
 	audioParams := map[string]any{"format": format, "sample_rate": request.SampleRate}
 	if request.Speed != nil {
 		if *request.Speed < 0.5 || *request.Speed > 2 {
-			return nil, "", fmt.Errorf("agent plan TTS speed must be between 0.5 and 2")
+			return nil, "", fmt.Errorf("TTS speed must be between 0.5 and 2")
 		}
 		audioParams["speech_rate"] = int((*request.Speed - 1) * 100)
 	}
@@ -107,36 +107,36 @@ func decodeVolcEnginePlanTTSAudio(body []byte) ([]byte, int64, error) {
 			} `json:"usage"`
 		}
 		if err := decoder.Decode(&event); err != nil {
-			return nil, 0, fmt.Errorf("incomplete Agent Plan TTS response")
+			return nil, 0, fmt.Errorf("incomplete TTS response")
 		}
 		if event.Code == nil {
-			return nil, 0, fmt.Errorf("agent plan TTS response missing status")
+			return nil, 0, fmt.Errorf("TTS response missing status")
 		}
 		switch *event.Code {
 		case 0:
 			chunk, err := base64.StdEncoding.DecodeString(event.Data)
 			if err != nil {
-				return nil, 0, fmt.Errorf("invalid Agent Plan TTS audio encoding")
+				return nil, 0, fmt.Errorf("invalid TTS audio encoding")
 			}
 			_, _ = audio.Write(chunk)
 		case 20000000:
 			if audio.Len() == 0 || event.Usage.TextWords <= 0 {
-				return nil, 0, fmt.Errorf("agent plan TTS response missing audio or billable usage")
+				return nil, 0, fmt.Errorf("TTS response missing audio or billable usage")
 			}
 			var extra any
 			if err := decoder.Decode(&extra); err != io.EOF {
-				return nil, 0, fmt.Errorf("unexpected data after Agent Plan TTS completion")
+				return nil, 0, fmt.Errorf("unexpected data after TTS completion")
 			}
 			return audio.Bytes(), event.Usage.TextWords, nil
 		default:
-			return nil, 0, fmt.Errorf("agent plan TTS synthesis failed (code %d)", *event.Code)
+			return nil, 0, fmt.Errorf("TTS synthesis failed (code %d)", *event.Code)
 		}
 	}
 }
 
 func (s *OpenAIGatewayService) forwardVolcEnginePlanTTS(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
 	if !isNewAPIVolcEngineAgentPlanAccount(account) {
-		return nil, fmt.Errorf("agent plan TTS requires a VolcEngine Agent Plan account")
+		return nil, fmt.Errorf("TTS requires a VolcEngine plan account")
 	}
 	payload, contentType, err := buildVolcEnginePlanTTSRequest(body)
 	if err != nil {

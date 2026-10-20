@@ -1134,7 +1134,7 @@ type GatewayConfig struct {
 	// Cap is 60. At most three attempts share 3x this per-attempt budget.
 	NewAPIChatFirstOutputTimeout int `mapstructure:"newapi_chat_first_output_timeout"`
 	// Bounds a replayable NewAPI Chat *non-streaming* attempt until a complete
-	// useful JSON body. Seconds; zero uses the default 300. Cap is 600.
+	// useful JSON body. Seconds; zero uses the default 600. Cap is 900.
 	// At most three attempts share 3x this per-attempt budget.
 	NewAPIChatNonstreamFirstOutputTimeout int `mapstructure:"newapi_chat_nonstream_first_output_timeout"`
 	// GrokResponseHeaderTimeout bounds the pre-first-byte wait for xAI/Grok.
@@ -2706,9 +2706,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.kiro_high_effort_first_output_timeout_seconds", 600)
 	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 120)
 	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 600)
+	viper.SetDefault("gateway.newapi_chat_nonstream_first_output_timeout", 600)
 	// first-output-timeout-ssot:end
 	viper.SetDefault("gateway.newapi_chat_first_output_timeout", 0) // 0 = inherit stream SSOT
-	viper.SetDefault("gateway.newapi_chat_nonstream_first_output_timeout", 300)
 	viper.SetDefault("gateway.grok_response_header_timeout", 0)
 	viper.SetDefault("gateway.log_upstream_error_body", true)
 	viper.SetDefault("gateway.log_upstream_error_body_max_bytes", 2048)
@@ -3702,8 +3702,8 @@ func (c *Config) Validate() error {
 	if c.Gateway.NewAPIChatFirstOutputTimeout < 0 || c.Gateway.NewAPIChatFirstOutputTimeout > 60 {
 		return fmt.Errorf("gateway.newapi_chat_first_output_timeout must be between 0-60 seconds (streaming first-output override)")
 	}
-	if c.Gateway.NewAPIChatNonstreamFirstOutputTimeout < 0 || c.Gateway.NewAPIChatNonstreamFirstOutputTimeout > 600 {
-		return fmt.Errorf("gateway.newapi_chat_nonstream_first_output_timeout must be between 0-600 seconds")
+	if c.Gateway.NewAPIChatNonstreamFirstOutputTimeout < 0 || c.Gateway.NewAPIChatNonstreamFirstOutputTimeout > 900 {
+		return fmt.Errorf("gateway.newapi_chat_nonstream_first_output_timeout must be between 0-900 seconds")
 	}
 	if c.Gateway.GrokResponseHeaderTimeout < 0 || c.Gateway.GrokResponseHeaderTimeout > 60 {
 		return fmt.Errorf("gateway.grok_response_header_timeout must be between 0-60 seconds")

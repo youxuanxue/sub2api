@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import textwrap
 import unittest
+import unittest.mock
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "deploy_via_ssm.sh"
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -157,13 +158,29 @@ class DeployViaSsmTest(unittest.TestCase):
     def _run(self, *args: str) -> subprocess.CompletedProcess[str]:
         env = {**os.environ, "PATH": f"{self.fakebin}:{os.environ.get('PATH', '')}"}
         return subprocess.run(
-            ["bash", "deploy/domestic/deploy_via_ssm.sh", *args],
+            ["bash", "deploy/domestic/deploy_via_ssm.sh", "--transport", "ghcr", *args],
             cwd=self.repo,
             env=env,
             capture_output=True,
             text=True,
             check=False,
         )
+
+    def test_s3_dispatch_requires_revision_and_never_prints_signed_dry_run(self):
+        missing = self._run('pull', '--transport', 's3', '--tag', '1.8.306')
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn('S3 requires --revision', missing.stderr)
+        renderer = self.repo / 'deploy/domestic/image_distribution.py'
+        renderer.write_text("import sys\nassert sys.argv[1:] == ['render', '--tag', '1.8.306', '--revision', '" + 'a' * 40 + "', '--digest', '']\nprint('set -eu; echo verified-prewarm')\n")
+        warmed = self._run('pull', '--transport', 's3', '--tag', 'v1.8.306', '--revision', 'a' * 40)
+        self.assertEqual(warmed.returncode, 0, warmed.stderr)
+        remote = json.loads(self.ssm_parameters.read_text())['commands'][0]
+        self.assertIn('echo verified-prewarm', remote)
+        self.assertNotIn('docker pull', remote)
+        with unittest.mock.patch.dict(os.environ, {'CN_PROD_SSM_DRY_RUN': '1'}):
+            dry = self._run('pull', '--transport', 's3', '--tag', '1.8.306', '--revision', 'a' * 40)
+        self.assertNotEqual(dry.returncode, 0)
+        self.assertEqual(dry.stdout, '')
 
     def test_pull_strips_v_and_sends_ssm(self) -> None:
         proc = self._run("pull", "--tag", "v1.8.306")
@@ -239,7 +256,7 @@ class DeployViaSsmTest(unittest.TestCase):
             "CN_PROD_SSM_DRY_RUN": "1",
         }
         proc = subprocess.run(
-            ["bash", "deploy/domestic/deploy_via_ssm.sh", "pull", "--tag", "v1.8.306"],
+            ["bash", "deploy/domestic/deploy_via_ssm.sh", "pull", "--transport", "ghcr", "--tag", "v1.8.306"],
             cwd=self.repo,
             env=env,
             capture_output=True,

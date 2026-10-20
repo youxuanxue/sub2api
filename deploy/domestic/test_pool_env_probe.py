@@ -6,6 +6,8 @@ import re
 import unittest
 from pathlib import Path
 
+from deploy.domestic import bluegreen as bg
+
 ROOT = Path(__file__).resolve().parents[2]
 OVERRIDE = ROOT / "deploy/domestic/compose.override.yml"
 PROBE = ROOT / "ops/observability/probe-cn-prod-pool-env.sh"
@@ -44,6 +46,9 @@ class PoolEnvProbeSSOTTest(unittest.TestCase):
         override = override_pool_values(OVERRIDE.read_text())
         probe = probe_want_values(PROBE.read_text())
         self.assertEqual(probe, override)
+
+    def test_bluegreen_pool_env_keys_match_probe_ssot(self):
+        self.assertEqual(set(bg.POOL_ENV_KEYS), set(KEYS))
 
     def test_probe_documents_compose_override_as_ssot(self):
         text = PROBE.read_text()
