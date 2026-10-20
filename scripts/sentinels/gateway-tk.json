@@ -16905,20 +16905,20 @@
     {
       "path": "backend/internal/service/candidate_selection_tk.go",
       "must_contain": [
-        "r.orderVolcPlanFallback(pool, loads, counts, failureCounts)",
-        "r.volcPlanAffinity = false",
-        "r.volcPlanAffinity = true",
-        "loads[peers[i].account.ID].CurrentConcurrency < loads[peers[j].account.ID].CurrentConcurrency"
+        "r.orderAffinityFallback(pool, loads, counts, failureCounts)",
+        "r.hasSoftAffinity = false",
+        "r.hasSoftAffinity = true",
+        "float64(loads[a.ID].CurrentConcurrency)/float64(a.Concurrency) <"
       ],
-      "rationale": "VolcEngine fallback load ordering preserves usable affinity and stays within existing equivalent candidate bands."
+      "rationale": "All-platform fallback compares occupied-capacity ratios only within equivalent bands, preserving usable soft affinity and required execution ownership."
     },
     {
-      "path": "backend/internal/service/candidate_volc_fallback_tk_test.go",
+      "path": "backend/internal/service/candidate_affinity_fallback_tk_test.go",
       "must_contain": [
-        "TestCandidateVolcFallbackSelection",
-        "TestCandidateVolcFallbackOrderingBoundaries",
-        "TestCandidateVolcFallbackLoadFailureKeepsSticky",
-        "TestCandidateVolcFallbackBindingLifecycle"
+        "TestCandidateAffinityFallbackSelection",
+        "TestCandidateAffinityFallbackOrderingBoundaries",
+        "TestCandidateAffinityFallbackLoadFailureKeepsSticky",
+        "TestCandidateAffinityFallbackBindingLifecycle"
       ],
       "rationale": "Behavior regressions preserve warm affinity, fallback load selection, scope and binding lifecycle."
     },

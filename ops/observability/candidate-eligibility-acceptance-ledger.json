@@ -320,10 +320,10 @@
     "AC-047": {
       "status": "contract-tested",
       "evidence": [
-        "backend/internal/service/candidate_volc_fallback_tk_test.go::TestCandidateVolcFallbackSelection",
-        "backend/internal/service/candidate_volc_fallback_tk_test.go::TestCandidateVolcFallbackOrderingBoundaries",
-        "backend/internal/service/candidate_volc_fallback_tk_test.go::TestCandidateVolcFallbackLoadFailureKeepsSticky",
-        "backend/internal/service/candidate_volc_fallback_tk_test.go::TestCandidateVolcFallbackBindingLifecycle"
+        "backend/internal/service/candidate_affinity_fallback_tk_test.go::TestCandidateAffinityFallbackSelection",
+        "backend/internal/service/candidate_affinity_fallback_tk_test.go::TestCandidateAffinityFallbackOrderingBoundaries",
+        "backend/internal/service/candidate_affinity_fallback_tk_test.go::TestCandidateAffinityFallbackLoadFailureKeepsSticky",
+        "backend/internal/service/candidate_affinity_fallback_tk_test.go::TestCandidateAffinityFallbackBindingLifecycle"
       ]
     }
   },

@@ -48,7 +48,7 @@ func (r *CandidateRequest) accounts(ctx context.Context) ([]Account, error) {
 
 func (r *CandidateRequest) candidates(ctx context.Context, options candidateSelectOptions) ([]*candidateExecutionPath, bool, error) {
 	defer BeginImageIngressPhase(ctx, ImageIngressCandidates)()
-	r.volcPlanAffinity = false
+	r.hasSoftAffinity = false
 	ctx = r.withProfitPricing(ctx)
 	if r.key.IsUniversal() {
 		groups, err := r.resolver.span(ctx, r.key.UserID)
@@ -119,8 +119,8 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 			// Prefix affinity supersedes the first-user fallback for this supply.
 			accountStickyID = promptCacheStickyID
 		}
-		if account.ID == accountStickyID && isNewAPIVolcEngineAgentPlanAccount(account) {
-			r.volcPlanAffinity = true
+		if accountStickyID > 0 {
+			r.hasSoftAffinity = true
 		}
 		if _, excluded := options.excluded[account.ID]; excluded {
 			diag.reject("excluded")
@@ -375,7 +375,7 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 			return candidatePathLess(r.key, r.shape, counts, failureCounts, pool[i], pool[j])
 		})
 		if loadErr == nil {
-			r.orderVolcPlanFallback(pool, loads, counts, failureCounts)
+			r.orderAffinityFallback(pool, loads, counts, failureCounts)
 		}
 		var waiting []*candidateExecutionPath
 		for _, path := range pool {
@@ -441,11 +441,11 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 	return nil, err
 }
 
-// orderVolcPlanFallback only reorders ready, non-sticky VolcEngine peers in
-// equivalent positions. A usable binding stays first, including when its slot
-// acquisition races; other suppliers and unknown loads retain their ordering.
-func (r *CandidateRequest) orderVolcPlanFallback(pool []*candidateExecutionPath, loads map[int64]*AccountLoadInfo, counts, failureCounts map[int64]int64) {
-	if !r.volcPlanAffinity || r.shape != ShapeOpenAIChat || r.websocket || r.continuationAccountID > 0 || len(loads) == 0 {
+// orderAffinityFallback ranks ready alternatives by occupied capacity within
+// equivalent bands. A usable binding stays first; unknown loads or capacities
+// retain the existing band order. Atomic acquisition remains authoritative.
+func (r *CandidateRequest) orderAffinityFallback(pool []*candidateExecutionPath, loads map[int64]*AccountLoadInfo, counts, failureCounts map[int64]int64) {
+	if !r.hasSoftAffinity || r.continuationAccountID > 0 || len(loads) == 0 {
 		return
 	}
 	for start := 0; start < len(pool); {
@@ -458,11 +458,11 @@ func (r *CandidateRequest) orderVolcPlanFallback(pool []*candidateExecutionPath,
 		complete := true
 		for i := start; i < end; i++ {
 			path := pool[i]
-			if path.sticky || !isNewAPIVolcEngineAgentPlanAccount(path.account) {
+			if path.sticky {
 				continue
 			}
 			load := loads[path.account.ID]
-			if load == nil || load.CurrentConcurrency < 0 {
+			if load == nil || load.CurrentConcurrency < 0 || path.account.Concurrency <= 0 {
 				complete = false
 				break
 			}
@@ -473,7 +473,9 @@ func (r *CandidateRequest) orderVolcPlanFallback(pool []*candidateExecutionPath,
 		}
 		if complete && len(peers) > 1 {
 			sort.SliceStable(peers, func(i, j int) bool {
-				return loads[peers[i].account.ID].CurrentConcurrency < loads[peers[j].account.ID].CurrentConcurrency
+				a, b := peers[i].account, peers[j].account
+				return float64(loads[a.ID].CurrentConcurrency)/float64(a.Concurrency) <
+					float64(loads[b.ID].CurrentConcurrency)/float64(b.Concurrency)
 			})
 			for i, position := range positions {
 				pool[position] = peers[i]

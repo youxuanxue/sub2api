@@ -1,7 +1,7 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls, 2026-10-12 OpenAI standard 120s + compact/large-body force high-effort 300s after medium compact mis-kills, 2026-10-13 universal ordinary/complex first-output budgets approved as 120s/600s; Kiro fixed ordinary/high-latency request budgets approved by feng in the #2621 conversation; 2026-10-19 NewAPI Chat nonstream first-output default/host inject raised to 600, config max 900; 2026-10-19 OpenAI capacity-shed soft effective-priority demotion; 2026-10-20 VolcEngine Agent Plan load-aware fallback only after retaining usable affinity)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10, 2026-09-22, 2026-10-09 stream/nonstream first-output split, 2026-10-09 universal stream first-output, 2026-10-10 retune 15s/30s cap 60, 2026-10-12 OpenAI-only first-output 30s/60s after 24h openai-only evidence, 2026-10-12 raise universal stream SSOT to 30s/60s after further review, 2026-10-12 OpenAI first-output 60s / high-effort 300s for large gpt-6.* compaction stalls, 2026-10-12 OpenAI standard 120s + compact/large-body force high-effort 300s after medium compact mis-kills, 2026-10-13 universal ordinary/complex first-output budgets approved as 120s/600s; Kiro fixed ordinary/high-latency request budgets approved by feng in the #2621 conversation; 2026-10-19 NewAPI Chat nonstream first-output default/host inject raised to 600, config max 900; 2026-10-19 OpenAI capacity-shed soft effective-priority demotion; 2026-10-20 all-platform load-aware fallback only after retaining usable affinity; user broadened #2749 beyond VolcEngine)"
 created: 2026-09-07
 revised_at: 2026-10-20
 ---
@@ -98,40 +98,43 @@ Implementation, release and live acceptance are separate facts. Their evidence
 and remaining work are maintained in
 [US-050](../../.testing/user-stories/stories/US-050-candidate-eligibility-ssot.md#coverage-boundaries).
 
-### VolcEngine Agent Plan affinity fallback (2026-10-20 approval)
+### All-platform soft-affinity fallback (2026-10-20 approval)
 
-The user approved implementation and a PR for the reviewed minimal policy:
-retain an eligible soft-affinity account whenever it can acquire a slot; when
-it cannot, prefer less occupied equivalent VolcEngine Agent Plan alternatives.
-This approval does not authorize merge or deployment. The separately applied
-cn-prod concurrency setting is not a scheduler constant.
+The user approved implementation and a PR for the reviewed minimal policy, then
+explicitly broadened its scope from VolcEngine to all platforms: retain an
+eligible soft-affinity account whenever it can acquire a slot; when it cannot,
+prefer less occupied equivalent alternatives. This approval does not authorize
+merge or deployment. The separately applied cn-prod VolcEngine concurrency
+setting is not a scheduler constant.
 
-For stateless HTTP Chat Completions with an existing VolcEngine Agent Plan
-binding identifiable in the authorized account pool, the shared selector sorts
-ready, non-sticky Agent Plan peers by absolute in-flight count. Only peers tied
-on the existing compatibility, routing preference and effective priority ranks
-within the admitted payment tier exchange positions; other suppliers and busy
-candidates retain their positions. Equal counts retain the existing randomized
-order. The sticky candidate stays ahead, including at 9/10 occupancy; if its
-atomic acquisition loses a race, selection continues through the ordered peers.
-Excluded or unschedulable bound accounts may still establish the affinity's
-supply identity but never become eligible through this rule. Missing/deleted
-bindings that cannot be identified in the authorized pool retain old ordering.
+The shared candidate selector applies this policy to direct and universal keys
+across suppliers and request protocols. After resolving the existing effective
+session/prefix binding, it sorts ready, non-sticky alternatives by occupied
+capacity (`CurrentConcurrency / Concurrency`). Only peers tied on compatibility,
+endpoint preference, routing preference and effective priority within the
+admitted payment tier exchange positions. Full candidates retain their positions.
+Equal ratios retain the existing randomized order. The sticky candidate stays
+ahead within its equivalent tier, including at 9/10 occupancy; if its atomic
+acquisition loses a race, selection continues through the ordered alternatives.
+Excluded, unschedulable or deleted bound accounts never become eligible through
+this rule; their existing binding still permits fallback load ordering.
 
-Initial binding without an existing affinity, hard continuation, WS and other
-request shapes retain their existing ordering. Load-read errors disable this
-ordering pass; missing/invalid Agent Plan load data leaves its equivalent band
-unchanged. This consumes the existing fresh batch load read and uses the existing
-atomic acquisition, fresh recheck, binding and waiting owners. Failed acquisition
-or recheck cannot publish a new session binding. Successful acquisition and
-recheck update the existing binding with its existing TTL.
+Initial placement without an existing effective affinity and required execution
+ownership retain their existing behavior. In particular, `previous_response_id`
+and subsequent WebSocket turns remain pinned by the existing continuation owner;
+initial WebSocket selection can use soft fallback. Load-read errors disable the
+ordering pass. Missing/negative load or nonpositive capacity for a non-sticky
+candidate leaves that equivalent band unchanged. The policy consumes the existing
+fresh batch load read and uses the existing atomic acquisition, fresh recheck,
+binding and waiting owners. Failed acquisition or recheck cannot publish a new
+session binding. Successful acquisition and recheck update the existing binding
+with its existing TTL.
 
-There is no early 8/2 migration threshold, new load score, additional cache pool,
-network read or cooldown state. This policy reduces avoidable fallback hotspots;
-it does not establish a latency advantage over a warm cache or promise to fix
-long-context TTFT. Compare live performance to the concurrency-10 baseline,
-including pre-output retries, end-to-end first output and cache cost; local tests
-and PR checks are not deployment or performance evidence.
+There is no early 8/2 migration threshold, additional cache pool, network read or
+cooldown state. Occupancy ranks fallback alternatives only; it is not a quality
+or latency score. Compare live performance to the concurrency-10 baseline,
+including pre-output retries, end-to-end first output and cache cost. Local tests
+and PR checks are not deployment or TTFT improvement evidence.
 
 ### Scope and decision order
 
@@ -197,10 +200,11 @@ and PR checks are not deployment or performance evidence.
    randomly breaking equivalent ties. Effective priority is configured priority
    plus the existing temporary penalty (three attributable failures in a fixed
    90-second window add 1000). Ordinary affinity cannot defeat that penalty.
-   Configured concurrency only caps admission; normalized occupancy is not a
-   quality signal and does not rank ready accounts. This simplification was
-   explicitly approved in the 2026-09-09 conversation. The narrowly scoped
-   VolcEngine fallback exception below was approved on 2026-10-20.
+   Configured concurrency caps admission and is not a quality signal. Initial
+   placement retains the random tie-breaking approved on 2026-09-09. The
+   all-platform soft-affinity fallback approved on 2026-10-20 (above) additionally
+   compares occupied capacity among equivalent ready alternatives when an
+   existing binding cannot serve; it never displaces a usable equivalent binding.
    A full preferred account must not force waiting while a lower-priority
    eligible account can accept the request. If all eligible accounts are busy,
    waiting remains bounded by the existing wait policy.    Shared, bounded
