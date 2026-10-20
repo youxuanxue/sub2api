@@ -4,20 +4,6 @@ Gaps a gate has *detected* but that are not fixed yet, plus interception a gate 
 currently express. One entry per gap. Close the entry in the PR that fixes the
 underlying problem — this file is not a changelog.
 
-## `cleanup-ingress-reject-logs` — decided: drop on next upstream merge
-
-`backend/cmd/cleanup-ingress-reject-logs` is upstream's row-pruning tool for historical
-ingress-reject rows. It is absent from `.goreleaser.*.yaml` and from the released image
-(`/app/` holds only `sub2api` and `qa-archive`), so there is no way to run it against
-prod without building it ad hoc. It prunes rows, not columns, so it never blocked the
-tk_101 column drop — but the pruning it was meant to do has never been possible in TK.
-
-**Decision (2026-09-28):** do **not** add a TK delivery path. On the next
-`merge/upstream-*`, delete the cmd (and any companion upstream finalizer scripts that
-only exist to feed it) under CLAUDE.md §5.x with a `docs/DEPRECATIONS.md` ledger entry.
-Until then leave the tree as-is; `ops_error_logs` 30-day expiry already covers the rows
-this tool would have pruned. Do not schedule ad-hoc `go run` cleanups against prod.
-
 ## Known limits of the column-writer gate
 
 Not debt to pay down, but the boundaries of what that gate can decide. Recorded so the

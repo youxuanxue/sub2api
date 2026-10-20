@@ -1359,9 +1359,8 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		// deleted_key_owner_user_id / deleted_key_name。原因见
 		// docs/approved/ops-error-logs-column-contract.md §已移除的已删除 key 归因:
 		// INVALID_API_KEY 走 ingress-reject 早退(本函数上方),归因块物理上到不了;
-		// 且 prod 实测可归因分母为 0。上游 cleanup-ingress-reject-logs +
-		// finalize-ingress-reject-cleanup.sql 的既定方向也是删掉这三列和明文 key
-		// 审计表,所以这里跟随上游,不再为它维护分叉。
+		// 且 prod 实测可归因分母为 0。tk_101 已完成对应列和明文 key 审计表的
+		// 物理删除，所以这里不再维护这条不可达的归因分叉。
 		enqueueOpsErrorLog(ops, entry)
 	}
 }
