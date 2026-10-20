@@ -26,6 +26,8 @@
       "path": "ops/observability/test_host_https_watch.py",
       "must_contain": [
         "def test_both_observers_cover_cn_ip_and_all_customer_domains(",
+        "def test_only_expired_successful_evidence_is_advisory(",
+        "def test_validation_reminder_is_daily_and_never_masks_a_new_fault(",
         "def test_200_interception_pages_and_degraded_json_are_not_healthy(",
         "def test_two_failures_then_recovery_and_cooldown(",
         "def test_delivery_failure_keeps_previous_state_for_retry("
@@ -38,9 +40,10 @@
         "python3 /usr/local/lib/tokenkey/pgdump_storage.py --upload",
         "local copy kept; no AWS fallback",
         "flock -s -w 2400 8",
-        "flock -u 8"
+        "flock -u 8",
+        "/var/lib/tokenkey/postgres-backup/pgdump-retired.json"
       ],
-      "rationale": "The shared host dump must use explicit private Hetzner storage before the AWS standby identity; upload failures retain the local recovery point. The dump holds the QA lifecycle lease only while producing the local recovery file."
+      "rationale": "Historical dump exports retain explicit storage identities and the QA host lock; a retired prod refuses execution before pruning retained backups."
     },
     {
       "path": "ops/stage0/pgdump_storage.py",
@@ -16918,6 +16921,38 @@
         "TestCandidateVolcFallbackBindingLifecycle"
       ],
       "rationale": "Behavior regressions preserve warm affinity, fallback load selection, scope and binding lifecycle."
+    },
+    {
+      "path": ".github/workflows/ops-daily-diagnostics.yml",
+      "must_contain": [
+        "/var/lib/tokenkey/postgres-backup/health.json",
+        "python3 ops/observability/postgres_backup_verdict.py"
+      ],
+      "rationale": "After prod pgdump retirement, daily diagnostics must inspect the physical recovery health owner rather than a stale logical-canary receipt."
+    },
+    {
+      "path": "ops/observability/postgres_backup_verdict.py",
+      "must_contain": [
+        "from host_https_watch import physical_backup_fact",
+        "fact = physical_backup_fact(path, now)"
+      ],
+      "rationale": "Keep daily diagnostics on the same freshness and failure classification as the host recovery monitor."
+    },
+    {
+      "path": "ops/observability/test_postgres_backup_verdict.py",
+      "must_contain": [
+        "def test_current_degraded_stale_and_missing_health("
+      ],
+      "rationale": "Missing, stale or degraded physical recovery evidence must remain actionable after legacy logical backups stop."
+    },
+    {
+      "path": "ops/stage0/test_retire_pgdump.py",
+      "must_contain": [
+        "def test_plan_is_read_only_then_apply_and_recheck(",
+        "def test_running_dump_and_partial_attempt_refuse(",
+        "def test_lock_busy_cannot_change_timer("
+      ],
+      "rationale": "Retirement must retain data, refuse running work, protect direct exporter calls and detect incomplete or drifted previous attempts."
     }
   ]
 }

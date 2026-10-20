@@ -423,7 +423,11 @@ systemctl enable --now tokenkey.service
 # QA maintenance/boundary + live QA_ARCHIVE_* stay off until ops enables them
 # (staging must not archive an empty DB into the live raw bucket). Feishu webhook env still
 # comes from post-boot sync (copy from AWS prod .env or sync-feishu-config).
-systemctl enable --now tokenkey-pgdump.timer
+# New hosts use the physical-backup migration workflow. Historical export is
+# retained only as an explicit fallback, never silently re-enabled by bootstrap.
+if [ "${TOKENKEY_ENABLE_LEGACY_PGDUMP:-false}" = true ] && [ ! -e /var/lib/tokenkey/postgres-backup/pgdump-retired.json ]; then
+  systemctl enable --now tokenkey-pgdump.timer
+fi
 systemctl enable --now tokenkey-disk-metrics.timer
 systemctl enable --now tokenkey-ghcr-prune-daily.timer
 sleep 30

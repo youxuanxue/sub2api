@@ -4,7 +4,7 @@ Description: >
   prod instance stack: each bucket policy grants the existing app InstanceRole
   directly (same-account resource-based grant), so no update-stack on
   tokenkey-prod-stage0. Holds two buckets, both using the direct-role-ARN pattern:
-  (1) pg_dump ledger backups (tokenkey-pgdump.sh hourly; RetentionDays);
+  (1) retained legacy pg_dump backups (automatic expiration disabled);
   (2) generated-media offload (media_storage): OPT-IN image offload only (set
   MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED=true), plus re-presign of legacy
   already-offloaded video records. By default NEITHER image nor video rehosts
@@ -23,7 +23,7 @@ Parameters:
     Default: 7
     MinValue: 1
     MaxValue: 365
-    Description: Days to keep each pg_dump copy before lifecycle expiry.
+    Description: Legacy parameter retained for stack compatibility; expiration is retired.
   MediaRetentionDays:
     Type: Number
     Default: 1
@@ -74,9 +74,8 @@ Resources:
         Status: Suspended
       LifecycleConfiguration:
         Rules:
-          - Id: expire-pgdump-copies
+          - Id: abort-incomplete-pgdump-upload
             Status: Enabled
-            ExpirationInDays: !Ref RetentionDays
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 1
 

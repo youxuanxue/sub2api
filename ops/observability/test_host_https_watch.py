@@ -43,7 +43,7 @@ class CoveragePlanTest(unittest.TestCase):
         self.assertEqual(prod['paused_jobs'], self.fresh['prod']['paused_jobs'])
         self.assertEqual(
             set(prod['paused_jobs']),
-            {'tokenkey-qa-maintenance', 'tokenkey-qa-boundary'},
+            {'tokenkey-qa-maintenance', 'tokenkey-qa-boundary', 'tokenkey-pgdump'},
         )
         self.assertEqual(self.config('cn-prod', self.domestic['instance_name'])['paused_jobs'], {})
         self.assertIn('tokenkey-pgdump', prod['jobs'])
@@ -78,6 +78,59 @@ class CoveragePlanTest(unittest.TestCase):
 
 
 class PhysicalBackupWatchTest(unittest.TestCase):
+    def test_only_expired_successful_evidence_is_advisory(self):
+        import tempfile
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'stage0'))
+        import postgres_backup as backup
+        now = 2_000_000
+        current = {'backup': [{'timestamp': {'stop': now - 30}}]}
+        archive = {'status': 'ok', 'started_at': now - 10}
+        old = {'status': 'ok', 'completed_at': now - 9 * 86400}
+        cases = [
+            (current, archive, old, old, True, 'warning'),
+            (current, archive, None, old, False, 'error'),
+            (current, archive, old, None, False, 'error'),
+            (current, archive, dict(old, status='failed'), old, False, 'error'),
+            (current, archive, old, dict(old, status='failed'), False, 'error'),
+            (current, archive, old, dict(old, completed_at=now + 1), False, 'error'),
+            (current, archive, old, dict(old, completed_at=0), False, 'error'),
+            (current, None, old, old, False, 'error'),
+            ({'backup': []}, archive, old, old, False, 'error'),
+        ]
+        with tempfile.TemporaryDirectory() as root:
+            path = pathlib.Path(root) / 'health.json'
+            for entry, check, verified, restored, healthy, severity in cases:
+                receipt = backup.status(entry, now, check, verified, restored)
+                path.write_text(json.dumps(dict(receipt, observed_at=now)))
+                with self.subTest(receipt=receipt):
+                    fact = watch.physical_backup_fact(path, now)
+                    self.assertEqual(fact['healthy'], healthy)
+                    self.assertEqual(fact['severity'], severity)
+
+    def test_validation_reminder_is_daily_and_never_masks_a_new_fault(self):
+        name = 'tokenkey-postgres-recovery'
+        sent = []
+        warning = {'healthy': True, 'severity': 'warning', 'reason': 'restore evidence overdue'}
+        good = {'healthy': True, 'severity': 'info', 'reason': 'ok'}
+        bad = {'healthy': False, 'severity': 'error', 'reason': 'WAL gap'}
+        state = {}
+        for stamp, fact in [(1000, warning), (1120, warning), (1240, good), (1360, warning)]:
+            state = watch.tick_jobs([name], state, stamp, lambda _: fact, sent.append, 'prod')
+        self.assertEqual(len(sent), 1)
+        self.assertIn('备份验证提醒', sent[0])
+        self.assertFalse(state['job:' + name].get('active', False))
+        for stamp in (1480, 1600):
+            state = watch.tick_jobs([name], state, stamp, lambda _: bad, sent.append, 'prod')
+        self.assertEqual(len(sent), 2)
+        self.assertIn('unhealthy', sent[-1])
+        self.assertIn('WAL gap', sent[-1])
+        state = watch.tick_jobs([name], state, 1720, lambda _: warning, sent.append, 'prod')
+        self.assertIn('recovered', sent[-1])
+        state = watch.tick_jobs([name], state, 1000 + 86400, lambda _: warning, sent.append, 'prod')
+        self.assertEqual(sum('备份验证提醒' in msg for msg in sent), 2)
+        state = watch.tick_jobs([name], state, 1000 + 86520, lambda _: good, sent.append, 'prod')
+        self.assertFalse(state['job:' + name]['warning_active'])
+
     def test_failed_or_stale_chain_alerts_despite_successful_backup_job(self):
         import tempfile
         with tempfile.TemporaryDirectory() as root:

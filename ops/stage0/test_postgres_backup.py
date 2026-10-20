@@ -18,6 +18,8 @@ import postgres_backup as backup
 import prepare_physical_backup as bundle
 import restore_postgres_backup as restore
 import run_physical_restore as cloud
+import retire_pgdump as retirement
+import preserve_legacy_pgdump as retention
 
 
 def entry(backups):
@@ -25,6 +27,40 @@ def entry(backups):
 
 
 class PhysicalBackupTests(unittest.TestCase):
+    def test_retirement_requires_live_physical_health_and_both_restore_paths(self):
+        now = 2000000
+        accepted = {"status": "ok", "completed_at": now - 60,
+                    "paths": ["latest-archived", "tk_point"]}
+        health = {"status": "ok", "reasons": [], "latest_backup_at": now - 600,
+                  "archive_check": {"status": "ok", "started_at": now - 10},
+                  "restore_acceptance": accepted, "repository_verification": accepted}
+        retirement.validate_health(health, now)
+        for bad in (dict(health, latest_backup_at=now-9000),
+                    dict(health, archive_check={}),
+                    dict(health, restore_acceptance=dict(accepted, paths=["latest-archived"])),
+                    dict(health, status="degraded", reasons=["WAL gap"])):
+            with self.assertRaises(backup.BackupError):
+                retirement.validate_health(bad, now)
+        receipt = {"status": "ok", "s3_uri": "s3://bucket/prod/pgdump",
+                   "expiration_disabled": True, "retained_objects": 5,
+                   "observed_at": now-5, "retain_until": now+31*86400}
+        retirement.validate_retention(receipt, now, receipt["s3_uri"])
+        for bad in (dict(receipt, expiration_disabled=False),
+                    dict(receipt, retain_until=now+7*86400),
+                    dict(receipt, s3_uri="s3://other/prod/pgdump")):
+            with self.assertRaises(backup.BackupError):
+                retirement.validate_retention(bad, now, receipt["s3_uri"])
+
+    def test_legacy_retention_removes_expiry_but_preserves_upload_cleanup(self):
+        before = {"Rules": [{"ID": "expire-pgdump-copies", "Filter": {"Prefix": ""},
+                             "Status": "Enabled", "Expiration": {"Days": 7}}]}
+        after = retention.retained_lifecycle(before)
+        self.assertNotIn("Expiration", after["Rules"][0])
+        self.assertEqual(after["Rules"][0]["AbortIncompleteMultipartUpload"],
+                         {"DaysAfterInitiation": 1})
+        with self.assertRaises(backup.BackupError):
+            retention.retained_lifecycle({"Rules": before["Rules"] * 2})
+
     def test_bundle_accepts_classic_and_oci_identity_and_rejects_wrong_image(self):
         config = b'{"architecture":"arm64"}'
         config_id = "sha256:" + hashlib.sha256(config).hexdigest()
@@ -273,6 +309,38 @@ class PhysicalBackupTests(unittest.TestCase):
             command.call_args_list[1].args[0],
             ["docker", "volume", "rm", "owned-volume"],
         )
+
+    def test_recovery_startup_probe_is_not_a_terminal_failure(self):
+        startup = 'FATAL:  the database system is starting up'
+        self.assertFalse(restore.recovery_log_is_terminal(startup))
+        self.assertTrue(
+            restore.recovery_log_is_terminal(
+                'FATAL: recovery aborted because of insufficient parameter settings'
+            )
+        )
+
+    def test_recovery_waits_through_probe_failure_until_ready(self):
+        task = restore.Restore("sha256:test", Path("/tmp/config"))
+        with (
+            patch.object(restore, "run") as command,
+            patch.object(task, "sql", side_effect=[backup.BackupError("starting"), "f", "t"]),
+            patch.object(task, "recovery_diagnostics", return_value="FATAL: the database system is starting up"),
+            patch.object(restore.time, "sleep"),
+        ):
+            task.start("isolated")
+        options = command.call_args.args[0]
+        self.assertIn("-c max_connections=200", options[options.index("-o") + 1])
+
+    def test_terminal_recovery_failure_preserves_reason(self):
+        task = restore.Restore("sha256:test", Path("/tmp/config"))
+        reason = "FATAL: recovery aborted because of insufficient parameter settings"
+        with (
+            patch.object(restore, "run"),
+            patch.object(task, "sql", side_effect=backup.BackupError("starting")),
+            patch.object(task, "recovery_diagnostics", return_value=reason),
+            self.assertRaisesRegex(backup.BackupError, "insufficient parameter settings"),
+        ):
+            task.start("isolated")
 
     def test_remote_worker_rejects_mutable_or_injected_artifact(self):
         with self.assertRaises(backup.BackupError):
