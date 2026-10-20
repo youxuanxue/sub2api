@@ -52,6 +52,13 @@ def validate_receipt(receipt, tag, revision, digest=''):
     raw = receipt['manifest_raw'].encode()
     if json.loads(raw) != manifest or 'sha256:' + hashlib.sha256(raw).hexdigest() != receipt['source_digest']:
         raise ValueError('source manifest checksum mismatch')
+    # Optional on older receipts; new publishes embed uncompressed layer digests so
+    # hosts can skip re-download when GHCR already tagged the same release.
+    if 'diff_ids' in receipt:
+        diff_ids = receipt['diff_ids']
+        if (not isinstance(diff_ids, list) or len(diff_ids) != len(manifest['layers'])
+                or any(not re.fullmatch(r'sha256:[a-f0-9]{64}', value) for value in diff_ids)):
+            raise ValueError('invalid receipt diff_ids')
 
 
 def verify_archive(archive, receipt):
@@ -118,6 +125,24 @@ def check_loaded(image, receipt, config=None):
         raise ValueError('loaded filesystem layers mismatch')
 
 
+def content_aligned(image, receipt, config=None):
+    """Whether a local image already carries this release (labels + optional diff_ids)."""
+    try:
+        check_loaded(image, receipt, config)
+        return True
+    except (ValueError, KeyError, TypeError):
+        return False
+
+
+def _persist_warm(saved, receipt, *, image_id, local_tag, cached):
+    result = {k: receipt[k] for k in ('tag', 'revision', 'source_digest', 'archive_sha256', 'bytes')}
+    result.update(image_id=image_id, local_tag=local_tag, cached=cached)
+    temporary = saved.with_suffix('.tmp')
+    temporary.write_text(json.dumps(result, indent=2) + '\n')
+    temporary.replace(saved)
+    return result
+
+
 def warm(receipt, url, *, data=Path('/var/lib/tokenkey')):
     """Host-only entry. Download is bounded; the shared deploy lock excludes cutover."""
     validate_receipt(receipt, receipt['tag'], receipt['revision'])
@@ -130,11 +155,21 @@ def warm(receipt, url, *, data=Path('/var/lib/tokenkey')):
         state.mkdir(mode=0o700, exist_ok=True)
         saved = state / f"{receipt['tag']}-{receipt['revision']}.json"
         current = inspect_image(local)
+        # Prior warm of the same archive: Docker ID may drift (GHCR pull vs load).
+        # When receipt carries diff_ids, require RootFS match — labels alone are not enough.
         if saved.exists() and current:
             previous = json.loads(saved.read_text())
-            if (previous.get('archive_sha256'), previous.get('image_id')) == (receipt['archive_sha256'], current['Id']):
-                check_loaded(current, receipt)
-                return {**previous, 'cached': True}
+            expected = (
+                {'rootfs': {'diff_ids': receipt['diff_ids']}} if receipt.get('diff_ids') else None
+            )
+            if previous.get('archive_sha256') == receipt['archive_sha256'] and content_aligned(
+                    current, receipt, expected):
+                return _persist_warm(saved, receipt, image_id=current['Id'], local_tag=local, cached=True)
+        # New receipts embed diff_ids — skip download when local already matches.
+        if current and receipt.get('diff_ids'):
+            expected = {'rootfs': {'diff_ids': receipt['diff_ids']}}
+            if content_aligned(current, receipt, expected):
+                return _persist_warm(saved, receipt, image_id=current['Id'], local_tag=local, cached=True)
         if shutil.disk_usage(data).free < receipt['bytes'] * 8 + 512 * 1024 * 1024:
             raise ValueError('insufficient disk space for image import')
         with tempfile.TemporaryDirectory(prefix='warm-', dir=state) as temp:
@@ -152,14 +187,11 @@ def warm(receipt, url, *, data=Path('/var/lib/tokenkey')):
             subprocess.run(['docker', 'load', '--input', str(archive)], check=True, capture_output=True, timeout=240)
             loaded = inspect_image(receipt['archive_tag'])
             check_loaded(loaded or {}, receipt, config)
-            # Docker 29 containerd IDs are manifests; compare labels and diff_ids,
-            # not the config digest to Docker's image ID.
-            if current and current['Id'] != loaded['Id']:
+            # Same release via GHCR pull vs docker load often gets different image IDs
+            # under Docker 29/containerd. Content identity is labels + diff_ids.
+            if current:
+                if content_aligned(current, receipt, config):
+                    return _persist_warm(saved, receipt, image_id=current['Id'], local_tag=local, cached=True)
                 raise ValueError('refusing to replace an existing release tag')
             subprocess.run(['docker', 'tag', loaded['Id'], local], check=True)
-            result = {k: receipt[k] for k in ('tag', 'revision', 'source_digest', 'archive_sha256', 'bytes')}
-            result.update(image_id=loaded['Id'], local_tag=local, cached=False)
-            temporary = saved.with_suffix('.tmp')
-            temporary.write_text(json.dumps(result, indent=2) + '\n')
-            temporary.replace(saved)
-            return result
+            return _persist_warm(saved, receipt, image_id=loaded['Id'], local_tag=local, cached=False)

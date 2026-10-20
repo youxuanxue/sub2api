@@ -29,10 +29,12 @@ risk: high
   S3 路径为版本/完整 revision/归档 SHA；条件创建拒绝覆盖，manifest 最后写入。
 - `image_archive.py` 是校验与主机导入 owner。通过短期签名 GET 下载，无长期主机密钥。
   SHA、manifest、config/diff_ids 校验成功才 docker load；不使用 config digest 作为
-  Docker 29 containerd image ID。加载后核对 diff_ids、版本、架构和 revision。
+  Docker 29 containerd image ID。内容身份是架构/版本/revision + `diff_ids`：GHCR
+  pull 与 docker load 的 image ID 可不同；同内容视为已对齐（`cached=true`），仅当
+  本地不可变标签指向不同内容时拒绝替换。新 receipt 可带 `diff_ids` 以便跳过重下。
 - 下载限速 512 KiB/s、串行、有限超时，复用共享 bluegreen host lock；
   预留磁盘空间，临时归档在成功和失败后均清理。nice/ionice 只约束下载进程，
-  不声称限制 Docker daemon 导入开销。已验证缓存可复用，拒绝替换不同的本地版本标签。
+  不声称限制 Docker daemon 导入开销。
 - `image_distribution_lifecycle.py` 只管理专用前缀的 30 天保留，保留其他生命周期规则。
   不清理主机旧镜像，不变更回滚镜像保留策略。
 
