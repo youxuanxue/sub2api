@@ -113,7 +113,10 @@ func (s *OpenAIGatewayService) RecordCyberPolicyUsageLog(ctx context.Context, in
 	}
 }
 
-// ResolveUserGroupRateMultiplier resolves the same cached multiplier used by OpenAI usage billing.
+// ResolveUserGroupRateMultiplier is for admission, profit checks, and balance
+// estimates: it uses Resolve, which falls back to 1 when the user-rate lookup
+// fails. Formal settlement must call ResolveForBilling (via prepare/settle
+// owners) and must not charge that estimate.
 func (s *OpenAIGatewayService) ResolveUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
 	if s == nil {
 		return groupDefaultMultiplier
@@ -237,9 +240,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	var longContextBillingGate *bool
 	var actualInputTokens int
 
-	if result.PrecomputedCost != nil {
+	if result.PrecomputedCost != nil && result.PrecomputedCost.openAISettlement != nil {
 		cost = result.PrecomputedCost
-		prepared := s.prepareOpenAICustomerFacingCostInputs(ctx, costInput)
+		prepared := result.PrecomputedCost.openAISettlement
 		multiplier = prepared.Multiplier
 		imageMultiplier = prepared.ImageMultiplier
 		videoMultiplier = prepared.VideoMultiplier
@@ -255,7 +258,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			if !isUsagePricingUnavailableError(err) {
 				return err
 			}
-			prepared := s.prepareOpenAICustomerFacingCostInputs(ctx, costInput)
+			prepared, prepareErr := s.prepareOpenAICustomerFacingCostInputs(ctx, costInput)
+			if prepareErr != nil {
+				return prepareErr
+			}
 			logger.L().With(
 				zap.String("component", "service.openai_gateway"),
 				zap.Strings("billing_models", prepared.BillingModels),
@@ -577,10 +583,10 @@ type openAICustomerFacingCostSettlement struct {
 func (s *OpenAIGatewayService) prepareOpenAICustomerFacingCostInputs(
 	ctx context.Context,
 	in *openAICustomerFacingCostInput,
-) openAICustomerFacingCostPrepared {
+) (openAICustomerFacingCostPrepared, error) {
 	var out openAICustomerFacingCostPrepared
 	if in == nil || in.Result == nil {
-		return out
+		return out, nil
 	}
 	result := in.Result
 	apiKey := in.APIKey
@@ -615,7 +621,11 @@ func (s *OpenAIGatewayService) prepareOpenAICustomerFacingCostInputs(
 		if resolver == nil {
 			resolver = newUserGroupRateResolver(nil, nil, resolveUserGroupRateCacheTTL(s.cfg), nil, "service.openai_gateway")
 		}
-		multiplier = resolver.Resolve(ctx, user.ID, *apiKey.GroupID, apiKey.Group.RateMultiplier)
+		var err error
+		multiplier, err = resolver.ResolveForBilling(ctx, user.ID, *apiKey.GroupID, apiKey.Group.RateMultiplier)
+		if err != nil {
+			return out, err
+		}
 	}
 	baseMultiplier := multiplier
 	multiplier, imageMultiplier := computePeakAwareMultipliers(apiKey, baseMultiplier, pricingAt)
@@ -656,7 +666,7 @@ func (s *OpenAIGatewayService) prepareOpenAICustomerFacingCostInputs(
 		out.ServiceTier = strings.TrimSpace(*result.ServiceTier)
 	}
 	out.LongContextBillingGate = openAILongContextBillingGate(billingAccount)
-	return out
+	return out, nil
 }
 
 // settleOpenAICustomerFacingCost is the single owner for OpenAI customer-facing
@@ -669,7 +679,10 @@ func (s *OpenAIGatewayService) settleOpenAICustomerFacingCost(
 	if in == nil || in.Result == nil {
 		return nil, errors.New("openai customer cost input is nil")
 	}
-	prepared := s.prepareOpenAICustomerFacingCostInputs(ctx, in)
+	prepared, err := s.prepareOpenAICustomerFacingCostInputs(ctx, in)
+	if err != nil {
+		return nil, err
+	}
 
 	pricingAt := in.PricingAt
 	if pricingAt.IsZero() {
@@ -751,6 +764,9 @@ func (s *OpenAIGatewayService) settleOpenAICustomerFacingCost(
 	}
 
 	prepared.BillingModels = billingModels
+	if cost != nil {
+		cost.openAISettlement = &prepared
+	}
 	return &openAICustomerFacingCostSettlement{
 		Cost:                             cost,
 		openAICustomerFacingCostPrepared: prepared,

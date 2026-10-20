@@ -872,11 +872,11 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	var err error
 	var multiplier, imageMultiplier float64
 	var billingModel, effectiveBillingModel string
-	if result.PrecomputedCost != nil {
+	if result.PrecomputedCost != nil && result.PrecomputedCost.claudeSettlement != nil {
 		cost = result.PrecomputedCost
-		multiplier, imageMultiplier = s.claudeUsageRateMultipliers(ctx, apiKey, user, pricingAt)
-		billingModel = s.resolveClaudeBillingModel(ctx, result, apiKey, account, input.ChannelUsageFields)
-		effectiveBillingModel = billingModel
+		prepared := cost.claudeSettlement
+		multiplier, imageMultiplier = prepared.Multiplier, prepared.ImageMultiplier
+		billingModel, effectiveBillingModel = prepared.BillingModel, prepared.EffectiveBillingModel
 	} else {
 		var settled *claudeCustomerFacingCostSettlement
 		settled, err = s.settleClaudeCustomerFacingCost(ctx, &claudeCustomerFacingCostInput{
@@ -989,22 +989,34 @@ type claudeCustomerFacingCostInput struct {
 // claudeCustomerFacingCostSettlement is the settled customer-facing cost plus the
 // multiplier / billing-model metadata RecordUsage needs for the usage log.
 type claudeCustomerFacingCostSettlement struct {
-	Cost                  *CostBreakdown
+	Cost *CostBreakdown
+	claudeCustomerFacingCostPrepared
+}
+
+type claudeCustomerFacingCostPrepared struct {
 	Multiplier            float64
 	ImageMultiplier       float64
 	BillingModel          string
 	EffectiveBillingModel string
 }
 
-func (s *GatewayService) claudeUsageRateMultipliers(ctx context.Context, apiKey *APIKey, user *User, pricingAt time.Time) (multiplier, imageMultiplier float64) {
+func (s *GatewayService) claudeUsageRateMultipliers(ctx context.Context, apiKey *APIKey, user *User, pricingAt time.Time) (multiplier, imageMultiplier float64, err error) {
 	multiplier = 1.0
 	if s.cfg != nil {
 		multiplier = s.cfg.Default.RateMultiplier
 	}
 	if apiKey != nil && apiKey.GroupID != nil && apiKey.Group != nil && user != nil {
-		multiplier = s.getUserGroupRateMultiplier(ctx, user.ID, *apiKey.GroupID, apiKey.Group.RateMultiplier)
+		resolver := s.userGroupRateResolver
+		if resolver == nil {
+			resolver = newUserGroupRateResolver(s.userGroupRateRepo, s.userGroupRateCache, resolveUserGroupRateCacheTTL(s.cfg), &s.userGroupRateSF, "service.gateway")
+		}
+		multiplier, err = resolver.ResolveForBilling(ctx, user.ID, *apiKey.GroupID, apiKey.Group.RateMultiplier)
+		if err != nil {
+			return 0, 0, err
+		}
 	}
-	return computePeakAwareMultipliers(apiKey, multiplier, pricingAt)
+	multiplier, imageMultiplier = computePeakAwareMultipliers(apiKey, multiplier, pricingAt)
+	return multiplier, imageMultiplier, nil
 }
 
 func (s *GatewayService) resolveClaudeBillingModel(
@@ -1057,7 +1069,10 @@ func (s *GatewayService) settleClaudeCustomerFacingCost(
 	if pricingAt.IsZero() {
 		pricingAt = timezone.Now()
 	}
-	multiplier, imageMultiplier := s.claudeUsageRateMultipliers(ctx, in.APIKey, in.User, pricingAt)
+	multiplier, imageMultiplier, err := s.claudeUsageRateMultipliers(ctx, in.APIKey, in.User, pricingAt)
+	if err != nil {
+		return nil, err
+	}
 	billingModel := s.resolveClaudeBillingModel(ctx, in.Result, in.APIKey, in.Account, in.ChannelUsageFields)
 
 	opts := in.Opts
@@ -1095,13 +1110,16 @@ func (s *GatewayService) settleClaudeCustomerFacingCost(
 		}
 	}
 
-	return &claudeCustomerFacingCostSettlement{
-		Cost:                  cost,
+	prepared := claudeCustomerFacingCostPrepared{
 		Multiplier:            multiplier,
 		ImageMultiplier:       imageMultiplier,
 		BillingModel:          billingModel,
 		EffectiveBillingModel: effectiveBillingModel,
-	}, nil
+	}
+	if cost != nil {
+		cost.claudeSettlement = &prepared
+	}
+	return &claudeCustomerFacingCostSettlement{Cost: cost, claudeCustomerFacingCostPrepared: prepared}, nil
 }
 
 // calculateRecordUsageCost 根据请求类型计算费用。

@@ -156,7 +156,7 @@ mixed-pool test documents only the remaining legacy adapter's behavior.
 - `backend/internal/service/user_group_rate_resolver_test.go`::`TestUserGroupRateResolverResolve_CanceledLeaderDoesNotCancelSharedRead`
 - `backend/internal/service/user_group_rate_resolver_test.go`::`TestUserGroupRateResolverResolve_QueryFailureUsesOneAndRecovers`
 - `backend/internal/service/user_group_rate_resolver_test.go`::`TestUserGroupRateResolverResolve_NoOverrideUsesGroupDefault`
-- `backend/internal/service/openai_gateway_record_usage_test.go`::`TestOpenAIGatewayServiceRecordUsage_FallsBackToOneOnResolverError`
+- `backend/internal/service/openai_gateway_record_usage_test.go`::`TestOpenAIGatewayServiceRecordUsage_RejectsUnconfirmedRateOnResolverError`
 - `backend/internal/handler/universal_group_model_mapping_test.go`::`TestGroupModelMappingRoutingMode`
 - `backend/internal/handler/universal_group_model_mapping_test.go`::`TestUniversalGroupDefaultModelCannotReenterThroughFallback`
 - `backend/internal/service/gemini_messages_compat_service_test.go`::`TestGeminiMessagesCompatServiceForward_UniversalKeepsAccountMapping`

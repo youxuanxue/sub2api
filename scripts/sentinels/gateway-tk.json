@@ -2810,9 +2810,9 @@
       "must_contain": [
         "context.WithTimeout(context.WithoutCancel(ctx), userGroupRateLoadTimeout)",
         "r.repo.GetByUserAndGroup(loadCtx, userID, groupID)",
-        "fallback to multiplier 1"
+        "ResolveForBilling"
       ],
-      "rationale": "Shared billing-rate reads must survive leader cancellation and use the approved base multiplier 1 on real query failure without caching the fallback."
+      "rationale": "Shared rate reads survive leader cancellation; settlement propagates failures instead of charging an unconfirmed multiplier. Legacy admission estimates retain fallback 1."
     },
     {
       "path": "backend/internal/service/user_group_rate_resolver_test.go",
@@ -2826,10 +2826,10 @@
     {
       "path": "backend/internal/service/openai_gateway_record_usage_test.go",
       "must_contain": [
-        "TestOpenAIGatewayServiceRecordUsage_FallsBackToOneOnResolverError",
-        "require.Equal(t, 1.0, usageRepo.lastLog.RateMultiplier)"
+        "TestOpenAIGatewayServiceRecordUsage_RejectsUnconfirmedRateOnResolverError",
+        "require.Zero(t, userRepo.deductCalls)"
       ],
-      "rationale": "Provider-specific behavior is retired; these anchors preserve the shared provider behavior in this owner."
+      "rationale": "A failed rate query must not deduct balance or create a successful bill."
     },
     {
       "path": "backend/internal/service/supplier_source_probe.go",
@@ -15399,6 +15399,7 @@
       "path": "backend/internal/service/gateway_usage_billing.go",
       "must_contain": [
         "func (s *GatewayService) settleClaudeCustomerFacingCost(",
+        "cost.claudeSettlement = &prepared",
         "result.PrecomputedCost != nil"
       ],
       "rationale": "Claude CostBreakdown settlement and PrecomputedCost reuse stay the single ledger path for response usage.cost."
@@ -15407,6 +15408,7 @@
       "path": "backend/internal/service/openai_gateway_usage.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) settleOpenAICustomerFacingCost(",
+        "cost.openAISettlement = &prepared",
         "result.PrecomputedCost != nil"
       ],
       "rationale": "OpenAI CostBreakdown settlement (response_model + Free Fast) stays shared by RecordUsage and response usage.cost."

@@ -4,12 +4,12 @@ import (
 	"context"
 )
 
-// TK billing cost calculation: user/group rate multiplier resolution for
-// GatewayService.RecordUsage. Shared billing helpers live in gateway_usage_billing.go
-// (upstream); this companion keeps only TokenKey-specific multiplier logic.
+// TK user/group rate helpers for admission, profit checks, and balance
+// estimates. Formal RecordUsage settlement uses ResolveForBilling inside
+// settleClaudeCustomerFacingCost (gateway_usage_billing.go), not these APIs.
 
-// getUserGroupRateMultiplier resolves the effective rate multiplier for a
-// user x group pair, with fallback to groupDefaultMultiplier.
+// getUserGroupRateMultiplier uses Resolve: on lookup failure it returns 1 so
+// non-settlement callers can keep estimating. Settlement must not charge this.
 func (s *GatewayService) getUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
 	if s == nil {
 		return groupDefaultMultiplier
@@ -27,7 +27,8 @@ func (s *GatewayService) getUserGroupRateMultiplier(ctx context.Context, userID,
 	return resolver.Resolve(ctx, userID, groupID, groupDefaultMultiplier)
 }
 
-// ResolveUserGroupRateMultiplier resolves the same cached multiplier used by usage billing.
+// ResolveUserGroupRateMultiplier exposes getUserGroupRateMultiplier for
+// admission/estimate callers. Settlement uses ResolveForBilling instead.
 func (s *GatewayService) ResolveUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
 	return s.getUserGroupRateMultiplier(ctx, userID, groupID, groupDefaultMultiplier)
 }

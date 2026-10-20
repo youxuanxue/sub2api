@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -284,4 +285,69 @@ func stringsTrimDataPrefix(s string) string {
 		return s[5:]
 	}
 	return s
+}
+
+func TestResponseUsageCostSnapshotAndRateFailure(t *testing.T) {
+	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic} {
+		for _, failedPreview := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/failedPreview=%t", platform, failedPreview), func(t *testing.T) {
+				ctx := context.Background()
+				rate := 0.3
+				rateRepo := &userGroupRateResolverRepoStub{rate: &rate}
+				if failedPreview {
+					rateRepo.err = context.DeadlineExceeded
+				}
+				resolver := newUserGroupRateResolver(rateRepo, nil, time.Minute, nil, "service.test")
+				usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+				userRepo := &openAIRecordUsageUserRepoStub{}
+				gid := int64(42)
+				key := &APIKey{ID: 1, GroupID: &gid, User: &User{ID: 9}, Group: &Group{ID: gid, Platform: platform, RateMultiplier: 1.6}}
+				account := &Account{ID: 2, Platform: platform}
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Set("api_key", key)
+				var cost *CostBreakdown
+				var record func() error
+				if platform == PlatformOpenAI {
+					svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{}, nil)
+					svc.userGroupRateResolver = resolver
+					result := &OpenAIForwardResult{RequestID: "snapshot", Model: "gpt-4o", Usage: OpenAIUsage{InputTokens: 400000, CacheReadInputTokens: 399500, OutputTokens: 50}}
+					cost = svc.previewOpenAIClientUsageCost(ctx, c, account, result)
+					result.PrecomputedCost = cost
+					record = func() error {
+						return svc.RecordUsage(ctx, &OpenAIRecordUsageInput{Result: result, APIKey: key, User: key.User, Account: account})
+					}
+				} else {
+					svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+					svc.userGroupRateResolver = resolver
+					result := &ForwardResult{RequestID: "snapshot", Model: "claude-sonnet-4", Usage: ClaudeUsage{InputTokens: 500, CacheReadInputTokens: 399500, OutputTokens: 50}}
+					cost = svc.previewClaudeClientUsageCost(ctx, c, account, result.Usage, result.Model, result.Model)
+					result.PrecomputedCost = cost
+					record = func() error {
+						return svc.RecordUsage(ctx, &RecordUsageInput{Result: result, APIKey: key, User: key.User, Account: account})
+					}
+				}
+				if failedPreview {
+					require.Nil(t, cost)
+					require.ErrorIs(t, record(), context.DeadlineExceeded)
+					require.Zero(t, userRepo.deductCalls)
+					require.Zero(t, usageRepo.calls, "do not manufacture a successful zero-cost bill")
+					rateRepo.err = nil
+				} else {
+					require.NotNil(t, cost)
+					require.InDelta(t, cost.TotalCost*rate, cost.ActualCost, 1e-12)
+					resolver.cache.Flush()
+					rateRepo.err = context.DeadlineExceeded
+					key.Group.RateMultiplier = 2
+				}
+				require.NoError(t, record())
+				if !failedPreview {
+					require.Equal(t, 1, rateRepo.calls, "ledger must reuse the preview snapshot")
+				}
+				require.Equal(t, rate, usageRepo.lastLog.RateMultiplier)
+				require.Equal(t, 500, usageRepo.lastLog.InputTokens)
+				require.Equal(t, 399500, usageRepo.lastLog.CacheReadTokens)
+				require.InDelta(t, usageRepo.lastLog.TotalCost*rate, userRepo.lastAmount, 1e-12)
+			})
+		}
+	}
 }

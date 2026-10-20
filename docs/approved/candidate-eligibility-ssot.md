@@ -87,8 +87,9 @@ group-independent session affinity with a one-time soft-cache cold start, and
 the common account ordering below. A conversation approval is never by itself
 deployment evidence; US-050 records what shipped and what was verified.
 
-The subsequent review accepts multiplier-read fallback to 1 and normal
-administrative rate changes between reservation and settlement; billing details
+The subsequent review accepts multiplier-read fallback to 1 for admission and
+estimation. The 2026-10-20 billing fix requires confirmed settlement rates and
+reuses response-preview settlement snapshots; billing details
 remain in the Universal contract. The user subsequently approved retaining
 Direct group model mappings while Universal ignores them, as defined in
 [candidate-request-policy-convergence.md](candidate-request-policy-convergence.md).
