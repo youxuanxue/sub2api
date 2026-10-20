@@ -35,6 +35,7 @@
 - `deploy/domestic/test_image_distribution.py`::`ArchiveTests.test_busy_host_lock_does_not_download` (AC-003)
 - `deploy/domestic/test_deploy_via_ssm.py`::`DeployViaSsmTest.test_ssm_pull_executes_under_posix_shell_and_enforces_architecture` (AC-004)
 - `deploy/domestic/test_image_distribution.py`::`DistributionTests.test_immutable_retry_and_conflict` (AC-005)
+- `deploy/domestic/test_image_distribution.py`::`DistributionTests.test_publish_reuses_existing_manifest_for_same_archive` (AC-005)
 - `deploy/domestic/test_image_distribution.py`::`ArchiveTests.test_wrong_loaded_revision_or_conflicting_local_content_is_not_tagged` (AC-005)
 - `deploy/domestic/test_image_distribution.py`::`ArchiveTests.test_warm_saved_match_still_checks_diff_ids_when_present` (AC-005)
 - `deploy/domestic/test_image_distribution.py`::`DistributionTests.test_release_artifact_is_only_data_and_must_match_git_tag` (AC-006)

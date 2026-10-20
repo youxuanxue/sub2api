@@ -293,6 +293,40 @@ class DistributionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 distribution.render(client, 'bucket', TAG, REV, 'sha256:' + '0' * 64)
 
+    def test_publish_reuses_existing_manifest_for_same_archive(self):
+        """Retry after optional receipt fields (e.g. diff_ids) must not conflict."""
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / 'source.tar'
+            receipt = make_archive(source)
+            client = MemoryS3()
+            key = distribution.prefix(TAG, REV)
+
+            def pull(args, **kwargs):
+                Path(args[3]).write_bytes(source.read_bytes())
+                return subprocess.CompletedProcess(args, 0)
+
+            patches = (
+                patch.object(distribution.subprocess, 'check_output',
+                             side_effect=[receipt['source_digest'], receipt['manifest_raw'].encode() + b'\n']),
+                patch.object(distribution.subprocess, 'run', side_effect=pull),
+            )
+            with patches[0], patches[1]:
+                first = distribution.publish(client, 'bucket', TAG, REV, 'ghcr.io/example/app')
+            self.assertIn('diff_ids', first)
+            # Simulate an older completion marker for the same archive bytes.
+            older = {k: v for k, v in first.items() if k != 'diff_ids'}
+            client.objects[f'{key}/manifest.json'] = (json.dumps(older, sort_keys=True) + '\n').encode()
+            with patch.object(distribution.subprocess, 'check_output',
+                              side_effect=[receipt['source_digest'], receipt['manifest_raw'].encode() + b'\n']), \
+                 patch.object(distribution.subprocess, 'run', side_effect=pull):
+                published = distribution.publish(client, 'bucket', TAG, REV, 'ghcr.io/example/app')
+            self.assertEqual(published, older)
+            self.assertNotIn('diff_ids', published)
+            self.assertEqual(
+                client.objects[f'{key}/manifest.json'],
+                (json.dumps(older, sort_keys=True) + '\n').encode(),
+            )
+
     def test_release_artifact_is_only_data_and_must_match_git_tag(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / 'source.json'

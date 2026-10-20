@@ -27,6 +27,8 @@ risk: high
   未压缩 tar，按 config `rootfs.diff_ids` 校验（不得用 registry `layers[].size`
   / compressed digest 比对归档成员）。并校验架构、版本、完整 revision。
   S3 路径为版本/完整 revision/归档 SHA；条件创建拒绝覆盖，manifest 最后写入。
+  同 tag/revision/archive_sha 已完成时复用现有 manifest（允许 receipt 可选字段演进，
+  不重写）。
 - `image_archive.py` 是校验与主机导入 owner。通过短期签名 GET 下载，无长期主机密钥。
   SHA、manifest、config/diff_ids 校验成功才 docker load；不使用 config digest 作为
   Docker 29 containerd image ID。内容身份是架构/版本/revision + `diff_ids`：GHCR

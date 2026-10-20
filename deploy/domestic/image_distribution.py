@@ -84,8 +84,18 @@ def publish(client, bucket, tag, revision, repository):
         receipt['diff_ids'] = list(config['rootfs']['diff_ids'])
         immutable_put(client, bucket, f'{key}/{archive_sha}.tar', archive.read_bytes())
         # Manifest is the completion marker, written last.
-        immutable_put(client, bucket, f'{key}/manifest.json',
-                      (json.dumps(receipt, sort_keys=True) + '\n').encode())
+        body = (json.dumps(receipt, sort_keys=True) + '\n').encode()
+        try:
+            immutable_put(client, bucket, f'{key}/manifest.json', body)
+        except ValueError:
+            # Same archive already completed (e.g. older receipt without optional
+            # diff_ids). Never overwrite; reuse the published completion marker.
+            existing = json.loads(
+                client.get_object(Bucket=bucket, Key=f'{key}/manifest.json')['Body'].read())
+            validate_receipt(existing, tag, revision, digest)
+            if existing.get('archive_sha256') != archive_sha:
+                raise ValueError('immutable S3 object conflicts with this artifact') from None
+            return existing
     return receipt
 
 
