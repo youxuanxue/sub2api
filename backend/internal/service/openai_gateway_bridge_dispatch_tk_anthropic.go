@@ -212,7 +212,9 @@ func anthropicToChatCompletionsBody(req *apicompat.AnthropicRequest, upstreamMod
 		"stream":   true,
 	}
 	if len(req.Metadata) > 0 && string(req.Metadata) != "null" {
-		chatReq["metadata"] = json.RawMessage(req.Metadata)
+		// Canonicalize: json.RawMessage passthrough preserves duplicate keys from
+		// the client wire body; tokensea rejects those with TS_REQUEST_JSON_INVALID.
+		chatReq["metadata"] = tkBridgeCanonicalJSON(req.Metadata)
 	}
 	if req.MaxTokens > 0 {
 		chatReq["max_tokens"] = req.MaxTokens
@@ -377,7 +379,12 @@ func tkBridgeConvertAssistantMsg(content json.RawMessage) ([]tkBridgeChatMsg, er
 		if b.Type == "tool_use" {
 			args := "{}"
 			if len(b.Input) > 0 {
-				args = string(b.Input)
+				// Collapse duplicate keys inside tool_use.input before embedding
+				// as the OpenAI arguments string (strict upstreams re-parse it).
+				canonical := tkBridgeCanonicalJSON(b.Input)
+				if len(canonical) > 0 && string(canonical) != "null" {
+					args = string(canonical)
+				}
 			}
 			msg.ToolCalls = append(msg.ToolCalls, tkBridgeTC{
 				ID: b.ID, Type: "function",
@@ -425,6 +432,11 @@ func tkBridgeConvertTools(tools []apicompat.AnthropicTool) []map[string]any {
 		params := t.InputSchema
 		if len(params) == 0 || string(params) == "null" {
 			params = json.RawMessage(`{"type":"object","properties":{}}`)
+		} else {
+			// input_schema arrives as json.RawMessage and would otherwise be
+			// spliced into the chat body verbatim — including duplicate keys
+			// that encoding/json left intact on the inbound Anthropic parse.
+			params = tkBridgeCanonicalJSON(params)
 		}
 		out = append(out, map[string]any{
 			"type": "function",
@@ -436,6 +448,26 @@ func tkBridgeConvertTools(tools []apicompat.AnthropicTool) []map[string]any {
 		})
 	}
 	return out
+}
+
+// tkBridgeCanonicalJSON re-encodes raw JSON through encoding/json so duplicate
+// object keys preserved by json.RawMessage passthrough are collapsed (last
+// value wins). Prod 2026-10-20: tokensea account 139 × gpt-5.6-luna returned
+// TS_REQUEST_JSON_INVALID "Expected one UTF-8 JSON object without duplicate
+// fields" on Anthropic→Chat bridge egress.
+func tkBridgeCanonicalJSON(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || string(raw) == "null" {
+		return raw
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return raw
+	}
+	out, err := json.Marshal(v)
+	if err != nil {
+		return raw
+	}
+	return json.RawMessage(out)
 }
 
 func tkBridgeConvertToolChoice(raw json.RawMessage) (any, error) {
