@@ -113,7 +113,10 @@ func (s *OpenAIGatewayService) RecordCyberPolicyUsageLog(ctx context.Context, in
 	}
 }
 
-// ResolveUserGroupRateMultiplier resolves the same cached multiplier used by OpenAI usage billing.
+// ResolveUserGroupRateMultiplier is for admission, profit checks, and balance
+// estimates: it uses Resolve, which falls back to 1 when the user-rate lookup
+// fails. Formal settlement must call ResolveForBilling (via prepare/settle
+// owners) and must not charge that estimate.
 func (s *OpenAIGatewayService) ResolveUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
 	if s == nil {
 		return groupDefaultMultiplier
