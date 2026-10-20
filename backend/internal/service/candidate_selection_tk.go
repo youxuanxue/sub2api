@@ -48,6 +48,7 @@ func (r *CandidateRequest) accounts(ctx context.Context) ([]Account, error) {
 
 func (r *CandidateRequest) candidates(ctx context.Context, options candidateSelectOptions) ([]*candidateExecutionPath, bool, error) {
 	defer BeginImageIngressPhase(ctx, ImageIngressCandidates)()
+	r.volcPlanAffinity = false
 	ctx = r.withProfitPricing(ctx)
 	if r.key.IsUniversal() {
 		groups, err := r.resolver.span(ctx, r.key.UserID)
@@ -113,6 +114,14 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 	preparePath := candidatePathContextPreparer(r)
 	for i := range accounts {
 		account := &accounts[i]
+		accountStickyID := stickyID
+		if account.Platform == PlatformNewAPI && r.promptCacheSession != "" {
+			// Prefix affinity supersedes the first-user fallback for this supply.
+			accountStickyID = promptCacheStickyID
+		}
+		if account.ID == accountStickyID && isNewAPIVolcEngineAgentPlanAccount(account) {
+			r.volcPlanAffinity = true
+		}
 		if _, excluded := options.excluded[account.ID]; excluded {
 			diag.reject("excluded")
 			continue
@@ -124,12 +133,6 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 		if r.forcePlatform != "" && account.Platform != r.forcePlatform {
 			diag.reject("force_platform_mismatch")
 			continue
-		}
-		accountStickyID := stickyID
-		if account.Platform == PlatformNewAPI && r.promptCacheSession != "" {
-			// A prefix binding supersedes the first-user fallback for this supply.
-			// Combining both would give conflicting old bindings equal preference.
-			accountStickyID = promptCacheStickyID
 		}
 		sticky := account.ID == accountStickyID || account.ID == r.continuationAccountID
 		var subscriptions, balances []Group
@@ -355,11 +358,11 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 			loadRequests = append(loadRequests, AccountWithConcurrency{ID: path.account.ID, MaxConcurrency: path.account.Concurrency})
 			accounts = append(accounts, path.account)
 		}
+		var loadErr error
 		if gw.concurrencyService != nil {
-			var err error
-			loads, err = gw.concurrencyService.GetAccountsLoadBatchFresh(ctx, loadRequests)
-			if err != nil {
-				slog.WarnContext(ctx, "candidate_load_read_failed", "error", err)
+			loads, loadErr = gw.concurrencyService.GetAccountsLoadBatchFresh(ctx, loadRequests)
+			if loadErr != nil {
+				slog.WarnContext(ctx, "candidate_load_read_failed", "error", loadErr)
 			}
 		}
 		counts := gw.candidateSaturationState().counts(ctx, accounts, r.model)
@@ -371,6 +374,9 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 		sort.SliceStable(pool, func(i, j int) bool {
 			return candidatePathLess(r.key, r.shape, counts, failureCounts, pool[i], pool[j])
 		})
+		if loadErr == nil {
+			r.orderVolcPlanFallback(pool, loads, counts, failureCounts)
+		}
 		var waiting []*candidateExecutionPath
 		for _, path := range pool {
 			if candidateFull(path.account, loads) {
@@ -433,6 +439,48 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 		r.capacityDiag.reject("selection_exhausted")
 	}
 	return nil, err
+}
+
+// orderVolcPlanFallback only reorders ready, non-sticky VolcEngine peers in
+// equivalent positions. A usable binding stays first, including when its slot
+// acquisition races; other suppliers and unknown loads retain their ordering.
+func (r *CandidateRequest) orderVolcPlanFallback(pool []*candidateExecutionPath, loads map[int64]*AccountLoadInfo, counts, failureCounts map[int64]int64) {
+	if !r.volcPlanAffinity || r.shape != ShapeOpenAIChat || r.websocket || r.continuationAccountID > 0 || len(loads) == 0 {
+		return
+	}
+	for start := 0; start < len(pool); {
+		end := start + 1
+		for end < len(pool) && !candidatePathLess(r.key, r.shape, counts, failureCounts, pool[start], pool[end]) {
+			end++
+		}
+		var positions []int
+		var peers []*candidateExecutionPath
+		complete := true
+		for i := start; i < end; i++ {
+			path := pool[i]
+			if path.sticky || !isNewAPIVolcEngineAgentPlanAccount(path.account) {
+				continue
+			}
+			load := loads[path.account.ID]
+			if load == nil || load.CurrentConcurrency < 0 {
+				complete = false
+				break
+			}
+			if !candidateFull(path.account, loads) {
+				positions = append(positions, i)
+				peers = append(peers, path)
+			}
+		}
+		if complete && len(peers) > 1 {
+			sort.SliceStable(peers, func(i, j int) bool {
+				return loads[peers[i].account.ID].CurrentConcurrency < loads[peers[j].account.ID].CurrentConcurrency
+			})
+			for i, position := range positions {
+				pool[position] = peers[i]
+			}
+		}
+		start = end
+	}
 }
 
 func candidatePathLess(key *APIKey, shape UniversalShape, counts, failureCounts map[int64]int64, a, b *candidateExecutionPath) bool {

@@ -16898,6 +16898,26 @@
         "bash deploy/domestic/deploy_via_ssm.sh pull"
       ],
       "rationale": "Distribute only successful release artifacts using trusted main code and prewarm without promotion; workflow_dispatch may backfill only from a successful Release run id."
+    },
+    {
+      "path": "backend/internal/service/candidate_selection_tk.go",
+      "must_contain": [
+        "r.orderVolcPlanFallback(pool, loads, counts, failureCounts)",
+        "r.volcPlanAffinity = false",
+        "r.volcPlanAffinity = true",
+        "loads[peers[i].account.ID].CurrentConcurrency < loads[peers[j].account.ID].CurrentConcurrency"
+      ],
+      "rationale": "VolcEngine fallback load ordering preserves usable affinity and stays within existing equivalent candidate bands."
+    },
+    {
+      "path": "backend/internal/service/candidate_volc_fallback_tk_test.go",
+      "must_contain": [
+        "TestCandidateVolcFallbackSelection",
+        "TestCandidateVolcFallbackOrderingBoundaries",
+        "TestCandidateVolcFallbackLoadFailureKeepsSticky",
+        "TestCandidateVolcFallbackBindingLifecycle"
+      ],
+      "rationale": "Behavior regressions preserve warm affinity, fallback load selection, scope and binding lifecycle."
     }
   ]
 }

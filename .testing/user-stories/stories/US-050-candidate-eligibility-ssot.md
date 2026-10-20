@@ -64,6 +64,8 @@
 
 45. AC-045 (regression): Given a group image card priced only for one size When either image handler receives another size Then admission evaluates that actual normalized size using settlement's tier/default precedence and rejects nonpositive cost; configured size and valid default prices remain usable.
 
+47. AC-047 (regression): Given an existing VolcEngine Agent Plan affinity on stateless Chat When the bound account has capacity Then keep it even at 9/10; when full, excluded, ineligible or losing a slot race, prefer less occupied equivalent Agent Plan peers without crossing priority/supplier positions. Missing load, initial binding and hard continuation preserve prior behavior; only acquired and rechecked accounts update affinity.
+
 AC-042 and AC-046 were supplier-specific contracts and are no longer part of the candidate-eligibility story.
 
 The Direct/Universal mapping boundary is approved in
@@ -94,6 +96,11 @@ production scheduler. AC-004 follows the approved account-scope policy; its old
 mixed-pool test documents only the remaining legacy adapter's behavior.
 
 ## Linked Tests
+
+- `backend/internal/service/candidate_volc_fallback_tk_test.go`::`TestCandidateVolcFallbackSelection`
+- `backend/internal/service/candidate_volc_fallback_tk_test.go`::`TestCandidateVolcFallbackOrderingBoundaries`
+- `backend/internal/service/candidate_volc_fallback_tk_test.go`::`TestCandidateVolcFallbackLoadFailureKeepsSticky`
+- `backend/internal/service/candidate_volc_fallback_tk_test.go`::`TestCandidateVolcFallbackBindingLifecycle`
 
 - `backend/internal/service/candidate_thinking_tools_tk_test.go`::`TestCandidateThinkingToolsPreferAuthorizedExactOrigin`
 - `backend/internal/service/candidate_thinking_tools_tk_test.go`::`TestCandidateThinkingToolsRespectConversionPermission`
