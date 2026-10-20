@@ -293,6 +293,16 @@ class DistributionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 distribution.render(client, 'bucket', TAG, REV, 'sha256:' + '0' * 64)
 
+    def _publish_with_fixture(self, client, source, receipt):
+        def pull(args, **kwargs):
+            Path(args[3]).write_bytes(source.read_bytes())
+            return subprocess.CompletedProcess(args, 0)
+
+        with patch.object(distribution.subprocess, 'check_output',
+                          side_effect=[receipt['source_digest'], receipt['manifest_raw'].encode() + b'\n']), \
+             patch.object(distribution.subprocess, 'run', side_effect=pull):
+            return distribution.publish(client, 'bucket', TAG, REV, 'ghcr.io/example/app')
+
     def test_publish_reuses_existing_manifest_for_same_archive(self):
         """Retry after optional receipt fields (e.g. diff_ids) must not conflict."""
         with tempfile.TemporaryDirectory() as temp:
@@ -300,32 +310,33 @@ class DistributionTests(unittest.TestCase):
             receipt = make_archive(source)
             client = MemoryS3()
             key = distribution.prefix(TAG, REV)
-
-            def pull(args, **kwargs):
-                Path(args[3]).write_bytes(source.read_bytes())
-                return subprocess.CompletedProcess(args, 0)
-
-            patches = (
-                patch.object(distribution.subprocess, 'check_output',
-                             side_effect=[receipt['source_digest'], receipt['manifest_raw'].encode() + b'\n']),
-                patch.object(distribution.subprocess, 'run', side_effect=pull),
-            )
-            with patches[0], patches[1]:
-                first = distribution.publish(client, 'bucket', TAG, REV, 'ghcr.io/example/app')
+            first = self._publish_with_fixture(client, source, receipt)
             self.assertIn('diff_ids', first)
             # Simulate an older completion marker for the same archive bytes.
             older = {k: v for k, v in first.items() if k != 'diff_ids'}
-            client.objects[f'{key}/manifest.json'] = (json.dumps(older, sort_keys=True) + '\n').encode()
-            with patch.object(distribution.subprocess, 'check_output',
-                              side_effect=[receipt['source_digest'], receipt['manifest_raw'].encode() + b'\n']), \
-                 patch.object(distribution.subprocess, 'run', side_effect=pull):
-                published = distribution.publish(client, 'bucket', TAG, REV, 'ghcr.io/example/app')
+            older_body = (json.dumps(older, sort_keys=True) + '\n').encode()
+            client.objects[f'{key}/manifest.json'] = older_body
+            published = self._publish_with_fixture(client, source, receipt)
             self.assertEqual(published, older)
             self.assertNotIn('diff_ids', published)
-            self.assertEqual(
-                client.objects[f'{key}/manifest.json'],
-                (json.dumps(older, sort_keys=True) + '\n').encode(),
-            )
+            self.assertEqual(client.objects[f'{key}/manifest.json'], older_body)
+
+    def test_publish_refuses_existing_manifest_with_different_archive(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / 'source.tar'
+            receipt = make_archive(source)
+            client = MemoryS3()
+            key = distribution.prefix(TAG, REV)
+            first = self._publish_with_fixture(client, source, receipt)
+            conflicting = dict(first)
+            conflicting['archive_sha256'] = '0' * 64
+            conflicting.pop('diff_ids', None)
+            conflict_body = (json.dumps(conflicting, sort_keys=True) + '\n').encode()
+            client.objects[f'{key}/manifest.json'] = conflict_body
+            with self.assertRaises(ValueError) as raised:
+                self._publish_with_fixture(client, source, receipt)
+            self.assertIn('conflicts', str(raised.exception))
+            self.assertEqual(client.objects[f'{key}/manifest.json'], conflict_body)
 
     def test_release_artifact_is_only_data_and_must_match_git_tag(self):
         with tempfile.TemporaryDirectory() as temp:
