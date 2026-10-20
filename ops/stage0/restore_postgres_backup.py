@@ -29,6 +29,19 @@ from postgres_backup import (
 )
 
 PGDATA = "/var/lib/postgresql/data"
+# The prod compose override supplies 200 on the command line, so physical
+# backups do not carry it in postgresql.conf. Recovery must match that floor.
+PRIMARY_MAX_CONNECTIONS = 200
+
+
+def recovery_log_is_terminal(log: str) -> bool:
+    """Distinguish a failed recovery from normal startup probe messages."""
+    return (
+        "PANIC" in log
+        or "recovery aborted" in log
+        or ("startup process" in log and "exited with exit code" in log)
+        or "database system is shut down" in log
+    )
 
 
 def restore_arguments(label: str, target: str | None) -> list[str]:
@@ -199,37 +212,76 @@ class Restore:
             )
         return result.stdout.strip()
 
-    def start(self, name: str) -> None:
-        run(
-            [
-                "docker",
-                "exec",
-                "--user",
-                "postgres",
-                name,
-                "pg_ctl",
-                "-D",
-                PGDATA,
-                "-l",
-                "/tmp/recovery.log",
-                "-o",
-                "-c listen_addresses='' -c archive_mode=off -c shared_buffers=1GB",
-                "-W",
-                "start",
-            ]
+    def recovery_diagnostics(self, name: str) -> str:
+        script = (
+            "for file in /tmp/recovery.log "
+            "/var/lib/postgresql/data/postgresql.auto.conf "
+            "/var/lib/postgresql/data/postmaster.opts "
+            "/var/lib/postgresql/data/PG_VERSION; do "
+            "if [ -f \"$file\" ]; then echo \"--- $file ---\"; "
+            "tail -200 \"$file\"; fi; done; "
+            "echo '--- pg_ctl status ---'; "
+            "su postgres -c 'pg_ctl -D /var/lib/postgresql/data status' 2>&1 || true"
         )
+        result = subprocess.run(
+            ["docker", "exec", name, "sh", "-ec", script],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=30,
+        )
+        output = (result.stdout + result.stderr).strip() or (
+            "<no recovery diagnostics captured>"
+        )
+        return output[-12000:]
+
+    def start(self, name: str) -> None:
+        try:
+            run(
+                [
+                    "docker",
+                    "exec",
+                    "--user",
+                    "postgres",
+                    name,
+                    "pg_ctl",
+                    "-D",
+                    PGDATA,
+                    "-l",
+                    "/tmp/recovery.log",
+                    "-o",
+                    "-c listen_addresses='' -c archive_mode=off "
+                    f"-c max_connections={PRIMARY_MAX_CONNECTIONS} "
+                    "-c shared_buffers=1GB",
+                    "-W",
+                    "start",
+                ]
+            )
+        except BackupError as exc:
+            raise BackupError(
+                f"recovery start failed: {exc}; diagnostics:\n"
+                f"{self.recovery_diagnostics(name)}"
+            ) from None
         for _ in range(900):
             try:
                 if self.sql(name, "SELECT NOT pg_is_in_recovery()") == "t":
                     return
             except BackupError:
-                log = run(["docker", "exec", name, "tail", "-20", "/tmp/recovery.log"])
-                if "FATAL" in log or "PANIC" in log:
+                log = self.recovery_diagnostics(name)
+                # Connection probes during WAL replay legitimately log
+                # ``FATAL: the database system is starting up``.  Only abort
+                # on a terminal recovery/startup marker, otherwise the probe
+                # can kill a healthy recovery before replay completes.
+                if recovery_log_is_terminal(log):
                     raise BackupError(
-                        "recovery failed before the requested point was reached"
+                        "recovery failed before the requested point was reached; "
+                        f"diagnostics:\n{log}"
                     ) from None
             time.sleep(1)
-        raise BackupError("recovery deadline exceeded")
+        raise BackupError(
+            "recovery deadline exceeded; diagnostics:\n"
+            f"{self.recovery_diagnostics(name)}"
+        )
 
     def audit(self, name: str) -> dict:
         # Aggregate hashes do not export secrets or PII. Scan each physical leaf

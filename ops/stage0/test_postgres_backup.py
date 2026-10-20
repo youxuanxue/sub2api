@@ -274,6 +274,38 @@ class PhysicalBackupTests(unittest.TestCase):
             ["docker", "volume", "rm", "owned-volume"],
         )
 
+    def test_recovery_startup_probe_is_not_a_terminal_failure(self):
+        startup = 'FATAL:  the database system is starting up'
+        self.assertFalse(restore.recovery_log_is_terminal(startup))
+        self.assertTrue(
+            restore.recovery_log_is_terminal(
+                'FATAL: recovery aborted because of insufficient parameter settings'
+            )
+        )
+
+    def test_recovery_waits_through_probe_failure_until_ready(self):
+        task = restore.Restore("sha256:test", Path("/tmp/config"))
+        with (
+            patch.object(restore, "run") as command,
+            patch.object(task, "sql", side_effect=[backup.BackupError("starting"), "f", "t"]),
+            patch.object(task, "recovery_diagnostics", return_value="FATAL: the database system is starting up"),
+            patch.object(restore.time, "sleep"),
+        ):
+            task.start("isolated")
+        options = command.call_args.args[0]
+        self.assertIn("-c max_connections=200", options[options.index("-o") + 1])
+
+    def test_terminal_recovery_failure_preserves_reason(self):
+        task = restore.Restore("sha256:test", Path("/tmp/config"))
+        reason = "FATAL: recovery aborted because of insufficient parameter settings"
+        with (
+            patch.object(restore, "run"),
+            patch.object(task, "sql", side_effect=backup.BackupError("starting")),
+            patch.object(task, "recovery_diagnostics", return_value=reason),
+            self.assertRaisesRegex(backup.BackupError, "insufficient parameter settings"),
+        ):
+            task.start("isolated")
+
     def test_remote_worker_rejects_mutable_or_injected_artifact(self):
         with self.assertRaises(backup.BackupError):
             cloud.worker_command(
