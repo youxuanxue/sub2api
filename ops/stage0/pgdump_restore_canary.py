@@ -621,6 +621,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     receipt_root = pathlib.Path(args.receipt_root)
     try:
+        if pathlib.Path('/var/lib/tokenkey/postgres-backup/pgdump-retired.json').exists():
+            raise CanaryError('pgdump retired on this host; restore retained SQL only on a disposable host')
         if args.create_dump and (args.storage_config != CONFIG_PATH or args.expected_source is not None):
             raise CanaryError("candidate storage verification must use an existing dump")
         if args.create_dump:

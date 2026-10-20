@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Push refreshed pg_dump cadence (every 2 hours, keep newest 6 rolling files) into a running
-# HCloud prod host via SSM Hybrid. Shared script owner:
-# deploy/aws/stage0/tokenkey-pgdump.sh; timer cadence matches Hetzner bootstrap.
-# EC2 is standby only; this refresh does not restart the gateway.
+# Historical fallback through the shared prod SSM resolver. A retired host is
+# rejected before any script replacement or timer activation. This does not
+# restart the gateway; current fleet identity belongs to deploy/hetzner/README.md.
 
 set -euo pipefail
 
@@ -78,6 +78,7 @@ jq -n \
   '{
     commands: [
       "set -euo pipefail",
+      "if sudo test -e /var/lib/tokenkey/postgres-backup/pgdump-retired.json; then echo pgdump-retired-refusing-refresh >&2; exit 1; fi",
       "echo === pg_dump refresh: every 2 hours, keep newest 6 rolling files ===",
       ("echo " + $sh + " | base64 -d | sudo tee /usr/local/bin/tokenkey-pgdump.sh > /dev/null"),
       "sudo chmod +x /usr/local/bin/tokenkey-pgdump.sh",

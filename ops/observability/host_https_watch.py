@@ -115,13 +115,34 @@ def job_fact(service: dict, timer: dict, uptime: float, limits: tuple, *, expect
 
 
 def physical_backup_fact(path: Path, now: float) -> dict:
+    # The producer owns freshness thresholds. Only expired *successful*
+    # verification evidence is advisory; missing/failed evidence stays a fault.
+    evidence = {
+        "repository_verification_missing_or_stale": "repository_verification",
+        "restore_acceptance_missing_or_stale": "restore_acceptance",
+    }
     try:
         receipt = json.loads(path.read_text())
         stamp = receipt.get("observed_at", 0)
         if not isinstance(stamp, (int, float)) or not 0 <= now - stamp <= 900:
             return {"healthy": False, "reason": "physical backup health missing/stale"}
-        return {"healthy": receipt.get("status") == "ok",
-                "reason": ", ".join(receipt.get("reasons", [])) or receipt.get("status", "invalid receipt")}
+        reasons = receipt.get("reasons", [])
+        if not isinstance(reasons, list) or any(not isinstance(reason, str) for reason in reasons):
+            raise ValueError("invalid health reasons")
+        advisory = receipt.get("status") == "degraded" and bool(reasons)
+        for reason in reasons:
+            prior = receipt.get(evidence.get(reason, ""))
+            completed = prior.get("completed_at") if isinstance(prior, dict) else None
+            if (reason not in evidence or not isinstance(prior, dict)
+                    or prior.get("status") != "ok"
+                    or type(completed) not in (int, float) or not 0 < completed <= now):
+                advisory = False
+        if advisory:
+            return {"healthy": True, "severity": "warning",
+                    "reason": "备份与 WAL 检查正常；恢复/仓库验证已过期，请安排按需验证：" + ", ".join(reasons)}
+        healthy = receipt.get("status") == "ok" and not reasons
+        return {"healthy": healthy, "severity": "info" if healthy else "error",
+                "reason": ", ".join(reasons) or receipt.get("status", "invalid receipt")}
     except (OSError, ValueError, TypeError, AttributeError):
         return {"healthy": False, "reason": "physical backup health missing/invalid"}
 
@@ -155,6 +176,12 @@ def tick_jobs(jobs, previous, now, probe, send, node="unknown"):
         if action:
             send(f"TokenKey host job {action}: {node}/{name}; {fact['reason']}.")
             updated.update(active=action == "unhealthy", sent_at=now)
+        warning = fact["healthy"] and fact.get("severity") == "warning"
+        if warning and (not updated.get("warning_sent_at")
+                        or now - updated.get("warning_sent_at", 0) >= 86400):
+            send(f"TokenKey 备份验证提醒: {node}/{name}; {fact['reason']}.")
+            updated["warning_sent_at"] = now
+        updated["warning_active"] = warning
         state[key] = updated
     return state
 

@@ -4,6 +4,8 @@ on:
     paths:
       - 'ops/stage0/*postgres_backup*'
       - 'ops/stage0/*physical*'
+      - 'ops/stage0/*pgdump*'
+      - 'ops/observability/*postgres_backup*'
       - 'ops/stage0/physical-backup-test/**'
       - 'backend/cmd/backup-billing-check/**'
       - 'deploy/aws/stage0/postgres-backup/**'
@@ -13,6 +15,8 @@ on:
     paths:
       - 'ops/stage0/*postgres_backup*'
       - 'ops/stage0/*physical*'
+      - 'ops/stage0/*pgdump*'
+      - 'ops/observability/*postgres_backup*'
       - 'backend/cmd/backup-billing-check/**'
       - 'deploy/aws/stage0/postgres-backup/**'
   workflow_dispatch:
@@ -42,6 +46,8 @@ jobs:
       - name: Run behavior and real S3 recovery checks
         run: |
           python3 ops/stage0/test_postgres_backup.py
+          python3 ops/stage0/test_retire_pgdump.py
+          python3 -m unittest discover -s ops/observability -p test_postgres_backup_verdict.py
           python3 ops/stage0/rehearse_postgres_backup.py --image tokenkey-postgres-backup-test:dev --storage s3 --billing-check /tmp/backup-billing-check --receipt /tmp/physical-backup-rehearsal.json
       - uses: actions/upload-artifact@v7
         with:
