@@ -49,7 +49,8 @@ def make_archive(path, *, arch='amd64', revision=REV, version=TAG, corrupt_layer
             target.addfile(info, io.BytesIO(content))
     return {'schema_version': 1, 'tag': TAG, 'revision': REV, 'bytes': path.stat().st_size,
                 'archive_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
-                'archive_tag': load_tag, 'source_digest': source_digest, 'manifest': manifest, 'manifest_raw': manifest_raw}
+                'archive_tag': load_tag, 'source_digest': source_digest, 'manifest': manifest,
+                'manifest_raw': manifest_raw, 'diff_ids': [digest(layer)]}
 
 
 class ArchiveTests(unittest.TestCase):
@@ -104,13 +105,24 @@ class ArchiveTests(unittest.TestCase):
             with self.subTest(tag=tag, rev=rev, source=source), self.assertRaises(ValueError):
                 archive.validate_receipt(self.receipt, tag, rev, source)
 
-    def host_run(self, *, download_fail=False, bad_download=False, loaded_revision=REV, existing_id=None):
+    def host_run(self, *, download_fail=False, bad_download=False, loaded_revision=REV,
+                 existing_id=None, existing_revision=None, existing_layers=None,
+                 receipt=None, seed_saved=False):
         data = Path(self.temp.name) / 'data'
         data.mkdir(exist_ok=True)
-        config = archive.verify_archive(self.path, self.receipt)
+        used = receipt or self.receipt
+        config = archive.verify_archive(self.path, used)
         image = {'Id': 'sha256:loaded-manifest', 'Architecture': 'amd64', 'Os': 'linux',
                  'Config': copy.deepcopy(config['config']), 'RootFS': {'Layers': config['rootfs']['diff_ids']}}
         image['Config']['Labels']['org.opencontainers.image.revision'] = loaded_revision
+        if seed_saved:
+            state = data / 'image-distribution'
+            state.mkdir(parents=True, exist_ok=True)
+            (state / f'{TAG}-{REV}.json').write_text(json.dumps({
+                'tag': TAG, 'revision': REV, 'source_digest': used['source_digest'],
+                'archive_sha256': used['archive_sha256'], 'bytes': used['bytes'],
+                'image_id': 'sha256:stale-id', 'local_tag': archive.identity(TAG, REV),
+            }))
         calls = []
 
         def run(args, **kwargs):
@@ -122,14 +134,22 @@ class ArchiveTests(unittest.TestCase):
             return subprocess.CompletedProcess(args, 0)
 
         def inspect(ref):
-            if ref == self.receipt['archive_tag']:
+            if ref == used['archive_tag']:
                 return image
-            return {**image, 'Id': existing_id} if existing_id else None
+            if existing_id is None:
+                return None
+            local = {**image, 'Id': existing_id}
+            if existing_revision is not None:
+                local['Config'] = copy.deepcopy(local['Config'])
+                local['Config']['Labels']['org.opencontainers.image.revision'] = existing_revision
+            if existing_layers is not None:
+                local['RootFS'] = {'Layers': existing_layers}
+            return local
 
         with patch.object(archive.subprocess, 'run', side_effect=run), \
              patch.object(archive, 'inspect_image', side_effect=inspect):
             try:
-                result = archive.warm(self.receipt, 'https://private.invalid/signed', data=data)
+                result = archive.warm(used, 'https://private.invalid/signed', data=data)
                 return result, calls
             except (ValueError, RuntimeError) as error:
                 return error, calls
@@ -139,10 +159,27 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(result['local_tag'], archive.identity(TAG, REV))
         self.assertFalse(result['cached'])
         self.assertEqual([cmd[:2] for cmd in calls if cmd[0] == 'docker'], [['docker', 'load'], ['docker', 'tag']])
-        cached, calls = self.host_run(existing_id='sha256:loaded-manifest')
+        # Same content already present under a different docker ID (GHCR vs load).
+        cached, calls = self.host_run(existing_id='sha256:ghcr-manifest-id')
         self.assertTrue(cached['cached'])
+        self.assertEqual(cached['image_id'], 'sha256:ghcr-manifest-id')
         self.assertEqual([cmd[0] for cmd in calls], ['mountpoint'])
         self.assertEqual(list((Path(self.temp.name) / 'data/image-distribution').glob('warm-*')), [])
+
+    def test_warm_treats_same_revision_different_docker_id_as_aligned(self):
+        """Regression: S3 warm after GHCR pull must not fail on image ID drift."""
+        # Force download path by omitting receipt.diff_ids (older S3 manifests).
+        receipt = {k: v for k, v in self.receipt.items() if k != 'diff_ids'}
+        result, calls = self.host_run(existing_id='sha256:from-ghcr', receipt=receipt)
+        self.assertTrue(result['cached'])
+        self.assertEqual(result['image_id'], 'sha256:from-ghcr')
+        self.assertEqual([cmd[:2] for cmd in calls if cmd[0] == 'docker'], [['docker', 'load']])
+        self.assertEqual([cmd for cmd in calls if cmd[:2] == ['docker', 'tag']], [])
+
+    def test_warm_saved_archive_match_ignores_stale_image_id(self):
+        result, calls = self.host_run(existing_id='sha256:current', seed_saved=True)
+        self.assertTrue(result['cached'])
+        self.assertEqual([cmd[0] for cmd in calls], ['mountpoint'])
 
     def test_bad_download_never_reaches_docker(self):
         for options in ({'download_fail': True}, {'bad_download': True}):
@@ -151,11 +188,19 @@ class ArchiveTests(unittest.TestCase):
             self.assertEqual([cmd for cmd in calls if cmd[0] == 'docker'], [])
             self.assertEqual(list((Path(self.temp.name) / 'data/image-distribution').glob('warm-*')), [])
 
-    def test_wrong_loaded_revision_or_existing_tag_is_not_tagged(self):
-        for options in ({'loaded_revision': 'b' * 40}, {'existing_id': 'sha256:other'}):
-            result, calls = self.host_run(**options)
-            self.assertIsInstance(result, ValueError)
-            self.assertEqual([cmd for cmd in calls if cmd[:2] == ['docker', 'tag']], [])
+    def test_wrong_loaded_revision_or_conflicting_local_content_is_not_tagged(self):
+        cases = (
+            {'loaded_revision': 'b' * 40},
+            {'existing_id': 'sha256:other', 'existing_revision': 'b' * 40},
+            {'existing_id': 'sha256:other', 'existing_layers': ['sha256:' + '0' * 64]},
+        )
+        for options in cases:
+            with self.subTest(options=options):
+                # Avoid early diff_ids short-circuit so conflict is evaluated post-load.
+                receipt = {k: v for k, v in self.receipt.items() if k != 'diff_ids'}
+                result, calls = self.host_run(receipt=receipt, **options)
+                self.assertIsInstance(result, ValueError)
+                self.assertEqual([cmd for cmd in calls if cmd[:2] == ['docker', 'tag']], [])
 
     def test_busy_host_lock_does_not_download(self):
         data = Path(self.temp.name)

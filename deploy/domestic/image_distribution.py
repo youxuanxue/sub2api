@@ -80,7 +80,8 @@ def publish(client, bucket, tag, revision, repository):
         receipt = {'schema_version': 1, 'tag': tag, 'revision': revision, 'source_digest': digest,
                        'archive_tag': archive_tag, 'archive_sha256': archive_sha,
                        'bytes': archive.stat().st_size, 'manifest_raw': raw.decode(), 'manifest': json.loads(raw)}
-        verify_archive(archive, receipt)
+        config = verify_archive(archive, receipt)
+        receipt['diff_ids'] = list(config['rootfs']['diff_ids'])
         immutable_put(client, bucket, f'{key}/{archive_sha}.tar', archive.read_bytes())
         # Manifest is the completion marker, written last.
         immutable_put(client, bucket, f'{key}/manifest.json',
