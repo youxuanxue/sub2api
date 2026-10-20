@@ -156,10 +156,15 @@ def warm(receipt, url, *, data=Path('/var/lib/tokenkey')):
         saved = state / f"{receipt['tag']}-{receipt['revision']}.json"
         current = inspect_image(local)
         # Prior warm of the same archive: Docker ID may drift (GHCR pull vs load).
+        # When receipt carries diff_ids, require RootFS match — labels alone are not enough.
         if saved.exists() and current:
             previous = json.loads(saved.read_text())
-            if previous.get('archive_sha256') == receipt['archive_sha256'] and content_aligned(current, receipt):
-                return {**previous, 'image_id': current['Id'], 'local_tag': local, 'cached': True}
+            expected = (
+                {'rootfs': {'diff_ids': receipt['diff_ids']}} if receipt.get('diff_ids') else None
+            )
+            if previous.get('archive_sha256') == receipt['archive_sha256'] and content_aligned(
+                    current, receipt, expected):
+                return _persist_warm(saved, receipt, image_id=current['Id'], local_tag=local, cached=True)
         # New receipts embed diff_ids — skip download when local already matches.
         if current and receipt.get('diff_ids'):
             expected = {'rootfs': {'diff_ids': receipt['diff_ids']}}

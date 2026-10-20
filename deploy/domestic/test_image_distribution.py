@@ -181,6 +181,17 @@ class ArchiveTests(unittest.TestCase):
         self.assertTrue(result['cached'])
         self.assertEqual([cmd[0] for cmd in calls], ['mountpoint'])
 
+    def test_warm_saved_match_still_checks_diff_ids_when_present(self):
+        """Same archive_sha + labels must not skip RootFS when receipt has diff_ids."""
+        result, calls = self.host_run(
+            existing_id='sha256:wrong-layers',
+            existing_layers=['sha256:' + '0' * 64],
+            seed_saved=True,
+        )
+        self.assertIsInstance(result, ValueError)
+        self.assertIn('refusing to replace', str(result))
+        self.assertEqual([cmd for cmd in calls if cmd[:2] == ['docker', 'tag']], [])
+
     def test_bad_download_never_reaches_docker(self):
         for options in ({'download_fail': True}, {'bad_download': True}):
             result, calls = self.host_run(**options)
