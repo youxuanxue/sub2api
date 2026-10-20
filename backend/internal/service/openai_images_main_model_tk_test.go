@@ -48,20 +48,23 @@ func TestOpenAIImagesMainModelCandidatesAndFallback(t *testing.T) {
 	t.Setenv("SUB2API_IMAGES_MAIN_MODEL", "")
 	t.Setenv("SUB2API_IMAGES_MAIN_MODEL_FALLBACKS", "")
 	candidates := openAIImagesMainModelCandidates()
+	require.Equal(t, []string{
+		"gpt-5.6-terra",
+		"gpt-6-sol",
+		"gpt-5.6-luna",
+		"gpt-6-luna",
+	}, candidates)
 	require.Equal(t, openAIImagesResponsesMainModel, candidates[0])
-	require.Contains(t, candidates, "gpt-6.1-sol")
-	require.Contains(t, candidates, "gpt-5.6-terra")
 
 	next, ok := nextOpenAIImagesMainModelAfterUnsupported(openAIImagesResponsesMainModel, nil)
 	require.True(t, ok)
-	require.Equal(t, "gpt-6.1-sol", next)
+	require.Equal(t, "gpt-6-sol", next)
 
 	tried := map[string]bool{
 		strings.ToLower(openAIImagesResponsesMainModel): true,
-		"gpt-6.1-sol":   true,
-		"gpt-5.6-terra": true,
-		"gpt-5.6-sol":   true,
-		"gpt-6-astra":   true,
+		"gpt-6-sol":    true,
+		"gpt-5.6-luna": true,
+		"gpt-6-luna":   true,
 	}
 	_, ok = nextOpenAIImagesMainModelAfterUnsupported(openAIImagesResponsesMainModel, tried)
 	require.False(t, ok)
@@ -109,7 +112,7 @@ func TestForwardOpenAIImagesOAuth_RetriesOnMainModelUnsupported(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, upstream.bodies, 2)
 	require.Equal(t, openAIImagesResponsesMainModel, gjson.GetBytes(upstream.bodies[0], "model").String())
-	require.Equal(t, "gpt-6.1-sol", gjson.GetBytes(upstream.bodies[1], "model").String())
+	require.Equal(t, "gpt-6-sol", gjson.GetBytes(upstream.bodies[1], "model").String())
 	require.Equal(t, "gpt-image-2", gjson.GetBytes(upstream.bodies[1], "tools.0.model").String())
 	require.Equal(t, "1024x1024", gjson.GetBytes(rec.Body.Bytes(), "size").String())
 }
@@ -124,9 +127,9 @@ func TestCanonicalizeOpenAIImagesSizeField(t *testing.T) {
 func TestIsOpenAIImagesMainModelErrorMatchesAnyCandidateWhenDriverEmpty(t *testing.T) {
 	t.Setenv("SUB2API_IMAGES_MAIN_MODEL", "")
 	t.Setenv("SUB2API_IMAGES_MAIN_MODEL_FALLBACKS", "")
-	body := []byte(`{"detail":"The 'gpt-6-astra' model is not supported when using Codex with a ChatGPT account."}`)
+	body := []byte(`{"detail":"The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT account."}`)
 	require.True(t, isOpenAIImagesMainModelError(http.StatusBadRequest, body, ""))
-	require.True(t, isOpenAIImagesMainModelError(http.StatusBadRequest, body, "gpt-6-astra"))
+	require.True(t, isOpenAIImagesMainModelError(http.StatusBadRequest, body, "gpt-6-sol"))
 	require.False(t, isOpenAIImagesMainModelError(http.StatusBadRequest, body, "gpt-5.6-luna"))
 	require.False(t, isOpenAIImagesMainModelError(http.StatusBadRequest, []byte(`{"detail":"unrelated"}`), ""))
 }

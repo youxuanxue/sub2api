@@ -80,11 +80,22 @@ INSERT INTO usage_logs VALUES
             if args[:3] == ["aws", "s3", "cp"]:
                 pathlib.Path(args[4]).write_bytes(archive)
                 return subprocess.CompletedProcess(args, 0, "", "")
-            if args[:3] == ["docker", "rm", "-f"]:
+            if args[:3] == ["docker", "rm", "-f"] and len(args) > 3 and args[3] == recovered:
                 # Production SSM is root; an unprivileged Linux test runner
                 # needs ownership of fixture files before host-side cleanup.
-                command(["docker", "exec", "--user", "0", recovered, "chown", "-R",
-                         f"{os.getuid()}:{os.getgid()}", "/var/lib/postgresql"])
+                # Only touch a still-running canary; if it already exited, docker
+                # rm -f still cleans up and a hard chown failure must not abort
+                # the suite (local Docker flake seen 2026-10-20).
+                inspect = subprocess.run(
+                    ["docker", "inspect", "-f", "{{.State.Running}}", recovered],
+                    capture_output=True, text=True, timeout=30,
+                )
+                if inspect.returncode == 0 and inspect.stdout.strip() == "true":
+                    try:
+                        command(["docker", "exec", "--user", "0", recovered, "chown", "-R",
+                                 f"{os.getuid()}:{os.getgid()}", "/var/lib/postgresql"])
+                    except subprocess.CalledProcessError:
+                        pass
             if args[:2] == ["bash", "-o"] and mode == "timeout":
                 kwargs["timeout"] = 0.5
             if "canary_usage_evidence" in args[-1] and mode == "mismatch":

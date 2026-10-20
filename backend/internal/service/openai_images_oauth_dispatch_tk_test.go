@@ -67,7 +67,7 @@ func TestOpenAIImagesOAuthDispatchFacts_RecordsEffortMainModelAndScaffold(t *tes
 	require.Equal(t, openAIImagesResponsesMainModel, facts.MainModel)
 	require.NotContains(t, facts.MainModelFallbacks, openAIImagesResponsesMainModel)
 	require.Equal(t, openAIImagesMainModelCandidates()[1:], facts.MainModelFallbacks)
-	require.Contains(t, facts.MainModelFallbacks, "gpt-6.1-sol")
+	require.Equal(t, []string{"gpt-6-sol", "gpt-5.6-luna", "gpt-6-luna"}, facts.MainModelFallbacks)
 	require.True(t, facts.ScaffoldOn)
 	require.True(t, facts.InputFidelityOmitted)
 	require.Equal(t, "high", facts.ClientInputFidelity)
@@ -88,11 +88,11 @@ func TestOpenAIImagesOAuthDispatchFacts_RecordsEffortMainModelAndScaffold(t *tes
 
 	t.Setenv(openAIImagesReasoningEffortEnv, "xhigh")
 	t.Setenv(openAIImagesPromptScaffoldEnv, "off")
-	overridden := openAIImagesOAuthDispatchFactsFor(quoted, "gpt-image-2", "gpt-6.1-sol")
+	overridden := openAIImagesOAuthDispatchFactsFor(quoted, "gpt-image-2", "gpt-6-sol")
 	require.Equal(t, "xhigh", overridden.ReasoningEffort)
 	require.Equal(t, "env", overridden.EffortSource)
-	require.Equal(t, "gpt-6.1-sol", overridden.MainModel)
-	require.NotContains(t, overridden.MainModelFallbacks, "gpt-6.1-sol")
+	require.Equal(t, "gpt-6-sol", overridden.MainModel)
+	require.NotContains(t, overridden.MainModelFallbacks, "gpt-6-sol")
 	require.NotContains(t, overridden.MainModelFallbacks, openAIImagesResponsesMainModel)
 	require.False(t, overridden.ScaffoldOn)
 }

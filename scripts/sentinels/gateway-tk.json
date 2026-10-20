@@ -6801,7 +6801,7 @@
         "SUB2API_IMAGES_MAIN_MODEL_FALLBACKS",
         "openAIImagesMainModelFallbacks"
       ],
-      "rationale": "Codex Responses driver fallback chain (codex2api imagesMainModelFallbacks parity). When ChatGPT plan-gates the preferred main model, retry the same account with the next candidate without cooling image capacity. Losing this companion leaves OAuth images stuck on a retired driver."
+      "rationale": "Codex Responses driver fallback chain (TokenKey cooler-driver defaults: gpt-5.6-terra then gpt-6-sol/gpt-5.6-luna/gpt-6-luna; env override via SUB2API_IMAGES_MAIN_MODEL(_FALLBACKS)). When ChatGPT plan-gates the preferred main model, retry the same account with the next candidate without cooling image capacity. Losing this companion leaves OAuth images stuck on a retired driver."
     },
     {
       "path": "backend/internal/service/openai_images_style_tk.go",

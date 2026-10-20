@@ -9,7 +9,7 @@ set -euo pipefail
 
 ACCOUNT_ID="${ACCOUNT_ID:?ACCOUNT_ID required}"
 IMAGE_MODEL="${IMAGE_MODEL:-gpt-image-2}"
-MAIN_MODEL="${MAIN_MODEL:-gpt-5.6-luna}"
+MAIN_MODEL="${MAIN_MODEL:-gpt-5.6-terra}"
 PROMPT_TEXT="${PROMPT_TEXT:-A tiny yellow lemon on a clean white table, minimalist illustration}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-120}"
 UPSTREAM_URL="${UPSTREAM_URL:-https://chatgpt.com/backend-api/codex/responses}"
