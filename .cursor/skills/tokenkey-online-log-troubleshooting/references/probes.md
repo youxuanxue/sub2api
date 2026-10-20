@@ -40,5 +40,6 @@
 | `SUB2API_DEBUG_GATEWAY_BODY` 日志拉回本机（SSM gzip → S3 presigned PUT → 本地 gunzip） | 机械 | `ops/observability/fetch-gateway-debug-log.sh --target prod`（**本地** orchestrator，不走 run-probe） |
 | anthropic capacity / cap 与 schedulable 证据 | 机械 | `ops/observability/probe-caps.sh`（通过 run-probe.sh 投递） |
 | Scheduler snapshot 桶 vs DB 对齐（`ListSchedulableAccounts` mixed/single 路径：Redis `sched:*` zcard、DB 可调度池、outbox 尾） | 机械 | `ops/observability/probe-scheduler-snapshot-bucket.sh`（经 run-probe 投递；`GROUP_ID` 必填、`PLATFORM` 默认 gemini、`MODE` 可选 mixed/single/forced） |
+| Recipe-1 TPM 突发（大 prompt 校准 + cn-prod 主机采样 + 正式压测门禁） | 机械(写/压测) | `ops/observability/tpm_burst_bundle.sh`（`prepare`/`dry-run`/`run`；正式流量须 `APPROVE=yes-formal-tpm-loadtest`；编排 `tpm_burst_recipe1.py` + `tpm_burst_monitor_remote.sh` + `pack_repo_prompt.py`） |
 | 时间窗规范（UTC ↔ Asia/Shanghai 双写） | 判断 | prompt（含报告口径，无机械抓手） |
 | 根因 / 风险分级 / 建议下一步 | 判断 | prompt（爆炸半径 / 回滚成本） |
