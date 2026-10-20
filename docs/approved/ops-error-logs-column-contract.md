@@ -70,8 +70,7 @@ migration 145 声明了 `attempted_key_prefix` / `deleted_key_owner_user_id` /
 - **保留期本身矛盾**:错误日志 30 天到期(`data_lifecycle_policy_tk.go` 封顶 30 天),而
   `deleted_api_key_audits` 没有任何清理(无界),即「永久保存明文 key」最多换来 30 天的可见
   归因。
-- **上游方向一致**:上游 `cleanup-ingress-reject-logs` + `finalize-ingress-reject-cleanup.sql`
-  的既定方向就是删掉这三列和明文 key 审计表。
+- **迁移已收口**:tk_101 已完成对应列和明文 key 审计表的物理删除。
 
 按硬规则 §5.x「默认保留上游功能」,这里是**经批准的例外**:保留方向与上游相反,且保留的
 代价是把提交上来的 key 前缀和用户自己起的 key 名长期写进 S3 遥测载荷。用户结论:
@@ -82,15 +81,12 @@ migration 145 声明了 `attempted_key_prefix` / `deleted_key_owner_user_id` /
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | 阶段 1(#2353,v1.8.261) | 摘掉写入方、所有读取方、明文审计写入、相关测试;三列仍保持声明 | 已完成 |
-| 阶段 2(tk_101) | `backend/migrations/tk_101_ops_error_logs_finalize_unwritten_columns.sql`:一次 DROP 九列(tk_100 六列 + 归因三列)+ `DROP TABLE deleted_api_key_audits`;同时清掉 `ALLOWED_UNWRITTEN` 三条、tk_100 只记录分支及其哨兵、`docs/preflight-debt.md` 两条 | 已完成 |
+| 阶段 2(tk_101) | `backend/migrations/tk_101_ops_error_logs_finalize_unwritten_columns.sql`:一次 DROP 九列(tk_100 六列 + 归因三列)+ `DROP TABLE deleted_api_key_audits`;同时清掉 `ALLOWED_UNWRITTEN` 三条、tk_100 只记录分支及其哨兵、相关 preflight debt | 已完成 |
 
-**阶段 2 为什么自己写 SQL 而不是直接跑上游 finalizer**:上游的
-`backend/scripts/finalize-ingress-reject-cleanup.sql` 只删归因三列加明文审计表,不覆盖
-tk_100 那六列;而两组列的前置条件、风险面完全相同,分两次执行只会把 92 个分区的
+**阶段 2 为什么自己写 SQL 而不是拆成两次执行**:两组列的前置条件、风险面完全相同,分两次执行只会把 92 个分区的
 `ACCESS EXCLUSIVE` 锁获取做两遍。tk_101 合并两组,内容是两者的并集,`lock_timeout = 5s`
-沿用上游。上游那份脚本作为参照留在树内,不再是执行路径。配套的历史行清理工具
-`backend/cmd/cleanup-ingress-reject-logs` 清的是行不是列,不阻塞删列;它在 TK 没有交付路径
-(不在镜像、不在 goreleaser),记在 `docs/preflight-debt.md`。
+沿用既定的安全边界。配套的历史行清理工具没有纳入 TK 交付路径，`ops_error_logs` 的
+30 天保留策略已覆盖其原定清理窗口。
 
 阶段 1 不删列的理由与 tk_100 相同:迁移在新 color 启动时执行,旧 color 还在读同一个库,
 上一版本的 SQL 仍然会点名这三列;列一删,blue/green 窗口和镜像回滚同时被打断。列没有写入
