@@ -72,11 +72,11 @@ esac
 BASE_URL="${BASE_URL:-$APP_LOOP_URL}"
 export BASE_URL
 
-PLATFORM="$(docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -c \
+PLATFORM="$("${DOCKER_BIN[@]}" exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -c \
   "SELECT platform FROM accounts WHERE id=${ACCOUNT_ID} AND deleted_at IS NULL LIMIT 1;" | tr -d '[:space:]')"
-NAME="$(docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -c \
+NAME="$("${DOCKER_BIN[@]}" exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -c \
   "SELECT name FROM accounts WHERE id=${ACCOUNT_ID} AND deleted_at IS NULL LIMIT 1;" | tr -d '\n')"
-CONC="$(docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -c \
+CONC="$("${DOCKER_BIN[@]}" exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -c \
   "SELECT concurrency FROM accounts WHERE id=${ACCOUNT_ID} AND deleted_at IS NULL LIMIT 1;" | tr -d '[:space:]')"
 
 if [[ -z "$PLATFORM" || -z "$NAME" ]]; then
@@ -102,7 +102,13 @@ print(json.dumps({
 PY
 
 cleanup() {
-  tk_probe_clear_bindings newapi >/dev/null 2>&1 || true
+  local scope="${TK_PROBE_SCOPE:-}"
+  if [[ -z "$scope" && -n "${PLATFORM:-}" ]] && declare -F tk_probe_scope_from_platform >/dev/null 2>&1; then
+    scope="$(tk_probe_scope_from_platform "$PLATFORM" 2>/dev/null || true)"
+  fi
+  if [[ -n "$scope" ]]; then
+    tk_probe_clear_bindings "$scope" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 
@@ -113,7 +119,8 @@ tk_probe_prepare_platform_reuse_probe "$PLATFORM" "$ACCOUNT_ID" || {
 PROBE_KEY="${TK_PROBE_KEY:?}"
 PROBE_GROUP_ID="${TK_PROBE_GROUP_ID:?}"
 PROBE_KEY_ID="${TK_PROBE_KEY_ID:?}"
-echo "{\"phase\":\"pinned\",\"account_id\":${ACCOUNT_ID},\"probe_group_id\":${PROBE_GROUP_ID},\"probe_key_id\":${PROBE_KEY_ID}}"
+PROBE_SCOPE="${TK_PROBE_SCOPE:?}"
+echo "{\"phase\":\"pinned\",\"account_id\":${ACCOUNT_ID},\"probe_group_id\":${PROBE_GROUP_ID},\"probe_key_id\":${PROBE_KEY_ID},\"probe_scope\":\"${PROBE_SCOPE}\"}"
 # Brief wait for scheduler_outbox group_changed to be applied.
 sleep 3
 
@@ -229,12 +236,6 @@ def one() -> dict:
     }
 
 
-def summarize(label: str, inflight: int, results: list[dict]) -> dict:
-    ok = [r for r in results if r["ok"]]
-    wall = max((r["latency_s"] for r in results), default=0)  # replaced below
-    return {"label": label, "inflight": inflight, "n": len(results), "ok_n": len(ok)}
-
-
 print(json.dumps({"phase": "calibrate_start", "n": cal_n}), flush=True)
 cal = []
 for i in range(cal_n):
@@ -315,8 +316,8 @@ print(
 )
 PY
 
-# Attribution check: usage_logs for this account in the last 30 minutes
-docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -c "
+# Attribution check: usage_logs for this account in the last 45 minutes
+"${DOCKER_BIN[@]}" exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -c "
 SELECT row_to_json(t) FROM (
   SELECT
     count(*) AS n,
