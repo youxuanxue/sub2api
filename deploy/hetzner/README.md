@@ -58,7 +58,7 @@ Stage0 单后端 Caddy 只由 `/health` 主动检查决定摘除与恢复；禁�
 bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 ```
 
-日常发版仅 prod。共享 compose、Caddy、pgdump、QA 和 SSM 实现仍由现网使用。
+日常发版仅 prod。共享 compose、Caddy、QA 和 SSM 实现仍由现网使用；pgdump 转入历史恢复保留。
 
 ## 开放运维项（非过程史）
 
@@ -83,7 +83,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 |---|---|---|
 | SSM Hybrid / Parameter Store / STS OIDC | Lightsail / 历史 Hcloud 远程执行、参数与 GHCR 身份；`ops/stage0/resolve_prod_ssm_target.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
 | QA raw archive | 存储配置为 AWS S3，当前上传已暂停；历史恢复按小时来源选择 | 按 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)核查实际到期与对象清单；AWS 桶、KMS 和恢复角色销毁另行审批 |
-| PG dump | 仅 Tokyo prod 定时备份；旧主机全量冻结库保留独立 S3 归档 | 当前节点的隔离恢复与定时任务验收见 [收尾记录](../../docs/approved/aws-migration-closeout-20261016.md)；不销毁旧数据 |
+| 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 按用户授权退役，旧数据保留至少 30 天 | [物理备份验收](../../ops/stage0/physical-backup.md)与[旧任务退役](../../ops/stage0/pgdump-retirement.md)；cn-prod 独立 pgdump 保留 |
 | env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
 | 历史 archive / dormant media 桶 | 历史数据与停用配置；媒体默认不启用 S3，只有显式 opt-in | 资产销毁另行审批，不能把停用 bucket 描述成现网迁移对象 |
 | 共享运行文件的旧目录名 | `deploy/aws/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 仍直接消费 | 是共享 owner，路径不代表部署在 AWS；迁路径必须同时更新引用、生成产物和 sentinel |
@@ -125,26 +125,21 @@ telemetry 已支持 Hetzner 存储。需要启用该能力时必须单独验收�
 
 ## 数据库备份迁移入口
 
-当前 prod 使用 AWS 私有 pgdump 桶，源配置与权限以主机验收为准；归档回查见
-[资源收尾](../../docs/ops/aws-retirement-20261017.md)。历史 Hcloud 存储迁移过程见
-[审批记录](../../docs/approved/hcloud-pgdump-storage.md)，不再作为现网安装流程。
-历史密钥、SSM 路径与共享存储实现不能按 `hetzner` 字样删除，须先核对恢复依赖。
+prod 主路径为 pgBackRest 全量/增量与连续 WAL；最新与历史同点恢复已通过。
+执行命令、配置和剩余验证见 [物理备份变更单](../../ops/stage0/physical-backup.md)。
+旧 pgdump 调度按用户授权退役，历史数据至少保留 30 天，不删除恢复材料；
+脚本/工作流处置见 [退役清单](../../ops/stage0/pgdump-retirement.md)。
+cn-prod 继续使用独立 pgdump，尚未获得物理替代路径验收。
 
 ## 恢复入口
 
 先用 `resolve_prod_ssm_target.py --format json` 核实当前 prod 身份，
 再用 `run-probe.sh` 读取主机/容器状态。镜像回滚走原 dispatcher 部署 previous tag。
-现网 prod 的 `/var/lib/tokenkey` 是独立 EBS 数据卷；每日 DLM 对实例的根盘和数据盘建立
-一致时间点的多卷快照，按既有策略保留七份。仓库中的 pg_dump 每两小时备份核心数据与
-仍在库内的 `usage_logs` 使用明细（含所有分区），在同一数据库快照内保留账本和对账依据；
-仅排除运维日志和 QA raw 的行数据，不能代替全盘快照或延长在线明细的保留期。
-此范围变更须按上文宿主脚本安装流程落地；旧备份不会补回使用明细。
-上线前核对新增体积下本地滚动副本、临时文件及恢复库的空间，观察备份/上传耗时，并从
-新 S3 备份隔离恢复，核对 usage 日分区及 default 分区的记录、时间范围和费用汇总。
-restore canary 的 schema v3 回执逐 usage 分区比较 S3 文件与隔离恢复库的记录数、
-时间范围和费用汇总；旧版仅核心表计数的回执不证明明细已恢复。
-完成新脚本安装、成功上传及明细恢复验收前，使用明细仍依赖每日快照，RPO 约 24 小时；
-验收后按最近成功且包含明细的异地备份计算实际 RPO，正常目标约两小时。
+数据库从 pgBackRest 仓库恢复到新盘，绝不能覆盖活库；跨云/新机流程见
+[pgBackRest 迁机工作流](../../ops/stage0/pgbackrest-host-migration.md)。
+每日 DLM 卷快照继续覆盖主机文件。物理备份不包含 Redis、配置密钥及外部对象。
+旧 SQL 副本仍可用于隔离逻辑恢复，须核实所选备份的 usage 覆盖与加密材料。
+每周物理恢复 CI 权限/配置仍待补齐，当前恢复验收与自动化状态不可混称。
 已回收旧主机的数据从私有 S3 归档恢复到隔离库；不能再引用旧机挂载卷。
 
 整机恢复先核对当前实例、卷、最近完成快照和当前主机的备份来源，再沿用

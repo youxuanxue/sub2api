@@ -1,8 +1,6 @@
-name: Production pg_dump Restore Canary
+name: Legacy pg_dump Restore Canary (manual only)
 
 on:
-  schedule:
-    - cron: "37 3 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -37,6 +35,6 @@ jobs:
             --with ops/stage0/pgdump_storage.py \
             --compressed-output \
             --timeout-seconds 10800 \
-            --comment "weekly pgdump restore canary target=prod" \
+            --comment "legacy manual pgdump restore canary target=prod" \
             --env CANARY_TARGET=prod | tee restore-canary.json
           jq -e '.mode == "pgdump_restore_canary" and .target == "prod" and .source_mutated == false and .deletion_authorized == false' restore-canary.json >/dev/null

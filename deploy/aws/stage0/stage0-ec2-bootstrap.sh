@@ -561,7 +561,11 @@ CWEOF
 
 systemctl daemon-reload
 systemctl enable --now tokenkey.service
-systemctl enable --now tokenkey-pgdump.timer
+# New hosts use the physical-backup migration workflow. Historical export is
+# retained only as an explicit fallback, never silently re-enabled by bootstrap.
+if [ "${TOKENKEY_ENABLE_LEGACY_PGDUMP:-false}" = true ] && [ ! -e /var/lib/tokenkey/postgres-backup/pgdump-retired.json ]; then
+  systemctl enable --now tokenkey-pgdump.timer
+fi
 systemctl enable --now tokenkey-disk-metrics.timer
 systemctl disable --now tokenkey-qa-boundary.timer
 systemctl enable --now tokenkey-ghcr-prune-daily.timer

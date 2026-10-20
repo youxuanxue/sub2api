@@ -1,36 +1,29 @@
 ---
 name: tokenkey-host-replacement
 description: >-
-  TokenKey prod 换机/整机迁移/EC2 reprovision: dump-restore, DNS cutover,
-  old-host standby. Not image-only deploy or IP rotation.
+  TokenKey prod 换机/整机迁移与跨云恢复演练：pgBackRest 全量/增量/WAL、
+  隔离验收、standby 追赶、单写切流与旧机保留。Not image-only deploy or IP rotation.
 ---
 
-# TokenKey：全新换机
+# TokenKey：新机迁移与隔离恢复
 
-编排：**新主机 + 整库复刻 + 切流 + 旧机 ≥7d**。
+现网：[舰队入口](../../../deploy/hetzner/README.md)。
+流程与能力边界：[pgBackRest 迁机工作流](../../../ops/stage0/pgbackrest-host-migration.md)。
+备份/恢复命令：[physical-backup.md](../../../ops/stage0/physical-backup.md)。
 
-活舰队：[`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)。踩坑：[`references/playbook.md`](references/playbook.md)。
+输入 `target=prod`、目标云/地域/架构、`phase=plan|rehearse|prepare|cutover|verify`。
+默认先 plan；已授权阶段直接推进。腾讯云演练不等于授权创建付费资源或正式切流。
+仅镜像部署用 `tokenkey-stage0-release-rollout`；cn-prod 未验收物理备份，不套用 prod 的退役决策。
 
-## 触发 / 勿用
+## 判断与不变量
 
-勿用→镜像 `stage0-release-rollout`；仅账号操作使用账号导入工具；prod 卷在→HZ README 恢复。
+- 先核实备份、连续 WAL 和最新/历史恢复证据；镜像、架构、PG 主版本和恢复参数兼容。
+- 演练只写新盘，不挂生产卷，不运行真实业务写者/外部回调，不改 DNS。
+- 现有恢复工具是自动清理的验收工具，不能拿来安装持久目标库；跨云身份和 standby 适配未完成时如实停在准备阶段。
+- 正式切换使用 standby 追 WAL，源写入隔离 → 最终 WAL/LSN 入仓和重放确认 → 目标 promote。
+  默认只读不构成完整写入隔离；严禁双写。切流需单独授权。
+- 目标已接写后不能直接解冻旧库回滚；新 timeline 的备份保护须单独验收。
+- 旧机保留至少七天；历史备份与解密材料不随定时任务退役删除。
 
-
-决策：`docs/approved/hetzner-cloud-full-migration.md`；灾备：`deploy/aws/RUNBOOK-disaster-recovery.md`；回执：`docs/ops/aws-tokyo-cutover-20261017.json`。
-
-## 不变量
-
-禁双写；活库禁旧机全量覆盖；Redis 不迁；旧机 ≥7d；`API_DOMAIN` 单正式名；冻结只用 `ALTER DATABASE … read_only`；激活网络带 compose labels；Caddy upstream = `tokenkey-blue|green`。
-
-## 阶段
-
-`target=prod` · `platform=ec2` · `phase=plan|provision|replicate|cutover|drain|verify|full`
-
-1. plan — IP/配额/RPO/授权/回滚  
-2. provision — 新 EC2；hold + internal 网络  
-3. replicate — precious+logs→restore→对账  
-4. cutover — 冻结 → final delta → 激活（label 安全开网）→ 正式 A → README/CIDR  
-5. drain — 停旧 app；standby；**单独批准**后再关机  
-6. verify — dig@8.8.8.8；`--resolve` smoke；pgdump timer；README 活身份
-
-报告：`target platform phase new_ip old_ip dump checks dns drain smoke followups`
+报告实际完成阶段、恢复点/账务校验、耗时、资源清理、保护缺口与下一步；
+不以数据库恢复或健康探针成功宣称整站迁机完成。历史切流踩坑按需读 [playbook](references/playbook.md)。

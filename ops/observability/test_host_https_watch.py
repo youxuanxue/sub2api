@@ -43,7 +43,7 @@ class CoveragePlanTest(unittest.TestCase):
         self.assertEqual(prod['paused_jobs'], self.fresh['prod']['paused_jobs'])
         self.assertEqual(
             set(prod['paused_jobs']),
-            {'tokenkey-qa-maintenance', 'tokenkey-qa-boundary'},
+            {'tokenkey-qa-maintenance', 'tokenkey-qa-boundary', 'tokenkey-pgdump'},
         )
         self.assertEqual(self.config('cn-prod', self.domestic['instance_name'])['paused_jobs'], {})
         self.assertIn('tokenkey-pgdump', prod['jobs'])

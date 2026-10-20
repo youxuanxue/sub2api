@@ -17,6 +17,12 @@
 # .part and exited before pruning — dumps piled up forever and Postgres crashed on
 # the full volume (2026-06-15 prod P0). Pruning first self-heals a near-full volume.
 set -euo pipefail
+# A retained SQL backup is a historical recovery artifact, not a reason to
+# restart the retired periodic exporter (or prune its remaining files).
+if [ -e /var/lib/tokenkey/postgres-backup/pgdump-retired.json ]; then
+  echo "pgdump retired; use pgBackRest or the approved rollback procedure" >&2
+  exit 1
+fi
 # QA DDL must not race pg_dump's relation locks. Reuse the lifecycle host lock;
 # the shared backup lease ends before object upload so QA does not wait on S3.
 QA_LIFECYCLE_LOCK_FILE="${QA_LIFECYCLE_LOCK_FILE:-/var/lib/tokenkey/qa-lifecycle/host.lock}"

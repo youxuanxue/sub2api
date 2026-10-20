@@ -1,6 +1,6 @@
-name: Stage0 pg_dump Refresh
+name: Legacy pg_dump Refresh (retired prod is rejected)
 
-# Refresh current Tokyo prod via the shared SSM resolver without restarting the gateway.
+# Historical fallback only; the host retirement marker prevents reactivation.
 # Shared script owner: deploy/aws/stage0/tokenkey-pgdump.sh; host bootstrap
 # consumers include historical Hetzner bootstrap; the path does not identify the live cloud.
 
