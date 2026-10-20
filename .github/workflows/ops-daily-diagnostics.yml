@@ -691,7 +691,7 @@ jobs:
             # returns sanitized structured fields only.
             if printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$' && [ "$SINCE_HOURS" -ge 1 ] && [ "$SINCE_HOURS" -le 168 ]; then
               if bash ops/observability/run-probe.sh \
-                --target "$PROBE_TARGET" \
+                --target prod \
                 --script ops/observability/probe-daily-error-ledger.sh \
                 --env "WINDOW_HOURS=$SINCE_HOURS" \
                 --timeout-seconds 240 \

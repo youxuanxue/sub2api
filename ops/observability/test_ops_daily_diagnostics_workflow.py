@@ -518,6 +518,43 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertLess(health, logs)
         self.assertFalse(any("docker logs tokenkey --since" in command for command in commands))
 
+    def test_daily_error_probe_runs_without_a_pgdump_target_variable(self) -> None:
+        text = workflow_text()
+        start = text.index("            # Canonical daily error ledger:")
+        end = text.index("\n          fi\n", start)
+        script = textwrap.dedent(text[start:end])
+        # Execute the actual workflow branch under nounset. Only its external
+        # probe/report commands are stubbed; no AWS or production calls occur.
+        stubs = r'''
+        bash() { printf '%s\n' "$@" > "$OUT/probe-args"; return "$PROBE_EXIT"; }
+        python3() { return 0; }
+        jq() {
+          case "$2" in
+            .status) printf 'ok\n' ;;
+            .summary) printf 'clean\n' ;;
+            *) return 1 ;;
+          esac
+        }
+        add_finding() { printf '%s\n' "$2" > "$OUT/finding-status"; }
+        '''
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = {**os.environ, "OUT": directory, "STDERR": str(root / "stderr"),
+                   "SINCE_HOURS": "24", "TARGET_ID": "prod"}
+            env.pop("PROBE_TARGET", None)
+            for code, status in [(0, "ok"), (1, "manual_ops")]:
+                with self.subTest(probe_exit=code):
+                    result = subprocess.run(
+                        ["bash", "-euo", "pipefail", "-c", stubs + script],
+                        env={**env, "PROBE_EXIT": str(code)},
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    args = (root / "probe-args").read_text().splitlines()
+                    self.assertEqual(args[args.index("--target") + 1], "prod")
+                    self.assertEqual(args[args.index("--env") + 1], "WINDOW_HOURS=24")
+                    self.assertEqual((root / "finding-status").read_text().strip(), status)
+
     def test_daily_error_report_is_aggregated_and_dispatches_only_isolated_repair(self) -> None:
         text = workflow_text()
         self.assertIn("probe-daily-error-ledger.sh", text)
