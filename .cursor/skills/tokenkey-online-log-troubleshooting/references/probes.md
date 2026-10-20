@@ -14,8 +14,8 @@
 | ⚠写侧止血：恢复 Anthropic OAuth 可调度并补 group_id（before/after 自证） | 机械(写) | `ops/observability/remediate-schedulable-pool.sh`（经 run-probe 投递；§10 交接修复时用，非只读、须先有结论） |
 | ⚠写侧：统一 OpenAI OAuth `accounts.concurrency`（`APPLY=yes-openai-oauth-concurrency`，默认 25；图文共用该槽） | 机械(写) | `ops/observability/remediate-openai-oauth-concurrency.sh`（经 run-probe 投递；须授权；before/after 自证） |
 | ⚠写侧：关闭进程级生图闸（`APPLY=yes-disable-image-concurrency`；`.env` upsert `GATEWAY_IMAGE_CONCURRENCY_ENABLED=false` 并 recreate 活动色容器） | 机械(写) | `ops/observability/remediate-disable-image-concurrency.sh`（经 run-probe 投递；须授权；会短暂重启 app） |
-| ⚠写侧：cn-prod O 8C/8G 应用池上限（`APPLY=yes-tune-cn-prod-pools`；`GOMEMLIMIT`/`DATABASE_MAX_*`/`REDIS_POOL_*` 对齐 `deploy/domestic/compose.override.yml` 并 recreate 活动色；容量 bump 优先蓝绿 prepare 覆盖池 env 再切 Caddy） | 机械(写) | `ops/observability/probe-cn-prod-pool-env.sh`（经 `run-probe.sh --target cn-prod` 投递；默认只读；须授权） |
-| cn-prod 单号并发阶梯（pin `__tk_probe_newapi_*` 到指定 `ACCOUNT_ID`；默认 ~5k in / 1k out；阶梯 inflight→RPM/TPM/429；不打印 probe key） | 机械 | `ops/observability/probe-cn-prod-single-account-ladder.sh`（经 `run-probe.sh --target cn-prod --with ops/pricing/probe_reserved_resources.sh` 投递；须授权压测） |
+| ⚠写侧：cn-prod 应用池上限（`APPLY=yes-tune-cn-prod-pools`；对齐 `compose.override.yml` 并 recreate；容量 bump 优先蓝绿 prepare 覆盖池 env） | 机械(写) | `ops/observability/probe-cn-prod-pool-env.sh`（`run-probe.sh --target cn-prod`；默认只读；须授权） |
+| cn-prod 单号并发阶梯（pin `__tk_probe_newapi_*`→`ACCOUNT_ID`；inflight→RPM/TPM/429；不打印 probe key） | 机械 | `ops/observability/probe-cn-prod-single-account-ladder.sh`（`run-probe.sh --target cn-prod --with ops/pricing/probe_reserved_resources.sh`；须授权压测） |
 | ⚠写侧：first-output 抬闸（`APPLY=yes-first-output-timeouts`；数字来自 `first_output_timeout_ssot.py`） | 机械(写) | `ops/observability/remediate-first-output-timeouts.sh` |
 | ⚠写侧：NewAPI Chat 非流 first-output 预算（`APPLY=yes-newapi-nonstream-timeout`；default/max 见 `ops/stage0/first_output_timeout_ssot.py`；备色拉起 → Caddy 热切 → 排空旧色） | 机械(写) | `ops/observability/remediate-newapi-nonstream-timeout.sh`（经 `run-probe.sh --target prod\|cn-prod` 投递；须授权） |
 | ⚠写侧止血：tokensea Anthropic 受管账号补挂 `claude` 分组（`APPLY=1`；补 `account_groups` + `scheduler_outbox`） | 机械(写) | `ops/observability/remediate-tokensea-claude-group.sh`（经 run-probe 投递；仅当投影未自动入组的历史缺口） |
@@ -40,6 +40,6 @@
 | `SUB2API_DEBUG_GATEWAY_BODY` 日志拉回本机（SSM gzip → S3 presigned PUT → 本地 gunzip） | 机械 | `ops/observability/fetch-gateway-debug-log.sh --target prod`（**本地** orchestrator，不走 run-probe） |
 | anthropic capacity / cap 与 schedulable 证据 | 机械 | `ops/observability/probe-caps.sh`（通过 run-probe.sh 投递） |
 | Scheduler snapshot 桶 vs DB 对齐（`ListSchedulableAccounts` mixed/single 路径：Redis `sched:*` zcard、DB 可调度池、outbox 尾） | 机械 | `ops/observability/probe-scheduler-snapshot-bucket.sh`（经 run-probe 投递；`GROUP_ID` 必填、`PLATFORM` 默认 gemini、`MODE` 可选 mixed/single/forced） |
-| Recipe-1 TPM 突发（大 prompt 校准 + cn-prod 主机采样 + 正式压测门禁） | 机械(写/压测) | `ops/observability/tpm_burst_bundle.sh`（`prepare`/`dry-run`/`run`；正式流量须 `APPROVE=yes-formal-tpm-loadtest`；编排 `tpm_burst_recipe1.py` + `tpm_burst_monitor_remote.sh` + `pack_repo_prompt.py`） |
+| Recipe-1 TPM 突发（校准 + cn-prod 采样 + 正式压测门禁） | 机械(写/压测) | `ops/observability/tpm_burst_bundle.sh`（`prepare`/`dry-run`/`run`；正式须 `APPROVE=yes-formal-tpm-loadtest`） |
 | 时间窗规范（UTC ↔ Asia/Shanghai 双写） | 判断 | prompt（含报告口径，无机械抓手） |
 | 根因 / 风险分级 / 建议下一步 | 判断 | prompt（爆炸半径 / 回滚成本） |
