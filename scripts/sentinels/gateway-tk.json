@@ -4591,7 +4591,7 @@
         "applyNewAPIAliFixedSamplingShape",
         "applyMoonshotK3DynamicToolsShape"
       ],
-      "rationale": "Anthropic-shaped requests converted to Chat Completions must preserve metadata blobs (after canonical re-marshal so duplicate client keys cannot survive RawMessage passthrough — tokensea TS_REQUEST_JSON_INVALID) and apply unified sticky injection so Claude Code identities and session affinity survive OpenAI-compat bridge paths during scheduling. They must also pin kimi-k3 fixed sampling and promote Moonshot dynamic tools before the Ali/Volc adaptors coerce or reject the request shape."
+      "rationale": "Anthropic-shaped requests converted to Chat Completions must preserve metadata blobs after canonical re-marshal (json.RawMessage passthrough must not leave duplicate client keys on NewAPI chat egress) and apply unified sticky injection so Claude Code identities and session affinity survive OpenAI-compat bridge paths during scheduling. They must also pin kimi-k3 fixed sampling and promote Moonshot dynamic tools before the Ali/Volc adaptors coerce or reject the request shape."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_model_mapping.go",

@@ -9,9 +9,9 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// Prod 2026-10-20 user 16 × tokensea #139: Anthropic→Chat bridge spliced
-// json.RawMessage tool schemas / metadata / tool_use.input verbatim. Strict
-// upstreams (tokensea) reject duplicate object keys with TS_REQUEST_JSON_INVALID.
+// Anthropic→Chat bridge used to splice json.RawMessage tool schemas /
+// metadata / tool_use.input verbatim, which preserves duplicate object keys.
+// Canonicalize so egress JSON is deny-duplicate-safe.
 
 func TestAnthropicToChatCompletionsBody_CanonicalizesDuplicateJSONKeys(t *testing.T) {
 	dupSchema := json.RawMessage(
