@@ -447,16 +447,17 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 		}
 		// Update the origin field for the selected endpoint.
 		payload.ConversationState.CurrentMessage.UserInputMessage.Origin = ep.Origin
+		epURL := regionalizeKiroURL(ep.URL, account, payload.ProfileArn)
 
 		reqBody, _ := json.Marshal(payload)
-		req, err := http.NewRequestWithContext(ctx, "POST", ep.URL, bytes.NewReader(reqBody))
+		req, err := http.NewRequestWithContext(ctx, "POST", epURL, bytes.NewReader(reqBody))
 		if err != nil {
 			lastErr = err
 			continue
 		}
 
 		host := ""
-		if parsedURL, parseErr := url.Parse(ep.URL); parseErr == nil {
+		if parsedURL, parseErr := url.Parse(epURL); parseErr == nil {
 			host = parsedURL.Host
 		}
 		headerValues := buildKiroHeaderValues(host)

@@ -15,25 +15,36 @@ const (
 	kiroManagementAPIBase = "https://management.us-east-1.kiro.dev"
 )
 
-// kiroRestBases lists the control-plane hosts in preference order: the go-forward
-// management.us-east-1.kiro.dev first, the legacy codewhisperer.* as fallback.
-func kiroRestBases() []string { return []string{kiroManagementAPIBase, kiroRestAPIBase} }
+// kiroRestBases lists the control-plane hosts for the account's data region.
+// The default region keeps the management/legacy fallback; regional profiles
+// use the regional Amazon Q surface.
+func kiroRestBases(account *Account) []string {
+	if region := kiroDataRegion(account, ""); region != "us-east-1" {
+		return []string{"https://q." + region + ".amazonaws.com"}
+	}
+	return []string{kiroManagementAPIBase, kiroRestAPIBase}
+}
 
 type kiroRestTarget struct {
 	base string
 	path string
 }
 
-func kiroRestTargets(path string) []kiroRestTarget {
-	targets := make([]kiroRestTarget, 0, len(kiroRestBases()))
-	for _, base := range kiroRestBases() {
+func kiroRestTargets(account *Account, path string) []kiroRestTarget {
+	bases := kiroRestBases(account)
+	if len(bases) == 1 && strings.HasPrefix(bases[0], "https://q.") {
+		// The regional Q REST surface uses the legacy usage path.
+		path = strings.Replace(path, "/Get-Usage-Limits", "/getUsageLimits", 1)
+	}
+	targets := make([]kiroRestTarget, 0, len(bases))
+	for _, base := range bases {
 		targets = append(targets, kiroRestTarget{base: base, path: path})
 	}
 	return targets
 }
 
 func kiroRestFetchWithDoer(account *Account, method, path, body string, withParn bool, doer HTTPDoer) ([]byte, error) {
-	return kiroRestFetchTargetsWithPolicy(account, method, kiroRestTargets(path), body, withParn, doer, false)
+	return kiroRestFetchTargetsWithPolicy(account, method, kiroRestTargets(account, path), body, withParn, doer, false)
 }
 
 func kiroRestFetchTargetsWithDoer(account *Account, method string, targets []kiroRestTarget, body string, withParn bool, doer HTTPDoer) ([]byte, error) {
@@ -148,9 +159,16 @@ func GetUsageLimits(account *Account) (*UsageLimitsResponse, error) {
 
 func getUsageLimitsWithDoer(account *Account, doer HTTPDoer) (*UsageLimitsResponse, error) {
 	const query = "?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST&isEmailRequired=true"
-	targets := []kiroRestTarget{
-		{base: kiroManagementAPIBase, path: "/Get-Usage-Limits" + query},
-		{base: kiroRestAPIBase, path: "/getUsageLimits" + query},
+	var targets []kiroRestTarget
+	if kiroDataRegion(account, "") == "us-east-1" {
+		// Preserve the host-specific management/legacy path contract in the
+		// default region; only the regional Q surface uses the legacy path.
+		targets = []kiroRestTarget{
+			{base: kiroManagementAPIBase, path: "/Get-Usage-Limits" + query},
+			{base: kiroRestAPIBase, path: "/getUsageLimits" + query},
+		}
+	} else {
+		targets = kiroRestTargets(account, "/Get-Usage-Limits"+query)
 	}
 	data, err := kiroRestFetchTargetsWithDoer(account, "GET", targets, "", true, doer)
 	if err != nil {
