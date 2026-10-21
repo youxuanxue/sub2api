@@ -77,13 +77,26 @@ class SSHDeployTests(unittest.TestCase):
                              ['python3', '/usr/local/lib/tokenkey/node1_runtime_guard.py'])
 
     def test_probe_host_guard_fails_before_delivery(self):
-        with patch.object(sys, 'argv', ['probe', '--target', 'zhupeng-prod', '--timeout-seconds', '60']), \
+        target = target_module.load_target('zhupeng-prod')
+        target.update(preparation_only=False, inventory_status='verified')
+        with patch.object(probe_module, 'load_target', return_value=target), \
+                patch.object(sys, 'argv', ['probe', '--target', 'zhupeng-prod', '--timeout-seconds', '60']), \
                 patch.object(sys, 'stdin', io.StringIO('{"commands":["true"]}')), \
                 patch.object(probe_module.transport, 'probe', side_effect=ValueError('wrong host')), \
                 patch.object(probe_module.transport, 'ssh') as deliver:
             with self.assertRaisesRegex(ValueError, 'wrong host'):
                 probe_module.main()
             deliver.assert_not_called()
+
+    def test_probe_rejects_unverified_preparation_target_before_ssh(self):
+        with patch.object(sys, 'argv', ['probe', '--target', 'zhupeng-prod', '--timeout-seconds', '60']), \
+                patch.object(sys, 'stdin', io.StringIO('{"commands":["true"]}')), \
+                patch.object(probe_module.transport, 'probe') as remote_probe, \
+                patch.object(probe_module.transport, 'ssh') as remote_ssh:
+            with self.assertRaisesRegex(RuntimeError, 'inventory is verified'):
+                probe_module.main()
+            remote_probe.assert_not_called()
+            remote_ssh.assert_not_called()
 
     def test_shared_probe_dispatches_ssh_without_aws_or_instance_override(self):
         with tempfile.TemporaryDirectory() as directory:

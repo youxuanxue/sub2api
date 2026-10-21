@@ -22,6 +22,10 @@ def main():
     parser.add_argument('--compressed-output', action='store_true')
     args = parser.parse_args()
     target = load_target(args.target)
+    if target.get('preparation_only') is True or target.get('inventory_status') != 'verified':
+        raise RuntimeError(
+            'Remote probes are disabled until the node1 inventory is verified and cutover is approved'
+        )
     if not 30 <= args.timeout_seconds <= 2592000:
         parser.error('probe timeout outside supported bounds')
     payload = json.load(sys.stdin)
