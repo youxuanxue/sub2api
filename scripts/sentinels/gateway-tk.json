@@ -16955,6 +16955,35 @@
         "def test_lock_busy_cannot_change_timer("
       ],
       "rationale": "Retirement must retain data, refuse running work, protect direct exporter calls and detect incomplete or drifted previous attempts."
+    },
+    {
+      "path": "backend/internal/service/account_test_service.go",
+      "must_contain": [
+        "s.rateLimitService.handleAntigravity403(ctx, account, extractUpstreamErrorMessage(result.ResponseBody), result.ResponseBody)"
+      ],
+      "rationale": "Admin Antigravity tests persist validation challenges through the shared owner while capability probes remain read-only."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "\"antigravity_validation_url\": validationURL"
+      ],
+      "rationale": "Latest Google verification URLs must survive same-episode penalty deduplication."
+    },
+    {
+      "path": "backend/internal/service/account_test_service_antigravity_validation_test.go",
+      "must_contain": [
+        "TestAccountTestAntigravityRefreshesURLWithoutEscalatingSameEpisode",
+        "TestAntigravityReadOnlyProbeDoesNotPersistValidationChallenge"
+      ],
+      "rationale": "Regression coverage for test-to-status recovery links and read-only capability probes."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": [
+        "extra = COALESCE(extra, '{}'::jsonb) - 'antigravity_validation_url'"
+      ],
+      "rationale": "All account recovery paths clear the pending Google verification URL together with temporary state."
     }
   ]
 }

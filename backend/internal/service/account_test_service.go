@@ -1508,6 +1508,12 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 
 	result, err := s.antigravityGatewayService.TestConnectionWithPrompt(ctx, account, testModelID, prompt)
 	if err != nil {
+		// The shared probe stays read-only for capability discovery. Account tests
+		// must retain Google's actionable challenge for the account recovery UI.
+		if result != nil && result.StatusCode == http.StatusForbidden &&
+			classifyForbiddenType(string(result.ResponseBody)) == forbiddenTypeValidation && s.rateLimitService != nil {
+			s.rateLimitService.handleAntigravity403(ctx, account, extractUpstreamErrorMessage(result.ResponseBody), result.ResponseBody)
+		}
 		return s.sendErrorAndEnd(c, err.Error())
 	}
 

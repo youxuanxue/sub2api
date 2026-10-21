@@ -1021,6 +1021,13 @@ func (s *RateLimitService) handleAntigravity403(ctx context.Context, account *Ac
 		)
 		if validationURL := extractValidationURL(string(responseBody)); validationURL != "" {
 			msg += " | validation_url: " + validationURL
+			// A retry can issue a new challenge within the same cooldown episode.
+			// Keep its URL current even when escalation suppresses another penalty.
+			if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
+				"antigravity_validation_url": validationURL,
+			}); err != nil {
+				slog.Warn("antigravity_validation_url_save_failed", "account_id", account.ID, "error", err)
+			}
 		}
 		return s.applyAntigravityValidationPenalty(ctx, account, msg)
 
@@ -2256,7 +2263,8 @@ func hasRecoverableRuntimeState(account *Account) bool {
 		return false
 	}
 	return hasNonEmptyMapValue(account.Extra, "model_rate_limits") ||
-		hasNonEmptyMapValue(account.Extra, "antigravity_quota_scopes")
+		hasNonEmptyMapValue(account.Extra, "antigravity_quota_scopes") ||
+		hasNonEmptyMapValue(account.Extra, "antigravity_validation_url")
 }
 
 func hasNonEmptyMapValue(extra map[string]any, key string) bool {

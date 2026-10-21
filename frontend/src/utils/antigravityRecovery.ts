@@ -14,8 +14,11 @@ export function googleVerificationURL(value?: string | null): string {
   }
 }
 
-export function accountGoogleVerificationURL(account: Pick<Account, 'platform' | 'temp_unschedulable_reason' | 'error_message'>): string {
+export function accountGoogleVerificationURL(account: Pick<Account, 'platform' | 'temp_unschedulable_reason' | 'error_message' | 'extra'>): string {
   if (account.platform !== 'antigravity') return ''
+  const latest = account.extra?.antigravity_validation_url
+  const latestURL = googleVerificationURL(typeof latest === 'string' ? latest : '')
+  if (latestURL) return latestURL
   // The gateway appends this marker after the (possibly truncated) error text.
   // Include error_message for legacy errors and failed cooldown persistence.
   for (const reason of [account.temp_unschedulable_reason, account.error_message]) {

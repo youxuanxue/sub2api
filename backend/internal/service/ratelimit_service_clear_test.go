@@ -322,3 +322,12 @@ func TestRateLimitService_RecoverAccountState_InvalidatesOAuthTokenOnErrorRecove
 	require.Len(t, invalidator.accounts, 1)
 	require.Equal(t, int64(21), invalidator.accounts[0].ID)
 }
+
+func TestAntigravityValidationURLAloneIsRecoverableAfterSuccessfulTest(t *testing.T) {
+	repo := &rateLimitClearRepoStub{getByIDAccount: &Account{ID: 31, Platform: PlatformAntigravity, Status: StatusActive, Extra: map[string]any{"antigravity_validation_url": "https://accounts.google.com/verify"}}}
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	result, err := svc.RecoverAccountAfterSuccessfulTest(context.Background(), 31)
+	require.NoError(t, err)
+	require.True(t, result.ClearedRateLimit)
+	require.Equal(t, 1, repo.clearTempUnschedCalls)
+}

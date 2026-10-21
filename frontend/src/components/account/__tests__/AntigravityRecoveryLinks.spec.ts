@@ -59,6 +59,26 @@ describe('Antigravity account recovery links', () => {
     expect(wrapper.find('[data-testid="antigravity-authorization-link"]').exists()).toBe(false)
   })
 
+  it('shows the latest challenge during a deduplicated cooldown and hides it after recovery', async () => {
+    const latest = `${url}&attempt=2`
+    const wrapper = mount(AccountStatusIndicator, { props: { account } })
+    await wrapper.setProps({ account: { ...account, extra: { antigravity_validation_url: latest } } })
+    expect(wrapper.get('a').attributes('href')).toBe(latest)
+    await wrapper.get('[data-testid="google-verification-link"] button').trigger('click')
+    expect(copy).toHaveBeenLastCalledWith(latest, 'admin.accounts.linkCopied')
+    await wrapper.setProps({ account: { ...account, temp_unschedulable_reason: null, extra: {} } })
+    expect(wrapper.find('a').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shows a fresh challenge even when the cooldown write was deduplicated after reauthorization', () => {
+    expect(accountGoogleVerificationURL({ ...account, temp_unschedulable_reason: null, extra: { antigravity_validation_url: url } })).toBe(url)
+  })
+
+  it('falls back to the stored reason if the latest URL is unsafe', () => {
+    expect(accountGoogleVerificationURL({ ...account, extra: { antigravity_validation_url: 'https://evil.test/' } })).toBe(url)
+  })
+
   it('supports the legacy permanent error and ignores unrelated platforms', () => {
     expect(accountGoogleVerificationURL({ ...account, temp_unschedulable_reason: '', error_message: `Validation required (403): verify | validation_url: ${url}` })).toBe(url)
     expect(accountGoogleVerificationURL({ ...account, platform: 'openai' })).toBe('')

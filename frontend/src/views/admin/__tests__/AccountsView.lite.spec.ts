@@ -67,6 +67,7 @@ const DataTableStub = defineComponent({
     <div>
       <div v-for="row in data" :key="row.id" :data-account-name="row.name">
         <slot name="cell-groups" :row="row" />
+        <slot name="cell-status" :row="row" />
         <slot name="cell-actions" :row="row" />
       </div>
     </div>
@@ -267,6 +268,22 @@ describe('admin AccountsView lite account list', () => {
     await flushPromises()
     expect(getById).toHaveBeenCalledTimes(3)
     expect(wrapper.get('[data-test="stats-account"]').text()).toBe('compact row')
+    wrapper.unmount()
+  })
+
+  it('reloads the tested account and patches its latest validation reason', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="account-more-btn"]').trigger('click')
+    wrapper.findComponent(AccountActionMenu).vm.$emit('test', listRow)
+    await flushPromises()
+    const reason = 'Validation required (403) | validation_url: https://accounts.google.com/verify?token=new'
+    getById.mockResolvedValue({ ...fullAccount, temp_unschedulable_reason: reason })
+    wrapper.findComponent(AccountTestModalStub).vm.$emit('tested', 42)
+    await flushPromises()
+    expect(getById).toHaveBeenCalledTimes(2)
+    expect(wrapper.findComponent({ name: 'AccountStatusIndicator' }).props('account').temp_unschedulable_reason).toBe(reason)
+    expect(listAccounts).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 

@@ -2213,3 +2213,18 @@ func idsOfAccounts(accounts []service.Account) []int64 {
 	}
 	return out
 }
+
+func (s *AccountRepoSuite) TestClearTempUnschedulableClearsLatestAntigravityValidationURL() {
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name: "validation-recovery", Platform: service.PlatformAntigravity,
+		Extra: map[string]any{"antigravity_validation_url": "https://accounts.google.com/verify?token=latest", "privacy_mode": "training_off"},
+	})
+	s.Require().NoError(s.repo.SetTempUnschedulable(s.ctx, account.ID, time.Now().Add(time.Hour), "validation_url: https://accounts.google.com/verify?token=first"))
+	s.Require().NoError(s.repo.ClearTempUnschedulable(s.ctx, account.ID))
+	got, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().NotContains(got.Extra, "antigravity_validation_url")
+	s.Require().Equal("training_off", got.Extra["privacy_mode"])
+	s.Require().Empty(got.TempUnschedulableReason)
+	s.Require().Nil(got.TempUnschedulableUntil)
+}

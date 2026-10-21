@@ -3165,6 +3165,7 @@ func (r *accountRepository) ClearTempUnschedulable(ctx context.Context, id int64
 		UPDATE accounts
 		SET temp_unschedulable_until = NULL,
 			temp_unschedulable_reason = NULL,
+			extra = COALESCE(extra, '{}'::jsonb) - 'antigravity_validation_url',
 			updated_at = NOW()
 		WHERE id = $1
 			AND deleted_at IS NULL

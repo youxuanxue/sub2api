@@ -414,6 +414,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'tested', accountId: number): void
 }>()
 
 const terminalRef = ref<HTMLElement | null>(null)
@@ -857,6 +858,7 @@ const scrollToBottom = async () => {
 
 const startTest = async () => {
   if (!props.account || !canStartTest.value) return
+  const accountId = props.account.id
 
   resetState()
   status.value = 'connecting'
@@ -908,7 +910,7 @@ const startTest = async () => {
     }
 
     // Use the configured API base; EventSource does not support POST.
-    const url = buildApiUrl(`/admin/accounts/${props.account.id}/test`)
+    const url = buildApiUrl(`/admin/accounts/${accountId}/test`)
 
     // Use fetch with streaming for SSE since EventSource doesn't support POST
     const response = await fetch(url, {
@@ -965,6 +967,10 @@ const startTest = async () => {
     const msg = error instanceof Error ? error.message : t('common.unknownError')
     errorMessage.value = msg
     addLine(t('admin.accounts.errorPrefix', { message: msg }), 'text-red-400')
+  } finally {
+    // Wait for EOF: successful-test recovery runs after the final SSE event.
+    // Also refresh failed/aborted tests that may have persisted account state.
+    emit('tested', accountId)
   }
 }
 
