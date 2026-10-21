@@ -18,6 +18,20 @@ SPEC.loader.exec_module(changed_surfaces)
 
 
 class ChangedSurfacesTest(unittest.TestCase):
+    def test_local_qa_runner_and_tests_require_backend_integration(self) -> None:
+        for path in (
+            "ops/qa/local_maintenance_host.py",
+            "ops/qa/test_local_maintenance_host.py",
+            "ops/qa/test_local_maintenance_integration.py",
+        ):
+            with self.subTest(path=path):
+                result = changed_surfaces.classify([path])
+                self.assertTrue(result["backend"])
+                self.assertTrue(result["ops"])
+                self.assertTrue(result["preflight_go"])
+                self.assertFalse(result["all"])
+                self.assertFalse(result["frontend"])
+
     def test_backend_go_change_runs_backend_jobs_only(self) -> None:
         self.assertEqual(
             changed_surfaces.classify(["backend/internal/service/account_service.go"]),

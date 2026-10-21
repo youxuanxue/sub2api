@@ -27,6 +27,10 @@
       "tokenkey-qa-maintenance": "User requested pause of QA uploads to S3; capture policy is separate.",
       "tokenkey-qa-boundary": "Historical archive acceptance hold keeps boundary disabled (DROP pause retained); watcher expects disabled/inactive and alerts on accidental enable.",
       "tokenkey-pgdump": "Retired after pgBackRest latest and historical recovery acceptance; retained backups are not deleted."
-    }
+    },
+    "local_qa_jobs": [
+      "tokenkey-qa-provision",
+      "tokenkey-qa-cleanup"
+    ]
   }
 }

@@ -57,6 +57,18 @@ class CoveragePlanTest(unittest.TestCase):
         )
         self.assertFalse(watch.job_fact(inactive, disabled, 1000, boundary_limit)['healthy'])
 
+    def test_local_provision_is_monitored_independently_of_paused_archive(self):
+        prod = self.config('prod', self.fresh['prod']['instance_name'])
+        self.assertIn('tokenkey-qa-provision', prod['jobs'])
+        self.assertNotIn('tokenkey-qa-provision', prod['paused_jobs'])
+        self.assertIn('tokenkey-qa-cleanup', prod['jobs'])
+        self.assertNotIn('tokenkey-qa-cleanup', prod['paused_jobs'])
+        self.assertIn('tokenkey-qa-cleanup', watch.JOB_LIMITS)
+        limit = watch.JOB_LIMITS['tokenkey-qa-provision']
+        self.assertFalse(watch.job_fact({'ActiveState':'inactive', 'Result':'success'},
+                                       {'ActiveState':'inactive', 'UnitFileState':'disabled'},
+                                       10000, limit)['healthy'])
+
     def test_pause_checks_disabled_state_and_alerts_on_accidental_resume(self):
         inactive = {'ActiveState': 'inactive', 'Result': 'exit-code'}
         disabled = {'ActiveState': 'inactive', 'UnitFileState': 'disabled'}

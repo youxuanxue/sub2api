@@ -41,6 +41,7 @@ def build_config(role: str, hostname: str, fresh: dict, domestic: dict) -> dict:
         "tokenkey-pgdump", "tokenkey-disk-metrics", "tokenkey-ghcr-prune-daily"]
     if role == "prod":
         jobs += ["tokenkey-qa-maintenance", "tokenkey-qa-boundary"]
+        jobs += fresh["prod"].get("local_qa_jobs", [])
     paused = dict(fresh["prod"].get("paused_jobs", {})) if role == "prod" else {}
     return {"node": role, "targets": targets, "jobs": jobs, "paused_jobs": paused}
 
@@ -88,6 +89,8 @@ JOB_LIMITS = {
     "tokenkey-ghcr-prune-daily": (30 * 3600, 15 * 60),
     "tokenkey-qa-maintenance": (2 * 3600, 40 * 60 + 60),
     "tokenkey-qa-boundary": (2 * 3600, 40 * 60 + 60),
+    "tokenkey-qa-provision": (2 * 3600, 960),
+    "tokenkey-qa-cleanup": (20 * 60, 960),
 }
 
 

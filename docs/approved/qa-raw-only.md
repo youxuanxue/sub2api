@@ -70,3 +70,27 @@ raw 凭据只挂载给 maintenance 子容器；网关两种颜色不挂载 raw �
 切换须排空维护任务，持 host/deploy 锁并保存原 pin/env/脚本，保护 DROP；检查历史已提交小时无未覆盖源记录及待提交 verified segments。未完成且无已提交数据的新机小时按现有 reconciler 补至 AWS，不迁旧主机 raw，不复制历史对象，不改 forward cutover。按真实完成结果记录小时归属（可能包含切换前积压的小时），不能只按墙钟时间推断。切换后验证 AWS 真实提交与隔离恢复，接受后恢复 boundary/DROP；capture、网关、账单和主数据服务不重启。
 
 用户随后明确要求立即停止 Hetzner QA 任务，本次不等待旧上传自然结束。若停止留下已 verified 但未 committed 的旧目标分片，先保存原控制行并核实对象提交状态及本地源计数；仅将该未提交尝试标为 orphaned，保留对象和源数据，再由新目标正常重建归档。不得将旧目标的 verified 分片直接当作新目标对象，也不得标记虚假的完成。
+
+## 2026-10-21 本地生命周期独立运行（用户授权）
+
+用户明确要求“预建分区、清理任务都需要独立出来持续运行；S3 归档短期保持暂停”。
+先将预建实现为独立 `tokenkey-qa-provision.timer`，每小时补齐当前起未来 72 小时，
+并在开机后补跑。其运算复用 `lifecycle.RunProvision`，没有 S3 客户端或删除路径。
+独立程序 `backend/cmd/qa-local-maintenance` 由 `ops/qa/local_maintenance_host.py` 安装和运行，
+仅向临时容器提供 PostgreSQL 连接环境；宿主回执与现有 job watcher 监控执行时效。
+运行与旧 QA/备份共用 host lock、QAMA advisory lock 和短数据库锁等待。
+
+用户随后明确授权：“允许未归档的 QA 数据保留 24 小时后直接删除。否则会造成磁盘风险。”
+当前本地保留策略由独立 `tokenkey-qa-cleanup.timer` 执行，每 5 分钟分批清理，
+仅删除小时上界不晚于数据库当前 UTC 整点减 24 小时的分区及对应 qa_blobs/qa_dlq 文件。
+按整小时操作意味着每条记录至少保留 24 小时，通常为 24–25 小时加调度延迟。
+此本地清理明确不以 raw commit、restore_verified、capture seal 或旧 maintenance DROP pause 为前提；
+旧 boundary/maintenance 仍暂停，原有归档删除门禁不改，未来恢复上传需单独安排。
+未归档的数据删除后不可回查/补归档，保留真实 terminal-gap 与 source_dropped/hot_files_cleaned 回执，
+不伪造归档成功、不清除 capture 历史失败、不删除 S3 对象、备份或其它应用目录。
+
+独立清理复用 lifecycle 的分区边界验证、事务 DROP、归档控制回执与小时目录清理 owner。
+单轮最多处理 48 小时，共用 host/QAMA 锁、短数据库锁等待；先计划、再 apply。
+仅给清理容器挂载两个 QA 热目录，预建容器不挂载它们。无分区的过期 QA 小时文件也纳入清理：
+短锁内重新确认没有覆盖分区或 DEFAULT 分区，持久化源已不可用的回执后才删文件。
+中断/失败保留逐小时错误和可重试状态，后续定时任务继续；S3 上传继续保持暂停。
