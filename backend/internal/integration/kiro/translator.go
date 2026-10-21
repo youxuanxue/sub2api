@@ -225,11 +225,26 @@ type ClaudeUsage struct {
 const maxToolDescLen = 10237
 
 func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
+	return ClaudeToKiroWithFileToolGuidance(req, thinking, false)
+}
+
+// ClaudeToKiroWithFileToolGuidance adds opt-in guidance for large file tools.
+// This is advisory, not an enforced limit; the client still owns tool execution.
+// Contract: docs/approved/kiro-file-tool-chunking.md.
+func ClaudeToKiroWithFileToolGuidance(req *ClaudeRequest, thinking, enabled bool) *KiroPayload {
 	modelID := MapModel(req.Model)
 	origin := "AI_EDITOR"
 
 	// 提取系统提示
 	systemPrompt := buildClaudeSystemPrompt(req.System, thinking)
+	if enabled {
+		for _, tool := range req.Tools {
+			if tool.Name == "Write" || tool.Name == "Edit" || tool.Name == "MultiEdit" {
+				systemPrompt = strings.TrimSpace(systemPrompt + "\n\n" + fileToolChunkingGuidance)
+				break
+			}
+		}
+	}
 
 	// 构建历史消息
 	history := make([]KiroHistoryMessage, 0)
@@ -1742,3 +1757,7 @@ func convertOpenAITools(tools []OpenAITool) []KiroToolWrapper {
 	}
 	return result
 }
+
+// Keep this guidance stable across client turns so the system prefix can be cached.
+// Apply it after prompt filtering; Claude Code compaction would otherwise erase it.
+const fileToolChunkingGuidance = `For file-writing tools, keep the combined text arguments of each call below 6000 UTF-8 bytes and 150 lines, whichever is smaller (about 1500 Chinese characters). Split large files across successive Write and Edit calls. Do not use generated scripts or compressed encodings to bypass this limit. Each call must contain complete valid JSON. Preserve prior chunks and completed files. Continue through client tool results until the requested file is complete. This guidance does not authorize any extra tools or change the user task.`

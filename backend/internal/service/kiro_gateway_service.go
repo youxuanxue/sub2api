@@ -266,7 +266,7 @@ func (s *KiroGatewayService) Forward(
 	thinking := req.Thinking != nil &&
 		(req.Thinking.Type == "enabled" || req.Thinking.Type == "adaptive")
 
-	payload := kiroproto.ClaudeToKiro(&req, thinking)
+	payload := kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, account.IsKiroFileToolChunkingEnabled())
 	if err := kiroproto.ValidateKiroImages(payload); err != nil {
 		message := err.Error()
 		var unsupported *kiroproto.ErrUnsupportedKiroImage

@@ -78,3 +78,5 @@
 | US-067 | OAuth 搜索历史补全保留工具权限 | InTest | `.testing/user-stories/stories/US-067-oauth-search-history-tool-permissions.md` |
 
 | US-068 | cn-prod 私有镜像预下载 | InTest | `.testing/user-stories/stories/US-068-cn-image-prewarm.md` |
+
+| US-069 | Kiro 文件工具按账号分块与轮次保真 | InTest | `.testing/user-stories/stories/US-069-kiro-file-tool-chunking.md` |

@@ -1262,6 +1262,30 @@
         "TestKiroGatewayService_OutputSchemaReachesUpstream"
       ],
       "rationale": "Compare exact text/tool events across a keepalive stall, reject hidden-only empty success, and verify schemas survive into the actual outbound payload without mutating the captured request."
+    },
+    {
+      "path": "backend/internal/integration/kiro/translator.go",
+      "must_contain": [
+        "func ClaudeToKiroWithFileToolGuidance",
+        "fileToolChunkingGuidance"
+      ],
+      "rationale": "Approved opt-in file tool guidance must survive re-vendoring and Claude Code prompt compaction; the client remains the sole tool-loop owner."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service.go",
+      "must_contain": [
+        "kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, account.IsKiroFileToolChunkingEnabled())"
+      ],
+      "rationale": "The selected account owns the chunking opt-in; keep the Forward-to-translator binding so an upstream merge cannot silently disable the policy."
+    },
+    {
+      "path": "backend/internal/service/kiro_file_tool_chunking_test.go",
+      "must_contain": [
+        "TestUS069_FileToolChunkingForward",
+        "TestUS069_FileToolChunkingDoesNotContinueOrReplay",
+        "TestUS069_FileToolChunkingAdminPatch"
+      ],
+      "rationale": "Pin account-only opt-in, original tool responses, admin patch and no hidden continuation/replay behavior."
     }
   ]
 }
