@@ -991,6 +991,9 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	if account == nil || !account.IsOAuth() {
 		return nil, nil
 	}
+	if err := validateOAuthProxyBinding(account); err != nil {
+		return nil, err
+	}
 	if s.openAIQuotaService == nil {
 		return nil, fmt.Errorf("OpenAI quota service is unavailable")
 	}
