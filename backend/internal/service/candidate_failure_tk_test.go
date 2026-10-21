@@ -353,3 +353,62 @@ func TestCandidateFailureAttributionSoftDeprioritizesOpenAICapacityShed(t *testi
 		require.Equal(t, int64(2), picked.Account.ID, "HTTP 400 capacity shed must soft-demote after threshold")
 	})
 }
+
+func TestCandidateFailureCodex429UsesUnifiedPriority(t *testing.T) {
+	for _, direct := range []bool{false, true} {
+		t.Run(fmt.Sprintf("direct=%t", direct), func(t *testing.T) {
+			group := grp(10, PlatformOpenAI, 1, false)
+			model, upstream := "gpt-5.4", "gpt-5.4-mini"
+			accounts := []Account{globalCandidateAccount(1, 1, 10), globalCandidateAccount(2, 2, 10)}
+			for i := range accounts {
+				accounts[i].Type = AccountTypeOAuth
+				accounts[i].Credentials = map[string]any{"access_token": "test-token", "model_mapping": map[string]any{model: upstream}}
+				attachTestProtocolCapability(&accounts[i], protocolrouter.ProtocolResponses)
+			}
+			r, _, key := globalCandidateFixture([]Group{group}, accounts)
+			counter := &candidateFailureTestCounter{counts: map[CandidateFailureScope]int64{}}
+			counter.OpenAISaturationCounterCache = &fakeOpenAISaturationCounterRL{}
+			r.candidateGateway.rateLimitService = &RateLimitService{openaiSaturationCounter: counter}
+			if direct {
+				key.RoutingMode, key.GroupID, key.Group = "direct", &group.ID, &group
+			}
+			body := []byte(`{"model":"gpt-5.4","input":"hi"}`)
+			ctx, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, "/v1/responses", model, body, "", "")
+			require.NoError(t, err)
+			require.Equal(t, int64(1), state.current.account.ID)
+			plan := *state.current.plan
+			upstream = plan.ResolvedModel()
+			require.NotEqual(t, model, upstream, "feedback must use the resolved upstream model, including model retirement mapping")
+			failure := r.candidateOpenAI.newOpenAIAccountFailoverError(&accounts[0], 429, nil, []byte(`{"detail":"Rate limit exceeded"}`), "", false, true)
+			require.False(t, failure.RetryableOnSameAccount)
+			require.True(t, failure.SameAccountRetryDeadline.IsZero())
+			for n := int64(1); n <= candidateFailureThreshold; n++ {
+				_, observed := ExecuteSelectedProtocol(ctx, r.router, &AccountSelectionResult{Account: &accounts[0], ProtocolPlan: &plan}, &accounts[0],
+					func(context.Context, *Account, string) error { return nil }, protocolExecutionAccountLoaderForTest(&accounts[0]),
+					protocolExecutorsForTest(plan, func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
+						return nil, failure
+					}))
+				require.ErrorIs(t, observed, failure)
+				state.observeFailure(ctx, &accounts[0], plan, observed)
+				require.Equal(t, n, counter.counts[CandidateFailureScope{1, upstream}], "one completed attempt must count once")
+				picked, err := state.selectAccount(ctx, candidateSelectOptions{})
+				require.NoError(t, err)
+				if n < candidateFailureThreshold {
+					require.Equal(t, int64(1), picked.Account.ID)
+				} else {
+					require.Equal(t, int64(2), picked.Account.ID)
+				}
+			}
+			require.Equal(t, 1001, candidateSelectionEffectivePriority(&accounts[0], nil, state.failureCounts(ctx, []*candidateExecutionPath{{account: &accounts[0], plan: &plan, model: model}})))
+			require.Equal(t, 1, accounts[0].Priority, "soft demotion must not rewrite configured priority")
+			counter.counts = map[CandidateFailureScope]int64{{1, "unrelated-model"}: 10}
+			picked, err := state.selectAccount(ctx, candidateSelectOptions{})
+			require.NoError(t, err)
+			require.Equal(t, int64(1), picked.Account.ID, "another model's failures must not demote this model")
+			counter.counts = map[CandidateFailureScope]int64{}
+			picked, err = state.selectAccount(ctx, candidateSelectOptions{})
+			require.NoError(t, err)
+			require.Equal(t, int64(1), picked.Account.ID, "expired feedback restores configured priority")
+		})
+	}
+}

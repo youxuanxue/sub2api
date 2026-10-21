@@ -435,6 +435,8 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 		// Share the approved capacity failover rule: try a healthy peer instead
 		// of spending the two-minute burst budget on a throttled credential.
 		failoverErr.RetryableOnSameAccount = false
+		failoverErr.Scope = GatewayFailureScopeAccount
+		failoverErr.Reason = candidateAccountRateLimitReason
 		oauth429Retry = false
 	}
 	if oauth429Retry {

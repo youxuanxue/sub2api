@@ -6,7 +6,6 @@ import (
 	"context"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -111,7 +110,7 @@ func TestComputeOpenAISaturationPenalties_DeprioritizesOAuthAccount(t *testing.T
 	resetOpenAISatCache()
 }
 
-func TestOpenAIAccount429PressureDeprioritizesAndSwitchesWithoutSameAccountRetry(t *testing.T) {
+func TestOpenAIAccount429PressureSwitchesWithoutSaturationPenalty(t *testing.T) {
 	account := &Account{ID: 283, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 	sat := &fakeOpenAISaturationCounterRL{}
 	limits := NewRateLimitService(&oauth429RateLimitRepo{}, nil, &config.Config{}, nil, nil)
@@ -122,19 +121,11 @@ func TestOpenAIAccount429PressureDeprioritizesAndSwitchesWithoutSameAccountRetry
 	for i := int64(0); i < saturationThreshold; i++ {
 		svc.handleOpenAIAccountUpstreamError(context.Background(), account, 429, nil, body)
 	}
-	require.Equal(t, saturationThreshold, sat.count)
-	svc.openaiOAuth429RetryStartedAt.Store(account.ID, time.Now().Add(-openAIOAuth429RetryWindow-time.Second))
-	svc.handleOpenAIAccountUpstreamError(context.Background(), account, 429, nil, body)
-	require.Equal(t, saturationThreshold+1, sat.count, "parking after retry exhaustion must not double-count the same response")
-	svc.ClearAccountSchedulingBlock(account.ID)
-	require.Greater(t, candidateEffectivePriority(account, map[int64]int64{283: sat.count}), account.Priority)
-	sat.batch = map[int64]int64{283: sat.count}
-	svc.SetOpenAISaturationCounter(sat)
-	candidates := []openAIAccountCandidateScore{{account: account}, {account: &Account{ID: 284, Platform: PlatformOpenAI, Type: AccountTypeOAuth}}}
-	svc.computeOpenAISaturationPenalties(context.Background(), candidates)
-	require.Greater(t, candidates[0].saturationScorePenalty, candidates[1].saturationScorePenalty)
+	require.Zero(t, sat.count, "429 feedback belongs only to the unified candidate failure counter")
 	failure := svc.newOpenAIAccountFailoverError(account, 429, nil, body, "Rate limit exceeded", false, true)
 	require.False(t, failure.RetryableOnSameAccount)
+	require.Equal(t, candidateAccountRateLimitReason, failure.Reason)
+	require.True(t, candidateFailureAttributable(failure))
 	require.True(t, failure.SameAccountRetryDeadline.IsZero())
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account), "soft preference does not hard-disable an account")
 
@@ -151,6 +142,8 @@ func TestOpenAIAccount429PressureDeprioritizesAndSwitchesWithoutSameAccountRetry
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.False(t, isOpenAIAccountRateLimitPressure(tc.account, tc.headers, tc.body))
+			excluded := svc.newOpenAIAccountFailoverErrorWithClassificationHeaders(tc.account, 429, nil, tc.headers, tc.body, "", false, false)
+			require.False(t, candidateFailureAttributable(excluded))
 		})
 	}
 }

@@ -2054,6 +2054,7 @@
         "kiroproto.MapModel(model)",
         "candidateFailureAttributable",
         "candidateFailureSoftPriorityEligible",
+        "failure.Reason == candidateAccountRateLimitReason",
         "isOpenAIRequestScopedCapacityShed",
         "counter.IncrementCandidateFailure",
         "candidateTransportFailure",
@@ -2088,6 +2089,7 @@
         "TestCandidateFailureNativeExecutionUsesForwardModel",
         "TestCandidateTransportFailureAttribution",
         "TestCandidateFailureAttributionSoftDeprioritizesOpenAICapacityShed",
+        "TestCandidateFailureCodex429UsesUnifiedPriority",
         "http_400_capacity_shed",
         "selectAccount_demotes_after_threshold",
         "ExecuteSelectedProtocol",
@@ -17063,16 +17065,10 @@
       "path": "backend/internal/service/openai_gateway_upstream_errors.go",
       "must_contain": [
         "isOpenAIAccountRateLimitPressure(account, classificationHeaders, responseBody)",
-        "failoverErr.RetryableOnSameAccount = false"
+        "failoverErr.RetryableOnSameAccount = false",
+        "failoverErr.Reason = candidateAccountRateLimitReason"
       ],
       "rationale": "Confirmed account throttle must use bounded account failover rather than the two-minute same-account retry."
-    },
-    {
-      "path": "backend/internal/service/openai_account_runtime_block_fastpath.go",
-      "must_contain": [
-        "s.rateLimitService.recordOpenAIStubSaturation(stateCtx, account.ID, statusCode, \"account_rate_limit\")"
-      ],
-      "rationale": "HTTP and semantic stream 429 share one capacity-feedback call, without double-counting the cooldown callback."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_saturation.go",
@@ -17093,10 +17089,10 @@
     {
       "path": "backend/internal/service/openai_capacity_saturation_tk_test.go",
       "must_contain": [
-        "TestOpenAIAccount429PressureDeprioritizesAndSwitchesWithoutSameAccountRetry",
+        "TestOpenAIAccount429PressureSwitchesWithoutSaturationPenalty",
         "TestOpenAISaturationSurvivesClientCancellation"
       ],
-      "rationale": "Retain actual throttle counter, ranking, retry and canceled-request regression coverage."
+      "rationale": "Retain throttle attribution, absence of duplicate saturation feedback, retry and canceled-request regression coverage."
     }
   ]
 }

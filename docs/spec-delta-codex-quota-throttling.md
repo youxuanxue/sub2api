@@ -23,7 +23,7 @@
 - 查询成功先保存窗口再响应；查询失败可见。被动列表不产生上游请求，使用真实采样时间，过期百分比标记未知。
 - 完整 quota 响应中的 null 窗口清除旧窗口；quota 卡点数刷新同时保存正确维度的窗口，不依赖重置次数详情是否完整。
 - 主动查询/重置/次数查询均更新使用中的进度条；旧批量响应不能覆盖更新的采样。
-- 原生 OpenAI OAuth/SetupToken 的明确普通账号级 `Rate limit exceeded` 接入现有滚动饱和 owner；达到既有阈值后按现有计数降权，不新增硬停调。
+- 原生 OpenAI OAuth/SetupToken 的明确普通账号级 `Rate limit exceeded` 接入现有通用候选失败 owner：按账号和 Plan 的实际上游模型计数，固定 90 秒窗口内达到 3 次后，有效 priority 增加 1000；不写入容量饱和计数，不新增硬停调。
 - 该类错误立即进入其他账号的既有有界 failover，不再执行同账号密集重试；额度耗尽、Spark/图片限额、API-key 和不明错误保持各自 owner。
 - 容量反馈保存使用现有有界、脱离客户端取消的状态更新上下文。
 
@@ -31,7 +31,8 @@
 
 - 后端 `TestOpenAIUsageRefreshReplacesExhaustedSnapshotWithoutInference`：HTTP 账号旧 100% → quota GET 新 1%、null 窗口移除、同步持久化、失败显式返回、列表不发上游请求。
 - `TestQuotaCardRefreshPersistsWindowsWithoutResetCreditDetails`：窗口保存不依赖重置次数详情。
-- `TestOpenAIAccount429PressureDeprioritizesAndSwitchesWithoutSameAccountRetry`：真实 handler 反馈、滚动计数、避让、排除 quota/Spark/API-key/回显输入、同一响应不双计数。
+- `TestCandidateFailureCodex429UsesUnifiedPriority`：直连和通用 key 经真实执行边界反馈，达到既有阈值后选号避让、模型隔离、同一执行不双计数、过期恢复。
+- `TestOpenAIAccount429PressureSwitchesWithoutSaturationPenalty`：首次切号且无重复容量惩罚，排除 quota/Spark/API-key/回显输入。
 - `TestOpenAISaturationSurvivesClientCancellation`：已取消请求仍保存一次反馈。
 - `AccountUsageCell.spec.ts`：主动查询与旧批量响应竞态、reset/次数查询更新 override 行、失败提示。
 - `playwright.codex-quota.config.ts`：真实 Accounts UI 点击查询，100% → 1%，重载保留，失败提示。
