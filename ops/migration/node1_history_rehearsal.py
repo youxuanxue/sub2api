@@ -18,13 +18,13 @@ if __package__:
 else:
     from node1_candidate import CONTAINER, Policy
 
-WORK = Path('/data/tokenkey-node1-tokyo-history-rehearsal')
-DATABASE = 'tokenkey_tokyo_history_rehearsal'
-APP = 'tokenkey-node1-tokyo-history-app'
-REDIS = 'tokenkey-node1-tokyo-history-redis'
+WORK = Path('/data/tokenkey-node1-ucloud-cn-history-rehearsal')
+DATABASE = 'tokenkey_ucloud_cn_history_rehearsal'
+APP = 'tokenkey-node1-ucloud-cn-history-app'
+REDIS = 'tokenkey-node1-ucloud-cn-history-redis'
 APP_IMAGE = 'sha256:a973706d7dc5e63cf349c6d3067fc83e106c07c8ddc7d2faa12360cdc396069a'
 REDIS_IMAGE = 'sha256:19918c2d80d003158a26d210099b31ae6434b662afe16d560bcdeb3643909494'
-LABEL = 'tokenkey.rehearsal=node1-aws-history'
+LABEL = 'tokenkey.rehearsal=node1-ucloud-cn-history'
 
 
 def run(*args, data=None):
@@ -49,7 +49,7 @@ def validate(info, pg_id):
     expected_images = {'/' + APP: APP_IMAGE, '/' + REDIS: REDIS_IMAGE}
     if (info['Name'] not in ('/' + APP, '/' + REDIS)
             or info.get('Image') != expected_images.get(info['Name'])
-            or info['Config']['Labels'].get('tokenkey.rehearsal') != 'node1-aws-history'
+            or info['Config']['Labels'].get('tokenkey.rehearsal') != LABEL.split('=', 1)[1]
             or h['NetworkMode'] != 'container:' + pg_id or h.get('PortBindings')
             or h.get('Privileged') or h.get('CapAdd')
             or h['RestartPolicy']['Name'] != 'no'):

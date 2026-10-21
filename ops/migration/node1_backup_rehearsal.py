@@ -22,8 +22,8 @@ else:
     from node1_candidate import Policy, CONTAINER
     from usage_history_audit import compare
 
-DATABASE = 'node1_tokyo_full_backup_restore'
-WORK = Path('/data/tokenkey-node1-tokyo-backup-rehearsal')
+DATABASE = 'node1_ucloud_cn_full_backup_restore'
+WORK = Path('/data/tokenkey-node1-ucloud-cn-backup-rehearsal')
 
 
 def main():

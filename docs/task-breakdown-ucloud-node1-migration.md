@@ -63,8 +63,9 @@ scope: '#2698；仅准备与隔离验收，未授权切流'
 
 1. Node1 inventory 默认只允许 `plan`、身份核对和隔离恢复；`bootstrap`、`deploy`、`promote`、公网绑定、批准标记安装和 timer 启用默认拒绝。
 2. 目标配置必须包含源环境、入口 IP、EIP 承载模型、目标 machine-id、数据盘 UUID、候选根目录和 `DATA_SYNC_HOLD` 约束；未知或未核实值拒绝执行。
-3. 任何对 UCloud cn-prod、AWS prod、DNS、EIP、凭据、外部通知或生产写者的调用必须有独立的切流批准和维护窗口标记。
-4. 为上述拒绝路径补充负向测试，证明拒绝前没有远端写操作、没有 AWS 调用、没有 UCloud 在线服务重启。
+3. node1 候选脚本在远端必须先读取 root-private 的 `/etc/tokenkey/node1-migration-inventory.json`；只有 `inventory_status=verified`、来源为 UCloud cn-prod、入口为 `106.75.29.139` 且 machine-id/数据盘/镜像/域名字段齐全时才允许继续。缺失或不匹配时在任何 Docker、磁盘或探针调用前拒绝。
+4. 任何对 UCloud cn-prod、AWS prod、DNS、EIP、凭据、外部通知或生产写者的调用必须有独立的切流批准和维护窗口标记。
+5. 为上述拒绝路径补充负向测试，证明拒绝前没有远端写操作、没有 AWS 调用、没有 UCloud 在线服务重启。
 
 ## E. 未来切流（独立审批）
 

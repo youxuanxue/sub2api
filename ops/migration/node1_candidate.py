@@ -17,26 +17,48 @@ import socket
 import subprocess
 import time
 
-ROOT = Path('/data/tokenkey-prod-candidate-tokyo-current')
-CONTAINER = 'tokenkey-prod-candidate-tokyo-current-postgres'
-MACHINE = 'c3312a1eec634d6cac597f41be19ed5a'
-VOLUME = 'ea97a943-8b3f-427d-9d6c-b81baddaff79'
-IMAGE = 'sha256:a088df28e5e0007511e03027fb95c8e5d86ca2c269dd1663eeca038054b72460'
-SOURCE = 'tokenkey-prod-tokyo-20261017'
-LABEL = {'tokenkey.candidate': 'node1-prod-tokyo-precutover'}
+ROOT = Path('/data/tokenkey-prod-candidate-ucloud-cn-current')
+CONTAINER = 'tokenkey-prod-candidate-ucloud-cn-current-postgres'
+# Historical Tokyo/AWS coordinates are intentionally not embedded.  The
+# operator must install a read-only verified UCloud/node1 inventory first.
+MIGRATION_INVENTORY = Path('/etc/tokenkey/node1-migration-inventory.json')
+IMAGE = 'pending-until-ucloud-inventory'
+SOURCE = 'ucloud-cn-prod-106.75.29.139'
+LABEL = {'tokenkey.candidate': 'node1-prod-ucloud-cn-precutover'}
 
 
 def output(*args):
     return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL).strip()
 
 
+def verified_inventory():
+    if (MIGRATION_INVENTORY.is_symlink() or not MIGRATION_INVENTORY.is_file()
+            or MIGRATION_INVENTORY.stat().st_mode & 0o077
+            or MIGRATION_INVENTORY.stat().st_uid != os.geteuid()):
+        raise RuntimeError('UCloud/node1 inventory is not verified')
+    try:
+        inventory = json.loads(MIGRATION_INVENTORY.read_text())
+    except (OSError, ValueError):
+        raise RuntimeError('UCloud/node1 inventory is not verified') from None
+    if (inventory.get('schema_version') != 1
+            or inventory.get('inventory_status') != 'verified'
+            or inventory.get('source_environment') != 'ucloud-cn-prod'
+            or inventory.get('public_ip') != '106.75.29.139'
+            or not all(isinstance(inventory.get(key), str)
+                       for key in ('machine_id', 'data_uuid', 'postgres_image', 'domain'))):
+        raise RuntimeError('UCloud/node1 inventory is not verified')
+    return inventory
+
+
 def host_guard():
-    if os.geteuid() != 0 or Path('/etc/machine-id').read_text().strip() != MACHINE:
+    inventory = verified_inventory()
+    if os.geteuid() != 0 or Path('/etc/machine-id').read_text().strip() != inventory['machine_id']:
         raise RuntimeError('wrong Node1 identity')
-    if output('findmnt', '-n', '-o', 'UUID', '--mountpoint', '/data') != VOLUME:
+    if output('findmnt', '-n', '-o', 'UUID', '--mountpoint', '/data') != inventory['data_uuid']:
         raise RuntimeError('wrong Node1 data volume')
     if ROOT.resolve() != ROOT:
         raise RuntimeError('candidate path must not be redirected')
+    return inventory
 
 
 def validate_container(info, containers):
@@ -65,7 +87,7 @@ class Policy:
     work = ROOT / 'migration'
 
     def guard(self, db=None):
-        host_guard()
+        inventory = host_guard()
         if not (self.work / 'DATA_SYNC_HOLD').is_file():
             raise RuntimeError('persistent candidate hold missing')
         if db is not None and (db.prefix != ['docker', 'exec', '-i', CONTAINER]
@@ -77,16 +99,19 @@ class Policy:
         matches = [c for c in all_info if c['Name'] == '/' + CONTAINER]
         if len(matches) != 1:
             raise RuntimeError('candidate PostgreSQL missing')
+        if matches[0]['Image'] != inventory['postgres_image']:
+            raise RuntimeError('candidate PostgreSQL image does not match verified inventory')
         validate_container(matches[0], all_info)
 
 
 def prepare():
-    host_guard()
+    inventory = host_guard()
+    image = inventory['postgres_image']
     if ROOT.exists() and set(p.name for p in ROOT.iterdir()) - {'migration'}:
         raise RuntimeError('candidate already exists; inspect instead of overwriting')
     if shutil.disk_usage('/data').free < 40 * 1024**3:
         raise RuntimeError('insufficient candidate disk headroom')
-    if output('docker', 'image', 'inspect', IMAGE, '--format', '{{.Architecture}}') != 'amd64':
+    if output('docker', 'image', 'inspect', image, '--format', '{{.Architecture}}') != 'amd64':
         raise RuntimeError('wrong PostgreSQL image architecture')
     ROOT.mkdir(mode=0o700, exist_ok=True)
     work = ROOT / 'migration'
@@ -100,11 +125,11 @@ def prepare():
     env.write_text('POSTGRES_USER=tokenkey\nPOSTGRES_DB=tokenkey\nPOSTGRES_PASSWORD=' + secrets.token_urlsafe(48) + '\n')
     env.chmod(0o600)
     subprocess.run(['docker', 'run', '-d', '--name', CONTAINER, '--network', 'none',
-        '--restart', 'no', '--label', 'tokenkey.candidate=node1-prod-tokyo-precutover',
+        '--restart', 'no', '--label', 'tokenkey.candidate=node1-prod-ucloud-cn-precutover',
         '--cpus', '2', '--memory', '4g', '--memory-swap', '4g',
         '--device-read-bps', '/dev/vdb:41943040', '--device-write-bps', '/dev/vdb:41943040',
         '--env-file', str(env), '--mount', f'type=bind,src={ROOT}/postgres,dst=/var/lib/postgresql',
-        IMAGE, 'postgres', '-c', "listen_addresses=127.0.0.1", '-c', 'max_connections=20'],
+        image, 'postgres', '-c', "listen_addresses=127.0.0.1", '-c', 'max_connections=20'],
         check=True, stdout=subprocess.DEVNULL)
     for _ in range(90):
         result = subprocess.run(['docker', 'exec', CONTAINER, 'psql', '-XAt', '-U', 'tokenkey',
@@ -117,17 +142,17 @@ def prepare():
 
 
 def adopt():
-    """Normalize an already restored Tokyo candidate without touching its data.
+    """Normalize an already restored UCloud candidate without touching its data.
 
     The first restore was created with a temporary read-only dump bind and no
     label.  Recreate only that isolated PostgreSQL container, preserving the
     existing PGDATA bind and credentials, so the normal candidate guard can
     verify the exact hold contract.  This operation has no activation path.
     """
-    host_guard()
+    inventory = host_guard()
     hold = ROOT / 'migration/DATA_SYNC_HOLD'
     if not hold.is_file():
-        # The first Tokyo restore placed the hold at the candidate root.  Move
+        # A legacy restore may have placed the hold at the candidate root.  Move
         # only the marker into the guarded work directory; never move data.
         legacy_hold = ROOT / 'DATA_SYNC_HOLD'
         if legacy_hold.is_symlink() or not legacy_hold.is_file():
@@ -139,7 +164,7 @@ def adopt():
     if env.is_symlink() or not env.is_file() or env.stat().st_mode & 0o077:
         raise RuntimeError('candidate credentials must remain root-private')
     info = json.loads(output('docker', 'inspect', CONTAINER))[0]
-    if info['Image'] != IMAGE or not info['State']['Running']:
+    if info['Image'] != inventory['postgres_image'] or not info['State']['Running']:
         raise RuntimeError('unexpected candidate container state')
     mounts = {(m['Source'], m['Destination'], m['RW']) for m in info['Mounts']}
     if (str(ROOT / 'postgres'), '/var/lib/postgresql', True) not in mounts:
@@ -150,11 +175,11 @@ def adopt():
                    stdout=subprocess.DEVNULL)
     subprocess.run(['docker', 'rm', CONTAINER], check=True, stdout=subprocess.DEVNULL)
     subprocess.run(['docker', 'run', '-d', '--name', CONTAINER, '--network', 'none',
-        '--restart', 'no', '--label', 'tokenkey.candidate=node1-prod-tokyo-precutover',
+        '--restart', 'no', '--label', 'tokenkey.candidate=node1-prod-ucloud-cn-precutover',
         '--cpus', '2', '--memory', '4g', '--memory-swap', '4g',
         '--device-read-bps', '/dev/vdb:41943040', '--device-write-bps', '/dev/vdb:41943040',
         '--env-file', str(env), '--mount', f'type=bind,src={ROOT}/postgres,dst=/var/lib/postgresql',
-        IMAGE, 'postgres', '-c', 'listen_addresses=127.0.0.1', '-c', 'max_connections=20'],
+        inventory['postgres_image'], 'postgres', '-c', 'listen_addresses=127.0.0.1', '-c', 'max_connections=20'],
         check=True, stdout=subprocess.DEVNULL)
     for _ in range(90):
         result = subprocess.run(['docker', 'exec', CONTAINER, 'psql', '-XAt', '-U', 'tokenkey',

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure real-size deltas against the independently restored backup only.
 
-The held Tokyo candidate is read-only throughout. The restored backup is first
+The held UCloud candidate is read-only throughout. The restored backup is first
 perturbed, then repaired by the production content-delta engine. No application,
 network, source-freeze, DNS or activation operation is available here.
 """
@@ -20,7 +20,7 @@ else:
     from node1_candidate import Policy, CONTAINER
     from node1_backup_rehearsal import DATABASE, WORK as BACKUP_WORK
 
-WORK = Path('/data/tokenkey-node1-tokyo-delta-rehearsal')
+WORK = Path('/data/tokenkey-node1-ucloud-cn-delta-rehearsal')
 
 
 class RestorePolicy:

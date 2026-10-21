@@ -49,6 +49,7 @@ scope: UCloud cn-prod 106.75.29.139 → node1 preparation only; no cutover
 
 - `deploy/domestic/targets.json` 的 Node1 目标默认只允许 `plan`；`bootstrap`、`deploy`、`smoke-only`、`promote`、公网绑定、批准标记安装和 timer 启用均 fail-closed。
 - 目标必须明确来源环境、入口 IP、EIP 承载模型、machine-id、数据盘 UUID、候选根目录和 `DATA_SYNC_HOLD`。
+- node1 候选脚本必须先读取 root-private `/etc/tokenkey/node1-migration-inventory.json`；仅当其标记为已核实的 UCloud cn-prod、入口为 `106.75.29.139` 且 machine-id/数据盘/镜像/域名齐全时才可继续，缺失或不匹配时在 Docker/磁盘/探针调用前拒绝。
 - 对 UCloud cn-prod、AWS prod、DNS、EIP、凭据、外部通知和生产写者的调用必须带独立批准与维护窗口标记。
 - 负向测试必须证明拒绝发生在远端写操作、AWS 调用或 UCloud 在线服务重启之前。
 

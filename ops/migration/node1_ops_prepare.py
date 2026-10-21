@@ -35,7 +35,7 @@ def install_owned(path, content, mode=0o644, previous=None):
 
 
 def prepare(bundle, previous=None):
-    host_guard()
+    inventory = host_guard()
     if Path(APPROVAL).exists():
         raise RuntimeError('preparation is forbidden after activation')
     for name in ('tokenkey-pgdump', 'tokenkey-full-history-backup',
@@ -48,7 +48,7 @@ def prepare(bundle, previous=None):
             if (values.get('ActiveState') != 'inactive' or values.get('DropInPaths')
                     or values.get('UnitFileState', '') not in allowed):
                 raise RuntimeError('host jobs must be inactive, disabled and without overrides')
-    config = {'node': 'node1', 'targets': {'prod': 'https://api.galaxywaveai.com/health'},
+    config = {'node': 'node1', 'targets': {'ucloud-cn-prod': 'https://' + inventory['domain'] + '/health'},
               'jobs': ['tokenkey-pgdump', 'tokenkey-full-history-backup', 'tokenkey-disk-metrics']}
     material = {name: (bundle / name).read_bytes() for name in FILES}
     material['watch.json'] = json.dumps(config, sort_keys=True).encode()

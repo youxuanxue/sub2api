@@ -28,13 +28,23 @@ def held_container():
 
 
 class CandidateSafetyTest(unittest.TestCase):
-    def test_candidate_is_bound_to_current_tokyo_source(self):
-        self.assertEqual(candidate.SOURCE, 'tokenkey-prod-tokyo-20261017')
-        self.assertEqual(candidate.ROOT, Path('/data/tokenkey-prod-candidate-tokyo-current'))
-        self.assertEqual(candidate.CONTAINER, 'tokenkey-prod-candidate-tokyo-current-postgres')
+    def test_candidate_is_bound_to_ucloud_source(self):
+        self.assertEqual(candidate.SOURCE, 'ucloud-cn-prod-106.75.29.139')
+        self.assertEqual(candidate.ROOT, Path('/data/tokenkey-prod-candidate-ucloud-cn-current'))
+        self.assertEqual(candidate.CONTAINER, 'tokenkey-prod-candidate-ucloud-cn-current-postgres')
+
+    def test_missing_inventory_fails_before_identity_or_disk_commands(self):
+        with patch.object(candidate, 'MIGRATION_INVENTORY', Path('/definitely/missing/node1-inventory.json')), \
+                patch.object(candidate, 'output') as command:
+            with self.assertRaisesRegex(RuntimeError, 'inventory is not verified'):
+                candidate.host_guard()
+            command.assert_not_called()
 
     def test_wrong_host_fails_before_any_disk_command(self):
         with patch.object(candidate.os, 'geteuid', return_value=0), \
+                patch.object(candidate, 'verified_inventory', return_value={
+                    'machine_id': 'expected', 'data_uuid': 'expected-volume',
+                    'postgres_image': candidate.IMAGE, 'domain': 'api-cn.tokenkey.dev'}), \
                 patch.object(Path, 'read_text', return_value='foreign-host'), \
                 patch.object(candidate, 'output') as command:
             with self.assertRaisesRegex(RuntimeError, 'identity'):
@@ -106,7 +116,7 @@ class HistoryIsolationTest(unittest.TestCase):
     def test_only_owned_namespace_and_mounts_are_accepted(self):
         info = {'Name': '/' + history.APP,
                 'Image': history.APP_IMAGE,
-                'Config': {'Labels': {'tokenkey.rehearsal': 'node1-aws-history'}},
+                'Config': {'Labels': {'tokenkey.rehearsal': 'node1-ucloud-cn-history'}},
                 'HostConfig': {'NetworkMode': 'container:pg', 'PortBindings': {},
                                'RestartPolicy': {'Name': 'no'}},
                 'Mounts': [{'Type': 'bind', 'Source': str(history.WORK / 'app'),
