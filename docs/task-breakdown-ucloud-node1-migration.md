@@ -21,13 +21,15 @@ scope: '#2698；仅准备与隔离验收，未授权切流'
 
 | 项目 | 用户目标 | 当前 PR 仍引用的事实 | 处理 |
 |---|---|---|---|
-| 源 | UCloud cn-prod | Tokyo AWS `3.114.187.250` | 重新做 UCloud 只读盘点 |
-| 公网入口 | `106.75.29.139` | `106.75.17.57`、`106.75.7.50` | 只读核实 EIP ID、绑定实例和可迁移方式 |
-| 目标 | node1 | `zhupeng-prod` / `ssh-tunnel` / `ub1.tokenkey.dev` | 重新确认 node1 machine-id、架构、磁盘和网络身份 |
+| 源 | UCloud cn-prod `uhost-1wgyn7gu2f6a` | Tokyo AWS `3.114.187.250` | 已只读确认实例、私网 `10.9.53.136`、北京二 `cn-bj2-02`；继续补运行时事实 |
+| 公网入口 | `106.75.29.139` / EIP `eip-1wjj3obkx4mv` | `106.75.17.57`、`106.75.7.50` | 已只读确认绑定源实例；仍需确认迁移权限和回滚路径 |
+| 目标 | node1 候选 `node1-ingress-test` / `uhost-1wip94slk7de` | `zhupeng-prod` / `ssh-tunnel` / `ub1.tokenkey.dev` | 仅记录为候选观察值；仍需确认 machine-id、架构、数据盘和网络身份 |
 | 域名 | 现有 cn-prod 域名保持不变 | `api.galaxywaveai.com` | 删除新域名交接作为本任务前置 |
 | 数据证据 | UCloud cn-prod 完整数据 | Tokyo 快照、Tokyo usage 对账 | 重新生成完整 UCloud 基线 |
 
 在这些事实核对完成前，禁止把目标写成可执行的生产 inventory，也禁止生成 EIP apply 命令。
+
+2026-10-21 的只读回执见 [`node1-ucloud-readonly-inventory-20261021.json`](docs/ops/reports/node1-ucloud-readonly-inventory-20261021.json)。本次只执行 UCloud `uhost list`、`udisk list`、`eip list`；没有绑定、解绑、重启、磁盘、DNS、数据库或应用操作。
 
 # 分阶段工作
 

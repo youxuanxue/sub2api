@@ -25,6 +25,19 @@ def validate_target(name, target):
         raise ValueError("Node1 target source must be UCloud cn-prod")
     if target.get("public_ip") != "106.75.29.139":
         raise ValueError("Node1 target must preserve the approved public IP")
+    for field, pattern in {
+        "source_instance_id": r"uhost-[a-z0-9]+",
+        "source_private_ip": r"(?:\d{1,3}\.){3}\d{1,3}",
+        "source_eip_id": r"eip-[a-z0-9]+",
+        "source_data_disk_id": r"bsm-[a-z0-9]+",
+        "source_zone": r"cn-bj2-\d{2}",
+        "candidate_instance_id": r"uhost-[a-z0-9]+",
+        "candidate_public_ip": r"(?:\d{1,3}\.){3}\d{1,3}",
+    }.items():
+        if not re.fullmatch(pattern, target.get(field, "")):
+            raise ValueError("Invalid read-only source inventory field: " + field)
+    if target.get("candidate_inventory_status") != "candidate-observed-not-approved":
+        raise ValueError("Node1 candidate inventory must remain unapproved")
     if target.get("public_ip_mode") not in ("pending", "eip-move", "wireguard-forward"):
         raise ValueError("Public IP ownership model is not approved")
     for field, pattern in {

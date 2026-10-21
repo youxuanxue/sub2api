@@ -22,12 +22,14 @@ scope: UCloud cn-prod 106.75.29.139 → node1 preparation only; no cutover
 
 以下事实必须从只读运维入口取得，不能从历史文档推断：
 
-1. UCloud 当前实例 ID、EIP ID、`106.75.29.139` 绑定关系、区域、VPC/防火墙、磁盘、machine-id、架构、运行镜像和版本。
+1. UCloud 当前实例 `uhost-1wgyn7gu2f6a`、EIP `eip-1wjj3obkx4mv` 与 `106.75.29.139` 的绑定、北京二 `cn-bj2-02`、私网 `10.9.53.136`、系统盘 `bsi-158d29bf4f`、数据盘 `bsm-1wgz3hm0c0jb` 和基础镜像已只读确认；防火墙、machine-id、运行时版本和备份覆盖仍待确认。
 2. node1 machine-id、架构、数据盘 UUID/容量、挂载点、Docker/Compose、WireGuard 对端、SSH/SSM 身份和回滚路径。
 3. `106.75.29.139` 的承载模型：EIP 迁移到 node1，或 EIP 留在 UCloud 入口并经 WireGuard 转发到 node1。未选定模型前不得生成 apply 命令。
 4. cn-prod 当前 schema、PostgreSQL/Redis 版本、配置摘要、证书有效期和备份是否覆盖完整 `usage_logs`、历史更新/删除/补录及最新凭据轮换。
 
 当前 inventory 仅保留 `preparation_only=true`、`public_ip=106.75.29.139`、`public_ip_mode=pending` 和 `inventory_status=pending-readonly-verification`，不能用于线上部署。
+
+UCloud 只读盘点回执见 [`node1-ucloud-readonly-inventory-20261021.json`](../ops/reports/node1-ucloud-readonly-inventory-20261021.json)。其中 node1 仅作为候选观察值，未被标记为已批准目标。
 
 ## 数据基线和隔离恢复
 
