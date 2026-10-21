@@ -1,3 +1,32 @@
+# 独立本地生命周期
+
+2026-10-21 已完成生产启用与积压清理，见 [验收记录](../../docs/ops/qa-local-retention-20261021.md)。
+
+`tokenkey-qa-provision.timer` 是本地预建任务：每小时滚动补齐当前起未来 72 小时，
+开机后补跑；不依赖 S3 归档和旧 boundary timer。共享实现为
+`backend/cmd/qa-local-maintenance` → `lifecycle.RunProvision`，安装/运行入口
+`ops/qa/local_maintenance_host.py`，回执 `/var/lib/tokenkey/qa-local/provision.json`。
+当前 prod 的预期本地任务由舰队清单 `local_qa_jobs` 登记，现有 HTTPS/job watcher 监控。
+部署前先运行 installer plan，核对主机、二进制 SHA-256 与旧任务暂停状态，再 apply；
+独立预建不需要发布或重启网关。
+
+验证命令：
+```bash
+GOTOOLCHAIN=go1.27.2 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go -C backend build -trimpath -o /tmp/qa-local-maintenance ./cmd/qa-local-maintenance
+QA_LOCAL_BINARY=/tmp/qa-local-maintenance python3 -m unittest discover -s ops/qa -p 'test_local_maintenance*.py'
+```
+
+`tokenkey-qa-cleanup.timer` 每 5 分钟清理已完整超过 24 小时的 QA 小时分区及对应
+`qa_blobs`/`qa_dlq` 原始文件；用户已授权删除未归档的数据。每条记录至少保留 24 小时，
+整小时清理通常保留 24–25 小时加调度延迟。每轮最多 48 小时，失败可重试；
+回执为 `/var/lib/tokenkey/qa-local/cleanup.json`，计划回执为同目录 `cleanup-plan.json`。
+installer 默认只计划（只读挂载）；`--apply` 才安装并执行。停止新的删除可停用 cleanup timer；
+已删除的未归档数据无法恢复。预建与清理均不依赖 S3，清理容器只挂载两个 QA 热目录。
+
+S3 上传、旧 boundary/maintenance 继续暂停；旧 DROP pause 保持原值，独立清理执行本次明确授权的
+24 小时本地保留规则。未来恢复上传需重新核对 owner 和可用源数据，不能补归档已删除的数据。
+历史 capture failure 和归档失败回执保留，不宣称全局 capture hard-health 已恢复。
+
 # QA Operations
 
 **当前运行策略（2026-10-17）：** 用户已暂停向 AWS S3 上传 QA。当前 prod 清单
