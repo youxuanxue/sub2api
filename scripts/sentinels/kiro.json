@@ -124,11 +124,15 @@
         "display := \"summarized\"",
         "additionalModelRequestFields",
         "func KiroToClaudeResponse",
-        "return claudeCodeBackendPrompt",
+        "lines[i] = claudeCodeBackendPrompt",
         "decodeKiroImageBase64(data)",
-        "normalizeKiroImageFormatAgainstBytes(format, raw)"
+        "normalizeKiroImageFormatAgainstBytes(format, raw)",
+        "msg.Role == \"user\" || msg.Role == \"system\"",
+        "truncateToolDescription(tool.Description)",
+        "truncateToolDescription(tool.Function.Description)",
+        "utf8.RuneStart(desc[end])"
       ],
-      "rationale": "Translate only client instructions and tools; preserve tool history and failure semantics. No gateway-owned completion prompt or private tool. Recognized Claude Code system prompts must replace with claudeCodeBackendPrompt (not preserve full CC identity). Haiku must not emit additionalModelRequestFields even when thinking is requested. parseBase64Image must decode then sniff MIME against bytes so MIME≠bytes / corrupt payloads fail closed before Bedrock."
+      "rationale": "Translate only client instructions and tools; preserve tool history and failure semantics. No gateway-owned completion prompt or private tool. Only the exact Claude Code identity line is replaced; project rules and unknown templates must survive. Haiku must not emit additionalModelRequestFields even when thinking is requested. parseBase64Image must decode then sniff MIME against bytes so MIME≠bytes / corrupt payloads fail closed before Bedrock. Keep nonempty in-conversation system context in order and truncate tool descriptions at UTF-8 boundaries."
     },
     {
       "path": "backend/internal/integration/kiro/image_format.go",
@@ -268,7 +272,7 @@
         "dispatchKiroReasoningContent(callback, text, signature)",
         "ErrIncompleteEventStream",
         "sawTerminalStop",
-        "extractEventStreamHeaderValue",
+        "readKiroEventFrame",
         "HTTPDoer",
         "buildKiroHeaderValues(host)",
         "applyKiroBaseHeaders(req, account, headerValues)",
@@ -277,9 +281,15 @@
         "doer = requestContextDoer{ctx: ctx, doer: doer}",
         "parseEventStream(resp.Body, callback, tools...)",
         "!errors.Is(err, ErrInvalidToolUse)",
-        "IsUnsupportedImageFormatError(errBody)"
+        "IsUnsupportedImageFormatError(errBody)",
+        "ErrInvalidEventStream",
+        "maxKiroEventFrame",
+        "validKiroJSON(payloadBytes)",
+        "eventstream.NewDecoder()",
+        "!strings.HasPrefix(err.Error(), \"HTTP \") && (callback == nil || callback.ResetForRetry == nil || !callback.ResetForRetry())",
+        "non-string %s.%s"
       ],
-      "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for prod QA raw capture without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
+      "rationale": "Streaming call entry + bounded AWS SDK EventStream decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for prod QA raw capture without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries. Profile rediscovery must obey consumer reset permission after in-band failures; known non-null content/stop fields cannot silently lose malformed values."
     },
     {
       "path": "backend/internal/integration/kiro/eventstream_delta_test.go",
@@ -330,7 +340,7 @@
       "must_contain": [
         "TestParseEventStream_MetadataStopReason",
         "TestParseEventStream_FrameAlignedEOFWithoutStopReasonFails",
-        "TestParseEventStream_TerminalStopIgnoresTruncatedTrailingFrame",
+        "TestParseEventStream_TerminalStopRejectsTruncatedTrailingFrame",
         "TestParseEventStream_ReasoningContentEventSignature",
         "TestParseEventStream_ReasoningContentEventSignatureOnlyFrame",
         "KiroStopMetadata",
@@ -438,12 +448,14 @@
         "thinkingSigBuf",
         "ResolveStashThinking",
         "captureKiroInternalThinking",
-        "textBuf == \"\" && thinkingBuf == \"\" && len(toolUses) == 0",
+        "textBuf == \"\" && len(toolUses) == 0",
         "rawAssistant",
         "if callOutputCommitted",
-        "ValidateKiroImages(payload)"
+        "ValidateKiroImages(payload)",
+        "convertOutputFormatToInlineSchema(parsed.Body.Bytes())",
+        "s.ensureKiroStreamingKeepalive(c, model, requestID)"
       ],
-      "rationale": "Preserve authoritative turn outcomes, client tools, estimated usage/cache billing and internal reasoning signatures. Transport retries reset only uncommitted output. A normal END_TURN must never generate a gateway-authored user instruction; focused turn-boundary tests anchor that behavior. forwardStreaming is also the sole owner of Claude-Code-safe pre-content keepalive (message_start before ping) for every Kiro streaming caller. ValidateKiroImages must run before CallKiroAPI so bad image bytes never burn the account pool."
+      "rationale": "Preserve authoritative turn outcomes, client tools, estimated usage/cache billing and internal reasoning signatures. Transport retries reset only uncommitted output. A normal END_TURN must never generate a gateway-authored user instruction; focused turn-boundary tests anchor that behavior. forwardStreaming is also the sole owner of Claude-Code-safe pre-content keepalive (message_start before ping) for every Kiro streaming caller. ValidateKiroImages must run before CallKiroAPI so bad image bytes never burn the account pool. Hidden reasoning alone must not complete an empty client turn. Preserve requested output schemas using the shared inline fallback, and pass the normal message ID to the keepalive."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_tk_cache_billing.go",
@@ -630,7 +642,8 @@
       "must_contain": [
         "type KiroTokenRefresher",
         "kiro:account:",
-        "func (r *KiroTokenRefresher) Refresh"
+        "func (r *KiroTokenRefresher) Refresh",
+        "kiroproto.RefreshTokenContext(ctx, kiroAcct)"
       ],
       "rationale": "Implements OAuthRefreshExecutor for kiro (1h SSO tokens, social + IdC endpoints). Losing it stops kiro token auto-refresh; accounts silently expire and drop out of the pool with no recovery."
     },
@@ -736,7 +749,9 @@
         "func isKiroImageClientError",
         "func isKiroProviderExceptionMessage",
         "isExactUnsupportedImageFormatMessage",
-        "return TkClientFacingBusy429Message"
+        "return TkClientFacingBusy429Message",
+        "kiroproto.ErrInvalidEventStream",
+        "invalid_event_stream"
       ],
       "rationale": "TK-only typed errors + classifier for Kiro request rejections, including CONTENT_FILTERED, INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; CONTENT_FILTERED returns a typed client-owned error without creating upstream error context, while real transport/read/empty-response causes retain sanitized upstream evidence. The handler maps request-owned outcomes to 400 without cross-account failover. Image-client classification must match the primary upstream message only and must not mask provider exceptions (InternalServerException) or non-400 HTTP that only echo 'Image format is not supported.'. KiroEndpointQuotaExhaustedError.ClientMessage must return the shared busy-429 SSOT (not the legacy quota phrase) so wire bodies stay pool-agnostic. Losing this file makes Kiro policy/validation outcomes fall back to generic forwarding errors or restores opaque 502s with no recoverable root cause."
     },
@@ -1127,13 +1142,13 @@
     {
       "path": "backend/internal/integration/kiro/prompt_filter_test.go",
       "must_contain": [
-        "TestApplyPromptFilters_ClaudeCodeReplacesWithBackendPrompt",
-        "require.Equal(t, claudeCodeBackendPrompt, got)",
+        "TestApplyPromptFilters_ClaudeCodePreservesRules",
+        "TestKiroReliabilityPreservesProjectRules",
         "TestClaudeToKiro_PreservesCallerInstructions",
         "TestClaudeToKiro_NoPrivateCompletionProtocol",
         "require.Len(t, current.UserInputMessageContext.Tools, 1)"
       ],
-      "rationale": "No gateway identity override or completion-protocol injection. Ordinary caller system text is preserved; recognized Claude Code system prompts are replaced with the compact backend prompt. Conversation history and explicit thinking translation stay intact."
+      "rationale": "No gateway identity override or completion-protocol injection. Ordinary caller system text is preserved; only exact Claude Code identity lines are replaced; project rules survive. Conversation history and explicit thinking translation stay intact."
     },
     {
       "path": "backend/internal/service/kiro_wait_budget_tk.go",
@@ -1238,6 +1253,105 @@
         "groupPlatform === 'anthropic' && acc.platform === 'kiro'"
       ],
       "rationale": "Claude group member picker must list Kiro accounts with mixed_scheduling; otherwise ops cannot attach supply from the group side."
+    },
+    {
+      "path": "backend/internal/integration/kiro/translator_tk_replay_test.go",
+      "must_contain": [
+        "TestClaudeToKiro_PreservesInConversationSystemContext",
+        "TestClaudeToKiro_EmptyTrailingControlKeepsCurrentUserTurn",
+        "TestConvertClaudeTools_DescriptionTruncationPreservesUTF8"
+      ],
+      "rationale": "Regressions for lost conversation updates, empty control turns, and replacement characters caused by tool-description truncation."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service_tk_replay_regression_test.go",
+      "must_contain": [
+        "TestKiroStreaming_DelayedToolResponseMatchesFastResponse",
+        "TestKiroGatewayService_ReasoningOnlyCannotCompleteEmptyTurn",
+        "TestKiroGatewayService_OutputSchemaReachesUpstream"
+      ],
+      "rationale": "Compare exact text/tool events across a keepalive stall, reject hidden-only empty success, and verify schemas survive into the actual outbound payload without mutating the captured request."
+    },
+    {
+      "path": "backend/internal/integration/kiro/translator.go",
+      "must_contain": [
+        "func ClaudeToKiroWithFileToolGuidance",
+        "fileToolChunkingGuidance"
+      ],
+      "rationale": "Approved opt-in file tool guidance must survive re-vendoring and Claude Code prompt compaction; the client remains the sole tool-loop owner."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service.go",
+      "must_contain": [
+        "kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, account.IsKiroFileToolChunkingEnabled())"
+      ],
+      "rationale": "The selected account owns the chunking opt-in; keep the Forward-to-translator binding so an upstream merge cannot silently disable the policy."
+    },
+    {
+      "path": "backend/internal/service/kiro_file_tool_chunking_test.go",
+      "must_contain": [
+        "TestUS070_FileToolChunkingForward",
+        "TestUS070_FileToolChunkingDoesNotContinueOrReplay",
+        "TestUS070_FileToolChunkingAdminPatch"
+      ],
+      "rationale": "Pin account-only opt-in, original tool responses, admin patch and no hidden continuation/replay behavior."
+    },
+    {
+      "path": "backend/internal/integration/kiro/refresh.go",
+      "must_contain": [
+        "RefreshTokenContext",
+        "kiroRegionPattern",
+        "http.ErrUseLastResponse",
+        "http.NewRequestWithContext",
+        "result.ExpiresIn <= 0"
+      ],
+      "rationale": "Kiro reliability: fail closed on corrupt streams, preserve real tool identity and keep OAuth refresh validation within the shared credential owner."
+    },
+    {
+      "path": "backend/internal/integration/kiro/reliability_test.go",
+      "must_contain": [
+        "TestKiroReliabilityFrameValidation",
+        "TestKiroReliabilityLateToolID",
+        "TestKiroReliabilityProfileRecoveryCannotReplayCommittedOutput",
+        "TestKiroReliabilityRejectsMalformedContentFields",
+        "TestKiroReliabilityOptionalNullTextFields"
+      ],
+      "rationale": "Kiro reliability: fail closed on corrupt streams, preserve real tool identity and keep OAuth refresh validation within the shared credential owner."
+    },
+    {
+      "path": "backend/internal/integration/kiro/refresh_test.go",
+      "must_contain": [
+        "TestKiroReliabilityRefreshValidation",
+        "TestKiroReliabilityRefreshRegionAndRedirect",
+        "TestKiroReliabilityRefreshCancellation",
+        "TestKiroReliabilityProfileDoesNotRotateCredentials"
+      ],
+      "rationale": "Kiro reliability: fail closed on corrupt streams, preserve real tool identity and keep OAuth refresh validation within the shared credential owner."
+    },
+    {
+      "path": "backend/internal/service/kiro_reliability_test.go",
+      "must_contain": [
+        "TestKiroReliabilityGatewayFaultImpact",
+        "TestKiroReliabilityGatewayLateIdentity",
+        "TestKiroReliabilityGatewayProfileRecovery"
+      ],
+      "rationale": "Kiro reliability: fail closed on corrupt streams, preserve real tool identity and keep OAuth refresh validation within the shared credential owner."
+    },
+    {
+      "path": "backend/internal/service/kiro_refresh_reliability_test.go",
+      "must_contain": [
+        "TestKiroReliabilityRefreshService"
+      ],
+      "rationale": "Kiro reliability: fail closed on corrupt streams, preserve real tool identity and keep OAuth refresh validation within the shared credential owner."
+    },
+    {
+      "path": "backend/internal/integration/kiro/json_valid.go",
+      "must_contain": [
+        "validKiroJSON",
+        "utf8.Valid",
+        "json.Valid"
+      ],
+      "rationale": "Reject lossy JSON Unicode decoding without stripping legitimate replacement characters or emoji."
     }
   ]
 }

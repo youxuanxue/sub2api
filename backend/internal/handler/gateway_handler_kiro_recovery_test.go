@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -134,7 +135,10 @@ func gatewayHandlerKiroEventFrame(eventType string, payload []byte) []byte {
 	_, _ = frame.Write(headers.Bytes())
 	_, _ = frame.Write(payload)
 	_, _ = frame.Write([]byte{0, 0, 0, 0})
-	return frame.Bytes()
+	b := frame.Bytes()
+	binary.BigEndian.PutUint32(b[8:12], crc32.ChecksumIEEE(b[:8]))
+	binary.BigEndian.PutUint32(b[len(b)-4:], crc32.ChecksumIEEE(b[:len(b)-4]))
+	return b
 }
 
 func newGatewayHandlerForKiroRecoveryTest(

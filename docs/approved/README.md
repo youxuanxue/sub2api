@@ -7,6 +7,8 @@ revised_at: 2026-09-03
 
 # Approved docs index
 
+- [Kiro 文件工具分块兼容方案](kiro-file-tool-chunking.md)：已确认的按账号分块提示；实测缓解长静默断流，明确轮数、成本和非保证边界。
+
 - [cn-prod 私有镜像分发](cn-prod-image-distribution.md)：CI S3 中转、SSM 预下载和不中断网关的边界。
 
 - [OAuth 搜索历史与工具权限](openai-search-history-tool-permissions.md)：历史声明补全、原工具权限及保护错误诊断。
@@ -210,3 +212,5 @@ UCloud 国内单 prod 的授权范围、首次初始化和发布边界：[国内
 - [Volc Agent Plan Kimi Chat compatibility](volc-kimi-chat-compatibility.md) — supplier-scoped thinking and tool selectors.
 
 - [Kimi 请求错误修复与请求体边界](kimi-input-error-remediation.md) — Direct/Universal 共享路由上限、解压完整性与客户端参数改法。
+
+- [Kiro 流、规则与刷新可靠性](kiro-stream-auth-reliability.md) — 已批准的协议校验、规则保留、工具身份及认证防护。

@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestApplyPromptFilters_ClaudeCodeReplacesWithBackendPrompt(t *testing.T) {
+func TestApplyPromptFilters_ClaudeCodePreservesRules(t *testing.T) {
 	ccPrompt := strings.Join([]string{
 		"You are Claude Code, Anthropic's official CLI for Claude.",
 		"You are an interactive agent that helps users with software engineering tasks.",
@@ -24,13 +24,13 @@ func TestApplyPromptFilters_ClaudeCodeReplacesWithBackendPrompt(t *testing.T) {
 	}, "\n")
 
 	got := applyPromptFilters(ccPrompt)
-	require.Equal(t, claudeCodeBackendPrompt, got)
+	require.Equal(t, strings.Replace(ccPrompt, "You are Claude Code, Anthropic's official CLI for Claude.", claudeCodeBackendPrompt, 1), got)
 	require.NotContains(t, got, "You are Claude Code")
-	require.NotContains(t, got, "gitStatus")
+	require.Contains(t, got, "gitStatus: dirty")
 }
 
 // No gateway identity override. Ordinary caller text stays; recognized Claude Code
-// system prompts are replaced with the compact backend prompt.
+// identity lines are replaced while all caller rules remain.
 func TestClaudeToKiro_PreservesCallerInstructions(t *testing.T) {
 	const ccPrompt = "You are Claude Code, Anthropic's official CLI for Claude."
 	for _, tc := range []struct {
@@ -91,15 +91,15 @@ func TestBuildClaudeSystemPrompt_NonClaudeCodeDoesNotAddCompletionGuard(t *testi
 }
 
 // No private completion protocol. Recognized Claude Code systems become the
-// compact backend prompt; ordinary prompts and client tools stay untouched.
+// compact identity line; ordinary prompts and client tools stay untouched.
 func TestClaudeToKiro_NoPrivateCompletionProtocol(t *testing.T) {
 	base := "You are Claude Code, Anthropic's official CLI for Claude.\n# doing tasks\n# using your tools"
 	for _, tc := range []struct {
 		system      string
 		wantPriming string
 	}{
-		{system: base, wantPriming: claudeCodeBackendPrompt},
-		{system: base + "\n" + claudepkg.ClaudeCodeCompletionGuardText, wantPriming: claudeCodeBackendPrompt},
+		{system: base, wantPriming: claudeCodeBackendPrompt + "\n# doing tasks\n# using your tools"},
+		{system: base + "\n" + claudepkg.ClaudeCodeCompletionGuardText, wantPriming: claudeCodeBackendPrompt + "\n# doing tasks\n# using your tools\n" + claudepkg.ClaudeCodeCompletionGuardText},
 		{system: "You are a concise support assistant.", wantPriming: "You are a concise support assistant."},
 	} {
 		payload := ClaudeToKiro(&ClaudeRequest{
@@ -114,5 +114,15 @@ func TestClaudeToKiro_NoPrivateCompletionProtocol(t *testing.T) {
 		require.NotEqual(t, claudepkg.ClaudeCodeCompletionToolName, current.UserInputMessageContext.Tools[0].ToolSpecification.Name)
 		require.Equal(t, tc.wantPriming, payload.ConversationState.History[0].UserInputMessage.Content)
 		require.NotContains(t, payload.ConversationState.History[0].UserInputMessage.Content, "Continue the same task now")
+	}
+}
+
+func TestKiroReliabilityPreservesProjectRules(t *testing.T) {
+	const rules = "PROJECT_RULES: 保留已有文件；禁止重新初始化项目。"
+	const base = "You are Claude Code, Anthropic's official CLI for Claude.\n# doing tasks\nFollow existing project conventions."
+	for _, system := range []any{base + "\n" + rules, []any{map[string]any{"type": "text", "text": base}, map[string]any{"type": "text", "text": rules}}} {
+		got := buildClaudeSystemPrompt(system, false)
+		require.Contains(t, got, rules)
+		require.Contains(t, got, "Follow existing project conventions.")
 	}
 }

@@ -10,7 +10,7 @@ import (
 
 // KiroTokenRefresher 处理 Kiro（第六平台）SSO token 刷新。
 //
-// Kiro 凭证刷新走 vendored 的 kiroproto.RefreshToken：
+// Kiro 凭证刷新走 vendored 的 kiroproto.RefreshTokenContext：
 //   - auth_method=="social" 打 prod.us-east-1.auth.desktop.kiro.dev/refreshToken
 //   - 否则打 oidc.<region>.amazonaws.com/token（需 client_id/client_secret）
 //
@@ -44,7 +44,7 @@ func (r *KiroTokenRefresher) NeedsRefresh(account *Account, refreshWindow time.D
 
 // Refresh 执行 token 刷新，保留原有 credentials 中的所有字段，只更新 token 相关字段。
 //
-// vendor.RefreshToken 返回的 error 在 invalid_grant 场景文本含字面量
+// vendor.RefreshTokenContext 返回的 error 在 invalid_grant 场景文本含字面量
 // "invalid_grant"，由 isNonRetryableRefreshError 识别并标 error 移出调度，
 // 因此这里直接透传 error，不做额外失败处理。
 func (r *KiroTokenRefresher) Refresh(ctx context.Context, account *Account) (map[string]any, error) {
@@ -52,7 +52,7 @@ func (r *KiroTokenRefresher) Refresh(ctx context.Context, account *Account) (map
 		return nil, err
 	}
 	kiroAcct := account.toKiroProtoAccount()
-	access, refresh, expiresAt, profileArn, err := kiroproto.RefreshToken(kiroAcct)
+	access, refresh, expiresAt, profileArn, err := kiroproto.RefreshTokenContext(ctx, kiroAcct)
 	if err != nil {
 		return nil, err
 	}

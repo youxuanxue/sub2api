@@ -6,19 +6,20 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"hash/crc32"
 	"testing"
 )
 
 // buildEventStreamMessage hand-assembles a single AWS Event Stream binary frame
 // with one String header `:event-type` and a JSON payload, matching the byte
-// layout decoded by parseEventStream / extractEventType in client.go.
+// layout decoded by parseEventStream / readKiroEventFrame in client.go.
 //
 // Frame layout:
 //
-//	prelude (12B): totalLen(4) | headersLen(4) | preludeCRC(4, unchecked)
+//	prelude (12B): totalLen(4) | headersLen(4) | preludeCRC(4)
 //	headers:       [ nameLen(1) | name | valueType(1)=7 | valueLen(2) | value ]...
 //	payload:       JSON bytes
-//	messageCRC:    4B (unchecked by parser, filled with zeros)
+//	messageCRC:    4B CRC32 IEEE
 func buildEventStreamMessage(eventType string, payload []byte) []byte {
 	// Build the headers block: a single String-typed `:event-type` header.
 	const headerName = ":event-type"
@@ -42,12 +43,15 @@ func buildEventStreamMessage(eventType string, payload []byte) []byte {
 	frame.Write(u32[:]) // total length
 	binary.BigEndian.PutUint32(u32[:], uint32(headersLen))
 	frame.Write(u32[:])             // headers length
-	frame.Write([]byte{0, 0, 0, 0}) // prelude CRC (unchecked)
+	frame.Write([]byte{0, 0, 0, 0}) // prelude CRC placeholder
 	frame.Write(headerBytes)        // headers
 	frame.Write(payload)            // payload
-	frame.Write([]byte{0, 0, 0, 0}) // message CRC (unchecked)
+	frame.Write([]byte{0, 0, 0, 0}) // message CRC placeholder
 
-	return frame.Bytes()
+	b := frame.Bytes()
+	binary.BigEndian.PutUint32(b[8:12], crc32.ChecksumIEEE(b[:8]))
+	binary.BigEndian.PutUint32(b[len(b)-4:], crc32.ChecksumIEEE(b[:len(b)-4]))
+	return b
 }
 
 // TestParseEventStream_AssistantResponse feeds a hand-built assistantResponseEvent
@@ -87,13 +91,13 @@ func TestParseEventStream_FrameAlignedEOFWithoutStopReasonFails(t *testing.T) {
 	}
 }
 
-func TestParseEventStream_TerminalStopIgnoresTruncatedTrailingFrame(t *testing.T) {
+func TestParseEventStream_TerminalStopRejectsTruncatedTrailingFrame(t *testing.T) {
 	stream := buildEventStreamMessage("assistantResponseEvent", []byte(`{"content":"complete"}`))
 	stream = append(stream, buildEventStreamMessage("metadataEvent", []byte(`{"stopReason":"END_TURN"}`))...)
 	stream = append(stream, []byte{0, 0, 0, 20}...)
 
-	if err := parseEventStream(bytes.NewReader(stream), &KiroStreamCallback{}); err != nil {
-		t.Fatalf("terminal stream must remain successful after a truncated trailing frame: %v", err)
+	if err := parseEventStream(bytes.NewReader(stream), &KiroStreamCallback{}); err == nil {
+		t.Fatal("truncated trailing frame must not complete successfully")
 	}
 }
 
