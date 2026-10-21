@@ -56,3 +56,70 @@ test('admin exports paginated usage to a readable workbook', async ({ page }, te
   await expect(page.getByRole('button', { name: 'Cancel Export', exact: true })).toBeHidden()
   await page.screenshot({ path: testInfo.outputPath('usage-export.png'), fullPage: true })
 })
+
+test('customer model summary uses one aggregate request with the exact user window and CNY formulas', async ({ page }, testInfo) => {
+  const user = { id: 1449, email: 'admin@example.test', role: 'admin', status: 'active', balance: 100, concurrency: 5, onboarding_tour_seen_at: '2026-09-30T00:00:00Z' }
+  await page.addInitScript(user => {
+    localStorage.setItem('auth_token', 'fixture-session-only')
+    localStorage.setItem('auth_user', JSON.stringify(user))
+    localStorage.setItem('tokenkey_locale', 'en')
+    localStorage.setItem(`admin_guide_${user.id}_admin_v4_interactive`, 'true')
+  }, user)
+  const requests: URL[] = []
+  let fail = false
+  await page.route('**/setup/status', route => route.fulfill({ json: { code: 0, data: { needs_setup: false } } }))
+  await page.route('**/api/v1/**', route => {
+    const url = new URL(route.request().url())
+    const ok = (data: unknown) => route.fulfill({ json: { code: 0, data } })
+    if (url.pathname.endsWith('/auth/me')) return ok(user)
+    if (url.pathname.endsWith('/settings/public')) return ok({ site_name: 'TokenKey', custom_menu_items: [], custom_endpoints: [] })
+    if (url.pathname.endsWith('/users/16')) return ok({ id: 16, email: 'customer@example.test' })
+    if (url.pathname === '/api/v1/admin/usage') {
+      return ok({ items: [], total: 101, page: 1, pages: 1 })
+    }
+    if (url.pathname === '/api/v1/admin/dashboard/models') {
+      requests.push(url)
+      if (fail) return route.fulfill({ status: 500, json: { message: 'Fixture export failure' } })
+      return ok({ models: [{ model: 'customer-model', total_tokens: 20200, requests: 101, actual_cost: 10.1, cost: 101, account_cost: 202 }] })
+    }
+    if (url.pathname.endsWith('/stats')) return ok({ total_requests: 101, total_actual_cost: 10.1 })
+    if (url.pathname.includes('/dashboard/')) return ok({ trend: [], models: [], groups: [] })
+    return ok([])
+  })
+  await page.goto('/admin/usage?user_id=16&start_date=2026-10-20&end_date=2026-10-21&start_ts=1792461600000&end_ts=1792548000000')
+  await page.getByTestId('model-summary-export').click()
+  const dialog = page.getByRole('dialog', { name: 'Model usage summary' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByLabel('Report currency').selectOption('CNY')
+  await expect(dialog.getByRole('button', { name: 'Export Excel', exact: true })).toBeDisabled()
+  await dialog.getByLabel('Exchange rate: 1 USD =').fill('7')
+  await page.screenshot({ path: testInfo.outputPath('model-export-dialog.png'), fullPage: true })
+  requests.length = 0
+  const downloading = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Export Excel', exact: true }).click()
+  const download = await downloading
+  expect(download.suggestedFilename()).toBe('usage_models_user-16_2026-10-20_2026-10-21_CNY.xlsx')
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.readFile((await download.path())!)
+  expect(wb.worksheets.map(s => s.name)).toEqual(['Model usage summary'])
+  const sheet = wb.worksheets[0]
+  expect(sheet.getCell('C7').value).toBe(20200)
+  expect(sheet.getCell('E7').result).toBeCloseTo(70.7)
+  expect(sheet.getCell('D7').result).toBeCloseTo(0.0035)
+  expect(sheet.getCell('F7').value).toBe(101)
+  expect(sheet.getCell('G7').value).toBeCloseTo(10.1)
+  expect(requests).toHaveLength(1)
+  for (const url of requests) {
+    expect(url.searchParams.get('user_id')).toBe('16')
+    expect(url.searchParams.get('model_source')).toBe('requested')
+    expect(url.searchParams.get('start_ts')).toBe('1792461600000')
+    expect(url.searchParams.get('end_ts')).toBe('1792548000000')
+  }
+  fail = true
+  const downloads: string[] = []
+  page.on('download', d => downloads.push(d.suggestedFilename()))
+  await page.getByTestId('model-summary-export').click()
+  await dialog.getByRole('button', { name: 'Export Excel', exact: true }).click()
+  await expect(page.getByText('Failed to export usage data', { exact: true })).toBeVisible()
+  expect(downloads).toEqual([])
+})

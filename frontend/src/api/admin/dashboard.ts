@@ -89,6 +89,7 @@ export interface ModelStatsParams {
   end_ts?: number
   user_id?: number
   api_key_id?: number
+  billing_mode?: string
   model?: string
   model_source?: 'requested' | 'upstream' | 'mapping'
   account_id?: number
@@ -111,8 +112,8 @@ export interface ModelStatsResponse {
  * @param params - Query parameters for filtering
  * @returns Model usage statistics
  */
-export async function getModelStats(params?: ModelStatsParams): Promise<ModelStatsResponse> {
-  const { data } = await apiClient.get<ModelStatsResponse>('/admin/dashboard/models', { params })
+export async function getModelStats(params?: ModelStatsParams, options?: { signal?: AbortSignal }): Promise<ModelStatsResponse> {
+  const { data } = await apiClient.get<ModelStatsResponse>('/admin/dashboard/models', { params, signal: options?.signal })
   return data
 }
 

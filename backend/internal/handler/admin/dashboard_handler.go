@@ -385,7 +385,7 @@ func (h *DashboardHandler) GetModelStats(c *gin.Context) {
 		return
 	}
 
-	stats, hit, err := h.getModelStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, modelSource, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch)
+	stats, hit, err := h.getModelStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, modelSource, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch, strings.TrimSpace(c.Query("model")), strings.TrimSpace(c.Query("billing_mode")))
 	if err != nil {
 		response.Error(c, 500, "Failed to get model statistics")
 		return
