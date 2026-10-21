@@ -9,6 +9,7 @@ on:
       - 'scripts/upstream/*watchdog*.py'
       - 'scripts/upstream/issue-triage-generate.py'
       - 'scripts/upstream/issue_ledger.py'
+      - 'scripts/upstream/watchdog_queue.py'
       - 'scripts/anthropic/cc-issue-triage-generate.py'
       - 'ops/issue-watchdog/**'
       - '.github/workflows/upstream-issue-watchdog.yml'

@@ -712,10 +712,20 @@
       "must_contain": [
         "def fetch_snapshot(",
         "def sync_issues(",
-        "def managed_body(",
+        "def sync_review_queue(",
         "temporary.replace(checkpoint)"
       ],
       "rationale": "Preserve incremental recovery and idempotent Issue projection as one owner."
+    },
+    {
+      "path": "scripts/upstream/watchdog_queue.py",
+      "must_contain": ["def managed_body(", "def sync_queue(", "watchdog-queue:"],
+      "rationale": "Shared durable candidate queues preserve human decisions, bound issue bodies and replay without duplicate writes."
+    },
+    {
+      "path": "scripts/upstream/relay-watch.py",
+      "must_contain": ["def collect(", "issues/comments?", "merged_at", "temporary.replace(checkpoint)"],
+      "rationale": "Relay monitoring must retain discussion changes and true merge evidence, committing cursors only after publication."
     },
     {
       "path": "scripts/upstream/issue_ledger.py",

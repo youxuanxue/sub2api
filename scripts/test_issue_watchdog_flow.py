@@ -248,7 +248,7 @@ class WatchdogFlowTest(unittest.TestCase):
                   self.assertRaisesRegex(RuntimeError, "GitHub unavailable")):
                 mod.scan(source, work, checkpoint, target_repo="example/fork", api=api)
             self.assertEqual(checkpoint.read_bytes(), before)
-            with patch.object(mod, "sync_issues"):
+            with patch.object(mod, "sync_issues"), patch.object(mod, "sync_review_queue"):
                 report = mod.scan(source, work, checkpoint, target_repo="example/fork", api=api)
             saved = json.loads(checkpoint.read_text())
             self.assertEqual([row["number"] for row in saved["issues"]], [900001])

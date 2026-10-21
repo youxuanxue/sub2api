@@ -27,8 +27,6 @@ SOURCES = {
         "label": "cc-issue-watchdog",
     },
 }
-BEGIN = "<!-- issue-watchdog:begin -->"
-END = "<!-- issue-watchdog:end -->"
 
 
 def module(name, path):
@@ -40,6 +38,8 @@ def module(name, path):
     return result
 
 
+queue = module("watchdog_queue", "scripts/upstream/watchdog_queue.py")
+BEGIN, END, managed_body = queue.BEGIN, queue.END, queue.managed_body
 engine = module("watchdog_engine", "scripts/upstream/issue-watchdog.py")
 ledger = module("watchdog_ledger", "scripts/upstream/issue_ledger.py")
 for name, source in SOURCES.items():
@@ -81,18 +81,6 @@ def fetch_snapshot(source, previous, started, api=gh):
                                 ("number", "title", "body", "state", "html_url", "updated_at")}
     return {"version": 1, "repo": repo, "cursor": started,
             "issues": sorted(rows.values(), key=lambda row: row["number"])}
-
-
-def managed_body(body, content):
-    block = f"{BEGIN}\n{content.strip()}\n{END}"
-    if BEGIN in body or END in body:
-        if body.count(BEGIN) != 1 or body.count(END) != 1 or body.index(BEGIN) > body.index(END):
-            raise ValueError("malformed watchdog region; refusing to overwrite issue body")
-        before, remainder = body.split(BEGIN, 1)
-        _, after = remainder.split(END, 1)
-        return before + block + after
-    # Preserve existing human text and old reports during the one-time migration.
-    return body.rstrip() + ("\n\n" if body.strip() else "") + block + "\n"
 
 
 def issue_content(item):
@@ -167,6 +155,12 @@ def sync_issues(source, report, target_repo, api=gh, entries=()):
             existing.append(row)
 
 
+def sync_review_queue(source, report, target_repo, api=gh):
+    items = [{**item, "number": engine.issue_number(item["upstream"])}
+             for item in report.get("needs_review", [])]
+    return queue.sync_queue(source["repo"], items, target_repo, api)
+
+
 def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
     facts = [entry for entry in ledger.load_ledger(source, ROOT) if "fixed_if_all_present" in entry]
     started = datetime.now(timezone.utc).isoformat()
@@ -194,6 +188,7 @@ def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
             stream.write(summary)
     if target_repo:
         sync_issues(source, report, target_repo, api, triage["issues"])
+        sync_review_queue(source, report, target_repo, api)
     # Commit the cursor only after fetching, reporting and GitHub synchronization succeed.
     # The workflow saves this cache only on success; a retry replays the previous window.
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
