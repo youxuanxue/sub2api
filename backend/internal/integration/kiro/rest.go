@@ -181,13 +181,10 @@ func ResolveProfileArnWithDoer(account *Account, doer HTTPDoer) (string, error) 
 		return profileArn, nil
 	}
 
-	// Fallback: refresh token to get profileArn from auth response
-	if account.RefreshToken != "" {
-		_, _, _, refreshedArn, refreshErr := RefreshToken(account)
-		if refreshErr == nil && refreshedArn != "" {
-			account.ProfileArn = refreshedArn
-			return refreshedArn, nil
-		}
+	// Discovery is read-only. Credential refresh belongs to OAuthRefreshAPI;
+	// rotating here would discard tokens and bypass its account lock.
+	if err != nil {
+		return "", err
 	}
 
 	return "", fmt.Errorf("no available Kiro profile")

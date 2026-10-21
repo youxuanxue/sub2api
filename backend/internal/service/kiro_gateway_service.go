@@ -254,14 +254,19 @@ func (s *KiroGatewayService) Forward(
 	kiroAcct := account.toKiroProtoAccount()
 
 	var req kiroproto.ClaudeRequest
-	if err := json.Unmarshal(parsed.Body.Bytes(), &req); err != nil {
+	// Kiro's request DTO has no native JSON-schema output field. Reuse the
+	// Bedrock fallback so the requested schema reaches the model as context
+	// instead of disappearing during unmarshal. This is prompt guidance, not
+	// a claim that Kiro enforces native structured output.
+	requestBody := convertOutputFormatToInlineSchema(parsed.Body.Bytes())
+	if err := json.Unmarshal(requestBody, &req); err != nil {
 		return nil, fmt.Errorf("kiro forward: parse request body: %w", err)
 	}
 
 	thinking := req.Thinking != nil &&
 		(req.Thinking.Type == "enabled" || req.Thinking.Type == "adaptive")
 
-	payload := kiroproto.ClaudeToKiro(&req, thinking)
+	payload := kiroproto.ClaudeToKiroWithFileToolGuidance(&req, thinking, account.IsKiroFileToolChunkingEnabled())
 	if err := kiroproto.ValidateKiroImages(payload); err != nil {
 		message := err.Error()
 		var unsupported *kiroproto.ErrUnsupportedKiroImage
@@ -435,7 +440,9 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		thinkingBuf += inlineThinking
 	}
 
-	if textBuf == "" && thinkingBuf == "" && len(toolUses) == 0 {
+	// Unsigned reasoning is intentionally hidden from the client. It cannot
+	// make an otherwise empty response a successful assistant turn.
+	if textBuf == "" && len(toolUses) == 0 {
 		if isKiroPolicyStopReason(stopReason) {
 			return nil, classifyAndRecordKiroForwardError(c, account, &KiroContentFilteredError{}, model)
 		}
@@ -721,7 +728,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		}
 	}
 
-	if textBuf == "" && thinkingBuf == "" && len(toolUses) == 0 {
+	if textBuf == "" && len(toolUses) == 0 {
 		mu.Unlock()
 		if isKiroPolicyStopReason(stopReason) {
 			return nil, classifyAndRecordKiroForwardError(c, account, &KiroContentFilteredError{}, model)

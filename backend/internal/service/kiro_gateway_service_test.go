@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -116,11 +117,14 @@ func buildKiroEventStreamFrame(headerBytes, payload []byte) []byte {
 	frame.Write(u32[:])
 	binary.BigEndian.PutUint32(u32[:], uint32(headersLen))
 	frame.Write(u32[:])
-	frame.Write([]byte{0, 0, 0, 0}) // prelude CRC (unchecked)
+	frame.Write([]byte{0, 0, 0, 0}) // prelude CRC placeholder
 	frame.Write(headerBytes)
 	frame.Write(payload)
-	frame.Write([]byte{0, 0, 0, 0}) // message CRC (unchecked)
-	return frame.Bytes()
+	frame.Write([]byte{0, 0, 0, 0}) // message CRC placeholder
+	b := frame.Bytes()
+	binary.BigEndian.PutUint32(b[8:12], crc32.ChecksumIEEE(b[:8]))
+	binary.BigEndian.PutUint32(b[len(b)-4:], crc32.ChecksumIEEE(b[:len(b)-4]))
+	return b
 }
 
 // kiroFakeUpstream returns a canned 200 EventStream response.

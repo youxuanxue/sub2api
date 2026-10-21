@@ -166,6 +166,16 @@ func (a *Account) isKiroTLSFingerprintEnabled() bool {
 	return true
 }
 
+// IsKiroFileToolChunkingEnabled is an explicit per-account opt-in. Never coerce
+// strings/numbers into true: additional client turns can increase cost.
+func (a *Account) IsKiroFileToolChunkingEnabled() bool {
+	if a == nil || !a.IsKiro() {
+		return false
+	}
+	enabled, _ := a.Extra["kiro_file_tool_chunking"].(bool)
+	return enabled
+}
+
 // ---- Typed credential getters (Kiro) ----
 
 // GetKiroAccessToken returns the Kiro OAuth access token.
