@@ -145,14 +145,18 @@ def main():
     parser.add_argument("--tag", default="")
     args = parser.parse_args()
     target = load_target(args.target)
+    if args.operation != "plan" or target.get("preparation_only") is not True:
+        raise RuntimeError(
+            "Node1 target is preparation-only; cutover approval and a verified inventory are required"
+        )
     tag = args.tag.removeprefix("v")
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-(?:rc|beta)\.[0-9]+)?", tag):
         parser.error("An explicit released version is required")
     if args.operation == "plan":
-        probe(target)
         print(json.dumps({"target": target, "image": f"ghcr.io/youxuanxue/sub2api:{tag}",
                           "runtime_root": "/var/lib/tokenkey", "data_directory": "/data/tokenkey",
-                          "existing_stack": "preserve /opt/sub2api", "secrets": "fresh isolated state"}, indent=2))
+                          "existing_stack": "preserve /opt/sub2api", "secrets": "fresh isolated state",
+                          "remote_probe": "disabled until UCloud/node1 inventory is verified"}, indent=2))
         return
     os.umask(0o077)
     state = Path.home() / ".local/share/tokenkey/ssh-targets" / target["name"]

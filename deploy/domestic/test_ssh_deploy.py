@@ -29,6 +29,24 @@ with patch.dict(sys.modules, {"target": target_module}):
 
 
 class SSHDeployTests(unittest.TestCase):
+    def test_preparation_target_rejects_online_operations_before_ssh(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(ssh_module, 'ssh') as remote:
+                for operation in ('bootstrap', 'deploy', 'smoke-only'):
+                    with self.subTest(operation=operation), patch.object(
+                            sys, 'argv', ['dispatch', '--target', 'zhupeng-prod',
+                                          '--operation', operation, '--tag', '1.8.302']):
+                        with self.assertRaisesRegex(RuntimeError, 'preparation-only'):
+                            ssh_module.main()
+                remote.assert_not_called()
+
+    def test_preparation_plan_does_not_probe_unverified_node1(self):
+        with patch.object(ssh_module, 'probe') as remote, patch.object(
+                sys, 'argv', ['dispatch', '--target', 'zhupeng-prod',
+                              '--operation', 'plan', '--tag', '1.8.302']):
+            ssh_module.main()
+            remote.assert_not_called()
+
     def test_production_inventory_is_render_only_and_cannot_bootstrap(self):
         before = target_module.INVENTORY.read_bytes()
         data = target_module.production_inventory('zhupeng-prod', 'api.galaxywaveai.com')

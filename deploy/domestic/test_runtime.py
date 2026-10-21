@@ -211,7 +211,7 @@ class DomesticRuntimeTest(unittest.TestCase):
 
 
 class SSHTunnelRuntimeTest(DomesticRuntimeTest):
-    domain = "ub1.tokenkey.dev"
+    domain = "api-cn.tokenkey.dev"
 
     @classmethod
     def prepare(cls):
@@ -230,7 +230,7 @@ class SSHTunnelRuntimeTest(DomesticRuntimeTest):
         for port in config["services"]["caddy"]["ports"]:
             self.assertEqual(port["host_ip"], "127.0.0.1")
         app = config["services"]["tokenkey"]["environment"]
-        self.assertEqual(app["ADMIN_EMAIL"], "admin@ub1.tokenkey.dev")
+        self.assertEqual(app["ADMIN_EMAIL"], "admin@cn.tokenkey.dev")
         self.assertEqual(app["QA_CAPTURE_ENABLED"], "false")
         self.assertEqual(app["QA_ARCHIVE_ENABLED"], "false")
         self.assertEqual(app["TELEMETRY_ARCHIVE_ENABLED"], "false")

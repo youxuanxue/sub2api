@@ -74,3 +74,7 @@ python3 ops/migration/data_layer_partition_maintenance.py run \
 controller 只发送一次固定 SSM 命令，并轮询同一个 `CommandId`。只有远端严格分区维护、覆盖验证和
 成功 heartbeat 全部完成后，才会原子创建本地 receipt；已有 receipt 不会被覆盖。该入口不授权删除、
 cleanup release、部署、重启或配置修改。
+
+## UCloud cn-prod → node1 切流前准备
+
+#2698 的准备阶段统一入口为 `ops/migration/node1-precutover.sh`。它只调度隔离候选、历史对账、完整备份演练和无通知运维自测；不会移动 `106.75.29.139`、切换流量或启动生产写者。目标身份和网络承载模型未完成只读核实前，入口保持 `DATA_SYNC_HOLD`。

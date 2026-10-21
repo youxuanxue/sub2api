@@ -19,6 +19,14 @@ def validate_target(name, target):
         raise ValueError("Unknown or disabled domestic target")
     if target.get("role") != "prod" or target.get("transport") != "ssh":
         raise ValueError("Only explicitly configured SSH prod targets are supported")
+    if target.get("preparation_only") is not True:
+        raise ValueError("Production target must be preparation-only until cutover approval")
+    if target.get("source_environment") != "ucloud-cn-prod":
+        raise ValueError("Node1 target source must be UCloud cn-prod")
+    if target.get("public_ip") != "106.75.29.139":
+        raise ValueError("Node1 target must preserve the approved public IP")
+    if target.get("public_ip_mode") not in ("pending", "eip-move", "wireguard-forward"):
+        raise ValueError("Public IP ownership model is not approved")
     for field, pattern in {
         "ssh_host": r"[a-zA-Z][a-zA-Z0-9_-]*",
         "machine_id": r"[a-f0-9]{32}",
