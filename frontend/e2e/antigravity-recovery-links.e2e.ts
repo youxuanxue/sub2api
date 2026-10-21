@@ -7,7 +7,7 @@ for (const width of [1440, 390]) {
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     const user = { id: 1, role: 'admin', email: 'operator@example.test', balance: 0, status: 'active' }
     const validationURL = 'https://accounts.google.com/verify?token=fixture&continue=https%3A%2F%2Fgoogle.com'
-    const account = {
+    let account: Record<string, any> = {
       id: 24, name: 'anti-fixture-24', platform: 'antigravity', type: 'oauth', proxy_id: 7,
       concurrency: 1, priority: 1, status: 'active', schedulable: true, error_message: null,
       credentials: { email: 'account@example.test' }, group_ids: [], supported_protocols: [],
@@ -15,6 +15,7 @@ for (const width of [1440, 390]) {
       temp_unschedulable_until: '2099-01-01T00:00:00Z',
       temp_unschedulable_reason: `Antigravity validation required temporary cooldown: verify | validation_url: ${validationURL}`,
     }
+    let testRuns = 0
     let starts = 0
     let exchanged: unknown
     let saved: unknown
@@ -34,6 +35,18 @@ for (const width of [1440, 390]) {
       let data: unknown = {}
       if (path === '/api/v1/auth/me') data = user
       else if (path === '/api/v1/admin/accounts') data = { items: [account], total: 1, page: 1, page_size: 20, pages: 1 }
+      else if (path === '/api/v1/admin/accounts/24') data = account
+      else if (path === '/api/v1/admin/accounts/24/models') data = [{ id: 'gemini-3.8-flash', display_name: 'Gemini 3.8 Flash' }]
+      else if (path === '/api/v1/admin/accounts/24/test') {
+        testRuns++
+        if (testRuns === 3) {
+          account = { ...account, temp_unschedulable_until: null, temp_unschedulable_reason: null, extra: {} }
+          return route.fulfill({ contentType: 'text/event-stream', body: 'data: {"type":"test_complete","success":true}\n\n' })
+        }
+        const latestURL = `${validationURL}&attempt=${testRuns}`
+        account = { ...account, temp_unschedulable_until: '2099-01-01T00:00:00Z', temp_unschedulable_reason: account.temp_unschedulable_reason || `Validation required (403) | validation_url: ${latestURL}`, extra: { antigravity_validation_url: latestURL } }
+        return route.fulfill({ contentType: 'text/event-stream', body: `data: ${JSON.stringify({ type: 'error', error: `API returned 403: validation_url: ${latestURL}` })}\n\n` })
+      }
       else if (path.endsWith('/antigravity/oauth/auth-url')) {
         expect(route.request().postDataJSON()).toEqual({ proxy_id: 7 })
         starts++
@@ -45,7 +58,8 @@ for (const width of [1440, 390]) {
       } else if (path.endsWith('/apply-oauth-credentials')) {
         savedPath = path
         saved = route.request().postDataJSON()
-        data = { ...account, temp_unschedulable_reason: null, temp_unschedulable_until: null }
+        account = { ...account, temp_unschedulable_reason: null, temp_unschedulable_until: null, extra: {} }
+        data = account
       } else if (path.endsWith('/all')) data = []
       else if (path.includes('/announcements')) data = { items: [], total: 0 }
       await route.fulfill({ json: { code: 0, data } })
@@ -79,5 +93,23 @@ for (const width of [1440, 390]) {
     expect(savedPath).toBe('/api/v1/admin/accounts/24/apply-oauth-credentials')
     expect(saved).toMatchObject({ type: 'oauth', credentials: { access_token: 'fake-access', refresh_token: 'fake-refresh', project_id: 'fixture-project' } })
     expect(starts).toBe(3)
+    await expect(verification).toHaveCount(0)
+    for (const attempt of [1, 2]) {
+      await page.getByTestId('account-more-btn').click()
+      await page.getByRole('button', { name: 'Test Connection', exact: true }).click()
+      await dialog.getByRole('button', { name: 'Start Test', exact: true }).click()
+      await expect(dialog.getByText(/API returned 403/)).toBeVisible()
+      await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(verification.getByRole('link')).toHaveAttribute('href', `${validationURL}&attempt=${attempt}`)
+      await verification.getByRole('button', { name: 'Copy Link', exact: true }).click()
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(`${validationURL}&attempt=${attempt}`)
+    }
+    await page.screenshot({ path: `e2e/artifacts/antigravity-test-validation-${width}.png` })
+    await page.getByTestId('account-more-btn').click()
+    await page.getByRole('button', { name: 'Test Connection', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Start Test', exact: true }).click()
+    await expect(dialog.getByText('Test completed successfully')).toBeVisible()
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(verification).toHaveCount(0)
   })
 }

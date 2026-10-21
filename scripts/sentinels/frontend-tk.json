@@ -2711,6 +2711,30 @@
         "<UniversalKeyBadge v-if=\"key.routing_mode === 'universal'\" />"
       ],
       "rationale": "Admin must not offer fixed group selection for a Universal key, including legacy rows with residual group IDs."
+    },
+    {
+      "path": "frontend/src/utils/antigravityRecovery.ts",
+      "must_contain": [
+        "antigravity_validation_url",
+        "account.temp_unschedulable_reason, account.error_message",
+        "googleVerificationURL"
+      ],
+      "rationale": "The latest observed URL supersedes a deduplicated cooldown; legacy reasons remain supported. See docs/spec-delta-antigravity-account-links.md."
+    },
+    {
+      "path": "frontend/src/components/admin/account/AccountTestModal.vue",
+      "must_contain": [
+        "emit('tested', accountId)"
+      ],
+      "rationale": "Account state is refreshed after the test stream ends, including validation failures and successful recovery."
+    },
+    {
+      "path": "frontend/src/views/admin/AccountsView.vue",
+      "must_contain": [
+        "@tested=\"handleAccountTested\"",
+        "const handleAccountTested = async"
+      ],
+      "rationale": "The accounts list consumes test completion and reloads the tested row for recovery links."
     }
   ]
 }
