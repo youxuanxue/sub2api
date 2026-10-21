@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Build the error_clustering binary inside a transient golang:1.27.2-alpine
+# Build the error_clustering binary inside a transient golang:1.27.3-alpine
 # container on the prod host (Graviton arm64), then install it to
 # /usr/local/bin/error_clustering. Image tag must satisfy
-# tools/error_clustering/go.mod (go >= 1.27.2); GOTOOLCHAIN=local in the
+# tools/error_clustering/go.mod (go >= 1.27.3); GOTOOLCHAIN=local in the
 # official image will not auto-fetch a newer toolchain. The Ops Daily
 # Diagnostics error clustering job then invokes it via SSM + a transient
 # docker container attached to the tokenkey_default network.
@@ -71,7 +71,7 @@ jq -n --arg b64 "$TAR_B64" '{
     "cd \"$TMPD\"",
     ("echo \($b64) | base64 -d | tar xz"),
     "cd error_clustering",
-    "sudo docker run --rm -v \"$PWD\":/src -w /src --user 0:0 golang:1.27.2-alpine sh -c \"go mod download && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags=\\\"-s -w\\\" -o /src/error_clustering ./\"",
+    "sudo docker run --rm -v \"$PWD\":/src -w /src --user 0:0 golang:1.27.3-alpine sh -c \"go mod download && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags=\\\"-s -w\\\" -o /src/error_clustering ./\"",
     "sudo install -m 0755 -o root -g root error_clustering /usr/local/bin/error_clustering",
     "/usr/local/bin/error_clustering --help 2>&1 || true",
     "sha256sum /usr/local/bin/error_clustering",
