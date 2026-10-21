@@ -64,12 +64,21 @@ func (k *headerWaitKeepalive) stop() {
 // treats ping-only idle as a drop. Shared by Kiro forwardStreaming and the
 // Responses→Anthropic client header-wait path. interval <= 0 yields nil.
 func startAnthropicMessageStartKeepalive(c *gin.Context, interval time.Duration, model string) *headerWaitKeepalive {
+	return startAnthropicMessageStartKeepaliveWithID(c, interval, model, "")
+}
+
+// startAnthropicMessageStartKeepaliveWithID is the Kiro variant of the
+// message_start keepalive. Kiro's normal encoder already has the request ID;
+// using that same ID here keeps the synthetic pre-content frame and the
+// eventual response envelope referentially identical for clients that begin
+// consuming the stream during a long first-token wait.
+func startAnthropicMessageStartKeepaliveWithID(c *gin.Context, interval time.Duration, model, id string) *headerWaitKeepalive {
 	if interval <= 0 {
 		return nil
 	}
 	firstFrame := ""
 	if !anthropicMessageStartAlreadySent(c) {
-		firstFrame = anthropicStreamMessageStartSSE(strings.TrimSpace(model), "")
+		firstFrame = anthropicStreamMessageStartSSE(strings.TrimSpace(model), strings.TrimSpace(id))
 	}
 	return startHeaderWaitKeepaliveWithPrefix(
 		c,

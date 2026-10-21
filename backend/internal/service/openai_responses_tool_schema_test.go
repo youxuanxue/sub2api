@@ -1,9 +1,13 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"os/exec"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -587,6 +591,20 @@ func buildToolSchemaNullTypeBody(t *testing.T, hits int) []byte {
 // 构造请求可以塞进百万级命中，会被放大成 TB 级 memcpy。这里用分配次数锁死该行为：
 // 命中数放大 500 倍，分配次数不得随之增长。
 func TestSanitizeOpenAIResponsesToolParameterTypes_RewriteCountIndependentOfHits(t *testing.T) {
+	// AllocsPerRun reads process-wide counters. Background workers left by
+	// other service tests must not be counted as schema rewrite allocations.
+	const isolatedEnv = "TOKENKEY_TEST_TOOL_SCHEMA_ALLOCS_ISOLATED"
+	if os.Getenv(isolatedEnv) != "1" {
+		executable, err := os.Executable()
+		require.NoError(t, err)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, executable, "-test.run=^"+t.Name()+"$", "-test.count=1")
+		cmd.Env = append(os.Environ(), isolatedEnv+"=1")
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, "%s", output)
+		return
+	}
 	small := buildToolSchemaNullTypeBody(t, 4)
 	large := buildToolSchemaNullTypeBody(t, 2000)
 
