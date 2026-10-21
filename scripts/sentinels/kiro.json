@@ -285,9 +285,11 @@
         "ErrInvalidEventStream",
         "maxKiroEventFrame",
         "validKiroJSON(payloadBytes)",
-        "eventstream.NewDecoder()"
+        "eventstream.NewDecoder()",
+        "!strings.HasPrefix(err.Error(), \"HTTP \") && (callback == nil || callback.ResetForRetry == nil || !callback.ResetForRetry())",
+        "non-string %s.%s"
       ],
-      "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for prod QA raw capture without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
+      "rationale": "Streaming call entry + bounded AWS SDK EventStream decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for prod QA raw capture without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries. Profile rediscovery must obey consumer reset permission after in-band failures; known non-null content/stop fields cannot silently lose malformed values."
     },
     {
       "path": "backend/internal/integration/kiro/eventstream_delta_test.go",
@@ -1309,7 +1311,10 @@
       "path": "backend/internal/integration/kiro/reliability_test.go",
       "must_contain": [
         "TestKiroReliabilityFrameValidation",
-        "TestKiroReliabilityLateToolID"
+        "TestKiroReliabilityLateToolID",
+        "TestKiroReliabilityProfileRecoveryCannotReplayCommittedOutput",
+        "TestKiroReliabilityRejectsMalformedContentFields",
+        "TestKiroReliabilityOptionalNullTextFields"
       ],
       "rationale": "Kiro reliability: fail closed on corrupt streams, preserve real tool identity and keep OAuth refresh validation within the shared credential owner."
     },
@@ -1327,7 +1332,8 @@
       "path": "backend/internal/service/kiro_reliability_test.go",
       "must_contain": [
         "TestKiroReliabilityGatewayFaultImpact",
-        "TestKiroReliabilityGatewayLateIdentity"
+        "TestKiroReliabilityGatewayLateIdentity",
+        "TestKiroReliabilityGatewayProfileRecovery"
       ],
       "rationale": "Kiro reliability: fail closed on corrupt streams, preserve real tool identity and keep OAuth refresh validation within the shared credential owner."
     },

@@ -1738,5 +1738,5 @@ func convertOpenAITools(tools []OpenAITool) []KiroToolWrapper {
 }
 
 // Keep this guidance stable across client turns so the system prefix can be cached.
-// Apply it after prompt filtering; Claude Code compaction would otherwise erase it.
+// Append it after caller prompt filtering so compatibility handling stays separate.
 const fileToolChunkingGuidance = `For file-writing tools, keep the combined text arguments of each call below 6000 UTF-8 bytes and 150 lines, whichever is smaller (about 1500 Chinese characters). Split large files across successive Write and Edit calls. Do not use generated scripts or compressed encodings to bypass this limit. Each call must contain complete valid JSON. Preserve prior chunks and completed files. Continue through client tool results until the requested file is complete. This guidance does not authorize any extra tools or change the user task.`

@@ -14,7 +14,7 @@
 ## Acceptance Criteria
 
 1. AC-001 (正向): Given 合法增量/工具/用量 When Forward 转换 Then 文本和参数保持一致，唯一工具 ID 与终止有效。
-2. AC-002 (负向): Given CRC/JSON/UTF-8/长度异常或终止后内容 When 解析 Then 返回错误，不输出成功结束，不跨 endpoint 重放损坏协议。
+2. AC-002 (负向): Given CRC/JSON/UTF-8/长度异常、已知文本或终止字段类型错误、或终止后内容 When 解析 Then 返回错误，不输出成功结束，不跨 endpoint 重放损坏协议；profile 恢复同样遵守消费者重置契约，已输出后不得重放。
 3. AC-003 (正向/负向): Given 工具 ID 迟到 When 唯一序列完成 Then 仅交付一次真实 ID；歧义、缺 ID、重复完成或损坏参数拒绝。
 4. AC-004 (回归): Given Claude Code system 与追加规则 When 转换 Then 仅替换精确身份行，保留全部项目规则和工具约束。
 5. AC-005 (正向/负向): Given OAuth 刷新 When 上游省略 refresh Then 保留旧值；合法轮换保留新值；无效 access/expiry 或取消拒绝保存。
@@ -27,6 +27,9 @@
 - AC-004 → TestKiroReliabilityPreservesProjectRules：字符串与 block 形式的项目规则不丢失。
 - AC-005 → TestKiroReliabilityRefreshValidation、TestKiroReliabilityRefreshService、TestKiroReliabilityRefreshCancellation：返回值、合并结果、真实请求上下文取消。
 - AC-006 → TestKiroReliabilityRefreshRegionAndRedirect、TestKiroReliabilityProfileDoesNotRotateCredentials、TestKiroReliabilityRefreshErrorsDoNotLeakCredentials：真实 HTTP redirect 行为、目的主机、调用次数、凭据未变。
+
+- profile 恢复 → TestKiroReliabilityGatewayProfileRecovery：流式文字/工具已交付后不重新发现或生成；非流式未交付时清空旧结果后恢复，最终仅返回新响应。
+- 字段类型 → TestKiroReliabilityRejectsMalformedContentFields / TestKiroReliabilityOptionalNullTextFields：错误类型拒绝，合法可选 null 保持兼容。
 
 ## Linked Tests
 
@@ -42,6 +45,10 @@
 - `backend/internal/service/kiro_reliability_test.go`::`TestKiroReliabilityGatewayFaultImpact`
 - `backend/internal/service/kiro_reliability_test.go`::`TestKiroReliabilityGatewayLateIdentity`
 - `backend/internal/service/kiro_refresh_reliability_test.go`::`TestKiroReliabilityRefreshService`
+- `backend/internal/integration/kiro/reliability_test.go`::`TestKiroReliabilityProfileRecoveryCannotReplayCommittedOutput`
+- `backend/internal/integration/kiro/reliability_test.go`::`TestKiroReliabilityRejectsMalformedContentFields`
+- `backend/internal/integration/kiro/reliability_test.go`::`TestKiroReliabilityOptionalNullTextFields`
+- `backend/internal/service/kiro_reliability_test.go`::`TestKiroReliabilityGatewayProfileRecovery`
 - 运行命令：`cd backend && go test -p 4 -tags=unit ./internal/integration/kiro ./internal/service ./internal/handler -run 'Kiro|ClaudeToKiro|ParseEventStream|ApplyPromptFilters|OAuthRefreshAPI' -count=1`
 
 ## Evidence

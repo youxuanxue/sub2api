@@ -424,6 +424,12 @@ func CallKiroAPIWithDoerContext(ctx context.Context, doer HTTPDoer, account *Acc
 	endpoints := getSortedEndpoints(GetPreferredEndpoint())
 	err := callKiroAPIOnce(ctx, doer, account, payload, callback, endpoints)
 	if isInvalidProfileArnError(err) {
+		// HTTP rejection has no response content. An in-band stream failure
+		// can follow text/tools, so profile recovery needs the same consumer
+		// reset permission as endpoint recovery. Never bypass a refused reset.
+		if !strings.HasPrefix(err.Error(), "HTTP ") && (callback == nil || callback.ResetForRetry == nil || !callback.ResetForRetry()) {
+			return err
+		}
 		logWarnf("[KiroAPI] stale profileArn for %s, re-resolving: %v", accountEmail(account), err)
 		if resolveErr := reresolveProfileArnAfterStaleWithDoer(account, doer); resolveErr == nil && payload != nil {
 			payload.ProfileArn = strings.TrimSpace(account.ProfileArn)
@@ -613,6 +619,24 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback, advertisedTo
 		var event map[string]interface{}
 		if err := json.Unmarshal(payloadBytes, &event); err != nil || event == nil {
 			return fmt.Errorf("%w: invalid Kiro event JSON", ErrInvalidEventStream)
+		}
+		// JSON syntax alone cannot detect a dropped content delta. Optional
+		// fields may be absent/null, but non-null text must really be a string.
+		var textFields []string
+		switch eventType {
+		case "assistantResponseEvent":
+			textFields = []string{"content"}
+		case "reasoningContentEvent":
+			textFields = []string{"text", "signature"}
+		case "metadataEvent":
+			textFields = []string{"stopReason"}
+		}
+		for _, field := range textFields {
+			if value := event[field]; value != nil {
+				if _, ok := value.(string); !ok {
+					return fmt.Errorf("%w: non-string %s.%s", ErrInvalidEventStream, eventType, field)
+				}
+			}
 		}
 		if sawTerminalStop && (eventType == "assistantResponseEvent" || eventType == "reasoningContentEvent" || (eventType == "metadataEvent" && event["stopReason"] != nil)) {
 			return fmt.Errorf("%w: Kiro content or stop after terminal stop", ErrInvalidEventStream)

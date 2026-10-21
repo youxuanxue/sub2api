@@ -16,6 +16,8 @@
 
 真实验证使用 Claude Code 2.1.305 从隔离目录生成的 system（约 2.8 万字符，含追加规则），通过修改后 Forward、account 323 的代理及 canonical TLS 调用 Opus 4.6、5.5。两模型各三轮 Read → Edit → end_turn；客户端实际读写合成 corpus.txt 并回传真实结果。最终文件只将 OLD 改为 NEW，原有中文/emoji 与结尾保留；末轮正确报告追加规则标记 KI_RULES_7291。六次请求均单次物理调用，独立 raw CRC/文本/工具参数核对一致，总计 0.642056 credits、模型调用约 20.4 秒。证据摘要 `/tmp/tk-kiro-reliability/live.json`。这不是实际 Claude Code 客户端经生产入口的完整 e2e，也没有实测强制轮换生产 refresh token；不声称所有提示拒答率为零、全部历史事故已消除或 EU 账号已支持。
 
+审查补充：合成故障流复现了 profile 失效恢复绕过消费者重置、已输出后重复生成，以及合法 JSON 内错误字段类型被静默丢弃后仍成功结束。现已让流内 profile 恢复遵守 ResetForRetry，并校验已知非 null 文本/终止字段类型；真实 Forward 回归覆盖文字/工具已交付时仅报错、非流式恢复清空旧片段、合法 null 与用量事件兼容。此项证据是故障注入，不代表线上事故已由此归因。
+
 ## 已发现缺陷：影响与开源方案是否有效
 
 | 缺陷 | 对 TokenKey 网关的实际影响 | 已运行验证与开源方案结论 |

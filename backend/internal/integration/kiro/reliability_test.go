@@ -4,8 +4,11 @@ package kiro
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"hash/crc32"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -91,4 +94,69 @@ func TestKiroReliabilityUnicodeEscapes(t *testing.T) {
 	err := parseEventStream(bytes.NewReader(stream), &KiroStreamCallback{OnToolUse: func(KiroToolUse) { emitted = true }})
 	require.ErrorIs(t, err, ErrInvalidToolUse)
 	require.False(t, emitted)
+}
+
+func TestKiroReliabilityProfileRecoveryCannotReplayCommittedOutput(t *testing.T) {
+	for _, resetProvided := range []bool{true, false} {
+		t.Run(map[bool]string{true: "consumer_refuses_reset", false: "no_reset_contract"}[resetProvided], func(t *testing.T) {
+			calls, discoveries := 0, 0
+			text := ""
+			doer := restDoerFunc(func(req *http.Request) (*http.Response, error) {
+				if strings.Contains(req.URL.Path, "ListAvailableProfiles") {
+					discoveries++
+					return restTestResponse(200, `{"profiles":[{"arn":"arn:aws:codewhisperer:us-east-1:1:profile/fresh"}]}`), nil
+				}
+				calls++
+				raw := buildEventStreamMessage("assistantResponseEvent", []byte(`{"content":"already delivered"}`))
+				if calls == 1 {
+					raw = append(raw, buildEventStreamMessage("error", []byte(`{"message":"Invalid profileArn."}`))...)
+				} else {
+					raw = append(raw, terminalEventStreamForTest("END_TURN")...)
+				}
+				return restTestResponse(200, string(raw)), nil
+			})
+			callback := &KiroStreamCallback{OnText: func(v string, _ bool) { text += v }}
+			if resetProvided {
+				callback.ResetForRetry = func() bool { return false }
+			}
+			account := &Account{AccessToken: "fixture", ProfileArn: "arn:aws:codewhisperer:us-east-1:1:profile/stale"}
+			err := CallKiroAPIWithDoerContext(context.Background(), doer, account, &KiroPayload{}, callback)
+			require.Error(t, err)
+			require.Equal(t, 1, calls)
+			require.Zero(t, discoveries)
+			require.Equal(t, "already delivered", text)
+		})
+	}
+}
+
+func TestKiroReliabilityRejectsMalformedContentFields(t *testing.T) {
+	for _, tc := range []struct{ event, payload string }{
+		{"assistantResponseEvent", `{"content":123}`},
+		{"reasoningContentEvent", `{"text":[]}`},
+		{"reasoningContentEvent", `{"signature":{}}`},
+		{"metadataEvent", `{"stopReason":123}`},
+	} {
+		t.Run(tc.event+tc.payload, func(t *testing.T) {
+			raw := append(buildEventStreamMessage("assistantResponseEvent", []byte(`{"content":"prefix"}`)), buildEventStreamMessage(tc.event, []byte(tc.payload))...)
+			raw = append(raw, terminalEventStreamForTest("END_TURN")...)
+			completed := false
+			err := parseEventStream(bytes.NewReader(raw), &KiroStreamCallback{OnComplete: func(int, int) { completed = true }})
+			require.ErrorIs(t, err, ErrInvalidEventStream)
+			require.False(t, completed)
+		})
+	}
+}
+
+func TestKiroReliabilityOptionalNullTextFields(t *testing.T) {
+	raw := buildEventStreamMessage("assistantResponseEvent", []byte(`{"content":null}`))
+	raw = append(raw, buildEventStreamMessage("reasoningContentEvent", []byte(`{"text":null,"signature":null}`))...)
+	raw = append(raw, buildEventStreamMessage("metadataEvent", []byte(`{"stopReason":null}`))...)
+	raw = append(raw, buildEventStreamMessage("assistantResponseEvent", []byte(`{"content":"complete"}`))...)
+	raw = append(raw, terminalEventStreamForTest("END_TURN")...)
+	text := ""
+	completed := false
+	err := parseEventStream(bytes.NewReader(raw), &KiroStreamCallback{OnText: func(v string, _ bool) { text += v }, OnComplete: func(int, int) { completed = true }})
+	require.NoError(t, err)
+	require.True(t, completed)
+	require.Equal(t, "complete", text)
 }
