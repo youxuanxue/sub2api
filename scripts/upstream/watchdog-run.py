@@ -6,7 +6,6 @@ import argparse
 import importlib.util
 import json
 import os
-import re
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -27,8 +26,6 @@ SOURCES = {
         "label": "cc-issue-watchdog",
     },
 }
-BEGIN = "<!-- issue-watchdog:begin -->"
-END = "<!-- issue-watchdog:end -->"
 
 
 def module(name, path):
@@ -40,6 +37,8 @@ def module(name, path):
     return result
 
 
+queue = module("watchdog_queue", "scripts/upstream/watchdog_queue.py")
+BEGIN, END, managed_body = queue.BEGIN, queue.END, queue.managed_body
 engine = module("watchdog_engine", "scripts/upstream/issue-watchdog.py")
 ledger = module("watchdog_ledger", "scripts/upstream/issue_ledger.py")
 for name, source in SOURCES.items():
@@ -83,88 +82,24 @@ def fetch_snapshot(source, previous, started, api=gh):
             "issues": sorted(rows.values(), key=lambda row: row["number"])}
 
 
-def managed_body(body, content):
-    block = f"{BEGIN}\n{content.strip()}\n{END}"
-    if BEGIN in body or END in body:
-        if body.count(BEGIN) != 1 or body.count(END) != 1 or body.index(BEGIN) > body.index(END):
-            raise ValueError("malformed watchdog region; refusing to overwrite issue body")
-        before, remainder = body.split(BEGIN, 1)
-        _, after = remainder.split(END, 1)
-        return before + block + after
-    # Preserve existing human text and old reports during the one-time migration.
-    return body.rstrip() + ("\n\n" if body.strip() else "") + block + "\n"
-
-
-def issue_content(item):
-    next_step = ("已有历史修复记录；以修复 PR 和行为验证结果决定是否关闭。"
-                 if item.get("tokenkey_status") == engine.FIXED_STATUS
-                 else "核对当前代码与复现；确认受影响后提交聚焦修复 PR。")
-    return (f"影响：{item.get('rationale') or '需要核对 TokenKey 当前代码。'}\n\n"
-            f"证据：{item['url']}\n\n"
-            f"下一步：{next_step}\n\n"
-            "修复与验证：在此条目关联修复 PR 与行为测试结果。")
+def resolved_refs(root=ROOT):
+    """Reuse curated fix judgments; missing recorded anchors revoke suppression."""
+    resolved = set()
+    for source in ledger.SOURCES.values():
+        for entry in ledger.load_ledger(source, root):
+            specs = entry.get("fixed_if_all_present")
+            judgment = entry.get("judgment", {})
+            fixed = (bool(specs) and all(engine.check_fact(spec).get("ok") for spec in specs)
+                     if specs is not None else judgment.get("tokenkey_status") == engine.FIXED_STATUS)
+            if fixed:
+                resolved.update(ledger.issue_refs(entry["upstream"], source["repo"]))
+    return resolved
 
 
 def sync_issues(source, report, target_repo, api=gh, entries=()):
-    """Only confirmed high-risk items create issues. Keyword candidates stay in the report.
-
-    Search closed issues as well: operator closure is a decision, not a reason to
-    recreate/reopen the same issue. Code needles alone must never close issues.
-    """
-    eligible = {item["upstream"] for item in report["high_unresolved"]}
-    items = {item["upstream"]: item for item in (*entries, *report["high_unresolved"])}
-    if not items:
-        return
-    label = source["label"]
-    pages = api("api", "--paginate", "--slurp",
-                f"repos/{target_repo}/issues?{urlencode({'state': 'all', 'labels': label, 'per_page': 100})}")
-    existing = [row for page in pages for row in page if "pull_request" not in row]
-    labels = None
-    for item in items.values():
-        ref = item["upstream"]
-        item = {**item, "number": engine.issue_number(ref), "url": engine.issue_url(ref)}
-        number_label = f"{source['prefix']}-issue:{item['number']}"
-        sig_label = f"{source['prefix']}-sig:{engine.issue_signature(ref)}"
-        # Legacy labels plus canonical ref/URL support migration without a new label per issue.
-        matches = [row for row in existing if
-                   {number_label, sig_label} & {entry['name'] for entry in row.get('labels', [])}
-                   or re.search(re.escape(ref) + r"(?!\d)", row.get("title", ""))
-                   or re.search(re.escape(item["url"]) + r"(?!\d)", row.get("body") or "")]
-        if len(matches) > 1:
-            raise ValueError(f"duplicate tracking issues for {ref}; reconcile them before syncing")
-        if matches:
-            row = matches[0]
-            if row["state"] == "closed":
-                continue
-            body = managed_body(row.get("body") or "", issue_content(item))
-            current_labels = {entry["name"] for entry in row.get("labels", [])}
-            # Native Issue state owns lifecycle. Retire old bot status labels and
-            # risk labels that contradict the current report, preserving human labels.
-            retained = {name for name in current_labels
-                        if not name.startswith(f"{source['prefix']}-status:")
-                        and (not name.startswith(f"{source['prefix']}-risk:")
-                             or name == f"{source['prefix']}-risk:{item.get('impact')}")}
-            changes = {}
-            if body != row.get("body"):
-                changes["body"] = body
-            if retained != current_labels:
-                changes["labels"] = sorted(retained)
-            if changes:
-                api("api", "--method", "PATCH", f"repos/{target_repo}/issues/{row['number']}",
-                    payload=changes)
-        elif ref in eligible:
-            # Lazy label creation keeps a no-change run strictly read-only.
-            if labels is None:
-                labels = {row["name"] for page in api("api", "--paginate", "--slurp",
-                          f"repos/{target_repo}/labels?per_page=100") for row in page}
-            if label not in labels:
-                api("api", "--method", "POST", f"repos/{target_repo}/labels",
-                    payload={"name": label, "color": "BFD4F2", "description": "Issue watchdog"})
-                labels.add(label)
-            row = api("api", "--method", "POST", f"repos/{target_repo}/issues", payload={
-                "title": f"[watchdog] {ref} {item.get('title') or ''}"[:250],
-                "body": managed_body("", issue_content(item)), "labels": [label]})
-            existing.append(row)
+    items = [{**item, "number": engine.issue_number(item["upstream"])}
+             for item in entries if item.get("topics") and item.get("impact") != "not_applicable"]
+    return queue.sync_queue(source["repo"], items, target_repo, api, resolved=resolved_refs(), platform="upstream")
 
 
 def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
@@ -179,7 +114,8 @@ def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
             raise ValueError("the requested upstream number is a pull request")
         rows = [item for item in rows if item["number"] != row["number"]] + [row]
     classifier = module("watchdog_classifier", source["classifier"])
-    triage = {"issues": [classifier.classify(row) for row in rows]}
+    triage = {"issues": [{**classifier.classify(row), "topics": queue.topics(row),
+                          "state": row.get("state", "open")} for row in rows]}
     fixes = {"issues": []}
     report = engine.build_report(rows, triage, fixes, facts, force_issue)
     work.mkdir(parents=True, exist_ok=True)
@@ -233,8 +169,9 @@ python3 scripts/upstream/issue_ledger.py --ledger {source_name} --commits-range 
 Triage and fixes are runtime artifacts.
 Run focused tests and bash scripts/preflight.sh, then commit, push and create/update the fix PR.
 The Chinese PR description must identify {item['upstream']}, explain the behavior and give test
-evidence. After the regression test passes, use a GitHub closing reference to the local tracking
-issue when one exists, so merging the PR closes it. Never close from string anchors alone.
+evidence. Reference the shared upstream tracking Issue without a closing keyword: one fix
+must not close the entire aggregate. The next scan applies the merged ledger evidence to
+that task; the aggregate closes only when all tasks are resolved.
 Never merge the PR.
 This is explicitly dispatched fix mode; proceed autonomously within that scope.
 """

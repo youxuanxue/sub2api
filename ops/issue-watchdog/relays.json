@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "repo": "Wei-Shaw/sub2api",
+      "platforms": [
+        "upstream"
+      ],
+      "focus": "主上游 Issue/PR 合并与讨论；复用 upstream 汇总单"
+    },
+    {
+      "repo": "Quorinex/Kiro-Go",
+      "platforms": [
+        "kiro"
+      ],
+      "focus": "TokenKey vendored Kiro 来源；流终态、profile、账号"
+    },
+    {
+      "repo": "TsinHzl/kiro2cc-proxy",
+      "platforms": [
+        "kiro"
+      ],
+      "focus": "Anthropic/Codex 转换、工具结果、缓存"
+    },
+    {
+      "repo": "justlovemaki/AIClient2API",
+      "platforms": [
+        "kiro",
+        "openai",
+        "google"
+      ],
+      "focus": "多平台账号池与跨协议 converter"
+    },
+    {
+      "repo": "minpeter/kiro-lb",
+      "platforms": [
+        "kiro"
+      ],
+      "focus": "凭证刷新、限流与负载均衡"
+    },
+    {
+      "repo": "jwadow/kiro-gateway",
+      "platforms": [
+        "kiro"
+      ],
+      "focus": "流事件、工具调用与 API 兼容"
+    },
+    {
+      "repo": "hank9999/kiro.rs",
+      "platforms": [
+        "kiro"
+      ],
+      "focus": "Rust Kiro 实现及工具历史"
+    },
+    {
+      "repo": "ZyphrZero/kiro.rs",
+      "platforms": [
+        "kiro"
+      ],
+      "focus": "活跃 fork 的拒答、流终态与账号修复"
+    },
+    {
+      "repo": "xiaokui-dev/cliproxyapi-kiro-plugin",
+      "platforms": [
+        "kiro"
+      ],
+      "focus": "CLIProxyAPI Kiro OAuth 插件"
+    },
+    {
+      "repo": "hafidbuilds/cpa-kiro-plugin",
+      "platforms": [
+        "kiro"
+      ],
+      "focus": "CLIProxyAPI Kiro 插件的活跃替代实现"
+    },
+    {
+      "repo": "router-for-me/CLIProxyAPI",
+      "platforms": [
+        "openai",
+        "google"
+      ],
+      "focus": "Codex/Gemini/Antigravity 账号与协议转换"
+    },
+    {
+      "repo": "Soju06/codex-lb",
+      "platforms": [
+        "openai"
+      ],
+      "focus": "Codex 多账号、配额、调度与 Responses"
+    },
+    {
+      "repo": "icebear0828/codex-proxy",
+      "platforms": [
+        "openai"
+      ],
+      "focus": "Codex Responses/Anthropic 转换"
+    },
+    {
+      "repo": "lbjlaq/Antigravity-Manager",
+      "platforms": [
+        "google"
+      ],
+      "focus": "Antigravity 账号、配额与代理"
+    },
+    {
+      "repo": "badrisnarayanan/antigravity-claude-proxy",
+      "platforms": [
+        "google"
+      ],
+      "focus": "Antigravity Claude/Gemini 转换与缓存"
+    },
+    {
+      "repo": "nettee/gemini-cli-proxy",
+      "platforms": [
+        "google"
+      ],
+      "focus": "Gemini CLI 包装；低活跃仍保留观察"
+    },
+    {
+      "repo": "HanaokaYuzu/Gemini-API",
+      "platforms": [
+        "google"
+      ],
+      "focus": "Gemini Web 会话、cookie、流解析"
+    },
+    {
+      "repo": "zyycn/codex-proxy-rs",
+      "platforms": [
+        "openai"
+      ],
+      "focus": "Rust Codex 多账号透明代理；OAuth、账号配额与刷新、Responses 转发"
+    },
+    {
+      "repo": "snailyp/gemini-balance",
+      "platforms": [
+        "google"
+      ],
+      "focus": "Gemini API Key 轮询、配额与调度；共享账号池与失败切换"
+    },
+    {
+      "repo": "PublicAffairs/openai-gemini",
+      "platforms": [
+        "google"
+      ],
+      "focus": "Gemini 供应转 OpenAI 协议；工具调用、流转换和用量兼容"
+    }
+  ]
+}

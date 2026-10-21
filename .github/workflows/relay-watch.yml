@@ -1,0 +1,81 @@
+name: Relay Implementation Watch
+
+on:
+  schedule:
+    - cron: '43 21 * * *'
+  workflow_dispatch:
+    inputs:
+      sync_issues:
+        description: Append relevant upstream findings to platform tracking Issues
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - 'scripts/upstream/**'
+      - 'scripts/test_*watch*.py'
+      - 'ops/issue-watchdog/**'
+      - '.github/workflows/relay-watch.yml'
+
+permissions:
+  contents: read
+
+# Both scanners use the same queue publisher; serialize external projection.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('relay-watch-pr-{0}', github.event.pull_request.number) || 'upstream-issue-watchdog' }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Verify discovery, queue durability and retry behavior
+        run: python3 -m unittest scripts.test_relay_watch scripts.test_issue_watchdog_flow scripts.test_issue_triage_generate scripts.test_cc_issue_triage_generate scripts.test_issue_watchdog_jsonl scripts.test_issue_ledger -v
+
+  scan:
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/cache/restore@v6
+        with:
+          path: .cache/relay-watch-state
+          key: relay-watch-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: relay-watch-v2-
+      - name: Scan issue discussions and PR merge evidence
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          SYNC_ISSUES: ${{ github.event_name == 'schedule' || inputs.sync_issues }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          args=()
+          if [ "$SYNC_ISSUES" = "true" ]; then
+            args+=(--sync-repo "$GITHUB_REPOSITORY")
+          fi
+          python3 scripts/upstream/relay-watch.py "${args[@]}"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: relay-watch-${{ github.run_attempt }}
+          path: .cache/relay-watch/
+          include-hidden-files: true
+          retention-days: 30
+          if-no-files-found: error
+      # A partial/failed scan does not persist any newer cursors. Replay is idempotent.
+      - uses: actions/cache/save@v6
+        if: success() && (github.event_name == 'schedule' || inputs.sync_issues)
+        with:
+          path: .cache/relay-watch-state
+          key: relay-watch-v2-${{ github.run_id }}-${{ github.run_attempt }}

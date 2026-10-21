@@ -705,17 +705,45 @@
         "cache_pr",
         "gh issue comment"
       ],
-      "rationale": "One source matrix delegates scanning and semantic Issue updates; no cache-refresh PR or repeated report comments."
+      "rationale": "One source matrix delegates scanning and semantic Issue updates; no cache-refresh PR or duplicate report comments."
     },
     {
       "path": "scripts/upstream/watchdog-run.py",
       "must_contain": [
         "def fetch_snapshot(",
         "def sync_issues(",
-        "def managed_body(",
+        "def resolved_refs(",
         "temporary.replace(checkpoint)"
       ],
       "rationale": "Preserve incremental recovery and idempotent Issue projection as one owner."
+    },
+    {
+      "path": "scripts/upstream/watchdog_queue.py",
+      "must_contain": ["def managed_body(", "def sync_queue(", "def platform_marker(", "def trusted_authors(", "watchdog-tracking:v1", "watchdog-day:"],
+      "rationale": "One aggregate per platform preserves scoped decisions, bounds daily comments and replays without duplicate writes."
+    },
+    {
+      "path": "scripts/test_relay_watch.py",
+      "must_contain": [
+        "test_all_sources_share_one_issue_and_append_comments",
+        "test_platform_queues_isolate_tasks_resolution_and_reopening",
+        "test_untrusted_markers_cannot_suppress_findings_or_close_aggregate",
+        "test_platform_marker_prevents_duplicate_when_label_is_removed",
+        "test_comment_classification_survives_later_neutral_reply_and_merge",
+        "test_platform_routing_uses_repo_scope_and_specific_or_shared_evidence",
+        "test_partial_platform_publish_failure_keeps_cursor_and_retry_deduplicates",
+        "test_bootstrap_includes_old_open_issues_and_recent_merged_prs",
+        "test_fixed_upstream_open_issue_is_removed_and_all_done_closes",
+        "test_upstream_closure_and_merge_are_not_local_fixes",
+        "test_partial_comment_failure_replays_without_duplicate_issue_or_tasks",
+        "test_stale_overlapping_scan_cannot_republish_old_discussion_state"
+      ],
+      "rationale": "Aggregate lifecycle, append-only discovery, local resolution and idempotent replay must survive upstream refactors."
+    },
+    {
+      "path": "scripts/upstream/relay-watch.py",
+      "must_contain": ["def collect(", "def platform_findings(", "issues/comments?", "merged_at", "temporary.replace(checkpoint)"],
+      "rationale": "Relay monitoring must retain discussion changes and true merge evidence, committing cursors only after publication."
     },
     {
       "path": "scripts/upstream/issue_ledger.py",
@@ -738,8 +766,8 @@
     {
       "path": "scripts/test_issue_watchdog_flow.py",
       "must_contain": [
-        "test_create_then_replay_performs_no_writes_for_either_source",
-        "test_closed_legacy_issue_is_not_recreated_or_reopened",
+        "test_related_candidates_publish_without_high_risk_and_fixed_are_excluded",
+        "test_resolutions_use_grouped_refs_and_revoke_missing_anchors",
         "test_failed_sync_does_not_advance_checkpoint_and_retry_converges",
         "test_missing_and_empty_anchors_revoke_runtime_fixed_classification"
       ],

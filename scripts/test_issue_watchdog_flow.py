@@ -31,20 +31,35 @@ class FakeGitHub:
     def __init__(self, issues=()):
         self.issues = copy.deepcopy(list(issues))
         self.calls = []
+        self.comments = []
         self.labels = {source["label"] for source in mod.SOURCES.values()}
 
     def __call__(self, *args, payload=None):
         self.calls.append((args, payload))
         if payload is None:
+            if args[-1] == "user":
+                return {"id": 1, "login": "watchdog"}
+            if "/collaborators/" in args[-1]:
+                return {"permission": "write" if "/maintainer/" in args[-1] else "read"}
+            if "/comments?" in args[-1]:
+                number = int(urlparse(args[-1]).path.split("/")[-2])
+                return [copy.deepcopy([row for row in self.comments if row["issue_number"] == number])]
             if "/labels?" in args[-1]:
                 return [[{"name": name} for name in self.labels]]
-            return [copy.deepcopy(self.issues)]
+            label = parse_qs(urlparse(args[-1]).query).get("labels", [None])[0]
+            return [copy.deepcopy([row for row in self.issues if label is None or
+                                   label in {entry["name"] for entry in row["labels"]}])]
         if "PATCH" in args:
             number = int(args[-1].rsplit("/", 1)[1])
-            row = next(row for row in self.issues if row["number"] == number)
+            row = (next(row for row in self.comments if row["id"] == number) if "/issues/comments/" in args[-1]
+                   else next(row for row in self.issues if row["number"] == number))
             row.update(payload)
             if "labels" in payload:
                 row["labels"] = [{"name": name} for name in payload["labels"]]
+        elif args[-1].endswith("/comments"):
+            row = {**payload, "id": len(self.comments) + 1,
+                   "issue_number": int(args[-1].split("/")[-2])}
+            self.comments.append(row)
         elif args[-1].endswith("/labels"):
             self.labels.add(payload["name"])
             row = payload
@@ -52,6 +67,7 @@ class FakeGitHub:
             row = {**payload, "number": len(self.issues) + 1, "state": "open",
                    "labels": [{"name": label} for label in payload["labels"]]}
             self.issues.append(row)
+        row.setdefault("user", {"id": 1, "login": "watchdog"})
         return copy.deepcopy(row)
 
     @property
@@ -126,73 +142,29 @@ class WatchdogFlowTest(unittest.TestCase):
         self.assertEqual(report["selected_issue"]["impact"], "needs_review")
         self.assertEqual(report["high_unresolved"], [])
 
-    def test_create_then_replay_performs_no_writes_for_either_source(self):
-        for source in mod.SOURCES.values():
-            api = FakeGitHub()
-            report = {"high_unresolved": [finding(source)]}
-            mod.sync_issues(source, report, "example/fork", api)
-            self.assertEqual(len(api.issues), 1)
-            api.calls.clear()
-            report["generated_at"] = "a later run"
-            report["run_url"] = "another run"
-            mod.sync_issues(source, report, "example/fork", api)
-            self.assertEqual(api.writes, [])
-
-    def test_changed_evidence_updates_region_preserving_human_text_and_title(self):
-        source = next(iter(mod.SOURCES.values()))
-        item = finding(source)
-        body = "Operator decision\n\n" + mod.managed_body("", mod.issue_content(item)) + "\nHuman follow-up"
-        api = FakeGitHub([{"number": 12, "state": "open", "title": item["upstream"] + " customized",
-                          "body": body, "labels": [{"name": source["label"]}]}])
-        item["rationale"] = "New reproduction evidence"
-        mod.sync_issues(source, {"high_unresolved": [item]}, "example/fork", api)
-        self.assertEqual(len(api.writes), 1)
-        self.assertTrue(api.issues[0]["body"].startswith("Operator decision"))
-        self.assertTrue(api.issues[0]["body"].endswith("Human follow-up"))
-        self.assertIn("New reproduction evidence", api.issues[0]["body"])
-        self.assertTrue(api.issues[0]["title"].endswith("customized"))
-
-    def test_closed_legacy_issue_is_not_recreated_or_reopened(self):
-        for source in mod.SOURCES.values():
-            item = finding(source)
-            api = FakeGitHub([{"number": 12, "state": "closed", "title": "legacy title", "body": "notes",
-                              "labels": [{"name": f"{source['prefix']}-issue:{item['number']}"}]}])
-            mod.sync_issues(source, {"high_unresolved": [item]}, "example/fork", api)
-            self.assertEqual(api.writes, [])
-
-    def test_existing_issue_tracks_downgrade_and_fix_without_opening_keyword_issues(self):
-        source = next(iter(mod.SOURCES.values()))
-        item = finding(source)
+    def test_related_candidates_publish_without_high_risk_and_fixed_are_excluded(self):
+        source = mod.SOURCES["upstream"]
+        item = {**finding(source), "topics": ["billing"], "impact": "medium"}
+        report = {"high_unresolved": []}
         api = FakeGitHub()
-        mod.sync_issues(source, {"high_unresolved": [item]}, "example/fork", api)
-        api.issues[0]["labels"] += [{"name": name} for name in
-                                    (f"{source['prefix']}-risk:high",
-                                     f"{source['prefix']}-status:needs-tokenkey-fix", "operator-note")]
-        for status, note in [("needs_tokenkey_review", "Recorded anchors missing"),
-                             ("fixed_in_tokenkey", "Fix PR merged with a regression test")]:
-            changed = {**item, "impact": "needs_review" if status != mod.engine.FIXED_STATUS else "fixed",
-                       "tokenkey_status": status, "rationale": note}
-            unrelated = {**finding(source, 900002), "impact": "needs_review"}
-            api.calls.clear()
-            mod.sync_issues(source, {"high_unresolved": []}, "example/fork", api,
-                            entries=[changed, unrelated])
-            self.assertEqual(len(api.issues), 1)
-            self.assertEqual(len(api.writes), 1)
-            self.assertIn(note, api.issues[0]["body"])
-            self.assertEqual(api.issues[0]["state"], "open")
-            self.assertEqual({label["name"] for label in api.issues[0]["labels"]},
-                             {source["label"], "operator-note"})
-            api.calls.clear()
-            mod.sync_issues(source, {"high_unresolved": []}, "example/fork", api,
-                            entries=[changed, unrelated])
-            self.assertEqual(api.writes, [])
+        with patch.object(mod, "resolved_refs", return_value=set()):
+            mod.sync_issues(source, report, "example/fork", api, entries=[item])
+        self.assertEqual(len(api.issues), 1)
+        self.assertIn(item["upstream"], api.comments[0]["body"])
+        with patch.object(mod, "resolved_refs", return_value={item["upstream"]}):
+            mod.sync_issues(source, report, "example/fork", api, entries=[item])
+        self.assertIn("- [x]", api.comments[0]["body"])
+        self.assertEqual(api.issues[0]["state"], "closed")
 
-    def test_anchors_alone_do_not_close_tracking_issue(self):
-        source = next(iter(mod.SOURCES.values()))
-        api = FakeGitHub()
-        mod.sync_issues(source, {"high_unresolved": [], "anchors_present": [finding(source)]},
-                        "example/fork", api)
-        self.assertEqual(api.writes, [])
+    def test_resolutions_use_grouped_refs_and_revoke_missing_anchors(self):
+        source = mod.SOURCES["upstream"]
+        entry = {"upstream": source["repo"] + "#1, #2", "fixed_if_all_present": ["fixed.py:proof"]}
+        with (patch.dict(mod.ledger.SOURCES, {"upstream": source}, clear=True),
+              patch.object(mod.ledger, "load_ledger", return_value=[entry]),
+              patch.object(mod.engine, "check_fact", return_value={"ok": True})):
+            self.assertEqual(mod.resolved_refs(), {source["repo"] + "#1", source["repo"] + "#2"})
+            with patch.object(mod.engine, "check_fact", return_value={"ok": False}):
+                self.assertEqual(mod.resolved_refs(), set())
 
     def test_malformed_region_is_not_overwritten(self):
         with self.assertRaisesRegex(ValueError, "malformed"):
@@ -210,6 +182,7 @@ class WatchdogFlowTest(unittest.TestCase):
                 self.assertIn(f"--ledger {name}", prompt)
                 self.assertIn("behavioral", prompt)
                 self.assertIn("Never merge", prompt)
+                self.assertIn("without a closing keyword", prompt)
 
     def test_fix_without_candidate_fails_before_launching_agent(self):
         with tempfile.TemporaryDirectory() as tmp:
