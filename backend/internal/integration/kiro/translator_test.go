@@ -5,6 +5,7 @@ package kiro
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -215,6 +216,50 @@ func TestClaudeToKiro_ThinkingDisabledOmitsAdditionalModelRequestFields(t *testi
 	payload := ClaudeToKiro(req, false)
 	if payload.AdditionalModelRequestFields != nil {
 		t.Fatalf("expected no additionalModelRequestFields, got %+v", payload.AdditionalModelRequestFields)
+	}
+}
+
+func TestClaudeToKiro_ToolChoiceNoneOmitsTools(t *testing.T) {
+	req := &ClaudeRequest{
+		Model:      "claude-sonnet-4-5",
+		Messages:   []ClaudeMessage{{Role: "user", Content: "hello"}},
+		Tools:      []ClaudeTool{{Name: "Read", Description: "read", InputSchema: map[string]any{"type": "object"}}},
+		ToolChoice: "none",
+	}
+	payload := ClaudeToKiro(req, false)
+	if ctx := payload.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext; ctx != nil && len(ctx.Tools) != 0 {
+		t.Fatalf("tool_choice none forwarded tools: %+v", ctx.Tools)
+	}
+	if strings.Contains(payload.ConversationState.CurrentMessage.UserInputMessage.Content, "Backend tool directive") {
+		t.Fatal("tool_choice none unexpectedly added a directive")
+	}
+}
+
+func TestClaudeToKiro_ToolChoiceAnyAddsDirective(t *testing.T) {
+	req := &ClaudeRequest{
+		Model:      "claude-sonnet-4-5",
+		Messages:   []ClaudeMessage{{Role: "user", Content: "hello"}},
+		Tools:      []ClaudeTool{{Name: "Read", Description: "read", InputSchema: map[string]any{"type": "object"}}},
+		ToolChoice: map[string]any{"type": "any"},
+	}
+	payload := ClaudeToKiro(req, false)
+	content := payload.ConversationState.CurrentMessage.UserInputMessage.Content
+	if !strings.Contains(content, "requires a tool call") {
+		t.Fatalf("tool_choice any directive missing: %q", content)
+	}
+}
+
+func TestClaudeToKiro_ToolChoiceNamedResolvesSanitizedName(t *testing.T) {
+	req := &ClaudeRequest{
+		Model:      "claude-sonnet-4-5",
+		Messages:   []ClaudeMessage{{Role: "user", Content: "hello"}},
+		Tools:      []ClaudeTool{{Name: "read-file", Description: "read", InputSchema: map[string]any{"type": "object"}}},
+		ToolChoice: map[string]any{"type": "tool", "name": "read-file"},
+	}
+	payload := ClaudeToKiro(req, false)
+	content := payload.ConversationState.CurrentMessage.UserInputMessage.Content
+	if !strings.Contains(content, "available tool named") {
+		t.Fatalf("named tool directive missing: %q", content)
 	}
 }
 

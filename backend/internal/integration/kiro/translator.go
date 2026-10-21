@@ -321,8 +321,19 @@ func ClaudeToKiroWithFileToolGuidance(req *ClaudeRequest, thinking, enabled bool
 
 	finalContent := currentContent
 
-	// 转换工具
-	kiroTools, toolNameMap := convertClaudeTools(req.Tools)
+	// Kiro has no native tool_choice field. Preserve Claude's contract by
+	// withholding tools for "none" and adding a precise backend directive for
+	// "any" / a named tool. The directive is carried in the user turn so it
+	// survives Kiro's history translation without replacing caller system rules.
+	toolsForConversion := req.Tools
+	toolChoiceType, toolChoiceName := claudeToolChoiceTypeAndName(req.ToolChoice)
+	if toolChoiceType == "none" {
+		toolsForConversion = nil
+	}
+	kiroTools, toolNameMap := convertClaudeTools(toolsForConversion)
+	if directive := buildClaudeToolChoiceDirective(toolChoiceType, toolChoiceName, kiroTools, toolNameMap); directive != "" {
+		finalContent = appendBackendDirective(finalContent, directive)
+	}
 
 	// 构建 payload
 	payload := &KiroPayload{}
@@ -426,6 +437,97 @@ func resolveKiroOutputEffort(req *ClaudeRequest) string {
 		}
 	}
 	return "high"
+}
+
+func claudeToolChoiceTypeAndName(choice interface{}) (string, string) {
+	switch v := choice.(type) {
+	case nil:
+		return "", ""
+	case string:
+		return strings.ToLower(strings.TrimSpace(v)), ""
+	case json.RawMessage:
+		return claudeToolChoiceTypeAndNameFromJSON(v)
+	case []byte:
+		return claudeToolChoiceTypeAndNameFromJSON(v)
+	case map[string]string:
+		return strings.ToLower(strings.TrimSpace(v["type"])), strings.TrimSpace(v["name"])
+	case map[string]interface{}:
+		return claudeToolChoiceTypeAndNameFromMap(v)
+	default:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return "", ""
+		}
+		return claudeToolChoiceTypeAndNameFromJSON(raw)
+	}
+}
+
+func claudeToolChoiceTypeAndNameFromJSON(raw []byte) (string, string) {
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return "", ""
+	}
+	return claudeToolChoiceTypeAndNameFromMap(decoded)
+}
+
+func claudeToolChoiceTypeAndNameFromMap(choice map[string]interface{}) (string, string) {
+	return toolChoiceStringField(choice, "type"), toolChoiceStringField(choice, "name")
+}
+
+func toolChoiceStringField(choice map[string]interface{}, field string) string {
+	value, ok := choice[field]
+	if !ok || value == nil {
+		return ""
+	}
+	if typed, ok := value.(string); ok {
+		return strings.TrimSpace(typed)
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func buildClaudeToolChoiceDirective(choiceType, choiceName string, tools []KiroToolWrapper, toolNameMap map[string]string) string {
+	if len(tools) == 0 {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(choiceType)) {
+	case "any":
+		return "Backend tool directive: the client requires a tool call in this turn. You must call at least one available tool now; do not respond with narration only."
+	case "tool":
+		kiroName := resolveKiroToolChoiceName(choiceName, tools, toolNameMap)
+		if kiroName == "" {
+			return ""
+		}
+		return fmt.Sprintf("Backend tool directive: the client requires a tool call in this turn. You must call the available tool named %q now; do not respond with narration only.", kiroName)
+	default:
+		return ""
+	}
+}
+
+func resolveKiroToolChoiceName(choiceName string, tools []KiroToolWrapper, toolNameMap map[string]string) string {
+	choiceName = strings.TrimSpace(choiceName)
+	if choiceName == "" {
+		return ""
+	}
+	sanitizedChoice := shortenToolName(sanitizeToolName(choiceName))
+	for _, tool := range tools {
+		kiroName := tool.ToolSpecification.Name
+		if choiceName == kiroName || choiceName == toolNameMap[kiroName] || sanitizedChoice == kiroName {
+			return kiroName
+		}
+	}
+	return sanitizedChoice
+}
+
+func appendBackendDirective(content, directive string) string {
+	directive = strings.TrimSpace(directive)
+	if directive == "" {
+		return content
+	}
+	content = strings.TrimRight(content, "\n")
+	if strings.TrimSpace(content) == "" {
+		return directive
+	}
+	return content + "\n\n" + directive
 }
 
 func buildClaudeSystemPrompt(system interface{}, thinking bool) string {

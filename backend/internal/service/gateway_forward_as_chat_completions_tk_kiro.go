@@ -1,12 +1,15 @@
 package service
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -58,6 +61,10 @@ func (s *GatewayService) forwardAsChatCompletionsViaKiro(
 	}
 	if kiroParsed.Model == "" {
 		kiroParsed.Model = originalModel
+	}
+
+	if clientStream {
+		return s.forwardKiroChatStreamLive(ctx, c, account, kiroParsed, originalModel, mappedModel, ccBody, reasoningEffortFromCCBody(ccBody, mappedModel), includeUsage, startTime)
 	}
 
 	var captureBuf bytes.Buffer
@@ -134,4 +141,117 @@ func (s *GatewayService) forwardAsChatCompletionsViaKiro(
 		}
 	}
 	return result, nil
+}
+
+// forwardKiroChatStreamLive connects Kiro's Anthropic SSE writer to the
+// existing Anthropic→Responses→Chat converter through an io.Pipe. This keeps
+// the conversion state machine while allowing each upstream event to reach the
+// Chat Completions client immediately instead of buffering the whole turn.
+func (s *GatewayService) forwardKiroChatStreamLive(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	parsed *ParsedRequest,
+	originalModel, mappedModel string,
+	ccBody []byte,
+	reasoningEffort *string,
+	includeUsage bool,
+	startTime time.Time,
+) (*ForwardResult, error) {
+	pipeReader, pipeWriter := io.Pipe()
+	liveCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	defer func() { _ = pipeReader.Close() }()
+	bridge := newKiroLiveBridgeWriter(pipeWriter)
+	upstreamContext := c.Copy()
+	upstreamContext.Writer = bridge
+	resultCh := make(chan struct {
+		result *ForwardResult
+		err    error
+	}, 1)
+	go func() {
+		result, err := s.kiroGateway.Forward(liveCtx, upstreamContext, account, parsed, startTime)
+		_ = bridge.closeWithError(err)
+		resultCh <- struct {
+			result *ForwardResult
+			err    error
+		}{result: result, err: err}
+	}()
+
+	upstreamResp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     bridge.Header(),
+		Body:       pipeReader,
+	}
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, ccBody, mappedModel)
+	converted, convertErr := s.handleCCStreamingFromAnthropic(upstreamResp, c, originalModel, mappedModel, reasoningEffort, startTime, includeUsage)
+	fwd := <-resultCh
+	if fwd.err != nil {
+		return nil, fwd.err
+	}
+	if convertErr != nil {
+		return nil, convertErr
+	}
+	if converted != nil && fwd.result != nil {
+		if fwd.result.BillingTier != "" {
+			converted.BillingTier = fwd.result.BillingTier
+		}
+		if fwd.result.RequestID != "" {
+			converted.RequestID = fwd.result.RequestID
+		}
+		if fwd.result.Usage.InputTokens > 0 || fwd.result.Usage.OutputTokens > 0 {
+			converted.Usage = fwd.result.Usage
+		}
+		if fwd.result.UpstreamModel != "" {
+			converted.UpstreamModel = fwd.result.UpstreamModel
+		}
+	}
+	return converted, nil
+}
+
+func reasoningEffortFromCCBody(body []byte, model string) *string {
+	effort := ExtractChatCompletionsReasoningEffortFromBody(body)
+	return ApplyThinkingEnabledFallback(effort, body, model)
+}
+
+type kiroLiveBridgeWriter struct {
+	header http.Header
+	pipe   *io.PipeWriter
+	mu     sync.Mutex
+	status int
+	wrote  bool
+}
+
+func newKiroLiveBridgeWriter(pipe *io.PipeWriter) *kiroLiveBridgeWriter {
+	return &kiroLiveBridgeWriter{header: make(http.Header), pipe: pipe, status: http.StatusOK}
+}
+
+func (w *kiroLiveBridgeWriter) Header() http.Header { return w.header }
+func (w *kiroLiveBridgeWriter) WriteHeader(code int) {
+	w.mu.Lock()
+	w.status, w.wrote = code, true
+	w.mu.Unlock()
+}
+func (w *kiroLiveBridgeWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	w.wrote = true
+	w.mu.Unlock()
+	return w.pipe.Write(data)
+}
+func (w *kiroLiveBridgeWriter) WriteString(s string) (int, error) { return w.Write([]byte(s)) }
+func (w *kiroLiveBridgeWriter) Status() int                       { return w.status }
+func (w *kiroLiveBridgeWriter) Size() int                         { return -1 }
+func (w *kiroLiveBridgeWriter) Written() bool                     { return w.wrote }
+func (w *kiroLiveBridgeWriter) WriteHeaderNow()                   {}
+func (w *kiroLiveBridgeWriter) Flush()                            {}
+func (w *kiroLiveBridgeWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return nil, nil, fmt.Errorf("not supported")
+}
+func (w *kiroLiveBridgeWriter) CloseNotify() <-chan bool { return make(chan bool) } //nolint:staticcheck
+func (w *kiroLiveBridgeWriter) Pusher() http.Pusher      { return nil }
+func (w *kiroLiveBridgeWriter) closeWithError(err error) error {
+	if err != nil {
+		return w.pipe.CloseWithError(err)
+	}
+	return w.pipe.Close()
 }

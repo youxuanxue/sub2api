@@ -60,6 +60,26 @@ func TestKiroReliabilityFrameValidation(t *testing.T) {
 	}
 }
 
+func TestKiroReliabilityMeteringEventCompletesWithoutMetadata(t *testing.T) {
+	stream := buildEventStreamMessage("assistantResponseEvent", []byte(`{"content":"complete"}`))
+	stream = append(stream, buildEventStreamMessage("contextUsageEvent", []byte(`{"contextUsagePercentage":12}`))...)
+	stream = append(stream, buildEventStreamMessage("meteringEvent", []byte(`{"usage":2.5}`))...)
+	var text, stop string
+	err := parseEventStream(bytes.NewReader(stream), &KiroStreamCallback{
+		OnText:       func(s string, _ bool) { text += s },
+		OnStopReason: func(s string) { stop = s },
+	})
+	require.NoError(t, err)
+	require.Equal(t, "complete", text)
+	require.Equal(t, "END_TURN", stop)
+}
+
+func TestKiroReliabilityMeteringOnlyDoesNotComplete(t *testing.T) {
+	stream := buildEventStreamMessage("contextUsageEvent", []byte(`{"contextUsagePercentage":12}`))
+	stream = append(stream, buildEventStreamMessage("meteringEvent", []byte(`{"usage":2.5}`))...)
+	require.ErrorIs(t, parseEventStream(bytes.NewReader(stream), &KiroStreamCallback{}), ErrIncompleteEventStream)
+}
+
 func TestKiroReliabilityLateToolID(t *testing.T) {
 	for _, events := range [][]string{
 		{`{"name":"read","input":"{\"path\":"}`, `{"toolUseId":"late","input":"\"中文.txt\"}","stop":true}`},

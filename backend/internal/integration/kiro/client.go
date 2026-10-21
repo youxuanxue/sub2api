@@ -574,11 +574,27 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback, advertisedTo
 		completed: make(map[string]bool),
 	}
 	var sawTerminalStop bool
+	var sawMeteringEvent bool
+	var sawUsableOutput bool
 
 	for {
 		frame, err := readKiroEventFrame(body)
 		if err == io.EOF {
 			if sawTerminalStop {
+				break
+			}
+			// IdC / Enterprise / Builder ID accounts can complete without
+			// metadataEvent.stopReason. A final meteringEvent is accepted only
+			// after usable text or a completed tool call, preventing metering-only
+			// or empty streams from being reported as successful turns.
+			if sawMeteringEvent && sawUsableOutput {
+				if callback.OnStopReason != nil {
+					if len(tools.completed) > 0 {
+						callback.OnStopReason("TOOL_USE")
+					} else {
+						callback.OnStopReason("END_TURN")
+					}
+				}
 				break
 			}
 			return ErrIncompleteEventStream
@@ -613,6 +629,9 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback, advertisedTo
 			}
 			if err := tools.consume(payloadBytes, callback); err != nil {
 				return err
+			}
+			if len(tools.completed) > 0 {
+				sawUsableOutput = true
 			}
 			continue
 		}
@@ -650,6 +669,7 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback, advertisedTo
 			// Kiro sends deltas, not cumulative snapshots. Repeated or overlapping
 			// fragments are content and must survive unchanged, including hashes.
 			if content, ok := event["content"].(string); ok && content != "" {
+				sawUsableOutput = true
 				if callback.OnText != nil {
 					callback.OnText(content, false)
 				}
@@ -688,6 +708,7 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback, advertisedTo
 				}
 			}
 		case "meteringEvent":
+			sawMeteringEvent = true
 			if usage, ok := event["usage"].(float64); ok {
 				totalCredits += usage
 			}
