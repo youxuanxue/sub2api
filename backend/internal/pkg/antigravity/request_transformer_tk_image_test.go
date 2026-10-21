@@ -65,23 +65,30 @@ func TestAspectRatioPassthrough_NoConfig_NotEmitted(t *testing.T) {
 }
 
 func TestImageSizePassthrough_ImageModel_Emitted(t *testing.T) {
-	req := &ClaudeRequest{
-		Model:     "gemini-3.1-flash-image",
-		MaxTokens: 1024,
-		Messages: []ClaudeMessage{
-			{Role: "user", Content: json.RawMessage(`"a red apple"`)},
-		},
-		ImageConfig: &ClaudeImageConfig{AspectRatio: "1:1", ImageSize: "2K"},
-	}
-	body, err := TransformClaudeToGeminiWithOptions(req, "project-1", req.Model, DefaultTransformOptions())
-	if err != nil {
-		t.Fatalf("transform: %v", err)
-	}
-	if got := gjson.GetBytes(body, "request.generationConfig.imageConfig.aspectRatio").String(); got != "1:1" {
-		t.Fatalf("aspectRatio=%q", got)
-	}
-	if got := gjson.GetBytes(body, "request.generationConfig.imageConfig.imageSize").String(); got != "2K" {
-		t.Fatalf("imageSize=%q, want 2K", got)
+	for _, tc := range []struct{ in, want string }{
+		{"2K", "2K"},
+		{"0.5K", "512"},
+		{"512", "512"},
+		{"512px", "512"},
+	} {
+		req := &ClaudeRequest{
+			Model:     "gemini-3.1-flash-image",
+			MaxTokens: 1024,
+			Messages: []ClaudeMessage{
+				{Role: "user", Content: json.RawMessage(`"a red apple"`)},
+			},
+			ImageConfig: &ClaudeImageConfig{AspectRatio: "1:1", ImageSize: tc.in},
+		}
+		body, err := TransformClaudeToGeminiWithOptions(req, "project-1", req.Model, DefaultTransformOptions())
+		if err != nil {
+			t.Fatalf("transform: %v", err)
+		}
+		if got := gjson.GetBytes(body, "request.generationConfig.imageConfig.aspectRatio").String(); got != "1:1" {
+			t.Fatalf("aspectRatio=%q", got)
+		}
+		if got := gjson.GetBytes(body, "request.generationConfig.imageConfig.imageSize").String(); got != tc.want {
+			t.Fatalf("imageSize in=%q got=%q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
 

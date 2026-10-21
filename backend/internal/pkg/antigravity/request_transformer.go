@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/google/uuid"
 )
 
@@ -757,10 +758,10 @@ func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {
 	// TK: gemini-native image-config passthrough. Only image models, and only when the
 	// inbound carried aspect_ratio and/or image_size (extra_body.google.image_config.* →
 	// ClaudeRequest.ImageConfig). Emitted as generationConfig.imageConfig; cloudcode-pa
-	// honors the documented ratio set and 1K/2K/4K size tiers.
+	// honors the documented ratio set and 512/1K/2K/4K size tiers (512 = 0.5K).
 	if req.ImageConfig != nil && IsImageModel(req.Model) {
 		ar := strings.TrimSpace(req.ImageConfig.AspectRatio)
-		size := strings.TrimSpace(req.ImageConfig.ImageSize)
+		size := apicompat.NormalizeGeminiImageSize(req.ImageConfig.ImageSize)
 		if ar != "" || size != "" {
 			config.ImageConfig = &GeminiImageConfig{AspectRatio: ar, ImageSize: size}
 		}

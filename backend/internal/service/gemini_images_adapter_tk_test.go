@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
@@ -18,39 +19,42 @@ func geminiImagesTestAccount() Account {
 	return account
 }
 func TestGeminiImagesCandidateUsesNativePlan(t *testing.T) {
-	for _, direct := range []bool{false, true} {
-		group := grp(740, PlatformNewAPI, 1, false)
-		group.AllowImageGeneration = true
-		account := geminiImagesTestAccount()
-		resolver, _, key := globalCandidateFixture([]Group{group}, []Account{account})
-		if direct {
-			key.RoutingMode = RoutingModeDirect
-			key.Group = &group
-			key.GroupID = &group.ID
+	for _, size := range []struct{ input, wire string }{{"4K", "4K"}, {"0.5K", "512"}, {"512px", "512"}} {
+		for _, direct := range []bool{false, true} {
+			group := grp(740, PlatformNewAPI, 1, false)
+			group.AllowImageGeneration = true
+			account := geminiImagesTestAccount()
+			resolver, _, key := globalCandidateFixture([]Group{group}, []Account{account})
+			if direct {
+				key.RoutingMode = RoutingModeDirect
+				key.Group = &group
+				key.GroupID = &group.ID
+			}
+			body := []byte(fmt.Sprintf(`{"model":"nano-2","prompt":"blue cup","size":%q,"aspect_ratio":"16:9"}`, size.input))
+			ctx, state, err := resolver.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIImages, "/v1/images/generations", "nano-2", body, "", "")
+			require.NoError(t, err)
+			require.NotNil(t, state.current.plan)
+			require.Equal(t, account.ID, state.current.account.ID)
+			require.Equal(t, protocolrouter.AdapterGeminiIdentity, state.current.plan.AdapterID())
+			request, ok := ProtocolRoutingRequest(state.current.ctx)
+			require.True(t, ok)
+			require.Equal(t, size.wire, gjson.GetBytes(request.Body(), "generationConfig.imageConfig.imageSize").String())
+			require.Equal(t, "16:9", gjson.GetBytes(request.Body(), "generationConfig.imageConfig.aspectRatio").String())
+			_, native, err := PrepareGeminiImagesRequest(body)
+			require.NoError(t, err)
+			expected, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolGeminiGenerateContent, "", "nano-2", false, native)
+			require.NoError(t, err)
+			require.Equal(t, expected.Digest(), request.Digest())
+			selection, err := resolver.candidateGateway.SelectAccountWithLoadAwareness(ctx, key.GroupID, "", "nano-2", nil, "", key.UserID)
+			require.NoError(t, err)
+			defer selection.ReleaseFunc()
+			require.Equal(t, account.ID, selection.Account.ID)
 		}
-		body := []byte(`{"model":"nano-2","prompt":"blue cup","size":"4K","aspect_ratio":"16:9"}`)
-		ctx, state, err := resolver.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIImages, "/v1/images/generations", "nano-2", body, "", "")
-		require.NoError(t, err)
-		require.NotNil(t, state.current.plan)
-		require.Equal(t, account.ID, state.current.account.ID)
-		require.Equal(t, protocolrouter.AdapterGeminiIdentity, state.current.plan.AdapterID())
-		request, ok := ProtocolRoutingRequest(state.current.ctx)
-		require.True(t, ok)
-		require.Equal(t, "4K", gjson.GetBytes(request.Body(), "generationConfig.imageConfig.imageSize").String())
-		require.Equal(t, "16:9", gjson.GetBytes(request.Body(), "generationConfig.imageConfig.aspectRatio").String())
-		_, native, err := PrepareGeminiImagesRequest(body)
-		require.NoError(t, err)
-		expected, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolGeminiGenerateContent, "", "nano-2", false, native)
-		require.NoError(t, err)
-		require.Equal(t, expected.Digest(), request.Digest())
-		selection, err := resolver.candidateGateway.SelectAccountWithLoadAwareness(ctx, key.GroupID, "", "nano-2", nil, "", key.UserID)
-		require.NoError(t, err)
-		defer selection.ReleaseFunc()
-		require.Equal(t, account.ID, selection.Account.ID)
 	}
 }
+
 func TestGeminiImagesCandidateRejectsUnauthorizedOrLossyRequests(t *testing.T) {
-	for _, kind := range []string{"image_disabled", "wrong_group", "multiple", "missing_capability"} {
+	for _, kind := range []string{"image_disabled", "wrong_group", "multiple", "missing_capability", "512_canvas_conflict"} {
 		t.Run(kind, func(t *testing.T) {
 			group := grp(740, PlatformAntigravity, 1, false)
 			group.AllowImageGeneration = true
@@ -63,6 +67,8 @@ func TestGeminiImagesCandidateRejectsUnauthorizedOrLossyRequests(t *testing.T) {
 				account.GroupIDs = []int64{741}
 			case "multiple":
 				body = []byte(`{"model":"nano-2","prompt":"cup","n":2}`)
+			case "512_canvas_conflict":
+				body = []byte(`{"model":"nano-2","prompt":"cup","size":"512x512","aspect_ratio":"16:9"}`)
 			case "missing_capability":
 				attachTestProtocolCapability(&account, protocolrouter.ProtocolChatCompletions)
 			}

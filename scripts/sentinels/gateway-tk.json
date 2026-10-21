@@ -1179,6 +1179,15 @@
       "rationale": "AG Images protocol adaptation must preserve existing same-model media forwarding on non-AG accounts."
     },
     {
+      "path": "backend/internal/pkg/apicompat/gemini_images.go",
+      "must_contain": [
+        "NormalizeGeminiImageSize(size)",
+        "IsSupportedGeminiImageSize(size)",
+        "square size conflicts with aspect_ratio"
+      ],
+      "rationale": "Images admission must use the shared Gemini 512 alias owner and preserve explicit square-canvas aspect constraints. Covered by TestImagesToGeminiGeneration and TestImagesToGeminiGenerationRejectsLossyOptions."
+    },
+    {
       "path": "backend/internal/service/gemini_images_adapter_tk.go",
       "must_contain": [
         "func UsesGeminiImagesAdapter(",
@@ -1776,7 +1785,8 @@
         "func (s *AntigravityGatewayService) prepareForwardGeminiWire(projectID, mappedModel string, generateContentBody []byte) (normalized, wrapped []byte, err error)",
         "func (s *AntigravityGatewayService) prepareForwardGeminiWireBody(projectID, mappedModel string, generateContentBody []byte) ([]byte, error)",
         "wrapped, err = s.wrapV1InternalRequest(projectID, mappedModel, normalized)",
-        "func (s *AntigravityGatewayService) buildMessagesForwardUpstreamBody("
+        "func (s *AntigravityGatewayService) buildMessagesForwardUpstreamBody(",
+        "apicompat.NormalizeGeminiImageSize(sizeStr)"
       ],
       "must_not_contain": [
         "delete(request, \"sessionId\")"
@@ -6794,7 +6804,9 @@
     {
       "path": "backend/internal/service/image_billing_size.go",
       "must_contain": [
-        "func ClassifyImageBillingTier(size string) (string, bool)"
+        "func ClassifyImageBillingTier(size string) (string, bool)",
+        "apicompat.NormalizeGeminiImageSize(trimmed)",
+        "case apicompat.GeminiImageSize512:"
       ],
       "rationale": "Upstream merge that restores <=2048 silently overbills those canvases as 4K while unit names still look healthy."
     },

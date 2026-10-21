@@ -1,7 +1,7 @@
 ---
 title: Antigravity OpenAI Images generations adapter
 status: approved
-approved_by: "feng：本会话明确要求“补一层协议。继续。”（2026-09-30）；授权实现，不等同于合并或部署授权"
+approved_by: "feng：本会话明确要求“补一层协议。继续。”（2026-09-30）；授权实现，不等同于合并或部署授权；2026-10-21 用户明确要求“Gemini 512 尺寸草稿，继续开 pr 支持”，批准本次尺寸兼容扩展"
 created: 2026-09-30
 ---
 
@@ -23,7 +23,7 @@ created: 2026-09-30
 | --- | --- |
 | model / prompt | 必填字符串；model 必须是获授权且 Plan 可执行的 Gemini 图片型号/别名；prompt 原文保留 |
 | n | 省略或 1；其他值 400，不循环生成多张 |
-| size | 省略/auto 默认 2K；支持 1K/2K/4K；1024x1024、2048x2048、4096x4096 对应方图档位 |
+| size | 省略/auto 保持省略，由最终 AG OAuth hop 默认 2K；支持 0.5K/1K/2K/4K（0.5K 上游线值为 `512`；亦接受 `512`/`512px`/`512x512`）；1024x1024、2048x2048、4096x4096 对应方图档位 |
 | aspect_ratio | 可选构图比例，默认 1:1，使用共享 Gemini 比例表；与显式方形 size 冲突则 400 |
 | response_format | 省略或 b64_json；url 返回 400，不把 data URI 冒充托管图片 URL |
 | stream | 省略或 false；true 返回 400，原生/Chat 等已有入口继续提供 SSE |
@@ -37,6 +37,23 @@ quality、background、output_format、mask、输入图、其他未知字段返�
 错误按 OpenAI error envelope 返回，保留 HTTP 状态和 Retry-After。成功结果须为
 正常终止的一张合法 MIME/base64 图片；空图片、未终止和超出 32 MiB facade
 响应缓冲上限返回 502。生成输出已发生后不因协议转换错误重放生图。
+
+## 512 尺寸兼容（2026-10-21）
+
+用户授权将既有 512 草稿形成 PR。`0.5K`、`512`、`512px`（忽略大小写和首尾空格）
+统一为 Gemini 上游档位 `512`；Images 的 `512x512` 也映射该档位，但只能配 `1:1`。
+非方形构图使用档位加 `aspect_ratio`，例如 `size=0.5K, aspect_ratio=16:9`。
+未知档位、非方形 WxH 和冲突比例继续拒绝；不接受草稿中的笔误 `05.K`。
+
+Images 转换、AG 原生 wire、Claude image-config 转换和计费复用同一尺寸规范化函数。
+512 输入归入现有 1K 计费档；有有效输出尺寸时，仍由既有计费 owner 优先采用输出尺寸。
+不新增价格列，也不保证所有 Gemini 图片模型都支持 512；实际可生成尺寸取决于上游模型。
+默认 2K 仍只在最终 AG OAuth hop 补齐，不提前改写中继请求。
+本次是 API 参数兼容，不增加 Studio 尺寸选项或修改其他供应商的 Images 参数校验。
+
+验证覆盖 Images 正反向转换、Direct/Universal 候选的 body/digest 一致性、OAuth/relay
+handler 发出 `512` 且只结算一次 1K 用量、原生 snake/camel 参数以及既有默认/4K 回归。
+真实 Google 上游 512 生图未在本次清理/开 PR 任务中执行；本地 fixture 不作为线上能力验收。
 
 ## 请求和执行
 

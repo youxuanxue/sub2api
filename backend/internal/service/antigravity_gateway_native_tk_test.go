@@ -75,8 +75,11 @@ func TestAntigravityNativeImageSizeDefaultPreservesExplicitConfig(t *testing.T) 
 		name, model, config, want string
 	}{
 		{"explicit 1K", "gemini-3.1-flash-image", `{"imageConfig":{"aspectRatio":"21:9","imageSize":"1K"}}`, `{"imageConfig":{"aspectRatio":"21:9","imageSize":"1K"},"responseModalities":["TEXT","IMAGE"]}`},
+		{"explicit 0.5K normalizes to 512", "gemini-3.1-flash-image", `{"imageConfig":{"aspectRatio":"1:1","imageSize":"0.5K"}}`, `{"imageConfig":{"aspectRatio":"1:1","imageSize":"512"},"responseModalities":["TEXT","IMAGE"]}`},
+		{"explicit 512px normalizes to 512", "gemini-3.1-flash-image", `{"imageConfig":{"imageSize":"512px"}}`, `{"imageConfig":{"imageSize":"512"},"responseModalities":["TEXT","IMAGE"]}`},
 		{"explicit 4K", "gemini-3.1-flash-image", `{"imageConfig":{"imageSize":"4K"}}`, `{"imageConfig":{"imageSize":"4K"},"responseModalities":["TEXT","IMAGE"]}`},
 		{"snake size", "gemini-3.1-flash-image", `{"image_config":{"image_size":"1K"}}`, `{"image_config":{"image_size":"1K"},"responseModalities":["TEXT","IMAGE"]}`},
+		{"snake 0.5K", "gemini-3.1-flash-image", `{"image_config":{"image_size":"0.5K"}}`, `{"image_config":{"image_size":"512"},"responseModalities":["TEXT","IMAGE"]}`},
 		{"null config", "gemini-3.1-flash-image", `{"imageConfig":null}`, `{"imageConfig":{"imageSize":"2K"},"responseModalities":["TEXT","IMAGE"]}`},
 		{"malformed config", "gemini-3.1-flash-image", `{"imageConfig":"invalid"}`, `{"imageConfig":"invalid","responseModalities":["TEXT","IMAGE"]}`},
 		{"explicit null size", "gemini-3.1-flash-image", `{"imageConfig":{"imageSize":null}}`, `{"imageConfig":{"imageSize":null},"responseModalities":["TEXT","IMAGE"]}`},
