@@ -67,6 +67,7 @@
             {{ t('admin.dashboard.metricActualCost') }}
           </button>
         </div>
+        <slot name="header-actions" />
         <div v-if="enableRankingView" class="inline-flex rounded-lg bg-gray-100 p-1 dark:bg-dark-800">
           <button
             type="button"
