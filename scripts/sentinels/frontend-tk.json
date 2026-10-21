@@ -3,6 +3,23 @@
   "rationale": "Load-bearing TokenKey-only frontend surfaces that anchor admin-UI behavior diverging from upstream defaults — sidebar geometry (TK uses a narrower w-44 rail vs upstream w-64), the fluid table mode used on /admin/accounts (no horizontal scroll, cells wrap), per-page sticky-edge-hints opt-out, and the control-plane login policy that does not depend on Turnstile. These are the kinds of small TK changes that get silently reverted by upstream merges precisely because they're small and local; the registry upgrades the rule from `agent must remember` to `merge will fail`. Source-of-truth read by both `scripts/preflight.sh` (frontend TK sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (frontend TK sentinels check, on `merge/upstream-*` PRs). Adding a new TK-only frontend surface that must survive upstream merges MUST add a sentinel here in the same commit. Sibling registries: `newapi-sentinels.json` (fifth-platform integration), `brand-sentinels.json` (outward TK brand surfaces). This file now also guards upstream payment-surface carry-ins that touch shared admin/i18n/style hotspots during upstream merges; updating those hotspots in merge PRs requires explicit sentinel-registry rationale refresh or a `sentinel-registry-reviewed` / `upstream-merge` commit marker to keep the gate mechanical.",
   "sentinels": [
     {
+      "path": "Makefile",
+      "must_contain": [
+        "src/components/admin/usage/__tests__/ModelUsageExportDialog.spec.ts",
+        "src/utils/__tests__/usageModelExport.spec.ts"
+      ],
+      "rationale": "The standard frontend CI target must verify customer workbook formulas, numeric amounts, cancellation and invalid-user handling."
+    },
+    {
+      "path": "frontend/src/api/admin/dashboard.ts",
+      "must_contain": [
+        "options?: { signal?: AbortSignal }",
+        "{ params, signal: options?.signal }",
+        "billing_mode?: string"
+      ],
+      "rationale": "Model summary export reuses the dashboard aggregate API and must preserve cancellation and billing-mode filtering across upstream merges."
+    },
+    {
       "path": "frontend/src/components/account/EditAccountModal.vue",
       "must_contain": [
         "canImportGeminiWebSession",
@@ -33,9 +50,10 @@
     {
       "path": ".github/workflows/backend-ci.yml",
       "must_contain": [
-        "pnpm exec playwright test --config playwright.gemini-import.config.ts"
+        "pnpm exec playwright test --config playwright.gemini-import.config.ts",
+        "pnpm exec playwright test --config playwright.usage-export.config.ts"
       ],
-      "rationale": "The credential import browser regression must run in CI, not only during manual review."
+      "rationale": "The credential import browser regression must run in CI, not only during manual review. Customer usage exports must also exercise the real UI and downloaded workbook in CI."
     },
     {
       "path": "frontend/vite.config.ts",
@@ -2012,9 +2030,12 @@
         "start_time: timeWindow ? new Date(timeWindow.start_ts).toISOString()",
         ":start-ts=\"getTimeWindowParams()?.start_ts\"",
         "const queryGroupId = getNumericQueryValue(route.query.group_id)",
-        "group_id: queryGroupId"
+        "group_id: queryGroupId",
+        "const buildModelStatsParams = (source: ModelDistributionSource): ModelStatsParams =>",
+        "getModelStats(buildModelStatsParams(source))",
+        "modelExportParams.value = buildModelStatsParams('requested')"
       ],
-      "rationale": "Admin Usage rolling presets must send absolute epoch-ms windows to list, stats, charts, endpoint/model distributions, errors, and dashboard drilldown routes. Dashboard group drilldowns must also consume group_id into the shared filters so the URL selection reaches every Usage query. Dropping this wiring silently restores widened local-date queries or shows unfiltered usage after a group click."
+      "rationale": "Admin Usage rolling presets must send absolute epoch-ms windows to list, stats, charts, endpoint/model distributions, errors, and dashboard drilldown routes. Dashboard group drilldowns must also consume group_id into the shared filters so the URL selection reaches every Usage query. Dropping this wiring silently restores widened local-date queries or shows unfiltered usage after a group click. Chart and customer Excel export must share this filter owner and freeze the same absolute window when opening the export dialog."
     },
     {
       "path": "frontend/src/constants/storefrontSeo.tk.ts",

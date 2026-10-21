@@ -32,6 +32,8 @@ FRONTEND_CRITICAL_VITEST := \
 	src/views/admin/__tests__/SettingsView.spec.ts \
 	src/views/admin/__tests__/DashboardView.spec.ts \
 	src/views/admin/__tests__/UsageView.spec.ts \
+	src/components/admin/usage/__tests__/ModelUsageExportDialog.spec.ts \
+	src/utils/__tests__/usageModelExport.spec.ts \
 	src/views/user/__tests__/UsageView.spec.ts \
 	src/components/user/__tests__/UserDashboardStats.spec.ts \
 	src/components/admin/channel/__tests__/PricingEntryCard.modelDefaultPrice.spec.ts

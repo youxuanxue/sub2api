@@ -63,7 +63,7 @@ func (s *KiroGatewayService) SetGatewayConfig(cfg *config.Config) {
 // ensureKiroStreamingKeepalive is the sole owner of Kiro pre-content SSE
 // keepalive: message_start before the first ping so Claude Code does not drop
 // long thinking stalls. No-op when already bound (tests) or keepalive disabled.
-func (s *KiroGatewayService) ensureKiroStreamingKeepalive(c *gin.Context, model string) {
+func (s *KiroGatewayService) ensureKiroStreamingKeepalive(c *gin.Context, model, requestID string) {
 	if boundPreContentStreamKeepalive(c) != nil {
 		return
 	}
@@ -74,10 +74,11 @@ func (s *KiroGatewayService) ensureKiroStreamingKeepalive(c *gin.Context, model 
 	if intervalSec <= 0 {
 		return
 	}
-	k := startAnthropicMessageStartKeepalive(
+	k := startAnthropicMessageStartKeepaliveWithID(
 		c,
 		time.Duration(intervalSec)*time.Second,
 		model,
+		requestID,
 	)
 	bindPreContentStreamKeepalive(c, k)
 }
@@ -515,7 +516,7 @@ func (s *KiroGatewayService) forwardStreaming(
 	// text/tool stops it. Callers must not bind a second emitter. Always stop
 	// on return — early failover paths used to rely on tkTryForwardKiro's
 	// post-Forward stop, which was removed when ownership moved here.
-	s.ensureKiroStreamingKeepalive(c, model)
+	s.ensureKiroStreamingKeepalive(c, model, requestID)
 	defer stopPreContentStreamKeepalive(c)
 
 	inputTokens, cacheReadTokens, cacheCreationTokens, cacheSessionKey, cacheBillingEnabled := s.kiroPromptUsage(ctx, account, req, payload)

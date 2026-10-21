@@ -3,6 +3,31 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/handler/admin/dashboard_handler.go",
+      "must_contain": [
+        "strings.TrimSpace(c.Query(\"model\")), strings.TrimSpace(c.Query(\"billing_mode\"))"
+      ],
+      "rationale": "Customer model exports and charts must pass model and billing-mode filters into the same cached aggregate query."
+    },
+    {
+      "path": "backend/internal/handler/admin/dashboard_query_cache.go",
+      "must_contain": [
+        "Model:                 model,",
+        "BillingMode:           billingMode,",
+        "Model: model, BillingMode: billingMode,"
+      ],
+      "rationale": "Both cache identity and repository filters must include model and billing mode; otherwise customer exports can reuse amounts from another filter."
+    },
+    {
+      "path": "backend/internal/handler/admin/dashboard_model_summary_test.go",
+      "must_contain": [
+        "func TestModelSummaryFilterAndCacheIsolation(t *testing.T)",
+        "require.Equal(t, tc.wantCost, body.Data.Models[0].ActualCost)",
+        "require.Equal(t, tc.wantCalls, repo.calls)"
+      ],
+      "rationale": "Keep the behavioral HTTP regression that distinguishes model and billing-mode cache entries, validates returned charges and preserves user/time filters."
+    },
+    {
       "path": "ops/observability/host_https_watch.py",
       "must_contain": [
         "def build_config(role: str, hostname: str, fresh: dict, domestic: dict) -> dict:",

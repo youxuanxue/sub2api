@@ -205,7 +205,7 @@ const EndpointDistributionChartStub = {
 const mountRouteFilteredUsageView = () => mount(UsageView, {
   global: { stubs: {
     AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
-    UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+    UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true, ModelUsageExportDialog: true,
     UserBalanceHistoryModal: true, Pagination: true, Select: true,
     DateRangePicker: true, Icon: true, TokenUsageTrend: true,
     ModelDistributionChart: true, GroupDistributionChart: true,
@@ -236,6 +236,29 @@ describe('admin UsageView route filters', () => {
   afterEach(() => {
     Object.keys(routeQuery).forEach((key) => delete routeQuery[key])
     vi.useRealTimers()
+  })
+
+  it('uses the same model filters for the chart and customer export, freezing the export snapshot', async () => {
+    routeQuery.user_id = '16'
+    routeQuery.start_ts = '1792461600000'
+    routeQuery.end_ts = '1792548000000'
+    const wrapper = mountRouteFilteredUsageView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.filters.model = 'selected-model'
+    vm.filters.billing_mode = 'token'
+    vm.filters.api_key_id = 17
+    vm.filters.native_compaction_v2 = true
+    vm.refreshData()
+    await flushPromises()
+    vm.openModelExport()
+    await wrapper.vm.$nextTick()
+    const reportParams = wrapper.findComponent({ name: 'ModelUsageExportDialog' }).props('params')
+    expect(reportParams).toEqual(getModelStats.mock.lastCall![0])
+    expect(reportParams).toMatchObject({ user_id: 16, model: 'selected-model', billing_mode: 'token', api_key_id: 17, native_compaction_v2: true, model_source: 'requested', start_ts: 1792461600000, end_ts: 1792548000000 })
+    vm.filters.user_id = 99
+    expect(reportParams.user_id).toBe(16)
+    wrapper.unmount()
   })
 
   it('shows the routed user while applying user_id to usage requests', async () => {
