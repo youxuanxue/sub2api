@@ -42,14 +42,20 @@ individual Issues.
 
 Daily scans append only new or changed entries as task-list comments. Identical
 replays do not write; oversized batches split comments, never Issues. Markers
-and per-entry signatures in comments are the durable publication state. Human
+and per-entry signatures in comments are the durable publication state. Platform
+markers own Issue identity even if a display label is removed. Marked Issues and
+comments are accepted only from the publishing account or repository writers;
+other public comments cannot change tracking state. Human
 notes and labels survive updates; only the managed body and task status are
 updated. Repositories with the same platform share one Issue. A repository's
 `platforms` list owns its destination scope; a single-platform repository stays
 in that platform even when discussing another protocol. For multi-platform
 repositories, title/body/labels/discussion hints select destinations. Generic
 shared fixes without platform hints go to all of that repository's platforms.
-Checkbox decisions and lifecycle remain independent in each platform Issue.
+Derived topics/platform hints from discussions are retained in the source
+checkpoint, so later neutral replies or merge events do not erase earlier
+classification. Checkpoints without this context are replayed. Checkbox decisions
+and lifecycle remain independent in each platform Issue.
 Both workflows use a serialized writer.
 
 A checked task records a local resolution or dismissal (add a reason/fix PR in

@@ -37,12 +37,18 @@ class FakeGitHub:
     def __call__(self, *args, payload=None):
         self.calls.append((args, payload))
         if payload is None:
+            if args[-1] == "user":
+                return {"id": 1, "login": "watchdog"}
+            if "/collaborators/" in args[-1]:
+                return {"permission": "write" if "/maintainer/" in args[-1] else "read"}
             if "/comments?" in args[-1]:
                 number = int(urlparse(args[-1]).path.split("/")[-2])
                 return [copy.deepcopy([row for row in self.comments if row["issue_number"] == number])]
             if "/labels?" in args[-1]:
                 return [[{"name": name} for name in self.labels]]
-            return [copy.deepcopy(self.issues)]
+            label = parse_qs(urlparse(args[-1]).query).get("labels", [None])[0]
+            return [copy.deepcopy([row for row in self.issues if label is None or
+                                   label in {entry["name"] for entry in row["labels"]}])]
         if "PATCH" in args:
             number = int(args[-1].rsplit("/", 1)[1])
             row = (next(row for row in self.comments if row["id"] == number) if "/issues/comments/" in args[-1]
@@ -61,6 +67,7 @@ class FakeGitHub:
             row = {**payload, "number": len(self.issues) + 1, "state": "open",
                    "labels": [{"name": label} for label in payload["labels"]]}
             self.issues.append(row)
+        row.setdefault("user", {"id": 1, "login": "watchdog"})
         return copy.deepcopy(row)
 
     @property

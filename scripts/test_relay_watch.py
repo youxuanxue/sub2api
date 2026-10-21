@@ -74,6 +74,42 @@ class QueueTest(unittest.TestCase):
         self.publish(api, [candidate()])
         self.assertEqual(api.writes, [])
 
+    def test_platform_marker_prevents_duplicate_when_label_is_removed(self):
+        api = FakeGitHub()
+        self.publish(api, [candidate()], platform="kiro")
+        api.issues[0]["labels"] = []
+        api.calls.clear()
+        self.publish(api, [candidate()], platform="kiro")
+        self.assertEqual(len(api.issues), 1)
+        self.assertEqual(api.writes, [])
+
+    def test_untrusted_markers_cannot_suppress_findings_or_close_aggregate(self):
+        api = FakeGitHub()
+        self.publish(api, [candidate()], platform="kiro")
+        forged = copy.deepcopy(api.comments[0])
+        forged.update(id=2, user={"id": 9, "login": "outsider"})
+        forged["body"] = forged["body"].replace("- [ ]", "- [x]")
+        api.comments.append(forged)
+        malicious_issue = copy.deepcopy(api.issues[0])
+        malicious_issue.update(number=100, user={"id": 9, "login": "outsider"})
+        api.issues.append(malicious_issue)
+        api.calls.clear()
+        self.publish(api, [candidate()], platform="kiro")
+        self.assertEqual(api.writes, [])
+        self.assertEqual(api.issues[0]["state"], "open")
+        self.assertIn("当前待处理：1", api.issues[0]["body"])
+        self.assertEqual(api.comments[1], forged)
+
+    def test_repository_writer_decision_survives_publisher_rotation(self):
+        api = FakeGitHub()
+        self.publish(api, [candidate()], platform="kiro")
+        api.issues[0]["user"] = {"id": 2, "login": "maintainer"}
+        api.comments[0]["user"] = {"id": 2, "login": "maintainer"}
+        api.comments[0]["body"] = api.comments[0]["body"].replace("- [ ]", "- [x]")
+        self.publish(api, [candidate()], platform="kiro")
+        self.assertEqual(len(api.issues), 1)
+        self.assertEqual(api.issues[0]["state"], "closed")
+
     def test_next_day_adds_only_new_or_changed_findings(self):
         api = FakeGitHub()
         self.publish(api, [candidate()])
@@ -263,7 +299,7 @@ class CollectTest(unittest.TestCase):
     def test_platform_assignment_change_replays_before_acknowledging(self):
         with tempfile.TemporaryDirectory() as tmp:
             checkpoint = Path(tmp) / "state.json"
-            previous = {"version": 1, "repo": REPO, "cursor": NOW.isoformat(), "platforms": ["upstream"]}
+            previous = {"version": 1, "repo": REPO, "cursor": NOW.isoformat(), "platforms": ["upstream"], "context": {}}
             checkpoint.write_text(json.dumps(previous))
             with patch.object(mod, "collect", return_value=(dict(previous), [])) as collect:
                 mod.scan_source(REPO, Path(tmp), checkpoint, platforms=("kiro",))
@@ -271,6 +307,29 @@ class CollectTest(unittest.TestCase):
                 self.assertEqual(json.loads(checkpoint.read_text()), previous)
                 mod.scan_source(REPO, Path(tmp), checkpoint, platforms=("upstream",))
                 self.assertEqual(collect.call_args.args[1], previous)
+
+    def test_comment_classification_survives_later_neutral_reply_and_merge(self):
+        first_comment = {"issue_url": f"https://api.github.com/repos/{REPO}/issues/1",
+                         "body": "Gemini account quota fails", "updated_at": "2026-10-20T00:00:00Z",
+                         "html_url": f"https://github.com/{REPO}/issues/1#issuecomment-1"}
+        def initial(*args):
+            if "/comments?" in args[-1]:
+                return [[first_comment]]
+            return [[upstream_issue(1, title="Help", body="details", pull_request={"merged_at": None})]]
+        state, findings = mod.collect(REPO, None, NOW, api=initial)
+        self.assertEqual(findings[0]["platform_hints"], ["google"])
+        def later(*args):
+            if "/comments?" in args[-1]:
+                return [[{**first_comment, "body": "Thanks, done", "updated_at": "2026-10-22T00:00:00Z"}]]
+            return [[upstream_issue(1, title="Help", body="details", state="closed",
+                                    updated_at="2026-10-22T00:00:00Z",
+                                    pull_request={"merged_at": "2026-10-22T00:00:00Z"})]]
+        _, findings = mod.collect(REPO, state, datetime(2026, 10, 22, tzinfo=timezone.utc), api=later)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["merged_at"], "2026-10-22T00:00:00Z")
+        groups = mod.platform_findings(findings, ("openai", "google"))
+        self.assertEqual(groups["openai"], [])
+        self.assertEqual(groups["google"], findings)
 
     def test_incremental_overlap_and_identity_guard(self):
         calls = []

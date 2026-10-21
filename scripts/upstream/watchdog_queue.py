@@ -56,6 +56,26 @@ def safe_title(title):
     return re.sub(r"([\\`*_\[\]])", r"\\\1", value)
 
 
+def trusted_authors(target, api):
+    """Markers in public Issues/comments are data until their author is trusted."""
+    publisher = api("api", "user")
+    permissions = {}
+
+    def trusted(row):
+        author = row.get("user") or {}
+        author_id, login = author.get("id"), author.get("login")
+        if not author_id or not login:
+            return False
+        if author_id == publisher["id"]:
+            return True
+        if author_id not in permissions:
+            permission = api("api", f"repos/{target}/collaborators/{login}/permission")
+            permissions[author_id] = permission.get("permission") in {"admin", "maintain", "write"}
+        return permissions[author_id]
+
+    return trusted
+
+
 def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstream"):
     """Publish relevant findings immediately, regardless of risk/manual judgment.
 
@@ -67,11 +87,15 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
     marker = platform_marker(platform)
     config = PLATFORMS[platform]
     resolved = set(resolved)
+    # The hidden platform marker owns identity. Labels are presentation metadata
+    # and may be removed by an operator; filtering by them would create a second
+    # aggregate Issue after that harmless edit.
     pages = api("api", "--paginate", "--slurp",
-                f"repos/{target}/issues?{urlencode({'state': 'all', 'labels': config['label'], 'per_page': 100})}")
+                f"repos/{target}/issues?{urlencode({'state': 'all', 'per_page': 100})}")
+    trusted = trusted_authors(target, api)
     matches = [row for page in pages for row in page
                if "pull_request" not in row and (marker in (row.get("body") or "") or
-                    (platform == "upstream" and MARKER in (row.get("body") or "")))]
+                    (platform == "upstream" and MARKER in (row.get("body") or ""))) and trusted(row)]
     if len(matches) > 1:
         raise ValueError("duplicate upstream tracking Issues")
     issue = matches[0] if matches else None
@@ -94,8 +118,8 @@ def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstre
         created = 1
     endpoint = f"repos/{target}/issues/{issue['number']}"
     comments = [row for page in api("api", "--paginate", "--slurp", endpoint + "/comments?per_page=100") for row in page]
-    # Only our marked daily comments contain machine-owned task lines.
-    owned = [row for row in comments if re.search(r"<!-- watchdog-day:\d{4}-\d{2}-\d{2}:\d+ -->", row.get("body") or "")]
+    # Only repository writers may supply state; other public comments are prose.
+    owned = [row for row in comments if re.search(r"<!-- watchdog-day:\d{4}-\d{2}-\d{2}:\d+ -->", row.get("body") or "") and trusted(row)]
     latest, manual = {}, set()
     for comment in owned:
         for checked, text, ref, signature, status, updated in RECORD.findall(comment.get("body") or ""):

@@ -719,7 +719,7 @@
     },
     {
       "path": "scripts/upstream/watchdog_queue.py",
-      "must_contain": ["def managed_body(", "def sync_queue(", "def platform_marker(", "watchdog-tracking:v1", "watchdog-day:"],
+      "must_contain": ["def managed_body(", "def sync_queue(", "def platform_marker(", "def trusted_authors(", "watchdog-tracking:v1", "watchdog-day:"],
       "rationale": "One aggregate per platform preserves scoped decisions, bounds daily comments and replays without duplicate writes."
     },
     {
@@ -727,6 +727,9 @@
       "must_contain": [
         "test_all_sources_share_one_issue_and_append_comments",
         "test_platform_queues_isolate_tasks_resolution_and_reopening",
+        "test_untrusted_markers_cannot_suppress_findings_or_close_aggregate",
+        "test_platform_marker_prevents_duplicate_when_label_is_removed",
+        "test_comment_classification_survives_later_neutral_reply_and_merge",
         "test_platform_routing_uses_repo_scope_and_specific_or_shared_evidence",
         "test_partial_platform_publish_failure_keeps_cursor_and_retry_deduplicates",
         "test_bootstrap_includes_old_open_issues_and_recent_merged_prs",

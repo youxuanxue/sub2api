@@ -76,9 +76,12 @@ def collect(repo, previous, started, lookback_days=30, api=watchdog.gh):
     rows = {int(row["number"]): row for page in pages for row in page}
     for number in comments.keys() - rows.keys():
         rows[number] = api("api", f"repos/{repo}/issues/{number}")
+    context = dict((previous or {}).get("context", {}))
     findings = []
     for number, row in sorted(rows.items()):
-        matched = topics(row, comments.get(number, []))
+        prior = context.get(str(number), {})
+        matched = sorted(set(prior.get("topics", [])) | set(topics(row, comments.get(number, []))))
+        hints = sorted(set(prior.get("platform_hints", [])) | set(platform_hints(row, comments.get(number, []))))
         if not matched:
             continue
         is_pr = "pull_request" in row
@@ -88,21 +91,22 @@ def collect(repo, previous, started, lookback_days=30, api=watchdog.gh):
         pr = row.get("pull_request", {})
         if is_pr and "merged_at" not in pr:
             pr = api("api", f"repos/{repo}/pulls/{number}")
+        context[str(number)] = {"topics": matched, "platform_hints": hints}
         updated = max([row["updated_at"], *[c["updated_at"] for c in comments.get(number, [])]])
         findings.append({"number": number, "title": row["title"], "kind": "pr" if is_pr else "issue",
                          "state": row["state"], "updated_at": updated, "topics": matched,
                          "url": f"https://github.com/{repo}/{'pull' if is_pr else 'issues'}/{number}",
                          "merged_at": pr.get("merged_at"), "merge_commit_sha": pr.get("merge_commit_sha"),
-                         "platform_hints": platform_hints(row, comments.get(number, [])),
+                         "platform_hints": hints,
                          "discussion_urls": [c["html_url"] for c in comments.get(number, [])]})
-    return {"version": 1, "repo": repo, "cursor": started.isoformat()}, findings
+    return {"version": 1, "repo": repo, "cursor": started.isoformat(), "context": context}, findings
 
 
 def scan_source(repo, work, checkpoint, target="", lookback_days=30, api=watchdog.gh, platforms=("upstream",)):
     previous = json.loads(checkpoint.read_text()) if checkpoint.exists() else None
     # Changing platform assignment needs a replay; the former cursor only
     # acknowledges delivery to the previous destination set.
-    if previous and previous.get("platforms") != list(platforms):
+    if previous and (previous.get("platforms") != list(platforms) or "context" not in previous):
         previous = None
     state, findings = collect(repo, previous, datetime.now(timezone.utc), lookback_days, api)
     state["platforms"] = list(platforms)
