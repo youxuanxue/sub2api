@@ -58,3 +58,5 @@ Drift-fix recipe (see the `tokenkey-antigravity-fingerprint-alignment` skill):
 - 2026-10-11: bump DefaultUserAgentVersion 1.3.2 → 1.3.3（本机 Homebrew 升级后 `agy --version` 静态验证；关联 #2544；本次未采集 wire 证据）。
 
 - 2026-10-13: bump DefaultUserAgentVersion 1.3.3 → 1.3.4（本机 Homebrew 升级后 `agy --version` 静态验证；本次未采集 wire 证据）。
+
+- 2026-10-21: bump DefaultUserAgentVersion 1.4.2 → 1.4.3（本机 `agy --version` 静态验证；UA 格式不变，本次未采集 wire 证据；关联 #2756）。

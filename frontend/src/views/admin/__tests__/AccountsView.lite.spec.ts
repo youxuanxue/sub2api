@@ -10,6 +10,7 @@ const {
   listWithEtag,
   getById,
   getBatchTodayStats,
+  getBatchPassiveUsage,
   getUpstreamBillingProbeSettings,
   getAllProxies,
   getAllGroups,
@@ -21,6 +22,7 @@ const {
   listWithEtag: vi.fn(),
   getById: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  getBatchPassiveUsage: vi.fn(),
   getUpstreamBillingProbeSettings: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
@@ -36,6 +38,7 @@ vi.mock('@/api/admin', () => ({
       getById,
       listWithEtag,
       getBatchTodayStats,
+      getBatchPassiveUsage,
       getUpstreamBillingProbeSettings,
       delete: vi.fn(),
       batchClearError: vi.fn(),
@@ -164,6 +167,7 @@ describe('admin AccountsView lite account list', () => {
     listWithEtag.mockReset().mockResolvedValue({ notModified: true, etag: 'compact-etag', data: null })
     getById.mockReset().mockResolvedValue(fullAccount)
     getBatchTodayStats.mockReset().mockResolvedValue({ stats: {} })
+    getBatchPassiveUsage.mockReset().mockResolvedValue({ usage: {} })
     getUpstreamBillingProbeSettings.mockReset().mockResolvedValue({ enabled: true })
     getAllProxies.mockReset().mockResolvedValue([])
     getAllGroups.mockReset().mockResolvedValue([{ id: 7, name: 'codex', platform: 'openai' }])
