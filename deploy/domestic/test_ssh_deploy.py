@@ -158,6 +158,16 @@ class SSHDeployTests(unittest.TestCase):
                 with self.subTest(field=field), self.assertRaises(ValueError):
                     target_module.load_target("zhupeng-prod", path)
 
+    def test_unverified_candidate_identity_cannot_be_marked_ready(self):
+        original = json.loads(target_module.INVENTORY.read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'targets.json'
+            data = json.loads(json.dumps(original))
+            data['targets']['zhupeng-prod']['candidate_identity_status'] = 'verified'
+            path.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, 'identity must remain pending'):
+                target_module.load_target('zhupeng-prod', path)
+
     def test_wrong_machine_rejected_before_disk_commands(self):
         target = target_module.load_target("zhupeng-prod")
         with patch.object(Path, "read_text", return_value="different-machine"), patch.object(subprocess, "check_output") as command:

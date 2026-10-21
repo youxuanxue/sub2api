@@ -38,6 +38,8 @@ def validate_target(name, target):
             raise ValueError("Invalid read-only source inventory field: " + field)
     if target.get("candidate_inventory_status") != "candidate-observed-not-approved":
         raise ValueError("Node1 candidate inventory must remain unapproved")
+    if target.get("candidate_identity_status") != "pending-readonly-verification":
+        raise ValueError("Node1 identity must remain pending readonly verification")
     if target.get("public_ip_mode") not in ("pending", "eip-move", "wireguard-forward"):
         raise ValueError("Public IP ownership model is not approved")
     for field, pattern in {

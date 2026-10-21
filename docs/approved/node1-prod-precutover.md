@@ -27,7 +27,7 @@ scope: UCloud cn-prod 106.75.29.139 → node1 preparation only; no cutover
 3. `106.75.29.139` 的承载模型：EIP 迁移到 node1，或 EIP 留在 UCloud 入口并经 WireGuard 转发到 node1。未选定模型前不得生成 apply 命令。
 4. cn-prod 当前 schema、PostgreSQL/Redis 版本、配置摘要、证书有效期和备份是否覆盖完整 `usage_logs`、历史更新/删除/补录及最新凭据轮换。
 
-当前 inventory 仅保留 `preparation_only=true`、`public_ip=106.75.29.139`、`public_ip_mode=pending` 和 `inventory_status=pending-readonly-verification`，不能用于线上部署。
+当前 inventory 仅保留 `preparation_only=true`、`public_ip=106.75.29.139`、`public_ip_mode=pending`、`inventory_status=pending-readonly-verification` 和 `candidate_identity_status=pending-readonly-verification`，machine-id/数据盘 UUID 使用未核实占位值，不能用于线上部署。
 
 UCloud 只读盘点回执见 [`node1-ucloud-readonly-inventory-20261021.json`](../ops/reports/node1-ucloud-readonly-inventory-20261021.json)。其中 node1 仅作为候选观察值，未被标记为已批准目标。
 
