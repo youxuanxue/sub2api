@@ -10,11 +10,13 @@
 部署前先运行 installer plan，核对主机、二进制 SHA-256 与旧任务暂停状态，再 apply；
 独立预建不需要发布或重启网关。
 
-验证命令：
+验证命令（Go 版本取自 `backend/go.mod`，Linux 二进制架构取自 Docker server；需要 Docker）：
 ```bash
-GOTOOLCHAIN=go1.27.2 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go -C backend build -trimpath -o /tmp/qa-local-maintenance ./cmd/qa-local-maintenance
-QA_LOCAL_BINARY=/tmp/qa-local-maintenance python3 -m unittest discover -s ops/qa -p 'test_local_maintenance*.py'
+make -C backend test-qa-local
 ```
+
+该入口同时运行 Go、宿主与真实 PostgreSQL 测试，由 CI 的 `test-integration` 必跑；
+仅修改本地 QA 宿主脚本或其测试也会触发后端检查。
 
 `tokenkey-qa-cleanup.timer` 每 5 分钟清理已完整超过 24 小时的 QA 小时分区及对应
 `qa_blobs`/`qa_dlq` 原始文件；用户已授权删除未归档的数据。每条记录至少保留 24 小时，
@@ -29,10 +31,10 @@ S3 上传、旧 boundary/maintenance 继续暂停；旧 DROP pause 保持原值�
 
 # QA Operations
 
-**当前运行策略（2026-10-17）：** 用户已暂停向 AWS S3 上传 QA。当前 prod 清单
+**当前运行策略（2026-10-21）：** 用户已暂停向 AWS S3 上传 QA。当前 prod 清单
 `deploy/aws/fresh-migration-20261015.json` 的 `paused_jobs` 是停用期望 owner：
 `tokenkey-qa-maintenance`（上传暂停）与 `tokenkey-qa-boundary`（历史归档验收问题保持停用，
-DROP pause 保留）均应 disabled/inactive；capture 与 pgdump 继续运行。宿主 HTTPS watcher
+DROP pause 保留）均应 disabled/inactive；capture、本地预建/清理与数据库备份继续运行。宿主 HTTPS watcher
 按该清单期望停用态，意外重新 enable 会告警。boundary 列入 `paused_jobs` 只声明巡检期望停用，
 不等于把未验收清理标成正常。配置中的 AWS S3 坐标代表恢复/未来归档能力，不代表允许上传。
 普通发布和宿主脚本更新应保持原 timer 状态；恢复上传或重新启用 boundary 须明确授权并
@@ -41,7 +43,8 @@ DROP pause 保留）均应 disabled/inactive；capture 与 pgdump 继续运行�
 QA is raw-only. When explicitly enabled, production capture is sealed, archived to the private raw object
 store, restore-verified, and cleaned by `tokenkey-qa-maintenance.timer`. Uploads are currently paused.
 
-The lifecycle owner is `deploy/aws/stage0/tokenkey-qa-maintenance.sh`; policy is
+The paused archive owner is `deploy/aws/stage0/tokenkey-qa-maintenance.sh`; the active local
+provision/cleanup owner is described above. Policy is
 `ops/qa/policy.yaml` and rollout state is `ops/qa/deploy_rollout.yaml`. Raw
 records are never exposed through the product API or user interface.
 
@@ -109,7 +112,7 @@ Hetzner raw 存储和独立 maintenance pin（1.8.288），没有搬运旧主机
 2026-10-17 复核已在原 Hetzner 存储验证该小时的完整 commit、3,070 条记录及 12,280 个
 blob 引用，缺失 0，见 [历史归档复核回执](../../docs/ops/tokyo-qa-history-review-20261017.json)。
 因此撤回“空窗口”判断及单桶 gap 方案，未执行 gap-apply，未修写东京控制行，未授权删除。
-东京元数据仍报失败；恢复上传或启用清理前须对齐历史小时的存储归属，不能把原存储的有效归档
+东京元数据仍报失败；恢复归档链路的上传/清理前须对齐历史小时的存储归属，不能把原存储的有效归档
 分类成 terminal gap。该回执证明复核时对象完整，七天生命周期仍生效，不保证未来永久可读。
 
 后续 `08:00Z` 小时也由 timer 完成 AWS 归档与恢复校验：2,947 条记录、11,788 个 blob 引用、缺失 0，整轮约 2 分 19 秒。09:21:27 UTC 已通过既有 release-state owner 记录**仅存储切换验收**，其中明确保留历史补偿失败；解除本次 DROP pause 并恢复 boundary timer，原有逐小时 seal、归档及 restore 门禁继续生效。验收副本为 `qa-aws-storage-cutover-20261016/storage-accepted.json`。旧 Hcloud prod 的两个 QA timer 均已 disabled/inactive，旧 pin 未运行。本次隔离恢复临时目录已清理，恢复回执和对象保留。
@@ -120,10 +123,10 @@ blob 引用，缺失 0，见 [历史归档复核回执](../../docs/ops/tokyo-qa-
 
 | 检查 | 已有执行入口 | 暂停期判读与处置 |
 | --- | --- | --- |
-| 数据盘与根盘容量 | 宿主 `tokenkey-disk-metrics.timer` 每五分钟；宿主 watcher 检查任务时效 | 核对真实挂载、用量与增长；磁盘压力不能靠删除未验收 QA 数据解决 |
+| 数据盘与根盘容量 | 宿主 `tokenkey-disk-metrics.timer` 每五分钟；宿主 watcher 检查任务时效 | 核对真实挂载、用量与增长；QA 仅按已授权的本地 24 小时规则清理，不额外缩短保留期 |
 | 上传保持停用 | 宿主 `tokenkey-https-watch.timer` 每两分钟 | maintenance timer disabled/inactive，service 不运行；监控显示 `intentionally paused`，历史 failed 回执仍保留 |
-| 采集、当前及未来分区、过期分区 | `Ops Daily Diagnostics` 每日 UTC 02:00，复用下方 Phase 2 与 capture 检查 | 当前分区不得缺失，未来覆盖满足 owner 要求；暂停不豁免分区检查，也不代表允许清理 |
-| 数据库备份 | 既有 pgdump timer 与宿主 watcher | 核对最近成功回执；备份范围以实际安装脚本和恢复验收为准 |
+| 采集、当前及未来分区、过期分区 | `Ops Daily Diagnostics` 每日 UTC 02:00，复用下方 Phase 2 与 capture 检查 | 当前分区不得缺失，未来覆盖满足 owner 要求；独立 provision/cleanup timer 由宿主 watcher 检查，旧 boundary 回执不代表它们的执行结果 |
+| 数据库备份 | 现行 pgBackRest 任务与宿主 watcher | 核对最近成功回执；旧 pgdump 已退役，备份范围与恢复证据见 [现网入口](../../deploy/hetzner/README.md) |
 
 可重复执行的只读复核（仓库根目录运行）：
 
@@ -148,8 +151,8 @@ Phase 2 返回 `boundary_host_receipt_missing` 与 `qa_records_expired_partition
 每日 workflow 为 active，最新已完成轮次早于暂停感知代码合并，不能宣称新版每日任务已跑过。
 
 采集继续增长，所以暂停不代表可以无限期搁置。若当前/未来分区出现缺口、capture 堆积或磁盘
-逼近压力阈值，应保留失败证据并评估仅补建分区或扩容等独立操作；不要直接启动带清理能力的
-boundary，也不要自动恢复上传、解除 DROP pause 或删除旧 raw。恢复操作须另按其验收与授权边界执行。
+逼近压力阈值，应先检查独立 provision/cleanup 的失败回执、锁冲突与积压；按上述入口修复并重跑。
+不要启动旧 boundary、恢复上传或解除旧 DROP pause；超出本地 24 小时策略的删除仍须另行授权。
 
 ## QA 与备份锁冲突
 

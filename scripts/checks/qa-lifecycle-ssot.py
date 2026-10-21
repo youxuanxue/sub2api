@@ -36,6 +36,11 @@ RETIRED = (
 )
 
 REQUIRED = {
+    "backend/Makefile": (
+        "test-integration: test-qa-local",
+        "test-qa-local: verify-toolchain",
+        'QA_LOCAL_BINARY="$$qa_test_dir/qa-local-maintenance" python3 -m unittest discover -s ops/qa',
+    ),
     "backend/cmd/qa-local-maintenance/main.go": (
         "lifecycle.RunProvision(ctx, conn",
         "lifecycle.RunLocalCleanup(ctx, conn",
@@ -459,6 +464,12 @@ def self_test() -> int:
         if scan(fixture):
             raise AssertionError("fixture must start clean")
         mutations = (
+            (
+                "backend/Makefile",
+                "test-integration: test-qa-local",
+                "test-integration:",
+                "test-integration: test-qa-local",
+            ),
             (
                 "ops/qa/policy.yaml",
                 "drop_requires_raw_commit: true",

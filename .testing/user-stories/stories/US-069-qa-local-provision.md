@@ -39,14 +39,13 @@ Assert real pg_inherits coverage, preserved row IDs, current-hour INSERT success
 - AC-004: `ops/observability/test_host_https_watch.py`::`test_local_provision_is_monitored_independently_of_paused_archive`
 
 ```bash
-GOTOOLCHAIN=go1.27.2 go -C backend test ./cmd/qa-local-maintenance
-python3 -m unittest discover -s ops/qa -p test_local_maintenance_host.py
+make -C backend test-qa-local
 python3 -m unittest discover -s ops/observability -p test_host_https_watch.py
-GOTOOLCHAIN=go1.27.2 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go -C backend build -o /tmp/qa-local-maintenance ./cmd/qa-local-maintenance
-QA_LOCAL_BINARY=/tmp/qa-local-maintenance python3 -m unittest discover -s ops/qa -p test_local_maintenance_integration.py
 ```
 
 ## Evidence
+CI `test-integration` invokes `test-qa-local` with the Go version from `backend/go.mod` and a Linux binary built for the Docker server architecture. Local runner/test changes require backend CI; a lifecycle gate rejects removal of the integration prerequisite.
+
 Real PostgreSQL 18 fixture verifies idempotence, preserved historical rows, current writes and wrong-parent refusal. Host tests cover credential filtering, legacy owner/digest guards and deployment rollback. No product UI changes.
 
 ## Status

@@ -89,6 +89,15 @@ def classify(paths: Iterable[str]) -> dict[str, bool]:
             result["backend"] = True
             matched = True
 
+        # The local QA deletion runner is exercised by backend test-integration.
+        if path in {
+            "ops/qa/local_maintenance_host.py",
+            "ops/qa/test_local_maintenance_host.py",
+            "ops/qa/test_local_maintenance_integration.py",
+        }:
+            result["backend"] = True
+            matched = True
+
         if _starts(path, ("frontend/",)):
             result["frontend"] = True
             matched = True
