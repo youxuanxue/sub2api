@@ -59,7 +59,7 @@
   ],
   "observed": {
     "source": "real-cli-mitm",
-    "kiro_cli_version": "2.32.0",
+    "kiro_cli_version": "2.33.0",
     "sample_count": 3,
     "samples": [
       {
@@ -114,8 +114,8 @@
         "ja3_hash": "5a9da89d36d7538dcae4e18befa096ea"
       }
     ],
-    "user_agent": "aws-sdk-rust/1.3.10 ua/2.1 api/codewhispererruntime/0.1.10231 os/macos lang/rust/1.92.0 md/appVersion-2.32.0 app/AmazonQ-For-CLI",
-    "x_amz_user_agent": "aws-sdk-rust/1.3.10 ua/2.1 api/codewhispererruntime/0.1.10231 os/macos lang/rust/1.92.0 m/F app/AmazonQ-For-CLI",
+    "user_agent": "aws-sdk-rust/1.3.10 ua/2.1 api/codewhispererruntime/0.1.10231 os/macos lang/rust/1.94.1 md/appVersion-2.33.0 app/AmazonQ-For-CLI",
+    "x_amz_user_agent": "aws-sdk-rust/1.3.10 ua/2.1 api/codewhispererruntime/0.1.10231 os/macos lang/rust/1.94.1 m/F app/AmazonQ-For-CLI",
     "protocol": {
       "operations": [
         "POST codewhisperer.us-east-1.amazonaws.com/"
