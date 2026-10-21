@@ -79,4 +79,6 @@
 
 | US-068 | cn-prod 私有镜像预下载 | InTest | `.testing/user-stories/stories/US-068-cn-image-prewarm.md` |
 
-| US-069 | Kiro 文件工具按账号分块与轮次保真 | InTest | `.testing/user-stories/stories/US-069-kiro-file-tool-chunking.md` |
+| US-069 | QA independent local lifecycle | Done | `.testing/user-stories/stories/US-069-qa-local-provision.md` |
+
+| US-070 | Kiro 文件工具按账号分块与轮次保真 | InTest | `.testing/user-stories/stories/US-070-kiro-file-tool-chunking.md` |

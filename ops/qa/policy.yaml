@@ -4,6 +4,15 @@ prod:
   capture_enabled: true
   maintenance_schedule_utc: "*:15"
 
+  # Current authorized policy while uploads are paused; old archive owner below
+  # retains its verified-archive contract and remains disabled in paused_jobs.
+  local_lifecycle:
+    provision_owner: tokenkey-qa-provision
+    cleanup_owner: tokenkey-qa-cleanup
+    retention_hours: 24
+    delete_unarchived: true
+    archive_uploads: paused
+
   lifecycle:
     owner: tokenkey-qa-maintenance
     future_horizon_hours: 72

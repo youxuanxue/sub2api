@@ -1,6 +1,6 @@
-# US-069-kiro-file-tool-chunking
+# US-070-kiro-file-tool-chunking
 
-- ID: US-069
+- ID: US-070
 - Priority: P1
 - Title: Kiro file tool chunking is account opt-in and preserves client turns
 - As a / I want / So that: 作为运维，我希望仅为已确认的 Kiro 账号启用分块提示，以缓解大文件工具静默断流，同时保留客户工具循环和真实错误。
@@ -20,20 +20,20 @@
 
 ## Assertions
 
-- AC-001 → TestUS069_FileToolGuidanceScope / TestUS069_FileToolGuidancePreservesHistory：精确比较 payload、历史、conversation ID 和未修改的输入。
-- AC-002 → TestUS069_FileToolChunkingAccountOptIn / TestUS069_FileToolGuidanceScope：不同类型/平台/工具范围断言。
-- AC-003 → TestUS069_FileToolChunkingForward / TestUS069_FileToolChunkingDoesNotContinueOrReplay：解析 JSON/SSE 工具对象；断言一次上游调用及正确终止。
-- AC-004 → TestUS069_FileToolChunkingAdminPatch：实际 service 入口传往 repository 的增量、目标与无关字段。
+- AC-001 → TestUS070_FileToolGuidanceScope / TestUS070_FileToolGuidancePreservesHistory：精确比较 payload、历史、conversation ID 和未修改的输入。
+- AC-002 → TestUS070_FileToolChunkingAccountOptIn / TestUS070_FileToolGuidanceScope：不同类型/平台/工具范围断言。
+- AC-003 → TestUS070_FileToolChunkingForward / TestUS070_FileToolChunkingDoesNotContinueOrReplay：解析 JSON/SSE 工具对象；断言一次上游调用及正确终止。
+- AC-004 → TestUS070_FileToolChunkingAdminPatch：实际 service 入口传往 repository 的增量、目标与无关字段。
 
 ## Linked Tests
 
-- `backend/internal/integration/kiro/file_tool_chunking_test.go`::`TestUS069_FileToolGuidanceScope`
-- `backend/internal/integration/kiro/file_tool_chunking_test.go`::`TestUS069_FileToolGuidancePreservesHistory`
-- `backend/internal/service/kiro_file_tool_chunking_test.go`::`TestUS069_FileToolChunkingAccountOptIn`
-- `backend/internal/service/kiro_file_tool_chunking_test.go`::`TestUS069_FileToolChunkingForward`
-- `backend/internal/service/kiro_file_tool_chunking_test.go`::`TestUS069_FileToolChunkingDoesNotContinueOrReplay`
-- `backend/internal/service/kiro_file_tool_chunking_test.go`::`TestUS069_FileToolChunkingAdminPatch`
-- 运行命令：`cd backend && go test -tags=unit ./internal/integration/kiro ./internal/service -run '^TestUS069_' -count=1`
+- `backend/internal/integration/kiro/file_tool_chunking_test.go`::`TestUS070_FileToolGuidanceScope`
+- `backend/internal/integration/kiro/file_tool_chunking_test.go`::`TestUS070_FileToolGuidancePreservesHistory`
+- `backend/internal/service/kiro_file_tool_chunking_test.go`::`TestUS070_FileToolChunkingAccountOptIn`
+- `backend/internal/service/kiro_file_tool_chunking_test.go`::`TestUS070_FileToolChunkingForward`
+- `backend/internal/service/kiro_file_tool_chunking_test.go`::`TestUS070_FileToolChunkingDoesNotContinueOrReplay`
+- `backend/internal/service/kiro_file_tool_chunking_test.go`::`TestUS070_FileToolChunkingAdminPatch`
+- 运行命令：`cd backend && go test -tags=unit ./internal/integration/kiro ./internal/service -run '^TestUS070_' -count=1`
 
 ## Evidence
 

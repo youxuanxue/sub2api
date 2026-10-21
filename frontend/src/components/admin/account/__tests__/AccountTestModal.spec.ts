@@ -153,6 +153,27 @@ describe('AccountTestModal', () => {
     expect(preview.attributes('src')).toBe('data:image/png;base64,QUJD')
   })
 
+  it.each([
+    'data: {"type":"error","error":"API returned 403: VALIDATION_REQUIRED"}\n',
+    'data: {"type":"test_complete","success":true}\n'
+  ])('notifies the list only after the test stream finishes: %s', async event => {
+    let finish!: (result: { done: boolean }) => void
+    const read = vi.fn()
+      .mockResolvedValueOnce({ done: false, value: new TextEncoder().encode(event) })
+      .mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    vi.mocked(global.fetch).mockResolvedValue({ ok: true, body: { getReader: () => ({ read }) } } as any)
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text().includes('admin.accounts.startTest'))!.trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('tested')).toBeUndefined()
+    finish({ done: true })
+    await flushPromises()
+    expect(wrapper.emitted('tested')).toEqual([[42]])
+    wrapper.unmount()
+  })
+
   // An empty model dropdown for a normal account (e.g. an anthropic OAuth
   // account, which always returns the Claude default catalog when reachable)
   // means the getAvailableModels request FAILED — the modal must surface why

@@ -357,6 +357,14 @@ func DropTransitionExpiredHour(
 	boundary time.Time,
 	now func() time.Time,
 ) (ExpiryResult, error) {
+	return dropFixedAgeHour(ctx, conn, control, child, boundary, now)
+}
+
+// dropFixedAgeHour is shared by the historical transition and the explicitly
+// authorized local retention owner. The archive-verified owner never calls it.
+func dropFixedAgeHour(ctx context.Context, conn *sql.Conn, control TransitionControlStore,
+	child pgpartition.ChildPartitionBound, boundary time.Time, now func() time.Time,
+) (ExpiryResult, error) {
 	result := ExpiryResult{RetentionBoundary: boundary, PartitionName: child.Name, PartitionUpper: child.Upper}
 	if control == nil {
 		return result, errors.New("lifecycle: transition archive control is required")

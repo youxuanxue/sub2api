@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUS069_FileToolChunkingAccountOptIn(t *testing.T) {
+func TestUS070_FileToolChunkingAccountOptIn(t *testing.T) {
 	require.False(t, (*Account)(nil).IsKiroFileToolChunkingEnabled())
 	for _, platform := range []string{PlatformKiro, PlatformAnthropic, PlatformOpenAI} {
 		for _, flag := range []any{nil, false, true, "true", 1, float64(1)} {
@@ -29,7 +29,7 @@ func TestUS069_FileToolChunkingAccountOptIn(t *testing.T) {
 	require.False(t, (&Account{Platform: PlatformKiro}).IsKiroFileToolChunkingEnabled())
 }
 
-func TestUS069_FileToolChunkingForward(t *testing.T) {
+func TestUS070_FileToolChunkingForward(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		for _, flag := range []any{nil, false, true, "true"} {
 			for _, tool := range []string{"Write", "Edit", "MultiEdit", "Read"} {
@@ -98,7 +98,7 @@ func TestUS069_FileToolChunkingForward(t *testing.T) {
 	}
 }
 
-func TestUS069_FileToolChunkingDoesNotContinueOrReplay(t *testing.T) {
+func TestUS070_FileToolChunkingDoesNotContinueOrReplay(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprint(stream), func(t *testing.T) {
 			a := newKiroAccountForTest()
@@ -127,7 +127,7 @@ func TestUS069_FileToolChunkingDoesNotContinueOrReplay(t *testing.T) {
 	require.NotContains(t, rec.Body.String(), "Wrong retry")
 }
 
-func TestUS069_FileToolChunkingAdminPatch(t *testing.T) {
+func TestUS070_FileToolChunkingAdminPatch(t *testing.T) {
 	for _, enabled := range []bool{true, false} {
 		a := newKiroAccountForTest()
 		a.Type = AccountTypeOAuth

@@ -32,7 +32,7 @@ approved_at: 2026-10-21
 - `Account.IsKiroFileToolChunkingEnabled`：只接受 Kiro 账号的布尔开关。
 - `KiroGatewayService.Forward`：读取选中账号，将选项交给 translator。
 - `ClaudeToKiroWithFileToolGuidance`：单一 system 构造路径；默认 `ClaudeToKiro` 保持关闭。
-- [US-069](../../.testing/user-stories/stories/US-069-kiro-file-tool-chunking.md)：常驻转换、流式/非流式、配置、轮次和失败边界测试。
+- [US-070](../../.testing/user-stories/stories/US-070-kiro-file-tool-chunking.md)：常驻转换、流式/非流式、配置、轮次和失败边界测试。
 - [运维说明](../kiro-file-tool-chunking-operations.md)：通过既有管理员 API 按键修改 Extra，避免替换其他配置。
 
 Web impact: none。本次是运维账号策略，无新增用户端字段或 UI；管理端复用既有 Extra API。现有用户请求不能开启该账号策略。计费继续使用既有 owner，新增提示不另造 token/credits 计费规则；额外客户端轮次仍是各自独立请求。

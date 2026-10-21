@@ -36,6 +36,35 @@ RETIRED = (
 )
 
 REQUIRED = {
+    "backend/Makefile": (
+        "test-integration: test-qa-local",
+        "test-qa-local: verify-toolchain",
+        'QA_LOCAL_BINARY="$$qa_test_dir/qa-local-maintenance" python3 -m unittest discover -s ops/qa',
+    ),
+    "backend/cmd/qa-local-maintenance/main.go": (
+        "lifecycle.RunProvision(ctx, conn",
+        "lifecycle.RunLocalCleanup(ctx, conn",
+        "pg_try_advisory_lock($1)",
+        '"deletion_authorized": false',
+    ),
+    "backend/internal/observability/qa/lifecycle/local_cleanup.go": (
+        "pgpartition.RetentionBoundary(anchor)",
+        "dropFixedAgeHour(ctx, conn",
+        "ResumeDroppedHourCleanup(ctx, conn",
+        "LOCK TABLE ONLY public.qa_records IN SHARE UPDATE EXCLUSIVE MODE",
+    ),
+    "ops/qa/local_maintenance_host.py": (
+        "require_legacy_paused()",
+        "fcntl.LOCK_EX | fcntl.LOCK_NB",
+        "hashlib.sha256(binary.read_bytes())",
+    ),
+    "ops/qa/test_local_maintenance_integration.py": (
+        "def test_provision_is_idempotent_accepts_live_writes_and_preserves_old_records(",
+        "def test_wrong_parent_key_fails_before_creating_children(",
+        "def test_cleanup_plan_then_drop_unarchived_preserves_retention_boundary_and_other_data(",
+        "def test_symlink_and_default_partition_block_orphan_deletion(",
+        "def test_locked_partition_keeps_rows_and_files_for_next_run(",
+    ),
     "backend/internal/observability/qa/archive/reconciler_test.go": (
         "func TestReconcilerVerificationFailureMarksSegmentFailed(",
         "func TestReconcilerMissingEvidenceBlocksShardBeforeUpload(",
@@ -289,6 +318,14 @@ def scan(root: Path) -> list[str]:
 
     try:
         policy = yaml.safe_load(_read(root, "ops/qa/policy.yaml"))
+        if policy["prod"]["local_lifecycle"] != {
+            "provision_owner": "tokenkey-qa-provision",
+            "cleanup_owner": "tokenkey-qa-cleanup",
+            "retention_hours": 24,
+            "delete_unarchived": True,
+            "archive_uploads": "paused",
+        }:
+            failures.append("independent local retention policy drift")
         lifecycle = policy["prod"]["lifecycle"]
         if lifecycle != {
             "owner": "tokenkey-qa-maintenance",
@@ -427,6 +464,12 @@ def self_test() -> int:
         if scan(fixture):
             raise AssertionError("fixture must start clean")
         mutations = (
+            (
+                "backend/Makefile",
+                "test-integration: test-qa-local",
+                "test-integration:",
+                "test-integration: test-qa-local",
+            ),
             (
                 "ops/qa/policy.yaml",
                 "drop_requires_raw_commit: true",

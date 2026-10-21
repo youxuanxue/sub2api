@@ -479,7 +479,7 @@
     <EditAccountModal v-if="lazyMount('edit', showEdit)" :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal v-if="lazyMount('reauth', showReAuth)" :show="showReAuth" :account="reAuthAcc" :auto-generate="autoGenerateAuthLink" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <DuplicateAccountModal v-if="lazyMount('duplicate', !!duplicateAcc)" :show="!!duplicateAcc" :account="duplicateAcc" @close="duplicateAcc = null" @duplicated="handleAccountsDuplicated" />
-    <AccountTestModal v-if="lazyMount('test', showTest)" :show="showTest" :account="testingAcc" @close="closeTestModal" />
+    <AccountTestModal v-if="lazyMount('test', showTest)" :show="showTest" :account="testingAcc" @close="closeTestModal" @tested="handleAccountTested" />
     <AccountStatsModal v-if="lazyMount('stats', showStats)" :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel v-if="lazyMount('schedule', showSchedulePanel)" :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu v-if="lazyMount('menu', menu.show)" :show="menu.show" :account="menu.acc" :position="menu.pos" :anchor="menu.anchor" @close="closeActionMenu" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @set-tier="handleSetTier" @create-spark-shadow="handleCreateSparkShadow" />
@@ -2476,6 +2476,10 @@ const handleExportData = async () => {
 }
 const accountExportStepUp = useStepUp()
 const closeTestModal = () => { showTest.value = false; testingAcc.value = null }
+const handleAccountTested = async (accountId: number) => {
+  const account = await loadAccountDetails({ id: accountId })
+  if (account) handleAccountUpdated(account)
+}
 const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
 const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = null }
 const handleTest = async (a: AccountListItem) => {

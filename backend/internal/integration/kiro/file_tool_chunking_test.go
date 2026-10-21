@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUS069_FileToolGuidanceScope(t *testing.T) {
+func TestUS070_FileToolGuidanceScope(t *testing.T) {
 	for _, names := range [][]string{nil, {"Read"}, {"write"}, {"mcp__files__Write"}, {"Write"}, {"Edit"}, {"MultiEdit"}, {"Write", "Edit", "MultiEdit"}} {
 		for _, enabled := range []bool{false, true} {
 			for _, thinking := range []bool{false, true} {
@@ -56,7 +56,7 @@ func TestUS069_FileToolGuidanceScope(t *testing.T) {
 	}
 }
 
-func TestUS069_FileToolGuidancePreservesHistory(t *testing.T) {
+func TestUS070_FileToolGuidancePreservesHistory(t *testing.T) {
 	var req ClaudeRequest
 	require.NoError(t, json.Unmarshal([]byte(`{
  "model":"claude-opus-4-6", "system":"Preserve finished files.",

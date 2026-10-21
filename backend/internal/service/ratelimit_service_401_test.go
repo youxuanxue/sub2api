@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 )
 
 type rateLimitAccountRepoStub struct {
+	extraMu sync.Mutex
 	mockAccountRepoForGemini
 	setErrorCalls          int
 	tempCalls              int
@@ -169,6 +171,8 @@ func (r *rateLimitAccountRepoStub) GetByID(ctx context.Context, id int64) (*Acco
 }
 
 func (r *rateLimitAccountRepoStub) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
+	r.extraMu.Lock()
+	defer r.extraMu.Unlock()
 	r.updateExtraCalls++
 	r.lastExtraUpdates = shallowCopyMap(updates)
 	return nil

@@ -1281,9 +1281,9 @@
     {
       "path": "backend/internal/service/kiro_file_tool_chunking_test.go",
       "must_contain": [
-        "TestUS069_FileToolChunkingForward",
-        "TestUS069_FileToolChunkingDoesNotContinueOrReplay",
-        "TestUS069_FileToolChunkingAdminPatch"
+        "TestUS070_FileToolChunkingForward",
+        "TestUS070_FileToolChunkingDoesNotContinueOrReplay",
+        "TestUS070_FileToolChunkingAdminPatch"
       ],
       "rationale": "Pin account-only opt-in, original tool responses, admin patch and no hidden continuation/replay behavior."
     }
