@@ -70,7 +70,7 @@ export function useAccountUsageFetch(
     const currentTime = Date.parse(usageInfo.value?.updated_at ?? '')
     const nextTime = Date.parse(next?.updated_at ?? '')
     if (props.account.platform === PLATFORM_OPENAI && Number.isFinite(currentTime) &&
-        Number.isFinite(nextTime) && nextTime < currentTime) return false
+        (!Number.isFinite(nextTime) || nextTime < currentTime)) return false
     usageInfo.value = next
     return true
   }
@@ -83,6 +83,10 @@ export function useAccountUsageFetch(
         loading.value = false
         activeQueryLoading.value = false
         error.value = null
+      }
+      if ((!previous || id !== previous[0]) && props.account.platform === PLATFORM_OPENAI) {
+        const cached = _usageCache.get(id)
+        if (cached && Date.now() - cached.ts < USAGE_CACHE_TTL) adoptUsage(cached.data)
       }
       if (value !== undefined) adoptUsage(value)
     },

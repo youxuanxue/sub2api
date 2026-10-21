@@ -2740,6 +2740,8 @@
       "path": "frontend/src/components/account/usage-cells/useAccountUsageFetch.ts",
       "must_contain": [
         "nextTime < currentTime",
+        "!Number.isFinite(nextTime)",
+        "const cached = _usageCache.get(id)",
         "if (adoptUsage(result)) _usageCache.set(accountId, { data: result, ts: Date.now() })"
       ],
       "rationale": "A delayed passive batch/cache cannot overwrite newer live quota evidence."

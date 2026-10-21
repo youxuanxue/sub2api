@@ -1887,13 +1887,14 @@ describe('AccountUsageCell', () => {
     const oldUsage = { updated_at: '2026-10-21T10:00:00Z', seven_day: { utilization: 100, resets_at: '2026-10-22T10:00:00Z', remaining_seconds: 3600 } }
     const freshUsage = { updated_at: '2026-10-21T12:00:00Z', seven_day: { utilization: 1, resets_at: '2026-10-28T12:00:00Z', remaining_seconds: 604800 } }
     getUsage.mockResolvedValue(freshUsage)
-    const wrapper = mount(AccountUsageCell, {
+    const mountCell = () => mount(AccountUsageCell, {
       props: { account, usageOverride: oldUsage },
       global: { stubs: {
         OpenAIQuotaResetCell: { template: '<div><slot name="pre-actions" /></div>' },
         UsageProgressBar: { props: ['utilization'], template: '<span class="quota">{{ utilization }}</span>' }
       } }
     })
+    const wrapper = mountCell()
     await flushPromises()
     expect(getUsage).not.toHaveBeenCalled()
     expect(wrapper.find('.quota').text()).toBe('100')
@@ -1903,9 +1904,22 @@ describe('AccountUsageCell', () => {
     expect(wrapper.find('.quota').text()).toBe('1')
     await wrapper.setProps({ usageOverride: { ...oldUsage } })
     expect(wrapper.find('.quota').text()).toBe('1')
-    await wrapper.setProps({ account: { ...account, id: 28302 }, usageOverride: oldUsage })
-    expect(wrapper.find('.quota').text()).toBe('100')
+    for (const updated_at of [undefined, 'invalid']) {
+      await wrapper.setProps({ usageOverride: { ...oldUsage, updated_at } })
+      expect(wrapper.find('.quota').text()).toBe('1')
+    }
+    await wrapper.setProps({ usageOverride: null })
+    expect(wrapper.find('.quota').text()).toBe('1')
     wrapper.unmount()
+    const remounted = mountCell()
+    await flushPromises()
+    expect(remounted.find('.quota').text()).toBe('1')
+    expect(getUsage).toHaveBeenCalledTimes(1)
+    remounted.unmount()
+    const reused = mountCell()
+    await reused.setProps({ account: { ...account, id: 28302 }, usageOverride: oldUsage })
+    expect(reused.find('.quota').text()).toBe('100')
+    reused.unmount()
   })
 
   it('OpenAI quota-card refresh and reset rehydrate windows despite a list override', async () => {

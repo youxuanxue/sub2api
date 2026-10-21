@@ -355,7 +355,6 @@ type AccountUsageService struct {
 	oauthRefreshAPI          *OAuthRefreshAPI
 	kiroOAuthRefreshExecutor OAuthRefreshExecutor
 	kiroUsageFetcher         kiroAccountInfoFetcher
-	agentIdentityWS          agentIdentityWSConnectionInvalidator
 }
 
 // NewAccountUsageService 创建AccountUsageService实例

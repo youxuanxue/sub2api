@@ -432,7 +432,7 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 		retryableOnSameAccount || oauth429Retry,
 	)
 	if statusCode == http.StatusTooManyRequests && isOpenAIAccountRateLimitPressure(account, classificationHeaders, responseBody) {
-		// Share the approved capacity failover rule: try a healthy peer instead
+		// Feed shared candidate failure ranking and try a healthy peer instead
 		// of spending the two-minute burst budget on a throttled credential.
 		failoverErr.RetryableOnSameAccount = false
 		failoverErr.Scope = GatewayFailureScopeAccount
