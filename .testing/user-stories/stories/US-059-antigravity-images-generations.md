@@ -19,6 +19,8 @@
 4. AC-004（regression）：Given 既有文本/图片协议或 OpenAI/Grok/newapi Images When 执行相关回归 Then 保持合法路由和响应。
 5. AC-005（runtime）：Given 响应大于 32 MiB When facade 缓冲 Then 终止缓冲并返回 502，未将原生内容泄露给 Images 客户端。
 
+6. AC-006（positive/negative/regression）：Given 512 档位别名 When 经 Images Direct/Universal、AG 原生或兼容转换 Then 规范为上游 `512` 并归入 1K 输入计费档；冲突方形比例和非法尺寸拒绝，默认尺寸与 4K 行为保持。
+
 ## Assertions
 
 - AC-001：图片与 STOP 分事件、随后 usage-only 事件仍返回成功并只计量一次；比较上游 request 中 imageSize/aspectRatio；PNG 解码返回值；核对 usage account、ImageCount、ImageSize 和 InboundEndpoint。
@@ -26,6 +28,8 @@
 - AC-003：核对不可变 request digest、原生 AdapterID、选中账号及拒绝结果。
 - AC-004：混合 AG/newapi 池分派后仅重选同协议账号，耗尽时不向另一协议供应商错发请求；运行既有原生/兼容/候选/路由回归，不修改其期望。
 - AC-005：实际写入超限字节，断言 ErrShortBuffer、内部/客户端缓冲为空和最终 502。
+
+- AC-006：核对 wire 的 `512`、请求 digest、1K 用量以及一次调用/结算；负向断言转换/候选失败；未知原生字段仍留给上游校验。
 
 ## Linked Tests
 
@@ -39,7 +43,16 @@
 - AC-004: `backend/internal/service/gemini_images_adapter_tk_test.go`::`TestGeminiImagesSelectionStaysWithDispatchedProtocol`
 - AC-005: `backend/internal/handler/gemini_images_tk_test.go`::`TestGeminiImagesWriterEnforcesBufferLimit`
 
-Run command: `cd backend && go test -p 2 -tags=unit ./internal/pkg/apicompat ./internal/engine/protocolrouter ./internal/service ./internal/handler ./internal/server/middleware ./internal/server/routes -run 'Test(ImagesToGemini|GeminiGenerationToImages|Gemini|Antigravity|WrapNativeGeminiRequest|Candidate|GlobalCandidate|Universal|Protocol|TkOpenAI|US057_Gemini|US059|ImageCapability)' -count=1`
+- AC-006: `backend/internal/pkg/apicompat/gemini_images_test.go`::`TestImagesToGeminiGeneration`
+- AC-006: `backend/internal/pkg/apicompat/gemini_images_test.go`::`TestImagesToGeminiGenerationRejectsLossyOptions`
+- AC-006: `backend/internal/service/gemini_images_adapter_tk_test.go`::`TestGeminiImagesCandidateUsesNativePlan`
+- AC-006: `backend/internal/service/gemini_images_adapter_tk_test.go`::`TestGeminiImagesCandidateRejectsUnauthorizedOrLossyRequests`
+- AC-006: `backend/internal/handler/us059_gemini_images_ingress_test.go`::`TestUS059_GeminiImagesIngressGenerationAndSettlement`
+- AC-006: `backend/internal/service/image_billing_size_test.go`::`TestClassifyImageBillingTier`
+- AC-006: `backend/internal/service/antigravity_gateway_native_tk_test.go`::`TestAntigravityNativeImageSizeDefaultPreservesExplicitConfig`
+- AC-006: `backend/internal/pkg/antigravity/request_transformer_tk_image_test.go`::`TestImageSizePassthrough_ImageModel_Emitted`
+
+Run command: `cd backend && go test -p 2 -tags=unit ./internal/pkg/apicompat ./internal/pkg/antigravity ./internal/engine/protocolrouter ./internal/service ./internal/handler ./internal/server/middleware ./internal/server/routes -run 'Test(NormalizeGeminiImageSize|ImageSizePassthrough|ClassifyImageBillingTier|ImagesToGemini|GeminiGenerationToImages|Gemini|Antigravity|WrapNativeGeminiRequest|Candidate|GlobalCandidate|Universal|Protocol|TkOpenAI|US057_Gemini|US059|ImageCapability)' -count=1`
 
 ## Evidence
 

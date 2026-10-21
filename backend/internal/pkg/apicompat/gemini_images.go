@@ -102,19 +102,19 @@ func ImagesToGeminiGeneration(body []byte) (string, []byte, error) {
 	if !slices.Contains(GeminiImageAspectRatios(), ratio) {
 		return "", nil, fmt.Errorf("unsupported aspect_ratio")
 	}
-	size := values["size"]
-	switch size {
-	case "", "auto":
+	size := strings.TrimSpace(values["size"])
+	if size == "auto" {
 		size = ""
-	case "1K", "2K", "4K":
-	case "1024x1024", "2048x2048", "4096x4096":
-		if ratio != "1:1" {
-			return "", nil, fmt.Errorf("square size conflicts with aspect_ratio")
-		}
-		size = map[string]string{"1024x1024": "1K", "2048x2048": "2K", "4096x4096": "4K"}[size]
-	default:
-		return "", nil, fmt.Errorf("unsupported size; use 1K, 2K, 4K or a supported square canvas; use aspect_ratio for composition")
 	}
+	normalized := NormalizeGeminiImageSize(size)
+	if !IsSupportedGeminiImageSize(size) {
+		return "", nil, fmt.Errorf("unsupported size; use 0.5K, 1K, 2K, 4K or a supported square canvas; use aspect_ratio for composition")
+	}
+	// Only a validated WxH canvas implies 1:1; 512px is a tier alias.
+	if _, height, canvas := strings.Cut(strings.ToLower(size), "x"); canvas && height != "" && ratio != "1:1" {
+		return "", nil, fmt.Errorf("square size conflicts with aspect_ratio")
+	}
+	size = normalized
 	imageConfig := map[string]any{"aspectRatio": ratio}
 	if size != "" {
 		imageConfig["imageSize"] = size

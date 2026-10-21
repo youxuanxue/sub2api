@@ -237,6 +237,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 				filters.NativeCompactionV2,
 				filters.BillingType,
 				filters.UpstreamModelMismatch,
+				filters.Model, "",
 			)
 			if err != nil {
 				return errors.New("failed to get model statistics")

@@ -36,7 +36,14 @@
             :start-ts="getTimeWindowParams()?.start_ts"
             :end-ts="getTimeWindowParams()?.end_ts"
             :filters="breakdownFilters"
-          />
+          >
+            <template #header-actions>
+              <button type="button" class="btn btn-secondary px-2.5 py-1 text-xs" data-testid="model-summary-export" @click="openModelExport">
+                <Icon name="download" size="sm" class="mr-1" />
+                {{ t('usage.exportModelSummary') }}
+              </button>
+            </template>
+          </ModelDistributionChart>
           <GroupDistributionChart
             v-model:metric="groupDistributionMetric"
             :group-stats="groupStats"
@@ -172,6 +179,7 @@
       </div>
       <OpsErrorDetailModal v-model:show="showErrorModal" :error-id="selectedErrorId" :error-type="'request'" />
     </div>
+  <ModelUsageExportDialog v-if="modelExportParams" :params="modelExportParams" @close="modelExportParams = null" />
   <UsageExportProgress :show="exportProgress.show" :progress="exportProgress.progress" :current="exportProgress.current" :total="exportProgress.total" :estimated-time="exportProgress.estimatedTime" @cancel="cancelExport" />
   <UsageCleanupDialog
     :show="cleanupDialogVisible"
@@ -202,6 +210,7 @@ import Pagination from '@/components/common/Pagination.vue'; import Select from 
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'; import UsageFilters from '@/components/admin/usage/UsageFilters.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'; import UsageExportProgress from '@/components/admin/usage/UsageExportProgress.vue'
 import UserTokenRanking from '@/components/admin/usage/UserTokenRanking.vue'
+import ModelUsageExportDialog from '@/components/admin/usage/ModelUsageExportDialog.vue'
 import UsageCleanupDialog from '@/components/admin/usage/UsageCleanupDialog.vue'
 import UserBalanceHistoryModal from '@/components/admin/user/UserBalanceHistoryModal.vue'
 import OpsErrorLogTable from '@/views/admin/ops/components/OpsErrorLogTable.vue'
@@ -212,6 +221,7 @@ import ModelDistributionChart from '@/components/charts/ModelDistributionChart.v
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
 import Icon from '@/components/icons/Icon.vue'
 import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
+import type { ModelStatsParams } from '@/api/admin/dashboard'
 import { rollingWindowTs } from '@/utils/dashboardWindow.tk'
 
 const { t } = useI18n()
@@ -594,6 +604,28 @@ const invalidateEndpointStatsCache = () => {
   loadedEndpointSources.path = false
 }
 
+const buildModelStatsParams = (source: ModelDistributionSource): ModelStatsParams => {
+  const requestType = filters.value.request_type
+  const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
+  return {
+    start_date: filters.value.start_date || startDate.value,
+    end_date: filters.value.end_date || endDate.value,
+    ...(getTimeWindowParams() ?? {}),
+    user_id: filters.value.user_id,
+    model: filters.value.model || undefined,
+    billing_mode: filters.value.billing_mode,
+    model_source: source,
+    api_key_id: filters.value.api_key_id,
+    account_id: filters.value.account_id,
+    group_id: filters.value.group_id,
+    request_type: requestType,
+    stream: legacyStream === null ? undefined : legacyStream,
+    native_compaction_v2: filters.value.native_compaction_v2,
+    billing_type: filters.value.billing_type,
+    upstream_model_mismatch: filters.value.upstream_model_mismatch,
+  }
+}
+
 const loadModelStats = async (source: ModelDistributionSource, force = false) => {
   if (!force && loadedModelSources[source]) {
     return
@@ -602,25 +634,7 @@ const loadModelStats = async (source: ModelDistributionSource, force = false) =>
   const seq = ++modelStatsReqSeq
   modelStatsLoading.value = true
   try {
-    const requestType = filters.value.request_type
-    const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
-    const baseParams = {
-      start_date: filters.value.start_date || startDate.value,
-      end_date: filters.value.end_date || endDate.value,
-      ...(getTimeWindowParams() ?? {}),
-      user_id: filters.value.user_id,
-      model: filters.value.model,
-      api_key_id: filters.value.api_key_id,
-      account_id: filters.value.account_id,
-      group_id: filters.value.group_id,
-      request_type: requestType,
-      stream: legacyStream === null ? undefined : legacyStream,
-      native_compaction_v2: filters.value.native_compaction_v2,
-      billing_type: filters.value.billing_type,
-	  upstream_model_mismatch: filters.value.upstream_model_mismatch,
-    }
-
-    const response = await adminAPI.dashboard.getModelStats({ ...baseParams, model_source: source })
+    const response = await adminAPI.dashboard.getModelStats(buildModelStatsParams(source))
 
     if (seq !== modelStatsReqSeq) return
 
@@ -756,6 +770,11 @@ const handleSort = (key: string, order: 'asc' | 'desc') => {
 
 const handleIpGeoBatchFailed = () => {
   appStore.showError(t('usage.ipGeo.batchFailed'))
+}
+const modelExportParams = ref<ModelStatsParams | null>(null)
+const openModelExport = () => {
+  // The chart and report share filters; freeze rolling time windows at opening.
+  modelExportParams.value = buildModelStatsParams('requested')
 }
 const cancelExport = () => exportAbortController?.abort()
 const openCleanupDialog = () => { cleanupDialogVisible.value = true }

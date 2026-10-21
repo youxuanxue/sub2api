@@ -66,7 +66,7 @@ func TestUS059_GeminiImagesIngressGenerationAndSettlement(t *testing.T) {
 	require.NoError(t, png.Encode(&pngBytes, image.NewRGBA(image.Rect(0, 0, 2, 3))))
 	encoded := base64.StdEncoding.EncodeToString(pngBytes.Bytes())
 	for _, transport := range []string{"oauth", "relay"} {
-		for _, scenario := range []string{"default", "explicit", "empty", "partial", "invalid", "multiple", "split_stop", "split_safety"} {
+		for _, scenario := range []string{"default", "explicit", "512", "empty", "partial", "invalid", "multiple", "split_stop", "split_safety"} {
 			t.Run(transport+"/"+scenario, func(t *testing.T) {
 				if transport == "relay" && strings.HasPrefix(scenario, "split_") {
 					t.Skip("relay returns non-streaming native JSON")
@@ -125,10 +125,16 @@ func TestUS059_GeminiImagesIngressGenerationAndSettlement(t *testing.T) {
 				options := ""
 				wantSize := "2K"
 				wantRatio := "1:1"
+				wantBillingSize := "2K"
 				if scenario == "explicit" {
 					options = `,"size":"4K","aspect_ratio":"3:4"`
 					wantSize = "4K"
+					wantBillingSize = "4K"
 					wantRatio = "3:4"
+				}
+				if scenario == "512" {
+					options = `,"size":"0.5K","aspect_ratio":"16:9"`
+					wantSize, wantRatio, wantBillingSize = "512", "16:9", "1K"
 				}
 				body := fmt.Sprintf(`{"model":"nano-2","prompt":"Draw a cup"%s}`, options)
 				path := "/v1/images/generations"
@@ -148,14 +154,14 @@ func TestUS059_GeminiImagesIngressGenerationAndSettlement(t *testing.T) {
 				wireSize := wantSize
 				if transport == "oauth" {
 					prefix = "request."
-				} else if scenario != "explicit" {
+				} else if scenario != "explicit" && scenario != "512" {
 					// Relays preserve omitted size; the final AG OAuth hop supplies
 					// its native 2K default. Billing still uses the default 2K tier.
 					wireSize = ""
 				}
 				require.Equal(t, wireSize, gjson.GetBytes(upstream.requests[0], prefix+"generationConfig.imageConfig.imageSize").String())
 				require.Equal(t, wantRatio, gjson.GetBytes(upstream.requests[0], prefix+"generationConfig.imageConfig.aspectRatio").String())
-				if scenario != "default" && scenario != "explicit" && scenario != "split_stop" {
+				if scenario != "default" && scenario != "explicit" && scenario != "512" && scenario != "split_stop" {
 					require.Equal(t, 502, rec.Code, rec.Body.String())
 					require.Empty(t, usage.logs, "undeliverable buffered images must not settle")
 					return
@@ -171,7 +177,7 @@ func TestUS059_GeminiImagesIngressGenerationAndSettlement(t *testing.T) {
 				require.Equal(t, account.ID, log.AccountID)
 				require.Equal(t, 1, log.ImageCount)
 				require.NotNil(t, log.ImageSize)
-				require.Equal(t, wantSize, *log.ImageSize)
+				require.Equal(t, wantBillingSize, *log.ImageSize)
 				require.NotNil(t, log.InboundEndpoint)
 				require.Equal(t, path, *log.InboundEndpoint)
 			})

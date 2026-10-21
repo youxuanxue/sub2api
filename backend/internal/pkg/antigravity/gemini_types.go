@@ -75,7 +75,7 @@ type GeminiGenerationConfig struct {
 // GeminiImageConfig Gemini 图片生成配置（gemini-3-pro-image / gemini-3.1-flash-image 等图片模型支持）
 type GeminiImageConfig struct {
 	AspectRatio string `json:"aspectRatio,omitempty"` // "1:1", "16:9", "9:16", "4:3", "3:4"
-	ImageSize   string `json:"imageSize,omitempty"`   // "1K", "2K", "4K"
+	ImageSize   string `json:"imageSize,omitempty"`   // "512" (0.5K), "1K", "2K", "4K"
 }
 
 // GeminiThinkingConfig Gemini thinking 配置
