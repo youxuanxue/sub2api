@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -239,8 +240,14 @@ func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 	for i, msg := range req.Messages {
 		isLast := i == len(req.Messages)-1
 
-		if msg.Role == "user" {
+		// Kiro has no mid-conversation system role. Preserve client context
+		// updates in their original position using its user-input envelope,
+		// just as the top-level system priming uses that envelope below.
+		if msg.Role == "user" || msg.Role == "system" {
 			content, images, toolResults := extractClaudeUserContent(msg.Content)
+			if msg.Role == "system" && strings.TrimSpace(content) == "" && len(images) == 0 && len(toolResults) == 0 {
+				continue // an empty control message must not create a new turn
+			}
 			content = normalizeUserContent(content, len(images) > 0)
 
 			if isLast {
@@ -772,10 +779,7 @@ func convertClaudeTools(tools []ClaudeTool) ([]KiroToolWrapper, map[string]strin
 	result := make([]KiroToolWrapper, 0, len(tools))
 	nameMap := make(map[string]string)
 	for _, tool := range tools {
-		desc := tool.Description
-		if len(desc) > maxToolDescLen {
-			desc = desc[:maxToolDescLen] + "..."
-		}
+		desc := truncateToolDescription(tool.Description)
 		sanitized := shortenToolName(sanitizeToolName(tool.Name))
 		if sanitized != tool.Name {
 			nameMap[sanitized] = tool.Name
@@ -867,6 +871,19 @@ func normalizeToolDesc(desc, name string) string {
 		return desc
 	}
 	return "Tool: " + name
+}
+
+// Keep the existing byte budget without cutting a multibyte character in two.
+// encoding/json would otherwise replace the broken suffix with U+FFFD.
+func truncateToolDescription(desc string) string {
+	if len(desc) <= maxToolDescLen {
+		return desc
+	}
+	end := maxToolDescLen
+	for end > 0 && !utf8.RuneStart(desc[end]) {
+		end--
+	}
+	return desc[:end] + "..."
 }
 
 // sanitizeToolName normalizes a tool name to characters the Kiro API accepts.
@@ -1711,10 +1728,7 @@ func convertOpenAITools(tools []OpenAITool) []KiroToolWrapper {
 		if tool.Type != "function" {
 			continue
 		}
-		desc := tool.Function.Description
-		if len(desc) > maxToolDescLen {
-			desc = desc[:maxToolDescLen] + "..."
-		}
+		desc := truncateToolDescription(tool.Function.Description)
 		name := shortenToolName(tool.Function.Name)
 		if strings.TrimSpace(name) == "" {
 			// Kiro rejects tools with empty names; skip unusable specs.

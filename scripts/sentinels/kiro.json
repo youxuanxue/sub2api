@@ -126,9 +126,13 @@
         "func KiroToClaudeResponse",
         "return claudeCodeBackendPrompt",
         "decodeKiroImageBase64(data)",
-        "normalizeKiroImageFormatAgainstBytes(format, raw)"
+        "normalizeKiroImageFormatAgainstBytes(format, raw)",
+        "msg.Role == \"user\" || msg.Role == \"system\"",
+        "truncateToolDescription(tool.Description)",
+        "truncateToolDescription(tool.Function.Description)",
+        "utf8.RuneStart(desc[end])"
       ],
-      "rationale": "Translate only client instructions and tools; preserve tool history and failure semantics. No gateway-owned completion prompt or private tool. Recognized Claude Code system prompts must replace with claudeCodeBackendPrompt (not preserve full CC identity). Haiku must not emit additionalModelRequestFields even when thinking is requested. parseBase64Image must decode then sniff MIME against bytes so MIME≠bytes / corrupt payloads fail closed before Bedrock."
+      "rationale": "Translate only client instructions and tools; preserve tool history and failure semantics. No gateway-owned completion prompt or private tool. Recognized Claude Code system prompts must replace with claudeCodeBackendPrompt (not preserve full CC identity). Haiku must not emit additionalModelRequestFields even when thinking is requested. parseBase64Image must decode then sniff MIME against bytes so MIME≠bytes / corrupt payloads fail closed before Bedrock. Keep nonempty in-conversation system context in order and truncate tool descriptions at UTF-8 boundaries."
     },
     {
       "path": "backend/internal/integration/kiro/image_format.go",
@@ -438,12 +442,14 @@
         "thinkingSigBuf",
         "ResolveStashThinking",
         "captureKiroInternalThinking",
-        "textBuf == \"\" && thinkingBuf == \"\" && len(toolUses) == 0",
+        "textBuf == \"\" && len(toolUses) == 0",
         "rawAssistant",
         "if callOutputCommitted",
-        "ValidateKiroImages(payload)"
+        "ValidateKiroImages(payload)",
+        "convertOutputFormatToInlineSchema(parsed.Body.Bytes())",
+        "s.ensureKiroStreamingKeepalive(c, model, requestID)"
       ],
-      "rationale": "Preserve authoritative turn outcomes, client tools, estimated usage/cache billing and internal reasoning signatures. Transport retries reset only uncommitted output. A normal END_TURN must never generate a gateway-authored user instruction; focused turn-boundary tests anchor that behavior. forwardStreaming is also the sole owner of Claude-Code-safe pre-content keepalive (message_start before ping) for every Kiro streaming caller. ValidateKiroImages must run before CallKiroAPI so bad image bytes never burn the account pool."
+      "rationale": "Preserve authoritative turn outcomes, client tools, estimated usage/cache billing and internal reasoning signatures. Transport retries reset only uncommitted output. A normal END_TURN must never generate a gateway-authored user instruction; focused turn-boundary tests anchor that behavior. forwardStreaming is also the sole owner of Claude-Code-safe pre-content keepalive (message_start before ping) for every Kiro streaming caller. ValidateKiroImages must run before CallKiroAPI so bad image bytes never burn the account pool. Hidden reasoning alone must not complete an empty client turn. Preserve requested output schemas using the shared inline fallback, and pass the normal message ID to the keepalive."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_tk_cache_billing.go",
@@ -1238,6 +1244,24 @@
         "groupPlatform === 'anthropic' && acc.platform === 'kiro'"
       ],
       "rationale": "Claude group member picker must list Kiro accounts with mixed_scheduling; otherwise ops cannot attach supply from the group side."
+    },
+    {
+      "path": "backend/internal/integration/kiro/translator_tk_replay_test.go",
+      "must_contain": [
+        "TestClaudeToKiro_PreservesInConversationSystemContext",
+        "TestClaudeToKiro_EmptyTrailingControlKeepsCurrentUserTurn",
+        "TestConvertClaudeTools_DescriptionTruncationPreservesUTF8"
+      ],
+      "rationale": "Regressions for lost conversation updates, empty control turns, and replacement characters caused by tool-description truncation."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service_tk_replay_regression_test.go",
+      "must_contain": [
+        "TestKiroStreaming_DelayedToolResponseMatchesFastResponse",
+        "TestKiroGatewayService_ReasoningOnlyCannotCompleteEmptyTurn",
+        "TestKiroGatewayService_OutputSchemaReachesUpstream"
+      ],
+      "rationale": "Compare exact text/tool events across a keepalive stall, reject hidden-only empty success, and verify schemas survive into the actual outbound payload without mutating the captured request."
     }
   ]
 }
