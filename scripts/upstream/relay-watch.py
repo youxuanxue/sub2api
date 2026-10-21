@@ -16,16 +16,7 @@ SPEC = importlib.util.spec_from_file_location("watchdog_run", ROOT / "scripts/up
 watchdog = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(watchdog)
 
-TOPICS = {
-    "account": r"oauth|credential|refresh|quota|rate.?limit|cooldown|401|403|429|account|authentication|authorization|\bauth\b|token|账号|凭证|限流|配额|封号|冷却",
-    "conversion": r"convert|translat|(?<![a-z])stream|eventstream|\bsse\b|websocket|tool|function|thinking|reasoning|response|image|cache|usage|截断|转换|工具|图片|计费|缓存|拒答",
-}
-
-
-def topics(row, comments=()):
-    content = " ".join([row.get("title") or "", row.get("body") or "",
-                        *[(comment.get("body") or "") for comment in comments]])
-    return [name for name, pattern in TOPICS.items() if re.search(pattern, content, re.I)]
+topics = watchdog.queue.topics
 
 
 def collect(repo, previous, started, lookback_days=30, api=watchdog.gh):
@@ -76,7 +67,7 @@ def scan_source(repo, work, checkpoint, target="", lookback_days=30, api=watchdo
               "status": "candidates_unverified", "sync": None}
     (work / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     if target:
-        report["sync"] = watchdog.queue.sync_queue(repo, findings, target, api)
+        report["sync"] = watchdog.queue.sync_queue(repo, findings, target, api, resolved=watchdog.resolved_refs())
         (work / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         checkpoint.parent.mkdir(parents=True, exist_ok=True)
         temporary = checkpoint.with_suffix(".tmp")

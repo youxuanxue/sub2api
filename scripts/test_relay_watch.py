@@ -25,84 +25,127 @@ def candidate(number=1, **kwargs):
 
 
 class QueueTest(unittest.TestCase):
-    def test_unverified_candidates_create_queue_without_high_risk_claim_and_replay_is_readonly(self):
+    def publish(self, api, items, repo=REPO, **kwargs):
+        return queue.sync_queue(repo, items, "example/fork", api, day="2026-10-21", **kwargs)
+
+    def test_all_sources_share_one_issue_and_append_comments(self):
         api = FakeGitHub()
-        counts = queue.sync_queue(REPO, [candidate()], "example/fork", api)
-        self.assertEqual(counts["created"], 1)
-        self.assertIn("待核实", api.issues[0]["body"])
-        self.assertEqual(api.issues[0]["labels"], [{"name": queue.LABEL}])
+        self.publish(api, [candidate()])
+        self.publish(api, [candidate()], repo="other/source")
+        self.assertEqual(len(api.issues), 1)
+        self.assertEqual(len(api.comments), 2)
+        self.assertIn("example/relay#1", api.comments[0]["body"])
+        self.assertIn("other/source#1", api.comments[1]["body"])
+        self.assertIn("当前待处理：2", api.issues[0]["body"])
         api.calls.clear()
-        queue.sync_queue(REPO, [candidate()], "example/fork", api)
+        self.publish(api, [candidate()])
         self.assertEqual(api.writes, [])
 
-    def test_new_updates_preserve_old_findings_and_human_decisions(self):
+    def test_next_day_adds_only_new_or_changed_findings(self):
         api = FakeGitHub()
-        queue.sync_queue(REPO, [candidate()], "example/fork", api)
-        api.issues[0]["body"] = "Operator notes\n" + api.issues[0]["body"] + "\nFix PR link"
-        api.issues[0]["labels"].append({"name": "human-label"})
-        queue.sync_queue(REPO, [candidate(2)], "example/fork", api)
-        body = api.issues[0]["body"]
-        self.assertIn("/issues/1)", body)
-        self.assertIn("/issues/2)", body)
-        self.assertTrue(body.startswith("Operator notes"))
-        self.assertTrue(body.endswith("Fix PR link"))
-        self.assertIn({"name": "human-label"}, api.issues[0]["labels"])
+        self.publish(api, [candidate()])
+        first = api.comments[0]["body"]
+        queue.sync_queue(REPO, [candidate(), candidate(2)], "example/fork", api, day="2026-10-22")
+        self.assertEqual(len(api.comments), 2)
+        self.assertEqual(api.comments[0]["body"], first)
+        self.assertNotIn("/issues/1)", api.comments[1]["body"])
+        self.assertIn("/issues/2)", api.comments[1]["body"])
 
-    def test_bounded_buckets_and_closed_operator_decision(self):
+    def test_stale_overlapping_scan_cannot_republish_old_discussion_state(self):
         api = FakeGitHub()
-        with patch.object(queue, "PAGE_SIZE", 1):
-            queue.sync_queue(REPO, [candidate(1), candidate(100)], "example/fork", api)
-        self.assertEqual(len(api.issues), 2)
-        api.issues[0]["state"] = "closed"
+        self.publish(api, [candidate(updated_at="2026-10-21T01:00:00Z")])
         api.calls.clear()
-        queue.sync_queue(REPO, [candidate(1, title="new evidence")], "example/fork", api)
+        self.publish(api, [candidate()])
         self.assertEqual(api.writes, [])
-        queue.sync_queue(REPO, [candidate(2)], "example/fork", api)
-        self.assertEqual(len(api.issues), 2)
+        self.assertIn("2026-10-21T01:00:00Z", api.comments[0]["body"])
+
+    def test_fixed_upstream_open_issue_is_removed_and_all_done_closes(self):
+        api = FakeGitHub()
+        self.publish(api, [candidate()], resolved={REPO + "#1"})
+        self.assertEqual(api.writes, [])
+        self.publish(api, [candidate()])
+        self.publish(api, [], resolved={REPO + "#1"})
+        self.assertIn("- [x]", api.comments[0]["body"])
         self.assertEqual(api.issues[0]["state"], "closed")
-        self.assertIn("/issues/2)", api.issues[1]["body"])
-        api.issues[1]["state"] = "closed"
-        queue.sync_queue(REPO, [candidate(3)], "example/fork", api)
-        self.assertEqual(len(api.issues), 3)
-        self.assertIn("/issues/3)", api.issues[2]["body"])
-
-    def test_merge_update_is_not_inferred_from_closed_and_titles_are_data(self):
-        api = FakeGitHub()
-        queue.sync_queue(REPO, [candidate(kind="pr", state="closed", title="[click](evil) @all\n<!-- injected -->")], "example/fork", api)
-        self.assertIn("pr/closed", api.issues[0]["body"])
-        self.assertNotIn("<!-- injected -->", api.issues[0]["body"])
-        queue.sync_queue(REPO, [candidate(kind="pr", state="closed", merged_at="2026-10-21T00:00:00Z")], "example/fork", api)
-        self.assertIn("pr/merged", api.issues[0]["body"])
-        self.assertEqual(api.issues[0]["body"].count("<!-- candidate:1 -->"), 1)
-
-    def test_older_scan_cannot_regress_newer_discussion_evidence(self):
-        api = FakeGitHub()
-        queue.sync_queue(REPO, [candidate(updated_at="2026-10-21T00:00:00Z")], "example/fork", api)
         api.calls.clear()
-        queue.sync_queue(REPO, [candidate(title="stale", updated_at="2026-10-20T01:00:00+00:00")], "example/fork", api)
+        self.publish(api, [candidate()], resolved={REPO + "#1"})
+        self.assertEqual(api.writes, [])
+        self.publish(api, [candidate(2)], resolved={REPO + "#1"})
+        self.assertEqual(len(api.issues), 1)
+        self.assertEqual(api.issues[0]["state"], "open")
+        self.assertIn("当前待处理：1", api.issues[0]["body"])
+
+    def test_human_checkbox_resolves_without_new_approval_or_ledger(self):
+        api = FakeGitHub()
+        self.publish(api, [candidate()])
+        api.comments[0]["body"] = api.comments[0]["body"].replace("- [ ]", "- [x]") + "Human fix PR link\n"
+        api.issues[0]["body"] = "Human notes\n" + api.issues[0]["body"]
+        self.publish(api, [candidate(updated_at="2026-10-22T00:00:00Z")])
+        self.assertEqual(len(api.comments), 1)
+        self.assertTrue(api.comments[0]["body"].endswith("Human fix PR link\n"))
+        self.assertTrue(api.issues[0]["body"].startswith("Human notes"))
+        self.assertEqual(api.issues[0]["state"], "closed")
+
+    def test_upstream_closure_and_merge_are_not_local_fixes(self):
+        api = FakeGitHub()
+        self.publish(api, [candidate(state="closed"), candidate(2, kind="pr", state="closed", merged_at="2026-10-21T00:00:00Z")])
+        self.assertIn("当前待处理：2", api.issues[0]["body"])
+        self.assertEqual(api.issues[0]["state"], "open")
+
+    def test_upstream_title_is_data_and_task_remains_a_markdown_checkbox(self):
+        api = FakeGitHub()
+        self.publish(api, [candidate(title="[click](evil) @all\n<!-- injected -->")])
+        body = api.comments[0]["body"]
+        self.assertNotIn("<!-- injected -->", body)
+        self.assertNotIn("@all", body)
+        self.assertIn("\\[click\\](evil)", body)
+        self.assertIn("\n- [ ] [example/relay#1]", body)
+        api.calls.clear()
+        self.publish(api, [candidate(title="[click](evil) @all\n<!-- injected -->")])
         self.assertEqual(api.writes, [])
 
-    def test_duplicate_or_malformed_queue_fails_without_overwriting(self):
+    def test_revoked_fix_evidence_requeues_and_reopens_same_issue(self):
         api = FakeGitHub()
-        queue.sync_queue(REPO, [candidate()], "example/fork", api)
+        self.publish(api, [candidate()])
+        self.publish(api, [], resolved={REPO + "#1"})
+        self.publish(api, [candidate()])
+        self.assertEqual(api.issues[0]["state"], "open")
+        self.assertIn("当前待处理：1", api.issues[0]["body"])
+
+    def test_large_daily_backfill_splits_comments_not_issues(self):
+        api = FakeGitHub()
+        with patch.object(queue, "COMMENT_LIMIT", 800):
+            self.publish(api, [candidate(n) for n in range(1, 20)])
+            self.assertEqual(len(api.issues), 1)
+            self.assertGreater(len(api.comments), 1)
+            self.assertTrue(all(len(c["body"].encode()) < 800 for c in api.comments))
+            api.calls.clear()
+            self.publish(api, [candidate(n) for n in range(1, 20)])
+            self.assertEqual(api.writes, [])
+
+    def test_partial_comment_failure_replays_without_duplicate_issue_or_tasks(self):
+        api = FakeGitHub()
+        def fail(*args, payload=None):
+            if args[-1].endswith("/comments"):
+                raise RuntimeError("comment failed")
+            return api(*args, payload=payload)
+        with self.assertRaisesRegex(RuntimeError, "comment failed"):
+            self.publish(fail, [candidate()])
+        self.publish(api, [candidate()])
+        self.assertEqual(len(api.issues), 1)
+        self.assertEqual(len(api.comments), 1)
+        self.assertEqual(len(queue.RECORD.findall(api.comments[0]["body"])), 1)
+
+    def test_duplicate_or_malformed_issue_fails_without_overwriting(self):
+        api = FakeGitHub()
+        self.publish(api, [candidate()])
         api.issues.append(copy.deepcopy(api.issues[0]))
         with self.assertRaisesRegex(ValueError, "duplicate"):
-            queue.sync_queue(REPO, [candidate()], "example/fork", api)
+            self.publish(api, [candidate()])
         api.issues.pop()
         api.issues[0]["body"] += queue.BEGIN
         with self.assertRaisesRegex(ValueError, "malformed"):
-            queue.sync_queue(REPO, [candidate()], "example/fork", api)
-
-    def test_existing_watchdog_publishes_pending_without_promoting_risk(self):
-        api = FakeGitHub()
-        source = mod.watchdog.SOURCES["upstream"]
-        entry = {**candidate(), "upstream": source["repo"] + "#1", "impact": "needs_review"}
-        report = {"high_unresolved": [], "needs_review": [entry]}
-        mod.watchdog.sync_issues(source, report, "example/fork", api)
-        self.assertEqual(api.writes, [])
-        mod.watchdog.sync_review_queue(source, report, "example/fork", api)
-        self.assertEqual(len(api.issues), 1)
-        self.assertEqual(report["high_unresolved"], [])
+            self.publish(api, [candidate()])
 
 
 class CollectTest(unittest.TestCase):

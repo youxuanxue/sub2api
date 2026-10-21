@@ -13,7 +13,8 @@ Each entry identifies an `upstream` issue (grouped refs are allowed for shared f
 - `fixed_if_all_present`: repository-relative `path:literal-substring` anchors.
   Nonempty, resolving anchors let the scan apply the recorded fix to runtime triage.
   Missing or empty anchors require review. String presence does not prove behavior
-  and cannot close a tracking Issue; run the behavioral regression tests in the fix PR.
+  and only applies previously recorded fix evidence to tracking state; run the
+  behavioral regression tests in the fix PR before recording that evidence.
 - `status` and `history`: preserved historical fix metadata. `history` contains only
   differing fields from older records; it never overrides current judgments or anchors.
   Historical records without anchors do not independently mark a scanned issue fixed.
@@ -31,24 +32,30 @@ reports of the same issue; original snapshots remain accessible in Git history.
 
 ## Candidate review and relay implementation watch
 
-The issue scanner publishes `needs_review` candidates with the shared
-`scripts/upstream/watchdog_queue.py` owner. These are **unverified leads**, not
-confirmed TokenKey bugs. Confirmed high-risk issues still use the existing
-individual issue projection and curated ledgers. This closes the former gap in
-which new keyword candidates lived only in expiring Actions artifacts.
+The shared `scripts/upstream/watchdog_queue.py` publishes gateway scheduling,
+billing, upstream account and protocol-conversion leads directly to one
+`upstream-tracking` Issue. Neither manual approval nor high-risk classification
+is required. Leads remain unverified until checked against TokenKey. Existing
+individual tracking Issues are retained, but new source entries do not create
+individual Issues.
 
-`watchdog-review` issues retain candidates in pages grouped by source. The
-page size is owned by `PAGE_SIZE` in the publisher; splitting is solely to
-stay below GitHub's body limit. Entries persist even when an upstream issue
-closes or the Actions cache expires. Human notes, labels and decisions outside
-the managed block survive updates. Closed review queues are not reopened or
-recreated for their existing candidates. Previously unseen candidates in the same
-source open a continuation queue. Reopen an old queue explicitly if new
-evidence about a previously dismissed candidate needs further tracking.
-The initial existing watchdog scan backfills its pending open-issue backlog.
+Daily scans append only new or changed entries as task-list comments. Identical
+replays do not write; oversized batches split comments, never Issues. Markers
+and per-entry signatures in comments are the durable publication state. Human
+notes and labels survive updates; only the managed body and task status are
+updated. All sources share the same Issue and a serialized workflow writer.
+
+A checked task records a local resolution or dismissal (add a reason/fix PR in
+plain text). Merged ledger judgments and valid recorded fix anchors also remove
+entries from the pending set and check their historical tasks. If those anchors
+are revoked, a newly scanned affected entry returns to pending. Upstream closure,
+PR merge, disappearance from an incremental scan, and cache expiry do not prove a
+TokenKey fix. All tasks resolved closes the aggregate; new pending tasks reopen
+that same Issue. Fix PRs must reference it without a GitHub closing keyword.
+The initial existing watchdog scan backfills its relevant open-issue backlog.
 
 The source catalog is `relays.json`: it owns repository identity, platform tags
-and monitoring purpose. `Relay Implementation Watch` scans every six hours;
+and monitoring purpose. `Relay Implementation Watch` scans daily;
 manual dispatch defaults to a read-only run. It uses the existing watchdog PAT,
 without model calls, credential probes or runtime changes. No upstream text is
 executed or interpreted as an instruction. Publication uses title/link/status
@@ -57,7 +64,7 @@ metadata; complete external comment bodies are not copied into the fork.
 `scripts/upstream/relay-watch.py` reads all pages of recently updated issues and
 PRs, plus issue/PR conversation comments (including edited comments). On first
 run or cache loss it backfills the last 30 days; `--lookback-days` allows a larger
-read-only audit. It tracks account/credential and protocol-conversion terms in
+read-only audit. It tracks scheduling, billing, account/credential and protocol-conversion terms in
 both the issue body and discussion. GitHub review-thread inline comments and
 separate GitHub Discussions are not collected. Merge state comes from REST
 `pull_request.merged_at` (PR detail fallback if absent), never from `closed`.
@@ -75,7 +82,7 @@ python3 -m unittest scripts.test_relay_watch scripts.test_issue_watchdog_flow -v
 Every source has its own cursor with overlap. API/publication failures fail the
 job, leave its persisted cursor unchanged and retain an error artifact. Retry
 replays safely. Both workflows share an external-projection concurrency group.
-The new queues are durable; expiring artifacts are diagnostic evidence only.
+The aggregate Issue and comments are durable; expiring artifacts are diagnostic evidence only.
 
 Triage each lead against the current TokenKey owner and record one of: affected
 (with reproduction), already covered (with a behavioral test), not applicable

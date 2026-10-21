@@ -97,5 +97,5 @@ OAuth 和供应账号在 prod 本机调度。现网身份与发布入口见 [运
 ## Issue watchdog
 
 入口 `.github/workflows/upstream-issue-watchdog.yml`；采集/checkpoint/Issue 更新由
-`scripts/upstream/watchdog-run.py` 拥有。候选未经验证不能直接判高风险，字符串锚点不能代替行为验证关闭 Issue；修复仍须显式 `mode=fix`。
+`scripts/upstream/watchdog-run.py` 拥有。相关候选直接进入共享汇总 Issue，每日追加变化，无需人工确认后建单；TokenKey 已解决的条目由勾选或修复账本剔除。证据仍须行为验证，修复仍须显式 `mode=fix`。
 维护账本或排查游标/产物时读 [ledger contract](../../ops/issue-watchdog/README.md)，不在此复制工作流细则。

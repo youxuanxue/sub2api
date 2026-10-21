@@ -2,11 +2,11 @@ name: Relay Implementation Watch
 
 on:
   schedule:
-    - cron: '43 2,8,14,20 * * *'
+    - cron: '43 21 * * *'
   workflow_dispatch:
     inputs:
       sync_issues:
-        description: Publish unverified candidates to durable review queues
+        description: Append relevant upstream findings to the shared tracking Issue
         type: boolean
         default: false
   pull_request:
