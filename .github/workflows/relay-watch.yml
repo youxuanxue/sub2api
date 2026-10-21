@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       sync_issues:
-        description: Append relevant upstream findings to the shared tracking Issue
+        description: Append relevant upstream findings to platform tracking Issues
         type: boolean
         default: false
   pull_request:
@@ -51,8 +51,8 @@ jobs:
       - uses: actions/cache/restore@v6
         with:
           path: .cache/relay-watch-state
-          key: relay-watch-v1-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: relay-watch-v1-
+          key: relay-watch-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: relay-watch-v2-
       - name: Scan issue discussions and PR merge evidence
         env:
           GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
@@ -78,4 +78,4 @@ jobs:
         if: success() && (github.event_name == 'schedule' || inputs.sync_issues)
         with:
           path: .cache/relay-watch-state
-          key: relay-watch-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          key: relay-watch-v2-${{ github.run_id }}-${{ github.run_attempt }}

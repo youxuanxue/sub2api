@@ -19,6 +19,39 @@ SPEC.loader.exec_module(watchdog)
 topics = watchdog.queue.topics
 
 
+PLATFORM_TERMS = {
+    "kiro": r"\bkiro\b|codewhisperer|amazon.?q",
+    "openai": r"\bopenai\b|\bcodex\b|chatgpt|\bgpt[- .]?\d",
+    "google": r"\bgoogle\b|\bgemini\b|\bantigravity\b|cloudcode|generativelanguage",
+}
+
+
+def platform_hints(row, comments=()):
+    content = " ".join([row.get("title") or "", row.get("body") or "",
+                        *[label["name"] for label in row.get("labels", [])],
+                        *[comment.get("body") or "" for comment in comments]])
+    return [platform for platform, pattern in PLATFORM_TERMS.items()
+            if re.search(pattern, content, re.I)]
+
+
+def platform_findings(findings, platforms):
+    """Single-provider repos belong to that provider even for cross-protocol work.
+
+    Multi-provider repos use explicit platform hints. Unspecified shared account,
+    scheduling or billing fixes go to every supported platform so none are lost.
+    """
+    if not platforms or len(set(platforms)) != len(platforms):
+        raise ValueError("source needs unique tracking platforms")
+    for platform in platforms:
+        watchdog.queue.platform_marker(platform)
+    grouped = {platform: [] for platform in platforms}
+    for item in findings:
+        matched = [platform for platform in platforms if platform in item.get("platform_hints", [])]
+        for platform in matched or platforms:
+            grouped[platform].append(item)
+    return grouped
+
+
 def collect(repo, previous, started, lookback_days=30, api=watchdog.gh):
     if previous and (previous.get("version") != 1 or previous.get("repo") != repo):
         raise ValueError("relay checkpoint source/version mismatch")
@@ -26,6 +59,11 @@ def collect(repo, previous, started, lookback_days=30, api=watchdog.gh):
     since = (cursor - timedelta(minutes=5)).isoformat()
     params = {"state": "all", "sort": "updated", "direction": "desc", "per_page": 100, "since": since}
     pages = api("api", "--paginate", "--slurp", f"repos/{repo}/issues?{urlencode(params)}")
+    # Bootstrap all unresolved issues/PRs as well as the recent closed/merged
+    # window. A quiet old account bug must not disappear from initial tracking.
+    if previous is None:
+        pages += api("api", "--paginate", "--slurp",
+                     f"repos/{repo}/issues?{urlencode({'state': 'open', 'per_page': 100})}")
     # Issue comments have their own updated cursor: edited comments can contain the
     # first relevant evidence even when the issue title/body has no matching terms.
     comment_pages = api("api", "--paginate", "--slurp",
@@ -55,19 +93,31 @@ def collect(repo, previous, started, lookback_days=30, api=watchdog.gh):
                          "state": row["state"], "updated_at": updated, "topics": matched,
                          "url": f"https://github.com/{repo}/{'pull' if is_pr else 'issues'}/{number}",
                          "merged_at": pr.get("merged_at"), "merge_commit_sha": pr.get("merge_commit_sha"),
+                         "platform_hints": platform_hints(row, comments.get(number, [])),
                          "discussion_urls": [c["html_url"] for c in comments.get(number, [])]})
     return {"version": 1, "repo": repo, "cursor": started.isoformat()}, findings
 
 
-def scan_source(repo, work, checkpoint, target="", lookback_days=30, api=watchdog.gh):
+def scan_source(repo, work, checkpoint, target="", lookback_days=30, api=watchdog.gh, platforms=("upstream",)):
     previous = json.loads(checkpoint.read_text()) if checkpoint.exists() else None
+    # Changing platform assignment needs a replay; the former cursor only
+    # acknowledges delivery to the previous destination set.
+    if previous and previous.get("platforms") != list(platforms):
+        previous = None
     state, findings = collect(repo, previous, datetime.now(timezone.utc), lookback_days, api)
+    state["platforms"] = list(platforms)
     work.mkdir(parents=True, exist_ok=True)
-    report = {"repo": repo, "scanned_at": state["cursor"], "findings": findings,
+    grouped = platform_findings(findings, platforms)
+    report = {"repo": repo, "platforms": list(platforms), "scanned_at": state["cursor"], "findings": findings,
               "status": "candidates_unverified", "sync": None}
     (work / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     if target:
-        report["sync"] = watchdog.queue.sync_queue(repo, findings, target, api, resolved=watchdog.resolved_refs())
+        sync = {}
+        resolved = watchdog.resolved_refs()
+        for platform, items in grouped.items():
+            sync[platform] = watchdog.queue.sync_queue(
+                repo, items, target, api, resolved=resolved, platform=platform)
+        report["sync"] = sync
         (work / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         checkpoint.parent.mkdir(parents=True, exist_ok=True)
         temporary = checkpoint.with_suffix(".tmp")
@@ -96,12 +146,13 @@ def main():
     failures = []
     for source in sources:
         repo = source["repo"]
+        platforms = tuple(source["platforms"])
         if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
             raise ValueError("invalid repository in manifest")
         key = repo.replace("/", "--")
         try:
             report = scan_source(repo, args.work / key, args.checkpoint_dir / f"{key}.json",
-                                 args.sync_repo, args.lookback_days)
+                                 args.sync_repo, args.lookback_days, platforms=platforms)
             print(f"{repo}: candidates={len(report['findings'])}; sync={report['sync']}")
         except Exception as error:
             failures.append(repo)

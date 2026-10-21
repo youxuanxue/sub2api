@@ -34,7 +34,8 @@ reports of the same issue; original snapshots remain accessible in Git history.
 
 The shared `scripts/upstream/watchdog_queue.py` publishes gateway scheduling,
 billing, upstream account and protocol-conversion leads directly to one
-`upstream-tracking` Issue. Neither manual approval nor high-risk classification
+tracking Issue per platform: `[kiro]`, `[openai]`, `[google]`, plus the existing
+`[upstream]` aggregate for Wei-Shaw/sub2api and Claude Code. Neither manual approval nor high-risk classification
 is required. Leads remain unverified until checked against TokenKey. Existing
 individual tracking Issues are retained, but new source entries do not create
 individual Issues.
@@ -43,7 +44,13 @@ Daily scans append only new or changed entries as task-list comments. Identical
 replays do not write; oversized batches split comments, never Issues. Markers
 and per-entry signatures in comments are the durable publication state. Human
 notes and labels survive updates; only the managed body and task status are
-updated. All sources share the same Issue and a serialized workflow writer.
+updated. Repositories with the same platform share one Issue. A repository's
+`platforms` list owns its destination scope; a single-platform repository stays
+in that platform even when discussing another protocol. For multi-platform
+repositories, title/body/labels/discussion hints select destinations. Generic
+shared fixes without platform hints go to all of that repository's platforms.
+Checkbox decisions and lifecycle remain independent in each platform Issue.
+Both workflows use a serialized writer.
 
 A checked task records a local resolution or dismissal (add a reason/fix PR in
 plain text). Merged ledger judgments and valid recorded fix anchors also remove
@@ -63,8 +70,10 @@ metadata; complete external comment bodies are not copied into the fork.
 
 `scripts/upstream/relay-watch.py` reads all pages of recently updated issues and
 PRs, plus issue/PR conversation comments (including edited comments). On first
-run or cache loss it backfills the last 30 days; `--lookback-days` allows a larger
-read-only audit. It tracks scheduling, billing, account/credential and protocol-conversion terms in
+run, cache loss or platform assignment changes it backfills all open Issues/PRs
+and the last 30 days of updates (including closed Issues and merged PRs); `--lookback-days` allows a larger
+read-only audit. Platform assignments are saved with the cursor, and a source
+cursor advances only after every destination has been published. It tracks scheduling, billing, account/credential and protocol-conversion terms in
 both the issue body and discussion. GitHub review-thread inline comments and
 separate GitHub Discussions are not collected. Merge state comes from REST
 `pull_request.merged_at` (PR detail fallback if absent), never from `closed`.
@@ -82,7 +91,7 @@ python3 -m unittest scripts.test_relay_watch scripts.test_issue_watchdog_flow -v
 Every source has its own cursor with overlap. API/publication failures fail the
 job, leave its persisted cursor unchanged and retain an error artifact. Retry
 replays safely. Both workflows share an external-projection concurrency group.
-The aggregate Issue and comments are durable; expiring artifacts are diagnostic evidence only.
+The platform Issues and comments are durable; expiring artifacts are diagnostic evidence only.
 
 Triage each lead against the current TokenKey owner and record one of: affected
 (with reproduction), already covered (with a behavioral test), not applicable

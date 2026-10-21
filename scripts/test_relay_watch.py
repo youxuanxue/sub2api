@@ -41,6 +41,39 @@ class QueueTest(unittest.TestCase):
         self.publish(api, [candidate()])
         self.assertEqual(api.writes, [])
 
+    def test_platform_queues_isolate_tasks_resolution_and_reopening(self):
+        api = FakeGitHub()
+        for platform in ("kiro", "openai", "google"):
+            self.publish(api, [candidate()], platform=platform)
+        self.publish(api, [candidate(2)], repo="other/kiro", platform="kiro")
+        self.assertEqual([row["title"].split()[0] for row in api.issues],
+                         ["[kiro]", "[openai]", "[google]"])
+        self.assertIn("当前待处理：2", api.issues[0]["body"])
+        self.assertIn("当前待处理：1", api.issues[1]["body"])
+        google_body = api.issues[2]["body"]
+        api.comments[1]["body"] = api.comments[1]["body"].replace("- [ ]", "- [x]")
+        self.publish(api, [], platform="openai")
+        self.assertEqual([row["state"] for row in api.issues], ["open", "closed", "open"])
+        self.publish(api, [candidate(2)], platform="openai")
+        self.assertEqual(len(api.issues), 3)
+        self.assertEqual(api.issues[1]["state"], "open")
+        self.assertEqual(api.issues[2]["body"], google_body)
+        api.calls.clear()
+        self.publish(api, [candidate()], platform="kiro")
+        self.publish(api, [candidate(2)], platform="openai")
+        self.publish(api, [candidate()], platform="google")
+        self.assertEqual(api.writes, [])
+
+    def test_legacy_marker_is_only_reused_for_upstream(self):
+        api = FakeGitHub()
+        self.publish(api, [candidate()])
+        api.issues[0]["body"] = api.issues[0]["body"].replace(queue.platform_marker("upstream"), queue.MARKER)
+        self.publish(api, [candidate()], platform="kiro")
+        self.assertEqual(len(api.issues), 2)
+        api.calls.clear()
+        self.publish(api, [candidate()])
+        self.assertEqual(api.writes, [])
+
     def test_next_day_adds_only_new_or_changed_findings(self):
         api = FakeGitHub()
         self.publish(api, [candidate()])
@@ -149,9 +182,47 @@ class QueueTest(unittest.TestCase):
 
 
 class CollectTest(unittest.TestCase):
+    def test_platform_routing_uses_repo_scope_and_specific_or_shared_evidence(self):
+        kiro = candidate(1, platform_hints=["kiro", "openai"])
+        google = candidate(2, platform_hints=["google"])
+        shared = candidate(3, platform_hints=[])
+        groups = mod.platform_findings([kiro, google, shared], ("kiro", "openai", "google"))
+        self.assertEqual([row["number"] for row in groups["kiro"]], [1, 3])
+        self.assertEqual([row["number"] for row in groups["openai"]], [1, 3])
+        self.assertEqual([row["number"] for row in groups["google"]], [2, 3])
+        self.assertEqual(mod.platform_findings([google], ("kiro",)), {"kiro": [google]})
+        hints = mod.platform_hints({"title": "Account refresh", "labels": [{"name": "codex"}]},
+                                   [{"body": "Gemini / Antigravity has the same bug"}])
+        self.assertEqual(hints, ["openai", "google"])
+        with self.assertRaisesRegex(ValueError, "unknown tracking platform"):
+            mod.platform_findings([shared], ("typo",))
+
+    def test_partial_platform_publish_failure_keeps_cursor_and_retry_deduplicates(self):
+        api = FakeGitHub()
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = Path(tmp) / "state.json"
+            state = {"version": 1, "repo": REPO, "cursor": NOW.isoformat()}
+            def fail(*args, payload=None):
+                if payload and payload.get("title", "").startswith("[google]"):
+                    raise RuntimeError("Google publication failed")
+                return api(*args, payload=payload)
+            with (patch.object(mod, "collect", return_value=(state, [candidate()])),
+                  patch.object(mod.watchdog, "resolved_refs", return_value=set())):
+                with self.assertRaisesRegex(RuntimeError, "Google publication failed"):
+                    mod.scan_source(REPO, Path(tmp), checkpoint, "example/fork", api=fail,
+                                    platforms=("openai", "google"))
+                self.assertFalse(checkpoint.exists())
+                report = mod.scan_source(REPO, Path(tmp), checkpoint, "example/fork", api=api,
+                                         platforms=("openai", "google"))
+            self.assertEqual(report["sync"]["openai"]["commented"], 0)
+            self.assertEqual(report["sync"]["google"]["commented"], 1)
+            self.assertEqual(len(api.issues), 2)
+            self.assertEqual(json.loads(checkpoint.read_text())["cursor"], NOW.isoformat())
+
     def test_common_pr_boilerplate_is_not_stream_or_auth_evidence(self):
         self.assertEqual(mod.topics({"title": "README typo", "body": "Author notes: upstream issues and assertions"}), [])
         self.assertEqual(mod.topics({"title": "SSE stream truncated", "body": ""}), ["conversion"])
+        self.assertEqual(mod.topics({"title": "AI Studio API Key format changed", "body": ""}), ["account"])
 
     def test_paginated_issues_pr_merge_and_comment_only_evidence(self):
         calls = []
@@ -176,6 +247,30 @@ class CollectTest(unittest.TestCase):
         self.assertEqual(findings[2]["topics"], ["account"])
         self.assertEqual(state["cursor"], NOW.isoformat())
         self.assertIn("--paginate", calls[0])
+
+    def test_bootstrap_includes_old_open_issues_and_recent_merged_prs(self):
+        def api(*args):
+            endpoint = args[-1]
+            if "/comments?" in endpoint:
+                return [[]]
+            if parse_qs(urlparse(endpoint).query).get("state") == ["open"]:
+                return [[upstream_issue(1, updated_at="2020-01-01T00:00:00Z")]]
+            return [[upstream_issue(2, state="closed", pull_request={"merged_at": "2026-10-20T00:00:00Z"})]]
+        _, findings = mod.collect(REPO, None, NOW, api=api)
+        self.assertEqual([row["number"] for row in findings], [1, 2])
+        self.assertEqual(findings[1]["merged_at"], "2026-10-20T00:00:00Z")
+
+    def test_platform_assignment_change_replays_before_acknowledging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = Path(tmp) / "state.json"
+            previous = {"version": 1, "repo": REPO, "cursor": NOW.isoformat(), "platforms": ["upstream"]}
+            checkpoint.write_text(json.dumps(previous))
+            with patch.object(mod, "collect", return_value=(dict(previous), [])) as collect:
+                mod.scan_source(REPO, Path(tmp), checkpoint, platforms=("kiro",))
+                self.assertIsNone(collect.call_args.args[1])
+                self.assertEqual(json.loads(checkpoint.read_text()), previous)
+                mod.scan_source(REPO, Path(tmp), checkpoint, platforms=("upstream",))
+                self.assertEqual(collect.call_args.args[1], previous)
 
     def test_incremental_overlap_and_identity_guard(self):
         calls = []

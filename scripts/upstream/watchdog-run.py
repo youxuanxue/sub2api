@@ -99,7 +99,7 @@ def resolved_refs(root=ROOT):
 def sync_issues(source, report, target_repo, api=gh, entries=()):
     items = [{**item, "number": engine.issue_number(item["upstream"])}
              for item in entries if item.get("topics") and item.get("impact") != "not_applicable"]
-    return queue.sync_queue(source["repo"], items, target_repo, api, resolved=resolved_refs())
+    return queue.sync_queue(source["repo"], items, target_repo, api, resolved=resolved_refs(), platform="upstream")
 
 
 def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):

@@ -38,7 +38,8 @@ class FakeGitHub:
         self.calls.append((args, payload))
         if payload is None:
             if "/comments?" in args[-1]:
-                return [copy.deepcopy(self.comments)]
+                number = int(urlparse(args[-1]).path.split("/")[-2])
+                return [copy.deepcopy([row for row in self.comments if row["issue_number"] == number])]
             if "/labels?" in args[-1]:
                 return [[{"name": name} for name in self.labels]]
             return [copy.deepcopy(self.issues)]
@@ -50,7 +51,8 @@ class FakeGitHub:
             if "labels" in payload:
                 row["labels"] = [{"name": name} for name in payload["labels"]]
         elif args[-1].endswith("/comments"):
-            row = {**payload, "id": len(self.comments) + 1}
+            row = {**payload, "id": len(self.comments) + 1,
+                   "issue_number": int(args[-1].split("/")[-2])}
             self.comments.append(row)
         elif args[-1].endswith("/labels"):
             self.labels.add(payload["name"])

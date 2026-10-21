@@ -719,13 +719,17 @@
     },
     {
       "path": "scripts/upstream/watchdog_queue.py",
-      "must_contain": ["def managed_body(", "def sync_queue(", "watchdog-tracking:v1", "watchdog-day:"],
-      "rationale": "One durable aggregate preserves human decisions, bounds daily comments and replays without duplicate writes."
+      "must_contain": ["def managed_body(", "def sync_queue(", "def platform_marker(", "watchdog-tracking:v1", "watchdog-day:"],
+      "rationale": "One aggregate per platform preserves scoped decisions, bounds daily comments and replays without duplicate writes."
     },
     {
       "path": "scripts/test_relay_watch.py",
       "must_contain": [
         "test_all_sources_share_one_issue_and_append_comments",
+        "test_platform_queues_isolate_tasks_resolution_and_reopening",
+        "test_platform_routing_uses_repo_scope_and_specific_or_shared_evidence",
+        "test_partial_platform_publish_failure_keeps_cursor_and_retry_deduplicates",
+        "test_bootstrap_includes_old_open_issues_and_recent_merged_prs",
         "test_fixed_upstream_open_issue_is_removed_and_all_done_closes",
         "test_upstream_closure_and_merge_are_not_local_fixes",
         "test_partial_comment_failure_replays_without_duplicate_issue_or_tasks",
@@ -735,7 +739,7 @@
     },
     {
       "path": "scripts/upstream/relay-watch.py",
-      "must_contain": ["def collect(", "issues/comments?", "merged_at", "temporary.replace(checkpoint)"],
+      "must_contain": ["def collect(", "def platform_findings(", "issues/comments?", "merged_at", "temporary.replace(checkpoint)"],
       "rationale": "Relay monitoring must retain discussion changes and true merge evidence, committing cursors only after publication."
     },
     {

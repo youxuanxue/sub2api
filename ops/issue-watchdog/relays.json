@@ -6,7 +6,7 @@
       "platforms": [
         "upstream"
       ],
-      "focus": "上游 PR 合并与讨论；Issue 待核实队列复用既有 watchdog"
+      "focus": "主上游 Issue/PR 合并与讨论；复用 upstream 汇总单"
     },
     {
       "repo": "Quorinex/Kiro-Go",
@@ -122,6 +122,27 @@
         "google"
       ],
       "focus": "Gemini Web 会话、cookie、流解析"
+    },
+    {
+      "repo": "zyycn/codex-proxy-rs",
+      "platforms": [
+        "openai"
+      ],
+      "focus": "Rust Codex 多账号透明代理；OAuth、账号配额与刷新、Responses 转发"
+    },
+    {
+      "repo": "snailyp/gemini-balance",
+      "platforms": [
+        "google"
+      ],
+      "focus": "Gemini API Key 轮询、配额与调度；共享账号池与失败切换"
+    },
+    {
+      "repo": "PublicAffairs/openai-gemini",
+      "platforms": [
+        "google"
+      ],
+      "focus": "Gemini 供应转 OpenAI 协议；工具调用、流转换和用量兼容"
     }
   ]
 }

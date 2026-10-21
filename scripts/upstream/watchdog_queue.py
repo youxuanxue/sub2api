@@ -1,4 +1,4 @@
-"""One upstream tracking Issue; daily comment deltas are durable publication state."""
+"""One tracking Issue per platform; daily comment deltas are durable publication state."""
 import hashlib
 import html
 import json
@@ -8,15 +8,28 @@ from urllib.parse import urlencode
 
 BEGIN = "<!-- issue-watchdog:begin -->"
 END = "<!-- issue-watchdog:end -->"
-LABEL = "upstream-tracking"
+PLATFORMS = {
+    "upstream": {"label": "upstream-tracking", "title": "[upstream] 上游网关调度、计费与账号问题跟踪", "description": "Daily upstream gateway, billing and account tracking"},
+    "kiro": {"label": "kiro-tracking", "title": "[kiro] Kiro 中转网关、计费与账号问题跟踪", "description": "Daily Kiro relay gateway, billing and account tracking"},
+    "openai": {"label": "openai-tracking", "title": "[openai] Codex 中转网关、计费与账号问题跟踪", "description": "Daily OpenAI/Codex relay gateway, billing and account tracking"},
+    "google": {"label": "google-tracking", "title": "[google] Gemini/Antigravity 中转网关、计费与账号问题跟踪", "description": "Daily Google relay gateway, billing and account tracking"},
+}
 MARKER = "<!-- watchdog-tracking:v1 -->"
+
+
+def platform_marker(platform):
+    if platform not in PLATFORMS:
+        raise ValueError(f"unknown tracking platform: {platform}")
+    return f"<!-- watchdog-tracking:v1 platform:{platform} -->"
+
+
 RECORD = re.compile(r"^- \[([ xX])\] (.*?) <!-- watchdog-item:([^ ]+) ([0-9a-f]+) (pending|fixed) ([^ ]+) -->$", re.MULTILINE)
 COMMENT_LIMIT = 55000
 
 TOPICS = {
     "scheduling": r"gateway|schedul|routing|route|failover|load.?balanc|concurren|capacity|saturation|retry|retries|timeout|网关|调度|路由|故障转移|负载均衡|并发|重试|超时",
     "billing": r"billing|metering|usage|quota|credit|balance|payment|refund|计费|用量|额度|配额|余额|支付|充值|扣费|退款",
-    "account": r"oauth|credential|refresh.?token|access.?token|account|authentication|authorization|\bauth\b|401|403|429|rate.?limit|cooldown|账号|账户|凭证|鉴权|封号|限流|冷却",
+    "account": r"oauth|api.?key|key.?rotat|session|credential|refresh.?token|access.?token|account|authentication|authorization|\bauth\b|401|403|429|rate.?limit|cooldown|账号|账户|凭证|鉴权|封号|限流|冷却",
     "conversion": r"convert|translat|(?<![a-z])stream|eventstream|\bsse\b|websocket|tool.?result|tool.?use|function.?call|thinking|reasoning|response\.|image|转换|工具调用|图片|拒答|截断",
 }
 
@@ -43,7 +56,7 @@ def safe_title(title):
     return re.sub(r"([\\`*_\[\]])", r"\\\1", value)
 
 
-def sync_queue(repo, items, target, api, resolved=(), day=None):
+def sync_queue(repo, items, target, api, resolved=(), day=None, platform="upstream"):
     """Publish relevant findings immediately, regardless of risk/manual judgment.
 
     A checked task is an explicit TokenKey resolution. Ledger resolutions also
@@ -51,11 +64,14 @@ def sync_queue(repo, items, target, api, resolved=(), day=None):
     or upstream closure is never treated as a TokenKey fix.
     """
     day = day or datetime.now(timezone.utc).date().isoformat()
+    marker = platform_marker(platform)
+    config = PLATFORMS[platform]
     resolved = set(resolved)
     pages = api("api", "--paginate", "--slurp",
-                f"repos/{target}/issues?{urlencode({'state': 'all', 'labels': LABEL, 'per_page': 100})}")
+                f"repos/{target}/issues?{urlencode({'state': 'all', 'labels': config['label'], 'per_page': 100})}")
     matches = [row for page in pages for row in page
-               if "pull_request" not in row and MARKER in (row.get("body") or "")]
+               if "pull_request" not in row and (marker in (row.get("body") or "") or
+                    (platform == "upstream" and MARKER in (row.get("body") or "")))]
     if len(matches) > 1:
         raise ValueError("duplicate upstream tracking Issues")
     issue = matches[0] if matches else None
@@ -67,14 +83,14 @@ def sync_queue(repo, items, target, api, resolved=(), day=None):
     if not issue:
         labels = {row["name"] for page in api("api", "--paginate", "--slurp",
                   f"repos/{target}/labels?per_page=100") for row in page}
-        if LABEL not in labels:
+        if config["label"] not in labels:
             api("api", "--method", "POST", f"repos/{target}/labels", payload={
-                "name": LABEL, "color": "BFD4F2", "description": "Daily upstream gateway, billing and account tracking"})
+                "name": config["label"], "color": "BFD4F2", "description": config["description"]})
         issue = api("api", "--method", "POST", f"repos/{target}/issues", payload={
-            "title": "[upstream] 网关调度、计费与上游账号问题跟踪",
-            "body": MARKER + "\n" + managed_body("", "每日追加新增及更新评论；所有来源共用此 Issue。\n"
+            "title": config["title"],
+            "body": marker + "\n" + managed_body("", f"每日追加新增及更新评论；{platform} 来源共用此 Issue。\n"
                 "修复后勾选对应任务或更新修复账本；已完成条目不再进入待处理集合。\n"
-                "上游关闭或 PR 合并不代表 TokenKey 已解决。"), "labels": [LABEL]})
+                "上游关闭或 PR 合并不代表 TokenKey 已解决。"), "labels": [config["label"]]})
         created = 1
     endpoint = f"repos/{target}/issues/{issue['number']}"
     comments = [row for page in api("api", "--paginate", "--slurp", endpoint + "/comments?per_page=100") for row in page]
@@ -141,7 +157,7 @@ def sync_queue(repo, items, target, api, resolved=(), day=None):
         commented += 1
     pending = len({ref for ref, (_, status, checked, _) in latest.items()
                    if ref not in fixed and status != "fixed" and checked.lower() != "x"})
-    body = managed_body(issue.get("body") or "", "每日追加新增及更新评论；所有来源共用此 Issue。\n"
+    body = managed_body(issue.get("body") or "", f"每日追加新增及更新评论；{platform} 来源共用此 Issue。\n"
                         "修复后勾选对应任务或更新修复账本；已完成条目不再进入待处理集合。\n"
                         "上游关闭或 PR 合并不代表 TokenKey 已解决。\n\n"
                         f"当前待处理：{pending} 条。完成全部条目后自动关闭；新问题复用同一 Issue。")

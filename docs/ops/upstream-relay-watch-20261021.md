@@ -26,8 +26,8 @@ GitHub cron 还存在实际启动延迟，不能把 cron 时间当作及时处�
 
 ## 修复边界与跟进方式
 
-相关网关调度、计费、账号和协议转换线索直接进入一个共享 upstream 汇总 Issue，
-不再以人工确认或 high_unresolved 为建单门槛。所有来源共用该 Issue；每日追加新增或更新
+相关网关调度、计费、账号和协议转换线索直接进入按平台划分的汇总 Issue，
+不再以人工确认或 high_unresolved 为建单门槛。同平台来源共用一个 Issue（kiro、openai、google 各一个；主上游保留 upstream）；每日追加新增或更新
 条目的评论，重复运行不重复投递，超长批次仅拆评论。已存在的独立 Issue 保留。
 
 人工勾选或 TokenKey 修复账本中的有效证据会将条目从待处理集合剔除，即使上游还开着。
@@ -46,7 +46,7 @@ Kiro 保留用户指定的实现，并同时跟进 `hank9999/kiro.rs` 和近期�
 不由主仓发行记录完整覆盖。Kiro-Go 与 kiro-gateway 即使最近主分支提交较少，
 仍有新的流处理问题和待合并 PR，不应仅按 stars 或 pushed_at 排除。
 
-OpenAI 侧选择 CLIProxyAPI、AIClient2API、codex-lb 和 codex-proxy，分别覆盖
+OpenAI 侧选择 CLIProxyAPI、AIClient2API、codex-lb、codex-proxy 和 codex-proxy-rs，分别覆盖
 多协议转换、账号池/配额和 Responses 终态。检索到的 `lidge-jun/opencodex`
 主要把其他供应商接入 Codex 客户端；`BenedictKing/ccx` 是更通用的 API proxy。
 它们可作为后续协议研究候选，本轮优先覆盖订阅账号转 API 的直接供应实现。
@@ -71,6 +71,23 @@ Web 会话与流解析参照。gemini-cli-proxy 活跃度较低，保留观察�
 | [ZyphrZero/kiro.rs #123](https://github.com/ZyphrZero/kiro.rs/pull/123)，2026-10-18 合并 | HTTP 200 中 `CONTENT_FILTERED` 被当作空成功或上下文溢出；检查 `integration/kiro` eventstream 与 `service/kiro_gateway_service.go` | 已有 metadata stopReason 解析及 refusal 映射；还需核对后到 contextUsage 是否覆盖拒答 |
 | [kiro-lb #115](https://github.com/minpeter/kiro-lb/pull/115)，2026-10-15 合并 | 每请求重建认证对象丢失刷新退避，撤销的 refresh token 持续 401→429；检查 TokenKey 共享凭证故障与 refresh owner | 该 PR 涉及其 InferX 特有生命周期，不直接复制；适合作为 TokenKey 反复刷新回归场景 |
 | [AIClient2API #744](https://github.com/justlovemaki/AIClient2API/pull/744)，2026-10-20 合并 | Antigravity 免费层目录仍列出实际 404 模型 | 属供应层能力证据，交 modelops 核对；不可从对方名单直接改 TokenKey catalog/Plan |
+
+## 按平台补充调研
+
+- [codex-proxy-rs](https://github.com/zyycn/codex-proxy-rs) 的 README 明确定位为 Codex
+  多账号 Responses 网关，纳入 openai。[#500](https://github.com/zyycn/codex-proxy-rs/issues/500)
+  讨论 hosted web_search 的授权和计量；[#459](https://github.com/zyycn/codex-proxy-rs/pull/459)
+  涉及客户端 installation ID，采集时仍未合并。
+- [gemini-balance](https://github.com/snailyp/gemini-balance) 提供 Gemini API Key 轮询、
+  配额和失败切换，纳入 google。[#405](https://github.com/snailyp/gemini-balance/issues/405)
+  讨论 AI Studio 新 API Key 格式，[#328](https://github.com/snailyp/gemini-balance/issues/328)
+  涉及代理路径的区域错误。README 声明 CC BY-NC 4.0，本任务只跟踪问题证据，不移植其代码。
+- [openai-gemini](https://github.com/PublicAffairs/openai-gemini) 的供应端为 Gemini，
+  OpenAI 只是入口协议，所以只纳入 google。[#107](https://github.com/PublicAffairs/openai-gemini/issues/107)
+  涉及第二轮工具调用的 thought signature；该条目超过 30 天仍开放，首次回填需包含全部开放条目。
+
+多平台项目按 Issue/PR 的标题、正文、标签和讨论中的平台词分流；无明确平台的通用问题
+进入其清单声明的全部平台。此规则用于发现线索，不作为 TokenKey 受影响的证据。
 
 ## 当前讨论与尚未合并的线索
 
