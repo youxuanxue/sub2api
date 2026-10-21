@@ -14,7 +14,7 @@ package kiro
 //   - The remaining config.GetXxx() configuration knobs become package-level
 //     functions with TokenKey defaults so the protocol layer compiles standalone.
 //   - logger.* becomes thin log/slog wrappers.
-//   - auth.RefreshToken / GetAuthClientForProxy live in-package (refresh.go +
+//   - auth.RefreshTokenContext / GetAuthClientForProxy live in-package (refresh.go +
 //     GetAuthClientForProxy below).
 
 import (
@@ -126,7 +126,7 @@ func logWarnf(format string, args ...any)  { slog.Warn(fmt.Sprintf(format, args.
 var authProxyClientCache sync.Map
 
 // GetAuthClientForProxy returns an HTTP client (30s timeout) configured for the
-// given proxy URL, used by RefreshToken. If proxyURL is empty, a process-wide
+// given proxy URL, used by RefreshTokenContext. If proxyURL is empty, a process-wide
 // default client (ProxyFromEnvironment) is returned. Reuses buildKiroTransport
 // from client.go so transport tuning stays in one place.
 func GetAuthClientForProxy(proxyURL string) *http.Client {

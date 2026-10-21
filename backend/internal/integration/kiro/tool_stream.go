@@ -48,15 +48,29 @@ func (d *toolUseDecoder) consume(payload []byte, callback *KiroStreamCallback) e
 			break
 		}
 	}
-	// Some upstream continuations omit identity. They are only unambiguous
-	// while exactly one identified call remains open.
+	// Keep a single anonymous prefix private until its real ID arrives.
 	if id == "" {
-		if len(d.pending) != 1 {
-			return fmt.Errorf("%w: missing or ambiguous tool identity", ErrInvalidToolUse)
+		switch len(d.pending) {
+		case 0:
+			if name == "" || stop {
+				return fmt.Errorf("%w: missing tool identity", ErrInvalidToolUse)
+			}
+		case 1:
+			if d.pending[""] != nil && name != "" {
+				return fmt.Errorf("%w: repeated anonymous tool start", ErrInvalidToolUse)
+			}
+			for pendingID := range d.pending {
+				id = pendingID
+			}
+		default:
+			return fmt.Errorf("%w: ambiguous tool identity", ErrInvalidToolUse)
 		}
-		for pendingID := range d.pending {
-			id = pendingID
+	} else if anonymous := d.pending[""]; anonymous != nil {
+		if len(d.pending) != 1 || d.pending[id] != nil || (name != "" && anonymous.name != name) {
+			return fmt.Errorf("%w: ambiguous late tool identity", ErrInvalidToolUse)
 		}
+		delete(d.pending, "")
+		d.pending[id] = anonymous
 	}
 	if d.completed[id] {
 		return fmt.Errorf("%w: duplicate completed tool", ErrInvalidToolUse)
@@ -91,14 +105,23 @@ func (d *toolUseDecoder) consume(payload []byte, callback *KiroStreamCallback) e
 			_, _ = state.input.WriteString(fragment)
 		}
 	}
+	if state.input.Len() > maxKiroEventFrame {
+		return fmt.Errorf("%w: tool input too large", ErrInvalidToolUse)
+	}
 	if !stop {
 		return nil
+	}
+	if id == "" {
+		return fmt.Errorf("%w: completed tool without ID", ErrInvalidToolUse)
 	}
 	if strings.TrimSpace(state.name) == "" {
 		return fmt.Errorf("%w: missing tool name", ErrInvalidToolUse)
 	}
 	if !state.sawInput && toolAcceptsEmptyInput(d.tools, state.name) {
 		_, _ = state.input.WriteString("{}")
+	}
+	if !validKiroJSON([]byte(state.input.String())) {
+		return fmt.Errorf("%w: invalid input JSON or Unicode", ErrInvalidToolUse)
 	}
 	decoder := json.NewDecoder(strings.NewReader(state.input.String()))
 	decoder.UseNumber()

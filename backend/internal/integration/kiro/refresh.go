@@ -2,121 +2,110 @@ package kiro
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"net/url"
+	"regexp"
+	"strings"
 	"time"
 )
 
-// oidcTokenURL 构造 idc/builderId 刷新 endpoint。测试可替换以拦截网络调用。
-var oidcTokenURL = func(region string) string {
-	return fmt.Sprintf("https://oidc.%s.amazonaws.com/token", region)
-}
+var oidcTokenURL = func(region string) string { return "https://oidc." + region + ".amazonaws.com/token" }
+var socialTokenURL = func() string { return "https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken" }
+var kiroRegionPattern = regexp.MustCompile(`^[a-z]{2}(?:-[a-z]+)+-[0-9]{1,2}$`)
 
-// socialTokenURL 构造 social 刷新 endpoint。测试可替换以拦截网络调用。
-var socialTokenURL = func() string {
-	return "https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken"
-}
-
-// RefreshToken 刷新 access token
-// Returns: accessToken, refreshToken, expiresAt, profileArn, error
-func RefreshToken(account *Account) (string, string, int64, string, error) {
-	// Resolve per-account proxy: account.ProxyURL > global config
-	proxyURL := account.ProxyURL
-	if proxyURL == "" {
-		proxyURL = GetProxyURL()
+// RefreshTokenContext is called only by the credential-refresh owner. Profile
+// discovery must never rotate credentials outside its lock/persistence boundary.
+func RefreshTokenContext(ctx context.Context, account *Account) (string, string, int64, string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", "", 0, "", err
 	}
-	client := GetAuthClientForProxy(proxyURL)
-
-	if account.AuthMethod == "social" {
-		return refreshSocialToken(account.RefreshToken, client)
+	if account == nil || strings.TrimSpace(account.RefreshToken) == "" {
+		return "", "", 0, "", fmt.Errorf("Kiro refresh token is required")
 	}
-	return refreshOIDCToken(account.RefreshToken, account.ClientID, account.ClientSecret, account.Region, client)
-}
-
-// refreshOIDCToken IdC/Builder ID token 刷新
-func refreshOIDCToken(refreshToken, clientID, clientSecret, region string, client *http.Client) (string, string, int64, string, error) {
-	if clientID == "" || clientSecret == "" {
-		return "", "", 0, "", fmt.Errorf("OIDC refresh requires clientId and clientSecret")
+	endpoint := socialTokenURL()
+	expectedHost := "prod.us-east-1.auth.desktop.kiro.dev"
+	payload := map[string]string{"refreshToken": account.RefreshToken}
+	if account.AuthMethod != "social" {
+		if strings.TrimSpace(account.ClientID) == "" || strings.TrimSpace(account.ClientSecret) == "" {
+			return "", "", 0, "", fmt.Errorf("OIDC refresh requires clientId and clientSecret")
+		}
+		region := account.Region
+		if region == "" {
+			region = "us-east-1"
+		}
+		if len(region) > 32 || !kiroRegionPattern.MatchString(region) {
+			return "", "", 0, "", fmt.Errorf("invalid Kiro OIDC region")
+		}
+		endpoint = oidcTokenURL(region)
+		expectedHost = "oidc." + region + ".amazonaws.com"
+		payload["clientId"], payload["clientSecret"], payload["grantType"] = account.ClientID, account.ClientSecret, "refresh_token"
 	}
-	if region == "" {
-		region = "us-east-1"
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Scheme != "https" || parsed.Host != expectedHost || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", "", 0, "", fmt.Errorf("invalid Kiro refresh endpoint")
 	}
-
-	url := oidcTokenURL(region)
-
-	payload := map[string]string{
-		"clientId":     clientID,
-		"clientSecret": clientSecret,
-		"refreshToken": refreshToken,
-		"grantType":    "refresh_token",
+	// Copy the cached client to avoid mutating shared redirect policy.
+	client := *GetAuthClientForProxy(ResolveAccountProxyURL(account))
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", "", 0, "", err
 	}
-
-	body, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", "", 0, "", err
+	}
 	req.Header.Set("Content-Type", "application/json")
-
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", "", 0, "", err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return "", "", 0, "", fmt.Errorf("refresh failed: %d %s", resp.StatusCode, string(respBody))
-	}
-
-	var result struct {
-		AccessToken  string `json:"accessToken"`
-		RefreshToken string `json:"refreshToken"`
-		ExpiresIn    int    `json:"expiresIn"`
-		ProfileArn   string `json:"profileArn"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", "", 0, "", err
-	}
-
-	expiresAt := time.Now().Unix() + int64(result.ExpiresIn)
-	return result.AccessToken, result.RefreshToken, expiresAt, result.ProfileArn, nil
-}
-
-// refreshSocialToken Social (GitHub/Google) token 刷新
-func refreshSocialToken(refreshToken string, client *http.Client) (string, string, int64, string, error) {
-	url := socialTokenURL()
-
-	payload := map[string]string{
-		"refreshToken": refreshToken,
-	}
-
-	body, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", url, bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
+	// Bound authentication responses and never expose their raw credential fields.
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
 	if err != nil {
 		return "", "", 0, "", err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return "", "", 0, "", fmt.Errorf("refresh failed: %d %s", resp.StatusCode, string(respBody))
+	if len(raw) > 1<<20 {
+		return "", "", 0, "", fmt.Errorf("Kiro refresh response too large")
 	}
-
+	if resp.StatusCode != http.StatusOK {
+		var failure struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(raw, &failure)
+		if failure.Error == "invalid_grant" {
+			return "", "", 0, "", fmt.Errorf("Kiro refresh failed: %d invalid_grant", resp.StatusCode)
+		}
+		return "", "", 0, "", fmt.Errorf("Kiro refresh failed: %d", resp.StatusCode)
+	}
 	var result struct {
-		AccessToken  string `json:"accessToken"`
-		RefreshToken string `json:"refreshToken"`
-		ExpiresIn    int    `json:"expiresIn"`
-		ProfileArn   string `json:"profileArn"`
+		AccessToken  string  `json:"accessToken"`
+		RefreshToken *string `json:"refreshToken"`
+		ExpiresIn    int64   `json:"expiresIn"`
+		ProfileArn   string  `json:"profileArn"`
 	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return "", "", 0, "", fmt.Errorf("invalid Kiro refresh response JSON")
+	}
+	now := time.Now().Unix()
+	if strings.TrimSpace(result.AccessToken) == "" || result.ExpiresIn <= 0 || result.ExpiresIn > math.MaxInt64-now {
+		return "", "", 0, "", fmt.Errorf("invalid Kiro refresh access token or expiry")
+	}
+	refresh := account.RefreshToken
+	if result.RefreshToken != nil {
+		if strings.TrimSpace(*result.RefreshToken) == "" {
+			return "", "", 0, "", fmt.Errorf("invalid Kiro refresh token")
+		}
+		refresh = *result.RefreshToken
+	}
+	if err := ctx.Err(); err != nil {
 		return "", "", 0, "", err
 	}
-
-	expiresAt := time.Now().Unix() + int64(result.ExpiresIn)
-	return result.AccessToken, result.RefreshToken, expiresAt, result.ProfileArn, nil
+	return result.AccessToken, refresh, now + result.ExpiresIn, result.ProfileArn, nil
 }

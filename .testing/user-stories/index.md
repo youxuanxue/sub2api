@@ -82,3 +82,5 @@
 | US-069 | QA independent local lifecycle | Done | `.testing/user-stories/stories/US-069-qa-local-provision.md` |
 
 | US-070 | Kiro 文件工具按账号分块与轮次保真 | InTest | `.testing/user-stories/stories/US-070-kiro-file-tool-chunking.md` |
+
+| US-071 | Kiro 协议与凭据可靠性 | InTest | `.testing/user-stories/stories/US-071-kiro-stream-auth-reliability.md` |

@@ -212,3 +212,5 @@ UCloud 国内单 prod 的授权范围、首次初始化和发布边界：[国内
 - [Volc Agent Plan Kimi Chat compatibility](volc-kimi-chat-compatibility.md) — supplier-scoped thinking and tool selectors.
 
 - [Kimi 请求错误修复与请求体边界](kimi-input-error-remediation.md) — Direct/Universal 共享路由上限、解压完整性与客户端参数改法。
+
+- [Kiro 流、规则与刷新可靠性](kiro-stream-auth-reliability.md) — 已批准的协议校验、规则保留、工具身份及认证防护。

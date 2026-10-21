@@ -243,6 +243,8 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 
 func classifyKiroOpaqueFailure(err error) (kiroForwardErrorObservation, bool) {
 	switch {
+	case errors.Is(err, kiroproto.ErrInvalidEventStream):
+		return kiroForwardErrorObservation{Kind: "response_error", Reason: "invalid_event_stream"}, true
 	case errors.Is(err, kiroproto.ErrInvalidToolUse):
 		return kiroForwardErrorObservation{Kind: "response_error", Reason: "invalid_tool_use"}, true
 	case errors.Is(err, errKiroEmptyResponse):

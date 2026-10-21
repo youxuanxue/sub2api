@@ -5,9 +5,11 @@ package kiro
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"net/http"
 	"net/url"
@@ -17,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/google/uuid"
 )
 
@@ -519,7 +522,7 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 		resp.Body.Close()
 		// A protocol-invalid tool is not a broken connection. Leave recovery to
 		// the existing account failover owner instead of multiplying endpoint attempts.
-		if err != nil && !errors.Is(err, ErrInvalidToolUse) && endpointIndex+1 < len(endpoints) && callback != nil && callback.ResetForRetry != nil && callback.ResetForRetry() {
+		if err != nil && !errors.Is(err, ErrInvalidToolUse) && !errors.Is(err, ErrInvalidEventStream) && endpointIndex+1 < len(endpoints) && callback != nil && callback.ResetForRetry != nil && callback.ResetForRetry() {
 			// Caller cancel and the first-output budget both cancel this ctx.
 			// Do not open the next endpoint after that; the loop check below
 			// would also stop, but only after this branch has already decided
@@ -547,6 +550,9 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 // proof that the assistant turn completed.
 var ErrIncompleteEventStream = fmt.Errorf("Kiro event stream ended before terminal stop reason: %w", io.ErrUnexpectedEOF)
 
+// ErrInvalidEventStream marks corrupt protocol data, not a transport retry.
+var ErrInvalidEventStream = errors.New("invalid Kiro event stream")
+
 // parseEventStream decodes an AWS binary Event Stream response body.
 func parseEventStream(body io.Reader, callback *KiroStreamCallback, advertisedTools ...KiroToolWrapper) error {
 	if callback == nil {
@@ -564,51 +570,36 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback, advertisedTo
 	var sawTerminalStop bool
 
 	for {
-		// Prelude: 12 bytes (total_len + headers_len + crc)
-		prelude := make([]byte, 12)
-		_, err := io.ReadFull(body, prelude)
-		if err != nil {
+		frame, err := readKiroEventFrame(body)
+		if err == io.EOF {
 			if sawTerminalStop {
 				break
 			}
-			if err == io.EOF {
-				return ErrIncompleteEventStream
-			}
-			return err
+			return ErrIncompleteEventStream
 		}
-
-		totalLength := int(prelude[0])<<24 | int(prelude[1])<<16 | int(prelude[2])<<8 | int(prelude[3])
-		headersLength := int(prelude[4])<<24 | int(prelude[5])<<16 | int(prelude[6])<<8 | int(prelude[7])
-
-		if totalLength < 16 {
-			continue
-		}
-
-		// Read the remaining message bytes.
-		remaining := totalLength - 12
-		msgBuf := make([]byte, remaining)
-		_, err = io.ReadFull(body, msgBuf)
 		if err != nil {
-			if sawTerminalStop {
-				break
-			}
 			return err
 		}
-
-		if headersLength > len(msgBuf)-4 {
-			continue
+		eventType := kiroEventHeader(frame.Headers, ":event-type")
+		exceptionType := kiroEventHeader(frame.Headers, ":exception-type")
+		messageType := kiroEventHeader(frame.Headers, ":message-type")
+		if eventType == "" && exceptionType == "" && messageType != "error" && messageType != "exception" {
+			return fmt.Errorf("%w: missing Kiro event identity", ErrInvalidEventStream)
 		}
-
-		eventType := extractEventType(msgBuf[0:headersLength])
-		exceptionType := extractEventStreamHeaderValue(msgBuf[0:headersLength], ":exception-type")
-		messageType := extractEventStreamHeaderValue(msgBuf[0:headersLength], ":message-type")
-		payloadBytes := msgBuf[headersLength : len(msgBuf)-4]
+		payloadBytes := frame.Payload
 		if exceptionType != "" || messageType == "exception" || messageType == "error" || eventType == "exception" || eventType == "error" {
 			kind := exceptionType
 			if kind == "" {
 				kind = messageType
 			}
 			return fmt.Errorf("kiro event stream error: %s: %s", kind, string(payloadBytes))
+		}
+		if !validKiroJSON(payloadBytes) {
+			kind := ErrInvalidEventStream
+			if eventType == "toolUseEvent" {
+				kind = ErrInvalidToolUse
+			}
+			return fmt.Errorf("%w: invalid event JSON or Unicode", kind)
 		}
 		if eventType == "toolUseEvent" {
 			if sawTerminalStop {
@@ -619,13 +610,12 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback, advertisedTo
 			}
 			continue
 		}
-		if len(payloadBytes) == 0 {
-			continue
-		}
-
 		var event map[string]interface{}
-		if err := json.Unmarshal(payloadBytes, &event); err != nil {
-			continue
+		if err := json.Unmarshal(payloadBytes, &event); err != nil || event == nil {
+			return fmt.Errorf("%w: invalid Kiro event JSON", ErrInvalidEventStream)
+		}
+		if sawTerminalStop && (eventType == "assistantResponseEvent" || eventType == "reasoningContentEvent" || (eventType == "metadataEvent" && event["stopReason"] != nil)) {
+			return fmt.Errorf("%w: Kiro content or stop after terminal stop", ErrInvalidEventStream)
 		}
 
 		inputTokens, outputTokens = updateTokensFromEvent(event, inputTokens, outputTokens)
@@ -829,69 +819,42 @@ func dispatchKiroReasoningContent(callback *KiroStreamCallback, text, signature 
 	}
 }
 
-// extractEventType extracts the event type string from AWS Event Stream message headers.
-func extractEventType(headers []byte) string {
-	return extractEventStreamHeaderValue(headers, ":event-type")
+// The SDK validates CRC and header encoding; bound lengths before giving it
+// untrusted lengths (its decoder does not enforce allocation limits).
+const maxKiroEventFrame = 16 << 20
+
+func readKiroEventFrame(r io.Reader) (eventstream.Message, error) {
+	var prelude [12]byte
+	n, err := io.ReadFull(r, prelude[:])
+	if err != nil {
+		return eventstream.Message{}, err
+	}
+	total := binary.BigEndian.Uint32(prelude[:4])
+	headers := binary.BigEndian.Uint32(prelude[4:8])
+	if total < 16 || total > maxKiroEventFrame || headers > total-16 || headers > 128<<10 {
+		return eventstream.Message{}, fmt.Errorf("%w: invalid Kiro event frame lengths", ErrInvalidEventStream)
+	}
+	if crc32.ChecksumIEEE(prelude[:8]) != binary.BigEndian.Uint32(prelude[8:]) {
+		return eventstream.Message{}, fmt.Errorf("%w: invalid Kiro prelude CRC", ErrInvalidEventStream)
+	}
+	frame := make([]byte, int(total))
+	copy(frame, prelude[:n])
+	if _, err := io.ReadFull(r, frame[12:]); err != nil {
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
+		return eventstream.Message{}, err
+	}
+	message, err := eventstream.NewDecoder().Decode(bytes.NewReader(frame), nil)
+	if err != nil {
+		return eventstream.Message{}, fmt.Errorf("%w: %v", ErrInvalidEventStream, err)
+	}
+	return message, nil
 }
 
-// extractEventStreamHeaderValue extracts a string/bool AWS EventStream header.
-// Kiro uses :exception-type and :message-type for in-band failures, while
-// normal responses identify frames with :event-type.
-func extractEventStreamHeaderValue(headers []byte, targetName string) string {
-	offset := 0
-	for offset < len(headers) {
-		if offset >= len(headers) {
-			break
-		}
-		nameLen := int(headers[offset])
-		offset++
-		if offset+nameLen > len(headers) {
-			break
-		}
-		name := string(headers[offset : offset+nameLen])
-		offset += nameLen
-		if offset >= len(headers) {
-			break
-		}
-		valueType := headers[offset]
-		offset++
-
-		if valueType == 7 { // String
-			if offset+2 > len(headers) {
-				break
-			}
-			valueLen := int(headers[offset])<<8 | int(headers[offset+1])
-			offset += 2
-			if offset+valueLen > len(headers) {
-				break
-			}
-			value := string(headers[offset : offset+valueLen])
-			offset += valueLen
-			if name == targetName {
-				return value
-			}
-			continue
-		}
-		if valueType == 0 || valueType == 1 {
-			if name == targetName {
-				return map[byte]string{0: "true", 1: "false"}[valueType]
-			}
-			continue
-		}
-
-		// Skip other value types by their fixed byte widths.
-		skipSizes := map[byte]int{0: 0, 1: 0, 2: 1, 3: 2, 4: 4, 5: 8, 8: 8, 9: 16}
-		if valueType == 6 {
-			if offset+2 > len(headers) {
-				break
-			}
-			l := int(headers[offset])<<8 | int(headers[offset+1])
-			offset += 2 + l
-		} else if skip, ok := skipSizes[valueType]; ok {
-			offset += skip
-		} else {
-			break
-		}
+func kiroEventHeader(headers eventstream.Headers, name string) string {
+	if v, ok := headers.Get(name).(eventstream.StringValue); ok {
+		return string(v)
 	}
 	return ""
 }

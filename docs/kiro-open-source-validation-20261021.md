@@ -2,6 +2,20 @@
 
 基线：[TokenKey #2764](https://github.com/youxuanxue/sub2api/pull/2764)，`3ac329ec4c66c1829d1363ed0de871233b63d3b5`。实测日期 2026-10-21 UTC。本报告区分真实上游调用、真实网关函数的合成故障注入、外部源码测试；三者均不等同于客户原项目完整重放或生产全链路验收。
 
+## 后续修复状态（本分支，尚未部署）
+
+用户确认后已按 [流、规则与刷新审批基线](approved/kiro-stream-auth-reliability.md) 修复下面表格中的前四项以及工具 ID 迟到；表格仍保留修复前证据，不代表当前分支仍有这些已覆盖反例。
+
+- EventStream 复用 AWS SDK CRC/header 解码，前置长度与 prelude CRC 校验；非法 JSON/原始 UTF-8/孤立 UTF-16 转义、终止后的内容或重复终止明确失败。干净 EOF 与截断帧区分；协议损坏不再被当作连接故障跨 endpoint 重发。合法重复文本和终止后的 metering/context usage 保留。
+- 顶层 system 只替换精确 Claude Code 身份行，其余规则和未知模板保留；取消关键词命中后的整段删除。
+- 唯一匿名工具前缀在真实 ID 到达后绑定，完整合法参数完成后交付；缺失 ID、歧义前缀、重复完成 ID 拒绝。
+- OAuth 刷新接受取消上下文，保留省略的 refresh token，拒绝空 access/无效或溢出有效期/显式空 refresh；profile 查询取消旁路刷新。原有刷新锁与保存 owner 不变。
+- OIDC region 严格限制格式并复核目的主机；认证请求禁止重定向，响应大小受限，错误不回显凭据响应。
+
+修复前反例 `/tmp/tk-kiro-reliability-red.log`；聚焦回归 `/tmp/tk-kiro-reliability-focused.log`；Kiro + OAuthRefreshAPI 回归 `/tmp/tk-kiro-reliability-regression.log`。US-071 将正负向断言登记为常驻测试。原来部分测试帧的 CRC 为零，本次更新为真实 CRC，避免旧 fixture 冒充合法协议。
+
+真实验证使用 Claude Code 2.1.305 从隔离目录生成的 system（约 2.8 万字符，含追加规则），通过修改后 Forward、account 323 的代理及 canonical TLS 调用 Opus 4.6、5.5。两模型各三轮 Read → Edit → end_turn；客户端实际读写合成 corpus.txt 并回传真实结果。最终文件只将 OLD 改为 NEW，原有中文/emoji 与结尾保留；末轮正确报告追加规则标记 KI_RULES_7291。六次请求均单次物理调用，独立 raw CRC/文本/工具参数核对一致，总计 0.642056 credits、模型调用约 20.4 秒。证据摘要 `/tmp/tk-kiro-reliability/live.json`。这不是实际 Claude Code 客户端经生产入口的完整 e2e，也没有实测强制轮换生产 refresh token；不声称所有提示拒答率为零、全部历史事故已消除或 EU 账号已支持。
+
 ## 已发现缺陷：影响与开源方案是否有效
 
 | 缺陷 | 对 TokenKey 网关的实际影响 | 已运行验证与开源方案结论 |
