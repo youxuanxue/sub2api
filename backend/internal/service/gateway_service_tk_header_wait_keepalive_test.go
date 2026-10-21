@@ -110,9 +110,9 @@ func TestKiroGatewayService_EnsureStreamingKeepaliveIsSoleOwner(t *testing.T) {
 	c, rec := newKeepaliveTestContext(t)
 	svc := NewKiroGatewayService(nil, nil, nil)
 	svc.SetGatewayConfig(&config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}})
-	svc.ensureKiroStreamingKeepalive(c, "claude-opus-5")
+	svc.ensureKiroStreamingKeepalive(c, "claude-opus-5", "msg_test")
 	// Second arm must be a no-op (SSOT: forwardStreaming owns one emitter).
-	svc.ensureKiroStreamingKeepalive(c, "claude-opus-5")
+	svc.ensureKiroStreamingKeepalive(c, "claude-opus-5", "msg_test")
 	k := boundPreContentStreamKeepalive(c)
 	if k == nil {
 		t.Fatal("expected keepalive bound by ensureKiroStreamingKeepalive")

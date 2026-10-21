@@ -104,6 +104,16 @@ func TestKiroStreaming_HeaderWaitKeepaliveDuringThinkingStall(t *testing.T) {
 	require.Contains(t, out, "final answer")
 	require.NotContains(t, out, "plan step one")
 	require.Equal(t, 1, strings.Count(out, "event: message_start"), "keepalive + encoder must not duplicate message_start")
+	startData := strings.Split(out, "event: message_start\ndata: ")[1]
+	startData = strings.Split(startData, "\n\n")[0]
+	var startEvent struct {
+		Message struct {
+			ID string `json:"id"`
+		} `json:"message"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(startData), &startEvent))
+	require.Equal(t, rec.Header().Get("x-request-id"), startEvent.Message.ID,
+		"keepalive message_start must use the same request ID as the final Kiro response")
 	require.NotNil(t, result.FirstTokenMs)
 	// first_token_ms must reflect client-visible text, not an earlier thinking mark.
 	require.GreaterOrEqual(t, *result.FirstTokenMs, 1000, "first_token_ms=%d should cover the stall before visible text", *result.FirstTokenMs)
