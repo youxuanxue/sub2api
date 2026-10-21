@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 )
 
 // Antigravity defaults an omitted imageSize to 1K upstream, while TokenKey's
@@ -39,7 +40,12 @@ func ensureAntigravityDefaultImageSize(request map[string]any, model string) {
 		gen[key] = imageConfig
 	}
 	for _, sizeKey := range []string{"imageSize", "image_size"} {
-		if _, explicit := imageConfig[sizeKey]; explicit {
+		if raw, explicit := imageConfig[sizeKey]; explicit {
+			if sizeStr, ok := raw.(string); ok {
+				if normalized := apicompat.NormalizeGeminiImageSize(sizeStr); normalized != "" && normalized != sizeStr {
+					imageConfig[sizeKey] = normalized
+				}
+			}
 			return
 		}
 	}

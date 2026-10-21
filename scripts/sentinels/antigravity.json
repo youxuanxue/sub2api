@@ -40,9 +40,10 @@
       "path": "backend/internal/pkg/antigravity/request_transformer.go",
       "must_contain": [
         "func IsImageModel(model string) bool {",
-        "config.ImageConfig = &GeminiImageConfig{AspectRatio: ar, ImageSize: size}"
+        "config.ImageConfig = &GeminiImageConfig{AspectRatio: ar, ImageSize: size}",
+        "apicompat.NormalizeGeminiImageSize(req.ImageConfig.ImageSize)"
       ],
-      "rationale": "Gemini-native image config passthrough, edge transform side. buildGenerationConfig emits generationConfig.imageConfig.{aspectRatio,imageSize} from ClaudeRequest.ImageConfig, gated on IsImageModel so chat models never get an imageConfig. ImageSize (1K/2K/4K) must travel with aspect ratio or Chat Studio extra_body.image_size is silently dropped. Pairs with the prod-side gateway_forward_as_chat_completions_tk_image.go injection sentinel (gateway-tk.json)."
+      "rationale": "Gemini-native image config passthrough, edge transform side. buildGenerationConfig emits generationConfig.imageConfig.{aspectRatio,imageSize} from ClaudeRequest.ImageConfig, gated on IsImageModel so chat models never get an imageConfig. ImageSize (512/1K/2K/4K; 512 = 0.5K) must travel with aspect ratio or Chat Studio extra_body.image_size is silently dropped. Pairs with the prod-side gateway_forward_as_chat_completions_tk_image.go injection sentinel (gateway-tk.json)."
     },
     {
       "path": "backend/internal/pkg/antigravity/request_transformer.go",
