@@ -119,14 +119,14 @@ func TestShouldRefreshOpenAICodexSnapshot_SparkShadowIgnoresWSv2(t *testing.T) {
 		t.Fatal("expected fresh spark shadow to skip refresh (TTL not elapsed)")
 	}
 
-	// 反向对照:普通账号无 WSv2 + 过期时间戳→仍不刷(WSv2 门控普通账号的 probe 刷新)。
+	// 普通 HTTP 账号同样按快照 TTL 刷新，额度查询不依赖 WSv2。
 	normalNoWS := &Account{
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeOAuth,
 		Extra:    map[string]any{"codex_usage_updated_at": staleAt},
 	}
-	if shouldRefreshOpenAICodexSnapshot(normalNoWS, usage, now) {
-		t.Fatal("expected non-WSv2 normal account to skip codex probe refresh")
+	if !shouldRefreshOpenAICodexSnapshot(normalNoWS, usage, now) {
+		t.Fatal("expected stale HTTP account to refresh quota")
 	}
 }
 
@@ -153,35 +153,6 @@ func TestExtractOpenAICodexProbeUpdatesAccepts429WithCodexHeaders(t *testing.T) 
 	}
 	if got := updates["codex_7d_used_percent"]; got != 100.0 {
 		t.Fatalf("codex_7d_used_percent = %v, want 100", got)
-	}
-}
-
-func TestAccountUsageService_PersistOpenAICodexProbeSnapshotOnlyUpdatesExtra(t *testing.T) {
-	t.Parallel()
-
-	repo := &accountUsageCodexProbeRepo{
-		updateExtraCh: make(chan map[string]any, 1),
-		rateLimitCh:   make(chan time.Time, 1),
-	}
-	svc := &AccountUsageService{accountRepo: repo}
-	svc.persistOpenAICodexProbeSnapshot(321, map[string]any{
-		"codex_7d_used_percent": 100.0,
-		"codex_7d_reset_at":     time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second).Format(time.RFC3339),
-	})
-
-	select {
-	case updates := <-repo.updateExtraCh:
-		if got := updates["codex_7d_used_percent"]; got != 100.0 {
-			t.Fatalf("codex_7d_used_percent = %v, want 100", got)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("等待 codex 探测快照写入 extra 超时")
-	}
-
-	select {
-	case got := <-repo.rateLimitCh:
-		t.Fatalf("不应将探测快照写入运行时限流状态: %v", got)
-	case <-time.After(200 * time.Millisecond):
 	}
 }
 

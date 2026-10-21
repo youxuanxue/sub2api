@@ -109,3 +109,63 @@ func TestComputeOpenAISaturationPenalties_DeprioritizesOAuthAccount(t *testing.T
 	require.Zero(t, candidates[1].saturationScorePenalty)
 	resetOpenAISatCache()
 }
+
+func TestOpenAIAccount429PressureSwitchesWithoutSaturationPenalty(t *testing.T) {
+	account := &Account{ID: 283, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	sat := &fakeOpenAISaturationCounterRL{}
+	limits := NewRateLimitService(&oauth429RateLimitRepo{}, nil, &config.Config{}, nil, nil)
+	limits.SetOpenAISaturationCounter(sat)
+	svc := &OpenAIGatewayService{rateLimitService: limits}
+	limits.SetAccountRuntimeBlocker(svc)
+	body := []byte(`{"detail":"Rate limit exceeded"}`)
+	for i := int64(0); i < saturationThreshold; i++ {
+		svc.handleOpenAIAccountUpstreamError(context.Background(), account, 429, nil, body)
+	}
+	require.Zero(t, sat.count, "429 feedback belongs only to the unified candidate failure counter")
+	failure := svc.newOpenAIAccountFailoverError(account, 429, nil, body, "Rate limit exceeded", false, true)
+	require.False(t, failure.RetryableOnSameAccount)
+	require.Equal(t, candidateAccountRateLimitReason, failure.Reason)
+	require.True(t, candidateFailureAttributable(failure))
+	require.True(t, failure.SameAccountRetryDeadline.IsZero())
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account), "soft preference does not hard-disable an account")
+
+	for _, tc := range []struct {
+		name    string
+		account *Account
+		headers http.Header
+		body    []byte
+	}{
+		{"quota", account, codex7dExhaustedHeaders(600000), body},
+		{"spark", account, http.Header{http.CanonicalHeaderKey(codexActiveLimitHeader): []string{codexBengalfoxActiveLimit}}, body},
+		{"api_key", &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, nil, body},
+		{"echoed_input", account, nil, []byte(`{"input":"Rate limit exceeded","error":{"message":"Invalid request"}}`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.False(t, isOpenAIAccountRateLimitPressure(tc.account, tc.headers, tc.body))
+			excluded := svc.newOpenAIAccountFailoverErrorWithClassificationHeaders(tc.account, 429, nil, tc.headers, tc.body, "", false, false)
+			require.False(t, candidateFailureAttributable(excluded))
+		})
+	}
+}
+
+type cancellationAwareOpenAISaturation struct {
+	fakeOpenAISaturationCounterRL
+	contextErr error
+}
+
+func (c *cancellationAwareOpenAISaturation) IncrementSaturation(ctx context.Context, id int64, window int) (int64, error) {
+	c.contextErr = ctx.Err()
+	if c.contextErr != nil {
+		return 0, c.contextErr
+	}
+	return c.fakeOpenAISaturationCounterRL.IncrementSaturation(ctx, id, window)
+}
+func TestOpenAISaturationSurvivesClientCancellation(t *testing.T) {
+	counter := &cancellationAwareOpenAISaturation{}
+	svc := &RateLimitService{openaiSaturationCounter: counter}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.Equal(t, int64(1), svc.recordOpenAIStubSaturation(ctx, 283, 503, "stream_capacity"))
+	require.NoError(t, counter.contextErr)
+	require.Equal(t, []int64{283}, counter.incrementIDs)
+}

@@ -33,6 +33,8 @@ type candidateObservedFailure struct{ error }
 const (
 	candidateFailureWindowSeconds       = 90
 	candidateFailureThreshold     int64 = 3
+	// Set by a provider classifier only after excluding quota and model limits.
+	candidateAccountRateLimitReason GatewayFailureReason = "account_rate_limit"
 )
 
 func (e *candidateObservedFailure) Unwrap() error { return e.error }
@@ -105,6 +107,9 @@ func candidateFailureAttributable(err error) bool {
 	// Auth, explicit quota limits and caller errors retain their dedicated owners.
 	if !failure.ShouldRetryNextAccount() || failure.StatusCode == 529 {
 		return false
+	}
+	if failure.StatusCode == http.StatusTooManyRequests {
+		return failure.Scope == GatewayFailureScopeAccount && failure.Reason == candidateAccountRateLimitReason
 	}
 	// RequestScopedTransient / RetryableOnSameAccount mean "no hard unsched; prefer
 	// same-account retry first". OpenAI capacity-shed overload (often StatusCode

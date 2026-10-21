@@ -2054,6 +2054,7 @@
         "kiroproto.MapModel(model)",
         "candidateFailureAttributable",
         "candidateFailureSoftPriorityEligible",
+        "failure.Reason == candidateAccountRateLimitReason",
         "isOpenAIRequestScopedCapacityShed",
         "counter.IncrementCandidateFailure",
         "candidateTransportFailure",
@@ -2088,6 +2089,7 @@
         "TestCandidateFailureNativeExecutionUsesForwardModel",
         "TestCandidateTransportFailureAttribution",
         "TestCandidateFailureAttributionSoftDeprioritizesOpenAICapacityShed",
+        "TestCandidateFailureCodex429UsesUnifiedPriority",
         "http_400_capacity_shed",
         "selectAccount_demotes_after_threshold",
         "ExecuteSelectedProtocol",
@@ -9223,7 +9225,7 @@
     {
       "path": "backend/cmd/server/wire_gen.go",
       "must_contain": [
-        "service.ProvideAccountUsageService(accountRepository, usageLogRepository, claudeUsageFetcher, geminiQuotaService, antigravityQuotaFetcher, grokQuotaFetcher, grokQuotaService, openAIQuotaService, usageCache, identityCache, tlsFingerprintProfileService, oAuthRefreshAPI, openAIGatewayService)"
+        "service.ProvideAccountUsageService(accountRepository, usageLogRepository, claudeUsageFetcher, geminiQuotaService, antigravityQuotaFetcher, grokQuotaFetcher, grokQuotaService, openAIQuotaService, usageCache, identityCache, tlsFingerprintProfileService, oAuthRefreshAPI)"
       ],
       "rationale": "Generated DI seam for forced Kiro usage recovery. AccountUsageService needs the shared OAuthRefreshAPI so a 401/403 Invalid-token response can refresh credentials under the same distributed lock before a single GetUsageLimits retry, without borrowing the runtime recovery path that also clears error and re-enables scheduling. Dropping the final constructor argument compiles only against stale generated code and silently restores the misleading usage 403 failure after the account leaves the active background-refresh set."
     },
@@ -17049,6 +17051,48 @@
         "extra = COALESCE(extra, '{}'::jsonb) - 'antigravity_validation_url'"
       ],
       "rationale": "All account recovery paths clear the pending Google verification URL together with temporary state."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service.go",
+      "must_contain": [
+        "s.openAIQuotaService.QueryUsage(ctx, account.ID)",
+        "buildOpenAIQuotaSnapshotUpdates(account, usage, time.Now())",
+        "progress.UtilizationUnknown = true"
+      ],
+      "rationale": "Codex active refresh uses quota GET, synchronously replaces windows, and never labels old quota as current."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_upstream_errors.go",
+      "must_contain": [
+        "isOpenAIAccountRateLimitPressure(account, classificationHeaders, responseBody)",
+        "failoverErr.RetryableOnSameAccount = false",
+        "failoverErr.Reason = candidateAccountRateLimitReason"
+      ],
+      "rationale": "Confirmed account throttle must use bounded account failover rather than the two-minute same-account retry."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_saturation.go",
+      "must_contain": [
+        "stateCtx, cancel := openAIAccountStateContext(ctx)",
+        "IncrementSaturation(stateCtx, accountID, saturationWindowSeconds)"
+      ],
+      "rationale": "Confirmed upstream capacity feedback survives a canceled client within the existing state-update deadline."
+    },
+    {
+      "path": "backend/internal/service/account_usage_codex_refresh_tk_test.go",
+      "must_contain": [
+        "TestOpenAIUsageRefreshReplacesExhaustedSnapshotWithoutInference",
+        "TestQuotaCardRefreshPersistsWindowsWithoutResetCreditDetails"
+      ],
+      "rationale": "Retain behavioral quota GET, persistence, absent-window and error regressions."
+    },
+    {
+      "path": "backend/internal/service/openai_capacity_saturation_tk_test.go",
+      "must_contain": [
+        "TestOpenAIAccount429PressureSwitchesWithoutSaturationPenalty",
+        "TestOpenAISaturationSurvivesClientCancellation"
+      ],
+      "rationale": "Retain throttle attribution, absence of duplicate saturation feedback, retry and canceled-request regression coverage."
     }
   ]
 }
