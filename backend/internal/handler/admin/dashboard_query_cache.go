@@ -42,6 +42,8 @@ type dashboardModelGroupCacheKey struct {
 	APIKeyID              int64  `json:"api_key_id"`
 	AccountID             int64  `json:"account_id"`
 	GroupID               int64  `json:"group_id"`
+	Model                 string `json:"model,omitempty"`
+	BillingMode           string `json:"billing_mode,omitempty"`
 	ModelSource           string `json:"model_source,omitempty"`
 	RequestType           *int16 `json:"request_type"`
 	Stream                *bool  `json:"stream"`
@@ -133,6 +135,7 @@ func (h *DashboardHandler) getModelStatsCached(
 	nativeCompactionV2 *bool,
 	billingType *int8,
 	upstreamModelMismatch *bool,
+	model, billingMode string,
 ) ([]usagestats.ModelStat, bool, error) {
 	key := mustMarshalDashboardCacheKey(dashboardModelGroupCacheKey{
 		StartTime:             startTime.UTC().Format(time.RFC3339),
@@ -142,6 +145,8 @@ func (h *DashboardHandler) getModelStatsCached(
 		AccountID:             accountID,
 		GroupID:               groupID,
 		ModelSource:           usagestats.NormalizeModelSource(modelSource),
+		Model:                 model,
+		BillingMode:           billingMode,
 		RequestType:           requestType,
 		Stream:                stream,
 		NativeCompactionV2:    nativeCompactionV2,
@@ -150,6 +155,7 @@ func (h *DashboardHandler) getModelStatsCached(
 	})
 	entry, hit, err := dashboardModelStatsCache.GetOrLoad(key, func() (any, error) {
 		return h.dashboardService.GetModelStatsWithUsageFiltersBySource(ctx, startTime, endTime, usagestats.UsageLogFilters{
+			Model: model, BillingMode: billingMode,
 			UserID: userID, APIKeyID: apiKeyID, AccountID: accountID, GroupID: groupID,
 			RequestType: requestType, Stream: stream, NativeCompactionV2: nativeCompactionV2, BillingType: billingType,
 			UpstreamModelMismatch: upstreamModelMismatch,

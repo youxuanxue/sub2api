@@ -25,7 +25,7 @@ type ClaudeRequest struct {
 
 // ClaudeImageConfig carries gemini-native image config from the OpenAI-compat inbound
 // to the Gemini image transform. AspectRatio is a code like "1:1" / "16:9"; ImageSize
-// is a resolution tier like "1K" / "2K" / "4K".
+// is a resolution tier like "512" (0.5K) / "1K" / "2K" / "4K".
 type ClaudeImageConfig struct {
 	AspectRatio string `json:"aspect_ratio,omitempty"`
 	ImageSize   string `json:"image_size,omitempty"`

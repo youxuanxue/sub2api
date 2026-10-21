@@ -402,6 +402,9 @@ jobs:
       - name: Gemini Web admin import browser journeys
         working-directory: frontend
         run: pnpm exec playwright test --config playwright.gemini-import.config.ts
+      - name: Admin usage Excel export browser journeys
+        working-directory: frontend
+        run: pnpm exec playwright test --config playwright.usage-export.config.ts
 
   candidate-browser:
     needs: changes

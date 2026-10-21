@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 )
 
 const (
@@ -32,10 +34,13 @@ type ImageBillingSizeResolution struct {
 
 func ClassifyImageBillingTier(size string) (string, bool) {
 	trimmed := strings.TrimSpace(size)
-	normalized := strings.ToLower(trimmed)
+	normalized := strings.ToLower(apicompat.NormalizeGeminiImageSize(trimmed))
 	switch normalized {
 	case "", "auto":
 		return "", false
+	case apicompat.GeminiImageSize512:
+		// Gemini 0.5K / 512px tier bills in the 1K bucket (no separate price column).
+		return ImageBillingSize1K, true
 	case "1k":
 		return ImageBillingSize1K, true
 	case "2k":

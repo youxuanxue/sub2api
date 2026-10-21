@@ -12,6 +12,11 @@ func TestImagesToGeminiGeneration(t *testing.T) {
 	for _, tc := range []struct{ name, extra, size, ratio string }{
 		{"default", "", "", "1:1"},
 		{"auto", `,"size":"auto"`, "", "1:1"},
+		{"0.5K", `,"size":"0.5K"`, "512", "1:1"},
+		{"512 alias", `,"size":"512","aspect_ratio":"16:9"`, "512", "16:9"},
+		{"512px alias", `,"size":"512px","aspect_ratio":"4:3"`, "512", "4:3"},
+		{"512 case and whitespace", `,"size":" 512PX ","aspect_ratio":"4:3"`, "512", "4:3"},
+		{"512 square canvas", `,"size":"512X512"`, "512", "1:1"},
 		{"square", `,"size":"1024x1024"`, "1K", "1:1"},
 		{"4K landscape", `,"size":"4K","aspect_ratio":"21:9","n":1,"response_format":"b64_json","stream":false`, "4K", "21:9"},
 	} {
@@ -27,7 +32,7 @@ func TestImagesToGeminiGeneration(t *testing.T) {
 	}
 }
 func TestImagesToGeminiGenerationRejectsLossyOptions(t *testing.T) {
-	for _, extra := range []string{`,"n":2`, `,"n":0`, `,"n":null`, `,"n":1.1`, `,"stream":true`, `,"stream":"false"`, `,"stream":null`, `,"quality":"hd"`, `,"background":"transparent"`, `,"response_format":"url"`, `,"size":"1024x1536"`, `,"size":"1024x1024","aspect_ratio":"16:9"`, `,"aspect_ratio":"7:3"`, `,"size":null`, `,"image":"https://example.invalid/input.png"`} {
+	for _, extra := range []string{`,"size":"05.K"`, `,"size":"3K"`, `,"size":"512x768"`, `,"size":"512x512junk"`, `,"size":"512x512","aspect_ratio":"16:9"`, `,"n":2`, `,"n":0`, `,"n":null`, `,"n":1.1`, `,"stream":true`, `,"stream":"false"`, `,"stream":null`, `,"quality":"hd"`, `,"background":"transparent"`, `,"response_format":"url"`, `,"size":"1024x1536"`, `,"size":"1024x1024","aspect_ratio":"16:9"`, `,"aspect_ratio":"7:3"`, `,"size":null`, `,"image":"https://example.invalid/input.png"`} {
 		_, _, err := ImagesToGeminiGeneration([]byte(`{"model":"nano-2","prompt":"cup"` + extra + `}`))
 		require.Error(t, err, extra)
 	}
