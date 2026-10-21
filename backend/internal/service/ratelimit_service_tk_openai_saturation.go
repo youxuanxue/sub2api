@@ -13,7 +13,10 @@ func (s *RateLimitService) recordOpenAIStubSaturation(ctx context.Context, accou
 	if s == nil || s.openaiSaturationCounter == nil {
 		return 0
 	}
-	count, err := s.openaiSaturationCounter.IncrementSaturation(ctx, accountID, saturationWindowSeconds)
+	// Provider feedback must survive the client disconnect that it caused.
+	stateCtx, cancel := openAIAccountStateContext(ctx)
+	defer cancel()
+	count, err := s.openaiSaturationCounter.IncrementSaturation(stateCtx, accountID, saturationWindowSeconds)
 	if err != nil {
 		slog.Warn("openai_stub_saturation_increment_failed",
 			"account_id", accountID,

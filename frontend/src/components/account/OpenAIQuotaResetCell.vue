@@ -245,6 +245,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'account-updated': [account: Account]
+  'quota-updated': []
 }>()
 
 const { t } = useI18n()
@@ -504,6 +505,7 @@ const handleQuery = async () => {
     // the live count is always adopted. Only the persisted view is left alone,
     // which keeps the displayed expirations consistent with what is stored.
     data.value = result
+    if (result.credits_cache_persisted !== false) emit('quota-updated')
     if (result.cache_persisted) {
       cachedData.value = result
     } else {

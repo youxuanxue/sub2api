@@ -17049,6 +17049,54 @@
         "extra = COALESCE(extra, '{}'::jsonb) - 'antigravity_validation_url'"
       ],
       "rationale": "All account recovery paths clear the pending Google verification URL together with temporary state."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service.go",
+      "must_contain": [
+        "s.openAIQuotaService.QueryUsage(ctx, account.ID)",
+        "buildOpenAIQuotaSnapshotUpdates(account, usage, time.Now())",
+        "progress.UtilizationUnknown = true"
+      ],
+      "rationale": "Codex active refresh uses quota GET, synchronously replaces windows, and never labels old quota as current."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_upstream_errors.go",
+      "must_contain": [
+        "isOpenAIAccountRateLimitPressure(account, classificationHeaders, responseBody)",
+        "failoverErr.RetryableOnSameAccount = false"
+      ],
+      "rationale": "Confirmed account throttle must use bounded account failover rather than the two-minute same-account retry."
+    },
+    {
+      "path": "backend/internal/service/openai_account_runtime_block_fastpath.go",
+      "must_contain": [
+        "s.rateLimitService.recordOpenAIStubSaturation(stateCtx, account.ID, statusCode, \"account_rate_limit\")"
+      ],
+      "rationale": "HTTP and semantic stream 429 share one capacity-feedback call, without double-counting the cooldown callback."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_saturation.go",
+      "must_contain": [
+        "stateCtx, cancel := openAIAccountStateContext(ctx)",
+        "IncrementSaturation(stateCtx, accountID, saturationWindowSeconds)"
+      ],
+      "rationale": "Confirmed upstream capacity feedback survives a canceled client within the existing state-update deadline."
+    },
+    {
+      "path": "backend/internal/service/account_usage_codex_refresh_tk_test.go",
+      "must_contain": [
+        "TestOpenAIUsageRefreshReplacesExhaustedSnapshotWithoutInference",
+        "TestQuotaCardRefreshPersistsWindowsWithoutResetCreditDetails"
+      ],
+      "rationale": "Retain behavioral quota GET, persistence, absent-window and error regressions."
+    },
+    {
+      "path": "backend/internal/service/openai_capacity_saturation_tk_test.go",
+      "must_contain": [
+        "TestOpenAIAccount429PressureDeprioritizesAndSwitchesWithoutSameAccountRetry",
+        "TestOpenAISaturationSurvivesClientCancellation"
+      ],
+      "rationale": "Retain actual throttle counter, ranking, retry and canceled-request regression coverage."
     }
   ]
 }

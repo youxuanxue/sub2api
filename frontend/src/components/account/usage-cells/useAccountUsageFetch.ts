@@ -65,10 +65,26 @@ export function useAccountUsageFetch(
     props.usageOverride !== undefined ? props.usageOverride : null
   )
 
+  const adoptUsage = (next: AccountUsageInfo | null) => {
+    // A delayed passive batch must not undo a successful live quota query.
+    const currentTime = Date.parse(usageInfo.value?.updated_at ?? '')
+    const nextTime = Date.parse(next?.updated_at ?? '')
+    if (props.account.platform === PLATFORM_OPENAI && Number.isFinite(currentTime) &&
+        Number.isFinite(nextTime) && nextTime < currentTime) return false
+    usageInfo.value = next
+    return true
+  }
+
   watch(
-    () => props.usageOverride,
-    (v) => {
-      if (v !== undefined) usageInfo.value = v
+    () => [props.account.id, props.usageOverride] as const,
+    ([id, value], previous) => {
+      if (previous && id !== previous[0]) {
+        usageInfo.value = null
+        loading.value = false
+        activeQueryLoading.value = false
+        error.value = null
+      }
+      if (value !== undefined) adoptUsage(value)
     },
     { immediate: true }
   )
@@ -104,29 +120,29 @@ export function useAccountUsageFetch(
     if (!loadOptions?.bypassCache) {
       const cached = _usageCache.get(props.account.id)
       if (cached && Date.now() - cached.ts < USAGE_CACHE_TTL) {
-        usageInfo.value = cached.data
+        adoptUsage(cached.data)
         loading.value = false
         return
       }
     }
 
+    const accountId = props.account.id
     loading.value = true
     error.value = null
 
     try {
-      const fetchFn = () => adminAPI.accounts.getUsage(props.account.id, loadOptions?.source)
+      const fetchFn = () => adminAPI.accounts.getUsage(accountId, loadOptions?.source)
       const result = await enqueueUsageRequest(props.account, fetchFn)
-      if (!unmounted.value) {
-        usageInfo.value = result
-        _usageCache.set(props.account.id, { data: result, ts: Date.now() })
+      if (!unmounted.value && props.account.id === accountId) {
+        if (adoptUsage(result)) _usageCache.set(accountId, { data: result, ts: Date.now() })
       }
     } catch (e: unknown) {
-      if (!unmounted.value) {
+      if (!unmounted.value && props.account.id === accountId) {
         error.value = t('common.error')
         console.error('Failed to load usage:', e)
       }
     } finally {
-      if (!unmounted.value) loading.value = false
+      if (!unmounted.value && props.account.id === accountId) loading.value = false
     }
   }
 
@@ -184,17 +200,23 @@ export function useAccountUsageFetch(
   }
 
   const loadActiveUsage = async () => {
+    const accountId = props.account.id
     activeQueryLoading.value = true
     error.value = null
     try {
-      usageInfo.value = props.activeUsageLoader
+      const result = props.activeUsageLoader
         ? await props.activeUsageLoader()
-        : await adminAPI.accounts.getUsage(props.account.id, 'active', true)
+        : await adminAPI.accounts.getUsage(accountId, 'active', true)
+      if (!unmounted.value && props.account.id === accountId) {
+        if (adoptUsage(result)) _usageCache.set(accountId, { data: result, ts: Date.now() })
+      }
     } catch (e: unknown) {
-      error.value = t('admin.accounts.usageError')
-      console.error('Failed to load active usage:', e)
+      if (!unmounted.value && props.account.id === accountId) {
+        error.value = t('admin.accounts.usageError')
+        console.error('Failed to load active usage:', e)
+      }
     } finally {
-      activeQueryLoading.value = false
+      if (!unmounted.value && props.account.id === accountId) activeQueryLoading.value = false
     }
   }
 

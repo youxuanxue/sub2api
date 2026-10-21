@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -108,4 +109,70 @@ func TestComputeOpenAISaturationPenalties_DeprioritizesOAuthAccount(t *testing.T
 	require.Equal(t, openAISaturationScorePenalty+float64(saturationThreshold), candidates[0].saturationScorePenalty)
 	require.Zero(t, candidates[1].saturationScorePenalty)
 	resetOpenAISatCache()
+}
+
+func TestOpenAIAccount429PressureDeprioritizesAndSwitchesWithoutSameAccountRetry(t *testing.T) {
+	account := &Account{ID: 283, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	sat := &fakeOpenAISaturationCounterRL{}
+	limits := NewRateLimitService(&oauth429RateLimitRepo{}, nil, &config.Config{}, nil, nil)
+	limits.SetOpenAISaturationCounter(sat)
+	svc := &OpenAIGatewayService{rateLimitService: limits}
+	limits.SetAccountRuntimeBlocker(svc)
+	body := []byte(`{"detail":"Rate limit exceeded"}`)
+	for i := int64(0); i < saturationThreshold; i++ {
+		svc.handleOpenAIAccountUpstreamError(context.Background(), account, 429, nil, body)
+	}
+	require.Equal(t, saturationThreshold, sat.count)
+	svc.openaiOAuth429RetryStartedAt.Store(account.ID, time.Now().Add(-openAIOAuth429RetryWindow-time.Second))
+	svc.handleOpenAIAccountUpstreamError(context.Background(), account, 429, nil, body)
+	require.Equal(t, saturationThreshold+1, sat.count, "parking after retry exhaustion must not double-count the same response")
+	svc.ClearAccountSchedulingBlock(account.ID)
+	require.Greater(t, candidateEffectivePriority(account, map[int64]int64{283: sat.count}), account.Priority)
+	sat.batch = map[int64]int64{283: sat.count}
+	svc.SetOpenAISaturationCounter(sat)
+	candidates := []openAIAccountCandidateScore{{account: account}, {account: &Account{ID: 284, Platform: PlatformOpenAI, Type: AccountTypeOAuth}}}
+	svc.computeOpenAISaturationPenalties(context.Background(), candidates)
+	require.Greater(t, candidates[0].saturationScorePenalty, candidates[1].saturationScorePenalty)
+	failure := svc.newOpenAIAccountFailoverError(account, 429, nil, body, "Rate limit exceeded", false, true)
+	require.False(t, failure.RetryableOnSameAccount)
+	require.True(t, failure.SameAccountRetryDeadline.IsZero())
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account), "soft preference does not hard-disable an account")
+
+	for _, tc := range []struct {
+		name    string
+		account *Account
+		headers http.Header
+		body    []byte
+	}{
+		{"quota", account, codex7dExhaustedHeaders(600000), body},
+		{"spark", account, http.Header{http.CanonicalHeaderKey(codexActiveLimitHeader): []string{codexBengalfoxActiveLimit}}, body},
+		{"api_key", &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, nil, body},
+		{"echoed_input", account, nil, []byte(`{"input":"Rate limit exceeded","error":{"message":"Invalid request"}}`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.False(t, isOpenAIAccountRateLimitPressure(tc.account, tc.headers, tc.body))
+		})
+	}
+}
+
+type cancellationAwareOpenAISaturation struct {
+	fakeOpenAISaturationCounterRL
+	contextErr error
+}
+
+func (c *cancellationAwareOpenAISaturation) IncrementSaturation(ctx context.Context, id int64, window int) (int64, error) {
+	c.contextErr = ctx.Err()
+	if c.contextErr != nil {
+		return 0, c.contextErr
+	}
+	return c.fakeOpenAISaturationCounterRL.IncrementSaturation(ctx, id, window)
+}
+func TestOpenAISaturationSurvivesClientCancellation(t *testing.T) {
+	counter := &cancellationAwareOpenAISaturation{}
+	svc := &RateLimitService{openaiSaturationCounter: counter}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.Equal(t, int64(1), svc.recordOpenAIStubSaturation(ctx, 283, 503, "stream_capacity"))
+	require.NoError(t, counter.contextErr)
+	require.Equal(t, []int64{283}, counter.incrementIDs)
 }

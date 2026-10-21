@@ -159,6 +159,10 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		return true
 	}
 	if statusCode == http.StatusTooManyRequests {
+		if s.rateLimitService != nil && !tkOpenAIOAuth429ShouldSkipAccountStorm(account, headers, responseBody, canonicalModel...) &&
+			isOpenAIAccountRateLimitPressure(account, headers, responseBody) {
+			s.rateLimitService.recordOpenAIStubSaturation(stateCtx, account.ID, statusCode, "account_rate_limit")
+		}
 		s.noteOpenAIOAuth429ForScheduling(stateCtx, account, headers, responseBody, canonicalModel...)
 	}
 	// Isolate a custom temporary-unschedulable match to the known upstream

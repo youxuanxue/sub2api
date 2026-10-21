@@ -101,3 +101,22 @@ func (s *OpenAIGatewayService) maybeRecordOpenAICapacitySaturation(
 	}
 	s.rateLimitService.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)
 }
+
+// Generic account throttling is capacity feedback even when the weekly budget
+// remains available. Keep quota exhaustion, images and model sub-limits out.
+func isOpenAIAccountRateLimitPressure(account *Account, headers http.Header, body []byte) bool {
+	if !eligibleForOpenAICapacitySaturationPreference(account) || account.IsShadow() ||
+		isOpenAIImageRateLimitError(http.StatusTooManyRequests, body) || isCodexBengalfoxActiveLimit(headers) ||
+		tkOpenAIOAuth429ShouldSkipAccountStorm(account, headers, body) {
+		return false
+	}
+	if disposition, _ := classifyOpenAIOAuth429(headers, body); disposition != openAIOAuth429Transient {
+		return false
+	}
+	for _, path := range []string{"detail", "error.message", "response.error.message", "message"} {
+		if strings.EqualFold(strings.TrimSpace(gjson.GetBytes(body, path).String()), "Rate limit exceeded") {
+			return true
+		}
+	}
+	return false
+}

@@ -571,7 +571,11 @@ func buildOpenAIAutoResetUsageUpdates(usage *OpenAIQuotaUsage, now time.Time) ma
 		return nil
 	}
 	rateLimit := usage.RateLimit
-	snapshot := &OpenAICodexUsageSnapshot{UpdatedAt: now.UTC().Format(time.RFC3339)}
+	if usage.FetchedAt > 0 {
+		now = time.Unix(usage.FetchedAt, 0)
+	}
+	zero := 0
+	snapshot := &OpenAICodexUsageSnapshot{UpdatedAt: now.UTC().Format(time.RFC3339), PrimaryWindowMinutes: &zero, SecondaryWindowMinutes: &zero}
 	applyWindow := func(window *OpenAIRateLimitWindow, primary bool) {
 		if window == nil {
 			return
@@ -591,7 +595,15 @@ func buildOpenAIAutoResetUsageUpdates(usage *OpenAIQuotaUsage, now time.Time) ma
 	}
 	applyWindow(rateLimit.PrimaryWindow, true)
 	applyWindow(rateLimit.SecondaryWindow, false)
-	return buildCodexUsageExtraUpdates(snapshot, now)
+	updates := buildCodexUsageExtraUpdates(snapshot, now)
+	// Unlike partial response headers, /wham/usage is a complete window list.
+	for _, window := range []string{"5h", "7d"} {
+		key := "codex_" + window + "_window_minutes"
+		if _, ok := updates[key]; !ok {
+			updates[key] = 0
+		}
+	}
+	return updates
 }
 
 func (s *OpenAIQuotaAutoResetService) persistFreshUsage(ctx context.Context, accountID int64, usage *OpenAIQuotaUsage, now time.Time) error {

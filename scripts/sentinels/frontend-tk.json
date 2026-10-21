@@ -2735,6 +2735,23 @@
         "const handleAccountTested = async"
       ],
       "rationale": "The accounts list consumes test completion and reloads the tested row for recovery links."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/useAccountUsageFetch.ts",
+      "must_contain": [
+        "nextTime < currentTime",
+        "if (adoptUsage(result)) _usageCache.set(accountId, { data: result, ts: Date.now() })"
+      ],
+      "rationale": "A delayed passive batch/cache cannot overwrite newer live quota evidence."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/OpenAIUsageCell.vue",
+      "must_contain": [
+        "@quota-updated=\"refreshQuotaUsage\"",
+        "loadUsage({ source: 'passive', bypassCache: true })",
+        "role=\"alert\""
+      ],
+      "rationale": "Quota refresh/reset rehydrates the list-owned row and active-query failures are visible."
     }
   ]
 }

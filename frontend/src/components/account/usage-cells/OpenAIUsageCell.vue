@@ -64,10 +64,12 @@
         </div>
       </div>
       <div v-else-if="!hasOpenAIUsageFallback" class="text-xs text-gray-400">-</div>
+      <div v-if="error" role="alert" class="text-xs text-red-500">{{ error }}</div>
       <OpenAIQuotaResetCell
         v-if="hasOpenAIUsageFallback || !loading"
         :account="account"
         @account-updated="onAccountUpdated"
+        @quota-updated="refreshQuotaUsage"
       >
         <template #pre-actions>
           <button
@@ -129,7 +131,7 @@ const upstreamQuotaWindowDimensionKeys = computed(() => [
   ...windowQuotas.value.map(dimension => dimension.key),
 ])
 
-const { loading, activeQueryLoading, usageInfo, loadActiveUsage, acknowledgeAccountUpdate } = useAccountUsageFetch(
+const { loading, activeQueryLoading, error, usageInfo, loadUsage, loadActiveUsage, acknowledgeAccountUpdate } = useAccountUsageFetch(
   props,
   rootRef,
   { enableOpenAIRefreshKeyWatch: true }
@@ -139,8 +141,13 @@ const windowQuotas = computed(() => (usageInfo.value?.upstream_quota?.dimensions
   dimension => dimension.key === 'newapi_monthly' || /^newapi_(monthly|weekly|5h|7d):/.test(dimension.key)
 ))
 
+function refreshQuotaUsage() {
+  return loadUsage({ source: 'passive', bypassCache: true })
+}
+
 function onAccountUpdated(account: Account) {
   acknowledgeAccountUpdate(account)
+  void refreshQuotaUsage()
   emit('account-updated', account)
 }
 
@@ -150,6 +157,7 @@ const hasOpenAIUsageFallback = computed(() => {
 
 const sevenDayEstimatedTotalCost = computed(() => {
   if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return null
+  if (usageInfo.value?.seven_day?.utilization_unknown) return null
   const utilization = usageInfo.value?.seven_day?.utilization
   const cost = usageInfo.value?.seven_day?.window_stats?.cost
   if (typeof utilization !== 'number' || typeof cost !== 'number' ||

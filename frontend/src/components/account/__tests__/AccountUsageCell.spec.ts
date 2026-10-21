@@ -1534,11 +1534,12 @@ describe('AccountUsageCell', () => {
     await wrapper.setProps({ account: updatedAccount as Account })
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledTimes(1)
+    expect(getUsage).toHaveBeenCalledTimes(2)
+    expect(getUsage).toHaveBeenLastCalledWith(account.id, 'passive')
 
     await wrapper.setProps({ account: { ...updatedAccount!, updated_at: '2026-03-07T10:02:00Z' } })
     await flushPromises()
-    expect(getUsage).toHaveBeenCalledTimes(2)
+    expect(getUsage).toHaveBeenCalledTimes(3)
   })
 
   it('OpenAI OAuth 已限额时显示 /usage API 返回的限额数据', async () => {
@@ -1881,4 +1882,64 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).not.toContain('7d S')
     expect(wrapper.text()).not.toContain('7d F')
   })
+  it('OpenAI live query survives an older passive batch and updates the mount cache', async () => {
+    const account = makeAccount({ id: 28301, platform: 'openai', type: 'oauth' })
+    const oldUsage = { updated_at: '2026-10-21T10:00:00Z', seven_day: { utilization: 100, resets_at: '2026-10-22T10:00:00Z', remaining_seconds: 3600 } }
+    const freshUsage = { updated_at: '2026-10-21T12:00:00Z', seven_day: { utilization: 1, resets_at: '2026-10-28T12:00:00Z', remaining_seconds: 604800 } }
+    getUsage.mockResolvedValue(freshUsage)
+    const wrapper = mount(AccountUsageCell, {
+      props: { account, usageOverride: oldUsage },
+      global: { stubs: {
+        OpenAIQuotaResetCell: { template: '<div><slot name="pre-actions" /></div>' },
+        UsageProgressBar: { props: ['utilization'], template: '<span class="quota">{{ utilization }}</span>' }
+      } }
+    })
+    await flushPromises()
+    expect(getUsage).not.toHaveBeenCalled()
+    expect(wrapper.find('.quota').text()).toBe('100')
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledWith(account.id, 'active', true)
+    expect(wrapper.find('.quota').text()).toBe('1')
+    await wrapper.setProps({ usageOverride: { ...oldUsage } })
+    expect(wrapper.find('.quota').text()).toBe('1')
+    await wrapper.setProps({ account: { ...account, id: 28302 }, usageOverride: oldUsage })
+    expect(wrapper.find('.quota').text()).toBe('100')
+    wrapper.unmount()
+  })
+
+  it('OpenAI quota-card refresh and reset rehydrate windows despite a list override', async () => {
+    const account = makeAccount({ id: 28303, platform: 'openai', type: 'oauth' })
+    const oldUsage = { updated_at: '2026-10-21T10:00:00Z', seven_day: { utilization: 100, resets_at: null, remaining_seconds: 0 } }
+    getUsage.mockResolvedValue({ updated_at: '2026-10-21T12:00:00Z', seven_day: { utilization: 1, resets_at: null, remaining_seconds: 0 } })
+    const wrapper = mount(AccountUsageCell, {
+      props: { account, usageOverride: oldUsage },
+      global: { stubs: {
+        OpenAIQuotaResetCell: { props: ['account'], template: `<div><button class="query-quota" @click="$emit('quota-updated')">query</button><button class="reset-quota" @click="$emit('account-updated', account)">reset</button></div>` },
+        UsageProgressBar: { props: ['utilization'], template: '<span class="quota">{{ utilization }}</span>' }
+      } }
+    })
+    await flushPromises()
+    await wrapper.find('.query-quota').trigger('click')
+    await flushPromises()
+    expect(getUsage).toHaveBeenLastCalledWith(account.id, 'passive')
+    expect(wrapper.find('.quota').text()).toBe('1')
+    await wrapper.find('.reset-quota').trigger('click')
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('OpenAI explicit query failures are visible beside the retained snapshot', async () => {
+    getUsage.mockRejectedValue(new Error('upstream quota unavailable'))
+    const wrapper = mount(AccountUsageCell, {
+      props: { account: makeAccount({ id: 28304, platform: 'openai', type: 'oauth' }), usageOverride: null },
+      global: { stubs: { OpenAIQuotaResetCell: { template: '<div><slot name="pre-actions" /></div>' } } }
+    })
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').text()).toContain('usageError')
+    wrapper.unmount()
+  })
+
 })
