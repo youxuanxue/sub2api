@@ -90,6 +90,9 @@ tk_resolve_app_container() {
 # network but never for a host-side `docker exec`, so host probes must resolve the
 # real container name. Same fail-closed rule as the app: an explicit name must be
 # running; otherwise exactly one running candidate is required.
+# Inline SSM cannot source this file. ops/lib/resolve_app_container.py
+# remote_unique_running_snippet renders the same rule for those commands, and
+# POSTGRES_CANDIDATES / REDIS_CANDIDATES there must equal the lists below.
 TK_POSTGRES_CONTAINER_CANDIDATES="tokenkey-postgres tk-archive-standby"
 TK_REDIS_CONTAINER_CANDIDATES="tokenkey-redis tk-cutover-prod-redis"
 

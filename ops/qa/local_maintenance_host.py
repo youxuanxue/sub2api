@@ -22,6 +22,10 @@ HOST_LOCK = Path('/var/lib/tokenkey/qa-lifecycle/host.lock')
 HOT_DATA = Path('/var/lib/tokenkey/app')
 LEGACY = ('tokenkey-qa-maintenance', 'tokenkey-qa-boundary')
 PHASES = {'provision': '*-*-* *:00:00 UTC', 'cleanup': '*-*-* *:02/5:00 UTC'}
+# Layout-exception hosts may rename the Postgres container; DNS alias
+# tokenkey-postgres on tokenkey_tokenkey-network keeps PGHOST stable.
+POSTGRES_RUNTIME_CANDIDATES = ('tokenkey-postgres', 'tk-archive-standby')
+APP_RUNTIME_CANDIDATES = ('tokenkey-green', 'tokenkey-blue', 'tokenkey', 'tk-cutover-prod-app')
 
 
 def invoke(args, **kwargs):
@@ -43,33 +47,71 @@ def atomic_json(path, value):
             os.unlink(name)
 
 
-# Installed as an immutable single-file bundle, so it cannot import
-# ops/lib/resolve_app_container.py; same candidate list and fail-closed rule as
-# that owner (POSTGRES_CANDIDATES). test_local_maintenance_host pins them together.
-POSTGRES_CANDIDATES = ('tokenkey-postgres', 'tk-archive-standby')
+def resolve_postgres_runtime():
+    """Pick a running Postgres container and one Docker network for the QA job.
 
-
-def live_postgres(invoke):
-    """Exactly one running PG container (Stage0 or Tencent layout name)."""
-    found = []
-    for name in POSTGRES_CANDIDATES:
+    Prefer a network that advertises the tokenkey-postgres DNS alias so the
+    hardcoded PGHOST in pg_environment resolves. Multi-network standbys
+    (layout-exception hosts) are otherwise rejected by a len==1 check.
+    """
+    last_error = 'PostgreSQL runtime/network is ambiguous'
+    for name in POSTGRES_RUNTIME_CANDIDATES:
         try:
-            state = json.loads(invoke(['docker', 'inspect', name]))[0]
-        except Exception:
+            postgres = json.loads(invoke(['docker', 'inspect', name]))[0]
+        except subprocess.CalledProcessError as exc:
+            last_error = f'{name}: {exc.stderr.strip() or exc}'
             continue
-        if state['State']['Running']:
-            found.append(state)
-    if len(found) != 1:
-        raise ValueError('PostgreSQL runtime/network is ambiguous')
-    return found[0]
+        if not postgres['State']['Running']:
+            last_error = f'{name}: not running'
+            continue
+        networks = postgres['NetworkSettings']['Networks']
+        preferred = None
+        for net_name, net in networks.items():
+            aliases = set(net.get('Aliases') or [])
+            if 'tokenkey-postgres' in aliases:
+                preferred = net_name
+                break
+        if preferred is None and len(networks) == 1:
+            preferred = next(iter(networks))
+        if preferred is None:
+            for net_name, net in sorted(networks.items()):
+                aliases = set(net.get('Aliases') or [])
+                if 'postgres' in aliases:
+                    preferred = net_name
+                    break
+        if preferred is None:
+            last_error = f'{name}: no usable network among {sorted(networks)}'
+            continue
+        return postgres, preferred
+    raise ValueError(last_error)
+
+
+def app_database_env():
+    for name in APP_RUNTIME_CANDIDATES:
+        try:
+            app = json.loads(invoke(['docker', 'inspect', name]))[0]
+        except subprocess.CalledProcessError:
+            continue
+        env = dict(item.split('=', 1) for item in app['Config']['Env'] if '=' in item)
+        password = env.get('DATABASE_PASSWORD') or env.get('POSTGRES_PASSWORD') or env.get('PGPASSWORD')
+        if not password:
+            continue
+        return {
+            'POSTGRES_PASSWORD': password,
+            'POSTGRES_USER': env.get('DATABASE_USER') or env.get('POSTGRES_USER') or 'tokenkey',
+            'POSTGRES_DB': env.get('DATABASE_DBNAME') or env.get('POSTGRES_DB') or 'tokenkey',
+        }
+    return {}
 
 
 def pg_environment(container):
     env = dict(item.split('=', 1) for item in container['Config']['Env'] if '=' in item)
     if not env.get('POSTGRES_PASSWORD'):
+        env.update({k: v for k, v in app_database_env().items() if v})
+    if not env.get('POSTGRES_PASSWORD'):
         raise ValueError('PostgreSQL password is unavailable')
     values = {
-        'PGHOST': container.get('Name', '/tokenkey-postgres').lstrip('/'), 'PGPORT': '5432',
+        'PGHOST': 'tokenkey-postgres', 'PGPORT': '5432',
         'PGUSER': env.get('POSTGRES_USER', 'tokenkey'),
         'PGDATABASE': env.get('POSTGRES_DB', 'tokenkey'),
         'PGPASSWORD': env['POSTGRES_PASSWORD'], 'PGSSLMODE': 'disable',
@@ -120,9 +162,12 @@ WantedBy=timers.target
 
 def cleanup_mounts():
     mounts = []
+    # Resolve HOT_DATA first: layout-exception hosts symlink
+    # /var/lib/tokenkey/app → formal/app; the leaf dirs must still be real.
+    root = HOT_DATA.resolve()
     for name in ('qa_blobs', 'qa_dlq'):
-        path = HOT_DATA/name
-        if not path.is_dir() or path.resolve() != path:
+        path = root/name
+        if not path.is_dir() or path.is_symlink() or path.resolve() != path:
             raise ValueError('cleanup requires a canonical real QA directory: '+name)
         mounts += ['--mount', f'type=bind,src={path},dst=/app/data/{name}']
     return mounts
@@ -152,10 +197,7 @@ def run_phase(config, phase, dry_run=False):
                         raise TimeoutError('QA host lock busy')
                     time.sleep(1)
             require_legacy_paused()
-            postgres = live_postgres(invoke)
-            networks = list(postgres['NetworkSettings']['Networks'])
-            if not postgres['State']['Running'] or len(networks) != 1:
-                raise ValueError('PostgreSQL runtime/network is ambiguous')
+            postgres, network = resolve_postgres_runtime()
             with tempfile.TemporaryDirectory(prefix='qa-local-', dir='/run') as scratch:
                 env = Path(scratch)/'pg.env'
                 env.write_text(pg_environment(postgres))
@@ -167,7 +209,7 @@ def run_phase(config, phase, dry_run=False):
                            '--read-only', '--user', '1000:1000', '--cap-drop=ALL',
                            '--security-opt=no-new-privileges', '--memory=256m',
                            '--memory-swap=256m', '--cpus=0.20', '--pids-limit=128',
-                           '--network', networks[0], '--env-file', str(env),
+                           '--network', network, '--env-file', str(env),
                            '--mount', f'type=bind,src={binary},dst=/opt/qa-local-maintenance,readonly',
                            *mounts, '--entrypoint', '/opt/qa-local-maintenance', postgres['Image'],
                            '--phase', phase, '--confirm', f'tokenkey-qa-local-{phase}-v1']

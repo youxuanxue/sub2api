@@ -17,6 +17,11 @@ no fourth copy exists.
 Contract is identical to the shell owner: explicit name must be running;
 active-color wins when it names blue|green and that container runs; otherwise
 accept a single running candidate and treat zero-or-several as unknown.
+
+Postgres and Redis on the Tencent layout exception use the same running-unique
+rule (`remote_unique_running_snippet`). Network aliases do not satisfy
+`docker exec` / `docker inspect` on the host, and an existence check will
+select a stopped container.
 """
 
 from __future__ import annotations
@@ -27,6 +32,9 @@ import subprocess
 
 ACTIVE_COLOR_PATH = "/var/lib/tokenkey/active-color"
 CANDIDATES = ("tokenkey", "tokenkey-blue", "tokenkey-green")
+# Keep in lockstep with TK_POSTGRES_CONTAINER_CANDIDATES in resolve-app-container.sh.
+POSTGRES_CANDIDATES = ("tokenkey-postgres", "tk-archive-standby")
+REDIS_CANDIDATES = ("tokenkey-redis", "tk-cutover-prod-redis")
 
 
 def remote_shell_snippet(*, docker: str = "docker", variable: str = "APP_CONTAINER") -> list[str]:
@@ -51,6 +59,37 @@ def remote_shell_snippet(*, docker: str = "docker", variable: str = "APP_CONTAIN
             f'for candidate in {" ".join(CANDIDATES)}; do '
             f'if tk_running "$candidate"; then tk_found="$candidate"; tk_count=$((tk_count + 1)); fi; done; '
             f'if [ "$tk_count" -eq 1 ]; then {variable}="$tk_found"; fi; fi'
+        ),
+    ]
+
+
+def remote_unique_running_snippet(
+    *,
+    docker: str = "docker",
+    variable: str,
+    candidates: tuple[str, ...],
+) -> list[str]:
+    """SSM lines that set `variable` to the one running candidate, or empty.
+
+    Zero or several running candidates leave `variable` empty. Callers that
+    only report status should say unresolved; callers that open a database
+    connection must fail closed. `docker inspect` without `State.Running`
+    matches stopped containers and is not a substitute for this snippet.
+    """
+    if not variable or not candidates:
+        raise ValueError("variable and candidates are required")
+    names = " ".join(candidates)
+    return [
+        f"{variable}=''",
+        (
+            f"tk_running() {{ [ \"$({docker} inspect --format '{{{{.State.Running}}}}' "
+            f"\"$1\" 2>/dev/null)\" = true ]; }}"
+        ),
+        (
+            f'tk_found=""; tk_count=0; '
+            f"for candidate in {names}; do "
+            f'if tk_running "$candidate"; then tk_found="$candidate"; tk_count=$((tk_count + 1)); fi; done; '
+            f'if [ "$tk_count" -eq 1 ]; then {variable}="$tk_found"; fi'
         ),
     ]
 
@@ -113,9 +152,8 @@ def resolve(
 # Tencent USW layout exception keeps tk-archive-standby / tk-cutover-prod-redis and
 # only adds network aliases, which never work for a host-side `docker exec`.
 # Mirrors tk_resolve_postgres_container / tk_resolve_redis_container in the shell
-# owner: explicit name must run; otherwise exactly one running candidate.
-POSTGRES_CANDIDATES = ("tokenkey-postgres", "tk-archive-standby")
-REDIS_CANDIDATES = ("tokenkey-redis", "tk-cutover-prod-redis")
+# owner (POSTGRES_CANDIDATES / REDIS_CANDIDATES above): explicit name must run;
+# otherwise exactly one running candidate.
 
 
 def _resolve_single_running(
@@ -142,18 +180,14 @@ def data_container_shell_snippet(
 ) -> str:
     """Return one SSM-ready shell line that sets `variable` to the running container.
 
-    `kind` is "postgres" or "redis". With `required` (the default) an unresolved
-    container exits 1 with a readable error, so callers splicing this into a
-    remote script fail closed instead of `docker exec`-ing a stale or absent name.
+    `kind` is "postgres" or "redis". The selection is remote_unique_running_snippet
+    joined onto one line (splice-friendly for single-element SSM commands and
+    preambles). With `required` (the default) an unresolved container exits 1
+    with a readable error instead of `docker exec`-ing a stale or absent name.
     """
     candidates = {"postgres": POSTGRES_CANDIDATES, "redis": REDIS_CANDIDATES}[kind]
     var = variable or ("TK_PG" if kind == "postgres" else "TK_REDIS")
-    line = (
-        f"{var}=''; tk_n=0; for tk_c in {' '.join(candidates)}; do "
-        f"if [ \"$({docker} inspect --format '{{{{.State.Running}}}}' \"$tk_c\" 2>/dev/null)\" = true ]; "
-        f"then {var}=\"$tk_c\"; tk_n=$((tk_n + 1)); fi; done; "
-        f"[ \"$tk_n\" -eq 1 ] || {var}=''"
-    )
+    line = "; ".join(remote_unique_running_snippet(docker=docker, variable=var, candidates=candidates))
     if required:
         line += (
             f"; [ -n \"${var}\" ] || {{ echo '{kind} container unresolved "

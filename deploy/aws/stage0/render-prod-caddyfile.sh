@@ -11,6 +11,9 @@
 #   API_ALIAS_DOMAIN    optional second machine host, e.g. api.callmodel.io
 #                       Reuses @machine allowlist; non-machine → GLOBAL_SITE_DOMAIN.
 #                       Requires SITE_DOMAIN and GLOBAL_SITE_DOMAIN.
+#   API_CN_DOMAIN       optional CN machine host, e.g. api-cn.tokenkey.dev
+#                       Reuses @machine allowlist; non-machine → SITE_DOMAIN.
+#                       Requires SITE_DOMAIN.
 #
 # Public status.tokenkey.dev is Better Stack Free (not a Caddy vhost).
 # Public /privacy and /terms are static files under the apex vhost (/data/legal).
@@ -30,6 +33,7 @@ site_domain="${SITE_DOMAIN:-}"
 global_site_domain="${GLOBAL_SITE_DOMAIN:-}"
 global_site_phase="${GLOBAL_SITE_PHASE:-disabled}"
 api_alias_domain="${API_ALIAS_DOMAIN:-}"
+api_cn_domain="${API_CN_DOMAIN:-}"
 if [[ -z "${site_domain}" && "${API_DOMAIN}" == api.* ]]; then
   site_domain="${API_DOMAIN#api.}"
 fi
@@ -77,6 +81,11 @@ if [[ -n "${api_alias_domain}" && -z "${global_site_domain}" ]]; then
   exit 1
 fi
 
+if [[ -n "${api_cn_domain}" && -z "${site_domain}" ]]; then
+  echo "SITE_DOMAIN must resolve when API_CN_DOMAIN is set" >&2
+  exit 1
+fi
+
 tmp="$(mktemp)"
 trap 'rm -f "${tmp}"' EXIT
 
@@ -85,7 +94,8 @@ export SITE_DOMAIN="${site_domain}"
 export GLOBAL_SITE_DOMAIN="${global_site_domain}"
 export GLOBAL_REDIRECT_STATUS="${global_redirect_status}"
 export API_ALIAS_DOMAIN="${api_alias_domain}"
-envsubst '$API_DOMAIN $ACME_EMAIL $SITE_DOMAIN $GLOBAL_SITE_DOMAIN $GLOBAL_REDIRECT_STATUS $API_ALIAS_DOMAIN' < "${template}" > "${tmp}"
+export API_CN_DOMAIN="${api_cn_domain}"
+envsubst '$API_DOMAIN $ACME_EMAIL $SITE_DOMAIN $GLOBAL_SITE_DOMAIN $GLOBAL_REDIRECT_STATUS $API_ALIAS_DOMAIN $API_CN_DOMAIN' < "${template}" > "${tmp}"
 
 strip_render_markers() {
   sed \
@@ -100,7 +110,9 @@ strip_render_markers() {
     -e '/^# BEGIN_GLOBAL_VHOST$/d' \
     -e '/^# END_GLOBAL_VHOST$/d' \
     -e '/^# BEGIN_API_ALIAS_VHOST$/d' \
-    -e '/^# END_API_ALIAS_VHOST$/d'
+    -e '/^# END_API_ALIAS_VHOST$/d' \
+    -e '/^# BEGIN_API_CN_VHOST$/d' \
+    -e '/^# END_API_CN_VHOST$/d'
 }
 
 strip_block() {
@@ -115,13 +127,15 @@ if [[ -z "${site_domain}" ]]; then
   no_apex="$(mktemp)"
   no_global="$(mktemp)"
   no_alias="$(mktemp)"
+  no_cn="$(mktemp)"
   no_snippet="$(mktemp)"
   no_split="$(mktemp)"
-  trap 'rm -f "${tmp}" "${no_apex}" "${no_global}" "${no_alias}" "${no_snippet}" "${no_split}"' EXIT
+  trap 'rm -f "${tmp}" "${no_apex}" "${no_global}" "${no_alias}" "${no_cn}" "${no_snippet}" "${no_split}"' EXIT
   strip_block "${tmp}" "${no_apex}" "BEGIN_APEX_VHOST" "END_APEX_VHOST"
   strip_block "${no_apex}" "${no_global}" "BEGIN_GLOBAL_VHOST" "END_GLOBAL_VHOST"
   strip_block "${no_global}" "${no_alias}" "BEGIN_API_ALIAS_VHOST" "END_API_ALIAS_VHOST"
-  strip_block "${no_alias}" "${no_snippet}" "BEGIN_API_MACHINE_SNIPPET" "END_API_MACHINE_SNIPPET"
+  strip_block "${no_alias}" "${no_cn}" "BEGIN_API_CN_VHOST" "END_API_CN_VHOST"
+  strip_block "${no_cn}" "${no_snippet}" "BEGIN_API_MACHINE_SNIPPET" "END_API_MACHINE_SNIPPET"
   strip_block "${no_snippet}" "${no_split}" "BEGIN_API_MACHINE_SPLIT" "END_API_MACHINE_SPLIT"
   strip_render_markers < "${no_split}" > "${output}"
 else
@@ -136,6 +150,10 @@ else
   fi
   if [[ -z "${api_alias_domain}" ]]; then
     strip_block "${cur}" "${next}" "BEGIN_API_ALIAS_VHOST" "END_API_ALIAS_VHOST"
+    mv "${next}" "${cur}"
+  fi
+  if [[ -z "${api_cn_domain}" ]]; then
+    strip_block "${cur}" "${next}" "BEGIN_API_CN_VHOST" "END_API_CN_VHOST"
     mv "${next}" "${cur}"
   fi
   strip_render_markers < "${cur}" > "${output}"

@@ -630,10 +630,12 @@ class DataContainerResolutionTest(unittest.TestCase):
 
     def test_inline_commands_never_hardcode_data_container_exec(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        for literal in ("PG=tokenkey-postgres;", "exec tokenkey-postgres", "exec tokenkey-redis",
-                        "for c in tokenkey-postgres tk-archive-standby"):
-            self.assertNotIn(literal, text)
-        self.assertIn('_tk.data_container_shell_snippet("postgres", docker="sudo docker", variable="PG")', text)
+        # The repo-wide guard (scripts/checks/data-container-resolver.py) covers
+        # literal names; here pin that every data-container pick uses the owner.
+        self.assertNotIn("exec tokenkey-postgres", text)
+        self.assertNotIn("exec tokenkey-redis", text)
+        self.assertIn('candidates=_tk.POSTGRES_CANDIDATES', text)
+        self.assertIn('candidates=_tk.REDIS_CANDIDATES', text)
 
 
 if __name__ == "__main__":

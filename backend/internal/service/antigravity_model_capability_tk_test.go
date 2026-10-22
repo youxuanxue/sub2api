@@ -197,7 +197,8 @@ func TestAntigravityCatalogWithdrawalPreservesOtherSupplies(t *testing.T) {
 		require.NotContains(t, supportedCatalogModelIDsForPlatform(PlatformAntigravity), model)
 		require.True(t, isPublicCatalogModelSupported(PlatformGemini, model))
 	}
-	require.True(t, isPublicCatalogModelSupported(PlatformAntigravity, "gemini-4-argon"))
+	require.False(t, isPublicCatalogModelSupported(PlatformAntigravity, "gemini-4-argon"),
+		"public antigravity catalog hides gemini-4-argon after 2026-10-22 canary 404")
 }
 
 func TestAntigravityModelUnavailableCannotCascadeToWholeAccount(t *testing.T) {

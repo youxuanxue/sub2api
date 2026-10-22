@@ -19,25 +19,23 @@ class LocalHostTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 local.pg_environment({'Config': {'Env': env}})
 
-    def test_tencent_layout_postgres_is_resolved_and_used_as_pghost(self):
-        def inspect(args):
-            name = args[-1]
-            running = name == 'tk-archive-standby'
-            return '[{"Name": "/%s", "State": {"Running": %s}, "Config": {"Env": ["POSTGRES_PASSWORD=test-only"]},' \
-                   ' "NetworkSettings": {"Networks": {"tk-cutover-prod": {}}}}]' % (name, 'true' if running else 'false')
-        container = local.live_postgres(inspect)
-        self.assertEqual(container['Name'], '/tk-archive-standby')
-        self.assertIn('PGHOST=tk-archive-standby\n', local.pg_environment(container))
-        both = lambda args: inspect(['docker', 'inspect', 'tk-archive-standby']).replace('tk-archive-standby', args[-1])
-        with self.assertRaisesRegex(ValueError, 'ambiguous'):
-            local.live_postgres(both)
+    def test_pg_environment_falls_back_to_active_app_database_password(self):
+        app = {'Config': {'Env': [
+            'DATABASE_PASSWORD=from-app',
+            'DATABASE_USER=tokenkey',
+            'DATABASE_DBNAME=tokenkey',
+            'AWS_SECRET_ACCESS_KEY=not-for-job',
+        ]}}
+        with mock.patch.object(local, 'invoke', return_value=local.json.dumps([app])):
+            result = local.pg_environment({'Config': {'Env': []}})
+        self.assertIn('PGPASSWORD=from-app\n', result)
+        self.assertIn('PGHOST=tokenkey-postgres\n', result)
+        self.assertNotIn('not-for-job', result)
 
-    def test_candidate_list_matches_canonical_resolver(self):
-        owner_spec = importlib.util.spec_from_file_location(
-            'owner', Path(__file__).resolve().parents[1] / 'lib' / 'resolve_app_container.py')
-        owner = importlib.util.module_from_spec(owner_spec)
-        owner_spec.loader.exec_module(owner)
-        self.assertEqual(local.POSTGRES_CANDIDATES, owner.POSTGRES_CANDIDATES)
+    def test_pg_environment_rejects_when_postgres_and_app_passwords_missing(self):
+        with mock.patch.object(local, 'invoke', side_effect=local.subprocess.CalledProcessError(1, ['docker', 'inspect'])):
+            with self.assertRaisesRegex(ValueError, 'PostgreSQL password is unavailable'):
+                local.pg_environment({'Config': {'Env': []}})
 
     def test_active_legacy_owner_blocks_local_work(self):
         with mock.patch.object(local, 'invoke', side_effect=['ActiveState=active\nUnitFileState=enabled\n', 'inactive']):
@@ -109,6 +107,31 @@ class LocalHostTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'canonical real QA directory'):
                     local.cleanup_mounts()
 
+    def test_cleanup_mounts_resolves_symlinked_hot_data_root(self):
+        with tempfile.TemporaryDirectory() as root:
+            real=(Path(root)/'formal'/'app').resolve()
+            real.mkdir(parents=True)
+            (real/'qa_blobs').mkdir()
+            (real/'qa_dlq').mkdir()
+            link=Path(root)/'app'
+            link.symlink_to(real)
+            with mock.patch.object(local,'HOT_DATA',link):
+                mounts=local.cleanup_mounts()
+            self.assertEqual(mounts,['--mount',f'type=bind,src={real}/qa_blobs,dst=/app/data/qa_blobs',
+                                     '--mount',f'type=bind,src={real}/qa_dlq,dst=/app/data/qa_dlq'])
+
+    def test_resolve_postgres_runtime_prefers_tokenkey_postgres_alias_network(self):
+        pg={'State':{'Running':True},'Image':'sha256:fixture',
+            'NetworkSettings':{'Networks':{
+                'tk-cutover-prod':{'Aliases':['tk-archive-standby','postgres']},
+                'tokenkey_tokenkey-network':{'Aliases':['postgres','tokenkey-postgres']},
+            }},
+            'Config':{'Env':[]}}
+        with mock.patch.object(local,'invoke',return_value=local.json.dumps([pg])):
+            container, network = local.resolve_postgres_runtime()
+        self.assertEqual(container['NetworkSettings']['Networks'], pg['NetworkSettings']['Networks'])
+        self.assertEqual(network, 'tokenkey_tokenkey-network')
+
     def test_failed_cleanup_preserves_partial_result_and_dry_run_mounts_are_readonly(self):
         from types import SimpleNamespace
         real_temporary=local.tempfile.TemporaryDirectory
@@ -128,7 +151,7 @@ class LocalHostTest(unittest.TestCase):
                  mock.patch.object(local,'STATE',data/'state'), \
                  mock.patch.object(local,'HOST_LOCK',data/'lock'), \
                  mock.patch.object(local,'HOT_DATA',data), \
-                 mock.patch.object(local,'invoke',side_effect=lambda args: local.json.dumps([pg]) if args[-1]=='tokenkey-postgres' else (_ for _ in ()).throw(RuntimeError('no such container'))), \
+                 mock.patch.object(local,'invoke',return_value=local.json.dumps([pg])), \
                  mock.patch.object(local.tempfile,'TemporaryDirectory',side_effect=lambda **kw:real_temporary(dir=data)), \
                  mock.patch.object(local.subprocess,'run',return_value=SimpleNamespace(returncode=1,stdout=local.json.dumps(child))) as process:
                 with self.assertRaisesRegex(ValueError,'invalid local phase receipt'):
