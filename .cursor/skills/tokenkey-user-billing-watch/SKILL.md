@@ -23,13 +23,13 @@ bash ops/observability/run-probe.sh \
   --compressed-output
 ```
 
-UCloud `cn-prod` 通过 AWS SSM Hybrid 执行同一 probe；managed instance、区域和 UHost 身份默认取 `deploy/domestic/prod-target.json`，不依赖运维机公网 IP，也不需要开放公网 SSH 22：
+cn-prod 应用在腾讯北京。probe 通过 AWS SSM Hybrid 下发，身份取 `deploy/domestic/prod-target.json`，不依赖运维机公网 IP，也不需要开放公网 SSH 22：
 
 ```bash
 bash ops/observability/run-probe.sh \
   --target cn-prod \
   --script ops/observability/probe-user-billing-watch.sh \
-  --expected-instance-id uhost-1wgyn7gu2f6a \
+  --expected-instance-id lhins-6qmb3fd6 \
   --env WINDOW_MINUTES=30 \
   --comment "billing watch ucloud-cn-prod" \
   --compressed-output
@@ -40,7 +40,7 @@ SSH 仅用于 SSM agent 的一次性 bootstrap 或显式恢复；SSH、SSM、远
 - 默认盯 `users.status='active' AND deleted_at IS NULL` 全量；固定子集才加 `--env USER_IDS=1,6,16`。
 - `--compressed-output` 防 SSM/SSH 截断；校验失败不用部分结果。
 - `--target prod` 经 `resolve_prod_ssm_target.py` 解析当前 Hybrid/区域，身份见 [舰队清单](../../../deploy/hetzner/README.md)（路径名历史遗留）。`auto` → 腾讯美西；`aws-fresh` 冻结 Tokyo（默认拒绝）；`aws` / `hetzner` 已退役拒绝。
-- `--target cn-prod` 指向 UCloud 独立节点，只读取 UCloud 自己的数据库；通过 AWS SSM Hybrid 下发，不读取 AWS 数据库。
+- `--target cn-prod` 指向腾讯北京上的 cn-prod 库；通过 AWS SSM Hybrid 下发，不读取美西 prod 数据库。`106.75.29.139` 只转发。
 - 本机 `aws/pyexpat` 启动失败（macOS 常见）：先 `python3 scripts/checks/check-local-aws-pyexpat.py --apply`。
 - **失败如实报告**：`status!=Success` / 非零退出 / 传输错误 → 报失败与原因，绝不编数。
 

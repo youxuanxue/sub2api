@@ -194,7 +194,7 @@ class RunProbeUCloudTest(unittest.TestCase):
             "--script",
             str(probe),
             "--expected-instance-id",
-            "uhost-1wgyn7gu2f6a",
+            "lhins-6qmb3fd6",
             env=env,
         )
 
@@ -287,7 +287,7 @@ class RunProbeUCloudSSMTest(unittest.TestCase):
         path.write_text(content, encoding="utf-8")
         path.chmod(0o755)
 
-    def _run_ssm(self, expected_instance_id: str = "uhost-1wgyn7gu2f6a") -> subprocess.CompletedProcess[str]:
+    def _run_ssm(self, expected_instance_id: str = "lhins-6qmb3fd6") -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.update(
             {
@@ -317,7 +317,7 @@ class RunProbeUCloudSSMTest(unittest.TestCase):
     def test_cn_prod_expected_ucloud_instance_mismatch_stops_before_ssm(self) -> None:
         proc = self._run_ssm("uhost-other")
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("UCloud instance does not match --expected-instance-id", proc.stderr)
+        self.assertIn("cn-prod instance does not match --expected-instance-id", proc.stderr)
 
 
 class RunProbePollingTest(unittest.TestCase):

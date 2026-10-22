@@ -97,7 +97,7 @@ item = items[0]
 print("\t".join(str(item.get(k) or "") for k in ("PingStatus", "Name", "PlatformType")))
 ')"
 IFS=$'\t' read -r SSM_PING_STATUS SSM_NAME SSM_PLATFORM <<<"${SSM_STATE}"
-if [[ "${SSM_PING_STATUS}" != "Online" || "${SSM_NAME}" != "cn-prod" || "${SSM_PLATFORM}" != "Linux" ]]; then
+if [[ "${SSM_PING_STATUS}" != "Online" || ( "${SSM_NAME}" != "cn-prod" && "${SSM_NAME}" != "tokenkey-cn-prod" ) || "${SSM_PLATFORM}" != "Linux" ]]; then
   echo "deploy_via_ssm: SSM identity not ready (name=${SSM_NAME} status=${SSM_PING_STATUS} platform=${SSM_PLATFORM})" >&2
   exit 2
 fi
