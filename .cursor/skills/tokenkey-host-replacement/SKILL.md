@@ -36,10 +36,16 @@ description: >-
    - 旧身份失败关闭：`aws`/`hetzner` 退役拒绝；冻结源须 `ALLOW_FROZEN_TOKYO_TARGET=1`。  
    - 共享 glue（如 `ssm_execution.py`）必须显式分支到新平台，禁止 `else → 旧 Hybrid`。
 
-2. **布局收敛门禁（阻塞默认发版）**  
-   - 切流窗口可用临时路径（如 `formal/.env`、`tk-cutover-prod-*`、Docker root 在演练挂载下）。  
-   - **未收敛到 Stage0 约定（`/var/lib/tokenkey/.env` + 标准 compose 名）前，禁止默认 `deploy-stage0`。**  
-   - 舰队 SSOT / 切流回执 / unlock 契约必须写清实况路径，禁止假装已是 Stage0 布局。
+2. **布局与发版门禁 — 禁止「迁机后再开一次 Stage0 大停机」**  
+   - 目标：切流后尽快能跑默认 `deploy-stage0`，**不要**再排一次「搬 Docker data-root / 全量改名」的长停机窗。  
+   - **默认走例外路径**（2026-10-22 / [#2779](https://github.com/youxuanxue/sub2api/pull/2779) 已验收）：  
+     - **不**改 `daemon.json`、**不**停 Docker 守护进程、**不**搬 data-root（可保留演练挂载下的 Docker Root）。  
+     - 业务 `.env` → `/var/lib/tokenkey/.env`；网关容器 rename 为 `tokenkey` / `tokenkey-caddy`。  
+     - PG/Redis **可保留 cutover 容器名**，用网络别名 `postgres` / `redis`（探测脚本须识别别名或双名）。  
+     - 窗内工具：`ops/stage0/probe-tencent-layout-*.sh`、`apply-tencent-layout-window.sh`（仅显式 `APPLY=…`）；细则见 [`stage0-layout-convergence.md`](../../../deploy/tencent/stage0-layout-convergence.md)。  
+   - **优先**：在 cutover/promote 当日就把例外路径做完（或 prepare 阶段就按目标名启动），避免「主机已切流 → 过几天再停机收敛」。  
+   - **禁止**把「完整 Stage0 字面布局」（改 Docker Root、物理改名 PG/Redis）当成发版前置；那是可选整洁，另批且须单独论证停机收益。  
+   - 舰队 SSOT / 回执必须写清例外项（尤其 Docker Root），禁止假装 data-root 已迁。
 
 3. **备份身份与 timer**  
    - Hybrid 备份身份：`RuntimeDirectoryPreserve=yes`；oneshot 结束后 tmpfs 不可被 systemd 清掉。  

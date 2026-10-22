@@ -14,7 +14,8 @@
 | `ssm_execution` 漏腾讯分支 | `auto→tencent` 后落入 `else→hetzner` | glue 与 CLI resolver 同步；单测覆盖 live 模式 |
 | host-parse stub 无腾讯 Hybrid | 切流后 preflight 挂（feishu sync 解析失败） | stub 随 live 矩阵注入 `mi-*` |
 | `RuntimeDirectoryPreserve` | 身份 oneshot 结束清掉 `/run/...` tmpfs | 身份 timer 必须 Preserve=yes |
-| 布局债未写进 SSOT | `.env` 在 `formal/`、容器 `tk-cutover-*`，但文档写 `/var/lib/tokenkey` | 未收敛前禁止默认 deploy-stage0 |
+| 布局债未写进 SSOT | `.env` 在 `formal/`、容器 `tk-cutover-*`，但文档写 `/var/lib/tokenkey` | 当日走例外路径收敛；SSOT 写清 Docker Root 例外 |
+| 迁机后再排 Stage0 大停机 | 计划停 Docker、搬 data-root、全量改名 → 二次停机与回归 | **默认禁止**；用例外路径（保留 Docker Root + 别名），见 #2779 / `stage0-layout-convergence.md` |
 | unlock 契约未刷新 | 切流后仍写「未授权切流」 | cutover 当日改契约/清单 |
 | DNS TTL 下限 | Porkbun TTL 不能回到 60 | 恢复到提供商允许的最小值（如 300） |
 | 出口与主机解耦 | 主机已美西，账号仍走 JP Lightsail | 另批测延迟再迁 `proxy_id`；保留回滚清单 |
