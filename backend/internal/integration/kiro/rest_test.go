@@ -154,6 +154,64 @@ func TestGetUsageLimits_RetriesAfterStaleProfileArn(t *testing.T) {
 	}
 }
 
+func TestGetUsageLimits_RebuildsTargetsAfterRegionalProfileDiscovery(t *testing.T) {
+	var seen []string
+	doer := restDoerFunc(func(req *http.Request) (*http.Response, error) {
+		seen = append(seen, req.URL.Host+req.URL.Path)
+		switch len(seen) {
+		case 1:
+			if req.URL.Host != "management.us-east-1.kiro.dev" || req.URL.Path != "/ListAvailableProfiles" {
+				t.Fatalf("discovery target = %s%s, want US discovery target", req.URL.Host, req.URL.Path)
+			}
+			return restTestResponse(http.StatusOK, `{"profiles":[{"arn":"arn:aws:codewhisperer:eu-central-1:1:profile/eu"}]}`), nil
+		case 2:
+			if req.URL.Host != "q.eu-central-1.amazonaws.com" || req.URL.Path != "/getUsageLimits" {
+				t.Fatalf("usage target = %s%s, want regional Q target", req.URL.Host, req.URL.Path)
+			}
+			return restTestResponse(http.StatusOK, `{"usageBreakdownList":[]}`), nil
+		default:
+			t.Fatalf("unexpected request %d: %s%s", len(seen), req.URL.Host, req.URL.Path)
+			return nil, nil
+		}
+	})
+
+	if _, err := getUsageLimitsWithDoer(&Account{AccessToken: "tok"}, doer); err != nil {
+		t.Fatalf("getUsageLimitsWithDoer() error = %v", err)
+	}
+}
+
+func TestGetUsageLimits_RebuildsTargetsAfterCrossRegionStaleProfile(t *testing.T) {
+	var seen []string
+	doer := restDoerFunc(func(req *http.Request) (*http.Response, error) {
+		seen = append(seen, req.URL.Host+req.URL.Path)
+		switch len(seen) {
+		case 1:
+			if req.URL.Host != "q.eu-west-1.amazonaws.com" {
+				t.Fatalf("stale usage target = %s, want old profile region", req.URL.Host)
+			}
+			return restTestResponse(http.StatusBadRequest, `{"message":"Invalid profileArn."}`), nil
+		case 2:
+			if req.URL.Host != "management.us-east-1.kiro.dev" || req.URL.Path != "/ListAvailableProfiles" {
+				t.Fatalf("rediscovery target = %s%s, want US discovery target", req.URL.Host, req.URL.Path)
+			}
+			return restTestResponse(http.StatusOK, `{"profiles":[{"arn":"arn:aws:codewhisperer:eu-central-1:1:profile/fresh"}]}`), nil
+		case 3:
+			if req.URL.Host != "q.eu-central-1.amazonaws.com" || req.URL.Path != "/getUsageLimits" {
+				t.Fatalf("fresh usage target = %s%s, want new regional Q target", req.URL.Host, req.URL.Path)
+			}
+			return restTestResponse(http.StatusOK, `{"usageBreakdownList":[]}`), nil
+		default:
+			t.Fatalf("unexpected request %d: %s%s", len(seen), req.URL.Host, req.URL.Path)
+			return nil, nil
+		}
+	})
+
+	account := &Account{AccessToken: "tok", ProfileArn: "arn:aws:codewhisperer:eu-west-1:1:profile/stale"}
+	if _, err := getUsageLimitsWithDoer(account, doer); err != nil {
+		t.Fatalf("getUsageLimitsWithDoer() error = %v", err)
+	}
+}
+
 func TestIsInvalidProfileArnError(t *testing.T) {
 	if !isInvalidProfileArnError(fmt.Errorf(`HTTP 400 from https://codewhisperer.us-east-1.amazonaws.com: {"message":"Invalid profileArn."}`)) {
 		t.Fatal("expected invalid profileArn detection")
