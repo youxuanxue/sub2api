@@ -103,6 +103,13 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
             out = self.mod.resolve_fresh_aws()
             self.assertEqual(out["instance_id"], row["instance_id"])
 
+    def test_aws_fresh_refused_without_override_when_tencent_not_live(self) -> None:
+        with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=False), \
+             mock.patch.dict("os.environ", {}, clear=True), \
+             mock.patch.object(self.mod, "list_instance_information", side_effect=AssertionError("no AWS")):
+            with self.assertRaises(SystemExit):
+                self.mod.resolve_fresh_aws()
+
     def test_list_instance_information_paginates(self) -> None:
         pages = [
             {

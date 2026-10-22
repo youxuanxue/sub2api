@@ -1225,12 +1225,21 @@ func logOpenAICapacityFailoverSuppressed(
 // 客户端内置的退避重试。
 const openAICapacityShedRetryableClientCode = "server_error"
 
+// openAICapacityShedClientRetryAfterSeconds is the default Retry-After embedded in
+// mid-stream capacity-shed events forwarded to Codex. Codex only honors
+// server-advised waits from error.headers (HTTP Retry-After on the already-open
+// SSE/WS response is ignored); without advice, ServerOverloaded ends the turn
+// immediately and even Retryable/server_error falls back to a short local
+// backoff. 30s matches the first patient capacity tier used by openai/codex.
+const openAICapacityShedClientRetryAfterSeconds = 30
+
 // sanitizeOpenAICapacityShedErrorCodeForClient 把即将写给下游客户端的
-// error / response.failed 事件中的容量降载错误码改写为客户端可重试的错误码。
+// error / response.failed 事件中的容量降载错误码改写为客户端可重试的错误码，
+// 并在缺少重试指导时写入 error.headers.retry-after。
 // 走到转发这一步说明网关侧 failover 已不可用（流中途）或已用尽；保留原始降载码
 // 只会让客户端就地终止会话。错误消息原样保留；监控与账号状态判定都基于改写前
 // 的原始 payload，不受影响。rate_limit 等其他错误码一律不动（客户端依赖
-// rate_limit_exceeded 原码解析重试延时）。
+// rate_limit_exceeded 原码解析重试延时）。已有非空 retry-after 不被覆盖。
 func sanitizeOpenAICapacityShedErrorCodeForClient(payload []byte) ([]byte, bool) {
 	if len(payload) == 0 || !gjson.ValidBytes(payload) || !isOpenAIUpstreamCapacityShedEvent(payload) {
 		return payload, false
@@ -1243,10 +1252,27 @@ func sanitizeOpenAICapacityShedErrorCodeForClient(payload []byte) ([]byte, bool)
 			continue
 		}
 		code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(updated, path).String()))
-		if code != "" && code != "server_is_overloaded" && code != "slow_down" {
+		// Only rewrite explicit capacity codes or message-only envelopes (empty
+		// code). An upstream server_error that still carries overloaded text
+		// keeps its code but must still receive retry-after below. Other codes
+		// (rate_limit_exceeded, etc.) stay untouched.
+		switch code {
+		case "", "server_is_overloaded", "slow_down":
+			next, err := sjson.SetBytes(updated, path, openAICapacityShedRetryableClientCode)
+			if err != nil {
+				return payload, false
+			}
+			updated = next
+			changed = true
+		case openAICapacityShedRetryableClientCode:
+			// already client-retryable; still ensure retry advice
+		default:
 			continue
 		}
-		next, err := sjson.SetBytes(updated, path, openAICapacityShedRetryableClientCode)
+		if openAICapacityShedErrorHasRetryAfter(updated, parent) {
+			continue
+		}
+		next, err := sjson.SetBytes(updated, parent+".headers.retry-after", strconv.Itoa(openAICapacityShedClientRetryAfterSeconds))
 		if err != nil {
 			return payload, false
 		}
@@ -1254,6 +1280,25 @@ func sanitizeOpenAICapacityShedErrorCodeForClient(payload []byte) ([]byte, bool)
 		changed = true
 	}
 	return updated, changed
+}
+
+func openAICapacityShedErrorHasRetryAfter(payload []byte, errorPath string) bool {
+	headers := gjson.GetBytes(payload, errorPath+".headers")
+	if !headers.Exists() || !headers.IsObject() {
+		return false
+	}
+	var found bool
+	headers.ForEach(func(key, value gjson.Result) bool {
+		if !strings.EqualFold(strings.TrimSpace(key.String()), "retry-after") {
+			return true
+		}
+		if strings.TrimSpace(value.String()) != "" {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
 }
 
 // openAIStreamErrorStatusPaths 覆盖流内 error / response.failed 事件里上游状态码的

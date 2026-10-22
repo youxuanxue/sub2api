@@ -88,6 +88,8 @@ tk_resolve_app_container() {
 # keeps tk-archive-standby (network alias postgres). Network aliases do not help
 # `docker exec`, so probes must resolve the real name. Exactly one running
 # candidate is required; otherwise fail closed.
+# Inline SSM cannot source this file. ops/lib/resolve_app_container.py
+# remote_unique_running_snippet renders the same rule for those commands.
 TK_POSTGRES_CONTAINER_CANDIDATES="tokenkey-postgres tk-archive-standby"
 tk_resolve_postgres_container() {
   local requested="${1:-auto}" candidate found="" count=0
