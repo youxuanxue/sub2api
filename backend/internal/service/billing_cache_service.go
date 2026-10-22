@@ -1460,6 +1460,16 @@ func (s *BillingCacheService) ReserveFixedCharge(ctx context.Context, user *User
 	if err != nil {
 		return nil, err
 	}
+	if subscriptionBill && (group.HasDailyLimit() || group.HasWeeklyLimit() || group.HasMonthlyLimit()) {
+		var pending float64
+		res, pending = s.reserveInflightScope(ctx, res, user.ID, inflightSubscriptionScope(subscription.ID), amount)
+		if err := s.checkFixedChargeSubscription(ctx, user.ID, group, amount+pending); err != nil {
+			if res != nil {
+				res.Release()
+			}
+			return nil, err
+		}
+	}
 	if apiKey != nil && apiKey.Quota > 0 {
 		var pending float64
 		res, pending = s.reserveInflightScope(ctx, res, user.ID, inflightAPIKeyScope(apiKey.ID), amount)
@@ -1471,6 +1481,30 @@ func (s *BillingCacheService) ReserveFixedCharge(ctx context.Context, user *User
 		}
 	}
 	return res, nil
+}
+
+func inflightSubscriptionScope(subscriptionID int64) string {
+	return "subscription:" + strconv.FormatInt(subscriptionID, 10)
+}
+
+func (s *BillingCacheService) checkFixedChargeSubscription(ctx context.Context, userID int64, group *Group, amount float64) error {
+	subData, err := s.GetSubscriptionStatus(ctx, userID, group.ID)
+	if err != nil || subData == nil {
+		if err == nil {
+			err = fmt.Errorf("subscription status unavailable")
+		}
+		return ErrBillingServiceUnavailable.WithCause(err)
+	}
+	if group.HasDailyLimit() && subData.DailyUsage+amount > *group.DailyLimitUSD {
+		return ErrDailyLimitExceeded
+	}
+	if group.HasWeeklyLimit() && subData.WeeklyUsage+amount > *group.WeeklyLimitUSD {
+		return ErrWeeklyLimitExceeded
+	}
+	if group.HasMonthlyLimit() && subData.MonthlyUsage+amount > *group.MonthlyLimitUSD {
+		return ErrMonthlyLimitExceeded
+	}
+	return nil
 }
 
 func checkFixedChargeAPIKeyQuota(apiKey *APIKey, pending float64) error {

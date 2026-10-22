@@ -35,16 +35,35 @@ case "$WINDOW_MINUTES" in ''|*[!0-9]*) echo "bad WINDOW_MINUTES (want integer)" 
 
 # Stage0 compose uses tokenkey-postgres; Tencent USW layout exception keeps
 # primary as tk-archive-standby (network alias postgres).
+# Match names from a captured list. `grep -q` under `pipefail` can take SIGPIPE
+# on Linux when the preferred name is not the last line, and then this probe
+# falls through to the standby.
+select_tokenkey_postgres_container() {
+  local names name stage0=0 standby=0
+  names="$(docker ps --format '{{.Names}}' 2>/dev/null || true)"
+  while IFS= read -r name; do
+    [ -z "$name" ] && continue
+    case "$name" in
+      tokenkey-postgres) stage0=1 ;;
+      tk-archive-standby) standby=1 ;;
+    esac
+  done <<EOF
+$names
+EOF
+  if [ "$stage0" -eq 1 ]; then
+    printf '%s\n' tokenkey-postgres
+  elif [ "$standby" -eq 1 ]; then
+    printf '%s\n' tk-archive-standby
+  fi
+}
+
 POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-}"
 if [ -z "$POSTGRES_CONTAINER" ]; then
-  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx tokenkey-postgres; then
-    POSTGRES_CONTAINER=tokenkey-postgres
-  elif docker ps --format '{{.Names}}' 2>/dev/null | grep -qx tk-archive-standby; then
-    POSTGRES_CONTAINER=tk-archive-standby
-  else
-    echo "no tokenkey postgres container (want tokenkey-postgres or tk-archive-standby)" >&2
-    exit 1
-  fi
+  POSTGRES_CONTAINER="$(select_tokenkey_postgres_container)"
+fi
+if [ -z "$POSTGRES_CONTAINER" ]; then
+  echo "no tokenkey postgres container (want tokenkey-postgres or tk-archive-standby)" >&2
+  exit 1
 fi
 PSQL="docker exec ${POSTGRES_CONTAINER} psql -U tokenkey -d tokenkey -X -A -t"
 W="interval '${WINDOW_MINUTES} minutes'"

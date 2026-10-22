@@ -739,8 +739,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 	}
 
 	if account.Platform == PlatformAntigravity && account.Type != AccountTypeAPIKey {
-		models, err := s.fetchAntigravityOAuthUpstreamModels(ctx, account)
-		return models, nil, err
+		return s.fetchAntigravityOAuthUpstreamModels(ctx, account)
 	}
 	if account.IsOpenAIOAuthLike() && s.openAIGatewayService != nil {
 		return s.fetchOpenAICodexOAuthUpstreamModels(ctx, account)
@@ -1187,23 +1186,23 @@ func (s *AccountTestService) readUpstreamModelsResponse(req *http.Request, accou
 	return body, nil
 }
 
-func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Context, account *Account) ([]string, error) {
+func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Context, account *Account) ([]string, []byte, error) {
 	if s.antigravityGatewayService == nil || s.antigravityGatewayService.GetTokenProvider() == nil {
-		return nil, newUpstreamModelSyncConfigError("Antigravity token provider is not configured", nil)
+		return nil, nil, newUpstreamModelSyncConfigError("Antigravity token provider is not configured", nil)
 	}
 
 	accessToken, err := s.antigravityGatewayService.GetTokenProvider().GetAccessToken(ctx, account)
 	if err != nil {
-		return nil, newUpstreamModelSyncUpstreamError("Failed to get Antigravity access token", err)
+		return nil, nil, newUpstreamModelSyncUpstreamError("Failed to get Antigravity access token", err)
 	}
 	accessToken = strings.TrimSpace(accessToken)
 	if accessToken == "" {
-		return nil, newUpstreamModelSyncConfigError("No Antigravity access token is available", nil)
+		return nil, nil, newUpstreamModelSyncConfigError("No Antigravity access token is available", nil)
 	}
 
 	client, err := antigravity.NewClient(upstreamModelsProxyURL(account))
 	if err != nil {
-		return nil, newUpstreamModelSyncConfigError("Failed to configure Antigravity client", err)
+		return nil, nil, newUpstreamModelSyncConfigError("Failed to configure Antigravity client", err)
 	}
 	modelsResp, _, err := client.FetchAvailableModelsAt(
 		ctx,
@@ -1213,17 +1212,92 @@ func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Con
 		resolveAntigravityForwardBaseURL(account),
 	)
 	if err != nil {
-		return nil, newUpstreamModelSyncUpstreamError("Failed to fetch Antigravity available models", err)
+		return nil, nil, newUpstreamModelSyncUpstreamError("Failed to fetch Antigravity available models", err)
 	}
 	if modelsResp == nil || len(modelsResp.Models) == 0 {
-		return nil, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", nil)
+		return nil, nil, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", nil)
 	}
 
 	models := make([]string, 0, len(modelsResp.Models))
 	for modelID := range modelsResp.Models {
 		models = append(models, strings.TrimSpace(modelID))
 	}
-	return dedupeAndSortModelIDs(models), nil
+	models = dedupeAndSortModelIDs(models)
+	body, err := antigravityAvailableModelsCatalogBody(modelsResp)
+	if err != nil {
+		return nil, nil, newUpstreamModelSyncInternalError("Failed to normalize Antigravity model capabilities", err)
+	}
+	return models, body, nil
+}
+
+func antigravityAvailableModelsCatalogBody(resp *antigravity.FetchAvailableModelsResponse) ([]byte, error) {
+	if resp == nil {
+		return nil, nil
+	}
+	entries := make([]map[string]any, 0, len(resp.Models))
+	for modelID, info := range resp.Models {
+		modelID = strings.TrimSpace(modelID)
+		if modelID == "" {
+			continue
+		}
+		entry := map[string]any{
+			"id":               modelID,
+			"reasoning":        info.SupportsThinking != nil && *info.SupportsThinking,
+			"input_modalities": antigravityInputModalities(info),
+		}
+		if name := strings.TrimSpace(info.DisplayName); name != "" {
+			entry["display_name"] = name
+		}
+		if info.SupportsThinking != nil && *info.SupportsThinking {
+			levels, defaultLevel := antigravityReasoningLevels(modelID, info.ThinkingBudget)
+			entry["supported_reasoning_levels"] = levels
+			entry["default_reasoning_level"] = defaultLevel
+		}
+		if info.MaxTokens != nil && *info.MaxTokens > 0 {
+			entry["context_window"] = *info.MaxTokens
+		}
+		if info.MaxOutputTokens != nil && *info.MaxOutputTokens > 0 {
+			entry["max_output_tokens"] = *info.MaxOutputTokens
+		}
+		entries = append(entries, entry)
+	}
+	return json.Marshal(map[string]any{"models": entries})
+}
+
+func antigravityInputModalities(info antigravity.ModelInfo) []string {
+	if info.SupportsImages != nil && *info.SupportsImages {
+		return []string{"text", "image"}
+	}
+	return []string{"text"}
+}
+
+func antigravityReasoningLevels(modelID string, budget *int) ([]string, string) {
+	switch {
+	case strings.HasSuffix(modelID, "-low"):
+		return []string{"low"}, "low"
+	case strings.HasSuffix(modelID, "-medium"):
+		return []string{"medium"}, "medium"
+	case strings.HasSuffix(modelID, "-high"):
+		return []string{"high"}, "high"
+	default:
+		return []string{"low", "medium", "high"}, antigravityDefaultReasoningLevel(budget)
+	}
+}
+
+func antigravityDefaultReasoningLevel(budget *int) string {
+	if budget == nil {
+		return "high"
+	}
+	switch b := *budget; {
+	case b < 0:
+		return "high"
+	case b <= geminiThinkingBudgetLowMax:
+		return "low"
+	case b <= geminiThinkingBudgetMediumMax:
+		return "medium"
+	default:
+		return "high"
+	}
 }
 
 // fetchOpenAICodexOAuthUpstreamModels syncs ChatGPT OAuth / SetupToken accounts

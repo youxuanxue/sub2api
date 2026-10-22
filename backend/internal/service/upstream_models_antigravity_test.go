@@ -36,9 +36,7 @@ func antigravityModelSyncService() *AccountTestService {
 
 func withAntigravityModelSyncEndpoints(t *testing.T, production, daily string) {
 	t.Helper()
-	previous := antigravity.BaseURLs
-	antigravity.BaseURLs = []string{production, daily}
-	t.Cleanup(func() { antigravity.BaseURLs = previous })
+	t.Cleanup(antigravity.SetTestBaseURLOverrides(production, daily))
 }
 
 func TestFetchUpstreamSupportedModelsAntigravityUsesGenerationEndpoint(t *testing.T) {
