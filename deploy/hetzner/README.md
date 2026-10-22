@@ -29,7 +29,26 @@ prod 直接使用原生账号；旧中继 stub 已软删。
 | 美西出口 `usw-eval4` | na-siliconvalley-2 / `lhins-h12i2d2r` | `43.162.103.103` | `10.4.0.4` | 2C2G / 40 GB SSD |
 
 实例到期约 2026-11-21/22 UTC，`NOTIFY_AND_MANUAL_RENEW`。SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
-SOCKS 仅监听各机私网 `:1080`，防火墙只放行 prod `10.4.0.16`。**2026-10-22 起 `usw-eval1..4` 为原 `jp-*` 账号的生产出口**（私网 SOCKS）；`cn-ip*` 仍走国内代理。活绑定以 prod `proxies` / 账号 `proxy_id` 为准。
+SOCKS 仅监听各机私网 `:1080`，防火墙只放行 prod `10.4.0.16`。**2026-10-22 起 `usw-eval1..4` 为原 `jp-*` 账号的生产出口**（私网 SOCKS）。活绑定以 prod / cn-prod `proxies` 为准。
+
+#### 国内出口 `cn-ip1..5`（腾讯北京锐驰，公网 SOCKS）
+
+| 角色 | 公网 IP | 放行来源 |
+|---|---|---|
+| `cn-ip1` | `120.53.25.245` | 美西 prod `43.162.83.233`、cn-prod `106.75.29.139` |
+| `cn-ip2` | `140.143.236.199` | 同上 |
+| `cn-ip3` | `49.233.210.77` | 同上 |
+| `cn-ip4` | `140.143.229.164` | 同上 |
+| `cn-ip5` | `192.144.148.117` | 同上 |
+
+UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
+
+#### 代理主机告警（强制）
+
+每台 SOCKS 出口机（`usw-eval*` 与 `cn-ip*`）**新机/换机/重装后必须**安装 `tokenkey-disk-metrics.timer` + `tokenkey-proxy-watch.timer`，并以 `install-proxy-host-alerts.sh --verify` 验收。  
+安装 owner：[`deploy/tencent/proxy-host-alerts.md`](../tencent/proxy-host-alerts.md)。凭据仅主机 `/opt/tokenkey/host-alerts.env`，不进 git。  
+另有 prod 应用侧 `proxy_unreachable_count` P0（网关拨测），不能替代本机 timer。
+
 活舰队矩阵：[`deploy/tencent/candidate-usw-20261022.json`](../tencent/candidate-usw-20261022.json)（`deployable=true`；`resolve_prod_ssm_target.py --target auto` → 本机）。
 
 ### 活物理备份前缀（切流后）

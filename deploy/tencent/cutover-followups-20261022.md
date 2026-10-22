@@ -5,6 +5,7 @@
 ## 已完成（本轮无感）
 
 - [x] 外部飞书备份/入口告警接到腾讯机：`tokenkey-https-watch.timer`；监控 cn-prod `/health` + 备份/archive/qa-cleanup；凭据在告警用 `/var/lib/tokenkey/.env`（仅 `TOKENKEY_FEISHU_*`）
+- [x] SOCKS 出口机主机告警 owner 入仓：[`proxy-host-alerts.md`](proxy-host-alerts.md)（`usw-eval*` / `cn-ip*` 新机必装两 timer）
 - [x] LUKS **只读**核验：异机 vault 指纹匹配；`unlock-health-readonly` severity=ok。**自动解锁 / 整机重启仍未验收**
 
 ## 已完成（布局例外路径）
