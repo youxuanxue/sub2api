@@ -59,8 +59,16 @@ class HostRuntimeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.assertEqual(bindings(root, {}, False), ([], []))
+            # Hybrid without /aws: empty mounts (matches live legacy tokenkey).
+            self.assertEqual(bindings(root, {}, True), ([], []))
+            aws = root / 'aws'
+            aws.symlink_to('/tmp')
             with self.assertRaises(ValueError):
                 bindings(root, {}, True)
+            aws.unlink()
+            aws.mkdir()
+            with self.assertRaises(ValueError):
+                bindings(root, {}, True, uid=os.getuid())
             (root / 'qa-secrets').mkdir()
             path = root / 'qa-secrets/raw.json'
             path.write_text('synthetic')
@@ -75,6 +83,22 @@ class HostRuntimeTest(unittest.TestCase):
             path.symlink_to('/etc/passwd')
             with self.assertRaises(ValueError):
                 bindings(root, env, False, uid=os.getuid(), qa_maintenance=True)
+
+    def test_hybrid_without_aws_dir_skips_identity_mount(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mounts, environment = bindings(root, {}, True, uid=os.getuid())
+            self.assertEqual(mounts, [])
+            self.assertEqual(environment, [])
+            proc, _, remote = _render()
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            source = remote.split("<<'YAML'\n", 1)[1].split('\nYAML', 1)[0]
+            result = yaml.safe_load(patch_compose(source, mounts, environment))
+            for color in ('blue', 'green'):
+                service = result['services']['tokenkey-' + color]
+                self.assertNotIn('/aws', {m.get('target') for m in service.get('volumes', []) if isinstance(m, dict)})
+                self.assertNotIn('AWS_SHARED_CREDENTIALS_FILE=/aws/credentials', service.get('environment', []))
+
 
     def test_only_maintenance_receives_private_raw_identity(self):
         with tempfile.TemporaryDirectory() as tmp:

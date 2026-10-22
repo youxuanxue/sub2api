@@ -20,7 +20,10 @@ QA_CONTAINER_ROOT = '/run/secrets/tokenkey-qa'
 
 
 def private_file(path, uid):
-    info = path.lstat()
+    try:
+        info = path.lstat()
+    except FileNotFoundError as err:
+        raise ValueError('runtime credentials must be private regular files') from err
     if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) not in (0o400, 0o600):
         raise ValueError('runtime credentials must be private regular files')
     if info.st_uid != uid:
@@ -66,17 +69,23 @@ def bindings(root, env, hybrid_prod, uid=1000, *, qa_maintenance=False):
     mounts, environment = [], []
     if hybrid_prod:
         directory = root / 'aws'
-        if directory.is_symlink() or not directory.is_dir():
+        # Symlinks are always unsafe. A missing directory is allowed: Tencent layout
+        # exception / first legacy→bluegreen cutover may still run like today's
+        # tokenkey (no /aws mount). When the directory exists, credentials must
+        # pass the same private-file gates as before.
+        if directory.is_symlink():
             raise ValueError('Hybrid credential directory is missing or unsafe')
-        info = directory.stat()
-        searchable = (info.st_mode & 0o001 or (info.st_uid == uid and info.st_mode & 0o100)
-                      or (info.st_gid == uid and info.st_mode & 0o010))
-        if not searchable:
-            raise ValueError('Hybrid credential directory is not accessible to the application UID')
-        private_file(directory / 'credentials', uid)
-        mounts.append({'type': 'bind', 'source': str(directory), 'target': '/aws',
-                       'read_only': True, 'bind': {'create_host_path': False}})
-        environment += ['AWS_SHARED_CREDENTIALS_FILE=/aws/credentials', 'AWS_SDK_LOAD_CONFIG=1']
+        if directory.is_dir():
+            info = directory.stat()
+            searchable = (info.st_mode & 0o001 or (info.st_uid == uid and info.st_mode & 0o100)
+                          or (info.st_gid == uid and info.st_mode & 0o010))
+            if not searchable:
+                raise ValueError('Hybrid credential directory is not accessible to the application UID')
+            private_file(directory / 'credentials', uid)
+            mounts.append({'type': 'bind', 'source': str(directory), 'target': '/aws',
+                           'read_only': True, 'bind': {'create_host_path': False}})
+            environment += ['AWS_SHARED_CREDENTIALS_FILE=/aws/credentials', 'AWS_SDK_LOAD_CONFIG=1']
+
     selected = {key: name for key, name in QA_FILES.items() if qa_maintenance and env.get(key)}
     if selected:
         directory = root / 'qa-secrets'
