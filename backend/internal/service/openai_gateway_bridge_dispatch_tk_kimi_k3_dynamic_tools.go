@@ -74,6 +74,10 @@ func isMoonshotDynamicToolSystemMessage(msg gjson.Result) bool {
 	}
 	content := msg.Get("content")
 	// Official Moonshot: system+tools must not carry a content field.
-	// Absent or JSON null → promote. Any other content stays as client-authored.
-	return !content.Exists() || content.Type == gjson.Null
+	// Absent, JSON null, or empty/whitespace string → promote. Non-empty
+	// content stays as client-authored (admission probes and mixed system turns).
+	if !content.Exists() || content.Type == gjson.Null {
+		return true
+	}
+	return content.Type == gjson.String && strings.TrimSpace(content.String()) == ""
 }
