@@ -38,12 +38,25 @@ class CoveragePlanTest(unittest.TestCase):
         # 2026-10-17 prod-only: no live edge peer → watch cn-prod.
         self.assertEqual(prod['targets'], {'cn-prod': self.domestic['public_origin'].rstrip('/') + '/health'})
         self.assertIn('tokenkey-qa-maintenance', prod['jobs'])
+        # Tencent live watch hostname is also accepted.
+        watch_host = self.fresh['prod'].get('https_watch_hostname')
+        if watch_host:
+            self.assertEqual(
+                self.config('prod', watch_host)['targets'],
+                prod['targets'],
+            )
     def test_prod_pause_does_not_silence_other_observers_or_jobs(self):
         prod = self.config('prod', self.fresh['prod']['instance_name'])
         self.assertEqual(prod['paused_jobs'], self.fresh['prod']['paused_jobs'])
         self.assertEqual(
             set(prod['paused_jobs']),
-            {'tokenkey-qa-maintenance', 'tokenkey-qa-boundary', 'tokenkey-pgdump'},
+            {
+                'tokenkey-qa-maintenance',
+                'tokenkey-qa-boundary',
+                'tokenkey-pgdump',
+                'tokenkey-disk-metrics',
+                'tokenkey-ghcr-prune-daily',
+            },
         )
         self.assertEqual(self.config('cn-prod', self.domestic['instance_name'])['paused_jobs'], {})
         self.assertIn('tokenkey-pgdump', prod['jobs'])
@@ -56,19 +69,23 @@ class CoveragePlanTest(unittest.TestCase):
             watch.job_fact(inactive, disabled, 1000, boundary_limit, expected_paused=True)['healthy']
         )
         self.assertFalse(watch.job_fact(inactive, disabled, 1000, boundary_limit)['healthy'])
+        # Absent unit (not installed on cutover host) is healthy when paused.
+        absent = {'ActiveState': 'inactive', 'UnitFileState': ''}
+        self.assertTrue(
+            watch.job_fact(inactive, absent, 1000, boundary_limit, expected_paused=True)['healthy']
+        )
 
     def test_local_provision_is_monitored_independently_of_paused_archive(self):
+        # After Tencent cutover, local_qa_jobs is cleanup-only until provision is installed.
         prod = self.config('prod', self.fresh['prod']['instance_name'])
-        self.assertIn('tokenkey-qa-provision', prod['jobs'])
-        self.assertNotIn('tokenkey-qa-provision', prod['paused_jobs'])
         self.assertIn('tokenkey-qa-cleanup', prod['jobs'])
         self.assertNotIn('tokenkey-qa-cleanup', prod['paused_jobs'])
+        self.assertNotIn('tokenkey-qa-provision', prod['jobs'])
         self.assertIn('tokenkey-qa-cleanup', watch.JOB_LIMITS)
-        limit = watch.JOB_LIMITS['tokenkey-qa-provision']
+        limit = watch.JOB_LIMITS['tokenkey-qa-cleanup']
         self.assertFalse(watch.job_fact({'ActiveState':'inactive', 'Result':'success'},
                                        {'ActiveState':'inactive', 'UnitFileState':'disabled'},
                                        10000, limit)['healthy'])
-
     def test_pause_checks_disabled_state_and_alerts_on_accidental_resume(self):
         inactive = {'ActiveState': 'inactive', 'Result': 'exit-code'}
         disabled = {'ActiveState': 'inactive', 'UnitFileState': 'disabled'}
@@ -158,6 +175,21 @@ class PhysicalBackupWatchTest(unittest.TestCase):
             watch.tick_jobs(['tokenkey-postgres-recovery'], state, 1120, lambda _: fact, sent.append)
             self.assertEqual(len(sent), 1)
             self.assertIn('WAL continuity gap', sent[0])
+
+    def test_tencent_archive_check_receipt_is_accepted_without_health_json(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            health = pathlib.Path(root) / 'health.json'
+            archive = pathlib.Path(root) / 'archive_check.json'
+            archive.write_text(json.dumps({
+                'status': 'ok',
+                'started_at': 980,
+                'completed_at': 990,
+                'failed_count': 0,
+            }))
+            fact = watch.physical_backup_fact(health, 1000)
+            self.assertTrue(fact['healthy'])
+            self.assertEqual(fact['severity'], 'info')
 
 
 class HealthBodyTest(unittest.TestCase):
