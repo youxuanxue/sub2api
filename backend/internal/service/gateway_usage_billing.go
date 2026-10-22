@@ -1519,3 +1519,54 @@ func (s *GatewayService) mirrorAccountStatsTokenCost(
 	mirror := s.calculateTokenCost(ctx, result, apiKey, billingModel, 1.0, pricingAt, opts)
 	return accountStatsTokenCostFromBreakdown(mirror)
 }
+
+// CacheStoragePriced 判断 RecordUsage 对 input.Result 采用的计费模型（含回退候选）是否配置了显式缓存存储单价。
+func (s *GatewayService) CacheStoragePriced(ctx context.Context, input *RecordUsageInput) bool {
+	if input == nil || input.Result == nil || input.Result.CacheStorageTokenHours <= 0 || s == nil || s.billingService == nil {
+		return false
+	}
+	models := []string{input.Result.Model, input.Result.UpstreamModel}
+	for _, model := range models {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		if s.billingService.CacheStoragePricePerTokenHour(model) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// cacheStoragePrice 返回计费模型的显式缓存存储单价；计费模型未配置时依次回退到实际转发模型与请求模型。
+func (s *GatewayService) cacheStoragePrice(result *ForwardResult, billingModel string) float64 {
+	if s.billingService == nil {
+		return 0
+	}
+	for _, model := range []string{billingModel, result.UpstreamModel, result.Model} {
+		if strings.TrimSpace(model) == "" {
+			continue
+		}
+		if price := s.billingService.CacheStoragePricePerTokenHour(model); price > 0 {
+			return price
+		}
+	}
+	return 0
+}
+
+// QuoteUsageCost 估算 input.Result 的应付金额（倍率后 USD），不记录也不扣费。
+// A-commit 简化实现：按计费模型缓存存储单价 × CacheStorageTokenHours，其它费用后续 B 收敛对齐 RecordUsage。
+func (s *GatewayService) QuoteUsageCost(ctx context.Context, input *RecordUsageInput) float64 {
+	if s == nil || input == nil || input.Result == nil {
+		return 0
+	}
+	hours := input.Result.CacheStorageTokenHours
+	if hours <= 0 {
+		return 0
+	}
+	price := s.cacheStoragePrice(input.Result, input.Result.Model)
+	if price <= 0 {
+		return 0
+	}
+	return hours * price
+}

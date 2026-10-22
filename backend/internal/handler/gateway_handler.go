@@ -50,12 +50,14 @@ type GatewayHandler struct {
 	errorPassthroughService   *service.ErrorPassthroughService
 	contentModerationService  *service.ContentModerationService
 	securityAuditCoordinator  *securityaudit.Coordinator
-	concurrencyHelper         *ConcurrencyHelper
-	userMsgQueueHelper        *UserMsgQueueHelper
-	maxAccountSwitches        int
-	maxAccountSwitchesGemini  int
-	cfg                       *config.Config
-	settingService            *service.SettingService
+	// geminiCachedContentService 管理 Gemini 显式缓存；为 nil 时相关接口不可用。
+	geminiCachedContentService *service.GeminiCachedContentService
+	concurrencyHelper          *ConcurrencyHelper
+	userMsgQueueHelper         *UserMsgQueueHelper
+	maxAccountSwitches         int
+	maxAccountSwitchesGemini   int
+	cfg                        *config.Config
+	settingService             *service.SettingService
 	// TK: client model-list filter — see gateway_handler_tk_model_list.go.
 	// Injected post-construction via SetModelListFilter; nil = fail-open.
 	tkModelListFilter *service.ModelListFilter
@@ -247,6 +249,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	if rejectSystemOneOnlyPlatform(c, apiKey, h.errorResponse) {
 		return
 	}
+	if geminiImageGenerationRejected(c, apiKey, nil, reqModel, channelMapping.MappedModel) {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", service.ImageGenerationPermissionMessage())
+		return
+	}
 
 	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
 	if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformAnthropic, reqModel, len(body)); reject {
@@ -388,12 +394,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 	fallbackUsed := false
 
-	// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设模型限流标记。
-	// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设 29s 限流，导致后续请求连续快速失败。
-	if h.gatewayService.IsSingleAntigravityAccountGroup(c.Request.Context(), currentAPIKey.GroupID) {
-		ctx := service.WithSingleAccountRetry(c.Request.Context(), true, h.metadataBridgeEnabled())
-		c.Request = c.Request.WithContext(ctx)
-	}
+	// 单账号分组首次 503 就不设模型限流标记，避免设 29s 限流导致后续请求连续快速失败；
+	// 是否单账号分组在 antigravity 账号遇到 503 或模型限流预检查时才判定。
+	c.Request = c.Request.WithContext(h.gatewayService.WithSingleAntigravityAccountGroupProbe(c.Request.Context(), currentAPIKey.GroupID))
 
 	// 会话槽失败释放：failover 链上每个选中的 Anthropic OAuth 账号都注册过同一会话
 	// （checkAndRegisterSession）。若请求最终失败（转发失败/客户端中断/换号耗尽），
@@ -965,6 +968,9 @@ func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
 // 与平台默认列表（fallbackModels）。账号映射为空时回落默认列表；Anthropic
 // 平台两者取并集，其余平台以账号映射键为准。
 func modelListingSource(platform string, availableModels, fallbackModels []string) []string {
+	if platform == service.PlatformOpenAI && availableModels != nil {
+		return availableModels
+	}
 	if len(availableModels) == 0 {
 		return fallbackModels
 	}
@@ -1068,10 +1074,13 @@ func defaultModelIDsForPlatform(platform string) []string {
 	case service.PlatformComposite:
 		ids := make([]string, 0)
 		seen := make(map[string]struct{})
-		// TypeSafe is deliberately absent: jev-latest only works through
-		// /v1/systemone, so the static fallback never advertises it to LLM
-		// clients. compositeAvailableModels lists it when the group can serve it.
-		for _, concretePlatform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo} {
+		for _, concretePlatform := range domain.CompositePrecedencePlatformIDs() {
+			// TypeSafe is deliberately skipped: jev-latest only works through
+			// /v1/systemone, so the static fallback never advertises it to LLM
+			// clients. compositeAvailableModels lists it when the group can serve it.
+			if concretePlatform == service.PlatformTypeSafe {
+				continue
+			}
 			for _, id := range defaultModelIDsForPlatform(concretePlatform) {
 				if _, ok := seen[id]; ok {
 					continue

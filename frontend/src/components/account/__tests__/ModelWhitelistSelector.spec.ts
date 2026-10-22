@@ -1,5 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import {
+  BUILTIN_PLATFORM_CATALOG,
+  resetPlatformCatalog,
+  setPlatformCatalog
+} from '@/constants/platformCatalog'
 
 const {
   copyToClipboard,
@@ -28,7 +33,7 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string, params?: Record<string, string>) => key === 'common.copy' ? '复制' : key === 'admin.accounts.modelMappingConflict' ? `Model mapping conflict: ${params?.from} → ${params?.to}` : key
+      t: (key: string, params?: Record<string, string>) => key === 'common.copy' ? '复制' : key === 'admin.accounts.modelMappingConflict' ? `Model mapping conflict: ${params?.from} → ${params?.to}` : key === 'admin.accounts.syncUpstreamModelsError' ? `${key}: ${params?.message}` : key
     })
   }
 })
@@ -114,6 +119,60 @@ describe('ModelWhitelistSelector', () => {
     expect(wrapper.text()).toContain('claude-sonnet-4-6')
     expect(wrapper.text()).toContain('admin.accounts.newApiPlatform.pricingStatusPriced')
     expect(wrapper.text()).toContain('admin.accounts.newApiPlatform.pricingStatusMissing')
+
+  afterEach(() => {
+    resetPlatformCatalog()
+  })
+
+  it.each(['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'command_code', 'cline'])(
+    'supports upstream sync for %s saved accounts and creation previews',
+    (platform) => {
+      const wrappers = [
+        mountSelector({ platform, accountId: 46 }),
+        mountSelector({ platform, syncCredentials: { platform, type: 'apikey', api_key: 'test-key' } })
+      ]
+      for (const wrapper of wrappers) {
+        expect(wrapper.findAll('button').some(button => button.text() === 'admin.accounts.syncUpstreamModels')).toBe(true)
+        wrapper.unmount()
+      }
+    }
+  )
+
+  it.each(['typesafe', 'unregistered'])(
+    'hides upstream sync for unsupported %s saved accounts and creation previews',
+    (platform) => {
+      const wrappers = [
+        mountSelector({ platform, accountId: 46 }),
+        mountSelector({ platform, syncCredentials: { platform, type: 'apikey', api_key: 'test-key' } })
+      ]
+      for (const wrapper of wrappers) {
+        expect(wrapper.findAll('button').some(button => button.text() === 'admin.accounts.syncUpstreamModels')).toBe(false)
+        wrapper.unmount()
+      }
+      expect(syncUpstreamModels).not.toHaveBeenCalled()
+      expect(syncUpstreamModelsPreview).not.toHaveBeenCalled()
+    }
+  )
+
+  it('requires a supported request builder for newly registered platforms', async () => {
+    const wrapper = mountSelector({ platform: 'acme_router', accountId: 46 })
+    const platforms = [
+      ...BUILTIN_PLATFORM_CATALOG.platforms,
+      { id: 'acme_router', display_name: 'Acme Router', gateway: 'openai' as const, cn_provider: false }
+    ]
+    setPlatformCatalog({ ...BUILTIN_PLATFORM_CATALOG, platforms })
+    await flushPromises()
+    expect(wrapper.findAll('button').some(button => button.text() === 'admin.accounts.syncUpstreamModels')).toBe(false)
+
+    setPlatformCatalog({
+      ...BUILTIN_PLATFORM_CATALOG,
+      platforms: platforms.map(spec => spec.id === 'acme_router'
+        ? { ...spec, multi_protocol: { default_mode: 'default', routing: 'by_inbound', modes: [] } }
+        : spec)
+    })
+    await flushPromises()
+    expect(wrapper.findAll('button').some(button => button.text() === 'admin.accounts.syncUpstreamModels')).toBe(true)
+    wrapper.unmount()
   })
 
   it('rejects a custom whitelist model that is already mapped to a different target', async () => {
@@ -209,6 +268,26 @@ describe('ModelWhitelistSelector', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([[['x-preview-f-free']]])
     expect(showWarning).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsMetadataIncomplete')
     expect(showSuccess).not.toHaveBeenCalled()
+  })
+
+  it('shows the backend message when upstream sync is rejected', async () => {
+    syncUpstreamModels.mockRejectedValue({
+      status: 400,
+      code: 'BAD_REQUEST',
+      message: 'Vertex API key accounts do not support upstream model listing'
+    })
+    const wrapper = mountSelector({ platform: 'gemini', accountId: 174 })
+
+    const syncButton = wrapper
+      .findAll('button')
+      .find(button => button.text() === 'admin.accounts.syncUpstreamModels')
+    expect(syncButton).toBeDefined()
+    await syncButton!.trigger('click')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith(
+      'admin.accounts.syncUpstreamModelsError: Vertex API key accounts do not support upstream model listing'
+    )
   })
 
   it('shows success and a partial warning when some capabilities were saved', async () => {

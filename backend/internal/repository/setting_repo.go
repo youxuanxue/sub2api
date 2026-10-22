@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -32,6 +33,43 @@ func NewSettingRepository(client *ent.Client) service.SettingRepository {
 		cache:  make(map[string]settingCacheEntry),
 		ttl:    defaultSettingCacheTTL,
 	}
+}
+
+// SetContentModerationConfig holds live group rows until the setting is written.
+// Deletion takes FOR UPDATE on the group before cleaning this setting, so both
+// operations follow the same lock order: groups, then settings.
+func (r *settingRepository) SetContentModerationConfig(ctx context.Context, value string, groupIDs []int64) error {
+	tx, err := r.client.Tx(ctx)
+	if err != nil && !errors.Is(err, ent.ErrTxStarted) {
+		return err
+	}
+	client := r.client
+	if err == nil {
+		defer func() { _ = tx.Rollback() }()
+		client = tx.Client()
+	}
+	if err := lockLiveGroups(ctx, client, groupIDs); err != nil {
+		return err
+	}
+	now := time.Now()
+	if err := client.Setting.Create().SetKey(service.SettingKeyContentModerationConfig).
+		SetValue(value).SetUpdatedAt(now).OnConflictColumns(setting.FieldKey).
+		UpdateNewValues().Exec(ctx); err != nil {
+		return err
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	r.mu.Lock()
+	r.cache[service.SettingKeyContentModerationConfig] = settingCacheEntry{
+		setting: &service.Setting{Key: service.SettingKeyContentModerationConfig, Value: value, UpdatedAt: now},
+		expires: now.Add(r.ttl),
+	}
+	r.allCached = false
+	r.mu.Unlock()
+	return nil
 }
 
 func (r *settingRepository) Get(ctx context.Context, key string) (*service.Setting, error) {

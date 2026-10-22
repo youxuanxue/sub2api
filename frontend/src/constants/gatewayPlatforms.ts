@@ -3,13 +3,13 @@ import type { AccountPlatform } from '@/types'
 /** Ordered account/group platforms, including the independent fifth platform `newapi`. */
 export const GATEWAY_PLATFORMS = [
   'anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro', 'grok',
-  'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe', 'composite'
+  'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe', 'command_code', 'cline', 'composite'
 ] as const satisfies readonly AccountPlatform[]
 
 /** Platforms represented by a composite group in the channel editor. */
 export const COMPOSITE_PLATFORM_MEMBERS = [
   'anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu',
-  'deepseek', 'minimax', 'opencode_go', 'typesafe',
+  'deepseek', 'minimax', 'opencode_go', 'typesafe', 'command_code', 'cline',
 ] as const satisfies readonly Exclude<AccountPlatform, 'composite'>[]
 
 /**
@@ -85,6 +85,8 @@ export const CREATE_ACCOUNT_PLATFORM_SEGMENT_ACTIVE: Record<AccountPlatform, str
   minimax: 'bg-white text-rose-700 shadow-sm dark:bg-dark-600 dark:text-rose-300',
   opencode_go: 'bg-white text-amber-700 shadow-sm dark:bg-dark-600 dark:text-amber-300',
   typesafe: 'bg-white text-sky-700 shadow-sm dark:bg-dark-600 dark:text-sky-300',
+  command_code: 'bg-white text-violet-700 shadow-sm dark:bg-dark-600 dark:text-violet-300',
+  cline: 'bg-white text-fuchsia-700 shadow-sm dark:bg-dark-600 dark:text-fuchsia-300',
   composite: 'bg-white text-cyan-700 shadow-sm dark:bg-dark-600 dark:text-cyan-300',
 }
 

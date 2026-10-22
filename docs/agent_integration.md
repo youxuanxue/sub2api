@@ -748,6 +748,11 @@ Generated from live Gin route registrations; do not edit this section.
 - `GET /v1/videos/generations/:request_id/content` from `backend/internal/server/routes/gateway_tk_openai_compat_handlers.go`
 - `POST /v1/web_search` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
 - `POST /v1/x_search` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
+- `GET /v1beta/cachedContents` from `backend/internal/server/routes/gateway.go`
+- `POST /v1beta/cachedContents` from `backend/internal/server/routes/gateway.go`
+- `DELETE /v1beta/cachedContents/:cacheID` from `backend/internal/server/routes/gateway.go`
+- `GET /v1beta/cachedContents/:cacheID` from `backend/internal/server/routes/gateway.go`
+- `PATCH /v1beta/cachedContents/:cacheID` from `backend/internal/server/routes/gateway.go`
 - `GET /v1beta/models` from `backend/internal/server/routes/gateway.go`
 - `POST /v1beta/models/*modelAction` from `backend/internal/server/routes/gateway.go`
 - `GET /v1beta/models/:model` from `backend/internal/server/routes/gateway.go`

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -1433,4 +1434,16 @@ func (s *BillingCacheService) HasUserPlatformQuotaLimit(ctx context.Context, use
 		return true
 	}
 	return entry.DailyLimitUSD != nil || entry.WeeklyLimitUSD != nil || entry.MonthlyLimitUSD != nil
+}
+
+// ReserveFixedCharge 为扣费前即可确定金额的费用（倍率后 USD，如显式缓存存储费）做准入并登记在途预留。
+// A-commit 兼容实现：复用既有余额维度 reserveInflight；订阅/APIKey scope 预留在后续 B 收敛。
+func (s *BillingCacheService) ReserveFixedCharge(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, amount float64) (*InflightReservation, error) {
+	if s == nil {
+		return nil, nil
+	}
+	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return nil, nil
+	}
+	return s.reserveInflight(ctx, user, group, subscription, amount, true)
 }

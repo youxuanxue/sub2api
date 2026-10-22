@@ -39,6 +39,7 @@ type PlazaModel struct {
 type PlazaGroup struct {
 	ID                 int64
 	Name               string
+	I18n               GroupI18n
 	Description        string
 	Platform           string
 	SubscriptionType   string

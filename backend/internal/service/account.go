@@ -87,6 +87,7 @@ type Account struct {
 	modelMappingCacheRawLen         int
 	modelMappingCacheRawSig         uint64
 	modelMappingCacheRuntimeVersion uint64
+	modelMappingCacheShared         bool
 	modelMappingCacheKeys           []string
 
 	// header_overrides 热路径缓存（非持久化字段，同 model_mapping 缓存先例）
@@ -600,6 +601,20 @@ func stringMappingFromRaw(raw any) map[string]string {
 	}
 }
 
+// PrepareSharedSnapshot 预解析模型映射，并把账号标记为只读共享母本。
+// 母本按值复制出的副本与母本共用 Credentials 及其中 model_mapping 的同一 map：
+// 这些内层 map 在运行期不被原地修改，母本留在缓存期间持有这些 map，其地址不会被复用，
+// 因此副本在指针、长度与运行时版本都匹配时直接复用预解析结果，不计算签名；
+// 副本替换 Credentials 等导致任一项不匹配时回到普通的重建路径。
+// 只能由构造该账号的 goroutine 在其发布给其它 goroutine 之前调用，发布后母本不得再被修改。
+func (a *Account) PrepareSharedSnapshot() {
+	if a == nil {
+		return
+	}
+	a.GetModelMapping()
+	a.modelMappingCacheShared = true
+}
+
 func (a *Account) GetModelMapping() map[string]string {
 	runtimeVersion := modelMappingCacheRuntimeVersion()
 	credentialsPtr := mapPtr(a.Credentials)
@@ -890,6 +905,31 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 		}
 	}
 	return false
+}
+
+func (a *Account) isModelMappingSupported(requestedModel string) bool {
+	// 透传模式仅替换认证、模型语义完全交由上游决定，因此放行所有模型。
+	// 该短路必须在 model_mapping 判定之前：账号从"白名单模式"切换到透传后，
+	// credentials 里常残留旧的非空 model_mapping，若不在此放行，透传账号会被
+	// model_mapping 白名单错误排除出候选集，导致 no available accounts / 404（issue #4936）。
+	if a.IsOpenAIPassthroughEnabled() {
+		return true
+	}
+	mapping := a.GetModelMapping()
+	if len(mapping) == 0 {
+		if a.IsOpenAIOAuth() {
+			return isOpenAIOAuthServableModel(requestedModel)
+		}
+		if a.Platform == PlatformDeepseek {
+			return isDeepseekServableModel(requestedModel)
+		}
+		return true // 无映射 = 允许所有
+	}
+	if mappingSupportsRequestedModel(mapping, requestedModel) {
+		return true
+	}
+	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
+	return normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized)
 }
 
 // GetMappedModel 获取映射后的模型名（支持通配符，最长优先匹配）
@@ -3410,4 +3450,19 @@ func (a *Account) QuotaDimensionOrDefault() string {
 		return QuotaDimensionGlobal
 	}
 	return a.QuotaDimension
+}
+
+// AccountTypeSupportsQuota 返回账号类型是否支持账号配额（quota_limit 及日/周额度、quota_used 累加、超限停调度）。
+// 在 apikey/bedrock 之外额外放开 Vertex service_account；池模式等其它特性仍只看 IsAPIKeyOrBedrock。
+func AccountTypeSupportsQuota(accountType string) bool {
+	switch strings.ToLower(accountType) {
+	case AccountTypeAPIKey, AccountTypeBedrock, AccountTypeServiceAccount:
+		return true
+	}
+	return false
+}
+
+// SupportsAccountQuota 返回账号是否支持账号配额，类型集合见 AccountTypeSupportsQuota。
+func (a *Account) SupportsAccountQuota() bool {
+	return AccountTypeSupportsQuota(a.Type)
 }

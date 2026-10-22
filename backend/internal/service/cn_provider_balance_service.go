@@ -243,6 +243,26 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 	return result, nil
 }
 
+// cnBalanceExtraUpdates 构造 provider 维度的余额快照更新。
+func cnBalanceExtraUpdates(provider string, result *CNProviderBalanceResult, now time.Time) map[string]any {
+	balanceUpdates := make([]any, 0, len(result.Balances))
+	for _, entry := range result.Balances {
+		balanceUpdates = append(balanceUpdates, map[string]any{
+			"currency": entry.Currency,
+			"balance":  entry.Balance,
+		})
+	}
+	return map[string]any{
+		cnExtraKey(provider, cnBalanceExtraSuffixBalance):   result.Balance,
+		cnExtraKey(provider, cnBalanceExtraSuffixCurrency):  result.Currency,
+		cnExtraKey(provider, cnBalanceExtraSuffixAvailable): result.Available,
+		cnExtraKey(provider, cnBalanceExtraSuffixUpdated):   now.Format(time.RFC3339),
+		cnExtraKey(provider, cnBalanceExtraSuffixBalances):  balanceUpdates,
+		// 余额探测成功即清除响应式 402/429 写下的 balance_low 标记。
+		cnExtraKey(provider, cnBalanceExtraSuffixLow): false,
+	}
+}
+
 // loadPayGAccount 加载 payg 模式的国产供应商账号（余额仅对 payg 有意义；coding 走额度）。
 func (s *CNProviderBalanceService) loadPayGAccount(ctx context.Context, accountID int64) (*Account, error) {
 	account, err := s.accountRepo.GetByID(ctx, accountID)

@@ -4,6 +4,7 @@
  */
 
 import { apiClient } from "../client";
+import { listPlatformIds } from "@/constants/platformCatalog";
 import type {
   CustomEndpoint,
   CustomMenuItem,
@@ -19,7 +20,7 @@ export interface DefaultSubscriptionSetting {
 }
 
 // ── 平台限额类型 ──────────────────────────────────────────────────
-export type PlatformType = QuotaPlatform
+export type PlatformType = QuotaPlatform | (string & {})
 export type QuotaWindowType = "daily" | "weekly" | "monthly"
 
 /** 单平台三档限额；null = 不限制，undefined = 未填（等价 null） */
@@ -40,11 +41,12 @@ export type SchedulingThresholdPlatformType =
   | "zhipu"
   | "minimax"
   | "opencode_go"
+  | "command_code"
 
 export type AccountSchedulingThresholdsMap = Record<SchedulingThresholdPlatformType, number>
 
 // 与后端 AllowedSchedulingThresholdPlatforms 保持一致（deepseek 为余额型，
-// 走余额检测而非用量阈值；minimax Coding/Token Plan 与 OpenCode GO 有滚动窗口）。
+// 走余额检测而非用量阈值；minimax Coding/Token Plan、OpenCode GO 与 Command Code 有滚动窗口）。
 export const SCHEDULING_THRESHOLD_PLATFORMS: SchedulingThresholdPlatformType[] = [
   "openai",
   "anthropic",
@@ -53,6 +55,7 @@ export const SCHEDULING_THRESHOLD_PLATFORMS: SchedulingThresholdPlatformType[] =
   "zhipu",
   "minimax",
   "opencode_go",
+  "command_code",
 ]
 
 export function normalizeAccountSchedulingThresholdsMap(
@@ -74,10 +77,23 @@ export function sanitizeAccountSchedulingThresholdsMap(
   return normalizeAccountSchedulingThresholdsMap(input)
 }
 
-/** 归一化为全 4 平台 × 3 窗口（缺失填 null），供模板非空绑定 */
+/** 归一化为全部平台 × 3 窗口（缺失填 null），供模板非空绑定 */
+
+function quotaPlatformIds(): string[] {
+  const ids: string[] = [...ALLOWED_QUOTA_PLATFORMS]
+  const seen = new Set(ids)
+  for (const p of listPlatformIds()) {
+    if (!seen.has(p)) {
+      ids.push(p)
+      seen.add(p)
+    }
+  }
+  return ids
+}
+
 export function normalizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | null): DefaultPlatformQuotasMap {
   const result: DefaultPlatformQuotasMap = {}
-  for (const p of ALLOWED_QUOTA_PLATFORMS) {
+  for (const p of quotaPlatformIds()) {
     const src = input?.[p]
     result[p] = {
       daily:   typeof src?.daily === "number" ? src.daily : null,
@@ -88,11 +104,11 @@ export function normalizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | nu
   return result
 }
 
-/** 提交前清洗：非有限数/负数/空字符串 → null（保留 0 = 显式禁用），返回全 4 平台嵌套 map */
+/** 提交前清洗：非有限数/负数/空字符串 → null（保留 0 = 显式禁用），返回全部平台嵌套 map */
 export function sanitizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | null): DefaultPlatformQuotasMap {
   const clean = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null)
   const result: DefaultPlatformQuotasMap = {}
-  for (const p of ALLOWED_QUOTA_PLATFORMS) {
+  for (const p of quotaPlatformIds()) {
     const src = input?.[p]
     result[p] = { daily: clean(src?.daily), weekly: clean(src?.weekly), monthly: clean(src?.monthly) }
   }

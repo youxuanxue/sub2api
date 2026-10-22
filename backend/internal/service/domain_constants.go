@@ -46,13 +46,15 @@ const (
 	PlatformKiro        = domain.PlatformKiro
 	PlatformGrok        = domain.PlatformGrok
 	// 国产 OpenAI 兼容供应商（与 grok 一样经 OpenAI 网关转发）。
-	PlatformKimi       = domain.PlatformKimi
-	PlatformZhipu      = domain.PlatformZhipu
-	PlatformDeepseek   = domain.PlatformDeepseek
-	PlatformMiniMax    = domain.PlatformMiniMax
-	PlatformTypeSafe   = domain.PlatformTypeSafe
-	PlatformOpenCodeGo = domain.PlatformOpenCodeGo
-	PlatformComposite  = domain.PlatformComposite
+	PlatformKimi        = domain.PlatformKimi
+	PlatformZhipu       = domain.PlatformZhipu
+	PlatformDeepseek    = domain.PlatformDeepseek
+	PlatformMiniMax     = domain.PlatformMiniMax
+	PlatformTypeSafe    = domain.PlatformTypeSafe
+	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
+	PlatformCommandCode = domain.PlatformCommandCode
+	PlatformCline       = domain.PlatformCline
+	PlatformComposite   = domain.PlatformComposite
 )
 
 // 账号接入模式（国产供应商）：按量付费 vs Coding Plan。
@@ -85,6 +87,10 @@ const (
 	DefaultOpenCodeGoBaseURL = "https://opencode.ai/zen/go/v1"
 	// OpenCode Zen：按量付费网关，模型列表为 /zen/v1/models。
 	DefaultOpenCodeZenBaseURL = "https://opencode.ai/zen/v1"
+	// Command Code Provider API：Chat Completions / Responses / models 共用 /provider/v1 基址。
+	DefaultCommandCodeBaseURL = "https://api.commandcode.ai/provider/v1"
+	// Cline API：只提供 Chat Completions（{base}/chat/completions）与模型列表。
+	DefaultClineBaseURL = "https://api.cline.bot/api/v1"
 )
 
 // 国产供应商 Anthropic 协议端点的默认 base_url（上游路径为 {base}/v1/messages）。
@@ -98,6 +104,8 @@ const (
 	// OpenCode Go Anthropic 基址不含 /v1：nativeAnthropicTargetURL 会再拼 /v1/messages。
 	DefaultOpenCodeGoAnthropicBaseURL  = "https://opencode.ai/zen/go"
 	DefaultOpenCodeZenAnthropicBaseURL = "https://opencode.ai/zen"
+	// Command Code 的 Anthropic 端点为 /provider/v1/messages（Claude 系模型只在此端点提供）。
+	DefaultCommandCodeAnthropicBaseURL = "https://api.commandcode.ai/provider"
 )
 
 // IsCNProvider 报告 platform 是否为国产 OpenAI 兼容供应商（kimi/zhipu/deepseek/minimax）。

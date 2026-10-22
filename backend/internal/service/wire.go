@@ -1267,3 +1267,10 @@ func ProvideClaudeResetCreditService(accounts AccountRepository, tokens *ClaudeT
 	s.ConfigureRedemption(idem, locks)
 	return s
 }
+
+// ProvideGeminiCachedContentService creates GeminiCachedContentService and starts its mutation recovery loop.
+func ProvideGeminiCachedContentService(repo GeminiCachedContentRepository, compat *GeminiMessagesCompatService, cfg *config.Config) *GeminiCachedContentService {
+	svc := NewGeminiCachedContentService(repo, compat, cfg)
+	svc.Start()
+	return svc
+}

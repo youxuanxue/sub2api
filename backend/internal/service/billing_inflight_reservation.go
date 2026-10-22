@@ -718,3 +718,13 @@ func (s *OpenAIGatewayService) EstimateInflightReservation(ctx context.Context, 
 	}
 	return s.inflightEstimateDeps().estimate(ctx, apiKey, req)
 }
+
+// InflightScopeReservationCache 订阅 / API Key 维度在途预留的缓存能力（可选），用于扣费前即可确定金额的费用；
+// 未实现时这两个维度不登记预留（fail-open），准入仍按库中用量校验。
+type InflightScopeReservationCache interface {
+	// ReserveInflightScope 原子地清理 scope 下的过期预留并登记 requestID 的预留（ttl 后自动失效），
+	// 返回登记前该 scope 下其他在途预留的合计。
+	ReserveInflightScope(ctx context.Context, scope, requestID string, amount float64, ttl time.Duration) (float64, error)
+	// ReleaseInflightScope 释放 scope 下 requestID 的预留（幂等）。
+	ReleaseInflightScope(ctx context.Context, scope, requestID string) error
+}

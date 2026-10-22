@@ -20,6 +20,10 @@ var DefaultModels = []Model{
 	{ID: "gemini-3.5-flash-lite", Type: "model", DisplayName: "Gemini 3.5 Flash Lite", CreatedAt: ""},
 	{ID: "gemini-embedding-001", Type: "model", DisplayName: "Gemini Embedding 001", CreatedAt: ""},
 	{ID: "veo-3.1-generate-001", Type: "model", DisplayName: "Veo 3.1", CreatedAt: ""},
+	{ID: "gemini-3-pro-preview", Type: "model", DisplayName: "Gemini 3 Pro Preview", CreatedAt: ""},
+	{ID: "gemini-3.1-pro-preview", Type: "model", DisplayName: "Gemini 3.1 Pro Preview", CreatedAt: ""},
+	{ID: "gemini-3.1-flash-image", Type: "model", DisplayName: "Gemini 3.1 Flash Image", CreatedAt: ""},
+	{ID: "gemini-4-argon", Type: "model", DisplayName: "Gemini 4 Argon", CreatedAt: ""},
 }
 
 // GoogleOneModels is the conservative model set exposed for legacy Google One

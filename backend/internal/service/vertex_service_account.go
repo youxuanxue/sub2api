@@ -31,6 +31,8 @@ const (
 	vertexServiceAccountCacheSkew = 5 * time.Minute
 	vertexLockWaitTime            = 200 * time.Millisecond
 	vertexAnthropicVersion        = "vertex-2023-10-16"
+	vertexGlobalHost              = "aiplatform.googleapis.com"
+	vertexAuthModeAPIKey          = "apikey"
 )
 
 var (
@@ -431,4 +433,35 @@ func buildVertexAnthropicRequestBody(body []byte) ([]byte, error) {
 	delete(payload, "model")
 	payload["anthropic_version"] = vertexAnthropicVersion
 	return json.Marshal(payload)
+}
+
+func (a *Account) IsVertexAPIKey() bool {
+	return a.IsVertexServiceAccount() && a.Platform == PlatformGemini &&
+		strings.TrimSpace(a.GetCredential("auth_mode")) == vertexAuthModeAPIKey
+}
+
+type vertexTokenRequestError struct {
+	StatusCode  int
+	Code        string // 响应的 error 字段，如 invalid_grant
+	Description string // 响应的 error_description 字段
+	Message     string
+}
+
+func (e *vertexTokenRequestError) Error() string {
+	return fmt.Sprintf("service account token request returned %d: %s", e.StatusCode, e.Message)
+}
+
+// vertexServiceAccountNotFoundError 识别 SA 已不存在：token 端点返回
+// 400 {"error":"invalid_grant","error_description":"Invalid grant: account not found"}。
+// 该凭据再也换不到 token，账号需要人工更换凭据。
+func vertexServiceAccountNotFoundError(err error) (*vertexTokenRequestError, bool) {
+	var tokenErr *vertexTokenRequestError
+	if !errors.As(err, &tokenErr) {
+		return nil, false
+	}
+	if tokenErr.StatusCode != http.StatusBadRequest || tokenErr.Code != "invalid_grant" ||
+		!strings.Contains(strings.ToLower(tokenErr.Description), "account not found") {
+		return nil, false
+	}
+	return tokenErr, true
 }

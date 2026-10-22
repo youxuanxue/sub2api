@@ -4,7 +4,8 @@
  */
 
 import { apiClient } from '../client'
-import type { AdminUser, UpdateUserRequest, PaginatedResponse, ApiKey } from '@/types'
+import { listPlatformIds } from '@/constants/platformCatalog'
+import type { AccountPlatform, AdminUser, UpdateUserRequest, PaginatedResponse, ApiKey } from '@/types'
 
 export interface AdminBindAuthIdentityChannelRequest {
   channel: string
@@ -330,12 +331,23 @@ export async function bindUserAuthIdentity(
 /**
  * Platform quota types
  */
-// Keep aligned with backend/internal/service/domain_constants.go AllowedQuotaPlatforms.
-export const PLATFORM_QUOTA_PLATFORMS = [
-  'anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro', 'grok',
-  'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe',
-] as const
-export type PlatformQuotaPlatform = typeof PLATFORM_QUOTA_PLATFORMS[number]
+// Quota platforms: backend catalog (listPlatformIds) union TokenKey-only extras.
+// Keep newapi/kiro even when the upstream builtin catalog omits them.
+const TK_QUOTA_PLATFORM_EXTRAS = ['newapi', 'kiro'] as const
+
+export function platformQuotaPlatforms(): PlatformQuotaPlatform[] {
+  const ids = [...listPlatformIds()]
+  const seen = new Set(ids)
+  for (const extra of TK_QUOTA_PLATFORM_EXTRAS) {
+    if (!seen.has(extra)) ids.push(extra)
+  }
+  return ids as PlatformQuotaPlatform[]
+}
+
+export type PlatformQuotaPlatform = AccountPlatform
+
+/** Snapshot of quota platforms at module load (tests / static iteration). */
+export const PLATFORM_QUOTA_PLATFORMS = platformQuotaPlatforms()
 export type PlatformQuotaWindow = 'daily' | 'weekly' | 'monthly'
 
 export interface PlatformQuotaItem {
