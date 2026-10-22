@@ -18,18 +18,21 @@
 
 ## 后续（另批，勿擅自执行）
 
-- [ ] Tokyo 保留 ≥7 天再退役（禁止解冻双写；不早于 10-29）。步骤见 #2802 `tokyo-retirement-runbook.md`
+- [ ] Tokyo 退役（2026-10-22 用户批准提前退役）：**已停机**（`i-045f062ce33e1a5af` stopped，停前只读核实只读库/0 会话/无 app 容器；停后三正式域名 `/health` 200）；最终快照 `snap-06612941333b662e8`（数据卷）/ `snap-0724597870487cf4a`（根卷）completed。剩余（不可逆，逐步审批）：仓库清理 PR → 删栈 → 数据卷处置 → OIDC retarget。步骤见 [`tokyo-retirement-runbook.md`](tokyo-retirement-runbook.md)
 - [x] Tokyo 切流前 DLM 快照：2026-10-22 用户决定**不保留**，任其按 7 日轮换。DB 由 S3 `prod/postgres`（timeline 1）pgBackRest 历史链覆盖；Tokyo 主机上的 Redis/配置/证书原样副本随轮换消失，不再可查
-- [ ] 日本 Lightsail 代理关停：`jp-*` 四行 live/fallback/backup 绑定均为 0（2026-10-22 只读复核）；另有 `tokenkey-node1-ingress-jp-20261016-vm` 一并关停
-- [ ] LUKS 自动解锁验收（**禁止拿现网整机重启试验**；契约见 [`tencent-unlock-contract.md`](tencent-unlock-contract.md)）
-- [ ] **腾讯续费（11-14 前决策）**：prod 与 `usw-eval1` 11-21 08:31 UTC 到期，`usw-eval2..4` 11-22 02:59 UTC，均为 `NOTIFY_AND_MANUAL_RENEW`，不续即停机。5 台合计 395 CNY/月，或包年 4317 CNY
-- [ ] **Redis 无持久化（现网风险）**：`tk-cutover-prod-redis` 为 `appendonly no`，RDB 写在容器可写层、无挂载，容器重建即丢（2026-10-22 只读复核：约 1.07 万 key）。修复需变更审批
-- [ ] **PG `archive_timeout=0`（现网风险）**：与基线 300 不符，低流量时 WAL 归档无时间上界、RPO 无界。修复为 `ALTER SYSTEM` + reload（不重启），需变更审批
+- [ ] 日本 Lightsail 代理关停（2026-10-22 用户批准）：`jp-*` 四行 live/fallback/backup 绑定均为 0（prod 与 cn-prod 只读复核），公网 DNS 与 cn-prod 配置无引用；5 台（`jp-proxy-01..04-micro` + `tokenkey-node1-ingress-jp-20261016-vm`）**已打最终快照 `<name>-final-20261022` 并停机**。prod `proxies` 行 2-5（`jp-uk1/uk2/us4/us5`）已由用户于 2026-10-23 01:02 JST 在 Admin UI 软删（只读复核：绑定均为 0）。剩余：观察 ≥24h 后删实例 + 释放静态 IP（不可逆）
+- [ ] LUKS 自动解锁验收（**禁止拿现网整机重启试验**；契约见 [`tencent-unlock-contract.md`](tencent-unlock-contract.md)；方案见 [`tencent-luks-autounlock-plan.md`](tencent-luks-autounlock-plan.md)：无 TPM，推荐开机经 SSM Hybrid 身份取 keyfile，演练约 40 CNY + 1–2 USD/月，待批）
+- [x] 腾讯续费：2026-10-22 用户决定按月自动续费；5 台 Lighthouse 经 `ModifyInstancesRenewFlag` 改为 `NOTIFY_AND_AUTO_RENEW`（DescribeInstances 复核），合计 395 CNY/月。须保持账户余额充足，余额不足仍会到期停机
+- [ ] **Redis 无持久化（现网风险）**：`tk-cutover-prod-redis` 为 `appendonly no`，RDB 写在容器可写层、无挂载，容器重建即丢（2026-10-22 只读复核：约 1.07 万 key，6 MB）。2026-10-22 用户批准开启，待低峰执行（7 日最低谷 UTC 23–01，约 2.5k 请求/小时）
+- [x] PG `archive_timeout`：2026-10-22 15:37 UTC 经用户批准 `ALTER SYSTEM SET archive_timeout='300s'` + reload（未重启，`pending_restart=f`）；6 分钟后复核 `archived_count` 199→201、`failed_count=0`。写在 `postgresql.auto.conf`，容器重建时随数据目录保留
 - [ ] 腾讯机整机/卷级快照策略（无 EBS/DLM 替代；目前仅 pgBackRest 覆盖 PG，Redis/配置/密钥无快照）
-- [ ] 隔离物理恢复演练：[#2799](https://github.com/youxuanxue/sub2api/pull/2799) 已对 Hybrid 失败关闭并支持 amd64；推荐 AWS us-east-1 临时 c7i.xlarge（预算上限 $5）。待批：RestoreRole 读活链前缀的 CFN、CI OIDC 的 EC2/PassRole 权限、预算。方案文档 `docs/ops/tencent-isolated-restore-plan.md` 随该 PR 进入仓库
-- [ ] 腾讯宿主备份 operator `tencent_pgbackrest.py` 不在仓库且无 `accept` 命令，恢复回执无法导入；需入仓
+- [ ] 隔离物理恢复演练：[#2799](https://github.com/youxuanxue/sub2api/pull/2799) 已对 Hybrid 失败关闭并支持 amd64；推荐 AWS us-east-1 临时 c7i.xlarge（预算上限 $5）。待批：RestoreRole 读活链前缀的 CFN、CI OIDC 的 EC2/PassRole 权限、预算。方案见 [`tencent-isolated-restore-plan.md`](tencent-isolated-restore-plan.md)
+- [ ] 腾讯宿主备份 operator：已由 #2802 入仓为 `deploy/tencent/tencent_pgbackrest.py`（宿主副本不随仓库更新），但仍只有 `backup`/`check`，缺 `accept`，恢复 workflow 末步回执导入会明确报错
 - [ ] 配置/密钥离机备份：推荐宿主用操作员公钥加密 tar 上传 `candidates/…/host-config/`（无需改 IAM），另开 PR
-- [ ] 宿主探针 PG/Redis 容器名：data-layer 与 daily error ledger 走 `tk_resolve_postgres_container`；daily diagnostics 的 inline SSM 从 `resolve_app_container.py` 渲染同一「恰好一个 running」规则。其余硬写 `tokenkey-postgres` 的脚本逐批迁移
+- [x] 宿主探针 PG/Redis 容器名：#2804 将其余脚本迁到共享解析（`ops/lib/resolve-app-container.sh` / `resolve_app_container.py`），新增 preflight 门禁 `scripts/checks/data-container-resolver.py` 防回退；每日容量巡检恢复（2026-10-22 prod 只读验证）。白名单余项：cn-prod 专用 `tpm_burst_monitor_remote.sh`、`ops/migration` 下绑定已退役主机的脚本
 - [x] QA 分区预建漏装：2026-10-22 13:29 UTC 经用户批准用 `ops/qa/local_maintenance_host.py install --apply` 补装 `tokenkey-qa-provision.timer`（每小时整点），首轮 72/72 小时覆盖；未重启网关/PG。回滚备份 `/var/backups/tokenkey-qa-local/20261022T132922246441Z`
-- [ ] QA phase2 剩余真实问题：`tokenkey-qa-runtime` 容器在腾讯机不存在；boundary 判定与 `paused_jobs` 口径矛盾（第 4 队统一）。探针体积问题已由 #2800 解决（ARCHIVE 行 23.6 KB→0.7 KB）
+- [ ] QA phase2 剩余真实问题：`tokenkey-qa-runtime` 容器在腾讯机不存在。已解决：探针体积（#2800，ARCHIVE 行 23.6 KB→0.7 KB）、boundary 口径（#2802，暂停清单为唯一真相）、分区缺口（provision 补装）
+- [x] prod watcher 重装：2026-10-22 15:24 UTC 经用户批准，`host_watch.local_qa_jobs` 含 `tokenkey-qa-provision`；bundle `95998671d971c8ce`，dry-run 全部健康，回滚备份 `/var/backups/tokenkey-https-watch/20261022T152459871497Z`。cn-prod watcher 未变更
+- [ ] 备份身份重装注意：`ops/stage0/tencent_backup_identity.py` 已改为读腾讯矩阵（#2804），但宿主安装器不在仓库；下次重装/修复须把 `candidate-usw-20261022.json` 放在脚本旁或设 `TK_TENCENT_PROD_MATRIX`，否则 `tokenkey-backup-identity` timer 失败。现宿主跑旧副本，不受影响
+- [ ] 归档 canary（`data_layer_archive_rehearsal.PROD_CANARY_CONTAINER`）仍绑 EC2 `i-*` 与 CFN stack，需单独迁到腾讯
 - [ ] 冻结 Tokyo 退役时一并：删 `aws-fresh` 模式与 `fresh-migration-20261015.json`、OIDC 栈 retarget 到 `mi-*`（#2802 模板已支持）、遗留空栈 `tokenkey-tokyo-ebs-restore-20261017`

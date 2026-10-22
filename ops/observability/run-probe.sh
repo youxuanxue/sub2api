@@ -18,7 +18,7 @@
 #       [--with PATH ...]   upload additional local files to /tmp/<basename> on remote
 #       [--remote-path /tmp/script-name.sh] \
 #       [--comment "free text"] \
-#       [--expected-instance-id i-*|mi-*|uhost-*] \
+#       [--expected-instance-id i-*|mi-*|uhost-*|lhins-*] \
 #       [--timeout-seconds 120]
 #       [--compressed-output] integrity-checked gzip transport for large stdout
 #       [--describe-script]  print the registered companion/verdict contract and exit
@@ -239,8 +239,8 @@ if [ "$TARGET" != "cn-prod" ] && { [ -z "${INSTANCE_ID:-}" ] || [ "$INSTANCE_ID"
   exit 2
 fi
 if [ -n "$EXPECTED_INSTANCE_ID" ]; then
-  if [[ ! "$EXPECTED_INSTANCE_ID" =~ ^(i|mi)-[0-9a-f]{8,17}$ ]] && [[ ! "$EXPECTED_INSTANCE_ID" =~ ^uhost-[a-z0-9]+$ ]]; then
-    echo "[run-probe] ERROR: --expected-instance-id must be an EC2, SSM-managed, or UHost instance id" >&2
+  if [[ ! "$EXPECTED_INSTANCE_ID" =~ ^(i|mi)-[0-9a-f]{8,17}$ ]] && [[ ! "$EXPECTED_INSTANCE_ID" =~ ^uhost-[a-z0-9]+$ ]] && [[ ! "$EXPECTED_INSTANCE_ID" =~ ^lhins-[a-z0-9]+$ ]]; then
+    echo "[run-probe] ERROR: --expected-instance-id must be an EC2, SSM-managed, UHost, or Lighthouse instance id" >&2
     exit 1
   fi
   if [ "$TARGET" != "cn-prod" ] && [ "$INSTANCE_ID" != "$EXPECTED_INSTANCE_ID" ]; then
@@ -297,7 +297,7 @@ PY
 )
 
 if [ "$TARGET" = "cn-prod" ]; then
-  # UCloud cn-prod is an independent Docker/Postgres host. Prefer its outbound
+  # cn-prod is an independent Docker/Postgres host. Prefer its outbound
   # AWS SSM Hybrid agent so a changing operator IP never becomes a probe input.
   UCLOUD_MANIFEST="$REPO_ROOT/deploy/domestic/prod-target.json"
   if [ -n "$EXPECTED_INSTANCE_ID" ] && [ -f "$UCLOUD_MANIFEST" ]; then
@@ -310,7 +310,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 PY
     )
     if [ "$UCLOUD_INSTANCE_ID" != "$EXPECTED_INSTANCE_ID" ]; then
-      echo "[run-probe] ERROR: UCloud instance does not match --expected-instance-id" >&2
+      echo "[run-probe] ERROR: cn-prod instance does not match --expected-instance-id" >&2
       exit 1
     fi
   fi
@@ -356,8 +356,8 @@ item = items[0]
 print("\t".join(str(item.get(k) or "") for k in ("PingStatus", "Name", "PlatformType")))
 ' 2>/dev/null || true)
     IFS=$'\t' read -r SSM_PING_STATUS SSM_NAME SSM_PLATFORM <<<"$SSM_STATE"
-    if [ "$SSM_PING_STATUS" != "Online" ] || [ "$SSM_NAME" != "cn-prod" ] || [ "$SSM_PLATFORM" != "Linux" ]; then
-      echo "[run-probe] ERROR: UCloud SSM identity is not ready (name=${SSM_NAME:-<empty>} status=${SSM_PING_STATUS:-<empty>} platform=${SSM_PLATFORM:-<empty>})" >&2
+    if [ "$SSM_PING_STATUS" != "Online" ] || { [ "$SSM_NAME" != "cn-prod" ] && [ "$SSM_NAME" != "tokenkey-cn-prod" ]; } || [ "$SSM_PLATFORM" != "Linux" ]; then
+      echo "[run-probe] ERROR: cn-prod SSM identity is not ready (name=${SSM_NAME:-<empty>} status=${SSM_PING_STATUS:-<empty>} platform=${SSM_PLATFORM:-<empty>})" >&2
       exit 2
     fi
     REGION="$UCLOUD_SSM_REGION"

@@ -249,6 +249,25 @@ class DeployViaSsmTest(unittest.TestCase):
         self.assertIn("send-command", log)
         self.assertIn("cn-prod-deploy sync-controls", log)
 
+    def _rewrite_ssm_name(self, name: str) -> None:
+        describe = self.repo / "ssm-describe.json"
+        payload = json.loads(describe.read_text())
+        payload["InstanceInformationList"][0]["Name"] = name
+        describe.write_text(json.dumps(payload) + "\n")
+
+    def test_identity_accepts_registered_beijing_name(self) -> None:
+        self._rewrite_ssm_name("tokenkey-cn-prod")
+        proc = self._run("sync-controls")
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        self.assertIn("send-command", self.aws_log.read_text())
+
+    def test_identity_rejects_unregistered_name_before_send(self) -> None:
+        self._rewrite_ssm_name("other-host")
+        proc = self._run("sync-controls")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("SSM identity not ready", proc.stderr)
+        self.assertNotIn("send-command", self.aws_log.read_text())
+
     def test_pull_dry_run_emits_amd64_and_label_checks(self) -> None:
         env = {
             **os.environ,

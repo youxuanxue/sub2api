@@ -34,7 +34,7 @@ MODEL="${MODEL:-kimi-k3}"
 MAX_TOKENS="${MAX_TOKENS:-1200}"
 MONITOR_DURATION_S="${MONITOR_DURATION_S:-240}"
 MONITOR_INTERVAL_S="${MONITOR_INTERVAL_S:-2}"
-EXPECTED_INSTANCE_ID="${EXPECTED_INSTANCE_ID:-uhost-1wgyn7gu2f6a}"
+EXPECTED_INSTANCE_ID="${EXPECTED_INSTANCE_ID:-lhins-6qmb3fd6}"
 # Live capacity: accounts × per-account concurrency (not the recipe's 21×12 snapshot).
 POOL_SLOTS="${TPM_BURST_POOL_SLOTS:-${POOL_SLOTS:-}}"
 APPROVE_TOKEN="yes-formal-tpm-loadtest"
