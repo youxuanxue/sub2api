@@ -1295,8 +1295,31 @@ finish_pending_drain
         self.assertIn("MEDIA_STORAGE_BUCKET='custom-media'", joined)
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS='16'", joined)
 
-
-
+    def test_image_repo_strips_digest_pinned_config_image(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+        function = _extract_shell_function(remote, "image_repo")
+        cases = [
+            ("ghcr.io/youxuanxue/sub2api:1.8.313", "ghcr.io/youxuanxue/sub2api"),
+            (
+                "ghcr.io/youxuanxue/sub2api@sha256:"
+                "a82620000127faddb0ddceeab8a0a4adb4df8663d84d3e82cd32436d0f059019",
+                "ghcr.io/youxuanxue/sub2api",
+            ),
+        ]
+        for image, want in cases:
+            with self.subTest(image=image):
+                script = f"{function}\nimage_repo {shlex.quote(image)}\n"
+                result = subprocess.run(
+                    ["bash"], input=script, capture_output=True, text=True, check=False
+                )
+                self.assertEqual(result.returncode, 0, msg=result.stderr)
+                got = result.stdout.strip()
+                self.assertEqual(got, want)
+                # Legacy→blue splice must stay name:tag, never repo@sha256:TAG.
+                self.assertEqual(f"{got}:1.8.314", "ghcr.io/youxuanxue/sub2api:1.8.314")
+                self.assertNotIn("@sha256", f"{got}:1.8.314")
 
 
 if __name__ == "__main__":

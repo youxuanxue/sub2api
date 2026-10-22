@@ -338,7 +338,14 @@ other_color() {
 
 image_repo() {
   local image="$1"
-  [[ -n "${image}" && "${image}" == *:* ]] || return 1
+  [[ -n "${image}" ]] || return 1
+  # Digest-pinned Config.Image looks like repo@sha256:hex — strip the digest,
+  # never treat the hex (or a later :tag splice) as the repository name.
+  if [[ "${image}" == *@sha256:* ]]; then
+    printf '%s' "${image%@*}"
+    return 0
+  fi
+  [[ "${image}" == *:* ]] || return 1
   printf '%s' "${image%:*}"
 }
 
