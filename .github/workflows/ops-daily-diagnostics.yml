@@ -425,7 +425,19 @@ jobs:
           receipt_command = (
               "python3 -c " + shlex.quote("exec(" + repr(transport_source) + ")")
               + " encode -- bash -c " + shlex.quote(
-                  "sudo cat /var/lib/tokenkey/postgres-backup/health.json 2>/dev/null || true"
+                  # The receipt is selected ON THE HOST, not by local filename.
+                  # Stage0 writes health.json; the Tencent pgBackRest path writes
+                  # archive_check.json and no health.json. postgres_backup_verdict.py
+                  # accepts either, but its sibling fallback keys off the file being
+                  # *named* health.json, and this workflow saves the transported bytes
+                  # as physical-backup-health-receipt.json -- so a host with only
+                  # archive_check.json produced an empty receipt and the gate reported
+                  # "physical backup health missing/invalid" while backups and WAL
+                  # archiving were in fact healthy (failed_count=0 on live prod).
+                  "for f in health.json archive_check.json; do "
+                  "if sudo test -s \"/var/lib/tokenkey/postgres-backup/$f\"; then "
+                  "sudo cat \"/var/lib/tokenkey/postgres-backup/$f\"; exit 0; fi; done; "
+                  "true"
               )  # preflight-allow: swallow (missing receipt becomes an actionable verdict)
           )
           commands = [
@@ -638,7 +650,13 @@ jobs:
               "sudo rm -rf \"$OUT\" && sudo mkdir -p \"$OUT\" && sudo chmod 0777 \"$OUT\"",
               *_tk.remote_unique_running_snippet(docker="sudo docker", variable="PG_CONTAINER", candidates=_tk.POSTGRES_CANDIDATES),
               '[ -n "$PG_CONTAINER" ] || { echo postgres_container_unresolved >&2; exit 1; }',
-              "NET=$(sudo docker inspect \"$PG_CONTAINER\" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')",
+              # First network only. The cutover host attaches the database to TWO
+              # networks (tk-cutover-prod and tokenkey_tokenkey-network), and an
+              # unseparated range concatenates their names into one string that is
+              # not a real network, so `docker run --network` fails. Verified on
+              # live prod.
+              "NET=$(sudo docker inspect \"$PG_CONTAINER\" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{\"\\n\"}}{{end}}' | head -1)",
+              "[ -n \"$NET\" ] || { echo postgres_network_unresolved >&2; exit 1; }",
               "sudo docker run --rm --network \"$NET\" -v /usr/local/bin/error_clustering:/binary:ro -v \"$OUT\":/out -e PG_DSN=\"postgres://tokenkey:$PGPASS@$PG_CONTAINER:5432/tokenkey?sslmode=disable\" alpine:3.21 /binary --since-hours " + since_hours + " --output /out/report.json --markdown /out/report.md",
               "echo ===BEGIN_REPORT_JSON===",
               "base64 -w0 \"$OUT/report.json\" 2>/dev/null || base64 \"$OUT/report.json\" | tr -d '\\n'",
