@@ -119,6 +119,7 @@ describe('ModelWhitelistSelector', () => {
     expect(wrapper.text()).toContain('claude-sonnet-4-6')
     expect(wrapper.text()).toContain('admin.accounts.newApiPlatform.pricingStatusPriced')
     expect(wrapper.text()).toContain('admin.accounts.newApiPlatform.pricingStatusMissing')
+  })
 
   afterEach(() => {
     resetPlatformCatalog()

@@ -8,6 +8,7 @@ import {
   supportsUpstreamBillingProbe,
   UPSTREAM_BILLING_PROBE_PLATFORMS
 } from '@/constants/gatewayPlatforms'
+import {
   BUILTIN_PLATFORM_CATALOG,
   compositePrecedencePlatformIds,
   listPlatformIds,
@@ -25,6 +26,8 @@ const concretePlatforms = [
   'openai',
   'gemini',
   'antigravity',
+  'newapi',
+  'kiro',
   'grok',
   'kimi',
   'zhipu',
@@ -33,9 +36,7 @@ const concretePlatforms = [
   'opencode_go',
   'typesafe',
   'command_code',
-  'cline',
-  'newapi',
-  'kiro'
+  'cline'
 ]
 
 describe('platform option catalogs', () => {
@@ -81,9 +82,8 @@ describe('platform catalog with a newly registered platform', () => {
     ])
     expect(CONCRETE_PLATFORM_OPTIONS.map((option) => option.value)).toEqual(concretePlatforms)
     expect(CONCRETE_PLATFORM_OPTIONS.map((option) => option.label)).toEqual([
-      'Anthropic', 'OpenAI', 'Gemini', 'Antigravity', 'Grok',
-      'Kimi', 'Zhipu GLM', 'DeepSeek', 'MiniMax', 'OpenCode', 'TypeSafe / Jev', 'Command Code', 'Cline',
-      'Extension Engine', 'Kiro'
+      'Anthropic', 'OpenAI', 'Gemini', 'Antigravity', 'Extension Engine', 'Kiro', 'Grok',
+      'Kimi', 'Zhipu GLM', 'DeepSeek', 'MiniMax', 'OpenCode', 'TypeSafe / Jev', 'Command Code', 'Cline'
     ])
     expect(platformLabel('zhipu')).toBe('Zhipu GLM')
     expect(platformLabel('newapi')).toBe('Extension Engine')
@@ -98,10 +98,11 @@ describe('platform catalog with a newly registered platform', () => {
 
     setPlatformCatalog(withNewProvider)
 
-    expect(optionValues.value).toEqual([...concretePlatforms, 'acme_router'])
+    // 账号/分组下拉是编译期清单，临时替换 catalog 不能丢掉 newapi/kiro，也不会凭空多出一个未编译的平台。
+    // 展示名和配额仍读 catalog，新登记平台会出现在那两侧。
+    expect(optionValues.value).toEqual(concretePlatforms)
     expect(GROUP_PLATFORM_OPTIONS.map((option) => option.value)).toEqual([
       ...concretePlatforms,
-      'acme_router',
       'composite'
     ])
     expect(platformLabel('acme_router')).toBe('Acme Router')
