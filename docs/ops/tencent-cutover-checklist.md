@@ -16,7 +16,7 @@
 
 ## 后续（另批，勿在本窗口擅自执行）
 
-- [ ] **Stage0 布局收敛**（阻塞常规发版）：现网仍为 cutover 布局（`.env` 在 `formal/`，容器名 `tk-cutover-prod-*`，Docker root 在 `/srv/tokenkey-rehearsal/docker`）。收敛到 Stage0 约定的 `/var/lib/tokenkey/.env` + 标准 compose 名称之前，**禁止**默认 `deploy-stage0` 热更。见 [`tencent-unlock-contract.md`](tencent-unlock-contract.md)。
+- [x] **Stage0 布局收敛**（2026-10-22 例外路径）：`.env`→`/var/lib/tokenkey/.env`；`tokenkey`/`tokenkey-caddy`；Docker root **例外**保留 `/srv/tokenkey-rehearsal/docker`；PG/Redis 靠网络别名。见 [`stage0-layout-convergence.md`](../../deploy/tencent/stage0-layout-convergence.md)。
 - [ ] Tokyo 保留 ≥7 天再退役（禁止解冻双写）
 - [ ] 日本 Lightsail 代理关停（账号绑定已迁出后再批）
 - [ ] 外部飞书备份告警接到腾讯机（本机 timer + `archive_check.json` 已在跑）

@@ -37,19 +37,22 @@ openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
 `unlock` → `mount` → `Docker` → `app`  
 未解锁 / 未挂载时禁止启动业务容器。
 
-## 现网挂载实况（2026-10-22 只读探针）
+## 现网挂载与布局（2026-10-22 布局窗后）
 
-同一 LUKS mapper 同时挂在两条路径上；Docker data-root 与业务 `.env` 仍在 cutover 布局：
+同一 LUKS mapper 同时挂在两条路径上。布局收敛走 **Docker Root 例外路径**（详见 `[deploy/tencent/stage0-layout-convergence.md](../../deploy/tencent/stage0-layout-convergence.md)`）。
 
 | 项 | 实况 |
 |---|---|
 | mapper | `/dev/mapper/tokenkey_recovery` |
 | 挂载 | `/var/lib/tokenkey` **与** `/srv/tokenkey-rehearsal`（同一 source） |
-| Docker Root Dir | `/srv/tokenkey-rehearsal/docker` |
-| 业务 `.env` | `/var/lib/tokenkey/formal/.env`（**不是** Stage0 默认的 `/var/lib/tokenkey/.env`） |
-| 容器名 | `tk-cutover-prod-{app,caddy,redis}` + `tk-archive-standby` |
+| Docker Root Dir | `/srv/tokenkey-rehearsal/docker`（**例外保留**；未改 daemon.json） |
+| 业务 `.env` | `/var/lib/tokenkey/.env`（`formal/.env` 仍保留作历史/回滚参考） |
+| 容器名 | `tokenkey`、`tokenkey-caddy`、`tk-cutover-prod-redis`、`tk-archive-standby` |
+| 网络别名 | PG:`postgres`；Redis:`redis` / `tokenkey-redis` |
 
-因此：**在完成「Stage0 布局收敛」之前，禁止对现网跑标准 `deploy-stage0` / 假定 `/var/lib/tokenkey/.env` 的热更。**
+标准 `deploy-stage0` 的 `.env` 路径与 legacy `tokenkey` 容器前置已满足；首次蓝绿仍须按脚本迁移，并依赖上述别名。回执：`/var/lib/tokenkey/layout-staging/receipts/window-cutover-20261022T061053Z.json`。
+
+布局工具（经 `run-probe.sh --target prod`）：`probe-tencent-layout-prep.sh`、`probe-tencent-layout-find-compose.sh`、`probe-tencent-layout-capture-recipe.sh`、`probe-tencent-layout-window-preflight.sh`、`apply-tencent-layout-window.sh`（仅 `APPLY=yes-layout-window-cutover`）。
 
 ## 解锁失败信号（只读探针）
 
@@ -67,6 +70,7 @@ hostname == VM-0-16-ubuntu
 findmnt SOURCE /var/lib/tokenkey == /dev/mapper/tokenkey_recovery
 findmnt SOURCE /srv/tokenkey-rehearsal == /dev/mapper/tokenkey_recovery
 docker info DockerRootDir 前缀 == /srv/tokenkey-rehearsal
-test -f /var/lib/tokenkey/formal/.env
+test -f /var/lib/tokenkey/.env
+docker inspect tokenkey >/dev/null
 swapon 为空
 ```

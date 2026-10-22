@@ -19,11 +19,11 @@
 #   TOP_KIND_LIMIT  max rows in upstream_events aggregation; default 50
 #   TOP_MIN_LIMIT   max rows in per-minute 429 aggregation; default 30
 #
-# Container name is hardcoded to `tokenkey-postgres` per Stage0 compose; if it
-# drifts, the operator must update the compose file (and this script) together.
+# Postgres container: Stage0 name tokenkey-postgres, or post-cutover
+# tk-archive-standby (Tencent USW layout exception keeps that name).
+# Resolve AFTER env validation so unit tests with bad WINDOW_* still exit 2.
 set -u
 
-PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
 WINDOW_HOURS="${WINDOW_HOURS:-24}"
 WINDOW_MINUTES="${WINDOW_MINUTES:-}"
 PATH_FILTER="${PATH_FILTER:-}"
@@ -49,6 +49,19 @@ if [ -n "$WINDOW_MINUTES" ]; then
 else
   WINDOW_INTERVAL="${WINDOW_HOURS} hour"
 fi
+
+POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-}"
+if [ -z "$POSTGRES_CONTAINER" ]; then
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx tokenkey-postgres; then
+    POSTGRES_CONTAINER=tokenkey-postgres
+  elif docker ps --format '{{.Names}}' 2>/dev/null | grep -qx tk-archive-standby; then
+    POSTGRES_CONTAINER=tk-archive-standby
+  else
+    echo "[ops-error-triage] ERROR: no postgres container (want tokenkey-postgres or tk-archive-standby)" >&2
+    exit 1
+  fi
+fi
+PSQL="docker exec ${POSTGRES_CONTAINER} psql -U tokenkey -d tokenkey -X -A -t"
 
 # SQL-escape PATH_FILTER / MODEL_FILTER: double every embedded single quote so the
 # string literal we interpolate as '${VAR}' can survive an operator passing a

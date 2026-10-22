@@ -5,8 +5,8 @@
   "notes": [
     "2026-10-22 cutover complete: this host is live prod (DNS A → 43.162.83.233).",
     "auto / default PROD_SSM_TARGET resolves here when deployable=true.",
-    "Layout still cutover-era: .env at formal/.env; containers tk-cutover-prod-*; Docker root under /srv/tokenkey-rehearsal/docker. Do not run stock deploy-stage0 until Stage0 layout convergence.",
-    "volume_mount keeps /srv/tokenkey-rehearsal (historical); /var/lib/tokenkey is a second mount of the same LUKS mapper. formal_mount_intent documents the Stage0 target path.",
+    "Layout converged 2026-10-22 (exception path): .env at /var/lib/tokenkey/.env; app/caddy tokenkey/tokenkey-caddy; Docker root kept at /srv/tokenkey-rehearsal/docker; PG/redis keep cutover names with postgres/redis aliases. Receipt: /var/lib/tokenkey/layout-staging/receipts/window-cutover-20261022T061053Z.json.",
+    "volume_mount keeps /srv/tokenkey-rehearsal (historical); /var/lib/tokenkey is a second mount of the same LUKS mapper.",
     "Tokyo i-045f062ce33e1a5af remains frozen writer-standby; retain ≥7 days; do not unfreeze for dual-write.",
     "Cutover receipt: docs/ops/reports/tencent-cutover-20261022.json"
   ],
