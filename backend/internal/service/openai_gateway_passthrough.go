@@ -1252,23 +1252,32 @@ func sanitizeOpenAICapacityShedErrorCodeForClient(payload []byte) ([]byte, bool)
 			continue
 		}
 		code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(updated, path).String()))
-		if code != "" && code != "server_is_overloaded" && code != "slow_down" {
+		// Only rewrite explicit capacity codes or message-only envelopes (empty
+		// code). An upstream server_error that still carries overloaded text
+		// keeps its code but must still receive retry-after below. Other codes
+		// (rate_limit_exceeded, etc.) stay untouched.
+		switch code {
+		case "", "server_is_overloaded", "slow_down":
+			next, err := sjson.SetBytes(updated, path, openAICapacityShedRetryableClientCode)
+			if err != nil {
+				return payload, false
+			}
+			updated = next
+			changed = true
+		case openAICapacityShedRetryableClientCode:
+			// already client-retryable; still ensure retry advice
+		default:
 			continue
 		}
-		next, err := sjson.SetBytes(updated, path, openAICapacityShedRetryableClientCode)
+		if openAICapacityShedErrorHasRetryAfter(updated, parent) {
+			continue
+		}
+		next, err := sjson.SetBytes(updated, parent+".headers.retry-after", strconv.Itoa(openAICapacityShedClientRetryAfterSeconds))
 		if err != nil {
 			return payload, false
 		}
 		updated = next
 		changed = true
-		if openAICapacityShedErrorHasRetryAfter(updated, parent) {
-			continue
-		}
-		next, err = sjson.SetBytes(updated, parent+".headers.retry-after", strconv.Itoa(openAICapacityShedClientRetryAfterSeconds))
-		if err != nil {
-			return payload, false
-		}
-		updated = next
 	}
 	return updated, changed
 }

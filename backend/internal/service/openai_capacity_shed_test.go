@@ -530,6 +530,13 @@ func TestSanitizeOpenAICapacityShedErrorCodeForClient(t *testing.T) {
 			wantAbsent:     []string{defaultRetry},
 		},
 		{
+			name:           "已是server_error但文案是过载时仍补retry-after",
+			payload:        `{"type":"response.failed","response":{"error":{"code":"server_error","message":"Our servers are currently overloaded. Please try again later."}}}`,
+			wantChanged:    true,
+			wantContain:    `"code":"server_error"`,
+			wantRetryAfter: defaultRetry,
+		},
+		{
 			name:        "rate_limit不改写",
 			payload:     `{"type":"response.failed","response":{"error":{"code":"rate_limit_exceeded","message":"try again in 3s"}}}`,
 			wantChanged: false,
