@@ -15,7 +15,16 @@ const geminiImageModalityEnum = 2
 // 门禁只作用于后台展示该开关的 Gemini 系分组（gemini / antigravity / composite）；
 // 无分组的 Key 与其他平台分组不受影响。models 中任一名字属于生图模型，
 // 或请求体要求输出 IMAGE 模态，即视为生图请求。
+// tkGeminiImageGroupSwitchRetroactive 决定上游「分组生图开关」是否拒绝 Gemini 生图模型。
+// 现网该列默认 false，但原生 Gemini 生图并未被这只开关拦住。打开后要么 400 掉正在用的生图，
+// 要么靠迁移把所有 false 改成 true（同时放行原先被拒的 OpenAI 生图）。两条都会改多用户行为，
+// 本合并保持关闭；OpenAI 生图仍由既有 candidate / image intent 门禁负责。
+func tkGeminiImageGroupSwitchRetroactive() bool { return false }
+
 func GeminiImageGenerationDenied(group *Group, geminiBody []byte, models ...string) bool {
+	if !tkGeminiImageGroupSwitchRetroactive() {
+		return false
+	}
 	if group == nil || group.AllowImageGeneration {
 		return false
 	}

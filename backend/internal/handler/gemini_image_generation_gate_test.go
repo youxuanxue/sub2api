@@ -99,7 +99,7 @@ func runGeminiImageGateEndpoint(t *testing.T, ep geminiImageGateEndpoint, group 
 	return recorder, c, schedulerCache
 }
 
-func TestGatewayHandlers_GeminiImageGenerationDisabledGroupRejectsBeforeSelection(t *testing.T) {
+func TestGatewayHandlers_GeminiImageGenerationDisabledGroupKeepsExistingTraffic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, platform := range []string{service.PlatformGemini, service.PlatformAntigravity} {
 		for _, ep := range geminiImageGateEndpoints("gemini-3-pro-image") {
@@ -112,13 +112,10 @@ func TestGatewayHandlers_GeminiImageGenerationDisabledGroupRejectsBeforeSelectio
 					ID: 9400, Hydrated: true, Platform: platform, Status: service.StatusActive,
 					AllowImageGeneration: false,
 				}
-				recorder, c, schedulerCache := runGeminiImageGateEndpoint(t, ep, group, platform)
+				recorder, _, schedulerCache := runGeminiImageGateEndpoint(t, ep, group, platform)
 
-				require.Equal(t, http.StatusBadRequest, recorder.Code)
-				require.Contains(t, recorder.Body.String(), service.ImageGenerationPermissionMessage())
-				_, reachedSelection := c.Get(opsAccountIDKey)
-				require.False(t, reachedSelection)
-				require.Empty(t, schedulerCache.queriedGroupIDs())
+				require.NotContains(t, recorder.Body.String(), service.ImageGenerationPermissionMessage())
+				require.NotEmpty(t, schedulerCache.queriedGroupIDs())
 			})
 		}
 	}

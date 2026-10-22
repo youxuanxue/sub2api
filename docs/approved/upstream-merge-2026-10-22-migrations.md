@@ -22,7 +22,7 @@ and `related_prs` / `related_commits` are filled.
 | `243_gemini_cached_contents.sql` | Create gemini cached-content tables | Additive schema for MH gemini cache surface |
 | `244_gemini_cached_contents_channel_usage.sql` | ADD COLUMN NOT NULL channel usage on cached contents | Expand-only; annotated `bluegreen-safe-destructive-ok` |
 | `245_gemini_cached_contents_mutation_lease.sql` | Mutation lease columns for cache workers | Additive |
-| `246_enable_gemini_image_generation_groups.sql` | Enable image generation flags on gemini groups | Data backfill; covered by migration unit test |
+| `246_enable_gemini_image_generation_groups.sql` | No-op. Does not flip existing `allow_image_generation` | TK groups default the switch off while native Gemini image traffic already works; rewriting it on would also open OpenAI image calls. Gate stays off via `tkGeminiImageGroupSwitchRetroactive` |
 
 ## TokenKey invariants preserved alongside these migrations
 

@@ -112,13 +112,14 @@ def changed_migration_paths(base: str, head: str) -> list[tuple[str, str, str]]:
     return rows
 
 def scan(base: str, head: str) -> list[Violation]:
-    # During a merge pre-commit, HEAD still names the old branch tip. Compare
-    # the tree about to be committed so migrations arriving from base are not
-    # reported as deletions. Explicit historical refs keep their old semantics.
-    if head == "HEAD" and git("rev-parse", "--verify", "MERGE_HEAD").returncode == 0:
+    # Pre-commit (including merge) still has HEAD at the old tip. Compare the
+    # index tree this commit is about to record, so a commit that restores a
+    # shipped migration is judged on that restore. Explicit non-HEAD refs keep
+    # historical semantics for CI and unit tests. A clean index matches HEAD.
+    if head == "HEAD":
         tree = git("write-tree")
         if tree.returncode != 0:
-            raise RuntimeError(tree.stderr.strip() or "cannot read merge index tree")
+            raise RuntimeError(tree.stderr.strip() or "cannot read index tree")
         head = tree.stdout.strip()
     violations: list[Violation] = []
     shipped_tags = release_tags_ancestor_of(base)
