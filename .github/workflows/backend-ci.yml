@@ -74,7 +74,10 @@ jobs:
   shell:
     needs: changes
     if: (github.event_name != 'workflow_dispatch' || inputs.suite != 'unit-cache-benchmark') && (needs.changes.outputs.all == 'true' || needs.changes.outputs.deploy == 'true')
-    runs-on: macos-15
+    # macos-15 runners queued for minutes, and assigned jobs sat ~15 minutes
+    # with no steps (2026-10-22). These checks are bash/sh plus a portable
+    # permission read; they do not need Apple container itself.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - name: Check deployment scripts
