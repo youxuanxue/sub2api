@@ -1759,7 +1759,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			clientDisconnected = true
 			return
 		}
-		if _, err := fmt.Fprint(w, buildOpenAIResponseFailedSSE(responseID, originalModel, codexState.bareErrorPayload, failedMessage)); err != nil {
+		if _, err := fmt.Fprint(w, buildOpenAIResponseFailedSSE(responseID, originalModel, 0, codexState.bareErrorPayload, failedMessage)); err != nil {
 			clientDisconnected = true
 			return
 		}

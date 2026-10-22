@@ -1062,6 +1062,7 @@ var ProviderSet = wire.NewSet(
 	ProvideOAuthRefreshAPI,
 	ProvideGeminiTokenProvider,
 	NewGeminiMessagesCompatService,
+	ProvideGeminiCachedContentService,
 	ProvideAntigravityTokenProvider,
 	ProvideGrokTokenProvider,
 	ProvideOpenAITokenProvider,

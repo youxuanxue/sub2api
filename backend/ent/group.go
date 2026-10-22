@@ -333,6 +333,14 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 				_m.Description = new(string)
 				*_m.Description = value.String
 			}
+		case group.FieldI18n:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field i18n", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.I18n); err != nil {
+					return fmt.Errorf("unmarshal field i18n: %w", err)
+				}
+			}
 		case group.FieldRateMultiplier:
 			if value, ok := values[i].(*sql.NullFloat64); !ok {
 				return fmt.Errorf("unexpected type %T for field rate_multiplier", values[i])
@@ -670,14 +678,6 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 			} else if value != nil && len(*value) > 0 {
 				if err := json.Unmarshal(*value, &_m.MessagesDispatchModelConfig); err != nil {
 					return fmt.Errorf("unmarshal field messages_dispatch_model_config: %w", err)
-				}
-			}
-		case group.FieldI18n:
-			if value, ok := values[i].(*[]byte); !ok {
-				return fmt.Errorf("unexpected type %T for field i18n", values[i])
-			} else if value != nil && len(*value) > 0 {
-				if err := json.Unmarshal(*value, &_m.I18n); err != nil {
-					return fmt.Errorf("unmarshal field i18n: %w", err)
 				}
 			}
 		case group.FieldModelsListConfig:

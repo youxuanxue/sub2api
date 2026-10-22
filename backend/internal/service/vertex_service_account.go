@@ -41,6 +41,9 @@ var (
 	vertexAnthropicAlreadyDatedIDPattern = regexp.MustCompile(`^.+@[0-9]{8}$`)
 )
 
+// vertexServiceAccountTokenURL 是换取 SA access token 的端点，测试中替换为本地服务。
+var vertexServiceAccountTokenURL = vertexDefaultTokenURL
+
 type vertexServiceAccountKey struct {
 	Type         string `json:"type"`
 	ProjectID    string `json:"project_id"`
@@ -184,8 +187,9 @@ func parseVertexServiceAccountJSON(raw []byte) (*vertexServiceAccountKey, error)
 	if strings.TrimSpace(key.ProjectID) == "" {
 		return nil, errors.New("service account json missing project_id")
 	}
-	// Always use the well-known Google token endpoint to prevent SSRF via crafted token_uri.
-	key.TokenURI = vertexDefaultTokenURL
+	// Prefer the package-level URL (tests override it) over any crafted token_uri
+	// in the SA JSON — still SSRF-safe when left at the Google default.
+	key.TokenURI = vertexServiceAccountTokenURL
 	return &key, nil
 }
 

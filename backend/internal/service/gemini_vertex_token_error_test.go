@@ -1,4 +1,3 @@
-//go:build ignore
 //go:build unit
 
 package service

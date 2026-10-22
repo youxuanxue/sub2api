@@ -1,4 +1,4 @@
-//go:build ignore
+//go:build unit
 
 package service
 
@@ -224,7 +224,7 @@ func TestGeminiMessagesHandleStreamingResponse_EmitsThinkingBlockBeforeText(t *t
 	c, _ := gin.CreateTestContext(rec)
 	svc := &GeminiMessagesCompatService{}
 
-	result, err := svc.handleStreamingResponse(c, resp, time.Now(), "claude-sonnet-4-5")
+	result, err := svc.handleStreamingResponse(c, resp, time.Now(), "claude-sonnet-4-5", nil, context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, result.firstTokenMs)
 

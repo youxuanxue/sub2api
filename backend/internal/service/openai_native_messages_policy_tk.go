@@ -33,7 +33,7 @@ func forwardNativeMessagesPolicy(c *gin.Context, payload []byte, status int, usa
 			_, _ = fmt.Fprint(c.Writer, buildChatStreamErrorSSE(kind, message), "data: [DONE]\n\n")
 		case "responses":
 			canonical, _ := json.Marshal(gin.H{"error": gin.H{"type": "invalid_request_error", "code": kind, "message": message}})
-			_, _ = fmt.Fprint(c.Writer, buildOpenAIResponseFailedSSE(responseID, model, canonical, message))
+			_, _ = fmt.Fprint(c.Writer, buildOpenAIResponseFailedSSE(responseID, model, 0, canonical, message))
 		}
 		c.Writer.Flush()
 	} else {

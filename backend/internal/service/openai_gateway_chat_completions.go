@@ -41,6 +41,10 @@ var responsesShapeUnsupportedFields = []string{
 	"user",
 }
 
+// cursorResponsesUnsupportedFields is the upstream alias retained for MH tests;
+// TK keeps the stricter responsesShapeUnsupportedFields (includes user).
+var cursorResponsesUnsupportedFields = responsesShapeUnsupportedFields
+
 // ForwardAsChatCompletions accepts a Chat Completions request body, converts it
 // to OpenAI Responses API format, forwards to the OpenAI upstream, and converts
 // the response back to Chat Completions format.
@@ -262,7 +266,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		// it from ChatCompletionsRequest and drops unknown fields naturally),
 		// we must filter these fields explicitly here — otherwise the upstream
 		// rejects the request with "Unsupported parameter: ...".
-		for _, field := range responsesShapeUnsupportedFields {
+		for _, field := range cursorResponsesUnsupportedFields {
 			if stripped, derr := sjson.DeleteBytes(responsesBody, field); derr == nil {
 				responsesBody = stripped
 			}

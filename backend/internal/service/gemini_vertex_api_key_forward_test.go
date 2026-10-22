@@ -1,4 +1,3 @@
-//go:build ignore
 //go:build unit
 
 package service
@@ -11,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -163,4 +163,14 @@ func TestGeminiForwardNative_VertexSharedCapacity429RetriesSameAccountWithoutCoo
 			require.Empty(t, repo.modelRateLimitCalls)
 		})
 	}
+}
+
+type geminiBoundCacheRateLimitRepo struct {
+	errorPolicyRepoStub
+	rateLimitedCalls int
+}
+
+func (r *geminiBoundCacheRateLimitRepo) SetRateLimited(context.Context, int64, time.Time) error {
+	r.rateLimitedCalls++
+	return nil
 }

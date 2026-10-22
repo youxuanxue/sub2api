@@ -371,19 +371,21 @@ func TestGeminiCachedContentStoragePricingAndSurcharge(t *testing.T) {
 	gateway := &GatewayService{billingService: billing}
 	groupID := int64(3)
 	apiKey := &APIKey{GroupID: &groupID, Group: &Group{ID: groupID, Hydrated: true}}
-	cost := gateway.calculateRecordUsageCost(context.Background(), &ForwardResult{
+	cost, err := gateway.calculateRecordUsageCost(context.Background(), &ForwardResult{
 		Model:                  "gemini-3.8-flash",
 		Usage:                  ClaudeUsage{InputTokens: 10000},
 		CacheStorageTokenHours: tokenHours,
-	}, apiKey, "gemini-3.8-flash", 2, 2, time.Now())
+	}, apiKey, "gemini-3.8-flash", 2, 2, time.Now(), nil)
+	require.NoError(t, err)
 	inputCost := 10000 * 0.00000075
 	require.InDelta(t, inputCost+storage, cost.TotalCost, 1e-12)
 	require.InDelta(t, (inputCost+storage)*2, cost.ActualCost, 1e-12)
 
-	storageOnly := gateway.calculateRecordUsageCost(context.Background(), &ForwardResult{
+	storageOnly, err := gateway.calculateRecordUsageCost(context.Background(), &ForwardResult{
 		Model:                  "gemini-3.8-flash",
 		CacheStorageTokenHours: tokenHours,
-	}, apiKey, "gemini-3.8-flash", 1.5, 1.5, time.Now())
+	}, apiKey, "gemini-3.8-flash", 1.5, 1.5, time.Now(), nil)
+	require.NoError(t, err)
 	require.InDelta(t, storage, storageOnly.TotalCost, 1e-12)
 	require.InDelta(t, storage*1.5, storageOnly.ActualCost, 1e-12)
 }
