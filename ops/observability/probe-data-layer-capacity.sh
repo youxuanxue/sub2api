@@ -16,6 +16,7 @@
 # so the threshold logic stays unit-testable (data_layer_capacity_verdict.py --selftest).
 set -u
 
+# approved anchor: docs/approved/design-capacity-first-data-layer-safety.md (read-only container target only)
 # PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
 # the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
 # run-probe.sh ships it next to this script.
