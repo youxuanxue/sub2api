@@ -214,15 +214,47 @@ func (s *PaymentService) alreadyProcessed(ctx context.Context, o *dbent.PaymentO
 	}
 }
 
+func unsupportedPaymentOrderTypeError() error {
+	return infraerrors.BadRequest("INVALID_ORDER_TYPE", "unsupported order type")
+}
+
 func (s *PaymentService) executeFulfillment(ctx context.Context, oid int64) error {
 	o, err := s.entClient.PaymentOrder.Get(ctx, oid)
 	if err != nil {
 		return fmt.Errorf("get order: %w", err)
 	}
-	if o.OrderType == payment.OrderTypeSubscription {
+	switch o.OrderType {
+	case payment.OrderTypeSubscription:
 		return s.ExecuteSubscriptionFulfillment(ctx, oid)
+	case payment.OrderTypeBalance:
+		return s.ExecuteBalanceFulfillment(ctx, oid)
+	default:
+		// 回调要确认，不能把未知类型再按余额到账，也不能让支付方无限重试。
+		return s.failUnsupportedOrderType(ctx, o)
 	}
-	return s.ExecuteBalanceFulfillment(ctx, oid)
+}
+
+func (s *PaymentService) failUnsupportedOrderType(ctx context.Context, o *dbent.PaymentOrder) error {
+	if o.Status == OrderStatusFailed || o.Status == OrderStatusCompleted {
+		return nil
+	}
+	reason := "unsupported order type"
+	updated, err := s.entClient.PaymentOrder.Update().
+		Where(
+			paymentorder.IDEQ(o.ID),
+			paymentorder.StatusIn(OrderStatusPaid, OrderStatusRecharging),
+		).
+		SetStatus(OrderStatusFailed).
+		SetFailedAt(time.Now()).
+		SetFailedReason(reason).
+		Save(ctx)
+	if err != nil {
+		return fmt.Errorf("mark unsupported order type failed: %w", err)
+	}
+	if updated > 0 {
+		s.writeAuditLog(ctx, o.ID, "FULFILLMENT_FAILED", "system", map[string]any{"reason": reason})
+	}
+	return nil
 }
 
 func (s *PaymentService) ExecuteBalanceFulfillment(ctx context.Context, oid int64) error {
@@ -238,6 +270,9 @@ func (s *PaymentService) ExecuteBalanceFulfillment(ctx context.Context, oid int6
 	}
 	if o.Status != OrderStatusPaid && o.Status != OrderStatusFailed && o.Status != OrderStatusRecharging {
 		return infraerrors.BadRequest("INVALID_STATUS", "order cannot fulfill in status "+o.Status)
+	}
+	if o.OrderType != payment.OrderTypeBalance {
+		return unsupportedPaymentOrderTypeError()
 	}
 	lease, err := s.acquirePaymentFulfillmentLease(ctx, o)
 	if err != nil {
@@ -885,6 +920,9 @@ func (s *PaymentService) RetryFulfillment(ctx context.Context, oid int64) error 
 	}
 	if o.Status != OrderStatusFailed && o.Status != OrderStatusPaid && o.Status != OrderStatusRecharging {
 		return infraerrors.BadRequest("INVALID_STATUS", "only paid, failed, and recoverable recharging orders can retry")
+	}
+	if o.OrderType != payment.OrderTypeBalance && o.OrderType != payment.OrderTypeSubscription {
+		return unsupportedPaymentOrderTypeError()
 	}
 	s.writeAuditLog(ctx, oid, "RECHARGE_RETRY", "admin", map[string]any{"detail": "admin manual retry"})
 	return s.executeFulfillment(ctx, oid)

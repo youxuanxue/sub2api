@@ -130,7 +130,7 @@ func (s *PaymentService) validateOrderInput(ctx context.Context, req CreateOrder
 	case payment.OrderTypeSubscription:
 		return s.validateSubOrder(ctx, req)
 	default:
-		return nil, infraerrors.BadRequest("INVALID_ORDER_TYPE", "unsupported order type")
+		return nil, unsupportedPaymentOrderTypeError()
 	}
 	if math.IsNaN(req.Amount) || math.IsInf(req.Amount, 0) || req.Amount <= 0 {
 		return nil, infraerrors.BadRequest("INVALID_AMOUNT", "amount must be a positive number")

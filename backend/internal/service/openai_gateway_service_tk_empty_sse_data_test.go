@@ -258,5 +258,5 @@ func TestOpenAIPassthroughDropsEmptySSEDataFrames(t *testing.T) {
 	payloads := dataPayloadsInSSE(out)
 	// Passthrough returns after the complete terminal event, without waiting for EOF or [DONE].
 	require.Len(t, payloads, 3)
-	require.JSONEq(t, `{"type":"response.completed","response":{"id":"resp_1","usage":{"input_tokens":3,"output_tokens":5}}}`, payloads[2])
+	require.JSONEq(t, `{"type":"response.completed","response":{"id":"resp_1","usage":{"input_tokens":3,"output_tokens":5}}}`, withoutStampedCreatedAt(payloads[2]))
 }
