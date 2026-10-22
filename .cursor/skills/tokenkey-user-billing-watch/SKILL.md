@@ -31,7 +31,7 @@ bash ops/observability/run-probe.sh \
   --script ops/observability/probe-user-billing-watch.sh \
   --expected-instance-id lhins-6qmb3fd6 \
   --env WINDOW_MINUTES=30 \
-  --comment "billing watch ucloud-cn-prod" \
+  --comment "billing watch cn-prod" \
   --compressed-output
 ```
 

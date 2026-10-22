@@ -3,7 +3,7 @@
 当前应用在腾讯北京 `tokenkey-cn-prod`（`lhins-6qmb3fd6`，`154.8.214.179`）。`106.75.29.139` 仍由 UCloud 持有并只转发 80/443。发版和 probe 以 [`prod-target.json`](prod-target.json) 为准。下面的表是 2026-10-14 首次上线记录。
 
 审批范围和费用见 [design-domestic-cluster.md](../../docs/approved/design-domestic-cluster.md)。
-这是独立 UCloud 目标，不使用 Hetzner dispatcher 或现网数据库；只读观测通过独立注册的 AWS SSM Hybrid agent 下发。
+这是独立于美西 prod 的国内站点，不使用 Hetzner dispatcher 或美西数据库；只读观测通过独立注册的 AWS SSM Hybrid agent 下发。
 
 ## 首次部署目标（2026-10-14）
 
@@ -55,10 +55,9 @@
 
 ## 远程运维入口
 
-`cn-prod` 已注册为 AWS SSM Hybrid managed instance `mi-0efdf781205cff512`，区域为
-`eu-west-2`，使用仅附加 `AmazonSSMManagedInstanceCore` 的现有 agent 角色。agent 由主机
-主动通过 HTTPS 连接 AWS SSM；billing/usage/error probe 通过 `run-probe.sh --target cn-prod`
-下发，不依赖运维机公网 IP，也不需要开放公网 SSH 22。
+远程运维身份只读 [`prod-target.json`](prod-target.json) 的 `ssm_instance_id` 和
+`ssm_region`。agent 由主机主动通过 HTTPS 连接 AWS SSM；billing/usage/error probe 通过
+`run-probe.sh --target cn-prod` 下发，不依赖运维机公网 IP，也不需要开放公网 SSH 22。
 
 SSH 只用于一次性 agent bootstrap 或 UHost 控制台不可用时的恢复。需要临时 SSH 时只放行
 当前出口 `/32`，完成操作立即移除；不得把动态运维出口固化为长期防火墙规则。日常 probe

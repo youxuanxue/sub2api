@@ -262,10 +262,11 @@ class RunProbeUCloudSSMTest(unittest.TestCase):
                 set -euo pipefail
                 args="$*"
                 if [[ "$args" == *"describe-instance-information"* ]]; then
+                  name="${SSM_FIXTURE_NAME:-cn-prod}"
                   if [[ "$args" == *"OFFLINE"* ]]; then
-                    printf '%s\\n' '{"InstanceInformationList":[{"PingStatus":"ConnectionLost","Name":"cn-prod","PlatformType":"Linux"}]}'
+                    printf '%s\\n' "{\\"InstanceInformationList\\":[{\\"PingStatus\\":\\"ConnectionLost\\",\\"Name\\":\\"$name\\",\\"PlatformType\\":\\"Linux\\"}]}"
                   else
-                    printf '%s\\n' '{"InstanceInformationList":[{"PingStatus":"Online","Name":"cn-prod","PlatformType":"Linux"}]}'
+                    printf '%s\\n' "{\\"InstanceInformationList\\":[{\\"PingStatus\\":\\"Online\\",\\"Name\\":\\"$name\\",\\"PlatformType\\":\\"Linux\\"}]}"
                   fi
                 elif [[ "$args" == *"send-command"* ]]; then
                   printf '%s\\n' 'command-ucloud-test'
@@ -287,13 +288,18 @@ class RunProbeUCloudSSMTest(unittest.TestCase):
         path.write_text(content, encoding="utf-8")
         path.chmod(0o755)
 
-    def _run_ssm(self, expected_instance_id: str = "lhins-6qmb3fd6") -> subprocess.CompletedProcess[str]:
+    def _run_ssm(
+        self,
+        expected_instance_id: str = "lhins-6qmb3fd6",
+        ssm_name: str = "cn-prod",
+    ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.update(
             {
                 "PATH": f"{self.bin_dir}{os.pathsep}{env['PATH']}",
                 "UCLOUD_SSM_INSTANCE_ID": "mi-0123456789abcdef0",
                 "UCLOUD_SSM_REGION": "eu-west-2",
+                "SSM_FIXTURE_NAME": ssm_name,
             }
         )
         probe = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
@@ -318,6 +324,17 @@ class RunProbeUCloudSSMTest(unittest.TestCase):
         proc = self._run_ssm("uhost-other")
         self.assertEqual(proc.returncode, 1)
         self.assertIn("cn-prod instance does not match --expected-instance-id", proc.stderr)
+
+    def test_cn_prod_accepts_registered_beijing_ssm_name(self) -> None:
+        proc = self._run_ssm(ssm_name="tokenkey-cn-prod")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, "ucloud-ssm-result\n")
+
+    def test_cn_prod_rejects_other_ssm_name_before_send(self) -> None:
+        proc = self._run_ssm(ssm_name="other-host")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("cn-prod SSM identity is not ready", proc.stderr)
+        self.assertNotIn("send-command", proc.stderr + proc.stdout)
 
 
 class RunProbePollingTest(unittest.TestCase):

@@ -297,7 +297,7 @@ PY
 )
 
 if [ "$TARGET" = "cn-prod" ]; then
-  # UCloud cn-prod is an independent Docker/Postgres host. Prefer its outbound
+  # cn-prod is an independent Docker/Postgres host. Prefer its outbound
   # AWS SSM Hybrid agent so a changing operator IP never becomes a probe input.
   UCLOUD_MANIFEST="$REPO_ROOT/deploy/domestic/prod-target.json"
   if [ -n "$EXPECTED_INSTANCE_ID" ] && [ -f "$UCLOUD_MANIFEST" ]; then
@@ -357,7 +357,7 @@ print("\t".join(str(item.get(k) or "") for k in ("PingStatus", "Name", "Platform
 ' 2>/dev/null || true)
     IFS=$'\t' read -r SSM_PING_STATUS SSM_NAME SSM_PLATFORM <<<"$SSM_STATE"
     if [ "$SSM_PING_STATUS" != "Online" ] || { [ "$SSM_NAME" != "cn-prod" ] && [ "$SSM_NAME" != "tokenkey-cn-prod" ]; } || [ "$SSM_PLATFORM" != "Linux" ]; then
-      echo "[run-probe] ERROR: UCloud SSM identity is not ready (name=${SSM_NAME:-<empty>} status=${SSM_PING_STATUS:-<empty>} platform=${SSM_PLATFORM:-<empty>})" >&2
+      echo "[run-probe] ERROR: cn-prod SSM identity is not ready (name=${SSM_NAME:-<empty>} status=${SSM_PING_STATUS:-<empty>} platform=${SSM_PLATFORM:-<empty>})" >&2
       exit 2
     fi
     REGION="$UCLOUD_SSM_REGION"
