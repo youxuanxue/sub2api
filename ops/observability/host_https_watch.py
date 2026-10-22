@@ -22,7 +22,12 @@ def build_config(role: str, hostname: str, fresh: dict, domestic: dict) -> dict:
     if role not in ("prod", "cn-prod"):
         raise ValueError("WATCH_ROLE must be prod or cn-prod")
     expected = domestic if role == "cn-prod" else fresh["prod"]
-    if hostname != expected["instance_name"]:
+    allowed = {expected["instance_name"]}
+    # After Tokyo→Tencent cutover, live https-watch may run on the USW hostname
+    # while fresh-migration keeps the frozen EC2 identity for aws-fresh inventory.
+    if role == "prod" and fresh["prod"].get("https_watch_hostname"):
+        allowed.add(fresh["prod"]["https_watch_hostname"])
+    if hostname not in allowed:
         raise ValueError("host identity mismatch")
     targets = {}
     if role == "prod":
@@ -96,8 +101,10 @@ JOB_LIMITS = {
 
 def job_fact(service: dict, timer: dict, uptime: float, limits: tuple, *, expected_paused=False) -> dict:
     if expected_paused:
+        # Empty UnitFileState = unit not installed on this host (cutover layouts).
+        unit_state = timer.get("UnitFileState") or ""
         healthy = (timer.get("ActiveState") == "inactive"
-                   and timer.get("UnitFileState") in ("disabled", "masked")
+                   and unit_state in ("disabled", "masked", "")
                    and service.get("ActiveState") in ("inactive", "failed"))
         return {"healthy": healthy, "reason": "intentionally paused" if healthy else "paused job unexpectedly enabled or running"}
     healthy, reason = False, "job has no successful completion"
@@ -120,34 +127,44 @@ def job_fact(service: dict, timer: dict, uptime: float, limits: tuple, *, expect
 def physical_backup_fact(path: Path, now: float) -> dict:
     # The producer owns freshness thresholds. Only expired *successful*
     # verification evidence is advisory; missing/failed evidence stays a fault.
+    # Tencent cutover writes archive_check.json (not Stage0 health.json); accept both.
     evidence = {
         "repository_verification_missing_or_stale": "repository_verification",
         "restore_acceptance_missing_or_stale": "restore_acceptance",
     }
-    try:
-        receipt = json.loads(path.read_text())
-        stamp = receipt.get("observed_at", 0)
-        if not isinstance(stamp, (int, float)) or not 0 <= now - stamp <= 900:
-            return {"healthy": False, "reason": "physical backup health missing/stale"}
-        reasons = receipt.get("reasons", [])
-        if not isinstance(reasons, list) or any(not isinstance(reason, str) for reason in reasons):
-            raise ValueError("invalid health reasons")
-        advisory = receipt.get("status") == "degraded" and bool(reasons)
-        for reason in reasons:
-            prior = receipt.get(evidence.get(reason, ""))
-            completed = prior.get("completed_at") if isinstance(prior, dict) else None
-            if (reason not in evidence or not isinstance(prior, dict)
-                    or prior.get("status") != "ok"
-                    or type(completed) not in (int, float) or not 0 < completed <= now):
-                advisory = False
-        if advisory:
-            return {"healthy": True, "severity": "warning",
-                    "reason": "备份与 WAL 检查正常；恢复/仓库验证已过期，请安排按需验证：" + ", ".join(reasons)}
-        healthy = receipt.get("status") == "ok" and not reasons
-        return {"healthy": healthy, "severity": "info" if healthy else "error",
-                "reason": ", ".join(reasons) or receipt.get("status", "invalid receipt")}
-    except (OSError, ValueError, TypeError, AttributeError):
-        return {"healthy": False, "reason": "physical backup health missing/invalid"}
+    candidates = [path]
+    if path.name == "health.json":
+        candidates.append(path.with_name("archive_check.json"))
+    last_error = "physical backup health missing/invalid"
+    for candidate in candidates:
+        try:
+            receipt = json.loads(candidate.read_text())
+            stamp = receipt.get("observed_at", receipt.get("completed_at", receipt.get("started_at", 0)))
+            if not isinstance(stamp, (int, float)) or not 0 <= now - stamp <= 900:
+                last_error = "physical backup health missing/stale"
+                continue
+            reasons = receipt.get("reasons", [])
+            if reasons is None:
+                reasons = []
+            if not isinstance(reasons, list) or any(not isinstance(reason, str) for reason in reasons):
+                raise ValueError("invalid health reasons")
+            advisory = receipt.get("status") == "degraded" and bool(reasons)
+            for reason in reasons:
+                prior = receipt.get(evidence.get(reason, ""))
+                completed = prior.get("completed_at") if isinstance(prior, dict) else None
+                if (reason not in evidence or not isinstance(prior, dict)
+                        or prior.get("status") != "ok"
+                        or type(completed) not in (int, float) or not 0 < completed <= now):
+                    advisory = False
+            if advisory:
+                return {"healthy": True, "severity": "warning",
+                        "reason": "备份与 WAL 检查正常；恢复/仓库验证已过期，请安排按需验证：" + ", ".join(reasons)}
+            healthy = receipt.get("status") == "ok" and not reasons
+            return {"healthy": healthy, "severity": "info" if healthy else "error",
+                    "reason": ", ".join(reasons) or receipt.get("status", "invalid receipt")}
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+    return {"healthy": False, "reason": last_error}
 
 
 def probe_job(name: str, *, expected_paused=False) -> dict:
@@ -200,8 +217,11 @@ def main() -> None:
     config = json.loads(args.config.read_text())
     targets = config["targets"]
     jobs = list(config.get("jobs", []))
-    # Activation marker is written only by the separately approved installer.
-    if config.get("node") == "prod" and Path("/var/lib/tokenkey/postgres-backup/enabled.json").exists():
+    # Stage0 installer writes enabled.json; Tencent cutover activates via archive_check.json.
+    backup_state = Path("/var/lib/tokenkey/postgres-backup")
+    if config.get("node") == "prod" and (
+            (backup_state / "enabled.json").exists()
+            or (backup_state / "archive_check.json").exists()):
         jobs += ["tokenkey-postgres-backup", "tokenkey-postgres-archive-check", "tokenkey-postgres-recovery"]
     paused = config.get("paused_jobs", {})
     if not isinstance(jobs, list) or any(name not in JOB_LIMITS for name in jobs):

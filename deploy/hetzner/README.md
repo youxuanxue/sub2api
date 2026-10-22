@@ -101,7 +101,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
    主机脚本不随网关镜像自动更新；安装/刷新独立 watcher 后才生效，仓库合并不代表已部署。
 4. **资源**：临时 node1 reader 与克隆盘已完成最小核查并回收，原快照和导出保留；日本 Lightsail 代理账号已迁出、机器保留待关停；
    新加坡其它项目资源不纳入 TokenKey 批量清理。详见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
-5. **告警**：腾讯机上备份/归档 timer 已装；外部飞书备份告警尚未接到腾讯机，连续性靠本机 `archive_check.json` 与 timer 日志。
+5. **告警**：腾讯机上备份/归档 timer 已装；`tokenkey-https-watch.timer` 已接到飞书（cn-prod `/health` + 备份/archive/qa-cleanup）。Stage0 布局仍未收敛，默认 `deploy-stage0` 禁用。
 
 ## AWS 残留与环境变量
 

@@ -1,13 +1,14 @@
 {
   "schema_version": 1,
   "batch": "aws-20261015",
-  "state": "tokyo-serving",
+  "state": "tencent-usw-serving",
   "prod": {
     "instance_id": "i-045f062ce33e1a5af",
     "instance_name": "tokenkey-prod-tokyo-20261017",
+    "https_watch_hostname": "VM-0-16-ubuntu",
     "region": "ap-northeast-1",
     "ip": "3.114.187.250",
-    "source_ip": "23.21.138.205",
+    "live_public_ip": "43.162.83.233",
     "domain": "api.tokenkey.dev",
     "domains": [
       "tokenkey.dev",
@@ -15,6 +16,7 @@
       "callmodel.io",
       "api.callmodel.io"
     ],
+    "note": "Tokyo EC2 identity retained for aws-fresh inventory only. Live prod is Tencent USW (see deploy/tencent/candidate-usw-20261022.json); https-watch runs on https_watch_hostname.",
     "standby_us_east_20261015": {
       "instance_id": "i-022f2553503211775",
       "instance_name": "tokenkey-prod-aws-20261015",
@@ -26,10 +28,11 @@
     "paused_jobs": {
       "tokenkey-qa-maintenance": "User requested pause of QA uploads to S3; capture policy is separate.",
       "tokenkey-qa-boundary": "Historical archive acceptance hold keeps boundary disabled (DROP pause retained); watcher expects disabled/inactive and alerts on accidental enable.",
-      "tokenkey-pgdump": "Retired after pgBackRest latest and historical recovery acceptance; retained backups are not deleted."
+      "tokenkey-pgdump": "Retired after pgBackRest latest and historical recovery acceptance; retained backups are not deleted.",
+      "tokenkey-disk-metrics": "Not installed on Tencent cutover host; pause until separately installed.",
+      "tokenkey-ghcr-prune-daily": "Not installed on Tencent cutover host; pause until separately installed."
     },
     "local_qa_jobs": [
-      "tokenkey-qa-provision",
       "tokenkey-qa-cleanup"
     ]
   }
