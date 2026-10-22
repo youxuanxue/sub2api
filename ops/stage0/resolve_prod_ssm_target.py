@@ -88,11 +88,20 @@ def with_browser_origin(outputs: dict[str, str]) -> dict[str, str]:
 
 
 def resolve_aws(stack: str) -> dict[str, str]:
-    fail("target=aws is retired: old US prod instances were deleted; use auto/aws-fresh for current prod")
+    fail(
+        "target=aws is retired: old US prod instances were deleted; "
+        "use auto (Tencent USW) for live prod"
+    )
 
 
 def resolve_fresh_aws() -> dict[str, str]:
-    """Current prod identity; never resolve the retired CloudFormation instance."""
+    """Tokyo retain identity only. Live prod is Tencent when matrix.deployable=true."""
+    if tencent_matrix_is_live_prod() and os.environ.get("ALLOW_FROZEN_TOKYO_TARGET", "").strip() != "1":
+        fail(
+            "target=aws-fresh is frozen Tokyo after 2026-10-22 cutover; "
+            "use auto/tencent-usw-candidate for live prod. "
+            "Set ALLOW_FROZEN_TOKYO_TARGET=1 only for retain-only SSM against Tokyo."
+        )
     inventory = json.loads(FRESH_MATRIX.read_text(encoding="utf-8"))
     target = inventory["prod"]
     region, iid = target["region"], target["instance_id"]

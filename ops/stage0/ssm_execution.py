@@ -17,8 +17,11 @@ place means those fixes cannot regress per-tool.
 This module importlib-loads from any ops tool.
 
 Prod target resolution delegates to ``resolve_prod_ssm_target.py`` (same owner as
-run-probe / deploy-stage0): auto defaults to Tokyo AWS; historical ``aws`` / retired ``hetzner`` identities are rejected. ``resolve_prod_instance`` updates module ``PROD_REGION`` to the target's
-``ssm_region`` so subsequent ``run_shell_b64`` calls hit the right registration region.
+run-probe / deploy-stage0): auto selects Tencent USW when the candidate matrix is
+``deployable=true``; ``aws-fresh`` is frozen Tokyo (needs ``ALLOW_FROZEN_TOKYO_TARGET=1``);
+historical ``aws`` / retired ``hetzner`` identities are rejected.
+``resolve_prod_instance`` updates module ``PROD_REGION`` to the target's ``ssm_region``
+so subsequent ``run_shell_b64`` calls hit the right registration region.
 """
 from __future__ import annotations
 
@@ -63,12 +66,16 @@ def resolve_prod_identity() -> tuple[str, str]:
     """Return ``(instance_id, ssm_region)`` via cutover-aware resolve_prod_ssm_target."""
     mod = _resolve_mod()
     mode = mod.resolve_mode("auto")
-    if mode == "aws-fresh":
+    if mode == "tencent-usw-candidate":
+        outputs = mod.resolve_tencent_usw_candidate(mod.TENCENT_USW_MATRIX)
+    elif mode == "aws-fresh":
         outputs = mod.resolve_fresh_aws()
     elif mode == "aws":
         outputs = mod.resolve_aws(PROD_STACK)
-    else:
+    elif mode == "hetzner":
         outputs = mod.resolve_hetzner(mod.DEFAULT_MATRIX)
+    else:
+        fail(f"unsupported prod SSM mode {mode!r}")
     instance_id = str(outputs.get("instance_id") or "")
     region = str(outputs.get("ssm_region") or "").strip()
     if not _INSTANCE_RE.match(instance_id):
@@ -89,21 +96,31 @@ def resolve_prod_instance() -> str:
 def region_for_instance_id(instance_id: str) -> str:
     """SSM region for an explicit pin without re-resolving a different instance.
 
-    ``mi-*`` Hybrid nodes register in the Hetzner matrix region; ``i-*`` stays on
-    the legacy Stage0 AWS region. Callers that pin an id must not keep a stale
-    module ``PROD_REGION`` from a prior resolve.
+    ``mi-*`` Hybrid nodes use the live Tencent matrix region when deployable,
+    else the Hetzner matrix region. ``i-*`` uses the Tokyo retain inventory region.
+    Callers that pin an id must not keep a stale module ``PROD_REGION``.
     """
     instance_id = instance_id.strip()
     if not _INSTANCE_RE.match(instance_id):
         fail(f"invalid EC2/SSM-managed instance id {instance_id!r}")
+    mod = _resolve_mod()
     if instance_id.startswith("mi-"):
-        mod = _resolve_mod()
+        if mod.tencent_matrix_is_live_prod():
+            target = mod.load_tencent_usw_matrix(mod.TENCENT_USW_MATRIX)
+            region = str(target.get("ssm_region") or "eu-west-2").strip()
+            if not region:
+                fail("tencent usw matrix missing ssm_region")
+            return region
         matrix = mod.load_hetzner_matrix(mod.DEFAULT_MATRIX)
         region = str(matrix.get("ssm_region") or "eu-west-2").strip()
         if not region:
             fail("hetzner matrix missing ssm_region")
         return region
-    return "us-east-1"
+    inventory = json.loads(mod.FRESH_MATRIX.read_text(encoding="utf-8"))
+    region = str((inventory.get("prod") or {}).get("region") or "").strip()
+    if not region:
+        fail("fresh AWS inventory missing prod.region")
+    return region
 
 
 def run_shell_b64(instance_id: str, shell_b64: str, comment: str) -> str:

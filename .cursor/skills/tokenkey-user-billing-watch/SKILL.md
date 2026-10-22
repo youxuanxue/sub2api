@@ -6,7 +6,7 @@ description: >-
 
 # TokenKey：按用户用量/计费/错误盯盘
 
-一键起盘：分别从 AWS `prod`、UCloud `cn-prod` 取请求/用量/错误并按 §3 判定。全程**只读**；写操作转交写入面 skill。
+一键起盘：分别从腾讯美西 `prod`、UCloud `cn-prod` 取请求/用量/错误并按 §3 判定。全程**只读**；写操作转交写入面 skill。
 
 脚本已计算活跃用户、环比、24h 基线及用户侧失败归因；报告只做 §4 判断和 §3 推送判断。
 
@@ -19,7 +19,7 @@ bash ops/observability/run-probe.sh \
   --target prod \
   --script ops/observability/probe-user-billing-watch.sh \
   --env WINDOW_MINUTES=30 \
-  --comment "billing watch aws-prod" \
+  --comment "billing watch tencent-usw-prod" \
   --compressed-output
 ```
 
@@ -39,7 +39,7 @@ SSH 仅用于 SSM agent 的一次性 bootstrap 或显式恢复；SSH、SSM、远
 
 - 默认盯 `users.status='active' AND deleted_at IS NULL` 全量；固定子集才加 `--env USER_IDS=1,6,16`。
 - `--compressed-output` 防 SSM/SSH 截断；校验失败不用部分结果。
-- `--target prod` 经 `resolve_prod_ssm_target.py` 解析当前 EC2 与区域，身份见 [舰队清单](../../../deploy/hetzner/README.md)。`auto` / `aws-fresh` 选择现役 prod；已退役的 `aws` / `hetzner` 身份拒绝执行。
+- `--target prod` 经 `resolve_prod_ssm_target.py` 解析当前 Hybrid/区域，身份见 [舰队清单](../../../deploy/hetzner/README.md)。`auto` 选择现役腾讯美西 prod；`aws-fresh` 为冻结 Tokyo（默认拒绝）；已退役的 `aws` / `hetzner` 身份拒绝执行。
 - `--target cn-prod` 指向 UCloud 独立节点，只读取 UCloud 自己的数据库；通过 AWS SSM Hybrid 下发，不读取 AWS 数据库。
 - 本机 `aws/pyexpat` 启动失败（macOS 常见）：先 `python3 scripts/checks/check-local-aws-pyexpat.py --apply`。
 - **失败如实报告**：`status!=Success` / 非零退出 / 传输错误 → 报失败与原因，绝不编数。

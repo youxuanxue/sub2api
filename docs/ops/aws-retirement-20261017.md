@@ -42,7 +42,7 @@ EBS 卷或公网静态 IP。旧 Hcloud 主机也已退役。当前服务身份�
 
 `retired=true` 是已删除身份的拒绝标记；`deployable=false` 单独只表示非现役。
 `--allow-planned` 不覆盖退役，新建须使用新身份。旧 prod 的 `aws` 模式直接拒绝，
-现网仍由 `auto` / `aws-fresh` 解析。
+现网由 `auto` → 腾讯美西解析（矩阵 `deployable=true`）。`aws-fresh` 仅冻结 Tokyo 保留身份，默认拒绝。
 
 QA 上传暂停由 `fresh-migration-20261015.json` 中当前 prod 的 `paused_jobs` 持有。
 宿主监控会检查暂停任务保持停用，意外恢复则报警；capture 与 pgdump 继续运行。

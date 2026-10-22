@@ -77,13 +77,29 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
         with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "aws-fresh"}, clear=True):
             self.assertEqual(self.mod.resolve_mode("auto"), "aws-fresh")
         instance = {"InstanceId": row["instance_id"], "PingStatus": "Online", "ComputerName": row["instance_name"]}
-        with mock.patch.object(self.mod, "aws_json", side_effect=AssertionError("unexpected stack lookup")), \
+        with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=False), \
+             mock.patch.object(self.mod, "aws_json", side_effect=AssertionError("unexpected stack lookup")), \
              mock.patch.object(self.mod, "list_instance_information", return_value=[instance]):
             out = self.mod.resolve_fresh_aws()
             self.assertEqual(out["instance_id"], row["instance_id"])
             instance["InstanceId"] = "i-0e43099f831b03160"
             with self.assertRaises(SystemExit):
                 self.mod.resolve_fresh_aws()
+
+    def test_aws_fresh_refused_when_tencent_live_without_override(self) -> None:
+        with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=True), \
+             mock.patch.dict("os.environ", {}, clear=True), \
+             mock.patch.object(self.mod, "list_instance_information", side_effect=AssertionError("no AWS")):
+            with self.assertRaises(SystemExit):
+                self.mod.resolve_fresh_aws()
+        inventory = json.loads(self.mod.FRESH_MATRIX.read_text())
+        row = inventory["prod"]
+        instance = {"InstanceId": row["instance_id"], "PingStatus": "Online", "ComputerName": row["instance_name"]}
+        with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=True), \
+             mock.patch.dict("os.environ", {"ALLOW_FROZEN_TOKYO_TARGET": "1"}, clear=True), \
+             mock.patch.object(self.mod, "list_instance_information", return_value=[instance]):
+            out = self.mod.resolve_fresh_aws()
+            self.assertEqual(out["instance_id"], row["instance_id"])
 
     def test_resolve_hetzner_by_computer_name(self) -> None:
         matrix = {
