@@ -54,20 +54,26 @@ update_sql = (
 script = "\n".join(
     [
         "set -euo pipefail",
+        # Stage0 uses tokenkey-postgres; Tencent layout exception keeps tk-archive-standby.
+        "POSTGRES_CONTAINER=",
+        "if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx tokenkey-postgres; then POSTGRES_CONTAINER=tokenkey-postgres;",
+        "elif docker ps --format '{{.Names}}' 2>/dev/null | grep -qx tk-archive-standby; then POSTGRES_CONTAINER=tk-archive-standby;",
+        "else echo '[error] no postgres container (tokenkey-postgres|tk-archive-standby)' >&2; exit 1; fi",
+        "echo \"postgres_container=${POSTGRES_CONTAINER}\"",
         # Ensure the row exists (fresh node before the app has materialized defaults).
-        "sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 "
+        "sudo docker exec \"$POSTGRES_CONTAINER\" psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 "
         "-c \"INSERT INTO settings (key, value) SELECT 'ops_email_notification_config', '{}' "
         "WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'ops_email_notification_config');\" >/dev/null",
         # Apply webhook/secret/enabled (quoted heredoc -> values pass through literally).
-        "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 <<'EOSQL'",
+        "sudo docker exec -i \"$POSTGRES_CONTAINER\" psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 <<'EOSQL'",
         update_sql,
         "EOSQL",
         # Read back and verify (never prints the secret values themselves).
-        "FEISHU_ENABLED=$(sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -tA "
+        "FEISHU_ENABLED=$(sudo docker exec \"$POSTGRES_CONTAINER\" psql -U tokenkey -d tokenkey -tA "
         "-c \"SELECT coalesce(value::jsonb#>>'{feishu,enabled}','false') FROM settings WHERE key='ops_email_notification_config';\")",
-        "FEISHU_WEBHOOK_PRESENT=$(sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -tA "
+        "FEISHU_WEBHOOK_PRESENT=$(sudo docker exec \"$POSTGRES_CONTAINER\" psql -U tokenkey -d tokenkey -tA "
         "-c \"SELECT (coalesce(value::jsonb#>>'{feishu,webhook_url}','')<>'') FROM settings WHERE key='ops_email_notification_config';\")",
-        "FEISHU_SECRET_PRESENT=$(sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -tA "
+        "FEISHU_SECRET_PRESENT=$(sudo docker exec \"$POSTGRES_CONTAINER\" psql -U tokenkey -d tokenkey -tA "
         "-c \"SELECT (coalesce(value::jsonb#>>'{feishu,signing_secret}','')<>'') FROM settings WHERE key='ops_email_notification_config';\")",
         "echo \"FEISHU_ENABLED=${FEISHU_ENABLED} FEISHU_WEBHOOK_PRESENT=${FEISHU_WEBHOOK_PRESENT} FEISHU_SECRET_PRESENT=${FEISHU_SECRET_PRESENT}\"",
         "if [ \"${FEISHU_ENABLED}\" != \"true\" ] || [ \"${FEISHU_WEBHOOK_PRESENT}\" != \"t\" ] || [ \"${FEISHU_SECRET_PRESENT}\" != \"t\" ]; then echo '[error] feishu config not fully applied' >&2; exit 1; fi",

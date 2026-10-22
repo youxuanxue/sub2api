@@ -70,6 +70,55 @@ elif "--query" in args:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("feishu config sync complete", result.stdout)
 
+    def test_remote_script_resolves_layout_exception_postgres(self):
+        """Tencent USW keeps tk-archive-standby; do not hard-code tokenkey-postgres only."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ops = root / "ops" / "stage0"
+            ops.mkdir(parents=True)
+            shutil.copyfile(Path(__file__).with_name("sync-feishu-config.sh"), ops / "sync.sh")
+            (ops / "resolve_prod_ssm_target.py").write_text(
+                'import json\nprint(json.dumps({"instance_id":"i-prod-fixture",'
+                '"ssm_region":"ap-northeast-1","target":"aws-fresh"}))\n'
+            )
+            aws = root / "aws"
+            aws.write_text(
+                "#!/usr/bin/env python3\n"
+                "import os, pathlib, sys\n"
+                "args = sys.argv[1:]\n"
+                "if 'send-command' in args:\n"
+                "    print('cmd-fixture')\n"
+                "elif 'wait' in args:\n"
+                "    raise SystemExit(0)\n"
+                "elif '--query' in args:\n"
+                "    q = args[args.index('--query') + 1]\n"
+                "    if q == 'Status': print('Success')\n"
+                "    elif q == 'StandardOutputContent':\n"
+                "        print('FEISHU_ENABLED=true FEISHU_WEBHOOK_PRESENT=t "
+                "FEISHU_SECRET_PRESENT=t\\nFEISHU_SYNC_OK=1\\nENV_FEISHU_SYNC_OK=1')\n"
+            )
+            aws.chmod(0o700)
+            env = {
+                **os.environ,
+                "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                "TK_FEISHU_WEBHOOK_URL": "https://example.test/private-hook",
+                "TK_FEISHU_SIGNING_SECRET": "fixture-private-secret",
+                "STAGE0_SSM_OUTPUT_DIR": str(root),
+            }
+            proc = subprocess.run(
+                ["bash", str(ops / "sync.sh"), "prod"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            body = (root / "ssm-params.json").read_text()
+            self.assertIn("tk-archive-standby", body)
+            self.assertIn("POSTGRES_CONTAINER=", body)
+            self.assertIn("$POSTGRES_CONTAINER", body)
+            self.assertIn('docker exec \\"$POSTGRES_CONTAINER\\"', body)
+
     def test_remote_failure_is_not_submission_success(self):
         result = self.run_sync(status="Failed")
         self.assertNotEqual(result.returncode, 0)
