@@ -30,7 +30,7 @@
     {
       "path": "ops/observability/host_https_watch.py",
       "must_contain": [
-        "def build_config(role: str, hostname: str, fresh: dict, domestic: dict) -> dict:",
+        "def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict) -> dict:",
         "if role == \"cn-prod\":",
         "targets[\"cn-prod\"] = domestic[\"public_origin\"].rstrip(\"/\") + \"/health\"",
         "if not healthy and state[\"failures\"] >= 2:",
@@ -41,7 +41,7 @@
     {
       "path": "ops/observability/install-host-https-watch.sh",
       "must_contain": [
-        "config=build_config(role,socket.gethostname(),fresh,domestic)",
+        "config=build_config(role,socket.gethostname(),prod_matrix,domestic)",
         "if role=='cn-prod':command+=['--env-file','/opt/tokenkey/host-alerts.env']",
         "OnUnitActiveSec=2min"
       ],
@@ -16334,7 +16334,7 @@
         "\"qa_runtime_storage_unavailable\"",
         "skip_iam = not args.legacy_aws",
         "maintenance_paused=bool(maintenance_pause_reason)",
-        "get(\"paused_jobs\", {}).get(\"tokenkey-qa-maintenance\", \"\")"
+        "get(\"host_watch\", {}).get(\"paused_jobs\", {}).get(\"tokenkey-qa-maintenance\", \"\")"
       ],
       "rationale": "Live QA health validates the maintenance pin against the shared AWS contract, fails on missing evidence, and keeps historical AWS IAM explicit."
     },

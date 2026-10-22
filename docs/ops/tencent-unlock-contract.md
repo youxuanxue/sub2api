@@ -56,7 +56,7 @@ openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
 
 ## 解锁失败信号（只读探针）
 
-目标机跑 `helpers/unlock-health-readonly.sh`（TAT）。关键字段：
+目标机跑 `ops/observability/probe-tencent-unlock-health.sh`（原操作员 `helpers/unlock-health-readonly.sh` 的入仓副本；`run-probe.sh --target prod --script …`，或 TAT）。关键字段：
 
 - `severity`: `ok` | `warn` | `critical`
 - `alerts`: `mapper_missing` / `luks_mount_missing_or_wrong_source` / `docker_root_not_on_luks` / `swap_present` / …

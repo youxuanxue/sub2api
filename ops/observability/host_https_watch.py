@@ -17,28 +17,28 @@ from https_health import probe_health
 from feishu_delivery import _atomic_write, post_feishu
 
 
-def build_config(role: str, hostname: str, fresh: dict, domestic: dict) -> dict:
-    """One coverage plan for the mainland observer and independent AWS watch."""
+def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict) -> dict:
+    """One coverage plan for the mainland observer and independent prod watch.
+
+    ``prod_matrix`` is the live prod matrix (deploy/tencent/candidate-usw-20261022.json);
+    its ``host_watch`` block owns watch identity, domains and expected-paused jobs.
+    """
     if role not in ("prod", "cn-prod"):
         raise ValueError("WATCH_ROLE must be prod or cn-prod")
-    expected = domestic if role == "cn-prod" else fresh["prod"]
-    allowed = {expected["instance_name"]}
-    # After Tokyo→Tencent cutover, live https-watch may run on the USW hostname
-    # while fresh-migration keeps the frozen EC2 identity for aws-fresh inventory.
-    if role == "prod" and fresh["prod"].get("https_watch_hostname"):
-        allowed.add(fresh["prod"]["https_watch_hostname"])
+    watch = prod_matrix["host_watch"]
+    allowed = {domestic["instance_name"] if role == "cn-prod" else watch["hostname"]}
     if hostname not in allowed:
         raise ValueError("host identity mismatch")
     targets = {}
     if role == "prod":
         targets["cn-prod"] = domestic["public_origin"].rstrip("/") + "/health"
     elif role == "cn-prod":
-        prod = fresh["prod"]
-        targets["prod"] = "https://" + prod["domain"] + "/health"
-        for domain in prod["domains"]:
-            if domain != prod["domain"]:
+        api_domain = prod_matrix["target"]["api_domain"]
+        targets["prod"] = "https://" + api_domain + "/health"
+        for domain in watch["domains"]:
+            if domain != api_domain:
                 targets["prod:" + domain] = "https://" + domain + "/health"
-        # The fallback domain currently routes to AWS; its green result must
+        # The fallback domain routes to overseas prod; its green result must
         # never stand in for the independent UCloud static IP endpoint.
         targets["prod:cn-domain"] = "https://" + domestic["fallback_domain"] + "/health"
         targets["cn-prod"] = domestic["public_origin"].rstrip("/") + "/health"
@@ -46,8 +46,8 @@ def build_config(role: str, hostname: str, fresh: dict, domestic: dict) -> dict:
         "tokenkey-pgdump", "tokenkey-disk-metrics", "tokenkey-ghcr-prune-daily"]
     if role == "prod":
         jobs += ["tokenkey-qa-maintenance", "tokenkey-qa-boundary"]
-        jobs += fresh["prod"].get("local_qa_jobs", [])
-    paused = dict(fresh["prod"].get("paused_jobs", {})) if role == "prod" else {}
+        jobs += watch.get("local_qa_jobs", [])
+    paused = dict(watch.get("paused_jobs", {})) if role == "prod" else {}
     return {"node": role, "targets": targets, "jobs": jobs, "paused_jobs": paused}
 
 

@@ -270,7 +270,7 @@ UCloud 云告警、备份/恢复不在此安装器范围内。
 安装复用 `ops/observability/install-host-https-watch.sh`，`WATCH_ROLE=cn-prod`，将该脚本及
 `host_https_watch.py`、`https_health.py`、`feishu_delivery.py`、
 本目录的 `prod-target.json`、
-`deploy/aws/fresh-migration-20261015.json`
+`deploy/tencent/candidate-usw-20261022.json`（现网 prod 矩阵，`host_watch` 为 owner）
 按 basename 放入主机私有目录。`WATCH_BUNDLE_DIR` 指向该目录；不传 `APPLY` 时只核对身份
 并输出配置，`APPLY=yes-host-https-watch` 才安装。cn-prod 读取现有
 `/opt/tokenkey/host-alerts.env`；AWS 沿用现有 `.env`，不另复制密钥。安装前备份 unit，使用

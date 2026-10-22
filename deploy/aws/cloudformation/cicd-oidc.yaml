@@ -29,16 +29,17 @@ Parameters:
   TargetInstanceId:
     Type: String
     Default: ""
-    AllowedPattern: "^(i-[0-9a-f]{8,17})?$"
+    AllowedPattern: "^((i|mi)-[0-9a-f]{8,17})?$"
     Description: >-
-      Optional prod EC2 instance the role is allowed to send SSM commands to.
+      Optional prod SSM target the role is allowed to send commands to: an EC2
+      instance (i-*) or an SSM Hybrid managed instance (mi-*, e.g. Tencent USW).
       Empty suppresses the prod SSM statement, which lets a regional OIDC stack
       bootstrap before the target Stage0 instance exists.
   TargetInstanceRegion:
     Type: String
     Default: ""
     AllowedPattern: "^([a-z]{2}(-[a-z]+)+-[0-9]+)?$"
-    Description: Prod EC2 region; empty uses this stack's region. Supports cross-region host replacement.
+    Description: Prod SSM region (EC2 region, or Hybrid activation region for mi-*); empty uses this stack's region. Supports cross-region host replacement.
 
   CreateOIDCProvider:
     Type: String
@@ -57,6 +58,9 @@ Conditions:
   ShouldCreateOIDC: !Equals [!Ref CreateOIDCProvider, "true"]
   HasProdInstance: !Not [!Equals [!Ref TargetInstanceId, ""]]
   HasProdRegion: !Not [!Equals [!Ref TargetInstanceRegion, ""]]
+  # mi-* is an SSM Hybrid managed instance; its SendCommand resource is
+  # ssm:...:managed-instance/mi-*, never ec2:...:instance/*.
+  IsHybridProdInstance: !Equals [!Select [0, !Split ["-", !Ref TargetInstanceId]], "mi"]
 
 Resources:
   GitHubOIDCProvider:
@@ -121,9 +125,14 @@ Resources:
                   Action:
                     - ssm:SendCommand
                   Resource:
-                    - !Sub
-                      - "arn:aws:ec2:${ProdRegion}:${AWS::AccountId}:instance/${TargetInstanceId}"
-                      - ProdRegion: !If [HasProdRegion, !Ref TargetInstanceRegion, !Ref AWS::Region]
+                    - !If
+                      - IsHybridProdInstance
+                      - !Sub
+                        - "arn:aws:ssm:${ProdRegion}:${AWS::AccountId}:managed-instance/${TargetInstanceId}"
+                        - ProdRegion: !If [HasProdRegion, !Ref TargetInstanceRegion, !Ref AWS::Region]
+                      - !Sub
+                        - "arn:aws:ec2:${ProdRegion}:${AWS::AccountId}:instance/${TargetInstanceId}"
+                        - ProdRegion: !If [HasProdRegion, !Ref TargetInstanceRegion, !Ref AWS::Region]
                     - !Sub
                       - "arn:aws:ssm:${ProdRegion}::document/AWS-RunShellScript"
                       - ProdRegion: !If [HasProdRegion, !Ref TargetInstanceRegion, !Ref AWS::Region]

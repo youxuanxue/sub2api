@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -36,6 +37,14 @@ class LocalHostTest(unittest.TestCase):
         with mock.patch.object(local, 'invoke', side_effect=local.subprocess.CalledProcessError(1, ['docker', 'inspect'])):
             with self.assertRaisesRegex(ValueError, 'PostgreSQL password is unavailable'):
                 local.pg_environment({'Config': {'Env': []}})
+
+    def test_install_manifest_uses_live_prod_matrix_hostname(self):
+        root = Path(__file__).resolve().parents[2]
+        live = json.loads((root/'deploy/tencent/candidate-usw-20261022.json').read_text())
+        self.assertEqual(local.expected_prod_hostname(live), live['host_watch']['hostname'])
+        self.assertEqual(local.expected_prod_hostname({'prod': {'instance_name': 'legacy'}}), 'legacy')
+        frozen = json.loads((root/'deploy/aws/fresh-migration-20261015.json').read_text())
+        self.assertNotEqual(local.expected_prod_hostname(frozen), live['host_watch']['hostname'])
 
     def test_active_legacy_owner_blocks_local_work(self):
         with mock.patch.object(local, 'invoke', side_effect=['ActiveState=active\nUnitFileState=enabled\n', 'inactive']):

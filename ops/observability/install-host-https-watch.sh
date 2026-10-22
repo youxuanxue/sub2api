@@ -7,10 +7,10 @@ import datetime,hashlib,json,os,pathlib,shutil,socket,subprocess,sys
 root=pathlib.Path(os.environ.get('WATCH_BUNDLE_DIR','/tmp')).resolve()
 sys.path.insert(0,str(root))
 from host_https_watch import build_config
-fresh=json.loads((root/'fresh-migration-20261015.json').read_text())
+prod_matrix=json.loads((root/'candidate-usw-20261022.json').read_text())
 domestic=json.loads((root/'prod-target.json').read_text())
 role=os.environ.get('WATCH_ROLE','')
-config=build_config(role,socket.gethostname(),fresh,domestic)
+config=build_config(role,socket.gethostname(),prod_matrix,domestic)
 files=['host_https_watch.py','https_health.py','feishu_delivery.py']
 for file in files:
     if not (root/file).is_file():raise SystemExit('missing companion: '+file)

@@ -186,15 +186,17 @@ def _is_nonnegative_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
-def _evaluate_boundary_disabled(reasons: list[str], snapshot: dict[str, Any]) -> bool:
+def _evaluate_boundary_disabled(
+    reasons: list[str], snapshot: dict[str, Any], *, suffix: str = "before_finalize"
+) -> bool:
     systemd = _mapping(snapshot.get("boundary_systemd"))
     if systemd is None:
         reasons.append("boundary_systemd_missing")
         return True
     if systemd.get("timer_enabled") is not False:
-        reasons.append("boundary_timer_enabled_before_finalize")
+        reasons.append("boundary_timer_enabled_" + suffix)
     if systemd.get("timer_active") is not False:
-        reasons.append("boundary_timer_active_before_finalize")
+        reasons.append("boundary_timer_active_" + suffix)
     return any(reason.startswith("boundary_") for reason in reasons)
 
 
@@ -639,7 +641,13 @@ def evaluate(
     now: dt.datetime | None = None,
     catchup_gap_policy: str = DEFAULT_CATCHUP_GAP_POLICY,
     maintenance_paused: bool = False,
+    boundary_paused: bool = False,
 ) -> dict[str, Any]:
+    """``boundary_paused`` comes from the live prod pause owner (host_watch.paused_jobs).
+
+    A paused boundary must stay disabled in every lifecycle phase; the pause owner,
+    not the cutover phase, decides whether a boundary run is expected.
+    """
     now = (now or dt.datetime.now(dt.timezone.utc)).astimezone(dt.timezone.utc)
     forward_reasons: list[str] = []
     catchup_reasons: list[str] = []
@@ -796,7 +804,10 @@ def evaluate(
     )
     if lifecycle_failed:
         failed = True
-    if lifecycle_phase == "finalized":
+    if boundary_paused:
+        if _evaluate_boundary_disabled(forward_reasons, snapshot, suffix="while_paused"):
+            failed = True
+    elif lifecycle_phase == "finalized":
         if _evaluate_boundary(forward_reasons, snapshot, now):
             failed = True
     elif _evaluate_boundary_disabled(forward_reasons, snapshot):
@@ -823,6 +834,7 @@ def evaluate(
         "forward_reasons": forward_reasons,
         "catchup_reasons": catchup_reasons,
         "lifecycle_phase": lifecycle_phase,
+        "boundary_paused": boundary_paused,
     }
 
 
