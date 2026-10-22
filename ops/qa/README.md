@@ -31,8 +31,8 @@ S3 上传、旧 boundary/maintenance 继续暂停；旧 DROP pause 保持原值�
 
 # QA Operations
 
-**当前运行策略（2026-10-21）：** 用户已暂停向 AWS S3 上传 QA。当前 prod 清单
-`deploy/aws/fresh-migration-20261015.json` 的 `paused_jobs` 是停用期望 owner：
+**当前运行策略（2026-10-21）：** 用户已暂停向 AWS S3 上传 QA。现网矩阵
+`deploy/tencent/candidate-usw-20261022.json` 的 `host_watch.paused_jobs` 是停用期望 owner：
 `tokenkey-qa-maintenance`（上传暂停）与 `tokenkey-qa-boundary`（历史归档验收问题保持停用，
 DROP pause 保留）均应 disabled/inactive；capture、本地预建/清理与数据库备份继续运行。宿主 HTTPS watcher
 按该清单期望停用态，意外重新 enable 会告警。boundary 列入 `paused_jobs` 只声明巡检期望停用，

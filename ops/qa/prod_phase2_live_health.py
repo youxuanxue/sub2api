@@ -178,8 +178,8 @@ def evaluate_snapshot(
 
 
 def load_maintenance_pause_reason() -> str:
-    inventory = json.loads((ROOT / "deploy/aws/fresh-migration-20261015.json").read_text())
-    pause_reason = inventory["prod"].get("paused_jobs", {}).get("tokenkey-qa-maintenance", "")
+    inventory = json.loads((ROOT / "deploy/tencent/candidate-usw-20261022.json").read_text())
+    pause_reason = inventory.get("host_watch", {}).get("paused_jobs", {}).get("tokenkey-qa-maintenance", "")
     if not isinstance(pause_reason, str) or (pause_reason and not pause_reason.strip()):
         raise ValueError("QA maintenance pause requires an explicit reason")
     return pause_reason

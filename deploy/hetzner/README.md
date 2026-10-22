@@ -78,7 +78,9 @@ UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 名称含 uk/us 不代表物理地域。BBR 验收：`python3 scripts/checks/check-host-bbr-ssot.py --live`。
 
 - 活 prod 身份：`../tencent/candidate-usw-20261022.json`（`deployable=true` 时由 `resolve_prod_ssm_target` 解析）。
-- `../aws/fresh-migration-20261015.json` 仅保留冻结 Tokyo inventory，以及 https-watch 的 `https_watch_hostname` / `paused_jobs` / `local_qa_jobs`；不得当作活 SSM 目标。
+- 宿主 watcher owner：`../tencent/candidate-usw-20261022.json` 的 `host_watch`（`hostname` / `domains` / `paused_jobs` / `local_qa_jobs`）。
+- `../aws/fresh-migration-20261015.json` 仅保留冻结 Tokyo inventory（显式 `aws-fresh` 只读）；不得当作活 SSM 目标，随 Tokyo 退役删除（[runbook](../../docs/ops/tokyo-retirement-runbook.md)）。
+- watcher 不随仓库合并更新：主机按安装时的内容寻址副本运行（`/usr/local/lib/tokenkey/https-watch/<hash>/config.json`）。改 `host_watch` 后须**经审批**重装：把 `install-host-https-watch.sh`、`host_https_watch.py`、`https_health.py`、`feishu_delivery.py`、`deploy/tencent/candidate-usw-20261022.json`、`deploy/domestic/prod-target.json` 按 basename 放进 `WATCH_BUNDLE_DIR`，先不带 `APPLY` 跑一遍（只核身份并打印配置），与现装 config 比对后再以 `APPLY=yes-host-https-watch` 安装；prod 与 cn-prod（`WATCH_ROLE=cn-prod`）都要装。2026-10-22 owner 迁移只改了暂停理由文本，targets/jobs/暂停集合与现装一致，不重装也不影响告警。
 - 换机流程：[host replacement](../../.cursor/skills/tokenkey-host-replacement/SKILL.md)。
 
 ## 现网不变量
@@ -111,7 +113,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 ## 开放运维项（非过程史）
 
 1. **账号**：prod 原生账号承接请求；错误、不可调度状态由运营处理，不自动恢复中继或旧副本。
-2. **QA**：capture 沿现有配置；用户已暂停向 S3 上传。停用期望 owner 为当前 prod 清单的
+2. **QA**：capture 沿现有配置；用户已暂停向 S3 上传。停用期望 owner 为现网矩阵 `host_watch` 的
    `paused_jobs`：`tokenkey-qa-maintenance`（上传暂停）与 `tokenkey-qa-boundary`
    （历史归档验收问题保持停用，DROP pause 保留）。capture 与备份继续运行。
    暂停期巡检与恢复见 [QA 运维入口](../../ops/qa/README.md)。

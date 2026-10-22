@@ -31,5 +31,25 @@
     "public_ip": "43.162.83.233",
     "architecture": "amd64",
     "purpose": "Live TokenKey prod after Tokyo→Tencent USW cutover 2026-10-22"
+  },
+  "host_watch": {
+    "note": "Live prod host-watch owner (https-watch identity, customer domains, expected-paused timers, local QA jobs). Consumers: ops/observability/host_https_watch.py, install-host-https-watch.sh, ops/qa/prod_phase2_live_health.py. Host watchers keep their installed copy until reinstalled.",
+    "hostname": "VM-0-16-ubuntu",
+    "domains": [
+      "tokenkey.dev",
+      "api.tokenkey.dev",
+      "callmodel.io",
+      "api.callmodel.io"
+    ],
+    "paused_jobs": {
+      "tokenkey-qa-maintenance": "User requested pause of QA uploads to S3; capture policy is separate.",
+      "tokenkey-qa-boundary": "Historical archive acceptance hold keeps boundary disabled (DROP pause retained); watcher expects disabled/inactive and alerts on accidental enable.",
+      "tokenkey-pgdump": "Retired after pgBackRest latest and historical recovery acceptance; never installed on the Tencent host (verified not-found 2026-10-22); retained backups are not deleted.",
+      "tokenkey-disk-metrics": "Not installed on Tencent cutover host (verified not-found 2026-10-22); pause until separately installed.",
+      "tokenkey-ghcr-prune-daily": "Not installed on Tencent cutover host (verified not-found 2026-10-22); pause until separately installed."
+    },
+    "local_qa_jobs": [
+      "tokenkey-qa-cleanup"
+    ]
   }
 }

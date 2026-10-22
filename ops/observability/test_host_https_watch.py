@@ -13,20 +13,22 @@ from https_health import probe_health
 class CoveragePlanTest(unittest.TestCase):
     def setUp(self):
         root = pathlib.Path(__file__).resolve().parents[2]
-        self.fresh = json.loads((root / 'deploy/aws/fresh-migration-20261015.json').read_text())
+        self.prod_matrix = json.loads((root / 'deploy/tencent/candidate-usw-20261022.json').read_text())
+        self.watch = self.prod_matrix['host_watch']
+        self.frozen = json.loads((root / 'deploy/aws/fresh-migration-20261015.json').read_text())
         self.domestic = json.loads((root / 'deploy/domestic/prod-target.json').read_text())
 
     def config(self, role, hostname):
-        return watch.build_config(role, hostname, self.fresh, self.domestic)
+        return watch.build_config(role, hostname, self.prod_matrix, self.domestic)
 
     def test_both_observers_cover_cn_ip_and_all_customer_domains(self):
         for role, host in [('cn-prod', self.domestic['instance_name'])]:
             with self.subTest(role=role):
-                config = watch.build_config(role, host, self.fresh, self.domestic)
+                config = watch.build_config(role, host, self.prod_matrix, self.domestic)
                 targets = config['targets']
                 self.assertEqual(targets['cn-prod'], self.domestic['public_origin'] + '/health')
                 self.assertEqual(targets['prod:cn-domain'], 'https://' + self.domestic['fallback_domain'] + '/health')
-                for domain in self.fresh['prod']['domains']:
+                for domain in self.watch['domains']:
                     self.assertIn('https://' + domain + '/health', targets.values())
         cn = self.config('cn-prod', self.domestic['instance_name'])
         self.assertEqual(cn['jobs'], ['tokenkey-disk-metrics'])
@@ -34,20 +36,30 @@ class CoveragePlanTest(unittest.TestCase):
     def test_refuses_wrong_host_and_retains_prod_monitor_peer(self):
         with self.assertRaisesRegex(ValueError, 'host identity'):
             self.config('cn-prod', 'some-other-host')
-        prod = self.config('prod', self.fresh['prod']['instance_name'])
+        prod = self.config('prod', self.watch['hostname'])
         # 2026-10-17 prod-only: no live edge peer → watch cn-prod.
         self.assertEqual(prod['targets'], {'cn-prod': self.domestic['public_origin'].rstrip('/') + '/health'})
         self.assertIn('tokenkey-qa-maintenance', prod['jobs'])
-        # Tencent live watch hostname is also accepted.
-        watch_host = self.fresh['prod'].get('https_watch_hostname')
-        if watch_host:
-            self.assertEqual(
-                self.config('prod', watch_host)['targets'],
-                prod['targets'],
-            )
+        # Frozen Tokyo identity is no longer an accepted prod watch host.
+        with self.assertRaisesRegex(ValueError, 'host identity'):
+            self.config('prod', self.frozen['prod']['instance_name'])
+
+    def test_live_matrix_owns_watch_and_frozen_tokyo_is_inventory_only(self):
+        self.assertEqual(self.watch['hostname'], self.prod_matrix['target']['hostname'])
+        self.assertIn(self.prod_matrix['target']['api_domain'], self.watch['domains'])
+        cn = self.config('cn-prod', self.domestic['instance_name'])
+        self.assertEqual(cn['targets']['prod'], 'https://' + self.prod_matrix['target']['api_domain'] + '/health')
+        for key in ('https_watch_hostname', 'paused_jobs', 'local_qa_jobs', 'live_public_ip'):
+            with self.subTest(key=key):
+                self.assertNotIn(key, self.frozen['prod'])
+        # Phase2 live health reads the same pause owner.
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+        from ops.qa.prod_phase2_live_health import load_maintenance_pause_reason
+        self.assertEqual(load_maintenance_pause_reason(), self.watch['paused_jobs']['tokenkey-qa-maintenance'])
+
     def test_prod_pause_does_not_silence_other_observers_or_jobs(self):
-        prod = self.config('prod', self.fresh['prod']['instance_name'])
-        self.assertEqual(prod['paused_jobs'], self.fresh['prod']['paused_jobs'])
+        prod = self.config('prod', self.watch['hostname'])
+        self.assertEqual(prod['paused_jobs'], self.watch['paused_jobs'])
         self.assertEqual(
             set(prod['paused_jobs']),
             {
@@ -77,7 +89,7 @@ class CoveragePlanTest(unittest.TestCase):
 
     def test_local_provision_is_monitored_independently_of_paused_archive(self):
         # After Tencent cutover, local_qa_jobs is cleanup-only until provision is installed.
-        prod = self.config('prod', self.fresh['prod']['instance_name'])
+        prod = self.config('prod', self.watch['hostname'])
         self.assertIn('tokenkey-qa-cleanup', prod['jobs'])
         self.assertNotIn('tokenkey-qa-cleanup', prod['paused_jobs'])
         self.assertNotIn('tokenkey-qa-provision', prod['jobs'])
