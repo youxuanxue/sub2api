@@ -321,6 +321,103 @@ compose_bg() {
   (cd "${ROOT}" && sudo docker compose --project-name tokenkey --env-file .env -f "${BG_COMPOSE}" "$@")
 }
 
+assert_docker_compose_plugin() {
+  if ! sudo docker compose version >/dev/null 2>&1; then
+    die "docker compose plugin is required (install docker-compose-v2); plain 'docker' has no --project-name"
+  fi
+  log "docker compose: $(sudo docker compose version --short 2>/dev/null || sudo docker compose version | head -1)"
+}
+
+# Layout-exception hosts mount Caddyfile from formal/caddy/*, not Stage0
+# /var/lib/tokenkey/caddy/Caddyfile (those can be divergent copies).
+resolve_live_caddyfile() {
+  local src
+  src="$(sudo docker inspect tokenkey-caddy 2>/dev/null | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)
+for mount in (data[0].get("Mounts") or []) if data else []:
+    if mount.get("Destination") == "/etc/caddy/Caddyfile" and mount.get("Source"):
+        print(mount["Source"])
+        break
+' 2>/dev/null || true)"
+  if [[ -n "${src}" && -f "${src}" ]]; then
+    printf '%s' "${src}"
+    return 0
+  fi
+  if [[ -f "${CADDY_DIR}/Caddyfile" ]]; then
+    printf '%s' "${CADDY_DIR}/Caddyfile"
+    return 0
+  fi
+  return 1
+}
+
+# Prefer formal/app when that is where live config.yaml lives (Tencent layout exception).
+resolve_app_data_dir() {
+  if [[ -f "${ROOT}/formal/app/config.yaml" ]]; then
+    printf '%s' "${ROOT}/formal/app"
+    return 0
+  fi
+  if [[ -f "${ROOT}/app/config.yaml" ]]; then
+    # Resolve symlinks so compose bind source is a real directory.
+    readlink -f "${ROOT}/app" 2>/dev/null || printf '%s' "${ROOT}/app"
+    return 0
+  fi
+  die "app data dir missing config.yaml (want ${ROOT}/formal/app or ${ROOT}/app)"
+}
+
+# Blue/green compose expects external network tokenkey_tokenkey-network with
+# DNS aliases postgres/tokenkey-postgres and redis/tokenkey-redis. Layout
+# exception keeps containers on tk-cutover-prod; dual-home them onto the Stage0
+# network without removing the cutover network.
+ensure_bluegreen_network() {
+  local net=tokenkey_tokenkey-network
+  if ! sudo docker network inspect "${net}" >/dev/null 2>&1; then
+    sudo docker network create --driver bridge "${net}" >/dev/null
+    log "created docker network ${net}"
+  fi
+
+  _bg_net_connect() {
+    local container="$1"
+    shift
+    sudo docker inspect "${container}" >/dev/null 2>&1 || return 0
+    if sudo docker inspect "${container}" \
+      --format '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}' \
+      | grep -qx "${net}"; then
+      return 0
+    fi
+    sudo docker network connect "$@" "${net}" "${container}"
+    log "connected ${container} to ${net} ($*)"
+  }
+
+  _bg_net_connect tk-archive-standby --alias postgres --alias tokenkey-postgres
+  _bg_net_connect tokenkey-postgres --alias postgres --alias tokenkey-postgres
+  _bg_net_connect tk-cutover-prod-redis --alias redis --alias tokenkey-redis
+  _bg_net_connect tokenkey-redis --alias redis --alias tokenkey-redis
+  _bg_net_connect tokenkey-caddy --alias caddy --alias tokenkey-caddy
+}
+
+prepare_live_paths() {
+  local resolved
+  assert_docker_compose_plugin
+  resolved="$(resolve_live_caddyfile)" || die "could not resolve live Caddyfile from tokenkey-caddy mount or ${CADDY_DIR}/Caddyfile"
+  LIVE_CADDY="${resolved}"
+  log "live Caddyfile=${LIVE_CADDY}"
+  ensure_bluegreen_network
+}
+
+ensure_image_locally_or_pull() {
+  local service="$1" image="$2"
+  if sudo docker image inspect "${image}" >/dev/null 2>&1; then
+    log "image ${image} already local; skipping compose pull for ${service}"
+    return 0
+  fi
+  log "pulling ${image} for ${service}"
+  compose_bg pull "${service}" || die "compose pull failed for ${service} (${image}); host may lack GHCR auth"
+}
+
 color_container() {
   case "$1" in
     blue|green) printf 'tokenkey-%s' "$1" ;;
@@ -662,6 +759,23 @@ YAML
   local -a runtime_args=(--compose "${tmp}")
   [[ "${HYBRID_PROD:-false}" != true ]] || runtime_args+=(--hybrid-prod)
   sudo python3 -c "$(printf '%s' "${HOST_RUNTIME_B64}" | base64 -d)" "${runtime_args[@]}"
+
+  # Tencent layout exception keeps live data under formal/app; rewrite the
+  # Stage0 default bind so blue/green does not boot against an empty app dir.
+  local app_data
+  app_data="$(resolve_app_data_dir)"
+  if [[ "${app_data}" != "${ROOT}/app" ]]; then
+    sudo python3 - "${tmp}" "${ROOT}/app:/app/data" "${app_data}:/app/data" <<'PY'
+import pathlib, sys
+path, old, new = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+text = path.read_text()
+if text.count(old) < 1:
+    raise SystemExit(f"blue/green compose missing volume bind {old}")
+path.write_text(text.replace(old, new))
+PY
+    log "app data bind -> ${app_data}:/app/data"
+  fi
+
   sudo mv "${tmp}" "${BG_COMPOSE}"
   log "wrote ${BG_COMPOSE}"
 }
@@ -837,6 +951,11 @@ commit_cutover() {
     fi
     return 1
   fi
+  # Keep Stage0 mirror in sync when live mount is formal/caddy/* (layout exception).
+  if [[ "${LIVE_CADDY}" != "${CADDY_DIR}/Caddyfile" ]]; then
+    sudo mkdir -p "${CADDY_DIR}"
+    sudo cp -a "${LIVE_CADDY}" "${CADDY_DIR}/Caddyfile" || true
+  fi
   sudo rm -f "${tmp}" >/dev/null 2>&1 || true
   if ! sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile; then
     if ! sudo sh -c "cat '${backup}' > '${LIVE_CADDY}'" \
@@ -1010,8 +1129,12 @@ ensure_legacy_cutover() {
 
   log "initializing blue/green layout from legacy tokenkey container"
   legacy_img="$(container_image tokenkey)"
+  # Digest-pinned Config.Image is common after cutover pulls; prefer .env tag.
+  if [[ "${legacy_img}" == *@sha256:* ]]; then
+    legacy_img="$(env_get TOKENKEY_IMAGE)"
+  fi
   if ! repo="$(image_repo "${legacy_img:-$(env_get TOKENKEY_IMAGE)}")"; then
-    die "could not derive image repo from legacy tokenkey container"
+    die "could not derive image repo from legacy tokenkey container or TOKENKEY_IMAGE"
   fi
   blue_img="${repo}:${TAG}"
 
@@ -1021,7 +1144,7 @@ ensure_legacy_cutover() {
   write_bluegreen_compose
 
   TARGET_CONTAINER=tokenkey-blue
-  compose_bg pull tokenkey-blue
+  ensure_image_locally_or_pull tokenkey-blue "${blue_img}"
   compose_bg up -d --no-deps --force-recreate tokenkey-blue
   wait_healthy tokenkey-blue
   wait_ready tokenkey-blue
@@ -1052,6 +1175,9 @@ deploy_target_color() {
   target_container="$(color_container "${target}")"
 
   active_img="$(container_image "${active_container}")"
+  if [[ "${active_img}" == *@sha256:* ]]; then
+    active_img="$(env_get TOKENKEY_IMAGE)"
+  fi
   if ! repo="$(image_repo "${active_img}")"; then
     if ! repo="$(image_repo "$(env_get TOKENKEY_IMAGE)")"; then
       die "could not derive image repo from active image (${active_img}) or TOKENKEY_IMAGE"
@@ -1070,7 +1196,7 @@ deploy_target_color() {
   if [[ "${STAGE:-deploy}" != prepare ]]; then env_set TOKENKEY_IMAGE "${new_img}"; fi
   write_bluegreen_compose
 
-  compose_bg pull "${target_container}"
+  ensure_image_locally_or_pull "${target_container}" "${new_img}"
   compose_bg up -d --no-deps --force-recreate "${target_container}"
   wait_healthy "${target_container}"
   wait_ready "${target_container}"
@@ -1198,8 +1324,12 @@ promote_prepared_color() {
 
 run_bluegreen_stage() {
   case "${STAGE}" in
-    promote) promote_prepared_color ;;
+    promote)
+      prepare_live_paths
+      promote_prepared_color
+      ;;
     prepare)
+      prepare_live_paths
       [[ "$(read_active_color)" =~ ^(blue|green)$ ]] || die "prepare refuses legacy migration"
       if [[ -e "${PREPARED_FILE}" ]]; then
         validate_candidate_replacement
@@ -1212,6 +1342,7 @@ run_bluegreen_stage() {
       deploy_target_color
       ;;
     deploy)
+      prepare_live_paths
       [[ ! -e "${PREPARED_FILE}" ]] || die "prepared candidate awaits review; use explicit promote"
       backup_env deploy
       ensure_profile_environment

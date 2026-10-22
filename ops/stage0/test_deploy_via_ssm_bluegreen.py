@@ -12,6 +12,7 @@ import os
 import pathlib
 import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -383,6 +384,7 @@ backup_env() { :; }
 env_set() { :; }
 write_bluegreen_compose() { :; }
 compose_bg() { :; }
+ensure_image_locally_or_pull() { :; }
 wait_healthy() { :; }
 wait_ready() { :; }
 install_bluegreen_systemd_unit() { :; }
@@ -392,6 +394,7 @@ drain_container() { printf 'drain:%s\n' "$1"; }
 record_pending_drain() { printf 'pending:%s\n' "$1"; }
 PENDING_DRAIN=/unused/pending
 assert_active_route_consistent() { :; }
+caddy_active_color() { return 1; }
 write_prepared_receipt() { printf 'prepared:%s:%s\n' "$1" "$2"; }
 TARGET_CONTAINER=""
 CUTOVER_COMMITTED=0
@@ -474,6 +477,7 @@ backup_env() {{ printf 'backup\\n'; }}
 env_set() {{ :; }}
 write_bluegreen_compose() {{ :; }}
 compose_bg() {{ printf 'compose:%s\\n' "$*"; }}
+ensure_image_locally_or_pull() {{ :; }}
 wait_healthy() {{ :; }}
 wait_ready() {{ :; }}
 install_bluegreen_systemd_unit() {{ :; }}
@@ -1320,6 +1324,80 @@ finish_pending_drain
                 # Legacy→blue splice must stay name:tag, never repo@sha256:TAG.
                 self.assertEqual(f"{got}:1.8.314", "ghcr.io/youxuanxue/sub2api:1.8.314")
                 self.assertNotIn("@sha256", f"{got}:1.8.314")
+
+    def test_resolve_live_caddyfile_reads_container_bind_mount_json(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+        function = _extract_shell_function(remote, "resolve_live_caddyfile")
+        self.assertIn('Destination") == "/etc/caddy/Caddyfile"', function)
+        self.assertIn("docker inspect tokenkey-caddy", function)
+        with tempfile.TemporaryDirectory() as tmp:
+            formal = pathlib.Path(tmp) / "formal" / "caddy" / "Caddyfile.cutover"
+            formal.parent.mkdir(parents=True)
+            formal.write_text("reverse_proxy tokenkey:8080\n")
+            stage0 = pathlib.Path(tmp) / "caddy" / "Caddyfile"
+            stage0.parent.mkdir(parents=True)
+            stage0.write_text("stale-copy\n")
+            inspect_json = json.dumps(
+                [{"Mounts": [{"Destination": "/etc/caddy/Caddyfile", "Source": str(formal)}]}]
+            )
+            parser = pathlib.Path(tmp) / "parse.py"
+            parser.write_text(
+                "import json,sys\n"
+                "data=json.load(sys.stdin)\n"
+                "for mount in (data[0].get('Mounts') or []):\n"
+                "  if mount.get('Destination')=='/etc/caddy/Caddyfile' and mount.get('Source'):\n"
+                "    print(mount['Source']); break\n",
+                encoding="utf-8",
+            )
+            parsed = subprocess.run(
+                [sys.executable, str(parser)],
+                input=inspect_json,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(parsed.returncode, 0, msg=parsed.stderr)
+            self.assertEqual(parsed.stdout.strip(), str(formal))
+            self.assertNotEqual(parsed.stdout.strip(), str(stage0))
+
+    def test_resolve_app_data_dir_prefers_formal_app(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+        function = _extract_shell_function(remote, "resolve_app_data_dir")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            formal = root / "formal" / "app"
+            formal.mkdir(parents=True)
+            (formal / "config.yaml").write_text("ok\n")
+            (root / "app").mkdir()
+            script = f"""
+{function}
+ROOT={shlex.quote(str(root))}
+die() {{ echo "$*" >&2; exit 2; }}
+resolve_app_data_dir
+"""
+            result = subprocess.run(
+                ["bash"], input=script, capture_output=True, text=True, check=False
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertEqual(result.stdout.strip(), str(formal))
+
+    def test_remote_script_wires_layout_exception_prep_before_cutover(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+        self.assertIn("prepare_live_paths", remote)
+        self.assertIn("resolve_live_caddyfile", remote)
+        self.assertIn("resolve_app_data_dir", remote)
+        self.assertIn("ensure_bluegreen_network", remote)
+        self.assertIn("ensure_image_locally_or_pull", remote)
+        self.assertLess(
+            remote.index("prepare_live_paths"),
+            remote.index("ensure_legacy_cutover"),
+        )
 
 
 if __name__ == "__main__":

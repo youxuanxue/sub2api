@@ -217,6 +217,7 @@ TAG=1.8.99
 sudo() { if [[ "$1" = docker ]]; then return 0; fi; command "$@"; }
 log() { :; }
 die() { echo "$*" >&2; exit 1; }
+prepare_live_paths() { :; }
 read_active_color() { [[ "$TEST_LAYOUT" = legacy ]] || printf blue; }
 caddy_active_color() { read_active_color; }
 assert_active_route_consistent() { :; }
