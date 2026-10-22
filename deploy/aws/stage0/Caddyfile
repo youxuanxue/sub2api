@@ -226,3 +226,17 @@ ${API_ALIAS_DOMAIN} {
 	import tokenkey_limits_log
 }
 # END_API_ALIAS_VHOST
+
+# BEGIN_API_CN_VHOST
+# Optional CN machine host (e.g. api-cn.tokenkey.dev) after domestic cutover to
+# the same Stage0 edge. Same @machine allowlist as API_DOMAIN; humans → SITE_DOMAIN.
+${API_CN_DOMAIN} {
+	import tokenkey_tls
+	import tokenkey_encode_static
+	import tokenkey_api_machine
+	handle {
+		redir https://${SITE_DOMAIN}{uri} permanent
+	}
+	import tokenkey_limits_log
+}
+# END_API_CN_VHOST

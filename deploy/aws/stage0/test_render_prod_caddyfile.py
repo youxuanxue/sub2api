@@ -22,6 +22,7 @@ def _render(
     global_site_domain: str = "",
     global_site_phase: str = "disabled",
     api_alias_domain: str = "",
+    api_cn_domain: str = "",
 ) -> str:
     env = {
         **os.environ,
@@ -31,6 +32,7 @@ def _render(
         "GLOBAL_SITE_DOMAIN": global_site_domain,
         "GLOBAL_SITE_PHASE": global_site_phase,
         "API_ALIAS_DOMAIN": api_alias_domain,
+        "API_CN_DOMAIN": api_cn_domain,
     }
     with tempfile.NamedTemporaryFile("w+", suffix=".caddy", delete=False) as tmp:
         out_path = pathlib.Path(tmp.name)
@@ -182,6 +184,23 @@ class RenderProdCaddyfileTest(unittest.TestCase):
             rendered.index("api.tokenkey.dev {") : rendered.index("api.callmodel.io {")
         ]
         self.assertIn("redir https://tokenkey.dev{uri} permanent", api_block)
+
+    def test_api_cn_machine_host_redirects_humans_to_site_domain(self) -> None:
+        rendered = _render(
+            api_domain="api.tokenkey.dev",
+            global_site_domain="callmodel.io",
+            global_site_phase="live",
+            api_alias_domain="api.callmodel.io",
+            api_cn_domain="api-cn.tokenkey.dev",
+        )
+
+        self.assertIn("api-cn.tokenkey.dev {", rendered)
+        self.assertEqual(rendered.count("import tokenkey_api_machine"), 3)
+        cn_block = rendered[rendered.index("api-cn.tokenkey.dev {") :]
+        self.assertIn("import tokenkey_api_machine", cn_block)
+        self.assertIn("redir https://tokenkey.dev{uri} permanent", cn_block)
+        self.assertNotIn("redir https://callmodel.io{uri} permanent", cn_block)
+        self.assertNotIn("api-cn.tokenkey.dev {", _render(api_domain="api.tokenkey.dev"))
 
     def test_enabled_global_phase_requires_an_explicit_hostname(self) -> None:
         env = {
