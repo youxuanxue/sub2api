@@ -71,7 +71,45 @@ class BackendCIRoutingTest(unittest.TestCase):
         self.assertNotIn("continue-on-error", run)
         self.assertNotIn("continue-on-error", job)
         installs = "\n".join(step.get("run", "") for step in job["steps"])
-        self.assertIn("playwright install --with-deps chromium", installs)
+        self.assertIn("playwright install chromium", installs)
+        self.assertNotIn("--with-deps", installs)
+
+    def test_playwright_install_does_not_apt_install_font_packages(self) -> None:
+        for job_name in ("candidate-browser", "frontend"):
+            installs = "\n".join(
+                step.get("run", "") for step in self.jobs[job_name]["steps"]
+            )
+            with self.subTest(job=job_name):
+                self.assertIn("playwright install chromium", installs)
+                self.assertNotIn("--with-deps", installs)
+
+    def test_weekly_smoke_is_not_registered_on_pull_request_runs(self) -> None:
+        self.assertNotIn("compile-smoke", self.jobs)
+        self.assertNotIn("new-api-bump-smoke", self.jobs)
+        triggers = self.workflow.get("on", self.workflow.get(True))
+        crons = [item["cron"] for item in triggers["schedule"]]
+        self.assertEqual(crons, ["0 3 * * 1"])
+        self.assertNotIn(
+            "weekly-smoke",
+            triggers["workflow_dispatch"]["inputs"]["suite"]["options"],
+        )
+
+        weekly_path = WORKFLOW.parent / "weekly-smoke.yml"
+        weekly = yaml.safe_load(weekly_path.read_text(encoding="utf-8"))
+        weekly_on = weekly.get("on", weekly.get(True))
+        self.assertNotIn("pull_request", weekly_on)
+        self.assertNotIn("push", weekly_on)
+        self.assertEqual(
+            [item["cron"] for item in weekly_on["schedule"]],
+            ["17 9 * * TUE"],
+        )
+        self.assertEqual(
+            set(weekly["jobs"]),
+            {"compile-smoke", "new-api-bump-smoke"},
+        )
+        for job_name, job in weekly["jobs"].items():
+            with self.subTest(job=job_name):
+                self.assertNotIn("if", job)
 
     def test_frontend_job_parallelizes_checks_on_one_runner(self) -> None:
         frontend_step = next(
