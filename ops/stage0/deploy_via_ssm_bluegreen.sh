@@ -880,13 +880,19 @@ GUARD
 
 render_caddy_with_upstream() {
   local upstream="$1" tmp="$2"
+  # Accept both Stage0 braced form (`reverse_proxy host:port {`) and the
+  # Tencent layout-exception single-line form (`reverse_proxy host:port`).
   sudo awk -v upstream="${upstream}" '
-    /^[[:space:]]*reverse_proxy[[:space:]]+/ && $0 ~ /\{[[:space:]]*$/ {
+    /^[[:space:]]*reverse_proxy[[:space:]]+/ && ($0 ~ /\{[[:space:]]*$/ || (NF == 2 && $2 ~ /^[^[:space:]]+:[0-9]+$/)) {
       count += 1
       if (count == 1) {
         match($0, /[^[:space:]]/)
         indent = RSTART > 1 ? substr($0, 1, RSTART - 1) : ""
-        print indent "reverse_proxy " upstream " {"
+        if ($0 ~ /\{[[:space:]]*$/) {
+          print indent "reverse_proxy " upstream " {"
+        } else {
+          print indent "reverse_proxy " upstream
+        }
       } else {
         print
       }

@@ -1399,6 +1399,44 @@ resolve_app_data_dir
             remote.index("ensure_legacy_cutover"),
         )
 
+    def test_render_caddy_rewrites_single_line_and_braced_upstreams(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+        function = _extract_shell_function(remote, "render_caddy_with_upstream")
+        cases = [
+            (
+                "single",
+                "{\n  email ops@example.com\n}\napi.example.com {\n  encode gzip\n  reverse_proxy tokenkey:8080\n}\n",
+                "  reverse_proxy tokenkey-blue:8080\n",
+            ),
+            (
+                "braced",
+                "api.example.com {\n  reverse_proxy tokenkey:8080 {\n  }\n}\n",
+                "  reverse_proxy tokenkey-blue:8080 {\n",
+            ),
+        ]
+        for name, source, want_line in cases:
+            with self.subTest(form=name), tempfile.TemporaryDirectory() as tmp:
+                live = pathlib.Path(tmp) / "Caddyfile"
+                out = pathlib.Path(tmp) / "out"
+                live.write_text(source)
+                script = (
+                    function
+                    + f"\nLIVE_CADDY={shlex.quote(str(live))}\n"
+                    # Function named sudo already drops the argv0 token; do not shift.
+                    + "sudo() { \"$@\"; }\n"
+                    + f"render_caddy_with_upstream tokenkey-blue:8080 {shlex.quote(str(out))}\n"
+                )
+
+                result = subprocess.run(
+                    ["bash"], input=script, capture_output=True, text=True, check=False
+                )
+                self.assertEqual(result.returncode, 0, msg=result.stderr)
+                text = out.read_text()
+                self.assertIn(want_line, text)
+                self.assertNotIn("reverse_proxy tokenkey:8080", text)
+
 
 if __name__ == "__main__":
     unittest.main()

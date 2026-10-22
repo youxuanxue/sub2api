@@ -53,6 +53,17 @@ if [[ -n "${caddy_src}" && -f "${caddy_src}" ]]; then
   else
     echo "caddyfile_layout=exception"
   fi
+  # Must be rewriteable by render_caddy_with_upstream (exactly one upstream).
+  rp_count="$(awk '
+    /^[[:space:]]*reverse_proxy[[:space:]]+/ && ($0 ~ /\{[[:space:]]*$/ || (NF == 2 && $2 ~ /^[^[:space:]]+:[0-9]+$/)) {
+      count += 1
+    }
+    END { print count+0 }
+  ' "${caddy_src}")"
+  echo "caddyfile_reverse_proxy_count=${rp_count}"
+  if [[ "${rp_count}" != "1" ]]; then
+    note_fail "caddyfile_reverse_proxy_not_unique:${rp_count}"
+  fi
 else
   note_fail "caddyfile_unresolved"
 fi
