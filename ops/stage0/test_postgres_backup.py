@@ -541,6 +541,139 @@ class PhysicalBackupTests(unittest.TestCase):
         self.assertFalse(config["global"].getboolean("archive-async"))
         self.assertTrue(config["global"].getboolean("repo1-block"))
         self.assertEqual(config["global"]["repo1-s3-key-type"], "auto")
+        self.assertEqual(config["global"]["repo1-path"], "/prod/postgres")
+        live = configparser.ConfigParser()
+        live.read_string(
+            backup.configuration(
+                "tokenkey-backups",
+                "us-east-1",
+                "/candidates/tencent-usw-20261022/postgres",
+            )
+        )
+        self.assertEqual(
+            live["global"]["repo1-path"], "/candidates/tencent-usw-20261022/postgres"
+        )
+        with self.assertRaises(backup.BackupError):
+            backup.configuration("tokenkey-backups", "us-east-1", "/x\nrepo1-type=posix")
+
+    def test_bundle_architecture_comes_from_target_not_constant(self):
+        root = Path(__file__).resolve().parents[2]
+        live = json.loads(
+            (root / "deploy/tencent/candidate-usw-20261022.json").read_text()
+        )
+        self.assertEqual(
+            bundle.target_architecture(None, bundle.DEFAULT_MATRIX),
+            live["target"]["architecture"],
+        )
+        self.assertEqual(bundle.target_architecture("arm64", bundle.DEFAULT_MATRIX), "arm64")
+        with tempfile.TemporaryDirectory() as directory:
+            matrix = Path(directory) / "matrix.json"
+            matrix.write_text(json.dumps({"target": {}}))
+            with self.assertRaisesRegex(ValueError, "target.architecture"):
+                bundle.target_architecture(None, matrix)
+
+    def _installer_docker(self, container, data_source, current_arch, candidate_arch):
+        image = "sha256:" + "c" * 64
+
+        def inspect(cmd, **kwargs):
+            name = cmd[-1]
+            if name in install.LAYOUTS and name != container:
+                return type("R", (), {"returncode": 1, "stdout": ""})()
+            item = {
+                "State": {"Running": True},
+                "Image": "sha256:" + "d" * 64,
+                "Mounts": [
+                    {"Destination": "/var/lib/postgresql/data", "Source": data_source}
+                ],
+            }
+            return type("R", (), {"returncode": 0, "stdout": json.dumps([item])})()
+
+        def run(cmd, **kwargs):
+            if cmd[:3] == ["docker", "image", "inspect"]:
+                arch = candidate_arch if cmd[3] == image else current_arch
+                return json.dumps([{"Architecture": arch}])
+            if "--version" in cmd:
+                return "postgres (PostgreSQL) 18.6"
+            raise AssertionError(cmd)
+
+        return image, inspect, run
+
+    def test_installer_matches_running_host_architecture_and_tencent_layout(self):
+        cases = (
+            ("tokenkey-postgres", "/var/lib/tokenkey/postgres", "x86_64", "amd64", "amd64", None),
+            ("tokenkey-postgres", "/var/lib/tokenkey/postgres", "aarch64", "arm64", "arm64", None),
+            ("tk-archive-standby", "/srv/tokenkey-rehearsal/standby-pg", "x86_64", "amd64", "amd64", None),
+            # Tokyo-era arm64 bundle on the amd64 Tencent host must fail.
+            ("tk-archive-standby", "/srv/tokenkey-rehearsal/standby-pg", "x86_64", "amd64", "arm64", "architecture"),
+            ("tokenkey-postgres", "/var/lib/tokenkey/postgres", "x86_64", "arm64", "arm64", "architecture"),
+            ("tk-archive-standby", "/var/lib/tokenkey/postgres", "x86_64", "amd64", "amd64", "data mount"),
+        )
+        for container, source, machine, current, candidate, error in cases:
+            with self.subTest(container=container, machine=machine, candidate=candidate):
+                image, inspect, run = self._installer_docker(
+                    container, source, current, candidate
+                )
+                with (
+                    patch.object(install.socket, "gethostname", return_value="host"),
+                    patch.object(install.platform, "machine", return_value=machine),
+                    patch.object(install.subprocess, "run", side_effect=inspect),
+                    patch.object(install, "run", side_effect=run),
+                ):
+                    if error:
+                        with self.assertRaisesRegex(backup.BackupError, error):
+                            install.install("tokenkey-backups", "us-east-1", image, "host", False)
+                        continue
+                    plan = install.install("tokenkey-backups", "us-east-1", image, "host", False)
+                    self.assertEqual(plan["container"], container)
+                    self.assertEqual(plan["architecture"], candidate)
+                    self.assertEqual(plan["status"], "planned")
+
+    def test_installer_refuses_apply_on_non_compose_tencent_layout(self):
+        image, inspect, run = self._installer_docker(
+            "tk-archive-standby", "/srv/tokenkey-rehearsal/standby-pg", "amd64", "amd64"
+        )
+        with (
+            patch.object(install.socket, "gethostname", return_value="host"),
+            patch.object(install.platform, "machine", return_value="x86_64"),
+            patch.object(install.subprocess, "run", side_effect=inspect),
+            patch.object(install, "run", side_effect=run),
+            self.assertRaisesRegex(backup.BackupError, "not compose-managed"),
+        ):
+            install.install("tokenkey-backups", "us-east-1", image, "host", True)
+
+    def test_installer_requires_exactly_one_running_postgres(self):
+        def both(cmd, **kwargs):
+            item = {"State": {"Running": True}}
+            return type("R", (), {"returncode": 0, "stdout": json.dumps([item])})()
+
+        def none(cmd, **kwargs):
+            return type("R", (), {"returncode": 1, "stdout": ""})()
+
+        for side_effect in (both, none):
+            with (
+                patch.object(install.subprocess, "run", side_effect=side_effect),
+                self.assertRaisesRegex(backup.BackupError, "exactly one running"),
+            ):
+                install.resolve_postgres()
+
+    def test_restore_runner_requires_explicit_subnet_and_matching_shape(self):
+        self.assertEqual(cloud.SHAPES["amd64"]["ami_arch"], "x86_64")
+        self.assertEqual(cloud.SHAPES["arm64"]["instance_type"], "c7g.xlarge")
+        cloud.validate_network("subnet-0123abcd")
+        for bad in ("mi-080ed76dc6d97d8b5", "", "subnet-x; rm", "None"):
+            with self.subTest(subnet=bad), self.assertRaises(backup.BackupError):
+                cloud.validate_network(bad)
+
+    def test_restore_workflow_never_derives_subnet_from_prod_instance(self):
+        root = Path(__file__).resolve().parents[2]
+        text = (root / ".github/workflows/ops-physical-restore.yml").read_text()
+        self.assertNotIn("describe-instances", text)
+        self.assertNotIn("ap-northeast-1", text)
+        for name in ("PHYSICAL_RESTORE_REGION", "PHYSICAL_RESTORE_SUBNET", "PHYSICAL_RESTORE_ARCH"):
+            self.assertIn("vars." + name, text)
+        self.assertIn("--architecture", text)
+        fence = text.index("Require an approved restore network")
+        self.assertLess(fence, text.index("configure-aws-credentials"))
 
 
 if __name__ == "__main__":

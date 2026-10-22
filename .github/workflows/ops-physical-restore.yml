@@ -27,29 +27,41 @@ jobs:
       BUNDLE_SHA: ${{ vars.PHYSICAL_BACKUP_BUNDLE_SHA }}
       IMAGE_ID: ${{ vars.PHYSICAL_BACKUP_IMAGE_ID }}
       RESTORE_PROFILE: ${{ vars.PHYSICAL_BACKUP_RESTORE_PROFILE }}
+      # The restore network is an approved, explicit input. It is never derived
+      # from the prod instance: Tencent prod is SSM Hybrid mi-* with no EC2 subnet.
+      RESTORE_REGION: ${{ vars.PHYSICAL_RESTORE_REGION }}
+      RESTORE_SUBNET: ${{ vars.PHYSICAL_RESTORE_SUBNET }}
+      RESTORE_ARCH: ${{ vars.PHYSICAL_RESTORE_ARCH }}
       TARGET_NAME: ${{ inputs.target_name }}
       TARGET_TIME: ${{ inputs.target_time }}
     steps:
       - uses: actions/checkout@v6
+      - name: Require an approved restore network (fail closed)
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in RESTORE_REGION RESTORE_SUBNET RESTORE_ARCH; do
+            [ -n "${!name}" ] || missing+=("PHYSICAL_${name}")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::isolated restore network not approved/configured: ${missing[*]}. Prod is a Tencent SSM Hybrid host; see docs/ops/tencent-isolated-restore-plan.md"
+            exit 1
+          fi
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
-          aws-region: ap-northeast-1
-      - name: Resolve current production network and run disposable recovery
+          aws-region: ${{ vars.PHYSICAL_RESTORE_REGION }}
+      - name: Run disposable recovery in the approved restore network
         run: |
           set -euo pipefail
-          target=$(python3 ops/stage0/resolve_prod_ssm_target.py --target auto --format json)
-          region=$(jq -r .ssm_region <<<"$target")
-          instance=$(jq -r .instance_id <<<"$target")
-          subnet=$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" --query 'Reservations[0].Instances[0].SubnetId' --output text)
           args=()
           if [ -n "$TARGET_NAME" ]; then
             args+=(--target-name "$TARGET_NAME" --target-time "$TARGET_TIME")
           fi
-          python3 ops/stage0/run_physical_restore.py --region "$region" --bucket "$BACKUP_BUCKET" \
+          python3 ops/stage0/run_physical_restore.py --region "$RESTORE_REGION" --bucket "$BACKUP_BUCKET" \
             --key "artifacts/$BUNDLE_SHA.tar.gz" --sha256 "$BUNDLE_SHA" --image "$IMAGE_ID" \
-            --subnet "$subnet" --profile "$RESTORE_PROFILE" --receipt restore-receipt.json \
-            --apply "${args[@]}"
+            --subnet "$RESTORE_SUBNET" --architecture "$RESTORE_ARCH" --profile "$RESTORE_PROFILE" \
+            --receipt restore-receipt.json --apply "${args[@]}"
       - name: Import acceptance into the existing source-host monitor
         run: |
           set -euo pipefail
@@ -58,7 +70,11 @@ jobs:
           set -euo pipefail
           unit=$(systemctl show tokenkey-postgres-backup.service --property=ExecStart --value)
           operator=$(printf '%s' "$unit" | sed -n 's@.*\(/usr/local/lib/tokenkey/postgres-backup/[a-f0-9]*/postgres_backup.py\).*@\1@p')
-          test -n "$operator"
+          if [ -z "$operator" ]; then
+            # Tencent prod runs tencent_pgbackrest.py, which has no accept command yet.
+            echo "acceptance import unsupported by current backup operator: $unit" >&2
+            exit 1
+          fi
           python3 "$operator" accept --receipt /tmp/restore-receipt.json
           SH
           bash ops/observability/run-probe.sh --target prod --script /tmp/physical-accept.sh \

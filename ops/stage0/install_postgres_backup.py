@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import socket
@@ -33,6 +34,19 @@ STATE = ROOT / "postgres-backup"
 CONFIG = ROOT / "postgres-backup-config"
 LIB = Path("/usr/local/lib/tokenkey/postgres-backup")
 UNITS = Path("/etc/systemd/system")
+# Known PostgreSQL layouts. Stage0 runs compose-managed tokenkey-postgres with
+# ROOT/postgres; the Tencent USW layout exception keeps tk-archive-standby, a
+# plain `docker run` container (no compose labels) whose data bind is the same
+# LUKS mapper seen via /srv/tokenkey-rehearsal. Its backup is owned by the
+# host-side Tencent operator, so this installer only plans there.
+LAYOUTS = {
+    "tokenkey-postgres": {"data_source": str(ROOT / "postgres"), "compose": True},
+    "tk-archive-standby": {
+        "data_source": "/srv/tokenkey-rehearsal/standby-pg",
+        "compose": False,
+    },
+}
+DOCKER_ARCH = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
 KEYS = (
     "POSTGRES_IMAGE",
     "POSTGRES_PULL_POLICY",
@@ -101,13 +115,42 @@ def compose(*args: str, env: Path | None = None) -> str:
     )
 
 
-def wait_database() -> None:
+def host_architecture() -> str:
+    machine = platform.machine().lower()
+    if machine not in DOCKER_ARCH:
+        raise BackupError(f"unsupported host architecture {machine!r}")
+    return DOCKER_ARCH[machine]
+
+
+def running(name: str) -> dict | None:
+    result = subprocess.run(
+        ["docker", "inspect", name], capture_output=True, text=True, check=False
+    )
+    if result.returncode:
+        return None
+    item = json.loads(result.stdout)[0]
+    return item if item.get("State", {}).get("Running") is True else None
+
+
+def resolve_postgres() -> tuple[str, dict]:
+    """Mirror tk_resolve_postgres_container: exactly one running candidate."""
+    found = [(name, item) for name in LAYOUTS if (item := running(name))]
+    if len(found) != 1:
+        raise BackupError(
+            "expected exactly one running PostgreSQL container among "
+            + ", ".join(LAYOUTS)
+            + f"; found {len(found)}"
+        )
+    return found[0]
+
+
+def wait_database(container: str = "tokenkey-postgres") -> None:
     for _ in range(60):
         result = subprocess.run(
             [
                 "docker",
                 "exec",
-                "tokenkey-postgres",
+                container,
                 "pg_isready",
                 "-U",
                 "tokenkey",
@@ -130,17 +173,19 @@ def install(
     if socket.gethostname() != expected_host:
         raise BackupError("host identity mismatch")
     if not re.fullmatch(r"sha256:[a-f0-9]{64}", image):
-        raise BackupError("use the loaded immutable ARM64 image ID")
+        raise BackupError("use the loaded immutable image ID")
     config = configuration(bucket, region)
-    current = json.loads(run(["docker", "inspect", "tokenkey-postgres"]))[0]
+    container, current = resolve_postgres()
+    layout = LAYOUTS[container]
     data_mounts = [
         m for m in current["Mounts"] if m["Destination"] == "/var/lib/postgresql/data"
     ]
-    if len(data_mounts) != 1 or data_mounts[0]["Source"] != str(ROOT / "postgres"):
+    if len(data_mounts) != 1 or data_mounts[0]["Source"] != layout["data_source"]:
         raise BackupError("unexpected PostgreSQL data mount")
-    version = run(
-        ["docker", "exec", "tokenkey-postgres", "postgres", "--version"]
-    ).strip()
+    version = run(["docker", "exec", container, "postgres", "--version"]).strip()
+    current_arch = json.loads(run(["docker", "image", "inspect", current["Image"]]))[
+        0
+    ]["Architecture"]
     candidate = json.loads(run(["docker", "image", "inspect", image]))[0]
     candidate_version = run(
         [
@@ -155,11 +200,15 @@ def install(
             "--version",
         ]
     ).strip()
-    if candidate["Architecture"] != "arm64" or candidate_version != version:
+    host_arch = host_architecture()
+    # Architecture follows the actual target host, never a fleet-wide constant.
+    if not candidate["Architecture"] == current_arch == host_arch:
         raise BackupError(
-            "candidate PostgreSQL version or architecture differs from production"
+            "candidate image architecture differs from the running PostgreSQL "
+            f"image or host ({candidate['Architecture']}/{current_arch}/{host_arch})"
         )
-    before = (ROOT / ".env").read_text()
+    if candidate_version != version:
+        raise BackupError("candidate PostgreSQL version differs from production")
     values = dict(
         zip(
             KEYS,
@@ -175,6 +224,9 @@ def install(
     result = {
         "status": "planned",
         "host": expected_host,
+        "container": container,
+        "architecture": host_arch,
+        "compose_managed": layout["compose"],
         "before_image": current["Image"],
         "after_image": image,
         "postgres": version,
@@ -185,10 +237,16 @@ def install(
     }
     if not apply:
         return result
+    if not layout["compose"]:
+        raise BackupError(
+            f"{container} is not compose-managed (Tencent layout exception); its "
+            "backup is owned by the host Tencent operator, refusing --apply"
+        )
     if os.geteuid() != 0 or (STATE / "enabled.json").exists():
         raise BackupError(
             "requires root and no existing activation; never overwrite the rollback baseline"
         )
+    before = (ROOT / ".env").read_text()
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
     # This snapshot contains secrets; it remains root-only on the source host.
     rollback = STATE / "rollback"
@@ -227,14 +285,14 @@ def install(
         dict(result, status="activating", started_at=time.time()),
     )
     compose("up", "-d", "--no-deps", "--pull", "never", "postgres")
-    wait_database()
+    wait_database(container)
     run(
         [
             "docker",
             "exec",
             "--user",
             "postgres",
-            "tokenkey-postgres",
+            container,
             "pgbackrest",
             "--stanza=tokenkey",
             "stanza-create",
@@ -246,7 +304,7 @@ def install(
             "exec",
             "--user",
             "postgres",
-            "tokenkey-postgres",
+            container,
             "pgbackrest",
             "--stanza=tokenkey",
             "check",

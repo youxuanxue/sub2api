@@ -20,6 +20,23 @@ from pathlib import Path
 
 from postgres_backup import BackupError, atomic_json
 
+# Restore host must match the backup image architecture. Values are the approved
+# Tokyo-era arm64 shape and its x86 equivalent for the amd64 Tencent image.
+SHAPES = {
+    "arm64": {"instance_type": "c7g.xlarge", "ami_arch": "arm64"},
+    "amd64": {"instance_type": "c7i.xlarge", "ami_arch": "x86_64"},
+}
+
+
+def validate_network(subnet: str) -> None:
+    """The restore subnet is an explicit, approved input; never derived from prod.
+
+    Tencent prod is an SSM Hybrid mi-* host with no EC2 subnet, see
+    docs/ops/tencent-isolated-restore-plan.md.
+    """
+    if not re.fullmatch(r"subnet-[a-f0-9]{8,17}", subnet):
+        raise BackupError("--subnet must be an explicit EC2 subnet-* id")
+
 
 def aws(region: str, *args: str, timeout: int = 60):
     result = subprocess.run(
@@ -156,6 +173,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("region", "bucket", "key", "sha256", "image", "subnet", "profile"):
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--architecture", choices=sorted(SHAPES), required=True)
     parser.add_argument("--target-name")
     parser.add_argument("--target-time")
     parser.add_argument("--receipt", type=Path, required=True)
@@ -163,6 +181,8 @@ def main() -> None:
     args = parser.parse_args()
     if bool(args.target_name) != bool(args.target_time):
         parser.error("named target and timestamp must be supplied together")
+    validate_network(args.subnet)
+    shape = SHAPES[args.architecture]
     command = worker_command(
         args.bucket,
         args.key,
@@ -174,7 +194,8 @@ def main() -> None:
     request_id = "tk-physical-restore-" + uuid.uuid4().hex
     plan = {
         "status": "planned",
-        "instance_type": "c7g.xlarge",
+        "instance_type": shape["instance_type"],
+        "architecture": args.architecture,
         "disk_gib": 100,
         "maximum_lifetime_hours": 2,
         "region": args.region,
@@ -192,7 +213,8 @@ def main() -> None:
         "ssm",
         "get-parameter",
         "--name",
-        "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64",
+        "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-"
+        + shape["ami_arch"],
     )["Parameter"]["Value"]
     bootstrap = """#!/bin/bash
 set -euo pipefail
@@ -253,7 +275,7 @@ systemctl enable --now docker
             "--image-id",
             image_id,
             "--instance-type",
-            "c7g.xlarge",
+            shape["instance_type"],
             "--iam-instance-profile",
             json.dumps({"Name": args.profile}),
             "--network-interfaces",
