@@ -7,7 +7,7 @@
 **当前交接：[腾讯迁机交接](../../docs/ops/tencent-migration-handoff.md）。**  
 **状态（2026-10-22）：腾讯美西已在服（timeline 2）；Tokyo 冻结保留；出口已迁 `usw-eval*`。**  
 切流踩坑与 verify 门禁见 skill [`tokenkey-host-replacement`](../../.cursor/skills/tokenkey-host-replacement/SKILL.md) 与 [playbook](../../.cursor/skills/tokenkey-host-replacement/references/playbook.md)。  
-剩余：飞书告警接线（若尚未）、≥7 天后东京退役、JP Lightsail 关停、LUKS 自动解锁验收；布局默认用例外路径（勿再排 Docker Root 大停机）。
+剩余：飞书告警接线（若尚未）、≥7 天后东京退役、JP Lightsail 关停、LUKS 自动解锁验收。布局须在迁机 plan 内同窗收口，不单开后续停机。
 
 ## 当前可用能力与边界
 
@@ -136,7 +136,7 @@ Redis 默认新建；若会话/幂等功能有持久需求，按其 owner 单独
 ## 腾讯云正式运行 · 切流后仍开放
 
 - **发布目标**：`resolve_prod_ssm_target.py --target auto` → 腾讯美西。GitHub `PROD_SSM_TARGET` 必须为 `auto`。`aws-fresh`/`hetzner` 失败关闭（冻结 Tokyo 只读须 `ALLOW_FROZEN_TOKYO_TARGET=1`）。
-- **Stage0 布局**：**默认走例外路径**（不搬 Docker Root、PG/Redis 靠网络别名；`.env` + 网关名对齐 Stage0），见 [`stage0-layout-convergence.md`](../../deploy/tencent/stage0-layout-convergence.md) / skill `tokenkey-host-replacement`。**不要**迁机后再排一次「停 Docker 搬 data-root」的大停机窗。
+- **Stage0 布局**：从 **plan/prepare** 起按「切流结束即可 `deploy-stage0`」设计；与 cutover **同窗**落地（默认例外路径：不搬 Docker Root、PG/Redis 别名）。见 [`stage0-layout-convergence.md`](../../deploy/tencent/stage0-layout-convergence.md) / skill `tokenkey-host-replacement`。**禁止**规划迁机完成后的第二次布局停机。
 - **宿主存储契约**：`bluegreen_host_runtime.py` 默认 `--platform=tencent-luks`；拒绝 Hetzner volume 身份。
 - **备份身份**：候选前缀 `candidates/tencent-usw-20261022/postgres` 为活链；`RuntimeDirectoryPreserve=yes`；飞书外部告警尚未接到腾讯机。
 - **密钥与启动**：LUKS 异机托管已落盘；自动解锁未验收——**禁止现网整机重启试验**。

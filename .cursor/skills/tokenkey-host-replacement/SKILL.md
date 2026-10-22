@@ -12,7 +12,7 @@ description: >-
 备份/恢复：[physical-backup.md](../../../ops/stage0/physical-backup.md)。
 切流后交接：[腾讯迁机交接](../../../docs/ops/tencent-migration-handoff.md)。
 
-输入 `target=prod`、目标云/地域/架构、`phase=plan|rehearse|prepare|cutover|verify|converge`。
+输入 `target=prod`、目标云/地域/架构、`phase=plan|rehearse|prepare|cutover|verify`。
 默认先 plan；已授权阶段直接推进。腾讯云演练不等于授权创建付费资源或正式切流。
 仅镜像部署用 `tokenkey-stage0-release-rollout`；cn-prod 未验收物理备份，不套用 prod 的退役决策。
 
@@ -25,45 +25,40 @@ description: >-
   默认只读 ≠ 完整写入隔离；严禁双写。切流需单独授权。
 - 目标已接写后不能直接解冻旧库回滚；新 timeline 的备份保护须单独验收。
 - 旧机保留至少七天；历史备份与解密材料不随定时任务退役删除。
+- **单窗闭环（硬）：** `plan` 起就必须规划「切流窗结束即可默认 `deploy-stage0`」。  
+  **禁止**把 Stage0 布局收敛、搬 Docker Root、全量容器改名排成迁机完成后的第二次停机。  
+  2026-10-22 教训：主机已切流后另开布局窗 = 多余停机与回归；见 [#2779](https://github.com/youxuanxue/sub2api/pull/2779) 例外路径。
 
-## 切流后必做（verify / converge）— 2026-10-22 教训
+## 布局：写进 plan/prepare，落在 cutover 同窗
 
-这些步骤在 Tokyo→腾讯美西切流中曾漏做或事后才发现，**必须写进阶段门禁**，不能靠自觉：
+验收标准（切流结束当日必须满足，不是后续 follow-up）：
 
-1. **控制面目标**  
-   - `resolve_prod_ssm_target.py --target auto` 必须指向新主；矩阵 `deployable=true`。  
-   - 立刻把 GitHub 仓库变量 `PROD_SSM_TARGET` 设为 `auto`（钉死旧身份会覆盖 workflow 默认值）。  
-   - 旧身份失败关闭：`aws`/`hetzner` 退役拒绝；冻结源须 `ALLOW_FROZEN_TOKYO_TARGET=1`。  
-   - 共享 glue（如 `ssm_execution.py`）必须显式分支到新平台，禁止 `else → 旧 Hybrid`。
+| 项 | 要求 |
+|---|---|
+| 业务 `.env` | `/var/lib/tokenkey/.env`（Stage0 默认路径） |
+| 网关容器 | `tokenkey` / `tokenkey-caddy`（或等价 Stage0 名） |
+| PG / Redis | 可用 Stage0 名 **或** 网络别名 `postgres` / `redis`；探测脚本须双名兼容 |
+| Docker Root | **默认不搬**：可保留演练/加密挂载下的 data-root；**不**改 daemon.json、**不**停 Docker 守护进程作为迁机必选项 |
+| 发版 | 切流 verify 通过后即可 `deploy-stage0`（首次蓝绿按脚本从 legacy `tokenkey` 迁即可） |
 
-2. **布局与发版门禁 — 禁止「迁机后再开一次 Stage0 大停机」**  
-   - 目标：切流后尽快能跑默认 `deploy-stage0`，**不要**再排一次「搬 Docker data-root / 全量改名」的长停机窗。  
-   - **默认走例外路径**（2026-10-22 / [#2779](https://github.com/youxuanxue/sub2api/pull/2779) 已验收）：  
-     - **不**改 `daemon.json`、**不**停 Docker 守护进程、**不**搬 data-root（可保留演练挂载下的 Docker Root）。  
-     - 业务 `.env` → `/var/lib/tokenkey/.env`；网关容器 rename 为 `tokenkey` / `tokenkey-caddy`。  
-     - PG/Redis **可保留 cutover 容器名**，用网络别名 `postgres` / `redis`（探测脚本须识别别名或双名）。  
-     - 窗内工具：`ops/stage0/probe-tencent-layout-*.sh`、`apply-tencent-layout-window.sh`（仅显式 `APPLY=…`）；细则见 [`stage0-layout-convergence.md`](../../../deploy/tencent/stage0-layout-convergence.md)。  
-   - **优先**：在 cutover/promote 当日就把例外路径做完（或 prepare 阶段就按目标名启动），避免「主机已切流 → 过几天再停机收敛」。  
-   - **禁止**把「完整 Stage0 字面布局」（改 Docker Root、物理改名 PG/Redis）当成发版前置；那是可选整洁，另批且须单独论证停机收益。  
-   - 舰队 SSOT / 回执必须写清例外项（尤其 Docker Root），禁止假装 data-root 已迁。
+做法：
 
-3. **备份身份与 timer**  
-   - Hybrid 备份身份：`RuntimeDirectoryPreserve=yes`；oneshot 结束后 tmpfs 不可被 systemd 清掉。  
-   - 新 timeline 用独立前缀（勿混写旧 `prod/postgres`）；装上 identity/backup/archive-check timer。  
-   - 外部飞书备份告警须接到新机（本机 timer ≠ 外部告警已通）。
+1. **plan**：列出布局目标上表；写明「无 post-cutover 布局停机窗」；Docker Root 若保留例外须写入 SSOT。  
+2. **prepare**：目标机按上表起栈（或 rehearsed rename/alias 剧本）；不要故意以 `formal/.env` + `tk-cutover-*` 作为「切流后再说」的终态。  
+3. **cutover**：promote/DNS 与布局对齐同一维护窗完成（可用 `apply-tencent-layout-window.sh` 一类短窗脚本；细则 [`stage0-layout-convergence.md`](../../../deploy/tencent/stage0-layout-convergence.md)）。  
+4. **verify**：确认上表 + resolve/`PROD_SSM_TARGET=auto` + 备份 timer；**不以**「布局留待下周」关闭迁机。
 
-4. **DNS / TTL / 多域名**  
-   - 切流前降低 TTL，切流后恢复（Porkbun 等下限可能 >60）。  
-   - 所有正式名（含 `api-cn`）一并验证；本机缓存不能当结论。
+完整字面 Stage0（物理改名 PG/Redis、搬 data-root）只作可选整洁，**不得**挡发版，也不得绑进迁机主路径。
 
-5. **出口代理**  
-   - 主机切流 ≠ 出口切流。跨云后测真实 `usage_logs` 延迟，再决定 JP→同城代理迁移。  
-   - 账号 `proxy_id` 批量更新要有回滚清单；迁后只读确认 `jp_remaining=0`。
+## 切流窗还须收口（2026-10-22 曾漏）
 
-6. **verify 不只看 /health**  
-   - fence/usage、错误率（区分上游 503 噪声）、备份 `archive_check`、代理绑定分布、resolve 身份。
+1. **控制面**：`resolve --target auto` → 新主；GitHub `PROD_SSM_TARGET=auto`；旧身份失败关闭；`ssm_execution` 等 glue 显式分支新平台。  
+2. **备份身份**：`RuntimeDirectoryPreserve=yes`；新 timeline 独立前缀；identity/backup/archive-check timer；飞书告警接到新机。  
+3. **DNS/TTL**：切前降 TTL、切后恢复；全部正式名（含 `api-cn`）用公共 resolver + `curl --resolve`。  
+4. **出口**：主机切流 ≠ 出口切流；另测 `usage_logs` 再迁 `proxy_id`，保留回滚清单。  
+5. **verify**：fence/usage、上游 vs 平台错误、`archive_check`、代理分布——不只 `/health`。
 
-历史踩坑细节见 [playbook](references/playbook.md)。
+历史踩坑见 [playbook](references/playbook.md)。
 
 报告实际完成阶段、恢复点/账务校验、耗时、资源清理、保护缺口与下一步；
 不以数据库恢复或健康探针成功宣称整站迁机完成。
