@@ -104,11 +104,25 @@ else
 fi
 echo "active-color=${color:-none}"
 
+cd "$ROOT"
+if [ -n "$color" ] && [ -f docker-compose.bluegreen.yml ]; then
+  case "$color" in
+    blue|green) ;;
+    *) echo "::error::invalid active-color=$color"; exit 1 ;;
+  esac
+  container="tokenkey-$color"
+  compose=(sudo docker compose --project-name tokenkey --env-file .env -f docker-compose.bluegreen.yml)
+else
+  container=tokenkey
+  compose=(sudo docker compose --env-file .env)
+fi
+echo "container=$container"
+
 echo "=== before cors stanza ==="
 print_cors_stanza "$CFG"
 
 echo "=== before local OPTIONS ==="
-before_code="$(sudo docker exec tokenkey-blue curl -sS -o /dev/null -w '%{http_code}' -X OPTIONS http://127.0.0.1:8080/v1/models \
+before_code="$(sudo docker exec "$container" curl -sS -o /dev/null -w '%{http_code}' -X OPTIONS http://127.0.0.1:8080/v1/models \
   -H 'Origin: https://tokenkey.dev' \
   -H 'Access-Control-Request-Method: GET' \
   -H 'Access-Control-Request-Headers: authorization' 2>/dev/null || echo fail)"
@@ -136,19 +150,6 @@ fi
 
 echo "=== after cors stanza ==="
 print_cors_stanza "$CFG"
-
-cd "$ROOT"
-if [ -n "$color" ] && [ -f docker-compose.bluegreen.yml ]; then
-  case "$color" in
-    blue|green) ;;
-    *) echo "::error::invalid active-color=$color"; exit 1 ;;
-  esac
-  container="tokenkey-$color"
-  compose=(sudo docker compose --project-name tokenkey --env-file .env -f docker-compose.bluegreen.yml)
-else
-  container=tokenkey
-  compose=(sudo docker compose --env-file .env)
-fi
 
 echo "=== pre-drain $container ==="
 OLD_HEALTH="$(sudo docker inspect "$container" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' 2>/dev/null || echo missing)"
@@ -181,15 +182,29 @@ echo "=== recreate $container ==="
 "${compose[@]}" up -d --no-deps --force-recreate --timeout 30 "$container"
 
 for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
-  s="$(sudo docker inspect "$container" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' 2>/dev/null || echo missing)"
-  echo "health try $i: $s"
-  [ "$s" = healthy ] || [ "$s" = running ] && break
+  has_health="$(sudo docker inspect "$container" --format '{{if .State.Health}}yes{{else}}no{{end}}' 2>/dev/null || echo no)"
+  if [ "$has_health" = yes ]; then
+    s="$(sudo docker inspect "$container" --format '{{.State.Health.Status}}' 2>/dev/null || echo missing)"
+    echo "health try $i: $s (has_health=yes)"
+    [ "$s" = healthy ] && break
+  else
+    s="$(sudo docker inspect "$container" --format '{{.State.Status}}' 2>/dev/null || echo missing)"
+    echo "health try $i: $s (has_health=no)"
+    [ "$s" = running ] && break
+  fi
   sleep 5
 done
-FINAL="$(sudo docker inspect "$container" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' 2>/dev/null || echo missing)"
+has_health="$(sudo docker inspect "$container" --format '{{if .State.Health}}yes{{else}}no{{end}}' 2>/dev/null || echo no)"
+if [ "$has_health" = yes ]; then
+  FINAL="$(sudo docker inspect "$container" --format '{{.State.Health.Status}}' 2>/dev/null || echo missing)"
+  ok_status=healthy
+else
+  FINAL="$(sudo docker inspect "$container" --format '{{.State.Status}}' 2>/dev/null || echo missing)"
+  ok_status=running
+fi
 echo "final_health=$FINAL"
-if [ "$FINAL" != healthy ] && [ "$FINAL" != running ]; then
-  echo "::error::container $container not healthy (final=$FINAL)"
+if [ "$FINAL" != "$ok_status" ]; then
+  echo "::error::container $container not $ok_status (final=$FINAL)"
   sudo docker logs "$container" --since 2m 2>&1 | grep -iE 'cors|error|fatal|listen' | tail -40 || true
   exit 1
 fi
