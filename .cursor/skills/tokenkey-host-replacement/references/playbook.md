@@ -15,6 +15,7 @@
 | host-parse stub 无腾讯 Hybrid | 切流后 preflight 挂（feishu sync 解析失败） | stub 随 live 矩阵注入 `mi-*` |
 | `RuntimeDirectoryPreserve` | 身份 oneshot 结束清掉 `/run/...` tmpfs | 身份 timer 必须 Preserve=yes |
 | 布局债未写进 SSOT | `.env` 在 `formal/`、容器 `tk-cutover-*`，但文档写 `/var/lib/tokenkey` | 当日走例外路径收敛；SSOT 写清 Docker Root 例外 |
+| 先切流再慢慢补 | 临时布局/钉死旧 `PROD_SSM_TARGET`/漏 glue/契约滞后，多轮返工 | **从第一天按正式迁机终态 plan**；布局+控制面+备份告警+DNS+出口+SSOT 同窗收口，见 skill「正式迁机从第一天规划」 |
 | 迁机后再排 Stage0 停机 | 切流用 cutover 临时布局，过几天再停机搬 Root/改名 | **plan 起就禁止**；布局目标写进 prepare，与 cutover **同窗**落地（例外路径：保留 Docker Root + 别名），见 [`stage0-layout-convergence.md`](../../../../deploy/tencent/stage0-layout-convergence.md) |
 | unlock 契约未刷新 | 切流后仍写「未授权切流」 | cutover 当日改契约/清单 |
 | DNS TTL 下限 | Porkbun TTL 不能回到 60 | 恢复到提供商允许的最小值（如 300） |

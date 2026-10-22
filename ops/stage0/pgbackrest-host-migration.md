@@ -7,7 +7,8 @@
 **当前交接：[腾讯迁机交接](../../docs/ops/tencent-migration-handoff.md）。**  
 **状态（2026-10-22）：腾讯美西已在服（timeline 2）；Tokyo 冻结保留；出口已迁 `usw-eval*`。**  
 切流踩坑与 verify 门禁见 skill [`tokenkey-host-replacement`](../../.cursor/skills/tokenkey-host-replacement/SKILL.md) 与 [playbook](../../.cursor/skills/tokenkey-host-replacement/references/playbook.md)。  
-剩余：≥7 天后东京退役、JP Lightsail 关停、LUKS 自动解锁验收。飞书宿主告警（`tokenkey-https-watch.timer`）已接腾讯机。布局须在迁机 plan 内同窗收口，不单开后续停机。
+剩余：≥7 天后东京退役、JP Lightsail 关停、LUKS 自动解锁验收。飞书宿主告警（`tokenkey-https-watch.timer`）已接腾讯机。  
+**规划纪律：** 新机从 `plan` 起按正式迁机终态一次写清（布局/控制面/备份告警/DNS/出口/SSOT），与 cutover **同窗**收口；禁止切后再开多轮返工停机。
 
 ## 当前可用能力与边界
 

@@ -16,6 +16,26 @@ description: >-
 默认先 plan；已授权阶段直接推进。腾讯云演练不等于授权创建付费资源或正式切流。
 仅镜像部署用 `tokenkey-stage0-release-rollout`；cn-prod 未验收物理备份，不套用 prod 的退役决策。
 
+## 正式迁机从第一天规划（硬）
+
+新机一旦可能成为生产主，**从 `plan` 起就按正式迁机终态设计**，不要「先切流再慢慢补」。  
+`rehearse`/`prepare` 可以隔离、不出站、不改 DNS，但路径、容器身份、备份前缀、控制面 glue、告警、发版契约必须对准终态；禁止用临时布局/临时 SSOT 当切流闭环。
+
+`plan` 必须一次性写清并排进同一切流窗（或窗前无感可做项），避免切后再开多轮返工：
+
+| 终态块 | plan 必须写明 |
+|---|---|
+| DB / WAL | standby→promote、最终 LSN、新 timeline 独立备份前缀、旧前缀只读保留 |
+| 布局 / 发版 | 切流结束即可 `deploy-stage0`（见下表）；无 post-cutover 布局停机 |
+| 控制面 | `resolve --target auto`→新主；GitHub `PROD_SSM_TARGET=auto`；旧身份失败关闭；`ssm_execution` 等 glue 显式新平台分支 |
+| 备份 / 告警 | `RuntimeDirectoryPreserve=yes`；identity/backup/archive-check timer；飞书宿主告警接到新机 |
+| DNS / TTL | 切前降 TTL、切后恢复到提供商允许最小值；全部正式名公共 resolver + `curl --resolve` |
+| 出口 | 主机切流 ≠ 出口切流；是否同窗迁 `proxy_id`、回滚清单 |
+| 契约 / SSOT | unlock、舰队 README、handoff、cutover 清单在 cutover **当日**改到现态 |
+| verify | fence/usage、上游 vs 平台错误、`archive_check`、代理分布——不只 `/health` |
+
+2026-10-22 教训：切流后才补布局窗、钉死 `PROD_SSM_TARGET`、漏 glue 分支、飞书/契约滞后 = 反复停机与文档漂移。历史踩坑见 [playbook](references/playbook.md)。
+
 ## 判断与不变量
 
 - 先核实备份、连续 WAL 和最新/历史恢复证据；镜像、架构、PG 主版本和恢复参数兼容。
@@ -25,9 +45,8 @@ description: >-
   默认只读 ≠ 完整写入隔离；严禁双写。切流需单独授权。
 - 目标已接写后不能直接解冻旧库回滚；新 timeline 的备份保护须单独验收。
 - 旧机保留至少七天；历史备份与解密材料不随定时任务退役删除。
-- **单窗闭环（硬）：** `plan` 起就必须规划「切流窗结束即可默认 `deploy-stage0`」。  
-  **禁止**把 Stage0 布局收敛、搬 Docker Root、全量容器改名排成迁机完成后的第二次停机。  
-  2026-10-22 教训：主机已切流后另开布局窗 = 多余停机与回归；例外路径见 [`stage0-layout-convergence.md`](../../../deploy/tencent/stage0-layout-convergence.md)。
+- **单窗闭环（硬）：** 上表终态块与布局在 cutover 同窗收口；**禁止**把 Stage0 布局/搬 Docker Root/全量改名排成迁机后第二次停机。  
+  例外路径细则：[`stage0-layout-convergence.md`](../../../deploy/tencent/stage0-layout-convergence.md)。
 
 ## 布局：写进 plan/prepare，落在 cutover 同窗
 
@@ -43,22 +62,13 @@ description: >-
 
 做法：
 
-1. **plan**：列出布局目标上表；写明「无 post-cutover 布局停机窗」；Docker Root 若保留例外须写入 SSOT。  
+1. **plan**：列出布局目标上表 + 上一节终态块；写明「无 post-cutover 布局/控制面返工窗」；Docker Root 若保留例外须写入 SSOT。  
 2. **prepare**：目标机按上表起栈（或 rehearsed rename/alias 剧本）；不要故意以 `formal/.env` + `tk-cutover-*` 作为「切流后再说」的终态。  
-3. **cutover**：promote/DNS 与布局对齐同一维护窗完成（细则 [`stage0-layout-convergence.md`](../../../deploy/tencent/stage0-layout-convergence.md)；仓库若已有 `apply-tencent-layout-window.sh` 可显式 `APPLY=…` 用，否则按例外路径表手工同窗完成）。  
-4. **verify**：确认上表 + resolve/`PROD_SSM_TARGET=auto` + 备份 timer；**不以**「布局留待下周」关闭迁机。
+3. **cutover**：promote/DNS 与布局对齐同一维护窗完成（细则同上；`apply-tencent-layout-window.sh` 仅显式 `APPLY=…`）。  
+4. **verify**：确认布局表 + 终态块（resolve/`PROD_SSM_TARGET=auto`、备份 timer、飞书、契约）；**不以**「下周再补」关闭迁机。
 
 完整字面 Stage0（物理改名 PG/Redis、搬 data-root）只作可选整洁，**不得**挡发版，也不得绑进迁机主路径。
 
-## 切流窗还须收口（2026-10-22 曾漏）
-
-1. **控制面**：`resolve --target auto` → 新主；GitHub `PROD_SSM_TARGET=auto`；旧身份失败关闭；`ssm_execution` 等 glue 显式分支新平台。  
-2. **备份身份**：`RuntimeDirectoryPreserve=yes`；新 timeline 独立前缀；identity/backup/archive-check timer；飞书告警接到新机。  
-3. **DNS/TTL**：切前降 TTL、切后恢复；全部正式名（含 `api-cn`）用公共 resolver + `curl --resolve`。  
-4. **出口**：主机切流 ≠ 出口切流；另测 `usage_logs` 再迁 `proxy_id`，保留回滚清单。  
-5. **verify**：fence/usage、上游 vs 平台错误、`archive_check`、代理分布——不只 `/health`。
-
-历史踩坑见 [playbook](references/playbook.md)。
 
 报告实际完成阶段、恢复点/账务校验、耗时、资源清理、保护缺口与下一步；
 不以数据库恢复或健康探针成功宣称整站迁机完成。
