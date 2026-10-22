@@ -134,7 +134,7 @@ func defaultFingerprint() Fingerprint {
 	fp := Fingerprint{
 		UserAgent:               "claude-cli/2.1.308 (external, cli)",
 		StainlessLang:           "js",
-		StainlessPackageVersion: "0.112.1",
+		StainlessPackageVersion: "0.128.0",
 		StainlessOS:             "MacOS",
 		StainlessArch:           "arm64",
 		StainlessRuntime:        "node",

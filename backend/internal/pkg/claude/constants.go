@@ -153,7 +153,7 @@ func DefaultHeaders() map[string]string {
 	headers := map[string]string{
 		"User-Agent":                                "claude-cli/2.1.308 (external, cli)",
 		"X-Stainless-Lang":                          "js",
-		"X-Stainless-Package-Version":               "0.112.1",
+		"X-Stainless-Package-Version":               "0.128.0",
 		"X-Stainless-OS":                            "MacOS",
 		"X-Stainless-Arch":                          "arm64",
 		"X-Stainless-Runtime":                       "node",

@@ -23,6 +23,7 @@ re-document it per patch — note "A/B unchanged" in the row instead.
 
 | cc version | date (UTC) | type | note |
 |---|---|---|---|
+| 2.1.308 | 2026-10-22 | UA + Stainless | Local `claude --version` → 2.1.308; bundled CLI binary embeds `$A="0.128.0"` as `X-Stainless-Package-Version` (not npm `@anthropic-ai/sdk` 1.1.0 advisory). Bump Stainless `0.112.1` → `0.128.0` in constants + identity canonical HTTP + `tk_canonical_cc_oauth.json`. TLS/beta not re-captured. |
 | 2.1.303 | 2026-10-19 | pure UA | Local `claude --version` ground truth; sync via check-cc-version-sync --write. Closes #2710. |
 | 2.1.302 | 2026-10-17 | pure UA | Local `claude --version` ground truth; sync via check-cc-version-sync --write. Closes #2683. |
 | 2.1.301 | 2026-10-16 | pure UA | Local `claude --version` ground truth; sync via check-cc-version-sync --write. Closes #2659. |
