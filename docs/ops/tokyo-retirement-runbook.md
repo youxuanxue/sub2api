@@ -1,6 +1,6 @@
 # 冻结 Tokyo 退役 · 日本代理关停 · 腾讯续费 Runbook
 
-状态：**仅计划，未执行任何停机/删除/续费**（2026-10-22 只读核实）。
+状态（2026-10-22 执行记录）：用户批准提前退役。**已执行**：第 2 步最终快照（`snap-06612941333b662e8` 数据卷、`snap-0724597870487cf4a` 根卷，completed）、第 5.1 步 Tokyo 停机、第 6.3/6.4 步 jp 代理快照+停机、第 6.6 步 `proxies` 行 2-5 软删（用户经 Admin UI，2026-10-23 01:02 JST）、第 7 节改月自动续费。**未执行**（不可逆，逐步审批）：第 4 步仓库清理、第 5.2-5.4 步删栈/卷/OIDC retarget、第 6.5 步删机/释放 IP（第 6.2 步停用已被直接软删取代）。
 舰队事实只在 [舰队 SSOT](../../deploy/hetzner/README.md)；现网身份与宿主 watcher owner 为
 [`deploy/tencent/candidate-usw-20261022.json`](../../deploy/tencent/candidate-usw-20261022.json) 的 `target` / `host_watch`。
 LUKS 自动解锁另见 [方案](tencent-luks-autounlock-plan.md)。
@@ -119,7 +119,7 @@ Tokyo 删机前合并，保证没有任何代码路径还能把 SSM 发往 `i-04
 
 事实：腾讯 prod 上 `tokenkey-qa-provision.timer/.service` 为 not-found；`/usr/local/lib/tokenkey/qa-local/b125c568906dcf83/config.json` 的 `phases` 只有 `["cleanup"]`（二进制 SHA-256 `d5f9e157…5a5d7d`），`/var/lib/tokenkey/qa-local/` 无 `provision.json`。qa_records 未来分区只到 2026-10-25 01:00 UTC，过期后写入落 DEFAULT 或失败。
 **已执行**：2026-10-22 13:29 UTC 经用户批准，由统筹执行 `local_maintenance_host.py install --apply`。新 bundle `/usr/local/lib/tokenkey/qa-local/f708551425f58eeb`（phases provision+cleanup），首轮未来分区 72/72，`tokenkey-qa-provision.timer` enabled/active；回滚备份 `/var/backups/tokenkey-qa-local/20261022T132922246441Z`。
-watcher：`host_watch.local_qa_jobs` 已加 `tokenkey-qa-provision`，前置条件已满足，重装 watcher 后即纳入监控（缺失或停用时报 `timer disabled or inactive`）。
+watcher：已于 2026-10-22 15:24 UTC 经用户批准重装（bundle `95998671d971c8ce`，`local_qa_jobs` 含 `tokenkey-qa-provision`，dry-run 全部健康；回滚备份 `/var/backups/tokenkey-https-watch/20261022T152459871497Z`）。缺失或停用时报 `timer disabled or inactive`。
 
 以下命令保留供换机/重装参考：
 
@@ -153,9 +153,9 @@ apply **[可逆·审批]**：同一命令加 `--apply`。效果：新建内容�
 
 ## 9. 审批清单（按紧急度）
 
-0. ~~安装 `tokenkey-qa-provision`~~：已执行（2026-10-22 13:29 UTC，第 8 节）；剩余：合并后重装 prod watcher **[审批]**。
+0. ~~安装 `tokenkey-qa-provision` 并重装 prod watcher~~：已执行（provision 13:29 UTC，watcher 15:24 UTC）。
 1. ~~切流前 DLM 快照是否复制保留~~：2026-10-22 用户决定不保留，任其轮换；DB 由 S3 `prod/postgres` timeline 1 覆盖。
-2. 2026-11-14 前：腾讯续费方案（第 7 节）。
-3. ≥2026-10-29：Tokyo 退役日期、仓库清理 PR、停机→删栈→数据卷处置、OIDC retarget。
-4. 任意时间：`jp-*` 关停（门禁已满足），含静态 IP 释放与 `proxies` 软删。
+2. ~~腾讯续费方案~~：2026-10-22 用户决定月自动续费，已改 `NOTIFY_AND_AUTO_RENEW`。
+3. Tokyo 退役：2026-10-22 用户批准提前退役，已停机；剩余仓库清理 PR → 删栈 → 数据卷处置 → OIDC retarget。
+4. `jp-*` 关停：已快照并停机；`proxies` 已软删；剩余观察 ≥24h 后删机与静态 IP 释放。
 5. LUKS 演练预算（见 [方案](tencent-luks-autounlock-plan.md)）。
