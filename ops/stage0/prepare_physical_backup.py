@@ -13,6 +13,22 @@ from pathlib import Path
 
 from postgres_backup import configuration, run
 
+ARCHITECTURES = ("amd64", "arm64")
+# Live prod target matrix; its target.architecture names the host the bundle is for.
+DEFAULT_MATRIX = (
+    Path(__file__).resolve().parents[2] / "deploy/tencent/candidate-usw-20261022.json"
+)
+
+
+def target_architecture(explicit: str | None, matrix: Path) -> str:
+    """Explicit --architecture wins; otherwise the target matrix decides."""
+    if explicit:
+        return explicit
+    value = json.loads(matrix.read_text()).get("target", {}).get("architecture")
+    if value not in ARCHITECTURES:
+        raise ValueError(f"target matrix {matrix} has no valid target.architecture")
+    return value
+
 
 def validate_image_export(archive: tarfile.TarFile, selected: str) -> str:
     """Docker's classic store identifies configs; containerd identifies OCI roots."""
@@ -55,14 +71,26 @@ def main() -> None:
     parser.add_argument("--bucket", required=True)
     parser.add_argument("--region", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--architecture",
+        choices=ARCHITECTURES,
+        help="target host architecture; default is target.architecture in --matrix",
+    )
+    parser.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX)
+    # Tokyo chain prod/postgres is frozen; the live Tencent chain is
+    # /candidates/tencent-usw-20261022/postgres. Never let a default pick it.
+    parser.add_argument("--repo-path", required=True)
     args = parser.parse_args()
+    expected = target_architecture(args.architecture, args.matrix)
     source = Path(__file__).resolve().parent
     image = json.loads(run(["docker", "image", "inspect", args.image]))[0]
     # Validate both Docker storage formats without confusing config/index IDs.
     with tarfile.open(args.image_tar) as archive:
         config_id = validate_image_export(archive, image["Id"])
-    if image["Architecture"] != "arm64":
-        raise ValueError("production bundle requires ARM64")
+    if image["Architecture"] != expected:
+        raise ValueError(
+            f"bundle image is {image['Architecture']}; target host requires {expected}"
+        )
     with tempfile.TemporaryDirectory(prefix="tk-physical-bundle-") as temp:
         root = Path(temp)
         for name in (
@@ -78,7 +106,7 @@ def main() -> None:
         shutil.copy2(args.billing_check, root / "backup-billing-check")
         (root / "config").mkdir()
         (root / "config/pgbackrest.conf").write_text(
-            configuration(args.bucket, args.region)
+            configuration(args.bucket, args.region, args.repo_path)
         )
         (root / "manifest.json").write_text(
             json.dumps(
@@ -86,6 +114,7 @@ def main() -> None:
                     "image": image["Id"],
                     "config_image_id": config_id,
                     "architecture": image["Architecture"],
+                    "repo_path": args.repo_path,
                 }
             )
         )

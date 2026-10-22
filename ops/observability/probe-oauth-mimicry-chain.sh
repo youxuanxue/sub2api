@@ -92,8 +92,11 @@ def resolve_container(container: str) -> tuple[str | None, list[str]]:
 
 
 def psql_json(sql: str) -> list[dict]:
+    pg = _tk.resolve_postgres(_os.environ.get("POSTGRES_CONTAINER", "auto"))
+    if pg is None:
+        return [{"error": "postgres container unresolved"}]
     cmd = [
-        "docker", "exec", "tokenkey-postgres",
+        "docker", "exec", pg,
         "psql", "-U", "tokenkey", "-d", "tokenkey", "-X", "-A", "-t", "-c", sql,
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)

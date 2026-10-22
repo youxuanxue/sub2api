@@ -45,19 +45,16 @@ Owner skill：[`tokenkey-host-replacement`](../../.cursor/skills/tokenkey-host-r
 
 | 项 | 值 |
 |---|---|
-| 容器 | `tokenkey`、`tokenkey-caddy`、`tk-cutover-prod-redis`、`tk-archive-standby` |
-| App DB/Redis env | 仍为 `tk-archive-standby` / `tk-cutover-prod-redis`（容器内未改） |
+| 容器（2026-10-22 首次蓝绿后） | `tokenkey-blue` / `tokenkey-green`（活动色）、`tokenkey`（socat 控制代理）、`tokenkey-caddy`、`tk-cutover-prod-redis`、`tk-archive-standby` |
 | 网络别名 | PG:`postgres`；Redis:`redis`,`tokenkey-redis` |
 | Docker Root | `/srv/tokenkey-rehearsal/docker`（例外） |
-| 活镜像 tag | `1.8.313`（窗内未 pull） |
+| 活镜像 | 以 `run-probe` 实测为准（不在此记 tag） |
 
 ## 发版门禁
 
-- **可以**开始走标准 `deploy-stage0` 的前置条件：活 `.env` 在 `/var/lib/tokenkey/.env`，存在 legacy `tokenkey` 容器供蓝绿首次迁移。
-- **注意**：首次 stock 蓝绿仍会按脚本从 `tokenkey` 迁到 `tokenkey-blue/green`；依赖网络别名 `postgres`/`redis`。发版前建议先 `operation=check` / warm，不要与布局窗混做。
-- Redis/PG **容器名**仍非 Stage0 字面名；靠 alias。若要物理改名，另批窗口（可选整洁，非迁机主路径）。
-- **首次蓝绿前硬门禁**（只读）：`bash ops/observability/run-probe.sh --target prod --script ops/stage0/probe-tencent-bluegreen-prereqs.sh`，须 `verdict=ready`。覆盖：`docker compose` 插件、`tokenkey_tokenkey-network` + DNS 别名、`formal/app/config.yaml`、**实挂** Caddyfile 路径（本机为 `formal/caddy/Caddyfile.cutover`，不是 Stage0 副本）、本地镜像或 GHCR 登录。
-- 蓝绿脚本已对齐例外路径：解析实挂 Caddyfile、app 数据用 `formal/app`、缺 `/var/lib/tokenkey/aws` 时跳过挂载、digest 镜像回退 `.env` tag、本地已有镜像则跳过 pull。**人工批准前禁止 dispatch deploy。**
+- 首次蓝绿已完成（2026-10-22）：标准 `deploy-stage0` 为日常发版路径；依赖网络别名 `postgres`/`redis`。
+- Redis/PG **容器名**仍非 Stage0 字面名。网络别名只解决容器间 DNS，**不**解决宿主 `docker exec`：宿主探针须用 `ops/lib/resolve-app-container.sh` 的 `tk_resolve_postgres_container`，不要硬写 `tokenkey-postgres`。物理改名另批窗口（可选整洁）。
+- 蓝绿前只读门禁仍可用：`bash ops/observability/run-probe.sh --target prod --script ops/stage0/probe-tencent-bluegreen-prereqs.sh`，须 `verdict=ready`。
 
 ## 明确不做（仍成立）
 

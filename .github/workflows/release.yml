@@ -15,7 +15,7 @@ on:
         # 共享 tag —— 任何 ARM 主机（AWS Graviton t4g/c7g/m7g 等）拉到这些 tag 都会
         # 立即崩溃在 "exec format error"。仅在确认所有消费者都是 amd64 时才开启。
         # 默认关闭；启用必须人工 dispatch 时显式打勾。
-        description: '⚠️ amd64-only build. WILL break ARM (Graviton) consumers using :latest. Default false; enable only if you know every host is amd64.'
+        description: '⚠️ amd64-only build. WILL break arm64 consumers using :latest. Default false; enable only if you know every host is amd64.'
         required: false
         type: boolean
         default: false

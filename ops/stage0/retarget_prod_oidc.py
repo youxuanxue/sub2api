@@ -25,10 +25,18 @@ def intrinsic(loader, tag, node):
 CfnLoader.add_multi_constructor('!', intrinsic)
 
 
+def is_managed_instance_grant(resource):
+    """True for any SendCommand resource that names an SSM Hybrid managed instance."""
+    return 'managed-instance/' in json.dumps(resource)
+
+
 def render(live, canonical):
     result = copy.deepcopy(live)
-    result['Parameters']['TargetInstanceRegion'] = canonical['Parameters']['TargetInstanceRegion']
-    result['Conditions']['HasProdRegion'] = canonical['Conditions']['HasProdRegion']
+    # TargetInstanceId must accept mi-* and the Resource branch needs its condition.
+    for name in ('TargetInstanceId', 'TargetInstanceRegion'):
+        result['Parameters'][name] = canonical['Parameters'][name]
+    for name in ('HasProdRegion', 'IsHybridProdInstance'):
+        result['Conditions'][name] = canonical['Conditions'][name]
     def statements(template):
         policies = template['Resources']['ClusteringRole']['Properties']['Policies']
         return next(p['PolicyDocument']['Statement'] for p in policies if p['PolicyName'] == 'SsmSendCommandStage0')
@@ -37,7 +45,12 @@ def render(live, canonical):
     new_send = [s for s in new if s.get('Fn::If', [None])[0] == 'HasProdInstance']
     if len(old_send) != 1 or len(new_send) != 1:
         raise ValueError('ambiguous prod SendCommand policy')
-    old_send[0]['Fn::If'][1]['Resource'] = new_send[0]['Fn::If'][1]['Resource']
+    canonical_resources = new_send[0]['Fn::If'][1]['Resource']
+    # Live mi-* grants added outside this template (e.g. a hand-pinned Hybrid ARN)
+    # are kept: retargeting must never shrink Hybrid SendCommand authorization.
+    kept = [r for r in old_send[0]['Fn::If'][1]['Resource']
+            if is_managed_instance_grant(r) and r not in canonical_resources]
+    old_send[0]['Fn::If'][1]['Resource'] = copy.deepcopy(canonical_resources) + kept
     for sid in ('DescribeInstanceInformationForSsmReadiness', 'ReadQaRawArchiveNetworkForDiagnostics', 'ReadEbsSnapshotsForDiagnostics'):
         targets = [s for s in old if s.get('Sid') == sid]
         sources = [s for s in new if s.get('Sid') == sid]

@@ -409,7 +409,7 @@ def _run_json_query(sql: str, container: str) -> list[dict[str, Any]]:
     return rows
 
 
-def _resolve_container(value: str) -> str:
+def _resolver_module():
     resolver = os.environ.get("TK_RESOLVER_PY", "/tmp/resolve_app_container.py")
     if not os.path.isfile(resolver):
         local = os.path.join(os.path.dirname(__file__), "..", "lib", "resolve_app_container.py")
@@ -422,13 +422,30 @@ def _resolve_container(value: str) -> str:
         if spec and spec.loader:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            container, _ = module.resolve(value or "auto")
-            if container:
-                return container
-            raise RuntimeError("app container unresolved; refusing to guess")
+            return module
+    return None
+
+
+def _resolve_container(value: str) -> str:
+    module = _resolver_module()
+    if module is not None:
+        container, _ = module.resolve(value or "auto")
+        if container:
+            return container
+        raise RuntimeError("app container unresolved; refusing to guess")
     if value and value != "auto":
         return value
     raise RuntimeError("canonical app-container resolver not found")
+
+
+def _resolve_postgres_container(value: str) -> str:
+    module = _resolver_module()
+    if module is None:
+        raise RuntimeError("canonical container resolver not found")
+    container = module.resolve_postgres(value or "auto")
+    if container:
+        return container
+    raise RuntimeError("postgres container unresolved; refusing to guess")
 
 
 def _docker_log_lines(container: str, since: dt.datetime, until: dt.datetime) -> Iterable[str]:
@@ -537,8 +554,9 @@ SELECT row_to_json(t)::text FROM (
  ORDER BY ul.created_at ASC LIMIT {max_rows + 1}
 ) t;
 """
-    errors = _run_json_query(error_sql, "tokenkey-postgres")
-    successes = _run_json_query(success_sql, "tokenkey-postgres")
+    postgres = _resolve_postgres_container(os.environ.get("POSTGRES_CONTAINER", "auto"))
+    errors = _run_json_query(error_sql, postgres)
+    successes = _run_json_query(success_sql, postgres)
     log_coverage: dict[str, Any] = {"log_source": "docker"}
     if os.environ.get("LOG_DIR"):
         log_lines = _retained_log_lines(os.environ["LOG_DIR"], since_at, until_at, log_coverage)

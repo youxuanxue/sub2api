@@ -1,7 +1,7 @@
 ---
 title: Kiro Payload Overflow Contract
 status: approved
-approved_by: "user (explicitly requested the overflow-policy fix after direct Kiro probing)"
+approved_by: "user (explicitly requested the overflow-policy fix after direct Kiro probing; 2026-10-22 requested the measured kiro-lb#60 and Kiro-Go#119 reduction)"
 approved_at: 2026-10-17
 owners: [tk-gateway]
 risk: high
@@ -26,14 +26,36 @@ translation; it is not a limit on the client's original HTTP body.
 
 ## Approved Behavior
 
-The translator may remove the oldest conversation history until the final Kiro
-payload fits. It preserves system priming, the recent and active tool turn, and
-the current message. It must never shorten or replace the current user message,
-and it must not silently alter fixed current-turn tool definitions to force the
-request under the limit.
+The translator reduces a payload that exceeds 900 KiB in this order:
 
-If the payload remains above 900 KiB after removable history is exhausted, the
-gateway rejects it locally before any upstream call:
+1. Remove oldest history screenshots one at a time, keep the surrounding turn
+   text, and append an omission note. System priming is not stripped.
+2. Remove the oldest conversation history turns. Preserve system priming, the
+   recent and active tool turn, and the current user prose.
+3. If the payload is still over, clip the largest tool-result text to an 8 KiB
+   head and a 4 KiB tail, including tool output already folded into message
+   content after the `Tool results:` marker. Leave user prose outside that
+   marker unchanged.
+4. If the payload is still over, drop oldest screenshots on the current message.
+5. When steps 3–4 bring the payload under the limit, restore history turns that
+   were removed only to make room for that current-message bulk. Drop turns
+   again only if the restored history still does not fit.
+
+Requests that are already under 900 KiB stay byte-identical. The translator
+must not shorten current user prose and must not alter tool definitions to
+force the request under the limit. JPEG recompression and always-on RTK output
+filters are not part of this policy: the former changes bytes Kiro validates,
+and the latter rewrites fitting tool output.
+
+This reduction was requested on 2026-10-22 after measuring
+minpeter/kiro-lb#60 and Quorinex/Kiro-Go#119 against the observed
+1,130,062-byte 413. History-image removal is the part of kiro-lb#60 that
+kept text turns. Kiro-Go's RTK filters were not ported. The gated tool-result
+clip is the measured replacement for their smart truncate, which does not
+shrink a single oversized line.
+
+If the payload remains above 900 KiB after the reductions above, the gateway
+rejects it locally before any upstream call:
 
 | Client API | HTTP status | Error type |
 | --- | --- | --- |
@@ -47,8 +69,8 @@ account health.
 
 ## Scope Boundary
 
-This decision does not raise the Kiro wire limit, summarize history, truncate
-the latest message, or add provider fallback. It does not change authentication,
+This decision does not raise the Kiro wire limit, summarize history, shorten
+current user prose, or add provider fallback. It does not change authentication,
 billing, scheduling, persistence, database schema, or deployment state. A future
 limit change requires new direct evidence because Kiro does not publish this
 threshold as a stable contract.

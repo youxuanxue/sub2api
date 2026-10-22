@@ -2,7 +2,31 @@
 # Read-only prod QA Phase 2 live health snapshot for ops-daily-diagnostics.
 set -u
 
-PSQL=(docker exec -i -e 'PGOPTIONS=-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=5s' tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
+# Canonical container resolver (ops/lib/resolve-app-container.sh). run-probe.sh
+# ships it next to this probe via --with; prod_phase2_live_health.py prepends it
+# to the script body, so an already-defined function is reused as-is.
+if ! declare -F tk_resolve_postgres_container >/dev/null; then
+  _tk_resolver=""
+  for _cand in "${TK_LIB_DIR:-$(dirname "$0")}/resolve-app-container.sh" \
+               "$(dirname "$0")/../lib/resolve-app-container.sh"; do
+    if [ -f "$_cand" ]; then _tk_resolver="$_cand"; break; fi
+  done
+  if [ -z "$_tk_resolver" ]; then
+    echo "canonical container resolver not found (ops/lib/resolve-app-container.sh)" >&2
+    exit 1
+  fi
+  # shellcheck source=../lib/resolve-app-container.sh
+  . "$_tk_resolver"
+fi
+# Stage0 names PostgreSQL tokenkey-postgres; the Tencent USW layout keeps
+# tk-archive-standby. Unresolved stays empty: the SQL facts are then omitted and
+# the evaluator reports them missing instead of reading a guessed container.
+POSTGRES_CONTAINER="$(tk_resolve_postgres_container "${POSTGRES_CONTAINER:-auto}" || true)"
+if [ -z "$POSTGRES_CONTAINER" ]; then
+  echo "postgres container unresolved (want tokenkey-postgres or tk-archive-standby)" >&2
+fi
+export TK_POSTGRES_CONTAINER="${POSTGRES_CONTAINER}"
+PSQL=(docker exec -i -e 'PGOPTIONS=-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=5s' "${POSTGRES_CONTAINER}" psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 RECEIPT="${QA_MAINTENANCE_RECEIPT:-/var/lib/tokenkey/qa-maintenance-last-run.json}"
 BOUNDARY_RECEIPT="${QA_BOUNDARY_RECEIPT:-/var/lib/tokenkey/qa-boundary-last-run.json}"
 
@@ -10,6 +34,7 @@ BOUNDARY_RECEIPT="${QA_BOUNDARY_RECEIPT:-/var/lib/tokenkey/qa-boundary-last-run.
 # of gateway colors. Only emit storage coordinates and a credential presence bit.
 python3 - <<'PY'
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -36,7 +61,8 @@ t=urllib.request.urlopen(r,timeout=2).read().decode()
 r=urllib.request.Request('http://169.254.169.254/latest/meta-data/iam/security-credentials/',headers={'X-aws-ec2-metadata-token':t})
 assert urllib.request.urlopen(r,timeout=2).read().strip()
 """
-        pid = subprocess.check_output(["docker", "inspect", "--format", "{{.State.Pid}}", "tokenkey-postgres"], text=True, timeout=5).strip()
+        postgres_container = os.environ.get("TK_POSTGRES_CONTAINER", "")
+        pid = subprocess.check_output(["docker", "inspect", "--format", "{{.State.Pid}}", postgres_container], text=True, timeout=5).strip() if postgres_container else ""
         if pid.isdigit() and int(pid) > 0:
             checked = subprocess.run(["nsenter", "-t", pid, "-n", "python3", "-c", probe], capture_output=True, timeout=7)
             instance_role_available = checked.returncode == 0
@@ -204,6 +230,7 @@ else
   printf 'PHASE2BOUNDARYRECEIPT null\n'
 fi
 
+if [ -n "${POSTGRES_CONTAINER}" ]; then
 python3 - <<'PY' | "${PSQL[@]}" -f -
 import os
 
@@ -255,17 +282,8 @@ WITH heartbeat AS (
   ORDER BY CASE WHEN t.window_start IS NOT NULL THEN 0 ELSE 1 END,
            s.window_start ASC
   LIMIT 1
-), terminal AS (
-  SELECT COALESCE(
-    json_agg(
-      json_build_object(
-        'window_start', to_char(s.window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-        'verification_error_code', s.verification_error_code
-      )
-      ORDER BY s.window_start
-    ),
-    '[]'::json
-  ) AS items
+), terminal_rows AS (
+  SELECT s.window_start, s.verification_error_code
   FROM qa_archive_shards s
   CROSS JOIN cutover c
   CROSS JOIN latest_normal n
@@ -274,6 +292,40 @@ WITH heartbeat AS (
     AND s.window_start < n.window_start
     AND s.state = 'failed'
     AND s.verification_error_code IS NOT NULL
+), terminal AS (
+  -- Bounded summary of the terminal inventory: the full per-window list grows
+  -- with every failed hour and overflowed SSM's 24 KB inline stdout. The
+  -- evaluator only needs the distinct error codes and whether the compensation
+  -- windows it correlates (receipt target, control row) are in the inventory.
+  SELECT json_build_object(
+    'count', (SELECT count(*) FROM terminal_rows),
+    'by_code', COALESCE((
+      SELECT json_object_agg(g.code, g.n ORDER BY g.code)
+      FROM (
+        SELECT verification_error_code AS code, count(*) AS n
+        FROM terminal_rows
+        GROUP BY verification_error_code
+      ) g
+    ), '{{}}'::json),
+    'first_window_start', (
+      SELECT to_char(min(window_start) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') FROM terminal_rows
+    ),
+    'last_window_start', (
+      SELECT to_char(max(window_start) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') FROM terminal_rows
+    ),
+    'compensation_matches', COALESCE((
+      SELECT json_agg(
+        json_build_object(
+          'window_start', to_char(t.window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+          'verification_error_code', t.verification_error_code
+        )
+        ORDER BY t.window_start
+      )
+      FROM terminal_rows t
+      WHERE t.window_start = (SELECT window_start FROM comp_target)
+         OR t.window_start = (SELECT window_start FROM latest_comp)
+    ), '[]'::json)
+  ) AS summary
 ), default_child AS (
   SELECT c.oid
   FROM pg_inherits i
@@ -407,7 +459,7 @@ FROM (
              verification_error_code
       FROM latest_comp
     ) c) AS compensation,
-    (SELECT items FROM terminal) AS terminal_failures_after_cutover
+    (SELECT summary FROM terminal) AS terminal_failures_summary
 ) v
 UNION ALL
 SELECT 'PHASE2BOUNDARYHEARTBEAT ' || COALESCE((SELECT row_to_json(b)::text FROM boundary_heartbeat b), 'null')
@@ -450,3 +502,4 @@ FROM (
 """
 )
 PY
+fi

@@ -45,6 +45,34 @@ not-json
         self.assertEqual(mapping, {"1.2.3.4": "jp-proxy-01-micro"})
         self.assertEqual(len(errors), 1)
         self.assertIn("5.6.7.8", errors[0])
+        self.assertIn("not covered", errors[0])
+        self.assertIn("deploy/hetzner/README.md", errors[0])
+
+    def test_tencent_egress_fails_closed_with_fleet_pointer(self) -> None:
+        # usw-eval* proxies live on Tencent private IPs; no Lightsail match.
+        proxies = [{"id": 9, "name": "usw-eval1", "host": "10.4.0.2"}]
+        errors = self.mod.check_proxies_live(
+            proxies=proxies,
+            instances=[{"name": "jp-proxy-01-micro", "public_ip": "1.2.3.4"}],
+            ssh_sysctl=lambda _name: self.fail("must not probe unmapped hosts"),
+        )
+        self.assertEqual(len(errors), 1)
+        self.assertIn("usw-eval1", errors[0])
+        self.assertIn("Tencent egress", errors[0])
+
+    def test_main_reports_uncovered_even_when_quiet(self) -> None:
+        import contextlib
+        import io
+        from unittest import mock
+
+        uncovered = f"proxy id=9 name='usw-eval1' host=10.4.0.2 {self.mod.UNCOVERED_REASON}"
+        err = io.StringIO()
+        with mock.patch.object(self.mod, "check_proxies_live", return_value=[uncovered]), \
+             mock.patch("sys.argv", ["proxy_bbr_live.py", "--quiet"]), \
+             contextlib.redirect_stderr(err):
+            self.assertEqual(self.mod.main(), 1)
+        self.assertIn("not verifiable", err.getvalue())
+        self.assertIn("deploy/hetzner/README.md", err.getvalue())
 
     def test_check_proxies_live_ok(self) -> None:
         proxies = [

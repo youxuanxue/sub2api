@@ -943,7 +943,8 @@
         "PROFILE_NAME=\"tk_canonical_kiro_cli\"",
         "shuffle_extensions",
         "FROM tls_fingerprint_profiles",
-        "docker exec tokenkey-postgres"
+        "docker exec \"$TK_PG\"",
+        "tk_require_postgres_container"
       ],
       "rationale": "Production observation is a read-only projection of the sole CLI-named DB row, including extension permutation semantics. It must never expose account or credential payloads and must never mutate the profile."
     },

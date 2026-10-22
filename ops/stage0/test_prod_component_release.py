@@ -202,13 +202,17 @@ tk_resolve_qa_runtime
 
 
 class QARuntimeInstallTest(unittest.TestCase):
-    def run_install(self, *, fail_promotion=False, keep_previous=False):
+    def run_install(self, *, fail_promotion=False, keep_previous=False, live_postgres="tokenkey-postgres"):
         image = REPOSITORY + ":1.8.215"
         names = {"tokenkey-qa-runtime": "old"}
         captured_env = []
 
         def command(*args):
-            if args[:3] == ("docker", "inspect", "tokenkey-postgres"):
+            if args[:2] == ("docker", "inspect") and "{{.State.Running}}" in args:
+                if args[-1] == live_postgres:
+                    return "true"
+                raise installer.subprocess.CalledProcessError(1, args)
+            if args[:3] == ("docker", "inspect", live_postgres):
                 return json.dumps([{"NetworkSettings": {"Networks": {"data": {}}}}])
             if args[:2] == ("docker", "compose"):
                 return json.dumps(
@@ -279,6 +283,17 @@ class QARuntimeInstallTest(unittest.TestCase):
         self.assertEqual(names["tokenkey-qa-runtime"], "new")
         self.assertIn("old", names.values())
         self.assertIn("QA_ARCHIVE_SEAL_DELAY_MINUTES=15\n", captured_env[0])
+
+    def test_tencent_layout_postgres_network_is_resolved(self):
+        names, _ = self.run_install(live_postgres="tk-archive-standby")
+        self.assertEqual(names["tokenkey-qa-runtime"], "new")
+
+    def test_postgres_candidates_match_canonical_resolver(self):
+        sys.path.insert(0, str(ROOT / "ops/lib"))
+        self.addCleanup(sys.path.remove, str(ROOT / "ops/lib"))
+        import resolve_app_container
+
+        self.assertEqual(installer.POSTGRES_CANDIDATES, resolve_app_container.POSTGRES_CANDIDATES)
 
     def test_runtime_rejects_mutable_image_before_docker_calls(self):
         with patch.object(installer, "command") as command:

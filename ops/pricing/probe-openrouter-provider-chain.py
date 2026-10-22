@@ -336,8 +336,8 @@ def fetch_keys_via_ssm() -> str:
     inst = ssm.resolve_prod_instance()
     preferred = SELLER_KEY_NAME
     py = f"""
-import subprocess, json
-PSQL = ["sudo", "docker", "exec", "-i", "tokenkey-postgres",
+import os, subprocess, json
+PSQL = ["sudo", "docker", "exec", "-i", os.environ["TK_PG"],
         "psql", "-U", "tokenkey", "-d", "tokenkey", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c"]
 USER_ID = {BILLING_USER_ID}
 PREFERRED = {preferred!r}
@@ -362,7 +362,7 @@ print(json.dumps({{"key": key}}))
 """
     shell = f"python3 - <<'PY'\n{py}\nPY"
     b64 = base64.b64encode(shell.encode()).decode()
-    out = ssm.run_shell_b64(inst, b64, "or-provider chain probe keys")
+    out = ssm.run_shell_b64(inst, b64, "or-provider chain probe keys", preamble=ssm.data_container_preamble())
     for line in reversed(out.splitlines()):
         line = line.strip()
         if line.startswith("{"):

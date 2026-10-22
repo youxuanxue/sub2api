@@ -4,6 +4,13 @@
 `policy` emits the narrowly scoped policy for review/simulation. `refresh` on the
 explicit target copies SSM Agent's temporary identity into tmpfs pgBackRest
 configuration after verifying STS identity. No credentials enter output.
+
+Host identity (SSM instance, hostname, Hybrid role name, SSM region) comes from
+the Tencent prod matrix, never from constants here. Lookup order:
+  1. $TK_TENCENT_PROD_MATRIX (explicit path; host installs set this)
+  2. candidate-usw-20261022.json next to this file (host installs may ship it)
+  3. deploy/tencent/candidate-usw-20261022.json in a repo checkout
+No readable, complete matrix -> every action fails closed.
 """
 from __future__ import annotations
 
@@ -24,12 +31,48 @@ import xml.etree.ElementTree as ET
 
 from postgres_backup import configuration
 
+MATRIX_NAME = 'candidate-usw-20261022.json'
+
+
+def matrix_candidates():
+    explicit = os.environ.get('TK_TENCENT_PROD_MATRIX', '').strip()
+    if explicit:
+        # An explicit path is authoritative: do not fall through to a different file.
+        return [Path(explicit)]
+    here = Path(__file__).resolve().parent
+    return [here / MATRIX_NAME, here.parents[1] / 'deploy' / 'tencent' / MATRIX_NAME]
+
+
+def load_target(candidates=None):
+    """Return the identity fields from the first readable matrix, or raise ValueError."""
+    for path in candidates if candidates is not None else matrix_candidates():
+        try:
+            target = json.loads(path.read_text(encoding='utf-8'))['target']
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        fields = {key: target.get(key) for key in
+                  ('expected_ssm_instance_id', 'hostname', 'ssm_hybrid_role_name', 'ssm_region')}
+        if not all(isinstance(v, str) and v for v in fields.values()):
+            raise ValueError('incomplete Tencent prod matrix: ' + str(path))
+        if not fields['expected_ssm_instance_id'].startswith('mi-'):
+            raise ValueError('Tencent prod matrix instance is not an SSM Hybrid id')
+        return fields
+    raise ValueError('Tencent prod matrix not found')
+
+
+try:
+    _TARGET = load_target()
+except ValueError:
+    _TARGET = None
+
 ACCOUNT = '682751977094'
-ROLE = 'tokenkey-lightsail-ssm-hybrid'
+# IAM RoleId is not part of the host matrix; it is fixed by the role itself.
 ROLE_ID = 'AROAZ55ZQM2DC6BZQWQ4B'
-INSTANCE = 'mi-080ed76dc6d97d8b5'
-HOST = 'VM-0-16-ubuntu'
-USER_ID = ROLE_ID + ':' + INSTANCE
+ROLE = _TARGET and _TARGET['ssm_hybrid_role_name']
+INSTANCE = _TARGET and _TARGET['expected_ssm_instance_id']
+HOST = _TARGET and _TARGET['hostname']
+SSM_REGION = _TARGET and _TARGET['ssm_region']
+USER_ID = _TARGET and ROLE_ID + ':' + INSTANCE
 BUCKET = 'tokenkey-prod-physical-backup-682751977094-us-east-1'
 SOURCE_PREFIX = 'prod/postgres'
 CANDIDATE_PREFIX = 'candidates/tencent-usw-20261022'
@@ -38,7 +81,13 @@ SOURCE_CONFIG = Path('/run/tokenkey-recovery/config/pgbackrest.conf')
 CANDIDATE_CONFIG = Path('/run/tokenkey-backup-candidate/config/pgbackrest.conf')
 
 
+def require_target():
+    if _TARGET is None:
+        raise ValueError('Tencent prod matrix unavailable; refusing to guess host identity')
+
+
 def policy():
+    require_target()
     bucket = 'arn:aws:s3:::' + BUCKET
     identity = {'StringEquals': {'aws:userid': USER_ID}}
     return {'Version': '2012-10-17', 'Statement': [
@@ -79,7 +128,7 @@ def read_credentials(path=CREDENTIALS, uid=0):
 
 
 def caller_identity(credentials, opener=urllib.request.urlopen):
-    region, service = 'eu-west-2', 'sts'
+    region, service = SSM_REGION, 'sts'
     host = 'sts.' + region + '.amazonaws.com'
     body = b'Action=GetCallerIdentity&Version=2011-06-15'
     stamp = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
@@ -107,6 +156,7 @@ def caller_identity(credentials, opener=urllib.request.urlopen):
 
 
 def validate_identity(identity):
+    require_target()
     if identity != {'Account': ACCOUNT, 'UserId': USER_ID,
                     'Arn': 'arn:aws:sts::' + ACCOUNT + ':assumed-role/' + ROLE + '/' + INSTANCE}:
         raise ValueError('unexpected SSM runtime identity')
@@ -142,6 +192,7 @@ def atomic_private(path, contents, uid=70):
 
 
 def refresh():
+    require_target()
     if os.geteuid() != 0 or socket.gethostname() != HOST:
         raise ValueError('wrong target host or user')
     for parent in (SOURCE_CONFIG.parent, CANDIDATE_CONFIG.parent):

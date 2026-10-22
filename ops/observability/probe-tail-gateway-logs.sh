@@ -247,9 +247,12 @@ for line in proc.stdout.splitlines():
 tail = rows[-limit:] if len(rows) > limit else rows
 
 def _psql_json_rows(sql):
+    pg = _tk.resolve_postgres(os.environ.get("POSTGRES_CONTAINER", "auto"))
+    if pg is None:
+        return {"error": "postgres container unresolved"}
     proc = subprocess.run(
         [
-            "docker", "exec", "tokenkey-postgres",
+            "docker", "exec", pg,
             "psql", "-U", "tokenkey", "-d", "tokenkey", "-X", "-A", "-t",
             "-c", sql,
         ],

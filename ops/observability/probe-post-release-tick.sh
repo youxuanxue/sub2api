@@ -207,9 +207,12 @@ FROM ops_error_logs WHERE created_at >= '{lower}'::timestamptz
 AND created_at <= '{upper}'::timestamptz AND status_code >= 500
 GROUP BY request_id;"""
     try:
+        pg = _tk.resolve_postgres(_os.environ.get("POSTGRES_CONTAINER", "auto"))
+        if pg is None:
+            raise OSError("postgres container unresolved")
         result = subprocess.run(
             ["docker", "exec", "-e", "PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=15000",
-             "tokenkey-postgres", "psql", "-XAt", "-v", "ON_ERROR_STOP=1",
+             pg, "psql", "-XAt", "-v", "ON_ERROR_STOP=1",
              "-U", "tokenkey", "-d", "tokenkey", "-c", query],
             capture_output=True, text=True, timeout=20, check=True,
         )

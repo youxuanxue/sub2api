@@ -25,19 +25,21 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
     def setUp(self) -> None:
         self.mod = load_mod()
 
-    def test_auto_defaults_fresh_aws_when_tencent_not_live(self) -> None:
+    def test_auto_fails_closed_when_tencent_not_live(self) -> None:
         with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=False), mock.patch.dict(
             "os.environ", {}, clear=True
         ), mock.patch.object(
             self.mod.subprocess, "check_output", side_effect=AssertionError("unexpected AWS lookup")
         ), mock.patch.object(self.mod.subprocess, "run", side_effect=AssertionError("unexpected cutover lookup")):
-            self.assertEqual(self.mod.resolve_mode("auto"), "aws-fresh")
+            with self.assertRaises(SystemExit):
+                self.mod.resolve_mode("auto")
 
     def test_auto_env_auto_uses_matrix_live_gate(self) -> None:
         with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=False), mock.patch.dict(
             "os.environ", {"PROD_SSM_TARGET": "auto"}, clear=True
         ):
-            self.assertEqual(self.mod.resolve_mode("auto"), "aws-fresh")
+            with self.assertRaises(SystemExit):
+                self.mod.resolve_mode("auto")
         with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=True), mock.patch.dict(
             "os.environ", {"PROD_SSM_TARGET": "auto"}, clear=True
         ):
@@ -77,6 +79,7 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
             self.assertEqual(self.mod.resolve_mode("auto"), "aws-fresh")
         instance = {"InstanceId": row["instance_id"], "PingStatus": "Online", "ComputerName": row["instance_name"]}
         with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=False), \
+             mock.patch.dict("os.environ", {"ALLOW_FROZEN_TOKYO_TARGET": "1"}), \
              mock.patch.object(self.mod, "aws_json", side_effect=AssertionError("unexpected stack lookup")), \
              mock.patch.object(self.mod, "list_instance_information", return_value=[instance]):
             out = self.mod.resolve_fresh_aws()
@@ -99,6 +102,13 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
              mock.patch.object(self.mod, "list_instance_information", return_value=[instance]):
             out = self.mod.resolve_fresh_aws()
             self.assertEqual(out["instance_id"], row["instance_id"])
+
+    def test_aws_fresh_refused_without_override_when_tencent_not_live(self) -> None:
+        with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=False), \
+             mock.patch.dict("os.environ", {}, clear=True), \
+             mock.patch.object(self.mod, "list_instance_information", side_effect=AssertionError("no AWS")):
+            with self.assertRaises(SystemExit):
+                self.mod.resolve_fresh_aws()
 
     def test_list_instance_information_paginates(self) -> None:
         pages = [
@@ -141,7 +151,8 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
     def test_auto_selects_tencent_when_matrix_deployable(self) -> None:
         with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=False):
             with mock.patch.dict("os.environ", {}, clear=True):
-                self.assertEqual(self.mod.resolve_mode("auto"), "aws-fresh")
+                with self.assertRaises(SystemExit):
+                    self.mod.resolve_mode("auto")
         with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=True):
             with mock.patch.dict("os.environ", {}, clear=True):
                 self.assertEqual(self.mod.resolve_mode("auto"), "tencent-usw-candidate")

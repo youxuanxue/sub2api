@@ -5,7 +5,7 @@ Release speed depends on GoReleaser's dockers_v2 path: one buildx invocation
 publishes the shared multi-arch tags directly. Reintroducing the legacy
 `dockers` + `docker_manifests` split silently adds extra registry pushes and
 manifest operations back into every release. Dropping arm64 is worse: prod and
-Edge Stage0 hosts are Graviton.
+Release tags are consumed by both amd64 and arm64 hosts.
 """
 
 from __future__ import annotations
@@ -114,7 +114,7 @@ def _check_multiarch(path: pathlib.Path, doc: dict) -> list[str]:
     if platforms != ["linux/amd64", "linux/arm64"]:
         errors.append(
             f"{_rel(path)} dockers_v2[0].platforms = {platforms!r}; expected "
-            "['linux/amd64', 'linux/arm64'] for Graviton-safe release tags."
+            "['linux/amd64', 'linux/arm64'] for multi-arch release tags."
         )
 
     tags = cfg.get("tags")

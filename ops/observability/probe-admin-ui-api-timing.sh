@@ -4,7 +4,18 @@ set -euo pipefail
 
 BASE_URL="${BASE_URL:-https://api.tokenkey.dev/api/v1}"
 HOST_HEADER="${HOST_HEADER:-}"
-PSQL="${PSQL:-docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t}"
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+if [ -z "${PSQL:-}" ]; then
+  TK_PG="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
+fi
+PSQL="${PSQL:-docker exec $TK_PG psql -U tokenkey -d tokenkey -X -A -t}"
 TIMEOUT="${TIMEOUT:-20}"
 
 ADMIN_KEY="$($PSQL -c "SELECT value FROM settings WHERE key='admin_api_key' LIMIT 1" 2>/dev/null | head -n1 || true)"

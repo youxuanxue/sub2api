@@ -13,6 +13,7 @@ import unittest
 
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "probe-qa-phase2-live-health.sh"
+_RESOLVER_DIR = pathlib.Path(__file__).resolve().parents[1] / "lib"
 
 
 class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
@@ -22,6 +23,7 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
         receipt: dict | None = None,
         boundary_receipt: dict | None = None,
         psql_lines: list[str] | None = None,
+        running: tuple[str, ...] = ("tokenkey-postgres",),
     ) -> tuple[str, str]:
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
@@ -42,7 +44,21 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
                     """\
                     #!/usr/bin/env bash
                     set -u
+                    if [ "$1" = inspect ] && [ "$2" = --format ]; then
+                      name="${4:-}"
+                      case " $RUNNING_CONTAINERS " in
+                        *" $name "*) ;;
+                        *) exit 1 ;;
+                      esac
+                      case "$3" in
+                        "{{.State.Running}}") echo true ;;
+                        "{{.State.Pid}}") echo 0 ;;
+                        *) exit 2 ;;
+                      esac
+                      exit 0
+                    fi
                     if [ "$1" = exec ] && [[ "$*" == *" psql "* ]] && [[ "$*" == *" -f -"* ]]; then
+                      printf '%s\n' "$*" >> "$EXEC_LOG"
                       has_i=false
                       for arg in "$@"; do
                         if [ "$arg" = "-i" ]; then
@@ -99,6 +115,10 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
             env["QA_BOUNDARY_RECEIPT"] = str(boundary_receipt_path)
             env["PSQL_LOG"] = str(psql_log)
             env["PSQL_OUTPUT"] = str(psql_output)
+            env["RUNNING_CONTAINERS"] = " ".join(running)
+            exec_log = root / "exec.log"
+            env["EXEC_LOG"] = str(exec_log)
+            env["TK_LIB_DIR"] = str(_RESOLVER_DIR)
             completed = subprocess.run(
                 ["bash", str(_SCRIPT)],
                 capture_output=True,
@@ -107,6 +127,7 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
                 env=env,
             )
             log = psql_log.read_text(encoding="utf-8") if psql_log.exists() else ""
+            self.exec_log = exec_log.read_text(encoding="utf-8") if exec_log.exists() else ""
             return completed.stdout + completed.stderr, log
 
     def test_probe_emits_sql_without_psql_variable_syntax(self) -> None:
@@ -115,7 +136,7 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
         }
         psql_lines = [
             'PHASE2HEARTBEAT {"last_result":"status=committed"}',
-            'PHASE2ARCHIVE {"normal":null,"compensation":null,"terminal_failures_after_cutover":[]}',
+            'PHASE2ARCHIVE {"normal":null,"compensation":null,"terminal_failures_summary":{"count":0,"by_code":{},"compensation_matches":[]}}',
             'PHASE2QARECORDS {"partition_owner":"default_only","default_rows":0,"non_default_rows":0}',
         ]
         output, sql_log = self.run_probe(receipt=receipt, psql_lines=psql_lines)
@@ -147,7 +168,7 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
     def test_probe_without_receipt_uses_null_comp_target(self) -> None:
         psql_lines = [
             'PHASE2HEARTBEAT null',
-            'PHASE2ARCHIVE {"normal":null,"compensation":null,"terminal_failures_after_cutover":[]}',
+            'PHASE2ARCHIVE {"normal":null,"compensation":null,"terminal_failures_summary":{"count":0,"by_code":{},"compensation_matches":[]}}',
             'PHASE2QARECORDS {"partition_owner":"default_only","default_rows":0,"non_default_rows":0}',
         ]
         _, sql_log = self.run_probe(psql_lines=psql_lines)
@@ -161,7 +182,7 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
         }
         psql_lines = [
             'PHASE2HEARTBEAT null',
-            'PHASE2ARCHIVE {"normal":null,"compensation":null,"terminal_failures_after_cutover":[]}',
+            'PHASE2ARCHIVE {"normal":null,"compensation":null,"terminal_failures_summary":{"count":0,"by_code":{},"compensation_matches":[]}}',
             'PHASE2BOUNDARYHEARTBEAT {"last_result":"status=ok phase=boundary"}',
             'PHASE2QARECORDS {"future_coverage_canonical_hours":72}',
         ]
@@ -195,6 +216,31 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
         self.assertIn("AS g(hour_offset)", sql_log)
         self.assertIn("g.hour_offset", sql_log)
         self.assertNotIn("AS g(offset)", sql_log)
+
+    def test_probe_resolves_tencent_layout_postgres_name(self) -> None:
+        _, sql_log = self.run_probe(running=("tk-archive-standby",))
+        self.assertIn("comp_target AS", sql_log)
+        self.assertIn(" tk-archive-standby psql ", self.exec_log)
+        self.assertNotIn("tokenkey-postgres", self.exec_log)
+
+    def test_probe_skips_sql_when_postgres_is_ambiguous_or_missing(self) -> None:
+        for running in ((), ("tokenkey-postgres", "tk-archive-standby")):
+            with self.subTest(running=running):
+                output, sql_log = self.run_probe(running=running)
+                self.assertEqual(sql_log, "")
+                self.assertEqual(self.exec_log, "")
+                self.assertIn("postgres container unresolved", output)
+                self.assertIn("PHASE2SYSTEMD", output)
+                self.assertNotIn("PHASE2ARCHIVE", output)
+
+    def test_probe_summarizes_terminal_inventory_in_sql(self) -> None:
+        _, sql_log = self.run_probe()
+        self.assertIn("AS terminal_failures_summary", sql_log)
+        self.assertNotIn("AS terminal_failures_after_cutover", sql_log)
+        terminal_sql = sql_log[sql_log.index("), terminal AS (") : sql_log.index("), default_child AS (")]
+        self.assertIn("GROUP BY verification_error_code", terminal_sql)
+        self.assertIn("(SELECT window_start FROM comp_target)", terminal_sql)
+        self.assertIn("(SELECT window_start FROM latest_comp)", terminal_sql)
 
     def test_probe_without_docker_exec_i_skips_psql(self) -> None:
         with tempfile.TemporaryDirectory() as td:

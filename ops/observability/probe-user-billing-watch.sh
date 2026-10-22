@@ -33,38 +33,15 @@ case "$USER_IDS_OVERRIDE" in ''|*[!0-9,]*) [ -n "$USER_IDS_OVERRIDE" ] && { echo
 esac
 case "$WINDOW_MINUTES" in ''|*[!0-9]*) echo "bad WINDOW_MINUTES (want integer)" >&2; exit 2;; esac
 
-# Stage0 compose uses tokenkey-postgres; Tencent USW layout exception keeps
-# primary as tk-archive-standby (network alias postgres).
-# Match names from a captured list. `grep -q` under `pipefail` can take SIGPIPE
-# on Linux when the preferred name is not the last line, and then this probe
-# falls through to the standby.
-select_tokenkey_postgres_container() {
-  local names name stage0=0 standby=0
-  names="$(docker ps --format '{{.Names}}' 2>/dev/null || true)"
-  while IFS= read -r name; do
-    [ -z "$name" ] && continue
-    case "$name" in
-      tokenkey-postgres) stage0=1 ;;
-      tk-archive-standby) standby=1 ;;
-    esac
-  done <<EOF
-$names
-EOF
-  if [ "$stage0" -eq 1 ]; then
-    printf '%s\n' tokenkey-postgres
-  elif [ "$standby" -eq 1 ]; then
-    printf '%s\n' tk-archive-standby
-  fi
-}
-
-POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-}"
-if [ -z "$POSTGRES_CONTAINER" ]; then
-  POSTGRES_CONTAINER="$(select_tokenkey_postgres_container)"
-fi
-if [ -z "$POSTGRES_CONTAINER" ]; then
-  echo "no tokenkey postgres container (want tokenkey-postgres or tk-archive-standby)" >&2
-  exit 1
-fi
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+POSTGRES_CONTAINER="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
 PSQL="docker exec ${POSTGRES_CONTAINER} psql -U tokenkey -d tokenkey -X -A -t"
 W="interval '${WINDOW_MINUTES} minutes'"
 

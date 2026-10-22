@@ -24,6 +24,7 @@ class ProbeAccountModelTest(unittest.TestCase):
                 shutil.copy2(_SCRIPT.parent / name, root / name)
             (root / "resolve-app-container.sh").write_text(
                 'tk_resolve_app_container() { echo tokenkey-test; }\n'
+                'tk_resolve_postgres_container() { echo tk-archive-standby; }\n'
             )
             (root / "probe_reserved_resources.sh").write_text("""
  tk_probe_scope_from_platform() { echo gemini; }

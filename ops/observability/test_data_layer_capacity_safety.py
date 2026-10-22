@@ -209,6 +209,7 @@ class DataLayerCapacitySafetyTest(unittest.TestCase):
                 textwrap.dedent(
                     """\
                     #!/usr/bin/env bash
+                    if [ "$1" = inspect ]; then [ "${@: -1}" = tokenkey-postgres ] && echo true && exit 0; exit 1; fi
                     printf '%s\n' "$*" >>"$CAPTURE_PATH"
                     if [[ "$*" == *"PGSTATS "* || "$*" == *"PGGROWTH "* ]]; then
                       exit 1

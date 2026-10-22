@@ -14,7 +14,17 @@ set -euo pipefail
 
 AGENT_PLAN_ACCOUNT_ID="${AGENT_PLAN_ACCOUNT_ID:-88}"
 REQ_SLEEP="${REQ_SLEEP:-1}"
-PSQL='sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1'
+TK_DOCKER="${TK_DOCKER:-sudo docker}"
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+TK_PG="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
+PSQL="sudo docker exec -i $TK_PG psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
 
 # Candidate catalog (pi-provider-volcengine-agent-plan + ark-code-latest alias).
 CHAT_MODELS="${AGENT_PLAN_CHAT_MODELS:-kimi-k2.6 kimi-k2.7-code ark-code-latest}"

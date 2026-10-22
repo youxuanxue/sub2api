@@ -12,7 +12,7 @@
 |------|----------|---------|------------|------|
 | **prod** | `api.tokenkey.dev` | `43.162.83.233` | Lighthouse `lhins-fcwpwymt` · SSM Hybrid `mi-080ed76dc6d97d8b5` · eu-west-2 | 腾讯美西 · timeline 2 · LUKS mapper；Stage0 例外布局（见下） |
 
-四正式域名 A 记录（TTL 300）均指向 `43.162.83.233`：`tokenkey.dev` / `api.tokenkey.dev` / `api-cn.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。
+五个正式域名 A 记录（TTL 300）均指向 `43.162.83.233`：`tokenkey.dev` / `api.tokenkey.dev` / `api-cn.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。
 prod 直接使用原生账号；旧中继 stub 已软删。
 **Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已冻结写者，保留 ≥7 天；禁止解冻双写。** 不能当作现网入口。
 **布局（2026-10-22 例外路径已收敛）：** LUKS 双挂仍在；Docker Root **例外**保留 `/srv/tokenkey-rehearsal/docker`；业务 `.env` 在 `/var/lib/tokenkey/.env`；网关容器 `tokenkey` / `tokenkey-caddy`；PG/Redis 名仍为 cutover 字面量但带 `postgres`/`redis` 网络别名。默认可 `deploy-stage0`。细则 [`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)；unlock [`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
@@ -78,7 +78,9 @@ UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 名称含 uk/us 不代表物理地域。BBR 验收：`python3 scripts/checks/check-host-bbr-ssot.py --live`。
 
 - 活 prod 身份：`../tencent/candidate-usw-20261022.json`（`deployable=true` 时由 `resolve_prod_ssm_target` 解析）。
-- `../aws/fresh-migration-20261015.json` 仅保留冻结 Tokyo inventory，以及 https-watch 的 `https_watch_hostname` / `paused_jobs` / `local_qa_jobs`；不得当作活 SSM 目标。
+- 宿主 watcher owner：`../tencent/candidate-usw-20261022.json` 的 `host_watch`（`hostname` / `domains` / `paused_jobs` / `local_qa_jobs`）。
+- `../aws/fresh-migration-20261015.json` 仅保留冻结 Tokyo inventory（显式 `aws-fresh` 只读）；不得当作活 SSM 目标，随 Tokyo 退役删除（[runbook](../../docs/ops/tokyo-retirement-runbook.md)）。
+- watcher 不随仓库合并更新：主机按安装时的内容寻址副本运行（`/usr/local/lib/tokenkey/https-watch/<hash>/config.json`）。改 `host_watch` 后须**经审批**重装：把 `install-host-https-watch.sh`、`host_https_watch.py`、`https_health.py`、`feishu_delivery.py`、`deploy/tencent/candidate-usw-20261022.json`、`deploy/domestic/prod-target.json` 按 basename 放进 `WATCH_BUNDLE_DIR`，先不带 `APPLY` 跑一遍（只核身份并打印配置），与现装 config 比对后再以 `APPLY=yes-host-https-watch` 安装；prod 与 cn-prod（`WATCH_ROLE=cn-prod`）都要装。2026-10-22 起 `local_qa_jobs` 新增 `tokenkey-qa-provision`（迁机漏装）；provision 已于 2026-10-22 13:29 UTC 补装（[runbook §8](../../docs/ops/tokyo-retirement-runbook.md#8-迁机漏装tokenkey-qa-provision已补装-2026-10-22)）；现装 watcher 尚未包含它，合并后重装即生效。
 - 换机流程：[host replacement](../../.cursor/skills/tokenkey-host-replacement/SKILL.md)。
 
 ## 现网不变量
@@ -87,7 +89,7 @@ UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 |----|-----|
 | 活入口 | 腾讯美西 prod `43.162.83.233`；正式域名 A 指向该 IP（Tokyo 已冻结） |
 | prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
-| 探针 / sync Caddy | prod 解析至当前 EC2 `i-*`；已退役身份拒绝执行 |
+| 探针 / sync Caddy | prod 解析至腾讯 Hybrid `mi-*`（`resolve_prod_ssm_target.py`）；冻结/退役身份拒绝执行 |
 | live 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
 | Secrets | `/tokenkey/hetzner/…`；不进 git |
 
@@ -106,16 +108,16 @@ Stage0 单后端 Caddy 只由 `/health` 主动检查决定摘除与恢复；禁�
 bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 ```
 
-日常发版仅 prod。共享 compose、Caddy、QA 和 SSM 实现仍由现网使用；pgdump 转入历史恢复保留。
+日常发版仅 prod。2026-10-22 起已在腾讯机走完首次蓝绿（`tokenkey` 旧名现为 socat 控制代理，活动色 `tokenkey-blue/green`）。共享 compose、Caddy、QA 和 SSM 实现仍由现网使用；pgdump 转入历史恢复保留。
 
 ## 开放运维项（非过程史）
 
 1. **账号**：prod 原生账号承接请求；错误、不可调度状态由运营处理，不自动恢复中继或旧副本。
-2. **QA**：capture 沿现有配置；用户已暂停向 S3 上传。停用期望 owner 为当前 prod 清单的
+2. **QA**：capture 沿现有配置；用户已暂停向 S3 上传。停用期望 owner 为现网矩阵 `host_watch` 的
    `paused_jobs`：`tokenkey-qa-maintenance`（上传暂停）与 `tokenkey-qa-boundary`
    （历史归档验收问题保持停用，DROP pause 保留）。capture 与备份继续运行。
    暂停期巡检与恢复见 [QA 运维入口](../../ops/qa/README.md)。
-3. **监控**：东京 DLM 与 CPU/磁盘告警保留。宿主 HTTPS/job watcher 读取暂停 owner，
+3. **监控**：腾讯机无 EBS/DLM；冻结 Tokyo 的 DLM 快照随 Tokyo 退役另批处理。宿主 HTTPS/job watcher 读取暂停 owner，
    要求所列 timer 停用且 service 不在运行；意外恢复会告警。daily diagnostics 复用同一暂停清单，
    暂停期不要求归档回执刷新，boundary 与存储检查保留。其他任务仍按成功时效监控。
    主机脚本不随网关镜像自动更新；安装/刷新独立 watcher 后才生效，仓库合并不代表已部署。
@@ -186,7 +188,7 @@ cn-prod 继续使用独立 pgdump，尚未获得物理替代路径验收。
 再用 `run-probe.sh` 读取主机/容器状态。镜像回滚走原 dispatcher 部署 previous tag。
 数据库从 pgBackRest 仓库恢复到新盘，绝不能覆盖活库；跨云/新机流程见
 [pgBackRest 迁机工作流](../../ops/stage0/pgbackrest-host-migration.md)。
-每日 DLM 卷快照继续覆盖主机文件。物理备份不包含 Redis、配置密钥及外部对象。
+腾讯机目前**没有**整机/卷快照覆盖（Tokyo 的 DLM 不适用）。物理备份不包含 Redis、配置密钥及外部对象。
 旧 SQL 副本仍可用于隔离逻辑恢复，须核实所选备份的 usage 覆盖与加密材料。
 真实恢复按需执行，下次结合腾讯云迁机演练；周定时建机已撤回。已成功但过期的验证保留每日提醒，
 未验证、验证失败或当前备份链故障继续告警，分级规则见[物理备份](../../ops/stage0/physical-backup.md)。

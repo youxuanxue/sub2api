@@ -2,8 +2,9 @@
 """Resolve Stage0 prod SSM control-plane target.
 
 ``--target auto`` selects the live prod matrix: Tencent USW when
-``deploy/tencent/candidate-usw-20261022.json`` has ``deployable=true``, else
-legacy Tokyo ``aws-fresh`` (frozen; needs ``ALLOW_FROZEN_TOKYO_TARGET=1``).
+``deploy/tencent/candidate-usw-20261022.json`` has ``deployable=true``; otherwise
+it fails closed. Frozen Tokyo ``aws-fresh`` is explicit-only and always needs
+``ALLOW_FROZEN_TOKYO_TARGET=1``.
 ``PROD_SSM_TARGET`` may explicitly select modes; retired ``aws`` / ``hetzner``
 are rejected. No silent EC2 fallback when inventory fails.
 
@@ -72,7 +73,10 @@ def resolve_mode(explicit: str) -> str:
     # After 2026-10-22 cutover, live prod is Tencent when matrix.deployable=true.
     if tencent_matrix_is_live_prod():
         return "tencent-usw-candidate"
-    return "aws-fresh"
+    fail(
+        "auto: Tencent USW matrix is not deployable/resolvable; refusing to fall back "
+        "to frozen Tokyo. Fix deploy/tencent/candidate-usw-20261022.json."
+    )
 
 
 def with_browser_origin(outputs: dict[str, str]) -> dict[str, str]:
@@ -96,7 +100,7 @@ def resolve_aws(stack: str) -> dict[str, str]:
 
 def resolve_fresh_aws() -> dict[str, str]:
     """Tokyo retain identity only. Live prod is Tencent when matrix.deployable=true."""
-    if tencent_matrix_is_live_prod() and os.environ.get("ALLOW_FROZEN_TOKYO_TARGET", "").strip() != "1":
+    if os.environ.get("ALLOW_FROZEN_TOKYO_TARGET", "").strip() != "1":
         fail(
             "target=aws-fresh is frozen Tokyo after 2026-10-22 cutover; "
             "use auto/tencent-usw-candidate for live prod. "

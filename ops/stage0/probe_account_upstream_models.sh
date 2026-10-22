@@ -43,6 +43,7 @@ from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_ope
 
 sys.path.insert(0, os.environ.get("TK_LIB_DIR", ""))
 from resolve_app_container import resolve as resolve_app_container_owner
+from resolve_app_container import resolve_postgres as resolve_postgres_owner
 
 account_id, base_url, target_models_raw, model, timeout_raw = sys.argv[1:6]
 targets = target_models_raw.split()
@@ -151,8 +152,11 @@ SELECT json_build_object(
   )
 )::text;
 """
+postgres_container = resolve_postgres_owner(os.environ.get("POSTGRES_CONTAINER", "auto"), docker=("sudo", "docker"))
+if postgres_container is None:
+    setup_error("postgres container unresolved (want exactly one running Stage0 or Tencent PG container)")
 psql = [
-    "sudo", "docker", "exec", "-i", "tokenkey-postgres", "psql",
+    "sudo", "docker", "exec", "-i", postgres_container, "psql",
     "-U", "tokenkey", "-d", "tokenkey", "-X", "-q", "-A", "-t",
     "-v", "ON_ERROR_STOP=1", "-c", bootstrap_sql,
 ]

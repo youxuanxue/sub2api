@@ -16,12 +16,22 @@
 # so the threshold logic stays unit-testable (data_layer_capacity_verdict.py --selftest).
 set -u
 
+# approved anchor: docs/approved/design-capacity-first-data-layer-safety.md (read-only container target only)
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+TK_PG="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
 # PGOPTIONS is applied while libpq opens the session, before PostgreSQL starts
 # the implicit transaction used by psql -c. This makes the SELECT itself read
 # only instead of merely changing the default for a later transaction.
 PSQL=(docker exec \
   -e "PGOPTIONS=-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=2s" \
-  tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
+  "$TK_PG" psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 DATA_DIR="${TOKENKEY_DATA_DIR:-/var/lib/tokenkey}"
 
 echo "=== docker ps (tokenkey stack) ==="

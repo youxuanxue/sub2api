@@ -19,5 +19,4 @@
 
 ## 仍打开（另批）
 
-- [ ] Tokyo 保留 ≥7 天再退役
-- [ ] 日本 Lightsail 代理关停
+开放项唯一清单在 [切流清单「后续」](../../docs/ops/tencent-cutover-checklist.md#后续另批勿擅自执行)；此处不再复制。

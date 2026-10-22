@@ -21,7 +21,17 @@ import qa_phase2_health  # noqa: E402
 import verify_raw_archive_iam_contract as iam_contract  # noqa: E402
 
 PROBE = ROOT / "ops" / "observability/probe-qa-phase2-live-health.sh"
+CONTAINER_RESOLVER = ROOT / "ops/lib/resolve-app-container.sh"
 POLICY = ROOT / "ops/qa/policy.yaml"
+
+
+def probe_script_bytes() -> bytes:
+    """Probe body with the canonical container resolver defined ahead of it.
+
+    Direct SSM delivery ships one file, so the resolver run-probe.sh uploads via
+    --with is inlined here; the probe reuses already-defined resolver functions.
+    """
+    return CONTAINER_RESOLVER.read_bytes() + b"\n" + PROBE.read_bytes()
 
 
 def live_archive_coordinates() -> dict[str, str]:
@@ -127,13 +137,16 @@ def evaluate_snapshot(
     skip_iam: bool = True,
     now: dt.datetime | None = None,
     maintenance_pause_reason: str = "",
+    boundary_pause_reason: str = "",
 ) -> dict[str, Any]:
     catchup_gap_policy = _load_catchup_gap_policy()
     health = qa_phase2_health.evaluate(
         snapshot, now=now, catchup_gap_policy=catchup_gap_policy,
         maintenance_paused=bool(maintenance_pause_reason),
+        boundary_paused=bool(boundary_pause_reason),
     )
     health["maintenance_pause_reason"] = maintenance_pause_reason
+    health["boundary_pause_reason"] = boundary_pause_reason
     storage = evaluate_storage(snapshot.get("storage"))
     if not storage["ok"]:
         health["reasons"] = sorted(set([*health.get("reasons", []), *storage["failures"]]))
@@ -177,12 +190,22 @@ def evaluate_snapshot(
     }
 
 
-def load_maintenance_pause_reason() -> str:
-    inventory = json.loads((ROOT / "deploy/aws/fresh-migration-20261015.json").read_text())
-    pause_reason = inventory["prod"].get("paused_jobs", {}).get("tokenkey-qa-maintenance", "")
+def _load_pause_reason(job: str) -> str:
+    # Single pause owner shared with the host watcher (host_watch.paused_jobs).
+    inventory = json.loads((ROOT / "deploy/tencent/candidate-usw-20261022.json").read_text())
+    pause_reason = inventory.get("host_watch", {}).get("paused_jobs", {}).get(job, "")
     if not isinstance(pause_reason, str) or (pause_reason and not pause_reason.strip()):
-        raise ValueError("QA maintenance pause requires an explicit reason")
+        raise ValueError(f"{job} pause requires an explicit reason")
     return pause_reason
+
+
+def load_maintenance_pause_reason() -> str:
+    # Sentinel anchor: get("host_watch", {}).get("paused_jobs", {}).get("tokenkey-qa-maintenance", "")
+    return _load_pause_reason("tokenkey-qa-maintenance")
+
+
+def load_boundary_pause_reason() -> str:
+    return _load_pause_reason("tokenkey-qa-boundary")
 
 
 def main() -> int:
@@ -212,26 +235,29 @@ def main() -> int:
         skip_iam = True
 
     pause_reason = load_maintenance_pause_reason()
+    boundary_reason = load_boundary_pause_reason()
 
     if args.snapshot_file is not None:
         snapshot = json.loads(args.snapshot_file.read_text(encoding="utf-8"))
-        payload = evaluate_snapshot(snapshot, skip_iam=skip_iam, maintenance_pause_reason=pause_reason)
+        payload = evaluate_snapshot(snapshot, skip_iam=skip_iam, maintenance_pause_reason=pause_reason,
+                                     boundary_pause_reason=boundary_reason)
     elif args.from_probe_stdin:
         snapshot = _parse_probe_output(sys.stdin.read())
-        payload = evaluate_snapshot(snapshot, skip_iam=skip_iam, maintenance_pause_reason=pause_reason)
+        payload = evaluate_snapshot(snapshot, skip_iam=skip_iam, maintenance_pause_reason=pause_reason,
+                                     boundary_pause_reason=boundary_reason)
     else:
-        probe_script = PROBE.read_text(encoding="utf-8")
         instance_id = resolve_prod_instance()
         remote_out = run_shell_b64(
             instance_id,
-            base64.b64encode(probe_script.encode()).decode(),
+            base64.b64encode(probe_script_bytes()).decode(),
             "prod qa phase2 live health",
         )
         snapshot = _parse_probe_output(remote_out)
         payload = {
             "region": ssm_execution.PROD_REGION,
             "instance_id": instance_id,
-            **evaluate_snapshot(snapshot, skip_iam=skip_iam, maintenance_pause_reason=pause_reason),
+            **evaluate_snapshot(snapshot, skip_iam=skip_iam, maintenance_pause_reason=pause_reason,
+                                     boundary_pause_reason=boundary_reason),
         }
     print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
     health_status = payload["health"].get("status", "failed")

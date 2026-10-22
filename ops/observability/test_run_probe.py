@@ -631,7 +631,10 @@ class RunProbePollingTest(unittest.TestCase):
         for match in re.finditer(r"(echo [A-Za-z0-9+/=]+ \| base64 -d(?: \| gzip -d)?) > (\S+)", commands):
             content = subprocess.check_output(["bash", "-o", "pipefail", "-c", match[1]])
             (delivered / pathlib.Path(match[2]).name).write_bytes(content)
-        self._write_executable(self.bin_dir / "sudo", '#!/bin/sh\nprintf \'{"admin_key":"","account":null}\\n\'\n')
+        self._write_executable(
+            self.bin_dir / "sudo",
+            '#!/bin/sh\nif [ "$2" = inspect ]; then [ "$5" = tk-archive-standby ] && echo true && exit 0; exit 1; fi\n'
+            'printf \'{"admin_key":"","account":null}\\n\'\n')
         env = dict(os.environ, PATH=f"{self.bin_dir}:{os.environ['PATH']}", ACCOUNT_ID="39", MODEL="deepseek-flash")
         env.pop("TK_LIB_DIR", None)
         result = subprocess.run(["bash", str(delivered / self.probe.name)], env=env, capture_output=True, text=True)

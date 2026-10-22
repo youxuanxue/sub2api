@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
-"""Live BBR check for admin/proxies egress hosts (Lightsail SSH).
+"""Live BBR check for admin/proxies egress hosts (Lightsail SSH only).
 
 Reads active proxy rows from prod (via run-probe + probe-list-proxies.sh),
 maps each host IP to a Lightsail instance in the proxy region, then verifies
 tcp_congestion_control=bbr and default_qdisc=fq over temporary Lightsail SSH.
 
 When direct SSH from the operator workstation times out (observed for some
-egress hosts), fall back to the same sysctl probe via Tokyo prod SSM hop —
-prod can reach proxy :22 even when the laptop path cannot.
+egress hosts), fall back to the same sysctl probe via a live-prod SSM hop
+(run-probe --target prod; the resolver picks the Tencent USW host).
+
+Coverage limit (fail closed, never silent): since 2026-10-22 the production
+egress fleet is Tencent Lighthouse (usw-eval1..4 on private 10.4.0.x, cn-ip1..5
+public). The repo records no machine-readable SSM/SSH identity for those hosts
+(see the fleet table in deploy/hetzner/README.md), so this checker cannot reach
+them. Any active proxy that is not a Lightsail instance is reported as an
+explicit "not covered" failure with that pointer, and the run exits non-zero.
 
 This is intentionally separate from the static repo wiring check so CI/preflight
 never needs Lightsail credentials or network path to egress proxies.
@@ -34,6 +41,14 @@ PROXY_PROBE = REPO / "ops/observability/probe-list-proxies.sh"
 RUN_PROBE = REPO / "ops/observability/run-probe.sh"
 
 PROXY_LINE_RE = re.compile(r"^\{.*\}$")
+
+FLEET_README = "deploy/hetzner/README.md"
+UNCOVERED_REASON = (
+    "is not covered: no Lightsail instance has that IP, and Tencent egress "
+    "(usw-eval1..4 / cn-ip1..5) has no machine-readable SSM/SSH identity in the "
+    f"repo. Verify on the host with `deploy/host/ensure-tokenkey-bbr.sh --check`; "
+    f"fleet inventory: {FLEET_README}"
+)
 
 
 def parse_proxy_probe_stdout(text: str) -> list[dict]:
@@ -99,7 +114,7 @@ def map_hosts_to_lightsail(
         if not name:
             errors.append(
                 f"proxy id={p.get('id')} name={p.get('name')!r} host={host} "
-                f"has no Lightsail instance with that public IP"
+                f"{UNCOVERED_REASON}"
             )
             continue
         mapping[host] = name
@@ -252,7 +267,7 @@ def _is_direct_ssh_transport_error(exc: BaseException) -> bool:
 def lightsail_ssh_sysctl_via_prod(
     instance_name: str, region: str, *, timeout_seconds: int = 90
 ) -> tuple[str | None, str | None]:
-    """Probe sysctl by SSHing from Tokyo prod (run-probe hop)."""
+    """Probe sysctl by SSHing from live prod (run-probe --target prod hop)."""
     access = _lightsail_access(instance_name, region)
     with tempfile.TemporaryDirectory(prefix="proxy-bbr-hop-") as tmp:
         tmp_path = pathlib.Path(tmp)
@@ -402,6 +417,15 @@ def main() -> int:
         print(f"FAIL: proxy BBR live check aborted: {exc}", file=sys.stderr)
         return 2
     if errors:
+        # Coverage failures are always printed: --quiet must not turn an
+        # unverifiable fleet into a silent non-zero exit.
+        uncovered = [e for e in errors if UNCOVERED_REASON in e]
+        if uncovered:
+            print(
+                f"FAIL: {len(uncovered)} active proxy host(s) not verifiable by this "
+                f"Lightsail-only checker; see {FLEET_README}",
+                file=sys.stderr,
+            )
         if not args.quiet:
             print("FAIL: admin/proxies BBR live check:", file=sys.stderr)
             for e in errors:

@@ -7,10 +7,21 @@ ACCOUNT_ID="${ACCOUNT_ID:?ACCOUNT_ID required}"
 MODEL="${MODEL:?MODEL required}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-45}"
 
-PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
+TK_DOCKER="${TK_DOCKER:-sudo docker}"
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+TK_PG="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
+export TK_PG
 
 python3 - "$ACCOUNT_ID" "$MODEL" "$REQUEST_TIMEOUT_SECONDS" <<'PY'
 import json
+import os
 import re
 import subprocess
 import sys
@@ -31,7 +42,7 @@ FROM accounts a
 WHERE a.id={account_id} AND a.deleted_at IS NULL;
 """
 psql = [
-    "sudo", "docker", "exec", "-i", "tokenkey-postgres", "psql",
+    "sudo", "docker", "exec", "-i", os.environ["TK_PG"], "psql",
     "-U", "tokenkey", "-d", "tokenkey", "-X", "-q", "-A", "-t",
     "-v", "ON_ERROR_STOP=1", "-c", sql,
 ]

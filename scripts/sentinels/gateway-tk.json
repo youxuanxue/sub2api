@@ -30,7 +30,7 @@
     {
       "path": "ops/observability/host_https_watch.py",
       "must_contain": [
-        "def build_config(role: str, hostname: str, fresh: dict, domestic: dict) -> dict:",
+        "def build_config(role: str, hostname: str, prod_matrix: dict, domestic: dict) -> dict:",
         "if role == \"cn-prod\":",
         "targets[\"cn-prod\"] = domestic[\"public_origin\"].rstrip(\"/\") + \"/health\"",
         "if not healthy and state[\"failures\"] >= 2:",
@@ -41,7 +41,7 @@
     {
       "path": "ops/observability/install-host-https-watch.sh",
       "must_contain": [
-        "config=build_config(role,socket.gethostname(),fresh,domestic)",
+        "config=build_config(role,socket.gethostname(),prod_matrix,domestic)",
         "if role=='cn-prod':command+=['--env-file','/opt/tokenkey/host-alerts.env']",
         "OnUnitActiveSec=2min"
       ],
@@ -183,11 +183,11 @@
       "path": "ops/stage0/resolve_prod_ssm_target.py",
       "must_contain": [
         "return \"tencent-usw-candidate\"",
-        "return \"aws-fresh\"",
+        "refusing to fall back ",
         "ALLOW_FROZEN_TOKYO_TARGET",
         "expected exactly one Online Hybrid instance"
       ],
-      "rationale": "Live prod auto-selects Tencent USW when matrix.deployable=true; aws-fresh is frozen Tokyo retain-only behind ALLOW_FROZEN_TOKYO_TARGET."
+      "rationale": "Live prod auto-selects Tencent USW when matrix.deployable=true and otherwise fails closed (never falls back to frozen Tokyo); aws-fresh is explicit-only behind ALLOW_FROZEN_TOKYO_TARGET."
     },
     {
       "path": "backend/internal/config/config.go",
@@ -5082,15 +5082,22 @@
       "must_contain": [
         "const maxPayloadBytes = 900 * 1024",
         "func ValidatePayloadSize(payload *KiroPayload) error",
-        "truncatePayloadToLimit(payload, systemPrompt != \"\")"
+        "truncatePayloadToLimit(payload, systemPrompt != \"\")",
+        "stripOldestHistoryImagesUntilFit(",
+        "clipToolResultsUntilFit(",
+        "clipNarratedToolResultsUntilFit("
       ],
-      "rationale": "Kiro payload overflow policy: retain the evidence-backed 900 KiB translated-wire guard, truncate removable history through the shared translator owner, and expose final-size validation instead of mutating the current user turn. See docs/approved/kiro-payload-overflow.md."
+      "rationale": "Kiro payload overflow policy: retain the evidence-backed 900 KiB translated-wire guard and final-size validation. History screenshots and turns are removed first. Oversized tool-result text may be clipped only while the payload is still over the limit. Current user prose and tool schemas are not rewritten. See docs/approved/kiro-payload-overflow.md."
     },
     {
       "path": "backend/internal/integration/kiro/tool_history_test.go",
       "must_contain": [
         "TestClaudeToKiro_HistoryTruncationPreservesCurrentUserContent",
-        "TestClaudeToKiro_OversizedFixedPayloadPreservesCurrentUserContent"
+        "TestClaudeToKiro_OversizedFixedPayloadPreservesCurrentUserContent",
+        "TestTruncatePayload_StripsOldestHistoryImagesBeforeDroppingTurns",
+        "TestTruncatePayload_ClipsOversizedCurrentToolResult",
+        "TestTruncatePayload_LeavesFittingToolOutputUntouched",
+        "TestClaudeToKiro_ClipsOrphanToolResultAlreadyNarrated"
       ],
       "rationale": "Executable Kiro overflow regressions preserve the current UTF-8 message during history truncation and reject fixed oversized payloads rather than replacing the latest user content."
     },
@@ -5460,9 +5467,12 @@
         "shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, canonicalModel)",
         "case \"response.created\", \"response.queued\", \"response.in_progress\", \"response.metadata\", \"keepalive\":",
         "failoverErr.SafeToFailoverAfterWrite = streamHasOnlyKeepaliveOutput(c)",
-        "return c != nil && c.Writer != nil && c.Writer.Size() > 0 && OpenAICompactKeepaliveAdjustedWrittenSize(c) < 0"
+        "return c != nil && c.Writer != nil && c.Writer.Size() > 0 && OpenAICompactKeepaliveAdjustedWrittenSize(c) < 0",
+        "const openAICapacityShedClientRetryAfterSeconds = 30",
+        "parent+\".headers.retry-after\"",
+        "case openAICapacityShedRetryableClientCode:"
       ],
-      "rationale": "openai_passthrough error handling (handleErrorResponsePassthrough) MUST propagate HandleUpstreamError's shouldDisable signal: when the rate-limit service decides the account must stop scheduling (temp-unsched rule match, 402 deactivated_workspace, OAuth 401, organization-disabled 400, ...) the current request must return UpstreamFailoverError so the handler retries on another account. Before upstream #1318, the signal was discarded with `_ =` and only the side effect on the account fired — the in-flight request was completed against the now-disabled account, surfacing to the client as the raw upstream error. After upstream cooldown-scheduling merge, the call site routes through handleOpenAIAccountUpstreamError (companion openai_account_runtime_block_fastpath.go) which still forwards shouldDisable from rateLimitService.HandleUpstreamError. Pinning the companion call (not `_ =`) catches passthrough regressions without bloating the hotspot file. Behavior is exercised end-to-end by TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover (which is pinned by its own sentinel below). Output-recovery hooks must survive upstream merges; focused recovery tests cover their semantics."
+      "rationale": "openai_passthrough error handling (handleErrorResponsePassthrough) MUST propagate HandleUpstreamError's shouldDisable signal: when the rate-limit service decides the account must stop scheduling (temp-unsched rule match, 402 deactivated_workspace, OAuth 401, organization-disabled 400, ...) the current request must return UpstreamFailoverError so the handler retries on another account. Before upstream #1318, the signal was discarded with `_ =` and only the side effect on the account fired — the in-flight request was completed against the now-disabled account, surfacing to the client as the raw upstream error. After upstream cooldown-scheduling merge, the call site routes through handleOpenAIAccountUpstreamError (companion openai_account_runtime_block_fastpath.go) which still forwards shouldDisable from rateLimitService.HandleUpstreamError. Pinning the companion call (not `_ =`) catches passthrough regressions without bloating the hotspot file. Behavior is exercised end-to-end by TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover (which is pinned by its own sentinel below). Output-recovery hooks must survive upstream merges; focused recovery tests cover their semantics. Mid-stream capacity shed must rewrite fatal overload codes to server_error AND embed error.headers.retry-after (default 30s) so Codex's sampling loop receives server retry advice — HTTP Retry-After on an already-open SSE/WS response is ignored; server_error+overloaded text must still get the header."
     },
     {
       "rationale": "openai_passthrough error handling (handleErrorResponsePassthrough) MUST propagate HandleUpstreamError's shouldDisable signal: when the rate-limit service decides the account must stop scheduling (temp-unsched rule match, 402 deactivated_workspace, OAuth 401, organization-disabled 400, ...) the current request must return UpstreamFailoverError so the handler retries on another account. Before upstream #1318, the signal was discarded with `_ =` and only the side effect on the account fired — the in-flight request was completed against the now-disabled account, surfacing to the client as the raw upstream error. After upstream cooldown-scheduling merge, the call site routes through handleOpenAIAccountUpstreamError (companion openai_account_runtime_block_fastpath.go) which still forwards shouldDisable from rateLimitService.HandleUpstreamError. Pinning the companion call (not `_ =`) catches passthrough regressions without bloating the hotspot file. Behavior is exercised end-to-end by TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover (which is pinned by its own sentinel below).",
@@ -16324,7 +16334,7 @@
         "\"qa_runtime_storage_unavailable\"",
         "skip_iam = not args.legacy_aws",
         "maintenance_paused=bool(maintenance_pause_reason)",
-        "get(\"paused_jobs\", {}).get(\"tokenkey-qa-maintenance\", \"\")"
+        "get(\"host_watch\", {}).get(\"paused_jobs\", {}).get(\"tokenkey-qa-maintenance\", \"\")"
       ],
       "rationale": "Live QA health validates the maintenance pin against the shared AWS contract, fails on missing evidence, and keeps historical AWS IAM explicit."
     },

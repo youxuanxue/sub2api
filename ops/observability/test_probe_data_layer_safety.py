@@ -25,6 +25,9 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
         app_container: str = "auto",
         partition_sql: str | None = None,
         partition_failure: bool = False,
+        postgres_container: str = "tokenkey-postgres",
+        postgres_states: dict[str, str] | None = None,
+        expect_exit: int = 0,
     ) -> tuple[dict[str, object], dict[str, object], str]:
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
@@ -108,6 +111,13 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
                 key = name.replace("-", "_").upper()
                 env[f"STATE_{key}"] = states.get(name, "missing")
                 env[f"TELEMETRY_{key}"] = telemetry.get(name, "false")
+            # Stage0 vs Tencent layout-exception PG name; exactly one runs unless
+            # postgres_states spells the boundary under test.
+            if postgres_states is None:
+                env["STATE_" + postgres_container.replace("-", "_").upper()] = "running"
+            else:
+                for name, state in postgres_states.items():
+                    env["STATE_" + name.replace("-", "_").upper()] = state
 
             proc = subprocess.run(
                 ["bash", str(_SCRIPT)],
@@ -116,7 +126,9 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
                 text=True,
                 check=False,
             )
-            self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+            self.assertEqual(proc.returncode, expect_exit, msg=proc.stderr + proc.stdout)
+            if expect_exit != 0:
+                return {}, {}, proc.stderr + proc.stdout
             telemetry_line = next(
                 (line for line in proc.stdout.splitlines() if line.startswith("TELEMETRYSTATS ")),
                 None,
@@ -191,6 +203,44 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
         self.assertIn("exec -i -e", calls)
         self.assertIn("PARTITION_SQL:", calls)
         self.assertIn("pg_get_expr(child.relpartbound, child.oid, true)", calls)
+
+    def test_layout_exception_postgres_name_is_resolved(self) -> None:
+        _, partition, calls = self.run_probe(
+            states={"tokenkey": "running"},
+            telemetry={"tokenkey": "false"},
+            postgres_container="tk-archive-standby",
+        )
+        self.assertEqual(partition, {"probe_ok": True})
+        self.assertIn("tk-archive-standby psql", calls)
+        self.assertNotIn("tokenkey-postgres psql", calls)
+
+    def test_stopped_stage0_postgres_does_not_mask_layout_exception(self) -> None:
+        _, partition, calls = self.run_probe(
+            states={"tokenkey": "running"},
+            telemetry={"tokenkey": "false"},
+            postgres_states={"tokenkey-postgres": "stopped", "tk-archive-standby": "running"},
+        )
+        self.assertEqual(partition, {"probe_ok": True})
+        self.assertIn("tk-archive-standby psql", calls)
+        self.assertNotIn("tokenkey-postgres psql", calls)
+
+    def test_two_running_postgres_candidates_fail_closed(self) -> None:
+        _, _, text = self.run_probe(
+            states={"tokenkey": "running"},
+            telemetry={"tokenkey": "false"},
+            postgres_states={"tokenkey-postgres": "running", "tk-archive-standby": "running"},
+            expect_exit=1,
+        )
+        self.assertIn("unresolved", text)
+
+    def test_no_running_postgres_fails_closed(self) -> None:
+        _, _, text = self.run_probe(
+            states={"tokenkey": "running"},
+            telemetry={"tokenkey": "false"},
+            postgres_states={"tokenkey-postgres": "missing", "tk-archive-standby": "stopped"},
+            expect_exit=1,
+        )
+        self.assertIn("unresolved", text)
 
     def test_explicit_missing_partition_sql_fails_closed(self) -> None:
         _, partition, _ = self.run_probe(

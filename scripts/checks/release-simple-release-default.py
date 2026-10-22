@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Verify .github/workflows/release.yml keeps simple_release input default = false.
 
-Prod (api.tokenkey.dev) and Edge Stage0 hosts run on AWS Graviton (arm64).
-`simple_release=true` makes GoReleaser build linux/amd64 ONLY and then overwrites
-the shared `:latest` / `:X` / `:X.Y` / `:X.Y.Z` tags with that single-arch image.
-Any ARM host pulling those tags crashes immediately with `exec format error`.
+Shared release tags are consumed by both amd64 (Tencent USW prod, cn-prod) and
+arm64 hosts/runners. `simple_release=true` makes GoReleaser build linux/amd64 ONLY
+and then overwrites the shared `:latest` / `:X` / `:X.Y` / `:X.Y.Z` tags with that
+single-arch image. Any ARM consumer pulling those tags crashes with `exec format error`.
 
 CLAUDE.md §9.1 ("simple_release MUST stay false") prohibits flipping the default.
 But "prose rule" = "depends on human memory" = OPC anti-pattern. This check
@@ -98,7 +98,7 @@ def main(argv: list[str]) -> int:
     # PyYAML parses `default: false` → Python False; `default: "false"` → "false"
     if default is False:
         if not quiet:
-            print("  ok: release.yml simple_release default = false (Graviton-safe)", flush=True)
+            print("  ok: release.yml simple_release default = false (multi-arch safe)", flush=True)
         return 0
 
     print(
@@ -108,11 +108,11 @@ def main(argv: list[str]) -> int:
     )
     print("", flush=True)
     print(
-        "  Why this matters (CLAUDE.md §9.1): prod Stage0 hosts run on AWS",
+        "  Why this matters (CLAUDE.md §9.1): shared tags have both amd64 and",
         flush=True,
     )
     print(
-        "  Graviton (arm64). simple_release=true builds linux/amd64 only and OVERWRITES",
+        "  arm64 consumers. simple_release=true builds linux/amd64 only and OVERWRITES",
         flush=True,
     )
     print(

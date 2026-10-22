@@ -30,7 +30,7 @@ from pgdump_storage import Storage, StorageError, CONFIG_PATH
 
 TARGET_RE = re.compile(r"prod")
 OBJECT_RE = re.compile(r"tokenkey-\d{8}T\d{6}Z\.sql\.gz")
-LIVE_POSTGRES = "tokenkey-postgres"
+LIVE_POSTGRES_CANDIDATES = ("tokenkey-postgres", "tk-archive-standby")
 FRESHNESS = dt.timedelta(hours=4)
 # S3 LastModified can land a second ahead of the host clock right after upload.
 LAST_MODIFIED_CLOCK_SKEW = dt.timedelta(minutes=2)
@@ -176,6 +176,25 @@ def _count_sql() -> str:
     return f"SELECT json_build_object({fields});"
 
 
+def _live_postgres(run: RunCommand) -> str:
+    """Exactly one running live PG (Stage0 or Tencent layout name), else fail closed.
+
+    Mirrors ops/lib/resolve-app-container.sh tk_resolve_postgres_container through
+    the injected runner so the canary stays testable without docker.
+    """
+    running = []
+    for name in LIVE_POSTGRES_CANDIDATES:
+        try:
+            state = _run(run, ["docker", "inspect", "--format", "{{.State.Running}}", name])
+        except CanaryError:
+            continue
+        if state == "true":
+            running.append(name)
+    if len(running) != 1:
+        raise CanaryError("live PostgreSQL container is not running or is ambiguous")
+    return running[0]
+
+
 def _counts(run: RunCommand, container: str) -> dict[str, int]:
     raw = _run(
         run,
@@ -184,7 +203,7 @@ def _counts(run: RunCommand, container: str) -> dict[str, int]:
             "tokenkey", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c",
             _count_sql(),
         ],
-        timeout=120 if container == LIVE_POSTGRES else 600,
+        timeout=120 if container in LIVE_POSTGRES_CANDIDATES else 600,
     )
     try:
         value = json.loads([line for line in raw.splitlines() if line.strip()][-1])
@@ -438,13 +457,11 @@ def run_canary(
                     f"insufficient restore capacity: free={observed_free_bytes} required={required_free_bytes}"
                 )
 
-            running = _run(run, ["docker", "inspect", "--format", "{{.State.Running}}", LIVE_POSTGRES])
-            if running != "true":
-                raise CanaryError("live PostgreSQL container is not running")
-            image = _run(run, ["docker", "inspect", "--format", "{{.Config.Image}}", LIVE_POSTGRES])
+            live_postgres = _live_postgres(run)
+            image = _run(run, ["docker", "inspect", "--format", "{{.Config.Image}}", live_postgres])
             if not image:
                 raise CanaryError("live PostgreSQL image is empty")
-            live_counts = _counts(run, LIVE_POSTGRES)
+            live_counts = _counts(run, live_postgres)
 
             data_dir = temporary / "postgres-data"
             data_dir.mkdir()
