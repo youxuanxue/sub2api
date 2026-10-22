@@ -19,6 +19,24 @@ class LocalHostTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 local.pg_environment({'Config': {'Env': env}})
 
+    def test_pg_environment_falls_back_to_active_app_database_password(self):
+        app = {'Config': {'Env': [
+            'DATABASE_PASSWORD=from-app',
+            'DATABASE_USER=tokenkey',
+            'DATABASE_DBNAME=tokenkey',
+            'AWS_SECRET_ACCESS_KEY=not-for-job',
+        ]}}
+        with mock.patch.object(local, 'invoke', return_value=local.json.dumps([app])):
+            result = local.pg_environment({'Config': {'Env': []}})
+        self.assertIn('PGPASSWORD=from-app\n', result)
+        self.assertIn('PGHOST=tokenkey-postgres\n', result)
+        self.assertNotIn('not-for-job', result)
+
+    def test_pg_environment_rejects_when_postgres_and_app_passwords_missing(self):
+        with mock.patch.object(local, 'invoke', side_effect=local.subprocess.CalledProcessError(1, ['docker', 'inspect'])):
+            with self.assertRaisesRegex(ValueError, 'PostgreSQL password is unavailable'):
+                local.pg_environment({'Config': {'Env': []}})
+
     def test_active_legacy_owner_blocks_local_work(self):
         with mock.patch.object(local, 'invoke', side_effect=['ActiveState=active\nUnitFileState=enabled\n', 'inactive']):
             with self.assertRaisesRegex(ValueError, 'legacy QA owner'):
@@ -88,6 +106,31 @@ class LocalHostTest(unittest.TestCase):
                 (data/'qa_dlq').symlink_to(data/'qa_blobs')
                 with self.assertRaisesRegex(ValueError,'canonical real QA directory'):
                     local.cleanup_mounts()
+
+    def test_cleanup_mounts_resolves_symlinked_hot_data_root(self):
+        with tempfile.TemporaryDirectory() as root:
+            real=(Path(root)/'formal'/'app').resolve()
+            real.mkdir(parents=True)
+            (real/'qa_blobs').mkdir()
+            (real/'qa_dlq').mkdir()
+            link=Path(root)/'app'
+            link.symlink_to(real)
+            with mock.patch.object(local,'HOT_DATA',link):
+                mounts=local.cleanup_mounts()
+            self.assertEqual(mounts,['--mount',f'type=bind,src={real}/qa_blobs,dst=/app/data/qa_blobs',
+                                     '--mount',f'type=bind,src={real}/qa_dlq,dst=/app/data/qa_dlq'])
+
+    def test_resolve_postgres_runtime_prefers_tokenkey_postgres_alias_network(self):
+        pg={'State':{'Running':True},'Image':'sha256:fixture',
+            'NetworkSettings':{'Networks':{
+                'tk-cutover-prod':{'Aliases':['tk-archive-standby','postgres']},
+                'tokenkey_tokenkey-network':{'Aliases':['postgres','tokenkey-postgres']},
+            }},
+            'Config':{'Env':[]}}
+        with mock.patch.object(local,'invoke',return_value=local.json.dumps([pg])):
+            container, network = local.resolve_postgres_runtime()
+        self.assertEqual(container['NetworkSettings']['Networks'], pg['NetworkSettings']['Networks'])
+        self.assertEqual(network, 'tokenkey_tokenkey-network')
 
     def test_failed_cleanup_preserves_partial_result_and_dry_run_mounts_are_readonly(self):
         from types import SimpleNamespace
