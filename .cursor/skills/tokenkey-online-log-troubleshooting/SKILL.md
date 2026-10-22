@@ -13,7 +13,7 @@ description: >-
 
 ## 目标与窗口
 
-输入 `target=prod|cn-prod|domain`、症状，按需附 time_window/request_id/user_id/api_key_id/model/path；未知值不猜。默认 `mode=triage scope=all`；deep 在聚合后查少量样本，watch 仅用户明确要求持续盯盘时使用。UCloud `cn-prod` 与 AWS `prod` 是独立库/主机，必须显式选对 `--target`。
+输入 `target=prod|cn-prod|domain`、症状，按需附 time_window/request_id/user_id/api_key_id/model/path；未知值不猜。默认 `mode=triage scope=all`；deep 在聚合后查少量样本，watch 仅用户明确要求持续盯盘时使用。UCloud `cn-prod` 与腾讯美西 `prod` 是独立库/主机，必须显式选对 `--target`。
 
 明确 ISO 窗口优先；只有错误 JSON 无时间时先查过去 24h 并说明假设。「昨晚/刚才」转换为明确 UTC 区间，报告双写 UTC 与本地时间。
 

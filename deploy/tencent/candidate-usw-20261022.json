@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "platform": "tencent-lighthouse",
+  "role": "prod",
+  "notes": [
+    "2026-10-22 cutover complete: this host is live prod (DNS A → 43.162.83.233).",
+    "auto / default PROD_SSM_TARGET resolves here when deployable=true.",
+    "Layout still cutover-era: .env at formal/.env; containers tk-cutover-prod-*; Docker root under /srv/tokenkey-rehearsal/docker. Do not run stock deploy-stage0 until Stage0 layout convergence.",
+    "volume_mount keeps /srv/tokenkey-rehearsal (historical); /var/lib/tokenkey is a second mount of the same LUKS mapper. formal_mount_intent documents the Stage0 target path.",
+    "Tokyo i-045f062ce33e1a5af remains frozen writer-standby; retain ≥7 days; do not unfreeze for dual-write.",
+    "Cutover receipt: docs/ops/reports/tencent-cutover-20261022.json"
+  ],
+  "target": {
+    "resolvable": true,
+    "deployable": true,
+    "cutover_authorized": true,
+    "cutover_completed": true,
+    "instance_name": "tokenkey-usw-rehearsal-20261021",
+    "computer_name": "tokenkey-usw-rehearsal-20261021",
+    "hostname": "VM-0-16-ubuntu",
+    "ssm_inventory_note": "SSM Name is tokenkey-usw-rehearsal-20261021; OS ComputerName is localhost.localdomain — match on Name",
+    "lighthouse_instance_id": "lhins-fcwpwymt",
+    "expected_ssm_instance_id": "mi-080ed76dc6d97d8b5",
+    "ssm_region": "eu-west-2",
+    "ssm_hybrid_role_name": "tokenkey-lightsail-ssm-hybrid",
+    "volume_platform": "tencent-luks",
+    "volume_mapper": "tokenkey_recovery",
+    "volume_mount": "/srv/tokenkey-rehearsal",
+    "formal_mount_intent": "/var/lib/tokenkey",
+    "api_domain": "api.tokenkey.dev",
+    "public_ip": "43.162.83.233",
+    "architecture": "amd64",
+    "purpose": "Live TokenKey prod after Tokyo→Tencent USW cutover 2026-10-22"
+  }
+}

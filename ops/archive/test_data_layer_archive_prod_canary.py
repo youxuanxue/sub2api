@@ -573,7 +573,8 @@ class ProdArchiveCanaryTest(unittest.TestCase):
         with mock.patch.object(ssm_execution, "resolve_prod_instance", return_value="mi-0123456789abcdef0"):
             self.assertEqual(canary._prod_instance(), "mi-0123456789abcdef0")
         self.assertEqual(canary._ssm_region("mi-0123456789abcdef0"), "eu-west-2")
-        self.assertEqual(canary._ssm_region(_INSTANCE_ID), "us-east-1")
+        # i-* pins use Tokyo retain inventory region (ap-northeast-1), not legacy us-east-1.
+        self.assertEqual(canary._ssm_region(_INSTANCE_ID), "ap-northeast-1")
         with mock.patch.object(ssm_execution, "resolve_prod_instance", side_effect=SystemExit("offline")):
             with self.assertRaises(SystemExit):
                 canary._prod_instance()
@@ -669,7 +670,7 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                 "ssm",
                 "cancel-command",
                 "--region",
-                canary.PROD_REGION,
+                canary._ssm_region(_INSTANCE_ID),
                 "--command-id",
                 "command-timeout",
                 "--instance-ids",

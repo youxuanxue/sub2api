@@ -55,20 +55,31 @@ class SsmExecutionResolveTest(unittest.TestCase):
                                          "after-stdin")
                 self.assertEqual(result.returncode, expected_rc)
 
-    def test_resolve_prod_instance_follows_hetzner_cutover_and_binds_region(self) -> None:
+    def test_resolve_prod_instance_rejects_retired_hetzner(self) -> None:
         fake = mock.Mock()
         fake.resolve_mode.return_value = "hetzner"
         fake.DEFAULT_MATRIX = pathlib.Path("/tmp/matrix.json")
-        fake.resolve_hetzner.return_value = {
-            "instance_id": "mi-033c9569c7fb8b884",
+        fake.resolve_hetzner.side_effect = SystemExit("retired")
+        with mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
+            with self.assertRaises(SystemExit):
+                self.mod.resolve_prod_instance()
+        fake.resolve_hetzner.assert_called_once_with(fake.DEFAULT_MATRIX)
+
+    def test_resolve_prod_instance_follows_tencent_live_prod(self) -> None:
+        fake = mock.Mock()
+        fake.resolve_mode.return_value = "tencent-usw-candidate"
+        fake.TENCENT_USW_MATRIX = pathlib.Path("/tmp/tencent.json")
+        fake.resolve_tencent_usw_candidate.return_value = {
+            "instance_id": "mi-080ed76dc6d97d8b5",
             "ssm_region": "eu-west-2",
         }
         with mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
             iid = self.mod.resolve_prod_instance()
-        self.assertEqual(iid, "mi-033c9569c7fb8b884")
+        self.assertEqual(iid, "mi-080ed76dc6d97d8b5")
         self.assertEqual(self.mod.PROD_REGION, "eu-west-2")
-        fake.resolve_hetzner.assert_called_once_with(fake.DEFAULT_MATRIX)
-        fake.resolve_aws.assert_not_called()
+        fake.resolve_tencent_usw_candidate.assert_called_once_with(fake.TENCENT_USW_MATRIX)
+        fake.resolve_hetzner.assert_not_called()
+        fake.resolve_fresh_aws.assert_not_called()
 
     def test_resolve_prod_instance_aws_path_keeps_us_east_1(self) -> None:
         fake = mock.Mock()
@@ -85,31 +96,38 @@ class SsmExecutionResolveTest(unittest.TestCase):
 
     def test_resolve_prod_instance_fail_closed_on_empty_region(self) -> None:
         fake = mock.Mock()
-        fake.resolve_mode.return_value = "hetzner"
-        fake.DEFAULT_MATRIX = pathlib.Path("/tmp/matrix.json")
-        fake.resolve_hetzner.return_value = {
-            "instance_id": "mi-033c9569c7fb8b884",
+        fake.resolve_mode.return_value = "tencent-usw-candidate"
+        fake.TENCENT_USW_MATRIX = pathlib.Path("/tmp/tencent.json")
+        fake.resolve_tencent_usw_candidate.return_value = {
+            "instance_id": "mi-080ed76dc6d97d8b5",
             "ssm_region": "",
         }
         with mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
             with self.assertRaises(SystemExit):
                 self.mod.resolve_prod_instance()
 
-    def test_region_for_mi_pin_reads_matrix(self) -> None:
+    def test_region_for_mi_pin_reads_tencent_matrix(self) -> None:
         fake = mock.Mock()
-        fake.DEFAULT_MATRIX = pathlib.Path("/tmp/matrix.json")
-        fake.load_hetzner_matrix.return_value = {"ssm_region": "eu-west-2"}
+        fake.TENCENT_USW_MATRIX = pathlib.Path("/tmp/tencent.json")
+        fake.load_tencent_usw_matrix.return_value = {"ssm_region": "eu-west-2"}
         with mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
             self.assertEqual(
-                self.mod.region_for_instance_id("mi-033c9569c7fb8b884"),
+                self.mod.region_for_instance_id("mi-080ed76dc6d97d8b5"),
                 "eu-west-2",
             )
+        fake.load_hetzner_matrix.assert_not_called()
 
-    def test_region_for_ec2_pin_is_us_east_1(self) -> None:
-        self.assertEqual(
-            self.mod.region_for_instance_id("i-0e43099f831b03160"),
-            "us-east-1",
+    def test_region_for_ec2_pin_reads_fresh_inventory(self) -> None:
+        fake = mock.Mock()
+        fake.FRESH_MATRIX = mock.Mock()
+        fake.FRESH_MATRIX.read_text.return_value = json.dumps(
+            {"prod": {"region": "ap-northeast-1", "instance_id": "i-045f062ce33e1a5af"}}
         )
+        with mock.patch.object(self.mod, "_resolve_mod", return_value=fake):
+            self.assertEqual(
+                self.mod.region_for_instance_id("i-045f062ce33e1a5af"),
+                "ap-northeast-1",
+            )
 
 
 if __name__ == "__main__":

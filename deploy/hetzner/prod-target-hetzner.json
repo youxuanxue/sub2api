@@ -4,10 +4,10 @@
   "role": "prod",
   "approved_anchor": "docs/approved/hetzner-cloud-full-migration.md",
   "notes": [
-    "Historical prod; fresh AWS identity is deploy/aws/fresh-migration-20261015.json. Do not use this host for production writes.",
-    "Data volume mandatory; root disk is not the PG/Redis truth.",
-    "Historical hosts may still use blue/green layout; ensure_legacy_cutover supports newly provisioned single-color hosts.",
-    "staging_domain is matrix field only; live DNS is domain (no -hz A)."
+    "RETIRED: Hetzner Cloud prod decommissioned. Live prod is Tencent USW (deploy/tencent/candidate-usw-20261022.json).",
+    "resolve_prod_ssm_target --target hetzner and provision-prod.sh fail closed.",
+    "Fleet narrative SSOT remains deploy/hetzner/README.md (historical path name).",
+    "Do not resume production writes on any historical Hetzner identity."
   ],
   "allowed_locations": [
     "fsn1"

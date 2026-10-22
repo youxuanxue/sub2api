@@ -96,14 +96,57 @@ class HostRuntimeTest(unittest.TestCase):
         def response(source='/dev/sdb', target=str(root), fstype='ext4'):
             return lambda *a, **kw: json.dumps({'filesystems': [{'source': source, 'target': target, 'fstype': fstype}]})
         with patch.object(Path, 'glob', return_value=[Path('/dev/sdb')]):
-            check_volume(root, response())
+            check_volume(root, response(), platform='hetzner')
             for run in (response(target='/'), response(source='/dev/root'), response(fstype='tmpfs')):
                 with self.assertRaises(ValueError):
-                    check_volume(root, run)
+                    check_volume(root, run, platform='hetzner')
         def missing(*args, **kwargs):
             raise subprocess.CalledProcessError(1, args[0])
         with self.assertRaises(subprocess.CalledProcessError):
-            check_volume(root, missing)
+            check_volume(root, missing, platform='hetzner')
+
+    def test_tencent_luks_mapper_accepted_and_hetzner_identity_refused(self):
+        root = Path('/srv/tokenkey-rehearsal')
+        mapper = '/dev/mapper/tokenkey_recovery'
+
+        def response(source=mapper, target=str(root), fstype='ext4'):
+            return lambda *a, **kw: json.dumps({
+                'filesystems': [{'source': source, 'target': target, 'fstype': fstype}]
+            })
+
+        def identity_realpath(path, *args, **kwargs):
+            return str(path)
+
+        with patch.object(Path, 'glob', return_value=[]), \
+             patch('ops.stage0.bluegreen_host_runtime.os.path.realpath', side_effect=identity_realpath), \
+             patch.object(Path, 'resolve', lambda self, strict=False: Path(str(self))):
+            check_volume(root, response(), platform='tencent-luks')
+            with self.assertRaises(ValueError):
+                check_volume(root, response(source='/dev/mapper/other'), platform='tencent-luks')
+            with self.assertRaises(ValueError):
+                check_volume(root, response(), platform='hetzner')
+
+        def same_dm(path, *args, **kwargs):
+            return '/dev/dm-1'
+
+        # A source that also resolves as a Hetzner volume id must be rejected on tencent.
+        with patch.object(Path, 'glob', return_value=[Path('/dev/disk/by-id/scsi-0HC_Volume_1')]), \
+             patch('ops.stage0.bluegreen_host_runtime.os.path.realpath', side_effect=same_dm), \
+             patch.object(Path, 'resolve', lambda self, strict=False: Path('/dev/dm-1')):
+            with self.assertRaises(ValueError):
+                check_volume(root, response(source='/dev/dm-1'), platform='tencent-luks')
+
+    def test_unsupported_platform_fails_closed(self):
+        root = Path('/var/lib/tokenkey')
+
+        def response(*a, **kw):
+            return json.dumps({'filesystems': [
+                {'source': '/dev/sdb', 'target': str(root), 'fstype': 'ext4'}
+            ]})
+
+        with patch.object(Path, 'glob', return_value=[Path('/dev/sdb')]):
+            with self.assertRaises(ValueError):
+                check_volume(root, response, platform='aws-ebs')
 
     def test_unmounted_prod_stops_before_host_writes(self):
         proc, _, remote = _render()

@@ -182,10 +182,12 @@
     {
       "path": "ops/stage0/resolve_prod_ssm_target.py",
       "must_contain": [
+        "return \"tencent-usw-candidate\"",
         "return \"aws-fresh\"",
+        "ALLOW_FROZEN_TOKYO_TARGET",
         "expected exactly one Online Hybrid instance"
       ],
-      "rationale": "Live prod defaults to fresh AWS with an exact Online identity; historical AWS and Hcloud require explicit selection."
+      "rationale": "Live prod auto-selects Tencent USW when matrix.deployable=true; aws-fresh is frozen Tokyo retain-only behind ALLOW_FROZEN_TOKYO_TARGET."
     },
     {
       "path": "backend/internal/config/config.go",

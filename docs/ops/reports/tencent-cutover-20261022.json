@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "status": "tencent_serving_tokyo_frozen_backup_protected_usw_egress",
+  "window": "20261022T013813Z",
+  "generated_at_utc": "2026-10-22T04:32:00Z",
+  "approval": {
+    "text": "批准。请继续。",
+    "approved_at_utc": "2026-10-22T01:38:13Z",
+    "operator": "cursor-agent"
+  },
+  "tokyo": {
+    "instance_id": "i-045f062ce33e1a5af",
+    "public_ip": "3.114.187.250",
+    "frozen": true,
+    "apps_stopped": true,
+    "default_transaction_read_only": "on",
+    "final_lsn": "1C/60000060",
+    "final_wal": "000000010000001C0000005F"
+  },
+  "tencent": {
+    "lighthouse_instance_id": "lhins-fcwpwymt",
+    "public_ip": "43.162.83.233",
+    "promoted": true,
+    "timeline": 2,
+    "primary_lsn_at_ready": "1C/610000D8",
+    "app_health": "ok",
+    "caddy_acme": true
+  },
+  "dns": {
+    "tokenkey.dev": "43.162.83.233",
+    "api.tokenkey.dev": "43.162.83.233",
+    "api-cn.tokenkey.dev": "43.162.83.233",
+    "callmodel.io": "43.162.83.233",
+    "api.callmodel.io": "43.162.83.233",
+    "ttl": 300,
+    "health_all_200": true,
+    "ttl_restored_at_utc": "2026-10-22T02:37:41Z"
+  },
+  "remaining": [
+    "stage0_layout_convergence_before_stock_deploy",
+    "tokyo_retain_7_days",
+    "jp_lightsail_proxy_shutdown_after_approval",
+    "feishu_backup_alert_wire_to_tencent",
+    "luks_unlock_acceptance_no_live_reboot"
+  ],
+  "cutover_authorized": true,
+  "edge_cidr": {
+    "required": false,
+    "reason": "no live edge nodes; skipped per operator"
+  },
+  "backup_protect": {
+    "archive_mode": "on",
+    "repo": "candidates/tencent-usw-20261022/postgres",
+    "wal_archived_ok": true,
+    "full_backup": "SUCCESS",
+    "backup_label": "20261022-020832F",
+    "elapsed_seconds": 580.284,
+    "invocation": "inv-0a7dwfgjaw",
+    "scheduled_timers": true
+  },
+  "resolve": {
+    "auto": "tencent-usw-prod",
+    "deploy_profile": "prod",
+    "instance_id": "mi-080ed76dc6d97d8b5",
+    "api_url": "https://api.tokenkey.dev",
+    "matrix_deployable": true
+  },
+  "ops_converge": {
+    "at_utc": "2026-10-22T02:40:42Z",
+    "dns_ttl": 300,
+    "live_backup_repo": "candidates/tencent-usw-20261022/postgres",
+    "backup_timers_installed": true,
+    "proxy_decision": "superseded_by_egress_migrate_jp_to_usw",
+    "s3_promote_deferred": true
+  },
+  "egress_migrate": {
+    "at_utc": "2026-10-22T03:10:07Z",
+    "from": "jp-*",
+    "to": "usw-eval1..4",
+    "cn_untouched": true,
+    "jp_remaining_accounts": 0,
+    "bindings": {
+      "usw-eval1": 26,
+      "usw-eval2": 22,
+      "usw-eval3": 25,
+      "usw-eval4": 25
+    },
+    "post_observe_at_utc": "2026-10-22T03:13:21Z",
+    "post_observe": {
+      "jp_remaining": 0,
+      "app_health": "ok",
+      "errors_note": "client/upstream 503 present; consistent with OpenAI overload noise, not cutover miss"
+    },
+    "rollback_receipt": "~/.local/state/tokenkey-tencent-usw-validation/p1-20261022/jp-to-usw-migration.json"
+  },
+  "layout_probe": {
+    "at_utc": "2026-10-22T04:31:50Z",
+    "invocation": "inv-xa7i4t0vvb",
+    "luks_mapper": "/dev/mapper/tokenkey_recovery",
+    "mounts": [
+      "/var/lib/tokenkey",
+      "/srv/tokenkey-rehearsal"
+    ],
+    "docker_root": "/srv/tokenkey-rehearsal/docker",
+    "env_path": "/var/lib/tokenkey/formal/.env",
+    "containers": [
+      "tk-cutover-prod-app",
+      "tk-cutover-prod-caddy",
+      "tk-cutover-prod-redis",
+      "tk-archive-standby"
+    ],
+    "stock_deploy_stage0": "blocked_until_layout_convergence"
+  }
+}

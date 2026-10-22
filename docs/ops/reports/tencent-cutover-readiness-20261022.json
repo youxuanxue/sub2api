@@ -1,0 +1,386 @@
+{
+  "archive_status": "pre_cutover_snapshot",
+  "superseded_by": "docs/ops/reports/tencent-cutover-20261022.json",
+  "note": "Frozen readiness evidence from before/during cutover window. Do not treat auto_resolve_still or cutover_authorized=false fields as live truth; live SSOT is the cutover receipt + deploy/tencent/candidate-usw-20261022.json + deploy/hetzner/README.md.",
+  "observed_at": "2026-10-22T01:35:59Z",
+  "ready_for_write_stop": false,
+  "cutover_authorized": false,
+  "scope": "prepare-only",
+  "source_release": "1.8.313",
+  "target_app_manifest": "sha256:a82620000127faddb0ddceeab8a0a4adb4df8663d84d3e82cd32436d0f059019",
+  "verified": {
+    "image_cached_and_version_executed": "inv-1a78rg010h",
+    "synthetic_empty_database_start_and_idle_drain": [
+      "inv-va78vr058u",
+      "inv-xa790n06pt"
+    ],
+    "target_inventory": "inv-xa7avrgbxm",
+    "source_readonly_inventory": "a5c64b4a-064f-4cc0-b365-9fe3666a20fd",
+    "source_readonly_release_refresh": "07e6efa5-d59c-4116-a29d-7b83096d67e1",
+    "source_pg_snapshot": "1e3b02e4-456c-4e63-acba-0799c38097f4",
+    "paired_lsn_comparison": "p1-20261022/lsn-compare.json",
+    "synthetic_new_timeline_incremental_and_restore": "inv-0a79iagvvm",
+    "ssm_agent_actual_sts_identity": "inv-0a79rjgkqt",
+    "first_identity_refresh_and_source_s3_read": "inv-xa79x40t8s",
+    "identity_runtime_preserve_and_standby_remount": "inv-xa7akfg64i",
+    "post_repair_identity_and_replay": "inv-xa7apm0qjv",
+    "timer_reenabled_after_diagnose_stop": "inv-va7aq4gru8",
+    "synthetic_s3_new_timeline_handoff": "inv-0a7axjgsxp",
+    "empty_synthetic_residue_removed": "inv-xa7axj065t",
+    "tencent_usw_candidate_resolve_live": "mi-080ed76dc6d97d8b5",
+    "tencent_luks_volume_check_and_formal_skeleton": "inv-1a7bbjgs3h",
+    "transport_keypair_rotated": "inv-1a7bfs0fne",
+    "formal_synthetic_secrets_and_tls_delivered": "inv-1a7bh90rpx",
+    "formal_secrets_tls_verified": "inv-1a7bi60ad8",
+    "formal_production_env_installed": "inv-va7c3g0scv",
+    "writer_freeze_inventory_dry_run": "f916b3c5-7c83-43b7-9945-ac47ba72b5b2",
+    "directed_https_stack": "cutover-directed-stack / public health 200",
+    "precopy_progress_readonly": "inv-xa7c6001fk",
+    "luks_offhost_vault": "p1-20261022/luks-offhost-vault-receipt.json",
+    "unlock_health_readonly": "inv-xa7ce30094",
+    "formal_remount_plan_dry_run": "inv-0a7ce3g0bm",
+    "production_scale_s3_precopy_complete": "inv-1a7bv9grwn",
+    "var_lib_tokenkey_bind_prestaged": "inv-xa7cujgm7p",
+    "directed_https_prewarm": "inv-1a7cxb0sx1",
+    "compressed_window_runbook_dry_run": "inv from compressed-window-runbook",
+    "porkbun_ttl_lowered_keep_tokyo_ip": "p1-20261022/porkbun-ttl-lower.json"
+  },
+  "not_verified": [
+    "s3_precopy_live_catchup",
+    "human_approved_cutover_window",
+    "final_wal_live_receipt_and_writer_fence_in_window",
+    "formal_remount_execute_in_window"
+  ],
+  "proxy_change": "deferred_until_after_host_cutover",
+  "limitations": [
+    "Prepare-only: Tokyo remains live writer and default resolve target.",
+    "S3 precopy writes only under candidates/tencent-usw-20261022/; prod/ is read-only.",
+    "Off-host vault is split custody on operator machine; still not a second physical site.",
+    "Remount and WRITE_STOP are window-only; dry-run/inventory only so far."
+  ],
+  "source_health": {
+    "release": "1.8.313",
+    "container": "tokenkey-green",
+    "healthy": true,
+    "draining": false,
+    "in_flight": 6,
+    "in_recovery": false,
+    "timeline": 1,
+    "current_lsn": "1C/4303D430",
+    "archiver_failed_count": 0,
+    "observed_at": "2026-10-22T00:25:26Z",
+    "writers_still_scheduled": [
+      "tokenkey-qa-cleanup.timer",
+      "tokenkey-qa-provision.timer",
+      "tokenkey-postgres-backup.timer",
+      "tokenkey-https-watch.timer"
+    ]
+  },
+  "local_validation": {
+    "preflight": "pass",
+    "elapsed_seconds": 93.0,
+    "log": "preflight-r1eo40p4.log",
+    "restore_fixture_fix": "Bounded tmpfs avoids unshared host TMPDIR filling Colima root; production restore code unchanged.",
+    "identity_tests": 6
+  },
+  "synthetic_timeline_handoff": {
+    "repository": "isolated POSIX copy, not S3",
+    "final_archive_replay_seconds": 4.853,
+    "promotion_seconds": 0.518,
+    "incremental_seconds": 2.377,
+    "restore_seconds": 7.11,
+    "timeline": 2,
+    "restored_marker_rows": 3,
+    "cleanup_verified": true
+  },
+  "synthetic_s3_handoff": {
+    "previous_failure": "inv-0a7a0pgpg9",
+    "retry_invocation": "inv-0a7axjgsxp",
+    "status": "ok",
+    "s3_prefix": "candidates/tencent-usw-20261022/rehearsal/1ce73b2024254637961e8613b8468f02",
+    "production_data_used": false,
+    "initial_full_seconds": 7.771,
+    "repository_objects_copied": 15,
+    "repository_copy_seconds": 4.824,
+    "final_archive_and_replay_seconds": 6.416,
+    "synthetic_promotion_seconds": 1.85,
+    "new_timeline": 2,
+    "new_timeline_incremental_seconds": 7.73,
+    "new_timeline_restore_seconds": 74.707,
+    "new_backup_label": "20261022-002730F_20261022-002909I",
+    "recovered_marker_rows": 3,
+    "cleanup_verified": true,
+    "s3_synthetic_backups_retained": true,
+    "real_standby_after": {
+      "in_recovery": true,
+      "read_only": "on",
+      "archive_mode": "off",
+      "replay_lsn": "1C/44000000"
+    }
+  },
+  "lsn_comparison": {
+    "source_at": "2026-10-22T09:27:36.538566+09:00",
+    "target_at": "2026-10-22T09:27:34.392886+09:00",
+    "system_identifier": "7697434738137305123",
+    "timeline": 1,
+    "age_gap_seconds": 2.14568,
+    "source_current_lsn": "1C/4303D430",
+    "target_replay_lsn": "1C/43000000",
+    "observed_lsn_gap_bytes": 250928,
+    "verdict": "comparable_observations",
+    "cutover_authorized": false
+  },
+  "target_inventory": {
+    "formal_layout_installed": false,
+    "paths_missing": [
+      "/var/lib/tokenkey",
+      "/var/lib/tokenkey/postgres",
+      "/etc/tokenkey"
+    ],
+    "identity_preserve": "yes",
+    "timer_active": "active",
+    "disk_rehearsal_free_bytes": 60850745344,
+    "residue_cleaned": [
+      "/srv/tokenkey-rehearsal/synthetic-s3-timeline-ajizlj_4"
+    ]
+  },
+  "handoff": "docs/ops/tencent-migration-handoff.md",
+  "historical_manual_credential_expires_at": "2026-10-22T02:21:37Z",
+  "credential_mode": "ssm-agent identity validated; RuntimeDirectoryPreserve=yes verified; timer active",
+  "source_observed_at": "2026-10-22T00:25:26Z",
+  "urgent_blocker": {
+    "kind": "resolved_systemd_runtime_directory_removed",
+    "repair_invocation": "inv-xa7akfg64i",
+    "wal_fetch_after_fault_verified": true,
+    "runtime_directory_preserve_effective": "yes"
+  },
+  "target_last_observed": {
+    "in_recovery": true,
+    "read_only": "on",
+    "archive_mode": "off",
+    "replay_lsn": "1C/44000000",
+    "running": true,
+    "at": "2026-10-22T00:30:32Z"
+  },
+  "iam": {
+    "role": "tokenkey-lightsail-ssm-hybrid",
+    "inline_policy_installed": "TencentUswPhysicalBackup",
+    "readback_verified": true,
+    "target_source_object_writes": "explicitDeny",
+    "official_simulator": "AccessDenied; not validated",
+    "scope": "only target managed-instance UserId"
+  },
+  "writer_fence_draft": {
+    "inventory_mode": "inventory-dry-run",
+    "probe_command_id": "f916b3c5-7c83-43b7-9945-ac47ba72b5b2",
+    "must_include": [
+      "gateway HTTP long streams (in_flight)",
+      "tokenkey-green/blue inactive color",
+      "tokenkey-qa-cleanup.timer",
+      "tokenkey-qa-provision.timer",
+      "tokenkey-postgres-backup.timer",
+      "tokenkey-https-watch.timer",
+      "external control-plane / direct SQL"
+    ],
+    "execute_gate": "WRITE_STOP=1 only inside approved cutover window",
+    "timers_still_active_on_tokyo": true,
+    "cutover_authorized": false
+  },
+  "tencent_candidate": {
+    "matrix": "deploy/tencent/candidate-usw-20261022.json",
+    "resolve_target": "tencent-usw-candidate",
+    "instance_id": "mi-080ed76dc6d97d8b5",
+    "deploy_profile": "tencent-usw-candidate",
+    "deployable": false,
+    "cutover_authorized": false,
+    "directed_domain": "tencent-usw-candidate.tokenkey.invalid",
+    "auto_still_tokyo": true
+  },
+  "formal_layout": {
+    "invocation_install": "inv-1a7bh90rpx",
+    "invocation_verify": "inv-1a7bi60ad8",
+    "path": "/srv/tokenkey-rehearsal/formal",
+    "secrets_present": true,
+    "tls_material_present": true,
+    "production_secrets": true,
+    "directed_domain": "tencent-usw-candidate.tokenkey.invalid",
+    "cert_fingerprint_sha256": "SHA256 Fingerprint=0F:59:94:74:44:40:A7:A9:F6:4D:71:1B:F3:AE:57:2E:42:A3:85:16:3D:56:30:1F:36:7B:DA:A7:87:4F:4D:9F",
+    "dotenv_mode": "0o600",
+    "privkey_mode": "0o600",
+    "loopback_tls_smoke": true,
+    "var_lib_tokenkey_on_root": false,
+    "formal_mount_intent": "/var/lib/tokenkey",
+    "production_env_sha256": "88bc938eb694944a1f74927dd18ec23f0d32f3a345a1e2a2d7789b999c4dda0b",
+    "production_env_install_invocation": "inv-va7c3g0scv",
+    "tls_still_self_signed_directed": true,
+    "cutover_authorized": false
+  },
+  "unlock_contract": "docs/ops/tencent-unlock-contract.md",
+  "hard_gate": {
+    "rule": "No write-stop, promote, DNS change, or cutover_authorized=true without explicit human approval.",
+    "auto_resolve_still": "Tokyo aws-fresh",
+    "matrix_cutover_authorized": false,
+    "matrix_deployable": false
+  },
+  "s3_precopy": {
+    "invocation": "inv-1a7bv9grwn",
+    "status": "SUCCESS",
+    "completed_at": "2026-10-22T01:19:45Z",
+    "complete": true,
+    "source_objects": 3735,
+    "dest_objects": 3735,
+    "source_bytes": 14469376638,
+    "dest_bytes": 14469376638,
+    "sync_seconds": 1243.389,
+    "dest_prefix": "candidates/tencent-usw-20261022/precopy/postgres/",
+    "source_unmodified": true,
+    "live_drift_note": "After complete snapshot, live prod continued archiving; catch-up precopy4 submitted",
+    "cutover_authorized": false
+  },
+  "luks_offhost_vault": {
+    "receipt": "p1-20261022/luks-offhost-vault-receipt.json",
+    "plaintext_key_sha256": "f22df43885047216344d8900840db8868b13d3589878a2151af3454bd1e4bc88",
+    "custody_split": true,
+    "cutover_authorized": false
+  },
+  "unlock_health": {
+    "invocation": "inv-xa7ce30094",
+    "severity": "ok",
+    "alerts": [],
+    "boot_order_required": [
+      "unlock",
+      "mount",
+      "docker",
+      "standby_or_app"
+    ],
+    "cutover_authorized": false
+  },
+  "formal_remount": {
+    "invocation": "inv-0a7ce3g0bm",
+    "mode": "dry-run",
+    "executed": false,
+    "intent": "/var/lib/tokenkey",
+    "current_mount": "/srv/tokenkey-rehearsal",
+    "cutover_authorized": false
+  },
+  "checklist": "docs/ops/tencent-cutover-checklist.md",
+  "window_duration_estimate": {
+    "at": "2026-10-22T01:29:47Z",
+    "basis": [
+      "paired LSN gap ~1.5MiB (src 1C/5A16C220 vs tgt replay 1C/5A000000) at 2026-10-22T01:28Z",
+      "archive_timeout=5min → window must force WAL switch (do not wait natural cycle)",
+      "synthetic S3 final_archive_and_replay ~6s / promote ~2s (NOT production bound)",
+      "historical full restore path 31m is fallback, not standby cutover path",
+      "green /health status=ok; HTTP inflight field not exposed on that probe"
+    ],
+    "phases_minutes": {
+      "freeze_writers_and_stop_ingress": "1–3",
+      "drain_http_inflight_long_streams": "2–10 (variable; main uncertainty)",
+      "force_final_wal_archive_and_s3_visible": "1–3",
+      "standby_fetch_replay_catchup": "1–3 (gap currently small; S3/identity jitter)",
+      "promote_and_new_timeline_backup_guard": "1–2",
+      "remount_var_lib_tokenkey_start_app_caddy_health": "2–4"
+    },
+    "core_service_recovery_minutes": {
+      "optimistic": "8–12",
+      "planned": "12–20",
+      "with_drain_or_s3_hiccup": "20–35"
+    },
+    "dns_user_visible_extra": "depends on TTL; not included in core DB/app numbers",
+    "not_a_promise": "No production write-stop rehearsal yet; do not treat as SLA.",
+    "cutover_authorized": false,
+    "executed": false,
+    "compressed_plan_minutes": "5–8 core if prepare levers done + bounded drain",
+    "uncompressed_planned_minutes": "12–20"
+  },
+  "window_compression": {
+    "at": "2026-10-22T01:31:59Z",
+    "goal": "Shrink user-visible write outage without dual-write",
+    "dns_observed": {
+      "api.tokenkey.dev_ttl_sec": 1,
+      "tokenkey.dev_apex_ttl_sec": 300,
+      "note": "API flip is near-instant; apex/UI needs TTL lower ahead of window or accept up to ~5m client cache"
+    },
+    "levers_ranked": [
+      {
+        "lever": "bounded_drain",
+        "prepare_or_window": "window",
+        "action": "SIGUSR1 then hard cap TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS=45–60 (default 120); do not wait 10m for long SSE",
+        "saves_minutes": "3–8",
+        "tradeoff": "some long streams aborted; clients retry"
+      },
+      {
+        "lever": "overlap_phases",
+        "prepare_or_window": "window",
+        "action": "During drain: stop timers + pg_switch_wal + wait S3 in parallel; promote as soon as replay==final; defer new-timeline backup verify after /health green",
+        "saves_minutes": "2–5",
+        "tradeoff": "backup protect slightly later; still before declaring done"
+      },
+      {
+        "lever": "prestage_target",
+        "prepare_or_window": "prepare-now",
+        "action": "Pre-bind /var/lib/tokenkey→LUKS, keep directed Caddy/app image warm, compose ready; window only promote+flip upstream/DNS",
+        "saves_minutes": "2–4",
+        "tradeoff": "none if still recovery/no writers"
+      },
+      {
+        "lever": "keep_lag_tiny",
+        "prepare_or_window": "prepare-now",
+        "action": "Continuous standby catch-up + precopy catch-up until T-0; force WAL at freeze so gap stays <<16MB",
+        "saves_minutes": "1–3",
+        "tradeoff": "none"
+      },
+      {
+        "lever": "lower_apex_ttl",
+        "prepare_or_window": "prepare-now (DNS change, not traffic cut)",
+        "action": "Lower tokenkey.dev apex TTL 300→60 (or 30) ≥1h before window",
+        "saves_minutes": "user-visible UI 2–4",
+        "tradeoff": "slightly more DNS QPS"
+      },
+      {
+        "lever": "split_db_vs_dns",
+        "prepare_or_window": "window",
+        "action": "Measure outage as WRITE_STOP→new /health only; DNS immediately after health; api TTL=1 already",
+        "saves_minutes": "perception",
+        "tradeoff": "apex clients may lag on old IP briefly"
+      }
+    ],
+    "compressed_core_minutes": {
+      "target_if_levers_applied": "5–8",
+      "floor_realistic": "4–6 (drain cap 45s + parallel WAL + prestage)",
+      "still_not_promised": true
+    },
+    "rejected_or_heavy": [
+      "Dual-write Tokyo+Tencent — forbidden",
+      "Streaming replication Tokyo→Tencent for final catchup — possible but new network/security project",
+      "Skip final WAL verify — unsafe"
+    ],
+    "cutover_authorized": false,
+    "executed": false
+  },
+  "dns_ttl_prep": {
+    "api.tokenkey.dev": {
+      "ttl": 60,
+      "content": "3.114.187.250"
+    },
+    "tokenkey.dev": {
+      "ttl": 60,
+      "content": "3.114.187.250"
+    },
+    "ip_still_tokyo": true,
+    "cutover_authorized": false
+  },
+  "compressed_window": {
+    "runbook": "helpers/compressed-window-runbook.sh",
+    "drain_cap_seconds": 60,
+    "target_core_minutes": "5-8",
+    "executed": false,
+    "cutover_authorized": false
+  },
+  "prewarm": {
+    "directed_stack": "running",
+    "https_ok_invocation": "inv-1a7cxb0sx1",
+    "var_lib_bind": true,
+    "cutover_authorized": false
+  }
+}

@@ -1,32 +1,60 @@
-# TokenKey 现网舰队 · Tokyo prod 与日本出口代理
+# TokenKey 现网舰队 · 腾讯美西 prod 与美西出口代理
+
+> **目录名 `deploy/hetzner/` 为历史路径。** Hetzner Cloud prod 已退役；`PROD_SSM_TARGET=hetzner` 与 `deploy-prod-hetzner-stage0` 供给均失败关闭。本文件仍是现网舰队 SSOT（腾讯美西）。
 
 **SSOT：** 现网节点 / 公网 IP / CIDR / GHCR PAT 路径 / 发版入口 **只在本文件叙述**；其它文档与 skill 只留指针，勿复制数值。
 审批基线（决策锁，无 IP 表）：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
+切流回执：[`docs/ops/reports/tencent-cutover-20261022.json`](../../docs/ops/reports/tencent-cutover-20261022.json)
 
-## 活舰队（prod-only，2026-10-17 起）
+## 活舰队（prod-only，2026-10-22 切流起）
 
-| 节点 | 正式域名 | 公网 IP | SSM 身份 | 备注 |
+| 节点 | 正式域名 | 公网 IP | 控制面身份 | 备注 |
 |------|----------|---------|------------|------|
-| **prod** | `api.tokenkey.dev` | `3.114.187.250` | `i-045f062ce33e1a5af` · ap-northeast-1 | EC2 c7g.xlarge · tokenkey-prod-tokyo-20261017 |
+| **prod** | `api.tokenkey.dev` | `43.162.83.233` | Lighthouse `lhins-fcwpwymt` · SSM Hybrid `mi-080ed76dc6d97d8b5` · eu-west-2 | 腾讯美西 · timeline 2 · LUKS mapper；现网仍为 cutover 布局（见下） |
 
+四正式域名 A 记录（TTL 300）均指向 `43.162.83.233`：`tokenkey.dev` / `api.tokenkey.dev` / `api-cn.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。
 prod 直接使用原生账号；旧中继 stub 已软删。
-AWS / Hcloud 旧主机与公网 IP 不能用作回滚目标；历史数据从 S3 隔离归档读取。
-退役验收与归档入口见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
+**Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已冻结写者，保留 ≥7 天；禁止解冻双写。** 不能当作现网入口。
+**布局债（阻塞默认发版）：** LUKS 同时挂在 `/var/lib/tokenkey` 与 `/srv/tokenkey-rehearsal`；业务 `.env` 在 `formal/.env`，容器为 `tk-cutover-prod-*`。收敛到 Stage0 约定路径前禁止默认 `deploy-stage0`。细节见 [`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
+历史数据从 S3 隔离归档读取。退役验收与归档入口见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
 
-### 日本出口代理（现役）
+### 同机附属 / 代理验证资源
 
-这些 Lightsail 机器仅提供账号出口。
+| 角色 | 地域 / 实例 ID | 公网 IP | 私网 IP | 规格 |
+|---|---|---|---|---|
+| prod 主机 | na-siliconvalley-2 / `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | 4C8G / 120 GB SSD |
+| 美西出口 `usw-eval1` | na-siliconvalley-2 / `lhins-56ogvsid` | `43.162.90.151` | `10.4.0.2` | 2C2G / 40 GB SSD |
+| 美西出口 `usw-eval2` | na-siliconvalley-2 / `lhins-mtiwmfod` | `43.162.126.190` | `10.4.0.11` | 2C2G / 40 GB SSD |
+| 美西出口 `usw-eval3` | na-siliconvalley-2 / `lhins-n1w2c5qr` | `43.162.116.209` | `10.4.0.5` | 2C2G / 40 GB SSD |
+| 美西出口 `usw-eval4` | na-siliconvalley-2 / `lhins-h12i2d2r` | `43.162.103.103` | `10.4.0.4` | 2C2G / 40 GB SSD |
+
+实例到期约 2026-11-21/22 UTC，`NOTIFY_AND_MANUAL_RENEW`。SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
+SOCKS 仅监听各机私网 `:1080`，防火墙只放行 prod `10.4.0.16`。**2026-10-22 起 `usw-eval1..4` 为原 `jp-*` 账号的生产出口**（私网 SOCKS）；`cn-ip*` 仍走国内代理。活绑定以 prod `proxies` / 账号 `proxy_id` 为准。
+活舰队矩阵：[`deploy/tencent/candidate-usw-20261022.json`](../tencent/candidate-usw-20261022.json)（`deployable=true`；`resolve_prod_ssm_target.py --target auto` → 本机）。
+
+### 活物理备份前缀（切流后）
+
+| 项 | 值 |
+|---|---|
+| 活仓库 | `s3://tokenkey-prod-physical-backup-682751977094-us-east-1/candidates/tencent-usw-20261022/postgres`（timeline 2） |
+| 历史只读 | 同桶 `prod/postgres`（Tokyo timeline 1；腾讯身份仅 Get） |
+| 身份续期 | `tokenkey-backup-identity.timer` → `/run/tokenkey-backup-candidate/` |
+| 备份/检查 | `tokenkey-postgres-backup.timer`（偶数小时 :30 UTC）+ `tokenkey-postgres-archive-check.timer`（5min） |
+| 升格策略 | **不**把活链写回 `prod/postgres`（避免与冻结东京链混写）；候选前缀即现网活备份 SSOT，直至另行批准迁移路径 |
+
+### 日本出口代理（已迁出 · 保留待关停）
+
+2026-10-22 账号绑定已迁到 `usw-eval*`；`jp-*` 行仍在 prod `proxies` 表，但 **绑定账号数应为 0**。Lightsail 机保留至另批关停审批。
 
 **活公网 IP / 绑定以 prod `proxies` 表为准**（Web：`https://tokenkey.dev/admin/proxies`；
-探针：`ops/observability/probe-list-proxies.sh`）。下表只记逻辑名与常见 Lightsail 名，
-避免第二份 IP 清单漂移：
+探针：`ops/observability/probe-list-proxies.sh`）。下表只记逻辑名与常见 Lightsail 名：
 
-| prod 代理名 | Lightsail 实例（常见） | 区域 |
-|---|---|---|
-| jp-uk1 | jp-proxy-01-micro | ap-northeast-1 |
-| jp-uk2 | jp-proxy-02-micro | ap-northeast-1 |
-| jp-us4 | jp-proxy-03-micro | ap-northeast-1 |
-| jp-us5 | jp-proxy-04-micro | ap-northeast-1 |
+| prod 代理名 | Lightsail 实例（常见） | 区域 | 状态 |
+|---|---|---|---|
+| jp-uk1 | jp-proxy-01-micro | ap-northeast-1 | 已迁出 |
+| jp-uk2 | jp-proxy-02-micro | ap-northeast-1 | 已迁出 |
+| jp-us4 | jp-proxy-03-micro | ap-northeast-1 | 已迁出 |
+| jp-us5 | jp-proxy-04-micro | ap-northeast-1 | 已迁出 |
 
 名称含 uk/us 不代表物理地域。BBR 验收：`python3 scripts/checks/check-host-bbr-ssot.py --live`。
 
@@ -37,7 +65,7 @@ AWS / Hcloud 旧主机与公网 IP 不能用作回滚目标；历史数据从 S3
 
 | 项 | 值 |
 |----|-----|
-| 活入口 | 仅 Tokyo prod `3.114.187.250`；四正式域名 A 指向该 IP |
+| 活入口 | 腾讯美西 prod `43.162.83.233`；正式域名 A 指向该 IP（Tokyo 已冻结） |
 | prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
 | 探针 / sync Caddy | prod 解析至当前 EC2 `i-*`；已退役身份拒绝执行 |
 | live 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
@@ -71,8 +99,9 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
    要求所列 timer 停用且 service 不在运行；意外恢复会告警。daily diagnostics 复用同一暂停清单，
    暂停期不要求归档回执刷新，boundary 与存储检查保留。其他任务仍按成功时效监控。
    主机脚本不随网关镜像自动更新；安装/刷新独立 watcher 后才生效，仓库合并不代表已部署。
-4. **资源**：临时 node1 reader 与克隆盘已完成最小核查并回收，原快照和导出保留；日本代理保留；
+4. **资源**：临时 node1 reader 与克隆盘已完成最小核查并回收，原快照和导出保留；日本 Lightsail 代理账号已迁出、机器保留待关停；
    新加坡其它项目资源不纳入 TokenKey 批量清理。详见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
+5. **告警**：腾讯机上备份/归档 timer 已装；外部飞书备份告警尚未接到腾讯机，连续性靠本机 `archive_check.json` 与 timer 日志。
 
 ## AWS 残留与环境变量
 
@@ -91,11 +120,11 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 
 | 变量 | 语义 |
 |---|---|
-| `PROD_SSM_TARGET` | `auto`/未设置默认 aws-fresh；`hetzner` / `aws` 的已退役 prod 身份直接拒绝。旧 `/tokenkey/prod/control-plane-ssm-target` 参数不再参与默认解析 |
-| `AWS_REGION` / `AWS_DEFAULT_REGION` | AWS API 区域。SSM 命令必须用 resolver 返回的 `ssm_region`，不能拿 hcloud `fsn1` 或旧 EC2 region 代替；QA/S3 仍按各自存储区域 |
+| `PROD_SSM_TARGET` | `auto`/未设置 → 腾讯美西（矩阵 `deployable=true`）；显式 `tencent-usw-candidate` 同路径。`aws-fresh` 为冻结 Tokyo，默认拒绝（保留只读须 `ALLOW_FROZEN_TOKYO_TARGET=1`）。`hetzner` / `aws` 已退役身份直接拒绝。GitHub Actions 仓库变量须为 `auto`，勿钉死 `aws-fresh`。 |
+| `AWS_REGION` / `AWS_DEFAULT_REGION` | AWS API 区域。SSM 命令必须用 resolver 返回的 `ssm_region`，不能拿历史 hcloud `fsn1` 或旧 EC2 region 代替；QA/S3 仍按各自存储区域 |
 | `AWS_OIDC_ROLE_ARN` / `AWS_SHARED_CREDENTIALS_FILE` | 仍用于 Hybrid 控制面与现有 AWS 计算及数据依赖；凭据内容不可打印 |
 | `PROD_STACK_NAME` / `STACK_NAME` | 历史 AWS 或仍在使用的 QA/备份 CFN；不能代替当前 prod 身份 |
-| `HCLOUD_TOKEN` | hcloud 资源管理；普通镜像升级走 SSM，不重新 provision |
+| `HCLOUD_TOKEN` | **已退役**；勿再用于 TokenKey prod 供给 |
 | `HCLOUD_S3_Access_Key` / `HCLOUD_S3_Secret_Key` | 本机受保护的对象存储凭据；不输出、不入库 |
 | `QA_*` | QA 独立迁移契约；不得因网关迁完而直接切换默认值 |
 | `QA_LIVE_ARCHIVE_*`（脚本内部常量） | 现行 QA raw 坐标由 `ops/stage0/qa-runtime-environment.sh` 统一持有；prod 蓝绿发布缺失或偏离这些坐标、意外配置静态凭据时直接失败。AWS IAM/raw 策略检查兼容保留 `--legacy-aws` 参数 |

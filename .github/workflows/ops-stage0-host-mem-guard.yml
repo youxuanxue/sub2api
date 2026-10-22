@@ -11,15 +11,16 @@ name: AWS Prod Host Mem-Guard Refresh
 # that bootstrap at run time — single source of truth, no second copy to drift.
 # A future stack rebuild remains the source of truth.
 #
-# Targets live aws-fresh prod (EC2 IMDS/CloudWatch/EBS). Do not use
-# PROD_SSM_TARGET=aws here — that resolves the historical EC2 standby, not
-# the cutover host. Historical Hcloud prod is out of scope.
+# Legacy EC2-only payload (sync-host-mem-guard rejects mi-*). After 2026-10-22
+# cutover, live prod is Tencent Hybrid — this workflow must NOT be used against
+# it. Retain-only Tokyo would need PROD_SSM_TARGET=aws-fresh plus
+# ALLOW_FROZEN_TOKYO_TARGET=1; prefer not to run.
 
 on:
   workflow_dispatch:
     inputs:
       target:
-        description: "Live aws-fresh prod EC2 only (not historical Hcloud / old standby)"
+        description: "Legacy EC2 retain only (not Tencent Hybrid / Hcloud)"
         required: true
         type: choice
         options:
