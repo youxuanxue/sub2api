@@ -74,13 +74,16 @@
       "must_contain": [
         "!isNewAPILongTailCatalogVendor(m.Vendor) || !isTkCuratedNewAPIModelDisplayed(m.ModelID)",
         "\"gemini-3.8-flash\":",
-        "\"gemini-4-argon\":",
         "\"gemini-embedding-001\":",
         "\"gemini-3-pro-image\":",
         "\"nano-2\":",
         "\"nano-banana-2\":"
       ],
-      "rationale": "Embedding visibility follows the reviewed manifest across NewAPI providers instead of hiding approved non-DashScope models. 2026-09-18 converge: gemini-3.8-flash + embedding retained; Imagen/2.5/Claude dropped from native allowlists. 2026-10-16: gemini-4-argon stays on the Antigravity servable allowlist after prod OAuth FetchAvailableModels evidence. nano-banana-2 is the Antigravity/Studio marketing alias of gemini-3.1-flash-image and must stay in the AG servable allowlist."
+      "rationale": "Embedding visibility follows the reviewed manifest across NewAPI providers instead of hiding approved non-DashScope models. 2026-09-18 converge: gemini-3.8-flash + embedding retained; Imagen/2.5/Claude dropped from native allowlists. 2026-10-22: gemini-4-argon removed from Antigravity public allowlist after SSOT canary unexpected 404; grok-code-fast-1 likewise hidden after upstream 429/reprobe_required. nano-banana-2 is the Antigravity/Studio marketing alias of gemini-3.1-flash-image and must stay in the AG servable allowlist.",
+      "must_not_contain": [
+        "\"gemini-4-argon\":",
+        "\"grok-code-fast-1\":"
+      ]
     },
     {
       "path": "backend/internal/service/pricing_catalog_tk_test.go",
@@ -249,12 +252,15 @@
         "\"nano-2\":",
         "\"nano-banana-2\":",
         "\"gemini-3.8-flash\":",
-        "\"gemini-4-argon\":",
         "\"gpt-6-astra\":",
         "\"gpt-6-sol\":",
         "\"gpt-6-luna\":"
       ],
-      "rationale": "Single source for the empirically-servable native catalog sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. The antigravity allowlist (supportedAntigravityCatalogModels: live Gemini set plus #1265 live Claude subset, with gpt-oss/dead/unpriced keys excluded from persisted account mappings) is hand-maintained from empirical probes; losing it silently reverts antigravity to passthrough or hides now-supported Claude IDs. gemini-4-argon is pinned after 2026-10-16 prod OAuth list+generate evidence. The grok allowlist (supportedGrokCatalogModels: priced grok-imagine media + official-priced grok chat ids that returned 200 on the native grok edge probe) is likewise hand-maintained; losing it silently empties a grok group's 分组目录 again (2026-06-20 incident). Fifth-platform newapi long-tail display is delegated to tk_served_models_manifest_tk.go via isTkCuratedNewAPICatalogRowDisplayed; unknown vendors stay hidden until a universal mapping exists. GPT-6: catalog lists astra/sol/luna only; bare gpt-6 stays overlay/floor alias→astra (not a catalog row). nano-banana-2 stays listed beside nano-2 as the Flash Image marketing alias."
+      "rationale": "Single source for the empirically-servable native catalog sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. The antigravity allowlist (supportedAntigravityCatalogModels: live Gemini set plus #1265 live Claude subset, with gpt-oss/dead/unpriced keys excluded from persisted account mappings) is hand-maintained from empirical probes; losing it silently reverts antigravity to passthrough or hides now-supported Claude IDs. gemini-4-argon / grok-code-fast-1 are intentionally absent from public allowlists after 2026-10-22 canary (404 / 429). The grok allowlist (supportedGrokCatalogModels: priced grok-imagine media + official-priced grok chat ids that returned 200 on the native grok edge probe) is likewise hand-maintained; losing it silently empties a grok group's 分组目录 again (2026-06-20 incident). Fifth-platform newapi long-tail display is delegated to tk_served_models_manifest_tk.go via isTkCuratedNewAPICatalogRowDisplayed; unknown vendors stay hidden until a universal mapping exists. GPT-6: catalog lists astra/sol/luna only; bare gpt-6 stays overlay/floor alias→astra (not a catalog row). nano-banana-2 stays listed beside nano-2 as the Flash Image marketing alias.",
+      "must_not_contain": [
+        "\"gemini-4-argon\":",
+        "\"grok-code-fast-1\":"
+      ]
     },
     {
       "path": "ops/pricing/refresh-servable-allowlist.py",

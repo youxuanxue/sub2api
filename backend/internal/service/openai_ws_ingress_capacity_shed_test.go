@@ -55,6 +55,7 @@ func TestProxyResponsesWebSocketFromClient_RewritesCapacityShedCodeForClient(t *
 			},
 			wantContains: []string{
 				`"code":"server_error"`,
+				`"retry-after":"30"`,
 				"Our servers are currently overloaded",
 			},
 			wantAbsent: []string{"server_is_overloaded"},

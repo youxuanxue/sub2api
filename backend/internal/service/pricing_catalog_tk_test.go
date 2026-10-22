@@ -866,14 +866,22 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		assert.True(t, isPublicCatalogModelSupported("antigravity", "gemini-3.8-flash"))
 	})
 
-	t.Run("gemini-4-argon is on antigravity catalog after prod oauth list evidence", func(t *testing.T) {
-		// Boundary sample, not an owner copy: 2026-10-16 prod antigravity oauth
-		// accounts listed gemini-4-argon-{low,medium,high} via FetchAvailableModels.
+	t.Run("gemini-4-argon is hidden from public antigravity catalog after canary 404", func(t *testing.T) {
+		// 2026-10-16 prod OAuth listed Argon wires; 2026-10-22 SSOT canary
+		// returned unexpected 404 → public display off (allowlist removal).
 		_, inAG := supportedAntigravityCatalogModels["gemini-4-argon"]
-		assert.True(t, inAG)
-		assert.True(t, isPublicCatalogModelSupported("antigravity", "gemini-4-argon"))
+		assert.False(t, inAG)
+		assert.False(t, isPublicCatalogModelSupported("antigravity", "gemini-4-argon"))
 		assert.False(t, isPublicCatalogModelSupported("gemini", "gemini-4-argon"),
 			"native gemini catalog stays off until separate Gemini-platform evidence")
+	})
+
+	t.Run("grok-code-fast-1 is hidden from public grok catalog after canary 429", func(t *testing.T) {
+		_, inGrok := supportedGrokCatalogModels["grok-code-fast-1"]
+		assert.False(t, inGrok)
+		assert.False(t, isPublicCatalogModelSupported("xai", "grok-code-fast-1"))
+		_, keep0825 := supportedGrokCatalogModels["grok-code-fast-1-0825"]
+		assert.True(t, keep0825)
 	})
 
 	t.Run("grok membership follows supportedGrokCatalogModels (or passes through when empty)", func(t *testing.T) {

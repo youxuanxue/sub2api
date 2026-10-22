@@ -17,6 +17,11 @@ no fourth copy exists.
 Contract is identical to the shell owner: explicit name must be running;
 active-color wins when it names blue|green and that container runs; otherwise
 accept a single running candidate and treat zero-or-several as unknown.
+
+Postgres and Redis on the Tencent layout exception use the same running-unique
+rule (`remote_unique_running_snippet`). Network aliases do not satisfy
+`docker exec` / `docker inspect` on the host, and an existence check will
+select a stopped container.
 """
 
 from __future__ import annotations
@@ -27,6 +32,9 @@ import subprocess
 
 ACTIVE_COLOR_PATH = "/var/lib/tokenkey/active-color"
 CANDIDATES = ("tokenkey", "tokenkey-blue", "tokenkey-green")
+# Keep in lockstep with TK_POSTGRES_CONTAINER_CANDIDATES in resolve-app-container.sh.
+POSTGRES_CANDIDATES = ("tokenkey-postgres", "tk-archive-standby")
+REDIS_CANDIDATES = ("tokenkey-redis", "tk-cutover-prod-redis")
 
 
 def remote_shell_snippet(*, docker: str = "docker", variable: str = "APP_CONTAINER") -> list[str]:
@@ -51,6 +59,37 @@ def remote_shell_snippet(*, docker: str = "docker", variable: str = "APP_CONTAIN
             f'for candidate in {" ".join(CANDIDATES)}; do '
             f'if tk_running "$candidate"; then tk_found="$candidate"; tk_count=$((tk_count + 1)); fi; done; '
             f'if [ "$tk_count" -eq 1 ]; then {variable}="$tk_found"; fi; fi'
+        ),
+    ]
+
+
+def remote_unique_running_snippet(
+    *,
+    docker: str = "docker",
+    variable: str,
+    candidates: tuple[str, ...],
+) -> list[str]:
+    """SSM lines that set `variable` to the one running candidate, or empty.
+
+    Zero or several running candidates leave `variable` empty. Callers that
+    only report status should say unresolved; callers that open a database
+    connection must fail closed. `docker inspect` without `State.Running`
+    matches stopped containers and is not a substitute for this snippet.
+    """
+    if not variable or not candidates:
+        raise ValueError("variable and candidates are required")
+    names = " ".join(candidates)
+    return [
+        f"{variable}=''",
+        (
+            f"tk_running() {{ [ \"$({docker} inspect --format '{{{{.State.Running}}}}' "
+            f"\"$1\" 2>/dev/null)\" = true ]; }}"
+        ),
+        (
+            f'tk_found=""; tk_count=0; '
+            f"for candidate in {names}; do "
+            f'if tk_running "$candidate"; then tk_found="$candidate"; tk_count=$((tk_count + 1)); fi; done; '
+            f'if [ "$tk_count" -eq 1 ]; then {variable}="$tk_found"; fi'
         ),
     ]
 
