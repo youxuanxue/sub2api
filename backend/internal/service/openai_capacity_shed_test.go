@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -418,6 +419,7 @@ func TestOpenAIStreamCapacityShedAfterOutputRewritesCodeForClient(t *testing.T) 
 	require.Equal(t, 1, strings.Count(body, "event: response.failed"))
 	require.Equal(t, 1, strings.Count(body, `"code":"server_error"`))
 	require.Contains(t, body, `"code":"server_error"`)
+	require.Contains(t, body, `"retry-after":"`+strconv.Itoa(openAICapacityShedClientRetryAfterSeconds)+`"`)
 	require.NotContains(t, body, "server_is_overloaded")
 	require.Contains(t, body, "Our servers are currently overloaded")
 	require.True(t, logSink.ContainsMessage("gateway.failover_suppressed_after_semantic_output"))
@@ -479,49 +481,67 @@ func TestOpenAIStreamProcessingFailureAfterOutputIsRecorded(t *testing.T) {
 }
 
 // helper 单测：只有降载码被改写，其余错误码（尤其 rate_limit_exceeded，客户端
-// 依赖其原码解析重试延时）必须原样保留。
+// 依赖其原码解析重试延时）必须原样保留。降载改写必须带上 error.headers.retry-after，
+// 否则 Codex 流内采样环拿不到重试指导（HTTP 头对已打开的 SSE 无效）。
 func TestSanitizeOpenAICapacityShedErrorCodeForClient(t *testing.T) {
+	defaultRetry := `"retry-after":"` + strconv.Itoa(openAICapacityShedClientRetryAfterSeconds) + `"`
 	cases := []struct {
-		name        string
-		payload     string
-		wantChanged bool
-		wantContain string
+		name           string
+		payload        string
+		wantChanged    bool
+		wantContain    string
+		wantRetryAfter string
+		wantAbsent     []string
 	}{
 		{
-			name:        "failed事件嵌套code改写",
-			payload:     `{"type":"response.failed","response":{"error":{"code":"server_is_overloaded","message":"overloaded"}}}`,
-			wantChanged: true,
-			wantContain: `"code":"server_error"`,
+			name:           "failed事件嵌套code改写并补retry-after",
+			payload:        `{"type":"response.failed","response":{"error":{"code":"server_is_overloaded","message":"overloaded"}}}`,
+			wantChanged:    true,
+			wantContain:    `"code":"server_error"`,
+			wantRetryAfter: defaultRetry,
 		},
 		{
-			name:        "error帧裸code改写",
-			payload:     `{"type":"error","error":{"code":"slow_down","message":"slow down"}}`,
-			wantChanged: true,
-			wantContain: `"code":"server_error"`,
+			name:           "error帧裸code改写并补retry-after",
+			payload:        `{"type":"error","error":{"code":"slow_down","message":"slow down"}}`,
+			wantChanged:    true,
+			wantContain:    `"code":"server_error"`,
+			wantRetryAfter: defaultRetry,
 		},
 		{
-			name:        "failed事件只有过载文案时补充code",
-			payload:     `{"type":"response.failed","response":{"error":{"message":"Our servers are currently overloaded. Please try again later."}}}`,
-			wantChanged: true,
-			wantContain: `"code":"server_error"`,
+			name:           "failed事件只有过载文案时补充code与retry-after",
+			payload:        `{"type":"response.failed","response":{"error":{"message":"Our servers are currently overloaded. Please try again later."}}}`,
+			wantChanged:    true,
+			wantContain:    `"code":"server_error"`,
+			wantRetryAfter: defaultRetry,
 		},
 		{
-			name:        "error帧只有过载文案时补充code",
-			payload:     `{"type":"error","error":{"message":"Server is overloaded. Please try again later."}}`,
-			wantChanged: true,
-			wantContain: `"code":"server_error"`,
+			name:           "error帧只有过载文案时补充code与retry-after",
+			payload:        `{"type":"error","error":{"message":"Server is overloaded. Please try again later."}}`,
+			wantChanged:    true,
+			wantContain:    `"code":"server_error"`,
+			wantRetryAfter: defaultRetry,
+		},
+		{
+			name:           "上游已有Retry-After则保留",
+			payload:        `{"type":"response.failed","response":{"error":{"code":"server_is_overloaded","message":"overloaded","headers":{"Retry-After":"12"}}}}`,
+			wantChanged:    true,
+			wantContain:    `"code":"server_error"`,
+			wantRetryAfter: `"Retry-After":"12"`,
+			wantAbsent:     []string{defaultRetry},
 		},
 		{
 			name:        "rate_limit不改写",
 			payload:     `{"type":"response.failed","response":{"error":{"code":"rate_limit_exceeded","message":"try again in 3s"}}}`,
 			wantChanged: false,
 			wantContain: `"code":"rate_limit_exceeded"`,
+			wantAbsent:  []string{`"retry-after"`},
 		},
 		{
 			name:        "普通server_error不改写",
 			payload:     `{"type":"response.failed","response":{"error":{"code":"server_error","message":"boom"}}}`,
 			wantChanged: false,
 			wantContain: `"code":"server_error"`,
+			wantAbsent:  []string{`"retry-after"`},
 		},
 		{
 			name:        "非JSON不改写",
@@ -535,9 +555,15 @@ func TestSanitizeOpenAICapacityShedErrorCodeForClient(t *testing.T) {
 			out, changed := sanitizeOpenAICapacityShedErrorCodeForClient([]byte(tc.payload))
 			require.Equal(t, tc.wantChanged, changed)
 			require.Contains(t, string(out), tc.wantContain)
+			if tc.wantRetryAfter != "" {
+				require.Contains(t, string(out), tc.wantRetryAfter)
+			}
+			for _, absent := range tc.wantAbsent {
+				require.NotContains(t, string(out), absent)
+			}
 			if changed {
 				require.NotContains(t, string(out), "server_is_overloaded")
-				require.NotContains(t, string(out), "slow_down")
+				require.NotContains(t, string(out), `"slow_down"`)
 			}
 		})
 	}
