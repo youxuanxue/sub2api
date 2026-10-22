@@ -92,6 +92,14 @@ func TestNormalizeMoonshotThinking_K3SoftRemapsDisableAndEffortAliases(t *testin
 		t.Fatalf("reasoning_effort=%q want high", gjson.GetBytes(got, "reasoning_effort").String())
 	}
 
+	got, err = NormalizeMoonshotThinking("kimi-k3", []byte(`{"reasoning_effort":"highest"}`))
+	if err != nil {
+		t.Fatalf("highest must soft-remap, got %v", err)
+	}
+	if gjson.GetBytes(got, "reasoning_effort").String() != "max" {
+		t.Fatalf("reasoning_effort=%q want max", gjson.GetBytes(got, "reasoning_effort").String())
+	}
+
 	got, err = NormalizeMoonshotThinking("kimi-k3", []byte(`{"reasoning_effort":"none"}`))
 	if err != nil {
 		t.Fatalf("none must soft-remap, got %v", err)

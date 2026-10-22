@@ -63,6 +63,26 @@ func TestApplyMoonshotK3DynamicToolsShape_KeepsContentBearingSystemTools(t *test
 	}
 }
 
+func TestApplyMoonshotK3DynamicToolsShape_PromotesEmptyStringContent(t *testing.T) {
+	body := []byte(`{
+		"model":"kimi-k3",
+		"messages":[
+			{"role":"user","content":"算 1+1"},
+			{"role":"system","content":"","tools":[{"type":"function","function":{"name":"Calculator"}}]}
+		]
+	}`)
+	got := applyMoonshotK3DynamicToolsShape("kimi-k3", body)
+	if gjson.GetBytes(got, "messages.#").Int() != 1 {
+		t.Fatalf("messages len=%d want 1", gjson.GetBytes(got, "messages.#").Int())
+	}
+	if gjson.GetBytes(got, "tools.0.function.name").String() != "Calculator" {
+		t.Fatalf("tools not promoted: %s", got)
+	}
+	if gjson.GetBytes(got, "tool_choice").String() != "required" {
+		t.Fatalf("tool_choice=%s want required", gjson.GetBytes(got, "tool_choice").Raw)
+	}
+}
+
 func TestApplyMoonshotK3DynamicToolsShape_MergesExistingTopLevelTools(t *testing.T) {
 	body := []byte(`{
 		"model":"kimi-k3",

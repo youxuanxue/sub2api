@@ -53,8 +53,15 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
   and `chat_template_kwargs.{thinking,enable_thinking}` are normalized to the
   canonical on/off intent. Conflicting or malformed switches return a field-level
   400. Unrelated body fields and retry input are preserved.
-- Default thinking and `reasoning_effort` remain untouched. Closing thinking must
-  not silently become low effort. No response reasoning is hidden to fake success.
+- Public kimi-k3 surface stays Moonshot-compatible: `reasoning_effort` accepts
+  `low|high|max` plus common aliases (`highest`→`max`, `medium`→`high`, nested
+  `reasoning.effort`, etc.). Unknown effort tokens return a field-level 400.
+  When effort is present and thinking is not explicitly disabled, inject
+  `thinking.type=enabled` so intensity probes observe reasoning content instead
+  of silent 200s. Explicit `thinking.type=disabled` still wins over effort.
+  Anthropic-style `thinking.budget_tokens` is stripped before relay. Closing
+  thinking must not silently become low effort. No response reasoning is hidden
+  to fake success. Client-visible errors must not name the upstream supplier.
 - Named function selection is reduced to its validated single definition plus
   `required`, preserving forced-tool semantics and thinking.
 - `allowed_tools` accepts the Chat nested `tool_choice.allowed_tools` object and
@@ -65,11 +72,17 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
   tool types, empty sets and legacy function API combinations fail explicitly.
 - Existing `auto`, `required`, `none` and ordinary tool round trips retain their
   existing behavior. This patch does not claim native allowed-tools support.
+- Moonshot dynamic tool injection (`system` message carrying `tools` without
+  usable content — absent, null, or empty/whitespace string) is promoted to
+  top-level `tools` before relay so Calculator-style admission probes do not
+  fail with missing `messages.content[.text]`.
 
 ## Validation and rollout
 
 `TestVolcKimiThinkingSwitchesAndSupplierScope` exercises on/off normalization,
 conflicts, supplier/model scope, idempotence and precision/input preservation.
+`TestVolcKimiReasoningEffortMoonshotCompatible` exercises effort aliases,
+effort-implied thinking enablement, disabled-wins-over-effort, and invalid effort.
 `TestVolcKimiToolSelectionPreservesSemantics` exercises allowed subsets, forced
 function, mode preservation, invalid references and history preservation.
 `TestVolcKimiChatAllowedToolsEnvelope` checks the Chat SDK envelope, multiple
