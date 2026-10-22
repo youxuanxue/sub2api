@@ -1822,14 +1822,17 @@ func clipToolResultText(text string) string {
 	if headEnd > len(raw) {
 		headEnd = len(raw)
 	}
-	for headEnd > 0 && headEnd < len(raw) && !utf8.RuneStart(raw[headEnd]) {
+	// A valid UTF-8 rune is at most 4 bytes, so a boundary is at most 3
+	// continuation bytes back. Walking further would erase a binary head
+	// made entirely of continuation bytes.
+	for n := 0; n < utf8.UTFMax-1 && headEnd > 0 && headEnd < len(raw) && !utf8.RuneStart(raw[headEnd]); n++ {
 		headEnd--
 	}
 	tailStart := len(raw) - toolResultKeepTail
 	if tailStart < headEnd {
 		tailStart = headEnd
 	}
-	for tailStart < len(raw) && !utf8.RuneStart(raw[tailStart]) {
+	for n := 0; n < utf8.UTFMax-1 && tailStart < len(raw) && !utf8.RuneStart(raw[tailStart]); n++ {
 		tailStart++
 	}
 	return string(raw[:headEnd]) + toolResultOmission + string(raw[tailStart:])

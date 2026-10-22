@@ -3,6 +3,7 @@
 package kiro
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -321,6 +322,17 @@ func TestClipToolResultText_KeepsHeadWhenCutSplitsRune(t *testing.T) {
 	kept := clipToolResultText(string(raw))
 	require.Equal(t, byte(0xff), []byte(kept)[10])
 	require.Contains(t, kept, "TAIL")
+}
+
+func TestClipToolResultText_KeepsBinaryContinuationHead(t *testing.T) {
+	raw := bytes.Repeat([]byte{0x80}, toolResultKeepHead+toolResultKeepTail+4096)
+	copy(raw[len(raw)-4:], []byte("TAIL"))
+	got := clipToolResultText(string(raw))
+	head, _, ok := strings.Cut(got, toolResultOmission)
+	require.True(t, ok)
+	require.GreaterOrEqual(t, len(head), toolResultKeepHead-(utf8.UTFMax-1))
+	require.Equal(t, byte(0x80), head[0])
+	require.Contains(t, got, "TAIL")
 }
 
 func kiroImage(n int) KiroImage {

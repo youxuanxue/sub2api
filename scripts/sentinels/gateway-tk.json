@@ -5082,7 +5082,10 @@
       "must_contain": [
         "const maxPayloadBytes = 900 * 1024",
         "func ValidatePayloadSize(payload *KiroPayload) error",
-        "truncatePayloadToLimit(payload, systemPrompt != \"\")"
+        "truncatePayloadToLimit(payload, systemPrompt != \"\")",
+        "stripOldestHistoryImagesUntilFit(",
+        "clipToolResultsUntilFit(",
+        "clipNarratedToolResultsUntilFit("
       ],
       "rationale": "Kiro payload overflow policy: retain the evidence-backed 900 KiB translated-wire guard and final-size validation. History screenshots and turns are removed first. Oversized tool-result text may be clipped only while the payload is still over the limit. Current user prose and tool schemas are not rewritten. See docs/approved/kiro-payload-overflow.md."
     },
@@ -5090,7 +5093,11 @@
       "path": "backend/internal/integration/kiro/tool_history_test.go",
       "must_contain": [
         "TestClaudeToKiro_HistoryTruncationPreservesCurrentUserContent",
-        "TestClaudeToKiro_OversizedFixedPayloadPreservesCurrentUserContent"
+        "TestClaudeToKiro_OversizedFixedPayloadPreservesCurrentUserContent",
+        "TestTruncatePayload_StripsOldestHistoryImagesBeforeDroppingTurns",
+        "TestTruncatePayload_ClipsOversizedCurrentToolResult",
+        "TestTruncatePayload_LeavesFittingToolOutputUntouched",
+        "TestClaudeToKiro_ClipsOrphanToolResultAlreadyNarrated"
       ],
       "rationale": "Executable Kiro overflow regressions preserve the current UTF-8 message during history truncation and reject fixed oversized payloads rather than replacing the latest user content."
     },
