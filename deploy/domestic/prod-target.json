@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "instance_id": "uhost-1wgyn7gu2f6a",
-  "instance_name": "10-9-53-136",
-  "region": "cn-bj2",
+  "instance_id": "lhins-6qmb3fd6",
+  "instance_name": "tokenkey-cn-prod",
+  "region": "ap-beijing",
   "public_origin": "https://106.75.29.139",
   "fallback_domain": "api-cn.tokenkey.dev",
   "ssm_region": "eu-west-2",
-  "ssm_instance_id": "mi-0efdf781205cff512"
+  "ssm_instance_id": "mi-06568963b4b3c3239"
 }
