@@ -2,7 +2,7 @@
   "schema_version": 1,
   "status": "tencent_serving_tokyo_frozen_backup_protected_usw_egress",
   "window": "20261022T013813Z",
-  "generated_at_utc": "2026-10-22T03:13:30Z",
+  "generated_at_utc": "2026-10-22T04:32:00Z",
   "approval": {
     "text": "批准。请继续。",
     "approved_at_utc": "2026-10-22T01:38:13Z",
@@ -37,6 +37,7 @@
     "ttl_restored_at_utc": "2026-10-22T02:37:41Z"
   },
   "remaining": [
+    "stage0_layout_convergence_before_stock_deploy",
     "tokyo_retain_7_days",
     "jp_lightsail_proxy_shutdown_after_approval",
     "feishu_backup_alert_wire_to_tencent",
@@ -91,5 +92,23 @@
       "errors_note": "client/upstream 503 present; consistent with OpenAI overload noise, not cutover miss"
     },
     "rollback_receipt": "~/.local/state/tokenkey-tencent-usw-validation/p1-20261022/jp-to-usw-migration.json"
+  },
+  "layout_probe": {
+    "at_utc": "2026-10-22T04:31:50Z",
+    "invocation": "inv-xa7i4t0vvb",
+    "luks_mapper": "/dev/mapper/tokenkey_recovery",
+    "mounts": [
+      "/var/lib/tokenkey",
+      "/srv/tokenkey-rehearsal"
+    ],
+    "docker_root": "/srv/tokenkey-rehearsal/docker",
+    "env_path": "/var/lib/tokenkey/formal/.env",
+    "containers": [
+      "tk-cutover-prod-app",
+      "tk-cutover-prod-caddy",
+      "tk-cutover-prod-redis",
+      "tk-archive-standby"
+    ],
+    "stock_deploy_stage0": "blocked_until_layout_convergence"
   }
 }

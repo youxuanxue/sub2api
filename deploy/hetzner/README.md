@@ -10,11 +10,12 @@
 
 | 节点 | 正式域名 | 公网 IP | 控制面身份 | 备注 |
 |------|----------|---------|------------|------|
-| **prod** | `api.tokenkey.dev` | `43.162.83.233` | Lighthouse `lhins-fcwpwymt` · SSM Hybrid `mi-080ed76dc6d97d8b5` · eu-west-2 | 腾讯美西 · timeline 2 · LUKS `/var/lib/tokenkey` |
+| **prod** | `api.tokenkey.dev` | `43.162.83.233` | Lighthouse `lhins-fcwpwymt` · SSM Hybrid `mi-080ed76dc6d97d8b5` · eu-west-2 | 腾讯美西 · timeline 2 · LUKS mapper；现网仍为 cutover 布局（见下） |
 
 四正式域名 A 记录（TTL 300）均指向 `43.162.83.233`：`tokenkey.dev` / `api.tokenkey.dev` / `api-cn.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。
 prod 直接使用原生账号；旧中继 stub 已软删。
 **Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已冻结写者，保留 ≥7 天；禁止解冻双写。** 不能当作现网入口。
+**布局债（阻塞默认发版）：** LUKS 同时挂在 `/var/lib/tokenkey` 与 `/srv/tokenkey-rehearsal`；业务 `.env` 在 `formal/.env`，容器为 `tk-cutover-prod-*`。收敛到 Stage0 约定路径前禁止默认 `deploy-stage0`。细节见 [`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
 历史数据从 S3 隔离归档读取。退役验收与归档入口见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
 
 ### 同机附属 / 代理验证资源

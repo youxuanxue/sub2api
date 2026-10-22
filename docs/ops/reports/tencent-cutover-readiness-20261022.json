@@ -1,4 +1,7 @@
 {
+  "archive_status": "pre_cutover_snapshot",
+  "superseded_by": "docs/ops/reports/tencent-cutover-20261022.json",
+  "note": "Frozen readiness evidence from before/during cutover window. Do not treat auto_resolve_still or cutover_authorized=false fields as live truth; live SSOT is the cutover receipt + deploy/tencent/candidate-usw-20261022.json + deploy/hetzner/README.md.",
   "observed_at": "2026-10-22T01:35:59Z",
   "ready_for_write_stop": false,
   "cutover_authorized": false,
@@ -265,30 +268,30 @@
     "at": "2026-10-22T01:29:47Z",
     "basis": [
       "paired LSN gap ~1.5MiB (src 1C/5A16C220 vs tgt replay 1C/5A000000) at 2026-10-22T01:28Z",
-      "archive_timeout=5min \u2192 window must force WAL switch (do not wait natural cycle)",
+      "archive_timeout=5min → window must force WAL switch (do not wait natural cycle)",
       "synthetic S3 final_archive_and_replay ~6s / promote ~2s (NOT production bound)",
       "historical full restore path 31m is fallback, not standby cutover path",
       "green /health status=ok; HTTP inflight field not exposed on that probe"
     ],
     "phases_minutes": {
-      "freeze_writers_and_stop_ingress": "1\u20133",
-      "drain_http_inflight_long_streams": "2\u201310 (variable; main uncertainty)",
-      "force_final_wal_archive_and_s3_visible": "1\u20133",
-      "standby_fetch_replay_catchup": "1\u20133 (gap currently small; S3/identity jitter)",
-      "promote_and_new_timeline_backup_guard": "1\u20132",
-      "remount_var_lib_tokenkey_start_app_caddy_health": "2\u20134"
+      "freeze_writers_and_stop_ingress": "1–3",
+      "drain_http_inflight_long_streams": "2–10 (variable; main uncertainty)",
+      "force_final_wal_archive_and_s3_visible": "1–3",
+      "standby_fetch_replay_catchup": "1–3 (gap currently small; S3/identity jitter)",
+      "promote_and_new_timeline_backup_guard": "1–2",
+      "remount_var_lib_tokenkey_start_app_caddy_health": "2–4"
     },
     "core_service_recovery_minutes": {
-      "optimistic": "8\u201312",
-      "planned": "12\u201320",
-      "with_drain_or_s3_hiccup": "20\u201335"
+      "optimistic": "8–12",
+      "planned": "12–20",
+      "with_drain_or_s3_hiccup": "20–35"
     },
     "dns_user_visible_extra": "depends on TTL; not included in core DB/app numbers",
     "not_a_promise": "No production write-stop rehearsal yet; do not treat as SLA.",
     "cutover_authorized": false,
     "executed": false,
-    "compressed_plan_minutes": "5\u20138 core if prepare levers done + bounded drain",
-    "uncompressed_planned_minutes": "12\u201320"
+    "compressed_plan_minutes": "5–8 core if prepare levers done + bounded drain",
+    "uncompressed_planned_minutes": "12–20"
   },
   "window_compression": {
     "at": "2026-10-22T01:31:59Z",
@@ -302,55 +305,55 @@
       {
         "lever": "bounded_drain",
         "prepare_or_window": "window",
-        "action": "SIGUSR1 then hard cap TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS=45\u201360 (default 120); do not wait 10m for long SSE",
-        "saves_minutes": "3\u20138",
+        "action": "SIGUSR1 then hard cap TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS=45–60 (default 120); do not wait 10m for long SSE",
+        "saves_minutes": "3–8",
         "tradeoff": "some long streams aborted; clients retry"
       },
       {
         "lever": "overlap_phases",
         "prepare_or_window": "window",
         "action": "During drain: stop timers + pg_switch_wal + wait S3 in parallel; promote as soon as replay==final; defer new-timeline backup verify after /health green",
-        "saves_minutes": "2\u20135",
+        "saves_minutes": "2–5",
         "tradeoff": "backup protect slightly later; still before declaring done"
       },
       {
         "lever": "prestage_target",
         "prepare_or_window": "prepare-now",
-        "action": "Pre-bind /var/lib/tokenkey\u2192LUKS, keep directed Caddy/app image warm, compose ready; window only promote+flip upstream/DNS",
-        "saves_minutes": "2\u20134",
+        "action": "Pre-bind /var/lib/tokenkey→LUKS, keep directed Caddy/app image warm, compose ready; window only promote+flip upstream/DNS",
+        "saves_minutes": "2–4",
         "tradeoff": "none if still recovery/no writers"
       },
       {
         "lever": "keep_lag_tiny",
         "prepare_or_window": "prepare-now",
         "action": "Continuous standby catch-up + precopy catch-up until T-0; force WAL at freeze so gap stays <<16MB",
-        "saves_minutes": "1\u20133",
+        "saves_minutes": "1–3",
         "tradeoff": "none"
       },
       {
         "lever": "lower_apex_ttl",
         "prepare_or_window": "prepare-now (DNS change, not traffic cut)",
-        "action": "Lower tokenkey.dev apex TTL 300\u219260 (or 30) \u22651h before window",
-        "saves_minutes": "user-visible UI 2\u20134",
+        "action": "Lower tokenkey.dev apex TTL 300→60 (or 30) ≥1h before window",
+        "saves_minutes": "user-visible UI 2–4",
         "tradeoff": "slightly more DNS QPS"
       },
       {
         "lever": "split_db_vs_dns",
         "prepare_or_window": "window",
-        "action": "Measure outage as WRITE_STOP\u2192new /health only; DNS immediately after health; api TTL=1 already",
+        "action": "Measure outage as WRITE_STOP→new /health only; DNS immediately after health; api TTL=1 already",
         "saves_minutes": "perception",
         "tradeoff": "apex clients may lag on old IP briefly"
       }
     ],
     "compressed_core_minutes": {
-      "target_if_levers_applied": "5\u20138",
-      "floor_realistic": "4\u20136 (drain cap 45s + parallel WAL + prestage)",
+      "target_if_levers_applied": "5–8",
+      "floor_realistic": "4–6 (drain cap 45s + parallel WAL + prestage)",
       "still_not_promised": true
     },
     "rejected_or_heavy": [
-      "Dual-write Tokyo+Tencent \u2014 forbidden",
-      "Streaming replication Tokyo\u2192Tencent for final catchup \u2014 possible but new network/security project",
-      "Skip final WAL verify \u2014 unsafe"
+      "Dual-write Tokyo+Tencent — forbidden",
+      "Streaming replication Tokyo→Tencent for final catchup — possible but new network/security project",
+      "Skip final WAL verify — unsafe"
     ],
     "cutover_authorized": false,
     "executed": false

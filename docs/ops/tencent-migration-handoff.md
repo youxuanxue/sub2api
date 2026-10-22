@@ -22,6 +22,7 @@
 | 备份 | `tokenkey-backup-identity.timer` + `tokenkey-postgres-backup/archive-check.timer`；全量标签 `20261022-020832F` |
 | 账号出口 | `usw-eval1..4`（私网 `10.4.0.{2,11,5,4}:1080`）；`jp-*` 绑定已清零；`cn-ip*` 未动 |
 | 外部飞书备份告警 | 尚未接到腾讯机；连续性靠本机 timer + `archive_check.json` |
+| Stage0 布局 | **未收敛**：`.env`=`formal/.env`；容器 `tk-cutover-prod-*`；Docker root=`/srv/tokenkey-rehearsal/docker`。默认 `deploy-stage0` 禁用直至收敛 |
 
 ## 3. 身份与备份边界（仍有效）
 
