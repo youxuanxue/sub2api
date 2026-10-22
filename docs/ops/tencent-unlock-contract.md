@@ -52,7 +52,7 @@ openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
 
 标准 `deploy-stage0` 的 `.env` 路径与 legacy `tokenkey` 容器前置已满足；首次蓝绿仍须按脚本迁移，并依赖上述别名。回执：`/var/lib/tokenkey/layout-staging/receipts/window-cutover-20261022T061053Z.json`。
 
-布局工具（经 `run-probe.sh --target prod`）：`probe-tencent-layout-prep.sh`、`probe-tencent-layout-find-compose.sh`、`probe-tencent-layout-capture-recipe.sh`、`probe-tencent-layout-window-preflight.sh`、`apply-tencent-layout-window.sh`（仅 `APPLY=yes-layout-window-cutover`）。
+布局工具（经 `run-probe.sh --target prod`）：`probe-tencent-layout-prep.sh`、`probe-tencent-layout-find-compose.sh`、`probe-tencent-layout-capture-recipe.sh`、`probe-tencent-layout-window-preflight.sh`、`apply-tencent-layout-window.sh`（仅 `APPLY=yes-layout-window-cutover`）。完整字面改名/搬 Docker Root 仍为可选整洁，不得绑第二次停机窗。
 
 ## 解锁失败信号（只读探针）
 

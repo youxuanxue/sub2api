@@ -4,9 +4,11 @@
 `resolve_prod_ssm_target.py` 持有；备份/验收命令由 [physical-backup.md](physical-backup.md) 持有。
 本文替代 prod 的全库 dump + 按表尾差迁机路径。cn-prod 未通过物理备份验收，继续使用其独立 pgdump。
 
-**当前交接：[腾讯迁机交接](../../docs/ops/tencent-migration-handoff.md)。**
-身份目录与 standby 重挂载已修复；真实 S3 合成 timeline 交接已通过
-（`inv-0a7axjgsxp`，隔离候选前缀）。仍禁止停写或切流；正式配置/TLS/生产预复制未完成。
+**当前交接：[腾讯迁机交接](../../docs/ops/tencent-migration-handoff.md）。**  
+**状态（2026-10-22）：腾讯美西已在服（timeline 2）；Tokyo 冻结保留；出口已迁 `usw-eval*`。**  
+切流踩坑与 verify 门禁见 skill [`tokenkey-host-replacement`](../../.cursor/skills/tokenkey-host-replacement/SKILL.md) 与 [playbook](../../.cursor/skills/tokenkey-host-replacement/references/playbook.md)。  
+剩余：≥7 天后东京退役、JP Lightsail 关停、LUKS 自动解锁验收。飞书宿主告警（`tokenkey-https-watch.timer`）已接腾讯机。  
+**规划纪律：** 新机从 `plan` 起按正式迁机终态一次写清（布局/控制面/备份告警/DNS/出口/SSOT），与 cutover **同窗**收口；禁止切后再开多轮返工停机。
 
 ## 当前可用能力与边界
 
@@ -130,32 +132,29 @@ Redis 默认新建；若会话/幂等功能有持久需求，按其 owner 单独
 - 地域/实例/架构/预算和到期机制：已选美西锐驰 x86，基础设施验证完成，见美西验证报告。
 - 腾讯节点 TAT/SSM 双通道、加密工作区、短期只读 S3 身份、容器出站限制已实测；真实恢复回执见美西验证报告。
 - 数据库最新/历史恢复、应用隔离 smoke、资源清理回执。
-- 保留式 standby 与双机位置观测已实测；最终 WAL 离线回执检查已实现并通过合成正负向测试。现场回执采集、完整单写隔离、正式发布和 timeline 交接仍待验收，禁止切流。
+- 保留式 standby、正式切流、新 timeline 备份保护（候选前缀）已完成；见切流回执。
 
-## 腾讯云正式运行的具体待办
+## 腾讯云正式运行 · 切流后仍开放
 
-- **发布目标**：2026-10-22 切流后 `resolve_prod_ssm_target.py --target auto` → 腾讯美西（矩阵 `deployable=true`）。`aws-fresh` 为冻结 Tokyo，默认拒绝（保留只读须 `ALLOW_FROZEN_TOKYO_TARGET=1`）。
-- **宿主存储契约**：`bluegreen_host_runtime.py` 默认 `--platform=tencent-luks`（Hetzner Cloud 已退役）；腾讯路径要求 dm-crypt mapper，并拒绝 Hetzner volume 身份。
-- **持续 AWS 身份**：现有 SSM 注册已成功，但不会自动赋予 pgBackRest S3 权限。跨夜 STS 只读会话的实际到期时间以现场为准；持久 standby 需可续期的只读身份，新主库需独立前缀的备份写身份，并验证过期/撤销后的行为。
-  `ops/stage0/tencent_backup_identity.py policy` 生成仅限腾讯主机实际 STS UserId 的策略草案；
-  旧 `prod/postgres/` 只读，独立 `candidates/tencent-usw-20261022/` 可管理备份对象，
-  其他共用角色的 managed instance 不获授权。`refresh` 仅在显式目标主机读取 SSM Agent
-  维护的临时凭据，校验 STS 身份后原子更新 tmpfs 配置；身份校验失败保留旧配置，
-  不打印凭据、不操作 IAM 或数据库。周期刷新需另安装目标 timer，不能仅凭脚本存在宣称已续期。
-- **密钥与启动**：当前 LUKS 密钥仅保存在本地受限目录和目标 tmpfs，重启需人工重新注入。正式运行需异机恢复材料、最小权限取钥及解锁失败告警；不能为了自动启动把密钥写回同盘。
-- **应用验收**：复用现有共享 compose/Caddy owner，验证 amd64 应用镜像、合成账号、worker 禁用、受控出站和真实 UI。保持 QA 上传/DROP 暂停；隔离恢复的生产账号数据不能启动真实业务写者。
-- **代理替换**：按用户最新决定，推迟到主机切流后另行处理。主机迁移保持现有日本代理绑定；腾讯到日本代理的可达性仍属于应用验收。
+- **发布目标**：`resolve_prod_ssm_target.py --target auto` → 腾讯美西。GitHub `PROD_SSM_TARGET` 必须为 `auto`。`aws-fresh`/`hetzner` 失败关闭（冻结 Tokyo 只读须 `ALLOW_FROZEN_TOKYO_TARGET=1`）。
+- **Stage0 布局**：从 **plan/prepare** 起按「切流结束即可 `deploy-stage0`」设计；与 cutover **同窗**落地（默认例外路径：不搬 Docker Root、PG/Redis 别名）。见 [`stage0-layout-convergence.md`](../../deploy/tencent/stage0-layout-convergence.md) / skill `tokenkey-host-replacement`。**禁止**规划迁机完成后的第二次布局停机。
+- **宿主存储契约**：`bluegreen_host_runtime.py` 默认 `--platform=tencent-luks`；拒绝 Hetzner volume 身份。
+- **备份身份**：候选前缀 `candidates/tencent-usw-20261022/postgres` 为活链；`RuntimeDirectoryPreserve=yes`；飞书宿主告警已接（`tokenkey-https-watch.timer`，见舰队 SSOT）。
+- **密钥与启动**：LUKS 异机托管已落盘；自动解锁未验收——**禁止现网整机重启试验**。
+- **出口代理**：账号已迁 `usw-eval*`；日本 Lightsail 机器保留待关停审批。
 
-## 最短停写窗口的前置条件（未放行）
+## 历史：切流前最短停写清单（2026-10-22 已执行）
+
+以下为切流前准备与窗内顺序的归档，**不是**当前开放项。后续迁机仍按此顺序，并把 Stage0 例外布局写进同一窗（见 skill / [`stage0-layout-convergence.md`](../../deploy/tencent/stage0-layout-convergence.md)）。
 
 提前完成镜像固定 digest 下载、同架构启动、证书与域名定向访问、密钥迁移、正式挂载布局、
 目标日常发布、只读/备份身份续期和新 timeline 备份恢复验证，再安排停止写入。
-当前已下载并在腾讯执行 1.8.313 amd64 二进制、完成空库启动和空闲 drain 冒烟；
-这不是生产配置、真实账号或真实 UI 验收。后续源发版后须重核镜像与配置，不能沿用旧放行结果。
+切流前已下载并在腾讯执行 1.8.313 amd64 二进制、完成空库启动和空闲 drain 冒烟；
+不能把该冒烟当作生产配置、真实账号或真实 UI 验收；源发版后须重核镜像与配置。
 
 获批窗口顺序：先锁定发版和写者清单，关闭新业务入口并等待真实在途归零，停止后台与直连写者；
 然后创建最终点、主动归档最终 WAL（不等待自然 5 分钟周期），验证其真实入仓、目标同 timeline
-重放和账务一致，再晋升、启用经准备的新备份保护、应用验收、改入口。
+重放和账务一致，再晋升、启用经准备的新备份保护、应用验收、改入口、**同窗落地布局例外路径**。
 QA cleanup/provision、宿主 cron、外部控制面维护任务及旧颜色应用均须盘点；
 archive-check 也需确认是否会触发归档，不能与窗口内的最终归档步骤竞争。
 等待中任何证据缺失或超时都停止推进，不强杀长流来迎合时间估算。

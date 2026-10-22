@@ -1,10 +1,26 @@
-# 腾讯美西 · Stage0 布局收敛（例外路径）
+# 腾讯美西 · Stage0 布局（迁机同窗 / 例外路径）
+
+**政策（硬）：** 新机从 `plan` 起就按**正式迁机终态**规划布局与发版契约；目标在 **cutover 同窗**落地，切流结束即可默认 `deploy-stage0`。  
+**禁止**把「搬 Docker data-root / 全量容器改名 / 布局债」排成迁机完成后的第二次停机或反复返工窗。  
+Owner skill：[`tokenkey-host-replacement`](../../.cursor/skills/tokenkey-host-replacement/SKILL.md)。
 
 状态：**维护窗已执行（2026-10-22）**；Docker Root **例外保留**；网关已恢复。  
 回执（主机）：`/var/lib/tokenkey/layout-staging/receipts/window-cutover-20261022T061053Z.json`  
-探针/执行器：`ops/stage0/probe-tencent-layout-prep.sh`、`ops/stage0/apply-tencent-layout-window.sh`。
+探针/执行器：`ops/stage0/probe-tencent-layout-prep.sh`、`ops/stage0/apply-tencent-layout-window.sh`（仅显式 `APPLY=…`）。
 
 关联：[unlock 契约](../../docs/ops/tencent-unlock-contract.md)、[切流清单](../../docs/ops/tencent-cutover-checklist.md)、[舰队 SSOT](../hetzner/README.md)。
+
+## 默认例外路径（发版前置 · plan 即写入）
+
+切流结束当日须满足：
+
+| 项 | 要求 |
+|---|---|
+| 业务 `.env` | `/var/lib/tokenkey/.env` |
+| 网关容器 | `tokenkey` / `tokenkey-caddy` |
+| PG / Redis | Stage0 名 **或** 网络别名 `postgres` / `redis`（探测脚本双名兼容） |
+| Docker Root | **默认不搬**；可保留演练挂载下的 data-root；不改 `daemon.json`、不停 Docker 守护进程 |
+| 完整字面布局 | 物理改名 PG/Redis、搬 data-root = **可选整洁**，不得挡发版、不得绑迁机主路径 |
 
 ## 例外（已落地）
 
@@ -38,8 +54,8 @@
 ## 发版门禁
 
 - **可以**开始走标准 `deploy-stage0` 的前置条件：活 `.env` 在 `/var/lib/tokenkey/.env`，存在 legacy `tokenkey` 容器供蓝绿首次迁移。
-- **注意**：首次 stock 蓝绿仍会按脚本从 `tokenkey` 迁到 `tokenkey-blue/green`；依赖网络别名 `postgres`/`redis`。发版前建议先 `operation=check` / warm，不要与本窗混做。
-- Redis/PG **容器名**仍非 Stage0 字面名；靠 alias。若要物理改名，另批窗口。
+- **注意**：首次 stock 蓝绿仍会按脚本从 `tokenkey` 迁到 `tokenkey-blue/green`；依赖网络别名 `postgres`/`redis`。发版前建议先 `operation=check` / warm，不要与布局窗混做。
+- Redis/PG **容器名**仍非 Stage0 字面名；靠 alias。若要物理改名，另批窗口（可选整洁，非迁机主路径）。
 - **首次蓝绿前硬门禁**（只读）：`bash ops/observability/run-probe.sh --target prod --script ops/stage0/probe-tencent-bluegreen-prereqs.sh`，须 `verdict=ready`。覆盖：`docker compose` 插件、`tokenkey_tokenkey-network` + DNS 别名、`formal/app/config.yaml`、**实挂** Caddyfile 路径（本机为 `formal/caddy/Caddyfile.cutover`，不是 Stage0 副本）、本地镜像或 GHCR 登录。
 - 蓝绿脚本已对齐例外路径：解析实挂 Caddyfile、app 数据用 `formal/app`、缺 `/var/lib/tokenkey/aws` 时跳过挂载、digest 镜像回退 `.env` tag、本地已有镜像则跳过 pull。**人工批准前禁止 dispatch deploy。**
 
@@ -47,3 +63,4 @@
 
 - 不拿现网重启验收 LUKS。
 - 不解冻 Tokyo / 双写。
+- 不把「停 Docker → 搬 data-root」写成迁机默认步骤。
