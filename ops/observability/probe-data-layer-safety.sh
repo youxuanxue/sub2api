@@ -93,11 +93,13 @@ latest_dump="$(find /var/lib/tokenkey/pgdump -maxdepth 1 -type f -name 'tokenkey
 
 # Whether local pgdump is this host's backup path at all.
 #
-# Not a patch on a dead gate: pgdump is retired on PROD only. The retirement doc
-# scopes itself to "当前 prod" and explicitly keeps ops-cn-pgdump.yml running,
-# because cn-prod has no accepted physical replacement -- that workflow still
-# succeeds every 2 hours (cron '17 */2 * * *'), so deleting pgdump_freshness
-# would leave cn-prod with no backup-freshness gate at all.
+# Reported as evidence rather than hard-coded per host. pgdump is retired on
+# prod, and cn-prod is mid-retirement as of 2026-10-23: it moved to Tencent
+# Beijing with pgBackRest, and its backup watch now classifies the pgBackRest
+# receipt (.github/workflows/ops-cn-backup-watch.yml) instead of running dumps.
+# Its local pgdump directory and the CN_PGDUMP_ENABLED switch are deliberately
+# still in place until that watch has proven itself, so this gate must keep
+# applying wherever a pgdump installation is genuinely still the backup owner.
 #
 # Applicability is reported as HOST EVIDENCE rather than hard-coded as
 # `if target == "prod"`, so the next host migration needs no code edit and
