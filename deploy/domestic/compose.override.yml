@@ -4,7 +4,8 @@ services:
   tokenkey:
     pull_policy: never
     environment:
-      QA_CAPTURE_ENABLED: "false"
+      # Match prod capture. Bundle stays retired. Do not upload QA or telemetry to S3.
+      QA_CAPTURE_ENABLED: "true"
       TELEMETRY_ARCHIVE_ENABLED: "false"
       # China-first proxy exit probe chain (ipip → ip9 → qq-ip2city → ipify).
       # Avoids overseas ip-api RTT on cn-prod admin proxy latency. Explicit
