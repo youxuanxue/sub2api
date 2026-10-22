@@ -30,6 +30,6 @@
 - [ ] 腾讯宿主备份 operator `tencent_pgbackrest.py` 不在仓库且无 `accept` 命令，恢复回执无法导入；需入仓
 - [ ] 配置/密钥离机备份：推荐宿主用操作员公钥加密 tar 上传 `candidates/…/host-config/`（无需改 IAM），另开 PR
 - [ ] 宿主探针 PG/Redis 容器名：data-layer 与 daily error ledger 走 `tk_resolve_postgres_container`；daily diagnostics 的 inline SSM 从 `resolve_app_container.py` 渲染同一「恰好一个 running」规则。其余硬写 `tokenkey-postgres` 的脚本逐批迁移
-- [ ] **QA 分区预建漏装（截止 2026-10-25 01:00 UTC）**：腾讯机无 `tokenkey-qa-provision.timer`（迁机漏装；`local_qa_jobs` 只登记了 cleanup，watcher 未告警）。`qa_records` 分区只到 10-25 01:00 UTC，之后 capture 写入落到无分区区间。修复走 `ops/qa/local_maintenance_host.py` setup plan→`--apply`，需审批
+- [x] QA 分区预建漏装：2026-10-22 13:29 UTC 经用户批准用 `ops/qa/local_maintenance_host.py install --apply` 补装 `tokenkey-qa-provision.timer`（每小时整点），首轮 72/72 小时覆盖；未重启网关/PG。回滚备份 `/var/backups/tokenkey-qa-local/20261022T132922246441Z`
 - [ ] QA phase2 剩余真实问题：`tokenkey-qa-runtime` 容器在腾讯机不存在；boundary 判定与 `paused_jobs` 口径矛盾（第 4 队统一）。探针体积问题已由 #2800 解决（ARCHIVE 行 23.6 KB→0.7 KB）
 - [ ] 冻结 Tokyo 退役时一并：删 `aws-fresh` 模式与 `fresh-migration-20261015.json`、OIDC 栈 retarget 到 `mi-*`（#2802 模板已支持）、遗留空栈 `tokenkey-tokyo-ebs-restore-20261017`
