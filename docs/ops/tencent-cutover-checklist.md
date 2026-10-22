@@ -21,3 +21,10 @@
 - [ ] Tokyo 保留 ≥7 天再退役（禁止解冻双写）
 - [ ] 日本 Lightsail 代理关停（账号绑定已迁出后再批）
 - [ ] LUKS 自动解锁验收（**禁止拿现网整机重启试验**；契约见 [`tencent-unlock-contract.md`](tencent-unlock-contract.md)）
+- [ ] 腾讯 Lighthouse 实例续费或换包年（prod 与 `usw-eval1..4` 到期约 2026-11-21/22 UTC，`NOTIFY_AND_MANUAL_RENEW`；不续即停机）
+- [ ] 腾讯机整机/卷级快照策略（无 EBS/DLM 替代；目前仅 pgBackRest 覆盖 PG，Redis/配置/密钥无快照）
+- [ ] 隔离物理恢复演练在腾讯侧重建（`ops-physical-restore.yml` / `run_physical_restore.py` 仍是 EC2 arm64 路径，对 Hybrid `mi-*` 不可用）
+- [ ] 备份工具 arm64 门禁（`prepare_physical_backup.py` / `install_postgres_backup.py`）与 amd64 现网对齐；重装备份包前必改
+- [ ] 宿主探针 PG/Redis 容器名：daily diagnostics 主路径已改用 `tk_resolve_postgres_container`；其余 `ops/observability` 硬写 `tokenkey-postgres` 的脚本逐批迁移
+- [ ] QA phase2 探针在 PG 解析修复后输出约 23 KB，接近 SSM 24 KB 上限；需改为分块/落盘回传后再接 PG 解析
+- [ ] 冻结 Tokyo 退役时一并：DLM 快照、`fresh-migration-20261015.json` 中的 QA 暂停 owner 迁到腾讯矩阵、`cicd-oidc.yaml` 的 EC2-only SendCommand 资源

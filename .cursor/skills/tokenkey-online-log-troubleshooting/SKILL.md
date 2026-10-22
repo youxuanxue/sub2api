@@ -2,7 +2,7 @@
 name: tokenkey-online-log-troubleshooting
 description: >-
   Read-only TokenKey prod/cn-prod troubleshooting workflow. Use for live logs,
-  ops_error_logs, SSM/Docker checks (AWS prod or UCloud cn-prod via Hybrid),
+  ops_error_logs, SSM/Docker checks (Tencent USW prod or UCloud cn-prod via Hybrid),
   gateway UA/TLS/body evidence, CI/deploy traces, and evidence-based root-cause
   summaries.
 ---
@@ -29,7 +29,7 @@ description: >-
 机械解析和 SSM 投递由 `ops/observability/run-probe.sh` 负责；模型只解释证据。
 
 ```bash
-# AWS prod（默认）
+# 腾讯美西 prod（默认）
 bash ops/observability/run-probe.sh --target prod \
   --script ops/observability/ops-error-triage.sh
 

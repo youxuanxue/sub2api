@@ -78,7 +78,7 @@ SSH 仅用于 SSM agent 的一次性 bootstrap 或显式恢复；SSH、SSM、远
 
 ## §5 循环
 
-`CronCreate` 挂会话级循环（例 `13,43 * * * *`），prompt 即"分别重跑 AWS prod 与 UCloud cn-prod 的 §1，按 §2/§3/§4 分节点汇报"。会话级、7 天过期——告知用户，关会话即停。
+`CronCreate` 挂会话级循环（例 `13,43 * * * *`），prompt 即"分别重跑腾讯美西 prod 与 UCloud cn-prod 的 §1，按 §2/§3/§4 分节点汇报"。会话级、7 天过期——告知用户，关会话即停。
 
 ## §6 边界
 

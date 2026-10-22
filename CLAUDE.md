@@ -104,7 +104,7 @@ Never commit `backend/config.yaml`, `deploy/config.yaml`, `.env`.
 
 ### 9. Release Discipline (ARM + Tag Triggers)
 
-Prod/edges are **arm64**. **`simple_release` default stays `false`** (§9.1).
+Prod is **amd64** (Tencent USW); images stay multi-arch. **`simple_release` default stays `false`** (§9.1).
 VERSION bump commits must not carry bracketed skip-ci markers; use
 `bash scripts/release-tag.sh vX.Y.Z` (§9.2). Discuss markers as `skip-ci` /
 `ci-skip` (no brackets) in PR text that lands on `main`. **Detail:**

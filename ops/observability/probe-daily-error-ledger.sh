@@ -32,8 +32,14 @@ fi
 # shellcheck source=../lib/resolve-app-container.sh
 . "$_tk_resolver"
 
+POSTGRES_CONTAINER="$(tk_resolve_postgres_container "${POSTGRES_CONTAINER:-auto}" || true)"
+if [ -z "$POSTGRES_CONTAINER" ]; then
+  echo "postgres container unresolved (want tokenkey-postgres or tk-archive-standby)" >&2
+  exit 1
+fi
+
 psql_query() {
-  "$DOCKER_BIN" exec tokenkey-postgres psql \
+  "$DOCKER_BIN" exec "$POSTGRES_CONTAINER" psql \
     -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -c "$1"
 }
 

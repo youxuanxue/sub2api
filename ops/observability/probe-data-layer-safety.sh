@@ -2,7 +2,6 @@
 # Read-only host-side protection probe; verdict logic lives in the Python sibling.
 set -u
 
-PSQL=(docker exec -i -e 'PGOPTIONS=-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=2s' tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 APP_CONTAINER="${APP_CONTAINER:-auto}"
 
 # Canonical app-container resolver (ops/lib/resolve-app-container.sh) is the sole
@@ -19,6 +18,12 @@ if [ -z "$_tk_resolver" ]; then
 fi
 # shellcheck source=../lib/resolve-app-container.sh
 . "$_tk_resolver"
+POSTGRES_CONTAINER="$(tk_resolve_postgres_container "${POSTGRES_CONTAINER:-auto}" || true)"
+if [ -z "$POSTGRES_CONTAINER" ]; then
+  echo "postgres container unresolved (want tokenkey-postgres or tk-archive-standby)" >&2
+  exit 1
+fi
+PSQL=(docker exec -i -e 'PGOPTIONS=-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=2s' "$POSTGRES_CONTAINER" psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 
 if resolved_app_container="$(tk_resolve_app_container "$APP_CONTAINER")" && app_env="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$resolved_app_container" 2>/dev/null)"; then
   telemetry_setting="$(printf '%s\n' "$app_env" | awk -F= '$1 == "TELEMETRY_ARCHIVE_ENABLED" {print substr($0, index($0, "=") + 1); exit}')"

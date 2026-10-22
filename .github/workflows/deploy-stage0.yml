@@ -31,7 +31,7 @@ on:
         type: string
         default: ""
       simple_release_override:
-        description: "⚠️ Allow deploy of a single-arch (amd64-only) :latest manifest. Default false; flip ONLY if the prod Stage0 host is amd64. Today prod runs AWS Graviton t4g (arm64) — flipping this WILL crash with exec format error."
+        description: "⚠️ Allow deploy of a single-arch (amd64-only) :latest manifest. Default false; flip ONLY if the prod Stage0 host is amd64. Prod (Tencent USW) is amd64, but shared tags must stay multi-arch for arm64 consumers."
         required: false
         type: boolean
         default: false

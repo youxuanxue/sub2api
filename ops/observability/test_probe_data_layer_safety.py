@@ -25,6 +25,7 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
         app_container: str = "auto",
         partition_sql: str | None = None,
         partition_failure: bool = False,
+        postgres_container: str = "tokenkey-postgres",
     ) -> tuple[dict[str, object], dict[str, object], str]:
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
@@ -108,6 +109,8 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
                 key = name.replace("-", "_").upper()
                 env[f"STATE_{key}"] = states.get(name, "missing")
                 env[f"TELEMETRY_{key}"] = telemetry.get(name, "false")
+            # Stage0 vs Tencent layout-exception PG name; exactly one runs.
+            env["STATE_" + postgres_container.replace("-", "_").upper()] = "running"
 
             proc = subprocess.run(
                 ["bash", str(_SCRIPT)],
@@ -191,6 +194,16 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
         self.assertIn("exec -i -e", calls)
         self.assertIn("PARTITION_SQL:", calls)
         self.assertIn("pg_get_expr(child.relpartbound, child.oid, true)", calls)
+
+    def test_layout_exception_postgres_name_is_resolved(self) -> None:
+        _, partition, calls = self.run_probe(
+            states={"tokenkey": "running"},
+            telemetry={"tokenkey": "false"},
+            postgres_container="tk-archive-standby",
+        )
+        self.assertEqual(partition, {"probe_ok": True})
+        self.assertIn("tk-archive-standby psql", calls)
+        self.assertNotIn("tokenkey-postgres psql", calls)
 
     def test_explicit_missing_partition_sql_fails_closed(self) -> None:
         _, partition, _ = self.run_probe(

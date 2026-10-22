@@ -1,7 +1,7 @@
 ---
 name: tokenkey-stage0-release-rollout
 description: >-
-  Drive TokenKey Stage0 release, AWS prod deploy, UCloud cn-prod SSM deploy,
+  Drive TokenKey Stage0 release, Tencent USW prod deploy, UCloud cn-prod SSM deploy,
   smoke, rollback, and release-risk checks. Use for release tagging,
   deploy-stage0, cn-prod deploy_via_ssm, structured smoke, or post-release
   OAuth checks.
@@ -10,7 +10,7 @@ description: >-
 # TokenKey：Stage0 release → prod / cn-prod rollout → 真实测试
 
 适用于本仓库（TokenKey fork of sub2api）。权威纪律见根目录 `CLAUDE.md`。  
-现网舰队 / AWS 发版入口：[`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)（**prod-only**）。  
+现网舰队 / prod 发版入口：[`deploy/hetzner/README.md`](../../../deploy/hetzner/README.md)（**prod-only**）。  
 UCloud cn-prod：[`deploy/domestic/README.md`](../../../deploy/domestic/README.md)（**SSM Hybrid 默认**，禁止常规发版开 SSH/离线 scp）。
 
 ## 确定性基线（机械化 vs 真判断）
@@ -44,7 +44,7 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 
 例外：
 
-- `target=prod`：只发版/部署 AWS prod（**默认路径**）。
+- `target=prod`：只发版/部署腾讯美西 prod（**默认路径**）。
 - `target=cn-prod`：复用同一 GHCR 包，经 `deploy/domestic/deploy_via_ssm.sh`
   `pull --tag X.Y.Z --revision FULL_SHA` → `sync-controls` → `prepare`，再候选实测与 `bluegreen.py promote`。
   Release 成功后，等待对应 release run 触发的 `distribute-cn-image.yml` 成功（私有 S3 + SSM 预下载）；

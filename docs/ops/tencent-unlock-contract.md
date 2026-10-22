@@ -47,10 +47,10 @@ openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
 | 挂载 | `/var/lib/tokenkey` **与** `/srv/tokenkey-rehearsal`（同一 source） |
 | Docker Root Dir | `/srv/tokenkey-rehearsal/docker`（**例外保留**；未改 daemon.json） |
 | 业务 `.env` | `/var/lib/tokenkey/.env`（`formal/.env` 仍保留作历史/回滚参考） |
-| 容器名 | `tokenkey`、`tokenkey-caddy`、`tk-cutover-prod-redis`、`tk-archive-standby` |
+| 容器名 | `tokenkey-blue/green`（活动色）、`tokenkey`（socat 控制代理）、`tokenkey-caddy`、`tk-cutover-prod-redis`、`tk-archive-standby` |
 | 网络别名 | PG:`postgres`；Redis:`redis` / `tokenkey-redis` |
 
-标准 `deploy-stage0` 的 `.env` 路径与 legacy `tokenkey` 容器前置已满足；首次蓝绿仍须按脚本迁移，并依赖上述别名。回执：`/var/lib/tokenkey/layout-staging/receipts/window-cutover-20261022T061053Z.json`。
+标准 `deploy-stage0` 已完成首次蓝绿，依赖上述别名。回执：`/var/lib/tokenkey/layout-staging/receipts/window-cutover-20261022T061053Z.json`。
 
 布局工具（经 `run-probe.sh --target prod`）：`probe-tencent-layout-prep.sh`、`probe-tencent-layout-find-compose.sh`、`probe-tencent-layout-capture-recipe.sh`、`probe-tencent-layout-window-preflight.sh`、`apply-tencent-layout-window.sh`（仅 `APPLY=yes-layout-window-cutover`）。完整字面改名/搬 Docker Root 仍为可选整洁，不得绑第二次停机窗。
 

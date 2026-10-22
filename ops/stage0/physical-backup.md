@@ -10,12 +10,12 @@
 
 | 项目 | 执行值 |
 |---|---|
-| 镜像 | PostgreSQL 18.6 ARM64；基础摘要在 Dockerfile 固定；pgBackRest 2.58.0；装载后用 image ID 固定运行 |
+| 镜像 | PostgreSQL 18.6（Tokyo 时期 ARM64；腾讯现网为 amd64，见 [迁机工作流](pgbackrest-host-migration.md)）；基础摘要在 Dockerfile 固定；pgBackRest 2.58.0；装载后用 image ID 固定运行 |
 | 备份 | UTC 每个偶数小时 30 分；周日 00:30 的任务做全量，其余增量；错过周全量则下次补全量 |
 | 归档 | archive_mode=on，archive_timeout=300；同步 archive-push；5 分钟一次往返及连续性检查 |
 | 清理 | 专用 S3 桶，us-east-1；pgBackRest 按时间保留至少 7 天所需链；S3 仅清未完成 multipart |
 | 并发 | 备份 2，恢复 4；与现有 pgdump 共用 QA host.lock；物理备份拿独占锁，避免争用 |
-| 恢复资源 | 当前 prod 区域独立 c7g.xlarge，100 GiB 加密 gp3，无入站端口；只读仓库角色；完成即终止，2 小时自动关机/终止兜底 |
+| 恢复资源 | （Tokyo 时期设计，腾讯侧尚未重建）当前 prod 区域独立 c7g.xlarge，100 GiB 加密 gp3，无入站端口；只读仓库角色；完成即终止，2 小时自动关机/终止兜底 |
 | 开销 | 建议首次验收临时机预算上限 $5；每次硬时限 2 小时。S3/跨区流量依实际 WAL 量结算，不能预先保证省钱 |
 
 容量按「窗口边界所需全量 + 后续增量 + 连续 WAL + 新全量暂时重叠」计算，不用 84 份文件估算。
