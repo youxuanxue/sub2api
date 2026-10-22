@@ -19,7 +19,7 @@
 ## 后续（另批，勿擅自执行）
 
 - [ ] Tokyo 保留 ≥7 天再退役（禁止解冻双写；不早于 10-29）。步骤见 #2802 `tokyo-retirement-runbook.md`
-- [ ] **Tokyo 切流前 DLM 快照将被轮换（约 10-28 前决策）**：DLM 只保留 7 份日快照，10-22 03:37 UTC 那两份需复制为手工快照才能保留
+- [x] Tokyo 切流前 DLM 快照：2026-10-22 用户决定**不保留**，任其按 7 日轮换。DB 由 S3 `prod/postgres`（timeline 1）pgBackRest 历史链覆盖；Tokyo 主机上的 Redis/配置/证书原样副本随轮换消失，不再可查
 - [ ] 日本 Lightsail 代理关停：`jp-*` 四行 live/fallback/backup 绑定均为 0（2026-10-22 只读复核）；另有 `tokenkey-node1-ingress-jp-20261016-vm` 一并关停
 - [ ] LUKS 自动解锁验收（**禁止拿现网整机重启试验**；契约见 [`tencent-unlock-contract.md`](tencent-unlock-contract.md)）
 - [ ] **腾讯续费（11-14 前决策）**：prod 与 `usw-eval1` 11-21 08:31 UTC 到期，`usw-eval2..4` 11-22 02:59 UTC，均为 `NOTIFY_AND_MANUAL_RENEW`，不续即停机。5 台合计 395 CNY/月，或包年 4317 CNY
