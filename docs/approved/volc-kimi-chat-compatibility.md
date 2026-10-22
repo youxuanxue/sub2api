@@ -56,9 +56,13 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
 - Public kimi-k3 surface stays Moonshot-compatible: `reasoning_effort` accepts
   `low|high|max` plus common aliases (`highest`→`max`, `medium`→`high`, nested
   `reasoning.effort`, etc.). Unknown effort tokens return a field-level 400.
-  When effort is present and thinking is not explicitly disabled, inject
-  `thinking.type=enabled` so intensity probes observe reasoning content instead
-  of silent 200s. Explicit `thinking.type=disabled` still wins over effort and
+  Effort alone does not inject `thinking`. cn-prod 1.8.315 added
+  `thinking.type=enabled` whenever effort was present, and every streamed
+  `high` / `xhigh` / `max` request then failed upstream with generic
+  InvalidParameter (empty param). 1.8.314 forwarded effort without that
+  injection, and `reasoning_effort=highest` still returned reasoning content.
+  Explicit `thinking.type=enabled` or `auto` from the client is preserved.
+  Explicit `thinking.type=disabled` still wins over effort and
   strips `reasoning_effort` before relay (upstream rejects the combination).
   Anthropic-style `thinking.budget_tokens` is stripped before relay. Closing
   thinking must not silently become low effort. No response reasoning is hidden
@@ -83,7 +87,8 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
 `TestVolcKimiThinkingSwitchesAndSupplierScope` exercises on/off normalization,
 conflicts, supplier/model scope, idempotence and precision/input preservation.
 `TestVolcKimiReasoningEffortMoonshotCompatible` exercises effort aliases,
-effort-implied thinking enablement, disabled-wins-over-effort, and invalid effort.
+effort-only requests leaving `thinking` absent, explicit thinking preservation,
+disabled-wins-over-effort, and invalid effort.
 `TestVolcKimiToolSelectionPreservesSemantics` exercises allowed subsets, forced
 function, mode preservation, invalid references and history preservation.
 `TestVolcKimiChatAllowedToolsEnvelope` checks the Chat SDK envelope, multiple

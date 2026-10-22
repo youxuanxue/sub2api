@@ -106,8 +106,10 @@ func normalizeVolcKimiThinking(body []byte) ([]byte, error) {
 
 // normalizeVolcKimiReasoningEffort accepts Moonshot kimi-k3 reasoning_effort
 // vocabulary (and common aliases) on the public surface. Effort alone must
-// produce observable thinking: when the client did not explicitly disable
-// thinking, inject thinking.type=enabled so intensity probes are not silent.
+// not inject thinking: cn-prod 1.8.315 injected thinking.type=enabled beside
+// high/xhigh/max effort and Volc answered every such stream with generic
+// InvalidParameter (empty param). 1.8.314 forwarded effort without that
+// injection and reasoning_effort=highest still returned reasoning content.
 func normalizeVolcKimiReasoningEffort(body []byte, thinkingMode string) ([]byte, error) {
 	if !gjson.GetBytes(body, "reasoning_effort").Exists() {
 		return body, nil
@@ -144,16 +146,9 @@ func normalizeVolcKimiReasoningEffort(body []byte, thinkingMode string) ([]byte,
 		}
 		return shaped, nil
 	}
-	if mode == "enabled" || mode == "auto" {
-		return shaped, nil
-	}
-	if !gjson.GetBytes(shaped, "thinking").IsObject() {
-		shaped, err = sjson.DeleteBytes(shaped, "thinking")
-		if err != nil {
-			return body, err
-		}
-	}
-	return sjson.SetBytes(shaped, "thinking.type", "enabled")
+	// Explicit enabled/auto is already canonical. Do not invent thinking for
+	// effort-only clients — effort alone must not inject thinking.
+	return shaped, nil
 }
 
 func normalizeVolcKimiAllowedTools(body []byte) ([]byte, error) {

@@ -50,7 +50,7 @@ func TestVolcKimiThinkingSwitchesAndSupplierScope(t *testing.T) {
 	effortOnly, err := applyMoonshotThinkingShape(nil, volcEnginePlanTestAccount(), "kimi-k3", []byte(`{"reasoning_effort":"low"}`))
 	require.NoError(t, err)
 	require.Equal(t, "low", gjson.GetBytes(effortOnly, "reasoning_effort").String())
-	require.Equal(t, "enabled", gjson.GetBytes(effortOnly, "thinking.type").String())
+	require.False(t, gjson.GetBytes(effortOnly, "thinking").Exists(), "effort alone must not inject thinking")
 	body := []byte(`{"thinking":{"type":"disabled"}}`)
 	other, err := applyMoonshotThinkingShape(nil, nil, "kimi-k3", body)
 	require.NoError(t, err)
@@ -107,22 +107,29 @@ func TestVolcKimiToolSelectionPreservesSemantics(t *testing.T) {
 }
 
 func TestVolcKimiReasoningEffortMoonshotCompatible(t *testing.T) {
-	t.Run("aliases_and_enable", func(t *testing.T) {
+	t.Run("aliases_without_injecting_thinking", func(t *testing.T) {
 		for _, tc := range []struct {
 			in, wantEffort string
 		}{
 			{`{"reasoning_effort":"highest"}`, "max"},
+			{`{"reasoning_effort":"high"}`, "high"},
 			{`{"reasoning_effort":"medium"}`, "high"},
 			{`{"reasoning":{"effort":"xhigh"}}`, "max"},
-			{`{"reasoning_effort":"low","thinking":{"type":"enabled","budget_tokens":1024}}`, "low"},
 		} {
 			got, err := applyMoonshotThinkingShape(nil, volcEnginePlanTestAccount(), "kimi-k3", []byte(tc.in))
 			require.NoError(t, err, tc.in)
 			require.Equal(t, tc.wantEffort, gjson.GetBytes(got, "reasoning_effort").String(), tc.in)
-			require.Equal(t, "enabled", gjson.GetBytes(got, "thinking.type").String(), tc.in)
-			require.False(t, gjson.GetBytes(got, "thinking.budget_tokens").Exists(), tc.in)
+			require.False(t, gjson.GetBytes(got, "thinking").Exists(), "effort alone must not inject thinking")
 			require.False(t, gjson.GetBytes(got, "reasoning.effort").Exists(), tc.in)
 		}
+	})
+	t.Run("explicit_thinking_stays", func(t *testing.T) {
+		got, err := applyMoonshotThinkingShape(nil, volcEnginePlanTestAccount(), "kimi-k3",
+			[]byte(`{"reasoning_effort":"low","thinking":{"type":"enabled","budget_tokens":1024}}`))
+		require.NoError(t, err)
+		require.Equal(t, "low", gjson.GetBytes(got, "reasoning_effort").String())
+		require.Equal(t, "enabled", gjson.GetBytes(got, "thinking.type").String())
+		require.False(t, gjson.GetBytes(got, "thinking.budget_tokens").Exists())
 	})
 	t.Run("disabled_wins_over_effort", func(t *testing.T) {
 		got, err := applyMoonshotThinkingShape(nil, volcEnginePlanTestAccount(), "kimi-k3",

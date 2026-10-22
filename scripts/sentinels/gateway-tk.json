@@ -3015,6 +3015,7 @@
         "func normalizeVolcKimiChatRequest(",
         "normalizeVolcKimiThinking(body)",
         "normalizeVolcKimiReasoningEffort(shaped, selected)",
+        "effort alone must not inject thinking",
         "normalizeVolcKimiAllowedTools(shaped)",
         "normalizeChatToolConstraints(shaped)"
       ],
