@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/iotest"
@@ -1012,6 +1013,7 @@ func TestProxyOpenAIWSHTTPBridgeTurnRewritesCapacityShedCodeForClient(t *testing
 			}
 			require.Len(t, writes, 1)
 			require.Contains(t, string(writes[0]), `"code":"server_error"`)
+			require.Contains(t, string(writes[0]), `"retry-after":"`+strconv.Itoa(openAICapacityShedClientRetryAfterSeconds)+`"`)
 			require.NotContains(t, string(writes[0]), "server_is_overloaded")
 			require.Contains(t, string(writes[0]), "Our servers are currently overloaded")
 		})
@@ -1305,6 +1307,7 @@ func TestProxyOpenAIWSHTTPBridgeTurnDoesNotReplayCapacityAfterSemanticOutput(t *
 	var failoverErr *UpstreamFailoverError
 	require.False(t, errors.As(err, &failoverErr))
 	require.Contains(t, string(writes[4]), `"code":"server_error"`)
+	require.Contains(t, string(writes[4]), `"retry-after":"`+strconv.Itoa(openAICapacityShedClientRetryAfterSeconds)+`"`)
 	require.NotContains(t, string(writes[4]), "server_is_overloaded")
 	require.True(t, logSink.ContainsMessage("gateway.failover_suppressed_after_semantic_output"))
 	require.True(t, logSink.ContainsFieldValue("path", "ws_http_bridge"))
