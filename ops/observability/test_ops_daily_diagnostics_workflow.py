@@ -180,19 +180,60 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertGreater(len(receipt), 24000)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            fixture = root / "receipt.json"
-            fixture.write_text(receipt)
+            backup_dir = root / "postgres-backup"
+            backup_dir.mkdir()
+            health = backup_dir / "health.json"
+            health.write_text(receipt)
+            # Dispatch on argv like real sudo. A stub that always printed the
+            # fixture would answer `test -s` with file contents too, pushing the
+            # receipt onto stdout twice and corrupting the transport frame.
             sudo = root / "sudo"
-            sudo.write_text('#!/bin/sh\nexec cat "$TEST_RECEIPT"\n')
+            sudo.write_text(
+                '#!/bin/sh\n'
+                'case "$1" in\n'
+                '  test) shift; exec test "$@" ;;\n'
+                '  cat) shift; exec cat "$@" ;;\n'
+                '  *) exec "$@" ;;\n'
+                'esac\n'
+            )
             sudo.chmod(0o755)
-            env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"],
-                   "TEST_RECEIPT": str(fixture)}
-            result = subprocess.run(["bash", "-euo", "pipefail", "-c", command],
+            env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"]}
+            command_here = command.replace("/var/lib/tokenkey/postgres-backup", str(backup_dir))
+
+            result = subprocess.run(["bash", "-euo", "pipefail", "-c", command_here],
                                     env=env, capture_output=True, text=True, check=True)
             self.assertLess(len(result.stdout), 23000)
             self.assertEqual(decode(result.stdout).decode(), receipt)
-            fixture.unlink()
-            missing = subprocess.run(["bash", "-euo", "pipefail", "-c", command],
+
+            # Tencent pgBackRest hosts write archive_check.json and never create
+            # health.json -- live prod has exactly that shape. The verdict accepts
+            # either, but its fallback keys off the LOCAL file being named
+            # health.json, and this workflow saves the bytes as
+            # physical-backup-health-receipt.json, so the choice must happen on
+            # the host or a healthy host reports "missing/invalid".
+            health.unlink()
+            archive = backup_dir / "archive_check.json"
+            archive.write_text(receipt)
+            fallback = subprocess.run(["bash", "-euo", "pipefail", "-c", command_here],
+                                      env=env, capture_output=True, text=True, check=True)
+            self.assertEqual(decode(fallback.stdout).decode(), receipt)
+
+            # health.json wins when both exist.
+            health.write_text('{"status":"ok","observed_at":1}')
+            both = subprocess.run(["bash", "-euo", "pipefail", "-c", command_here],
+                                  env=env, capture_output=True, text=True, check=True)
+            self.assertEqual(decode(both.stdout).decode(), '{"status":"ok","observed_at":1}')
+
+            # An empty health.json must not shadow a usable archive receipt --
+            # live prod has an empty health.json alongside a non-empty one.
+            health.write_text("")
+            empty_primary = subprocess.run(["bash", "-euo", "pipefail", "-c", command_here],
+                                           env=env, capture_output=True, text=True, check=True)
+            self.assertEqual(decode(empty_primary.stdout).decode(), receipt)
+
+            health.unlink()
+            archive.unlink()
+            missing = subprocess.run(["bash", "-euo", "pipefail", "-c", command_here],
                                      env=env, capture_output=True, text=True, check=True)
             self.assertEqual(decode(missing.stdout), b"")
 

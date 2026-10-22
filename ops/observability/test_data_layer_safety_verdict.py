@@ -126,6 +126,67 @@ class DataLayerSafetyVerdictTest(unittest.TestCase):
             ["archive_evidence"],
         )
 
+    def test_retired_pgdump_host_does_not_report_stale_backup(self) -> None:
+        """prod retired pgdump for pgBackRest; the gate must not read that as stale.
+
+        Live-prod evidence: no systemd unit, no script, no dump dir, and a
+        non-empty archive_check.json receipt. Before this, prod opened a
+        pgdump_freshness issue every day for being correctly retired.
+        """
+        signals = _signals()
+        signals["BACKUPSTATS"] = {
+            "latest_pgdump_at": None,
+            "applicable": False,
+            "pgdump_installed": False,
+            "physical_receipt_present": True,
+        }
+        result = verdict.compute_verdict(signals)
+        self.assertEqual(result["verdict"], "green")
+        self.assertNotIn(
+            "pgdump_freshness", [finding["kind"] for finding in result["findings"]]
+        )
+
+    def test_pgdump_gate_stays_live_where_pgdump_is_still_the_owner(self) -> None:
+        """cn-prod has no accepted physical replacement and still runs pg_dump
+        every 2 hours, so deleting this gate would leave it with no
+        backup-freshness signal at all."""
+        signals = _signals()
+        signals["BACKUPSTATS"] = {
+            "latest_pgdump_at": (NOW - dt.timedelta(hours=5)).isoformat(),
+            "applicable": True,
+            "pgdump_installed": True,
+            "physical_receipt_present": False,
+        }
+        result = verdict.compute_verdict(signals)
+        self.assertEqual(result["verdict"], "unsafe")
+        self.assertIn("pgdump_freshness", [f["kind"] for f in result["findings"]])
+
+    def test_losing_both_backup_paths_still_fails(self) -> None:
+        """The dangerous shape: no pgdump installation AND no physical receipt.
+
+        "Not applicable" requires BOTH conditions, so this host -- which has no
+        backup path at all -- must still fail. This is the case worth paging for,
+        and it is why the gate is scoped by evidence rather than deleted.
+        """
+        signals = _signals()
+        signals["BACKUPSTATS"] = {
+            "latest_pgdump_at": None,
+            "applicable": True,
+            "pgdump_installed": False,
+            "physical_receipt_present": False,
+        }
+        result = verdict.compute_verdict(signals)
+        self.assertEqual(result["verdict"], "unsafe")
+        self.assertIn("pgdump_freshness", [f["kind"] for f in result["findings"]])
+
+    def test_older_probe_without_applicability_field_fails_closed(self) -> None:
+        signals = _signals()
+        signals["BACKUPSTATS"] = {
+            "latest_pgdump_at": (NOW - dt.timedelta(hours=5)).isoformat()
+        }
+        result = verdict.compute_verdict(signals)
+        self.assertIn("pgdump_freshness", [f["kind"] for f in result["findings"]])
+
     def test_capacity_independent_failures_are_separate_findings(self) -> None:
         signals = _signals()
         signals["PARTITIONSTATS"]["usage_logs_future_covered"] = False
