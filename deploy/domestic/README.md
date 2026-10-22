@@ -30,10 +30,11 @@
 - `prepare-runtime.py STATE_DIR` 从共享 Stage0 Compose/Caddy 模板生成本机受保护 bundle，
   重用已存在的 secrets，不在 stdout 输出配置或密钥。`STATE_DIR/images.json` 必须来自
   已校验的 amd64 镜像，包含各服务的 `source` digest、`config` digest、归档 `sha256` 与本地 `tag`。
-- `compose.override.yml` 关闭 QA capture/telemetry，并将应用池对齐 **O 8C/8G**
+- `compose.override.yml` 打开 QA capture、关闭 telemetry archive，不配置 QA S3 上传，并将应用池对齐 **O 8C/8G**
   （`GOMEMLIMIT=2GiB`、DB open/idle `40/10`、Redis pool/idle `96/8`；内存档未变，
-  仅主机从 4C 升到 8C）。蓝绿 `prepare` 会用该文件解析出的池参数覆盖候选容器
-  env（密钥仍取自线上容器），因此容量 bump 可先起候选再切 Caddy。现网核对/写入还可用
+  仅主机从 4C 升到 8C）。蓝绿 `prepare` 会用该文件解析出的池参数，以及
+  `QA_CAPTURE_ENABLED=true`、`TELEMETRY_ARCHIVE_ENABLED=false`，覆盖候选容器
+  env（密钥仍取自线上容器）。候选若带上 QA archive 或 S3 driver 会被拒绝。容量 bump 可先起候选再切 Caddy。现网核对/写入还可用
   `ops/observability/probe-cn-prod-pool-env.sh`（经 `run-probe.sh --target cn-prod`，
   写入需 `APPLY=yes-tune-cn-prod-pools`，会 recreate 当前色）。单号 Inflight/RPM/TPM
   阶梯用 `ops/observability/probe-cn-prod-single-account-ladder.sh`（`--env ACCOUNT_ID=…`，
@@ -196,7 +197,7 @@ python3 bluegreen.py notify --state /opt/tokenkey/releases/RELEASE \
 视为已启用。本站通过将默认组设为 inactive/exclusive、只保留目标专属组为可用组完成实际隔离；
 已验证客户可用组仅有 `china_deployed`，绑定其他组返回 403。未来开放其他组时须重新评估该边界。
 
-QA capture 已关闭，cn-prod 直接复用与 prod 相同的共享 Caddy 模板，不增加国内专属路径拦截。
+QA capture 与美西 prod 一样打开，只写本地记录和热目录；telemetry archive 保持关闭，QA 不上传 S3。cn-prod 直接复用与 prod 相同的共享 Caddy 模板，不增加国内专属路径拦截。
 媒体、视频、音频、实时会话及 provider 兼容别名继续交给应用的鉴权、模型目录和供应账号
 能力判断，未来新增模型不需要改 Caddyfile。前端不按国内域名隐藏工具菜单或路由，Studio、
 Batch Image 等入口与其他站点一致。QA bundle、用户导出和 worker 已退役；旧 QA 路径是否

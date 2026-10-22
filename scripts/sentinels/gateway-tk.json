@@ -11675,6 +11675,18 @@
       "rationale": "Domestic SSH release must retain shared cutover/drain, receipt verification, mount isolation, host serialization and the verified release notification call; upstream/refactors must not replace it with a Compose restart or silently omit notifications."
     },
     {
+      "path": "deploy/domestic/bluegreen.py",
+      "must_contain": [
+        "domestic QA capture must stay enabled",
+        "domestic telemetry archive must stay disabled",
+        "domestic QA archive upload must stay disabled",
+        "domestic QA archive storage must not be s3",
+        "env['QA_CAPTURE_ENABLED'] = 'true'",
+        "env['TELEMETRY_ARCHIVE_ENABLED'] = 'false'"
+      ],
+      "rationale": "cn-prod candidates must keep local QA capture on and refuse telemetry archive, QA archive, and S3 storage. Reverting the overlay to capture-disabled or copying a prod archive env would upload or drop capture without a gateway code change."
+    },
+    {
       "path": "deploy/domestic/test_bluegreen.py",
       "must_contain": [
         "def test_candidate_rejects_mount_drift_before_starting(",
@@ -11684,6 +11696,14 @@
         "def test_promote_executes_shared_cutover_and_verified_drain("
       ],
       "rationale": "Execute the shared shell with deterministic Docker/Caddy state to cover actual promotion, drain recovery and failed reload; mocked shell ordering alone cannot prove the lifecycle contract."
+    },
+    {
+      "path": "deploy/domestic/test_bluegreen.py",
+      "must_contain": [
+        "def test_candidate_enables_capture_without_s3_upload(",
+        "def test_candidate_rejects_capture_off_archive_upload_and_s3("
+      ],
+      "rationale": "Domestic blue/green must prove capture is forced on while telemetry archive, QA archive, and S3 storage are rejected."
     },
     {
       "path": "deploy/domestic/post_release.py",
@@ -16949,6 +16969,14 @@
         "SECURITY_PROXY_PROBE_PRESET: \"domestic\""
       ],
       "rationale": "Domestic compose must inject the proxy_probe preset so future cn sites inherit China-first exit probes without editing config.yaml by hand."
+    },
+    {
+      "path": "deploy/domestic/compose.override.yml",
+      "must_contain": [
+        "QA_CAPTURE_ENABLED: \"true\"",
+        "TELEMETRY_ARCHIVE_ENABLED: \"false\""
+      ],
+      "rationale": "cn-prod compose must enable local QA capture and keep telemetry archive off so the next candidate does not upload QA or telemetry to S3."
     },
     {
       "path": "deploy/domestic/test_pool_env_probe.py",
