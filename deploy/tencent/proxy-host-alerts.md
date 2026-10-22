@@ -9,6 +9,7 @@
   - `tokenkey-disk-metrics.timer`（盘/内存）
   - `tokenkey-proxy-watch.timer`（`tokenkey-proxy` + `:1080`）
 - **新机 / 换机 / 重装**后，在装完 GOST/`tokenkey-proxy` 之后立刻跑本安装器；未装齐不算交付。
+- 交付前必须跑 `install-proxy-host-alerts.sh --verify`（无写操作；缺 timer / 脚本 / 0600 凭据即失败）。
 - 活绑定以 prod / cn-prod `proxies` 为准；本目录不复制 IP 表。
 - 凭据只在主机 `/opt/tokenkey/host-alerts.env`（0600）；**不进 git**。
 - 应用侧 `proxy_unreachable_count` P0 是另一层（网关拨测）；不能替代本机 timer。
@@ -24,8 +25,13 @@ TOKENKEY_PROXY_NODE_NAME=cn-ip1 \
 
 可选覆盖脚本路径：第 2/3 参数分别为 disk-metrics、proxy-watch。默认指向本仓上述 owner。
 
-验收：`systemctl is-active tokenkey-disk-metrics.timer tokenkey-proxy-watch.timer` 均为 `active`；  
-`tokenkey-proxy-host-watch.sh --selftest` 与 `tokenkey-disk-metrics.sh --selftest` 通过。
+## 验收（换机必跑）
+
+```bash
+bash install-proxy-host-alerts.sh --verify
+```
+
+断言：两 timer `active`、`/usr/local/bin/tokenkey-{disk-metrics,proxy-host-watch}.sh --selftest` 通过、`/opt/tokenkey/host-alerts.env` 存在且 mode 600。
 
 ## 舰队入口
 

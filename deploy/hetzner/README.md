@@ -45,8 +45,8 @@ UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 
 #### 代理主机告警（强制）
 
-每台 SOCKS 出口机（`usw-eval*` 与 `cn-ip*`）**新机/换机/重装后必须**安装 `tokenkey-disk-metrics.timer` + `tokenkey-proxy-watch.timer`。  
-安装 owner：[`deploy/tencent/proxy-host-alerts.md`](../tencent/proxy-host-alerts.md)（`install-proxy-host-alerts.sh`）。凭据仅主机 `/opt/tokenkey/host-alerts.env`，不进 git。  
+每台 SOCKS 出口机（`usw-eval*` 与 `cn-ip*`）**新机/换机/重装后必须**安装 `tokenkey-disk-metrics.timer` + `tokenkey-proxy-watch.timer`，并以 `install-proxy-host-alerts.sh --verify` 验收。  
+安装 owner：[`deploy/tencent/proxy-host-alerts.md`](../tencent/proxy-host-alerts.md)。凭据仅主机 `/opt/tokenkey/host-alerts.env`，不进 git。  
 另有 prod 应用侧 `proxy_unreachable_count` P0（网关拨测），不能替代本机 timer。
 
 活舰队矩阵：[`deploy/tencent/candidate-usw-20261022.json`](../tencent/candidate-usw-20261022.json)（`deployable=true`；`resolve_prod_ssm_target.py --target auto` → 本机）。
