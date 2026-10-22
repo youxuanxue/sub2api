@@ -33,7 +33,7 @@ func TestVolcKimiThinkingSwitchesAndSupplierScope(t *testing.T) {
 			require.False(t, gjson.GetBytes(got, "enable_thinking").Exists())
 			require.False(t, gjson.GetBytes(got, "chat_template_kwargs.thinking").Exists())
 			require.False(t, gjson.GetBytes(got, "chat_template_kwargs.enable_thinking").Exists())
-			require.Equal(t, "high", gjson.GetBytes(got, "reasoning_effort").String())
+			require.False(t, gjson.GetBytes(got, "reasoning_effort").Exists(), "disabled must strip effort before relay")
 			require.Equal(t, "9007199254740993", gjson.GetBytes(got, "metadata.n").Raw)
 			require.Equal(t, gjson.GetBytes(body, "chat_template_kwargs.preserve").Raw, gjson.GetBytes(got, "chat_template_kwargs.preserve").Raw)
 			require.Equal(t, original, body)
@@ -129,7 +129,7 @@ func TestVolcKimiReasoningEffortMoonshotCompatible(t *testing.T) {
 			[]byte(`{"thinking":{"type":"disabled"},"reasoning_effort":"highest"}`))
 		require.NoError(t, err)
 		require.Equal(t, "disabled", gjson.GetBytes(got, "thinking.type").String())
-		require.Equal(t, "max", gjson.GetBytes(got, "reasoning_effort").String())
+		require.False(t, gjson.GetBytes(got, "reasoning_effort").Exists())
 	})
 	t.Run("invalid_effort_400", func(t *testing.T) {
 		_, err := applyMoonshotThinkingShape(nil, volcEnginePlanTestAccount(), "kimi-k3",

@@ -133,6 +133,15 @@ func normalizeVolcKimiReasoningEffort(body []byte, thinkingMode string) ([]byte,
 		mode = strings.ToLower(strings.TrimSpace(gjson.GetBytes(shaped, "thinking.type").String()))
 	}
 	if mode == "disabled" {
+		// Closing thinking must win over Moonshot effort. Leaving effort on the
+		// wire is rejected upstream ("Invalid reasoning_effort when thinking.type
+		// is disabled"); strip it so the public off-switch stays a clean 200.
+		if gjson.GetBytes(shaped, "reasoning_effort").Exists() {
+			shaped, err = sjson.DeleteBytes(shaped, "reasoning_effort")
+			if err != nil {
+				return body, err
+			}
+		}
 		return shaped, nil
 	}
 	if mode == "enabled" || mode == "auto" {
