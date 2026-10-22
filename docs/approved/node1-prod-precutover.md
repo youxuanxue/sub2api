@@ -43,6 +43,13 @@ UCloud 资源只读盘点见 [`node1-ucloud-readonly-inventory-20261022.json`](.
 
 ## node1 运行时和凭据
 
+### 家庭服务器扩容边界
+
+- SSH 密钥只证明登录能力，不代表拥有宿主机或物理硬件扩容权限。
+- 必须先只读取得 `nproc`、`MemTotal`、`lsblk`、`findmnt`、`systemd-detect-virt`、Docker 资源限制和宿主机型号；当前 `node1:2201` 连接超时，不能据此判断可扩容性。
+- 裸机扩容需要物理内存/磁盘和维护窗口；虚拟化家庭服务器扩容需要宿主机管理面，并单独评估停机、快照、供电和回滚。Docker/Compose 限额调整不能替代物理或虚拟机容量。
+- 在取得至少 8 CPU、8 GiB 内存、20 GiB 数据盘的只读证据前，保持 `preparation_only=true`，禁止部署、promote 或切流。
+
 - 固定源端与 node1 的镜像 digest、源码 revision、架构和 PostgreSQL 主版本；准备阶段不自动升级。
 - 候选仅监听 loopback/私网，管理端口不公网暴露；错误数据盘、空库、缺 `DATA_SYNC_HOLD` 或缺批准标记时拒绝启动。
 - 建立数据库加密材料、JWT/TOTP、用户认证、API key、供应账号、OAuth、Caddy/TLS 的来源、传输、轮换和回滚清单；禁止写入日志、git 或双写候选。

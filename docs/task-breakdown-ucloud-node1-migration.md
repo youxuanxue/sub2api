@@ -61,6 +61,12 @@ scope: '#2698；仅准备与隔离验收，未授权切流'
 4. Redis 重新创建并验证登录、限流、幂等和会话影响；不把 Redis 热复制当作数据库迁移完成。
 5. 用当前 cn-prod 域名和证书模型做隔离验证，覆盖 TLS/SNI、Caddy、PROXY protocol、WireGuard、SSE、登录、API、模型请求、usage 和计费归属；`/health` 只能作为基础门禁。
 
+## C.1 家庭服务器扩容判定
+
+1. SSH 密钥只证明登录能力，不提供 CPU、内存或磁盘扩容权限；先通过只读 SSH 取得 `nproc`、`MemTotal`、`lsblk`、`findmnt`、`systemd-detect-virt`、Docker 资源限制和宿主机型号。当前 `node1:2201` 连接超时，上述事实均未取得。
+2. 若 node1 是裸机，扩容需要物理内存/磁盘/主机维护窗口；若运行在家庭虚拟化平台，扩容必须使用宿主机管理面，并单独评估停机、快照、供电和回滚。两者都不属于本次无影响准备阶段。
+3. 仅调整 Docker cgroup、Compose limits 或应用池参数不算满足迁移容量要求；目标物理/虚拟机 CPU、内存和数据盘必须实际达到 8 CPU、8 GiB、20 GiB，且有只读回执。
+
 ## D. 机械安全门禁
 
 1. Node1 inventory 默认只允许 `plan`、身份核对和隔离恢复；`bootstrap`、`deploy`、`promote`、公网绑定、批准标记安装和 timer 启用默认拒绝。
