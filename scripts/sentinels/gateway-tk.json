@@ -16326,11 +16326,21 @@
       "rationale": "Archive coordinates come from the independent stopped maintenance pin, not a gateway color. Probe output must filter credential contents."
     },
     {
+      "path": "ops/stage0/qa-runtime-install.py",
+      "must_contain": [
+        "def data_network(networks: dict) -> str:",
+        "if \"tokenkey-postgres\" in (net.get(\"Aliases\") or []):",
+        "raise ValueError(\"database network is ambiguous\")"
+      ],
+      "rationale": "The QA runtime pin's DATABASE_HOST is tokenkey-postgres; multi-network layout-exception hosts (Tencent prod) must pin the network advertising that alias, not fail or pick arbitrarily."
+    },
+    {
       "path": "ops/qa/prod_phase2_live_health.py",
       "must_contain": [
         "def live_archive_coordinates()",
         "ops/stage0/qa-runtime-environment.sh",
-        "storage = evaluate_storage(snapshot.get(\"storage\"))",
+        "storage = evaluate_storage(snapshot.get(\"storage\"), maintenance_paused=",
+        "deferred.append(\"qa_archive_instance_role_unavailable\")",
         "\"qa_runtime_storage_unavailable\"",
         "skip_iam = not args.legacy_aws",
         "maintenance_paused=bool(maintenance_pause_reason)",
@@ -16355,7 +16365,8 @@
         "def test_runtime_compose_requires_each_storage_coordinate(",
         "def test_baseline_checks_pin_and_fails_when_storage_is_unknown(",
         "def test_pause_ignores_old_archive_but_preserves_boundary_and_storage(",
-        "def test_pause_rejects_resumed_or_unknown_systemd_states("
+        "def test_pause_rejects_resumed_or_unknown_systemd_states(",
+        "def test_paused_uploads_defer_only_the_write_identity_check("
       ],
       "rationale": "Behavior tests prevent false healthy output when independent pin or instance-role evidence is absent, secrets leaking through probe output, and missing storage coordinates."
     },

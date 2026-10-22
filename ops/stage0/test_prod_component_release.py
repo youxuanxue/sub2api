@@ -202,10 +202,12 @@ tk_resolve_qa_runtime
 
 
 class QARuntimeInstallTest(unittest.TestCase):
-    def run_install(self, *, fail_promotion=False, keep_previous=False, live_postgres="tokenkey-postgres"):
+    def run_install(self, *, fail_promotion=False, keep_previous=False, live_postgres="tokenkey-postgres",
+                    networks=None, expected_network="data"):
         image = REPOSITORY + ":1.8.215"
         names = {"tokenkey-qa-runtime": "old"}
         captured_env = []
+        networks = {"data": {}} if networks is None else networks
 
         def command(*args):
             if args[:2] == ("docker", "inspect") and "{{.State.Running}}" in args:
@@ -213,7 +215,7 @@ class QARuntimeInstallTest(unittest.TestCase):
                     return "true"
                 raise installer.subprocess.CalledProcessError(1, args)
             if args[:3] == ("docker", "inspect", live_postgres):
-                return json.dumps([{"NetworkSettings": {"Networks": {"data": {}}}}])
+                return json.dumps([{"NetworkSettings": {"Networks": networks}}])
             if args[:2] == ("docker", "compose"):
                 return json.dumps(
                     {
@@ -238,7 +240,7 @@ class QARuntimeInstallTest(unittest.TestCase):
                 captured_env.append(
                     Path(args[args.index("--env-file") + 1]).read_text()
                 )
-                self.assertEqual(args[args.index("--network") + 1], "data")
+                self.assertEqual(args[args.index("--network") + 1], expected_network)
                 return "new"
             if args[:2] == ("docker", "inspect"):
                 return json.dumps(
@@ -287,6 +289,23 @@ class QARuntimeInstallTest(unittest.TestCase):
     def test_tencent_layout_postgres_network_is_resolved(self):
         names, _ = self.run_install(live_postgres="tk-archive-standby")
         self.assertEqual(names["tokenkey-qa-runtime"], "new")
+
+    def test_multi_network_postgres_pins_the_tokenkey_postgres_alias_network(self):
+        # Tencent prod: tk-archive-standby sits on two networks; DATABASE_HOST
+        # tokenkey-postgres only resolves on the one that advertises the alias.
+        names, _ = self.run_install(
+            live_postgres="tk-archive-standby",
+            networks={
+                "tk-cutover-prod": {"Aliases": ["tk-archive-standby", "postgres"]},
+                "tokenkey_tokenkey-network": {"Aliases": ["postgres", "tokenkey-postgres"]},
+            },
+            expected_network="tokenkey_tokenkey-network",
+        )
+        self.assertEqual(names["tokenkey-qa-runtime"], "new")
+
+    def test_multi_network_postgres_without_alias_is_rejected_before_pin_change(self):
+        with self.assertRaisesRegex(ValueError, "database network is ambiguous"):
+            self.run_install(networks={"a": {"Aliases": ["postgres"]}, "b": {}})
 
     def test_postgres_candidates_match_canonical_resolver(self):
         sys.path.insert(0, str(ROOT / "ops/lib"))

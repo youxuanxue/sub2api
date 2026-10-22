@@ -34,14 +34,24 @@ def live_postgres() -> str:
     return running[0]
 
 
+def data_network(networks: dict) -> str:
+    """The pin's DATABASE_HOST is tokenkey-postgres, so prefer the network that
+    advertises that alias (multi-network layout-exception hosts); otherwise the
+    database must sit on exactly one network. Same rule as local_maintenance_host."""
+    for name, net in networks.items():
+        if "tokenkey-postgres" in (net.get("Aliases") or []):
+            return name
+    if len(networks) == 1:
+        return next(iter(networks))
+    raise ValueError("database network is ambiguous")
+
+
 def install(image: str, template: str, *, keep_previous: bool = False) -> None:
     match = re.fullmatch(r"ghcr.io/youxuanxue/sub2api:([0-9]+\.[0-9]+\.[0-9]+(?:-(?:rc|beta)\.[0-9]+)?)", image)
     if not match:
         raise ValueError("maintenance requires an immutable TokenKey release image")
-    networks = json.loads(command("docker", "inspect", live_postgres()))[0]["NetworkSettings"]["Networks"]
-    if len(networks) != 1:
-        raise ValueError("database network is ambiguous")
-    os.environ.update(QA_MAINTENANCE_IMAGE=image, QA_MAINTENANCE_TAG=match[1], QA_RUNTIME_NETWORK=next(iter(networks)))
+    network = data_network(json.loads(command("docker", "inspect", live_postgres()))[0]["NetworkSettings"]["Networks"])
+    os.environ.update(QA_MAINTENANCE_IMAGE=image, QA_MAINTENANCE_TAG=match[1], QA_RUNTIME_NETWORK=network)
     compose = ["docker", "compose", "--project-name", "tokenkey-qa", "--env-file",
                "/var/lib/tokenkey/.env", "-f", template]
     # Resolve first, so missing config cannot destroy an existing runtime pin.
@@ -62,7 +72,7 @@ def install(image: str, template: str, *, keep_previous: bool = False) -> None:
                     raise ValueError("multiline QA environment values are unsupported")
                 env.write(f"{key}={value}\n")
             env.flush()
-            arguments = ["docker", "create", "--name", candidate, "--network", next(iter(networks)),
+            arguments = ["docker", "create", "--name", candidate, "--network", network,
                          "--env-file", env.name, "--entrypoint", "/bin/true"]
             for key, value in service["labels"].items():
                 arguments.extend(["--label", f"{key}={value}"])
