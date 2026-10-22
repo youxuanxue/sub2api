@@ -4,9 +4,9 @@
 `resolve_prod_ssm_target.py` 持有；备份/验收命令由 [physical-backup.md](physical-backup.md) 持有。
 本文替代 prod 的全库 dump + 按表尾差迁机路径。cn-prod 未通过物理备份验收，继续使用其独立 pgdump。
 
-**当前交接与紧急故障：[腾讯迁机交接](../../docs/ops/tencent-migration-handoff.md)。**
-2026-10-21 23:55 UTC，身份刷新 service 清理了 tmpfs 配置目录，timer 已暂停，
-真实 standby 仍只读，但仓库读取/继续追赶尚待修复验证；当前禁止停写或切流。
+**当前交接：[腾讯迁机交接](../../docs/ops/tencent-migration-handoff.md)。**
+身份目录与 standby 重挂载已修复；真实 S3 合成 timeline 交接已通过
+（`inv-0a7axjgsxp`，隔离候选前缀）。仍禁止停写或切流；正式配置/TLS/生产预复制未完成。
 
 ## 当前可用能力与边界
 

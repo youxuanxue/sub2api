@@ -1,45 +1,57 @@
-# TokenKey 现网舰队 · Tokyo prod 与日本出口代理
+# TokenKey 现网舰队 · 腾讯美西 prod 与美西出口代理
 
 **SSOT：** 现网节点 / 公网 IP / CIDR / GHCR PAT 路径 / 发版入口 **只在本文件叙述**；其它文档与 skill 只留指针，勿复制数值。
 审批基线（决策锁，无 IP 表）：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
+切流回执：[`docs/ops/reports/tencent-cutover-20261022.json`](../../docs/ops/reports/tencent-cutover-20261022.json)
 
-## 活舰队（prod-only，2026-10-17 起）
+## 活舰队（prod-only，2026-10-22 切流起）
 
-| 节点 | 正式域名 | 公网 IP | SSM 身份 | 备注 |
+| 节点 | 正式域名 | 公网 IP | 控制面身份 | 备注 |
 |------|----------|---------|------------|------|
-| **prod** | `api.tokenkey.dev` | `3.114.187.250` | `i-045f062ce33e1a5af` · ap-northeast-1 | EC2 c7g.xlarge · tokenkey-prod-tokyo-20261017 |
+| **prod** | `api.tokenkey.dev` | `43.162.83.233` | Lighthouse `lhins-fcwpwymt` · SSM Hybrid `mi-080ed76dc6d97d8b5` · eu-west-2 | 腾讯美西 · timeline 2 · LUKS `/var/lib/tokenkey` |
 
+四正式域名 A 记录（TTL 300）均指向 `43.162.83.233`：`tokenkey.dev` / `api.tokenkey.dev` / `api-cn.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。
 prod 直接使用原生账号；旧中继 stub 已软删。
-AWS / Hcloud 旧主机与公网 IP 不能用作回滚目标；历史数据从 S3 隔离归档读取。
-退役验收与归档入口见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
+**Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已冻结写者，保留 ≥7 天；禁止解冻双写。** 不能当作现网入口。
+历史数据从 S3 隔离归档读取。退役验收与归档入口见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
 
-### 腾讯云美西隔离验证资源（未接生产）
-
-本轮用户批准锐驰 4C8G 主机与独立锐驰 2C2G 代理，一个月手动续费，共 275 CNY，不购买额外数据盘。以下仅为验证资源，不能作为 prod resolver 或发布目标。
+### 同机附属 / 代理验证资源
 
 | 角色 | 地域 / 实例 ID | 公网 IP | 私网 IP | 规格 |
 |---|---|---|---|---|
-| 验证主机 | na-siliconvalley-2 / `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | 4C8G / 120 GB SSD |
-| 验证代理 | na-siliconvalley-2 / `lhins-56ogvsid` | `43.162.90.151` | `10.4.0.2` | 2C2G / 40 GB SSD |
+| prod 主机 | na-siliconvalley-2 / `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | 4C8G / 120 GB SSD |
+| 美西出口 `usw-eval1` | na-siliconvalley-2 / `lhins-56ogvsid` | `43.162.90.151` | `10.4.0.2` | 2C2G / 40 GB SSD |
+| 美西出口 `usw-eval2` | na-siliconvalley-2 / `lhins-mtiwmfod` | `43.162.126.190` | `10.4.0.11` | 2C2G / 40 GB SSD |
+| 美西出口 `usw-eval3` | na-siliconvalley-2 / `lhins-n1w2c5qr` | `43.162.116.209` | `10.4.0.5` | 2C2G / 40 GB SSD |
+| 美西出口 `usw-eval4` | na-siliconvalley-2 / `lhins-h12i2d2r` | `43.162.103.103` | `10.4.0.4` | 2C2G / 40 GB SSD |
 
-实例到期时间为 2026-11-21 08:31 UTC 左右，`NOTIFY_AND_MANUAL_RENEW`。两台 TAT 与 SSM 实际命令均已验证成功。SSM 复用 UCloud 现用角色 `tokenkey-lightsail-ssm-hybrid`，区域为 **eu-west-2**：验证主机 `mi-080ed76dc6d97d8b5`、代理 `mi-0ed39350eef156e4a`。此前对另一个角色的 PassRole 阻塞不再适用，无需新增 IAM 角色、策略或访问密钥；单次注册码已消费并删除。恢复演练使用独立短期只读 S3 会话，不启用生产写任务。
-代理仅允许验证主机私网来源使用认证 SOCKS5；公网入站默认拒绝。生产 DNS、账号绑定、日本代理与东京网关保持现状。
-验收结果与剩余工作见 [美西验证报告](../../docs/ops/reports/tencent-us-lighthouse-proxy-validation-20261021.md)。
+实例到期约 2026-11-21/22 UTC，`NOTIFY_AND_MANUAL_RENEW`。SSM/TAT 区域 `na-siliconvalley`；Hybrid 角色 `tokenkey-lightsail-ssm-hybrid`（eu-west-2）。
+SOCKS 仅监听各机私网 `:1080`，防火墙只放行 prod `10.4.0.16`。**2026-10-22 起 `usw-eval1..4` 为原 `jp-*` 账号的生产出口**（私网 SOCKS）；`cn-ip*` 仍走国内代理。活绑定以 prod `proxies` / 账号 `proxy_id` 为准。
+活舰队矩阵：[`deploy/tencent/candidate-usw-20261022.json`](../tencent/candidate-usw-20261022.json)（`deployable=true`；`resolve_prod_ssm_target.py --target auto` → 本机）。
 
-### 日本出口代理（现役）
+### 活物理备份前缀（切流后）
 
-这些 Lightsail 机器仅提供账号出口。
+| 项 | 值 |
+|---|---|
+| 活仓库 | `s3://tokenkey-prod-physical-backup-682751977094-us-east-1/candidates/tencent-usw-20261022/postgres`（timeline 2） |
+| 历史只读 | 同桶 `prod/postgres`（Tokyo timeline 1；腾讯身份仅 Get） |
+| 身份续期 | `tokenkey-backup-identity.timer` → `/run/tokenkey-backup-candidate/` |
+| 备份/检查 | `tokenkey-postgres-backup.timer`（偶数小时 :30 UTC）+ `tokenkey-postgres-archive-check.timer`（5min） |
+| 升格策略 | **不**把活链写回 `prod/postgres`（避免与冻结东京链混写）；候选前缀即现网活备份 SSOT，直至另行批准迁移路径 |
+
+### 日本出口代理（已迁出 · 保留待关停）
+
+2026-10-22 账号绑定已迁到 `usw-eval*`；`jp-*` 行仍在 prod `proxies` 表，但 **绑定账号数应为 0**。Lightsail 机保留至另批关停审批。
 
 **活公网 IP / 绑定以 prod `proxies` 表为准**（Web：`https://tokenkey.dev/admin/proxies`；
-探针：`ops/observability/probe-list-proxies.sh`）。下表只记逻辑名与常见 Lightsail 名，
-避免第二份 IP 清单漂移：
+探针：`ops/observability/probe-list-proxies.sh`）。下表只记逻辑名与常见 Lightsail 名：
 
-| prod 代理名 | Lightsail 实例（常见） | 区域 |
-|---|---|---|
-| jp-uk1 | jp-proxy-01-micro | ap-northeast-1 |
-| jp-uk2 | jp-proxy-02-micro | ap-northeast-1 |
-| jp-us4 | jp-proxy-03-micro | ap-northeast-1 |
-| jp-us5 | jp-proxy-04-micro | ap-northeast-1 |
+| prod 代理名 | Lightsail 实例（常见） | 区域 | 状态 |
+|---|---|---|---|
+| jp-uk1 | jp-proxy-01-micro | ap-northeast-1 | 已迁出 |
+| jp-uk2 | jp-proxy-02-micro | ap-northeast-1 | 已迁出 |
+| jp-us4 | jp-proxy-03-micro | ap-northeast-1 | 已迁出 |
+| jp-us5 | jp-proxy-04-micro | ap-northeast-1 | 已迁出 |
 
 名称含 uk/us 不代表物理地域。BBR 验收：`python3 scripts/checks/check-host-bbr-ssot.py --live`。
 
@@ -50,7 +62,7 @@ AWS / Hcloud 旧主机与公网 IP 不能用作回滚目标；历史数据从 S3
 
 | 项 | 值 |
 |----|-----|
-| 活入口 | 仅 Tokyo prod `3.114.187.250`；四正式域名 A 指向该 IP |
+| 活入口 | 腾讯美西 prod `43.162.83.233`；正式域名 A 指向该 IP（Tokyo 已冻结） |
 | prod `API_DOMAIN` | 单正式名（无 `-hz` 双 SAN） |
 | 探针 / sync Caddy | prod 解析至当前 EC2 `i-*`；已退役身份拒绝执行 |
 | live 库 | **禁止**用旧机全量 dump 覆盖；补数只用 `request_id` 定点插入 |
@@ -84,8 +96,9 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
    要求所列 timer 停用且 service 不在运行；意外恢复会告警。daily diagnostics 复用同一暂停清单，
    暂停期不要求归档回执刷新，boundary 与存储检查保留。其他任务仍按成功时效监控。
    主机脚本不随网关镜像自动更新；安装/刷新独立 watcher 后才生效，仓库合并不代表已部署。
-4. **资源**：临时 node1 reader 与克隆盘已完成最小核查并回收，原快照和导出保留；日本代理保留；
+4. **资源**：临时 node1 reader 与克隆盘已完成最小核查并回收，原快照和导出保留；日本 Lightsail 代理账号已迁出、机器保留待关停；
    新加坡其它项目资源不纳入 TokenKey 批量清理。详见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
+5. **告警**：腾讯机上备份/归档 timer 已装；外部飞书备份告警尚未接到腾讯机，连续性靠本机 `archive_check.json` 与 timer 日志。
 
 ## AWS 残留与环境变量
 

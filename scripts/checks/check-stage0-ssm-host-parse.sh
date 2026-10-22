@@ -50,12 +50,38 @@ case "$*" in
     echo '[{"OutputKey":"InstanceId","OutputValue":"i-0123456789abcdef0"},{"OutputKey":"ApiUrl","OutputValue":"https://api.tokenkey.dev"}]'
     ;;
   *describe-instance-information*)
-    python3 - "$TEST_FRESH_PROD_MATRIX" <<'PY_STUB'
+    python3 - "$TEST_FRESH_PROD_MATRIX" "${TEST_TENCENT_USW_MATRIX:-}" <<'PY_STUB'
 import json, sys
 prod = json.load(open(sys.argv[1]))['prod']
-print(json.dumps({'InstanceInformationList': [
-    {'InstanceId': prod['instance_id'], 'ComputerName': prod['instance_name'], 'PingStatus': 'Online'},
-    {'InstanceId': 'mi-0123456789abcdef0', 'ComputerName': 'tokenkey-prod-hz-cax21', 'PingStatus': 'Online'}]}))
+rows = [
+    {
+        'InstanceId': prod['instance_id'],
+        'ComputerName': prod['instance_name'],
+        'Name': prod['instance_name'],
+        'PingStatus': 'Online',
+    },
+    {
+        'InstanceId': 'mi-0123456789abcdef0',
+        'ComputerName': 'tokenkey-prod-hz-cax21',
+        'Name': 'tokenkey-prod-hz-cax21',
+        'PingStatus': 'Online',
+    },
+]
+# After Tokyo→Tencent cutover, auto resolve uses the Tencent matrix when deployable.
+tencent_path = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else ''
+if tencent_path:
+    target = json.load(open(tencent_path)).get('target') or {}
+    if target.get('deployable') is True and target.get('resolvable') is True:
+        name = str(target.get('computer_name') or target.get('instance_name') or '')
+        mid = str(target.get('expected_ssm_instance_id') or '')
+        if name and mid:
+            rows.append({
+                'InstanceId': mid,
+                'ComputerName': name,
+                'Name': name,
+                'PingStatus': 'Online',
+            })
+print(json.dumps({'InstanceInformationList': rows}))
 PY_STUB
     ;;
   *)                                 echo "stub" ;;
@@ -73,6 +99,7 @@ check_one() {
   # We only need the params file; the stub run may exit nonzero (no real AWS).
   # The missing-file case is handled explicitly below.
   TEST_FRESH_PROD_MATRIX="${REPO_ROOT}/deploy/aws/fresh-migration-20261015.json" \
+  TEST_TENCENT_USW_MATRIX="${REPO_ROOT}/deploy/tencent/candidate-usw-20261022.json" \
   PATH="${stub}:${PATH}" STAGE0_SSM_OUTPUT_DIR="${tmp}/${out}" AWS_REGION=us-east-1 \
     "$@" >/dev/null 2>"${tmp}/${out}/err" || true  # preflight-allow: swallow
   # Primitives name their params file differently (deploy: ssm-params.json,

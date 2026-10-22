@@ -25,15 +25,23 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
     def setUp(self) -> None:
         self.mod = load_mod()
 
-    def test_auto_defaults_fresh_aws_without_cloud_lookup(self) -> None:
-        with mock.patch.dict("os.environ", {}, clear=True), mock.patch.object(
+    def test_auto_defaults_fresh_aws_when_tencent_not_live(self) -> None:
+        with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=False), mock.patch.dict(
+            "os.environ", {}, clear=True
+        ), mock.patch.object(
             self.mod.subprocess, "check_output", side_effect=AssertionError("unexpected AWS lookup")
         ), mock.patch.object(self.mod.subprocess, "run", side_effect=AssertionError("unexpected cutover lookup")):
             self.assertEqual(self.mod.resolve_mode("auto"), "aws-fresh")
 
-    def test_auto_env_still_defaults_fresh_aws(self) -> None:
-        with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "auto"}, clear=True):
+    def test_auto_env_auto_uses_matrix_live_gate(self) -> None:
+        with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=False), mock.patch.dict(
+            "os.environ", {"PROD_SSM_TARGET": "auto"}, clear=True
+        ):
             self.assertEqual(self.mod.resolve_mode("auto"), "aws-fresh")
+        with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=True), mock.patch.dict(
+            "os.environ", {"PROD_SSM_TARGET": "auto"}, clear=True
+        ):
+            self.assertEqual(self.mod.resolve_mode("auto"), "tencent-usw-candidate")
 
     def test_explicit_standby_env(self) -> None:
         with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "aws"}, clear=True):
@@ -163,6 +171,100 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self.mod.resolve_aws("tokenkey-prod-stage0")
 
+    def test_auto_selects_tencent_when_matrix_deployable(self) -> None:
+        with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=False):
+            with mock.patch.dict("os.environ", {}, clear=True):
+                self.assertEqual(self.mod.resolve_mode("auto"), "aws-fresh")
+        with mock.patch.object(self.mod, "tencent_matrix_is_live_prod", return_value=True):
+            with mock.patch.dict("os.environ", {}, clear=True):
+                self.assertEqual(self.mod.resolve_mode("auto"), "tencent-usw-candidate")
+        with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "aws-fresh"}, clear=True):
+            self.assertEqual(self.mod.resolve_mode("auto"), "aws-fresh")
+
+    def test_resolve_tencent_usw_candidate_pre_cutover(self) -> None:
+        matrix = {
+            "target": {
+                "resolvable": True,
+                "deployable": False,
+                "cutover_authorized": False,
+                "computer_name": "tokenkey-usw-rehearsal-20261021",
+                "ssm_region": "eu-west-2",
+                "expected_ssm_instance_id": "mi-080ed76dc6d97d8b5",
+                "directed_domain": "tencent-usw-candidate.tokenkey.invalid",
+                "volume_mount": "/srv/tokenkey-rehearsal",
+                "volume_platform": "tencent-luks",
+            }
+        }
+        info = [{
+            "InstanceId": "mi-080ed76dc6d97d8b5",
+            "ComputerName": "localhost.localdomain",
+            "Name": "tokenkey-usw-rehearsal-20261021",
+            "PingStatus": "Online",
+        }]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "m.json"
+            path.write_text(json.dumps(matrix), encoding="utf-8")
+            with mock.patch.object(self.mod, "list_instance_information", return_value=info):
+                out = self.mod.resolve_tencent_usw_candidate(path)
+        self.assertEqual(out["target"], "tencent-usw-candidate")
+        self.assertEqual(out["deploy_profile"], "tencent-usw-candidate")
+        self.assertEqual(out["instance_id"], "mi-080ed76dc6d97d8b5")
+        self.assertEqual(out["api_url"], "https://tencent-usw-candidate.tokenkey.invalid")
+        self.assertEqual(out["cutover_authorized"], "false")
+        self.assertNotEqual(out["deploy_profile"], "prod")
+
+    def test_resolve_tencent_usw_live_prod(self) -> None:
+        matrix = {
+            "target": {
+                "resolvable": True,
+                "deployable": True,
+                "cutover_authorized": True,
+                "cutover_completed": True,
+                "computer_name": "tokenkey-usw-rehearsal-20261021",
+                "ssm_region": "eu-west-2",
+                "expected_ssm_instance_id": "mi-080ed76dc6d97d8b5",
+                "api_domain": "api.tokenkey.dev",
+                "volume_mount": "/srv/tokenkey-rehearsal",
+                "volume_platform": "tencent-luks",
+            }
+        }
+        info = [{
+            "InstanceId": "mi-080ed76dc6d97d8b5",
+            "ComputerName": "localhost.localdomain",
+            "Name": "tokenkey-usw-rehearsal-20261021",
+            "PingStatus": "Online",
+        }]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "m.json"
+            path.write_text(json.dumps(matrix), encoding="utf-8")
+            with mock.patch.object(self.mod, "list_instance_information", return_value=info):
+                out = self.mod.resolve_tencent_usw_candidate(path)
+        self.assertEqual(out["target"], "tencent-usw-prod")
+        self.assertEqual(out["deploy_profile"], "prod")
+        self.assertEqual(out["api_url"], "https://api.tokenkey.dev")
+        self.assertEqual(out["cutover_authorized"], "true")
+        self.assertEqual(out["instance_id"], "mi-080ed76dc6d97d8b5")
+
+    def test_tencent_pre_cutover_rejects_live_domain_and_authorized(self) -> None:
+        base = {
+            "resolvable": True,
+            "deployable": False,
+            "cutover_authorized": False,
+            "computer_name": "tokenkey-usw-rehearsal-20261021",
+            "ssm_region": "eu-west-2",
+            "expected_ssm_instance_id": "mi-080ed76dc6d97d8b5",
+            "directed_domain": "tencent-usw-candidate.tokenkey.invalid",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "m.json"
+            for bad in (
+                {**base, "directed_domain": "api.tokenkey.dev"},
+                {**base, "cutover_authorized": True},
+                {**base, "resolvable": False},
+            ):
+                path.write_text(json.dumps({"target": bad}), encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    self.mod.resolve_tencent_usw_candidate(path)
 
 
 if __name__ == "__main__":

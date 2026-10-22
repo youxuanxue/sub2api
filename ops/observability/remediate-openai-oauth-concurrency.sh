@@ -4,7 +4,16 @@
 # Delivered via run-probe.sh. Requires APPLY=yes-openai-oauth-concurrency.
 set -euo pipefail
 
-PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
+# Post Tokyo→Tencent cutover the live PG container may be tk-archive-standby.
+if docker ps --format '{{.Names}}' | grep -qx tokenkey-postgres; then
+  _TK_PG=tokenkey-postgres
+elif docker ps --format '{{.Names}}' | grep -qx tk-archive-standby; then
+  _TK_PG=tk-archive-standby
+else
+  echo '{"verdict":"setup_error","error":"no tokenkey postgres container"}'
+  exit 2
+fi
+PSQL="docker exec ${_TK_PG} psql -U tokenkey -d tokenkey -X -A -t"
 APPLY="${APPLY:-}"
 CONCURRENCY="${CONCURRENCY:-25}"
 
