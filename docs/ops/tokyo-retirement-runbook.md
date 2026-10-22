@@ -29,7 +29,7 @@ bash ops/observability/run-probe.sh --target prod \
 
 （`probe-list-proxies.sh` 仍硬写 `tokenkey-postgres`，第 1 队在修；上面的探针走共享 resolver，腾讯上解析到 `tk-archive-standby`。）
 
-**DLM 说明**：保留 7 份，约 2026-10-24 起轮换掉 10-17 的份。若 Tokyo 自 10-22 冻结后确无业务写入（本次未登录 Tokyo 核实），冻结后的日快照与冻结点等价，轮换不丢冻结态；但切流前（10-22 03:37 UTC 及更早）的快照会在 ~10-29 前后轮换掉。**已决定不保留（2026-10-22，用户决定）**：切流前的 DLM 快照按 7 日正常轮换，不复制、不改 DLM 策略。最终退役仍以第 2 步的非 DLM 手工快照为准。
+**DLM 说明**：保留 7 份，约 2026-10-24 起轮换掉 10-17 的份。若 Tokyo 自 10-22 冻结后确无业务写入（本次未登录 Tokyo 核实），冻结后的日快照与冻结点等价，轮换不丢冻结态；但切流前（10-22 03:37 UTC 及更早）的快照会在 ~10-29 前后轮换掉。**2026-10-22 用户决定不保留，任其轮换**：不复制、不改 DLM 策略；数据库历史由 S3 `prod/postgres`（Tokyo timeline 1）覆盖。最终退役仍以第 2 步的非 DLM 手工快照为准。
 
 ## 1. 前置条件（全部满足才进入第 2 步）
 
@@ -115,10 +115,13 @@ Tokyo 删机前合并，保证没有任何代码路径还能把 SSM 发往 `i-04
 - C. 包年（4317 CNY，prod 省 423）：仅当确认腾讯美西为至少一年的长期 prod；proxy 包年无折扣，可只对 prod 包年、proxy 走 B。
 - 建议：prod 走 C 或 B，proxy 走 B；无论选哪项，**截止 2026-11-14** 完成，留一周缓冲。
 
-## 8. 迁机漏装：`tokenkey-qa-provision`（2026-10-22 只读核实）
+## 8. 迁机漏装：`tokenkey-qa-provision`（已补装 2026-10-22）
 
 事实：腾讯 prod 上 `tokenkey-qa-provision.timer/.service` 为 not-found；`/usr/local/lib/tokenkey/qa-local/b125c568906dcf83/config.json` 的 `phases` 只有 `["cleanup"]`（二进制 SHA-256 `d5f9e157…5a5d7d`），`/var/lib/tokenkey/qa-local/` 无 `provision.json`。qa_records 未来分区只到 2026-10-25 01:00 UTC，过期后写入落 DEFAULT 或失败。
-watcher：`host_watch.local_qa_jobs` 已加 `tokenkey-qa-provision`，**重装 watcher 后**会以 `timer disabled or inactive` 告警（未重装前仍不告警）。
+**已执行**：2026-10-22 13:29 UTC 经用户批准，由统筹执行 `local_maintenance_host.py install --apply`。新 bundle `/usr/local/lib/tokenkey/qa-local/f708551425f58eeb`（phases provision+cleanup），首轮未来分区 72/72，`tokenkey-qa-provision.timer` enabled/active；回滚备份 `/var/backups/tokenkey-qa-local/20261022T132922246441Z`。
+watcher：`host_watch.local_qa_jobs` 已加 `tokenkey-qa-provision`，前置条件已满足，重装 watcher 后即纳入监控（缺失或停用时报 `timer disabled or inactive`）。
+
+以下命令保留供换机/重装参考：
 
 安装走 `ops/qa/local_maintenance_host.py` plan→apply，安装器已能读现网矩阵 `host_watch.hostname`。复用主机上已装的二进制，只上传安装器与矩阵：
 
@@ -141,7 +144,7 @@ bash ops/observability/run-probe.sh --target prod --script /tmp/qa-local-plan.sh
 
 任一 `ValueError`（`expected current prod hostname`、`legacy QA owner must remain paused`、`artifact digest mismatch`）都应停下排查，不进 apply。provision 无 dry-run（二进制拒绝），plan 不覆盖 provision 本身。
 
-apply **[可逆·审批，由统筹上报]**：同一命令加 `--apply`。效果：新建内容寻址 bundle（新目录，旧 `b125c568906dcf83` 保留）；**provision 与 cleanup 两组 unit 都重写**；暂停已 active 的 cleanup timer → 各 `start` 一次 service → `enable --now` 两个 timer；任何一步失败都会回滚到原 unit 并恢复 cleanup timer 状态；备份在 `/var/backups/tokenkey-qa-local/<ts>/`。验收：`systemctl is-enabled/is-active tokenkey-qa-provision.timer` 为 enabled/active，`/var/lib/tokenkey/qa-local/provision.json` 的 `ok=true`，qa_records 未来覆盖 72/72；然后重装 watcher。
+apply **[可逆·审批]**：同一命令加 `--apply`。效果：新建内容寻址 bundle（新目录，旧 `b125c568906dcf83` 保留）；**provision 与 cleanup 两组 unit 都重写**；暂停已 active 的 cleanup timer → 各 `start` 一次 service → `enable --now` 两个 timer；任何一步失败都会回滚到原 unit 并恢复 cleanup timer 状态；备份在 `/var/backups/tokenkey-qa-local/<ts>/`。验收：`systemctl is-enabled/is-active tokenkey-qa-provision.timer` 为 enabled/active，`/var/lib/tokenkey/qa-local/provision.json` 的 `ok=true`，qa_records 未来覆盖 72/72；然后重装 watcher。
 
 ### 宿主脚本入仓（2026-10-22）
 
@@ -150,8 +153,8 @@ apply **[可逆·审批，由统筹上报]**：同一命令加 `--apply`。效�
 
 ## 9. 审批清单（按紧急度）
 
-0. **2026-10-24 前**：安装 `tokenkey-qa-provision`（第 8 节；分区 10-25 01:00 UTC 耗尽），随后重装 watcher。
-1. ~~切流前 DLM 快照是否复制保留~~：已决定不保留（2026-10-22），按 7 日轮换。
+0. ~~安装 `tokenkey-qa-provision`~~：已执行（2026-10-22 13:29 UTC，第 8 节）；剩余：合并后重装 prod watcher **[审批]**。
+1. ~~切流前 DLM 快照是否复制保留~~：2026-10-22 用户决定不保留，任其轮换；DB 由 S3 `prod/postgres` timeline 1 覆盖。
 2. 2026-11-14 前：腾讯续费方案（第 7 节）。
 3. ≥2026-10-29：Tokyo 退役日期、仓库清理 PR、停机→删栈→数据卷处置、OIDC retarget。
 4. 任意时间：`jp-*` 关停（门禁已满足），含静态 IP 释放与 `proxies` 软删。
