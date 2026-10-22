@@ -24,7 +24,7 @@ risk: high
 这更新下文原计划中的「先观察 48 小时，再降为每日」步骤：允许现在停 prod 旧调度，
 取消旧桶自动过期、保留本地与 S3 副本及恢复材料至少 30 天。没有授权删除历史数据、
 停 cn-prod 备份、切流、重启生产服务或创建腾讯云付费资源。
-真实恢复/遗留验证边界以 [执行记录](../../ops/stage0/physical-backup.md#当前验证边界2026-10-20) 为准；
+真实恢复/遗留验证边界以 [执行记录](../../ops/stage0/physical-backup.md#历史验证边界2026-10-20tokyo-链) 为准；
 不能把此决策补充描述成已完成原定 48 小时/七天观测。
 
 用户随后要求「精炼、精准、高效，不要复杂化」，后续恢复改为按需执行，下次结合腾讯云迁机演练。
@@ -120,6 +120,6 @@ risk: high
 
 - 当前契约：[生产 compose](../../deploy/aws/stage0/docker-compose.yml)、[旧恢复演练](design-fleet-pgdump-restore-canary.md)、[恢复实现](../../ops/stage0/pgdump_restore_canary.py)。
 - 官方能力：[pgBackRest 配置](https://pgbackrest.org/configuration.html)（块增量、bundle、S3、retention 与 WAL 队列语义）、[用户指南](https://pgbackrest.org/user-guide.html)（恢复、PITR、链清理）、[发布记录](https://pgbackrest.org/release.html)（PostgreSQL 18 支持）、[PostgreSQL WAL 配置](https://www.postgresql.org/docs/18/runtime-config-wal.html)（archive_mode 重启要求、archive_timeout）。
-- 实现与操作入口：[生产变更单](../../ops/stage0/physical-backup.md)。镜像保持现网 PostgreSQL 18.6、ARM64、UID 70 与基础摘要；固定 pgBackRest 2.58.0。
+- 实现与操作入口：[生产变更单](../../ops/stage0/physical-backup.md)。镜像保持现网 PostgreSQL 18.6、UID 70 与基础摘要，架构与目标主机一致（Tokyo 时期 ARM64，腾讯美西现网 amd64）；固定 pgBackRest 2.58.0。
 - 已运行的原型：真实 PostgreSQL + TLS MinIO，完成全量、两次增量、同一命名点的全量/增量恢复、缺失 WAL、损坏 bundle 和仓库不可达测试。发现原生 verify 不检查所有备份间 WAL 缺口，增加按当前单 timeline 连续 WAL 名称范围检查；timeline/segment-size 改变时拒绝宣称健康。
 - 尚未验收：真实 AWS 身份轮换、生产数据恢复耗时、七天覆盖、线上 WAL 量和性能影响。生产目标值不使用小样本耗时代替。
