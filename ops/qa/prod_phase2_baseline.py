@@ -66,7 +66,7 @@ def main() -> int:
     instance_id = resolve_prod_instance()
     remote_out = run_shell_b64(
         instance_id,
-        base64.b64encode(live_health.PROBE.read_bytes()).decode(),
+        base64.b64encode(live_health.probe_script_bytes()).decode(),
         "prod qa phase2 baseline",
     )
     snapshot = live_health._parse_probe_output(remote_out)
