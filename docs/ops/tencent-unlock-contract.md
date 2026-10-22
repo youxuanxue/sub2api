@@ -39,7 +39,7 @@ openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
 
 ## 现网挂载与布局（2026-10-22 布局窗后）
 
-同一 LUKS mapper 同时挂在两条路径上。布局收敛走 **Docker Root 例外路径**（详见 `[deploy/tencent/stage0-layout-convergence.md](../../deploy/tencent/stage0-layout-convergence.md)`）。
+同一 LUKS mapper 同时挂在两条路径上。布局收敛走 **Docker Root 例外路径**（详见 [`deploy/tencent/stage0-layout-convergence.md`](../../deploy/tencent/stage0-layout-convergence.md)）。
 
 | 项 | 实况 |
 |---|---|

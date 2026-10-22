@@ -23,10 +23,22 @@ emit() {
   python3 -c 'import json,sys; print(json.dumps({"k":sys.argv[1],"v":sys.argv[2]}, ensure_ascii=False))' "$1" "$2"
 }
 
+# After gateway stop, any failure must attempt rollback (containers may be down).
+rollback_if_past_stop() {
+  case "$PHASE" in
+    stop_gateway|install_env|caddyfile|network_aliases|rename|start)
+      rollback || true
+      ;;
+  esac
+}
+
 die() {
   emit "error" "$1"
+  rollback_if_past_stop
   exit 1
 }
+
+trap 'ec=$?; emit "trap_error" "phase=${PHASE} ec=${ec}"; rollback_if_past_stop; exit "$ec"' ERR
 
 containers_list() {
   sudo docker ps -a --format '{{.Names}}' | paste -sd, -
