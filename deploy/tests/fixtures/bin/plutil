@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Test double for the macOS plutil -extract calls apple-container.sh makes.
+
+The shell CI job runs on Ubuntu, which has no Apple plutil. The fake container
+already emits JSON, and this shim answers only:
+
+    plutil -extract <keypath> json|raw -o - -
+"""
+
+import json
+import sys
+
+
+def die(message: str) -> None:
+    print(message, file=sys.stderr)
+    sys.exit(1)
+
+
+def lookup(document, keypath: str):
+    current = document
+    for part in keypath.split("."):
+        if isinstance(current, list):
+            try:
+                current = current[int(part)]
+            except (ValueError, IndexError):
+                die(f"keypath not found: {keypath}")
+        elif isinstance(current, dict):
+            if part not in current:
+                die(f"keypath not found: {keypath}")
+            current = current[part]
+        else:
+            die(f"keypath not found: {keypath}")
+    return current
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    if len(args) != 6 or args[0] != "-extract" or args[3:] != ["-o", "-", "-"]:
+        die("fixture plutil only implements: plutil -extract <keypath> json|raw -o - -")
+    keypath, fmt = args[1], args[2]
+    if fmt not in ("json", "raw"):
+        die(f"unsupported plutil format: {fmt}")
+    try:
+        document = json.load(sys.stdin)
+    except json.JSONDecodeError as exc:
+        die(f"invalid JSON for plutil extract: {exc}")
+    value = lookup(document, keypath)
+    if fmt == "json":
+        sys.stdout.write(json.dumps(value, separators=(",", ":")))
+        return
+    if isinstance(value, (dict, list)):
+        die(f"raw extract requested for a collection: {keypath}")
+    if isinstance(value, bool):
+        text = "true" if value else "false"
+    elif value is None:
+        text = ""
+    else:
+        text = str(value)
+    sys.stdout.write(text + "\n")
+
+
+if __name__ == "__main__":
+    main()

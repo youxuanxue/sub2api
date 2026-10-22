@@ -75,8 +75,8 @@ jobs:
     needs: changes
     if: (github.event_name != 'workflow_dispatch' || inputs.suite != 'unit-cache-benchmark') && (needs.changes.outputs.all == 'true' || needs.changes.outputs.deploy == 'true')
     # macos-15 runners queued for minutes, and assigned jobs sat ~15 minutes
-    # with no steps (2026-10-22). These checks are bash/sh plus a portable
-    # permission read; they do not need Apple container itself.
+    # with no steps (2026-10-22). These checks are bash/sh. The lifecycle test
+    # fakes container, curl, and plutil; permission reads accept BSD and GNU stat.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
