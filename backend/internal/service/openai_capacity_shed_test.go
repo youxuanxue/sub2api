@@ -124,6 +124,8 @@ func TestOpenAIStreamErrorFrameDoesNotStartClientOutput(t *testing.T) {
 		{`{"type":"error","error":{"type":"invalid_request_error","code":"content_policy_violation","message":"blocked"}}`, "error", true},
 		{`{"type":"response.failed","response":{"error":{"code":"server_is_overloaded"}}}`, "response.failed", false},
 		{`{"type":"response.created","response":{"id":"resp_1"}}`, "response.created", false},
+		{`{"type":"response.queued","response":{"id":"resp_1","status":"queued"}}`, "response.queued", false},
+		{`{"type":"response.metadata","response_id":"resp_1","metadata":{"openai_chatgpt_moderation_metadata":{"prompt":{}}}}`, "response.metadata", false},
 		{`{"type":"response.in_progress","response":{"id":"resp_1"}}`, "response.in_progress", false},
 		{`{"type":"keepalive"}`, "keepalive", false},
 		{`{"type":"unknown_event"}`, "unknown_event", true},
@@ -140,12 +142,81 @@ func TestOpenAIStreamErrorFrameDoesNotStartClientOutput(t *testing.T) {
 	}
 }
 
+// Queued/moderation frames must not commit the attempt: otherwise a following
+// HTTP-200 capacity shed can never reach pre-output same-account retry.
+func TestOpenAIStreamQueuedThenOverloadStillFailsOver(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stream := strings.Join([]string{
+		"event: response.created",
+		`data: {"type":"response.created","response":{"id":"resp_queued"}}`,
+		"",
+		"event: response.queued",
+		`data: {"type":"response.queued","response":{"id":"resp_queued","status":"queued"}}`,
+		"",
+		"event: response.metadata",
+		`data: {"type":"response.metadata","response_id":"resp_queued","metadata":{"openai_chatgpt_moderation_metadata":{"prompt":{}}}}`,
+		"",
+		"event: error",
+		`data: {"type":"error","error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}`,
+		"",
+		"event: response.failed",
+		`data: {"type":"response.failed","response":{"id":"resp_queued","status":"failed","error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}}`,
+		"",
+	}, "\n")
+
+	for _, passthrough := range []bool{false, true} {
+		name := "native"
+		if passthrough {
+			name = "passthrough"
+		}
+		t.Run(name, func(t *testing.T) {
+			svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(stream)),
+				Header:     http.Header{"X-Request-Id": []string{"rid-queued-overload"}},
+			}
+			account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Name: "acc"}
+			var err error
+			if passthrough {
+				_, err = svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, account, time.Now(), "model", "model")
+			} else {
+				_, err = svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "model", "model")
+			}
+			require.Error(t, err)
+			var failoverErr *UpstreamFailoverError
+			require.ErrorAs(t, err, &failoverErr)
+			require.True(t, failoverErr.RetryableOnSameAccount)
+			require.True(t, failoverErr.RequestScopedTransient)
+			require.False(t, c.Writer.Written(), "queued/metadata must not flush semantic output before overload failover")
+			require.Empty(t, rec.Body.String())
+		})
+	}
+
+	t.Run("real_delta_still_commits_and_blocks_silent_failover", func(t *testing.T) {
+		// Negative: useful output before overload must remain non-failover (rewrite path).
+		require.True(t, openAIStreamDataStartsClientOutput(
+			`{"type":"response.output_text.delta","delta":"hi"}`, "response.output_text.delta"))
+		require.False(t, openAIStreamDataStartsClientOutput(
+			`{"type":"response.queued","response":{"id":"resp_1","status":"queued"}}`, "response.queued"))
+	})
+}
+
 func TestOpenAIStreamMetadataAndKeepaliveBeforeOverloadFailOver(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	largeMetadata := strings.Repeat("x", 16*1024)
 	stream := strings.Join([]string{
 		"event: response.created",
 		`data: {"type":"response.created","response":{"id":"resp_1","metadata":{"padding":"` + largeMetadata + `"}}}`,
+		"",
+		"event: response.queued",
+		`data: {"type":"response.queued","response":{"id":"resp_1","status":"queued"}}`,
+		"",
+		"event: response.metadata",
+		`data: {"type":"response.metadata","response_id":"resp_1","metadata":{"openai_chatgpt_moderation_metadata":{"prompt":{}}}}`,
 		"",
 		"event: response.output_item.added",
 		`data: {"type":"response.output_item.added","item":{"type":"reasoning","summary":[]}}`,
