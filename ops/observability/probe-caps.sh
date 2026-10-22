@@ -16,12 +16,22 @@
 #   ERR_HOURS  — ops_error_logs lookback hours (default: 2)
 #   ERR_LIMIT  — ops_error_logs row cap (default: 150)
 #
-# Container names follow Stage0 compose (docker-compose.yml): tokenkey, tokenkey-postgres,
-# tokenkey-redis. Verified by `docker ps` block at the top of the output.
+# PG/Redis container names come from the shared resolver (Stage0 or Tencent USW
+# layout). Verified by `docker ps` block at the top of the output.
 set -u
 
-PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
-RC='docker exec tokenkey-redis redis-cli'
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+TK_PG="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
+TK_REDIS="$(tk_require_redis_container "${REDIS_CONTAINER:-auto}")" || exit 1
+PSQL="docker exec $TK_PG psql -U tokenkey -d tokenkey -X -A -t"
+RC="docker exec $TK_REDIS redis-cli"
 PLATFORM="${PLATFORM:-anthropic}"
 ERR_HOURS="${ERR_HOURS:-2}"
 ERR_LIMIT="${ERR_LIMIT:-150}"

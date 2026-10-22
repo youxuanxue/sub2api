@@ -4,12 +4,15 @@
 # Delivered via run-probe.sh. Requires APPLY=yes-openai-oauth-concurrency.
 set -euo pipefail
 
-# Post Tokyo→Tencent cutover the live PG container may be tk-archive-standby.
-if docker ps --format '{{.Names}}' | grep -qx tokenkey-postgres; then
-  _TK_PG=tokenkey-postgres
-elif docker ps --format '{{.Names}}' | grep -qx tk-archive-standby; then
-  _TK_PG=tk-archive-standby
-else
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+if ! _TK_PG="$(tk_resolve_postgres_container "${POSTGRES_CONTAINER:-auto}")"; then
   echo '{"verdict":"setup_error","error":"no tokenkey postgres container"}'
   exit 2
 fi

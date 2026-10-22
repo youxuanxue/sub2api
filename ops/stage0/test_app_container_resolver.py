@@ -98,10 +98,15 @@ class UniqueRunningSnippetTest(unittest.TestCase):
         )
         self.assertEqual(self.resolver.POSTGRES_CANDIDATES, ("tokenkey-postgres", "tk-archive-standby"))
         self.assertEqual(self.resolver.REDIS_CANDIDATES, ("tokenkey-redis", "tk-cutover-prod-redis"))
+        self.assertIn(
+            f'TK_REDIS_CONTAINER_CANDIDATES="{" ".join(self.resolver.REDIS_CANDIDATES)}"',
+            shell,
+        )
 
     def test_daily_diagnostics_renders_the_snippet_instead_of_an_existence_loop(self) -> None:
         workflow = (ROOT / ".github/workflows/ops-daily-diagnostics.yml").read_text(encoding="utf-8")
-        self.assertEqual(workflow.count("remote_unique_running_snippet"), 3)
+        # Status lines, clustering DSN, and log_dump PG/Redis roles all use the owner.
+        self.assertGreaterEqual(workflow.count("remote_unique_running_snippet"), 3)
         self.assertIsNone(self.check.data_container_selection_copy(workflow))
         self.assertIsNone(self.check._assert_data_container_detector())
 

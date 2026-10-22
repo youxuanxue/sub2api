@@ -3,7 +3,7 @@ name: Stage0 Warm Image
 # Pre-pulls a released image tag onto the prod Stage0 host BEFORE a deploy, so
 # that deploy-stage0.yml's in-band `docker compose pull` collapses to a ~3s
 # manifest no-op instead of paying the full cold pull (~150s measured on the
-# prod t4g.small, 2026-06-13) on its critical path.
+# former arm64 prod host, 2026-06-13) on its critical path.
 #
 # Read-only: it runs ops/stage0/warm_pull_via_ssm.sh, which only `docker pull`s
 # the new tag — it never edits .env, restarts, drains, or swaps the running
@@ -76,7 +76,7 @@ jobs:
 
       - name: Verify GHCR multi-arch manifest
         # Shared gate with deploy-stage0.yml: never warm a tag the deploy would
-        # refuse (e.g. a single-arch manifest that crashes on the arm64 host).
+        # refuse (e.g. a single-arch manifest missing the live host's arch).
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"

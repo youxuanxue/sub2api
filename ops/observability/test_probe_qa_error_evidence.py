@@ -37,11 +37,11 @@ class QAErrorEvidenceProbeTest(unittest.TestCase):
             # The canonical resolver asks for State.Running (last arg is the name).
             if [ "$1" = "inspect" ]; then
               for a in "$@"; do name="$a"; done
-              [ "$name" = "tokenkey-blue" ] || exit 1
+              case "$name" in tokenkey-blue|tk-archive-standby) ;; *) exit 1 ;; esac
               echo true
               exit 0
             fi
-            if [ "$1" = "exec" ] && [ "$2" = "tokenkey-postgres" ]; then
+            if [ "$1" = "exec" ] && [ "$2" = "tk-archive-standby" ]; then
               case "$*" in
                 *to_regclass*) echo t ;;
                 *distinct_error_request_hashes*) echo '{"distinct_error_request_hashes":2,"hashes_with_success":0}' ;;
@@ -80,6 +80,12 @@ class QAErrorEvidenceProbeTest(unittest.TestCase):
         proc = self.run_probe(
             r"""
             #!/bin/sh
+            if [ "$1" = "inspect" ]; then
+              for a in "$@"; do name="$a"; done
+              [ "$name" = "tokenkey-postgres" ] || exit 1
+              echo true
+              exit 0
+            fi
             if [ "$1" = "exec" ] && [ "$2" = "tokenkey-postgres" ]; then
               echo f
               exit 0

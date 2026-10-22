@@ -50,8 +50,8 @@ class OpsErrorTriageTest(unittest.TestCase):
             fake_docker.write_text(
                 "#!/bin/sh\n"
                 "case \"$*\" in\n"
-                "  ps*)\n"
-                "    printf '%s\\n' 'tokenkey-postgres' ;;\n"
+                "  inspect*tk-archive-standby) echo true ;;\n"
+                "  inspect*) exit 1 ;;\n"
                 "  *\"ev->>'reason'\"*\"ev->>'message'\"*)\n"
                 "    printf '%s\\n' '{\"kind\":\"response_error\",\"reason\":\"empty_response\",\"message\":\"kiro upstream returned an empty response\"}' ;;\n"
                 "  *) printf '%s\\n' '{}' ;;\n"

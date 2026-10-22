@@ -18,11 +18,11 @@ SCRIPT = ROOT / "ops" / "observability" / "probe-user-billing-watch.sh"
 _FAKE_DOCKER = textwrap.dedent(
     r"""
     #!/usr/bin/env bash
-    # Container discovery (probe resolves tokenkey-postgres vs tk-archive-standby).
-    if [ "${1:-}" = "ps" ]; then
-      # One name per line; override with FAKE_PG_CONTAINERS (newline or space separated).
-      printf '%s\n' ${FAKE_PG_CONTAINERS:-tokenkey-postgres}
-      exit 0
+    # Shared resolver asks each candidate for State.Running; FAKE_PG_CONTAINERS
+    # lists the running names (space separated).
+    if [ "${1:-}" = "inspect" ]; then
+      for n in ${FAKE_PG_CONTAINERS:-tokenkey-postgres}; do [ "$n" = "${@: -1}" ] && echo true && exit 0; done
+      exit 1
     fi
     if [ "${1:-}" = "exec" ] && [ -n "${FAKE_EXEC_LOG:-}" ]; then
       printf '%s\n' "${2:-}" >> "$FAKE_EXEC_LOG"
@@ -75,6 +75,7 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
             if extra_sql:
                 script = pathlib.Path(tmp) / "probe.sh"
                 script.write_text(SCRIPT.read_text() + '\n$PSQL -c "' + extra_sql + '"\n')
+                env["TK_LIB_DIR"] = str(ROOT / "ops" / "lib")
             proc = subprocess.run(
                 ["bash", str(script)],
                 cwd=ROOT,
@@ -151,7 +152,7 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
     def test_postgres_container_env_overrides_discovery(self) -> None:
         proc, _logged, execed = self.run_probe(
             USER_IDS="1",
-            FAKE_PG_CONTAINERS="tokenkey-postgres",
+            FAKE_PG_CONTAINERS="tokenkey-postgres custom-pg",
             POSTGRES_CONTAINER="custom-pg",
         )
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
@@ -161,7 +162,7 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
     def test_missing_postgres_container_is_setup_error(self) -> None:
         proc, _logged, execed = self.run_probe(USER_IDS="1", FAKE_PG_CONTAINERS="other-db")
         self.assertEqual(proc.returncode, 1, proc.stderr + proc.stdout)
-        self.assertIn("no tokenkey postgres container", proc.stderr)
+        self.assertIn("postgres container unresolved", proc.stderr)
         self.assertEqual(execed, "")
 
     def test_wow_usage_emits_delta_pct_from_single_two_window_scan(self) -> None:

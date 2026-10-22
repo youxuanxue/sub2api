@@ -2276,6 +2276,12 @@ if ! command -v python3 >/dev/null 2>&1; then
     errors=$((errors + 1))
 elif ! python3 ./scripts/checks/app-container-resolver.py; then
     errors=$((errors + 1))
+elif ! python3 ./scripts/checks/data-container-resolver.py; then
+    errors=$((errors + 1))
+elif ! python3 ./ops/lib/test_resolve_data_containers.py >/dev/null 2>&1; then
+    echo "  FAIL: PG/Redis container resolver contracts (Stage0 + Tencent names)"
+    echo "        - run: python3 ops/lib/test_resolve_data_containers.py"
+    errors=$((errors + 1))
 fi
 
 # ---- sub2api: nonprod archive/restore rehearsal ----------------------------

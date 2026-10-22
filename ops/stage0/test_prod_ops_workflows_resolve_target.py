@@ -33,6 +33,16 @@ class ProdOpsWorkflowResolveTargetTest(unittest.TestCase):
                     text,
                 )
 
+    def test_feishu_sync_region_default_matches_other_prod_workflows(self) -> None:
+        # AWS_REGION only scopes OIDC credentials; the SSM call must take the
+        # resolver's ssm_region. A Tokyo default here is a stale cutover leftover.
+        workflow = (WORKFLOWS / "prod-feishu-config-sync.yml").read_text(encoding="utf-8")
+        self.assertIn("AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}", workflow)
+        self.assertNotIn("ap-northeast-1", workflow)
+        script = (ROOT_SCRIPTS / "sync-feishu-config.sh").read_text(encoding="utf-8")
+        self.assertIn('["ssm_region"]', script)
+        self.assertNotIn("$AWS_REGION", script)
+
     def test_error_clustering_installer_is_cutover_aware(self) -> None:
         text = (ROOT_SCRIPTS / "deploy-error-clustering-binary.sh").read_text(
             encoding="utf-8"

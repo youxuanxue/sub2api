@@ -39,7 +39,10 @@ done
 ' || true
 
 echo "=== aggregation_tables ==="
-PSQL="${PSQL:-docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t}"
+if [ -z "${PSQL:-}" ]; then
+  TK_PG="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 3
+  PSQL="docker exec $TK_PG psql -U tokenkey -d tokenkey -X -A -t"
+fi
 $PSQL -c "SELECT row_to_json(t) FROM (
   SELECT
     now() AT TIME ZONE 'UTC' AS now_utc,

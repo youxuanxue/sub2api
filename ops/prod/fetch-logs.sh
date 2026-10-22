@@ -21,10 +21,11 @@
 #   GH_REPO            default: youxuanxue/sub2api
 #   SINCE              default: 10m              docker logs --since value
 #                                                (must match ^[0-9]+[smhd]$)
-#   CONTAINER          default: tokenkey         one of tokenkey,
-#                                                tokenkey-postgres,
-#                                                tokenkey-caddy,
-#                                                tokenkey-redis
+#   CONTAINER          default: tokenkey         logical role, one of
+#                                                tokenkey (live blue/green app),
+#                                                tokenkey-postgres, tokenkey-caddy,
+#                                                tokenkey-redis; the workflow maps
+#                                                each to the real host container
 #   GREP_PATTERN       default: ""               ERE; empty = no filter.
 #                                                Transported to EC2 via
 #                                                base64 + grep -E -f file,

@@ -16,6 +16,11 @@ if ! APP_CONTAINER="$(tk_resolve_app_container auto)"; then
   echo '{"verdict":"setup_error","error":"app_container_unresolved"}'
   exit 2
 fi
+if ! TK_PG="$(tk_resolve_postgres_container "${POSTGRES_CONTAINER:-auto}")"; then
+  echo '{"verdict":"setup_error","error":"postgres_container_unresolved"}'
+  exit 2
+fi
+export TK_PG
 
 export TOTP_ENCRYPTION_KEY
 TOTP_ENCRYPTION_KEY="$(docker exec "$APP_CONTAINER" sh -c 'printf %s "$TOTP_ENCRYPTION_KEY"')"
@@ -54,7 +59,7 @@ SNAPSHOT_FILE="$(mktemp)"
 trap 'rm -f "$SNAPSHOT_FILE"' EXIT
 docker exec -i \
   -e 'PGOPTIONS=-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=10s' \
-  tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 \
+  "$TK_PG" psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 \
   -c "$SNAPSHOT_SQL" >"$SNAPSHOT_FILE"
 
 export APPLY SOURCE_IDS
@@ -180,7 +185,7 @@ for row in plans:
             "docker",
             "exec",
             "-i",
-            "tokenkey-postgres",
+            os.environ["TK_PG"],
             "psql",
             "-U",
             "tokenkey",
@@ -215,7 +220,7 @@ verify_rows = subprocess.check_output(
     [
         "docker",
         "exec",
-        "tokenkey-postgres",
+        os.environ["TK_PG"],
         "psql",
         "-U",
         "tokenkey",

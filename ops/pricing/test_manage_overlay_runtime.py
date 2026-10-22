@@ -104,7 +104,7 @@ class PricingRegistryRuntimeTests(unittest.TestCase):
         self.assertTrue(all(len(output) < 24_000 for output in outputs))
         shells: list[str] = []
 
-        def fake_run(_instance: str, encoded: str, _comment: str) -> str:
+        def fake_run(_instance: str, encoded: str, _comment: str, *, preamble: str = "") -> str:
             shells.append(base64.b64decode(encoded).decode())
             return outputs.pop(0)
 
@@ -340,7 +340,7 @@ class PricingRegistryRuntimeTests(unittest.TestCase):
     def test_remote_cas_uses_cte_and_conflict_exits_before_redis(self) -> None:
         captured_shell = ""
 
-        def fake_run(_instance: str, encoded: str, _comment: str) -> str:
+        def fake_run(_instance: str, encoded: str, _comment: str, *, preamble: str = "") -> str:
             nonlocal captured_shell
             captured_shell = base64.b64decode(encoded).decode()
             return "CAS_CONFLICT\n"
@@ -361,7 +361,7 @@ class PricingRegistryRuntimeTests(unittest.TestCase):
     def test_remote_absent_cas_uses_insert_cte(self) -> None:
         captured_shell = ""
 
-        def fake_run(_instance: str, encoded: str, _comment: str) -> str:
+        def fake_run(_instance: str, encoded: str, _comment: str, *, preamble: str = "") -> str:
             nonlocal captured_shell
             captured_shell = base64.b64decode(encoded).decode()
             return "CAS_CONFLICT\n"
@@ -372,6 +372,25 @@ class PricingRegistryRuntimeTests(unittest.TestCase):
             )
         self.assertIn("WITH mutation AS (INSERT INTO settings", captured_shell)
         self.assertIn("ON CONFLICT (key) DO NOTHING RETURNING 1)", captured_shell)
+
+    def test_remote_shell_resolves_stage0_or_tencent_data_containers(self) -> None:
+        seen: dict[str, str] = {}
+
+        def fake_run(_instance: str, encoded: str, _comment: str, *, preamble: str = "") -> str:
+            seen["shell"] = base64.b64decode(encoded).decode()
+            seen["preamble"] = preamble
+            return "CAS_CONFLICT\n"
+
+        with mock.patch.object(runtime._SSM, "run_shell_b64", side_effect=fake_run):
+            runtime._write_runtime_document("i-" + "1" * 17, b"{}", "absent")
+        self.assertNotIn("tokenkey-postgres psql", seen["shell"])
+        self.assertNotIn("tokenkey-redis env", seen["shell"])
+        self.assertIn("$TK_PG psql", seen["shell"])
+        self.assertIn("$TK_REDIS env", seen["shell"])
+        for name in ("tokenkey-postgres", "tk-archive-standby", "tokenkey-redis", "tk-cutover-prod-redis"):
+            self.assertIn(name, seen["preamble"])
+        self.assertIn("export TK_PG", seen["preamble"])
+        self.assertIn("export TK_REDIS", seen["preamble"])
 
     def test_remote_cas_applied_requires_exact_readback(self) -> None:
         payload = b"{}"

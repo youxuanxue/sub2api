@@ -61,9 +61,10 @@ SELECT jsonb_build_object(
 SQL
 )
 
+TK_PG="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
 if ! SNAPSHOT="$(docker exec -i \
     -e 'PGOPTIONS=-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=10s' \
-    tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 \
+    "$TK_PG" psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 \
     -c "$SNAPSHOT_SQL")"; then
   echo '{"verdict":"setup_error","error":"snapshot_query_failed"}'
   exit 2

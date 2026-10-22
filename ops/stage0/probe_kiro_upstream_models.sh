@@ -40,7 +40,17 @@ fi
 export KIRO_CONSTANTS_GO
 export TOKENKEY_KIRO_CLI_PROFILE="$KIRO_CLI_PROFILE"
 
-PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
+TK_DOCKER="${TK_DOCKER:-sudo docker}"
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+TK_PG="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
+PSQL=(sudo docker exec -i "$TK_PG" psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
 META="$("${PSQL[@]}" -c "
 SELECT COALESCE(row_to_json(t)::text, '')
 FROM (

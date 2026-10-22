@@ -9,7 +9,7 @@ Examples:
       --tok-per-req 40000 --duration-s 45 --pool-slots 252 --target-tpm 20000000
 
   # ≤9 live calibrations against UCloud cn-prod (writes JSON report).
-  # Do NOT use https://api-cn.tokenkey.dev — that DNS is cut over to AWS Tokyo.
+  # Do NOT use https://api-cn.tokenkey.dev — that DNS points at Tencent USW prod, not UCloud cn-prod.
   python3 ops/observability/tpm_burst_recipe1.py calibrate \\
       --api-key "$KEY" \\
       --model kimi-k3 --prompt-tokens-target 35000 --max-tokens 5000 --n 5 \\
@@ -108,12 +108,12 @@ def resolve_host_header(base_url: str, explicit: str | None = None) -> str | Non
 
 
 def refuse_aws_cutover_domain(base_url: str) -> str | None:
-    """api-cn.tokenkey.dev currently resolves to Tokyo AWS — not UCloud cn-prod."""
+    """api-cn.tokenkey.dev resolves to Tencent USW prod — not UCloud cn-prod."""
     host = _hostname(base_url)
     cutover = cn_prod_host_header_default().lower()
     if host == cutover:
         return (
-            f"base_url host {host!r} is cut over to AWS Tokyo DNS; "
+            f"base_url host {host!r} resolves to overseas prod (Tencent USW), not cn-prod; "
             f"use UCloud static IP from deploy/domestic/prod-target.json "
             f"(public_origin) plus Host: {cutover}"
         )

@@ -40,7 +40,12 @@ class ProbeGrokUpstreamModelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             fake_sudo = Path(tmp) / "sudo"
             fake_sudo.write_text(
-                "#!/bin/sh\n" f"printf '%s\\n' {shlex.quote(row)}\n",
+                "#!/bin/sh\n"
+                # Shared PG resolver: only the Tencent layout name is running.
+                'if [ "$2" = inspect ]; then for a in "$@"; do n="$a"; done; '
+                '[ "$n" = tk-archive-standby ] && echo true && exit 0; exit 1; fi\n'
+                'case "$*" in *"exec -i tk-archive-standby psql"*) ;; *) exit 9 ;; esac\n'
+                f"printf '%s\\n' {shlex.quote(row)}\n",
                 encoding="utf-8",
             )
             fake_sudo.chmod(0o755)

@@ -27,7 +27,19 @@ for value in "$USAGE_RETENTION_DAYS" "$OPS_RETENTION_DAYS"; do
 done
 
 PGOPTIONS_VALUE="-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=20s"
-PSQL=(docker exec -i -e "PGOPTIONS=$PGOPTIONS_VALUE" tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+if ! TK_PG="$(tk_resolve_postgres_container "${POSTGRES_CONTAINER:-auto}")"; then
+  echo "RETENTIONSTATS {\"inventory_probe_ok\":false,\"reason\":\"postgres container unresolved\"}"
+  exit 0
+fi
+PSQL=(docker exec -i -e "PGOPTIONS=$PGOPTIONS_VALUE" "$TK_PG" psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 
 echo "=== RETENTIONSTATS (catalog estimates + reclaim classification) ==="
 if ! "${PSQL[@]}" \
@@ -129,7 +141,7 @@ then
 fi
 
 echo "=== RETENTIONUSAGE_EXACT (bounded indexed count) ==="
-if usage_expired=$(docker exec -i -e "PGOPTIONS=$PGOPTIONS_VALUE" tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -tAc "
+if usage_expired=$(docker exec -i -e "PGOPTIONS=$PGOPTIONS_VALUE" "$TK_PG" psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -tAc "
 WITH leaf_stats AS (
   SELECT
     COALESCE(sum(pg_total_relation_size(tree.relid)), 0)::bigint AS relation_bytes,
@@ -164,7 +176,7 @@ emit_plan() {
   local table_name="$1"
   local retention_days="$2"
   local plan
-  if plan=$(docker exec -i -e "PGOPTIONS=$PGOPTIONS_VALUE" tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -tAc "EXPLAIN (FORMAT JSON) SELECT 1 FROM $table_name WHERE created_at < now() - make_interval(days := ${retention_days}::int)" 2>/dev/null); then
+  if plan=$(docker exec -i -e "PGOPTIONS=$PGOPTIONS_VALUE" "$TK_PG" psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -tAc "EXPLAIN (FORMAT JSON) SELECT 1 FROM $table_name WHERE created_at < now() - make_interval(days := ${retention_days}::int)" 2>/dev/null); then
     plan=$(printf '%s' "$plan" | tr -d '\n')
     printf 'RETENTIONPLAN {"inventory_probe_ok":true,"table_name":"%s","retention_days":%s,"evidence":"EXPLAIN (FORMAT JSON), no rows read","plan":%s}\n' "$table_name" "$retention_days" "$plan"
   else

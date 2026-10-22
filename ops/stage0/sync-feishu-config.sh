@@ -26,10 +26,16 @@ RES_MODE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["target"])' 
 # quoting hell, and arbitrary characters in the values pass through untouched.
 # Ubuntu Hybrid (Hetzner) SSM agent runs under dash; wrap the body in bash -lc
 # so `set -o pipefail` and heredocs match Amazon Linux EC2 behavior.
-COMMANDS_JSON="$(python3 <<'PY'
+COMMANDS_JSON="$(TK_ROOT="$ROOT" python3 <<'PY'
+import importlib.util
 import json
 import os
 import shlex
+
+_spec = importlib.util.spec_from_file_location(
+    "tk_resolve_app_container", os.path.join(os.environ["TK_ROOT"], "ops/lib/resolve_app_container.py"))
+_tk = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_tk)
 
 webhook = os.environ["TK_FEISHU_WEBHOOK_URL"]
 secret = os.environ["TK_FEISHU_SIGNING_SECRET"]
@@ -54,11 +60,8 @@ update_sql = (
 script = "\n".join(
     [
         "set -euo pipefail",
-        # Stage0 uses tokenkey-postgres; Tencent layout exception keeps tk-archive-standby.
-        "POSTGRES_CONTAINER=",
-        "if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx tokenkey-postgres; then POSTGRES_CONTAINER=tokenkey-postgres;",
-        "elif docker ps --format '{{.Names}}' 2>/dev/null | grep -qx tk-archive-standby; then POSTGRES_CONTAINER=tk-archive-standby;",
-        "else echo '[error] no postgres container (tokenkey-postgres|tk-archive-standby)' >&2; exit 1; fi",
+        # Canonical resolver: Stage0 tokenkey-postgres or Tencent tk-archive-standby.
+        _tk.data_container_shell_snippet("postgres", docker="sudo docker", variable="POSTGRES_CONTAINER"),
         "echo \"postgres_container=${POSTGRES_CONTAINER}\"",
         # Ensure the row exists (fresh node before the app has materialized defaults).
         "sudo docker exec \"$POSTGRES_CONTAINER\" psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 "

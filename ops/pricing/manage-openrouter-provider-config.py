@@ -31,8 +31,10 @@ BILLING_USER_ID = 32
 SELLER_KEY_NAME = "openrouter"
 APP_URL = "http://127.0.0.1:8080"
 
-PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
-REDISCLI = "sudo docker exec tokenkey-redis env -u REDISCLI_AUTH redis-cli"
+# "$TK_PG" / "$TK_REDIS" are exported on the host by the canonical resolver
+# preamble (ssm_execution.data_container_preamble) shipped with every remote script.
+PSQL = "sudo docker exec -i $TK_PG psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
+REDISCLI = "sudo docker exec $TK_REDIS env -u REDISCLI_AUTH redis-cli"
 
 _ssm_spec = importlib.util.spec_from_file_location(
     "tk_ssm_execution", REPO_ROOT / "ops" / "stage0" / "ssm_execution.py")
@@ -59,14 +61,14 @@ def _decode_settings_value(out: str) -> str:
 def _run_psql_query(instance_id: str, sql: str, comment: str) -> str:
     shell = f"{PSQL} -c {json.dumps(sql)}"
     b64 = base64.b64encode(shell.encode()).decode()
-    return _SSM.run_shell_b64(instance_id, b64, comment).strip()
+    return _SSM.run_shell_b64(instance_id, b64, comment, preamble=_SSM.data_container_preamble(redis=True)).strip()
 
 
 def _remote_bootstrap_script(group_id: int, config: dict, create_group: bool) -> str:
     """Shell script executed on prod; uses embedded python for admin API I/O."""
     config_json = json.dumps(config, ensure_ascii=False, separators=(",", ":"))
     py = r'''
-import json, sys
+import json, os, sys
 
 USER_ID = 32
 REQUESTED_GROUP_ID = __GROUP_ID__
@@ -88,7 +90,7 @@ for name in ("tokenkey-blue", "tokenkey-green"):
         pass
 
 def psql_scalar(sql):
-    cmd = ["sudo", "docker", "exec", "-i", "tokenkey-postgres",
+    cmd = ["sudo", "docker", "exec", "-i", os.environ["TK_PG"],
            "psql", "-U", "tokenkey", "-d", "tokenkey", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", sql]
     out = subprocess.check_output(cmd, text=True).strip()
     return out if out and out != r"\N" else ""
@@ -211,14 +213,14 @@ SELECT key || '|' || length(value)::text FROM settings WHERE key='tk_openrouter_
 """
 
 import subprocess
-psql = ["sudo", "docker", "exec", "-i", "tokenkey-postgres",
+psql = ["sudo", "docker", "exec", "-i", os.environ["TK_PG"],
         "psql", "-U", "tokenkey", "-d", "tokenkey", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1"]
 proc = subprocess.Popen(psql, stdin=subprocess.PIPE)
 proc.communicate(input=upsert_sql.encode())
 if proc.returncode != 0:
     raise SystemExit("settings upsert failed")
 subprocess.run(
-    ["sudo", "docker", "exec", "tokenkey-redis", "env", "-u", "REDISCLI_AUTH", "redis-cli",
+    ["sudo", "docker", "exec", os.environ["TK_REDIS"], "env", "-u", "REDISCLI_AUTH", "redis-cli",
      "PUBLISH", "settings_updated", "refresh"],
     check=False,
 )
@@ -337,7 +339,7 @@ def _remote_update_config_script(
 ) -> str:
     config_json = json.dumps(config, ensure_ascii=False, separators=(",", ":"))
     py = r'''
-import json, subprocess, base64
+import json, os, subprocess, base64
 
 USER_ID = 32
 SELLER_ID = __SELLER_ID__
@@ -358,14 +360,14 @@ VALUES ('tk_openrouter_provider_config', convert_from(decode('{config_b64}','bas
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
 SELECT key || '|' || length(value)::text FROM settings WHERE key='tk_openrouter_provider_config';
 """
-psql = ["sudo", "docker", "exec", "-i", "tokenkey-postgres",
+psql = ["sudo", "docker", "exec", "-i", os.environ["TK_PG"],
         "psql", "-U", "tokenkey", "-d", "tokenkey", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1"]
 proc = subprocess.Popen(psql, stdin=subprocess.PIPE)
 proc.communicate(input=upsert_sql.encode())
 if proc.returncode != 0:
     raise SystemExit("settings upsert failed")
 subprocess.run(
-    ["sudo", "docker", "exec", "tokenkey-redis", "env", "-u", "REDISCLI_AUTH", "redis-cli",
+    ["sudo", "docker", "exec", os.environ["TK_REDIS"], "env", "-u", "REDISCLI_AUTH", "redis-cli",
      "PUBLISH", "settings_updated", "refresh"],
     check=False,
 )
@@ -456,7 +458,7 @@ def cmd_update_config(args) -> int:
 
     shell = _remote_update_config_script(seller_id, cfg, supply_group_ids)
     b64 = base64.b64encode(shell.encode()).decode()
-    out = _SSM.run_shell_b64(inst, b64, "or-provider update-config")
+    out = _SSM.run_shell_b64(inst, b64, "or-provider update-config", preamble=_SSM.data_container_preamble(redis=True))
     for line in reversed(out.splitlines()):
         line = line.strip()
         if line.startswith("{"):
@@ -469,7 +471,7 @@ def cmd_update_config(args) -> int:
 def _remote_hygiene_keys_script() -> str:
     """Create seller key named openrouter; disable legacy dual-key names."""
     py = r'''
-import json, subprocess
+import json, os, subprocess
 
 USER_ID = 32
 SELLER_NAME = "openrouter"
@@ -488,7 +490,7 @@ for name in ("tokenkey-blue", "tokenkey-green"):
         pass
 
 def psql_scalar(sql):
-    cmd = ["sudo", "docker", "exec", "-i", "tokenkey-postgres",
+    cmd = ["sudo", "docker", "exec", "-i", os.environ["TK_PG"],
            "psql", "-U", "tokenkey", "-d", "tokenkey", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", sql]
     out = subprocess.check_output(cmd, text=True).strip()
     return out if out and out != r"\N" else ""
@@ -580,7 +582,7 @@ def cmd_hygiene_keys(args) -> int:
         return 0
     shell = _remote_hygiene_keys_script()
     b64 = base64.b64encode(shell.encode()).decode()
-    out = _SSM.run_shell_b64(inst, b64, "or-provider hygiene-keys")
+    out = _SSM.run_shell_b64(inst, b64, "or-provider hygiene-keys", preamble=_SSM.data_container_preamble(redis=True))
     for line in reversed(out.splitlines()):
         line = line.strip()
         if line.startswith("{"):
@@ -604,7 +606,7 @@ def cmd_bootstrap(args) -> int:
         return 0
     shell = _remote_bootstrap_script(group_id, cfg, args.create_group)
     b64 = base64.b64encode(shell.encode()).decode()
-    out = _SSM.run_shell_b64(inst, b64, "or-provider bootstrap: keys + config")
+    out = _SSM.run_shell_b64(inst, b64, "or-provider bootstrap: keys + config", preamble=_SSM.data_container_preamble(redis=True))
     # Remote prints one JSON line with ids only.
     for line in reversed(out.splitlines()):
         line = line.strip()

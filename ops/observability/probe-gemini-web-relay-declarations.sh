@@ -2,18 +2,17 @@
 # Read-only pre-deploy check, including disabled accounts that may be enabled later.
 set -euo pipefail
 
-# Stage0 compose uses tokenkey-postgres; Tencent USW layout exception keeps
-# primary as tk-archive-standby (network alias postgres).
-POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-}"
-if [ -z "$POSTGRES_CONTAINER" ]; then
-  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx tokenkey-postgres; then
-    POSTGRES_CONTAINER=tokenkey-postgres
-  elif docker ps --format '{{.Names}}' 2>/dev/null | grep -qx tk-archive-standby; then
-    POSTGRES_CONTAINER=tk-archive-standby
-  else
-    echo '{"verdict":"setup_error","error":"no_postgres_container"}'
-    exit 2
-  fi
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+if ! POSTGRES_CONTAINER="$(tk_resolve_postgres_container "${POSTGRES_CONTAINER:-auto}")"; then
+  echo '{"verdict":"setup_error","error":"no_postgres_container"}'
+  exit 2
 fi
 
 CHECK_PY="${GEMINI_WEB_RELAY_CHECK:-/tmp/gemini_web_relay_check.py}"

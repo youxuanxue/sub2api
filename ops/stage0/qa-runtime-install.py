@@ -11,15 +11,34 @@ import tempfile
 import uuid
 
 
+# Installed as a single file under /usr/local/lib/tokenkey, so it cannot import
+# ops/lib/resolve_app_container.py. Same contract and candidate list as that owner
+# (POSTGRES_CANDIDATES); test_prod_component_release pins the two together.
+POSTGRES_CANDIDATES = ("tokenkey-postgres", "tk-archive-standby")
+
+
 def command(*args: str) -> str:
     return subprocess.check_output(args, text=True).strip()
+
+
+def live_postgres() -> str:
+    running = []
+    for name in POSTGRES_CANDIDATES:
+        try:
+            if command("docker", "inspect", "--format", "{{.State.Running}}", name) == "true":
+                running.append(name)
+        except subprocess.CalledProcessError:
+            continue
+    if len(running) != 1:
+        raise ValueError("database container is ambiguous or not running")
+    return running[0]
 
 
 def install(image: str, template: str, *, keep_previous: bool = False) -> None:
     match = re.fullmatch(r"ghcr.io/youxuanxue/sub2api:([0-9]+\.[0-9]+\.[0-9]+(?:-(?:rc|beta)\.[0-9]+)?)", image)
     if not match:
         raise ValueError("maintenance requires an immutable TokenKey release image")
-    networks = json.loads(command("docker", "inspect", "tokenkey-postgres"))[0]["NetworkSettings"]["Networks"]
+    networks = json.loads(command("docker", "inspect", live_postgres()))[0]["NetworkSettings"]["Networks"]
     if len(networks) != 1:
         raise ValueError("database network is ambiguous")
     os.environ.update(QA_MAINTENANCE_IMAGE=image, QA_MAINTENANCE_TAG=match[1], QA_RUNTIME_NETWORK=next(iter(networks)))
