@@ -310,19 +310,20 @@ func TestHandleResponsesStreamingResponse_PreservesMessageStartCacheUsage(t *tes
 	require.Contains(t, rec.Body.String(), `response.completed`)
 }
 
-// TestHandleResponsesStreamingResponse_TruncatedUpstreamEmitsIncomplete is the
-// end-to-end guard for Wei-Shaw/sub2api#2245: when the upstream SSE stream ends
-// without message_stop, the client must receive a response.incomplete terminal
-// event (a spec-valid terminal in the strict Responses lifecycle) rather than a
-// fake response.completed or no terminal event at all.
-func TestHandleResponsesStreamingResponse_TruncatedUpstreamEmitsIncomplete(t *testing.T) {
+// TestHandleResponsesStreamingResponse_TruncatedUpstreamFails is the end-to-end
+// guard aligned with anthropicCompatStream.failure: when the upstream SSE
+// stream ends after message_start without stop_reason/message_stop, the client
+// receives response.failed (not a fake response.completed). Paths that only
+// call FinalizeAnthropicResponsesStream without a prior failure() check still
+// emit response.incomplete; see apicompat truncation tests.
+func TestHandleResponsesStreamingResponse_TruncatedUpstreamFails(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 
-	// message_start + partial content, then the upstream drops (no message_stop).
+	// message_start + partial content, then the upstream drops (no terminal).
 	resp := &http.Response{
 		Header: http.Header{"x-request-id": []string{"rid_truncated"}},
 		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
@@ -340,12 +341,13 @@ func TestHandleResponsesStreamingResponse_TruncatedUpstreamEmitsIncomplete(t *te
 
 	svc := &GatewayService{}
 	result, err := svc.handleResponsesStreamingResponse(resp, c, "claude-sonnet-4.5", "claude-sonnet-4.5", nil, time.Now(), apicompat.ResponsesClientToolMapping{})
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing terminal event")
 	require.NotNil(t, result)
 
 	body := rec.Body.String()
-	require.Contains(t, body, "response.incomplete", "truncated upstream must surface response.incomplete to the client")
-	require.Contains(t, body, `"status":"incomplete"`)
+	require.Contains(t, body, "response.failed", "truncated upstream must surface response.failed to the client")
+	require.Contains(t, body, "stream_incomplete")
 	require.NotContains(t, body, "response.completed", "a truncated turn must not be reported as completed")
 }
 
@@ -575,10 +577,8 @@ func TestHandleResponsesStreamingResponse_NormalizesTerminalUsage(t *testing.T) 
 				require.Equal(t, tt.wantCacheCreation, result.Usage.CacheCreationInputTokens)
 
 				var completed apicompat.ResponsesStreamEvent
+				// stop_reason alone (eof without message_stop) is a normal terminal.
 				terminalType := "response.completed"
-				if terminal == "eof" {
-					terminalType = "response.incomplete"
-				}
 				for _, line := range strings.Split(rec.Body.String(), "\n") {
 					if !strings.HasPrefix(line, "data: ") {
 						continue

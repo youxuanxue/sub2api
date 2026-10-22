@@ -810,8 +810,19 @@ const groupsByPlatform = computed(() => {
   return map
 })
 
+// Composite groups can schedule any concrete platform section.
+const compositePlatforms = computed(() =>
+  GATEWAY_PLATFORMS.filter((p) => p !== 'composite')
+)
+
 function getGroupsForPlatform(platform: GroupPlatform): AdminGroup[] {
-  return groupsByPlatform.value.get(platform) ?? []
+  const direct = groupsByPlatform.value.get(platform) ?? []
+  if (platform === 'composite') return direct
+  const composite = (groupsByPlatform.value.get('composite') ?? []).filter(() =>
+    (compositePlatforms.value as readonly string[]).includes(platform)
+  )
+  // Preserve prior semantics: concrete platform sections also show composite groups.
+  return direct.concat(composite)
 }
 
 // ── Group helpers ──

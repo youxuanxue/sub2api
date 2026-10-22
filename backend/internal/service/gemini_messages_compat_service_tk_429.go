@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/tidwall/gjson"
 )
 
 // handleGeminiUpstreamError applies Gemini upstream account-state side effects
@@ -46,6 +47,12 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 
 	resetAt := ParseGeminiRateLimitResetTime(body)
 	if resetAt == nil {
+		// Vertex 共享容量不足描述的是请求当时的上游容量，不是账号额度：
+		// 账号保持可调度，由请求内的同号退避重试与换号消化。
+		if account.IsVertexServiceAccount() && isVertexSharedCapacity429(body) {
+			logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (Vertex service account, project=%s) shared capacity exhausted, account stays schedulable", account.ID, projectID)
+			return
+		}
 		ra := s.tkGeminiDefaultRateLimitResetAt(ctx, account, oauthType, tierID, projectID, isCodeAssist)
 		_ = s.accountRepo.SetRateLimited(ctx, account.ID, ra)
 		return
@@ -56,4 +63,28 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 	_ = s.accountRepo.SetRateLimited(ctx, account.ID, resetTime)
 	logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d rate limited until %v (oauth_type=%s, tier=%s)",
 		account.ID, resetTime, oauthType, tierID)
+}
+
+// isVertexSharedCapacity429 判断 Vertex 429 是否为按量付费共享容量不足：RESOURCE_EXHAUSTED、
+// 不带任何错误明细（RetryInfo / QuotaFailure / ErrorInfo），文案为 "Resource exhausted ... try again later"
+// 且不涉及项目配额或预留吞吐。其他形态的 429 按账号自身限速处理。
+func isVertexSharedCapacity429(body []byte) bool {
+	errObj := gjson.GetBytes(body, "error")
+	if !errObj.Exists() {
+		errObj = gjson.GetBytes(body, "0.error")
+	}
+	if !errObj.IsObject() {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(errObj.Get("status").String()), "RESOURCE_EXHAUSTED") {
+		return false
+	}
+	if len(errObj.Get("details").Array()) > 0 {
+		return false
+	}
+	msg := strings.ToLower(errObj.Get("message").String())
+	if !strings.Contains(msg, "resource exhausted") || !strings.Contains(msg, "try again later") {
+		return false
+	}
+	return !strings.Contains(msg, "quota") && !strings.Contains(msg, "provisioned throughput")
 }

@@ -46,6 +46,23 @@ func TestIsSingleAccountRetry_False_WrongType(t *testing.T) {
 	require.False(t, isSingleAccountRetry(ctx))
 }
 
+func TestIsSingleAccountRetry_ProbeEvaluatedOnlyWhenUnset(t *testing.T) {
+	calls := 0
+	ctx := WithSingleAccountRetryProbe(context.Background(), func(context.Context) bool {
+		calls++
+		return true
+	})
+	require.True(t, isSingleAccountRetry(ctx))
+	require.True(t, isSingleAccountRetry(ctx))
+	require.Equal(t, 1, calls, "同一请求内延迟判定只执行一次")
+
+	explicit := WithSingleAccountRetryProbe(context.WithValue(context.Background(), ctxkey.SingleAccountRetry, false), func(context.Context) bool {
+		t.Fatal("显式标记优先，不应读取快照")
+		return true
+	})
+	require.False(t, isSingleAccountRetry(explicit))
+}
+
 // ---------------------------------------------------------------------------
 // 2. 常量验证
 // ---------------------------------------------------------------------------

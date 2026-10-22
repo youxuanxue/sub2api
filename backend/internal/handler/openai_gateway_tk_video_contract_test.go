@@ -56,13 +56,13 @@ func TestVideoTerminalOutcome_NewAPITaskStatusContract(t *testing.T) {
 // guard implementation. A new upstream-accepted shape that decodes video
 // input out of one of these bodies without the guard firing fails here.
 func TestVideoSubmitHasVideoInput_ParityWithNewAPIMetadataDecoding(t *testing.T) {
-	metadataHasVideo := func(md map[string]interface{}) bool {
-		content, ok := md["content"].([]interface{})
+	metadataHasVideo := func(md map[string]any) bool {
+		content, ok := md["content"].([]any)
 		if !ok {
 			return false
 		}
 		for _, part := range content {
-			m, ok := part.(map[string]interface{})
+			m, ok := part.(map[string]any)
 			if !ok {
 				continue
 			}

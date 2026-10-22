@@ -74,6 +74,7 @@ import type { Account } from '@/types'
 import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 import { accountAuthorizationAction } from '@/utils/accountAuthorization'
 import { anchoredMenuStyle, getAnchoredMenuPosition } from '@/utils/floatingPanel'
+import { supportsAccountQuota } from '@/utils/accountQuota'
 
 const props = defineProps<{
   show: boolean
@@ -204,7 +205,7 @@ const canSetTier = computed(
     !isAnthropicOAuthPassthrough.value
 )
 const hasQuotaLimit = computed(() => {
-  return (props.account?.type === 'apikey' || props.account?.type === 'bedrock') && (
+  return supportsAccountQuota(props.account?.type) && (
     (props.account?.quota_limit ?? 0) > 0 ||
     (props.account?.quota_daily_limit ?? 0) > 0 ||
     (props.account?.quota_weekly_limit ?? 0) > 0

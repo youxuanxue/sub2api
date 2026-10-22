@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -61,8 +62,38 @@ const (
 )
 
 // DailyBaseURL / ProdBaseURL 是网关与隐私请求共用的端点 owner。
-func DailyBaseURL() string { return antigravityDailyBaseURL }
-func ProdBaseURL() string  { return antigravityProdBaseURL }
+// 线上始终返回常量。测试通过 SetTestBaseURLOverrides 把目录同步指到本地服务器；
+// 不能改读 BaseURLs，否则打乱切片顺序会把生产 token 送到 daily。
+var (
+	prodBaseURLOverride  atomic.Value // string
+	dailyBaseURLOverride atomic.Value // string
+)
+
+func DailyBaseURL() string {
+	if override, ok := dailyBaseURLOverride.Load().(string); ok && override != "" {
+		return override
+	}
+	return antigravityDailyBaseURL
+}
+
+func ProdBaseURL() string {
+	if override, ok := prodBaseURLOverride.Load().(string); ok && override != "" {
+		return override
+	}
+	return antigravityProdBaseURL
+}
+
+// SetTestBaseURLOverrides 仅供测试替换生成端点。空字符串恢复常量。返回恢复函数。
+func SetTestBaseURLOverrides(prod, daily string) func() {
+	prevProd, _ := prodBaseURLOverride.Load().(string)
+	prevDaily, _ := dailyBaseURLOverride.Load().(string)
+	prodBaseURLOverride.Store(prod)
+	dailyBaseURLOverride.Store(daily)
+	return func() {
+		prodBaseURLOverride.Store(prevProd)
+		dailyBaseURLOverride.Store(prevDaily)
+	}
+}
 
 // DailyHost 从 DailyBaseURL 解析 Host，禁止第二份 hostname 字面量。
 func DailyHost() string {

@@ -32,6 +32,9 @@ type CompositeModelOwnership struct {
 	TargetPlatform string
 	Matched        bool
 	Ambiguous      bool
+	// OpenAIGatewayOAuthClaimed 表示声明方中含 OpenAI 网关族平台的 OAuth /
+	// setup-token 账号（ChatGPT 订阅）。
+	OpenAIGatewayOAuthClaimed bool
 }
 
 type CompositeModelOwnershipResolver func(context.Context, int64, string) (CompositeModelOwnership, error)
