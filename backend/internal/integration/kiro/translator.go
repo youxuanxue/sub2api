@@ -57,17 +57,19 @@ const toolResultImagePlaceholder = "[Tool returned an image; the image is attach
 // maxPayloadBytes is the upper bound for the serialized Kiro request body.
 // Kiro's upstream rejects oversized requests with HTTP 400
 // "Input is too long." (CONTENT_LENGTH_EXCEEDS_THRESHOLD). When a converted
-// payload exceeds this size we drop the oldest history turns (keeping the
-// system priming, the most recent turns, the active tool turn, and the current
-// message) and insert a placeholder note so the model knows context was elided.
+// payload exceeds this size we first remove the oldest history screenshots,
+// then drop the oldest history turns (keeping the system priming, the most
+// recent turns, the active tool turn, and the current user prose), and only
+// then drop current screenshots or clip an oversized tool result.
 // The limit is kept conservatively below the observed upstream rejection
 // boundary so small upstream protocol changes do not turn accepted local
 // requests into provider-side validation failures.
 const maxPayloadBytes = 900 * 1024
 
 // PayloadTooLargeError reports a translated request that remains above Kiro's
-// safe wire limit after all removable conversation history has been dropped.
-// The current user message is never shortened to satisfy this limit.
+// safe wire limit after history screenshots, history turns, current screenshots,
+// and oversized tool-result text have been reduced. User prose and tool schemas
+// are not rewritten to satisfy this limit.
 type PayloadTooLargeError struct {
 	Size  int
 	Limit int
@@ -93,6 +95,23 @@ func ValidatePayloadSize(payload *KiroPayload) error {
 // truncationPlaceholder is inserted in history where older turns were dropped to
 // fit within maxPayloadBytes.
 const truncationPlaceholder = "[Earlier conversation history was truncated to fit the model's input limit. Older messages and tool activity have been omitted.]"
+
+// historyImagePlaceholder replaces a screenshot removed so the surrounding
+// turn can stay. Adapted from kiro-lb#60 (strip old images before dropping
+// turns). JPEG recompress is not ported: it needs a new image dependency and
+// changes the bytes Kiro validates.
+const historyImagePlaceholder = "[Image omitted to fit Kiro's input limit.]"
+
+// Tool-result clipping runs only after history and image trimming still exceed
+// maxPayloadBytes. Kiro-Go#119 RTK filters were measured and not ported: a
+// single 1.1MB line (the shape of the observed 413) is unchanged, while
+// auto-detect rewrites already-fitting build logs as grep and drops most lines.
+const (
+	toolResultKeepHead = 8 * 1024
+	toolResultKeepTail = 4 * 1024
+)
+
+const toolResultOmission = "\n... tool output omitted to fit Kiro input limit ...\n"
 
 // minRecentHistoryTurns is the preferred recent history size. The active tool
 // pair takes precedence if older results cannot fit alongside it.
@@ -1494,10 +1513,15 @@ func joinHistoryText(existing, narrated string) string {
 //   - the current message itself.
 //
 // A single placeholder note (truncationPlaceholder) is inserted where older
-// turns were removed so the model is aware context was elided. Fixed request
-// data and the current message can still leave the payload oversized; callers
-// reject that case with ValidatePayloadSize. hasPriming indicates whether
-// history begins with the 2-entry system priming pair.
+// turns were removed so the model is aware context was elided. Oldest history
+// screenshots are removed one at a time before any turn is dropped. Tool-result
+// text is clipped only when the payload is still over after that, and current
+// screenshots are dropped only if the clip is not enough. History turns removed
+// solely to make room for that current-message bulk are restored when the
+// reduced current message fits with them. User prose and tool schemas are left
+// unchanged. Callers reject a payload that is still oversized with
+// ValidatePayloadSize.
+// hasPriming indicates whether history begins with the 2-entry system priming pair.
 func truncatePayloadToLimit(payload *KiroPayload, hasPriming bool) {
 	if payload == nil {
 		return
@@ -1505,7 +1529,33 @@ func truncatePayloadToLimit(payload *KiroPayload, hasPriming bool) {
 	if payloadByteSize(payload) <= maxPayloadBytes {
 		return
 	}
+	// Images are stripped oldest-first before any turn is dropped so text
+	// history survives when screenshots are the excess (kiro-lb#60).
+	stripOldestHistoryImagesUntilFit(payload, hasPriming)
+	if payloadByteSize(payload) <= maxPayloadBytes {
+		normalizeKiroToolHistory(payload)
+		return
+	}
+	// Keep the post-image history. Turn dropping cannot see bytes it is
+	// about to remove from the current message, so a later clip may show
+	// that those turns still fit.
+	historyAfterImages := append([]KiroHistoryMessage(nil), payload.ConversationState.History...)
+	truncateHistoryTurns(payload, hasPriming)
+	if payloadByteSize(payload) > maxPayloadBytes {
+		clipToolResultsUntilFit(payload)
+		clipNarratedToolResultsUntilFit(payload)
+		dropOldestCurrentImagesUntilFit(payload)
+		if payloadByteSize(payload) <= maxPayloadBytes {
+			payload.ConversationState.History = historyAfterImages
+			if payloadByteSize(payload) > maxPayloadBytes {
+				truncateHistoryTurns(payload, hasPriming)
+			}
+		}
+	}
+	normalizeKiroToolHistory(payload)
+}
 
+func truncateHistoryTurns(payload *KiroPayload, hasPriming bool) {
 	history := payload.ConversationState.History
 	primingCount := 0
 	if hasPriming && len(history) >= 2 {
@@ -1573,7 +1623,216 @@ func truncatePayloadToLimit(payload *KiroPayload, hasPriming bool) {
 	}
 	rebuilt = append(rebuilt, tail...)
 	payload.ConversationState.History = rebuilt
-	normalizeKiroToolHistory(payload)
+}
+
+func stripOldestHistoryImagesUntilFit(payload *KiroPayload, hasPriming bool) {
+	start := 0
+	if hasPriming && len(payload.ConversationState.History) >= 2 {
+		start = 2
+	}
+	for payloadByteSize(payload) > maxPayloadBytes {
+		removed := false
+		for i := start; i < len(payload.ConversationState.History); i++ {
+			user := payload.ConversationState.History[i].UserInputMessage
+			if user == nil || len(user.Images) == 0 {
+				continue
+			}
+			user.Images = user.Images[1:]
+			if len(user.Images) == 0 {
+				user.Images = nil
+			}
+			noteImageOmission(user)
+			removed = true
+			break
+		}
+		if !removed {
+			return
+		}
+	}
+}
+
+func dropOldestCurrentImagesUntilFit(payload *KiroPayload) {
+	user := &payload.ConversationState.CurrentMessage.UserInputMessage
+	dropped := false
+	for payloadByteSize(payload) > maxPayloadBytes && len(user.Images) > 0 {
+		user.Images = user.Images[1:]
+		dropped = true
+	}
+	if !dropped {
+		return
+	}
+	if len(user.Images) == 0 {
+		user.Images = nil
+	}
+	noteImageOmission(user)
+}
+
+func noteImageOmission(user *KiroUserInputMessage) {
+	if user == nil || strings.Contains(user.Content, historyImagePlaceholder) {
+		return
+	}
+	if strings.TrimSpace(user.Content) == "" {
+		user.Content = historyImagePlaceholder
+		return
+	}
+	user.Content = strings.TrimRight(user.Content, "\n") + "\n" + historyImagePlaceholder
+}
+
+func clipToolResultsUntilFit(payload *KiroPayload) {
+	for payloadByteSize(payload) > maxPayloadBytes {
+		loc := largestToolResultLoc(payload)
+		if loc == nil {
+			return
+		}
+		text := toolResultText(payload, *loc)
+		if text == nil || len(*text) <= toolResultKeepHead+toolResultKeepTail+len(toolResultOmission) {
+			return
+		}
+		*text = clipToolResultText(*text)
+	}
+}
+
+type toolResultLoc struct {
+	history int // -1 means current message
+	result  int
+	part    int
+}
+
+func largestToolResultLoc(payload *KiroPayload) *toolResultLoc {
+	var best *toolResultLoc
+	bestLen := -1
+	note := func(history, result, part, n int) {
+		if n > bestLen {
+			bestLen = n
+			cp := toolResultLoc{history: history, result: result, part: part}
+			best = &cp
+		}
+	}
+	for i := range payload.ConversationState.History {
+		user := payload.ConversationState.History[i].UserInputMessage
+		if user == nil || user.UserInputMessageContext == nil {
+			continue
+		}
+		for r := range user.UserInputMessageContext.ToolResults {
+			for p := range user.UserInputMessageContext.ToolResults[r].Content {
+				note(i, r, p, len(user.UserInputMessageContext.ToolResults[r].Content[p].Text))
+			}
+		}
+	}
+	current := payload.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext
+	if current != nil {
+		for r := range current.ToolResults {
+			for p := range current.ToolResults[r].Content {
+				note(-1, r, p, len(current.ToolResults[r].Content[p].Text))
+			}
+		}
+	}
+	return best
+}
+
+func toolResultText(payload *KiroPayload, loc toolResultLoc) *string {
+	if loc.history < 0 {
+		ctx := payload.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext
+		if ctx == nil || loc.result >= len(ctx.ToolResults) || loc.part >= len(ctx.ToolResults[loc.result].Content) {
+			return nil
+		}
+		return &ctx.ToolResults[loc.result].Content[loc.part].Text
+	}
+	if loc.history >= len(payload.ConversationState.History) {
+		return nil
+	}
+	user := payload.ConversationState.History[loc.history].UserInputMessage
+	if user == nil || user.UserInputMessageContext == nil {
+		return nil
+	}
+	ctx := user.UserInputMessageContext
+	if loc.result >= len(ctx.ToolResults) || loc.part >= len(ctx.ToolResults[loc.result].Content) {
+		return nil
+	}
+	return &ctx.ToolResults[loc.result].Content[loc.part].Text
+}
+
+func clipNarratedToolResultsUntilFit(payload *KiroPayload) {
+	for payloadByteSize(payload) > maxPayloadBytes {
+		text := largestNarratedToolContent(payload)
+		if text == nil {
+			return
+		}
+		next := clipNarratedSection(*text)
+		if next == *text {
+			return
+		}
+		*text = next
+	}
+}
+
+func largestNarratedToolContent(payload *KiroPayload) *string {
+	var best *string
+	bestLen := -1
+	note := func(text *string) {
+		_, body := splitNarratedToolResult(*text)
+		if body == "" || len(body) <= bestLen {
+			return
+		}
+		bestLen = len(body)
+		best = text
+	}
+	for i := range payload.ConversationState.History {
+		user := payload.ConversationState.History[i].UserInputMessage
+		if user != nil && strings.Contains(user.Content, toolResultsContinuationPrefix) {
+			note(&user.Content)
+		}
+	}
+	current := &payload.ConversationState.CurrentMessage.UserInputMessage
+	if strings.Contains(current.Content, toolResultsContinuationPrefix) {
+		note(&current.Content)
+	}
+	return best
+}
+
+func splitNarratedToolResult(content string) (prose, body string) {
+	idx := strings.LastIndex(content, toolResultsContinuationPrefix)
+	if idx < 0 {
+		return content, ""
+	}
+	return content[:idx], strings.TrimLeft(content[idx+len(toolResultsContinuationPrefix):], "\n")
+}
+
+func clipNarratedSection(content string) string {
+	prose, body := splitNarratedToolResult(content)
+	if body == "" {
+		return content
+	}
+	clipped := clipToolResultText(body)
+	if clipped == body {
+		return content
+	}
+	if strings.TrimSpace(prose) == "" {
+		return toolResultsContinuationPrefix + "\n\n" + clipped
+	}
+	return strings.TrimRight(prose, "\n") + "\n\n" + toolResultsContinuationPrefix + "\n\n" + clipped
+}
+
+func clipToolResultText(text string) string {
+	raw := []byte(text)
+	if len(raw) <= toolResultKeepHead+toolResultKeepTail+len(toolResultOmission) {
+		return text
+	}
+	headEnd := toolResultKeepHead
+	if headEnd > len(raw) {
+		headEnd = len(raw)
+	}
+	for headEnd > 0 && headEnd < len(raw) && !utf8.RuneStart(raw[headEnd]) {
+		headEnd--
+	}
+	tailStart := len(raw) - toolResultKeepTail
+	if tailStart < headEnd {
+		tailStart = headEnd
+	}
+	for tailStart < len(raw) && !utf8.RuneStart(raw[tailStart]) {
+		tailStart++
+	}
+	return string(raw[:headEnd]) + toolResultOmission + string(raw[tailStart:])
 }
 
 // historyEntryByteSize returns the serialized size of a single history entry,

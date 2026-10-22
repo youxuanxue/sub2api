@@ -5084,7 +5084,7 @@
         "func ValidatePayloadSize(payload *KiroPayload) error",
         "truncatePayloadToLimit(payload, systemPrompt != \"\")"
       ],
-      "rationale": "Kiro payload overflow policy: retain the evidence-backed 900 KiB translated-wire guard, truncate removable history through the shared translator owner, and expose final-size validation instead of mutating the current user turn. See docs/approved/kiro-payload-overflow.md."
+      "rationale": "Kiro payload overflow policy: retain the evidence-backed 900 KiB translated-wire guard and final-size validation. History screenshots and turns are removed first. Oversized tool-result text may be clipped only while the payload is still over the limit. Current user prose and tool schemas are not rewritten. See docs/approved/kiro-payload-overflow.md."
     },
     {
       "path": "backend/internal/integration/kiro/tool_history_test.go",
