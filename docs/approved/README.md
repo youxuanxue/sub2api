@@ -187,6 +187,7 @@ UCloud 国内单 prod 的授权范围、首次初始化和发布边界：[国内
 | [`upstream-merge-20260923.md`](upstream-merge-20260923.md) | TokenKey upstream merge 2026-09-23 |
 | [`upstream-merge-20260930.md`](upstream-merge-20260930.md) | 隔离上游合并与 TokenKey 不变量裁决；不授权主线合并或部署 |
 | [`upstream-merge-2026-10-06.md`](upstream-merge-2026-10-06.md) | 隔离上游合并、241 迁移与 TokenKey CHECK/404 裁决；不授权主线合并或部署 |
+| [`upstream-merge-2026-10-22-migrations.md`](upstream-merge-2026-10-22-migrations.md) | 2026-10-22 上游迁移审批；本会话同意合并 |
 
 ## Pending baselines
 

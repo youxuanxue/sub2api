@@ -16,6 +16,8 @@ export const PLATFORM_LABELS: Record<AccountPlatform, string> = {
   minimax: 'MiniMax',
   opencode_go: 'OpenCode',
   typesafe: 'TypeSafe',
+  command_code: 'Command Code',
+  cline: 'Cline',
   composite: 'Composite',
 }
 

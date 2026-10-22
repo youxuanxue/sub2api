@@ -66,6 +66,7 @@ func (c *availableChannelsCache) invalidate() {
 type AvailableGroupRef struct {
 	ID                 int64
 	Name               string
+	I18n               GroupI18n
 	Platform           string
 	SubscriptionType   string
 	RateMultiplier     float64

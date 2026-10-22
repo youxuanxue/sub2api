@@ -30,6 +30,11 @@ func DefaultModels() []Model {
 		{Name: "models/gemini-3.5-flash-lite", SupportedGenerationMethods: methods},
 		{Name: "models/gemini-embedding-001"},
 		{Name: "models/veo-3.1-generate-001"},
+		{Name: "models/gemini-3-pro-preview", SupportedGenerationMethods: methods},
+		{Name: "models/gemini-3.1-pro-preview", SupportedGenerationMethods: methods},
+		{Name: "models/gemini-3.1-pro-preview-customtools", SupportedGenerationMethods: methods},
+		{Name: "models/gemini-3.1-flash-image", SupportedGenerationMethods: methods},
+		{Name: "models/gemini-4-argon", SupportedGenerationMethods: methods},
 	}
 }
 

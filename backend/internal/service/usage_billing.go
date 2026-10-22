@@ -42,6 +42,10 @@ type UsageBillingCommand struct {
 	APIKeyQuotaCost     float64
 	APIKeyRateLimitCost float64
 	AccountQuotaCost    float64
+	// AccountQuotaHasDailyLimit / AccountQuotaHasWeeklyLimit 记录构造命令时账号是否设置了日/周上限，
+	// 供结算侧决定是否推进对应窗口计数。
+	AccountQuotaHasDailyLimit  bool
+	AccountQuotaHasWeeklyLimit bool
 
 	// TkHoldRequestID, when non-empty, is the pre-flight balance-hold ledger key
 	// this settlement must consume (refund) in the SAME transaction as the

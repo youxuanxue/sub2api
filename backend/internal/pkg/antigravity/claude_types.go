@@ -178,12 +178,25 @@ type modelDef struct {
 // 仅这两枚），但默认公共 listing / floor 已收敛为 Gemini-only。此表只供
 // DisplayName 元数据查找，不进入 DefaultModels。
 var claudeModels = []modelDef{
+	{ID: "claude-fable-5-1", DisplayName: "Claude Fable 5.1", CreatedAt: "2026-09-01T00:00:00Z"},
+	{ID: "claude-fable-5", DisplayName: "Claude Fable 5", CreatedAt: "2026-06-09T00:00:00Z"},
+	{ID: "claude-opus-5-5-high", DisplayName: "Claude Opus 5.5 (High)", CreatedAt: "2026-09-22T00:00:00Z"},
+	{ID: "claude-opus-5-5-medium", DisplayName: "Claude Opus 5.5 (Medium)", CreatedAt: "2026-09-22T00:00:00Z"},
+	{ID: "claude-opus-5-5-low", DisplayName: "Claude Opus 5.5 (Low)", CreatedAt: "2026-09-22T00:00:00Z"},
+	{ID: "claude-sonnet-5-5-high", DisplayName: "Claude Sonnet 5.5 (High)", CreatedAt: "2026-09-28T00:00:00Z"},
+	{ID: "claude-sonnet-5-5-medium", DisplayName: "Claude Sonnet 5.5 (Medium)", CreatedAt: "2026-09-28T00:00:00Z"},
+	{ID: "claude-sonnet-5-5-low", DisplayName: "Claude Sonnet 5.5 (Low)", CreatedAt: "2026-09-28T00:00:00Z"},
+	{ID: "claude-opus-4-5-thinking", DisplayName: "Claude Opus 4.5 Thinking", CreatedAt: "2025-11-01T00:00:00Z"},
+	{ID: "claude-sonnet-4-5", DisplayName: "Claude Sonnet 4.5", CreatedAt: "2025-09-29T00:00:00Z"},
+	{ID: "claude-sonnet-4-5-thinking", DisplayName: "Claude Sonnet 4.5 Thinking", CreatedAt: "2025-09-29T00:00:00Z"},
+	{ID: "claude-opus-4-6", DisplayName: "Claude Opus 4.6", CreatedAt: "2026-02-05T00:00:00Z"},
 	{ID: "claude-opus-4-6-thinking", DisplayName: "Claude Opus 4.6 Thinking", CreatedAt: "2026-02-05T00:00:00Z"},
 	{ID: "claude-sonnet-4-6", DisplayName: "Claude Sonnet 4.6", CreatedAt: "2026-02-17T00:00:00Z"},
 }
 
 // Antigravity 支持的 Gemini 模型（与 domain.DefaultAntigravityModelMapping 公共
 // request surface 对齐：3.7/3.8 Flash + 4 Argon 文本 + Flash 图片 + 高流量兼容别名）。
+// 3.6 Flash / Pro image 等已从默认 listing 与 DefaultAntigravityModelMapping 撤回。
 var geminiModels = []modelDef{
 	{ID: "gemini-3.7-flash", DisplayName: "Gemini 3.7 Flash", CreatedAt: "2026-08-15T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-3.8-flash", DisplayName: "Gemini 3.8 Flash", CreatedAt: "2026-09-01T00:00:00Z", IsReasoning: true},
@@ -278,6 +291,9 @@ func FallbackGeminiModel(model string) GeminiModel {
 // IsGeminiReasoningModel 判断是否为不支持参数和强制 ToolConfig 的 Gemini 推理模型
 func IsGeminiReasoningModel(modelID string) bool {
 	lowerID := strings.ToLower(modelID)
+	if strings.Contains(lowerID, "gemini-pro-agent") || strings.Contains(lowerID, "gemini-4-argon") {
+		return true
+	}
 	for _, m := range geminiModels {
 		if strings.Contains(lowerID, m.ID) && m.IsReasoning {
 			return true

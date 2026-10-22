@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -213,4 +214,35 @@ func AccountSwitchCountFromContext(ctx context.Context) (int, bool) {
 		return int(t), true
 	}
 	return 0, false
+}
+
+type singleAccountRetryProbe struct {
+	once   sync.Once
+	check  func(ctx context.Context) bool
+	result bool
+}
+
+func singleAccountRetryProbeResult(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	probe, _ := ctx.Value(singleAccountRetryProbeContextKey{}).(*singleAccountRetryProbe)
+	if probe == nil {
+		return false
+	}
+	// 判定结果在整个请求内复用，不能因调用时 ctx 已取消而被记成 false。
+	probe.once.Do(func() {
+		probe.result = probe.check(context.WithoutCancel(ctx))
+	})
+	return probe.result
+}
+
+type singleAccountRetryProbeContextKey struct{}
+
+// WithSingleAccountRetryProbe 挂载单账号退避重试的延迟判定；显式设置的 SingleAccountRetry 标记优先于它。
+func WithSingleAccountRetryProbe(ctx context.Context, check func(ctx context.Context) bool) context.Context {
+	if ctx == nil || check == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, singleAccountRetryProbeContextKey{}, &singleAccountRetryProbe{check: check})
 }

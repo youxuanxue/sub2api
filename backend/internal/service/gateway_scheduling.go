@@ -2339,3 +2339,11 @@ func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Contex
 func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedModel string) bool {
 	return accountAdmitsRequestedModel(account, requestedModel, nil)
 }
+
+// WithSingleAntigravityAccountGroupProbe 为请求挂载「分组是否只有一个 antigravity 可调度账号」的延迟判定。
+func (s *GatewayService) WithSingleAntigravityAccountGroupProbe(ctx context.Context, groupID *int64) context.Context {
+	probeGroupID := groupID
+	return WithSingleAccountRetryProbe(ctx, func(probeCtx context.Context) bool {
+		return s.IsSingleAntigravityAccountGroup(probeCtx, probeGroupID)
+	})
+}

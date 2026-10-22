@@ -302,3 +302,17 @@ func responsesProbeBodyHasFunctionCall(body []byte) bool {
 	}
 	return false
 }
+
+// ProbeOpenAIAPIKeyResponsesSupport 供管理面创建/更新账号后异步触发 Responses 能力探测。
+// 实现委托给内部 probeOpenAIAPIKeyResponsesSupport（按账号对象探测）；加载失败仅记日志。
+func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Context, accountID int64) {
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		logger.LegacyPrintf("service.openai_probe", "probe_load_account_failed: account_id=%d err=%v", accountID, err)
+		return
+	}
+	if account == nil {
+		return
+	}
+	_, _ = s.probeOpenAIAPIKeyResponsesSupport(ctx, account)
+}

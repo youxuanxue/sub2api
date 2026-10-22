@@ -31,13 +31,14 @@ func driveAnthropicResponsesStream(state *AnthropicEventToResponsesState, evts .
 
 // TestFinalizeAnthropicResponsesStream_TruncationEmitsIncomplete is the
 // regression guard for Wei-Shaw/sub2api#2245: an upstream stream that ends
-// without message_stop must be finalized as response.incomplete (status
-// "incomplete"), not a fake response.completed that tells a strict Responses
-// client the truncated turn succeeded.
+// without message_stop and without stop_reason must be finalized as
+// response.incomplete (status "incomplete"), not a fake response.completed
+// that tells a strict Responses client the truncated turn succeeded.
 func TestFinalizeAnthropicResponsesStream_TruncationEmitsIncomplete(t *testing.T) {
 	state := NewAnthropicEventToResponsesState()
 
-	// message_start + some partial content, then the upstream drops (no message_stop).
+	// message_start + some partial content, then the upstream drops (no
+	// message_stop / stop_reason).
 	driveAnthropicResponsesStream(state,
 		&AnthropicStreamEvent{
 			Type: "message_start",
@@ -64,6 +65,44 @@ func TestFinalizeAnthropicResponsesStream_TruncationEmitsIncomplete(t *testing.T
 	require.NotNil(t, term.Response.IncompleteDetails)
 	assert.Equal(t, "interrupted", term.Response.IncompleteDetails.Reason)
 	assert.True(t, state.CompletedSent, "finalize must mark the terminal as sent")
+}
+
+// TestFinalizeAnthropicResponsesStream_StopReasonWithoutMessageStopCompletes
+// pins that message_delta.stop_reason alone is a normal Anthropic terminal:
+// finalize must emit response.completed, not interrupted incomplete.
+func TestFinalizeAnthropicResponsesStream_StopReasonWithoutMessageStopCompletes(t *testing.T) {
+	state := NewAnthropicEventToResponsesState()
+
+	driveAnthropicResponsesStream(state,
+		&AnthropicStreamEvent{
+			Type: "message_start",
+			Message: &AnthropicResponse{
+				ID:    "msg_stop_reason",
+				Model: "claude-sonnet-4-5-20250929",
+				Usage: AnthropicUsage{InputTokens: 12},
+			},
+		},
+		&AnthropicStreamEvent{Type: "content_block_start", ContentBlock: &AnthropicContentBlock{Type: "text"}},
+		&AnthropicStreamEvent{Type: "content_block_delta", Delta: &AnthropicDelta{Type: "text_delta", Text: "done"}},
+		&AnthropicStreamEvent{Type: "content_block_stop"},
+		&AnthropicStreamEvent{
+			Type:  "message_delta",
+			Delta: &AnthropicDelta{StopReason: "end_turn"},
+			Usage: &AnthropicUsage{OutputTokens: 3},
+		},
+	)
+	require.Equal(t, "end_turn", state.StopReason)
+	require.False(t, state.CompletedSent, "stop_reason alone does not set CompletedSent")
+
+	final := FinalizeAnthropicResponsesStream(state)
+	term := terminalEvent(final)
+	require.NotNil(t, term)
+	assert.Equal(t, "response.completed", term.Type)
+	require.NotNil(t, term.Response)
+	assert.Equal(t, "completed", term.Response.Status)
+	assert.Nil(t, term.Response.IncompleteDetails)
+	assert.True(t, state.CompletedSent)
+	assert.Nil(t, FinalizeAnthropicResponsesStream(state), "finalize must be idempotent after stop_reason completion")
 }
 
 // TestFinalizeAnthropicResponsesStream_NoTerminalBeforeCreated guards that a

@@ -89,6 +89,28 @@ func (s *RateLimitService) tkDispatchHandleUpstreamError(
 		return quotaDisable
 	}
 
+	// Command Code 用量超限按文案区分、与状态码无关（见 ratelimit_command_code.go）；
+	// 未识别的错误（含普通频率限制）继续走下面的默认逻辑。
+	if account.IsCommandCode() && (statusCode == http.StatusPaymentRequired ||
+		statusCode == http.StatusForbidden || statusCode == http.StatusTooManyRequests) {
+		if handled, disable := s.handleCommandCodeUsageError(ctx, account, statusCode, responseBody, upstreamMsg); handled {
+			return disable
+		}
+	}
+	// Cline 积分、花费上限与 ClinePass 超限按结构化错误区分，只冷却对应的钱包。
+	// 400 是请求错误，不能因回显的模型名或请求内容触发钱包冷却。
+	if account.IsCline() && (statusCode == http.StatusPaymentRequired ||
+		statusCode == http.StatusForbidden || statusCode == http.StatusTooManyRequests) {
+		if s.handleClineError(ctx, account, statusCode, responseBody, upstreamMsg) {
+			return false
+		}
+		// 402 只会是积分不足：冷却没写进去也不能落到下面的 402 默认分支——那里永久置
+		// status=error，而周期探测只覆盖激活账号，充值后无法自动恢复。
+		if statusCode == http.StatusPaymentRequired {
+			return false
+		}
+	}
+
 	switch statusCode {
 	case 400:
 		// "organization has been disabled" → 永久禁用
@@ -116,9 +138,10 @@ func (s *RateLimitService) tkDispatchHandleUpstreamError(
 	case 401:
 		shouldDisable = s.tkHandleAuth401(ctx, account, upstreamMsg, responseBody)
 	case 402:
-		// 国产供应商：余额不足是可恢复状态（充值/检测恢复后由周期任务自动解除），
-		// 不能走 handleAuthError 永久置 status=error。改为可恢复的临时停调。
-		if account.IsCNProvider() {
+		// 国产供应商 / OpenCode Zen / Command Code：余额不足是可恢复状态（充值/检测
+		// 恢复后由周期任务自动解除），不能走 handleAuthError 永久置 status=error。
+		// 改为可恢复的临时停调。
+		if account.IsCNProvider() || account.IsOpenCodeZen() || account.IsCommandCode() {
 			s.handleCNProviderInsufficientBalance(ctx, account, upstreamMsg)
 			shouldDisable = true
 			break

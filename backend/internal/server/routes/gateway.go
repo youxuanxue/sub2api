@@ -132,6 +132,12 @@ func RegisterGatewayRoutes(
 		geminiRoutes.Register(http.MethodGet, "/models/:model", Excluded("model_catalog"), h.Gateway.GeminiV1BetaGetModel)
 		// Gin treats ":" as a param marker, but Gemini uses "{model}:{action}" in the same segment.
 		geminiRoutes.Register(http.MethodPost, "/models/*modelAction", StreamInference, h.Gateway.GeminiV1BetaModels)
+		// 显式上下文缓存：网关自管资源 ID 与账号绑定，list/get 只读本地记录。
+		geminiRoutes.Register(http.MethodPost, "/cachedContents", SyncInference, h.Gateway.GeminiCachedContentsCreate)
+		geminiRoutes.Register(http.MethodGet, "/cachedContents", Excluded("cached_contents"), h.Gateway.GeminiCachedContentsList)
+		geminiRoutes.Register(http.MethodGet, "/cachedContents/:cacheID", Excluded("cached_contents"), h.Gateway.GeminiCachedContentsGet)
+		geminiRoutes.Register(http.MethodPatch, "/cachedContents/:cacheID", SyncInference, h.Gateway.GeminiCachedContentsPatch)
+		geminiRoutes.Register(http.MethodDelete, "/cachedContents/:cacheID", Excluded("cached_contents"), h.Gateway.GeminiCachedContentsDelete)
 	}
 
 	// OpenAI Responses API（不带v1前缀的别名）— keep the same OpenAI-compatible

@@ -451,7 +451,13 @@ func openAICompatibleAccountEligibilityFailureReason(ctx context.Context, accoun
 // free to drift from the reason version, and a drifted diagnostic is worse than
 // none (2026-08-25: five hours of "unschedulable=1" that named no predicate).
 func isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
-	return openAICompatEligibilityReason(ctx, account, platform, requestedModel, requireCompact, requiredCapability) == ""
+	return openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx, account, platform, requestedModel, requireCompact, requiredCapability) == ""
+}
+
+// openAICompatibleAccountEligibilityFailureReasonBeforeProfit is the MH name for
+// TK's openAICompatEligibilityReason (pre-profit gates only).
+func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) string {
+	return openAICompatEligibilityReason(ctx, account, platform, requestedModel, requireCompact, requiredCapability)
 }
 
 type openAIQuotaAutoPauseDecision struct {

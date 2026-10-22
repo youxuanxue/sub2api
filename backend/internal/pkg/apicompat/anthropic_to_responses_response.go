@@ -53,7 +53,7 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 	for _, block := range resp.Content {
 		switch block.Type {
 		case "thinking", "redacted_thinking":
-			if (claude.IsOpus55(resp.Model) || claude.IsSonnet55(resp.Model)) && (block.Signature != "" || block.Data != "") {
+			if (claude.IsOpus55(resp.Model) || claude.IsSonnet55(resp.Model) || claude.IsHaiku55(resp.Model)) && (block.Signature != "" || block.Data != "") {
 				item := ResponsesOutput{Type: "reasoning", ID: generateItemID(), EncryptedContent: encodeAnthropicThinking(block)}
 				if block.Thinking != "" {
 					item.Summary = []ResponsesSummary{{Type: "summary_text", Text: block.Thinking}}
@@ -72,7 +72,7 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 				})
 			}
 		case "text":
-			if (claude.IsOpus55(resp.Model) || claude.IsSonnet55(resp.Model)) && block.Text != "" {
+			if (claude.IsOpus55(resp.Model) || claude.IsSonnet55(resp.Model) || claude.IsHaiku55(resp.Model)) && block.Text != "" {
 				outputs = append(outputs, ResponsesOutput{Type: "message", ID: generateItemID(), Role: "assistant", Status: "completed", Content: []ResponsesContentPart{{Type: "output_text", Text: block.Text}}})
 				continue
 			}
@@ -261,13 +261,16 @@ func AnthropicEventToResponsesEvents(
 }
 
 // FinalizeAnthropicResponsesStream emits a synthetic terminal event when the
-// upstream stream ended without a message_stop — i.e. the connection dropped
-// before the turn finished. The response is genuinely truncated, so it emits a
-// spec-valid response.incomplete (status="incomplete") rather than a fake
-// response.completed: a strict Responses client (Codex CLI / OpenAI SDK)
-// otherwise either errors with "stream closed before response.completed" (when
-// no terminal arrives at all) or, worse, is told a cut-off turn succeeded and
-// consumes the partial output as if it were complete. See Wei-Shaw/sub2api#2245.
+// upstream stream ended without message_stop (which is what normally sets
+// CompletedSent). Anthropic often ends a turn with message_delta.stop_reason
+// alone; that is a normal terminal and must map to response.completed (or
+// response.incomplete for max_tokens), not interrupted.
+//
+// Only a stream with neither message_stop nor stop_reason is treated as a
+// transport truncation: emit response.incomplete with reason "interrupted" so
+// a strict Responses client (Codex CLI / OpenAI SDK) does not see a fake
+// success or "stream closed before response.completed". See Wei-Shaw/sub2api#2245
+// and the anthropicCompatStream sawTerminal contract.
 func FinalizeAnthropicResponsesStream(state *AnthropicEventToResponsesState) []ResponsesStreamEvent {
 	if !state.CreatedSent || state.CompletedSent {
 		return nil
@@ -278,10 +281,9 @@ func FinalizeAnthropicResponsesStream(state *AnthropicEventToResponsesState) []R
 	// Close any open item
 	events = append(events, closeCurrentResponsesItem(state)...)
 
-	// Reaching here means the upstream never sent message_stop; surface the turn
-	// as incomplete instead of synthesizing a successful completion.
 	status, details := anthropicResponsesStreamTerminalState(state.StopReason)
-	if status == "completed" {
+	if state.StopReason == "" {
+		// No Anthropic terminal signal — genuine mid-stream drop.
 		status = responsesStatusIncomplete
 		details = &ResponsesIncompleteDetails{Reason: responsesIncompleteReasonInterrupted}
 	}
@@ -304,7 +306,7 @@ func ResponsesEventToSSE(evt ResponsesStreamEvent) (string, error) {
 func anthToResHandleMessageStart(evt *AnthropicStreamEvent, state *AnthropicEventToResponsesState) []ResponsesStreamEvent {
 	if evt.Message != nil {
 		state.ResponseID = evt.Message.ID
-		state.PreserveThinkingSignatures = state.PreserveThinkingSignatures || claude.IsOpus55(evt.Message.Model) || claude.IsSonnet55(evt.Message.Model)
+		state.PreserveThinkingSignatures = state.PreserveThinkingSignatures || claude.IsOpus55(evt.Message.Model) || claude.IsSonnet55(evt.Message.Model) || claude.IsHaiku55(evt.Message.Model)
 		if state.Model == "" {
 			state.Model = evt.Message.Model
 		}
