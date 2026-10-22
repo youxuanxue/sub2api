@@ -416,7 +416,7 @@ func (e *cachedBillingEnv) patch() *httptest.ResponseRecorder {
 }
 
 // TestGeminiCachedContentsPatch_UsesChannelUsageRecordedAtCreate 延长有效期沿用创建时的渠道计费口径：
-// 计费模型来源为请求模型时按别名定价，用量记录带渠道 ID。
+// 用量记录带渠道 ID。请求别名不在 TK 价格表时，存储费回退到实际转发模型的存储价。
 func TestGeminiCachedContentsPatch_UsesChannelUsageRecordedAtCreate(t *testing.T) {
 	env := newCachedBillingEnv(t, 500, 900)
 	env.seed(time.Now().Add(time.Hour))
@@ -429,7 +429,7 @@ func TestGeminiCachedContentsPatch_UsesChannelUsageRecordedAtCreate(t *testing.T
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	totals := env.waitForUsage(t, 1)
 	require.Len(t, totals, 1)
-	require.InDelta(t, cachedBillingTokens*cachedBillingAliasStoragePrice*23, totals[0], 0.01, "按创建时的计费模型（请求模型别名）计存储费")
+	require.InDelta(t, cachedBillingTokens*cachedBillingStoragePrice*23, totals[0], 0.01, "别名无存储价时按实际转发模型计存储费")
 	usageLog := env.usage.first()
 	require.NotNil(t, usageLog.ChannelID)
 	require.Equal(t, int64(5), *usageLog.ChannelID)

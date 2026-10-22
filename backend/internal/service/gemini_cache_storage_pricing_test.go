@@ -58,7 +58,7 @@ func TestBuiltinGeminiCacheStoragePrice(t *testing.T) {
 
 func TestCacheStoragePricePerTokenHourPriority(t *testing.T) {
 	pricing := &PricingService{}
-	data, err := pricing.parsePricingData([]byte(`{
+	data, err := pricing.parsePricingSensorData([]byte(`{
 		"gemini-3.8-flash":{"litellm_provider":"gemini","input_cost_per_token":0.00000075,"output_cost_per_token":0.00000375,
 			"cache_storage_cost_per_token_per_hour":0.000002},
 		"gemini-3.9-flash":{"litellm_provider":"gemini","input_cost_per_token":0.0000015,"output_cost_per_token":0.0000075,

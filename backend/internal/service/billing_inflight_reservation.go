@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,6 +24,13 @@ type InflightBalanceReservationCache interface {
 	ReserveInflightBalance(ctx context.Context, userID int64, requestID string, amount, balance float64, ttl time.Duration) (bool, float64, error)
 	// ReleaseInflightBalance 释放 requestID 的预留（幂等）。
 	ReleaseInflightBalance(ctx context.Context, userID int64, requestID string) error
+}
+
+// InflightScopeReservationCache 订阅 / API Key 维度在途预留（可选）。
+// 未实现时这两个维度不登记预留，准入仍按已入账用量校验。
+type InflightScopeReservationCache interface {
+	ReserveInflightScope(ctx context.Context, scope, requestID string, amount float64, ttl time.Duration) (float64, error)
+	ReleaseInflightScope(ctx context.Context, scope, requestID string) error
 }
 
 // InflightBalanceReservationRenewer 可选：续期仍存活的预留（流式长请求期间防止 TTL 过期）。
@@ -59,6 +67,9 @@ type InflightReservation struct {
 	requestID string
 	amount    float64
 	ttl       time.Duration
+	// scopes 是同一金额在 API Key 维度登记的预留，与余额维度共用 requestID。
+	scopeCache InflightScopeReservationCache
+	scopes     []string
 
 	refs        atomic.Int64
 	releaseOnce sync.Once
@@ -116,10 +127,55 @@ func (r *InflightReservation) Release() {
 		r.refs.Store(0)
 		relCtx, relCancel := context.WithTimeout(context.Background(), inflightReservationReleaseTimeout)
 		defer relCancel()
-		if err := r.cache.ReleaseInflightBalance(relCtx, r.userID, r.requestID); err != nil {
-			logger.LegacyPrintf("service.billing_cache", "Warning: inflight reservation release failed for user %d (expires by ttl): %v", r.userID, err)
+		if r.cache != nil {
+			if err := r.cache.ReleaseInflightBalance(relCtx, r.userID, r.requestID); err != nil {
+				logger.LegacyPrintf("service.billing_cache", "Warning: inflight reservation release failed for user %d (expires by ttl): %v", r.userID, err)
+			}
+		}
+		for _, scope := range r.scopes {
+			if r.scopeCache == nil {
+				break
+			}
+			if err := r.scopeCache.ReleaseInflightScope(relCtx, scope, r.requestID); err != nil {
+				logger.LegacyPrintf("service.billing_cache", "Warning: inflight reservation release failed for %s (expires by ttl): %v", scope, err)
+			}
 		}
 	})
+}
+
+func inflightAPIKeyScope(apiKeyID int64) string {
+	return "apikey:" + strconv.FormatInt(apiKeyID, 10)
+}
+
+// reserveInflightScope 在 scope 维度登记 amount，返回登记前该 scope 上其他在途预留的合计。
+// 开关关闭、缓存不支持或写入失败时不登记，合计按 0。
+func (s *BillingCacheService) reserveInflightScope(ctx context.Context, res *InflightReservation, userID int64, scope string, amount float64) (*InflightReservation, float64) {
+	cfg, ok := s.inflightReservationConfig()
+	if !ok {
+		return res, 0
+	}
+	sc, ok := s.cache.(InflightScopeReservationCache)
+	if !ok || sc == nil {
+		return res, 0
+	}
+	if res == nil {
+		ttl := defaultInflightReservationTTL
+		if cfg.TTLSeconds > 0 {
+			ttl = time.Duration(cfg.TTLSeconds) * time.Second
+		}
+		res = &InflightReservation{userID: userID, requestID: uuid.NewString(), amount: amount, ttl: ttl}
+		res.refs.Store(1)
+	}
+	reserveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), inflightReservationReserveTimeout)
+	pending, err := sc.ReserveInflightScope(reserveCtx, scope, res.requestID, amount, res.ttl)
+	cancel()
+	if err != nil {
+		logger.LegacyPrintf("service.billing_cache", "Warning: inflight reservation failed for %s (fail-open): %v", scope, err)
+		return res, 0
+	}
+	res.scopeCache = sc
+	res.scopes = append(res.scopes, scope)
+	return res, pending
 }
 
 func (r *InflightReservation) decRef() {
@@ -717,14 +773,4 @@ func (s *OpenAIGatewayService) EstimateInflightReservation(ctx context.Context, 
 		return 0, false
 	}
 	return s.inflightEstimateDeps().estimate(ctx, apiKey, req)
-}
-
-// InflightScopeReservationCache 订阅 / API Key 维度在途预留的缓存能力（可选），用于扣费前即可确定金额的费用；
-// 未实现时这两个维度不登记预留（fail-open），准入仍按库中用量校验。
-type InflightScopeReservationCache interface {
-	// ReserveInflightScope 原子地清理 scope 下的过期预留并登记 requestID 的预留（ttl 后自动失效），
-	// 返回登记前该 scope 下其他在途预留的合计。
-	ReserveInflightScope(ctx context.Context, scope, requestID string, amount float64, ttl time.Duration) (float64, error)
-	// ReleaseInflightScope 释放 scope 下 requestID 的预留（幂等）。
-	ReleaseInflightScope(ctx context.Context, scope, requestID string) error
 }

@@ -1437,13 +1437,48 @@ func (s *BillingCacheService) HasUserPlatformQuotaLimit(ctx context.Context, use
 }
 
 // ReserveFixedCharge 为扣费前即可确定金额的费用（倍率后 USD，如显式缓存存储费）做准入并登记在途预留。
-// A-commit 兼容实现：复用既有余额维度 reserveInflight；订阅/APIKey scope 预留在后续 B 收敛。
+// 余额模式在登记在途预留之前先核对缓存/库中余额是否覆盖 amount：预留缓存不可用时不能放行这笔已知金额。
+// 订阅模式不在这里比余额。简易模式不校验。
 func (s *BillingCacheService) ReserveFixedCharge(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, amount float64) (*InflightReservation, error) {
-	if s == nil {
+	if s == nil || user == nil || amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
 		return nil, nil
 	}
-	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
 		return nil, nil
 	}
-	return s.reserveInflight(ctx, user, group, subscription, amount, true)
+	subscriptionBill := group != nil && group.IsSubscriptionType() && subscription != nil
+	if !subscriptionBill {
+		balance, err := s.GetUserBalance(ctx, user.ID)
+		if err != nil {
+			return nil, ErrBillingServiceUnavailable.WithCause(err)
+		}
+		if balance < amount {
+			return nil, ErrInsufficientBalance
+		}
+	}
+	res, err := s.reserveInflight(ctx, user, group, subscription, amount, true)
+	if err != nil {
+		return nil, err
+	}
+	if apiKey != nil && apiKey.Quota > 0 {
+		var pending float64
+		res, pending = s.reserveInflightScope(ctx, res, user.ID, inflightAPIKeyScope(apiKey.ID), amount)
+		if err := checkFixedChargeAPIKeyQuota(apiKey, amount+pending); err != nil {
+			if res != nil {
+				res.Release()
+			}
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func checkFixedChargeAPIKeyQuota(apiKey *APIKey, pending float64) error {
+	if apiKey == nil || apiKey.Quota <= 0 {
+		return nil
+	}
+	if apiKey.QuotaUsed+pending > apiKey.Quota {
+		return ErrAPIKeyQuotaExhausted
+	}
+	return nil
 }
