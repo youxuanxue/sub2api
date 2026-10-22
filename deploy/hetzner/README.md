@@ -63,7 +63,7 @@ UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 
 ### 日本出口代理（已迁出 · 已停机）
 
-2026-10-22 账号绑定已迁到 `usw-eval*`；`jp-*` 行仍在 prod `proxies` 表，**绑定账号数为 0**。2026-10-22 经用户批准，Lightsail 机（含 `tokenkey-node1-ingress-jp-20261016-vm`）已打最终快照并**停机**；删机与静态 IP 释放另批（[runbook §6](../../docs/ops/tokyo-retirement-runbook.md)）。
+2026-10-22 账号绑定已迁到 `usw-eval*`；`jp-*` 行已于 2026-10-23 在 prod `proxies` 表软删（绑定账号数为 0）。2026-10-22 经用户批准，Lightsail 机（含 `tokenkey-node1-ingress-jp-20261016-vm`）已打最终快照并**停机**；删机与静态 IP 释放另批（[runbook §6](../../docs/ops/tokyo-retirement-runbook.md)）。
 
 **活公网 IP / 绑定以 prod `proxies` 表为准**（Web：`https://tokenkey.dev/admin/proxies`；
 探针：`ops/observability/probe-list-proxies.sh`）。下表只记逻辑名与常见 Lightsail 名：

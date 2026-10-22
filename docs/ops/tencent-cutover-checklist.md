@@ -20,7 +20,7 @@
 
 - [ ] Tokyo 退役（2026-10-22 用户批准提前退役）：**已停机**（`i-045f062ce33e1a5af` stopped，停前只读核实只读库/0 会话/无 app 容器；停后三正式域名 `/health` 200）；最终快照 `snap-06612941333b662e8`（数据卷）/ `snap-0724597870487cf4a`（根卷）completed。剩余（不可逆，逐步审批）：仓库清理 PR → 删栈 → 数据卷处置 → OIDC retarget。步骤见 [`tokyo-retirement-runbook.md`](tokyo-retirement-runbook.md)
 - [x] Tokyo 切流前 DLM 快照：2026-10-22 用户决定**不保留**，任其按 7 日轮换。DB 由 S3 `prod/postgres`（timeline 1）pgBackRest 历史链覆盖；Tokyo 主机上的 Redis/配置/证书原样副本随轮换消失，不再可查
-- [ ] 日本 Lightsail 代理关停（2026-10-22 用户批准）：`jp-*` 四行 live/fallback/backup 绑定均为 0（prod 与 cn-prod 只读复核），公网 DNS 与 cn-prod 配置无引用；5 台（`jp-proxy-01..04-micro` + `tokenkey-node1-ingress-jp-20261016-vm`）**已打最终快照 `<name>-final-20261022` 并停机**。剩余：观察 ≥24h 后删实例 + 释放静态 IP（不可逆）；prod `proxies` 行 2-5 软删需 admin API 凭据
+- [ ] 日本 Lightsail 代理关停（2026-10-22 用户批准）：`jp-*` 四行 live/fallback/backup 绑定均为 0（prod 与 cn-prod 只读复核），公网 DNS 与 cn-prod 配置无引用；5 台（`jp-proxy-01..04-micro` + `tokenkey-node1-ingress-jp-20261016-vm`）**已打最终快照 `<name>-final-20261022` 并停机**。prod `proxies` 行 2-5（`jp-uk1/uk2/us4/us5`）已由用户于 2026-10-23 01:02 JST 在 Admin UI 软删（只读复核：绑定均为 0）。剩余：观察 ≥24h 后删实例 + 释放静态 IP（不可逆）
 - [ ] LUKS 自动解锁验收（**禁止拿现网整机重启试验**；契约见 [`tencent-unlock-contract.md`](tencent-unlock-contract.md)；方案见 [`tencent-luks-autounlock-plan.md`](tencent-luks-autounlock-plan.md)：无 TPM，推荐开机经 SSM Hybrid 身份取 keyfile，演练约 40 CNY + 1–2 USD/月，待批）
 - [x] 腾讯续费：2026-10-22 用户决定按月自动续费；5 台 Lighthouse 经 `ModifyInstancesRenewFlag` 改为 `NOTIFY_AND_AUTO_RENEW`（DescribeInstances 复核），合计 395 CNY/月。须保持账户余额充足，余额不足仍会到期停机
 - [ ] **Redis 无持久化（现网风险）**：`tk-cutover-prod-redis` 为 `appendonly no`，RDB 写在容器可写层、无挂载，容器重建即丢（2026-10-22 只读复核：约 1.07 万 key，6 MB）。2026-10-22 用户批准开启，待低峰执行（7 日最低谷 UTC 23–01，约 2.5k 请求/小时）
