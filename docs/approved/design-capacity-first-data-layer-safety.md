@@ -18,7 +18,6 @@ PR #1385 交付了三个安全构件的原型实现；正式 prod 只读容量�
 当前唯一 owner：
 
 1. `ops/observability/probe-data-layer-capacity.sh` + `data_layer_capacity_verdict.py`（daily diagnostics 只读 prod 采样）；
-   - 实现说明（2026-10-22）：PG 容器经 `ops/lib/resolve-app-container.sh` 的 `tk_require_postgres_container` 解析（Stage0 `tokenkey-postgres` / 腾讯美西布局例外 `tk-archive-standby`，恰好一个运行中才继续，否则失败）。只改变 `docker exec` 的目标，上文只读约束不变。
 2. `ops/observability/data_layer_capacity_projection.py`（离线投影，不连网）；
 3. `ops/stage0/cfn_datavolume_parameter_plan.py` + `reconcile-cfn-datavolume-no-replace.sh`（no-execute change set 预览；执行仍须单独审批）。
 
@@ -34,13 +33,49 @@ PR #1385 交付了三个安全构件的原型实现；正式 prod 只读容量�
 - PostgreSQL session 强制 `default_transaction_read_only=on`；
 - `lock_timeout=100ms`，不等待 DDL/维护锁；
 - 近 30 天增长扫描 `statement_timeout=2s`；
-- 总行数来自 `pg_stat_user_tables` 估算，不做全表 `COUNT(*)`；
+- **增长以字节计量，且不依赖任何统计信息**（见下节「增长度量契约」）；基数只做旁证；
+- 不做全表 `COUNT(*)`；
 - usage/ops 分区表大小按叶分区汇总，禁止把无存储的分区父表误当真实占用；
 - 基础目录查询缺失、增长扫描超时或统计缺失一律输出 `unknown`，禁止猜成 green；
 - 不运行 `VACUUM FULL`、大表 rewrite、锁表 DDL、容器重建、重启或清理。
 
 这些阈值是线上保护契约；若真实演练证明仍有可感知影响，只能进一步收紧或停用，不能
 为了拿到数字放宽。
+
+## 增长度量契约（物理备份后仍成立）
+
+增长**必须**只读分区目录：
+
+    monthly_growth = Σ pg_total_relation_size(叶分区)  where 分区下界 ∈ [今天-30d, 今天)
+
+原公式 `rows_30d × (bytes / rows)` 里的 `rows` 取自 `pg_stat_user_tables.n_live_tup`
+——那是存在 stats 文件里的**累积计数器**，不随数据文件走。pgBackRest 是物理恢复，
+计数器从零开始：现网实测该表 7.1GiB、目录 `reltuples` 7.72M，而 `n_live_tup` 只有 24.7k，
+平均行长被放大约 390 倍，11.3 个月的 runway 被算成 0.0 个月的假 `trigger`。
+
+**`ANALYZE` 不是解法。** 82 个叶分区里 81 个 `n_mod_since_analyze = 0`：日分区当天滚过
+就不再写入，autoanalyze 的触发条件永不满足。于是每次恢复、换机、提升 standby 都会再坏
+一次，而「迁机清单里手动补一条 ANALYZE」正是会被遗漏的约束。公式里两个 `rows` 本来就
+代数相消，去掉它们即同时消掉整类 bug。
+
+硬约束：
+
+- 窗口按 **UTC** 归集。容器 `TimeZone=Asia/Tokyo`，分区边界存为 `'... 09:00:00+09'`，
+  按本地时区归窗整条序列错一天；
+- `MINVALUE` 下界（`usage_logs_legacy`）无法解析：计入 `total_bytes`、排除出窗口，并以
+  `unbounded_parts` 上报，不得静默丢弃；
+- 只计 `usage_logs`。阈值是按账本口径校准的，把受保留期约束的表（`ops_system_logs` 仅 7 天）
+  加进分子等于偷偷重调门禁——那种表填满窗口后处于稳态，其窗口字节是**吞吐**而非对可用空间的
+  净增长。保留期感知的净增长是独立的阈值议题，不属于本次；
+- 保留天数少于窗口时按天数折算，不得把未保留的天当成零增长；
+- 窗口内无日分区 = 分区维护坏了，判 `unknown`，**不得**当作无限 runway；
+- 字节路径不可用时只能弃权，**禁止回退到基数路径**；此时仍上报已测到的占用与可用空间，
+  免得一块将满的卷被整体隐藏；
+- `reltuples`（目录字段，随数据文件走）作为独立旁证上报 `cross_check`，只报不判。
+  现网两条路径相差 1.4%（ratio 0.986）。旁证取窗口内分区的 `reltuples`，而非 `PGGROWTH`
+  的行扫描——后者在 500 万行窗口下会撞上 `statement_timeout=2s`，恰好在最需要旁证的主机上缺失。
+
+成本：目录读，现网实测 382ms，在既有 `statement_timeout=2s` 内。
 
 ## 容量投影契约
 
