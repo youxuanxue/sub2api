@@ -10,12 +10,12 @@
 
 | 节点 | 正式域名 | 公网 IP | 控制面身份 | 备注 |
 |------|----------|---------|------------|------|
-| **prod** | `api.tokenkey.dev` | `43.162.83.233` | Lighthouse `lhins-fcwpwymt` · SSM Hybrid `mi-080ed76dc6d97d8b5` · eu-west-2 | 腾讯美西 · timeline 2 · LUKS mapper；现网仍为 cutover 布局（见下） |
+| **prod** | `api.tokenkey.dev` | `43.162.83.233` | Lighthouse `lhins-fcwpwymt` · SSM Hybrid `mi-080ed76dc6d97d8b5` · eu-west-2 | 腾讯美西 · timeline 2 · LUKS mapper；Stage0 例外布局（见下） |
 
 四正式域名 A 记录（TTL 300）均指向 `43.162.83.233`：`tokenkey.dev` / `api.tokenkey.dev` / `api-cn.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。
 prod 直接使用原生账号；旧中继 stub 已软删。
 **Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已冻结写者，保留 ≥7 天；禁止解冻双写。** 不能当作现网入口。
-**布局（2026-10-22 例外路径已收敛）：** LUKS 双挂仍在；Docker Root **例外**保留 `/srv/tokenkey-rehearsal/docker`；业务 `.env` 在 `/var/lib/tokenkey/.env`；网关容器 `tokenkey` / `tokenkey-caddy`；PG/Redis 名仍为 cutover 字面量但带 `postgres`/`redis` 网络别名。细则见 [`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)。
+**布局（2026-10-22 例外路径已收敛）：** LUKS 双挂仍在；Docker Root **例外**保留 `/srv/tokenkey-rehearsal/docker`；业务 `.env` 在 `/var/lib/tokenkey/.env`；网关容器 `tokenkey` / `tokenkey-caddy`；PG/Redis 名仍为 cutover 字面量但带 `postgres`/`redis` 网络别名。默认可 `deploy-stage0`。细则 [`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)；unlock [`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
 历史数据从 S3 隔离归档读取。退役验收与归档入口见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
 
 ### 同机附属 / 代理验证资源

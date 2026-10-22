@@ -27,7 +27,7 @@ description: >-
 - 旧机保留至少七天；历史备份与解密材料不随定时任务退役删除。
 - **单窗闭环（硬）：** `plan` 起就必须规划「切流窗结束即可默认 `deploy-stage0`」。  
   **禁止**把 Stage0 布局收敛、搬 Docker Root、全量容器改名排成迁机完成后的第二次停机。  
-  2026-10-22 教训：主机已切流后另开布局窗 = 多余停机与回归；见 [#2779](https://github.com/youxuanxue/sub2api/pull/2779) 例外路径。
+  2026-10-22 教训：主机已切流后另开布局窗 = 多余停机与回归；例外路径见 [`stage0-layout-convergence.md`](../../../deploy/tencent/stage0-layout-convergence.md)。
 
 ## 布局：写进 plan/prepare，落在 cutover 同窗
 
@@ -45,7 +45,7 @@ description: >-
 
 1. **plan**：列出布局目标上表；写明「无 post-cutover 布局停机窗」；Docker Root 若保留例外须写入 SSOT。  
 2. **prepare**：目标机按上表起栈（或 rehearsed rename/alias 剧本）；不要故意以 `formal/.env` + `tk-cutover-*` 作为「切流后再说」的终态。  
-3. **cutover**：promote/DNS 与布局对齐同一维护窗完成（可用 `apply-tencent-layout-window.sh` 一类短窗脚本；细则 [`stage0-layout-convergence.md`](../../../deploy/tencent/stage0-layout-convergence.md)）。  
+3. **cutover**：promote/DNS 与布局对齐同一维护窗完成（细则 [`stage0-layout-convergence.md`](../../../deploy/tencent/stage0-layout-convergence.md)；仓库若已有 `apply-tencent-layout-window.sh` 可显式 `APPLY=…` 用，否则按例外路径表手工同窗完成）。  
 4. **verify**：确认上表 + resolve/`PROD_SSM_TARGET=auto` + 备份 timer；**不以**「布局留待下周」关闭迁机。
 
 完整字面 Stage0（物理改名 PG/Redis、搬 data-root）只作可选整洁，**不得**挡发版，也不得绑进迁机主路径。

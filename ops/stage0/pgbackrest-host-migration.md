@@ -7,7 +7,7 @@
 **当前交接：[腾讯迁机交接](../../docs/ops/tencent-migration-handoff.md）。**  
 **状态（2026-10-22）：腾讯美西已在服（timeline 2）；Tokyo 冻结保留；出口已迁 `usw-eval*`。**  
 切流踩坑与 verify 门禁见 skill [`tokenkey-host-replacement`](../../.cursor/skills/tokenkey-host-replacement/SKILL.md) 与 [playbook](../../.cursor/skills/tokenkey-host-replacement/references/playbook.md)。  
-剩余：飞书告警接线（若尚未）、≥7 天后东京退役、JP Lightsail 关停、LUKS 自动解锁验收。布局须在迁机 plan 内同窗收口，不单开后续停机。
+剩余：≥7 天后东京退役、JP Lightsail 关停、LUKS 自动解锁验收。飞书宿主告警（`tokenkey-https-watch.timer`）已接腾讯机。布局须在迁机 plan 内同窗收口，不单开后续停机。
 
 ## 当前可用能力与边界
 
@@ -138,20 +138,22 @@ Redis 默认新建；若会话/幂等功能有持久需求，按其 owner 单独
 - **发布目标**：`resolve_prod_ssm_target.py --target auto` → 腾讯美西。GitHub `PROD_SSM_TARGET` 必须为 `auto`。`aws-fresh`/`hetzner` 失败关闭（冻结 Tokyo 只读须 `ALLOW_FROZEN_TOKYO_TARGET=1`）。
 - **Stage0 布局**：从 **plan/prepare** 起按「切流结束即可 `deploy-stage0`」设计；与 cutover **同窗**落地（默认例外路径：不搬 Docker Root、PG/Redis 别名）。见 [`stage0-layout-convergence.md`](../../deploy/tencent/stage0-layout-convergence.md) / skill `tokenkey-host-replacement`。**禁止**规划迁机完成后的第二次布局停机。
 - **宿主存储契约**：`bluegreen_host_runtime.py` 默认 `--platform=tencent-luks`；拒绝 Hetzner volume 身份。
-- **备份身份**：候选前缀 `candidates/tencent-usw-20261022/postgres` 为活链；`RuntimeDirectoryPreserve=yes`；飞书外部告警尚未接到腾讯机。
+- **备份身份**：候选前缀 `candidates/tencent-usw-20261022/postgres` 为活链；`RuntimeDirectoryPreserve=yes`；飞书宿主告警已接（`tokenkey-https-watch.timer`，见舰队 SSOT）。
 - **密钥与启动**：LUKS 异机托管已落盘；自动解锁未验收——**禁止现网整机重启试验**。
 - **出口代理**：账号已迁 `usw-eval*`；日本 Lightsail 机器保留待关停审批。
 
-## 最短停写窗口的前置条件（未放行）
+## 历史：切流前最短停写清单（2026-10-22 已执行）
+
+以下为切流前准备与窗内顺序的归档，**不是**当前开放项。后续迁机仍按此顺序，并把 Stage0 例外布局写进同一窗（见 skill / [`stage0-layout-convergence.md`](../../deploy/tencent/stage0-layout-convergence.md)）。
 
 提前完成镜像固定 digest 下载、同架构启动、证书与域名定向访问、密钥迁移、正式挂载布局、
 目标日常发布、只读/备份身份续期和新 timeline 备份恢复验证，再安排停止写入。
-当前已下载并在腾讯执行 1.8.313 amd64 二进制、完成空库启动和空闲 drain 冒烟；
-这不是生产配置、真实账号或真实 UI 验收。后续源发版后须重核镜像与配置，不能沿用旧放行结果。
+切流前已下载并在腾讯执行 1.8.313 amd64 二进制、完成空库启动和空闲 drain 冒烟；
+不能把该冒烟当作生产配置、真实账号或真实 UI 验收；源发版后须重核镜像与配置。
 
 获批窗口顺序：先锁定发版和写者清单，关闭新业务入口并等待真实在途归零，停止后台与直连写者；
 然后创建最终点、主动归档最终 WAL（不等待自然 5 分钟周期），验证其真实入仓、目标同 timeline
-重放和账务一致，再晋升、启用经准备的新备份保护、应用验收、改入口。
+重放和账务一致，再晋升、启用经准备的新备份保护、应用验收、改入口、**同窗落地布局例外路径**。
 QA cleanup/provision、宿主 cron、外部控制面维护任务及旧颜色应用均须盘点；
 archive-check 也需确认是否会触发归档，不能与窗口内的最终归档步骤竞争。
 等待中任何证据缺失或超时都停止推进，不强杀长流来迎合时间估算。
