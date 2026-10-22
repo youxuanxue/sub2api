@@ -70,23 +70,21 @@ VENDOR_PLATFORM = {
 PLATFORM_CHOICES = ("anthropic", "openai", "gemini", "antigravity", "newapi", "grok", "kiro")
 GEMINI_NATIVE_PLATFORMS = {"antigravity"}
 
-# Deploy-canary: one golden path per platform (+ Anthropic count_tokens).
+# Deploy-canary: one golden path per core platform (+ Anthropic count_tokens).
+# antigravity / grok are intentionally omitted: pool entitlement and model churn
+# make them noisy fail-stops on Stage0 closeout; full matrix / daily probes still cover them.
 DEPLOY_CANARY_PROTOCOLS: dict[str, list[str]] = {
     "anthropic": ["chat", "count_tokens"],
     "openai": ["chat"],
     "gemini": ["chat"],
-    "antigravity": ["chat"],
     "newapi": ["chat"],
-    "grok": ["chat"],
     "kiro": ["chat"],
 }
 DEFAULT_DEPLOY_CANARY_MODEL: dict[str, str] = {
     "anthropic": "claude-sonnet-4-6",
     "openai": "gpt-5.6-terra",
     "gemini": "gemini-2.5-flash",
-    "antigravity": "gemini-3.5-flash",
     "newapi": "qwen3-8b",
-    "grok": "grok-code-fast-1",
 }
 MESSAGE_POLICY_PLATFORMS = {"openai", "newapi"}
 
@@ -906,6 +904,10 @@ def cmd_selftest(_args) -> int:
     canary = select_deploy_canary_rows(rows)
     assert canary, "deploy-canary must select at least one row from fixture catalog"
     assert all(r.protocol in DEPLOY_CANARY_PROTOCOLS.get(r.platform, []) for r in canary)
+    canary_platforms = {r.platform for r in canary}
+    assert "antigravity" not in canary_platforms
+    assert "grok" not in canary_platforms
+    assert not {"antigravity", "grok"} & set(DEPLOY_CANARY_PROTOCOLS)
     skip_keys = parse_recent_success_tsv("gpt-5.1\ttext\t10\n", min_count=1)
     assert ("gpt-5.1", "text") in skip_keys
     print("gateway_model_ssot_matrix selftest: PASS")
