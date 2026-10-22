@@ -190,8 +190,10 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	"gemini-3.1-flash-image-preview": {},
 	"gemini-3.7-flash":               {},
 	"gemini-3.8-flash":               {},
-	// gemini-4-argon: public display off after 2026-10-22 SSOT canary
-	// unexpected 404 (hide_or_fix_gateway); keep wire/mapping owners intact.
+	// gemini-4-argon: off after 2026-10-22 SSOT canary unexpected 404
+	// (hide_or_fix_gateway). Removing from this allowlist hides public
+	// catalog, menu fallback, and account-mapping floor together; domain
+	// wire defaults and pricing overlay rows stay.
 	// Nano Banana 2 is Flash; Pro aliases belong to Gemini Web.
 	"nano-2":        {},
 	"nano-banana-2": {},
@@ -214,8 +216,8 @@ var supportedGrokCatalogModels = map[string]struct{}{
 	"grok-build-0.1":               {},
 	"grok-build-latest":            {},
 	"grok-code-fast":               {},
-	// grok-code-fast-1: public display off after 2026-10-22 SSOT canary
-	// upstream throttle (429 / reprobe_required); keep 0825 + pricing owners.
+	// grok-code-fast-1: off after 2026-10-22 SSOT canary upstream 429
+	// (reprobe_required). Same allowlist cascade as Argon; keep 0825 + overlay.
 	"grok-code-fast-1-0825":      {},
 	"grok-imagine-image":         {},
 	"grok-imagine-image-quality": {},

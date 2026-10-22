@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Write-capable helper notes for QA cleanup on layout-exception hosts.
-# Prefer shipping the repo ops/qa/local_maintenance_host.py (resolve_postgres_runtime
-# + app password fallback + symlink-aware HOT_DATA). This script only verifies.
+# Verify-only: confirm tokenkey-qa-cleanup Result=success on layout-exception hosts.
+# Does not patch the host. Repair owner is ops/qa/local_maintenance_host.py
+# (resolve_postgres_runtime + app password fallback + symlink-aware HOT_DATA);
+# re-ship that file via the QA install path when this check fails.
 set -euo pipefail
 
 echo "=== unit ==="

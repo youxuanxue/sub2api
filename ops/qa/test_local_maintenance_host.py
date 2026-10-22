@@ -19,6 +19,24 @@ class LocalHostTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 local.pg_environment({'Config': {'Env': env}})
 
+    def test_pg_environment_falls_back_to_active_app_database_password(self):
+        app = {'Config': {'Env': [
+            'DATABASE_PASSWORD=from-app',
+            'DATABASE_USER=tokenkey',
+            'DATABASE_DBNAME=tokenkey',
+            'AWS_SECRET_ACCESS_KEY=not-for-job',
+        ]}}
+        with mock.patch.object(local, 'invoke', return_value=local.json.dumps([app])):
+            result = local.pg_environment({'Config': {'Env': []}})
+        self.assertIn('PGPASSWORD=from-app\n', result)
+        self.assertIn('PGHOST=tokenkey-postgres\n', result)
+        self.assertNotIn('not-for-job', result)
+
+    def test_pg_environment_rejects_when_postgres_and_app_passwords_missing(self):
+        with mock.patch.object(local, 'invoke', side_effect=local.subprocess.CalledProcessError(1, ['docker', 'inspect'])):
+            with self.assertRaisesRegex(ValueError, 'PostgreSQL password is unavailable'):
+                local.pg_environment({'Config': {'Env': []}})
+
     def test_active_legacy_owner_blocks_local_work(self):
         with mock.patch.object(local, 'invoke', side_effect=['ActiveState=active\nUnitFileState=enabled\n', 'inactive']):
             with self.assertRaisesRegex(ValueError, 'legacy QA owner'):
