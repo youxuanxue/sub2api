@@ -36,6 +36,26 @@ def validate_target(name, target):
     }.items():
         if not re.fullmatch(pattern, target.get(field, "")):
             raise ValueError("Invalid read-only source inventory field: " + field)
+    for field in ("source_cpu", "source_memory_gib", "source_data_disk_gib",
+                  "candidate_cpu", "candidate_memory_gib", "candidate_data_disk_gib"):
+        value = target.get(field)
+        if not isinstance(value, int) or value < 0:
+            raise ValueError("Invalid capacity field: " + field)
+    if not all(target[field] > 0 for field in
+               ("source_cpu", "source_memory_gib", "source_data_disk_gib")):
+        raise ValueError("Source capacity baseline must be positive")
+    if target.get("candidate_capacity_status") not in (
+            "pending-readonly-verification", "below-source-observed", "verified"):
+        raise ValueError("Candidate capacity must be pending, below-source, or verified")
+    capacity_ok = all(target[candidate] >= target[source] for candidate, source in (
+        ("candidate_cpu", "source_cpu"),
+        ("candidate_memory_gib", "source_memory_gib"),
+        ("candidate_data_disk_gib", "source_data_disk_gib"),
+    ))
+    if target.get("candidate_capacity_status") == "verified" and not capacity_ok:
+        raise ValueError("Verified node1 inventory is below the UCloud source capacity")
+    if target.get("inventory_status") == "verified" and not capacity_ok:
+        raise ValueError("Verified node1 inventory is below the UCloud source capacity")
     if target.get("candidate_inventory_status") != "candidate-observed-not-approved":
         raise ValueError("Node1 candidate inventory must remain unapproved")
     if target.get("candidate_identity_status") != "pending-readonly-verification":

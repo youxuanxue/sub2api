@@ -1,0 +1,60 @@
+{
+  "captured_at": "2026-10-22T00:20:36Z",
+  "source": "ucloud-cli tokenkey-domestic profile; region cn-bj2; list-only calls",
+  "project_id": "org-bpx31r",
+  "region": "cn-bj2",
+  "zone": "cn-bj2-02",
+  "source_environment": "ucloud-cn-prod",
+  "source": {
+    "instance_name": "cn-prod",
+    "instance_id": "uhost-1wgyn7gu2f6a",
+    "private_ip": "10.9.53.136",
+    "public_ip": "106.75.29.139",
+    "config": "cpu:8 memory:8G disk:20G",
+    "image": "uimage-1werccwm7l7s|Ubuntu 24.04 64位",
+    "system_disk_id": "bsi-158d29bf4f",
+    "data_disk_id": "bsm-1wgz3hm0c0jb",
+    "data_disk_mountpoint": "vdb",
+    "data_disk_state": "InUse",
+    "state": "Running"
+  },
+  "public_ip": {
+    "ip": "106.75.29.139",
+    "eip_id": "eip-1wjj3obkx4mv",
+    "bind_resource": "cn-prod|uhost-1wgyn7gu2f6a(uhost)",
+    "status": "used",
+    "expiration": "2026-10-22"
+  },
+  "node1_candidate_observed": {
+    "name": "node1-ingress-test",
+    "instance_id": "uhost-1wip94slk7de",
+    "private_ip": "10.9.156.119",
+    "public_ip": "106.75.7.50",
+    "config": "cpu:2 memory:2G disk:0G",
+    "system_disk_id": "bsi-b5d71f35ea",
+    "system_disk_expiration": "2026-10-22",
+    "data_disk": "not-listed",
+    "state": "Running",
+    "capacity_status": "below-source-observed",
+    "identity_status": "candidate-observed-not-approved"
+  },
+  "capacity_baseline": {
+    "source_cpu": 8,
+    "source_memory_gib": 8,
+    "source_data_disk_gib": 20,
+    "candidate_cpu": 2,
+    "candidate_memory_gib": 2,
+    "candidate_data_disk_gib": 0,
+    "requirement": "candidate must be greater than or equal to source for CPU, memory, and data disk"
+  },
+  "unknown": [
+    "node1 machine-id",
+    "node1 architecture/runtime/image digest",
+    "node1 data disk UUID and mount",
+    "WireGuard peer and return route",
+    "EIP move permission and rollback path",
+    "current source schema/backup coverage"
+  ],
+  "write_operations": [],
+  "online_service_changes": []
+}

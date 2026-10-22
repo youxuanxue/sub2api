@@ -23,13 +23,15 @@ scope: UCloud cn-prod 106.75.29.139 → node1 preparation only; no cutover
 以下事实必须从只读运维入口取得，不能从历史文档推断：
 
 1. UCloud 当前实例 `uhost-1wgyn7gu2f6a`、EIP `eip-1wjj3obkx4mv` 与 `106.75.29.139` 的绑定、北京二 `cn-bj2-02`、私网 `10.9.53.136`、系统盘 `bsi-158d29bf4f`、数据盘 `bsm-1wgz3hm0c0jb` 和基础镜像已只读确认；防火墙、machine-id、运行时版本和备份覆盖仍待确认。
-2. node1 machine-id、架构、数据盘 UUID/容量、挂载点、Docker/Compose、WireGuard 对端、SSH/SSM 身份和回滚路径。
+2. node1 machine-id、架构、数据盘 UUID/容量、挂载点、Docker/Compose、WireGuard 对端、SSH/SSM 身份和回滚路径；node1 CPU、内存和数据盘容量必须不低于 UCloud 源端已确认的 8 CPU、8 GiB、20 GiB。
 3. `106.75.29.139` 的承载模型：EIP 迁移到 node1，或 EIP 留在 UCloud 入口并经 WireGuard 转发到 node1。未选定模型前不得生成 apply 命令。
 4. cn-prod 当前 schema、PostgreSQL/Redis 版本、配置摘要、证书有效期和备份是否覆盖完整 `usage_logs`、历史更新/删除/补录及最新凭据轮换。
 
 当前 inventory 仅保留 `preparation_only=true`、`public_ip=106.75.29.139`、`public_ip_mode=pending`、`inventory_status=pending-readonly-verification` 和 `candidate_identity_status=pending-readonly-verification`，machine-id/数据盘 UUID 使用未核实占位值，不能用于线上部署。
 
-UCloud 只读盘点回执见 [`node1-ucloud-readonly-inventory-20261021.json`](../ops/reports/node1-ucloud-readonly-inventory-20261021.json)。其中 node1 仅作为候选观察值，未被标记为已批准目标。
+最新只读观察显示 node1 候选当前为 2 CPU / 2 GiB，且没有已列出的数据盘，低于源端容量基线；`candidate_capacity_status=below-source-observed`，必须先扩容或更换候选并重新取得只读回执。容量不足时不得标记 inventory 为 `verified`，也不得进入部署或切流。
+
+UCloud 最新只读盘点回执见 [`node1-ucloud-readonly-inventory-20261022.json`](../ops/reports/node1-ucloud-readonly-inventory-20261022.json)。其中 node1 仅作为候选观察值，未被标记为已批准目标。
 
 ## 数据基线和隔离恢复
 

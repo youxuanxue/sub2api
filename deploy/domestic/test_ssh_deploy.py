@@ -168,6 +168,38 @@ class SSHDeployTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'identity must remain pending'):
                 target_module.load_target('zhupeng-prod', path)
 
+    def test_candidate_capacity_is_explicitly_below_source_until_resized(self):
+        target = target_module.load_target('zhupeng-prod')
+        self.assertEqual((target['source_cpu'], target['source_memory_gib'],
+                          target['source_data_disk_gib']), (8, 8, 20))
+        self.assertEqual((target['candidate_cpu'], target['candidate_memory_gib'],
+                          target['candidate_data_disk_gib']), (2, 2, 0))
+        self.assertEqual(target['candidate_capacity_status'], 'below-source-observed')
+
+    def test_verified_candidate_capacity_cannot_be_lower_than_source(self):
+        original = json.loads(target_module.INVENTORY.read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'targets.json'
+            data = json.loads(json.dumps(original))
+            candidate = data['targets']['zhupeng-prod']
+            candidate.update(inventory_status='verified', candidate_identity_status='verified',
+                             candidate_capacity_status='verified')
+            path.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, 'below the UCloud source capacity'):
+                target_module.load_target('zhupeng-prod', path)
+
+    def test_verified_candidate_capacity_accepts_equal_or_larger_resources(self):
+        original = json.loads(target_module.INVENTORY.read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'targets.json'
+            data = json.loads(json.dumps(original))
+            candidate = data['targets']['zhupeng-prod']
+            candidate.update(candidate_capacity_status='verified', candidate_cpu=8,
+                             candidate_memory_gib=8, candidate_data_disk_gib=20)
+            path.write_text(json.dumps(data))
+            loaded = target_module.load_target('zhupeng-prod', path)
+            self.assertEqual(loaded['candidate_capacity_status'], 'verified')
+
     def test_wrong_machine_rejected_before_disk_commands(self):
         target = target_module.load_target("zhupeng-prod")
         with patch.object(Path, "read_text", return_value="different-machine"), patch.object(subprocess, "check_output") as command:
