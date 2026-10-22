@@ -3014,10 +3014,11 @@
       "must_contain": [
         "func normalizeVolcKimiChatRequest(",
         "normalizeVolcKimiThinking(body)",
+        "normalizeVolcKimiReasoningEffort(shaped, selected)",
         "normalizeVolcKimiAllowedTools(shaped)",
         "normalizeChatToolConstraints(shaped)"
       ],
-      "rationale": "Volc Kimi thinking switches and allowed/named tools retain supplier-specific semantics before forwarding."
+      "rationale": "Volc Kimi thinking switches, Moonshot reasoning_effort aliases, and allowed/named tools retain supplier-specific semantics before forwarding while keeping the public kimi-k3 surface Moonshot-compatible."
     },
     {
       "path": "backend/internal/service/openai_gateway_moonshot_thinking_shape_tk.go",
@@ -3032,11 +3033,12 @@
       "path": "backend/internal/service/volc_kimi_chat_constraints_tk_test.go",
       "must_contain": [
         "func TestVolcKimiThinkingSwitchesAndSupplierScope(",
+        "func TestVolcKimiReasoningEffortMoonshotCompatible(",
         "func TestVolcKimiToolSelectionPreservesSemantics(",
         "func TestVolcKimiChatAllowedToolsEnvelope(",
         "func TestVolcKimiForwardKeepsThinkingAndToolConstraints("
       ],
-      "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests."
+      "rationale": "Protect supplier isolation and actual outbound thinking/tool semantics for stream and buffered requests, including Moonshot reasoning_effort aliases on the public kimi-k3 surface."
     },
     {
       "path": "backend/internal/pkg/httputil/body.go",

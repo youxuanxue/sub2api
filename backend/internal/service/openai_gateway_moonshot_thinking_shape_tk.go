@@ -328,7 +328,7 @@ func mapMoonshotK3ReasoningEffort(raw string) string {
 		return "low"
 	case "medium", "high":
 		return "high"
-	case "xhigh", "extrahigh", "max", "ultracode":
+	case "xhigh", "extrahigh", "highest", "max", "ultracode":
 		return "max"
 	default:
 		return ""

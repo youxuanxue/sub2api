@@ -3,14 +3,15 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
 // normalizeVolcKimiChatRequest owns the evidenced Volc Agent Plan Kimi K3
-// thinking/tool contract. Moonshot's always-thinking policy is not portable to
-// this supplier. See docs/approved/volc-kimi-chat-compatibility.md.
+// thinking/tool contract while presenting a Moonshot-compatible public surface
+// for kimi-k3. See docs/approved/volc-kimi-chat-compatibility.md.
 func normalizeVolcKimiChatRequest(body []byte) ([]byte, error) {
 	shaped, err := normalizeVolcKimiThinking(body)
 	if err != nil {
@@ -21,12 +22,12 @@ func normalizeVolcKimiChatRequest(body []byte) ([]byte, error) {
 		return nil, err
 	}
 	// A single allowed function + required is equivalent to a named selection,
-	// and works with Volc Kimi's default thinking (named selection returns 400).
+	// and works with this supply's default thinking (named selection returns 400).
 	if gjson.GetBytes(shaped, "tool_choice.type").String() != "function" {
 		return shaped, nil
 	}
 	if gjson.GetBytes(shaped, "function_call").Exists() || gjson.GetBytes(shaped, "functions").Exists() {
-		return nil, newOpenAIInvalidParameterError("tool_choice", "cannot combine named tool_choice with legacy function fields on Volc Kimi")
+		return nil, newOpenAIInvalidParameterError("tool_choice", "cannot combine named tool_choice with legacy function fields")
 	}
 	shaped, err = normalizeChatToolConstraints(shaped)
 	if err != nil {
@@ -62,32 +63,88 @@ func normalizeVolcKimiThinking(body []byte) ([]byte, error) {
 		}
 		selected = mode
 	}
-	if selected == "" {
+	shaped := body
+	var err error
+	if selected != "" {
+		// Preserve provider options in a canonical object; scalar aliases are rebuilt.
+		if !gjson.GetBytes(shaped, "thinking").IsObject() {
+			shaped, err = sjson.DeleteBytes(shaped, "thinking")
+			if err != nil {
+				return nil, err
+			}
+		}
+		shaped, err = sjson.SetBytes(shaped, "thinking.type", selected)
+		if err != nil {
+			return nil, err
+		}
+		for _, path := range paths[1:] {
+			shaped, err = sjson.DeleteBytes(shaped, path)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if kwargs := gjson.GetBytes(shaped, "chat_template_kwargs"); kwargs.IsObject() && len(kwargs.Map()) == 0 {
+			shaped, err = sjson.DeleteBytes(shaped, "chat_template_kwargs")
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Moonshot clients may attach Anthropic-style budget_tokens; drop before relay.
+	if gjson.GetBytes(shaped, "thinking.budget_tokens").Exists() {
+		shaped, err = sjson.DeleteBytes(shaped, "thinking.budget_tokens")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	shaped = promoteMoonshotNestedReasoningEffort(shaped)
+	shaped, err = normalizeVolcKimiReasoningEffort(shaped, selected)
+	return shaped, err
+}
+
+// normalizeVolcKimiReasoningEffort accepts Moonshot kimi-k3 reasoning_effort
+// vocabulary (and common aliases) on the public surface. Effort alone must
+// produce observable thinking: when the client did not explicitly disable
+// thinking, inject thinking.type=enabled so intensity probes are not silent.
+func normalizeVolcKimiReasoningEffort(body []byte, thinkingMode string) ([]byte, error) {
+	if !gjson.GetBytes(body, "reasoning_effort").Exists() {
 		return body, nil
+	}
+	effort := strings.TrimSpace(gjson.GetBytes(body, "reasoning_effort").String())
+	mapped := mapMoonshotK3ReasoningEffort(effort)
+	if mapped == "" {
+		return body, newOpenAIInvalidParameterError(
+			"reasoning_effort",
+			"kimi-k3 reasoning_effort must be one of: low, high, max",
+		)
 	}
 	shaped := body
 	var err error
-	// Preserve provider options in a canonical object; scalar aliases are rebuilt.
+	if mapped != effort {
+		shaped, err = sjson.SetBytes(shaped, "reasoning_effort", mapped)
+		if err != nil {
+			return body, err
+		}
+	}
+	mode := strings.ToLower(strings.TrimSpace(thinkingMode))
+	if mode == "" {
+		mode = strings.ToLower(strings.TrimSpace(gjson.GetBytes(shaped, "thinking.type").String()))
+	}
+	if mode == "disabled" {
+		return shaped, nil
+	}
+	if mode == "enabled" || mode == "auto" {
+		return shaped, nil
+	}
 	if !gjson.GetBytes(shaped, "thinking").IsObject() {
 		shaped, err = sjson.DeleteBytes(shaped, "thinking")
 		if err != nil {
-			return nil, err
+			return body, err
 		}
 	}
-	shaped, err = sjson.SetBytes(shaped, "thinking.type", selected)
-	if err != nil {
-		return nil, err
-	}
-	for _, path := range paths[1:] {
-		shaped, err = sjson.DeleteBytes(shaped, path)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if kwargs := gjson.GetBytes(shaped, "chat_template_kwargs"); kwargs.IsObject() && len(kwargs.Map()) == 0 {
-		shaped, err = sjson.DeleteBytes(shaped, "chat_template_kwargs")
-	}
-	return shaped, err
+	return sjson.SetBytes(shaped, "thinking.type", "enabled")
 }
 
 func normalizeVolcKimiAllowedTools(body []byte) ([]byte, error) {
