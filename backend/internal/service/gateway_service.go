@@ -668,6 +668,9 @@ type ForwardResult struct {
 	// PrecomputedCost is the CostBreakdown settled while writing usage.cost
 	// (response exposes TotalCost; RecordUsage reuses this for ActualCost billing).
 	PrecomputedCost *CostBreakdown
+	// CacheStorageTokenHours 显式上下文缓存的存储量（缓存 token 数 × 存储小时数），按计费模型的
+	// cache_storage 单价计费。
+	CacheStorageTokenHours float64
 }
 
 func (r *ForwardResult) ProtocolRouteFacts() (RouteFacts, bool) {
@@ -720,6 +723,7 @@ type UpstreamFailoverError struct {
 	ClientErrorType          string
 	ClientMessage            string
 	failoverObservation      *gatewayFailoverObservation
+	BoundUpstreamPassthrough bool // 绑定显式缓存的上游 429/5xx：原样回写
 }
 
 func (e *UpstreamFailoverError) Error() string {

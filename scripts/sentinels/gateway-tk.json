@@ -17008,10 +17008,11 @@
     {
       "path": ".github/workflows/ops-daily-diagnostics.yml",
       "must_contain": [
-        "/var/lib/tokenkey/postgres-backup/health.json",
+        "/var/lib/tokenkey/postgres-backup",
+        "health.json archive_check.json",
         "python3 ops/observability/postgres_backup_verdict.py"
       ],
-      "rationale": "After prod pgdump retirement, daily diagnostics must inspect the physical recovery health owner rather than a stale logical-canary receipt."
+      "rationale": "After prod pgdump retirement, daily diagnostics must inspect the physical recovery health owner rather than a stale logical-canary receipt. The receipt file is chosen ON THE HOST across both producer shapes: Stage0 writes health.json, while the Tencent pgBackRest path writes only archive_check.json (live prod has an EMPTY health.json beside a non-empty archive_check.json). Selecting locally by filename broke that: this workflow saves the bytes as physical-backup-health-receipt.json, so the verdict's health.json-named fallback never applied and a healthy host reported 'physical backup health missing/invalid'."
     },
     {
       "path": "ops/observability/postgres_backup_verdict.py",

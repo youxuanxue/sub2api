@@ -163,10 +163,8 @@ func TestResponsesStreamingFromNativeAnthropic_NormalizesTerminalUsage(t *testin
 				require.Equal(t, tt.wantCacheCreation, result.Usage.CacheCreationInputTokens)
 
 				var completed apicompat.ResponsesStreamEvent
+				// stop_reason alone (eof without message_stop) is a normal terminal.
 				terminalType := "response.completed"
-				if terminal == "eof" {
-					terminalType = "response.incomplete"
-				}
 				for _, line := range strings.Split(rec.Body.String(), "\n") {
 					if !strings.HasPrefix(line, "data: ") {
 						continue

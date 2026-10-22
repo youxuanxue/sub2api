@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"strings"
 	"unicode/utf8"
@@ -1481,8 +1482,21 @@ func normalizeOpenAIResponseFormatSchemasBody(body []byte) ([]byte, bool, error)
 	return normalized, true, nil
 }
 
+type openAIResponsesCompatibilityOptions struct {
+	Config        *config.Config
+	ResponsesLite bool
+	// Compact marks the /responses/compact wire shape, which is left as-is
+	// by request-shape compatibility rewrites such as web_search history.
+	Compact bool
+}
+
+func normalizeOpenAIResponsesCompatibilityBodyWithOptions(body []byte, account *Account, opts openAIResponsesCompatibilityOptions) ([]byte, bool, error) {
+	_ = opts.Config // MH accepts config for legacy-ingress; TK path uses the compact/lite flags.
+	return normalizeOpenAIResponsesCompatibilityBody(body, account, opts.ResponsesLite, opts.Compact)
+}
+
 func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Account, responsesLite bool) ([]byte, bool, error) {
-	return normalizeOpenAIResponsesCompatibilityBody(body, account, responsesLite, false)
+	return normalizeOpenAIResponsesCompatibilityBodyWithOptions(body, account, openAIResponsesCompatibilityOptions{ResponsesLite: responsesLite})
 }
 
 func normalizeOpenAIResponsesCompatibilityBody(body []byte, account *Account, responsesLite, compact bool) ([]byte, bool, error) {

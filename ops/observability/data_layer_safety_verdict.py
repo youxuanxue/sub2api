@@ -103,8 +103,17 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
                 )
             )
 
+    # Local pgdump is not every host's backup path: prod retired it for pgBackRest
+    # while cn-prod still depends on it. The probe reports applicability from host
+    # evidence (no pgdump installation AND a physical backup receipt present), so
+    # the gate stays live wherever pgdump still owns backup freshness, and a host
+    # that lost both paths still fails. Absent the field the gate applies, which
+    # keeps older probe revisions failing closed.
+    pgdump_applicable = True
+    if isinstance(backups, dict) and backups.get("applicable") is False:
+        pgdump_applicable = False
     pgdump = _timestamp(backups.get("latest_pgdump_at")) if isinstance(backups, dict) else None
-    if not _fresh(pgdump, now, PGDUMP_MAX_AGE):
+    if pgdump_applicable and not _fresh(pgdump, now, PGDUMP_MAX_AGE):
         findings.append(
             _finding(
                 "pgdump_freshness",

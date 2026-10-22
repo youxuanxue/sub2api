@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ALLOWED_QUOTA_PLATFORMS } from '@/constants/gatewayPlatforms';
+import { ALLOWED_QUOTA_PLATFORMS } from '@/constants/gatewayPlatforms'
+import { listPlatformIds } from '@/constants/platformCatalog'
 
 import {
   appendAuthSourceDefaultsToUpdateRequest,
@@ -10,8 +11,9 @@ import {
   type DefaultPlatformQuotasMap,
 } from "@/api/admin/settings";
 
+const allQuotaPlatforms = [...new Set([...ALLOWED_QUOTA_PLATFORMS, ...listPlatformIds()])]
 const allNullQuotas: DefaultPlatformQuotasMap = Object.fromEntries(
-  ALLOWED_QUOTA_PLATFORMS.map(platform => [platform, { daily: null, weekly: null, monthly: null }])
+  allQuotaPlatforms.map(platform => [platform, { daily: null, weekly: null, monthly: null }])
 )
 
 describe("admin settings auth source defaults helpers", () => {
@@ -234,11 +236,15 @@ describe("normalizePlatformQuotasMap", () => {
     expect(result.gemini).toEqual({ daily: null, weekly: null, monthly: null });
     expect(result.antigravity).toEqual({ daily: null, weekly: null, monthly: null });
     expect(result.grok).toEqual({ daily: null, weekly: null, monthly: null });
+    expect(result.kimi).toEqual({ daily: null, weekly: null, monthly: null });
+    expect(result.opencode_go).toEqual({ daily: null, weekly: null, monthly: null });
   });
 
   it("无参数时返回 registry 所有配额平台全 null", () => {
     const result = normalizePlatformQuotasMap();
-    expect(Object.keys(result).sort()).toEqual([...ALLOWED_QUOTA_PLATFORMS].sort());
+    expect(Object.keys(result).sort()).toEqual(
+      [...new Set([...ALLOWED_QUOTA_PLATFORMS, ...listPlatformIds()])].sort()
+    );
     for (const v of Object.values(result)) {
       expect(v).toEqual({ daily: null, weekly: null, monthly: null });
     }
@@ -286,7 +292,9 @@ describe("sanitizePlatformQuotasMap", () => {
 
   it("缺失平台填充为全 null", () => {
     const result = sanitizePlatformQuotasMap({});
-    expect(Object.keys(result).sort()).toEqual([...ALLOWED_QUOTA_PLATFORMS].sort());
+    expect(Object.keys(result).sort()).toEqual(
+      [...new Set([...ALLOWED_QUOTA_PLATFORMS, ...listPlatformIds()])].sort()
+    );
     for (const v of Object.values(result)) {
       expect(v).toEqual({ daily: null, weekly: null, monthly: null });
     }

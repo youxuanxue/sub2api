@@ -167,6 +167,15 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
 			}
 		}
+	} else if !protocolExecutionBound(ctx) {
+		// Command Code / Cline 等其它按模型分流供应商：在 tkTryRoute 前按目录选协议。
+		routingModel := upstreamRoutingModel(account, originalBody, "")
+		switch s.resolveUpstreamProtocolFor(ctx, account, APIProtocolResponses, routingModel) {
+		case APIProtocolAnthropic:
+			return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, reqModel)
+		case APIProtocolChatCompletions:
+			return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
+		}
 	}
 
 	result, outBody, handled, err := s.tkTryRouteOpenAIForwardProtocol(ctx, c, account, body, reqModel)

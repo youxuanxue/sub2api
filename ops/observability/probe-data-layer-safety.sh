@@ -90,9 +90,45 @@ SELECT 'TELEMETRYSTATS ' || json_build_object(
 esac
 
 latest_dump="$(find /var/lib/tokenkey/pgdump -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -printf '%T@\n' 2>/dev/null | sort -nr | head -1)"
+
+# Whether local pgdump is this host's backup path at all.
+#
+# Not a patch on a dead gate: pgdump is retired on PROD only. The retirement doc
+# scopes itself to "当前 prod" and explicitly keeps ops-cn-pgdump.yml running,
+# because cn-prod has no accepted physical replacement -- that workflow still
+# succeeds every 2 hours (cron '17 */2 * * *'), so deleting pgdump_freshness
+# would leave cn-prod with no backup-freshness gate at all.
+#
+# Applicability is reported as HOST EVIDENCE rather than hard-coded as
+# `if target == "prod"`, so the next host migration needs no code edit and
+# nobody has to remember this decision. Verified on live prod: no systemd unit,
+# no script, no dump dir, and a non-empty archive_check.json receipt.
+#
+# Fail closed on purpose: "not applicable" requires BOTH that no pgdump
+# installation remains AND that a non-empty physical backup receipt exists. A
+# host that lost both backup paths still fails, which is the case worth paging
+# for. Without this, prod opened a pgdump_freshness issue every day for reading
+# "retired under authorization" as "backup stale".
+pgdump_installed=false
+if systemctl cat tokenkey-pgdump.service >/dev/null 2>&1 \
+  || [ -f /usr/local/bin/tokenkey-pgdump.sh ] \
+  || [ -d /var/lib/tokenkey/pgdump ]; then
+  pgdump_installed=true
+fi
+physical_receipt=false
+for _receipt in health.json archive_check.json; do
+  if [ -s "/var/lib/tokenkey/postgres-backup/$_receipt" ]; then physical_receipt=true; break; fi
+done
+pgdump_applicable=true
+if [ "$pgdump_installed" = false ] && [ "$physical_receipt" = true ]; then
+  pgdump_applicable=false
+fi
+
 if [[ "$latest_dump" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
   latest_dump_iso="$(date -u -d "@${latest_dump%.*}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || true)" # preflight-allow: swallow — malformed host timestamp becomes explicit null
-  printf 'BACKUPSTATS {"latest_pgdump_at":"%s"}\n' "$latest_dump_iso"
+  printf 'BACKUPSTATS {"latest_pgdump_at":"%s","applicable":%s,"pgdump_installed":%s,"physical_receipt_present":%s}\n' \
+    "$latest_dump_iso" "$pgdump_applicable" "$pgdump_installed" "$physical_receipt"
 else
-  printf '%s\n' 'BACKUPSTATS {"latest_pgdump_at":null}'
+  printf 'BACKUPSTATS {"latest_pgdump_at":null,"applicable":%s,"pgdump_installed":%s,"physical_receipt_present":%s}\n' \
+    "$pgdump_applicable" "$pgdump_installed" "$physical_receipt"
 fi

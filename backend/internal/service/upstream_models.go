@@ -17,6 +17,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
+	"strconv"
 )
 
 const (
@@ -26,6 +27,10 @@ const (
 	UpstreamModelMetadataExtraKey             = "upstream_model_metadata"
 	UpstreamModelMetadataIncompleteCode       = "upstream_model_metadata_incomplete"
 	UpstreamModelMetadataPartialCode          = "upstream_model_metadata_partial"
+
+	vertexPublisherModelsPageSize    = 300
+	vertexPublisherModelsMaxPages    = 20
+	vertexGooglePublisherModelPrefix = "publishers/google/models/"
 )
 
 type UpstreamModelMetadata struct {
@@ -734,8 +739,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 	}
 
 	if account.Platform == PlatformAntigravity && account.Type != AccountTypeAPIKey {
-		models, err := s.fetchAntigravityOAuthUpstreamModels(ctx, account)
-		return models, nil, err
+		return s.fetchAntigravityOAuthUpstreamModels(ctx, account)
 	}
 	if account.IsOpenAIOAuthLike() && s.openAIGatewayService != nil {
 		return s.fetchOpenAICodexOAuthUpstreamModels(ctx, account)
@@ -743,6 +747,11 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 
 	if s.httpUpstream == nil {
 		return nil, nil, newUpstreamModelSyncConfigError("Upstream HTTP client is not configured", nil)
+	}
+
+	if account.IsGemini() && account.IsVertexServiceAccount() {
+		models, err := s.fetchVertexGeminiUpstreamModels(ctx, account)
+		return models, nil, err
 	}
 
 	req, err := s.buildUpstreamModelsRequest(ctx, account)
@@ -1102,23 +1111,98 @@ func (s *AccountTestService) buildGeminiUpstreamModelsRequest(ctx context.Contex
 	return req, nil
 }
 
-func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Context, account *Account) ([]string, error) {
+// fetchVertexGeminiUpstreamModels 按账号默认区域分页读取 Vertex 的 Google 发布方模型列表，只保留 gemini- 前缀的模型。
+// 区域端点还会列出 Gemma、Veo、AutoML 等非 Gemini 的模型花园条目；global 端点只含 Gemini。
+// 列表接口不接受 API Key。
+func (s *AccountTestService) fetchVertexGeminiUpstreamModels(ctx context.Context, account *Account) ([]string, error) {
+	if account.IsVertexAPIKey() {
+		return nil, newUpstreamModelSyncUnsupportedError("Vertex API key accounts do not support upstream model listing", nil)
+	}
+	if _, err := parseVertexServiceAccountKey(account); err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid Vertex service account credentials", err)
+	}
+	location := account.VertexLocation("")
+	if _, err := buildVertexPublisherModelsURL(location, ""); err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid Vertex location", err)
+	}
+	if s.geminiTokenProvider == nil {
+		return nil, newUpstreamModelSyncConfigError("Gemini token provider is not configured", nil)
+	}
+	accessToken, err := s.geminiTokenProvider.GetAccessToken(ctx, account)
+	if err != nil {
+		return nil, newUpstreamModelSyncUpstreamError("Failed to get Vertex access token", err)
+	}
+	accessToken = strings.TrimSpace(accessToken)
+	if accessToken == "" {
+		return nil, newUpstreamModelSyncConfigError("No Vertex access token is available", nil)
+	}
+
+	return listVertexGeminiPublisherModels(location, func(page int, listURL string) ([]byte, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL, nil)
+		if err != nil {
+			return nil, newUpstreamModelSyncConfigError("Invalid Vertex model list URL", err)
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+
+		body, err := s.readUpstreamModelsResponse(req, account)
+		if err != nil {
+			// 只有首页的 404/405 表示列表端点不可用；翻页途中的失败不触发配置模型回退。
+			var syncErr *UpstreamModelSyncError
+			if page > 0 && errors.As(err, &syncErr) {
+				syncErr.StatusCode = 0
+			}
+			return nil, err
+		}
+		return body, nil
+	})
+}
+
+// readUpstreamModelsResponse 发送模型列表请求并读取受限大小的响应体；非 2xx 返回带状态码的同步错误。
+func (s *AccountTestService) readUpstreamModelsResponse(req *http.Request, account *Account) ([]byte, error) {
+	resp, err := s.doUpstreamModelsRequest(req, upstreamModelsProxyURL(account), account)
+	if err != nil {
+		return nil, newUpstreamModelSyncUpstreamError("Failed to request upstream model list", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	bodyLimit := resolveModelsListReadLimit(s.cfg)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, bodyLimit+1))
+	if err != nil {
+		return nil, newUpstreamModelSyncUpstreamError("Failed to read upstream model list", err)
+	}
+	if int64(len(body)) > bodyLimit {
+		return nil, newUpstreamModelSyncUpstreamError("Upstream model list response is too large", fmt.Errorf("response exceeds %d bytes", bodyLimit))
+	}
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, &UpstreamModelSyncError{
+			Kind:       UpstreamModelSyncErrorUpstream,
+			Message:    fmt.Sprintf("Upstream model list request failed with HTTP %d", resp.StatusCode),
+			StatusCode: resp.StatusCode,
+			Err:        fmt.Errorf("upstream model list returned HTTP %d", resp.StatusCode),
+		}
+	}
+	return body, nil
+}
+
+func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Context, account *Account) ([]string, []byte, error) {
 	if s.antigravityGatewayService == nil || s.antigravityGatewayService.GetTokenProvider() == nil {
-		return nil, newUpstreamModelSyncConfigError("Antigravity token provider is not configured", nil)
+		return nil, nil, newUpstreamModelSyncConfigError("Antigravity token provider is not configured", nil)
 	}
 
 	accessToken, err := s.antigravityGatewayService.GetTokenProvider().GetAccessToken(ctx, account)
 	if err != nil {
-		return nil, newUpstreamModelSyncUpstreamError("Failed to get Antigravity access token", err)
+		return nil, nil, newUpstreamModelSyncUpstreamError("Failed to get Antigravity access token", err)
 	}
 	accessToken = strings.TrimSpace(accessToken)
 	if accessToken == "" {
-		return nil, newUpstreamModelSyncConfigError("No Antigravity access token is available", nil)
+		return nil, nil, newUpstreamModelSyncConfigError("No Antigravity access token is available", nil)
 	}
 
 	client, err := antigravity.NewClient(upstreamModelsProxyURL(account))
 	if err != nil {
-		return nil, newUpstreamModelSyncConfigError("Failed to configure Antigravity client", err)
+		return nil, nil, newUpstreamModelSyncConfigError("Failed to configure Antigravity client", err)
 	}
 	modelsResp, _, err := client.FetchAvailableModelsAt(
 		ctx,
@@ -1128,17 +1212,92 @@ func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Con
 		resolveAntigravityForwardBaseURL(account),
 	)
 	if err != nil {
-		return nil, newUpstreamModelSyncUpstreamError("Failed to fetch Antigravity available models", err)
+		return nil, nil, newUpstreamModelSyncUpstreamError("Failed to fetch Antigravity available models", err)
 	}
 	if modelsResp == nil || len(modelsResp.Models) == 0 {
-		return nil, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", nil)
+		return nil, nil, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", nil)
 	}
 
 	models := make([]string, 0, len(modelsResp.Models))
 	for modelID := range modelsResp.Models {
 		models = append(models, strings.TrimSpace(modelID))
 	}
-	return dedupeAndSortModelIDs(models), nil
+	models = dedupeAndSortModelIDs(models)
+	body, err := antigravityAvailableModelsCatalogBody(modelsResp)
+	if err != nil {
+		return nil, nil, newUpstreamModelSyncInternalError("Failed to normalize Antigravity model capabilities", err)
+	}
+	return models, body, nil
+}
+
+func antigravityAvailableModelsCatalogBody(resp *antigravity.FetchAvailableModelsResponse) ([]byte, error) {
+	if resp == nil {
+		return nil, nil
+	}
+	entries := make([]map[string]any, 0, len(resp.Models))
+	for modelID, info := range resp.Models {
+		modelID = strings.TrimSpace(modelID)
+		if modelID == "" {
+			continue
+		}
+		entry := map[string]any{
+			"id":               modelID,
+			"reasoning":        info.SupportsThinking != nil && *info.SupportsThinking,
+			"input_modalities": antigravityInputModalities(info),
+		}
+		if name := strings.TrimSpace(info.DisplayName); name != "" {
+			entry["display_name"] = name
+		}
+		if info.SupportsThinking != nil && *info.SupportsThinking {
+			levels, defaultLevel := antigravityReasoningLevels(modelID, info.ThinkingBudget)
+			entry["supported_reasoning_levels"] = levels
+			entry["default_reasoning_level"] = defaultLevel
+		}
+		if info.MaxTokens != nil && *info.MaxTokens > 0 {
+			entry["context_window"] = *info.MaxTokens
+		}
+		if info.MaxOutputTokens != nil && *info.MaxOutputTokens > 0 {
+			entry["max_output_tokens"] = *info.MaxOutputTokens
+		}
+		entries = append(entries, entry)
+	}
+	return json.Marshal(map[string]any{"models": entries})
+}
+
+func antigravityInputModalities(info antigravity.ModelInfo) []string {
+	if info.SupportsImages != nil && *info.SupportsImages {
+		return []string{"text", "image"}
+	}
+	return []string{"text"}
+}
+
+func antigravityReasoningLevels(modelID string, budget *int) ([]string, string) {
+	switch {
+	case strings.HasSuffix(modelID, "-low"):
+		return []string{"low"}, "low"
+	case strings.HasSuffix(modelID, "-medium"):
+		return []string{"medium"}, "medium"
+	case strings.HasSuffix(modelID, "-high"):
+		return []string{"high"}, "high"
+	default:
+		return []string{"low", "medium", "high"}, antigravityDefaultReasoningLevel(budget)
+	}
+}
+
+func antigravityDefaultReasoningLevel(budget *int) string {
+	if budget == nil {
+		return "high"
+	}
+	switch b := *budget; {
+	case b < 0:
+		return "high"
+	case b <= geminiThinkingBudgetLowMax:
+		return "low"
+	case b <= geminiThinkingBudgetMediumMax:
+		return "medium"
+	default:
+		return "high"
+	}
 }
 
 // fetchOpenAICodexOAuthUpstreamModels syncs ChatGPT OAuth / SetupToken accounts
@@ -1545,4 +1704,70 @@ func dedupeAndSortModelIDs(models []string) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func listVertexGeminiPublisherModels(location string, fetchPage func(page int, listURL string) ([]byte, error)) ([]string, error) {
+	models := make([]string, 0)
+	pageToken := ""
+	for page := 0; page < vertexPublisherModelsMaxPages; page++ {
+		listURL, err := buildVertexPublisherModelsURL(location, pageToken)
+		if err != nil {
+			return nil, newUpstreamModelSyncConfigError("Invalid Vertex location", err)
+		}
+		body, err := fetchPage(page, listURL)
+		if err != nil {
+			return nil, err
+		}
+		var response struct {
+			PublisherModels []struct {
+				Name string `json:"name"`
+			} `json:"publisherModels"`
+			NextPageToken string `json:"nextPageToken"`
+		}
+		if err := json.Unmarshal(body, &response); err != nil {
+			return nil, newUpstreamModelSyncUpstreamError("Upstream model list response was not valid JSON", err)
+		}
+		for _, entry := range response.PublisherModels {
+			name := strings.TrimSpace(entry.Name)
+			if !strings.HasPrefix(name, vertexGooglePublisherModelPrefix) {
+				continue
+			}
+			modelID := strings.TrimPrefix(name, vertexGooglePublisherModelPrefix)
+			if strings.HasPrefix(modelID, "gemini-") && len(modelID) > len("gemini-") {
+				models = append(models, modelID)
+			}
+		}
+
+		pageToken = strings.TrimSpace(response.NextPageToken)
+		if pageToken == "" {
+			if len(models) == 0 {
+				return nil, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", nil)
+			}
+			return dedupeAndSortModelIDs(models), nil
+		}
+	}
+	return nil, newUpstreamModelSyncUpstreamError(
+		"Upstream model list pagination did not finish",
+		fmt.Errorf("more than %d pages", vertexPublisherModelsMaxPages),
+	)
+}
+
+// buildVertexPublisherModelsURL 构造 Google 发布方模型列表地址。该接口只有 v1beta1 版本，pageSize 上限 300。
+func buildVertexPublisherModelsURL(location, pageToken string) (string, error) {
+	location = strings.TrimSpace(location)
+	if location == "" {
+		location = vertexDefaultLocation
+	}
+	if !vertexLocationPattern.MatchString(location) {
+		return "", fmt.Errorf("invalid vertex location: %s", location)
+	}
+	host := location + "-aiplatform.googleapis.com"
+	if location == "global" {
+		host = vertexGlobalHost
+	}
+	query := url.Values{"pageSize": []string{strconv.Itoa(vertexPublisherModelsPageSize)}}
+	if pageToken != "" {
+		query.Set("pageToken", pageToken)
+	}
+	return fmt.Sprintf("https://%s/v1beta1/publishers/google/models?%s", host, query.Encode()), nil
 }

@@ -226,6 +226,22 @@ func (r *LoadCodeAssistResponse) GetAvailableCredits() []AvailableCredit {
 	return r.PaidTier.AvailableCredits
 }
 
+// paidPlanFromTierID 识别 g1-ultra-*-tier / g1-pro-*-tier 形式的付费档位 ID，未知时返回空串。
+func paidPlanFromTierID(tierID string) string {
+	id := strings.ToLower(strings.TrimSpace(tierID))
+	if !strings.HasSuffix(id, "-tier") {
+		return ""
+	}
+	switch {
+	case strings.HasPrefix(id, "g1-ultra-"):
+		return "Ultra"
+	case strings.HasPrefix(id, "g1-pro-"):
+		return "Pro"
+	default:
+		return ""
+	}
+}
+
 // TierIDToPlanType 将 tier ID 映射为用户可见的套餐名。
 func TierIDToPlanType(tierID string) string {
 	switch strings.ToLower(strings.TrimSpace(tierID)) {
@@ -238,6 +254,10 @@ func TierIDToPlanType(tierID string) string {
 	default:
 		if tierID == "" {
 			return "Free"
+		}
+		// Google 新增的细分档位（如 g1-ultra-lite-tier、g1-pro-plus-tier）仍归入 Ultra / Pro。
+		if plan := paidPlanFromTierID(tierID); plan != "" {
+			return plan
 		}
 		return tierID
 	}
@@ -676,6 +696,16 @@ func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectI
 func (c *Client) FetchAvailableModelsAt(ctx context.Context, accessToken, projectID string, bodyLimit int64, baseURL string) (*FetchAvailableModelsResponse, map[string]any, error) {
 	if baseURL != ProdBaseURL() && baseURL != DailyBaseURL() {
 		return nil, nil, errors.New("unsupported antigravity model discovery endpoint")
+	}
+	return c.fetchAvailableModels(ctx, accessToken, projectID, bodyLimit, []string{baseURL}, true)
+}
+
+// FetchAvailableModelsFromURL 获取指定端点的模型目录，不回退到其他端点。
+// 模型发现应使用与生成请求相同的端点，避免返回该端点无法访问的模型。
+func (c *Client) FetchAvailableModelsFromURL(ctx context.Context, baseURL, accessToken, projectID string, bodyLimit int64) (*FetchAvailableModelsResponse, map[string]any, error) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return nil, nil, errors.New("fetchAvailableModels base URL is required")
 	}
 	return c.fetchAvailableModels(ctx, accessToken, projectID, bodyLimit, []string{baseURL}, true)
 }

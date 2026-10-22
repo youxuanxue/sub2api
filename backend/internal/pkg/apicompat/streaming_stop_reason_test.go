@@ -97,6 +97,28 @@ func TestAnthropicStreamingEndTurn_MapsToCompleted(t *testing.T) {
 	assert.Nil(t, completed.Response.IncompleteDetails)
 }
 
+func TestAnthropicStreamingEndTurn_FinalizeMapsToCompletedWithoutMessageStop(t *testing.T) {
+	state := NewAnthropicEventToResponsesState()
+
+	AnthropicEventToResponsesEvents(&AnthropicStreamEvent{
+		Type:    "message_start",
+		Message: &AnthropicResponse{ID: "msg_test", Model: "claude-opus-4-6", Role: "assistant"},
+	}, state)
+	AnthropicEventToResponsesEvents(&AnthropicStreamEvent{
+		Type:  "message_delta",
+		Delta: &AnthropicDelta{StopReason: "end_turn"},
+		Usage: &AnthropicUsage{OutputTokens: 100},
+	}, state)
+
+	events := FinalizeAnthropicResponsesStream(state)
+	require.Len(t, events, 1)
+	assert.Equal(t, "response.completed", events[0].Type)
+	require.NotNil(t, events[0].Response)
+	assert.Equal(t, "completed", events[0].Response.Status)
+	assert.Nil(t, events[0].Response.IncompleteDetails)
+	assert.Empty(t, FinalizeAnthropicResponsesStream(state), "repeated finalization must be idempotent")
+}
+
 func TestResponsesToChatCompletions_ContentFilter(t *testing.T) {
 	resp := &ResponsesResponse{
 		ID:     "resp_cf",

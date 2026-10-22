@@ -800,6 +800,7 @@ func TestAccountHandlerGetAvailableModels_Antigravity(t *testing.T) {
 		{name: "string mapping keys stay inside catalog", credentials: map[string]any{"model_mapping": map[string]string{
 			customID: "upstream-model",
 		}}, forbidCustom: true},
+		{name: "wildcard only falls back to catalog", credentials: map[string]any{"model_mapping": map[string]any{"claude-*": "claude-sonnet-4-6", "gemini-3*": "gemini-3-flash"}}, wantCatalog: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

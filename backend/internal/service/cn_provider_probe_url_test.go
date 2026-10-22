@@ -72,15 +72,15 @@ func (r *fakeCNProbeAccountRepo) GetByID(ctx context.Context, id int64) (*Accoun
 	return r.account, nil
 }
 
-// kimi coding 账号的 base_url 指向中转（含 api.kimi.com/coding 路径段即可被识别
-// 为 kimi coding plan）→ 衍生额度端点落在中转主机上，白名单未列名必须拒绝。
+// kimi coding 官方国际域（api.kimi.ai）可被 isKimiCodingBaseURL 识别，但探测
+// 白名单仅放行 api.kimi.com 时必须在出站策略拒绝，不得发请求。
 func TestCNProviderQuotaService_RejectsURLBlockedByPolicy(t *testing.T) {
 	repo := &fakeCNProbeAccountRepo{account: &Account{
 		ID: 1, Platform: PlatformKimi, Type: AccountTypeAPIKey, Status: StatusActive,
 		Credentials: map[string]any{
 			"account_mode": "coding",
 			"api_key":      "sk-test",
-			"base_url":     "https://relay.attacker.example/api.kimi.com/coding",
+			"base_url":     "https://api.kimi.ai/coding/v1",
 		},
 	}}
 	upstream := &recordingHTTPUpstream{}

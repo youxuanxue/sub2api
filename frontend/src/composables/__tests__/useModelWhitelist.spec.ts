@@ -5,10 +5,66 @@ vi.mock('@/api/admin/accounts', () => ({
   getModelMappingPresets: vi.fn()
 }))
 
-import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
+import { buildModelMappingObject, claudeModels, getModelsByPlatform, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
+import { BUILTIN_PLATFORM_CATALOG, resetPlatformCatalog, setPlatformCatalog } from '@/constants/platformCatalog'
 import { apiBackedPlatforms } from '../useServableModels'
 
+async function loadApiModels(platform: string, models: string[]): Promise<string[]> {
+  const { getModelMappingPresets } = await import('@/api/admin/accounts')
+  const { useServableModels } = await import('../useServableModels')
+  const { getModelsByPlatform: getModels } = await import('../useModelWhitelist')
+  vi.mocked(getModelMappingPresets).mockResolvedValue(models)
+  await useServableModels().ensureLoaded(platform)
+  return getModels(platform)
+}
+
 describe('useModelWhitelist', () => {
+  it('平台清单中没有内置模型列表的多协议供应商不预填白名单', () => {
+    setPlatformCatalog({
+      ...BUILTIN_PLATFORM_CATALOG,
+      platforms: [
+        ...BUILTIN_PLATFORM_CATALOG.platforms,
+        {
+          id: 'acme_router',
+          display_name: 'Acme Router',
+          gateway: 'openai',
+          cn_provider: false,
+          multi_protocol: {
+            default_mode: 'standard',
+            routing: 'by_model',
+            modes: [{ mode: 'standard', base_urls: { chat_completions: 'https://api.acme-router.example/v1' } }]
+          }
+        }
+      ]
+    })
+    try {
+      expect(getModelsByPlatform('acme_router')).toEqual([])
+      expect(getModelsByPlatform('kimi').length).toBeGreaterThan(0)
+      // 未知非多协议平台仍回退静态 Claude 列表；anthropic 本身已改走 API cache，不能再互相对齐。
+      expect(getModelsByPlatform('bedrock')).toEqual(claudeModels)
+    } finally {
+      resetPlatformCatalog()
+    }
+  })
+
+  it('openai 模型列表透传后端 GPT-5.4/GPT-6 官方快照', async () => {
+    const models = await loadApiModels('openai', [
+      'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-2026-03-05', 'codex-auto-review',
+      'gpt-5.6', 'gpt-6', 'gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna'
+    ])
+
+    expect(models).toContain('gpt-5.4')
+    expect(models).toContain('gpt-5.4-mini')
+    expect(models).toContain('gpt-5.4-2026-03-05')
+    expect(models).toContain('codex-auto-review')
+    expect(models).toContain('gpt-5.6')
+    expect(models).toContain('gpt-6')
+    expect(models).toContain('gpt-6-astra')
+    expect(models).toContain('gpt-6.1-sol')
+    expect(models).toContain('gpt-6-sol')
+    expect(models).toContain('gpt-6-luna')
+  })
+
   it('exposes one GPT-6.1 Sol mapping action with the TokenKey preset', () => {
     const presets = getPresetMappingsByPlatform('openai')
     expect(presets.filter(preset => preset.from === 'gpt-6.1-sol')).toEqual([
@@ -69,6 +125,31 @@ describe('useModelWhitelist', () => {
     expect(error.value).toContain('catalog unavailable')
   })
 
+  it('Claude 默认白名单保存后允许 Haiku 5.5，预设使用同一模型 ID', async () => {
+    const models = await loadApiModels('anthropic', ['claude-haiku-5-5', 'claude-sonnet-4-5-20250929'])
+    const mapping: Record<string, string> | null = buildModelMappingObject('whitelist', models, [])
+
+    expect(mapping?.['claude-haiku-5-5']).toBe('claude-haiku-5-5')
+    expect(getPresetMappingsByPlatform('anthropic')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'Haiku 5.5', from: 'claude-haiku-5-5', to: 'claude-haiku-5-5' })
+    ]))
+  })
+
+  it('xAI 模型列表透传后端 Grok 4.5 官方模型和别名', async () => {
+    const models = await loadApiModels('grok', [
+      'grok-4.6', 'grok-4.6-latest', 'grok-4.5', 'grok-4.5-latest',
+      'grok-build-latest', 'grok-imagine-image-2.0', 'grok-imagine-video-1.5'
+    ])
+
+    expect(models).toContain('grok-4.6')
+    expect(models).toContain('grok-4.6-latest')
+    expect(models).toContain('grok-4.5')
+    expect(models).toContain('grok-4.5-latest')
+    expect(models).toContain('grok-build-latest')
+    expect(models).toContain('grok-imagine-image-2.0')
+    expect(models).toContain('grok-imagine-video-1.5')
+  })
+
   it('keeps static lists for providers without a backend catalog', () => {
     expect(getModelsByPlatform('qwen')).toContain('qwen3-8b')
   })
@@ -90,6 +171,59 @@ describe('useModelWhitelist', () => {
       'grok-4.5-latest': 'grok-4.5',
       'grok-build-latest': 'grok-4.5',
     })
+  })
+
+  it('grok 模型列表透传后端 Composer 默认项和兼容别名', async () => {
+    const models = await loadApiModels('grok', [
+      'grok-composer-2.5-fast', 'composer-2.5', 'grok-4.5'
+    ])
+
+    expect(models).toContain('grok-composer-2.5-fast')
+    expect(models).not.toContain('grok-composer')
+    expect(models).toContain('composer-2.5')
+  })
+
+  it('gemini 模型列表透传后端原生生图模型并保留顺序', async () => {
+    const models = await loadApiModels('gemini', [
+      'gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-2.5-flash', 'gemini-2.0-flash'
+    ])
+
+    expect(models).toContain('gemini-2.5-flash-image')
+    expect(models).toContain('gemini-3.1-flash-image')
+    expect(models.indexOf('gemini-3.1-flash-image')).toBeLessThan(models.indexOf('gemini-2.0-flash'))
+    expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
+  })
+
+  it('antigravity 模型列表透传后端排序（新 Gemini 图片模型靠前）', async () => {
+    const models = await loadApiModels('antigravity', [
+      'gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'
+    ])
+
+    expect(models.indexOf('gemini-3.1-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
+    expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash-lite'))
+  })
+
+  it('antigravity 模型列表透传后端 Gemini 3.1 Pro 通用别名', async () => {
+    const models = await loadApiModels('antigravity', ['gemini-3.1-pro', 'gemini-2.5-flash'])
+
+    expect(models).toContain('gemini-3.1-pro')
+  })
+
+  it('Gemini 4 Argon 在 gemini 与 antigravity 平台使用对应真实模型 ID 与预设映射', async () => {
+    const geminiModels = await loadApiModels('gemini', ['gemini-4-argon', 'gemini-2.5-flash'])
+    expect(geminiModels).toContain('gemini-4-argon')
+
+    const agModels = await loadApiModels('antigravity', [
+      'gemini-4-argon-high', 'gemini-4-argon-medium', 'gemini-4-argon-low'
+    ])
+    expect(agModels).not.toContain('gemini-4-argon')
+    expect(agModels).toContain('gemini-4-argon-high')
+    expect(agModels).toContain('gemini-4-argon-medium')
+    expect(agModels).toContain('gemini-4-argon-low')
+    // TK 收敛面：Argon 别名一键落到 high；tier 后缀本身由模型列表承载，不再单独做 identity preset。
+    expect(getPresetMappingsByPlatform('antigravity')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: 'gemini-4-argon', to: 'gemini-4-argon-high' })
+    ]))
   })
 
   it('whitelist 模式保留末尾通配符，拒绝中间通配符', () => {

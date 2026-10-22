@@ -183,7 +183,7 @@ func TestAntigravityDiscoveryUsesAccountServingEndpoint(t *testing.T) {
 			svc := &AccountTestService{antigravityGatewayService: gateway}
 			account := newAntigravityCompatAccount(AccountTypeOAuth)
 			account.Credentials["plan_type"] = tc.plan
-			models, err := svc.fetchAntigravityOAuthUpstreamModels(context.Background(), account)
+			models, _, err := svc.fetchAntigravityOAuthUpstreamModels(context.Background(), account)
 			require.NoError(t, err)
 			require.Equal(t, []string{"gemini-4-argon-disabled"}, models)
 			require.Equal(t, 1, calls)
