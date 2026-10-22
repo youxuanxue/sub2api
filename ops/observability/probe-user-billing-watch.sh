@@ -33,7 +33,20 @@ case "$USER_IDS_OVERRIDE" in ''|*[!0-9,]*) [ -n "$USER_IDS_OVERRIDE" ] && { echo
 esac
 case "$WINDOW_MINUTES" in ''|*[!0-9]*) echo "bad WINDOW_MINUTES (want integer)" >&2; exit 2;; esac
 
-PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
+# Post Tokyo→Tencent cutover the live PG container may be tk-archive-standby
+# (Stage0 layout debt; see deploy/hetzner/README.md). Prefer POSTGRES_CONTAINER
+# override, then Stage0 name, then cutover archive name.
+if [ -n "${POSTGRES_CONTAINER:-}" ]; then
+  _TK_PG="$POSTGRES_CONTAINER"
+elif docker ps --format '{{.Names}}' | grep -qx tokenkey-postgres; then
+  _TK_PG=tokenkey-postgres
+elif docker ps --format '{{.Names}}' | grep -qx tk-archive-standby; then
+  _TK_PG=tk-archive-standby
+else
+  echo '{"verdict":"setup_error","error":"no tokenkey postgres container"}' >&2
+  exit 1
+fi
+PSQL="docker exec ${_TK_PG} psql -U tokenkey -d tokenkey -X -A -t"
 W="interval '${WINDOW_MINUTES} minutes'"
 
 if [ -n "$USER_IDS_OVERRIDE" ]; then
