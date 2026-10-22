@@ -159,6 +159,31 @@ func GetUsageLimits(account *Account) (*UsageLimitsResponse, error) {
 
 func getUsageLimitsWithDoer(account *Account, doer HTTPDoer) (*UsageLimitsResponse, error) {
 	const query = "?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST&isEmailRequired=true"
+	if err := ensureProfileArnWithDoer(account, doer); err != nil {
+		return nil, err
+	}
+	targets := getUsageLimitsTargets(account, query)
+	data, err := kiroRestFetchTargetsOnce(account, "GET", targets, "", true, doer, true)
+	if isInvalidProfileArnError(err) {
+		logWarnf("[KiroREST] stale profileArn for %s, re-resolving: %v", accountEmail(account), err)
+		if resolveErr := reresolveProfileArnAfterStaleWithDoer(account, doer); resolveErr == nil {
+			// Rebuild targets because the refreshed ARN can belong to a different
+			// data region than the stale profile.
+			targets = getUsageLimitsTargets(account, query)
+			data, err = kiroRestFetchTargetsOnce(account, "GET", targets, "", true, doer, true)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	var result UsageLimitsResponse
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func getUsageLimitsTargets(account *Account, query string) []kiroRestTarget {
 	var targets []kiroRestTarget
 	if kiroDataRegion(account, "") == "us-east-1" {
 		// Preserve the host-specific management/legacy path contract in the
@@ -170,15 +195,7 @@ func getUsageLimitsWithDoer(account *Account, doer HTTPDoer) (*UsageLimitsRespon
 	} else {
 		targets = kiroRestTargets(account, "/Get-Usage-Limits"+query)
 	}
-	data, err := kiroRestFetchTargetsWithDoer(account, "GET", targets, "", true, doer)
-	if err != nil {
-		return nil, err
-	}
-	var result UsageLimitsResponse
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return targets
 }
 
 func ResolveProfileArnWithDoer(account *Account, doer HTTPDoer) (string, error) {
