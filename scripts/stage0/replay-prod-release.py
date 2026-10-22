@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / 'ops/stage0'))
 import ssm_execution  # noqa: E402
 from ssm_execution import resolve_prod_instance as _resolve_prod_instance  # noqa: E402
 import gateway_capability_matrix as matrix  # noqa: E402
+from ssm_wrap_bash_commands import wrap_commands  # noqa: E402
 
 # Re-export for tests/callers; kept in sync after resolve_prod_instance().
 PROD_REGION = ssm_execution.PROD_REGION
@@ -73,7 +74,12 @@ def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='
               + 'python3 -c ' + shlex.quote(unpack) + ' "$replay_dir/payload" "$replay_dir"\n'
               'PYTHONDONTWRITEBYTECODE=1 python3 "$replay_dir/' + entry + '" '
               + shlex.join(arguments) + '\n')
-    parameters = json.dumps({'commands': script.splitlines(), 'executionTimeout': [str(timeout)]})
+    # Hybrid RunShellScript is dash; pipefail must run under bash (same owner as
+    # deploy_via_ssm_bluegreen.sh → ssm_wrap_bash_commands).
+    parameters = json.dumps({
+        'commands': wrap_commands(script.splitlines()),
+        'executionTimeout': [str(timeout)],
+    })
     region = PROD_REGION
     base = ['aws', '--region', region, 'ssm']
     cid = subprocess.check_output(base + ['send-command', '--instance-ids', instance,

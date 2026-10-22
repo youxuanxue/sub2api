@@ -207,13 +207,23 @@ jq -n \
           ("TARGET_ACME_EMAIL=" + ($acme_email | @sh)),
           "CADDY_DIR=/var/lib/tokenkey/caddy",
           "LIVE=$CADDY_DIR/Caddyfile",
+          "LEGAL_DIR=$CADDY_DIR/data/legal",
           "ENV_FILE=/var/lib/tokenkey/.env",
           "TS=$(date +%Y%m%d-%H%M%S)",
-          "BACKUP=$CADDY_DIR/Caddyfile.before-$TS",
           "ENV_BACKUP=$ENV_FILE.before-caddy-sync-$TS",
-          "echo \"=== sync Caddyfile (kind=$KIND backup=$BACKUP) ===\"",
+          "# Layout-exception hosts (Tencent USW) bind-mount formal/caddy/Caddyfile.cutover",
+          "# and formal/caddy-data; prefer the inodes the running container maps.",
+          "if docker inspect tokenkey-caddy >/dev/null 2>&1; then",
+          "  LIVE_FROM_MOUNT=$(docker inspect tokenkey-caddy --format \"{{range .Mounts}}{{if eq .Destination \\\"/etc/caddy/Caddyfile\\\"}}{{.Source}}{{end}}{{end}}\")",
+          "  DATA_FROM_MOUNT=$(docker inspect tokenkey-caddy --format \"{{range .Mounts}}{{if eq .Destination \\\"/data\\\"}}{{.Source}}{{end}}{{end}}\")",
+          "  if [ -n \"$LIVE_FROM_MOUNT\" ] && [ -f \"$LIVE_FROM_MOUNT\" ]; then LIVE=$LIVE_FROM_MOUNT; echo \"live Caddyfile from container mount: $LIVE\"; fi",
+          "  if [ -n \"$DATA_FROM_MOUNT\" ] && [ -d \"$DATA_FROM_MOUNT\" ]; then LEGAL_DIR=$DATA_FROM_MOUNT/legal; echo \"legal dir from container mount: $LEGAL_DIR\"; fi",
+          "fi",
+          "BACKUP=${LIVE}.before-$TS",
+          "echo \"=== sync Caddyfile (kind=$KIND live=$LIVE backup=$BACKUP) ===\"",
           "[ -f \"$LIVE\" ] || { echo \"::error::no live Caddyfile at $LIVE — is this a Stage0 host?\"; exit 1; }",
           "[ -f \"$ENV_FILE\" ] || { echo \"::error::no environment file at $ENV_FILE — is this a Stage0 host?\"; exit 1; }",
+          "sudo mkdir -p \"$CADDY_DIR\"",
           "sudo cp -a \"$LIVE\" \"$BACKUP\"",
           "sudo cp -a \"$ENV_FILE\" \"$ENV_BACKUP\"",
           "rollback() { rc=$?; echo \"::warning::sync failed; restoring previous Caddyfile and environment\"; if [ -f \"$ENV_BACKUP\" ]; then sudo cp -a \"$ENV_BACKUP\" \"$ENV_FILE\"; fi; if [ -f \"$BACKUP\" ]; then sudo sh -c \"cat '\''$BACKUP'\'' > '\''$LIVE'\''\"; sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -5 || true; fi; exit $rc; }",
@@ -255,14 +265,14 @@ jq -n \
           if ($legal_chunks | length) > 0 then
             [
               "echo === write legal pages into existing Caddy data volume ===",
-              "sudo mkdir -p \"$CADDY_DIR/data/legal\"",
+              "sudo mkdir -p \"$LEGAL_DIR\"",
               "rm -f /tmp/tokenkey-legal.tgz.b64"
             ]
             + ($legal_chunks | map("printf %s " + (. | @sh) + " >> /tmp/tokenkey-legal.tgz.b64"))
             + [
-              "base64 -d /tmp/tokenkey-legal.tgz.b64 | sudo tar -xzf - -C \"$CADDY_DIR/data/legal\"",
+              "base64 -d /tmp/tokenkey-legal.tgz.b64 | sudo tar -xzf - -C \"$LEGAL_DIR\"",
               "rm -f /tmp/tokenkey-legal.tgz.b64",
-              "echo \"legal files:\" && ls -1 \"$CADDY_DIR/data/legal\""
+              "echo \"legal files:\" && ls -1 \"$LEGAL_DIR\""
             ]
           else []
           end

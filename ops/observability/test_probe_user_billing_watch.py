@@ -18,6 +18,10 @@ SCRIPT = ROOT / "ops" / "observability" / "probe-user-billing-watch.sh"
 _FAKE_DOCKER = textwrap.dedent(
     r"""
     #!/usr/bin/env bash
+    if [ "${1:-}" = "ps" ]; then
+      printf '%s\n' 'tokenkey-postgres'
+      exit 0
+    fi
     sql=""
     while [ $# -gt 0 ]; do
       if [ "$1" = "-c" ]; then

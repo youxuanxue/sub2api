@@ -15,7 +15,7 @@
 四正式域名 A 记录（TTL 300）均指向 `43.162.83.233`：`tokenkey.dev` / `api.tokenkey.dev` / `api-cn.tokenkey.dev` / `callmodel.io` / `api.callmodel.io`。
 prod 直接使用原生账号；旧中继 stub 已软删。
 **Tokyo `i-045f062ce33e1a5af` / `3.114.187.250` 已冻结写者，保留 ≥7 天；禁止解冻双写。** 不能当作现网入口。
-**布局债（阻塞默认发版）：** LUKS 同时挂在 `/var/lib/tokenkey` 与 `/srv/tokenkey-rehearsal`；业务 `.env` 在 `formal/.env`，容器为 `tk-cutover-prod-*`。收敛到 Stage0 约定路径前禁止默认 `deploy-stage0`。细节见 [`tencent-unlock-contract.md`](../../docs/ops/tencent-unlock-contract.md)。
+**布局（2026-10-22 例外路径已收敛）：** LUKS 双挂仍在；Docker Root **例外**保留 `/srv/tokenkey-rehearsal/docker`；业务 `.env` 在 `/var/lib/tokenkey/.env`；网关容器 `tokenkey` / `tokenkey-caddy`；PG/Redis 名仍为 cutover 字面量但带 `postgres`/`redis` 网络别名。细则见 [`stage0-layout-convergence.md`](../tencent/stage0-layout-convergence.md)。
 历史数据从 S3 隔离归档读取。退役验收与归档入口见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
 
 ### 同机附属 / 代理验证资源
@@ -102,7 +102,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
    主机脚本不随网关镜像自动更新；安装/刷新独立 watcher 后才生效，仓库合并不代表已部署。
 4. **资源**：临时 node1 reader 与克隆盘已完成最小核查并回收，原快照和导出保留；日本 Lightsail 代理账号已迁出、机器保留待关停；
    新加坡其它项目资源不纳入 TokenKey 批量清理。详见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
-5. **告警**：腾讯机上备份/归档 timer 已装；`tokenkey-https-watch.timer` 已接到飞书（cn-prod `/health` + 备份/archive/qa-cleanup）。Stage0 布局仍未收敛，默认 `deploy-stage0` 禁用。
+5. **告警**：腾讯机上备份/归档 timer 已装；`tokenkey-https-watch.timer` 已接到飞书（cn-prod `/health` + 备份/archive/qa-cleanup）。Stage0 布局已按例外路径收敛；日常发版走下方 `dispatch-prod-deploy.sh`。
 
 ## AWS 残留与环境变量
 
