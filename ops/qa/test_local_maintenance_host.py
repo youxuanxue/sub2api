@@ -89,6 +89,31 @@ class LocalHostTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'canonical real QA directory'):
                     local.cleanup_mounts()
 
+    def test_cleanup_mounts_resolves_symlinked_hot_data_root(self):
+        with tempfile.TemporaryDirectory() as root:
+            real=(Path(root)/'formal'/'app').resolve()
+            real.mkdir(parents=True)
+            (real/'qa_blobs').mkdir()
+            (real/'qa_dlq').mkdir()
+            link=Path(root)/'app'
+            link.symlink_to(real)
+            with mock.patch.object(local,'HOT_DATA',link):
+                mounts=local.cleanup_mounts()
+            self.assertEqual(mounts,['--mount',f'type=bind,src={real}/qa_blobs,dst=/app/data/qa_blobs',
+                                     '--mount',f'type=bind,src={real}/qa_dlq,dst=/app/data/qa_dlq'])
+
+    def test_resolve_postgres_runtime_prefers_tokenkey_postgres_alias_network(self):
+        pg={'State':{'Running':True},'Image':'sha256:fixture',
+            'NetworkSettings':{'Networks':{
+                'tk-cutover-prod':{'Aliases':['tk-archive-standby','postgres']},
+                'tokenkey_tokenkey-network':{'Aliases':['postgres','tokenkey-postgres']},
+            }},
+            'Config':{'Env':[]}}
+        with mock.patch.object(local,'invoke',return_value=local.json.dumps([pg])):
+            container, network = local.resolve_postgres_runtime()
+        self.assertEqual(container['NetworkSettings']['Networks'], pg['NetworkSettings']['Networks'])
+        self.assertEqual(network, 'tokenkey_tokenkey-network')
+
     def test_failed_cleanup_preserves_partial_result_and_dry_run_mounts_are_readonly(self):
         from types import SimpleNamespace
         real_temporary=local.tempfile.TemporaryDirectory
