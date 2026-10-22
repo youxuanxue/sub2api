@@ -447,10 +447,44 @@ def _is_terminal_compensation(plan: dict[str, Any]) -> bool:
 
 
 def _terminal_inventory(archive: dict[str, Any]) -> list[dict[str, Any]]:
-    terminal = archive.get("terminal_failures_after_cutover")
+    """Inventory entries usable for compensation-window membership checks.
+
+    The live probe emits ``terminal_failures_summary`` whose ``compensation_matches``
+    carries every inventory entry at the receipt target or control window, which
+    are the only windows looked up here. Snapshot files and fixtures may still
+    carry the full ``terminal_failures_after_cutover`` list.
+    """
+    summary = _mapping(archive.get("terminal_failures_summary"))
+    if summary is not None:
+        terminal = summary.get("compensation_matches")
+    else:
+        terminal = archive.get("terminal_failures_after_cutover")
     if not isinstance(terminal, list):
         return []
     return [item for item in terminal if isinstance(item, dict)]
+
+
+def _terminal_codes(archive: dict[str, Any]) -> list[Any] | None:
+    """Return one verification code per distinct inventory code, or None if absent.
+
+    Classification depends only on which codes occur, so the per-code counts of
+    the summary are equivalent to iterating the full list.
+    """
+    summary = _mapping(archive.get("terminal_failures_summary"))
+    if summary is not None:
+        by_code = summary.get("by_code")
+        count = summary.get("count")
+        if not isinstance(by_code, dict) or not _is_nonnegative_int(count):
+            return None
+        if count != sum(n for n in by_code.values() if _is_nonnegative_int(n)) or not all(
+            _is_nonnegative_int(n) and n > 0 for n in by_code.values()
+        ):
+            return None
+        return list(by_code)
+    terminal = archive.get("terminal_failures_after_cutover")
+    if not isinstance(terminal, list):
+        return None
+    return [entry.get("verification_error_code") if isinstance(entry, dict) else None for entry in terminal]
 
 
 def _is_correlatable_terminal_catchup_attempt(
@@ -578,14 +612,13 @@ def _evaluate_catchup(
             reasons.append("compensation_heartbeat_without_receipt")
             failed = True
 
-    terminal = archive.get("terminal_failures_after_cutover")
-    if not isinstance(terminal, list):
+    terminal_codes = _terminal_codes(archive)
+    if terminal_codes is None:
         reasons.append("terminal_failure_inventory_missing")
         failed = True
-    elif terminal:
+    elif terminal_codes:
         terminal_codes_valid = True
-        for entry in terminal:
-            code = entry.get("verification_error_code") if isinstance(entry, dict) else None
+        for code in terminal_codes:
             if code == TERMINAL_CATCHUP_ERROR:
                 continue
             terminal_codes_valid = False
