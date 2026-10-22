@@ -31,7 +31,8 @@
 - [ ] 配置/密钥离机备份：推荐宿主用操作员公钥加密 tar 上传 `candidates/…/host-config/`（无需改 IAM），另开 PR
 - [x] 宿主探针 PG/Redis 容器名：#2804 将其余脚本迁到共享解析（`ops/lib/resolve-app-container.sh` / `resolve_app_container.py`），新增 preflight 门禁 `scripts/checks/data-container-resolver.py` 防回退；每日容量巡检恢复（2026-10-22 prod 只读验证）。白名单余项：cn-prod 专用 `tpm_burst_monitor_remote.sh`、`ops/migration` 下绑定已退役主机的脚本
 - [x] QA 分区预建漏装：2026-10-22 13:29 UTC 经用户批准用 `ops/qa/local_maintenance_host.py install --apply` 补装 `tokenkey-qa-provision.timer`（每小时整点），首轮 72/72 小时覆盖；未重启网关/PG。回滚备份 `/var/backups/tokenkey-qa-local/20261022T132922246441Z`
-- [ ] QA phase2 剩余真实问题：`tokenkey-qa-runtime` 容器在腾讯机不存在。已解决：探针体积（#2800，ARCHIVE 行 23.6 KB→0.7 KB）、boundary 口径（#2802，暂停清单为唯一真相）、分区缺口（provision 补装）
+- [ ] QA runtime pin：2026-10-23 用户决定 S3 上传**暂停、可能恢复**，pin 应装回。安装器已支持多网络 PG（选带 `tokenkey-postgres` 别名的网络）；健康检查在暂停期间仅推迟 S3 写入身份（`deferred_until_resume`），pin 其余事实照常校验。待用户批准后安装：`qa-runtime-install.py --image ghcr.io/youxuanxue/sub2api:<当前网关 tag>`（停止态容器，不触网关）
+- [ ] **恢复 QA 上传前置**：S3 写入身份。用户选复用 `tokenkey-hetzner-ssm-hybrid-prod`（已在 QA raw 桶策略 Allow 内）；但切换前须先给该角色补 `TencentUswPhysicalBackup` 同等备份权限（否则 pgBackRest 备份与 WAL 归档立即失败），并同 PR 同步 10 处 `mi-080ed76dc6d97d8b5` 与 SendCommand 授权。现 Lightsail 角色被桶策略 `DenyLightsailEdgeRole` 显式拒绝
 - [x] prod watcher 重装：2026-10-22 15:24 UTC 经用户批准，`host_watch.local_qa_jobs` 含 `tokenkey-qa-provision`；bundle `95998671d971c8ce`，dry-run 全部健康，回滚备份 `/var/backups/tokenkey-https-watch/20261022T152459871497Z`。cn-prod watcher 未变更
 - [ ] 备份身份重装注意：`ops/stage0/tencent_backup_identity.py` 已改为读腾讯矩阵（#2804），但宿主安装器不在仓库；下次重装/修复须把 `candidate-usw-20261022.json` 放在脚本旁或设 `TK_TENCENT_PROD_MATRIX`，否则 `tokenkey-backup-identity` timer 失败。现宿主跑旧副本，不受影响
 - [ ] 归档 canary（`data_layer_archive_rehearsal.PROD_CANARY_CONTAINER`）仍绑 EC2 `i-*` 与 CFN stack，需单独迁到腾讯

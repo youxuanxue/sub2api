@@ -263,6 +263,39 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         self.assertIsNone(account_id)
         self.assertEqual(bucket, {"status": "skipped", "reason": "control-plane bucket audit not requested"})
 
+    def test_paused_uploads_defer_only_the_write_identity_check(self) -> None:
+        # Tencent Hybrid has no IMDS role; uploads are paused, so the write identity
+        # is deferred to resume. Every other pin fact stays fatal while paused.
+        def evaluate(mutation, pause):
+            snapshot, now = _fresh_snapshot()
+            _pause_maintenance(snapshot)
+            _pause_boundary(snapshot)
+            storage = snapshot["storage"]
+            storage["instance_role_available"] = False
+            if mutation == "missing":
+                del snapshot["storage"]
+            elif mutation == "running":
+                storage["runtime_stopped"] = False
+            elif mutation == "credentials":
+                storage["credentials_file_present"] = True
+            elif mutation == "coordinates":
+                storage["environment"]["QA_ARCHIVE_STORAGE_BUCKET"] = "other"
+            return live_health.evaluate_snapshot(snapshot, now=now,
+                maintenance_pause_reason=pause, boundary_pause_reason="historical archive hold")
+        paused = evaluate("none", "operator paused uploads")
+        self.assertTrue(paused["storage_contract"]["ok"])
+        self.assertEqual(paused["storage_contract"]["deferred_until_resume"],
+                         ["qa_archive_instance_role_unavailable"])
+        self.assertEqual(paused["health"]["status"], "healthy")
+        self.assertIn("qa_archive_instance_role_unavailable",
+                      evaluate("none", "")["health"]["reasons"])
+        for mutation, reason in (("missing", "qa_runtime_storage_unavailable"),
+                                 ("running", "qa_runtime_pin_invalid"),
+                                 ("credentials", "qa_archive_static_credentials_unexpected"),
+                                 ("coordinates", "qa_archive_coordinate_drift:QA_ARCHIVE_STORAGE_BUCKET")):
+            with self.subTest(mutation=mutation):
+                self.assertIn(reason, evaluate(mutation, "operator paused uploads")["health"]["reasons"])
+
     def test_live_storage_fails_on_missing_facts_aws_and_invalid_pin(self) -> None:
         for mutation in ("missing", "hetzner", "credentials", "role", "running", "label"):
             with self.subTest(mutation=mutation):

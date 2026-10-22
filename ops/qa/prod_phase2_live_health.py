@@ -47,8 +47,9 @@ def live_archive_coordinates() -> dict[str, str]:
     return values
 
 
-def evaluate_storage(storage: Any) -> dict[str, Any]:
+def evaluate_storage(storage: Any, *, maintenance_paused: bool = False) -> dict[str, Any]:
     failures = []
+    deferred = []
     if not isinstance(storage, dict) or storage.get("status") != "ok":
         return {"ok": False, "failures": ["qa_runtime_storage_unavailable"]}
     if storage.get("runtime_contract") != "independent-v1" or storage.get("runtime_stopped") is not True:
@@ -64,8 +65,14 @@ def evaluate_storage(storage: Any) -> dict[str, Any]:
     if storage.get("credentials_file_present") is not False:
         failures.append("qa_archive_static_credentials_unexpected")
     if storage.get("instance_role_available") is not True:
-        failures.append("qa_archive_instance_role_unavailable")
-    return {"ok": not failures, "failures": failures}
+        # The S3 write identity is only exercised by uploads. While the pause
+        # owner holds maintenance, Hybrid hosts (no IMDS) defer this check to
+        # resume; the pin itself is still validated above.
+        if maintenance_paused:
+            deferred.append("qa_archive_instance_role_unavailable")
+        else:
+            failures.append("qa_archive_instance_role_unavailable")
+    return {"ok": not failures, "failures": failures, "deferred_until_resume": deferred}
 
 
 def _partition_owner(qa_records: dict[str, Any]) -> str | None:
@@ -147,7 +154,7 @@ def evaluate_snapshot(
     )
     health["maintenance_pause_reason"] = maintenance_pause_reason
     health["boundary_pause_reason"] = boundary_pause_reason
-    storage = evaluate_storage(snapshot.get("storage"))
+    storage = evaluate_storage(snapshot.get("storage"), maintenance_paused=bool(maintenance_pause_reason))
     if not storage["ok"]:
         health["reasons"] = sorted(set([*health.get("reasons", []), *storage["failures"]]))
         health["forward_reasons"] = sorted(set([*health.get("forward_reasons", []), *storage["failures"]]))
