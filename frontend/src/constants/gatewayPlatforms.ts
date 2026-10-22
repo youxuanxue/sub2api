@@ -19,7 +19,8 @@ export const COMPOSITE_PLATFORM_MEMBERS = [
  */
 export const ALLOWED_QUOTA_PLATFORMS = [
   'anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro', 'grok',
-  'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe'
+  'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe',
+  'command_code', 'cline'
 ] as const satisfies readonly AccountPlatform[]
 export type QuotaPlatform = (typeof ALLOWED_QUOTA_PLATFORMS)[number]
 
@@ -35,7 +36,8 @@ export type QuotaPlatform = (typeof ALLOWED_QUOTA_PLATFORMS)[number]
  * covered by the `useModelWhitelist` and `usePlatformOptions` test suites.
  */
 export const OPENAI_COMPAT_PLATFORMS: readonly AccountPlatform[] = [
-  'openai', 'newapi', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go'
+  'openai', 'newapi', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go',
+  'command_code', 'cline'
 ] as const
 
 /** Predicate sibling of {@link OPENAI_COMPAT_PLATFORMS} — use whenever a UI branch is gated on "speaks OpenAI HTTP shape". */
@@ -60,7 +62,8 @@ export function isOpenAICompatPlatform(platform: string | null | undefined): boo
  * intentionally do not coincide for gemini.
  */
 export const GROUP_DISPATCH_CONFIG_PLATFORMS: readonly AccountPlatform[] = [
-  'openai', 'newapi', 'gemini', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go'
+  'openai', 'newapi', 'gemini', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go',
+  'command_code', 'cline'
 ] as const
 
 export function hasMessagesDispatchConfig(platform: string | null | undefined): boolean {
@@ -191,6 +194,8 @@ const SOFT_BADGE: Record<string, string> = {
   minimax: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300',
   opencode_go: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
   typesafe: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300',
+  command_code: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300',
+  cline: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-300',
 }
 
 /** Background + text colors for compact platform pills (e.g. channel model tags). */

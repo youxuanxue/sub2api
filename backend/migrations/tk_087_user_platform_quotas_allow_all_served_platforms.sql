@@ -1,9 +1,6 @@
--- Keep the DB constraint in sync with service.AllowedQuotaPlatforms after
--- upstream migration 224 replaced the earlier newapi/kiro allowance.
-ALTER TABLE user_platform_quotas
-    DROP CONSTRAINT IF EXISTS user_platform_quotas_platform_check;
+-- Historical TK migration: previously re-ADDed user_platform_quotas_platform_check
+-- after upstream 224. Align with 242: platform membership is application-owned.
+-- DROP-only revision; prod that already applied the ADD is repaired by tk_105.
 
 ALTER TABLE user_platform_quotas
-    ADD CONSTRAINT user_platform_quotas_platform_check
-    CHECK (platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'grok',
-                        'kimi', 'zhipu', 'deepseek', 'newapi', 'kiro'));
+    DROP CONSTRAINT IF EXISTS user_platform_quotas_platform_check;

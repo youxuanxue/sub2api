@@ -123,6 +123,12 @@ func (s *CNProviderBalanceService) QueryBalanceForAccount(ctx context.Context, a
 }
 
 func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, account *Account) (*CNProviderBalanceResult, error) {
+	if account.IsCommandCode() {
+		return s.queryCommandCodeBalance(ctx, account)
+	}
+	if account.IsCline() {
+		return s.queryClineBalance(ctx, account)
+	}
 	provider := account.Platform
 	if provider != PlatformKimi && provider != PlatformDeepseek {
 		return nil, infraerrors.New(http.StatusBadRequest, "CN_BALANCE_NO_ENDPOINT", "account provider has no balance endpoint")
@@ -280,6 +286,20 @@ func (s *CNProviderBalanceService) loadPayGAccount(ctx context.Context, accountI
 func validatePayGAccount(account *Account) error {
 	if account == nil {
 		return infraerrors.New(http.StatusNotFound, "CN_BALANCE_ACCOUNT_NOT_FOUND", "account not found")
+	}
+	// Cline 积分余额只查官方主机。
+	if account.IsCline() {
+		if !account.clineAccountAPISupported() {
+			return infraerrors.New(http.StatusBadRequest, "CN_BALANCE_NO_ENDPOINT", "cline balance is only available for api key accounts on the official host")
+		}
+		return nil
+	}
+	// Command Code 积分余额与套餐窗口同源，只查官方主机。
+	if account.IsCommandCode() {
+		if !account.commandCodeUsageSupported() {
+			return infraerrors.New(http.StatusBadRequest, "CN_BALANCE_NO_ENDPOINT", "command code balance is only available for api key accounts on the official host")
+		}
+		return nil
 	}
 	if !account.IsCNProvider() {
 		return infraerrors.New(http.StatusBadRequest, "CN_BALANCE_INVALID_PLATFORM", "account is not a CN provider account")

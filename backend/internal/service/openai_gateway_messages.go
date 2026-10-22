@@ -47,20 +47,11 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	rememberOpenCodeInboundBody(c, body)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
-	if account.IsOpenCodeGo() {
-		mapped := resolveOpenCodeGoMappedModel(account, body, defaultMappedModel)
-		if IsOpenCodeUnsupportedModel(mapped) {
-			return nil, writeOpenCodeUnsupportedModelError(c, true, mapped)
-		}
-	}
-	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
-		SetActualOpenAIUpstreamEndpoint(c, "/v1/chat/completions")
-	}
 	setCodexToolNameReverse(c, nil)
 	if target, planned := protocolExecutionTarget(ctx); planned {
 		switch target {
 		case protocolrouter.ProtocolMessages:
-			if account.IsCNProvider() {
+			if account.IsCNProvider() || account.routesByModel() {
 				return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
 			}
 			return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
@@ -78,16 +69,16 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// pairs a Chat Completions converter with the plan-selected /v1/responses
 	// endpoint and can synthesize an empty Anthropic end_turn response.
 	if !protocolExecutionBound(ctx) {
-		if account.IsOpenCodeGo() {
-			mapped := resolveOpenCodeGoMappedModel(account, body, defaultMappedModel)
-			switch openCodeGoNativeProtocol(account, mapped) {
-			case APIProtocolAnthropic:
-				return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
-			case APIProtocolResponses:
-				break
-			default:
-				return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
-			}
+		// 上游协议统一由 resolveUpstreamProtocol 判定（按模型分流时带上游模型目录）。
+		routingModel := upstreamRoutingModel(account, body, defaultMappedModel)
+		if account.IsOpenCodeGo() && IsOpenCodeUnsupportedModel(routingModel) {
+			return nil, writeOpenCodeUnsupportedModelError(c, true, routingModel)
+		}
+		switch s.resolveUpstreamProtocolFor(ctx, account, APIProtocolAnthropic, routingModel) {
+		case APIProtocolAnthropic:
+			return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
+		case APIProtocolChatCompletions:
+			return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 		}
 		if result, routed, err := s.tkTryRouteForwardAsAnthropic(ctx, c, account, body, defaultMappedModel); routed {
 			return result, err

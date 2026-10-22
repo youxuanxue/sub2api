@@ -55,7 +55,7 @@ func TestModerationConfigWriteRejectsGroupDeletedAfterValidation(t *testing.T) {
 	ctx := context.Background()
 	client := testEntClient(t)
 	repo := newGroupRepositoryWithSQL(client, integrationDB)
-	settings := &settingRepository{client: client}
+	settings := NewSettingRepository(client).(*settingRepository)
 	group := &service.Group{Name: "moderation-concurrent-delete", Platform: service.PlatformAnthropic, RateMultiplier: 1, Status: service.StatusActive, SubscriptionType: service.SubscriptionTypeStandard}
 	require.NoError(t, repo.Create(ctx, group))
 	t.Cleanup(func() { _, _ = integrationDB.ExecContext(ctx, "DELETE FROM groups WHERE id=$1", group.ID) })

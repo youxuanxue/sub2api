@@ -188,6 +188,21 @@ var migrationChecksumCompatibilityRules = map[string]migrationChecksumCompatibil
 	),
 	"159_batch_image_foundation.sql":       newMigrationChecksumCompatibilityRule("d902b70982025ec519749faf058aab7631e82c3f48167b9a4ae4db718eb72cce", "82da85b5d98e67a0507647b873a40373e84538e4adafdeed6767c0ac8b6570b2"),
 	"161_batch_image_pricing_snapshot.sql": newMigrationChecksumCompatibilityRule("4012af3e43636cb6af22e0176d59d1fcc70615c0f310194329461ae462c4fbd6", "96d915c9b7a6941ae99039e0ff3f1a61481eb9bddd933d11c6fadb2274554e87"),
+	// tk_083/087/096 historically re-ADDed user_platform_quotas_platform_check after
+	// upstream 242 dropped it. Revised to DROP-only; tk_105 cleans prod that already
+	// applied the ADD variants. Both checksums must remain accepted.
+	"tk_083_user_platform_quotas_allow_newapi_kiro.sql": newMigrationChecksumCompatibilityRule(
+		"23d17099a61884fad79989d6f3a1e7b39f427f973426bcf73ec45ca5aea84136",
+		"4c6ade745c19cb2d67dab45132f89376818e9088c53178f075a109304c52a9de",
+	),
+	"tk_087_user_platform_quotas_allow_all_served_platforms.sql": newMigrationChecksumCompatibilityRule(
+		"f1eb234f64f16b0dda22bd664641e35151b4b34dc7ab592108900ea68329a5ca",
+		"728dd159192d092b4cadd2bb893d5c50040362a49f0579e079cffda19cc66d8a",
+	),
+	"tk_096_quota_platforms_include_minimax.sql": newMigrationChecksumCompatibilityRule(
+		"03e21c925a46cbb729418c790a88492e3cf88caf34a86df73eb75d49aa0487b1",
+		"ed4dd5983670a55ca9d879135bcd4ae897727b68836db32de58e7e8f0e3f2684",
+	),
 }
 
 // ApplyMigrations 将嵌入的 SQL 迁移文件应用到指定的数据库。

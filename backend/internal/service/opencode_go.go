@@ -377,20 +377,6 @@ func (a *Account) IsMultiProtocolAPIKey() bool {
 	return a != nil && IsMultiProtocolAPIKeyProvider(a.Platform)
 }
 
-func (a *Account) openCodeDefaultChatBaseURL() string {
-	if a.IsOpenCodeZen() {
-		return DefaultOpenCodeZenBaseURL
-	}
-	return DefaultOpenCodeGoBaseURL
-}
-
-func (a *Account) openCodeDefaultAnthropicBaseURL() string {
-	if a.IsOpenCodeZen() {
-		return DefaultOpenCodeZenAnthropicBaseURL
-	}
-	return DefaultOpenCodeGoAnthropicBaseURL
-}
-
 // openCodeGoNativeProtocol 返回 OpenCode Go 实际上游协议。
 // 规则未命中、空值或未知协议一律兜底 Chat Completions，避免落入 Responses 转换链。
 func openCodeGoNativeProtocol(account *Account, model string) string {
