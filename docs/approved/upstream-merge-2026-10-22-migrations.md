@@ -1,17 +1,17 @@
 ---
 title: Upstream Merge 2026-10-22 Migration Approval Anchor
-status: pending
-approved_by: pending
+status: approved
+approved_by: "用户（本会话：同意合并。）"
 authors: [tk-upstream-agent]
 created: 2026-10-22
 ---
 
 # Upstream Merge 2026-10-22: Migration Approval Anchor
 
-Pending human approval for migrations absorbed from `upstream/main@dba770d56`
-into `merge/upstream-2026-10-22`. Merge of the corresponding PR is the named
-human approval; do not treat this document as shipped until `status: shipped`
-and `related_prs` / `related_commits` are filled.
+Migrations absorbed from `upstream/main@dba770d56` into
+`merge/upstream-2026-10-22` were approved in this session by「同意合并」.
+Do not treat this document as shipped until `status: shipped` and
+`related_prs` / `related_commits` are filled after the merge commit lands.
 
 ## Migrations
 
