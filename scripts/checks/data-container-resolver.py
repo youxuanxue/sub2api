@@ -48,9 +48,6 @@ ALLOWED_FILES = {
     "ops/migration/hold-fresh-candidate.sh",
     "ops/migration/fresh_host_delta.py",
     "ops/migration/repair-tokyo-usage-20261017.sh",
-    # Owned by the QA phase2 health workstream (separate change set); remove
-    # from this list once it consumes the shared resolver.
-    "ops/observability/probe-qa-phase2-live-health.sh",
     # This checker names the literals it forbids.
     "scripts/checks/data-container-resolver.py",
 }
