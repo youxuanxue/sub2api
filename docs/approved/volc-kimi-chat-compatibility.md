@@ -58,7 +58,8 @@ This does not change protocolrouter.Plan, account selection, billing or schema.
   `reasoning.effort`, etc.). Unknown effort tokens return a field-level 400.
   When effort is present and thinking is not explicitly disabled, inject
   `thinking.type=enabled` so intensity probes observe reasoning content instead
-  of silent 200s. Explicit `thinking.type=disabled` still wins over effort.
+  of silent 200s. Explicit `thinking.type=disabled` still wins over effort and
+  strips `reasoning_effort` before relay (upstream rejects the combination).
   Anthropic-style `thinking.budget_tokens` is stripped before relay. Closing
   thinking must not silently become low effort. No response reasoning is hidden
   to fake success. Client-visible errors must not name the upstream supplier.
