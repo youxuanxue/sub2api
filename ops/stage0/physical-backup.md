@@ -5,27 +5,42 @@
 生产物理备份已启用，并已完成真实 S3 最新点和历史同点全量/增量恢复验收。
 用户已同意停用旧 pgdump、保留数据至少 30 天；执行与脚本清单见 [pgdump-retirement.md](pgdump-retirement.md)。
 新机/腾讯云隔离演练见 [迁机工作流](pgbackrest-host-migration.md)。
+腾讯美西恢复演练路线、快照与配置离机缺口见 [隔离恢复方案](../../docs/ops/tencent-isolated-restore-plan.md)。
 
-## 固定配置与成本边界
+## 现网（腾讯美西，2026-10-22 起）
+
+| 项目 | 实况 |
+|---|---|
+| 主机 | 腾讯 Lighthouse `VM-0-16-ubuntu`，**amd64**，SSM Hybrid（id 见候选矩阵） |
+| PG | 容器 `tk-archive-standby`（非 compose，别名 `postgres`/`tokenkey-postgres`），amd64 镜像，PG 18.6 / pgBackRest 2.58.0 |
+| 数据 | `/srv/tokenkey-rehearsal/standby-pg`，位于 LUKS mapper `tokenkey_recovery`；无 EBS、无 DLM、无整机快照 |
+| 活链 | `s3://<physical-backup 桶>/candidates/tencent-usw-20261022/postgres`，timeline 2；身份由 `tencent_backup_identity.py` 每分钟刷新到 tmpfs |
+| 操作入口 | 宿主 `tencent_pgbackrest.py backup|check`（**尚未入仓**，无 accept/verify/status）；timer 同名 `tokenkey-postgres-{backup,archive-check}` |
+| 已知偏差 | 运行时 `archive_timeout=0`（基线 300），待审批修正 |
+
+`prod/postgres` 是 Tokyo timeline 1 的冻结只读链；不得写入，也不作为恢复默认。
+本文以下"固定配置""初次上线顺序"描述的是 Tokyo 时期（arm64、EC2、EBS）的已执行基线，标注为**历史**。
+
+## 固定配置与成本边界（历史：Tokyo 基线）
 
 | 项目 | 执行值 |
 |---|---|
-| 镜像 | PostgreSQL 18.6（Tokyo 时期 ARM64；腾讯现网为 amd64，见 [迁机工作流](pgbackrest-host-migration.md)）；基础摘要在 Dockerfile 固定；pgBackRest 2.58.0；装载后用 image ID 固定运行 |
+| 镜像 | PostgreSQL 18.6；架构须与目标主机一致（Tokyo arm64，腾讯现网 amd64）；基础摘要在 Dockerfile 固定；pgBackRest 2.58.0；装载后用 image ID 固定运行 |
 | 备份 | UTC 每个偶数小时 30 分；周日 00:30 的任务做全量，其余增量；错过周全量则下次补全量 |
 | 归档 | archive_mode=on，archive_timeout=300；同步 archive-push；5 分钟一次往返及连续性检查 |
 | 清理 | 专用 S3 桶，us-east-1；pgBackRest 按时间保留至少 7 天所需链；S3 仅清未完成 multipart |
 | 并发 | 备份 2，恢复 4；与现有 pgdump 共用 QA host.lock；物理备份拿独占锁，避免争用 |
-| 恢复资源 | （Tokyo 时期设计，腾讯侧尚未重建）当前 prod 区域独立 c7g.xlarge，100 GiB 加密 gp3，无入站端口；只读仓库角色；完成即终止，2 小时自动关机/终止兜底 |
-| 开销 | 建议首次验收临时机预算上限 $5；每次硬时限 2 小时。S3/跨区流量依实际 WAL 量结算，不能预先保证省钱 |
+| 恢复资源 | 显式批准的子网/区域内独立临时机：arm64→c7g.xlarge，amd64→c7i.xlarge；100 GiB 加密 gp3，无入站端口；只读仓库角色；完成即终止，2 小时自动关机/终止兜底。腾讯现网推荐路线见隔离恢复方案 |
+| 开销 | 首次验收临时机预算上限 $5；每次硬时限 2 小时。S3 流量依实际 WAL 量结算（腾讯→us-east-1 为公网上传） |
 
 容量按「窗口边界所需全量 + 后续增量 + 连续 WAL + 新全量暂时重叠」计算，不用 84 份文件估算。
 例如平均仓库 100 GB，按 us-east-1 S3 Standard 约 $0.023/GB·月估算仅存储约 $2.30/月；
-请求、Tokyo→S3 跨区流量、恢复拉取另计，价格在执行前复核。
+请求、主机→S3 流量（历史为 Tokyo 跨区，现为腾讯公网上传）、恢复拉取另计，价格在执行前复核。
 首个 48 小时与完整周必须量测这些费用；不删除用户明细以达成预算。
 
 ## 初次上线顺序（历史变更基线）
 
-1. 先跑本地/CI 门禁和 S3 原型。构建 ARM64 镜像、真实计费验收二进制；生成带 SHA-256 的部署包。
+1. 先跑本地/CI 门禁和 S3 原型。构建与目标主机同架构的镜像、真实计费验收二进制；生成带 SHA-256 的部署包。
 2. 在 us-east-1 创建 `stage0-physical-backups.yaml`：新私有桶、只读恢复角色/profile；
    `BackupRoleArn` 从当前 EC2 instance profile 解析。只给源主机角色新仓库所需对象权限。
    这是实例角色边界，沿用当前 IMDSv2/hop=2；网关不增加环境变量、凭据挂载或宿主网络。
@@ -46,15 +61,17 @@
 ## 命令入口
 
 以下在仓库根目录执行；生产命令中的值来自已确认变更单，不复制旧节点坐标。
+架构默认取目标矩阵 `target.architecture`（现网 amd64），镜像架构不一致即失败；
+`--repo-path` 必填，现网活链为 `/candidates/tencent-usw-20261022/postgres`。
 
 ```bash
-docker build -t tokenkey-postgres-backup:dev deploy/aws/stage0/postgres-backup
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go -C backend build -trimpath -ldflags='-s -w' \
+docker build --platform linux/amd64 -t tokenkey-postgres-backup:dev deploy/aws/stage0/postgres-backup
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go -C backend build -trimpath -ldflags='-s -w' \
   -o /tmp/backup-billing-check ./cmd/backup-billing-check
 docker save --output /tmp/postgres-backup.tar tokenkey-postgres-backup:dev
 python3 ops/stage0/prepare_physical_backup.py --image-tar /tmp/postgres-backup.tar \
   --billing-check /tmp/backup-billing-check --bucket "$BACKUP_BUCKET" --region us-east-1 \
-  --output /tmp/physical-backup.tar.gz
+  --repo-path /candidates/tencent-usw-20261022/postgres --output /tmp/physical-backup.tar.gz
 ```
 
 部署包是恢复镜像来源，不依赖生产机还活着或私人 GHCR 登录状态；新桶保留部署包。
@@ -62,6 +79,9 @@ python3 ops/stage0/prepare_physical_backup.py --image-tar /tmp/postgres-backup.t
 Docker classic 与 containerd 的 image ID 表达不同；包同时列出 OCI 和 config 身份。
 源机与恢复机装载后核对各自 `docker image inspect` 的 ID，执行参数使用实际装载的不可变 ID；
 恢复机须使用与源机相同的 Docker 存储格式；身份不一致时修正恢复机，不能跳过镜像一致性检查。
+安装器在唯一运行中的 PG 容器（`tokenkey-postgres` 或 `tk-archive-standby`）上核对数据挂载，
+并要求候选镜像、运行中 PG 镜像与宿主 `uname -m` 三者架构一致。
+腾讯 `tk-archive-standby` 不是 compose 管理，安装器只输出计划，拒绝 `--apply`（备份由宿主 Tencent operator 负责）。
 安装时将包内 `install_postgres_backup.py`、`postgres_backup.py` 和 compose 放同一目录：
 
 ```bash
@@ -88,10 +108,11 @@ SELECT pg_create_restore_point('tk_accept_YYYYMMDD_HHMMSS'), clock_timestamp();
 记录返回时间，跑一次 `postgres_backup.py check` 后再开始恢复：
 
 ```bash
-python3 ops/stage0/run_physical_restore.py --region "$PROD_REGION" \
+python3 ops/stage0/run_physical_restore.py --region "$RESTORE_REGION" \
   --bucket "$BACKUP_BUCKET" --key "artifacts/$BUNDLE_SHA.tar.gz" --sha256 "$BUNDLE_SHA" \
-  --image "$IMAGE_ID" --subnet "$PROD_SUBNET" --profile "$RESTORE_PROFILE" \
+  --image "$IMAGE_ID" --subnet "$RESTORE_SUBNET" --architecture amd64 --profile "$RESTORE_PROFILE" \
   --receipt /tmp/restore-latest.json                      # 只读计划
+# 子网须为显式批准的 EC2 subnet-*；不能从腾讯 mi-* 推导。
 # 已批准资源预算后加 --apply；历史验收另加 --target-name 与 --target-time。
 ```
 
@@ -109,7 +130,7 @@ python3 ops/stage0/run_physical_restore.py --region "$PROD_REGION" \
 原始 health 回执仍保留 degraded 和过期原因，避免把旧证据当成新的恢复证明；
 展示分级统一由 `physical_backup_fact` 处理。需要较老点验证时，从保留期内已记录的恢复点传入 name/time。
 
-## 当前验证边界（2026-10-20）
+## 历史验证边界（2026-10-20，Tokyo 链）
 
 真实独立恢复已通过：最新路径约 1656 秒；同一历史点的全量路径约 1785 秒、增量路径约 1623 秒，
 包括仓库预校验、WAL 重放、完整数据审计与计费幂等校验。最新验收 SSM
@@ -124,6 +145,7 @@ python3 ops/stage0/run_physical_restore.py --region "$PROD_REGION" \
 
 按用户简化要求，周定时恢复已从工作流移除，自动建机/IAM 扩权草稿撤回。
 `ops-physical-restore.yml` 仅保留手动入口，当前配置与权限未就绪，不代表可直接运行：
-使用前须配置 `PHYSICAL_BACKUP_ENABLED`、恢复包/镜像/桶/profile 等变量，验证 CI 的 EC2/SSM
-及 EC2 PassRole 权限与执行时长。已有恢复角色可读取备份，无需另建仓库或身份；
+使用前须配置 `PHYSICAL_BACKUP_ENABLED`、`PHYSICAL_RESTORE_{REGION,SUBNET,ARCH}`、恢复包/镜像/桶/profile 等变量，
+缺失恢复网络变量会在取凭据前失败；验证 CI 的 EC2/SSM 及 EC2 PassRole 权限与执行时长。
+现网活链前缀尚不在 RestoreRole 读权限内，Tencent operator 也无 `accept`，详见隔离恢复方案。已有恢复角色可读取备份，无需另建仓库或身份；
 这不是当前必须推进的 IAM 扩权任务，也不触发生产服务变更。

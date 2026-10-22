@@ -35,14 +35,16 @@ class BackupError(RuntimeError):
     pass
 
 
-def configuration(bucket: str, region: str) -> str:
+def configuration(bucket: str, region: str, repo_path: str = "/prod/postgres") -> str:
     if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket):
         raise BackupError("invalid S3 bucket")
     if not re.fullmatch(r"[a-z]{2}(?:-[a-z]+)+-\d", region):
         raise BackupError("invalid AWS region")
+    if not re.fullmatch(r"(?:/[a-z0-9][a-z0-9.-]*)+", repo_path):
+        raise BackupError("invalid repository path")
     return f"""[global]
 repo1-type=s3
-repo1-path=/prod/postgres
+repo1-path={repo_path}
 repo1-s3-bucket={bucket}
 repo1-s3-region={region}
 repo1-s3-endpoint=s3.{region}.amazonaws.com

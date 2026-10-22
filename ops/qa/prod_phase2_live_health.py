@@ -21,7 +21,17 @@ import qa_phase2_health  # noqa: E402
 import verify_raw_archive_iam_contract as iam_contract  # noqa: E402
 
 PROBE = ROOT / "ops" / "observability/probe-qa-phase2-live-health.sh"
+CONTAINER_RESOLVER = ROOT / "ops/lib/resolve-app-container.sh"
 POLICY = ROOT / "ops/qa/policy.yaml"
+
+
+def probe_script_bytes() -> bytes:
+    """Probe body with the canonical container resolver defined ahead of it.
+
+    Direct SSM delivery ships one file, so the resolver run-probe.sh uploads via
+    --with is inlined here; the probe reuses already-defined resolver functions.
+    """
+    return CONTAINER_RESOLVER.read_bytes() + b"\n" + PROBE.read_bytes()
 
 
 def live_archive_coordinates() -> dict[str, str]:
@@ -220,11 +230,10 @@ def main() -> int:
         snapshot = _parse_probe_output(sys.stdin.read())
         payload = evaluate_snapshot(snapshot, skip_iam=skip_iam, maintenance_pause_reason=pause_reason)
     else:
-        probe_script = PROBE.read_text(encoding="utf-8")
         instance_id = resolve_prod_instance()
         remote_out = run_shell_b64(
             instance_id,
-            base64.b64encode(probe_script.encode()).decode(),
+            base64.b64encode(probe_script_bytes()).decode(),
             "prod qa phase2 live health",
         )
         snapshot = _parse_probe_output(remote_out)
