@@ -54,8 +54,13 @@ params_file="${OUTPUT_DIR}/ssm-params-pg-tuning.json"
 stdout_file="${OUTPUT_DIR}/stdout-pg-tuning.txt"
 stderr_file="${OUTPUT_DIR}/stderr-pg-tuning.txt"
 
+# Canonical PG container resolution (Stage0 tokenkey-postgres or Tencent
+# tk-archive-standby); ops/lib/resolve_app_container.py owns the candidate list.
+PG_RESOLVE="$(python3 "${SCRIPT_DIR}/../lib/resolve_app_container.py" snippet postgres --docker "sudo docker")"
+
 jq -n \
   --arg overlay "${OVERLAY_B64}" \
+  --arg pg_resolve "${PG_RESOLVE}" \
   --argjson apply "${APPLY}" \
   '{
   commands: (
@@ -69,8 +74,9 @@ jq -n \
       "grep -E \"^POSTGRES_(MAX_CONNECTIONS|SHARED_BUFFERS|EFFECTIVE_CACHE_SIZE|MAINTENANCE_WORK_MEM|JIT|MAX_PARALLEL)\" \"$ENV_FILE\" || echo none",
       "echo === overlay present ===",
       "if [ -f \"$OVERLAY\" ]; then wc -c \"$OVERLAY\"; else echo missing; fi",
+      $pg_resolve,
       "echo === live GUCs ===",
-      "sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -c \"SHOW shared_buffers;\" -c \"SHOW effective_cache_size;\" -c \"SHOW jit;\" -c \"SHOW max_parallel_workers;\" -c \"SHOW max_parallel_workers_per_gather;\" -c \"SHOW max_connections;\" || echo postgres_not_queryable"
+      "sudo docker exec \"$TK_PG\" psql -U tokenkey -d tokenkey -c \"SHOW shared_buffers;\" -c \"SHOW effective_cache_size;\" -c \"SHOW jit;\" -c \"SHOW max_parallel_workers;\" -c \"SHOW max_parallel_workers_per_gather;\" -c \"SHOW max_connections;\" || echo postgres_not_queryable"
     ]
     + (if $apply == 1 then [
       "echo === apply install overlay and recreate postgres ===",
@@ -78,12 +84,12 @@ jq -n \
       "sudo docker compose --env-file \"$ENV_FILE\" -f \"$COMPOSE\" -f \"$OVERLAY\" config --quiet",
       "cd \"$ROOT\"",
       "sudo docker compose --env-file \"$ENV_FILE\" -f \"$COMPOSE\" -f \"$OVERLAY\" up -d --no-deps --force-recreate postgres",
-      "for i in $(seq 1 30); do if sudo docker exec tokenkey-postgres pg_isready -U tokenkey -d tokenkey >/dev/null 2>&1; then break; fi; sleep 2; done",
-      "sudo docker exec tokenkey-postgres pg_isready -U tokenkey -d tokenkey",
+      "for i in $(seq 1 30); do if sudo docker exec \"$TK_PG\" pg_isready -U tokenkey -d tokenkey >/dev/null 2>&1; then break; fi; sleep 2; done",
+      "sudo docker exec \"$TK_PG\" pg_isready -U tokenkey -d tokenkey",
       "echo === .env after ===",
       "grep -E \"^POSTGRES_(MAX_CONNECTIONS|SHARED_BUFFERS|EFFECTIVE_CACHE_SIZE|MAINTENANCE_WORK_MEM|JIT|MAX_PARALLEL)\" \"$ENV_FILE\" || echo none",
       "echo === GUCs after ===",
-      "sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -c \"SHOW shared_buffers;\" -c \"SHOW effective_cache_size;\" -c \"SHOW jit;\" -c \"SHOW max_parallel_workers;\" -c \"SHOW max_parallel_workers_per_gather;\" -c \"SHOW max_connections;\""
+      "sudo docker exec \"$TK_PG\" psql -U tokenkey -d tokenkey -c \"SHOW shared_buffers;\" -c \"SHOW effective_cache_size;\" -c \"SHOW jit;\" -c \"SHOW max_parallel_workers;\" -c \"SHOW max_parallel_workers_per_gather;\" -c \"SHOW max_connections;\""
     ] else [
       "echo dry-run only. pass --apply to install overlay and recreate postgres"
     ] end)

@@ -2,11 +2,14 @@
 # ensure-tokenkey-bbr.sh — idempotent TokenKey host BBR enablement.
 #
 # SSOT for TokenKey host TCP congestion control (bbr + fq). Consumed by:
-#   - deploy/aws/stage0/stage0-ec2-bootstrap.sh (new EC2 prod hosts; compact inline)
-#   - deploy/hetzner/render-prod-bootstrap.sh (new Hetzner prod hosts)
-#   - ops/stage0/sync-host-bbr-via-ssm.sh (live EC2 prod heal)
-#   - admin/proxies egress hosts (apply by ops; verified by
-#     scripts/checks/proxy_bbr_live.py / check-host-bbr-ssot.py --live)
+#   - deploy/aws/stage0/stage0-ec2-bootstrap.sh (historical EC2 bootstrap; compact inline)
+#   - deploy/hetzner/render-prod-bootstrap.sh (prod bootstrap renderer)
+#   - ops/stage0/sync-host-bbr-via-ssm.sh (live prod heal; `prod` resolves the
+#     Tencent USW SSM Hybrid mi-* host via resolve_prod_ssm_target.py)
+#   - admin/proxies egress hosts. Tencent usw-eval1..4 / cn-ip1..5 are not
+#     SSM-managed: run `--check` / `--apply` on the host itself (fleet:
+#     deploy/hetzner/README.md). scripts/checks/proxy_bbr_live.py only reaches
+#     legacy Lightsail egress and fails closed for every other proxy host.
 #
 # Usage:
 #   ensure-tokenkey-bbr.sh           # apply + verify

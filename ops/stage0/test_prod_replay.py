@@ -584,5 +584,43 @@ class OrchestrationTest(unittest.TestCase):
         self.assertIn('Check traffic and 5xx after 5 minutes', names)
 
 
+class ReplayDataContainerTest(unittest.TestCase):
+    """Snapshot source PG/Redis follow the shared resolver, including Tencent names."""
+
+    def fake_running(self, running):
+        def fake(args, **_kwargs):
+            name = args[-1]
+            return subprocess.CompletedProcess(args, 0 if name in running else 1,
+                                               stdout='true\n' if name in running else '', stderr='')
+        return fake
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT / 'ops/lib'))
+        self.addCleanup(sys.path.remove, str(ROOT / 'ops/lib'))
+
+    def test_tencent_layout_names_resolve_for_sql_and_redis(self):
+        import resolve_app_container as owner
+        with patch.object(owner.shutil, 'which', return_value='/usr/bin/docker'), \
+             patch.object(owner.subprocess, 'run', side_effect=self.fake_running({'tk-archive-standby', 'tk-cutover-prod-redis'})):
+            self.assertEqual(replay.data_container('postgres'), 'tk-archive-standby')
+            self.assertEqual(replay.data_container('redis'), 'tk-cutover-prod-redis')
+        with patch.object(replay, 'data_container', return_value='tk-archive-standby'), \
+             patch.object(replay, 'run', return_value=b'1\n') as run:
+            replay.sql('SELECT 1;')
+        self.assertEqual(run.call_args.args[0][:4], ['docker', 'exec', '-i', 'tk-archive-standby'])
+
+    def test_ambiguous_or_missing_container_fails_closed(self):
+        import resolve_app_container as owner
+        for running in (set(), {'tokenkey-postgres', 'tk-archive-standby'}):
+            with self.subTest(running=running), \
+                 patch.object(owner.shutil, 'which', return_value='/usr/bin/docker'), \
+                 patch.object(owner.subprocess, 'run', side_effect=self.fake_running(running)), \
+                 self.assertRaises(replay.ReplayError):
+                replay.data_container('postgres')
+
+    def test_replay_delivery_ships_the_resolver(self):
+        source = (ROOT / 'scripts/stage0/replay-prod-release.py').read_text()
+        self.assertIn("files['resolve_app_container.py'] = (ROOT / 'ops/lib/resolve_app_container.py')", source)
+
 if __name__ == '__main__':
     unittest.main()

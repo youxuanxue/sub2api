@@ -8,6 +8,7 @@ import copy
 import datetime as dt
 import hashlib
 import json
+import pathlib
 import subprocess
 import sys
 import urllib.error
@@ -20,7 +21,6 @@ from typing import Any
 ADMIN_URL = "https://tokenkey.dev/api/v1/admin/ops/advanced-settings"
 HOLD_CONFIRMATION = "tokenkey-prod-archive-cleanup-hold-v1"
 RELEASE_CONFIRMATION = "tokenkey-prod-archive-cleanup-release-v1"
-PG_CONTAINER = "tokenkey-postgres"
 APP_CONTAINERS = ("tokenkey", "tokenkey-blue", "tokenkey-green")
 TIMEOUT_SECONDS = 20
 
@@ -56,6 +56,31 @@ def _run(
     return completed.stdout + (completed.stderr if include_stderr else "")
 
 
+def _data_container(kind: str) -> str | None:
+    """Running PG/Redis container from the canonical resolver (Stage0 or Tencent name).
+
+    run-probe.sh ships ops/lib/resolve_app_container.py next to this script under
+    /tmp; a repo checkout finds it at ../lib. None means unresolved.
+    """
+    here = pathlib.Path(__file__).resolve().parent
+    for candidate in (here, here.parent / "lib"):
+        if (candidate / "resolve_app_container.py").is_file():
+            sys.path.insert(0, str(candidate))
+            break
+    import resolve_app_container
+
+    if kind == "postgres":
+        return resolve_app_container.resolve_postgres()
+    return resolve_app_container.resolve_redis()
+
+
+def _require_data_container(kind: str) -> str:
+    name = _data_container(kind)
+    if name is None:
+        raise HoldError(f"{kind} container unresolved")
+    return name
+
+
 def _psql(sql: str) -> list[str]:
     pgoptions = (
         "-c default_transaction_read_only=on "
@@ -69,7 +94,7 @@ def _psql(sql: str) -> list[str]:
             "-i",
             "-e",
             f"PGOPTIONS={pgoptions}",
-            PG_CONTAINER,
+            _require_data_container("postgres"),
             "psql",
             "-U",
             "tokenkey",
@@ -178,7 +203,7 @@ def _cleanup_lock_active() -> bool:
         [
             "docker",
             "exec",
-            "tokenkey-redis",
+            _require_data_container("redis"),
             "redis-cli",
             "--raw",
             "GET",

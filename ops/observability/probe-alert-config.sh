@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 # Read-only probe: dump ops feishu/email alert config + ops_alert_rules summary.
 # Sensitive fields (webhook_url, signing_secret) are reduced to *_present booleans.
-# Container/db names follow the Stage0 convention; falls back to docker ps if absent.
+# PG container comes from the shared resolver (Stage0 or Tencent layout name).
 set -euo pipefail
 
-PG="${PG_CONTAINER:-tokenkey-postgres}"
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+PG="$(tk_require_postgres_container "${PG_CONTAINER:-${POSTGRES_CONTAINER:-auto}}")" || exit 1
 DB="${PG_DB:-tokenkey}"
 DBUSER="${PG_USER:-tokenkey}"
 

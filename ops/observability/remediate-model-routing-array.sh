@@ -16,7 +16,16 @@ set -euo pipefail
 
 APPLY="${APPLY:-0}"
 CLEANUP_STICKY_PROBES="${CLEANUP_STICKY_PROBES:-1}"
-PSQL=(docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+TK_PG="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
+PSQL=(docker exec -i "$TK_PG" psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 
 echo "=== before: array-typed model_routing (any status) ==="
 "${PSQL[@]}" -c "

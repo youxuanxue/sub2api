@@ -107,3 +107,94 @@ def resolve(
         return running[0], notes + [f"unique running candidate {running[0]}"]
     notes.append(f"running candidates ambiguous: {running or 'none'}")
     return None, notes
+
+
+# Data-layer containers. Stage0 names them tokenkey-postgres / tokenkey-redis; the
+# Tencent USW layout exception keeps tk-archive-standby / tk-cutover-prod-redis and
+# only adds network aliases, which never work for a host-side `docker exec`.
+# Mirrors tk_resolve_postgres_container / tk_resolve_redis_container in the shell
+# owner: explicit name must run; otherwise exactly one running candidate.
+POSTGRES_CANDIDATES = ("tokenkey-postgres", "tk-archive-standby")
+REDIS_CANDIDATES = ("tokenkey-redis", "tk-cutover-prod-redis")
+
+
+def _resolve_single_running(
+    requested: str, candidates: tuple[str, ...], docker: tuple[str, ...]
+) -> str | None:
+    if requested and requested != "auto":
+        return requested if _running(requested, docker) else None
+    running = [name for name in candidates if _running(name, docker)]
+    return running[0] if len(running) == 1 else None
+
+
+def resolve_postgres(requested: str = "auto", *, docker: tuple[str, ...] = ("docker",)) -> str | None:
+    """Return the running PostgreSQL container, or None when ambiguous/absent."""
+    return _resolve_single_running(requested, POSTGRES_CANDIDATES, docker)
+
+
+def resolve_redis(requested: str = "auto", *, docker: tuple[str, ...] = ("docker",)) -> str | None:
+    """Return the running Redis container, or None when ambiguous/absent."""
+    return _resolve_single_running(requested, REDIS_CANDIDATES, docker)
+
+
+def data_container_shell_snippet(
+    kind: str, *, docker: str = "docker", variable: str | None = None, required: bool = True
+) -> str:
+    """Return one SSM-ready shell line that sets `variable` to the running container.
+
+    `kind` is "postgres" or "redis". With `required` (the default) an unresolved
+    container exits 1 with a readable error, so callers splicing this into a
+    remote script fail closed instead of `docker exec`-ing a stale or absent name.
+    """
+    candidates = {"postgres": POSTGRES_CANDIDATES, "redis": REDIS_CANDIDATES}[kind]
+    var = variable or ("TK_PG" if kind == "postgres" else "TK_REDIS")
+    line = (
+        f"{var}=''; tk_n=0; for tk_c in {' '.join(candidates)}; do "
+        f"if [ \"$({docker} inspect --format '{{{{.State.Running}}}}' \"$tk_c\" 2>/dev/null)\" = true ]; "
+        f"then {var}=\"$tk_c\"; tk_n=$((tk_n + 1)); fi; done; "
+        f"[ \"$tk_n\" -eq 1 ] || {var}=''"
+    )
+    if required:
+        line += (
+            f"; [ -n \"${var}\" ] || {{ echo '{kind} container unresolved "
+            f"(want exactly one running of: {' '.join(candidates)})' >&2; exit 1; }}"
+        )
+    return line
+
+
+def data_container_preamble(*, docker: str = "sudo docker", redis: bool = False) -> str:
+    """Shell preamble for remote scripts: resolve and export TK_PG (and TK_REDIS).
+
+    Local SSM drivers prepend this to the script they ship so remote PSQL /
+    redis-cli strings can reference "$TK_PG" / "$TK_REDIS" and embedded python can
+    read os.environ["TK_PG"]. Unresolved containers abort the remote script.
+    """
+    lines = [data_container_shell_snippet("postgres", docker=docker), "export TK_PG"]
+    if redis:
+        lines += [data_container_shell_snippet("redis", docker=docker), "export TK_REDIS"]
+    return "\n".join(lines) + "\n"
+
+
+def _main(argv: list[str]) -> int:
+    """`resolve_app_container.py snippet postgres|redis [--docker CMD] [--var NAME]`.
+
+    Lets shell-side SSM drivers splice the canonical remote resolution line into
+    an inline command array instead of hand-copying the candidate loop.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="resolve_app_container.py")
+    sub = parser.add_subparsers(dest="action", required=True)
+    snippet = sub.add_parser("snippet")
+    snippet.add_argument("kind", choices=("postgres", "redis"))
+    snippet.add_argument("--docker", default="docker")
+    snippet.add_argument("--var", default=None)
+    args = parser.parse_args(argv)
+    print(data_container_shell_snippet(args.kind, docker=args.docker, variable=args.var))
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+
+    raise SystemExit(_main(sys.argv[1:]))

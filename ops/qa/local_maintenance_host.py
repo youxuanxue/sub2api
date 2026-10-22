@@ -43,12 +43,33 @@ def atomic_json(path, value):
             os.unlink(name)
 
 
+# Installed as an immutable single-file bundle, so it cannot import
+# ops/lib/resolve_app_container.py; same candidate list and fail-closed rule as
+# that owner (POSTGRES_CANDIDATES). test_local_maintenance_host pins them together.
+POSTGRES_CANDIDATES = ('tokenkey-postgres', 'tk-archive-standby')
+
+
+def live_postgres(invoke):
+    """Exactly one running PG container (Stage0 or Tencent layout name)."""
+    found = []
+    for name in POSTGRES_CANDIDATES:
+        try:
+            state = json.loads(invoke(['docker', 'inspect', name]))[0]
+        except Exception:
+            continue
+        if state['State']['Running']:
+            found.append(state)
+    if len(found) != 1:
+        raise ValueError('PostgreSQL runtime/network is ambiguous')
+    return found[0]
+
+
 def pg_environment(container):
     env = dict(item.split('=', 1) for item in container['Config']['Env'] if '=' in item)
     if not env.get('POSTGRES_PASSWORD'):
         raise ValueError('PostgreSQL password is unavailable')
     values = {
-        'PGHOST': 'tokenkey-postgres', 'PGPORT': '5432',
+        'PGHOST': container.get('Name', '/tokenkey-postgres').lstrip('/'), 'PGPORT': '5432',
         'PGUSER': env.get('POSTGRES_USER', 'tokenkey'),
         'PGDATABASE': env.get('POSTGRES_DB', 'tokenkey'),
         'PGPASSWORD': env['POSTGRES_PASSWORD'], 'PGSSLMODE': 'disable',
@@ -131,7 +152,7 @@ def run_phase(config, phase, dry_run=False):
                         raise TimeoutError('QA host lock busy')
                     time.sleep(1)
             require_legacy_paused()
-            postgres = json.loads(invoke(['docker', 'inspect', 'tokenkey-postgres']))[0]
+            postgres = live_postgres(invoke)
             networks = list(postgres['NetworkSettings']['Networks'])
             if not postgres['State']['Running'] or len(networks) != 1:
                 raise ValueError('PostgreSQL runtime/network is ambiguous')

@@ -36,6 +36,13 @@ class RetentionActivationTest(unittest.TestCase):
         self.assertNotIn("cleanup_eligible", script)
         self.assertNotIn("commit_key", script)
 
+    def test_remote_plan_resolves_stage0_or_tencent_postgres(self) -> None:
+        script = activation._remote_plan_script()
+        self.assertIn("tokenkey-postgres tk-archive-standby", script)
+        self.assertIn('"$TK_PG" psql', script)
+        self.assertNotIn("30s' tokenkey-postgres psql", script)
+        self.assertLess(script.index("TK_PG=''"), script.index("psql"))
+
     def test_ready_accepts_legacy_window_without_tomorrow_child_partition(self) -> None:
         payload = {
             "active_image": "ghcr.io/youxuanxue/sub2api:1.8.140",

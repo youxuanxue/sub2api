@@ -19,6 +19,26 @@ class LocalHostTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 local.pg_environment({'Config': {'Env': env}})
 
+    def test_tencent_layout_postgres_is_resolved_and_used_as_pghost(self):
+        def inspect(args):
+            name = args[-1]
+            running = name == 'tk-archive-standby'
+            return '[{"Name": "/%s", "State": {"Running": %s}, "Config": {"Env": ["POSTGRES_PASSWORD=test-only"]},' \
+                   ' "NetworkSettings": {"Networks": {"tk-cutover-prod": {}}}}]' % (name, 'true' if running else 'false')
+        container = local.live_postgres(inspect)
+        self.assertEqual(container['Name'], '/tk-archive-standby')
+        self.assertIn('PGHOST=tk-archive-standby\n', local.pg_environment(container))
+        both = lambda args: inspect(['docker', 'inspect', 'tk-archive-standby']).replace('tk-archive-standby', args[-1])
+        with self.assertRaisesRegex(ValueError, 'ambiguous'):
+            local.live_postgres(both)
+
+    def test_candidate_list_matches_canonical_resolver(self):
+        owner_spec = importlib.util.spec_from_file_location(
+            'owner', Path(__file__).resolve().parents[1] / 'lib' / 'resolve_app_container.py')
+        owner = importlib.util.module_from_spec(owner_spec)
+        owner_spec.loader.exec_module(owner)
+        self.assertEqual(local.POSTGRES_CANDIDATES, owner.POSTGRES_CANDIDATES)
+
     def test_active_legacy_owner_blocks_local_work(self):
         with mock.patch.object(local, 'invoke', side_effect=['ActiveState=active\nUnitFileState=enabled\n', 'inactive']):
             with self.assertRaisesRegex(ValueError, 'legacy QA owner'):
@@ -108,7 +128,7 @@ class LocalHostTest(unittest.TestCase):
                  mock.patch.object(local,'STATE',data/'state'), \
                  mock.patch.object(local,'HOST_LOCK',data/'lock'), \
                  mock.patch.object(local,'HOT_DATA',data), \
-                 mock.patch.object(local,'invoke',return_value=local.json.dumps([pg])), \
+                 mock.patch.object(local,'invoke',side_effect=lambda args: local.json.dumps([pg]) if args[-1]=='tokenkey-postgres' else (_ for _ in ()).throw(RuntimeError('no such container'))), \
                  mock.patch.object(local.tempfile,'TemporaryDirectory',side_effect=lambda **kw:real_temporary(dir=data)), \
                  mock.patch.object(local.subprocess,'run',return_value=SimpleNamespace(returncode=1,stdout=local.json.dumps(child))) as process:
                 with self.assertRaisesRegex(ValueError,'invalid local phase receipt'):

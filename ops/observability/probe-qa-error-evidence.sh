@@ -13,8 +13,6 @@
 #   USER_AGENT_LIKE optional user-agent substring
 set -eu
 
-PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
-
 # Canonical app-container resolver (ops/lib/resolve-app-container.sh) owns the
 # active-color + running-candidate logic. An unresolved container degrades the
 # local-blob existence check below rather than reporting evidence as missing.
@@ -41,6 +39,9 @@ for name in WINDOW_MINUTES STATUS_CODE; do
     ''|*[!0-9]*) echo "[probe-qa-error-evidence] ERROR: $name must be a non-negative integer" >&2; exit 2 ;;
   esac
 done
+
+TK_PG="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
+PSQL="docker exec $TK_PG psql -U tokenkey -d tokenkey -X -A -t"
 
 sql_quote() {
   printf "%s" "$1" | sed "s/'/''/g"

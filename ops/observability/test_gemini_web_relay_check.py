@@ -84,9 +84,9 @@ class GeminiWebRelayCheckTest(unittest.TestCase):
                 textwrap.dedent(
                     f"""\
                     #!/usr/bin/env bash
-                    if [ "${{1:-}}" = "ps" ]; then
-                      printf '%s\\n' {printf_args}
-                      exit 0
+                    if [ "${{1:-}}" = "inspect" ]; then
+                      for n in {printf_args}; do [ "$n" = "${{@: -1}}" ] && echo true && exit 0; done
+                      exit 1
                     fi
                     if [ "${{1:-}}" = "exec" ]; then
                       printf '%s\\n' "$*" >> {str(exec_log)!r}
@@ -129,12 +129,15 @@ class GeminiWebRelayCheckTest(unittest.TestCase):
             return proc, logged
 
     def test_probe_uses_stage0_postgres_container_when_present(self) -> None:
-        proc, logged = self._run_probe_with_fake_docker(
-            ["tokenkey-postgres", "tk-archive-standby"]
-        )
+        proc, logged = self._run_probe_with_fake_docker(["tokenkey-postgres"])
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
         self.assertIn("tokenkey-postgres", logged)
-        self.assertNotIn("tk-archive-standby", logged)
+
+    def test_probe_fails_closed_when_both_postgres_names_run(self) -> None:
+        # Shared resolver contract: several running candidates is ambiguous.
+        proc, logged = self._run_probe_with_fake_docker(["tokenkey-postgres", "tk-archive-standby"])
+        self.assertEqual(proc.returncode, 2, proc.stderr + proc.stdout)
+        self.assertEqual("", logged)
 
     def test_probe_falls_back_to_layout_exception_postgres(self) -> None:
         proc, logged = self._run_probe_with_fake_docker(["tk-archive-standby"])

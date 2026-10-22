@@ -29,7 +29,8 @@ case "${MODE}" in
     [[ "${PLAN_HASH}" =~ ^[0-9a-f]{64}$ ]] || { echo "qa-single-owner-via-ssm: valid plan hash required" >&2; exit 40; }
     expected="tokenkey-prod-qa-single-owner-activate-v1:${PLAN_HASH}"
     [ "${CONFIRM}" = "${expected}" ] || { echo "qa-single-owner-via-ssm: confirmation mismatch" >&2; exit 40; }
-    remote_command="set -euo pipefail; sudo /usr/local/bin/tokenkey-qa-maintenance.sh --activate-single-owner --plan-hash=${PLAN_HASH} --confirm=${CONFIRM}; test \"\$(sudo systemctl show tokenkey-qa-boundary.timer --property=UnitFileState --value)\" = disabled; test \"\$(sudo systemctl show tokenkey-qa-boundary.timer --property=ActiveState --value)\" = inactive; sudo systemctl is-enabled --quiet tokenkey-qa-maintenance.timer; sudo systemctl is-active --quiet tokenkey-qa-maintenance.timer; test \"\$(docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -c \"SELECT count(*) FROM qa_lifecycle_receipts WHERE phase='single_owner_activate'\" | tr -d '[:space:]')\" = 1"
+    pg_resolve="$(python3 "$(dirname "${BASH_SOURCE[0]}")/../lib/resolve_app_container.py" snippet postgres)"
+    remote_command="set -euo pipefail; ${pg_resolve}; sudo /usr/local/bin/tokenkey-qa-maintenance.sh --activate-single-owner --plan-hash=${PLAN_HASH} --confirm=${CONFIRM}; test \"\$(sudo systemctl show tokenkey-qa-boundary.timer --property=UnitFileState --value)\" = disabled; test \"\$(sudo systemctl show tokenkey-qa-boundary.timer --property=ActiveState --value)\" = inactive; sudo systemctl is-enabled --quiet tokenkey-qa-maintenance.timer; sudo systemctl is-active --quiet tokenkey-qa-maintenance.timer; test \"\$(docker exec \"\$TK_PG\" psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -c \"SELECT count(*) FROM qa_lifecycle_receipts WHERE phase='single_owner_activate'\" | tr -d '[:space:]')\" = 1"
     ;;
   *)
     echo "usage: $0 plan|activate <prod-instance-id> [--plan-hash=<sha256> --confirm=<token>]" >&2

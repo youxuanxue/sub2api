@@ -596,5 +596,45 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn('max_budget_usd: "8.00"', repair)
 
 
+class DataContainerResolutionTest(unittest.TestCase):
+    """Host-side PG/Redis names come from the canonical resolver, never literals."""
+
+    def _heredoc(self, marker: str) -> str:
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        for step in jobs["log-dump"]["steps"]:
+            run = step.get("run") or ""
+            if marker in run:
+                start = run.index(marker) + len(marker)
+                return run[start:run.index("\nPY\n", start)]
+        raise AssertionError("log-dump heredoc not found")
+
+    def _log_dump_commands(self, container: str) -> str:
+        script = self._heredoc("python3 - <<'PY' > ssm-params.json\n")
+        env = {**os.environ, "INPUT_CONTAINER": container, "INPUT_SINCE": "10m",
+               "INPUT_TAIL": "100", "GREP_B64": ""}
+        out = subprocess.run([sys.executable, "-c", script], cwd=REPO_ROOT, env=env,
+                             capture_output=True, text=True, check=True).stdout
+        return json.loads(out)["commands"][0]
+
+    def test_log_dump_resolves_logical_containers(self) -> None:
+        pg = self._log_dump_commands("tokenkey-postgres")
+        self.assertIn("tk-archive-standby", pg)
+        self.assertIn('docker logs "$LOG_CONTAINER"', pg)
+        redis = self._log_dump_commands("tokenkey-redis")
+        self.assertIn("tk-cutover-prod-redis", redis)
+        app = self._log_dump_commands("tokenkey")
+        self.assertIn("active-color", app)
+        self.assertNotIn("docker logs tokenkey ", app)
+        caddy = self._log_dump_commands("tokenkey-caddy")
+        self.assertIn("LOG_CONTAINER=tokenkey-caddy", caddy)
+
+    def test_inline_commands_never_hardcode_data_container_exec(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        for literal in ("PG=tokenkey-postgres;", "exec tokenkey-postgres", "exec tokenkey-redis",
+                        "for c in tokenkey-postgres tk-archive-standby"):
+            self.assertNotIn(literal, text)
+        self.assertIn('_tk.data_container_shell_snippet("postgres", docker="sudo docker", variable="PG")', text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,18 @@
 # admin Dashboard/Usage group-distribution rollup candidates.
 set -euo pipefail
 
-PSQL="${PSQL:-docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t}"
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+if [ -z "${PSQL:-}" ]; then
+  TK_PG="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
+fi
+PSQL="${PSQL:-docker exec $TK_PG psql -U tokenkey -d tokenkey -X -A -t}"
 INCLUDE_EXPLAIN="${INCLUDE_EXPLAIN:-0}"
 EXPLAIN_SECTION="${EXPLAIN_SECTION:-all}"
 REQUIRED_GROUP_DAILY_COLUMNS="total_requests,input_tokens,output_tokens,cache_creation_tokens,cache_read_tokens,total_cost,actual_cost,account_cost"

@@ -8,7 +8,6 @@
     "https_watch_hostname": "VM-0-16-ubuntu",
     "region": "ap-northeast-1",
     "ip": "3.114.187.250",
-    "live_public_ip": "43.162.83.233",
     "domain": "api.tokenkey.dev",
     "domains": [
       "tokenkey.dev",

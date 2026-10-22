@@ -39,7 +39,7 @@
 #   ops/stage0/check_exclusive_group_orphans_via_ssm.sh <instance_id> [comment]
 # Env:
 #   AWS_REGION / AWS_DEFAULT_REGION  region (else AWS default chain)
-#   PG_CONTAINER  postgres container name (default tokenkey-postgres)
+#   PG_CONTAINER  postgres container name (default: resolved on host, Stage0 or Tencent name)
 #   PG_USER       psql user (default tokenkey)
 #   PG_DB         psql db   (default tokenkey)
 #   SSM_TIMEOUT_SECONDS  invocation wait budget (default 120)
@@ -52,7 +52,7 @@ set -euo pipefail
 
 INSTANCE_ID="${1:-${INSTANCE_ID:-}}"
 COMMENT="${2:-stage0 exclusive-group orphan check}"
-PG_CONTAINER="${PG_CONTAINER:-tokenkey-postgres}"
+PG_CONTAINER="${PG_CONTAINER:-}"
 PG_USER="${PG_USER:-tokenkey}"
 PG_DB="${PG_DB:-tokenkey}"
 SSM_TIMEOUT_SECONDS="${SSM_TIMEOUT_SECONDS:-120}"
@@ -76,7 +76,12 @@ B64="$(printf '%s' "${ORPHAN_SQL}" | base64 | tr -d '\n')"
 # One SSM command element → no unconditional-execution trap (a multi-element
 # AWS-RunShellScript array runs every element without `set -e`; a single `&&`-
 # chained element fails as a unit). The base64 → psql pipe is the whole job.
-REMOTE_CMD="set -euo pipefail && printf %s '${B64}' | base64 -d | docker exec -i ${PG_CONTAINER} psql -U ${PG_USER} -d ${PG_DB} -At -F '|'"
+if [ -n "${PG_CONTAINER}" ]; then
+  PG_RESOLVE="TK_PG=${PG_CONTAINER}"
+else
+  PG_RESOLVE="$(python3 "$(dirname "${BASH_SOURCE[0]}")/../lib/resolve_app_container.py" snippet postgres)"
+fi
+REMOTE_CMD="set -euo pipefail && ${PG_RESOLVE} && printf %s '${B64}' | base64 -d | docker exec -i \"\$TK_PG\" psql -U ${PG_USER} -d ${PG_DB} -At -F '|'"
 
 params_file="$(mktemp)"
 stdout_file="$(mktemp)"

@@ -38,7 +38,7 @@ def build_config(role: str, hostname: str, fresh: dict, domestic: dict) -> dict:
         for domain in prod["domains"]:
             if domain != prod["domain"]:
                 targets["prod:" + domain] = "https://" + domain + "/health"
-        # The fallback domain currently routes to AWS; its green result must
+        # The fallback domain routes to Tencent USW prod; its green result must
         # never stand in for the independent UCloud static IP endpoint.
         targets["prod:cn-domain"] = "https://" + domestic["fallback_domain"] + "/health"
         targets["cn-prod"] = domestic["public_origin"].rstrip("/") + "/health"

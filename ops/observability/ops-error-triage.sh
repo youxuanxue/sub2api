@@ -19,8 +19,8 @@
 #   TOP_KIND_LIMIT  max rows in upstream_events aggregation; default 50
 #   TOP_MIN_LIMIT   max rows in per-minute 429 aggregation; default 30
 #
-# Postgres container: Stage0 name tokenkey-postgres, or post-cutover
-# tk-archive-standby (Tencent USW layout exception keeps that name).
+# Postgres container: shared resolver (ops/lib/resolve-app-container.sh) picks
+# the Stage0 or Tencent USW layout name.
 # Resolve AFTER env validation so unit tests with bad WINDOW_* still exit 2.
 set -u
 
@@ -50,17 +50,15 @@ else
   WINDOW_INTERVAL="${WINDOW_HOURS} hour"
 fi
 
-POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-}"
-if [ -z "$POSTGRES_CONTAINER" ]; then
-  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx tokenkey-postgres; then
-    POSTGRES_CONTAINER=tokenkey-postgres
-  elif docker ps --format '{{.Names}}' 2>/dev/null | grep -qx tk-archive-standby; then
-    POSTGRES_CONTAINER=tk-archive-standby
-  else
-    echo "[ops-error-triage] ERROR: no postgres container (want tokenkey-postgres or tk-archive-standby)" >&2
-    exit 1
-  fi
-fi
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+POSTGRES_CONTAINER="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
 PSQL="docker exec ${POSTGRES_CONTAINER} psql -U tokenkey -d tokenkey -X -A -t"
 
 # SQL-escape PATH_FILTER / MODEL_FILTER: double every embedded single quote so the

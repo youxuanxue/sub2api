@@ -117,16 +117,36 @@ def region_for_instance_id(instance_id: str) -> str:
     return region
 
 
-def run_shell_b64(instance_id: str, shell_b64: str, comment: str) -> str:
+def data_container_preamble(*, redis: bool = False, docker: str = "sudo docker") -> str:
+    """Remote preamble exporting TK_PG (and TK_REDIS) from the canonical resolver.
+
+    Pass to run_shell_b64(..., preamble=...) so remote PSQL / redis-cli strings can
+    use "$TK_PG" / "$TK_REDIS" on both the Stage0 and the Tencent USW layout.
+    """
+    path = pathlib.Path(__file__).resolve().parents[1] / "lib" / "resolve_app_container.py"
+    spec = importlib.util.spec_from_file_location("tk_resolve_app_container_ssm", path)
+    if spec is None or spec.loader is None:
+        fail(f"cannot load {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.data_container_preamble(docker=docker, redis=redis)
+
+
+def run_shell_b64(instance_id: str, shell_b64: str, comment: str, *, preamble: str = "") -> str:
     """Run a base64-encoded shell script on prod via SSM; return stdout.
 
     File-backed exec (not pipe-to-bash) so an inner `docker exec -i` cannot slurp the script
     from stdin. `set -uo pipefail` (no -e) so a non-zero inner script still lets us capture
     rc, clean up, and propagate the exit code.
+
+    `preamble` runs in the outer shell before the script; whatever it exports (e.g.
+    TK_PG from resolve_app_container.data_container_preamble) is inherited by the
+    script, and an `exit` in it aborts before the script runs.
     """
     command = (
         "set -uo pipefail\n"
-        f"echo {shell_b64} | base64 -d > /tmp/.tk_ssm_$$.sh\n"
+        + preamble
+        + f"echo {shell_b64} | base64 -d > /tmp/.tk_ssm_$$.sh\n"
         "bash /tmp/.tk_ssm_$$.sh; rc=$?\n"
         "rm -f /tmp/.tk_ssm_$$.sh\n"
         "exit $rc"

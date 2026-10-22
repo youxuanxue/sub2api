@@ -16,6 +16,9 @@ class SyncFeishuConfigTest(unittest.TestCase):
             ops = root / "ops" / "stage0"
             ops.mkdir(parents=True)
             shutil.copyfile(Path(__file__).with_name("sync-feishu-config.sh"), ops / "sync.sh")
+            (root / "ops" / "lib").mkdir(parents=True)
+            shutil.copyfile(Path(__file__).resolve().parents[1] / "lib" / "resolve_app_container.py",
+                            root / "ops" / "lib" / "resolve_app_container.py")
             (ops / "resolve_prod_ssm_target.py").write_text(
                 'import json\nprint(json.dumps({"instance_id":"i-prod-fixture",'
                 '"ssm_region":"ap-northeast-1","target":"aws-fresh"}))\n'
@@ -77,6 +80,9 @@ elif "--query" in args:
             ops = root / "ops" / "stage0"
             ops.mkdir(parents=True)
             shutil.copyfile(Path(__file__).with_name("sync-feishu-config.sh"), ops / "sync.sh")
+            (root / "ops" / "lib").mkdir(parents=True)
+            shutil.copyfile(Path(__file__).resolve().parents[1] / "lib" / "resolve_app_container.py",
+                            root / "ops" / "lib" / "resolve_app_container.py")
             (ops / "resolve_prod_ssm_target.py").write_text(
                 'import json\nprint(json.dumps({"instance_id":"i-prod-fixture",'
                 '"ssm_region":"ap-northeast-1","target":"aws-fresh"}))\n'
@@ -115,6 +121,8 @@ elif "--query" in args:
             self.assertEqual(proc.returncode, 0, proc.stderr)
             body = (root / "ssm-params.json").read_text()
             self.assertIn("tk-archive-standby", body)
+            self.assertIn("tokenkey-postgres tk-archive-standby", body)
+            self.assertNotIn("grep -qx tokenkey-postgres", body)
             self.assertIn("POSTGRES_CONTAINER=", body)
             self.assertIn("$POSTGRES_CONTAINER", body)
             self.assertIn('docker exec \\"$POSTGRES_CONTAINER\\"', body)

@@ -64,8 +64,10 @@ class FakeCommands:
         pg_isready_fails: bool = False,
         tokenkey_db_ready_after: int = 0,
         tokenkey_db_never_ready: bool = False,
+        live_postgres: str = "tokenkey-postgres",
     ) -> None:
         self.calls: list[list[str]] = []
+        self.live_postgres = live_postgres
         self.objects = objects if objects is not None else [
             {
                 "Key": "prod/pgdump/tokenkey-20260818T070000Z.sql.gz",
@@ -104,7 +106,11 @@ class FakeCommands:
         elif args[:3] == ["aws", "s3", "cp"]:
             pathlib.Path(args[4]).write_bytes(self.downloaded)
         elif args[:2] == ["docker", "inspect"] and "{{.State.Running}}" in args:
-            stdout = "true\n"
+            if (self.live_postgres is not None and args[-1] in canary.LIVE_POSTGRES_CANDIDATES
+                    and args[-1] != self.live_postgres):
+                returncode, stderr = 1, "No such container"
+            else:
+                stdout = "true\n"
         elif args[:2] == ["docker", "inspect"] and "{{.Config.Image}}" in args:
             stdout = "postgres:18-alpine\n"
         elif args[:2] == ["docker", "inspect"] and "{{.State.Status}}" in " ".join(args):
@@ -139,9 +145,9 @@ class FakeCommands:
             else:
                 stdout = "1\n"
         elif "canary_usage_evidence" in joined:
-            assert args[2] != "tokenkey-postgres", "usage aggregates must never run against live DB"
+            assert args[2] != self.live_postgres, "usage aggregates must never run against live DB"
             stdout = json.dumps(USAGE) + "\n"
-        elif args[:3] == ["docker", "exec", "tokenkey-postgres"] and "json_build_object" in joined:
+        elif args[:3] == ["docker", "exec", self.live_postgres] and "json_build_object" in joined:
             stdout = json.dumps(LIVE_COUNTS) + "\n"
         elif args[:2] == ["bash", "-o"] and "gunzip -c" in joined:
             stdout = ""
@@ -285,6 +291,27 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
         except Exception:
             temp.cleanup()
             raise
+
+    def test_tencent_layout_live_postgres_is_resolved_not_assumed(self) -> None:
+        fake = FakeCommands(live_postgres="tk-archive-standby")
+        temp, _root, result = self.run_case(fake)
+        temp.cleanup()
+        self.assertEqual(result["live_counts"], LIVE_COUNTS)
+        execs = [call for call in fake.calls if call[:2] == ["docker", "exec"]]
+        self.assertTrue(any(call[2] == "tk-archive-standby" for call in execs))
+        self.assertFalse(any(call[2] == "tokenkey-postgres" for call in execs))
+
+    def test_ambiguous_live_postgres_fails_closed(self) -> None:
+        fake = FakeCommands()
+        fake.live_postgres = None  # no candidate is filtered: both report running
+        with self.assertRaisesRegex(canary.CanaryError, "ambiguous"):
+            temp, _root, _result = self.run_case(fake)
+            temp.cleanup()
+        probed = [call[-1] for call in fake.calls
+                  if call[:2] == ["docker", "inspect"] and "{{.State.Running}}" in call]
+        self.assertEqual(probed, list(canary.LIVE_POSTGRES_CANDIDATES))
+        self.assertFalse(any(call[:2] == ["docker", "exec"] and call[2] in canary.LIVE_POSTGRES_CANDIDATES
+                             for call in fake.calls))
 
     def test_success_restores_newest_s3_object_and_publishes_after_cleanup(self) -> None:
         fake = FakeCommands(

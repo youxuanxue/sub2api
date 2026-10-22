@@ -10,8 +10,18 @@
 #   OUTBOX_LIMIT — recent scheduler_outbox rows (default: 20)
 set -u
 
-PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
-RC='docker exec tokenkey-redis redis-cli'
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+TK_PG="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
+TK_REDIS="$(tk_require_redis_container "${REDIS_CONTAINER:-auto}")" || exit 1
+PSQL="docker exec $TK_PG psql -U tokenkey -d tokenkey -X -A -t"
+RC="docker exec $TK_REDIS redis-cli"
 
 GROUP_ID="${GROUP_ID:?GROUP_ID required}"
 PLATFORM="${PLATFORM:-gemini}"

@@ -26,6 +26,8 @@ class ProbeKiroTLSProfileParityTest(unittest.TestCase):
                 textwrap.dedent(
                     """\
                     #!/usr/bin/env bash
+                    if [ "$1" = inspect ]; then [ "${@: -1}" = tk-archive-standby ] && echo true && exit 0; exit 1; fi
+                    [ "$2" = tk-archive-standby ] || exit 8
                     case "$*" in
                       *"FROM tls_fingerprint_profiles"*"WHERE name = 'tk_canonical_kiro_cli'"*)
                         echo '{"name":"tk_canonical_kiro_cli","enable_grease":false,"shuffle_extensions":true,"cipher_suites":[1],"curves":[2],"point_formats":[0],"signature_algorithms":[3],"alpn_protocols":[],"supported_versions":[772],"key_share_groups":[29],"psk_modes":[1],"extensions":[0]}'
@@ -57,7 +59,12 @@ class ProbeKiroTLSProfileParityTest(unittest.TestCase):
             fakebin = Path(td) / "bin"
             fakebin.mkdir()
             docker = fakebin / "docker"
-            docker.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            docker.write_text(
+                "#!/usr/bin/env bash\n"
+                'if [ "$1" = inspect ]; then [ "${@: -1}" = tokenkey-postgres ] && echo true && exit 0; exit 1; fi\n'
+                "exit 0\n",
+                encoding="utf-8",
+            )
             docker.chmod(0o755)
             proc = subprocess.run(
                 ["bash", str(SCRIPT)],

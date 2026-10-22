@@ -6,8 +6,8 @@
 # that when `deploy_via_ssm.sh` later runs `docker compose pull tokenkey` the
 # layers are already on disk and the in-band pull collapses to a ~3s manifest
 # no-op. The image pull is the single largest variable in the deploy SSM step
-# (a cold pull of the multi-arch Go image measured ~150s on a prod t4g.small,
-# 2026-06-13); moving it into a separate earlier round-trip takes it off the
+# (a cold pull of the multi-arch Go image measured ~150s on the former arm64
+# prod host, 2026-06-13); moving it into a separate earlier round-trip takes it off the
 # deploy-stage0 critical path.
 #
 # What this script does (and ONLY this — it is deliberately read-only):
@@ -28,8 +28,9 @@
 # A failed warm is non-fatal to the deploy: the later in-band `compose pull`
 # simply pays the full pull as it does today.
 #
-# Targeting: EC2 i-* (us-east-1) or Hybrid/Lightsail mi-* (set AWS_REGION to the
-# registration region, e.g. eu-west-2 for Hetzner prod staging).
+# Targeting: live prod is the Tencent USW SSM Hybrid mi-* host; set AWS_REGION to
+# the resolver's ssm_region (ops/stage0/resolve_prod_ssm_target.py). EC2 i-* ids
+# still parse for historical hosts.
 
 set -euo pipefail
 

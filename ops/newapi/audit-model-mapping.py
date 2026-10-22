@@ -81,8 +81,8 @@ _SSM = _load("ops/stage0/ssm_execution.py", "tk_ssm_execution_audit_mapping")
 
 
 def ssm_run_sql(region: str, instance_id: str, sql: str, comment: str) -> str:
-    remote = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -t -A -v ON_ERROR_STOP=1"
-    command = f"set -euo pipefail\n{remote} <<'SQL'\n{sql}\nSQL"
+    remote = 'sudo docker exec -i "$TK_PG" psql -U tokenkey -d tokenkey -t -A -v ON_ERROR_STOP=1'
+    command = f"set -euo pipefail\n{_SSM.data_container_preamble()}{remote} <<'SQL'\n{sql}\nSQL"
     params = json.dumps({"commands": [command]}, ensure_ascii=False)
     try:
         cid = subprocess.check_output(

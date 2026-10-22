@@ -40,8 +40,10 @@ READ_MAX_ATTEMPTS = 3
 RUNTIME_CHUNK_BYTES = 12 << 10
 MAX_RUNTIME_DOCUMENT_BYTES = 12 << 20
 
-PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
-REDISCLI = "sudo docker exec tokenkey-redis env -u REDISCLI_AUTH redis-cli"
+# "$TK_PG" / "$TK_REDIS" are exported on the host by the canonical resolver
+# preamble (ssm_execution.data_container_preamble) shipped with every remote script.
+PSQL = "sudo docker exec -i $TK_PG psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
+REDISCLI = "sudo docker exec $TK_REDIS env -u REDISCLI_AUTH redis-cli"
 
 _ssm_spec = __import__("importlib.util").util.spec_from_file_location(
     "tk_ssm_execution", REPO_ROOT / "ops" / "stage0" / "ssm_execution.py"
@@ -234,7 +236,7 @@ def load_origin_main_artifact(*, require_publishable_checkout: bool) -> Registry
 
 def _run_pricing_shell(instance_id: str, shell: str, comment: str) -> str:
     shell_b64 = base64.b64encode(shell.encode("utf-8")).decode("ascii")
-    return _SSM.run_shell_b64(instance_id, shell_b64, comment)
+    return _SSM.run_shell_b64(instance_id, shell_b64, comment, preamble=_SSM.data_container_preamble(redis=True))
 
 
 def _read_runtime_metadata(instance_id: str) -> tuple[str, int] | None:
@@ -442,7 +444,8 @@ def _write_runtime_document(
     if len(shell_b64) > 90_000:
         fail(f"encoded sync payload is {len(shell_b64)} bytes; refusing oversized SSM command")
     output = _SSM.run_shell_b64(
-        instance_id, shell_b64, "pricing registry: publish protected-main snapshot"
+        instance_id, shell_b64, "pricing registry: publish protected-main snapshot",
+        preamble=_SSM.data_container_preamble(redis=True),
     )
     print(output)
     lines = output.splitlines()

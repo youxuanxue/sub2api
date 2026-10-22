@@ -92,8 +92,10 @@ _bundle_spec = importlib.util.spec_from_file_location(
 _BUNDLE = importlib.util.module_from_spec(_bundle_spec)
 _bundle_spec.loader.exec_module(_BUNDLE)
 
-PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
-REDISCLI = "sudo docker exec tokenkey-redis env -u REDISCLI_AUTH redis-cli"
+# "$TK_PG" / "$TK_REDIS" are exported on the host by the canonical resolver
+# preamble (_data_container_preamble) that _ssm_run_shell_b64_region prepends.
+PSQL = "sudo docker exec -i $TK_PG psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
+REDISCLI = "sudo docker exec $TK_REDIS env -u REDISCLI_AUTH redis-cli"
 APPLY_CONFIRM = "yes-apply-account-model-mapping"
 RUNTIME_MUTATION_CONFIRM = "yes-change-account-model-mapping-runtime"
 VERTEX_PROFILE_ASSIGN_CONFIRM = "yes-assign-vertex-capability-profiles"
@@ -221,12 +223,27 @@ def read_runtime_blob(region: str, instance_id: str) -> dict:
     return normalize_runtime_doc(raw)
 
 
-def _ssm_run_shell_b64_region(region: str, instance_id: str, shell_b64: str, comment: str) -> str:
+def _data_container_preamble() -> str:
+    spec = importlib.util.spec_from_file_location(
+        "tk_resolve_app_container_mapping", Path(__file__).resolve().parents[1] / "lib" / "resolve_app_container.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.data_container_preamble(docker="sudo docker", redis=True)
+
+
+def _ssm_run_shell_b64_region(
+    region: str, instance_id: str, shell_b64: str, comment: str, *, preamble: str | None = None
+) -> str:
+    # Every remote script here talks to PG/Redis; default to the resolver preamble.
+    if preamble is None:
+        preamble = _data_container_preamble()
     # Hybrid hosts start RunShellScript in dash. Match ops/stage0/ssm_execution.py:
     # keep inner bash semantics (`set -uo pipefail`), but invoke the wrapper via bash -c.
     command = (
         "set -uo pipefail\n"
-        f"echo {shell_b64} | base64 -d > /tmp/.tk_ssm_$$.sh\n"
+        + preamble
+        + f"echo {shell_b64} | base64 -d > /tmp/.tk_ssm_$$.sh\n"
         "bash /tmp/.tk_ssm_$$.sh; rc=$?\n"
         "rm -f /tmp/.tk_ssm_$$.sh\n"
         "exit $rc"
@@ -271,7 +288,7 @@ def _run_check_sql_json(region: str, instance_id: str, label: str) -> dict[str, 
     sql_b64 = base64.b64encode(ACCOUNT_MODEL_MAPPING_CHECK_SQL.encode("utf-8")).decode("ascii")
     shell = (
         "set -euo pipefail\n"
-        f"PSQL='{PSQL}'\n"
+        f"PSQL=\"{PSQL}\"\n"
         f"echo {sql_b64} | base64 -d | $PSQL | gzip -c | base64 | tr -d '\\n'\n"
     )
     out = _ssm_run_shell_b64_region(
@@ -1091,7 +1108,7 @@ def _apply_targeted_plan_remote(plan: dict[str, Any]) -> str:
     sql_b64 = base64.b64encode(sql.encode("utf-8")).decode("ascii")
     shell = (
         "set -euo pipefail\n"
-        f"PSQL='{PSQL}'\n"
+        f"PSQL=\"{PSQL}\"\n"
         f"echo {sql_b64} | base64 -d | $PSQL\n"
         "echo TARGETED_APPLY_OK\n"
     )
@@ -1242,7 +1259,7 @@ def _apply_vertex_profile_assignment_plan(plan: dict[str, Any]) -> str:
         return "PROFILE_ASSIGN_OK"
     shell = (
         "set -euo pipefail\n"
-        f"PSQL='{PSQL}'\n"
+        f"PSQL=\"{PSQL}\"\n"
         f"echo {base64.b64encode(sql.encode('utf-8')).decode('ascii')} | base64 -d | $PSQL\n"
         "echo PROFILE_ASSIGN_OK\n"
     )
@@ -1366,7 +1383,7 @@ def _apply_plan_remote(plan: dict[str, Any]) -> str:
     sql_b64 = base64.b64encode(sql.encode("utf-8")).decode("ascii")
     shell = (
         "set -euo pipefail\n"
-        f"PSQL='{PSQL}'\n"
+        f"PSQL=\"{PSQL}\"\n"
         f"echo {sql_b64} | base64 -d | $PSQL\n"
         "echo APPLY_OK\n"
     )
@@ -1824,8 +1841,8 @@ def cmd_apply_accounts(args) -> int:
 def _publish_settings_updated(region: str, instance_id: str, sql: str, comment: str) -> str:
     shell = (
         "set -uo pipefail\n"
-        f"PSQL='{PSQL}'\n"
-        f"RC='{REDISCLI}'\n"
+        f"PSQL=\"{PSQL}\"\n"
+        f"RC=\"{REDISCLI}\"\n"
         "echo '=== update tk_account_model_mapping_runtime ==='\n"
         f"$PSQL -c \"{sql}\" </dev/null && echo UPDATE_OK\n"
         "echo '=== publish settings_updated (fan-out reload) ==='\n"
@@ -1849,8 +1866,8 @@ def _sync_runtime_target(label: str, region: str, instance_id: str, payload: byt
     )
     shell = (
         "set -uo pipefail\n"
-        f"PSQL='{PSQL}'\n"
-        f"RC='{REDISCLI}'\n"
+        f"PSQL=\"{PSQL}\"\n"
+        f"RC=\"{REDISCLI}\"\n"
         f"JSON_B64=\"$(echo {gz_b64} | base64 -d | gunzip | base64 | tr -d '\\n')\"\n"
         "echo '=== update tk_account_model_mapping_runtime ==='\n"
         f"$PSQL -c \"{sql}\" </dev/null && echo UPDATE_OK\n"
@@ -3169,6 +3186,7 @@ def cmd_selftest(_args) -> int:
             "mi-033c9569c7fb8b884",
             base64.b64encode(b"printf ok\n").decode("ascii"),
             "selftest dash-safe transport",
+            preamble="",
         )
     assert out == "ok"
     assert len(captured_params) == 1
@@ -3184,6 +3202,19 @@ def cmd_selftest(_args) -> int:
     )
     assert dash_probe.returncode == 0, dash_probe.stderr
     assert "ok" in dash_probe.stdout
+
+    # Default transport resolves PG/Redis on the host (Stage0 or Tencent names)
+    # before the script; an unresolved container aborts instead of exec'ing a guess.
+    captured_params.clear()
+    with patch.object(subprocess, "check_output", side_effect=_fake_ssm_aws), \
+         patch.object(subprocess, "run"):
+        _ssm_run_shell_b64_region("eu-west-2", "mi-033c9569c7fb8b884",
+                                  base64.b64encode(b"printf ok\n").decode("ascii"), "selftest preamble")
+    default_command = captured_params[0]["commands"][0]
+    for name in ("tokenkey-postgres", "tk-archive-standby", "tokenkey-redis", "tk-cutover-prod-redis"):
+        assert name in default_command, name
+    assert "tokenkey-postgres psql" not in PSQL and "$TK_PG" in PSQL
+    assert "$TK_REDIS" in REDISCLI
 
     print("selftest ok")
     return 0

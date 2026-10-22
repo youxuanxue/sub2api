@@ -3,7 +3,15 @@
 set -euo pipefail
 
 APP_CONTAINER="${APP_CONTAINER:-tokenkey-blue}"
-PG_CONTAINER="${PG_CONTAINER:-tokenkey-postgres}"
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+PG_CONTAINER="$(tk_require_postgres_container "${PG_CONTAINER:-auto}")" || exit 1
 
 psql_q() {
   docker exec "$PG_CONTAINER" psql -U tokenkey -d tokenkey -Atqc "$1"

@@ -83,20 +83,26 @@ tk_resolve_app_container() {
   printf '%s\n' "$found"
 }
 
-# tk_resolve_postgres_container [NAME|auto] -> prints the running PostgreSQL
-# container. Stage0 names it tokenkey-postgres; the Tencent USW layout exception
-# keeps tk-archive-standby (network alias postgres). Network aliases do not help
-# `docker exec`, so probes must resolve the real name. Exactly one running
-# candidate is required; otherwise fail closed.
+# Data-layer containers. Stage0 names them tokenkey-postgres / tokenkey-redis;
+# the Tencent USW layout exception keeps the cutover names tk-archive-standby /
+# tk-cutover-prod-redis and only adds network aliases (postgres, redis,
+# tokenkey-postgres, tokenkey-redis). Network aliases resolve inside the Docker
+# network but never for a host-side `docker exec`, so host probes must resolve the
+# real container name. Same fail-closed rule as the app: an explicit name must be
+# running; otherwise exactly one running candidate is required.
 TK_POSTGRES_CONTAINER_CANDIDATES="tokenkey-postgres tk-archive-standby"
-tk_resolve_postgres_container() {
+TK_REDIS_CONTAINER_CANDIDATES="tokenkey-redis tk-cutover-prod-redis"
+
+# _tk_resolve_single_running REQUESTED CANDIDATES... -> prints the one running name.
+_tk_resolve_single_running() {
   local requested="${1:-auto}" candidate found="" count=0
+  shift
   if [ -n "$requested" ] && [ "$requested" != auto ]; then
     tk_container_running "$requested" || return 1
     printf '%s\n' "$requested"
     return 0
   fi
-  for candidate in $TK_POSTGRES_CONTAINER_CANDIDATES; do
+  for candidate in "$@"; do
     if tk_container_running "$candidate"; then
       found="$candidate"
       count=$((count + 1))
@@ -104,4 +110,31 @@ tk_resolve_postgres_container() {
   done
   [ "$count" -eq 1 ] || return 1
   printf '%s\n' "$found"
+}
+
+# tk_resolve_postgres_container [NAME|auto] -> prints the running PostgreSQL container.
+tk_resolve_postgres_container() {
+  # shellcheck disable=SC2086  # candidate list is a fixed space-separated literal.
+  _tk_resolve_single_running "${1:-auto}" $TK_POSTGRES_CONTAINER_CANDIDATES
+}
+
+# tk_resolve_redis_container [NAME|auto] -> prints the running Redis container.
+tk_resolve_redis_container() {
+  # shellcheck disable=SC2086  # candidate list is a fixed space-separated literal.
+  _tk_resolve_single_running "${1:-auto}" $TK_REDIS_CONTAINER_CANDIDATES
+}
+
+# tk_require_postgres_container / tk_require_redis_container [NAME|auto]
+# Same as the resolvers, but print a readable reason on stderr when resolution
+# fails so call sites can stay one line: `TK_PG="$(tk_require_postgres_container)" || exit 1`.
+tk_require_postgres_container() {
+  tk_resolve_postgres_container "${1:-auto}" && return 0
+  echo "postgres container unresolved (want exactly one running of: $TK_POSTGRES_CONTAINER_CANDIDATES)" >&2
+  return 1
+}
+
+tk_require_redis_container() {
+  tk_resolve_redis_container "${1:-auto}" && return 0
+  echo "redis container unresolved (want exactly one running of: $TK_REDIS_CONTAINER_CANDIDATES)" >&2
+  return 1
 }

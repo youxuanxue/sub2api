@@ -10,8 +10,13 @@ import subprocess
 import tempfile
 
 import sys
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from resolve_app_container import resolve
+# run-probe.sh ships resolve_app_container.py (and --with the matrix) to /tmp next
+# to this file; a repo checkout finds them under ops/lib and deploy/tencent.
+_HERE = Path(__file__).resolve().parent
+sys.path[:0] = [str(_HERE), str(_HERE.parent / "lib")]
+from resolve_app_container import resolve, resolve_postgres, resolve_redis  # noqa: E402
+
+MATRIX_NAME = "candidate-usw-20261022.json"
 
 LEGACY = {"MEDIA_STORAGE_DRIVER": "s3", "MEDIA_STORAGE_REGION": "us-east-1",
           "MEDIA_STORAGE_BUCKET": "tokenkey-prod-media-682751977094"}
@@ -28,6 +33,26 @@ def clean(text):
     return "\n".join(line for line in lines if line.partition("=")[0] not in LEGACY) + "\n"
 
 
+def prod_identity(candidates=None):
+    """Live prod hostname from the Tencent matrix (deploy/tencent SSOT), or raise.
+
+    The retired Hetzner matrix named a host that no longer exists, so the old check
+    could never pass. The Tencent matrix is the resolver's live-prod contract.
+    """
+    explicit = os.environ.get("TK_TENCENT_PROD_MATRIX", "").strip()
+    paths = [Path(explicit)] if explicit else [
+        _HERE / MATRIX_NAME, _HERE.parents[1] / "deploy" / "tencent" / MATRIX_NAME]
+    for path in paths if candidates is None else candidates:
+        try:
+            target = json.loads(path.read_text())["target"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if target.get("deployable") is not True or not target.get("hostname"):
+            raise RuntimeError("prod_matrix_not_live")
+        return target["hostname"]
+    raise RuntimeError("prod_matrix_missing")
+
+
 def run(args, *, purpose="readiness", env=None):
     result = subprocess.run(args, capture_output=True, text=True, timeout=30, env=env)
     if result.returncode:
@@ -41,16 +66,18 @@ def main():
         raise RuntimeError("invalid_apply_guard")
     parser.add_argument("--apply", action="store_true", default=os.environ.get("APPLY") == "yes-retire-dormant-media")
     args = parser.parse_args()
-    matrix = json.loads(Path(__file__).with_name("prod-target-hetzner.json").read_text())
-    if socket.gethostname() != matrix["target"]["instance_name"]:
+    if socket.gethostname() != prod_identity():
         raise RuntimeError("prod_identity_mismatch")
     app, _ = resolve()
     if app is None:
         raise RuntimeError("live_app_unresolved")
+    postgres, redis = resolve_postgres(), resolve_redis()
+    if postgres is None or redis is None:
+        raise RuntimeError("data_container_unresolved")
     env = json.loads(run(["docker", "inspect", "--format", "{{json .Config.Env}}", app], purpose="app_env"))
     if any(value.startswith("MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED=") and value.split("=", 1)[1].lower() not in {"", "false", "0"} for value in env):
         raise RuntimeError("live_image_offload_enabled")
-    settings = run(["docker", "exec", "-e", "PGOPTIONS=-c default_transaction_read_only=on", "tokenkey-postgres", "psql",
+    settings = run(["docker", "exec", "-e", "PGOPTIONS=-c default_transaction_read_only=on", postgres, "psql",
                     "-U", "tokenkey", "-d", "tokenkey", "-XAtc",
                     "SELECT count(*) FROM settings WHERE key='image_storage_config';"], purpose="settings")
     if settings != "0":
@@ -66,7 +93,7 @@ def main():
         redis_env.pop("REDISCLI_AUTH", None)
     # The Redis container may carry a stale REDISCLI_AUTH even when the server
     # has no password. Explicitly clear it rather than authenticating with it.
-    keys = run(["docker", "exec", *redis_flags, "tokenkey-redis", "sh", "-c",
+    keys = run(["docker", "exec", *redis_flags, redis, "sh", "-c",
                 'if [ -z "${REDISCLI_AUTH:-}" ]; then unset REDISCLI_AUTH; fi; exec redis-cli "$@"',
                 "sh", "-n", values.get("REDIS_DB", "0"),
                 "--scan", "--pattern", "tk:newapi:video_task:*"], purpose="redis", env=redis_env)
