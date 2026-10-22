@@ -135,7 +135,7 @@ Redis 默认新建；若会话/幂等功能有持久需求，按其 owner 单独
 ## 腾讯云正式运行的具体待办
 
 - **发布目标**：2026-10-22 切流后 `resolve_prod_ssm_target.py --target auto` → 腾讯美西（矩阵 `deployable=true`）。`aws-fresh` 为冻结 Tokyo，默认拒绝（保留只读须 `ALLOW_FROZEN_TOKYO_TARGET=1`）。
-- **宿主存储契约**：`bluegreen_host_runtime.py` 的 Hybrid 路径目前要求 Hetzner `/dev/disk/by-id/scsi-0HC_Volume_*`。腾讯加密挂载不能冒用该身份；需增加明确的加密设备/挂载校验并覆盖未解锁、挂错盘、重启和回滚场景。
+- **宿主存储契约**：`bluegreen_host_runtime.py` 默认 `--platform=tencent-luks`（Hetzner Cloud 已退役）；腾讯路径要求 dm-crypt mapper，并拒绝 Hetzner volume 身份。
 - **持续 AWS 身份**：现有 SSM 注册已成功，但不会自动赋予 pgBackRest S3 权限。跨夜 STS 只读会话的实际到期时间以现场为准；持久 standby 需可续期的只读身份，新主库需独立前缀的备份写身份，并验证过期/撤销后的行为。
   `ops/stage0/tencent_backup_identity.py policy` 生成仅限腾讯主机实际 STS UserId 的策略草案；
   旧 `prod/postgres/` 只读，独立 `candidates/tencent-usw-20261022/` 可管理备份对象，

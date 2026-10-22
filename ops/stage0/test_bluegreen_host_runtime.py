@@ -96,14 +96,14 @@ class HostRuntimeTest(unittest.TestCase):
         def response(source='/dev/sdb', target=str(root), fstype='ext4'):
             return lambda *a, **kw: json.dumps({'filesystems': [{'source': source, 'target': target, 'fstype': fstype}]})
         with patch.object(Path, 'glob', return_value=[Path('/dev/sdb')]):
-            check_volume(root, response())
+            check_volume(root, response(), platform='hetzner')
             for run in (response(target='/'), response(source='/dev/root'), response(fstype='tmpfs')):
                 with self.assertRaises(ValueError):
-                    check_volume(root, run)
+                    check_volume(root, run, platform='hetzner')
         def missing(*args, **kwargs):
             raise subprocess.CalledProcessError(1, args[0])
         with self.assertRaises(subprocess.CalledProcessError):
-            check_volume(root, missing)
+            check_volume(root, missing, platform='hetzner')
 
     def test_tencent_luks_mapper_accepted_and_hetzner_identity_refused(self):
         root = Path('/srv/tokenkey-rehearsal')

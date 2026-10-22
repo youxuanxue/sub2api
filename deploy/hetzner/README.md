@@ -1,5 +1,7 @@
 # TokenKey 现网舰队 · 腾讯美西 prod 与美西出口代理
 
+> **目录名 `deploy/hetzner/` 为历史路径。** Hetzner Cloud prod 已退役；`PROD_SSM_TARGET=hetzner` 与 `deploy-prod-hetzner-stage0` 供给均失败关闭。本文件仍是现网舰队 SSOT（腾讯美西）。
+
 **SSOT：** 现网节点 / 公网 IP / CIDR / GHCR PAT 路径 / 发版入口 **只在本文件叙述**；其它文档与 skill 只留指针，勿复制数值。
 审批基线（决策锁，无 IP 表）：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
 切流回执：[`docs/ops/reports/tencent-cutover-20261022.json`](../../docs/ops/reports/tencent-cutover-20261022.json)
@@ -118,10 +120,10 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 | 变量 | 语义 |
 |---|---|
 | `PROD_SSM_TARGET` | `auto`/未设置 → 腾讯美西（矩阵 `deployable=true`）；显式 `tencent-usw-candidate` 同路径。`aws-fresh` 为冻结 Tokyo，默认拒绝（保留只读须 `ALLOW_FROZEN_TOKYO_TARGET=1`）。`hetzner` / `aws` 已退役身份直接拒绝。GitHub Actions 仓库变量须为 `auto`，勿钉死 `aws-fresh`。 |
-| `AWS_REGION` / `AWS_DEFAULT_REGION` | AWS API 区域。SSM 命令必须用 resolver 返回的 `ssm_region`，不能拿 hcloud `fsn1` 或旧 EC2 region 代替；QA/S3 仍按各自存储区域 |
+| `AWS_REGION` / `AWS_DEFAULT_REGION` | AWS API 区域。SSM 命令必须用 resolver 返回的 `ssm_region`，不能拿历史 hcloud `fsn1` 或旧 EC2 region 代替；QA/S3 仍按各自存储区域 |
 | `AWS_OIDC_ROLE_ARN` / `AWS_SHARED_CREDENTIALS_FILE` | 仍用于 Hybrid 控制面与现有 AWS 计算及数据依赖；凭据内容不可打印 |
 | `PROD_STACK_NAME` / `STACK_NAME` | 历史 AWS 或仍在使用的 QA/备份 CFN；不能代替当前 prod 身份 |
-| `HCLOUD_TOKEN` | hcloud 资源管理；普通镜像升级走 SSM，不重新 provision |
+| `HCLOUD_TOKEN` | **已退役**；勿再用于 TokenKey prod 供给 |
 | `HCLOUD_S3_Access_Key` / `HCLOUD_S3_Secret_Key` | 本机受保护的对象存储凭据；不输出、不入库 |
 | `QA_*` | QA 独立迁移契约；不得因网关迁完而直接切换默认值 |
 | `QA_LIVE_ARCHIVE_*`（脚本内部常量） | 现行 QA raw 坐标由 `ops/stage0/qa-runtime-environment.sh` 统一持有；prod 蓝绿发布缺失或偏离这些坐标、意外配置静态凭据时直接失败。AWS IAM/raw 策略检查兼容保留 `--legacy-aws` 参数 |

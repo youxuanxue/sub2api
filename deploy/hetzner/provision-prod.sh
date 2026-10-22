@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Provision TokenKey prod on Hetzner: Volume + server + SSM Hybrid + compose.
-# Staging only — never flips formal DNS (api.tokenkey.dev) or deployable=true.
+# RETIRED: Hetzner Cloud prod provision. Live prod is Tencent USW.
+# Kept only so dry-run / unit paths continue to fail closed via the retired matrix.
 set -euo pipefail
+
+echo "ERROR: Hetzner Cloud prod is retired; use Tencent USW (see deploy/hetzner/README.md fleet SSOT)." >&2
+exit 2
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 RESOLVER="${ROOT}/deploy/hetzner/resolve-prod-hetzner-target.py"

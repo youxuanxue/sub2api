@@ -52,7 +52,7 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self.mod.resolve_mode("auto")
 
-    def test_env_hetzner_wins(self) -> None:
+    def test_env_hetzner_selects_retired_mode(self) -> None:
         with mock.patch.dict("os.environ", {"PROD_SSM_TARGET": "hetzner"}):
             self.assertEqual(self.mod.resolve_mode("auto"), "hetzner")
 
@@ -65,9 +65,8 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self.mod.resolve_aws("tokenkey-prod-stage0")
 
-    def test_non_deployable_hetzner_matrix_fails_before_cloud_lookup(self) -> None:
-        with mock.patch.object(self.mod, "load_hetzner_matrix", return_value={"deployable": False}), \
-             mock.patch.object(self.mod, "aws_json", side_effect=AssertionError("must reject before AWS")):
+    def test_retired_hetzner_mode_never_queries_cloud(self) -> None:
+        with mock.patch.object(self.mod, "list_instance_information", side_effect=AssertionError("must reject")):
             with self.assertRaises(SystemExit):
                 self.mod.resolve_hetzner(self.mod.DEFAULT_MATRIX)
 
@@ -101,45 +100,7 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
             out = self.mod.resolve_fresh_aws()
             self.assertEqual(out["instance_id"], row["instance_id"])
 
-    def test_resolve_hetzner_by_computer_name(self) -> None:
-        matrix = {
-            "target": {
-                "deployable": True,
-                "instance_name": "tokenkey-prod-hz-cax21",
-                "ssm_region": "eu-west-2",
-                "domain": "api.tokenkey.dev",
-            }
-        }
-        info = {
-            "InstanceInformationList": [
-                {
-                    "InstanceId": "mi-033c9569c7fb8b884",
-                    "ComputerName": "tokenkey-prod-hz-cax21",
-                    "PingStatus": "Online",
-                }
-            ]
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            path = pathlib.Path(tmp) / "m.json"
-            path.write_text(json.dumps({"target": matrix["target"]}), encoding="utf-8")
-            with mock.patch.object(self.mod, "aws_json", return_value=info):
-                out = self.mod.resolve_hetzner(path)
-        self.assertEqual(out["instance_id"], "mi-033c9569c7fb8b884")
-        self.assertEqual(out["id"], "mi-033c9569c7fb8b884")
-        self.assertEqual(out["ssm_region"], "eu-west-2")
-        self.assertEqual(out["deploy_profile"], "prod")
-        self.assertEqual(out["api_url"], "https://api.tokenkey.dev")
-        self.assertEqual(out["browser_origin"], "https://tokenkey.dev")
-
-    def test_resolve_hetzner_paginates_instance_information(self) -> None:
-        matrix = {
-            "target": {
-                "deployable": True,
-                "instance_name": "tokenkey-prod-hz-cax21",
-                "ssm_region": "eu-west-2",
-                "domain": "api.tokenkey.dev",
-            }
-        }
+    def test_list_instance_information_paginates(self) -> None:
         pages = [
             {
                 "InstanceInformationList": [
@@ -150,8 +111,8 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
             {
                 "InstanceInformationList": [
                     {
-                        "InstanceId": "mi-033c9569c7fb8b884",
-                        "ComputerName": "tokenkey-prod-hz-cax21",
+                        "InstanceId": "mi-080ed76dc6d97d8b5",
+                        "Name": "tokenkey-usw-rehearsal-20261021",
                         "PingStatus": "Online",
                     }
                 ]
@@ -163,20 +124,10 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
                 return pages[1]
             return pages[0]
 
-        with tempfile.TemporaryDirectory() as tmp:
-            path = pathlib.Path(tmp) / "m.json"
-            path.write_text(json.dumps({"target": matrix["target"]}), encoding="utf-8")
-            with mock.patch.object(self.mod, "aws_json", side_effect=fake_aws):
-                out = self.mod.resolve_hetzner(path)
-        self.assertEqual(out["instance_id"], "mi-033c9569c7fb8b884")
-
-    def test_hybrid_missing_offline_or_ambiguous_never_falls_back(self) -> None:
-        target = self.mod.load_hetzner_matrix(self.mod.DEFAULT_MATRIX)
-        row = {"ComputerName": target["instance_name"], "InstanceId": "mi-0123456789abcdef0", "PingStatus": "Online"}
-        for rows in ([], [{**row, "PingStatus": "ConnectionLost"}], [row, row]):
-            with self.subTest(rows=rows), mock.patch.object(self.mod, "load_hetzner_matrix", return_value={**target, "retired": False}), mock.patch.object(self.mod, "list_instance_information", return_value=rows):
-                with self.assertRaises(SystemExit):
-                    self.mod.resolve_hetzner(self.mod.DEFAULT_MATRIX)
+        with mock.patch.object(self.mod, "aws_json", side_effect=fake_aws):
+            rows = self.mod.list_instance_information("eu-west-2")
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1]["InstanceId"], "mi-080ed76dc6d97d8b5")
 
     def test_resolve_aws_rejects_mi(self) -> None:
         rows = [

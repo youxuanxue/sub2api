@@ -38,13 +38,13 @@ def _mounted_ext4(root, run):
     return Path(mounted[0]['source']).resolve()
 
 
-def check_volume(root, run=subprocess.check_output, platform='hetzner',
+def check_volume(root, run=subprocess.check_output, platform='tencent-luks',
                  mapper_name='tokenkey_recovery'):
     """Validate the encrypted/data volume for the explicit platform.
 
-    ``hetzner`` requires a Hetzner Cloud Volume id symlink. ``tencent-luks``
-    requires the named dm-crypt mapper and refuses Hetzner volume identities so
-    a Tencent host cannot silently pass the Hybrid/Hetzner guard.
+    ``tencent-luks`` (default) requires the named dm-crypt mapper and refuses
+    Hetzner volume identities. ``hetzner`` remains only as a historical gate
+    that requires a Hetzner Cloud Volume id symlink (prod Hetzner is retired).
     """
     source = _mounted_ext4(root, run)
     hetzner_devices = list(Path('/dev/disk/by-id').glob('scsi-0HC_Volume_*'))
@@ -106,8 +106,8 @@ def main():
     parser.add_argument('--root', type=Path, default=Path('/var/lib/tokenkey'))
     parser.add_argument('--hybrid-prod', action='store_true')
     parser.add_argument('--check-volume', action='store_true')
-    parser.add_argument('--platform', choices=('hetzner', 'tencent-luks'), default='hetzner',
-                        help='volume identity gate; default remains Hetzner for prod Hybrid')
+    parser.add_argument('--platform', choices=('hetzner', 'tencent-luks'), default='tencent-luks',
+                        help='volume identity gate; default tencent-luks (Hetzner Cloud retired)')
     parser.add_argument('--mapper-name', default='tokenkey_recovery',
                         help='dm-crypt mapper basename when --platform=tencent-luks')
     parser.add_argument('--compose', type=Path)

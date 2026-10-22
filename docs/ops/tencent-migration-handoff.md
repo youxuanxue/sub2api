@@ -10,6 +10,7 @@
 - 工作区 `/Users/feng/Codes/sub2api-wt-tengxun1020`，分支 `chore/tengxun1020`。私有 helper/回执在 `~/.local/state/tokenkey-tencent-usw-validation/`（含密钥/密文，**不进 git**）。
 - `resolve_prod_ssm_target.py --target auto` → 腾讯 Hybrid `mi-080ed76dc6d97d8b5`（矩阵 `deployable=true`）。
 - GitHub Actions 仓库变量 `PROD_SSM_TARGET` 必须为 `auto`（已从 `aws-fresh` 改回）；钉死 `aws-fresh` 会把 deploy/诊断打到冻结 Tokyo。`aws-fresh` 路径默认拒绝，保留只读须 `ALLOW_FROZEN_TOKYO_TARGET=1`。
+- `PROD_SSM_TARGET=hetzner` 与 `deploy-prod-hetzner-stage0` provision 均失败关闭；Hetzner Cloud 已退役。
 - 迁机流程 owner：[pgbackrest-host-migration.md](../../ops/stage0/pgbackrest-host-migration.md)。
 
 ## 2. 现网要点

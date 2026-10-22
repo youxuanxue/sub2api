@@ -3,12 +3,12 @@
 
 ``--target auto`` selects the live prod matrix: Tencent USW when
 ``deploy/tencent/candidate-usw-20261022.json`` has ``deployable=true``, else
-legacy Tokyo ``aws-fresh``. ``PROD_SSM_TARGET`` may explicitly select modes;
-retired identities are rejected. No silent EC2 fallback when inventory fails.
+legacy Tokyo ``aws-fresh`` (frozen; needs ``ALLOW_FROZEN_TOKYO_TARGET=1``).
+``PROD_SSM_TARGET`` may explicitly select modes; retired ``aws`` / ``hetzner``
+are rejected. No silent EC2 fallback when inventory fails.
 
-Hetzner instance id is resolved from SSM inventory by ComputerName matching
-``deploy/hetzner/prod-target-hetzner.json`` ``instance_name`` (registration
-region from matrix ``ssm_region``, default ``eu-west-2``).
+Fleet narrative SSOT still lives at ``deploy/hetzner/README.md`` (historical
+path name); the Hetzner Cloud prod matrix is retired and never resolves live.
 """
 from __future__ import annotations
 
@@ -151,39 +151,12 @@ def list_instance_information(region: str) -> list[dict[str, Any]]:
 
 
 def resolve_hetzner(matrix_path: pathlib.Path) -> dict[str, str]:
-    target = load_hetzner_matrix(matrix_path)
-    if target.get("deployable") is not True:
-        fail("prod Hetzner target is not deployable")
-    name = str(target.get("instance_name") or "")
-    region = str(target.get("ssm_region") or "eu-west-2")
-    domain = str(target.get("domain") or "api.tokenkey.dev")
-    if not name:
-        fail("hetzner matrix missing instance_name")
-    rows = list_instance_information(region)
-    matches = [
-        r
-        for r in rows
-        if str(r.get("ComputerName") or "") == name or str(r.get("Name") or "") == name
-    ]
-    if not matches:
-        fail(f"no Hybrid instance with ComputerName/Name={name!r} in {region}")
-    online = [r for r in matches if str(r.get("PingStatus") or "") == "Online"]
-    if len(online) != 1:
-        fail(f"expected exactly one Online Hybrid instance for {name!r}; found {len(online)}")
-    chosen = online[0]
-    instance_id = str(chosen.get("InstanceId") or "")
-    if not instance_id.startswith("mi-") or not INSTANCE_RE.match(instance_id):
-        fail(f"expected Hybrid mi-* for {name}, got {instance_id!r}")
-    return with_browser_origin(
-        {
-            "target": "hetzner",
-            "instance_id": instance_id,
-            "ssm_region": region,
-            "api_url": f"https://{domain}",
-            "deploy_profile": "prod",
-            "platform": "hetzner",
-            "computer_name": name,
-        }
+    """Hetzner Cloud prod is retired; never resolve a live Hybrid identity."""
+    _ = matrix_path  # matrix kept for callers / historical path only
+    fail(
+        "target=hetzner is retired: Hetzner Cloud prod was decommissioned; "
+        "use auto (Tencent USW) for live prod. "
+        "Fleet SSOT remains under deploy/hetzner/README.md (historical path name)."
     )
 
 
@@ -270,7 +243,7 @@ def main() -> int:
         "--target",
         choices=("auto", "aws", "aws-fresh", "hetzner", "tencent-usw-candidate"),
         default="auto",
-        help="auto → tencent when matrix.deployable=true, else aws-fresh (frozen Tokyo)",
+        help="auto → tencent when matrix.deployable=true; aws-fresh=frozen Tokyo; hetzner/aws retired",
     )
     parser.add_argument("--stack", default=AWS_STACK)
     parser.add_argument("--matrix", default="")
