@@ -47,7 +47,8 @@ npm install -g pnpm
 
 | Workflow | 触发条件 | 检查内容 |
 |----------|----------|----------|
-| **backend-ci.yml** | push, pull_request, 每周一/二, 手动 | preflight + 单元/集成 + frontend + golangci-lint + security（govulncheck/gosec/pnpm audit）+ weekly smoke |
+| **backend-ci.yml** | push, pull_request, 每周一, 手动 | preflight + 单元/集成 + frontend + golangci-lint + security（govulncheck/gosec/pnpm audit） |
+| **weekly-smoke.yml** | 每周二, 手动 | new-api bump smoke + compile smoke |
 | **release.yml** | tag `v*` | 构建发布（PR 不触发） |
 
 ### CI 要求

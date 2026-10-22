@@ -11,7 +11,8 @@ the Dockerfile shipped Node 24).
 
 Scope: only the two workflows whose setup-node steps build/test the frontend
 product — `.github/workflows/backend-ci.yml` (frontend, frontend-security,
-compile-smoke jobs) and `.github/workflows/release.yml` (build-frontend job).
+candidate-browser jobs), `.github/workflows/weekly-smoke.yml` (compile-smoke),
+and `.github/workflows/release.yml` (build-frontend job).
 Agent/watchdog workflows run CLI runtimes, not the shipped frontend, and are
 deliberately NOT scanned. If a future job in a scanned workflow legitimately
 needs a different Node (non-frontend runtime), append the marker
@@ -50,6 +51,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DOCKERFILE_REL = "Dockerfile"
 WORKFLOWS_REL = (
     ".github/workflows/backend-ci.yml",
+    ".github/workflows/weekly-smoke.yml",
     ".github/workflows/release.yml",
 )
 
