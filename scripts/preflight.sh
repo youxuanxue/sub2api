@@ -2528,7 +2528,7 @@ if ! command -v python3 >/dev/null 2>&1; then
 elif ! python3 ./scripts/checks/release-simple-release-default.py --quiet; then
     errors=$((errors + 1))
 else
-    echo "  ok: release.yml simple_release default = false (Graviton-safe)"
+    echo "  ok: release.yml simple_release default = false (multi-arch safe)"
 fi
 
 echo ""

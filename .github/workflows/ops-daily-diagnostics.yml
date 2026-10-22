@@ -436,8 +436,10 @@ jobs:
               "echo app_container=${APP_CONTAINER:-unavailable}",
               "echo ===CONTAINER_HEALTH===",
               "if [ -n \"$APP_CONTAINER\" ]; then sudo docker inspect \"$APP_CONTAINER\" --format 'tokenkey_status={{.State.Status}} tokenkey_health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'; fi",
-              "sudo docker inspect tokenkey-postgres --format 'postgres_status={{.State.Status}}' 2>/dev/null || true",
-              "sudo docker inspect tokenkey-redis --format 'redis_status={{.State.Status}}' 2>/dev/null || true",
+              *_tk.remote_unique_running_snippet(docker="sudo docker", variable="PG_CONTAINER", candidates=_tk.POSTGRES_CANDIDATES),
+              "if [ -n \"$PG_CONTAINER\" ]; then sudo docker inspect \"$PG_CONTAINER\" --format 'postgres_status={{.State.Status}}'; else echo postgres_status=unresolved; fi",
+              *_tk.remote_unique_running_snippet(docker="sudo docker", variable="REDIS_CONTAINER", candidates=_tk.REDIS_CANDIDATES),
+              "if [ -n \"$REDIS_CONTAINER\" ]; then sudo docker inspect \"$REDIS_CONTAINER\" --format 'redis_status={{.State.Status}}'; else echo redis_status=unresolved; fi",
               "echo ===INTERNAL_HEALTH===",
               "if [ -z \"$APP_CONTAINER\" ]; then echo internal_health_status=failed exit=127; elif sudo docker exec \"$APP_CONTAINER\" wget -qO- http://localhost:8080/health/live; then echo; echo internal_health_status=ok; else rc=$?; echo internal_health_status=failed exit=$rc; fi",
               "echo ===END_INTERNAL_HEALTH===",
@@ -608,11 +610,24 @@ jobs:
               fi
 
               python3 - <<'PY' > "$OUT/error-clustering-params.json"
+          import importlib.util
           import json
           import os
+          import pathlib
           import shlex
 
           since_hours = os.environ["SINCE_HOURS"]
+          _rel = "ops/lib/resolve_app_container.py"
+          _resolver_path = next(
+              (base / _rel for base in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents)
+               if (base / _rel).is_file()),
+              None,
+          )
+          if _resolver_path is None:
+              raise SystemExit(f"canonical app-container resolver not found: {_rel}")
+          _spec = importlib.util.spec_from_file_location("tk_resolve_app_container", _resolver_path)
+          _tk = importlib.util.module_from_spec(_spec)
+          _spec.loader.exec_module(_tk)
           commands = [
               "set -euo pipefail",
               "[ -x /usr/local/bin/error_clustering ] || { echo binary_missing >&2; exit 3; }",
@@ -621,8 +636,10 @@ jobs:
               "[ -n \"$PGPASS\" ] || { echo no_pg_password >&2; exit 2; }",
               "OUT=/tmp/clustering",
               "sudo rm -rf \"$OUT\" && sudo mkdir -p \"$OUT\" && sudo chmod 0777 \"$OUT\"",
-              "NET=$(sudo docker inspect tokenkey-postgres --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')",
-              "sudo docker run --rm --network \"$NET\" -v /usr/local/bin/error_clustering:/binary:ro -v \"$OUT\":/out -e PG_DSN=\"postgres://tokenkey:$PGPASS@tokenkey-postgres:5432/tokenkey?sslmode=disable\" alpine:3.21 /binary --since-hours " + since_hours + " --output /out/report.json --markdown /out/report.md",
+              *_tk.remote_unique_running_snippet(docker="sudo docker", variable="PG_CONTAINER", candidates=_tk.POSTGRES_CANDIDATES),
+              '[ -n "$PG_CONTAINER" ] || { echo postgres_container_unresolved >&2; exit 1; }',
+              "NET=$(sudo docker inspect \"$PG_CONTAINER\" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')",
+              "sudo docker run --rm --network \"$NET\" -v /usr/local/bin/error_clustering:/binary:ro -v \"$OUT\":/out -e PG_DSN=\"postgres://tokenkey:$PGPASS@$PG_CONTAINER:5432/tokenkey?sslmode=disable\" alpine:3.21 /binary --since-hours " + since_hours + " --output /out/report.json --markdown /out/report.md",
               "echo ===BEGIN_REPORT_JSON===",
               "base64 -w0 \"$OUT/report.json\" 2>/dev/null || base64 \"$OUT/report.json\" | tr -d '\\n'",
               "echo",

@@ -329,7 +329,7 @@ class DailyErrorReportTest(unittest.TestCase):
 set -euo pipefail
 if [ "$1" = inspect ]; then
   case "$*" in
-    *tokenkey-green*) ;;
+    *tokenkey-green*|*tk-archive-standby*) ;;
     *) exit 1 ;;
   esac
   case "$*" in

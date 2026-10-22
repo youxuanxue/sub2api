@@ -61,7 +61,7 @@ if [[ "${is_multiarch}" == "true" ]]; then
   echo "ok: ${TAG} is multi-arch (amd64 + arm64)"
 else
   if [[ "${OVERRIDE}" == "true" ]]; then
-    echo "::warning::${TAG} is single-arch but simple_release_override=true was passed; deploying anyway. If the target host is Graviton this WILL crash."
+    echo "::warning::${TAG} is single-arch but simple_release_override=true was passed; deploying anyway. If the target host is arm64 this WILL crash."
   else
     echo "::error::${TAG} is not a multi-arch manifest (mediaType=${media}, amd64=${amd64_count}, arm64=${arm64_count}). Re-run release.yml with simple_release=false, or pass simple_release_override=true only after verifying every host is amd64." >&2
     exit 1

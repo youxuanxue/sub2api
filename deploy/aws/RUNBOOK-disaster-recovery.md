@@ -1,4 +1,4 @@
-# TokenKey Tokyo prod — 恢复入口
+# TokenKey prod — 恢复入口（现网腾讯美西）
 
 > prod 数据库主恢复入口已更新为 [pgBackRest](../../ops/stage0/physical-backup.md)，
 > 新机迁移按 [物理恢复工作流](../../ops/stage0/pgbackrest-host-migration.md)。
@@ -11,19 +11,19 @@
 ## 先确认目标与恢复点
 
 ```bash
-python3 ops/stage0/resolve_prod_ssm_target.py --target aws-fresh --format json
+python3 ops/stage0/resolve_prod_ssm_target.py --target auto --format json
 ```
 
-解析器核对清单中的 EC2 ID、SSM 区域与在线 hostname。`auto` 默认同一路径；
-`PROD_SSM_TARGET=aws` 和已退役的 `hetzner` 身份拒绝。若 prod 已失联，在线解析失败是
-预期保护；从舰队清单读取身份后，以只读 AWS API 核对实例/卷/快照，不能改用旧 standby。
+解析器核对腾讯矩阵中的 Hybrid `mi-*`、SSM 区域与在线名称；矩阵不可部署时失败关闭，不回退 Tokyo。
+冻结 Tokyo `aws-fresh` 只读须显式 `ALLOW_FROZEN_TOKYO_TARGET=1`；`aws` / `hetzner` 已退役拒绝。
+若 prod 已失联，在线解析失败是预期保护；从舰队清单读取身份后，以腾讯控制台/TAT 只读核对实例与磁盘。
 
 ## 恢复资产
 
 | 资产 | 来源与边界 |
 |---|---|
-| PostgreSQL、Redis、Caddy 与主机配置 | 当前 prod 的独立 EBS 数据卷；先核对卷 ID、挂载和所属实例 |
-| 全盘恢复点 | 东京 DLM 根盘/数据盘快照；选择已完成、同一批次快照，验证恢复可读性 |
+| PostgreSQL、Redis、Caddy 与主机配置 | 腾讯系统盘上的 LUKS mapper（双挂 `/var/lib/tokenkey`、`/srv/tokenkey-rehearsal`）；解锁见 [unlock 契约](../../docs/ops/tencent-unlock-contract.md) |
+| 全盘恢复点 | **当前无**（腾讯机无 EBS/DLM；快照策略为开放项）。东京 DLM 只覆盖冻结 Tokyo |
 | 数据库主备份 | pgBackRest 全量/增量/WAL；整 cluster 含账本、usage 和索引；恢复到新盘后校验 |
 | 历史逻辑备份 | 私有 S3 pgdump 已进入退役保留；核对所选文件实际覆盖与时间，旧备份可能不含 usage 明细 |
 | 已退役节点的历史库 | [独立 S3 冻结归档](../../docs/ops/aws-retirement-20261017.md)，用于运营回查，不覆盖在线库 |
@@ -44,7 +44,7 @@ python3 ops/stage0/resolve_prod_ssm_target.py --target aws-fresh --format json
 
 ## 主机或数据卷故障
 
-1. 只读核对当前实例、数据卷、最新 DLM 批次、物理备份链和恢复材料；给出候选恢复点及可能丢失窗口。
+1. 只读核对当前实例、LUKS 挂载、物理备份链和恢复材料；给出候选恢复点及可能丢失窗口。
 2. 按 [新机替换流程](../../.cursor/skills/tokenkey-host-replacement/SKILL.md)准备目标云的独立身份。
    任何新建、挂载、恢复、停写和切流执行须符合该次授权；恢复点取舍由运营确认。
 3. 在隔离节点恢复，验证数据可读、关键记录/使用明细覆盖、容器健康与密钥完整性。
@@ -52,7 +52,7 @@ python3 ops/stage0/resolve_prod_ssm_target.py --target aws-fresh --format json
 4. 源端仍可用时，沿 standby 追 WAL → 隔离所有源写者 → 最终 WAL 入仓/重放 → 对账 → promote → 切流流程。
    新机使用新清单，不修改退役行来绕过 `retired` 门禁。
 5. 基本服务和正式入口验证通过后，更新现网身份与部署/监控目标，记录恢复点、缺口和验收。
-   日本出口代理属于独立现役依赖，不随 prod 恢复自动回收或换绑。
+   美西 `usw-eval*` / 国内 `cn-ip*` 出口代理属于独立现役依赖，不随 prod 恢复自动回收或换绑。
 
 已有写入的新库不能被旧冻结整库覆盖。历史回查恢复到独立数据库；定点补数是另外的
 数据修复任务，不能混入主机恢复或自动修改账单/余额。

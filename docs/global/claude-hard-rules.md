@@ -97,9 +97,10 @@ Forward-looking history, merge modes, and mechanical gates:
 
 ## §9 Release discipline (ARM + tag triggers)
 
-Production (`api.tokenkey.dev`) runs on **AWS Tokyo EC2 `c7g.xlarge` (`arm64`)**
-（2026-10-17 起）。活舰队 SSOT：
-[`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)（prod-only）。Release workflow is triggered by `tags: v*`。镜像仍须 multi-arch arm64。
+Production (`api.tokenkey.dev`) runs on **Tencent USW Lighthouse (`amd64`)**
+（2026-10-22 起；之前 Tokyo EC2 为 arm64，已冻结）。活舰队 SSOT：
+[`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)（prod-only）。Release workflow is triggered by `tags: v*`。
+镜像仍须 multi-arch（amd64 + arm64）：shared tags 被不同架构的消费者拉取，单架构覆盖会让另一侧 `exec format error`。
 
 ### §9.1 `simple_release` MUST stay `false`
 

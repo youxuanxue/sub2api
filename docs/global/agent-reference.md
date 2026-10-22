@@ -46,7 +46,7 @@ topology, Studio SSOT, model-delivery nav, or PR gate navigation.
 
 ## Disaster recovery / 数据重建从哪找
 
-prod 数据层恢复/重建先读 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。现网 prod 为 Tokyo EC2；历史 Hetzner Volume / AWS DR 步骤仅适用于旧机或 standby，离机备份须单独核验。
+prod 数据层恢复/重建先读 [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。现网 prod 为腾讯美西（LUKS 系统盘，无 EBS/DLM）；历史 EC2 / Hetzner Volume / AWS DR 步骤仅适用于已冻结或退役旧机，离机备份须单独核验。
 
 ## Current Gateway Flow
 

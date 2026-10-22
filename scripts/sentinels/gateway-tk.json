@@ -183,11 +183,11 @@
       "path": "ops/stage0/resolve_prod_ssm_target.py",
       "must_contain": [
         "return \"tencent-usw-candidate\"",
-        "return \"aws-fresh\"",
+        "refusing to fall back ",
         "ALLOW_FROZEN_TOKYO_TARGET",
         "expected exactly one Online Hybrid instance"
       ],
-      "rationale": "Live prod auto-selects Tencent USW when matrix.deployable=true; aws-fresh is frozen Tokyo retain-only behind ALLOW_FROZEN_TOKYO_TARGET."
+      "rationale": "Live prod auto-selects Tencent USW when matrix.deployable=true and otherwise fails closed (never falls back to frozen Tokyo); aws-fresh is explicit-only behind ALLOW_FROZEN_TOKYO_TARGET."
     },
     {
       "path": "backend/internal/config/config.go",

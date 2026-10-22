@@ -82,3 +82,28 @@ tk_resolve_app_container() {
   [ "$count" -eq 1 ] || return 1
   printf '%s\n' "$found"
 }
+
+# tk_resolve_postgres_container [NAME|auto] -> prints the running PostgreSQL
+# container. Stage0 names it tokenkey-postgres; the Tencent USW layout exception
+# keeps tk-archive-standby (network alias postgres). Network aliases do not help
+# `docker exec`, so probes must resolve the real name. Exactly one running
+# candidate is required; otherwise fail closed.
+# Inline SSM cannot source this file. ops/lib/resolve_app_container.py
+# remote_unique_running_snippet renders the same rule for those commands.
+TK_POSTGRES_CONTAINER_CANDIDATES="tokenkey-postgres tk-archive-standby"
+tk_resolve_postgres_container() {
+  local requested="${1:-auto}" candidate found="" count=0
+  if [ -n "$requested" ] && [ "$requested" != auto ]; then
+    tk_container_running "$requested" || return 1
+    printf '%s\n' "$requested"
+    return 0
+  fi
+  for candidate in $TK_POSTGRES_CONTAINER_CANDIDATES; do
+    if tk_container_running "$candidate"; then
+      found="$candidate"
+      count=$((count + 1))
+    fi
+  done
+  [ "$count" -eq 1 ] || return 1
+  printf '%s\n' "$found"
+}
