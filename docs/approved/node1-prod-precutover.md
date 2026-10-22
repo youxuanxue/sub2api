@@ -29,9 +29,9 @@ scope: UCloud cn-prod 106.75.29.139 → node1 preparation only; no cutover
 
 当前 inventory 仅保留 `preparation_only=true`、`public_ip=106.75.29.139`、`public_ip_mode=pending`、`inventory_status=pending-readonly-verification` 和 `candidate_identity_status=pending-readonly-verification`，machine-id/数据盘 UUID 使用未核实占位值，不能用于线上部署。
 
-最新只读观察显示 node1 候选当前为 2 CPU / 2 GiB，且没有已列出的数据盘，低于源端容量基线；`candidate_capacity_status=below-source-observed`，必须先扩容或更换候选并重新取得只读回执。容量不足时不得标记 inventory 为 `verified`，也不得进入部署或切流。
+真实 node1 是家庭服务器 `180.76.98.95:2201`，不是 UCloud 的 `node1-ingress-test`。当前 SSH 只读连接超时，CPU、内存、磁盘和宿主机扩容能力均未核实；`candidate_capacity_status=pending-readonly-verification`。在取得真实 node1 读数前，不得判断可扩容性、标记 inventory 为 `verified`，也不得进入部署或切流。
 
-UCloud 最新只读盘点回执见 [`node1-ucloud-readonly-inventory-20261022.json`](../ops/reports/node1-ucloud-readonly-inventory-20261022.json)。其中 node1 仅作为候选观察值，未被标记为已批准目标。
+UCloud 资源只读盘点见 [`node1-ucloud-readonly-inventory-20261022.json`](../ops/reports/node1-ucloud-readonly-inventory-20261022.json)；真实 node1 SSH 盘点见 [`node1-external-ssh-readonly-inventory-20261022.json`](../ops/reports/node1-external-ssh-readonly-inventory-20261022.json)。UCloud `node1-ingress-test` 仅为无关观察资源，未被标记为迁移目标。
 
 ## 数据基线和隔离恢复
 

@@ -1,0 +1,31 @@
+{
+  "captured_at": "2026-10-22T00:25:00Z",
+  "source": "local SSH config and read-only SSH connectivity attempt",
+  "candidate": {
+    "provider": "home-server",
+    "ssh_alias": "node1",
+    "host": "180.76.98.95",
+    "port": 2201,
+    "user": "root",
+    "identity_label": "zhupeng-access",
+    "identity_file": "~/.ssh/id_ed25519_zhupeng"
+  },
+  "ssh_attempt": {
+    "commands": "hostname, machine-id, uname, nproc, MemTotal, lsblk, findmnt, df, ip addr, ip route",
+    "connect_timeout_seconds": 10,
+    "result": "timeout",
+    "error": "connect to 180.76.98.95 port 2201: Operation timed out"
+  },
+  "capacity": {
+    "source_cpu": 8,
+    "source_memory_gib": 8,
+    "source_data_disk_gib": 20,
+    "candidate_cpu": null,
+    "candidate_memory_gib": null,
+    "candidate_data_disk_gib": null,
+    "status": "pending-readonly-verification",
+    "requirement": "candidate must be greater than or equal to source for CPU, memory, and data disk"
+  },
+  "write_operations": [],
+  "online_service_changes": []
+}

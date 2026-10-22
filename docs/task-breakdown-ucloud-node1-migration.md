@@ -23,20 +23,20 @@ scope: '#2698；仅准备与隔离验收，未授权切流'
 |---|---|---|---|
 | 源 | UCloud cn-prod `uhost-1wgyn7gu2f6a` | Tokyo AWS `3.114.187.250` | 已只读确认实例、私网 `10.9.53.136`、北京二 `cn-bj2-02`；继续补运行时事实 |
 | 公网入口 | `106.75.29.139` / EIP `eip-1wjj3obkx4mv` | `106.75.17.57`、`106.75.7.50` | 已只读确认绑定源实例；仍需确认迁移权限和回滚路径 |
-| 目标 | node1 候选 `node1-ingress-test` / `uhost-1wip94slk7de` | `zhupeng-prod` / `ssh-tunnel` / `ub1.tokenkey.dev` | 当前只读观察为 2 CPU / 2 GiB、无数据盘，低于源端 8 CPU / 8 GiB / 20 GiB；必须扩容或更换后才能进入核实 |
+| 目标 | 家庭服务器 node1 `180.76.98.95:2201` | `node1` / root / `~/.ssh/id_ed25519_zhupeng` | 已确认本地 SSH 入口；连接超时，CPU、内存、磁盘和宿主机能力均未核实 |
 | 域名 | 现有 cn-prod 域名保持不变 | `api.galaxywaveai.com` | 删除新域名交接作为本任务前置 |
 | 数据证据 | UCloud cn-prod 完整数据 | Tokyo 快照、Tokyo usage 对账 | 重新生成完整 UCloud 基线 |
 
 在这些事实核对完成前，禁止把目标写成可执行的生产 inventory，也禁止生成 EIP apply 命令。
 
-2026-10-22 的最新只读回执见 [`node1-ucloud-readonly-inventory-20261022.json`](docs/ops/reports/node1-ucloud-readonly-inventory-20261022.json)。本次只执行 UCloud `uhost list`、`udisk list`、`eip list`；没有绑定、解绑、重启、磁盘、DNS、数据库或应用操作。
+2026-10-22 的 UCloud 只读回执见 [`node1-ucloud-readonly-inventory-20261022.json`](docs/ops/reports/node1-ucloud-readonly-inventory-20261022.json)，其中 `node1-ingress-test` 明确不是本次外部 node1。真实 node1 的 SSH 只读回执见 [`node1-external-ssh-readonly-inventory-20261022.json`](docs/ops/reports/node1-external-ssh-readonly-inventory-20261022.json)。本次没有绑定、解绑、重启、磁盘、DNS、数据库或应用操作。
 
 # 分阶段工作
 
 ## A. 只读盘点
 
 1. 读取 UCloud 资产：实例 ID、EIP ID、`106.75.29.139` 当前绑定关系、区域、网络、防火墙、磁盘、machine-id、架构、运行镜像和当前版本。
-2. 读取 node1 资产：machine-id、架构、数据盘 UUID/容量、挂载点、Docker/Compose、WireGuard 对端、SSH/SSM 身份、现有工作负载和可回滚路径；CPU、内存和数据盘容量必须分别不低于源端 8 CPU、8 GiB、20 GiB。
+2. 通过家庭服务器的 SSH 读取真实 node1 资产：machine-id、架构、数据盘 UUID/容量、挂载点、Docker/Compose、WireGuard 对端、SSH 身份、现有工作负载和可回滚路径；CPU、内存和数据盘容量必须分别不低于源端 8 CPU、8 GiB、20 GiB。当前 SSH 连接超时，不能把 UCloud `node1-ingress-test` 的 2 CPU / 2 GiB 观察值套到真实 node1。
 3. 读取 cn-prod 当前 schema、PostgreSQL/Redis 版本、配置摘要、证书有效期、代理/账号/密钥数量和备份覆盖范围。只读采集必须经过现有运维入口，禁止对在线库做重型全库扫描。
 4. 确定公网承载模型：
    - 模型一：EIP 从旧 UCloud 主机迁移到 node1；或

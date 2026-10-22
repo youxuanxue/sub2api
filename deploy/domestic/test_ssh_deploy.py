@@ -168,13 +168,15 @@ class SSHDeployTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'identity must remain pending'):
                 target_module.load_target('zhupeng-prod', path)
 
-    def test_candidate_capacity_is_explicitly_below_source_until_resized(self):
+    def test_external_node1_capacity_is_pending_until_ssh_inventory(self):
         target = target_module.load_target('zhupeng-prod')
         self.assertEqual((target['source_cpu'], target['source_memory_gib'],
                           target['source_data_disk_gib']), (8, 8, 20))
         self.assertEqual((target['candidate_cpu'], target['candidate_memory_gib'],
-                          target['candidate_data_disk_gib']), (2, 2, 0))
-        self.assertEqual(target['candidate_capacity_status'], 'below-source-observed')
+                          target['candidate_data_disk_gib']), (None, None, None))
+        self.assertEqual(target['candidate_provider'], 'home-server')
+        self.assertEqual(target['candidate_ssh_port'], 2201)
+        self.assertEqual(target['candidate_capacity_status'], 'pending-readonly-verification')
 
     def test_verified_candidate_capacity_cannot_be_lower_than_source(self):
         original = json.loads(target_module.INVENTORY.read_text())
@@ -182,8 +184,8 @@ class SSHDeployTests(unittest.TestCase):
             path = Path(directory) / 'targets.json'
             data = json.loads(json.dumps(original))
             candidate = data['targets']['zhupeng-prod']
-            candidate.update(inventory_status='verified', candidate_identity_status='verified',
-                             candidate_capacity_status='verified')
+            candidate.update(candidate_capacity_status='verified', candidate_cpu=2,
+                             candidate_memory_gib=2, candidate_data_disk_gib=0)
             path.write_text(json.dumps(data))
             with self.assertRaisesRegex(ValueError, 'below the UCloud source capacity'):
                 target_module.load_target('zhupeng-prod', path)

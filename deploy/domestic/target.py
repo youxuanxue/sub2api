@@ -31,23 +31,33 @@ def validate_target(name, target):
         "source_eip_id": r"eip-[a-z0-9]+",
         "source_data_disk_id": r"bsm-[a-z0-9]+",
         "source_zone": r"cn-bj2-\d{2}",
-        "candidate_instance_id": r"uhost-[a-z0-9]+",
-        "candidate_public_ip": r"(?:\d{1,3}\.){3}\d{1,3}",
+        "candidate_instance_id": r"(?:uhost-[a-z0-9]+|pending-external-inventory)",
+        "candidate_public_ip": r"(?:(?:\d{1,3}\.){3}\d{1,3}|pending-external-inventory)",
     }.items():
         if not re.fullmatch(pattern, target.get(field, "")):
             raise ValueError("Invalid read-only source inventory field: " + field)
-    for field in ("source_cpu", "source_memory_gib", "source_data_disk_gib",
-                  "candidate_cpu", "candidate_memory_gib", "candidate_data_disk_gib"):
+    if target.get("candidate_provider") != "home-server":
+        raise ValueError("Node1 candidate provider must be the home server")
+    if not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_-]*", target.get("candidate_ssh_host", "")):
+        raise ValueError("Invalid candidate SSH host")
+    if not isinstance(target.get("candidate_ssh_port"), int) or not 1 <= target["candidate_ssh_port"] <= 65535:
+        raise ValueError("Invalid candidate SSH port")
+    if not re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", target.get("candidate_host_ip", "")):
+        raise ValueError("Invalid candidate host IP")
+    for field in ("source_cpu", "source_memory_gib", "source_data_disk_gib"):
         value = target.get(field)
-        if not isinstance(value, int) or value < 0:
+        if not isinstance(value, int) or value <= 0:
             raise ValueError("Invalid capacity field: " + field)
-    if not all(target[field] > 0 for field in
-               ("source_cpu", "source_memory_gib", "source_data_disk_gib")):
-        raise ValueError("Source capacity baseline must be positive")
     if target.get("candidate_capacity_status") not in (
             "pending-readonly-verification", "below-source-observed", "verified"):
         raise ValueError("Candidate capacity must be pending, below-source, or verified")
-    capacity_ok = all(target[candidate] >= target[source] for candidate, source in (
+    candidate_capacity = (target.get("candidate_cpu"), target.get("candidate_memory_gib"),
+                          target.get("candidate_data_disk_gib"))
+    if any(value is not None and (not isinstance(value, int) or value < 0)
+           for value in candidate_capacity):
+        raise ValueError("Invalid candidate capacity field")
+    capacity_ok = all(target[candidate] is not None and target[candidate] >= target[source]
+                      for candidate, source in (
         ("candidate_cpu", "source_cpu"),
         ("candidate_memory_gib", "source_memory_gib"),
         ("candidate_data_disk_gib", "source_data_disk_gib"),
@@ -56,7 +66,8 @@ def validate_target(name, target):
         raise ValueError("Verified node1 inventory is below the UCloud source capacity")
     if target.get("inventory_status") == "verified" and not capacity_ok:
         raise ValueError("Verified node1 inventory is below the UCloud source capacity")
-    if target.get("candidate_inventory_status") != "candidate-observed-not-approved":
+    if target.get("candidate_inventory_status") not in (
+            "candidate-observed-not-approved", "pending-readonly-verification"):
         raise ValueError("Node1 candidate inventory must remain unapproved")
     if target.get("candidate_identity_status") != "pending-readonly-verification":
         raise ValueError("Node1 identity must remain pending readonly verification")

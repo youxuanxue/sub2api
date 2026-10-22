@@ -5,6 +5,7 @@
   "region": "cn-bj2",
   "zone": "cn-bj2-02",
   "source_environment": "ucloud-cn-prod",
+  "warning": "node1-ingress-test is a UCloud observation only and is not the external SSH node1 used by this migration",
   "source": {
     "instance_name": "cn-prod",
     "instance_id": "uhost-1wgyn7gu2f6a",
@@ -25,7 +26,7 @@
     "status": "used",
     "expiration": "2026-10-22"
   },
-  "node1_candidate_observed": {
+  "ucloud_candidate_observed_not_node1": {
     "name": "node1-ingress-test",
     "instance_id": "uhost-1wip94slk7de",
     "private_ip": "10.9.156.119",
@@ -42,9 +43,9 @@
     "source_cpu": 8,
     "source_memory_gib": 8,
     "source_data_disk_gib": 20,
-    "candidate_cpu": 2,
-    "candidate_memory_gib": 2,
-    "candidate_data_disk_gib": 0,
+    "candidate_cpu": null,
+    "candidate_memory_gib": null,
+    "candidate_data_disk_gib": null,
     "requirement": "candidate must be greater than or equal to source for CPU, memory, and data disk"
   },
   "unknown": [
