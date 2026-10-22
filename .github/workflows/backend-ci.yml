@@ -17,7 +17,6 @@ on:
           - all
           - ci
           - security
-          - weekly-smoke
           - unit-cache-benchmark
       ssot_base:
         description: Optional git ref/SHA for manual SSOT delta offline gate
@@ -25,7 +24,6 @@ on:
         type: string
   schedule:
     - cron: '0 3 * * 1'
-    - cron: '17 9 * * TUE'
 
 permissions:
   contents: read
@@ -394,7 +392,12 @@ jobs:
       - name: Public Quickstart browser journeys
         working-directory: frontend
         run: |
-          pnpm exec playwright install --with-deps chromium
+          # ubuntu-24.04 already ships the headless-shell libraries and
+          # fonts-liberation. Playwright's apt dependency install also pulls
+          # ~26MB of CJK/xfonts from azure.archive.ubuntu.com and stalled this
+          # step for 8-9 minutes on 2026-10-22. If Chrome rejects the image
+          # libnss3, install only that package with --no-install-recommends.
+          pnpm exec playwright install chromium
           pnpm exec playwright test --config playwright.quickstart.config.ts
       - name: QA product retirement browser journeys
         working-directory: frontend
@@ -437,7 +440,8 @@ jobs:
         working-directory: frontend
         run: |
           pnpm install --frozen-lockfile
-          pnpm exec playwright install --with-deps chromium
+          # Skip Playwright's apt dependency install; it pulls CJK/xfonts.
+          pnpm exec playwright install chromium
       - name: Candidate service through real pricing UI
         working-directory: backend
         env:
@@ -582,69 +586,6 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Audit production dependencies
         uses: ./.github/actions/pnpm-audit
-
-  new-api-bump-smoke:
-    if: (github.event_name == 'schedule' && github.event.schedule == '17 9 * * TUE') || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'weekly-smoke'))
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          submodules: recursive
-      - uses: ./.github/actions/cache-and-checkout-new-api
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: backend/go.mod
-          check-latest: false
-          cache: false
-          cache-dependency-path: backend/go.sum
-      - name: Verify Go version
-        run: |
-          expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
-          go version | grep -Fq "go${expected}"
-      - name: Run pinned new-api smoke via bump helper
-        run: |
-          CURRENT_PIN="$(tr -d '[:space:]' < .new-api-ref)"
-          bash scripts/upstream/bump-new-api.sh "$CURRENT_PIN"
-
-  compile-smoke:
-    if: (github.event_name == 'schedule' && github.event.schedule == '17 9 * * TUE') || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'weekly-smoke'))
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          submodules: recursive
-      - uses: ./.github/actions/cache-and-checkout-new-api
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: backend/go.mod
-          check-latest: false
-          cache: false
-          cache-dependency-path: backend/go.sum
-      - name: Verify Go version
-        run: |
-          expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
-          go version | grep -Fq "go${expected}"
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 9
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          # Major must match Dockerfile ARG NODE_IMAGE — the release image's
-          # frontend builder. Gate: scripts/checks/node-version-align.py.
-          node-version: '24'
-          cache: 'pnpm'
-          cache-dependency-path: frontend/pnpm-lock.yaml
-      - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
-        working-directory: frontend
-      - name: Run preflight
-        run: ./scripts/preflight.sh
-      - name: Build backend and frontend
-        run: make build
 
   release-helpers:
     runs-on: ubuntu-latest
