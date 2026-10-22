@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Shared by the local deploy renderer and the delivered host script.
 # Values are coordinates or private file paths, never credential contents.
-# New AWS prod archives new raw data to regional AWS S3. Keep coordinates in
+# Live prod (Tencent USW) archives new raw data to regional AWS S3. Keep coordinates in
 # one owner so the blue/green renderer and its delivered host script enforce
 # the same provider contract.
 QA_LIVE_ARCHIVE_STORAGE_DRIVER="s3"

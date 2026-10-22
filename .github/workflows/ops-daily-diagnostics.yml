@@ -1074,17 +1074,37 @@ jobs:
           import os
           import shlex
 
+          import importlib.util
           container = os.environ["INPUT_CONTAINER"]
           since = os.environ["INPUT_SINCE"]
           tail = os.environ["INPUT_TAIL"]
           grep_b64 = os.environ["GREP_B64"]
+          # Choices are logical roles. The canonical resolver maps them to the real
+          # host container (blue/green app; Stage0 or Tencent PG/Redis names), so
+          # "tokenkey" never tails the Tencent control proxy by accident.
+          _spec = importlib.util.spec_from_file_location("tk_resolve_app_container", "ops/lib/resolve_app_container.py")
+          _tk = importlib.util.module_from_spec(_spec)
+          _spec.loader.exec_module(_tk)
+          if container == "tokenkey":
+              resolve = [*_tk.remote_shell_snippet(docker="sudo docker", variable="LOG_CONTAINER"),
+                         "[ -n \"$LOG_CONTAINER\" ] || { echo 'app container unresolved' >&2; exit 1; }"]
+          elif container == "tokenkey-postgres":
+              resolve = [*_tk.remote_unique_running_snippet(docker="sudo docker", variable="LOG_CONTAINER", candidates=_tk.POSTGRES_CANDIDATES),
+                         "[ -n \"$LOG_CONTAINER\" ] || { echo 'postgres container unresolved' >&2; exit 1; }"]
+          elif container == "tokenkey-redis":
+              resolve = [*_tk.remote_unique_running_snippet(docker="sudo docker", variable="LOG_CONTAINER", candidates=_tk.REDIS_CANDIDATES),
+                         "[ -n \"$LOG_CONTAINER\" ] || { echo 'redis container unresolved' >&2; exit 1; }"]
+          else:
+              resolve = ["LOG_CONTAINER=" + shlex.quote(container)]
           commands = [
               "set -euo pipefail",
+              *resolve,
+              "echo \"log_container=$LOG_CONTAINER\" >&2",
               "OUT=/tmp/prod-log-dump",
               "sudo rm -rf \"$OUT\" && sudo mkdir -p \"$OUT\" && sudo chmod 0777 \"$OUT\"",
               "trap 'sudo rm -rf /tmp/prod-log-dump' EXIT",
               "printf %s " + shlex.quote(grep_b64) + " | base64 -d > \"$OUT/pattern\"",
-              "sudo docker logs " + shlex.quote(container) + " --since " + shlex.quote(since) + " --timestamps > \"$OUT/raw\" 2>&1 || true",
+              "sudo docker logs \"$LOG_CONTAINER\" --since " + shlex.quote(since) + " --timestamps > \"$OUT/raw\" 2>&1 || true",
               "if [ -s \"$OUT/pattern\" ]; then grep -E --no-messages -f \"$OUT/pattern\" \"$OUT/raw\" | tail -n " + tail + " > \"$OUT/logs.txt\" || true; else tail -n " + tail + " \"$OUT/raw\" > \"$OUT/logs.txt\"; fi",
               "echo ===BEGIN_LOGS===",
               "gzip -c \"$OUT/logs.txt\" | (base64 -w0 2>/dev/null || base64 | tr -d '\\n')",

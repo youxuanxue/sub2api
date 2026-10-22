@@ -99,7 +99,16 @@ if [ -n "$PROMPT_SHA256" ] && [[ ! "$PROMPT_SHA256" =~ ^[0-9a-fA-F]{64}$ ]]; the
   exit 2
 fi
 
-PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+TK_PG="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
+PSQL="docker exec $TK_PG psql -U tokenkey -d tokenkey -X -A -t"
 FILTER_SQL=""
 
 if [ -n "$USER_ID" ]; then add_filter "user_id = ${USER_ID}"; fi

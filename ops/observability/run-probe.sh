@@ -35,8 +35,8 @@
 #       --with ops/pricing/probe_reserved_resources.sh
 #
 #   --target prod        resolves region+instance via
-#                        ops/stage0/resolve_prod_ssm_target.py (aws i-* or
-#                        hetzner mi-* after control-plane cutover)
+#                        ops/stage0/resolve_prod_ssm_target.py (auto → Tencent
+#                        USW SSM Hybrid mi-*; frozen Tokyo i-* is explicit-only)
 #   --target cn-prod     runs the same probe through the registered SSM Hybrid
 #                        managed instance. Set UCLOUD_SSM_INSTANCE_ID and
 #                        UCLOUD_SSM_REGION to override the domestic manifest;
@@ -212,7 +212,7 @@ fi
 REGION=""
 INSTANCE_ID=""
 if [ "$TARGET" = "prod" ]; then
-  # Same control-plane flip as deploy-stage0 / feishu sync (aws i-* until cutover → hetzner mi-*).
+  # Same resolver as deploy-stage0 / feishu sync: auto → Tencent USW mi-*; fails closed otherwise.
   RESOLVE_PROD="${RUN_PROBE_RESOLVE_PROD:-$REPO_ROOT/ops/stage0/resolve_prod_ssm_target.py}"
   PYERR=$(mktemp)
   # Honor PROD_SSM_TARGET explicitly; bare --format kv defaults to auto and

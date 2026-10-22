@@ -31,7 +31,9 @@ from pathlib import Path
 from typing import NoReturn
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
+# "$TK_PG" / "$TK_REDIS" are exported on the host by the canonical resolver
+# preamble (ssm_execution.data_container_preamble) shipped with every remote script.
+PSQL = "sudo docker exec -i $TK_PG psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
 
 # Shared prod SSM glue (resolve_prod_instance + run_shell_b64). importlib-loaded by path:
 # the module dir is not on sys.path when this script runs directly (mirrors how
@@ -137,7 +139,7 @@ def build_remove_live_shell(
     )
     return (
         "set -euo pipefail\n"
-        f"PSQL='{psql}'\n"
+        f"PSQL=\"{psql}\"\n"
         "echo '=== guard match (exactly 1 row required) ==='\n"
         f"guard_count=\"$($PSQL -c \"SELECT count(*) FROM accounts WHERE {guard} "
         "AND deleted_at IS NULL;\" </dev/null)\"\n"
@@ -193,7 +195,7 @@ def cmd_check(args) -> int:
     inst = _SSM.resolve_prod_instance()
     shell = (
         "set -uo pipefail\n"
-        f"PSQL='{PSQL}'\n"
+        f"PSQL=\"{PSQL}\"\n"
         "echo '=== account guard row (1 = exists) ==='\n"
         f"$PSQL -c \"SELECT id, name, platform, channel_type, status FROM accounts "
         f"WHERE id={args.account_id} AND deleted_at IS NULL;\" </dev/null\n"
@@ -203,7 +205,8 @@ def cmd_check(args) -> int:
         f"WHERE id={args.account_id} AND deleted_at IS NULL) s;\" </dev/null\n"
     )
     print(_SSM.run_shell_b64(inst, base64.b64encode(shell.encode()).decode(),
-                        f"model_mapping check acct {args.account_id}"))
+                        f"model_mapping check acct {args.account_id}",
+                        preamble=_SSM.data_container_preamble()))
     return 0
 
 
@@ -237,9 +240,10 @@ def cmd_remove_live(args) -> int:
     if args.dry_run:
         print("DRY-RUN: would jsonb `- text[]` the above keys off credentials.model_mapping + "
               "enqueue scheduler_outbox account_changed. No write.")
-        shell = "set -uo pipefail\n" f"PSQL='{PSQL}'\n" + guard_and_before
+        shell = "set -uo pipefail\n" f"PSQL=\"{PSQL}\"\n" + guard_and_before
         print(_SSM.run_shell_b64(inst, base64.b64encode(shell.encode()).decode(),
-                                 f"model_mapping remove dry-run acct {args.account_id}"))
+                                 f"model_mapping remove dry-run acct {args.account_id}",
+                                 preamble=_SSM.data_container_preamble()))
         return 0
 
     remove_sql = build_remove_sql(args.account_id, args.name, args.platform,
@@ -254,7 +258,8 @@ def cmd_remove_live(args) -> int:
         sql_b64,
     )
     out = _SSM.run_shell_b64(inst, base64.b64encode(shell.encode()).decode(),
-                             f"model_mapping remove-live acct {args.account_id}")
+                             f"model_mapping remove-live acct {args.account_id}",
+                             preamble=_SSM.data_container_preamble())
     print(out)
     if "APPLY_OK" not in out:
         fail("APPLY did not report success — inspect the output above (guard match? psql error?)")

@@ -15,7 +15,9 @@ from typing import Any
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent / "lib"))
 import data_layer_archive_cleanup_hold as hold  # noqa: E402
+import resolve_app_container  # noqa: E402
 
 REGION = "us-east-1"
 
@@ -64,8 +66,9 @@ SELECT json_build_object(
         "cd /var/lib/tokenkey",
         'active=$(tr -d "[:space:]" < active-color)',
         'case "$active" in blue|green) APP_CONTAINER="tokenkey-$active";; *) exit 21;; esac',
+        resolve_app_container.data_container_shell_snippet("postgres"),
         'active_image=$(docker inspect "$APP_CONTAINER" --format "{{.Config.Image}}")',
-        "db=$(docker exec -e PGOPTIONS='-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=30s' tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -t -A -P pager=off -v ON_ERROR_STOP=1 -c " + shlex.quote(sql) + ")",
+        "db=$(docker exec -e PGOPTIONS='-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=30s' \"$TK_PG\" psql -U tokenkey -d tokenkey -X -q -t -A -P pager=off -v ON_ERROR_STOP=1 -c " + shlex.quote(sql) + ")",
         "jq -cn --arg image \"$active_image\" --argjson db \"$db\" '{mode:\"prod_data_retention_activation_plan\",environment:\"prod\",active_image:$image,ops:$db,deletion_authorized:false}'",
     ])
 

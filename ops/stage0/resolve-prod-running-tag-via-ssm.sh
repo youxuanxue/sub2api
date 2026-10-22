@@ -5,7 +5,7 @@
 # Why this exists:
 #   CloudFormation ImageTag is a bootstrap-only value. Normal prod releases use
 #   deploy-stage0's SSM blue/green path, so CFN ImageTag intentionally lags the
-#   running image. Any operation that replaces the EC2 instance must pin ImageTag
+#   running image. Any operation that replaces the prod host must pin ImageTag
 #   to the runtime tag first, or the new instance can bootstrap an old image.
 #
 # Output:
@@ -25,7 +25,7 @@ Resolve the Stage0 prod host's *runtime* app image tag via read-only SSM.
 Why this exists:
   CloudFormation ImageTag is a bootstrap-only value. Normal prod releases use
   deploy-stage0's SSM blue/green path, so CFN ImageTag intentionally lags the
-  running image. Any operation that replaces the EC2 instance must pin ImageTag
+  running image. Any operation that replaces the prod host must pin ImageTag
   to the runtime tag first, or the new instance can bootstrap an old image.
 
 Output:
@@ -92,7 +92,7 @@ aws_region() {
 RESOLVE_PROD="${RESOLVE_PROD_SSM_TARGET:-${SCRIPT_DIR}/resolve_prod_ssm_target.py}"
 
 if [[ -z "${INSTANCE_ID}" ]]; then
-  # Cutover-aware: Hybrid mi-* when control-plane param is hetzner (not CFN i-*).
+  # Live prod is the Tencent USW SSM Hybrid mi-* host (resolver auto); no CFN i-* fallback.
   if ! RESOLVED_JSON="$(PROD_SSM_TARGET="${PROD_SSM_TARGET:-auto}" python3 "${RESOLVE_PROD}" \
     --target "${PROD_SSM_TARGET:-auto}" \
     --stack "${STACK}" \

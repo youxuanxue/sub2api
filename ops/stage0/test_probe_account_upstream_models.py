@@ -56,6 +56,10 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
             fake_sudo = Path(tmp) / "sudo"
             fake_sudo.write_text(
                 "#!/bin/sh\n"
+                # Shared PG resolver: only the Tencent layout name is running.
+                'if [ "$2" = inspect ]; then for a in "$@"; do n="$a"; done; '
+                '[ "$n" = tk-archive-standby ] && echo true && exit 0; exit 1; fi\n'
+                'case "$*" in *"exec -i tk-archive-standby psql"*) ;; *) exit 9 ;; esac\n'
                 f"printf '%s\\n' {shlex.quote(bootstrap)}\n",
                 encoding="utf-8",
             )

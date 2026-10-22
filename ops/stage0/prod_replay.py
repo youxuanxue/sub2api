@@ -20,6 +20,7 @@ import secrets
 import shutil
 import signal
 import subprocess
+import sys
 import time
 from urllib.parse import urlsplit
 
@@ -125,7 +126,28 @@ def validate_receipt(receipt, expected, prepared_sha, tag):
     require(0 <= time.time() - receipt['finished_at'] <= 86400, 'replay_receipt_expired')
 
 
-def sql(query, container='tokenkey-postgres', database='tokenkey', user='tokenkey'):
+def data_container(kind):
+    """Live PG/Redis container from the canonical resolver (Stage0 or Tencent name).
+
+    Imported lazily: the deploy gate execs this module as a contract blob without
+    siblings and never reaches here. Replay delivery ships resolve_app_container.py.
+    """
+    here = Path(__file__).resolve().parent if '__file__' in globals() else Path('.')
+    for candidate in (here, here.parent / 'lib'):
+        if (candidate / 'resolve_app_container.py').is_file() and str(candidate) not in sys.path:
+            sys.path.insert(0, str(candidate))
+    try:
+        import resolve_app_container
+    except ImportError as exc:
+        raise ReplayError('container_resolver_missing') from exc
+    name = (resolve_app_container.resolve_postgres() if kind == 'postgres'
+            else resolve_app_container.resolve_redis())
+    require(name is not None, kind + '_container_unresolved')
+    return name
+
+
+def sql(query, container=None, database='tokenkey', user='tokenkey'):
+    container = container or data_container('postgres')
     return run(['docker', 'exec', '-i', container, 'psql', '-X', '-v', 'ON_ERROR_STOP=1',
                 '-U', user, '-d', database, '-At'], input=query.encode()).decode()
 
@@ -482,7 +504,7 @@ class Sandbox:
         pg_env.write_text(f'POSTGRES_USER=tokenkey\nPOSTGRES_DB={database}\nPOSTGRES_PASSWORD={password}\n')
         pg_env.chmod(0o600)
         pg = self.start_container('-pg', ['--memory', '512m', '--cpus', self.postgres_cpus, '--env-file', str(pg_env),
-                                        inspect('tokenkey-postgres')['Image']])
+                                        inspect(data_container('postgres'))['Image']])
         self.pg, self.database = pg, database
         for _ in range(60):
             try:
@@ -493,7 +515,7 @@ class Sandbox:
         else:
             raise ReplayError('snapshot_database_not_ready')
         dump = self.path / 'snapshot.dump'
-        args = ['docker', 'exec', 'tokenkey-postgres', 'pg_dump', '-U', source.get('DATABASE_USER', 'tokenkey'),
+        args = ['docker', 'exec', data_container('postgres'), 'pg_dump', '-U', source.get('DATABASE_USER', 'tokenkey'),
                 '-d', source.get('DATABASE_DBNAME', 'tokenkey'), '-Fc', '--no-owner', '--no-acl', '--lock-wait-timeout=10s']
         for pattern in ('usage_logs*', 'usage_billing_dedup*', 'ops_*', 'qa_*', 'telemetry_*', 'idempotency*',
                         'scheduler_outbox*', 'dashboard_*', 'channel_monitor_*', 'audit_logs*', 'payment_orders*',
@@ -506,7 +528,7 @@ class Sandbox:
                  '--no-owner', '--no-acl', '--exit-on-error'], stdin=source_file)
         sql('UPDATE users SET balance_notify_enabled=false; UPDATE accounts SET auto_pause_on_expired=false;', pg, database)
         self.configure_database()
-        self.start_container('-redis', ['--memory', '128m', '--cpus', '0.25', inspect('tokenkey-redis')['Image'],
+        self.start_container('-redis', ['--memory', '128m', '--cpus', '0.25', inspect(data_container('redis'))['Image'],
                                       'redis-server', '--save', '', '--appendonly', 'no', '--requirepass', password,
                                       '--maxmemory', '96mb', '--maxmemory-policy', 'allkeys-lru'])
         env_file = self.path / 'app.env'

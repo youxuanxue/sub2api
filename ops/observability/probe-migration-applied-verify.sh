@@ -6,7 +6,7 @@
 # own Postgres, so each host must be checked separately. Deliver via run-probe.sh.
 #
 # Env (all optional; defaults reproduce the tk_101 finalize check):
-#   POSTGRES_CONTAINER   docker container (default: tokenkey-postgres)
+#   POSTGRES_CONTAINER   docker container (default: shared resolver, Stage0 or Tencent name)
 #   PGUSER / PGDATABASE  defaults: tokenkey / tokenkey
 #   MIGRATION_FILENAMES  space-separated schema_migrations.filename values
 #   PARENT_TABLE         partitioned/parent table to inspect (default: ops_error_logs)
@@ -38,7 +38,15 @@ require_filename() {
   fi
 }
 
-POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-tokenkey-postgres}"
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+POSTGRES_CONTAINER="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 2
 PGUSER="${PGUSER:-tokenkey}"
 PGDATABASE="${PGDATABASE:-tokenkey}"
 PARENT_TABLE="${PARENT_TABLE:-ops_error_logs}"

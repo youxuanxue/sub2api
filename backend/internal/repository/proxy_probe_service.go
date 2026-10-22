@@ -51,7 +51,7 @@ type probeTarget struct {
 	parser string
 }
 
-// probeURLsDefault is the overseas builtin chain (global / Tokyo prod).
+// probeURLsDefault is the overseas builtin chain (global / Tencent USW prod).
 // Some AI-only proxies allowlist specific hosts, so keep multiple fallbacks.
 var probeURLsDefault = []probeTarget{
 	{"http://ip-api.com/json/?lang=zh-CN", "ip-api"},

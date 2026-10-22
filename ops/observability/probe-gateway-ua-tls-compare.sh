@@ -122,10 +122,13 @@ if container is None:
 
 
 def psql_json(sql: str) -> list[dict]:
+    pg = _tk.resolve_postgres(_os.environ.get("POSTGRES_CONTAINER", "auto"))
+    if pg is None:
+        return [{"error": "postgres container unresolved"}]
     cmd = [
         "docker",
         "exec",
-        "tokenkey-postgres",
+        pg,
         "psql",
         "-U",
         "tokenkey",

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import pathlib
 import re
 import subprocess
 import sys
@@ -100,11 +101,32 @@ def _utc_timestamp(value: Any) -> dt.datetime:
     return parsed.astimezone(dt.timezone.utc)
 
 
+def _data_container(kind: str) -> str | None:
+    """Running PG/Redis container from the canonical resolver (Stage0 or Tencent name).
+
+    run-probe.sh ships ops/lib/resolve_app_container.py next to this script under
+    /tmp; a repo checkout finds it at ../lib. None means unresolved.
+    """
+    here = pathlib.Path(__file__).resolve().parent
+    for candidate in (here, here.parent / "lib"):
+        if (candidate / "resolve_app_container.py").is_file():
+            sys.path.insert(0, str(candidate))
+            break
+    import resolve_app_container
+
+    if kind == "postgres":
+        return resolve_app_container.resolve_postgres()
+    return resolve_app_container.resolve_redis()
+
+
 def _psql(sql: str, *, timeout_seconds: int = 360) -> str:
+    container = _data_container("postgres")
+    if container is None:
+        raise RuntimeError("postgres container unresolved")
     command = [
         "docker",
         "exec",
-        "tokenkey-postgres",
+        container,
         "psql",
         "-U",
         "tokenkey",

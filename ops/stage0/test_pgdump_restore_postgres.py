@@ -118,7 +118,7 @@ INSERT INTO usage_logs VALUES
             env = root / "host.env"
             env.write_text("TOKENKEY_PGDUMP_S3_URI=s3://fixture-bucket/prod/pgdump\n")
             receipt_root = root / "receipts"
-            with mock.patch.object(canary, "LIVE_POSTGRES", source):
+            with mock.patch.object(canary, "LIVE_POSTGRES_CANDIDATES", (source,)):
                 def restore():
                     return canary.run_canary("prod", env_path=env, storage_config=root / "no-config",
                                              receipt_root=receipt_root, run=run, now=lambda: current)

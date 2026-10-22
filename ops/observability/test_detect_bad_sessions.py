@@ -147,6 +147,7 @@ class DetectBadSessionsTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"USER_ID": "16", "MODEL": "test-model"}, clear=True), \
              mock.patch.object(MODULE, "_resolve_container", return_value="tokenkey-blue"), \
              mock.patch.object(MODULE, "_run_json_query", side_effect=query), \
+             mock.patch.object(MODULE, "_resolve_postgres_container", return_value="tk-archive-standby"), \
              mock.patch.object(MODULE, "_docker_log_lines", return_value=lines):
             report = MODULE.live_report()
         self.assertEqual(report["status"], "partial")
@@ -167,6 +168,7 @@ class DetectBadSessionsTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=True), \
              mock.patch.object(MODULE, "_resolve_container", return_value="tokenkey-blue"), \
              mock.patch.object(MODULE, "_run_json_query", side_effect=[[], []]), \
+             mock.patch.object(MODULE, "_resolve_postgres_container", return_value="tk-archive-standby"), \
              mock.patch.object(MODULE, "_docker_log_lines", return_value=lines):
             report = MODULE.live_report()
         self.assertEqual(report["status"], "no_candidates")
@@ -228,6 +230,7 @@ class DetectBadSessionsTest(unittest.TestCase):
                  mock.patch.dict(os.environ, {"MAX_ROWS": "100"}, clear=True), \
                  mock.patch.object(MODULE, "_resolve_container", return_value="app"), \
                  mock.patch.object(MODULE, "_run_json_query", side_effect=[errors, usages] if source == "success" else [errors * 34, []]), \
+                 mock.patch.object(MODULE, "_resolve_postgres_container", return_value="tk-archive-standby"), \
                  mock.patch.object(MODULE, "parse_gateway_log_lines", return_value=logs), \
                  mock.patch.object(MODULE, "_docker_log_lines", return_value=[]):
                 report = MODULE.live_report()
@@ -285,6 +288,7 @@ class DetectBadSessionsTest(unittest.TestCase):
             return []
         with mock.patch.dict(os.environ, {"UNTIL_UTC": until.isoformat(), "WINDOW_MINUTES": "2880", "LOG_DIR": "/retained"}, clear=True), \
              mock.patch.object(MODULE, "_run_json_query", side_effect=[[], []]), \
+             mock.patch.object(MODULE, "_resolve_postgres_container", return_value="tk-archive-standby"), \
              mock.patch.object(MODULE, "_retained_log_lines", side_effect=retained), \
              mock.patch.object(MODULE, "_resolve_container", side_effect=AssertionError("must use retained files")):
             report = MODULE.live_report()

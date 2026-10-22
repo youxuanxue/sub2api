@@ -5,12 +5,14 @@ SSOT: deploy/host/ensure-tokenkey-bbr.sh
 Static consumers (preflight default):
   - deploy/aws/stage0/stage0-ec2-bootstrap.sh (compact apply; keep ≤3 SSM parts)
   - deploy/hetzner/render-prod-bootstrap.sh (b64_gzip embed + install)
-  - ops/stage0/sync-host-bbr-via-ssm.sh (live EC2 heal)
+  - ops/stage0/sync-host-bbr-via-ssm.sh (live prod heal via SSM; `prod` uses the resolver)
   - scripts/checks/proxy_bbr_live.py + ops/observability/probe-list-proxies.sh
     (admin/proxies egress hosts)
 
 Live mode (`--live`):
   - also SSH-checks every active https://tokenkey.dev/admin/proxies host for bbr+fq
+  - Lightsail egress only; Tencent usw-eval*/cn-ip* hosts are reported as
+    "not covered" (non-zero exit), never silently skipped
 
 Usage:
   python3 scripts/checks/check-host-bbr-ssot.py

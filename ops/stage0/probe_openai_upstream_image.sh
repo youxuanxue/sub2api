@@ -24,7 +24,17 @@ DEFAULT_CODEX_UA="codex-tui/0.163.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (cod
 CODEX_USER_AGENT="${CODEX_USER_AGENT:-$DEFAULT_CODEX_UA}"
 CODEX_VERSION="${CODEX_VERSION:-0.163.0}"
 
-PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
+TK_DOCKER="${TK_DOCKER:-sudo docker}"
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+TK_PG="$(tk_require_postgres_container "${POSTGRES_CONTAINER:-auto}")" || exit 1
+PSQL=(sudo docker exec -i "$TK_PG" psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
 
 fail_json() {
   python3 - "$1" <<'PY'

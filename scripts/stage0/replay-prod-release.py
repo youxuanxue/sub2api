@@ -50,6 +50,7 @@ def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='
              ('prod_replay.py', 'prod_replay_manifest.py', 'prod-replay-capabilities.json',
               'gateway_capability_host.py', 'gateway_capability_check.py', 'gateway_capability_matrix.py',
               'gateway_capability_scenarios.py', 'gateway-account-supply.json', 'gateway-capability-matrix.json')}
+    files['resolve_app_container.py'] = (ROOT / 'ops/lib/resolve_app_container.py').read_text()
     for fixture in (ROOT / 'ops/stage0/fixtures/gateway').glob('*.json'):
         files['fixtures/gateway/' + fixture.name] = fixture.read_text()
     payload = base64.b64encode(zlib.compress(json.dumps(files).encode(), level=9)).decode()

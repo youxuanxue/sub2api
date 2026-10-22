@@ -3,17 +3,22 @@
 # for runtime_resource_config_verdict.py; no secrets or application payloads.
 set -euo pipefail
 
-active=""
-if [ -r /var/lib/tokenkey/active-color ]; then
-  active="$(tr -d '[:space:]' < /var/lib/tokenkey/active-color)"
-fi
-case "$active" in
-  blue|green) app_container="tokenkey-${active}" ;;
-  *) app_container="tokenkey" ;;
-esac
+# PG/Redis container names differ between Stage0 (tokenkey-postgres/-redis) and
+# the Tencent USW layout; ops/lib/resolve-app-container.sh owns the choice and
+# run-probe.sh ships it next to this script.
+for _tk_lib in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}" "$(dirname "${BASH_SOURCE[0]}")/../lib"; do
+  [ -f "$_tk_lib/resolve-app-container.sh" ] && break
+done
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_lib/resolve-app-container.sh" || { echo "container resolver not found (ops/lib/resolve-app-container.sh)" >&2; exit 1; }
+# Unresolved containers leave their fields empty; the verdict treats that as a
+# failed observation instead of reading a stopped container or the control proxy.
+app_container="$(tk_resolve_app_container auto || true)"
+redis_container="$(tk_resolve_redis_container "${REDIS_CONTAINER:-auto}" || true)"
 
 log_field() {
   local container="$1" field="$2"
+  [ -n "$container" ] || return 0
   case "$field" in
     driver) docker inspect "$container" --format '{{.HostConfig.LogConfig.Type}}' 2>/dev/null || true ;;
     max_size) docker inspect "$container" --format '{{index .HostConfig.LogConfig.Config "max-size"}}' 2>/dev/null || true ;;
@@ -22,7 +27,8 @@ log_field() {
 }
 
 redis_config() {
-  docker exec tokenkey-redis sh -c "redis-cli --raw CONFIG GET '$1'" 2>/dev/null | tail -1
+  [ -n "$redis_container" ] || return 0
+  docker exec "$redis_container" sh -c "redis-cli --raw CONFIG GET '$1'" 2>/dev/null | tail -1
 }
 
 jq -cn \

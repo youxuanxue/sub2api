@@ -75,8 +75,6 @@ PYBODY
   fi
 fi
 
-PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
-PSQL_ARRAY=("${PSQL[@]}")
 PROBE_RESOURCES="${SCRIPT_DIR}/../pricing/probe_reserved_resources.sh"
 if [ ! -f "$PROBE_RESOURCES" ]; then
   PROBE_RESOURCES="${SCRIPT_DIR}/probe_reserved_resources.sh"
@@ -140,6 +138,11 @@ fi
 if ! APP_CONTAINER="$(tk_resolve_app_container "$APP_CONTAINER")"; then
   fail_json "app container unresolved (no running candidate, or several)"
 fi
+if ! TK_PG="$(tk_resolve_postgres_container "${POSTGRES_CONTAINER:-auto}")"; then
+  fail_json "postgres container unresolved (want exactly one running of: $TK_POSTGRES_CONTAINER_CANDIDATES)"
+fi
+PSQL=(sudo docker exec -i "$TK_PG" psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
+PSQL_ARRAY=("${PSQL[@]}")
 
 if [[ ! "$ACCOUNT_ID" =~ ^[0-9]+$ ]]; then
   fail_json "ACCOUNT_ID must be numeric"

@@ -104,6 +104,48 @@ class BackupIdentityTest(unittest.TestCase):
         self.assertNotIn('synthetic-secret', output.getvalue())
         self.assertEqual(json.loads(output.getvalue())['cutover_authorized'], False)
 
+    def test_identity_comes_from_tencent_matrix_not_constants(self):
+        matrix = json.loads((Path(__file__).resolve().parents[2] / 'deploy' / 'tencent'
+                             / 'candidate-usw-20261022.json').read_text())['target']
+        self.assertEqual(identity.INSTANCE, matrix['expected_ssm_instance_id'])
+        self.assertEqual(identity.HOST, matrix['hostname'])
+        self.assertEqual(identity.ROLE, matrix['ssm_hybrid_role_name'])
+        self.assertEqual(identity.SSM_REGION, matrix['ssm_region'])
+        self.assertEqual(identity.USER_ID, identity.ROLE_ID + ':' + matrix['expected_ssm_instance_id'])
+        source = Path(identity.__file__).read_text()
+        self.assertNotIn(matrix['expected_ssm_instance_id'], source)
+        self.assertNotIn("'" + matrix['ssm_region'] + "'", source)
+
+    def test_matrix_lookup_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(ValueError):
+                identity.load_target([root / 'missing.json'])
+            partial = root / 'partial.json'
+            partial.write_text(json.dumps({'target': {'expected_ssm_instance_id': 'mi-0abc',
+                                                      'hostname': 'h'}}))
+            with self.assertRaises(ValueError):
+                identity.load_target([partial])
+            ec2 = root / 'ec2.json'
+            ec2.write_text(json.dumps({'target': {'expected_ssm_instance_id': 'i-0abc', 'hostname': 'h',
+                                                  'ssm_hybrid_role_name': 'r', 'ssm_region': 'x'}}))
+            with self.assertRaises(ValueError):
+                identity.load_target([ec2])
+
+    def test_explicit_matrix_env_is_authoritative(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.dict(os.environ, {'TK_TENCENT_PROD_MATRIX': str(Path(directory) / 'none.json')}):
+            self.assertEqual(identity.matrix_candidates(), [Path(directory) / 'none.json'])
+            with self.assertRaises(ValueError):
+                identity.load_target()
+
+    def test_missing_matrix_refuses_every_action(self):
+        with patch.object(identity, '_TARGET', None):
+            for action in (identity.policy, identity.refresh,
+                           lambda: identity.validate_identity({})):
+                with self.subTest(action=action), self.assertRaises(ValueError):
+                    action()
+
 
 if __name__ == '__main__':
     unittest.main()

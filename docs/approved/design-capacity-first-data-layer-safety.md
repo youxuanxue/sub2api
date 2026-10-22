@@ -18,6 +18,7 @@ PR #1385 交付了三个安全构件的原型实现；正式 prod 只读容量�
 当前唯一 owner：
 
 1. `ops/observability/probe-data-layer-capacity.sh` + `data_layer_capacity_verdict.py`（daily diagnostics 只读 prod 采样）；
+   - 实现说明（2026-10-22）：PG 容器经 `ops/lib/resolve-app-container.sh` 的 `tk_require_postgres_container` 解析（Stage0 `tokenkey-postgres` / 腾讯美西布局例外 `tk-archive-standby`，恰好一个运行中才继续，否则失败）。只改变 `docker exec` 的目标，上文只读约束不变。
 2. `ops/observability/data_layer_capacity_projection.py`（离线投影，不连网）；
 3. `ops/stage0/cfn_datavolume_parameter_plan.py` + `reconcile-cfn-datavolume-no-replace.sh`（no-execute change set 预览；执行仍须单独审批）。
 

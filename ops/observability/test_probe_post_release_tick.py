@@ -86,6 +86,8 @@ class ProbePostReleaseTickTest(unittest.TestCase):
                 "TRAFFIC_PATHS": traffic_paths,
             }
             env.update(extra_env or {})
+            # Shared PG resolver: Tencent layout name is the running data container.
+            env.setdefault("STATE_TK_ARCHIVE_STANDBY", "running")
             for name, state in states.items():
                 env[f"STATE_{name.replace('-', '_').upper()}"] = state
 

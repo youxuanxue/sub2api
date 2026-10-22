@@ -166,5 +166,20 @@
       "SKIPPED",
       "FAILED"
     ]
+  },
+  "retire_dormant_media_storage_remote.sh": {
+    "companions": [
+      "ops/stage0/retire_dormant_media_storage.py",
+      "deploy/tencent/candidate-usw-20261022.json"
+    ],
+    "verdicts": [
+      "plan",
+      "apply",
+      "prod_identity_mismatch",
+      "prod_matrix_missing",
+      "prod_matrix_not_live",
+      "live_app_unresolved",
+      "data_container_unresolved"
+    ]
   }
 }

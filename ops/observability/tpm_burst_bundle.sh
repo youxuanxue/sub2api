@@ -19,7 +19,7 @@ shift || true
 CALIBRATE_JSON="${CALIBRATE_JSON:-/tmp/tpm-recipe1/calibrate-repo-explain-n5.json}"
 PROMPT_FILE="${PROMPT_FILE:-/tmp/tpm-recipe1/sub2api-explain-prompt.txt}"
 OUT_DIR="${OUT_DIR:-/tmp/tpm-recipe1/formal-$(date +%Y%m%d-%H%M%S)}"
-# api-cn.tokenkey.dev DNS is cut over to AWS Tokyo — default to UCloud static IP.
+# api-cn.tokenkey.dev DNS points at Tencent USW prod — default to UCloud static IP.
 # shellcheck disable=SC2016
 read -r UCLOUD_ORIGIN HOST_HEADER_DEFAULT < <(
   python3 -c "
@@ -51,7 +51,7 @@ Env overrides:
   TPM_BURST_POOL_SLOTS|POOL_SLOTS  (accounts×concurrency; required for non-legacy pools)
 
 Default BASE_URL=$UCLOUD_ORIGIN (UCloud static IP from prod-target.json).
-Do NOT use https://api-cn.tokenkey.dev — that DNS currently points at AWS Tokyo.
+Do NOT use https://api-cn.tokenkey.dev — that DNS points at Tencent USW prod, not cn-prod.
 EOF
 }
 
@@ -68,7 +68,7 @@ host_args() {
 refuse_aws_domain_base_url() {
   case "$BASE_URL" in
     *api-cn.tokenkey.dev*)
-      echo "{\"phase\":\"bundle_refused\",\"error\":\"BASE_URL=$BASE_URL uses AWS-cutover DNS; set TOKENKEY_BASE_URL=$UCLOUD_ORIGIN\"}" >&2
+      echo "{\"phase\":\"bundle_refused\",\"error\":\"BASE_URL=$BASE_URL uses overseas-prod DNS; set TOKENKEY_BASE_URL=$UCLOUD_ORIGIN\"}" >&2
       exit 2
       ;;
   esac
