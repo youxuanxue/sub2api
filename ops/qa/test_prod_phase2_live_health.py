@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import contextlib
+import copy
 import io
 import json
 import os
@@ -508,6 +509,168 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         self.assertEqual(verdict["status"], "degraded", verdict)
         self.assertNotIn("compensation_not_committed_restore_verified", verdict["reasons"], verdict)
         self.assertIn("catchup_terminal_gaps_present", verdict["catchup_reasons"], verdict)
+
+
+def _summarize_terminal_like_probe_sql(archive: dict, receipt: dict | None) -> dict:
+    """Reference model of the probe's terminal summary SQL over a full inventory."""
+    items = archive["terminal_failures_after_cutover"]
+    by_code: dict[str, int] = {}
+    for item in items:
+        by_code[item["verification_error_code"]] = by_code.get(item["verification_error_code"], 0) + 1
+    targets = set()
+    receipt_comp = (receipt or {}).get("compensation")
+    if isinstance(receipt_comp, dict) and receipt_comp.get("window_start"):
+        targets.add(receipt_comp["window_start"])
+    if isinstance(archive.get("compensation"), dict):
+        targets.add(archive["compensation"].get("window_start"))
+    windows = sorted(item["window_start"] for item in items)
+    summary = {
+        "count": len(items),
+        "by_code": dict(sorted(by_code.items())),
+        "first_window_start": windows[0] if windows else None,
+        "last_window_start": windows[-1] if windows else None,
+        "compensation_matches": [item for item in items if item["window_start"] in targets],
+    }
+    compact = {key: value for key, value in archive.items() if key != "terminal_failures_after_cutover"}
+    compact["terminal_failures_summary"] = summary
+    return compact
+
+
+class TerminalInventorySummaryEquivalenceTest(unittest.TestCase):
+    TERMINAL = "source_unavailable_after_retention"
+
+    @staticmethod
+    def _windows(count: int) -> list[str]:
+        start = dt.datetime(2026, 8, 1, 1, tzinfo=dt.timezone.utc)
+        return [(start + dt.timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ") for i in range(count)]
+
+    def _scenarios(self):
+        windows = self._windows(600)
+        comp_window = windows[17]
+        missing_window = "2026-07-01T00:00:00Z"
+        failed_comp = {
+            "state": "failed", "verification_error_code": self.TERMINAL,
+            "restore_verified": False, "cleanup_eligible": False, "commit_etag": None,
+        }
+        heartbeat_comp = (
+            " compensation_window={window} compensation_state=failed"
+            f" compensation_error_code={self.TERMINAL}"
+        )
+        inventories = {
+            "empty": [],
+            "all_terminal": [{"window_start": w, "verification_error_code": self.TERMINAL} for w in windows],
+            "mixed_codes": [
+                {"window_start": w, "verification_error_code": (
+                    "archive_failed" if i == 77 else "restore_failed" if i == 91 else self.TERMINAL
+                )}
+                for i, w in enumerate(windows)
+            ],
+            "comp_absent": [
+                {"window_start": w, "verification_error_code": self.TERMINAL}
+                for w in windows if w != comp_window
+            ],
+        }
+        # receipt compensation window, control compensation window, heartbeat window
+        correlations = {
+            "no_compensation": (None, None, None),
+            "control_only": (None, comp_window, None),
+            "control_only_outside_inventory": (None, missing_window, None),
+            "receipt_and_control": (comp_window, comp_window, comp_window),
+            "receipt_outside_inventory": (missing_window, missing_window, missing_window),
+            "receipt_control_disagree": (comp_window, windows[18], comp_window),
+            "receipt_without_control": (comp_window, None, windows[19]),
+        }
+        for inv_name, inventory in inventories.items():
+            for corr_name, (receipt_window, control_window, heartbeat_window) in correlations.items():
+                snapshot, now = _fresh_snapshot()
+                archive = snapshot["archive_control"]
+                archive["terminal_failures_after_cutover"] = copy.deepcopy(inventory)
+                archive["compensation"] = (
+                    {"window_start": control_window, **failed_comp} if control_window else None
+                )
+                if receipt_window:
+                    snapshot["host_receipt"]["compensation"] = {"window_start": receipt_window, **failed_comp}
+                if heartbeat_window:
+                    snapshot["database_heartbeat"]["last_result"] += heartbeat_comp.format(window=heartbeat_window)
+                yield f"{inv_name}/{corr_name}", snapshot, now
+
+    def test_summary_and_full_inventory_give_identical_verdicts(self) -> None:
+        verdicts = set()
+        for name, snapshot, now in self._scenarios():
+            compact = copy.deepcopy(snapshot)
+            compact["archive_control"] = _summarize_terminal_like_probe_sql(
+                snapshot["archive_control"], snapshot["host_receipt"]
+            )
+            self.assertNotIn("terminal_failures_after_cutover", compact["archive_control"])
+            for policy in ("accepted_terminal", "strict"):
+                with self.subTest(scenario=name, policy=policy):
+                    legacy = health.evaluate(snapshot, now=now, catchup_gap_policy=policy)
+                    summary = health.evaluate(compact, now=now, catchup_gap_policy=policy)
+                    self.assertEqual(summary, legacy)
+                    verdicts.add((legacy["status"], tuple(legacy["catchup_reasons"])))
+        # The scenarios must exercise healthy, degraded, and several failed shapes.
+        statuses = {status for status, _ in verdicts}
+        self.assertEqual(statuses, {"healthy", "degraded", "failed"}, verdicts)
+        reasons = {reason for _, catchup in verdicts for reason in catchup}
+        for expected in (
+            "catchup_terminal_gaps_present", "terminal_failures_after_cutover", "archive_failed",
+            "archive_verification_failure", "compensation_window_not_in_terminal_inventory",
+        ):
+            self.assertIn(expected, reasons)
+
+    def test_malformed_summary_fails_closed_as_missing_inventory(self) -> None:
+        for summary in (
+            None, [], {"by_code": {}}, {"count": 2, "by_code": {self.TERMINAL: 1}},
+            {"count": 1, "by_code": {self.TERMINAL: True}}, {"count": 0, "by_code": {self.TERMINAL: 0}},
+            {"count": -1, "by_code": {}},
+        ):
+            with self.subTest(summary=summary):
+                snapshot, now = _fresh_snapshot()
+                archive = snapshot["archive_control"]
+                del archive["terminal_failures_after_cutover"]
+                if summary is not None:
+                    archive["terminal_failures_summary"] = summary
+                verdict = health.evaluate(snapshot, now=now)
+                self.assertEqual(verdict["status"], "failed", verdict)
+                self.assertIn("terminal_failure_inventory_missing", verdict["catchup_reasons"])
+
+    def test_large_inventory_probe_output_stays_under_ssm_inline_limit(self) -> None:
+        snapshot, _ = _fresh_snapshot()
+        windows = self._windows(5000)
+        snapshot["archive_control"]["terminal_failures_after_cutover"] = [
+            {"window_start": w, "verification_error_code": self.TERMINAL} for w in windows
+        ]
+        snapshot["archive_control"]["compensation"] = {
+            "window_start": windows[0], "state": "failed", "verification_error_code": self.TERMINAL,
+            "restore_verified": False, "cleanup_eligible": False, "commit_etag": None,
+        }
+        legacy_line = "PHASE2ARCHIVE " + json.dumps(snapshot["archive_control"], sort_keys=True)
+        compact = _summarize_terminal_like_probe_sql(snapshot["archive_control"], snapshot["host_receipt"])
+        archive_line = "PHASE2ARCHIVE " + json.dumps(compact, sort_keys=True)
+        self.assertGreater(len(legacy_line), 24_000)
+        self.assertLess(len(archive_line), 2_000)
+        probe_text = "\n".join(
+            [
+                "PHASE2SYSTEMD " + json.dumps(snapshot["systemd"], sort_keys=True),
+                "PHASE2STORAGE " + json.dumps(snapshot["storage"], sort_keys=True),
+                "PHASE2RECEIPT " + json.dumps(snapshot["host_receipt"], sort_keys=True),
+                "PHASE2HEARTBEAT " + json.dumps(snapshot["database_heartbeat"], sort_keys=True),
+                archive_line,
+                "PHASE2BOUNDARYSYSTEMD " + json.dumps(snapshot["boundary_systemd"], sort_keys=True),
+                "PHASE2BOUNDARYRECEIPT " + json.dumps(snapshot["boundary_host_receipt"], sort_keys=True),
+                "PHASE2BOUNDARYHEARTBEAT " + json.dumps(snapshot["boundary_database_heartbeat"], sort_keys=True),
+                "PHASE2QARECORDS " + json.dumps(snapshot["qa_records"], sort_keys=True),
+            ]
+        )
+        # run-probe.sh refuses output SSM truncated at 24,000 bytes.
+        self.assertLess(len(probe_text.encode()), 23_000)
+        parsed = live_health._parse_probe_output(probe_text)
+        self.assertEqual(parsed["archive_control"]["terminal_failures_summary"]["count"], 5000)
+
+    def test_direct_ssm_delivery_inlines_container_resolver(self) -> None:
+        body = live_health.probe_script_bytes().decode()
+        self.assertLess(body.index("tk_resolve_postgres_container() {"), body.index("PHASE2STORAGE"))
+        self.assertNotIn(" tokenkey-postgres psql", body)
 
 
 class VerifyRawArchiveIAMContractTest(unittest.TestCase):
