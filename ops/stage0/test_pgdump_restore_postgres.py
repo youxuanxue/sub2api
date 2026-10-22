@@ -73,6 +73,16 @@ INSERT INTO usage_logs VALUES
         mode = "success"
 
         def run(args, **kwargs):
+            if args[:3] == ["docker", "run", "--detach"] and recovered in args:
+                # Both synthetic PG instances use bounded RAM storage. A host
+                # /tmp bind can point into an unshared Colima VM root instead
+                # of the Mac's temporary directory, exhausting the VM disk.
+                # Keep the real restore, reconciliation and failure cleanup;
+                # production canary mount construction is covered separately.
+                args = list(args)
+                mount = args.index("--volume")
+                self.assertTrue(args[mount + 1].endswith("/postgres-data:/var/lib/postgresql"))
+                args[mount:mount + 2] = ["--tmpfs", "/var/lib/postgresql:rw,size=268435456"]
             if args[:3] == ["aws", "s3api", "list-objects-v2"]:
                 return subprocess.CompletedProcess(args, 0, json.dumps({"Contents": [{
                     "Key": "prod/pgdump/tokenkey-20260818T070000Z.sql.gz",

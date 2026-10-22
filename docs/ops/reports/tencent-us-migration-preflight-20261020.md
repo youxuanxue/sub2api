@@ -4,6 +4,8 @@
 
 核验时间：2026-10-20 14:29 UTC。
 
+此为历史前置快照；后续地域、预算、建机、SSM 与加密隔离演练进展见[美西验证报告](tencent-us-lighthouse-proxy-validation-20261021.md)，不以本页旧阻塞项判断当前状态。
+
 ## 已核验事实
 
 - 现网入口由 `ops/stage0/resolve_prod_ssm_target.py --target aws-fresh --format json` 解析到 AWS Tokyo prod：`i-045f062ce33e1a5af`，SSM 区域 `ap-northeast-1`，主机名 `tokenkey-prod-tokyo-20261017`。

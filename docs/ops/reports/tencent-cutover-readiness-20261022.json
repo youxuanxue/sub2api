@@ -1,0 +1,98 @@
+{
+  "observed_at": "2026-10-21T23:55:28Z",
+  "ready_for_write_stop": false,
+  "cutover_authorized": false,
+  "scope": "prepare-only",
+  "source_release": "1.8.313",
+  "target_app_manifest": "sha256:a82620000127faddb0ddceeab8a0a4adb4df8663d84d3e82cd32436d0f059019",
+  "verified": {
+    "image_cached_and_version_executed": "inv-1a78rg010h",
+    "synthetic_empty_database_start_and_idle_drain": [
+      "inv-va78vr058u",
+      "inv-xa790n06pt"
+    ],
+    "target_inventory": "inv-0a78qm0fj1",
+    "source_readonly_inventory": "53b4bc5b-9d85-4389-a239-415a31b49e11",
+    "source_readonly_release_refresh": "a204c560-deea-41d4-8ef8-b291f14fcf04",
+    "synthetic_new_timeline_incremental_and_restore": "inv-0a79iagvvm",
+    "ssm_agent_actual_sts_identity": "inv-0a79rjgkqt",
+    "first_identity_refresh_and_source_s3_read": "inv-xa79x40t8s"
+  },
+  "not_verified": [
+    "production_application_config_and_secret_delivery",
+    "tencent_persistent_storage_and_restart_contract",
+    "candidate_release_and_rollback_path",
+    "tls_and_directed_domain_ui_acceptance",
+    "final_wal_live_receipt_collection_and_writer_fence",
+    "new_timeline_backup_identity_and_restore",
+    "credential_renewal_and_operational_alerts"
+  ],
+  "proxy_change": "deferred_until_after_host_cutover",
+  "limitations": [
+    "Synthetic empty database smoke is not restored production data or UI acceptance.",
+    "Offline final WAL verifier checks supplied receipts, not live writer fencing.",
+    "Observation must be refreshed if source release, identities or credentials change.",
+    "Synthetic timeline inheritance works with a complete copied POSIX repository; production S3 permissions, consistent pre-copy, data scale and cross-timeline health checks remain unverified.",
+    "Systemd removed runtime config directories after successful refresh. Automatic renewal is not operational; timer is stopped and target WAL fetching must be repaired and reverified."
+  ],
+  "source_health": {
+    "release": "1.8.313",
+    "healthy": true,
+    "draining": false,
+    "in_flight": 5,
+    "in_recovery": false,
+    "timeline": 1,
+    "archiver_failed_count": 0
+  },
+  "local_validation": {
+    "preflight": "pass",
+    "elapsed_seconds": 93.0,
+    "log": "preflight-r1eo40p4.log",
+    "restore_fixture_fix": "Bounded tmpfs avoids unshared host TMPDIR filling Colima root; production restore code unchanged.",
+    "identity_tests": 6
+  },
+  "synthetic_timeline_handoff": {
+    "repository": "isolated POSIX copy, not S3",
+    "final_archive_replay_seconds": 4.853,
+    "promotion_seconds": 0.518,
+    "incremental_seconds": 2.377,
+    "restore_seconds": 7.11,
+    "timeline": 2,
+    "restored_marker_rows": 3,
+    "cleanup_verified": true
+  },
+  "handoff": "docs/ops/tencent-migration-handoff.md",
+  "historical_manual_credential_expires_at": "2026-10-22T02:21:37Z",
+  "credential_mode": "ssm-agent identity validated; refresh runtime directory broken",
+  "source_observed_at": "2026-10-21T23:38:39Z",
+  "urgent_blocker": {
+    "kind": "systemd_runtime_directory_removed",
+    "invocation": "inv-xa7a1pgx3x",
+    "timer": "stopped but still enabled",
+    "runtime_directory_preserve_effective": "no",
+    "config_directories_present": false,
+    "container_bind_mount_repair_required": true,
+    "wal_fetch_after_fault_verified": false
+  },
+  "target_last_observed": {
+    "in_recovery": true,
+    "read_only": "on",
+    "replay_lsn": "1C/35000000",
+    "running": true,
+    "at": "2026-10-21T23:55:28Z"
+  },
+  "iam": {
+    "role": "tokenkey-lightsail-ssm-hybrid",
+    "inline_policy_installed": "TencentUswPhysicalBackup",
+    "readback_verified": true,
+    "target_source_object_writes": "explicitDeny",
+    "official_simulator": "AccessDenied; not validated",
+    "scope": "only target managed-instance UserId"
+  },
+  "synthetic_s3_handoff": {
+    "invocation": "inv-0a7a0pgpg9",
+    "status": "failed before database or S3 operations",
+    "reason": "tmpfs configuration parent directory missing",
+    "possible_local_residue": "empty synthetic-s3-timeline-* workspace"
+  }
+}

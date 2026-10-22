@@ -13,6 +13,19 @@ prod 直接使用原生账号；旧中继 stub 已软删。
 AWS / Hcloud 旧主机与公网 IP 不能用作回滚目标；历史数据从 S3 隔离归档读取。
 退役验收与归档入口见 [资源收尾](../../docs/ops/aws-retirement-20261017.md)。
 
+### 腾讯云美西隔离验证资源（未接生产）
+
+本轮用户批准锐驰 4C8G 主机与独立锐驰 2C2G 代理，一个月手动续费，共 275 CNY，不购买额外数据盘。以下仅为验证资源，不能作为 prod resolver 或发布目标。
+
+| 角色 | 地域 / 实例 ID | 公网 IP | 私网 IP | 规格 |
+|---|---|---|---|---|
+| 验证主机 | na-siliconvalley-2 / `lhins-fcwpwymt` | `43.162.83.233` | `10.4.0.16` | 4C8G / 120 GB SSD |
+| 验证代理 | na-siliconvalley-2 / `lhins-56ogvsid` | `43.162.90.151` | `10.4.0.2` | 2C2G / 40 GB SSD |
+
+实例到期时间为 2026-11-21 08:31 UTC 左右，`NOTIFY_AND_MANUAL_RENEW`。两台 TAT 与 SSM 实际命令均已验证成功。SSM 复用 UCloud 现用角色 `tokenkey-lightsail-ssm-hybrid`，区域为 **eu-west-2**：验证主机 `mi-080ed76dc6d97d8b5`、代理 `mi-0ed39350eef156e4a`。此前对另一个角色的 PassRole 阻塞不再适用，无需新增 IAM 角色、策略或访问密钥；单次注册码已消费并删除。恢复演练使用独立短期只读 S3 会话，不启用生产写任务。
+代理仅允许验证主机私网来源使用认证 SOCKS5；公网入站默认拒绝。生产 DNS、账号绑定、日本代理与东京网关保持现状。
+验收结果与剩余工作见 [美西验证报告](../../docs/ops/reports/tencent-us-lighthouse-proxy-validation-20261021.md)。
+
 ### 日本出口代理（现役）
 
 这些 Lightsail 机器仅提供账号出口。
