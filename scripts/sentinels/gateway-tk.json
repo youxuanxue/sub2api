@@ -5458,7 +5458,7 @@
       "path": "backend/internal/service/openai_gateway_passthrough.go",
       "must_contain": [
         "shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, canonicalModel)",
-        "case \"response.created\", \"response.in_progress\", \"response.metadata\", \"keepalive\":",
+        "case \"response.created\", \"response.queued\", \"response.in_progress\", \"response.metadata\", \"keepalive\":",
         "failoverErr.SafeToFailoverAfterWrite = streamHasOnlyKeepaliveOutput(c)",
         "return c != nil && c.Writer != nil && c.Writer.Size() > 0 && OpenAICompactKeepaliveAdjustedWrittenSize(c) < 0"
       ],
