@@ -58,7 +58,8 @@ SOCKS 仅监听各机私网 `:1080`，防火墙只放行 prod `10.4.0.16`。**20
 
 名称含 uk/us 不代表物理地域。BBR 验收：`python3 scripts/checks/check-host-bbr-ssot.py --live`。
 
-- 活 prod 身份：`../aws/fresh-migration-20261015.json` 的 `prod`；其旧源坐标仅供历史取证。
+- 活 prod 身份：`../tencent/candidate-usw-20261022.json`（`deployable=true` 时由 `resolve_prod_ssm_target` 解析）。
+- `../aws/fresh-migration-20261015.json` 仅保留冻结 Tokyo inventory，以及 https-watch 的 `https_watch_hostname` / `paused_jobs` / `local_qa_jobs`；不得当作活 SSM 目标。
 - 换机流程：[host replacement](../../.cursor/skills/tokenkey-host-replacement/SKILL.md)。
 
 ## 现网不变量
