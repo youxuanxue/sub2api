@@ -1910,7 +1910,7 @@ func TestClient_FetchAvailableModels_404Fallback_RealCall(t *testing.T) {
 func TestClient_HubUserAgentAndIDEVersionUseContextOverride(t *testing.T) {
 	withTestUserAgentVersionResolver(t)
 	ctx := context.WithValue(context.Background(), userAgentVersionTestContextKey{}, "3.4.5")
-	const expectedUserAgent = "antigravity/hub/3.4.5 windows/amd64"
+	const expectedUserAgent = "antigravity/cli/3.4.5 darwin/arm64"
 	for _, action := range []string{"generateContent", "streamGenerateContent"} {
 		req, err := NewAPIRequestWithURL(ctx, "https://upstream.example", action, "test-token", []byte(`{}`))
 		if err != nil {

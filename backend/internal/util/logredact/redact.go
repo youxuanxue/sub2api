@@ -138,8 +138,10 @@ type textRedactPatterns struct {
 }
 
 var (
-	reGOCSPX        = regexp.MustCompile(`GOCSPX-[0-9A-Za-z_-]{24,}`)
-	reAIza          = regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`)
+	reGOCSPX = regexp.MustCompile(`GOCSPX-[0-9A-Za-z_-]{24,}`)
+	reAIza   = regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`)
+	// Gemini auth key：AQ.Ab 前缀后至少 40 位，短前缀说明文字保持原样。
+	reGeminiAuthKey = regexp.MustCompile(`AQ\.Ab[0-9A-Za-z_-]{40,}`)
 	rePrivateKey    = regexp.MustCompile(`(?s)-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----.*?(?:-----END (?:[A-Z0-9]+ )?PRIVATE KEY-----|$)`)
 	reProviderToken = regexp.MustCompile(`\b(?:glpat-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|(?:AKIA|ASIA)[A-Z0-9]{16}|LTAI[A-Za-z0-9]{12,})`)
 	reBearer        = regexp.MustCompile(`(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+`)
@@ -406,7 +408,8 @@ func mayContainKnownToken(input string) bool {
 		strings.Contains(input, "LTAI") ||
 		containsBearer(input) ||
 		strings.Contains(input, "GOCSPX-") ||
-		strings.Contains(input, "AIza")
+		strings.Contains(input, "AIza") ||
+		strings.Contains(input, "AQ.Ab")
 }
 
 // Do not parse JSON here: JSON strings also pass through this function, and
@@ -434,6 +437,9 @@ func redactUnstructuredText(input string, patterns *textRedactPatterns) string {
 	}
 	if strings.Contains(out, "AIza") {
 		out = reAIza.ReplaceAllString(out, "AIza***")
+	}
+	if strings.Contains(out, "AQ.Ab") {
+		out = reGeminiAuthKey.ReplaceAllString(out, "AQ.***")
 	}
 	if !patterns.mayContainAssignment(out) {
 		return out

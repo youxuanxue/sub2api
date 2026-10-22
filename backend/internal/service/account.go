@@ -645,6 +645,9 @@ func (a *Account) GetModelMapping() map[string]string {
 		a.modelMappingCacheRawPtr == rawPtr &&
 		a.modelMappingCacheRawLen == rawLen &&
 		a.modelMappingCacheRuntimeVersion == runtimeVersion {
+		if a.modelMappingCacheShared {
+			return a.modelMappingCache
+		}
 		if mappingKeysMatch(rawMapping, a.modelMappingCacheKeys) {
 			rawSig = modelMappingSignatureForKeys(rawMapping, a.modelMappingCacheKeys)
 		} else {
@@ -669,6 +672,7 @@ func (a *Account) GetModelMapping() map[string]string {
 	a.modelMappingCacheRawLen = rawLen
 	a.modelMappingCacheRawSig = rawSig
 	a.modelMappingCacheRuntimeVersion = runtimeVersion
+	a.modelMappingCacheShared = false
 	return mapping
 }
 
@@ -742,9 +746,52 @@ func mapPtr(m map[string]any) uintptr {
 	return reflect.ValueOf(m).Pointer()
 }
 
+const (
+	modelMappingSignatureFNVOffset = 14695981039346656037
+	modelMappingSignatureFNVPrime  = 1099511628211
+)
+
+// modelMappingSignature 计算原始映射内容的进程内校验值，与 map 遍历顺序无关且不分配内存。
 func modelMappingSignature(rawMapping map[string]any) uint64 {
-	signature, _ := modelMappingSignatureWithKeys(rawMapping)
-	return signature
+	if len(rawMapping) == 0 {
+		return 0
+	}
+	var sum uint64
+	for k, v := range rawMapping {
+		h := uint64(modelMappingSignatureFNVOffset)
+		h = fnv1aString(h, k)
+		h = fnv1aByte(h, 0)
+		if s, ok := v.(string); ok {
+			h = fnv1aString(h, s)
+		} else {
+			h = fnv1aByte(h, 1)
+		}
+		sum += fmix64(h)
+	}
+	return sum
+}
+
+func fnv1aString(h uint64, s string) uint64 {
+	for i := 0; i < len(s); i++ {
+		h ^= uint64(s[i])
+		h *= modelMappingSignatureFNVPrime
+	}
+	return h
+}
+
+func fnv1aByte(h uint64, b byte) uint64 {
+	h ^= uint64(b)
+	h *= modelMappingSignatureFNVPrime
+	return h
+}
+
+func fmix64(h uint64) uint64 {
+	h ^= h >> 33
+	h *= 0xff51afd7ed558ccd
+	h ^= h >> 33
+	h *= 0xc4ceb9fe1a85ec53
+	h ^= h >> 33
+	return h
 }
 
 func modelMappingSignatureWithKeys(rawMapping map[string]any) (uint64, []string) {

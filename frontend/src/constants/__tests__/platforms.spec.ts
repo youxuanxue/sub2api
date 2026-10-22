@@ -74,10 +74,9 @@ describe('platform catalog with a newly registered platform', () => {
   })
 
   it('keeps the built-in catalog equal to the legacy literals', () => {
-    const catalogIds = concretePlatforms.filter((id) => id !== 'newapi' && id !== 'kiro')
-    expect(listPlatformIds()).toEqual(catalogIds)
+    expect(listPlatformIds()).toEqual(concretePlatforms)
     expect(compositePrecedencePlatformIds()).toEqual([
-      'anthropic', 'gemini', 'openai', 'antigravity', 'grok',
+      'anthropic', 'gemini', 'openai', 'antigravity', 'newapi', 'kiro', 'grok',
       'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe', 'command_code', 'cline'
     ])
     expect(CONCRETE_PLATFORM_OPTIONS.map((option) => option.value)).toEqual(concretePlatforms)
