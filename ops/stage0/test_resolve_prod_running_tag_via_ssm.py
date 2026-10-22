@@ -22,6 +22,7 @@ class ResolveProdRunningTagViaSsmTest(unittest.TestCase):
         self,
         *args: str,
         image: str = "ghcr.io/youxuanxue/sub2api:1.8.91",
+        env_image: str = "",
         resolve_instance: str = "mi-test0123456789ab",
         resolve_region: str = "eu-west-2",
     ) -> subprocess.CompletedProcess[str]:
@@ -68,6 +69,7 @@ class ResolveProdRunningTagViaSsmTest(unittest.TestCase):
                 ACTIVE_COLOR {{"value":"green"}}
                 APPCONTAINER {{"name":"tokenkey-green","requested":"auto","fallback_used":false}}
                 RUNIMAGE {{"image":"{image}"}}
+                ENVIMAGE {{"image":"{env_image}"}}
                 OUT
                     ;;
                   *)
@@ -117,6 +119,32 @@ class ResolveProdRunningTagViaSsmTest(unittest.TestCase):
         proc = self._run(image="ghcr.io/youxuanxue/sub2api:latest")
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("not a Stage0 release tag", proc.stderr)
+
+    def test_digest_pinned_runtime_falls_back_to_env_image(self) -> None:
+        digest = (
+            "ghcr.io/youxuanxue/sub2api@sha256:"
+            "a82620000127faddb0ddceeab8a0a4adb4df8663d84d3e82cd32436d0f059019"
+        )
+        proc = self._run(
+            "--json",
+            image=digest,
+            env_image="ghcr.io/youxuanxue/sub2api:1.8.313",
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        data = json.loads(proc.stdout)
+        self.assertEqual(data["tag"], "1.8.313")
+        self.assertEqual(data["tag_source"], "env")
+        self.assertEqual(data["image"], digest)
+        self.assertEqual(data["env_image"], "ghcr.io/youxuanxue/sub2api:1.8.313")
+
+    def test_digest_without_env_fallback_fails_closed(self) -> None:
+        digest = (
+            "ghcr.io/youxuanxue/sub2api@sha256:"
+            "a82620000127faddb0ddceeab8a0a4adb4df8663d84d3e82cd32436d0f059019"
+        )
+        proc = self._run(image=digest, env_image="")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("failed to parse runtime image", proc.stderr)
 
 
 if __name__ == "__main__":

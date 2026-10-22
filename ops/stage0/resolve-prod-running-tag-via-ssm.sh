@@ -171,9 +171,23 @@ fi
 
 img=\$(docker inspect "\$app_container" --format '{{.Config.Image}}' 2>/dev/null || true)  # preflight-allow: swallow -- empty image is reported to the parser, which fails closed
 
+# Digest-only Config.Image (repo@sha256:…) has no X.Y.Z tag; RepoTags may also be
+# empty after digest pulls. Fall back to TOKENKEY_IMAGE in the Stage0 env file —
+# that is what blue/green / legacy compose actually deploy from.
+env_img=""
+if [ -r /var/lib/tokenkey/.env ]; then
+  env_line=\$(grep -E '^TOKENKEY_IMAGE=' /var/lib/tokenkey/.env 2>/dev/null | head -1 || true)  # preflight-allow: swallow -- missing env is reported empty; parser fails closed without a valid tag
+  env_img=\${env_line#TOKENKEY_IMAGE=}
+  env_img=\${env_img#\"}
+  env_img=\${env_img%\"}
+  env_img=\${env_img#\'}
+  env_img=\${env_img%\'}
+fi
+
 printf 'ACTIVE_COLOR {"value":"%s"}\n' "\$active_color"
 printf 'APPCONTAINER {"name":"%s","requested":"%s","fallback_used":%s}\n' "\$app_container" "\$requested_container" "\$fallback_used"
 printf 'RUNIMAGE {"image":"%s"}\n' "\$img"
+printf 'ENVIMAGE {"image":"%s"}\n' "\$env_img"
 PROBE
 
 REMOTE_B64="$(printf '%s' "${REMOTE_PROBE}" | base64 | tr -d '\n')"
@@ -227,7 +241,31 @@ import json
 import os
 import sys
 
-facts = {"instance_id": os.environ["INSTANCE_ID"], "active_color": "", "container": "", "requested_container": "", "fallback_used": False, "image": ""}
+
+def release_tag_from_image(image):
+    """Extract X.Y.Z-style tag; reject digest-pinned refs (repo@sha256:…)."""
+    image = (image or "").strip()
+    if not image:
+        return None
+    if "@" in image:
+        # Config.Image / RepoDigests often look like name@sha256:hex — not a release tag.
+        return None
+    if ":" not in image:
+        return None
+    tag = image.rsplit(":", 1)[1].strip()
+    return tag or None
+
+
+facts = {
+    "instance_id": os.environ["INSTANCE_ID"],
+    "active_color": "",
+    "container": "",
+    "requested_container": "",
+    "fallback_used": False,
+    "image": "",
+    "env_image": "",
+    "tag_source": "runtime",
+}
 for raw in os.environ["PROBE_OUT"].splitlines():
     raw = raw.strip()
     if not raw:
@@ -248,19 +286,32 @@ for raw in os.environ["PROBE_OUT"].splitlines():
         facts["fallback_used"] = bool(obj.get("fallback_used"))
     elif tag == "RUNIMAGE":
         facts["image"] = obj.get("image") or ""
+    elif tag == "ENVIMAGE":
+        facts["env_image"] = obj.get("image") or ""
 
 image = facts["image"]
 if not image:
     print(json.dumps({"error": "running image unknown", **facts}, sort_keys=True), file=sys.stderr)
     sys.exit(2)
-if ":" not in image:
-    print(json.dumps({"error": "running image has no tag", **facts}, sort_keys=True), file=sys.stderr)
-    sys.exit(2)
-tag = image.rsplit(":", 1)[1].strip()
+tag = release_tag_from_image(image)
+tag_source = "runtime"
+if tag is None:
+    tag = release_tag_from_image(facts["env_image"])
+    tag_source = "env"
 if not tag:
-    print(json.dumps({"error": "running image tag empty", **facts}, sort_keys=True), file=sys.stderr)
+    print(
+        json.dumps(
+            {
+                "error": "running image has no release tag and TOKENKEY_IMAGE fallback missing",
+                **facts,
+            },
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+    )
     sys.exit(2)
 facts["tag"] = tag
+facts["tag_source"] = tag_source
 print(json.dumps(facts, sort_keys=True))
 PY
 )" || {
@@ -270,8 +321,10 @@ PY
 
 tag="$(printf '%s' "${parsed}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag"])')"
 image="$(printf '%s' "${parsed}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["image"])')"
+tag_source="$(printf '%s' "${parsed}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("tag_source","runtime"))')"
+env_image="$(printf '%s' "${parsed}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("env_image",""))')"
 if ! bash "${SCRIPT_DIR}/validate-deploy-tag.sh" "${tag}" >/dev/null; then
-  echo "resolve-prod-running-tag: running image tag is not a Stage0 release tag: tag=${tag} image=${image}" >&2
+  echo "resolve-prod-running-tag: running image tag is not a Stage0 release tag: tag=${tag} image=${image} tag_source=${tag_source} env_image=${env_image}" >&2
   exit 2
 fi
 
