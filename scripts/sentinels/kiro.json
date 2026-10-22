@@ -108,7 +108,10 @@
         "TestBuildAdditionalModelRequestFields_IgnoresClientDisplayOmitted",
         "TestClaudeToKiro_ThinkingOutputLimitWire",
         "TestClaudeToKiro_HaikuThinkingOmitsAdditionalModelRequestFields",
-        "TestClaudeToKiro_NonHaikuThinkingStillEmitsAdditionalModelRequestFields"
+        "TestClaudeToKiro_NonHaikuThinkingStillEmitsAdditionalModelRequestFields",
+        "TestClaudeToKiro_ToolChoiceNoneOmitsTools",
+        "TestClaudeToKiro_ToolChoiceAnyAddsDirective",
+        "TestClaudeToKiro_ToolChoiceNamedResolvesSanitizedName"
       ],
       "rationale": "Client thinking.display=omitted must not propagate to Kiro upstream wire; prod mirror QA depends on summarized upstream reasoning. AMRF max_tokens below 1024 must be omitted while preserving the native inferenceConfig limit and thinking controls. Haiku + thinking must omit additionalModelRequestFields (prod 2026-10-04 us4/5/6 400 AMRF-not-supported → tokensea failover) while non-Haiku thinking still emits AMRF."
     },
@@ -130,7 +133,10 @@
         "msg.Role == \"user\" || msg.Role == \"system\"",
         "truncateToolDescription(tool.Description)",
         "truncateToolDescription(tool.Function.Description)",
-        "utf8.RuneStart(desc[end])"
+        "utf8.RuneStart(desc[end])",
+        "claudeToolChoiceTypeAndName",
+        "buildClaudeToolChoiceDirective",
+        "resolveKiroToolChoiceName"
       ],
       "rationale": "Translate only client instructions and tools; preserve tool history and failure semantics. No gateway-owned completion prompt or private tool. Only the exact Claude Code identity line is replaced; project rules and unknown templates must survive. Haiku must not emit additionalModelRequestFields even when thinking is requested. parseBase64Image must decode then sniff MIME against bytes so MIME≠bytes / corrupt payloads fail closed before Bedrock. Keep nonempty in-conversation system context in order and truncate tool descriptions at UTF-8 boundaries."
     },
@@ -272,6 +278,9 @@
         "dispatchKiroReasoningContent(callback, text, signature)",
         "ErrIncompleteEventStream",
         "sawTerminalStop",
+        "sawMeteringEvent",
+        "sawUsableOutput",
+        "if sawMeteringEvent && sawUsableOutput",
         "readKiroEventFrame",
         "HTTPDoer",
         "buildKiroHeaderValues(host)",
@@ -1314,7 +1323,9 @@
         "TestKiroReliabilityLateToolID",
         "TestKiroReliabilityProfileRecoveryCannotReplayCommittedOutput",
         "TestKiroReliabilityRejectsMalformedContentFields",
-        "TestKiroReliabilityOptionalNullTextFields"
+        "TestKiroReliabilityOptionalNullTextFields",
+        "TestKiroReliabilityMeteringEventCompletesWithoutMetadata",
+        "TestKiroReliabilityMeteringOnlyDoesNotComplete"
       ],
       "rationale": "Kiro reliability: fail closed on corrupt streams, preserve real tool identity and keep OAuth refresh validation within the shared credential owner."
     },
