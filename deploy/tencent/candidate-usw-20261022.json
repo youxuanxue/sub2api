@@ -43,12 +43,13 @@
     ],
     "paused_jobs": {
       "tokenkey-qa-maintenance": "User requested pause of QA uploads to S3; capture policy is separate.",
-      "tokenkey-qa-boundary": "Historical archive acceptance hold keeps boundary disabled (DROP pause retained); watcher expects disabled/inactive and alerts on accidental enable.",
+      "tokenkey-qa-boundary": "Historical archive acceptance hold keeps boundary disabled (DROP pause retained). Pause owner overrides qa_records lifecycle: watcher and qa_phase2 live health both expect disabled/inactive and alert on accidental enable.",
       "tokenkey-pgdump": "Retired after pgBackRest latest and historical recovery acceptance; never installed on the Tencent host (verified not-found 2026-10-22); retained backups are not deleted.",
       "tokenkey-disk-metrics": "Not installed on Tencent cutover host (verified not-found 2026-10-22); pause until separately installed.",
       "tokenkey-ghcr-prune-daily": "Not installed on Tencent cutover host (verified not-found 2026-10-22); pause until separately installed."
     },
     "local_qa_jobs": [
+      "tokenkey-qa-provision",
       "tokenkey-qa-cleanup"
     ]
   }

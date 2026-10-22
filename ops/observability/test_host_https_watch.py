@@ -88,16 +88,32 @@ class CoveragePlanTest(unittest.TestCase):
         )
 
     def test_local_provision_is_monitored_independently_of_paused_archive(self):
-        # After Tencent cutover, local_qa_jobs is cleanup-only until provision is installed.
+        # Provision and cleanup are expected-running local jobs, never paused.
         prod = self.config('prod', self.watch['hostname'])
-        self.assertIn('tokenkey-qa-cleanup', prod['jobs'])
-        self.assertNotIn('tokenkey-qa-cleanup', prod['paused_jobs'])
-        self.assertNotIn('tokenkey-qa-provision', prod['jobs'])
-        self.assertIn('tokenkey-qa-cleanup', watch.JOB_LIMITS)
+        for job in ('tokenkey-qa-provision', 'tokenkey-qa-cleanup'):
+            with self.subTest(job=job):
+                self.assertIn(job, prod['jobs'])
+                self.assertNotIn(job, prod['paused_jobs'])
+                self.assertIn(job, watch.JOB_LIMITS)
         limit = watch.JOB_LIMITS['tokenkey-qa-cleanup']
         self.assertFalse(watch.job_fact({'ActiveState':'inactive', 'Result':'success'},
                                        {'ActiveState':'inactive', 'UnitFileState':'disabled'},
                                        10000, limit)['healthy'])
+
+    def test_missing_provision_timer_alerts(self):
+        # 2026-10-22: provision was not installed on the Tencent host (systemctl show
+        # returns empty UnitFileState). Unlike paused jobs, absence must alert.
+        absent_timer = {'ActiveState': 'inactive', 'UnitFileState': ''}
+        absent_service = {'ActiveState': 'inactive', 'Result': 'success'}
+        limit = watch.JOB_LIMITS['tokenkey-qa-provision']
+        fact = watch.job_fact(absent_service, absent_timer, 10000, limit)
+        self.assertFalse(fact['healthy'])
+        sent = []
+        state = watch.tick_jobs(['tokenkey-qa-provision'], {}, 1000, lambda _: fact, sent.append, 'prod')
+        watch.tick_jobs(['tokenkey-qa-provision'], state, 1120, lambda _: fact, sent.append, 'prod')
+        self.assertEqual(len(sent), 1)
+        self.assertIn('prod/tokenkey-qa-provision', sent[0])
+
     def test_pause_checks_disabled_state_and_alerts_on_accidental_resume(self):
         inactive = {'ActiveState': 'inactive', 'Result': 'exit-code'}
         disabled = {'ActiveState': 'inactive', 'UnitFileState': 'disabled'}

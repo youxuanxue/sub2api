@@ -76,10 +76,16 @@ def _pause_maintenance(snapshot):
         service_active_state="inactive")
 
 
+def _pause_boundary(snapshot):
+    snapshot["boundary_systemd"].update(timer_enabled=False, timer_active=False)
+
+
 class ProdPhase2LiveHealthTest(unittest.TestCase):
     def _healthy_probe_text(self) -> str:
+        # Mirrors the live pause owner: maintenance and boundary both paused.
         snapshot, _ = _fresh_snapshot()
         _pause_maintenance(snapshot)
+        _pause_boundary(snapshot)
         return "\n".join(
             [
                 "PHASE2SYSTEMD " + json.dumps(snapshot["systemd"], sort_keys=True),
@@ -111,6 +117,38 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         snapshot["qa_records"]["current_hour_partition_missing"] = False
         snapshot["storage"]["runtime_stopped"] = False
         self.assertIn("qa_runtime_pin_invalid", evaluate()["reasons"])
+
+    def test_boundary_pause_owner_overrides_finalized_lifecycle(self):
+        # Single truth: host_watch.paused_jobs. A paused boundary must be disabled even
+        # when qa_records says finalized, and its missing receipt is not a failure.
+        snapshot, now = _fresh_snapshot()
+        _pause_maintenance(snapshot)
+        for key in ("boundary_host_receipt", "boundary_database_heartbeat"):
+            snapshot.pop(key)
+        def evaluate(reason):
+            return live_health.evaluate_snapshot(snapshot, now=now,
+                maintenance_pause_reason="operator paused uploads",
+                boundary_pause_reason=reason)["health"]
+        self.assertEqual(evaluate("")["lifecycle_phase"], "finalized")
+        self.assertIn("boundary_host_receipt_missing", evaluate("")["reasons"])
+        # Fixture boundary is still enabled+active: paused owner flags the resume.
+        paused = evaluate("historical archive hold")
+        self.assertIn("boundary_timer_enabled_while_paused", paused["reasons"])
+        self.assertIn("boundary_timer_active_while_paused", paused["reasons"])
+        self.assertNotIn("boundary_host_receipt_missing", paused["reasons"])
+        _pause_boundary(snapshot)
+        paused = evaluate("historical archive hold")
+        self.assertEqual(paused["status"], "healthy", paused)
+        self.assertTrue(paused["boundary_paused"])
+        self.assertEqual(paused["boundary_pause_reason"], "historical archive hold")
+        snapshot.pop("boundary_systemd")
+        self.assertIn("boundary_systemd_missing", evaluate("historical archive hold")["reasons"])
+
+    def test_pause_reasons_come_from_live_host_watch_owner(self):
+        owner = json.loads((ROOT / "deploy/tencent/candidate-usw-20261022.json").read_text())
+        paused = owner["host_watch"]["paused_jobs"]
+        self.assertEqual(live_health.load_maintenance_pause_reason(), paused["tokenkey-qa-maintenance"])
+        self.assertEqual(live_health.load_boundary_pause_reason(), paused["tokenkey-qa-boundary"])
 
     def test_pause_rejects_resumed_or_unknown_systemd_states(self):
         for key, value in (("timer_active_state", "active"),
@@ -374,6 +412,7 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         )
         stdout = io.StringIO()
         with mock.patch.object(live_health, "load_maintenance_pause_reason", return_value=""), \
+             mock.patch.object(live_health, "load_boundary_pause_reason", return_value=""), \
              mock.patch.object(sys, "argv", ["health", "--from-probe-stdin", "--skip-iam"]), \
              mock.patch.object(sys, "stdin", io.StringIO(probe_text)), contextlib.redirect_stdout(stdout):
             code = live_health.main()

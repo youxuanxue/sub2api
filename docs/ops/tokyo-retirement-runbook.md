@@ -115,8 +115,42 @@ Tokyo 删机前合并，保证没有任何代码路径还能把 SSM 发往 `i-04
 - C. 包年（4317 CNY，prod 省 423）：仅当确认腾讯美西为至少一年的长期 prod；proxy 包年无折扣，可只对 prod 包年、proxy 走 B。
 - 建议：prod 走 C 或 B，proxy 走 B；无论选哪项，**截止 2026-11-14** 完成，留一周缓冲。
 
-## 8. 审批清单（按紧急度）
+## 8. 迁机漏装：`tokenkey-qa-provision`（2026-10-22 只读核实）
 
+事实：腾讯 prod 上 `tokenkey-qa-provision.timer/.service` 为 not-found；`/usr/local/lib/tokenkey/qa-local/b125c568906dcf83/config.json` 的 `phases` 只有 `["cleanup"]`（二进制 SHA-256 `d5f9e157…5a5d7d`），`/var/lib/tokenkey/qa-local/` 无 `provision.json`。qa_records 未来分区只到 2026-10-25 01:00 UTC，过期后写入落 DEFAULT 或失败。
+watcher：`host_watch.local_qa_jobs` 已加 `tokenkey-qa-provision`，**重装 watcher 后**会以 `timer disabled or inactive` 告警（未重装前仍不告警）。
+
+安装走 `ops/qa/local_maintenance_host.py` plan→apply，安装器已能读现网矩阵 `host_watch.hostname`。复用主机上已装的二进制，只上传安装器与矩阵：
+
+```bash
+# plan（不安装 unit；会做 cleanup dry-run：取 host lock、起只读挂载容器、写 cleanup-plan.json）
+cat > /tmp/qa-local-plan.sh <<'EOF'
+set -euo pipefail
+BIN=/usr/local/lib/tokenkey/qa-local/b125c568906dcf83/qa-local-maintenance
+python3 /tmp/local_maintenance_host.py install --binary "$BIN" \
+  --sha256 "$(sha256sum "$BIN" | cut -d' ' -f1)" --manifest /tmp/candidate-usw-20261022.json
+EOF
+bash ops/observability/run-probe.sh --target prod --script /tmp/qa-local-plan.sh \
+  --with ops/qa/local_maintenance_host.py --with deploy/tencent/candidate-usw-20261022.json \
+  --comment "qa-local install plan"
+```
+
+预期输出两行 JSON：
+1. `{"apply": false, "hostname": "VM-0-16-ubuntu", "phases": ["provision", "cleanup"], "sha256": "d5f9e157…"}`
+2. cleanup dry-run 回执：`"ok": true, "phase": "cleanup"`，`result.deletion_authorized=false`、`upload_authorized=false`。
+
+任一 `ValueError`（`expected current prod hostname`、`legacy QA owner must remain paused`、`artifact digest mismatch`）都应停下排查，不进 apply。provision 无 dry-run（二进制拒绝），plan 不覆盖 provision 本身。
+
+apply **[可逆·审批，由统筹上报]**：同一命令加 `--apply`。效果：新建内容寻址 bundle（新目录，旧 `b125c568906dcf83` 保留）；**provision 与 cleanup 两组 unit 都重写**；暂停已 active 的 cleanup timer → 各 `start` 一次 service → `enable --now` 两个 timer；任何一步失败都会回滚到原 unit 并恢复 cleanup timer 状态；备份在 `/var/backups/tokenkey-qa-local/<ts>/`。验收：`systemctl is-enabled/is-active tokenkey-qa-provision.timer` 为 enabled/active，`/var/lib/tokenkey/qa-local/provision.json` 的 `ok=true`，qa_records 未来覆盖 72/72；然后重装 watcher。
+
+### 宿主脚本入仓（2026-10-22）
+
+- `deploy/tencent/tencent_pgbackrest.py`：从宿主 `/usr/local/lib/tokenkey/tencent-pgbackrest/` 只读取回，扫描无密钥，sha256 与宿主一致（`f30b556d…`），仅加来源说明。宿主副本**不随仓库更新**；改动须另走安装审批。备份 owner 属第 2 队。
+- `ops/observability/probe-tencent-unlock-health.sh`：操作员本机 `helpers/unlock-health-readonly.sh` 的副本，只读，无密钥材料；宿主上没有这个脚本，一直经 TAT/SSM 推送执行。
+
+## 9. 审批清单（按紧急度）
+
+0. **2026-10-24 前**：安装 `tokenkey-qa-provision`（第 8 节；分区 10-25 01:00 UTC 耗尽），随后重装 watcher。
 1. ~2026-10-28 前：是否把切流前最后一份 DLM 快照（10-22 03:37 UTC 两份）复制为手工快照保留（第 0 节 DLM 说明）。
 2. 2026-11-14 前：腾讯续费方案（第 7 节）。
 3. ≥2026-10-29：Tokyo 退役日期、仓库清理 PR、停机→删栈→数据卷处置、OIDC retarget。

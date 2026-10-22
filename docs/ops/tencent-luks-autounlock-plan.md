@@ -13,7 +13,7 @@
 | 工具 | `systemd-cryptenroll` 255、`cryptsetup-initramfs` 已装；`clevis`/`tang` 未装 | clevis+tang 需新装包 |
 | Docker 依赖 | `docker.service` `RequiresMountsFor=/var/lib/tokenkey` + `ExecStartPre=mountpoint -q /srv/tokenkey-rehearsal` | 已保证「未挂载不起业务」，自动解锁只需在 docker 前完成 unlock+mount |
 | 根盘 | 120G，已用 76%（28G 可用） | 演练实例需同规格或缩小载体文件 |
-| 只读健康 | 契约中的 `helpers/unlock-health-readonly.sh`（TAT）仓库内未找到同名脚本；本次以等价只读探针核对：mapper、双挂载、Docker Root、`.env`、无 swap 均正常 | 建议把只读探针入仓（另批） |
+| 只读健康 | `ops/observability/probe-tencent-unlock-health.sh`（操作员 helper 入仓副本）2026-10-22 13:32 UTC：`severity=ok`、`alerts=[]` | 演练与推广的验收探针 |
 
 ## 2. 候选方案
 

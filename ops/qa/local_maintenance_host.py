@@ -239,9 +239,15 @@ def run_phase(config, phase, dry_run=False):
         print(json.dumps(receipt, sort_keys=True))
 
 
+def expected_prod_hostname(manifest):
+    """Live prod matrix (deploy/tencent/candidate-usw-20261022.json) owns host_watch.hostname."""
+    if 'host_watch' in manifest:
+        return manifest['host_watch']['hostname']
+    return manifest['prod']['instance_name']
+
+
 def install(args):
-    manifest = json.loads(args.manifest.read_text())['prod']
-    if socket.gethostname() != manifest['instance_name']:
+    if socket.gethostname() != expected_prod_hostname(json.loads(args.manifest.read_text())):
         raise ValueError('expected current prod hostname')
     require_legacy_paused()
     digest = hashlib.sha256(args.binary.read_bytes()).hexdigest()
