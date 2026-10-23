@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -77,6 +78,13 @@ func applyMoonshotThinkingShape(c *gin.Context, account *Account, model string, 
 	var err error
 	if isNewAPIVolcEngineAgentPlanAccount(account) && resolveMoonshotThinkingFamily(model) == moonshotThinkingK3 {
 		shaped, err = normalizeVolcKimiChatRequest(body)
+		if err == nil {
+			ctx := context.Background()
+			if c != nil && c.Request != nil {
+				ctx = c.Request.Context()
+			}
+			err = rejectUnreachableVolcKimiVideoURLs(ctx, shaped)
+		}
 	} else {
 		shaped, err = NormalizeMoonshotThinking(model, body)
 	}
