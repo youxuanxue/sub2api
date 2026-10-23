@@ -28,6 +28,9 @@ ROOT = Path('/opt/tokenkey')
 DATA = Path('/var/lib/tokenkey')
 DOMAIN = 'api-cn.tokenkey.dev'
 STATIC_SITE_IP = '154.8.214.179'
+# Second public name on the Beijing app host. It is not a cutover site label:
+# domestic_site_host still sees only DOMAIN or STATIC_SITE_IP.
+GALAXYWAVE_API_HOST = 'api.galaxywaveai.com'
 _SITE_HOSTS = (DOMAIN, STATIC_SITE_IP)
 _SITE_RE = re.compile(
     r'^[ \t]*(?:https://)?(' + '|'.join(re.escape(host) for host in _SITE_HOSTS) + r')(?::443)?[ \t]*\{[ \t]*$',
@@ -102,6 +105,26 @@ def active_container(caddy):
         raise ValueError('expected exactly one domestic application upstream')
     domestic_site_host(caddy)
     return routes[0]
+
+
+def galaxywave_api_site_shares_upstream(caddy):
+    """api.galaxywaveai.com must reuse tk_upstream and not add a reverse_proxy.
+
+    Blue/green rewrites the single reverse_proxy line. A second one in this
+    site would make the next cutover refuse the file.
+    """
+    match = re.search(
+        rf'^{re.escape(GALAXYWAVE_API_HOST)} \{{(.*?)^\}}',
+        caddy,
+        re.M | re.S,
+    )
+    if not match:
+        raise ValueError('missing galaxywave api site')
+    body = match.group(1)
+    if re.search(r'^\s*reverse_proxy\s+', body, re.M):
+        raise ValueError('galaxywave api site must not declare its own reverse_proxy')
+    if 'import tk_upstream' not in body:
+        raise ValueError('galaxywave api site must import tk_upstream')
 
 
 def identity(container):
