@@ -368,6 +368,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	var (
 		textBuf        string
 		thinkingBuf    string
+		clientThinking string
 		thinkingSigBuf string
 		rawAssistant   string
 		toolUses       []kiroproto.KiroToolUse
@@ -383,6 +384,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		OnReasoningContent: func(text, signature string) {
 			if text != "" {
 				thinkingBuf += text
+				clientThinking += text
 			}
 			if signature != "" && thinkingSigBuf == "" {
 				thinkingSigBuf = signature
@@ -391,6 +393,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		OnText: func(text string, isThinking bool) {
 			if isThinking {
 				thinkingBuf += text
+				clientThinking += text
 				return
 			}
 			rawAssistant += text
@@ -415,6 +418,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		ResetForRetry: func() bool {
 			textBuf = ""
 			thinkingBuf = ""
+			clientThinking = ""
 			thinkingSigBuf = ""
 			rawAssistant = ""
 			toolUses = nil
@@ -440,8 +444,8 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		thinkingBuf += inlineThinking
 	}
 
-	// Unsigned reasoning is intentionally hidden from the client. It cannot
-	// make an otherwise empty response a successful assistant turn.
+	// Reasoning is returned as a thinking block with a placeholder signature.
+	// Reasoning alone still cannot make an empty response a successful turn.
 	if textBuf == "" && len(toolUses) == 0 {
 		if isKiroPolicyStopReason(stopReason) {
 			return nil, classifyAndRecordKiroForwardError(c, account, &KiroContentFilteredError{}, model)
@@ -456,7 +460,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, toolUses)
 
 	resp := kiroproto.KiroToClaudeResponse(
-		textBuf, thinkingBuf, false, toolUses, inputTokens, outputToks, model, mappedStopReason,
+		textBuf, clientThinking, false, toolUses, inputTokens, outputToks, model, mappedStopReason,
 	)
 	resp.ID = requestID
 	resp.Usage.CacheReadInputTokens = cacheReadTokens
@@ -519,8 +523,9 @@ func (s *KiroGatewayService) forwardStreaming(
 	c.Header("x-request-id", requestID)
 
 	// SSOT: every Kiro streaming caller (messages + CC bridge) arms Claude-Code-
-	// safe keepalive here. message_start precedes the first ping; visible
-	// text/tool stops it. Callers must not bind a second emitter. Always stop
+	// safe keepalive here. message_start precedes the first ping; the first
+	// client-visible thinking, text, or tool block stops it. Callers must not
+	// bind a second emitter. Always stop
 	// on return — early failover paths used to rely on tkTryForwardKiro's
 	// post-Forward stop, which was removed when ownership moved here.
 	s.ensureKiroStreamingKeepalive(c, model, requestID)
@@ -587,6 +592,21 @@ func (s *KiroGatewayService) forwardStreaming(
 		markFirstVisibleToken()
 		enc.writeToolUse(toolUse)
 	}
+	// Reasoning is client-visible as soon as Kiro emits it. The placeholder
+	// signature is attached when the thinking block closes. Inline <thinking>
+	// tags stripped from assistant text stay off this path.
+	writeVisibleThinking := func(delta string) bool {
+		delta = kiroproto.ClientVisibleThinkingDelta(delta)
+		if delta == "" || ctx.Err() != nil {
+			return false
+		}
+		firstOutputGuard.Commit()
+		stopPreContentStreamKeepalive(c)
+		syncKiroMessageStartFromKeepalive(c, enc)
+		markFirstVisibleToken()
+		enc.writeThinkingDelta(delta)
+		return true
+	}
 
 	// A completed upstream turn returns control to the client agent. Transport
 	// retries may replay uncommitted output, but must not invent a new user turn.
@@ -613,6 +633,9 @@ func (s *KiroGatewayService) forwardStreaming(
 			defer mu.Unlock()
 			if text != "" {
 				thinkingBuf += text
+				if writeVisibleThinking(text) {
+					callOutputCommitted = true
+				}
 			}
 			if signature != "" && thinkingSigBuf == "" {
 				thinkingSigBuf = signature
@@ -622,10 +645,10 @@ func (s *KiroGatewayService) forwardStreaming(
 			mu.Lock()
 			defer mu.Unlock()
 			if isThinking {
-				// Thinking stays off the client wire (unsigned Kiro
-				// reasoning). Keepalive continues until visible text/tool
-				// arrives; first_token_ms only arms on client-visible bytes.
 				thinkingBuf += text
+				if writeVisibleThinking(text) {
+					callOutputCommitted = true
+				}
 				return
 			}
 			rawAssistant += text

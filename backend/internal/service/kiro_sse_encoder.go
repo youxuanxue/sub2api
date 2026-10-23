@@ -16,6 +16,7 @@ const (
 	kiroBlockNone kiroBlockKind = iota
 	kiroBlockText
 	kiroBlockToolUse
+	kiroBlockThinking
 )
 
 // kiroSSEEncoder writes the canonical Anthropic /v1/messages SSE event sequence
@@ -42,6 +43,10 @@ type kiroSSEEncoder struct {
 	openBlock   kiroBlockKind // currently open content block
 	blockIndex  int           // index of the currently open / next block
 	emittedText bool          // any text/tool block emitted
+
+	// thinkingSignature is the placeholder for the open thinking block.
+	// Upstream reasoning signatures stay off this stream.
+	thinkingSignature string
 }
 
 func (e *kiroSSEEncoder) writeEvent(eventType string, payload any) {
@@ -93,6 +98,11 @@ func (e *kiroSSEEncoder) ensureBlock(kind kiroBlockKind) {
 	switch kind {
 	case kiroBlockText:
 		cb = map[string]any{"type": "text", "text": ""}
+	case kiroBlockThinking:
+		if e.thinkingSignature == "" {
+			e.thinkingSignature = kiroproto.NewClientThinkingSignature()
+		}
+		cb = map[string]any{"type": "thinking", "thinking": ""}
 	default:
 		return
 	}
@@ -103,6 +113,18 @@ func (e *kiroSSEEncoder) ensureBlock(kind kiroBlockKind) {
 	})
 	e.openBlock = kind
 	e.emittedText = true
+}
+
+func (e *kiroSSEEncoder) writeThinkingDelta(text string) {
+	if text == "" {
+		return
+	}
+	e.ensureBlock(kiroBlockThinking)
+	e.writeEvent("content_block_delta", map[string]any{
+		"type":  "content_block_delta",
+		"index": e.blockIndex,
+		"delta": map[string]any{"type": "thinking_delta", "thinking": text},
+	})
 }
 
 func (e *kiroSSEEncoder) writeTextDelta(text string) {
@@ -156,6 +178,17 @@ func (e *kiroSSEEncoder) writeToolUse(tu kiroproto.KiroToolUse) {
 func (e *kiroSSEEncoder) closeOpenBlock() {
 	if e.openBlock == kiroBlockNone {
 		return
+	}
+	if e.openBlock == kiroBlockThinking {
+		e.writeEvent("content_block_delta", map[string]any{
+			"type":  "content_block_delta",
+			"index": e.blockIndex,
+			"delta": map[string]any{
+				"type":      "signature_delta",
+				"signature": e.thinkingSignature,
+			},
+		})
+		e.thinkingSignature = ""
 	}
 	e.writeEvent("content_block_stop", map[string]any{
 		"type":  "content_block_stop",

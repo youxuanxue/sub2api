@@ -86,7 +86,7 @@ func TestClaudeToKiro_PreservesCallerInstructions(t *testing.T) {
 }
 
 func TestBuildClaudeSystemPrompt_NonClaudeCodeDoesNotAddCompletionGuard(t *testing.T) {
-	got := buildClaudeSystemPrompt("You are a concise support assistant.", false)
+	got := buildClaudeSystemPrompt("You are a concise support assistant.", false, 0)
 	require.NotContains(t, got, "<sub2api-claude-code-todo-guard>")
 }
 
@@ -121,7 +121,7 @@ func TestKiroReliabilityPreservesProjectRules(t *testing.T) {
 	const rules = "PROJECT_RULES: 保留已有文件；禁止重新初始化项目。"
 	const base = "You are Claude Code, Anthropic's official CLI for Claude.\n# doing tasks\nFollow existing project conventions."
 	for _, system := range []any{base + "\n" + rules, []any{map[string]any{"type": "text", "text": base}, map[string]any{"type": "text", "text": rules}}} {
-		got := buildClaudeSystemPrompt(system, false)
+		got := buildClaudeSystemPrompt(system, false, 0)
 		require.Contains(t, got, rules)
 		require.Contains(t, got, "Follow existing project conventions.")
 	}

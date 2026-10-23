@@ -100,15 +100,23 @@ func kiroReplayEvents(t *testing.T, body string) []map[string]any {
 func TestKiroGatewayService_ReasoningOnlyCannotCompleteEmptyTurn(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
-			c, _ := newKeepaliveTestContext(t)
+			c, rec := newKeepaliveTestContext(t)
 			frames := buildKiroEventStreamMessage("reasoningContentEvent", []byte(`{"text":"hidden reasoning without an answer"}`))
 			frames = appendKiroTerminalStop(frames, "END_TURN")
 			svc := NewKiroGatewayService(&kiroFakeUpstream{body: frames}, nil, nil)
 			body, _ := json.Marshal(map[string]any{"model": "claude-opus-5", "messages": []map[string]any{{"role": "user", "content": "hi"}}, "max_tokens": 1024, "stream": stream})
 			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-5", Stream: stream}, time.Now())
-			require.Error(t, err, "hidden reasoning is not a client-visible answer")
+			require.Error(t, err, "reasoning alone is not a successful assistant turn")
 			require.Nil(t, result)
-			require.False(t, c.Writer.Written(), "empty response must remain eligible for the existing failure handler")
+			if stream {
+				require.Contains(t, rec.Body.String(), "thinking_delta")
+				require.Contains(t, rec.Body.String(), "hidden reasoning without an answer")
+				require.NotContains(t, rec.Body.String(), "event: message_stop")
+				require.True(t, c.Writer.Written())
+				return
+			}
+			require.False(t, c.Writer.Written(), "non-streaming empty response must remain eligible for the existing failure handler")
+			require.NotContains(t, rec.Body.String(), "hidden reasoning without an answer")
 		})
 	}
 }

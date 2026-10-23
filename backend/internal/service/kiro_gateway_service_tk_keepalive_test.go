@@ -102,7 +102,8 @@ func TestKiroStreaming_HeaderWaitKeepaliveDuringThinkingStall(t *testing.T) {
 	require.Less(t, strings.Index(out, "event: message_start"), strings.Index(out, "event: ping"),
 		"message_start must precede the first ping so Claude Code keeps the late-first-token stream")
 	require.Contains(t, out, "final answer")
-	require.NotContains(t, out, "plan step one")
+	require.Contains(t, out, `"thinking":"plan step one"`)
+	require.Less(t, strings.Index(out, `"type":"thinking_delta"`), strings.Index(out, "final answer"))
 	require.Equal(t, 1, strings.Count(out, "event: message_start"), "keepalive + encoder must not duplicate message_start")
 	startData := strings.Split(out, "event: message_start\ndata: ")[1]
 	startData = strings.Split(startData, "\n\n")[0]
@@ -115,8 +116,9 @@ func TestKiroStreaming_HeaderWaitKeepaliveDuringThinkingStall(t *testing.T) {
 	require.Equal(t, rec.Header().Get("x-request-id"), startEvent.Message.ID,
 		"keepalive message_start must use the same request ID as the final Kiro response")
 	require.NotNil(t, result.FirstTokenMs)
-	// first_token_ms must reflect client-visible text, not an earlier thinking mark.
-	require.GreaterOrEqual(t, *result.FirstTokenMs, 1000, "first_token_ms=%d should cover the stall before visible text", *result.FirstTokenMs)
+	// Reasoning and the answer arrive in the same delayed body, so the first
+	// visible token is the thinking delta and still covers the stall.
+	require.GreaterOrEqual(t, *result.FirstTokenMs, 1000, "first_token_ms=%d should cover the stall before the first visible event", *result.FirstTokenMs)
 }
 
 func TestKiroStreaming_FastFailoverPathWritesNoKeepalive(t *testing.T) {
@@ -145,7 +147,7 @@ func TestKiroStreaming_FastFailoverPathWritesNoKeepalive(t *testing.T) {
 	require.False(t, c.Writer.Written(), "failover gate must remain clear")
 }
 
-func TestKiroStreaming_FirstTokenIgnoresThinkingOnly(t *testing.T) {
+func TestKiroStreaming_FirstTokenIncludesThinking(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -171,8 +173,10 @@ func TestKiroStreaming_FirstTokenIgnoresThinkingOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.FirstTokenMs)
-	require.Contains(t, rec.Body.String(), "visible")
-	require.NotContains(t, rec.Body.String(), "hidden plan")
+	out := rec.Body.String()
+	require.Contains(t, out, "visible")
+	require.Contains(t, out, `"thinking":"hidden plan"`)
+	require.Less(t, strings.Index(out, `"type":"thinking_delta"`), strings.Index(out, `"text":"visible"`))
 }
 
 func TestKiroStreaming_FixedBudgetAfterKeepaliveStopsRequest(t *testing.T) {

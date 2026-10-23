@@ -157,6 +157,9 @@ func TestBuildAdditionalModelRequestFields_IgnoresClientDisplayOmitted(t *testin
 	if fields.MaxTokens != 32000 {
 		t.Fatalf("default max_tokens changed: got %d", fields.MaxTokens)
 	}
+	if fields.OutputConfig == nil || fields.OutputConfig.Effort != "medium" {
+		t.Fatalf("default effort = %+v, want medium", fields.OutputConfig)
+	}
 }
 
 func TestClaudeToKiro_ThinkingOutputLimitWire(t *testing.T) {
@@ -312,6 +315,83 @@ func TestClaudeToKiro_NonHaikuThinkingStillEmitsAdditionalModelRequestFields(t *
 		if payload == nil || payload.AdditionalModelRequestFields == nil {
 			t.Fatalf("model %q: expected additionalModelRequestFields for non-Haiku thinking", model)
 		}
+		if payload.AdditionalModelRequestFields.OutputConfig == nil || payload.AdditionalModelRequestFields.OutputConfig.Effort != "medium" {
+			t.Fatalf("model %q: default effort = %+v, want medium", model, payload.AdditionalModelRequestFields.OutputConfig)
+		}
+	}
+}
+
+func TestClaudeToKiro_DefaultThinkingBudgetIsMedium(t *testing.T) {
+	req := &ClaudeRequest{
+		Model:     "claude-opus-5",
+		MaxTokens: 2048,
+		Messages:  []ClaudeMessage{{Role: "user", Content: "hi"}},
+		Thinking:  &ClaudeThinkingConfig{Type: "enabled"},
+	}
+	payload := ClaudeToKiro(req, true)
+	prompt := ""
+	if payload != nil && len(payload.ConversationState.History) > 0 && payload.ConversationState.History[0].UserInputMessage != nil {
+		prompt = payload.ConversationState.History[0].UserInputMessage.Content
+	}
+	if !strings.Contains(prompt, "<max_thinking_length>16000</max_thinking_length>") {
+		t.Fatalf("default thinking length missing: %q", prompt)
+	}
+	if strings.Contains(prompt, "200000") {
+		t.Fatalf("default thinking length still uses 200000: %q", prompt)
+	}
+	if payload.AdditionalModelRequestFields == nil || payload.AdditionalModelRequestFields.OutputConfig == nil || payload.AdditionalModelRequestFields.OutputConfig.Effort != "medium" {
+		t.Fatalf("default effort = %+v, want medium", payload.AdditionalModelRequestFields)
+	}
+}
+
+func TestClaudeToKiro_ClientBudgetAndEffortAreHonored(t *testing.T) {
+	req := &ClaudeRequest{
+		Model:        "claude-opus-5",
+		MaxTokens:    2048,
+		Messages:     []ClaudeMessage{{Role: "user", Content: "hi"}},
+		Thinking:     &ClaudeThinkingConfig{Type: "enabled", BudgetTokens: 8000},
+		OutputConfig: &ClaudeOutputConfig{Effort: "low"},
+	}
+	payload := ClaudeToKiro(req, true)
+	prompt := ""
+	if payload != nil && len(payload.ConversationState.History) > 0 && payload.ConversationState.History[0].UserInputMessage != nil {
+		prompt = payload.ConversationState.History[0].UserInputMessage.Content
+	}
+	if !strings.Contains(prompt, "<max_thinking_length>8000</max_thinking_length>") {
+		t.Fatalf("client thinking budget missing: %q", prompt)
+	}
+	if strings.Contains(prompt, "<max_thinking_length>16000</max_thinking_length>") || strings.Contains(prompt, "200000") {
+		t.Fatalf("client thinking budget was replaced: %q", prompt)
+	}
+	if payload.AdditionalModelRequestFields == nil || payload.AdditionalModelRequestFields.OutputConfig == nil || payload.AdditionalModelRequestFields.OutputConfig.Effort != "low" {
+		t.Fatalf("client effort = %+v, want low", payload.AdditionalModelRequestFields)
+	}
+}
+
+func TestClaudeToKiro_HistoryThinkingIsNotForwarded(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-5",
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: []any{
+				map[string]any{"type": "thinking", "thinking": "secret plan", "signature": "sig_kiro_unsigned"},
+				map[string]any{"type": "redacted_thinking", "data": "secret plan"},
+				map[string]any{"type": "text", "text": "visible answer"},
+			}},
+			{Role: "user", Content: "next"},
+		},
+	}
+	payload := ClaudeToKiro(req, false)
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire := string(raw)
+	if strings.Contains(wire, "secret plan") || strings.Contains(wire, "sig_kiro_unsigned") {
+		t.Fatalf("thinking leaked into the next Kiro request: %s", wire)
+	}
+	if !strings.Contains(wire, "visible answer") {
+		t.Fatalf("assistant text missing: %s", wire)
 	}
 }
 
