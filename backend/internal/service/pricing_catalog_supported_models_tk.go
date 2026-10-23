@@ -190,8 +190,30 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	"gemini-3-flash-preview":         {},
 	"gemini-3.1-flash-image":         {},
 	"gemini-3.1-flash-image-preview": {},
-	"gemini-3.7-flash":               {},
-	"gemini-3.8-flash":               {},
+	// gemini-3.7-flash: retired from the Antigravity surface 2026-10-23. Upstream
+	// replaced it with 3.8 and no longer serves any 3.7 tier wire. Evidence, all
+	// from live prod:
+	//   - probing -high / -medium / -low on /v1internal:streamGenerateContent
+	//     returns Google's own 404 body, {"error":{"code":404,"message":
+	//     "Requested entity was not found.","status":"NOT_FOUND"}} -- not a TK
+	//     wrapper, and all three tiers agree;
+	//   - gemini-3.8-flash-high returns 200 on the same account, endpoint and
+	//     request shape, which rules out auth, account state and payload;
+	//   - no 3.7 row remains in model_availability with status=ok for
+	//     antigravity; the newest ok row is gemini-3.8-flash-high (10-23);
+	//   - the last successful 3.7 call was 2026-10-13 04:36 (44819 that day,
+	//     50402 the day before), and 3.8 picked up the traffic from 10-14.
+	// The 429 "No available accounts" that clients saw is downstream of this:
+	// each 404 pinned a model-level cooldown (reason
+	// antigravity_404_model_unavailable), which emptied the schedulable pool.
+	// Probe while those cooldowns are live and you only see the empty pool, so
+	// the upstream 404 is visible only after they expire.
+	//
+	// Antigravity only. gemini-3.7-flash stays in supportedGeminiCatalogModels
+	// because newapi/Vertex still serves it (model_availability status=ok).
+	// Domain wire defaults and pricing overlay rows stay so existing mappings
+	// keep billing correctly.
+	"gemini-3.8-flash": {},
 	// gemini-4-argon: still withheld from the public catalog, but NOT because it
 	// 404s. Re-measured on live prod 2026-10-23 and the original note was wrong:
 	//   - model_availability has one row, gemini-4-argon-high, unreachable with

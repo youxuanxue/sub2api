@@ -365,7 +365,6 @@ const antigravityPresetMappings = [
   // Converged Gemini public surface (+ traffic aliases).
   { label: '4 Argon', from: 'gemini-4-argon', to: 'gemini-4-argon-high', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
   { label: '3.8 Flash', from: 'gemini-3.8-flash', to: 'gemini-3.8-flash-high', color: 'bg-lime-100 text-lime-700 hover:bg-lime-200 dark:bg-lime-900/30 dark:text-lime-400' },
-  { label: '3.7 Flash', from: 'gemini-3.7-flash', to: 'gemini-3.7-flash-high', color: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400' },
   { label: '3-Flash→3.8', from: 'gemini-3-flash', to: 'gemini-3.8-flash-high', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
   { label: 'Preview→3.8', from: 'gemini-3-flash-preview', to: 'gemini-3.8-flash-high', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
   { label: '3.1 Flash Image', from: 'gemini-3.1-flash-image', to: 'gemini-3.1-flash-image', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
