@@ -216,8 +216,11 @@ func TestGatewayCodexModels_NonOpenAIGroupsUseMappedModels(t *testing.T) {
 			var got codexModelsResponseForTest
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 			if tt.platform == service.PlatformGrok {
-				want := service.FilterCodexModelIDsForGroup(service.ServableClientFacingIDs(context.Background(), service.PlatformGrok, nil, nil), nil)
-				require.ElementsMatch(t, want, codexModelSlugsForTest(got.Models))
+				want := recommendedCodexGrokFacingIDsForTest()
+				// Account mapping keys remain listed even when native catalog IDs
+				// are recommendation-hidden (presentation gate does not strip maps).
+				want = append(want, tt.model)
+				require.ElementsMatch(t, uniqueStringsForGatewayModelsTest(want), codexModelSlugsForTest(got.Models))
 				for i := range got.Models {
 					if got.Models[i].Slug == tt.model {
 						got.Models[0], got.Models[i] = got.Models[i], got.Models[0]
@@ -283,8 +286,9 @@ func TestGatewayCodexModels_CompositeUsesCompleteEffectiveModelList(t *testing.T
 	var got codexModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	want := service.FilterCodexModelIDsForGroup(openai.DefaultModelIDs(), nil)
-	want = append(want, service.FilterCodexModelIDsForGroup(service.ServableClientFacingIDs(context.Background(), service.PlatformGrok, nil, nil), nil)...)
-	require.ElementsMatch(t, want, codexModelSlugsForTest(got.Models))
+	want = append(want, recommendedCodexGrokFacingIDsForTest()...)
+	want = append(want, "grok-4.6") // explicit mapping on the grok account fixture
+	require.ElementsMatch(t, uniqueStringsForGatewayModelsTest(want), codexModelSlugsForTest(got.Models))
 }
 
 func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T) {
@@ -617,6 +621,11 @@ func assertGrokGatewayReasoningEfforts(t *testing.T, groupID int64, modelID stri
 			model = &got.Data[i]
 			break
 		}
+	}
+	if !service.IsCatalogModelRecommended(wantID) {
+		// Native-catalog union is recommendation-gated; account mapping may still
+		// expose the id. Reasoning metadata is only required for advertised catalog ids.
+		return
 	}
 	require.NotNil(t, model, "%s must be present in grok native catalog union", wantID)
 	require.True(t, model.SupportsReasoningEffort)
@@ -1393,6 +1402,30 @@ func modelIDsForTest(models []gatewayModelItemForTest) []string {
 		ids = append(ids, model.ID)
 	}
 	return ids
+}
+
+func uniqueStringsForGatewayModelsTest(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func recommendedCodexGrokFacingIDsForTest() []string {
+	facing := service.FilterCodexModelIDsForGroup(service.ServableClientFacingIDs(context.Background(), service.PlatformGrok, nil, nil), nil)
+	out := make([]string, 0, len(facing))
+	for _, id := range facing {
+		if service.IsCatalogModelRecommended(id) {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func TestGatewayModels_AntigravityExplicitMappingAppearsInBothCatalogs(t *testing.T) {

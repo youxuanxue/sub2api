@@ -142,6 +142,25 @@ var catalogWithdrawnModelIDs = func() map[string]struct{} {
 		"codex-auto-review":   {},
 		"gpt-5.3-codex-spark": {},
 		"gpt-5.5":             {},
+		// Operator hide (2026-10-23): sole prod Grok account 287 is active but
+		// unschedulable, so public/menu advertising would empty-pool. Restore
+		// when schedulable Grok capacity returns; pricing/settlement unchanged.
+		"grok-4.20-0309-non-reasoning": {},
+		"grok-4.20-0309-reasoning":     {},
+		"grok-4.3":                     {},
+		"grok-4.3-latest":              {},
+		"grok-4.5":                     {},
+		"grok-4.5-latest":              {},
+		"grok-4.6":                     {},
+		"grok-build-0.1":               {},
+		"grok-build-latest":            {},
+		"grok-code-fast":               {},
+		"grok-code-fast-1":             {},
+		"grok-code-fast-1-0825":        {},
+		"grok-imagine-image":           {},
+		"grok-imagine-image-quality":   {},
+		"grok-imagine-video":           {},
+		"grok-latest":                  {},
 	}
 	for _, withdrawal := range catalogModelWithdrawals {
 		for _, id := range withdrawal.ModelIDs {
@@ -150,6 +169,12 @@ var catalogWithdrawnModelIDs = func() map[string]struct{} {
 	}
 	return out
 }()
+
+// IsCatalogModelRecommended reports whether modelID may be advertised on shared
+// public/menu surfaces. Presentation-only; scheduling and billing ignore it.
+func IsCatalogModelRecommended(modelID string) bool {
+	return isCatalogModelRecommended(modelID)
+}
 
 // Shared by public pricing, account display presets and every user-menu source.
 // Exact IDs only: retiring a snapshot must not hide a newer stable family alias.
