@@ -70,7 +70,7 @@ class ResolveProdSsmTargetTest(unittest.TestCase):
     def test_retired_hetzner_mode_never_queries_cloud(self) -> None:
         with mock.patch.object(self.mod, "list_instance_information", side_effect=AssertionError("must reject")):
             with self.assertRaises(SystemExit):
-                self.mod.resolve_hetzner(self.mod.DEFAULT_MATRIX)
+                self.mod.resolve_hetzner()
 
     def test_retired_aws_fresh_never_queries_cloud(self) -> None:
         # Tokyo was retired 2026-10-23: no override, no inventory, no SSM lookup.

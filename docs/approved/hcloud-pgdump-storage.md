@@ -9,7 +9,7 @@ risk: high
 
 # Hetzner PostgreSQL 备份存储
 
-> **已归档（2026-10-23）**：Hetzner 期 pgdump 存储；prod 备份已改为 pgBackRest（[物理备份设计](design-prod-physical-backup.md)），Hetzner 主机已退役。旧桶数据按 [pgdump 退役](../../ops/stage0/pgdump-retirement.md) 保留期处理。
+> **已归档（2026-10-23）**：Hetzner 期 pgdump 存储；prod 备份已改为 pgBackRest（[物理备份设计](design-prod-physical-backup.md)），Hetzner 主机已退役，主机侧安装器 `install_hcloud_pgdump_storage.py` 已删除。旧桶数据按 [pgdump 退役](../../ops/stage0/pgdump-retirement.md) 保留期处理。
 
 ## 目标与批准范围
 
@@ -44,7 +44,7 @@ HTTP/未知 endpoint 一律失败，不回退 AWS 默认身份。上传与恢复
 普通及 multipart SSE-C 上传下载、无密钥/错误密钥拒绝、匿名拒绝与合成数据清理。
 仅删除本次生成的合成对象。
 
-`ops/stage0/install_hcloud_pgdump_storage.py` 默认 plan；prepare 校验现网矩阵、
+`ops/stage0/install_hcloud_pgdump_storage.py`（已删除，2026-10-23）<!-- script-ref-allow-missing --> 默认 plan；prepare 校验现网矩阵、
 主机身份、prod 卷与 timer，将最近已有真实备份上传到候选存储，不额外执行 pg_dump。
 既有 canary 使用候选 config 与本地原文件核对 SHA-256，隔离恢复真实数据库。
 只有匹配该目标、对象、endpoint、哈希及清理完成的最近回执才允许 activate。

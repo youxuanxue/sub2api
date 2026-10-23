@@ -38,16 +38,11 @@ HARDCODED_ARGV = re.compile(
 # Scope boundaries: other hosts / other teams / single-purpose retired-host tools.
 ALLOWED_PREFIXES = (
     "ops/lib/",  # the owners spell out the candidate lists
-    "deploy/domestic/",  # cn-prod: independent UCloud layout
+    "deploy/domestic/",  # cn-prod: independent domestic layout
 )
 ALLOWED_FILES = {
     # cn-prod-only sampler (tpm_burst_bundle.sh always targets cn-prod).
     "ops/observability/tpm_burst_monitor_remote.sh",
-    # Hostname-pinned to retired AWS fresh-candidate / Tokyo hosts (Stage0 names).
-    "ops/migration/check-fresh-host-network.sh",
-    "ops/migration/hold-fresh-candidate.sh",
-    "ops/migration/fresh_host_delta.py",
-    "ops/migration/repair-tokyo-usage-20261017.sh",
     # This checker names the literals it forbids.
     "scripts/checks/data-container-resolver.py",
 }

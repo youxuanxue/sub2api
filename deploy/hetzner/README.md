@@ -1,6 +1,6 @@
 # TokenKey 现网舰队 · 腾讯美西 prod 与美西出口代理
 
-> **目录名 `deploy/hetzner/` 为历史路径。** Hetzner Cloud prod 已退役；`PROD_SSM_TARGET=hetzner` 与 `deploy-prod-hetzner-stage0` 供给均失败关闭。本文件仍是现网舰队 SSOT（腾讯美西）。
+> **目录名 `deploy/hetzner/` 为历史路径。** Hetzner Cloud prod 已退役；`PROD_SSM_TARGET=hetzner` 失败关闭，Hetzner prod 供给 workflow/脚本已删除（2026-10-23）。本文件仍是现网舰队 SSOT（腾讯美西）。
 
 **SSOT：** 现网节点 / 公网 IP / CIDR / GHCR PAT 路径 / 发版入口 **只在本文件叙述**；其它文档与 skill 只留指针，勿复制数值。
 审批基线（决策锁，无 IP 表）：[`docs/approved/hetzner-cloud-full-migration.md`](../../docs/approved/hetzner-cloud-full-migration.md)
