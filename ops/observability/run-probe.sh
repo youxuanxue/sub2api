@@ -36,7 +36,7 @@
 #
 #   --target prod        resolves region+instance via
 #                        ops/stage0/resolve_prod_ssm_target.py (auto → Tencent
-#                        USW SSM Hybrid mi-*; frozen Tokyo i-* is explicit-only)
+#                        USW SSM Hybrid mi-*; retired EC2 i-* targets fail closed)
 #   --target cn-prod     runs the same probe through the registered SSM Hybrid
 #                        managed instance. Set UCLOUD_SSM_INSTANCE_ID and
 #                        UCLOUD_SSM_REGION to override the domestic manifest;
