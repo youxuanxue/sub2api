@@ -1,11 +1,36 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/gin-gonic/gin"
 )
+
+// gatewayBodyParseStats counts full-document JSON decodes on one request.
+// Tests install it to prove chat admission does not unmarshal the body again
+// for Claude Code detection, and that the canonical profile is decoded once.
+type gatewayBodyParseStats struct {
+	canonical      int
+	claudeDocument int
+}
+
+type gatewayBodyParseStatsKey struct{}
+
+func noteGatewayCanonicalParse(ctx context.Context) {
+	stats, _ := ctx.Value(gatewayBodyParseStatsKey{}).(*gatewayBodyParseStats)
+	if stats != nil {
+		stats.canonical++
+	}
+}
+
+func noteGatewayClaudeDocument(ctx context.Context) {
+	stats, _ := ctx.Value(gatewayBodyParseStatsKey{}).(*gatewayBodyParseStats)
+	if stats != nil {
+		stats.claudeDocument++
+	}
+}
 
 // PrepareCandidateIngress uses the existing client and session parsers before
 // billing admission, when sticky-only eligibility already matters.
@@ -16,8 +41,14 @@ func (r *UniversalRoutingResolver) PrepareCandidateIngress(c *gin.Context, key *
 	// path has not applied a Direct-only model/body rewrite; handlers and
 	// converters then observe the same request digest through the context.
 	ctx = r.WithRequest(ctx, shape, path, model, body)
+	// OpenAI chat (and any non-messages path) never reads this tree. Unmarshal
+	// only when Claude Code validation will inspect system/metadata fields.
 	var document map[string]any
-	_ = json.Unmarshal(body, &document)
+	if claudeCodeValidationNeedsBody(c.Request) {
+		if err := json.Unmarshal(body, &document); err == nil {
+			noteGatewayClaudeDocument(ctx)
+		}
+	}
 	validator := NewClaudeCodeValidator()
 	ctx = SetClaudeCodeClient(ctx, validator.Validate(c.Request, document))
 	ctx = SetClaudeDesktopGatewayClient(ctx, IsClaudeDesktopGatewayUserAgent(c.GetHeader("User-Agent")))

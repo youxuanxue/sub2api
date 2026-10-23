@@ -205,3 +205,37 @@ func (e *turnCountingEngine) Evaluate(context.Context, securityaudit.Request) (*
 	}
 	return &securityaudit.PromptDecision{Kind: securityaudit.DecisionAllow, AllowNextStage: true}, nil
 }
+
+type inactiveLegacyEngine struct {
+	calls atomic.Int64
+}
+
+func (l *inactiveLegacyEngine) Check(context.Context, securityaudit.Request) (*securityaudit.LegacyDecision, error) {
+	l.calls.Add(1)
+	return &securityaudit.LegacyDecision{Allowed: true}, nil
+}
+
+func (l *inactiveLegacyEngine) MayInspectBody(context.Context) bool { return false }
+
+func TestRunSecurityAuditSkipsBodyWhenAuditIsOff(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	legacy := &inactiveLegacyEngine{}
+	prompt := &turnCountingEngine{mode: securityaudit.ModeOff}
+	coordinator := securityaudit.NewCoordinator(legacy, prompt)
+	body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"` + "hello" + `"}]}`)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	decision := runSecurityAudit(c, nil, coordinator, nil, nil, middleware2.AuthSubject{UserID: 2}, "openai_chat", "kimi-k3", body, "http")
+	require.Nil(t, decision)
+	require.Zero(t, legacy.calls.Load(), "an off coordinator must not call legacy Check")
+	require.Zero(t, prompt.evaluates.Load(), "an off prompt audit must not evaluate the body")
+
+	prompt.mode = securityaudit.ModeBlocking
+	blocking, _ := gin.CreateTestContext(httptest.NewRecorder())
+	blocking.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	decision = runSecurityAudit(blocking, nil, coordinator, nil, nil, middleware2.AuthSubject{UserID: 2}, "openai_chat", "kimi-k3", body, "http")
+	require.NotNil(t, decision)
+	require.Equal(t, int64(1), prompt.evaluates.Load(), "a blocking audit must still evaluate")
+}

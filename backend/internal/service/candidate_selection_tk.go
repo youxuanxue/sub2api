@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +20,30 @@ type candidateAccountLister interface {
 	ListCandidateAccounts(context.Context, []int64) ([]Account, error)
 }
 
+func candidateGroupKey(groups []Group) string {
+	parts := make([]string, len(groups))
+	for i, group := range groups {
+		parts[i] = strconv.FormatInt(group.ID, 10)
+	}
+	return strings.Join(parts, ",")
+}
+
 func (r *CandidateRequest) accounts(ctx context.Context) ([]Account, error) {
+	key := candidateGroupKey(r.groups)
+	if r.accountsCached && r.cachedAccountsKey == key {
+		return r.cachedAccounts, nil
+	}
+	accounts, err := r.listAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r.accountsCached = true
+	r.cachedAccounts = accounts
+	r.cachedAccountsKey = key
+	return accounts, nil
+}
+
+func (r *CandidateRequest) listAccounts(ctx context.Context) ([]Account, error) {
 	repo := r.resolver.candidateGateway.accountRepo
 	ids := make([]int64, 0, len(r.groups))
 	for _, group := range r.groups {
@@ -50,21 +74,30 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 	defer BeginImageIngressPhase(ctx, ImageIngressCandidates)()
 	r.hasSoftAffinity = false
 	ctx = r.withProfitPricing(ctx)
-	if r.key.IsUniversal() {
-		groups, err := r.resolver.span(ctx, r.key.UserID)
-		if err != nil {
-			return nil, false, err
+	// Admission publishes one group refresh. The scheduler select that follows
+	// on this same request reuses it; the next select (failover) reads again.
+	if r.skipGroupRefresh {
+		r.skipGroupRefresh = false
+	} else {
+		if r.key.IsUniversal() {
+			groups, err := r.resolver.span(ctx, r.key.UserID)
+			if err != nil {
+				return nil, false, err
+			}
+			r.groups = activeCapabilityGroups(groups)
+		} else if r.resolver.candidateGateway.groupRepo != nil && len(r.groups) == 1 {
+			group, err := r.resolver.candidateGateway.groupRepo.GetByID(ctx, r.groups[0].ID)
+			if err != nil {
+				return nil, false, err
+			}
+			if group == nil || !group.IsActive() {
+				return nil, false, ErrUniversalNoEntitledGroup
+			}
+			r.groups = []Group{*group}
 		}
-		r.groups = activeCapabilityGroups(groups)
-	} else if r.resolver.candidateGateway.groupRepo != nil && len(r.groups) == 1 {
-		group, err := r.resolver.candidateGateway.groupRepo.GetByID(ctx, r.groups[0].ID)
-		if err != nil {
-			return nil, false, err
+		if !options.acquire {
+			r.skipGroupRefresh = true
 		}
-		if group == nil || !group.IsActive() {
-			return nil, false, ErrUniversalNoEntitledGroup
-		}
-		r.groups = []Group{*group}
 	}
 	accounts, err := r.accounts(ctx)
 	if err != nil {
@@ -76,11 +109,13 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 	ctx = gw.withRPMPrefetch(ctx, accounts)
 	ctx = gw.withWindowCostPrefetch(ctx, accounts)
 	ctx = openai.withOpenAIQuotaAutoPauseContext(ctx)
+	// Sticky and prompt-cache bindings stay live. Auth can write them after
+	// admission, and a stale snapshot would change which account wins.
 	var stickyID int64
+	var promptCacheStickyID int64
 	if r.session != "" && gw.cache != nil {
 		stickyID, _ = gw.cache.GetSessionAccountID(ctx, 0, r.session)
 	}
-	var promptCacheStickyID int64
 	if r.promptCacheSession != "" && gw.cache != nil {
 		promptCacheStickyID, _ = gw.cache.GetSessionAccountID(ctx, 0, r.promptCacheSession)
 	}
@@ -359,6 +394,9 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 			accounts = append(accounts, path.account)
 		}
 		var loadErr error
+		// Always read load on this attempt. Admission and the later acquiring
+		// select are separated by billing and user-slot waits, so a cached
+		// concurrency map can mark a freed account full and queue behind it.
 		if gw.concurrencyService != nil {
 			loads, loadErr = gw.concurrencyService.GetAccountsLoadBatchFresh(ctx, loadRequests)
 			if loadErr != nil {

@@ -93,6 +93,7 @@ type schedulerTestConcurrencyCache struct {
 	ConcurrencyCache
 	loadBatchErr    error
 	loadMap         map[int64]*AccountLoadInfo
+	loadReads       *int
 	acquireResults  map[int64]bool
 	waitCounts      map[int64]int
 	skipDefaultLoad bool
@@ -120,6 +121,9 @@ func (c schedulerTestConcurrencyCache) ReleaseAccountSlot(ctx context.Context, a
 }
 
 func (c schedulerTestConcurrencyCache) GetAccountsLoadBatch(ctx context.Context, accounts []AccountWithConcurrency) (map[int64]*AccountLoadInfo, error) {
+	if c.loadReads != nil {
+		*c.loadReads++
+	}
 	if c.loadBatchErr != nil {
 		return nil, c.loadBatchErr
 	}

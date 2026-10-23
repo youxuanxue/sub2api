@@ -14,11 +14,13 @@ import (
 
 type globalCandidateRepo struct {
 	stubOpenAIAccountRepo
-	listed []int64
-	fresh  func(*Account) *Account
+	listed    []int64
+	listCalls int
+	fresh     func(*Account) *Account
 }
 
 func (r *globalCandidateRepo) ListCandidateAccounts(_ context.Context, groups []int64) ([]Account, error) {
+	r.listCalls++
 	r.listed = append([]int64(nil), groups...)
 	return r.accounts, nil
 }

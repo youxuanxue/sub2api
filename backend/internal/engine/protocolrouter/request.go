@@ -85,6 +85,13 @@ func (r CanonicalRequest) Profile() RequestProfile          { return r.profile }
 func (r CanonicalRequest) Digest() RequestDigest            { return r.digest }
 func (r CanonicalRequest) Body() []byte                     { return append([]byte(nil), r.body...) }
 
+// BodyEquals reports whether body is the exact document already stored on the
+// request. Callers use it to skip a second full unmarshal of a body that
+// admission already decoded.
+func (r CanonicalRequest) BodyEquals(body []byte) bool {
+	return bytes.Equal(r.body, body)
+}
+
 func digestRequest(req CanonicalRequest) RequestDigest {
 	var encoded bytes.Buffer
 	writeDigestString(&encoded, string(req.inboundProtocol))

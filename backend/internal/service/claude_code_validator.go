@@ -84,6 +84,28 @@ func NewClaudeCodeValidator() *ClaudeCodeValidator {
 //	        - anthropic-beta header 检查
 //	        - anthropic-version header 检查
 //	        - metadata.user_id 格式验证
+//
+// claudeCodeValidationNeedsBody reports whether Validate will read the decoded
+// document. Chat completions never do: a non-messages path returns after the
+// User-Agent check, and a UA miss returns before any field is read. Callers
+// skip the full-document unmarshal in that case.
+func claudeCodeValidationNeedsBody(r *http.Request) bool {
+	if r == nil || !claudeCodeUAPattern.MatchString(r.Header.Get("User-Agent")) {
+		return false
+	}
+	path := ""
+	if r.URL != nil {
+		path = r.URL.Path
+	}
+	if !strings.Contains(path, "messages") || isMessagesCountTokensPath(path) {
+		return false
+	}
+	if isMaxTokensOneHaiku, ok := IsMaxTokensOneHaikuRequestFromContext(r.Context()); ok && isMaxTokensOneHaiku {
+		return false
+	}
+	return true
+}
+
 func (v *ClaudeCodeValidator) Validate(r *http.Request, body map[string]any) bool {
 	// Step 1: User-Agent 检查
 	ua := r.Header.Get("User-Agent")

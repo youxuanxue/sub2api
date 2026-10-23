@@ -48,6 +48,14 @@ type CandidateRequest struct {
 	bodyModelsResolved    bool
 	requestProfile        protocolrouter.RequestProfile
 	requestProfileValid   bool
+	// Request-scoped account list shared by admission and the following
+	// scheduler select. Concurrency load is not cached: the acquiring select
+	// runs after billing and user-slot waits, and a stale "full" bit would
+	// queue on one account while another has already freed a slot.
+	accountsCached    bool
+	cachedAccounts    []Account
+	cachedAccountsKey string
+	skipGroupRefresh  bool
 }
 
 type candidateRequestContextKey struct{}
@@ -189,6 +197,9 @@ func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, 
 	ctx = context.WithValue(ctx, ctxkey.UserID, key.UserID)
 	ctx = WithCandidateIdentity(ctx, key.UserID, key.ID)
 	state := &CandidateRequest{resolver: r, key: key, groups: eligible, shape: shape, path: path, model: model,
+		// pathContext rewrites "model" with sjson.SetBytes. A same-length
+		// replacement edits the backing array in place, so this copy keeps the
+		// caller's bytes (handler forward body, canonical digest) intact.
 		body: append([]byte(nil), body...), contentType: contentType, forcePlatform: forcedPlatform, session: session, websocket: websocket, promptCacheSession: promptCacheSession}
 	canonicalInbound, canonicalPath, canonicalShapeOK := candidateCanonicalProtocol(shape, path)
 	if canonical, ok := ProtocolRoutingRequest(ctx); ok && canonicalShapeOK &&
@@ -227,6 +238,10 @@ func (r *CandidateRequest) RevalidateTurn(ctx context.Context, accountID int64, 
 	}
 	r.current, r.billingHook = nil, nil
 	r.rpm = candidateRPMAdmission{}
+	// A turn can observe a group allowlist or profit multiplier that changed
+	// after admission. Drop the one-shot scheduler reuse before selecting again.
+	r.skipGroupRefresh = false
+	r.accountsCached = false
 	r.continuationAccountID = accountID
 	r.model, r.body = model, append([]byte(nil), body...)
 	r.bodyModelsResolved = false

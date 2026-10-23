@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +9,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+
+	"github.com/tidwall/gjson"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -122,11 +123,11 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 			}
 		}
 		if shape != service.ShapeGemini && shape != service.ShapeOpenAIImagesEdit {
-			var document struct {
-				Model string `json:"model"`
-			}
-			if json.Unmarshal(body, &document) == nil {
-				model = strings.TrimSpace(document.Model)
+			// The peeked model is not reused here: alias rewrite and lenient
+			// normalization may have changed the decoded document. gjson reads
+			// the top-level field without building a tree of messages.
+			if decodedModel := universalJSONModel(body); decodedModel != "" {
+				model = decodedModel
 			}
 		}
 		ctx := resolver.WithRequest(c.Request.Context(), shape, requestPath, model, body)
@@ -504,11 +505,34 @@ func extractModelFromJSONBytes(c *gin.Context, raw []byte) string {
 	if len(peekBytes) == 0 {
 		return ""
 	}
-	var probe struct {
-		Model string `json:"model"`
+	return universalJSONModel(peekBytes)
+}
+
+// universalJSONModel reads a top-level model string. Exact "model" stops at
+// the first match so a leading field does not walk the message array. A
+// missing exact key falls back to a case-insensitive last value, which is
+// what encoding/json used to bind for "Model".
+func universalJSONModel(body []byte) string {
+	if len(body) == 0 {
+		return ""
 	}
-	_ = json.Unmarshal(peekBytes, &probe)
-	return strings.TrimSpace(probe.Model)
+	exact := gjson.GetBytes(body, "model")
+	if exact.Type == gjson.String {
+		if value := strings.TrimSpace(exact.String()); value != "" {
+			return value
+		}
+	}
+	var last string
+	gjson.ParseBytes(body).ForEach(func(key, value gjson.Result) bool {
+		if value.Type != gjson.String || !strings.EqualFold(key.Str, "model") {
+			return true
+		}
+		if trimmed := strings.TrimSpace(value.String()); trimmed != "" {
+			last = trimmed
+		}
+		return true
+	})
+	return last
 }
 
 func universalPeekBytes(c *gin.Context, raw []byte) []byte {

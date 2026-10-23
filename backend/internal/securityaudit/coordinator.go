@@ -26,6 +26,31 @@ func NewCoordinator(legacy LegacyEngine, prompt PromptEngine) *Coordinator {
 	return &Coordinator{legacy: legacy, prompt: prompt}
 }
 
+// MayInspectBody reports whether Check will read the request body. Prompt
+// audit that is off does not inspect; legacy moderation that is off does not
+// either. An unknown legacy engine is treated as active so a new inspector
+// cannot be skipped by accident.
+func (c *Coordinator) MayInspectBody(ctx context.Context) bool {
+	if c == nil {
+		return false
+	}
+	if c.prompt != nil && c.prompt.EffectiveMode() != ModeOff {
+		return true
+	}
+	return legacyEngineMayInspectBody(ctx, c.legacy)
+}
+
+func legacyEngineMayInspectBody(ctx context.Context, legacy LegacyEngine) bool {
+	if legacy == nil {
+		return false
+	}
+	inspector, ok := legacy.(interface{ MayInspectBody(context.Context) bool })
+	if !ok {
+		return true
+	}
+	return inspector.MayInspectBody(ctx)
+}
+
 func (c *Coordinator) Check(ctx context.Context, req Request) Decision {
 	if c == nil {
 		return allowDecision(nil, nil)
