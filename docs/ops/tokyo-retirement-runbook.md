@@ -1,6 +1,6 @@
 # 冻结 Tokyo 退役 · 日本代理关停 · 腾讯续费 Runbook
 
-状态：**已完成**（2026-10-23）。Tokyo 实例、栈、VPC、卷、EIP 均已删除；OIDC 已 retarget 到美西 `mi-080ed76dc6d97d8b5`；仅保留最终快照 `snap-06612941333b662e8`（数据卷）/ `snap-0724597870487cf4a`（根卷）与 S3 历史链。下文为执行时的步骤记录。
+状态：**已完成**（2026-10-23）。Tokyo 实例、栈、VPC、卷、EIP 均已删除；OIDC 已 retarget 到美西 `mi-080ed76dc6d97d8b5`；最终快照与 jp 代理快照也已删除；**唯一留存为 S3 历史链 `prod/postgres`（timeline 1，仅数据库）**。下文为执行时的步骤记录。
 舰队事实只在 [舰队 SSOT](../../deploy/hetzner/README.md)；现网身份与宿主 watcher owner 为
 [`deploy/tencent/candidate-usw-20261022.json`](../../deploy/tencent/candidate-usw-20261022.json) 的 `target` / `host_watch`。
 LUKS 自动解锁另见 [方案](tencent-luks-autounlock-plan.md)。
@@ -80,7 +80,7 @@ Tokyo 删机前合并，保证没有任何代码路径还能把 SSM 发往 `i-04
 4. **[审批：IAM]** OIDC 栈 `us-east-1/tokenkey-cicd-oidc` 仍授权 `instance/i-045f062ce33e1a5af`。用
    `python3 ops/stage0/retarget_prod_oidc.py --live-template <get-template 输出> --output <rendered.json>` 渲染，
    以 `TargetInstanceId=mi-080ed76dc6d97d8b5`、`TargetInstanceRegion=eu-west-2` 建 change set、人工审阅后执行。
-   现网 Hybrid SendCommand 实际由栈外 inline policy `tokenkey-lightsail-edge-addon`（`managed-instance/*`）授予，retarget 不会移除它。
+   现网 Hybrid SendCommand 另由栈外 inline policy `tokenkey-lightsail-edge-addon` 授予；2026-10-23 已从 `managed-instance/*` 收紧为美西 + 北京两台（见切流清单「CI 角色 SSM 身份」）。
    注意：线上栈模板与仓库模板已漂移（线上多 `ReadQaBundleRuntimeForDiagnostics` / `ReadQaBundleBucketState`，线上 `ReadEbsSnapshotsForDiagnostics` 缺 `ec2:DescribeInstances`）；`retarget_prod_oidc.py` 只替换 SendCommand 与诊断条件，保留其余线上语句。
 5. 保留：手工最终快照、DLM 遗留快照（按 `RetainUntil` 另批清理）、S3 归档与历史 pgBackRest 链。
 
@@ -159,5 +159,5 @@ apply **[可逆·审批]**：同一命令加 `--apply`。效果：新建内容�
 1. ~~切流前 DLM 快照是否复制保留~~：2026-10-22 用户决定不保留，任其轮换；DB 由 S3 `prod/postgres` timeline 1 覆盖。
 2. ~~腾讯续费方案~~：2026-10-22 用户决定月自动续费，已改 `NOTIFY_AND_AUTO_RENEW`。
 3. ~~Tokyo 退役~~：已完成（2026-10-23 仓库清理、删栈、删卷、OIDC retarget）。
-4. ~~`jp-*` 关停~~：已完成（2026-10-23 删机并释放静态 IP，保留最终快照）。
+4. ~~`jp-*` 关停~~：已完成（2026-10-23 删机、释放静态 IP，最终快照随后删除）。
 5. LUKS 演练预算（见 [方案](tencent-luks-autounlock-plan.md)）。
