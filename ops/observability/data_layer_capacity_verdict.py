@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import pathlib
 import sys
 
@@ -127,6 +128,7 @@ def compute_verdict(stats: dict, thresholds: dict) -> dict:
             "months_to_volume_full": None,
             "usage_logs_pct_of_volume": None,
             "df_avail_gib": None,
+            "df_avail_source": None,
             "summary": "catalog capacity probe missing or failed - capacity verdict inconclusive",
         }
 
@@ -141,6 +143,7 @@ def compute_verdict(stats: dict, thresholds: dict) -> dict:
             "months_to_volume_full": None,
             "usage_logs_pct_of_volume": None,
             "df_avail_gib": None,
+            "df_avail_source": None,
             "summary": "bounded recent-growth probe missing or failed - capacity verdict inconclusive",
         }
 
@@ -160,6 +163,7 @@ def compute_verdict(stats: dict, thresholds: dict) -> dict:
             "months_to_volume_full": None,
             "usage_logs_pct_of_volume": None,
             "df_avail_gib": None,
+            "df_avail_source": None,
             "summary": f"probe snapshot missing {', '.join(missing)} - capacity verdict inconclusive",
         }
 
@@ -181,6 +185,7 @@ def compute_verdict(stats: dict, thresholds: dict) -> dict:
             "months_to_volume_full": None,
             "usage_logs_pct_of_volume": None,
             "df_avail_gib": None,
+            "df_avail_source": None,
             "summary": "probe snapshot contains non-numeric capacity data - capacity verdict inconclusive",
         }
     values = (usage_logs_bytes, df_total, df_avail)
@@ -192,6 +197,7 @@ def compute_verdict(stats: dict, thresholds: dict) -> dict:
             "months_to_volume_full": None,
             "usage_logs_pct_of_volume": None,
             "df_avail_gib": None,
+            "df_avail_source": None,
             "summary": "probe snapshot contains invalid capacity data - capacity verdict inconclusive",
         }
 
@@ -277,6 +283,7 @@ def compute_verdict(stats: dict, thresholds: dict) -> dict:
             "months_to_volume_full": None,
             "usage_logs_pct_of_volume": None,
             "df_avail_gib": None,
+            "df_avail_source": None,
             "summary": "no volume (df) data from probe — capacity verdict inconclusive",
         }
 
@@ -325,11 +332,10 @@ def compute_verdict(stats: dict, thresholds: dict) -> dict:
         "months_to_volume_full": (None if months_to_full == math.inf else round(months_to_full, 1)),
         "usage_logs_pct_of_volume": round(pct_of_volume, 1),
         "df_avail_gib": round(effective_avail / 1024**3, 2),
+        # Which layer bound the runway, and which mount it was. The raw per-layer
+        # numbers stay in the probe's own DFSTATS / DFBACKING lines -- that is
+        # where evidence belongs, not duplicated into the verdict payload.
         "df_avail_source": avail_source,
-        "df_avail_data_volume_gib": round(df_avail / 1024**3, 2),
-        "df_avail_backing_gib": (
-            None if backing_avail is None else round(backing_avail / 1024**3, 2)
-        ),
         "summary": (
             f"usage_logs {round(usage_logs_bytes/1024**3,2)}GiB "
             f"({round(pct_of_volume,1)}% of volume, evidence only), ledger growth "
@@ -347,16 +353,20 @@ def compute_verdict(stats: dict, thresholds: dict) -> dict:
 
 def _parse_probe_stdin(text: str) -> dict:
     """Merge the probe's tagged JSON lines into one field-addressable snapshot."""
+    # Match the SHAPE of a tagged line, not a list of known tags. The probe used
+    # to be paired with an enumerated whitelist here, and adding DFBACKING to the
+    # probe without adding it to that list made the field arrive as None -- the
+    # verdict silently kept using the optimistic inner df. Recognising the shape
+    # removes the second place that has to be updated, so that cannot recur.
     stats: dict = {}
     for line in text.splitlines():
-        line = line.strip()
-        for tag in ("PGSTATS", "PGWINDOW", "PGGROWTH", "DFSTATS", "DFBACKING"):
-            if line.startswith(tag):
-                payload = line[len(tag):].strip()
-                try:
-                    stats.update(json.loads(payload))
-                except json.JSONDecodeError:
-                    pass
+        m = re.match(r"([A-Z][A-Z0-9_]+) (\{.*\})$", line.strip())
+        if not m:
+            continue
+        try:
+            stats.update(json.loads(m.group(2)))
+        except json.JSONDecodeError:
+            pass
     return stats
 
 

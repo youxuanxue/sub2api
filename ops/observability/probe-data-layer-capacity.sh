@@ -216,20 +216,25 @@ echo "=== DFBACKING (filesystem holding the data volume's backing file) ==="
 # Resolved via the loop backing file, never by parsing paths: a host whose data
 # dir is a raw partition has no loop device and emits nulls, which the verdict
 # reads as "no outer layer" rather than as a probe failure.
+#
+# sudo -n (non-interactive), not bare sudo: this is the first sudo in this probe
+# and cn-prod's SSM host usually has none (see probe-cn-prod-single-account-ladder.sh).
+# Bare sudo would block waiting for a password on a TTY-less SSM/SSH channel;
+# -n fails immediately and we emit nulls.
 _tk_src="$(df -P "${DATA_DIR}" 2>/dev/null | awk 'NR==2 {print $1}')"
 _tk_backing=""
 if [ -n "${_tk_src:-}" ]; then
-  _tk_backing="$(sudo losetup -nO BACK-FILE,NAME 2>/dev/null | awk -v s="$_tk_src" '$2 == s {print $1; exit}')"
+  _tk_backing="$(sudo -n losetup -nO BACK-FILE,NAME 2>/dev/null | awk -v s="$_tk_src" '$2 == s {print $1; exit}')"
   if [ -z "${_tk_backing:-}" ]; then
     # dm target (LUKS/LVM): resolve its dependency to a loop device, then that
     # loop device's backing file.
-    for _tk_dep in $(sudo dmsetup deps -o devname "$(basename "$_tk_src")" 2>/dev/null | tr ' ()' '\n' | grep -E '^loop[0-9]+$'); do
-      _tk_backing="$(sudo losetup -nO BACK-FILE "/dev/$_tk_dep" 2>/dev/null | head -1)"
+    for _tk_dep in $(sudo -n dmsetup deps -o devname "$(basename "$_tk_src")" 2>/dev/null | tr ' ()' '\n' | grep -E '^loop[0-9]+$'); do
+      _tk_backing="$(sudo -n losetup -nO BACK-FILE "/dev/$_tk_dep" 2>/dev/null | head -1)"
       [ -n "${_tk_backing:-}" ] && break
     done
   fi
 fi
-if [ -n "${_tk_backing:-}" ] && sudo test -e "$_tk_backing"; then
+if [ -n "${_tk_backing:-}" ] && sudo -n test -e "$_tk_backing"; then
   df -P -B1 "$(dirname "$_tk_backing")" 2>/dev/null | awk -v bf="$_tk_backing" 'NR==2 {
     printf "DFBACKING {\"backing_file\":\"%s\",\"backing_total_bytes\":%s,\"backing_avail_bytes\":%s,\"backing_mount\":\"%s\"}\n", bf, $2, $4, $6
   }'
