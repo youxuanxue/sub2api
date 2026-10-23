@@ -2213,10 +2213,6 @@ elif ! python3 ./ops/stage0/test_qa_backup_host_lock.py >/dev/null 2>&1; then
     echo "  FAIL: QA and pg_dump host lock behavior"
     echo "        - run: python3 ops/stage0/test_qa_backup_host_lock.py"
     errors=$((errors + 1))
-elif ! python3 ./ops/stage0/test_install_hcloud_pgdump_storage.py >/dev/null 2>&1; then
-    echo "  FAIL: Hcloud pg_dump storage installer contract"
-    echo "        - run: python3 ops/stage0/test_install_hcloud_pgdump_storage.py"
-    errors=$((errors + 1))
 elif ! python3 ./ops/stage0/test_retire_aws_standby_timers.py >/dev/null 2>&1; then
     echo "  FAIL: AWS standby timer identity and rollback safety"
     echo "        - run: python3 ops/stage0/test_retire_aws_standby_timers.py"
@@ -2619,7 +2615,7 @@ echo ""
 fi # preflight gate
 if _preflight_selected 'Wave B freeze-delta contract'; then
 echo "=== sub2api: Wave B freeze-delta contract ==="
-if ! python3 -m unittest ops.stage0.test_wave_b_freeze_delta ops.migration.test_standard_freeze_delta ops.migration.test_fresh_host_delta ops.stage0.test_retarget_prod_oidc >/dev/null 2>&1; then
+if ! python3 -m unittest ops.stage0.test_wave_b_freeze_delta ops.migration.test_standard_freeze_delta ops.migration.test_standard_freeze_delta_postgres ops.stage0.test_retarget_prod_oidc >/dev/null 2>&1; then
     echo "  FAIL: Wave B freeze-delta contract test"
     echo "        — run: python3 ops/stage0/test_wave_b_freeze_delta.py"
     errors=$((errors + 1))

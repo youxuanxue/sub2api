@@ -150,11 +150,10 @@
       "path": "scripts/preflight.sh",
       "must_contain": [
         "ops/stage0/test_pgdump_storage.py",
-        "ops/stage0/test_install_hcloud_pgdump_storage.py",
         "ops/stage0/test_provision_hcloud_pgdump_bucket.py",
         "ops/stage0/test_retire_dormant_media_storage.py"
       ],
-      "rationale": "Private backup identity, guarded cutover/rollback, effective retention and safe dormant-media cleanup must remain executable preflight gates."
+      "rationale": "Private backup identity, effective retention and safe dormant-media cleanup must remain executable preflight gates (the Hetzner installer was retired with the host on 2026-10-23)."
     },
     {
       "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",

@@ -22,7 +22,6 @@ from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "ops/stage0"))
-DEFAULT_MATRIX = REPO_ROOT / "deploy/hetzner/prod-target-hetzner.json"
 TENCENT_USW_MATRIX = REPO_ROOT / "deploy/tencent/candidate-usw-20261022.json"
 AWS_STACK = "tokenkey-prod-stage0"
 INSTANCE_RE = re.compile(r"^(?:i|mi)-[0-9a-f]{8,}$")
@@ -102,14 +101,6 @@ def resolve_fresh_aws() -> dict[str, str]:
     )
 
 
-def load_hetzner_matrix(path: pathlib.Path) -> dict[str, Any]:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    target = data.get("target")
-    if not isinstance(target, dict):
-        fail(f"invalid hetzner prod matrix: {path}")
-    return target
-
-
 def list_instance_information(region: str) -> list[dict[str, Any]]:
     """Paginate DescribeInstanceInformation for Hybrid/Lightsail inventory."""
     rows: list[dict[str, Any]] = []
@@ -135,9 +126,8 @@ def list_instance_information(region: str) -> list[dict[str, Any]]:
     return rows
 
 
-def resolve_hetzner(matrix_path: pathlib.Path) -> dict[str, str]:
+def resolve_hetzner() -> dict[str, str]:
     """Hetzner Cloud prod is retired; never resolve a live Hybrid identity."""
-    _ = matrix_path  # matrix kept for callers / historical path only
     fail(
         "target=hetzner is retired: Hetzner Cloud prod was decommissioned; "
         "use auto (Tencent USW) for live prod. "
@@ -249,8 +239,7 @@ def main() -> int:
         matrix = pathlib.Path(args.matrix) if args.matrix else TENCENT_USW_MATRIX
         outputs = resolve_tencent_usw_candidate(matrix)
     else:
-        matrix = pathlib.Path(args.matrix) if args.matrix else DEFAULT_MATRIX
-        outputs = resolve_hetzner(matrix)
+        resolve_hetzner()
 
     if args.format == "instance-id":
         print(outputs["instance_id"])
