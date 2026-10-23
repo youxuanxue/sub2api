@@ -100,18 +100,6 @@ func tkPruneStructurallyGoneIDs(ctx context.Context, platform string, ids []stri
 //     broken pricing source never collapses a model-list to empty and breaks SDKs.
 func ServableClientFacingIDs(ctx context.Context, platform string, availability MePricingAvailability, pricing *PricingCatalogService) []string {
 	ids := tkServableCandidateIDs(ctx, platform, availability)
-	if len(ids) == 0 {
-		return ids
-	}
-	// Recommendation withdrawals are presentation-only but still part of
-	// "catalog-approved" for client-facing lists (public/menu/gateway fallback).
-	recommended := make([]string, 0, len(ids))
-	for _, id := range ids {
-		if isCatalogModelRecommended(id) {
-			recommended = append(recommended, id)
-		}
-	}
-	ids = recommended
 	if pricing == nil || len(ids) == 0 {
 		return ids
 	}

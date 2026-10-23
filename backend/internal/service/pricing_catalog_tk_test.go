@@ -927,8 +927,15 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		assert.False(t, isPublicCatalogModelSupported("wenxin", "ernie-totally-unlisted-zzz"))
 	})
 
+	t.Run("minimax long-tail vendor follows manifest display", func(t *testing.T) {
+		assert.Equal(t, isTkCuratedNewAPIModelDisplayed("minimax-m3") && isCatalogModelRecommended("minimax-m3"),
+			isPublicCatalogModelSupported("minimax", "minimax-m3"))
+		assert.False(t, isPublicCatalogModelSupported("minimax", "minimax-m2.7"),
+			"withdrawn minimax id stays off public catalog")
+	})
+
 	t.Run("unmapped vendor stays hidden until a universal platform mapping exists", func(t *testing.T) {
-		assert.False(t, isPublicCatalogModelSupported("minimax", "minimax-m2.7"))
+		assert.False(t, isPublicCatalogModelSupported("acme-reseller", "anything"))
 		assert.False(t, isPublicCatalogModelSupported("", "anything"))
 	})
 }

@@ -170,6 +170,12 @@ var catalogWithdrawnModelIDs = func() map[string]struct{} {
 	return out
 }()
 
+// IsCatalogModelRecommended reports whether modelID may be advertised on shared
+// public/menu surfaces. Presentation-only; scheduling and billing ignore it.
+func IsCatalogModelRecommended(modelID string) bool {
+	return isCatalogModelRecommended(modelID)
+}
+
 // Shared by public pricing, account display presets and every user-menu source.
 // Exact IDs only: retiring a snapshot must not hide a newer stable family alias.
 func isCatalogModelRecommended(modelID string) bool {

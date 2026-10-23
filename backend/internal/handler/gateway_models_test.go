@@ -216,7 +216,7 @@ func TestGatewayCodexModels_NonOpenAIGroupsUseMappedModels(t *testing.T) {
 			var got codexModelsResponseForTest
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 			if tt.platform == service.PlatformGrok {
-				want := service.FilterCodexModelIDsForGroup(service.ServableClientFacingIDs(context.Background(), service.PlatformGrok, nil, nil), nil)
+				want := recommendedCodexGrokFacingIDsForTest()
 				// Account mapping keys remain listed even when native catalog IDs
 				// are recommendation-hidden (presentation gate does not strip maps).
 				want = append(want, tt.model)
@@ -286,7 +286,7 @@ func TestGatewayCodexModels_CompositeUsesCompleteEffectiveModelList(t *testing.T
 	var got codexModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	want := service.FilterCodexModelIDsForGroup(openai.DefaultModelIDs(), nil)
-	want = append(want, service.FilterCodexModelIDsForGroup(service.ServableClientFacingIDs(context.Background(), service.PlatformGrok, nil, nil), nil)...)
+	want = append(want, recommendedCodexGrokFacingIDsForTest()...)
 	want = append(want, "grok-4.6") // explicit mapping on the grok account fixture
 	require.ElementsMatch(t, uniqueStringsForGatewayModelsTest(want), codexModelSlugsForTest(got.Models))
 }
@@ -622,18 +622,12 @@ func assertGrokGatewayReasoningEfforts(t *testing.T, groupID int64, modelID stri
 			break
 		}
 	}
-	if model == nil {
-		// Operator recommendation hide removes native-catalog advertisement; mapping
-		// may still expose the request id. Reasoning metadata is only asserted when
-		// the resolved catalog id remains client-facing.
-		facing := service.ServableClientFacingIDs(context.Background(), service.PlatformGrok, nil, nil)
-		for _, id := range facing {
-			if id == wantID || id == modelID {
-				require.Failf(t, "missing model", "%s must be present in grok native catalog union", wantID)
-			}
-		}
+	if !service.IsCatalogModelRecommended(wantID) {
+		// Native-catalog union is recommendation-gated; account mapping may still
+		// expose the id. Reasoning metadata is only required for advertised catalog ids.
 		return
 	}
+	require.NotNil(t, model, "%s must be present in grok native catalog union", wantID)
 	require.True(t, model.SupportsReasoningEffort)
 	require.Equal(t, "high", model.ReasoningEffort)
 	require.Equal(t, want, model.ReasoningEfforts)
@@ -1419,6 +1413,17 @@ func uniqueStringsForGatewayModelsTest(ids []string) []string {
 		}
 		seen[id] = struct{}{}
 		out = append(out, id)
+	}
+	return out
+}
+
+func recommendedCodexGrokFacingIDsForTest() []string {
+	facing := service.FilterCodexModelIDsForGroup(service.ServableClientFacingIDs(context.Background(), service.PlatformGrok, nil, nil), nil)
+	out := make([]string, 0, len(facing))
+	for _, id := range facing {
+		if service.IsCatalogModelRecommended(id) {
+			out = append(out, id)
+		}
 	}
 	return out
 }
