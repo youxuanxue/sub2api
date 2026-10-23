@@ -223,3 +223,20 @@ func TestAntigravityModelUnavailableCannotCascadeToWholeAccount(t *testing.T) {
 	require.False(t, account.IsSchedulable())
 	require.NotNil(t, AccountWideRateLimitResetAt(account, now))
 }
+
+// 3.7-flash 只从 Antigravity 面撤下，newapi/Vertex 侧仍在供应。上游 2026-10-13
+// 换代到 3.8 后，三个 3.7 档位 wire 在 /v1internal 上一致返回 Google 原文 404
+// NOT_FOUND，而同账号同端点的 gemini-3.8-flash-high 返回 200。
+func TestAntigravity37FlashWithdrawnButGeminiKeeps(t *testing.T) {
+	require.False(t, isPublicCatalogModelSupported(PlatformAntigravity, "gemini-3.7-flash"))
+	require.NotContains(t, supportedCatalogModelIDsForPlatform(PlatformAntigravity), "gemini-3.7-flash")
+
+	// newapi/Vertex 仍供应（model_availability status=ok），不得一起撤。
+	require.True(t, isPublicCatalogModelSupported(PlatformGemini, "gemini-3.7-flash"))
+	require.Contains(t, supportedCatalogModelIDsForPlatform(PlatformGemini), "gemini-3.7-flash")
+
+	// 接任者在两边都还在。
+	for _, plat := range []string{PlatformAntigravity, PlatformGemini} {
+		require.True(t, isPublicCatalogModelSupported(plat, "gemini-3.8-flash"), "platform %s", plat)
+	}
+}

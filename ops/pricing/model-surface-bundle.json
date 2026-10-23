@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "577771703283531dfd194285a58090214d2a95e9f51733bde4f895d95960549f",
+  "floor_sha256": "19a2d49907ecf9da6c17095acf5fc545a19357b2c6988cee94c4f0d742ab6e9a",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -50,10 +50,6 @@
         "gemini-3-flash-preview": "gemini-3.8-flash-high",
         "gemini-3.1-flash-image": "gemini-3.1-flash-image",
         "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
-        "gemini-3.7-flash": "gemini-3.7-flash-high",
-        "gemini-3.7-flash-high": "gemini-3.7-flash-high",
-        "gemini-3.7-flash-low": "gemini-3.7-flash-low",
-        "gemini-3.7-flash-medium": "gemini-3.7-flash-medium",
         "gemini-3.8-flash": "gemini-3.8-flash-high",
         "gemini-3.8-flash-high": "gemini-3.8-flash-high",
         "gemini-3.8-flash-low": "gemini-3.8-flash-low",
