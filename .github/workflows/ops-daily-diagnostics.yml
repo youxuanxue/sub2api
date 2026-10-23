@@ -351,7 +351,13 @@ jobs:
             CAP_S="$(printf '%s' "$CAP_VERDICT" | jq -r '.summary // "no verdict"')"
             case "$CAP_V" in
               green) add_finding "data_layer_capacity" "ok" "info" "Data-layer capacity OK ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID" ;;
-              approaching) add_finding "data_layer_capacity" "warning" "warning" "Data-layer capacity approaching RDS trigger ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID" ;;
+              approaching)
+                if [ "$TARGET_ID" = "cn-prod" ]; then
+                  add_finding "data_layer_capacity" "warning" "warning" "Data-layer capacity approaching the disk trigger ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID"
+                else
+                  add_finding "data_layer_capacity" "warning" "warning" "Data-layer capacity approaching RDS trigger ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID"
+                fi
+                ;;
               trigger)
                 if [ "$TARGET_ID" = "cn-prod" ]; then
                   add_finding "data_layer_capacity" "issue_candidate" "error" "Data-layer capacity hit the disk trigger ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID"
@@ -525,7 +531,9 @@ jobs:
               RUNTIME_SSM_TRANSPORT_OK=true
               echo "runtime ssm command-id=$CMD_ID" >> "$STDOUT"
               RUNTIME_WAIT_SECONDS=180
-              if [ "$TARGET_ID" = "prod" ]; then
+              # Both live hosts are Hybrid SSM. The shorter wait timed out while
+              # collecting a day of logs on US West, so Beijing uses the same budget.
+              if [ "$TARGET_ID" = "prod" ] || [ "$TARGET_ID" = "cn-prod" ]; then
                 RUNTIME_WAIT_SECONDS=300
               fi
               DEADLINE=$(( $(date +%s) + RUNTIME_WAIT_SECONDS ))

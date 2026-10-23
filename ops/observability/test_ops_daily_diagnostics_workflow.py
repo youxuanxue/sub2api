@@ -383,8 +383,10 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
     def test_prod_runtime_wait_uses_named_300_second_deadline(self) -> None:
         text = workflow_text()
         self.assertIn("RUNTIME_WAIT_SECONDS=180", text)
-        self.assertIn('if [ "$TARGET_ID" = "prod" ]; then', text)
+        self.assertIn('if [ "$TARGET_ID" = "prod" ] || [ "$TARGET_ID" = "cn-prod" ]; then', text)
         self.assertIn("RUNTIME_WAIT_SECONDS=300", text)
+        self.assertIn("Data-layer capacity approaching the disk trigger ($TARGET_ID)", text)
+        self.assertIn("Data-layer capacity hit the disk trigger ($TARGET_ID)", text)
         self.assertIn("DEADLINE=$(( $(date +%s) + RUNTIME_WAIT_SECONDS ))", text)
         self.assertIn(
             "after waiting up to ${RUNTIME_WAIT_SECONDS}s",
