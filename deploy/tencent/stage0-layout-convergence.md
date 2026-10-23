@@ -28,7 +28,7 @@ Owner skill：[`tokenkey-host-replacement`](../../.cursor/skills/tokenkey-host-r
 |---|---|
 | Docker Root Dir | **保持** `/srv/tokenkey-rehearsal/docker`；未改 `daemon.json`；未停 Docker 守护进程 |
 | PG 容器名 | **未改** `tk-archive-standby`；网络别名含 `postgres` |
-| Redis 容器名 | **未改** `tk-cutover-prod-redis`；网络别名含 `redis` / `tokenkey-redis` |
+| Redis 容器名 | **未改** `tk-cutover-prod-redis`；网络别名含 `redis` / `tokenkey-redis`；2026-10-22 起 AOF everysec，`-v /srv/tokenkey-rehearsal/redis:/data`。重建时须保留该挂载与 `--appendonly yes`（直接以 AOF 启动只有 RDB 的目录会丢数据，按复制切换） |
 
 ## 窗内已完成
 

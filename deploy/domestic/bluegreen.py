@@ -86,29 +86,48 @@ POOL_ENV_KEYS = (
     'REDIS_POOL_SIZE',
     'REDIS_MIN_IDLE_CONNS',
 )
+# Capture matches prod. Telemetry archive stays off, and QA archive must not
+# point at S3: the maintenance uploader stays retired on this host.
+QA_ENV_KEYS = (
+    'QA_CAPTURE_ENABLED',
+    'TELEMETRY_ARCHIVE_ENABLED',
+)
+
+
+def _required_env(service_env, keys, label):
+    missing = [
+        key for key in keys
+        if key not in service_env
+        or service_env[key] is None
+        or not str(service_env[key]).strip()
+    ]
+    if missing:
+        raise ValueError(f'compose service missing {label} env keys: ' + ', '.join(missing))
 
 
 def candidate_compose(service, current, image, target):
     env = dict(item.split('=', 1) for item in current['Config']['Env'])
     if env.get('SERVER_FRONTEND_URL', '').rstrip('/') != 'https://' + DOMAIN:
         raise ValueError('refusing non-cn-prod application environment')
-    if env.get('QA_CAPTURE_ENABLED', '').lower() != 'false':
-        raise ValueError('domestic QA capture must remain disabled')
     service_env = service.get('environment') or {}
     if not isinstance(service_env, dict):
         raise ValueError('compose service environment must be a mapping')
     # Fail closed: incomplete override must not silently keep the live pool
     # sizes, or prepare would look successful while capacity bumps never land.
-    missing = [
-        key for key in POOL_ENV_KEYS
-        if key not in service_env
-        or service_env[key] is None
-        or not str(service_env[key]).strip()
-    ]
-    if missing:
-        raise ValueError('compose service missing pool env keys: ' + ', '.join(missing))
+    _required_env(service_env, POOL_ENV_KEYS, 'pool')
+    _required_env(service_env, QA_ENV_KEYS, 'qa')
+    if str(service_env['QA_CAPTURE_ENABLED']).strip().lower() != 'true':
+        raise ValueError('domestic QA capture must stay enabled')
+    if str(service_env['TELEMETRY_ARCHIVE_ENABLED']).strip().lower() != 'false':
+        raise ValueError('domestic telemetry archive must stay disabled')
     for key in POOL_ENV_KEYS:
         env[key] = str(service_env[key]).strip()
+    env['QA_CAPTURE_ENABLED'] = 'true'
+    env['TELEMETRY_ARCHIVE_ENABLED'] = 'false'
+    if env.get('QA_ARCHIVE_ENABLED', '').strip().lower() == 'true':
+        raise ValueError('domestic QA archive upload must stay disabled')
+    if env.get('QA_ARCHIVE_STORAGE_DRIVER', '').strip().lower() == 's3':
+        raise ValueError('domestic QA archive storage must not be s3')
     networks = current['NetworkSettings']['Networks']
     if len(networks) != 1:
         raise ValueError('expected one existing private application network')
