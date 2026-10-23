@@ -23,10 +23,19 @@ import (
 // 握手；dial 超时独立于 evaluator 总预算）。任一不可达 → 计数 +1；飞书主因行
 // 直接打出 name host:port 与 dial 错误，方便网络工程师对号入座。
 //
-// 仅在 prod 评估（见 isProdOnlyAlertRule）：现网 SOCKS 出口由 prod 拨号；
-// edge 退役后在 edge 上探测会得到错误网络路径的假信号。
+// 每个节点评估自己 proxies 表里的出口（美西 prod 探 usw-eval*/cn-ip*，北京
+// cn-prod 探其 ip1..4）：探测点即真实拨号方，测的就是该节点实际走的链路。
 
 const proxyUnreachableDialTimeout = 2 * time.Second
+
+// 单次 dial 失败不算不可达：跨境链路（如美西 prod → 北京 cn-ip）偶发丢一个
+// SYN，重传要 ≥1s，叠加 RTT 就会撞上 2s 超时。一轮内最多 3 次 dial、全失败
+// 才计入；真宕机仍在同一轮被判定，告警时延不变（sustained 仍为 2 个评估周期）。
+// 最坏单代理耗时 3×2s + 2×pause，各代理并发，远小于 evaluator 45s 预算。
+const (
+	proxyUnreachableDialAttempts   = 3
+	proxyUnreachableDialRetryPause = 200 * time.Millisecond
+)
 
 // proxyTCPDialFunc is the seam for unit tests. Production uses net.Dialer.
 type proxyTCPDialFunc func(ctx context.Context, network, address string) error
@@ -130,12 +139,7 @@ func (s *OpsAlertEvaluatorService) probeUnreachableProxies(ctx context.Context) 
 		go func(p ProxyWithAccountCount) {
 			defer wg.Done()
 			addr := net.JoinHostPort(strings.TrimSpace(p.Host), fmt.Sprintf("%d", p.Port))
-			// Dial timeout must NOT inherit evaluateOnce's 45s budget: a late
-			// rule in a heavy cycle would otherwise cancel every dial and page
-			// a false all-proxy-down P0.
-			dialCtx, cancel := context.WithTimeout(context.Background(), proxyUnreachableDialTimeout)
-			defer cancel()
-			if err := dial(dialCtx, "tcp", addr); err != nil {
+			if err := dialProxyWithRetry(dial, addr); err != nil {
 				outCh <- proxyUnreachableInfo{
 					ID:      p.ID,
 					Name:    strings.TrimSpace(p.Name),
@@ -160,6 +164,27 @@ func (s *OpsAlertEvaluatorService) probeUnreachableProxies(ctx context.Context) 
 		return unreachable[i].ID < unreachable[j].ID
 	})
 	return unreachable, true
+}
+
+// dialProxyWithRetry returns nil on the first successful dial, otherwise the
+// last dial error after proxyUnreachableDialAttempts tries.
+func dialProxyWithRetry(dial proxyTCPDialFunc, addr string) error {
+	var lastErr error
+	for attempt := 0; attempt < proxyUnreachableDialAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(proxyUnreachableDialRetryPause)
+		}
+		// Dial timeout must NOT inherit evaluateOnce's 45s budget: a late
+		// rule in a heavy cycle would otherwise cancel every dial and page
+		// a false all-proxy-down P0.
+		dialCtx, cancel := context.WithTimeout(context.Background(), proxyUnreachableDialTimeout)
+		lastErr = dial(dialCtx, "tcp", addr)
+		cancel()
+		if lastErr == nil {
+			return nil
+		}
+	}
+	return lastErr
 }
 
 func (s *OpsAlertEvaluatorService) storeProxyUnreachableSnapshot(unreachable []proxyUnreachableInfo) {

@@ -1,6 +1,7 @@
 ---
 title: Proxy unreachable P0 alert
 status: approved
+revised: 2026-10-23
 approved_by: "feng (conversation approval 2026-10-17)"
 approved_at: 2026-10-17
 created: 2026-10-17
@@ -17,9 +18,10 @@ scope: "ops_alert_rules seed + prod TCP probe for egress proxy IP:port reachabil
 
 - 对 `status=active` 且仍绑定 **status=active 且 schedulable=true** 账号的代理，
   从本节点对 `host:port` 做短 TCP dial（不握手；dial 超时独立于 evaluator 总预算）。
+- 一轮内对同一出口最多 dial 3 次（间隔 200ms），全部失败才记为不可达，避免跨境链路偶发丢 SYN 误报（2026-10-23 起）。
 - 任一不可达 → 计数 ≥1 → P0（**持续 2 分钟** / 连续两个评估周期，冷却 10 分钟，飞书）。
 - 飞书主因行给出代理名与 `IP:port` 及 dial 错误，便于网络/运维对号。
-- **仅 prod 评估**（现网出口由 prod 拨号）。
+- **每个节点评估自己 `proxies` 表的出口**（美西 prod 与北京 cn-prod 各自拨号；探测点即真实拨号方）。
 - 不统计闲置代理；账号全部下调度后停止对该出口拨号/告警。
 
 ## Why
