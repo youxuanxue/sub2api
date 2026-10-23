@@ -59,5 +59,5 @@ Owner skill：[`tokenkey-host-replacement`](../../.cursor/skills/tokenkey-host-r
 ## 明确不做（仍成立）
 
 - 不拿现网重启验收 LUKS。
-- 不解冻 Tokyo / 双写。
+- 不把 Tokyo 最终快照/历史链恢复成写库，不双写。
 - 不把「停 Docker → 搬 data-root」写成迁机默认步骤。

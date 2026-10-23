@@ -1,4 +1,4 @@
-# UCloud domestic prod
+# 腾讯北京 cn-prod（domestic）
 
 当前应用在腾讯北京 `tokenkey-cn-prod`（`lhins-6qmb3fd6`，`154.8.214.179`）。该实例与 `cn-ip1..4` 到期 **2026-11-22**，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-23 改）。到期自动扣费；账户余额不足仍会停机。`106.75.29.139` 仍由 UCloud 持有并只转发 80/443。`api-cn.tokenkey.dev` 继续指向美西，不改。公网还可以用 `https://api.galaxywaveai.com`，它和静态 IP 共用 `(tk_upstream)`，站点定义在 [`Caddyfile`](Caddyfile)。发版身份仍以 [`prod-target.json`](prod-target.json) 为准，不把这个域名写成 `public_origin` 或 `SERVER_FRONTEND_URL`。下面的表是 2026-10-14 首次上线记录。
 
@@ -93,8 +93,8 @@ bash deploy/domestic/deploy_via_ssm.sh prepare \
 `bluegreen.py` 仍是国内主机适配入口。Caddy 站点可以是 `api-cn.tokenkey.dev`，也可以是北京静态 IP `154.8.214.179`（`https://` 与 `:443` 写法同样接受）。`/var/lib/tokenkey` 可以是独立挂载，也可以直接在根文件系统上；根盘用该目录与 `/` 的设备是否相同来识别，不会把普通目录伪装成 mountpoint。
 从共享 `deploy_via_ssm_bluegreen.sh` 提取健康检查、Caddy 切流、观察与 drain，未复制实现。切流后的本机健康观察使用 Caddy 里的那个站点名，因此静态 IP 站点不会再拿 `api-cn.tokenkey.dev` 去对本地证书。
 候选实测与 `promote` 仍在主机执行（可用 SSM Run Command / Session Manager），需要
-`--public-url` 与 `prod-target.json` 的 `public_origin` 一致（静态 IP，不能用已切往 AWS
-的域名冒充 UCloud 验证）：
+`--public-url` 与 `prod-target.json` 的 `public_origin` 一致（静态 IP，不能用指向美西 prod
+的域名冒充 cn-prod 验证）：
 
 ```bash
 python3 /opt/tokenkey/releases/artifacts-ssm/bluegreen.py promote \
@@ -163,8 +163,8 @@ Docker 的 `unless-stopped` 重启策略负责活动容器重启；原单容器 
 （Run Command / Session Manager）写入主机私有目录；仅恢复路径才用受限 SSH。`promote`
 在切流前核对源码/容器身份及全部用例通过，并固化控制脚本与证据哈希。
 `--public-url` 必须与 `prod-target.json` 中的 `public_origin` 一致，该清单也供公网监控使用，
-并随发布证据固化哈希；填入其他公网 IP 会在切流前拒绝。原国内域名已切往 AWS，不能用
-域名的健康响应代替 UCloud 验证。
+并随发布证据固化哈希；填入其他公网 IP 会在切流前拒绝。原国内域名已指向美西 prod，不能用
+域名的健康响应代替 cn-prod 验证。
 
 切流和 drain 完成后，`promote` 自动调用共享 probe/evaluator 做立即检查，并等待至真实
 切流后至少五分钟再检查累计流量、HTTP/带内最终 5xx 与 panic；同时核对当前活动容器及
@@ -261,16 +261,16 @@ owner 中显式识别为 `cn-prod`，沿用 prod 用户失败告警规则。
 独立数据盘仍必须是 mountpoint。目录就在根文件系统上时（北京 `/dev/vda2`），安装器接受该布局，单元不设置 `TOKENKEY_DATA_VOLUME_PATH`，只检查根文件系统和内存，避免把根盘误报成数据卷失挂。安装不重启网关、数据库或 Caddy。缺少 0600 的通知配置时拒绝安装。
 
 公网可用性由共享 `ops/observability/host_https_watch.py` 承担：cn-prod 提供境内视角，prod
-提供独立站外视角。两处分别检查 UCloud 静态 IP、当前转到 AWS 的国内域名、AWS prod
-清单中的客户域名。当前国内主机身份与入口见
-[`prod-target.json`](prod-target.json)，AWS 目标仍从现有 fleet 清单生成，不能用域名的绿色结果
-替代 UCloud 静态 IP。探针每两分钟执行，连续两次失败发 P0 飞书，持续失败每三十分钟提醒，
+提供独立站外视角。两处分别检查 cn-prod 公网入口（`public_origin`）、指向美西 prod 的国内域名、美西 prod
+矩阵中的客户域名。当前国内主机身份与入口见
+[`prod-target.json`](prod-target.json)，美西目标从 `deploy/tencent/candidate-usw-20261022.json` 生成，不能用域名的绿色结果
+替代 cn-prod 公网入口。探针每两分钟执行，连续两次失败发 P0 飞书，持续失败每三十分钟提醒，
 首次恢复发送恢复消息；健康要求可信 TLS、HTTP 200 且 JSON `status=ok`，拦截页不算健康。
 告警标明探测节点和目标 URL；发送失败不推进去重状态，下次重试。
 
 这覆盖公网入口、DNS、TLS、Caddy 和应用就绪状态，不代替模型调用成功率/延迟告警。
-境内观察点与 cn-prod 共机，整机失联由 AWS 观察点兜底，不能代表所有国内运营商。
-UCloud 云告警、备份/恢复不在此安装器范围内。
+境内观察点与 cn-prod 共机，整机失联由美西 prod 观察点兜底，不能代表所有国内运营商。
+云厂商告警、备份/恢复不在此安装器范围内。
 
 安装复用 `ops/observability/install-host-https-watch.sh`，`WATCH_ROLE=cn-prod`，将该脚本及
 `host_https_watch.py`、`https_health.py`、`feishu_delivery.py`、
@@ -278,7 +278,7 @@ UCloud 云告警、备份/恢复不在此安装器范围内。
 `deploy/tencent/candidate-usw-20261022.json`（现网 prod 矩阵，`host_watch` 为 owner）
 按 basename 放入主机私有目录。`WATCH_BUNDLE_DIR` 指向该目录；不传 `APPLY` 时只核对身份
 并输出配置，`APPLY=yes-host-https-watch` 才安装。cn-prod 读取现有
-`/opt/tokenkey/host-alerts.env`；AWS 沿用现有 `.env`，不另复制密钥。安装前备份 unit，使用
+`/opt/tokenkey/host-alerts.env`；美西 prod 沿用 `/var/lib/tokenkey/.env`，不另复制密钥。安装前备份 unit，使用
 内容寻址的代码目录；可恢复备份 unit 后 daemon-reload 回退。不会重启应用、数据库或 Caddy。
 
 节点身份修复以 `1.8.292-cn-prod` 本地 amd64 补丁镜像部署，仅替换 UCloud 应用容器。

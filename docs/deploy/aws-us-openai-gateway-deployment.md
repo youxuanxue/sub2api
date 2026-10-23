@@ -1,14 +1,14 @@
-# TokenKey AWS 部署入口（standby / 考古）
+# TokenKey AWS 部署入口（历史 / 考古）
 
-> 历史 AWS / standby 资料。现网入口见 [fleet README](../../deploy/hetzner/README.md)（2026-10-17 起 Tokyo prod-only）；不要将下文旧 Lightsail/CFN 步骤用于现网。
+> 历史 AWS / standby 资料。现网为腾讯美西，入口见 [fleet README](../../deploy/hetzner/README.md)。**当前不存在 AWS standby**；下文 CFN/bootstrap 仅为历史模板，勿对正式域名执行。
 
 > **现网活舰队 / 发版 SSOT：** [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md)。  
-> 本页只保留 **AWS 首次 bootstrap 与 standby** 说明；勿当作现网拓扑。
+> 本页只保留 **AWS 首次 bootstrap 的历史说明**；勿当作现网拓扑。
 
 | 任务 | 入口 |
 | --- | --- |
 | 现网发版 / 活舰队 | [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md) |
-| AWS Prod CFN 首次创建（standby） | `deploy/aws/cloudformation/stage0-single-ec2.yaml`；下方 bootstrap |
+| AWS Prod CFN 首次创建（历史模板，无现网用途） | `deploy/aws/cloudformation/stage0-single-ec2.yaml`；下方 bootstrap |
 | AWS 侧操作百科 | [`deploy/aws/README.md`](../../deploy/aws/README.md)；契约见 [`deploy-stage0-workflow.md`](../approved/deploy-stage0-workflow.md) |
 | QA raw maintenance 与迁移 | [`qa-raw-only.md`](../approved/qa-raw-only.md) |
 | 备份、整机与数据恢复 | [`RUNBOOK-disaster-recovery.md`](../../deploy/aws/RUNBOOK-disaster-recovery.md) |

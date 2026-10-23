@@ -67,7 +67,7 @@
 
 | US-062 | Claude context error recovery | Done | `.testing/user-stories/stories/US-062-claude-context-error-recovery.md` |
 
-| US-063 | Hetzner 数据库备份安全切换 | Done | `.testing/user-stories/stories/US-063-hcloud-pgdump-storage.md` |
+| US-063 | Hetzner 数据库备份安全切换（historical：Hetzner 已退役） | Done | `.testing/user-stories/stories/US-063-hcloud-pgdump-storage.md` |
 
 | US-064 | OAuth 集中后的出口和错误语义 | InTest | `.testing/user-stories/stories/US-064-oauth-consolidation-gateway-safety.md` |
 

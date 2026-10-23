@@ -1,12 +1,15 @@
 ---
 title: Hetzner host-only PostgreSQL backup storage
-status: approved
+status: archived
+superseded_by: design-prod-physical-backup.md
 approved_by: "feng (同意，请继续：主机告警更新、备份迁移及媒体遗留配置清理)"
 approved_at: 2026-10-13
 risk: high
 ---
 
 # Hetzner PostgreSQL 备份存储
+
+> **已归档（2026-10-23）**：Hetzner 期 pgdump 存储；prod 备份已改为 pgBackRest（[物理备份设计](design-prod-physical-backup.md)），Hetzner 主机已退役。旧桶数据按 [pgdump 退役](../../ops/stage0/pgdump-retirement.md) 保留期处理。
 
 ## 目标与批准范围
 
