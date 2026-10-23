@@ -76,6 +76,8 @@ revision_note: "v1.5: feng 2026-10-16 会话批准 Volc Agent Plan × kimi-k3 �
 
 Quickstart 客户示例 owner：`frontend/src/utils/kimiK3VideoExamples.tk.ts`（curl/python 附加块；密钥自检仍是文本 ping）。NVIDIA Build 对 `kimi-k3` 视频仍是 known-negative，不出现在客户「可用形态」表。
 
+2026-10-23：Volc kimi-k3 在转发前预检 http(s) `video_url`。本机访问不到（含私网、回环、链路本地）时本地返回 400，`param` 为 `messages.content`，请客户换成可访问的视频 URL。`data:`、`ms://` 和预检成功的地址仍原样转发，不删除视频片段，也不把 video 记入 known-negative。契约见 [`volc-kimi-chat-compatibility.md`](volc-kimi-chat-compatibility.md)。
+
 ## Ali GLM-5.3 图片证据更新（2026-10-15）
 
 批准：feng 在查看以下实测结论后回复「同意」，范围仅 Ali Token Plan × `glm-5.3` × 输入图片；复用现有能力门，不新增账号字段。纯文本继续准入，视频保持原策略；不把结论扩展到其它阿里模型或其它供应商。

@@ -69,7 +69,7 @@ func TestVolcKimiThinkingSwitchesAndSupplierScope(t *testing.T) {
 func TestVolcKimiToolSelectionPreservesSemantics(t *testing.T) {
 	for _, mode := range []string{"auto", "required"} {
 		for _, ref := range []string{`{"type":"function","function":{"name":"get_weather"}}`, `{"type":"function","name":"get_weather"}`} {
-			body := []byte(`{"tools":` + constraintTools + `,"tool_choice":{"type":"allowed_tools","mode":"` + mode + `","tools":[` + ref + `]},"messages":[{"role":"tool","tool_call_id":"old","content":"history"}],"metadata":{"n":9007199254740993}}`)
+			body := []byte(`{"tools":` + constraintTools + `,"tool_choice":{"type":"allowed_tools","mode":"` + mode + `","tools":[` + ref + `]},"messages":[{"role":"assistant","tool_calls":[{"id":"old","type":"function","function":{"name":"get_weather","arguments":"{}"}}]},{"role":"tool","tool_call_id":"old","content":"history"}],"metadata":{"n":9007199254740993}}`)
 			got, err := normalizeVolcKimiChatRequest(body)
 			require.NoError(t, err)
 			require.Equal(t, mode, gjson.GetBytes(got, "tool_choice").String())
@@ -216,4 +216,163 @@ func TestVolcKimiForwardKeepsThinkingAndToolConstraints(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestVolcKimiInboundMessageShapes(t *testing.T) {
+	account := volcEnginePlanTestAccount()
+
+	object, err := applyMoonshotThinkingShape(nil, account, "kimi-k3", []byte(`{"model":"kimi-k3","messages":[{"role":"system","content":"ok"},{"role":"user","content":{"key":"val"}}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "ok", gjson.GetBytes(object, "messages.0.content").String())
+	require.Equal(t, `{"key":"val"}`, gjson.GetBytes(object, "messages.1.content").String())
+	require.False(t, gjson.GetBytes(object, "thinking").Exists())
+
+	part, err := applyMoonshotThinkingShape(nil, account, "kimi-k3", []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":{"type":"text","text":"hi"}}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "text", gjson.GetBytes(part, "messages.0.content.0.type").String())
+	require.Equal(t, "hi", gjson.GetBytes(part, "messages.0.content.0.text").String())
+
+	array, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":[{"type":"video_url","video_url":{"url":"https://example.com/a.webm"}},{"type":"text","text":"hi"}]}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "video_url", gjson.GetBytes(array, "messages.0.content.0.type").String())
+	require.Equal(t, "https://example.com/a.webm", gjson.GetBytes(array, "messages.0.content.0.video_url.url").String())
+
+	orphan, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":"hi"},{"role":"tool","tool_call_id":"call_1","content":"result"}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "user", gjson.GetBytes(orphan, "messages.1.role").String())
+	require.False(t, gjson.GetBytes(orphan, "messages.1.tool_call_id").Exists())
+	require.Equal(t, "result", gjson.GetBytes(orphan, "messages.1.content").String())
+
+	matched, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_1","content":"result"}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "tool", gjson.GetBytes(matched, "messages.1.role").String())
+	require.Equal(t, "call_1", gjson.GetBytes(matched, "messages.1.tool_call_id").String())
+
+	empty, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"","parameters":{"type":"object"}}},{"type":"function","function":{"name":"  ","parameters":{"type":"object"}}}],"tool_choice":"required"}`))
+	require.NoError(t, err)
+	require.False(t, gjson.GetBytes(empty, "tools").Exists())
+	require.False(t, gjson.GetBytes(empty, "tool_choice").Exists())
+
+	kept, err := normalizeVolcKimiChatRequest([]byte(`{"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"","parameters":{"type":"object"}}},{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"tool_choice":"auto"}`))
+	require.NoError(t, err)
+	require.EqualValues(t, 1, gjson.GetBytes(kept, "tools.#").Int())
+	require.Equal(t, "lookup", gjson.GetBytes(kept, "tools.0.function.name").String())
+	require.Equal(t, "auto", gjson.GetBytes(kept, "tool_choice").String())
+
+	other, err := applyMoonshotThinkingShape(nil, nil, "kimi-k3", []byte(`{"messages":[{"role":"user","content":{"key":"val"}}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "val", gjson.GetBytes(other, "messages.0.content.key").String())
+}
+
+func stubVolcKimiVideoProbe(t *testing.T, fn func(context.Context, string) error) {
+	t.Helper()
+	previous := probeVolcKimiVideoURL
+	probeVolcKimiVideoURL = fn
+	t.Cleanup(func() { probeVolcKimiVideoURL = previous })
+}
+
+func TestVolcKimiVideoURLPreflight(t *testing.T) {
+	account := volcEnginePlanTestAccount()
+	videoBody := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":[{"type":"video_url","video_url":{"url":"https://cdn.example/a.webm"}},{"type":"text","text":"hi"}]}]}`)
+
+	t.Run("unreachable", func(t *testing.T) {
+		stubVolcKimiVideoProbe(t, func(context.Context, string) error {
+			return fmt.Errorf("dial")
+		})
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		got, err := applyMoonshotThinkingShape(c, account, "kimi-k3", videoBody)
+		var invalid *OpenAIInvalidParameterError
+		require.ErrorAs(t, err, &invalid)
+		require.Equal(t, "messages.content", invalid.Param)
+		require.Equal(t, volcKimiVideoUnreachableMessage, invalid.Message)
+		require.NotContains(t, invalid.Message, "cdn.example")
+		require.JSONEq(t, string(videoBody), string(got))
+		require.Equal(t, "video_url", gjson.GetBytes(got, "messages.0.content.0.type").String())
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		require.Contains(t, rec.Body.String(), volcKimiVideoUnreachableMessage)
+		require.Contains(t, rec.Body.String(), `"param":"messages.content"`)
+	})
+
+	t.Run("reachable stays on the wire", func(t *testing.T) {
+		stubVolcKimiVideoProbe(t, func(context.Context, string) error { return nil })
+		got, err := applyMoonshotThinkingShape(nil, account, "kimi-k3", videoBody)
+		require.NoError(t, err)
+		require.Equal(t, "https://cdn.example/a.webm", gjson.GetBytes(got, "messages.0.content.0.video_url.url").String())
+		require.Equal(t, "hi", gjson.GetBytes(got, "messages.0.content.1.text").String())
+	})
+
+	t.Run("text and non-volc do not probe", func(t *testing.T) {
+		called := 0
+		stubVolcKimiVideoProbe(t, func(context.Context, string) error {
+			called++
+			return fmt.Errorf("should not probe")
+		})
+		text, err := applyMoonshotThinkingShape(nil, account, "kimi-k3", []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}]}`))
+		require.NoError(t, err)
+		require.Equal(t, "hi", gjson.GetBytes(text, "messages.0.content").String())
+		other, err := applyMoonshotThinkingShape(nil, nil, "kimi-k3", videoBody)
+		require.NoError(t, err)
+		require.Equal(t, "https://cdn.example/a.webm", gjson.GetBytes(other, "messages.0.content.0.video_url.url").String())
+		require.Zero(t, called)
+	})
+
+	t.Run("inline and supplier schemes skip the fetch", func(t *testing.T) {
+		for _, rawURL := range []string{"data:video/mp4;base64,AAAA", "ms://video-1"} {
+			body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":[{"type":"video_url","video_url":{"url":"` + rawURL + `"}}]}]}`)
+			got, err := applyMoonshotThinkingShape(nil, account, "kimi-k3", body)
+			require.NoError(t, err)
+			require.Equal(t, rawURL, gjson.GetBytes(got, "messages.0.content.0.video_url.url").String())
+		}
+		for _, rawURL := range []string{"", "data:video/mp4;base64,", "http://127.0.0.1/secret.mp4", "http://169.254.169.254/latest/meta-data"} {
+			body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":[{"type":"video_url","video_url":{"url":"` + rawURL + `"}}]}]}`)
+			_, err := applyMoonshotThinkingShape(nil, account, "kimi-k3", body)
+			var invalid *OpenAIInvalidParameterError
+			require.ErrorAs(t, err, &invalid)
+			require.Equal(t, volcKimiVideoUnreachableMessage, invalid.Message)
+			require.NotContains(t, invalid.Error(), "127.0.0.1")
+			require.NotContains(t, invalid.Error(), "169.254.169.254")
+		}
+	})
+}
+
+func TestVolcKimiHTTPVideoProbe(t *testing.T) {
+	methods := map[string][]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods[r.URL.Path] = append(methods[r.URL.Path], r.Method)
+		switch r.URL.Path {
+		case "/ok.mp4":
+			w.WriteHeader(http.StatusOK)
+		case "/no-head.mp4":
+			if r.Method == http.MethodHead {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			if r.Header.Get("Range") != "bytes=0-0" {
+				http.Error(w, "range", http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusPartialContent)
+		case "/missing.mp4":
+			http.NotFound(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	ctx := context.Background()
+	client := srv.Client()
+
+	require.NoError(t, probeVolcKimiHTTPVideo(ctx, client, srv.URL+"/ok.mp4"))
+	require.Equal(t, []string{http.MethodHead}, methods["/ok.mp4"])
+
+	require.NoError(t, probeVolcKimiHTTPVideo(ctx, client, srv.URL+"/no-head.mp4"))
+	require.Equal(t, []string{http.MethodHead, http.MethodGet}, methods["/no-head.mp4"])
+
+	require.Error(t, probeVolcKimiHTTPVideo(ctx, client, srv.URL+"/missing.mp4"))
+	require.Equal(t, []string{http.MethodHead}, methods["/missing.mp4"])
+
+	srv.Close()
+	require.Error(t, probeVolcKimiHTTPVideo(ctx, client, srv.URL+"/ok.mp4"))
 }
