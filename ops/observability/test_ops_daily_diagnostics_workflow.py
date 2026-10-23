@@ -309,7 +309,52 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn("qa-raw-archive-iam|$TARGET_ID", text)
         self.assertLess(text.index("SAFETY_VERDICT="), text.index("PHASE2_PROBE="))
 
+    def test_matrix_covers_usw_and_beijing_with_separate_applicability(self) -> None:
+        text = workflow_text()
+        start = text.index("--slurpfile doc ops/observability/diagnostics-targets.json '")
+        start = text.index("'", start) + 1
+        program = text[start:text.index("'", start)]
+        targets = REPO_ROOT / "ops" / "observability" / "diagnostics-targets.json"
 
+        def matrix(selector: str) -> list[dict]:
+            proc = subprocess.run(
+                [
+                    "jq", "-cn",
+                    "--arg", "region", "us-east-1",
+                    "--arg", "stack", "tokenkey-prod-stage0",
+                    "--arg", "selector", selector,
+                    "--slurpfile", "doc", str(targets),
+                    program,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return json.loads(proc.stdout)["include"]
+
+        both = matrix("all")
+        self.assertEqual([item["target_id"] for item in both], ["prod", "cn-prod"])
+        prod = matrix("prod")[0]
+        beijing = matrix("cn-prod")[0]
+        self.assertEqual(prod["domain"], "api.tokenkey.dev")
+        self.assertEqual(prod["layout"], "usw")
+        self.assertEqual(prod["public_health"], "true")
+        self.assertEqual(prod["qa_archive"], "true")
+        self.assertEqual(prod["region"], "us-east-1")
+        self.assertEqual(prod["stack"], "tokenkey-prod-stage0")
+        self.assertEqual(beijing["probe_target"], "cn-prod")
+        self.assertEqual(beijing["layout"], "domestic")
+        self.assertEqual(beijing["public_health"], "false")
+        self.assertEqual(beijing["qa_archive"], "false")
+        self.assertEqual(beijing["region"], "eu-west-2")
+        self.assertEqual(beijing["domain"], "")
+        self.assertIn("api-cn.tokenkey.dev is not that host", text)
+        self.assertNotIn("https://api-cn.tokenkey.dev", text)
+        self.assertIn('if [ "$QA_ARCHIVE" = "true" ]; then', text)
+        self.assertIn("qa-raw-archive-iam|$TARGET_ID|not-applicable", text)
+        self.assertIn("external-health|$TARGET_ID|on-host", text)
+        self.assertIn('RUNTIME_RESOURCE_LAYOUT=$RUNTIME_LAYOUT', text)
+        self.assertIn('--target "$PROBE_TARGET"', text)
 
     def test_internal_health_probe_uses_drain_immune_live_endpoint(self) -> None:
         commands = extract_runtime_params_commands()
@@ -588,8 +633,7 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             env = {**os.environ, "OUT": directory, "STDERR": str(root / "stderr"),
-                   "SINCE_HOURS": "24", "TARGET_ID": "prod"}
-            env.pop("PROBE_TARGET", None)
+                   "SINCE_HOURS": "24", "TARGET_ID": "prod", "PROBE_TARGET": "prod"}
             for code, status in [(0, "ok"), (1, "manual_ops")]:
                 with self.subTest(probe_exit=code):
                     result = subprocess.run(
@@ -602,6 +646,14 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
                     self.assertEqual(args[args.index("--target") + 1], "prod")
                     self.assertEqual(args[args.index("--env") + 1], "WINDOW_HOURS=24")
                     self.assertEqual((root / "finding-status").read_text().strip(), status)
+            beijing = subprocess.run(
+                ["bash", "-euo", "pipefail", "-c", stubs + script],
+                env={**env, "PROBE_EXIT": "0", "PROBE_TARGET": "cn-prod", "TARGET_ID": "cn-prod"},
+                capture_output=True, text=True,
+            )
+            self.assertEqual(beijing.returncode, 0, beijing.stderr)
+            beijing_args = (root / "probe-args").read_text().splitlines()
+            self.assertEqual(beijing_args[beijing_args.index("--target") + 1], "cn-prod")
 
     def test_daily_error_report_is_aggregated_and_dispatches_only_isolated_repair(self) -> None:
         text = workflow_text()

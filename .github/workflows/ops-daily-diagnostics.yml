@@ -23,9 +23,9 @@ on:
           - daily_error_report
           - log_dump
       target_selector:
-        description: "Production diagnostics target selector (prod only)."
+        description: "Diagnostics targets: all, prod (US West), or cn-prod (Beijing). Schedule always uses all. log_dump still accepts prod or all."
         required: false
-        default: prod
+        default: all
       since_hours:
         description: Daily error ledger lookback window in hours
         required: false
@@ -79,7 +79,7 @@ jobs:
       excluded: ${{ steps.matrix.outputs.excluded }}
       has_targets: ${{ steps.matrix.outputs.has_targets }}
     env:
-      TARGET_SELECTOR: prod
+      TARGET_SELECTOR: ${{ github.event_name == 'schedule' && 'all' || inputs.target_selector || 'all' }}
       PROD_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       PROD_STACK: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
     steps:
@@ -89,11 +89,24 @@ jobs:
         id: matrix
         run: |
           set -euo pipefail
-          MATRIX="$(jq -cn --arg region "$PROD_REGION" --arg stack "$PROD_STACK" \
-            '{include:[{target_id:"prod",target_kind:"prod",platform:"prod",region:$region,stack:$stack,domain:"api.tokenkey.dev",ssm_prefix:""}]}')"
+          SELECTOR="${TARGET_SELECTOR:-all}"
+          case "$SELECTOR" in
+            prod|cn-prod|all) ;;
+            *) echo "::error::target_selector must be prod, cn-prod, or all; got $SELECTOR"; exit 1 ;;
+          esac
+          MATRIX="$(jq -cn --arg region "$PROD_REGION" --arg stack "$PROD_STACK" --arg selector "$SELECTOR" --slurpfile doc ops/observability/diagnostics-targets.json '
+            ($doc[0].include // [])
+            | map(if .target_id == "prod" then .region = $region | .stack = $stack else . end)
+            | if $selector == "all" then . else map(select(.target_id == $selector)) end
+            | {include: .}
+          ')"
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo 'excluded=[]' >> "$GITHUB_OUTPUT"
-          echo 'has_targets=true' >> "$GITHUB_OUTPUT"
+          if [ "$(printf '%s' "$MATRIX" | jq '.include | length')" -gt 0 ]; then
+            echo 'has_targets=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'has_targets=false' >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Target summary
         run: |
@@ -130,6 +143,10 @@ jobs:
       STACK_NAME: ${{ matrix.stack }}
       TARGET_DOMAIN: ${{ matrix.domain }}
       SSM_PREFIX: ${{ matrix.ssm_prefix }}
+      PROBE_TARGET: ${{ matrix.probe_target }}
+      RUNTIME_LAYOUT: ${{ matrix.layout }}
+      PUBLIC_HEALTH: ${{ matrix.public_health }}
+      QA_ARCHIVE: ${{ matrix.qa_archive }}
     steps:
       - uses: actions/checkout@v6
 
@@ -145,7 +162,11 @@ jobs:
             --arg stack "$STACK_NAME" \
             --arg domain "$TARGET_DOMAIN" \
             --arg ssm_prefix "$SSM_PREFIX" \
-            '{target_id:$target_id,target_kind:$target_kind,platform:$platform,region:$region,stack:$stack,domain:$domain,ssm_prefix:$ssm_prefix}' \
+            --arg probe_target "$PROBE_TARGET" \
+            --arg layout "$RUNTIME_LAYOUT" \
+            --arg public_health "$PUBLIC_HEALTH" \
+            --arg qa_archive "$QA_ARCHIVE" \
+            '{target_id:$target_id,target_kind:$target_kind,platform:$platform,region:$region,stack:$stack,domain:$domain,ssm_prefix:$ssm_prefix,probe_target:$probe_target,layout:$layout,public_health:$public_health,qa_archive:$qa_archive}' \
             > "prod-ops-targets/$TARGET_ID/target.json"
           : > "prod-ops-targets/$TARGET_ID/findings.jsonl"
           : > "prod-ops-targets/$TARGET_ID/stdout.txt"
@@ -270,6 +291,22 @@ jobs:
                   "$OUT/target.json" > "$OUT/target.tmp" && mv "$OUT/target.tmp" "$OUT/target.json"
               fi
             fi
+          elif [ "$TARGET_KIND" = "cn-prod" ]; then
+            # Beijing is a Hybrid SSM host. api-cn.tokenkey.dev is not that host.
+            CN_MANIFEST="deploy/domestic/prod-target.json"
+            INSTANCE_ID="$(jq -r '.ssm_instance_id // empty' "$CN_MANIFEST")"
+            TARGET_REGION="$(jq -r '.ssm_region // empty' "$CN_MANIFEST")"
+            export AWS_REGION="$TARGET_REGION"
+            API_URL=""
+            if [ -z "$INSTANCE_ID" ] || [ -z "$TARGET_REGION" ]; then
+              add_finding "resolve_cn_prod" "manual_ops" "error" "Could not resolve Beijing SSM target" "deploy/domestic/prod-target.json is missing ssm_instance_id or ssm_region." "resolve-cn-prod"
+              INSTANCE_ID=""
+            else
+              jq --arg instance_id "$INSTANCE_ID" --arg region "$TARGET_REGION" \
+                '. + {instance_id:$instance_id, region:$region, api_url_source:"on-host"}' \
+                "$OUT/target.json" > "$OUT/target.tmp" && mv "$OUT/target.tmp" "$OUT/target.json"
+              add_finding "external_health" "skip" "info" "Beijing gateway is checked on the Beijing host" "Public DNS is not the Beijing gateway. Health, logs, and backup are read through the Beijing SSM host." "external-health|$TARGET_ID|on-host"
+            fi
           elif ! INSTANCE_ID="$(run_aws_text 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue')"; then
             add_finding "cloudformation_describe" "manual_ops" "error" "Could not describe stack $STACK_NAME" "CloudFormation describe-stacks failed in $TARGET_REGION for $STACK_NAME." "cloudformation|$STACK_NAME"
           elif [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
@@ -293,11 +330,10 @@ jobs:
             fi
           fi
 
-          # Data-layer capacity (prod only): the deterministic form of #587 Trigger B.
-          # Read-only probe via run-probe.sh -> verdict.py -> finding. Isolated and
-          # non-fatal: a probe failure only drops the capacity finding, never the run.
-          if [ "$TARGET_ID" = "prod" ]; then
-            RESOURCE_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-runtime-resource-config.sh --comment "daily runtime resource config" --timeout-seconds 120 2>>"$STDERR" || true)"  # preflight-allow: swallow — invalid/missing probe becomes an explicit unknown verdict
+          # Data-layer capacity on each diagnosed host. Isolated and non-fatal:
+          # a probe failure only drops that finding, never the run.
+          if [ -n "${PROBE_TARGET:-}" ]; then
+            RESOURCE_OUT="$(bash ops/observability/run-probe.sh --target "$PROBE_TARGET" --env "RUNTIME_RESOURCE_LAYOUT=$RUNTIME_LAYOUT" --script ops/observability/probe-runtime-resource-config.sh --comment "daily runtime resource config" --timeout-seconds 120 2>>"$STDERR" || true)"  # preflight-allow: swallow — invalid/missing probe becomes an explicit unknown verdict
             RESOURCE_VERDICT="$(printf '%s' "$RESOURCE_OUT" | python3 ops/observability/runtime_resource_config_verdict.py 2>>"$STDERR" || echo '{"verdict":"unknown","violations":[]}')"
             printf 'runtime_resource_config: %s\n' "$RESOURCE_VERDICT" >> "$STDOUT"
             RESOURCE_V="$(printf '%s' "$RESOURCE_VERDICT" | jq -r '.verdict // "unknown"')"
@@ -308,7 +344,7 @@ jobs:
               *) add_finding "runtime_resource_config" "skip" "info" "Runtime resource config inconclusive ($TARGET_ID)" "The read-only runtime config probe did not return a usable snapshot." "runtime-resource-config|$TARGET_ID" ;;
             esac
 
-            CAP_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-capacity.sh --comment "daily data-layer capacity" --timeout-seconds 120 2>>"$STDERR" || true)"  # preflight-allow: swallow — probe failure -> unknown verdict (surfaced as a finding), never breaks the run
+            CAP_OUT="$(bash ops/observability/run-probe.sh --target "$PROBE_TARGET" --script ops/observability/probe-data-layer-capacity.sh --comment "daily data-layer capacity" --timeout-seconds 120 2>>"$STDERR" || true)"  # preflight-allow: swallow — probe failure -> unknown verdict (surfaced as a finding), never breaks the run
             CAP_VERDICT="$(printf '%s' "$CAP_OUT" | python3 ops/observability/data_layer_capacity_verdict.py 2>>"$STDERR" || echo '{}')"
             printf 'data_layer_capacity: %s\n' "$CAP_VERDICT" >> "$STDOUT"
             CAP_V="$(printf '%s' "$CAP_VERDICT" | jq -r '.verdict // "unknown"')"
@@ -316,11 +352,18 @@ jobs:
             case "$CAP_V" in
               green) add_finding "data_layer_capacity" "ok" "info" "Data-layer capacity OK ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID" ;;
               approaching) add_finding "data_layer_capacity" "warning" "warning" "Data-layer capacity approaching RDS trigger ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID" ;;
-              trigger) add_finding "data_layer_capacity" "issue_candidate" "error" "Data-layer capacity hit RDS trigger ($TARGET_ID)" "$CAP_S — evaluate #587 RDS extraction (run off-box dump + failover rehearsal gates first)" "data-capacity|$TARGET_ID" ;;
+              trigger)
+                if [ "$TARGET_ID" = "cn-prod" ]; then
+                  add_finding "data_layer_capacity" "issue_candidate" "error" "Data-layer capacity hit the disk trigger ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID"
+                else
+                  add_finding "data_layer_capacity" "issue_candidate" "error" "Data-layer capacity hit RDS trigger ($TARGET_ID)" "$CAP_S — evaluate #587 RDS extraction (run off-box dump + failover rehearsal gates first)" "data-capacity|$TARGET_ID"
+                fi
+                ;;
               *) add_finding "data_layer_capacity" "skip" "info" "Data-layer capacity inconclusive ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID" ;;
             esac
 
-            SAFETY_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-safety.sh --with ops/observability/data-layer-partition-coverage.sql --with ops/lib/resolve-app-container.sh --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
+            if [ "$QA_ARCHIVE" = "true" ]; then
+            SAFETY_OUT="$(bash ops/observability/run-probe.sh --target "$PROBE_TARGET" --script ops/observability/probe-data-layer-safety.sh --with ops/observability/data-layer-partition-coverage.sql --with ops/lib/resolve-app-container.sh --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
             # Resolve EBS from the actual prod instance; the legacy CFN stack
             # does not own the fresh host. Hybrid prod has no EBS volume.
             if [[ "$INSTANCE_ID" == mi-* ]] || [ "$CONTROL_PLANE_TARGET" = "hetzner" ]; then
@@ -342,10 +385,13 @@ jobs:
                 add_finding "$SF_KIND" "$SF_STATUS" "$SF_SEVERITY" "Data-layer protection gate failed: $SF_KIND ($TARGET_ID)" "$SF_SUMMARY" "data-layer-safety|$TARGET_ID|$SF_KIND"
               done < <(printf '%s' "$SAFETY_VERDICT" | jq -c '.findings[]')
             fi
+            else
+              add_finding "data_layer_safety" "skip" "info" "Data-layer archive gate does not apply to $TARGET_ID" "The shared archive ledger is US West evidence. Beijing backup freshness is the physical receipt on that host." "data-layer-safety|$TARGET_ID|not-applicable"
+            fi
           fi
 
-          if [ "$TARGET_ID" = "prod" ]; then
-            PHASE2_PROBE="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-qa-phase2-live-health.sh --with ops/lib/resolve-app-container.sh --comment "daily qa phase2 live health" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — probe failure becomes explicit finding
+          if [ "$QA_ARCHIVE" = "true" ]; then
+            PHASE2_PROBE="$(bash ops/observability/run-probe.sh --target "$PROBE_TARGET" --script ops/observability/probe-qa-phase2-live-health.sh --with ops/lib/resolve-app-container.sh --comment "daily qa phase2 live health" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — probe failure becomes explicit finding
             # Live health reads the prod pause policy and keeps boundary/storage checks.
             # The legacy-named flag also audits the current AWS archive IAM contract.
             PHASE2_VERDICT="$(printf '%s' "$PHASE2_PROBE" | python3 ops/qa/prod_phase2_live_health.py --from-probe-stdin --legacy-aws --json 2>>"$STDERR" || true)"
@@ -382,8 +428,9 @@ jobs:
               [ -n "$PHASE2_WARNING" ] || continue
               add_finding "qa_phase2_live_health" "warning" "warning" "QA Phase 2 live probe warning ($TARGET_ID)" "$PHASE2_WARNING" "qa-phase2-live-warning|$TARGET_ID|$PHASE2_WARNING"
             done < <(printf '%s' "$PHASE2_VERDICT" | jq -r '.warnings[]?')
-
-
+          else
+            add_finding "qa_phase2_live_health" "skip" "info" "QA raw archive maintenance does not apply to $TARGET_ID" "S3 upload stays paused, and this host is not the archive caller." "qa-phase2-live-health|$TARGET_ID|not-applicable"
+            add_finding "qa_raw_archive_iam_contract" "skip" "info" "QA raw archive IAM does not apply to $TARGET_ID" "The retired Tokyo instance-role statements are not added back. This host does not upload the raw archive." "qa-raw-archive-iam|$TARGET_ID|not-applicable"
           fi
 
           if [ -n "$INSTANCE_ID" ] && [ "$INSTANCE_ID" != "None" ]; then
@@ -597,7 +644,7 @@ jobs:
             # returns sanitized structured fields only.
             if printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$' && [ "$SINCE_HOURS" -ge 1 ] && [ "$SINCE_HOURS" -le 168 ]; then
               if bash ops/observability/run-probe.sh \
-                --target prod \
+                --target "$PROBE_TARGET" \
                 --script ops/observability/probe-daily-error-ledger.sh \
                 --env "WINDOW_HOURS=$SINCE_HOURS" \
                 --timeout-seconds 240 \

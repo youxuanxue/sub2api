@@ -15,6 +15,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from ops.observability.open_prod_ops_issues import (  # noqa: E402
+    issue_belongs_to_run,
     recover_body,
     signature_label,
     sync_issues,
@@ -102,6 +103,64 @@ class OpenProdOpsIssuesTest(unittest.TestCase):
         self.assertEqual(closed[0]["number"], 1553)
         self.assertTrue(any(call[:4] == ["gh", "issue", "close", "1553"] for call in calls))
         self.assertFalse(any(call[:3] == ["gh", "issue", "close", "1554"] for call in calls))
+
+    def test_partial_run_does_not_close_the_other_region(self) -> None:
+        self.assertFalse(issue_belongs_to_run({"prod-ops", "target:prod"}, {"cn-prod"}))
+        self.assertTrue(issue_belongs_to_run({"prod-ops", "target:cn-prod"}, {"cn-prod"}))
+        self.assertTrue(issue_belongs_to_run({"prod-ops"}, {"prod"}))
+        self.assertFalse(issue_belongs_to_run({"prod-ops"}, {"cn-prod"}))
+
+        stale_sig = signature_label("runtime-resource-config|cn-prod")
+        report = {
+            "run_url": "https://github.com/youxuanxue/sub2api/actions/runs/1",
+            "run_id": "123",
+            "targets": [{"target_id": "cn-prod"}],
+            "issue_candidates": [],
+        }
+        calls: list[list[str]] = []
+
+        def fake_run(args, **kwargs):
+            calls.append(list(args))
+            if args[:3] == ["gh", "issue", "list"] and "--state" in args and "open" in args:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout=json.dumps([
+                        {
+                            "number": 9,
+                            "labels": [
+                                {"name": "prod-ops"},
+                                {"name": stale_sig},
+                                {"name": "target:cn-prod"},
+                            ],
+                        },
+                        {
+                            "number": 10,
+                            "labels": [
+                                {"name": "prod-ops"},
+                                {"name": signature_label("external-health|prod")},
+                                {"name": "target:prod"},
+                            ],
+                        },
+                    ]),
+                )
+            if args[:3] == ["gh", "issue", "close"]:
+                return subprocess.CompletedProcess(args, 0, stdout="")
+            if args[:3] == ["gh", "issue", "view"]:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout="https://github.com/youxuanxue/sub2api/issues/9\n"
+                )
+            if args[:2] == ["gh", "label"]:
+                return subprocess.CompletedProcess(args, 0, stdout="")
+            raise AssertionError(f"unexpected subprocess.run: {args!r}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("ops.observability.open_prod_ops_issues.sh", side_effect=fake_run):
+                links = sync_issues(report, {}, cache_dir=Path(tmp))
+
+        closed = [link["number"] for link in links if link.get("status") == "closed"]
+        self.assertEqual(closed, [9])
+        self.assertFalse(any(call[:4] == ["gh", "issue", "close", "10"] for call in calls))
 
     def test_recover_body_mentions_run(self) -> None:
         body = recover_body(run_url="https://example/run", run_id="42")
