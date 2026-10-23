@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,8 +63,12 @@ func TestKiroGatewayService_Forward_Streaming_WithReasoningEvent(t *testing.T) {
 	out := rec.Body.String()
 	require.NotContains(t, out, "redacted_thinking")
 	require.Contains(t, out, "final answer")
-	require.NotContains(t, out, "thinking_delta")
-	require.NotContains(t, out, "plan step one")
+	require.Contains(t, out, `"type":"thinking_delta"`)
+	require.Contains(t, out, `"thinking":"plan step one"`)
+	require.NotContains(t, out, `"text":"plan step one"`)
+	require.Less(t, strings.Index(out, `"type":"thinking_delta"`), strings.Index(out, `"type":"text_delta"`))
+	require.Contains(t, out, `"type":"signature_delta"`)
+	require.Contains(t, out, `"signature":"sig_`)
 }
 
 func TestKiroGatewayService_Forward_Streaming_StashesReasoningSignature(t *testing.T) {
@@ -94,7 +99,8 @@ func TestKiroGatewayService_Forward_Streaming_StashesReasoningSignature(t *testi
 
 	out := rec.Body.String()
 	require.NotContains(t, out, "UPSTREAM_SIG_GATEWAY")
-	require.NotContains(t, out, "plan step one")
+	require.Contains(t, out, `"thinking":"plan step one"`)
+	require.Contains(t, out, `"signature":"sig_`)
 	require.Contains(t, out, "final answer")
 
 	raw, ok := c.Get(kiroInternalThinkingGinKey)
@@ -179,6 +185,7 @@ func TestKiroGatewayService_Forward_Streaming_StashesTaglessThinkingWithSignatur
 
 	out := rec.Body.String()
 	require.NotContains(t, out, "TAGLESS_UPSTREAM_SIG")
+	require.NotContains(t, out, "thinking_delta")
 	require.Contains(t, out, "391")
 	require.Contains(t, out, "17 × 20 = 340")
 
@@ -230,6 +237,7 @@ func TestKiroGatewayService_Forward_NonStreaming_StashesTaglessThinkingWithSigna
 	require.NotEmpty(t, content)
 	respBody, _ := json.Marshal(resp)
 	require.NotContains(t, string(respBody), "TAGLESS_NS_SIG")
+	require.NotContains(t, string(respBody), `"type":"thinking"`)
 
 	raw, ok := c.Get(kiroInternalThinkingGinKey)
 	require.True(t, ok)
@@ -238,4 +246,54 @@ func TestKiroGatewayService_Forward_NonStreaming_StashesTaglessThinkingWithSigna
 	require.Len(t, blocks, 1)
 	require.Contains(t, blocks[0], "17 × 20 = 340")
 	require.Contains(t, blocks[0], "TAGLESS_NS_SIG")
+}
+
+func TestKiroGatewayService_Forward_NonStreaming_EmitsThinkingWithPlaceholderSignature(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	body := buildKiroEventStreamMessage("reasoningContentEvent",
+		[]byte(`{"text":"plan step one","signature":"UPSTREAM_SIG_NS"}`))
+	body = append(body, buildKiroEventStreamMessage("assistantResponseEvent",
+		[]byte(`{"content":"final answer"}`))...)
+	body = appendKiroTerminalStop(body, "END_TURN")
+
+	svc := NewKiroGatewayService(&kiroFakeUpstream{body: body}, nil, nil)
+	reqBody, _ := json.Marshal(map[string]any{
+		"model":      "claude-sonnet-4-6",
+		"messages":   []map[string]any{{"role": "user", "content": "hi"}},
+		"max_tokens": 32,
+		"stream":     false,
+		"thinking":   map[string]any{"type": "enabled", "budget_tokens": 1000},
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(reqBody), Model: "claude-sonnet-4-6", Stream: false}
+
+	_, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.NoError(t, err)
+
+	var resp struct {
+		Content []struct {
+			Type      string `json:"type"`
+			Text      string `json:"text"`
+			Thinking  string `json:"thinking"`
+			Signature string `json:"signature"`
+		} `json:"content"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Content, 2)
+	require.Equal(t, "thinking", resp.Content[0].Type)
+	require.Equal(t, "plan step one", resp.Content[0].Thinking)
+	require.True(t, strings.HasPrefix(resp.Content[0].Signature, "sig_"))
+	require.NotContains(t, resp.Content[0].Signature, "UPSTREAM_SIG_NS")
+	require.Equal(t, "text", resp.Content[1].Type)
+	require.Equal(t, "final answer", resp.Content[1].Text)
+
+	raw, ok := c.Get(kiroInternalThinkingGinKey)
+	require.True(t, ok)
+	blocks, ok := raw.([]string)
+	require.True(t, ok)
+	require.Len(t, blocks, 1)
+	require.Contains(t, blocks[0], "UPSTREAM_SIG_NS")
+	require.Contains(t, blocks[0], "plan step one")
 }

@@ -32,6 +32,17 @@ func nonPlaceholderThinking(text string) string {
 	return text
 }
 
+// ClientVisibleThinkingDelta reports one reasoning frame that may be streamed
+// to the client. Blank frames and Kiro's "..." placeholder stay internal.
+// Non-placeholder chunks keep their original spacing so incremental deltas
+// still concatenate.
+func ClientVisibleThinkingDelta(text string) string {
+	if isKiroReasoningPlaceholder(text) {
+		return ""
+	}
+	return text
+}
+
 // ExtractTaglessThinking splits reasoning from a trailing short answer segment
 // in tagless Kiro assistant streams. When the split heuristic does not match,
 // returns empty so QA stash stays sig-only rather than mis-labeling answer text.
