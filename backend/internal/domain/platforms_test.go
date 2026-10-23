@@ -8,21 +8,32 @@ import (
 
 // 重构前各处手写的平台列表，作为平台清单派生结果的等价基准；重构后新登记的平台
 // （Command Code、Cline）按同类平台（OpenCode）的位置补入。
+//
+// TokenKey 的 NewAPI bridge 与 Kiro 不在上游 platformList 里，但必须保持登记
+// （见 platforms.go 中的说明：ConcretePlatformIDs / 额度校验 / 分组平台要继续
+// 接受既有账号与分组）。基准按它们在平台清单中的登记位置（antigravity 之后）
+// 补入，否则这里就会把 TokenKey 平台判成"多出来的条目"。
 var (
 	legacyDisplayOrder = []string{
-		PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok,
+		PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity,
+		PlatformNewAPI, PlatformKiro,
+		PlatformGrok,
 		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe,
 		PlatformCommandCode,
 		PlatformCline,
 	}
 	legacyCompositePrecedence = []string{
-		PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok,
+		PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity,
+		PlatformNewAPI, PlatformKiro,
+		PlatformGrok,
 		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe,
 		PlatformCommandCode,
 		PlatformCline,
 	}
 	legacyOpenAIGateway = []string{
-		PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo,
+		PlatformOpenAI,
+		PlatformNewAPI,
+		PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo,
 		PlatformCommandCode,
 		PlatformCline,
 	}
@@ -32,6 +43,8 @@ var (
 		PlatformAntigravity: "anthropic", PlatformGrok: "xai", PlatformKimi: "moonshot",
 		PlatformZhipu: "zhipu", PlatformDeepseek: "deepseek", PlatformMiniMax: "minimax",
 		PlatformOpenCodeGo: "opencode-go", PlatformTypeSafe: "typesafe", PlatformCommandCode: "", PlatformCline: "",
+		// NewAPI / Kiro 不从定价目录同步模型，LiteLLM provider 为空。
+		PlatformNewAPI: "", PlatformKiro: "",
 	}
 )
 

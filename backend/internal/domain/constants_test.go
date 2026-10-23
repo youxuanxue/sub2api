@@ -81,24 +81,46 @@ func TestAntigravityBlockedModelMappingPredicatesMatchOwners(t *testing.T) {
 	}
 }
 
-func TestDefaultAntigravityModelMapping_Gemini4ArgonAndClaude55Models(t *testing.T) {
-	cases := map[string]string{
-		"gemini-4-argon":           "gemini-4-argon-high",
-		"gemini-4-argon-high":      "gemini-4-argon-high",
-		"gemini-4-argon-low":       "gemini-4-argon-low",
-		"gemini-4-argon-medium":    "gemini-4-argon-medium",
-		"claude-opus-5-5":          "claude-opus-5-5-high",
-		"claude-opus-5-5-high":     "claude-opus-5-5-high",
-		"claude-opus-5-5-low":      "claude-opus-5-5-low",
-		"claude-opus-5-5-medium":   "claude-opus-5-5-medium",
-		"claude-sonnet-5-5":        "claude-sonnet-5-5-high",
-		"claude-sonnet-5-5-high":   "claude-sonnet-5-5-high",
-		"claude-sonnet-5-5-low":    "claude-sonnet-5-5-low",
-		"claude-sonnet-5-5-medium": "claude-sonnet-5-5-medium",
+// TestDefaultAntigravityModelMapping_Gemini4ArgonTiersAndClaude55Convergence
+// 锚定 TokenKey 的 Antigravity 请求面划分（上游把三类键全部塞进
+// DefaultAntigravityModelMapping，TokenKey 不是）：
+//
+//   - 公开裸名（gemini-4-argon）在默认映射里锁 high wire 档位；
+//   - -low/-medium/-high 是非公开 wire 档位，owner 是
+//     AntigravityThinkingWireFloorEntries()，不进默认映射（否则会被
+//     /v1/models 与定价菜单当成公开模型广告出去）；
+//   - Claude 系（含 5.5）按 #2207 收敛后只走 Gemini 公开面，默认映射里
+//     必须没有 Claude 键；它们仅通过账号自定义 model_mapping 可达
+//     （display name 由 antigravity.ModelMetadata() 提供）。
+func TestDefaultAntigravityModelMapping_Gemini4ArgonTiersAndClaude55Convergence(t *testing.T) {
+	t.Parallel()
+
+	// 裸名默认锁 high wire（非 medium），与 Flash 家族一致。
+	if got := DefaultAntigravityModelMapping["gemini-4-argon"]; got != "gemini-4-argon-high" {
+		t.Fatalf("expected gemini-4-argon to map to %q, got %q", "gemini-4-argon-high", got)
 	}
-	for from, want := range cases {
-		if got := DefaultAntigravityModelMapping[from]; got != want {
-			t.Fatalf("expected %s to map to %q, got %q", from, want, got)
+
+	// Argon wire 档位由 thinking wire floor owner 以 identity 提供，且不得回流默认映射。
+	wires := AntigravityThinkingWireFloorEntries()
+	for _, id := range []string{"gemini-4-argon-low", "gemini-4-argon-medium", "gemini-4-argon-high"} {
+		if got := wires[id]; got != id {
+			t.Fatalf("expected wire floor identity for %s, got %q", id, got)
+		}
+		if !IsAntigravityThinkingWireModel(id) {
+			t.Fatalf("expected %s to be reported as a non-public AG thinking wire model", id)
+		}
+		if got, ok := DefaultAntigravityModelMapping[id]; ok {
+			t.Fatalf("wire tier %s must stay out of the default mapping (public surface), got %q", id, got)
+		}
+	}
+
+	// 收敛后的公开面只有 Gemini：Claude 键不得出现在默认映射里。
+	for _, id := range []string{
+		"claude-opus-5-5", "claude-opus-5-5-high", "claude-opus-5-5-low", "claude-opus-5-5-medium",
+		"claude-sonnet-5-5", "claude-sonnet-5-5-high", "claude-sonnet-5-5-low", "claude-sonnet-5-5-medium",
+	} {
+		if got, ok := DefaultAntigravityModelMapping[id]; ok {
+			t.Fatalf("converged Antigravity surface must not default-map Claude id %s, got %q", id, got)
 		}
 	}
 }
