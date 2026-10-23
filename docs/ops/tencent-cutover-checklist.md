@@ -1,6 +1,6 @@
 # Tokyo → 腾讯美西：切流清单（正式 · 已切）
 
-状态：**腾讯在服 / Tokyo 已退役（2026-10-23）/ 新 timeline 备份已保护 / 账号出口已迁 usw-eval\***  
+状态：**腾讯在服 / Tokyo 已退役（2026-10-23）/ 新 timeline 备份已保护 / 账号出口已迁 usw-eval\***
 回执：`docs/ops/reports/tencent-cutover-20261022.json`  
 交接：[`tencent-migration-handoff.md`](tencent-migration-handoff.md)
 
@@ -38,4 +38,4 @@
 - [ ] 归档 canary（`data_layer_archive_rehearsal.PROD_CANARY_CONTAINER`）仍绑 EC2 `i-*` 与 CFN stack，需单独迁到腾讯
 - [x] Tokyo 退役（2026-10-23 经用户批准）：仓库 `aws-fresh` 路径与 inventory 已删（#2818）；删遗留空栈与主栈 `tokenkey-prod-tokyo-precutover-20261017`（删栈前清理栈外孤儿 SG `tokenkey-node1-tokyo-reader-20261017`），删数据卷/根卷；OIDC 栈 `tokenkey-cicd-oidc` retarget 到 `mi-080ed76dc6d97d8b5`（eu-west-2，美西/北京 run-probe 复核正常）；`ops-stage0-host-mem-guard.yml` 已删；快照仅保留最终 `snap-06612941333b662e8`（数据）/ `snap-0724597870487cf4a`（根），其余 13 份已删。S3 历史链 `prod/postgres`（timeline 1）保留
 - [ ] 三个 S3 桶策略（QA raw / 物理备份 / pgdump）仍含已删除 Tokyo `InstanceRole`（显示为 `AROAZ55ZQM2DFHIHFRTLO`），无授权效果、不影响现网。由各自 CFN 栈参数注入；物理备份与 QA raw 模板的角色参数为必填。**不单独处理**，在恢复 QA 上传（切 hetzner 角色）时一并改模板清理，避免误动物理备份桶的 `DenyLightsailEdgeRole`
-- [ ] CI 角色栈外 inline policy `tokenkey-cn-image-distribution` / `tokenkey-cn-pgdump-ssm` 仍指旧 cn-prod `mi-0efdf781205cff512`（#2807 已切腾讯北京 `mi-06568963b4b3c3239`）；北京现由 `tokenkey-lightsail-edge-addon` 的 `managed-instance/*` 兜底，可择机收紧
+- [x] CI 角色 SSM 身份：2026-10-23 `tokenkey-cn-image-distribution` 与 `tokenkey-cn-pgdump-ssm` 的 `SendCommand` 从旧 cn-prod `mi-0efdf781205cff512` 改到北京 `mi-06568963b4b3c3239`。pgdump 只改了栈 `tokenkey-cn-prod-pgdump` 的 `DispatchPolicy`，桶未替换。`tokenkey-lightsail-edge-addon` 的 `managed-instance/*` 未动
