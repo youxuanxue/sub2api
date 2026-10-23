@@ -80,11 +80,17 @@ DEPLOY_CANARY_PROTOCOLS: dict[str, list[str]] = {
     "newapi": ["chat"],
     "kiro": ["chat"],
 }
+# Each entry must stay in the platform's live candidate set; a stale name makes the
+# canary silently fall back to alphabetical order (see select_deploy_canary_rows).
+# Probed on prod 2026-10-23: both replacements returned 200 servable, while the names
+# they replace returned 400 -- gemini-2.5-flash left the public catalog in #2207
+# (2026-09-18, Gemini surface convergence) without this file being updated, and
+# qwen3-8b is no longer served either.
 DEFAULT_DEPLOY_CANARY_MODEL: dict[str, str] = {
     "anthropic": "claude-sonnet-4-6",
     "openai": "gpt-5.6-terra",
-    "gemini": "gemini-2.5-flash",
-    "newapi": "qwen3-8b",
+    "gemini": "gemini-3.8-flash",
+    "newapi": "deepseek-flash",
 }
 MESSAGE_POLICY_PLATFORMS = {"openai", "newapi"}
 
@@ -395,7 +401,12 @@ def preferred_deploy_canary_model(platform: str) -> str:
     return os.environ.get(env_key, DEFAULT_DEPLOY_CANARY_MODEL.get(platform, "")).strip()
 
 
+class StalePreferredCanaryModel(RuntimeError):
+    """A configured deploy-canary preferred model is no longer in the catalog."""
+
+
 def select_deploy_canary_rows(rows: list[MatrixRow]) -> list[MatrixRow]:
+    stale_preferred: list[str] = []
     by_platform: dict[str, list[MatrixRow]] = {}
     for row in rows:
         by_platform.setdefault(row.platform, []).append(row)
@@ -407,12 +418,27 @@ def select_deploy_canary_rows(rows: list[MatrixRow]) -> list[MatrixRow]:
         preferred = preferred_deploy_canary_model(platform)
         for protocol in protocols:
             candidates = [r for r in platform_rows if r.protocol == protocol]
-            if preferred:
+            if preferred and candidates:
                 preferred_rows = [r for r in candidates if r.model == preferred]
-                if preferred_rows:
-                    candidates = preferred_rows
+                if not preferred_rows:
+                    # Fail loudly instead of degrading to candidates[0]. A preferred
+                    # model that left the catalog used to be swallowed here, so the
+                    # canary quietly probed whatever sorted first and this gate broke
+                    # on unrelated catalog churn -- gemini-2.5-flash was stale from
+                    # 2026-09-18 (#2207) until 2026-10-23 without anyone being told.
+                    stale_preferred.append(
+                        f"{platform}/{protocol}: preferred {preferred!r} not in candidates "
+                        f"({', '.join(sorted(r.model for r in candidates))})"
+                    )
+                    continue
+                candidates = preferred_rows
             if candidates:
                 selected.append(candidates[0])
+    if stale_preferred:
+        raise StalePreferredCanaryModel(
+            "DEFAULT_DEPLOY_CANARY_MODEL is out of date; update it to a served model:\n  "
+            + "\n  ".join(stale_preferred)
+        )
     selected.sort(key=lambda r: (r.platform, r.protocol, r.model))
     return selected
 
@@ -901,8 +927,37 @@ def cmd_selftest(_args) -> int:
     local_require = argparse.Namespace(model=["gpt-5.6-terra"], require_rows=True)
     assert not required_row_misses(local_require, local_rows)
     assert "kiro" in PLATFORM_CHOICES, "deploy-stage0 sharded gate includes kiro; argparse must accept it"
-    canary = select_deploy_canary_rows(rows)
-    assert canary, "deploy-canary must select at least one row from fixture catalog"
+    # The fixture catalog carries different model ids than the real one, so point the
+    # preferred models at fixture ids for this assertion. Without the override
+    # select_deploy_canary_rows now raises instead of silently sorting alphabetically.
+    fixture_preferred = {
+        "TK_SSOT_CANARY_ANTHROPIC_MODEL": "claude-sonnet-4-6",
+        "TK_SSOT_CANARY_OPENAI_MODEL": "gpt-5.1",
+        "TK_SSOT_CANARY_GEMINI_MODEL": "gemini-2.5-pro",
+        "TK_SSOT_CANARY_NEWAPI_MODEL": "qwen3-8b",
+    }
+    saved = {k: os.environ.get(k) for k in fixture_preferred}
+    os.environ.update(fixture_preferred)
+    try:
+        canary = select_deploy_canary_rows(rows)
+        assert canary, "deploy-canary must select at least one row from fixture catalog"
+        # A preferred model that left the catalog must fail loudly, not degrade to
+        # candidates[0] -- that silent fallback hid a stale gemini entry for a month.
+        os.environ["TK_SSOT_CANARY_GEMINI_MODEL"] = "gemini-gone-from-catalog"
+        try:
+            select_deploy_canary_rows(rows)
+        except StalePreferredCanaryModel as exc:
+            assert "gemini-gone-from-catalog" in str(exc)
+        else:
+            raise AssertionError("stale preferred canary model must raise")
+        os.environ["TK_SSOT_CANARY_GEMINI_MODEL"] = fixture_preferred["TK_SSOT_CANARY_GEMINI_MODEL"]
+        canary = select_deploy_canary_rows(rows)
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
     assert all(r.protocol in DEPLOY_CANARY_PROTOCOLS.get(r.platform, []) for r in canary)
     canary_platforms = {r.platform for r in canary}
     assert "antigravity" not in canary_platforms
