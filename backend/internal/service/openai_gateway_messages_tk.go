@@ -34,6 +34,41 @@ func (s *OpenAIGatewayService) newAPIBridgeOwnsAnthropicMessages(account *Accoun
 	return s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointChatCompletions)
 }
 
+// tkAnthropicMessagesOwnsEntryRouting reports whether inbound /v1/messages for
+// this account is classified solely by tkTryRouteForwardAsAnthropic, bypassing
+// the generic resolveUpstreamProtocol switch in ForwardAsAnthropic.
+//
+// resolveUpstreamProtocol answers "which upstream protocol does this account
+// speak". For a dual-stack relay (tokensea / cloudwise) that answer is
+// chat_completions: the upstream advertises /v1/responses but only implements
+// Chat plus Anthropic Messages, so shouldForwardOpenAIResponsesViaRawChat
+// Completions pins it to Chat. That is right for inbound Responses or Chat and
+// wrong for inbound /v1/messages, where the same upstream exposes a native
+// Messages endpoint and passthrough is lossless. Consulting the generic switch
+// here downgrades Claude traffic to Chat Completions and loses thinking /
+// tool_use / cache semantics, and it also drags non-Claude models off
+// /v1/responses even when the account probed Responses-capable.
+//
+// Keep this narrow: only accounts whose inbound-messages answer genuinely
+// differs from the generic switch belong here. Everything else (model-routed
+// aggregators, CN providers, OpenCode) still routes by the generic switch.
+func tkAnthropicMessagesOwnsEntryRouting(account *Account) bool {
+	if account == nil || account.Type != AccountTypeAPIKey {
+		return false
+	}
+	if account.IsCNProvider() || account.routesByModel() {
+		return false
+	}
+	// Dual-stack relays expose native /v1/messages regardless of what the
+	// Responses probe recorded. tokensea's /v1/messages probe can time out and
+	// leave extra.openai_native_messages_supported=false while direct upstream
+	// Claude /v1/messages still answers 200 (prod 2026-08-20 account 92).
+	if account.IsOpenAITokenseaRelay() || account.IsOpenAICloudwiseRelay() {
+		return true
+	}
+	return openai_compat.ShouldUseNativeAnthropicMessagesAPI(account.Extra)
+}
+
 // tkTryRouteForwardAsAnthropic handles TokenKey-specific /v1/messages entry
 // routing before the OpenAI Responses compat path.
 func (s *OpenAIGatewayService) tkTryRouteForwardAsAnthropic(

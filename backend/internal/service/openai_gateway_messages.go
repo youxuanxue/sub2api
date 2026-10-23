@@ -74,11 +74,18 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		if account.IsOpenCodeGo() && IsOpenCodeUnsupportedModel(routingModel) {
 			return nil, writeOpenCodeUnsupportedModelError(c, true, routingModel)
 		}
-		switch s.resolveUpstreamProtocolFor(ctx, account, APIProtocolAnthropic, routingModel) {
-		case APIProtocolAnthropic:
-			return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
-		case APIProtocolChatCompletions:
-			return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+		// 原生 /v1/messages 直通的账号由 TK 入口分流独占判定：双栈中继
+		// （tokensea / cloudwise）在通用判定里是 chat_completions，但同一上游
+		// 对入站 /v1/messages 暴露原生端点。先走通用判定会把 Claude 流量降级成
+		// Chat Completions（丢 thinking / tool_use / cache 语义），也会把
+		// 非 Claude 模型从 /v1/responses 上拽下来。
+		if !tkAnthropicMessagesOwnsEntryRouting(account) {
+			switch s.resolveUpstreamProtocolFor(ctx, account, APIProtocolAnthropic, routingModel) {
+			case APIProtocolAnthropic:
+				return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
+			case APIProtocolChatCompletions:
+				return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+			}
 		}
 		if result, routed, err := s.tkTryRouteForwardAsAnthropic(ctx, c, account, body, defaultMappedModel); routed {
 			return result, err
