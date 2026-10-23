@@ -461,6 +461,45 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 	return ErrorPolicyNone
 }
 
+// classifyGeminiLoopErrorPolicy 只判断重试循环该不该停，不写账号状态。
+// CheckErrorPolicy 会在判定临时不可调度时立刻落库；循环里再调一次，
+// 循环后的正式检查会把刚写下的 401 暂停当成「重复 401」升级成 error。
+func classifyGeminiLoopErrorPolicy(account *Account, statusCode int, responseBody []byte) ErrorPolicyResult {
+	if account == nil {
+		return ErrorPolicyNone
+	}
+	if account.IsCustomErrorCodesEnabled() {
+		if account.ShouldHandleErrorCode(statusCode) {
+			return ErrorPolicyMatched
+		}
+		return ErrorPolicySkipped
+	}
+	if account.IsPoolMode() {
+		if statusCode != http.StatusUnauthorized && len(matchTempUnschedulableRules(account, statusCode, responseBody)) > 0 {
+			return ErrorPolicyTempUnscheduled
+		}
+		return ErrorPolicySkipped
+	}
+	if statusCode == 529 {
+		return ErrorPolicyMatched
+	}
+	if geminiLoopWouldTempUnschedule(account, statusCode, responseBody) {
+		return ErrorPolicyTempUnscheduled
+	}
+	return ErrorPolicyNone
+}
+
+func geminiLoopWouldTempUnschedule(account *Account, statusCode int, responseBody []byte) bool {
+	if account == nil || !account.IsTempUnschedulableEnabled() {
+		return false
+	}
+	if statusCode == http.StatusUnauthorized && account.Platform != PlatformAntigravity &&
+		wasTempUnschedByStatusCode(account.TempUnschedulableReason, statusCode) {
+		return false
+	}
+	return len(matchTempUnschedulableRules(account, statusCode, responseBody)) > 0
+}
+
 // HandleUpstreamError 处理上游错误响应，标记账号状态
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {

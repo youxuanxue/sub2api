@@ -364,6 +364,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			searchCount:      searchCounter,
 		}
 	}
+	var responseCreatedAt responsesCreatedAtStamper
 	flushPending := func(disconnectMessage string) {
 		if clientDisconnected || pendingBytes() == 0 {
 			return
@@ -384,7 +385,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		codexState.finalizeBareErrorAtStreamEnd(s, c, account, resp.Header, failedMessage, mappedModel)
 		if codexState.enabled && codexState.sawBareError && !codexState.sawResponseFailed && !clientDisconnected {
 			applyAttemptResponseHeaders()
-			if _, err := writePendingString(buildOpenAIResponseFailedSSE(responseID, originalModel, 0, codexState.bareErrorPayload, failedMessage)); err != nil {
+			if _, err := writePendingString(buildOpenAIResponseFailedSSE(responseID, originalModel, responseCreatedAt.Value(), codexState.bareErrorPayload, failedMessage)); err != nil {
 				handlePendingWriteError(err)
 			} else {
 				failureDelivered = true
@@ -591,6 +592,13 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			// Replace model in response if needed.
 			if needModelReplace {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
+			}
+			if payload, ok := extractOpenAISSEDataLine(line); ok && strings.TrimSpace(payload) != "[DONE]" {
+				if stamped, changed := responseCreatedAt.Stamp([]byte(payload), eventType); changed {
+					dataBytes = stamped
+					data = string(stamped)
+					line = "data: " + data
+				}
 			}
 			reasoningProgress := false
 			if isOpenAIWSReasoningProgressEvent(eventType, dataBytes) {

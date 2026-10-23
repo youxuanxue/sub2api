@@ -1,0 +1,86 @@
+# cn-prod backup watch.
+#
+# Replaces the pg_dump backup job this file used to run. cn-prod migrated to
+# Tencent Beijing with pgBackRest (stanza `tokenkey`, repo /cn-prod/postgres,
+# verified 2026-10-23: WAL archiving healthy, failed_count=0), so logical dumps
+# are no longer the backup path.
+#
+# The SCHEDULE is kept on purpose. This workflow was cn-prod's only operational
+# backup monitoring -- ops-daily-diagnostics.yml covers prod only -- so deleting
+# it outright would have left a healthy backup with nothing watching it. It now
+# classifies the pgBackRest receipt written every 5 minutes by
+# tokenkey-cn-postgres-archive-check.service (deploy/domestic/cn_pgbackrest.py)
+# through the same owner prod uses: ops/observability/postgres_backup_verdict.py.
+name: cn-prod Backup Watch
+on:
+  schedule:
+    - cron: '17 */2 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: cn-prod-backup-watch
+  cancel-in-progress: false
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: eu-west-2
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Read the host receipt
+        run: |
+          set -euo pipefail
+          # Receipt chosen ON THE HOST across both producer shapes: Stage0 writes
+          # health.json, the pgBackRest path writes archive_check.json. Selecting
+          # locally by filename is what made prod misreport a healthy host.
+          cat > /tmp/read-receipt.sh <<'EOS'
+          #!/bin/bash
+          set -u
+          for f in health.json archive_check.json; do
+            p="/var/lib/tokenkey/postgres-backup/$f"
+            if sudo test -s "$p"; then sudo cat "$p"; exit 0; fi
+          done
+          true
+          EOS
+          bash ops/observability/run-probe.sh --target cn-prod \
+            --script /tmp/read-receipt.sh \
+            --comment "cn-prod backup watch" \
+            --timeout-seconds 120 > cn-backup-receipt.json
+          test -s cn-backup-receipt.json
+      - name: Classify backup health
+        run: |
+          set -euo pipefail
+          # Fails the run when the receipt is missing, stale (>900s) or degraded.
+          # Freshness is the producer's contract, so a stopped archive-check timer
+          # surfaces here rather than silently ageing out.
+          VERDICT="$(python3 ops/observability/postgres_backup_verdict.py \
+            --receipt cn-backup-receipt.json --target-id cn-prod)"
+          echo "$VERDICT"
+          echo "$VERDICT" > cn-backup-verdict.json
+          python3 - <<'PY'
+          import json, sys
+          verdict = json.load(open("cn-backup-verdict.json"))
+          print(f"::notice::cn-prod physical backup: {verdict['status']} — {verdict['summary']}")
+          if verdict["status"] != "ok":
+              print(f"::error::cn-prod physical backup unhealthy: {verdict['summary']}")
+              sys.exit(1)
+          PY
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: cn-backup-receipt
+          path: |
+            cn-backup-receipt.json
+            cn-backup-verdict.json
+          if-no-files-found: warn
+          retention-days: 7

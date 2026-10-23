@@ -29,6 +29,18 @@
       "litellm_provider": "anthropic"
     },
     {
+      "id": "newapi",
+      "display_name": "NewAPI",
+      "gateway": "openai",
+      "cn_provider": false
+    },
+    {
+      "id": "kiro",
+      "display_name": "Kiro",
+      "gateway": "anthropic",
+      "cn_provider": false
+    },
+    {
       "id": "grok",
       "display_name": "Grok",
       "gateway": "openai",
@@ -285,6 +297,8 @@
     "gemini",
     "openai",
     "antigravity",
+    "newapi",
+    "kiro",
     "grok",
     "kimi",
     "zhipu",

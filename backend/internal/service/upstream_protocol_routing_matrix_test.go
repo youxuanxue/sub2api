@@ -310,6 +310,56 @@ func matchesKnownZhipuNonAPIKeyDifference(tc routingMatrixCase, want, got routin
 		reflect.DeepEqual(got, routingObservation{Error: "account 801 missing api_key", Status: http.StatusOK})
 }
 
+// matchesKnownOfficialHostFallbackRefusal 记录一个已审查的差异：省略 base_url
+// 的 OpenAI API Key 以前会把凭据发到 api.openai.com（录制结果是 502）。
+// 现在在出站前拒绝这次回退。只接受「旧观测确有官方主机请求、新观测没有上游请求」
+// 这一种前后对。Grok 的同类差异由 grokMessagesRelayDifferenceKind 分开计数。
+func matchesKnownOfficialHostFallbackRefusal(tc routingMatrixCase, want, got routingObservation) bool {
+	if tc.accountType != AccountTypeAPIKey || tc.platform != PlatformOpenAI {
+		return false
+	}
+	if len(got.Requests) != 0 || got.Status != http.StatusOK || len(want.Requests) != 1 {
+		return false
+	}
+	if !strings.Contains(want.Requests[0].URL, "://api.openai.com/") || want.Error != "upstream error: 502 (failover)" {
+		return false
+	}
+	switch got.Error {
+	case ErrForeignCredentialOfficialOpenAIFallback.Error(),
+		"build upstream request: " + ErrForeignCredentialOfficialOpenAIFallback.Error():
+		return true
+	default:
+		return false
+	}
+}
+
+// grokMessagesRelayDifferenceKind 记录 Grok API Key /v1/messages 的三种已审查差异。
+// 空探针与探针为 yes、且省略 base_url：不再打 api.x.ai，改为 missing base_url。
+// 探针为 no 且省略 base_url：拒绝回退 api.openai.com，不发出上游请求。
+// 探针为 no 且凭证有 base_url：改走 Chat Completions。三种结果分开计数，
+// 互相替换不能再被同一个总数吞掉。
+func grokMessagesRelayDifferenceKind(tc routingMatrixCase, want, got routingObservation) string {
+	if tc.platform != PlatformGrok || tc.accountType != AccountTypeAPIKey || tc.ingress.name != "messages" || got.Status != http.StatusOK {
+		return ""
+	}
+	if want.Error == "upstream error: 502 (failover)" && len(want.Requests) == 1 &&
+		strings.Contains(want.Requests[0].URL, "://api.x.ai/") && len(got.Requests) == 0 &&
+		got.Error == "grok relay account 801 missing base_url" {
+		return "omitted-base"
+	}
+	if tc.probe != "no" || want.Error != "account 801 missing api_key" || len(want.Requests) != 0 {
+		return ""
+	}
+	if len(got.Requests) == 0 && got.Error == ErrForeignCredentialOfficialOpenAIFallback.Error() {
+		return "probe-no-refuse"
+	}
+	if len(got.Requests) == 1 && got.Error == "upstream error: 502 (failover)" &&
+		strings.Contains(got.Requests[0].URL, "/chat/completions") {
+		return "probe-no-chat"
+	}
+	return ""
+}
+
 func TestUpstreamProtocolRoutingMatrixMatchesMainGolden(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	data, err := os.ReadFile(routingMatrixGoldenPath)
@@ -325,6 +375,10 @@ func TestUpstreamProtocolRoutingMatrixMatchesMainGolden(t *testing.T) {
 	var differences []string
 	mismatched := 0
 	knownDifferences := 0
+	knownFallbackRefusals := 0
+	knownGrokOmittedBase := 0
+	knownGrokProbeNoRefuse := 0
+	knownGrokProbeNoChat := 0
 	for i, tc := range cases {
 		index := golden.Results[i]
 		require.GreaterOrEqual(t, index, 0)
@@ -338,6 +392,21 @@ func TestUpstreamProtocolRoutingMatrixMatchesMainGolden(t *testing.T) {
 			knownDifferences++
 			continue
 		}
+		if matchesKnownOfficialHostFallbackRefusal(tc, want, got) {
+			knownFallbackRefusals++
+			continue
+		}
+		switch grokMessagesRelayDifferenceKind(tc, want, got) {
+		case "omitted-base":
+			knownGrokOmittedBase++
+			continue
+		case "probe-no-refuse":
+			knownGrokProbeNoRefuse++
+			continue
+		case "probe-no-chat":
+			knownGrokProbeNoChat++
+			continue
+		}
 		mismatched++
 		if len(differences) < 12 {
 			differences = append(differences, fmt.Sprintf("%s\nmain: %s\ncurrent: %s", tc.key(), want, got))
@@ -347,4 +416,14 @@ func TestUpstreamProtocolRoutingMatrixMatchesMainGolden(t *testing.T) {
 	// 2 account types × 4 modes × 3 probe states × 4 address configurations ×
 	// 2 model spellings. A disappeared or expanded exception requires review.
 	require.Equal(t, 192, knownDifferences, "unexpected change to the declared Zhipu non-API-Key difference")
+	// OpenAI API Key 且凭证没有 base_url（addresses=none 与 split）：
+	// 6 协议 × 3 探针 × 2 模型拼写 × 4 个入站入口 × 2 种地址。
+	require.Equal(t, 288, knownFallbackRefusals, "unexpected change to the omitted OpenAI base_url refusal")
+	// Grok /v1/messages，API Key，6 协议 × 2 模型拼写：
+	// 省略 base_url 的空探针与探针 yes（2 地址）不再打 api.x.ai。
+	require.Equal(t, 48, knownGrokOmittedBase, "unexpected change to the Grok omitted base_url difference")
+	// 探针 no 且省略 base_url：拒绝回退 api.openai.com。
+	require.Equal(t, 24, knownGrokProbeNoRefuse, "unexpected change to the Grok probe-no official fallback refusal")
+	// 探针 no 且凭证有 base_url（base 与 both）：改走 Chat Completions。
+	require.Equal(t, 24, knownGrokProbeNoChat, "unexpected change to the Grok probe-no chat completions difference")
 }

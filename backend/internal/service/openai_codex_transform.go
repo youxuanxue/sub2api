@@ -390,6 +390,31 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 		result.Modified = true
 	}
 
+	if !opts.IsCompact {
+		raw, marshalErr := json.Marshal(reqBody)
+		if marshalErr != nil {
+			result.Error = marshalErr
+			return result
+		}
+		if next, changed, historyErr := normalizeOpenAIOAuthWebSearchHistory(raw, false); historyErr != nil {
+			result.Error = historyErr
+			return result
+		} else if changed {
+			var updated map[string]any
+			if unmarshalErr := json.Unmarshal(next, &updated); unmarshalErr != nil {
+				result.Error = unmarshalErr
+				return result
+			}
+			for key := range reqBody {
+				delete(reqBody, key)
+			}
+			for key, value := range updated {
+				reqBody[key] = value
+			}
+			result.Modified = true
+		}
+	}
+
 	return result
 }
 

@@ -382,7 +382,7 @@ func TestOpenAIResponseFlush_FailedAndErrorEventsFlushAtBoundaries(t *testing.T)
 		gotBody, flushes := recorder.snapshot()
 		expectedBody := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"a\"}\n\n" +
 			"data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"safety_error\",\"message\":\"blocked\"}}}\n"
-		require.Equal(t, expectedBody, gotBody)
+		require.Equal(t, expectedBody, withoutStampedCreatedAt(gotBody))
 		require.Len(t, flushes, 2)
 		require.Contains(t, flushes[1], "response.failed")
 	})
@@ -686,5 +686,5 @@ func TestOpenAIResponseFlush_TerminalEventEndsStreamWithoutEOF(t *testing.T) {
 		t.Fatal("stream did not end after terminal event; still waiting for upstream EOF")
 	}
 	gotBody, _ := recorder.snapshot()
-	require.Equal(t, body, gotBody)
+	require.Equal(t, body, withoutStampedCreatedAt(gotBody))
 }

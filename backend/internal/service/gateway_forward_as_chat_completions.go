@@ -539,6 +539,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		return false
 	}
 
+	stopAfterPingWriteFailure := false
 	processAnthropicEvent := func(event *apicompat.AnthropicStreamEvent) {
 		if event == nil {
 			return
@@ -549,6 +550,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			}
 			if _, err := fmt.Fprint(c.Writer, ": ping\n\n"); err != nil {
 				stream.markClientDisconnected()
+				stopAfterPingWriteFailure = true
 				return
 			}
 			c.Writer.Flush()
@@ -624,6 +626,11 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			break
 		}
 		processAnthropicEvent(&event)
+		// ping 写失败后不再解析后续事件，避免把失败之后的用量和 [DONE] 写给客户端。
+		// 其它断连仍要读完上游，才能收回用量并关掉响应体。
+		if stopAfterPingWriteFailure {
+			break
+		}
 	}
 
 	if failure := stream.failure(); failure != nil {

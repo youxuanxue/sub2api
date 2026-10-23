@@ -211,7 +211,16 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 		}
 		changed = true
 	}
-	if changed {
+	accounts, err := s.accountRepo.ListSchedulableByGroupID(ctx, group.ID)
+	if err != nil {
+		return fmt.Errorf("load group accounts for retired Codex models: %w", err)
+	}
+	filtered, retired, err := filterRetiredOpenAIPublicModelsBody(body, accounts, true)
+	if err != nil {
+		return fmt.Errorf("filter retired Codex models: %w", err)
+	}
+	body = filtered
+	if changed || retired {
 		manifest.Body = body
 		manifest.ETag = codexModelsManifestBodyETag(body)
 	}
@@ -296,7 +305,7 @@ func openAIConfiguredCodexModelIDs(accounts []Account) []string {
 func openAIConfiguredCodexModelIDsForGroup(accounts []Account, group *Group) []string {
 	models := supplementUnmappedOpenAIModels(accounts, openAIConfiguredCodexModelIDs(accounts))
 	if group == nil || !group.ModelAllowlistEnabled() {
-		return models
+		return filterRetiredOpenAIModelIDs(accounts, models)
 	}
 
 	seen := make(map[string]struct{}, len(models)+len(group.ModelAllowlist.Models))
@@ -325,7 +334,7 @@ func openAIConfiguredCodexModelIDsForGroup(accounts []Account, group *Group) []s
 		}
 	}
 	sort.Strings(models)
-	return models
+	return filterRetiredOpenAIModelIDs(accounts, models)
 }
 
 const (
@@ -901,6 +910,48 @@ func (s *GatewayService) BuildCodexModelsManifestForGroup(
 	)
 }
 
+// filterRetiredCodexManifestModelIDs drops GPT-5.5 from ChatGPT-only catalogs.
+// A composite model that resolves to a non-OpenAI platform stays. An unresolved
+// composite id is filtered the same way as a direct OpenAI id, so a public
+// alias whose only upstream is a retired subscription model cannot reappear.
+func filterRetiredCodexManifestModelIDs(
+	effectivePlatform string,
+	modelIDs []string,
+	accounts []Account,
+	compositeRoutes []CompositeModelRoute,
+	compositeRoutesAvailable bool,
+) []string {
+	if effectivePlatform != PlatformOpenAI && effectivePlatform != PlatformComposite {
+		return modelIDs
+	}
+	filtered := make([]string, 0, len(modelIDs))
+	for _, modelID := range modelIDs {
+		modelID = strings.TrimSpace(modelID)
+		if modelID == "" {
+			continue
+		}
+		if effectivePlatform == PlatformComposite {
+			platform, target, resolved := resolveCodexCompositeModelTarget(modelID, accounts, compositeRoutes, compositeRoutesAvailable)
+			if resolved && platform != PlatformOpenAI {
+				filtered = append(filtered, modelID)
+				continue
+			}
+			if resolved && openAIModelRetiredForAccounts(accounts, target) {
+				continue
+			}
+			if resolved {
+				filtered = append(filtered, modelID)
+				continue
+			}
+		}
+		if openAIModelRetiredForAccounts(accounts, modelID) {
+			continue
+		}
+		filtered = append(filtered, modelID)
+	}
+	return filtered
+}
+
 func buildCodexModelsManifestForAccounts(
 	effectivePlatform string,
 	modelIDs []string,
@@ -909,6 +960,7 @@ func buildCodexModelsManifestForAccounts(
 	compositeRoutes []CompositeModelRoute,
 	compositeRoutesAvailable bool,
 ) ([]byte, error) {
+	modelIDs = filterRetiredCodexManifestModelIDs(effectivePlatform, modelIDs, accounts, compositeRoutes, compositeRoutesAvailable)
 	imageInputModels := make(map[string]bool, len(modelIDs))
 	searchToolModels := make(map[string]bool, len(modelIDs))
 	metadataModels := codexCatalogMetadataModels(

@@ -93,11 +93,20 @@ latest_dump="$(find /var/lib/tokenkey/pgdump -maxdepth 1 -type f -name 'tokenkey
 
 # Whether local pgdump is this host's backup path at all.
 #
-# Not a patch on a dead gate: pgdump is retired on PROD only. The retirement doc
-# scopes itself to "当前 prod" and explicitly keeps ops-cn-pgdump.yml running,
-# because cn-prod has no accepted physical replacement -- that workflow still
-# succeeds every 2 hours (cron '17 */2 * * *'), so deleting pgdump_freshness
-# would leave cn-prod with no backup-freshness gate at all.
+# Reported as EVIDENCE rather than hard-coded per host, and deliberately kept
+# that way even though both prod and cn-prod have now retired pgdump
+# (2026-10-23: cn-prod moved to Tencent Beijing with pgBackRest and
+# CN_PGDUMP_ENABLED is off).
+#
+# Why not collapse this to a constant now that no host uses pgdump: three
+# bootstrap scripts (deploy/hetzner/render-prod-bootstrap.sh,
+# deploy/aws/stage0/stage0-ec2-bootstrap.sh, deploy/hetzner/generated-prod-user-data.sh)
+# still install tokenkey-pgdump.timer when TOKENKEY_ENABLE_LEGACY_PGDUMP=true
+# and no pgdump-retired.json marker exists. Retirement here is achieved by NOT
+# installing it, not by a repo-wide flag -- prod carries no retired marker at
+# all. So a re-bootstrap with that variable set brings pgdump back as a real
+# backup owner, and evidence-based applicability picks that up with no code
+# change, while a constant would silently stop watching it.
 #
 # Applicability is reported as HOST EVIDENCE rather than hard-coded as
 # `if target == "prod"`, so the next host migration needs no code edit and

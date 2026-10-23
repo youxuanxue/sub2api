@@ -38,7 +38,7 @@ func (s *GeminiMessagesCompatService) tkApplyGeminiErrorPolicy(
 	if s.rateLimitService == nil {
 		return nil, false
 	}
-	switch s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody) {
+	switch policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody); policy {
 	case ErrorPolicySkipped:
 		if failoverErr := s.skippedErrorPolicyFailoverError(c, account, resp.StatusCode, respBody, upstreamRequestID); failoverErr != nil {
 			return failoverErr, true
@@ -63,7 +63,11 @@ func (s *GeminiMessagesCompatService) tkApplyGeminiErrorPolicy(
 			return s.writeGeminiNativeUpstreamError(c, account, resp, respBody, upstreamRequestID, isOAuth), true
 		}
 	case ErrorPolicyMatched, ErrorPolicyTempUnscheduled:
-		s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		// TempUnscheduled 的暂停已经由 CheckErrorPolicy 写入。再进
+		// handleGeminiUpstreamError 会把这次 401 暂停看成重复命中并 SetError。
+		if policy == ErrorPolicyMatched {
+			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		}
 		evBody := respBody
 		if clientWrite == geminiErrorPolicyClientNative {
 			evBody = unwrapIfNeeded(isOAuth, respBody)
@@ -113,10 +117,7 @@ func (s *GeminiMessagesCompatService) checkErrorPolicyInLoop(
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
 
-	if s.rateLimitService == nil {
-		return false, rebuilt
-	}
-	policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, body)
+	policy := classifyGeminiLoopErrorPolicy(account, resp.StatusCode, body)
 	return policy != ErrorPolicyNone, rebuilt
 }
 
