@@ -10,16 +10,25 @@ import (
 	gocache "github.com/patrickmn/go-cache"
 )
 
-func TestMergeGrokNativeCatalogModels_UnionsCuratedSet(t *testing.T) {
+func TestMergeGrokNativeCatalogModels_UnionsRecommendedCuratedSet(t *testing.T) {
 	modelSet := map[string]struct{}{
 		"claude-sonnet-4-6": {},
 	}
 	mergeGrokNativeCatalogModels(PlatformGrok, modelSet)
-	if _, ok := modelSet["grok-4.3"]; !ok {
-		t.Fatal("expected grok-4.3 in merged model set")
-	}
 	if _, ok := modelSet["claude-sonnet-4-6"]; !ok {
 		t.Fatal("expected existing mapping keys to be preserved")
+	}
+	for id := range supportedGrokCatalogModels {
+		_, present := modelSet[id]
+		if isCatalogModelRecommended(id) {
+			if !present {
+				t.Fatalf("recommended grok catalog id %s must be merged", id)
+			}
+			continue
+		}
+		if present {
+			t.Fatalf("withdrawn grok catalog id %s must not be advertised via GetAvailableModels union", id)
+		}
 	}
 }
 
@@ -56,27 +65,38 @@ func TestGetAvailableModels_GrokUnionsNativeCatalogWithChatMapping(t *testing.T)
 	}
 	models := svc.GetAvailableModels(context.Background(), &groupID, PlatformGrok)
 	if len(models) == 0 {
-		t.Fatal("expected non-empty grok model list")
+		t.Fatal("expected non-empty grok model list from mapping keys")
 	}
-	foundChat := false
+	foundChatAlias := false
 	for _, m := range models {
-		if m == "grok-4.3" {
-			foundChat = true
+		if m == "claude-sonnet-4-6" {
+			foundChatAlias = true
 			break
 		}
 	}
-	if !foundChat {
-		t.Fatalf("grok GetAvailableModels must include grok-4.3, got %v", models)
+	if !foundChatAlias {
+		t.Fatalf("grok GetAvailableModels must keep mapping keys, got %v", models)
 	}
-	foundVideo := false
 	for _, m := range models {
-		if m == "grok-imagine-video" {
-			foundVideo = true
-			break
+		if !isCatalogModelRecommended(m) && m != "claude-sonnet-4-6" {
+			// Mapping may still expose a withdrawn target alias key; native
+			// catalog union must not re-advertise withdrawn curated IDs.
+			if _, inCatalog := supportedGrokCatalogModels[m]; inCatalog {
+				t.Fatalf("GetAvailableModels must not advertise withdrawn grok catalog id %s, got %v", m, models)
+			}
 		}
 	}
-	if !foundVideo {
-		t.Fatalf("grok GetAvailableModels must include paid-gate-proven media, got %v", models)
+	if isCatalogModelRecommended("grok-imagine-video") {
+		foundVideo := false
+		for _, m := range models {
+			if m == "grok-imagine-video" {
+				foundVideo = true
+				break
+			}
+		}
+		if !foundVideo {
+			t.Fatalf("recommended grok-imagine-video must remain in GetAvailableModels, got %v", models)
+		}
 	}
 }
 

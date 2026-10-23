@@ -11,6 +11,12 @@ func mergeGrokNativeCatalogModels(platform string, modelSet map[string]struct{})
 		return
 	}
 	for id := range supportedGrokCatalogModels {
+		// Presentation-only: recommendation withdrawals already hide public
+		// /pricing and user menus; keep GetAvailableModels on the same gate
+		// without touching scheduling/billing (lifecycle contract).
+		if !isCatalogModelRecommended(id) {
+			continue
+		}
 		modelSet[id] = struct{}{}
 	}
 }
