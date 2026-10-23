@@ -40,7 +40,7 @@ SOCKS 仅监听各机私网 `:1080`，防火墙只放行 prod `10.4.0.16`。**20
 | `cn-ip3` | `49.233.210.77` | 同上 |
 | `cn-ip4` | `140.143.229.164` | 同上 |
 
-`cn-ip5`（`192.144.148.117` / `lhins-leojyzyi`）已于 2026-10-22 退还并销毁。账号已迁走。cn-prod 应用在 `154.8.214.179`（`lhins-6qmb3fd6`），到期 **2026-11-22**，续费标志 `NOTIFY_AND_MANUAL_RENEW`，到期前手动续费，不要改成自动续费。`106.75.29.139` 仍由 UCloud 持有，只转发 80/443。
+`cn-ip5`（`192.144.148.117` / `lhins-leojyzyi`）已于 2026-10-22 退还并销毁。账号已迁走。cn-prod 应用在 `154.8.214.179`（`lhins-6qmb3fd6`），与 `cn-ip1..4` 同于 **2026-11-22** 到期，续费标志 `NOTIFY_AND_AUTO_RENEW`（2026-10-23 改）。到期自动扣费；账户余额不足仍会停机。`106.75.29.139` 仍由 UCloud 持有，只转发 80/443。`api-cn.tokenkey.dev` 继续指向美西，不改。
 
 UCloud 原 `cn-ip*` UHost+EIP 已退服；上表为现网国内出口。
 
@@ -135,7 +135,7 @@ bash scripts/stage0/dispatch-prod-deploy.sh --tag X.Y.Z
 |---|---|---|
 | SSM Hybrid / Parameter Store / STS OIDC | Lightsail / 历史 Hcloud 远程执行、参数与 GHCR 身份；`ops/stage0/resolve_prod_ssm_target.py` | 替换发布控制面后才能移除 AWS CLI、IAM 与 OIDC |
 | QA raw archive | 存储配置为 AWS S3，当前上传已暂停；历史恢复按小时来源选择 | 按 [QA 运维入口](../../ops/qa/README.md#生产存储与恢复分界)核查实际到期与对象清单；AWS 桶、KMS 和恢复角色销毁另行审批 |
-| 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 按用户授权退役，旧数据保留至少 30 天 | [物理备份验收](../../ops/stage0/physical-backup.md)与[旧任务退役](../../ops/stage0/pgdump-retirement.md)；cn-prod 独立 pgdump 保留 |
+| 数据库备份 | prod 主路径为 pgBackRest 全量/增量/WAL；旧 pgdump 按用户授权退役，旧数据保留至少 30 天 | [物理备份验收](../../ops/stage0/physical-backup.md)与[旧任务退役](../../ops/stage0/pgdump-retirement.md)。cn-prod 逻辑 dump 已停，见 [domestic README](../domestic/README.md) |
 | env-secrets 与备份解密材料 | SSM SecureString；`backup-env-secrets-via-ssm.sh` 与 `/tokenkey/hetzner/<node>/stage0/pgdump-storage-recovery` | 随控制面另行迁移 |
 | 历史 archive / dormant media 桶 | 历史数据与停用配置；媒体默认不启用 S3，只有显式 opt-in | 资产销毁另行审批，不能把停用 bucket 描述成现网迁移对象 |
 | 共享运行文件的旧目录名 | `deploy/aws/stage0/` 内 compose、Caddy、QA lifecycle、fingerprint baseline；HZ renderer 与 backend embed 仍直接消费 | 是共享 owner，路径不代表部署在 AWS；迁路径必须同时更新引用、生成产物和 sentinel |
@@ -181,7 +181,7 @@ prod 主路径为 pgBackRest 全量/增量与连续 WAL；最新与历史同点�
 执行命令、配置和剩余验证见 [物理备份变更单](../../ops/stage0/physical-backup.md)。
 旧 pgdump 调度按用户授权退役，历史数据至少保留 30 天，不删除恢复材料；
 脚本/工作流处置见 [退役清单](../../ops/stage0/pgdump-retirement.md)。
-cn-prod 继续使用独立 pgdump，尚未获得物理替代路径验收。
+cn-prod 逻辑 dump 已停。验收是北京本机 pgBackRest 能恢复，见 [domestic README](../domestic/README.md)。
 
 ## 恢复入口
 
