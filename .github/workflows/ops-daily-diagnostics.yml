@@ -21,28 +21,19 @@ on:
         options:
           - diagnostics
           - daily_error_report
-          - error_clustering
           - log_dump
       target_selector:
         description: "Production diagnostics target selector (prod only)."
         required: false
         default: prod
       since_hours:
-        description: Daily error ledger and legacy clustering lookback window in hours
+        description: Daily error ledger lookback window in hours
         required: false
         default: "24"
       diagnostics_log_since:
         description: Diagnostics runtime log lookback (docker logs --since), e.g. 20m, 2h, 1d
         required: false
         default: "24h"
-      diagnostics_include_error_clustering:
-        description: Include legacy qa_records hash clustering in addition to the canonical daily error ledger
-        required: false
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
       diagnostics_dispatch_repair_draft:
         description: Dispatch one high-confidence code-owned candidate to the isolated Draft PR workflow
         required: false
@@ -132,7 +123,6 @@ jobs:
       PROD_SSM_TARGET: ${{ vars.PROD_SSM_TARGET || 'auto' }}
       SINCE_HOURS: ${{ inputs.since_hours || '24' }}
       DIAGNOSTICS_LOG_SINCE: ${{ inputs.diagnostics_log_since || '24h' }}
-      INCLUDE_ERROR_CLUSTERING: ${{ inputs.operation == 'daily_error_report' && 'false' || inputs.diagnostics_include_error_clustering || 'true' }}
       TARGET_ID: ${{ matrix.target_id }}
       TARGET_KIND: ${{ matrix.target_kind }}
       TARGET_PLATFORM: ${{ matrix.platform }}
@@ -366,6 +356,7 @@ jobs:
             PHASE2_STATUS="$(printf '%s' "$PHASE2_VERDICT" | jq -r '.health.status // "failed"')"
             PHASE2_REASONS="$(printf '%s' "$PHASE2_VERDICT" | jq -r '[.health.reasons[]?] | join("; ")')"
             PHASE2_IAM_OK="$(printf '%s' "$PHASE2_VERDICT" | jq -r '.iam_contract.ok // false')"
+            PHASE2_IAM_APPLICABLE="$(printf '%s' "$PHASE2_VERDICT" | jq -r '.iam_contract.applicable // true')"
             case "$PHASE2_STATUS" in
               healthy)
                 add_finding "qa_phase2_live_health" "ok" "info" "QA Phase 2 live maintenance health passed ($TARGET_ID)" "QA pause/running policy and boundary/storage facts are verified." "qa-phase2-live-health|$TARGET_ID"
@@ -377,7 +368,10 @@ jobs:
                 add_finding "qa_phase2_live_health" "issue_candidate" "error" "QA Phase 2 live maintenance health failed ($TARGET_ID)" "$PHASE2_REASONS" "qa-phase2-live-health|$TARGET_ID"
                 ;;
             esac
-            if [ "$PHASE2_IAM_OK" != "true" ]; then
+            if [ "$PHASE2_IAM_APPLICABLE" = "false" ]; then
+              PHASE2_IAM_DEFERRED="$(printf '%s' "$PHASE2_VERDICT" | jq -r '[.iam_contract.deferred_until_resume[]?] | join("; ")')"
+              add_finding "qa_raw_archive_iam_contract" "skip" "info" "QA raw archive IAM check deferred while S3 upload is paused ($TARGET_ID)" "Maintenance pause holds uploads. The retired instance-role statements are not the Tencent caller and stay deferred until resume: ${PHASE2_IAM_DEFERRED}" "qa-raw-archive-iam|$TARGET_ID|paused"
+            elif [ "$PHASE2_IAM_OK" != "true" ]; then
               PHASE2_IAM_FAIL="$(printf '%s' "$PHASE2_VERDICT" | jq -r '[.iam_contract.failures[]?] | join("; ")')"
               add_finding "qa_raw_archive_iam_contract" "issue_candidate" "error" "QA raw archive IAM contract drift ($TARGET_ID)" "$PHASE2_IAM_FAIL" "qa-raw-archive-iam|$TARGET_ID"
             else
@@ -589,136 +583,12 @@ jobs:
               add_finding "ssm_send_command" "manual_ops" "error" "Could not send SSM command for $TARGET_ID" "SSM SendCommand failed for $INSTANCE_ID in $TARGET_REGION." "ssm-send|$TARGET_ID"
             fi
 
-            if [ "$INCLUDE_ERROR_CLUSTERING" != "true" ]; then
-              add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "diagnostics_include_error_clustering=false; runtime/health-only lightweight diagnostics." "error-clustering|$TARGET_ID|lightweight-skip"
-            elif [ "$RUNTIME_SSM_TRANSPORT_OK" != "true" ]; then
-              add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "Runtime SSM SendCommand failed; suppressing downstream error_clustering SSM checks for the same transport root cause." "error-clustering|$TARGET_ID|runtime-ssm-send-failed"
-            elif ! printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$'; then
-              add_finding "error_clustering_input" "manual_ops" "error" "Invalid since_hours input" "since_hours must be a positive integer, got: $SINCE_HOURS" "error-clustering-input|$SINCE_HOURS"
-            else
-              if ! CMD_ID="$(aws ssm send-command --region "$TARGET_REGION" --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript --comment "check error_clustering binary target=$TARGET_ID" --parameters '{"commands":["test -x /usr/local/bin/error_clustering"]}' --query 'Command.CommandId' --output text 2>>"$STDERR")"; then
-                add_finding "error_clustering_binary_check" "manual_ops" "error" "Could not check error_clustering binary for $TARGET_ID" "SSM SendCommand failed while checking /usr/local/bin/error_clustering." "error-clustering-binary-check|$TARGET_ID"
-              else
-                DEADLINE=$(( $(date +%s) + 60 ))
-                BIN_STATUS="InProgress"
-                while true; do
-                  BIN_STATUS="$(aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'Status' --output text 2>/dev/null || echo InProgress)"
-                  case "$BIN_STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
-                  [ $(date +%s) -lt $DEADLINE ] || { BIN_STATUS=TimedOut; break; }
-                  sleep 3
-                done
-                if [ "$BIN_STATUS" != "Success" ]; then
-                  echo "error_clustering binary missing or not executable on $TARGET_ID (status=$BIN_STATUS); installing" >> "$STDOUT"
-                  # Reuse already-resolved Hybrid/CFN instance; installer must not
-                  # re-resolve via describe-stacks (live prod control plane is mi-*).
-                  if INSTANCE_ID="$INSTANCE_ID" AWS_REGION="$TARGET_REGION" \
-                      AWS_SSM_WAIT_MAX=600 \
-                      bash ops/stage0/deploy-error-clustering-binary.sh >>"$STDOUT" 2>>"$STDERR"; then
-                    add_finding "error_clustering_binary" "ok" "info" "Installed error_clustering binary for $TARGET_ID" "Diagnostic binary was missing and was installed successfully." "error-clustering-binary|$TARGET_ID"
-                  else
-                    add_finding "error_clustering_binary" "manual_ops" "error" "Could not install error_clustering binary for $TARGET_ID" "ops/stage0/deploy-error-clustering-binary.sh failed for $INSTANCE_ID in $TARGET_REGION." "error-clustering-binary|$TARGET_ID|install-failed"
-                  fi
-                fi
-              fi
-
-              python3 - <<'PY' > "$OUT/error-clustering-params.json"
-          import importlib.util
-          import json
-          import os
-          import pathlib
-          import shlex
-
-          since_hours = os.environ["SINCE_HOURS"]
-          _rel = "ops/lib/resolve_app_container.py"
-          _resolver_path = next(
-              (base / _rel for base in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents)
-               if (base / _rel).is_file()),
-              None,
-          )
-          if _resolver_path is None:
-              raise SystemExit(f"canonical app-container resolver not found: {_rel}")
-          _spec = importlib.util.spec_from_file_location("tk_resolve_app_container", _resolver_path)
-          _tk = importlib.util.module_from_spec(_spec)
-          _spec.loader.exec_module(_tk)
-          commands = [
-              "set -euo pipefail",
-              "[ -x /usr/local/bin/error_clustering ] || { echo binary_missing >&2; exit 3; }",
-              "echo binary_sha256=$(sha256sum /usr/local/bin/error_clustering | awk '{print $1}')",
-              "PGPASS=$(sudo grep '^POSTGRES_PASSWORD=' /var/lib/tokenkey/.env | cut -d= -f2-)",
-              "[ -n \"$PGPASS\" ] || { echo no_pg_password >&2; exit 2; }",
-              "OUT=/tmp/clustering",
-              "sudo rm -rf \"$OUT\" && sudo mkdir -p \"$OUT\" && sudo chmod 0777 \"$OUT\"",
-              *_tk.remote_unique_running_snippet(docker="sudo docker", variable="PG_CONTAINER", candidates=_tk.POSTGRES_CANDIDATES),
-              '[ -n "$PG_CONTAINER" ] || { echo postgres_container_unresolved >&2; exit 1; }',
-              # First network only. The cutover host attaches the database to TWO
-              # networks (tk-cutover-prod and tokenkey_tokenkey-network), and an
-              # unseparated range concatenates their names into one string that is
-              # not a real network, so `docker run --network` fails. Verified on
-              # live prod.
-              "NET=$(sudo docker inspect \"$PG_CONTAINER\" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{\"\\n\"}}{{end}}' | head -1)",
-              "[ -n \"$NET\" ] || { echo postgres_network_unresolved >&2; exit 1; }",
-              "sudo docker run --rm --network \"$NET\" -v /usr/local/bin/error_clustering:/binary:ro -v \"$OUT\":/out -e PG_DSN=\"postgres://tokenkey:$PGPASS@$PG_CONTAINER:5432/tokenkey?sslmode=disable\" alpine:3.21 /binary --since-hours " + since_hours + " --output /out/report.json --markdown /out/report.md",
-              "echo ===BEGIN_REPORT_JSON===",
-              "base64 -w0 \"$OUT/report.json\" 2>/dev/null || base64 \"$OUT/report.json\" | tr -d '\\n'",
-              "echo",
-              "echo ===END_REPORT_JSON===",
-              "echo ===BEGIN_REPORT_MD===",
-              "base64 -w0 \"$OUT/report.md\" 2>/dev/null || base64 \"$OUT/report.md\" | tr -d '\\n'",
-              "echo",
-              "echo ===END_REPORT_MD===",
-          ]
-          # Hybrid hosts start RunShellScript in dash; pipefail requires bash.
-          print(json.dumps({"commands": ["bash -c " + shlex.quote("\n".join(commands))]}))
-          PY
-              if CMD_ID="$(aws ssm send-command --region "$TARGET_REGION" --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript --comment "error-clustering target=$TARGET_ID ${SINCE_HOURS}h" --parameters "file://$OUT/error-clustering-params.json" --query 'Command.CommandId' --output text 2>>"$STDERR")"; then
-                echo "error_clustering ssm command-id=$CMD_ID" >> "$STDOUT"
-                DEADLINE=$(( $(date +%s) + 240 ))
-                CLUSTER_STATUS="InProgress"
-                while true; do
-                  CLUSTER_STATUS="$(aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'Status' --output text 2>/dev/null || echo InProgress)"
-                  case "$CLUSTER_STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
-                  [ $(date +%s) -lt $DEADLINE ] || { CLUSTER_STATUS=TimedOut; break; }
-                  sleep 6
-                done
-                aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardOutputContent' --output text > "$OUT/error-clustering-stdout.txt" 2>>"$STDERR" || true
-                aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardErrorContent' --output text > "$OUT/error-clustering-stderr.txt" 2>>"$STDERR" || true
-                tail -c 4096 "$OUT/error-clustering-stderr.txt" >> "$STDERR" || true
-                if [ "$CLUSTER_STATUS" != "Success" ]; then
-                  add_finding "error_clustering_run" "manual_ops" "error" "Error clustering failed for $TARGET_ID" "SSM error clustering finished with status=$CLUSTER_STATUS." "error-clustering|$TARGET_ID|$CLUSTER_STATUS"
-                elif ! grep -q '^===END_REPORT_JSON===$' "$OUT/error-clustering-stdout.txt" || ! grep -q '^===END_REPORT_MD===$' "$OUT/error-clustering-stdout.txt"; then
-                  BYTES="$(wc -c < "$OUT/error-clustering-stdout.txt")"
-                  add_finding "error_clustering_markers" "issue_candidate" "error" "Error clustering output was truncated for $TARGET_ID" "SSM stdout did not contain complete report markers (${BYTES} bytes)." "error-clustering-markers|$TARGET_ID"
-                else
-                  DECODE_OK=true
-                  if ! awk '/^===BEGIN_REPORT_JSON===$/{f=1;next} /^===END_REPORT_JSON===$/{f=0} f' "$OUT/error-clustering-stdout.txt" | tr -d '\n' | base64 -d > "$OUT/error-report.json"; then
-                    add_finding "error_clustering_decode" "issue_candidate" "error" "Error clustering JSON decode failed for $TARGET_ID" "Decoded report.json base64 payload is invalid." "error-clustering-decode-json|$TARGET_ID"
-                    DECODE_OK=false
-                  fi
-                  if [ "$DECODE_OK" = "true" ] && ! awk '/^===BEGIN_REPORT_MD===$/{f=1;next} /^===END_REPORT_MD===$/{f=0} f' "$OUT/error-clustering-stdout.txt" | tr -d '\n' | base64 -d > "$OUT/error-report.md"; then
-                    add_finding "error_clustering_decode" "issue_candidate" "error" "Error clustering markdown decode failed for $TARGET_ID" "Decoded report.md base64 payload is invalid." "error-clustering-decode-md|$TARGET_ID"
-                    DECODE_OK=false
-                  fi
-                  if [ "$DECODE_OK" = "true" ]; then
-                    if ! jq empty "$OUT/error-report.json" 2>/dev/null; then
-                      add_finding "error_clustering_json" "issue_candidate" "error" "Error clustering returned invalid JSON for $TARGET_ID" "Decoded report.json is not valid JSON." "error-clustering-json|$TARGET_ID"
-                    else
-                      SUMMARY="$(jq -r '.summary // ""' "$OUT/error-report.json")"
-                      PERSISTENT="$(jq '.persistent_clusters | length' "$OUT/error-report.json")"
-                      if printf '%s' "$SUMMARY" | grep -q '^skip:'; then
-                        add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "$SUMMARY" "error-clustering|$TARGET_ID|skip"
-                      elif [ "${PERSISTENT:-0}" -gt 0 ]; then
-                        SIG="$(jq -r '.persistent_clusters[0].signature // .clusters[0].signature // "no-sig"' "$OUT/error-report.json")"
-                        add_finding "error_cluster" "warning" "warning" "Persistent legacy error cluster detected for $TARGET_ID" "$SUMMARY" "error-cluster|$TARGET_ID|$SIG"
-                      else
-                        add_finding "error_clustering" "ok" "info" "No persistent error cluster for $TARGET_ID" "$SUMMARY" "error-clustering|$TARGET_ID|ok"
-                      fi
-                    fi
-                  fi
-                fi
-              else
-                add_finding "error_clustering_send" "manual_ops" "error" "Could not start error clustering for $TARGET_ID" "SSM SendCommand failed for error clustering on $INSTANCE_ID." "error-clustering-send|$TARGET_ID"
-              fi
-            fi
+            # Legacy qa_records hash clustering compiled on the host with a
+            # hardcoded arm64 toolchain and proxy.golang.org. Tencent amd64
+            # hosts refuse that download. The daily error ledger below is the
+            # classification owner. ops/stage0/deploy-error-clustering-binary.sh
+            # remains for an explicit manual run; this job does not call it.
+            add_finding "error_clustering" "skip" "info" "Error clustering retired from daily diagnostics for $TARGET_ID" "The daily error ledger owns classification. Daily diagnostics does not compile or run error_clustering on the host." "error-clustering|$TARGET_ID|retired"
 
             # Canonical daily error ledger: final failures and recovered events
             # come from usage_logs + ops_error_logs; access-log-only failures are

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
 # ops/prod/fetch-error-clusters.sh — Cloud-Agent-friendly wrapper that
-# triggers the `ops-daily-diagnostics.yml` workflow on GitHub and downloads its error
-# clustering artifact (`report.json` + `report.md`) to a local directory.
+# triggers the `ops-daily-diagnostics.yml` workflow on GitHub and downloads the
+# daily error ledger (`daily-error-report.json` + `daily-error-report.md`).
+# Hash clustering no longer runs in that workflow.
 #
 # Why this exists (path 2 of "let Cloud Agent read prod logs"):
 #   Cursor Cloud Agent has no AWS credentials and no GitHub Actions OIDC
@@ -89,14 +90,17 @@ dispatch_workflow_and_download_artifact \
   "$POLL_TIMEOUT_S" \
   'prod-ops-report-{run_id}' \
   "$OUT_DIR" \
-  -f "operation=error_clustering" \
+  -f "operation=daily_error_report" \
   -f "target_selector=prod" \
   -f "since_hours=$SINCE_HOURS"
 
-if [ -s "$OUT_DIR/ops-report.json" ]; then
+if [ -s "$OUT_DIR/daily-error-report.json" ]; then
+  SUMMARY=$(jq -r '.summary // "(no summary field)"' "$OUT_DIR/daily-error-report.json" 2>/dev/null || echo "(daily-error-report.json not parseable)")
+  log "summary: $SUMMARY"
+elif [ -s "$OUT_DIR/ops-report.json" ]; then
   SUMMARY=$(jq -r '.summary // "(no summary field)"' "$OUT_DIR/ops-report.json" 2>/dev/null || echo "(ops-report.json not parseable)")
   log "summary: $SUMMARY"
-  jq -r '.findings[]? | select(.kind | test("error_cluster|error_clustering")) | "[\(.status)] \(.target_id): \(.summary)"' "$OUT_DIR/ops-report.json" 2>/dev/null || true
+  jq -r '.findings[]? | select(.kind == "daily_error_report") | "[\(.status)] \(.target_id): \(.summary)"' "$OUT_DIR/ops-report.json" 2>/dev/null || true
 fi
 
 if [ "$GH_WORKFLOW_WATCH_RC" -ne 0 ]; then
@@ -104,4 +108,4 @@ if [ "$GH_WORKFLOW_WATCH_RC" -ne 0 ]; then
   exit 1
 fi
 
-log "done. files: $OUT_DIR/report.json $OUT_DIR/report.md"
+log "done. files: $OUT_DIR/daily-error-report.json $OUT_DIR/daily-error-report.md"

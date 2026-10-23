@@ -138,6 +138,32 @@ def _parse_probe_output(text: str) -> dict[str, Any]:
     return snapshot
 
 
+def _defer_paused_instance_role(iam: dict[str, Any], maintenance_pause_reason: str) -> dict[str, Any]:
+    """While uploads are paused, a missing EC2 instance-role statement is not drift.
+
+    The pause owner is the inventory reason, the same one storage uses to defer
+    ``qa_archive_instance_role_unavailable``. Tencent has no IMDS role; the stack
+    parameter still names the retired Tokyo instance role. Other bucket-policy
+    failures stay applicable so a real scope change is not hidden by the pause.
+    """
+    if iam.get("ok"):
+        return {**iam, "applicable": True}
+    if not maintenance_pause_reason:
+        return {**iam, "applicable": True}
+    failures = [str(item) for item in iam.get("failures") or []]
+    identity = [item for item in failures if item.startswith("missing_app_sid:")]
+    other = [item for item in failures if not item.startswith("missing_app_sid:")]
+    if not identity or other:
+        return {**iam, "applicable": True}
+    return {
+        **iam,
+        "ok": False,
+        "applicable": False,
+        "status": "deferred",
+        "deferred_until_resume": identity,
+    }
+
+
 def evaluate_snapshot(
     snapshot: dict[str, Any],
     *,
@@ -187,6 +213,7 @@ def evaluate_snapshot(
             )
         except RuntimeError as exc:
             iam = {"ok": False, "status": "unknown", "failures": [str(exc)]}
+        iam = _defer_paused_instance_role(iam, maintenance_pause_reason)
     return {
         "health": health,
         "storage_contract": storage,
@@ -268,7 +295,8 @@ def main() -> int:
         }
     print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
     health_status = payload["health"].get("status", "failed")
-    if not skip_iam and not payload.get("iam_contract", {}).get("ok", False):
+    iam = payload.get("iam_contract") or {}
+    if not skip_iam and not iam.get("ok", False) and iam.get("applicable", True):
         return 2
     accepted_terminal_only = (
         health_status == "degraded"

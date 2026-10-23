@@ -37,6 +37,11 @@ class SyncContainerLogPolicyTest(unittest.TestCase):
             self.assertIn('[ "$MAX_SIZE" = 100m ]', commands)
             self.assertIn('[ "$MAX_FILE" = 5 ]', commands)
             self.assertIn("sync-container-log-policy: OK", commands)
+            self.assertIn("refusing to replace a Tencent layout compose", commands)
+            self.assertLess(
+                commands.index("refusing to replace a Tencent layout compose"),
+                commands.index("--force-recreate caddy"),
+            )
             parsed = subprocess.run(
                 ["bash", "-n"], input=commands, capture_output=True, text=True, check=False
             )
