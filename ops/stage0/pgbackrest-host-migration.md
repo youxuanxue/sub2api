@@ -5,7 +5,7 @@
 本文替代 prod 的全库 dump + 按表尾差迁机路径。cn-prod 的备份验收见 [domestic README](../../deploy/domestic/README.md)。
 
 **当前交接：[腾讯迁机交接](../../docs/ops/tencent-migration-handoff.md）。**  
-**状态（2026-10-22）：腾讯美西已在服（timeline 2）；Tokyo 冻结保留；出口已迁 `usw-eval*`。**  
+**状态（2026-10-23）：腾讯美西已在服（timeline 2）；Tokyo 已退役删除；出口已迁 `usw-eval*`。**  
 切流踩坑与 verify 门禁见 skill [`tokenkey-host-replacement`](../../.cursor/skills/tokenkey-host-replacement/SKILL.md) 与 [playbook](../../.cursor/skills/tokenkey-host-replacement/references/playbook.md)。  
 剩余：≥7 天后东京退役、JP Lightsail 关停、LUKS 自动解锁验收。飞书宿主告警（`tokenkey-https-watch.timer`）已接腾讯机。  
 **规划纪律：** 新机从 `plan` 起按正式迁机终态一次写清（布局/控制面/备份告警/DNS/出口/SSOT），与 cutover **同窗**收口；禁止切后再开多轮返工停机。
@@ -141,7 +141,7 @@ Redis 默认新建；若会话/幂等功能有持久需求，按其 owner 单独
 - **宿主存储契约**：`bluegreen_host_runtime.py` 默认 `--platform=tencent-luks`；拒绝 Hetzner volume 身份。
 - **备份身份**：候选前缀 `candidates/tencent-usw-20261022/postgres` 为活链；`RuntimeDirectoryPreserve=yes`；飞书宿主告警已接（`tokenkey-https-watch.timer`，见舰队 SSOT）。
 - **密钥与启动**：LUKS 异机托管已落盘；自动解锁未验收——**禁止现网整机重启试验**。
-- **出口代理**：账号已迁 `usw-eval*`；日本 Lightsail 机器保留待关停审批。
+- **出口代理**：账号已迁 `usw-eval*`；日本 Lightsail 已于 2026-10-23 删除。
 
 ## 历史：切流前最短停写清单（2026-10-22 已执行）
 

@@ -71,7 +71,7 @@ def resolve_mode(explicit: str) -> str:
         return "tencent-usw-candidate"
     fail(
         "auto: Tencent USW matrix is not deployable/resolvable; refusing to fall back "
-        "to frozen Tokyo. Fix deploy/tencent/candidate-usw-20261022.json."
+        "to a retired target. Fix deploy/tencent/candidate-usw-20261022.json."
     )
 
 
