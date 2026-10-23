@@ -12,7 +12,6 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 _PROD_RESOLVE_WORKFLOWS = (
     "warm-image-stage0.yml",
     "ops-stage0-pg-dump-refresh.yml",
-    "ops-stage0-host-mem-guard.yml",
     "sync-docs-to-pages.yml",
 )
 
